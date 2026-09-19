@@ -4,7 +4,9 @@ import "core:crypto/ecdh"
 import "core:encoding/endian"
 import "core:encoding/hex"
 import "core:fmt"
+import "core:log"
 import "core:net"
+import "core:strings"
 import "core:time"
 
 import "../common"
@@ -55,14 +57,14 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 
 	ep, resolve_err := net.resolve_ip4(server_addr)
 	if resolve_err != nil {
-		fmt.eprintfln("failed to resolve %s: %v", server_addr, resolve_err)
+		log.errorf("failed to resolve %s: %v", server_addr, resolve_err)
 		return false
 	}
 	c.server = ep
 
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if err != nil {
-		fmt.eprintln("failed to create socket:", err)
+		log.errorf("failed to create socket: %v", err)
 		return false
 	}
 	defer net.close(sock)
@@ -70,7 +72,7 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 	// Short timeout so the loop can also pace outgoing frames.
 	net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
 
-	fmt.printfln("my public key: %s", common.public_key_hex(&c.key))
+	log.infof("my public key: %s", common.public_key_hex(&c.key))
 	c.last_stats = time.tick_now()
 
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
@@ -95,10 +97,10 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 			}
 		case .Timeout, .Would_Block:
 		case:
-			fmt.eprintln("recv error:", recv_err)
+			log.errorf("recv error: %v", recv_err)
 		}
 
-		print_stats(&c)
+		log_stats(&c)
 	}
 }
 
@@ -107,14 +109,14 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 // packets, and starts over if a handshake stalls.
 drive_handshake :: proc(c: ^Voice_Client) {
 	if c.has_current && time.tick_since(c.current.created) > proto.REJECT_AFTER {
-		fmt.println("session expired")
+		log.warn("session expired without a successful rekey")
 		proto.session_reset(&c.current)
 		c.has_current = false
 	}
 
 	ini := &c.handshake
 	if ini.state != .Idle && time.tick_since(ini.started) > proto.HANDSHAKE_TIMEOUT {
-		fmt.println("handshake timed out, retrying")
+		log.warn("handshake timed out, retrying")
 		abandon_handshake(c)
 	}
 
@@ -125,7 +127,7 @@ drive_handshake :: proc(c: ^Voice_Client) {
 		}
 		packet, ok := proto.initiator_start(ini, &c.key)
 		if !ok {
-			fmt.eprintln("failed to start handshake")
+			log.error("failed to start handshake")
 			return
 		}
 		ini.last_sent = time.tick_now()
@@ -135,6 +137,7 @@ drive_handshake :: proc(c: ^Voice_Client) {
 		// Resending verbatim is fine: the server answers a repeated Init
 		// with the same Resp, and a repeated Finish with a new keepalive.
 		if time.tick_since(ini.last_sent) >= proto.HANDSHAKE_RETRY {
+			log.debugf("resending %v", proto.packet_type(proto.initiator_packet(ini)))
 			ini.last_sent = time.tick_now()
 			net.send_udp(c.sock, proto.initiator_packet(ini), c.server)
 		}
@@ -214,10 +217,12 @@ promote_pending :: proc(c: ^Voice_Client) {
 	c.pending, c.has_pending = {}, false
 	proto.initiator_reset(&c.handshake)
 
-	if !c.has_previous {
+	if c.has_previous {
+		log.debugf("rekeyed (session %08x)", c.current.local_idx)
+	} else {
 		c.next_frame = time.tick_now()
 		c.last_stats = c.next_frame
-		fmt.println("connected")
+		log.infof("connected to %s", c.server_addr)
 	}
 }
 
@@ -233,18 +238,18 @@ verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 		return true
 
 	case .New:
-		fmt.printfln("first connection to %s, trusting server key %s", c.server_addr, key_hex)
 		if remember_server_key(c.known_servers, c.server_addr, key) {
-			fmt.printfln("saved to %s", c.known_servers)
+			log.infof("first connection to %s, trusting server key %s (saved to %s)", c.server_addr, key_hex, c.known_servers)
+		} else {
+			log.warnf("first connection to %s, trusting server key %s for now, but it could not be saved", c.server_addr, key_hex)
 		}
 		return true
 
 	case .Mismatch:
-		fmt.eprintfln("WARNING: the key of %s has changed!", c.server_addr)
-		fmt.eprintfln("  saved:    %s", string(hex.encode(saved[:], context.temp_allocator)))
-		fmt.eprintfln("  received: %s", key_hex)
-		fmt.eprintln("Someone may be impersonating the server, or it got a new key.")
-		fmt.eprintfln("If the change is expected, remove the %s line from %s.", c.server_addr, c.known_servers)
+		log.errorf("the key of %s has changed! saved %s, received %s",
+			c.server_addr, string(hex.encode(saved[:], context.temp_allocator)), key_hex)
+		log.error("someone may be impersonating the server, or it got a new key")
+		log.errorf("if the change is expected, remove the %s line from %s", c.server_addr, c.known_servers)
 		return false
 	}
 	return false
@@ -280,16 +285,17 @@ send_data :: proc(c: ^Voice_Client, plaintext: []byte) -> bool {
 	return err == nil
 }
 
-print_stats :: proc(c: ^Voice_Client) {
+log_stats :: proc(c: ^Voice_Client) {
 	if !c.has_current || time.tick_since(c.last_stats) < time.Second {
 		return
 	}
 	c.last_stats = time.tick_now()
-	fmt.printf("sent %d frames", c.sent_frames)
+	b := strings.builder_make(context.temp_allocator)
+	fmt.sbprintf(&b, "sent %d frames", c.sent_frames)
 	for speaker, n in c.recv_frames {
-		fmt.printf(" | %08x: %d", speaker, n)
+		fmt.sbprintf(&b, " | %08x: %d", speaker, n)
 	}
-	fmt.println()
+	log.debug(strings.to_string(b))
 	c.sent_frames = 0
 	clear(&c.recv_frames)
 }

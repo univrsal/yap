@@ -2,7 +2,7 @@ package common
 
 import "core:crypto/ecdh"
 import "core:encoding/hex"
-import "core:fmt"
+import "core:log"
 import "core:os"
 import "core:strings"
 
@@ -12,7 +12,7 @@ import "../proto"
 keygen :: proc(path: string) -> bool {
 	key: ecdh.Private_Key
 	if !ecdh.private_key_generate(&key, .X25519) {
-		fmt.eprintln("failed to generate key")
+		log.error("failed to generate key")
 		return false
 	}
 	defer ecdh.private_key_clear(&key)
@@ -21,12 +21,11 @@ keygen :: proc(path: string) -> bool {
 	ecdh.private_key_bytes(&key, raw[:])
 	encoded := hex.encode(raw[:], context.temp_allocator)
 	if err := os.write_entire_file(path, encoded, os.Permissions{.Read_User, .Write_User}); err != nil {
-		fmt.eprintfln("failed to write %s: %v", path, err)
+		log.errorf("failed to write %s: %v", path, err)
 		return false
 	}
 
-	fmt.printfln("wrote private key to %s", path)
-	fmt.printfln("public key: %s", public_key_hex(&key))
+	log.infof("generated a new private key in %s", path)
 	return true
 }
 
@@ -42,12 +41,12 @@ load_or_create_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool
 load_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool {
 	data, err := os.read_entire_file(path, context.temp_allocator)
 	if err != nil {
-		fmt.eprintfln("failed to read %s: %v", path, err)
+		log.errorf("failed to read %s: %v", path, err)
 		return false
 	}
 	raw, ok := hex.decode(transmute([]byte)strings.trim_space(string(data)), context.temp_allocator)
 	if !ok || len(raw) != proto.KEY_SIZE || !ecdh.private_key_set_bytes(key, .X25519, raw) {
-		fmt.eprintfln("%s is not a valid private key", path)
+		log.errorf("%s is not a valid private key", path)
 		return false
 	}
 	return true

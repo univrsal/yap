@@ -2,6 +2,7 @@ package client
 
 import "core:encoding/hex"
 import "core:fmt"
+import "core:log"
 import "core:os"
 import "core:strings"
 
@@ -60,7 +61,7 @@ remember_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bo
 
 	f, err := os.open(path, {.Write, .Create, .Append}, os.Permissions{.Read_User, .Write_User})
 	if err != nil {
-		fmt.eprintfln("failed to open %s: %v", path, err)
+		log.errorf("failed to open %s: %v", path, err)
 		return false
 	}
 	defer os.close(f)
@@ -68,7 +69,7 @@ remember_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bo
 	key := key
 	line := fmt.tprintf("%s %s\n", addr, string(hex.encode(key[:], context.temp_allocator)))
 	if _, err = os.write_string(f, line); err != nil {
-		fmt.eprintfln("failed to write %s: %v", path, err)
+		log.errorf("failed to write %s: %v", path, err)
 		return false
 	}
 	return true

@@ -1,35 +1,37 @@
 package server
 
-import "core:fmt"
+import "core:flags"
+import "core:log"
 import "core:os"
-import "core:strconv"
 
-USAGE :: `usage: yap-server <key-file> [port]
-
-The key file is created if it doesn't exist. Clients learn the server's
-key on first connect, so keep the file: a new key makes every client
-refuse to connect until they remove the old one.`
+import "../common"
 
 DEFAULT_PORT :: 7777
 
+Options :: struct {
+	key:       string           `args:"pos=0,required" usage:"Private key file, created if missing. Keep it: clients remember this key and refuse to connect if it changes."`,
+	port:      int              `args:"pos=1" usage:"UDP port to listen on (default 7777)."`,
+	log_level: common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
+	log_file:  string           `usage:"Also append the log to this file."`,
+}
+
 main :: proc() {
-	args := os.args
-	if len(args) != 2 && len(args) != 3 {
-		fmt.eprintln(USAGE)
+	opt := Options{port = DEFAULT_PORT, log_level = .info}
+	flags.parse_or_exit(&opt, os.args, .Odin)
+
+	logger, ok := common.init_logging(opt.log_level, opt.log_file)
+	if !ok {
+		os.exit(1)
+	}
+	defer common.destroy_logging(logger)
+	context.logger = logger
+
+	if opt.port <= 0 || opt.port > 65535 {
+		log.errorf("invalid port: %d", opt.port)
 		os.exit(2)
 	}
 
-	port := DEFAULT_PORT
-	if len(args) == 3 {
-		p, ok := strconv.parse_int(args[2])
-		if !ok || p <= 0 || p > 65535 {
-			fmt.eprintln("invalid port:", args[2])
-			os.exit(2)
-		}
-		port = p
-	}
-
-	if !run_server(args[1], port) {
+	if !run_server(opt.key, opt.port) {
 		os.exit(1)
 	}
 }

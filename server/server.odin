@@ -2,7 +2,7 @@ package server
 
 import "core:crypto/ecdh"
 import "core:encoding/endian"
-import "core:fmt"
+import "core:log"
 import "core:net"
 import "core:time"
 
@@ -45,7 +45,7 @@ run_server :: proc(key_path: string, port: int) -> bool {
 
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
 	if err != nil {
-		fmt.eprintfln("failed to bind port %d: %v", port, err)
+		log.errorf("failed to bind port %d: %v", port, err)
 		return false
 	}
 	defer net.close(sock)
@@ -53,8 +53,8 @@ run_server :: proc(key_path: string, port: int) -> bool {
 	// Wake up periodically even when idle so stale sessions get reaped.
 	net.set_option(sock, .Receive_Timeout, 250 * time.Millisecond)
 
-	fmt.printfln("listening on udp :%d", port)
-	fmt.printfln("server public key: %s", common.public_key_hex(&s.key))
+	log.infof("listening on udp :%d", port)
+	log.infof("server public key: %s", common.public_key_hex(&s.key))
 
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
 	for {
@@ -68,7 +68,7 @@ run_server :: proc(key_path: string, port: int) -> bool {
 			}
 		case .Timeout, .Would_Block:
 		case:
-			fmt.eprintln("recv error:", recv_err)
+			log.errorf("recv error: %v", recv_err)
 		}
 
 		reap_sessions(&s)
@@ -99,6 +99,7 @@ handle_init :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 
 	if len(s.sessions) >= MAX_SESSIONS {
+		log.warnf("session table full, ignoring handshake from %v", net.to_string(from))
 		return
 	}
 
@@ -140,6 +141,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	// The client will time out and start a fresh handshake.
 	_, ok := proto.responder_finish(&c.handshake, packet, &c.session)
 	if !ok {
+		log.debugf("invalid handshake finish from %v", net.to_string(from))
 		drop_session(s, idx)
 		return
 	}
@@ -157,8 +159,10 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 			rekey = true
 		}
 	}
-	if !rekey {
-		fmt.printfln("%08x joined from %v", common.key_id(c.peer_key), net.to_string(from))
+	if rekey {
+		log.debugf("%08x rekeyed", common.key_id(c.peer_key))
+	} else {
+		log.infof("%08x joined from %v", common.key_id(c.peer_key), net.to_string(from))
 	}
 
 	send_keepalive(s, c)
@@ -258,7 +262,7 @@ reap_sessions :: proc(s: ^Server) {
 	for idx in stale {
 		c := s.sessions[idx]
 		if c.keyed && !has_other_session(s, c) {
-			fmt.printfln("%08x left", common.key_id(c.peer_key))
+			log.infof("%08x left", common.key_id(c.peer_key))
 		}
 		drop_session(s, idx)
 	}

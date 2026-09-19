@@ -1,28 +1,39 @@
 package client
 
-import "core:fmt"
+import "core:flags"
+import "core:log"
 import "core:os"
 
-USAGE :: `usage: yap-client <key-file> <host:port> [known-servers-file]
+import "../common"
 
-The key file is created if it doesn't exist. The server's key is
-remembered on first connect (default: <config dir>/yap/known_servers)
-and the connection is refused if it later changes.`
+Options :: struct {
+	key:           string           `args:"pos=0,required" usage:"Private key file, created if missing."`,
+	server:        string           `args:"pos=1,required" usage:"Server address, host:port."`,
+	known_servers: string           `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
+	log_level:     common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
+	log_file:      string           `usage:"Also append the log to this file."`,
+}
 
 main :: proc() {
-	args := os.args
-	if len(args) != 3 && len(args) != 4 {
-		fmt.eprintln(USAGE)
-		os.exit(2)
+	opt := Options{log_level = .info}
+	flags.parse_or_exit(&opt, os.args, .Odin)
+
+	logger, ok := common.init_logging(opt.log_level, opt.log_file)
+	if !ok {
+		os.exit(1)
+	}
+	defer common.destroy_logging(logger)
+	context.logger = logger
+
+	if opt.known_servers == "" {
+		opt.known_servers = default_known_servers_path()
+		if opt.known_servers == "" {
+			log.error("could not determine the config directory; pass -known-servers:<file>")
+			os.exit(2)
+		}
 	}
 
-	known_servers := len(args) == 4 ? args[3] : default_known_servers_path()
-	if known_servers == "" {
-		fmt.eprintln("could not determine config directory; pass a known-servers file")
-		os.exit(2)
-	}
-
-	if !run_client(args[1], args[2], known_servers) {
+	if !run_client(opt.key, opt.server, opt.known_servers) {
 		os.exit(1)
 	}
 }
