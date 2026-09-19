@@ -214,12 +214,18 @@ Mute_Command :: struct {
 Noise_Command :: struct {
 	enabled: bool,
 }
+// How loud to play a user: 1 is unchanged, 0 is muted.
+Gain_Command :: struct {
+	user: u32,
+	gain: f32,
+}
 
 Command :: union {
 	Join_Command,
 	List_Command,
 	Mute_Command,
 	Noise_Command,
+	Gain_Command,
 }
 
 Command_Queue :: struct {
@@ -273,6 +279,12 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Noise_Command:
 			c.voice.denoise = v.enabled
 			log.infof("noise suppression %s", "on" if v.enabled else "off")
+		case Gain_Command:
+			if v.gain == 1 {
+				delete_key(&c.voice.gains, v.user)
+			} else {
+				c.voice.gains[v.user] = v.gain
+			}
 		}
 	}
 }

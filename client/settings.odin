@@ -1,6 +1,7 @@
 package client
 
 import "core:encoding/json"
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
@@ -12,7 +13,10 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"server": "localhost:7777",
 		"input_device": "",
 		"output_device": "Built-in Audio Analog Stereo",
-		"noise_suppression": true
+		"noise_suppression": true,
+		"users": {
+			"8e41fa62": { "volume": 0.5, "muted": false }
+		}
 	}
 
 Devices are stored by name rather than by miniaudio's device id: ids are
@@ -26,7 +30,18 @@ Settings :: struct {
 	output_device:     string,
 	// RNNoise on the microphone, plus only sending while voice is detected.
 	noise_suppression: bool,
+	// How to play other users, keyed by user id (8 hex digits). Users with
+	// default settings aren't stored.
+	users:             map[string]User_Settings,
 }
+
+User_Settings :: struct {
+	volume: f32, // 1 = as sent, 0..2
+	muted:  bool,
+}
+
+DEFAULT_USER :: User_Settings{volume = 1}
+MAX_USER_VOLUME :: 2
 
 DEFAULT_SETTINGS :: Settings{noise_suppression = true}
 
@@ -66,6 +81,10 @@ settings_destroy :: proc(s: ^Settings) {
 	delete(s.server)
 	delete(s.input_device)
 	delete(s.output_device)
+	for key in s.users {
+		delete(key)
+	}
+	delete(s.users)
 	s^ = {}
 }
 
@@ -73,4 +92,35 @@ settings_destroy :: proc(s: ^Settings) {
 set_setting :: proc(field: ^string, value: string) {
 	delete(field^)
 	field^ = strings.clone(value)
+}
+
+user_key :: proc(id: u32) -> string {
+	return fmt.tprintf("%08x", id)
+}
+
+user_settings :: proc(s: ^Settings, id: u32) -> User_Settings {
+	u := s.users[user_key(id)] or_else DEFAULT_USER
+	u.volume = clamp(u.volume, 0, MAX_USER_VOLUME)
+	return u
+}
+
+set_user_settings :: proc(s: ^Settings, id: u32, u: User_Settings) {
+	key := user_key(id)
+	if u == DEFAULT_USER {
+		if key in s.users {
+			owned, _ := delete_key(&s.users, key)
+			delete(owned)
+		}
+		return
+	}
+	if key in s.users {
+		s.users[key] = u
+	} else {
+		s.users[strings.clone(key)] = u
+	}
+}
+
+// user_gain is what the mixer multiplies a user's audio by.
+user_gain :: proc(u: User_Settings) -> f32 {
+	return 0 if u.muted else u.volume
 }

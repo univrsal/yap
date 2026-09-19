@@ -4,9 +4,11 @@ import "base:runtime"
 import "core:crypto/ecdh"
 import "core:fmt"
 import "core:log"
+import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import "core:time"
 import "core:unicode/utf8"
 import gl "vendor:OpenGL"
 import "vendor:glfw"
@@ -80,6 +82,16 @@ UI :: struct {
 
 	log_seen: int, // Log_Lines.total when the log panel was last scrolled
 	muted:    bool,
+
+	// The user whose menu is open, and its volume slider's value (the
+	// slider needs a stable address). See user_menu.
+	menu_user:      u32,
+	menu_volume:    mu.Real,
+	menu_requested: bool,
+	// Slider drags change the settings every frame; save at most once a
+	// second, and on exit.
+	settings_dirty: bool,
+	settings_saved: time.Tick,
 
 	page:     Page,
 	settings: Settings,
@@ -202,6 +214,10 @@ run_ui :: proc(opts: UI_Options) -> bool {
 			ui.ctx.hover_id = 0
 		}
 
+		if ui.settings_dirty && time.tick_since(ui.settings_saved) > time.Second {
+			save_settings(ui)
+		}
+
 		m := window_metrics(ui.window)
 		if m != ui.metrics {
 			ww, wh := glfw.GetWindowSize(ui.window)
@@ -218,7 +234,16 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	}
 
 	disconnect(ui)
+	if ui.settings_dirty {
+		save_settings(ui)
+	}
 	return true
+}
+
+save_settings :: proc(ui: ^UI) {
+	settings_save(ui.opts.settings_path, ui.settings)
+	ui.settings_dirty = false
+	ui.settings_saved = time.tick_now()
 }
 
 Window_Metrics :: struct {
@@ -274,11 +299,18 @@ connect :: proc(ui: ^UI) {
 	ns.client = new(Voice_Client)
 	ns.client.view = &ui.view
 	if voice_init(&ns.client.voice) {
+		// Devices may have come or gone since the list was made.
+		audio_refresh(&ui.audio)
 		open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
 		open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.denoise = ui.settings.noise_suppression
+	for key, u in ui.settings.users {
+		if id, ok := strconv.parse_u64_of_base(key, 16); ok && id <= u64(max(u32)) {
+			push_command(&ns.client.commands, Gain_Command{u32(id), user_gain(u)})
+		}
+	}
 
 	view_reset(&ui.view)
 	{
@@ -455,17 +487,11 @@ session_screen :: proc(ui: ^UI) {
 		}
 
 		for m in ch.members {
-			mu.layout_row(ctx, {20, -1})
-			mu.label(ctx, "")
-			text := fmt.tprintf("%08x%s", m, " (you)" if m == v.my_id else "")
-			if is_speaking(v, m) {
-				with_text_color(ctx, {110, 220, 110, 255}, fmt.tprintf("%s  speaking", text), label_proc)
-			} else {
-				mu.label(ctx, text)
-			}
+			member_row(ui, m)
 		}
 	}
 	mu.end_panel(ctx)
+	user_menu(ui)
 
 	log_panel(ui)
 }

@@ -88,6 +88,8 @@ Voice :: struct {
 	denoise:    bool, // noise suppression and the voice gate
 	last_voice: time.Tick,
 	speakers: map[u32]^Speaker,
+	// Per-user playback gain (0 = muted), from the UI. Missing means 1.
+	gains:    map[u32]f32,
 
 	// Stats, reset every second by log_stats.
 	captured:    int, // frames read from the microphone
@@ -131,6 +133,7 @@ voice_destroy :: proc(v: ^Voice) {
 		speaker_destroy(sp)
 	}
 	delete(v.speakers)
+	delete(v.gains)
 	delete(v.received)
 	rnn.denoiser_destroy(&v.denoiser)
 	if v.encoder != nil {
@@ -274,7 +277,7 @@ decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
 mix_output :: proc(v: ^Voice) {
 	for ring_available(&v.playback) < OUTPUT_TARGET {
 		mix: [FRAME_SAMPLES]f32
-		for _, sp in v.speakers {
+		for id, sp in v.speakers {
 			queued := ring_available(&sp.queue)
 			if !sp.playing {
 				if queued < JITTER_PREFILL {
@@ -286,10 +289,15 @@ mix_output :: proc(v: ^Voice) {
 				// Clock drift or a burst after a stall: catch up.
 				ring_skip(&sp.queue, queued - JITTER_PREFILL)
 			}
+			// Muted speakers are still decoded and consumed, so unmuting
+			// picks up cleanly where they are.
 			frame: [FRAME_SAMPLES]f32
 			got := ring_read(&sp.queue, frame[:])
-			for s, i in frame[:got] {
-				mix[i] += s
+			gain := v.gains[id] or_else 1
+			if gain > 0 {
+				for s, i in frame[:got] {
+					mix[i] += s * gain
+				}
 			}
 			if got < FRAME_SAMPLES {
 				sp.playing = false // ran dry: buffer up again before resuming

@@ -76,32 +76,54 @@ close_streams :: proc(s: ^Audio_Streams, v: ^Voice) {
 	close_playback(s, v)
 }
 
+/*
+Tries, in order: the device selected in the settings, the device the
+system reports as its default (by id), and the backend's own notion of
+"default". The last two differ in practice: after the default device
+disappeared (a headset unplugged), PulseAudio via PipeWire kept failing
+to open "default" while the new default opened fine by id.
+*/
 @(private = "file")
 open_stream :: proc(a: ^Audio, dir: ma.Direction, devices: []Audio_Device, name: string, v: ^Voice, callback: ma.Callback) -> ^ma.Stream {
 	if a.ctx == nil {
 		return nil
 	}
 	what := "microphone" if dir == .Capture else "speakers"
-	id: ^ma.Device_Id
-	if d := find_device(devices, name); d != nil {
-		id = &d.id
-	}
 
-	res: ma.Result
-	s := ma.stream_open(a.ctx, dir, id, SAMPLE_RATE, 1, DEVICE_PERIOD_MS, callback, v, &res)
-	if s == nil {
-		log.errorf("audio: could not open the %s: %s", what, ma.result_string(res))
-		return nil
+	candidates: [3]^ma.Device_Id
+	count := 0
+	if d := find_device(devices, name); d != nil {
+		candidates[count] = &d.id
+		count += 1
 	}
-	if r := ma.stream_start(s); r != ma.SUCCESS {
-		log.errorf("audio: could not start the %s: %s", what, ma.result_string(r))
-		ma.stream_close(s)
-		return nil
+	for &d in devices {
+		if d.is_default && (count == 0 || &d.id != candidates[0]) {
+			candidates[count] = &d.id
+			count += 1
+			break
+		}
 	}
-	opened: [ma.NAME_SIZE]u8
-	ma.stream_device_name(s, &opened)
-	log.infof("audio: %s: %s", what, cstring(&opened[0]))
-	return s
+	count += 1 // nil: the backend's default
+
+	for id in candidates[:count] {
+		res: ma.Result
+		s := ma.stream_open(a.ctx, dir, id, SAMPLE_RATE, 1, DEVICE_PERIOD_MS, callback, v, &res)
+		if s == nil {
+			log.debugf("audio: opening the %s failed (%s), trying the next option", what, ma.result_string(res))
+			continue
+		}
+		if r := ma.stream_start(s); r != ma.SUCCESS {
+			log.debugf("audio: starting the %s failed (%s), trying the next option", what, ma.result_string(r))
+			ma.stream_close(s)
+			continue
+		}
+		opened: [ma.NAME_SIZE]u8
+		ma.stream_device_name(s, &opened)
+		log.infof("audio: %s: %s", what, cstring(&opened[0]))
+		return s
+	}
+	log.errorf("audio: could not open the %s", what)
+	return nil
 }
 
 /*
