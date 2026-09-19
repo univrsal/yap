@@ -211,11 +211,15 @@ List_Command :: struct {}
 Mute_Command :: struct {
 	muted: bool,
 }
+Noise_Command :: struct {
+	enabled: bool,
+}
 
 Command :: union {
 	Join_Command,
 	List_Command,
 	Mute_Command,
+	Noise_Command,
 }
 
 Command_Queue :: struct {
@@ -266,6 +270,9 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Mute_Command:
 			c.voice.muted = v.muted
 			log.infof("voice %s", "muted" if v.muted else "unmuted")
+		case Noise_Command:
+			c.voice.denoise = v.enabled
+			log.infof("noise suppression %s", "on" if v.enabled else "off")
 		}
 	}
 }

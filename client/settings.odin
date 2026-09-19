@@ -11,7 +11,8 @@ Client settings, kept in <config dir>/yap/settings.json:
 	{
 		"server": "localhost:7777",
 		"input_device": "",
-		"output_device": "Built-in Audio Analog Stereo"
+		"output_device": "Built-in Audio Analog Stereo",
+		"noise_suppression": true
 	}
 
 Devices are stored by name rather than by miniaudio's device id: ids are
@@ -20,14 +21,20 @@ readable. An empty name, or one that's no longer present (unplugged),
 means the system default.
 */
 Settings :: struct {
-	server:        string, // last server connected to
-	input_device:  string,
-	output_device: string,
+	server:            string, // last server connected to
+	input_device:      string,
+	output_device:     string,
+	// RNNoise on the microphone, plus only sending while voice is detected.
+	noise_suppression: bool,
 }
+
+DEFAULT_SETTINGS :: Settings{noise_suppression = true}
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
 // or can't be parsed. The strings are owned by the result.
 settings_load :: proc(path: string) -> (s: Settings) {
+	// Fields missing from the file keep their defaults.
+	s = DEFAULT_SETTINGS
 	data, err := os.read_entire_file(path, context.temp_allocator)
 	if err != nil {
 		return
@@ -35,7 +42,7 @@ settings_load :: proc(path: string) -> (s: Settings) {
 	if json_err := json.unmarshal(data, &s); json_err != nil {
 		log.warnf("ignoring unreadable settings in %s: %v", path, json_err)
 		settings_destroy(&s)
-		return {}
+		return DEFAULT_SETTINGS
 	}
 	return
 }

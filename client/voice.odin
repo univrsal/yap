@@ -2,11 +2,13 @@ package client
 
 import "core:encoding/endian"
 import "core:log"
+import "core:math"
 import "core:sync"
 import "core:time"
 
 import "../proto"
 import "opus"
+import "rnn"
 
 /*
 The voice pipeline. Everything here runs on the network thread; the audio
@@ -18,6 +20,11 @@ devices only touch the two rings (see voice_io.odin):
 
 Audio is 48 kHz mono, sent as 20 ms Opus frames. Mixing is paced by the
 playback ring's fill level, so it follows the output device's clock.
+
+Noise suppression (optional): captured frames go through RNNoise before
+encoding, and its voice detection gates sending: frames are only sent
+while voice was detected in the last VOICE_HANGOVER, so background noise
+and silence cost no bandwidth and nobody hears your room.
 
 Loss handling: packets carry a per-sender sequence number that advances
 every 20 ms whether or not anything was sent. A short gap is lost packets:
@@ -41,6 +48,18 @@ JITTER_MAX :: 10 * FRAME_SAMPLES
 MAX_CONCEAL :: 5
 // Drop a speaker's decoder after this long without packets.
 SPEAKER_TIMEOUT :: 10 * time.Second
+// With noise suppression on, a frame counts as voice when RNNoise's voice
+// probability is at least VOICE_THRESHOLD *and* the denoised frame is
+// louder than VOICE_MIN_LEVEL. The probability alone isn't enough: this
+// RNNoise model rates some broadband noise (e.g. pink noise) as voice,
+// although it still removes it. Measured on noise vs speech, frames it
+// wrongly calls voice come out of the denoiser at -78..-65 dBFS, real
+// speech at -35..-16 dBFS; -50 dBFS sits well between the two.
+VOICE_THRESHOLD :: 0.5
+VOICE_MIN_LEVEL :: 0.00316 // -50 dBFS RMS
+// Keep sending this long after the last voice frame, so word endings and
+// short pauses aren't clipped.
+VOICE_HANGOVER :: 300 * time.Millisecond
 // If the network thread falls behind, don't send a backlog of old audio.
 MAX_CAPTURE_BACKLOG :: 5 * FRAME_SAMPLES
 
@@ -64,10 +83,15 @@ Voice :: struct {
 	encoder:  ^opus.Encoder,
 	send_seq: u32,
 	muted:    bool,
+
+	denoiser:   rnn.Denoiser,
+	denoise:    bool, // noise suppression and the voice gate
+	last_voice: time.Tick,
 	speakers: map[u32]^Speaker,
 
 	// Stats, reset every second by log_stats.
 	captured:    int, // frames read from the microphone
+	gated:       int, // frames not sent because no voice was detected
 	sent_frames: int,
 	sent_bytes:  int,
 	received:    map[u32]int,
@@ -94,6 +118,11 @@ voice_init :: proc(v: ^Voice) -> bool {
 	opus.encoder_set(v.encoder, .Set_Packet_Loss_Perc, 10)
 	// Near-silent frames become 1-2 byte packets, which we don't send.
 	opus.encoder_set(v.encoder, .Set_DTX, 1)
+
+	ok: bool
+	if v.denoiser, ok = rnn.denoiser_create(); !ok {
+		log.error("rnnoise: could not create a denoiser; noise suppression is unavailable")
+	}
 	return true
 }
 
@@ -103,6 +132,7 @@ voice_destroy :: proc(v: ^Voice) {
 	}
 	delete(v.speakers)
 	delete(v.received)
+	rnn.denoiser_destroy(&v.denoiser)
 	if v.encoder != nil {
 		opus.encoder_destroy(v.encoder)
 		v.encoder = nil
@@ -138,7 +168,17 @@ send_captured :: proc(c: ^Voice_Client) {
 		seq := v.send_seq
 		v.send_seq += 1
 		v.captured += 1
+		// Run the denoiser on every frame, even unsent ones, so its state
+		// follows the room continuously.
+		denoising := v.denoise && v.denoiser.state != nil
+		if denoising && rnn.denoise(&v.denoiser, frame[:]) >= VOICE_THRESHOLD && rms(frame[:]) >= VOICE_MIN_LEVEL {
+			v.last_voice = time.tick_now()
+		}
 		if v.muted || !c.has_current || !in_settled_channel(c) {
+			continue
+		}
+		if denoising && time.tick_since(v.last_voice) > VOICE_HANGOVER {
+			v.gated += 1
 			continue
 		}
 
@@ -159,6 +199,15 @@ send_captured :: proc(c: ^Voice_Client) {
 			publish_voice(c, c.my_id)
 		}
 	}
+}
+
+@(private = "file")
+rms :: proc(samples: []f32) -> f32 {
+	sum: f32
+	for s in samples {
+		sum += s * s
+	}
+	return math.sqrt(sum / f32(len(samples)))
 }
 
 // voice_receive handles one Voice message from the server.

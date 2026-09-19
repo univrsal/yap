@@ -105,23 +105,26 @@ open_stream :: proc(a: ^Audio, dir: ma.Direction, devices: []Audio_Device, name:
 }
 
 /*
-Fake audio for headless testing: one thread writes a sine tone into the
-capture ring in real time (like a microphone would), another drains the
+Fake audio for headless testing: one thread writes a sine tone, or a
+looped recording, into the capture ring in real time (like a microphone
+would), another drains the
 playback ring in real time (like speakers would) and logs what it heard
 each second: loudness, and the dominant frequency from zero crossings.
 */
 Fake_Audio :: struct {
 	voice:   ^Voice,
 	tone_hz: f32,
+	input:   []f32, // if set, looped instead of the tone
 	stop:    bool, // atomic
 	source:  ^thread.Thread,
 	sink:    ^thread.Thread,
 	heard:   Sink_Stats, // sink thread only
 }
 
-fake_audio_start :: proc(f: ^Fake_Audio, v: ^Voice, tone_hz: f32) {
+fake_audio_start :: proc(f: ^Fake_Audio, v: ^Voice, tone_hz: f32, input: []f32 = nil) {
 	f.voice = v
 	f.tone_hz = tone_hz
+	f.input = input
 	sync.atomic_store(&v.input, true)
 	sync.atomic_store(&v.output, true)
 	f.source = thread.create_and_start_with_poly_data(f, fake_source, init_context = context)
@@ -163,8 +166,12 @@ run_periodic :: proc(f: ^Fake_Audio, tick: proc(f: ^Fake_Audio, samples: []f32, 
 fake_source :: proc(f: ^Fake_Audio) {
 	run_periodic(f, proc(f: ^Fake_Audio, buf: []f32, n: int) {
 		for &s, i in buf {
-			t := f64(n * len(buf) + i) / SAMPLE_RATE
-			s = f32(0.3 * math.sin(2 * math.PI * f64(f.tone_hz) * t))
+			pos := n * len(buf) + i
+			if len(f.input) > 0 {
+				s = f.input[pos % len(f.input)]
+			} else {
+				s = f32(0.3 * math.sin(2 * math.PI * f64(f.tone_hz) * f64(pos) / SAMPLE_RATE))
+			}
 		}
 		ring_write(&f.voice.capture, buf)
 	})

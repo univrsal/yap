@@ -33,10 +33,20 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		return
 	}
 
+	mu.layout_row(ctx, {-1})
+	state := "on" if ui.settings.noise_suppression else "off"
+	if .SUBMIT in stable_button(ctx, "noise", fmt.tprintf("Noise suppression: %s  (removes background noise; only sends while you talk)", state)) {
+		ui.settings.noise_suppression = !ui.settings.noise_suppression
+		settings_save(ui.opts.settings_path, ui.settings)
+		if ui.session != nil {
+			push_command(&ui.session.client.commands, Noise_Command{ui.settings.noise_suppression})
+		}
+	}
+
 	// The input list gets half of what's left; the output list the rest.
 	style := ctx.style
 	row := LINE_HEIGHT + style.padding * 2 + style.spacing
-	input_height := max((height - 4 * row) / 2, row * 2)
+	input_height := max((height - 5 * row) / 2, row * 2)
 
 	if choice, changed := device_list(ctx, "Input (microphone)", "inputs", a.inputs[:], ui.settings.input_device, input_height); changed {
 		set_setting(&ui.settings.input_device, choice)

@@ -278,6 +278,7 @@ connect :: proc(ui: ^UI) {
 		open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 	ns.client.voice.muted = ui.muted
+	ns.client.voice.denoise = ui.settings.noise_suppression
 
 	view_reset(&ui.view)
 	{

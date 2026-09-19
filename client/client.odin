@@ -6,6 +6,8 @@ import "core:encoding/hex"
 import "core:fmt"
 import "core:log"
 import "core:net"
+import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -150,7 +152,8 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 // run_headless is the command-line client: commands come from stdin.
 // With tone_hz > 0 it "talks" by sending that tone and logs what it hears
 // (see Fake_Audio), which exercises the whole voice path without devices.
-run_headless :: proc(key_path, server_addr, known_servers, initial_channel: string, tone_hz: f32) -> bool {
+// input_file (raw 48 kHz mono f32) is looped as the microphone instead.
+run_headless :: proc(key_path, server_addr, known_servers, initial_channel: string, tone_hz: f32, input_file: string, denoise: bool) -> bool {
 	// Heap-allocated: the channel state buffers make it fairly large.
 	c := new(Voice_Client)
 	defer free(c)
@@ -158,9 +161,20 @@ run_headless :: proc(key_path, server_addr, known_servers, initial_channel: stri
 		return false
 	}
 	defer voice_destroy(&c.voice)
+	c.voice.denoise = denoise
 	fake: Fake_Audio
-	if tone_hz > 0 {
-		fake_audio_start(&fake, &c.voice, tone_hz)
+	input: []f32
+	if input_file != "" {
+		data, err := os.read_entire_file(input_file, context.allocator)
+		if err != nil || len(data) < size_of(f32) {
+			log.errorf("could not read %s: %v", input_file, err)
+			return false
+		}
+		input = slice.reinterpret([]f32, data[:len(data) - len(data) % size_of(f32)])
+	}
+	defer delete(input)
+	if tone_hz > 0 || len(input) > 0 {
+		fake_audio_start(&fake, &c.voice, tone_hz, input)
 	}
 	defer fake_audio_stop(&fake)
 	defer client_close(c)
@@ -356,6 +370,9 @@ log_stats :: proc(c: ^Voice_Client) {
 	v := &c.voice
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintf(&b, "voice: captured %d, sent %d frames (%d B)", v.captured, v.sent_frames, v.sent_bytes)
+	if v.gated > 0 {
+		fmt.sbprintf(&b, ", %d without voice", v.gated)
+	}
 	for speaker, n in v.received {
 		fmt.sbprintf(&b, " | %08x: %d", speaker, n)
 	}
@@ -366,6 +383,6 @@ log_stats :: proc(c: ^Voice_Client) {
 		fmt.sbprintf(&b, " | %d output underruns", underruns)
 	}
 	log.debug(strings.to_string(b))
-	v.captured, v.sent_frames, v.sent_bytes, v.concealed = 0, 0, 0, 0
+	v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed = 0, 0, 0, 0, 0
 	clear(&v.received)
 }
