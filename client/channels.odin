@@ -273,6 +273,9 @@ Gain_Command :: struct {
 Name_Command :: struct {
 	name: string, // owned by the command
 }
+Listen_Command :: struct {
+	on: bool,
+}
 Gate_Command :: struct {
 	enabled:           bool,
 	open_db, close_db: f32,
@@ -286,6 +289,7 @@ Command :: union {
 	Gain_Command,
 	Name_Command,
 	Gate_Command,
+	Listen_Command,
 }
 
 Command_Queue :: struct {
@@ -348,6 +352,9 @@ process_commands :: proc(c: ^Voice_Client) {
 			} else {
 				c.voice.gains[v.key] = v.gain
 			}
+		case Listen_Command:
+			c.voice.listen = v.on
+			log.infof("listen back %s", "on" if v.on else "off")
 		case Gate_Command:
 			g := &c.voice.gate
 			g.enabled, g.open_db, g.close_db = v.enabled, v.open_db, v.close_db
@@ -366,6 +373,7 @@ network loop never blocks on input.
 	/join <channel>  move to another channel
 	/name <name>     change your name
 	/mute, /unmute   stop or resume sending voice
+	/listen, /unlisten  hear your own processed voice (listen back)
 */
 start_command_reader :: proc(q: ^Command_Queue) {
 	thread.create_and_start_with_poly_data(
@@ -389,12 +397,14 @@ read_commands :: proc(q: ^Command_Queue) {
 			push_command(q, List_Command{})
 		case strings.has_prefix(line, "/name "):
 			push_command(q, Name_Command{strings.clone(strings.trim_space(line[len("/name "):]))})
+		case line == "/listen" || line == "/unlisten":
+			push_command(q, Listen_Command{line == "/listen"})
 		case line == "/mute" || line == "/unmute":
 			push_command(q, Mute_Command{line == "/mute"})
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /listen, /unlisten")
 		}
 	}
 }

@@ -123,3 +123,58 @@ test_display_names :: proc(t: ^testing.T) {
 	testing.expect_value(t, display_name(users, 4), "99001122")
 	testing.expect_value(t, display_name(users, 9), "user #9")
 }
+
+@(test)
+test_listen_back :: proc(t: ^testing.T) {
+	v: Voice
+	testing.expect(t, voice_init(&v))
+	defer voice_destroy(&v)
+
+	frame: [FRAME_SAMPLES]f32
+	for &s in frame {
+		s = 0.5
+	}
+	out: [FRAME_SAMPLES]f32
+	level :: proc(x: []f32) -> f32 {
+		sum: f32
+		for s in x {
+			sum += s * s
+		}
+		return sum / f32(len(x))
+	}
+
+	// Off: nothing is queued or played.
+	listen_feed(&v, frame[:], true)
+	mix_output(&v)
+	ring_read(&v.playback, out[:])
+	testing.expect_value(t, level(out[:]), 0)
+
+	// On: frames that would be sent are played back (after the prefill),
+	// frames the gate holds back are played as silence.
+	ring_skip(&v.playback, ring_available(&v.playback)) // silence mixed while off
+	v.listen = true
+	for _ in 0 ..< 3 {
+		listen_feed(&v, frame[:], true)
+	}
+	listen_feed(&v, frame[:], false)
+	played: [4]f32
+	for i in 0 ..< 4 {
+		mix_output(&v)
+		ring_read(&v.playback, out[:])
+		played[i] = level(out[:])
+	}
+	// Exactly what was fed comes out, in order: three frames as captured,
+	// then the gated one as silence.
+	testing.expectf(
+		t,
+		played[0] > 0.2 && played[1] > 0.2 && played[2] > 0.2 && played[3] == 0,
+		"listen back played %v",
+		played,
+	)
+
+	// Switching off drops what was queued.
+	v.listen = false
+	listen_feed(&v, frame[:], true)
+	mix_output(&v)
+	testing.expect_value(t, ring_available(&v.loopback), 0)
+}

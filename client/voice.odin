@@ -70,6 +70,14 @@ Voice :: struct {
 	denoiser:    rnn.Denoiser,
 	denoise:     bool, // noise suppression
 	gate:        Gate,
+	// Listen back: our own processed microphone audio, as it would be sent
+	// (after suppression, silent while the gate is closed), played back to
+	// us through the mixer. For testing the settings; ignores mute.
+	listen:      bool,
+	loopback:    Ring, // same thread in and out, like a speaker's queue
+	looping:     bool, // prefill reached, being mixed
+	// How much to keep queued for the output device (see OUTPUT_TARGET).
+	output_target: int,
 	speakers:    map[u32]^Speaker,
 	// Per-user playback gain (0 = muted), from the UI, by public key.
 	// Missing means 1.
@@ -94,6 +102,8 @@ voice_init :: proc(v: ^Voice) -> bool {
 	}
 	ring_init(&v.capture, SAMPLE_RATE / 2)
 	ring_init(&v.playback, SAMPLE_RATE / 2)
+	ring_init(&v.loopback, JITTER_MAX + 4 * FRAME_SAMPLES)
+	v.output_target = OUTPUT_TARGET
 
 	err: opus.Error
 	v.encoder = opus.encoder_create(SAMPLE_RATE, 1, .VOIP, &err)
@@ -133,6 +143,7 @@ voice_destroy :: proc(v: ^Voice) {
 	}
 	ring_destroy(&v.capture)
 	ring_destroy(&v.playback)
+	ring_destroy(&v.loopback)
 }
 
 // voice_step encodes and sends captured audio, and keeps the output fed.
@@ -163,6 +174,7 @@ send_captured :: proc(c: ^Voice_Client) {
 		v.send_seq += 1
 		v.captured += 1
 		level, pass := mic_process(v, frame[:])
+		listen_feed(v, frame[:], pass)
 		publish_mic(c, level, v.gate.open)
 		if v.muted || !c.has_current || !in_settled_channel(c) {
 			continue
@@ -266,10 +278,26 @@ decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
 	ring_write(&sp.queue, pcm[:n])
 }
 
-@(private = "file")
+// listen_feed queues a processed microphone frame for listen back: the
+// frame if it would be sent, silence if the gate is holding it back.
+listen_feed :: proc(v: ^Voice, frame: []f32, pass: bool) {
+	if !v.listen {
+		return
+	}
+	if pass {
+		ring_write(&v.loopback, frame)
+	} else {
+		silence: [FRAME_SAMPLES]f32
+		ring_write(&v.loopback, silence[:len(frame)])
+	}
+}
+
+// mix_output keeps the playback ring filled with the mix of everyone
+// speaking (and our own audio, with listen back on).
 mix_output :: proc(v: ^Voice) {
-	for ring_available(&v.playback) < OUTPUT_TARGET {
+	for ring_available(&v.playback) < v.output_target {
 		mix: [FRAME_SAMPLES]f32
+		mix_loopback(v, mix[:])
 		for id, sp in v.speakers {
 			queued := ring_available(&sp.queue)
 			if !sp.playing {
@@ -303,6 +331,35 @@ mix_output :: proc(v: ^Voice) {
 			s = clamp(s, -1, 1)
 		}
 		ring_write(&v.playback, mix[:])
+	}
+}
+
+// The listen back source: buffered and drift-corrected like a speaker,
+// since the microphone and the output device run on different clocks.
+@(private = "file")
+mix_loopback :: proc(v: ^Voice, mix: []f32) {
+	queued := ring_available(&v.loopback)
+	if !v.listen {
+		ring_skip(&v.loopback, queued)
+		v.looping = false
+		return
+	}
+	if !v.looping {
+		if queued < JITTER_PREFILL {
+			return
+		}
+		v.looping = true
+	}
+	if queued > JITTER_MAX {
+		ring_skip(&v.loopback, queued - JITTER_PREFILL)
+	}
+	frame: [FRAME_SAMPLES]f32
+	got := ring_read(&v.loopback, frame[:len(mix)])
+	for s, i in frame[:got] {
+		mix[i] += s
+	}
+	if got < len(mix) {
+		v.looping = false
 	}
 }
 

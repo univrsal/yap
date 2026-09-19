@@ -1,13 +1,15 @@
 package client
 
 import "core:fmt"
+import "core:log"
 import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
 /*
 The voice gate's part of the settings page: an on/off toggle, a live
-microphone level meter, and sliders for the two thresholds.
+microphone level meter, sliders for the two thresholds, and listen back
+(hear your processed microphone; see Voice.listen).
 
 The meter's scale runs from MIN_LEVEL_DB to 0 dBFS, colored by what the
 gate does at each level:
@@ -57,6 +59,17 @@ monitor_update :: proc(ui: ^UI) {
 		return
 	}
 
+	// Listen back plays through the output device, opened only for it.
+	m.voice.listen = ui.listen_back
+	if ui.listen_back && m.streams.playback == nil {
+		// The UI thread only gets here once per frame, so keep more queued
+		// than the network thread does.
+		m.voice.output_target = 3 * FRAME_SAMPLES
+		open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
+	} else if !ui.listen_back && m.streams.playback != nil {
+		close_playback(&m.streams, &m.voice)
+	}
+
 	m.voice.denoise = ui.settings.noise_suppression
 	cmd := gate_command(&ui.settings)
 	m.voice.gate.enabled, m.voice.gate.open_db, m.voice.gate.close_db = cmd.enabled, cmd.open_db, cmd.close_db
@@ -64,9 +77,14 @@ monitor_update :: proc(ui: ^UI) {
 	frame: [FRAME_SAMPLES]f32
 	for ring_available(&m.voice.capture) >= FRAME_SAMPLES {
 		ring_read(&m.voice.capture, frame[:])
-		m.level, _ = mic_process(&m.voice, frame[:])
+		pass: bool
+		m.level, pass = mic_process(&m.voice, frame[:])
+		listen_feed(&m.voice, frame[:], pass)
 		m.open = m.voice.gate.open
 		m.time = time.tick_now()
+	}
+	if m.streams.playback != nil {
+		mix_output(&m.voice)
 	}
 }
 
@@ -105,6 +123,26 @@ gate_settings :: proc(ui: ^UI) {
 	if .CHANGE in mu.slider(ctx, &s.gate_close_db, MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_open_db = max(s.gate_open_db, s.gate_close_db)
 		gate_changed(ui)
+	}
+
+	mu.layout_row(ctx, {-1})
+	listen := "on" if ui.listen_back else "off"
+	listen_label := fmt.tprintf("Listen back: %s  (hear your microphone as others would; use headphones)", listen)
+	if .SUBMIT in stable_button(ctx, "listen", listen_label) {
+		set_listen_back(ui, !ui.listen_back)
+	}
+}
+
+// set_listen_back turns listen back on or off, for the monitor (picked up
+// by monitor_update) and a running connection.
+set_listen_back :: proc(ui: ^UI, on: bool) {
+	if ui.listen_back == on {
+		return
+	}
+	ui.listen_back = on
+	log.infof("listen back %s", "on" if on else "off")
+	if ui.session != nil {
+		push_command(&ui.session.client.commands, Listen_Command{on})
 	}
 }
 

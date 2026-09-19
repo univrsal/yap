@@ -91,6 +91,7 @@ UI :: struct {
 	menu_requested: bool,
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
 	monitor:        Mic_Monitor,
+	listen_back:    bool,
 	meter_level:    f32,
 	meter_time:     time.Tick,
 	// Slider drags change the settings every frame; save at most once a
@@ -205,8 +206,9 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		ui.action = .None
 
 		// Wake up for input, or often enough to animate the speaking
-		// indicators; there's nothing else to redraw for.
-		glfw.WaitEventsTimeout(1.0 / 30)
+		// indicators. Listen back without a connection is fed from this
+		// loop (monitor_update), so it needs to run at the display's rate.
+		glfw.WaitEventsTimeout(1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30)
 
 		// microui turns a press into focus for whatever `hover_id` names,
 		// without re-checking the pointer, and only a control itself clears
@@ -222,6 +224,10 @@ run_ui :: proc(opts: UI_Options) -> bool {
 			save_settings(ui)
 		}
 
+		// Listen back is a settings-page test; don't leave it running.
+		if ui.page != .Settings {
+			set_listen_back(ui, false)
+		}
 		monitor_update(ui)
 
 		m := window_metrics(ui.window)
@@ -352,6 +358,7 @@ connect :: proc(ui: ^UI) {
 	}
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.denoise = ui.settings.noise_suppression
+	ns.client.voice.listen = ui.listen_back
 	push_command(&ns.client.commands, gate_command(&ui.settings))
 	for hex_key, u in ui.settings.users {
 		if key, ok := parse_user_key(hex_key); ok {
@@ -407,9 +414,12 @@ set_muted :: proc(ui: ^UI, muted: bool) {
 // reopen_audio switches a running connection to the devices now selected
 // in the settings.
 reopen_audio :: proc(ui: ^UI, input: bool) {
-	if input && ui.monitor.active {
-		m := &ui.monitor
-		open_capture(&ui.audio, &m.streams, &m.voice, ui.settings.input_device)
+	if m := &ui.monitor; m.active {
+		if input {
+			open_capture(&ui.audio, &m.streams, &m.voice, ui.settings.input_device)
+		} else if m.streams.playback != nil {
+			open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
+		}
 	}
 	ns := ui.session
 	if ns == nil || ns.client.voice.encoder == nil {
