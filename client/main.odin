@@ -1,19 +1,21 @@
 package client
 
 import "core:flags"
+import "core:fmt"
 import "core:log"
 import "core:os"
 
 import "../common"
 
 Options :: struct {
-	server:        string           `args:"pos=0" usage:"Server to connect to, host:port. Required with -headless; otherwise the UI connects to it right away."`,
-	headless:      bool             `usage:"No window: log to the terminal and read /join and /channels from stdin."`,
-	channel:       string           `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
-	key:           string           `usage:"Private key file, created if missing (default <config dir>/yap/client.key)."`,
-	known_servers: string           `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
-	log_level:     common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
-	log_file:      string           `usage:"Also append the log to this file."`,
+	server:             string           `args:"pos=0" usage:"Server to connect to, host:port. Required with -headless; otherwise the UI connects to it right away."`,
+	headless:           bool             `usage:"No window: log to the terminal and read /join and /channels from stdin."`,
+	list_audio_devices: bool             `usage:"Print the audio input and output devices, then exit."`,
+	channel:            string           `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
+	key:                string           `usage:"Private key file, created if missing (default <config dir>/yap/client.key)."`,
+	known_servers:      string           `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
+	log_level:          common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
+	log_file:           string           `usage:"Also append the log to this file."`,
 }
 
 main :: proc() {
@@ -44,6 +46,10 @@ main :: proc() {
 		os.exit(2)
 	}
 
+	if opt.list_audio_devices {
+		os.exit(0 if list_audio_devices() else 1)
+	}
+
 	if opt.headless {
 		if opt.server == "" {
 			log.error("-headless needs a server address")
@@ -61,8 +67,30 @@ main :: proc() {
 		server        = opt.server,
 		channel       = opt.channel,
 		logs          = &logs,
+		settings_path = default_config_path("settings.json"),
 	})
 	if !ui_ok {
 		os.exit(1)
 	}
+}
+
+@(private = "file")
+list_audio_devices :: proc() -> bool {
+	a: Audio
+	defer audio_destroy(&a)
+	if !audio_init(&a) {
+		return false
+	}
+	print_list :: proc(title: string, devices: []Audio_Device) {
+		fmt.println(title)
+		if len(devices) == 0 {
+			fmt.println("  (none)")
+		}
+		for d in devices {
+			fmt.printfln("  %s%s", d.name, "  [default]" if d.is_default else "")
+		}
+	}
+	print_list("Input devices:", a.inputs[:])
+	print_list("Output devices:", a.outputs[:])
+	return true
 }

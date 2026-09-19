@@ -1,2 +1,6 @@
 yap
 bin/
+client/miniaudio/*.a
+client/miniaudio/*.lib
+client/miniaudio/*.o
+client/miniaudio/*.obj

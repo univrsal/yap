@@ -4,7 +4,6 @@ import "base:runtime"
 import "core:crypto/ecdh"
 import "core:fmt"
 import "core:log"
-import "core:os"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -31,6 +30,7 @@ UI_Options :: struct {
 	server:        string, // prefilled, and connected to right away
 	channel:       string, // joined on connect
 	logs:          ^Log_Lines,
+	settings_path: string,
 }
 
 @(private = "file")
@@ -46,6 +46,11 @@ Net_Session :: struct {
 	channel:       string,
 }
 
+Page :: enum {
+	Main,
+	Settings,
+}
+
 @(private = "file")
 Action :: enum {
 	None,
@@ -53,7 +58,6 @@ Action :: enum {
 	Disconnect,
 }
 
-@(private = "file")
 UI :: struct {
 	window:   glfw.WindowHandle,
 	ctx:      mu.Context,
@@ -71,6 +75,10 @@ UI :: struct {
 	action:  Action,
 
 	log_seen: int, // Log_Lines.total when the log panel was last scrolled
+
+	page:     Page,
+	settings: Settings,
+	audio:    Audio,
 
 	// Logical pixels per window coordinate, for mouse input. See
 	// window_metrics.
@@ -105,8 +113,15 @@ run_ui :: proc(opts: UI_Options) -> bool {
 			ecdh.private_key_clear(&key)
 		}
 	}
-	initial := opts.server if opts.server != "" else load_last_server()
+	ui.settings = settings_load(opts.settings_path)
+	defer settings_destroy(&ui.settings)
+	initial := opts.server if opts.server != "" else ui.settings.server
 	ui.server_len = copy(ui.server_buf[:], initial)
+
+	// Audio problems shouldn't keep the rest of the client from working;
+	// the settings page shows what went wrong.
+	audio_init(&ui.audio)
+	defer audio_destroy(&ui.audio)
 
 	glfw.SetErrorCallback(glfw_error_callback)
 	if !glfw.Init() {
@@ -243,7 +258,8 @@ connect :: proc(ui: ^UI) {
 	if server == "" {
 		return
 	}
-	save_last_server(server)
+	set_setting(&ui.settings.server, server)
+	settings_save(ui.opts.settings_path, ui.settings)
 
 	ns := new(Net_Session)
 	ns.key_path = strings.clone(ui.opts.key_path)
@@ -316,6 +332,11 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	}
 	defer mu.end_window(ctx)
 
+	if ui.page == .Settings {
+		settings_page(ui, h)
+		return
+	}
+
 	v := &ui.view
 	sync.guard(&v.mutex)
 	switch v.status {
@@ -331,13 +352,16 @@ connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {60, -110, -1})
+	mu.layout_row(ctx, {60, -200, 90, -1})
 	mu.label(ctx, "Server")
 	if .SUBMIT in mu.textbox(ctx, ui.server_buf[:], &ui.server_len) {
 		ui.action = .Connect
 	}
 	if .SUBMIT in mu.button(ctx, "Connect") {
 		ui.action = .Connect
+	}
+	if .SUBMIT in mu.button(ctx, "Settings") {
+		ui.page = .Settings
 	}
 
 	mu.layout_row(ctx, {-1})
@@ -355,12 +379,15 @@ session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {-110, -1})
+	mu.layout_row(ctx, {-200, 90, -1})
 	switch v.status {
 	case .Connected:
 		mu.label(ctx, fmt.tprintf("Connected to %s as %08x", v.server, v.my_id))
 	case .Connecting, .Disconnected, .Failed:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
+	}
+	if .SUBMIT in mu.button(ctx, "Settings") {
+		ui.page = .Settings
 	}
 	if .SUBMIT in mu.button(ctx, "Disconnect") {
 		log.debug("ui: disconnect")
@@ -441,7 +468,6 @@ log_panel :: proc(ui: ^UI) {
 // stable_button is mu.button, except its id comes from `id_name` (under
 // the current id stack) rather than from the label, so the label can
 // change from frame to frame without the button becoming a new control.
-@(private = "file")
 stable_button :: proc(ctx: ^mu.Context, id_name: string, label: string) -> (res: mu.Result_Set) {
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
@@ -454,54 +480,15 @@ stable_button :: proc(ctx: ^mu.Context, id_name: string, label: string) -> (res:
 	return
 }
 
-@(private = "file")
 label_proc :: proc(ctx: ^mu.Context, text: string) {
 	mu.label(ctx, text)
 }
 
-@(private = "file")
 with_text_color :: proc(ctx: ^mu.Context, color: mu.Color, text: string, widget: proc(ctx: ^mu.Context, text: string)) {
 	saved := ctx.style.colors[.TEXT]
 	ctx.style.colors[.TEXT] = color
 	widget(ctx, text)
 	ctx.style.colors[.TEXT] = saved
-}
-
-// The server address last connected to, remembered across runs.
-@(private = "file")
-last_server_path :: proc() -> string {
-	dir, err := os.user_config_dir(context.temp_allocator)
-	if err != nil {
-		return ""
-	}
-	path, _ := os.join_path({dir, "yap", "last_server"}, context.temp_allocator)
-	return path
-}
-
-@(private = "file")
-load_last_server :: proc() -> string {
-	path := last_server_path()
-	if path == "" {
-		return ""
-	}
-	data, err := os.read_entire_file(path, context.temp_allocator)
-	if err != nil {
-		return ""
-	}
-	return strings.trim_space(string(data))
-}
-
-@(private = "file")
-save_last_server :: proc(server: string) {
-	path := last_server_path()
-	if path == "" {
-		return
-	}
-	dir, _ := os.split_path(path)
-	os.make_directory_all(dir)
-	if err := os.write_entire_file(path, server); err != nil {
-		log.debugf("could not save %s: %v", path, err)
-	}
 }
 
 @(private = "file")
