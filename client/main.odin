@@ -7,9 +7,10 @@ import "core:os"
 import "../common"
 
 Options :: struct {
-	key:           string           `args:"pos=0,required" usage:"Private key file, created if missing."`,
-	server:        string           `args:"pos=1,required" usage:"Server address, host:port."`,
+	server:        string           `args:"pos=0" usage:"Server to connect to, host:port. Required with -headless; otherwise the UI connects to it right away."`,
+	headless:      bool             `usage:"No window: log to the terminal and read /join and /channels from stdin."`,
 	channel:       string           `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
+	key:           string           `usage:"Private key file, created if missing (default <config dir>/yap/client.key)."`,
 	known_servers: string           `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
 	log_level:     common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
 	log_file:      string           `usage:"Also append the log to this file."`,
@@ -19,22 +20,49 @@ main :: proc() {
 	opt := Options{log_level = .info}
 	flags.parse_or_exit(&opt, os.args, .Odin)
 
-	logger, ok := common.init_logging(opt.log_level, opt.log_file)
+	// In the UI, log lines also go to the log panel.
+	logs: Log_Lines
+	sink: common.Log_Sink
+	if !opt.headless {
+		sink = {log_lines_sink, &logs}
+	}
+	logger, ok := common.init_logging(opt.log_level, opt.log_file, sink)
 	if !ok {
 		os.exit(1)
 	}
 	defer common.destroy_logging(logger)
 	context.logger = logger
 
+	if opt.key == "" {
+		opt.key = default_config_path("client.key")
+	}
 	if opt.known_servers == "" {
-		opt.known_servers = default_known_servers_path()
-		if opt.known_servers == "" {
-			log.error("could not determine the config directory; pass -known-servers:<file>")
-			os.exit(2)
-		}
+		opt.known_servers = default_config_path("known_servers")
+	}
+	if opt.key == "" || opt.known_servers == "" {
+		log.error("could not determine the config directory; pass -key:<file> and -known-servers:<file>")
+		os.exit(2)
 	}
 
-	if !run_client(opt.key, opt.server, opt.known_servers, opt.channel) {
+	if opt.headless {
+		if opt.server == "" {
+			log.error("-headless needs a server address")
+			os.exit(2)
+		}
+		if !run_headless(opt.key, opt.server, opt.known_servers, opt.channel) {
+			os.exit(1)
+		}
+		return
+	}
+
+	ui_ok := run_ui({
+		key_path      = opt.key,
+		known_servers = opt.known_servers,
+		server        = opt.server,
+		channel       = opt.channel,
+		logs          = &logs,
+	})
+	if !ui_ok {
 		os.exit(1)
 	}
 }

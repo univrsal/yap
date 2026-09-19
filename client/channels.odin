@@ -107,6 +107,7 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 		request_join(c, wanted)
 		delete(wanted)
 	}
+	publish_channels(c)
 }
 
 // in_settled_channel is false until we know which channel we're in, and
@@ -147,6 +148,7 @@ request_join :: proc(c: ^Voice_Client, name: string) {
 	ch.join_pending = true
 	ch.join_channel = u16(idx)
 	send_join(c)
+	publish_channels(c)
 }
 
 // drive_join resends an unacknowledged Join request.
@@ -199,19 +201,77 @@ members_string :: proc(c: ^Voice_Client, members: []u32) -> string {
 }
 
 /*
-Interactive commands, read from stdin on a separate thread so the network
-loop never blocks on input. A stopgap until there's a real UI.
+Commands for the network loop, from the UI or (headless) from stdin.
+The queue is the only part of a Voice_Client other threads may touch.
+*/
+Join_Command :: struct {
+	channel: string, // owned by the command
+}
+List_Command :: struct {}
+
+Command :: union {
+	Join_Command,
+	List_Command,
+}
+
+Command_Queue :: struct {
+	mutex:    sync.Mutex,
+	commands: [dynamic]Command,
+}
+
+push_command :: proc(q: ^Command_Queue, cmd: Command) {
+	sync.guard(&q.mutex)
+	append(&q.commands, cmd)
+}
+
+commands_destroy :: proc(q: ^Command_Queue) {
+	sync.guard(&q.mutex)
+	for cmd in q.commands {
+		command_destroy(cmd)
+	}
+	delete(q.commands)
+	q.commands = nil
+}
+
+@(private = "file")
+command_destroy :: proc(cmd: Command) {
+	if join, ok := cmd.(Join_Command); ok {
+		delete(join.channel)
+	}
+}
+
+process_commands :: proc(c: ^Voice_Client) {
+	commands: [dynamic]Command
+	{
+		sync.guard(&c.commands.mutex)
+		commands, c.commands.commands = c.commands.commands, {}
+	}
+	defer {
+		for cmd in commands {
+			command_destroy(cmd)
+		}
+		delete(commands)
+	}
+
+	for cmd in commands {
+		switch v in cmd {
+		case Join_Command:
+			request_join(c, v.channel)
+		case List_Command:
+			list_channels(c)
+		}
+	}
+}
+
+/*
+Headless mode reads commands from stdin on a separate thread, so the
+network loop never blocks on input.
 
 	/channels        list channels and who is in them
 	/join <channel>  move to another channel
 */
-Command_Queue :: struct {
-	mutex: sync.Mutex,
-	lines: [dynamic]string,
-}
-
 start_command_reader :: proc(q: ^Command_Queue) {
-	thread.create_and_start_with_poly_data(q, read_commands, self_cleanup = true)
+	thread.create_and_start_with_poly_data(q, read_commands, init_context = context, self_cleanup = true)
 }
 
 @(private = "file")
@@ -220,32 +280,13 @@ read_commands :: proc(q: ^Command_Queue) {
 	bufio.scanner_init(&sc, os.to_reader(os.stdin))
 	defer bufio.scanner_destroy(&sc)
 	for bufio.scanner_scan(&sc) {
-		line := strings.clone(strings.trim_space(bufio.scanner_text(&sc)))
-		sync.guard(&q.mutex)
-		append(&q.lines, line)
-	}
-}
-
-process_commands :: proc(c: ^Voice_Client) {
-	lines: [dynamic]string
-	{
-		sync.guard(&c.commands.mutex)
-		lines, c.commands.lines = c.commands.lines, {}
-	}
-	defer {
-		for line in lines {
-			delete(line)
-		}
-		delete(lines)
-	}
-
-	for line in lines {
+		line := strings.trim_space(bufio.scanner_text(&sc))
 		switch {
 		case line == "":
 		case line == "/channels":
-			list_channels(c)
+			push_command(q, List_Command{})
 		case strings.has_prefix(line, "/join "):
-			request_join(c, strings.trim_space(line[len("/join "):]))
+			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
 			log.warn("commands: /channels, /join <channel>")
 		}

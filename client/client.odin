@@ -44,26 +44,37 @@ Voice_Client :: struct {
 	channels: Channel_Client,
 	commands: Command_Queue,
 
+	status:    Status,
+	sock_open: bool,
+	// Shared with the UI, if there is one; nil in headless mode.
+	view: ^View,
+
 	// Per-second stats, keyed by speaker id.
 	recv_frames: map[u32]int,
 	sent_frames: int,
 	last_stats:  time.Tick,
 }
 
-run_client :: proc(key_path, server_addr, known_servers, initial_channel: string) -> bool {
-	// Heap-allocated: the channel state buffers make it fairly large.
-	c := new(Voice_Client)
-	defer free(c)
-	c.server_addr = server_addr
-	c.known_servers = known_servers
+// client_open loads our key and prepares the socket. It doesn't wait
+// for the server: the handshake happens in client_step.
+client_open :: proc(c: ^Voice_Client, key_path, server_addr, known_servers: string) -> bool {
+	c.server_addr = strings.clone(server_addr)
+	c.known_servers = strings.clone(known_servers)
+
 	if !common.load_or_create_private_key(key_path, &c.key) {
+		publish_status(c, .Failed, fmt.tprintf("Could not load the key file %s.", key_path))
 		return false
 	}
-	defer ecdh.private_key_clear(&c.key)
+	pub: [proto.KEY_SIZE]byte
+	ecdh.private_key_public_bytes(&c.key, pub[:])
+	c.my_id = common.key_id(pub)
+	log.infof("my public key: %s", common.public_key_hex(&c.key))
+	publish_status(c, .Connecting)
 
 	ep, resolve_err := net.resolve_ip4(server_addr)
 	if resolve_err != nil {
 		log.errorf("failed to resolve %s: %v", server_addr, resolve_err)
+		publish_status(c, .Failed, fmt.tprintf("Could not resolve %s. Expected host:port.", server_addr))
 		return false
 	}
 	c.server = ep
@@ -71,57 +82,100 @@ run_client :: proc(key_path, server_addr, known_servers, initial_channel: string
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if err != nil {
 		log.errorf("failed to create socket: %v", err)
+		publish_status(c, .Failed, "Could not open a network socket.")
 		return false
 	}
-	defer net.close(sock)
 	c.sock = sock
+	c.sock_open = true
 	// Short timeout so the loop can also pace outgoing frames.
 	net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
-
-	log.infof("my public key: %s", common.public_key_hex(&c.key))
-	pub: [proto.KEY_SIZE]byte
-	ecdh.private_key_public_bytes(&c.key, pub[:])
-	c.my_id = common.key_id(pub)
 	c.last_stats = time.tick_now()
+	return true
+}
+
+// client_close says goodbye to the server (if connected) and releases
+// everything client_open and the connection acquired.
+client_close :: proc(c: ^Voice_Client) {
+	if c.has_current {
+		// Unreliable, so send a few; the server times us out otherwise.
+		leave := [1]byte{u8(proto.Message_Kind.Leave)}
+		for _ in 0 ..< 3 {
+			send_data(c, leave[:])
+		}
+	}
+	if c.sock_open {
+		net.close(c.sock)
+		c.sock_open = false
+	}
+
+	proto.initiator_reset(&c.handshake)
+	proto.session_reset(&c.pending)
+	proto.session_reset(&c.current)
+	proto.session_reset(&c.previous)
+	ecdh.private_key_clear(&c.key)
+
+	delete(c.server_addr)
+	delete(c.known_servers)
+	delete(c.recv_frames)
+	delete(c.channels.wanted)
+	commands_destroy(&c.commands)
+}
+
+// client_step runs one iteration of the network loop, waiting up to a
+// couple of milliseconds for a packet. It returns false once the
+// connection has failed for good.
+client_step :: proc(c: ^Voice_Client) -> bool {
+	free_all(context.temp_allocator)
+
+	drive_handshake(c)
+	process_commands(c)
+	drive_join(c)
+
+	if c.has_current {
+		if time.tick_diff(c.next_frame, time.tick_now()) >= 0 {
+			if in_settled_channel(c) {
+				send_fake_frame(c)
+			} else {
+				c.next_frame = time.tick_now() // stay quiet, but don't fall behind
+			}
+		} else if time.tick_since(c.last_sent) >= proto.KEEPALIVE_AFTER {
+			send_data(c, nil)
+		}
+	}
+
+	recv_buf: [proto.MAX_PACKET_SIZE]byte
+	n, from, recv_err := net.recv_udp(c.sock, recv_buf[:])
+	#partial switch recv_err {
+	case .None:
+		if from == c.server && !common.simulate_loss() && !handle_server_packet(c, recv_buf[:n]) {
+			return false
+		}
+	case .Timeout, .Would_Block:
+	case:
+		log.errorf("recv error: %v", recv_err)
+	}
+
+	log_stats(c)
+	return true
+}
+
+// run_headless is the command-line client: commands come from stdin.
+run_headless :: proc(key_path, server_addr, known_servers, initial_channel: string) -> bool {
+	// Heap-allocated: the channel state buffers make it fairly large.
+	c := new(Voice_Client)
+	defer free(c)
+	defer client_close(c)
+	if !client_open(c, key_path, server_addr, known_servers) {
+		return false
+	}
 
 	if initial_channel != "" {
 		request_join(c, initial_channel)
 	}
 	start_command_reader(&c.commands)
 
-	recv_buf: [proto.MAX_PACKET_SIZE]byte
-	for {
-		free_all(context.temp_allocator)
-
-		drive_handshake(c)
-		process_commands(c)
-		drive_join(c)
-
-		if c.has_current {
-			if time.tick_diff(c.next_frame, time.tick_now()) >= 0 {
-				if in_settled_channel(c) {
-					send_fake_frame(c)
-				} else {
-					c.next_frame = time.tick_now() // stay quiet, but don't fall behind
-				}
-			} else if time.tick_since(c.last_sent) >= proto.KEEPALIVE_AFTER {
-				send_data(c, nil)
-			}
-		}
-
-		n, from, recv_err := net.recv_udp(sock, recv_buf[:])
-		#partial switch recv_err {
-		case .None:
-			if from == c.server && !common.simulate_loss() && !handle_server_packet(c, recv_buf[:n]) {
-				return false
-			}
-		case .Timeout, .Would_Block:
-		case:
-			log.errorf("recv error: %v", recv_err)
-		}
-
-		log_stats(c)
-	}
+	for client_step(c) {}
+	return false
 }
 
 // drive_handshake starts a handshake when there's no usable session or
@@ -182,6 +236,8 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		}
 		if !verify_server_key(c, server_key) {
 			abandon_handshake(c)
+			publish_status(c, .Failed, fmt.tprintf(
+				"The key of %s has changed, so the connection was refused. See the log for details.", c.server_addr))
 			return false
 		}
 		// Only now, with the server's identity checked, send ours.
@@ -228,6 +284,7 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 				// frame := pt[proto.VOICE_DOWN_HEADER_SIZE:]
 				// TODO: push (speaker, seq, frame) into a per-speaker jitter buffer -> Opus decode -> mixer.
 				c.recv_frames[speaker] += 1
+				publish_voice(c, speaker)
 			}
 		case .State:
 			handle_state_message(c, pt)
@@ -252,6 +309,7 @@ promote_pending :: proc(c: ^Voice_Client) {
 		c.next_frame = time.tick_now()
 		c.last_stats = c.next_frame
 		log.infof("connected to %s", c.server_addr)
+		publish_status(c, .Connected)
 	}
 }
 

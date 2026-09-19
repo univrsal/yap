@@ -19,6 +19,7 @@ Differences from core:log's console logger:
 - everything goes to stderr, so lines can't reorder between streams
 - a mutex around each line, so it's safe to log from several threads
 - optionally also appends to a file (without colors)
+- optionally hands each line to a sink, e.g. a UI log panel
 
 	2026-09-19 12:34:56.789 INFO  listening on udp :7777
 */
@@ -32,18 +33,28 @@ Log_Level :: enum {
 	error,
 }
 
+// Log_Sink receives every logged line (timestamp, level and text, no
+// colors or newline). It's called with the logger's lock held, from
+// whichever thread logged.
+Log_Sink :: struct {
+	procedure: proc(data: rawptr, level: log.Level, line: string),
+	data:      rawptr,
+}
+
 @(private = "file")
 Logger_Data :: struct {
 	mutex: sync.Mutex,
 	tz:    ^datetime.TZ_Region, // nil: timestamps in UTC
 	color: bool,
 	file:  ^os.File,
+	sink:  Log_Sink,
 }
 
 // init_logging creates the logger. Install it with `context.logger = logger`
 // and release it with destroy_logging.
-init_logging :: proc(level: Log_Level, log_file := "") -> (logger: log.Logger, ok: bool) {
+init_logging :: proc(level: Log_Level, log_file := "", sink := Log_Sink{}) -> (logger: log.Logger, ok: bool) {
 	data := new(Logger_Data)
+	data.sink = sink
 	data.color = terminal.is_terminal(os.stderr)
 	// If the local zone can't be loaded, fall back to UTC.
 	data.tz, _ = timezone.region_load("local")
@@ -122,5 +133,8 @@ logger_proc :: proc(logger_data: rawptr, level: log.Level, text: string, options
 	}
 	if data.file != nil {
 		fmt.fprintf(data.file, "%s%s %s\n", timestamp, name, text)
+	}
+	if data.sink.procedure != nil {
+		data.sink.procedure(data.sink.data, level, fmt.tprintf("%s%s %s", timestamp, name, text))
 	}
 }

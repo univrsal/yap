@@ -246,6 +246,8 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		if version := proto.decode_state_ack(pt); version == s.version {
 			c.user.acked_version = version
 		}
+	case .Leave:
+		drop_user(s, c.user)
 	case .State:
 		// Server-to-client only.
 	}
@@ -394,6 +396,19 @@ retire_superseded :: proc(s: ^Server, current: ^Client) {
 	}
 	for idx in stale {
 		drop_session(s, idx)
+	}
+}
+
+// drop_user ends every session of a user who said goodbye.
+drop_user :: proc(s: ^Server, u: ^User) {
+	stale := make([dynamic]u32, context.temp_allocator)
+	for idx, c in s.sessions {
+		if c.user == u {
+			append(&stale, idx)
+		}
+	}
+	for idx in stale {
+		drop_session(s, idx) // the last one frees u
 	}
 }
 

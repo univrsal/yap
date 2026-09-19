@@ -12,6 +12,10 @@ a keepalive. Integers are little-endian.
 	client -> server  Join       [kind][request u32][channel u16]
 	server -> client  State      [kind][version u32][chunk u8][chunk_count u8][bytes...]
 	client -> server  State_Ack  [kind][version u32]
+	client -> server  Leave      [kind]
+
+Leave is a courtesy so others see the user go right away instead of
+after SESSION_TIMEOUT; it's unreliable, so clients send a few copies.
 
 Channel state is synced as full snapshots, not deltas, so loss and
 reordering can't leave a client inconsistent: the server resends the
@@ -29,6 +33,7 @@ Message_Kind :: enum u8 {
 	Join      = 2,
 	State     = 3,
 	State_Ack = 4,
+	Leave     = 5,
 }
 
 VOICE_UP_HEADER_SIZE   :: 1 + 4
@@ -69,6 +74,7 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 	case .Join:      ok = len(pt) == JOIN_SIZE
 	case .State:     ok = len(pt) > STATE_HEADER_SIZE
 	case .State_Ack: ok = len(pt) == STATE_ACK_SIZE
+	case .Leave:     ok = len(pt) == 1
 	}
 	return
 }
