@@ -68,12 +68,12 @@ from files) and the training code are left out.
     #pragma GCC diagnostic ignored "-Wstrict-prototypes"
 #endif
 
-#include "ref/src/kiss_fft.c"
-#include "ref/src/celt_lpc.c"
-#include "ref/src/pitch.c"
-#include "ref/src/rnn.c"
-#include "ref/src/rnn_data.c"
-#include "ref/src/denoise.c"
+#include "impl/kiss_fft.c"
+#include "impl/celt_lpc.c"
+#include "impl/pitch.c"
+#include "impl/rnn.c"
+#include "impl/rnn_data.c"
+#include "impl/denoise.c"
 
 /* denoise.c fills its FFT and window tables lazily on first use, without
    locking; call this once before using denoisers from any thread. */
