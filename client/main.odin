@@ -9,6 +9,7 @@ import "../common"
 Options :: struct {
 	key:           string           `args:"pos=0,required" usage:"Private key file, created if missing."`,
 	server:        string           `args:"pos=1,required" usage:"Server address, host:port."`,
+	channel:       string           `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
 	known_servers: string           `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
 	log_level:     common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
 	log_file:      string           `usage:"Also append the log to this file."`,
@@ -33,7 +34,7 @@ main :: proc() {
 		}
 	}
 
-	if !run_client(opt.key, opt.server, opt.known_servers) {
+	if !run_client(opt.key, opt.server, opt.known_servers, opt.channel) {
 		os.exit(1)
 	}
 }

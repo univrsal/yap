@@ -12,9 +12,12 @@ import "../proto"
 // Bounds memory used by unauthenticated Handshake_Init floods.
 MAX_SESSIONS :: 256
 
+// Client is one session: a keyed connection from one client instance.
+// A user has more than one briefly while rekeying.
 Client :: struct {
 	using session: proto.Session,
 	handshake: proto.Responder, // in use until keyed
+	user:      ^User,           // set once keyed
 
 	endpoint:  net.Endpoint,
 	started:   time.Tick, // when the Handshake_Init arrived
@@ -30,18 +33,45 @@ Client :: struct {
 	superseded: bool,
 }
 
+// User is a connected identity (static key). Channel membership lives
+// here rather than on the session so it survives rekeys.
+User :: struct {
+	key:      [proto.KEY_SIZE]byte,
+	id:       u32, // common.key_id(key)
+	channel:  u16,
+	join_ack: u32, // newest Join request handled
+	sessions: int, // keyed sessions pointing here
+
+	// State sync: the newest snapshot version the client confirmed, and
+	// when we last sent it one.
+	acked_version:   u32,
+	sent_version:    u32,
+	last_state_sent: time.Tick,
+}
+
 Server :: struct {
 	sock:     net.UDP_Socket,
 	key:      ecdh.Private_Key,
 	sessions: map[u32]^Client, // by local_idx
+	users:    map[[proto.KEY_SIZE]byte]^User,
+	channels: []string,
+	// Bumped on every change clients should hear about. Never 0, which
+	// means "nothing acked yet".
+	version:  u32,
 }
 
-run_server :: proc(key_path: string, port: int) -> bool {
-	s: Server
+run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
+	s := Server{version = 1}
 	if !common.load_or_create_private_key(key_path, &s.key) {
 		return false
 	}
 	defer ecdh.private_key_clear(&s.key)
+
+	channels, channels_ok := load_channels(channels_path)
+	if !channels_ok {
+		return false
+	}
+	s.channels = channels
 
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
 	if err != nil {
@@ -50,8 +80,9 @@ run_server :: proc(key_path: string, port: int) -> bool {
 	}
 	defer net.close(sock)
 	s.sock = sock
-	// Wake up periodically even when idle so stale sessions get reaped.
-	net.set_option(sock, .Receive_Timeout, 250 * time.Millisecond)
+	// Wake up periodically even when idle so stale sessions get reaped
+	// and unacked state gets resent.
+	net.set_option(sock, .Receive_Timeout, 100 * time.Millisecond)
 
 	log.infof("listening on udp :%d", port)
 	log.infof("server public key: %s", common.public_key_hex(&s.key))
@@ -72,6 +103,7 @@ run_server :: proc(key_path: string, port: int) -> bool {
 		}
 
 		reap_sessions(&s)
+		sync_state(&s)
 	}
 }
 
@@ -152,18 +184,28 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	c.endpoint = from
 	c.last_recv = time.tick_now()
 
-	rekey := false
 	for _, other in s.sessions {
 		if other != c && other.keyed && other.peer_key == c.peer_key {
 			other.superseded = true
-			rekey = true
 		}
 	}
-	if rekey {
-		log.debugf("%08x rekeyed", common.key_id(c.peer_key))
+
+	u := s.users[c.peer_key] or_else nil
+	if u == nil {
+		u = new(User)
+		u.key = c.peer_key
+		u.id = common.key_id(u.key)
+		s.users[u.key] = u
+		bump_version(s)
+		log.infof("%08x joined from %v, in %q", u.id, net.to_string(from), s.channels[u.channel])
 	} else {
-		log.infof("%08x joined from %v", common.key_id(c.peer_key), net.to_string(from))
+		log.debugf("%08x has a new session", u.id)
 	}
+	u.sessions += 1
+	c.user = u
+	// This may be a restarted client that has never seen a snapshot, so
+	// make sure the current one gets sent on the new session.
+	u.acked_version = 0
 
 	send_keepalive(s, c)
 }
@@ -189,12 +231,123 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		retire_superseded(s, c)
 	}
 
-	if len(pt) == 0 {
-		return // keepalive
+	kind, kind_ok := proto.message_kind(pt)
+	if !kind_ok {
+		return // keepalive, or malformed
 	}
-	if proto.Message_Kind(pt[0]) == .Voice && len(pt) >= proto.VOICE_UP_HEADER_SIZE {
-		relay_voice(s, c, pt)
+	switch kind {
+	case .Voice:
+		if len(pt) >= proto.VOICE_UP_HEADER_SIZE {
+			relay_voice(s, c, pt)
+		}
+	case .Join:
+		handle_join(s, c.user, pt)
+	case .State_Ack:
+		if version := proto.decode_state_ack(pt); version == s.version {
+			c.user.acked_version = version
+		}
+	case .State:
+		// Server-to-client only.
 	}
+}
+
+handle_join :: proc(s: ^Server, u: ^User, pt: []byte) {
+	request, channel := proto.decode_join(pt)
+	if !proto.serial_newer(request, u.join_ack) {
+		return // a retransmit of something already handled
+	}
+	u.join_ack = request
+
+	switch {
+	case int(channel) >= len(s.channels):
+		log.debugf("%08x asked for unknown channel %d", u.id, channel)
+	case channel != u.channel:
+		log.infof("%08x moved from %q to %q", u.id, s.channels[u.channel], s.channels[channel])
+		u.channel = channel
+	}
+	// Even a refused join changes join_ack, which the client waits for.
+	bump_version(s)
+}
+
+bump_version :: proc(s: ^Server) {
+	s.version += 1
+	if s.version == 0 {
+		s.version = 1
+	}
+}
+
+// sync_state sends the current snapshot to every user who hasn't acked
+// it: immediately after a change, then every CONTROL_RESEND until acked.
+sync_state :: proc(s: ^Server) {
+	now := time.tick_now()
+	needs_state :: proc(s: ^Server, u: ^User, now: time.Tick) -> bool {
+		return u.acked_version != s.version &&
+		       (u.sent_version != s.version || time.tick_diff(u.last_state_sent, now) >= proto.CONTROL_RESEND)
+	}
+
+	any_due := false
+	for _, u in s.users {
+		if needs_state(s, u, now) {
+			any_due = true
+			break
+		}
+	}
+	if !any_due {
+		return
+	}
+
+	// The channel list and rosters are the same for everyone.
+	members := make([][dynamic]u32, len(s.channels), context.temp_allocator)
+	for &m in members {
+		m = make([dynamic]u32, context.temp_allocator)
+	}
+	for _, u in s.users {
+		append(&members[u.channel], u.id)
+	}
+	infos := make([]proto.Channel_Info, len(s.channels), context.temp_allocator)
+	for &info, i in infos {
+		info = {name = s.channels[i], members = members[i][:]}
+	}
+
+	body_buf: [proto.MAX_STATE_SIZE]byte
+	for _, u in s.users {
+		if !needs_state(s, u, now) {
+			continue
+		}
+		c := sending_session(s, u)
+		if c == nil {
+			continue
+		}
+		state := proto.Channel_State{your_channel = u.channel, join_ack = u.join_ack, channels = infos}
+		body, ok := proto.encode_state(state, body_buf[:])
+		if !ok {
+			log.errorf("channel state doesn't fit in %d bytes", proto.MAX_STATE_SIZE)
+			continue
+		}
+		count := proto.state_chunk_count(len(body))
+		log.debugf("sending state v%d to %08x (%d bytes, %d chunks)", s.version, u.id, len(body), count)
+
+		chunk_buf: [proto.MAX_PAYLOAD_SIZE]byte
+		pkt_buf: [proto.MAX_PACKET_SIZE]byte
+		for i in 0 ..< count {
+			chunk := proto.encode_state_chunk(chunk_buf[:], s.version, body, i)
+			if pkt, sealed := proto.seal(&c.session, chunk, pkt_buf[:]); sealed {
+				net.send_udp(s.sock, pkt, c.endpoint)
+			}
+		}
+		u.sent_version = s.version
+		u.last_state_sent = now
+	}
+}
+
+// sending_session returns the user's newest session.
+sending_session :: proc(s: ^Server, u: ^User) -> ^Client {
+	for _, c in s.sessions {
+		if c.user == u && c.keyed && !c.superseded {
+			return c
+		}
+	}
+	return nil
 }
 
 send_keepalive :: proc(s: ^Server, c: ^Client) {
@@ -204,8 +357,8 @@ send_keepalive :: proc(s: ^Server, c: ^Client) {
 	}
 }
 
-// relay_voice forwards a voice frame to every other client, re-encrypted
-// under each recipient's newest session.
+// relay_voice forwards a voice frame to everyone else in the speaker's
+// channel, re-encrypted under each recipient's newest session.
 relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	// [kind][seq][frame] -> [kind][speaker][seq][frame]
 	out_pt: [proto.MAX_PAYLOAD_SIZE]byte
@@ -215,13 +368,13 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 		return
 	}
 	out_pt[0] = u8(proto.Message_Kind.Voice)
-	endian.unchecked_put_u32le(out_pt[1:], common.key_id(from.peer_key))
+	endian.unchecked_put_u32le(out_pt[1:], from.user.id)
 	copy(out_pt[5:], body)
 	msg := out_pt[:n]
 
 	pkt_buf: [proto.MAX_PACKET_SIZE]byte
 	for _, c in s.sessions {
-		if !c.keyed || c.superseded || c.peer_key == from.peer_key {
+		if !c.keyed || c.superseded || c.user == from.user || c.user.channel != from.user.channel {
 			continue
 		}
 		if pkt, ok := proto.seal(&c.session, msg, pkt_buf[:]); ok {
@@ -235,7 +388,7 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 retire_superseded :: proc(s: ^Server, current: ^Client) {
 	stale := make([dynamic]u32, context.temp_allocator)
 	for idx, c in s.sessions {
-		if c != current && c.superseded && c.peer_key == current.peer_key {
+		if c != current && c.superseded && c.user == current.user {
 			append(&stale, idx)
 		}
 	}
@@ -260,26 +413,24 @@ reap_sessions :: proc(s: ^Server) {
 		}
 	}
 	for idx in stale {
-		c := s.sessions[idx]
-		if c.keyed && !has_other_session(s, c) {
-			log.infof("%08x left", common.key_id(c.peer_key))
-		}
 		drop_session(s, idx)
 	}
-}
-
-has_other_session :: proc(s: ^Server, c: ^Client) -> bool {
-	for _, other in s.sessions {
-		if other != c && other.keyed && other.peer_key == c.peer_key {
-			return true
-		}
-	}
-	return false
 }
 
 drop_session :: proc(s: ^Server, idx: u32) {
 	c := s.sessions[idx]
 	delete_key(&s.sessions, idx)
+
+	if u := c.user; u != nil {
+		u.sessions -= 1
+		if u.sessions == 0 {
+			log.infof("%08x left", u.id)
+			delete_key(&s.users, u.key)
+			free(u)
+			bump_version(s)
+		}
+	}
+
 	proto.responder_reset(&c.handshake)
 	proto.session_reset(&c.session)
 	free(c)

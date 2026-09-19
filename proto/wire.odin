@@ -41,7 +41,7 @@ import "core:time"
 PROTOCOL_NAME :: "Noise_XX_25519_ChaChaPoly_BLAKE2s"
 // Mixed into the handshake transcript; bump it on incompatible changes
 // so mismatched peers fail the handshake instead of misparsing data.
-PROLOGUE :: "yap v2"
+PROLOGUE :: "yap v3"
 
 KEY_SIZE :: 32
 TAG_SIZE :: 16
@@ -100,17 +100,3 @@ packet_type :: proc(packet: []byte) -> Packet_Type {
 	}
 	return .Invalid
 }
-
-/*
-Application messages, carried as Data plaintext. An empty plaintext is
-a keepalive.
-
-	client -> server  Voice  [kind u8][seq u32][frame...]
-	server -> client  Voice  [kind u8][speaker u32][seq u32][frame...]
-*/
-Message_Kind :: enum u8 {
-	Voice = 1,
-}
-
-VOICE_UP_HEADER_SIZE   :: 1 + 4
-VOICE_DOWN_HEADER_SIZE :: 1 + 4 + 4

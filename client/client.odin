@@ -22,6 +22,7 @@ Voice_Client :: struct {
 	server_addr:   string, // as typed; the key in known_servers
 	known_servers: string,
 	key:           ecdh.Private_Key,
+	my_id:         u32,
 
 	handshake: proto.Initiator,
 	// Keys derived, Finish sent, waiting for the server's first Data
@@ -40,14 +41,19 @@ Voice_Client :: struct {
 	next_frame: time.Tick,
 	seq:        u32,
 
+	channels: Channel_Client,
+	commands: Command_Queue,
+
 	// Per-second stats, keyed by speaker id.
 	recv_frames: map[u32]int,
 	sent_frames: int,
 	last_stats:  time.Tick,
 }
 
-run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
-	c: Voice_Client
+run_client :: proc(key_path, server_addr, known_servers, initial_channel: string) -> bool {
+	// Heap-allocated: the channel state buffers make it fairly large.
+	c := new(Voice_Client)
+	defer free(c)
 	c.server_addr = server_addr
 	c.known_servers = known_servers
 	if !common.load_or_create_private_key(key_path, &c.key) {
@@ -73,26 +79,40 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 	net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
 
 	log.infof("my public key: %s", common.public_key_hex(&c.key))
+	pub: [proto.KEY_SIZE]byte
+	ecdh.private_key_public_bytes(&c.key, pub[:])
+	c.my_id = common.key_id(pub)
 	c.last_stats = time.tick_now()
+
+	if initial_channel != "" {
+		request_join(c, initial_channel)
+	}
+	start_command_reader(&c.commands)
 
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
 	for {
 		free_all(context.temp_allocator)
 
-		drive_handshake(&c)
+		drive_handshake(c)
+		process_commands(c)
+		drive_join(c)
 
 		if c.has_current {
 			if time.tick_diff(c.next_frame, time.tick_now()) >= 0 {
-				send_fake_frame(&c)
+				if in_settled_channel(c) {
+					send_fake_frame(c)
+				} else {
+					c.next_frame = time.tick_now() // stay quiet, but don't fall behind
+				}
 			} else if time.tick_since(c.last_sent) >= proto.KEEPALIVE_AFTER {
-				send_data(&c, nil)
+				send_data(c, nil)
 			}
 		}
 
 		n, from, recv_err := net.recv_udp(sock, recv_buf[:])
 		#partial switch recv_err {
 		case .None:
-			if from == c.server && !common.simulate_loss() && !handle_server_packet(&c, recv_buf[:n]) {
+			if from == c.server && !common.simulate_loss() && !handle_server_packet(c, recv_buf[:n]) {
 				return false
 			}
 		case .Timeout, .Would_Block:
@@ -100,7 +120,7 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 			log.errorf("recv error: %v", recv_err)
 		}
 
-		log_stats(&c)
+		log_stats(c)
 	}
 }
 
@@ -196,12 +216,21 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		if sess == &c.pending {
 			promote_pending(c)
 		}
-		if len(pt) > 0 && proto.Message_Kind(pt[0]) == .Voice && len(pt) >= proto.VOICE_DOWN_HEADER_SIZE {
-			speaker := endian.unchecked_get_u32le(pt[1:])
-			// seq := endian.unchecked_get_u32le(pt[5:])
-			// frame := pt[proto.VOICE_DOWN_HEADER_SIZE:]
-			// TODO: push (speaker, seq, frame) into a per-speaker jitter buffer -> Opus decode -> mixer.
-			c.recv_frames[speaker] += 1
+		kind, kind_ok := proto.message_kind(pt)
+		if !kind_ok {
+			return true // keepalive, or malformed
+		}
+		#partial switch kind {
+		case .Voice:
+			if len(pt) >= proto.VOICE_DOWN_HEADER_SIZE && in_settled_channel(c) {
+				speaker := endian.unchecked_get_u32le(pt[1:])
+				// seq := endian.unchecked_get_u32le(pt[5:])
+				// frame := pt[proto.VOICE_DOWN_HEADER_SIZE:]
+				// TODO: push (speaker, seq, frame) into a per-speaker jitter buffer -> Opus decode -> mixer.
+				c.recv_frames[speaker] += 1
+			}
+		case .State:
+			handle_state_message(c, pt)
 		}
 	}
 	return true
