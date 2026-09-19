@@ -1,11 +1,11 @@
-package yap
+package client
 
 import "core:encoding/hex"
 import "core:fmt"
 import "core:os"
 import "core:strings"
 
-import "proto"
+import "../proto"
 
 /*
 Trust-on-first-use store for server keys, like ssh's known_hosts: one
@@ -19,12 +19,14 @@ Trust :: enum {
 	Mismatch, // saved key differs: possible impersonation
 }
 
-default_known_servers_path :: proc() -> string {
+// The result lives for the whole run, so it must not come from the temp
+// allocator: the client loop frees that every iteration.
+default_known_servers_path :: proc(allocator := context.allocator) -> string {
 	dir, err := os.user_config_dir(context.temp_allocator)
 	if err != nil {
 		return ""
 	}
-	path, _ := os.join_path({dir, "yap", "known_servers"}, context.temp_allocator)
+	path, _ := os.join_path({dir, "yap", "known_servers"}, allocator)
 	return path
 }
 

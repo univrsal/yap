@@ -1,4 +1,4 @@
-package yap
+package client
 
 import "core:crypto/ecdh"
 import "core:encoding/endian"
@@ -7,7 +7,8 @@ import "core:fmt"
 import "core:net"
 import "core:time"
 
-import "proto"
+import "../common"
+import "../proto"
 
 // Stand-in for audio until Opus is wired up: 20 ms frames of ~32 kbps.
 FRAME_INTERVAL :: 20 * time.Millisecond
@@ -47,7 +48,7 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 	c: Voice_Client
 	c.server_addr = server_addr
 	c.known_servers = known_servers
-	if !load_or_create_private_key(key_path, &c.key) {
+	if !common.load_or_create_private_key(key_path, &c.key) {
 		return false
 	}
 	defer ecdh.private_key_clear(&c.key)
@@ -69,7 +70,7 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 	// Short timeout so the loop can also pace outgoing frames.
 	net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
 
-	fmt.printfln("my public key: %s", public_key_hex(&c.key))
+	fmt.printfln("my public key: %s", common.public_key_hex(&c.key))
 	c.last_stats = time.tick_now()
 
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
@@ -89,7 +90,7 @@ run_client :: proc(key_path, server_addr, known_servers: string) -> bool {
 		n, from, recv_err := net.recv_udp(sock, recv_buf[:])
 		#partial switch recv_err {
 		case .None:
-			if from == c.server && !simulate_loss() && !handle_server_packet(&c, recv_buf[:n]) {
+			if from == c.server && !common.simulate_loss() && !handle_server_packet(&c, recv_buf[:n]) {
 				return false
 			}
 		case .Timeout, .Would_Block:
@@ -215,6 +216,7 @@ promote_pending :: proc(c: ^Voice_Client) {
 
 	if !c.has_previous {
 		c.next_frame = time.tick_now()
+		c.last_stats = c.next_frame
 		fmt.println("connected")
 	}
 }

@@ -1,4 +1,4 @@
-package yap
+package common
 
 import "core:crypto/ecdh"
 import "core:encoding/hex"
@@ -6,7 +6,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 
-import "proto"
+import "../proto"
 
 // Private keys are stored as a single line of hex, readable only by the owner.
 keygen :: proc(path: string) -> bool {
@@ -51,11 +51,6 @@ load_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool {
 		return false
 	}
 	return true
-}
-
-parse_public_key :: proc(s: string, key: ^ecdh.Public_Key) -> bool {
-	raw, ok := hex.decode(transmute([]byte)strings.trim_space(s), context.temp_allocator)
-	return ok && len(raw) == proto.KEY_SIZE && ecdh.public_key_set_bytes(key, .X25519, raw)
 }
 
 public_key_hex :: proc(key: ^ecdh.Private_Key) -> string {

@@ -1,4 +1,4 @@
-package yap
+package server
 
 import "core:crypto/ecdh"
 import "core:encoding/endian"
@@ -6,7 +6,8 @@ import "core:fmt"
 import "core:net"
 import "core:time"
 
-import "proto"
+import "../common"
+import "../proto"
 
 // Bounds memory used by unauthenticated Handshake_Init floods.
 MAX_SESSIONS :: 256
@@ -37,7 +38,7 @@ Server :: struct {
 
 run_server :: proc(key_path: string, port: int) -> bool {
 	s: Server
-	if !load_or_create_private_key(key_path, &s.key) {
+	if !common.load_or_create_private_key(key_path, &s.key) {
 		return false
 	}
 	defer ecdh.private_key_clear(&s.key)
@@ -53,7 +54,7 @@ run_server :: proc(key_path: string, port: int) -> bool {
 	net.set_option(sock, .Receive_Timeout, 250 * time.Millisecond)
 
 	fmt.printfln("listening on udp :%d", port)
-	fmt.printfln("server public key: %s", public_key_hex(&s.key))
+	fmt.printfln("server public key: %s", common.public_key_hex(&s.key))
 
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
 	for {
@@ -62,7 +63,7 @@ run_server :: proc(key_path: string, port: int) -> bool {
 		n, from, recv_err := net.recv_udp(sock, recv_buf[:])
 		#partial switch recv_err {
 		case .None:
-			if !simulate_loss() {
+			if !common.simulate_loss() {
 				handle_packet(&s, recv_buf[:n], from)
 			}
 		case .Timeout, .Would_Block:
@@ -157,7 +158,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		}
 	}
 	if !rekey {
-		fmt.printfln("%08x joined from %v", key_id(c.peer_key), net.to_string(from))
+		fmt.printfln("%08x joined from %v", common.key_id(c.peer_key), net.to_string(from))
 	}
 
 	send_keepalive(s, c)
@@ -210,7 +211,7 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 		return
 	}
 	out_pt[0] = u8(proto.Message_Kind.Voice)
-	endian.unchecked_put_u32le(out_pt[1:], key_id(from.peer_key))
+	endian.unchecked_put_u32le(out_pt[1:], common.key_id(from.peer_key))
 	copy(out_pt[5:], body)
 	msg := out_pt[:n]
 
@@ -257,7 +258,7 @@ reap_sessions :: proc(s: ^Server) {
 	for idx in stale {
 		c := s.sessions[idx]
 		if c.keyed && !has_other_session(s, c) {
-			fmt.printfln("%08x left", key_id(c.peer_key))
+			fmt.printfln("%08x left", common.key_id(c.peer_key))
 		}
 		drop_session(s, idx)
 	}
