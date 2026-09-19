@@ -30,6 +30,15 @@ keygen :: proc(path: string) -> bool {
 	return true
 }
 
+// load_or_create_private_key loads `path`, generating a new key there
+// first if the file doesn't exist yet.
+load_or_create_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool {
+	if !os.exists(path) && !keygen(path) {
+		return false
+	}
+	return load_private_key(path, key)
+}
+
 load_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool {
 	data, err := os.read_entire_file(path, context.temp_allocator)
 	if err != nil {

@@ -13,9 +13,20 @@ MAX_SESSIONS :: 256
 
 Client :: struct {
 	using session: proto.Session,
+	handshake: proto.Responder, // in use until keyed
+
 	endpoint:  net.Endpoint,
-	confirmed: bool, // a valid Data packet has arrived on this session
+	started:   time.Tick, // when the Handshake_Init arrived
 	last_recv: time.Tick,
+
+	// Handshake_Finish verified: the client proved it holds its key.
+	keyed: bool,
+	// The client has sent Data on this session, so it has switched over
+	// and any older sessions with the same key can go.
+	confirmed: bool,
+	// A newer session with the same client key exists. Still accepted
+	// for receiving (packets in flight), never used for sending.
+	superseded: bool,
 }
 
 Server :: struct {
@@ -26,7 +37,7 @@ Server :: struct {
 
 run_server :: proc(key_path: string, port: int) -> bool {
 	s: Server
-	if !load_private_key(key_path, &s.key) {
+	if !load_or_create_private_key(key_path, &s.key) {
 		return false
 	}
 	defer ecdh.private_key_clear(&s.key)
@@ -51,7 +62,9 @@ run_server :: proc(key_path: string, port: int) -> bool {
 		n, from, recv_err := net.recv_udp(sock, recv_buf[:])
 		#partial switch recv_err {
 		case .None:
-			handle_packet(&s, recv_buf[:n], from)
+			if !simulate_loss() {
+				handle_packet(&s, recv_buf[:n], from)
+			}
 		case .Timeout, .Would_Block:
 		case:
 			fmt.eprintln("recv error:", recv_err)
@@ -65,6 +78,8 @@ handle_packet :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	#partial switch proto.packet_type(packet) {
 	case .Handshake_Init:
 		handle_init(s, packet, from)
+	case .Handshake_Finish:
+		handle_finish(s, packet, from)
 	case .Data:
 		handle_data(s, packet, from)
 	}
@@ -72,6 +87,16 @@ handle_packet :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 }
 
 handle_init :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
+	// A retransmitted Init (our Resp got lost) gets the same Resp again
+	// rather than a second handshake.
+	sender_idx := proto.init_sender_index(packet)
+	for _, c in s.sessions {
+		if !c.keyed && c.handshake.remote_idx == sender_idx && c.endpoint == from {
+			net.send_udp(s.sock, c.handshake.packet[:], from)
+			return
+		}
+	}
+
 	if len(s.sessions) >= MAX_SESSIONS {
 		return
 	}
@@ -85,23 +110,62 @@ handle_init :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 
 	c := new(Client)
-	resp_buf: [proto.MAX_PACKET_SIZE]byte
-	resp, ok := proto.responder_accept(&s.key, packet, idx, &c.session, resp_buf[:])
+	resp, ok := proto.responder_start(&c.handshake, &s.key, packet, idx)
 	if !ok {
 		free(c)
 		return
 	}
-	// TODO: check c.peer_key against an allowlist here to restrict who can join.
-
 	c.endpoint = from
-	c.last_recv = time.tick_now()
+	c.started = time.tick_now()
 	s.sessions[idx] = c
 	net.send_udp(s.sock, resp, from)
 }
 
+handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
+	idx := proto.receiver_index(packet)
+	c := s.sessions[idx] or_else nil
+	if c == nil {
+		return
+	}
+	if c.keyed {
+		// Our confirmation got lost and the client resent Finish. Confirm
+		// again, to the address we know rather than the (unauthenticated)
+		// source of this packet.
+		send_keepalive(s, c)
+		return
+	}
+
+	// On failure the handshake state is spent, so the session goes too.
+	// The client will time out and start a fresh handshake.
+	_, ok := proto.responder_finish(&c.handshake, packet, &c.session)
+	if !ok {
+		drop_session(s, idx)
+		return
+	}
+	// The msg3 payload is where a server password will be checked.
+	// TODO: check c.peer_key against an allowlist here to restrict who can join.
+
+	c.keyed = true
+	c.endpoint = from
+	c.last_recv = time.tick_now()
+
+	rekey := false
+	for _, other in s.sessions {
+		if other != c && other.keyed && other.peer_key == c.peer_key {
+			other.superseded = true
+			rekey = true
+		}
+	}
+	if !rekey {
+		fmt.printfln("%08x joined from %v", key_id(c.peer_key), net.to_string(from))
+	}
+
+	send_keepalive(s, c)
+}
+
 handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
-	c := s.sessions[proto.data_receiver_index(packet)] or_else nil
-	if c == nil || time.tick_since(c.created) > proto.REJECT_AFTER {
+	c := s.sessions[proto.receiver_index(packet)] or_else nil
+	if c == nil || !c.keyed || time.tick_since(c.created) > proto.REJECT_AFTER {
 		return
 	}
 
@@ -115,13 +179,9 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	c.endpoint = from
 	c.last_recv = time.tick_now()
 
-	if !c.confirmed {
+	if !c.confirmed && !c.superseded {
 		c.confirmed = true
-		if has_other_session(s, c) {
-			retire_older_sessions(s, c)
-		} else {
-			fmt.printfln("%08x joined from %v", key_id(c.peer_key), net.to_string(from))
-		}
+		retire_superseded(s, c)
 	}
 
 	if len(pt) == 0 {
@@ -132,8 +192,15 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 }
 
-// relay_voice forwards a voice frame to every other confirmed client,
-// re-encrypted under each recipient's session.
+send_keepalive :: proc(s: ^Server, c: ^Client) {
+	pkt_buf: [proto.MAX_PACKET_SIZE]byte
+	if pkt, ok := proto.seal(&c.session, nil, pkt_buf[:]); ok {
+		net.send_udp(s.sock, pkt, c.endpoint)
+	}
+}
+
+// relay_voice forwards a voice frame to every other client, re-encrypted
+// under each recipient's newest session.
 relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	// [kind][seq][frame] -> [kind][speaker][seq][frame]
 	out_pt: [proto.MAX_PAYLOAD_SIZE]byte
@@ -149,7 +216,7 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 
 	pkt_buf: [proto.MAX_PACKET_SIZE]byte
 	for _, c in s.sessions {
-		if !c.confirmed || c.peer_key == from.peer_key {
+		if !c.keyed || c.superseded || c.peer_key == from.peer_key {
 			continue
 		}
 		if pkt, ok := proto.seal(&c.session, msg, pkt_buf[:]); ok {
@@ -158,12 +225,12 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	}
 }
 
-// After a rekey the client has moved to the new session, so older ones
-// for the same key are dead weight (and would get duplicate relays).
-retire_older_sessions :: proc(s: ^Server, current: ^Client) {
+// Once the client is using its new session, the ones it replaced are
+// dead weight.
+retire_superseded :: proc(s: ^Server, current: ^Client) {
 	stale := make([dynamic]u32, context.temp_allocator)
 	for idx, c in s.sessions {
-		if c != current && c.peer_key == current.peer_key {
+		if c != current && c.superseded && c.peer_key == current.peer_key {
 			append(&stale, idx)
 		}
 	}
@@ -177,8 +244,8 @@ reap_sessions :: proc(s: ^Server) {
 	for idx, c in s.sessions {
 		expired: bool
 		switch {
-		case !c.confirmed:
-			expired = time.tick_since(c.created) > proto.HANDSHAKE_TIMEOUT
+		case !c.keyed:
+			expired = time.tick_since(c.started) > proto.HANDSHAKE_TIMEOUT
 		case:
 			expired = time.tick_since(c.last_recv) > proto.SESSION_TIMEOUT ||
 			          time.tick_since(c.created) > proto.REJECT_AFTER
@@ -189,7 +256,7 @@ reap_sessions :: proc(s: ^Server) {
 	}
 	for idx in stale {
 		c := s.sessions[idx]
-		if c.confirmed && !has_other_session(s, c) {
+		if c.keyed && !has_other_session(s, c) {
 			fmt.printfln("%08x left", key_id(c.peer_key))
 		}
 		drop_session(s, idx)
@@ -198,7 +265,7 @@ reap_sessions :: proc(s: ^Server) {
 
 has_other_session :: proc(s: ^Server, c: ^Client) -> bool {
 	for _, other in s.sessions {
-		if other != c && other.confirmed && other.peer_key == c.peer_key {
+		if other != c && other.keyed && other.peer_key == c.peer_key {
 			return true
 		}
 	}
@@ -208,6 +275,7 @@ has_other_session :: proc(s: ^Server, c: ^Client) -> bool {
 drop_session :: proc(s: ^Server, idx: u32) {
 	c := s.sessions[idx]
 	delete_key(&s.sessions, idx)
+	proto.responder_reset(&c.handshake)
 	proto.session_reset(&c.session)
 	free(c)
 }
