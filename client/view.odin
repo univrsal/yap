@@ -51,9 +51,23 @@ View :: struct {
 	mic_time:   time.Tick,
 	// Last time each user's voice was heard, for a speaking indicator.
 	speaking:   map[u32]time.Tick,
+	// Text chat in our channel, oldest first.
+	chat:       [dynamic]View_Chat_Line,
+	chat_total:  int, // lines ever added, so the UI knows when to scroll
+	chat_unread: int, // new messages from others; the UI zeroes it when seen
+	outbox:     [dynamic]string, // our messages the server hasn't confirmed yet
+	typing:     map[u32]time.Tick, // when each user last said they're typing
+}
+
+View_Chat_Line :: struct {
+	sender: u32,
+	time:   u32, // unix seconds
+	name:   string, // owned
+	text:   string, // owned
 }
 
 SPEAKING_HOLD :: 250 * time.Millisecond
+MAX_CHAT_LINES :: 500
 
 view_init :: proc(v: ^View) {
 	v.my_channel = -1
@@ -71,6 +85,8 @@ view_reset :: proc(v: ^View) {
 	v.status = .Disconnected
 	v.my_channel, v.joining = -1, -1
 	clear(&v.speaking)
+	view_clear_chat(v)
+	view_clear_outbox(v)
 }
 
 view_destroy :: proc(v: ^View) {
@@ -78,6 +94,28 @@ view_destroy :: proc(v: ^View) {
 	delete(v.channels)
 	delete(v.users)
 	delete(v.speaking)
+	delete(v.chat)
+	delete(v.outbox)
+	delete(v.typing)
+}
+
+@(private = "file")
+view_clear_chat :: proc(v: ^View) {
+	for l in v.chat {
+		delete(l.name)
+		delete(l.text)
+	}
+	clear(&v.chat)
+	clear(&v.typing)
+	v.chat_unread = 0
+}
+
+@(private = "file")
+view_clear_outbox :: proc(v: ^View) {
+	for m in v.outbox {
+		delete(m)
+	}
+	clear(&v.outbox)
 }
 
 @(private = "file")
@@ -162,6 +200,74 @@ publish_voice :: proc(c: ^Voice_Client, speaker: u32) {
 	}
 	sync.guard(&v.mutex)
 	v.speaking[speaker] = time.tick_now()
+}
+
+publish_chat_reset :: proc(c: ^Voice_Client) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	view_clear_chat(v)
+}
+
+publish_chat :: proc(c: ^Voice_Client, e: proto.Chat_Entry, unread: bool) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	name := chat_sender_name(c, e)
+	sync.guard(&v.mutex)
+	if len(v.chat) >= MAX_CHAT_LINES {
+		drop := MAX_CHAT_LINES / 10
+		for old in v.chat[:drop] {
+			delete(old.name)
+			delete(old.text)
+		}
+		remove_range(&v.chat, 0, drop)
+	}
+	append(
+		&v.chat,
+		View_Chat_Line {
+			sender = e.sender,
+			time = e.time,
+			name = strings.clone(name),
+			text = strings.clone(e.text),
+		},
+	)
+	v.chat_total += 1
+	if unread {
+		v.chat_unread += 1
+	}
+	// They're done typing, at least this message.
+	delete_key(&v.typing, e.sender)
+}
+
+publish_outbox :: proc(c: ^Voice_Client) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	view_clear_outbox(v)
+	for m in c.chat.outbox {
+		append(&v.outbox, strings.clone(m.text))
+	}
+}
+
+publish_typing :: proc(c: ^Voice_Client, user: u32) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	v.typing[user] = time.tick_now()
+}
+
+// is_typing says whether a user has told us recently they're typing.
+is_typing :: proc(v: ^View, user: u32) -> bool {
+	t, ok := v.typing[user]
+	return ok && time.tick_since(t) < TYPING_SHOW
 }
 
 /*

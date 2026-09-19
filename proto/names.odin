@@ -20,15 +20,21 @@ MAX_NAME_SIZE :: 32 // bytes of UTF-8
 // surrounding whitespace trimmed and at most MAX_NAME_SIZE bytes, cut on a
 // character boundary. The result points into `buf`.
 sanitize_name :: proc(name: string, buf: ^[MAX_NAME_SIZE]u8) -> string {
+	return sanitize_text(name, buf[:])
+}
+
+// sanitize_text is sanitize_name for any text and limit (len(buf)); used
+// for chat messages too. Tabs and newlines become spaces.
+sanitize_text :: proc(text: string, buf: []u8) -> string {
 	n := 0
-	for r in name {
+	for r in text {
 		switch {
 		case r == utf8.RUNE_ERROR:
 			continue // invalid UTF-8
 		case r < 0x20, r == 0x7f, r >= 0x80 && r < 0xa0:
-			if r == '\t' {
-				// Treat tabs as spaces; drop every other control character.
-				if n < MAX_NAME_SIZE {
+			if r == '\t' || r == '\n' || r == '\r' {
+				// Whitespace becomes a space; other control characters go.
+				if n < len(buf) {
 					buf[n] = ' '
 					n += 1
 				}
@@ -38,7 +44,7 @@ sanitize_name :: proc(name: string, buf: ^[MAX_NAME_SIZE]u8) -> string {
 			continue
 		}
 		bytes, w := utf8.encode_rune(r)
-		if n + w > MAX_NAME_SIZE {
+		if n + w > len(buf) {
 			break
 		}
 		copy(buf[n:], bytes[:w])

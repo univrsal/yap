@@ -50,6 +50,8 @@ User :: struct {
 	acked_version:   u32,
 	sent_version:    u32,
 	last_state_sent: time.Tick,
+
+	chat:            Chat_Stream,
 }
 
 Server :: struct {
@@ -58,6 +60,7 @@ Server :: struct {
 	sessions: map[u32]^Client, // by local_idx
 	users:    map[[proto.KEY_SIZE]byte]^User,
 	channels: []string,
+	chats:    []Chat_Log, // one per channel
 	// Bumped on every change clients should hear about. Never 0, which
 	// means "nothing acked yet".
 	version:  u32,
@@ -79,6 +82,7 @@ run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
 		return false
 	}
 	s.channels = channels
+	s.chats = make([]Chat_Log, len(channels))
 
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
 	if err != nil {
@@ -111,6 +115,7 @@ run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
 
 		reap_sessions(&s)
 		sync_state(&s)
+		chat_sync(&s)
 	}
 }
 
@@ -224,6 +229,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	// This may be a restarted client that has never seen a snapshot, so
 	// make sure the current one gets sent on the new session.
 	u.acked_version = 0
+	chat_restart(u)
 
 	send_keepalive(s, c)
 }
@@ -270,7 +276,15 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		if rename(s, c.user, proto.decode_set_name(pt)) {
 			bump_version(s)
 		}
-	case .State:
+	case .Chat_Send:
+		handle_chat_send(s, c, pt)
+	case .Chat_Received:
+		handle_chat_received(c.user, pt)
+	case .Typing:
+		if len(pt) == proto.TYPING_UP_SIZE {
+			handle_typing(s, c.user)
+		}
+	case .State, .Chat_Sent, .Chat:
 	// Server-to-client only.
 	}
 }

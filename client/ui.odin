@@ -81,6 +81,7 @@ UI :: struct {
 	// waiting on the View lock, so it happens after layout, not during.
 	action:         Action,
 	log_seen:       int, // Log_Lines.total when the log panel was last scrolled
+	chat:           UI_Chat, // the chat tab (ui_chat.odin)
 	muted:          bool,
 
 	// The user whose menu is open, and its volume slider's value (the
@@ -124,6 +125,8 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	ui.opts = opts
 	view_init(&ui.view)
 	defer view_destroy(&ui.view)
+	ui_chat_init(ui)
+	defer ui_chat_destroy(ui)
 
 	// Load (or create) the key now, to show our id before connecting.
 	{
@@ -566,10 +569,9 @@ session_screen :: proc(ui: ^UI) {
 	mu.end_panel(ctx)
 	user_menu(ui)
 
-	log_panel(ui)
+	side_panel(ui)
 }
 
-@(private = "file")
 log_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	logs := ui.opts.logs

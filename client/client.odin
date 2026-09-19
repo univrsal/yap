@@ -37,6 +37,7 @@ Voice_Client :: struct {
 	last_sent:     time.Tick,
 	voice:         Voice, // set up by the owner before client_open
 	channels:      Channel_Client,
+	chat:          Chat_Client,
 	commands:      Command_Queue,
 	status:        Status,
 	sock_open:     bool,
@@ -114,6 +115,7 @@ client_close :: proc(c: ^Voice_Client) {
 	delete(c.channels.wanted)
 	delete(c.channels.name)
 	commands_destroy(&c.commands)
+	chat_destroy(c)
 }
 
 // client_step runs one iteration of the network loop, waiting up to a
@@ -126,6 +128,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	process_commands(c)
 	drive_join(c)
 	drive_name(c)
+	drive_chat(c)
 
 	if c.has_current {
 		voice_step(c)
@@ -319,6 +322,12 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			}
 		case .State:
 			handle_state_message(c, pt)
+		case .Chat:
+			handle_chat(c, pt)
+		case .Chat_Sent:
+			handle_chat_sent(c, pt)
+		case .Typing:
+			handle_typing(c, pt)
 		}
 	}
 	return true

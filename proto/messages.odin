@@ -14,6 +14,7 @@ a keepalive. Integers are little-endian.
 	client -> server  State_Ack  [kind][version u32]
 	client -> server  Leave      [kind]
 	client -> server  Set_Name   [kind][name_len u8][name]
+	(text chat: Chat_Send, Chat_Sent, Chat, Chat_Received, Typing; see chat.odin)
 
 Users are identified by a number the server assigns (`speaker` in Voice,
 members in State). Numbers are unique per server run and never reused,
@@ -45,6 +46,12 @@ Message_Kind :: enum u8 {
 	State_Ack = 4,
 	Leave     = 5,
 	Set_Name  = 6,
+	// Text chat, see chat.odin.
+	Chat_Send     = 7,
+	Chat_Sent     = 8,
+	Chat          = 9,
+	Chat_Received = 10,
+	Typing        = 11,
 }
 
 VOICE_UP_HEADER_SIZE :: 1 + 4
@@ -105,6 +112,19 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == 1
 	case .Set_Name:
 		ok = len(pt) >= 2 && int(pt[1]) <= MAX_NAME_SIZE && len(pt) == 2 + int(pt[1])
+	case .Chat_Send:
+		ok =
+			len(pt) >= CHAT_SEND_HEADER_SIZE &&
+			len(pt) == CHAT_SEND_HEADER_SIZE + int(endian.unchecked_get_u16le(pt[9:])) &&
+			len(pt) - CHAT_SEND_HEADER_SIZE <= MAX_CHAT_SIZE
+	case .Chat_Sent:
+		ok = len(pt) == CHAT_SENT_SIZE
+	case .Chat:
+		ok = len(pt) >= CHAT_HEADER_SIZE
+	case .Chat_Received:
+		ok = len(pt) == CHAT_RECEIVED_SIZE
+	case .Typing:
+		ok = len(pt) == TYPING_UP_SIZE || len(pt) == TYPING_DOWN_SIZE
 	}
 	return
 }

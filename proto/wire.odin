@@ -41,7 +41,7 @@ import "core:time"
 PROTOCOL_NAME :: "Noise_XX_25519_ChaChaPoly_BLAKE2s"
 // Mixed into the handshake transcript; bump it on incompatible changes
 // so mismatched peers fail the handshake instead of misparsing data.
-PROLOGUE :: "yap v4"
+PROLOGUE :: "yap v5"
 
 KEY_SIZE :: 32
 TAG_SIZE :: 16

@@ -189,7 +189,7 @@ test_sanitize_name :: proc(t: ^testing.T) {
 		{"alice", "alice"},
 		{"  padded \t", "padded"},
 		{"tab\there", "tab here"},
-		{"new\nline\x00", "newline"},
+		{"new\nline\x00", "new line"},
 		{"Zoë ☕", "Zoë ☕"},
 		{"bad\xffutf8", "badutf8"},
 		// Right-to-left override and zero-width space, used for spoofing.

@@ -142,6 +142,10 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 		}
 	}
 
+	if had_state && state.your_channel != old_channel {
+		chat_channel_changed(c)
+	}
+
 	current := state.channels[state.your_channel]
 	switch {
 	case !had_state || state.your_channel != old_channel:
@@ -276,6 +280,12 @@ Name_Command :: struct {
 Listen_Command :: struct {
 	on: bool,
 }
+// Post a message to our channel's chat.
+Chat_Command :: struct {
+	text: string, // owned by the command
+}
+// We're typing in the chat box.
+Typing_Command :: struct {}
 Quality_Command :: struct {
 	quality: Quality,
 }
@@ -294,6 +304,8 @@ Command :: union {
 	Gate_Command,
 	Listen_Command,
 	Quality_Command,
+	Chat_Command,
+	Typing_Command,
 }
 
 Command_Queue :: struct {
@@ -322,6 +334,8 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.channel)
 	case Name_Command:
 		delete(v.name)
+	case Chat_Command:
+		delete(v.text)
 	}
 }
 
@@ -369,6 +383,10 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Name_Command:
 			set_name(c, v.name)
 			log.infof("name: %q", c.channels.name)
+		case Chat_Command:
+			chat_send(c, v.text)
+		case Typing_Command:
+			chat_typing(c)
 		}
 	}
 }
@@ -382,6 +400,8 @@ network loop never blocks on input.
 	/name <name>     change your name
 	/mute, /unmute   stop or resume sending voice
 	/listen, /unlisten  hear your own processed voice (listen back)
+	/say <text>      post to the channel's text chat
+	/typing          tell the channel you're typing
 */
 start_command_reader :: proc(q: ^Command_Queue) {
 	thread.create_and_start_with_poly_data(
@@ -409,10 +429,14 @@ read_commands :: proc(q: ^Command_Queue) {
 			push_command(q, Listen_Command{line == "/listen"})
 		case line == "/mute" || line == "/unmute":
 			push_command(q, Mute_Command{line == "/mute"})
+		case line == "/typing":
+			push_command(q, Typing_Command{})
+		case strings.has_prefix(line, "/say "):
+			push_command(q, Chat_Command{strings.clone(line[len("/say "):])})
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /listen, /unlisten")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /listen, /unlisten, /say <text>, /typing")
 		}
 	}
 }
