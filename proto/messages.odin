@@ -13,6 +13,16 @@ a keepalive. Integers are little-endian.
 	server -> client  State      [kind][version u32][chunk u8][chunk_count u8][bytes...]
 	client -> server  State_Ack  [kind][version u32]
 	client -> server  Leave      [kind]
+	client -> server  Set_Name   [kind][name_len u8][name]
+
+Users are identified by a number the server assigns (`speaker` in Voice,
+members in State). Numbers are unique per server run and never reused,
+and State maps them to each user's full public key and name. Clients key
+anything they store about a user by the public key.
+
+A client's name first arrives in its handshake (see names.odin, Hello).
+Set_Name changes it later; it's idempotent, so the client resends it until
+a snapshot shows the name applied.
 
 Leave is a courtesy so others see the user go right away instead of
 after SESSION_TIMEOUT; it's unreliable, so clients send a few copies.
@@ -34,6 +44,7 @@ Message_Kind :: enum u8 {
 	State     = 3,
 	State_Ack = 4,
 	Leave     = 5,
+	Set_Name  = 6,
 }
 
 VOICE_UP_HEADER_SIZE :: 1 + 4
@@ -46,23 +57,35 @@ STATE_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - STATE_HEADER_SIZE
 MAX_STATE_CHUNKS :: 16
 MAX_STATE_SIZE :: STATE_CHUNK_SIZE * MAX_STATE_CHUNKS
 
-// Unacked State snapshots and Join requests are resent this often.
+// Unacked State snapshots, Join and Set_Name requests are resent this often.
 CONTROL_RESEND :: 300 * time.Millisecond
 
 MAX_CHANNELS :: 64
 MAX_CHANNEL_NAME_SIZE :: 32
 
+User_Info :: struct {
+	num:  u32, // assigned by the server
+	key:  [KEY_SIZE]u8,
+	name: string, // sanitized (see sanitize_name); may be empty
+}
+
 Channel_Info :: struct {
 	name:    string,
-	members: []u32, // user ids (first 4 bytes of their public key)
+	members: []u32, // user numbers
 }
 
 // Channel_State is one user's view: channel ids are indices into `channels`.
 Channel_State :: struct {
 	your_channel: u16,
+	your_user:    u32,
 	join_ack:     u32,
+	users:        []User_Info,
 	channels:     []Channel_Info,
 }
+
+// The smallest a user takes up in a snapshot; bounds how many can be decoded.
+MIN_USER_SIZE :: 4 + KEY_SIZE + 1
+MAX_STATE_USERS :: MAX_STATE_SIZE / MIN_USER_SIZE
 
 message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 	if len(pt) == 0 {
@@ -80,6 +103,8 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == STATE_ACK_SIZE
 	case .Leave:
 		ok = len(pt) == 1
+	case .Set_Name:
+		ok = len(pt) >= 2 && int(pt[1]) <= MAX_NAME_SIZE && len(pt) == 2 + int(pt[1])
 	}
 	return
 }
@@ -110,11 +135,28 @@ decode_state_ack :: proc(pt: []byte) -> (version: u32) {
 	return endian.unchecked_get_u32le(pt[1:])
 }
 
+SET_NAME_MAX_SIZE :: 2 + MAX_NAME_SIZE
+
+// encode_set_name expects an already sanitized name.
+encode_set_name :: proc(out: ^[SET_NAME_MAX_SIZE]byte, name: string) -> []byte {
+	n := min(len(name), MAX_NAME_SIZE)
+	out[0] = u8(Message_Kind.Set_Name)
+	out[1] = u8(n)
+	copy(out[2:], name[:n])
+	return out[:2 + n]
+}
+
+// decode_set_name returns the raw name; sanitize it before use.
+decode_set_name :: proc(pt: []byte) -> string {
+	return string(pt[2:][:pt[1]])
+}
+
 /*
 Snapshot body (before chunking):
 
-	[your_channel u16][join_ack u32][channel_count u16]
-	per channel: [name_len u8][name][member_count u16][member u32 ...]
+	[your_channel u16][your_user u32][join_ack u32]
+	[user_count u16]    per user:    [num u32][key 32 bytes][name_len u8][name]
+	[channel_count u16] per channel: [name_len u8][name][member_count u16][member num u32 ...]
 */
 @(require_results)
 encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bool) {
@@ -122,7 +164,23 @@ encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bo
 		buf = out,
 	}
 	put_u16(&w, state.your_channel)
+	put_u32(&w, state.your_user)
 	put_u32(&w, state.join_ack)
+
+	if len(state.users) > int(max(u16)) {
+		return
+	}
+	put_u16(&w, u16(len(state.users)))
+	for &u in state.users {
+		if len(u.name) > MAX_NAME_SIZE {
+			return
+		}
+		put_u32(&w, u.num)
+		put_bytes(&w, u.key[:])
+		put_u8(&w, u8(len(u.name)))
+		put_bytes(&w, transmute([]byte)u.name)
+	}
+
 	put_u16(&w, u16(len(state.channels)))
 	for ch in state.channels {
 		if len(ch.name) > MAX_CHANNEL_NAME_SIZE || len(ch.members) > int(max(u16)) {
@@ -141,11 +199,12 @@ encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bo
 	return out[:w.pos], true
 }
 
-// decode_state parses a snapshot body. Names and member lists are slices
-// into `body` and `members_buf`, so both must outlive the result.
+// decode_state parses a snapshot body. Names and lists are slices into
+// `body` and the buffers, so all of them must outlive the result.
 @(require_results)
 decode_state :: proc(
 	body: []byte,
+	users_buf: []User_Info,
 	channels_buf: []Channel_Info,
 	members_buf: []u32,
 ) -> (
@@ -156,12 +215,27 @@ decode_state :: proc(
 		buf = body,
 	}
 	state.your_channel = get_u16(&r)
+	state.your_user = get_u32(&r)
 	state.join_ack = get_u32(&r)
+
+	user_count := int(get_u16(&r))
+	if r.overflow || user_count > len(users_buf) {
+		return
+	}
+	for &u in users_buf[:user_count] {
+		u.num = get_u32(&r)
+		copy(u.key[:], get_bytes(&r, KEY_SIZE))
+		name_len := int(get_u8(&r))
+		u.name = string(get_bytes(&r, name_len))
+		if r.overflow || name_len > MAX_NAME_SIZE {
+			return
+		}
+	}
+
 	count := int(get_u16(&r))
 	if r.overflow || count == 0 || count > len(channels_buf) || int(state.your_channel) >= count {
 		return
 	}
-
 	next_member := 0
 	for &ch in channels_buf[:count] {
 		name_len := int(get_u8(&r))
@@ -181,8 +255,19 @@ decode_state :: proc(
 	if r.overflow || r.pos != len(body) {
 		return
 	}
+	state.users = users_buf[:user_count]
 	state.channels = channels_buf[:count]
 	return state, true
+}
+
+// find_user returns the user with number `num` in a snapshot, or nil.
+find_user :: proc(state: ^Channel_State, num: u32) -> ^User_Info {
+	for &u in state.users {
+		if u.num == num {
+			return &u
+		}
+	}
+	return nil
 }
 
 // state_chunk_count returns how many State messages a snapshot body needs.

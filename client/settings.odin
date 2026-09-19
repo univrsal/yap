@@ -1,10 +1,12 @@
 package client
 
+import "core:encoding/hex"
 import "core:encoding/json"
-import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
+
+import "../proto"
 
 /*
 Client settings, kept in <config dir>/yap/settings.json:
@@ -15,7 +17,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"output_device": "Built-in Audio Analog Stereo",
 		"noise_suppression": true,
 		"users": {
-			"8e41fa62": { "volume": 0.5, "muted": false }
+			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "volume": 0.5, "muted": false }
 		}
 	}
 
@@ -26,11 +28,13 @@ means the system default.
 */
 Settings :: struct {
 	server:            string, // last server connected to
+	name:              string, // the name to go by
 	input_device:      string,
 	output_device:     string,
 	// RNNoise on the microphone, plus only sending while voice is detected.
 	noise_suppression: bool,
-	// How to play other users, keyed by user id (8 hex digits). Users with
+	// How to play other users, keyed by their public key (64 hex digits),
+	// which is what identifies a user; names can be copied. Users with
 	// default settings aren't stored.
 	users:             map[string]User_Settings,
 }
@@ -87,6 +91,7 @@ settings_save :: proc(path: string, s: Settings) {
 
 settings_destroy :: proc(s: ^Settings) {
 	delete(s.server)
+	delete(s.name)
 	delete(s.input_device)
 	delete(s.output_device)
 	for key in s.users {
@@ -102,18 +107,30 @@ set_setting :: proc(field: ^string, value: string) {
 	field^ = strings.clone(value)
 }
 
-user_key :: proc(id: u32) -> string {
-	return fmt.tprintf("%08x", id)
+user_key :: proc(key: [proto.KEY_SIZE]u8) -> string {
+	key := key
+	return string(hex.encode(key[:], context.temp_allocator))
 }
 
-user_settings :: proc(s: ^Settings, id: u32) -> User_Settings {
-	u := s.users[user_key(id)] or_else DEFAULT_USER
+// parse_user_key turns a settings key back into a public key; entries in
+// any other form (e.g. the 8-digit ids of older versions) are skipped.
+parse_user_key :: proc(s: string) -> (key: [proto.KEY_SIZE]u8, ok: bool) {
+	if len(s) != 2 * proto.KEY_SIZE {
+		return
+	}
+	raw := hex.decode(transmute([]u8)s, context.temp_allocator) or_return
+	copy(key[:], raw)
+	return key, true
+}
+
+user_settings :: proc(s: ^Settings, key: [proto.KEY_SIZE]u8) -> User_Settings {
+	u := s.users[user_key(key)] or_else DEFAULT_USER
 	u.volume = clamp(u.volume, 0, MAX_USER_VOLUME)
 	return u
 }
 
-set_user_settings :: proc(s: ^Settings, id: u32, u: User_Settings) {
-	key := user_key(id)
+set_user_settings :: proc(s: ^Settings, user: [proto.KEY_SIZE]u8, u: User_Settings) {
+	key := user_key(user)
 	if u == DEFAULT_USER {
 		if key in s.users {
 			owned, _ := delete_key(&s.users, key)

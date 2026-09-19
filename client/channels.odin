@@ -1,7 +1,6 @@
 package client
 
 import "core:bufio"
-import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:slice"
@@ -12,8 +11,8 @@ import "core:time"
 
 import "../proto"
 
-// Channel_Client is the client's copy of the channel state, plus any
-// Join request still waiting to be acknowledged.
+// Channel_Client is the client's copy of the channel state, plus any Join
+// or name change still waiting to be acknowledged.
 Channel_Client :: struct {
 	assembler:       proto.State_Assembler,
 
@@ -22,6 +21,7 @@ Channel_Client :: struct {
 	have_state:      bool,
 	applied_version: u32,
 	body:            [proto.MAX_STATE_SIZE]byte,
+	users_buf:       [proto.MAX_STATE_USERS]proto.User_Info,
 	channels_buf:    [proto.MAX_CHANNELS]proto.Channel_Info,
 	members_buf:     [proto.MAX_STATE_SIZE / 4]u32,
 
@@ -31,6 +31,41 @@ Channel_Client :: struct {
 	join_pending:    bool,
 	join_channel:    u16,
 	last_join_sent:  time.Tick,
+
+	// Our name (sanitized, owned). Sent in the handshake, and with Set_Name
+	// until a snapshot shows the server has it.
+	name:            string,
+	last_name_sent:  time.Tick,
+}
+
+// my_num is the server's number for us, or 0 before the first snapshot.
+my_num :: proc(c: ^Voice_Client) -> u32 {
+	return c.channels.state.your_user if c.channels.have_state else 0
+}
+
+// set_name changes the name we go by; it's sent on the next drive_name.
+set_name :: proc(c: ^Voice_Client, name: string) {
+	buf: [proto.MAX_NAME_SIZE]u8
+	delete(c.channels.name)
+	c.channels.name = strings.clone(proto.sanitize_name(name, &buf))
+	c.channels.last_name_sent = {}
+}
+
+// drive_name resends Set_Name while the server shows a different name.
+// It's idempotent, so repeats and reordering are harmless.
+drive_name :: proc(c: ^Voice_Client) {
+	ch := &c.channels
+	if !ch.have_state || !c.has_current || time.tick_since(ch.last_name_sent) < proto.CONTROL_RESEND {
+		return
+	}
+	me := proto.find_user(&ch.state, ch.state.your_user)
+	if me == nil || me.name == ch.name {
+		return
+	}
+	buf: [proto.SET_NAME_MAX_SIZE]byte
+	send_data(c, proto.encode_set_name(&buf, ch.name))
+	ch.last_name_sent = time.tick_now()
+	log.debugf("sending name %q", ch.name)
 }
 
 handle_state_message :: proc(c: ^Voice_Client, pt: []byte) {
@@ -61,9 +96,10 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 	// Validate into scratch space first, so a bad snapshot can't clobber
 	// the one we have.
 	{
+		scratch_users := make([]proto.User_Info, len(ch.users_buf), context.temp_allocator)
 		scratch_channels := make([]proto.Channel_Info, proto.MAX_CHANNELS, context.temp_allocator)
 		scratch_members := make([]u32, len(ch.members_buf), context.temp_allocator)
-		if _, ok := proto.decode_state(body, scratch_channels, scratch_members); !ok {
+		if _, ok := proto.decode_state(body, scratch_users, scratch_channels, scratch_members); !ok {
 			log.warnf("ignoring invalid channel state v%d from the server", version)
 			return
 		}
@@ -77,13 +113,23 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 	}
 
 	copy(ch.body[:], body)
-	ch.state, _ = proto.decode_state(ch.body[:len(body)], ch.channels_buf[:], ch.members_buf[:])
+	ch.state, _ = proto.decode_state(
+		ch.body[:len(body)],
+		ch.users_buf[:],
+		ch.channels_buf[:],
+		ch.members_buf[:],
+	)
 	ch.have_state = true
 	ch.applied_version = version
 	send_state_ack(c, version)
 	log.debugf("applied channel state v%d", version)
 
 	state := &ch.state
+	// The mixer looks up per-user gains by key.
+	clear(&c.voice.user_keys)
+	for &u in state.users {
+		c.voice.user_keys[u.num] = u.key
+	}
 	if !had_state {
 		// Continue from the server's numbering: a restarted client's
 		// counter would otherwise look like old retransmits.
@@ -197,8 +243,8 @@ members_string :: proc(c: ^Voice_Client, members: []u32) -> string {
 		if i > 0 {
 			strings.write_string(&b, ", ")
 		}
-		fmt.sbprintf(&b, "%08x", m)
-		if m == c.my_id {
+		strings.write_string(&b, display_name(c.channels.state.users, m))
+		if m == my_num(c) {
 			strings.write_string(&b, " (you)")
 		}
 	}
@@ -221,8 +267,11 @@ Noise_Command :: struct {
 }
 // How loud to play a user: 1 is unchanged, 0 is muted.
 Gain_Command :: struct {
-	user: u32,
+	key:  [proto.KEY_SIZE]u8,
 	gain: f32,
+}
+Name_Command :: struct {
+	name: string, // owned by the command
 }
 
 Command :: union {
@@ -231,6 +280,7 @@ Command :: union {
 	Mute_Command,
 	Noise_Command,
 	Gain_Command,
+	Name_Command,
 }
 
 Command_Queue :: struct {
@@ -254,8 +304,11 @@ commands_destroy :: proc(q: ^Command_Queue) {
 
 @(private = "file")
 command_destroy :: proc(cmd: Command) {
-	if join, ok := cmd.(Join_Command); ok {
-		delete(join.channel)
+	#partial switch v in cmd {
+	case Join_Command:
+		delete(v.channel)
+	case Name_Command:
+		delete(v.name)
 	}
 }
 
@@ -286,10 +339,13 @@ process_commands :: proc(c: ^Voice_Client) {
 			log.infof("noise suppression %s", "on" if v.enabled else "off")
 		case Gain_Command:
 			if v.gain == 1 {
-				delete_key(&c.voice.gains, v.user)
+				delete_key(&c.voice.gains, v.key)
 			} else {
-				c.voice.gains[v.user] = v.gain
+				c.voice.gains[v.key] = v.gain
 			}
+		case Name_Command:
+			set_name(c, v.name)
+			log.infof("name: %q", c.channels.name)
 		}
 	}
 }
@@ -300,6 +356,7 @@ network loop never blocks on input.
 
 	/channels        list channels and who is in them
 	/join <channel>  move to another channel
+	/name <name>     change your name
 	/mute, /unmute   stop or resume sending voice
 */
 start_command_reader :: proc(q: ^Command_Queue) {
@@ -322,12 +379,14 @@ read_commands :: proc(q: ^Command_Queue) {
 		case line == "":
 		case line == "/channels":
 			push_command(q, List_Command{})
+		case strings.has_prefix(line, "/name "):
+			push_command(q, Name_Command{strings.clone(strings.trim_space(line[len("/name "):]))})
 		case line == "/mute" || line == "/unmute":
 			push_command(q, Mute_Command{line == "/mute"})
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /mute, /unmute")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute")
 		}
 	}
 }

@@ -15,6 +15,7 @@ Options :: struct {
 	input_file:         string `usage:"With -headless: loop this raw 48 kHz mono f32 file as the microphone. For testing."`,
 	denoise:            bool `usage:"With -headless: enable noise suppression and the voice gate (the UI has a setting for it)."`,
 	channel:            string `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
+	name:               string `usage:"With -headless: the name to go by (default: your OS user name). The UI has a field for it."`,
 	key:                string `usage:"Private key file, created if missing (default <config dir>/yap/client.key)."`,
 	known_servers:      string `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
 	log_level:          common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
@@ -67,6 +68,7 @@ main :: proc() {
 			opt.server,
 			opt.known_servers,
 			opt.channel,
+			opt.name if opt.name != "" else default_name(),
 			opt.tone,
 			opt.input_file,
 			opt.denoise,
@@ -110,4 +112,15 @@ list_audio_devices :: proc() -> bool {
 	print_list("Input devices:", a.inputs[:])
 	print_list("Output devices:", a.outputs[:])
 	return true
+}
+
+// default_name is the OS user name, as a starting point for the name
+// field; "" if there isn't one.
+default_name :: proc() -> string {
+	for env in ([]string{"USER", "USERNAME", "LOGNAME"}) {
+		if name := os.get_env(env, context.temp_allocator); name != "" {
+			return name
+		}
+	}
+	return ""
 }

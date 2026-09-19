@@ -27,6 +27,14 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		ui.page = .Main
 	}
 
+	mu.layout_row(ctx, {60, 200, 70, -1})
+	mu.label(ctx, "Name")
+	submitted := .SUBMIT in mu.textbox(ctx, ui.name_buf[:], &ui.name_len)
+	if .SUBMIT in mu.button(ctx, "Apply") || submitted {
+		apply_name(ui)
+	}
+	mu.label(ctx, "  what others see you as")
+
 	if a.ctx == nil {
 		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, {230, 90, 90, 255}, a.error, label_proc)
@@ -54,7 +62,7 @@ settings_page :: proc(ui: ^UI, height: i32) {
 	// The input list gets half of what's left; the output list the rest.
 	style := ctx.style
 	row := LINE_HEIGHT + style.padding * 2 + style.spacing
-	input_height := max((height - 5 * row) / 2, row * 2)
+	input_height := max((height - 6 * row) / 2, row * 2)
 
 	if choice, changed := device_list(
 		ctx,

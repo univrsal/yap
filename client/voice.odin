@@ -86,8 +86,11 @@ Voice :: struct {
 	denoise:     bool, // noise suppression and the voice gate
 	last_voice:  time.Tick,
 	speakers:    map[u32]^Speaker,
-	// Per-user playback gain (0 = muted), from the UI. Missing means 1.
-	gains:       map[u32]f32,
+	// Per-user playback gain (0 = muted), from the UI, by public key.
+	// Missing means 1.
+	gains:       map[[proto.KEY_SIZE]u8]f32, // by public key
+	// User number -> public key, from the latest snapshot.
+	user_keys:   map[u32][proto.KEY_SIZE]u8,
 
 	// Stats, reset every second by log_stats.
 	captured:    int, // frames read from the microphone
@@ -132,6 +135,7 @@ voice_destroy :: proc(v: ^Voice) {
 	}
 	delete(v.speakers)
 	delete(v.gains)
+	delete(v.user_keys)
 	delete(v.received)
 	rnn.denoiser_destroy(&v.denoiser)
 	if v.encoder != nil {
@@ -205,7 +209,9 @@ send_captured :: proc(c: ^Voice_Client) {
 		if send_data(c, msg[:proto.VOICE_UP_HEADER_SIZE + int(n)]) {
 			v.sent_frames += 1
 			v.sent_bytes += int(n)
-			publish_voice(c, c.my_id)
+			if me := my_num(c); me != 0 {
+				publish_voice(c, me)
+			}
 		}
 	}
 }
@@ -306,7 +312,10 @@ mix_output :: proc(v: ^Voice) {
 			// picks up cleanly where they are.
 			frame: [FRAME_SAMPLES]f32
 			got := ring_read(&sp.queue, frame[:])
-			gain := v.gains[id] or_else 1
+			gain: f32 = 1
+			if key, known := v.user_keys[id]; known {
+				gain = v.gains[key] or_else 1
+			}
 			if gain > 0 {
 				for s, i in frame[:got] {
 					mix[i] += s * gain

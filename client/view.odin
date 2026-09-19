@@ -5,6 +5,8 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
+import "../proto"
+
 /*
 State shared between the network thread (which writes it) and the UI
 (which reads it every frame). Everything is behind one mutex; the UI
@@ -23,7 +25,12 @@ Status :: enum {
 
 View_Channel :: struct {
 	name:    string,
-	members: []u32,
+	members: []u32, // user numbers
+}
+
+View_User :: struct {
+	key:  [proto.KEY_SIZE]u8,
+	name: string, // for display (see display_name); owned
 }
 
 View :: struct {
@@ -31,7 +38,10 @@ View :: struct {
 	status:     Status,
 	error:      string, // why we Failed
 	server:     string,
-	my_id:      u32,
+	my_key:     [proto.KEY_SIZE]u8,
+	my_num:     u32, // 0 until the first snapshot
+	my_name:    string, // as the server has it
+	users:      map[u32]View_User,
 	channels:   [dynamic]View_Channel,
 	my_channel: int, // -1 until known
 	joining:    int, // channel a move is pending to, or -1
@@ -50,6 +60,7 @@ view_init :: proc(v: ^View) {
 view_reset :: proc(v: ^View) {
 	sync.guard(&v.mutex)
 	view_clear_channels(v)
+	v.my_num = 0
 	delete(v.error)
 	delete(v.server)
 	v.error, v.server = "", ""
@@ -61,6 +72,7 @@ view_reset :: proc(v: ^View) {
 view_destroy :: proc(v: ^View) {
 	view_reset(v)
 	delete(v.channels)
+	delete(v.users)
 	delete(v.speaking)
 }
 
@@ -71,6 +83,12 @@ view_clear_channels :: proc(v: ^View) {
 		delete(ch.members)
 	}
 	clear(&v.channels)
+	for _, u in v.users {
+		delete(u.name)
+	}
+	clear(&v.users)
+	delete(v.my_name)
+	v.my_name = ""
 }
 
 is_speaking :: proc(v: ^View, id: u32) -> bool {
@@ -89,7 +107,7 @@ publish_status :: proc(c: ^Voice_Client, status: Status, error := "") {
 	}
 	sync.guard(&v.mutex)
 	v.status = status
-	v.my_id = c.my_id
+	v.my_key = c.my_key
 	if v.server == "" {
 		v.server = strings.clone(c.server_addr)
 	}
@@ -109,6 +127,16 @@ publish_channels :: proc(c: ^Voice_Client) {
 		members := make([]u32, len(info.members))
 		copy(members, info.members)
 		append(&v.channels, View_Channel{name = strings.clone(info.name), members = members})
+	}
+	for &u in ch.state.users {
+		v.users[u.num] = {
+			key  = u.key,
+			name = strings.clone(display_name(ch.state.users, u.num)),
+		}
+	}
+	v.my_num = ch.state.your_user
+	if me := proto.find_user(&ch.state, v.my_num); me != nil {
+		v.my_name = strings.clone(me.name)
 	}
 	v.my_channel = int(ch.state.your_channel)
 	v.joining = ch.join_pending ? int(ch.join_channel) : -1

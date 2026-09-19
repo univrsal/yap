@@ -4,7 +4,6 @@ import "base:runtime"
 import "core:crypto/ecdh"
 import "core:fmt"
 import "core:log"
-import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -46,6 +45,7 @@ Net_Session :: struct {
 	server:        string,
 	known_servers: string,
 	channel:       string,
+	name:          string,
 
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
@@ -69,9 +69,12 @@ UI :: struct {
 	ctx:            mu.Context,
 	renderer:       Renderer,
 	opts:           UI_Options,
-	my_id:          u32,
+	my_key:         [proto.KEY_SIZE]u8,
 	server_buf:     [256]u8,
 	server_len:     int,
+	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
+	name_buf:       [2 * proto.MAX_NAME_SIZE]u8,
+	name_len:       int,
 	view:           View,
 	session:        ^Net_Session,
 	// Connecting/disconnecting waits on the network thread, which may be
@@ -82,7 +85,8 @@ UI :: struct {
 
 	// The user whose menu is open, and its volume slider's value (the
 	// slider needs a stable address). See user_menu.
-	menu_user:      u32,
+	menu_user:      u32, // user number
+	menu_key:       [proto.KEY_SIZE]u8,
 	menu_volume:    mu.Real,
 	menu_requested: bool,
 	// Slider drags change the settings every frame; save at most once a
@@ -120,9 +124,7 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	{
 		key: ecdh.Private_Key
 		if common.load_or_create_private_key(opts.key_path, &key) {
-			pub: [proto.KEY_SIZE]byte
-			ecdh.private_key_public_bytes(&key, pub[:])
-			ui.my_id = common.key_id(pub)
+			ecdh.private_key_public_bytes(&key, ui.my_key[:])
 			ecdh.private_key_clear(&key)
 		}
 	}
@@ -130,6 +132,8 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	defer settings_destroy(&ui.settings)
 	initial := opts.server if opts.server != "" else ui.settings.server
 	ui.server_len = copy(ui.server_buf[:], initial)
+	name := ui.settings.name if ui.settings.name != "" else default_name()
+	ui.name_len = copy(ui.name_buf[:], name)
 
 	// Audio problems shouldn't keep the rest of the client from working;
 	// the settings page shows what went wrong.
@@ -253,6 +257,25 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	return true
 }
 
+// typed_name is the name field's contents, sanitized as the server would.
+typed_name :: proc(ui: ^UI) -> string {
+	buf := new([proto.MAX_NAME_SIZE]u8, context.temp_allocator)
+	return proto.sanitize_name(string(ui.name_buf[:ui.name_len]), buf)
+}
+
+// apply_name saves the name field and, when connected, renames us.
+apply_name :: proc(ui: ^UI) {
+	name := typed_name(ui)
+	if name == ui.settings.name {
+		return
+	}
+	set_setting(&ui.settings.name, name)
+	ui.settings_dirty = true
+	if ui.session != nil {
+		push_command(&ui.session.client.commands, Name_Command{strings.clone(name)})
+	}
+}
+
 save_settings :: proc(ui: ^UI) {
 	settings_save(ui.opts.settings_path, ui.settings)
 	ui.settings_dirty = false
@@ -302,6 +325,7 @@ connect :: proc(ui: ^UI) {
 		return
 	}
 	set_setting(&ui.settings.server, server)
+	set_setting(&ui.settings.name, typed_name(ui))
 	settings_save(ui.opts.settings_path, ui.settings)
 
 	ns := new(Net_Session)
@@ -309,6 +333,7 @@ connect :: proc(ui: ^UI) {
 	ns.server = strings.clone(server)
 	ns.known_servers = strings.clone(ui.opts.known_servers)
 	ns.channel = strings.clone(ui.opts.channel)
+	ns.name = strings.clone(ui.settings.name)
 	ns.client = new(Voice_Client)
 	ns.client.view = &ui.view
 	if voice_init(&ns.client.voice) {
@@ -319,9 +344,9 @@ connect :: proc(ui: ^UI) {
 	}
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.denoise = ui.settings.noise_suppression
-	for key, u in ui.settings.users {
-		if id, ok := strconv.parse_u64_of_base(key, 16); ok && id <= u64(max(u32)) {
-			push_command(&ns.client.commands, Gain_Command{u32(id), user_gain(u)})
+	for hex_key, u in ui.settings.users {
+		if key, ok := parse_user_key(hex_key); ok {
+			push_command(&ns.client.commands, Gain_Command{key, user_gain(u)})
 		}
 	}
 
@@ -354,6 +379,7 @@ disconnect :: proc(ui: ^UI) {
 	delete(ns.server)
 	delete(ns.known_servers)
 	delete(ns.channel)
+	delete(ns.name)
 	free(ns)
 
 	// A failure message stays up until the next attempt.
@@ -387,7 +413,7 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 net_thread :: proc(ns: ^Net_Session) {
 	c := ns.client
 	defer client_close(c)
-	if !client_open(c, ns.key_path, ns.server, ns.known_servers) {
+	if !client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name) {
 		return
 	}
 	if ns.channel != "" {
@@ -444,8 +470,15 @@ connect_screen :: proc(ui: ^UI) {
 		ui.page = .Settings
 	}
 
+	mu.layout_row(ctx, {60, 200, -1})
+	mu.label(ctx, "Name")
+	if .SUBMIT in mu.textbox(ctx, ui.name_buf[:], &ui.name_len) {
+		ui.action = .Connect
+	}
+	mu.label(ctx, "  what others see you as")
+
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, fmt.tprintf("Your ID: %08x   (host:port, e.g. localhost:7777)", ui.my_id))
+	mu.label(ctx, fmt.tprintf("Your key: %s   (server as host:port, e.g. localhost:7777)", fingerprint(ui.my_key)))
 	if v.status == .Failed && v.error != "" {
 		with_text_color(ctx, {230, 90, 90, 255}, v.error, label_proc)
 	}
@@ -462,7 +495,8 @@ session_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-290, 90, 90, -1})
 	switch v.status {
 	case .Connected:
-		mu.label(ctx, fmt.tprintf("Connected to %s as %08x", v.server, v.my_id))
+		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
+		mu.label(ctx, fmt.tprintf("Connected to %s as %s", v.server, me))
 	case .Connecting, .Disconnected, .Failed:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
 	}

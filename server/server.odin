@@ -2,6 +2,7 @@ package server
 
 import "core:crypto/ecdh"
 import "core:encoding/endian"
+import "core:fmt"
 import "core:log"
 import "core:net"
 import "core:time"
@@ -36,7 +37,10 @@ Client :: struct {
 // here rather than on the session so it survives rekeys.
 User :: struct {
 	key:             [proto.KEY_SIZE]byte,
-	id:              u32, // common.key_id(key)
+	num:             u32, // how clients refer to this user (see proto)
+	id:              u32, // common.key_id(key), for logs
+	name:            string, // sanitized; points into name_buf
+	name_buf:        [proto.MAX_NAME_SIZE]u8,
 	channel:         u16,
 	join_ack:        u32, // newest Join request handled
 	sessions:        int, // keyed sessions pointing here
@@ -57,6 +61,8 @@ Server :: struct {
 	// Bumped on every change clients should hear about. Never 0, which
 	// means "nothing acked yet".
 	version:  u32,
+	// The last user number handed out; numbers are never reused.
+	last_num: u32,
 }
 
 run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
@@ -172,14 +178,19 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 
 	// On failure the handshake state is spent, so the session goes too.
 	// The client will time out and start a fresh handshake.
-	_, ok := proto.responder_finish(&c.handshake, packet, &c.session)
+	payload, ok := proto.responder_finish(&c.handshake, packet, &c.session)
 	if !ok {
 		log.debugf("invalid handshake finish from %v", net.to_string(from))
 		drop_session(s, idx)
 		return
 	}
-	// The msg3 payload is where a server password will be checked.
+	// The msg3 payload is the client's hello: its name, and where a server
+	// password will be checked.
 	// TODO: check c.peer_key against an allowlist here to restrict who can join.
+	hello_name, hello_ok := proto.decode_hello(payload)
+	if !hello_ok {
+		log.debugf("ignoring malformed hello from %v", net.to_string(from))
+	}
 
 	c.keyed = true
 	c.endpoint = from
@@ -196,11 +207,17 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		u = new(User)
 		u.key = c.peer_key
 		u.id = common.key_id(u.key)
+		s.last_num += 1
+		u.num = s.last_num
+		set_name(u, hello_name)
 		s.users[u.key] = u
 		bump_version(s)
-		log.infof("%08x joined from %v, in %q", u.id, net.to_string(from), s.channels[u.channel])
+		log.infof("%s joined from %v, in %q", user_label(u), net.to_string(from), s.channels[u.channel])
 	} else {
-		log.debugf("%08x has a new session", u.id)
+		log.debugf("%s has a new session", user_label(u))
+		if hello_ok && rename(s, u, hello_name) {
+			bump_version(s)
+		}
 	}
 	u.sessions += 1
 	c.user = u
@@ -249,9 +266,43 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		}
 	case .Leave:
 		drop_user(s, c.user)
+	case .Set_Name:
+		if rename(s, c.user, proto.decode_set_name(pt)) {
+			bump_version(s)
+		}
 	case .State:
 	// Server-to-client only.
 	}
+}
+
+// set_name stores a sanitized copy of `raw`. Returns whether it changed.
+set_name :: proc(u: ^User, raw: string) -> bool {
+	buf: [proto.MAX_NAME_SIZE]u8
+	name := proto.sanitize_name(raw, &buf)
+	if name == u.name {
+		return false
+	}
+	n := copy(u.name_buf[:], name)
+	u.name = string(u.name_buf[:n])
+	return true
+}
+
+@(private = "file")
+rename :: proc(s: ^Server, u: ^User, raw: string) -> bool {
+	old := user_label(u)
+	if !set_name(u, raw) {
+		return false
+	}
+	log.infof("%s is now %s", old, user_label(u))
+	return true
+}
+
+// user_label is how logs refer to a user: their name and key id.
+user_label :: proc(u: ^User) -> string {
+	if u.name == "" {
+		return fmt.tprintf("%08x", u.id)
+	}
+	return fmt.tprintf("%s (%08x)", u.name, u.id)
 }
 
 handle_join :: proc(s: ^Server, u: ^User, pt: []byte) {
@@ -263,9 +314,9 @@ handle_join :: proc(s: ^Server, u: ^User, pt: []byte) {
 
 	switch {
 	case int(channel) >= len(s.channels):
-		log.debugf("%08x asked for unknown channel %d", u.id, channel)
+		log.debugf("%s asked for unknown channel %d", user_label(u), channel)
 	case channel != u.channel:
-		log.infof("%08x moved from %q to %q", u.id, s.channels[u.channel], s.channels[channel])
+		log.infof("%s moved from %q to %q", user_label(u), s.channels[u.channel], s.channels[channel])
 		u.channel = channel
 	}
 	// Even a refused join changes join_ack, which the client waits for.
@@ -307,8 +358,12 @@ sync_state :: proc(s: ^Server) {
 	for &m in members {
 		m = make([dynamic]u32, context.temp_allocator)
 	}
+	users := make([]proto.User_Info, len(s.users), context.temp_allocator)
+	next_user := 0
 	for _, u in s.users {
-		append(&members[u.channel], u.id)
+		append(&members[u.channel], u.num)
+		users[next_user] = {num = u.num, key = u.key, name = u.name}
+		next_user += 1
 	}
 	infos := make([]proto.Channel_Info, len(s.channels), context.temp_allocator)
 	for &info, i in infos {
@@ -329,7 +384,9 @@ sync_state :: proc(s: ^Server) {
 		}
 		state := proto.Channel_State {
 			your_channel = u.channel,
+			your_user    = u.num,
 			join_ack     = u.join_ack,
+			users        = users,
 			channels     = infos,
 		}
 		body, ok := proto.encode_state(state, body_buf[:])
@@ -339,9 +396,9 @@ sync_state :: proc(s: ^Server) {
 		}
 		count := proto.state_chunk_count(len(body))
 		log.debugf(
-			"sending state v%d to %08x (%d bytes, %d chunks)",
+			"sending state v%d to %s (%d bytes, %d chunks)",
 			s.version,
-			u.id,
+			user_label(u),
 			len(body),
 			count,
 		)
@@ -387,7 +444,7 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 		return
 	}
 	out_pt[0] = u8(proto.Message_Kind.Voice)
-	endian.unchecked_put_u32le(out_pt[1:], from.user.id)
+	endian.unchecked_put_u32le(out_pt[1:], from.user.num)
 	copy(out_pt[5:], body)
 	msg := out_pt[:n]
 
@@ -457,7 +514,7 @@ drop_session :: proc(s: ^Server, idx: u32) {
 	if u := c.user; u != nil {
 		u.sessions -= 1
 		if u.sessions == 0 {
-			log.infof("%08x left", u.id)
+			log.infof("%s left", user_label(u))
 			delete_key(&s.users, u.key)
 			free(u)
 			bump_version(s)

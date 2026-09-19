@@ -21,7 +21,7 @@ Voice_Client :: struct {
 	server_addr:   string, // as typed; the key in known_servers
 	known_servers: string,
 	key:           ecdh.Private_Key,
-	my_id:         u32,
+	my_key:        [proto.KEY_SIZE]u8,
 	handshake:     proto.Initiator,
 	// Keys derived, Finish sent, waiting for the server's first Data
 	// packet before switching to it.
@@ -49,7 +49,8 @@ Voice_Client :: struct {
 
 // client_open loads our key and prepares the socket. It doesn't wait
 // for the server: the handshake happens in client_step.
-client_open :: proc(c: ^Voice_Client, key_path, server_addr, known_servers: string) -> bool {
+client_open :: proc(c: ^Voice_Client, key_path, server_addr, known_servers, name: string) -> bool {
+	set_name(c, name)
 	c.server_addr = strings.clone(server_addr)
 	c.known_servers = strings.clone(known_servers)
 
@@ -57,9 +58,7 @@ client_open :: proc(c: ^Voice_Client, key_path, server_addr, known_servers: stri
 		publish_status(c, .Failed, fmt.tprintf("Could not load the key file %s.", key_path))
 		return false
 	}
-	pub: [proto.KEY_SIZE]byte
-	ecdh.private_key_public_bytes(&c.key, pub[:])
-	c.my_id = common.key_id(pub)
+	ecdh.private_key_public_bytes(&c.key, c.my_key[:])
 	log.infof("my public key: %s", common.public_key_hex(&c.key))
 	publish_status(c, .Connecting)
 
@@ -113,6 +112,7 @@ client_close :: proc(c: ^Voice_Client) {
 	delete(c.server_addr)
 	delete(c.known_servers)
 	delete(c.channels.wanted)
+	delete(c.channels.name)
 	commands_destroy(&c.commands)
 }
 
@@ -125,6 +125,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	drive_handshake(c)
 	process_commands(c)
 	drive_join(c)
+	drive_name(c)
 
 	if c.has_current {
 		voice_step(c)
@@ -154,7 +155,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 // (see Fake_Audio), which exercises the whole voice path without devices.
 // input_file (raw 48 kHz mono f32) is looped as the microphone instead.
 run_headless :: proc(
-	key_path, server_addr, known_servers, initial_channel: string,
+	key_path, server_addr, known_servers, initial_channel, name: string,
 	tone_hz: f32,
 	input_file: string,
 	denoise: bool,
@@ -183,7 +184,7 @@ run_headless :: proc(
 	}
 	defer fake_audio_stop(&fake)
 	defer client_close(c)
-	if !client_open(c, key_path, server_addr, known_servers) {
+	if !client_open(c, key_path, server_addr, known_servers, name) {
 		return false
 	}
 
@@ -264,9 +265,12 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			)
 			return false
 		}
-		// Only now, with the server's identity checked, send ours.
-		// TODO: pass the server password as the payload here.
-		finish, ok := proto.initiator_finish(&c.handshake, &c.pending)
+		// Only now, with the server's identity checked, send ours, along
+		// with our name in the (encrypted) hello.
+		// TODO: add the server password to the hello.
+		hello_buf: [proto.HELLO_MAX_SIZE]u8
+		hello := proto.encode_hello(&hello_buf, c.channels.name)
+		finish, ok := proto.initiator_finish(&c.handshake, &c.pending, hello)
 		if !ok {
 			return true
 		}

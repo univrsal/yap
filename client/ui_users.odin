@@ -7,8 +7,9 @@ import mu "vendor:microui"
 /*
 Per-user playback settings: clicking (left or right) on another user in
 the channel list opens a small menu to mute them or change their volume,
-for you only. Settings are kept by user id in settings.json and applied
-to every connection (see user_settings / Gain_Command).
+for you only. Settings are kept by public key in settings.json (names
+can be copied, keys can't) and applied to every connection (see
+user_settings / Gain_Command).
 */
 
 @(private = "file")
@@ -29,8 +30,13 @@ member_row :: proc(ui: ^UI, id: u32) {
 	mu.layout_row(ctx, {20, -1})
 	mu.label(ctx, "")
 
-	if id == v.my_id {
-		text := fmt.tprintf("%08x (you)", id)
+	user, known := v.users[id]
+	if !known {
+		mu.label(ctx, fmt.tprintf("user #%d", id))
+		return
+	}
+	if id == v.my_num {
+		text := fmt.tprintf("%s (you)", user.name)
 		if is_speaking(v, id) {
 			with_text_color(ctx, SPEAKING_COLOR, fmt.tprintf("%s  speaking", text), label_proc)
 		} else {
@@ -39,8 +45,8 @@ member_row :: proc(ui: ^UI, id: u32) {
 		return
 	}
 
-	u := user_settings(&ui.settings, id)
-	text := fmt.tprintf("%08x", id)
+	u := user_settings(&ui.settings, user.key)
+	text := user.name
 	switch {
 	case u.muted:
 		text = fmt.tprintf("%s  (muted)", text)
@@ -73,6 +79,7 @@ member_row :: proc(ui: ^UI, id: u32) {
 
 	if ctx.hover_id == cid && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} {
 		ui.menu_user = id
+		ui.menu_key = user.key
 		ui.menu_volume = u.volume * 100
 		// Opened by user_menu: microui scopes container names by the id
 		// stack, and this row is nested in ids the menu isn't.
@@ -100,12 +107,19 @@ user_menu :: proc(ui: ^UI) {
 	}
 	defer mu.end_popup(ctx)
 
-	id := ui.menu_user
-	u := user_settings(&ui.settings, id)
+	key := ui.menu_key
+	u := user_settings(&ui.settings, key)
 	changed := false
 
+	// The name as currently shown, or the key if they've left meanwhile.
+	name := fingerprint(key)
+	if user, ok := ui.view.users[ui.menu_user]; ok && user.key == key {
+		name = user.name
+	}
 	mu.layout_row(ctx, {MENU_WIDTH})
-	mu.label(ctx, fmt.tprintf("User %08x", id))
+	mu.label(ctx, name)
+	mu.layout_row(ctx, {MENU_WIDTH})
+	with_text_color(ctx, DIM_COLOR, fmt.tprintf("key %s...", user_key(key)[:16]), label_proc)
 
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if .SUBMIT in stable_button(ctx, "mute", "Unmute" if u.muted else "Mute for me") {
@@ -128,11 +142,11 @@ user_menu :: proc(ui: ^UI) {
 	}
 
 	if changed {
-		set_user_settings(&ui.settings, id, u)
+		set_user_settings(&ui.settings, key, u)
 		ui.settings_dirty = true
-		log.debugf("ui: %08x volume %.0f%%%s", id, u.volume * 100, " (muted)" if u.muted else "")
+		log.debugf("ui: %s volume %.0f%%%s", name, u.volume * 100, " (muted)" if u.muted else "")
 		if ui.session != nil {
-			push_command(&ui.session.client.commands, Gain_Command{id, user_gain(u)})
+			push_command(&ui.session.client.commands, Gain_Command{key, user_gain(u)})
 		}
 	}
 }
