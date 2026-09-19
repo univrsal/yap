@@ -11,6 +11,7 @@ Options :: struct {
 	server:             string           `args:"pos=0" usage:"Server to connect to, host:port. Required with -headless; otherwise the UI connects to it right away."`,
 	headless:           bool             `usage:"No window: log to the terminal and read /join and /channels from stdin."`,
 	list_audio_devices: bool             `usage:"Print the audio input and output devices, then exit."`,
+	tone:               f32              `usage:"With -headless: send a sine tone of this frequency (Hz) as voice and log what is heard. For testing."`,
 	channel:            string           `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
 	key:                string           `usage:"Private key file, created if missing (default <config dir>/yap/client.key)."`,
 	known_servers:      string           `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
@@ -55,7 +56,7 @@ main :: proc() {
 			log.error("-headless needs a server address")
 			os.exit(2)
 		}
-		if !run_headless(opt.key, opt.server, opt.known_servers, opt.channel) {
+		if !run_headless(opt.key, opt.server, opt.known_servers, opt.channel, opt.tone) {
 			os.exit(1)
 		}
 		return

@@ -44,6 +44,10 @@ Net_Session :: struct {
 	server:        string,
 	known_servers: string,
 	channel:       string,
+
+	// Audio devices, opened and closed on the UI thread (which owns the
+	// miniaudio context); they feed the client's Voice rings.
+	streams: Audio_Streams,
 }
 
 Page :: enum {
@@ -75,6 +79,7 @@ UI :: struct {
 	action:  Action,
 
 	log_seen: int, // Log_Lines.total when the log panel was last scrolled
+	muted:    bool,
 
 	page:     Page,
 	settings: Settings,
@@ -268,6 +273,11 @@ connect :: proc(ui: ^UI) {
 	ns.channel = strings.clone(ui.opts.channel)
 	ns.client = new(Voice_Client)
 	ns.client.view = &ui.view
+	if voice_init(&ns.client.voice) {
+		open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+		open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
+	}
+	ns.client.voice.muted = ui.muted
 
 	view_reset(&ui.view)
 	{
@@ -286,10 +296,13 @@ disconnect :: proc(ui: ^UI) {
 		return
 	}
 	ui.session = nil
+	// Devices first, so nothing touches the rings once the voice goes away.
+	close_streams(&ns.streams, &ns.client.voice)
 	sync.atomic_store(&ns.stop, true)
 	thread.join(ns.thread)
 	thread.destroy(ns.thread)
 
+	voice_destroy(&ns.client.voice)
 	free(ns.client)
 	delete(ns.key_path)
 	delete(ns.server)
@@ -300,6 +313,27 @@ disconnect :: proc(ui: ^UI) {
 	// A failure message stays up until the next attempt.
 	if ui.view.status != .Failed {
 		view_reset(&ui.view)
+	}
+}
+
+set_muted :: proc(ui: ^UI, muted: bool) {
+	ui.muted = muted
+	if ui.session != nil {
+		push_command(&ui.session.client.commands, Mute_Command{muted})
+	}
+}
+
+// reopen_audio switches a running connection to the devices now selected
+// in the settings.
+reopen_audio :: proc(ui: ^UI, input: bool) {
+	ns := ui.session
+	if ns == nil || ns.client.voice.encoder == nil {
+		return
+	}
+	if input {
+		open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+	} else {
+		open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 }
 
@@ -379,12 +413,15 @@ session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {-200, 90, -1})
+	mu.layout_row(ctx, {-290, 90, 90, -1})
 	switch v.status {
 	case .Connected:
 		mu.label(ctx, fmt.tprintf("Connected to %s as %08x", v.server, v.my_id))
 	case .Connecting, .Disconnected, .Failed:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
+	}
+	if .SUBMIT in stable_button(ctx, "mute", "Unmute" if ui.muted else "Mute") {
+		set_muted(ui, !ui.muted)
 	}
 	if .SUBMIT in mu.button(ctx, "Settings") {
 		ui.page = .Settings

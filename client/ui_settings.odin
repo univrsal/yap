@@ -42,11 +42,13 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		set_setting(&ui.settings.input_device, choice)
 		settings_save(ui.opts.settings_path, ui.settings)
 		log.infof("input device: %s", choice if choice != "" else "system default")
+		reopen_audio(ui, true)
 	}
 	if choice, changed := device_list(ctx, "Output (speakers / headphones)", "outputs", a.outputs[:], ui.settings.output_device, -1); changed {
 		set_setting(&ui.settings.output_device, choice)
 		settings_save(ui.opts.settings_path, ui.settings)
 		log.infof("output device: %s", choice if choice != "" else "system default")
+		reopen_audio(ui, false)
 	}
 }
 

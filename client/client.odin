@@ -7,14 +7,11 @@ import "core:fmt"
 import "core:log"
 import "core:net"
 import "core:strings"
+import "core:sync"
 import "core:time"
 
 import "../common"
 import "../proto"
-
-// Stand-in for audio until Opus is wired up: 20 ms frames of ~32 kbps.
-FRAME_INTERVAL :: 20 * time.Millisecond
-FAKE_FRAME_SIZE :: 80
 
 Voice_Client :: struct {
 	sock:          net.UDP_Socket,
@@ -37,9 +34,8 @@ Voice_Client :: struct {
 	previous:     proto.Session,
 	has_previous: bool,
 
-	last_sent:  time.Tick,
-	next_frame: time.Tick,
-	seq:        u32,
+	last_sent: time.Tick,
+	voice:     Voice, // set up by the owner before client_open
 
 	channels: Channel_Client,
 	commands: Command_Queue,
@@ -50,9 +46,7 @@ Voice_Client :: struct {
 	view: ^View,
 
 	// Per-second stats, keyed by speaker id.
-	recv_frames: map[u32]int,
-	sent_frames: int,
-	last_stats:  time.Tick,
+	last_stats: time.Tick,
 }
 
 // client_open loads our key and prepares the socket. It doesn't wait
@@ -116,7 +110,6 @@ client_close :: proc(c: ^Voice_Client) {
 
 	delete(c.server_addr)
 	delete(c.known_servers)
-	delete(c.recv_frames)
 	delete(c.channels.wanted)
 	commands_destroy(&c.commands)
 }
@@ -132,13 +125,8 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	drive_join(c)
 
 	if c.has_current {
-		if time.tick_diff(c.next_frame, time.tick_now()) >= 0 {
-			if in_settled_channel(c) {
-				send_fake_frame(c)
-			} else {
-				c.next_frame = time.tick_now() // stay quiet, but don't fall behind
-			}
-		} else if time.tick_since(c.last_sent) >= proto.KEEPALIVE_AFTER {
+		voice_step(c)
+		if time.tick_since(c.last_sent) >= proto.KEEPALIVE_AFTER {
 			send_data(c, nil)
 		}
 	}
@@ -160,10 +148,21 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 }
 
 // run_headless is the command-line client: commands come from stdin.
-run_headless :: proc(key_path, server_addr, known_servers, initial_channel: string) -> bool {
+// With tone_hz > 0 it "talks" by sending that tone and logs what it hears
+// (see Fake_Audio), which exercises the whole voice path without devices.
+run_headless :: proc(key_path, server_addr, known_servers, initial_channel: string, tone_hz: f32) -> bool {
 	// Heap-allocated: the channel state buffers make it fairly large.
 	c := new(Voice_Client)
 	defer free(c)
+	if !voice_init(&c.voice) {
+		return false
+	}
+	defer voice_destroy(&c.voice)
+	fake: Fake_Audio
+	if tone_hz > 0 {
+		fake_audio_start(&fake, &c.voice, tone_hz)
+	}
+	defer fake_audio_stop(&fake)
 	defer client_close(c)
 	if !client_open(c, key_path, server_addr, known_servers) {
 		return false
@@ -280,11 +279,8 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		case .Voice:
 			if len(pt) >= proto.VOICE_DOWN_HEADER_SIZE && in_settled_channel(c) {
 				speaker := endian.unchecked_get_u32le(pt[1:])
-				// seq := endian.unchecked_get_u32le(pt[5:])
-				// frame := pt[proto.VOICE_DOWN_HEADER_SIZE:]
-				// TODO: push (speaker, seq, frame) into a per-speaker jitter buffer -> Opus decode -> mixer.
-				c.recv_frames[speaker] += 1
-				publish_voice(c, speaker)
+				seq := endian.unchecked_get_u32le(pt[5:])
+				voice_receive(c, speaker, seq, pt[proto.VOICE_DOWN_HEADER_SIZE:])
 			}
 		case .State:
 			handle_state_message(c, pt)
@@ -306,8 +302,7 @@ promote_pending :: proc(c: ^Voice_Client) {
 	if c.has_previous {
 		log.debugf("rekeyed (session %08x)", c.current.local_idx)
 	} else {
-		c.next_frame = time.tick_now()
-		c.last_stats = c.next_frame
+		c.last_stats = time.tick_now()
 		log.infof("connected to %s", c.server_addr)
 		publish_status(c, .Connected)
 	}
@@ -342,25 +337,6 @@ verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 	return false
 }
 
-send_fake_frame :: proc(c: ^Voice_Client) {
-	msg: [proto.VOICE_UP_HEADER_SIZE + FAKE_FRAME_SIZE]byte
-	msg[0] = u8(proto.Message_Kind.Voice)
-	endian.unchecked_put_u32le(msg[1:], c.seq)
-	for &b, i in msg[proto.VOICE_UP_HEADER_SIZE:] {
-		b = byte(c.seq) + byte(i)
-	}
-	c.seq += 1
-	// Fixed schedule rather than "now + interval" so jitter doesn't
-	// accumulate; if we fell far behind, resync instead of bursting.
-	c.next_frame = time.tick_add(c.next_frame, FRAME_INTERVAL)
-	if time.tick_diff(c.next_frame, time.tick_now()) > 5 * FRAME_INTERVAL {
-		c.next_frame = time.tick_now()
-	}
-	if send_data(c, msg[:]) {
-		c.sent_frames += 1
-	}
-}
-
 send_data :: proc(c: ^Voice_Client, plaintext: []byte) -> bool {
 	pkt_buf: [proto.MAX_PACKET_SIZE]byte
 	pkt, ok := proto.seal(&c.current, plaintext, pkt_buf[:])
@@ -377,12 +353,19 @@ log_stats :: proc(c: ^Voice_Client) {
 		return
 	}
 	c.last_stats = time.tick_now()
+	v := &c.voice
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintf(&b, "sent %d frames", c.sent_frames)
-	for speaker, n in c.recv_frames {
+	fmt.sbprintf(&b, "voice: captured %d, sent %d frames (%d B)", v.captured, v.sent_frames, v.sent_bytes)
+	for speaker, n in v.received {
 		fmt.sbprintf(&b, " | %08x: %d", speaker, n)
 	}
+	if v.concealed > 0 {
+		fmt.sbprintf(&b, " | concealed %d", v.concealed)
+	}
+	if underruns := sync.atomic_exchange(&v.underruns, 0); underruns > 0 {
+		fmt.sbprintf(&b, " | %d output underruns", underruns)
+	}
 	log.debug(strings.to_string(b))
-	c.sent_frames = 0
-	clear(&c.recv_frames)
+	v.captured, v.sent_frames, v.sent_bytes, v.concealed = 0, 0, 0, 0
+	clear(&v.received)
 }

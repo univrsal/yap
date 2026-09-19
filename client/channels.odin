@@ -208,10 +208,14 @@ Join_Command :: struct {
 	channel: string, // owned by the command
 }
 List_Command :: struct {}
+Mute_Command :: struct {
+	muted: bool,
+}
 
 Command :: union {
 	Join_Command,
 	List_Command,
+	Mute_Command,
 }
 
 Command_Queue :: struct {
@@ -259,6 +263,9 @@ process_commands :: proc(c: ^Voice_Client) {
 			request_join(c, v.channel)
 		case List_Command:
 			list_channels(c)
+		case Mute_Command:
+			c.voice.muted = v.muted
+			log.infof("voice %s", "muted" if v.muted else "unmuted")
 		}
 	}
 }
@@ -269,6 +276,7 @@ network loop never blocks on input.
 
 	/channels        list channels and who is in them
 	/join <channel>  move to another channel
+	/mute, /unmute   stop or resume sending voice
 */
 start_command_reader :: proc(q: ^Command_Queue) {
 	thread.create_and_start_with_poly_data(q, read_commands, init_context = context, self_cleanup = true)
@@ -285,10 +293,12 @@ read_commands :: proc(q: ^Command_Queue) {
 		case line == "":
 		case line == "/channels":
 			push_command(q, List_Command{})
+		case line == "/mute" || line == "/unmute":
+			push_command(q, Mute_Command{line == "/mute"})
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>")
+			log.warn("commands: /channels, /join <channel>, /mute, /unmute")
 		}
 	}
 }
