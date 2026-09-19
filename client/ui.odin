@@ -107,6 +107,10 @@ UI :: struct {
 	// window_metrics.
 	input_scale:    f32,
 	metrics:        Window_Metrics,
+	// The pointing hand shown over links; created on first use, freed by
+	// glfw.Terminate.
+	hand_cursor:    glfw.CursorHandle,
+	hand_shown:     bool,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply.
@@ -252,6 +256,8 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		mu.begin(&ui.ctx)
 		layout(ui, i32(m.logical_w), i32(m.logical_h))
 		mu.end(&ui.ctx)
+		set_hand_cursor(ui, ui.chat.hovering)
+		ui_chat_after_frame(ui)
 		render(
 			&ui.renderer,
 			&ui.ctx,
@@ -271,6 +277,19 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		save_settings(ui)
 	}
 	return true
+}
+
+// set_hand_cursor switches between the pointing hand and the normal
+// arrow.
+set_hand_cursor :: proc(ui: ^UI, hand: bool) {
+	if hand == ui.hand_shown {
+		return
+	}
+	ui.hand_shown = hand
+	if hand && ui.hand_cursor == nil {
+		ui.hand_cursor = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
+	}
+	glfw.SetCursor(ui.window, ui.hand_cursor if hand else nil)
 }
 
 // typed_name is the name field's contents, sanitized as the server would.

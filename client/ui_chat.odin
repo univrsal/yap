@@ -27,11 +27,20 @@ UI_Chat :: struct {
 	len:      int,
 	scrolled: int, // chat_total + outbox length when last scrolled to the bottom
 	tz:       ^datetime.TZ_Region, // for local timestamps; nil means UTC
+
+	// The link under the mouse (as its first byte's address), found while
+	// drawing a frame and used for the next, since a link wrapped over
+	// several lines is drawn in pieces. 0 if none.
+	hover:    uintptr,
+	hovering: bool, // this frame; the cursor becomes a hand
+	open:     string, // clicked link to open after the frame; owned
 }
 
 CHAT_NAME_COLOR :: mu.Color{120, 170, 230, 255}
 CHAT_OWN_COLOR :: mu.Color{140, 200, 140, 255}
 CHAT_DIM_COLOR :: mu.Color{140, 140, 140, 255}
+LINK_COLOR :: mu.Color{100, 165, 245, 255}
+LINK_HOVER_COLOR :: mu.Color{160, 205, 255, 255}
 
 ui_chat_init :: proc(ui: ^UI) {
 	ui.chat.tz, _ = timezone.region_load("local")
@@ -39,6 +48,21 @@ ui_chat_init :: proc(ui: ^UI) {
 
 ui_chat_destroy :: proc(ui: ^UI) {
 	timezone.region_destroy(ui.chat.tz)
+	delete(ui.chat.open)
+}
+
+// ui_chat_after_frame acts on what the frame's layout found: the mouse
+// cursor over links, and a clicked link (opened outside the View lock).
+ui_chat_after_frame :: proc(ui: ^UI) {
+	if !ui.chat.hovering {
+		ui.chat.hover = 0
+	}
+	ui.chat.hovering = false
+	if ui.chat.open != "" {
+		open_url(ui.chat.open)
+		delete(ui.chat.open)
+		ui.chat.open = ""
+	}
 }
 
 // side_panel lays out the tabs in the current layout cell. Call with the
@@ -103,10 +127,11 @@ chat_panel :: proc(ui: ^UI) {
 	}
 	for line in v.chat {
 		header := fmt.tprintf("%s  %s", chat_time(ui, line.time), line.name)
-		chat_message(ctx, header, CHAT_OWN_COLOR if line.sender == v.my_num else CHAT_NAME_COLOR, line.text, ctx.style.colors[.TEXT])
+		header_color := CHAT_OWN_COLOR if line.sender == v.my_num else CHAT_NAME_COLOR
+		chat_message(ui, header, header_color, line.text, ctx.style.colors[.TEXT], links = true)
 	}
 	for text in v.outbox {
-		chat_message(ctx, "sending...", CHAT_DIM_COLOR, text, CHAT_DIM_COLOR)
+		chat_message(ui, "sending...", CHAT_DIM_COLOR, text, CHAT_DIM_COLOR, links = false)
 	}
 	mu.end_panel(ctx)
 
@@ -193,7 +218,8 @@ chat_time :: proc(ui: ^UI, unix: u32) -> string {
 // chat_message draws a header line and the wrapped text under it, with
 // the lines packed tightly and a gap before the next message.
 @(private = "file")
-chat_message :: proc(ctx: ^mu.Context, header: string, header_color: mu.Color, text: string, color: mu.Color) {
+chat_message :: proc(ui: ^UI, header: string, header_color: mu.Color, text: string, color: mu.Color, links: bool) {
+	ctx := &ui.ctx
 	font := ctx.style.font
 	mu.layout_row(ctx, {-1}, 0)
 	mu.layout_begin_column(ctx)
@@ -205,23 +231,69 @@ chat_message :: proc(ctx: ^mu.Context, header: string, header_color: mu.Color, t
 
 	r := mu.layout_next(ctx)
 	mu.draw_text(ctx, font, header, {r.x, r.y}, header_color)
-	wrapped_text(ctx, text, color)
+	wrapped_text(ui, text, color, find_links(text) if links else nil)
 	mu.layout_row(ctx, {-1}, saved) // the gap
 	mu.layout_next(ctx)
 }
 
 // wrapped_text is mu.text, except it also breaks words too long for a
-// line, and wraps the last word of a paragraph (which mu.text doesn't).
-// It continues the current row layout.
+// line, wraps the last word of a paragraph (which mu.text doesn't), and
+// draws `links` (byte ranges of `text`) as clickable links. It continues
+// the current row layout.
 @(private = "file")
-wrapped_text :: proc(ctx: ^mu.Context, text: string, color: mu.Color) {
+wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, links: []Link) {
+	ctx := &ui.ctx
 	font := ctx.style.font
-	text := text
-	for len(text) > 0 {
+	rest := text
+	for len(rest) > 0 {
 		r := mu.layout_next(ctx)
-		end := line_end(ctx, font, text, r.w)
-		mu.draw_text(ctx, font, text[:end], {r.x, r.y}, color)
-		text = strings.trim_left_space(text[end:])
+		end := line_end(ctx, font, rest, r.w)
+		start := len(text) - len(rest)
+		draw_line(ui, text, start, start + end, {r.x, r.y}, color, links)
+		rest = strings.trim_left_space(rest[end:])
+	}
+}
+
+// draw_line draws text[start:end], in pieces where it overlaps links.
+@(private = "file")
+draw_line :: proc(ui: ^UI, text: string, start, end: int, pos: mu.Vec2, color: mu.Color, links: []Link) {
+	ctx := &ui.ctx
+	font := ctx.style.font
+	x := pos.x
+	piece :: proc(ctx: ^mu.Context, font: mu.Font, s: string, x: ^i32, y: i32, color: mu.Color) -> mu.Rect {
+		w := ctx.text_width(font, s)
+		mu.draw_text(ctx, font, s, {x^, y}, color)
+		r := mu.Rect{x^, y, w, ctx.text_height(font)}
+		x^ += w
+		return r
+	}
+
+	at := start
+	for l in links {
+		if l.end <= at || l.start >= end {
+			continue
+		}
+		if l.start > at {
+			piece(ctx, font, text[at:l.start], &x, pos.y, color)
+			at = l.start
+		}
+		link_end := min(l.end, end)
+		id := uintptr(raw_data(text)) + uintptr(l.start)
+		hovered := ui.chat.hover == id
+		r := piece(ctx, font, text[at:link_end], &x, pos.y, LINK_HOVER_COLOR if hovered else LINK_COLOR)
+		// Underline, just below the baseline.
+		mu.draw_rect(ctx, {r.x, r.y + r.h - 2, r.w, 1}, LINK_HOVER_COLOR if hovered else LINK_COLOR)
+		if mu.mouse_over(ctx, r) {
+			ui.chat.hover = id
+			ui.chat.hovering = true
+			if .LEFT in ctx.mouse_pressed_bits && ui.chat.open == "" {
+				ui.chat.open = link_url(text, l, context.allocator)
+			}
+		}
+		at = link_end
+	}
+	if at < end {
+		piece(ctx, font, text[at:end], &x, pos.y, color)
 	}
 }
 
