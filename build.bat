@@ -14,7 +14,7 @@ lib /nologo /out:%MA%\yap_audio.lib %MA%\yap_audio.obj || exit /b 1
 del %MA%\yap_audio.obj
 
 set RNN=client\rnn
-cl /nologo /MT /O1 /I%RNN%\ref\include /c %RNN%\yap_rnn.c /Fo:%RNN%\yap_rnn.obj || exit /b 1
+cl /nologo /MT /O1 /c %RNN%\yap_rnn.c /Fo:%RNN%\yap_rnn.obj || exit /b 1
 lib /nologo /out:%RNN%\yap_rnn.lib %RNN%\yap_rnn.obj || exit /b 1
 del %RNN%\yap_rnn.obj
 

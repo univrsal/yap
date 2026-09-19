@@ -159,6 +159,7 @@ run_headless :: proc(
 	tone_hz: f32,
 	input_file: string,
 	denoise: bool,
+	gate: bool,
 ) -> bool {
 	// Heap-allocated: the channel state buffers make it fairly large.
 	c := new(Voice_Client)
@@ -168,6 +169,7 @@ run_headless :: proc(
 	}
 	defer voice_destroy(&c.voice)
 	c.voice.denoise = denoise
+	c.voice.gate.enabled = gate
 	fake: Fake_Audio
 	input: []f32
 	if input_file != "" {
@@ -409,7 +411,7 @@ log_stats :: proc(c: ^Voice_Client) {
 		v.sent_bytes,
 	)
 	if v.gated > 0 {
-		fmt.sbprintf(&b, ", %d without voice", v.gated)
+		fmt.sbprintf(&b, ", %d held by the gate", v.gated)
 	}
 	for speaker, n in v.received {
 		fmt.sbprintf(&b, " | %08x: %d", speaker, n)

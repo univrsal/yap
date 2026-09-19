@@ -16,6 +16,9 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"input_device": "",
 		"output_device": "Built-in Audio Analog Stereo",
 		"noise_suppression": true,
+		"voice_gate": true,
+		"gate_open_db": -45,
+		"gate_close_db": -55,
 		"users": {
 			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "volume": 0.5, "muted": false }
 		}
@@ -31,8 +34,13 @@ Settings :: struct {
 	name:              string, // the name to go by
 	input_device:      string,
 	output_device:     string,
-	// RNNoise on the microphone, plus only sending while voice is detected.
+	// RNNoise on the microphone.
 	noise_suppression: bool,
+	// Only send while the microphone level is above the thresholds (dBFS);
+	// see gate.odin.
+	voice_gate:        bool,
+	gate_open_db:      f32,
+	gate_close_db:     f32,
 	// How to play other users, keyed by their public key (64 hex digits),
 	// which is what identifies a user; names can be copied. Users with
 	// default settings aren't stored.
@@ -51,6 +59,9 @@ MAX_USER_VOLUME :: 3
 
 DEFAULT_SETTINGS :: Settings {
 	noise_suppression = true,
+	voice_gate        = true,
+	gate_open_db      = DEFAULT_GATE_OPEN_DB,
+	gate_close_db     = DEFAULT_GATE_CLOSE_DB,
 }
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
@@ -143,6 +154,12 @@ set_user_settings :: proc(s: ^Settings, user: [proto.KEY_SIZE]u8, u: User_Settin
 	} else {
 		s.users[strings.clone(key)] = u
 	}
+}
+
+// gate_command is the voice gate as configured in `s`.
+gate_command :: proc(s: ^Settings) -> Gate_Command {
+	open := clamp(s.gate_open_db, MIN_LEVEL_DB, 0)
+	return {s.voice_gate, open, clamp(s.gate_close_db, MIN_LEVEL_DB, open)}
 }
 
 // user_gain is what the mixer multiplies a user's audio by.

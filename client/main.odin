@@ -13,7 +13,8 @@ Options :: struct {
 	list_audio_devices: bool `usage:"Print the audio input and output devices, then exit."`,
 	tone:               f32 `usage:"With -headless: send a sine tone of this frequency (Hz) as voice and log what is heard. For testing."`,
 	input_file:         string `usage:"With -headless: loop this raw 48 kHz mono f32 file as the microphone. For testing."`,
-	denoise:            bool `usage:"With -headless: enable noise suppression and the voice gate (the UI has a setting for it)."`,
+	denoise:            bool `usage:"With -headless: enable noise suppression (the UI has a setting for it)."`,
+	gate:               bool `usage:"With -headless: enable the voice gate, at the default thresholds (the UI has settings for it)."`,
 	channel:            string `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
 	name:               string `usage:"With -headless: the name to go by (default: your OS user name). The UI has a field for it."`,
 	key:                string `usage:"Private key file, created if missing (default <config dir>/yap/client.key)."`,
@@ -72,6 +73,7 @@ main :: proc() {
 			opt.tone,
 			opt.input_file,
 			opt.denoise,
+			opt.gate,
 		) {
 			os.exit(1)
 		}

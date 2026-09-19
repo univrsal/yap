@@ -45,6 +45,10 @@ View :: struct {
 	channels:   [dynamic]View_Channel,
 	my_channel: int, // -1 until known
 	joining:    int, // channel a move is pending to, or -1
+	// The microphone's level and the voice gate, per captured frame.
+	mic_level:  f32, // dBFS
+	mic_open:   bool,
+	mic_time:   time.Tick,
 	// Last time each user's voice was heard, for a speaking indicator.
 	speaking:   map[u32]time.Tick,
 }
@@ -140,6 +144,15 @@ publish_channels :: proc(c: ^Voice_Client) {
 	}
 	v.my_channel = int(ch.state.your_channel)
 	v.joining = ch.join_pending ? int(ch.join_channel) : -1
+}
+
+publish_mic :: proc(c: ^Voice_Client, level_db: f32, gate_open: bool) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	v.mic_level, v.mic_open, v.mic_time = level_db, gate_open, time.tick_now()
 }
 
 publish_voice :: proc(c: ^Voice_Client, speaker: u32) {

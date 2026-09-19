@@ -5,9 +5,9 @@ import "core:log"
 import mu "vendor:microui"
 
 /*
-The settings page: choosing the microphone and the speakers/headphones.
-Selections are saved right away (see settings.odin). They take effect
-once audio is actually recorded and played, which is a later step.
+The settings page: name, noise suppression, the voice gate (ui_gate.odin),
+and choosing the microphone and the speakers/headphones. Changes are saved
+right away (see settings.odin) and apply to a running connection.
 */
 settings_page :: proc(ui: ^UI, height: i32) {
 	ctx := &ui.ctx
@@ -48,7 +48,7 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		   ctx,
 		   "noise",
 		   fmt.tprintf(
-			   "Noise suppression: %s  (removes background noise; only sends while you talk)",
+			   "Noise suppression: %s  (removes background noise from your microphone)",
 			   state,
 		   ),
 	   ) {
@@ -59,10 +59,12 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		}
 	}
 
+	gate_settings(ui)
+
 	// The input list gets half of what's left; the output list the rest.
 	style := ctx.style
 	row := LINE_HEIGHT + style.padding * 2 + style.spacing
-	input_height := max((height - 6 * row) / 2, row * 2)
+	input_height := max((height - 10 * row) / 2, row * 2)
 
 	if choice, changed := device_list(
 		ctx,

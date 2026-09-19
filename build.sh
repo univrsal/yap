@@ -20,9 +20,9 @@ fi
 
 rnn=client/rnn
 lib=$rnn/libyap_rnn.a
-if [ ! -f "$lib" ] || [ -n "$(find "$rnn/yap_rnn.c" "$rnn/yap_rnn.h" "$rnn/ref" -newer "$lib" -print -quit)" ]; then
+if [ ! -f "$lib" ] || [ -n "$(find "$rnn/yap_rnn.c" "$rnn/yap_rnn.h" "$rnn/impl" -newer "$lib" -print -quit)" ]; then
 	echo "building $lib"
-	${CC:-cc} -std=c99 -Os -I"$rnn/ref/include" -c "$rnn/yap_rnn.c" -o "$rnn/yap_rnn.o"
+	${CC:-cc} -std=c99 -Os -c "$rnn/yap_rnn.c" -o "$rnn/yap_rnn.o"
 	ar rcs "$lib" "$rnn/yap_rnn.o"
 	rm "$rnn/yap_rnn.o"
 fi

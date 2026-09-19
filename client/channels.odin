@@ -273,6 +273,10 @@ Gain_Command :: struct {
 Name_Command :: struct {
 	name: string, // owned by the command
 }
+Gate_Command :: struct {
+	enabled:           bool,
+	open_db, close_db: f32,
+}
 
 Command :: union {
 	Join_Command,
@@ -281,6 +285,7 @@ Command :: union {
 	Noise_Command,
 	Gain_Command,
 	Name_Command,
+	Gate_Command,
 }
 
 Command_Queue :: struct {
@@ -343,6 +348,9 @@ process_commands :: proc(c: ^Voice_Client) {
 			} else {
 				c.voice.gains[v.key] = v.gain
 			}
+		case Gate_Command:
+			g := &c.voice.gate
+			g.enabled, g.open_db, g.close_db = v.enabled, v.open_db, v.close_db
 		case Name_Command:
 			set_name(c, v.name)
 			log.infof("name: %q", c.channels.name)

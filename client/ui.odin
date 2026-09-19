@@ -89,6 +89,10 @@ UI :: struct {
 	menu_key:       [proto.KEY_SIZE]u8,
 	menu_volume:    mu.Real,
 	menu_requested: bool,
+	// The settings page's microphone monitor and level meter (ui_gate.odin).
+	monitor:        Mic_Monitor,
+	meter_level:    f32,
+	meter_time:     time.Tick,
 	// Slider drags change the settings every frame; save at most once a
 	// second, and on exit.
 	settings_dirty: bool,
@@ -218,6 +222,8 @@ run_ui :: proc(opts: UI_Options) -> bool {
 			save_settings(ui)
 		}
 
+		monitor_update(ui)
+
 		m := window_metrics(ui.window)
 		if m != ui.metrics {
 			ww, wh := glfw.GetWindowSize(ui.window)
@@ -251,6 +257,7 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	}
 
 	disconnect(ui)
+	monitor_stop(ui)
 	if ui.settings_dirty {
 		save_settings(ui)
 	}
@@ -320,6 +327,7 @@ window_metrics :: proc(window: glfw.WindowHandle) -> (m: Window_Metrics) {
 @(private = "file")
 connect :: proc(ui: ^UI) {
 	disconnect(ui)
+	monitor_stop(ui) // the connection opens the microphone itself
 	server := strings.trim_space(string(ui.server_buf[:ui.server_len]))
 	if server == "" {
 		return
@@ -344,6 +352,7 @@ connect :: proc(ui: ^UI) {
 	}
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.denoise = ui.settings.noise_suppression
+	push_command(&ns.client.commands, gate_command(&ui.settings))
 	for hex_key, u in ui.settings.users {
 		if key, ok := parse_user_key(hex_key); ok {
 			push_command(&ns.client.commands, Gain_Command{key, user_gain(u)})
@@ -398,6 +407,10 @@ set_muted :: proc(ui: ^UI, muted: bool) {
 // reopen_audio switches a running connection to the devices now selected
 // in the settings.
 reopen_audio :: proc(ui: ^UI, input: bool) {
+	if input && ui.monitor.active {
+		m := &ui.monitor
+		open_capture(&ui.audio, &m.streams, &m.voice, ui.settings.input_device)
+	}
 	ns := ui.session
 	if ns == nil || ns.client.voice.encoder == nil {
 		return
