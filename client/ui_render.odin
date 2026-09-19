@@ -1,13 +1,18 @@
 package client
 
+import "core:math"
 import gl "vendor:OpenGL"
 import mu "vendor:microui"
 
 /*
-Draws microui's command list with OpenGL 3.3: every rect, glyph and icon
-is a textured quad from microui's built-in 128x128 alpha atlas (font and
-icons included, so there are no asset files). Quads are batched and
-flushed whenever the clip rect changes.
+Draws microui's command list with OpenGL 3.3. Rects and text are quads
+from the font atlas (ui_font.odin), rasterized at the display's density
+so they stay sharp on high-DPI screens; microui's own icons come from its
+built-in atlas. Quads are batched and flushed whenever the clip rect or
+the texture changes.
+
+Everything is laid out in logical pixels; `scale` is physical pixels per
+logical pixel.
 */
 
 @(private = "file")
@@ -25,17 +30,23 @@ Renderer :: struct {
 	vao:      u32,
 	vbo:      u32,
 	ebo:      u32,
-	atlas:    u32,
 	u_screen: i32,
+
+	font:         Font,
+	font_texture: u32,
+	icon_texture: u32,
+	bound:        u32, // texture the pending quads use
 
 	vertices: [MAX_QUADS * 4]Vertex,
 	quads:    int,
 
-	// Layout happens in window coordinates; the framebuffer may be
-	// larger on high-DPI displays.
-	width, height: i32,
-	scale:         f32,
+	height: f32, // logical
+	scale:  f32,
 }
+
+// The font microui measures text with (its callbacks take no user data).
+@(private = "file")
+g_font: ^Font
 
 @(private = "file")
 VERTEX_SHADER :: `#version 330 core
@@ -64,6 +75,11 @@ void main() {
 `
 
 renderer_init :: proc(r: ^Renderer) -> bool {
+	if !font_init(&r.font) {
+		return false
+	}
+	g_font = &r.font
+
 	program, ok := gl.load_shaders_source(VERTEX_SHADER, FRAGMENT_SHADER)
 	if !ok {
 		return false
@@ -93,34 +109,45 @@ renderer_init :: proc(r: ^Renderer) -> bool {
 	gl.GenBuffers(1, &r.ebo)
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, r.ebo)
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(indices^), indices, gl.STATIC_DRAW)
-
-	gl.GenTextures(1, &r.atlas)
-	gl.BindTexture(gl.TEXTURE_2D, r.atlas)
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R8, mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT, 0,
-		gl.RED, gl.UNSIGNED_BYTE, &mu.default_atlas_alpha)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-
 	gl.BindVertexArray(0)
+
+	r.icon_texture = make_alpha_texture(mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT, mu.default_atlas_alpha[:])
 	return true
 }
 
 renderer_destroy :: proc(r: ^Renderer) {
-	gl.DeleteTextures(1, &r.atlas)
+	gl.DeleteTextures(1, &r.font_texture)
+	gl.DeleteTextures(1, &r.icon_texture)
 	gl.DeleteBuffers(1, &r.ebo)
 	gl.DeleteBuffers(1, &r.vbo)
 	gl.DeleteVertexArrays(1, &r.vao)
 	gl.DeleteProgram(r.program)
+	font_destroy(&r.font)
 }
 
-// render draws one frame of microui output. width/height are the window
-// size (what microui laid out for); fb_width/fb_height the framebuffer.
-render :: proc(r: ^Renderer, ctx: ^mu.Context, width, height, fb_width, fb_height: i32, clear: mu.Color) {
-	r.width, r.height = width, height
-	r.scale = width > 0 ? f32(fb_width) / f32(width) : 1
+// microui text metrics, in logical pixels.
+ui_text_width :: proc(font: mu.Font, text: string) -> i32 {
+	return i32(math.ceil(font_text_width(g_font, text)))
+}
 
-	gl.Viewport(0, 0, fb_width, fb_height)
+ui_text_height :: proc(font: mu.Font) -> i32 {
+	return LINE_HEIGHT
+}
+
+// render draws one frame of microui output. The layout was done for a
+// logical_w x logical_h window; the framebuffer is fb_w x fb_h, and
+// `scale` is physical pixels per logical pixel (the display's density).
+render :: proc(r: ^Renderer, ctx: ^mu.Context, logical_w, logical_h: f32, fb_w, fb_h: i32, scale: f32, clear: mu.Color) {
+	r.height, r.scale = logical_h, scale
+
+	if scale != r.font.scale {
+		if font_build_atlas(&r.font, scale) {
+			gl.DeleteTextures(1, &r.font_texture)
+			r.font_texture = make_alpha_texture(r.font.width, r.font.height, r.font.pixels)
+		}
+	}
+
+	gl.Viewport(0, 0, fb_w, fb_h)
 	gl.Disable(gl.SCISSOR_TEST)
 	gl.ClearColor(f32(clear.r) / 255, f32(clear.g) / 255, f32(clear.b) / 255, 1)
 	gl.Clear(gl.COLOR_BUFFER_BIT)
@@ -128,27 +155,46 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, width, height, fb_width, fb_heigh
 	gl.Enable(gl.BLEND)
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Enable(gl.SCISSOR_TEST)
-	gl.Scissor(0, 0, fb_width, fb_height)
+	gl.Scissor(0, 0, fb_w, fb_h)
 
 	gl.UseProgram(r.program)
-	gl.Uniform2f(r.u_screen, f32(width), f32(height))
+	gl.Uniform2f(r.u_screen, logical_w, logical_h)
 	gl.BindVertexArray(r.vao)
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.vbo)
 	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, r.atlas)
+	r.bound = 0
 
 	cmd: ^mu.Command
 	for variant in mu.next_command_iterator(ctx, &cmd) {
 		switch c in variant {
 		case ^mu.Command_Text:
-			draw_text(r, c.str, c.pos, c.color)
+			use_texture(r, r.font_texture)
+			Emit :: struct {
+				r:     ^Renderer,
+				color: mu.Color,
+			}
+			emit := Emit{r, c.color}
+			font_layout(&r.font, c.str, f32(c.pos.x), f32(c.pos.y), &emit, proc(data: rawptr, q: Glyph_Quad) {
+				e := (^Emit)(data)
+				push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
+			})
 		case ^mu.Command_Rect:
-			push_quad(r, c.rect, mu.default_atlas[mu.DEFAULT_ATLAS_WHITE], c.color)
+			use_texture(r, r.font_texture)
+			// Snap edges to physical pixels so borders stay crisp at
+			// fractional scales.
+			w := r.font.white
+			snap :: proc(v: i32, s: f32) -> f32 { return math.round(f32(v) * s) / s }
+			x0, y0 := snap(c.rect.x, r.scale), snap(c.rect.y, r.scale)
+			x1, y1 := snap(c.rect.x + c.rect.w, r.scale), snap(c.rect.y + c.rect.h, r.scale)
+			push_quad(r, {x0, y0, x1, y1}, {w.x, w.y, w.x, w.y}, c.color)
 		case ^mu.Command_Icon:
+			use_texture(r, r.icon_texture)
 			src := mu.default_atlas[c.id]
-			x := c.rect.x + (c.rect.w - src.w) / 2
-			y := c.rect.y + (c.rect.h - src.h) / 2
-			push_quad(r, {x, y, src.w, src.h}, src, c.color)
+			x := f32(c.rect.x + (c.rect.w - src.w) / 2)
+			y := f32(c.rect.y + (c.rect.h - src.h) / 2)
+			A :: f32(mu.DEFAULT_ATLAS_WIDTH)
+			push_quad(r, {x, y, x + f32(src.w), y + f32(src.h)},
+				{f32(src.x) / A, f32(src.y) / A, f32(src.x + src.w) / A, f32(src.y + src.h) / A}, c.color)
 		case ^mu.Command_Clip:
 			flush(r)
 			set_clip(r, c.rect)
@@ -161,37 +207,38 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, width, height, fb_width, fb_heigh
 }
 
 @(private = "file")
-draw_text :: proc(r: ^Renderer, text: string, pos: mu.Vec2, color: mu.Color) {
-	// Mirrors mu.default_atlas_text_width: ASCII only, one glyph per
-	// UTF-8 sequence, anything beyond ASCII drawn as the last glyph.
-	x := pos.x
-	for b in transmute([]u8)text {
-		if b & 0xc0 == 0x80 {
-			continue
-		}
-		src := mu.default_atlas[mu.DEFAULT_ATLAS_FONT + min(int(b), 127)]
-		push_quad(r, {x, pos.y, src.w, src.h}, src, color)
-		x += src.w
-	}
+make_alpha_texture :: proc(width, height: i32, pixels: []u8) -> (tex: u32) {
+	gl.GenTextures(1, &tex)
+	gl.BindTexture(gl.TEXTURE_2D, tex)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, raw_data(pixels))
+	// Glyphs are drawn 1:1 with physical pixels, so no filtering is wanted.
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	return
 }
 
 @(private = "file")
-push_quad :: proc(r: ^Renderer, dst, src: mu.Rect, color: mu.Color) {
+use_texture :: proc(r: ^Renderer, tex: u32) {
+	if r.bound != tex {
+		flush(r)
+		gl.BindTexture(gl.TEXTURE_2D, tex)
+		r.bound = tex
+	}
+}
+
+// dst and uv are {x0, y0, x1, y1}.
+@(private = "file")
+push_quad :: proc(r: ^Renderer, dst, uv: [4]f32, color: mu.Color) {
 	if r.quads == MAX_QUADS {
 		flush(r)
 	}
-	ATLAS :: f32(mu.DEFAULT_ATLAS_WIDTH)
-	x0, y0 := f32(dst.x), f32(dst.y)
-	x1, y1 := f32(dst.x + dst.w), f32(dst.y + dst.h)
-	u0, v0 := f32(src.x) / ATLAS, f32(src.y) / ATLAS
-	u1, v1 := f32(src.x + src.w) / ATLAS, f32(src.y + src.h) / ATLAS
 	c := [4]u8{color.r, color.g, color.b, color.a}
-
 	v := r.vertices[r.quads * 4:]
-	v[0] = {{x0, y0}, {u0, v0}, c}
-	v[1] = {{x1, y0}, {u1, v0}, c}
-	v[2] = {{x1, y1}, {u1, v1}, c}
-	v[3] = {{x0, y1}, {u0, v1}, c}
+	v[0] = {{dst[0], dst[1]}, {uv[0], uv[1]}, c}
+	v[1] = {{dst[2], dst[1]}, {uv[2], uv[1]}, c}
+	v[2] = {{dst[2], dst[3]}, {uv[2], uv[3]}, c}
+	v[3] = {{dst[0], dst[3]}, {uv[0], uv[3]}, c}
 	r.quads += 1
 }
 
@@ -209,10 +256,9 @@ flush :: proc(r: ^Renderer) {
 set_clip :: proc(r: ^Renderer, rect: mu.Rect) {
 	// GL's scissor origin is bottom-left, in framebuffer pixels.
 	s := r.scale
-	gl.Scissor(
-		i32(f32(rect.x) * s),
-		i32(f32(r.height - (rect.y + rect.h)) * s),
-		i32(f32(rect.w) * s),
-		i32(f32(rect.h) * s),
-	)
+	x0 := math.round(f32(rect.x) * s)
+	x1 := math.round(f32(rect.x + rect.w) * s)
+	y0 := math.round((r.height - f32(rect.y + rect.h)) * s)
+	y1 := math.round((r.height - f32(rect.y)) * s)
+	gl.Scissor(i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
 }

@@ -71,6 +71,11 @@ UI :: struct {
 	action:  Action,
 
 	log_seen: int, // Log_Lines.total when the log panel was last scrolled
+
+	// Logical pixels per window coordinate, for mouse input. See
+	// window_metrics.
+	input_scale: f32,
+	metrics:     Window_Metrics,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply.
@@ -113,6 +118,9 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+	// Where window coordinates are physical pixels (Windows, X11), size
+	// the window for the monitor's scale so it isn't tiny on high DPI.
+	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
 	when ODIN_OS == .Darwin {
 		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true)
 	}
@@ -134,8 +142,9 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	defer renderer_destroy(&ui.renderer)
 
 	mu.init(&ui.ctx, set_clipboard, get_clipboard)
-	ui.ctx.text_width = mu.default_atlas_text_width
-	ui.ctx.text_height = mu.default_atlas_text_height
+	ui.ctx.text_width = ui_text_width
+	ui.ctx.text_height = ui_text_height
+	ui.input_scale = 1
 
 	glfw.SetCursorPosCallback(ui.window, cursor_pos_callback)
 	glfw.SetMouseButtonCallback(ui.window, mouse_button_callback)
@@ -173,17 +182,58 @@ run_ui :: proc(opts: UI_Options) -> bool {
 			ui.ctx.hover_id = 0
 		}
 
-		w, h := glfw.GetWindowSize(ui.window)
-		fb_w, fb_h := glfw.GetFramebufferSize(ui.window)
+		m := window_metrics(ui.window)
+		if m != ui.metrics {
+			ww, wh := glfw.GetWindowSize(ui.window)
+			log.debugf("ui: window %dx%d, framebuffer %dx%d, scale %.2f, layout %.0fx%.0f",
+				ww, wh, m.fb_w, m.fb_h, m.scale, m.logical_w, m.logical_h)
+			ui.metrics = m
+		}
+		ui.input_scale = m.input_scale
 		mu.begin(&ui.ctx)
-		layout(ui, w, h)
+		layout(ui, i32(m.logical_w), i32(m.logical_h))
 		mu.end(&ui.ctx)
-		render(&ui.renderer, &ui.ctx, w, h, fb_w, fb_h, BACKGROUND)
+		render(&ui.renderer, &ui.ctx, m.logical_w, m.logical_h, m.fb_w, m.fb_h, m.scale, BACKGROUND)
 		glfw.SwapBuffers(ui.window)
 	}
 
 	disconnect(ui)
 	return true
+}
+
+Window_Metrics :: struct {
+	logical_w, logical_h: f32, // what the UI is laid out for
+	fb_w, fb_h:           i32,
+	scale:                f32, // physical pixels per logical pixel
+	input_scale:          f32, // logical pixels per window coordinate
+}
+
+/*
+Platforms disagree on what window coordinates are. On Wayland and macOS
+they're logical and the framebuffer is bigger on high-DPI screens; on
+Windows and X11 they're physical pixels, and the monitor's scale is only
+known from the content scale. Either way we lay out in logical pixels
+and render at `scale`.
+*/
+@(private = "file")
+window_metrics :: proc(window: glfw.WindowHandle) -> (m: Window_Metrics) {
+	w, h := glfw.GetWindowSize(window)
+	m.fb_w, m.fb_h = glfw.GetFramebufferSize(window)
+	if w <= 0 || h <= 0 || m.fb_w <= 0 {
+		return {logical_w = 1, logical_h = 1, scale = 1, input_scale = 1}
+	}
+
+	ratio := f32(m.fb_w) / f32(w)
+	if ratio > 1.01 {
+		m.scale = ratio
+		m.logical_w, m.logical_h = f32(w), f32(h)
+	} else {
+		content, _ := glfw.GetWindowContentScale(window)
+		m.scale = max(content, 1)
+		m.logical_w, m.logical_h = f32(m.fb_w) / m.scale, f32(m.fb_h) / m.scale
+	}
+	m.input_scale = m.logical_w / f32(w)
+	return
 }
 
 @(private = "file")
@@ -465,9 +515,14 @@ glfw_error_callback :: proc "c" (code: i32, description: cstring) {
 // glfw.WaitEventsTimeout.
 
 @(private = "file")
+to_logical :: proc "contextless" (v: f64) -> i32 {
+	return i32(v * f64(g_ui.input_scale))
+}
+
+@(private = "file")
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = runtime.default_context()
-	mu.input_mouse_move(&g_ui.ctx, i32(x), i32(y))
+	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
 }
 
 @(private = "file")
@@ -481,17 +536,18 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	case glfw.MOUSE_BUTTON_MIDDLE: btn = .MIDDLE
 	case: return
 	}
-	x, y := glfw.GetCursorPos(window)
-	log.debugf("ui: mouse %v %s at %.0f,%.0f", btn, action == glfw.PRESS ? "down" : "up", x, y)
+	wx, wy := glfw.GetCursorPos(window)
+	x, y := to_logical(wx), to_logical(wy)
+	log.debugf("ui: mouse %v %s at %d,%d", btn, action == glfw.PRESS ? "down" : "up", x, y)
 	// Hover was worked out at the last known pointer position. If the
 	// press is somewhere else (motion events were missed), it would click
 	// whatever was under the old position, so drop the hover instead.
-	if action == glfw.PRESS && g_ui.ctx.mouse_pos != {i32(x), i32(y)} {
+	if action == glfw.PRESS && g_ui.ctx.mouse_pos != {x, y} {
 		g_ui.ctx.hover_id = 0
 	}
 	switch action {
-	case glfw.PRESS:   mu.input_mouse_down(&g_ui.ctx, i32(x), i32(y), btn)
-	case glfw.RELEASE: mu.input_mouse_up(&g_ui.ctx, i32(x), i32(y), btn)
+	case glfw.PRESS:   mu.input_mouse_down(&g_ui.ctx, x, y, btn)
+	case glfw.RELEASE: mu.input_mouse_up(&g_ui.ctx, x, y, btn)
 	}
 }
 
