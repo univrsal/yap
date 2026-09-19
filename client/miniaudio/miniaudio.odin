@@ -71,5 +71,7 @@ foreign lib {
 	stream_start :: proc(s: ^Stream) -> Result ---
 	stream_stop :: proc(s: ^Stream) -> Result ---
 	stream_close :: proc(s: ^Stream) ---
+	// What the stream delivers/expects: as asked, or the native count if 0 was asked.
+	stream_channels :: proc(s: ^Stream) -> c.uint ---
 	stream_device_name :: proc(s: ^Stream, name: ^[NAME_SIZE]u8) ---
 }

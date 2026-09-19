@@ -359,6 +359,7 @@ connect :: proc(ui: ^UI) {
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
+	push_command(&ns.client.commands, Quality_Command{settings_quality(&ui.settings)})
 	push_command(&ns.client.commands, gate_command(&ui.settings))
 	for hex_key, u in ui.settings.users {
 		if key, ok := parse_user_key(hex_key); ok {

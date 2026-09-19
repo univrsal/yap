@@ -15,6 +15,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"server": "localhost:7777",
 		"input_device": "",
 		"output_device": "Built-in Audio Analog Stereo",
+		"quality": "voice",
 		"noise_suppression": true,
 		"voice_gate": true,
 		"gate_open_db": -45,
@@ -34,6 +35,8 @@ Settings :: struct {
 	name:              string, // the name to go by
 	input_device:      string,
 	output_device:     string,
+	// Send quality preset by name ("voice", "high", "music"; quality.odin).
+	quality:           string,
 	// RNNoise on the microphone.
 	noise_suppression: bool,
 	// Only send while the microphone level is above the thresholds (dBFS);
@@ -103,6 +106,7 @@ settings_save :: proc(path: string, s: Settings) {
 settings_destroy :: proc(s: ^Settings) {
 	delete(s.server)
 	delete(s.name)
+	delete(s.quality)
 	delete(s.input_device)
 	delete(s.output_device)
 	for key in s.users {
@@ -154,6 +158,12 @@ set_user_settings :: proc(s: ^Settings, user: [proto.KEY_SIZE]u8, u: User_Settin
 	} else {
 		s.users[strings.clone(key)] = u
 	}
+}
+
+// settings_quality is the configured preset; Voice if unset or unknown.
+settings_quality :: proc(s: ^Settings) -> Quality {
+	q, _ := parse_quality(s.quality)
+	return q
 }
 
 // gate_command is the voice gate as configured in `s`.

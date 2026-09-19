@@ -31,7 +31,7 @@ played_level :: proc(t: ^testing.T, gain: f32, set_gain: bool) -> f64 {
 
 	sum: f64
 	count: int
-	out: [FRAME_SAMPLES]f32
+	out: [FRAME]f32
 	for f in 0 ..< 50 {
 		pcm: [FRAME_SAMPLES]f32
 		for &s, i in pcm {
@@ -130,11 +130,11 @@ test_listen_back :: proc(t: ^testing.T) {
 	testing.expect(t, voice_init(&v))
 	defer voice_destroy(&v)
 
-	frame: [FRAME_SAMPLES]f32
+	frame: [FRAME]f32
 	for &s in frame {
 		s = 0.5
 	}
-	out: [FRAME_SAMPLES]f32
+	out: [FRAME]f32
 	level :: proc(x: []f32) -> f32 {
 		sum: f32
 		for s in x {
@@ -177,4 +177,81 @@ test_listen_back :: proc(t: ^testing.T) {
 	listen_feed(&v, frame[:], true)
 	mix_output(&v)
 	testing.expect_value(t, ring_available(&v.loopback), 0)
+}
+
+@(test)
+test_stereo_end_to_end :: proc(t: ^testing.T) {
+	// A Music (stereo) sender with a tone on the left only: the receiver
+	// must play it on the left only.
+	sender: Voice
+	testing.expect(t, voice_init(&sender))
+	defer voice_destroy(&sender)
+	testing.expect(t, encoder_setup(&sender, .Music))
+
+	c := new(Voice_Client, context.temp_allocator)
+	testing.expect(t, voice_init(&c.voice))
+	defer voice_destroy(&c.voice)
+	sync.atomic_store(&c.voice.output, true)
+
+	left, right: f64
+	for f in 0 ..< 50 {
+		frame: [FRAME]f32
+		for i in 0 ..< FRAME_SAMPLES {
+			frame[i * CHANNELS] = f32(0.3 * math.sin(2 * math.PI * 440 * f64(f * FRAME_SAMPLES + i) / SAMPLE_RATE))
+		}
+		_, pass := mic_process(&sender, frame[:]) // no suppression; gate off
+		testing.expect(t, pass)
+		packet: [opus.MAX_PACKET_SIZE]u8
+		n := opus.encode_float(sender.encoder, &frame[0], FRAME_SAMPLES, &packet[0], len(packet))
+		testing.expect(t, n > 0)
+		testing.expect_value(t, opus.packet_get_nb_channels(&packet[0]), 2)
+
+		voice_receive(c, 7, u32(f), packet[:n])
+		voice_step(c)
+		out: [FRAME]f32
+		got := ring_read(&c.voice.playback, out[:])
+		if f >= 25 {
+			for i := 0; i + 1 < got; i += CHANNELS {
+				left += f64(out[i] * out[i])
+				right += f64(out[i + 1] * out[i + 1])
+			}
+		}
+	}
+	testing.expectf(t, left > 100 * right && left > 0, "left %.3f, right %.5f", left, right)
+}
+
+@(test)
+test_mono_downmix :: proc(t: ^testing.T) {
+	v: Voice
+	testing.expect(t, voice_init(&v))
+	defer voice_destroy(&v)
+	testing.expect_value(t, QUALITY_PRESETS[v.quality].channels, 1)
+
+	// Left at 1, right at 0: a mono preset sends (and listens back to)
+	// the average on both channels, and measures its level.
+	frame: [FRAME]f32
+	for i in 0 ..< FRAME_SAMPLES {
+		frame[i * CHANNELS] = 1
+	}
+	level, _ := mic_process(&v, frame[:])
+	testing.expect_value(t, frame[0], 0.5)
+	testing.expect_value(t, frame[1], 0.5)
+	testing.expect(t, abs(level - (-6.0206)) < 0.01) // 20*log10(0.5)
+}
+
+@(test)
+test_to_stereo :: proc(t: ^testing.T) {
+	out: [4]f32 // two stereo frames
+
+	// Mono: duplicated to both sides (not left only).
+	to_stereo([]f32{0.5, -0.25}, 1, out[:])
+	testing.expect_value(t, out, [4]f32{0.5, 0.5, -0.25, -0.25})
+
+	// Stereo: unchanged.
+	to_stereo([]f32{0.1, 0.2, 0.3, 0.4}, 2, out[:])
+	testing.expect_value(t, out, [4]f32{0.1, 0.2, 0.3, 0.4})
+
+	// More channels: the first two of each frame.
+	to_stereo([]f32{0.1, 0.2, 9, 9, 0.3, 0.4, 9, 9}, 4, out[:])
+	testing.expect_value(t, out, [4]f32{0.1, 0.2, 0.3, 0.4})
 }

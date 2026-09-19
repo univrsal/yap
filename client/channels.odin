@@ -276,6 +276,9 @@ Name_Command :: struct {
 Listen_Command :: struct {
 	on: bool,
 }
+Quality_Command :: struct {
+	quality: Quality,
+}
 Gate_Command :: struct {
 	enabled:           bool,
 	open_db, close_db: f32,
@@ -290,6 +293,7 @@ Command :: union {
 	Name_Command,
 	Gate_Command,
 	Listen_Command,
+	Quality_Command,
 }
 
 Command_Queue :: struct {
@@ -351,6 +355,10 @@ process_commands :: proc(c: ^Voice_Client) {
 				delete_key(&c.voice.gains, v.key)
 			} else {
 				c.voice.gains[v.key] = v.gain
+			}
+		case Quality_Command:
+			if v.quality != c.voice.quality && encoder_setup(&c.voice, v.quality) {
+				log.infof("quality: %s (%s)", QUALITY_PRESETS[v.quality].label, QUALITY_PRESETS[v.quality].description)
 			}
 		case Listen_Command:
 			c.voice.listen = v.on

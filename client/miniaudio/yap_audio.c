@@ -202,6 +202,11 @@ void yap_audio_stream_close(yap_audio_stream* s)
     free(s);
 }
 
+unsigned int yap_audio_stream_channels(yap_audio_stream* s)
+{
+    return s->device.type == ma_device_type_capture ? s->device.capture.channels : s->device.playback.channels;
+}
+
 void yap_audio_stream_device_name(yap_audio_stream* s, char name[YAP_AUDIO_NAME_SIZE])
 {
     ma_device_type type = s->device.type;

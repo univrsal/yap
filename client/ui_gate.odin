@@ -64,18 +64,21 @@ monitor_update :: proc(ui: ^UI) {
 	if ui.listen_back && m.streams.playback == nil {
 		// The UI thread only gets here once per frame, so keep more queued
 		// than the network thread does.
-		m.voice.output_target = 3 * FRAME_SAMPLES
+		m.voice.output_target = 3 * FRAME
 		open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
 	} else if !ui.listen_back && m.streams.playback != nil {
 		close_playback(&m.streams, &m.voice)
 	}
 
 	m.voice.denoise = ui.settings.noise_suppression
+	// Mono or stereo processing, as the chosen preset would send (the
+	// monitor never encodes, so no encoder change is needed).
+	m.voice.quality = settings_quality(&ui.settings)
 	cmd := gate_command(&ui.settings)
 	m.voice.gate.enabled, m.voice.gate.open_db, m.voice.gate.close_db = cmd.enabled, cmd.open_db, cmd.close_db
 
-	frame: [FRAME_SAMPLES]f32
-	for ring_available(&m.voice.capture) >= FRAME_SAMPLES {
+	frame: [FRAME]f32
+	for ring_available(&m.voice.capture) >= FRAME {
 		ring_read(&m.voice.capture, frame[:])
 		pass: bool
 		m.level, pass = mic_process(&m.voice, frame[:])

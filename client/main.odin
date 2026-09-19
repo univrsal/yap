@@ -14,6 +14,7 @@ Options :: struct {
 	tone:               f32 `usage:"With -headless: send a sine tone of this frequency (Hz) as voice and log what is heard. For testing."`,
 	input_file:         string `usage:"With -headless: loop this raw 48 kHz mono f32 file as the microphone. For testing."`,
 	denoise:            bool `usage:"With -headless: enable noise suppression (the UI has a setting for it)."`,
+	quality:            string `usage:"With -headless: send quality, voice, high or music (default voice). The UI has a setting for it."`,
 	gate:               bool `usage:"With -headless: enable the voice gate, at the default thresholds (the UI has settings for it)."`,
 	channel:            string `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
 	name:               string `usage:"With -headless: the name to go by (default: your OS user name). The UI has a field for it."`,
@@ -59,6 +60,16 @@ main :: proc() {
 		os.exit(0 if list_audio_devices() else 1)
 	}
 
+	quality := Quality.Voice
+	if opt.quality != "" {
+		q, known := parse_quality(opt.quality)
+		if !known {
+			log.errorf("unknown quality %q (voice, high or music)", opt.quality)
+			os.exit(2)
+		}
+		quality = q
+	}
+
 	if opt.headless {
 		if opt.server == "" {
 			log.error("-headless needs a server address")
@@ -74,6 +85,7 @@ main :: proc() {
 			opt.input_file,
 			opt.denoise,
 			opt.gate,
+			quality,
 		) {
 			os.exit(1)
 		}

@@ -41,6 +41,8 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		return
 	}
 
+	quality_row(ui)
+
 	mu.layout_row(ctx, {-1})
 	state := "on" if ui.settings.noise_suppression else "off"
 	if .SUBMIT in
@@ -64,7 +66,7 @@ settings_page :: proc(ui: ^UI, height: i32) {
 	// The input list gets half of what's left; the output list the rest.
 	style := ctx.style
 	row := LINE_HEIGHT + style.padding * 2 + style.spacing
-	input_height := max((height - 10 * row) / 2, row * 2)
+	input_height := max((height - 12 * row) / 2, row * 2)
 
 	if choice, changed := device_list(
 		ctx,
@@ -147,4 +149,38 @@ device_list :: proc(
 		}
 	}
 	return
+}
+
+// quality_row picks the send quality preset (see quality.odin).
+@(private = "file")
+quality_row :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	current := settings_quality(&ui.settings)
+
+	mu.layout_row(ctx, {60, 90, 90, 90, -1})
+	mu.label(ctx, "Quality")
+	for preset, q in QUALITY_PRESETS {
+		mark := "> " if q == current else "  "
+		if .SUBMIT in stable_button(ctx, preset.name, fmt.tprintf("%s%s", mark, preset.label)) && q != current {
+			set_setting(&ui.settings.quality, preset.name)
+			settings_save(ui.opts.settings_path, ui.settings)
+			if ui.session != nil {
+				push_command(&ui.session.client.commands, Quality_Command{q})
+			}
+			current = q
+		}
+	}
+	mu.label(ctx, fmt.tprintf("  %s", QUALITY_PRESETS[current].description))
+
+	mu.layout_row(ctx, {-1})
+	if current != .Voice && ui.settings.noise_suppression {
+		with_text_color(
+			ctx,
+			{230, 200, 90, 255},
+			"  Noise suppression is made for speech and removes music; turn it off to send music.",
+			label_proc,
+		)
+	} else {
+		mu.label(ctx, "  Higher quality uses more bandwidth, not more latency.")
+	}
 }

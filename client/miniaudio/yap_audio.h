@@ -51,7 +51,8 @@ for capture, `samples` holds `frame_count` frames that were recorded; for
 playback, fill `samples` with `frame_count` frames (it starts zeroed).
 It must not block.
 
-`id` NULL means the system default device.
+`id` NULL means the system default device. `channels` 0 means the device's
+native channel count, with no channel conversion by miniaudio.
 */
 typedef void (*yap_audio_callback)(void* user, float* samples, unsigned int frame_count);
 
@@ -61,6 +62,9 @@ yap_audio_stream* yap_audio_stream_open(yap_audio* a, yap_audio_direction dir, c
 int  yap_audio_stream_start(yap_audio_stream* s);
 int  yap_audio_stream_stop(yap_audio_stream* s);
 void yap_audio_stream_close(yap_audio_stream* s);
+/* The channel count the stream delivers/expects: what was asked for, or the
+   device's native count if 0 was passed to yap_audio_stream_open. */
+unsigned int yap_audio_stream_channels(yap_audio_stream* s);
 /* Name of the device actually opened (useful when the default was asked for). */
 void yap_audio_stream_device_name(yap_audio_stream* s, char name[YAP_AUDIO_NAME_SIZE]);
 

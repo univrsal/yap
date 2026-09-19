@@ -29,15 +29,45 @@ Audio_Streams :: struct {
 @(private = "file")
 capture_callback :: proc "c" (user: rawptr, samples: [^]f32, frame_count: u32) {
 	v := (^Voice)(user)
-	ring_write(&v.capture, samples[:frame_count]) // on overflow, the newest audio is dropped
+	// The microphone is opened at its native channel count; the ring is
+	// stereo. On overflow, the newest audio is dropped.
+	channels := int(sync.atomic_load(&v.capture_channels))
+	if channels == CHANNELS {
+		ring_write(&v.capture, samples[:frame_count * CHANNELS])
+		return
+	}
+	CHUNK :: 256
+	stereo: [CHUNK * CHANNELS]f32
+	for done := 0; done < int(frame_count); done += CHUNK {
+		n := min(CHUNK, int(frame_count) - done)
+		to_stereo(samples[done * channels:][:n * channels], channels, stereo[:n * CHANNELS])
+		ring_write(&v.capture, stereo[:n * CHANNELS])
+	}
 }
 
 @(private = "file")
 playback_callback :: proc "c" (user: rawptr, samples: [^]f32, frame_count: u32) {
 	v := (^Voice)(user)
-	if ring_read(&v.playback, samples[:frame_count]) < int(frame_count) {
+	if ring_read(&v.playback, samples[:frame_count * CHANNELS]) < int(frame_count * CHANNELS) {
 		// The rest stays silent (the buffer starts zeroed).
 		sync.atomic_add(&v.underruns, 1)
+	}
+}
+
+/*
+to_stereo converts interleaved audio with `channels` channels to stereo:
+mono is duplicated to both sides, stereo is copied, and devices with more
+channels contribute their first two. (We do this ourselves because
+miniaudio's own conversion follows the device's channel map: a mono
+microphone that reports its channel as "front left" ended up on the
+left only.)
+*/
+to_stereo :: proc "contextless" (input: []f32, channels: int, output: []f32) {
+	frames := len(output) / CHANNELS
+	for i in 0 ..< frames {
+		left := input[i * channels]
+		right := input[i * channels + 1] if channels > 1 else left
+		output[i * CHANNELS], output[i * CHANNELS + 1] = left, right
 	}
 }
 
@@ -45,13 +75,13 @@ playback_callback :: proc "c" (user: rawptr, samples: [^]f32, frame_count: u32) 
 // default) and starts feeding the Voice.
 open_capture :: proc(a: ^Audio, s: ^Audio_Streams, v: ^Voice, device: string) {
 	close_capture(s, v)
-	s.capture = open_stream(a, .Capture, a.inputs[:], device, v, capture_callback)
+	s.capture = open_stream(a, .Capture, a.inputs[:], device, v, capture_callback, 0)
 	sync.atomic_store(&v.input, s.capture != nil)
 }
 
 open_playback :: proc(a: ^Audio, s: ^Audio_Streams, v: ^Voice, device: string) {
 	close_playback(s, v)
-	s.playback = open_stream(a, .Playback, a.outputs[:], device, v, playback_callback)
+	s.playback = open_stream(a, .Playback, a.outputs[:], device, v, playback_callback, CHANNELS)
 	sync.atomic_store(&v.output, s.playback != nil)
 }
 
@@ -91,6 +121,7 @@ open_stream :: proc(
 	name: string,
 	v: ^Voice,
 	callback: ma.Callback,
+	channels: u32, // 0: the device's native count
 ) -> ^ma.Stream {
 	if a.ctx == nil {
 		return nil
@@ -114,7 +145,7 @@ open_stream :: proc(
 
 	for id in candidates[:count] {
 		res: ma.Result
-		s := ma.stream_open(a.ctx, dir, id, SAMPLE_RATE, 1, DEVICE_PERIOD_MS, callback, v, &res)
+		s := ma.stream_open(a.ctx, dir, id, SAMPLE_RATE, channels, DEVICE_PERIOD_MS, callback, v, &res)
 		if s == nil {
 			log.debugf(
 				"audio: opening the %s failed (%s), trying the next option",
@@ -122,6 +153,15 @@ open_stream :: proc(
 				ma.result_string(res),
 			)
 			continue
+		}
+		opened_channels := ma.stream_channels(s)
+		if dir == .Capture {
+			if opened_channels == 0 {
+				ma.stream_close(s)
+				continue
+			}
+			// Before starting, so the callback never sees a stale count.
+			sync.atomic_store(&v.capture_channels, u32(opened_channels))
 		}
 		if r := ma.stream_start(s); r != ma.SUCCESS {
 			log.debugf(
@@ -134,7 +174,7 @@ open_stream :: proc(
 		}
 		opened: [ma.NAME_SIZE]u8
 		ma.stream_device_name(s, &opened)
-		log.infof("audio: %s: %s", what, cstring(&opened[0]))
+		log.infof("audio: %s: %s (%d channel%s)", what, cstring(&opened[0]), opened_channels, "" if opened_channels == 1 else "s")
 		return s
 	}
 	log.errorf("audio: could not open the %s", what)
@@ -186,7 +226,7 @@ fake_audio_stop :: proc(f: ^Fake_Audio) {
 @(private = "file")
 run_periodic :: proc(f: ^Fake_Audio, tick: proc(f: ^Fake_Audio, samples: []f32, n: int)) {
 	PERIOD :: SAMPLE_RATE * DEVICE_PERIOD_MS / 1000
-	buf: [PERIOD]f32
+	buf: [PERIOD * CHANNELS]f32 // interleaved, like a device's buffer
 	next := time.tick_now()
 	n := 0
 	for !sync.atomic_load(&f.stop) {
@@ -202,12 +242,18 @@ run_periodic :: proc(f: ^Fake_Audio, tick: proc(f: ^Fake_Audio, samples: []f32, 
 @(private = "file")
 fake_source :: proc(f: ^Fake_Audio) {
 	run_periodic(f, proc(f: ^Fake_Audio, buf: []f32, n: int) {
-		for &s, i in buf {
-			pos := n * len(buf) + i
+		// The tone and input files are mono: the same on both channels.
+		frames := len(buf) / CHANNELS
+		for i in 0 ..< frames {
+			pos := n * frames + i
+			s: f32
 			if len(f.input) > 0 {
 				s = f.input[pos % len(f.input)]
 			} else {
 				s = f32(0.3 * math.sin(2 * math.PI * f64(f.tone_hz) * f64(pos) / SAMPLE_RATE))
+			}
+			for c in 0 ..< CHANNELS {
+				buf[i * CHANNELS + c] = s
 			}
 		}
 		ring_write(&f.voice.capture, buf)
@@ -231,15 +277,17 @@ fake_sink :: proc(f: ^Fake_Audio) {
 		if got < len(buf) {
 			sync.atomic_add(&f.voice.underruns, 1)
 		}
+		// Measure the left channel.
 		stats := &f.heard
-		for s in buf {
+		for i := 0; i < len(buf); i += CHANNELS {
+			s := buf[i]
 			stats.sum_sq += f64(s * s)
 			if (s >= 0) != (stats.last >= 0) {
 				stats.crossings += 1
 			}
 			stats.last = s
 		}
-		stats.samples += len(buf)
+		stats.samples += len(buf) / CHANNELS
 		if stats.samples >= SAMPLE_RATE {
 			rms := math.sqrt(stats.sum_sq / f64(stats.samples))
 			seconds := f64(stats.samples) / SAMPLE_RATE

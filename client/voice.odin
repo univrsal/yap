@@ -17,8 +17,13 @@ devices only touch the two rings (see voice_io.odin):
 	server -> Voice packet -> [decode, per speaker] -> jitter queue
 	       -> [mix] -> playback ring -> speakers
 
-Audio is 48 kHz mono, sent as 20 ms Opus frames. Mixing is paced by the
-playback ring's fill level, so it follows the output device's clock.
+Audio is 48 kHz, sent as 20 ms Opus frames in mono or stereo depending on
+the quality preset (quality.odin). Internally everything is stereo: the
+microphone is captured in stereo (a mono microphone arrives as L = R) and
+downmixed for mono presets; decoders, queues, the mixer and the output are
+stereo, and mono speakers play centered. All buffers hold interleaved
+samples. Mixing is paced by the playback ring's fill level, so it follows
+the output device's clock.
 
 Captured frames go through noise suppression (RNNoise, optional) and the
 voice gate (optional, see gate.odin) before encoding.
@@ -31,22 +36,22 @@ silence, or mute) and starts a fresh talkspurt.
 */
 
 SAMPLE_RATE :: 48000
-FRAME_SAMPLES :: 960 // 20 ms
-
-VOICE_BITRATE :: 24000
+CHANNELS :: 2 // of every device and buffer
+FRAME_SAMPLES :: 960 // 20 ms, per channel
+FRAME :: FRAME_SAMPLES * CHANNELS // one 20 ms frame, interleaved
 
 // Keep ~30 ms queued for the output device.
-OUTPUT_TARGET :: FRAME_SAMPLES * 3 / 2
+OUTPUT_TARGET :: FRAME * 3 / 2
 // A speaker starts playing once 40 ms are queued (absorbs network jitter)...
-JITTER_PREFILL :: 2 * FRAME_SAMPLES
+JITTER_PREFILL :: 2 * FRAME
 // ...and is trimmed back to that if the queue ever exceeds 200 ms.
-JITTER_MAX :: 10 * FRAME_SAMPLES
+JITTER_MAX :: 10 * FRAME
 // Gaps longer than this many frames are pauses, not loss.
 MAX_CONCEAL :: 5
 // Drop a speaker's decoder after this long without packets.
 SPEAKER_TIMEOUT :: 10 * time.Second
 // If the network thread falls behind, don't send a backlog of old audio.
-MAX_CAPTURE_BACKLOG :: 5 * FRAME_SAMPLES
+MAX_CAPTURE_BACKLOG :: 5 * FRAME
 
 Speaker :: struct {
 	decoder:     ^opus.Decoder,
@@ -64,10 +69,14 @@ Voice :: struct {
 	// or the fake audio in headless mode). Set by whoever opens them.
 	input:       bool, // atomic
 	output:      bool, // atomic
+	// The microphone stream's channel count (its native one); the capture
+	// callback converts to stereo. Atomic.
+	capture_channels: u32,
 	encoder:     ^opus.Encoder,
+	quality:     Quality,
 	send_seq:    u32,
 	muted:       bool,
-	denoiser:    rnn.Denoiser,
+	denoisers:   [CHANNELS]rnn.Denoiser, // one per channel (stereo presets)
 	denoise:     bool, // noise suppression
 	gate:        Gate,
 	// Listen back: our own processed microphone audio, as it would be sent
@@ -100,30 +109,20 @@ voice_init :: proc(v: ^Voice) -> bool {
 		open_db  = DEFAULT_GATE_OPEN_DB,
 		close_db = DEFAULT_GATE_CLOSE_DB,
 	}
-	ring_init(&v.capture, SAMPLE_RATE / 2)
-	ring_init(&v.playback, SAMPLE_RATE / 2)
-	ring_init(&v.loopback, JITTER_MAX + 4 * FRAME_SAMPLES)
+	ring_init(&v.capture, SAMPLE_RATE / 2 * CHANNELS)
+	ring_init(&v.playback, SAMPLE_RATE / 2 * CHANNELS)
+	ring_init(&v.loopback, JITTER_MAX + 4 * FRAME)
 	v.output_target = OUTPUT_TARGET
+	v.capture_channels = CHANNELS
 
-	err: opus.Error
-	v.encoder = opus.encoder_create(SAMPLE_RATE, 1, .VOIP, &err)
-	if v.encoder == nil {
-		log.errorf("opus: could not create encoder: %s", opus.strerror(err))
+	if !encoder_setup(v, .Voice) {
 		return false
 	}
-	opus.encoder_set(v.encoder, .Set_Bitrate, VOICE_BITRATE)
-	opus.encoder_set(v.encoder, .Set_Signal, opus.SIGNAL_VOICE)
-	opus.encoder_set(v.encoder, .Set_Complexity, 8)
-	// A low-bitrate copy of each frame rides in the next packet, so a
-	// single lost packet can be recovered.
-	opus.encoder_set(v.encoder, .Set_Inband_FEC, 1)
-	opus.encoder_set(v.encoder, .Set_Packet_Loss_Perc, 10)
-	// Near-silent frames become 1-2 byte packets, which we don't send.
-	opus.encoder_set(v.encoder, .Set_DTX, 1)
-
-	ok: bool
-	if v.denoiser, ok = rnn.denoiser_create(); !ok {
-		log.error("rnnoise: could not create a denoiser; noise suppression is unavailable")
+	for &d in v.denoisers {
+		ok: bool
+		if d, ok = rnn.denoiser_create(); !ok {
+			log.error("rnnoise: could not create a denoiser; noise suppression is unavailable")
+		}
 	}
 	return true
 }
@@ -136,7 +135,9 @@ voice_destroy :: proc(v: ^Voice) {
 	delete(v.gains)
 	delete(v.user_keys)
 	delete(v.received)
-	rnn.denoiser_destroy(&v.denoiser)
+	for &d in v.denoisers {
+		rnn.denoiser_destroy(&d)
+	}
 	if v.encoder != nil {
 		opus.encoder_destroy(v.encoder)
 		v.encoder = nil
@@ -165,8 +166,8 @@ send_captured :: proc(c: ^Voice_Client) {
 		ring_skip(&v.capture, backlog)
 	}
 
-	frame: [FRAME_SAMPLES]f32
-	for ring_available(&v.capture) >= FRAME_SAMPLES {
+	frame: [FRAME]f32
+	for ring_available(&v.capture) >= FRAME {
 		ring_read(&v.capture, frame[:])
 		// The sequence number tracks time, so it advances even for frames
 		// that aren't sent; receivers read long gaps as pauses.
@@ -184,10 +185,20 @@ send_captured :: proc(c: ^Voice_Client) {
 			continue
 		}
 
+		// mic_process left the frame as stereo; mono presets encode the
+		// (identical) left channel.
+		pcm := frame[:]
+		mono: [FRAME_SAMPLES]f32
+		if QUALITY_PRESETS[v.quality].channels == 1 {
+			for &s, i in mono {
+				s = frame[i * CHANNELS]
+			}
+			pcm = mono[:]
+		}
 		msg: [proto.VOICE_UP_HEADER_SIZE + opus.MAX_PACKET_SIZE]u8
 		n := opus.encode_float(
 			v.encoder,
-			&frame[0],
+			raw_data(pcm),
 			FRAME_SAMPLES,
 			&msg[proto.VOICE_UP_HEADER_SIZE],
 			opus.MAX_PACKET_SIZE,
@@ -259,9 +270,10 @@ voice_receive :: proc(c: ^Voice_Client, speaker: u32, seq: u32, packet: []u8) {
 // previous frame from this packet) and queues the samples.
 @(private = "file")
 decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
-	pcm: [opus.MAX_FRAME_SAMPLES]f32
+	pcm: [opus.MAX_FRAME_SAMPLES * CHANNELS]f32
 	// Concealment and FEC produce exactly one of our frames; a normal
-	// decode produces whatever the packet holds.
+	// decode produces whatever the packet holds. Decoders are stereo, so
+	// mono packets come out with L = R.
 	frame_size: i32 = FRAME_SAMPLES if packet == nil || fec == 1 else opus.MAX_FRAME_SAMPLES
 	n := opus.decode_float(
 		sp.decoder,
@@ -275,7 +287,7 @@ decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
 		log.debugf("opus: decode failed: %s", opus.strerror(opus.Error(n)))
 		return
 	}
-	ring_write(&sp.queue, pcm[:n])
+	ring_write(&sp.queue, pcm[:n * CHANNELS])
 }
 
 // listen_feed queues a processed microphone frame for listen back: the
@@ -287,7 +299,7 @@ listen_feed :: proc(v: ^Voice, frame: []f32, pass: bool) {
 	if pass {
 		ring_write(&v.loopback, frame)
 	} else {
-		silence: [FRAME_SAMPLES]f32
+		silence: [FRAME]f32
 		ring_write(&v.loopback, silence[:len(frame)])
 	}
 }
@@ -296,7 +308,7 @@ listen_feed :: proc(v: ^Voice, frame: []f32, pass: bool) {
 // speaking (and our own audio, with listen back on).
 mix_output :: proc(v: ^Voice) {
 	for ring_available(&v.playback) < v.output_target {
-		mix: [FRAME_SAMPLES]f32
+		mix: [FRAME]f32
 		mix_loopback(v, mix[:])
 		for id, sp in v.speakers {
 			queued := ring_available(&sp.queue)
@@ -312,7 +324,7 @@ mix_output :: proc(v: ^Voice) {
 			}
 			// Muted speakers are still decoded and consumed, so unmuting
 			// picks up cleanly where they are.
-			frame: [FRAME_SAMPLES]f32
+			frame: [FRAME]f32
 			got := ring_read(&sp.queue, frame[:])
 			gain: f32 = 1
 			if key, known := v.user_keys[id]; known {
@@ -323,7 +335,7 @@ mix_output :: proc(v: ^Voice) {
 					mix[i] += s * gain
 				}
 			}
-			if got < FRAME_SAMPLES {
+			if got < FRAME {
 				sp.playing = false // ran dry: buffer up again before resuming
 			}
 		}
@@ -353,7 +365,7 @@ mix_loopback :: proc(v: ^Voice, mix: []f32) {
 	if queued > JITTER_MAX {
 		ring_skip(&v.loopback, queued - JITTER_PREFILL)
 	}
-	frame: [FRAME_SAMPLES]f32
+	frame: [FRAME]f32
 	got := ring_read(&v.loopback, frame[:len(mix)])
 	for s, i in frame[:got] {
 		mix[i] += s
@@ -377,14 +389,14 @@ expire_speakers :: proc(v: ^Voice) {
 @(private = "file")
 speaker_create :: proc() -> (sp: ^Speaker, ok: bool) {
 	err: opus.Error
-	dec := opus.decoder_create(SAMPLE_RATE, 1, &err)
+	dec := opus.decoder_create(SAMPLE_RATE, CHANNELS, &err)
 	if dec == nil {
 		log.errorf("opus: could not create decoder: %s", opus.strerror(err))
 		return nil, false
 	}
 	sp = new(Speaker)
 	sp.decoder = dec
-	ring_init(&sp.queue, JITTER_MAX + 4 * FRAME_SAMPLES)
+	ring_init(&sp.queue, JITTER_MAX + 4 * FRAME)
 	return sp, true
 }
 

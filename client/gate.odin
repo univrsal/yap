@@ -55,15 +55,44 @@ gate_update :: proc(g: ^Gate, level_db: f32, now: time.Tick) -> bool {
 	return g.open || !g.enabled
 }
 
-// mic_process runs one captured frame through noise suppression (in
-// place) and the gate. Returns the frame's level and whether to send it.
+// mic_process runs one captured stereo frame (FRAME interleaved samples)
+// through noise suppression and the gate, in place. Mono presets are
+// downmixed first and written back to both channels, so the frame then
+// holds exactly what will be sent (and what listen back plays). Returns
+// the frame's level and whether to send it.
 mic_process :: proc(v: ^Voice, frame: []f32) -> (level_db: f32, send: bool) {
-	// The denoiser runs on every frame, even unsent ones, so its state
-	// follows the room continuously.
-	if v.denoise && v.denoiser.state != nil {
-		rnn.denoise(&v.denoiser, frame)
+	assert(len(frame) == FRAME)
+	denoise := v.denoise && v.denoisers[0].state != nil
+
+	if QUALITY_PRESETS[v.quality].channels == 1 {
+		mono: [FRAME_SAMPLES]f32
+		for &s, i in mono {
+			s = (frame[i * CHANNELS] + frame[i * CHANNELS + 1]) / 2
+		}
+		// The denoiser runs on every frame, even unsent ones, so its
+		// state follows the room continuously.
+		if denoise {
+			rnn.denoise(&v.denoisers[0], mono[:])
+		}
+		for s, i in mono {
+			frame[i * CHANNELS], frame[i * CHANNELS + 1] = s, s
+		}
+		level_db = level_dbfs(mono[:])
+	} else {
+		if denoise {
+			channel: [FRAME_SAMPLES]f32
+			for c in 0 ..< CHANNELS {
+				for &s, i in channel {
+					s = frame[i * CHANNELS + c]
+				}
+				rnn.denoise(&v.denoisers[c], channel[:])
+				for s, i in channel {
+					frame[i * CHANNELS + c] = s
+				}
+			}
+		}
+		level_db = level_dbfs(frame)
 	}
-	level_db = level_dbfs(frame)
 	send = gate_update(&v.gate, level_db, time.tick_now())
 	return
 }

@@ -160,6 +160,7 @@ run_headless :: proc(
 	input_file: string,
 	denoise: bool,
 	gate: bool,
+	quality: Quality,
 ) -> bool {
 	// Heap-allocated: the channel state buffers make it fairly large.
 	c := new(Voice_Client)
@@ -170,6 +171,9 @@ run_headless :: proc(
 	defer voice_destroy(&c.voice)
 	c.voice.denoise = denoise
 	c.voice.gate.enabled = gate
+	if quality != .Voice && !encoder_setup(&c.voice, quality) {
+		return false
+	}
 	fake: Fake_Audio
 	input: []f32
 	if input_file != "" {
