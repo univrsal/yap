@@ -1,11 +1,15 @@
 package client
 
 import "core:math"
+import "core:slice"
+import "core:unicode/utf8"
 import stbtt "vendor:stb/truetype"
 
 /*
-The UI font: Noto Sans cut down to printable ASCII (8.6 KB, embedded with
-#load; license in assets/NotoSans-OFL.txt), rasterized with stb_truetype.
+The UI font: Roboto (embedded with #load), rasterized with stb_truetype.
+Every character the font has is used: its Latin, Greek and Cyrillic
+letters and common punctuation and symbols. Anything else draws as the
+replacement character.
 
 Layout happens in logical pixels, but glyphs are rasterized at the
 display's real density (`scale` physical pixels per logical pixel), so
@@ -17,42 +21,79 @@ and with them the whole layout, are the same at every scale.
 */
 
 @(private = "file")
-FONT_DATA := #load("assets/NotoSans-ascii.ttf")
+FONT_DATA := #load("assets/Roboto-Regular.ttf")
 
 FONT_SIZE :: 15 // logical pixels
 LINE_HEIGHT :: 18 // logical pixels; microui's default, which its layout metrics assume
 
-FIRST_CHAR :: 32
-CHAR_COUNT :: 95 // ' ' through '~'
-FALLBACK_CHAR :: '?'
+// Shown for characters the font doesn't have: the first of these it does.
+FALLBACK_CHARS :: [?]rune{utf8.RUNE_ERROR, '?'}
 
 Font :: struct {
-	info:     stbtt.fontinfo,
-	ok:       bool,
-	advance:  [CHAR_COUNT]f32, // logical pixels
+	info:       stbtt.fontinfo,
+	ok:         bool,
+	// The characters we have glyphs for, sorted; the arrays below are
+	// indexed the same way.
+	codepoints: []rune,
+	advance:    []f32, // logical pixels
+	glyphs:     []stbtt.packedchar, // for the current atlas
+	ascii:      [128]i32, // index of each ASCII character, or -1
+	fallback:   i32,
 	// Distance from the top of a LINE_HEIGHT line box to the baseline.
-	baseline: f32,
+	baseline:   f32,
 
 	// Atlas for the current scale (built by font_build_atlas).
-	scale:    f32,
-	pixels:   []u8, // width * height, one alpha byte per texel
-	width:    i32,
-	height:   i32,
-	glyphs:   [CHAR_COUNT]stbtt.packedchar,
+	scale:      f32,
+	pixels:     []u8, // width * height, one alpha byte per texel
+	width:      i32,
+	height:     i32,
 	// A few fully opaque texels, for drawing solid rectangles.
-	white:    [2]f32,
+	white:      [2]f32,
 }
 
 font_init :: proc(f: ^Font) -> bool {
 	if !stbtt.InitFont(&f.info, raw_data(FONT_DATA), 0) {
 		return false
 	}
+
+	// Everything in the Basic Multilingual Plane the font has a glyph for,
+	// except control characters.
+	codepoints := make([dynamic]rune)
+	for r in rune(0x20) ..< 0x10000 {
+		if (r >= 0x7f && r < 0xa0) || (r >= 0xd800 && r < 0xe000) {
+			continue
+		}
+		if stbtt.FindGlyphIndex(&f.info, r) != 0 {
+			append(&codepoints, r)
+		}
+	}
+	if len(codepoints) == 0 {
+		delete(codepoints)
+		return false
+	}
+	f.codepoints = codepoints[:]
+	f.advance = make([]f32, len(f.codepoints))
+	f.glyphs = make([]stbtt.packedchar, len(f.codepoints))
+
 	s := stbtt.ScaleForPixelHeight(&f.info, FONT_SIZE)
-	for i in 0 ..< CHAR_COUNT {
+	for r, i in f.codepoints {
 		advance, lsb: i32
-		stbtt.GetCodepointHMetrics(&f.info, rune(FIRST_CHAR + i), &advance, &lsb)
+		stbtt.GetCodepointHMetrics(&f.info, r, &advance, &lsb)
 		f.advance[i] = f32(advance) * s
 	}
+
+	f.fallback = 0
+	for r in FALLBACK_CHARS {
+		if i, found := slice.binary_search(f.codepoints, r); found {
+			f.fallback = i32(i)
+			break
+		}
+	}
+	for &index, c in f.ascii {
+		i, found := slice.binary_search(f.codepoints, rune(c))
+		index = i32(i) if found else f.fallback
+	}
+
 	ascent, descent, line_gap: i32
 	stbtt.GetFontVMetrics(&f.info, &ascent, &descent, &line_gap)
 	text_height := f32(ascent - descent) * s
@@ -63,7 +104,10 @@ font_init :: proc(f: ^Font) -> bool {
 
 font_destroy :: proc(f: ^Font) {
 	delete(f.pixels)
-	f.pixels = nil
+	delete(f.codepoints)
+	delete(f.advance)
+	delete(f.glyphs)
+	f.pixels, f.codepoints, f.advance, f.glyphs = nil, nil, nil, nil
 }
 
 // font_build_atlas rasterizes the glyphs for `scale` physical pixels per
@@ -75,22 +119,20 @@ font_build_atlas :: proc(f: ^Font, scale: f32) -> bool {
 
 	// Start small and grow until everything fits. Two extra rows at the
 	// bottom, outside the packing area, hold the white texels.
-	for size: i32 = 128; size <= 4096; size *= 2 {
+	for size: i32 = 256; size <= 4096; size *= 2 {
 		pixels := make([]u8, int(size) * int(size + 2))
 		spc: stbtt.pack_context
 		if !stbtt.PackBegin(&spc, raw_data(pixels), size, size, size, 1, nil) {
 			delete(pixels)
 			return false
 		}
-		packed := stbtt.PackFontRange(
-			&spc,
-			raw_data(FONT_DATA),
-			0,
-			FONT_SIZE * scale,
-			FIRST_CHAR,
-			CHAR_COUNT,
-			&f.glyphs[0],
-		)
+		r := stbtt.pack_range {
+			font_size                   = FONT_SIZE * scale,
+			array_of_unicode_codepoints = raw_data(f.codepoints),
+			num_chars                   = i32(len(f.codepoints)),
+			chardata_for_range          = raw_data(f.glyphs),
+		}
+		packed := stbtt.PackFontRanges(&spc, raw_data(FONT_DATA), 0, &r, 1)
 		stbtt.PackEnd(&spc)
 		if !packed {
 			delete(pixels)
@@ -110,28 +152,23 @@ font_build_atlas :: proc(f: ^Font, scale: f32) -> bool {
 	return false
 }
 
+// glyph_index finds a character's glyph, or the fallback's. Invalid UTF-8
+// reaches here as utf8.RUNE_ERROR, so it shows as the fallback too.
 @(private = "file")
-glyph_index :: proc(b: u8) -> int {
-	c := int(b)
-	if c < FIRST_CHAR || c >= FIRST_CHAR + CHAR_COUNT {
-		c = FALLBACK_CHAR
+glyph_index :: proc(f: ^Font, r: rune) -> int {
+	if r >= 0 && r < len(f.ascii) {
+		return int(f.ascii[r])
 	}
-	return c - FIRST_CHAR
-}
-
-// Glyphs are indexed per UTF-8 sequence rather than per byte, so
-// non-ASCII text measures and draws as one fallback glyph per character.
-@(private = "file")
-is_continuation_byte :: #force_inline proc(b: u8) -> bool {
-	return b & 0xc0 == 0x80
+	if i, found := slice.binary_search(f.codepoints, r); found {
+		return i
+	}
+	return int(f.fallback)
 }
 
 font_text_width :: proc(f: ^Font, text: string) -> f32 {
 	w: f32
-	for b in transmute([]u8)text {
-		if !is_continuation_byte(b) {
-			w += f.advance[glyph_index(b)]
-		}
+	for r in text {
+		w += f.advance[glyph_index(f, r)]
 	}
 	return w
 }
@@ -154,11 +191,8 @@ font_layout :: proc(
 	s := f.scale
 	baseline := math.round((y + f.baseline) * s)
 	pen := x
-	for b in transmute([]u8)text {
-		if is_continuation_byte(b) {
-			continue
-		}
-		i := glyph_index(b)
+	for r in text {
+		i := glyph_index(f, r)
 		g := &f.glyphs[i]
 		if g.x1 > g.x0 {
 			px := math.round(pen * s + g.xoff)
