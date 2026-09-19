@@ -36,20 +36,20 @@ Message_Kind :: enum u8 {
 	Leave     = 5,
 }
 
-VOICE_UP_HEADER_SIZE   :: 1 + 4
+VOICE_UP_HEADER_SIZE :: 1 + 4
 VOICE_DOWN_HEADER_SIZE :: 1 + 4 + 4
-JOIN_SIZE              :: 1 + 4 + 2
-STATE_HEADER_SIZE      :: 1 + 4 + 1 + 1
-STATE_ACK_SIZE         :: 1 + 4
+JOIN_SIZE :: 1 + 4 + 2
+STATE_HEADER_SIZE :: 1 + 4 + 1 + 1
+STATE_ACK_SIZE :: 1 + 4
 
 STATE_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - STATE_HEADER_SIZE
 MAX_STATE_CHUNKS :: 16
-MAX_STATE_SIZE   :: STATE_CHUNK_SIZE * MAX_STATE_CHUNKS
+MAX_STATE_SIZE :: STATE_CHUNK_SIZE * MAX_STATE_CHUNKS
 
 // Unacked State snapshots and Join requests are resent this often.
 CONTROL_RESEND :: 300 * time.Millisecond
 
-MAX_CHANNELS          :: 64
+MAX_CHANNELS :: 64
 MAX_CHANNEL_NAME_SIZE :: 32
 
 Channel_Info :: struct {
@@ -70,11 +70,16 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 	}
 	kind = Message_Kind(pt[0])
 	switch kind {
-	case .Voice:     ok = true
-	case .Join:      ok = len(pt) == JOIN_SIZE
-	case .State:     ok = len(pt) > STATE_HEADER_SIZE
-	case .State_Ack: ok = len(pt) == STATE_ACK_SIZE
-	case .Leave:     ok = len(pt) == 1
+	case .Voice:
+		ok = true
+	case .Join:
+		ok = len(pt) == JOIN_SIZE
+	case .State:
+		ok = len(pt) > STATE_HEADER_SIZE
+	case .State_Ack:
+		ok = len(pt) == STATE_ACK_SIZE
+	case .Leave:
+		ok = len(pt) == 1
 	}
 	return
 }
@@ -113,7 +118,9 @@ Snapshot body (before chunking):
 */
 @(require_results)
 encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bool) {
-	w := Writer{buf = out}
+	w := Writer {
+		buf = out,
+	}
 	put_u16(&w, state.your_channel)
 	put_u32(&w, state.join_ack)
 	put_u16(&w, u16(len(state.channels)))
@@ -137,8 +144,17 @@ encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bo
 // decode_state parses a snapshot body. Names and member lists are slices
 // into `body` and `members_buf`, so both must outlive the result.
 @(require_results)
-decode_state :: proc(body: []byte, channels_buf: []Channel_Info, members_buf: []u32) -> (state: Channel_State, ok: bool) {
-	r := Reader{buf = body}
+decode_state :: proc(
+	body: []byte,
+	channels_buf: []Channel_Info,
+	members_buf: []u32,
+) -> (
+	state: Channel_State,
+	ok: bool,
+) {
+	r := Reader {
+		buf = body,
+	}
 	state.your_channel = get_u16(&r)
 	state.join_ack = get_u32(&r)
 	count := int(get_u16(&r))
@@ -151,7 +167,9 @@ decode_state :: proc(body: []byte, channels_buf: []Channel_Info, members_buf: []
 		name_len := int(get_u8(&r))
 		ch.name = string(get_bytes(&r, name_len))
 		member_count := int(get_u16(&r))
-		if r.overflow || name_len > MAX_CHANNEL_NAME_SIZE || next_member + member_count > len(members_buf) {
+		if r.overflow ||
+		   name_len > MAX_CHANNEL_NAME_SIZE ||
+		   next_member + member_count > len(members_buf) {
 			return
 		}
 		ch.members = members_buf[next_member:][:member_count]
@@ -204,12 +222,23 @@ State_Assembler :: struct {
 // assembler_add feeds in a State message. When it completes a snapshot
 // it returns the body, which stays valid until the next call.
 @(require_results)
-assembler_add :: proc(a: ^State_Assembler, pt: []byte, min_version: u32) -> (version: u32, body: []byte, complete: bool) {
+assembler_add :: proc(
+	a: ^State_Assembler,
+	pt: []byte,
+	min_version: u32,
+) -> (
+	version: u32,
+	body: []byte,
+	complete: bool,
+) {
 	version = endian.unchecked_get_u32le(pt[1:])
 	index, count := int(pt[5]), int(pt[6])
 	part := pt[STATE_HEADER_SIZE:]
-	if count == 0 || count > MAX_STATE_CHUNKS || index >= count ||
-	   len(part) > STATE_CHUNK_SIZE || (index < count - 1 && len(part) != STATE_CHUNK_SIZE) {
+	if count == 0 ||
+	   count > MAX_STATE_CHUNKS ||
+	   index >= count ||
+	   len(part) > STATE_CHUNK_SIZE ||
+	   (index < count - 1 && len(part) != STATE_CHUNK_SIZE) {
 		return
 	}
 	// Older than what the caller already has: nothing to do.

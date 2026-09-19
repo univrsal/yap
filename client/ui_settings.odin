@@ -35,7 +35,15 @@ settings_page :: proc(ui: ^UI, height: i32) {
 
 	mu.layout_row(ctx, {-1})
 	state := "on" if ui.settings.noise_suppression else "off"
-	if .SUBMIT in stable_button(ctx, "noise", fmt.tprintf("Noise suppression: %s  (removes background noise; only sends while you talk)", state)) {
+	if .SUBMIT in
+	   stable_button(
+		   ctx,
+		   "noise",
+		   fmt.tprintf(
+			   "Noise suppression: %s  (removes background noise; only sends while you talk)",
+			   state,
+		   ),
+	   ) {
 		ui.settings.noise_suppression = !ui.settings.noise_suppression
 		settings_save(ui.opts.settings_path, ui.settings)
 		if ui.session != nil {
@@ -48,13 +56,27 @@ settings_page :: proc(ui: ^UI, height: i32) {
 	row := LINE_HEIGHT + style.padding * 2 + style.spacing
 	input_height := max((height - 5 * row) / 2, row * 2)
 
-	if choice, changed := device_list(ctx, "Input (microphone)", "inputs", a.inputs[:], ui.settings.input_device, input_height); changed {
+	if choice, changed := device_list(
+		ctx,
+		"Input (microphone)",
+		"inputs",
+		a.inputs[:],
+		ui.settings.input_device,
+		input_height,
+	); changed {
 		set_setting(&ui.settings.input_device, choice)
 		settings_save(ui.opts.settings_path, ui.settings)
 		log.infof("input device: %s", choice if choice != "" else "system default")
 		reopen_audio(ui, true)
 	}
-	if choice, changed := device_list(ctx, "Output (speakers / headphones)", "outputs", a.outputs[:], ui.settings.output_device, -1); changed {
+	if choice, changed := device_list(
+		ctx,
+		"Output (speakers / headphones)",
+		"outputs",
+		a.outputs[:],
+		ui.settings.output_device,
+		-1,
+	); changed {
 		set_setting(&ui.settings.output_device, choice)
 		settings_save(ui.opts.settings_path, ui.settings)
 		log.infof("output device: %s", choice if choice != "" else "system default")
@@ -66,7 +88,16 @@ settings_page :: proc(ui: ^UI, height: i32) {
 // (a device name, "" for the default) marked. It returns the new choice
 // when one is clicked.
 @(private = "file")
-device_list :: proc(ctx: ^mu.Context, title, id: string, devices: []Audio_Device, selected: string, height: i32) -> (choice: string, changed: bool) {
+device_list :: proc(
+	ctx: ^mu.Context,
+	title, id: string,
+	devices: []Audio_Device,
+	selected: string,
+	height: i32,
+) -> (
+	choice: string,
+	changed: bool,
+) {
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, title)
 
@@ -80,12 +111,18 @@ device_list :: proc(ctx: ^mu.Context, title, id: string, devices: []Audio_Device
 
 	mu.layout_row(ctx, {-1})
 	mark := "> " if selected == "" || missing else "  "
-	if .SUBMIT in stable_button(ctx, "default", fmt.tprintf("%sSystem default", mark)) && selected != "" {
+	if .SUBMIT in stable_button(ctx, "default", fmt.tprintf("%sSystem default", mark)) &&
+	   selected != "" {
 		choice, changed = "", true
 	}
 	if missing {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, {230, 200, 90, 255}, fmt.tprintf("  %s is not available, using the default", selected), label_proc)
+		with_text_color(
+			ctx,
+			{230, 200, 90, 255},
+			fmt.tprintf("  %s is not available, using the default", selected),
+			label_proc,
+		)
 	}
 
 	for d, i in devices {
@@ -94,7 +131,8 @@ device_list :: proc(ctx: ^mu.Context, title, id: string, devices: []Audio_Device
 		mu.layout_row(ctx, {-1})
 		mark = "> " if d.name == selected else "  "
 		suffix := "  (current default)" if d.is_default else ""
-		if .SUBMIT in stable_button(ctx, "device", fmt.tprintf("%s%s%s", mark, d.name, suffix)) && d.name != selected {
+		if .SUBMIT in stable_button(ctx, "device", fmt.tprintf("%s%s%s", mark, d.name, suffix)) &&
+		   d.name != selected {
 			choice, changed = d.name, true
 		}
 	}

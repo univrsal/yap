@@ -53,7 +53,12 @@ test_user_gain :: proc(t: ^testing.T) {
 	testing.expectf(t, normal > 0.15, "tone not played (level %.3f)", normal)
 
 	half := played_level(t, 0.5, true)
-	testing.expectf(t, abs(half / normal - 0.5) < 0.02, "half volume gave %.3f of normal", half / normal)
+	testing.expectf(
+		t,
+		abs(half / normal - 0.5) < 0.02,
+		"half volume gave %.3f of normal",
+		half / normal,
+	)
 
 	muted := played_level(t, 0, true)
 	testing.expect_value(t, muted, 0)
@@ -79,7 +84,11 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded.noise_suppression, true)
 	testing.expect_value(t, len(loaded.users), 2)
 	testing.expect_value(t, user_settings(&loaded, 0x8e41fa62), User_Settings{volume = 0.5})
-	testing.expect_value(t, user_settings(&loaded, 0x0000abcd), User_Settings{volume = 1, muted = true})
+	testing.expect_value(
+		t,
+		user_settings(&loaded, 0x0000abcd),
+		User_Settings{volume = 1, muted = true},
+	)
 	testing.expect_value(t, user_settings(&loaded, 0x11111111), DEFAULT_USER)
 	testing.expect_value(t, user_gain(user_settings(&loaded, 0x0000abcd)), 0)
 }

@@ -36,7 +36,10 @@ ring_destroy :: proc(r: ^Ring) {
 
 // ring_available is how many samples can be read right now.
 ring_available :: proc "contextless" (r: ^Ring) -> int {
-	return int(sync.atomic_load_explicit(&r.write, .Acquire) - sync.atomic_load_explicit(&r.read, .Acquire))
+	return int(
+		sync.atomic_load_explicit(&r.write, .Acquire) -
+		sync.atomic_load_explicit(&r.read, .Acquire),
+	)
 }
 
 // ring_write (producer) copies in as much of `samples` as fits and returns

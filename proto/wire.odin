@@ -49,28 +49,28 @@ TAG_SIZE :: 16
 // Keep datagrams under a conservative path MTU to avoid IP fragmentation.
 MAX_PACKET_SIZE :: 1400
 
-INIT_HEADER_SIZE   :: 1 + 4
-RESP_HEADER_SIZE   :: 1 + 4 + 4
+INIT_HEADER_SIZE :: 1 + 4
+RESP_HEADER_SIZE :: 1 + 4 + 4
 FINISH_HEADER_SIZE :: 1 + 4
-DATA_HEADER_SIZE   :: 1 + 4 + 8
+DATA_HEADER_SIZE :: 1 + 4 + 8
 
 // msg1 is `e`; msg2 is `e` + encrypted `s` + an empty encrypted payload.
 MSG2_SIZE :: KEY_SIZE + (KEY_SIZE + TAG_SIZE) + TAG_SIZE
 RESP_SIZE :: RESP_HEADER_SIZE + MSG2_SIZE
 // msg1's payload is unencrypted zeros, used purely as padding.
 INIT_PADDING :: RESP_SIZE - INIT_HEADER_SIZE - KEY_SIZE
-INIT_SIZE    :: INIT_HEADER_SIZE + KEY_SIZE + INIT_PADDING
+INIT_SIZE :: INIT_HEADER_SIZE + KEY_SIZE + INIT_PADDING
 
 MAX_PAYLOAD_SIZE :: MAX_PACKET_SIZE - DATA_HEADER_SIZE - TAG_SIZE
 
 // Timers, loosely modeled on WireGuard's.
 // Override for testing with e.g. -define:YAP_REKEY_SECONDS=3
-REKEY_AFTER       :: time.Duration(#config(YAP_REKEY_SECONDS, 120)) * time.Second // client starts a fresh handshake
-REJECT_AFTER      :: REKEY_AFTER + 60 * time.Second // a session this old is never used
-HANDSHAKE_RETRY   :: 1 * time.Second   // resend the last handshake packet if no reply
-HANDSHAKE_TIMEOUT :: 5 * time.Second   // give up on a handshake and start over / drop it
-KEEPALIVE_AFTER   :: 10 * time.Second  // send an empty Data packet when idle
-SESSION_TIMEOUT   :: 30 * time.Second  // server drops silent sessions
+REKEY_AFTER :: time.Duration(#config(YAP_REKEY_SECONDS, 120)) * time.Second // client starts a fresh handshake
+REJECT_AFTER :: REKEY_AFTER + 60 * time.Second // a session this old is never used
+HANDSHAKE_RETRY :: 1 * time.Second // resend the last handshake packet if no reply
+HANDSHAKE_TIMEOUT :: 5 * time.Second // give up on a handshake and start over / drop it
+KEEPALIVE_AFTER :: 10 * time.Second // send an empty Data packet when idle
+SESSION_TIMEOUT :: 30 * time.Second // server drops silent sessions
 
 // Hard cap on messages per session, far below nonce exhaustion.
 REJECT_AFTER_MESSAGES :: u64(1) << 60
@@ -89,13 +89,13 @@ packet_type :: proc(packet: []byte) -> Packet_Type {
 	}
 	switch t := Packet_Type(packet[0]); t {
 	case .Handshake_Init:
-		if len(packet) >= INIT_SIZE { return t }
+		if len(packet) >= INIT_SIZE {return t}
 	case .Handshake_Resp:
-		if len(packet) >= RESP_SIZE { return t }
+		if len(packet) >= RESP_SIZE {return t}
 	case .Handshake_Finish:
-		if len(packet) > FINISH_HEADER_SIZE { return t }
+		if len(packet) > FINISH_HEADER_SIZE {return t}
 	case .Data:
-		if len(packet) >= DATA_HEADER_SIZE + TAG_SIZE { return t }
+		if len(packet) >= DATA_HEADER_SIZE + TAG_SIZE {return t}
 	case .Invalid:
 	}
 	return .Invalid

@@ -40,10 +40,14 @@ User_Settings :: struct {
 	muted:  bool,
 }
 
-DEFAULT_USER :: User_Settings{volume = 1}
-MAX_USER_VOLUME :: 2
+DEFAULT_USER :: User_Settings {
+	volume = 1,
+}
+MAX_USER_VOLUME :: 3
 
-DEFAULT_SETTINGS :: Settings{noise_suppression = true}
+DEFAULT_SETTINGS :: Settings {
+	noise_suppression = true,
+}
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
 // or can't be parsed. The strings are owned by the result.
@@ -63,7 +67,11 @@ settings_load :: proc(path: string) -> (s: Settings) {
 }
 
 settings_save :: proc(path: string, s: Settings) {
-	data, err := json.marshal(s, {pretty = true, use_spaces = true, spaces = 2}, context.temp_allocator)
+	data, err := json.marshal(
+		s,
+		{pretty = true, use_spaces = true, spaces = 2},
+		context.temp_allocator,
+	)
 	if err != nil {
 		log.errorf("could not encode settings: %v", err)
 		return

@@ -22,33 +22,29 @@ Voice_Client :: struct {
 	known_servers: string,
 	key:           ecdh.Private_Key,
 	my_id:         u32,
-
-	handshake: proto.Initiator,
+	handshake:     proto.Initiator,
 	// Keys derived, Finish sent, waiting for the server's first Data
 	// packet before switching to it.
-	pending:     proto.Session,
-	has_pending: bool,
+	pending:       proto.Session,
+	has_pending:   bool,
 	// The session used for sending.
-	current:     proto.Session,
-	has_current: bool,
+	current:       proto.Session,
+	has_current:   bool,
 	// Kept after a rekey so packets already in flight on the old session
 	// still decrypt.
-	previous:     proto.Session,
-	has_previous: bool,
-
-	last_sent: time.Tick,
-	voice:     Voice, // set up by the owner before client_open
-
-	channels: Channel_Client,
-	commands: Command_Queue,
-
-	status:    Status,
-	sock_open: bool,
+	previous:      proto.Session,
+	has_previous:  bool,
+	last_sent:     time.Tick,
+	voice:         Voice, // set up by the owner before client_open
+	channels:      Channel_Client,
+	commands:      Command_Queue,
+	status:        Status,
+	sock_open:     bool,
 	// Shared with the UI, if there is one; nil in headless mode.
-	view: ^View,
+	view:          ^View,
 
 	// Per-second stats, keyed by speaker id.
-	last_stats: time.Tick,
+	last_stats:    time.Tick,
 }
 
 // client_open loads our key and prepares the socket. It doesn't wait
@@ -70,7 +66,11 @@ client_open :: proc(c: ^Voice_Client, key_path, server_addr, known_servers: stri
 	ep, resolve_err := net.resolve_ip4(server_addr)
 	if resolve_err != nil {
 		log.errorf("failed to resolve %s: %v", server_addr, resolve_err)
-		publish_status(c, .Failed, fmt.tprintf("Could not resolve %s. Expected host:port.", server_addr))
+		publish_status(
+			c,
+			.Failed,
+			fmt.tprintf("Could not resolve %s. Expected host:port.", server_addr),
+		)
 		return false
 	}
 	c.server = ep
@@ -153,7 +153,12 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 // With tone_hz > 0 it "talks" by sending that tone and logs what it hears
 // (see Fake_Audio), which exercises the whole voice path without devices.
 // input_file (raw 48 kHz mono f32) is looped as the microphone instead.
-run_headless :: proc(key_path, server_addr, known_servers, initial_channel: string, tone_hz: f32, input_file: string, denoise: bool) -> bool {
+run_headless :: proc(
+	key_path, server_addr, known_servers, initial_channel: string,
+	tone_hz: f32,
+	input_file: string,
+	denoise: bool,
+) -> bool {
 	// Heap-allocated: the channel state buffers make it fairly large.
 	c := new(Voice_Client)
 	defer free(c)
@@ -249,8 +254,14 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		}
 		if !verify_server_key(c, server_key) {
 			abandon_handshake(c)
-			publish_status(c, .Failed, fmt.tprintf(
-				"The key of %s has changed, so the connection was refused. See the log for details.", c.server_addr))
+			publish_status(
+				c,
+				.Failed,
+				fmt.tprintf(
+					"The key of %s has changed, so the connection was refused. See the log for details.",
+					c.server_addr,
+				),
+			)
 			return false
 		}
 		// Only now, with the server's identity checked, send ours.
@@ -335,17 +346,34 @@ verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 
 	case .New:
 		if remember_server_key(c.known_servers, c.server_addr, key) {
-			log.infof("first connection to %s, trusting server key %s (saved to %s)", c.server_addr, key_hex, c.known_servers)
+			log.infof(
+				"first connection to %s, trusting server key %s (saved to %s)",
+				c.server_addr,
+				key_hex,
+				c.known_servers,
+			)
 		} else {
-			log.warnf("first connection to %s, trusting server key %s for now, but it could not be saved", c.server_addr, key_hex)
+			log.warnf(
+				"first connection to %s, trusting server key %s for now, but it could not be saved",
+				c.server_addr,
+				key_hex,
+			)
 		}
 		return true
 
 	case .Mismatch:
-		log.errorf("the key of %s has changed! saved %s, received %s",
-			c.server_addr, string(hex.encode(saved[:], context.temp_allocator)), key_hex)
+		log.errorf(
+			"the key of %s has changed! saved %s, received %s",
+			c.server_addr,
+			string(hex.encode(saved[:], context.temp_allocator)),
+			key_hex,
+		)
 		log.error("someone may be impersonating the server, or it got a new key")
-		log.errorf("if the change is expected, remove the %s line from %s", c.server_addr, c.known_servers)
+		log.errorf(
+			"if the change is expected, remove the %s line from %s",
+			c.server_addr,
+			c.known_servers,
+		)
 		return false
 	}
 	return false
@@ -369,7 +397,13 @@ log_stats :: proc(c: ^Voice_Client) {
 	c.last_stats = time.tick_now()
 	v := &c.voice
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintf(&b, "voice: captured %d, sent %d frames (%d B)", v.captured, v.sent_frames, v.sent_bytes)
+	fmt.sbprintf(
+		&b,
+		"voice: captured %d, sent %d frames (%d B)",
+		v.captured,
+		v.sent_frames,
+		v.sent_bytes,
+	)
 	if v.gated > 0 {
 		fmt.sbprintf(&b, ", %d without voice", v.gated)
 	}

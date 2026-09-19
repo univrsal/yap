@@ -15,7 +15,7 @@ import "../proto"
 // Channel_Client is the client's copy of the channel state, plus any
 // Join request still waiting to be acknowledged.
 Channel_Client :: struct {
-	assembler: proto.State_Assembler,
+	assembler:       proto.State_Assembler,
 
 	// The applied snapshot; `state` points into the buffers below.
 	state:           proto.Channel_State,
@@ -26,12 +26,11 @@ Channel_Client :: struct {
 	members_buf:     [proto.MAX_STATE_SIZE / 4]u32,
 
 	// Channel to join as soon as the first snapshot arrives.
-	wanted: string,
-
-	last_request:   u32, // newest Join request id used
-	join_pending:   bool,
-	join_channel:   u16,
-	last_join_sent: time.Tick,
+	wanted:          string,
+	last_request:    u32, // newest Join request id used
+	join_pending:    bool,
+	join_channel:    u16,
+	last_join_sent:  time.Tick,
 }
 
 handle_state_message :: proc(c: ^Voice_Client, pt: []byte) {
@@ -46,7 +45,11 @@ handle_state_message :: proc(c: ^Voice_Client, pt: []byte) {
 		return
 	}
 
-	v, body, complete := proto.assembler_add(&ch.assembler, pt, ch.applied_version if ch.have_state else 0)
+	v, body, complete := proto.assembler_add(
+		&ch.assembler,
+		pt,
+		ch.applied_version if ch.have_state else 0,
+	)
 	if complete {
 		apply_state(c, v, body)
 	}
@@ -154,7 +157,9 @@ request_join :: proc(c: ^Voice_Client, name: string) {
 // drive_join resends an unacknowledged Join request.
 drive_join :: proc(c: ^Voice_Client) {
 	ch := &c.channels
-	if ch.join_pending && c.has_current && time.tick_since(ch.last_join_sent) >= proto.CONTROL_RESEND {
+	if ch.join_pending &&
+	   c.has_current &&
+	   time.tick_since(ch.last_join_sent) >= proto.CONTROL_RESEND {
 		log.debug("resending join request")
 		send_join(c)
 	}
@@ -298,7 +303,12 @@ network loop never blocks on input.
 	/mute, /unmute   stop or resume sending voice
 */
 start_command_reader :: proc(q: ^Command_Queue) {
-	thread.create_and_start_with_poly_data(q, read_commands, init_context = context, self_cleanup = true)
+	thread.create_and_start_with_poly_data(
+		q,
+		read_commands,
+		init_context = context,
+		self_cleanup = true,
+	)
 }
 
 @(private = "file")

@@ -33,7 +33,7 @@ and the rest are concealed (PLC). A long gap is the speaker pausing (DTX
 silence, or mute) and starts a fresh talkspurt.
 */
 
-SAMPLE_RATE   :: 48000
+SAMPLE_RATE :: 48000
 FRAME_SAMPLES :: 960 // 20 ms
 
 VOICE_BITRATE :: 24000
@@ -73,23 +73,21 @@ Speaker :: struct {
 }
 
 Voice :: struct {
-	capture:  Ring, // capture callback -> network thread
-	playback: Ring, // network thread -> playback callback
+	capture:     Ring, // capture callback -> network thread
+	playback:    Ring, // network thread -> playback callback
 	// Whether something produces into / consumes from the rings (a device,
 	// or the fake audio in headless mode). Set by whoever opens them.
-	input:  bool, // atomic
-	output: bool, // atomic
-
-	encoder:  ^opus.Encoder,
-	send_seq: u32,
-	muted:    bool,
-
-	denoiser:   rnn.Denoiser,
-	denoise:    bool, // noise suppression and the voice gate
-	last_voice: time.Tick,
-	speakers: map[u32]^Speaker,
+	input:       bool, // atomic
+	output:      bool, // atomic
+	encoder:     ^opus.Encoder,
+	send_seq:    u32,
+	muted:       bool,
+	denoiser:    rnn.Denoiser,
+	denoise:     bool, // noise suppression and the voice gate
+	last_voice:  time.Tick,
+	speakers:    map[u32]^Speaker,
 	// Per-user playback gain (0 = muted), from the UI. Missing means 1.
-	gains:    map[u32]f32,
+	gains:       map[u32]f32,
 
 	// Stats, reset every second by log_stats.
 	captured:    int, // frames read from the microphone
@@ -174,7 +172,9 @@ send_captured :: proc(c: ^Voice_Client) {
 		// Run the denoiser on every frame, even unsent ones, so its state
 		// follows the room continuously.
 		denoising := v.denoise && v.denoiser.state != nil
-		if denoising && rnn.denoise(&v.denoiser, frame[:]) >= VOICE_THRESHOLD && rms(frame[:]) >= VOICE_MIN_LEVEL {
+		if denoising &&
+		   rnn.denoise(&v.denoiser, frame[:]) >= VOICE_THRESHOLD &&
+		   rms(frame[:]) >= VOICE_MIN_LEVEL {
 			v.last_voice = time.tick_now()
 		}
 		if v.muted || !c.has_current || !in_settled_channel(c) {
@@ -186,7 +186,13 @@ send_captured :: proc(c: ^Voice_Client) {
 		}
 
 		msg: [proto.VOICE_UP_HEADER_SIZE + opus.MAX_PACKET_SIZE]u8
-		n := opus.encode_float(v.encoder, &frame[0], FRAME_SAMPLES, &msg[proto.VOICE_UP_HEADER_SIZE], opus.MAX_PACKET_SIZE)
+		n := opus.encode_float(
+			v.encoder,
+			&frame[0],
+			FRAME_SAMPLES,
+			&msg[proto.VOICE_UP_HEADER_SIZE],
+			opus.MAX_PACKET_SIZE,
+		)
 		if n < 0 {
 			log.errorf("opus: encode failed: %s", opus.strerror(opus.Error(n)))
 			continue
@@ -265,7 +271,14 @@ decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
 	// Concealment and FEC produce exactly one of our frames; a normal
 	// decode produces whatever the packet holds.
 	frame_size: i32 = FRAME_SAMPLES if packet == nil || fec == 1 else opus.MAX_FRAME_SAMPLES
-	n := opus.decode_float(sp.decoder, raw_data(packet), i32(len(packet)), &pcm[0], frame_size, fec)
+	n := opus.decode_float(
+		sp.decoder,
+		raw_data(packet),
+		i32(len(packet)),
+		&pcm[0],
+		frame_size,
+		fec,
+	)
 	if n < 0 {
 		log.debugf("opus: decode failed: %s", opus.strerror(opus.Error(n)))
 		return

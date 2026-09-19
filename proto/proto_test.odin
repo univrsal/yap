@@ -183,7 +183,7 @@ test_bad_finish_rejected :: proc(t: ^testing.T) {
 	// Two concurrent handshakes; one's Finish can't complete the other's.
 	a, b: Initiator
 	ra, rb: Responder
-	defer { initiator_reset(&a); initiator_reset(&b); responder_reset(&ra); responder_reset(&rb) }
+	defer {initiator_reset(&a); initiator_reset(&b); responder_reset(&ra); responder_reset(&rb)}
 
 	init_a, _ := initiator_start(&a, &client_key)
 	init_b, _ := initiator_start(&b, &other_key)

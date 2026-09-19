@@ -17,7 +17,7 @@ device ids are only meaningful to the context that listed them.
 
 Audio_Device :: struct {
 	name:       string, // owned
-	is_default: bool,   // the system's current default
+	is_default: bool, // the system's current default
 	id:         ma.Device_Id,
 }
 

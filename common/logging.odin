@@ -52,7 +52,14 @@ Logger_Data :: struct {
 
 // init_logging creates the logger. Install it with `context.logger = logger`
 // and release it with destroy_logging.
-init_logging :: proc(level: Log_Level, log_file := "", sink := Log_Sink{}) -> (logger: log.Logger, ok: bool) {
+init_logging :: proc(
+	level: Log_Level,
+	log_file := "",
+	sink := Log_Sink{},
+) -> (
+	logger: log.Logger,
+	ok: bool,
+) {
 	data := new(Logger_Data)
 	data.sink = sink
 	data.color = terminal.is_terminal(os.stderr)
@@ -60,7 +67,11 @@ init_logging :: proc(level: Log_Level, log_file := "", sink := Log_Sink{}) -> (l
 	data.tz, _ = timezone.region_load("local")
 
 	if log_file != "" {
-		f, err := os.open(log_file, {.Write, .Create, .Append}, os.Permissions{.Read_User, .Write_User, .Read_Group})
+		f, err := os.open(
+			log_file,
+			{.Write, .Create, .Append},
+			os.Permissions{.Read_User, .Write_User, .Read_Group},
+		)
 		if err != nil {
 			fmt.eprintfln("failed to open log file %s: %v", log_file, err)
 			destroy_logger_data(data)
@@ -71,10 +82,14 @@ init_logging :: proc(level: Log_Level, log_file := "", sink := Log_Sink{}) -> (l
 
 	lowest: log.Level
 	switch level {
-	case .debug: lowest = .Debug
-	case .info:  lowest = .Info
-	case .warn:  lowest = .Warning
-	case .error: lowest = .Error
+	case .debug:
+		lowest = .Debug
+	case .info:
+		lowest = .Info
+	case .warn:
+		lowest = .Warning
+	case .error:
+		lowest = .Error
 	}
 	return log.Logger{logger_proc, data, lowest, nil}, true
 }
@@ -95,21 +110,32 @@ destroy_logger_data :: proc(data: ^Logger_Data) {
 }
 
 @(private = "file")
-logger_proc :: proc(logger_data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
+logger_proc :: proc(
+	logger_data: rawptr,
+	level: log.Level,
+	text: string,
+	options: log.Options,
+	location := #caller_location,
+) {
 	data := (^Logger_Data)(logger_data)
 
-	RESET     :: ansi.CSI + ansi.RESET + ansi.SGR
-	RED       :: ansi.CSI + ansi.FG_RED + ansi.SGR
-	YELLOW    :: ansi.CSI + ansi.FG_YELLOW + ansi.SGR
+	RESET :: ansi.CSI + ansi.RESET + ansi.SGR
+	RED :: ansi.CSI + ansi.FG_RED + ansi.SGR
+	YELLOW :: ansi.CSI + ansi.FG_YELLOW + ansi.SGR
 	DARK_GREY :: ansi.CSI + ansi.FG_BRIGHT_BLACK + ansi.SGR
 
 	name, color: string
 	switch {
-	case level < .Info:    name, color = "DEBUG", DARK_GREY
-	case level < .Warning: name, color = "INFO ", ""
-	case level < .Error:   name, color = "WARN ", YELLOW
-	case level < .Fatal:   name, color = "ERROR", RED
-	case:                  name, color = "FATAL", RED
+	case level < .Info:
+		name, color = "DEBUG", DARK_GREY
+	case level < .Warning:
+		name, color = "INFO ", ""
+	case level < .Error:
+		name, color = "WARN ", YELLOW
+	case level < .Fatal:
+		name, color = "ERROR", RED
+	case:
+		name, color = "FATAL", RED
 	}
 
 	dt, _ := time.time_to_datetime(time.now())
@@ -121,8 +147,17 @@ logger_proc :: proc(logger_data: rawptr, level: log.Level, text: string, options
 
 	backing: [64]byte
 	b := strings.builder_from_bytes(backing[:])
-	fmt.sbprintf(&b, "%d-%02d-%02d %02d:%02d:%02d.%03d ",
-		dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, dt.nano / 1_000_000)
+	fmt.sbprintf(
+		&b,
+		"%d-%02d-%02d %02d:%02d:%02d.%03d ",
+		dt.year,
+		dt.month,
+		dt.day,
+		dt.hour,
+		dt.minute,
+		dt.second,
+		dt.nano / 1_000_000,
+	)
 	timestamp := strings.to_string(b)
 
 	sync.guard(&data.mutex)

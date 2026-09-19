@@ -27,18 +27,16 @@ View_Channel :: struct {
 }
 
 View :: struct {
-	mutex: sync.Mutex,
-
-	status: Status,
-	error:  string, // why we Failed
-	server: string,
-	my_id:  u32,
-
-	channels:     [dynamic]View_Channel,
-	my_channel:   int, // -1 until known
-	joining:      int, // channel a move is pending to, or -1
+	mutex:      sync.Mutex,
+	status:     Status,
+	error:      string, // why we Failed
+	server:     string,
+	my_id:      u32,
+	channels:   [dynamic]View_Channel,
+	my_channel: int, // -1 until known
+	joining:    int, // channel a move is pending to, or -1
 	// Last time each user's voice was heard, for a speaking indicator.
-	speaking:     map[u32]time.Tick,
+	speaking:   map[u32]time.Tick,
 }
 
 SPEAKING_HOLD :: 250 * time.Millisecond

@@ -31,9 +31,9 @@ when !#exists(LIB) {
 }
 
 when ODIN_OS == .Windows {
-	foreign import lib { LIB }
+	foreign import lib {LIB}
 } else {
-	foreign import lib { LIB, "system:m" }
+	foreign import lib {LIB, "system:m"}
 }
 
 Encoder :: struct {}
@@ -60,26 +60,26 @@ Application :: enum c.int {
 }
 
 // Values for several requests (bitrate, bandwidth, signal, ...).
-AUTO        :: -1000
+AUTO :: -1000
 BITRATE_MAX :: -1
 
 SIGNAL_VOICE :: 3001
 SIGNAL_MUSIC :: 3002
 
-BANDWIDTH_NARROWBAND    :: 1101 //  4 kHz
-BANDWIDTH_MEDIUMBAND    :: 1102 //  6 kHz
-BANDWIDTH_WIDEBAND      :: 1103 //  8 kHz
+BANDWIDTH_NARROWBAND :: 1101 //  4 kHz
+BANDWIDTH_MEDIUMBAND :: 1102 //  6 kHz
+BANDWIDTH_WIDEBAND :: 1103 //  8 kHz
 BANDWIDTH_SUPERWIDEBAND :: 1104 // 12 kHz
-BANDWIDTH_FULLBAND      :: 1105 // 20 kHz
+BANDWIDTH_FULLBAND :: 1105 // 20 kHz
 
-FRAMESIZE_ARG    :: 5000
+FRAMESIZE_ARG :: 5000
 FRAMESIZE_2_5_MS :: 5001
-FRAMESIZE_5_MS   :: 5002
-FRAMESIZE_10_MS  :: 5003
-FRAMESIZE_20_MS  :: 5004
-FRAMESIZE_40_MS  :: 5005
-FRAMESIZE_60_MS  :: 5006
-FRAMESIZE_80_MS  :: 5007
+FRAMESIZE_5_MS :: 5002
+FRAMESIZE_10_MS :: 5003
+FRAMESIZE_20_MS :: 5004
+FRAMESIZE_40_MS :: 5005
+FRAMESIZE_60_MS :: 5006
+FRAMESIZE_80_MS :: 5007
 FRAMESIZE_100_MS :: 5008
 FRAMESIZE_120_MS :: 5009
 
@@ -92,87 +92,87 @@ MAX_FRAME_SAMPLES :: 5760
 // ctl requests. SET requests take an i32; GET requests take a ^i32
 // (GET_FINAL_RANGE a ^u32).
 Request :: enum c.int {
-	Set_Application            = 4000,
-	Get_Application            = 4001,
-	Set_Bitrate                = 4002,
-	Get_Bitrate                = 4003,
-	Set_Max_Bandwidth          = 4004,
-	Get_Max_Bandwidth          = 4005,
-	Set_VBR                    = 4006,
-	Get_VBR                    = 4007,
-	Set_Bandwidth              = 4008,
-	Get_Bandwidth              = 4009,
-	Set_Complexity             = 4010,
-	Get_Complexity             = 4011,
-	Set_Inband_FEC             = 4012,
-	Get_Inband_FEC             = 4013,
-	Set_Packet_Loss_Perc       = 4014,
-	Get_Packet_Loss_Perc       = 4015,
-	Set_DTX                    = 4016,
-	Get_DTX                    = 4017,
-	Set_VBR_Constraint         = 4020,
-	Get_VBR_Constraint         = 4021,
-	Set_Force_Channels         = 4022,
-	Get_Force_Channels         = 4023,
-	Set_Signal                 = 4024,
-	Get_Signal                 = 4025,
-	Get_Lookahead              = 4027,
-	Reset_State                = 4028, // takes no argument
-	Get_Sample_Rate            = 4029,
-	Get_Final_Range            = 4031,
-	Get_Pitch                  = 4033,
-	Set_Gain                   = 4034,
-	Set_LSB_Depth              = 4036,
-	Get_LSB_Depth              = 4037,
-	Get_Last_Packet_Duration   = 4039,
-	Set_Expert_Frame_Duration  = 4040,
-	Get_Expert_Frame_Duration  = 4041,
-	Set_Prediction_Disabled    = 4042,
-	Get_Prediction_Disabled    = 4043,
-	Get_Gain                   = 4045,
+	Set_Application              = 4000,
+	Get_Application              = 4001,
+	Set_Bitrate                  = 4002,
+	Get_Bitrate                  = 4003,
+	Set_Max_Bandwidth            = 4004,
+	Get_Max_Bandwidth            = 4005,
+	Set_VBR                      = 4006,
+	Get_VBR                      = 4007,
+	Set_Bandwidth                = 4008,
+	Get_Bandwidth                = 4009,
+	Set_Complexity               = 4010,
+	Get_Complexity               = 4011,
+	Set_Inband_FEC               = 4012,
+	Get_Inband_FEC               = 4013,
+	Set_Packet_Loss_Perc         = 4014,
+	Get_Packet_Loss_Perc         = 4015,
+	Set_DTX                      = 4016,
+	Get_DTX                      = 4017,
+	Set_VBR_Constraint           = 4020,
+	Get_VBR_Constraint           = 4021,
+	Set_Force_Channels           = 4022,
+	Get_Force_Channels           = 4023,
+	Set_Signal                   = 4024,
+	Get_Signal                   = 4025,
+	Get_Lookahead                = 4027,
+	Reset_State                  = 4028, // takes no argument
+	Get_Sample_Rate              = 4029,
+	Get_Final_Range              = 4031,
+	Get_Pitch                    = 4033,
+	Set_Gain                     = 4034,
+	Set_LSB_Depth                = 4036,
+	Get_LSB_Depth                = 4037,
+	Get_Last_Packet_Duration     = 4039,
+	Set_Expert_Frame_Duration    = 4040,
+	Get_Expert_Frame_Duration    = 4041,
+	Set_Prediction_Disabled      = 4042,
+	Get_Prediction_Disabled      = 4043,
+	Get_Gain                     = 4045,
 	Set_Phase_Inversion_Disabled = 4046,
 	Get_Phase_Inversion_Disabled = 4047,
-	Get_In_DTX                 = 4049,
-	Set_DRED_Duration          = 4050,
-	Get_DRED_Duration          = 4051,
+	Get_In_DTX                   = 4049,
+	Set_DRED_Duration            = 4050,
+	Get_DRED_Duration            = 4051,
 }
 
 @(default_calling_convention = "c", link_prefix = "opus_")
 foreign lib {
 	get_version_string :: proc() -> cstring ---
-	strerror           :: proc(error: Error) -> cstring ---
+	strerror :: proc(error: Error) -> cstring ---
 
 	encoder_get_size :: proc(channels: c.int) -> c.int ---
-	encoder_create   :: proc(Fs: i32, channels: c.int, application: Application, error: ^Error) -> ^Encoder ---
-	encoder_init     :: proc(st: ^Encoder, Fs: i32, channels: c.int, application: Application) -> Error ---
-	encoder_destroy  :: proc(st: ^Encoder) ---
-	encoder_ctl      :: proc(st: ^Encoder, request: Request, #c_vararg args: ..any) -> Error ---
+	encoder_create :: proc(Fs: i32, channels: c.int, application: Application, error: ^Error) -> ^Encoder ---
+	encoder_init :: proc(st: ^Encoder, Fs: i32, channels: c.int, application: Application) -> Error ---
+	encoder_destroy :: proc(st: ^Encoder) ---
+	encoder_ctl :: proc(st: ^Encoder, request: Request, #c_vararg args: ..any) -> Error ---
 
 	// frame_size is per channel and must be 2.5, 5, 10, 20, 40, 60, 80, 100
 	// or 120 ms at the encoder's rate. Returns the packet length in bytes,
 	// or a negative Error.
-	encode       :: proc(st: ^Encoder, pcm: [^]i16, frame_size: c.int, data: [^]u8, max_data_bytes: i32) -> i32 ---
+	encode :: proc(st: ^Encoder, pcm: [^]i16, frame_size: c.int, data: [^]u8, max_data_bytes: i32) -> i32 ---
 	encode_float :: proc(st: ^Encoder, pcm: [^]f32, frame_size: c.int, data: [^]u8, max_data_bytes: i32) -> i32 ---
 
 	decoder_get_size :: proc(channels: c.int) -> c.int ---
-	decoder_create   :: proc(Fs: i32, channels: c.int, error: ^Error) -> ^Decoder ---
-	decoder_init     :: proc(st: ^Decoder, Fs: i32, channels: c.int) -> Error ---
-	decoder_destroy  :: proc(st: ^Decoder) ---
-	decoder_ctl      :: proc(st: ^Decoder, request: Request, #c_vararg args: ..any) -> Error ---
+	decoder_create :: proc(Fs: i32, channels: c.int, error: ^Error) -> ^Decoder ---
+	decoder_init :: proc(st: ^Decoder, Fs: i32, channels: c.int) -> Error ---
+	decoder_destroy :: proc(st: ^Decoder) ---
+	decoder_ctl :: proc(st: ^Decoder, request: Request, #c_vararg args: ..any) -> Error ---
 
 	// data = nil (len 0) asks for packet loss concealment. decode_fec = 1
 	// recovers the *previous* frame from this packet's in-band FEC.
 	// Returns the number of samples per channel decoded, or a negative Error.
-	decode       :: proc(st: ^Decoder, data: [^]u8, len: i32, pcm: [^]i16, frame_size: c.int, decode_fec: c.int) -> c.int ---
+	decode :: proc(st: ^Decoder, data: [^]u8, len: i32, pcm: [^]i16, frame_size: c.int, decode_fec: c.int) -> c.int ---
 	decode_float :: proc(st: ^Decoder, data: [^]u8, len: i32, pcm: [^]f32, frame_size: c.int, decode_fec: c.int) -> c.int ---
 	decoder_get_nb_samples :: proc(dec: ^Decoder, packet: [^]u8, len: i32) -> c.int ---
 
-	packet_get_bandwidth         :: proc(data: [^]u8) -> c.int ---
+	packet_get_bandwidth :: proc(data: [^]u8) -> c.int ---
 	packet_get_samples_per_frame :: proc(data: [^]u8, Fs: i32) -> c.int ---
-	packet_get_nb_channels       :: proc(data: [^]u8) -> c.int ---
-	packet_get_nb_frames         :: proc(packet: [^]u8, len: i32) -> c.int ---
-	packet_get_nb_samples        :: proc(packet: [^]u8, len: i32, Fs: i32) -> c.int ---
-	packet_has_lbrr              :: proc(packet: [^]u8, len: i32) -> c.int ---
+	packet_get_nb_channels :: proc(data: [^]u8) -> c.int ---
+	packet_get_nb_frames :: proc(packet: [^]u8, len: i32) -> c.int ---
+	packet_get_nb_samples :: proc(packet: [^]u8, len: i32, Fs: i32) -> c.int ---
+	packet_has_lbrr :: proc(packet: [^]u8, len: i32) -> c.int ---
 }
 
 // Typed ctl helpers.

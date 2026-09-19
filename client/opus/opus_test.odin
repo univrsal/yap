@@ -31,7 +31,9 @@ make_decoder :: proc(t: ^testing.T) -> ^Decoder {
 signal :: proc(i: int) -> f32 {
 	x := f64(i) / RATE
 	env := 0.6 + 0.4 * math.sin(2 * math.PI * 3 * x)
-	return f32(0.3 * env * (math.sin(2 * math.PI * 220 * x) + 0.5 * math.sin(2 * math.PI * 660 * x)))
+	return f32(
+		0.3 * env * (math.sin(2 * math.PI * 220 * x) + 0.5 * math.sin(2 * math.PI * 660 * x)),
+	)
 }
 
 @(test)
@@ -47,7 +49,10 @@ test_ctl_roundtrip :: proc(t: ^testing.T) {
 
 	// Setting and reading back checks both the request codes and that the
 	// varargs are passed the way libopus reads them.
-	settings := [?]struct{set, get: Request, value: i32}{
+	settings := [?]struct {
+		set, get: Request,
+		value:    i32,
+	} {
 		{.Set_Bitrate, .Get_Bitrate, 24000},
 		{.Set_Complexity, .Get_Complexity, 7},
 		{.Set_Inband_FEC, .Get_Inband_FEC, 1},
@@ -124,7 +129,12 @@ test_encode_decode :: proc(t: ^testing.T) {
 		}
 		best = max(best, dot / math.sqrt(ein * eout))
 	}
-	testing.expectf(t, best > 0.95, "decoded audio doesn't match the input (correlation %.3f)", best)
+	testing.expectf(
+		t,
+		best > 0.95,
+		"decoded audio doesn't match the input (correlation %.3f)",
+		best,
+	)
 }
 
 @(test)

@@ -8,21 +8,23 @@ import "core:os"
 import "../common"
 
 Options :: struct {
-	server:             string           `args:"pos=0" usage:"Server to connect to, host:port. Required with -headless; otherwise the UI connects to it right away."`,
-	headless:           bool             `usage:"No window: log to the terminal and read /join and /channels from stdin."`,
-	list_audio_devices: bool             `usage:"Print the audio input and output devices, then exit."`,
-	tone:               f32              `usage:"With -headless: send a sine tone of this frequency (Hz) as voice and log what is heard. For testing."`,
-	input_file:         string           `usage:"With -headless: loop this raw 48 kHz mono f32 file as the microphone. For testing."`,
-	denoise:            bool             `usage:"With -headless: enable noise suppression and the voice gate (the UI has a setting for it)."`,
-	channel:            string           `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
-	key:                string           `usage:"Private key file, created if missing (default <config dir>/yap/client.key)."`,
-	known_servers:      string           `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
+	server:             string `args:"pos=0" usage:"Server to connect to, host:port. Required with -headless; otherwise the UI connects to it right away."`,
+	headless:           bool `usage:"No window: log to the terminal and read /join and /channels from stdin."`,
+	list_audio_devices: bool `usage:"Print the audio input and output devices, then exit."`,
+	tone:               f32 `usage:"With -headless: send a sine tone of this frequency (Hz) as voice and log what is heard. For testing."`,
+	input_file:         string `usage:"With -headless: loop this raw 48 kHz mono f32 file as the microphone. For testing."`,
+	denoise:            bool `usage:"With -headless: enable noise suppression and the voice gate (the UI has a setting for it)."`,
+	channel:            string `usage:"Channel to join after connecting (default: wherever the server puts you)."`,
+	key:                string `usage:"Private key file, created if missing (default <config dir>/yap/client.key)."`,
+	known_servers:      string `usage:"Trusted server keys, filled in on first connect (default <config dir>/yap/known_servers)."`,
 	log_level:          common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
-	log_file:           string           `usage:"Also append the log to this file."`,
+	log_file:           string `usage:"Also append the log to this file."`,
 }
 
 main :: proc() {
-	opt := Options{log_level = .info}
+	opt := Options {
+		log_level = .info,
+	}
 	flags.parse_or_exit(&opt, os.args, .Odin)
 
 	// In the UI, log lines also go to the log panel.
@@ -45,7 +47,9 @@ main :: proc() {
 		opt.known_servers = default_config_path("known_servers")
 	}
 	if opt.key == "" || opt.known_servers == "" {
-		log.error("could not determine the config directory; pass -key:<file> and -known-servers:<file>")
+		log.error(
+			"could not determine the config directory; pass -key:<file> and -known-servers:<file>",
+		)
 		os.exit(2)
 	}
 
@@ -58,20 +62,30 @@ main :: proc() {
 			log.error("-headless needs a server address")
 			os.exit(2)
 		}
-		if !run_headless(opt.key, opt.server, opt.known_servers, opt.channel, opt.tone, opt.input_file, opt.denoise) {
+		if !run_headless(
+			opt.key,
+			opt.server,
+			opt.known_servers,
+			opt.channel,
+			opt.tone,
+			opt.input_file,
+			opt.denoise,
+		) {
 			os.exit(1)
 		}
 		return
 	}
 
-	ui_ok := run_ui({
-		key_path      = opt.key,
-		known_servers = opt.known_servers,
-		server        = opt.server,
-		channel       = opt.channel,
-		logs          = &logs,
-		settings_path = default_config_path("settings.json"),
-	})
+	ui_ok := run_ui(
+		{
+			key_path = opt.key,
+			known_servers = opt.known_servers,
+			server = opt.server,
+			channel = opt.channel,
+			logs = &logs,
+			settings_path = default_config_path("settings.json"),
+		},
+	)
 	if !ui_ok {
 		os.exit(1)
 	}

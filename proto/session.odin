@@ -19,7 +19,7 @@ Session :: struct {
 
 Initiator_State :: enum {
 	Idle,
-	Sent_Init,   // waiting for Handshake_Resp
+	Sent_Init, // waiting for Handshake_Resp
 	Sent_Finish, // keys derived; waiting for the server to confirm
 }
 
@@ -91,7 +91,13 @@ prologue :: proc() -> []byte {
 
 // initiator_start begins a handshake and returns the Handshake_Init packet.
 @(require_results)
-initiator_start :: proc(ini: ^Initiator, static_key: ^ecdh.Private_Key) -> (packet: []byte, ok: bool) {
+initiator_start :: proc(
+	ini: ^Initiator,
+	static_key: ^ecdh.Private_Key,
+) -> (
+	packet: []byte,
+	ok: bool,
+) {
 	initiator_reset(ini)
 
 	if noise.handshake_init(&ini.hs, true, prologue(), static_key, nil, PROTOCOL_NAME) != .Ok {
@@ -117,7 +123,7 @@ initiator_start :: proc(ini: ^Initiator, static_key: ^ecdh.Private_Key) -> (pack
 
 Resp_Result :: enum {
 	Ignored, // not addressed to this handshake; keep waiting
-	Failed,  // addressed to us but invalid; the Initiator has been reset
+	Failed, // addressed to us but invalid; the Initiator has been reset
 	Ok,
 }
 
@@ -126,7 +132,13 @@ Resp_Result :: enum {
 // that key before calling initiator_finish, which is the point where our
 // own identity gets sent.
 @(require_results)
-initiator_read_resp :: proc(ini: ^Initiator, packet: []byte) -> (server_key: [KEY_SIZE]byte, result: Resp_Result) {
+initiator_read_resp :: proc(
+	ini: ^Initiator,
+	packet: []byte,
+) -> (
+	server_key: [KEY_SIZE]byte,
+	result: Resp_Result,
+) {
 	if ini.state != .Sent_Init || packet_type(packet) != .Handshake_Resp {
 		return
 	}
@@ -137,7 +149,12 @@ initiator_read_resp :: proc(ini: ^Initiator, packet: []byte) -> (server_key: [KE
 	}
 
 	// A failed read leaves the Noise state unusable, so start over.
-	_, status := noise.handshake_read_message(&ini.hs, packet[RESP_HEADER_SIZE:], nil, context.temp_allocator)
+	_, status := noise.handshake_read_message(
+		&ini.hs,
+		packet[RESP_HEADER_SIZE:],
+		nil,
+		context.temp_allocator,
+	)
 	if status != .Handshake_Pending {
 		initiator_reset(ini)
 		return {}, .Failed
@@ -153,7 +170,14 @@ initiator_read_resp :: proc(ini: ^Initiator, packet: []byte) -> (server_key: [KE
 // Handshake_Finish packet. The Initiator keeps the packet so it can be
 // resent until the server confirms with its first Data packet.
 @(require_results)
-initiator_finish :: proc(ini: ^Initiator, sess: ^Session, payload: []byte = nil) -> (packet: []byte, ok: bool) {
+initiator_finish :: proc(
+	ini: ^Initiator,
+	sess: ^Session,
+	payload: []byte = nil,
+) -> (
+	packet: []byte,
+	ok: bool,
+) {
 	if ini.state != .Sent_Init || ini.remote_idx == 0 {
 		return
 	}
@@ -192,7 +216,10 @@ responder_start :: proc(
 	static_key: ^ecdh.Private_Key,
 	packet: []byte,
 	local_idx: u32,
-) -> (resp: []byte, ok: bool) {
+) -> (
+	resp: []byte,
+	ok: bool,
+) {
 	responder_reset(r)
 	if packet_type(packet) != .Handshake_Init {
 		return
@@ -202,7 +229,13 @@ responder_start :: proc(
 		return
 	}
 	// The msg1 payload is just padding, so it's ignored.
-	msg, _, status := noise.handshake_responder_step(&r.hs, packet[INIT_HEADER_SIZE:], nil, nil, context.temp_allocator)
+	msg, _, status := noise.handshake_responder_step(
+		&r.hs,
+		packet[INIT_HEADER_SIZE:],
+		nil,
+		nil,
+		context.temp_allocator,
+	)
 	if status != .Handshake_Pending || len(msg) != MSG2_SIZE {
 		responder_reset(r)
 		return
@@ -222,13 +255,27 @@ responder_start :: proc(
 // payload. The Responder is reset either way: Noise handshake state
 // can't be reused after a failed read.
 @(require_results)
-responder_finish :: proc(r: ^Responder, packet: []byte, sess: ^Session) -> (payload: []byte, ok: bool) {
+responder_finish :: proc(
+	r: ^Responder,
+	packet: []byte,
+	sess: ^Session,
+) -> (
+	payload: []byte,
+	ok: bool,
+) {
 	defer responder_reset(r)
-	if r.local_idx == 0 || packet_type(packet) != .Handshake_Finish || receiver_index(packet) != r.local_idx {
+	if r.local_idx == 0 ||
+	   packet_type(packet) != .Handshake_Finish ||
+	   receiver_index(packet) != r.local_idx {
 		return
 	}
 
-	pt, status := noise.handshake_read_message(&r.hs, packet[FINISH_HEADER_SIZE:], nil, context.temp_allocator)
+	pt, status := noise.handshake_read_message(
+		&r.hs,
+		packet[FINISH_HEADER_SIZE:],
+		nil,
+		context.temp_allocator,
+	)
 	if status != .Handshake_Complete {
 		return
 	}
@@ -262,7 +309,12 @@ seal :: proc(s: ^Session, plaintext: []byte, out: []byte) -> (packet: []byte, ok
 	if noise.cipherstates_set_n(&s.cs, true, s.send_n) != .Ok {
 		return
 	}
-	if _, status := noise.seal_message(&s.cs, out[:DATA_HEADER_SIZE], plaintext, out[DATA_HEADER_SIZE:n]); status != .Ok {
+	if _, status := noise.seal_message(
+		&s.cs,
+		out[:DATA_HEADER_SIZE],
+		plaintext,
+		out[DATA_HEADER_SIZE:n],
+	); status != .Ok {
 		return
 	}
 	s.send_n += 1

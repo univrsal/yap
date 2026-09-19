@@ -20,7 +20,8 @@ keygen :: proc(path: string) -> bool {
 	raw: [proto.KEY_SIZE]byte
 	ecdh.private_key_bytes(&key, raw[:])
 	encoded := hex.encode(raw[:], context.temp_allocator)
-	if err := os.write_entire_file(path, encoded, os.Permissions{.Read_User, .Write_User}); err != nil {
+	if err := os.write_entire_file(path, encoded, os.Permissions{.Read_User, .Write_User});
+	   err != nil {
 		log.errorf("failed to write %s: %v", path, err)
 		return false
 	}
@@ -44,7 +45,10 @@ load_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool {
 		log.errorf("failed to read %s: %v", path, err)
 		return false
 	}
-	raw, ok := hex.decode(transmute([]byte)strings.trim_space(string(data)), context.temp_allocator)
+	raw, ok := hex.decode(
+		transmute([]byte)strings.trim_space(string(data)),
+		context.temp_allocator,
+	)
 	if !ok || len(raw) != proto.KEY_SIZE || !ecdh.private_key_set_bytes(key, .X25519, raw) {
 		log.errorf("%s is not a valid private key", path)
 		return false

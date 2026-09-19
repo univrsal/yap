@@ -16,31 +16,30 @@ MAX_SESSIONS :: 256
 // A user has more than one briefly while rekeying.
 Client :: struct {
 	using session: proto.Session,
-	handshake: proto.Responder, // in use until keyed
-	user:      ^User,           // set once keyed
-
-	endpoint:  net.Endpoint,
-	started:   time.Tick, // when the Handshake_Init arrived
-	last_recv: time.Tick,
+	handshake:     proto.Responder, // in use until keyed
+	user:          ^User, // set once keyed
+	endpoint:      net.Endpoint,
+	started:       time.Tick, // when the Handshake_Init arrived
+	last_recv:     time.Tick,
 
 	// Handshake_Finish verified: the client proved it holds its key.
-	keyed: bool,
+	keyed:         bool,
 	// The client has sent Data on this session, so it has switched over
 	// and any older sessions with the same key can go.
-	confirmed: bool,
+	confirmed:     bool,
 	// A newer session with the same client key exists. Still accepted
 	// for receiving (packets in flight), never used for sending.
-	superseded: bool,
+	superseded:    bool,
 }
 
 // User is a connected identity (static key). Channel membership lives
 // here rather than on the session so it survives rekeys.
 User :: struct {
-	key:      [proto.KEY_SIZE]byte,
-	id:       u32, // common.key_id(key)
-	channel:  u16,
-	join_ack: u32, // newest Join request handled
-	sessions: int, // keyed sessions pointing here
+	key:             [proto.KEY_SIZE]byte,
+	id:              u32, // common.key_id(key)
+	channel:         u16,
+	join_ack:        u32, // newest Join request handled
+	sessions:        int, // keyed sessions pointing here
 
 	// State sync: the newest snapshot version the client confirmed, and
 	// when we last sent it one.
@@ -61,7 +60,9 @@ Server :: struct {
 }
 
 run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
-	s := Server{version = 1}
+	s := Server {
+		version = 1,
+	}
 	if !common.load_or_create_private_key(key_path, &s.key) {
 		return false
 	}
@@ -249,7 +250,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	case .Leave:
 		drop_user(s, c.user)
 	case .State:
-		// Server-to-client only.
+	// Server-to-client only.
 	}
 }
 
@@ -283,8 +284,11 @@ bump_version :: proc(s: ^Server) {
 sync_state :: proc(s: ^Server) {
 	now := time.tick_now()
 	needs_state :: proc(s: ^Server, u: ^User, now: time.Tick) -> bool {
-		return u.acked_version != s.version &&
-		       (u.sent_version != s.version || time.tick_diff(u.last_state_sent, now) >= proto.CONTROL_RESEND)
+		return(
+			u.acked_version != s.version &&
+			(u.sent_version != s.version ||
+					time.tick_diff(u.last_state_sent, now) >= proto.CONTROL_RESEND) \
+		)
 	}
 
 	any_due := false
@@ -308,7 +312,10 @@ sync_state :: proc(s: ^Server) {
 	}
 	infos := make([]proto.Channel_Info, len(s.channels), context.temp_allocator)
 	for &info, i in infos {
-		info = {name = s.channels[i], members = members[i][:]}
+		info = {
+			name    = s.channels[i],
+			members = members[i][:],
+		}
 	}
 
 	body_buf: [proto.MAX_STATE_SIZE]byte
@@ -320,14 +327,24 @@ sync_state :: proc(s: ^Server) {
 		if c == nil {
 			continue
 		}
-		state := proto.Channel_State{your_channel = u.channel, join_ack = u.join_ack, channels = infos}
+		state := proto.Channel_State {
+			your_channel = u.channel,
+			join_ack     = u.join_ack,
+			channels     = infos,
+		}
 		body, ok := proto.encode_state(state, body_buf[:])
 		if !ok {
 			log.errorf("channel state doesn't fit in %d bytes", proto.MAX_STATE_SIZE)
 			continue
 		}
 		count := proto.state_chunk_count(len(body))
-		log.debugf("sending state v%d to %08x (%d bytes, %d chunks)", s.version, u.id, len(body), count)
+		log.debugf(
+			"sending state v%d to %08x (%d bytes, %d chunks)",
+			s.version,
+			u.id,
+			len(body),
+			count,
+		)
 
 		chunk_buf: [proto.MAX_PAYLOAD_SIZE]byte
 		pkt_buf: [proto.MAX_PACKET_SIZE]byte
@@ -420,8 +437,9 @@ reap_sessions :: proc(s: ^Server) {
 		case !c.keyed:
 			expired = time.tick_since(c.started) > proto.HANDSHAKE_TIMEOUT
 		case:
-			expired = time.tick_since(c.last_recv) > proto.SESSION_TIMEOUT ||
-			          time.tick_since(c.created) > proto.REJECT_AFTER
+			expired =
+				time.tick_since(c.last_recv) > proto.SESSION_TIMEOUT ||
+				time.tick_since(c.created) > proto.REJECT_AFTER
 		}
 		if expired {
 			append(&stale, idx)

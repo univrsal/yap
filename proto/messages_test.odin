@@ -11,12 +11,16 @@ decode_bufs :: struct {
 
 @(test)
 test_state_roundtrip :: proc(t: ^testing.T) {
-	channels := []Channel_Info{
+	channels := []Channel_Info {
 		{name = "Lobby", members = {0xaabbccdd, 1}},
 		{name = "Empty"},
 		{name = "Gaming", members = {2}},
 	}
-	state := Channel_State{your_channel = 2, join_ack = 7, channels = channels}
+	state := Channel_State {
+		your_channel = 2,
+		join_ack     = 7,
+		channels     = channels,
+	}
 
 	body_buf: [MAX_STATE_SIZE]byte
 	body, ok := encode_state(state, body_buf[:])
@@ -40,7 +44,9 @@ test_state_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 test_state_decode_rejects_garbage :: proc(t: ^testing.T) {
-	state := Channel_State{channels = []Channel_Info{{name = "Lobby", members = {1, 2}}}}
+	state := Channel_State {
+		channels = []Channel_Info{{name = "Lobby", members = {1, 2}}},
+	}
 	body_buf: [MAX_STATE_SIZE]byte
 	body, _ := encode_state(state, body_buf[:])
 
@@ -69,7 +75,11 @@ test_state_chunking :: proc(t: ^testing.T) {
 		ch.name = fmt.tprintf("channel-with-a-long-name-%02d", i)
 		ch.members = members[i * 4:][:4]
 	}
-	state := Channel_State{your_channel = 63, join_ack = 1, channels = channels[:]}
+	state := Channel_State {
+		your_channel = 63,
+		join_ack     = 1,
+		channels     = channels[:],
+	}
 
 	body_buf: [MAX_STATE_SIZE]byte
 	body, ok := encode_state(state, body_buf[:])

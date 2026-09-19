@@ -84,7 +84,14 @@ disappeared (a headset unplugged), PulseAudio via PipeWire kept failing
 to open "default" while the new default opened fine by id.
 */
 @(private = "file")
-open_stream :: proc(a: ^Audio, dir: ma.Direction, devices: []Audio_Device, name: string, v: ^Voice, callback: ma.Callback) -> ^ma.Stream {
+open_stream :: proc(
+	a: ^Audio,
+	dir: ma.Direction,
+	devices: []Audio_Device,
+	name: string,
+	v: ^Voice,
+	callback: ma.Callback,
+) -> ^ma.Stream {
 	if a.ctx == nil {
 		return nil
 	}
@@ -109,11 +116,19 @@ open_stream :: proc(a: ^Audio, dir: ma.Direction, devices: []Audio_Device, name:
 		res: ma.Result
 		s := ma.stream_open(a.ctx, dir, id, SAMPLE_RATE, 1, DEVICE_PERIOD_MS, callback, v, &res)
 		if s == nil {
-			log.debugf("audio: opening the %s failed (%s), trying the next option", what, ma.result_string(res))
+			log.debugf(
+				"audio: opening the %s failed (%s), trying the next option",
+				what,
+				ma.result_string(res),
+			)
 			continue
 		}
 		if r := ma.stream_start(s); r != ma.SUCCESS {
-			log.debugf("audio: starting the %s failed (%s), trying the next option", what, ma.result_string(r))
+			log.debugf(
+				"audio: starting the %s failed (%s), trying the next option",
+				what,
+				ma.result_string(r),
+			)
 			ma.stream_close(s)
 			continue
 		}

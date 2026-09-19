@@ -19,7 +19,7 @@ and with them the whole layout, are the same at every scale.
 @(private = "file")
 FONT_DATA := #load("assets/NotoSans-ascii.ttf")
 
-FONT_SIZE   :: 15 // logical pixels
+FONT_SIZE :: 15 // logical pixels
 LINE_HEIGHT :: 18 // logical pixels; microui's default, which its layout metrics assume
 
 FIRST_CHAR :: 32
@@ -27,20 +27,20 @@ CHAR_COUNT :: 95 // ' ' through '~'
 FALLBACK_CHAR :: '?'
 
 Font :: struct {
-	info:    stbtt.fontinfo,
-	ok:      bool,
-	advance: [CHAR_COUNT]f32, // logical pixels
+	info:     stbtt.fontinfo,
+	ok:       bool,
+	advance:  [CHAR_COUNT]f32, // logical pixels
 	// Distance from the top of a LINE_HEIGHT line box to the baseline.
 	baseline: f32,
 
 	// Atlas for the current scale (built by font_build_atlas).
-	scale:   f32,
-	pixels:  []u8, // width * height, one alpha byte per texel
-	width:   i32,
-	height:  i32,
-	glyphs:  [CHAR_COUNT]stbtt.packedchar,
+	scale:    f32,
+	pixels:   []u8, // width * height, one alpha byte per texel
+	width:    i32,
+	height:   i32,
+	glyphs:   [CHAR_COUNT]stbtt.packedchar,
 	// A few fully opaque texels, for drawing solid rectangles.
-	white:   [2]f32,
+	white:    [2]f32,
 }
 
 font_init :: proc(f: ^Font) -> bool {
@@ -82,7 +82,15 @@ font_build_atlas :: proc(f: ^Font, scale: f32) -> bool {
 			delete(pixels)
 			return false
 		}
-		packed := stbtt.PackFontRange(&spc, raw_data(FONT_DATA), 0, FONT_SIZE * scale, FIRST_CHAR, CHAR_COUNT, &f.glyphs[0])
+		packed := stbtt.PackFontRange(
+			&spc,
+			raw_data(FONT_DATA),
+			0,
+			FONT_SIZE * scale,
+			FIRST_CHAR,
+			CHAR_COUNT,
+			&f.glyphs[0],
+		)
 		stbtt.PackEnd(&spc)
 		if !packed {
 			delete(pixels)
@@ -136,7 +144,13 @@ Glyph_Quad :: struct {
 // font_layout calls `emit` for every visible glyph of `text`, with the
 // top of its line box at `y` (all logical pixels). Glyph edges are snapped
 // to physical pixels, which keeps small text crisp.
-font_layout :: proc(f: ^Font, text: string, x, y: f32, data: rawptr, emit: proc(data: rawptr, q: Glyph_Quad)) {
+font_layout :: proc(
+	f: ^Font,
+	text: string,
+	x, y: f32,
+	data: rawptr,
+	emit: proc(data: rawptr, q: Glyph_Quad),
+) {
 	s := f.scale
 	baseline := math.round((y + f.baseline) * s)
 	pen := x
@@ -150,11 +164,19 @@ font_layout :: proc(f: ^Font, text: string, x, y: f32, data: rawptr, emit: proc(
 			px := math.round(pen * s + g.xoff)
 			py := baseline + math.round(g.yoff)
 			w, h := f32(g.x1 - g.x0), f32(g.y1 - g.y0)
-			emit(data, Glyph_Quad{
-				x0 = px / s, y0 = py / s, x1 = (px + w) / s, y1 = (py + h) / s,
-				u0 = f32(g.x0) / f32(f.width), v0 = f32(g.y0) / f32(f.height),
-				u1 = f32(g.x1) / f32(f.width), v1 = f32(g.y1) / f32(f.height),
-			})
+			emit(
+				data,
+				Glyph_Quad {
+					x0 = px / s,
+					y0 = py / s,
+					x1 = (px + w) / s,
+					y1 = (py + h) / s,
+					u0 = f32(g.x0) / f32(f.width),
+					v0 = f32(g.y0) / f32(f.height),
+					u1 = f32(g.x1) / f32(f.width),
+					v1 = f32(g.y1) / f32(f.height),
+				},
+			)
 		}
 		pen += f.advance[i]
 	}

@@ -37,9 +37,9 @@ UI_Options :: struct {
 
 @(private = "file")
 Net_Session :: struct {
-	client: ^Voice_Client,
-	thread: ^thread.Thread,
-	stop:   bool, // set atomically to end the network loop
+	client:        ^Voice_Client,
+	thread:        ^thread.Thread,
+	stop:          bool, // set atomically to end the network loop
 
 	// Owned copies; the UI's buffers may change while the thread runs.
 	key_path:      string,
@@ -49,7 +49,7 @@ Net_Session :: struct {
 
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
-	streams: Audio_Streams,
+	streams:       Audio_Streams,
 }
 
 Page :: enum {
@@ -65,23 +65,20 @@ Action :: enum {
 }
 
 UI :: struct {
-	window:   glfw.WindowHandle,
-	ctx:      mu.Context,
-	renderer: Renderer,
-	opts:     UI_Options,
-	my_id:    u32,
-
-	server_buf: [256]u8,
-	server_len: int,
-
-	view:    View,
-	session: ^Net_Session,
+	window:         glfw.WindowHandle,
+	ctx:            mu.Context,
+	renderer:       Renderer,
+	opts:           UI_Options,
+	my_id:          u32,
+	server_buf:     [256]u8,
+	server_len:     int,
+	view:           View,
+	session:        ^Net_Session,
 	// Connecting/disconnecting waits on the network thread, which may be
 	// waiting on the View lock, so it happens after layout, not during.
-	action:  Action,
-
-	log_seen: int, // Log_Lines.total when the log panel was last scrolled
-	muted:    bool,
+	action:         Action,
+	log_seen:       int, // Log_Lines.total when the log panel was last scrolled
+	muted:          bool,
 
 	// The user whose menu is open, and its volume slider's value (the
 	// slider needs a stable address). See user_menu.
@@ -92,15 +89,14 @@ UI :: struct {
 	// second, and on exit.
 	settings_dirty: bool,
 	settings_saved: time.Tick,
-
-	page:     Page,
-	settings: Settings,
-	audio:    Audio,
+	page:           Page,
+	settings:       Settings,
+	audio:          Audio,
 
 	// Logical pixels per window coordinate, for mouse input. See
 	// window_metrics.
-	input_scale: f32,
-	metrics:     Window_Metrics,
+	input_scale:    f32,
+	metrics:        Window_Metrics,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply.
@@ -221,15 +217,32 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		m := window_metrics(ui.window)
 		if m != ui.metrics {
 			ww, wh := glfw.GetWindowSize(ui.window)
-			log.debugf("ui: window %dx%d, framebuffer %dx%d, scale %.2f, layout %.0fx%.0f",
-				ww, wh, m.fb_w, m.fb_h, m.scale, m.logical_w, m.logical_h)
+			log.debugf(
+				"ui: window %dx%d, framebuffer %dx%d, scale %.2f, layout %.0fx%.0f",
+				ww,
+				wh,
+				m.fb_w,
+				m.fb_h,
+				m.scale,
+				m.logical_w,
+				m.logical_h,
+			)
 			ui.metrics = m
 		}
 		ui.input_scale = m.input_scale
 		mu.begin(&ui.ctx)
 		layout(ui, i32(m.logical_w), i32(m.logical_h))
 		mu.end(&ui.ctx)
-		render(&ui.renderer, &ui.ctx, m.logical_w, m.logical_h, m.fb_w, m.fb_h, m.scale, BACKGROUND)
+		render(
+			&ui.renderer,
+			&ui.ctx,
+			m.logical_w,
+			m.logical_h,
+			m.fb_w,
+			m.fb_h,
+			m.scale,
+			BACKGROUND,
+		)
 		glfw.SwapBuffers(ui.window)
 	}
 
@@ -476,8 +489,10 @@ session_screen :: proc(ui: ^UI) {
 
 		marker := "  "
 		switch i {
-		case v.my_channel: marker = "> "
-		case v.joining:    marker = "~ "
+		case v.my_channel:
+			marker = "> "
+		case v.joining:
+			marker = "~ "
 		}
 		mu.layout_row(ctx, {-1})
 		label := fmt.tprintf("%s%s (%d)", marker, ch.name, len(ch.members))
@@ -513,10 +528,14 @@ log_panel :: proc(ui: ^UI) {
 			// Drop the date; the time is enough on screen.
 			text := line.text[11:] if len(line.text) > 11 else line.text
 			switch {
-			case line.level >= .Error:   with_text_color(ctx, {230, 90, 90, 255}, text, label_proc)
-			case line.level >= .Warning: with_text_color(ctx, {230, 200, 90, 255}, text, label_proc)
-			case line.level < .Info:     with_text_color(ctx, {140, 140, 140, 255}, text, label_proc)
-			case:                        mu.label(ctx, text)
+			case line.level >= .Error:
+				with_text_color(ctx, {230, 90, 90, 255}, text, label_proc)
+			case line.level >= .Warning:
+				with_text_color(ctx, {230, 200, 90, 255}, text, label_proc)
+			case line.level < .Info:
+				with_text_color(ctx, {140, 140, 140, 255}, text, label_proc)
+			case:
+				mu.label(ctx, text)
 			}
 		}
 	}
@@ -548,7 +567,12 @@ label_proc :: proc(ctx: ^mu.Context, text: string) {
 	mu.label(ctx, text)
 }
 
-with_text_color :: proc(ctx: ^mu.Context, color: mu.Color, text: string, widget: proc(ctx: ^mu.Context, text: string)) {
+with_text_color :: proc(
+	ctx: ^mu.Context,
+	color: mu.Color,
+	text: string,
+	widget: proc(ctx: ^mu.Context, text: string),
+) {
 	saved := ctx.style.colors[.TEXT]
 	ctx.style.colors[.TEXT] = color
 	widget(ctx, text)
@@ -582,10 +606,14 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	context.logger = g_logger
 	btn: mu.Mouse
 	switch button {
-	case glfw.MOUSE_BUTTON_LEFT:   btn = .LEFT
-	case glfw.MOUSE_BUTTON_RIGHT:  btn = .RIGHT
-	case glfw.MOUSE_BUTTON_MIDDLE: btn = .MIDDLE
-	case: return
+	case glfw.MOUSE_BUTTON_LEFT:
+		btn = .LEFT
+	case glfw.MOUSE_BUTTON_RIGHT:
+		btn = .RIGHT
+	case glfw.MOUSE_BUTTON_MIDDLE:
+		btn = .MIDDLE
+	case:
+		return
 	}
 	wx, wy := glfw.GetCursorPos(window)
 	x, y := to_logical(wx), to_logical(wy)
@@ -597,8 +625,10 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 		g_ui.ctx.hover_id = 0
 	}
 	switch action {
-	case glfw.PRESS:   mu.input_mouse_down(&g_ui.ctx, x, y, btn)
-	case glfw.RELEASE: mu.input_mouse_up(&g_ui.ctx, x, y, btn)
+	case glfw.PRESS:
+		mu.input_mouse_down(&g_ui.ctx, x, y, btn)
+	case glfw.RELEASE:
+		mu.input_mouse_up(&g_ui.ctx, x, y, btn)
 	}
 }
 
@@ -620,25 +650,42 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	context = runtime.default_context()
 	k: mu.Key
 	switch key {
-	case glfw.KEY_LEFT_SHIFT, glfw.KEY_RIGHT_SHIFT:     k = .SHIFT
-	case glfw.KEY_LEFT_CONTROL, glfw.KEY_RIGHT_CONTROL: k = .CTRL
-	case glfw.KEY_LEFT_ALT, glfw.KEY_RIGHT_ALT:         k = .ALT
-	case glfw.KEY_BACKSPACE:                            k = .BACKSPACE
-	case glfw.KEY_DELETE:                               k = .DELETE
-	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:             k = .RETURN
-	case glfw.KEY_LEFT:                                 k = .LEFT
-	case glfw.KEY_RIGHT:                                k = .RIGHT
-	case glfw.KEY_HOME:                                 k = .HOME
-	case glfw.KEY_END:                                  k = .END
-	case glfw.KEY_A:                                    k = .A
-	case glfw.KEY_X:                                    k = .X
-	case glfw.KEY_C:                                    k = .C
-	case glfw.KEY_V:                                    k = .V
-	case: return
+	case glfw.KEY_LEFT_SHIFT, glfw.KEY_RIGHT_SHIFT:
+		k = .SHIFT
+	case glfw.KEY_LEFT_CONTROL, glfw.KEY_RIGHT_CONTROL:
+		k = .CTRL
+	case glfw.KEY_LEFT_ALT, glfw.KEY_RIGHT_ALT:
+		k = .ALT
+	case glfw.KEY_BACKSPACE:
+		k = .BACKSPACE
+	case glfw.KEY_DELETE:
+		k = .DELETE
+	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:
+		k = .RETURN
+	case glfw.KEY_LEFT:
+		k = .LEFT
+	case glfw.KEY_RIGHT:
+		k = .RIGHT
+	case glfw.KEY_HOME:
+		k = .HOME
+	case glfw.KEY_END:
+		k = .END
+	case glfw.KEY_A:
+		k = .A
+	case glfw.KEY_X:
+		k = .X
+	case glfw.KEY_C:
+		k = .C
+	case glfw.KEY_V:
+		k = .V
+	case:
+		return
 	}
 	switch action {
-	case glfw.PRESS, glfw.REPEAT: mu.input_key_down(&g_ui.ctx, k)
-	case glfw.RELEASE:            mu.input_key_up(&g_ui.ctx, k)
+	case glfw.PRESS, glfw.REPEAT:
+		mu.input_key_down(&g_ui.ctx, k)
+	case glfw.RELEASE:
+		mu.input_key_up(&g_ui.ctx, k)
 	}
 }
 

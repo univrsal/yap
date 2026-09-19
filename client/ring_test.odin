@@ -24,7 +24,11 @@ test_ring_basics :: proc(t: ^testing.T) {
 	testing.expect_value(t, ring_write(&r, {11, 12, 13, 14}), 4)
 	got: [8]f32
 	testing.expect_value(t, ring_read(&r, got[:]), 6)
-	testing.expect_value(t, [6]f32{got[0], got[1], got[2], got[3], got[4], got[5]}, [6]f32{7, 8, 11, 12, 13, 14})
+	testing.expect_value(
+		t,
+		[6]f32{got[0], got[1], got[2], got[3], got[4], got[5]},
+		[6]f32{7, 8, 11, 12, 13, 14},
+	)
 	testing.expect_value(t, ring_available(&r), 0)
 }
 

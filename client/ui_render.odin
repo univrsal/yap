@@ -26,22 +26,19 @@ Vertex :: struct {
 }
 
 Renderer :: struct {
-	program:  u32,
-	vao:      u32,
-	vbo:      u32,
-	ebo:      u32,
-	u_screen: i32,
-
+	program:      u32,
+	vao:          u32,
+	vbo:          u32,
+	ebo:          u32,
+	u_screen:     i32,
 	font:         Font,
 	font_texture: u32,
 	icon_texture: u32,
 	bound:        u32, // texture the pending quads use
-
-	vertices: [MAX_QUADS * 4]Vertex,
-	quads:    int,
-
-	height: f32, // logical
-	scale:  f32,
+	vertices:     [MAX_QUADS * 4]Vertex,
+	quads:        int,
+	height:       f32, // logical
+	scale:        f32,
 }
 
 // The font microui measures text with (its callbacks take no user data).
@@ -111,7 +108,11 @@ renderer_init :: proc(r: ^Renderer) -> bool {
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(indices^), indices, gl.STATIC_DRAW)
 	gl.BindVertexArray(0)
 
-	r.icon_texture = make_alpha_texture(mu.DEFAULT_ATLAS_WIDTH, mu.DEFAULT_ATLAS_HEIGHT, mu.default_atlas_alpha[:])
+	r.icon_texture = make_alpha_texture(
+		mu.DEFAULT_ATLAS_WIDTH,
+		mu.DEFAULT_ATLAS_HEIGHT,
+		mu.default_atlas_alpha[:],
+	)
 	return true
 }
 
@@ -137,7 +138,14 @@ ui_text_height :: proc(font: mu.Font) -> i32 {
 // render draws one frame of microui output. The layout was done for a
 // logical_w x logical_h window; the framebuffer is fb_w x fb_h, and
 // `scale` is physical pixels per logical pixel (the display's density).
-render :: proc(r: ^Renderer, ctx: ^mu.Context, logical_w, logical_h: f32, fb_w, fb_h: i32, scale: f32, clear: mu.Color) {
+render :: proc(
+	r: ^Renderer,
+	ctx: ^mu.Context,
+	logical_w, logical_h: f32,
+	fb_w, fb_h: i32,
+	scale: f32,
+	clear: mu.Color,
+) {
 	r.height, r.scale = logical_h, scale
 
 	if scale != r.font.scale {
@@ -174,16 +182,23 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, logical_w, logical_h: f32, fb_w, 
 				color: mu.Color,
 			}
 			emit := Emit{r, c.color}
-			font_layout(&r.font, c.str, f32(c.pos.x), f32(c.pos.y), &emit, proc(data: rawptr, q: Glyph_Quad) {
-				e := (^Emit)(data)
-				push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
-			})
+			font_layout(
+				&r.font,
+				c.str,
+				f32(c.pos.x),
+				f32(c.pos.y),
+				&emit,
+				proc(data: rawptr, q: Glyph_Quad) {
+					e := (^Emit)(data)
+					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
+				},
+			)
 		case ^mu.Command_Rect:
 			use_texture(r, r.font_texture)
 			// Snap edges to physical pixels so borders stay crisp at
 			// fractional scales.
 			w := r.font.white
-			snap :: proc(v: i32, s: f32) -> f32 { return math.round(f32(v) * s) / s }
+			snap :: proc(v: i32, s: f32) -> f32 {return math.round(f32(v) * s) / s}
 			x0, y0 := snap(c.rect.x, r.scale), snap(c.rect.y, r.scale)
 			x1, y1 := snap(c.rect.x + c.rect.w, r.scale), snap(c.rect.y + c.rect.h, r.scale)
 			push_quad(r, {x0, y0, x1, y1}, {w.x, w.y, w.x, w.y}, c.color)
@@ -193,8 +208,12 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, logical_w, logical_h: f32, fb_w, 
 			x := f32(c.rect.x + (c.rect.w - src.w) / 2)
 			y := f32(c.rect.y + (c.rect.h - src.h) / 2)
 			A :: f32(mu.DEFAULT_ATLAS_WIDTH)
-			push_quad(r, {x, y, x + f32(src.w), y + f32(src.h)},
-				{f32(src.x) / A, f32(src.y) / A, f32(src.x + src.w) / A, f32(src.y + src.h) / A}, c.color)
+			push_quad(
+				r,
+				{x, y, x + f32(src.w), y + f32(src.h)},
+				{f32(src.x) / A, f32(src.y) / A, f32(src.x + src.w) / A, f32(src.y + src.h) / A},
+				c.color,
+			)
 		case ^mu.Command_Clip:
 			flush(r)
 			set_clip(r, c.rect)
@@ -211,7 +230,17 @@ make_alpha_texture :: proc(width, height: i32, pixels: []u8) -> (tex: u32) {
 	gl.GenTextures(1, &tex)
 	gl.BindTexture(gl.TEXTURE_2D, tex)
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, raw_data(pixels))
+	gl.TexImage2D(
+		gl.TEXTURE_2D,
+		0,
+		gl.R8,
+		width,
+		height,
+		0,
+		gl.RED,
+		gl.UNSIGNED_BYTE,
+		raw_data(pixels),
+	)
 	// Glyphs are drawn 1:1 with physical pixels, so no filtering is wanted.
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)

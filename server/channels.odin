@@ -22,7 +22,7 @@ later without changing the format.
 */
 
 DEFAULT_CHANNELS_FILE :: "channels.json"
-DEFAULT_CHANNEL_NAME  :: "Lobby"
+DEFAULT_CHANNEL_NAME :: "Lobby"
 
 Channel_Config :: struct {
 	name: string,
@@ -60,14 +60,24 @@ load_channels :: proc(path: string) -> (names: []string, ok: bool) {
 		log.errorf("%s has no channels", path)
 		return
 	case len(file.channels) > proto.MAX_CHANNELS:
-		log.errorf("%s has %d channels; the maximum is %d", path, len(file.channels), proto.MAX_CHANNELS)
+		log.errorf(
+			"%s has %d channels; the maximum is %d",
+			path,
+			len(file.channels),
+			proto.MAX_CHANNELS,
+		)
 		return
 	}
 
 	names = make([]string, len(file.channels))
 	for ch, i in file.channels {
 		if len(ch.name) == 0 || len(ch.name) > proto.MAX_CHANNEL_NAME_SIZE {
-			log.errorf("%s: channel %d must have a name of 1 to %d bytes", path, i + 1, proto.MAX_CHANNEL_NAME_SIZE)
+			log.errorf(
+				"%s: channel %d must have a name of 1 to %d bytes",
+				path,
+				i + 1,
+				proto.MAX_CHANNEL_NAME_SIZE,
+			)
 			return
 		}
 		for prev in names[:i] {

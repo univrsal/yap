@@ -15,8 +15,8 @@ address exactly as the user typed it.
 */
 
 Trust :: enum {
-	Known,    // matches the saved key
-	New,      // never seen this server before
+	Known, // matches the saved key
+	New, // never seen this server before
 	Mismatch, // saved key differs: possible impersonation
 }
 
@@ -32,7 +32,13 @@ default_config_path :: proc(name: string, allocator := context.allocator) -> str
 	return path
 }
 
-check_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> (trust: Trust, saved: [proto.KEY_SIZE]byte) {
+check_server_key :: proc(
+	path, addr: string,
+	key: [proto.KEY_SIZE]byte,
+) -> (
+	trust: Trust,
+	saved: [proto.KEY_SIZE]byte,
+) {
 	data, err := os.read_entire_file(path, context.temp_allocator)
 	if err != nil {
 		return .New, {} // missing file == no known servers yet
