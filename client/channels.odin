@@ -266,6 +266,11 @@ List_Command :: struct {}
 Mute_Command :: struct {
 	muted: bool,
 }
+// Deafen: stop playing anyone else's voice. Local only; the server and
+// the other clients don't know about it.
+Deafen_Command :: struct {
+	deafened: bool,
+}
 Noise_Command :: struct {
 	enabled: bool,
 }
@@ -303,6 +308,7 @@ Command :: union {
 	Join_Command,
 	List_Command,
 	Mute_Command,
+	Deafen_Command,
 	Noise_Command,
 	Gain_Command,
 	Name_Command,
@@ -370,6 +376,9 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Mute_Command:
 			c.voice.muted = v.muted
 			log.infof("voice %s", "muted" if v.muted else "unmuted")
+		case Deafen_Command:
+			c.voice.deafened = v.deafened
+			log.infof("audio %s", "deafened" if v.deafened else "undeafened")
 		case Noise_Command:
 			c.voice.denoise = v.enabled
 			log.infof("noise suppression %s", "on" if v.enabled else "off")
@@ -412,6 +421,7 @@ network loop never blocks on input.
 	/join <channel>  move to another channel
 	/name <name>     change your name
 	/mute, /unmute   stop or resume sending voice
+	/deafen, /undeafen  stop or resume playing everyone else
 	/listen, /unlisten  hear your own processed voice (listen back)
 	/say <text>      post to the channel's text chat
 	/send <file>     post an image file (scaled and compressed first)
@@ -443,6 +453,8 @@ read_commands :: proc(q: ^Command_Queue) {
 			push_command(q, Listen_Command{line == "/listen"})
 		case line == "/mute" || line == "/unmute":
 			push_command(q, Mute_Command{line == "/mute"})
+		case line == "/deafen" || line == "/undeafen":
+			push_command(q, Deafen_Command{line == "/deafen"})
 		case line == "/typing":
 			push_command(q, Typing_Command{})
 		case strings.has_prefix(line, "/send "):
@@ -457,7 +469,7 @@ read_commands :: proc(q: ^Command_Queue) {
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /listen, /unlisten, /say <text>, /send <file>, /typing")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing")
 		}
 	}
 }

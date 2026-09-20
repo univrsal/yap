@@ -76,6 +76,9 @@ Voice :: struct {
 	quality:     Quality,
 	send_seq:    u32,
 	muted:       bool,
+	// Deafened: play nothing from anyone else. Speakers are still decoded
+	// and consumed, so undeafening picks up where the channel is.
+	deafened:    bool,
 	denoisers:   [CHANNELS]rnn.Denoiser, // one per channel (stereo presets)
 	denoise:     bool, // noise suppression
 	gate:        Gate,
@@ -329,6 +332,9 @@ mix_output :: proc(v: ^Voice) {
 			gain: f32 = 1
 			if key, known := v.user_keys[id]; known {
 				gain = v.gains[key] or_else 1
+			}
+			if v.deafened {
+				gain = 0
 			}
 			if gain > 0 {
 				for s, i in frame[:got] {

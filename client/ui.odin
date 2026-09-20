@@ -84,6 +84,7 @@ UI :: struct {
 	log_seen:       int, // Log_Lines.total when the log panel was last scrolled
 	chat:           UI_Chat, // the chat tab (ui_chat.odin)
 	muted:          bool,
+	deafened:       bool,
 
 	// The user whose menu is open, and its volume slider's value (the
 	// slider needs a stable address). See user_menu.
@@ -407,6 +408,7 @@ connect :: proc(ui: ^UI) {
 		open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 	ns.client.voice.muted = ui.muted
+	ns.client.voice.deafened = ui.deafened
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
 	push_command(&ns.client.commands, Quality_Command{settings_quality(&ui.settings)})
@@ -459,6 +461,15 @@ set_muted :: proc(ui: ^UI, muted: bool) {
 	ui.muted = muted
 	if ui.session != nil {
 		push_command(&ui.session.client.commands, Mute_Command{muted})
+	}
+}
+
+// Deafen silences everyone else. Like mute, it lives on the UI so it
+// survives reconnecting, and is pushed to the network thread.
+set_deafened :: proc(ui: ^UI, deafened: bool) {
+	ui.deafened = deafened
+	if ui.session != nil {
+		push_command(&ui.session.client.commands, Deafen_Command{deafened})
 	}
 }
 
@@ -571,7 +582,7 @@ session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {-290, 90, 90, -1})
+	mu.layout_row(ctx, {-380, 90, 90, 90, -1})
 	switch v.status {
 	case .Connected:
 		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
@@ -581,6 +592,9 @@ session_screen :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in stable_button(ctx, "mute", "Unmute" if ui.muted else "Mute") {
 		set_muted(ui, !ui.muted)
+	}
+	if .SUBMIT in stable_button(ctx, "deafen", "Undeafen" if ui.deafened else "Deafen") {
+		set_deafened(ui, !ui.deafened)
 	}
 	if .SUBMIT in mu.button(ctx, "Settings") {
 		ui.page = .Settings

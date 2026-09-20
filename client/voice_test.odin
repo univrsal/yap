@@ -14,11 +14,12 @@ SPEAKER_KEY :: [proto.KEY_SIZE]u8{0 = 0x42, 31 = 0x42}
 // Plays one speaker's tone through the receive path (decode -> jitter
 // queue -> mix) at the given gain and returns the output level.
 @(private = "file")
-played_level :: proc(t: ^testing.T, gain: f32, set_gain: bool) -> f64 {
+played_level :: proc(t: ^testing.T, gain: f32, set_gain: bool, deafened := false) -> f64 {
 	c := new(Voice_Client, context.temp_allocator)
 	testing.expect(t, voice_init(&c.voice))
 	defer voice_destroy(&c.voice)
 	sync.atomic_store(&c.voice.output, true)
+	c.voice.deafened = deafened
 	if set_gain {
 		// User 42 is known by key; gains are looked up by key.
 		c.voice.user_keys[42] = SPEAKER_KEY
@@ -68,6 +69,16 @@ test_user_gain :: proc(t: ^testing.T) {
 
 	muted := played_level(t, 0, true)
 	testing.expect_value(t, muted, 0)
+}
+
+// Deafened plays nothing, whatever the per-user gains say.
+@(test)
+test_deafen :: proc(t: ^testing.T) {
+	normal := played_level(t, 1, false)
+	testing.expectf(t, normal > 0.15, "tone not played (level %.3f)", normal)
+
+	deafened := played_level(t, 1, false, true)
+	testing.expect_value(t, deafened, 0)
 }
 
 @(test)
