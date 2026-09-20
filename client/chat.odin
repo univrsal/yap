@@ -15,9 +15,20 @@ TYPING_SHOW :: 5 * time.Second
 // channel's history rather than news, and don't count as unread.
 CHAT_HISTORY_WINDOW :: 1500 * time.Millisecond
 
+// Chat_Outgoing is a message waiting for the server to confirm it.
 Chat_Outgoing :: struct {
-	nonce: u64,
-	text:  string, // owned
+	nonce:      u64,
+	kind:       proto.Chat_Kind,
+	text:       string, // .Text, owned
+	jpeg:       []u8, // .Image, owned
+	image:      proto.Image_Info,
+	last_send:  time.Tick,
+
+	// Upload in progress (images.odin).
+	sending:    bool,
+	send:       proto.Blob_Sender,
+	tokens:     f32,
+	last_chunk: time.Tick,
 }
 
 // Chat_Client is our end of the text chat (see proto/chat.odin): the
@@ -32,15 +43,22 @@ Chat_Client :: struct {
 
 	// Sent one at a time, so the server posts them in order.
 	outbox:      [dynamic]Chat_Outgoing,
-	last_send:   time.Tick,
 	last_typing: time.Tick,
 }
 
 chat_destroy :: proc(c: ^Voice_Client) {
-	for m in c.chat.outbox {
-		delete(m.text)
+	for &m in c.chat.outbox {
+		outgoing_destroy(&m)
 	}
 	delete(c.chat.outbox)
+}
+
+@(private = "file")
+outgoing_destroy :: proc(m: ^Chat_Outgoing) {
+	delete(m.text)
+	delete(m.jpeg)
+	proto.blob_sender_destroy(&m.send)
+	m^ = {}
 }
 
 // chat_channel_changed starts over when we end up in another channel;
@@ -57,16 +75,42 @@ chat_send :: proc(c: ^Voice_Client, raw: string) {
 	if text == "" {
 		return
 	}
-	nonce: u64
-	crypto.rand_bytes(([^]byte)(&nonce)[:size_of(nonce)])
-	append(&c.chat.outbox, Chat_Outgoing{nonce, strings.clone(text)})
+	append(&c.chat.outbox, Chat_Outgoing{nonce = chat_nonce(), kind = .Text, text = strings.clone(text)})
 	// Whatever comes next is a new bout of typing.
 	c.chat.last_typing = {}
 	publish_outbox(c)
 	if len(c.chat.outbox) == 1 {
-		c.chat.last_send = {}
 		drive_chat(c)
 	}
+}
+
+// chat_send_image queues an image message; it takes over `jpeg`.
+chat_send_image :: proc(c: ^Voice_Client, jpeg: []u8, width, height: int) {
+	if len(jpeg) == 0 || len(jpeg) > proto.MAX_BLOB_SIZE {
+		log.warnf("not sending an image of %d bytes", len(jpeg))
+		delete(jpeg)
+		return
+	}
+	append(
+		&c.chat.outbox,
+		Chat_Outgoing {
+			nonce = chat_nonce(),
+			kind = .Image,
+			jpeg = jpeg,
+			image = {width = u16(width), height = u16(height), size = u32(len(jpeg))},
+		},
+	)
+	c.chat.last_typing = {}
+	publish_outbox(c)
+	if len(c.chat.outbox) == 1 {
+		drive_chat(c)
+	}
+}
+
+@(private = "file")
+chat_nonce :: proc() -> (nonce: u64) {
+	crypto.rand_bytes(([^]byte)(&nonce)[:size_of(nonce)])
+	return
 }
 
 // chat_typing tells the channel we're typing, if we haven't lately.
@@ -80,17 +124,25 @@ chat_typing :: proc(c: ^Voice_Client) {
 	send_data(c, msg[:])
 }
 
-// drive_chat (re)sends the oldest unconfirmed message.
+// drive_chat keeps the oldest unconfirmed message going: text is resent
+// until it's acknowledged, an image is uploaded (images.odin).
 drive_chat :: proc(c: ^Voice_Client) {
 	ch := &c.chat
-	if len(ch.outbox) == 0 ||
-	   !c.has_current ||
-	   (ch.last_send != {} && time.tick_since(ch.last_send) < proto.CONTROL_RESEND) {
+	if len(ch.outbox) == 0 || !c.has_current {
 		return
 	}
-	buf: [proto.CHAT_SEND_HEADER_SIZE + proto.MAX_CHAT_SIZE]u8
-	send_data(c, proto.encode_chat_send(buf[:], ch.outbox[0].nonce, ch.outbox[0].text))
-	ch.last_send = time.tick_now()
+	out := &ch.outbox[0]
+	now := time.tick_now()
+	switch out.kind {
+	case .Text:
+		if out.last_send == {} || time.tick_since(out.last_send) >= proto.CONTROL_RESEND {
+			out.last_send = now
+			buf: [proto.CHAT_SEND_HEADER_SIZE + proto.MAX_CHAT_SIZE]u8
+			send_data(c, proto.encode_chat_send(buf[:], out.nonce, out.text))
+		}
+	case .Image:
+		image_upload_step(c, out, now)
+	}
 }
 
 handle_chat_sent :: proc(c: ^Voice_Client, pt: []byte) {
@@ -98,10 +150,9 @@ handle_chat_sent :: proc(c: ^Voice_Client, pt: []byte) {
 	if len(ch.outbox) == 0 || ch.outbox[0].nonce != proto.decode_chat_sent(pt) {
 		return // a late duplicate
 	}
-	delete(ch.outbox[0].text)
+	outgoing_destroy(&ch.outbox[0])
 	ordered_remove(&ch.outbox, 0)
 	publish_outbox(c)
-	ch.last_send = {}
 	drive_chat(c)
 }
 
@@ -130,11 +181,26 @@ handle_chat :: proc(c: ^Voice_Client, pt: []byte) {
 			continue
 		}
 		ch.last = e.id
+		if e.kind == .Image {
+			image_want(c, e.image)
+		}
 		unread := e.sender != my_num(c) && time.tick_since(ch.started_at) > CHAT_HISTORY_WINDOW
 		publish_chat(c, e, unread)
 		if c.view == nil {
 			// Headless: the log is the only place to show it.
-			log.infof("[chat] %s: %s", chat_sender_name(c, e), e.text)
+			switch e.kind {
+			case .Text:
+				log.infof("[chat] %s: %s", chat_sender_name(c, e), e.text)
+			case .Image:
+				log.infof(
+					"[chat] %s: [image %d, %dx%d, %d bytes]",
+					chat_sender_name(c, e),
+					e.image.id,
+					e.image.width,
+					e.image.height,
+					e.image.size,
+				)
+			}
 		}
 	}
 	ack: [proto.CHAT_RECEIVED_SIZE]u8

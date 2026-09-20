@@ -19,8 +19,10 @@ Chat_Message :: struct {
 	id:       u32,
 	sender:   u32,
 	time:     u32,
+	kind:     proto.Chat_Kind,
+	image:    proto.Image_Info, // .Image
 	name_len: u8,
-	text_len: u16,
+	text_len: u16, // .Text
 	name_buf: [proto.MAX_NAME_SIZE]u8,
 	text_buf: [proto.MAX_CHAT_SIZE]u8,
 }
@@ -61,19 +63,46 @@ chat_entry :: proc(m: ^Chat_Message) -> proto.Chat_Entry {
 		sender = m.sender,
 		time = m.time,
 		name = string(m.name_buf[:m.name_len]),
+		kind = m.kind,
 		text = string(m.text_buf[:m.text_len]),
+		image = m.image,
 	}
 }
 
 chat_append :: proc(l: ^Chat_Log, sender: u32, name, text: string) {
+	m := chat_new(l, sender, name)
+	m.kind = .Text
+	m.text_len = u16(copy(m.text_buf[:], text))
+}
+
+chat_append_image :: proc(l: ^Chat_Log, sender: u32, name: string, image: proto.Image_Info) {
+	m := chat_new(l, sender, name)
+	m.kind = .Image
+	m.image = image
+}
+
+// chat_forget_image marks the message carrying an image the server has
+// dropped; an id of 0 tells clients it isn't available any more.
+chat_forget_image :: proc(l: ^Chat_Log, image: u32) {
+	for &m in l.messages {
+		if m.kind == .Image && m.image.id == image {
+			m.image.id = 0
+		}
+	}
+}
+
+@(private = "file")
+chat_new :: proc(l: ^Chat_Log, sender: u32, name: string) -> ^Chat_Message {
 	l.last += 1
 	l.count = min(l.count + 1, CHAT_HISTORY)
 	m := chat_message(l, l.last)
-	m.id = l.last
-	m.sender = sender
-	m.time = u32(time.time_to_unix(time.now()))
+	m^ = {
+		id     = l.last,
+		sender = sender,
+		time   = u32(time.time_to_unix(time.now())),
+	}
 	m.name_len = u8(copy(m.name_buf[:], name))
-	m.text_len = u16(copy(m.text_buf[:], text))
+	return m
 }
 
 // chat_restart makes a user's stream start over with the channel's history.

@@ -38,6 +38,7 @@ Voice_Client :: struct {
 	voice:         Voice, // set up by the owner before client_open
 	channels:      Channel_Client,
 	chat:          Chat_Client,
+	images:        Image_Client,
 	commands:      Command_Queue,
 	status:        Status,
 	sock_open:     bool,
@@ -116,6 +117,7 @@ client_close :: proc(c: ^Voice_Client) {
 	delete(c.channels.name)
 	commands_destroy(&c.commands)
 	chat_destroy(c)
+	images_destroy(c)
 }
 
 // client_step runs one iteration of the network loop, waiting up to a
@@ -129,6 +131,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	drive_join(c)
 	drive_name(c)
 	drive_chat(c)
+	images_step(c)
 
 	if c.has_current {
 		voice_step(c)
@@ -161,6 +164,7 @@ run_headless :: proc(
 	key_path, server_addr, known_servers, initial_channel, name: string,
 	tone_hz: f32,
 	input_file: string,
+	image_dir: string,
 	denoise: bool,
 	gate: bool,
 	quality: Quality,
@@ -174,6 +178,7 @@ run_headless :: proc(
 	defer voice_destroy(&c.voice)
 	c.voice.denoise = denoise
 	c.voice.gate.enabled = gate
+	c.images.dir = image_dir
 	if quality != .Voice && !encoder_setup(&c.voice, quality) {
 		return false
 	}
@@ -328,6 +333,12 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			handle_chat_sent(c, pt)
 		case .Typing:
 			handle_typing(c, pt)
+		case .Blob_Chunk:
+			handle_blob_chunk(c, pt)
+		case .Blob_Need:
+			handle_blob_need(c, pt)
+		case .Image_Gone:
+			handle_image_gone(c, pt)
 		}
 	}
 	return true

@@ -277,6 +277,11 @@ Gain_Command :: struct {
 Name_Command :: struct {
 	name: string, // owned by the command
 }
+// An image to post to the channel's chat; the JPEG is owned by the
+// command until the client takes it.
+Chat_Image_Command :: struct {
+	image: Chat_Image,
+}
 Listen_Command :: struct {
 	on: bool,
 }
@@ -305,6 +310,7 @@ Command :: union {
 	Listen_Command,
 	Quality_Command,
 	Chat_Command,
+	Chat_Image_Command,
 	Typing_Command,
 }
 
@@ -336,6 +342,9 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.name)
 	case Chat_Command:
 		delete(v.text)
+	case Chat_Image_Command:
+		image := v.image
+		chat_image_destroy(&image)
 	}
 }
 
@@ -352,8 +361,8 @@ process_commands :: proc(c: ^Voice_Client) {
 		delete(commands)
 	}
 
-	for cmd in commands {
-		switch v in cmd {
+	for &cmd in commands {
+		switch &v in cmd {
 		case Join_Command:
 			request_join(c, v.channel)
 		case List_Command:
@@ -385,6 +394,10 @@ process_commands :: proc(c: ^Voice_Client) {
 			log.infof("name: %q", c.channels.name)
 		case Chat_Command:
 			chat_send(c, v.text)
+		case Chat_Image_Command:
+			// The client takes the JPEG over, so it isn't freed twice.
+			chat_send_image(c, v.image.jpeg, v.image.width, v.image.height)
+			v.image = {}
 		case Typing_Command:
 			chat_typing(c)
 		}
@@ -401,6 +414,7 @@ network loop never blocks on input.
 	/mute, /unmute   stop or resume sending voice
 	/listen, /unlisten  hear your own processed voice (listen back)
 	/say <text>      post to the channel's text chat
+	/send <file>     post an image file (scaled and compressed first)
 	/typing          tell the channel you're typing
 */
 start_command_reader :: proc(q: ^Command_Queue) {
@@ -431,12 +445,19 @@ read_commands :: proc(q: ^Command_Queue) {
 			push_command(q, Mute_Command{line == "/mute"})
 		case line == "/typing":
 			push_command(q, Typing_Command{})
+		case strings.has_prefix(line, "/send "):
+			// Scaling and compressing happens here rather than on the
+			// network loop, which has voice to carry.
+			path := strings.trim_space(line[len("/send "):])
+			if image, ok := image_load(path); ok {
+				push_command(q, Chat_Image_Command{image})
+			}
 		case strings.has_prefix(line, "/say "):
 			push_command(q, Chat_Command{strings.clone(line[len("/say "):])})
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /listen, /unlisten, /say <text>, /typing")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /listen, /unlisten, /say <text>, /send <file>, /typing")
 		}
 	}
 }

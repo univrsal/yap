@@ -52,6 +52,12 @@ Message_Kind :: enum u8 {
 	Chat          = 9,
 	Chat_Received = 10,
 	Typing        = 11,
+	// Images in chat, see chat.odin and blob.odin.
+	Image_Send    = 12,
+	Image_Get     = 13,
+	Blob_Chunk    = 14,
+	Blob_Need     = 15,
+	Image_Gone    = 16,
 }
 
 VOICE_UP_HEADER_SIZE :: 1 + 4
@@ -125,6 +131,16 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == CHAT_RECEIVED_SIZE
 	case .Typing:
 		ok = len(pt) == TYPING_UP_SIZE || len(pt) == TYPING_DOWN_SIZE
+	case .Image_Send:
+		ok = len(pt) == IMAGE_SEND_SIZE
+	case .Image_Get:
+		ok = len(pt) == IMAGE_GET_SIZE
+	case .Image_Gone:
+		ok = len(pt) == IMAGE_GONE_SIZE
+	case .Blob_Chunk:
+		ok = len(pt) > BLOB_CHUNK_HEADER_SIZE && len(pt) <= BLOB_CHUNK_HEADER_SIZE + BLOB_CHUNK_SIZE
+	case .Blob_Need:
+		ok = len(pt) >= BLOB_NEED_HEADER_SIZE
 	}
 	return
 }

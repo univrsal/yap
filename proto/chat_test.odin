@@ -75,3 +75,38 @@ test_sanitize_text :: proc(t: ^testing.T) {
 	// Cut at a character boundary.
 	testing.expect_value(t, len(got), MAX_CHAT_SIZE)
 }
+
+@(test)
+test_chat_image_entries :: proc(t: ^testing.T) {
+	entries := []Chat_Entry {
+		{id = 1, sender = 3, time = 1_700_000_000, name = "alice", kind = .Text, text = "look"},
+		{
+			id = 2,
+			sender = 3,
+			time = 1_700_000_001,
+			name = "alice",
+			kind = .Image,
+			image = {id = 77, width = 1920, height = 1080, size = 200_000},
+		},
+		// An image the server no longer has.
+		{id = 3, sender = 4, name = "bob", kind = .Image, image = {id = 0, width = 64, height = 64, size = 900}},
+	}
+	out: [MAX_PAYLOAD_SIZE]u8
+	msg, count := encode_chat(out[:], 1, 0, entries)
+	testing.expect_value(t, count, 3)
+
+	buf: [8]Chat_Entry
+	_, _, got, ok := decode_chat(msg, buf[:])
+	testing.expect(t, ok)
+	testing.expect_value(t, len(got), 3)
+	for e, i in got {
+		testing.expect_value(t, e, entries[i])
+	}
+
+	// An entry kind we don't know is refused rather than guessed at.
+	bad := make([]u8, len(msg), context.temp_allocator)
+	copy(bad, msg)
+	bad[CHAT_HEADER_SIZE + 4 + 4 + 4 + 1 + len("alice")] = 9
+	_, _, _, ok = decode_chat(bad, buf[:])
+	testing.expect(t, !ok)
+}

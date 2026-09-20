@@ -52,6 +52,8 @@ User :: struct {
 	last_state_sent: time.Tick,
 
 	chat:            Chat_Stream,
+	upload:          Upload, // an image on its way in (images.odin)
+	download:        Download, // an image on its way out
 }
 
 Server :: struct {
@@ -61,6 +63,9 @@ Server :: struct {
 	users:    map[[proto.KEY_SIZE]byte]^User,
 	channels: []string,
 	chats:    []Chat_Log, // one per channel
+	// Chat images by id, with the id last handed out (images.odin).
+	images:        map[u32]^Stored_Image,
+	last_image_id: u32,
 	// Bumped on every change clients should hear about. Never 0, which
 	// means "nothing acked yet".
 	version:  u32,
@@ -116,6 +121,7 @@ run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
 		reap_sessions(&s)
 		sync_state(&s)
 		chat_sync(&s)
+		images_sync(&s)
 	}
 }
 
@@ -278,13 +284,21 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		}
 	case .Chat_Send:
 		handle_chat_send(s, c, pt)
+	case .Image_Send:
+		handle_image_send(s, c, pt)
+	case .Image_Get:
+		handle_image_get(s, c, pt)
+	case .Blob_Chunk:
+		handle_blob_chunk(s, c, pt)
+	case .Blob_Need:
+		handle_blob_need(c.user, pt)
 	case .Chat_Received:
 		handle_chat_received(c.user, pt)
 	case .Typing:
 		if len(pt) == proto.TYPING_UP_SIZE {
 			handle_typing(s, c.user)
 		}
-	case .State, .Chat_Sent, .Chat:
+	case .State, .Chat_Sent, .Chat, .Image_Gone:
 	// Server-to-client only.
 	}
 }
@@ -529,6 +543,7 @@ drop_session :: proc(s: ^Server, idx: u32) {
 		u.sessions -= 1
 		if u.sessions == 0 {
 			log.infof("%s left", user_label(u))
+			drop_user_transfers(u)
 			delete_key(&s.users, u.key)
 			free(u)
 			bump_version(s)

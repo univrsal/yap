@@ -112,6 +112,10 @@ UI :: struct {
 	// glfw.Terminate.
 	hand_cursor:    glfw.CursorHandle,
 	hand_shown:     bool,
+	// The image paste being read, if any (ui_paste.odin).
+	paste:          ^Paste_Job,
+	// Chat images: decoded pictures and their textures (ui_images.odin).
+	images:         UI_Images,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply.
@@ -177,6 +181,9 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	defer glfw.DestroyWindow(ui.window)
 	clipboard_init()
 	defer clipboard.destroy()
+	// Whatever the paste thread is doing, it uses the clipboard, so it
+	// has to be done before that (defers run in reverse).
+	defer paste_wait(ui)
 	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
 	glfw.MakeContextCurrent(ui.window)
 	glfw.SwapInterval(1)
@@ -187,6 +194,9 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		return false
 	}
 	defer renderer_destroy(&ui.renderer)
+	ui.renderer.images = &ui.images
+	ui_images_init(ui)
+	defer ui_images_destroy(ui)
 
 	mu.init(&ui.ctx, set_clipboard, get_clipboard)
 	ui.ctx.text_width = ui_text_width
@@ -256,11 +266,13 @@ run_ui :: proc(opts: UI_Options) -> bool {
 			ui.metrics = m
 		}
 		ui.input_scale = m.input_scale
+		ui_images_frame(ui)
 		mu.begin(&ui.ctx)
 		layout(ui, i32(m.logical_w), i32(m.logical_h))
 		mu.end(&ui.ctx)
 		set_hand_cursor(ui, ui.chat.hovering)
 		ui_chat_after_frame(ui)
+		ui_images_after_frame(ui)
 		render(
 			&ui.renderer,
 			&ui.ctx,
@@ -495,11 +507,16 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	if cnt := mu.get_container(ctx, "yap"); cnt != nil {
 		cnt.rect = {0, 0, w, h}
 	}
-	if !mu.begin_window(ctx, "yap", {0, 0, w, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
-		return
+	if mu.begin_window(ctx, "yap", {0, 0, w, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+		main_window(ui, h)
+		mu.end_window(ctx)
 	}
-	defer mu.end_window(ctx)
+	// An enlarged image floats above it all (ui_images.odin).
+	image_viewer(ui, w, h)
+}
 
+@(private = "file")
+main_window :: proc(ui: ^UI, h: i32) {
 	if ui.page == .Settings {
 		settings_page(ui, h)
 		return
@@ -755,6 +772,12 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		k = .BACKSPACE
 	case glfw.KEY_DELETE:
 		k = .DELETE
+	case glfw.KEY_ESCAPE:
+		// Close the enlarged image, if one is open.
+		if action == glfw.PRESS {
+			g_ui.images.viewer = 0
+		}
+		return
 	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:
 		k = .RETURN
 	case glfw.KEY_LEFT:

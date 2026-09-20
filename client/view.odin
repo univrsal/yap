@@ -56,6 +56,7 @@ View :: struct {
 	chat_total:  int, // lines ever added, so the UI knows when to scroll
 	chat_unread: int, // new messages from others; the UI zeroes it when seen
 	outbox:     [dynamic]string, // our messages the server hasn't confirmed yet
+	images:     map[u32]View_Image, // by image id
 	typing:     map[u32]time.Tick, // when each user last said they're typing
 }
 
@@ -63,7 +64,17 @@ View_Chat_Line :: struct {
 	sender: u32,
 	time:   u32, // unix seconds
 	name:   string, // owned
-	text:   string, // owned
+	kind:   proto.Chat_Kind,
+	text:   string, // .Text, owned
+	image:  proto.Image_Info, // .Image; the bytes live in View.images
+}
+
+// View_Image is an image a chat line points at: what it looks like, how
+// far along it is, and the JPEG itself once it's here.
+View_Image :: struct {
+	info:  proto.Image_Info,
+	state: Image_State,
+	jpeg:  []u8, // owned; only when Ready
 }
 
 SPEAKING_HOLD :: 250 * time.Millisecond
@@ -97,6 +108,7 @@ view_destroy :: proc(v: ^View) {
 	delete(v.chat)
 	delete(v.outbox)
 	delete(v.typing)
+	delete(v.images)
 }
 
 @(private = "file")
@@ -108,6 +120,10 @@ view_clear_chat :: proc(v: ^View) {
 	clear(&v.chat)
 	clear(&v.typing)
 	v.chat_unread = 0
+	for _, img in v.images {
+		delete(img.jpeg)
+	}
+	clear(&v.images)
 }
 
 @(private = "file")
@@ -232,7 +248,9 @@ publish_chat :: proc(c: ^Voice_Client, e: proto.Chat_Entry, unread: bool) {
 			sender = e.sender,
 			time = e.time,
 			name = strings.clone(name),
+			kind = e.kind,
 			text = strings.clone(e.text),
+			image = e.image,
 		},
 	)
 	v.chat_total += 1
@@ -252,6 +270,38 @@ publish_outbox :: proc(c: ^Voice_Client) {
 	view_clear_outbox(v)
 	for m in c.chat.outbox {
 		append(&v.outbox, strings.clone(m.text))
+	}
+}
+
+// publish_image mirrors an image's state (and its bytes once they're
+// here) for the UI to draw.
+publish_image :: proc(c: ^Voice_Client, id: u32) {
+	v := c.view
+	img := c.images.cache[id] or_else nil
+	if v == nil || img == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	old := v.images[id]
+	delete(old.jpeg)
+	jpeg: []u8
+	if img.state == .Ready {
+		jpeg = make([]u8, len(img.data))
+		copy(jpeg, img.data)
+	}
+	v.images[id] = {info = img.info, state = img.state, jpeg = jpeg}
+}
+
+// unpublish_image drops an image the client no longer keeps.
+unpublish_image :: proc(c: ^Voice_Client, id: u32) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	if img, ok := v.images[id]; ok {
+		delete(img.jpeg)
+		delete_key(&v.images, id)
 	}
 }
 

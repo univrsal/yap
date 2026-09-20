@@ -9,10 +9,22 @@ messages (see messages.odin for the kinds).
 	client -> server  Chat_Send      [kind][nonce u64][text_len u16][text]
 	server -> client  Chat_Sent      [kind][nonce u64]
 	server -> client  Chat           [kind][channel u16][base u32][count u8] entries...
-	                   entry:        [id u32][sender u32][time u32][name_len u8][name][text_len u16][text]
+	                   entry:        [id u32][sender u32][time u32][name_len u8][name][entry kind u8]
+	                   ... text:     [text_len u16][text]
+	                   ... image:    [image u32][width u16][height u16][size u32]
 	client -> server  Chat_Received  [kind][channel u16][id u32]
 	client -> server  Typing         [kind]
 	server -> client  Typing         [kind][user u32]
+	client -> server  Image_Send     [kind][nonce u64][width u16][height u16][size u32]
+	client -> server  Image_Get      [kind][image u32]
+	server -> client  Image_Gone     [kind][image u32]
+
+A message is either text or an image, never both. An image message is
+posted by announcing it with Image_Send and uploading the JPEG (see
+blob.odin); the server answers with Chat_Sent, as for text, once it has
+all of it. The entry others receive names an image id, which they ask
+for with Image_Get and receive the same way. An id of 0 means the server
+no longer keeps that image.
 
 Sending: each message has a random nonce and is resent until Chat_Sent
 echoes it. The server remembers recent nonces per user, so resends are
@@ -32,13 +44,28 @@ Typing notices are unreliable and only mean "typing recently".
 
 MAX_CHAT_SIZE :: 500 // bytes of UTF-8
 
+Chat_Kind :: enum u8 {
+	Text  = 0,
+	Image = 1,
+}
+
+// Image_Info is what a chat entry says about an image; the bytes
+// themselves are fetched with Image_Get.
+Image_Info :: struct {
+	id:            u32, // 0: the server doesn't have it any more
+	width, height: u16, // as sent, in pixels
+	size:          u32, // bytes of JPEG
+}
+
 // Chat_Entry is one message. Strings point into the packet it came from.
 Chat_Entry :: struct {
 	id:     u32,
 	sender: u32, // user number (may have left since)
 	time:   u32, // unix seconds, server clock
 	name:   string, // the sender's name when it was sent
-	text:   string,
+	kind:   Chat_Kind,
+	text:   string, // .Text
+	image:  Image_Info, // .Image
 }
 
 CHAT_SENT_SIZE :: 1 + 8
@@ -47,6 +74,12 @@ CHAT_HEADER_SIZE :: 1 + 2 + 4 + 1
 CHAT_SEND_HEADER_SIZE :: 1 + 8 + 2
 TYPING_UP_SIZE :: 1
 TYPING_DOWN_SIZE :: 1 + 4
+IMAGE_SEND_SIZE :: 1 + 8 + 2 + 2 + 4
+IMAGE_GET_SIZE :: 1 + 4
+IMAGE_GONE_SIZE :: 1 + 4
+// An entry without its name or text: ids, time, lengths and kind.
+CHAT_ENTRY_HEADER_SIZE :: 4 + 4 + 4 + 1 + 1
+CHAT_IMAGE_ENTRY_SIZE :: CHAT_ENTRY_HEADER_SIZE + 4 + 2 + 2 + 4
 
 // encode_chat_send expects already sanitized text.
 encode_chat_send :: proc(out: []u8, nonce: u64, text: string) -> []u8 {
@@ -110,7 +143,8 @@ encode_chat :: proc(out: []u8, channel: u16, base: u32, entries: []Chat_Entry) -
 		pos = CHAT_HEADER_SIZE,
 	}
 	for e in entries[:min(len(entries), int(max(u8)))] {
-		size := 4 + 4 + 4 + 1 + len(e.name) + 2 + len(e.text)
+		size := CHAT_ENTRY_HEADER_SIZE + len(e.name)
+		size += 2 + len(e.text) if e.kind == .Text else 4 + 2 + 2 + 4
 		if w.pos + size > len(out) || len(e.name) > MAX_NAME_SIZE || len(e.text) > MAX_CHAT_SIZE {
 			break
 		}
@@ -119,8 +153,17 @@ encode_chat :: proc(out: []u8, channel: u16, base: u32, entries: []Chat_Entry) -
 		put_u32(&w, e.time)
 		put_u8(&w, u8(len(e.name)))
 		put_bytes(&w, transmute([]u8)e.name)
-		put_u16(&w, u16(len(e.text)))
-		put_bytes(&w, transmute([]u8)e.text)
+		put_u8(&w, u8(e.kind))
+		switch e.kind {
+		case .Text:
+			put_u16(&w, u16(len(e.text)))
+			put_bytes(&w, transmute([]u8)e.text)
+		case .Image:
+			put_u32(&w, e.image.id)
+			put_u16(&w, e.image.width)
+			put_u16(&w, e.image.height)
+			put_u32(&w, e.image.size)
+		}
 		count += 1
 	}
 	out[7] = u8(count)
@@ -153,14 +196,34 @@ decode_chat :: proc(
 		pos = CHAT_HEADER_SIZE,
 	}
 	for &e in entries_buf[:count] {
+		e = {}
 		e.id = get_u32(&r)
 		e.sender = get_u32(&r)
 		e.time = get_u32(&r)
 		name_len := int(get_u8(&r))
 		e.name = string(get_bytes(&r, name_len))
-		text_len := int(get_u16(&r))
-		e.text = string(get_bytes(&r, text_len))
-		if r.overflow || name_len > MAX_NAME_SIZE || text_len > MAX_CHAT_SIZE {
+		e.kind = Chat_Kind(get_u8(&r))
+		switch e.kind {
+		case .Text:
+			text_len := int(get_u16(&r))
+			e.text = string(get_bytes(&r, text_len))
+			if text_len > MAX_CHAT_SIZE {
+				return
+			}
+		case .Image:
+			e.image = {
+				id     = get_u32(&r),
+				width  = get_u16(&r),
+				height = get_u16(&r),
+				size   = get_u32(&r),
+			}
+			if int(e.image.size) > MAX_BLOB_SIZE {
+				return
+			}
+		case:
+			return // a kind from a newer server
+		}
+		if r.overflow || name_len > MAX_NAME_SIZE {
 			return
 		}
 	}
@@ -168,4 +231,41 @@ decode_chat :: proc(
 		return
 	}
 	return channel, base, entries_buf[:count], true
+}
+
+// encode_image_send announces an image message: the size the upload
+// will be, and what it looks like.
+encode_image_send :: proc(out: ^[IMAGE_SEND_SIZE]u8, nonce: u64, info: Image_Info) -> []u8 {
+	out[0] = u8(Message_Kind.Image_Send)
+	endian.unchecked_put_u64le(out[1:], nonce)
+	endian.unchecked_put_u16le(out[9:], info.width)
+	endian.unchecked_put_u16le(out[11:], info.height)
+	endian.unchecked_put_u32le(out[13:], info.size)
+	return out[:]
+}
+
+decode_image_send :: proc(pt: []u8) -> (nonce: u64, info: Image_Info) {
+	return endian.unchecked_get_u64le(pt[1:]), {
+			width = endian.unchecked_get_u16le(pt[9:]),
+			height = endian.unchecked_get_u16le(pt[11:]),
+			size = endian.unchecked_get_u32le(pt[13:]),
+		}
+}
+
+encode_image_get :: proc(out: ^[IMAGE_GET_SIZE]u8, image: u32) -> []u8 {
+	out[0] = u8(Message_Kind.Image_Get)
+	endian.unchecked_put_u32le(out[1:], image)
+	return out[:]
+}
+
+// encode_image_gone answers an Image_Get for an image the server no
+// longer keeps.
+encode_image_gone :: proc(out: ^[IMAGE_GONE_SIZE]u8, image: u32) -> []u8 {
+	out[0] = u8(Message_Kind.Image_Gone)
+	endian.unchecked_put_u32le(out[1:], image)
+	return out[:]
+}
+
+decode_image_id :: proc(pt: []u8) -> (image: u32) {
+	return endian.unchecked_get_u32le(pt[1:])
 }

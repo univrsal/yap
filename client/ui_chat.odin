@@ -10,7 +10,6 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "../proto"
-import "clipboard"
 
 /*
 The right-hand side of the session screen: the channel's text chat and
@@ -35,8 +34,9 @@ UI_Chat :: struct {
 	hover:    uintptr,
 	hovering: bool, // this frame; the cursor becomes a hand
 	open:     string, // clicked link to open after the frame; owned
-	// Ctrl+V was pressed in the chat box: after the frame, look for an
-	// image on the clipboard, else paste its text.
+	// Ctrl+V was pressed in the chat box: after the frame, the paste
+	// thread looks for an image on the clipboard, else its text is
+	// pasted (see ui_paste.odin).
 	paste:    bool,
 }
 
@@ -69,36 +69,9 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 	}
 	if ui.chat.paste {
 		ui.chat.paste = false
-		paste(ui)
+		paste_start(ui)
 	}
-}
-
-// paste takes an image from the clipboard if there is one, and pastes
-// text into the chat box otherwise. It runs outside the View lock: the
-// application that owns the clipboard may take a moment.
-@(private = "file")
-paste :: proc(ui: ^UI) {
-	img, err := clipboard.read_image()
-	switch err {
-	case .None:
-		defer clipboard.image_destroy(&img)
-		// TODO: compress and send it.
-		log.infof("pasted a %dx%d image", img.width, img.height)
-		return
-	case .Too_Large:
-		log.warnf("the image on the clipboard is too large (at most %d pixels)", clipboard.MAX_PIXELS)
-		return
-	case .Decode_Failed:
-		log.warn("the image on the clipboard is in a format that can't be read")
-		return
-	case .Timeout:
-		log.warn("the program holding the clipboard didn't hand it over")
-	case .No_Image, .Unavailable:
-	}
-	// The next frame's chat box takes the text as if it had been typed.
-	if text, ok := ui.ctx.textbox_state.get_clipboard(ui.ctx.textbox_state.clipboard_user_data); ok {
-		mu.input_text(&ui.ctx, text)
-	}
+	paste_poll(ui)
 }
 
 // side_panel lays out the tabs in the current layout cell. Call with the
@@ -123,7 +96,8 @@ side_panel :: proc(ui: ^UI) {
 		ui.chat.tab = .Log
 		ui.log_seen = -1
 	}
-	with_text_color(ctx, CHAT_DIM_COLOR, typing_text(v), label_proc)
+	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
+	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
 
 	switch ui.chat.tab {
 	case .Chat:
@@ -164,7 +138,13 @@ chat_panel :: proc(ui: ^UI) {
 	for line in v.chat {
 		header := fmt.tprintf("%s  %s", chat_time(ui, line.time), line.name)
 		header_color := CHAT_OWN_COLOR if line.sender == v.my_num else CHAT_NAME_COLOR
-		chat_message(ui, header, header_color, line.text, ctx.style.colors[.TEXT], links = true)
+		switch line.kind {
+		case .Text:
+			chat_message(ui, header, header_color, line.text, ctx.style.colors[.TEXT], links = true)
+		case .Image:
+			img := v.images[line.image.id] or_else {}
+			chat_image(ui, header, header_color, line.image, img)
+		}
 	}
 	for text in v.outbox {
 		chat_message(ui, "sending...", CHAT_DIM_COLOR, text, CHAT_DIM_COLOR, links = false)
@@ -258,6 +238,28 @@ chat_time :: proc(ui: ^UI, unix: u32) -> string {
 		return fmt.tprintf("%02d:%02d", dt.hour, dt.minute)
 	}
 	return fmt.tprintf("%d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute)
+}
+
+// chat_image draws an image message: the header, then the picture.
+@(private = "file")
+chat_image :: proc(ui: ^UI, header: string, header_color: mu.Color, info: proto.Image_Info, img: View_Image) {
+	ctx := &ui.ctx
+	font := ctx.style.font
+	mu.layout_row(ctx, {-1}, 0)
+	mu.layout_begin_column(ctx)
+	defer mu.layout_end_column(ctx)
+	saved := ctx.style.spacing
+	ctx.style.spacing = 0
+	defer ctx.style.spacing = saved
+
+	mu.layout_row(ctx, {-1}, ctx.text_height(font))
+	r := mu.layout_next(ctx)
+	mu.draw_text(ctx, font, header, {r.x, r.y}, header_color)
+	// An image the server has dropped has no id left to look it up by.
+	state := img.state if info.id != 0 else Image_State.Gone
+	image_block(ui, info, state, img.jpeg)
+	mu.layout_row(ctx, {-1}, saved) // the gap
+	mu.layout_next(ctx)
 }
 
 // chat_message draws a header line and the wrapped text under it, with

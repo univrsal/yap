@@ -35,6 +35,9 @@ Renderer :: struct {
 	font_texture: u32,
 	icon_texture: u32,
 	bound:        u32, // texture the pending quads use
+	rgba:         bool, // the bound texture is a picture, not the atlas
+	u_rgba:       i32,
+	images:       ^UI_Images, // this frame's chat images (ui_images.odin)
 	vertices:     [MAX_QUADS * 4]Vertex,
 	quads:        int,
 	height:       f32, // logical
@@ -65,9 +68,13 @@ FRAGMENT_SHADER :: `#version 330 core
 in vec2 v_uv;
 in vec4 v_color;
 uniform sampler2D u_atlas;
+// The atlases keep coverage in their red channel; chat images are
+// ordinary colour textures.
+uniform bool u_rgba;
 out vec4 frag;
 void main() {
-	frag = vec4(v_color.rgb, v_color.a * texture(u_atlas, v_uv).r);
+	vec4 t = texture(u_atlas, v_uv);
+	frag = u_rgba ? vec4(t.rgb * v_color.rgb, t.a * v_color.a) : vec4(v_color.rgb, v_color.a * t.r);
 }
 `
 
@@ -83,6 +90,7 @@ renderer_init :: proc(r: ^Renderer) -> bool {
 	}
 	r.program = program
 	r.u_screen = gl.GetUniformLocation(program, "u_screen")
+	r.u_rgba = gl.GetUniformLocation(program, "u_rgba")
 
 	gl.GenVertexArrays(1, &r.vao)
 	gl.BindVertexArray(r.vao)
@@ -203,6 +211,10 @@ render :: proc(
 			x1, y1 := snap(c.rect.x + c.rect.w, r.scale), snap(c.rect.y + c.rect.h, r.scale)
 			push_quad(r, {x0, y0, x1, y1}, {w.x, w.y, w.x, w.y}, c.color)
 		case ^mu.Command_Icon:
+			if index := int(c.id) - IMAGE_ICON_BASE; index >= 0 {
+				draw_image(r, index, c.rect, c.color)
+				continue
+			}
 			use_texture(r, r.icon_texture)
 			src := mu.default_atlas[c.id]
 			x := f32(c.rect.x + (c.rect.w - src.w) / 2)
@@ -248,12 +260,29 @@ make_alpha_texture :: proc(width, height: i32, pixels: []u8) -> (tex: u32) {
 }
 
 @(private = "file")
-use_texture :: proc(r: ^Renderer, tex: u32) {
-	if r.bound != tex {
+use_texture :: proc(r: ^Renderer, tex: u32, rgba := false) {
+	if r.bound != tex || r.rgba != rgba {
 		flush(r)
 		gl.BindTexture(gl.TEXTURE_2D, tex)
-		r.bound = tex
+		gl.Uniform1i(r.u_rgba, 1 if rgba else 0)
+		r.bound, r.rgba = tex, rgba
 	}
+}
+
+// draw_image draws one of this frame's chat images, which come as icon
+// commands so microui clips and layers them like anything else.
+@(private = "file")
+draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
+	if r.images == nil || index >= len(r.images.draws) {
+		return
+	}
+	use_texture(r, r.images.draws[index].texture, rgba = true)
+	push_quad(
+		r,
+		{f32(rect.x), f32(rect.y), f32(rect.x + rect.w), f32(rect.y + rect.h)},
+		{0, 0, 1, 1},
+		color,
+	)
 }
 
 // dst and uv are {x0, y0, x1, y1}.
