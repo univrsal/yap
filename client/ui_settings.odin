@@ -61,6 +61,22 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		}
 	}
 
+	mu.layout_row(ctx, {-1})
+	tray_state := "on" if ui.settings.tray else "off"
+	if .SUBMIT in
+	   stable_button(
+		   ctx,
+		   "tray",
+		   fmt.tprintf(
+			   "Tray icon: %s  (shows whether you're talking, muted or deafened)",
+			   tray_state,
+		   ),
+	   ) {
+		ui.settings.tray = !ui.settings.tray
+		settings_save(ui.opts.settings_path, ui.settings)
+		tray_update(ui)
+	}
+
 	gate_settings(ui)
 
 	// The input list gets half of what's left; the output list the rest.

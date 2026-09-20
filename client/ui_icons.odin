@@ -91,6 +91,32 @@ icon_atlas_build :: proc(a: ^Icon_Atlas, scale: f32) -> bool {
 	return true
 }
 
+/*
+icon_rgba draws one icon on its own, in colour, for something that wants
+a picture rather than a piece of the atlas: the tray icon (ui_tray.odin).
+`side` is the picture's size in pixels, and the caller owns the result.
+*/
+icon_rgba :: proc(
+	icon: Icon,
+	side: int,
+	color: mu.Color,
+	allocator := context.allocator,
+) -> []u8 {
+	pixels := make([]u8, side * side * 4, allocator)
+	for y in 0 ..< side {
+		for x in 0 ..< side {
+			p := Point{(f32(x) + 0.5) / f32(side), (f32(y) + 0.5) / f32(side)}
+			d := icon_distance(icon, p) * f32(side)
+			// The shape is the picture's transparency; the colour is flat.
+			alpha := clamp(0.5 - d, 0, 1) * f32(color.a) / 255
+			i := (y * side + x) * 4
+			pixels[i], pixels[i + 1], pixels[i + 2] = color.r, color.g, color.b
+			pixels[i + 3] = u8(math.round(alpha * 255))
+		}
+	}
+	return pixels
+}
+
 icon_atlas_destroy :: proc(a: ^Icon_Atlas) {
 	delete(a.pixels)
 	a^ = {}

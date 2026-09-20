@@ -121,6 +121,8 @@ UI :: struct {
 	hint_of:        mu.Rect,
 	// Chat images: decoded pictures and their textures (ui_images.odin).
 	images:         UI_Images,
+	// The system tray icon, if it's switched on (ui_tray.odin).
+	tray:           Tray,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply.
@@ -254,6 +256,7 @@ run_ui :: proc(opts: UI_Options) -> bool {
 			set_listen_back(ui, false)
 		}
 		monitor_update(ui)
+		tray_update(ui)
 
 		m := window_metrics(ui.window)
 		if m != ui.metrics {
@@ -292,6 +295,7 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	}
 
 	disconnect(ui)
+	tray_hide(ui)
 	monitor_stop(ui)
 	if ui.settings_dirty {
 		save_settings(ui)

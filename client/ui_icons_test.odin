@@ -121,3 +121,76 @@ test_dump_icons_when_asked :: proc(t: ^testing.T) {
 		testing.expect_value(t, err, nil)
 	}
 }
+
+@(test)
+test_icon_rgba :: proc(t: ^testing.T) {
+	SIDE :: 32
+	green := mu.Color{60, 190, 90, 255}
+	pixels := icon_rgba(.Mic, SIDE, green)
+	defer delete(pixels)
+	testing.expect_value(t, len(pixels), SIDE * SIDE * 4)
+
+	solid, clear: int
+	for i := 0; i < len(pixels); i += 4 {
+		// One flat colour throughout; only the transparency is shaped.
+		testing.expect_value(t, pixels[i], green.r)
+		testing.expect_value(t, pixels[i + 1], green.g)
+		testing.expect_value(t, pixels[i + 2], green.b)
+		switch pixels[i + 3] {
+		case 255:
+			solid += 1
+		case 0:
+			clear += 1
+		}
+	}
+	testing.expectf(t, solid > 50, "the icon is barely there (%d solid pixels)", solid)
+	testing.expectf(t, clear > 200, "the icon has no space around it (%d clear pixels)", clear)
+
+	// A different state has to come out looking different, or the tray
+	// would say the same thing whatever is going on.
+	muted := icon_rgba(.Mic_Off, SIDE, green)
+	defer delete(muted)
+	same := true
+	for b, i in muted {
+		if b != pixels[i] {
+			same = false
+			break
+		}
+	}
+	testing.expect(t, !same, "muted and unmuted draw the same tray icon")
+}
+
+@(test)
+test_dump_tray_icons_when_asked :: proc(t: ^testing.T) {
+	dir := os.get_env("YAP_ICON_DUMP", context.temp_allocator)
+	if dir == "" {
+		return
+	}
+	// The three the tray uses, in the colours it uses, as PPMs on a
+	// mid-grey panel so the transparency shows.
+	SIDE :: 32
+	states := [?]struct {
+		name:  string,
+		icon:  Icon,
+		color: mu.Color,
+	} {
+		{"quiet", .Mic, {140, 148, 160, 255}},
+		{"talking", .Mic, {60, 190, 90, 255}},
+		{"muted", .Mic_Off, {225, 80, 80, 255}},
+		{"deafened", .Sound_Off, {225, 80, 80, 255}},
+	}
+	for state in states {
+		pixels := icon_rgba(state.icon, SIDE, state.color, context.temp_allocator)
+		out := make([dynamic]u8, context.temp_allocator)
+		append(&out, ..transmute([]u8)fmt.tprintf("P6\n%d %d\n255\n", SIDE, SIDE))
+		for i := 0; i < len(pixels); i += 4 {
+			a := f32(pixels[i + 3]) / 255
+			for c in 0 ..< 3 {
+				// Over a mid grey, the way a panel would show it.
+				append(&out, u8(f32(pixels[i + c]) * a + 128 * (1 - a)))
+			}
+		}
+		err := os.write_entire_file(fmt.tprintf("%s/tray-%s.ppm", dir, state.name), out[:])
+		testing.expect_value(t, err, nil)
+	}
+}

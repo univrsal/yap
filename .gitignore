@@ -8,3 +8,7 @@ client/rnn/*.a
 client/rnn/*.lib
 client/rnn/*.o
 client/rnn/*.obj
+client/tray/*.a
+client/tray/*.lib
+client/tray/*.o
+client/tray/*.obj

@@ -17,6 +17,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"output_device": "Built-in Audio Analog Stereo",
 		"quality": "voice",
 		"noise_suppression": true,
+		"tray": false,
 		"voice_gate": true,
 		"gate_open_db": -45,
 		"gate_close_db": -55,
@@ -39,6 +40,8 @@ Settings :: struct {
 	quality:           string,
 	// RNNoise on the microphone.
 	noise_suppression: bool,
+	// Show an icon in the system tray (ui_tray.odin).
+	tray:              bool,
 	// Only send while the microphone level is above the thresholds (dBFS);
 	// see gate.odin.
 	voice_gate:        bool,
