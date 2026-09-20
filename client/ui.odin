@@ -14,8 +14,8 @@ import "vendor:glfw"
 import mu "vendor:microui"
 
 import "../common"
-import "clipboard"
 import "../proto"
+import "clipboard"
 
 /*
 The windowed client: GLFW for the window and input, microui for widgets,
@@ -555,12 +555,12 @@ connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {60, -134, 90, ICON_BUTTON})
+	mu.layout_row(ctx, {60, -74, ICON_BUTTON, ICON_BUTTON})
 	mu.label(ctx, "Server")
 	if .SUBMIT in mu.textbox(ctx, ui.server_buf[:], &ui.server_len) {
 		ui.action = .Connect
 	}
-	if .SUBMIT in mu.button(ctx, "Connect") {
+	if .SUBMIT in icon_button(ui, "send", .Send, "Connect") {
 		ui.action = .Connect
 	}
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
@@ -572,10 +572,15 @@ connect_screen :: proc(ui: ^UI) {
 	if .SUBMIT in mu.textbox(ctx, ui.name_buf[:], &ui.name_len) {
 		ui.action = .Connect
 	}
-	mu.label(ctx, "  what others see you as")
 
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, fmt.tprintf("Your key: %s   (server as host:port, e.g. localhost:7777)", fingerprint(ui.my_key)))
+	mu.label(
+		ctx,
+		fmt.tprintf(
+			"Your key: %s   (server as host:port, e.g. localhost:7777)",
+			fingerprint(ui.my_key),
+		),
+	)
 	if v.status == .Failed && v.error != "" {
 		with_text_color(ctx, {230, 90, 90, 255}, v.error, label_proc)
 	}
