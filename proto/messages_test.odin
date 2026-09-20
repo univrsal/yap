@@ -13,8 +13,8 @@ decode_bufs :: struct {
 @(test)
 test_state_roundtrip :: proc(t: ^testing.T) {
 	users := []User_Info {
-		{num = 1, key = {0 = 0xaa, 31 = 0x01}, name = "alice"},
-		{num = 2, key = {0 = 0xbb, 31 = 0x02}, name = ""},
+		{num = 1, key = {0 = 0xaa, 31 = 0x01}, name = "alice", flags = {.Muted}},
+		{num = 2, key = {0 = 0xbb, 31 = 0x02}, name = "", flags = {.Muted, .Deafened}},
 		{num = 7, key = {0 = 0xcc, 31 = 0x03}, name = "Zoë"},
 	}
 	channels := []Channel_Info {
@@ -46,6 +46,7 @@ test_state_roundtrip :: proc(t: ^testing.T) {
 		testing.expect_value(t, got.users[i].num, u.num)
 		testing.expect_value(t, got.users[i].key, u.key)
 		testing.expect_value(t, got.users[i].name, u.name)
+		testing.expect_value(t, got.users[i].flags, u.flags)
 	}
 	testing.expect_value(t, len(got.channels), 3)
 	for ch, i in channels {
@@ -229,4 +230,23 @@ test_hello_and_set_name :: proc(t: ^testing.T) {
 	msg[1] = 7
 	_, kind_ok = message_kind(msg)
 	testing.expect(t, !kind_ok)
+}
+
+@(test)
+test_sound_roundtrip :: proc(t: ^testing.T) {
+	for flags in ([]User_Flags{{}, {.Muted}, {.Deafened}, {.Muted, .Deafened}}) {
+		buf: [SOUND_SIZE]byte
+		pt := encode_sound(&buf, flags)
+		kind, ok := message_kind(pt)
+		testing.expect(t, ok)
+		testing.expect_value(t, kind, Message_Kind.Sound)
+		testing.expect_value(t, decode_sound(pt), flags)
+	}
+	// A flag a newer client knows about and this build doesn't survives
+	// the trip, rather than turning into something we do know.
+	unknown := [SOUND_SIZE]byte{u8(Message_Kind.Sound), 0x80}
+	kept := decode_sound(unknown[:])
+	testing.expect(t, .Muted not_in kept && .Deafened not_in kept)
+	buf: [SOUND_SIZE]byte
+	testing.expect_value(t, encode_sound(&buf, kept)[1], 0x80)
 }

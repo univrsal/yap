@@ -130,6 +130,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	process_commands(c)
 	drive_join(c)
 	drive_name(c)
+	drive_sound(c)
 	drive_chat(c)
 	images_step(c)
 

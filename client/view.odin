@@ -29,8 +29,12 @@ View_Channel :: struct {
 }
 
 View_User :: struct {
-	key:  [proto.KEY_SIZE]u8,
-	name: string, // for display (see display_name); owned
+	key:      [proto.KEY_SIZE]u8,
+	name:     string, // for display (see display_name); owned
+	// What they've switched off for themselves; nothing to do with the
+	// per-user volume we keep for our own ears (see user_settings).
+	muted:    bool,
+	deafened: bool,
 }
 
 View :: struct {
@@ -188,8 +192,10 @@ publish_channels :: proc(c: ^Voice_Client) {
 	}
 	for &u in ch.state.users {
 		v.users[u.num] = {
-			key  = u.key,
-			name = strings.clone(display_name(ch.state.users, u.num)),
+			key      = u.key,
+			name     = strings.clone(display_name(ch.state.users, u.num)),
+			muted    = .Muted in u.flags,
+			deafened = .Deafened in u.flags,
 		}
 	}
 	v.my_num = ch.state.your_user

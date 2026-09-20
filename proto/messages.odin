@@ -14,6 +14,7 @@ a keepalive. Integers are little-endian.
 	client -> server  State_Ack  [kind][version u32]
 	client -> server  Leave      [kind]
 	client -> server  Set_Name   [kind][name_len u8][name]
+	client -> server  Sound      [kind][flags u8]
 	(text chat: Chat_Send, Chat_Sent, Chat, Chat_Received, Typing; see chat.odin)
 
 Users are identified by a number the server assigns (`speaker` in Voice,
@@ -24,6 +25,12 @@ anything they store about a user by the public key.
 A client's name first arrives in its handshake (see names.odin, Hello).
 Set_Name changes it later; it's idempotent, so the client resends it until
 a snapshot shows the name applied.
+
+Sound says whether a user has muted their microphone or stopped
+listening, so the others can show it. Like Set_Name it's idempotent and
+resent until a snapshot agrees. It's only ever about what a user has
+done to themselves: muting somebody for yourself is your business and
+stays on your machine.
 
 Leave is a courtesy so others see the user go right away instead of
 after SESSION_TIMEOUT; it's unreliable, so clients send a few copies.
@@ -58,13 +65,27 @@ Message_Kind :: enum u8 {
 	Blob_Chunk    = 14,
 	Blob_Need     = 15,
 	Image_Gone    = 16,
+	// What a user has switched off for themselves.
+	Sound         = 17,
 }
+
+/*
+A user's own sound state, as everyone else sees it. Muting a user for
+yourself is a local setting and never goes on the wire, so what arrives
+here is always what that user did to themselves.
+*/
+User_Flag :: enum u8 {
+	Muted, // their microphone is off
+	Deafened, // they aren't listening to the channel
+}
+User_Flags :: distinct bit_set[User_Flag;u8]
 
 VOICE_UP_HEADER_SIZE :: 1 + 4
 VOICE_DOWN_HEADER_SIZE :: 1 + 4 + 4
 JOIN_SIZE :: 1 + 4 + 2
 STATE_HEADER_SIZE :: 1 + 4 + 1 + 1
 STATE_ACK_SIZE :: 1 + 4
+SOUND_SIZE :: 1 + 1
 
 STATE_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - STATE_HEADER_SIZE
 MAX_STATE_CHUNKS :: 16
@@ -77,9 +98,10 @@ MAX_CHANNELS :: 64
 MAX_CHANNEL_NAME_SIZE :: 32
 
 User_Info :: struct {
-	num:  u32, // assigned by the server
-	key:  [KEY_SIZE]u8,
-	name: string, // sanitized (see sanitize_name); may be empty
+	num:   u32, // assigned by the server
+	key:   [KEY_SIZE]u8,
+	name:  string, // sanitized (see sanitize_name); may be empty
+	flags: User_Flags, // what they've switched off for themselves
 }
 
 Channel_Info :: struct {
@@ -97,7 +119,7 @@ Channel_State :: struct {
 }
 
 // The smallest a user takes up in a snapshot; bounds how many can be decoded.
-MIN_USER_SIZE :: 4 + KEY_SIZE + 1
+MIN_USER_SIZE :: 4 + KEY_SIZE + 1 + 1
 MAX_STATE_USERS :: MAX_STATE_SIZE / MIN_USER_SIZE
 
 message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
@@ -118,6 +140,8 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == 1
 	case .Set_Name:
 		ok = len(pt) >= 2 && int(pt[1]) <= MAX_NAME_SIZE && len(pt) == 2 + int(pt[1])
+	case .Sound:
+		ok = len(pt) == SOUND_SIZE
 	case .Chat_Send:
 		ok =
 			len(pt) >= CHAT_SEND_HEADER_SIZE &&
@@ -187,11 +211,23 @@ decode_set_name :: proc(pt: []byte) -> string {
 	return string(pt[2:][:pt[1]])
 }
 
+encode_sound :: proc(out: ^[SOUND_SIZE]byte, flags: User_Flags) -> []byte {
+	out[0] = u8(Message_Kind.Sound)
+	out[1] = transmute(u8)flags
+	return out[:]
+}
+
+// decode_sound keeps flags this build doesn't know: a newer client may
+// have switched off something we have no name for yet.
+decode_sound :: proc(pt: []byte) -> User_Flags {
+	return transmute(User_Flags)pt[1]
+}
+
 /*
 Snapshot body (before chunking):
 
 	[your_channel u16][your_user u32][join_ack u32]
-	[user_count u16]    per user:    [num u32][key 32 bytes][name_len u8][name]
+	[user_count u16]    per user:    [num u32][key 32 bytes][flags u8][name_len u8][name]
 	[channel_count u16] per channel: [name_len u8][name][member_count u16][member num u32 ...]
 */
 @(require_results)
@@ -213,6 +249,7 @@ encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bo
 		}
 		put_u32(&w, u.num)
 		put_bytes(&w, u.key[:])
+		put_u8(&w, transmute(u8)u.flags)
 		put_u8(&w, u8(len(u.name)))
 		put_bytes(&w, transmute([]byte)u.name)
 	}
@@ -261,6 +298,7 @@ decode_state :: proc(
 	for &u in users_buf[:user_count] {
 		u.num = get_u32(&r)
 		copy(u.key[:], get_bytes(&r, KEY_SIZE))
+		u.flags = transmute(User_Flags)get_u8(&r)
 		name_len := int(get_u8(&r))
 		u.name = string(get_bytes(&r, name_len))
 		if r.overflow || name_len > MAX_NAME_SIZE {

@@ -413,6 +413,8 @@ connect :: proc(ui: ^UI) {
 	}
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.deafened = ui.deafened
+	// Told to the others as soon as we're in a channel (drive_sound).
+	ns.client.channels.sound = sound_flags(ui.muted, ui.deafened)
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
 	push_command(&ns.client.commands, Quality_Command{settings_quality(&ui.settings)})

@@ -36,6 +36,11 @@ Channel_Client :: struct {
 	// until a snapshot shows the server has it.
 	name:            string,
 	last_name_sent:  time.Tick,
+
+	// What we've switched off for ourselves, for the others to see. Sent
+	// with Sound until a snapshot shows the server has it.
+	sound:           proto.User_Flags,
+	last_sound_sent: time.Tick,
 }
 
 // my_num is the server's number for us, or 0 before the first snapshot.
@@ -49,6 +54,48 @@ set_name :: proc(c: ^Voice_Client, name: string) {
 	delete(c.channels.name)
 	c.channels.name = strings.clone(proto.sanitize_name(name, &buf))
 	c.channels.last_name_sent = {}
+}
+
+// sound_flags is what a client muted or deafened like this publishes.
+sound_flags :: proc(muted, deafened: bool) -> (flags: proto.User_Flags) {
+	if muted {
+		flags += {.Muted}
+	}
+	if deafened {
+		flags += {.Deafened}
+	}
+	return
+}
+
+/*
+set_sound tells the others what we've switched off for ourselves. Muting
+somebody else for our own ears is nobody's business but ours and never
+goes out; this is only ever about our own microphone and speakers.
+*/
+set_sound :: proc(c: ^Voice_Client, flag: proto.User_Flag, on: bool) {
+	if on {
+		c.channels.sound += {flag}
+	} else {
+		c.channels.sound -= {flag}
+	}
+	c.channels.last_sound_sent = {}
+}
+
+// drive_sound resends Sound while the server shows different flags,
+// the same way drive_name does with the name.
+drive_sound :: proc(c: ^Voice_Client) {
+	ch := &c.channels
+	if !ch.have_state || !c.has_current || time.tick_since(ch.last_sound_sent) < proto.CONTROL_RESEND {
+		return
+	}
+	me := proto.find_user(&ch.state, ch.state.your_user)
+	if me == nil || me.flags == ch.sound {
+		return
+	}
+	buf: [proto.SOUND_SIZE]byte
+	send_data(c, proto.encode_sound(&buf, ch.sound))
+	ch.last_sound_sent = time.tick_now()
+	log.debugf("sending sound state %v", ch.sound)
 }
 
 // drive_name resends Set_Name while the server shows a different name.
@@ -251,6 +298,16 @@ members_string :: proc(c: ^Voice_Client, members: []u32) -> string {
 		if m == my_num(c) {
 			strings.write_string(&b, " (you)")
 		}
+		// What they've switched off for themselves. Anyone we've muted
+		// for our own ears is our business and isn't shown here.
+		if u := proto.find_user(&c.channels.state, m); u != nil {
+			switch {
+			case .Deafened in u.flags:
+				strings.write_string(&b, " [deafened]")
+			case .Muted in u.flags:
+				strings.write_string(&b, " [muted]")
+			}
+		}
 	}
 	return strings.to_string(b)
 }
@@ -375,9 +432,11 @@ process_commands :: proc(c: ^Voice_Client) {
 			list_channels(c)
 		case Mute_Command:
 			c.voice.muted = v.muted
+			set_sound(c, .Muted, v.muted)
 			log.infof("voice %s", "muted" if v.muted else "unmuted")
 		case Deafen_Command:
 			c.voice.deafened = v.deafened
+			set_sound(c, .Deafened, v.deafened)
 			log.infof("audio %s", "deafened" if v.deafened else "undeafened")
 		case Noise_Command:
 			c.voice.denoise = v.enabled

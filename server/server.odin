@@ -41,6 +41,9 @@ User :: struct {
 	id:              u32, // common.key_id(key), for logs
 	name:            string, // sanitized; points into name_buf
 	name_buf:        [proto.MAX_NAME_SIZE]u8,
+	// What they've switched off for themselves, to pass on to the others
+	// (see proto.User_Flags). The server doesn't act on it.
+	flags:           proto.User_Flags,
 	channel:         u16,
 	join_ack:        u32, // newest Join request handled
 	sessions:        int, // keyed sessions pointing here
@@ -282,6 +285,12 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		if rename(s, c.user, proto.decode_set_name(pt)) {
 			bump_version(s)
 		}
+	case .Sound:
+		if flags := proto.decode_sound(pt); flags != c.user.flags {
+			c.user.flags = flags
+			log.debugf("%s sound state %v", user_label(c.user), flags)
+			bump_version(s)
+		}
 	case .Chat_Send:
 		handle_chat_send(s, c, pt)
 	case .Image_Send:
@@ -390,7 +399,7 @@ sync_state :: proc(s: ^Server) {
 	next_user := 0
 	for _, u in s.users {
 		append(&members[u.channel], u.num)
-		users[next_user] = {num = u.num, key = u.key, name = u.name}
+		users[next_user] = {num = u.num, key = u.key, name = u.name, flags = u.flags}
 		next_user += 1
 	}
 	infos := make([]proto.Channel_Info, len(s.channels), context.temp_allocator)

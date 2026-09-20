@@ -69,11 +69,16 @@ Hello: the encrypted payload of Handshake_Finish (msg3), so the server
 knows the client's name from the start. Room for more fields later, such
 as a server password.
 
-	[version u8 = 1][name_len u8][name]
+	[version u8 = 2][name_len u8][name]
 
 An empty payload is a hello without a name.
+
+The version is what keeps a client and a server that disagree about the
+wire format from talking past each other: a mismatch fails the
+handshake instead of leaving one side to misread the other's messages.
+Version 2 added the sound flags to a snapshot's users (see messages.odin).
 */
-HELLO_VERSION :: 1
+HELLO_VERSION :: 2
 HELLO_MAX_SIZE :: 2 + MAX_NAME_SIZE
 
 // encode_hello expects an already sanitized name.

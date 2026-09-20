@@ -24,13 +24,27 @@ status_icon :: proc(ctx: ^mu.Context, icon: Icon, color: mu.Color) {
 }
 
 // What the icon in front of your own name says, most to least telling:
-// deafened hears nobody, muted says nothing to anybody.
+// deafened hears nobody, muted says nothing to anybody. This is the one
+// state we don't wait for the server to tell us about.
 @(private = "file")
 my_status :: proc(ui: ^UI, speaking: bool) -> (Icon, mu.Color) {
+	return sound_status(ui.muted, ui.deafened, speaking)
+}
+
+// And the same for somebody else, from what the server passed on.
+@(private = "file")
+their_status :: proc(user: View_User, speaking: bool) -> (Icon, mu.Color) {
+	return sound_status(user.muted, user.deafened, speaking)
+}
+
+@(private = "file")
+sound_status :: proc(muted, deafened, speaking: bool) -> (Icon, mu.Color) {
 	switch {
-	case ui.deafened:
+	case deafened:
+		// Somebody who isn't listening is usually muted as well, and of
+		// the two that's the one worth showing.
 		return .Sound_Off, OFF_COLOR
-	case ui.muted:
+	case muted:
 		return .Mic_Off, OFF_COLOR
 	case speaking:
 		return .Mic, SPEAKING_COLOR
@@ -39,14 +53,31 @@ my_status :: proc(ui: ^UI, speaking: bool) -> (Icon, mu.Color) {
 }
 
 /*
+The mark at the end of a row for somebody muted for ourselves. It sits
+at the other end from the icon in front on purpose: that one is what the
+user has switched off, this one is what we've done to them, and the two
+would otherwise be easy to mix up.
+*/
+@(private = "file")
+local_mute_mark :: proc(ctx: ^mu.Context, row: mu.Rect) {
+	r := mu.Rect {
+		row.x + row.w - ICON_SIZE,
+		row.y + (row.h - ICON_SIZE) / 2,
+		ICON_SIZE,
+		ICON_SIZE,
+	}
+	mu.draw_icon(ctx, icon_id(.Sound_Off), r, DIM_COLOR)
+}
+
+/*
 member_row draws one user in the channel list, with an icon in front
 saying what they're up to: a microphone, lit while they're speaking, and
 for you the mute and deafen you've set. Other users are clickable.
 
-Mute and deafen are ours alone - nothing on the wire says whether
-somebody else has muted themselves - so the icon in front of another
-user is about our side of it: a crossed-out speaker where we've muted
-them for ourselves.
+The icon in front is the user's own doing: a crossed-out microphone
+where they've muted themselves, a crossed-out speaker where they've
+stopped listening. Muting somebody for ourselves is a different thing
+entirely, so it's marked at the other end of the row instead.
 */
 member_row :: proc(ui: ^UI, id: u32) {
 	ctx := &ui.ctx
@@ -77,16 +108,16 @@ member_row :: proc(ui: ^UI, id: u32) {
 	if u.volume != 1 && !u.muted {
 		text = fmt.tprintf("%s  (%.0f%%)", text, u.volume * 100)
 	}
-	icon, icon_color := Icon.Mic, DIM_COLOR
+	speaking := is_speaking(v, id)
+	icon, icon_color := their_status(user, speaking)
+	status_icon(ctx, icon, icon_color)
 	color := ctx.style.colors[.TEXT]
 	switch {
 	case u.muted:
-		// Muted for us: we're the ones not listening.
-		icon, icon_color, color = .Sound_Off, DIM_COLOR, DIM_COLOR
-	case is_speaking(v, id):
-		icon_color, color = SPEAKING_COLOR, SPEAKING_COLOR
+		color = DIM_COLOR // nothing of theirs is reaching us
+	case speaking:
+		color = SPEAKING_COLOR
 	}
-	status_icon(ctx, icon, icon_color)
 
 	// A flat, full-width control: highlighted on hover, any click opens
 	// the menu.
@@ -102,6 +133,9 @@ member_row :: proc(ui: ^UI, id: u32) {
 	ctx.style.colors[.TEXT] = color
 	mu.draw_control_text(ctx, text, r, .TEXT)
 	ctx.style.colors[.TEXT] = saved
+	if u.muted {
+		local_mute_mark(ctx, r)
+	}
 
 	if ctx.hover_id == cid && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} {
 		ui.menu_user = id
