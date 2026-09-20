@@ -105,6 +105,18 @@ ui_images_init :: proc(ui: ^UI) {
 	)
 }
 
+/*
+ui_images_forget_textures drops what the OpenGL context holds, without
+deleting anything: it's called as that context goes away (window_close),
+and the names in here mean nothing outside it. The pictures themselves
+are decoded again when they're next drawn.
+*/
+ui_images_forget_textures :: proc(ui: ^UI) {
+	im := &ui.images
+	clear(&im.textures)
+	clear(&im.draws)
+}
+
 ui_images_destroy :: proc(ui: ^UI) {
 	im := &ui.images
 	{

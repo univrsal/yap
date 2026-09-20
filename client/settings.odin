@@ -18,6 +18,8 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"quality": "voice",
 		"noise_suppression": true,
 		"tray": false,
+		"close_to_tray": true,
+		"minimize_to_tray": false,
 		"voice_gate": true,
 		"gate_open_db": -45,
 		"gate_close_db": -55,
@@ -42,6 +44,11 @@ Settings :: struct {
 	noise_suppression: bool,
 	// Show an icon in the system tray (ui_tray.odin).
 	tray:              bool,
+	// What the window's own buttons do while that icon is there: hide
+	// the client in the tray, or what they usually do. Minimizing is
+	// only ours to decide where the desktop says it has happened.
+	close_to_tray:     bool,
+	minimize_to_tray:  bool,
 	// Only send while the microphone level is above the thresholds (dBFS);
 	// see gate.odin.
 	voice_gate:        bool,
@@ -65,6 +72,7 @@ MAX_USER_VOLUME :: 3
 
 DEFAULT_SETTINGS :: Settings {
 	noise_suppression = true,
+	close_to_tray     = true,
 	voice_gate        = true,
 	gate_open_db      = DEFAULT_GATE_OPEN_DB,
 	gate_close_db     = DEFAULT_GATE_CLOSE_DB,

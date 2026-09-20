@@ -107,7 +107,9 @@ font_destroy :: proc(f: ^Font) {
 	delete(f.codepoints)
 	delete(f.advance)
 	delete(f.glyphs)
-	f.pixels, f.codepoints, f.advance, f.glyphs = nil, nil, nil, nil
+	// Everything, so a font built again asks for a new atlas rather
+	// than trusting the one this scale used to have (see render).
+	f^ = {}
 }
 
 // font_build_atlas rasterizes the glyphs for `scale` physical pixels per

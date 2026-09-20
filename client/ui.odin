@@ -123,6 +123,14 @@ UI :: struct {
 	images:         UI_Images,
 	// The system tray icon, if it's switched on (ui_tray.odin).
 	tray:           Tray,
+	// The window is away in the tray, and nothing is drawn until it
+	// comes back. Quitting is the one thing that gets past it.
+	hidden:         bool,
+	quitting:       bool,
+	// The desktop has just minimized us (iconify_callback).
+	minimized:      bool,
+	// What size to come back at, remembered when the window goes away.
+	window_size:    [2]i32,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply.
@@ -171,37 +179,16 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	}
 	defer glfw.Terminate()
 
-	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
-	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
-	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-	// Where window coordinates are physical pixels (Windows, X11), size
-	// the window for the monitor's scale so it isn't tiny on high DPI.
-	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
-	when ODIN_OS == .Darwin {
-		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true)
-	}
-	ui.window = glfw.CreateWindow(760, 480, "yap", nil, nil)
-	if ui.window == nil {
-		log.error("failed to create a window (OpenGL 3.3 is required)")
+	ui.window_size = {760, 480}
+	if !window_open(ui) {
 		return false
 	}
-	defer glfw.DestroyWindow(ui.window)
+	defer window_close(ui)
 	clipboard_init()
 	defer clipboard.destroy()
 	// Whatever the paste thread is doing, it uses the clipboard, so it
 	// has to be done before that (defers run in reverse).
 	defer paste_wait(ui)
-	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
-	glfw.MakeContextCurrent(ui.window)
-	glfw.SwapInterval(1)
-	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
-
-	if !renderer_init(&ui.renderer) {
-		log.error("failed to set up OpenGL rendering")
-		return false
-	}
-	defer renderer_destroy(&ui.renderer)
-	ui.renderer.images = &ui.images
 	ui_images_init(ui)
 	defer ui_images_destroy(ui)
 
@@ -210,17 +197,35 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	ui.ctx.text_height = ui_text_height
 	ui.input_scale = 1
 
-	glfw.SetCursorPosCallback(ui.window, cursor_pos_callback)
-	glfw.SetMouseButtonCallback(ui.window, mouse_button_callback)
-	glfw.SetScrollCallback(ui.window, scroll_callback)
-	glfw.SetKeyCallback(ui.window, key_callback)
-	glfw.SetCharCallback(ui.window, char_callback)
-
 	if opts.server != "" {
 		ui.action = .Connect
 	}
 
-	for !glfw.WindowShouldClose(ui.window) {
+	for !ui.quitting {
+		// Closing the window puts the client in the tray instead of
+		// ending it, where there's a tray icon and that's what the
+		// settings ask for (see ui_tray.odin). Quit in the tray menu
+		// sets `quitting` instead, and there may be no window at all.
+		if ui.window != nil && glfw.WindowShouldClose(ui.window) {
+			if !tray_takes_window(ui, ui.settings.close_to_tray) {
+				break
+			}
+			glfw.SetWindowShouldClose(ui.window, false)
+			hide_to_tray(ui)
+		}
+
+		// Minimizing can go to the tray as well. Only some desktops say
+		// when it happens (see iconify_callback).
+		if ui.minimized {
+			ui.minimized = false
+			if tray_takes_window(ui, ui.settings.minimize_to_tray) {
+				// Out of the minimized state first, so the window comes
+				// back up as a window rather than minimized again.
+				glfw.RestoreWindow(ui.window)
+				hide_to_tray(ui)
+			}
+		}
+
 		free_all(context.temp_allocator)
 
 		switch ui.action {
@@ -257,6 +262,9 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		}
 		monitor_update(ui)
 		tray_update(ui)
+		if ui.hidden {
+			continue // no window to draw in
+		}
 
 		m := window_metrics(ui.window)
 		if m != ui.metrics {
@@ -301,6 +309,72 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		save_settings(ui)
 	}
 	return true
+}
+
+/*
+The window and everything that lives in its OpenGL context. They come
+and go together, because hiding the client in the tray takes the window
+down altogether (see hide_to_tray): a Wayland surface that has been
+unmapped can't be brought back - the EGL buffers behind it are never
+released, and the next swap waits for them for ever.
+
+Nothing above the context survives in here: microui's state, the view,
+the connection and the tray icon all carry on across a window.
+*/
+window_open :: proc(ui: ^UI) -> bool {
+	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
+	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
+	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+	// Where window coordinates are physical pixels (Windows, X11), size
+	// the window for the monitor's scale so it isn't tiny on high DPI.
+	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
+	when ODIN_OS == .Darwin {
+		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true)
+	}
+	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "yap", nil, nil)
+	if ui.window == nil {
+		log.error("failed to create a window (OpenGL 3.3 is required)")
+		return false
+	}
+	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
+	glfw.MakeContextCurrent(ui.window)
+	glfw.SwapInterval(1)
+	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
+
+	if !renderer_init(&ui.renderer) {
+		log.error("failed to set up OpenGL rendering")
+		glfw.DestroyWindow(ui.window)
+		ui.window = nil
+		return false
+	}
+	ui.renderer.images = &ui.images
+
+	glfw.SetWindowIconifyCallback(ui.window, iconify_callback)
+	glfw.SetCursorPosCallback(ui.window, cursor_pos_callback)
+	glfw.SetMouseButtonCallback(ui.window, mouse_button_callback)
+	glfw.SetScrollCallback(ui.window, scroll_callback)
+	glfw.SetKeyCallback(ui.window, key_callback)
+	glfw.SetCharCallback(ui.window, char_callback)
+	// The cursor outlives the window, but which one the window shows
+	// doesn't (see set_hand_cursor).
+	ui.hand_shown = false
+	ui.metrics = {}
+	return true
+}
+
+window_close :: proc(ui: ^UI) {
+	if ui.window == nil {
+		return
+	}
+	// Come back the same size as we went away.
+	w, h := glfw.GetWindowSize(ui.window)
+	ui.window_size = {w, h}
+	renderer_destroy(&ui.renderer)
+	// The pictures' textures belong to the context that's about to go;
+	// they are decoded again when they're next on screen.
+	ui_images_forget_textures(ui)
+	glfw.DestroyWindow(ui.window)
+	ui.window = nil
 }
 
 // clipboard_init sets up reading images from the clipboard. On Wayland it
@@ -809,6 +883,21 @@ glfw_error_callback :: proc "c" (code: i32, description: cstring) {
 @(private = "file")
 to_logical :: proc "contextless" (v: f64) -> i32 {
 	return i32(v * f64(g_ui.input_scale))
+}
+
+/*
+iconify_callback notes that the desktop has minimized us, for the loop
+to put the client in the tray if that's what the settings say.
+
+Not every desktop tells us. X11 does. Wayland has no message for it, so
+there the window simply minimizes and the setting does nothing; the
+settings page says as much when it would matter.
+*/
+@(private = "file")
+iconify_callback :: proc "c" (window: glfw.WindowHandle, iconified: i32) {
+	if iconified != 0 {
+		g_ui.minimized = true
+	}
 }
 
 @(private = "file")

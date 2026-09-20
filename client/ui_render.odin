@@ -136,6 +136,10 @@ renderer_destroy :: proc(r: ^Renderer) {
 	gl.DeleteVertexArrays(1, &r.vao)
 	gl.DeleteProgram(r.program)
 	font_destroy(&r.font)
+	// Nothing in here outlives the OpenGL context it was made in: the
+	// window can be taken down and built again (window_close), and a
+	// texture name left lying about would then belong to somebody else.
+	r^ = {}
 }
 
 // microui text metrics, in logical pixels.

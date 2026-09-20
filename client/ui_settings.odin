@@ -76,6 +76,42 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		settings_save(ui.opts.settings_path, ui.settings)
 		tray_update(ui)
 	}
+	// What the window's own buttons do is only a question while there's
+	// a tray to put it in.
+	if ui.settings.tray {
+		mu.layout_row(ctx, {-1})
+		closes := "hides the client in the tray" if ui.settings.close_to_tray else "quits"
+		if .SUBMIT in
+		   stable_button(ctx, "close_to_tray", fmt.tprintf("    Closing the window %s", closes)) {
+			ui.settings.close_to_tray = !ui.settings.close_to_tray
+			settings_save(ui.opts.settings_path, ui.settings)
+		}
+
+		mu.layout_row(ctx, {-1})
+		minimizes :=
+			"hides the client in the tray" if ui.settings.minimize_to_tray else "just minimizes it"
+		if .SUBMIT in
+		   stable_button(
+			   ctx,
+			   "minimize_to_tray",
+			   fmt.tprintf("    Minimizing the window %s", minimizes),
+		   ) {
+			ui.settings.minimize_to_tray = !ui.settings.minimize_to_tray
+			settings_save(ui.opts.settings_path, ui.settings)
+		}
+		// Only the desktop can tell us a window has been minimized, and
+		// Wayland has no message for it, so say so rather than leave the
+		// setting looking broken.
+		if ui.settings.minimize_to_tray && on_wayland() {
+			mu.layout_row(ctx, {-1})
+			with_text_color(
+				ctx,
+				{230, 200, 90, 255},
+				"    Wayland doesn't tell a window it has been minimized, so here it will just minimize.",
+				label_proc,
+			)
+		}
+	}
 
 	gate_settings(ui)
 
