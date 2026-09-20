@@ -33,7 +33,9 @@ Renderer :: struct {
 	u_screen:     i32,
 	font:         Font,
 	font_texture: u32,
-	icon_texture: u32,
+	icon_texture: u32, // microui's own icons
+	icons:        Icon_Atlas, // ours (ui_icons.odin)
+	icons_texture: u32,
 	bound:        u32, // texture the pending quads use
 	rgba:         bool, // the bound texture is a picture, not the atlas
 	u_rgba:       i32,
@@ -127,6 +129,8 @@ renderer_init :: proc(r: ^Renderer) -> bool {
 renderer_destroy :: proc(r: ^Renderer) {
 	gl.DeleteTextures(1, &r.font_texture)
 	gl.DeleteTextures(1, &r.icon_texture)
+	gl.DeleteTextures(1, &r.icons_texture)
+	icon_atlas_destroy(&r.icons)
 	gl.DeleteBuffers(1, &r.ebo)
 	gl.DeleteBuffers(1, &r.vbo)
 	gl.DeleteVertexArrays(1, &r.vao)
@@ -160,6 +164,12 @@ render :: proc(
 		if font_build_atlas(&r.font, scale) {
 			gl.DeleteTextures(1, &r.font_texture)
 			r.font_texture = make_alpha_texture(r.font.width, r.font.height, r.font.pixels)
+		}
+	}
+	if scale != r.icons.scale {
+		if icon_atlas_build(&r.icons, scale) {
+			gl.DeleteTextures(1, &r.icons_texture)
+			r.icons_texture = make_alpha_texture(r.icons.width, r.icons.height, r.icons.pixels)
 		}
 	}
 
@@ -213,6 +223,10 @@ render :: proc(
 		case ^mu.Command_Icon:
 			if index := int(c.id) - IMAGE_ICON_BASE; index >= 0 {
 				draw_image(r, index, c.rect, c.color)
+				continue
+			}
+			if index := int(c.id) - UI_ICON_BASE; index >= 0 {
+				draw_ui_icon(r, Icon(index), c.rect, c.color)
 				continue
 			}
 			use_texture(r, r.icon_texture)
@@ -283,6 +297,26 @@ draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 		{0, 0, 1, 1},
 		color,
 	)
+}
+
+/*
+draw_ui_icon draws one of our own icons (ui_icons.odin), centred in the
+space the layout gave it. It's drawn at the size it was rasterized for,
+snapped to physical pixels, so it stays as crisp as the text beside it.
+*/
+@(private = "file")
+draw_ui_icon :: proc(r: ^Renderer, icon: Icon, rect: mu.Rect, color: mu.Color) {
+	if r.icons.side == 0 || int(icon) >= len(Icon) {
+		return
+	}
+	use_texture(r, r.icons_texture)
+	side := f32(r.icons.side) / r.scale
+	snap :: proc(v: f32, s: f32) -> f32 {return math.round(v * s) / s}
+	x := snap(f32(rect.x) + (f32(rect.w) - side) / 2, r.scale)
+	y := snap(f32(rect.y) + (f32(rect.h) - side) / 2, r.scale)
+	u0 := f32(int(icon) * int(r.icons.side)) / f32(r.icons.width)
+	u1 := f32((int(icon) + 1) * int(r.icons.side)) / f32(r.icons.width)
+	push_quad(r, {x, y, x + side, y + side}, {u0, 0, u1, 1}, color)
 }
 
 // dst and uv are {x0, y0, x1, y1}.

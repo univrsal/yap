@@ -115,6 +115,10 @@ UI :: struct {
 	hand_shown:     bool,
 	// The image paste being read, if any (ui_paste.odin).
 	paste:          ^Paste_Job,
+	// What the icon button under the pointer does, and where it is, for
+	// the hint drawn under it (see icon_button and icon_hint).
+	hint:           string,
+	hint_of:        mu.Rect,
 	// Chat images: decoded pictures and their textures (ui_images.odin).
 	images:         UI_Images,
 }
@@ -520,6 +524,9 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	}
 	if mu.begin_window(ctx, "yap", {0, 0, w, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
 		main_window(ui, h)
+		// After the panels, so it sits on top of them, and inside the
+		// window, which is where microui can draw at all.
+		icon_hint(ui, w, h)
 		mu.end_window(ctx)
 	}
 	// An enlarged image floats above it all (ui_images.odin).
@@ -548,7 +555,7 @@ connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {60, -200, 90, -1})
+	mu.layout_row(ctx, {60, -134, 90, ICON_BUTTON})
 	mu.label(ctx, "Server")
 	if .SUBMIT in mu.textbox(ctx, ui.server_buf[:], &ui.server_len) {
 		ui.action = .Connect
@@ -556,7 +563,7 @@ connect_screen :: proc(ui: ^UI) {
 	if .SUBMIT in mu.button(ctx, "Connect") {
 		ui.action = .Connect
 	}
-	if .SUBMIT in mu.button(ctx, "Settings") {
+	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
 		ui.page = .Settings
 	}
 
@@ -582,7 +589,7 @@ session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {-380, 90, 90, 90, -1})
+	mu.layout_row(ctx, {-140, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
 	switch v.status {
 	case .Connected:
 		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
@@ -590,16 +597,30 @@ session_screen :: proc(ui: ^UI) {
 	case .Connecting, .Disconnected, .Failed:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
 	}
-	if .SUBMIT in stable_button(ctx, "mute", "Unmute" if ui.muted else "Mute") {
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "mute",
+		   .Mic_Off if ui.muted else .Mic,
+		   "Unmute" if ui.muted else "Mute",
+		   OFF_COLOR if ui.muted else mu.Color{},
+	   ) {
 		set_muted(ui, !ui.muted)
 	}
-	if .SUBMIT in stable_button(ctx, "deafen", "Undeafen" if ui.deafened else "Deafen") {
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "deafen",
+		   .Sound_Off if ui.deafened else .Sound,
+		   "Undeafen" if ui.deafened else "Deafen (hear nobody)",
+		   OFF_COLOR if ui.deafened else mu.Color{},
+	   ) {
 		set_deafened(ui, !ui.deafened)
 	}
-	if .SUBMIT in mu.button(ctx, "Settings") {
+	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
 		ui.page = .Settings
 	}
-	if .SUBMIT in mu.button(ctx, "Disconnect") {
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
 		log.debug("ui: disconnect")
 		ui.action = .Disconnect
 	}
@@ -677,6 +698,65 @@ log_panel :: proc(ui: ^UI) {
 // stable_button is mu.button, except its id comes from `id_name` (under
 // the current id stack) rather than from the label, so the label can
 // change from frame to frame without the button becoming a new control.
+/*
+icon_button is a button with an icon on it instead of a label, and the
+words it saves shown under it while the pointer is on it. Like
+stable_button its id comes from `id_name`, so a button that changes
+what it shows (mute to unmute) keeps the same one.
+*/
+icon_button :: proc(
+	ui: ^UI,
+	id_name: string,
+	icon: Icon,
+	hint: string,
+	color := mu.Color{},
+) -> (
+	res: mu.Result_Set,
+) {
+	ctx := &ui.ctx
+	id := mu.get_id(ctx, id_name)
+	r := mu.layout_next(ctx)
+	mu.update_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+		res += {.SUBMIT}
+	}
+	mu.draw_control_frame(ctx, id, r, .BUTTON)
+	mu.draw_icon(ctx, icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
+	if ctx.hover_id == id {
+		ui.hint, ui.hint_of = hint, r
+	}
+	return
+}
+
+/*
+icon_hint draws what the icon button under the pointer does, just below
+it. It comes after the panels it may overlap, so it's drawn over them
+rather than under.
+*/
+@(private = "file")
+icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
+	ctx := &ui.ctx
+	if ui.hint == "" {
+		return
+	}
+	defer ui.hint = ""
+
+	pad := ctx.style.padding
+	w := ctx.text_width(ctx.style.font, ui.hint) + 2 * pad
+	h := ctx.text_height(ctx.style.font) + 2 * pad
+	// Under the button, pushed left if it would go off the side, and
+	// above it if there's no room below (the chat box's Send button).
+	x := min(ui.hint_of.x, max(window_w - w, 0))
+	y := ui.hint_of.y + ui.hint_of.h + 2
+	if y + h > window_h {
+		y = max(ui.hint_of.y - h - 2, 0)
+	}
+	r := mu.Rect{x, y, w, h}
+	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
+	mu.draw_box(ctx, r, ctx.style.colors[.BORDER])
+	mu.draw_text(ctx, ctx.style.font, ui.hint, {x + pad, y + pad}, ctx.style.colors[.TEXT])
+}
+
 stable_button :: proc(ctx: ^mu.Context, id_name: string, label: string) -> (res: mu.Result_Set) {
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)

@@ -161,7 +161,7 @@ chat_panel :: proc(ui: ^UI) {
 @(private = "file")
 chat_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {-70, -1})
+	mu.layout_row(ctx, {-(ICON_BUTTON + 6), ICON_BUTTON})
 	// Ctrl+V could be an image: hold the text paste back and decide after
 	// the frame (see paste). The id is the one mu.textbox uses.
 	if ctx.focus_id == mu.get_id(ctx, uintptr(&ui.chat.buf[0])) &&
@@ -177,7 +177,7 @@ chat_input :: proc(ui: ^UI) {
 		push_command(&ui.session.client.commands, Typing_Command{})
 	}
 	send := .SUBMIT in res
-	if .SUBMIT in mu.button(ctx, "Send") {
+	if .SUBMIT in icon_button(ui, "send", .Send, "Send") {
 		send = true
 	}
 	if !send {

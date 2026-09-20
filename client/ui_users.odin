@@ -17,28 +17,55 @@ MENU :: "user menu"
 @(private = "file")
 MENU_WIDTH :: 240
 
+// status_icon fills the column in front of a name.
 @(private = "file")
-SPEAKING_COLOR :: mu.Color{110, 220, 110, 255}
-@(private = "file")
-DIM_COLOR :: mu.Color{140, 140, 140, 255}
+status_icon :: proc(ctx: ^mu.Context, icon: Icon, color: mu.Color) {
+	mu.draw_icon(ctx, icon_id(icon), mu.layout_next(ctx), color)
+}
 
-// member_row draws one user in the channel list; other users are clickable.
+// What the icon in front of your own name says, most to least telling:
+// deafened hears nobody, muted says nothing to anybody.
+@(private = "file")
+my_status :: proc(ui: ^UI, speaking: bool) -> (Icon, mu.Color) {
+	switch {
+	case ui.deafened:
+		return .Sound_Off, OFF_COLOR
+	case ui.muted:
+		return .Mic_Off, OFF_COLOR
+	case speaking:
+		return .Mic, SPEAKING_COLOR
+	}
+	return .Mic, DIM_COLOR
+}
+
+/*
+member_row draws one user in the channel list, with an icon in front
+saying what they're up to: a microphone, lit while they're speaking, and
+for you the mute and deafen you've set. Other users are clickable.
+
+Mute and deafen are ours alone - nothing on the wire says whether
+somebody else has muted themselves - so the icon in front of another
+user is about our side of it: a crossed-out speaker where we've muted
+them for ourselves.
+*/
 member_row :: proc(ui: ^UI, id: u32) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {20, -1})
-	mu.label(ctx, "")
+	mu.layout_row(ctx, {ICON_SIZE + 4, -1})
 
 	user, known := v.users[id]
 	if !known {
+		status_icon(ctx, .Mic, DIM_COLOR)
 		mu.label(ctx, fmt.tprintf("user #%d", id))
 		return
 	}
 	if id == v.my_num {
+		icon, color := my_status(ui, is_speaking(v, id))
+		status_icon(ctx, icon, color)
 		text := fmt.tprintf("%s (you)", user.name)
-		if is_speaking(v, id) {
-			with_text_color(ctx, SPEAKING_COLOR, fmt.tprintf("%s  speaking", text), label_proc)
+		if color == SPEAKING_COLOR {
+			with_text_color(ctx, color, text, label_proc)
 		} else {
 			mu.label(ctx, text)
 		}
@@ -47,20 +74,19 @@ member_row :: proc(ui: ^UI, id: u32) {
 
 	u := user_settings(&ui.settings, user.key)
 	text := user.name
-	switch {
-	case u.muted:
-		text = fmt.tprintf("%s  (muted)", text)
-	case u.volume != 1:
+	if u.volume != 1 && !u.muted {
 		text = fmt.tprintf("%s  (%.0f%%)", text, u.volume * 100)
 	}
+	icon, icon_color := Icon.Mic, DIM_COLOR
 	color := ctx.style.colors[.TEXT]
 	switch {
 	case u.muted:
-		color = DIM_COLOR
+		// Muted for us: we're the ones not listening.
+		icon, icon_color, color = .Sound_Off, DIM_COLOR, DIM_COLOR
 	case is_speaking(v, id):
-		text = fmt.tprintf("%s  speaking", text)
-		color = SPEAKING_COLOR
+		icon_color, color = SPEAKING_COLOR, SPEAKING_COLOR
 	}
+	status_icon(ctx, icon, icon_color)
 
 	// A flat, full-width control: highlighted on hover, any click opens
 	// the menu.
