@@ -67,15 +67,15 @@ Decode_Result :: struct {
 }
 
 UI_Images :: struct {
-	textures: map[u32]Texture,
+	textures:    map[u32]Texture,
 	// The image shown enlarged, 0 for none, and whether it still has to
 	// be sized to the window.
-	viewer:   u32,
-	placed:   bool,
+	viewer:      u32,
+	placed:      bool,
 	// A saved copy of what's on screen, so the viewer and saving can work
 	// outside the View's lock.
-	shown:    proto.Image_Info,
-	state:    Image_State,
+	shown:       proto.Image_Info,
+	state:       Image_State,
 	// Bytes to write to the downloads folder after the frame, and where
 	// the last one went. viewer_save is the viewer's Save button, acted
 	// on where the bytes are at hand.
@@ -83,17 +83,17 @@ UI_Images :: struct {
 	viewer_save: bool,
 	saved_to:    string,
 	// What this frame draws, indexed by icon id (see IMAGE_ICON_BASE).
-	draws:    [dynamic]Image_Draw,
-	frame:    int,
+	draws:       [dynamic]Image_Draw,
+	frame:       int,
 
 	// The decoding thread, its queue and what it has finished.
-	worker:   ^thread.Thread,
-	mutex:    sync.Mutex,
-	wake:     sync.Sema,
-	queue:    [dynamic]Decode_Job,
-	results:  [dynamic]Decode_Result,
-	stopping: bool,
-	ctx:      runtime.Context,
+	worker:      ^thread.Thread,
+	mutex:       sync.Mutex,
+	wake:        sync.Sema,
+	queue:       [dynamic]Decode_Job,
+	results:     [dynamic]Decode_Result,
+	stopping:    bool,
+	ctx:         runtime.Context,
 }
 
 ui_images_init :: proc(ui: ^UI) {
@@ -276,10 +276,15 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	defer mu.end_window(ctx)
 	cnt := mu.get_current_container(ctx)
 
-	row := ctx.style.size.y + 2 * ctx.style.padding
+	row := ctx.style.size.y + 2 * ctx.style.padding + 10
 	mu.layout_row(ctx, {-1}, cnt.body.h - i32(row) - ctx.style.spacing)
 	picture := mu.layout_next(ctx)
-	w, h := fit_box(int(im.shown.width), int(im.shown.height), max(int(picture.w), 1), max(int(picture.h), 1))
+	w, h := fit_box(
+		int(im.shown.width),
+		int(im.shown.height),
+		max(int(picture.w), 1),
+		max(int(picture.h), 1),
+	)
 	rect := mu.Rect {
 		picture.x + (picture.w - i32(w)) / 2,
 		picture.y + (picture.h - i32(h)) / 2,
@@ -335,7 +340,10 @@ image_display_size :: proc(ctx: ^mu.Context, width, height: int) -> (w, h: int) 
 	// As wide as the panel's content area.
 	available := 160
 	if cnt := mu.get_current_container(ctx); cnt != nil {
-		available = max(int(cnt.body.w) - 2 * int(ctx.style.padding) - int(ctx.style.scrollbar_size), 32)
+		available = max(
+			int(cnt.body.w) - 2 * int(ctx.style.padding) - int(ctx.style.scrollbar_size),
+			32,
+		)
 	}
 	return fit_box(width, height, available, MAX_IMAGE_DISPLAY_HEIGHT)
 }
@@ -388,7 +396,17 @@ make_image_texture :: proc(img: clipboard.Image) -> (tex: u32) {
 	gl.GenTextures(1, &tex)
 	gl.BindTexture(gl.TEXTURE_2D, tex)
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, i32(img.width), i32(img.height), 0, gl.RGBA, gl.UNSIGNED_BYTE, raw_data(img.pixels))
+	gl.TexImage2D(
+		gl.TEXTURE_2D,
+		0,
+		gl.RGBA8,
+		i32(img.width),
+		i32(img.height),
+		0,
+		gl.RGBA,
+		gl.UNSIGNED_BYTE,
+		raw_data(img.pixels),
+	)
 	// Images are usually drawn smaller than they are.
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
