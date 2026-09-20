@@ -14,6 +14,7 @@ import "vendor:glfw"
 import mu "vendor:microui"
 
 import "../common"
+import "clipboard"
 import "../proto"
 
 /*
@@ -174,6 +175,8 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		return false
 	}
 	defer glfw.DestroyWindow(ui.window)
+	clipboard_init()
+	defer clipboard.destroy()
 	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
 	glfw.MakeContextCurrent(ui.window)
 	glfw.SwapInterval(1)
@@ -277,6 +280,19 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		save_settings(ui)
 	}
 	return true
+}
+
+// clipboard_init sets up reading images from the clipboard. On Wayland it
+// needs GLFW's connection, since only the focused window may read.
+@(private = "file")
+clipboard_init :: proc() {
+	wayland: rawptr
+	when ODIN_OS == .Linux {
+		if glfw.GetPlatform() == glfw.PLATFORM_WAYLAND {
+			wayland = glfw.GetWaylandDisplay()
+		}
+	}
+	clipboard.init(wayland)
 }
 
 // set_hand_cursor switches between the pointing hand and the normal

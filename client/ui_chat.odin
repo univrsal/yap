@@ -10,6 +10,7 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "../proto"
+import "clipboard"
 
 /*
 The right-hand side of the session screen: the channel's text chat and
@@ -34,6 +35,9 @@ UI_Chat :: struct {
 	hover:    uintptr,
 	hovering: bool, // this frame; the cursor becomes a hand
 	open:     string, // clicked link to open after the frame; owned
+	// Ctrl+V was pressed in the chat box: after the frame, look for an
+	// image on the clipboard, else paste its text.
+	paste:    bool,
 }
 
 CHAT_NAME_COLOR :: mu.Color{120, 170, 230, 255}
@@ -62,6 +66,38 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 		open_url(ui.chat.open)
 		delete(ui.chat.open)
 		ui.chat.open = ""
+	}
+	if ui.chat.paste {
+		ui.chat.paste = false
+		paste(ui)
+	}
+}
+
+// paste takes an image from the clipboard if there is one, and pastes
+// text into the chat box otherwise. It runs outside the View lock: the
+// application that owns the clipboard may take a moment.
+@(private = "file")
+paste :: proc(ui: ^UI) {
+	img, err := clipboard.read_image()
+	switch err {
+	case .None:
+		defer clipboard.image_destroy(&img)
+		// TODO: compress and send it.
+		log.infof("pasted a %dx%d image", img.width, img.height)
+		return
+	case .Too_Large:
+		log.warnf("the image on the clipboard is too large (at most %d pixels)", clipboard.MAX_PIXELS)
+		return
+	case .Decode_Failed:
+		log.warn("the image on the clipboard is in a format that can't be read")
+		return
+	case .Timeout:
+		log.warn("the program holding the clipboard didn't hand it over")
+	case .No_Image, .Unavailable:
+	}
+	// The next frame's chat box takes the text as if it had been typed.
+	if text, ok := ui.ctx.textbox_state.get_clipboard(ui.ctx.textbox_state.clipboard_user_data); ok {
+		mu.input_text(&ui.ctx, text)
 	}
 }
 
@@ -146,6 +182,15 @@ chat_panel :: proc(ui: ^UI) {
 chat_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-70, -1})
+	// Ctrl+V could be an image: hold the text paste back and decide after
+	// the frame (see paste). The id is the one mu.textbox uses.
+	if ctx.focus_id == mu.get_id(ctx, uintptr(&ui.chat.buf[0])) &&
+	   .V in ctx.key_pressed_bits &&
+	   .CTRL in ctx.key_down_bits &&
+	   .ALT not_in ctx.key_down_bits {
+		ctx.key_pressed_bits -= {.V}
+		ui.chat.paste = true
+	}
 	res := mu.textbox(ctx, ui.chat.buf[:], &ui.chat.len)
 	box := ctx.last_id
 	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil {
