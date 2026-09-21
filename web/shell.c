@@ -125,11 +125,11 @@ EM_JS(int, yap_ws_origin, (char *buf, int buf_size), {
 
 /* ---- the page ---- */
 
-EM_JS(int, yap_query_server, (char *buf, int buf_size), {
-	const server = new URLSearchParams(location.search).get("server");
-	if (!server || lengthBytesUTF8(server) + 1 > buf_size) return 0;
-	stringToUTF8(server, buf, buf_size);
-	return lengthBytesUTF8(server);
+EM_JS(int, yap_query_param, (const char *name, char *buf, int buf_size), {
+	const value = new URLSearchParams(location.search).get(UTF8ToString(name));
+	if (!value || lengthBytesUTF8(value) + 1 > buf_size) return 0;
+	stringToUTF8(value, buf, buf_size);
+	return lengthBytesUTF8(value);
 });
 
 EM_JS(int, yap_open_url, (const char *url), {

@@ -40,8 +40,9 @@ CHANNELS :: 2 // of every device and buffer
 FRAME_SAMPLES :: 960 // 20 ms, per channel
 FRAME :: FRAME_SAMPLES * CHANNELS // one 20 ms frame, interleaved
 
-// Keep ~30 ms queued for the output device.
-OUTPUT_TARGET :: FRAME * 3 / 2
+// Keep ~30 ms queued for the output device. A browser only gets to mix
+// once per animation frame (~17 ms, see net_web.odin), so it keeps 60.
+OUTPUT_TARGET :: FRAME * 3 when WEB else FRAME * 3 / 2
 // A speaker starts playing once 40 ms are queued (absorbs network jitter)...
 JITTER_PREFILL :: 2 * FRAME
 // ...and is trimmed back to that if the queue ever exceeds 200 ms.
@@ -72,7 +73,11 @@ Voice :: struct {
 	// The microphone stream's channel count (its native one); the capture
 	// callback converts to stereo. Atomic.
 	capture_channels: u32,
+	// nil in a web build, which has no Opus yet: the devices work (the
+	// level meter, the gate, listen back) but nothing is sent or decoded.
 	encoder:     ^opus.Encoder,
+	// voice_init succeeded, so there's a pipeline to open devices for.
+	ready:       bool,
 	quality:     Quality,
 	send_seq:    u32,
 	muted:       bool,
@@ -119,14 +124,21 @@ voice_init :: proc(v: ^Voice) -> bool {
 	v.capture_channels = CHANNELS
 
 	if !encoder_setup(v, .Voice) {
-		return false
+		when !WEB {
+			return false
+		}
 	}
 	for &d in v.denoisers {
 		ok: bool
 		if d, ok = rnn.denoiser_create(); !ok {
-			log.error("rnnoise: could not create a denoiser; noise suppression is unavailable")
+			when WEB {
+				log.debug("rnnoise: no denoiser in the web build")
+			} else {
+				log.error("rnnoise: could not create a denoiser; noise suppression is unavailable")
+			}
 		}
 	}
+	v.ready = true
 	return true
 }
 
@@ -180,7 +192,7 @@ send_captured :: proc(c: ^Voice_Client) {
 		level, pass := mic_process(v, frame[:])
 		listen_feed(v, frame[:], pass)
 		publish_mic(c, level, v.gate.open)
-		if v.muted || !c.has_current || !in_settled_channel(c) {
+		if v.muted || v.encoder == nil || !c.has_current || !in_settled_channel(c) {
 			continue
 		}
 		if !pass {
@@ -232,6 +244,9 @@ voice_receive :: proc(c: ^Voice_Client, speaker: u32, seq: u32, packet: []u8) {
 	publish_voice(c, speaker)
 	if !sync.atomic_load(&v.output) || len(packet) == 0 {
 		return // nothing to play it on
+	}
+	when WEB {
+		return // no Opus decoder yet; who's speaking still shows
 	}
 
 	sp := v.speakers[speaker] or_else nil

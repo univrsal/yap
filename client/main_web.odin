@@ -3,6 +3,7 @@ package client
 
 import "base:runtime"
 import log "../common/wlog"
+import "core:reflect"
 import "core:strings"
 
 import glfw "wglfw"
@@ -31,9 +32,22 @@ g_logger: log.Logger
 
 @(default_calling_convention = "c")
 foreign _ {
-	// The `server` parameter of the page's address, so a link can say
-	// which server to connect to: index.html?server=host:port.
-	yap_query_server :: proc(buf: [^]u8, buf_size: i32) -> i32 ---
+	// A parameter of the page's address, into buf; 0 if it isn't there.
+	yap_query_param :: proc(name: cstring, buf: [^]u8, buf_size: i32) -> i32 ---
+}
+
+/*
+query_param reads the page's address the way the desktop client reads
+its command line:
+
+	index.html?server=host:port   connect straight away
+	index.html?log=debug          log level: debug, info, warn, error
+*/
+@(private = "file")
+query_param :: proc(name: cstring) -> string {
+	buf: [256]u8
+	n := yap_query_param(name, raw_data(buf[:]), len(buf))
+	return strings.clone(string(buf[:n]))
 }
 
 @(export)
@@ -44,7 +58,11 @@ web_start :: proc "c" () -> b32 {
 	context = g_context
 	runtime._startup_runtime()
 
-	logger, ok := common.init_logging(.info, "", {log_lines_sink, &g_logs})
+	level, known := reflect.enum_from_name(common.Log_Level, query_param("log"))
+	if !known {
+		level = .info
+	}
+	logger, ok := common.init_logging(level, "", {log_lines_sink, &g_logs})
 	if !ok {
 		return false
 	}
@@ -53,11 +71,7 @@ web_start :: proc "c" () -> b32 {
 	context.logger = logger
 	web_context_set_logger(logger)
 
-	server_buf: [256]u8
-	server: string
-	if n := yap_query_server(raw_data(server_buf[:]), len(server_buf)); n > 0 {
-		server = strings.clone(string(server_buf[:n]))
-	}
+	server := query_param("server")
 
 	g_web_ui = new(UI)
 	if !ui_startup(

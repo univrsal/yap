@@ -21,6 +21,7 @@ odin build client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -stri
 emcc "$out/yap.obj" \
 	web/shell.c \
 	web/audio_stub.c \
+	client/miniaudio/yap_audio.c \
 	"$stb/stb_truetype.c" \
 	"$stb/stb_image.c" \
 	-O2 \

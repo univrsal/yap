@@ -1,15 +1,16 @@
 /*
-Stand-ins for the audio libraries in the web build, until voice comes
-to the browser: libopus isn't built for wasm yet, and miniaudio's
-WebAudio backend needs the page to ask for the microphone and to run
-audio on a worklet. Everything here reports "no audio", which the
-client already copes with - it's what a machine without a sound card
-looks like - so text chat works and voice quietly doesn't.
+Stand-ins for the codec libraries in the web build, until voice is sent
+from the browser: libopus isn't built for wasm yet. Everything here
+reports "no codec", which the voice pipeline copes with - the devices
+work (the level meter, the gate, listen back), but nothing is encoded or
+decoded, so nothing is sent or played from anyone else. The devices
+themselves are real: client/miniaudio/yap_audio.c is compiled with
+miniaudio's Web Audio backend (see web/build.sh).
 
 RNNoise is plain C and will compile for the browser as it is, but only
 once its header travels with it: the desktop build finds rnnoise.h in
-the system's include path. With no voice to denoise yet, it's stood in
-for here as well.
+the system's include path. Until then it's stood in for here as well,
+and noise suppression is off.
 */
 #include <stddef.h>
 
@@ -47,36 +48,3 @@ void yap_rnnoise_global_init(void) {}
 void *yap_rnnoise_create(void *model) { return NULL; }
 void yap_rnnoise_destroy(void *st) {}
 float yap_rnnoise_process_frame(void *st, float *out, const float *in) { return 0; }
-
-/* ---- yap_audio (miniaudio): there are no devices ---- */
-
-typedef struct yap_audio yap_audio;
-typedef struct yap_audio_stream yap_audio_stream;
-
-#define YAP_AUDIO_NO_BACKEND (-100)
-
-yap_audio *yap_audio_create(int *result) {
-	if (result) *result = YAP_AUDIO_NO_BACKEND;
-	return NULL;
-}
-void yap_audio_destroy(yap_audio *a) {}
-const char *yap_audio_backend_name(yap_audio *a) { return "none (web build)"; }
-const char *yap_audio_result_string(int result) { return "no audio in the web build yet"; }
-int yap_audio_refresh(yap_audio *a) { return YAP_AUDIO_NO_BACKEND; }
-int yap_audio_device_count(yap_audio *a, int dir) { return 0; }
-int yap_audio_device_info(yap_audio *a, int dir, int index, char *name, int *is_default, void *id) {
-	return YAP_AUDIO_NO_BACKEND;
-}
-yap_audio_stream *yap_audio_stream_open(yap_audio *a, int dir, const void *id, unsigned sample_rate,
-                                        unsigned channels, unsigned period_ms, void *callback, void *user,
-                                        int *result) {
-	if (result) *result = YAP_AUDIO_NO_BACKEND;
-	return NULL;
-}
-int yap_audio_stream_start(yap_audio_stream *s) { return YAP_AUDIO_NO_BACKEND; }
-int yap_audio_stream_stop(yap_audio_stream *s) { return YAP_AUDIO_NO_BACKEND; }
-void yap_audio_stream_close(yap_audio_stream *s) {}
-unsigned yap_audio_stream_channels(yap_audio_stream *s) { return 0; }
-void yap_audio_stream_device_name(yap_audio_stream *s, char *name) {
-	if (name) name[0] = 0;
-}

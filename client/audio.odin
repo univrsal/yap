@@ -9,7 +9,8 @@ import ma "miniaudio"
 Audio device discovery, through our trimmed-down miniaudio (see
 miniaudio/yap_audio.c). It picks the platform's backend itself: WASAPI on
 Windows; PulseAudio (which PipeWire provides) or ALSA on Linux, loaded at
-runtime, so there's nothing extra to link or ship.
+runtime, so there's nothing extra to link or ship; Web Audio in a
+browser, which offers one default input and one default output.
 
 The context lives for the whole run: devices are opened through it, and
 device ids are only meaningful to the context that listed them.
@@ -33,14 +34,8 @@ audio_init :: proc(a: ^Audio) -> bool {
 	res: ma.Result
 	a.ctx = ma.create(&res)
 	if a.ctx == nil {
-		when WEB {
-			// Expected, not a fault: voice hasn't come to the browser yet.
-			log.info("voice isn't available in the web build yet; text chat is")
-			a.error = "Voice isn't available in the web build yet."
-		} else {
-			log.errorf("audio: could not initialize any audio backend: %s", ma.result_string(res))
-			a.error = "No audio backend could be initialized."
-		}
+		log.errorf("audio: could not initialize any audio backend: %s", ma.result_string(res))
+		a.error = "No audio backend could be initialized."
 		return false
 	}
 	a.backend = string(ma.backend_name(a.ctx))

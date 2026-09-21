@@ -43,21 +43,25 @@ settings_page :: proc(ui: ^UI, height: i32) {
 
 	quality_row(ui)
 
-	mu.layout_row(ctx, {-1})
-	state := "on" if ui.settings.noise_suppression else "off"
-	if .SUBMIT in
-	   stable_button(
-		   ctx,
-		   "noise",
-		   fmt.tprintf(
-			   "Noise suppression: %s  (removes background noise from your microphone)",
-			   state,
-		   ),
-	   ) {
-		ui.settings.noise_suppression = !ui.settings.noise_suppression
-		settings_save(ui.opts.settings_path, ui.settings)
-		if ui.session != nil {
-			push_command(&ui.session.client.commands, Noise_Command{ui.settings.noise_suppression})
+	// The web build has no RNNoise yet (see web/audio_stub.c), so there's
+	// nothing for the setting to turn on.
+	when !WEB {
+		mu.layout_row(ctx, {-1})
+		state := "on" if ui.settings.noise_suppression else "off"
+		if .SUBMIT in
+		   stable_button(
+			   ctx,
+			   "noise",
+			   fmt.tprintf(
+				   "Noise suppression: %s  (removes background noise from your microphone)",
+				   state,
+			   ),
+		   ) {
+			ui.settings.noise_suppression = !ui.settings.noise_suppression
+			settings_save(ui.opts.settings_path, ui.settings)
+			if ui.session != nil {
+				push_command(&ui.session.client.commands, Noise_Command{ui.settings.noise_suppression})
+			}
 		}
 	}
 
@@ -228,7 +232,7 @@ quality_row :: proc(ui: ^UI) {
 	mu.label(ctx, fmt.tprintf("  %s", QUALITY_PRESETS[current].description))
 
 	mu.layout_row(ctx, {-1})
-	if current != .Voice && ui.settings.noise_suppression {
+	if !WEB && current != .Voice && ui.settings.noise_suppression {
 		with_text_color(
 			ctx,
 			{230, 200, 90, 255},

@@ -15,12 +15,16 @@ when ODIN_OS == .Windows {
 	LIB :: "libyap_audio.a"
 }
 
-when !#exists(LIB) {
-	#panic(
-		"client/miniaudio/" +
-		LIB +
-		" is missing; build it with build.sh (or build.bat on Windows)",
-	)
+// A web build links no library from here: emscripten compiles
+// yap_audio.c itself (see web/build.sh).
+when ODIN_OS != .WASI {
+	when !#exists(LIB) {
+		#panic(
+			"client/miniaudio/" +
+			LIB +
+			" is missing; build it with build.sh (or build.bat on Windows)",
+		)
+	}
 }
 
 

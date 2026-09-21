@@ -46,7 +46,8 @@ int yap_audio_device_info(yap_audio* a, yap_audio_direction dir, int index,
                           char name[YAP_AUDIO_NAME_SIZE], int* is_default, yap_audio_device_id* id);
 
 /*
-Streams. The callback runs on miniaudio's audio thread, once per period:
+Streams. The callback runs on miniaudio's audio thread (in a browser, the
+page's main thread, between frames), once per period:
 for capture, `samples` holds `frame_count` frames that were recorded; for
 playback, fill `samples` with `frame_count` frames (it starts zeroed).
 It must not block.

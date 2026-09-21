@@ -14,12 +14,16 @@ build.bat; the Odin bindings are in miniaudio.odin.
 
 /* Only the backends we'd actually use per platform. On Linux, PulseAudio
    covers PipeWire too (through pipewire-pulse); ALSA is the fallback.
-   Linux backends are loaded at runtime, so nothing extra is linked. */
+   Linux backends are loaded at runtime, so nothing extra is linked. In a
+   browser it's Web Audio, on ScriptProcessorNodes: they call back on the
+   page's one thread, which is all the web build has (see web/build.sh). */
 #define MA_ENABLE_ONLY_SPECIFIC_BACKENDS
 #if defined(_WIN32)
     #define MA_ENABLE_WASAPI
 #elif defined(__APPLE__)
     #define MA_ENABLE_COREAUDIO
+#elif defined(__EMSCRIPTEN__)
+    #define MA_ENABLE_WEBAUDIO
 #else
     #define MA_ENABLE_PULSEAUDIO
     #define MA_ENABLE_ALSA

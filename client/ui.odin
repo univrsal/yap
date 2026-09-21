@@ -594,7 +594,7 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 		}
 	}
 	ns := ui.session
-	if ns == nil || ns.client.voice.encoder == nil {
+	if ns == nil || !ns.client.voice.ready {
 		return
 	}
 	if input {
