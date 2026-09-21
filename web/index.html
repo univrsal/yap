@@ -2,25 +2,30 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- The client lays itself out for whatever it's given: no zooming,
+     and a phone's keyboard shrinks the page rather than covering it. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, interactive-widget=resizes-content">
 <title>yap</title>
 <style>
   html, body {
     margin: 0;
     height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
     background: #1e1e1e;
     color: #b8b8b8;
     font: 14px system-ui, sans-serif;
   }
-  body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  /* The client draws everything itself; the canvas is all there is. */
+  /* The client draws everything itself; the canvas is all there is. It
+     sits in the corner, where touch coordinates start, and takes every
+     gesture itself (web/touch.js). */
   canvas {
     display: block;
+    position: fixed;
+    left: 0;
+    top: 0;
     outline: none;
+    touch-action: none;
   }
   #status {
     position: fixed;
@@ -47,10 +52,21 @@
       // Keys go to the canvas, so it has to have the focus.
       Module.canvas.focus();
     },
-    // Once the client is up, the canvas fills the tab and follows it.
+    // Once the client is up, the canvas fills the tab and follows it -
+    // the visible part of it, which on a phone is what the keyboard
+    // leaves (iOS says so only through visualViewport).
     postRun: [() => {
-      const fit = () => Module._web_resize(window.innerWidth, window.innerHeight);
+      const fit = () => {
+        const view = window.visualViewport;
+        Module._web_resize(
+          Math.floor(view ? view.width : window.innerWidth),
+          Math.floor(view ? view.height : window.innerHeight),
+        );
+        if (view) Module.canvas.style.top = view.offsetTop + "px";
+      };
       window.addEventListener("resize", fit);
+      window.visualViewport?.addEventListener("resize", fit);
+      window.visualViewport?.addEventListener("scroll", fit);
       fit();
     }],
   };

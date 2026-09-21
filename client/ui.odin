@@ -110,6 +110,10 @@ UI :: struct {
 	// Logical pixels per window coordinate, for mouse input. See
 	// window_metrics.
 	input_scale:    f32,
+	// Where this frame's text boxes are, and whether one has the focus:
+	// for a phone's keyboard, in a web build (see ui_text_box.odin).
+	text_boxes:     [dynamic]Text_Box,
+	text_focused:   bool,
 	metrics:        Window_Metrics,
 	// The pointing hand shown over links; created on first use, freed by
 	// glfw.Terminate.
@@ -135,8 +139,8 @@ UI :: struct {
 	window_size:    [2]i32,
 }
 
-// For GLFW's callbacks, which have no user data we can use cheaply.
-@(private = "file")
+// For GLFW's callbacks, which have no user data we can use cheaply, and
+// the page's touch input in a web build (ui_touch_web.odin).
 g_ui: ^UI
 @(private = "file")
 g_logger: log.Logger
@@ -261,8 +265,10 @@ ui_frame :: proc(ui: ^UI) -> bool {
 
 	// Without threads there is nobody else to run the connection, so it
 	// gets its turn here, between frames (see net_thread).
+	// Touch comes in as a queue, one event per frame (ui_touch_web.odin).
 	when WEB {
 		net_step(ui)
+		touch_step(ui)
 	}
 
 	// microui turns a press into focus for whatever `hover_id` names,
@@ -306,9 +312,13 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	}
 	ui.input_scale = m.input_scale
 	ui_images_frame(ui)
+	clear(&ui.text_boxes)
 	mu.begin(&ui.ctx)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
 	mu.end(&ui.ctx)
+	when WEB {
+		touch_after_frame(ui)
+	}
 	set_hand_cursor(ui, ui.chat.hovering)
 	ui_chat_after_frame(ui)
 	ui_images_after_frame(ui)
@@ -326,6 +336,7 @@ ui_shutdown :: proc(ui: ^UI) {
 		save_settings(ui)
 	}
 	ui_images_destroy(ui)
+	delete(ui.text_boxes)
 	// Whatever the paste thread is doing, it uses the clipboard, so it
 	// has to be done before that.
 	paste_wait(ui)
@@ -647,7 +658,7 @@ connect_screen :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {60, -74, ICON_BUTTON, ICON_BUTTON})
 	mu.label(ctx, "Server")
-	if .SUBMIT in mu.textbox(ctx, ui.server_buf[:], &ui.server_len) {
+	if .SUBMIT in text_box(ui, ui.server_buf[:], &ui.server_len) {
 		ui.action = .Connect
 	}
 	if .SUBMIT in icon_button(ui, "send", .Send, "Connect") {
@@ -659,7 +670,7 @@ connect_screen :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {60, 200, -1})
 	mu.label(ctx, "Name")
-	if .SUBMIT in mu.textbox(ctx, ui.name_buf[:], &ui.name_len) {
+	if .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len) {
 		ui.action = .Connect
 	}
 
@@ -679,10 +690,16 @@ connect_screen :: proc(ui: ^UI) {
 	log_panel(ui)
 }
 
+// Narrower than this (a phone, a window squeezed aside), the channels
+// go above the chat instead of beside it.
+NARROW_LAYOUT :: 600
+
 @(private = "file")
 session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
+	body := mu.get_current_container(ctx).body
+	narrow := body.w < NARROW_LAYOUT
 
 	mu.layout_row(ctx, {-140, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
 	switch v.status {
@@ -720,7 +737,11 @@ session_screen :: proc(ui: ^UI) {
 		ui.action = .Disconnect
 	}
 
-	mu.layout_row(ctx, {280, -1}, -1)
+	if narrow {
+		mu.layout_row(ctx, {-1}, max(body.h / 3, 120))
+	} else {
+		mu.layout_row(ctx, {280, -1}, -1)
+	}
 	mu.begin_panel(ctx, "channels")
 	if len(v.channels) == 0 {
 		mu.layout_row(ctx, {-1})
@@ -751,6 +772,9 @@ session_screen :: proc(ui: ^UI) {
 	mu.end_panel(ctx)
 	user_menu(ui)
 
+	if narrow {
+		mu.layout_row(ctx, {-1}, -1)
+	}
 	side_panel(ui)
 }
 

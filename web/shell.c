@@ -140,6 +140,13 @@ EM_JS(int, yap_utc_offset_minutes, (), {
 	return -new Date().getTimezoneOffset();
 });
 
+/* Puts a phone's keyboard away: the hidden field that brought it up
+   (web/touch.js) lets go of the focus. */
+EM_JS(void, yap_keyboard_hide, (), {
+	const field = document.getElementById("yap-keyboard");
+	if (field && document.activeElement === field) field.blur();
+});
+
 int main(void) {
 	if (!web_start()) {
 		printf("yap: the client could not start\n");

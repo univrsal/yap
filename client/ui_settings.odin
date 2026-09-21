@@ -29,7 +29,7 @@ settings_page :: proc(ui: ^UI, height: i32) {
 
 	mu.layout_row(ctx, {60, 200, 70, -1})
 	mu.label(ctx, "Name")
-	submitted := .SUBMIT in mu.textbox(ctx, ui.name_buf[:], &ui.name_len)
+	submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
 	if .SUBMIT in mu.button(ctx, "Apply") || submitted {
 		apply_name(ui)
 	}
