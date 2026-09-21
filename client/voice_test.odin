@@ -113,6 +113,18 @@ test_notification_sounds :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_notification_volume :: proc(t: ^testing.T) {
+	clip := []f32{0.8, -0.4}
+	sounds := Notification_Sounds {
+		active = clip,
+		volume = 0.25,
+	}
+	mix: [2]f32
+	notifications_mix(&sounds, mix[:])
+	testing.expect_value(t, mix, [2]f32{0.2, -0.1})
+}
+
+@(test)
 test_deafen_suppresses_notifications :: proc(t: ^testing.T) {
 	v: Voice
 	testing.expect(t, voice_init(&v))
@@ -153,6 +165,7 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	defer settings_destroy(&s)
 	set_setting(&s.server, "localhost:7777")
 	set_setting(&s.name, "me")
+	s.notification_volume = 0.5
 	set_user_settings(&s, alice, {volume = 0.5})
 	set_user_settings(&s, bob, {volume = 1, muted = true})
 	set_user_settings(&s, carol, {volume = 1.5})
@@ -164,6 +177,7 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	testing.expect_value(t, loaded.server, "localhost:7777")
 	testing.expect_value(t, loaded.name, "me")
 	testing.expect_value(t, loaded.noise_suppression, true)
+	testing.expect_value(t, notification_gain(&loaded), f32(0.5))
 	testing.expect_value(t, len(loaded.users), 2)
 	testing.expect_value(t, user_settings(&loaded, alice), User_Settings{volume = 0.5})
 	testing.expect_value(t, user_settings(&loaded, bob), User_Settings{volume = 1, muted = true})

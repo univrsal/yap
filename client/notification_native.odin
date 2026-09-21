@@ -16,6 +16,7 @@ LEAVE_SOUND_DATA := #load("assets/leave.opus")
 MESSAGE_SOUND_DATA := #load("assets/msg.opus")
 
 notifications_init :: proc(s: ^Notification_Sounds) {
+	s.volume = 1
 	s.join = decode_ogg_opus(JOIN_SOUND_DATA, "join")
 	s.leave = decode_ogg_opus(LEAVE_SOUND_DATA, "leave")
 	s.message = decode_ogg_opus(MESSAGE_SOUND_DATA, "message")
@@ -72,7 +73,7 @@ notifications_mix :: proc(s: ^Notification_Sounds, mix: []f32) {
 		}
 		count := min(len(mix) - at, len(s.active) - s.position)
 		for i in 0 ..< count {
-			mix[at + i] += s.active[s.position + i]
+			mix[at + i] += s.active[s.position + i] * s.volume
 		}
 		at += count
 		s.position += count

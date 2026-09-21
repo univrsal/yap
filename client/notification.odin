@@ -10,6 +10,7 @@ Notification_Sounds :: struct {
 	join:         []f32,
 	leave:        []f32,
 	message:      []f32,
+	volume:       f32,
 	active:       []f32,
 	position:     int,
 	queued:       [8][]f32,

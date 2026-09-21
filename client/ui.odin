@@ -582,6 +582,7 @@ connect :: proc(ui: ^UI) {
 	ns.client.channels.sound = sound_flags(ui.muted, ui.deafened)
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
+	ns.client.voice.notifications.volume = notification_gain(&ui.settings)
 	push_command(&ns.client.commands, Quality_Command{settings_quality(&ui.settings)})
 	push_command(&ns.client.commands, gate_command(&ui.settings))
 	for hex_key, u in ui.settings.users {

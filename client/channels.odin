@@ -395,6 +395,9 @@ Gate_Command :: struct {
 	enabled:           bool,
 	open_db, close_db: f32,
 }
+Notification_Volume_Command :: struct {
+	volume: f32,
+}
 
 Command :: union {
 	Join_Command,
@@ -407,6 +410,7 @@ Command :: union {
 	Gate_Command,
 	Listen_Command,
 	Quality_Command,
+	Notification_Volume_Command,
 	Chat_Command,
 	Poke_Command,
 	Chat_Image_Command,
@@ -500,6 +504,9 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Gate_Command:
 			g := &c.voice.gate
 			g.enabled, g.open_db, g.close_db = v.enabled, v.open_db, v.close_db
+		case Notification_Volume_Command:
+			c.voice.notifications.volume = clamp(v.volume, 0, MAX_USER_VOLUME)
+			log.infof("notification volume: %.0f%%", c.voice.notifications.volume * 100)
 		case Name_Command:
 			set_name(c, v.name)
 			log.infof("name: %q", c.channels.name)

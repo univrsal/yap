@@ -1,7 +1,7 @@
 package client
 
-import "core:fmt"
 import log "../common/wlog"
+import "core:fmt"
 import mu "vendor:microui"
 
 /*
@@ -60,7 +60,10 @@ settings_page :: proc(ui: ^UI, height: i32) {
 			ui.settings.noise_suppression = !ui.settings.noise_suppression
 			settings_save(ui.opts.settings_path, ui.settings)
 			if ui.session != nil {
-				push_command(&ui.session.client.commands, Noise_Command{ui.settings.noise_suppression})
+				push_command(
+					&ui.session.client.commands,
+					Noise_Command{ui.settings.noise_suppression},
+				)
 			}
 		}
 	}
@@ -88,7 +91,11 @@ settings_page :: proc(ui: ^UI, height: i32) {
 			mu.layout_row(ctx, {-1})
 			closes := "hides the client in the tray" if ui.settings.close_to_tray else "quits"
 			if .SUBMIT in
-			   stable_button(ctx, "close_to_tray", fmt.tprintf("    Closing the window %s", closes)) {
+			   stable_button(
+				   ctx,
+				   "close_to_tray",
+				   fmt.tprintf("    Closing the window %s", closes),
+			   ) {
 				ui.settings.close_to_tray = !ui.settings.close_to_tray
 				settings_save(ui.opts.settings_path, ui.settings)
 			}
@@ -120,6 +127,7 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		}
 	}
 
+	notification_volume_settings(ui)
 	gate_settings(ui)
 
 	// The input list gets half of what's left; the output list the rest.
@@ -152,6 +160,24 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		settings_save(ui.opts.settings_path, ui.settings)
 		log.infof("output device: %s", choice if choice != "" else "system default")
 		reopen_audio(ui, false)
+	}
+}
+
+@(private = "file")
+notification_volume_settings :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	volume := notification_gain(&ui.settings) * 100
+	mu.layout_row(ctx, {90, -1})
+	mu.label(ctx, "Notifications")
+	if .CHANGE in mu.slider(ctx, &volume, 0, MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+		ui.settings.notification_volume = volume / 100
+		settings_save(ui.opts.settings_path, ui.settings)
+		if ui.session != nil {
+			push_command(
+				&ui.session.client.commands,
+				Notification_Volume_Command{ui.settings.notification_volume},
+			)
+		}
 	}
 }
 
@@ -220,7 +246,8 @@ quality_row :: proc(ui: ^UI) {
 	mu.label(ctx, "Quality")
 	for preset, q in QUALITY_PRESETS {
 		mark := "> " if q == current else "  "
-		if .SUBMIT in stable_button(ctx, preset.name, fmt.tprintf("%s%s", mark, preset.label)) && q != current {
+		if .SUBMIT in stable_button(ctx, preset.name, fmt.tprintf("%s%s", mark, preset.label)) &&
+		   q != current {
 			set_setting(&ui.settings.quality, preset.name)
 			settings_save(ui.opts.settings_path, ui.settings)
 			if ui.session != nil {

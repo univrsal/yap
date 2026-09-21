@@ -1,8 +1,8 @@
 package client
 
+import log "../common/wlog"
 import "core:encoding/hex"
 import "core:encoding/json"
-import log "../common/wlog"
 import "core:strings"
 
 import "../common"
@@ -23,6 +23,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"voice_gate": true,
 		"gate_open_db": -45,
 		"gate_close_db": -55,
+		"notification_volume": 1,
 		"users": {
 			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "volume": 0.5, "muted": false }
 		}
@@ -34,30 +35,32 @@ readable. An empty name, or one that's no longer present (unplugged),
 means the system default.
 */
 Settings :: struct {
-	server:            string, // last server connected to
-	name:              string, // the name to go by
-	input_device:      string,
-	output_device:     string,
+	server:              string, // last server connected to
+	name:                string, // the name to go by
+	input_device:        string,
+	output_device:       string,
 	// Send quality preset by name ("voice", "high", "music"; quality.odin).
-	quality:           string,
+	quality:             string,
 	// RNNoise on the microphone.
-	noise_suppression: bool,
+	noise_suppression:   bool,
 	// Show an icon in the system tray (ui_tray.odin).
-	tray:              bool,
+	tray:                bool,
 	// What the window's own buttons do while that icon is there: hide
 	// the client in the tray, or what they usually do. Minimizing is
 	// only ours to decide where the desktop says it has happened.
-	close_to_tray:     bool,
-	minimize_to_tray:  bool,
+	close_to_tray:       bool,
+	minimize_to_tray:    bool,
 	// Only send while the microphone level is above the thresholds (dBFS);
 	// see gate.odin.
-	voice_gate:        bool,
-	gate_open_db:      f32,
-	gate_close_db:     f32,
+	voice_gate:          bool,
+	gate_open_db:        f32,
+	gate_close_db:       f32,
+	// How loudly local join, leave, message, and poke effects are mixed.
+	notification_volume: f32, // 1 = as encoded, 0..MAX_USER_VOLUME
 	// How to play other users, keyed by their public key (64 hex digits),
 	// which is what identifies a user; names can be copied. Users with
 	// default settings aren't stored.
-	users:             map[string]User_Settings,
+	users:               map[string]User_Settings,
 }
 
 User_Settings :: struct {
@@ -71,11 +74,12 @@ DEFAULT_USER :: User_Settings {
 MAX_USER_VOLUME :: 3
 
 DEFAULT_SETTINGS :: Settings {
-	noise_suppression = true,
-	close_to_tray     = true,
-	voice_gate        = true,
-	gate_open_db      = DEFAULT_GATE_OPEN_DB,
-	gate_close_db     = DEFAULT_GATE_CLOSE_DB,
+	noise_suppression   = true,
+	close_to_tray       = true,
+	voice_gate          = true,
+	gate_open_db        = DEFAULT_GATE_OPEN_DB,
+	gate_close_db       = DEFAULT_GATE_CLOSE_DB,
+	notification_volume = 1,
 }
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
@@ -175,6 +179,10 @@ settings_quality :: proc(s: ^Settings) -> Quality {
 gate_command :: proc(s: ^Settings) -> Gate_Command {
 	open := clamp(s.gate_open_db, MIN_LEVEL_DB, 0)
 	return {s.voice_gate, open, clamp(s.gate_close_db, MIN_LEVEL_DB, open)}
+}
+
+notification_gain :: proc(s: ^Settings) -> f32 {
+	return clamp(s.notification_volume, 0, MAX_USER_VOLUME)
 }
 
 // user_gain is what the mixer multiplies a user's audio by.
