@@ -1,4 +1,4 @@
-package relay
+package server
 
 import "core:log"
 import "core:net"
@@ -8,6 +8,27 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
+
+/*
+The relay, run alongside the server with -relay: it lets the web client
+reach this server.
+
+A browser can't send UDP, so the web client sends its packets over a
+WebSocket instead, and the relay puts them back on UDP - one UDP socket
+per WebSocket, so the server sees each browser as a client of its own.
+It also serves the web build itself, so one address is all a browser
+needs:
+
+	yap-server server.key -relay:8080
+	open http://localhost:8080/?server=localhost:7777
+
+The relay can't read what it carries: the session is end-to-end between
+the web client and the server, and the relay only ever sees sealed
+packets. It only relays to this server, whatever address the page names,
+so it can't be turned into a way to send UDP anywhere.
+*/
+
+DEFAULT_WEB_DIR :: "web/out"
 
 // How long a UDP read waits before checking whether the WebSocket side
 // has gone; also bounds how long a closed connection lingers.
@@ -34,26 +55,40 @@ web_file_type :: proc(name: string) -> (content_type: string, ok: bool) {
 	return "", false
 }
 
+@(private = "file")
 Relay :: struct {
-	servers: []string, // the only places anything is relayed to
-	web_dir: string,
+	listener: net.TCP_Socket,
+	server:   net.Endpoint, // the only place anything is relayed to
+	web_dir:  string,
 }
 
-run_relay :: proc(servers: []string, port: int, web_dir: string) -> bool {
+/*
+start_relay listens for browsers on `port` and relays them to the server
+on `server_port` of this machine, on a thread of its own. It fails only
+if it can't listen; after that it runs for as long as the process does.
+*/
+start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
 	listener, err := net.listen_tcp({net.IP4_Any, port})
 	if err != nil {
 		log.errorf("could not listen on port %d: %v", port, err)
 		return false
 	}
-	defer net.close(listener)
 
 	r := new(Relay)
-	r.servers = servers
+	r.listener = listener
+	r.server = {net.IP4_Loopback, server_port}
 	r.web_dir = web_dir
-	log.infof("relaying to %s; serving %s on http://localhost:%d/", strings.join(servers, ", ", context.temp_allocator), web_dir, port)
+	log.infof("relaying browsers to udp :%d; serving %s on http://localhost:%d/", server_port, web_dir, port)
+	thread.create_and_start_with_poly_data(r, accept_browsers, init_context = context, self_cleanup = true)
+	return true
+}
 
+@(private = "file")
+accept_browsers :: proc(r: ^Relay) {
 	for {
-		sock, from, accept_err := net.accept_tcp(listener)
+		free_all(context.temp_allocator)
+
+		sock, from, accept_err := net.accept_tcp(r.listener)
 		if accept_err != nil {
 			log.warnf("accept failed: %v", accept_err)
 			continue
@@ -76,7 +111,7 @@ handle_connection :: proc(r: ^Relay, c: ^Conn) {
 	}
 	method, path, upgrade, key := parse_request(head)
 	if method != "GET" {
-		respond(c.sock, "405 Method Not Allowed", "text/plain", "yap-relay only answers GET\n")
+		respond(c.sock, "405 Method Not Allowed", "text/plain", "the yap relay only answers GET\n")
 		return
 	}
 	// The address may carry the page's query (?server=...); only the
@@ -97,30 +132,14 @@ handle_connection :: proc(r: ^Relay, c: ^Conn) {
 }
 
 /*
-relay_websocket carries packets between one browser and one server
+relay_websocket carries packets between one browser and the server
 until either end goes: WebSocket messages out as UDP datagrams, UDP
-datagrams back as WebSocket messages, one to one.
+datagrams back as WebSocket messages, one to one. `target` is the
+address the page was given for the server; it's only for the log, as
+the relay goes to its own server whatever the page asked for.
 */
 @(private = "file")
 relay_websocket :: proc(r: ^Relay, c: ^Conn, target: string, key: string) {
-	allowed := false
-	for s in r.servers {
-		if s == target {
-			allowed = true
-			break
-		}
-	}
-	if !allowed {
-		log.warnf("refused to relay to %q, which this relay wasn't started for", target)
-		respond(c.sock, "403 Forbidden", "text/plain", "this relay doesn't relay there\n")
-		return
-	}
-	server, resolve_err := net.resolve_ip4(target)
-	if resolve_err != nil {
-		log.errorf("could not resolve %s: %v", target, resolve_err)
-		respond(c.sock, "502 Bad Gateway", "text/plain", "could not resolve the server\n")
-		return
-	}
 	udp, udp_err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if udp_err != nil {
 		log.errorf("could not open a UDP socket: %v", udp_err)
@@ -144,12 +163,12 @@ relay_websocket :: proc(r: ^Relay, c: ^Conn, target: string, key: string) {
 	if !send_all(c.sock, transmute([]u8)accept) {
 		return
 	}
-	log.infof("relaying a browser to %s", target)
+	log.infof("relaying a browser (which asked for %s)", target)
 
 	link := Link {
 		ws     = c.sock,
 		udp    = udp,
-		server = server,
+		server = r.server,
 	}
 	back := thread.create_and_start_with_poly_data(&link, server_to_browser, init_context = context)
 
@@ -161,7 +180,7 @@ relay_websocket :: proc(r: ^Relay, c: ^Conn, target: string, key: string) {
 		}
 		#partial switch op {
 		case .Binary:
-			net.send_udp(udp, payload[:n], server)
+			net.send_udp(udp, payload[:n], r.server)
 		case .Ping:
 			sync.guard(&link.write_mutex)
 			write_frame(c.sock, .Pong, payload[:n])
@@ -178,7 +197,7 @@ relay_websocket :: proc(r: ^Relay, c: ^Conn, target: string, key: string) {
 	sync.atomic_store(&link.done, true)
 	thread.join(back)
 	thread.destroy(back)
-	log.infof("a browser left %s", target)
+	log.infof("a browser left (which asked for %s)", target)
 }
 
 // The two directions share the WebSocket, whose frames mustn't

@@ -9,12 +9,14 @@ yet.
 ## Running it
 
 ```sh
-./build.sh                 # the server, the desktop client and yap-relay
+./build.sh                 # the server and the desktop client
 ./web/build.sh             # the web client, into web/out (needs emscripten)
 
-bin/yap-server server.key
-bin/yap-relay localhost:7777
+bin/yap-server server.key -relay:8080
 ```
+
+`-relay` turns on the relay (below) on that TCP port, alongside the
+server; `-web` points it at a web build other than `web/out`.
 
 Then open <http://localhost:8080/?server=localhost:7777>. The `server`
 parameter connects straight away; without it the page starts on the
@@ -26,15 +28,17 @@ browser's console.
 ## Why there's a relay
 
 A browser can't send UDP, which is what yap speaks. So the web client
-sends the same packets over a WebSocket, one packet per message, and
-`yap-relay` puts them back on UDP - one UDP socket per browser, so the
-server sees each as a client of its own. The server needs no changes.
+sends the same packets over a WebSocket, one packet per message, and the
+server's relay (server/relay.odin, started with `-relay`) puts them back
+on UDP - one UDP socket per browser, sent to the server over loopback,
+so the server sees each as a client of its own. Past the relay, the
+server handles browsers exactly as it does desktop clients.
 
 The relay can't read what it carries: the Noise session runs between the
 web client and the server, and the relay only ever sees sealed packets.
-It only relays to the servers it was started with (`yap-relay a:7777,b:7777`),
-so it can't be used to send UDP anywhere else. It also serves the web
-build, so one address is all a browser needs.
+It only relays to its own server, whatever address the page names, so it
+can't be used to send UDP anywhere else. It also serves the web build,
+so one address is all a browser needs.
 
 A page served over https may only open wss:// sockets, so a public
 deployment puts the relay behind something that terminates TLS.

@@ -4,8 +4,8 @@
 # by emscripten with the page's glue and the C it needs. Extra arguments
 # go to the Odin build, e.g. ./web/build.sh -debug
 #
-# Needs emscripten (emcc) as well as Odin. Serve web/out/ over http and
-# run bin/yap-relay beside it; see web/README.md.
+# Needs emscripten (emcc) as well as Odin. To use it, build the server and
+# run bin/yap-server with -relay; see web/README.md.
 set -e
 cd "$(dirname "$0")/.."
 out=web/out

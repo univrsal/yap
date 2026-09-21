@@ -14,6 +14,8 @@ Options :: struct {
 	channels:  string `usage:"JSON file listing the channels (default channels.json). Without it there's a single Lobby channel."`,
 	log_level: common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
 	log_file:  string `usage:"Also append the log to this file."`,
+	relay:     int `usage:"Also serve the web client on this TCP port and relay browsers to this server over WebSockets (e.g. 8080). Off by default."`,
+	web:       string `usage:"Directory holding the web build the relay serves (default web/out)."`,
 }
 
 main :: proc() {
@@ -21,6 +23,7 @@ main :: proc() {
 		port      = DEFAULT_PORT,
 		channels  = DEFAULT_CHANNELS_FILE,
 		log_level = .info,
+		web       = DEFAULT_WEB_DIR,
 	}
 	flags.parse_or_exit(&opt, os.args, .Odin)
 
@@ -34,6 +37,15 @@ main :: proc() {
 	if opt.port <= 0 || opt.port > 65535 {
 		log.errorf("invalid port: %d", opt.port)
 		os.exit(2)
+	}
+	if opt.relay != 0 {
+		if opt.relay < 0 || opt.relay > 65535 {
+			log.errorf("invalid relay port: %d", opt.relay)
+			os.exit(2)
+		}
+		if !start_relay(opt.relay, opt.port, opt.web) {
+			os.exit(1)
+		}
 	}
 
 	if !run_server(opt.key, opt.port, opt.channels) {
