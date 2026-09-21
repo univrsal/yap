@@ -1,23 +1,19 @@
 package client
 
 import "core:crypto/ecdh"
-import "core:encoding/endian"
-import "core:encoding/hex"
 import "core:fmt"
-import "core:log"
-import "core:net"
-import "core:os"
-import "core:slice"
-import "core:strings"
+import log "../common/wlog"
+import "core:encoding/endian"
 import "core:sync"
+import "core:encoding/hex"
+import "core:strings"
 import "core:time"
 
 import "../common"
 import "../proto"
 
 Voice_Client :: struct {
-	sock:          net.UDP_Socket,
-	server:        net.Endpoint,
+	transport:     Transport,
 	server_addr:   string, // as typed; the key in known_servers
 	known_servers: string,
 	key:           ecdh.Private_Key,
@@ -41,7 +37,6 @@ Voice_Client :: struct {
 	images:        Image_Client,
 	commands:      Command_Queue,
 	status:        Status,
-	sock_open:     bool,
 	// Shared with the UI, if there is one; nil in headless mode.
 	view:          ^View,
 
@@ -49,7 +44,7 @@ Voice_Client :: struct {
 	last_stats:    time.Tick,
 }
 
-// client_open loads our key and prepares the socket. It doesn't wait
+// client_open loads our key and opens the transport. It doesn't wait
 // for the server: the handshake happens in client_step.
 client_open :: proc(c: ^Voice_Client, key_path, server_addr, known_servers, name: string) -> bool {
 	set_name(c, name)
@@ -64,28 +59,14 @@ client_open :: proc(c: ^Voice_Client, key_path, server_addr, known_servers, name
 	log.infof("my public key: %s", common.public_key_hex(&c.key))
 	publish_status(c, .Connecting)
 
-	ep, resolve_err := net.resolve_ip4(server_addr)
-	if resolve_err != nil {
-		log.errorf("failed to resolve %s: %v", server_addr, resolve_err)
+	if !transport_open(&c.transport, server_addr) {
 		publish_status(
 			c,
 			.Failed,
-			fmt.tprintf("Could not resolve %s. Expected host:port.", server_addr),
+			fmt.tprintf("Could not reach %s. Expected host:port.", server_addr),
 		)
 		return false
 	}
-	c.server = ep
-
-	sock, err := net.make_bound_udp_socket(net.IP4_Any, 0)
-	if err != nil {
-		log.errorf("failed to create socket: %v", err)
-		publish_status(c, .Failed, "Could not open a network socket.")
-		return false
-	}
-	c.sock = sock
-	c.sock_open = true
-	// Short timeout so the loop can also pace outgoing frames.
-	net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
 	c.last_stats = time.tick_now()
 	return true
 }
@@ -100,10 +81,7 @@ client_close :: proc(c: ^Voice_Client) {
 			send_data(c, leave[:])
 		}
 	}
-	if c.sock_open {
-		net.close(c.sock)
-		c.sock_open = false
-	}
+	transport_close(&c.transport)
 
 	proto.initiator_reset(&c.handshake)
 	proto.session_reset(&c.pending)
@@ -142,74 +120,14 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	}
 
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
-	n, from, recv_err := net.recv_udp(c.sock, recv_buf[:])
-	#partial switch recv_err {
-	case .None:
-		if from == c.server && !common.simulate_loss() && !handle_server_packet(c, recv_buf[:n]) {
+	if packet, ok := transport_recv(&c.transport, recv_buf[:]); ok {
+		if !common.simulate_loss() && !handle_server_packet(c, packet) {
 			return false
 		}
-	case .Timeout, .Would_Block:
-	case:
-		log.errorf("recv error: %v", recv_err)
 	}
 
 	log_stats(c)
 	return true
-}
-
-// run_headless is the command-line client: commands come from stdin.
-// With tone_hz > 0 it "talks" by sending that tone and logs what it hears
-// (see Fake_Audio), which exercises the whole voice path without devices.
-// input_file (raw 48 kHz mono f32) is looped as the microphone instead.
-run_headless :: proc(
-	key_path, server_addr, known_servers, initial_channel, name: string,
-	tone_hz: f32,
-	input_file: string,
-	image_dir: string,
-	denoise: bool,
-	gate: bool,
-	quality: Quality,
-) -> bool {
-	// Heap-allocated: the channel state buffers make it fairly large.
-	c := new(Voice_Client)
-	defer free(c)
-	if !voice_init(&c.voice) {
-		return false
-	}
-	defer voice_destroy(&c.voice)
-	c.voice.denoise = denoise
-	c.voice.gate.enabled = gate
-	c.images.dir = image_dir
-	if quality != .Voice && !encoder_setup(&c.voice, quality) {
-		return false
-	}
-	fake: Fake_Audio
-	input: []f32
-	if input_file != "" {
-		data, err := os.read_entire_file(input_file, context.allocator)
-		if err != nil || len(data) < size_of(f32) {
-			log.errorf("could not read %s: %v", input_file, err)
-			return false
-		}
-		input = slice.reinterpret([]f32, data[:len(data) - len(data) % size_of(f32)])
-	}
-	defer delete(input)
-	if tone_hz > 0 || len(input) > 0 {
-		fake_audio_start(&fake, &c.voice, tone_hz, input)
-	}
-	defer fake_audio_stop(&fake)
-	defer client_close(c)
-	if !client_open(c, key_path, server_addr, known_servers, name) {
-		return false
-	}
-
-	if initial_channel != "" {
-		request_join(c, initial_channel)
-	}
-	start_command_reader(&c.commands)
-
-	for client_step(c) {}
-	return false
 }
 
 // drive_handshake starts a handshake when there's no usable session or
@@ -239,7 +157,7 @@ drive_handshake :: proc(c: ^Voice_Client) {
 			return
 		}
 		ini.last_sent = time.tick_now()
-		net.send_udp(c.sock, packet, c.server)
+		transport_send(&c.transport, packet)
 
 	case .Sent_Init, .Sent_Finish:
 		// Resending verbatim is fine: the server answers a repeated Init
@@ -247,7 +165,7 @@ drive_handshake :: proc(c: ^Voice_Client) {
 		if time.tick_since(ini.last_sent) >= proto.HANDSHAKE_RETRY {
 			log.debugf("resending %v", proto.packet_type(proto.initiator_packet(ini)))
 			ini.last_sent = time.tick_now()
-			net.send_udp(c.sock, proto.initiator_packet(ini), c.server)
+			transport_send(&c.transport, proto.initiator_packet(ini))
 		}
 	}
 }
@@ -291,7 +209,7 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		}
 		c.has_pending = true
 		c.handshake.last_sent = time.tick_now()
-		net.send_udp(c.sock, finish, c.server)
+		transport_send(&c.transport, finish)
 
 	case .Data:
 		idx := proto.receiver_index(packet)
@@ -417,8 +335,7 @@ send_data :: proc(c: ^Voice_Client, plaintext: []byte) -> bool {
 		return false
 	}
 	c.last_sent = time.tick_now()
-	_, err := net.send_udp(c.sock, pkt, c.server)
-	return err == nil
+	return transport_send(&c.transport, pkt)
 }
 
 log_stats :: proc(c: ^Voice_Client) {

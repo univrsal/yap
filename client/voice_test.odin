@@ -1,3 +1,4 @@
+#+build !wasi
 package client
 
 import "core:math"

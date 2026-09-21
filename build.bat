@@ -26,3 +26,4 @@ del %TRAY%\yap_tray.obj
 
 odin build server -vet -strict-style -out:bin\yap-server.exe %* || exit /b 1
 odin build client -vet -strict-style -out:bin\yap-client.exe %* || exit /b 1
+odin build relay -vet -strict-style -out:bin\yap-relay.exe %* || exit /b 1

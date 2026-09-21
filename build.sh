@@ -1,6 +1,8 @@
 #!/bin/sh
-# Builds bin/yap-server and bin/yap-client. Extra arguments are passed to
-# both builds, e.g. ./build.sh -debug -define:YAP_LOSS_PERCENT=30
+# Builds bin/yap-server, bin/yap-client and bin/yap-relay (which lets the
+# web client reach a server; the web client itself is web/build.sh).
+# Extra arguments are passed to all three builds, e.g.
+# ./build.sh -debug -define:YAP_LOSS_PERCENT=30
 #
 # The client links a trimmed-down miniaudio (client/miniaudio), RNNoise
 # (client/rnn) and traycon (client/tray), compiled here with the system C
@@ -45,3 +47,4 @@ fi
 
 odin build server -vet -strict-style -out:bin/yap-server "$@"
 odin build client -vet -strict-style -out:bin/yap-client "$@"
+odin build relay -vet -strict-style -out:bin/yap-relay "$@"

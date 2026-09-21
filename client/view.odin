@@ -1,6 +1,6 @@
 package client
 
-import "core:log"
+import log "../common/wlog"
 import "core:strings"
 import "core:sync"
 import "core:time"

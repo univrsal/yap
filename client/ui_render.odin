@@ -1,7 +1,7 @@
 package client
 
 import "core:math"
-import gl "vendor:OpenGL"
+import gl "wgl"
 import mu "vendor:microui"
 
 /*
@@ -50,9 +50,16 @@ Renderer :: struct {
 @(private = "file")
 g_font: ^Font
 
+/*
+WebGL 2 speaks GLSL ES 3.00, which as far as these shaders go is the
+same language as desktop GLSL 3.30 - it only wants its own version line
+and a default precision for floats.
+*/
 @(private = "file")
-VERTEX_SHADER :: `#version 330 core
-layout(location = 0) in vec2 a_pos;
+SHADER_HEADER :: "#version 300 es\nprecision mediump float;\n" when WEB else "#version 330 core\n"
+
+@(private = "file")
+VERTEX_SHADER :: SHADER_HEADER + `layout(location = 0) in vec2 a_pos;
 layout(location = 1) in vec2 a_uv;
 layout(location = 2) in vec4 a_color;
 uniform vec2 u_screen;
@@ -66,8 +73,7 @@ void main() {
 `
 
 @(private = "file")
-FRAGMENT_SHADER :: `#version 330 core
-in vec2 v_uv;
+FRAGMENT_SHADER :: SHADER_HEADER + `in vec2 v_uv;
 in vec4 v_color;
 uniform sampler2D u_atlas;
 // The atlases keep coverage in their red channel; chat images are

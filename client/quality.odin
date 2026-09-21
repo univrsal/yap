@@ -1,6 +1,6 @@
 package client
 
-import "core:log"
+import log "../common/wlog"
 
 import "opus"
 
@@ -89,7 +89,13 @@ encoder_setup :: proc(v: ^Voice, q: Quality) -> bool {
 	err: opus.Error
 	enc := opus.encoder_create(SAMPLE_RATE, p.channels, p.application, &err)
 	if enc == nil {
-		log.errorf("opus: could not create a %s encoder: %s", p.label, opus.strerror(err))
+		// A web build has no encoder to make yet, and has said so once
+		// already (audio_init).
+		when WEB {
+			log.debugf("opus: no %s encoder in the web build", p.label)
+		} else {
+			log.errorf("opus: could not create a %s encoder: %s", p.label, opus.strerror(err))
+		}
 		return false
 	}
 	opus.encoder_set(enc, .Set_Bitrate, p.bitrate)

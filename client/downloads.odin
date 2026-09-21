@@ -1,9 +1,10 @@
+#+build !wasi
 package client
 
 import "core:crypto"
 import "core:encoding/hex"
 import "core:fmt"
-import "core:log"
+import log "../common/wlog"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"

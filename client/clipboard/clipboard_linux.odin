@@ -1,6 +1,6 @@
 package clipboard
 
-import "core:log"
+import log "../../common/wlog"
 import "core:sys/linux"
 import "core:time"
 

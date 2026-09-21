@@ -1,7 +1,7 @@
 package client
 
 import "core:fmt"
-import "core:log"
+import log "../common/wlog"
 import mu "vendor:microui"
 
 /*
@@ -61,55 +61,58 @@ settings_page :: proc(ui: ^UI, height: i32) {
 		}
 	}
 
-	mu.layout_row(ctx, {-1})
-	tray_state := "on" if ui.settings.tray else "off"
-	if .SUBMIT in
-	   stable_button(
-		   ctx,
-		   "tray",
-		   fmt.tprintf(
-			   "Tray icon: %s  (shows whether you're talking, muted or deafened)",
-			   tray_state,
-		   ),
-	   ) {
-		ui.settings.tray = !ui.settings.tray
-		settings_save(ui.opts.settings_path, ui.settings)
-		tray_update(ui)
-	}
-	// What the window's own buttons do is only a question while there's
-	// a tray to put it in.
-	if ui.settings.tray {
+	// A page has no system tray, and its window is a browser tab.
+	when !WEB {
 		mu.layout_row(ctx, {-1})
-		closes := "hides the client in the tray" if ui.settings.close_to_tray else "quits"
-		if .SUBMIT in
-		   stable_button(ctx, "close_to_tray", fmt.tprintf("    Closing the window %s", closes)) {
-			ui.settings.close_to_tray = !ui.settings.close_to_tray
-			settings_save(ui.opts.settings_path, ui.settings)
-		}
-
-		mu.layout_row(ctx, {-1})
-		minimizes :=
-			"hides the client in the tray" if ui.settings.minimize_to_tray else "just minimizes it"
+		tray_state := "on" if ui.settings.tray else "off"
 		if .SUBMIT in
 		   stable_button(
 			   ctx,
-			   "minimize_to_tray",
-			   fmt.tprintf("    Minimizing the window %s", minimizes),
+			   "tray",
+			   fmt.tprintf(
+				   "Tray icon: %s  (shows whether you're talking, muted or deafened)",
+				   tray_state,
+			   ),
 		   ) {
-			ui.settings.minimize_to_tray = !ui.settings.minimize_to_tray
+			ui.settings.tray = !ui.settings.tray
 			settings_save(ui.opts.settings_path, ui.settings)
+			tray_update(ui)
 		}
-		// Only the desktop can tell us a window has been minimized, and
-		// Wayland has no message for it, so say so rather than leave the
-		// setting looking broken.
-		if ui.settings.minimize_to_tray && on_wayland() {
+		// What the window's own buttons do is only a question while there's
+		// a tray to put it in.
+		if ui.settings.tray {
 			mu.layout_row(ctx, {-1})
-			with_text_color(
-				ctx,
-				{230, 200, 90, 255},
-				"    Wayland doesn't tell a window it has been minimized, so here it will just minimize.",
-				label_proc,
-			)
+			closes := "hides the client in the tray" if ui.settings.close_to_tray else "quits"
+			if .SUBMIT in
+			   stable_button(ctx, "close_to_tray", fmt.tprintf("    Closing the window %s", closes)) {
+				ui.settings.close_to_tray = !ui.settings.close_to_tray
+				settings_save(ui.opts.settings_path, ui.settings)
+			}
+
+			mu.layout_row(ctx, {-1})
+			minimizes :=
+				"hides the client in the tray" if ui.settings.minimize_to_tray else "just minimizes it"
+			if .SUBMIT in
+			   stable_button(
+				   ctx,
+				   "minimize_to_tray",
+				   fmt.tprintf("    Minimizing the window %s", minimizes),
+			   ) {
+				ui.settings.minimize_to_tray = !ui.settings.minimize_to_tray
+				settings_save(ui.opts.settings_path, ui.settings)
+			}
+			// Only the desktop can tell us a window has been minimized, and
+			// Wayland has no message for it, so say so rather than leave the
+			// setting looking broken.
+			if ui.settings.minimize_to_tray && on_wayland() {
+				mu.layout_row(ctx, {-1})
+				with_text_color(
+					ctx,
+					{230, 200, 90, 255},
+					"    Wayland doesn't tell a window it has been minimized, so here it will just minimize.",
+					label_proc,
+				)
+			}
 		}
 	}
 

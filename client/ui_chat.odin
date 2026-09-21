@@ -1,11 +1,10 @@
 package client
 
 import "core:fmt"
-import "core:log"
+import log "../common/wlog"
 import "core:strings"
 import "core:time"
 import "core:time/datetime"
-import "core:time/timezone"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
@@ -47,11 +46,11 @@ LINK_COLOR :: mu.Color{100, 165, 245, 255}
 LINK_HOVER_COLOR :: mu.Color{160, 205, 255, 255}
 
 ui_chat_init :: proc(ui: ^UI) {
-	ui.chat.tz, _ = timezone.region_load("local")
+	chat_load_timezone(ui)
 }
 
 ui_chat_destroy :: proc(ui: ^UI) {
-	timezone.region_destroy(ui.chat.tz)
+	chat_unload_timezone(ui)
 	delete(ui.chat.open)
 }
 
@@ -225,12 +224,7 @@ typing_text :: proc(v: ^View) -> string {
 chat_time :: proc(ui: ^UI, unix: u32) -> string {
 	local :: proc(ui: ^UI, t: time.Time) -> datetime.DateTime {
 		dt, _ := time.time_to_datetime(t)
-		if ui.chat.tz != nil {
-			if l, ok := timezone.datetime_to_tz(dt, ui.chat.tz); ok {
-				return l
-			}
-		}
-		return dt
+		return chat_local_time(ui, dt)
 	}
 	dt := local(ui, time.unix(i64(unix), 0))
 	now := local(ui, time.now())

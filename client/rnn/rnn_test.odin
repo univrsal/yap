@@ -1,3 +1,4 @@
+#+build !wasi
 package rnn
 
 import "core:math"

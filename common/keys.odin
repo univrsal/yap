@@ -2,8 +2,7 @@ package common
 
 import "core:crypto/ecdh"
 import "core:encoding/hex"
-import "core:log"
-import "core:os"
+import log "wlog"
 import "core:strings"
 
 import "../proto"
@@ -20,9 +19,7 @@ keygen :: proc(path: string) -> bool {
 	raw: [proto.KEY_SIZE]byte
 	ecdh.private_key_bytes(&key, raw[:])
 	encoded := hex.encode(raw[:], context.temp_allocator)
-	if err := os.write_entire_file(path, encoded, os.Permissions{.Read_User, .Write_User});
-	   err != nil {
-		log.errorf("failed to write %s: %v", path, err)
+	if !store_write(path, string(encoded), private = true) {
 		return false
 	}
 
@@ -33,20 +30,19 @@ keygen :: proc(path: string) -> bool {
 // load_or_create_private_key loads `path`, generating a new key there
 // first if the file doesn't exist yet.
 load_or_create_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool {
-	if !os.exists(path) && !keygen(path) {
+	if !store_exists(path) && !keygen(path) {
 		return false
 	}
 	return load_private_key(path, key)
 }
 
 load_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool {
-	data, err := os.read_entire_file(path, context.temp_allocator)
-	if err != nil {
-		log.errorf("failed to read %s: %v", path, err)
+	data, read_ok := store_read(path, context.temp_allocator)
+	if !read_ok {
 		return false
 	}
 	raw, ok := hex.decode(
-		transmute([]byte)strings.trim_space(string(data)),
+		transmute([]byte)strings.trim_space(data),
 		context.temp_allocator,
 	)
 	if !ok || len(raw) != proto.KEY_SIZE || !ecdh.private_key_set_bytes(key, .X25519, raw) {

@@ -1,3 +1,4 @@
+#+build !wasi
 package opus
 
 import "core:math"

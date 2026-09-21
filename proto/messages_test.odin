@@ -1,3 +1,4 @@
+#+build !wasi
 package proto
 
 import "core:fmt"

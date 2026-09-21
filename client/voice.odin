@@ -1,7 +1,7 @@
 package client
 
 import "core:encoding/endian"
-import "core:log"
+import log "../common/wlog"
 import "core:sync"
 import "core:time"
 

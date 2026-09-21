@@ -1,6 +1,6 @@
 package client
 
-import "core:log"
+import log "../common/wlog"
 import "core:strings"
 
 import ma "miniaudio"
@@ -33,8 +33,14 @@ audio_init :: proc(a: ^Audio) -> bool {
 	res: ma.Result
 	a.ctx = ma.create(&res)
 	if a.ctx == nil {
-		log.errorf("audio: could not initialize any audio backend: %s", ma.result_string(res))
-		a.error = "No audio backend could be initialized."
+		when WEB {
+			// Expected, not a fault: voice hasn't come to the browser yet.
+			log.info("voice isn't available in the web build yet; text chat is")
+			a.error = "Voice isn't available in the web build yet."
+		} else {
+			log.errorf("audio: could not initialize any audio backend: %s", ma.result_string(res))
+			a.error = "No audio backend could be initialized."
+		}
 		return false
 	}
 	a.backend = string(ma.backend_name(a.ctx))

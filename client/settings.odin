@@ -2,10 +2,10 @@ package client
 
 import "core:encoding/hex"
 import "core:encoding/json"
-import "core:log"
-import "core:os"
+import log "../common/wlog"
 import "core:strings"
 
+import "../common"
 import "../proto"
 
 /*
@@ -83,11 +83,11 @@ DEFAULT_SETTINGS :: Settings {
 settings_load :: proc(path: string) -> (s: Settings) {
 	// Fields missing from the file keep their defaults.
 	s = DEFAULT_SETTINGS
-	data, err := os.read_entire_file(path, context.temp_allocator)
-	if err != nil {
+	data, ok := common.store_read(path, context.temp_allocator)
+	if !ok {
 		return
 	}
-	if json_err := json.unmarshal(data, &s); json_err != nil {
+	if json_err := json.unmarshal(transmute([]u8)data, &s); json_err != nil {
 		log.warnf("ignoring unreadable settings in %s: %v", path, json_err)
 		settings_destroy(&s)
 		return DEFAULT_SETTINGS
@@ -105,13 +105,7 @@ settings_save :: proc(path: string, s: Settings) {
 		log.errorf("could not encode settings: %v", err)
 		return
 	}
-	dir, _ := os.split_path(path)
-	if dir != "" {
-		os.make_directory_all(dir)
-	}
-	if write_err := os.write_entire_file(path, data); write_err != nil {
-		log.errorf("could not save settings to %s: %v", path, write_err)
-	}
+	common.store_write(path, string(data))
 }
 
 settings_destroy :: proc(s: ^Settings) {

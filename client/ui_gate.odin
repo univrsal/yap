@@ -1,7 +1,7 @@
 package client
 
 import "core:fmt"
-import "core:log"
+import log "../common/wlog"
 import "core:sync"
 import "core:time"
 import mu "vendor:microui"

@@ -12,3 +12,4 @@ client/tray/*.a
 client/tray/*.lib
 client/tray/*.o
 client/tray/*.obj
+web/out/

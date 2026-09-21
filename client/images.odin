@@ -1,9 +1,6 @@
 package client
 
-import "core:fmt"
-import "core:log"
-import "core:os"
-import "core:path/filepath"
+import log "../common/wlog"
 import "core:time"
 
 import "../proto"
@@ -218,20 +215,8 @@ trim_images :: proc(c: ^Voice_Client) {
 }
 
 // save_image writes an image to -image-dir, which headless mode uses to
-// show what it received.
-@(private = "file")
-save_image :: proc(c: ^Voice_Client, id: u32, img: ^Client_Image) {
-	if c.images.dir == "" {
-		return
-	}
-	name := fmt.tprintf("image-%d.jpg", id)
-	path, _ := filepath.join({c.images.dir, name}, context.temp_allocator)
-	if err := os.write_entire_file(path, img.data); err != nil {
-		log.errorf("could not save %s: %v", path, err)
-		return
-	}
-	log.infof("saved image %d to %s (%dx%d)", id, path, img.info.width, img.info.height)
-}
+// show what it received. A web build has no directories to write to and
+// no headless mode either (see images_save_native.odin).
 
 /*
 Uploading: the image at the head of the chat outbox.

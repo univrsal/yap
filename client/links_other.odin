@@ -1,4 +1,5 @@
 #+build !windows
+#+build !wasi
 package client
 
 import "core:os"

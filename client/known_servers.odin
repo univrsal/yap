@@ -2,10 +2,9 @@ package client
 
 import "core:encoding/hex"
 import "core:fmt"
-import "core:log"
-import "core:os"
 import "core:strings"
 
+import "../common"
 import "../proto"
 
 /*
@@ -20,17 +19,6 @@ Trust :: enum {
 	Mismatch, // saved key differs: possible impersonation
 }
 
-// default_config_path returns <config dir>/yap/<name>, or "" if there's
-// no config dir. The result lives for the whole run, so it must not come
-// from the temp allocator: the client loop frees that every iteration.
-default_config_path :: proc(name: string, allocator := context.allocator) -> string {
-	dir, err := os.user_config_dir(context.temp_allocator)
-	if err != nil {
-		return ""
-	}
-	path, _ := os.join_path({dir, "yap", name}, allocator)
-	return path
-}
 
 check_server_key :: proc(
 	path, addr: string,
@@ -39,8 +27,8 @@ check_server_key :: proc(
 	trust: Trust,
 	saved: [proto.KEY_SIZE]byte,
 ) {
-	data, err := os.read_entire_file(path, context.temp_allocator)
-	if err != nil {
+	data, read_ok := common.store_read(path, context.temp_allocator)
+	if !read_ok {
 		return .New, {} // missing file == no known servers yet
 	}
 
@@ -60,24 +48,15 @@ check_server_key :: proc(
 	return .New, {}
 }
 
+/*
+The file is a line per server, so a new one goes on by reading what's
+there and writing it back with the line added. It's a handful of lines
+either way, and this works the same on a browser's local storage as it
+does on a file (see common/store.odin).
+*/
 remember_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bool {
-	dir, _ := os.split_path(path)
-	if dir != "" {
-		os.make_directory_all(dir)
-	}
-
-	f, err := os.open(path, {.Write, .Create, .Append}, os.Permissions{.Read_User, .Write_User})
-	if err != nil {
-		log.errorf("failed to open %s: %v", path, err)
-		return false
-	}
-	defer os.close(f)
-
 	key := key
 	line := fmt.tprintf("%s %s\n", addr, string(hex.encode(key[:], context.temp_allocator)))
-	if _, err = os.write_string(f, line); err != nil {
-		log.errorf("failed to write %s: %v", path, err)
-		return false
-	}
-	return true
+	existing, _ := common.store_read(path, context.temp_allocator)
+	return common.store_write(path, strings.concatenate({existing, line}, context.temp_allocator))
 }

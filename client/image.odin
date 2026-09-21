@@ -1,7 +1,8 @@
+#+build !wasi
 package client
 
 import "base:runtime"
-import "core:log"
+import log "../common/wlog"
 import "core:math"
 import "core:os"
 import stbi "vendor:stb/image"
@@ -38,15 +39,6 @@ QUALITY_SCALED :: 75
 // How often to shrink and try again before giving up.
 MAX_SCALE_ROUNDS :: 4
 
-Chat_Image :: struct {
-	jpeg:          []u8, // owned
-	width, height: int, // after scaling
-}
-
-chat_image_destroy :: proc(img: ^Chat_Image, allocator := context.allocator) {
-	delete(img.jpeg, allocator)
-	img^ = {}
-}
 
 // image_load prepares an image file (PNG, JPEG, ...) the same way a
 // pasted one is prepared.
@@ -133,21 +125,6 @@ image_prepare :: proc(src: clipboard.Image, allocator := context.allocator) -> (
 	return {}, false
 }
 
-// fit_box shrinks (never grows) width and height to fit a rectangle,
-// keeping the shape of the image.
-fit_box :: proc(width, height, max_w, max_h: int) -> (w, h: int) {
-	if width <= 0 || height <= 0 {
-		return max_w, max_h
-	}
-	w, h = width, height
-	if w > max_w {
-		w, h = max_w, max(height * max_w / width, 1)
-	}
-	if h > max_h {
-		w, h = max(w * max_h / h, 1), max_h
-	}
-	return w, h
-}
 
 // fit shrinks (never grows) width and height to fit a square of `side`.
 fit :: proc(width, height, side: int) -> (w, h: int) {

@@ -2,11 +2,10 @@ package client
 
 import "base:runtime"
 import "core:fmt"
-import "core:log"
-import "core:path/filepath"
+import log "../common/wlog"
+import "core:strings"
 import "core:sync"
-import "core:thread"
-import gl "vendor:OpenGL"
+import gl "wgl"
 import mu "vendor:microui"
 
 import "../proto"
@@ -53,13 +52,11 @@ Texture :: struct {
 	frame:   int, // when it was last drawn
 }
 
-@(private = "file")
 Decode_Job :: struct {
 	id:   u32,
 	jpeg: []u8, // owned by the job
 }
 
-@(private = "file")
 Decode_Result :: struct {
 	id:    u32,
 	image: clipboard.Image, // pixels owned by the result
@@ -87,7 +84,7 @@ UI_Images :: struct {
 	frame:       int,
 
 	// The decoding thread, its queue and what it has finished.
-	worker:      ^thread.Thread,
+	worker:      Decode_Worker,
 	mutex:       sync.Mutex,
 	wake:        sync.Sema,
 	queue:       [dynamic]Decode_Job,
@@ -98,11 +95,7 @@ UI_Images :: struct {
 
 ui_images_init :: proc(ui: ^UI) {
 	ui.images.ctx = context
-	ui.images.worker = thread.create_and_start_with_poly_data(
-		&ui.images,
-		decode_worker,
-		init_context = context,
-	)
+	decode_worker_start(ui)
 }
 
 /*
@@ -123,11 +116,7 @@ ui_images_destroy :: proc(ui: ^UI) {
 		sync.guard(&im.mutex)
 		im.stopping = true
 	}
-	sync.sema_post(&im.wake)
-	if im.worker != nil {
-		thread.join(im.worker)
-		thread.destroy(im.worker)
-	}
+	decode_worker_stop(ui)
 	for job in im.queue {
 		delete(job.jpeg)
 	}
@@ -320,7 +309,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	status := fmt.tprintf("%dx%d", im.shown.width, im.shown.height)
 	if im.saved_to != "" {
-		status = fmt.tprintf("%s   saved %s to your downloads", status, filepath.base(im.saved_to))
+		status = fmt.tprintf("%s   saved %s to your downloads", status, file_name(im.saved_to))
 	}
 	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
 }
@@ -375,33 +364,6 @@ enqueue_decode :: proc(im: ^UI_Images, id: u32, jpeg: []u8) {
 	sync.sema_post(&im.wake)
 }
 
-@(private = "file")
-decode_worker :: proc(im: ^UI_Images) {
-	for {
-		sync.sema_wait(&im.wake)
-		for {
-			job: Decode_Job
-			{
-				sync.guard(&im.mutex)
-				if im.stopping {
-					return
-				}
-				if len(im.queue) == 0 {
-					break
-				}
-				job = im.queue[0]
-				ordered_remove(&im.queue, 0)
-			}
-			defer delete(job.jpeg)
-			image, err := clipboard.decode(job.jpeg)
-			if err != .None {
-				log.debugf("image %d could not be decoded: %v", job.id, err)
-			}
-			sync.guard(&im.mutex)
-			append(&im.results, Decode_Result{id = job.id, image = image, ok = err == .None})
-		}
-	}
-}
 
 @(private = "file")
 make_image_texture :: proc(img: clipboard.Image) -> (tex: u32) {
@@ -448,4 +410,11 @@ trim_textures :: proc(im: ^UI_Images) {
 		}
 		delete_key(&im.textures, oldest_id)
 	}
+}
+
+// file_name is the last part of a path, after its last separator.
+@(private = "file")
+file_name :: proc(path: string) -> string {
+	i := strings.last_index_any(path, "/\\")
+	return path[i + 1:]
 }

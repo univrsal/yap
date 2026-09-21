@@ -1,3 +1,4 @@
+#+build !wasi
 package clipboard
 
 import "base:runtime"

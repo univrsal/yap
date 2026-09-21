@@ -1,16 +1,14 @@
 package client
 
-import "base:runtime"
 import "core:crypto/ecdh"
 import "core:fmt"
-import "core:log"
+import log "../common/wlog"
 import "core:strings"
 import "core:sync"
-import "core:thread"
 import "core:time"
 import "core:unicode/utf8"
-import gl "vendor:OpenGL"
-import "vendor:glfw"
+import gl "wgl"
+import glfw "wglfw"
 import mu "vendor:microui"
 
 import "../common"
@@ -35,11 +33,15 @@ UI_Options :: struct {
 	settings_path: string,
 }
 
-@(private = "file")
+// The connection and the thread (or the frame loop) running it; see
+// net_native.odin and net_web.odin.
 Net_Session :: struct {
 	client:        ^Voice_Client,
-	thread:        ^thread.Thread,
+	thread:        Net_Thread,
 	stop:          bool, // set atomically to end the network loop
+	// Without threads there is nobody to notice `stop`, so the frame
+	// loop notes here that the connection is done with (net_web.odin).
+	stopped:       bool,
 
 	// Owned copies; the UI's buffers may change while the thread runs.
 	key_path:      string,
@@ -141,16 +143,30 @@ g_logger: log.Logger
 
 BACKGROUND :: mu.Color{30, 30, 30, 255}
 
+/*
+run_ui drives the client from a loop of its own, which is what a desktop
+gives us. A web build has no loop to call its own - the browser hands
+out a frame at a time - so the work is split into starting up, one turn
+round the loop, and shutting down, and main_web.odin drives those.
+*/
 run_ui :: proc(opts: UI_Options) -> bool {
 	ui := new(UI)
 	defer free(ui)
+	if !ui_startup(ui, opts) {
+		ui_shutdown(ui)
+		return false
+	}
+	for ui_frame(ui) {}
+	ui_shutdown(ui)
+	return true
+}
+
+ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	g_ui = ui
 	g_logger = context.logger
 	ui.opts = opts
 	view_init(&ui.view)
-	defer view_destroy(&ui.view)
 	ui_chat_init(ui)
-	defer ui_chat_destroy(ui)
 
 	// Load (or create) the key now, to show our id before connecting.
 	{
@@ -161,7 +177,6 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		}
 	}
 	ui.settings = settings_load(opts.settings_path)
-	defer settings_destroy(&ui.settings)
 	initial := opts.server if opts.server != "" else ui.settings.server
 	ui.server_len = copy(ui.server_buf[:], initial)
 	name := ui.settings.name if ui.settings.name != "" else default_name()
@@ -170,27 +185,19 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	// Audio problems shouldn't keep the rest of the client from working;
 	// the settings page shows what went wrong.
 	audio_init(&ui.audio)
-	defer audio_destroy(&ui.audio)
 
 	glfw.SetErrorCallback(glfw_error_callback)
 	if !glfw.Init() {
 		log.error("failed to initialize GLFW")
 		return false
 	}
-	defer glfw.Terminate()
 
 	ui.window_size = {760, 480}
 	if !window_open(ui) {
 		return false
 	}
-	defer window_close(ui)
 	clipboard_init()
-	defer clipboard.destroy()
-	// Whatever the paste thread is doing, it uses the clipboard, so it
-	// has to be done before that (defers run in reverse).
-	defer paste_wait(ui)
 	ui_images_init(ui)
-	defer ui_images_destroy(ui)
 
 	mu.init(&ui.ctx, set_clipboard, get_clipboard)
 	ui.ctx.text_width = ui_text_width
@@ -200,115 +207,135 @@ run_ui :: proc(opts: UI_Options) -> bool {
 	if opts.server != "" {
 		ui.action = .Connect
 	}
+	return true
+}
 
-	for !ui.quitting {
-		// Closing the window puts the client in the tray instead of
-		// ending it, where there's a tray icon and that's what the
-		// settings ask for (see ui_tray.odin). Quit in the tray menu
-		// sets `quitting` instead, and there may be no window at all.
-		if ui.window != nil && glfw.WindowShouldClose(ui.window) {
-			if !tray_takes_window(ui, ui.settings.close_to_tray) {
-				break
-			}
-			glfw.SetWindowShouldClose(ui.window, false)
+// ui_frame is one turn round the loop. It returns false when the client
+// is done and should shut down.
+ui_frame :: proc(ui: ^UI) -> bool {
+	if ui.quitting {
+		return false
+	}
+
+	// Closing the window puts the client in the tray instead of
+	// ending it, where there's a tray icon and that's what the
+	// settings ask for (see ui_tray.odin). Quit in the tray menu
+	// sets `quitting` instead, and there may be no window at all.
+	if ui.window != nil && glfw.WindowShouldClose(ui.window) {
+		if !tray_takes_window(ui, ui.settings.close_to_tray) {
+			return false
+		}
+		glfw.SetWindowShouldClose(ui.window, false)
+		hide_to_tray(ui)
+	}
+
+	// Minimizing can go to the tray as well. Only some desktops say
+	// when it happens (see iconify_callback).
+	if ui.minimized {
+		ui.minimized = false
+		if tray_takes_window(ui, ui.settings.minimize_to_tray) {
+			// Out of the minimized state first, so the window comes
+			// back up as a window rather than minimized again.
+			glfw.RestoreWindow(ui.window)
 			hide_to_tray(ui)
 		}
+	}
 
-		// Minimizing can go to the tray as well. Only some desktops say
-		// when it happens (see iconify_callback).
-		if ui.minimized {
-			ui.minimized = false
-			if tray_takes_window(ui, ui.settings.minimize_to_tray) {
-				// Out of the minimized state first, so the window comes
-				// back up as a window rather than minimized again.
-				glfw.RestoreWindow(ui.window)
-				hide_to_tray(ui)
-			}
-		}
+	free_all(context.temp_allocator)
 
-		free_all(context.temp_allocator)
+	switch ui.action {
+	case .None:
+	case .Connect:
+		connect(ui)
+	case .Disconnect:
+		disconnect(ui)
+	}
+	ui.action = .None
 
-		switch ui.action {
-		case .None:
-		case .Connect:
-			connect(ui)
-		case .Disconnect:
-			disconnect(ui)
-		}
-		ui.action = .None
+	// Wake up for input, or often enough to animate the speaking
+	// indicators. Listen back without a connection is fed from this
+	// loop (monitor_update), so it needs to run at the display's rate.
+	// In a web build the browser has already decided when this frame
+	// happens, and there is nothing to wait for.
+	glfw.WaitEventsTimeout(1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30)
 
-		// Wake up for input, or often enough to animate the speaking
-		// indicators. Listen back without a connection is fed from this
-		// loop (monitor_update), so it needs to run at the display's rate.
-		glfw.WaitEventsTimeout(1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30)
+	// Without threads there is nobody else to run the connection, so it
+	// gets its turn here, between frames (see net_thread).
+	when WEB {
+		net_step(ui)
+	}
 
-		// microui turns a press into focus for whatever `hover_id` names,
-		// without re-checking the pointer, and only a control itself clears
-		// its hover. If a hovered control vanishes (a screen change, a
-		// relabeled button), the stale id could fire on a click anywhere
-		// once the id reappears. Recomputing hover on every frame without a
-		// press keeps it tied to what's actually under the pointer.
-		if ui.ctx.mouse_pressed_bits == {} && ui.ctx.mouse_down_bits == {} {
-			ui.ctx.hover_id = 0
-		}
+	// microui turns a press into focus for whatever `hover_id` names,
+	// without re-checking the pointer, and only a control itself clears
+	// its hover. If a hovered control vanishes (a screen change, a
+	// relabeled button), the stale id could fire on a click anywhere
+	// once the id reappears. Recomputing hover on every frame without a
+	// press keeps it tied to what's actually under the pointer.
+	if ui.ctx.mouse_pressed_bits == {} && ui.ctx.mouse_down_bits == {} {
+		ui.ctx.hover_id = 0
+	}
 
-		if ui.settings_dirty && time.tick_since(ui.settings_saved) > time.Second {
-			save_settings(ui)
-		}
+	if ui.settings_dirty && time.tick_since(ui.settings_saved) > time.Second {
+		save_settings(ui)
+	}
 
-		// Listen back is a settings-page test; don't leave it running.
-		if ui.page != .Settings {
-			set_listen_back(ui, false)
-		}
-		monitor_update(ui)
-		tray_update(ui)
-		if ui.hidden {
-			continue // no window to draw in
-		}
+	// Listen back is a settings-page test; don't leave it running.
+	if ui.page != .Settings {
+		set_listen_back(ui, false)
+	}
+	monitor_update(ui)
+	tray_update(ui)
+	if ui.hidden {
+		return true // no window to draw in
+	}
 
-		m := window_metrics(ui.window)
-		if m != ui.metrics {
-			ww, wh := glfw.GetWindowSize(ui.window)
-			log.debugf(
-				"ui: window %dx%d, framebuffer %dx%d, scale %.2f, layout %.0fx%.0f",
-				ww,
-				wh,
-				m.fb_w,
-				m.fb_h,
-				m.scale,
-				m.logical_w,
-				m.logical_h,
-			)
-			ui.metrics = m
-		}
-		ui.input_scale = m.input_scale
-		ui_images_frame(ui)
-		mu.begin(&ui.ctx)
-		layout(ui, i32(m.logical_w), i32(m.logical_h))
-		mu.end(&ui.ctx)
-		set_hand_cursor(ui, ui.chat.hovering)
-		ui_chat_after_frame(ui)
-		ui_images_after_frame(ui)
-		render(
-			&ui.renderer,
-			&ui.ctx,
-			m.logical_w,
-			m.logical_h,
+	m := window_metrics(ui.window)
+	if m != ui.metrics {
+		ww, wh := glfw.GetWindowSize(ui.window)
+		log.debugf(
+			"ui: window %dx%d, framebuffer %dx%d, scale %.2f, layout %.0fx%.0f",
+			ww,
+			wh,
 			m.fb_w,
 			m.fb_h,
 			m.scale,
-			BACKGROUND,
+			m.logical_w,
+			m.logical_h,
 		)
-		glfw.SwapBuffers(ui.window)
+		ui.metrics = m
 	}
+	ui.input_scale = m.input_scale
+	ui_images_frame(ui)
+	mu.begin(&ui.ctx)
+	layout(ui, i32(m.logical_w), i32(m.logical_h))
+	mu.end(&ui.ctx)
+	set_hand_cursor(ui, ui.chat.hovering)
+	ui_chat_after_frame(ui)
+	ui_images_after_frame(ui)
+	render(&ui.renderer, &ui.ctx, m.logical_w, m.logical_h, m.fb_w, m.fb_h, m.scale, BACKGROUND)
+	glfw.SwapBuffers(ui.window)
+	return true
+}
 
+// ui_shutdown takes everything down in the order it went up.
+ui_shutdown :: proc(ui: ^UI) {
 	disconnect(ui)
 	tray_hide(ui)
 	monitor_stop(ui)
 	if ui.settings_dirty {
 		save_settings(ui)
 	}
-	return true
+	ui_images_destroy(ui)
+	// Whatever the paste thread is doing, it uses the clipboard, so it
+	// has to be done before that.
+	paste_wait(ui)
+	clipboard.destroy()
+	window_close(ui)
+	glfw.Terminate()
+	audio_destroy(&ui.audio)
+	settings_destroy(&ui.settings)
+	ui_chat_destroy(ui)
+	view_destroy(&ui.view)
 }
 
 /*
@@ -509,7 +536,7 @@ connect :: proc(ui: ^UI) {
 		ui.view.status = .Connecting
 		ui.view.server = strings.clone(server)
 	}
-	ns.thread = thread.create_and_start_with_poly_data(ns, net_thread, init_context = context)
+	net_start(ns)
 	ui.session = ns
 }
 
@@ -523,8 +550,7 @@ disconnect :: proc(ui: ^UI) {
 	// Devices first, so nothing touches the rings once the voice goes away.
 	close_streams(&ns.streams, &ns.client.voice)
 	sync.atomic_store(&ns.stop, true)
-	thread.join(ns.thread)
-	thread.destroy(ns.thread)
+	net_stop(ns)
 
 	voice_destroy(&ns.client.voice)
 	free(ns.client)
@@ -578,22 +604,6 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 	}
 }
 
-@(private = "file")
-net_thread :: proc(ns: ^Net_Session) {
-	c := ns.client
-	defer client_close(c)
-	if !client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name) {
-		return
-	}
-	if ns.channel != "" {
-		request_join(c, ns.channel)
-	}
-	for !sync.atomic_load(&ns.stop) {
-		if !client_step(c) {
-			return
-		}
-	}
-}
 
 @(private = "file")
 layout :: proc(ui: ^UI, w, h: i32) {
@@ -872,7 +882,7 @@ with_text_color :: proc(
 
 @(private = "file")
 glfw_error_callback :: proc "c" (code: i32, description: cstring) {
-	context = runtime.default_context()
+	context = callback_context()
 	context.logger = g_logger
 	log.errorf("GLFW: %s (0x%x)", description, code)
 }
@@ -902,13 +912,13 @@ iconify_callback :: proc "c" (window: glfw.WindowHandle, iconified: i32) {
 
 @(private = "file")
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
-	context = runtime.default_context()
+	context = callback_context()
 	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
 }
 
 @(private = "file")
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
-	context = runtime.default_context()
+	context = callback_context()
 	context.logger = g_logger
 	btn: mu.Mouse
 	switch button {
@@ -940,20 +950,20 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 
 @(private = "file")
 scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
-	context = runtime.default_context()
+	context = callback_context()
 	mu.input_scroll(&g_ui.ctx, i32(-x * 30), i32(-y * 30))
 }
 
 @(private = "file")
 char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
-	context = runtime.default_context()
+	context = callback_context()
 	buf, n := utf8.encode_rune(codepoint)
 	mu.input_text(&g_ui.ctx, string(buf[:n]))
 }
 
 @(private = "file")
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
-	context = runtime.default_context()
+	context = callback_context()
 	k: mu.Key
 	switch key {
 	case glfw.KEY_LEFT_SHIFT, glfw.KEY_RIGHT_SHIFT:

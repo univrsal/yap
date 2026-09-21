@@ -1,8 +1,9 @@
+#+build !wasi
 package client
 
-import "core:log"
+import log "../common/wlog"
 import "core:sync"
-import "vendor:glfw"
+import glfw "wglfw"
 import mu "vendor:microui"
 
 import "tray"

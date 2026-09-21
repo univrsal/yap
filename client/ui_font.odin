@@ -3,7 +3,7 @@ package client
 import "core:math"
 import "core:slice"
 import "core:unicode/utf8"
-import stbtt "vendor:stb/truetype"
+import stbtt "wstbtt"
 
 /*
 The UI font: Roboto (embedded with #load), rasterized with stb_truetype.

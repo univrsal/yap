@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>yap</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #1e1e1e;
+    color: #b8b8b8;
+    font: 14px system-ui, sans-serif;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* The client draws everything itself; the canvas is all there is. */
+  canvas {
+    display: block;
+    outline: none;
+  }
+  #status {
+    position: fixed;
+    bottom: 8px;
+    left: 0;
+    right: 0;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<canvas id="canvas" tabindex="0" oncontextmenu="event.preventDefault()"></canvas>
+<div id="status">Loading yap…</div>
+<script>
+  var Module = {
+    canvas: document.getElementById("canvas"),
+    setStatus(text) {
+      const status = document.getElementById("status");
+      status.textContent = text;
+      status.style.display = text ? "block" : "none";
+    },
+    onRuntimeInitialized() {
+      Module.setStatus("");
+      // Keys go to the canvas, so it has to have the focus.
+      Module.canvas.focus();
+    },
+    // Once the client is up, the canvas fills the tab and follows it.
+    postRun: [() => {
+      const fit = () => Module._web_resize(window.innerWidth, window.innerHeight);
+      window.addEventListener("resize", fit);
+      fit();
+    }],
+  };
+  window.onerror = () => Module.setStatus("yap stopped with an error - see the browser's console.");
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

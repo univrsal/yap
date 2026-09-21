@@ -2,7 +2,7 @@ package clipboard
 
 import "base:runtime"
 import "core:dynlib"
-import "core:log"
+import log "../../common/wlog"
 import "core:strings"
 import "core:sys/linux"
 import "core:time"
