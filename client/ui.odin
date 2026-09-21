@@ -1,15 +1,15 @@
 package client
 
+import log "../common/wlog"
 import "core:crypto/ecdh"
 import "core:fmt"
-import log "../common/wlog"
 import "core:strings"
 import "core:sync"
 import "core:time"
 import "core:unicode/utf8"
+import mu "vendor:microui"
 import gl "wgl"
 import glfw "wglfw"
-import mu "vendor:microui"
 
 import "../common"
 import "../proto"
@@ -94,6 +94,9 @@ UI :: struct {
 	menu_key:       [proto.KEY_SIZE]u8,
 	menu_volume:    mu.Real,
 	menu_requested: bool,
+	// The menu's poke message (ui_users.odin).
+	poke_buf:       [proto.MAX_POKE_SIZE]u8,
+	poke_len:       int,
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
 	monitor:        Mic_Monitor,
 	listen_back:    bool,
@@ -137,6 +140,10 @@ UI :: struct {
 	minimized:      bool,
 	// What size to come back at, remembered when the window goes away.
 	window_size:    [2]i32,
+	// Where the swap doesn't wait for the display (see window_open), the
+	// shortest time between frames, and when the last one went out.
+	frame_pace:     time.Duration,
+	last_swap:      time.Tick,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply, and
@@ -290,6 +297,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		set_listen_back(ui, false)
 	}
 	monitor_update(ui)
+	show_pokes(ui)
 	tray_update(ui)
 	if ui.hidden {
 		return true // no window to draw in
@@ -324,6 +332,15 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	ui_images_after_frame(ui)
 	render(&ui.renderer, &ui.ctx, m.logical_w, m.logical_h, m.fb_w, m.fb_h, m.scale, BACKGROUND)
 	glfw.SwapBuffers(ui.window)
+	// A browser paces frames itself, and a page can't sleep.
+	when !WEB {
+		if ui.frame_pace > 0 {
+			if left := ui.frame_pace - time.tick_since(ui.last_swap); left > 0 {
+				time.sleep(left)
+			}
+			ui.last_swap = time.tick_now()
+		}
+	}
 	return true
 }
 
@@ -359,6 +376,38 @@ released, and the next swap waits for them for ever.
 Nothing above the context survives in here: microui's state, the view,
 the connection and the tray icon all carry on across a window.
 */
+/*
+set_swap_pace decides what keeps frames to the display's rate.
+
+Usually that's the swap: it waits for the display (vsync). On Wayland
+that wait is for the compositor's go-ahead, which it only gives a window
+it's showing - minimized, or on another virtual desktop, the swap would
+wait until the window is looked at again, and everything else on this
+thread with it: pokes, the tray icon, listen back. So there the swap
+doesn't wait, and the loop keeps to the monitor's refresh rate itself
+(frame_pace, at the end of ui_frame). Wayland never tears, so nothing is
+lost.
+*/
+@(private = "file")
+set_swap_pace :: proc(ui: ^UI) {
+	ui.frame_pace = 0
+	when !WEB {
+		if on_wayland() {
+			glfw.SwapInterval(0)
+			refresh: i32 = 60
+			if monitor := glfw.GetPrimaryMonitor(); monitor != nil {
+				if mode := glfw.GetVideoMode(monitor); mode != nil && mode.refresh_rate > 0 {
+					refresh = mode.refresh_rate
+				}
+			}
+			ui.frame_pace = time.Second / time.Duration(refresh)
+			log.debugf("ui: Wayland, so frames are paced here, at %d Hz", refresh)
+			return
+		}
+	}
+	glfw.SwapInterval(1)
+}
+
 window_open :: proc(ui: ^UI) -> bool {
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
@@ -376,7 +425,7 @@ window_open :: proc(ui: ^UI) -> bool {
 	}
 	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
 	glfw.MakeContextCurrent(ui.window)
-	glfw.SwapInterval(1)
+	set_swap_pace(ui)
 	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
 
 	if !renderer_init(&ui.renderer) {

@@ -20,6 +20,7 @@ network loop never blocks on input.
 	/say <text>      post to the channel's text chat
 	/send <file>     post an image file (scaled and compressed first)
 	/typing          tell the channel you're typing
+	/poke <name> [message]  poke someone (see proto/poke.odin)
 */
 start_command_reader :: proc(q: ^Command_Queue) {
 	thread.create_and_start_with_poly_data(
@@ -58,12 +59,16 @@ read_commands :: proc(q: ^Command_Queue) {
 			if image, ok := image_load(path); ok {
 				push_command(q, Chat_Image_Command{image})
 			}
+		case strings.has_prefix(line, "/poke "):
+			rest := strings.trim_space(line[len("/poke "):])
+			name, _, message := strings.partition(rest, " ")
+			push_command(q, Poke_Command{name = strings.clone(name), message = strings.clone(message)})
 		case strings.has_prefix(line, "/say "):
 			push_command(q, Chat_Command{strings.clone(line[len("/say "):])})
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message]")
 		}
 	}
 }

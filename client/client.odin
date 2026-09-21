@@ -1,12 +1,12 @@
 package client
 
-import "core:crypto/ecdh"
-import "core:fmt"
 import log "../common/wlog"
+import "core:crypto/ecdh"
 import "core:encoding/endian"
-import "core:sync"
 import "core:encoding/hex"
+import "core:fmt"
 import "core:strings"
+import "core:sync"
 import "core:time"
 
 import "../common"
@@ -258,6 +258,8 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			handle_blob_need(c, pt)
 		case .Image_Gone:
 			handle_image_gone(c, pt)
+		case .Poke:
+			handle_poke(c, pt)
 		}
 	}
 	return true

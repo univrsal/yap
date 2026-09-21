@@ -2,9 +2,10 @@
 package client
 
 import log "../common/wlog"
+import "core:strings"
 import "core:sync"
-import glfw "wglfw"
 import mu "vendor:microui"
+import glfw "wglfw"
 
 import "tray"
 
@@ -57,21 +58,21 @@ Tray_Request :: enum {
 }
 
 Tray :: struct {
-	handle:    ^tray.Tray,
+	handle:               ^tray.Tray,
 	// What the icon is showing, so it's only redrawn when it changes.
-	icon:      Icon,
-	color:     mu.Color,
+	icon:                 Icon,
+	color:                mu.Color,
 	// What the menu was last built for: Disconnect is greyed out when
 	// there's nothing to disconnect from, and the first item says
 	// whether the window is to be shown or hidden.
-	connected: bool,
-	hidden:    bool,
-	request:   Tray_Request,
+	connected:            bool,
+	hidden:               bool,
+	request:              Tray_Request,
 	// The desktop wouldn't take an icon, or took ours away again. We
 	// stop asking until the setting is switched off and on, and leave
 	// the setting alone: it's the user's, and their tray may well be
 	// there the next time they start the client.
-	refused:   bool,
+	refused:              bool,
 }
 
 // tray_update keeps the icon in step with the client and handles what
@@ -137,13 +138,7 @@ tray_show :: proc(ui: ^UI) {
 	}
 	icon, color := tray_state(ui)
 	pixels := icon_rgba(icon, TRAY_ICON_PIXELS, color, context.temp_allocator)
-	t.handle = tray.create(
-		raw_data(pixels),
-		TRAY_ICON_PIXELS,
-		TRAY_ICON_PIXELS,
-		tray_clicked,
-		ui,
-	)
+	t.handle = tray.create(raw_data(pixels), TRAY_ICON_PIXELS, TRAY_ICON_PIXELS, tray_clicked, ui)
 	if t.handle == nil {
 		log.warn("this desktop has nowhere to put a tray icon")
 		t.refused = true
@@ -246,11 +241,7 @@ tray_menu :: proc(ui: ^UI) {
 	t.hidden = ui.hidden
 	items := [?]tray.Menu_Item {
 		{label = "Show window" if t.hidden else "Hide window", id = MENU_WINDOW},
-		{
-			label = "Disconnect",
-			id = MENU_DISCONNECT,
-			flags = {} if t.connected else {.Disabled},
-		},
+		{label = "Disconnect", id = MENU_DISCONNECT, flags = {} if t.connected else {.Disabled}},
 		{label = nil, id = 0}, // a line between them
 		{label = "Quit", id = MENU_QUIT},
 	}
@@ -274,4 +265,24 @@ tray_menu_picked :: proc "c" (handle: ^tray.Tray, item_id: i32, userdata: rawptr
 	case MENU_QUIT:
 		ui.tray.request = .Quit
 	}
+}
+
+/*
+tray_notify shows a desktop notification, through the tray icon: traycon
+has the desktop's notification service to hand once there's an icon.
+Called on the UI thread, which is the one traycon runs on. False if
+there's no icon to go through, or the desktop wouldn't take it.
+*/
+tray_notify :: proc(ui: ^UI, title, body: string) -> bool {
+	t := &ui.tray
+	if t.handle == nil {
+		return false
+	}
+	ctitle := strings.clone_to_cstring(title, context.temp_allocator)
+	cbody := strings.clone_to_cstring(body, context.temp_allocator) if body != "" else nil
+	if tray.notify(t.handle, ctitle, cbody, nil, 0, nil, nil) != 0 {
+		log.warn("tray: the desktop wouldn't show a notification")
+		return false
+	}
+	return true
 }

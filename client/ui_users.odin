@@ -1,7 +1,8 @@
 package client
 
-import "core:fmt"
 import log "../common/wlog"
+import "core:fmt"
+import "core:strings"
 import mu "vendor:microui"
 
 /*
@@ -60,12 +61,7 @@ would otherwise be easy to mix up.
 */
 @(private = "file")
 local_mute_mark :: proc(ctx: ^mu.Context, row: mu.Rect) {
-	r := mu.Rect {
-		row.x + row.w - ICON_SIZE,
-		row.y + (row.h - ICON_SIZE) / 2,
-		ICON_SIZE,
-		ICON_SIZE,
-	}
+	r := mu.Rect{row.x + row.w - ICON_SIZE, row.y + (row.h - ICON_SIZE) / 2, ICON_SIZE, ICON_SIZE}
 	mu.draw_icon(ctx, icon_id(.Sound_Off), r, DIM_COLOR)
 }
 
@@ -199,6 +195,23 @@ user_menu :: proc(ui: ^UI) {
 		u = DEFAULT_USER
 		ui.menu_volume = 100
 		changed = true
+	}
+
+	// Poke them, with a message if there's one in the box. Not ourselves.
+	if ui.menu_user != ui.view.my_num {
+		mu.layout_row(ctx, {MENU_WIDTH - 60 - ctx.style.spacing, 60})
+		poke := .SUBMIT in text_box(ui, ui.poke_buf[:], &ui.poke_len)
+		if .SUBMIT in stable_button(ctx, "poke", "Poke") {
+			poke = true
+		}
+		if poke && ui.session != nil {
+			text := strings.trim_space(string(ui.poke_buf[:ui.poke_len]))
+			push_command(
+				&ui.session.client.commands,
+				Poke_Command{target_uid = ui.menu_user, message = strings.clone(text)},
+			)
+			ui.poke_len = 0
+		}
 	}
 
 	if changed {

@@ -53,27 +53,27 @@ User :: struct {
 	acked_version:   u32,
 	sent_version:    u32,
 	last_state_sent: time.Tick,
-
 	chat:            Chat_Stream,
+	last_poke:       time.Tick, // see handle_poke
 	upload:          Upload, // an image on its way in (images.odin)
 	download:        Download, // an image on its way out
 }
 
 Server :: struct {
-	sock:     net.UDP_Socket,
-	key:      ecdh.Private_Key,
-	sessions: map[u32]^Client, // by local_idx
-	users:    map[[proto.KEY_SIZE]byte]^User,
-	channels: []string,
-	chats:    []Chat_Log, // one per channel
+	sock:          net.UDP_Socket,
+	key:           ecdh.Private_Key,
+	sessions:      map[u32]^Client, // by local_idx
+	users:         map[[proto.KEY_SIZE]byte]^User,
+	channels:      []string,
+	chats:         []Chat_Log, // one per channel
 	// Chat images by id, with the id last handed out (images.odin).
 	images:        map[u32]^Stored_Image,
 	last_image_id: u32,
 	// Bumped on every change clients should hear about. Never 0, which
 	// means "nothing acked yet".
-	version:  u32,
+	version:       u32,
 	// The last user number handed out; numbers are never reused.
-	last_num: u32,
+	last_num:      u32,
 }
 
 run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
@@ -226,7 +226,12 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		set_name(u, hello_name)
 		s.users[u.key] = u
 		bump_version(s)
-		log.infof("%s joined from %v, in %q", user_label(u), net.to_string(from), s.channels[u.channel])
+		log.infof(
+			"%s joined from %v, in %q",
+			user_label(u),
+			net.to_string(from),
+			s.channels[u.channel],
+		)
 	} else {
 		log.debugf("%s has a new session", user_label(u))
 		if hello_ok && rename(s, u, hello_name) {
@@ -285,6 +290,8 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		if rename(s, c.user, proto.decode_set_name(pt)) {
 			bump_version(s)
 		}
+	case .Poke:
+		handle_poke(s, c.user, pt)
 	case .Sound:
 		if flags := proto.decode_sound(pt); flags != c.user.flags {
 			c.user.flags = flags
@@ -353,7 +360,12 @@ handle_join :: proc(s: ^Server, u: ^User, pt: []byte) {
 	case int(channel) >= len(s.channels):
 		log.debugf("%s asked for unknown channel %d", user_label(u), channel)
 	case channel != u.channel:
-		log.infof("%s moved from %q to %q", user_label(u), s.channels[u.channel], s.channels[channel])
+		log.infof(
+			"%s moved from %q to %q",
+			user_label(u),
+			s.channels[u.channel],
+			s.channels[channel],
+		)
 		u.channel = channel
 	}
 	// Even a refused join changes join_ack, which the client waits for.
@@ -399,7 +411,12 @@ sync_state :: proc(s: ^Server) {
 	next_user := 0
 	for _, u in s.users {
 		append(&members[u.channel], u.num)
-		users[next_user] = {num = u.num, key = u.key, name = u.name, flags = u.flags}
+		users[next_user] = {
+			num   = u.num,
+			key   = u.key,
+			name  = u.name,
+			flags = u.flags,
+		}
 		next_user += 1
 	}
 	infos := make([]proto.Channel_Info, len(s.channels), context.temp_allocator)

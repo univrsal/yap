@@ -44,6 +44,8 @@ SetCursor :: glfw.SetCursor
 RequestWindowAttention :: glfw.RequestWindowAttention
 RestoreWindow :: glfw.RestoreWindow
 GetPlatform :: glfw.GetPlatform
+GetPrimaryMonitor :: glfw.GetPrimaryMonitor
+GetVideoMode :: glfw.GetVideoMode
 gl_set_proc_address :: glfw.gl_set_proc_address
 SetErrorCallback :: glfw.SetErrorCallback
 SetKeyCallback :: glfw.SetKeyCallback

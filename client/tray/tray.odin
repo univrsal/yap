@@ -55,8 +55,16 @@ Menu_Flag :: enum i32 {
 }
 Menu_Flags :: distinct bit_set[Menu_Flag;i32]
 
+Notification_Action :: struct {
+	id:    cstring, // ours; handed back to the notification callback
+	label: cstring, // button text displayed to the user
+}
+
 Click_Proc :: #type proc "c" (tray: ^Tray, userdata: rawptr)
 Menu_Proc :: #type proc "c" (tray: ^Tray, item_id: i32, userdata: rawptr)
+// action_id is the id of the button clicked, or "default" for the
+// notification itself.
+Notification_Proc :: #type proc "c" (tray: ^Tray, action_id: cstring, userdata: rawptr)
 
 @(default_calling_convention = "c", link_prefix = "traycon_")
 foreign lib {
@@ -73,4 +81,7 @@ foreign lib {
 	// The items are copied; count 0 removes the menu.
 	set_menu :: proc(tray: ^Tray, items: [^]Menu_Item, count: i32, cb: Menu_Proc, userdata: rawptr) -> i32 ---
 	set_preferred_backend :: proc(backend: Backend) ---
+	// A desktop notification (on Linux org.freedesktop.Notifications);
+	// body and actions may be nil. 0 on success.
+	notify :: proc(tray: ^Tray, title, body: cstring, actions: [^]Notification_Action, count: i32, cb: Notification_Proc, userdata: rawptr) -> i32 ---
 }

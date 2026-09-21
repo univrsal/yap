@@ -82,7 +82,9 @@ set_sound :: proc(c: ^Voice_Client, flag: proto.User_Flag, on: bool) {
 // the same way drive_name does with the name.
 drive_sound :: proc(c: ^Voice_Client) {
 	ch := &c.channels
-	if !ch.have_state || !c.has_current || time.tick_since(ch.last_sound_sent) < proto.CONTROL_RESEND {
+	if !ch.have_state ||
+	   !c.has_current ||
+	   time.tick_since(ch.last_sound_sent) < proto.CONTROL_RESEND {
 		return
 	}
 	me := proto.find_user(&ch.state, ch.state.your_user)
@@ -99,7 +101,9 @@ drive_sound :: proc(c: ^Voice_Client) {
 // It's idempotent, so repeats and reordering are harmless.
 drive_name :: proc(c: ^Voice_Client) {
 	ch := &c.channels
-	if !ch.have_state || !c.has_current || time.tick_since(ch.last_name_sent) < proto.CONTROL_RESEND {
+	if !ch.have_state ||
+	   !c.has_current ||
+	   time.tick_since(ch.last_name_sent) < proto.CONTROL_RESEND {
 		return
 	}
 	me := proto.find_user(&ch.state, ch.state.your_user)
@@ -143,7 +147,8 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 		scratch_users := make([]proto.User_Info, len(ch.users_buf), context.temp_allocator)
 		scratch_channels := make([]proto.Channel_Info, proto.MAX_CHANNELS, context.temp_allocator)
 		scratch_members := make([]u32, len(ch.members_buf), context.temp_allocator)
-		if _, ok := proto.decode_state(body, scratch_users, scratch_channels, scratch_members); !ok {
+		if _, ok := proto.decode_state(body, scratch_users, scratch_channels, scratch_members);
+		   !ok {
 			log.warnf("ignoring invalid channel state v%d from the server", version)
 			return
 		}
@@ -333,6 +338,11 @@ Gain_Command :: struct {
 	key:  [proto.KEY_SIZE]u8,
 	gain: f32,
 }
+Poke_Command :: struct {
+	target_uid: u32, // or 0, and the user is looked up by name
+	name:       string, // owned by the command
+	message:    string, // owned by the command
+}
 Name_Command :: struct {
 	name: string, // owned by the command
 }
@@ -370,6 +380,7 @@ Command :: union {
 	Listen_Command,
 	Quality_Command,
 	Chat_Command,
+	Poke_Command,
 	Chat_Image_Command,
 	Typing_Command,
 }
@@ -402,6 +413,9 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.name)
 	case Chat_Command:
 		delete(v.text)
+	case Poke_Command:
+		delete(v.name)
+		delete(v.message)
 	case Chat_Image_Command:
 		image := v.image
 		chat_image_destroy(&image)
@@ -446,7 +460,11 @@ process_commands :: proc(c: ^Voice_Client) {
 			}
 		case Quality_Command:
 			if v.quality != c.voice.quality && encoder_setup(&c.voice, v.quality) {
-				log.infof("quality: %s (%s)", QUALITY_PRESETS[v.quality].label, QUALITY_PRESETS[v.quality].description)
+				log.infof(
+					"quality: %s (%s)",
+					QUALITY_PRESETS[v.quality].label,
+					QUALITY_PRESETS[v.quality].description,
+				)
 			}
 		case Listen_Command:
 			c.voice.listen = v.on
@@ -459,6 +477,8 @@ process_commands :: proc(c: ^Voice_Client) {
 			log.infof("name: %q", c.channels.name)
 		case Chat_Command:
 			chat_send(c, v.text)
+		case Poke_Command:
+			poke_send(c, v.target_uid, v.name, v.message)
 		case Chat_Image_Command:
 			// The client takes the JPEG over, so it isn't freed twice.
 			chat_send_image(c, v.image.jpeg, v.image.width, v.image.height)

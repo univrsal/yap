@@ -62,6 +62,13 @@ View :: struct {
 	outbox:     [dynamic]string, // our messages the server hasn't confirmed yet
 	images:     map[u32]View_Image, // by image id
 	typing:     map[u32]time.Tick, // when each user last said they're typing
+	// Pokes that came in, for the UI to show (and take) next frame.
+	pokes:      [dynamic]View_Poke,
+}
+
+View_Poke :: struct {
+	name:    string, // who poked us; owned
+	message: string, // may be empty; owned
 }
 
 View_Chat_Line :: struct {
@@ -102,6 +109,7 @@ view_reset :: proc(v: ^View) {
 	clear(&v.speaking)
 	view_clear_chat(v)
 	view_clear_outbox(v)
+	view_clear_pokes(v)
 }
 
 view_destroy :: proc(v: ^View) {
@@ -113,6 +121,34 @@ view_destroy :: proc(v: ^View) {
 	delete(v.outbox)
 	delete(v.typing)
 	delete(v.images)
+	delete(v.pokes)
+}
+
+@(private = "file")
+view_clear_pokes :: proc(v: ^View) {
+	for p in v.pokes {
+		delete(p.name)
+		delete(p.message)
+	}
+	clear(&v.pokes)
+}
+
+// view_take_pokes hands the UI the pokes that have come in, as copies in
+// the temp allocator, and forgets them.
+view_take_pokes :: proc(v: ^View) -> []View_Poke {
+	sync.guard(&v.mutex)
+	if len(v.pokes) == 0 {
+		return nil
+	}
+	out := make([]View_Poke, len(v.pokes), context.temp_allocator)
+	for p, i in v.pokes {
+		out[i] = {
+			name    = strings.clone(p.name, context.temp_allocator),
+			message = strings.clone(p.message, context.temp_allocator),
+		}
+	}
+	view_clear_pokes(v)
+	return out
 }
 
 @(private = "file")
@@ -222,6 +258,15 @@ publish_voice :: proc(c: ^Voice_Client, speaker: u32) {
 	}
 	sync.guard(&v.mutex)
 	v.speaking[speaker] = time.tick_now()
+}
+
+publish_poke :: proc(c: ^Voice_Client, name, message: string) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	append(&v.pokes, View_Poke{strings.clone(name), strings.clone(message)})
 }
 
 publish_chat_reset :: proc(c: ^Voice_Client) {

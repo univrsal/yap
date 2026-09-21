@@ -131,7 +131,15 @@ decode_typing_down :: proc(pt: []u8) -> (user: u32) {
 
 // encode_chat writes a Chat packet with as many of `entries` (in order,
 // consecutive ids) as fit in `out`, and returns it and how many it took.
-encode_chat :: proc(out: []u8, channel: u16, base: u32, entries: []Chat_Entry) -> (msg: []u8, count: int) {
+encode_chat :: proc(
+	out: []u8,
+	channel: u16,
+	base: u32,
+	entries: []Chat_Entry,
+) -> (
+	msg: []u8,
+	count: int,
+) {
 	if len(out) < CHAT_HEADER_SIZE {
 		return
 	}
@@ -245,11 +253,9 @@ encode_image_send :: proc(out: ^[IMAGE_SEND_SIZE]u8, nonce: u64, info: Image_Inf
 }
 
 decode_image_send :: proc(pt: []u8) -> (nonce: u64, info: Image_Info) {
-	return endian.unchecked_get_u64le(pt[1:]), {
-			width = endian.unchecked_get_u16le(pt[9:]),
-			height = endian.unchecked_get_u16le(pt[11:]),
-			size = endian.unchecked_get_u32le(pt[13:]),
-		}
+	return endian.unchecked_get_u64le(
+		pt[1:],
+	), {width = endian.unchecked_get_u16le(pt[9:]), height = endian.unchecked_get_u16le(pt[11:]), size = endian.unchecked_get_u32le(pt[13:])}
 }
 
 encode_image_get :: proc(out: ^[IMAGE_GET_SIZE]u8, image: u32) -> []u8 {

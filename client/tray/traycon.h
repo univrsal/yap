@@ -2332,7 +2332,7 @@ int traycon_notify(traycon *tray, const char *title, const char *body,
     DBusMessageIter iter;
     dbus_message_iter_init_append(msg, &iter);
 
-    const char *app_name = "traycon";
+    const char *app_name = "Yap";
     dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &app_name);
 
     dbus_uint32_t replaces_id = 0;

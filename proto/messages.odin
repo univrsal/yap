@@ -47,12 +47,12 @@ client continues numbering from the `join_ack` in the first snapshot it
 receives, so a restarted client doesn't collide with its old ids.
 */
 Message_Kind :: enum u8 {
-	Voice     = 1,
-	Join      = 2,
-	State     = 3,
-	State_Ack = 4,
-	Leave     = 5,
-	Set_Name  = 6,
+	Voice         = 1,
+	Join          = 2,
+	State         = 3,
+	State_Ack     = 4,
+	Leave         = 5,
+	Set_Name      = 6,
 	// Text chat, see chat.odin.
 	Chat_Send     = 7,
 	Chat_Sent     = 8,
@@ -67,6 +67,8 @@ Message_Kind :: enum u8 {
 	Image_Gone    = 16,
 	// What a user has switched off for themselves.
 	Sound         = 17,
+	// One user nudging another, see poke.odin.
+	Poke          = 18,
 }
 
 /*
@@ -153,6 +155,8 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) >= CHAT_HEADER_SIZE
 	case .Chat_Received:
 		ok = len(pt) == CHAT_RECEIVED_SIZE
+	case .Poke:
+		ok = len(pt) >= POKE_HEADER_SIZE && len(pt) == POKE_HEADER_SIZE + int(pt[9])
 	case .Typing:
 		ok = len(pt) == TYPING_UP_SIZE || len(pt) == TYPING_DOWN_SIZE
 	case .Image_Send:
@@ -162,7 +166,8 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 	case .Image_Gone:
 		ok = len(pt) == IMAGE_GONE_SIZE
 	case .Blob_Chunk:
-		ok = len(pt) > BLOB_CHUNK_HEADER_SIZE && len(pt) <= BLOB_CHUNK_HEADER_SIZE + BLOB_CHUNK_SIZE
+		ok =
+			len(pt) > BLOB_CHUNK_HEADER_SIZE && len(pt) <= BLOB_CHUNK_HEADER_SIZE + BLOB_CHUNK_SIZE
 	case .Blob_Need:
 		ok = len(pt) >= BLOB_NEED_HEADER_SIZE
 	}

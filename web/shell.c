@@ -140,6 +140,29 @@ EM_JS(int, yap_utc_offset_minutes, (), {
 	return -new Date().getTimezoneOffset();
 });
 
+/* A browser notification (a poke, see client/ui_poke.odin), if the page
+   may show them. Browsers only let a page ask while it's handling a
+   click or a tap, so the first time one would be shown the page asks on
+   the next one - the poke that prompted it has gone by then, but the
+   ones after it get through. 1 if shown. */
+EM_JS(int, yap_notify, (const char *title, const char *body), {
+	if (typeof Notification === "undefined") return 0;
+	if (Notification.permission === "granted") {
+		const text = UTF8ToString(body);
+		new Notification(UTF8ToString(title), text ? { body: text } : {});
+		return 1;
+	}
+	if (Notification.permission === "default" && !Module.yapAskToNotify) {
+		Module.yapAskToNotify = true;
+		const ask = () => {
+			for (const type of ["pointerup", "touchend", "keyup"]) document.removeEventListener(type, ask, true);
+			Notification.requestPermission();
+		};
+		for (const type of ["pointerup", "touchend", "keyup"]) document.addEventListener(type, ask, true);
+	}
+	return 0;
+});
+
 /* Puts a phone's keyboard away: the hidden field that brought it up
    (web/touch.js) lets go of the focus. */
 EM_JS(void, yap_keyboard_hide, (), {
