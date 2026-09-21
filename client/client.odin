@@ -281,6 +281,7 @@ promote_pending :: proc(c: ^Voice_Client) {
 		c.last_stats = time.tick_now()
 		log.infof("connected to %s", c.server_addr)
 		publish_status(c, .Connected)
+		voice_notification_play(&c.voice, .Welcome)
 	}
 }
 

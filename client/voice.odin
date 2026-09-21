@@ -375,6 +375,25 @@ mix_output :: proc(v: ^Voice) {
 	}
 }
 
+// notification_tail_step moves queued notification frames into playback without
+// observing the usual output target. Once the network thread has stopped, the
+// UI becomes the ring's sole producer and uses this to drain an explicit
+// disconnect sound before it closes the playback device.
+notification_tail_step :: proc(v: ^Voice) {
+	if v.deafened {
+		notifications_clear(&v.notifications)
+		return
+	}
+	for notifications_pending(&v.notifications) {
+		if len(v.playback.buf) - ring_available(&v.playback) < FRAME {
+			return
+		}
+		mix: [FRAME]f32
+		notifications_mix(&v.notifications, mix[:])
+		ring_write(&v.playback, mix[:])
+	}
+}
+
 // The listen back source: buffered and drift-corrected like a speaker,
 // since the microphone and the output device run on different clocks.
 @(private = "file")

@@ -4,12 +4,16 @@ Notification_Kind :: enum {
 	Join,
 	Leave,
 	Message,
+	Welcome,
+	Goodbye,
 }
 
 Notification_Sounds :: struct {
 	join:         []f32,
 	leave:        []f32,
 	message:      []f32,
+	welcome:      []f32,
+	goodbye:      []f32,
 	volume:       f32,
 	active:       []f32,
 	position:     int,
@@ -32,4 +36,8 @@ notifications_clear :: proc(s: ^Notification_Sounds) {
 		clip = nil
 	}
 	s.queued_count = 0
+}
+
+notifications_pending :: proc(s: ^Notification_Sounds) -> bool {
+	return len(s.active) > 0 || s.queued_count > 0
 }

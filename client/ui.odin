@@ -53,6 +53,9 @@ Net_Session :: struct {
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
 	streams:       Audio_Streams,
+	// An explicit disconnect keeps playback open while this local effect
+	// drains. Application shutdown and reconnects skip it.
+	goodbye_tail:  bool,
 }
 
 Page :: enum {
@@ -259,9 +262,10 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	case .Connect:
 		connect(ui)
 	case .Disconnect:
-		disconnect(ui)
+		disconnect(ui, true)
 	}
 	ui.action = .None
+	disconnect_tail_step(ui)
 
 	// Wake up for input, or often enough to animate the speaking
 	// indicators. Listen back without a connection is fed from this
@@ -602,7 +606,47 @@ connect :: proc(ui: ^UI) {
 }
 
 @(private = "file")
-disconnect :: proc(ui: ^UI) {
+disconnect :: proc(ui: ^UI, play_goodbye := false) {
+	ns := ui.session
+	if ns == nil {
+		return
+	}
+	if ns.goodbye_tail {
+		disconnect_finish(ui)
+		return
+	}
+	if play_goodbye && sync.atomic_load(&ns.client.voice.output) {
+		// Stop the network producer, but leave the playback callback running.
+		// The UI then owns the playback ring until the goodbye clip drains.
+		close_capture(&ns.streams, &ns.client.voice)
+		sync.atomic_store(&ns.stop, true)
+		net_stop(ns)
+		ns.goodbye_tail = true
+		voice_notification_play(&ns.client.voice, .Goodbye)
+		if notifications_pending(&ns.client.voice.notifications) {
+			return
+		}
+	}
+	disconnect_finish(ui)
+}
+
+// disconnect_tail_step runs after an explicit disconnect. No network thread is
+// writing playback now, so the UI can fill it until the clip has drained.
+@(private = "file")
+disconnect_tail_step :: proc(ui: ^UI) {
+	ns := ui.session
+	if ns == nil || !ns.goodbye_tail {
+		return
+	}
+	notification_tail_step(&ns.client.voice)
+	if !notifications_pending(&ns.client.voice.notifications) &&
+	   ring_available(&ns.client.voice.playback) == 0 {
+		disconnect_finish(ui)
+	}
+}
+
+@(private = "file")
+disconnect_finish :: proc(ui: ^UI) {
 	ns := ui.session
 	if ns == nil {
 		return
@@ -610,8 +654,10 @@ disconnect :: proc(ui: ^UI) {
 	ui.session = nil
 	// Devices first, so nothing touches the rings once the voice goes away.
 	close_streams(&ns.streams, &ns.client.voice)
-	sync.atomic_store(&ns.stop, true)
-	net_stop(ns)
+	if !ns.goodbye_tail {
+		sync.atomic_store(&ns.stop, true)
+		net_stop(ns)
+	}
 
 	voice_destroy(&ns.client.voice)
 	free(ns.client)

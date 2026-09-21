@@ -15,17 +15,27 @@ LEAVE_SOUND_DATA := #load("assets/leave.opus")
 @(private = "file")
 MESSAGE_SOUND_DATA := #load("assets/msg.opus")
 
+@(private = "file")
+WELCOME_SOUND_DATA := #load("assets/welcome.opus")
+
+@(private = "file")
+GOODBYE_SOUND_DATA := #load("assets/goodbye.opus")
+
 notifications_init :: proc(s: ^Notification_Sounds) {
 	s.volume = 1
 	s.join = decode_ogg_opus(JOIN_SOUND_DATA, "join")
 	s.leave = decode_ogg_opus(LEAVE_SOUND_DATA, "leave")
 	s.message = decode_ogg_opus(MESSAGE_SOUND_DATA, "message")
+	s.welcome = decode_ogg_opus(WELCOME_SOUND_DATA, "welcome")
+	s.goodbye = decode_ogg_opus(GOODBYE_SOUND_DATA, "goodbye")
 }
 
 notifications_destroy :: proc(s: ^Notification_Sounds) {
 	delete(s.join)
 	delete(s.leave)
 	delete(s.message)
+	delete(s.welcome)
+	delete(s.goodbye)
 	s^ = {}
 }
 
@@ -38,6 +48,10 @@ notification_play :: proc(s: ^Notification_Sounds, kind: Notification_Kind) {
 		clip = s.leave
 	case .Message:
 		clip = s.message
+	case .Welcome:
+		clip = s.welcome
+	case .Goodbye:
+		clip = s.goodbye
 	}
 	if len(clip) == 0 {
 		return

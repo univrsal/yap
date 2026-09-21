@@ -93,8 +93,10 @@ test_notification_sounds :: proc(t: ^testing.T) {
 	testing.expect(t, len(v.notifications.join) > 0)
 	testing.expect(t, len(v.notifications.leave) > 0)
 	testing.expect(t, len(v.notifications.message) > 0)
+	testing.expect(t, len(v.notifications.welcome) > 0)
+	testing.expect(t, len(v.notifications.goodbye) > 0)
 
-	for i in 0 ..< 3 {
+	for i in 0 ..< 5 {
 		kind := Notification_Kind(i)
 		notification_play(&v.notifications, kind)
 		sum: f64
@@ -110,6 +112,17 @@ test_notification_sounds :: proc(t: ^testing.T) {
 		}
 		testing.expectf(t, count > 0 && sum > 0, "%v notification was silent", kind)
 	}
+}
+
+@(test)
+test_notification_tail :: proc(t: ^testing.T) {
+	v: Voice
+	testing.expect(t, voice_init(&v))
+	defer voice_destroy(&v)
+	notification_play(&v.notifications, .Goodbye)
+	notification_tail_step(&v)
+	testing.expect(t, !notifications_pending(&v.notifications))
+	testing.expect(t, ring_available(&v.playback) > 0)
 }
 
 @(test)
