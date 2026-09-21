@@ -20,7 +20,7 @@ Channel_Client :: struct {
 	body:            [proto.MAX_STATE_SIZE]byte,
 	users_buf:       [proto.MAX_STATE_USERS]proto.User_Info,
 	channels_buf:    [proto.MAX_CHANNELS]proto.Channel_Info,
-	members_buf:     [proto.MAX_STATE_SIZE / 4]u32,
+	members_buf:     [proto.MAX_STATE_SIZE / 4]proto.User_Num,
 
 	// Channel to join as soon as the first snapshot arrives.
 	wanted:          string,
@@ -41,7 +41,7 @@ Channel_Client :: struct {
 }
 
 // my_num is the server's number for us, or 0 before the first snapshot.
-my_num :: proc(c: ^Voice_Client) -> u32 {
+my_num :: proc(c: ^Voice_Client) -> proto.User_Num {
 	return c.channels.state.your_user if c.channels.have_state else 0
 }
 
@@ -146,7 +146,7 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 	{
 		scratch_users := make([]proto.User_Info, len(ch.users_buf), context.temp_allocator)
 		scratch_channels := make([]proto.Channel_Info, proto.MAX_CHANNELS, context.temp_allocator)
-		scratch_members := make([]u32, len(ch.members_buf), context.temp_allocator)
+		scratch_members := make([]proto.User_Num, len(ch.members_buf), context.temp_allocator)
 		if _, ok := proto.decode_state(body, scratch_users, scratch_channels, scratch_members);
 		   !ok {
 			log.warnf("ignoring invalid channel state v%d from the server", version)
@@ -156,7 +156,7 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 
 	had_state := ch.have_state
 	old_channel := ch.state.your_channel
-	old_members: []u32
+	old_members: []proto.User_Num
 	if had_state {
 		old_members = slice.clone(ch.state.channels[old_channel].members, context.temp_allocator)
 	}
@@ -287,7 +287,7 @@ list_channels :: proc(c: ^Voice_Client) {
 	}
 }
 
-members_string :: proc(c: ^Voice_Client, members: []u32) -> string {
+members_string :: proc(c: ^Voice_Client, members: []proto.User_Num) -> string {
 	if len(members) == 0 {
 		return "nobody"
 	}
@@ -339,7 +339,7 @@ Gain_Command :: struct {
 	gain: f32,
 }
 Poke_Command :: struct {
-	target_uid: u32, // or 0, and the user is looked up by name
+	target_uid: proto.User_Num, // or 0, and the user is looked up by name
 	name:       string, // owned by the command
 	message:    string, // owned by the command
 }

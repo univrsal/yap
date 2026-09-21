@@ -70,7 +70,7 @@ chat_channel_changed :: proc(c: ^Voice_Client) {
 
 // poke_send pokes another user, with a message or without (see
 // proto/poke.odin). `to` 0 means the user called `name`.
-poke_send :: proc(c: ^Voice_Client, to: u32, name: string, raw: string) {
+poke_send :: proc(c: ^Voice_Client, to: proto.User_Num, name: string, raw: string) {
 	ch := &c.channels
 	if !ch.have_state || !c.has_current {
 		log.warn("poke: not connected")

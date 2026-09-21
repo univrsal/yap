@@ -240,7 +240,7 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		#partial switch kind {
 		case .Voice:
 			if len(pt) >= proto.VOICE_DOWN_HEADER_SIZE && in_settled_channel(c) {
-				speaker := endian.unchecked_get_u32le(pt[1:])
+				speaker := proto.User_Num(endian.unchecked_get_u32le(pt[1:]))
 				seq := endian.unchecked_get_u32le(pt[5:])
 				voice_receive(c, speaker, seq, pt[proto.VOICE_DOWN_HEADER_SIZE:])
 			}

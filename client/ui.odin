@@ -90,7 +90,7 @@ UI :: struct {
 
 	// The user whose menu is open, and its volume slider's value (the
 	// slider needs a stable address). See user_menu.
-	menu_user:      u32, // user number
+	menu_user:      proto.User_Num,
 	menu_key:       [proto.KEY_SIZE]u8,
 	menu_volume:    mu.Real,
 	menu_requested: bool,

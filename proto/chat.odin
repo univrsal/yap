@@ -60,7 +60,7 @@ Image_Info :: struct {
 // Chat_Entry is one message. Strings point into the packet it came from.
 Chat_Entry :: struct {
 	id:     u32,
-	sender: u32, // user number (may have left since)
+	sender: User_Num, // may have left since
 	time:   u32, // unix seconds, server clock
 	name:   string, // the sender's name when it was sent
 	kind:   Chat_Kind,
@@ -119,14 +119,14 @@ decode_chat_received :: proc(pt: []u8) -> (channel: u16, id: u32) {
 	return endian.unchecked_get_u16le(pt[1:]), endian.unchecked_get_u32le(pt[3:])
 }
 
-encode_typing_down :: proc(out: ^[TYPING_DOWN_SIZE]u8, user: u32) -> []u8 {
+encode_typing_down :: proc(out: ^[TYPING_DOWN_SIZE]u8, user: User_Num) -> []u8 {
 	out[0] = u8(Message_Kind.Typing)
-	endian.unchecked_put_u32le(out[1:], user)
+	endian.unchecked_put_u32le(out[1:], u32(user))
 	return out[:]
 }
 
-decode_typing_down :: proc(pt: []u8) -> (user: u32) {
-	return endian.unchecked_get_u32le(pt[1:])
+decode_typing_down :: proc(pt: []u8) -> (user: User_Num) {
+	return User_Num(endian.unchecked_get_u32le(pt[1:]))
 }
 
 // encode_chat writes a Chat packet with as many of `entries` (in order,
@@ -157,7 +157,7 @@ encode_chat :: proc(
 			break
 		}
 		put_u32(&w, e.id)
-		put_u32(&w, e.sender)
+		put_u32(&w, u32(e.sender))
 		put_u32(&w, e.time)
 		put_u8(&w, u8(len(e.name)))
 		put_bytes(&w, transmute([]u8)e.name)
@@ -206,7 +206,7 @@ decode_chat :: proc(
 	for &e in entries_buf[:count] {
 		e = {}
 		e.id = get_u32(&r)
-		e.sender = get_u32(&r)
+		e.sender = User_Num(get_u32(&r))
 		e.time = get_u32(&r)
 		name_len := int(get_u8(&r))
 		e.name = string(get_bytes(&r, name_len))

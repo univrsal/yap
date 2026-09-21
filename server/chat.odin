@@ -19,7 +19,7 @@ CHAT_PACKETS_PER_SYNC :: 8
 
 Chat_Message :: struct {
 	id:       u32,
-	sender:   u32,
+	sender:   proto.User_Num,
 	time:     u32,
 	kind:     proto.Chat_Kind,
 	image:    proto.Image_Info, // .Image
@@ -71,13 +71,13 @@ chat_entry :: proc(m: ^Chat_Message) -> proto.Chat_Entry {
 	}
 }
 
-chat_append :: proc(l: ^Chat_Log, sender: u32, name, text: string) {
+chat_append :: proc(l: ^Chat_Log, sender: proto.User_Num, name, text: string) {
 	m := chat_new(l, sender, name)
 	m.kind = .Text
 	m.text_len = u16(copy(m.text_buf[:], text))
 }
 
-chat_append_image :: proc(l: ^Chat_Log, sender: u32, name: string, image: proto.Image_Info) {
+chat_append_image :: proc(l: ^Chat_Log, sender: proto.User_Num, name: string, image: proto.Image_Info) {
 	m := chat_new(l, sender, name)
 	m.kind = .Image
 	m.image = image
@@ -94,7 +94,7 @@ chat_forget_image :: proc(l: ^Chat_Log, image: u32) {
 }
 
 @(private = "file")
-chat_new :: proc(l: ^Chat_Log, sender: u32, name: string) -> ^Chat_Message {
+chat_new :: proc(l: ^Chat_Log, sender: proto.User_Num, name: string) -> ^Chat_Message {
 	l.last += 1
 	l.count = min(l.count + 1, CHAT_HISTORY)
 	m := chat_message(l, l.last)

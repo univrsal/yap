@@ -8,7 +8,7 @@ import "core:testing"
 decode_bufs :: struct {
 	users:    [64]User_Info,
 	channels: [MAX_CHANNELS]Channel_Info,
-	members:  [1024]u32,
+	members:  [1024]User_Num,
 }
 
 @(test)
@@ -87,9 +87,9 @@ test_state_decode_rejects_garbage :: proc(t: ^testing.T) {
 test_state_chunking :: proc(t: ^testing.T) {
 	// Big enough to need several chunks.
 	channels: [MAX_CHANNELS]Channel_Info
-	members: [256]u32
+	members: [256]User_Num
 	for &m, i in members {
-		m = u32(i)
+		m = User_Num(i)
 	}
 	for &ch, i in channels {
 		ch.name = fmt.tprintf("channel-with-a-long-name-%02d", i)

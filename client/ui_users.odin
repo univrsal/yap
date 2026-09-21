@@ -5,6 +5,8 @@ import "core:fmt"
 import "core:strings"
 import mu "vendor:microui"
 
+import "../proto"
+
 /*
 Per-user playback settings: clicking (left or right) on another user in
 the channel list opens a small menu to mute them or change their volume,
@@ -75,7 +77,7 @@ where they've muted themselves, a crossed-out speaker where they've
 stopped listening. Muting somebody for ourselves is a different thing
 entirely, so it's marked at the other end of the row instead.
 */
-member_row :: proc(ui: ^UI, id: u32) {
+member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	ctx := &ui.ctx
 	v := &ui.view
 

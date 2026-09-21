@@ -95,19 +95,19 @@ Voice :: struct {
 	looping:     bool, // prefill reached, being mixed
 	// How much to keep queued for the output device (see OUTPUT_TARGET).
 	output_target: int,
-	speakers:    map[u32]^Speaker,
+	speakers:    map[proto.User_Num]^Speaker,
 	// Per-user playback gain (0 = muted), from the UI, by public key.
 	// Missing means 1.
 	gains:       map[[proto.KEY_SIZE]u8]f32, // by public key
 	// User number -> public key, from the latest snapshot.
-	user_keys:   map[u32][proto.KEY_SIZE]u8,
+	user_keys:   map[proto.User_Num][proto.KEY_SIZE]u8,
 
 	// Stats, reset every second by log_stats.
 	captured:    int, // frames read from the microphone
 	gated:       int, // frames the voice gate held back
 	sent_frames: int,
 	sent_bytes:  int,
-	received:    map[u32]int,
+	received:    map[proto.User_Num]int,
 	concealed:   int,
 	underruns:   u32, // atomic; incremented by the playback callback
 }
@@ -238,7 +238,7 @@ send_captured :: proc(c: ^Voice_Client) {
 }
 
 // voice_receive handles one Voice message from the server.
-voice_receive :: proc(c: ^Voice_Client, speaker: u32, seq: u32, packet: []u8) {
+voice_receive :: proc(c: ^Voice_Client, speaker: proto.User_Num, seq: u32, packet: []u8) {
 	v := &c.voice
 	v.received[speaker] += 1
 	publish_voice(c, speaker)

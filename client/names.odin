@@ -21,7 +21,7 @@ fingerprint :: proc(key: [proto.KEY_SIZE]u8) -> string {
 	return fmt.tprintf("%08x", common.key_id(key))
 }
 
-display_name :: proc(users: []proto.User_Info, num: u32) -> string {
+display_name :: proc(users: []proto.User_Info, num: proto.User_Num) -> string {
 	user: ^proto.User_Info
 	for &u in users {
 		if u.num == num {

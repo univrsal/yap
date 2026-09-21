@@ -25,7 +25,7 @@ Status :: enum {
 
 View_Channel :: struct {
 	name:    string,
-	members: []u32, // user numbers
+	members: []proto.User_Num,
 }
 
 View_User :: struct {
@@ -43,9 +43,9 @@ View :: struct {
 	error:      string, // why we Failed
 	server:     string,
 	my_key:     [proto.KEY_SIZE]u8,
-	my_num:     u32, // 0 until the first snapshot
+	my_num:     proto.User_Num, // 0 until the first snapshot
 	my_name:    string, // as the server has it
-	users:      map[u32]View_User,
+	users:      map[proto.User_Num]View_User,
 	channels:   [dynamic]View_Channel,
 	my_channel: int, // -1 until known
 	joining:    int, // channel a move is pending to, or -1
@@ -54,14 +54,14 @@ View :: struct {
 	mic_open:   bool,
 	mic_time:   time.Tick,
 	// Last time each user's voice was heard, for a speaking indicator.
-	speaking:   map[u32]time.Tick,
+	speaking:   map[proto.User_Num]time.Tick,
 	// Text chat in our channel, oldest first.
 	chat:       [dynamic]View_Chat_Line,
 	chat_total:  int, // lines ever added, so the UI knows when to scroll
 	chat_unread: int, // new messages from others; the UI zeroes it when seen
 	outbox:     [dynamic]string, // our messages the server hasn't confirmed yet
 	images:     map[u32]View_Image, // by image id
-	typing:     map[u32]time.Tick, // when each user last said they're typing
+	typing:     map[proto.User_Num]time.Tick, // when each user last said they're typing
 	// Pokes that came in, for the UI to show (and take) next frame.
 	pokes:      [dynamic]View_Poke,
 }
@@ -72,7 +72,7 @@ View_Poke :: struct {
 }
 
 View_Chat_Line :: struct {
-	sender: u32,
+	sender: proto.User_Num,
 	time:   u32, // unix seconds
 	name:   string, // owned
 	kind:   proto.Chat_Kind,
@@ -189,7 +189,7 @@ view_clear_channels :: proc(v: ^View) {
 	v.my_name = ""
 }
 
-is_speaking :: proc(v: ^View, id: u32) -> bool {
+is_speaking :: proc(v: ^View, id: proto.User_Num) -> bool {
 	t, ok := v.speaking[id]
 	return ok && time.tick_since(t) < SPEAKING_HOLD
 }
@@ -222,7 +222,7 @@ publish_channels :: proc(c: ^Voice_Client) {
 	sync.guard(&v.mutex)
 	view_clear_channels(v)
 	for info in ch.state.channels {
-		members := make([]u32, len(info.members))
+		members := make([]proto.User_Num, len(info.members))
 		copy(members, info.members)
 		append(&v.channels, View_Channel{name = strings.clone(info.name), members = members})
 	}
@@ -251,7 +251,7 @@ publish_mic :: proc(c: ^Voice_Client, level_db: f32, gate_open: bool) {
 	v.mic_level, v.mic_open, v.mic_time = level_db, gate_open, time.tick_now()
 }
 
-publish_voice :: proc(c: ^Voice_Client, speaker: u32) {
+publish_voice :: proc(c: ^Voice_Client, speaker: proto.User_Num) {
 	v := c.view
 	if v == nil {
 		return
@@ -356,7 +356,7 @@ unpublish_image :: proc(c: ^Voice_Client, id: u32) {
 	}
 }
 
-publish_typing :: proc(c: ^Voice_Client, user: u32) {
+publish_typing :: proc(c: ^Voice_Client, user: proto.User_Num) {
 	v := c.view
 	if v == nil {
 		return
@@ -366,7 +366,7 @@ publish_typing :: proc(c: ^Voice_Client, user: u32) {
 }
 
 // is_typing says whether a user has told us recently they're typing.
-is_typing :: proc(v: ^View, user: u32) -> bool {
+is_typing :: proc(v: ^View, user: proto.User_Num) -> bool {
 	t, ok := v.typing[user]
 	return ok && time.tick_since(t) < TYPING_SHOW
 }

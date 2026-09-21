@@ -6,10 +6,18 @@ import "core:crypto/noise"
 import "core:encoding/endian"
 import "core:time"
 
+/*
+Session_Id is a session's index: the random number a peer puts in every
+packet addressed to it (see wire.odin). A type of its own so it can't be
+taken for a User_Num - a user may have several sessions, and a session's
+index says nothing about who it belongs to.
+*/
+Session_Id :: distinct u32
+
 // Session is an established, keyed connection to one peer.
 Session :: struct {
-	local_idx:  u32, // peers address packets to us with this
-	remote_idx: u32, // we address packets to the peer with this
+	local_idx:  Session_Id, // peers address packets to us with this
+	remote_idx: Session_Id, // we address packets to the peer with this
 	cs:         noise.Cipher_States,
 	send_n:     u64,
 	replay:     Replay_Window,
@@ -27,8 +35,8 @@ Initiator_State :: enum {
 Initiator :: struct {
 	hs:         noise.Handshake_State,
 	state:      Initiator_State,
-	local_idx:  u32,
-	remote_idx: u32,
+	local_idx:  Session_Id,
+	remote_idx: Session_Id,
 	started:    time.Tick,
 	last_sent:  time.Tick,
 	// The last handshake packet sent, kept to retransmit verbatim if lost.
@@ -39,8 +47,8 @@ Initiator :: struct {
 // Responder is the server side of an in-progress handshake.
 Responder :: struct {
 	hs:         noise.Handshake_State,
-	local_idx:  u32,
-	remote_idx: u32,
+	local_idx:  Session_Id,
+	remote_idx: Session_Id,
 	// Handshake_Resp, kept to answer a retransmitted Handshake_Init.
 	packet:     [RESP_SIZE]byte,
 }
@@ -64,8 +72,8 @@ initiator_packet :: proc(ini: ^Initiator) -> []byte {
 	return ini.packet[:ini.packet_len]
 }
 
-random_index :: proc() -> u32 {
-	idx: u32
+random_index :: proc() -> Session_Id {
+	idx: Session_Id
 	for idx == 0 {
 		crypto.rand_bytes(([^]byte)(&idx)[:size_of(idx)])
 	}
@@ -74,13 +82,13 @@ random_index :: proc() -> u32 {
 
 // receiver_index returns the session index a Handshake_Finish or Data
 // packet is addressed to.
-receiver_index :: proc(packet: []byte) -> u32 {
-	return endian.unchecked_get_u32le(packet[1:])
+receiver_index :: proc(packet: []byte) -> Session_Id {
+	return Session_Id(endian.unchecked_get_u32le(packet[1:]))
 }
 
 // init_sender_index returns the client's index from a Handshake_Init.
-init_sender_index :: proc(packet: []byte) -> u32 {
-	return endian.unchecked_get_u32le(packet[1:])
+init_sender_index :: proc(packet: []byte) -> Session_Id {
+	return Session_Id(endian.unchecked_get_u32le(packet[1:]))
 }
 
 @(private)
@@ -115,7 +123,7 @@ initiator_start :: proc(
 	ini.started = time.tick_now()
 
 	ini.packet[0] = u8(Packet_Type.Handshake_Init)
-	endian.unchecked_put_u32le(ini.packet[1:], ini.local_idx)
+	endian.unchecked_put_u32le(ini.packet[1:], u32(ini.local_idx))
 	copy(ini.packet[INIT_HEADER_SIZE:], msg)
 	ini.packet_len = INIT_SIZE
 	return initiator_packet(ini), true
@@ -142,8 +150,8 @@ initiator_read_resp :: proc(
 	if ini.state != .Sent_Init || packet_type(packet) != .Handshake_Resp {
 		return
 	}
-	remote_idx := endian.unchecked_get_u32le(packet[1:])
-	receiver_idx := endian.unchecked_get_u32le(packet[5:])
+	remote_idx := Session_Id(endian.unchecked_get_u32le(packet[1:]))
+	receiver_idx := Session_Id(endian.unchecked_get_u32le(packet[5:]))
 	if receiver_idx != ini.local_idx {
 		return
 	}
@@ -202,7 +210,7 @@ initiator_finish :: proc(
 	noise.handshake_reset(&ini.hs)
 	ini.state = .Sent_Finish
 	ini.packet[0] = u8(Packet_Type.Handshake_Finish)
-	endian.unchecked_put_u32le(ini.packet[1:], ini.remote_idx)
+	endian.unchecked_put_u32le(ini.packet[1:], u32(ini.remote_idx))
 	copy(ini.packet[FINISH_HEADER_SIZE:], msg)
 	ini.packet_len = FINISH_HEADER_SIZE + len(msg)
 	return initiator_packet(ini), true
@@ -215,7 +223,7 @@ responder_start :: proc(
 	r: ^Responder,
 	static_key: ^ecdh.Private_Key,
 	packet: []byte,
-	local_idx: u32,
+	local_idx: Session_Id,
 ) -> (
 	resp: []byte,
 	ok: bool,
@@ -244,8 +252,8 @@ responder_start :: proc(
 	r.local_idx = local_idx
 	r.remote_idx = init_sender_index(packet)
 	r.packet[0] = u8(Packet_Type.Handshake_Resp)
-	endian.unchecked_put_u32le(r.packet[1:], r.local_idx)
-	endian.unchecked_put_u32le(r.packet[5:], r.remote_idx)
+	endian.unchecked_put_u32le(r.packet[1:], u32(r.local_idx))
+	endian.unchecked_put_u32le(r.packet[5:], u32(r.remote_idx))
 	copy(r.packet[RESP_HEADER_SIZE:], msg)
 	return r.packet[:], true
 }
@@ -301,7 +309,7 @@ seal :: proc(s: ^Session, plaintext: []byte, out: []byte) -> (packet: []byte, ok
 	}
 
 	out[0] = u8(Packet_Type.Data)
-	endian.unchecked_put_u32le(out[1:], s.remote_idx)
+	endian.unchecked_put_u32le(out[1:], u32(s.remote_idx))
 	endian.unchecked_put_u64le(out[5:], s.send_n)
 
 	// Noise's own counter already tracks send_n; setting it explicitly

@@ -18,9 +18,9 @@ a keepalive. Integers are little-endian.
 	(text chat: Chat_Send, Chat_Sent, Chat, Chat_Received, Typing; see chat.odin)
 
 Users are identified by a number the server assigns (`speaker` in Voice,
-members in State). Numbers are unique per server run and never reused,
-and State maps them to each user's full public key and name. Clients key
-anything they store about a user by the public key.
+members in State; User_Num). Numbers are unique per server run and never
+reused, and State maps them to each user's full public key and name.
+Clients key anything they store about a user by the public key.
 
 A client's name first arrives in its handshake (see names.odin, Hello).
 Set_Name changes it later; it's idempotent, so the client resends it until
@@ -46,6 +46,14 @@ Join requests carry an increasing id and are resent until a snapshot's
 client continues numbering from the `join_ack` in the first snapshot it
 receives, so a restarted client doesn't collide with its old ids.
 */
+/*
+User_Num is a user's number (see above). It's a type of its own so it
+can't be taken for a Session_Id, the other number that goes with a
+user: that one says which session a packet is for (see session.odin),
+and a user may have several.
+*/
+User_Num :: distinct u32
+
 Message_Kind :: enum u8 {
 	Voice         = 1,
 	Join          = 2,
@@ -100,7 +108,7 @@ MAX_CHANNELS :: 64
 MAX_CHANNEL_NAME_SIZE :: 32
 
 User_Info :: struct {
-	num:   u32, // assigned by the server
+	num:   User_Num, // assigned by the server
 	key:   [KEY_SIZE]u8,
 	name:  string, // sanitized (see sanitize_name); may be empty
 	flags: User_Flags, // what they've switched off for themselves
@@ -108,13 +116,13 @@ User_Info :: struct {
 
 Channel_Info :: struct {
 	name:    string,
-	members: []u32, // user numbers
+	members: []User_Num,
 }
 
 // Channel_State is one user's view: channel ids are indices into `channels`.
 Channel_State :: struct {
 	your_channel: u16,
-	your_user:    u32,
+	your_user:    User_Num,
 	join_ack:     u32,
 	users:        []User_Info,
 	channels:     []Channel_Info,
@@ -241,7 +249,7 @@ encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bo
 		buf = out,
 	}
 	put_u16(&w, state.your_channel)
-	put_u32(&w, state.your_user)
+	put_u32(&w, u32(state.your_user))
 	put_u32(&w, state.join_ack)
 
 	if len(state.users) > int(max(u16)) {
@@ -252,7 +260,7 @@ encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bo
 		if len(u.name) > MAX_NAME_SIZE {
 			return
 		}
-		put_u32(&w, u.num)
+		put_u32(&w, u32(u.num))
 		put_bytes(&w, u.key[:])
 		put_u8(&w, transmute(u8)u.flags)
 		put_u8(&w, u8(len(u.name)))
@@ -268,7 +276,7 @@ encode_state :: proc(state: Channel_State, out: []byte) -> (body: []byte, ok: bo
 		put_bytes(&w, transmute([]byte)ch.name)
 		put_u16(&w, u16(len(ch.members)))
 		for m in ch.members {
-			put_u32(&w, m)
+			put_u32(&w, u32(m))
 		}
 	}
 	if w.overflow {
@@ -284,7 +292,7 @@ decode_state :: proc(
 	body: []byte,
 	users_buf: []User_Info,
 	channels_buf: []Channel_Info,
-	members_buf: []u32,
+	members_buf: []User_Num,
 ) -> (
 	state: Channel_State,
 	ok: bool,
@@ -293,7 +301,7 @@ decode_state :: proc(
 		buf = body,
 	}
 	state.your_channel = get_u16(&r)
-	state.your_user = get_u32(&r)
+	state.your_user = User_Num(get_u32(&r))
 	state.join_ack = get_u32(&r)
 
 	user_count := int(get_u16(&r))
@@ -301,7 +309,7 @@ decode_state :: proc(
 		return
 	}
 	for &u in users_buf[:user_count] {
-		u.num = get_u32(&r)
+		u.num = User_Num(get_u32(&r))
 		copy(u.key[:], get_bytes(&r, KEY_SIZE))
 		u.flags = transmute(User_Flags)get_u8(&r)
 		name_len := int(get_u8(&r))
@@ -328,7 +336,7 @@ decode_state :: proc(
 		ch.members = members_buf[next_member:][:member_count]
 		next_member += member_count
 		for &m in ch.members {
-			m = get_u32(&r)
+			m = User_Num(get_u32(&r))
 		}
 	}
 	if r.overflow || r.pos != len(body) {
@@ -340,7 +348,7 @@ decode_state :: proc(
 }
 
 // find_user returns the user with number `num` in a snapshot, or nil.
-find_user :: proc(state: ^Channel_State, num: u32) -> ^User_Info {
+find_user :: proc(state: ^Channel_State, num: User_Num) -> ^User_Info {
 	for &u in state.users {
 		if u.num == num {
 			return &u

@@ -37,7 +37,7 @@ Client :: struct {
 // here rather than on the session so it survives rekeys.
 User :: struct {
 	key:             [proto.KEY_SIZE]byte,
-	num:             u32, // how clients refer to this user (see proto)
+	num:             proto.User_Num, // how clients refer to this user
 	id:              u32, // common.key_id(key), for logs
 	name:            string, // sanitized; points into name_buf
 	name_buf:        [proto.MAX_NAME_SIZE]u8,
@@ -62,7 +62,7 @@ User :: struct {
 Server :: struct {
 	sock:          net.UDP_Socket,
 	key:           ecdh.Private_Key,
-	sessions:      map[u32]^Client, // by local_idx
+	sessions:      map[proto.Session_Id]^Client, // by local_idx
 	users:         map[[proto.KEY_SIZE]byte]^User,
 	channels:      []string,
 	chats:         []Chat_Log, // one per channel
@@ -73,7 +73,7 @@ Server :: struct {
 	// means "nothing acked yet".
 	version:       u32,
 	// The last user number handed out; numbers are never reused.
-	last_num:      u32,
+	last_num:      proto.User_Num,
 }
 
 run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
@@ -156,7 +156,7 @@ handle_init :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		return
 	}
 
-	idx: u32
+	idx: proto.Session_Id
 	for {
 		idx = proto.random_index()
 		if idx not_in s.sessions {
@@ -403,9 +403,9 @@ sync_state :: proc(s: ^Server) {
 	}
 
 	// The channel list and rosters are the same for everyone.
-	members := make([][dynamic]u32, len(s.channels), context.temp_allocator)
+	members := make([][dynamic]proto.User_Num, len(s.channels), context.temp_allocator)
 	for &m in members {
-		m = make([dynamic]u32, context.temp_allocator)
+		m = make([dynamic]proto.User_Num, context.temp_allocator)
 	}
 	users := make([]proto.User_Info, len(s.users), context.temp_allocator)
 	next_user := 0
@@ -498,7 +498,7 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 		return
 	}
 	out_pt[0] = u8(proto.Message_Kind.Voice)
-	endian.unchecked_put_u32le(out_pt[1:], from.user.num)
+	endian.unchecked_put_u32le(out_pt[1:], u32(from.user.num))
 	copy(out_pt[5:], body)
 	msg := out_pt[:n]
 
@@ -516,7 +516,7 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 // Once the client is using its new session, the ones it replaced are
 // dead weight.
 retire_superseded :: proc(s: ^Server, current: ^Client) {
-	stale := make([dynamic]u32, context.temp_allocator)
+	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, c in s.sessions {
 		if c != current && c.superseded && c.user == current.user {
 			append(&stale, idx)
@@ -529,7 +529,7 @@ retire_superseded :: proc(s: ^Server, current: ^Client) {
 
 // drop_user ends every session of a user who said goodbye.
 drop_user :: proc(s: ^Server, u: ^User) {
-	stale := make([dynamic]u32, context.temp_allocator)
+	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, c in s.sessions {
 		if c.user == u {
 			append(&stale, idx)
@@ -541,7 +541,7 @@ drop_user :: proc(s: ^Server, u: ^User) {
 }
 
 reap_sessions :: proc(s: ^Server) {
-	stale := make([dynamic]u32, context.temp_allocator)
+	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, c in s.sessions {
 		expired: bool
 		switch {
@@ -561,7 +561,7 @@ reap_sessions :: proc(s: ^Server) {
 	}
 }
 
-drop_session :: proc(s: ^Server, idx: u32) {
+drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
 	c := s.sessions[idx]
 	delete_key(&s.sessions, idx)
 
