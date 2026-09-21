@@ -22,6 +22,7 @@ emcc "$out/yap.obj" \
 	web/shell.c \
 	web/audio_stub.c \
 	"$stb/stb_truetype.c" \
+	"$stb/stb_image.c" \
 	-O2 \
 	-sUSE_GLFW=3 \
 	-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3 \

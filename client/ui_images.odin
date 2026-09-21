@@ -143,6 +143,9 @@ ui_images_frame :: proc(ui: ^UI) {
 	im := &ui.images
 	im.frame += 1
 	clear(&im.draws)
+	when WEB {
+		decode_queued(im)
+	}
 
 	results: [dynamic]Decode_Result
 	{
@@ -361,7 +364,7 @@ enqueue_decode :: proc(im: ^UI_Images, id: u32, jpeg: []u8) {
 		sync.guard(&im.mutex)
 		append(&im.queue, Decode_Job{id = id, jpeg = copy_of})
 	}
-	sync.sema_post(&im.wake)
+	decode_wake(im)
 }
 
 

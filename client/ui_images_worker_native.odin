@@ -20,6 +20,10 @@ decode_worker_start :: proc(ui: ^UI) {
 	)
 }
 
+decode_wake :: proc(im: ^UI_Images) {
+	sync.sema_post(&im.wake)
+}
+
 decode_worker_stop :: proc(ui: ^UI) {
 	im := &ui.images
 	sync.sema_post(&im.wake)

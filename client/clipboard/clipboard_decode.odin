@@ -1,8 +1,7 @@
-#+build !wasi
 package clipboard
 
 import log "../../common/wlog"
-import stbi "vendor:stb/image"
+import stbi "../wstbi"
 
 // decode turns PNG, JPEG, BMP or GIF data into RGBA pixels, refusing
 // images over MAX_PIXELS before decoding them.
