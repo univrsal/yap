@@ -10,7 +10,10 @@ import "../proto"
 import "opus"
 
 @(private = "file")
-SPEAKER_KEY :: [proto.KEY_SIZE]u8{0 = 0x42, 31 = 0x42}
+SPEAKER_KEY :: [proto.KEY_SIZE]u8 {
+	0  = 0x42,
+	31 = 0x42,
+}
 
 // Plays one speaker's tone through the receive path (decode -> jitter
 // queue -> mix) at the given gain and returns the output level.
@@ -83,13 +86,68 @@ test_deafen :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_notification_sounds :: proc(t: ^testing.T) {
+	v: Voice
+	testing.expect(t, voice_init(&v))
+	defer voice_destroy(&v)
+	testing.expect(t, len(v.notifications.join) > 0)
+	testing.expect(t, len(v.notifications.leave) > 0)
+	testing.expect(t, len(v.notifications.message) > 0)
+
+	for i in 0 ..< 3 {
+		kind := Notification_Kind(i)
+		notification_play(&v.notifications, kind)
+		sum: f64
+		count := 0
+		for len(v.notifications.active) > 0 || v.notifications.queued_count > 0 {
+			mix_output(&v)
+			out: [FRAME]f32
+			got := ring_read(&v.playback, out[:])
+			for sample in out[:got] {
+				sum += f64(sample * sample)
+			}
+			count += got
+		}
+		testing.expectf(t, count > 0 && sum > 0, "%v notification was silent", kind)
+	}
+}
+
+@(test)
+test_deafen_suppresses_notifications :: proc(t: ^testing.T) {
+	v: Voice
+	testing.expect(t, voice_init(&v))
+	defer voice_destroy(&v)
+	v.deafened = true
+	voice_notification_play(&v, .Message)
+	testing.expect_value(t, len(v.notifications.active), 0)
+	testing.expect_value(t, v.notifications.queued_count, 0)
+	v.deafened = false
+	voice_notification_play(&v, .Message)
+	testing.expect(t, len(v.notifications.active) > 0)
+	v.deafened = true
+	mix_output(&v)
+	testing.expect_value(t, len(v.notifications.active), 0)
+	testing.expect_value(t, v.notifications.queued_count, 0)
+}
+
+@(test)
 test_settings_roundtrip :: proc(t: ^testing.T) {
 	path := "yap-settings-test.json"
 	defer os.remove(path)
 
-	alice := [proto.KEY_SIZE]u8{0 = 0x8e, 1 = 0x41, 31 = 1}
-	bob := [proto.KEY_SIZE]u8{0 = 0xab, 31 = 2}
-	carol := [proto.KEY_SIZE]u8{0 = 0x11, 31 = 3}
+	alice := [proto.KEY_SIZE]u8 {
+		0  = 0x8e,
+		1  = 0x41,
+		31 = 1,
+	}
+	bob := [proto.KEY_SIZE]u8 {
+		0  = 0xab,
+		31 = 2,
+	}
+	carol := [proto.KEY_SIZE]u8 {
+		0  = 0x11,
+		31 = 3,
+	}
 
 	s := DEFAULT_SETTINGS
 	defer settings_destroy(&s)
@@ -209,7 +267,9 @@ test_stereo_end_to_end :: proc(t: ^testing.T) {
 	for f in 0 ..< 50 {
 		frame: [FRAME]f32
 		for i in 0 ..< FRAME_SAMPLES {
-			frame[i * CHANNELS] = f32(0.3 * math.sin(2 * math.PI * 440 * f64(f * FRAME_SAMPLES + i) / SAMPLE_RATE))
+			frame[i * CHANNELS] = f32(
+				0.3 * math.sin(2 * math.PI * 440 * f64(f * FRAME_SAMPLES + i) / SAMPLE_RATE),
+			)
 		}
 		_, pass := mic_process(&sender, frame[:]) // no suppression; gate off
 		testing.expect(t, pass)

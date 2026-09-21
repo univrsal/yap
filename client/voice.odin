@@ -1,7 +1,7 @@
 package client
 
-import "core:encoding/endian"
 import log "../common/wlog"
+import "core:encoding/endian"
 import "core:sync"
 import "core:time"
 
@@ -64,52 +64,53 @@ Speaker :: struct {
 }
 
 Voice :: struct {
-	capture:     Ring, // capture callback -> network thread
-	playback:    Ring, // network thread -> playback callback
+	capture:          Ring, // capture callback -> network thread
+	playback:         Ring, // network thread -> playback callback
 	// Whether something produces into / consumes from the rings (a device,
 	// or the fake audio in headless mode). Set by whoever opens them.
-	input:       bool, // atomic
-	output:      bool, // atomic
+	input:            bool, // atomic
+	output:           bool, // atomic
 	// The microphone stream's channel count (its native one); the capture
 	// callback converts to stereo. Atomic.
 	capture_channels: u32,
 	// nil in a web build, which has no Opus yet: the devices work (the
 	// level meter, the gate, listen back) but nothing is sent or decoded.
-	encoder:     ^opus.Encoder,
+	encoder:          ^opus.Encoder,
 	// voice_init succeeded, so there's a pipeline to open devices for.
-	ready:       bool,
-	quality:     Quality,
-	send_seq:    u32,
-	muted:       bool,
+	ready:            bool,
+	quality:          Quality,
+	send_seq:         u32,
+	muted:            bool,
 	// Deafened: play nothing from anyone else. Speakers are still decoded
 	// and consumed, so undeafening picks up where the channel is.
-	deafened:    bool,
-	denoisers:   [CHANNELS]rnn.Denoiser, // one per channel (stereo presets)
-	denoise:     bool, // noise suppression
-	gate:        Gate,
+	deafened:         bool,
+	denoisers:        [CHANNELS]rnn.Denoiser, // one per channel (stereo presets)
+	denoise:          bool, // noise suppression
+	gate:             Gate,
 	// Listen back: our own processed microphone audio, as it would be sent
 	// (after suppression, silent while the gate is closed), played back to
 	// us through the mixer. For testing the settings; ignores mute.
-	listen:      bool,
-	loopback:    Ring, // same thread in and out, like a speaker's queue
-	looping:     bool, // prefill reached, being mixed
+	listen:           bool,
+	loopback:         Ring, // same thread in and out, like a speaker's queue
+	looping:          bool, // prefill reached, being mixed
+	notifications:    Notification_Sounds,
 	// How much to keep queued for the output device (see OUTPUT_TARGET).
-	output_target: int,
-	speakers:    map[proto.User_Num]^Speaker,
+	output_target:    int,
+	speakers:         map[proto.User_Num]^Speaker,
 	// Per-user playback gain (0 = muted), from the UI, by public key.
 	// Missing means 1.
-	gains:       map[[proto.KEY_SIZE]u8]f32, // by public key
+	gains:            map[[proto.KEY_SIZE]u8]f32, // by public key
 	// User number -> public key, from the latest snapshot.
-	user_keys:   map[proto.User_Num][proto.KEY_SIZE]u8,
+	user_keys:        map[proto.User_Num][proto.KEY_SIZE]u8,
 
 	// Stats, reset every second by log_stats.
-	captured:    int, // frames read from the microphone
-	gated:       int, // frames the voice gate held back
-	sent_frames: int,
-	sent_bytes:  int,
-	received:    map[proto.User_Num]int,
-	concealed:   int,
-	underruns:   u32, // atomic; incremented by the playback callback
+	captured:         int, // frames read from the microphone
+	gated:            int, // frames the voice gate held back
+	sent_frames:      int,
+	sent_bytes:       int,
+	received:         map[proto.User_Num]int,
+	concealed:        int,
+	underruns:        u32, // atomic; incremented by the playback callback
 }
 
 voice_init :: proc(v: ^Voice) -> bool {
@@ -120,6 +121,7 @@ voice_init :: proc(v: ^Voice) -> bool {
 	ring_init(&v.capture, SAMPLE_RATE / 2 * CHANNELS)
 	ring_init(&v.playback, SAMPLE_RATE / 2 * CHANNELS)
 	ring_init(&v.loopback, JITTER_MAX + 4 * FRAME)
+	notifications_init(&v.notifications)
 	v.output_target = OUTPUT_TARGET
 	v.capture_channels = CHANNELS
 
@@ -160,6 +162,7 @@ voice_destroy :: proc(v: ^Voice) {
 	ring_destroy(&v.capture)
 	ring_destroy(&v.playback)
 	ring_destroy(&v.loopback)
+	notifications_destroy(&v.notifications)
 }
 
 // voice_step encodes and sends captured audio, and keeps the output fed.
@@ -328,6 +331,11 @@ mix_output :: proc(v: ^Voice) {
 	for ring_available(&v.playback) < v.output_target {
 		mix: [FRAME]f32
 		mix_loopback(v, mix[:])
+		if v.deafened {
+			notifications_clear(&v.notifications)
+		} else {
+			notifications_mix(&v.notifications, mix[:])
+		}
 		for id, sp in v.speakers {
 			queued := ring_available(&sp.queue)
 			if !sp.playing {

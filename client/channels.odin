@@ -196,6 +196,24 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 	}
 
 	current := state.channels[state.your_channel]
+	if had_state {
+		if state.your_channel != old_channel {
+			// A channel move is one local departure and arrival, not a join
+			// from every member already in the destination channel.
+			voice_notification_play(&c.voice, .Join)
+		} else {
+			for member in current.members {
+				if !member_present(old_members, member) {
+					voice_notification_play(&c.voice, .Join)
+				}
+			}
+			for member in old_members {
+				if !member_present(current.members, member) {
+					voice_notification_play(&c.voice, .Leave)
+				}
+			}
+		}
+	}
 	switch {
 	case !had_state || state.your_channel != old_channel:
 		log.infof("in channel %q with %s", current.name, members_string(c, current.members))
@@ -210,6 +228,16 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 		delete(wanted)
 	}
 	publish_channels(c)
+}
+
+@(private = "file")
+member_present :: proc(members: []proto.User_Num, wanted: proto.User_Num) -> bool {
+	for member in members {
+		if member == wanted {
+			return true
+		}
+	}
+	return false
 }
 
 // in_settled_channel is false until we know which channel we're in, and

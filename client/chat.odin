@@ -204,6 +204,7 @@ handle_poke :: proc(c: ^Voice_Client, pt: []byte) {
 	} else {
 		log.infof("[poke] %s poked you: %s", name, text)
 	}
+	voice_notification_play(&c.voice, .Message)
 	publish_poke(c, name, text)
 }
 
@@ -236,6 +237,9 @@ handle_chat :: proc(c: ^Voice_Client, pt: []byte) {
 			image_want(c, e.image)
 		}
 		unread := e.sender != my_num(c) && time.tick_since(ch.started_at) > CHAT_HISTORY_WINDOW
+		if unread {
+			voice_notification_play(&c.voice, .Message)
+		}
 		publish_chat(c, e, unread)
 		if c.view == nil {
 			// Headless: the log is the only place to show it.
