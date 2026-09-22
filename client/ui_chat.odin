@@ -134,8 +134,15 @@ chat_panel :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, CHAT_DIM_COLOR, "No messages in this channel yet.", label_proc)
 	}
-	for line in v.chat {
-		header := fmt.tprintf("%s  %s", chat_time(ui, i64(line.time)), line.name)
+	for line, i in v.chat {
+		// Same sender, same minute as the line right before it: read as
+		// one block, so only the first of them needs a header, and the
+		// gap between them is tighter (see chat_message).
+		merged :=
+			i > 0 &&
+			line.sender == v.chat[i - 1].sender &&
+			chat_same_minute(line.time, v.chat[i - 1].time)
+		header := "" if merged else fmt.tprintf("%s  %s", chat_time(ui, line.time), line.name)
 		header_color := CHAT_OWN_COLOR if line.sender == v.my_num else CHAT_NAME_COLOR
 		switch line.kind {
 		case .Text:
@@ -146,14 +153,23 @@ chat_panel :: proc(ui: ^UI) {
 				line.text,
 				ctx.style.colors[.TEXT],
 				links = true,
+				merged = merged,
 			)
 		case .Image:
 			img := v.images[line.image.id] or_else {}
-			chat_image(ui, header, header_color, line.image, img)
+			chat_image(ui, header, header_color, line.image, img, merged = merged)
 		}
 	}
 	for text in v.outbox {
-		chat_message(ui, "sending...", CHAT_DIM_COLOR, text, CHAT_DIM_COLOR, links = false)
+		chat_message(
+			ui,
+			"sending...",
+			CHAT_DIM_COLOR,
+			text,
+			CHAT_DIM_COLOR,
+			links = false,
+			merged = false,
+		)
 	}
 	mu.end_panel(ctx)
 
@@ -228,12 +244,12 @@ typing_text :: proc(v: ^View) -> string {
 // chat_time formats a message's time in the local zone: the time of day
 // for today's messages, with the date for older ones.
 @(private = "file")
-chat_time :: proc(ui: ^UI, unix: i64) -> string {
+chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 	local :: proc(ui: ^UI, t: time.Time) -> datetime.DateTime {
 		dt, _ := time.time_to_datetime(t)
 		return chat_local_time(ui, dt)
 	}
-	dt := local(ui, time.unix(unix, 0))
+	dt := local(ui, time.unix(i64(unix), 0))
 	now := local(ui, time.now())
 	if dt.date == now.date {
 		return fmt.tprintf("%02d:%02d", dt.hour, dt.minute)
@@ -241,7 +257,22 @@ chat_time :: proc(ui: ^UI, unix: i64) -> string {
 	return fmt.tprintf("%d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute)
 }
 
-// chat_image draws an image message: the header, then the picture.
+// chat_same_minute says whether two messages read as part of the same
+// block: close enough in time that showing both their headers would
+// just repeat the same sender and (usually) the same minute.
+@(private = "file")
+chat_same_minute :: proc(a, b: proto.Unix_Time) -> bool {
+	return a / 60 == b / 60
+}
+
+// How much closer together a merged message sits, against the usual gap
+// between two separate ones (ctx.style.spacing).
+@(private = "file")
+MERGED_GAP :: 1
+
+// chat_image draws an image message: the gap before it, the header
+// (unless `merged`, in which case it's part of the previous message's
+// block and sits right under it instead), then the picture.
 @(private = "file")
 chat_image :: proc(
 	ui: ^UI,
@@ -249,28 +280,37 @@ chat_image :: proc(
 	header_color: mu.Color,
 	info: proto.Image_Info,
 	img: View_Image,
+	merged: bool,
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
-	mu.layout_row(ctx, {-1}, 0)
+	// 1, not 0: a height of 0 tells layout_row to fall back to the
+	// default control size, which (plus the parent's own row spacing)
+	// would set a floor under how short this block can be - taller than
+	// a merged one-liner is supposed to end up.
+	mu.layout_row(ctx, {-1}, 1)
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 	saved := ctx.style.spacing
 	ctx.style.spacing = 0
 	defer ctx.style.spacing = saved
 
-	mu.layout_row(ctx, {-1}, ctx.text_height(font))
-	r := mu.layout_next(ctx)
-	mu.draw_text(ctx, font, header, {r.x, r.y}, header_color)
+	mu.layout_row(ctx, {-1}, MERGED_GAP if merged else saved)
+	mu.layout_next(ctx) // the gap
+
+	if !merged {
+		mu.layout_row(ctx, {-1}, ctx.text_height(font))
+		r := mu.layout_next(ctx)
+		mu.draw_text(ctx, font, header, {r.x, r.y}, header_color)
+	}
 	// An image the server has dropped has no id left to look it up by.
 	state := img.state if info.id != 0 else Image_State.Gone
 	image_block(ui, info, state, img.jpeg)
-	mu.layout_row(ctx, {-1}, saved) // the gap
-	mu.layout_next(ctx)
 }
 
-// chat_message draws a header line and the wrapped text under it, with
-// the lines packed tightly and a gap before the next message.
+// chat_message draws the gap before this message, a header line unless
+// `merged` (see chat_image), and the wrapped text under it, with the
+// lines packed tightly.
 @(private = "file")
 chat_message :: proc(
 	ui: ^UI,
@@ -279,22 +319,27 @@ chat_message :: proc(
 	text: string,
 	color: mu.Color,
 	links: bool,
+	merged: bool,
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
-	mu.layout_row(ctx, {-1}, 0)
+	// 1, not 0: see the same line in chat_image.
+	mu.layout_row(ctx, {-1}, 1)
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
-	mu.layout_row(ctx, {-1}, ctx.text_height(font))
 	saved := ctx.style.spacing
 	ctx.style.spacing = 0
 	defer ctx.style.spacing = saved
 
-	r := mu.layout_next(ctx)
-	mu.draw_text(ctx, font, header, {r.x, r.y}, header_color)
+	mu.layout_row(ctx, {-1}, MERGED_GAP if merged else saved)
+	mu.layout_next(ctx) // the gap
+
+	mu.layout_row(ctx, {-1}, ctx.text_height(font))
+	if !merged {
+		r := mu.layout_next(ctx)
+		mu.draw_text(ctx, font, header, {r.x, r.y}, header_color)
+	}
 	wrapped_text(ui, text, color, find_links(text) if links else nil)
-	mu.layout_row(ctx, {-1}, saved) // the gap
-	mu.layout_next(ctx)
 }
 
 // wrapped_text is mu.text, except it also breaks words too long for a

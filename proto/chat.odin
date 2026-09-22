@@ -9,7 +9,7 @@ messages (see messages.odin for the kinds).
 	client -> server  Chat_Send      [kind][nonce u64][text_len u16][text]
 	server -> client  Chat_Sent      [kind][nonce u64]
 	server -> client  Chat           [kind][channel u16][base u32][count u8] entries...
-	                   entry:        [id u32][sender u32][time i64][name_len u8][name][entry kind u8]
+	                   entry:        [id u32][sender u32][time u64][name_len u8][name][entry kind u8]
 	                   ... text:     [text_len u16][text]
 	                   ... image:    [image u32][width u16][height u16][size u32]
 	client -> server  Chat_Received  [kind][channel u16][id u32]
@@ -46,7 +46,7 @@ MAX_CHAT_SIZE :: 500 // bytes of UTF-8
 
 // Unix_Time is seconds since the epoch, the server's clock. Distinct so
 // it can't be mixed up with an id or another plain integer by accident.
-Unix_Time :: distinct i64
+Unix_Time :: distinct u64
 
 Chat_Kind :: enum u8 {
 	Text  = 0,
@@ -162,7 +162,7 @@ encode_chat :: proc(
 		}
 		put_u32(&w, e.id)
 		put_u32(&w, u32(e.sender))
-		put_i64(&w, i64(e.time))
+		put_u64(&w, u64(e.time))
 		put_u8(&w, u8(len(e.name)))
 		put_bytes(&w, transmute([]u8)e.name)
 		put_u8(&w, u8(e.kind))
@@ -211,7 +211,7 @@ decode_chat :: proc(
 		e = {}
 		e.id = get_u32(&r)
 		e.sender = User_Num(get_u32(&r))
-		e.time = Unix_Time(get_i64(&r))
+		e.time = Unix_Time(get_u64(&r))
 		name_len := int(get_u8(&r))
 		e.name = string(get_bytes(&r, name_len))
 		e.kind = Chat_Kind(get_u8(&r))
