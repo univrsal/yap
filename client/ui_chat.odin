@@ -1,7 +1,7 @@
 package client
 
-import "core:fmt"
 import log "../common/wlog"
+import "core:fmt"
 import "core:strings"
 import "core:time"
 import "core:time/datetime"
@@ -135,11 +135,18 @@ chat_panel :: proc(ui: ^UI) {
 		with_text_color(ctx, CHAT_DIM_COLOR, "No messages in this channel yet.", label_proc)
 	}
 	for line in v.chat {
-		header := fmt.tprintf("%s  %s", chat_time(ui, line.time), line.name)
+		header := fmt.tprintf("%s  %s", chat_time(ui, i64(line.time)), line.name)
 		header_color := CHAT_OWN_COLOR if line.sender == v.my_num else CHAT_NAME_COLOR
 		switch line.kind {
 		case .Text:
-			chat_message(ui, header, header_color, line.text, ctx.style.colors[.TEXT], links = true)
+			chat_message(
+				ui,
+				header,
+				header_color,
+				line.text,
+				ctx.style.colors[.TEXT],
+				links = true,
+			)
 		case .Image:
 			img := v.images[line.image.id] or_else {}
 			chat_image(ui, header, header_color, line.image, img)
@@ -221,12 +228,12 @@ typing_text :: proc(v: ^View) -> string {
 // chat_time formats a message's time in the local zone: the time of day
 // for today's messages, with the date for older ones.
 @(private = "file")
-chat_time :: proc(ui: ^UI, unix: u32) -> string {
+chat_time :: proc(ui: ^UI, unix: i64) -> string {
 	local :: proc(ui: ^UI, t: time.Time) -> datetime.DateTime {
 		dt, _ := time.time_to_datetime(t)
 		return chat_local_time(ui, dt)
 	}
-	dt := local(ui, time.unix(i64(unix), 0))
+	dt := local(ui, time.unix(unix, 0))
 	now := local(ui, time.now())
 	if dt.date == now.date {
 		return fmt.tprintf("%02d:%02d", dt.hour, dt.minute)
@@ -236,7 +243,13 @@ chat_time :: proc(ui: ^UI, unix: u32) -> string {
 
 // chat_image draws an image message: the header, then the picture.
 @(private = "file")
-chat_image :: proc(ui: ^UI, header: string, header_color: mu.Color, info: proto.Image_Info, img: View_Image) {
+chat_image :: proc(
+	ui: ^UI,
+	header: string,
+	header_color: mu.Color,
+	info: proto.Image_Info,
+	img: View_Image,
+) {
 	ctx := &ui.ctx
 	font := ctx.style.font
 	mu.layout_row(ctx, {-1}, 0)
@@ -259,7 +272,14 @@ chat_image :: proc(ui: ^UI, header: string, header_color: mu.Color, info: proto.
 // chat_message draws a header line and the wrapped text under it, with
 // the lines packed tightly and a gap before the next message.
 @(private = "file")
-chat_message :: proc(ui: ^UI, header: string, header_color: mu.Color, text: string, color: mu.Color, links: bool) {
+chat_message :: proc(
+	ui: ^UI,
+	header: string,
+	header_color: mu.Color,
+	text: string,
+	color: mu.Color,
+	links: bool,
+) {
 	ctx := &ui.ctx
 	font := ctx.style.font
 	mu.layout_row(ctx, {-1}, 0)
@@ -297,11 +317,25 @@ wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, links: []Link) {
 
 // draw_line draws text[start:end], in pieces where it overlaps links.
 @(private = "file")
-draw_line :: proc(ui: ^UI, text: string, start, end: int, pos: mu.Vec2, color: mu.Color, links: []Link) {
+draw_line :: proc(
+	ui: ^UI,
+	text: string,
+	start, end: int,
+	pos: mu.Vec2,
+	color: mu.Color,
+	links: []Link,
+) {
 	ctx := &ui.ctx
 	font := ctx.style.font
 	x := pos.x
-	piece :: proc(ctx: ^mu.Context, font: mu.Font, s: string, x: ^i32, y: i32, color: mu.Color) -> mu.Rect {
+	piece :: proc(
+		ctx: ^mu.Context,
+		font: mu.Font,
+		s: string,
+		x: ^i32,
+		y: i32,
+		color: mu.Color,
+	) -> mu.Rect {
 		w := ctx.text_width(font, s)
 		mu.draw_text(ctx, font, s, {x^, y}, color)
 		r := mu.Rect{x^, y, w, ctx.text_height(font)}
@@ -321,9 +355,20 @@ draw_line :: proc(ui: ^UI, text: string, start, end: int, pos: mu.Vec2, color: m
 		link_end := min(l.end, end)
 		id := uintptr(raw_data(text)) + uintptr(l.start)
 		hovered := ui.chat.hover == id
-		r := piece(ctx, font, text[at:link_end], &x, pos.y, LINK_HOVER_COLOR if hovered else LINK_COLOR)
+		r := piece(
+			ctx,
+			font,
+			text[at:link_end],
+			&x,
+			pos.y,
+			LINK_HOVER_COLOR if hovered else LINK_COLOR,
+		)
 		// Underline, just below the baseline.
-		mu.draw_rect(ctx, {r.x, r.y + r.h - 2, r.w, 1}, LINK_HOVER_COLOR if hovered else LINK_COLOR)
+		mu.draw_rect(
+			ctx,
+			{r.x, r.y + r.h - 2, r.w, 1},
+			LINK_HOVER_COLOR if hovered else LINK_COLOR,
+		)
 		if mu.mouse_over(ctx, r) {
 			ui.chat.hover = id
 			ui.chat.hovering = true

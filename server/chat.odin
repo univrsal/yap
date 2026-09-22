@@ -20,7 +20,7 @@ CHAT_PACKETS_PER_SYNC :: 8
 Chat_Message :: struct {
 	id:       u32,
 	sender:   proto.User_Num,
-	time:     u32,
+	time:     proto.Unix_Time,
 	kind:     proto.Chat_Kind,
 	image:    proto.Image_Info, // .Image
 	name_len: u8,
@@ -101,7 +101,7 @@ chat_new :: proc(l: ^Chat_Log, sender: proto.User_Num, name: string) -> ^Chat_Me
 	m^ = {
 		id     = l.last,
 		sender = sender,
-		time   = u32(time.time_to_unix(time.now())),
+		time   = proto.Unix_Time(time.time_to_unix(time.now())),
 	}
 	m.name_len = u8(copy(m.name_buf[:], name))
 	return m

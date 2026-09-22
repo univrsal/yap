@@ -107,7 +107,7 @@ test_chat_image_entries :: proc(t: ^testing.T) {
 	// An entry kind we don't know is refused rather than guessed at.
 	bad := make([]u8, len(msg), context.temp_allocator)
 	copy(bad, msg)
-	bad[CHAT_HEADER_SIZE + 4 + 4 + 4 + 1 + len("alice")] = 9
+	bad[CHAT_HEADER_SIZE + 4 + 4 + 8 + 1 + len("alice")] = 9
 	_, _, _, ok = decode_chat(bad, buf[:])
 	testing.expect(t, !ok)
 }

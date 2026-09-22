@@ -478,6 +478,13 @@ put_u32 :: proc(w: ^Writer, v: u32) {
 }
 
 @(private)
+put_i64 :: proc(w: ^Writer, v: i64) {
+	b: [8]byte
+	endian.unchecked_put_u64le(b[:], u64(v))
+	put_bytes(w, b[:])
+}
+
+@(private)
 Reader :: struct {
 	buf:      []byte,
 	pos:      int,
@@ -511,4 +518,10 @@ get_u16 :: proc(r: ^Reader) -> u16 {
 get_u32 :: proc(r: ^Reader) -> u32 {
 	b := get_bytes(r, 4)
 	return b == nil ? 0 : endian.unchecked_get_u32le(b)
+}
+
+@(private)
+get_i64 :: proc(r: ^Reader) -> i64 {
+	b := get_bytes(r, 8)
+	return b == nil ? 0 : i64(endian.unchecked_get_u64le(b))
 }

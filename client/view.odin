@@ -73,7 +73,7 @@ View_Poke :: struct {
 
 View_Chat_Line :: struct {
 	sender: proto.User_Num,
-	time:   u32, // unix seconds
+	time:   proto.Unix_Time,
 	name:   string, // owned
 	kind:   proto.Chat_Kind,
 	text:   string, // .Text, owned

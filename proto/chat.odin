@@ -9,7 +9,7 @@ messages (see messages.odin for the kinds).
 	client -> server  Chat_Send      [kind][nonce u64][text_len u16][text]
 	server -> client  Chat_Sent      [kind][nonce u64]
 	server -> client  Chat           [kind][channel u16][base u32][count u8] entries...
-	                   entry:        [id u32][sender u32][time u32][name_len u8][name][entry kind u8]
+	                   entry:        [id u32][sender u32][time i64][name_len u8][name][entry kind u8]
 	                   ... text:     [text_len u16][text]
 	                   ... image:    [image u32][width u16][height u16][size u32]
 	client -> server  Chat_Received  [kind][channel u16][id u32]
@@ -44,6 +44,10 @@ Typing notices are unreliable and only mean "typing recently".
 
 MAX_CHAT_SIZE :: 500 // bytes of UTF-8
 
+// Unix_Time is seconds since the epoch, the server's clock. Distinct so
+// it can't be mixed up with an id or another plain integer by accident.
+Unix_Time :: distinct i64
+
 Chat_Kind :: enum u8 {
 	Text  = 0,
 	Image = 1,
@@ -61,7 +65,7 @@ Image_Info :: struct {
 Chat_Entry :: struct {
 	id:     u32,
 	sender: User_Num, // may have left since
-	time:   u32, // unix seconds, server clock
+	time:   Unix_Time,
 	name:   string, // the sender's name when it was sent
 	kind:   Chat_Kind,
 	text:   string, // .Text
@@ -78,7 +82,7 @@ IMAGE_SEND_SIZE :: 1 + 8 + 2 + 2 + 4
 IMAGE_GET_SIZE :: 1 + 4
 IMAGE_GONE_SIZE :: 1 + 4
 // An entry without its name or text: ids, time, lengths and kind.
-CHAT_ENTRY_HEADER_SIZE :: 4 + 4 + 4 + 1 + 1
+CHAT_ENTRY_HEADER_SIZE :: 4 + 4 + 8 + 1 + 1
 CHAT_IMAGE_ENTRY_SIZE :: CHAT_ENTRY_HEADER_SIZE + 4 + 2 + 2 + 4
 
 // encode_chat_send expects already sanitized text.
@@ -158,7 +162,7 @@ encode_chat :: proc(
 		}
 		put_u32(&w, e.id)
 		put_u32(&w, u32(e.sender))
-		put_u32(&w, e.time)
+		put_i64(&w, i64(e.time))
 		put_u8(&w, u8(len(e.name)))
 		put_bytes(&w, transmute([]u8)e.name)
 		put_u8(&w, u8(e.kind))
@@ -207,7 +211,7 @@ decode_chat :: proc(
 		e = {}
 		e.id = get_u32(&r)
 		e.sender = User_Num(get_u32(&r))
-		e.time = get_u32(&r)
+		e.time = Unix_Time(get_i64(&r))
 		name_len := int(get_u8(&r))
 		e.name = string(get_bytes(&r, name_len))
 		e.kind = Chat_Kind(get_u8(&r))
