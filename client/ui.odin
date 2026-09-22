@@ -71,90 +71,90 @@ Action :: enum {
 }
 
 UI :: struct {
-	window:         glfw.WindowHandle,
-	ctx:            mu.Context,
-	renderer:       Renderer,
-	opts:           UI_Options,
-	my_key:         [proto.KEY_SIZE]u8,
-	server_buf:     [256]u8,
-	server_len:     int,
+	window:              glfw.WindowHandle,
+	ctx:                 mu.Context,
+	renderer:            Renderer,
+	opts:                UI_Options,
+	my_key:              [proto.KEY_SIZE]u8,
+	server_buf:          [256]u8,
+	server_len:          int,
 	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
-	name_buf:       [2 * proto.MAX_NAME_SIZE]u8,
-	name_len:       int,
-	view:           View,
-	session:        ^Net_Session,
+	name_buf:            [2 * proto.MAX_NAME_SIZE]u8,
+	name_len:            int,
+	view:                View,
+	session:             ^Net_Session,
 	// Connecting/disconnecting waits on the network thread, which may be
 	// waiting on the View lock, so it happens after layout, not during.
-	action:         Action,
-	log_seen:       int, // Log_Lines.total when the log panel was last scrolled
-	chat:           UI_Chat, // the chat tab (ui_chat.odin)
-	muted:          bool,
-	deafened:       bool,
+	action:              Action,
+	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
+	chat:                UI_Chat, // the chat tab (ui_chat.odin)
+	muted:               bool,
+	deafened:            bool,
 	// Mute as it was before deafening turned it on, so undeafening can
 	// put it back rather than always unmuting (see set_deafened).
 	muted_before_deafen: bool,
 
 	// The user whose menu is open, and its volume slider's value (the
 	// slider needs a stable address). See user_menu.
-	menu_user:      proto.User_Num,
-	menu_key:       [proto.KEY_SIZE]u8,
-	menu_volume:    mu.Real,
-	menu_requested: bool,
+	menu_user:           proto.User_Num,
+	menu_key:            [proto.KEY_SIZE]u8,
+	menu_volume:         mu.Real,
+	menu_requested:      bool,
 	// The menu's poke message (ui_users.odin).
-	poke_buf:       [proto.MAX_POKE_SIZE]u8,
-	poke_len:       int,
+	poke_buf:            [proto.MAX_POKE_SIZE]u8,
+	poke_len:            int,
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
-	monitor:        Mic_Monitor,
-	listen_back:    bool,
-	meter_level:    f32,
-	meter_time:     time.Tick,
+	monitor:             Mic_Monitor,
+	listen_back:         bool,
+	meter_level:         f32,
+	meter_time:          time.Tick,
 	// Slider drags change the settings every frame; save at most once a
 	// second, and on exit.
-	settings_dirty: bool,
-	settings_saved: time.Tick,
-	page:           Page,
-	settings:       Settings,
+	settings_dirty:      bool,
+	settings_saved:      time.Tick,
+	page:                Page,
+	settings:            Settings,
 	// The UI scale slider's own value, percent, live while it's being
 	// dragged; only copied into settings.ui_scale on release, since
 	// applying it while dragging resizes the very slider being dragged
 	// (see ui_settings.odin).
-	ui_scale_draft: f32,
-	audio:          Audio,
+	ui_scale_draft:      f32,
+	audio:               Audio,
 
 	// Logical pixels per window coordinate, for mouse input. See
 	// window_metrics.
-	input_scale:    f32,
+	input_scale:         f32,
 	// Where this frame's text boxes are, and whether one has the focus:
 	// for a phone's keyboard, in a web build (see ui_text_box.odin).
-	text_boxes:     [dynamic]Text_Box,
-	text_focused:   bool,
-	metrics:        Window_Metrics,
+	text_boxes:          [dynamic]Text_Box,
+	text_focused:        bool,
+	metrics:             Window_Metrics,
 	// The pointing hand shown over links; created on first use, freed by
 	// glfw.Terminate.
-	hand_cursor:    glfw.CursorHandle,
-	hand_shown:     bool,
+	hand_cursor:         glfw.CursorHandle,
+	hand_shown:          bool,
 	// The image paste being read, if any (ui_paste.odin).
-	paste:          ^Paste_Job,
+	paste:               ^Paste_Job,
 	// What the icon button under the pointer does, and where it is, for
 	// the hint drawn under it (see icon_button and icon_hint).
-	hint:           string,
-	hint_of:        mu.Rect,
+	hint:                string,
+	hint_of:             mu.Rect,
 	// Chat images: decoded pictures and their textures (ui_images.odin).
-	images:         UI_Images,
+	images:              UI_Images,
 	// The system tray icon, if it's switched on (ui_tray.odin).
-	tray:           Tray,
+	tray:                Tray,
 	// The window is away in the tray, and nothing is drawn until it
 	// comes back. Quitting is the one thing that gets past it.
-	hidden:         bool,
-	quitting:       bool,
+	hidden:              bool,
+	quitting:            bool,
 	// The desktop has just minimized us (iconify_callback).
-	minimized:      bool,
+	minimized:           bool,
 	// What size to come back at, remembered when the window goes away.
-	window_size:    [2]i32,
+	window_size:         [2]i32,
 	// Where the swap doesn't wait for the display (see window_open), the
 	// shortest time between frames, and when the last one went out.
-	frame_pace:     time.Duration,
-	last_swap:      time.Tick,
+	frame_pace:          time.Duration,
+	last_swap:           time.Tick,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply, and
@@ -910,6 +910,13 @@ session_screen :: proc(ui: ^UI) {
 	side_panel(ui)
 }
 
+// How tightly log lines are packed: exactly LINE_HEIGHT tall, rather
+// than the default control size's couple of pixels of unneeded slack,
+// and a tighter gap than the rest of the UI uses between rows - so more
+// of the log fits on screen at once.
+@(private = "file")
+LOG_LINE_SPACING :: 1
+
 log_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	logs := ui.opts.logs
@@ -921,8 +928,13 @@ log_panel :: proc(ui: ^UI) {
 		// No logging in here: the log sink takes this same lock.
 		sync.guard(&logs.mutex)
 		total = logs.total
+
+		saved_spacing := ctx.style.spacing
+		ctx.style.spacing = LOG_LINE_SPACING
+		defer ctx.style.spacing = saved_spacing
+
 		for line in logs.lines {
-			mu.layout_row(ctx, {-1})
+			mu.layout_row(ctx, {-1}, LINE_HEIGHT)
 			// Drop the date; the time is enough on screen.
 			text := line.text[11:] if len(line.text) > 11 else line.text
 			switch {
