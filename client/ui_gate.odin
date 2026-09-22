@@ -1,7 +1,7 @@
 package client
 
-import "core:fmt"
 import log "../common/wlog"
+import "core:fmt"
 import "core:sync"
 import "core:time"
 import mu "vendor:microui"
@@ -75,7 +75,8 @@ monitor_update :: proc(ui: ^UI) {
 	// monitor never encodes, so no encoder change is needed).
 	m.voice.quality = settings_quality(&ui.settings)
 	cmd := gate_command(&ui.settings)
-	m.voice.gate.enabled, m.voice.gate.open_db, m.voice.gate.close_db = cmd.enabled, cmd.open_db, cmd.close_db
+	m.voice.gate.enabled, m.voice.gate.open_db, m.voice.gate.close_db =
+		cmd.enabled, cmd.open_db, cmd.close_db
 
 	frame: [FRAME]f32
 	for ring_available(&m.voice.capture) >= FRAME {
@@ -104,19 +105,24 @@ monitor_stop :: proc(ui: ^UI) {
 gate_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	s := &ui.settings
+	if !header(ctx, "Voice gate") {
+		return
+	}
 
 	mu.layout_row(ctx, {-1})
-	state := "on" if s.voice_gate else "off  (always sends)"
-	label := fmt.tprintf("Voice gate: %s  (only sends while your microphone is above the threshold)", state)
-	if .SUBMIT in stable_button(ctx, "gate", label) {
-		s.voice_gate = !s.voice_gate
+	if .CHANGE in
+	   mu.checkbox(
+		   ctx,
+		   "Voice gate (only sends while your microphone is above the threshold)",
+		   &s.voice_gate,
+	   ) {
 		gate_changed(ui)
 	}
 
 	mu.layout_row(ctx, {-1}, METER_HEIGHT)
 	level_meter(ui)
-
-	mu.layout_row(ctx, {90, -1})
+	current_width := (mu.layout_next(ctx).w - 70 - 90 - 20) / 2
+	mu.layout_row(ctx, {70, current_width, 90, current_width})
 	mu.label(ctx, "Open at")
 	if .CHANGE in mu.slider(ctx, &s.gate_open_db, MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_close_db = min(s.gate_close_db, s.gate_open_db)
@@ -129,10 +135,14 @@ gate_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	listen := "on" if ui.listen_back else "off"
-	listen_label := fmt.tprintf("Listen back: %s  (hear your microphone as others would; use headphones)", listen)
-	if .SUBMIT in stable_button(ctx, "listen", listen_label) {
-		set_listen_back(ui, !ui.listen_back)
+	listen := ui.listen_back
+	if .CHANGE in
+	   mu.checkbox(
+		   ctx,
+		   "Listen back (hear your microphone as others would; use headphones)",
+		   &listen,
+	   ) {
+		set_listen_back(ui, listen)
 	}
 }
 
@@ -196,7 +206,8 @@ level_meter :: proc(ui: ^UI) {
 	open_color := mu.Color{45, 105, 55, 255}
 	if !s.voice_gate {
 		// The gate isn't doing anything; keep the scale but dim it.
-		closed_color, between_color, open_color = {60, 60, 60, 255}, {70, 70, 70, 255}, {80, 80, 80, 255}
+		closed_color, between_color, open_color =
+			{60, 60, 60, 255}, {70, 70, 70, 255}, {80, 80, 80, 255}
 	}
 	close_x, open_x := x_of(r, s.gate_close_db), x_of(r, s.gate_open_db)
 	mu.draw_rect(ctx, {r.x, r.y, close_x - r.x, r.h}, closed_color)
@@ -204,7 +215,8 @@ level_meter :: proc(ui: ^UI) {
 	mu.draw_rect(ctx, {open_x, r.y, r.x + r.w - open_x, r.h}, open_color)
 
 	// The level: a bar through the middle, bright green while sending.
-	bar_color := mu.Color{120, 235, 130, 255} if open || !s.voice_gate else mu.Color{215, 215, 215, 255}
+	bar_color :=
+		mu.Color{120, 235, 130, 255} if open || !s.voice_gate else mu.Color{215, 215, 215, 255}
 	bar_h := r.h / 3
 	mu.draw_rect(ctx, {r.x, r.y + bar_h, x_of(r, ui.meter_level) - r.x, bar_h}, bar_color)
 

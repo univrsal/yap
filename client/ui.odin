@@ -720,7 +720,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 		cnt.rect = {0, 0, w, h}
 	}
 	if mu.begin_window(ctx, "yap", {0, 0, w, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
-		main_window(ui, h)
+		main_window(ui)
 		// After the panels, so it sits on top of them, and inside the
 		// window, which is where microui can draw at all.
 		icon_hint(ui, w, h)
@@ -731,9 +731,9 @@ layout :: proc(ui: ^UI, w, h: i32) {
 }
 
 @(private = "file")
-main_window :: proc(ui: ^UI, h: i32) {
+main_window :: proc(ui: ^UI) {
 	if ui.page == .Settings {
-		settings_page(ui, h)
+		settings_page(ui)
 		return
 	}
 
