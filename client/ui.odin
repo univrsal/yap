@@ -90,6 +90,9 @@ UI :: struct {
 	chat:           UI_Chat, // the chat tab (ui_chat.odin)
 	muted:          bool,
 	deafened:       bool,
+	// Mute as it was before deafening turned it on, so undeafening can
+	// put it back rather than always unmuting (see set_deafened).
+	muted_before_deafen: bool,
 
 	// The user whose menu is open, and its volume slider's value (the
 	// slider needs a stable address). See user_menu.
@@ -691,6 +694,9 @@ disconnect_finish :: proc(ui: ^UI) {
 }
 
 set_muted :: proc(ui: ^UI, muted: bool) {
+	if muted == ui.muted {
+		return
+	}
 	ui.muted = muted
 	if ui.session != nil {
 		push_command(&ui.session.client.commands, Mute_Command{muted})
@@ -699,8 +705,22 @@ set_muted :: proc(ui: ^UI, muted: bool) {
 
 // Deafen silences everyone else. Like mute, it lives on the UI so it
 // survives reconnecting, and is pushed to the network thread.
+//
+// Deafening also mutes, since not being able to hear anyone while still
+// sending to them is a strange place to be in. It remembers what mute
+// was set to beforehand, so undeafening restores that instead of always
+// unmuting.
 set_deafened :: proc(ui: ^UI, deafened: bool) {
+	if deafened == ui.deafened {
+		return
+	}
 	ui.deafened = deafened
+	if deafened {
+		ui.muted_before_deafen = ui.muted
+		set_muted(ui, true)
+	} else {
+		set_muted(ui, ui.muted_before_deafen)
+	}
 	if ui.session != nil {
 		push_command(&ui.session.client.commands, Deafen_Command{deafened})
 	}
