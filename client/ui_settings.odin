@@ -130,6 +130,20 @@ ui_settings :: proc(ui: ^UI) {
 	if !header(ctx, "User interface", {.EXPANDED}) {
 		return
 	}
+	mu.layout_row(ctx, {120, -1})
+	mu.label(ctx, "UI scale")
+	// Applying every change live would resize the window mid-drag, which
+	// moves the slider out from under the pointer that's dragging it,
+	// so ui.ui_scale_draft only reaches settings.ui_scale (and with it
+	// window_metrics) once the drag lets go.
+	id := mu.get_id(ctx, uintptr(&ui.ui_scale_draft))
+	was_dragging := ctx.focus_id == id
+	mu.slider(ctx, &ui.ui_scale_draft, MIN_UI_SCALE * 100, MAX_UI_SCALE * 100, 10, "%.0f%%")
+	if was_dragging && ctx.focus_id != id {
+		ui.settings.ui_scale = ui.ui_scale_draft / 100
+		settings_save(ui.opts.settings_path, ui.settings)
+	}
+
 	volume := notification_gain(&ui.settings) * 100
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Notifications volume")

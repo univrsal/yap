@@ -24,6 +24,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"gate_open_db": -45,
 		"gate_close_db": -55,
 		"notification_volume": 1,
+		"ui_scale": 1,
 		"users": {
 			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "volume": 0.5, "muted": false }
 		}
@@ -57,6 +58,9 @@ Settings :: struct {
 	gate_close_db:       f32,
 	// How loudly local join, leave, message, and poke effects are mixed.
 	notification_volume: f32, // 1 = as encoded, 0..MAX_USER_VOLUME
+	// The UI's own zoom, independent of the display's DPI scale (see
+	// window_metrics in ui.odin). 1 = 100%, MIN_UI_SCALE..MAX_UI_SCALE.
+	ui_scale:            f32,
 	// How to play other users, keyed by their public key (64 hex digits),
 	// which is what identifies a user; names can be copied. Users with
 	// default settings aren't stored.
@@ -73,6 +77,9 @@ DEFAULT_USER :: User_Settings {
 }
 MAX_USER_VOLUME :: 3
 
+MIN_UI_SCALE :: 0.5
+MAX_UI_SCALE :: 3.0
+
 DEFAULT_SETTINGS :: Settings {
 	noise_suppression   = true,
 	close_to_tray       = true,
@@ -80,6 +87,7 @@ DEFAULT_SETTINGS :: Settings {
 	gate_open_db        = DEFAULT_GATE_OPEN_DB,
 	gate_close_db       = DEFAULT_GATE_CLOSE_DB,
 	notification_volume = 1,
+	ui_scale            = 1,
 }
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
@@ -183,6 +191,13 @@ gate_command :: proc(s: ^Settings) -> Gate_Command {
 
 notification_gain :: proc(s: ^Settings) -> f32 {
 	return clamp(s.notification_volume, 0, MAX_USER_VOLUME)
+}
+
+// ui_scale_factor is the configured UI zoom, clamped in case a hand-edited
+// settings file would otherwise shrink the whole UI to nothing or blow it
+// up past what's usable.
+ui_scale_factor :: proc(s: ^Settings) -> f32 {
+	return clamp(s.ui_scale, MIN_UI_SCALE, MAX_UI_SCALE)
 }
 
 // user_gain is what the mixer multiplies a user's audio by.

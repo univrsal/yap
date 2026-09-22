@@ -111,6 +111,11 @@ UI :: struct {
 	settings_saved: time.Tick,
 	page:           Page,
 	settings:       Settings,
+	// The UI scale slider's own value, percent, live while it's being
+	// dragged; only copied into settings.ui_scale on release, since
+	// applying it while dragging resizes the very slider being dragged
+	// (see ui_settings.odin).
+	ui_scale_draft: f32,
 	audio:          Audio,
 
 	// Logical pixels per window coordinate, for mouse input. See
@@ -191,6 +196,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 		}
 	}
 	ui.settings = settings_load(opts.settings_path)
+	ui.ui_scale_draft = ui_scale_factor(&ui.settings) * 100
 	initial := opts.server if opts.server != "" else ui.settings.server
 	ui.server_len = copy(ui.server_buf[:], initial)
 	name := ui.settings.name if ui.settings.name != "" else default_name()
@@ -307,7 +313,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		return true // no window to draw in
 	}
 
-	m := window_metrics(ui.window)
+	m := window_metrics(ui.window, ui_scale_factor(&ui.settings))
 	if m != ui.metrics {
 		ww, wh := glfw.GetWindowSize(ui.window)
 		log.debugf(
@@ -534,7 +540,7 @@ known from the content scale. Either way we lay out in logical pixels
 and render at `scale`.
 */
 @(private = "file")
-window_metrics :: proc(window: glfw.WindowHandle) -> (m: Window_Metrics) {
+window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_Metrics) {
 	w, h := glfw.GetWindowSize(window)
 	m.fb_w, m.fb_h = glfw.GetFramebufferSize(window)
 	if w <= 0 || h <= 0 || m.fb_w <= 0 {
@@ -550,6 +556,16 @@ window_metrics :: proc(window: glfw.WindowHandle) -> (m: Window_Metrics) {
 		m.scale = max(content, 1)
 		m.logical_w, m.logical_h = f32(m.fb_w) / m.scale, f32(m.fb_h) / m.scale
 	}
+
+	// The UI's own zoom stacks with the display's DPI scale above:
+	// shrinking the logical canvas the layout runs in, while rendering it
+	// at a proportionally higher `scale`, makes every logical-pixel-sized
+	// widget cover more of the screen without the layout code (or the
+	// font/icon atlases, which already rebuild when `scale` changes)
+	// knowing the difference.
+	m.scale *= ui_scale
+	m.logical_w /= ui_scale
+	m.logical_h /= ui_scale
 	m.input_scale = m.logical_w / f32(w)
 	return
 }
