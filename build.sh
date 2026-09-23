@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds bin/yap-server (whose -relay lets the web client reach it; the
-# web client itself is web/build.sh) and bin/yap-client.
+# web client itself is web/build.sh) and bin/yap.
 # Extra arguments are passed to both builds, e.g.
 # ./build.sh -debug -define:YAP_LOSS_PERCENT=30
 #
@@ -48,4 +48,4 @@ if [ ! -f "$lib" ] || [ "$tray/yap_tray.c" -nt "$lib" ] || [ "$tray/traycon.h" -
 fi
 
 odin build server -vet -strict-style -out:bin/yap-server "$@"
-odin build client -vet -strict-style -out:bin/yap-client "$@"
+odin build client -vet -strict-style -out:bin/yap "$@"
