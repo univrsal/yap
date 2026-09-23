@@ -2,9 +2,7 @@
 
 The yap client, compiled to WebAssembly and running in a page: the same
 UI, the same protocol, the same end-to-end encryption as the desktop
-client. Text chat, channels and the user list work; for voice, the
-microphone and speakers do, but nothing is sent or heard from others
-yet.
+client. Text chat, channels, the user list and voice work.
 
 ## Running it
 
@@ -50,21 +48,16 @@ muted and deafened state, text chat and the pictures in it, links,
 settings. The key, settings and known servers live in the page's local
 storage, so a browser keeps its identity across visits.
 
-Audio devices work, through miniaudio's Web Audio backend: the
-microphone (the browser asks for it the first time), its level meter and
-the voice gate, and the speakers, which listen back plays through. A
+Voice works as it does on a desktop: the microphone (the browser asks
+for it the first time), noise suppression, the voice gate and the
+quality presets on the way out, and everyone else's voice, decoded and
+mixed, on the way in, with the notification sounds and listen back. A
 browser only lets a page make sound once it has been clicked, so audio
 that starts before that - connecting straight from `?server=` - begins
 with the first click.
 
 Not yet:
 
-- **Sending and hearing voice.** libopus has to be built for wasm; until
-  then web/audio_stub.c stands in for it, and the client captures and
-  plays but neither encodes nor decodes. Who's speaking still shows.
-- **Noise suppression.** RNNoise needs its header to travel with it (the
-  desktop build finds it among the system's), so it's stubbed too and
-  the setting is hidden.
 - **Audio in a background tab.** The client mixes from the page's frame
   loop, which a browser pauses in a hidden tab; the sound stops until
   the tab is shown again. Moving the pipeline onto an audio worklet
@@ -107,6 +100,11 @@ switched off file by file with `#+build wasi` / `#+build !wasi`, and
   which call back on the page's thread between frames, so the rings in
   voice_io.odin work as they do on a desktop. The output keeps 60 ms
   queued rather than 30, since it's topped up once per frame.
+- **Codecs.** RNNoise (client/rnn/yap_rnn.c) is compiled by emscripten
+  like miniaudio. libopus is too big to keep in the repo, so the first
+  web/build.sh fetches the release client/opus is bound against, checks
+  its SHA-256 and builds it for wasm into web/deps/ (so that first build
+  also needs curl and CMake); later builds reuse it.
 - **Storage.** common/store.odin: files on a desktop, local storage on
   the web, under the same names.
 
@@ -115,5 +113,9 @@ switched off file by file with `#+build wasi` / `#+build !wasi`, and
 The build is checked by loading it in headless Chromium against a real
 server, with a desktop client in the same channel: the web client
 connects through the relay, both see each other in the channel, and chat
-goes both ways. `odin test client` and `odin test proto` cover the
+goes both ways. For voice, the desktop client runs with `-headless
+-tone:440` and Chromium with `--use-fake-device-for-media-stream
+--use-file-for-fake-audio-capture=<a sine .wav>`: the desktop client
+logs the browser's tone as heard, and the browser's `log=debug` voice
+stats show the desktop's packets arriving. `odin test client` and `odin test proto` cover the
 shared code as before.

@@ -1,4 +1,3 @@
-#+build !wasi
 package client
 
 import log "../common/wlog"

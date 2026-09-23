@@ -63,8 +63,8 @@ header :: proc(ctx: ^mu.Context, title: string, opts: mu.Options = {}) -> bool {
 	return .ACTIVE in mu.header(ctx, title, opts)
 }
 
-// audio_settings picks the send quality preset (see quality.odin) and,
-// outside the web build, whether the microphone gets denoised.
+// audio_settings picks the send quality preset (see quality.odin) and
+// whether the microphone gets denoised.
 @(private = "file")
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -90,7 +90,7 @@ audio_settings :: proc(ui: ^UI) {
 	mu.label(ctx, fmt.tprintf("  %s", QUALITY_PRESETS[current].description))
 
 	mu.layout_row(ctx, {-1})
-	if !WEB && current != .Voice && ui.settings.noise_suppression {
+	if current != .Voice && ui.settings.noise_suppression {
 		with_text_color(
 			ctx,
 			{230, 200, 90, 255},
@@ -101,23 +101,19 @@ audio_settings :: proc(ui: ^UI) {
 		mu.label(ctx, "  Higher quality uses more bandwidth, not more latency.")
 	}
 
-	// The web build has no RNNoise yet (see web/audio_stub.c), so there's
-	// nothing for the setting to turn on.
-	when !WEB {
-		mu.layout_row(ctx, {-1})
-		if .CHANGE in
-		   mu.checkbox(
-			   ctx,
-			   "Noise suppression (removes background noise from your microphone)",
-			   &ui.settings.noise_suppression,
-		   ) {
-			settings_save(ui.opts.settings_path, ui.settings)
-			if ui.session != nil {
-				push_command(
-					&ui.session.client.commands,
-					Noise_Command{ui.settings.noise_suppression},
-				)
-			}
+	mu.layout_row(ctx, {-1})
+	if .CHANGE in
+	   mu.checkbox(
+		   ctx,
+		   "Noise suppression (removes background noise from your microphone)",
+		   &ui.settings.noise_suppression,
+	   ) {
+		settings_save(ui.opts.settings_path, ui.settings)
+		if ui.session != nil {
+			push_command(
+				&ui.session.client.commands,
+				Noise_Command{ui.settings.noise_suppression},
+			)
 		}
 	}
 	gate_settings(ui)

@@ -73,8 +73,6 @@ Voice :: struct {
 	// The microphone stream's channel count (its native one); the capture
 	// callback converts to stereo. Atomic.
 	capture_channels: u32,
-	// nil in a web build, which has no Opus yet: the devices work (the
-	// level meter, the gate, listen back) but nothing is sent or decoded.
 	encoder:          ^opus.Encoder,
 	// voice_init succeeded, so there's a pipeline to open devices for.
 	ready:            bool,
@@ -126,18 +124,12 @@ voice_init :: proc(v: ^Voice) -> bool {
 	v.capture_channels = CHANNELS
 
 	if !encoder_setup(v, .Voice) {
-		when !WEB {
-			return false
-		}
+		return false
 	}
 	for &d in v.denoisers {
 		ok: bool
 		if d, ok = rnn.denoiser_create(); !ok {
-			when WEB {
-				log.debug("rnnoise: no denoiser in the web build")
-			} else {
-				log.error("rnnoise: could not create a denoiser; noise suppression is unavailable")
-			}
+			log.error("rnnoise: could not create a denoiser; noise suppression is unavailable")
 		}
 	}
 	v.ready = true
@@ -248,10 +240,6 @@ voice_receive :: proc(c: ^Voice_Client, speaker: proto.User_Num, seq: u32, packe
 	if !sync.atomic_load(&v.output) || len(packet) == 0 {
 		return // nothing to play it on
 	}
-	when WEB {
-		return // no Opus decoder yet; who's speaking still shows
-	}
-
 	sp := v.speakers[speaker] or_else nil
 	if sp == nil {
 		ok: bool

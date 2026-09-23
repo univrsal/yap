@@ -23,9 +23,9 @@ when ODIN_OS == .Windows {
 	@(private)
 	LIB :: "libopus.a"
 } else when ODIN_OS == .WASI {
-	// A web build links no library from here: emscripten is handed the
-	// C itself (or, until voice reaches the browser, web/audio_stub.c),
-	// and opus_foreign_web.odin declares what it provides.
+	// A web build links no library from here: web/build.sh builds libopus
+	// for wasm and hands it to emscripten, and opus_foreign_web.odin
+	// declares what it provides.
 	@(private)
 	LIB :: ""
 } else {

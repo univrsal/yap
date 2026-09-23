@@ -1,7 +1,9 @@
 /*
 RNNoise noise suppression (ref/: the Xiph/Mozilla RNNoise that OBS
 Studio's noise filter uses, BSD-3-Clause, see ref/COPYING), compiled as
-one translation unit for yap. The ref/ sources are used unmodified.
+one translation unit for yap. The ref/ sources are used unmodified,
+with the rnnoise.h that OBS ships beside them, so the build doesn't
+depend on (or pick up) a system-installed RNNoise's header.
 
 Two adaptations, both done here with the preprocessor:
 
@@ -66,6 +68,9 @@ from files) and the training code are left out.
     #pragma GCC diagnostic ignored "-Wunused-parameter"
     #pragma GCC diagnostic ignored "-Wsign-compare"
     #pragma GCC diagnostic ignored "-Wstrict-prototypes"
+    /* rnn.c's "unknown activation" traps, *(int*)0=0, which clang notes
+       it's free to delete. They're unreachable with the built-in model. */
+    #pragma GCC diagnostic ignored "-Wnull-dereference"
 #endif
 
 #include "impl/kiss_fft.c"
