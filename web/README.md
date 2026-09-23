@@ -101,8 +101,13 @@ switched off file by file with `#+build wasi` / `#+build !wasi`, and
 - **Audio.** client/miniaudio/yap_audio.c is compiled by emscripten
   with miniaudio's Web Audio backend. It runs on ScriptProcessorNodes,
   which call back on the page's thread between frames, so the rings in
-  voice_io.odin work as they do on a desktop. The output keeps 60 ms
-  queued rather than 30, since it's topped up once per frame.
+  voice_io.odin work as they do on a desktop. Being on the page's thread,
+  a callback can be held up by anything else the page does, and Chrome
+  plays silence for a period whose callback is late - with 10 ms periods
+  that was a dropout every few seconds. So the web uses 40 ms periods
+  (2048 frames, what Chrome would pick itself), and keeps a period and a
+  frame queued for the output. `?audio_period=<ms>` (10 to 100) trades
+  that back for latency, to try on a given machine.
 - **Codecs.** RNNoise (client/rnn/yap_rnn.c) is compiled by emscripten
   like miniaudio. libopus is too big to keep in the repo, so the first
   web/build.sh fetches the release client/opus is bound against, checks

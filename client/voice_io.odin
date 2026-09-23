@@ -14,6 +14,62 @@ microphone or speakers). Either way they only touch the Voice's rings.
 // Device period: how much audio each callback handles.
 DEVICE_PERIOD_MS :: 10
 
+/*
+A browser calls the devices back on the page's own thread, between
+everything else the page does, and Chrome plays silence for a period
+whose callback didn't run in time. At 10 ms (512 frames, the size of a
+typical hardware buffer) that leaves no slack, and a garbage collection
+or a slow frame every few seconds is heard as a dropout. So a web build
+uses 40 ms, which miniaudio rounds up to 2048 frames: what Chrome picks
+by itself for a page that leaves it the choice (four hardware buffers).
+The page's ?audio_period=<ms> overrides it (main_web.odin), to trade the
+latency back where the machine allows.
+*/
+WEB_DEVICE_PERIOD_MS :: 40
+web_device_period_ms: u32 = WEB_DEVICE_PERIOD_MS
+
+// device_period_ms is the period the devices are opened with.
+device_period_ms :: proc() -> u32 {
+	return web_device_period_ms when WEB else DEVICE_PERIOD_MS
+}
+
+// device_period_samples is how many interleaved samples one callback
+// takes or gives: on the web, the device period as miniaudio sizes a
+// ScriptProcessorNode (a power of two from 256 to 16384 frames).
+device_period_samples :: proc() -> int {
+	frames := int(SAMPLE_RATE * device_period_ms() / 1000)
+	when WEB {
+		size := 256
+		for size < frames && size < 16384 {
+			size *= 2
+		}
+		frames = size
+	}
+	return frames * CHANNELS
+}
+
+// output_target is how much to keep queued for the output device:
+// OUTPUT_TARGET, or on the web at least a whole period, which a callback
+// takes in one go, and a frame to spare.
+output_target :: proc() -> int {
+	when WEB {
+		return max(OUTPUT_TARGET, device_period_samples() + FRAME)
+	} else {
+		return OUTPUT_TARGET
+	}
+}
+
+// capture_backlog is how much captured audio may wait before the oldest
+// is dropped (see send_captured): MAX_CAPTURE_BACKLOG, or on the web at
+// least two periods, since a callback delivers a whole one at once.
+capture_backlog :: proc() -> int {
+	when WEB {
+		return max(MAX_CAPTURE_BACKLOG, 2 * device_period_samples() + FRAME)
+	} else {
+		return MAX_CAPTURE_BACKLOG
+	}
+}
+
 // Audio_Streams are the open devices for one connection.
 Audio_Streams :: struct {
 	capture:  ^ma.Stream,
@@ -142,7 +198,7 @@ open_stream :: proc(
 
 	for id in candidates[:count] {
 		res: ma.Result
-		s := ma.stream_open(a.ctx, dir, id, SAMPLE_RATE, channels, DEVICE_PERIOD_MS, callback, v, &res)
+		s := ma.stream_open(a.ctx, dir, id, SAMPLE_RATE, channels, device_period_ms(), callback, v, &res)
 		if s == nil {
 			log.debugf(
 				"audio: opening the %s failed (%s), trying the next option",

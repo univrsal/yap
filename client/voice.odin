@@ -120,7 +120,7 @@ voice_init :: proc(v: ^Voice) -> bool {
 	ring_init(&v.playback, SAMPLE_RATE / 2 * CHANNELS)
 	ring_init(&v.loopback, JITTER_MAX + 4 * FRAME)
 	notifications_init(&v.notifications)
-	v.output_target = OUTPUT_TARGET
+	v.output_target = output_target()
 	v.capture_channels = CHANNELS
 
 	if !encoder_setup(v, .Voice) {
@@ -172,7 +172,7 @@ voice_step :: proc(c: ^Voice_Client) {
 @(private = "file")
 send_captured :: proc(c: ^Voice_Client) {
 	v := &c.voice
-	if backlog := ring_available(&v.capture) - MAX_CAPTURE_BACKLOG; backlog > 0 {
+	if backlog := ring_available(&v.capture) - capture_backlog(); backlog > 0 {
 		ring_skip(&v.capture, backlog)
 	}
 

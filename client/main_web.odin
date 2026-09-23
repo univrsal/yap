@@ -4,6 +4,7 @@ package client
 import "base:runtime"
 import log "../common/wlog"
 import "core:reflect"
+import "core:strconv"
 import "core:strings"
 import "core:time"
 
@@ -43,6 +44,7 @@ its command line:
 
 	index.html?server=host:port   connect straight away
 	index.html?log=debug          log level: debug, info, warn, error
+	index.html?audio_period=20    audio device period in ms (voice_io.odin)
 */
 @(private = "file")
 query_param :: proc(name: cstring) -> string {
@@ -73,6 +75,17 @@ web_start :: proc "c" () -> b32 {
 	web_context_set_logger(logger)
 
 	server := query_param("server")
+
+	// 10 to 100 ms: at the top end two periods and a frame still fit the
+	// 0.5 s capture ring (capture_backlog).
+	if ms, parsed := strconv.parse_uint(query_param("audio_period")); parsed {
+		web_device_period_ms = u32(clamp(ms, 10, 100))
+	}
+	log.debugf(
+		"audio: %d ms device period (%d frames)",
+		device_period_ms(),
+		device_period_samples() / CHANNELS,
+	)
 
 	g_web_ui = new(UI)
 	if !ui_startup(

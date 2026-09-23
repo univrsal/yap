@@ -64,7 +64,7 @@ monitor_update :: proc(ui: ^UI) {
 	if ui.listen_back && m.streams.playback == nil {
 		// The UI thread only gets here once per frame, so keep more queued
 		// than the network thread does.
-		m.voice.output_target = 3 * FRAME
+		m.voice.output_target = max(3 * FRAME, output_target())
 		open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
 	} else if !ui.listen_back && m.streams.playback != nil {
 		close_playback(&m.streams, &m.voice)
