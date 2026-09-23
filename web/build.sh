@@ -59,6 +59,8 @@ fi
 
 # What web/touch.js calls (client/ui_touch_web.odin).
 touch_exports=_web_touch_tap,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_text_rune,_web_text_backspace,_web_text_enter
+# What web/background.js calls (client/main_web.odin).
+background_exports=_web_tick
 
 odin build client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap" "$@"
 
@@ -77,9 +79,10 @@ emcc "$out/yap.obj" \
 	-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3 \
 	-sALLOW_MEMORY_GROWTH \
 	-sSTACK_SIZE=4MB \
-	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports \
+	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$background_exports \
 	--js-library web/wasi.js \
 	--pre-js web/touch.js \
+	--pre-js web/background.js \
 	--shell-file web/index.html \
 	-o "$out/index.html"
 

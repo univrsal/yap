@@ -54,14 +54,10 @@ quality presets on the way out, and everyone else's voice, decoded and
 mixed, on the way in, with the notification sounds and listen back. A
 browser only lets a page make sound once it has been clicked, so audio
 that starts before that - connecting straight from `?server=` - begins
-with the first click.
+with the first click. Voice carries on while the tab is hidden.
 
 Not yet:
 
-- **Audio in a background tab.** The client mixes from the page's frame
-  loop, which a browser pauses in a hidden tab; the sound stops until
-  the tab is shown again. Moving the pipeline onto an audio worklet
-  would fix that, but needs threads (and cross-origin isolation).
 - **Sending and saving pictures.** Pictures others post show up, but
   pasting one needs the browser's clipboard API, and saving one a
   download the page starts.
@@ -95,6 +91,13 @@ switched off file by file with `#+build wasi` / `#+build !wasi`, and
   and so are picture decodes (client/ui_images_worker_web.odin). Nothing
   on the web side may wait on a semaphore or condition variable: without
   threads, Odin's futex panics.
+- **In the background.** A browser stops drawing a hidden tab or a
+  minimised window, and with the frames would go the connection and the
+  voice. So a worker (web/background.js) ticks every 10 ms - a worker's
+  timers aren't throttled the way a hidden page's are - and each tick
+  calls web_tick (client/main_web.odin), which steps the network loop
+  whenever no frame has run for 50 ms. Voice and the connection carry on
+  in the background; drawing waits until the tab is shown.
 - **Audio.** client/miniaudio/yap_audio.c is compiled by emscripten
   with miniaudio's Web Audio backend. It runs on ScriptProcessorNodes,
   which call back on the page's thread between frames, so the rings in

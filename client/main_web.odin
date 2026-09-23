@@ -5,6 +5,7 @@ import "base:runtime"
 import log "../common/wlog"
 import "core:reflect"
 import "core:strings"
+import "core:time"
 
 import glfw "wglfw"
 
@@ -96,9 +97,39 @@ web_frame :: proc "c" () {
 	if g_web_ui == nil {
 		return
 	}
+	g_last_frame = time.tick_now()
 	// A page doesn't end the way a program does: closing the tab is the
 	// only way out, and the browser tears everything down itself.
 	ui_frame(g_web_ui)
+}
+
+// When the last web_frame ran, for web_tick.
+@(private = "file")
+g_last_frame: time.Tick
+
+// How long without a frame before web_tick takes over the connection:
+// a few frames' worth even at 30 fps, so a slow frame isn't mistaken
+// for a stopped one.
+@(private = "file")
+TICK_TAKEOVER :: 50 * time.Millisecond
+
+/*
+web_tick keeps the connection - and with it the voice, which is encoded,
+decoded and mixed there (voice_step) - going when frames don't come. A
+browser stops drawing a hidden tab, minimised or covered window, and
+nothing else would give net_step its turn; the audio devices keep
+running, but on rings nobody fills or drains. web/background.js calls
+this every 10 ms from a worker's timer, which a hidden tab doesn't
+throttle the way it does the page's own. While frames are coming it
+does nothing.
+*/
+@(export)
+web_tick :: proc "c" () {
+	context = g_context
+	if g_web_ui == nil || time.tick_since(g_last_frame) < TICK_TAKEOVER {
+		return
+	}
+	net_step(g_web_ui)
 }
 
 // The page calls this whenever the tab changes size, and once at the
