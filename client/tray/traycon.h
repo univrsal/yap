@@ -192,6 +192,14 @@ int traycon_dismiss_notification(traycon *tray);
  * Dependencies:
  *   SNI  – libdbus-1  (pkg-config dbus-1)
  *   X11  – libX11     (pkg-config x11)
+ *
+ * yap fork: neither is a hard link-time dependency. traycon_dl.h (see
+ * yap_tray.c), included before this header, #defines every dbus_ and
+ * X11 symbol below to go through a dlopen()'d function pointer, so a
+ * desktop missing one library just loses that backend instead of
+ * refusing to start the binary. The three traycon_dl_have_dbus() /
+ * traycon_dl_have_x11() checks below -- guarding the first real call
+ * into each library -- are the only lines changed from upstream.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -1146,6 +1154,10 @@ static traycon *sni_try_create(const unsigned char *rgba, int width,
                                int height, traycon_click_cb cb,
                                void *userdata)
 {
+    /* dlopen: libdbus-1 may not be installed; bail out before touching
+     * it rather than crashing through a null function pointer. */
+    if (!traycon_dl_have_dbus()) return NULL;
+
     traycon *tray = (traycon *)calloc(1, sizeof *tray);
     if (!tray) return NULL;
 
@@ -1704,6 +1716,10 @@ static traycon *x11_try_create(const unsigned char *rgba, int width,
                                int height, traycon_click_cb cb,
                                void *userdata)
 {
+    /* dlopen: libX11 may not be installed; bail out before touching it
+     * rather than crashing through a null function pointer. */
+    if (!traycon_dl_have_x11()) return NULL;
+
     /* Check if X11 is available */
     Display *dpy = XOpenDisplay(NULL);
     if (!dpy) return NULL;
@@ -2152,6 +2168,9 @@ static void traycon__notify_destroy(traycon *tray)
 static int traycon__notify_ensure_conn(traycon *tray)
 {
     if (tray->notify_conn) return 0;
+
+    /* dlopen: libdbus-1 may not be installed. */
+    if (!traycon_dl_have_dbus()) return -1;
 
     DBusError err;
     dbus_error_init(&err);

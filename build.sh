@@ -29,11 +29,13 @@ if [ ! -f "$lib" ] || [ -n "$(find "$rnn/yap_rnn.c" "$rnn/yap_rnn.h" "$rnn/impl"
 	rm "$rnn/yap_rnn.o"
 fi
 
-# traycon, for the tray icon. On Linux it needs libdbus-1 and libX11; on
-# macOS it's Cocoa, so it has to be built as Objective-C.
+# traycon, for the tray icon. On Linux it needs the libdbus-1/libX11
+# dev headers to compile against (dlopen'd at runtime, not linked -- see
+# traycon_dl.h); on macOS it's Cocoa, so it has to be built as
+# Objective-C.
 tray=client/tray
 lib=$tray/libyap_tray.a
-if [ ! -f "$lib" ] || [ "$tray/yap_tray.c" -nt "$lib" ] || [ "$tray/traycon.h" -nt "$lib" ]; then
+if [ ! -f "$lib" ] || [ "$tray/yap_tray.c" -nt "$lib" ] || [ "$tray/traycon.h" -nt "$lib" ] || [ "$tray/traycon_dl.h" -nt "$lib" ]; then
 	echo "building $lib"
 	case "$(uname -s)" in
 	Darwin) tray_flags="-x objective-c" ;;

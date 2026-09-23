@@ -28,8 +28,14 @@ when ODIN_OS == .Windows {
 	foreign import lib {LIB, "system:shell32.lib", "system:user32.lib", "system:gdi32.lib"}
 } else when ODIN_OS == .Darwin {
 	foreign import lib {LIB, "system:Cocoa.framework", "system:UserNotifications.framework"}
+} else when ODIN_OS == .Linux {
+	// dbus-1 and X11 are dlopen'd at runtime (traycon_dl.h) rather than
+	// linked, so yap-client still starts on a desktop missing either;
+	// only libdl itself is a real link-time dependency.
+	foreign import lib {LIB, "system:dl"}
 } else {
-	foreign import lib {LIB, "system:dbus-1", "system:X11"}
+	// BSDs fold dlopen/dlsym into libc, so there's no separate lib to link.
+	foreign import lib {LIB}
 }
 
 Tray :: struct {}
