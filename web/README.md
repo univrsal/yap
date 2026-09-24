@@ -91,7 +91,10 @@ switched off file by file with `#+build wasi` / `#+build !wasi`, and
   the ratio changing after its first change. So the page sizes them
   itself, every frame, to the device pixels the browser says the canvas
   covers (yap_canvas_fit in shell.c); the window size stays in CSS
-  pixels, so input is untouched.
+  pixels, so input is untouched. The UI's scale is devicePixelRatio
+  itself rather than the ratio of those sizes, which in whole pixels
+  wobbles with the window's size (1504 / 1003 isn't 1.5) and would make
+  the text re-rasterize, and shift, as the window is resized.
 - **Network.** client/transport.odin is the seam: UDP on a desktop, the
   WebSocket to the relay on the web. There are no threads in the page,
   so the network loop is stepped from the frame loop (client/net_web.odin),

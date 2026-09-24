@@ -219,6 +219,11 @@ EM_JS(void, yap_canvas_fit, (int *width, int *height), {
 	HEAP32[height >> 2] = canvas.height;
 });
 
+/* Device pixels per CSS pixel (client/wglfw/wglfw_web.odin). */
+EM_JS(double, yap_device_pixel_ratio, (), {
+	return window.devicePixelRatio || 1;
+});
+
 int main(void) {
 	if (!web_start()) {
 		printf("yap: the client could not start\n");

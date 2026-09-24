@@ -343,7 +343,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	set_hand_cursor(ui, ui.chat.hovering)
 	ui_chat_after_frame(ui)
 	ui_images_after_frame(ui)
-	render(&ui.renderer, &ui.ctx, m.logical_w, m.logical_h, m.fb_w, m.fb_h, m.scale, BACKGROUND)
+	render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, BACKGROUND)
 	glfw.SwapBuffers(ui.window)
 	// A browser paces frames itself, and a page can't sleep.
 	when !WEB {
@@ -550,8 +550,11 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 		return {logical_w = 1, logical_h = 1, scale = 1, input_scale = 1}
 	}
 
+	// A browser says what its ratio is (wglfw_web.odin); the framebuffer's
+	// whole pixels would only give an approximation that changes with the
+	// window's size, and with it the font's rasterization.
 	ratio := f32(m.fb_w) / f32(w)
-	if ratio > 1.01 {
+	if ratio > 1.01 && !WEB {
 		m.scale = ratio
 		m.logical_w, m.logical_h = f32(w), f32(h)
 	} else {

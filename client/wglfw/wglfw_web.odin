@@ -83,6 +83,7 @@ foreign _ {
 	// web/shell.c: sizes the canvas' backing store to the device pixels
 	// it covers, and returns that size.
 	yap_canvas_fit :: proc(width, height: ^i32) ---
+	yap_device_pixel_ratio :: proc() -> f64 ---
 }
 
 // The canvas' backing store, in device pixels. Not GLFW's own answer:
@@ -95,15 +96,13 @@ GetFramebufferSize :: proc "c" (window: WindowHandle) -> (width, height: i32) {
 	return
 }
 
-// Worked out from the two sizes rather than asked of the page, so it
-// always agrees with what the framebuffer really is.
+// The page's devicePixelRatio: device pixels per CSS pixel, which the
+// window's size is in. Asked of the page rather than worked out from the
+// two sizes, which come in whole pixels and so give a slightly different
+// ratio at every window size (1503 / 1002 = 1.5, but 1504 / 1003 isn't).
 GetWindowContentScale :: proc "c" (window: WindowHandle) -> (xscale, yscale: f32) {
-	w, h := GetWindowSize(window)
-	fw, fh := GetFramebufferSize(window)
-	if w <= 0 || h <= 0 {
-		return 1, 1
-	}
-	return f32(fw) / f32(w), f32(fh) / f32(h)
+	ratio := f32(yap_device_pixel_ratio())
+	return ratio, ratio
 }
 
 GetCursorPos :: proc "c" (window: WindowHandle) -> (x, y: f64) {

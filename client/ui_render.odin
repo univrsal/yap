@@ -157,18 +157,28 @@ ui_text_height :: proc(font: mu.Font) -> i32 {
 	return LINE_HEIGHT
 }
 
-// render draws one frame of microui output. The layout was done for a
-// logical_w x logical_h window; the framebuffer is fb_w x fb_h, and
-// `scale` is physical pixels per logical pixel (the display's density).
+// render draws one frame of microui output into an fb_w x fb_h
+// framebuffer; `scale` is physical pixels per logical pixel (the display's
+// density).
 render :: proc(
 	r: ^Renderer,
 	ctx: ^mu.Context,
-	logical_w, logical_h: f32,
 	fb_w, fb_h: i32,
 	scale: f32,
 	clear: mu.Color,
 ) {
-	r.height, r.scale = logical_h, scale
+	// Everything is snapped to physical pixels as round(v * scale) /
+	// scale, which only lands on them if the projection maps a logical
+	// pixel to exactly `scale` physical ones, on both axes. The layout's
+	// logical size (window_metrics) needn't be quite fb / scale (the framebuffer
+	// comes in whole pixels, and a width ratio needn't match the
+	// height's), and projecting that instead stretches everything by a
+	// fraction of a pixel, which depends on the window's size: at 1.5,
+	// a glyph's stem would move into the next pixel column as the window
+	// is resized. So project fb / scale, which differs from the layout
+	// by less than a logical pixel at the right and bottom edges.
+	view_w, view_h := f32(fb_w) / scale, f32(fb_h) / scale
+	r.height, r.scale = view_h, scale
 
 	if scale != r.font.scale {
 		if font_build_atlas(&r.font, scale) {
@@ -194,7 +204,7 @@ render :: proc(
 	gl.Scissor(0, 0, fb_w, fb_h)
 
 	gl.UseProgram(r.program)
-	gl.Uniform2f(r.u_screen, logical_w, logical_h)
+	gl.Uniform2f(r.u_screen, view_w, view_h)
 	gl.BindVertexArray(r.vao)
 	gl.BindBuffer(gl.ARRAY_BUFFER, r.vbo)
 	gl.ActiveTexture(gl.TEXTURE0)
