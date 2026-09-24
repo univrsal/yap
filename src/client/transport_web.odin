@@ -6,7 +6,7 @@ import "core:strings"
 
 /*
 A WebSocket to the relay, which puts the packets back on a UDP socket
-at the far end (see server/relay.odin). One packet per message, so the protocol
+at the far end (see src/server/relay.odin). One packet per message, so the protocol
 still sees datagram boundaries.
 
 The socket is opened by the page and the arriving messages are queued

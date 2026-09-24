@@ -1,6 +1,6 @@
 /*
 RNNoise noise suppression (ref/: the Xiph/Mozilla RNNoise that OBS
-Studio's noise filter uses, BSD-3-Clause, see ref/COPYING), compiled as
+Studio's noise filter uses, BSD-3-Clause, see deps/thirdparty/rnnoise/COPYING), compiled as
 one translation unit for yap. The ref/ sources are used unmodified,
 with the rnnoise.h that OBS ships beside them, so the build doesn't
 depend on (or pick up) a system-installed RNNoise's header.
@@ -73,12 +73,12 @@ from files) and the training code are left out.
     #pragma GCC diagnostic ignored "-Wnull-dereference"
 #endif
 
-#include "impl/kiss_fft.c"
-#include "impl/celt_lpc.c"
-#include "impl/pitch.c"
-#include "impl/rnn.c"
-#include "impl/rnn_data.c"
-#include "impl/denoise.c"
+#include "../../../deps/thirdparty/rnnoise/kiss_fft.c"
+#include "../../../deps/thirdparty/rnnoise/celt_lpc.c"
+#include "../../../deps/thirdparty/rnnoise/pitch.c"
+#include "../../../deps/thirdparty/rnnoise/rnn.c"
+#include "../../../deps/thirdparty/rnnoise/rnn_data.c"
+#include "../../../deps/thirdparty/rnnoise/denoise.c"
 
 /* denoise.c fills its FFT and window tables lazily on first use, without
    locking; call this once before using denoisers from any thread. */

@@ -40,22 +40,22 @@ if [ ! -f "$opus_lib" ]; then
 	cmake --build "$opus_build" --parallel
 fi
 
-# What web/touch.js calls (client/ui_touch_web.odin).
+# What web/touch.js calls (src/client/ui_touch_web.odin).
 touch_exports=_web_touch_tap,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_text_rune,_web_text_backspace,_web_text_enter
-# What web/background.js calls (client/main_web.odin).
+# What web/background.js calls (src/client/main_web.odin).
 background_exports=_web_tick
-# What web/paste.js calls (client/ui_paste_web.odin), and the heap helpers it uses.
+# What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
 paste_exports=_web_paste_image,_web_paste_failed,_malloc,_free
 
-odin build client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap" "$@"
+odin build src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap" "$@"
 
 # -sSTACK_SIZE: the client keeps some large buffers on the stack (a state
 # snapshot, a stored blob), and emscripten's default of 64 KiB is too
 # small for them.
 emcc "$out/yap.obj" \
 	web/shell.c \
-	client/miniaudio/yap_audio.c \
-	client/rnn/yap_rnn.c \
+	src/client/miniaudio/yap_audio.c \
+	src/client/rnn/yap_rnn.c \
 	"$opus_lib" \
 	"$stb/stb_truetype.c" \
 	"$stb/stb_image.c" \

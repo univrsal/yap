@@ -38,7 +38,7 @@ when ODIN_OS == .Windows {
 
 when ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin {
 	when !#exists(LIB) {
-		#panic("client/opus/" + LIB + " is missing (on macOS, build it with build.sh)")
+		#panic("src/client/opus/" + LIB + " is missing (on macOS, build it with build.sh)")
 	}
 }
 

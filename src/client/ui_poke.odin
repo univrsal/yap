@@ -5,7 +5,7 @@ import "core:fmt"
 import glfw "wglfw"
 
 /*
-Pokes (proto/poke.odin): someone nudging us, shown as a desktop
+Pokes (src/proto/poke.odin): someone nudging us, shown as a desktop
 notification. That goes through the tray icon, which is how traycon
 reaches the desktop's notification service; a web build uses the
 browser's own. Without either, the Log tab has the poke (the network

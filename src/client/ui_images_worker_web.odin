@@ -9,7 +9,7 @@ import "clipboard"
 A browser build has no thread to decode pictures on, so each one is
 decoded at the start of the frame after it was queued (decode_queued,
 from ui_images_frame). A chat image is a few hundred kilobytes at most
-(see proto/blob.odin), and the alternative - handing the work to a web
+(see src/proto/blob.odin), and the alternative - handing the work to a web
 worker - is a job for the day pictures are worth it.
 */
 Decode_Worker :: struct {}

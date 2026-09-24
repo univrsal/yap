@@ -9,7 +9,7 @@ transport_native.odin).
 
 A browser has no UDP, so a web build sends the same datagrams over a
 WebSocket, one packet per message, through a relay that puts them back
-on a UDP socket at the other end (see transport_web.odin and server/relay.odin).
+on a UDP socket at the other end (see transport_web.odin and src/server/relay.odin).
 Everything above this is unchanged: the packets are the same bytes, the
 session is still end-to-end between this client and the server - the
 relay carries sealed packets it can't read - and loss and reordering

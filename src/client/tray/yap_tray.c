@@ -13,7 +13,7 @@ rather than refusing to start yap-client at all. On macOS this is
 built as Objective-C, since the implementation is Cocoa.
 */
 #if !defined(__APPLE__) && !defined(_WIN32)
-#include "traycon_dl.h"
+#include "../../../deps/thirdparty/traycon/traycon_dl.h"
 #endif
 #define TRAYCON_IMPLEMENTATION
-#include "traycon.h"
+#include "../../../deps/thirdparty/traycon/traycon.h"

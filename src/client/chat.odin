@@ -31,7 +31,7 @@ Chat_Outgoing :: struct {
 	last_chunk: time.Tick,
 }
 
-// Chat_Client is our end of the text chat (see proto/chat.odin): the
+// Chat_Client is our end of the text chat (see src/proto/chat.odin): the
 // stream of the current channel's messages, and messages waiting for
 // the server to confirm them.
 Chat_Client :: struct {
@@ -69,7 +69,7 @@ chat_channel_changed :: proc(c: ^Voice_Client) {
 }
 
 // poke_send pokes another user, with a message or without (see
-// proto/poke.odin). `to` 0 means the user called `name`.
+// src/proto/poke.odin). `to` 0 means the user called `name`.
 poke_send :: proc(c: ^Voice_Client, to: proto.User_Num, name: string, raw: string) {
 	ch := &c.channels
 	if !ch.have_state || !c.has_current {

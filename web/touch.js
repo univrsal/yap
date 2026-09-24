@@ -4,7 +4,7 @@ starts (emcc --pre-js, see web/build.sh), so its listeners come before
 GLFW's.
 
 GLFW would turn a finger into a mouse that presses wherever it lands;
-the client can't use that (see client/ui_touch_web.odin). Instead this
+the client can't use that (see src/client/ui_touch_web.odin). Instead this
 tells gestures apart and hands them over:
 
 - a tap is a click, and on a text box it also brings up the keyboard;

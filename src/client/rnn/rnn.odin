@@ -1,6 +1,6 @@
 /*
 RNNoise noise suppression (see yap_rnn.c; the sources in ref/ are the
-RNNoise that OBS Studio's noise filter uses, BSD-3-Clause, ref/COPYING).
+RNNoise that OBS Studio's noise filter uses, BSD-3-Clause, deps/thirdparty/rnnoise/COPYING).
 Build the library with build.sh / build.bat at the repo root.
 
 Use Denoiser rather than the raw procs: it takes our float samples in
@@ -20,7 +20,7 @@ when ODIN_OS == .Windows {
 
 when ODIN_OS != .WASI {
 	when !#exists(LIB) {
-		#panic("client/rnn/" + LIB + " is missing; build it with build.sh (or build.bat on Windows)")
+		#panic("src/client/rnn/" + LIB + " is missing; build it with build.sh (or build.bat on Windows)")
 	}
 }
 

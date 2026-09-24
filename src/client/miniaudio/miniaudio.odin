@@ -20,7 +20,7 @@ when ODIN_OS == .Windows {
 when ODIN_OS != .WASI {
 	when !#exists(LIB) {
 		#panic(
-			"client/miniaudio/" +
+			"src/client/miniaudio/" +
 			LIB +
 			" is missing; build it with build.sh (or build.bat on Windows)",
 		)

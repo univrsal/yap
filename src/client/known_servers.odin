@@ -52,7 +52,7 @@ check_server_key :: proc(
 The file is a line per server, so a new one goes on by reading what's
 there and writing it back with the line added. It's a handful of lines
 either way, and this works the same on a browser's local storage as it
-does on a file (see common/store.odin).
+does on a file (see src/common/store.odin).
 */
 remember_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bool {
 	key := key

@@ -7,8 +7,8 @@ import "../proto"
 
 /*
 Chat images on the client: uploading the one being posted, and fetching
-the ones other people posted (see proto/blob.odin for the transfer, and
-proto/chat.odin for how a message names an image).
+the ones other people posted (see src/proto/blob.odin for the transfer, and
+src/proto/chat.odin for how a message names an image).
 
 Both directions run one image at a time, paced so a transfer doesn't
 crowd out voice. Fetching is newest first: those are the messages on

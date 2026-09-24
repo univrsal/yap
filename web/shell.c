@@ -4,10 +4,10 @@ the browser, written as the JavaScript they are, and the entry point
 that hands the client its frames.
 
 - Storage: the key, settings and known servers live in localStorage
-  under the names the client gives them (common/store_web.odin).
+  under the names the client gives them (src/common/store_web.odin).
 - WebSocket: one socket to the relay, carrying one packet per binary
   message; arriving messages wait in a queue until the client's network
-  loop takes them (client/transport_web.odin).
+  loop takes them (src/client/transport_web.odin).
 - A few small questions about the page: where it was served from, what
   the address said, the local time's offset from UTC.
 
@@ -136,7 +136,7 @@ EM_JS(int, yap_open_url, (const char *url), {
 	return window.open(UTF8ToString(url), "_blank", "noopener") ? 1 : 0;
 });
 
-/* Hands bytes to the browser as a file download (client/downloads_web.odin). */
+/* Hands bytes to the browser as a file download (src/client/downloads_web.odin). */
 EM_JS(int, yap_download, (const unsigned char *data, int size, const char *name), {
 	try {
 		// A copy: the heap view is only good until the next allocation.
@@ -160,7 +160,7 @@ EM_JS(int, yap_utc_offset_minutes, (), {
 	return -new Date().getTimezoneOffset();
 });
 
-/* A browser notification (a poke, see client/ui_poke.odin), if the page
+/* A browser notification (a poke, see src/client/ui_poke.odin), if the page
    may show them. Browsers only let a page ask while it's handling a
    click or a tap, so the first time one would be shown the page asks on
    the next one - the poke that prompted it has gone by then, but the
@@ -193,7 +193,7 @@ EM_JS(void, yap_keyboard_hide, (), {
 /* ---- the canvas' pixels ---- */
 
 /* Sizes the canvas' backing store to exactly the device pixels it covers,
-   and says what that is (client/wglfw/wglfw_web.odin, GetFramebufferSize).
+   and says what that is (src/client/wglfw/wglfw_web.odin, GetFramebufferSize).
 
    Emscripten's GLFW makes it floor(CSS size * devicePixelRatio), which is
    right for a whole ratio, but a fractional one (125%, 150%, a zoomed
@@ -239,7 +239,7 @@ EM_JS(void, yap_canvas_fit, (int *width, int *height), {
 	HEAP32[height >> 2] = canvas.height;
 });
 
-/* Device pixels per CSS pixel (client/wglfw/wglfw_web.odin). */
+/* Device pixels per CSS pixel (src/client/wglfw/wglfw_web.odin). */
 EM_JS(double, yap_device_pixel_ratio, (), {
 	return window.devicePixelRatio || 1;
 });

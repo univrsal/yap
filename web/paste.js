@@ -6,13 +6,13 @@ here: it decodes the picture, scales it down to fit MAX_SIDE and
 compresses it to a JPEG within MAX_BYTES - the same budget image.odin
 keeps on a desktop, and the same order of giving things up: quality
 first, then size - then hands the JPEG to the client (web_paste_image,
-client/ui_paste_web.odin).
+src/client/ui_paste_web.odin).
 
 Transparent parts are put on white, since JPEG has no transparency.
 Text on the clipboard is left alone for the client to paste.
 */
 (() => {
-	// Keep these in step with client/image.odin.
+	// Keep these in step with src/client/image.odin.
 	const MAX_SIDE = 3840;
 	const MAX_BYTES = 256 * 1024;
 	const QUALITY_FIRST = 0.85;

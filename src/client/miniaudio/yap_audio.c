@@ -39,7 +39,7 @@ build.bat; the Odin bindings are in miniaudio.odin.
     #pragma GCC diagnostic ignored "-Wunused-function"
     #pragma GCC diagnostic ignored "-Wunused-variable"
 #endif
-#include "miniaudio.h"
+#include "../../../deps/thirdparty/miniaudio/miniaudio.h"
 #if defined(__GNUC__) || defined(__clang__)
     #pragma GCC diagnostic pop
 #endif

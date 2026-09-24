@@ -7,7 +7,7 @@ calling that for a hidden tab or a minimised window. A page's own timers
 don't help: a hidden tab runs them at most once a second. A worker's
 timers aren't held back like that, and neither are the messages it posts,
 so a worker ticks every 10 ms and each tick calls web_tick, which takes
-over from the frames only while they've stopped (client/main_web.odin).
+over from the frames only while they've stopped (src/client/main_web.odin).
 */
 (() => {
 	const TICK_MS = 10;

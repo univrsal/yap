@@ -20,7 +20,7 @@ network loop never blocks on input.
 	/say <text>      post to the channel's text chat
 	/send <file>     post an image file (scaled and compressed first)
 	/typing          tell the channel you're typing
-	/poke <name> [message]  poke someone (see proto/poke.odin)
+	/poke <name> [message]  poke someone (see src/proto/poke.odin)
 */
 start_command_reader :: proc(q: ^Command_Queue) {
 	thread.create_and_start_with_poly_data(

@@ -83,7 +83,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/cache@v6
         with:
-          path: client/opus/libopus_macos.a
+          path: src/client/opus/libopus_macos.a
           key: opus-macos-${{ runner.arch }}-${{ hashFiles('scripts/fetch-opus.sh', 'build.sh') }}
 
       - name: Odin's stb libraries
@@ -107,7 +107,7 @@ jobs:
 
       - name: Test
         shell: bash
-        run: odin test proto -vet -strict-style
+        run: odin test src/proto -vet -strict-style
 
       - uses: actions/download-artifact@v8
         with:
