@@ -1,0 +1,2 @@
+# cmd needs CRLF: with bare LF it can miss the labels build.bat calls.
+*.bat text eol=crlf

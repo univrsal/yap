@@ -28,20 +28,28 @@ del %TRAY%\yap_tray.obj
 rem The version and commit (src\common\version.odin), as
 rem scripts/version-defines.sh finds them. The values are passed with
 rem their quotes (\" survives the command line as "), see version.odin.
+rem No ( ) blocks here: cmd expands a whole block before running any of
+rem it, and %VAR:~0,1% of a variable that isn't set comes out as stray
+rem text that can unbalance the quotes and break the block (CI sets
+rem YAP_VERSION to nothing). The subroutines only run once it's set.
 set DEFINES=
-if not defined YAP_VERSION (
-	for /f %%i in ('git describe --tags --exact-match 2^>nul') do set YAP_VERSION=%%i
-)
-if defined YAP_VERSION (
-	if "%YAP_VERSION:~0,1%"=="v" set YAP_VERSION=%YAP_VERSION:~1%
-)
-if defined YAP_VERSION set DEFINES="-define:YAP_VERSION=\"%YAP_VERSION%\""
+if "%YAP_VERSION%"=="" for /f "delims=" %%i in ('git describe --tags --exact-match 2^>nul') do set "YAP_VERSION=%%i"
+if not "%YAP_VERSION%"=="" call :add_version
 set COMMIT=
-for /f %%i in ('git rev-parse --short^=7 HEAD 2^>nul') do set COMMIT=%%i
-if defined COMMIT (
-	git diff --quiet HEAD 2>nul || set COMMIT=%COMMIT%-dirty
-)
-if defined COMMIT set DEFINES=%DEFINES% "-define:YAP_COMMIT=\"%COMMIT%\""
+for /f "delims=" %%i in ('git rev-parse --short^=7 HEAD 2^>nul') do set "COMMIT=%%i"
+if not "%COMMIT%"=="" call :add_commit
 
 odin build src\server -vet -strict-style -out:bin\yap-server.exe %DEFINES% %* || exit /b 1
 odin build src\client -vet -strict-style -out:bin\yap.exe %DEFINES% %* || exit /b 1
+exit /b 0
+
+:add_version
+if "%YAP_VERSION:~0,1%"=="v" set "YAP_VERSION=%YAP_VERSION:~1%"
+set DEFINES=%DEFINES% "-define:YAP_VERSION=\"%YAP_VERSION%\""
+exit /b 0
+
+:add_commit
+rem call, in case git is a .bat/.cmd shim, which would otherwise not return.
+call git diff --quiet HEAD 2>nul || set "COMMIT=%COMMIT%-dirty"
+set DEFINES=%DEFINES% "-define:YAP_COMMIT=\"%COMMIT%\""
+exit /b 0
