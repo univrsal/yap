@@ -360,14 +360,20 @@ log_stats :: proc(c: ^Voice_Client) {
 	}
 	for speaker, n in v.received {
 		fmt.sbprintf(&b, " | %08x: %d", speaker, n)
+		if sp := v.speakers[speaker] or_else nil; sp != nil {
+			fmt.sbprintf(&b, " (prefill %d ms)", speaker_prefill(sp) * 1000 / (SAMPLE_RATE * CHANNELS))
+		}
 	}
 	if v.concealed > 0 {
 		fmt.sbprintf(&b, " | concealed %d", v.concealed)
+	}
+	if v.dropouts > 0 {
+		fmt.sbprintf(&b, " | %d dropouts", v.dropouts)
 	}
 	if underruns := sync.atomic_exchange(&v.underruns, 0); underruns > 0 {
 		fmt.sbprintf(&b, " | %d output underruns", underruns)
 	}
 	log.debug(strings.to_string(b))
-	v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed = 0, 0, 0, 0, 0
+	v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed, v.dropouts = 0, 0, 0, 0, 0, 0
 	clear(&v.received)
 }

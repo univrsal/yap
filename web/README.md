@@ -107,7 +107,11 @@ switched off file by file with `#+build wasi` / `#+build !wasi`, and
   that was a dropout every few seconds. So the web uses 40 ms periods
   (2048 frames, what Chrome would pick itself), and keeps a period and a
   frame queued for the output. `?audio_period=<ms>` (10 to 100) trades
-  that back for latency, to try on a given machine.
+  that back for latency, to try on a given machine. The microphone comes
+  in 43 ms at a time too, so a browser sends its 20 ms frames two or
+  three at once; whoever listens notices (client/voice.odin,
+  track_arrival) and buffers a browser speaker a little longer - about
+  80 ms rather than 40 - so its sentences don't start with a dropout.
 - **Codecs.** RNNoise (client/rnn/yap_rnn.c) is compiled by emscripten
   like miniaudio. libopus is too big to keep in the repo, so the first
   web/build.sh fetches the release client/opus is bound against, checks

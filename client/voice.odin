@@ -33,6 +33,10 @@ every 20 ms whether or not anything was sent. A short gap is lost packets:
 the last one is recovered from the next packet's in-band FEC when present
 and the rest are concealed (PLC). A long gap is the speaker pausing (DTX
 silence, or mute) and starts a fresh talkspurt.
+
+Jitter: each speaker is buffered before it plays, 40 ms or as much more
+as its packets' arrival has shown it needs (track_arrival) - a browser
+sends its frames in bursts, so its speakers get more.
 */
 
 SAMPLE_RATE :: 48000
@@ -43,8 +47,10 @@ FRAME :: FRAME_SAMPLES * CHANNELS // one 20 ms frame, interleaved
 // Keep ~30 ms queued for the output device. A browser only gets to mix
 // once per animation frame (~17 ms, see net_web.odin), so it keeps 60.
 OUTPUT_TARGET :: FRAME * 3 when WEB else FRAME * 3 / 2
-// A speaker starts playing once 40 ms are queued (absorbs network jitter)...
+// A speaker starts playing once 40 ms are queued (absorbs network jitter),
+// or more for a speaker whose packets come unevenly (speaker_prefill)...
 JITTER_PREFILL :: 2 * FRAME
+MAX_PREFILL :: 6 * FRAME
 // ...and is trimmed back to that if the queue ever exceeds 200 ms.
 JITTER_MAX :: 10 * FRAME
 // Gaps longer than this many frames are pauses, not loss.
@@ -60,7 +66,16 @@ Speaker :: struct {
 	next_seq:    u32,
 	started:     bool, // decoded at least one packet
 	playing:     bool, // prefill reached, being mixed
+	// Ran dry while playing. If the next packet carries on rather than
+	// starting after a pause, that was a dropout mid-speech.
+	dried:       bool,
 	last_packet: time.Tick,
+	// Arrival timing (track_arrival): when packet base_seq arrived, on the
+	// line of the earliest-arriving packets, and a decaying maximum of how
+	// far behind that line packets come.
+	arrival_base: time.Tick,
+	base_seq:     u32,
+	lateness:     time.Duration,
 }
 
 Voice :: struct {
@@ -107,7 +122,11 @@ Voice :: struct {
 	sent_frames:      int,
 	sent_bytes:       int,
 	received:         map[proto.User_Num]int,
+	// Speaker.lateness of speakers dropped after a silence, so their next
+	// words start with a prefill that fits them.
+	lateness:         map[proto.User_Num]time.Duration,
 	concealed:        int,
+	dropouts:         int, // speakers running dry mid-speech (see Speaker.dried)
 	underruns:        u32, // atomic; incremented by the playback callback
 }
 
@@ -144,6 +163,7 @@ voice_destroy :: proc(v: ^Voice) {
 	delete(v.gains)
 	delete(v.user_keys)
 	delete(v.received)
+	delete(v.lateness)
 	for &d in v.denoisers {
 		rnn.denoiser_destroy(&d)
 	}
@@ -246,9 +266,11 @@ voice_receive :: proc(c: ^Voice_Client, speaker: proto.User_Num, seq: u32, packe
 		if sp, ok = speaker_create(); !ok {
 			return
 		}
+		sp.lateness = v.lateness[speaker] or_else 0
 		v.speakers[speaker] = sp
 	}
 	sp.last_packet = time.tick_now()
+	track_arrival(sp, seq, sp.last_packet)
 
 	if sp.started {
 		gap := i32(seq - sp.next_seq)
@@ -269,10 +291,60 @@ voice_receive :: proc(c: ^Voice_Client, speaker: proto.User_Num, seq: u32, packe
 			v.concealed += int(gap)
 		}
 		// A longer gap is a pause; just carry on from this packet.
+		if sp.dried && gap <= MAX_CONCEAL {
+			v.dropouts += 1
+		}
+		sp.dried = false
 	}
 	decode_into(sp, packet, 0)
 	sp.started = true
 	sp.next_seq = seq + 1
+}
+
+/*
+track_arrival measures how unevenly a speaker's packets arrive. Sequence
+numbers advance every FRAME_SAMPLES of the sender's audio, sent or not,
+so each packet has a time it would arrive if it came as early as the
+earliest have: arrival_base plus 20 ms per frame since base_seq. How far
+behind that it actually comes is its lateness, and the prefill has to
+cover the worst of it (speaker_prefill).
+
+Network jitter makes a few ms of it. A sender whose audio arrives in
+chunks makes more: a browser's microphone delivers 43 ms at a time
+(voice_io.odin), so its frames go out two or three at once, and a 40 ms
+prefill would run dry at the start of a sentence about half the time.
+*/
+@(private = "file")
+track_arrival :: proc(sp: ^Speaker, seq: u32, now: time.Tick) {
+	// Forgets a maximum over ~700 packets (about 14 s of speech).
+	DECAY :: 0.999
+	// The base creeps later by this much per packet (1 ms/s), so that a
+	// sender whose clock runs a little slow doesn't look ever later.
+	LEAK :: 20 * time.Microsecond
+	// Later than this is a jump in the sequence (a restart), not jitter.
+	DISCONTINUITY :: time.Second
+	FRAME_TIME :: time.Duration(FRAME_SAMPLES) * time.Second / SAMPLE_RATE
+
+	if sp.started {
+		expected := time.tick_add(sp.arrival_base, time.Duration(i32(seq - sp.base_seq)) * FRAME_TIME)
+		late := time.tick_diff(expected, now)
+		if late >= 0 && late < DISCONTINUITY {
+			sp.arrival_base = time.tick_add(sp.arrival_base, LEAK)
+			sp.lateness = max(late, time.Duration(f64(sp.lateness) * DECAY))
+			return
+		}
+	}
+	// The first packet, or one earlier than the line: it's the new line.
+	sp.arrival_base = now
+	sp.base_seq = seq
+}
+
+// speaker_prefill is how much of a speaker to queue before playing it:
+// a frame (the one being played) plus the worst lateness lately seen, so
+// that later packets still come before they're needed.
+speaker_prefill :: proc(sp: ^Speaker) -> int {
+	late := int(time.duration_seconds(sp.lateness) * SAMPLE_RATE) * CHANNELS
+	return clamp(FRAME + late, JITTER_PREFILL, MAX_PREFILL)
 }
 
 // decode_into decodes a packet (nil: conceal a lost frame; fec: recover the
@@ -326,15 +398,16 @@ mix_output :: proc(v: ^Voice) {
 		}
 		for id, sp in v.speakers {
 			queued := ring_available(&sp.queue)
+			prefill := speaker_prefill(sp)
 			if !sp.playing {
-				if queued < JITTER_PREFILL {
+				if queued < prefill {
 					continue
 				}
 				sp.playing = true
 			}
 			if queued > JITTER_MAX {
 				// Clock drift or a burst after a stall: catch up.
-				ring_skip(&sp.queue, queued - JITTER_PREFILL)
+				ring_skip(&sp.queue, queued - prefill)
 			}
 			// Muted speakers are still decoded and consumed, so unmuting
 			// picks up cleanly where they are.
@@ -354,6 +427,7 @@ mix_output :: proc(v: ^Voice) {
 			}
 			if got < FRAME {
 				sp.playing = false // ran dry: buffer up again before resuming
+				sp.dried = true
 			}
 		}
 		for &s in mix {
@@ -415,6 +489,7 @@ mix_loopback :: proc(v: ^Voice, mix: []f32) {
 expire_speakers :: proc(v: ^Voice) {
 	for id, sp in v.speakers {
 		if time.tick_since(sp.last_packet) > SPEAKER_TIMEOUT && ring_available(&sp.queue) == 0 {
+			v.lateness[id] = sp.lateness
 			speaker_destroy(sp)
 			delete_key(&v.speakers, id)
 			break // map changed; the rest can wait for the next step
