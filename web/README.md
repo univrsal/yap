@@ -44,7 +44,9 @@ deployment puts the relay behind something that terminates TLS.
 ## What works, and what doesn't yet
 
 Works: connecting, channels, the user list with everyone's speaking,
-muted and deafened state, text chat and the pictures in it, links,
+muted and deafened state, text chat and the pictures in it (pasting
+one with Ctrl+V sends it, scaled and compressed by the page, and Save
+downloads it), links,
 settings. The key, settings and known servers live in the page's local
 storage, so a browser keeps its identity across visits.
 
@@ -58,9 +60,6 @@ with the first click. Voice carries on while the tab is hidden.
 
 Not yet:
 
-- **Sending and saving pictures.** Pictures others post show up, but
-  pasting one needs the browser's clipboard API, and saving one a
-  download the page starts.
 - The **tray icon** and **hiding to the tray**, which a page doesn't have.
 
 ## How it's put together

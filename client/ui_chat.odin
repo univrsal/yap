@@ -186,7 +186,10 @@ chat_input :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-(ICON_BUTTON + 6), ICON_BUTTON})
 	// Ctrl+V could be an image: hold the text paste back and decide after
 	// the frame (see paste). The id is the one text_box uses.
-	if ctx.focus_id == mu.get_id(ctx, uintptr(&ui.chat.buf[0])) &&
+	// A browser hands the picture over from its paste event instead (see
+	// web/paste.js), so the key is left to the text box there.
+	if !WEB &&
+	   ctx.focus_id == mu.get_id(ctx, uintptr(&ui.chat.buf[0])) &&
 	   .V in ctx.key_pressed_bits &&
 	   .CTRL in ctx.key_down_bits &&
 	   .ALT not_in ctx.key_down_bits {

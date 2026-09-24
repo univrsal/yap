@@ -136,6 +136,26 @@ EM_JS(int, yap_open_url, (const char *url), {
 	return window.open(UTF8ToString(url), "_blank", "noopener") ? 1 : 0;
 });
 
+/* Hands bytes to the browser as a file download (client/downloads_web.odin). */
+EM_JS(int, yap_download, (const unsigned char *data, int size, const char *name), {
+	try {
+		// A copy: the heap view is only good until the next allocation.
+		const blob = new Blob([HEAPU8.slice(data, data + size)], {type: "application/octet-stream"});
+		const url = URL.createObjectURL(blob);
+		const link = document.createElement("a");
+		link.href = url;
+		link.download = UTF8ToString(name);
+		document.body.appendChild(link);
+		link.click();
+		link.remove();
+		setTimeout(() => URL.revokeObjectURL(url), 10000);
+		return 1;
+	} catch (e) {
+		console.error("yap: could not start the download", e);
+		return 0;
+	}
+});
+
 EM_JS(int, yap_utc_offset_minutes, (), {
 	return -new Date().getTimezoneOffset();
 });
