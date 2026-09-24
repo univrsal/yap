@@ -20,29 +20,12 @@ stb="$(odin root)/vendor/stb/src"
 # against is fetched once, checked and built into web/deps/ (gitignored).
 # Delete web/deps/ to build it again.
 opus_version=1.6
-opus_sha256=b7637334527201fdfd6dd6a02e67aceffb0e5e60155bbd89175647a80301c92c
 deps=web/deps
 opus_build=$deps/opus-$opus_version-wasm
 opus_lib=$opus_build/libopus.a
 if [ ! -f "$opus_lib" ]; then
-	mkdir -p "$deps"
-	tarball=$deps/opus-$opus_version.tar.gz
-	if [ ! -f "$tarball" ]; then
-		echo "fetching opus $opus_version"
-		curl -fL --retry 3 -o "$tarball.part" "https://downloads.xiph.org/releases/opus/opus-$opus_version.tar.gz"
-		mv "$tarball.part" "$tarball"
-	fi
-	if command -v sha256sum >/dev/null; then
-		sum=$(sha256sum "$tarball" | cut -d' ' -f1)
-	else
-		sum=$(shasum -a 256 "$tarball" | cut -d' ' -f1)
-	fi
-	if [ "$sum" != "$opus_sha256" ]; then
-		echo "$tarball: checksum mismatch (got $sum); delete it to fetch it again" >&2
-		exit 1
-	fi
-	rm -rf "$deps/opus-$opus_version" "$opus_build"
-	tar -xzf "$tarball" -C "$deps"
+	scripts/fetch-opus.sh "$deps"
+	rm -rf "$opus_build"
 	echo "building $opus_lib"
 	# The float API without DRED or OSCE (both off by default), which is
 	# what client/opus binds. Hardening only adds _FORTIFY_SOURCE and stack

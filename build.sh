@@ -47,5 +47,22 @@ if [ ! -f "$lib" ] || [ "$tray/yap_tray.c" -nt "$lib" ] || [ "$tray/traycon.h" -
 	rm "$tray/yap_tray.o"
 fi
 
+# libopus on macOS: there's no prebuilt library for it in client/opus, so
+# it's built from the release source (scripts/fetch-opus.sh), the float
+# API without DRED or OSCE, which is what client/opus binds.
+if [ "$(uname -s)" = Darwin ] && [ ! -f client/opus/libopus_macos.a ]; then
+	scripts/fetch-opus.sh deps
+	echo "building client/opus/libopus_macos.a"
+	cmake -S deps/opus-1.6 -B deps/opus-macos \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DOPUS_BUILD_PROGRAMS=OFF \
+		-DOPUS_BUILD_TESTING=OFF \
+		-DOPUS_HARDENING=OFF \
+		-DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF \
+		-DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF >/dev/null
+	cmake --build deps/opus-macos --parallel
+	cp deps/opus-macos/libopus.a client/opus/libopus_macos.a
+fi
+
 odin build server -vet -strict-style -out:bin/yap-server "$@"
 odin build client -vet -strict-style -out:bin/yap "$@"

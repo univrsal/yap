@@ -1,0 +1,109 @@
+name: Build
+
+# Builds the web client and the desktop client and server for Linux,
+# Windows and macOS, and packs each desktop platform into a zip holding
+# the client, the server and the web build (in web/). release.yml calls
+# this for a tag and attaches the zips to a draft release.
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_call:
+
+env:
+  # The Odin release to build with (https://github.com/odin-lang/Odin/releases).
+  ODIN_RELEASE: dev-2026-07
+
+jobs:
+  web:
+    name: Web (wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: laytan/setup-odin@v2
+        with:
+          release: ${{ env.ODIN_RELEASE }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: mymindstorm/setup-emsdk@v14
+      - name: Cache libopus for wasm
+        uses: actions/cache@v4
+        with:
+          path: web/deps
+          key: opus-wasm-${{ hashFiles('scripts/fetch-opus.sh') }}
+      - run: ./web/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: |
+            web/out/index.html
+            web/out/index.js
+            web/out/index.wasm
+          if-no-files-found: error
+
+  desktop:
+    name: ${{ matrix.name }}
+    needs: web
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+            platform: linux-x64
+          - name: Windows
+            os: windows-latest
+            platform: windows-x64
+          - name: macOS
+            os: macos-latest
+            platform: macos-arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: laytan/setup-odin@v2
+        with:
+          release: ${{ env.ODIN_RELEASE }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Linux dependencies
+        if: runner.os == 'Linux'
+        # dbus headers for the tray icon, GLFW to link against.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libdbus-1-dev libx11-dev libglfw3-dev libgl1-dev pkg-config
+
+      - name: Odin's stb libraries
+        if: runner.os != 'Windows'
+        # Odin's release doesn't always ship these built for Linux/macOS.
+        run: |
+          stb="$(odin root)/vendor/stb/src"
+          [ -f "$(odin root)/vendor/stb/lib/stb_image.a" ] || make -C "$stb"
+
+      - name: Build (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: ./build.sh -o:speed
+
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: build.bat -o:speed
+
+      - name: Test
+        shell: bash
+        run: odin test proto -vet -strict-style
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: web-build
+      - name: Pack
+        shell: bash
+        run: scripts/package.sh ${{ matrix.platform }} web-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yap-${{ matrix.platform }}
+          path: dist/yap-${{ matrix.platform }}.zip
+          compression-level: 0
+          if-no-files-found: error

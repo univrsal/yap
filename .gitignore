@@ -14,3 +14,6 @@ client/tray/*.o
 client/tray/*.obj
 web/out/
 web/deps/
+client/opus/libopus_macos.a
+deps/
+dist/

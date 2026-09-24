@@ -15,7 +15,7 @@ Options :: struct {
 	log_level: common.Log_Level `usage:"Lowest level to log: debug, info, warn, error (default info)."`,
 	log_file:  string `usage:"Also append the log to this file."`,
 	relay:     int `usage:"Also serve the web client on this TCP port and relay browsers to this server over WebSockets (e.g. 8080). Off by default."`,
-	web:       string `usage:"Directory holding the web build the relay serves (default web/out)."`,
+	web:       string `usage:"Directory holding the web build the relay serves (default web/out, or web in a release archive)."`,
 }
 
 main :: proc() {
@@ -26,6 +26,10 @@ main :: proc() {
 		web       = DEFAULT_WEB_DIR,
 	}
 	flags.parse_or_exit(&opt, os.args, .Odin)
+	// A release archive keeps the web build in web/ rather than web/out.
+	if opt.web == DEFAULT_WEB_DIR && !os.exists(DEFAULT_WEB_DIR) && os.exists("web/index.html") {
+		opt.web = "web"
+	}
 
 	logger, ok := common.init_logging(opt.log_level, opt.log_file)
 	if !ok {
