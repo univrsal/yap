@@ -1,6 +1,8 @@
 #!/bin/sh
-# Packs a release archive: dist/yap-<platform>.zip holding the client, the
-# server and the web build (web/, which yap-server -relay serves).
+# Lays out a release in dist/yap-<platform>/: the client, the server and
+# the web build (web/, which yap-server -relay serves). CI uploads the
+# folder as an artifact, which GitHub zips itself, and the release
+# workflow zips it for the release.
 # Usage: scripts/package.sh <platform> <web-build-dir>
 # Run after build.sh / build.bat; <web-build-dir> is web/build.sh's web/out.
 set -e
@@ -12,17 +14,10 @@ ext=
 [ -f bin/yap.exe ] && ext=.exe
 
 name=yap-$platform
-rm -rf "dist/$name" "dist/$name.zip"
+rm -rf "dist/$name"
 mkdir -p "dist/$name/web"
 cp "bin/yap$ext" "bin/yap-server$ext" "dist/$name/"
 # The page and its glue, not the object file the build leaves beside them.
 cp "$web/index.html" "$web/index.js" "$web/index.wasm" "dist/$name/web/"
 cp channels.example.json "dist/$name/"
-
-cd dist
-if command -v zip >/dev/null; then
-	zip -qr "$name.zip" "$name"
-else
-	7z a -tzip -bso0 "$name.zip" "$name"
-fi
-echo "packed dist/$name.zip"
+echo "packed dist/$name"

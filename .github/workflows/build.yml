@@ -9,6 +9,11 @@ on:
     branches: [master]
   pull_request:
   workflow_call:
+    inputs:
+      release:
+        description: Name the artifacts without the commit hash
+        type: boolean
+        default: false
 
 env:
   # The Odin release to build with (https://github.com/odin-lang/Odin/releases).
@@ -19,19 +24,19 @@ jobs:
     name: Web (wasm)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: laytan/setup-odin@v2
         with:
           release: ${{ env.ODIN_RELEASE }}
           token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: mymindstorm/setup-emsdk@v14
+      - uses: mymindstorm/setup-emsdk@v16
       - name: Cache libopus for wasm
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: web/deps
           key: opus-wasm-${{ hashFiles('scripts/fetch-opus.sh') }}
       - run: ./web/build.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web
           path: |
@@ -58,7 +63,7 @@ jobs:
             os: macos-latest
             platform: macos-arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: laytan/setup-odin@v2
         with:
           release: ${{ env.ODIN_RELEASE }}
@@ -69,10 +74,10 @@ jobs:
         # dbus headers for the tray icon, GLFW to link against.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libx11-dev libglfw3-dev libgl1-dev pkg-config
+          sudo apt-get install -y libdbus-1-dev libx11-dev libglfw3-dev pkg-config
       - name: Cache libopus for macOS
         if: runner.os == 'macOS'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: client/opus/libopus_macos.a
           key: opus-macos-${{ runner.arch }}-${{ hashFiles('scripts/fetch-opus.sh', 'build.sh') }}
@@ -100,16 +105,27 @@ jobs:
         shell: bash
         run: odin test proto -vet -strict-style
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: web
           path: web-build
       - name: Pack
         shell: bash
         run: scripts/package.sh ${{ matrix.platform }} web-build
-      - uses: actions/upload-artifact@v4
+      - name: Artifact name
+        id: name
+        shell: bash
+        # Builds carry the commit they came from; a release is named by its tag.
+        run: |
+          if [ "${{ inputs.release }}" = true ]; then
+            echo "name=yap-${{ matrix.platform }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=yap-${{ matrix.platform }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+      # GitHub zips an artifact itself, so the folder is uploaded rather
+      # than a zip (which would end up zipped twice).
+      - uses: actions/upload-artifact@v7
         with:
-          name: yap-${{ matrix.platform }}
-          path: dist/yap-${{ matrix.platform }}.zip
-          compression-level: 0
+          name: ${{ steps.name.outputs.name }}
+          path: dist/yap-${{ matrix.platform }}/
           if-no-files-found: error
