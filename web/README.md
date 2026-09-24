@@ -85,6 +85,13 @@ switched off file by file with `#+build wasi` / `#+build !wasi`, and
   (stb_truetype), `wstbi` (stb_image), `common/wlog` (core:log, which
   doesn't build for WASI). The C libraries' declarations are split the
   same way; gen_foreign.py regenerates the web copies.
+- **High-DPI screens.** Emscripten's GLFW sizes the canvas' pixels as
+  its CSS size times devicePixelRatio, rounded down, which at 125% or
+  150% (or a zoomed page) is a pixel off what's on screen, and it misses
+  the ratio changing after its first change. So the page sizes them
+  itself, every frame, to the device pixels the browser says the canvas
+  covers (yap_canvas_fit in shell.c); the window size stays in CSS
+  pixels, so input is untouched.
 - **Network.** client/transport.odin is the seam: UDP on a desktop, the
   WebSocket to the relay on the web. There are no threads in the page,
   so the network loop is stepped from the frame loop (client/net_web.odin),

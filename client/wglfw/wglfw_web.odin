@@ -26,7 +26,6 @@ foreign _ {
 	glfwSetWindowShouldClose :: proc(window: WindowHandle, value: b32) ---
 	glfwGetWindowSize :: proc(window: WindowHandle, width, height: ^i32) ---
 	glfwSetWindowSize :: proc(window: WindowHandle, width, height: i32) ---
-	glfwGetFramebufferSize :: proc(window: WindowHandle, width, height: ^i32) ---
 	glfwGetCursorPos :: proc(window: WindowHandle, x, y: ^f64) ---
 	glfwSetErrorCallback :: proc(cb: proc "c" (code: i32, desc: cstring)) -> rawptr ---
 	glfwSetKeyCallback :: proc(window: WindowHandle, cb: proc "c" (window: WindowHandle, key, scancode, action, mods: i32)) -> rawptr ---
@@ -79,15 +78,25 @@ GetWindowSize :: proc "c" (window: WindowHandle) -> (width, height: i32) {
 	return
 }
 
-// The canvas' backing store, in device pixels.
+@(default_calling_convention = "c")
+foreign _ {
+	// web/shell.c: sizes the canvas' backing store to the device pixels
+	// it covers, and returns that size.
+	yap_canvas_fit :: proc(width, height: ^i32) ---
+}
+
+// The canvas' backing store, in device pixels. Not GLFW's own answer:
+// it sizes the canvas as floor(CSS size * devicePixelRatio), which a
+// fractional ratio makes a pixel off what's on screen, so the page puts
+// that right (yap_canvas_fit) - every frame, since window_metrics asks
+// every frame - and this is the size that results.
 GetFramebufferSize :: proc "c" (window: WindowHandle) -> (width, height: i32) {
-	glfwGetFramebufferSize(window, &width, &height)
+	yap_canvas_fit(&width, &height)
 	return
 }
 
 // Worked out from the two sizes rather than asked of the page, so it
-// always agrees with what the framebuffer really is: emscripten only
-// scales the canvas for high-DPI screens when it's been asked to.
+// always agrees with what the framebuffer really is.
 GetWindowContentScale :: proc "c" (window: WindowHandle) -> (xscale, yscale: f32) {
 	w, h := GetWindowSize(window)
 	fw, fh := GetFramebufferSize(window)

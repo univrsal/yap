@@ -170,6 +170,55 @@ EM_JS(void, yap_keyboard_hide, (), {
 	if (field && document.activeElement === field) field.blur();
 });
 
+/* ---- the canvas' pixels ---- */
+
+/* Sizes the canvas' backing store to exactly the device pixels it covers,
+   and says what that is (client/wglfw/wglfw_web.odin, GetFramebufferSize).
+
+   Emscripten's GLFW makes it floor(CSS size * devicePixelRatio), which is
+   right for a whole ratio, but a fractional one (125%, 150%, a zoomed
+   page) rarely lands on whole pixels: 1001 CSS px at 1.5 cover 1501.5.
+   The browser then stretches the canvas to fit, and the UI comes out
+   soft and uneven. It also only notices the ratio change once, so after
+   a zoom or a move to another screen it can stay at the wrong one.
+
+   The browser knows the exact answer - the canvas' device-pixel content
+   box, as it snaps it to the screen - and reports it to a ResizeObserver,
+   whenever it changes. Where that isn't supported, rounding the CSS size
+   times the ratio is the best guess. This runs every frame, so whatever
+   GLFW sets the canvas to is put right before it's drawn in. */
+EM_JS(void, yap_canvas_fit, (int *width, int *height), {
+	const canvas = Module.canvas;
+	if (!Module.yapCanvasFit) {
+		const fit = { box: null };
+		Module.yapCanvasFit = fit;
+		try {
+			new ResizeObserver((entries) => {
+				const size = entries[entries.length - 1].devicePixelContentBoxSize;
+				if (size && size[0]) fit.box = [size[0].inlineSize, size[0].blockSize];
+			}).observe(canvas, { box: "device-pixel-content-box" });
+		} catch (e) {
+			/* No device-pixel-content-box here: the guess below it is. */
+		}
+	}
+	let w, h;
+	const box = Module.yapCanvasFit.box;
+	if (box) {
+		[w, h] = box;
+	} else {
+		const rect = canvas.getBoundingClientRect();
+		const ratio = window.devicePixelRatio || 1;
+		w = Math.round(rect.width * ratio);
+		h = Math.round(rect.height * ratio);
+	}
+	if (w > 0 && h > 0) {
+		if (canvas.width !== w) canvas.width = w;
+		if (canvas.height !== h) canvas.height = h;
+	}
+	HEAP32[width >> 2] = canvas.width;
+	HEAP32[height >> 2] = canvas.height;
+});
+
 int main(void) {
 	if (!web_start()) {
 		printf("yap: the client could not start\n");
