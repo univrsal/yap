@@ -7,6 +7,10 @@ name: Build
 on:
   push:
     branches: [master]
+    paths:
+      - '**/*.c'
+      - '**/*.h'
+      - '**/*.odin'
   pull_request:
   workflow_call:
     inputs:
