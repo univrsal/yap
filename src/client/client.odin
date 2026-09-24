@@ -16,6 +16,7 @@ Voice_Client :: struct {
 	transport:     Transport,
 	server_addr:   string, // as typed; the key in known_servers
 	known_servers: string,
+	password:      string, // sent in every hello; empty for none
 	key:           ecdh.Private_Key,
 	my_key:        [proto.KEY_SIZE]u8,
 	handshake:     proto.Initiator,
@@ -46,10 +47,15 @@ Voice_Client :: struct {
 
 // client_open loads our key and opens the transport. It doesn't wait
 // for the server: the handshake happens in client_step.
-client_open :: proc(c: ^Voice_Client, key_path, server_addr, known_servers, name: string) -> bool {
+client_open :: proc(
+	c: ^Voice_Client,
+	key_path, server_addr, known_servers, name: string,
+	password := "",
+) -> bool {
 	set_name(c, name)
 	c.server_addr = strings.clone(server_addr)
 	c.known_servers = strings.clone(known_servers)
+	c.password = strings.clone(password)
 
 	if !common.load_or_create_private_key(key_path, &c.key) {
 		publish_status(c, .Failed, fmt.tprintf("Could not load the key file %s.", key_path))
@@ -91,6 +97,7 @@ client_close :: proc(c: ^Voice_Client) {
 
 	delete(c.server_addr)
 	delete(c.known_servers)
+	delete(c.password)
 	delete(c.channels.wanted)
 	delete(c.channels.name)
 	commands_destroy(&c.commands)
@@ -199,10 +206,9 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			return false
 		}
 		// Only now, with the server's identity checked, send ours, along
-		// with our name in the (encrypted) hello.
-		// TODO: add the server password to the hello.
+		// with our name and the password in the (encrypted) hello.
 		hello_buf: [proto.HELLO_MAX_SIZE]u8
-		hello := proto.encode_hello(&hello_buf, c.channels.name)
+		hello := proto.encode_hello(&hello_buf, c.channels.name, c.password)
 		finish, ok := proto.initiator_finish(&c.handshake, &c.pending, hello)
 		if !ok {
 			return true
@@ -230,10 +236,17 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		if !ok {
 			return true
 		}
+		kind, kind_ok := proto.message_kind(pt)
 		if sess == &c.pending {
+			// The server's answer to our hello: the confirmation, or why
+			// it won't have us.
+			if kind_ok && kind == .Refused {
+				abandon_handshake(c)
+				publish_status(c, .Failed, refusal_text(c, proto.decode_refused(pt)))
+				return false
+			}
 			promote_pending(c)
 		}
-		kind, kind_ok := proto.message_kind(pt)
 		if !kind_ok {
 			return true // keepalive, or malformed
 		}
@@ -283,6 +296,20 @@ promote_pending :: proc(c: ^Voice_Client) {
 		publish_status(c, .Connected)
 		voice_notification_play(&c.voice, .Welcome)
 	}
+}
+
+refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
+	log.warnf("%s refused the connection: %v", c.server_addr, reason)
+	#partial switch reason {
+	case .Wrong_Password:
+		if c.password == "" {
+			return fmt.tprintf("%s needs a password.", c.server_addr)
+		}
+		return fmt.tprintf("Wrong password for %s.", c.server_addr)
+	case .Version:
+		return fmt.tprintf("%s runs a different version of yap.", c.server_addr)
+	}
+	return fmt.tprintf("%s refused the connection.", c.server_addr)
 }
 
 // verify_server_key implements trust on first use: remember the key the

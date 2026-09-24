@@ -11,7 +11,7 @@ import "core:slice"
 // (see Fake_Audio), which exercises the whole voice path without devices.
 // input_file (raw 48 kHz mono f32) is looped as the microphone instead.
 run_headless :: proc(
-	key_path, server_addr, known_servers, initial_channel, name: string,
+	key_path, server_addr, known_servers, initial_channel, name, password: string,
 	tone_hz: f32,
 	input_file: string,
 	image_dir: string,
@@ -48,7 +48,7 @@ run_headless :: proc(
 	}
 	defer fake_audio_stop(&fake)
 	defer client_close(c)
-	if !client_open(c, key_path, server_addr, known_servers, name) {
+	if !client_open(c, key_path, server_addr, known_servers, name, password) {
 		return false
 	}
 

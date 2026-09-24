@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds bin/yap-server (whose -relay lets the web client reach it; the
+# Builds bin/yap-server (whose relay lets the web client reach it; the
 # web client itself is web/build.sh) and bin/yap.
 # Extra arguments are passed to both builds, e.g.
 # ./build.sh -debug -define:YAP_LOSS_PERCENT=30

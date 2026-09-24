@@ -1,6 +1,8 @@
 package server
 
+import "core:crypto"
 import "core:crypto/ecdh"
+import "core:crypto/hash"
 import "core:encoding/endian"
 import "core:fmt"
 import "core:log"
@@ -62,6 +64,7 @@ User :: struct {
 Server :: struct {
 	sock:          net.UDP_Socket,
 	key:           ecdh.Private_Key,
+	password:      string, // empty: anyone may join
 	sessions:      map[proto.Session_Id]^Client, // by local_idx
 	users:         map[[proto.KEY_SIZE]byte]^User,
 	channels:      []string,
@@ -76,22 +79,20 @@ Server :: struct {
 	last_num:      proto.User_Num,
 }
 
-run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
+run_server :: proc(settings: Settings) -> bool {
 	s := Server {
-		version = 1,
+		version  = 1,
+		password = settings.password,
+		channels = settings.channels,
 	}
-	if !common.load_or_create_private_key(key_path, &s.key) {
+	if !common.parse_private_key(settings.key, &s.key) {
+		log.error("the key in the config is not a valid private key")
 		return false
 	}
 	defer ecdh.private_key_clear(&s.key)
+	s.chats = make([]Chat_Log, len(s.channels))
 
-	channels, channels_ok := load_channels(channels_path)
-	if !channels_ok {
-		return false
-	}
-	s.channels = channels
-	s.chats = make([]Chat_Log, len(channels))
-
+	port := settings.port
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
 	if err != nil {
 		log.errorf("failed to bind port %d: %v", port, err)
@@ -105,6 +106,9 @@ run_server :: proc(key_path: string, port: int, channels_path: string) -> bool {
 
 	log.infof("listening on udp :%d", port)
 	log.infof("server public key: %s", common.public_key_hex(&s.key))
+	if s.password != "" {
+		log.info("clients need the password to join")
+	}
 
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
 	for {
@@ -198,12 +202,16 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		drop_session(s, idx)
 		return
 	}
-	// The msg3 payload is the client's hello: its name, and where a server
-	// password will be checked.
+	// The msg3 payload is the client's hello: its name and the password.
 	// TODO: check c.peer_key against an allowlist here to restrict who can join.
-	hello_name, hello_ok := proto.decode_hello(payload)
-	if !hello_ok {
-		log.debugf("ignoring malformed hello from %v", net.to_string(from))
+	hello_name, hello_password, hello_ok := proto.decode_hello(payload)
+	switch {
+	case !hello_ok:
+		refuse(s, c, from, .Version)
+		return
+	case s.password != "" && !password_matches(s.password, hello_password):
+		refuse(s, c, from, .Wrong_Password)
+		return
 	}
 
 	c.keyed = true
@@ -234,7 +242,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		)
 	} else {
 		log.debugf("%s has a new session", user_label(u))
-		if hello_ok && rename(s, u, hello_name) {
+		if rename(s, u, hello_name) {
 			bump_version(s)
 		}
 	}
@@ -246,6 +254,43 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	chat_restart(u)
 
 	send_keepalive(s, c)
+}
+
+// How many copies of Refused go out; it's unreliable, like Leave.
+@(private = "file")
+REFUSED_COPIES :: 3
+
+/*
+refuse tells a client that just finished its handshake why it can't
+join, on the session that handshake made, and forgets the session. The
+client stays out of s.users: nobody else ever hears of it.
+*/
+@(private = "file")
+refuse :: proc(s: ^Server, c: ^Client, from: net.Endpoint, reason: proto.Refusal) {
+	log.infof(
+		"refused %08x from %v: %v",
+		common.key_id(c.peer_key),
+		net.to_string(from),
+		reason,
+	)
+	msg_buf: [proto.REFUSED_SIZE]byte
+	msg := proto.encode_refused(&msg_buf, reason)
+	pkt_buf: [proto.MAX_PACKET_SIZE]byte
+	for _ in 0 ..< REFUSED_COPIES {
+		if pkt, ok := proto.seal(&c.session, msg, pkt_buf[:]); ok {
+			net.send_udp(s.sock, pkt, from)
+		}
+	}
+	drop_session(s, c.local_idx)
+}
+
+// password_matches compares hashes of the two, so how long it takes
+// says nothing about the password, not even its length.
+@(private = "file")
+password_matches :: proc(want, got: string) -> bool {
+	a := hash.hash_string(.SHA256, want, context.temp_allocator)
+	b := hash.hash_string(.SHA256, got, context.temp_allocator)
+	return crypto.compare_constant_time(a, b) == 1
 }
 
 handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
@@ -314,7 +359,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		if len(pt) == proto.TYPING_UP_SIZE {
 			handle_typing(s, c.user)
 		}
-	case .State, .Chat_Sent, .Chat, .Image_Gone:
+	case .State, .Chat_Sent, .Chat, .Image_Gone, .Refused:
 	// Server-to-client only.
 	}
 }

@@ -66,38 +66,56 @@ invisible :: proc(r: rune) -> bool {
 
 /*
 Hello: the encrypted payload of Handshake_Finish (msg3), so the server
-knows the client's name from the start. Room for more fields later, such
-as a server password.
+knows the client's name from the start, and has the server password if
+the server asks for one.
 
-	[version u8 = 3][name_len u8][name]
+	[version u8 = 4][name_len u8][name][password_len u8][password]
 
-An empty payload is a hello without a name.
+An empty payload is a hello without a name or password.
 
 The version is what keeps a client and a server that disagree about the
-wire format from talking past each other: a mismatch fails the
-handshake instead of leaving one side to misread the other's messages.
+wire format from talking past each other: the server refuses a hello it
+can't read (see Refused in messages.odin) instead of leaving one side to
+misread the other's messages.
 Version 2 added the sound flags to a snapshot's users (see messages.odin).
 Version 3 widened a chat entry's time to 64 bits (see chat.odin).
+Version 4 added the password, and Refused.
 */
-HELLO_VERSION :: 3
-HELLO_MAX_SIZE :: 2 + MAX_NAME_SIZE
+HELLO_VERSION :: 4
+MAX_PASSWORD_SIZE :: 64 // bytes
+HELLO_MAX_SIZE :: 2 + MAX_NAME_SIZE + 1 + MAX_PASSWORD_SIZE
 
-// encode_hello expects an already sanitized name.
-encode_hello :: proc(out: ^[HELLO_MAX_SIZE]u8, name: string) -> []u8 {
+// encode_hello expects an already sanitized name. A password longer than
+// MAX_PASSWORD_SIZE is cut short (and so won't match).
+encode_hello :: proc(out: ^[HELLO_MAX_SIZE]u8, name: string, password := "") -> []u8 {
 	n := min(len(name), MAX_NAME_SIZE)
+	p := min(len(password), MAX_PASSWORD_SIZE)
 	out[0] = HELLO_VERSION
 	out[1] = u8(n)
 	copy(out[2:], name[:n])
-	return out[:2 + n]
+	out[2 + n] = u8(p)
+	copy(out[3 + n:], password[:p])
+	return out[:3 + n + p]
 }
 
-// decode_hello returns the raw name from a hello; sanitize it before use.
-decode_hello :: proc(payload: []u8) -> (name: string, ok: bool) {
+// decode_hello returns the raw name from a hello (sanitize it before
+// use) and the password as sent.
+decode_hello :: proc(payload: []u8) -> (name, password: string, ok: bool) {
 	if len(payload) == 0 {
-		return "", true
+		return "", "", true
 	}
-	if len(payload) < 2 || payload[0] != HELLO_VERSION || len(payload) < 2 + int(payload[1]) {
-		return "", false
+	if len(payload) < 3 || payload[0] != HELLO_VERSION {
+		return
 	}
-	return string(payload[2:][:payload[1]]), true
+	name_len := int(payload[1])
+	if len(payload) < 3 + name_len {
+		return
+	}
+	password_len := int(payload[2 + name_len])
+	if len(payload) != 3 + name_len + password_len {
+		return
+	}
+	name = string(payload[2:][:name_len])
+	password = string(payload[3 + name_len:][:password_len])
+	return name, password, true
 }

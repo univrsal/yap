@@ -17,3 +17,6 @@ web/deps/
 src/client/opus/libopus_macos.a
 .cache/
 dist/
+# The server config holds its private key.
+/config.json
+/server.key

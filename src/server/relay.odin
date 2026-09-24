@@ -10,8 +10,8 @@ import "core:thread"
 import "core:time"
 
 /*
-The relay, run alongside the server with -relay: it lets the web client
-reach this server.
+The relay, run alongside the server when the config enables it (see
+config.odin): it lets the web client reach this server.
 
 A browser can't send UDP, so the web client sends its packets over a
 WebSocket instead, and the relay puts them back on UDP - one UDP socket
@@ -19,7 +19,7 @@ per WebSocket, so the server sees each browser as a client of its own.
 It also serves the web build itself, so one address is all a browser
 needs:
 
-	yap-server server.key -relay:8080
+	"relay": { "enabled": true, "port": 8080 }   in config.json
 	open http://localhost:8080/?server=localhost:7777
 
 The relay can't read what it carries: the session is end-to-end between

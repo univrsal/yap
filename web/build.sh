@@ -6,7 +6,7 @@
 #
 # Needs emscripten (emcc) as well as Odin, and the first time also curl
 # and CMake, to fetch and build libopus for wasm (below). To use it, build
-# the server and run bin/yap-server with -relay; see web/README.md.
+# the server and run bin/yap-server with the relay on; see web/README.md.
 set -e
 cd "$(dirname "$0")/.."
 out=web/out

@@ -15,6 +15,7 @@ a keepalive. Integers are little-endian.
 	client -> server  Leave      [kind]
 	client -> server  Set_Name   [kind][name_len u8][name]
 	client -> server  Sound      [kind][flags u8]
+	server -> client  Refused    [kind][reason u8]
 	(text chat: Chat_Send, Chat_Sent, Chat, Chat_Received, Typing; see chat.odin)
 
 Users are identified by a number the server assigns (`speaker` in Voice,
@@ -31,6 +32,14 @@ listening, so the others can show it. Like Set_Name it's idempotent and
 resent until a snapshot agrees. It's only ever about what a user has
 done to themselves: muting somebody for yourself is your business and
 stays on your machine.
+
+Refused is the server's answer to a hello it won't accept (see names.odin),
+sent on the session that hello's handshake made, which the server then
+drops. It's the first Data the client sees on that session, so it comes
+instead of the usual confirmation, and being sealed it can't be forged
+by anyone else. It's unreliable, so the server sends a few copies; if
+they're all lost the client's handshake times out, and the next one is
+refused again.
 
 Leave is a courtesy so others see the user go right away instead of
 after SESSION_TIMEOUT; it's unreliable, so clients send a few copies.
@@ -77,6 +86,14 @@ Message_Kind :: enum u8 {
 	Sound         = 17,
 	// One user nudging another, see poke.odin.
 	Poke          = 18,
+	// The server won't have us (see Refusal).
+	Refused       = 19,
+}
+
+// Why the server refused a hello.
+Refusal :: enum u8 {
+	Wrong_Password = 1, // missing, or not the server's
+	Version        = 2, // a hello this server can't read
 }
 
 /*
@@ -96,6 +113,7 @@ JOIN_SIZE :: 1 + 4 + 2
 STATE_HEADER_SIZE :: 1 + 4 + 1 + 1
 STATE_ACK_SIZE :: 1 + 4
 SOUND_SIZE :: 1 + 1
+REFUSED_SIZE :: 1 + 1
 
 STATE_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - STATE_HEADER_SIZE
 MAX_STATE_CHUNKS :: 16
@@ -152,6 +170,8 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) >= 2 && int(pt[1]) <= MAX_NAME_SIZE && len(pt) == 2 + int(pt[1])
 	case .Sound:
 		ok = len(pt) == SOUND_SIZE
+	case .Refused:
+		ok = len(pt) == REFUSED_SIZE
 	case .Chat_Send:
 		ok =
 			len(pt) >= CHAT_SEND_HEADER_SIZE &&
@@ -234,6 +254,17 @@ encode_sound :: proc(out: ^[SOUND_SIZE]byte, flags: User_Flags) -> []byte {
 // have switched off something we have no name for yet.
 decode_sound :: proc(pt: []byte) -> User_Flags {
 	return transmute(User_Flags)pt[1]
+}
+
+encode_refused :: proc(out: ^[REFUSED_SIZE]byte, reason: Refusal) -> []byte {
+	out[0] = u8(Message_Kind.Refused)
+	out[1] = u8(reason)
+	return out[:]
+}
+
+// decode_refused may return a reason this build has no name for.
+decode_refused :: proc(pt: []byte) -> Refusal {
+	return Refusal(pt[1])
 }
 
 /*

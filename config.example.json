@@ -1,0 +1,17 @@
+{
+	"port": 7777,
+	"key": "",
+	"password": "",
+	"log_level": "info",
+	"log_file": "",
+	"relay": {
+		"enabled": false,
+		"port": 8080,
+		"web_dir": ""
+	},
+	"channels": [
+		{ "name": "Lobby" },
+		{ "name": "Gaming" },
+		{ "name": "AFK" }
+	]
+}

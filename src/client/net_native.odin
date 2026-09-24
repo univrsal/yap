@@ -21,7 +21,7 @@ net_stop :: proc(ns: ^Net_Session) {
 net_thread :: proc(ns: ^Net_Session) {
 	c := ns.client
 	defer client_close(c)
-	if !client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name) {
+	if !client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name, ns.password) {
 		return
 	}
 	if ns.channel != "" {

@@ -6,15 +6,17 @@ static key in advance. The server sends its static key (encrypted) in
 msg2, and the client decides whether to trust it (trust on first use,
 checked against a saved key afterwards) *before* revealing its own
 static key in msg3. So an impostor server learns nothing about who is
-connecting. msg3 also has an encrypted payload, which is where a
-server password can go later.
+connecting. msg3 also has an encrypted payload, the client's hello
+(see names.odin), which carries the server password if there is one:
+only the server whose key the client checked ever sees it.
 
 	client                               server
 	Handshake_Init    e              ->
 	                                 <-  Handshake_Resp    e, ee, s, es
 	  (check server key)
 	Handshake_Finish  s, se          ->
-	                                 <-  Data (empty = confirmation)
+	                                 <-  Data (empty = confirmation,
+	                                           or Refused)
 
 All integers are little-endian.
 

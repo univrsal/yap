@@ -1,6 +1,6 @@
 #!/bin/sh
 # Lays out a release in dist/yap-<platform>/: the client, the server and
-# the web build (web/, which yap-server -relay serves). CI uploads the
+# the web build (web/, which yap-server's relay serves). CI uploads the
 # folder as an artifact, which GitHub zips itself, and the release
 # workflow zips it for the release.
 # Usage: scripts/package.sh <platform> <web-build-dir>
@@ -19,5 +19,5 @@ mkdir -p "dist/$name/web"
 cp "bin/yap$ext" "bin/yap-server$ext" "dist/$name/"
 # The page and its glue, not the object file the build leaves beside them.
 cp "$web/index.html" "$web/index.js" "$web/index.wasm" "dist/$name/web/"
-cp channels.example.json "dist/$name/"
+cp config.example.json "dist/$name/"
 echo "packed dist/$name"

@@ -18,7 +18,7 @@ NET_STEPS_PER_FRAME :: 8
 
 net_start :: proc(ns: ^Net_Session) {
 	c := ns.client
-	if !client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name) {
+	if !client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name, ns.password) {
 		ns.stopped = true
 		return
 	}

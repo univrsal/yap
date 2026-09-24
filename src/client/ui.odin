@@ -28,6 +28,7 @@ UI_Options :: struct {
 	key_path:      string,
 	known_servers: string,
 	server:        string, // prefilled, and connected to right away
+	password:      string, // for `server`
 	channel:       string, // joined on connect
 	logs:          ^Log_Lines,
 	settings_path: string,
@@ -46,6 +47,7 @@ Net_Session :: struct {
 	// Owned copies; the UI's buffers may change while the thread runs.
 	key_path:      string,
 	server:        string,
+	password:      string,
 	known_servers: string,
 	channel:       string,
 	name:          string,
@@ -78,6 +80,8 @@ UI :: struct {
 	my_key:              [proto.KEY_SIZE]u8,
 	server_buf:          [256]u8,
 	server_len:          int,
+	password_buf:        [proto.MAX_PASSWORD_SIZE]u8,
+	password_len:        int,
 	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
 	name_buf:            [2 * proto.MAX_NAME_SIZE]u8,
 	name_len:            int,
@@ -202,6 +206,11 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui.ui_scale_draft = ui_scale_factor(&ui.settings) * 100
 	initial := opts.server if opts.server != "" else ui.settings.server
 	ui.server_len = copy(ui.server_buf[:], initial)
+	password := opts.password
+	if password == "" {
+		password = recent_password(&ui.settings, initial)
+	}
+	ui.password_len = copy(ui.password_buf[:], password)
 	name := ui.settings.name if ui.settings.name != "" else default_name()
 	ui.name_len = copy(ui.name_buf[:], name)
 
@@ -584,13 +593,17 @@ connect :: proc(ui: ^UI) {
 	if server == "" {
 		return
 	}
+	// Taken as typed: spaces may well be part of a password.
+	password := string(ui.password_buf[:ui.password_len])
 	set_setting(&ui.settings.server, server)
+	remember_recent_server(&ui.settings, server, password)
 	set_setting(&ui.settings.name, typed_name(ui))
-	settings_save(ui.opts.settings_path, ui.settings)
+	save_settings(ui)
 
 	ns := new(Net_Session)
 	ns.key_path = strings.clone(ui.opts.key_path)
 	ns.server = strings.clone(server)
+	ns.password = strings.clone(password)
 	ns.known_servers = strings.clone(ui.opts.known_servers)
 	ns.channel = strings.clone(ui.opts.channel)
 	ns.name = strings.clone(ui.settings.name)
@@ -685,6 +698,7 @@ disconnect_finish :: proc(ui: ^UI) {
 	free(ns.client)
 	delete(ns.key_path)
 	delete(ns.server)
+	delete(ns.password)
 	delete(ns.known_servers)
 	delete(ns.channel)
 	delete(ns.name)
@@ -791,7 +805,7 @@ connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {60, -74, ICON_BUTTON, ICON_BUTTON})
+	mu.layout_row(ctx, {70, -74, ICON_BUTTON, ICON_BUTTON})
 	mu.label(ctx, "Server")
 	if .SUBMIT in text_box(ui, ui.server_buf[:], &ui.server_len) {
 		ui.action = .Connect
@@ -803,7 +817,14 @@ connect_screen :: proc(ui: ^UI) {
 		ui.page = .Settings
 	}
 
-	mu.layout_row(ctx, {60, 200, -1})
+	mu.layout_row(ctx, {70, 200, -1})
+	mu.label(ctx, "Password")
+	if .SUBMIT in password_box(ui, ui.password_buf[:], &ui.password_len) {
+		ui.action = .Connect
+	}
+	mu.label(ctx, "(if the server has one)")
+
+	mu.layout_row(ctx, {70, 200, -1})
 	mu.label(ctx, "Name")
 	if .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len) {
 		ui.action = .Connect
@@ -821,8 +842,57 @@ connect_screen :: proc(ui: ^UI) {
 		with_text_color(ctx, {230, 90, 90, 255}, v.error, label_proc)
 	}
 
-	mu.layout_row(ctx, {-1}, -1)
+	// Recent servers beside the log, or above it where there's no room.
+	body := mu.get_current_container(ctx).body
+	if len(ui.settings.recent_servers) == 0 {
+		mu.layout_row(ctx, {-1}, -1)
+	} else if body.w < NARROW_LAYOUT {
+		mu.layout_row(ctx, {-1}, max(body.h / 3, 120))
+		recent_servers_panel(ui)
+		mu.layout_row(ctx, {-1}, -1)
+	} else {
+		mu.layout_row(ctx, {280, -1}, -1)
+		recent_servers_panel(ui)
+	}
 	log_panel(ui)
+}
+
+// recent_servers_panel lists the servers connected to lately: one click
+// connects again, with the password used last time.
+@(private = "file")
+recent_servers_panel :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	s := &ui.settings
+
+	mu.begin_panel(ctx, "recent")
+	defer mu.end_panel(ctx)
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, "Recent servers")
+
+	forget := -1
+	for r, i in s.recent_servers {
+		mu.push_id(ctx, uintptr(i))
+		defer mu.pop_id(ctx)
+
+		mu.layout_row(ctx, {-(ICON_BUTTON + ctx.style.spacing), -1})
+		label := r.address
+		if r.password != "" {
+			label = fmt.tprintf("%s  (password)", r.address)
+		}
+		if .SUBMIT in stable_button(ctx, "connect", label) {
+			ui.server_len = copy(ui.server_buf[:], r.address)
+			ui.password_len = copy(ui.password_buf[:], r.password)
+			ui.action = .Connect
+		}
+		if .SUBMIT in stable_button(ctx, "forget", "x") {
+			forget = i
+		}
+	}
+	// Not while going through the list, which this changes.
+	if forget >= 0 {
+		forget_recent_server(s, s.recent_servers[forget].address)
+		ui.settings_dirty = true
+	}
 }
 
 // Narrower than this (a phone, a window squeezed aside), the channels

@@ -1,7 +1,0 @@
-{
-	"channels": [
-		{ "name": "Lobby" },
-		{ "name": "Gaming" },
-		{ "name": "AFK" }
-	]
-}

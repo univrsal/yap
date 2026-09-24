@@ -12,6 +12,19 @@ A sloppy, minimal and limited VOIP application.
 - Simple per channel chat, retains the last 50 messages per channel
 - Paste images from clipboard into chat
 - Per user volumes, muting and poking
+- Optional server password; the client remembers the last 10 servers
 - No permission system
+
+## Running a server
+
+```sh
+yap-server               # or: yap-server path/to/config.json
+```
+
+The first run writes `config.json` (see `config.example.json`): the port,
+the server's private key, an optional password, logging, the web relay
+and the channel layout. A `server.key` and `channels.json` from older
+versions are taken over into it, so clients keep trusting the server.
+The file holds the private key, so keep it private.
 
 *I have no idea how encryption works

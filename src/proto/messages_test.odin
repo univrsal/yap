@@ -210,21 +210,48 @@ test_sanitize_name :: proc(t: ^testing.T) {
 @(test)
 test_hello_and_set_name :: proc(t: ^testing.T) {
 	hb: [HELLO_MAX_SIZE]u8
-	name, ok := decode_hello(encode_hello(&hb, "alice"))
+	name, password, ok := decode_hello(encode_hello(&hb, "alice"))
 	testing.expect(t, ok)
 	testing.expect_value(t, name, "alice")
+	testing.expect_value(t, password, "")
 
-	name, ok = decode_hello(nil) // no hello at all: fine, no name
+	name, password, ok = decode_hello(encode_hello(&hb, "alice", "hunter2"))
+	testing.expect(t, ok)
+	testing.expect_value(t, name, "alice")
+	testing.expect_value(t, password, "hunter2")
+
+	// The longest of both still fits.
+	long_name := "0123456789012345678901234567890123456789"
+	long_password := "0123456789012345678901234567890123456789012345678901234567890123456789"
+	name, password, ok = decode_hello(encode_hello(&hb, long_name, long_password))
+	testing.expect(t, ok)
+	testing.expect_value(t, name, long_name[:MAX_NAME_SIZE])
+	testing.expect_value(t, password, long_password[:MAX_PASSWORD_SIZE])
+
+	name, password, ok = decode_hello(nil) // no hello at all: fine, no name
 	testing.expect(t, ok)
 	testing.expect_value(t, name, "")
-	_, ok = decode_hello([]u8{9, 0}) // unknown version
+	testing.expect_value(t, password, "")
+	_, _, ok = decode_hello([]u8{9, 0, 0}) // unknown version
 	testing.expect(t, !ok)
-	_, ok = decode_hello([]u8{HELLO_VERSION, 10, 'a'}) // truncated
+	_, _, ok = decode_hello([]u8{3, 1, 'a'}) // version 3: no password field
 	testing.expect(t, !ok)
+	_, _, ok = decode_hello([]u8{HELLO_VERSION, 10, 'a'}) // truncated
+	testing.expect(t, !ok)
+	_, _, ok = decode_hello([]u8{HELLO_VERSION, 1, 'a', 2, 'x'}) // truncated password
+	testing.expect(t, !ok)
+	_, _, ok = decode_hello([]u8{HELLO_VERSION, 1, 'a', 0, 'x'}) // trailing bytes
+	testing.expect(t, !ok)
+
+	rb: [REFUSED_SIZE]u8
+	refused := encode_refused(&rb, .Wrong_Password)
+	kind, kind_ok := message_kind(refused)
+	testing.expect(t, kind_ok && kind == .Refused)
+	testing.expect_value(t, decode_refused(refused), Refusal.Wrong_Password)
 
 	sb: [SET_NAME_MAX_SIZE]u8
 	msg := encode_set_name(&sb, "bob")
-	kind, kind_ok := message_kind(msg)
+	kind, kind_ok = message_kind(msg)
 	testing.expect(t, kind_ok && kind == .Set_Name)
 	testing.expect_value(t, decode_set_name(msg), "bob")
 	// A length byte that doesn't match the message is rejected.

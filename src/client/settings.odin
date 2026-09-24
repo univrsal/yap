@@ -13,6 +13,10 @@ Client settings, kept in <config dir>/yap/settings.json:
 
 	{
 		"server": "localhost:7777",
+		"recent_servers": [
+			{ "address": "localhost:7777", "password": "" },
+			{ "address": "voice.example.com:7777", "password": "hunter2" }
+		],
 		"input_device": "",
 		"output_device": "Built-in Audio Analog Stereo",
 		"quality": "voice",
@@ -34,9 +38,15 @@ Devices are stored by name rather than by miniaudio's device id: ids are
 backend-specific binary blobs, while names are stable across runs and
 readable. An empty name, or one that's no longer present (unplugged),
 means the system default.
+
+recent_servers are the last MAX_RECENT_SERVERS servers connected to,
+newest first, with the password each was connected to with, so the
+connect screen can offer them. The passwords are kept as they are, so
+the file is written readable by its owner only.
 */
 Settings :: struct {
 	server:              string, // last server connected to
+	recent_servers:      [dynamic]Recent_Server, // newest first
 	name:                string, // the name to go by
 	input_device:        string,
 	output_device:       string,
@@ -72,6 +82,13 @@ User_Settings :: struct {
 	muted:  bool,
 }
 
+Recent_Server :: struct {
+	address:  string, // as typed
+	password: string, // empty for none
+}
+
+MAX_RECENT_SERVERS :: 10
+
 DEFAULT_USER :: User_Settings {
 	volume = 1,
 }
@@ -104,6 +121,10 @@ settings_load :: proc(path: string) -> (s: Settings) {
 		settings_destroy(&s)
 		return DEFAULT_SETTINGS
 	}
+	// Settings from before the list still have the last server.
+	if len(s.recent_servers) == 0 && s.server != "" {
+		remember_recent_server(&s, s.server, "")
+	}
 	return
 }
 
@@ -117,11 +138,15 @@ settings_save :: proc(path: string, s: Settings) {
 		log.errorf("could not encode settings: %v", err)
 		return
 	}
-	common.store_write(path, string(data))
+	common.store_write(path, string(data), private = true)
 }
 
 settings_destroy :: proc(s: ^Settings) {
 	delete(s.server)
+	for r in s.recent_servers {
+		recent_server_destroy(r)
+	}
+	delete(s.recent_servers)
 	delete(s.name)
 	delete(s.quality)
 	delete(s.input_device)
@@ -137,6 +162,45 @@ settings_destroy :: proc(s: ^Settings) {
 set_setting :: proc(field: ^string, value: string) {
 	delete(field^)
 	field^ = strings.clone(value)
+}
+
+// remember_recent_server puts `address` at the top of the recent servers
+// with `password`, replacing what was there for it, and drops the oldest
+// past MAX_RECENT_SERVERS.
+remember_recent_server :: proc(s: ^Settings, address, password: string) {
+	// Copied first: they may be the very entry about to be replaced.
+	entry := Recent_Server{strings.clone(address), strings.clone(password)}
+	forget_recent_server(s, entry.address)
+	inject_at(&s.recent_servers, 0, entry)
+	for len(s.recent_servers) > MAX_RECENT_SERVERS {
+		recent_server_destroy(pop(&s.recent_servers))
+	}
+}
+
+forget_recent_server :: proc(s: ^Settings, address: string) {
+	for r, i in s.recent_servers {
+		if r.address == address {
+			recent_server_destroy(r)
+			ordered_remove(&s.recent_servers, i)
+			return
+		}
+	}
+}
+
+// recent_password is the password `address` was last connected to with.
+recent_password :: proc(s: ^Settings, address: string) -> string {
+	for r in s.recent_servers {
+		if r.address == address {
+			return r.password
+		}
+	}
+	return ""
+}
+
+@(private = "file")
+recent_server_destroy :: proc(r: Recent_Server) {
+	delete(r.address)
+	delete(r.password)
 }
 
 user_key :: proc(key: [proto.KEY_SIZE]u8) -> string {
