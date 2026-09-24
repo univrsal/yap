@@ -45,6 +45,10 @@ PROTOCOL_NAME :: "Noise_XX_25519_ChaChaPoly_BLAKE2s"
 // so mismatched peers fail the handshake instead of misparsing data.
 PROLOGUE :: "yap v5"
 
+// The server's UDP port unless its config says otherwise, and what the
+// client assumes for an address without one.
+DEFAULT_PORT :: 7777
+
 KEY_SIZE :: 32
 TAG_SIZE :: 16
 

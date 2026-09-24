@@ -589,10 +589,12 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 connect :: proc(ui: ^UI) {
 	disconnect(ui)
 	monitor_stop(ui) // the connection opens the microphone itself
-	server := strings.trim_space(string(ui.server_buf[:ui.server_len]))
+	server := with_default_port(string(ui.server_buf[:ui.server_len]))
 	if server == "" {
 		return
 	}
+	// Show the port that was assumed; it's what gets saved, too.
+	ui.server_len = copy(ui.server_buf[:], server)
 	// Taken as typed: spaces may well be part of a password.
 	password := string(ui.password_buf[:ui.password_len])
 	set_setting(&ui.settings.server, server)
@@ -834,7 +836,7 @@ connect_screen :: proc(ui: ^UI) {
 	mu.label(
 		ctx,
 		fmt.tprintf(
-			"Your key: %s   (server as host:port, e.g. localhost:7777)",
+			"Your key: %s   (server as host or host:port; the port is 7777 if left out)",
 			fingerprint(ui.my_key),
 		),
 	)

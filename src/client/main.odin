@@ -9,7 +9,7 @@ import "core:os"
 import "../common"
 
 Options :: struct {
-	server:             string `args:"pos=0" usage:"Server to connect to, host:port. Required with -headless; otherwise the UI connects to it right away."`,
+	server:             string `args:"pos=0" usage:"Server to connect to, host or host:port (default port 7777). Required with -headless; otherwise the UI connects to it right away."`,
 	headless:           bool `usage:"No window: log to the terminal and read commands (/join, /say, ...) from stdin."`,
 	list_audio_devices: bool `usage:"Print the audio input and output devices, then exit."`,
 	tone:               f32 `usage:"With -headless: send a sine tone of this frequency (Hz) as voice and log what is heard. For testing."`,

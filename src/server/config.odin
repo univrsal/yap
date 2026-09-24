@@ -57,7 +57,6 @@ owner only.
 */
 
 DEFAULT_CONFIG_FILE :: "config.json"
-DEFAULT_PORT :: 7777
 DEFAULT_RELAY_PORT :: 8080
 DEFAULT_CHANNEL_NAME :: "Lobby"
 
@@ -101,7 +100,7 @@ Settings :: struct {
 @(private = "file")
 default_config :: proc() -> Config {
 	return {
-		port = DEFAULT_PORT,
+		port = proto.DEFAULT_PORT,
 		log_level = "info",
 		relay = {port = DEFAULT_RELAY_PORT, web_dir = default_web_dir()},
 	}

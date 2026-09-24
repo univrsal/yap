@@ -49,10 +49,11 @@ Voice_Client :: struct {
 // for the server: the handshake happens in client_step.
 client_open :: proc(
 	c: ^Voice_Client,
-	key_path, server_addr, known_servers, name: string,
+	key_path, typed_addr, known_servers, name: string,
 	password := "",
 ) -> bool {
 	set_name(c, name)
+	server_addr := with_default_port(typed_addr)
 	c.server_addr = strings.clone(server_addr)
 	c.known_servers = strings.clone(known_servers)
 	c.password = strings.clone(password)
