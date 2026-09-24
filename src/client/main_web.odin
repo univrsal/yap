@@ -73,6 +73,7 @@ web_start :: proc "c" () -> b32 {
 	g_context.logger = logger
 	context.logger = logger
 	web_context_set_logger(logger)
+	log.infof("yap %s", common.version_string())
 
 	server := query_param("server")
 

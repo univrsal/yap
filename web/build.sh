@@ -47,7 +47,10 @@ background_exports=_web_tick
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
 paste_exports=_web_paste_image,_web_paste_failed,_malloc,_free
 
-odin build src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap" "$@"
+# The version and commit (src/common/version.odin); one word per define,
+# so it's expanded unquoted.
+version_defines=$(scripts/version-defines.sh)
+odin build src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap" $version_defines "$@"
 
 # -sSTACK_SIZE: the client keeps some large buffers on the stack (a state
 # snapshot, a stored blob), and emscripten's default of 64 KiB is too

@@ -25,5 +25,23 @@ cl /nologo /MT /O1 /c %TRAY%\yap_tray.c /Fo:%TRAY%\yap_tray.obj || exit /b 1
 lib /nologo /out:%TRAY%\yap_tray.lib %TRAY%\yap_tray.obj || exit /b 1
 del %TRAY%\yap_tray.obj
 
-odin build src\server -vet -strict-style -out:bin\yap-server.exe %* || exit /b 1
-odin build src\client -vet -strict-style -out:bin\yap.exe %* || exit /b 1
+rem The version and commit (src\common\version.odin), as
+rem scripts/version-defines.sh finds them. The values are passed with
+rem their quotes (\" survives the command line as "), see version.odin.
+set DEFINES=
+if not defined YAP_VERSION (
+	for /f %%i in ('git describe --tags --exact-match 2^>nul') do set YAP_VERSION=%%i
+)
+if defined YAP_VERSION (
+	if "%YAP_VERSION:~0,1%"=="v" set YAP_VERSION=%YAP_VERSION:~1%
+)
+if defined YAP_VERSION set DEFINES="-define:YAP_VERSION=\"%YAP_VERSION%\""
+set COMMIT=
+for /f %%i in ('git rev-parse --short^=7 HEAD 2^>nul') do set COMMIT=%%i
+if defined COMMIT (
+	git diff --quiet HEAD 2>nul || set COMMIT=%COMMIT%-dirty
+)
+if defined COMMIT set DEFINES=%DEFINES% "-define:YAP_COMMIT=\"%COMMIT%\""
+
+odin build src\server -vet -strict-style -out:bin\yap-server.exe %DEFINES% %* || exit /b 1
+odin build src\client -vet -strict-style -out:bin\yap.exe %DEFINES% %* || exit /b 1

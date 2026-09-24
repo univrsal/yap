@@ -18,7 +18,7 @@ settings_page :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.audio
 
-	mu.layout_row(ctx, {-200, 90, -1})
+	mu.layout_row(ctx, {-290, 90, 90, -1})
 	if a.ctx != nil {
 		mu.label(ctx, fmt.tprintf("Audio devices (via %s)", a.backend))
 	} else {
@@ -27,6 +27,9 @@ settings_page :: proc(ui: ^UI) {
 	if .SUBMIT in mu.button(ctx, "Refresh") {
 		log.debug("ui: refresh audio devices")
 		audio_refresh(a)
+	}
+	if .SUBMIT in mu.button(ctx, "About") {
+		open_about(ui)
 	}
 	if .SUBMIT in mu.button(ctx, "Back") {
 		ui.page = .Main

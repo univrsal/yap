@@ -118,6 +118,7 @@ UI :: struct {
 	settings_saved:      time.Tick,
 	page:                Page,
 	settings:            Settings,
+	about:               UI_About, // the About dialog (ui_about.odin)
 	// The UI scale slider's own value, percent, live while it's being
 	// dragged; only copied into settings.ui_scale on release, since
 	// applying it while dragging resizes the very slider being dragged
@@ -781,8 +782,10 @@ layout :: proc(ui: ^UI, w, h: i32) {
 		icon_hint(ui, w, h)
 		mu.end_window(ctx)
 	}
-	// An enlarged image floats above it all (ui_images.odin).
+	// An enlarged image floats above it all (ui_images.odin), and so
+	// does the About dialog (ui_about.odin).
 	image_viewer(ui, w, h)
+	about_dialog(ui, w, h)
 }
 
 @(private = "file")

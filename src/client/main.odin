@@ -45,6 +45,7 @@ main :: proc() {
 	}
 	defer common.destroy_logging(logger)
 	context.logger = logger
+	log.infof("yap %s", common.version_string())
 
 	if opt.key == "" {
 		opt.key = default_config_path("client.key")

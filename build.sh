@@ -65,5 +65,8 @@ if [ "$(uname -s)" = Darwin ] && [ ! -f src/client/opus/libopus_macos.a ]; then
 	cp .cache/opus-macos/libopus.a src/client/opus/libopus_macos.a
 fi
 
-odin build src/server -vet -strict-style -out:bin/yap-server "$@"
-odin build src/client -vet -strict-style -out:bin/yap "$@"
+# The version and commit (src/common/version.odin); one word per define,
+# so it's expanded unquoted.
+version_defines=$(scripts/version-defines.sh)
+odin build src/server -vet -strict-style -out:bin/yap-server $version_defines "$@"
+odin build src/client -vet -strict-style -out:bin/yap $version_defines "$@"

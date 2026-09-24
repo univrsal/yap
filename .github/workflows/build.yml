@@ -22,6 +22,9 @@ on:
 env:
   # The Odin release to build with (https://github.com/odin-lang/Odin/releases).
   ODIN_RELEASE: dev-2026-07
+  # The version the client's About dialog shows (scripts/version-defines.sh):
+  # the tag for a release, and "dev" otherwise.
+  YAP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
 jobs:
   web:

@@ -1,6 +1,7 @@
 package server
 
 import "core:flags"
+import "core:log"
 import "core:os"
 
 import "../common"
@@ -22,6 +23,7 @@ main :: proc() {
 		os.exit(1)
 	}
 	context.logger = early
+	log.infof("yap-server %s", common.version_string())
 	settings, config_ok := load_config(opt.config)
 	common.destroy_logging(early)
 	context.logger = {}
