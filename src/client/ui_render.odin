@@ -56,7 +56,7 @@ same language as desktop GLSL 3.30 - it only wants its own version line
 and a default precision for floats.
 */
 @(private = "file")
-SHADER_HEADER :: "#version 300 es\nprecision mediump float;\n" when WEB else "#version 330 core\n"
+SHADER_HEADER :: "#version 300 es\nprecision highp float;\n" when WEB else "#version 330 core\n"
 
 @(private = "file")
 VERTEX_SHADER :: SHADER_HEADER + `layout(location = 0) in vec2 a_pos;
