@@ -53,18 +53,6 @@ _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: stri
 	return nil, "", .Unavailable
 }
 
-// pick_mime returns the most preferred image type among `offered`.
-pick_mime :: proc(offered: []string) -> (mime: string, ok: bool) {
-	for want in MIME_TYPES {
-		for have in offered {
-			if have == want {
-				return want, true
-			}
-		}
-	}
-	return "", false
-}
-
 // read_all reads `fd` to its end, giving up at `deadline` or past
 // MAX_DATA_SIZE. It closes `fd`.
 read_all :: proc(fd: linux.Fd, deadline: time.Tick, allocator := context.allocator) -> (data: []u8, err: Error) {

@@ -2,9 +2,10 @@
 Bindings for libopus (https://opus-codec.org), statically linked from the
 prebuilt libraries in this directory:
 
-	libopus.a        Linux x86-64
-	opus.lib         Windows x86-64 (MSVC)
-	libopus_macos.a  macOS; not kept in the repo, build.sh builds it
+	libopus.a          Linux x86-64
+	opus.lib           Windows x86-64 (MSVC)
+	libopus_macos.a    macOS; not kept in the repo, build.sh builds it
+	libopus_openbsd.a  OpenBSD; likewise
 
 Only the single-stream encoder/decoder API is bound, which is all a voice
 chat needs; the multistream, projection, repacketizer and DRED APIs are
@@ -26,6 +27,9 @@ when ODIN_OS == .Windows {
 } else when ODIN_OS == .Darwin {
 	@(private)
 	LIB :: "libopus_macos.a"
+} else when ODIN_OS == .OpenBSD {
+	@(private)
+	LIB :: "libopus_openbsd.a"
 } else when ODIN_OS == .WASI {
 	// A web build links no library from here: web/build.sh builds libopus
 	// for wasm and hands it to emscripten, and opus_foreign_web.odin
@@ -36,9 +40,9 @@ when ODIN_OS == .Windows {
 	#panic("no libopus build for this platform in client/opus")
 }
 
-when ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin {
+when ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin || ODIN_OS == .OpenBSD {
 	when !#exists(LIB) {
-		#panic("src/client/opus/" + LIB + " is missing (on macOS, build it with build.sh)")
+		#panic("src/client/opus/" + LIB + " is missing (on macOS and OpenBSD, build it with build.sh)")
 	}
 }
 

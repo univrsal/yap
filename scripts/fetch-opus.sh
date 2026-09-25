@@ -1,8 +1,8 @@
 #!/bin/sh
 # Makes sure the libopus source is unpacked in <deps-dir>/opus-<version>,
 # fetching and checking the release tarball if need be. The desktop
-# builds link prebuilt libraries in client/opus (macOS builds its own,
-# see build.sh) and the web build compiles it for wasm (web/build.sh);
+# builds link prebuilt libraries in client/opus (macOS and OpenBSD build
+# their own, see build.sh) and the web build compiles it for wasm (web/build.sh);
 # the source is too big to keep in the repo (its DNN model data).
 # Usage: scripts/fetch-opus.sh <deps-dir>
 set -e
@@ -19,6 +19,9 @@ if [ ! -f "$tarball" ]; then
 fi
 if command -v sha256sum >/dev/null; then
 	sum=$(sha256sum "$tarball" | cut -d' ' -f1)
+elif command -v sha256 >/dev/null; then
+	# OpenBSD's.
+	sum=$(sha256 -q "$tarball")
 else
 	sum=$(shasum -a 256 "$tarball" | cut -d' ' -f1)
 fi

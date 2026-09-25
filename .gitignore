@@ -16,6 +16,7 @@ src/client/assets/*.res
 web/out/
 web/deps/
 src/client/opus/libopus_macos.a
+src/client/opus/libopus_openbsd.a
 .cache/
 dist/
 # The server config holds its private key.

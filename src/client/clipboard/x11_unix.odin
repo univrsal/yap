@@ -1,9 +1,10 @@
+#+build linux, openbsd
 package clipboard
 
 import "core:c"
 import "core:dynlib"
 import log "../../common/wlog"
-import "core:sys/linux"
+import "core:sys/posix"
 import "core:time"
 
 /*
@@ -116,7 +117,14 @@ x: struct {
 
 x11_init :: proc() -> bool {
 	s := &x.sym
-	if _, ok := dynlib.initialize_symbols(s, "libX11.so.6"); !ok || !x11_symbols_ok(s) {
+	// Linux names the library by its soname; OpenBSD versions it
+	// differently (libX11.so.19.0), and its loader finds the newest for
+	// the bare name.
+	_, ok := dynlib.initialize_symbols(s, "libX11.so.6")
+	if !ok {
+		_, ok = dynlib.initialize_symbols(s, "libX11.so")
+	}
+	if !ok || !x11_symbols_ok(s) {
 		log.debug("clipboard: couldn't load libX11")
 		return false
 	}
@@ -264,7 +272,7 @@ read_property :: proc(allocator := context.allocator) -> (data: []u8, type: Atom
 @(private = "file")
 wait_event :: proc(type: c.int, ev: ^Event, deadline: time.Tick, want_new_value := false) -> Error {
 	s := &x.sym
-	fd := linux.Fd(s.XConnectionNumber(x.display))
+	fd := posix.FD(s.XConnectionNumber(x.display))
 	for {
 		for s.XCheckTypedWindowEvent(x.display, x.window, type, ev) {
 			if type != PROPERTY_NOTIFY ||
@@ -276,8 +284,8 @@ wait_event :: proc(type: c.int, ev: ^Event, deadline: time.Tick, want_new_value 
 		if remaining <= 0 {
 			return .Timeout
 		}
-		fds := [1]linux.Poll_Fd{{fd = fd, events = {.IN}}}
-		linux.poll(fds[:], min(i32(time.duration_milliseconds(remaining)) + 1, 50))
+		fds := [1]posix.pollfd{{fd = fd, events = {.IN}}}
+		posix.poll(&fds[0], 1, min(c.int(time.duration_milliseconds(remaining)) + 1, 50))
 	}
 }
 

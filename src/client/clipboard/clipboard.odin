@@ -10,6 +10,7 @@ knows text).
 	Linux    Wayland (on GLFW's connection) or X11 (a connection of our
 	         own); both libraries are loaded at runtime, like GLFW does,
 	         so neither is a link dependency.
+	OpenBSD  X11, the same way.
 	Windows  the registered "PNG" format, else CF_DIBV5 / CF_DIB.
 	macOS    NSPasteboard: PNG, JPEG, or TIFF (converted to PNG).
 
@@ -72,6 +73,18 @@ read_image :: proc(allocator := context.allocator) -> (img: Image, err: Error) {
 image_destroy :: proc(img: ^Image, allocator := context.allocator) {
 	delete(img.pixels, allocator)
 	img^ = {}
+}
+
+// pick_mime returns the most preferred image type among `offered`.
+pick_mime :: proc(offered: []string) -> (mime: string, ok: bool) {
+	for want in MIME_TYPES {
+		for have in offered {
+			if have == want {
+				return want, true
+			}
+		}
+	}
+	return "", false
 }
 
 

@@ -7,9 +7,12 @@ when ODIN_OS == .Windows {
 	foreign import lib {LIB}
 } else when ODIN_OS == .Darwin {
 	foreign import lib {LIB, "system:CoreFoundation.framework", "system:CoreAudio.framework", "system:AudioToolbox.framework"}
-} else {
+} else when ODIN_OS == .Linux {
 	// Audio backends are loaded at runtime (dlopen); only libc bits are linked.
 	foreign import lib {LIB, "system:dl", "system:pthread", "system:m"}
+} else {
+	// Likewise, but BSDs fold dlopen/dlsym into libc.
+	foreign import lib {LIB, "system:pthread", "system:m"}
 }
 
 @(default_calling_convention = "c", link_prefix = "yap_audio_")

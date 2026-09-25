@@ -22,7 +22,8 @@ the focus; nothing is taken away from other programs.
 	          which works under Wayland as well as X11 but needs read
 	          access to those devices (the "input" group); failing that,
 	          X11's XQueryKeymap
-	macOS     CGEventSourceKeyState, which may need the Input Monitoring
+	OpenBSD   X11's XQueryKeymap
+	macOS    CGEventSourceKeyState, which may need the Input Monitoring
 	          permission
 
 Only the keys on an ordinary keyboard are known (Key), and Ctrl, Shift,

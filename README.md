@@ -16,6 +16,20 @@ A sloppy, minimal and limited VOIP application.
 - No permission system
 - Screen sharing (low frame rate) between web clients (not for native clients)
 - Global hotkeys (requires `input` group on wayland)
+- Runs on Linux, Windows, macOS and OpenBSD
+
+## Building on OpenBSD
+
+```sh
+doas pkg_add llvm%21 glfw dbus cmake curl   # llvm for building Odin itself
+ulimit -S -d $(ulimit -H -d)                # the default data size is too small for Odin
+./build.sh
+```
+
+Odin's `core/sync/futex_openbsd.odin` panics when a wait is interrupted
+or loses a race (`futex_wait failure`); until that's fixed upstream it
+needs to treat `EINTR` and `EAGAIN` as a wakeup, as the Linux version does.
+
 ## Running a server
 
 ```sh

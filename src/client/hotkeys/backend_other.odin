@@ -1,10 +1,11 @@
 #+build !linux
+#+build !openbsd
 #+build !windows
 #+build !darwin
 #+build !wasi
 package hotkeys
 
-// Nowhere else to look at the keys (the BSDs, say).
+// Nowhere else to look at the keys (the other BSDs, say).
 
 Backend :: struct {}
 
