@@ -18,6 +18,7 @@ the log, as tabs.
 Side_Tab :: enum {
 	Chat,
 	Log,
+	Screen, // while watching somebody's (ui_video.odin)
 }
 
 UI_Chat :: struct {
@@ -85,7 +86,11 @@ side_panel :: proc(ui: ^UI) {
 	if ui.chat.tab == .Chat {
 		v.chat_unread = 0
 	}
-	mu.layout_row(ctx, {90, 90, -1})
+	if v.watching != 0 {
+		mu.layout_row(ctx, {90, 90, 90, -1})
+	} else {
+		mu.layout_row(ctx, {90, 90, -1})
+	}
 	chat_label := "Chat" if v.chat_unread == 0 else fmt.tprintf("Chat (%d)", v.chat_unread)
 	if .SUBMIT in tab_button(ctx, "chat tab", chat_label, ui.chat.tab == .Chat) {
 		ui.chat.tab = .Chat
@@ -94,6 +99,9 @@ side_panel :: proc(ui: ^UI) {
 	if .SUBMIT in tab_button(ctx, "log tab", "Log", ui.chat.tab == .Log) {
 		ui.chat.tab = .Log
 		ui.log_seen = -1
+	}
+	if v.watching != 0 && .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
+		ui.chat.tab = .Screen
 	}
 	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
 	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
@@ -108,6 +116,8 @@ side_panel :: proc(ui: ^UI) {
 	case .Log:
 		mu.layout_row(ctx, {-1}, -1)
 		log_panel(ui)
+	case .Screen:
+		screen_panel(ui)
 	}
 }
 

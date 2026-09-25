@@ -337,6 +337,9 @@ members_string :: proc(c: ^Voice_Client, members: []proto.User_Num) -> string {
 			case .Muted in u.flags:
 				strings.write_string(&b, " [muted]")
 			}
+			if .Sharing in u.flags {
+				strings.write_string(&b, " [sharing]")
+			}
 		}
 	}
 	return strings.to_string(b)
@@ -415,6 +418,7 @@ Command :: union {
 	Poke_Command,
 	Chat_Image_Command,
 	Typing_Command,
+	Watch_Command,
 }
 
 Command_Queue :: struct {
@@ -520,6 +524,8 @@ process_commands :: proc(c: ^Voice_Client) {
 			v.image = {}
 		case Typing_Command:
 			chat_typing(c)
+		case Watch_Command:
+			video_watch(c, v.user)
 		}
 	}
 }

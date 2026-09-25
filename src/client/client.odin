@@ -36,6 +36,7 @@ Voice_Client :: struct {
 	channels:      Channel_Client,
 	chat:          Chat_Client,
 	images:        Image_Client,
+	video:         Video_Client,
 	commands:      Command_Queue,
 	status:        Status,
 	// Shared with the UI, if there is one; nil in headless mode.
@@ -104,6 +105,7 @@ client_close :: proc(c: ^Voice_Client) {
 	commands_destroy(&c.commands)
 	chat_destroy(c)
 	images_destroy(c)
+	video_destroy(c)
 }
 
 // client_step runs one iteration of the network loop, waiting up to a
@@ -126,6 +128,8 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 			send_data(c, nil)
 		}
 	}
+	// After the voice, which it mustn't hold up.
+	video_step(c)
 
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
 	if packet, ok := transport_recv(&c.transport, recv_buf[:]); ok {
@@ -274,6 +278,10 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			handle_image_gone(c, pt)
 		case .Poke:
 			handle_poke(c, pt)
+		case .Video:
+			handle_video(c, pt)
+		case .Keyframe:
+			video_keyframe_requested(c)
 		}
 	}
 	return true

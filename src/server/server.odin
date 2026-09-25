@@ -43,8 +43,9 @@ User :: struct {
 	id:              u32, // common.key_id(key), for logs
 	name:            string, // sanitized; points into name_buf
 	name_buf:        [proto.MAX_NAME_SIZE]u8,
-	// What they've switched off for themselves, to pass on to the others
-	// (see proto.User_Flags). The server doesn't act on it.
+	// What they've switched off for themselves and whether they're
+	// sharing their screen, to pass on to the others (see
+	// proto.User_Flags). Only screen sharing (video.odin) acts on it.
 	flags:           proto.User_Flags,
 	channel:         u16,
 	join_ack:        u32, // newest Join request handled
@@ -59,6 +60,7 @@ User :: struct {
 	last_poke:       time.Tick, // see handle_poke
 	upload:          Upload, // an image on its way in (images.odin)
 	download:        Download, // an image on its way out
+	video:           Video_State, // screen sharing (video.odin)
 }
 
 Server :: struct {
@@ -359,7 +361,11 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		if len(pt) == proto.TYPING_UP_SIZE {
 			handle_typing(s, c.user)
 		}
-	case .State, .Chat_Sent, .Chat, .Image_Gone, .Refused:
+	case .Video:
+		relay_video(s, c, pt)
+	case .Watch:
+		handle_watch(s, c.user, pt)
+	case .State, .Chat_Sent, .Chat, .Image_Gone, .Refused, .Keyframe:
 	// Server-to-client only.
 	}
 }

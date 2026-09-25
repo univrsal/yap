@@ -51,6 +51,12 @@ transport_send :: proc(t: ^Transport, packet: []byte) -> bool {
 	return true
 }
 
+// transport_backlog is how much is waiting to go out. A UDP socket
+// sends or drops at once, so nothing ever waits.
+transport_backlog :: proc(t: ^Transport) -> int {
+	return 0
+}
+
 transport_recv :: proc(t: ^Transport, buf: []byte) -> (packet: []byte, ok: bool) {
 	if !t.open {
 		return nil, false

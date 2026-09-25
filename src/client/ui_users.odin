@@ -63,8 +63,39 @@ would otherwise be easy to mix up.
 */
 @(private = "file")
 local_mute_mark :: proc(ctx: ^mu.Context, row: mu.Rect) {
-	r := mu.Rect{row.x + row.w - ICON_SIZE, row.y + (row.h - ICON_SIZE) / 2, ICON_SIZE, ICON_SIZE}
-	mu.draw_icon(ctx, icon_id(.Sound_Off), r, DIM_COLOR)
+	mu.draw_icon(ctx, icon_id(.Sound_Off), end_of_row(row, 0), DIM_COLOR)
+}
+
+// end_of_row is the icon-sized square `slot` places in from a row's end.
+@(private = "file")
+end_of_row :: proc(row: mu.Rect, slot: i32) -> mu.Rect {
+	x := row.x + row.w - ICON_SIZE - slot * (ICON_SIZE + 4)
+	return {x, row.y + (row.h - ICON_SIZE) / 2, ICON_SIZE, ICON_SIZE}
+}
+
+/*
+The mark for somebody sharing their screen, at the end of the row (in
+front of a local mute mark): lit while we're watching them. It's also a
+button for watching, where the browser can.
+*/
+@(private = "file")
+sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu.Rect {
+	ctx := &ui.ctx
+	r := end_of_row(row, slot)
+	color := ctx.style.colors[.TEXT]
+	switch {
+	case ui.view.watching == id:
+		color = SPEAKING_COLOR
+	case !video_can_watch() || id == ui.view.my_num:
+		color = DIM_COLOR
+	}
+	mu.draw_icon(ctx, icon_id(.Screen), r, color)
+	return r
+}
+
+@(private = "file")
+inside :: proc(r: mu.Rect, p: mu.Vec2) -> bool {
+	return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h
 }
 
 /*
@@ -97,6 +128,9 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 			with_text_color(ctx, color, text, label_proc)
 		} else {
 			mu.label(ctx, text)
+		}
+		if user.sharing {
+			sharing_mark(ui, ctx.last_rect, 0, id)
 		}
 		return
 	}
@@ -134,8 +168,20 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	if u.muted {
 		local_mute_mark(ctx, r)
 	}
+	share_r: mu.Rect
+	if user.sharing {
+		share_r = sharing_mark(ui, r, 1 if u.muted else 0, id)
+	}
 
 	if ctx.hover_id == cid && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} {
+		// A click on the screen mark watches them, or stops watching.
+		if user.sharing &&
+		   ctx.mouse_pressed_bits == {.LEFT} &&
+		   video_can_watch() &&
+		   inside(share_r, ctx.mouse_pos) {
+			watch(ui, 0 if v.watching == id else id)
+			return
+		}
 		ui.menu_user = id
 		ui.menu_key = user.key
 		ui.menu_volume = u.volume * 100
@@ -197,6 +243,19 @@ user_menu :: proc(ui: ^UI) {
 		u = DEFAULT_USER
 		ui.menu_volume = 100
 		changed = true
+	}
+
+	// Watch their screen, if they're sharing it.
+	if user, ok := ui.view.users[ui.menu_user]; ok && user.key == key && user.sharing && ui.menu_user != ui.view.my_num {
+		mu.layout_row(ctx, {MENU_WIDTH})
+		if video_can_watch() {
+			watching := ui.view.watching == ui.menu_user
+			if .SUBMIT in stable_button(ctx, "watch", "Stop watching" if watching else "Watch their screen") {
+				watch(ui, 0 if watching else ui.menu_user)
+			}
+		} else {
+			with_text_color(ctx, DIM_COLOR, "Sharing their screen (watch in a browser)", label_proc)
+		}
 	}
 
 	// Poke them, with a message if there's one in the box. Not ourselves.

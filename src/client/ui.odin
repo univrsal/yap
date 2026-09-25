@@ -92,6 +92,7 @@ UI :: struct {
 	action:              Action,
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
 	chat:                UI_Chat, // the chat tab (ui_chat.odin)
+	video:               UI_Video, // screen sharing (ui_video.odin)
 	muted:               bool,
 	deafened:            bool,
 	// Mute as it was before deafening turned it on, so undeafening can
@@ -376,6 +377,7 @@ ui_shutdown :: proc(ui: ^UI) {
 		save_settings(ui)
 	}
 	ui_images_destroy(ui)
+	ui_video_destroy(ui)
 	delete(ui.text_boxes)
 	// Whatever the paste thread is doing, it uses the clipboard, so it
 	// has to be done before that.
@@ -483,6 +485,7 @@ window_close :: proc(ui: ^UI) {
 	// The pictures' textures belong to the context that's about to go;
 	// they are decoded again when they're next on screen.
 	ui_images_forget_textures(ui)
+	ui_video_forget_texture(ui)
 	glfw.DestroyWindow(ui.window)
 	ui.window = nil
 }
@@ -649,6 +652,8 @@ disconnect :: proc(ui: ^UI, play_goodbye := false) {
 	if ns == nil {
 		return
 	}
+	// Nobody to share with any more.
+	video_share_stop()
 	if ns.goodbye_tail {
 		disconnect_finish(ui)
 		return
@@ -911,7 +916,18 @@ session_screen :: proc(ui: ^UI) {
 	body := mu.get_current_container(ctx).body
 	narrow := body.w < NARROW_LAYOUT
 
-	mu.layout_row(ctx, {-140, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+	screen_tab_follow(ui)
+	if v.watching != 0 && video_is_fullscreen() {
+		fullscreen_screen(ui)
+		return
+	}
+
+	can_share := video_can_share()
+	if can_share {
+		mu.layout_row(ctx, {-174, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+	} else {
+		mu.layout_row(ctx, {-140, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+	}
 	switch v.status {
 	case .Connected:
 		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
@@ -938,6 +954,9 @@ session_screen :: proc(ui: ^UI) {
 		   OFF_COLOR if ui.deafened else mu.Color{},
 	   ) {
 		set_deafened(ui, !ui.deafened)
+	}
+	if can_share {
+		share_button(ui)
 	}
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
 		ui.page = .Settings

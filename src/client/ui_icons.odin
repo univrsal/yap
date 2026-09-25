@@ -27,6 +27,7 @@ Icon :: enum {
 	Settings, // sliders
 	Leave, // a power symbol: disconnect
 	Send, // a paper dart: post what's in the chat box
+	Screen, // a monitor: sharing a screen, or watching one
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -161,8 +162,20 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return power(p)
 	case .Send:
 		return dart(p)
+	case .Screen:
+		return monitor(p)
 	}
 	return 1
+}
+
+// A monitor: the outline of a screen on a short stand.
+@(private = "file")
+monitor :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := abs(rounded_box(p, {0.5, 0.40}, {0.39, 0.27}, 0.07)) - STROKE / 2
+	d = nearer(d, capsule(p, {0.5, 0.67}, {0.5, 0.83}, STROKE))
+	d = nearer(d, capsule(p, {0.30, 0.85}, {0.70, 0.85}, STROKE))
+	return d
 }
 
 // A microphone: the capsule you talk into, the bracket under it, and a

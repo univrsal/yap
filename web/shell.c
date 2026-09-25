@@ -8,6 +8,8 @@ that hands the client its frames.
 - WebSocket: one socket to the relay, carrying one packet per binary
   message; arriving messages wait in a queue until the client's network
   loop takes them (src/client/transport_web.odin).
+- Screen sharing: hooks into Module.yapVideo, which does the capturing,
+  encoding and decoding (src/client/video_web.odin).
 - A few small questions about the page: where it was served from, what
   the address said, the local time's offset from UTC.
 
@@ -121,6 +123,134 @@ EM_JS(int, yap_ws_origin, (char *buf, int buf_size), {
 	if (lengthBytesUTF8(origin) + 1 > buf_size) return 0;
 	stringToUTF8(origin, buf, buf_size);
 	return lengthBytesUTF8(origin);
+});
+
+EM_JS(int, yap_ws_buffered, (), {
+	const w = Module.yapWs;
+	return w && w.socket && w.state === 1 ? w.socket.bufferedAmount : 0;
+});
+
+EM_JS(int, yap_ws_pending, (), {
+	const w = Module.yapWs;
+	return w ? w.queue.length : 0;
+});
+
+/* ---- screen sharing ----
+
+The capturing, encoding and decoding are the page's, in Module.yapVideo
+if it has one; without it, nobody here shares or watches
+(src/client/video_web.odin). Encoded frames wait there until the client
+pulls them, one at a time, the way packets wait on the WebSocket.
+*/
+
+EM_JS(int, yap_video_live, (), {
+	const v = Module.yapVideo;
+	return v && v.live() ? 1 : 0;
+});
+
+EM_JS(int, yap_video_next_size, (), {
+	const v = Module.yapVideo;
+	return v ? v.nextSize() : -1;
+});
+
+EM_JS(int, yap_video_pull, (unsigned char *buf, int buf_size, unsigned int *ts, int *key), {
+	const v = Module.yapVideo;
+	const frame = v ? v.pull() : null;
+	if (!frame || frame.data.length > buf_size) return -1;
+	HEAPU8.set(frame.data, buf);
+	HEAPU32[ts >> 2] = frame.ts >>> 0;
+	HEAP32[key >> 2] = frame.key ? 1 : 0;
+	return frame.data.length;
+});
+
+EM_JS(void, yap_video_request_key, (), {
+	const v = Module.yapVideo;
+	if (v) v.requestKey();
+});
+
+EM_JS(void, yap_video_show, (unsigned int sharer, const unsigned char *data, int size, unsigned int ts, int key, int codec), {
+	const v = Module.yapVideo;
+	// A copy: the heap view is only good until the next allocation.
+	if (v) v.show(sharer, HEAPU8.slice(data, data + size), ts, key !== 0, codec);
+});
+
+EM_JS(void, yap_video_end, (), {
+	const v = Module.yapVideo;
+	if (v) v.end();
+});
+
+EM_JS(int, yap_video_take_error, (), {
+	const v = Module.yapVideo;
+	return v && v.takeError() ? 1 : 0;
+});
+
+EM_JS(int, yap_video_can_share, (), {
+	const v = Module.yapVideo;
+	return v && v.canShare() ? 1 : 0;
+});
+
+EM_JS(int, yap_video_can_watch, (), {
+	const v = Module.yapVideo;
+	return v && v.canWatch() ? 1 : 0;
+});
+
+EM_JS(void, yap_video_share_start, (), {
+	const v = Module.yapVideo;
+	if (v) v.start();
+});
+
+EM_JS(void, yap_video_share_stop, (), {
+	const v = Module.yapVideo;
+	if (v) v.stop();
+});
+
+EM_JS(int, yap_video_share_state, (), {
+	const v = Module.yapVideo;
+	return v ? v.state() : 0;
+});
+
+/*
+Puts the newest decoded frame into `texture` (a name from glGenTextures)
+and says how big it is. Returns 0 if no frame has come since the last
+call. A browser that can't take a VideoFrame as a texture's source gets
+it by way of a 2D canvas.
+*/
+EM_JS(int, yap_video_upload, (unsigned int texture, int *width, int *height), {
+	const v = Module.yapVideo;
+	const frame = v ? v.takeFrame() : null;
+	if (!frame) return 0;
+	const gl = GLctx;
+	const w = frame.displayWidth, h = frame.displayHeight;
+	try {
+		gl.bindTexture(gl.TEXTURE_2D, GL.textures[texture]);
+		try {
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+		} catch (e) {
+			const c = Module.yapVideoCanvas || (Module.yapVideoCanvas = document.createElement("canvas"));
+			if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+			c.getContext("2d").drawImage(frame, 0, 0);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, c);
+		}
+		gl.bindTexture(gl.TEXTURE_2D, null);
+	} catch (e) {
+		console.warn("yap: can't draw the shared screen:", e);
+		return 0;
+	} finally {
+		frame.close();
+	}
+	HEAP32[width >> 2] = w;
+	HEAP32[height >> 2] = h;
+	return 1;
+});
+
+EM_JS(void, yap_video_set_fullscreen, (int on), {
+	const v = Module.yapVideo;
+	if (v) v.setFullscreen(on !== 0);
+});
+
+EM_JS(int, yap_video_is_fullscreen, (), {
+	const v = Module.yapVideo;
+	return v && v.isFullscreen() ? 1 : 0;
 });
 
 /* ---- the page ---- */

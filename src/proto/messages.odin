@@ -17,6 +17,7 @@ a keepalive. Integers are little-endian.
 	client -> server  Sound      [kind][flags u8]
 	server -> client  Refused    [kind][reason u8]
 	(text chat: Chat_Send, Chat_Sent, Chat, Chat_Received, Typing; see chat.odin)
+	(screen sharing: Video, Watch, Keyframe; see video.odin)
 
 Users are identified by a number the server assigns (`speaker` in Voice,
 members in State; User_Num). Numbers are unique per server run and never
@@ -31,7 +32,9 @@ Sound says whether a user has muted their microphone or stopped
 listening, so the others can show it. Like Set_Name it's idempotent and
 resent until a snapshot agrees. It's only ever about what a user has
 done to themselves: muting somebody for yourself is your business and
-stays on your machine.
+stays on your machine. It also says whether they're sharing their
+screen, which is the same kind of thing: their own state, for others to
+see.
 
 Refused is the server's answer to a hello it won't accept (see names.odin),
 sent on the session that hello's handshake made, which the server then
@@ -88,6 +91,10 @@ Message_Kind :: enum u8 {
 	Poke          = 18,
 	// The server won't have us (see Refusal).
 	Refused       = 19,
+	// Screen sharing, see video.odin.
+	Video         = 20,
+	Watch         = 21,
+	Keyframe      = 22,
 }
 
 // Why the server refused a hello.
@@ -97,13 +104,15 @@ Refusal :: enum u8 {
 }
 
 /*
-A user's own sound state, as everyone else sees it. Muting a user for
-yourself is a local setting and never goes on the wire, so what arrives
-here is always what that user did to themselves.
+A user's own state, as everyone else sees it: what they've switched off
+for themselves, and whether they're sharing their screen. Muting a user
+for yourself is a local setting and never goes on the wire, so what
+arrives here is always what that user did to themselves.
 */
 User_Flag :: enum u8 {
 	Muted, // their microphone is off
 	Deafened, // they aren't listening to the channel
+	Sharing, // their screen can be watched (see video.odin)
 }
 User_Flags :: distinct bit_set[User_Flag;u8]
 
@@ -198,6 +207,13 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 			len(pt) > BLOB_CHUNK_HEADER_SIZE && len(pt) <= BLOB_CHUNK_HEADER_SIZE + BLOB_CHUNK_SIZE
 	case .Blob_Need:
 		ok = len(pt) >= BLOB_NEED_HEADER_SIZE
+	case .Video:
+		// Up and down differ; decode_video_up/down check the rest.
+		ok = len(pt) > VIDEO_UP_HEADER_SIZE
+	case .Watch:
+		ok = len(pt) == WATCH_SIZE
+	case .Keyframe:
+		ok = len(pt) == KEYFRAME_SIZE
 	}
 	return
 }

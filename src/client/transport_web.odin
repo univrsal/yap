@@ -29,6 +29,10 @@ foreign _ {
 	// Copies the oldest queued message into buf and returns its size,
 	// or -1 if there is nothing waiting.
 	yap_ws_recv :: proc(buf: [^]u8, buf_size: i32) -> i32 ---
+	// Bytes handed to the socket that it hasn't sent yet.
+	yap_ws_buffered :: proc() -> i32 ---
+	// How many messages have arrived and wait for yap_ws_recv.
+	yap_ws_pending :: proc() -> i32 ---
 }
 
 Transport :: struct {
@@ -83,6 +87,17 @@ transport_recv :: proc(t: ^Transport, buf: []byte) -> (packet: []byte, ok: bool)
 		return nil, false
 	}
 	return buf[:n], true
+}
+
+// transport_backlog is how much the socket still has to send, which is
+// how the video queue knows to hold back (see video.odin).
+transport_backlog :: proc(t: ^Transport) -> int {
+	return int(yap_ws_buffered()) if t.open else 0
+}
+
+// transport_pending says whether packets are waiting to be received.
+transport_pending :: proc(t: ^Transport) -> bool {
+	return t.open && yap_ws_pending() > 0
 }
 
 @(private = "file", default_calling_convention = "c")

@@ -35,6 +35,7 @@ View_User :: struct {
 	// per-user volume we keep for our own ears (see user_settings).
 	muted:    bool,
 	deafened: bool,
+	sharing:  bool, // their screen can be watched (video.odin)
 }
 
 View :: struct {
@@ -64,6 +65,8 @@ View :: struct {
 	typing:     map[proto.User_Num]time.Tick, // when each user last said they're typing
 	// Pokes that came in, for the UI to show (and take) next frame.
 	pokes:      [dynamic]View_Poke,
+	// Whose screen we're watching, or 0.
+	watching:   proto.User_Num,
 }
 
 View_Poke :: struct {
@@ -106,6 +109,7 @@ view_reset :: proc(v: ^View) {
 	v.error, v.server = "", ""
 	v.status = .Disconnected
 	v.my_channel, v.joining = -1, -1
+	v.watching = 0
 	clear(&v.speaking)
 	view_clear_chat(v)
 	view_clear_outbox(v)
@@ -232,6 +236,7 @@ publish_channels :: proc(c: ^Voice_Client) {
 			name     = strings.clone(display_name(ch.state.users, u.num)),
 			muted    = .Muted in u.flags,
 			deafened = .Deafened in u.flags,
+			sharing  = .Sharing in u.flags,
 		}
 	}
 	v.my_num = ch.state.your_user
@@ -258,6 +263,15 @@ publish_voice :: proc(c: ^Voice_Client, speaker: proto.User_Num) {
 	}
 	sync.guard(&v.mutex)
 	v.speaking[speaker] = time.tick_now()
+}
+
+publish_watching :: proc(c: ^Voice_Client) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	v.watching = c.video.watching
 }
 
 publish_poke :: proc(c: ^Voice_Client, name, message: string) {

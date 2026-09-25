@@ -72,6 +72,7 @@ emcc "$out/yap.obj" \
 	--pre-js web/touch.js \
 	--pre-js web/background.js \
 	--pre-js web/paste.js \
+	--pre-js web/video.js \
 	--shell-file web/index.html \
 	-o "$out/index.html"
 

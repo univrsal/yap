@@ -2,6 +2,7 @@
 package client
 
 import "core:sync"
+import "core:time"
 
 /*
 A browser build has no threads, so the network loop doesn't get one: it
@@ -11,10 +12,13 @@ away with the frame.
 */
 Net_Thread :: struct {}
 
-// How many turns of the network loop to take per frame. Each one
-// handles at most one packet, and at sixty frames a second this keeps
-// up with far more than a channel can produce.
+// Each turn of the network loop handles at most one packet. A frame
+// takes at least NET_STEPS_PER_FRAME turns, which keeps up with any
+// amount of voice, and then more while packets are waiting - a
+// keyframe of shared screen is a hundred or more at once - for up to
+// NET_FRAME_BUDGET.
 NET_STEPS_PER_FRAME :: 8
+NET_FRAME_BUDGET :: 4 * time.Millisecond
 
 net_start :: proc(ns: ^Net_Session) {
 	c := ns.client
@@ -40,10 +44,15 @@ net_step :: proc(ui: ^UI) {
 	if ns == nil || ns.stopped || sync.atomic_load(&ns.stop) {
 		return
 	}
-	for _ in 0 ..< NET_STEPS_PER_FRAME {
+	start := time.tick_now()
+	for i := 0; ; i += 1 {
 		if !client_step(ns.client) {
 			ns.stopped = true
 			client_close(ns.client)
+			return
+		}
+		if i + 1 >= NET_STEPS_PER_FRAME &&
+		   (!transport_pending(&ns.client.transport) || time.tick_since(start) >= NET_FRAME_BUDGET) {
 			return
 		}
 	}
