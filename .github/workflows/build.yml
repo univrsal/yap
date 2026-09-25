@@ -111,7 +111,9 @@ jobs:
 
       - name: Test
         shell: bash
-        run: odin test src/proto -vet -strict-style
+        run: |
+          odin test src/proto -vet -strict-style
+          odin test src/client/hotkeys -vet -strict-style
 
       - uses: actions/download-artifact@v8
         with:

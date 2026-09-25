@@ -29,6 +29,8 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"gate_close_db": -55,
 		"notification_volume": 1,
 		"ui_scale": 1,
+		"mute_hotkey": "Ctrl+Shift+M",
+		"deafen_hotkey": "",
 		"users": {
 			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "volume": 0.5, "muted": false }
 		}
@@ -71,6 +73,10 @@ Settings :: struct {
 	// The UI's own zoom, independent of the display's DPI scale (see
 	// window_metrics in ui.odin). 1 = 100%, MIN_UI_SCALE..MAX_UI_SCALE.
 	ui_scale:            f32,
+	// Global hotkeys, as hotkeys.format writes them ("Ctrl+Shift+M"); ""
+	// for none. See ui_hotkeys_native.odin.
+	mute_hotkey:         string,
+	deafen_hotkey:       string,
 	// How to play other users, keyed by their public key (64 hex digits),
 	// which is what identifies a user; names can be copied. Users with
 	// default settings aren't stored.
@@ -151,6 +157,8 @@ settings_destroy :: proc(s: ^Settings) {
 	delete(s.quality)
 	delete(s.input_device)
 	delete(s.output_device)
+	delete(s.mute_hotkey)
+	delete(s.deafen_hotkey)
 	for key in s.users {
 		delete(key)
 	}

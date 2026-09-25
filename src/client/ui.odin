@@ -120,6 +120,7 @@ UI :: struct {
 	page:                Page,
 	settings:            Settings,
 	about:               UI_About, // the About dialog (ui_about.odin)
+	hotkeys:             UI_Hotkeys, // global hotkeys (ui_hotkeys_native.odin)
 	// The UI scale slider's own value, percent, live while it's being
 	// dragged; only copied into settings.ui_scale on release, since
 	// applying it while dragging resizes the very slider being dragged
@@ -322,6 +323,9 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	}
 	monitor_update(ui)
 	show_pokes(ui)
+	// Before the tray, so it shows what a hotkey just did, and before
+	// giving up for a hidden window, since they work without one.
+	hotkeys_frame(ui)
 	tray_update(ui)
 	if ui.hidden {
 		return true // no window to draw in
@@ -371,6 +375,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 // ui_shutdown takes everything down in the order it went up.
 ui_shutdown :: proc(ui: ^UI) {
 	disconnect(ui)
+	hotkeys_stop(ui)
 	tray_hide(ui)
 	monitor_stop(ui)
 	if ui.settings_dirty {

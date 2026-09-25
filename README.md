@@ -15,7 +15,7 @@ A sloppy, minimal and limited VOIP application.
 - Optional server password; the client remembers the last 10 servers
 - No permission system
 - Screen sharing (low frame rate) between web clients (not for native clients)
-
+- Global hotkeys (requires `input` group on wayland)
 ## Running a server
 
 ```sh
