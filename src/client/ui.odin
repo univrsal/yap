@@ -443,7 +443,7 @@ window_open :: proc(ui: ^UI) -> bool {
 	when ODIN_OS == .Darwin {
 		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true)
 	}
-	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "yap", nil, nil)
+	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
 	if ui.window == nil {
 		log.error("failed to create a window (OpenGL 3.3 is required)")
 		return false
