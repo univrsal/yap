@@ -3,6 +3,7 @@ package server
 import "core:log"
 import "core:net"
 import "core:os"
+import "base:runtime"
 import "core:path/filepath"
 import "core:strings"
 import "core:sync"
@@ -40,26 +41,22 @@ UDP_POLL :: 200 * time.Millisecond
 @(private = "file")
 MAX_REQUEST :: 8192
 
-// The files a browser may ask for, and what they are. Nothing else in
-// the web directory is served.
+// A file a browser may ask for. They're read once, when the relay
+// starts, so rebuilding the web client means restarting the server.
 @(private = "file")
-web_file_type :: proc(name: string) -> (content_type: string, ok: bool) {
-	switch name {
-	case "index.html":
-		return "text/html; charset=utf-8", true
-	case "index.js":
-		return "text/javascript; charset=utf-8", true
-	case "index.wasm":
-		return "application/wasm", true
-	}
-	return "", false
+Web_File :: struct {
+	name:         string,
+	content_type: string,
+	data:         []u8,
+	loaded:       bool, // false if it couldn't be read
 }
 
 @(private = "file")
 Relay :: struct {
 	listener: net.TCP_Socket,
 	server:   net.Endpoint, // the only place anything is relayed to
-	web_dir:  string,
+	// Nothing else in the web directory is served.
+	files:    [3]Web_File,
 }
 
 /*
@@ -77,7 +74,20 @@ start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
 	r := new(Relay)
 	r.listener = listener
 	r.server = {net.IP4_Loopback, server_port}
-	r.web_dir = web_dir
+	r.files = {
+		{name = "index.html", content_type = "text/html; charset=utf-8"},
+		{name = "index.js", content_type = "text/javascript; charset=utf-8"},
+		{name = "index.wasm", content_type = "application/wasm"},
+	}
+	for &f in r.files {
+		full, _ := filepath.join({web_dir, f.name}, context.temp_allocator)
+		data, read_err := os.read_entire_file(full, context.allocator)
+		if read_err != nil {
+			log.errorf("could not read %s: %v (built the web client? see web/build.sh)", full, read_err)
+			continue
+		}
+		f.data, f.loaded = data, true
+	}
 	log.infof("relaying browsers to udp :%d; serving %s on http://localhost:%d/", server_port, web_dir, port)
 	thread.create_and_start_with_poly_data(r, accept_browsers, init_context = context, self_cleanup = true)
 	return true
@@ -100,8 +110,33 @@ accept_browsers :: proc(r: ^Relay) {
 	}
 }
 
+// A connection thread's temp allocations are a request's headers and a
+// few strings, so it starts small rather than with the default 4 MiB.
+@(private = "file")
+CONNECTION_TEMP :: 16 * 1024
+
+/*
+Each connection thread brings its own temp allocator, freed as it ends:
+
+	temp: runtime.Arena
+	context.temp_allocator = connection_temp_allocator(&temp)
+	defer runtime.arena_destroy(&temp)
+
+The default one would be a 4 MiB block per thread, zeroed and so all
+resident, which core:thread doesn't free for a thread started with an
+init_context, and which malloc keeps around even once it's freed.
+*/
+@(private = "file")
+connection_temp_allocator :: proc(temp: ^runtime.Arena) -> runtime.Allocator {
+	_ = runtime.arena_init(temp, CONNECTION_TEMP, context.allocator)
+	return runtime.arena_allocator(temp)
+}
+
 @(private = "file")
 handle_connection :: proc(r: ^Relay, c: ^Conn) {
+	temp: runtime.Arena
+	context.temp_allocator = connection_temp_allocator(&temp)
+	defer runtime.arena_destroy(&temp)
 	defer free(c)
 	defer net.close(c.sock)
 
@@ -213,6 +248,10 @@ Link :: struct {
 
 @(private = "file")
 server_to_browser :: proc(link: ^Link) {
+	// Not the one it was started with, which is the other direction's.
+	temp: runtime.Arena
+	context.temp_allocator = connection_temp_allocator(&temp)
+	defer runtime.arena_destroy(&temp)
 	buf: [MAX_FRAME]u8
 	for !sync.atomic_load(&link.done) {
 		n, from, err := net.recv_udp(link.udp, buf[:])
@@ -241,19 +280,18 @@ serve_file :: proc(r: ^Relay, sock: net.TCP_Socket, path: string) {
 	if name == "" {
 		name = "index.html"
 	}
-	content_type, known := web_file_type(name)
-	if !known {
-		respond(sock, "404 Not Found", "text/plain", "not found\n")
+	for f in r.files {
+		if f.name != name {
+			continue
+		}
+		if !f.loaded {
+			respond(sock, "404 Not Found", "text/plain", "the web client hasn't been built\n")
+			return
+		}
+		respond(sock, "200 OK", f.content_type, string(f.data))
 		return
 	}
-	full, _ := filepath.join({r.web_dir, name}, context.temp_allocator)
-	data, err := os.read_entire_file(full, context.temp_allocator)
-	if err != nil {
-		log.errorf("could not read %s: %v (built the web client? see web/build.sh)", full, err)
-		respond(sock, "404 Not Found", "text/plain", "the web client hasn't been built\n")
-		return
-	}
-	respond(sock, "200 OK", content_type, string(data))
+	respond(sock, "404 Not Found", "text/plain", "not found\n")
 }
 
 @(private = "file")
