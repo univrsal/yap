@@ -56,7 +56,7 @@ Relay :: struct {
 	listener: net.TCP_Socket,
 	server:   net.Endpoint, // the only place anything is relayed to
 	// Nothing else in the web directory is served.
-	files:    [3]Web_File,
+	files:    [4]Web_File,
 }
 
 /*
@@ -78,6 +78,7 @@ start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
 		{name = "index.html", content_type = "text/html; charset=utf-8"},
 		{name = "index.js", content_type = "text/javascript; charset=utf-8"},
 		{name = "index.wasm", content_type = "application/wasm"},
+		{name = "favicon.ico", content_type = "image/x-icon"},
 	}
 	for &f in r.files {
 		full, _ := filepath.join({web_dir, f.name}, context.temp_allocator)

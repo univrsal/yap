@@ -1,6 +1,6 @@
 @echo off
-rem Builds bin\yap-server.exe and bin\yap.exe. Extra arguments are
-rem passed to both builds. Run from a Visual Studio developer prompt (Odin
+rem Builds bin\yap-server.exe and bin\yap.exe, both with the yap icon.
+rem Extra arguments are passed to both builds. Run from a Visual Studio developer prompt (Odin
 rem needs MSVC's linker anyway); cl.exe compiles the trimmed-down miniaudio
 rem (src\client\miniaudio), RNNoise (src\client\rnn) and traycon
 rem (src\client\tray), whose third-party sources are in deps\thirdparty,
@@ -39,8 +39,13 @@ set COMMIT=
 for /f "delims=" %%i in ('git rev-parse --short^=7 HEAD 2^>nul') do set "COMMIT=%%i"
 if not "%COMMIT%"=="" call :add_commit
 
-odin build src\server -vet -strict-style -out:bin\yap-server.exe %DEFINES% %* || exit /b 1
-odin build src\client -vet -strict-style -out:bin\yap.exe %DEFINES% %* || exit /b 1
+rem The programs' icon (src\client\assets\icon.rc), which Explorer shows:
+rem rc.exe compiles it, and MSVC's linker takes the .res as it is.
+set ICON=src\client\assets\icon
+rc /nologo /i src\client\assets /fo %ICON%.res %ICON%.rc || exit /b 1
+
+odin build src\server -vet -strict-style -out:bin\yap-server.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
+odin build src\client -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
 exit /b 0
 
 :add_version

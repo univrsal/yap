@@ -12,6 +12,7 @@ src/client/tray/*.a
 src/client/tray/*.lib
 src/client/tray/*.o
 src/client/tray/*.obj
+src/client/assets/*.res
 web/out/
 web/deps/
 src/client/opus/libopus_macos.a

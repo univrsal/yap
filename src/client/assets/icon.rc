@@ -1,0 +1,4 @@
+// The icon Explorer shows for yap.exe and yap-server.exe (compiled and
+// linked into both by build.bat). GLFW gives the client's window the icon
+// named GLFW_ICON until it sets its own from icon.png (ui_window_icon.odin).
+GLFW_ICON ICON "icon.ico"

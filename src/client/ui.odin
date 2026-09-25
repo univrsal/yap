@@ -449,6 +449,9 @@ window_open :: proc(ui: ^UI) -> bool {
 		return false
 	}
 	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
+	when !WEB {
+		set_window_icon(ui.window)
+	}
 	glfw.MakeContextCurrent(ui.window)
 	set_swap_pace(ui)
 	gl.load_up_to(3, 3, glfw.gl_set_proc_address)

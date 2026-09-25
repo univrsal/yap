@@ -18,6 +18,7 @@ import glfw "vendor:glfw"
 WindowHandle :: glfw.WindowHandle
 MonitorHandle :: glfw.MonitorHandle
 CursorHandle :: glfw.CursorHandle
+Image :: glfw.Image
 
 Init :: glfw.Init
 Terminate :: glfw.Terminate
@@ -32,6 +33,7 @@ WindowShouldClose :: glfw.WindowShouldClose
 SetWindowShouldClose :: glfw.SetWindowShouldClose
 WindowHint :: glfw.WindowHint
 SetWindowSizeLimits :: glfw.SetWindowSizeLimits
+SetWindowIcon :: glfw.SetWindowIcon
 SetWindowSize :: glfw.SetWindowSize
 GetWindowSize :: glfw.GetWindowSize
 GetFramebufferSize :: glfw.GetFramebufferSize

@@ -50,6 +50,7 @@ jobs:
             web/out/index.html
             web/out/index.js
             web/out/index.wasm
+            web/out/favicon.ico
           if-no-files-found: error
 
   desktop:

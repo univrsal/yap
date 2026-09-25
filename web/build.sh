@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the web client into web/out/ (index.html, index.js,
-# index.wasm): the client compiled by Odin to a wasm object, then linked
+# index.wasm, favicon.ico): the client compiled by Odin to a wasm object, then linked
 # by emscripten with the page's glue and the C it needs. Extra arguments
 # go to the Odin build, e.g. ./web/build.sh -debug
 #
@@ -75,5 +75,8 @@ emcc "$out/yap.obj" \
 	--pre-js web/video.js \
 	--shell-file web/index.html \
 	-o "$out/index.html"
+
+# The tab's icon, the same one the desktop programs have.
+cp src/client/assets/icon.ico "$out/favicon.ico"
 
 echo "built $out/index.html"
