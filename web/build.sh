@@ -50,7 +50,14 @@ paste_exports=_web_paste_image,_web_paste_failed,_malloc,_free
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
 version_defines=$(scripts/version-defines.sh)
-odin build src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap" $version_defines "$@"
+
+# -o:speed, always: at Odin's default optimization level Safari's web
+# process crashes a few seconds into a call. Its optimizing wasm compiler
+# (OMG, on B3) runs out of memory tiering up strings.index once that gets
+# hot - seen in WebKitGTK 2.52 and iOS 26.6, reproduced only inside this
+# module - and the page dies without a word in the console. The code
+# -o:speed gives it compiles fine.
+odin build src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -o:speed -out:"$out/yap" $version_defines "$@"
 
 # -sSTACK_SIZE: the client keeps some large buffers on the stack (a state
 # snapshot, a stored blob), and emscripten's default of 64 KiB is too
