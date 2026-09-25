@@ -14,6 +14,7 @@ A sloppy, minimal and limited VOIP application.
 - Per user volumes, muting and poking
 - Optional server password; the client remembers the last 10 servers
 - No permission system
+- Screen sharing (low frame rate) between web clients (not for native clients)
 
 ## Running a server
 
