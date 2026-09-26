@@ -78,6 +78,10 @@ image_want :: proc(c: ^Voice_Client, info: proto.Image_Info) {
 	}
 	if img, seen := c.images.cache[info.id]; seen {
 		img.info = info
+		// Coming back to a channel resets the View's chat, images and
+		// all (publish_chat_reset), so one we already have has to be
+		// published again, or the UI sees it as never fetched.
+		publish_image(c, info.id)
 		return
 	}
 	img := new(Client_Image)
