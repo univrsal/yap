@@ -25,6 +25,10 @@ env:
   # The version the client's About dialog shows (scripts/version-defines.sh):
   # the tag for a release, and "dev" otherwise.
   YAP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+  # The desktop client and server are built for size for a release, and
+  # for speed otherwise. (The web client always builds with -o:speed, see
+  # web/build.sh.)
+  OPT: ${{ inputs.release && '-o:size' || '-o:speed' }}
 
 jobs:
   web:
@@ -99,7 +103,12 @@ jobs:
 
       - name: Build (Linux, macOS)
         if: runner.os != 'Windows'
-        run: ./build.sh -o:speed
+        run: ./build.sh $OPT
+      - name: Strip symbols (Linux, macOS)
+        # A release doesn't need the symbol table; Windows builds have no
+        # debug info in the .exe to begin with.
+        if: runner.os != 'Windows' && inputs.release
+        run: strip bin/yap bin/yap-server
 
       - name: Set up MSVC
         if: runner.os == 'Windows'
@@ -107,7 +116,7 @@ jobs:
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: cmd
-        run: build.bat -o:speed
+        run: build.bat %OPT%
 
       - name: Test
         shell: bash
