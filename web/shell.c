@@ -262,6 +262,17 @@ EM_JS(int, yap_query_param, (const char *name, char *buf, int buf_size), {
 	return lengthBytesUTF8(value);
 });
 
+/* Puts copied text on the clipboard (src/client/ui_paste_web.odin); pasting
+   is web/paste.js. The browser writes it asynchronously, and only allows
+   it shortly after a key press or click, which a copy always follows. */
+EM_JS(int, yap_copy_text, (const char *text), {
+	if (!navigator.clipboard || !navigator.clipboard.writeText) return 0;
+	navigator.clipboard.writeText(UTF8ToString(text)).catch((e) => {
+		console.error("yap: could not copy to the clipboard", e);
+	});
+	return 1;
+});
+
 EM_JS(int, yap_open_url, (const char *url), {
 	return window.open(UTF8ToString(url), "_blank", "noopener") ? 1 : 0;
 });

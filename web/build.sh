@@ -45,7 +45,7 @@ touch_exports=_web_touch_tap,_web_text_box_at,_web_touch_drag_begin,_web_touch_d
 # What web/background.js calls (src/client/main_web.odin).
 background_exports=_web_tick
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
-paste_exports=_web_paste_image,_web_paste_failed,_malloc,_free
+paste_exports=_web_paste_image,_web_paste_failed,_web_paste_text,_malloc,_free
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.

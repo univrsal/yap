@@ -9,7 +9,9 @@ first, then size - then hands the JPEG to the client (web_paste_image,
 src/client/ui_paste_web.odin).
 
 Transparent parts are put on white, since JPEG has no transparency.
-Text on the clipboard is left alone for the client to paste.
+The text of every paste goes to the client as well (web_paste_text),
+which is where its text boxes paste from: emscripten's GLFW has no
+clipboard.
 */
 (() => {
 	// Keep these in step with src/client/image.odin.
@@ -70,8 +72,22 @@ Text on the clipboard is left alone for the client to paste.
 		_free(ptr);
 	};
 
+	// The text, for the client to paste when it gets to the Ctrl+V (see
+	// src/client/ui_paste_web.odin); empty for a paste without any. The
+	// on-screen keyboard's field (web/touch.js) takes its pastes itself.
+	const sendText = (text) => {
+		const bytes = new TextEncoder().encode(text);
+		const ptr = _malloc(bytes.length + 1);
+		HEAPU8.set(bytes, ptr);
+		Module._web_paste_text(ptr, bytes.length);
+		_free(ptr);
+	};
+
 	document.addEventListener("paste", async (event) => {
 		if (typeof Module._web_paste_image !== "function") return;
+		const target = event.target;
+		if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+		sendText(event.clipboardData ? event.clipboardData.getData("text/plain") : "");
 		const items = event.clipboardData ? Array.from(event.clipboardData.items) : [];
 		const item = items.find((i) => i.kind === "file" && i.type.startsWith("image/"));
 		if (!item) return;

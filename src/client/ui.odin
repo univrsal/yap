@@ -1295,12 +1295,22 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 
 @(private = "file")
 set_clipboard :: proc(user_data: rawptr, text: string) -> bool {
-	glfw.SetClipboardString(g_ui.window, strings.clone_to_cstring(text, context.temp_allocator))
-	return true
+	// Emscripten's GLFW has no clipboard: a browser's comes from the page
+	// (ui_paste_web.odin).
+	when WEB {
+		return web_copy_text(text)
+	} else {
+		glfw.SetClipboardString(g_ui.window, strings.clone_to_cstring(text, context.temp_allocator))
+		return true
+	}
 }
 
 @(private = "file")
 get_clipboard :: proc(user_data: rawptr) -> (string, bool) {
-	text := glfw.GetClipboardString(g_ui.window)
+	when WEB {
+		text := web_pasted_text()
+	} else {
+		text := glfw.GetClipboardString(g_ui.window)
+	}
 	return text, text != ""
 }
