@@ -57,6 +57,7 @@ settings_page :: proc(ui: ^UI) {
 	ui_settings(ui)
 	hotkey_settings(ui)
 	trusted_servers_settings(ui)
+	install_settings(ui)
 }
 
 // header opens a collapsible group of settings, expanded the first time

@@ -35,6 +35,9 @@ ERROR_COLOR :: mu.Color{230, 90, 90, 255}
 open_settings :: proc(ui: ^UI) {
 	ui.page = .Settings
 	ui.known.loaded = false
+	when !WEB {
+		ui.install.loaded = false
+	}
 }
 
 known_servers_destroy :: proc(ui: ^UI) {

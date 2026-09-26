@@ -123,6 +123,7 @@ UI :: struct {
 	about:               UI_About, // the About dialog (ui_about.odin)
 	known:               UI_Known_Servers, // saved server keys (ui_known_servers.odin)
 	hotkeys:             UI_Hotkeys, // global hotkeys (ui_hotkeys_native.odin)
+	install:             UI_Install, // installing for the user (ui_install_native.odin)
 	// The UI scale slider's own value, percent, live while it's being
 	// dragged; only copied into settings.ui_scale on release, since
 	// applying it while dragging resizes the very slider being dragged
@@ -397,6 +398,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	audio_destroy(&ui.audio)
 	settings_destroy(&ui.settings)
 	known_servers_destroy(ui)
+	install_destroy(ui)
 	ui_chat_destroy(ui)
 	view_destroy(&ui.view)
 }
@@ -452,6 +454,14 @@ window_open :: proc(ui: ^UI) -> bool {
 	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
 	when ODIN_OS == .Darwin {
 		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true)
+	}
+	when !WEB {
+		// The name of the installed .desktop entry (install_unix.odin),
+		// which is how Wayland finds the window's icon and how the
+		// desktop groups the window under the entry.
+		glfw.WindowHintString(glfw.WAYLAND_APP_ID, "yap")
+		glfw.WindowHintString(glfw.X11_CLASS_NAME, "yap")
+		glfw.WindowHintString(glfw.X11_INSTANCE_NAME, "yap")
 	}
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
 	if ui.window == nil {

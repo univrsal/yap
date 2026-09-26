@@ -17,7 +17,7 @@ On Windows the .exe carries icon.ico as well (see build.bat), which
 Explorer shows and GLFW uses until this replaces it.
 */
 
-@(private = "file")
+// Also what install_self installs as the icon on Linux and macOS.
 ICON_PNG :: #load("assets/icon.png")
 
 set_window_icon :: proc(window: glfw.WindowHandle) {

@@ -32,6 +32,7 @@ PostEmptyEvent :: glfw.PostEmptyEvent
 WindowShouldClose :: glfw.WindowShouldClose
 SetWindowShouldClose :: glfw.SetWindowShouldClose
 WindowHint :: glfw.WindowHint
+WindowHintString :: glfw.WindowHintString
 SetWindowSizeLimits :: glfw.SetWindowSizeLimits
 SetWindowIcon :: glfw.SetWindowIcon
 SetWindowSize :: glfw.SetWindowSize
@@ -62,6 +63,9 @@ CONTEXT_VERSION_MINOR :: glfw.CONTEXT_VERSION_MINOR
 OPENGL_PROFILE :: glfw.OPENGL_PROFILE
 OPENGL_CORE_PROFILE :: glfw.OPENGL_CORE_PROFILE
 OPENGL_FORWARD_COMPAT :: glfw.OPENGL_FORWARD_COMPAT
+WAYLAND_APP_ID :: glfw.WAYLAND_APP_ID
+X11_CLASS_NAME :: glfw.X11_CLASS_NAME
+X11_INSTANCE_NAME :: glfw.X11_INSTANCE_NAME
 SCALE_TO_MONITOR :: glfw.SCALE_TO_MONITOR
 DONT_CARE :: glfw.DONT_CARE
 PRESS :: glfw.PRESS
