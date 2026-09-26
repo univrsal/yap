@@ -20,6 +20,12 @@ WELCOME_SOUND_DATA := #load("assets/welcome.opus")
 @(private = "file")
 GOODBYE_SOUND_DATA := #load("assets/goodbye.opus")
 
+@(private = "file")
+MUTED_SOUND_DATA := #load("assets/muted.opus")
+
+@(private = "file")
+UNMUTED_SOUND_DATA := #load("assets/unmuted.opus")
+
 notifications_init :: proc(s: ^Notification_Sounds) {
 	s.volume = 1
 	s.join = decode_ogg_opus(JOIN_SOUND_DATA, "join")
@@ -27,6 +33,8 @@ notifications_init :: proc(s: ^Notification_Sounds) {
 	s.message = decode_ogg_opus(MESSAGE_SOUND_DATA, "message")
 	s.welcome = decode_ogg_opus(WELCOME_SOUND_DATA, "welcome")
 	s.goodbye = decode_ogg_opus(GOODBYE_SOUND_DATA, "goodbye")
+	s.muted = decode_ogg_opus(MUTED_SOUND_DATA, "muted")
+	s.unmuted = decode_ogg_opus(UNMUTED_SOUND_DATA, "unmuted")
 }
 
 notifications_destroy :: proc(s: ^Notification_Sounds) {
@@ -35,6 +43,8 @@ notifications_destroy :: proc(s: ^Notification_Sounds) {
 	delete(s.message)
 	delete(s.welcome)
 	delete(s.goodbye)
+	delete(s.muted)
+	delete(s.unmuted)
 	s^ = {}
 }
 
@@ -51,6 +61,10 @@ notification_play :: proc(s: ^Notification_Sounds, kind: Notification_Kind) {
 		clip = s.welcome
 	case .Goodbye:
 		clip = s.goodbye
+	case .Muted:
+		clip = s.muted
+	case .Unmuted:
+		clip = s.unmuted
 	}
 	if len(clip) == 0 {
 		return
@@ -153,7 +167,13 @@ decode_ogg_opus :: proc(data: []u8, name: string) -> []f32 {
 			}
 			switch packet_count {
 			case 0:
-				if len(packet) < 19 || string(packet[:8]) != "OpusHead" || packet[9] != 1 {
+				// Version 1, and mono or stereo: the decoder gives stereo
+				// either way.
+				if len(packet) < 19 ||
+				   string(packet[:8]) != "OpusHead" ||
+				   packet[8] != 1 ||
+				   packet[9] < 1 ||
+				   packet[9] > 2 {
 					log.errorf("opus: invalid Opus header in %s notification", name)
 					delete(pcm)
 					return nil

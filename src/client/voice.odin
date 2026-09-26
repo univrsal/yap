@@ -392,10 +392,9 @@ mix_output :: proc(v: ^Voice) {
 		mix: [FRAME]f32
 		mix_loopback(v, mix[:])
 		if v.deafened {
-			notifications_clear(&v.notifications)
-		} else {
-			notifications_mix(&v.notifications, mix[:])
+			notifications_deafen(&v.notifications)
 		}
+		notifications_mix(&v.notifications, mix[:])
 		for id, sp in v.speakers {
 			queued := ring_available(&sp.queue)
 			prefill := speaker_prefill(sp)
@@ -443,8 +442,7 @@ mix_output :: proc(v: ^Voice) {
 // disconnect sound before it closes the playback device.
 notification_tail_step :: proc(v: ^Voice) {
 	if v.deafened {
-		notifications_clear(&v.notifications)
-		return
+		notifications_deafen(&v.notifications)
 	}
 	for notifications_pending(&v.notifications) {
 		if len(v.playback.buf) - ring_available(&v.playback) < FRAME {

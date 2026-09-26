@@ -47,9 +47,9 @@ read_commands :: proc(q: ^Command_Queue) {
 		case line == "/listen" || line == "/unlisten":
 			push_command(q, Listen_Command{line == "/listen"})
 		case line == "/mute" || line == "/unmute":
-			push_command(q, Mute_Command{line == "/mute"})
+			push_command(q, Mute_Command{muted = line == "/mute", feedback = true})
 		case line == "/deafen" || line == "/undeafen":
-			push_command(q, Deafen_Command{line == "/deafen"})
+			push_command(q, Deafen_Command{deafened = line == "/deafen", feedback = true})
 		case line == "/typing":
 			push_command(q, Typing_Command{})
 		case strings.has_prefix(line, "/send "):

@@ -95,9 +95,10 @@ test_notification_sounds :: proc(t: ^testing.T) {
 	testing.expect(t, len(v.notifications.message) > 0)
 	testing.expect(t, len(v.notifications.welcome) > 0)
 	testing.expect(t, len(v.notifications.goodbye) > 0)
+	testing.expect(t, len(v.notifications.muted) > 0)
+	testing.expect(t, len(v.notifications.unmuted) > 0)
 
-	for i in 0 ..< 5 {
-		kind := Notification_Kind(i)
+	for kind in Notification_Kind {
 		notification_play(&v.notifications, kind)
 		sum: f64
 		count := 0
@@ -153,6 +154,51 @@ test_deafen_suppresses_notifications :: proc(t: ^testing.T) {
 	mix_output(&v)
 	testing.expect_value(t, len(v.notifications.active), 0)
 	testing.expect_value(t, v.notifications.queued_count, 0)
+}
+
+// Deafening drops what's playing, but not the sound saying we deafened.
+@(test)
+test_deafen_keeps_feedback :: proc(t: ^testing.T) {
+	v: Voice
+	testing.expect(t, voice_init(&v))
+	defer voice_destroy(&v)
+	voice_notification_play(&v, .Message)
+	voice_feedback_play(&v, true)
+	v.deafened = true
+	mix_output(&v)
+	testing.expect(t, raw_data(v.notifications.active) == raw_data(v.notifications.muted))
+	testing.expect_value(t, v.notifications.queued_count, 0)
+}
+
+// A deafen from the UI mutes as well, and plays one sound, not two.
+@(test)
+test_deafen_plays_once :: proc(t: ^testing.T) {
+	c: Voice_Client
+	testing.expect(t, voice_init(&c.voice))
+	defer voice_destroy(&c.voice)
+	defer commands_destroy(&c.commands)
+	sounds := &c.voice.notifications
+
+	push_command(&c.commands, Mute_Command{muted = true, feedback = false})
+	push_command(&c.commands, Deafen_Command{deafened = true, feedback = true})
+	process_commands(&c)
+	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.muted))
+	testing.expect_value(t, sounds.queued_count, 0)
+
+	notifications_clear(sounds)
+	push_command(&c.commands, Mute_Command{muted = false, feedback = false})
+	push_command(&c.commands, Deafen_Command{deafened = false, feedback = true})
+	process_commands(&c)
+	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.unmuted))
+	testing.expect_value(t, sounds.queued_count, 0)
+
+	// Mute on its own, and a repeat of what's already so, which is quiet.
+	notifications_clear(sounds)
+	push_command(&c.commands, Mute_Command{muted = true, feedback = true})
+	push_command(&c.commands, Mute_Command{muted = true, feedback = true})
+	process_commands(&c)
+	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.muted))
+	testing.expect_value(t, sounds.queued_count, 0)
 }
 
 @(test)

@@ -353,13 +353,18 @@ Join_Command :: struct {
 	channel: string, // owned by the command
 }
 List_Command :: struct {}
+// With `feedback`, the muted/unmuted sound plays for it. Deafening
+// mutes as well (see set_deafened), and only the deafen plays its sound,
+// so the two don't play one after the other.
 Mute_Command :: struct {
-	muted: bool,
+	muted:    bool,
+	feedback: bool,
 }
 // Deafen: stop playing anyone else's voice. Local only; the server and
 // the other clients don't know about it.
 Deafen_Command :: struct {
 	deafened: bool,
+	feedback: bool,
 }
 Noise_Command :: struct {
 	enabled: bool,
@@ -478,10 +483,16 @@ process_commands :: proc(c: ^Voice_Client) {
 		case List_Command:
 			list_channels(c)
 		case Mute_Command:
+			if v.feedback && v.muted != c.voice.muted {
+				voice_feedback_play(&c.voice, v.muted)
+			}
 			c.voice.muted = v.muted
 			set_sound(c, .Muted, v.muted)
 			log.infof("voice %s", "muted" if v.muted else "unmuted")
 		case Deafen_Command:
+			if v.feedback && v.deafened != c.voice.deafened {
+				voice_feedback_play(&c.voice, v.deafened)
+			}
 			c.voice.deafened = v.deafened
 			set_sound(c, .Deafened, v.deafened)
 			log.infof("audio %s", "deafened" if v.deafened else "undeafened")

@@ -730,13 +730,15 @@ disconnect_finish :: proc(ui: ^UI) {
 	}
 }
 
-set_muted :: proc(ui: ^UI, muted: bool) {
+// set_muted plays the muted/unmuted sound, unless it's part of a
+// deafen (`feedback` false), which plays its own.
+set_muted :: proc(ui: ^UI, muted: bool, feedback := true) {
 	if muted == ui.muted {
 		return
 	}
 	ui.muted = muted
 	if ui.session != nil {
-		push_command(&ui.session.client.commands, Mute_Command{muted})
+		push_command(&ui.session.client.commands, Mute_Command{muted = muted, feedback = feedback})
 	}
 }
 
@@ -754,12 +756,12 @@ set_deafened :: proc(ui: ^UI, deafened: bool) {
 	ui.deafened = deafened
 	if deafened {
 		ui.muted_before_deafen = ui.muted
-		set_muted(ui, true)
+		set_muted(ui, true, feedback = false)
 	} else {
-		set_muted(ui, ui.muted_before_deafen)
+		set_muted(ui, ui.muted_before_deafen, feedback = false)
 	}
 	if ui.session != nil {
-		push_command(&ui.session.client.commands, Deafen_Command{deafened})
+		push_command(&ui.session.client.commands, Deafen_Command{deafened = deafened, feedback = true})
 	}
 }
 
