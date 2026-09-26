@@ -10,6 +10,16 @@ setlocal
 cd /d "%~dp0"
 if not exist bin mkdir bin
 
+rem Always compile the C archives for the x64 Odin target. This also makes
+rem build.bat work from an ordinary command prompt, like the CI setup does.
+set "VCVARSALL="
+for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -find VC\Auxiliary\Build\vcvarsall.bat`) do set "VCVARSALL=%%i"
+if not defined VCVARSALL (
+	echo Could not find Visual Studio's x64 C++ build tools.
+	exit /b 1
+)
+call "%VCVARSALL%" x64 >nul || exit /b 1
+
 set MA=src\client\miniaudio
 cl /nologo /MT /O1 /c %MA%\yap_audio.c /Fo:%MA%\yap_audio.obj || exit /b 1
 lib /nologo /out:%MA%\yap_audio.lib %MA%\yap_audio.obj || exit /b 1
@@ -45,16 +55,16 @@ set ICON=src\client\assets\icon
 rc /nologo /i src\client\assets /fo %ICON%.res %ICON%.rc || exit /b 1
 
 odin build src\server -vet -strict-style -out:bin\yap-server.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
-odin build src\client -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
+odin build src\client -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res /SUBSYSTEM:WINDOWS" %DEFINES% %* || exit /b 1
 exit /b 0
 
 :add_version
 if "%YAP_VERSION:~0,1%"=="v" set "YAP_VERSION=%YAP_VERSION:~1%"
-set DEFINES=%DEFINES% "-define:YAP_VERSION=\"%YAP_VERSION%\""
+set DEFINES=%DEFINES% "-define:YAP_VERSION=%YAP_VERSION%"
 exit /b 0
 
 :add_commit
 rem call, in case git is a .bat/.cmd shim, which would otherwise not return.
 call git diff --quiet HEAD 2>nul || set "COMMIT=%COMMIT%-dirty"
-set DEFINES=%DEFINES% "-define:YAP_COMMIT=\"%COMMIT%\""
+set DEFINES=%DEFINES% "-define:YAP_COMMIT=%COMMIT%"
 exit /b 0
