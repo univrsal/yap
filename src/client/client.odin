@@ -3,7 +3,6 @@ package client
 import log "../common/wlog"
 import "core:crypto/ecdh"
 import "core:encoding/endian"
-import "core:encoding/hex"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -204,7 +203,7 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 				c,
 				.Failed,
 				fmt.tprintf(
-					"The key of %s has changed, so the connection was refused. See the log for details.",
+					"The key of %s has changed, so the connection was refused.",
 					c.server_addr,
 				),
 			)
@@ -322,11 +321,10 @@ refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
 }
 
 // verify_server_key implements trust on first use: remember the key the
-// first time, and refuse to continue if it ever changes.
+// first time, and refuse to continue if it ever changes. A change is
+// handed to the UI (publish_key_change), which lets the user trust the
+// new key once they know why it changed.
 verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
-	key := key
-	key_hex := string(hex.encode(key[:], context.temp_allocator))
-
 	trust, saved := check_server_key(c.known_servers, c.server_addr, key)
 	switch trust {
 	case .Known:
@@ -337,14 +335,14 @@ verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 			log.infof(
 				"first connection to %s, trusting server key %s (saved to %s)",
 				c.server_addr,
-				key_hex,
+				key_hex(key),
 				c.known_servers,
 			)
 		} else {
 			log.warnf(
 				"first connection to %s, trusting server key %s for now, but it could not be saved",
 				c.server_addr,
-				key_hex,
+				key_hex(key),
 			)
 		}
 		return true
@@ -353,15 +351,16 @@ verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 		log.errorf(
 			"the key of %s has changed! saved %s, received %s",
 			c.server_addr,
-			string(hex.encode(saved[:], context.temp_allocator)),
-			key_hex,
+			key_hex(saved),
+			key_hex(key),
 		)
 		log.error("someone may be impersonating the server, or it got a new key")
 		log.errorf(
-			"if the change is expected, remove the %s line from %s",
+			"if the change is expected, trust the new key on the connect screen, or remove the %s line from %s",
 			c.server_addr,
 			c.known_servers,
 		)
+		publish_key_change(c, saved, key)
 		return false
 	}
 	return false

@@ -70,6 +70,7 @@ Action :: enum {
 	None,
 	Connect,
 	Disconnect,
+	Trust_Key, // the connect screen's "trust the new key" (ui_known_servers.odin)
 }
 
 UI :: struct {
@@ -120,6 +121,7 @@ UI :: struct {
 	page:                Page,
 	settings:            Settings,
 	about:               UI_About, // the About dialog (ui_about.odin)
+	known:               UI_Known_Servers, // saved server keys (ui_known_servers.odin)
 	hotkeys:             UI_Hotkeys, // global hotkeys (ui_hotkeys_native.odin)
 	// The UI scale slider's own value, percent, live while it's being
 	// dragged; only copied into settings.ui_scale on release, since
@@ -284,6 +286,8 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		connect(ui)
 	case .Disconnect:
 		disconnect(ui, true)
+	case .Trust_Key:
+		trust_new_key(ui)
 	}
 	ui.action = .None
 	disconnect_tail_step(ui)
@@ -392,6 +396,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	glfw.Terminate()
 	audio_destroy(&ui.audio)
 	settings_destroy(&ui.settings)
+	known_servers_destroy(ui)
 	ui_chat_destroy(ui)
 	view_destroy(&ui.view)
 }
@@ -597,7 +602,6 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 	return
 }
 
-@(private = "file")
 connect :: proc(ui: ^UI) {
 	disconnect(ui)
 	monitor_stop(ui) // the connection opens the microphone itself
@@ -832,7 +836,7 @@ connect_screen :: proc(ui: ^UI) {
 		ui.action = .Connect
 	}
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
-		ui.page = .Settings
+		open_settings(ui)
 	}
 
 	mu.layout_row(ctx, {70, 200, -1})
@@ -857,7 +861,10 @@ connect_screen :: proc(ui: ^UI) {
 		),
 	)
 	if v.status == .Failed && v.error != "" {
-		with_text_color(ctx, {230, 90, 90, 255}, v.error, label_proc)
+		with_text_color(ctx, ERROR_COLOR, v.error, label_proc)
+	}
+	if v.status == .Failed && v.key_change.changed {
+		key_change_panel(ui)
 	}
 
 	// Recent servers beside the log, or above it where there's no room.
@@ -967,7 +974,7 @@ session_screen :: proc(ui: ^UI) {
 		share_button(ui)
 	}
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
-		ui.page = .Settings
+		open_settings(ui)
 	}
 	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
 		log.debug("ui: disconnect")

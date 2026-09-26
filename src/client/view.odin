@@ -42,6 +42,9 @@ View :: struct {
 	mutex:      sync.Mutex,
 	status:     Status,
 	error:      string, // why we Failed
+	// Set when we Failed because the server's key isn't the one saved
+	// for it (see verify_server_key), for the UI to offer trusting it.
+	key_change: Key_Change,
 	server:     string,
 	my_key:     [proto.KEY_SIZE]u8,
 	my_num:     proto.User_Num, // 0 until the first snapshot
@@ -67,6 +70,13 @@ View :: struct {
 	pokes:      [dynamic]View_Poke,
 	// Whose screen we're watching, or 0.
 	watching:   proto.User_Num,
+}
+
+Key_Change :: struct {
+	changed:  bool,
+	server:   string, // the known_servers entry; owned
+	saved:    [proto.KEY_SIZE]u8,
+	received: [proto.KEY_SIZE]u8,
 }
 
 View_Poke :: struct {
@@ -107,6 +117,7 @@ view_reset :: proc(v: ^View) {
 	delete(v.error)
 	delete(v.server)
 	v.error, v.server = "", ""
+	view_clear_key_change(v)
 	v.status = .Disconnected
 	v.my_channel, v.joining = -1, -1
 	v.watching = 0
@@ -215,6 +226,29 @@ publish_status :: proc(c: ^Voice_Client, status: Status, error := "") {
 	}
 	delete(v.error)
 	v.error = strings.clone(error)
+}
+
+// publish_key_change tells the UI the server showed a key other than
+// the one saved for it. The connection fails right after.
+publish_key_change :: proc(c: ^Voice_Client, saved, received: [proto.KEY_SIZE]u8) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	view_clear_key_change(v)
+	v.key_change = {
+		changed  = true,
+		server   = strings.clone(c.server_addr),
+		saved    = saved,
+		received = received,
+	}
+}
+
+// Call with the mutex held.
+view_clear_key_change :: proc(v: ^View) {
+	delete(v.key_change.server)
+	v.key_change = {}
 }
 
 publish_channels :: proc(c: ^Voice_Client) {
