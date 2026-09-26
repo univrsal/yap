@@ -117,9 +117,10 @@ video_share_state :: proc() -> Share_State {
 
 // video_upload puts the newest frame of what we're watching into
 // `texture`, if one has come since the last call, and says its size.
-video_upload :: proc(texture: u32) -> (width, height: int, ok: bool) {
+video_upload :: proc(texture: Gpu_Texture) -> (width, height: int, ok: bool) {
 	w, h: i32
-	if yap_video_upload(texture, &w, &h) == 0 {
+	// An OpenGL texture name, as the page knows it (ui_gpu_gl.odin).
+	if yap_video_upload(u32(texture), &w, &h) == 0 {
 		return
 	}
 	return int(w), int(h), true

@@ -1,131 +1,92 @@
 package client
 
 import "core:math"
-import gl "wgl"
 import mu "vendor:microui"
+import glfw "wglfw"
 
 /*
-Draws microui's command list with OpenGL 3.3. Rects and text are quads
-from the font atlas (ui_font.odin), rasterized at the display's density
-so they stay sharp on high-DPI screens; microui's own icons come from its
-built-in atlas. Quads are batched and flushed whenever the clip rect or
-the texture changes.
+Draws microui's command list. Rects and text are quads from the font
+atlas (ui_font.odin), rasterized at the display's density so they stay
+sharp on high-DPI screens; microui's own icons come from its built-in
+atlas. Quads are batched and flushed whenever the clip rect or the
+texture changes.
+
+What the quads are drawn with is the GPU backend's business: Direct3D 11
+on Windows (ui_gpu_d3d11.odin), OpenGL everywhere else (ui_gpu_gl.odin).
+Both give the same procs, gpu_*, over the same vertices.
 
 Everything is laid out in logical pixels; `scale` is physical pixels per
 logical pixel.
 */
 
-@(private = "file")
 MAX_QUADS :: 4096
 
-@(private = "file")
 Vertex :: struct {
 	pos:   [2]f32,
 	uv:    [2]f32,
 	color: [4]u8,
 }
 
+/*
+A texture, as the backend knows it: an OpenGL texture name, or a pointer
+to the backend's own record of one. 0 is none.
+*/
+Gpu_Texture :: distinct uintptr
+
+// What a texture holds, which decides how it's drawn.
+Texture_Kind :: enum {
+	// Coverage for text and icons, one byte a pixel, drawn in the
+	// quad's colour and 1:1 with physical pixels, so without filtering.
+	Alpha,
+	// A picture, RGBA, usually drawn smaller than it is, so filtered.
+	Rgba,
+}
+
 Renderer :: struct {
-	program:      u32,
-	vao:          u32,
-	vbo:          u32,
-	ebo:          u32,
-	u_screen:     i32,
-	font:         Font,
-	font_texture: u32,
-	unifont_texture: u32, // the fallback font's atlas; 0 until it has glyphs
-	icon_texture: u32, // microui's own icons
-	icons:        Icon_Atlas, // ours (ui_icons.odin)
-	icons_texture: u32,
-	bound:        u32, // texture the pending quads use
-	rgba:         bool, // the bound texture is a picture, not the atlas
-	u_rgba:       i32,
-	images:       ^UI_Images, // this frame's chat images (ui_images.odin)
-	vertices:     [MAX_QUADS * 4]Vertex,
-	quads:        int,
-	height:       f32, // logical
-	scale:        f32,
+	gpu:             Gpu,
+	font:            Font,
+	font_texture:    Gpu_Texture,
+	unifont_texture: Gpu_Texture, // the fallback font's atlas; 0 until it has glyphs
+	icon_texture:    Gpu_Texture, // microui's own icons
+	icons:           Icon_Atlas, // ours (ui_icons.odin)
+	icons_texture:   Gpu_Texture,
+	bound:           Gpu_Texture, // texture the pending quads use
+	rgba:            bool, // the bound texture is a picture, not the atlas
+	images:          ^UI_Images, // this frame's chat images (ui_images.odin)
+	vertices:        [MAX_QUADS * 4]Vertex,
+	quads:           int,
+	scale:           f32,
 }
 
 // The font microui measures text with (its callbacks take no user data).
 @(private = "file")
 g_font: ^Font
 
-/*
-WebGL 2 speaks GLSL ES 3.00, which as far as these shaders go is the
-same language as desktop GLSL 3.30 - it only wants its own version line
-and a default precision for floats.
-*/
-@(private = "file")
-SHADER_HEADER :: "#version 300 es\nprecision highp float;\n" when WEB else "#version 330 core\n"
-
-@(private = "file")
-VERTEX_SHADER :: SHADER_HEADER + `layout(location = 0) in vec2 a_pos;
-layout(location = 1) in vec2 a_uv;
-layout(location = 2) in vec4 a_color;
-uniform vec2 u_screen;
-out vec2 v_uv;
-out vec4 v_color;
-void main() {
-	v_uv = a_uv;
-	v_color = a_color;
-	gl_Position = vec4(a_pos.x / u_screen.x * 2.0 - 1.0, 1.0 - a_pos.y / u_screen.y * 2.0, 0.0, 1.0);
-}
-`
-
-@(private = "file")
-FRAGMENT_SHADER :: SHADER_HEADER + `in vec2 v_uv;
-in vec4 v_color;
-uniform sampler2D u_atlas;
-// The atlases keep coverage in their red channel; chat images are
-// ordinary colour textures.
-uniform bool u_rgba;
-out vec4 frag;
-void main() {
-	vec4 t = texture(u_atlas, v_uv);
-	frag = u_rgba ? vec4(t.rgb * v_color.rgb, t.a * v_color.a) : vec4(v_color.rgb, v_color.a * t.r);
-}
-`
-
-renderer_init :: proc(r: ^Renderer) -> bool {
-	if !font_init(&r.font) {
-		return false
-	}
-	g_font = &r.font
-
-	program, ok := gl.load_shaders_source(VERTEX_SHADER, FRAGMENT_SHADER)
-	if !ok {
-		return false
-	}
-	r.program = program
-	r.u_screen = gl.GetUniformLocation(program, "u_screen")
-	r.u_rgba = gl.GetUniformLocation(program, "u_rgba")
-
-	gl.GenVertexArrays(1, &r.vao)
-	gl.BindVertexArray(r.vao)
-
-	gl.GenBuffers(1, &r.vbo)
-	gl.BindBuffer(gl.ARRAY_BUFFER, r.vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, size_of(r.vertices), nil, gl.DYNAMIC_DRAW)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(0, 2, gl.FLOAT, false, size_of(Vertex), offset_of(Vertex, pos))
-	gl.EnableVertexAttribArray(1)
-	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, size_of(Vertex), offset_of(Vertex, uv))
-	gl.EnableVertexAttribArray(2)
-	gl.VertexAttribPointer(2, 4, gl.UNSIGNED_BYTE, true, size_of(Vertex), offset_of(Vertex, color))
-
-	// Two triangles per quad, the same pattern every time.
+// quad_indices is the index buffer's contents: two triangles per quad,
+// the same pattern every time. In the temp allocator.
+quad_indices :: proc() -> ^[MAX_QUADS * 6]u16 {
 	indices := new([MAX_QUADS * 6]u16, context.temp_allocator)
 	for q in 0 ..< MAX_QUADS {
 		base := u16(q * 4)
 		copy(indices[q * 6:], []u16{base, base + 1, base + 2, base + 2, base + 3, base})
 	}
-	gl.GenBuffers(1, &r.ebo)
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, r.ebo)
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, size_of(indices^), indices, gl.STATIC_DRAW)
-	gl.BindVertexArray(0)
+	return indices
+}
 
-	r.icon_texture = make_alpha_texture(
+// renderer_init sets up drawing into `window`, which was made with
+// gpu_window_hints.
+renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
+	if !font_init(&r.font) {
+		return false
+	}
+	g_font = &r.font
+	if !gpu_init(&r.gpu, window) {
+		font_destroy(&r.font)
+		return false
+	}
+	r.icon_texture = gpu_texture_make(
+		&r.gpu,
+		.Alpha,
 		mu.DEFAULT_ATLAS_WIDTH,
 		mu.DEFAULT_ATLAS_HEIGHT,
 		mu.default_atlas_alpha[:],
@@ -134,20 +95,42 @@ renderer_init :: proc(r: ^Renderer) -> bool {
 }
 
 renderer_destroy :: proc(r: ^Renderer) {
-	gl.DeleteTextures(1, &r.font_texture)
-	gl.DeleteTextures(1, &r.unifont_texture)
-	gl.DeleteTextures(1, &r.icon_texture)
-	gl.DeleteTextures(1, &r.icons_texture)
+	gpu_texture_delete(&r.gpu, &r.font_texture)
+	gpu_texture_delete(&r.gpu, &r.unifont_texture)
+	gpu_texture_delete(&r.gpu, &r.icon_texture)
+	gpu_texture_delete(&r.gpu, &r.icons_texture)
 	icon_atlas_destroy(&r.icons)
-	gl.DeleteBuffers(1, &r.ebo)
-	gl.DeleteBuffers(1, &r.vbo)
-	gl.DeleteVertexArrays(1, &r.vao)
-	gl.DeleteProgram(r.program)
+	gpu_destroy(&r.gpu)
 	font_destroy(&r.font)
-	// Nothing in here outlives the OpenGL context it was made in: the
-	// window can be taken down and built again (window_close), and a
-	// texture name left lying about would then belong to somebody else.
+	// Nothing in here outlives the device it was made on: the window can
+	// be taken down and built again (window_close), and a texture left
+	// lying about would then belong to somebody else.
 	r^ = {}
+}
+
+/*
+renderer_reset makes what's on the GPU again for the same window, after
+the device was lost (gpu_lost). The atlases are rebuilt, and uploaded
+with them, when the next frame finds them missing.
+*/
+renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
+	gpu_texture_delete(&r.gpu, &r.font_texture)
+	gpu_texture_delete(&r.gpu, &r.unifont_texture)
+	gpu_texture_delete(&r.gpu, &r.icon_texture)
+	gpu_texture_delete(&r.gpu, &r.icons_texture)
+	gpu_destroy(&r.gpu)
+	r.font.scale, r.font.uni.scale, r.icons.scale = 0, 0, 0
+	if !gpu_init(&r.gpu, window) {
+		return false
+	}
+	r.icon_texture = gpu_texture_make(
+		&r.gpu,
+		.Alpha,
+		mu.DEFAULT_ATLAS_WIDTH,
+		mu.DEFAULT_ATLAS_HEIGHT,
+		mu.default_atlas_alpha[:],
+	)
+	return true
 }
 
 // microui text metrics, in logical pixels.
@@ -180,44 +163,31 @@ render :: proc(
 	// is resized. So project fb / scale, which differs from the layout
 	// by less than a logical pixel at the right and bottom edges.
 	view_w, view_h := f32(fb_w) / scale, f32(fb_h) / scale
-	r.height, r.scale = view_h, scale
+	r.scale = scale
+	if !gpu_begin(&r.gpu, fb_w, fb_h, view_w, view_h, clear) {
+		return // minimized, or the device is gone
+	}
 
 	if scale != r.font.scale {
 		if font_build_atlas(&r.font, scale) {
-			gl.DeleteTextures(1, &r.font_texture)
-			r.font_texture = make_alpha_texture(r.font.width, r.font.height, r.font.pixels)
+			gpu_texture_delete(&r.gpu, &r.font_texture)
+			r.font_texture = gpu_texture_make(&r.gpu, .Alpha, r.font.width, r.font.height, r.font.pixels)
 		}
 	}
 	// The fallback font's atlas fills up as text needs glyphs; it starts
 	// empty at a new scale, and again once it has run out of room.
 	if scale != r.font.uni.scale || r.font.uni.full {
 		unifont_reset(&r.font.uni, scale)
-		gl.DeleteTextures(1, &r.unifont_texture)
-		r.unifont_texture = 0
+		gpu_texture_delete(&r.gpu, &r.unifont_texture)
 	}
 	if scale != r.icons.scale {
 		if icon_atlas_build(&r.icons, scale) {
-			gl.DeleteTextures(1, &r.icons_texture)
-			r.icons_texture = make_alpha_texture(r.icons.width, r.icons.height, r.icons.pixels)
+			gpu_texture_delete(&r.gpu, &r.icons_texture)
+			r.icons_texture = gpu_texture_make(&r.gpu, .Alpha, r.icons.width, r.icons.height, r.icons.pixels)
 		}
 	}
 
-	gl.Viewport(0, 0, fb_w, fb_h)
-	gl.Disable(gl.SCISSOR_TEST)
-	gl.ClearColor(f32(clear.r) / 255, f32(clear.g) / 255, f32(clear.b) / 255, 1)
-	gl.Clear(gl.COLOR_BUFFER_BIT)
-
-	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	gl.Enable(gl.SCISSOR_TEST)
-	gl.Scissor(0, 0, fb_w, fb_h)
-
-	gl.UseProgram(r.program)
-	gl.Uniform2f(r.u_screen, view_w, view_h)
-	gl.BindVertexArray(r.vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, r.vbo)
-	gl.ActiveTexture(gl.TEXTURE0)
-	r.bound = 0
+	r.bound, r.rgba = 0, false
 
 	cmd: ^mu.Command
 	for variant in mu.next_command_iterator(ctx, &cmd) {
@@ -279,29 +249,7 @@ render :: proc(
 		}
 	}
 	flush(r)
-	gl.BindVertexArray(0)
-}
-
-@(private = "file")
-make_alpha_texture :: proc(width, height: i32, pixels: []u8) -> (tex: u32) {
-	gl.GenTextures(1, &tex)
-	gl.BindTexture(gl.TEXTURE_2D, tex)
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexImage2D(
-		gl.TEXTURE_2D,
-		0,
-		gl.R8,
-		width,
-		height,
-		0,
-		gl.RED,
-		gl.UNSIGNED_BYTE,
-		raw_data(pixels),
-	)
-	// Glyphs are drawn 1:1 with physical pixels, so no filtering is wanted.
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-	return
+	gpu_end(&r.gpu)
 }
 
 /*
@@ -317,33 +265,18 @@ upload_unifont :: proc(r: ^Renderer) {
 		return
 	}
 	if r.unifont_texture == 0 {
-		r.unifont_texture = make_alpha_texture(u.side, u.side, u.pixels)
+		r.unifont_texture = gpu_texture_make(&r.gpu, .Alpha, u.side, u.side, u.pixels)
 	} else {
-		gl.BindTexture(gl.TEXTURE_2D, r.unifont_texture)
-		gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-		gl.TexSubImage2D(
-			gl.TEXTURE_2D,
-			0,
-			0,
-			u.dirty_y0,
-			u.side,
-			u.dirty_y1 - u.dirty_y0,
-			gl.RED,
-			gl.UNSIGNED_BYTE,
-			&u.pixels[int(u.dirty_y0) * int(u.side)],
-		)
+		rows := u.pixels[int(u.dirty_y0) * int(u.side):int(u.dirty_y1) * int(u.side)]
+		gpu_texture_update_rows(&r.gpu, r.unifont_texture, u.side, u.dirty_y0, u.dirty_y1, rows)
 	}
-	// Back to what the pending quads are drawn with.
-	gl.BindTexture(gl.TEXTURE_2D, r.bound)
 	u.dirty_y0, u.dirty_y1 = u.side, 0
 }
 
 @(private = "file")
-use_texture :: proc(r: ^Renderer, tex: u32, rgba := false) {
+use_texture :: proc(r: ^Renderer, tex: Gpu_Texture, rgba := false) {
 	if r.bound != tex || r.rgba != rgba {
 		flush(r)
-		gl.BindTexture(gl.TEXTURE_2D, tex)
-		gl.Uniform1i(r.u_rgba, 1 if rgba else 0)
 		r.bound, r.rgba = tex, rgba
 	}
 }
@@ -404,18 +337,16 @@ flush :: proc(r: ^Renderer) {
 	if r.quads == 0 {
 		return
 	}
-	gl.BufferSubData(gl.ARRAY_BUFFER, 0, r.quads * 4 * size_of(Vertex), &r.vertices[0])
-	gl.DrawElements(gl.TRIANGLES, i32(r.quads * 6), gl.UNSIGNED_SHORT, nil)
+	gpu_draw(&r.gpu, r.vertices[:r.quads * 4], r.bound, .Rgba if r.rgba else .Alpha)
 	r.quads = 0
 }
 
 @(private = "file")
 set_clip :: proc(r: ^Renderer, rect: mu.Rect) {
-	// GL's scissor origin is bottom-left, in framebuffer pixels.
 	s := r.scale
 	x0 := math.round(f32(rect.x) * s)
 	x1 := math.round(f32(rect.x + rect.w) * s)
-	y0 := math.round((r.height - f32(rect.y + rect.h)) * s)
-	y1 := math.round((r.height - f32(rect.y)) * s)
-	gl.Scissor(i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
+	y0 := math.round(f32(rect.y) * s)
+	y1 := math.round(f32(rect.y + rect.h) * s)
+	gpu_clip(&r.gpu, i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
 }

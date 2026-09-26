@@ -3,12 +3,12 @@ package client
 import log "../common/wlog"
 import "core:crypto/ecdh"
 import "core:fmt"
+import "core:math"
 import "core:strings"
 import "core:sync"
 import "core:time"
 import "core:unicode/utf8"
 import mu "vendor:microui"
-import gl "wgl"
 import glfw "wglfw"
 
 import "../common"
@@ -17,7 +17,8 @@ import "clipboard"
 
 /*
 The windowed client: GLFW for the window and input, microui for widgets,
-OpenGL 3.3 to draw them (see ui_render.odin).
+Direct3D 11 on Windows and OpenGL 3.3 elsewhere to draw them (see
+ui_render.odin).
 
 The UI owns the main thread (GLFW requires it). Each connection runs the
 same network loop as headless mode on its own thread; the two sides meet
@@ -165,6 +166,11 @@ UI :: struct {
 	// shortest time between frames, and when the last one went out.
 	frame_pace:          time.Duration,
 	last_swap:           time.Tick,
+	// When the GPU device last had to be set up again (reset_gpu).
+	gpu_reset_at:        time.Tick,
+	// A frame is being drawn (draw_frame), which a refresh mustn't
+	// start another one in the middle of.
+	drawing:             bool,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply, and
@@ -335,6 +341,33 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	if ui.hidden {
 		return true // no window to draw in
 	}
+	draw_frame(ui)
+	// A browser paces frames itself, and a page can't sleep.
+	when !WEB {
+		if ui.frame_pace > 0 {
+			if left := ui.frame_pace - time.tick_since(ui.last_swap); left > 0 {
+				time.sleep(left)
+			}
+			ui.last_swap = time.tick_now()
+		}
+	}
+	return true
+}
+
+/*
+draw_frame lays the UI out and draws it: the second half of ui_frame,
+and all of what refresh_callback does while the window is being resized.
+*/
+@(private = "file")
+draw_frame :: proc(ui: ^UI) {
+	if ui.drawing {
+		return
+	}
+	ui.drawing = true
+	defer ui.drawing = false
+	if gpu_lost(&ui.renderer.gpu) {
+		reset_gpu(ui)
+	}
 
 	m := window_metrics(ui.window, ui_scale_factor(&ui.settings))
 	if m != ui.metrics {
@@ -364,17 +397,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	ui_chat_after_frame(ui)
 	ui_images_after_frame(ui)
 	render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, BACKGROUND)
-	glfw.SwapBuffers(ui.window)
-	// A browser paces frames itself, and a page can't sleep.
-	when !WEB {
-		if ui.frame_pace > 0 {
-			if left := ui.frame_pace - time.tick_since(ui.last_swap); left > 0 {
-				time.sleep(left)
-			}
-			ui.last_swap = time.tick_now()
-		}
-	}
-	return true
+	gpu_present(&ui.renderer.gpu)
 }
 
 // ui_shutdown takes everything down in the order it went up.
@@ -404,13 +427,14 @@ ui_shutdown :: proc(ui: ^UI) {
 }
 
 /*
-The window and everything that lives in its OpenGL context. They come
-and go together, because hiding the client in the tray takes the window
-down altogether (see hide_to_tray): a Wayland surface that has been
+The window and everything that lives on its GPU device (an OpenGL
+context, or a Direct3D 11 device on Windows). They come and go
+together, because hiding the client in the tray takes the window down
+altogether (see hide_to_tray): a Wayland surface that has been
 unmapped can't be brought back - the EGL buffers behind it are never
 released, and the next swap waits for them for ever.
 
-Nothing above the context survives in here: microui's state, the view,
+Nothing above the device survives in here: microui's state, the view,
 the connection and the tray icon all carry on across a window.
 */
 /*
@@ -430,7 +454,7 @@ set_swap_pace :: proc(ui: ^UI) {
 	ui.frame_pace = 0
 	when !WEB {
 		if on_wayland() {
-			glfw.SwapInterval(0)
+			gpu_swap_interval(&ui.renderer.gpu, 0)
 			refresh: i32 = 60
 			if monitor := glfw.GetPrimaryMonitor(); monitor != nil {
 				if mode := glfw.GetVideoMode(monitor); mode != nil && mode.refresh_rate > 0 {
@@ -442,19 +466,14 @@ set_swap_pace :: proc(ui: ^UI) {
 			return
 		}
 	}
-	glfw.SwapInterval(1)
+	gpu_swap_interval(&ui.renderer.gpu, 1)
 }
 
 window_open :: proc(ui: ^UI) -> bool {
-	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
-	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
-	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
+	gpu_window_hints()
 	// Where window coordinates are physical pixels (Windows, X11), size
 	// the window for the monitor's scale so it isn't tiny on high DPI.
 	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
-	when ODIN_OS == .Darwin {
-		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true)
-	}
 	when !WEB {
 		// The name of the installed .desktop entry (install_unix.odin),
 		// which is how Wayland finds the window's icon and how the
@@ -465,26 +484,26 @@ window_open :: proc(ui: ^UI) -> bool {
 	}
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
 	if ui.window == nil {
-		log.error("failed to create a window (OpenGL 3.3 is required)")
+		log.errorf("failed to create a window (%s is required)", GPU_REQUIREMENT)
 		return false
 	}
 	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
 	when !WEB {
 		set_window_icon(ui.window)
 	}
-	glfw.MakeContextCurrent(ui.window)
-	set_swap_pace(ui)
-	gl.load_up_to(3, 3, glfw.gl_set_proc_address)
-
-	if !renderer_init(&ui.renderer) {
-		log.error("failed to set up OpenGL rendering")
+	if !renderer_init(&ui.renderer, ui.window) {
+		log.errorf("failed to set up %s rendering", GPU_REQUIREMENT)
 		glfw.DestroyWindow(ui.window)
 		ui.window = nil
 		return false
 	}
+	set_swap_pace(ui)
 	ui.renderer.images = &ui.images
 
 	glfw.SetWindowIconifyCallback(ui.window, iconify_callback)
+	when ODIN_OS == .Windows {
+		glfw.SetWindowRefreshCallback(ui.window, refresh_callback)
+	}
 	glfw.SetCursorPosCallback(ui.window, cursor_pos_callback)
 	glfw.SetMouseButtonCallback(ui.window, mouse_button_callback)
 	glfw.SetScrollCallback(ui.window, scroll_callback)
@@ -497,15 +516,47 @@ window_open :: proc(ui: ^UI) -> bool {
 	return true
 }
 
+/*
+reset_gpu makes everything on the GPU again for the same window, once
+the device has gone (a graphics driver update or reset). Should the new
+one not come up either, it's tried again a second later; nothing is
+drawn until then.
+*/
+@(private = "file")
+reset_gpu :: proc(ui: ^UI) {
+	if ui.gpu_reset_at != {} && time.tick_since(ui.gpu_reset_at) < time.Second {
+		return
+	}
+	ui.gpu_reset_at = time.tick_now()
+	log.warn("ui: lost the GPU device, setting it up again")
+	ui_images_forget_textures(ui)
+	ui_video_forget_texture(ui)
+	if !renderer_reset(&ui.renderer, ui.window) {
+		log.error("ui: could not set the GPU device up again")
+		return
+	}
+	set_swap_pace(ui)
+}
+
 window_close :: proc(ui: ^UI) {
 	if ui.window == nil {
 		return
 	}
-	// Come back the same size as we went away.
-	w, h := glfw.GetWindowSize(ui.window)
-	ui.window_size = {w, h}
+	// Come back the same size as we went away. Where window coordinates
+	// are physical pixels (see window_metrics), CreateWindow scales the
+	// size it's given for the monitor (SCALE_TO_MONITOR), so it has to
+	// be given the size before that, or the window grows every time.
+	if w, h := glfw.GetWindowSize(ui.window); w > 0 && h > 0 {
+		fb_w, _ := glfw.GetFramebufferSize(ui.window)
+		if f32(fb_w) / f32(w) <= 1.01 {
+			sx, sy := glfw.GetWindowContentScale(ui.window)
+			w = i32(math.round(f32(w) / max(sx, 1)))
+			h = i32(math.round(f32(h) / max(sy, 1)))
+		}
+		ui.window_size = {w, h}
+	}
 	renderer_destroy(&ui.renderer)
-	// The pictures' textures belong to the context that's about to go;
+	// The pictures' textures belong to the device that's about to go;
 	// they are decoded again when they're next on screen.
 	ui_images_forget_textures(ui)
 	ui_video_forget_texture(ui)
@@ -1199,6 +1250,22 @@ settings page says as much when it would matter.
 iconify_callback :: proc "c" (window: glfw.WindowHandle, iconified: i32) {
 	if iconified != 0 {
 		g_ui.minimized = true
+	}
+}
+
+/*
+refresh_callback draws a frame while the window is being resized. On
+Windows, dragging its edge runs a loop of the system's own until the
+mouse is let go, and glfw.WaitEventsTimeout doesn't come back before
+then, so without this the window would stand still for as long as the
+drag lasts. Only resizing needs it: nothing else stops the loop.
+*/
+@(private = "file")
+refresh_callback :: proc "c" (window: glfw.WindowHandle) {
+	context = callback_context()
+	context.logger = g_logger
+	if g_ui.window == window && !g_ui.hidden {
+		draw_frame(g_ui)
 	}
 }
 

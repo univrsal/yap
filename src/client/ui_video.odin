@@ -2,7 +2,6 @@ package client
 
 import "core:fmt"
 import mu "vendor:microui"
-import gl "wgl"
 
 import "../proto"
 
@@ -19,20 +18,18 @@ the page but the picture.
 */
 
 UI_Video :: struct {
-	texture: u32, // 0 until the first frame
+	texture: Gpu_Texture, // 0 until the first frame
 	size:    [2]int, // of the picture in `texture`; 0 until there is one
 	// Whom the tabs were last arranged for (see screen_tab_follow).
 	watched: proto.User_Num,
 }
 
 ui_video_destroy :: proc(ui: ^UI) {
-	if ui.video.texture != 0 {
-		gl.DeleteTextures(1, &ui.video.texture)
-	}
+	gpu_texture_delete(&ui.renderer.gpu, &ui.video.texture)
 	ui.video = {}
 }
 
-// ui_video_forget_texture drops the texture as its OpenGL context goes
+// ui_video_forget_texture drops the texture as its GPU device goes
 // (see ui_images_forget_textures).
 ui_video_forget_texture :: proc(ui: ^UI) {
 	ui.video.texture, ui.video.size = 0, {}
@@ -143,13 +140,7 @@ picture :: proc(ui: ^UI, r: mu.Rect) {
 	ctx := &ui.ctx
 	vid := &ui.video
 	if vid.texture == 0 {
-		gl.GenTextures(1, &vid.texture)
-		gl.BindTexture(gl.TEXTURE_2D, vid.texture)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-		gl.BindTexture(gl.TEXTURE_2D, 0)
+		vid.texture = gpu_texture_make(&ui.renderer.gpu, .Rgba, 0, 0, nil)
 	}
 	if w, h, ok := video_upload(vid.texture); ok {
 		vid.size = {w, h}

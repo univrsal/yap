@@ -6,7 +6,6 @@ import "core:fmt"
 import log "../common/wlog"
 import "core:strings"
 import "core:sync"
-import gl "wgl"
 import mu "vendor:microui"
 
 import "../proto"
@@ -36,7 +35,7 @@ IMAGE_ICON_BASE :: 1000
 IMAGE_WINDOW :: "image"
 
 Image_Draw :: struct {
-	texture: u32,
+	texture: Gpu_Texture,
 }
 
 @(private = "file")
@@ -49,7 +48,7 @@ Texture_State :: enum {
 @(private = "file")
 Texture :: struct {
 	state:   Texture_State,
-	texture: u32,
+	texture: Gpu_Texture,
 	frame:   int, // when it was last drawn
 }
 
@@ -105,9 +104,9 @@ ui_images_init :: proc(ui: ^UI) {
 }
 
 /*
-ui_images_forget_textures drops what the OpenGL context holds, without
-deleting anything: it's called as that context goes away (window_close),
-and the names in here mean nothing outside it. The pictures themselves
+ui_images_forget_textures drops what the GPU device holds, without
+deleting anything: it's called as that device goes away (window_close),
+and the textures in here mean nothing outside it. The pictures themselves
 are decoded again when they're next drawn.
 */
 ui_images_forget_textures :: proc(ui: ^UI) {
@@ -129,10 +128,9 @@ ui_images_destroy :: proc(ui: ^UI) {
 	for &result in im.results {
 		clipboard.image_destroy(&result.image)
 	}
-	for _, t in im.textures {
+	for _, &t in im.textures {
 		if t.state == .Ready {
-			tex := t.texture
-			gl.DeleteTextures(1, &tex)
+			gpu_texture_delete(&ui.renderer.gpu, &t.texture)
 		}
 	}
 	delete(im.queue)
@@ -170,11 +168,17 @@ ui_images_frame :: proc(ui: ^UI) {
 			continue
 		}
 		t.state = .Ready
-		t.texture = make_image_texture(result.image)
+		t.texture = gpu_texture_make(
+			&ui.renderer.gpu,
+			.Rgba,
+			i32(result.image.width),
+			i32(result.image.height),
+			result.image.pixels,
+		)
 		t.frame = im.frame
 		im.textures[result.id] = t
 	}
-	trim_textures(im)
+	trim_textures(im, &ui.renderer.gpu)
 }
 
 // image_block draws one image message: the picture once it's here, and
@@ -446,33 +450,9 @@ enqueue_decode :: proc(im: ^UI_Images, id: u32, jpeg: []u8) {
 }
 
 
-@(private = "file")
-make_image_texture :: proc(img: clipboard.Image) -> (tex: u32) {
-	gl.GenTextures(1, &tex)
-	gl.BindTexture(gl.TEXTURE_2D, tex)
-	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexImage2D(
-		gl.TEXTURE_2D,
-		0,
-		gl.RGBA8,
-		i32(img.width),
-		i32(img.height),
-		0,
-		gl.RGBA,
-		gl.UNSIGNED_BYTE,
-		raw_data(img.pixels),
-	)
-	// Images are usually drawn smaller than they are.
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	return
-}
-
 // trim_textures frees the textures that haven't been drawn for longest.
 @(private = "file")
-trim_textures :: proc(im: ^UI_Images) {
+trim_textures :: proc(im: ^UI_Images, gpu: ^Gpu) {
 	for len(im.textures) > MAX_IMAGE_TEXTURES {
 		oldest_id: u32
 		oldest_frame := max(int)
@@ -486,8 +466,7 @@ trim_textures :: proc(im: ^UI_Images) {
 		}
 		t := im.textures[oldest_id]
 		if t.state == .Ready {
-			tex := t.texture
-			gl.DeleteTextures(1, &tex)
+			gpu_texture_delete(gpu, &t.texture)
 		}
 		delete_key(&im.textures, oldest_id)
 	}

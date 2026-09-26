@@ -57,7 +57,10 @@ SetCursorPosCallback :: glfw.SetCursorPosCallback
 SetMouseButtonCallback :: glfw.SetMouseButtonCallback
 SetScrollCallback :: glfw.SetScrollCallback
 SetWindowIconifyCallback :: glfw.SetWindowIconifyCallback
+SetWindowRefreshCallback :: glfw.SetWindowRefreshCallback
 
+CLIENT_API :: glfw.CLIENT_API
+NO_API :: glfw.NO_API
 CONTEXT_VERSION_MAJOR :: glfw.CONTEXT_VERSION_MAJOR
 CONTEXT_VERSION_MINOR :: glfw.CONTEXT_VERSION_MINOR
 OPENGL_PROFILE :: glfw.OPENGL_PROFILE
@@ -104,4 +107,9 @@ GetWaylandDisplay :: proc "contextless" () -> rawptr {
 	} else {
 		return nil
 	}
+}
+
+// Windows only: the window, for Direct3D to draw into (ui_gpu_d3d11.odin).
+when ODIN_OS == .Windows {
+	GetWin32Window :: glfw.GetWin32Window
 }

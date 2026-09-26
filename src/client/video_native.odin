@@ -50,7 +50,7 @@ video_share_state :: proc() -> Share_State {
 	return .Off
 }
 
-video_upload :: proc(texture: u32) -> (width, height: int, ok: bool) {
+video_upload :: proc(texture: Gpu_Texture) -> (width, height: int, ok: bool) {
 	return
 }
 
