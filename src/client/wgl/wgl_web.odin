@@ -34,6 +34,7 @@ foreign _ {
 	Scissor :: proc(x, y, width, height: i32) ---
 	TexImage2D :: proc(target: u32, level, internalformat, width, height, border: i32, format, type: u32, pixels: rawptr) ---
 	TexParameteri :: proc(target, pname: u32, param: i32) ---
+	TexSubImage2D :: proc(target: u32, level, xoffset, yoffset, width, height: i32, format, type: u32, pixels: rawptr) ---
 	Uniform1i :: proc(location: i32, v0: i32) ---
 	Uniform2f :: proc(location: i32, v0, v1: f32) ---
 	UseProgram :: proc(program: u32) ---

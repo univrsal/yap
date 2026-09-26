@@ -33,6 +33,7 @@ Renderer :: struct {
 	u_screen:     i32,
 	font:         Font,
 	font_texture: u32,
+	unifont_texture: u32, // the fallback font's atlas; 0 until it has glyphs
 	icon_texture: u32, // microui's own icons
 	icons:        Icon_Atlas, // ours (ui_icons.odin)
 	icons_texture: u32,
@@ -134,6 +135,7 @@ renderer_init :: proc(r: ^Renderer) -> bool {
 
 renderer_destroy :: proc(r: ^Renderer) {
 	gl.DeleteTextures(1, &r.font_texture)
+	gl.DeleteTextures(1, &r.unifont_texture)
 	gl.DeleteTextures(1, &r.icon_texture)
 	gl.DeleteTextures(1, &r.icons_texture)
 	icon_atlas_destroy(&r.icons)
@@ -186,6 +188,13 @@ render :: proc(
 			r.font_texture = make_alpha_texture(r.font.width, r.font.height, r.font.pixels)
 		}
 	}
+	// The fallback font's atlas fills up as text needs glyphs; it starts
+	// empty at a new scale, and again once it has run out of room.
+	if scale != r.font.uni.scale || r.font.uni.full {
+		unifont_reset(&r.font.uni, scale)
+		gl.DeleteTextures(1, &r.unifont_texture)
+		r.unifont_texture = 0
+	}
 	if scale != r.icons.scale {
 		if icon_atlas_build(&r.icons, scale) {
 			gl.DeleteTextures(1, &r.icons_texture)
@@ -214,7 +223,8 @@ render :: proc(
 	for variant in mu.next_command_iterator(ctx, &cmd) {
 		switch c in variant {
 		case ^mu.Command_Text:
-			use_texture(r, r.font_texture)
+			font_cache_glyphs(&r.font, c.str)
+			upload_unifont(r)
 			Emit :: struct {
 				r:     ^Renderer,
 				color: mu.Color,
@@ -228,6 +238,7 @@ render :: proc(
 				&emit,
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
+					use_texture(e.r, e.r.unifont_texture if q.unifont else e.r.font_texture)
 					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
 				},
 			)
@@ -291,6 +302,40 @@ make_alpha_texture :: proc(width, height: i32, pixels: []u8) -> (tex: u32) {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 	return
+}
+
+/*
+upload_unifont sends the rows of the fallback font's atlas that have
+changed to its texture, making the texture the first time. Glyphs only
+ever go into empty slots, so quads already waiting to be drawn still
+find theirs.
+*/
+@(private = "file")
+upload_unifont :: proc(r: ^Renderer) {
+	u := &r.font.uni
+	if u.dirty_y1 <= u.dirty_y0 {
+		return
+	}
+	if r.unifont_texture == 0 {
+		r.unifont_texture = make_alpha_texture(u.side, u.side, u.pixels)
+	} else {
+		gl.BindTexture(gl.TEXTURE_2D, r.unifont_texture)
+		gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+		gl.TexSubImage2D(
+			gl.TEXTURE_2D,
+			0,
+			0,
+			u.dirty_y0,
+			u.side,
+			u.dirty_y1 - u.dirty_y0,
+			gl.RED,
+			gl.UNSIGNED_BYTE,
+			&u.pixels[int(u.dirty_y0) * int(u.side)],
+		)
+	}
+	// Back to what the pending quads are drawn with.
+	gl.BindTexture(gl.TEXTURE_2D, r.bound)
+	u.dirty_y0, u.dirty_y1 = u.side, 0
 }
 
 @(private = "file")

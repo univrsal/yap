@@ -40,6 +40,7 @@ PixelStorei :: gl.PixelStorei
 Scissor :: gl.Scissor
 TexImage2D :: gl.TexImage2D
 TexParameteri :: gl.TexParameteri
+TexSubImage2D :: gl.TexSubImage2D
 Uniform1i :: gl.Uniform1i
 Uniform2f :: gl.Uniform2f
 UseProgram :: gl.UseProgram

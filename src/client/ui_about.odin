@@ -108,6 +108,14 @@ THIRD_PARTY := [?]Third_Party {
 		builds = {.Desktop, .Web},
 	},
 	{
+		name = "GNU Unifont",
+		license = "OFL-1.1 or GPL-2.0-or-later with the font embedding exception",
+		use = "The fallback font, for characters Roboto doesn't have",
+		url = "https://unifoundry.com/unifont/",
+		text = #load("licenses/unifont.txt", string),
+		builds = {.Desktop, .Web},
+	},
+	{
 		name = "Emscripten",
 		license = "MIT or University of Illinois/NCSA",
 		use = "The web build's runtime",

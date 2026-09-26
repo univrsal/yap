@@ -8,8 +8,9 @@ import stbtt "wstbtt"
 /*
 The UI font: Roboto (embedded with #load), rasterized with stb_truetype.
 Every character the font has is used: its Latin, Greek and Cyrillic
-letters and common punctuation and symbols. Anything else draws as the
-replacement character.
+letters and common punctuation and symbols. Anything else comes from
+Unifont (ui_unifont.odin) if it has it, and draws as the replacement
+character if not.
 
 Layout happens in logical pixels, but glyphs are rasterized at the
 display's real density (`scale` physical pixels per logical pixel), so
@@ -49,6 +50,9 @@ Font :: struct {
 	height:     i32,
 	// A few fully opaque texels, for drawing solid rectangles.
 	white:      [2]f32,
+
+	// The fallback font, with an atlas of its own.
+	uni:        Unifont,
 }
 
 font_init :: proc(f: ^Font) -> bool {
@@ -103,6 +107,7 @@ font_init :: proc(f: ^Font) -> bool {
 }
 
 font_destroy :: proc(f: ^Font) {
+	unifont_destroy(&f.uni)
 	delete(f.pixels)
 	delete(f.codepoints)
 	delete(f.advance)
@@ -154,30 +159,62 @@ font_build_atlas :: proc(f: ^Font, scale: f32) -> bool {
 	return false
 }
 
-// glyph_index finds a character's glyph, or the fallback's. Invalid UTF-8
+// Which font a character is drawn from.
+@(private = "file")
+Glyph_Source :: enum {
+	Roboto, // the index is into the Font's arrays
+	Unifont, // the index is the character itself
+	None, // draws nothing and takes no room (is_ignorable)
+}
+
+// find_glyph finds a character's glyph, or the fallback's. Invalid UTF-8
 // reaches here as utf8.RUNE_ERROR, so it shows as the fallback too.
 @(private = "file")
-glyph_index :: proc(f: ^Font, r: rune) -> int {
+find_glyph :: proc(f: ^Font, r: rune) -> (index: int, source: Glyph_Source) {
 	if r >= 0 && r < len(f.ascii) {
-		return int(f.ascii[r])
+		return int(f.ascii[r]), .Roboto
 	}
 	if i, found := slice.binary_search(f.codepoints, r); found {
-		return i
+		return i, .Roboto
 	}
-	return int(f.fallback)
+	if is_ignorable(r) {
+		return 0, .None
+	}
+	if unifont_width(&f.uni, r) > 0 {
+		return int(r), .Unifont
+	}
+	return int(f.fallback), .Roboto
 }
 
 font_text_width :: proc(f: ^Font, text: string) -> f32 {
 	w: f32
 	for r in text {
-		w += f.advance[glyph_index(f, r)]
+		i, source := find_glyph(f, r)
+		switch source {
+		case .Roboto:
+			w += f.advance[i]
+		case .Unifont:
+			w += f32(f.uni.width[i])
+		case .None:
+		}
 	}
 	return w
+}
+
+// font_cache_glyphs puts the Unifont glyphs `text` needs in their atlas,
+// ahead of font_layout; the renderer uploads what changed in between.
+font_cache_glyphs :: proc(f: ^Font, text: string) {
+	for r in text {
+		if _, source := find_glyph(f, r); source == .Unifont {
+			unifont_cache(&f.uni, r)
+		}
+	}
 }
 
 Glyph_Quad :: struct {
 	x0, y0, x1, y1: f32, // logical pixels
 	u0, v0, u1, v1: f32,
+	unifont:        bool, // from the Unifont atlas rather than the font's
 }
 
 // font_layout calls `emit` for every visible glyph of `text`, with the
@@ -194,26 +231,75 @@ font_layout :: proc(
 	baseline := math.round((y + f.baseline) * s)
 	pen := x
 	for r in text {
-		i := glyph_index(f, r)
-		g := &f.glyphs[i]
-		if g.x1 > g.x0 {
-			px := math.round(pen * s + g.xoff)
-			py := baseline + math.round(g.yoff)
-			w, h := f32(g.x1 - g.x0), f32(g.y1 - g.y0)
-			emit(
-				data,
-				Glyph_Quad {
-					x0 = px / s,
-					y0 = py / s,
-					x1 = (px + w) / s,
-					y1 = (py + h) / s,
-					u0 = f32(g.x0) / f32(f.width),
-					v0 = f32(g.y0) / f32(f.height),
-					u1 = f32(g.x1) / f32(f.width),
-					v1 = f32(g.y1) / f32(f.height),
-				},
-			)
+		i, source := find_glyph(f, r)
+		switch source {
+		case .None:
+		case .Unifont:
+			u := &f.uni
+			if slot, ok := unifont_cache(u, r); ok && u.scale == s {
+				h := f32(unifont_glyph_height(s))
+				w := f32(unifont_glyph_width(u, r))
+				px := math.round(pen * s)
+				py := baseline - math.round(UNIFONT_ASCENT * h / UNIFONT_SIZE)
+				sx := f32((slot % u.per_row) * u.cell)
+				sy := f32((slot / u.per_row) * u.cell)
+				side := f32(u.side)
+				emit(
+					data,
+					Glyph_Quad {
+						x0 = px / s,
+						y0 = py / s,
+						x1 = (px + w) / s,
+						y1 = (py + h) / s,
+						u0 = sx / side,
+						v0 = sy / side,
+						u1 = (sx + w) / side,
+						v1 = (sy + h) / side,
+						unifont = true,
+					},
+				)
+			} else {
+				// The atlas is full: this frame makes do with the
+				// fallback, in the room the glyph would have had.
+				emit_glyph(f, int(f.fallback), pen, baseline, data, emit)
+			}
+			pen += f32(u.width[i])
+		case .Roboto:
+			emit_glyph(f, i, pen, baseline, data, emit)
+			pen += f.advance[i]
 		}
-		pen += f.advance[i]
 	}
+}
+
+// emit_glyph emits one of Roboto's glyphs, at `pen` (logical pixels) on
+// `baseline` (physical ones).
+@(private = "file")
+emit_glyph :: proc(
+	f: ^Font,
+	i: int,
+	pen, baseline: f32,
+	data: rawptr,
+	emit: proc(data: rawptr, q: Glyph_Quad),
+) {
+	s := f.scale
+	g := &f.glyphs[i]
+	if g.x1 <= g.x0 {
+		return
+	}
+	px := math.round(pen * s + g.xoff)
+	py := baseline + math.round(g.yoff)
+	w, h := f32(g.x1 - g.x0), f32(g.y1 - g.y0)
+	emit(
+		data,
+		Glyph_Quad {
+			x0 = px / s,
+			y0 = py / s,
+			x1 = (px + w) / s,
+			y1 = (py + h) / s,
+			u0 = f32(g.x0) / f32(f.width),
+			v0 = f32(g.y0) / f32(f.height),
+			u1 = f32(g.x1) / f32(f.width),
+			v1 = f32(g.y1) / f32(f.height),
+		},
+	)
 }
