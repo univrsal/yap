@@ -1,6 +1,7 @@
 package client
 
 import "base:runtime"
+import "core:math"
 import "core:fmt"
 import log "../common/wlog"
 import "core:strings"
@@ -69,6 +70,11 @@ UI_Images :: struct {
 	// be sized to the window.
 	viewer:      u32,
 	placed:      bool,
+	// The viewer's zoom, relative to the image fitted to its window (1 is
+	// fitted, and as far out as it goes), and how far the image's centre
+	// is dragged from the picture area's, in pixels.
+	zoom:        f32,
+	pan:         [2]f32,
 	// A saved copy of what's on screen, so the viewer and saving can work
 	// outside the View's lock.
 	shown:       proto.Image_Info,
@@ -241,8 +247,20 @@ request_save :: proc(im: ^UI_Images, jpeg: []u8) {
 	copy(im.save, jpeg)
 }
 
-// image_viewer shows the image that was clicked, as large as its window
-// allows. It's a window of its own, so it floats over everything.
+// Zooming in stops once an image pixel is this many screen pixels.
+@(private = "file")
+MAX_PIXEL_SIZE :: 8
+// How much one notch of the mouse wheel (30, see scroll_callback) zooms.
+@(private = "file")
+ZOOM_STEP :: 1.25
+
+/*
+image_viewer shows the image that was clicked, as large as its window
+allows. It's a window of its own, so it floats over everything.
+
+The mouse wheel zooms in and out around the pointer, dragging moves a
+zoomed image around, and Fit goes back to the whole image.
+*/
 image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	im := &ui.images
 	if im.viewer == 0 {
@@ -252,6 +270,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	// Open it centred, big enough for the image but inside the window.
 	if !im.placed {
 		im.placed = true
+		im.zoom, im.pan = 1, {}
 		w := max(min(int(im.shown.width) + 2 * int(ctx.style.padding), int(window_w) - 40), 240)
 		h := max(min(int(im.shown.height) + 60, int(window_h) - 40), 160)
 		rect := mu.Rect{(window_w - i32(w)) / 2, (window_h - i32(h)) / 2, i32(w), i32(h)}
@@ -283,38 +302,97 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	row := ctx.style.size.y + 2 * ctx.style.padding + 10
 	mu.layout_row(ctx, {-1}, cnt.body.h - i32(row) - ctx.style.spacing)
 	picture := mu.layout_next(ctx)
-	w, h := fit_box(
+	fit_w, _ := fit_box(
 		int(im.shown.width),
 		int(im.shown.height),
 		max(int(picture.w), 1),
 		max(int(picture.h), 1),
 	)
-	rect := mu.Rect {
-		picture.x + (picture.w - i32(w)) / 2,
-		picture.y + (picture.h - i32(h)) / 2,
-		i32(w),
-		i32(h),
-	}
+	max_zoom := max(1, MAX_PIXEL_SIZE * f32(im.shown.width) / f32(max(fit_w, 1)))
+	viewer_input(ui, picture, max_zoom)
+	rect := viewer_rect(im, picture)
 	if t, known := im.textures[im.viewer]; known && t.state == .Ready {
 		append(&im.draws, Image_Draw{texture = t.texture})
+		// Zoomed in, the image is bigger than the picture area; only the
+		// part inside it is drawn.
+		mu.push_clip_rect(ctx, picture)
 		mu.draw_icon(ctx, mu.Icon(IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
+		mu.pop_clip_rect(ctx)
 	} else {
 		mu.draw_rect(ctx, rect, {50, 50, 50, 255})
 		mu.draw_control_text(ctx, "loading image...", rect, .TEXT, {.ALIGN_CENTER})
 	}
 
-	mu.layout_row(ctx, {90, 90, -1})
+	mu.layout_row(ctx, {90, 90, 90, -1})
 	if .SUBMIT in mu.button(ctx, "Save") {
 		im.viewer_save = true
+	}
+	if .SUBMIT in mu.button(ctx, "Fit") {
+		im.zoom, im.pan = 1, {}
 	}
 	if .SUBMIT in mu.button(ctx, "Close") {
 		im.viewer = 0
 	}
-	status := fmt.tprintf("%dx%d", im.shown.width, im.shown.height)
+	shown_percent := 100 * f32(rect.w) / f32(max(im.shown.width, 1))
+	status := fmt.tprintf("%dx%d   %.0f%%", im.shown.width, im.shown.height, shown_percent)
 	if im.saved_to != "" {
 		status = fmt.tprintf("%s   saved %s to your downloads", status, file_name(im.saved_to))
 	}
 	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
+}
+
+// viewer_input zooms with the mouse wheel over the picture area, keeping
+// the point under the pointer where it is, and pans while the image is
+// dragged, even once the pointer has left the area.
+@(private = "file")
+viewer_input :: proc(ui: ^UI, picture: mu.Rect, max_zoom: f32) {
+	ctx := &ui.ctx
+	im := &ui.images
+	id := mu.get_id(ctx, "picture")
+	mu.update_control(ctx, id, picture, {.HOLD_FOCUS})
+
+	if ctx.hover_id == id && ctx.scroll_delta.y != 0 {
+		old := im.zoom
+		im.zoom = clamp(old * math.pow(ZOOM_STEP, -f32(ctx.scroll_delta.y) / 30), 1, max_zoom)
+		// The pointer, from the picture area's centre.
+		p := [2]f32 {
+			f32(ctx.mouse_pos.x) - (f32(picture.x) + f32(picture.w) / 2),
+			f32(ctx.mouse_pos.y) - (f32(picture.y) + f32(picture.h) / 2),
+		}
+		im.pan = p - (p - im.pan) * (im.zoom / old)
+		// Used up here, rather than also scrolling whatever is behind.
+		ctx.scroll_delta = {}
+	}
+	if ctx.focus_id == id && .LEFT in ctx.mouse_down_bits {
+		im.pan += {f32(ctx.mouse_delta.x), f32(ctx.mouse_delta.y)}
+	}
+	if im.zoom > 1 && (ctx.hover_id == id || ctx.focus_id == id) {
+		// The pointing hand, as for images in the chat: there's
+		// something to grab.
+		ui.chat.hovering = true
+	}
+
+	// Never further than to where the image's edge meets the area's, and
+	// centred along a side that isn't bigger than the area.
+	r := viewer_rect(im, picture)
+	room := [2]f32{max(f32(r.w - picture.w), 0) / 2, max(f32(r.h - picture.h), 0) / 2}
+	im.pan = {clamp(im.pan.x, -room.x, room.x), clamp(im.pan.y, -room.y, room.y)}
+}
+
+// viewer_rect is where the viewer's image goes, zoomed and panned.
+@(private = "file")
+viewer_rect :: proc(im: ^UI_Images, picture: mu.Rect) -> mu.Rect {
+	fw, fh := fit_box(
+		int(im.shown.width),
+		int(im.shown.height),
+		max(int(picture.w), 1),
+		max(int(picture.h), 1),
+	)
+	w := f32(fw) * im.zoom
+	h := f32(fh) * im.zoom
+	cx := f32(picture.x) + f32(picture.w) / 2 + im.pan.x
+	cy := f32(picture.y) + f32(picture.h) / 2 + im.pan.y
+	return {i32(math.round(cx - w / 2)), i32(math.round(cy - h / 2)), i32(math.round(w)), i32(math.round(h))}
 }
 
 // ui_images_after_frame writes out an image the viewer or a right-click
