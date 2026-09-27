@@ -6,9 +6,9 @@ A sloppy, minimal and limited VOIP application.
 - Server can optionally also host web client to use it in a browser
 - Uses only UDP (WebSocket for web client)
 - Minimal runtime dependencies (Mostly only Glfw)
-- Uses [noise protocol](https://noiseprotocol.org) for encryption between client and server*
+- Uses [noise protocol](https://noiseprotocol.org) for encryption between client and server\*
 - Builtin [RNN](https://github.com/xiph/rnnoise) for noise reduction
-- Opus as audio codec with three per user quality options: 24kbit/s, 64kbit/s and 128kbit/s stereo
+- Opus as audio codec with three per user quality options: 24kbit/s, 64kbit/s and 192kbit/s stereo
 - Simple per channel chat, retains the last 50 messages per channel
 - Paste images from clipboard into chat
 - Per user volumes, muting and poking
@@ -16,19 +16,7 @@ A sloppy, minimal and limited VOIP application.
 - No permission system
 - Screen sharing (low frame rate) between web clients (not for native clients)
 - Global hotkeys (requires `input` group on wayland)
-- Runs on Linux, Windows, macOS and OpenBSD
-
-## Building on OpenBSD
-
-```sh
-doas pkg_add llvm%21 glfw dbus cmake curl   # llvm for building Odin itself
-ulimit -S -d $(ulimit -H -d)                # the default data size is too small for Odin
-./build.sh
-```
-
-Odin's `core/sync/futex_openbsd.odin` panics when a wait is interrupted
-or loses a race (`futex_wait failure`); until that's fixed upstream it
-needs to treat `EINTR` and `EAGAIN` as a wakeup, as the Linux version does.
+- Runs on Linux, Windows, macOS
 
 ## Running a server
 
@@ -38,8 +26,6 @@ yap-server               # or: yap-server path/to/config.json
 
 The first run writes `config.json` (see `config.example.json`): the port,
 the server's private key, an optional password, logging, the web relay
-and the channel layout. A `server.key` and `channels.json` from older
-versions are taken over into it, so clients keep trusting the server.
-The file holds the private key, so keep it private.
+and the channel layout.
 
-*I have no idea how encryption works
+\*I have no idea how encryption works
