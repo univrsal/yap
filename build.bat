@@ -72,5 +72,5 @@ exit /b 0
 :add_commit
 rem call, in case git is a .bat/.cmd shim, which would otherwise not return.
 call git diff --quiet HEAD 2>nul || set "COMMIT=%COMMIT%-dirty"
-set DEFINES=%DEFINES% "-define:YAP_COMMIT=%COMMIT%"
+set DEFINES=%DEFINES% "-define:YAP_COMMIT=\"%COMMIT%\""
 exit /b 0
