@@ -365,7 +365,16 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		relay_video(s, c, pt)
 	case .Watch:
 		handle_watch(s, c.user, pt)
-	case .State, .Chat_Sent, .Chat, .Image_Gone, .Refused, .Keyframe:
+	case .Ping:
+		// Back on the session it came on, so the client times the path
+		// it measured.
+		pong_buf: [proto.PING_SIZE]byte
+		pong := proto.encode_ping(&pong_buf, .Pong, proto.decode_ping(pt))
+		pkt_buf: [proto.MAX_PACKET_SIZE]byte
+		if pkt, sealed := proto.seal(&c.session, pong, pkt_buf[:]); sealed {
+			net.send_udp(s.sock, pkt, c.endpoint)
+		}
+	case .State, .Chat_Sent, .Chat, .Image_Gone, .Refused, .Keyframe, .Pong:
 	// Server-to-client only.
 	}
 }

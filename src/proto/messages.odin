@@ -18,6 +18,7 @@ a keepalive. Integers are little-endian.
 	server -> client  Refused    [kind][reason u8]
 	(text chat: Chat_Send, Chat_Sent, Chat, Chat_Received, Typing; see chat.odin)
 	(screen sharing: Video, Watch, Keyframe; see video.odin)
+	(connection quality: Ping, Pong; see ping.odin)
 
 Users are identified by a number the server assigns (`speaker` in Voice,
 members in State; User_Num). Numbers are unique per server run and never
@@ -95,6 +96,9 @@ Message_Kind :: enum u8 {
 	Video         = 20,
 	Watch         = 21,
 	Keyframe      = 22,
+	// Measuring the connection, see ping.odin.
+	Ping          = 23,
+	Pong          = 24,
 }
 
 // Why the server refused a hello.
@@ -214,6 +218,8 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == WATCH_SIZE
 	case .Keyframe:
 		ok = len(pt) == KEYFRAME_SIZE
+	case .Ping, .Pong:
+		ok = len(pt) == PING_SIZE
 	}
 	return
 }

@@ -36,6 +36,7 @@ Voice_Client :: struct {
 	chat:          Chat_Client,
 	images:        Image_Client,
 	video:         Video_Client,
+	ping:          Ping_Tracker,
 	commands:      Command_Queue,
 	status:        Status,
 	// Shared with the UI, if there is one; nil in headless mode.
@@ -123,6 +124,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 
 	if c.has_current {
 		voice_step(c)
+		ping_step(c)
 		if time.tick_since(c.last_sent) >= proto.KEEPALIVE_AFTER {
 			send_data(c, nil)
 		}
@@ -281,6 +283,8 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			handle_video(c, pt)
 		case .Keyframe:
 			video_keyframe_requested(c)
+		case .Pong:
+			handle_pong(c, pt)
 		}
 	}
 	return true
@@ -407,6 +411,14 @@ log_stats :: proc(c: ^Voice_Client) {
 	}
 	if underruns := sync.atomic_exchange(&v.underruns, 0); underruns > 0 {
 		fmt.sbprintf(&b, " | %d output underruns", underruns)
+	}
+	if ping := connection_stats(&c.ping, c.last_stats); ping.quality != .Unknown {
+		fmt.sbprintf(
+			&b,
+			" | ping %.1f ms, loss %.1f%%",
+			time.duration_milliseconds(ping.avg_rtt),
+			connection_loss(ping),
+		)
 	}
 	log.debug(strings.to_string(b))
 	v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed, v.dropouts = 0, 0, 0, 0, 0, 0

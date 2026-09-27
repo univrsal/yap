@@ -70,6 +70,8 @@ View :: struct {
 	pokes:      [dynamic]View_Poke,
 	// Whose screen we're watching, or 0.
 	watching:   proto.User_Num,
+	// How the pings to the server are doing (ping.odin).
+	connection: Connection_Stats,
 }
 
 Key_Change :: struct {
@@ -121,6 +123,7 @@ view_reset :: proc(v: ^View) {
 	v.status = .Disconnected
 	v.my_channel, v.joining = -1, -1
 	v.watching = 0
+	v.connection = {}
 	clear(&v.speaking)
 	view_clear_chat(v)
 	view_clear_outbox(v)
@@ -306,6 +309,16 @@ publish_watching :: proc(c: ^Voice_Client) {
 	}
 	sync.guard(&v.mutex)
 	v.watching = c.video.watching
+}
+
+publish_connection :: proc(c: ^Voice_Client) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	stats := connection_stats(&c.ping, time.tick_now())
+	sync.guard(&v.mutex)
+	v.connection = stats
 }
 
 publish_poke :: proc(c: ^Voice_Client, name, message: string) {

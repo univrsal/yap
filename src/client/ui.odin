@@ -1002,9 +1002,12 @@ session_screen :: proc(ui: ^UI) {
 
 	can_share := video_can_share()
 	if can_share {
-		mu.layout_row(ctx, {-174, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+		mu.layout_row(
+			ctx,
+			{-208, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
+		)
 	} else {
-		mu.layout_row(ctx, {-140, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+		mu.layout_row(ctx, {-174, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
 	}
 	switch v.status {
 	case .Connected:
@@ -1013,6 +1016,7 @@ session_screen :: proc(ui: ^UI) {
 	case .Connecting, .Disconnected, .Failed:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
 	}
+	connection_indicator(ui)
 	if .SUBMIT in
 	   icon_button(
 		   ui,
@@ -1168,8 +1172,9 @@ icon_button :: proc(
 
 /*
 icon_hint draws what the icon button under the pointer does, just below
-it. It comes after the panels it may overlap, so it's drawn over them
-rather than under.
+it: or the tooltip of whatever else set `ui.hint`, which may run over
+several lines. It comes after the panels it may overlap, so it's drawn
+over them rather than under.
 */
 @(private = "file")
 icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
@@ -1180,8 +1185,15 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 	defer ui.hint = ""
 
 	pad := ctx.style.padding
-	w := ctx.text_width(ctx.style.font, ui.hint) + 2 * pad
-	h := ctx.text_height(ctx.style.font) + 2 * pad
+	line_h := ctx.text_height(ctx.style.font)
+	w, lines: i32
+	rest := ui.hint
+	for line in strings.split_lines_iterator(&rest) {
+		w = max(w, ctx.text_width(ctx.style.font, line))
+		lines += 1
+	}
+	w += 2 * pad
+	h := lines * line_h + 2 * pad
 	// Under the button, pushed left if it would go off the side, and
 	// above it if there's no room below (the chat box's Send button).
 	x := min(ui.hint_of.x, max(window_w - w, 0))
@@ -1192,7 +1204,12 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 	r := mu.Rect{x, y, w, h}
 	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
 	mu.draw_box(ctx, r, ctx.style.colors[.BORDER])
-	mu.draw_text(ctx, ctx.style.font, ui.hint, {x + pad, y + pad}, ctx.style.colors[.TEXT])
+	line_y := y + pad
+	rest = ui.hint
+	for line in strings.split_lines_iterator(&rest) {
+		mu.draw_text(ctx, ctx.style.font, line, {x + pad, line_y}, ctx.style.colors[.TEXT])
+		line_y += line_h
+	}
 }
 
 stable_button :: proc(ctx: ^mu.Context, id_name: string, label: string) -> (res: mu.Result_Set) {
