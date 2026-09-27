@@ -20,7 +20,11 @@ when ODIN_OS == .Windows {
 
 when ODIN_OS != .WASI {
 	when !#exists(LIB) {
-		#panic("src/client/rnn/" + LIB + " is missing; build it with build.sh (or build.bat on Windows)")
+		#panic(
+			"src/client/rnn/" +
+			LIB +
+			" is missing; build it with build.sh (or build.bat on Windows)",
+		)
 	}
 }
 

@@ -111,7 +111,15 @@ malloc_allocator_proc :: proc(
 		}
 		if alignment > MALLOC_ALIGNMENT {
 			// realloc can't promise the alignment, so move it by hand.
-			new_data, err := malloc_allocator_proc(allocator_data, .Alloc, size, alignment, nil, 0, loc)
+			new_data, err := malloc_allocator_proc(
+				allocator_data,
+				.Alloc,
+				size,
+				alignment,
+				nil,
+				0,
+				loc,
+			)
 			if err != nil {
 				return nil, err
 			}

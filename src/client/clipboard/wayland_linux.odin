@@ -1,8 +1,8 @@
 package clipboard
 
+import log "../../common/wlog"
 import "base:runtime"
 import "core:dynlib"
-import log "../../common/wlog"
 import "core:strings"
 import "core:sys/linux"
 import "core:time"
@@ -77,7 +77,11 @@ Symbols :: struct {
 		flags: u32,
 		args: [^]Argument,
 	) -> rawptr,
-	proxy_add_listener:             proc "c" (proxy: rawptr, listener: rawptr, data: rawptr) -> i32,
+	proxy_add_listener:             proc "c" (
+		proxy: rawptr,
+		listener: rawptr,
+		data: rawptr,
+	) -> i32,
 	proxy_get_version:              proc "c" (proxy: rawptr) -> u32,
 	proxy_destroy:                  proc "c" (proxy: rawptr),
 	// Interface descriptions (data, not functions).
@@ -123,7 +127,11 @@ data_device_listener := [6]rawptr {
 	rawptr(device_selection),
 }
 @(private = "file")
-data_offer_listener := [3]rawptr{rawptr(offer_offer), rawptr(offer_source_actions), rawptr(offer_action)}
+data_offer_listener := [3]rawptr {
+	rawptr(offer_offer),
+	rawptr(offer_source_actions),
+	rawptr(offer_action),
+}
 
 // Our queue is only dispatched from wayland_init and wayland_read, so the
 // handlers always run inside them, and take their context from there.
@@ -132,7 +140,8 @@ handler_context: runtime.Context
 
 wayland_init :: proc(display: rawptr) -> bool {
 	s := &wl.sym
-	if _, ok := dynlib.initialize_symbols(s, "libwayland-client.so.0", "wl_"); !ok || !all_symbols(s) {
+	if _, ok := dynlib.initialize_symbols(s, "libwayland-client.so.0", "wl_");
+	   !ok || !all_symbols(s) {
 		log.debug("clipboard: couldn't load libwayland-client")
 		return false
 	}
@@ -200,7 +209,14 @@ wayland_destroy :: proc() {
 	delete(wl.offers)
 	if wl.device != nil {
 		if s.proxy_get_version(wl.device) >= 2 {
-			s.proxy_marshal_array_flags(wl.device, DATA_DEVICE_RELEASE, nil, s.proxy_get_version(wl.device), MARSHAL_FLAG_DESTROY, nil)
+			s.proxy_marshal_array_flags(
+				wl.device,
+				DATA_DEVICE_RELEASE,
+				nil,
+				s.proxy_get_version(wl.device),
+				MARSHAL_FLAG_DESTROY,
+				nil,
+			)
 		} else {
 			s.proxy_destroy(wl.device)
 		}
@@ -253,11 +269,22 @@ wayland_read :: proc(allocator := context.allocator) -> (data: []u8, mime: strin
 	args := [2]Argument{{s = mime_c}, {h = i32(fds[1])}}
 	// libwayland sends a duplicate of the fd, so ours can go right away;
 	// the read end sees EOF once the source closes its copy.
-	s.proxy_marshal_array_flags(offer.proxy, DATA_OFFER_RECEIVE, nil, s.proxy_get_version(offer.proxy), 0, &args[0])
+	s.proxy_marshal_array_flags(
+		offer.proxy,
+		DATA_OFFER_RECEIVE,
+		nil,
+		s.proxy_get_version(offer.proxy),
+		0,
+		&args[0],
+	)
 	linux.close(fds[1])
 	s.display_flush(wl.display)
 
-	data, err = read_all(fds[0], time.tick_add(time.tick_now(), READ_TIMEOUT_MS * time.Millisecond), allocator)
+	data, err = read_all(
+		fds[0],
+		time.tick_add(time.tick_now(), READ_TIMEOUT_MS * time.Millisecond),
+		allocator,
+	)
 	if err == .None && len(data) == 0 {
 		// Nothing came back: some compositors (weston) only serve the
 		// newest offer they made the client, which is GLFW's, not ours.
@@ -320,7 +347,14 @@ destroy_offer :: proc(proxy: rawptr) {
 		}
 	}
 	s := &wl.sym
-	s.proxy_marshal_array_flags(proxy, DATA_OFFER_DESTROY, nil, s.proxy_get_version(proxy), MARSHAL_FLAG_DESTROY, nil)
+	s.proxy_marshal_array_flags(
+		proxy,
+		DATA_OFFER_DESTROY,
+		nil,
+		s.proxy_get_version(proxy),
+		MARSHAL_FLAG_DESTROY,
+		nil,
+	)
 	if wl.selection == proxy {
 		wl.selection = nil
 	}
@@ -347,7 +381,12 @@ registry_global :: proc "c" (data, registry: rawptr, name: u32, interface: cstri
 		}
 	case "wl_data_device_manager":
 		if wl.manager == nil {
-			wl.manager = bind(name, wl.sym.data_device_manager_interface, "wl_data_device_manager", min(version, 3))
+			wl.manager = bind(
+				name,
+				wl.sym.data_device_manager_interface,
+				"wl_data_device_manager",
+				min(version, 3),
+			)
 		}
 	}
 }
@@ -363,7 +402,13 @@ device_data_offer :: proc "c" (data, device, offer: rawptr) {
 }
 
 @(private = "file")
-device_enter :: proc "c" (data, device: rawptr, serial: u32, surface: rawptr, x, y: i32, offer: rawptr) {
+device_enter :: proc "c" (
+	data, device: rawptr,
+	serial: u32,
+	surface: rawptr,
+	x, y: i32,
+	offer: rawptr,
+) {
 	context = handler_context
 	wl.dnd = offer
 }

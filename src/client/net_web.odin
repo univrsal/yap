@@ -45,14 +45,15 @@ net_step :: proc(ui: ^UI) {
 		return
 	}
 	start := time.tick_now()
-	for i := 0; ; i += 1 {
+	for i := 0;; i += 1 {
 		if !client_step(ns.client) {
 			ns.stopped = true
 			client_close(ns.client)
 			return
 		}
 		if i + 1 >= NET_STEPS_PER_FRAME &&
-		   (!transport_pending(&ns.client.transport) || time.tick_since(start) >= NET_FRAME_BUDGET) {
+		   (!transport_pending(&ns.client.transport) ||
+				   time.tick_since(start) >= NET_FRAME_BUDGET) {
 			return
 		}
 	}

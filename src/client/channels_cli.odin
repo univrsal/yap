@@ -1,8 +1,8 @@
 #+build !wasi
 package client
 
-import "core:bufio"
 import log "../common/wlog"
+import "core:bufio"
 import "core:os"
 import "core:strings"
 import "core:thread"
@@ -71,7 +71,10 @@ read_commands :: proc(q: ^Command_Queue) {
 		case strings.has_prefix(line, "/poke "):
 			rest := strings.trim_space(line[len("/poke "):])
 			name, _, message := strings.partition(rest, " ")
-			push_command(q, Poke_Command{name = strings.clone(name), message = strings.clone(message)})
+			push_command(
+				q,
+				Poke_Command{name = strings.clone(name), message = strings.clone(message)},
+			)
 		case strings.has_prefix(line, "/file "):
 			rest := strings.trim_space(line[len("/file "):])
 			to, _, path := strings.partition(rest, " ")
@@ -138,7 +141,9 @@ read_commands :: proc(q: ^Command_Queue) {
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>, /dmimage <name|key> <file>, /file <name|key> <file>, /accept, /decline, /cancel, /seen <key>")
+			log.warn(
+				"commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>, /dmimage <name|key> <file>, /file <name|key> <file>, /accept, /decline, /cancel, /seen <key>",
+			)
 		}
 	}
 }

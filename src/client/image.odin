@@ -1,8 +1,8 @@
 #+build !wasi
 package client
 
-import "base:runtime"
 import log "../common/wlog"
+import "base:runtime"
 import "core:math"
 import "core:os"
 import stbi "vendor:stb/image"
@@ -58,7 +58,13 @@ image_load :: proc(path: string, allocator := context.allocator) -> (img: Chat_I
 }
 
 // image_prepare scales and compresses a pasted image for sending.
-image_prepare :: proc(src: clipboard.Image, allocator := context.allocator) -> (img: Chat_Image, ok: bool) {
+image_prepare :: proc(
+	src: clipboard.Image,
+	allocator := context.allocator,
+) -> (
+	img: Chat_Image,
+	ok: bool,
+) {
 	if src.width <= 0 || src.height <= 0 || len(src.pixels) < src.width * src.height * 4 {
 		return {}, false
 	}
@@ -102,7 +108,13 @@ image_prepare :: proc(src: clipboard.Image, allocator := context.allocator) -> (
 			log.debugf("image: %dx%d, quality %d, %d bytes", w, h, quality, len(jpeg))
 			return {jpeg = jpeg, width = w, height = h}, true
 		}
-		log.debugf("image: %dx%d, quality %d is %d bytes, over the budget", w, h, quality, len(jpeg))
+		log.debugf(
+			"image: %dx%d, quality %d is %d bytes, over the budget",
+			w,
+			h,
+			quality,
+			len(jpeg),
+		)
 		over := len(jpeg)
 		delete(jpeg, allocator)
 
@@ -158,7 +170,15 @@ Jpeg_Writer :: struct {
 }
 
 @(private = "file")
-encode_jpeg :: proc(rgb: []u8, w, h: int, quality: i32, allocator := context.allocator) -> (jpeg: []u8, ok: bool) {
+encode_jpeg :: proc(
+	rgb: []u8,
+	w, h: int,
+	quality: i32,
+	allocator := context.allocator,
+) -> (
+	jpeg: []u8,
+	ok: bool,
+) {
 	writer := Jpeg_Writer {
 		ctx = context,
 		buf = make([dynamic]u8, 0, 64 * 1024, allocator),

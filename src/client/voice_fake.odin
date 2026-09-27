@@ -67,23 +67,26 @@ run_periodic :: proc(f: ^Fake_Audio, tick: proc(f: ^Fake_Audio, samples: []f32, 
 
 @(private = "file")
 fake_source :: proc(f: ^Fake_Audio) {
-	run_periodic(f, proc(f: ^Fake_Audio, buf: []f32, n: int) {
-		// The tone and input files are mono: the same on both channels.
-		frames := len(buf) / CHANNELS
-		for i in 0 ..< frames {
-			pos := n * frames + i
-			s: f32
-			if len(f.input) > 0 {
-				s = f.input[pos % len(f.input)]
-			} else {
-				s = f32(0.3 * math.sin(2 * math.PI * f64(f.tone_hz) * f64(pos) / SAMPLE_RATE))
+	run_periodic(
+		f,
+		proc(f: ^Fake_Audio, buf: []f32, n: int) {
+			// The tone and input files are mono: the same on both channels.
+			frames := len(buf) / CHANNELS
+			for i in 0 ..< frames {
+				pos := n * frames + i
+				s: f32
+				if len(f.input) > 0 {
+					s = f.input[pos % len(f.input)]
+				} else {
+					s = f32(0.3 * math.sin(2 * math.PI * f64(f.tone_hz) * f64(pos) / SAMPLE_RATE))
+				}
+				for c in 0 ..< CHANNELS {
+					buf[i * CHANNELS + c] = s
+				}
 			}
-			for c in 0 ..< CHANNELS {
-				buf[i * CHANNELS + c] = s
-			}
-		}
-		ring_write(&f.voice.capture, buf)
-	})
+			ring_write(&f.voice.capture, buf)
+		},
+	)
 }
 
 Sink_Stats :: struct {
@@ -95,34 +98,41 @@ Sink_Stats :: struct {
 
 @(private = "file")
 fake_sink :: proc(f: ^Fake_Audio) {
-	run_periodic(f, proc(f: ^Fake_Audio, buf: []f32, n: int) {
-		got := ring_read(&f.voice.playback, buf)
-		for &s in buf[got:] {
-			s = 0
-		}
-		if got < len(buf) {
-			sync.atomic_add(&f.voice.underruns, 1)
-		}
-		// Measure the left channel.
-		stats := &f.heard
-		for i := 0; i < len(buf); i += CHANNELS {
-			s := buf[i]
-			stats.sum_sq += f64(s * s)
-			if (s >= 0) != (stats.last >= 0) {
-				stats.crossings += 1
+	run_periodic(
+		f,
+		proc(f: ^Fake_Audio, buf: []f32, n: int) {
+			got := ring_read(&f.voice.playback, buf)
+			for &s in buf[got:] {
+				s = 0
 			}
-			stats.last = s
-		}
-		stats.samples += len(buf) / CHANNELS
-		if stats.samples >= SAMPLE_RATE {
-			rms := math.sqrt(stats.sum_sq / f64(stats.samples))
-			seconds := f64(stats.samples) / SAMPLE_RATE
-			if rms > 0.01 {
-				log.infof("heard: level %.3f, ~%.0f Hz", rms, f64(stats.crossings) / 2 / seconds)
-			} else {
-				log.infof("heard: silence")
+			if got < len(buf) {
+				sync.atomic_add(&f.voice.underruns, 1)
 			}
-			stats^ = {}
-		}
-	})
+			// Measure the left channel.
+			stats := &f.heard
+			for i := 0; i < len(buf); i += CHANNELS {
+				s := buf[i]
+				stats.sum_sq += f64(s * s)
+				if (s >= 0) != (stats.last >= 0) {
+					stats.crossings += 1
+				}
+				stats.last = s
+			}
+			stats.samples += len(buf) / CHANNELS
+			if stats.samples >= SAMPLE_RATE {
+				rms := math.sqrt(stats.sum_sq / f64(stats.samples))
+				seconds := f64(stats.samples) / SAMPLE_RATE
+				if rms > 0.01 {
+					log.infof(
+						"heard: level %.3f, ~%.0f Hz",
+						rms,
+						f64(stats.crossings) / 2 / seconds,
+					)
+				} else {
+					log.infof("heard: silence")
+				}
+				stats^ = {}
+			}
+		},
+	)
 }

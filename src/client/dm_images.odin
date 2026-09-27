@@ -77,7 +77,12 @@ dm_fetch_destroy :: proc(c: ^Voice_Client) {
 
 // dm_send_image seals `jpeg` for `to` and queues it. It takes the JPEG
 // over. Images only go to someone who's online.
-dm_send_image :: proc(c: ^Voice_Client, to_or_zero: [proto.KEY_SIZE]u8, name: string, image: Chat_Image) {
+dm_send_image :: proc(
+	c: ^Voice_Client,
+	to_or_zero: [proto.KEY_SIZE]u8,
+	name: string,
+	image: Chat_Image,
+) {
 	image := image
 	to, found := dm_recipient(c, to_or_zero, name)
 	if !found || !dm_online(c, to) {
@@ -137,7 +142,13 @@ dm_send_image :: proc(c: ^Voice_Client, to_or_zero: [proto.KEY_SIZE]u8, name: st
 	dm_save(c, conv)
 	publish_dm_picture(c, msg.picture)
 	publish_dm_conversation(c, conv, unread = false)
-	log.debugf("dm: sending %s a %dx%d image, %d bytes", fingerprint(to), image.width, image.height, len(image.jpeg))
+	log.debugf(
+		"dm: sending %s a %dx%d image, %d bytes",
+		fingerprint(to),
+		image.width,
+		image.height,
+		len(image.jpeg),
+	)
 	if len(c.dms.outbox) == 1 {
 		drive_dm(c)
 	}
@@ -197,14 +208,21 @@ dm_image_upload_step :: proc(c: ^Voice_Client, out: ^DM_Outgoing) {
 		send_data(c, proto.encode_blob_chunk(buf[:], out.id, index, data))
 		out.tokens -= f32(len(data))
 	}
-	if proto.blob_sender_idle(&out.upload) && time.tick_since(out.last_send) >= proto.CONTROL_RESEND {
+	if proto.blob_sender_idle(&out.upload) &&
+	   time.tick_since(out.last_send) >= proto.CONTROL_RESEND {
 		announce(c, out, now)
 	}
 }
 
 // dm_image_upload_need takes the server's Blob_Need for our image DM's
 // picture (handle_blob_need passes on those that aren't the chat's).
-dm_image_upload_need :: proc(c: ^Voice_Client, handle: u64, complete: bool, count: int, indices: []u8) {
+dm_image_upload_need :: proc(
+	c: ^Voice_Client,
+	handle: u64,
+	complete: bool,
+	count: int,
+	indices: []u8,
+) {
 	if len(c.dms.outbox) == 0 {
 		return
 	}

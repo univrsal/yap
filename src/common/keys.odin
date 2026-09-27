@@ -2,8 +2,8 @@ package common
 
 import "core:crypto/ecdh"
 import "core:encoding/hex"
-import log "wlog"
 import "core:strings"
+import log "wlog"
 
 import "../proto"
 

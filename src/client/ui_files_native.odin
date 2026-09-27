@@ -98,7 +98,10 @@ file_pick_poll :: proc(ui: ^UI) {
 	switch job.status {
 	case .Ok:
 		if ui.session != nil && job.path != "" {
-			push_command(&ui.session.client.commands, Send_File_Command{to = job.to, path = job.path})
+			push_command(
+				&ui.session.client.commands,
+				Send_File_Command{to = job.to, path = job.path},
+			)
 			job.path = "" // the command has it now
 		}
 	case .Cancelled:

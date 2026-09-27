@@ -55,7 +55,14 @@ _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: stri
 
 // read_all reads `fd` to its end, giving up at `deadline` or past
 // MAX_DATA_SIZE. It closes `fd`.
-read_all :: proc(fd: linux.Fd, deadline: time.Tick, allocator := context.allocator) -> (data: []u8, err: Error) {
+read_all :: proc(
+	fd: linux.Fd,
+	deadline: time.Tick,
+	allocator := context.allocator,
+) -> (
+	data: []u8,
+	err: Error,
+) {
 	defer linux.close(fd)
 	buf := make([dynamic]u8, 0, 64 * 1024, allocator)
 	chunk: [64 * 1024]u8

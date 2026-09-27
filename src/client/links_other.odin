@@ -16,7 +16,7 @@ platform_open_url :: proc(url: string) -> bool {
 	// The opener exits once it has passed the URL on; reap it off the UI
 	// thread so it doesn't linger as a zombie (waiting also frees the handle).
 	thread.create_and_start_with_poly_data(p, proc(p: os.Process) {
-		_, _ = os.process_wait(p)
-	}, self_cleanup = true)
+			_, _ = os.process_wait(p)
+		}, self_cleanup = true)
 	return true
 }

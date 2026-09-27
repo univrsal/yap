@@ -118,7 +118,11 @@ dm_check :: proc(
 		}
 	}
 	if waiting >= proto.MAX_HELD_DMS || from_them >= proto.MAX_HELD_DMS_FROM {
-		log.debugf("%s: DM refused, %08x has too many waiting", user_label(from), common.key_id(to))
+		log.debugf(
+			"%s: DM refused, %08x has too many waiting",
+			user_label(from),
+			common.key_id(to),
+		)
 		return .Full, false
 	}
 	return .Held, true
@@ -151,7 +155,12 @@ dm_hold :: proc(
 	recent_add(recent, id)
 	s.dms.dirty = true
 	last_seen_sent(s, from.key, to)
-	log.debugf("%s: DM for %08x held (%d waiting)", user_label(from), common.key_id(to), len(queue))
+	log.debugf(
+		"%s: DM for %08x held (%d waiting)",
+		user_label(from),
+		common.key_id(to),
+		len(queue),
+	)
 }
 
 @(private = "file")
@@ -285,8 +294,8 @@ handle_dm_image_get :: proc(s: ^Server, c: ^Client, pt: []u8) {
 	down^ = {
 		active = true,
 		handle = id,
-		send   = {data = img.data},
-		last   = time.tick_now(),
+		send = {data = img.data},
+		last = time.tick_now(),
 	}
 	log.debugf("sending image DM %x to %s", id, user_label(u))
 }
@@ -294,7 +303,14 @@ handle_dm_image_get :: proc(s: ^Server, c: ^Client, pt: []u8) {
 // dm_image_need is a recipient's Blob_Need for an image DM's picture
 // (handle_blob_need passes on those that aren't for a chat image). Once
 // they have all of it, the server lets it go.
-dm_image_need :: proc(s: ^Server, u: ^User, handle: u64, complete: bool, count: int, indices: []u8) {
+dm_image_need :: proc(
+	s: ^Server,
+	u: ^User,
+	handle: u64,
+	complete: bool,
+	count: int,
+	indices: []u8,
+) {
 	down := &u.dm_download
 	if !down.active || down.handle != handle {
 		return

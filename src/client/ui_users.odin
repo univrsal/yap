@@ -252,15 +252,22 @@ user_menu :: proc(ui: ^UI) {
 	}
 
 	// Watch their screen, if they're sharing it.
-	if user, ok := ui.view.users[ui.menu_user]; ok && user.key == key && user.sharing && ui.menu_user != ui.view.my_num {
+	if user, ok := ui.view.users[ui.menu_user];
+	   ok && user.key == key && user.sharing && ui.menu_user != ui.view.my_num {
 		mu.layout_row(ctx, {MENU_WIDTH})
 		if video_can_watch() {
 			watching := ui.view.watching == ui.menu_user
-			if .SUBMIT in stable_button(ctx, "watch", "Stop watching" if watching else "Watch their screen") {
+			if .SUBMIT in
+			   stable_button(ctx, "watch", "Stop watching" if watching else "Watch their screen") {
 				watch(ui, 0 if watching else ui.menu_user)
 			}
 		} else {
-			with_text_color(ctx, DIM_COLOR, "Sharing their screen (watch in a browser)", label_proc)
+			with_text_color(
+				ctx,
+				DIM_COLOR,
+				"Sharing their screen (watch in a browser)",
+				label_proc,
+			)
 		}
 	}
 

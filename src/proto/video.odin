@@ -227,7 +227,13 @@ can be decoded, it returns it; a complete frame that can't (a delta
 while broken) is dropped.
 */
 @(require_results)
-video_assembler_add :: proc(a: ^Video_Assembler, f: Video_Fragment) -> (frame: Video_Frame, complete: bool) {
+video_assembler_add :: proc(
+	a: ^Video_Assembler,
+	f: Video_Fragment,
+) -> (
+	frame: Video_Frame,
+	complete: bool,
+) {
 	if a.have_last && !serial_newer(f.frame, a.last) {
 		return // late, or a repeat
 	}

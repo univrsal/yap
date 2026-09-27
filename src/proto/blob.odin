@@ -54,12 +54,22 @@ encode_blob_chunk :: proc(out: []u8, handle: u64, index: int, data: []u8) -> []u
 }
 
 decode_blob_chunk :: proc(pt: []u8) -> (handle: u64, index: int, data: []u8) {
-	return endian.unchecked_get_u64le(pt[1:]), int(endian.unchecked_get_u16le(pt[9:])), pt[BLOB_CHUNK_HEADER_SIZE:]
+	return endian.unchecked_get_u64le(pt[1:]),
+		int(endian.unchecked_get_u16le(pt[9:])),
+		pt[BLOB_CHUNK_HEADER_SIZE:]
 }
 
 // encode_blob_need writes as many of `indices` as fit, and returns the
 // message and how many it took.
-encode_blob_need :: proc(out: []u8, handle: u64, complete: bool, indices: []u16) -> (msg: []u8, count: int) {
+encode_blob_need :: proc(
+	out: []u8,
+	handle: u64,
+	complete: bool,
+	indices: []u16,
+) -> (
+	msg: []u8,
+	count: int,
+) {
 	count = min(len(indices), (len(out) - BLOB_NEED_HEADER_SIZE) / 2, BLOB_NEED_MAX_INDICES)
 	out[0] = u8(Message_Kind.Blob_Need)
 	endian.unchecked_put_u64le(out[1:], handle)
@@ -74,7 +84,15 @@ encode_blob_need :: proc(out: []u8, handle: u64, complete: bool, indices: []u16)
 // decode_blob_need returns the indices as the raw bytes they are in the
 // packet; read them with blob_need_index.
 @(require_results)
-decode_blob_need :: proc(pt: []u8) -> (handle: u64, complete: bool, count: int, indices: []u8, ok: bool) {
+decode_blob_need :: proc(
+	pt: []u8,
+) -> (
+	handle: u64,
+	complete: bool,
+	count: int,
+	indices: []u8,
+	ok: bool,
+) {
 	if len(pt) < BLOB_NEED_HEADER_SIZE {
 		return
 	}

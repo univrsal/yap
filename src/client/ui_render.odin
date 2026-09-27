@@ -145,13 +145,7 @@ ui_text_height :: proc(font: mu.Font) -> i32 {
 // render draws one frame of microui output into an fb_w x fb_h
 // framebuffer; `scale` is physical pixels per logical pixel (the display's
 // density).
-render :: proc(
-	r: ^Renderer,
-	ctx: ^mu.Context,
-	fb_w, fb_h: i32,
-	scale: f32,
-	clear: mu.Color,
-) {
+render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clear: mu.Color) {
 	// Everything is snapped to physical pixels as round(v * scale) /
 	// scale, which only lands on them if the projection maps a logical
 	// pixel to exactly `scale` physical ones, on both axes. The layout's
@@ -171,7 +165,13 @@ render :: proc(
 	if scale != r.font.scale {
 		if font_build_atlas(&r.font, scale) {
 			gpu_texture_delete(&r.gpu, &r.font_texture)
-			r.font_texture = gpu_texture_make(&r.gpu, .Alpha, r.font.width, r.font.height, r.font.pixels)
+			r.font_texture = gpu_texture_make(
+				&r.gpu,
+				.Alpha,
+				r.font.width,
+				r.font.height,
+				r.font.pixels,
+			)
 		}
 	}
 	// The fallback font's atlas fills up as text needs glyphs; it starts
@@ -183,7 +183,13 @@ render :: proc(
 	if scale != r.icons.scale {
 		if icon_atlas_build(&r.icons, scale) {
 			gpu_texture_delete(&r.gpu, &r.icons_texture)
-			r.icons_texture = gpu_texture_make(&r.gpu, .Alpha, r.icons.width, r.icons.height, r.icons.pixels)
+			r.icons_texture = gpu_texture_make(
+				&r.gpu,
+				.Alpha,
+				r.icons.width,
+				r.icons.height,
+				r.icons.pixels,
+			)
 		}
 	}
 

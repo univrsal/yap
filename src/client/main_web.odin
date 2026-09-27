@@ -1,8 +1,8 @@
 #+build wasi
 package client
 
-import "base:runtime"
 import log "../common/wlog"
+import "base:runtime"
 import "core:reflect"
 import "core:strconv"
 import "core:strings"

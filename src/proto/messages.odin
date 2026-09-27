@@ -243,7 +243,9 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 	case .Ping, .Pong:
 		ok = len(pt) == PING_SIZE
 	case .DM_Send:
-		ok = len(pt) >= DM_SEND_HEADER_SIZE + TAG_SIZE && len(pt) <= DM_SEND_HEADER_SIZE + MAX_DM_SEALED
+		ok =
+			len(pt) >= DM_SEND_HEADER_SIZE + TAG_SIZE &&
+			len(pt) <= DM_SEND_HEADER_SIZE + MAX_DM_SEALED
 	case .DM:
 		ok = len(pt) >= DM_HEADER_SIZE + TAG_SIZE && len(pt) <= DM_HEADER_SIZE + MAX_DM_SEALED
 	case .DM_Sent:
@@ -269,7 +271,10 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 	case .Last_Seen_Get:
 		ok = len(pt) >= 2 && int(pt[1]) <= MAX_LAST_SEEN && len(pt) == 2 + int(pt[1]) * KEY_SIZE
 	case .Last_Seen:
-		ok = len(pt) >= 2 && int(pt[1]) <= MAX_LAST_SEEN && len(pt) == 2 + int(pt[1]) * LAST_SEEN_ENTRY_SIZE
+		ok =
+			len(pt) >= 2 &&
+			int(pt[1]) <= MAX_LAST_SEEN &&
+			len(pt) == 2 + int(pt[1]) * LAST_SEEN_ENTRY_SIZE
 	}
 	return
 }

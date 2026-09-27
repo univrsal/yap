@@ -33,10 +33,10 @@ Image_State :: enum {
 }
 
 Client_Image :: struct {
-	info:      proto.Image_Info,
-	state:     Image_State,
-	data:      []u8, // the JPEG, once Ready
-	recv:      proto.Blob_Receiver,
+	info:       proto.Image_Info,
+	state:      Image_State,
+	data:       []u8, // the JPEG, once Ready
+	recv:       proto.Blob_Receiver,
 	requested:  time.Tick, // when we last asked for something
 	last_chunk: time.Tick,
 	started:    bool, // chunks have begun arriving
@@ -252,7 +252,8 @@ image_upload_step :: proc(c: ^Voice_Client, out: ^Chat_Outgoing, now: time.Tick)
 		send_data(c, proto.encode_blob_chunk(buf[:], out.nonce, index, data))
 		out.tokens -= f32(len(data))
 	}
-	if proto.blob_sender_idle(&out.send) && time.tick_since(out.last_send) >= proto.CONTROL_RESEND {
+	if proto.blob_sender_idle(&out.send) &&
+	   time.tick_since(out.last_send) >= proto.CONTROL_RESEND {
 		// Everything has gone out once; nudge the server for a new list
 		// of what's still missing.
 		out.last_send = now
@@ -283,7 +284,12 @@ handle_blob_need :: proc(c: ^Voice_Client, pt: []byte) {
 		out.send = {
 			data = out.jpeg,
 		}
-		log.debugf("uploading a %dx%d image, %d bytes", out.image.width, out.image.height, out.image.size)
+		log.debugf(
+			"uploading a %dx%d image, %d bytes",
+			out.image.width,
+			out.image.height,
+			out.image.size,
+		)
 		return
 	}
 	if out.send.next < proto.blob_chunk_count(len(out.jpeg)) {

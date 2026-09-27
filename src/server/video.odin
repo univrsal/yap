@@ -60,7 +60,8 @@ request_keyframe :: proc(s: ^Server, viewer: ^User, sharer: proto.User_Num) {
 		}
 		now := time.tick_now()
 		v := &u.video
-		if v.last_key_sent != {} && time.tick_diff(v.last_key_sent, now) < proto.KEYFRAME_REQUEST_MIN {
+		if v.last_key_sent != {} &&
+		   time.tick_diff(v.last_key_sent, now) < proto.KEYFRAME_REQUEST_MIN {
 			return
 		}
 		c := sending_session(s, u)
@@ -117,7 +118,10 @@ spend_budget :: proc(v: ^Video_State, n: int) -> bool {
 		v.budget = VIDEO_MAX_BURST
 	} else {
 		elapsed := time.tick_diff(v.budget_at, now)
-		v.budget = min(VIDEO_MAX_BURST, v.budget + int(time.duration_seconds(elapsed) * VIDEO_MAX_RATE))
+		v.budget = min(
+			VIDEO_MAX_BURST,
+			v.budget + int(time.duration_seconds(elapsed) * VIDEO_MAX_RATE),
+		)
 	}
 	v.budget_at = now
 	if v.budget < n {

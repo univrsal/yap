@@ -176,11 +176,20 @@ transfer_settings :: proc(ui: ^UI) {
 	changed := false
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Upload limit")
-	changed |= .CHANGE in mu.slider(ctx, &ui.settings.upload_limit, 0, MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+	changed |=
+		.CHANGE in
+		mu.slider(ctx, &ui.settings.upload_limit, 0, MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
 	mu.label(ctx, "Download limit")
-	changed |= .CHANGE in mu.slider(ctx, &ui.settings.download_limit, 0, MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+	changed |=
+		.CHANGE in
+		mu.slider(ctx, &ui.settings.download_limit, 0, MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, DIM_COLOR, "  0 is no limit. A download limit also slows down whoever is sending.", label_proc)
+	with_text_color(
+		ctx,
+		DIM_COLOR,
+		"  0 is no limit. A download limit also slows down whoever is sending.",
+		label_proc,
+	)
 	if changed {
 		// Sliders change every frame while dragged; saved within a second.
 		ui.settings_dirty = true

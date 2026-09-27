@@ -151,7 +151,13 @@ picture :: proc(ui: ^UI, r: mu.Rect) {
 		waiting := "Waiting for the picture..."
 		tw := ctx.text_width(ctx.style.font, waiting)
 		th := ctx.text_height(ctx.style.font)
-		mu.draw_text(ctx, ctx.style.font, waiting, {r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2}, DIM_COLOR)
+		mu.draw_text(
+			ctx,
+			ctx.style.font,
+			waiting,
+			{r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2},
+			DIM_COLOR,
+		)
 		return
 	}
 	// As big as fits, keeping its shape, in the middle.

@@ -58,17 +58,17 @@ Connection_Quality :: enum {
 
 // Connection_Stats sums up the window, for the UI.
 Connection_Stats :: struct {
-	quality:   Connection_Quality,
-	sent:      int, // pings old enough to judge
-	lost:      int,
-	lost_run:  int, // unanswered pings in a row, most recent first
-	last_rtt:  time.Duration,
-	avg_rtt:   time.Duration,
-	min_rtt:   time.Duration,
-	max_rtt:   time.Duration,
+	quality:  Connection_Quality,
+	sent:     int, // pings old enough to judge
+	lost:     int,
+	lost_run: int, // unanswered pings in a row, most recent first
+	last_rtt: time.Duration,
+	avg_rtt:  time.Duration,
+	min_rtt:  time.Duration,
+	max_rtt:  time.Duration,
 	// Mean difference between consecutive round trips, like RFC 3550's
 	// jitter, but unsmoothed over the window.
-	jitter:    time.Duration,
+	jitter:   time.Duration,
 }
 
 // ping_step sends the next ping when it's due.

@@ -1,10 +1,10 @@
 package common
 
 import "core:fmt"
-import log "wlog"
 import "core:strings"
 import "core:sync"
 import "core:time"
+import log "wlog"
 
 /*
 A core:log logger, so code just uses log.info, log.warnf, etc.

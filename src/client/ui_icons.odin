@@ -99,12 +99,7 @@ icon_rgba draws one icon on its own, in colour, for something that wants
 a picture rather than a piece of the atlas: the tray icon (ui_tray.odin).
 `side` is the picture's size in pixels, and the caller owns the result.
 */
-icon_rgba :: proc(
-	icon: Icon,
-	side: int,
-	color: mu.Color,
-	allocator := context.allocator,
-) -> []u8 {
+icon_rgba :: proc(icon: Icon, side: int, color: mu.Color, allocator := context.allocator) -> []u8 {
 	pixels := make([]u8, side * side * 4, allocator)
 	for y in 0 ..< side {
 		for x in 0 ..< side {

@@ -45,7 +45,8 @@ handle_file_accept :: proc(s: ^Server, c: ^Client, pt: []u8) {
 	}
 	route := s.file_routes[id] or_else nil
 	if route == nil {
-		if file_routes_of(s, u.key) >= MAX_FILE_ROUTES || file_routes_of(s, sender_key) >= MAX_FILE_ROUTES {
+		if file_routes_of(s, u.key) >= MAX_FILE_ROUTES ||
+		   file_routes_of(s, sender_key) >= MAX_FILE_ROUTES {
 			buf: [proto.FILE_CANCEL_SIZE]u8
 			send_message(s, c, proto.encode_file_cancel(&buf, id, sender_key, .Failed))
 			return

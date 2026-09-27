@@ -38,7 +38,8 @@ main :: proc() {
 	defer common.destroy_logging(logger)
 	context.logger = logger
 
-	if settings.relay.enabled && !start_relay(settings.relay.port, settings.port, settings.relay.web_dir) {
+	if settings.relay.enabled &&
+	   !start_relay(settings.relay.port, settings.port, settings.relay.web_dir) {
 		os.exit(1)
 	}
 	if !run_server(settings) {

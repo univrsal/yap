@@ -77,7 +77,12 @@ chat_append :: proc(l: ^Chat_Log, sender: proto.User_Num, name, text: string) {
 	m.text_len = u16(copy(m.text_buf[:], text))
 }
 
-chat_append_image :: proc(l: ^Chat_Log, sender: proto.User_Num, name: string, image: proto.Image_Info) {
+chat_append_image :: proc(
+	l: ^Chat_Log,
+	sender: proto.User_Num,
+	name: string,
+	image: proto.Image_Info,
+) {
 	m := chat_new(l, sender, name)
 	m.kind = .Image
 	m.image = image

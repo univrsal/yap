@@ -37,7 +37,8 @@ _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: stri
 	}
 	defer win.CloseClipboard()
 
-	if png := win.RegisterClipboardFormatW(win.L("PNG")); png != 0 && win.IsClipboardFormatAvailable(png) {
+	if png := win.RegisterClipboardFormatW(win.L("PNG"));
+	   png != 0 && win.IsClipboardFormatAvailable(png) {
 		if data, err = global_bytes(png, allocator); err == .None {
 			return data, "image/png", .None
 		}

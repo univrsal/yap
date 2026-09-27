@@ -36,19 +36,55 @@ test_file_offer_and_chunks :: proc(t: ^testing.T) {
 	// A chunk opens only as the index it was sealed as.
 	data := [5]u8{1, 2, 3, 4, 5}
 	sealed_buf: [FILE_CHUNK_DATA + TAG_SIZE]u8
-	sealed := dm_seal_with(&k_ab, alice_pub, bob_pub, 7, .File, file_chunk_nonce(offer.prefix, 2), data[:], sealed_buf[:])
+	sealed := dm_seal_with(
+		&k_ab,
+		alice_pub,
+		bob_pub,
+		7,
+		.File,
+		file_chunk_nonce(offer.prefix, 2),
+		data[:],
+		sealed_buf[:],
+	)
 	wire: [MAX_PAYLOAD_SIZE]u8
 	msg := encode_file_chunk(wire[:], 7, 2, sealed)
 	kind, kind_ok := message_kind(msg)
 	testing.expect(t, kind_ok && kind == .File_Chunk)
 	id, index, got_sealed := decode_file_chunk(msg)
 	out: [FILE_CHUNK_DATA]u8
-	opened, open_ok := dm_open(&k_ba, alice_pub, bob_pub, id, .File, file_chunk_nonce(offer.prefix, index), got_sealed, out[:])
+	opened, open_ok := dm_open(
+		&k_ba,
+		alice_pub,
+		bob_pub,
+		id,
+		.File,
+		file_chunk_nonce(offer.prefix, index),
+		got_sealed,
+		out[:],
+	)
 	testing.expect(t, open_ok)
 	testing.expect(t, string(opened) == string(data[:]))
-	_, open_ok = dm_open(&k_ba, alice_pub, bob_pub, id, .File, file_chunk_nonce(offer.prefix, 3), got_sealed, out[:])
+	_, open_ok = dm_open(
+		&k_ba,
+		alice_pub,
+		bob_pub,
+		id,
+		.File,
+		file_chunk_nonce(offer.prefix, 3),
+		got_sealed,
+		out[:],
+	)
 	testing.expect(t, !open_ok, "a chunk opened as another index")
-	_, open_ok = dm_open(&k_ba, alice_pub, bob_pub, id, .Body, file_chunk_nonce(offer.prefix, 2), got_sealed, out[:])
+	_, open_ok = dm_open(
+		&k_ba,
+		alice_pub,
+		bob_pub,
+		id,
+		.Body,
+		file_chunk_nonce(offer.prefix, 2),
+		got_sealed,
+		out[:],
+	)
 	testing.expect(t, !open_ok, "a chunk opened as a message")
 }
 
@@ -58,7 +94,11 @@ test_file_messages :: proc(t: ^testing.T) {
 	key[0] = 5
 	ack_buf: [MAX_PAYLOAD_SIZE]u8
 	missing := [3]u32{10, 12, 99}
-	msg := encode_file_ack(ack_buf[:], {id = 1, max_rate = 1000, base = 10, highest = 120, complete = false}, missing[:])
+	msg := encode_file_ack(
+		ack_buf[:],
+		{id = 1, max_rate = 1000, base = 10, highest = 120, complete = false},
+		missing[:],
+	)
 	kind, ok := message_kind(msg)
 	testing.expect(t, ok && kind == .File_Ack)
 	ack, count, raw, ack_ok := decode_file_ack(msg)

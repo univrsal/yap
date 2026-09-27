@@ -16,11 +16,26 @@ which core:sys/windows doesn't declare, so the parts of it used here are.
 INSTALL_DESCRIPTION :: "Adds yap to your Start menu, pointing at this copy of yap; nothing is copied or moved. Uninstall removes it again."
 
 @(private = "file")
-CLSID_ShellLink := win.GUID{0x00021401, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+CLSID_ShellLink := win.GUID {
+	0x00021401,
+	0x0000,
+	0x0000,
+	{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46},
+}
 @(private = "file")
-IID_IShellLinkW := win.GUID{0x000214F9, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+IID_IShellLinkW := win.GUID {
+	0x000214F9,
+	0x0000,
+	0x0000,
+	{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46},
+}
 @(private = "file")
-IID_IPersistFile := win.GUID{0x0000010B, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}}
+IID_IPersistFile := win.GUID {
+	0x0000010B,
+	0x0000,
+	0x0000,
+	{0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46},
+}
 
 @(private = "file")
 IShellLinkW :: struct {
@@ -31,7 +46,13 @@ IShellLinkW :: struct {
 @(private = "file")
 IShellLinkW_VTable :: struct {
 	using iunknown:      win.IUnknown_VTable,
-	GetPath:             proc "system" (this: ^IShellLinkW, file: win.LPWSTR, cch: i32, fd: rawptr, flags: win.DWORD) -> win.HRESULT,
+	GetPath:             proc "system" (
+		this: ^IShellLinkW,
+		file: win.LPWSTR,
+		cch: i32,
+		fd: rawptr,
+		flags: win.DWORD,
+	) -> win.HRESULT,
 	GetIDList:           rawptr,
 	SetIDList:           rawptr,
 	GetDescription:      rawptr,
@@ -45,7 +66,11 @@ IShellLinkW_VTable :: struct {
 	GetShowCmd:          rawptr,
 	SetShowCmd:          rawptr,
 	GetIconLocation:     rawptr,
-	SetIconLocation:     proc "system" (this: ^IShellLinkW, path: win.LPCWSTR, icon: i32) -> win.HRESULT,
+	SetIconLocation:     proc "system" (
+		this: ^IShellLinkW,
+		path: win.LPCWSTR,
+		icon: i32,
+	) -> win.HRESULT,
 	SetRelativePath:     rawptr,
 	Resolve:             rawptr,
 	SetPath:             proc "system" (this: ^IShellLinkW, file: win.LPCWSTR) -> win.HRESULT,
@@ -61,8 +86,16 @@ IPersistFile_VTable :: struct {
 	using iunknown: win.IUnknown_VTable,
 	GetClassID:     rawptr,
 	IsDirty:        rawptr,
-	Load:           proc "system" (this: ^IPersistFile, file: win.LPCWSTR, mode: win.DWORD) -> win.HRESULT,
-	Save:           proc "system" (this: ^IPersistFile, file: win.LPCWSTR, remember: win.BOOL) -> win.HRESULT,
+	Load:           proc "system" (
+		this: ^IPersistFile,
+		file: win.LPCWSTR,
+		mode: win.DWORD,
+	) -> win.HRESULT,
+	Save:           proc "system" (
+		this: ^IPersistFile,
+		file: win.LPCWSTR,
+		remember: win.BOOL,
+	) -> win.HRESULT,
 	SaveCompleted:  rawptr,
 	GetCurFile:     rawptr,
 }
@@ -99,7 +132,13 @@ Shell_Link :: struct {
 shell_link_open :: proc() -> (s: Shell_Link, ok: bool) {
 	s.com = win.SUCCEEDED(win.CoInitializeEx(nil, .APARTMENTTHREADED))
 	if win.FAILED(
-		win.CoCreateInstance(&CLSID_ShellLink, nil, win.CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (^rawptr)(&s.link)),
+		win.CoCreateInstance(
+			&CLSID_ShellLink,
+			nil,
+			win.CLSCTX_INPROC_SERVER,
+			&IID_IShellLinkW,
+			(^rawptr)(&s.link),
+		),
 	) {
 		s.link = nil
 		shell_link_close(&s)

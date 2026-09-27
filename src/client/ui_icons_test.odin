@@ -92,7 +92,11 @@ test_icons_tell_states_apart :: proc(t: ^testing.T) {
 	testing.expect(t, !same(&a, .Sound, .Sound_Off), "deafened looks like undeafened")
 	testing.expect(t, !same(&a, .Mic, .Sound), "the microphone looks like the speaker")
 	// A line through an icon covers more of the square than the icon did.
-	testing.expect(t, ink(&a, .Mic_Off) > ink(&a, .Mic), "the line through the microphone is missing")
+	testing.expect(
+		t,
+		ink(&a, .Mic_Off) > ink(&a, .Mic),
+		"the line through the microphone is missing",
+	)
 }
 
 @(test)

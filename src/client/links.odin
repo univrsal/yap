@@ -27,7 +27,8 @@ find_links :: proc(text: string, allocator := context.temp_allocator) -> []Link 
 			continue
 		}
 		for prefix in LINK_PREFIXES {
-			if len(text) - i <= len(prefix) || !strings.equal_fold(text[i:][:len(prefix)], prefix) {
+			if len(text) - i <= len(prefix) ||
+			   !strings.equal_fold(text[i:][:len(prefix)], prefix) {
 				continue
 			}
 			end := link_end(text, i)
@@ -89,7 +90,13 @@ link_end :: proc(text: string, start: int) -> int {
 
 @(private = "file")
 is_word_byte :: proc(b: u8) -> bool {
-	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9') || b == '_' || b >= 0x80
+	return(
+		(b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_' ||
+		b >= 0x80 \
+	)
 }
 
 // open_url opens a web address in the default browser. Anything but

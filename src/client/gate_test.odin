@@ -17,16 +17,16 @@ test_gate_hysteresis :: proc(t: ^testing.T) {
 		return now^
 	}
 
-	testing.expect(t, !gate_update(&g, -60, step(&now, 20)))  // quiet: closed
-	testing.expect(t, !gate_update(&g, -45, step(&now, 20)))  // between: stays closed
-	testing.expect(t, gate_update(&g, -35, step(&now, 20)))   // loud: opens
-	testing.expect(t, gate_update(&g, -45, step(&now, 20)))   // between: stays open
-	testing.expect(t, gate_update(&g, -49, step(&now, 20)))   // just above close: open
+	testing.expect(t, !gate_update(&g, -60, step(&now, 20))) // quiet: closed
+	testing.expect(t, !gate_update(&g, -45, step(&now, 20))) // between: stays closed
+	testing.expect(t, gate_update(&g, -35, step(&now, 20))) // loud: opens
+	testing.expect(t, gate_update(&g, -45, step(&now, 20))) // between: stays open
+	testing.expect(t, gate_update(&g, -49, step(&now, 20))) // just above close: open
 	// Below close: stays open through the hangover, then closes.
 	testing.expect(t, gate_update(&g, -70, step(&now, 20)))
 	testing.expect(t, gate_update(&g, -70, step(&now, 200)))
 	testing.expect(t, !gate_update(&g, -70, step(&now, 200)))
-	testing.expect(t, !gate_update(&g, -45, step(&now, 20)))  // between again: stays closed
+	testing.expect(t, !gate_update(&g, -45, step(&now, 20))) // between again: stays closed
 
 	// Disabled: everything is sent, but the state is still tracked for the meter.
 	g.enabled = false

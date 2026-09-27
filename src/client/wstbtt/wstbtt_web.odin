@@ -14,19 +14,19 @@ _buf :: struct {
 }
 
 fontinfo :: struct {
-	userdata:                                     rawptr,
-	data:                                         [^]byte,
-	fontstart:                                    i32,
-	numGlyphs:                                    i32,
+	userdata:                                      rawptr,
+	data:                                          [^]byte,
+	fontstart:                                     i32,
+	numGlyphs:                                     i32,
 	loca, head, glyf, hhea, hmtx, kern, gpos, svg: i32,
-	index_map:                                    i32,
-	indexToLocFormat:                             i32,
-	cff:                                          _buf,
-	charstrings:                                  _buf,
-	gsubrs:                                       _buf,
-	subrs:                                        _buf,
-	fontdicts:                                    _buf,
-	fdselect:                                     _buf,
+	index_map:                                     i32,
+	indexToLocFormat:                              i32,
+	cff:                                           _buf,
+	charstrings:                                   _buf,
+	gsubrs:                                        _buf,
+	subrs:                                         _buf,
+	fontdicts:                                     _buf,
+	fdselect:                                      _buf,
 }
 
 packedchar :: struct {

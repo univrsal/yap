@@ -1,10 +1,10 @@
 #+build !wasi
 package client
 
+import log "../common/wlog"
 import "core:crypto"
 import "core:encoding/hex"
 import "core:fmt"
-import log "../common/wlog"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -16,7 +16,14 @@ its own so nothing is ever overwritten.
 
 // save_to_downloads writes `data` as <downloads>/yap-<random>.<ext> and
 // returns where it put it.
-save_to_downloads :: proc(data: []u8, ext: string, allocator := context.allocator) -> (path: string, ok: bool) {
+save_to_downloads :: proc(
+	data: []u8,
+	ext: string,
+	allocator := context.allocator,
+) -> (
+	path: string,
+	ok: bool,
+) {
 	dir := downloads_dir(context.temp_allocator)
 	if dir == "" {
 		log.error("could not work out where the downloads folder is")

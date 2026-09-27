@@ -1,8 +1,8 @@
 #+build !wasi
 package client
 
-import "core:fmt"
 import log "../common/wlog"
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 

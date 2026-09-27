@@ -105,7 +105,8 @@ side_panel :: proc(ui: ^UI) {
 		ui.chat.tab = .Log
 		ui.log_seen = -1
 	}
-	if v.watching != 0 && .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
+	if v.watching != 0 &&
+	   .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
 		ui.chat.tab = .Screen
 	}
 	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
@@ -392,7 +393,12 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 		// header, name and state), numbered by where it is.
 		item := i64(i) * 4
 		if m.is_file {
-			f := v.dm_files[m.id] or_else View_File{name = m.text, state = .Expired, outgoing = m.mine}
+			f :=
+				v.dm_files[m.id] or_else View_File {
+					name = m.text,
+					state = .Expired,
+					outgoing = m.mine,
+				}
 			file_message(ui, header, header_color, m.id, f, merged, item)
 			continue
 		}
@@ -410,7 +416,16 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 			)
 			continue
 		}
-		chat_message(ui, header, header_color, m.text, color, links = true, merged = merged, item = item)
+		chat_message(
+			ui,
+			header,
+			header_color,
+			m.text,
+			color,
+			links = true,
+			merged = merged,
+			item = item,
+		)
 	}
 	select_end(ui)
 	mu.end_panel(ctx)
@@ -483,7 +498,10 @@ file_message :: proc(
 	// The buttons, spaced like the rest of the UI.
 	send :: proc(ui: ^UI, id: u64, action: File_Action) {
 		if ui.session != nil {
-			push_command(&ui.session.client.commands, File_Action_Command{id = id, action = action})
+			push_command(
+				&ui.session.client.commands,
+				File_Action_Command{id = id, action = action},
+			)
 		}
 	}
 	ctx.style.spacing = saved
@@ -519,7 +537,12 @@ file_status :: proc(f: View_File) -> (string, mu.Color) {
 		return "starting...", CHAT_DIM_COLOR
 	case .Transferring:
 		percent := 100 * f64(f.done) / f64(max(f.size, 1))
-		text := fmt.tprintf("%.0f%%  -  %s of %s", percent, format_bytes(f.done), format_bytes(f.size))
+		text := fmt.tprintf(
+			"%.0f%%  -  %s of %s",
+			percent,
+			format_bytes(f.done),
+			format_bytes(f.size),
+		)
 		if f.rate > 0 {
 			text = fmt.tprintf("%s  -  %s/s", text, format_bytes(u64(f.rate)))
 		}

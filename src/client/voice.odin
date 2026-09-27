@@ -61,15 +61,15 @@ SPEAKER_TIMEOUT :: 10 * time.Second
 MAX_CAPTURE_BACKLOG :: 5 * FRAME
 
 Speaker :: struct {
-	decoder:     ^opus.Decoder,
-	queue:       Ring, // decoded samples; only used on the network thread
-	next_seq:    u32,
-	started:     bool, // decoded at least one packet
-	playing:     bool, // prefill reached, being mixed
+	decoder:      ^opus.Decoder,
+	queue:        Ring, // decoded samples; only used on the network thread
+	next_seq:     u32,
+	started:      bool, // decoded at least one packet
+	playing:      bool, // prefill reached, being mixed
 	// Ran dry while playing. If the next packet carries on rather than
 	// starting after a pause, that was a dropout mid-speech.
-	dried:       bool,
-	last_packet: time.Tick,
+	dried:        bool,
+	last_packet:  time.Tick,
 	// Arrival timing (track_arrival): when packet base_seq arrived, on the
 	// line of the earliest-arriving packets, and a decaying maximum of how
 	// far behind that line packets come.
@@ -326,7 +326,10 @@ track_arrival :: proc(sp: ^Speaker, seq: u32, now: time.Tick) {
 	FRAME_TIME :: time.Duration(FRAME_SAMPLES) * time.Second / SAMPLE_RATE
 
 	if sp.started {
-		expected := time.tick_add(sp.arrival_base, time.Duration(i32(seq - sp.base_seq)) * FRAME_TIME)
+		expected := time.tick_add(
+			sp.arrival_base,
+			time.Duration(i32(seq - sp.base_seq)) * FRAME_TIME,
+		)
 		late := time.tick_diff(expected, now)
 		if late >= 0 && late < DISCONTINUITY {
 			sp.arrival_base = time.tick_add(sp.arrival_base, LEAK)

@@ -21,13 +21,37 @@ Test_Buffer :: struct {
 // 3x2 RGBA: red, green, blue / white, black, half-transparent grey.
 @(private = "file")
 TEST_PIXELS := [?]u8 {
-	255, 0, 0, 255,   0, 255, 0, 255,   0, 0, 255, 255,
-	255, 255, 255, 255,   0, 0, 0, 255,   128, 128, 128, 128,
+	255,
+	0,
+	0,
+	255,
+	0,
+	255,
+	0,
+	255,
+	0,
+	0,
+	255,
+	255,
+	255,
+	255,
+	255,
+	255,
+	0,
+	0,
+	0,
+	255,
+	128,
+	128,
+	128,
+	128,
 }
 
 @(private = "file")
 test_png :: proc() -> [dynamic]u8 {
-	tb := Test_Buffer{ctx = context}
+	tb := Test_Buffer {
+		ctx = context,
+	}
 	stbi.write_png_to_func(append_bytes, &tb, 3, 2, 4, &TEST_PIXELS[0], 3 * 4)
 	return tb.buf
 }
@@ -115,7 +139,14 @@ test_dib_to_bmp :: proc(t: ^testing.T) {
 		testing.expect_value(t, err, Error.None)
 		img, decode_err := decode(bmp)
 		defer image_destroy(&img)
-		testing.expectf(t, decode_err == .None, "%d-bit (bitfields %v): %v", c.bits, c.bitfields, decode_err)
+		testing.expectf(
+			t,
+			decode_err == .None,
+			"%d-bit (bitfields %v): %v",
+			c.bits,
+			c.bitfields,
+			decode_err,
+		)
 		if decode_err != .None {
 			continue
 		}

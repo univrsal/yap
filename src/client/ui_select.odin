@@ -155,7 +155,9 @@ select_line :: proc(ui: ^UI, item: i64, text: string, start, end: int, pos: mu.V
 		if mouse.y < pos.y + h {
 			s.hit = {item, offset_at(ctx, font, text, start, end, mouse.x - pos.x)}
 			width := ctx.text_width(font, text[start:end])
-			if mouse.x >= pos.x && mouse.x < pos.x + width && mu.mouse_over(ctx, {pos.x, pos.y, width, h}) {
+			if mouse.x >= pos.x &&
+			   mouse.x < pos.x + width &&
+			   mu.mouse_over(ctx, {pos.x, pos.y, width, h}) {
 				s.over_text = true
 			}
 		} else {

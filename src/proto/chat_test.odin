@@ -90,7 +90,13 @@ test_chat_image_entries :: proc(t: ^testing.T) {
 			image = {id = 77, width = 1920, height = 1080, size = 200_000},
 		},
 		// An image the server no longer has.
-		{id = 3, sender = 4, name = "bob", kind = .Image, image = {id = 0, width = 64, height = 64, size = 900}},
+		{
+			id = 3,
+			sender = 4,
+			name = "bob",
+			kind = .Image,
+			image = {id = 0, width = 64, height = 64, size = 900},
+		},
 	}
 	out: [MAX_PAYLOAD_SIZE]u8
 	msg, count := encode_chat(out[:], 1, 0, entries)

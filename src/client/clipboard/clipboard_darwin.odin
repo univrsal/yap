@@ -62,7 +62,15 @@ _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: stri
 }
 
 @(private = "file")
-copy_data :: proc(d: ^NS.Data, mime: string, allocator := context.allocator) -> (data: []u8, m: string, err: Error) {
+copy_data :: proc(
+	d: ^NS.Data,
+	mime: string,
+	allocator := context.allocator,
+) -> (
+	data: []u8,
+	m: string,
+	err: Error,
+) {
 	n := int(NS.Data_length(d))
 	if n == 0 {
 		return nil, "", .No_Image

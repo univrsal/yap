@@ -42,7 +42,11 @@ when ODIN_OS == .Windows {
 
 when ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin || ODIN_OS == .OpenBSD {
 	when !#exists(LIB) {
-		#panic("src/client/opus/" + LIB + " is missing (on macOS and OpenBSD, build it with build.sh)")
+		#panic(
+			"src/client/opus/" +
+			LIB +
+			" is missing (on macOS and OpenBSD, build it with build.sh)",
+		)
 	}
 }
 

@@ -52,7 +52,10 @@ test_buddy_list_order :: proc(t: ^testing.T) {
 	v: View
 	defer delete(v.users)
 	v.my_num = 1
-	v.users[7] = {key = a, name = "zed"} // online, so first
+	v.users[7] = {
+		key  = a,
+		name = "zed",
+	} 	// online, so first
 
 	list := buddy_list(&s, &v)
 	testing.expect_value(t, len(list), 3)

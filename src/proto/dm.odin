@@ -128,8 +128,8 @@ DM_Flag :: enum u8 {
 DM_Flags :: distinct bit_set[DM_Flag;u8]
 
 DM_Result :: enum u8 {
-	Held = 1, // the server has it, and will deliver it
-	Full = 2, // refused: too many are waiting for the recipient
+	Held    = 1, // the server has it, and will deliver it
+	Full    = 2, // refused: too many are waiting for the recipient
 	Offline = 3, // refused: an image, and the recipient isn't online
 }
 
@@ -141,13 +141,7 @@ dm_key derives the key two users share for their DMs from one side's
 private key and the other's public key. It returns false for a public
 key that isn't one.
 */
-dm_key :: proc(
-	mine: ^ecdh.Private_Key,
-	theirs: [KEY_SIZE]u8,
-) -> (
-	key: [DM_KEY_SIZE]u8,
-	ok: bool,
-) {
+dm_key :: proc(mine: ^ecdh.Private_Key, theirs: [KEY_SIZE]u8) -> (key: [DM_KEY_SIZE]u8, ok: bool) {
 	theirs := theirs
 	pub: ecdh.Public_Key
 	if !ecdh.public_key_set_bytes(&pub, .X25519, theirs[:]) {
@@ -302,7 +296,11 @@ decode_dm_body :: proc(
 		img.height = endian.unchecked_get_u16le(body[3:])
 		img.size = endian.unchecked_get_u32le(body[5:])
 		copy(img.nonce[:], body[9:])
-		ok = img.width > 0 && img.height > 0 && img.size > TAG_SIZE && img.size <= MAX_DM_IMAGE_SEALED
+		ok =
+			img.width > 0 &&
+			img.height > 0 &&
+			img.size > TAG_SIZE &&
+			img.size <= MAX_DM_IMAGE_SEALED
 		return
 	}
 	return

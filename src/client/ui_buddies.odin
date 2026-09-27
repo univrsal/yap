@@ -291,10 +291,7 @@ conversation :: proc(ui: ^UI) {
 		return
 	}
 	log.debug("ui: direct message")
-	push_command(
-		&ui.session.client.commands,
-		DM_Command{to = key, text = strings.clone(text)},
-	)
+	push_command(&ui.session.client.commands, DM_Command{to = key, text = strings.clone(text)})
 	ui.buddies.len = 0
 }
 
@@ -320,7 +317,8 @@ ask_last_seen :: proc(ui: ^UI) {
 	}
 	someone_left := online < ui.buddies.seen_online
 	ui.buddies.seen_online = online
-	due := ui.buddies.seen_asked == {} || time.tick_since(ui.buddies.seen_asked) >= LAST_SEEN_REFRESH
+	due :=
+		ui.buddies.seen_asked == {} || time.tick_since(ui.buddies.seen_asked) >= LAST_SEEN_REFRESH
 	if cmd.count == 0 || !(due || someone_left) {
 		return
 	}

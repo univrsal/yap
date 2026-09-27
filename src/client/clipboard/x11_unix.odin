@@ -1,9 +1,9 @@
 #+build linux, openbsd
 package clipboard
 
+import log "../../common/wlog"
 import "core:c"
 import "core:dynlib"
-import log "../../common/wlog"
 import "core:sys/posix"
 import "core:time"
 
@@ -79,12 +79,23 @@ Symbols :: struct {
 	XOpenDisplay:           proc "c" (name: cstring) -> Display,
 	XCloseDisplay:          proc "c" (d: Display) -> c.int,
 	XDefaultRootWindow:     proc "c" (d: Display) -> Window,
-	XCreateSimpleWindow:    proc "c" (d: Display, parent: Window, x, y: c.int, w, h, border_width: c.uint, border, background: c.ulong) -> Window,
+	XCreateSimpleWindow:    proc "c" (
+		d: Display,
+		parent: Window,
+		x, y: c.int,
+		w, h, border_width: c.uint,
+		border, background: c.ulong,
+	) -> Window,
 	XDestroyWindow:         proc "c" (d: Display, w: Window) -> c.int,
 	XSelectInput:           proc "c" (d: Display, w: Window, mask: c.long) -> c.int,
 	XInternAtom:            proc "c" (d: Display, name: cstring, only_if_exists: b32) -> Atom,
 	XGetSelectionOwner:     proc "c" (d: Display, selection: Atom) -> Window,
-	XConvertSelection:      proc "c" (d: Display, selection, target, property: Atom, requestor: Window, time: c.ulong) -> c.int,
+	XConvertSelection:      proc "c" (
+		d: Display,
+		selection, target, property: Atom,
+		requestor: Window,
+		time: c.ulong,
+	) -> c.int,
 	XGetWindowProperty:     proc "c" (
 		d: Display,
 		w: Window,
@@ -134,7 +145,17 @@ x11_init :: proc() -> bool {
 		x = {}
 		return false
 	}
-	x.window = s.XCreateSimpleWindow(x.display, s.XDefaultRootWindow(x.display), 0, 0, 1, 1, 0, 0, 0)
+	x.window = s.XCreateSimpleWindow(
+		x.display,
+		s.XDefaultRootWindow(x.display),
+		0,
+		0,
+		1,
+		1,
+		0,
+		0,
+		0,
+	)
 	s.XSelectInput(x.display, x.window, PROPERTY_CHANGE_MASK)
 	x.clipboard = s.XInternAtom(x.display, "CLIPBOARD", false)
 	x.targets = s.XInternAtom(x.display, "TARGETS", false)
@@ -181,14 +202,25 @@ x11_read :: proc(allocator := context.allocator) -> (data: []u8, mime: string, e
 		return nil, "", .No_Image
 	}
 
-	data = convert(s.XInternAtom(x.display, cstring_of(mime), false), deadline, allocator) or_return
+	data = convert(
+		s.XInternAtom(x.display, cstring_of(mime), false),
+		deadline,
+		allocator,
+	) or_return
 	return data, mime, .None
 }
 
 // convert asks the owner for the selection as `target` and returns the
 // bytes it sends (for 32-bit formats like TARGETS: as C longs).
 @(private = "file")
-convert :: proc(target: Atom, deadline: time.Tick, allocator := context.allocator) -> (data: []u8, err: Error) {
+convert :: proc(
+	target: Atom,
+	deadline: time.Tick,
+	allocator := context.allocator,
+) -> (
+	data: []u8,
+	err: Error,
+) {
 	s := &x.sym
 	s.XDeleteProperty(x.display, x.window, x.property)
 	s.XConvertSelection(x.display, x.clipboard, target, x.property, x.window, CURRENT_TIME)
@@ -240,7 +272,21 @@ read_property :: proc(allocator := context.allocator) -> (data: []u8, type: Atom
 	nitems, bytes_after: c.ulong
 	prop: [^]u8
 	// The length is in 32-bit units; this is "everything".
-	if s.XGetWindowProperty(x.display, x.window, x.property, 0, c.long(max(i32) / 4), true, ANY_PROPERTY_TYPE, &type, &format, &nitems, &bytes_after, &prop) != 0 {
+	if s.XGetWindowProperty(
+		   x.display,
+		   x.window,
+		   x.property,
+		   0,
+		   c.long(max(i32) / 4),
+		   true,
+		   ANY_PROPERTY_TYPE,
+		   &type,
+		   &format,
+		   &nitems,
+		   &bytes_after,
+		   &prop,
+	   ) !=
+	   0 {
 		return nil, 0, .Unavailable
 	}
 	defer if prop != nil {
@@ -270,13 +316,19 @@ read_property :: proc(allocator := context.allocator) -> (data: []u8, type: Atom
 // wait_event waits for an event of `type` on our window (for property
 // events: a new value of our property).
 @(private = "file")
-wait_event :: proc(type: c.int, ev: ^Event, deadline: time.Tick, want_new_value := false) -> Error {
+wait_event :: proc(
+	type: c.int,
+	ev: ^Event,
+	deadline: time.Tick,
+	want_new_value := false,
+) -> Error {
 	s := &x.sym
 	fd := posix.FD(s.XConnectionNumber(x.display))
 	for {
 		for s.XCheckTypedWindowEvent(x.display, x.window, type, ev) {
 			if type != PROPERTY_NOTIFY ||
-			   (ev.property.atom == x.property && (!want_new_value || ev.property.state == PROPERTY_NEW_VALUE)) {
+			   (ev.property.atom == x.property &&
+					   (!want_new_value || ev.property.state == PROPERTY_NEW_VALUE)) {
 				return .None
 			}
 		}

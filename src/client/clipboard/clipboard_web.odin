@@ -18,12 +18,6 @@ _init :: proc(wayland_display: rawptr) -> bool {
 
 _destroy :: proc() {}
 
-_read_encoded :: proc(
-	allocator := context.allocator,
-) -> (
-	data: []u8,
-	mime: string,
-	err: Error,
-) {
+_read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: string, err: Error) {
 	return nil, "", .Unavailable
 }

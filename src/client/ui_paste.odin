@@ -4,8 +4,8 @@ package client
 import log "../common/wlog"
 import "core:sync"
 import "core:thread"
-import glfw "wglfw"
 import mu "vendor:microui"
+import glfw "wglfw"
 
 import "clipboard"
 
@@ -121,7 +121,8 @@ paste_poll :: proc(ui: ^UI) {
 	}
 	// No image: the chat box takes the clipboard's text as if it had been
 	// typed, on the next frame.
-	if text, ok := ui.ctx.textbox_state.get_clipboard(ui.ctx.textbox_state.clipboard_user_data); ok {
+	if text, ok := ui.ctx.textbox_state.get_clipboard(ui.ctx.textbox_state.clipboard_user_data);
+	   ok {
 		mu.input_text(&ui.ctx, text)
 	}
 }

@@ -1,7 +1,7 @@
 package client
 
-import "core:math"
 import log "../common/wlog"
+import "core:math"
 import stbi "wstbi"
 
 /*

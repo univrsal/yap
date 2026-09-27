@@ -21,7 +21,9 @@ when ODIN_OS == .Windows {
 }
 
 when !#exists(LIB) {
-	#panic("src/client/tray/" + LIB + " is missing; build it with build.sh (or build.bat on Windows)")
+	#panic(
+		"src/client/tray/" + LIB + " is missing; build it with build.sh (or build.bat on Windows)",
+	)
 }
 
 when ODIN_OS == .Windows {

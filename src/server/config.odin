@@ -88,16 +88,16 @@ Channel_Config :: struct {
 
 // The parts of a Config the server runs on, checked and parsed.
 Settings :: struct {
-	port:      int,
-	key:       string, // hex; parsed by run_server
-	password:  string,
-	log_level: common.Log_Level,
-	log_file:  string,
-	relay:     Relay_Config, // web_dir resolved, see default_web_dir
-	channels:  []string,
+	port:           int,
+	key:            string, // hex; parsed by run_server
+	password:       string,
+	log_level:      common.Log_Level,
+	log_file:       string,
+	relay:          Relay_Config, // web_dir resolved, see default_web_dir
+	channels:       []string,
 	// Where direct messages waiting for their recipients are kept: next
 	// to the config (dm.odin).
-	dm_path:   string,
+	dm_path:        string,
 	// Where it's kept when users were last here (last_seen.odin).
 	last_seen_path: string,
 }
@@ -189,7 +189,11 @@ create_config :: proc(path: string, cfg: ^Config) -> bool {
 
 @(private = "file")
 save_config :: proc(path: string, cfg: Config) -> bool {
-	data, err := json.marshal(cfg, {pretty = true, use_spaces = true, spaces = 2}, context.temp_allocator)
+	data, err := json.marshal(
+		cfg,
+		{pretty = true, use_spaces = true, spaces = 2},
+		context.temp_allocator,
+	)
 	if err != nil {
 		log.errorf("could not encode the config: %v", err)
 		return false
@@ -252,7 +256,12 @@ check_channels :: proc(path: string, channels: []Channel_Config) -> (names: []st
 		return names, true
 	}
 	if len(channels) > proto.MAX_CHANNELS {
-		log.errorf("%s has %d channels; the maximum is %d", path, len(channels), proto.MAX_CHANNELS)
+		log.errorf(
+			"%s has %d channels; the maximum is %d",
+			path,
+			len(channels),
+			proto.MAX_CHANNELS,
+		)
 		return
 	}
 

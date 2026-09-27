@@ -1,7 +1,7 @@
 package clipboard
 
-import "core:encoding/endian"
 import log "../../common/wlog"
+import "core:encoding/endian"
 
 /*
 Reading images from the system clipboard, which GLFW can't do (it only

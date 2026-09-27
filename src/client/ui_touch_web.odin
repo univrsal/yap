@@ -211,7 +211,9 @@ web_touch_scroll :: proc "c" (x, y, dy: f64) {
 @(export)
 web_text_rune :: proc "c" (r: rune) {
 	context = callback_context()
-	e := Touch_Event{kind = .Text}
+	e := Touch_Event {
+		kind = .Text,
+	}
 	buf, n := utf8.encode_rune(r)
 	e.text, e.text_n = buf, n
 	queue(e)

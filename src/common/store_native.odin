@@ -1,8 +1,8 @@
 #+build !wasi
 package common
 
-import log "wlog"
 import "core:os"
+import log "wlog"
 
 // On a desktop the name is a path and these are plain files. A private
 // one (the key) is written readable by its owner only.

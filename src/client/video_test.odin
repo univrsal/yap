@@ -24,7 +24,12 @@ video_free :: proc(v: ^Video_Client) {
 // send_all takes every fragment off the queue and passes it through the
 // server's rewrite into `a`, returning the frames that came out.
 @(private = "file")
-send_all :: proc(v: ^Video_Client, a: ^proto.Video_Assembler) -> (frames: [dynamic]proto.Video_Frame) {
+send_all :: proc(
+	v: ^Video_Client,
+	a: ^proto.Video_Assembler,
+) -> (
+	frames: [dynamic]proto.Video_Frame,
+) {
 	frames = make([dynamic]proto.Video_Frame, context.temp_allocator)
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
 	for {

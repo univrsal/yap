@@ -32,7 +32,9 @@ and a default precision for floats.
 SHADER_HEADER :: "#version 300 es\nprecision highp float;\n" when WEB else "#version 330 core\n"
 
 @(private = "file")
-VERTEX_SHADER :: SHADER_HEADER + `layout(location = 0) in vec2 a_pos;
+VERTEX_SHADER ::
+	SHADER_HEADER +
+	`layout(location = 0) in vec2 a_pos;
 layout(location = 1) in vec2 a_uv;
 layout(location = 2) in vec4 a_color;
 uniform vec2 u_screen;
@@ -46,7 +48,9 @@ void main() {
 `
 
 @(private = "file")
-FRAGMENT_SHADER :: SHADER_HEADER + `in vec2 v_uv;
+FRAGMENT_SHADER ::
+	SHADER_HEADER +
+	`in vec2 v_uv;
 in vec4 v_color;
 uniform sampler2D u_atlas;
 // The atlases keep coverage in their red channel; chat images are
@@ -174,7 +178,12 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 // gpu_texture_make makes a width x height texture from `pixels` (one
 // byte a pixel for .Alpha, four for .Rgba). Without pixels it's left
 // empty, for the page's video decoder to fill (video_web.odin).
-gpu_texture_make :: proc(g: ^Gpu, kind: Texture_Kind, width, height: i32, pixels: []u8) -> Gpu_Texture {
+gpu_texture_make :: proc(
+	g: ^Gpu,
+	kind: Texture_Kind,
+	width, height: i32,
+	pixels: []u8,
+) -> Gpu_Texture {
 	tex: u32
 	gl.GenTextures(1, &tex)
 	gl.BindTexture(gl.TEXTURE_2D, tex)
@@ -182,9 +191,29 @@ gpu_texture_make :: proc(g: ^Gpu, kind: Texture_Kind, width, height: i32, pixels
 		gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
 		switch kind {
 		case .Alpha:
-			gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R8, width, height, 0, gl.RED, gl.UNSIGNED_BYTE, raw_data(pixels))
+			gl.TexImage2D(
+				gl.TEXTURE_2D,
+				0,
+				gl.R8,
+				width,
+				height,
+				0,
+				gl.RED,
+				gl.UNSIGNED_BYTE,
+				raw_data(pixels),
+			)
 		case .Rgba:
-			gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, raw_data(pixels))
+			gl.TexImage2D(
+				gl.TEXTURE_2D,
+				0,
+				gl.RGBA8,
+				width,
+				height,
+				0,
+				gl.RGBA,
+				gl.UNSIGNED_BYTE,
+				raw_data(pixels),
+			)
 		}
 	}
 	filter: i32 = gl.NEAREST if kind == .Alpha else gl.LINEAR
@@ -201,7 +230,17 @@ gpu_texture_make :: proc(g: ^Gpu, kind: Texture_Kind, width, height: i32, pixels
 gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, rows: []u8) {
 	gl.BindTexture(gl.TEXTURE_2D, u32(tex))
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
-	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, y0, width, y1 - y0, gl.RED, gl.UNSIGNED_BYTE, raw_data(rows))
+	gl.TexSubImage2D(
+		gl.TEXTURE_2D,
+		0,
+		0,
+		y0,
+		width,
+		y1 - y0,
+		gl.RED,
+		gl.UNSIGNED_BYTE,
+		raw_data(rows),
+	)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 }
 

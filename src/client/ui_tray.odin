@@ -58,21 +58,21 @@ Tray_Request :: enum {
 }
 
 Tray :: struct {
-	handle:               ^tray.Tray,
+	handle:    ^tray.Tray,
 	// What the icon is showing, so it's only redrawn when it changes.
-	icon:                 Icon,
-	color:                mu.Color,
+	icon:      Icon,
+	color:     mu.Color,
 	// What the menu was last built for: Disconnect is greyed out when
 	// there's nothing to disconnect from, and the first item says
 	// whether the window is to be shown or hidden.
-	connected:            bool,
-	hidden:               bool,
-	request:              Tray_Request,
+	connected: bool,
+	hidden:    bool,
+	request:   Tray_Request,
 	// The desktop wouldn't take an icon, or took ours away again. We
 	// stop asking until the setting is switched off and on, and leave
 	// the setting alone: it's the user's, and their tray may well be
 	// there the next time they start the client.
-	refused:              bool,
+	refused:   bool,
 }
 
 // tray_update keeps the icon in step with the client and handles what

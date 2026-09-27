@@ -1,9 +1,9 @@
 #+build !wasi
 package client
 
+import log "../common/wlog"
 import "core:flags"
 import "core:fmt"
-import log "../common/wlog"
 import "core:os"
 
 import "../common"
@@ -139,4 +139,3 @@ list_audio_devices :: proc() -> bool {
 	print_list("Output devices:", a.outputs[:])
 	return true
 }
-

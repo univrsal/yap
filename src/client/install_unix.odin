@@ -35,7 +35,10 @@ install_paths :: proc() -> (p: Install_Paths, ok: bool) {
 		return
 	}
 	p.desktop, _ = os.join_path({data, "applications", "yap.desktop"}, context.temp_allocator)
-	p.icon, _ = os.join_path({data, "icons", "hicolor", "128x128", "apps", "yap.png"}, context.temp_allocator)
+	p.icon, _ = os.join_path(
+		{data, "icons", "hicolor", "128x128", "apps", "yap.png"},
+		context.temp_allocator,
+	)
 	p.link, _ = os.join_path({home, ".local", "bin", "yap"}, context.temp_allocator)
 	return p, true
 }
@@ -77,9 +80,15 @@ install_self :: proc(exe: string) -> (err: string) {
 			"Name=Yap\n",
 			"GenericName=Voice chat\n",
 			"Comment=Talk and chat with others on a yap server\n",
-			"TryExec=", desktop_escape(exe), "\n",
-			"Exec=", desktop_escape(desktop_exec_arg(exe)), "\n",
-			"Icon=", desktop_escape(p.icon), "\n",
+			"TryExec=",
+			desktop_escape(exe),
+			"\n",
+			"Exec=",
+			desktop_escape(desktop_exec_arg(exe)),
+			"\n",
+			"Icon=",
+			desktop_escape(p.icon),
+			"\n",
 			"Terminal=false\n",
 			"Categories=Network;Chat;Telephony;\n",
 			"Keywords=voice;voip;chat;\n",
@@ -105,7 +114,10 @@ install_self :: proc(exe: string) -> (err: string) {
 	dir, _ := os.split_path(p.link)
 	os.make_directory_all(dir)
 	if os.symlink(exe, p.link) != nil {
-		return strings.concatenate({"Installed, but could not make the link ", p.link}, context.temp_allocator)
+		return strings.concatenate(
+			{"Installed, but could not make the link ", p.link},
+			context.temp_allocator,
+		)
 	}
 	return ""
 }

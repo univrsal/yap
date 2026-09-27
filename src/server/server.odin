@@ -287,12 +287,7 @@ client stays out of s.users: nobody else ever hears of it.
 */
 @(private = "file")
 refuse :: proc(s: ^Server, c: ^Client, from: net.Endpoint, reason: proto.Refusal) {
-	log.infof(
-		"refused %08x from %v: %v",
-		common.key_id(c.peer_key),
-		net.to_string(from),
-		reason,
-	)
+	log.infof("refused %08x from %v: %v", common.key_id(c.peer_key), net.to_string(from), reason)
 	msg_buf: [proto.REFUSED_SIZE]byte
 	msg := proto.encode_refused(&msg_buf, reason)
 	pkt_buf: [proto.MAX_PACKET_SIZE]byte

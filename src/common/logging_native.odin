@@ -1,13 +1,13 @@
 #+build !wasi
 package common
 
-import "core:terminal/ansi"
 import "core:fmt"
-import log "wlog"
 import "core:os"
 import "core:terminal"
+import "core:terminal/ansi"
 import "core:time/datetime"
 import "core:time/timezone"
+import log "wlog"
 
 // Where a desktop's log lines go: the terminal, in colour if it is one,
 // and a file as well if one was asked for.
@@ -55,11 +55,7 @@ log_output_local_time :: proc(out: ^Log_Output, dt: datetime.DateTime) -> dateti
 	return dt
 }
 
-log_output_write :: proc(
-	out: ^Log_Output,
-	level: log.Level,
-	timestamp, name, text: string,
-) {
+log_output_write :: proc(out: ^Log_Output, level: log.Level, timestamp, name, text: string) {
 	RESET :: ansi.CSI + ansi.RESET + ansi.SGR
 	RED :: ansi.CSI + ansi.FG_RED + ansi.SGR
 	YELLOW :: ansi.CSI + ansi.FG_YELLOW + ansi.SGR

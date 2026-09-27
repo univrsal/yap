@@ -107,7 +107,12 @@ install_settings :: proc(ui: ^UI) {
 	case !st.installed:
 		with_text_color(ctx, DIM_COLOR, "  Not installed.", label_proc)
 	case elsewhere:
-		with_text_color(ctx, WARNING_COLOR, fmt.tprintf("  Installed, but starts %s", st.target), label_proc)
+		with_text_color(
+			ctx,
+			WARNING_COLOR,
+			fmt.tprintf("  Installed, but starts %s", st.target),
+			label_proc,
+		)
 	case:
 		mu.label(ctx, "  Installed.")
 	}

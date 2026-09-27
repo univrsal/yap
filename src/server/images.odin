@@ -74,15 +74,29 @@ handle_image_send :: proc(s: ^Server, c: ^Client, pt: []byte) {
 			proto.blob_receiver_destroy(&up.recv)
 		}
 		up^ = {}
-		if info.width == 0 || info.height == 0 || !proto.blob_receiver_init(&up.recv, int(info.size)) {
-			log.debugf("%s announced an image we won't take: %dx%d, %d bytes", user_label(u), info.width, info.height, info.size)
+		if info.width == 0 ||
+		   info.height == 0 ||
+		   !proto.blob_receiver_init(&up.recv, int(info.size)) {
+			log.debugf(
+				"%s announced an image we won't take: %dx%d, %d bytes",
+				user_label(u),
+				info.width,
+				info.height,
+				info.size,
+			)
 			return
 		}
 		up.active = true
 		up.nonce = nonce
 		up.info = info
 		up.last_data = time.tick_now()
-		log.debugf("%s is uploading a %dx%d image, %d bytes", user_label(u), info.width, info.height, info.size)
+		log.debugf(
+			"%s is uploading a %dx%d image, %d bytes",
+			user_label(u),
+			info.width,
+			info.height,
+			info.size,
+		)
 	}
 	send_blob_need(s, c, up, force = true)
 }
@@ -133,10 +147,10 @@ handle_image_get :: proc(s: ^Server, c: ^Client, pt: []byte) {
 	}
 	down^ = {
 		active = true,
-		image  = id,
+		image = id,
 		handle = u64(id),
-		send   = {data = img.data},
-		last   = time.tick_now(),
+		send = {data = img.data},
+		last = time.tick_now(),
 	}
 	log.debugf("sending image %d to %s", id, user_label(u))
 }

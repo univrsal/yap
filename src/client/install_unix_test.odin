@@ -57,7 +57,13 @@ test_install_self :: proc(t: ^testing.T) {
 	to, _ := os.read_link(link, context.temp_allocator)
 	testing.expect_value(t, to, exe)
 	data, _ := os.read_entire_file(desktop, context.temp_allocator)
-	testing.expect(t, strings.contains(string(data), strings.concatenate({"Exec=\"", exe, "\"\n"}, context.temp_allocator)))
+	testing.expect(
+		t,
+		strings.contains(
+			string(data),
+			strings.concatenate({"Exec=\"", exe, "\"\n"}, context.temp_allocator),
+		),
+	)
 
 	// Installing another copy moves the link along with the entry.
 	other := path(home, "other", "yap")

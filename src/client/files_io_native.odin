@@ -24,7 +24,14 @@ File_Sink :: struct {
 
 // file_source_open opens the file a Send_File_Command names. The name is
 // the file's own, in the temp allocator.
-file_source_open :: proc(cmd: Send_File_Command) -> (src: File_Source, name: string, size: u64, ok: bool) {
+file_source_open :: proc(
+	cmd: Send_File_Command,
+) -> (
+	src: File_Source,
+	name: string,
+	size: u64,
+	ok: bool,
+) {
 	f, err := os.open(cmd.path)
 	if err != nil {
 		log.errorf("file: could not open %s: %v", cmd.path, err)
@@ -58,7 +65,14 @@ file_sink_create starts a file called `name` in `dir` (the downloads
 folder if that's empty), or `name (1)`, `name (2)`... if that's taken. It
 returns where the file will end up.
 */
-file_sink_create :: proc(dir, name: string, size: u64) -> (sink: File_Sink, path: string, ok: bool) {
+file_sink_create :: proc(
+	dir, name: string,
+	size: u64,
+) -> (
+	sink: File_Sink,
+	path: string,
+	ok: bool,
+) {
 	dir := dir
 	if dir == "" {
 		dir = downloads_dir(context.temp_allocator)
@@ -77,14 +91,19 @@ file_sink_create :: proc(dir, name: string, size: u64) -> (sink: File_Sink, path
 	for i in 0 ..< 1000 {
 		candidate := name
 		if i > 0 {
-			candidate = fmt.tprintf("%s (%d).%s", stem, i, ext) if ext != "" else fmt.tprintf("%s (%d)", stem, i)
+			candidate =
+				fmt.tprintf("%s (%d).%s", stem, i, ext) if ext != "" else fmt.tprintf("%s (%d)", stem, i)
 		}
 		full, _ := os.join_path({dir, candidate}, context.temp_allocator)
 		part := strings.concatenate({full, ".part"}, context.temp_allocator)
 		if os.exists(full) || os.exists(part) {
 			continue
 		}
-		f, err := os.open(part, {.Write, .Create, .Excl}, {.Read_User, .Write_User, .Read_Group, .Read_Other})
+		f, err := os.open(
+			part,
+			{.Write, .Create, .Excl},
+			{.Read_User, .Write_User, .Read_Group, .Read_Other},
+		)
 		if err != nil {
 			log.errorf("file: could not create %s: %v", part, err)
 			return

@@ -428,7 +428,11 @@ log_stats :: proc(c: ^Voice_Client) {
 	for speaker, n in v.received {
 		fmt.sbprintf(&b, " | %08x: %d", speaker, n)
 		if sp := v.speakers[speaker] or_else nil; sp != nil {
-			fmt.sbprintf(&b, " (prefill %d ms)", speaker_prefill(sp) * 1000 / (SAMPLE_RATE * CHANNELS))
+			fmt.sbprintf(
+				&b,
+				" (prefill %d ms)",
+				speaker_prefill(sp) * 1000 / (SAMPLE_RATE * CHANNELS),
+			)
 		}
 	}
 	if v.concealed > 0 {

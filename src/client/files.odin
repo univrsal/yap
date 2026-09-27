@@ -59,53 +59,53 @@ file_state_over :: proc(s: File_State) -> bool {
 }
 
 File_Client :: struct {
-	transfers:    map[u64]^File_Transfer,
+	transfers:      map[u64]^File_Transfer,
 	// Bytes per second; 0 for no limit (settings: Transfer_Limits_Command).
-	upload_limit: u32,
+	upload_limit:   u32,
 	download_limit: u32,
 	// Where received files go; empty for the downloads folder.
-	download_dir: string,
+	download_dir:   string,
 }
 
 File_Transfer :: struct {
-	id:           u64,
-	peer:         [proto.KEY_SIZE]u8,
-	outgoing:     bool,
-	key:          [proto.DM_KEY_SIZE]u8, // shared with the peer (dm.odin)
-	prefix:       [proto.FILE_NONCE_PREFIX_SIZE]u8,
-	name:         string, // owned
-	size:         u64,
-	chunks:       u32,
-	state:        File_State,
-	done:         u64, // bytes through
-	last_heard:   time.Tick, // anything from the other side
-	last_publish: time.Tick,
-	rate:         f32, // bytes per second, lately
-	rate_at:      time.Tick,
-	rate_done:    u64,
+	id:            u64,
+	peer:          [proto.KEY_SIZE]u8,
+	outgoing:      bool,
+	key:           [proto.DM_KEY_SIZE]u8, // shared with the peer (dm.odin)
+	prefix:        [proto.FILE_NONCE_PREFIX_SIZE]u8,
+	name:          string, // owned
+	size:          u64,
+	chunks:        u32,
+	state:         File_State,
+	done:          u64, // bytes through
+	last_heard:    time.Tick, // anything from the other side
+	last_publish:  time.Tick,
+	rate:          f32, // bytes per second, lately
+	rate_at:       time.Tick,
+	rate_done:     u64,
 
 	// Sending.
-	src:          File_Source,
-	next:         u32, // the first chunk never sent
-	base:         u32, // everything below has arrived
-	highest:      u32,
-	peer_rate:    u32,
-	acked:        bool, // an ack has come, so `highest` means something
-	progress_at:  time.Tick, // when the acks last moved on
-	resend:       [dynamic]u32,
-	resent:       map[u32]time.Tick,
-	tokens:       f32,
-	last_pace:    time.Tick,
+	src:           File_Source,
+	next:          u32, // the first chunk never sent
+	base:          u32, // everything below has arrived
+	highest:       u32,
+	peer_rate:     u32,
+	acked:         bool, // an ack has come, so `highest` means something
+	progress_at:   time.Tick, // when the acks last moved on
+	resend:        [dynamic]u32,
+	resent:        map[u32]time.Tick,
+	tokens:        f32,
+	last_pace:     time.Tick,
 
 	// Receiving.
-	sink:         File_Sink,
-	path:         string, // where it's being saved; owned
-	have:         []u64, // a bit per chunk
-	received:     u32,
-	rbase:        u32, // the first chunk not here
-	rhighest:     u32,
-	any:          bool, // a chunk has come
-	last_ack:     time.Tick,
+	sink:          File_Sink,
+	path:          string, // where it's being saved; owned
+	have:          []u64, // a bit per chunk
+	received:      u32,
+	rbase:         u32, // the first chunk not here
+	rhighest:      u32,
+	any:           bool, // a chunk has come
+	last_ack:      time.Tick,
 	complete_acks: int,
 }
 
@@ -167,7 +167,10 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 	name_buf: [proto.MAX_FILE_NAME]u8
 	name := proto.sanitize_file_name(raw_name, &name_buf)
 	if !proto.file_type_allowed(name) {
-		log.warnf("file: %q isn't a kind of file that can be sent (archives, pictures and videos)", raw_name)
+		log.warnf(
+			"file: %q isn't a kind of file that can be sent (archives, pictures and videos)",
+			raw_name,
+		)
 		file_source_close(&src)
 		return
 	}
@@ -200,14 +203,32 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 
 	body_buf: [proto.MAX_DM_BODY]u8
 	body := proto.encode_dm_file(&body_buf, {size = size, prefix = t.prefix, name = name})
-	dm_queue(c, to, t.id, body, DM_Message{mine = true, text = strings.clone(name), file = true, file_size = size, file_state = .Offered})
+	dm_queue(
+		c,
+		to,
+		t.id,
+		body,
+		DM_Message {
+			mine = true,
+			text = strings.clone(name),
+			file = true,
+			file_size = size,
+			file_state = .Offered,
+		},
+	)
 	log.infof("[file] offering %s %q (%s)", fingerprint(to), name, format_bytes(size))
 	publish_file(c, t, force = true)
 }
 
 // file_offer_received takes in an offer that came in a DM; `m` is the
 // message it's going to be, which it fills in.
-file_offer_received :: proc(c: ^Voice_Client, from: [proto.KEY_SIZE]u8, id: u64, offer: proto.DM_File, m: ^DM_Message) {
+file_offer_received :: proc(
+	c: ^Voice_Client,
+	from: [proto.KEY_SIZE]u8,
+	id: u64,
+	offer: proto.DM_File,
+	m: ^DM_Message,
+) {
 	name_buf: [proto.MAX_FILE_NAME]u8
 	name := proto.sanitize_file_name(offer.name, &name_buf)
 	m.file = true
@@ -218,7 +239,11 @@ file_offer_received :: proc(c: ^Voice_Client, from: [proto.KEY_SIZE]u8, id: u64,
 	key, key_ok := dm_shared_key(c, from)
 	if !key_ok || name == "" || !proto.file_type_allowed(name) {
 		// Nothing we'd save: say no straight away.
-		log.warnf("file: refusing %q from %s, not a kind of file that can be sent", offer.name, fingerprint(from))
+		log.warnf(
+			"file: refusing %q from %s, not a kind of file that can be sent",
+			offer.name,
+			fingerprint(from),
+		)
 		m.file_state = .Declined
 		send_file_cancel(c, id, from, .Declined)
 		return
@@ -297,7 +322,10 @@ files_step :: proc(c: ^Voice_Client) {
 		if file_state_over(t.state) {
 			// The recipient repeats that it's complete, in case the
 			// first didn't get there.
-			if !t.outgoing && t.state == .Done && t.complete_acks < FILE_COMPLETE_ACKS && time.tick_diff(t.last_ack, now) >= FILE_ACK_INTERVAL * 3 {
+			if !t.outgoing &&
+			   t.state == .Done &&
+			   t.complete_acks < FILE_COMPLETE_ACKS &&
+			   time.tick_diff(t.last_ack, now) >= FILE_ACK_INTERVAL * 3 {
 				send_file_ack(c, t, now)
 			}
 			continue
@@ -325,13 +353,23 @@ files_step :: proc(c: ^Voice_Client) {
 				if t.last_ack == {} || time.tick_diff(t.last_ack, now) >= proto.CONTROL_RESEND {
 					t.last_ack = now
 					buf: [proto.FILE_ACCEPT_SIZE]u8
-					send_data(c, proto.encode_file_accept(&buf, t.id, t.peer, c.files.download_limit))
+					send_data(
+						c,
+						proto.encode_file_accept(&buf, t.id, t.peer, c.files.download_limit),
+					)
 				}
 			case .Transferring:
 				if time.tick_diff(t.last_ack, now) >= FILE_ACK_INTERVAL {
 					send_file_ack(c, t, now)
 				}
-			case .Offered, .Incoming, .Done, .Declined, .Cancelled, .Failed, .Interrupted, .Expired:
+			case .Offered,
+			     .Incoming,
+			     .Done,
+			     .Declined,
+			     .Cancelled,
+			     .Failed,
+			     .Interrupted,
+			     .Expired:
 			}
 		}
 		update_rate(t, now)
@@ -354,12 +392,17 @@ send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 	}
 	elapsed := f32(time.duration_seconds(time.tick_diff(t.last_pace, now)))
 	t.last_pace = now
-	t.tokens = min(t.tokens + elapsed * rate, max(FILE_BURST * rate / FILE_MAX_RATE, proto.FILE_CHUNK_DATA))
+	t.tokens = min(
+		t.tokens + elapsed * rate,
+		max(FILE_BURST * rate / FILE_MAX_RATE, proto.FILE_CHUNK_DATA),
+	)
 
 	// Everything sent once, but the acks have stopped moving: what's
 	// after the highest chunk they have may have been lost too, and
 	// they can't know to ask for it.
-	if t.next == t.chunks && t.base < t.chunks && time.tick_diff(t.progress_at, now) > FILE_TAIL_WAIT {
+	if t.next == t.chunks &&
+	   t.base < t.chunks &&
+	   time.tick_diff(t.progress_at, now) > FILE_TAIL_WAIT {
 		from := t.base
 		if t.acked {
 			from = max(from, t.highest + 1)
@@ -514,7 +557,16 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 		return // a repeat
 	}
 	out: [proto.FILE_CHUNK_DATA]u8
-	data, ok := proto.dm_open(&t.key, t.peer, c.my_key, t.id, .File, proto.file_chunk_nonce(t.prefix, index), sealed, out[:])
+	data, ok := proto.dm_open(
+		&t.key,
+		t.peer,
+		c.my_key,
+		t.id,
+		.File,
+		proto.file_chunk_nonce(t.prefix, index),
+		sealed,
+		out[:],
+	)
 	start, end := proto.file_chunk_range(t.size, index)
 	if !ok || u64(len(data)) != end - start {
 		return // not from them, or broken; it'll be asked for again
@@ -638,7 +690,12 @@ transfer_free :: proc(t: ^File_Transfer) {
 }
 
 @(private = "file")
-send_file_cancel :: proc(c: ^Voice_Client, id: u64, to: [proto.KEY_SIZE]u8, reason: proto.File_Cancel_Reason) {
+send_file_cancel :: proc(
+	c: ^Voice_Client,
+	id: u64,
+	to: [proto.KEY_SIZE]u8,
+	reason: proto.File_Cancel_Reason,
+) {
 	buf: [proto.FILE_CANCEL_SIZE]u8
 	send_data(c, proto.encode_file_cancel(&buf, id, to, reason))
 }

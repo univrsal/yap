@@ -138,7 +138,9 @@ UI_About :: struct {
 }
 
 open_about :: proc(ui: ^UI) {
-	ui.about = {open = true}
+	ui.about = {
+		open = true,
+	}
 }
 
 about_dialog :: proc(ui: ^UI, window_w, window_h: i32) {
@@ -181,7 +183,10 @@ about_dialog :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 	}
 	mu.layout_row(ctx, {-1})
-	about_text(ctx, "A sloppy, minimal and limited VOIP application.\nhttps://github.com/univrsal/yap")
+	about_text(
+		ctx,
+		"A sloppy, minimal and limited VOIP application.\nhttps://github.com/univrsal/yap",
+	)
 
 	mu.label(ctx, "")
 	mu.label(ctx, "Third-party software (click one for its license):")
@@ -197,7 +202,10 @@ about_dialog :: proc(ui: ^UI, window_w, window_h: i32) {
 		if .ACTIVE not_in mu.header(ctx, fmt.tprintf("%s  (%s)", p.name, p.license)) {
 			continue
 		}
-		about_text(ctx, fmt.tprintf("%s.\n%s", p.use, p.url) if p.url != "" else fmt.tprintf("%s.", p.use))
+		about_text(
+			ctx,
+			fmt.tprintf("%s.\n%s", p.use, p.url) if p.url != "" else fmt.tprintf("%s.", p.use),
+		)
 		mu.label(ctx, "")
 		with_text_color(ctx, DIM_COLOR, p.text, about_text)
 	}

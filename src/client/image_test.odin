@@ -75,7 +75,10 @@ test_image_prepare :: proc(t: ^testing.T) {
 
 	// It's a JPEG of the right size.
 	w, h, comp: i32
-	testing.expect(t, stbi.info_from_memory(raw_data(img.jpeg), i32(len(img.jpeg)), &w, &h, &comp) != 0)
+	testing.expect(
+		t,
+		stbi.info_from_memory(raw_data(img.jpeg), i32(len(img.jpeg)), &w, &h, &comp) != 0,
+	)
 	testing.expect_value(t, w, 200)
 	testing.expect_value(t, h, 100)
 	testing.expect(t, img.jpeg[0] == 0xff && img.jpeg[1] == 0xd8) // SOI marker
@@ -127,7 +130,14 @@ test_image_transparency :: proc(t: ^testing.T) {
 	// the noise below it into the row, so it isn't exactly 255.
 	for x in 0 ..< int(w) {
 		for c in 0 ..< 3 {
-			testing.expectf(t, pixels[x * 3 + c] > 200, "pixel %d channel %d is %d", x, c, pixels[x * 3 + c])
+			testing.expectf(
+				t,
+				pixels[x * 3 + c] > 200,
+				"pixel %d channel %d is %d",
+				x,
+				c,
+				pixels[x * 3 + c],
+			)
 		}
 	}
 }
@@ -136,6 +146,8 @@ test_image_transparency :: proc(t: ^testing.T) {
 test_image_rejects_bad_input :: proc(t: ^testing.T) {
 	_, ok := image_prepare({})
 	testing.expect(t, !ok)
-	_, ok = image_prepare({width = 10, height = 10, pixels = make([]u8, 4, context.temp_allocator)})
+	_, ok = image_prepare(
+		{width = 10, height = 10, pixels = make([]u8, 4, context.temp_allocator)},
+	)
 	testing.expect(t, !ok)
 }

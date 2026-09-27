@@ -198,7 +198,17 @@ open_stream :: proc(
 
 	for id in candidates[:count] {
 		res: ma.Result
-		s := ma.stream_open(a.ctx, dir, id, SAMPLE_RATE, channels, device_period_ms(), callback, v, &res)
+		s := ma.stream_open(
+			a.ctx,
+			dir,
+			id,
+			SAMPLE_RATE,
+			channels,
+			device_period_ms(),
+			callback,
+			v,
+			&res,
+		)
 		if s == nil {
 			log.debugf(
 				"audio: opening the %s failed (%s), trying the next option",
@@ -227,7 +237,13 @@ open_stream :: proc(
 		}
 		opened: [ma.NAME_SIZE]u8
 		ma.stream_device_name(s, &opened)
-		log.infof("audio: %s: %s (%d channel%s)", what, cstring(&opened[0]), opened_channels, "" if opened_channels == 1 else "s")
+		log.infof(
+			"audio: %s: %s (%d channel%s)",
+			what,
+			cstring(&opened[0]),
+			opened_channels,
+			"" if opened_channels == 1 else "s",
+		)
 		return s
 	}
 	log.errorf("audio: could not open the %s", what)

@@ -25,7 +25,14 @@ fragments :: proc(num: u32, key: bool, data: []u8) -> []Video_Fragment {
 		msg := encode_video_down(
 			buf,
 			9,
-			{frame = num, ts = num * 100, index = i, count = count, key = key, data = data[start:end]},
+			{
+				frame = num,
+				ts = num * 100,
+				index = i,
+				count = count,
+				key = key,
+				data = data[start:end],
+			},
 		)
 		sharer, f, ok := decode_video_down(msg)
 		assert(ok && sharer == 9)

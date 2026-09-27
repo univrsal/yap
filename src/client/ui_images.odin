@@ -1,9 +1,9 @@
 package client
 
-import "base:runtime"
-import "core:math"
-import "core:fmt"
 import log "../common/wlog"
+import "base:runtime"
+import "core:fmt"
+import "core:math"
 import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
@@ -402,7 +402,12 @@ viewer_rect :: proc(im: ^UI_Images, picture: mu.Rect) -> mu.Rect {
 	h := f32(fh) * im.zoom
 	cx := f32(picture.x) + f32(picture.w) / 2 + im.pan.x
 	cy := f32(picture.y) + f32(picture.h) / 2 + im.pan.y
-	return {i32(math.round(cx - w / 2)), i32(math.round(cy - h / 2)), i32(math.round(w)), i32(math.round(h))}
+	return {
+		i32(math.round(cx - w / 2)),
+		i32(math.round(cy - h / 2)),
+		i32(math.round(w)),
+		i32(math.round(h)),
+	}
 }
 
 // ui_images_after_frame writes out an image the viewer or a right-click

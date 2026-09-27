@@ -39,51 +39,51 @@ View_User :: struct {
 }
 
 View :: struct {
-	mutex:      sync.Mutex,
-	status:     Status,
-	error:      string, // why we Failed
+	mutex:       sync.Mutex,
+	status:      Status,
+	error:       string, // why we Failed
 	// Set when we Failed because the server's key isn't the one saved
 	// for it (see verify_server_key), for the UI to offer trusting it.
-	key_change: Key_Change,
-	server:     string,
-	my_key:     [proto.KEY_SIZE]u8,
-	my_num:     proto.User_Num, // 0 until the first snapshot
-	my_name:    string, // as the server has it
-	users:      map[proto.User_Num]View_User,
-	channels:   [dynamic]View_Channel,
-	my_channel: int, // -1 until known
-	joining:    int, // channel a move is pending to, or -1
+	key_change:  Key_Change,
+	server:      string,
+	my_key:      [proto.KEY_SIZE]u8,
+	my_num:      proto.User_Num, // 0 until the first snapshot
+	my_name:     string, // as the server has it
+	users:       map[proto.User_Num]View_User,
+	channels:    [dynamic]View_Channel,
+	my_channel:  int, // -1 until known
+	joining:     int, // channel a move is pending to, or -1
 	// The microphone's level and the voice gate, per captured frame.
-	mic_level:  f32, // dBFS
-	mic_open:   bool,
-	mic_time:   time.Tick,
+	mic_level:   f32, // dBFS
+	mic_open:    bool,
+	mic_time:    time.Tick,
 	// Last time each user's voice was heard, for a speaking indicator.
-	speaking:   map[proto.User_Num]time.Tick,
+	speaking:    map[proto.User_Num]time.Tick,
 	// Text chat in our channel, oldest first.
-	chat:       [dynamic]View_Chat_Line,
+	chat:        [dynamic]View_Chat_Line,
 	chat_total:  int, // lines ever added, so the UI knows when to scroll
 	chat_unread: int, // new messages from others; the UI zeroes it when seen
-	outbox:     [dynamic]string, // our messages the server hasn't confirmed yet
-	images:     map[u32]View_Image, // by image id
-	typing:     map[proto.User_Num]time.Tick, // when each user last said they're typing
+	outbox:      [dynamic]string, // our messages the server hasn't confirmed yet
+	images:      map[u32]View_Image, // by image id
+	typing:      map[proto.User_Num]time.Tick, // when each user last said they're typing
 	// Pokes that came in, for the UI to show (and take) next frame.
-	pokes:      [dynamic]View_Poke,
+	pokes:       [dynamic]View_Poke,
 	// Whose screen we're watching, or 0.
-	watching:   proto.User_Num,
+	watching:    proto.User_Num,
 	// How the pings to the server are doing (ping.odin).
-	connection: Connection_Stats,
+	connection:  Connection_Stats,
 	// Direct messages, by who they're with (dm.odin), and when each of
 	// them last said they're typing to us.
-	dms:        map[[proto.KEY_SIZE]u8]View_Conversation,
-	dm_typing:  map[[proto.KEY_SIZE]u8]time.Tick,
+	dms:         map[[proto.KEY_SIZE]u8]View_Conversation,
+	dm_typing:   map[[proto.KEY_SIZE]u8]time.Tick,
 	// Pictures in DMs, by View_DM.image.id: kept apart from the chat's
 	// images, which go whenever we change channels.
-	dm_images:  map[u32]View_Image,
+	dm_images:   map[u32]View_Image,
 	// File transfers in DMs, by the offer's id (View_DM.id).
-	dm_files:   map[u64]View_File,
+	dm_files:    map[u64]View_File,
 	// When users were last on this server, as far as it's said (0: it
 	// has never seen them). See last_seen.odin.
-	last_seen:  map[[proto.KEY_SIZE]u8]proto.Unix_Time,
+	last_seen:   map[[proto.KEY_SIZE]u8]proto.Unix_Time,
 }
 
 View_File :: struct {
@@ -104,11 +104,11 @@ View_Conversation :: struct {
 }
 
 View_DM :: struct {
-	id:    u64,
-	mine:  bool,
-	time:  proto.Unix_Time,
-	text:  string, // owned
-	state: DM_State,
+	id:       u64,
+	mine:     bool,
+	time:     proto.Unix_Time,
+	text:     string, // owned
+	state:    DM_State,
 	// An image instead of text; its bytes are in View.dm_images.
 	is_image: bool,
 	image:    proto.Image_Info,
@@ -604,7 +604,11 @@ publish_image :: proc(c: ^Voice_Client, id: u32) {
 		jpeg = make([]u8, len(img.data))
 		copy(jpeg, img.data)
 	}
-	v.images[id] = {info = img.info, state = img.state, jpeg = jpeg}
+	v.images[id] = {
+		info  = img.info,
+		state = img.state,
+		jpeg  = jpeg,
+	}
 }
 
 // unpublish_image drops an image the client no longer keeps.

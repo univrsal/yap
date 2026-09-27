@@ -20,7 +20,14 @@ foreign _ {
 
 // save_to_downloads offers `data` as yap-<random>.<ext>, a name of its
 // own like on a desktop, and returns that name.
-save_to_downloads :: proc(data: []u8, ext: string, allocator := context.allocator) -> (path: string, ok: bool) {
+save_to_downloads :: proc(
+	data: []u8,
+	ext: string,
+	allocator := context.allocator,
+) -> (
+	path: string,
+	ok: bool,
+) {
 	random: [4]u8
 	crypto.rand_bytes(random[:])
 	name := fmt.tprintf("yap-%s.%s", string(hex.encode(random[:], context.temp_allocator)), ext)

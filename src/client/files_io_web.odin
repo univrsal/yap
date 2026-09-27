@@ -30,7 +30,14 @@ File_Sink :: struct {
 	handle: i32,
 }
 
-file_source_open :: proc(cmd: Send_File_Command) -> (src: File_Source, name: string, size: u64, ok: bool) {
+file_source_open :: proc(
+	cmd: Send_File_Command,
+) -> (
+	src: File_Source,
+	name: string,
+	size: u64,
+	ok: bool,
+) {
 	if cmd.web_file <= 0 {
 		return
 	}
@@ -59,7 +66,14 @@ file_source_close :: proc(src: ^File_Source) {
 
 // file_sink_create starts collecting a file; the browser picks where it
 // goes when it's done, so the "path" is its name.
-file_sink_create :: proc(dir, name: string, size: u64) -> (sink: File_Sink, path: string, ok: bool) {
+file_sink_create :: proc(
+	dir, name: string,
+	size: u64,
+) -> (
+	sink: File_Sink,
+	path: string,
+	ok: bool,
+) {
 	handle := yap_sink_open(strings.clone_to_cstring(name, context.temp_allocator), f64(size))
 	if handle <= 0 {
 		log.error("file: the page couldn't start the download")

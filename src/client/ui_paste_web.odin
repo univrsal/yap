@@ -1,8 +1,8 @@
 #+build wasi
 package client
 
-import "core:strings"
 import log "../common/wlog"
+import "core:strings"
 
 /*
 Pasting a picture into the chat. A page can only read the clipboard

@@ -35,7 +35,10 @@ handle_last_seen :: proc(c: ^Voice_Client, pt: []u8) {
 			case 0:
 				log.infof("[seen] %s: never on this server", fingerprint(key))
 			case proto.LAST_SEEN_HIDDEN:
-				log.infof("[seen] %s: not shared (you haven't both sent each other DMs)", fingerprint(key))
+				log.infof(
+					"[seen] %s: not shared (you haven't both sent each other DMs)",
+					fingerprint(key),
+				)
 			case:
 				log.infof("[seen] %s: last here at unix time %d", fingerprint(key), seen)
 			}

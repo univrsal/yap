@@ -270,13 +270,15 @@ describe :: proc(b: ^Backend) -> (Status, string) {
 		return .Ok, "Reading the keyboards directly (evdev)."
 	case .X11:
 		if os.get_env("WAYLAND_DISPLAY", context.temp_allocator) != "" {
-			return .Limited, "Only while an X11 window has the focus: for Wayland, add yourself to the \"input\" group and log in again."
+			return .Limited,
+				"Only while an X11 window has the focus: for Wayland, add yourself to the \"input\" group and log in again."
 		}
 		return .Ok, "Using X11."
 	case .None:
 	}
 	if b.denied {
-		return .Unavailable, "Can't read the keyboards: add yourself to the \"input\" group and log in again."
+		return .Unavailable,
+			"Can't read the keyboards: add yourself to the \"input\" group and log in again."
 	}
 	return .Unavailable, "No keyboard found in /dev/input, and no X11 display."
 }

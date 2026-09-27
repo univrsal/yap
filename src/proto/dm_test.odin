@@ -95,7 +95,15 @@ test_dm_image :: proc(t: ^testing.T) {
 	}
 	body_buf: [MAX_DM_BODY]u8
 	sealed_buf: [MAX_DM_SEALED]u8
-	nonce, sealed := dm_seal(&k_ab, alice_pub, bob_pub, 9, .Body, encode_dm_image(&body_buf, img), sealed_buf[:])
+	nonce, sealed := dm_seal(
+		&k_ab,
+		alice_pub,
+		bob_pub,
+		9,
+		.Body,
+		encode_dm_image(&body_buf, img),
+		sealed_buf[:],
+	)
 
 	wire_buf: [MAX_DM_SIZE_ON_WIRE]u8
 	msg := encode_dm_image_send(wire_buf[:], 9, bob_pub, nonce, len(sealed_image), sealed)
@@ -116,7 +124,16 @@ test_dm_image :: proc(t: ^testing.T) {
 
 	picture := make([]u8, len(jpeg))
 	defer delete(picture)
-	got_jpeg, image_ok := dm_open(&k_ba, alice_pub, bob_pub, id, .Image, got_img.nonce, sealed_image, picture)
+	got_jpeg, image_ok := dm_open(
+		&k_ba,
+		alice_pub,
+		bob_pub,
+		id,
+		.Image,
+		got_img.nonce,
+		sealed_image,
+		picture,
+	)
 	testing.expect(t, image_ok)
 	testing.expect(t, string(got_jpeg) == string(jpeg))
 	// The image's bytes aren't a body.

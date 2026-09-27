@@ -1,9 +1,9 @@
 package server
 
+import "base:runtime"
 import "core:log"
 import "core:net"
 import "core:os"
-import "base:runtime"
 import "core:path/filepath"
 import "core:strings"
 import "core:sync"
@@ -84,13 +84,27 @@ start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
 		full, _ := filepath.join({web_dir, f.name}, context.temp_allocator)
 		data, read_err := os.read_entire_file(full, context.allocator)
 		if read_err != nil {
-			log.errorf("could not read %s: %v (built the web client? see web/build.sh)", full, read_err)
+			log.errorf(
+				"could not read %s: %v (built the web client? see web/build.sh)",
+				full,
+				read_err,
+			)
 			continue
 		}
 		f.data, f.loaded = data, true
 	}
-	log.infof("relaying browsers to udp :%d; serving %s on http://localhost:%d/", server_port, web_dir, port)
-	thread.create_and_start_with_poly_data(r, accept_browsers, init_context = context, self_cleanup = true)
+	log.infof(
+		"relaying browsers to udp :%d; serving %s on http://localhost:%d/",
+		server_port,
+		web_dir,
+		port,
+	)
+	thread.create_and_start_with_poly_data(
+		r,
+		accept_browsers,
+		init_context = context,
+		self_cleanup = true,
+	)
 	return true
 }
 
@@ -107,7 +121,13 @@ accept_browsers :: proc(r: ^Relay) {
 		c := new(Conn)
 		c.sock = sock
 		log.debugf("connection from %s", net.endpoint_to_string(from, context.temp_allocator))
-		thread.create_and_start_with_poly_data2(r, c, handle_connection, init_context = context, self_cleanup = true)
+		thread.create_and_start_with_poly_data2(
+			r,
+			c,
+			handle_connection,
+			init_context = context,
+			self_cleanup = true,
+		)
 	}
 }
 
@@ -206,7 +226,11 @@ relay_websocket :: proc(r: ^Relay, c: ^Conn, target: string, key: string) {
 		udp    = udp,
 		server = r.server,
 	}
-	back := thread.create_and_start_with_poly_data(&link, server_to_browser, init_context = context)
+	back := thread.create_and_start_with_poly_data(
+		&link,
+		server_to_browser,
+		init_context = context,
+	)
 
 	payload: [MAX_FRAME]u8
 	loop: for !sync.atomic_load(&link.done) {

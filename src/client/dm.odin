@@ -41,14 +41,14 @@ DM_State :: enum u8 {
 }
 
 DM_Message :: struct {
-	id:      u64,
-	mine:    bool,
-	time:    proto.Unix_Time, // theirs: when the server took it; ours: when sent
-	text:    string, // owned
-	state:   DM_State,
+	id:         u64,
+	mine:       bool,
+	time:       proto.Unix_Time, // theirs: when the server took it; ours: when sent
+	text:       string, // owned
+	state:      DM_State,
 	// An image instead of text (dm_images.odin).
-	image:   bool,
-	picture: DM_Picture,
+	image:      bool,
+	picture:    DM_Picture,
 	// A file offer instead (files.odin): `text` is its name.
 	file:       bool,
 	file_size:  u64,
@@ -455,7 +455,13 @@ dm_queue :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8, id: u64, body: []u8, 
 
 // dm_file_state records how a file transfer ended in its message, and
 // where a received file went.
-dm_file_state :: proc(c: ^Voice_Client, peer: [proto.KEY_SIZE]u8, id: u64, state: File_State, path: string) {
+dm_file_state :: proc(
+	c: ^Voice_Client,
+	peer: [proto.KEY_SIZE]u8,
+	id: u64,
+	state: File_State,
+	path: string,
+) {
 	conv := c.dms.conversations[peer] or_else nil
 	if conv == nil {
 		return
@@ -529,15 +535,15 @@ Saved_Conversation :: struct {
 // The id as a hex string, as JSON numbers don't reliably carry 64 bits.
 @(private = "file")
 Saved_Message :: struct {
-	id:     string,
-	mine:   bool,
-	time:   u64,
-	text:   string,
-	state:  DM_State,
+	id:         string,
+	mine:       bool,
+	time:       u64,
+	text:       string,
+	state:      DM_State,
 	// An image, which isn't kept: only its size, for the gap it leaves.
-	image:  bool,
-	width:  u16,
-	height: u16,
+	image:      bool,
+	width:      u16,
+	height:     u16,
 	// A file offer: its name is the text.
 	file:       bool,
 	file_size:  u64,
@@ -575,14 +581,14 @@ dm_save :: proc(c: ^Voice_Client, conv: ^DM_Conversation) {
 	messages := make([]Saved_Message, len(conv.messages), context.temp_allocator)
 	for m, i in conv.messages {
 		messages[i] = {
-			id     = hex_u64(m.id),
-			mine   = m.mine,
-			time   = u64(m.time),
-			text   = m.text,
-			state  = m.state,
-			image  = m.image,
-			width  = m.picture.width,
-			height = m.picture.height,
+			id         = hex_u64(m.id),
+			mine       = m.mine,
+			time       = u64(m.time),
+			text       = m.text,
+			state      = m.state,
+			image      = m.image,
+			width      = m.picture.width,
+			height     = m.picture.height,
 			file       = m.file,
 			file_size  = m.file_size,
 			file_state = m.file_state,
