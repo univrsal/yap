@@ -153,40 +153,41 @@ gpu_init :: proc(g: ^Gpu, window: glfw.WindowHandle) -> (ok: bool) {
 @(private = "file")
 make_swap_chain :: proc(g: ^Gpu, hwnd: win32.HWND) -> bool {
 	dxgi_device: ^dxgi.IDevice
-	if failed(g.device->QueryInterface(dxgi.IDevice_UUID, (^rawptr)(&dxgi_device))) {
+	if failed(g.devic.QueryInterface(dxgi.IDevice_UUID, (^rawptr)(&dxgi_device))) {
 		log.error("gpu: the device isn't a DXGI device")
 		return false
 	}
-	defer dxgi_device->Release()
+	defer dxgi_devic.Release()
 	adapter: ^dxgi.IAdapter
-	if failed(dxgi_device->GetAdapter(&adapter)) {
+	if failed(dxgi_devic.GetAdapter(&adapter)) {
 		log.error("gpu: the device has no adapter")
 		return false
 	}
-	defer adapter->Release()
+	defer adapte.Release()
 	factory: ^dxgi.IFactory2
-	if failed(adapter->GetParent(dxgi.IFactory2_UUID, (^rawptr)(&factory))) {
+	if failed(adapte.GetParent(dxgi.IFactory2_UUID, (^rawptr)(&factory))) {
 		log.error("gpu: no DXGI 1.2 factory")
 		return false
 	}
-	defer factory->Release()
+	defer factor.Release()
 
 	desc := dxgi.SWAP_CHAIN_DESC1 {
-		Format      = .B8G8R8A8_UNORM,
-		SampleDesc  = {Count = 1},
+		Format = .B8G8R8A8_UNORM,
+		SampleDesc = {Count = 1},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
 		BufferCount = 2,
 		// While the window is being resized, and the back buffer isn't
 		// yet, the last frame stays where it was rather than stretching.
-		Scaling     = .NONE,
-		SwapEffect  = .FLIP_DISCARD,
+		Scaling = .NONE,
+		SwapEffect = .FLIP_DISCARD,
 	}
-	if hr := factory->CreateSwapChainForHwnd(g.device, hwnd, &desc, nil, nil, &g.swap_chain); failed(hr) {
+	if hr := factor.CreateSwapChainForHwnd(g.device, hwnd, &desc, nil, nil, &g.swap_chain);
+	   failed(hr) {
 		log.errorf("gpu: no swap chain (0x%8x)", u32(hr))
 		return false
 	}
 	// Alt+Enter would have DXGI make the window exclusive fullscreen.
-	factory->MakeWindowAssociation(hwnd, {.NO_ALT_ENTER})
+	factor.MakeWindowAssociation(hwnd, {.NO_ALT_ENTER})
 	return true
 }
 
@@ -211,36 +212,58 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 		return false
 	}
 	vs_code := compile_shader(compile, "vs", "vs_4_0") or_return
-	defer vs_code->Release()
+	defer vs_cod.Release()
 	ps_alpha := compile_shader(compile, "ps_alpha", "ps_4_0") or_return
-	defer ps_alpha->Release()
+	defer ps_alph.Release()
 	ps_rgba := compile_shader(compile, "ps_rgba", "ps_4_0") or_return
-	defer ps_rgba->Release()
+	defer ps_rgb.Release()
 
 	check(
-		g.device->CreateVertexShader(vs_code->GetBufferPointer(), vs_code->GetBufferSize(), nil, &g.vs),
+		g.devic.CreateVertexShader(vs_cod.GetBufferPointer(), vs_cod.GetBufferSize(), nil, &g.vs),
 		"vertex shader",
 	) or_return
 	check(
-		g.device->CreatePixelShader(ps_alpha->GetBufferPointer(), ps_alpha->GetBufferSize(), nil, &g.ps[.Alpha]),
+		g.devic.CreatePixelShader(
+			ps_alph.GetBufferPointer(),
+			ps_alph.GetBufferSize(),
+			nil,
+			&g.ps[.Alpha],
+		),
 		"pixel shader",
 	) or_return
 	check(
-		g.device->CreatePixelShader(ps_rgba->GetBufferPointer(), ps_rgba->GetBufferSize(), nil, &g.ps[.Rgba]),
+		g.devic.CreatePixelShader(
+			ps_rgb.GetBufferPointer(),
+			ps_rgb.GetBufferSize(),
+			nil,
+			&g.ps[.Rgba],
+		),
 		"pixel shader",
 	) or_return
 
 	elements := [?]d3d11.INPUT_ELEMENT_DESC {
-		{SemanticName = "POSITION", Format = .R32G32_FLOAT, AlignedByteOffset = u32(offset_of(Vertex, pos))},
-		{SemanticName = "TEXCOORD", Format = .R32G32_FLOAT, AlignedByteOffset = u32(offset_of(Vertex, uv))},
-		{SemanticName = "COLOR", Format = .R8G8B8A8_UNORM, AlignedByteOffset = u32(offset_of(Vertex, color))},
+		{
+			SemanticName = "POSITION",
+			Format = .R32G32_FLOAT,
+			AlignedByteOffset = u32(offset_of(Vertex, pos)),
+		},
+		{
+			SemanticName = "TEXCOORD",
+			Format = .R32G32_FLOAT,
+			AlignedByteOffset = u32(offset_of(Vertex, uv)),
+		},
+		{
+			SemanticName = "COLOR",
+			Format = .R8G8B8A8_UNORM,
+			AlignedByteOffset = u32(offset_of(Vertex, color)),
+		},
 	}
 	check(
-		g.device->CreateInputLayout(
+		g.devic.CreateInputLayout(
 			&elements[0],
 			len(elements),
-			vs_code->GetBufferPointer(),
-			vs_code->GetBufferSize(),
+			vs_cod.GetBufferPointer(),
+			vs_cod.GetBufferSize(),
 			&g.layout,
 		),
 		"input layout",
@@ -252,7 +275,7 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 		BindFlags      = {.VERTEX_BUFFER},
 		CPUAccessFlags = {.WRITE},
 	}
-	check(g.device->CreateBuffer(&vbo_desc, nil, &g.vbo), "vertex buffer") or_return
+	check(g.devic.CreateBuffer(&vbo_desc, nil, &g.vbo), "vertex buffer") or_return
 
 	indices := quad_indices()
 	ebo_desc := d3d11.BUFFER_DESC {
@@ -263,7 +286,7 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 	ebo_data := d3d11.SUBRESOURCE_DATA {
 		pSysMem = indices,
 	}
-	check(g.device->CreateBuffer(&ebo_desc, &ebo_data, &g.ebo), "index buffer") or_return
+	check(g.devic.CreateBuffer(&ebo_desc, &ebo_data, &g.ebo), "index buffer") or_return
 
 	constants_desc := d3d11.BUFFER_DESC {
 		ByteWidth      = size_of(Constants),
@@ -271,11 +294,14 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 		BindFlags      = {.CONSTANT_BUFFER},
 		CPUAccessFlags = {.WRITE},
 	}
-	check(g.device->CreateBuffer(&constants_desc, nil, &g.constants), "constant buffer") or_return
+	check(g.devic.CreateBuffer(&constants_desc, nil, &g.constants), "constant buffer") or_return
 
 	// Glyphs are drawn 1:1 with physical pixels, so no filtering is
 	// wanted; images are usually drawn smaller than they are.
-	for filter, kind in ([Texture_Kind]d3d11.FILTER{.Alpha = .MIN_MAG_MIP_POINT, .Rgba = .MIN_MAG_MIP_LINEAR}) {
+	for filter, kind in ([Texture_Kind]d3d11.FILTER {
+			.Alpha = .MIN_MAG_MIP_POINT,
+			.Rgba = .MIN_MAG_MIP_LINEAR,
+		}) {
 		sampler_desc := d3d11.SAMPLER_DESC {
 			Filter         = filter,
 			AddressU       = .CLAMP,
@@ -284,7 +310,7 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 			ComparisonFunc = .NEVER,
 			MaxLOD         = d3d11.FLOAT32_MAX,
 		}
-		check(g.device->CreateSamplerState(&sampler_desc, &g.sampler[kind]), "sampler") or_return
+		check(g.devic.CreateSamplerState(&sampler_desc, &g.sampler[kind]), "sampler") or_return
 	}
 
 	// Blended as glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA).
@@ -299,7 +325,7 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 		BlendOpAlpha          = .ADD,
 		RenderTargetWriteMask = u8(transmute(u32)d3d11.COLOR_WRITE_ENABLE_ALL),
 	}
-	check(g.device->CreateBlendState(&blend_desc, &g.blend), "blend state") or_return
+	check(g.devic.CreateBlendState(&blend_desc, &g.blend), "blend state") or_return
 
 	rasterizer_desc := d3d11.RASTERIZER_DESC {
 		FillMode        = .SOLID,
@@ -307,7 +333,10 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 		DepthClipEnable = true,
 		ScissorEnable   = true,
 	}
-	check(g.device->CreateRasterizerState(&rasterizer_desc, &g.rasterizer), "rasterizer state") or_return
+	check(
+		g.devic.CreateRasterizerState(&rasterizer_desc, &g.rasterizer),
+		"rasterizer state",
+	) or_return
 	return true
 }
 
@@ -329,14 +358,32 @@ Compile :: #type proc "system" (
 
 // compile_shader compiles one entry point of SHADERS.
 @(private = "file")
-compile_shader :: proc(compile: Compile, entry, target: cstring) -> (code: ^d3d11.IBlob, ok: bool) {
+compile_shader :: proc(
+	compile: Compile,
+	entry, target: cstring,
+) -> (
+	code: ^d3d11.IBlob,
+	ok: bool,
+) {
 	OPTIMIZATION_LEVEL3 :: 1 << 15
 	errors: ^d3d11.IBlob
 	src := SHADERS
-	hr := compile(raw_data(src), len(src), "yap", nil, nil, entry, target, OPTIMIZATION_LEVEL3, 0, &code, &errors)
+	hr := compile(
+		raw_data(src),
+		len(src),
+		"yap",
+		nil,
+		nil,
+		entry,
+		target,
+		OPTIMIZATION_LEVEL3,
+		0,
+		&code,
+		&errors,
+	)
 	if errors != nil {
-		log.errorf("gpu: %s: %s", entry, cstring(errors->GetBufferPointer()))
-		errors->Release()
+		log.errorf("gpu: %s: %s", entry, cstring(error.GetBufferPointer()))
+		error.Release()
 	}
 	if failed(hr) {
 		return nil, false
@@ -361,7 +408,7 @@ gpu_destroy :: proc(g: ^Gpu) {
 	release(&g.target)
 	release(&g.swap_chain)
 	if g.ctx != nil {
-		g.ctx->ClearState()
+		g.ct.ClearState()
 	}
 	release(&g.ctx)
 	release(&g.device)
@@ -396,12 +443,14 @@ gpu_begin :: proc(g: ^Gpu, fb_w, fb_h: i32, view_w, view_h: f32, clear: mu.Color
 	g.drawn = true
 
 	c := [4]f32{f32(clear.r) / 255, f32(clear.g) / 255, f32(clear.b) / 255, 1}
-	g.ctx->ClearRenderTargetView(g.target, &c)
+	g.ct.ClearRenderTargetView(g.target, &c)
 
 	mapped: d3d11.MAPPED_SUBRESOURCE
-	if succeeded(g.ctx->Map(g.constants, 0, .WRITE_DISCARD, {}, &mapped)) {
-		(^Constants)(mapped.pData)^ = {screen = {view_w, view_h}}
-		g.ctx->Unmap(g.constants, 0)
+	if succeeded(g.ct.Map(g.constants, 0, .WRITE_DISCARD, {}, &mapped)) {
+		(^Constants)(mapped.pData)^ = {
+			screen = {view_w, view_h},
+		}
+		g.ct.Unmap(g.constants, 0)
 	}
 
 	viewport := d3d11.VIEWPORT {
@@ -411,16 +460,16 @@ gpu_begin :: proc(g: ^Gpu, fb_w, fb_h: i32, view_w, view_h: f32, clear: mu.Color
 	}
 	stride := u32(size_of(Vertex))
 	offset := u32(0)
-	g.ctx->OMSetRenderTargets(1, &g.target, nil)
-	g.ctx->OMSetBlendState(g.blend, nil, 0xffffffff)
-	g.ctx->RSSetViewports(1, &viewport)
-	g.ctx->RSSetState(g.rasterizer)
-	g.ctx->IASetInputLayout(g.layout)
-	g.ctx->IASetPrimitiveTopology(.TRIANGLELIST)
-	g.ctx->IASetVertexBuffers(0, 1, &g.vbo, &stride, &offset)
-	g.ctx->IASetIndexBuffer(g.ebo, .R16_UINT, 0)
-	g.ctx->VSSetShader(g.vs, nil, 0)
-	g.ctx->VSSetConstantBuffers(0, 1, &g.constants)
+	g.ct.OMSetRenderTargets(1, &g.target, nil)
+	g.ct.OMSetBlendState(g.blend, nil, 0xffffffff)
+	g.ct.RSSetViewports(1, &viewport)
+	g.ct.RSSetState(g.rasterizer)
+	g.ct.IASetInputLayout(g.layout)
+	g.ct.IASetPrimitiveTopology(.TRIANGLELIST)
+	g.ct.IASetVertexBuffers(0, 1, &g.vbo, &stride, &offset)
+	g.ct.IASetIndexBuffer(g.ebo, .R16_UINT, 0)
+	g.ct.VSSetShader(g.vs, nil, 0)
+	g.ct.VSSetConstantBuffers(0, 1, &g.constants)
 	gpu_clip(g, 0, 0, fb_w, fb_h)
 	return true
 }
@@ -430,19 +479,19 @@ gpu_begin :: proc(g: ^Gpu, fb_w, fb_h: i32, view_w, view_h: f32, clear: mu.Color
 @(private = "file")
 resize :: proc(g: ^Gpu, fb_w, fb_h: i32) -> bool {
 	// Nothing may hold on to the old back buffer while it's resized.
-	g.ctx->OMSetRenderTargets(0, nil, nil)
+	g.ct.OMSetRenderTargets(0, nil, nil)
 	release(&g.target)
-	if hr := g.swap_chain->ResizeBuffers(0, u32(fb_w), u32(fb_h), .UNKNOWN, {}); failed(hr) {
+	if hr := g.swap_chai.ResizeBuffers(0, u32(fb_w), u32(fb_h), .UNKNOWN, {}); failed(hr) {
 		device_error(g, "resizing the swap chain", hr)
 		return false
 	}
 	back: ^d3d11.ITexture2D
-	if hr := g.swap_chain->GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&back)); failed(hr) {
+	if hr := g.swap_chai.GetBuffer(0, d3d11.ITexture2D_UUID, (^rawptr)(&back)); failed(hr) {
 		device_error(g, "getting the back buffer", hr)
 		return false
 	}
-	defer back->Release()
-	if hr := g.device->CreateRenderTargetView(back, nil, &g.target); failed(hr) {
+	defer bac.Release()
+	if hr := g.devic.CreateRenderTargetView(back, nil, &g.target); failed(hr) {
 		device_error(g, "making the render target", hr)
 		return false
 	}
@@ -458,7 +507,7 @@ gpu_present :: proc(g: ^Gpu) {
 	}
 	// Occluded (DXGI_STATUS_OCCLUDED) isn't a failure: the window is
 	// just out of sight.
-	if hr := g.swap_chain->Present(g.interval, {}); failed(hr) {
+	if hr := g.swap_chai.Present(g.interval, {}); failed(hr) {
 		device_error(g, "presenting", hr)
 	}
 }
@@ -467,7 +516,7 @@ gpu_present :: proc(g: ^Gpu) {
 // the top left.
 gpu_clip :: proc(g: ^Gpu, x, y, w, h: i32) {
 	rect := d3d11.RECT{x, y, x + w, y + h}
-	g.ctx->RSSetScissorRects(1, &rect)
+	g.ct.RSSetScissorRects(1, &rect)
 }
 
 // gpu_draw draws quads (four vertices each, see quad_indices) from `tex`.
@@ -477,16 +526,16 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 		return
 	}
 	mapped: d3d11.MAPPED_SUBRESOURCE
-	if failed(g.ctx->Map(g.vbo, 0, .WRITE_DISCARD, {}, &mapped)) {
+	if failed(g.ct.Map(g.vbo, 0, .WRITE_DISCARD, {}, &mapped)) {
 		return
 	}
 	copy(([^]Vertex)(mapped.pData)[:len(vertices)], vertices)
-	g.ctx->Unmap(g.vbo, 0)
+	g.ct.Unmap(g.vbo, 0)
 
-	g.ctx->PSSetShader(g.ps[kind], nil, 0)
-	g.ctx->PSSetSamplers(0, 1, &g.sampler[kind])
-	g.ctx->PSSetShaderResources(0, 1, &t.view)
-	g.ctx->DrawIndexed(u32(len(vertices) / 4 * 6), 0, 0)
+	g.ct.PSSetShader(g.ps[kind], nil, 0)
+	g.ct.PSSetSamplers(0, 1, &g.sampler[kind])
+	g.ct.PSSetShaderResources(0, 1, &t.view)
+	g.ct.DrawIndexed(u32(len(vertices) / 4 * 6), 0, 0)
 }
 
 /*
@@ -495,34 +544,39 @@ a pixel for .Alpha, four for .Rgba). A texture without pixels is none at
 all: only the page's video decoder fills one of those (video_web.odin),
 and there's no page here.
 */
-gpu_texture_make :: proc(g: ^Gpu, kind: Texture_Kind, width, height: i32, pixels: []u8) -> Gpu_Texture {
+gpu_texture_make :: proc(
+	g: ^Gpu,
+	kind: Texture_Kind,
+	width, height: i32,
+	pixels: []u8,
+) -> Gpu_Texture {
 	if pixels == nil || width <= 0 || height <= 0 || g.device == nil {
 		return 0
 	}
 	pixel_size: u32 = 1 if kind == .Alpha else 4
 	desc := d3d11.TEXTURE2D_DESC {
-		Width      = u32(width),
-		Height     = u32(height),
-		MipLevels  = 1,
-		ArraySize  = 1,
-		Format     = .R8_UNORM if kind == .Alpha else .R8G8B8A8_UNORM,
+		Width = u32(width),
+		Height = u32(height),
+		MipLevels = 1,
+		ArraySize = 1,
+		Format = .R8_UNORM if kind == .Alpha else .R8G8B8A8_UNORM,
 		SampleDesc = {Count = 1},
-		Usage      = .DEFAULT,
-		BindFlags  = {.SHADER_RESOURCE},
+		Usage = .DEFAULT,
+		BindFlags = {.SHADER_RESOURCE},
 	}
 	data := d3d11.SUBRESOURCE_DATA {
 		pSysMem     = raw_data(pixels),
 		SysMemPitch = u32(width) * pixel_size,
 	}
 	t := new(D3D_Texture)
-	if hr := g.device->CreateTexture2D(&desc, &data, &t.texture); failed(hr) {
+	if hr := g.devic.CreateTexture2D(&desc, &data, &t.texture); failed(hr) {
 		log.errorf("gpu: no %dx%d texture (0x%8x)", width, height, u32(hr))
 		free(t)
 		return 0
 	}
-	if hr := g.device->CreateShaderResourceView(t.texture, nil, &t.view); failed(hr) {
+	if hr := g.devic.CreateShaderResourceView(t.texture, nil, &t.view); failed(hr) {
 		log.errorf("gpu: no texture view (0x%8x)", u32(hr))
-		t.texture->Release()
+		t.textur.Release()
 		free(t)
 		return 0
 	}
@@ -544,7 +598,7 @@ gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, r
 		bottom = u32(y1),
 		back   = 1,
 	}
-	g.ctx->UpdateSubresource(t.texture, 0, &box, raw_data(rows), u32(width), 0)
+	g.ct.UpdateSubresource(t.texture, 0, &box, raw_data(rows), u32(width), 0)
 }
 
 // gpu_texture_delete deletes `tex`, if there is one, and makes it 0.
@@ -563,7 +617,7 @@ gpu_texture_delete :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 device_error :: proc(g: ^Gpu, doing: string, hr: win32.HRESULT) {
 	if hr == dxgi.ERROR_DEVICE_REMOVED || hr == dxgi.ERROR_DEVICE_RESET {
 		if !g.lost {
-			reason := g.device->GetDeviceRemovedReason()
+			reason := g.device.GetDeviceRemovedReason()
 			log.errorf("gpu: the Direct3D device is gone (0x%8x) %s", u32(reason), doing)
 		}
 		g.lost = true
@@ -595,7 +649,7 @@ succeeded :: #force_inline proc "contextless" (hr: win32.HRESULT) -> bool {
 @(private = "file")
 release :: proc(p: ^^$T) {
 	if p^ != nil {
-		p^->Release()
+		p.Release()
 		p^ = nil
 	}
 }
