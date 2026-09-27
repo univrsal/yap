@@ -934,15 +934,6 @@ connect_screen :: proc(ui: ^UI) {
 	if .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len) {
 		ui.action = .Connect
 	}
-
-	mu.layout_row(ctx, {-1})
-	mu.label(
-		ctx,
-		fmt.tprintf(
-			"Your key: %s   (server as host or host:port; the port is 7777 if left out)",
-			fingerprint(ui.my_key),
-		),
-	)
 	if v.status == .Failed && v.error != "" {
 		with_text_color(ctx, ERROR_COLOR, v.error, label_proc)
 	}

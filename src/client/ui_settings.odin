@@ -185,7 +185,7 @@ device_settings :: proc(ui: ^UI) {
 	// The width left of the panel once the tree nodes have indented it.
 	layout := mu.get_layout(ctx)
 	half := (layout.body.w - layout.indent - ctx.style.spacing) / 2
-	mu.layout_row(ctx, {half, -1}, -1)
+	mu.layout_row(ctx, {half, -1}, 210)
 
 	if mu.layout_column(ctx) {
 		if choice, changed := device_list(
@@ -194,7 +194,7 @@ device_settings :: proc(ui: ^UI) {
 			"inputs",
 			a.inputs[:],
 			ui.settings.input_device,
-			-1,
+			200,
 		); changed {
 			set_setting(&ui.settings.input_device, choice)
 			settings_save(ui.opts.settings_path, ui.settings)
@@ -209,7 +209,7 @@ device_settings :: proc(ui: ^UI) {
 			"outputs",
 			a.outputs[:],
 			ui.settings.output_device,
-			-1,
+			200,
 		); changed {
 			set_setting(&ui.settings.output_device, choice)
 			settings_save(ui.opts.settings_path, ui.settings)

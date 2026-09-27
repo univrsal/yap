@@ -152,6 +152,9 @@ trusted_servers_settings :: proc(ui: ^UI) {
 		ctx,
 		"The key each server showed the first time you connected to it. If a server's key changes, yap won't connect to it until you trust the new one. Forgetting a key makes the next connection trust whatever key the server shows, so only forget one when you know why it changed.",
 	)
+
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, fmt.tprintf("Your key: %s", fingerprint(ui.my_key)))
 	if len(k.list) == 0 {
 		mu.label(ctx, "  None yet.")
 		return
