@@ -132,9 +132,10 @@ set_hotkey :: proc(ui: ^UI, action: Hotkey_Action, h: hotkeys.Hotkey) {
 hotkey_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	hk := &ui.hotkeys
-	if !header(ctx, "Global hotkeys", {.EXPANDED}) {
+	if .ACTIVE not_in mu.begin_treenode(ctx, "Global hotkeys", {.EXPANDED}) {
 		return
 	}
+	defer mu.end_treenode(ctx)
 
 	for action in Hotkey_Action {
 		mu.push_id(ctx, uintptr(action))

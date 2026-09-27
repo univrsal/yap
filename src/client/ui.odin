@@ -822,7 +822,10 @@ set_deafened :: proc(ui: ^UI, deafened: bool) {
 		set_muted(ui, ui.muted_before_deafen, feedback = false)
 	}
 	if ui.session != nil {
-		push_command(&ui.session.client.commands, Deafen_Command{deafened = deafened, feedback = true})
+		push_command(
+			&ui.session.client.commands,
+			Deafen_Command{deafened = deafened, feedback = true},
+		)
 	}
 }
 
@@ -902,12 +905,11 @@ connect_screen :: proc(ui: ^UI) {
 		open_settings(ui)
 	}
 
-	mu.layout_row(ctx, {70, 200, -1})
+	mu.layout_row(ctx, {70, 200})
 	mu.label(ctx, "Password")
 	if .SUBMIT in password_box(ui, ui.password_buf[:], &ui.password_len) {
 		ui.action = .Connect
 	}
-	mu.label(ctx, "(if the server has one)")
 
 	mu.layout_row(ctx, {70, 200, -1})
 	mu.label(ctx, "Name")
@@ -1212,6 +1214,31 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
+stable_button_hint :: proc(
+	ui: ^UI,
+	id_name: string,
+	label: string,
+	hint: string,
+) -> (
+	res: mu.Result_Set,
+) {
+	ctx := &ui.ctx
+
+	id := mu.get_id(ctx, id_name)
+	r := mu.layout_next(ctx)
+	mu.update_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+		res += {.SUBMIT}
+	}
+	mu.draw_control_frame(ctx, id, r, .BUTTON)
+	mu.draw_control_text(ctx, label, r, .TEXT)
+	if ctx.hover_id == id {
+		ui.hint, ui.hint_of = hint, r
+	}
+
+	return
+}
+
 stable_button :: proc(ctx: ^mu.Context, id_name: string, label: string) -> (res: mu.Result_Set) {
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
@@ -1221,6 +1248,7 @@ stable_button :: proc(ctx: ^mu.Context, id_name: string, label: string) -> (res:
 	}
 	mu.draw_control_frame(ctx, id, r, .BUTTON)
 	mu.draw_control_text(ctx, label, r, .TEXT)
+
 	return
 }
 
@@ -1394,7 +1422,10 @@ set_clipboard :: proc(user_data: rawptr, text: string) -> bool {
 	when WEB {
 		return web_copy_text(text)
 	} else {
-		glfw.SetClipboardString(g_ui.window, strings.clone_to_cstring(text, context.temp_allocator))
+		glfw.SetClipboardString(
+			g_ui.window,
+			strings.clone_to_cstring(text, context.temp_allocator),
+		)
 		return true
 	}
 }

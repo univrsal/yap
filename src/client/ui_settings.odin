@@ -10,24 +10,23 @@ and choosing the microphone and the speakers/headphones. Changes are saved
 right away (see settings.odin) and apply to a running connection.
 
 Everything below the name row sits in one scrolling panel, grouped into
-headers a person can collapse, so a short window (or one that isn't
+tree nodes a person can collapse, so a short window (or one that isn't
 interested in, say, the tray) still reaches every setting without
-wading through all of them.
+wading through all of them. The voice gate and the devices are nodes
+inside Audio, and indented under it.
 */
 settings_page :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.audio
 
-	mu.layout_row(ctx, {-290, 90, 90, -1})
-	if a.ctx != nil {
-		mu.label(ctx, fmt.tprintf("Audio devices (via %s)", a.backend))
-	} else {
-		mu.label(ctx, "Audio devices")
+	mu.layout_row(ctx, {60, -230, 70, 70, 70})
+
+	mu.label(ctx, "Name")
+	submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
+	if .SUBMIT in mu.button(ctx, "Apply") || submitted {
+		apply_name(ui)
 	}
-	if .SUBMIT in mu.button(ctx, "Refresh") {
-		log.debug("ui: refresh audio devices")
-		audio_refresh(a)
-	}
+
 	if .SUBMIT in mu.button(ctx, "About") {
 		open_about(ui)
 	}
@@ -35,38 +34,21 @@ settings_page :: proc(ui: ^UI) {
 		ui.page = .Main
 	}
 
-	mu.layout_row(ctx, {60, 200, 70, -1})
-	mu.label(ctx, "Name")
-	submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
-	if .SUBMIT in mu.button(ctx, "Apply") || submitted {
-		apply_name(ui)
-	}
-	mu.label(ctx, "  what others see you as")
-
-	if a.ctx == nil {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, {230, 90, 90, 255}, a.error, label_proc)
-		return
-	}
-
 	mu.layout_row(ctx, {-1}, -1)
 	mu.begin_panel(ctx, "settings_body")
 	defer mu.end_panel(ctx)
 
-	audio_settings(ui)
+	if a.ctx == nil {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, {230, 90, 90, 255}, a.error, label_proc)
+	} else {
+		audio_settings(ui)
+	}
+
 	ui_settings(ui)
 	hotkey_settings(ui)
 	trusted_servers_settings(ui)
 	install_settings(ui)
-}
-
-// header opens a collapsible group of settings, expanded the first time
-// it's shown; the result says whether the caller should draw the body.
-// Package-private rather than file-private, so ui_gate.odin can use it
-// for its own group.
-@(private)
-header :: proc(ctx: ^mu.Context, title: string, opts: mu.Options = {}) -> bool {
-	return .ACTIVE in mu.header(ctx, title, opts)
 }
 
 // audio_settings picks the send quality preset (see quality.odin) and
@@ -74,16 +56,22 @@ header :: proc(ctx: ^mu.Context, title: string, opts: mu.Options = {}) -> bool {
 @(private = "file")
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if !header(ctx, "Audio", {.EXPANDED}) {
+	if .ACTIVE not_in mu.begin_treenode(ctx, "Audio", {.EXPANDED}) {
 		return
 	}
+	defer mu.end_treenode(ctx)
 	current := settings_quality(&ui.settings)
-
-	mu.layout_row(ctx, {60, 90, 90, 90, -1})
+	mu.layout_row(ctx, {60, 90, 90, 90})
 	mu.label(ctx, "Quality")
 	for preset, q in QUALITY_PRESETS {
 		mark := "> " if q == current else "  "
-		if .SUBMIT in stable_button(ctx, preset.name, fmt.tprintf("%s%s", mark, preset.label)) &&
+		if .SUBMIT in
+			   stable_button_hint(
+				   ui,
+				   preset.name,
+				   fmt.tprintf("%s%s", mark, preset.label),
+				   preset.description,
+			   ) &&
 		   q != current {
 			set_setting(&ui.settings.quality, preset.name)
 			settings_save(ui.opts.settings_path, ui.settings)
@@ -93,33 +81,12 @@ audio_settings :: proc(ui: ^UI) {
 			current = q
 		}
 	}
-	mu.label(ctx, fmt.tprintf("  %s", QUALITY_PRESETS[current].description))
 
 	mu.layout_row(ctx, {-1})
-	if current != .Voice && ui.settings.noise_suppression {
-		with_text_color(
-			ctx,
-			{230, 200, 90, 255},
-			"  Noise suppression is made for speech and removes music; turn it off to send music.",
-			label_proc,
-		)
-	} else {
-		mu.label(ctx, "  Higher quality uses more bandwidth, not more latency.")
-	}
-
-	mu.layout_row(ctx, {-1})
-	if .CHANGE in
-	   mu.checkbox(
-		   ctx,
-		   "Noise suppression (removes background noise from your microphone)",
-		   &ui.settings.noise_suppression,
-	   ) {
+	if .CHANGE in mu.checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
 		settings_save(ui.opts.settings_path, ui.settings)
 		if ui.session != nil {
-			push_command(
-				&ui.session.client.commands,
-				Noise_Command{ui.settings.noise_suppression},
-			)
+			push_command(&ui.session.client.commands, Noise_Command{ui.settings.noise_suppression})
 		}
 	}
 	gate_settings(ui)
@@ -129,9 +96,10 @@ audio_settings :: proc(ui: ^UI) {
 @(private = "file")
 ui_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if !header(ctx, "User interface", {.EXPANDED}) {
+	if .ACTIVE not_in mu.begin_treenode(ctx, "User interface", {.EXPANDED}) {
 		return
 	}
+	defer mu.end_treenode(ctx)
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "UI scale")
 	// Applying every change live would resize the window mid-drag, which
@@ -162,12 +130,7 @@ ui_settings :: proc(ui: ^UI) {
 
 	when !WEB {
 		mu.layout_row(ctx, {-1})
-		if .CHANGE in
-		   mu.checkbox(
-			   ctx,
-			   "Tray icon (shows whether you're talking, muted or deafened)",
-			   &ui.settings.tray,
-		   ) {
+		if .CHANGE in mu.checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
 			settings_save(ui.opts.settings_path, ui.settings)
 			tray_update(ui)
 		}
@@ -208,11 +171,20 @@ ui_settings :: proc(ui: ^UI) {
 device_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.audio
-	if !header(ctx, "Devices") {
+	if .ACTIVE not_in mu.begin_treenode(ctx, fmt.tprintf("Audio devices (via %s)", a.backend)) {
 		return
 	}
+	defer mu.end_treenode(ctx)
+	mu.layout_row(ctx, {120})
 
-	half := (mu.get_current_container(ctx).body.w - ctx.style.spacing) / 2
+	if .SUBMIT in mu.button(ctx, "Refresh device list") {
+		log.debug("ui: refresh audio devices")
+		audio_refresh(a)
+	}
+
+	// The width left of the panel once the tree nodes have indented it.
+	layout := mu.get_layout(ctx)
+	half := (layout.body.w - layout.indent - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, -1}, -1)
 
 	if mu.layout_column(ctx) {

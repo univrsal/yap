@@ -136,9 +136,10 @@ trust_new_key :: proc(ui: ^UI) {
 // keys, each with a button to forget it.
 trusted_servers_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if !header(ctx, "Trusted servers") {
+	if .ACTIVE not_in mu.begin_treenode(ctx, "Trusted servers") {
 		return
 	}
+	defer mu.end_treenode(ctx)
 	k := &ui.known
 	if !k.loaded {
 		known_servers_destroy(ui)

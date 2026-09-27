@@ -105,9 +105,10 @@ monitor_stop :: proc(ui: ^UI) {
 gate_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	s := &ui.settings
-	if !header(ctx, "Voice gate") {
+	if .ACTIVE not_in mu.begin_treenode(ctx, "Voice gate") {
 		return
 	}
+	defer mu.end_treenode(ctx)
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
