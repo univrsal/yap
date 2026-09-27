@@ -29,6 +29,7 @@ network loop never blocks on input.
 	                        pictures and videos; they have to be online)
 	/accept, /decline       answer every file offer waiting for an answer
 	/cancel                 stop every file transfer
+	/seen <key>             ask when someone was last on the server
 */
 start_command_reader :: proc(q: ^Command_Queue) {
 	thread.create_and_start_with_poly_data(
@@ -94,6 +95,16 @@ read_commands :: proc(q: ^Command_Queue) {
 				action = .Cancel
 			}
 			push_command(q, File_Action_Command{action = action})
+		case strings.has_prefix(line, "/seen "):
+			if key, ok := parse_user_key(strings.trim_space(line[len("/seen "):])); ok {
+				cmd := Last_Seen_Command {
+					count = 1,
+				}
+				cmd.keys[0] = key
+				push_command(q, cmd)
+			} else {
+				log.warn("/seen takes a key (64 hex digits)")
+			}
 		case strings.has_prefix(line, "/dmimage "):
 			rest := strings.trim_space(line[len("/dmimage "):])
 			to, _, path := strings.partition(rest, " ")
@@ -127,7 +138,7 @@ read_commands :: proc(q: ^Command_Queue) {
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>, /dmimage <name|key> <file>, /file <name|key> <file>, /accept, /decline, /cancel")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>, /dmimage <name|key> <file>, /file <name|key> <file>, /accept, /decline, /cancel, /seen <key>")
 		}
 	}
 }

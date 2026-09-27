@@ -279,8 +279,8 @@ typing_text :: proc(v: ^View) -> string {
 }
 
 // chat_time formats a message's time in the local zone: the time of day
-// for today's messages, with the date for older ones.
-@(private = "file")
+// for today's messages, with the date for older ones. The buddy screen
+// uses it too, for when someone was last here.
 chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 	local :: proc(ui: ^UI, t: time.Time) -> datetime.DateTime {
 		dt, _ := time.time_to_datetime(t)

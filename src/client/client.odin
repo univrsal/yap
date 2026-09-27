@@ -311,6 +311,8 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			handle_file_ack(c, pt)
 		case .File_Cancel:
 			handle_file_cancel(c, pt)
+		case .Last_Seen:
+			handle_last_seen(c, pt)
 		}
 	}
 	return true

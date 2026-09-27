@@ -34,6 +34,11 @@ UI_Buddies :: struct {
 	// a file to offer `pick_to` (ui_files_*.odin).
 	pick:         bool,
 	pick_to:      [proto.KEY_SIZE]u8,
+	// When the server was last asked when the people in the list were
+	// last here, and how many of them were online then: fewer now means
+	// someone just left, and it's worth asking again.
+	seen_asked:   time.Tick,
+	seen_online:  int,
 }
 
 // Paste_Target is where a pasted image goes: the channel's chat, or a
@@ -42,6 +47,10 @@ Paste_Target :: struct {
 	dm: bool,
 	to: [proto.KEY_SIZE]u8,
 }
+
+// How often the buddy screen asks when those who aren't here were last.
+@(private = "file")
+LAST_SEEN_REFRESH :: 30 * time.Second
 
 // How long a notice under the conversation's header stays.
 @(private = "file")
@@ -64,6 +73,7 @@ buddies_button :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in icon_button(ui, "buddies", .Buddies, hint, color) {
 		ui.page = .Main if open else .Buddies
+		ui.buddies.seen_asked = {} // ask afresh when it opens
 	}
 }
 
@@ -100,6 +110,7 @@ buddies_screen :: proc(ui: ^UI) {
 	} else {
 		mu.layout_row(ctx, {280, -1}, -1)
 	}
+	ask_last_seen(ui)
 	buddy_list_panel(ui)
 	if narrow {
 		mu.layout_row(ctx, {-1}, -1)
@@ -210,7 +221,7 @@ conversation :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, entry.name if entry.buddy else fmt.tprintf("%s  (not a buddy)", entry.name))
 	mu.layout_row(ctx, {-1})
-	status := "here now" if entry.online != 0 else "not on this server right now"
+	status := "here now" if entry.online != 0 else last_seen_text(ui, key)
 	status_color := ONLINE_COLOR if entry.online != 0 else DIM_COLOR
 	if t, ok := v.dm_typing[key]; ok && time.tick_since(t) < TYPING_SHOW {
 		status = "typing..."
@@ -285,6 +296,65 @@ conversation :: proc(ui: ^UI) {
 		DM_Command{to = key, text = strings.clone(text)},
 	)
 	ui.buddies.len = 0
+}
+
+/*
+ask_last_seen asks the server when those in the list who aren't here
+were last: when the screen opens, every LAST_SEEN_REFRESH, and as soon
+as someone in it leaves. Call with the View locked.
+*/
+@(private = "file")
+ask_last_seen :: proc(ui: ^UI) {
+	if ui.session == nil {
+		return
+	}
+	cmd: Last_Seen_Command
+	online := 0
+	for b in buddy_list(&ui.settings, &ui.view) {
+		if b.online != 0 {
+			online += 1
+		} else if cmd.count < len(cmd.keys) {
+			cmd.keys[cmd.count] = b.key
+			cmd.count += 1
+		}
+	}
+	someone_left := online < ui.buddies.seen_online
+	ui.buddies.seen_online = online
+	due := ui.buddies.seen_asked == {} || time.tick_since(ui.buddies.seen_asked) >= LAST_SEEN_REFRESH
+	if cmd.count == 0 || !(due || someone_left) {
+		return
+	}
+	ui.buddies.seen_asked = time.tick_now()
+	push_command(&ui.session.client.commands, cmd)
+}
+
+// last_seen_text is what the conversation's header says about someone
+// who isn't here: how long ago they were, as far as the server knows.
+@(private = "file")
+last_seen_text :: proc(ui: ^UI, key: [proto.KEY_SIZE]u8) -> string {
+	seen, known := ui.view.last_seen[key]
+	if !known || seen == proto.LAST_SEEN_HIDDEN {
+		// The server only says to people who've sent each other DMs.
+		return "not on this server right now"
+	}
+	if seen == 0 {
+		return "not seen on this server yet"
+	}
+	ago := time.time_to_unix(time.now()) - i64(seen)
+	plural :: proc(n: i64) -> string {
+		return "" if n == 1 else "s"
+	}
+	switch {
+	case ago < 60:
+		return "last seen just now"
+	case ago < 60 * 60:
+		return fmt.tprintf("last seen %d minute%s ago", ago / 60, plural(ago / 60))
+	case ago < 24 * 60 * 60:
+		return fmt.tprintf("last seen %d hour%s ago", ago / 3600, plural(ago / 3600))
+	case ago < 7 * 24 * 60 * 60:
+		return fmt.tprintf("last seen %d day%s ago", ago / 86400, plural(ago / 86400))
+	}
+	return fmt.tprintf("last seen %s", chat_time(ui, seen))
 }
 
 /*

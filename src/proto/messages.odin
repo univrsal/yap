@@ -22,6 +22,7 @@ a keepalive. Integers are little-endian.
 	(direct messages: DM_Send, DM_Image_Send, DM_Sent, DM, DM_Ack, DM_Delivered,
 	 DM_Typing, DM_Image_Get, DM_Image_Gone; see dm.odin)
 	(files in DMs: File_Accept, File_Chunk, File_Ack, File_Cancel; see files.odin)
+	(when users were last here: Last_Seen_Get, Last_Seen; see last_seen.odin)
 
 Users are identified by a number the server assigns (`speaker` in Voice,
 members in State; User_Num). Numbers are unique per server run and never
@@ -117,6 +118,9 @@ Message_Kind :: enum u8 {
 	File_Chunk    = 35,
 	File_Ack      = 36,
 	File_Cancel   = 37,
+	// When users were last here, see last_seen.odin.
+	Last_Seen_Get = 38,
+	Last_Seen     = 39,
 }
 
 // Why the server refused a hello.
@@ -262,6 +266,10 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) >= FILE_ACK_HEADER_SIZE
 	case .File_Cancel:
 		ok = len(pt) == FILE_CANCEL_SIZE
+	case .Last_Seen_Get:
+		ok = len(pt) >= 2 && int(pt[1]) <= MAX_LAST_SEEN && len(pt) == 2 + int(pt[1]) * KEY_SIZE
+	case .Last_Seen:
+		ok = len(pt) >= 2 && int(pt[1]) <= MAX_LAST_SEEN && len(pt) == 2 + int(pt[1]) * LAST_SEEN_ENTRY_SIZE
 	}
 	return
 }

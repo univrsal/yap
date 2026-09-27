@@ -85,7 +85,12 @@ file_chunk_range :: proc(size: u64, index: u32) -> (start, end: u64) {
 }
 
 // file_chunk_nonce is the nonce chunk `index` is sealed with.
-file_chunk_nonce :: proc(prefix: [FILE_NONCE_PREFIX_SIZE]u8, index: u32) -> (nonce: [DM_NONCE_SIZE]u8) {
+file_chunk_nonce :: proc(
+	prefix: [FILE_NONCE_PREFIX_SIZE]u8,
+	index: u32,
+) -> (
+	nonce: [DM_NONCE_SIZE]u8,
+) {
 	prefix := prefix
 	copy(nonce[:], prefix[:])
 	endian.unchecked_put_u64le(nonce[FILE_NONCE_PREFIX_SIZE:], u64(index))
@@ -118,7 +123,12 @@ decode_dm_file :: proc(body: []u8) -> (f: DM_File, ok: bool) {
 	return f, f.size > 0
 }
 
-encode_file_accept :: proc(out: ^[FILE_ACCEPT_SIZE]u8, id: u64, key: [KEY_SIZE]u8, max_rate: u32) -> []u8 {
+encode_file_accept :: proc(
+	out: ^[FILE_ACCEPT_SIZE]u8,
+	id: u64,
+	key: [KEY_SIZE]u8,
+	max_rate: u32,
+) -> []u8 {
 	key := key
 	out[0] = u8(Message_Kind.File_Accept)
 	endian.unchecked_put_u64le(out[1:], id)
@@ -150,7 +160,9 @@ encode_file_chunk :: proc(out: []u8, id: u64, index: u32, sealed: []u8) -> []u8 
 }
 
 decode_file_chunk :: proc(pt: []u8) -> (id: u64, index: u32, sealed: []u8) {
-	return endian.unchecked_get_u64le(pt[1:]), endian.unchecked_get_u32le(pt[9:]), pt[FILE_CHUNK_HEADER_SIZE:]
+	return endian.unchecked_get_u64le(pt[1:]),
+		endian.unchecked_get_u32le(pt[9:]),
+		pt[FILE_CHUNK_HEADER_SIZE:]
 }
 
 // file_message_id is the transfer a File_* message is about.
@@ -231,11 +243,61 @@ nothing it could run by mistake lands in its downloads.
 */
 FILE_EXTENSIONS := [?]string {
 	// Archives
-	"zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst", "lz", "lzma", "cab", "iso",
+	"zip",
+	"rar",
+	"7z",
+	"tar",
+	"gz",
+	"tgz",
+	"bz2",
+	"tbz2",
+	"xz",
+	"txz",
+	"zst",
+	"lz",
+	"lzma",
+	"cab",
+	"iso",
 	// Pictures
-	"png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif", "ico", "psd", "raw",
+	"png",
+	"jpg",
+	"jpeg",
+	"gif",
+	"webp",
+	"bmp",
+	"tif",
+	"tiff",
+	"heic",
+	"heif",
+	"avif",
+	"ico",
+	"psd",
+	"raw",
 	// Videos
-	"mp4", "m4v", "mkv", "webm", "mov", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "m2ts", "3gp", "ogv",
+	"mp4",
+	"m4v",
+	"mkv",
+	"webm",
+	"mov",
+	"avi",
+	"wmv",
+	"flv",
+	"mpg",
+	"mpeg",
+	"ts",
+	"m2ts",
+	"3gp",
+	"ogv",
+	// Audio
+	"mp3",
+	"m4a",
+	"flac",
+	"wav",
+	"ogg",
+	"opus",
+	"aac",
+	"wma",
+	"alac",
 }
 
 // file_type_allowed is whether a file called `name` may be sent.

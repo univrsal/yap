@@ -98,6 +98,8 @@ Settings :: struct {
 	// Where direct messages waiting for their recipients are kept: next
 	// to the config (dm.odin).
 	dm_path:   string,
+	// Where it's kept when users were last here (last_seen.odin).
+	last_seen_path: string,
 }
 
 @(private = "file")
@@ -234,6 +236,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		relay     = relay,
 	}
 	s.dm_path, _ = os.join_path({os.dir(path), "dms.json"}, context.allocator)
+	s.last_seen_path, _ = os.join_path({os.dir(path), "lastseen.json"}, context.allocator)
 	s.channels = check_channels(path, cfg.channels) or_return
 	return s, true
 }

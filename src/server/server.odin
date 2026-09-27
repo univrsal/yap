@@ -87,6 +87,8 @@ Server :: struct {
 	dms:           DM_Store,
 	// File transfers being relayed, by the offer's id (files.odin).
 	file_routes:   map[u64]^File_Route,
+	// When users were last here (last_seen.odin).
+	last_seen:     Last_Seen_Store,
 }
 
 run_server :: proc(settings: Settings) -> bool {
@@ -104,6 +106,8 @@ run_server :: proc(settings: Settings) -> bool {
 	dm_load(&s.dms, settings.dm_path)
 	defer dm_destroy(&s.dms)
 	defer files_destroy(&s)
+	last_seen_load(&s.last_seen, settings.last_seen_path)
+	defer last_seen_destroy(&s.last_seen)
 
 	port := settings.port
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
@@ -406,6 +410,8 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		handle_file_ack(s, c, pt)
 	case .File_Cancel:
 		handle_file_cancel(s, c, pt)
+	case .Last_Seen_Get:
+		handle_last_seen_get(s, c, pt)
 	case .State,
 	     .Chat_Sent,
 	     .Chat,
@@ -416,7 +422,8 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	     .DM_Sent,
 	     .DM,
 	     .DM_Delivered,
-	     .DM_Image_Gone:
+	     .DM_Image_Gone,
+	     .Last_Seen:
 	// Server-to-client only.
 	}
 }
@@ -676,6 +683,7 @@ drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
 			// After they're gone from `users`, so only the other side
 			// hears about it.
 			drop_user_files(s, u)
+			last_seen_left(s, u)
 			free(u)
 			bump_version(s)
 		}

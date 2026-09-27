@@ -99,3 +99,26 @@ test_file_names :: proc(t: ^testing.T) {
 	testing.expect(t, !file_type_allowed("noext"))
 	testing.expect(t, !file_type_allowed("trailingdot."))
 }
+
+@(test)
+test_last_seen_messages :: proc(t: ^testing.T) {
+	keys: [3][KEY_SIZE]u8
+	for &k, i in keys {
+		k[0] = u8(i + 1)
+	}
+	buf: [MAX_PAYLOAD_SIZE]u8
+	get := encode_last_seen_get(buf[:], keys[:])
+	kind, ok := message_kind(get)
+	testing.expect(t, ok && kind == .Last_Seen_Get)
+	testing.expect_value(t, last_seen_count(get), 3)
+	testing.expect(t, last_seen_get_key(get, 2) == keys[2])
+
+	times := [3]Unix_Time{0, 1000, 2000}
+	out: [MAX_PAYLOAD_SIZE]u8
+	answer := encode_last_seen(out[:], keys[:], times[:])
+	kind, ok = message_kind(answer)
+	testing.expect(t, ok && kind == .Last_Seen)
+	key, seen := last_seen_entry(answer, 1)
+	testing.expect(t, key == keys[1])
+	testing.expect_value(t, seen, Unix_Time(1000))
+}

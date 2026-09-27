@@ -81,6 +81,9 @@ View :: struct {
 	dm_images:  map[u32]View_Image,
 	// File transfers in DMs, by the offer's id (View_DM.id).
 	dm_files:   map[u64]View_File,
+	// When users were last on this server, as far as it's said (0: it
+	// has never seen them). See last_seen.odin.
+	last_seen:  map[[proto.KEY_SIZE]u8]proto.Unix_Time,
 }
 
 View_File :: struct {
@@ -168,6 +171,7 @@ view_reset :: proc(v: ^View) {
 	view_clear_outbox(v)
 	view_clear_pokes(v)
 	view_clear_dms(v)
+	clear(&v.last_seen)
 }
 
 view_destroy :: proc(v: ^View) {
@@ -184,6 +188,7 @@ view_destroy :: proc(v: ^View) {
 	delete(v.dm_typing)
 	delete(v.dm_images)
 	delete(v.dm_files)
+	delete(v.last_seen)
 }
 
 @(private = "file")
@@ -312,6 +317,15 @@ publish_dm_picture :: proc(c: ^Voice_Client, p: DM_Picture) {
 @(private = "file")
 dm_image_info :: proc(p: DM_Picture) -> proto.Image_Info {
 	return {id = p.id, width = p.width, height = p.height, size = u32(len(p.jpeg))}
+}
+
+publish_last_seen :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8, seen: proto.Unix_Time) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	v.last_seen[key] = seen
 }
 
 publish_dm_typing :: proc(c: ^Voice_Client, from: [proto.KEY_SIZE]u8) {

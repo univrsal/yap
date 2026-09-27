@@ -150,6 +150,7 @@ dm_hold :: proc(
 	_, recent, _, _ := map_entry(&s.dms.recent, from.key)
 	recent_add(recent, id)
 	s.dms.dirty = true
+	last_seen_sent(s, from.key, to)
 	log.debugf("%s: DM for %08x held (%d waiting)", user_label(from), common.key_id(to), len(queue))
 }
 
@@ -583,7 +584,6 @@ dm_destroy :: proc(d: ^DM_Store) {
 	delete(d.path)
 }
 
-@(private = "file")
 decode_key :: proc(s: string) -> (key: [proto.KEY_SIZE]u8, ok: bool) {
 	raw := hex.decode(transmute([]u8)s, context.temp_allocator) or_return
 	if len(raw) != proto.KEY_SIZE {
@@ -605,7 +605,6 @@ clone_bytes :: proc(b: []u8) -> []u8 {
 	return out
 }
 
-@(private = "file")
 concat :: proc(a, b: string) -> string {
 	out := make([]u8, len(a) + len(b), context.temp_allocator)
 	copy(out, a)

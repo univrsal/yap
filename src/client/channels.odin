@@ -430,6 +430,7 @@ Command :: union {
 	Send_File_Command,
 	File_Action_Command,
 	Transfer_Limits_Command,
+	Last_Seen_Command,
 }
 
 Command_Queue :: struct {
@@ -568,6 +569,8 @@ process_commands :: proc(c: ^Voice_Client) {
 			file_action(c, v.id, v.action)
 		case Transfer_Limits_Command:
 			c.files.upload_limit, c.files.download_limit = v.upload, v.download
+		case Last_Seen_Command:
+			last_seen_ask(c, v)
 		}
 	}
 }
