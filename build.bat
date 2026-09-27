@@ -2,8 +2,9 @@
 rem Builds bin\yap-server.exe and bin\yap.exe, both with the yap icon.
 rem Extra arguments are passed to both builds. Run from a Visual Studio developer prompt (Odin
 rem needs MSVC's linker anyway); cl.exe compiles the trimmed-down miniaudio
-rem (src\client\miniaudio), RNNoise (src\client\rnn) and traycon
-rem (src\client\tray), whose third-party sources are in deps\thirdparty,
+rem (src\client\miniaudio), RNNoise (src\client\rnn), traycon
+rem (src\client\tray) and tinydialogs (src\client\dialogs), whose
+rem third-party sources are in deps\thirdparty,
 rem with the static C runtime
 rem (/MT) like Odin's vendor libraries, so no runtime DLL is needed.
 setlocal
@@ -34,6 +35,11 @@ set TRAY=src\client\tray
 cl /nologo /MT /O1 /c %TRAY%\yap_tray.c /Fo:%TRAY%\yap_tray.obj || exit /b 1
 lib /nologo /out:%TRAY%\yap_tray.lib %TRAY%\yap_tray.obj || exit /b 1
 del %TRAY%\yap_tray.obj
+
+set DIALOGS=src\client\dialogs
+cl /nologo /MT /O1 /c %DIALOGS%\yap_dialogs.c /Fo:%DIALOGS%\yap_dialogs.obj || exit /b 1
+lib /nologo /out:%DIALOGS%\yap_dialogs.lib %DIALOGS%\yap_dialogs.obj || exit /b 1
+del %DIALOGS%\yap_dialogs.obj
 
 rem The version and commit (src\common\version.odin), as
 rem scripts/version-defines.sh finds them. The values are passed with

@@ -47,7 +47,7 @@ test_dm_round_trip :: proc(t: ^testing.T) {
 	out: [MAX_DM_BODY]u8
 	opened, ok := dm_open(&k_ba, from, bob_pub, id, .Body, got_nonce, got_sealed, out[:])
 	testing.expect(t, ok)
-	content, text, _, body_ok := decode_dm_body(opened)
+	content, text, _, _, body_ok := decode_dm_body(opened)
 	testing.expect(t, body_ok)
 	testing.expect_value(t, content, DM_Content.Text)
 	testing.expect_value(t, text, "hello bob")
@@ -109,7 +109,7 @@ test_dm_image :: proc(t: ^testing.T) {
 	out: [MAX_DM_BODY]u8
 	opened, ok := dm_open(&k_ba, alice_pub, bob_pub, id, .Body, got_nonce, got_sealed, out[:])
 	testing.expect(t, ok)
-	content, _, got_img, body_ok := decode_dm_body(opened)
+	content, _, got_img, _, body_ok := decode_dm_body(opened)
 	testing.expect(t, body_ok)
 	testing.expect_value(t, content, DM_Content.Image)
 	testing.expect_value(t, got_img, img)

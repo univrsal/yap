@@ -70,6 +70,10 @@ Settings :: struct {
 	gate_close_db:       f32,
 	// How loudly local join, leave, message, and poke effects are mixed.
 	notification_volume: f32, // 1 = as encoded, 0..MAX_USER_VOLUME
+	// How fast files in DMs may go out and come in, in MB/s; 0 for no
+	// limit (files.odin).
+	upload_limit:        f32,
+	download_limit:      f32,
 	// The UI's own zoom, independent of the display's DPI scale (see
 	// window_metrics in ui.odin). 1 = 100%, MIN_UI_SCALE..MAX_UI_SCALE.
 	ui_scale:            f32,
@@ -261,6 +265,17 @@ set_user_settings :: proc(s: ^Settings, user: [proto.KEY_SIZE]u8, u: User_Settin
 settings_quality :: proc(s: ^Settings) -> Quality {
 	q, _ := parse_quality(s.quality)
 	return q
+}
+
+MAX_TRANSFER_LIMIT :: 100 // MB/s, the most the settings' sliders go to
+
+// transfer_limits_command is the transfer limits as configured in `s`,
+// in bytes per second.
+transfer_limits_command :: proc(s: ^Settings) -> Transfer_Limits_Command {
+	to_bytes :: proc(mb: f32) -> u32 {
+		return u32(clamp(mb, 0, MAX_TRANSFER_LIMIT) * 1024 * 1024)
+	}
+	return {upload = to_bytes(s.upload_limit), download = to_bytes(s.download_limit)}
 }
 
 // gate_command is the voice gate as configured in `s`.

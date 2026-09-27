@@ -28,6 +28,7 @@ The body, once opened, says what the DM is:
 
 	text   [0][text...]
 	image  [1][width u16][height u16][size u32][image nonce 24]
+	file   [2]... an offer to send a file (see files.odin)
 
 Users are addressed by public key rather than number, as a recipient
 who's away has none.
@@ -104,6 +105,7 @@ DM_IMAGE_KEEP :: 10 * time.Minute
 DM_Content :: enum u8 {
 	Text  = 0,
 	Image = 1,
+	File  = 2, // files.odin
 }
 
 // DM_Image is what an image DM's body says about the image.
@@ -117,6 +119,7 @@ DM_Image :: struct {
 DM_Part :: enum u8 {
 	Body  = 0,
 	Image = 1,
+	File  = 2, // a file transfer's chunk (files.odin)
 }
 
 DM_Flag :: enum u8 {
@@ -187,6 +190,21 @@ dm_seal :: proc(
 	sealed: []u8,
 ) {
 	crypto.rand_bytes(nonce[:])
+	return nonce, dm_seal_with(key, from, to, id, part, nonce, data, out)
+}
+
+// dm_seal_with is dm_seal with a nonce of the caller's: a file chunk's
+// (see file_chunk_nonce), which is never used twice.
+dm_seal_with :: proc(
+	key: ^[DM_KEY_SIZE]u8,
+	from, to: [KEY_SIZE]u8,
+	id: u64,
+	part: DM_Part,
+	nonce: [DM_NONCE_SIZE]u8,
+	data: []u8,
+	out: []u8,
+) -> []u8 {
+	nonce := nonce
 	aad_buf: [DM_AAD_SIZE]u8
 	n := len(data)
 	aead.seal_oneshot(
@@ -198,7 +216,7 @@ dm_seal :: proc(
 		dm_aad(&aad_buf, from, to, id, part),
 		data,
 	)
-	return nonce, out[:n + TAG_SIZE]
+	return out[:n + TAG_SIZE]
 }
 
 // dm_open decrypts something dm_seal sealed into `out`, which needs
@@ -254,7 +272,8 @@ encode_dm_image :: proc(out: ^[MAX_DM_BODY]u8, img: DM_Image) -> []u8 {
 	return out[:DM_IMAGE_BODY_SIZE]
 }
 
-// decode_dm_body reads an opened body. The text isn't sanitized yet.
+// decode_dm_body reads an opened body. The text and the file's name
+// aren't sanitized yet.
 @(require_results)
 decode_dm_body :: proc(
 	body: []u8,
@@ -262,6 +281,7 @@ decode_dm_body :: proc(
 	content: DM_Content,
 	text: string,
 	img: DM_Image,
+	file: DM_File,
 	ok: bool,
 ) {
 	if len(body) == 0 {
@@ -270,7 +290,10 @@ decode_dm_body :: proc(
 	content = DM_Content(body[0])
 	switch content {
 	case .Text:
-		return content, string(body[1:]), {}, true
+		return content, string(body[1:]), {}, {}, true
+	case .File:
+		file, ok = decode_dm_file(body)
+		return
 	case .Image:
 		if len(body) != DM_IMAGE_BODY_SIZE {
 			return

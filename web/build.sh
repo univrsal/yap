@@ -46,6 +46,8 @@ touch_exports=_web_touch_tap,_web_text_box_at,_web_touch_drag_begin,_web_touch_d
 background_exports=_web_tick
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
 paste_exports=_web_paste_image,_web_paste_failed,_web_paste_text,_malloc,_free
+# What web/files.js calls (src/client/ui_files_web.odin).
+files_exports=_web_file_picked
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
@@ -78,11 +80,12 @@ emcc "$out/yap.obj" \
 	-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3 \
 	-sALLOW_MEMORY_GROWTH \
 	-sSTACK_SIZE=4MB \
-	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$background_exports,$paste_exports \
+	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$background_exports,$paste_exports,$files_exports \
 	--js-library web/wasi.js \
 	--pre-js web/touch.js \
 	--pre-js web/background.js \
 	--pre-js web/paste.js \
+	--pre-js web/files.js \
 	--pre-js web/video.js \
 	--shell-file web/index.html \
 	-o "$out/index.html"

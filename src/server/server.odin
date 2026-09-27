@@ -85,6 +85,8 @@ Server :: struct {
 	last_num:      proto.User_Num,
 	// Direct messages waiting for their recipients (dm.odin).
 	dms:           DM_Store,
+	// File transfers being relayed, by the offer's id (files.odin).
+	file_routes:   map[u64]^File_Route,
 }
 
 run_server :: proc(settings: Settings) -> bool {
@@ -101,6 +103,7 @@ run_server :: proc(settings: Settings) -> bool {
 	s.chats = make([]Chat_Log, len(s.channels))
 	dm_load(&s.dms, settings.dm_path)
 	defer dm_destroy(&s.dms)
+	defer files_destroy(&s)
 
 	port := settings.port
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
@@ -140,6 +143,7 @@ run_server :: proc(settings: Settings) -> bool {
 		chat_sync(&s)
 		images_sync(&s)
 		dm_sync(&s)
+		files_sync(&s)
 	}
 }
 
@@ -394,6 +398,14 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		handle_dm_image_send(s, c, pt)
 	case .DM_Image_Get:
 		handle_dm_image_get(s, c, pt)
+	case .File_Accept:
+		handle_file_accept(s, c, pt)
+	case .File_Chunk:
+		handle_file_chunk(s, c, pt)
+	case .File_Ack:
+		handle_file_ack(s, c, pt)
+	case .File_Cancel:
+		handle_file_cancel(s, c, pt)
 	case .State,
 	     .Chat_Sent,
 	     .Chat,
@@ -661,6 +673,9 @@ drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
 			log.infof("%s left", user_label(u))
 			drop_user_transfers(u)
 			delete_key(&s.users, u.key)
+			// After they're gone from `users`, so only the other side
+			// hears about it.
+			drop_user_files(s, u)
 			free(u)
 			bump_version(s)
 		}

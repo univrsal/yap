@@ -393,3 +393,32 @@ int main(void) {
 	emscripten_set_main_loop(web_frame, 0, 1);
 	return 0;
 }
+
+/* Files in DMs (web/files.js, src/client/files_io_web.odin). */
+EM_JS(void, yap_file_pick, (const char *accept), {
+	Module.yapFiles.pick(UTF8ToString(accept));
+});
+
+EM_JS(int, yap_file_read, (int handle, double offset, unsigned char *buf, int len), {
+	return Module.yapFiles.read(handle, offset, buf, len);
+});
+
+EM_JS(void, yap_file_close, (int handle), {
+	Module.yapFiles.close(handle);
+});
+
+EM_JS(int, yap_sink_open, (const char *name, double size), {
+	return Module.yapFiles.sinkOpen(UTF8ToString(name), size);
+});
+
+EM_JS(int, yap_sink_write, (int handle, double offset, const unsigned char *data, int len), {
+	return Module.yapFiles.sinkWrite(handle, offset, data, len);
+});
+
+EM_JS(int, yap_sink_finish, (int handle), {
+	return Module.yapFiles.sinkFinish(handle);
+});
+
+EM_JS(void, yap_sink_abort, (int handle), {
+	Module.yapFiles.sinkAbort(handle);
+});

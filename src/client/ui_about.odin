@@ -100,6 +100,13 @@ THIRD_PARTY := [?]Third_Party {
 		builds = {.Desktop},
 	},
 	{
+		name = "tinydialogs",
+		license = "MIT or Unlicense",
+		use = "The file dialog, for sending files",
+		text = #load("licenses/tinydialogs.txt", string),
+		builds = {.Desktop},
+	},
+	{
 		name = "Roboto",
 		license = "Apache-2.0",
 		use = "The font (font data copyright Google 2012)",
@@ -190,7 +197,7 @@ about_dialog :: proc(ui: ^UI, window_w, window_h: i32) {
 		if .ACTIVE not_in mu.header(ctx, fmt.tprintf("%s  (%s)", p.name, p.license)) {
 			continue
 		}
-		about_text(ctx, fmt.tprintf("%s.\n%s", p.use, p.url))
+		about_text(ctx, fmt.tprintf("%s.\n%s", p.use, p.url) if p.url != "" else fmt.tprintf("%s.", p.use))
 		mu.label(ctx, "")
 		with_text_color(ctx, DIM_COLOR, p.text, about_text)
 	}

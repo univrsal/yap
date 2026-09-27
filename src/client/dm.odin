@@ -49,6 +49,11 @@ DM_Message :: struct {
 	// An image instead of text (dm_images.odin).
 	image:   bool,
 	picture: DM_Picture,
+	// A file offer instead (files.odin): `text` is its name.
+	file:       bool,
+	file_size:  u64,
+	file_state: File_State,
+	file_path:  string, // where a received one was saved; owned
 }
 
 DM_Conversation :: struct {
@@ -324,7 +329,7 @@ handle_dm :: proc(c: ^Voice_Client, pt: []u8) {
 	key, key_ok := dm_shared_key(c, from)
 	out: [proto.MAX_DM_BODY]u8
 	body, ok := proto.dm_open(&key, from, c.my_key, id, .Body, nonce, sealed, out[:])
-	content, raw, picture, body_ok := proto.decode_dm_body(body)
+	content, raw, picture, file, body_ok := proto.decode_dm_body(body)
 	if !key_ok || !ok || !body_ok {
 		log.warnf("dm: dropping one from %s that doesn't open", fingerprint(from))
 		return
@@ -337,10 +342,15 @@ handle_dm :: proc(c: ^Voice_Client, pt: []u8) {
 		text  = strings.clone(text),
 		state = .Received,
 	}
-	if content == .Image {
+	switch content {
+	case .Text:
+	case .Image:
 		msg.image = true
 		msg.picture = dm_picture(c, picture, .Wanted)
 		text = fmt.tprintf("[image, %dx%d]", picture.width, picture.height)
+	case .File:
+		file_offer_received(c, from, id, file, &msg)
+		text = fmt.tprintf("[file %q, %s]", msg.text, format_bytes(msg.file_size))
 	}
 
 	conv := dm_conversation(c, from)
@@ -412,6 +422,55 @@ add_message :: proc(conv: ^DM_Conversation, m: DM_Message) {
 message_destroy :: proc(m: DM_Message) {
 	delete(m.text)
 	delete(m.picture.jpeg)
+	delete(m.file_path)
+}
+
+// dm_queue sends a DM whose body is ready (a file offer's), as dm_send
+// does text, with `msg` standing for it in the conversation. It takes
+// `msg` over.
+dm_queue :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8, id: u64, body: []u8, msg: DM_Message) {
+	key, ok := dm_shared_key(c, to)
+	if !ok {
+		message_destroy(msg)
+		return
+	}
+	out := DM_Outgoing {
+		to = to,
+		id = id,
+	}
+	nonce, sealed := proto.dm_seal(&key, c.my_key, to, id, .Body, body, out.sealed[:])
+	out.nonce, out.sealed_len = nonce, len(sealed)
+	append(&c.dms.outbox, out)
+
+	msg := msg
+	msg.id, msg.mine, msg.time, msg.state = id, true, unix_now(), .Sending
+	conv := dm_conversation(c, to)
+	add_message(conv, msg)
+	dm_save(c, conv)
+	publish_dm_conversation(c, conv, unread = false)
+	if len(c.dms.outbox) == 1 {
+		drive_dm(c)
+	}
+}
+
+// dm_file_state records how a file transfer ended in its message, and
+// where a received file went.
+dm_file_state :: proc(c: ^Voice_Client, peer: [proto.KEY_SIZE]u8, id: u64, state: File_State, path: string) {
+	conv := c.dms.conversations[peer] or_else nil
+	if conv == nil {
+		return
+	}
+	for &m in conv.messages {
+		if m.id == id && m.file {
+			m.file_state = state
+			if path != "" && path != m.file_path {
+				delete(m.file_path)
+				m.file_path = strings.clone(path)
+			}
+			dm_save(c, conv)
+			return
+		}
+	}
 }
 
 // set_state updates one of our messages to `to`, and shows and saves it.
@@ -479,6 +538,11 @@ Saved_Message :: struct {
 	image:  bool,
 	width:  u16,
 	height: u16,
+	// A file offer: its name is the text.
+	file:       bool,
+	file_size:  u64,
+	file_state: File_State,
+	file_path:  string,
 }
 
 @(private = "file")
@@ -519,6 +583,10 @@ dm_save :: proc(c: ^Voice_Client, conv: ^DM_Conversation) {
 			image  = m.image,
 			width  = m.picture.width,
 			height = m.picture.height,
+			file       = m.file,
+			file_size  = m.file_size,
+			file_state = m.file_state,
+			file_path  = m.file_path,
 		}
 	}
 	// The oldest go first if it's too much for the store.
@@ -576,6 +644,14 @@ dm_load_conversation :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) -> ^DM_C
 		}
 		if s.image {
 			m.picture = dm_picture(c, {width = s.width, height = s.height}, .Gone)
+		}
+		if s.file {
+			m.file, m.file_size, m.file_state = true, s.file_size, s.file_state
+			m.file_path = strings.clone(s.file_path)
+			// What didn't end in the last run can't go on in this one.
+			if !file_state_over(m.file_state) {
+				m.file_state = .Expired
+			}
 		}
 		add_message(conv, m)
 	}

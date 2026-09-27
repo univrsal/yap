@@ -49,6 +49,23 @@ if [ ! -f "$lib" ] || [ "$tray/yap_tray.c" -nt "$lib" ] || [ deps/thirdparty/tra
 	rm "$tray/yap_tray.o"
 fi
 
+# tinydialogs, for picking a file to send in a DM. It runs zenity or
+# kdialog on Linux and the BSDs, so nothing to compile against there; on
+# macOS it's Cocoa, so it has to be built as Objective-C.
+dialogs=src/client/dialogs
+lib=$dialogs/libyap_dialogs.a
+if [ ! -f "$lib" ] || [ "$dialogs/yap_dialogs.c" -nt "$lib" ] || [ deps/thirdparty/tinydialogs/tinydialogs.h -nt "$lib" ]; then
+	echo "building $lib"
+	case "$(uname -s)" in
+	Darwin) dialogs_flags="-x objective-c" ;;
+	# popen and pclose are POSIX rather than C99.
+	*) dialogs_flags="-D_POSIX_C_SOURCE=200809L" ;;
+	esac
+	${CC:-cc} -std=c11 -Os $dialogs_flags -c "$dialogs/yap_dialogs.c" -o "$dialogs/yap_dialogs.o"
+	ar rcs "$lib" "$dialogs/yap_dialogs.o"
+	rm "$dialogs/yap_dialogs.o"
+fi
+
 # libopus on macOS and OpenBSD: there's no prebuilt library for them in
 # src/client/opus, so it's built from the release source
 # (scripts/fetch-opus.sh), the float API without DRED or OSCE, which is

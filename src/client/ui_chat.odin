@@ -71,7 +71,12 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 		ui.chat.paste = false
 		paste_start(ui)
 	}
+	if ui.buddies.pick {
+		ui.buddies.pick = false
+		file_pick_start(ui, ui.buddies.pick_to)
+	}
 	paste_poll(ui)
+	file_pick_poll(ui)
 }
 
 // side_panel lays out the tabs in the current layout cell. Call with the
@@ -383,6 +388,14 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 			me if m.mine else their_name,
 			status,
 		)
+		// Each message is up to four items to select from (a file's
+		// header, name and state), numbered by where it is.
+		item := i64(i) * 4
+		if m.is_file {
+			f := v.dm_files[m.id] or_else View_File{name = m.text, state = .Expired, outgoing = m.mine}
+			file_message(ui, header, header_color, m.id, f, merged, item)
+			continue
+		}
 		if m.is_image {
 			img := v.dm_images[m.image.id] or_else View_Image{info = m.image, state = .Gone}
 			chat_image(
@@ -392,12 +405,12 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 				m.image,
 				img,
 				merged = merged,
-				item = i64(i) * 2,
+				item = item,
 				gone = "image no longer available",
 			)
 			continue
 		}
-		chat_message(ui, header, header_color, m.text, color, links = true, merged = merged, item = i64(i) * 2)
+		chat_message(ui, header, header_color, m.text, color, links = true, merged = merged, item = item)
 	}
 	select_end(ui)
 	mu.end_panel(ctx)
@@ -408,6 +421,130 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 		ui.buddies.scrolled = conv.changes
 		cnt.scroll.y = cnt.content_size.y
 	}
+}
+
+/*
+file_message draws a file offer in a conversation: the header, the file's
+name and size, how it's going (with a bar while it's under way), and the
+buttons that fit: Accept and Decline for one offered to us, Cancel while
+it isn't over.
+*/
+@(private = "file")
+file_message :: proc(
+	ui: ^UI,
+	header: string,
+	header_color: mu.Color,
+	id: u64,
+	f: View_File,
+	merged: bool,
+	item: i64,
+) {
+	ctx := &ui.ctx
+	font := ctx.style.font
+	// 1, not 0: see the same line in chat_image.
+	mu.layout_row(ctx, {-1}, 1)
+	mu.layout_begin_column(ctx)
+	defer mu.layout_end_column(ctx)
+	saved := ctx.style.spacing
+	ctx.style.spacing = 0
+	defer ctx.style.spacing = saved
+
+	mu.layout_row(ctx, {-1}, MERGED_GAP if merged else saved)
+	mu.layout_next(ctx) // the gap
+	mu.layout_row(ctx, {-1}, ctx.text_height(font))
+	if !merged {
+		selectable_header(ui, header, header_color, item)
+	}
+	wrapped_text(
+		ui,
+		fmt.tprintf("File: %s  (%s)", f.name, format_bytes(f.size)),
+		ctx.style.colors[.TEXT],
+		nil,
+		item + 1,
+	)
+
+	status, color := file_status(f)
+	if f.state == .Transferring {
+		// The bar, below the name.
+		mu.layout_row(ctx, {-1}, 3)
+		mu.layout_next(ctx)
+		mu.layout_row(ctx, {-1}, 6)
+		r := mu.layout_next(ctx)
+		r.w = min(r.w, 300)
+		mu.draw_rect(ctx, r, {60, 60, 60, 255})
+		done := f32(f.done) / f32(max(f.size, 1))
+		mu.draw_rect(ctx, {r.x, r.y, i32(f32(r.w) * clamp(done, 0, 1)), r.h}, SPEAKING_COLOR)
+		mu.layout_row(ctx, {-1}, 2)
+		mu.layout_next(ctx)
+	}
+	mu.layout_row(ctx, {-1}, ctx.text_height(font))
+	wrapped_text(ui, status, color, nil, item + 2)
+
+	// The buttons, spaced like the rest of the UI.
+	send :: proc(ui: ^UI, id: u64, action: File_Action) {
+		if ui.session != nil {
+			push_command(&ui.session.client.commands, File_Action_Command{id = id, action = action})
+		}
+	}
+	ctx.style.spacing = saved
+	mu.push_id(ctx, uintptr(id))
+	defer mu.pop_id(ctx)
+	switch f.state {
+	case .Incoming:
+		mu.layout_row(ctx, {90, 90})
+		if .SUBMIT in stable_button(ctx, "accept", "Accept") {
+			send(ui, id, .Accept)
+		}
+		if .SUBMIT in stable_button(ctx, "decline", "Decline") {
+			send(ui, id, .Decline)
+		}
+	case .Offered, .Starting, .Transferring:
+		mu.layout_row(ctx, {90})
+		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
+			send(ui, id, .Cancel)
+		}
+	case .Done, .Declined, .Cancelled, .Failed, .Interrupted, .Expired:
+	}
+}
+
+// file_status says how a transfer is going, and in what colour.
+@(private = "file")
+file_status :: proc(f: View_File) -> (string, mu.Color) {
+	switch f.state {
+	case .Offered:
+		return "waiting for them to accept", CHAT_DIM_COLOR
+	case .Incoming:
+		return "wants to send you this", CHAT_NAME_COLOR
+	case .Starting:
+		return "starting...", CHAT_DIM_COLOR
+	case .Transferring:
+		percent := 100 * f64(f.done) / f64(max(f.size, 1))
+		text := fmt.tprintf("%.0f%%  -  %s of %s", percent, format_bytes(f.done), format_bytes(f.size))
+		if f.rate > 0 {
+			text = fmt.tprintf("%s  -  %s/s", text, format_bytes(u64(f.rate)))
+		}
+		return text, CHAT_DIM_COLOR
+	case .Done:
+		if f.outgoing {
+			return "sent", SPEAKING_COLOR
+		}
+		when WEB {
+			return "downloaded", SPEAKING_COLOR
+		} else {
+			return fmt.tprintf("saved to %s", f.path), SPEAKING_COLOR
+		}
+	case .Declined:
+		return "declined" if !f.outgoing else "they declined", CHAT_DIM_COLOR
+	case .Cancelled:
+		return "cancelled", CHAT_DIM_COLOR
+	case .Failed:
+		return "failed", OFF_COLOR
+	case .Interrupted:
+		return "stopped: one side left", OFF_COLOR
+	case .Expired:
+		return "no longer available", CHAT_DIM_COLOR
+	}
+	return "", CHAT_DIM_COLOR
 }
 
 // chat_message draws the gap before this message, a header line unless

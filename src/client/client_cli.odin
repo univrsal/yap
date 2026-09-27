@@ -4,6 +4,7 @@ package client
 import log "../common/wlog"
 import "core:os"
 import "core:slice"
+import "core:strings"
 
 
 // run_headless is the command-line client: commands come from stdin.
@@ -15,6 +16,8 @@ run_headless :: proc(
 	tone_hz: f32,
 	input_file: string,
 	image_dir: string,
+	download_dir: string,
+	limits: Settings, // only the transfer limits are read
 	denoise: bool,
 	gate: bool,
 	quality: Quality,
@@ -29,6 +32,10 @@ run_headless :: proc(
 	c.voice.denoise = denoise
 	c.voice.gate.enabled = gate
 	c.images.dir = image_dir
+	c.files.download_dir = strings.clone(download_dir)
+	limits := limits
+	lim := transfer_limits_command(&limits)
+	c.files.upload_limit, c.files.download_limit = lim.upload, lim.download
 	if quality != .Voice && !encoder_setup(&c.voice, quality) {
 		return false
 	}

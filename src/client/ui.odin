@@ -153,6 +153,8 @@ UI :: struct {
 	// next one goes.
 	paste:               ^Paste_Job,
 	paste_to:            Paste_Target,
+	// The file dialog, while it's open (ui_files_native.odin).
+	file_pick:           ^File_Pick_Job,
 	// What the icon button under the pointer does, and where it is, for
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
@@ -430,6 +432,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	// Whatever the paste thread is doing, it uses the clipboard, so it
 	// has to be done before that.
 	paste_wait(ui)
+	file_pick_wait(ui)
 	clipboard.destroy()
 	window_close(ui)
 	glfw.Terminate()
@@ -726,6 +729,7 @@ connect :: proc(ui: ^UI) {
 	ns.client.voice.notifications.volume = notification_gain(&ui.settings)
 	push_command(&ns.client.commands, Quality_Command{settings_quality(&ui.settings)})
 	push_command(&ns.client.commands, gate_command(&ui.settings))
+	push_command(&ns.client.commands, transfer_limits_command(&ui.settings))
 	for hex_key, u in ui.settings.users {
 		if key, ok := parse_user_key(hex_key); ok {
 			push_command(&ns.client.commands, Gain_Command{key, user_gain(u)})

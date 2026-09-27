@@ -25,6 +25,10 @@ network loop never blocks on input.
 	                        name, or to anyone by their key (64 hex digits)
 	/dmimage <name|key> <file>  send an image file in a direct message
 	                        (they have to be online)
+	/file <name|key> <file>  offer a file in a direct message (archives,
+	                        pictures and videos; they have to be online)
+	/accept, /decline       answer every file offer waiting for an answer
+	/cancel                 stop every file transfer
 */
 start_command_reader :: proc(q: ^Command_Queue) {
 	thread.create_and_start_with_poly_data(
@@ -67,6 +71,29 @@ read_commands :: proc(q: ^Command_Queue) {
 			rest := strings.trim_space(line[len("/poke "):])
 			name, _, message := strings.partition(rest, " ")
 			push_command(q, Poke_Command{name = strings.clone(name), message = strings.clone(message)})
+		case strings.has_prefix(line, "/file "):
+			rest := strings.trim_space(line[len("/file "):])
+			to, _, path := strings.partition(rest, " ")
+			cmd := Send_File_Command {
+				path = strings.clone(strings.trim_space(path)),
+			}
+			if key, is_key := parse_user_key(to); is_key {
+				cmd.to = key
+			} else {
+				cmd.name = strings.clone(to)
+			}
+			push_command(q, cmd)
+		case line == "/accept" || line == "/decline" || line == "/cancel":
+			// Answered on the network loop, which has the offers: an id
+			// of 0 means all of them.
+			action := File_Action.Accept
+			switch line {
+			case "/decline":
+				action = .Decline
+			case "/cancel":
+				action = .Cancel
+			}
+			push_command(q, File_Action_Command{action = action})
 		case strings.has_prefix(line, "/dmimage "):
 			rest := strings.trim_space(line[len("/dmimage "):])
 			to, _, path := strings.partition(rest, " ")
@@ -100,7 +127,7 @@ read_commands :: proc(q: ^Command_Queue) {
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>, /dmimage <name|key> <file>")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>, /dmimage <name|key> <file>, /file <name|key> <file>, /accept, /decline, /cancel")
 		}
 	}
 }

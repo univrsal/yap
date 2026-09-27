@@ -427,6 +427,9 @@ Command :: union {
 	DM_Command,
 	DM_Typing_Command,
 	DM_Image_Command,
+	Send_File_Command,
+	File_Action_Command,
+	Transfer_Limits_Command,
 }
 
 Command_Queue :: struct {
@@ -470,6 +473,10 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.name)
 		image := v.image
 		chat_image_destroy(&image)
+	case Send_File_Command:
+		delete(v.name)
+		delete(v.path)
+		delete(v.web_name)
 	}
 }
 
@@ -555,6 +562,12 @@ process_commands :: proc(c: ^Voice_Client) {
 			// The client takes the JPEG over, so it isn't freed twice.
 			dm_send_image(c, v.to, v.name, v.image)
 			v.image = {}
+		case Send_File_Command:
+			send_file(c, v)
+		case File_Action_Command:
+			file_action(c, v.id, v.action)
+		case Transfer_Limits_Command:
+			c.files.upload_limit, c.files.download_limit = v.upload, v.download
 		}
 	}
 }

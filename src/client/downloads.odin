@@ -41,7 +41,6 @@ save_to_downloads :: proc(data: []u8, ext: string, allocator := context.allocato
 }
 
 // downloads_dir is the desktop's downloads folder.
-@(private = "file")
 downloads_dir :: proc(allocator := context.allocator) -> string {
 	home := os.get_env("HOME", context.temp_allocator)
 	when ODIN_OS == .Windows {

@@ -47,6 +47,7 @@ settings_page :: proc(ui: ^UI) {
 
 	ui_settings(ui)
 	hotkey_settings(ui)
+	transfer_settings(ui)
 	trusted_servers_settings(ui)
 	install_settings(ui)
 }
@@ -159,6 +160,32 @@ ui_settings :: proc(ui: ^UI) {
 				"  Wayland doesn't tell a window it has been minimized, so here it will just minimize.",
 				label_proc,
 			)
+		}
+	}
+}
+
+// transfer_settings limits how fast files sent in DMs go out and come in.
+@(private = "file")
+transfer_settings :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	if .ACTIVE not_in mu.begin_treenode(ctx, "File transfers") {
+		return
+	}
+	defer mu.end_treenode(ctx)
+
+	changed := false
+	mu.layout_row(ctx, {120, -1})
+	mu.label(ctx, "Upload limit")
+	changed |= .CHANGE in mu.slider(ctx, &ui.settings.upload_limit, 0, MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+	mu.label(ctx, "Download limit")
+	changed |= .CHANGE in mu.slider(ctx, &ui.settings.download_limit, 0, MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+	mu.layout_row(ctx, {-1})
+	with_text_color(ctx, DIM_COLOR, "  0 is no limit. A download limit also slows down whoever is sending.", label_proc)
+	if changed {
+		// Sliders change every frame while dragged; saved within a second.
+		ui.settings_dirty = true
+		if ui.session != nil {
+			push_command(&ui.session.client.commands, transfer_limits_command(&ui.settings))
 		}
 	}
 }

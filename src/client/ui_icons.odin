@@ -29,6 +29,7 @@ Icon :: enum {
 	Send, // a paper dart: post what's in the chat box
 	Screen, // a monitor: sharing a screen, or watching one
 	Buddies, // two people: the buddy list
+	File, // a sheet of paper with a corner turned down: send a file
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -167,6 +168,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return monitor(p)
 	case .Buddies:
 		return two_people(p)
+	case .File:
+		return document(p)
 	}
 	return 1
 }
@@ -178,6 +181,22 @@ monitor :: proc(p: Point) -> f32 {
 	d := abs(rounded_box(p, {0.5, 0.40}, {0.39, 0.27}, 0.07)) - STROKE / 2
 	d = nearer(d, capsule(p, {0.5, 0.67}, {0.5, 0.83}, STROKE))
 	d = nearer(d, capsule(p, {0.30, 0.85}, {0.70, 0.85}, STROKE))
+	return d
+}
+
+// A sheet of paper, outlined, with its top right corner folded over.
+@(private = "file")
+document :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	FOLD :: 0.22
+	sheet := abs(rounded_box(p, {0.5, 0.5}, {0.30, 0.40}, 0.05)) - STROKE / 2
+	// The corner comes off the outline...
+	corner := edge(p, {0.80 - FOLD, 0.10}, {0.80, 0.10 + FOLD})
+	sheet = max(sheet, corner - STROKE / 2)
+	// ...and is drawn folded: the diagonal, and the flap's two edges.
+	d := nearer(sheet, capsule(p, {0.80 - FOLD, 0.10}, {0.80, 0.10 + FOLD}, STROKE))
+	d = nearer(d, capsule(p, {0.80 - FOLD, 0.10}, {0.80 - FOLD, 0.10 + FOLD}, STROKE))
+	d = nearer(d, capsule(p, {0.80 - FOLD, 0.10 + FOLD}, {0.80, 0.10 + FOLD}, STROKE))
 	return d
 }
 

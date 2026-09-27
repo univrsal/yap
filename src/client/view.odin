@@ -79,6 +79,18 @@ View :: struct {
 	// Pictures in DMs, by View_DM.image.id: kept apart from the chat's
 	// images, which go whenever we change channels.
 	dm_images:  map[u32]View_Image,
+	// File transfers in DMs, by the offer's id (View_DM.id).
+	dm_files:   map[u64]View_File,
+}
+
+View_File :: struct {
+	name:     string, // owned
+	size:     u64,
+	outgoing: bool,
+	state:    File_State,
+	done:     u64, // bytes through
+	rate:     f32, // bytes per second, lately
+	path:     string, // where a received one is saved; owned
 }
 
 View_Conversation :: struct {
@@ -97,6 +109,8 @@ View_DM :: struct {
 	// An image instead of text; its bytes are in View.dm_images.
 	is_image: bool,
 	image:    proto.Image_Info,
+	// A file offer; how it's going is in View.dm_files.
+	is_file:  bool,
 }
 
 Key_Change :: struct {
@@ -169,6 +183,7 @@ view_destroy :: proc(v: ^View) {
 	delete(v.dms)
 	delete(v.dm_typing)
 	delete(v.dm_images)
+	delete(v.dm_files)
 }
 
 @(private = "file")
@@ -184,6 +199,11 @@ view_clear_dms :: proc(v: ^View) {
 		delete(img.jpeg)
 	}
 	clear(&v.dm_images)
+	for _, f in v.dm_files {
+		delete(f.name)
+		delete(f.path)
+	}
+	clear(&v.dm_files)
 }
 
 @(private = "file")
@@ -215,8 +235,20 @@ publish_dm_conversation :: proc(c: ^Voice_Client, conv: ^DM_Conversation, unread
 				state = m.state,
 				is_image = m.image,
 				image = dm_image_info(m.picture),
+				is_file = m.file,
 			},
 		)
+		// A file from the history, with no transfer to tell about it.
+		if m.file && m.id not_in v.dm_files {
+			v.dm_files[m.id] = {
+				name     = strings.clone(m.text),
+				size     = m.file_size,
+				outgoing = m.mine,
+				state    = m.file_state,
+				done     = m.file_size if m.file_state == .Done else 0,
+				path     = strings.clone(m.file_path),
+			}
+		}
 	}
 	if conv.name != "" && conv.name != vc.name {
 		delete(vc.name)
@@ -228,6 +260,28 @@ publish_dm_conversation :: proc(c: ^Voice_Client, conv: ^DM_Conversation, unread
 		delete_key(&v.dm_typing, conv.key)
 	}
 	vc.changes += 1
+}
+
+// publish_file shows how a transfer is going, at most every
+// FILE_PUBLISH_INTERVAL unless `force` (a change of state).
+publish_file :: proc(c: ^Voice_Client, t: ^File_Transfer, force := false) {
+	v := c.view
+	now := time.tick_now()
+	if v == nil || (!force && time.tick_diff(t.last_publish, now) < FILE_PUBLISH_INTERVAL) {
+		return
+	}
+	t.last_publish = now
+	sync.guard(&v.mutex)
+	_, f, just_added, _ := map_entry(&v.dm_files, t.id)
+	if just_added || f.name != t.name {
+		delete(f.name)
+		f.name = strings.clone(t.name)
+	}
+	if f.path != t.path {
+		delete(f.path)
+		f.path = strings.clone(t.path)
+	}
+	f.size, f.outgoing, f.state, f.done, f.rate = t.size, t.outgoing, t.state, t.done, t.rate
 }
 
 // publish_dm_picture hands the UI a DM picture as it is now, the JPEG

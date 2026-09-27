@@ -10,6 +10,8 @@ Notification_Kind :: enum {
 	Muted,
 	Unmuted,
 	Mail,
+	// A file sent to us has all arrived (files.odin).
+	Done,
 }
 
 Notification_Sounds :: struct {
@@ -21,6 +23,7 @@ Notification_Sounds :: struct {
 	muted:        []f32,
 	unmuted:      []f32,
 	mail:         []f32,
+	done:         []f32,
 	volume:       f32,
 	active:       []f32,
 	position:     int,

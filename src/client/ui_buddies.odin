@@ -30,6 +30,10 @@ UI_Buddies :: struct {
 	// Something to tell about the conversation, and since when.
 	notice:       string,
 	notice_at:    time.Tick,
+	// The file button was pressed: after the frame, the dialog opens for
+	// a file to offer `pick_to` (ui_files_*.odin).
+	pick:         bool,
+	pick_to:      [proto.KEY_SIZE]u8,
 }
 
 // Paste_Target is where a pasted image goes: the channel's chat, or a
@@ -234,7 +238,7 @@ conversation :: proc(ui: ^UI) {
 		dm_panel(ui, &empty, entry.name)
 	}
 
-	mu.layout_row(ctx, {-(ICON_BUTTON + 6), ICON_BUTTON})
+	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 10), ICON_BUTTON, ICON_BUTTON})
 	// Ctrl+V could be an image, as in the chat box (chat_input); this
 	// one goes to them.
 	if !WEB &&
@@ -255,6 +259,14 @@ conversation :: proc(ui: ^UI) {
 		push_command(&ui.session.client.commands, DM_Typing_Command{key})
 	}
 	send := .SUBMIT in res
+	if .SUBMIT in icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
+		if entry.online == 0 {
+			ui.buddies.notice = "files only go to someone who's online"
+			ui.buddies.notice_at = time.tick_now()
+		} else {
+			ui.buddies.pick, ui.buddies.pick_to = true, key
+		}
+	}
 	if .SUBMIT in icon_button(ui, "dm send", .Send, "Send") {
 		send = true
 	}
