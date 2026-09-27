@@ -53,7 +53,7 @@ KEY_SIZE :: 32
 TAG_SIZE :: 16
 
 // Keep datagrams under a conservative path MTU to avoid IP fragmentation.
-MAX_PACKET_SIZE :: 1400
+MAX_PACKET_SIZE :: 1200
 
 INIT_HEADER_SIZE :: 1 + 4
 RESP_HEADER_SIZE :: 1 + 4 + 4
