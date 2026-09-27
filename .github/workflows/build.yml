@@ -55,6 +55,10 @@ jobs:
             web/out/index.js
             web/out/index.wasm
             web/out/favicon.ico
+            web/out/manifest.webmanifest
+            web/out/icon-192.png
+            web/out/icon-512.png
+            web/out/apple-touch-icon.png
           if-no-files-found: error
 
   desktop:

@@ -1,7 +1,8 @@
 #+build wasi
 package client
 
-// A page has nothing to install (see ui_install_native.odin).
+// A page has nothing to install itself (see ui_install_native.odin): the
+// browser installs it as an app, from web/manifest.webmanifest.
 
 UI_Install :: struct {}
 

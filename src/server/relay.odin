@@ -56,7 +56,7 @@ Relay :: struct {
 	listener: net.TCP_Socket,
 	server:   net.Endpoint, // the only place anything is relayed to
 	// Nothing else in the web directory is served.
-	files:    [4]Web_File,
+	files:    [8]Web_File,
 }
 
 /*
@@ -79,6 +79,11 @@ start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
 		{name = "index.js", content_type = "text/javascript; charset=utf-8"},
 		{name = "index.wasm", content_type = "application/wasm"},
 		{name = "favicon.ico", content_type = "image/x-icon"},
+		// What installing it as an app needs (index.html).
+		{name = "manifest.webmanifest", content_type = "application/manifest+json"},
+		{name = "icon-192.png", content_type = "image/png"},
+		{name = "icon-512.png", content_type = "image/png"},
+		{name = "apple-touch-icon.png", content_type = "image/png"},
 	}
 	for &f in r.files {
 		full, _ := filepath.join({web_dir, f.name}, context.temp_allocator)

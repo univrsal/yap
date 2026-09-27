@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the web client into web/out/ (index.html, index.js,
-# index.wasm, favicon.ico): the client compiled by Odin to a wasm object, then linked
+# index.wasm, favicon.ico and what installing it as an app needs): the client compiled by Odin to a wasm object, then linked
 # by emscripten with the page's glue and the C it needs. Extra arguments
 # go to the Odin build, e.g. ./web/build.sh -debug
 #
@@ -92,5 +92,7 @@ emcc "$out/yap.obj" \
 
 # The tab's icon, the same one the desktop programs have.
 cp src/client/assets/icon.ico "$out/favicon.ico"
+# The manifest and icons for installing it as an app (index.html).
+cp web/manifest.webmanifest web/icon-192.png web/icon-512.png web/apple-touch-icon.png "$out/"
 
 echo "built $out/index.html"
