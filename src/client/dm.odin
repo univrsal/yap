@@ -13,7 +13,8 @@ import "../proto"
 
 /*
 Direct messages (see src/proto/dm.odin for the protocol): our end of
-them, and the history of each conversation.
+them, and the history of each conversation. Images in them are in
+dm_images.odin.
 
 Sending works like the channel's chat: one message at a time, resent
 until the server takes it (DM_Sent), after which it's Sent, and
@@ -23,7 +24,8 @@ Failed.
 
 A conversation's history is kept in the store next to our key, as
 dms/<their key>.json, the last DM_HISTORY messages of it, with
-dms/index listing the conversations there are. Messages come from
+dms/index listing the conversations there are. Images aren't kept
+there, only that there was one: after a restart it's a gap. Messages come from
 anyone, buddy or not, so the conversations are whoever we've talked
 to rather than the buddy list.
 */
@@ -39,11 +41,14 @@ DM_State :: enum u8 {
 }
 
 DM_Message :: struct {
-	id:    u64,
-	mine:  bool,
-	time:  proto.Unix_Time, // theirs: when the server took it; ours: when sent
-	text:  string, // owned
-	state: DM_State,
+	id:      u64,
+	mine:    bool,
+	time:    proto.Unix_Time, // theirs: when the server took it; ours: when sent
+	text:    string, // owned
+	state:   DM_State,
+	// An image instead of text (dm_images.odin).
+	image:   bool,
+	picture: DM_Picture,
 }
 
 DM_Conversation :: struct {
@@ -54,7 +59,6 @@ DM_Conversation :: struct {
 
 // DM_Outgoing is a DM waiting for the server to take it. Sealed once,
 // so every resend is the same message.
-@(private = "file")
 DM_Outgoing :: struct {
 	to:         [proto.KEY_SIZE]u8,
 	id:         u64,
@@ -62,6 +66,12 @@ DM_Outgoing :: struct {
 	sealed:     [proto.MAX_DM_SEALED]u8,
 	sealed_len: int,
 	last_send:  time.Tick,
+	// An image DM's picture, sealed, and its upload (dm_images.odin).
+	image:      []u8, // owned
+	upload:     proto.Blob_Sender,
+	uploading:  bool,
+	tokens:     f32,
+	last_chunk: time.Tick,
 }
 
 DM_Client :: struct {
@@ -76,6 +86,9 @@ DM_Client :: struct {
 	// The mail sound has played for DMs that waited for us to connect;
 	// it plays once per connection however many there were.
 	mail_played:   bool,
+	// Images being fetched (dm_images.odin).
+	fetch:         DM_Fetch,
+	next_image_id: u32,
 }
 
 // DM_Command sends a DM. `to` is all zero for the user called `name`
@@ -118,7 +131,11 @@ dm_destroy :: proc(c: ^Voice_Client) {
 		conversation_destroy(conv)
 	}
 	delete(c.dms.conversations)
+	for &out in c.dms.outbox {
+		outgoing_destroy(&out)
+	}
 	delete(c.dms.outbox)
+	dm_fetch_destroy(c)
 	for _, &k in c.dms.keys {
 		crypto.zero_explicit(&k, size_of(k))
 	}
@@ -127,10 +144,16 @@ dm_destroy :: proc(c: ^Voice_Client) {
 	delete(c.dms.dir)
 }
 
+outgoing_destroy :: proc(out: ^DM_Outgoing) {
+	delete(out.image)
+	proto.blob_sender_destroy(&out.upload)
+	out.image = nil
+}
+
 @(private = "file")
 conversation_destroy :: proc(conv: ^DM_Conversation) {
 	for m in conv.messages {
-		delete(m.text)
+		message_destroy(m)
 	}
 	delete(conv.messages)
 	delete(conv.name)
@@ -139,24 +162,9 @@ conversation_destroy :: proc(conv: ^DM_Conversation) {
 
 // dm_send seals a DM to `to` and queues it. A zero `to` means the user
 // called `name`, who has to be online for that.
-dm_send :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8, name, raw: string) {
-	to := to
-	if to == {} {
-		found := false
-		if c.channels.have_state {
-			for u in c.channels.state.users {
-				if u.name == name && u.num != my_num(c) {
-					to, found = u.key, true
-					break
-				}
-			}
-		}
-		if !found {
-			log.warnf("dm: there's nobody called %q here", name)
-			return
-		}
-	}
-	if to == c.my_key {
+dm_send :: proc(c: ^Voice_Client, to_or_zero: [proto.KEY_SIZE]u8, name, raw: string) {
+	to, found := dm_recipient(c, to_or_zero, name)
+	if !found {
 		return
 	}
 	buf: [proto.MAX_DM_SIZE]u8
@@ -173,7 +181,16 @@ dm_send :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8, name, raw: string) {
 		to = to,
 		id = random_id(),
 	}
-	nonce, sealed := proto.dm_seal(&key, c.my_key, to, out.id, text, out.sealed[:])
+	body_buf: [proto.MAX_DM_BODY]u8
+	nonce, sealed := proto.dm_seal(
+		&key,
+		c.my_key,
+		to,
+		out.id,
+		.Body,
+		proto.encode_dm_text(&body_buf, text),
+		out.sealed[:],
+	)
 	out.nonce, out.sealed_len = nonce, len(sealed)
 	append(&c.dms.outbox, out)
 
@@ -197,6 +214,34 @@ dm_send :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8, name, raw: string) {
 	}
 }
 
+// dm_recipient is who a DM goes to: `to`, or if that's all zero, the
+// user here called `name`. Not ourselves.
+dm_recipient :: proc(
+	c: ^Voice_Client,
+	to: [proto.KEY_SIZE]u8,
+	name: string,
+) -> (
+	key: [proto.KEY_SIZE]u8,
+	ok: bool,
+) {
+	key = to
+	if key == {} {
+		if c.channels.have_state {
+			for u in c.channels.state.users {
+				if u.name == name && u.num != my_num(c) {
+					key, ok = u.key, true
+					break
+				}
+			}
+		}
+		if !ok {
+			log.warnf("dm: there's nobody called %q here", name)
+			return
+		}
+	}
+	return key, key != c.my_key
+}
+
 // dm_typing tells `to` we're typing, if we haven't lately.
 dm_typing :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8) {
 	if !c.has_current {
@@ -217,6 +262,10 @@ drive_dm :: proc(c: ^Voice_Client) {
 		return
 	}
 	out := &c.dms.outbox[0]
+	if out.image != nil {
+		dm_image_upload_step(c, out)
+		return
+	}
 	if out.last_send != {} && time.tick_since(out.last_send) < proto.CONTROL_RESEND {
 		return
 	}
@@ -234,9 +283,17 @@ handle_dm_sent :: proc(c: ^Voice_Client, pt: []u8) {
 		return // a late duplicate
 	}
 	to := c.dms.outbox[0].to
+	outgoing_destroy(&c.dms.outbox[0])
 	ordered_remove(&c.dms.outbox, 0)
 	state := DM_State.Sent
-	if result != .Held {
+	switch result {
+	case .Held:
+	case .Offline:
+		state = .Failed
+		log.warnf("dm: %s isn't online, so the image wasn't sent", fingerprint(to))
+	case .Full:
+		fallthrough
+	case:
 		state = .Failed
 		log.warnf("dm: the server refused a DM to %s (%v)", fingerprint(to), result)
 	}
@@ -265,14 +322,26 @@ handle_dm :: proc(c: ^Voice_Client, pt: []u8) {
 		}
 	}
 	key, key_ok := dm_shared_key(c, from)
-	out: [proto.MAX_DM_SIZE]u8
-	raw, ok := proto.dm_open(&key, from, c.my_key, id, nonce, sealed, out[:])
-	if !key_ok || !ok {
+	out: [proto.MAX_DM_BODY]u8
+	body, ok := proto.dm_open(&key, from, c.my_key, id, .Body, nonce, sealed, out[:])
+	content, raw, picture, body_ok := proto.decode_dm_body(body)
+	if !key_ok || !ok || !body_ok {
 		log.warnf("dm: dropping one from %s that doesn't open", fingerprint(from))
 		return
 	}
 	buf: [proto.MAX_DM_SIZE]u8
 	text := proto.sanitize_text(raw, buf[:])
+	msg := DM_Message {
+		id    = id,
+		time  = sent_at,
+		text  = strings.clone(text),
+		state = .Received,
+	}
+	if content == .Image {
+		msg.image = true
+		msg.picture = dm_picture(c, picture, .Wanted)
+		text = fmt.tprintf("[image, %dx%d]", picture.width, picture.height)
+	}
 
 	conv := dm_conversation(c, from)
 	if c.channels.have_state {
@@ -283,7 +352,10 @@ handle_dm :: proc(c: ^Voice_Client, pt: []u8) {
 			}
 		}
 	}
-	add_message(conv, {id = id, time = sent_at, text = strings.clone(text), state = .Received})
+	add_message(conv, msg)
+	if msg.image {
+		dm_fetch_want(c, from, id)
+	}
 	dm_save(c, conv)
 	publish_dm_conversation(c, conv, unread = true)
 	// DMs that waited for us are mail, announced once as we join; one
@@ -315,7 +387,6 @@ handle_dm_typing :: proc(c: ^Voice_Client, pt: []u8) {
 
 // dm_conversation returns the conversation with `key`, starting one
 // (and listing it in the index) if there's none yet.
-@(private = "file")
 dm_conversation :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) -> ^DM_Conversation {
 	if conv := c.dms.conversations[key] or_else nil; conv != nil {
 		return conv
@@ -329,17 +400,21 @@ dm_conversation :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) -> ^DM_Conver
 
 // add_message appends to a conversation, dropping the oldest past
 // DM_HISTORY.
-@(private = "file")
 add_message :: proc(conv: ^DM_Conversation, m: DM_Message) {
 	append(&conv.messages, m)
 	for len(conv.messages) > DM_HISTORY {
-		delete(conv.messages[0].text)
+		message_destroy(conv.messages[0])
 		ordered_remove(&conv.messages, 0)
 	}
 }
 
-// set_state updates one of our messages to `to`, and shows and saves it.
 @(private = "file")
+message_destroy :: proc(m: DM_Message) {
+	delete(m.text)
+	delete(m.picture.jpeg)
+}
+
+// set_state updates one of our messages to `to`, and shows and saves it.
 set_state :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8, id: u64, state: DM_State) {
 	conv := c.dms.conversations[to] or_else nil
 	if conv == nil {
@@ -356,7 +431,6 @@ set_state :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8, id: u64, state: DM_S
 	}
 }
 
-@(private = "file")
 dm_shared_key :: proc(
 	c: ^Voice_Client,
 	them: [proto.KEY_SIZE]u8,
@@ -372,7 +446,6 @@ dm_shared_key :: proc(
 	return key, true
 }
 
-@(private = "file")
 random_id :: proc() -> (id: u64) {
 	for id == 0 {
 		crypto.rand_bytes(([^]byte)(&id)[:size_of(id)])
@@ -380,7 +453,6 @@ random_id :: proc() -> (id: u64) {
 	return
 }
 
-@(private = "file")
 unix_now :: proc() -> proto.Unix_Time {
 	return proto.Unix_Time(time.time_to_unix(time.now()))
 }
@@ -398,11 +470,15 @@ Saved_Conversation :: struct {
 // The id as a hex string, as JSON numbers don't reliably carry 64 bits.
 @(private = "file")
 Saved_Message :: struct {
-	id:    string,
-	mine:  bool,
-	time:  u64,
-	text:  string,
-	state: DM_State,
+	id:     string,
+	mine:   bool,
+	time:   u64,
+	text:   string,
+	state:  DM_State,
+	// An image, which isn't kept: only its size, for the gap it leaves.
+	image:  bool,
+	width:  u16,
+	height: u16,
 }
 
 @(private = "file")
@@ -428,7 +504,6 @@ dm_save_index :: proc(c: ^Voice_Client) {
 	common.store_write(dm_store_name(c, "index"), strings.to_string(b), private = true)
 }
 
-@(private = "file")
 dm_save :: proc(c: ^Voice_Client, conv: ^DM_Conversation) {
 	if c.dms.dir == "" {
 		return
@@ -436,11 +511,14 @@ dm_save :: proc(c: ^Voice_Client, conv: ^DM_Conversation) {
 	messages := make([]Saved_Message, len(conv.messages), context.temp_allocator)
 	for m, i in conv.messages {
 		messages[i] = {
-			id    = hex_u64(m.id),
-			mine  = m.mine,
-			time  = u64(m.time),
-			text  = m.text,
-			state = m.state,
+			id     = hex_u64(m.id),
+			mine   = m.mine,
+			time   = u64(m.time),
+			text   = m.text,
+			state  = m.state,
+			image  = m.image,
+			width  = m.picture.width,
+			height = m.picture.height,
 		}
 	}
 	// The oldest go first if it's too much for the store.
@@ -488,16 +566,18 @@ dm_load_conversation :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) -> ^DM_C
 		if state == .Sending {
 			state = .Failed
 		}
-		add_message(
-			conv,
-			{
-				id = id,
-				mine = s.mine,
-				time = proto.Unix_Time(s.time),
-				text = strings.clone(s.text),
-				state = state,
-			},
-		)
+		m := DM_Message {
+			id    = id,
+			mine  = s.mine,
+			time  = proto.Unix_Time(s.time),
+			text  = strings.clone(s.text),
+			state = state,
+			image = s.image,
+		}
+		if s.image {
+			m.picture = dm_picture(c, {width = s.width, height = s.height}, .Gone)
+		}
+		add_message(conv, m)
 	}
 	return conv
 }

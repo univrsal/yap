@@ -152,6 +152,7 @@ handle_blob_chunk :: proc(c: ^Voice_Client, pt: []byte) {
 	ic := &c.images
 	img := ic.cache[ic.active] or_else nil
 	if img == nil || u64(ic.active) != handle || img.state != .Loading {
+		dm_image_chunk(c, handle, index, data)
 		return
 	}
 	img.started = true
@@ -264,11 +265,15 @@ image_upload_step :: proc(c: ^Voice_Client, out: ^Chat_Outgoing, now: time.Tick)
 // still wants.
 handle_blob_need :: proc(c: ^Voice_Client, pt: []byte) {
 	handle, complete, count, indices, ok := proto.decode_blob_need(pt)
-	if !ok || len(c.chat.outbox) == 0 {
+	if !ok {
+		return
+	}
+	if len(c.chat.outbox) == 0 || c.chat.outbox[0].nonce != handle {
+		dm_image_upload_need(c, handle, complete, count, indices)
 		return
 	}
 	out := &c.chat.outbox[0]
-	if out.kind != .Image || out.nonce != handle || complete {
+	if out.kind != .Image || complete {
 		return
 	}
 	if !out.sending {

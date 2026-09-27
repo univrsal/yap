@@ -149,8 +149,10 @@ UI :: struct {
 	cursor_shown:        Cursor,
 	// Text selected in the chat or the log (ui_select.odin).
 	select:              Selection,
-	// The image paste being read, if any (ui_paste.odin).
+	// The image paste being read, if any (ui_paste.odin), and where the
+	// next one goes.
 	paste:               ^Paste_Job,
+	paste_to:            Paste_Target,
 	// What the icon button under the pointer does, and where it is, for
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,

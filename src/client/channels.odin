@@ -426,6 +426,7 @@ Command :: union {
 	Watch_Command,
 	DM_Command,
 	DM_Typing_Command,
+	DM_Image_Command,
 }
 
 Command_Queue :: struct {
@@ -465,6 +466,10 @@ command_destroy :: proc(cmd: Command) {
 	case DM_Command:
 		delete(v.name)
 		delete(v.text)
+	case DM_Image_Command:
+		delete(v.name)
+		image := v.image
+		chat_image_destroy(&image)
 	}
 }
 
@@ -546,6 +551,10 @@ process_commands :: proc(c: ^Voice_Client) {
 			dm_send(c, v.to, v.name, v.text)
 		case DM_Typing_Command:
 			dm_typing(c, v.to)
+		case DM_Image_Command:
+			// The client takes the JPEG over, so it isn't freed twice.
+			dm_send_image(c, v.to, v.name, v.image)
+			v.image = {}
 		}
 	}
 }

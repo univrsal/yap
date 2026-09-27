@@ -8,6 +8,7 @@ import "core:os"
 import "core:strconv"
 import "core:time"
 
+import "../common"
 import "../proto"
 
 /*
@@ -51,6 +52,8 @@ DM_Store :: struct {
 	// By sender key: the last ids they sent, oldest overwritten first.
 	recent: map[[proto.KEY_SIZE]u8]Recent_DM_Ids,
 	dirty:  bool, // `held` changed since it was saved
+	// Image DMs' pictures, by the DM's id; in memory only.
+	images: map[u64]^Held_Image,
 }
 
 Recent_DM_Ids :: struct {
@@ -75,38 +78,68 @@ recent_add :: proc(r: ^Recent_DM_Ids, id: u64) {
 }
 
 handle_dm_send :: proc(s: ^Server, c: ^Client, pt: []u8) {
-	from := c.user.key
 	id, to, nonce, sealed := proto.decode_dm_send(pt)
-	if to == from {
-		return
+	result, fresh := dm_check(s, c.user, to, id)
+	if fresh {
+		dm_hold(s, c.user, to, id, nonce, sealed)
 	}
-	result := proto.DM_Result.Held
-	defer {
-		buf: [proto.DM_SENT_SIZE]u8
-		send_message(s, c, proto.encode_dm_sent(&buf, id, result))
-	}
+	send_dm_sent(s, c, id, result)
+}
 
-	// Taken as entries: a plain &map[key] is nil for a key not there yet.
-	_, recent, _, _ := map_entry(&s.dms.recent, from)
-	if recent_has(recent, id) {
-		return // a resend of one we have, or had
+// dm_check is whether a DM from `from` to `to` may be held: fresh is
+// false if it may not, or if it's a resend of one already taken, and
+// the result says which.
+@(private = "file")
+dm_check :: proc(
+	s: ^Server,
+	from: ^User,
+	to: [proto.KEY_SIZE]u8,
+	id: u64,
+) -> (
+	result: proto.DM_Result,
+	fresh: bool,
+) {
+	to := to
+	if to == from.key {
+		return .Full, false
 	}
-	_, queue, _, _ := map_entry(&s.dms.held, to)
-	from_them := 0
-	for &h in queue {
-		if h.from == from {
-			from_them += 1
+	// Taken as entries: a plain &map[key] is nil for a key not there yet.
+	_, recent, _, _ := map_entry(&s.dms.recent, from.key)
+	if recent_has(recent, id) {
+		return .Held, false // a resend of one we have, or had
+	}
+	from_them, waiting := 0, 0
+	if queue, ok := s.dms.held[to]; ok {
+		waiting = len(queue)
+		for h in queue {
+			if h.from == from.key {
+				from_them += 1
+			}
 		}
 	}
-	if len(queue) >= proto.MAX_HELD_DMS || from_them >= proto.MAX_HELD_DMS_FROM {
-		result = .Full
-		log.debugf("%s: DM refused, %x... has too many waiting", user_label(c.user), to[:4])
-		return
+	if waiting >= proto.MAX_HELD_DMS || from_them >= proto.MAX_HELD_DMS_FROM {
+		log.debugf("%s: DM refused, %08x has too many waiting", user_label(from), common.key_id(to))
+		return .Full, false
 	}
+	return .Held, true
+}
+
+// dm_hold keeps a DM for its recipient.
+@(private = "file")
+dm_hold :: proc(
+	s: ^Server,
+	from: ^User,
+	to: [proto.KEY_SIZE]u8,
+	id: u64,
+	nonce: [proto.DM_NONCE_SIZE]u8,
+	sealed: []u8,
+) {
+	to := to
+	_, queue, _, _ := map_entry(&s.dms.held, to)
 	append(
 		queue,
 		Held_DM {
-			from = from,
+			from = from.key,
 			id = id,
 			received = proto.Unix_Time(time.time_to_unix(time.now())),
 			arrived = time.tick_now(),
@@ -114,9 +147,240 @@ handle_dm_send :: proc(s: ^Server, c: ^Client, pt: []u8) {
 			sealed = clone_bytes(sealed),
 		},
 	)
+	_, recent, _, _ := map_entry(&s.dms.recent, from.key)
 	recent_add(recent, id)
 	s.dms.dirty = true
-	log.debugf("%s: DM for %x... held (%d waiting)", user_label(c.user), to[:4], len(queue))
+	log.debugf("%s: DM for %08x held (%d waiting)", user_label(from), common.key_id(to), len(queue))
+}
+
+@(private = "file")
+send_dm_sent :: proc(s: ^Server, c: ^Client, id: u64, result: proto.DM_Result) {
+	buf: [proto.DM_SENT_SIZE]u8
+	send_message(s, c, proto.encode_dm_sent(&buf, id, result))
+}
+
+/*
+Image DMs (see src/proto/dm.odin): the sealed picture comes in while the
+recipient is online, and is kept in memory, never on disk, until they've
+fetched it or proto.DM_IMAGE_KEEP has passed. The DM that describes it is
+held like any other.
+*/
+
+// All the images waiting to be fetched may take up this much.
+DM_IMAGE_BYTES :: 32 * 1024 * 1024
+
+// Held_Image is an image DM's picture, waiting for its recipient.
+Held_Image :: struct {
+	from, to: [proto.KEY_SIZE]u8,
+	data:     []u8, // sealed; owned
+	expires:  time.Tick,
+}
+
+// DM_Upload is an image DM on its way in: the upload itself (its nonce
+// being the DM's id), and the DM to hold once it's all here.
+DM_Upload :: struct {
+	using up:   Upload,
+	to:         [proto.KEY_SIZE]u8,
+	body_nonce: [proto.DM_NONCE_SIZE]u8,
+	body:       [proto.MAX_DM_SEALED]u8,
+	body_len:   int,
+}
+
+handle_dm_image_send :: proc(s: ^Server, c: ^Client, pt: []u8) {
+	u := c.user
+	id, to, nonce, size, sealed := proto.decode_dm_image_send(pt)
+	up := &u.dm_upload
+	if up.active && up.nonce == id {
+		send_blob_need(s, c, &up.up, force = true)
+		return
+	}
+	result, fresh := dm_check(s, u, to, id)
+	if !fresh {
+		send_dm_sent(s, c, id, result)
+		return
+	}
+	recipient := s.users[to] or_else nil
+	if recipient == nil || sending_session(s, recipient) == nil {
+		send_dm_sent(s, c, id, .Offline)
+		return
+	}
+	if size <= proto.TAG_SIZE || size > proto.MAX_DM_IMAGE_SEALED {
+		return
+	}
+	if dm_image_bytes(s) + size > DM_IMAGE_BYTES {
+		log.warnf("%s: image DM refused, the server is holding too many images", user_label(u))
+		send_dm_sent(s, c, id, .Full)
+		return
+	}
+
+	if up.active {
+		log.debugf("%s started another image DM", user_label(u))
+		proto.blob_receiver_destroy(&up.recv)
+	}
+	up^ = {}
+	if !proto.blob_receiver_init(&up.recv, size) {
+		return
+	}
+	up.active = true
+	up.nonce = id
+	up.last_data = time.tick_now()
+	up.to = to
+	up.body_nonce = nonce
+	up.body_len = copy(up.body[:], sealed)
+	log.debugf("%s is sending %08x an image DM, %d bytes", user_label(u), common.key_id(to), size)
+	send_blob_need(s, c, &up.up, force = true)
+}
+
+// dm_image_chunk takes a chunk of an image DM's upload (handle_blob_chunk
+// passes on those that aren't a chat image's).
+dm_image_chunk :: proc(s: ^Server, c: ^Client, handle: u64, index: int, data: []u8) {
+	u := c.user
+	up := &u.dm_upload
+	if !up.active || up.nonce != handle {
+		return
+	}
+	proto.blob_receive(&up.recv, index, data)
+	up.last_data = time.tick_now()
+	if !proto.blob_receiver_complete(&up.recv) {
+		return
+	}
+
+	// Checked again: the recipient may be full or gone by now.
+	result, fresh := dm_check(s, u, up.to, up.nonce)
+	if fresh {
+		img := new(Held_Image)
+		img^ = {
+			from    = u.key,
+			to      = up.to,
+			data    = up.recv.data,
+			expires = time.tick_add(time.tick_now(), proto.DM_IMAGE_KEEP),
+		}
+		up.recv.data = nil // the image has it now
+		s.dms.images[up.nonce] = img
+		dm_hold(s, u, up.to, up.nonce, up.body_nonce, up.body[:up.body_len])
+		log.debugf("%s: image DM %x uploaded (%d bytes)", user_label(u), up.nonce, len(img.data))
+	}
+	send_dm_sent(s, c, up.nonce, result)
+	proto.blob_receiver_destroy(&up.recv)
+	up^ = {}
+}
+
+// handle_dm_image_get starts sending an image DM's picture to its
+// recipient, if it's still here.
+handle_dm_image_get :: proc(s: ^Server, c: ^Client, pt: []u8) {
+	u := c.user
+	id, from := proto.decode_dm_key_message(pt)
+	img := s.dms.images[id] or_else nil
+	if img == nil || img.to != u.key || img.from != from {
+		buf: [proto.DM_IMAGE_REF_SIZE]u8
+		send_message(s, c, proto.encode_dm_key_message(&buf, .DM_Image_Gone, id, from))
+		return
+	}
+	down := &u.dm_download
+	if down.active && down.handle == id {
+		return // already on its way
+	}
+	proto.blob_sender_destroy(&down.send)
+	down^ = {
+		active = true,
+		handle = id,
+		send   = {data = img.data},
+		last   = time.tick_now(),
+	}
+	log.debugf("sending image DM %x to %s", id, user_label(u))
+}
+
+// dm_image_need is a recipient's Blob_Need for an image DM's picture
+// (handle_blob_need passes on those that aren't for a chat image). Once
+// they have all of it, the server lets it go.
+dm_image_need :: proc(s: ^Server, u: ^User, handle: u64, complete: bool, count: int, indices: []u8) {
+	down := &u.dm_download
+	if !down.active || down.handle != handle {
+		return
+	}
+	if complete {
+		proto.blob_sender_destroy(&down.send)
+		down^ = {}
+		forget_dm_image(s, handle)
+		return
+	}
+	for i in 0 ..< count {
+		proto.blob_sender_needs(&down.send, proto.blob_need_index(indices, i))
+	}
+}
+
+@(private = "file")
+forget_dm_image :: proc(s: ^Server, id: u64) {
+	img := s.dms.images[id] or_else nil
+	if img == nil {
+		return
+	}
+	delete_key(&s.dms.images, id)
+	// Anyone still sending it has nothing left to send.
+	for _, u in s.users {
+		if u.dm_download.active && u.dm_download.handle == id {
+			proto.blob_sender_destroy(&u.dm_download.send)
+			u.dm_download = {}
+		}
+	}
+	delete(img.data)
+	free(img)
+}
+
+@(private = "file")
+dm_image_bytes :: proc(s: ^Server) -> (n: int) {
+	for _, img in s.dms.images {
+		n += len(img.data)
+	}
+	// Uploads under way will need their room too.
+	for _, u in s.users {
+		if u.dm_upload.active {
+			n += u.dm_upload.recv.size
+		}
+	}
+	return
+}
+
+// dm_images_sync keeps image DMs moving, and lets go of those kept too long.
+@(private = "file")
+dm_images_sync :: proc(s: ^Server, now: time.Tick) {
+	for _, u in s.users {
+		c := sending_session(s, u)
+		if c == nil {
+			continue
+		}
+		if up := &u.dm_upload; up.active {
+			if time.tick_since(up.last_data) > UPLOAD_TIMEOUT {
+				log.debugf("%s stopped sending an image DM", user_label(u))
+				proto.blob_receiver_destroy(&up.recv)
+				up^ = {}
+			} else {
+				send_blob_need(s, c, &up.up)
+			}
+		}
+		send_chunks(s, c, &u.dm_download, now)
+	}
+	expired := make([dynamic]u64, context.temp_allocator)
+	for id, img in s.dms.images {
+		if time.tick_diff(img.expires, now) > 0 {
+			append(&expired, id)
+		}
+	}
+	for id in expired {
+		log.debugf("image DM %x wasn't fetched in time", id)
+		forget_dm_image(s, id)
+	}
+}
+
+// dm_drop_transfers ends a leaving user's image DM transfers. The
+// pictures themselves stay until they're fetched or expire.
+dm_drop_transfers :: proc(u: ^User) {
+	if u.dm_upload.active {
+		proto.blob_receiver_destroy(&u.dm_upload.recv)
+	}
+	u.dm_upload = {}
+	proto.blob_sender_destroy(&u.dm_download.send)
+	u.dm_download = {}
 }
 
 // handle_dm_ack forgets a DM its recipient has, and tells the sender.
@@ -165,6 +429,7 @@ handle_dm_typing :: proc(s: ^Server, u: ^User, pt: []u8) {
 // they're acknowledged, and saves what's held when it has changed.
 dm_sync :: proc(s: ^Server) {
 	now := time.tick_now()
+	dm_images_sync(s, now)
 	for key, &queue in s.dms.held {
 		if len(queue) == 0 {
 			continue
@@ -310,6 +575,11 @@ dm_destroy :: proc(d: ^DM_Store) {
 	}
 	delete(d.held)
 	delete(d.recent)
+	for _, img in d.images {
+		delete(img.data)
+		free(img)
+	}
+	delete(d.images)
 	delete(d.path)
 }
 

@@ -27,6 +27,7 @@ Paste_Job :: struct {
 	err:                clipboard.Error,
 	image:              Chat_Image,
 	ok:                 bool, // the image was scaled and compressed
+	target:             Paste_Target, // where it goes
 	source_w, source_h: int, // before scaling, for the log
 }
 
@@ -38,6 +39,7 @@ paste_start :: proc(ui: ^UI) {
 		return
 	}
 	job := new(Paste_Job)
+	job.target = ui.paste_to
 	job.thread = thread.create_and_start_with_poly_data(job, paste_work, init_context = context)
 	if job.thread == nil {
 		log.error("could not start the paste thread")
@@ -82,10 +84,6 @@ paste_poll :: proc(ui: ^UI) {
 			log.warn("the pasted image could not be prepared for sending")
 			return
 		}
-		if ui.session == nil {
-			log.warn("not connected, so the pasted image wasn't sent")
-			return
-		}
 		if job.image.width != job.source_w || job.image.height != job.source_h {
 			log.infof(
 				"pasted a %dx%d image, scaled to %dx%d, %d KB as JPEG",
@@ -103,8 +101,8 @@ paste_poll :: proc(ui: ^UI) {
 				len(job.image.jpeg) / 1024,
 			)
 		}
-		// The command takes the image over, so it isn't freed here.
-		push_command(&ui.session.client.commands, Chat_Image_Command{job.image})
+		// Sending takes the image over, so it isn't freed here.
+		send_pasted_image(ui, job.target, job.image)
 		job.image = {}
 		return
 	case .Too_Large:

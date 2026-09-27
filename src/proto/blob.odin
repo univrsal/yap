@@ -27,8 +27,9 @@ BLOB_CHUNK_HEADER_SIZE :: 1 + 8 + 2
 BLOB_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - BLOB_CHUNK_HEADER_SIZE
 BLOB_NEED_HEADER_SIZE :: 1 + 8 + 1 + 2
 BLOB_NEED_MAX_INDICES :: (MAX_PAYLOAD_SIZE - BLOB_NEED_HEADER_SIZE) / 2
-// The most we ever transfer, which is what a chat image may take up.
-MAX_BLOB_SIZE :: 256 * 1024
+// The most we ever transfer: what a chat image may take up, and room for
+// the tag on one sealed for a DM (dm.odin).
+MAX_BLOB_SIZE :: 256 * 1024 + TAG_SIZE
 MAX_BLOB_CHUNKS :: (MAX_BLOB_SIZE + BLOB_CHUNK_SIZE - 1) / BLOB_CHUNK_SIZE
 
 // Blob_Need flags.

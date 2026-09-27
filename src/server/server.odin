@@ -60,6 +60,8 @@ User :: struct {
 	last_poke:       time.Tick, // see handle_poke
 	last_dm_typing:  time.Tick, // see handle_dm_typing
 	joined:          time.Tick, // when they connected, for DMs that waited for them (dm.odin)
+	dm_upload:       DM_Upload, // an image DM on its way in (dm.odin)
+	dm_download:     Download, // an image DM's picture on its way out
 	upload:          Upload, // an image on its way in (images.odin)
 	download:        Download, // an image on its way out
 	video:           Video_State, // screen sharing (video.odin)
@@ -362,7 +364,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	case .Blob_Chunk:
 		handle_blob_chunk(s, c, pt)
 	case .Blob_Need:
-		handle_blob_need(c.user, pt)
+		handle_blob_need(s, c.user, pt)
 	case .Chat_Received:
 		handle_chat_received(c.user, pt)
 	case .Typing:
@@ -388,6 +390,10 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		handle_dm_ack(s, c.user, pt)
 	case .DM_Typing:
 		handle_dm_typing(s, c.user, pt)
+	case .DM_Image_Send:
+		handle_dm_image_send(s, c, pt)
+	case .DM_Image_Get:
+		handle_dm_image_get(s, c, pt)
 	case .State,
 	     .Chat_Sent,
 	     .Chat,
@@ -397,7 +403,8 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	     .Pong,
 	     .DM_Sent,
 	     .DM,
-	     .DM_Delivered:
+	     .DM_Delivered,
+	     .DM_Image_Gone:
 	// Server-to-client only.
 	}
 }

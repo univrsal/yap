@@ -60,10 +60,6 @@ web_paste_image :: proc "c" (data: [^]u8, size: i32, width, height: i32) {
 	if g_ui == nil || size <= 0 {
 		return
 	}
-	if g_ui.session == nil {
-		log.warn("not connected, so the pasted image wasn't sent")
-		return
-	}
 	img := Chat_Image {
 		jpeg   = make([]u8, size),
 		width  = int(width),
@@ -71,7 +67,16 @@ web_paste_image :: proc "c" (data: [^]u8, size: i32, width, height: i32) {
 	}
 	copy(img.jpeg, data[:size])
 	log.infof("pasted a %dx%d image, %d KB as JPEG", img.width, img.height, len(img.jpeg) / 1024)
-	push_command(&g_ui.session.client.commands, Chat_Image_Command{img})
+	// The page's paste isn't tied to a text box: it goes to the open
+	// conversation on the buddy screen, else to the chat.
+	target: Paste_Target
+	if g_ui.page == .Buddies && g_ui.buddies.has_selected {
+		target = {
+			dm = true,
+			to = g_ui.buddies.selected,
+		}
+	}
+	send_pasted_image(g_ui, target, img)
 }
 
 // The page could not make a picture of what was pasted.

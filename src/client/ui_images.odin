@@ -182,10 +182,16 @@ ui_images_frame :: proc(ui: ^UI) {
 }
 
 // image_block draws one image message: the picture once it's here, and
-// what's happening with it until then. It's laid out at the size the
-// image will take, so nothing jumps when it arrives. Clicking it opens
-// the viewer; the right button saves it.
-image_block :: proc(ui: ^UI, info: proto.Image_Info, state: Image_State, jpeg: []u8) {
+// what's happening with it until then (`gone` says why it isn't coming).
+// It's laid out at the size the image will take, so nothing jumps when
+// it arrives. Clicking it opens the viewer; the right button saves it.
+image_block :: proc(
+	ui: ^UI,
+	info: proto.Image_Info,
+	state: Image_State,
+	jpeg: []u8,
+	gone := "image no longer on the server",
+) {
 	ctx := &ui.ctx
 	w, h := image_display_size(ctx, int(info.width), int(info.height))
 	mu.layout_row(ctx, {i32(w)}, i32(h))
@@ -231,7 +237,7 @@ image_block :: proc(ui: ^UI, info: proto.Image_Info, state: Image_State, jpeg: [
 	case known && t.state == .Failed:
 		label = "broken image"
 	case state == .Gone:
-		label = "image no longer on the server"
+		label = gone
 	case known && t.state == .Decoding, state == .Ready:
 		label = "showing image..."
 	case:

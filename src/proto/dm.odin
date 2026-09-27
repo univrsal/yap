@@ -5,19 +5,29 @@ import "core:crypto/aead"
 import "core:crypto/ecdh"
 import "core:crypto/hkdf"
 import "core:encoding/endian"
+import "core:time"
 
 /*
-Direct messages: text from one user to another, end-to-end encrypted,
-relayed by the server, which holds on to them for a recipient who isn't
-online and hands them over when they are.
+Direct messages: text or images from one user to another, end-to-end
+encrypted, relayed by the server, which holds on to text for a recipient
+who isn't online and hands it over when they are. Images only go to
+someone who's online.
 
-	client -> server  DM_Send       [kind][id u64][to key 32][nonce 24][sealed...]
-	server -> client  DM_Sent       [kind][id u64][result u8]
-	server -> client  DM            [kind][id u64][from key 32][time u64][flags u8][nonce 24][sealed...]
-	client -> server  DM_Ack        [kind][id u64][from key 32]
-	server -> client  DM_Delivered  [kind][id u64][to key 32]
-	client -> server  DM_Typing     [kind][to key 32]
-	server -> client  DM_Typing     [kind][from key 32]
+	client -> server  DM_Send        [kind][id u64][to key 32][nonce 24][sealed body...]
+	client -> server  DM_Image_Send  [kind][id u64][to key 32][nonce 24][image size u32][sealed body...]
+	server -> client  DM_Sent        [kind][id u64][result u8]
+	server -> client  DM             [kind][id u64][from key 32][time u64][flags u8][nonce 24][sealed body...]
+	client -> server  DM_Ack         [kind][id u64][from key 32]
+	server -> client  DM_Delivered   [kind][id u64][to key 32]
+	client -> server  DM_Typing      [kind][to key 32]
+	server -> client  DM_Typing      [kind][from key 32]
+	client -> server  DM_Image_Get   [kind][id u64][from key 32]
+	server -> client  DM_Image_Gone  [kind][id u64][from key 32]
+
+The body, once opened, says what the DM is:
+
+	text   [0][text...]
+	image  [1][width u16][height u16][size u32][image nonce 24]
 
 Users are addressed by public key rather than number, as a recipient
 who's away has none.
@@ -39,14 +49,27 @@ sound for those).
 Typing is unreliable and unencrypted, like the channel's, and only
 reaches a recipient who's online.
 
+Images: the sender seals the JPEG on its own (the image nonce, with
+Image as the part in the associated data) and announces the DM with
+DM_Image_Send, which gives the server the sealed image's size. If the
+recipient is online the server asks for the image with Blob_Need, the
+handle being the DM's id, and the sender uploads it in Blob_Chunks (see
+blob.odin); then the DM is held like any other and DM_Sent says Held.
+Offline means the recipient isn't there, and nothing was kept. The
+recipient opens the DM, asks for the image with DM_Image_Get and gets it
+the same way, in chunks under the DM's id. The server keeps the sealed
+image in memory only, until the recipient has it or DM_IMAGE_KEEP has
+passed; after that DM_Image_Gone answers.
+
 Sealing: the key is HKDF-SHA256 over the X25519 of the sender's private
 key and the recipient's public key - which the recipient gets from their
 private key and the sender's public key, so only the two of them can
 seal or open. That's also what makes the sender's key trustworthy: a DM
 that opens was sealed by the key it names. The cipher is
-XChaCha20-Poly1305 with a random nonce, over the text, with both keys and
-the id as associated data, so the server can't move a DM to another
-conversation or give it another id. There's no forward secrecy: a leaked
+XChaCha20-Poly1305 with a random nonce, over the body, with both keys,
+the id and which part it is (the body or an image's bytes) as associated
+data, so the server can't move a DM to another conversation, give it
+another id, or pass an image off as a message. There's no forward secrecy: a leaked
 private key opens every DM it ever sent or received.
 */
 
@@ -65,8 +88,36 @@ DM_SENT_SIZE :: 1 + 8 + 1
 DM_ACK_SIZE :: 1 + 8 + KEY_SIZE
 DM_DELIVERED_SIZE :: 1 + 8 + KEY_SIZE
 DM_TYPING_SIZE :: 1 + KEY_SIZE
-MAX_DM_SEALED :: MAX_DM_SIZE + TAG_SIZE
-MAX_DM_SIZE_ON_WIRE :: DM_HEADER_SIZE + MAX_DM_SEALED
+DM_IMAGE_SEND_HEADER_SIZE :: DM_SEND_HEADER_SIZE + 4
+DM_IMAGE_REF_SIZE :: 1 + 8 + KEY_SIZE // DM_Image_Get, DM_Image_Gone
+MAX_DM_BODY :: 1 + MAX_DM_SIZE
+MAX_DM_SEALED :: MAX_DM_BODY + TAG_SIZE
+MAX_DM_SIZE_ON_WIRE :: DM_IMAGE_SEND_HEADER_SIZE + MAX_DM_SEALED
+DM_IMAGE_BODY_SIZE :: 1 + 2 + 2 + 4 + DM_NONCE_SIZE
+// The most an image may be once sealed: a chat image's worth plus its
+// tag, which MAX_BLOB_SIZE leaves room for.
+MAX_DM_IMAGE_SEALED :: MAX_BLOB_SIZE
+// How long the server keeps an image for a recipient who hasn't fetched it.
+DM_IMAGE_KEEP :: 10 * time.Minute
+
+// What a DM is.
+DM_Content :: enum u8 {
+	Text  = 0,
+	Image = 1,
+}
+
+// DM_Image is what an image DM's body says about the image.
+DM_Image :: struct {
+	width, height: u16,
+	size:          u32, // sealed, as it's transferred
+	nonce:         [DM_NONCE_SIZE]u8, // what it's sealed with
+}
+
+// Which part of a DM something sealed is.
+DM_Part :: enum u8 {
+	Body  = 0,
+	Image = 1,
+}
 
 DM_Flag :: enum u8 {
 	Waited, // held while the recipient was away
@@ -76,6 +127,7 @@ DM_Flags :: distinct bit_set[DM_Flag;u8]
 DM_Result :: enum u8 {
 	Held = 1, // the server has it, and will deliver it
 	Full = 2, // refused: too many are waiting for the recipient
+	Offline = 3, // refused: an image, and the recipient isn't online
 }
 
 @(private = "file")
@@ -109,52 +161,58 @@ dm_key :: proc(
 }
 
 @(private = "file")
-dm_aad :: proc(out: ^[2 * KEY_SIZE + 8]u8, from, to: [KEY_SIZE]u8, id: u64) -> []u8 {
+DM_AAD_SIZE :: 2 * KEY_SIZE + 8 + 1
+
+@(private = "file")
+dm_aad :: proc(out: ^[DM_AAD_SIZE]u8, from, to: [KEY_SIZE]u8, id: u64, part: DM_Part) -> []u8 {
 	from, to := from, to
 	copy(out[:], from[:])
 	copy(out[KEY_SIZE:], to[:])
 	endian.unchecked_put_u64le(out[2 * KEY_SIZE:], id)
+	out[2 * KEY_SIZE + 8] = u8(part)
 	return out[:]
 }
 
-// dm_seal encrypts `text` (at most MAX_DM_SIZE bytes) into `out`, which
-// must have room for it plus TAG_SIZE, and picks the nonce.
+// dm_seal encrypts `data` into `out`, which must have room for it plus
+// TAG_SIZE, and picks the nonce.
 dm_seal :: proc(
 	key: ^[DM_KEY_SIZE]u8,
 	from, to: [KEY_SIZE]u8,
 	id: u64,
-	text: string,
+	part: DM_Part,
+	data: []u8,
 	out: []u8,
 ) -> (
 	nonce: [DM_NONCE_SIZE]u8,
 	sealed: []u8,
 ) {
 	crypto.rand_bytes(nonce[:])
-	aad_buf: [2 * KEY_SIZE + 8]u8
-	n := len(text)
+	aad_buf: [DM_AAD_SIZE]u8
+	n := len(data)
 	aead.seal_oneshot(
 		.XCHACHA20POLY1305,
 		out[:n],
 		out[n:][:TAG_SIZE],
 		key[:],
 		nonce[:],
-		dm_aad(&aad_buf, from, to, id),
-		transmute([]u8)text,
+		dm_aad(&aad_buf, from, to, id, part),
+		data,
 	)
 	return nonce, out[:n + TAG_SIZE]
 }
 
-// dm_open decrypts a sealed DM into `out`, which needs len(sealed) -
-// TAG_SIZE bytes. The text isn't sanitized yet.
+// dm_open decrypts something dm_seal sealed into `out`, which needs
+// len(sealed) - TAG_SIZE bytes.
 dm_open :: proc(
 	key: ^[DM_KEY_SIZE]u8,
 	from, to: [KEY_SIZE]u8,
 	id: u64,
+	part: DM_Part,
 	nonce: [DM_NONCE_SIZE]u8,
 	sealed: []u8,
 	out: []u8,
 ) -> (
-	text: string,
+	data: []u8,
 	ok: bool,
 ) {
 	nonce := nonce
@@ -162,19 +220,69 @@ dm_open :: proc(
 		return
 	}
 	n := len(sealed) - TAG_SIZE
-	aad_buf: [2 * KEY_SIZE + 8]u8
+	aad_buf: [DM_AAD_SIZE]u8
 	if !aead.open_oneshot(
 		.XCHACHA20POLY1305,
 		out[:n],
 		key[:],
 		nonce[:],
-		dm_aad(&aad_buf, from, to, id),
+		dm_aad(&aad_buf, from, to, id, part),
 		sealed[:n],
 		sealed[n:],
 	) {
 		return
 	}
-	return string(out[:n]), true
+	return out[:n], true
+}
+
+// encode_dm_text writes a text DM's body; the text should be sanitized
+// and at most MAX_DM_SIZE bytes.
+encode_dm_text :: proc(out: ^[MAX_DM_BODY]u8, text: string) -> []u8 {
+	n := min(len(text), MAX_DM_SIZE)
+	out[0] = u8(DM_Content.Text)
+	copy(out[1:], text[:n])
+	return out[:1 + n]
+}
+
+encode_dm_image :: proc(out: ^[MAX_DM_BODY]u8, img: DM_Image) -> []u8 {
+	img := img
+	out[0] = u8(DM_Content.Image)
+	endian.unchecked_put_u16le(out[1:], img.width)
+	endian.unchecked_put_u16le(out[3:], img.height)
+	endian.unchecked_put_u32le(out[5:], img.size)
+	copy(out[9:], img.nonce[:])
+	return out[:DM_IMAGE_BODY_SIZE]
+}
+
+// decode_dm_body reads an opened body. The text isn't sanitized yet.
+@(require_results)
+decode_dm_body :: proc(
+	body: []u8,
+) -> (
+	content: DM_Content,
+	text: string,
+	img: DM_Image,
+	ok: bool,
+) {
+	if len(body) == 0 {
+		return
+	}
+	content = DM_Content(body[0])
+	switch content {
+	case .Text:
+		return content, string(body[1:]), {}, true
+	case .Image:
+		if len(body) != DM_IMAGE_BODY_SIZE {
+			return
+		}
+		img.width = endian.unchecked_get_u16le(body[1:])
+		img.height = endian.unchecked_get_u16le(body[3:])
+		img.size = endian.unchecked_get_u32le(body[5:])
+		copy(img.nonce[:], body[9:])
+		ok = img.width > 0 && img.height > 0 && img.size > TAG_SIZE && img.size <= MAX_DM_IMAGE_SEALED
+		return
+	}
+	return
 }
 
 encode_dm_send :: proc(
@@ -206,6 +314,43 @@ decode_dm_send :: proc(
 	copy(to[:], pt[9:])
 	copy(nonce[:], pt[9 + KEY_SIZE:])
 	sealed = pt[DM_SEND_HEADER_SIZE:]
+	return
+}
+
+encode_dm_image_send :: proc(
+	out: []u8,
+	id: u64,
+	to: [KEY_SIZE]u8,
+	nonce: [DM_NONCE_SIZE]u8,
+	image_size: int,
+	sealed: []u8,
+) -> []u8 {
+	to, nonce := to, nonce
+	out[0] = u8(Message_Kind.DM_Image_Send)
+	endian.unchecked_put_u64le(out[1:], id)
+	copy(out[9:], to[:])
+	copy(out[9 + KEY_SIZE:], nonce[:])
+	endian.unchecked_put_u32le(out[DM_SEND_HEADER_SIZE:], u32(image_size))
+	copy(out[DM_IMAGE_SEND_HEADER_SIZE:], sealed)
+	return out[:DM_IMAGE_SEND_HEADER_SIZE + len(sealed)]
+}
+
+// decode_dm_image_send reads a DM_Image_Send; message_kind has checked
+// the size.
+decode_dm_image_send :: proc(
+	pt: []u8,
+) -> (
+	id: u64,
+	to: [KEY_SIZE]u8,
+	nonce: [DM_NONCE_SIZE]u8,
+	image_size: int,
+	sealed: []u8,
+) {
+	id = endian.unchecked_get_u64le(pt[1:])
+	copy(to[:], pt[9:])
+	copy(nonce[:], pt[9 + KEY_SIZE:])
+	image_size = int(endian.unchecked_get_u32le(pt[DM_SEND_HEADER_SIZE:]))
+	sealed = pt[DM_IMAGE_SEND_HEADER_SIZE:]
 	return
 }
 
@@ -262,7 +407,8 @@ decode_dm :: proc(
 }
 
 // encode_dm_key_message writes the messages that are an id and a key:
-// DM_Ack (the sender's key) and DM_Delivered (the recipient's).
+// DM_Ack, DM_Image_Get and DM_Image_Gone (the sender's key) and
+// DM_Delivered (the recipient's).
 encode_dm_key_message :: proc(
 	out: ^[DM_ACK_SIZE]u8,
 	kind: Message_Kind,

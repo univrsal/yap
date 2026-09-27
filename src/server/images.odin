@@ -48,6 +48,7 @@ Upload :: struct {
 Download :: struct {
 	active: bool,
 	image:  u32,
+	handle: u64, // what its chunks go under: the image's id, or a DM's (dm.odin)
 	send:   proto.Blob_Sender,
 	tokens: f32, // bytes this user may send right now
 	last:   time.Tick,
@@ -91,6 +92,7 @@ handle_blob_chunk :: proc(s: ^Server, c: ^Client, pt: []byte) {
 	handle, index, data := proto.decode_blob_chunk(pt)
 	up := &u.upload
 	if !up.active || up.nonce != handle {
+		dm_image_chunk(s, c, handle, index, data)
 		return
 	}
 	proto.blob_receive(&up.recv, index, data)
@@ -132,16 +134,21 @@ handle_image_get :: proc(s: ^Server, c: ^Client, pt: []byte) {
 	down^ = {
 		active = true,
 		image  = id,
+		handle = u64(id),
 		send   = {data = img.data},
 		last   = time.tick_now(),
 	}
 	log.debugf("sending image %d to %s", id, user_label(u))
 }
 
-handle_blob_need :: proc(u: ^User, pt: []byte) {
+handle_blob_need :: proc(s: ^Server, u: ^User, pt: []byte) {
 	handle, complete, count, indices, ok := proto.decode_blob_need(pt)
+	if !ok {
+		return
+	}
 	down := &u.download
-	if !ok || !down.active || u64(down.image) != handle {
+	if !down.active || down.handle != handle {
+		dm_image_need(s, u, handle, complete, count, indices)
 		return
 	}
 	if complete {
@@ -178,7 +185,6 @@ images_sync :: proc(s: ^Server) {
 
 // send_blob_need tells a client which chunks of its upload are missing,
 // which is also what gets it started.
-@(private = "file")
 send_blob_need :: proc(s: ^Server, c: ^Client, up: ^Upload, force := false) {
 	// Only once the chunks have stopped coming: whatever is still on its
 	// way would otherwise be asked for again and sent twice.
@@ -197,7 +203,6 @@ send_blob_need :: proc(s: ^Server, c: ^Client, up: ^Upload, force := false) {
 
 // send_chunks pushes as much of a download as the user's allowance
 // covers.
-@(private = "file")
 send_chunks :: proc(s: ^Server, c: ^Client, down: ^Download, now: time.Tick) {
 	if !down.active {
 		return
@@ -212,7 +217,7 @@ send_chunks :: proc(s: ^Server, c: ^Client, down: ^Download, now: time.Tick) {
 		if !ok {
 			break
 		}
-		send_message(s, c, proto.encode_blob_chunk(out[:], u64(down.image), index, data))
+		send_message(s, c, proto.encode_blob_chunk(out[:], down.handle, index, data))
 		down.tokens -= f32(len(data))
 	}
 }
@@ -276,6 +281,7 @@ forget_image :: proc(s: ^Server, id: u32) {
 
 // drop_user_transfers ends whatever a leaving user was transferring.
 drop_user_transfers :: proc(u: ^User) {
+	dm_drop_transfers(u)
 	if u.upload.active {
 		proto.blob_receiver_destroy(&u.upload.recv)
 		u.upload = {}

@@ -3,6 +3,7 @@ package client
 import log "../common/wlog"
 import "core:fmt"
 import "core:strings"
+import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
@@ -26,7 +27,21 @@ UI_Buddies :: struct {
 	// The open conversation's View_Conversation.changes when it was last
 	// scrolled to the bottom.
 	scrolled:     int,
+	// Something to tell about the conversation, and since when.
+	notice:       string,
+	notice_at:    time.Tick,
 }
+
+// Paste_Target is where a pasted image goes: the channel's chat, or a
+// DM to `to`.
+Paste_Target :: struct {
+	dm: bool,
+	to: [proto.KEY_SIZE]u8,
+}
+
+// How long a notice under the conversation's header stays.
+@(private = "file")
+NOTICE_SHOW :: 5 * time.Second
 
 // The buddy list's colours: a buddy who's here, and one who isn't.
 @(private = "file")
@@ -196,6 +211,9 @@ conversation :: proc(ui: ^UI) {
 	if t, ok := v.dm_typing[key]; ok && time.tick_since(t) < TYPING_SHOW {
 		status = "typing..."
 	}
+	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
+		status, status_color = ui.buddies.notice, OFF_COLOR
+	}
 	with_text_color(
 		ctx,
 		status_color,
@@ -217,6 +235,20 @@ conversation :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-(ICON_BUTTON + 6), ICON_BUTTON})
+	// Ctrl+V could be an image, as in the chat box (chat_input); this
+	// one goes to them.
+	if !WEB &&
+	   ctx.focus_id == mu.get_id(ctx, uintptr(&ui.buddies.buf[0])) &&
+	   .V in ctx.key_pressed_bits &&
+	   .CTRL in ctx.key_down_bits &&
+	   .ALT not_in ctx.key_down_bits {
+		ctx.key_pressed_bits -= {.V}
+		ui.chat.paste = true
+		ui.paste_to = {
+			dm = true,
+			to = key,
+		}
+	}
 	res := text_box(ui, ui.buddies.buf[:], &ui.buddies.len)
 	box := ctx.last_id
 	if .CHANGE in res && ui.buddies.len > 0 && ui.session != nil {
@@ -241,6 +273,41 @@ conversation :: proc(ui: ^UI) {
 		DM_Command{to = key, text = strings.clone(text)},
 	)
 	ui.buddies.len = 0
+}
+
+/*
+send_pasted_image sends an image that was pasted to where the paste was
+meant for, taking it over. Images only go to someone who's online, and a
+conversation with somebody who isn't says so instead. Call it outside
+the View lock.
+*/
+send_pasted_image :: proc(ui: ^UI, target: Paste_Target, image: Chat_Image) {
+	image := image
+	if ui.session == nil {
+		log.warn("not connected, so the pasted image wasn't sent")
+		chat_image_destroy(&image)
+		return
+	}
+	if !target.dm {
+		push_command(&ui.session.client.commands, Chat_Image_Command{image})
+		return
+	}
+	online := false
+	{
+		sync.guard(&ui.view.mutex)
+		for _, u in ui.view.users {
+			if u.key == target.to {
+				online = true
+			}
+		}
+	}
+	if !online {
+		ui.buddies.notice = "images only go to someone who's online"
+		ui.buddies.notice_at = time.tick_now()
+		chat_image_destroy(&image)
+		return
+	}
+	push_command(&ui.session.client.commands, DM_Image_Command{to = target.to, image = image})
 }
 
 @(private = "file")

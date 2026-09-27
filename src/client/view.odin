@@ -76,6 +76,9 @@ View :: struct {
 	// them last said they're typing to us.
 	dms:        map[[proto.KEY_SIZE]u8]View_Conversation,
 	dm_typing:  map[[proto.KEY_SIZE]u8]time.Tick,
+	// Pictures in DMs, by View_DM.image.id: kept apart from the chat's
+	// images, which go whenever we change channels.
+	dm_images:  map[u32]View_Image,
 }
 
 View_Conversation :: struct {
@@ -91,6 +94,9 @@ View_DM :: struct {
 	time:  proto.Unix_Time,
 	text:  string, // owned
 	state: DM_State,
+	// An image instead of text; its bytes are in View.dm_images.
+	is_image: bool,
+	image:    proto.Image_Info,
 }
 
 Key_Change :: struct {
@@ -162,6 +168,7 @@ view_destroy :: proc(v: ^View) {
 	delete(v.pokes)
 	delete(v.dms)
 	delete(v.dm_typing)
+	delete(v.dm_images)
 }
 
 @(private = "file")
@@ -173,6 +180,10 @@ view_clear_dms :: proc(v: ^View) {
 	}
 	clear(&v.dms)
 	clear(&v.dm_typing)
+	for _, img in v.dm_images {
+		delete(img.jpeg)
+	}
+	clear(&v.dm_images)
 }
 
 @(private = "file")
@@ -196,7 +207,15 @@ publish_dm_conversation :: proc(c: ^Voice_Client, conv: ^DM_Conversation, unread
 	for m in conv.messages {
 		append(
 			&vc.messages,
-			View_DM{id = m.id, mine = m.mine, time = m.time, text = strings.clone(m.text), state = m.state},
+			View_DM {
+				id = m.id,
+				mine = m.mine,
+				time = m.time,
+				text = strings.clone(m.text),
+				state = m.state,
+				is_image = m.image,
+				image = dm_image_info(m.picture),
+			},
 		)
 	}
 	if conv.name != "" && conv.name != vc.name {
@@ -209,6 +228,36 @@ publish_dm_conversation :: proc(c: ^Voice_Client, conv: ^DM_Conversation, unread
 		delete_key(&v.dm_typing, conv.key)
 	}
 	vc.changes += 1
+}
+
+// publish_dm_picture hands the UI a DM picture as it is now, the JPEG
+// and all once it's Ready.
+publish_dm_picture :: proc(c: ^Voice_Client, p: DM_Picture) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	_, img, just_added, _ := map_entry(&v.dm_images, p.id)
+	if !just_added && img.state == .Ready && p.state == .Ready {
+		return // it has the picture already
+	}
+	delete(img.jpeg)
+	img^ = {
+		info  = dm_image_info(p),
+		state = p.state,
+	}
+	if p.state == .Ready {
+		img.jpeg = make([]u8, len(p.jpeg))
+		copy(img.jpeg, p.jpeg)
+	}
+}
+
+// dm_image_info is what the UI's image drawing wants to know about a
+// DM picture (image_block).
+@(private = "file")
+dm_image_info :: proc(p: DM_Picture) -> proto.Image_Info {
+	return {id = p.id, width = p.width, height = p.height, size = u32(len(p.jpeg))}
 }
 
 publish_dm_typing :: proc(c: ^Voice_Client, from: [proto.KEY_SIZE]u8) {

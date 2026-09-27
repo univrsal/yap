@@ -125,6 +125,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	drive_chat(c)
 	drive_dm(c)
 	images_step(c)
+	dm_images_step(c)
 
 	if c.has_current {
 		voice_step(c)
@@ -297,6 +298,8 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			handle_dm_delivered(c, pt)
 		case .DM_Typing:
 			handle_dm_typing(c, pt)
+		case .DM_Image_Gone:
+			handle_dm_image_gone(c, pt)
 		}
 	}
 	return true

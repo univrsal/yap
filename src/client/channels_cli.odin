@@ -23,6 +23,8 @@ network loop never blocks on input.
 	/poke <name> [message]  poke someone (see src/proto/poke.odin)
 	/dm <name|key> <text>   send a direct message: to someone online by
 	                        name, or to anyone by their key (64 hex digits)
+	/dmimage <name|key> <file>  send an image file in a direct message
+	                        (they have to be online)
 */
 start_command_reader :: proc(q: ^Command_Queue) {
 	thread.create_and_start_with_poly_data(
@@ -65,6 +67,22 @@ read_commands :: proc(q: ^Command_Queue) {
 			rest := strings.trim_space(line[len("/poke "):])
 			name, _, message := strings.partition(rest, " ")
 			push_command(q, Poke_Command{name = strings.clone(name), message = strings.clone(message)})
+		case strings.has_prefix(line, "/dmimage "):
+			rest := strings.trim_space(line[len("/dmimage "):])
+			to, _, path := strings.partition(rest, " ")
+			image, ok := image_load(strings.trim_space(path))
+			if !ok {
+				continue
+			}
+			cmd := DM_Image_Command {
+				image = image,
+			}
+			if key, is_key := parse_user_key(to); is_key {
+				cmd.to = key
+			} else {
+				cmd.name = strings.clone(to)
+			}
+			push_command(q, cmd)
 		case strings.has_prefix(line, "/dm "):
 			rest := strings.trim_space(line[len("/dm "):])
 			to, _, text := strings.partition(rest, " ")
@@ -82,7 +100,7 @@ read_commands :: proc(q: ^Command_Queue) {
 		case strings.has_prefix(line, "/join "):
 			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
-			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>")
+			log.warn("commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>, /dmimage <name|key> <file>")
 		}
 	}
 }

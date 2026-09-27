@@ -223,6 +223,7 @@ chat_input :: proc(ui: ^UI) {
 	   .ALT not_in ctx.key_down_bits {
 		ctx.key_pressed_bits -= {.V}
 		ui.chat.paste = true
+		ui.paste_to = {}
 	}
 	res := text_box(ui, ui.chat.buf[:], &ui.chat.len)
 	box := ctx.last_id
@@ -313,6 +314,7 @@ chat_image :: proc(
 	img: View_Image,
 	merged: bool,
 	item: i64,
+	gone := "image no longer on the server",
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -336,7 +338,7 @@ chat_image :: proc(
 	}
 	// An image the server has dropped has no id left to look it up by.
 	state := img.state if info.id != 0 else Image_State.Gone
-	image_block(ui, info, state, img.jpeg)
+	image_block(ui, info, state, img.jpeg, gone)
 }
 
 /*
@@ -381,6 +383,20 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 			me if m.mine else their_name,
 			status,
 		)
+		if m.is_image {
+			img := v.dm_images[m.image.id] or_else View_Image{info = m.image, state = .Gone}
+			chat_image(
+				ui,
+				header,
+				header_color,
+				m.image,
+				img,
+				merged = merged,
+				item = i64(i) * 2,
+				gone = "image no longer available",
+			)
+			continue
+		}
 		chat_message(ui, header, header_color, m.text, color, links = true, merged = merged, item = i64(i) * 2)
 	}
 	select_end(ui)
