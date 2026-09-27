@@ -57,7 +57,11 @@ version_defines=$(scripts/version-defines.sh)
 # hot - seen in WebKitGTK 2.52 and iOS 26.6, reproduced only inside this
 # module - and the page dies without a word in the console. The code
 # -o:speed gives it compiles fine.
-odin build src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -o:speed -out:"$out/yap" $version_defines "$@"
+#
+# The object's name is spelled out: without an extension Odin picks one,
+# and newer versions pick .wasm rather than .obj, which left emcc below
+# linking a stale yap.obj.
+odin build src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -o:speed -out:"$out/yap.obj" $version_defines "$@"
 
 # -sSTACK_SIZE: the client keeps some large buffers on the stack (a state
 # snapshot, a stored blob), and emscripten's default of 64 KiB is too
