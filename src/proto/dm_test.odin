@@ -33,13 +33,14 @@ test_dm_round_trip :: proc(t: ^testing.T) {
 
 	// Through the wire format and back.
 	wire_buf: [MAX_DM_SIZE_ON_WIRE]u8
-	msg := encode_dm(wire_buf[:], 42, alice_pub, 1234, nonce, sealed)
+	msg := encode_dm(wire_buf[:], 42, alice_pub, 1234, {.Waited}, nonce, sealed)
 	kind, kind_ok := message_kind(msg)
 	testing.expect(t, kind_ok && kind == .DM)
-	id, from, when_, got_nonce, got_sealed := decode_dm(msg)
+	id, from, when_, flags, got_nonce, got_sealed := decode_dm(msg)
 	testing.expect_value(t, id, 42)
 	testing.expect(t, from == alice_pub)
 	testing.expect_value(t, when_, Unix_Time(1234))
+	testing.expect_value(t, flags, DM_Flags{.Waited})
 
 	out: [MAX_DM_SIZE]u8
 	text, ok := dm_open(&k_ba, from, bob_pub, id, got_nonce, got_sealed, out[:])

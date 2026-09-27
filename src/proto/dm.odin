@@ -13,7 +13,7 @@ online and hands them over when they are.
 
 	client -> server  DM_Send       [kind][id u64][to key 32][nonce 24][sealed...]
 	server -> client  DM_Sent       [kind][id u64][result u8]
-	server -> client  DM            [kind][id u64][from key 32][time u64][nonce 24][sealed...]
+	server -> client  DM            [kind][id u64][from key 32][time u64][flags u8][nonce 24][sealed...]
 	client -> server  DM_Ack        [kind][id u64][from key 32]
 	server -> client  DM_Delivered  [kind][id u64][to key 32]
 	client -> server  DM_Typing     [kind][to key 32]
@@ -31,7 +31,10 @@ held twice; the recipient drops any it already has as well.
 Delivering: the server sends each held DM to the recipient, again every
 CONTROL_RESEND, until DM_Ack says they have it; then it forgets it and,
 if the sender is online, tells them with DM_Delivered (once, so the
-sender may never hear). `time` is when the server took it in.
+sender may never hear). `time` is when the server took it in, and the
+Waited flag says it came before the recipient's current connection did:
+it was waiting for them rather than news (the client plays a different
+sound for those).
 
 Typing is unreliable and unencrypted, like the channel's, and only
 reaches a recipient who's online.
@@ -57,13 +60,18 @@ MAX_HELD_DMS :: 50
 MAX_HELD_DMS_FROM :: 20
 
 DM_SEND_HEADER_SIZE :: 1 + 8 + KEY_SIZE + DM_NONCE_SIZE
-DM_HEADER_SIZE :: 1 + 8 + KEY_SIZE + 8 + DM_NONCE_SIZE
+DM_HEADER_SIZE :: 1 + 8 + KEY_SIZE + 8 + 1 + DM_NONCE_SIZE
 DM_SENT_SIZE :: 1 + 8 + 1
 DM_ACK_SIZE :: 1 + 8 + KEY_SIZE
 DM_DELIVERED_SIZE :: 1 + 8 + KEY_SIZE
 DM_TYPING_SIZE :: 1 + KEY_SIZE
 MAX_DM_SEALED :: MAX_DM_SIZE + TAG_SIZE
 MAX_DM_SIZE_ON_WIRE :: DM_HEADER_SIZE + MAX_DM_SEALED
+
+DM_Flag :: enum u8 {
+	Waited, // held while the recipient was away
+}
+DM_Flags :: distinct bit_set[DM_Flag;u8]
 
 DM_Result :: enum u8 {
 	Held = 1, // the server has it, and will deliver it
@@ -218,6 +226,7 @@ encode_dm :: proc(
 	id: u64,
 	from: [KEY_SIZE]u8,
 	time: Unix_Time,
+	flags: DM_Flags,
 	nonce: [DM_NONCE_SIZE]u8,
 	sealed: []u8,
 ) -> []u8 {
@@ -226,7 +235,8 @@ encode_dm :: proc(
 	endian.unchecked_put_u64le(out[1:], id)
 	copy(out[9:], from[:])
 	endian.unchecked_put_u64le(out[9 + KEY_SIZE:], u64(time))
-	copy(out[17 + KEY_SIZE:], nonce[:])
+	out[17 + KEY_SIZE] = transmute(u8)flags
+	copy(out[18 + KEY_SIZE:], nonce[:])
 	copy(out[DM_HEADER_SIZE:], sealed)
 	return out[:DM_HEADER_SIZE + len(sealed)]
 }
@@ -238,13 +248,15 @@ decode_dm :: proc(
 	id: u64,
 	from: [KEY_SIZE]u8,
 	time: Unix_Time,
+	flags: DM_Flags,
 	nonce: [DM_NONCE_SIZE]u8,
 	sealed: []u8,
 ) {
 	id = endian.unchecked_get_u64le(pt[1:])
 	copy(from[:], pt[9:])
 	time = Unix_Time(endian.unchecked_get_u64le(pt[9 + KEY_SIZE:]))
-	copy(nonce[:], pt[17 + KEY_SIZE:])
+	flags = transmute(DM_Flags)pt[17 + KEY_SIZE]
+	copy(nonce[:], pt[18 + KEY_SIZE:])
 	sealed = pt[DM_HEADER_SIZE:]
 	return
 }

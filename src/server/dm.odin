@@ -29,6 +29,10 @@ Held_DM :: struct {
 	nonce:     [proto.DM_NONCE_SIZE]u8,
 	sealed:    []u8, // owned
 	last_sent: time.Tick, // to the recipient; not saved
+	// When it came in, to tell whether it waited for the recipient to
+	// connect (proto.DM_Flag.Waited). Not saved: one loaded from the file
+	// has waited, whenever they connect.
+	arrived:   time.Tick,
 }
 
 // How many of a recipient's held DMs go out at once; the rest follow as
@@ -105,6 +109,7 @@ handle_dm_send :: proc(s: ^Server, c: ^Client, pt: []u8) {
 			from = from,
 			id = id,
 			received = proto.Unix_Time(time.time_to_unix(time.now())),
+			arrived = time.tick_now(),
 			nonce = nonce,
 			sealed = clone_bytes(sealed),
 		},
@@ -177,8 +182,16 @@ dm_sync :: proc(s: ^Server) {
 				continue
 			}
 			h.last_sent = now
+			flags: proto.DM_Flags
+			if h.arrived == {} || time.tick_diff(h.arrived, u.joined) > 0 {
+				flags += {.Waited}
+			}
 			buf: [proto.MAX_DM_SIZE_ON_WIRE]u8
-			send_message(s, c, proto.encode_dm(buf[:], h.id, h.from, h.received, h.nonce, h.sealed))
+			send_message(
+				s,
+				c,
+				proto.encode_dm(buf[:], h.id, h.from, h.received, flags, h.nonce, h.sealed),
+			)
 		}
 	}
 	if s.dms.dirty {

@@ -9,6 +9,7 @@ Notification_Kind :: enum {
 	// Our own mute or deafen, switched on or off (voice_feedback_play).
 	Muted,
 	Unmuted,
+	Mail,
 }
 
 Notification_Sounds :: struct {
@@ -19,6 +20,7 @@ Notification_Sounds :: struct {
 	goodbye:      []f32,
 	muted:        []f32,
 	unmuted:      []f32,
+	mail:         []f32,
 	volume:       f32,
 	active:       []f32,
 	position:     int,

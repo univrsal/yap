@@ -26,6 +26,9 @@ MUTED_SOUND_DATA := #load("assets/muted.opus")
 @(private = "file")
 UNMUTED_SOUND_DATA := #load("assets/unmuted.opus")
 
+@(private = "file")
+MAIL_SOUND_DATA := #load("assets/mail.opus")
+
 notifications_init :: proc(s: ^Notification_Sounds) {
 	s.volume = 1
 	s.join = decode_ogg_opus(JOIN_SOUND_DATA, "join")
@@ -35,6 +38,8 @@ notifications_init :: proc(s: ^Notification_Sounds) {
 	s.goodbye = decode_ogg_opus(GOODBYE_SOUND_DATA, "goodbye")
 	s.muted = decode_ogg_opus(MUTED_SOUND_DATA, "muted")
 	s.unmuted = decode_ogg_opus(UNMUTED_SOUND_DATA, "unmuted")
+	s.mail = decode_ogg_opus(MAIL_SOUND_DATA, "mail")
+
 }
 
 notifications_destroy :: proc(s: ^Notification_Sounds) {
@@ -45,6 +50,7 @@ notifications_destroy :: proc(s: ^Notification_Sounds) {
 	delete(s.goodbye)
 	delete(s.muted)
 	delete(s.unmuted)
+	delete(s.mail)
 	s^ = {}
 }
 
@@ -65,6 +71,8 @@ notification_play :: proc(s: ^Notification_Sounds, kind: Notification_Kind) {
 		clip = s.muted
 	case .Unmuted:
 		clip = s.unmuted
+	case .Mail:
+		clip = s.mail
 	}
 	if len(clip) == 0 {
 		return

@@ -73,6 +73,9 @@ DM_Client :: struct {
 	keys:          map[[proto.KEY_SIZE]u8][proto.DM_KEY_SIZE]u8,
 	// When we last told each of them we're typing.
 	last_typing:   map[[proto.KEY_SIZE]u8]time.Tick,
+	// The mail sound has played for DMs that waited for us to connect;
+	// it plays once per connection however many there were.
+	mail_played:   bool,
 }
 
 // DM_Command sends a DM. `to` is all zero for the user called `name`
@@ -177,7 +180,13 @@ dm_send :: proc(c: ^Voice_Client, to: [proto.KEY_SIZE]u8, name, raw: string) {
 	conv := dm_conversation(c, to)
 	add_message(
 		conv,
-		{id = out.id, mine = true, time = unix_now(), text = strings.clone(text), state = .Sending},
+		{
+			id = out.id,
+			mine = true,
+			time = unix_now(),
+			text = strings.clone(text),
+			state = .Sending,
+		},
 	)
 	dm_save(c, conv)
 	publish_dm_conversation(c, conv, unread = false)
@@ -243,7 +252,7 @@ handle_dm_delivered :: proc(c: ^Voice_Client, pt: []u8) {
 // handle_dm takes a DM in, and acknowledges it: whether or not it's
 // new, and even if it won't open, as the server would only send it again.
 handle_dm :: proc(c: ^Voice_Client, pt: []u8) {
-	id, from, sent_at, nonce, sealed := proto.decode_dm(pt)
+	id, from, sent_at, flags, nonce, sealed := proto.decode_dm(pt)
 	defer {
 		ack: [proto.DM_ACK_SIZE]u8
 		send_data(c, proto.encode_dm_key_message(&ack, .DM_Ack, id, from))
@@ -277,10 +286,22 @@ handle_dm :: proc(c: ^Voice_Client, pt: []u8) {
 	add_message(conv, {id = id, time = sent_at, text = strings.clone(text), state = .Received})
 	dm_save(c, conv)
 	publish_dm_conversation(c, conv, unread = true)
-	voice_notification_play(&c.voice, .Message)
+	// DMs that waited for us are mail, announced once as we join; one
+	// sent while we're here is a message like the chat's.
+	if .Waited not_in flags {
+		voice_notification_play(&c.voice, .Message)
+	} else if !c.dms.mail_played {
+		c.dms.mail_played = true
+		voice_notification_play(&c.voice, .Mail)
+	}
 	if c.view == nil {
 		// Headless: the log is the only place to show it.
-		log.infof("[dm] %s: %s", conv.name if conv.name != "" else fingerprint(from), text)
+		log.infof(
+			"[dm] %s%s: %s",
+			conv.name if conv.name != "" else fingerprint(from),
+			" (while you were away)" if .Waited in flags else "",
+			text,
+		)
 	}
 }
 

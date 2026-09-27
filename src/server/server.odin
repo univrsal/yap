@@ -59,6 +59,7 @@ User :: struct {
 	chat:            Chat_Stream,
 	last_poke:       time.Tick, // see handle_poke
 	last_dm_typing:  time.Tick, // see handle_dm_typing
+	joined:          time.Tick, // when they connected, for DMs that waited for them (dm.odin)
 	upload:          Upload, // an image on its way in (images.odin)
 	download:        Download, // an image on its way out
 	video:           Video_State, // screen sharing (video.odin)
@@ -236,6 +237,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	if u == nil {
 		u = new(User)
 		u.key = c.peer_key
+		u.joined = time.tick_now()
 		u.id = common.key_id(u.key)
 		s.last_num += 1
 		u.num = s.last_num
