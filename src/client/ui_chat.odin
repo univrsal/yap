@@ -140,6 +140,11 @@ chat_panel :: proc(ui: ^UI) {
 
 	mu.begin_panel(ctx, "chat")
 	cnt := mu.get_current_container(ctx)
+	select_begin(ui, .Chat)
+	// Each message is two items to select from, its header and its text,
+	// numbered by the running total so they keep their numbers as lines
+	// come and go (see ui_select.odin).
+	first := i64(v.chat_total - len(v.chat))
 	if len(v.chat) == 0 && len(v.outbox) == 0 {
 		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, CHAT_DIM_COLOR, "No messages in this channel yet.", label_proc)
@@ -164,13 +169,22 @@ chat_panel :: proc(ui: ^UI) {
 				ctx.style.colors[.TEXT],
 				links = true,
 				merged = merged,
+				item = (first + i64(i)) * 2,
 			)
 		case .Image:
 			img := v.images[line.image.id] or_else {}
-			chat_image(ui, header, header_color, line.image, img, merged = merged)
+			chat_image(
+				ui,
+				header,
+				header_color,
+				line.image,
+				img,
+				merged = merged,
+				item = (first + i64(i)) * 2,
+			)
 		}
 	}
-	for text in v.outbox {
+	for text, i in v.outbox {
 		chat_message(
 			ui,
 			"sending...",
@@ -179,12 +193,16 @@ chat_panel :: proc(ui: ^UI) {
 			CHAT_DIM_COLOR,
 			links = false,
 			merged = false,
+			item = (i64(v.chat_total) + i64(i)) * 2,
 		)
 	}
+	select_end(ui)
 	mu.end_panel(ctx)
 
-	// Follow new messages.
-	if seen := v.chat_total + len(v.outbox); seen != ui.chat.scrolled {
+	// Follow new messages, unless that would pull the text out from
+	// under a selection being dragged.
+	dragging := ui.select.dragging && ui.select.panel == .Chat
+	if seen := v.chat_total + len(v.outbox); seen != ui.chat.scrolled && !dragging {
 		ui.chat.scrolled = seen
 		cnt.scroll.y = cnt.content_size.y
 	}
@@ -294,6 +312,7 @@ chat_image :: proc(
 	info: proto.Image_Info,
 	img: View_Image,
 	merged: bool,
+	item: i64,
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -313,8 +332,7 @@ chat_image :: proc(
 
 	if !merged {
 		mu.layout_row(ctx, {-1}, ctx.text_height(font))
-		r := mu.layout_next(ctx)
-		mu.draw_text(ctx, font, header, {r.x, r.y}, header_color)
+		selectable_header(ui, header, header_color, item)
 	}
 	// An image the server has dropped has no id left to look it up by.
 	state := img.state if info.id != 0 else Image_State.Gone
@@ -333,6 +351,7 @@ chat_message :: proc(
 	color: mu.Color,
 	links: bool,
 	merged: bool,
+	item: i64, // the header's; the text is the next one
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -349,25 +368,37 @@ chat_message :: proc(
 
 	mu.layout_row(ctx, {-1}, ctx.text_height(font))
 	if !merged {
-		r := mu.layout_next(ctx)
-		mu.draw_text(ctx, font, header, {r.x, r.y}, header_color)
+		selectable_header(ui, header, header_color, item)
 	}
-	wrapped_text(ui, text, color, find_links(text) if links else nil)
+	wrapped_text(ui, text, color, find_links(text) if links else nil, item + 1)
+}
+
+// selectable_header draws a message's header line in the next layout
+// cell.
+@(private = "file")
+selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
+	ctx := &ui.ctx
+	r := mu.layout_next(ctx)
+	select_item(ui, item, header)
+	select_line(ui, item, header, 0, len(header), {r.x, r.y})
+	mu.draw_text(ctx, ctx.style.font, header, {r.x, r.y}, color)
 }
 
 // wrapped_text is mu.text, except it also breaks words too long for a
 // line, wraps the last word of a paragraph (which mu.text doesn't), and
 // draws `links` (byte ranges of `text`) as clickable links. It continues
-// the current row layout.
+// the current row layout. The text can be selected as `item`.
 @(private = "file")
-wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, links: []Link) {
+wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, links: []Link, item: i64) {
 	ctx := &ui.ctx
 	font := ctx.style.font
+	select_item(ui, item, text)
 	rest := text
 	for len(rest) > 0 {
 		r := mu.layout_next(ctx)
 		end := line_end(ctx, font, rest, r.w)
 		start := len(text) - len(rest)
+		select_line(ui, item, text, start, start + end, {r.x, r.y})
 		draw_line(ui, text, start, start + end, {r.x, r.y}, color, links)
 		rest = strings.trim_left_space(rest[end:])
 	}
@@ -430,7 +461,13 @@ draw_line :: proc(
 		if mu.mouse_over(ctx, r) {
 			ui.chat.hover = id
 			ui.chat.hovering = true
-			if .LEFT in ctx.mouse_pressed_bits && ui.chat.open == "" {
+			// On the release of a press in the chat, and only if that
+			// didn't end a drag that selected something (ui_select.odin).
+			if .LEFT in ctx.mouse_released_bits &&
+			   ui.select.dragging &&
+			   ui.select.panel == .Chat &&
+			   !has_selection(&ui.select, .Chat) &&
+			   ui.chat.open == "" {
 				ui.chat.open = link_url(text, l, context.allocator)
 			}
 		}

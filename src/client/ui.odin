@@ -140,10 +140,12 @@ UI :: struct {
 	text_boxes:          [dynamic]Text_Box,
 	text_focused:        bool,
 	metrics:             Window_Metrics,
-	// The pointing hand shown over links; created on first use, freed by
-	// glfw.Terminate.
-	hand_cursor:         glfw.CursorHandle,
-	hand_shown:          bool,
+	// The pointing hand shown over links and the I-beam over text that
+	// can be selected; created on first use, freed by glfw.Terminate.
+	cursors:             [Cursor]glfw.CursorHandle,
+	cursor_shown:        Cursor,
+	// Text selected in the chat or the log (ui_select.odin).
+	select:              Selection,
 	// The image paste being read, if any (ui_paste.odin).
 	paste:               ^Paste_Job,
 	// What the icon button under the pointer does, and where it is, for
@@ -393,7 +395,15 @@ draw_frame :: proc(ui: ^UI) {
 	when WEB {
 		touch_after_frame(ui)
 	}
-	set_hand_cursor(ui, ui.chat.hovering)
+	switch {
+	case ui.chat.hovering:
+		set_cursor(ui, .Hand)
+	case ui.select.over_text || ui.select.dragging:
+		set_cursor(ui, .IBeam)
+	case:
+		set_cursor(ui, .Arrow)
+	}
+	ui.select.over_text = false
 	ui_chat_after_frame(ui)
 	ui_images_after_frame(ui)
 	render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, BACKGROUND)
@@ -423,6 +433,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	known_servers_destroy(ui)
 	install_destroy(ui)
 	ui_chat_destroy(ui)
+	ui_select_destroy(ui)
 	view_destroy(&ui.view)
 }
 
@@ -510,8 +521,8 @@ window_open :: proc(ui: ^UI) -> bool {
 	glfw.SetKeyCallback(ui.window, key_callback)
 	glfw.SetCharCallback(ui.window, char_callback)
 	// The cursor outlives the window, but which one the window shows
-	// doesn't (see set_hand_cursor).
-	ui.hand_shown = false
+	// doesn't (see set_cursor).
+	ui.cursor_shown = .Arrow
 	ui.metrics = {}
 	return true
 }
@@ -577,17 +588,24 @@ clipboard_init :: proc() {
 	clipboard.init(wayland)
 }
 
-// set_hand_cursor switches between the pointing hand and the normal
-// arrow.
-set_hand_cursor :: proc(ui: ^UI, hand: bool) {
-	if hand == ui.hand_shown {
+Cursor :: enum {
+	Arrow, // the window's own, which is no cursor of ours
+	Hand,
+	IBeam,
+}
+
+// set_cursor switches the mouse cursor, if it isn't that one already.
+set_cursor :: proc(ui: ^UI, cursor: Cursor) {
+	if cursor == ui.cursor_shown {
 		return
 	}
-	ui.hand_shown = hand
-	if hand && ui.hand_cursor == nil {
-		ui.hand_cursor = glfw.CreateStandardCursor(glfw.HAND_CURSOR)
+	ui.cursor_shown = cursor
+	if cursor != .Arrow && ui.cursors[cursor] == nil {
+		ui.cursors[cursor] = glfw.CreateStandardCursor(
+			glfw.HAND_CURSOR if cursor == .Hand else glfw.IBEAM_CURSOR,
+		)
 	}
-	glfw.SetCursor(ui.window, ui.hand_cursor if hand else nil)
+	glfw.SetCursor(ui.window, ui.cursors[cursor])
 }
 
 // typed_name is the name field's contents, sanitized as the server would.
@@ -1104,6 +1122,7 @@ log_panel :: proc(ui: ^UI) {
 
 	mu.begin_panel(ctx, "log")
 	cnt := mu.get_current_container(ctx)
+	select_begin(ui, .Log)
 	total: int
 	{
 		// No logging in here: the log sink takes this same lock.
@@ -1114,26 +1133,39 @@ log_panel :: proc(ui: ^UI) {
 		ctx.style.spacing = LOG_LINE_SPACING
 		defer ctx.style.spacing = saved_spacing
 
-		for line in logs.lines {
+		font := ctx.style.font
+		// Lines are numbered by the running total, so a selection stays
+		// on the same ones as new lines come in (ui_select.odin).
+		first := i64(logs.total - len(logs.lines))
+		for line, i in logs.lines {
 			mu.layout_row(ctx, {-1}, LINE_HEIGHT)
 			// Drop the date; the time is enough on screen.
 			text := line.text[11:] if len(line.text) > 11 else line.text
+			color := ctx.style.colors[.TEXT]
 			switch {
 			case line.level >= .Error:
-				with_text_color(ctx, {230, 90, 90, 255}, text, label_proc)
+				color = {230, 90, 90, 255}
 			case line.level >= .Warning:
-				with_text_color(ctx, {230, 200, 90, 255}, text, label_proc)
+				color = {230, 200, 90, 255}
 			case line.level < .Info:
-				with_text_color(ctx, {140, 140, 140, 255}, text, label_proc)
-			case:
-				mu.label(ctx, text)
+				color = {140, 140, 140, 255}
 			}
+			// Where mu.label would put it.
+			r := mu.layout_next(ctx)
+			pos := mu.Vec2{r.x + ctx.style.padding, r.y + (r.h - ctx.text_height(font)) / 2}
+			item := first + i64(i)
+			select_item(ui, item, text)
+			select_line(ui, item, text, 0, len(text), pos)
+			mu.draw_text(ctx, font, text, pos, color)
 		}
 	}
+	select_end(ui)
 	mu.end_panel(ctx)
 
-	// Follow new lines.
-	if total != ui.log_seen {
+	// Follow new lines, unless that would pull them out from under a
+	// selection being dragged.
+	dragging := ui.select.dragging && ui.select.panel == .Log
+	if total != ui.log_seen && !dragging {
 		ui.log_seen = total
 		cnt.scroll.y = cnt.content_size.y
 	}
@@ -1415,7 +1447,6 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	}
 }
 
-@(private = "file")
 set_clipboard :: proc(user_data: rawptr, text: string) -> bool {
 	// Emscripten's GLFW has no clipboard: a browser's comes from the page
 	// (ui_paste_web.odin).
