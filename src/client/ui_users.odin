@@ -20,8 +20,8 @@ MENU :: "user menu"
 @(private = "file")
 MENU_WIDTH :: 240
 
-// status_icon fills the column in front of a name.
-@(private = "file")
+// status_icon fills the column in front of a name (here and in the
+// buddy list).
 status_icon :: proc(ctx: ^mu.Context, icon: Icon, color: mu.Color) {
 	mu.draw_icon(ctx, icon_id(icon), mu.layout_next(ctx), color)
 }
@@ -215,11 +215,17 @@ user_menu :: proc(ui: ^UI) {
 	u := user_settings(&ui.settings, key)
 	changed := false
 
-	// The name as currently shown, or the key if they've left meanwhile.
+	// The name as currently shown, or as saved for a buddy who isn't
+	// here, or else the key. (Opened from the buddy list, menu_user is 0
+	// for someone who isn't on the server.)
 	name := fingerprint(key)
+	here := false
 	if user, ok := ui.view.users[ui.menu_user]; ok && user.key == key {
-		name = user.name
+		name, here = user.name, true
+	} else if b, is := ui.settings.buddies[user_key(key)]; is && b.name != "" {
+		name = b.name
 	}
+	myself := here && ui.menu_user == ui.view.my_num
 	mu.layout_row(ctx, {MENU_WIDTH})
 	mu.label(ctx, name)
 	mu.layout_row(ctx, {MENU_WIDTH})
@@ -258,8 +264,30 @@ user_menu :: proc(ui: ^UI) {
 		}
 	}
 
-	// Poke them, with a message if there's one in the box. Not ourselves.
-	if ui.menu_user != ui.view.my_num {
+	// Keep them as a buddy, or stop. Not ourselves.
+	if !myself {
+		mu.layout_row(ctx, {MENU_WIDTH})
+		if is_buddy(&ui.settings, key) {
+			if .SUBMIT in stable_button(ctx, "message", "Open conversation") {
+				open_conversation(ui, key)
+				mu.get_current_container(ctx).open = false
+			}
+			mu.layout_row(ctx, {MENU_WIDTH})
+			if .SUBMIT in stable_button(ctx, "buddy", "Remove buddy") {
+				remove_buddy(&ui.settings, key)
+				ui.settings_dirty = true
+				log.debugf("ui: %s is no longer a buddy", name)
+			}
+		} else if .SUBMIT in stable_button(ctx, "buddy", "Add as buddy") {
+			add_buddy(&ui.settings, key, name if here else "")
+			ui.settings_dirty = true
+			log.debugf("ui: %s is a buddy now", name)
+		}
+	}
+
+	// Poke them, with a message if there's one in the box. Not ourselves,
+	// and only someone who's here.
+	if here && !myself {
 		mu.layout_row(ctx, {MENU_WIDTH - 60 - ctx.style.spacing, 60})
 		poke := .SUBMIT in text_box(ui, ui.poke_buf[:], &ui.poke_len)
 		if .SUBMIT in stable_button(ctx, "poke", "Poke") {

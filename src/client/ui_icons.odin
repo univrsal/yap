@@ -28,6 +28,7 @@ Icon :: enum {
 	Leave, // a power symbol: disconnect
 	Send, // a paper dart: post what's in the chat box
 	Screen, // a monitor: sharing a screen, or watching one
+	Buddies, // two people: the buddy list
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -164,6 +165,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return dart(p)
 	case .Screen:
 		return monitor(p)
+	case .Buddies:
+		return two_people(p)
 	}
 	return 1
 }
@@ -176,6 +179,28 @@ monitor :: proc(p: Point) -> f32 {
 	d = nearer(d, capsule(p, {0.5, 0.67}, {0.5, 0.83}, STROKE))
 	d = nearer(d, capsule(p, {0.30, 0.85}, {0.70, 0.85}, STROKE))
 	return d
+}
+
+// A person from the chest up: a head over rounded shoulders, with a gap
+// between them.
+@(private = "file")
+person :: proc(p, head: Point, size: f32) -> f32 {
+	h := disc(p, head, 0.15 * size)
+	body := rounded_box(p, head + {0, 0.40 * size}, {0.28 * size, 0.19 * size}, 0.17 * size)
+	body = cut(body, disc(p, head, (0.15 + 0.07) * size))
+	return nearer(h, body)
+}
+
+// Two people, one a little behind the other: buddies.
+@(private = "file")
+two_people :: proc(p: Point) -> f32 {
+	front := person(p, {0.40, 0.33}, 1)
+	behind := person(p, {0.68, 0.26}, 0.85)
+	// The one behind is hidden where the front one stands, with a gap
+	// so the two read apart.
+	behind = cut(behind, front - 0.07)
+	behind = max(behind, p.y - 0.83) // and stands on the same ground
+	return nearer(front, behind)
 }
 
 // A microphone: the capsule you talk into, the bracket under it, and a

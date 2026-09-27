@@ -64,6 +64,7 @@ Net_Session :: struct {
 Page :: enum {
 	Main,
 	Settings,
+	Buddies, // only while connected (ui_buddies.odin)
 }
 
 @(private = "file")
@@ -108,6 +109,8 @@ UI :: struct {
 	menu_volume:         mu.Real,
 	menu_requested:      bool,
 	// The menu's poke message (ui_users.odin).
+	// The buddy screen (ui_buddies.odin).
+	buddies:             UI_Buddies,
 	poke_buf:            [proto.MAX_POKE_SIZE]u8,
 	poke_len:            int,
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
@@ -898,11 +901,22 @@ main_window :: proc(ui: ^UI) {
 
 	v := &ui.view
 	sync.guard(&v.mutex)
+	if buddies_seen(&ui.settings, v) {
+		ui.settings_dirty = true
+	}
 	switch v.status {
 	case .Disconnected, .Failed:
+		// The buddy screen goes with the connection.
+		if ui.page == .Buddies {
+			ui.page = .Main
+		}
 		connect_screen(ui)
 	case .Connecting, .Connected:
-		session_screen(ui)
+		if ui.page == .Buddies {
+			buddies_screen(ui)
+		} else {
+			session_screen(ui)
+		}
 	}
 }
 
@@ -1011,53 +1025,7 @@ session_screen :: proc(ui: ^UI) {
 		return
 	}
 
-	can_share := video_can_share()
-	if can_share {
-		mu.layout_row(
-			ctx,
-			{-208, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
-		)
-	} else {
-		mu.layout_row(ctx, {-174, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
-	}
-	switch v.status {
-	case .Connected:
-		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
-		mu.label(ctx, fmt.tprintf("Connected to %s as %s", v.server, me))
-	case .Connecting, .Disconnected, .Failed:
-		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
-	}
-	connection_indicator(ui)
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "mute",
-		   .Mic_Off if ui.muted else .Mic,
-		   "Unmute" if ui.muted else "Mute",
-		   OFF_COLOR if ui.muted else mu.Color{},
-	   ) {
-		set_muted(ui, !ui.muted)
-	}
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "deafen",
-		   .Sound_Off if ui.deafened else .Sound,
-		   "Undeafen" if ui.deafened else "Deafen (hear nobody)",
-		   OFF_COLOR if ui.deafened else mu.Color{},
-	   ) {
-		set_deafened(ui, !ui.deafened)
-	}
-	if can_share {
-		share_button(ui)
-	}
-	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
-		open_settings(ui)
-	}
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
-		log.debug("ui: disconnect")
-		ui.action = .Disconnect
-	}
+	session_header(ui)
 
 	if narrow {
 		mu.layout_row(ctx, {-1}, max(body.h / 3, 120))
@@ -1098,6 +1066,76 @@ session_screen :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1}, -1)
 	}
 	side_panel(ui)
+}
+
+/*
+session_header is the row along the top while connected: who we are
+where, how the connection is doing, and the buttons. The session screen
+and the buddy screen share it.
+*/
+session_header :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	v := &ui.view
+	can_share := video_can_share()
+	if can_share {
+		mu.layout_row(
+			ctx,
+			{
+				-242,
+				ICON_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+			},
+		)
+	} else {
+		mu.layout_row(
+			ctx,
+			{-208, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
+		)
+	}
+	switch v.status {
+	case .Connected:
+		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
+		mu.label(ctx, fmt.tprintf("Connected to %s as %s", v.server, me))
+	case .Connecting, .Disconnected, .Failed:
+		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
+	}
+	connection_indicator(ui)
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "mute",
+		   .Mic_Off if ui.muted else .Mic,
+		   "Unmute" if ui.muted else "Mute",
+		   OFF_COLOR if ui.muted else mu.Color{},
+	   ) {
+		set_muted(ui, !ui.muted)
+	}
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "deafen",
+		   .Sound_Off if ui.deafened else .Sound,
+		   "Undeafen" if ui.deafened else "Deafen (hear nobody)",
+		   OFF_COLOR if ui.deafened else mu.Color{},
+	   ) {
+		set_deafened(ui, !ui.deafened)
+	}
+	if can_share {
+		share_button(ui)
+	}
+	buddies_button(ui)
+	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
+		open_settings(ui)
+	}
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
+		log.debug("ui: disconnect")
+		ui.action = .Disconnect
+	}
 }
 
 // How tightly log lines are packed: exactly LINE_HEIGHT tall, rather

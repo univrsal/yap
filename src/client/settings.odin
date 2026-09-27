@@ -81,6 +81,9 @@ Settings :: struct {
 	// which is what identifies a user; names can be copied. Users with
 	// default settings aren't stored.
 	users:               map[string]User_Settings,
+	// The people we've added as buddies (buddies.odin), keyed by their
+	// public key like `users`.
+	buddies:             map[string]Buddy,
 }
 
 User_Settings :: struct {
@@ -163,6 +166,11 @@ settings_destroy :: proc(s: ^Settings) {
 		delete(key)
 	}
 	delete(s.users)
+	for key, b in s.buddies {
+		delete(key)
+		buddy_destroy(b)
+	}
+	delete(s.buddies)
 	s^ = {}
 }
 
