@@ -19,6 +19,7 @@ a keepalive. Integers are little-endian.
 	(text chat: Chat_Send, Chat_Sent, Chat, Chat_Received, Typing; see chat.odin)
 	(screen sharing: Video, Watch, Keyframe; see video.odin)
 	(connection quality: Ping, Pong; see ping.odin)
+	(direct messages: DM_Send, DM_Sent, DM, DM_Ack, DM_Delivered, DM_Typing; see dm.odin)
 
 Users are identified by a number the server assigns (`speaker` in Voice,
 members in State; User_Num). Numbers are unique per server run and never
@@ -99,6 +100,13 @@ Message_Kind :: enum u8 {
 	// Measuring the connection, see ping.odin.
 	Ping          = 23,
 	Pong          = 24,
+	// Direct messages, see dm.odin.
+	DM_Send       = 25,
+	DM_Sent       = 26,
+	DM            = 27,
+	DM_Ack        = 28,
+	DM_Delivered  = 29,
+	DM_Typing     = 30,
 }
 
 // Why the server refused a hello.
@@ -220,6 +228,16 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == KEYFRAME_SIZE
 	case .Ping, .Pong:
 		ok = len(pt) == PING_SIZE
+	case .DM_Send:
+		ok = len(pt) >= DM_SEND_HEADER_SIZE + TAG_SIZE && len(pt) <= DM_SEND_HEADER_SIZE + MAX_DM_SEALED
+	case .DM:
+		ok = len(pt) >= DM_HEADER_SIZE + TAG_SIZE && len(pt) <= DM_HEADER_SIZE + MAX_DM_SEALED
+	case .DM_Sent:
+		ok = len(pt) == DM_SENT_SIZE
+	case .DM_Ack, .DM_Delivered:
+		ok = len(pt) == DM_ACK_SIZE
+	case .DM_Typing:
+		ok = len(pt) == DM_TYPING_SIZE
 	}
 	return
 }

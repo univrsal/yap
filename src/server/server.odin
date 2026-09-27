@@ -58,6 +58,7 @@ User :: struct {
 	last_state_sent: time.Tick,
 	chat:            Chat_Stream,
 	last_poke:       time.Tick, // see handle_poke
+	last_dm_typing:  time.Tick, // see handle_dm_typing
 	upload:          Upload, // an image on its way in (images.odin)
 	download:        Download, // an image on its way out
 	video:           Video_State, // screen sharing (video.odin)
@@ -79,6 +80,8 @@ Server :: struct {
 	version:       u32,
 	// The last user number handed out; numbers are never reused.
 	last_num:      proto.User_Num,
+	// Direct messages waiting for their recipients (dm.odin).
+	dms:           DM_Store,
 }
 
 run_server :: proc(settings: Settings) -> bool {
@@ -93,6 +96,8 @@ run_server :: proc(settings: Settings) -> bool {
 	}
 	defer ecdh.private_key_clear(&s.key)
 	s.chats = make([]Chat_Log, len(s.channels))
+	dm_load(&s.dms, settings.dm_path)
+	defer dm_destroy(&s.dms)
 
 	port := settings.port
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
@@ -131,6 +136,7 @@ run_server :: proc(settings: Settings) -> bool {
 		sync_state(&s)
 		chat_sync(&s)
 		images_sync(&s)
+		dm_sync(&s)
 	}
 }
 
@@ -374,7 +380,22 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		if pkt, sealed := proto.seal(&c.session, pong, pkt_buf[:]); sealed {
 			net.send_udp(s.sock, pkt, c.endpoint)
 		}
-	case .State, .Chat_Sent, .Chat, .Image_Gone, .Refused, .Keyframe, .Pong:
+	case .DM_Send:
+		handle_dm_send(s, c, pt)
+	case .DM_Ack:
+		handle_dm_ack(s, c.user, pt)
+	case .DM_Typing:
+		handle_dm_typing(s, c.user, pt)
+	case .State,
+	     .Chat_Sent,
+	     .Chat,
+	     .Image_Gone,
+	     .Refused,
+	     .Keyframe,
+	     .Pong,
+	     .DM_Sent,
+	     .DM,
+	     .DM_Delivered:
 	// Server-to-client only.
 	}
 }

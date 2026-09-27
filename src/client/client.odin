@@ -37,6 +37,7 @@ Voice_Client :: struct {
 	images:        Image_Client,
 	video:         Video_Client,
 	ping:          Ping_Tracker,
+	dms:           DM_Client,
 	commands:      Command_Queue,
 	status:        Status,
 	// Shared with the UI, if there is one; nil in headless mode.
@@ -76,6 +77,7 @@ client_open :: proc(
 		return false
 	}
 	c.last_stats = time.tick_now()
+	dm_open(c, key_path)
 	return true
 }
 
@@ -106,6 +108,7 @@ client_close :: proc(c: ^Voice_Client) {
 	chat_destroy(c)
 	images_destroy(c)
 	video_destroy(c)
+	dm_destroy(c)
 }
 
 // client_step runs one iteration of the network loop, waiting up to a
@@ -120,6 +123,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	drive_name(c)
 	drive_sound(c)
 	drive_chat(c)
+	drive_dm(c)
 	images_step(c)
 
 	if c.has_current {
@@ -285,6 +289,14 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			video_keyframe_requested(c)
 		case .Pong:
 			handle_pong(c, pt)
+		case .DM:
+			handle_dm(c, pt)
+		case .DM_Sent:
+			handle_dm_sent(c, pt)
+		case .DM_Delivered:
+			handle_dm_delivered(c, pt)
+		case .DM_Typing:
+			handle_dm_typing(c, pt)
 		}
 	}
 	return true

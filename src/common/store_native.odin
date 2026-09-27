@@ -25,6 +25,13 @@ store_write :: proc(name: string, text: string, private := false) -> bool {
 	if !private {
 		perms += {.Read_Group, .Read_Other}
 	}
+	// Some live in a directory of their own (the client's DM history).
+	if dir := os.dir(name); dir != "" && !os.exists(dir) {
+		if err := os.make_directory_all(dir); err != nil {
+			log.errorf("failed to create %s: %v", dir, err)
+			return false
+		}
+	}
 	if err := os.write_entire_file(name, transmute([]byte)text, perms); err != nil {
 		log.errorf("failed to write %s: %v", name, err)
 		return false

@@ -18,3 +18,9 @@ default_config_path :: proc(name: string, allocator := context.allocator) -> str
 	path, _ := os.join_path({config_dir, name}, allocator)
 	return path
 }
+
+// store_sibling is the path `name` in the directory `path` is in.
+store_sibling :: proc(path, name: string, allocator := context.allocator) -> string {
+	joined, _ := os.join_path({os.dir(path), name}, allocator)
+	return joined
+}

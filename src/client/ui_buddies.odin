@@ -2,18 +2,18 @@ package client
 
 import log "../common/wlog"
 import "core:fmt"
+import "core:strings"
+import "core:time"
 import mu "vendor:microui"
 
 import "../proto"
 
 /*
-The buddy screen (buddies.odin): the buddy list on the left, and the
-conversation with whoever's picked on the right. It's there while
-connected, opened and closed by the buddies button along the top, which
-it shares with the session screen.
-
-Direct messages don't exist yet, so the conversation is only its frame:
-who it's with, whether they're here, and a box to write in.
+The buddy screen (buddies.odin): the buddy list on the left, with
+anyone else we have a conversation with, and the conversation with
+whoever's picked on the right (dm.odin). It's there while connected,
+opened and closed by the buddies button along the top, which it shares
+with the session screen.
 */
 
 UI_Buddies :: struct {
@@ -21,25 +21,29 @@ UI_Buddies :: struct {
 	selected:     [proto.KEY_SIZE]u8,
 	has_selected: bool,
 	// What's being written to them.
-	buf:          [proto.MAX_CHAT_SIZE]u8,
+	buf:          [proto.MAX_DM_SIZE]u8,
 	len:          int,
+	// The open conversation's View_Conversation.changes when it was last
+	// scrolled to the bottom.
+	scrolled:     int,
 }
 
 // The buddy list's colours: a buddy who's here, and one who isn't.
 @(private = "file")
 ONLINE_COLOR :: SPEAKING_COLOR
 
-// buddies_button opens the buddy screen, or goes back from it.
+// buddies_button opens the buddy screen, or goes back from it. It
+// lights up for DMs that haven't been seen.
 buddies_button :: proc(ui: ^UI) {
 	open := ui.page == .Buddies
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "buddies",
-		   .Buddies,
-		   "Back to the channels" if open else "Buddies",
-		   CHAT_NAME_COLOR if open else mu.Color{},
-	   ) {
+	unread := dm_unread(&ui.view)
+	hint := "Back to the channels" if open else "Buddies"
+	color := CHAT_NAME_COLOR if open else mu.Color{}
+	if unread > 0 && !open {
+		hint = fmt.tprintf("Buddies (%d new message%s)", unread, "" if unread == 1 else "s")
+		color = SPEAKING_COLOR
+	}
+	if .SUBMIT in icon_button(ui, "buddies", .Buddies, hint, color) {
 		ui.page = .Main if open else .Buddies
 	}
 }
@@ -49,6 +53,7 @@ open_conversation :: proc(ui: ^UI, key: [proto.KEY_SIZE]u8) {
 	ui.page = .Buddies
 	if !ui.buddies.has_selected || ui.buddies.selected != key {
 		ui.buddies.len = 0
+		ui.buddies.scrolled = -1 // start at the newest
 	}
 	ui.buddies.selected, ui.buddies.has_selected = key, true
 }
@@ -63,8 +68,11 @@ buddies_screen :: proc(ui: ^UI) {
 
 	session_header(ui)
 
-	// A buddy removed while their conversation was open takes it along.
-	if ui.buddies.has_selected && !is_buddy(&ui.settings, ui.buddies.selected) {
+	// Someone removed as a buddy, with no conversation to keep them in
+	// the list, takes it along.
+	if ui.buddies.has_selected &&
+	   !is_buddy(&ui.settings, ui.buddies.selected) &&
+	   ui.buddies.selected not_in ui.view.dms {
 		ui.buddies.has_selected = false
 	}
 
@@ -133,7 +141,12 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	if b.online == 0 {
 		ctx.style.colors[.TEXT] = DIM_COLOR
 	}
-	mu.draw_control_text(ctx, b.name, r, .TEXT)
+	text := b.name
+	if b.unread > 0 {
+		text = fmt.tprintf("%s  (%d)", b.name, b.unread)
+		ctx.style.colors[.TEXT] = SPEAKING_COLOR
+	}
+	mu.draw_control_text(ctx, text, r, .TEXT)
 	ctx.style.colors[.TEXT] = saved
 
 	if ctx.hover_id != id {
@@ -151,8 +164,8 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	}
 }
 
-// conversation is the right-hand side: who it's with, where the
-// messages will go, and the box to write in.
+// conversation is the right-hand side: who it's with, the messages,
+// and the box to write in.
 @(private = "file")
 conversation :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -176,12 +189,16 @@ conversation :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, entry.name)
+	mu.label(ctx, entry.name if entry.buddy else fmt.tprintf("%s  (not a buddy)", entry.name))
 	mu.layout_row(ctx, {-1})
 	status := "here now" if entry.online != 0 else "not on this server right now"
+	status_color := ONLINE_COLOR if entry.online != 0 else DIM_COLOR
+	if t, ok := v.dm_typing[key]; ok && time.tick_since(t) < TYPING_SHOW {
+		status = "typing..."
+	}
 	with_text_color(
 		ctx,
-		ONLINE_COLOR if entry.online != 0 else DIM_COLOR,
+		status_color,
 		fmt.tprintf("%s  -  key %s...", status, user_key(key)[:16]),
 		label_proc,
 	)
@@ -189,19 +206,41 @@ conversation :: proc(ui: ^UI) {
 	// Leave room for the input row below, as the chat does.
 	input_h := ctx.style.size.y + 2 * ctx.style.padding
 	mu.layout_row(ctx, {-1}, -(input_h + ctx.style.spacing + 1))
-	mu.begin_panel(ctx, "conversation")
-	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, DIM_COLOR, "Direct messages aren't here yet.", label_proc)
-	mu.end_panel(ctx)
+	conv, have := &v.dms[key]
+	if have {
+		// Open, so it's been seen.
+		conv.unread = 0
+		dm_panel(ui, conv, entry.name)
+	} else {
+		empty: View_Conversation
+		dm_panel(ui, &empty, entry.name)
+	}
 
 	mu.layout_row(ctx, {-(ICON_BUTTON + 6), ICON_BUTTON})
-	send := .SUBMIT in text_box(ui, ui.buddies.buf[:], &ui.buddies.len)
-	if .SUBMIT in icon_button(ui, "dm send", .Send, "Send (not yet: direct messages aren't here yet)") {
+	res := text_box(ui, ui.buddies.buf[:], &ui.buddies.len)
+	box := ctx.last_id
+	if .CHANGE in res && ui.buddies.len > 0 && ui.session != nil {
+		push_command(&ui.session.client.commands, DM_Typing_Command{key})
+	}
+	send := .SUBMIT in res
+	if .SUBMIT in icon_button(ui, "dm send", .Send, "Send") {
 		send = true
 	}
-	if send {
-		log.debug("ui: direct messages aren't implemented yet")
+	if !send {
+		return
 	}
+	// Enter takes the focus away from the box; keep typing instead.
+	mu.set_focus(ctx, box)
+	text := strings.trim_space(string(ui.buddies.buf[:ui.buddies.len]))
+	if text == "" || ui.session == nil {
+		return
+	}
+	log.debug("ui: direct message")
+	push_command(
+		&ui.session.client.commands,
+		DM_Command{to = key, text = strings.clone(text)},
+	)
+	ui.buddies.len = 0
 }
 
 @(private = "file")

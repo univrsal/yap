@@ -339,6 +339,61 @@ chat_image :: proc(
 	image_block(ui, info, state, img.jpeg)
 }
 
+/*
+dm_panel shows a conversation's messages, as the chat panel does the
+channel's: a header over each block of messages from one side within a
+minute, saying for ours how far they've got. Call with the View locked.
+*/
+dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
+	ctx := &ui.ctx
+	v := &ui.view
+
+	mu.begin_panel(ctx, "conversation")
+	cnt := mu.get_current_container(ctx)
+	select_begin(ui, .DM)
+	if len(conv.messages) == 0 {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, CHAT_DIM_COLOR, "No messages yet.", label_proc)
+	}
+	me := v.my_name if v.my_name != "" else "me"
+	for m, i in conv.messages {
+		prev := conv.messages[i - 1] if i > 0 else View_DM{}
+		merged :=
+			i > 0 &&
+			m.mine == prev.mine &&
+			m.state == prev.state &&
+			chat_same_minute(m.time, prev.time)
+		status := ""
+		color := ctx.style.colors[.TEXT]
+		header_color := CHAT_OWN_COLOR if m.mine else CHAT_NAME_COLOR
+		switch m.state {
+		case .Received, .Delivered:
+		case .Sending:
+			status, color = "  sending...", CHAT_DIM_COLOR
+		case .Sent:
+			status = "  sent"
+		case .Failed:
+			status, header_color = "  not sent", OFF_COLOR
+		}
+		header := fmt.tprintf(
+			"%s  %s%s",
+			chat_time(ui, m.time),
+			me if m.mine else their_name,
+			status,
+		)
+		chat_message(ui, header, header_color, m.text, color, links = true, merged = merged, item = i64(i) * 2)
+	}
+	select_end(ui)
+	mu.end_panel(ctx)
+
+	// Follow new messages, unless a selection is being dragged.
+	dragging := ui.select.dragging && ui.select.panel == .DM
+	if conv.changes != ui.buddies.scrolled && !dragging {
+		ui.buddies.scrolled = conv.changes
+		cnt.scroll.y = cnt.content_size.y
+	}
+}
+
 // chat_message draws the gap before this message, a header line unless
 // `merged` (see chat_image), and the wrapped text under it, with the
 // lines packed tightly.
@@ -461,12 +516,12 @@ draw_line :: proc(
 		if mu.mouse_over(ctx, r) {
 			ui.chat.hover = id
 			ui.chat.hovering = true
-			// On the release of a press in the chat, and only if that
+			// On the release of a press in this panel, and only if that
 			// didn't end a drag that selected something (ui_select.odin).
 			if .LEFT in ctx.mouse_released_bits &&
 			   ui.select.dragging &&
-			   ui.select.panel == .Chat &&
-			   !has_selection(&ui.select, .Chat) &&
+			   ui.select.panel == ui.select.drawing &&
+			   !has_selection(&ui.select, ui.select.drawing) &&
 			   ui.chat.open == "" {
 				ui.chat.open = link_url(text, l, context.allocator)
 			}

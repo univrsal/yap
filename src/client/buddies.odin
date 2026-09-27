@@ -13,8 +13,9 @@ list can say who they are while they're away. They're saved with the
 settings, keyed like the per-user volumes.
 
 Adding someone is our business alone: they aren't asked or told. Direct
-messages to buddies come later, and messages from anyone will be
-delivered, buddy or not; the list is for finding the people we talk to.
+messages (dm.odin) come from anyone, buddy or not, so the list the
+buddy screen shows is the buddies and whoever else we have a
+conversation with.
 */
 
 Buddy :: struct {
@@ -56,42 +57,34 @@ remove_buddy :: proc(s: ^Settings, key: [proto.KEY_SIZE]u8) -> bool {
 	return true
 }
 
-// Buddy_Entry is a buddy as the list shows them.
+// Buddy_Entry is someone in the buddy screen's list.
 Buddy_Entry :: struct {
 	key:    [proto.KEY_SIZE]u8,
 	name:   string, // points into the settings or the View
 	online: proto.User_Num, // their number on this server, or 0
+	buddy:  bool, // or just someone we have a conversation with
+	unread: int, // DMs from them not seen yet
 }
 
 /*
-buddy_list is every buddy, online ones first, then by name. Names come
-from the View where they're online, as that's what they go by now. The
-slice is in the temp allocator; call with the View locked.
+buddy_list is every buddy and everyone else we have a conversation
+with, online ones first, then by name. Names come from the View where
+they're online, as that's what they go by now. The slice is in the temp
+allocator; call with the View locked.
 */
 buddy_list :: proc(s: ^Settings, v: ^View) -> []Buddy_Entry {
-	list := make([dynamic]Buddy_Entry, 0, len(s.buddies), context.temp_allocator)
+	list := make([dynamic]Buddy_Entry, 0, len(s.buddies) + len(v.dms), context.temp_allocator)
 	for k, b in s.buddies {
 		key, ok := parse_user_key(k)
 		if !ok {
 			continue
 		}
-		e := Buddy_Entry {
-			key  = key,
-			name = b.name,
+		append(&list, buddy_entry(v, key, b.name, true))
+	}
+	for key, conv in v.dms {
+		if !is_buddy(s, key) {
+			append(&list, buddy_entry(v, key, conv.name, false))
 		}
-		for num, u in v.users {
-			if u.key == key && num != v.my_num {
-				e.online = num
-				if u.name != "" {
-					e.name = u.name
-				}
-				break
-			}
-		}
-		if e.name == "" {
-			e.name = fingerprint(key)
-		}
-		append(&list, e)
 	}
 	slice.sort_by(list[:], proc(a, b: Buddy_Entry) -> bool {
 		if (a.online != 0) != (b.online != 0) {
@@ -102,6 +95,31 @@ buddy_list :: proc(s: ^Settings, v: ^View) -> []Buddy_Entry {
 		return an < bn if an != bn else user_key(a.key) < user_key(b.key)
 	})
 	return list[:]
+}
+
+@(private = "file")
+buddy_entry :: proc(v: ^View, key: [proto.KEY_SIZE]u8, name: string, buddy: bool) -> Buddy_Entry {
+	e := Buddy_Entry {
+		key   = key,
+		name  = name,
+		buddy = buddy,
+	}
+	if conv, ok := v.dms[key]; ok {
+		e.unread = conv.unread
+	}
+	for num, u in v.users {
+		if u.key == key && num != v.my_num {
+			e.online = num
+			if u.name != "" {
+				e.name = u.name
+			}
+			break
+		}
+	}
+	if e.name == "" {
+		e.name = fingerprint(key)
+	}
+	return e
 }
 
 // buddies_seen keeps the saved names up with what buddies go by on the

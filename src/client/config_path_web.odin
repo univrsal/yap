@@ -9,3 +9,11 @@ import "core:strings"
 default_config_path :: proc(name: string, allocator := context.allocator) -> string {
 	return strings.concatenate({"yap/", name}, allocator)
 }
+
+// store_sibling is the store name `name` next to `path`: in the same
+// "directory", which here is only the part of the name up to its last
+// slash.
+store_sibling :: proc(path, name: string, allocator := context.allocator) -> string {
+	slash := strings.last_index_byte(path, '/')
+	return strings.concatenate({path[:slash + 1], name}, allocator)
+}

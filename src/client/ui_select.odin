@@ -25,6 +25,7 @@ Select_Panel :: enum {
 	None,
 	Chat,
 	Log,
+	DM, // the open conversation on the buddy screen
 }
 
 Text_Pos :: struct {

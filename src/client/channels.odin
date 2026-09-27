@@ -424,6 +424,8 @@ Command :: union {
 	Chat_Image_Command,
 	Typing_Command,
 	Watch_Command,
+	DM_Command,
+	DM_Typing_Command,
 }
 
 Command_Queue :: struct {
@@ -460,6 +462,9 @@ command_destroy :: proc(cmd: Command) {
 	case Chat_Image_Command:
 		image := v.image
 		chat_image_destroy(&image)
+	case DM_Command:
+		delete(v.name)
+		delete(v.text)
 	}
 }
 
@@ -537,6 +542,10 @@ process_commands :: proc(c: ^Voice_Client) {
 			chat_typing(c)
 		case Watch_Command:
 			video_watch(c, v.user)
+		case DM_Command:
+			dm_send(c, v.to, v.name, v.text)
+		case DM_Typing_Command:
+			dm_typing(c, v.to)
 		}
 	}
 }

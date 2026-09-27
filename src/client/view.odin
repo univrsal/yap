@@ -72,6 +72,25 @@ View :: struct {
 	watching:   proto.User_Num,
 	// How the pings to the server are doing (ping.odin).
 	connection: Connection_Stats,
+	// Direct messages, by who they're with (dm.odin), and when each of
+	// them last said they're typing to us.
+	dms:        map[[proto.KEY_SIZE]u8]View_Conversation,
+	dm_typing:  map[[proto.KEY_SIZE]u8]time.Tick,
+}
+
+View_Conversation :: struct {
+	name:     string, // what they last went by, if known; owned
+	messages: [dynamic]View_DM,
+	unread:   int, // the UI zeroes it when the conversation is open
+	changes:  int, // bumped on every change, so the UI knows to scroll
+}
+
+View_DM :: struct {
+	id:    u64,
+	mine:  bool,
+	time:  proto.Unix_Time,
+	text:  string, // owned
+	state: DM_State,
 }
 
 Key_Change :: struct {
@@ -128,6 +147,7 @@ view_reset :: proc(v: ^View) {
 	view_clear_chat(v)
 	view_clear_outbox(v)
 	view_clear_pokes(v)
+	view_clear_dms(v)
 }
 
 view_destroy :: proc(v: ^View) {
@@ -140,6 +160,72 @@ view_destroy :: proc(v: ^View) {
 	delete(v.typing)
 	delete(v.images)
 	delete(v.pokes)
+	delete(v.dms)
+	delete(v.dm_typing)
+}
+
+@(private = "file")
+view_clear_dms :: proc(v: ^View) {
+	for _, &conv in v.dms {
+		view_conversation_clear(&conv)
+		delete(conv.messages)
+		delete(conv.name)
+	}
+	clear(&v.dms)
+	clear(&v.dm_typing)
+}
+
+@(private = "file")
+view_conversation_clear :: proc(conv: ^View_Conversation) {
+	for m in conv.messages {
+		delete(m.text)
+	}
+	clear(&conv.messages)
+}
+
+// publish_dm_conversation copies a conversation over whole. With
+// `unread`, a new message from them came in.
+publish_dm_conversation :: proc(c: ^Voice_Client, conv: ^DM_Conversation, unread: bool) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	_, vc, _, _ := map_entry(&v.dms, conv.key)
+	view_conversation_clear(vc)
+	for m in conv.messages {
+		append(
+			&vc.messages,
+			View_DM{id = m.id, mine = m.mine, time = m.time, text = strings.clone(m.text), state = m.state},
+		)
+	}
+	if conv.name != "" && conv.name != vc.name {
+		delete(vc.name)
+		vc.name = strings.clone(conv.name)
+	}
+	if unread {
+		vc.unread += 1
+		// They sent it, so they've stopped typing it.
+		delete_key(&v.dm_typing, conv.key)
+	}
+	vc.changes += 1
+}
+
+publish_dm_typing :: proc(c: ^Voice_Client, from: [proto.KEY_SIZE]u8) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	v.dm_typing[from] = time.tick_now()
+}
+
+// dm_unread is how many DMs have come in that haven't been seen, in all.
+dm_unread :: proc(v: ^View) -> (n: int) {
+	for _, conv in v.dms {
+		n += conv.unread
+	}
+	return
 }
 
 @(private = "file")

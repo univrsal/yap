@@ -95,6 +95,9 @@ Settings :: struct {
 	log_file:  string,
 	relay:     Relay_Config, // web_dir resolved, see default_web_dir
 	channels:  []string,
+	// Where direct messages waiting for their recipients are kept: next
+	// to the config (dm.odin).
+	dm_path:   string,
 }
 
 @(private = "file")
@@ -230,6 +233,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		log_file  = cfg.log_file,
 		relay     = relay,
 	}
+	s.dm_path, _ = os.join_path({os.dir(path), "dms.json"}, context.allocator)
 	s.channels = check_channels(path, cfg.channels) or_return
 	return s, true
 }
