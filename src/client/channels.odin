@@ -406,6 +406,10 @@ Gate_Command :: struct {
 Notification_Volume_Command :: struct {
 	volume: f32,
 }
+// How loud to send a shared application (app_audio_native.odin).
+App_Volume_Command :: struct {
+	volume: f32,
+}
 
 Command :: union {
 	Join_Command,
@@ -419,6 +423,7 @@ Command :: union {
 	Listen_Command,
 	Quality_Command,
 	Notification_Volume_Command,
+	App_Volume_Command,
 	Chat_Command,
 	Poke_Command,
 	Chat_Image_Command,
@@ -541,6 +546,8 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Notification_Volume_Command:
 			c.voice.notifications.volume = clamp(v.volume, 0, MAX_USER_VOLUME)
 			log.infof("notification volume: %.0f%%", c.voice.notifications.volume * 100)
+		case App_Volume_Command:
+			c.voice.app_volume = clamp(v.volume, 0, MAX_USER_VOLUME)
 		case Name_Command:
 			set_name(c, v.name)
 			log.infof("name: %q", c.channels.name)

@@ -66,6 +66,25 @@ if [ ! -f "$lib" ] || [ "$dialogs/yap_dialogs.c" -nt "$lib" ] || [ deps/thirdpar
 	rm "$dialogs/yap_dialogs.o"
 fi
 
+# tinyaac, for sharing an application's audio. On Linux it needs the
+# libpipewire-0.3 dev headers to compile against (dlopen'd at runtime,
+# not linked -- see yap_aac.c); on macOS it's Core Audio and Foundation,
+# so it has to be built as Objective-C. The BSDs get tinyaac's stub,
+# which says application audio is unavailable.
+aac=src/client/aac
+lib=$aac/libyap_aac.a
+if [ ! -f "$lib" ] || [ "$aac/yap_aac.c" -nt "$lib" ] || [ deps/thirdparty/tinyaac/tinyaac.h -nt "$lib" ]; then
+	echo "building $lib"
+	case "$(uname -s)" in
+	Darwin) aac_flags="-x objective-c" ;;
+	Linux) aac_flags="$(pkg-config --cflags libpipewire-0.3)" ;;
+	*) aac_flags= ;;
+	esac
+	${CC:-cc} -std=c99 -Os $aac_flags -c "$aac/yap_aac.c" -o "$aac/yap_aac.o"
+	ar rcs "$lib" "$aac/yap_aac.o"
+	rm "$aac/yap_aac.o"
+fi
+
 # libopus on macOS and OpenBSD: there's no prebuilt library for them in
 # src/client/opus, so it's built from the release source
 # (scripts/fetch-opus.sh), the float API without DRED or OSCE, which is

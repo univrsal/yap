@@ -11,7 +11,9 @@ the other apps. Its executable is a link to the binary rather than a
 copy, and its icon is assets/icon.png wrapped as an .icns.
 
 Started from the bundle, macOS asks for the microphone on the app's
-behalf (NSMicrophoneUsageDescription) instead of on the terminal's.
+behalf (NSMicrophoneUsageDescription) instead of on the terminal's, and
+likewise for other applications' audio (NSAudioCaptureUsageDescription,
+see app_audio_native.odin).
 */
 
 INSTALL_DESCRIPTION :: "Adds Yap.app to the Applications folder in your home folder, so it can be started from Finder, Launchpad or Spotlight. The app starts this copy of yap; nothing is copied or moved. Uninstall removes it again."
@@ -37,6 +39,8 @@ INFO_PLIST :: `<?xml version="1.0" encoding="UTF-8"?>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Yap sends your microphone to the voice channel you join.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Yap sends the audio of an application you pick to the voice channel you're in.</string>
 </dict>
 </plist>
 `

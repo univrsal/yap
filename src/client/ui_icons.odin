@@ -31,6 +31,7 @@ Icon :: enum {
 	Buddies, // two people: the buddy list
 	File, // a sheet of paper with a corner turned down: send a file
 	Trash, // a bin with its lid on: delete
+	App_Audio, // two notes: share an application's audio
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -168,6 +169,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return document(p)
 	case .Trash:
 		return bin(p)
+	case .App_Audio:
+		return notes(p)
 	}
 	return 1
 }
@@ -193,6 +196,21 @@ bin :: proc(p: Point) -> f32 {
 	d = nearer(d, abs(rounded_box(p, {0.5, 0.62}, {0.24, 0.24}, 0.06)) - STROKE / 2)
 	d = nearer(d, capsule(p, {0.42, 0.50}, {0.42, 0.74}, STROKE))
 	d = nearer(d, capsule(p, {0.58, 0.50}, {0.58, 0.74}, STROKE))
+	return d
+}
+
+// Two notes joined by a beam, the second a step higher: music.
+@(private = "file")
+notes :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	BEAM :: 0.13
+	HEAD :: 0.13
+	// Each stem rises from the right of its head to the beam.
+	d := disc(p, {0.28, 0.76}, HEAD)
+	d = nearer(d, disc(p, {0.70, 0.68}, HEAD))
+	d = nearer(d, capsule(p, {0.37, 0.76}, {0.37, 0.24}, STROKE))
+	d = nearer(d, capsule(p, {0.79, 0.68}, {0.79, 0.16}, STROKE))
+	d = nearer(d, capsule(p, {0.37, 0.24}, {0.79, 0.16}, BEAM))
 	return d
 }
 

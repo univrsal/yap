@@ -107,6 +107,13 @@ THIRD_PARTY := [?]Third_Party {
 		builds = {.Desktop},
 	},
 	{
+		name = "tinyaac",
+		license = "Unlicense or MIT",
+		use = "Capturing an application's audio, for sharing it",
+		text = #load("licenses/tinyaac.txt", string),
+		builds = {.Desktop},
+	},
+	{
 		name = "Roboto",
 		license = "Apache-2.0",
 		use = "The font (font data copyright Google 2012)",

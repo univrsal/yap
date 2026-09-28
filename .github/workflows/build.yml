@@ -87,10 +87,11 @@ jobs:
 
       - name: Linux dependencies
         if: runner.os == 'Linux'
-        # dbus headers for the tray icon, GLFW to link against.
+        # dbus headers for the tray icon, PipeWire's for application
+        # audio, GLFW to link against.
         run: |
           sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libx11-dev libglfw3-dev pkg-config
+          sudo apt-get install -y libdbus-1-dev libx11-dev libpipewire-0.3-dev libglfw3-dev pkg-config
       - name: Cache libopus for macOS
         if: runner.os == 'macOS'
         uses: actions/cache@v6
