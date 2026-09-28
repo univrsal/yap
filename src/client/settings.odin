@@ -29,6 +29,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"gate_close_db": -55,
 		"notification_volume": 1,
 		"app_audio_volume": 1,
+		"mute_app_audio_with_mic": true,
 		"ui_scale": 1,
 		"mute_hotkey": "Ctrl+Shift+M",
 		"deafen_hotkey": "",
@@ -48,50 +49,52 @@ connect screen can offer them. The passwords are kept as they are, so
 the file is written readable by its owner only.
 */
 Settings :: struct {
-	server:              string, // last server connected to
-	recent_servers:      [dynamic]Recent_Server, // newest first
-	name:                string, // the name to go by
-	input_device:        string,
-	output_device:       string,
+	server:                  string, // last server connected to
+	recent_servers:          [dynamic]Recent_Server, // newest first
+	name:                    string, // the name to go by
+	input_device:            string,
+	output_device:           string,
 	// Send quality preset by name ("voice", "high", "music"; quality.odin).
-	quality:             string,
+	quality:                 string,
 	// RNNoise on the microphone.
-	noise_suppression:   bool,
+	noise_suppression:       bool,
 	// Show an icon in the system tray (ui_tray.odin).
-	tray:                bool,
+	tray:                    bool,
 	// What the window's own buttons do while that icon is there: hide
 	// the client in the tray, or what they usually do. Minimizing is
 	// only ours to decide where the desktop says it has happened.
-	close_to_tray:       bool,
-	minimize_to_tray:    bool,
+	close_to_tray:           bool,
+	minimize_to_tray:        bool,
 	// Only send while the microphone level is above the thresholds (dBFS);
 	// see gate.odin.
-	voice_gate:          bool,
-	gate_open_db:        f32,
-	gate_close_db:       f32,
+	voice_gate:              bool,
+	gate_open_db:            f32,
+	gate_close_db:           f32,
 	// How loudly local join, leave, message, and poke effects are mixed.
-	notification_volume: f32, // 1 = as encoded, 0..MAX_USER_VOLUME
+	notification_volume:     f32, // 1 = as encoded, 0..MAX_USER_VOLUME
 	// How loudly a shared application's audio is sent
 	// (app_audio_native.odin).
-	app_audio_volume:    f32, // 1 = as it plays, 0..MAX_USER_VOLUME
+	app_audio_volume:        f32, // 1 = as it plays, 0..MAX_USER_VOLUME
+	// Muting the microphone mutes a shared application as well.
+	mute_app_audio_with_mic: bool,
 	// How fast files in DMs may go out and come in, in MB/s; 0 for no
 	// limit (files.odin).
-	upload_limit:        f32,
-	download_limit:      f32,
+	upload_limit:            f32,
+	download_limit:          f32,
 	// The UI's own zoom, independent of the display's DPI scale (see
 	// window_metrics in ui.odin). 1 = 100%, MIN_UI_SCALE..MAX_UI_SCALE.
-	ui_scale:            f32,
+	ui_scale:                f32,
 	// Global hotkeys, as hotkeys.format writes them ("Ctrl+Shift+M"); ""
 	// for none. See ui_hotkeys_native.odin.
-	mute_hotkey:         string,
-	deafen_hotkey:       string,
+	mute_hotkey:             string,
+	deafen_hotkey:           string,
 	// How to play other users, keyed by their public key (64 hex digits),
 	// which is what identifies a user; names can be copied. Users with
 	// default settings aren't stored.
-	users:               map[string]User_Settings,
+	users:                   map[string]User_Settings,
 	// The people we've added as buddies (buddies.odin), keyed by their
 	// public key like `users`.
-	buddies:             map[string]Buddy,
+	buddies:                 map[string]Buddy,
 }
 
 User_Settings :: struct {
@@ -115,14 +118,15 @@ MIN_UI_SCALE :: 0.5
 MAX_UI_SCALE :: 3.0
 
 DEFAULT_SETTINGS :: Settings {
-	noise_suppression   = true,
-	close_to_tray       = true,
-	voice_gate          = true,
-	gate_open_db        = DEFAULT_GATE_OPEN_DB,
-	gate_close_db       = DEFAULT_GATE_CLOSE_DB,
-	notification_volume = 1,
-	app_audio_volume    = 1,
-	ui_scale            = 1,
+	noise_suppression       = true,
+	close_to_tray           = true,
+	voice_gate              = true,
+	gate_open_db            = DEFAULT_GATE_OPEN_DB,
+	gate_close_db           = DEFAULT_GATE_CLOSE_DB,
+	notification_volume     = 1,
+	app_audio_volume        = 1,
+	mute_app_audio_with_mic = true,
+	ui_scale                = 1,
 }
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
@@ -295,6 +299,12 @@ notification_gain :: proc(s: ^Settings) -> f32 {
 
 app_audio_gain :: proc(s: ^Settings) -> f32 {
 	return clamp(s.app_audio_volume, 0, MAX_USER_VOLUME)
+}
+
+// app_audio_command is how a shared application is sent, as configured
+// in `s`.
+app_audio_command :: proc(s: ^Settings) -> App_Audio_Command {
+	return {volume = app_audio_gain(s), mute_with_mic = s.mute_app_audio_with_mic}
 }
 
 // ui_scale_factor is the configured UI zoom, clamped in case a hand-edited

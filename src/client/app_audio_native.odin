@@ -17,9 +17,10 @@ The header's button opens a menu of the applications playing audio;
 picking one captures it (on tinyaac's thread) into the Voice's app ring,
 converted to 48 kHz stereo on the way. The network thread mixes it into
 every frame it sends, after noise suppression and the voice gate, which
-only ever see the microphone (see send_captured in voice.odin). Mute is
-the microphone's too: the application keeps being heard until the share
-is stopped.
+only ever see the microphone (see send_captured in voice.odin). Muting
+the microphone mutes the application as well, unless the settings say
+otherwise (mute_app_audio_with_mic); then it keeps being heard until the
+share is stopped.
 
 Like the audio devices, the capture belongs to the UI thread and to one
 connection: disconnecting stops it.
@@ -167,10 +168,7 @@ app_audio_menu :: proc(ui: ^UI) {
 		ui.settings.app_audio_volume = a.volume / 100
 		ui.settings_dirty = true
 		if ui.session != nil {
-			push_command(
-				&ui.session.client.commands,
-				App_Volume_Command{app_audio_gain(&ui.settings)},
-			)
+			push_command(&ui.session.client.commands, app_audio_command(&ui.settings))
 		}
 	}
 
@@ -259,7 +257,7 @@ app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
 		free(s)
 		return
 	}
-	push_command(&ns.client.commands, App_Volume_Command{app_audio_gain(&ui.settings)})
+	push_command(&ns.client.commands, app_audio_command(&ui.settings))
 	sync.atomic_store(&s.voice.app_input, true)
 	a.share = s
 	a.name = strings.clone(name)

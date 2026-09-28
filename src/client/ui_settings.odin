@@ -52,8 +52,9 @@ settings_page :: proc(ui: ^UI) {
 	install_settings(ui)
 }
 
-// audio_settings picks the send quality preset (see quality.odin) and
-// whether the microphone gets denoised.
+// audio_settings picks the send quality preset (see quality.odin),
+// whether the microphone gets denoised, and whether muting it mutes a
+// shared application too (app_audio_native.odin).
 @(private = "file")
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -88,6 +89,20 @@ audio_settings :: proc(ui: ^UI) {
 		settings_save(ui.opts.settings_path, ui.settings)
 		if ui.session != nil {
 			push_command(&ui.session.client.commands, Noise_Command{ui.settings.noise_suppression})
+		}
+	}
+	if app_audio_available(ui) {
+		mu.layout_row(ctx, {-1})
+		if .CHANGE in
+		   mu.checkbox(
+			   ctx,
+			   "Mute audio sharing when microphone is muted",
+			   &ui.settings.mute_app_audio_with_mic,
+		   ) {
+			settings_save(ui.opts.settings_path, ui.settings)
+			if ui.session != nil {
+				push_command(&ui.session.client.commands, app_audio_command(&ui.settings))
+			}
 		}
 	}
 	gate_settings(ui)

@@ -29,8 +29,8 @@ the output device's clock.
 Captured frames go through noise suppression (RNNoise, optional) and the
 voice gate (optional, see gate.odin) before encoding. The audio of an
 application being shared (app_audio_native.odin) goes around both: it's
-mixed in after them, so the gate neither hears it nor holds it back, and
-it's sent while muted, too.
+mixed in after them, so the gate neither hears it nor holds it back.
+Muting the microphone mutes it too, unless app_mute_with_mic is off.
 
 Loss handling: packets carry a per-sender sequence number that advances
 every 20 ms whether or not anything was sent. A short gap is lost packets:
@@ -96,63 +96,64 @@ Speaker :: struct {
 }
 
 Voice :: struct {
-	capture:          Ring, // capture callback -> network thread
-	playback:         Ring, // network thread -> playback callback
+	capture:           Ring, // capture callback -> network thread
+	playback:          Ring, // network thread -> playback callback
 	// Whether something produces into / consumes from the rings (a device,
 	// or the fake audio in headless mode). Set by whoever opens them.
-	input:            bool, // atomic
-	output:           bool, // atomic
+	input:             bool, // atomic
+	output:            bool, // atomic
 	// The microphone stream's channel count (its native one); the capture
 	// callback converts to stereo. Atomic.
-	capture_channels: u32,
-	encoder:          ^opus.Encoder,
+	capture_channels:  u32,
+	encoder:           ^opus.Encoder,
 	// voice_init succeeded, so there's a pipeline to open devices for.
-	ready:            bool,
-	quality:          Quality,
-	send_seq:         u32,
-	muted:            bool,
+	ready:             bool,
+	quality:           Quality,
+	send_seq:          u32,
+	muted:             bool,
 	// Deafened: play nothing from anyone else. Speakers are still decoded
 	// and consumed, so undeafening picks up where the channel is.
-	deafened:         bool,
-	denoisers:        [CHANNELS]rnn.Denoiser, // one per channel (stereo presets)
-	denoise:          bool, // noise suppression
-	gate:             Gate,
+	deafened:          bool,
+	denoisers:         [CHANNELS]rnn.Denoiser, // one per channel (stereo presets)
+	denoise:           bool, // noise suppression
+	gate:              Gate,
 	// Listen back: our own processed microphone audio, as it would be sent
 	// (after suppression, silent while the gate is closed), played back to
 	// us through the mixer. For testing the settings; ignores mute.
-	listen:           bool,
-	loopback:         Ring, // same thread in and out, like a speaker's queue
-	looping:          bool, // prefill reached, being mixed
-	notifications:    Notification_Sounds,
+	listen:            bool,
+	loopback:          Ring, // same thread in and out, like a speaker's queue
+	looping:           bool, // prefill reached, being mixed
+	notifications:     Notification_Sounds,
 	// A shared application's audio (app_audio_native.odin): its capture
 	// thread -> network thread. app_input is set atomically by whoever
 	// feeds it, like `input`.
-	app:              Ring,
-	app_input:        bool,
-	app_playing:      bool, // prefill reached, being mixed
-	app_quiet:        int, // frames in a row below APP_SILENCE_DB
-	app_volume:       f32, // 1 = as the application plays it
+	app:               Ring,
+	app_input:         bool,
+	app_playing:       bool, // prefill reached, being mixed
+	app_quiet:         int, // frames in a row below APP_SILENCE_DB
+	app_volume:        f32, // 1 = as the application plays it
+	app_mute_with_mic: bool, // muted means the application too
 	// How much to keep queued for the output device (see OUTPUT_TARGET).
-	output_target:    int,
-	speakers:         map[proto.User_Num]^Speaker,
+	output_target:     int,
+	speakers:          map[proto.User_Num]^Speaker,
 	// Per-user playback gain (0 = muted), from the UI, by public key.
 	// Missing means 1.
-	gains:            map[[proto.KEY_SIZE]u8]f32, // by public key
+	gains:             map[[proto.KEY_SIZE]u8]f32, // by public key
 	// User number -> public key, from the latest snapshot.
-	user_keys:        map[proto.User_Num][proto.KEY_SIZE]u8,
+	user_keys:         map[proto.User_Num][proto.KEY_SIZE]u8,
 
 	// Stats, reset every second by log_stats.
-	captured:         int, // frames read from the microphone
-	gated:            int, // frames the voice gate held back
-	sent_frames:      int,
-	sent_bytes:       int,
-	received:         map[proto.User_Num]int,
+	captured:          int, // frames read from the microphone
+	gated:             int, // frames the voice gate held back
+	sent_frames:       int,
+	sent_bytes:        int,
+	received:          map[proto.User_Num]int,
 	// Speaker.lateness of speakers dropped after a silence, so their next
 	// words start with a prefill that fits them.
-	lateness:         map[proto.User_Num]time.Duration,
-	concealed:        int,
-	dropouts:         int, // speakers running dry mid-speech (see Speaker.dried)
-	underruns:        u32, // atomic; incremented by the playback callback
+	lateness:          map[proto.User_Num]time.Duration,
+	concealed:         int,
+	dropouts:          int, // speakers running dry mid-speech (see Speaker.dried)
+	underruns:         u32, // atomic; incremented by the playback callback
 }
 
 voice_init :: proc(v: ^Voice) -> bool {
@@ -165,6 +166,7 @@ voice_init :: proc(v: ^Voice) -> bool {
 	ring_init(&v.loopback, JITTER_MAX + 4 * FRAME)
 	ring_init(&v.app, SAMPLE_RATE / 2 * CHANNELS)
 	v.app_volume = 1
+	v.app_mute_with_mic = true
 	notifications_init(&v.notifications)
 	v.output_target = output_target()
 	v.capture_channels = CHANNELS
@@ -253,12 +255,14 @@ send_captured :: proc(c: ^Voice_Client) {
 		listen_feed(v, frame[:], pass)
 		publish_mic(c, level, v.gate.open)
 		// Muted or gated, the microphone's part of the frame is silence,
-		// and only the application's goes out.
+		// and only the application's goes out - unless muting mutes the
+		// application as well. It's still taken from its ring either way,
+		// so unmuting carries on from where it's playing now.
 		mic_on := pass && !v.muted
 		if !mic_on {
 			frame = {}
 		}
-		app_on := app_mix(v, frame[:])
+		app_on := app_mix(v, frame[:]) && !(v.muted && v.app_mute_with_mic)
 		if v.encoder == nil || !c.has_current || !in_settled_channel(c) {
 			continue
 		}

@@ -2,8 +2,11 @@
 package client
 
 import "core:math"
+import "core:os"
 import "core:sync"
 import "core:testing"
+
+import "../common"
 
 // A shared application is mixed in only while something's shared, once
 // it has buffered up, at its volume.
@@ -152,4 +155,26 @@ test_app_resample :: proc(t: ^testing.T) {
 		worst = max(worst, abs(out[i * CHANNELS] - want), abs(out[i * CHANNELS + 1] - want))
 	}
 	testing.expectf(t, worst < 0.01, "off by up to %.4f", worst)
+}
+
+// Muting mutes a shared application too unless it's switched off: on by
+// default, also for settings from before there was such a setting.
+@(test)
+test_app_mute_setting :: proc(t: ^testing.T) {
+	path := "yap-app-mute-test.json"
+	defer os.remove(path)
+
+	testing.expect(t, common.store_write(path, `{"name": "me"}`))
+	old := settings_load(path)
+	testing.expect(t, old.mute_app_audio_with_mic)
+	testing.expect(t, app_audio_command(&old).mute_with_mic)
+	settings_destroy(&old)
+
+	s := DEFAULT_SETTINGS
+	s.mute_app_audio_with_mic = false
+	s.app_audio_volume = 0.5
+	settings_save(path, s)
+	loaded := settings_load(path)
+	defer settings_destroy(&loaded)
+	testing.expect_value(t, app_audio_command(&loaded), App_Audio_Command{volume = 0.5})
 }

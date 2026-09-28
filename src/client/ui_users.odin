@@ -93,6 +93,24 @@ sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu
 	return r
 }
 
+/*
+The mark for somebody whose audio still comes through while they're
+muted, at the end of the row (in front of the others): that can only be
+an application they're sharing (app_audio_native.odin), since muting
+stops the microphone. Without it, all there is to see is a crossed-out
+microphone, however much is being heard. Dim for somebody we've muted
+for ourselves, whom we don't hear either way.
+*/
+@(private = "file")
+app_audio_mark :: proc(ctx: ^mu.Context, row: mu.Rect, slot: i32, heard: bool) {
+	mu.draw_icon(
+		ctx,
+		icon_id(.App_Audio),
+		end_of_row(row, slot),
+		SPEAKING_COLOR if heard else DIM_COLOR,
+	)
+}
+
 @(private = "file")
 inside :: proc(r: mu.Rect, p: mu.Vec2) -> bool {
 	return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h
@@ -101,7 +119,9 @@ inside :: proc(r: mu.Rect, p: mu.Vec2) -> bool {
 /*
 member_row draws one user in the channel list, with an icon in front
 saying what they're up to: a microphone, lit while they're speaking, and
-for you the mute and deafen you've set. Other users are clickable.
+for you the mute and deafen you've set. Marks at the end of the row say
+who's sharing their screen, or an application's audio while muted
+(app_audio_mark). Other users are clickable.
 
 The icon in front is the user's own doing: a crossed-out microphone
 where they've muted themselves, a crossed-out speaker where they've
@@ -121,16 +141,23 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		return
 	}
 	if id == v.my_num {
-		icon, color := my_status(ui, is_speaking(v, id))
+		speaking := is_speaking(v, id)
+		icon, color := my_status(ui, speaking)
 		status_icon(ctx, icon, color)
 		text := fmt.tprintf("%s (you)", user.name)
-		if color == SPEAKING_COLOR {
-			with_text_color(ctx, color, text, label_proc)
+		// Green while we're heard, muted or not, as for everybody else.
+		if speaking {
+			with_text_color(ctx, SPEAKING_COLOR, text, label_proc)
 		} else {
 			mu.label(ctx, text)
 		}
+		slot: i32 = 0
 		if user.sharing {
-			sharing_mark(ui, ctx.last_rect, 0, id)
+			sharing_mark(ui, ctx.last_rect, slot, id)
+			slot += 1
+		}
+		if speaking && ui.muted && !ui.settings.mute_app_audio_with_mic {
+			app_audio_mark(ctx, ctx.last_rect, slot, true)
 		}
 		return
 	}
@@ -165,12 +192,18 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	ctx.style.colors[.TEXT] = color
 	mu.draw_control_text(ctx, text, r, .TEXT)
 	ctx.style.colors[.TEXT] = saved
+	slot: i32 = 0
 	if u.muted {
 		local_mute_mark(ctx, r)
+		slot += 1
 	}
 	share_r: mu.Rect
 	if user.sharing {
-		share_r = sharing_mark(ui, r, 1 if u.muted else 0, id)
+		share_r = sharing_mark(ui, r, slot, id)
+		slot += 1
+	}
+	if speaking && user.muted {
+		app_audio_mark(ctx, r, slot, !u.muted)
 	}
 
 	if ctx.hover_id == cid && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} {
