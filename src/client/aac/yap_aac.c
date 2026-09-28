@@ -1,8 +1,9 @@
 /*
 tinyaac (tinyaac.h, public domain or MIT), per-application audio
 capture, compiled as one translation unit for yap. The header is used
-unmodified; this file is only here to hold its implementation and the
-one thing yap adds, yap_aac_init.
+as close to unmodified as possible (see the "yap fork" notes in its
+macOS part, which didn't compile as it came); this file is only here to
+hold its implementation and the one thing yap adds, yap_aac_init.
 
 On Linux tinyaac talks to PipeWire, which it would normally link
 directly. Here libpipewire-0.3 is loaded with dlopen() instead (the

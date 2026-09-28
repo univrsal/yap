@@ -1703,9 +1703,11 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 		tap_description = [[CATapDescription alloc] init];
 		tap_description.name = @"tinyaac process tap";
 		tap_description.processes = @[@((AudioObjectID)process_id)];
-		tap_description.isPrivate = YES;
-		tap_description.isMixdown = YES;
-		tap_description.isMono = NO;
+		/* yap fork: the properties are privateTap, mixdown and mono;
+		 * isPrivate, isMixdown and isMono are only their getters. */
+		tap_description.privateTap = YES;
+		tap_description.mixdown = YES;
+		tap_description.mono = NO;
 		result = AudioHardwareCreateProcessTap(tap_description, &backend->tap);
 		if (result != noErr)
 			goto failed;
@@ -1719,10 +1721,12 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 			goto failed;
 		aggregate_uid = [NSUUID UUID].UUIDString;
 		aggregate_properties = @{
-			(__bridge NSString *)kAudioAggregateDeviceNameKey: @"tinyaac aggregate device",
-			(__bridge NSString *)kAudioAggregateDeviceUIDKey: aggregate_uid,
-			(__bridge NSString *)kAudioAggregateDeviceIsPrivateKey: @YES,
-			(__bridge NSString *)kAudioAggregateDeviceTapAutoStartKey: @YES,
+			/* yap fork: the keys are C string literals, not CFStrings,
+			 * so they're made NSStrings with @ rather than cast. */
+			@kAudioAggregateDeviceNameKey: @"tinyaac aggregate device",
+			@kAudioAggregateDeviceUIDKey: aggregate_uid,
+			@kAudioAggregateDeviceIsPrivateKey: @YES,
+			@kAudioAggregateDeviceTapAutoStartKey: @YES,
 		};
 		result = AudioHardwareCreateAggregateDevice((__bridge CFDictionaryRef)aggregate_properties,
 			&backend->aggregate_device);
