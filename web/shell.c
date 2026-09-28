@@ -57,6 +57,16 @@ EM_JS(int, yap_store_write, (const char *name, const char *data, int size), {
 	}
 });
 
+EM_JS(int, yap_store_remove, (const char *name), {
+	try {
+		localStorage.removeItem(UTF8ToString(name));
+		return 1;
+	} catch (e) {
+		console.error("yap: could not remove", UTF8ToString(name), e);
+		return 0;
+	}
+});
+
 /* ---- the WebSocket to the relay ---- */
 
 EM_JS(int, yap_ws_open, (const char *url), {

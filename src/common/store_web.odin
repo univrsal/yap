@@ -9,7 +9,7 @@ In a browser the same named blobs live in the page's local storage,
 which is per site and survives a reload. It can be switched off or
 full, so a write that doesn't take is reported rather than assumed.
 
-The four lines of JavaScript behind these sit with the rest of the
+The few lines of JavaScript behind these sit with the rest of the
 page's glue (see web/shell.c).
 */
 
@@ -18,6 +18,7 @@ foreign _ {
 	yap_store_exists :: proc(name: cstring) -> i32 ---
 	yap_store_read :: proc(name: cstring, buf: [^]u8, buf_size: i32) -> i32 ---
 	yap_store_write :: proc(name: cstring, data: [^]u8, size: i32) -> i32 ---
+	yap_store_remove :: proc(name: cstring) -> i32 ---
 }
 
 store_exists :: proc(name: string) -> bool {
@@ -38,6 +39,15 @@ store_read :: proc(name: string, allocator := context.allocator) -> (text: strin
 store_write :: proc(name: string, text: string, private := false) -> bool {
 	if yap_store_write(temp_cstring(name), raw_data(text), i32(len(text))) == 0 {
 		log.errorf("failed to store %s (is local storage full or switched off?)", name)
+		return false
+	}
+	return true
+}
+
+// store_remove deletes `name`; one that isn't there is already gone.
+store_remove :: proc(name: string) -> bool {
+	if yap_store_remove(temp_cstring(name)) == 0 {
+		log.errorf("failed to remove %s from local storage", name)
 		return false
 	}
 	return true

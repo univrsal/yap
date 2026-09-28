@@ -426,6 +426,7 @@ Command :: union {
 	Watch_Command,
 	DM_Command,
 	DM_Typing_Command,
+	Delete_DM_Command,
 	DM_Image_Command,
 	Send_File_Command,
 	File_Action_Command,
@@ -559,6 +560,8 @@ process_commands :: proc(c: ^Voice_Client) {
 			dm_send(c, v.to, v.name, v.text)
 		case DM_Typing_Command:
 			dm_typing(c, v.to)
+		case Delete_DM_Command:
+			dm_delete(c, v.with)
 		case DM_Image_Command:
 			// The client takes the JPEG over, so it isn't freed twice.
 			dm_send_image(c, v.to, v.name, v.image)

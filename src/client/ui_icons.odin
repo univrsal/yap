@@ -30,6 +30,7 @@ Icon :: enum {
 	Screen, // a monitor: sharing a screen, or watching one
 	Buddies, // two people: the buddy list
 	File, // a sheet of paper with a corner turned down: send a file
+	Trash, // a bin with its lid on: delete
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -165,6 +166,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return two_people(p)
 	case .File:
 		return document(p)
+	case .Trash:
+		return bin(p)
 	}
 	return 1
 }
@@ -176,6 +179,20 @@ monitor :: proc(p: Point) -> f32 {
 	d := abs(rounded_box(p, {0.5, 0.40}, {0.39, 0.27}, 0.07)) - STROKE / 2
 	d = nearer(d, capsule(p, {0.5, 0.67}, {0.5, 0.83}, STROKE))
 	d = nearer(d, capsule(p, {0.30, 0.85}, {0.70, 0.85}, STROKE))
+	return d
+}
+
+// A waste bin, outlined, with two ribs down it, under a lid with a
+// handle on top.
+@(private = "file")
+bin :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := capsule(p, {0.16, 0.24}, {0.84, 0.24}, STROKE)
+	handle := abs(rounded_box(p, {0.5, 0.18}, {0.12, 0.07}, 0.04)) - STROKE / 2
+	d = nearer(d, max(handle, p.y - 0.22))
+	d = nearer(d, abs(rounded_box(p, {0.5, 0.62}, {0.24, 0.24}, 0.06)) - STROKE / 2)
+	d = nearer(d, capsule(p, {0.42, 0.50}, {0.42, 0.74}, STROKE))
+	d = nearer(d, capsule(p, {0.58, 0.50}, {0.58, 0.74}, STROKE))
 	return d
 }
 

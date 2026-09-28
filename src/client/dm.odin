@@ -104,6 +104,12 @@ DM_Command :: struct {
 	text: string, // owned by the command
 }
 
+// Delete_DM_Command deletes the conversation with someone: its history,
+// here and on disk (dm_delete).
+Delete_DM_Command :: struct {
+	with: [proto.KEY_SIZE]u8,
+}
+
 // DM_Typing_Command says we're typing to someone.
 DM_Typing_Command :: struct {
 	to: [proto.KEY_SIZE]u8,
@@ -406,6 +412,27 @@ dm_conversation :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) -> ^DM_Conver
 	c.dms.conversations[key] = conv
 	dm_save_index(c)
 	return conv
+}
+
+/*
+dm_delete forgets the conversation with `key`: its messages, its file in
+the store and its line in the index. Only our copy goes; they keep
+theirs. A message of ours still on its way to them goes on (it's in the
+outbox, not the conversation), and anything they send after this starts
+a new conversation.
+*/
+dm_delete :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) {
+	conv, had := c.dms.conversations[key]
+	if had {
+		delete_key(&c.dms.conversations, key)
+		conversation_destroy(conv)
+	}
+	if c.dms.dir != "" {
+		common.store_remove(conversation_store_name(c, key))
+		dm_save_index(c)
+	}
+	publish_dm_deleted(c, key)
+	log.infof("dm: deleted the conversation with %s", fingerprint(key))
 }
 
 // add_message appends to a conversation, dropping the oldest past

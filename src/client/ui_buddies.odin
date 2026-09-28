@@ -39,6 +39,10 @@ UI_Buddies :: struct {
 	// someone just left, and it's worth asking again.
 	seen_asked:   time.Tick,
 	seen_online:  int,
+	// The delete button was pressed: the confirmation opens for the
+	// conversation with `deleting` (delete_confirm).
+	confirm:      bool,
+	deleting:     [proto.KEY_SIZE]u8,
 }
 
 // Paste_Target is where a pasted image goes: the channel's chat, or a
@@ -55,6 +59,12 @@ LAST_SEEN_REFRESH :: 30 * time.Second
 // How long a notice under the conversation's header stays.
 @(private = "file")
 NOTICE_SHOW :: 5 * time.Second
+
+// The confirmation before a conversation is deleted.
+@(private = "file")
+DELETE_CONFIRM :: "delete conversation"
+@(private = "file")
+DELETE_CONFIRM_WIDTH :: 260
 
 // The buddy list's colours: a buddy who's here, and one who isn't.
 @(private = "file")
@@ -117,6 +127,7 @@ buddies_screen :: proc(ui: ^UI) {
 	}
 	conversation(ui)
 	user_menu(ui)
+	delete_confirm(ui)
 }
 
 @(private = "file")
@@ -218,8 +229,18 @@ conversation :: proc(ui: ^UI) {
 		}
 	}
 
-	mu.layout_row(ctx, {-1})
+	conv, have := &v.dms[key]
+	// Their name, and the button that deletes what's been said.
+	if have {
+		mu.layout_row(ctx, {-(ICON_BUTTON + ctx.style.spacing), ICON_BUTTON})
+	} else {
+		mu.layout_row(ctx, {-1})
+	}
 	mu.label(ctx, entry.name if entry.buddy else fmt.tprintf("%s  (not a buddy)", entry.name))
+	if have &&
+	   .SUBMIT in icon_button(ui, "dm delete", .Trash, "Delete this conversation", OFF_COLOR) {
+		ui.buddies.confirm, ui.buddies.deleting = true, key
+	}
 	mu.layout_row(ctx, {-1})
 	status := "here now" if entry.online != 0 else last_seen_text(ui, key)
 	status_color := ONLINE_COLOR if entry.online != 0 else DIM_COLOR
@@ -239,7 +260,6 @@ conversation :: proc(ui: ^UI) {
 	// Leave room for the input row below, as the chat does.
 	input_h := ctx.style.size.y + 2 * ctx.style.padding
 	mu.layout_row(ctx, {-1}, -(input_h + ctx.style.spacing + 1))
-	conv, have := &v.dms[key]
 	if have {
 		// Open, so it's been seen.
 		conv.unread = 0
@@ -293,6 +313,66 @@ conversation :: proc(ui: ^UI) {
 	log.debug("ui: direct message")
 	push_command(&ui.session.client.commands, DM_Command{to = key, text = strings.clone(text)})
 	ui.buddies.len = 0
+}
+
+/*
+delete_confirm asks whether to delete the conversation the delete
+button was pressed for, and does it: the history goes (dm_delete), and
+the conversation closes. A buddy stays in the list, with nothing said
+yet; anyone else leaves it. Clicking anywhere else is no. Call with the
+View locked.
+*/
+@(private = "file")
+delete_confirm :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	b := &ui.buddies
+	if b.confirm {
+		b.confirm = false
+		mu.open_popup(ctx, DELETE_CONFIRM)
+	}
+	if cnt := mu.get_container(ctx, DELETE_CONFIRM, {.CLOSED}); cnt != nil && cnt.open {
+		w, h := i32(ui.metrics.logical_w), i32(ui.metrics.logical_h)
+		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
+		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
+	}
+	if !mu.begin_popup(ctx, DELETE_CONFIRM) {
+		return
+	}
+	defer mu.end_popup(ctx)
+
+	key := b.deleting
+	name := fingerprint(key)
+	for e in buddy_list(&ui.settings, &ui.view) {
+		if e.key == key {
+			name = e.name
+			break
+		}
+	}
+	mu.layout_row(ctx, {DELETE_CONFIRM_WIDTH})
+	mu.label(ctx, fmt.tprintf("Delete the conversation with %s?", name))
+	mu.layout_row(ctx, {DELETE_CONFIRM_WIDTH}, 0)
+	with_text_color(
+		ctx,
+		DIM_COLOR,
+		"Every message in it is removed from this computer, for good. They keep their copy.",
+		text_proc,
+	)
+	half := (DELETE_CONFIRM_WIDTH - ctx.style.spacing) / 2
+	mu.layout_row(ctx, {half, half})
+	if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
+		mu.get_current_container(ctx).open = false
+	}
+	if .SUBMIT in stable_button(ctx, "delete", "Delete") {
+		mu.get_current_container(ctx).open = false
+		if ui.session != nil {
+			log.debug("ui: delete a conversation")
+			push_command(&ui.session.client.commands, Delete_DM_Command{with = key})
+		}
+		if b.has_selected && b.selected == key {
+			b.has_selected = false
+			b.len = 0
+		}
+	}
 }
 
 /*

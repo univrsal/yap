@@ -38,3 +38,15 @@ store_write :: proc(name: string, text: string, private := false) -> bool {
 	}
 	return true
 }
+
+// store_remove deletes `name`; one that isn't there is already gone.
+store_remove :: proc(name: string) -> bool {
+	if !os.exists(name) {
+		return true
+	}
+	if err := os.remove(name); err != nil {
+		log.errorf("failed to remove %s: %v", name, err)
+		return false
+	}
+	return true
+}

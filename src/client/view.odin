@@ -267,6 +267,40 @@ publish_dm_conversation :: proc(c: ^Voice_Client, conv: ^DM_Conversation, unread
 	vc.changes += 1
 }
 
+// publish_dm_deleted takes a deleted conversation off the screen, with
+// the pictures and files that were in it.
+publish_dm_deleted :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	sync.guard(&v.mutex)
+	delete_key(&v.dm_typing, key)
+	conv, had := v.dms[key]
+	if !had {
+		return
+	}
+	for m in conv.messages {
+		if m.is_image {
+			if img, ok := v.dm_images[m.image.id]; ok {
+				delete(img.jpeg)
+				delete_key(&v.dm_images, m.image.id)
+			}
+		}
+		if m.is_file {
+			if f, ok := v.dm_files[m.id]; ok {
+				delete(f.name)
+				delete(f.path)
+				delete_key(&v.dm_files, m.id)
+			}
+		}
+	}
+	view_conversation_clear(&conv)
+	delete(conv.messages)
+	delete(conv.name)
+	delete_key(&v.dms, key)
+}
+
 // publish_file shows how a transfer is going, at most every
 // FILE_PUBLISH_INTERVAL unless `force` (a change of state).
 publish_file :: proc(c: ^Voice_Client, t: ^File_Transfer, force := false) {
