@@ -17,9 +17,18 @@ on) are macros or inline functions in the headers, which call through
 the objects' own method tables rather than a libpipewire symbol.
 
 On Windows it's WASAPI process loopback (Windows 10 build 19041 and
-later), and on macOS a Core Audio process tap (macOS 14.2 and later),
-which is why this is built as Objective-C there. Anywhere else tinyaac
-compiles to a backend that reports itself unavailable.
+later). tinyaac.h uses a few COM interface and format GUIDs that no
+import library we link defines, so they're defined at the end of this
+file, with the values miniaudio uses for the same ones.
+
+On macOS it's a Core Audio process tap (macOS 14.2 and later), which is
+why this is built as Objective-C there, with ARC as tinyaac.h asks. Its
+macOS part names AppKit's NSRunningApplication, pthreads and the tap API
+(AudioHardwareTapping.h, CATapDescription.h) without importing them,
+so they're imported here first.
+
+Anywhere else tinyaac compiles to a backend that reports itself
+unavailable.
 */
 #if defined(__linux__)
 #define _GNU_SOURCE 1
@@ -109,11 +118,11 @@ static int yap_pw_load(void)
 #define pw_stream_get_nsec (*yap_dl_pw_stream_get_nsec)
 #endif
 
-#if defined(_WIN32)
-/* The COM interface ids tinyaac uses (IID_IAudioClient and the like)
- * are defined here rather than taken from an import library. */
-#include <windows.h>
-#include <initguid.h>
+#if defined(__APPLE__)
+#include <pthread.h>
+#import <AppKit/AppKit.h>
+#import <CoreAudio/AudioHardwareTapping.h>
+#import <CoreAudio/CATapDescription.h>
 #endif
 
 #define TINYAAC_IMPLEMENTATION
@@ -129,3 +138,11 @@ tinyaac_status yap_aac_init(void)
 #endif
 	return tinyaac_init();
 }
+
+#if defined(_WIN32)
+const IID IID_IAudioClient = {0x1CB9AD4C, 0xDBFA, 0x4C32, {0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2}};
+const IID IID_IAudioCaptureClient = {0xC8ADBD64, 0xE71E, 0x48A0, {0xA4, 0xDE, 0x18, 0x5C, 0x39, 0x5C, 0xD3, 0x17}};
+const IID IID_IActivateAudioInterfaceCompletionHandler = {0x41D949AB, 0x9862, 0x444A, {0x80, 0xF6, 0xC2, 0x61, 0x33, 0x4D, 0xA5, 0xEB}};
+const GUID KSDATAFORMAT_SUBTYPE_PCM = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71}};
+const GUID KSDATAFORMAT_SUBTYPE_IEEE_FLOAT = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71}};
+#endif
