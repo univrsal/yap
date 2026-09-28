@@ -7,14 +7,13 @@ A sloppy, minimal and limited VOIP application.
 - Uses only UDP (WebSocket for web client)
 - Minimal runtime dependencies (Mostly only Glfw)
 - Uses [noise protocol](https://noiseprotocol.org) for encryption between client and server\*
-- Builtin [RNN](https://github.com/xiph/rnnoise) for noise reduction
-- Opus as audio codec with three per user quality options: 24kbit/s, 64kbit/s and 192kbit/s stereo
+- Uses [RNN](https://github.com/xiph/rnnoise) and Opus (with three options 24kbit/s, 64kbit/s and 192kbit/s stereo)
 - Simple per channel chat, retains the last 50 messages per channel
 - Paste images from clipboard into chat
 - Per user volumes, muting and poking
 - Optional server password; the client remembers the last 10 servers
 - No permission system
-- Per-user chats with file transfers
+- Per user direct chats with file transfers
 - Screen sharing (low frame rate) between web clients (not for native clients)
 - Global hotkeys (requires `input` group on wayland)
 

@@ -96,6 +96,7 @@ UI :: struct {
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
 	chat:                UI_Chat, // the chat tab (ui_chat.odin)
 	video:               UI_Video, // screen sharing (ui_video.odin)
+	app_audio:           UI_App_Audio, // sharing an application's audio (app_audio_native.odin)
 	muted:               bool,
 	deafened:            bool,
 	// Mute as it was before deafening turned it on, so undeafening can
@@ -238,6 +239,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	// Audio problems shouldn't keep the rest of the client from working;
 	// the settings page shows what went wrong.
 	audio_init(&ui.audio)
+	app_audio_init(ui)
 
 	glfw.SetErrorCallback(glfw_error_callback)
 	if !glfw.Init() {
@@ -342,6 +344,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		set_listen_back(ui, false)
 	}
 	monitor_update(ui)
+	app_audio_frame(ui)
 	show_pokes(ui)
 	// Before the tray, so it shows what a hotkey just did, and before
 	// giving up for a hidden window, since they work without one.
@@ -428,6 +431,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	}
 	ui_images_destroy(ui)
 	ui_video_destroy(ui)
+	app_audio_destroy(ui)
 	delete(ui.text_boxes)
 	// Whatever the paste thread is doing, it uses the clipboard, so it
 	// has to be done before that.
@@ -754,6 +758,7 @@ disconnect :: proc(ui: ^UI, play_goodbye := false) {
 	}
 	// Nobody to share with any more.
 	video_share_stop()
+	app_audio_stop(ui)
 	if ns.goodbye_tail {
 		disconnect_finish(ui)
 		return
@@ -1067,6 +1072,7 @@ session_screen :: proc(ui: ^UI) {
 	}
 	mu.end_panel(ctx)
 	user_menu(ui)
+	app_audio_menu(ui)
 
 	if narrow {
 		mu.layout_row(ctx, {-1}, -1)
@@ -1083,26 +1089,16 @@ session_header :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 	can_share := video_can_share()
-	if can_share {
-		mu.layout_row(
-			ctx,
-			{
-				-242,
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-			},
-		)
-	} else {
-		mu.layout_row(
-			ctx,
-			{-208, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
-		)
+	can_share_audio := app_audio_available(ui)
+	// The status, then the connection indicator and the buttons, each
+	// ICON_BUTTON wide plus the spacing between them.
+	icons := 6 + int(can_share) + int(can_share_audio)
+	widths: [9]i32
+	widths[0] = -i32(4 + (ICON_BUTTON + 4) * icons)
+	for &w in widths[1:][:icons] {
+		w = ICON_BUTTON
 	}
+	mu.layout_row(ctx, widths[:1 + icons])
 	switch v.status {
 	case .Connected:
 		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
@@ -1133,6 +1129,9 @@ session_header :: proc(ui: ^UI) {
 	}
 	if can_share {
 		share_button(ui)
+	}
+	if can_share_audio {
+		app_audio_button(ui)
 	}
 	buddies_button(ui)
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {

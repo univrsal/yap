@@ -16,6 +16,10 @@ src/client/dialogs/*.a
 src/client/dialogs/*.lib
 src/client/dialogs/*.o
 src/client/dialogs/*.obj
+src/client/aac/*.a
+src/client/aac/*.lib
+src/client/aac/*.o
+src/client/aac/*.obj
 src/client/assets/*.res
 web/out/
 web/deps/

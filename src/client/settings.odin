@@ -28,6 +28,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"gate_open_db": -45,
 		"gate_close_db": -55,
 		"notification_volume": 1,
+		"app_audio_volume": 1,
 		"ui_scale": 1,
 		"mute_hotkey": "Ctrl+Shift+M",
 		"deafen_hotkey": "",
@@ -70,6 +71,9 @@ Settings :: struct {
 	gate_close_db:       f32,
 	// How loudly local join, leave, message, and poke effects are mixed.
 	notification_volume: f32, // 1 = as encoded, 0..MAX_USER_VOLUME
+	// How loudly a shared application's audio is sent
+	// (app_audio_native.odin).
+	app_audio_volume:    f32, // 1 = as it plays, 0..MAX_USER_VOLUME
 	// How fast files in DMs may go out and come in, in MB/s; 0 for no
 	// limit (files.odin).
 	upload_limit:        f32,
@@ -117,6 +121,7 @@ DEFAULT_SETTINGS :: Settings {
 	gate_open_db        = DEFAULT_GATE_OPEN_DB,
 	gate_close_db       = DEFAULT_GATE_CLOSE_DB,
 	notification_volume = 1,
+	app_audio_volume    = 1,
 	ui_scale            = 1,
 }
 
@@ -286,6 +291,10 @@ gate_command :: proc(s: ^Settings) -> Gate_Command {
 
 notification_gain :: proc(s: ^Settings) -> f32 {
 	return clamp(s.notification_volume, 0, MAX_USER_VOLUME)
+}
+
+app_audio_gain :: proc(s: ^Settings) -> f32 {
+	return clamp(s.app_audio_volume, 0, MAX_USER_VOLUME)
 }
 
 // ui_scale_factor is the configured UI zoom, clamped in case a hand-edited

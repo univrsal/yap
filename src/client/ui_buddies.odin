@@ -117,6 +117,7 @@ buddies_screen :: proc(ui: ^UI) {
 	}
 	conversation(ui)
 	user_menu(ui)
+	app_audio_menu(ui)
 }
 
 @(private = "file")

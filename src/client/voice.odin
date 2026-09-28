@@ -14,6 +14,7 @@ The voice pipeline. Everything here runs on the network thread; the audio
 devices only touch the two rings (see voice_io.odin):
 
 	microphone -> capture ring -> [encode] -> Voice packet -> server
+	shared application -> app ring -^
 	server -> Voice packet -> [decode, per speaker] -> jitter queue
 	       -> [mix] -> playback ring -> speakers
 
@@ -26,7 +27,10 @@ samples. Mixing is paced by the playback ring's fill level, so it follows
 the output device's clock.
 
 Captured frames go through noise suppression (RNNoise, optional) and the
-voice gate (optional, see gate.odin) before encoding.
+voice gate (optional, see gate.odin) before encoding. The audio of an
+application being shared (app_audio_native.odin) goes around both: it's
+mixed in after them, so the gate neither hears it nor holds it back, and
+it's sent while muted, too.
 
 Loss handling: packets carry a per-sender sequence number that advances
 every 20 ms whether or not anything was sent. A short gap is lost packets:
@@ -59,6 +63,12 @@ MAX_CONCEAL :: 5
 SPEAKER_TIMEOUT :: 10 * time.Second
 // If the network thread falls behind, don't send a backlog of old audio.
 MAX_CAPTURE_BACKLOG :: 5 * FRAME
+// A shared application's audio starts being mixed in once 60 ms are
+// queued (it arrives in chunks of up to ~40 ms, the PipeWire quantum), and
+// is trimmed back to that past 160 ms: it runs on its own clock, not the
+// microphone's.
+APP_PREFILL :: 3 * FRAME
+APP_MAX :: 8 * FRAME
 
 Speaker :: struct {
 	decoder:      ^opus.Decoder,
@@ -107,6 +117,13 @@ Voice :: struct {
 	loopback:         Ring, // same thread in and out, like a speaker's queue
 	looping:          bool, // prefill reached, being mixed
 	notifications:    Notification_Sounds,
+	// A shared application's audio (app_audio_native.odin): its capture
+	// thread -> network thread. app_input is set atomically by whoever
+	// feeds it, like `input`.
+	app:              Ring,
+	app_input:        bool,
+	app_playing:      bool, // prefill reached, being mixed
+	app_volume:       f32, // 1 = as the application plays it
 	// How much to keep queued for the output device (see OUTPUT_TARGET).
 	output_target:    int,
 	speakers:         map[proto.User_Num]^Speaker,
@@ -138,6 +155,8 @@ voice_init :: proc(v: ^Voice) -> bool {
 	ring_init(&v.capture, SAMPLE_RATE / 2 * CHANNELS)
 	ring_init(&v.playback, SAMPLE_RATE / 2 * CHANNELS)
 	ring_init(&v.loopback, JITTER_MAX + 4 * FRAME)
+	ring_init(&v.app, SAMPLE_RATE / 2 * CHANNELS)
+	v.app_volume = 1
 	notifications_init(&v.notifications)
 	v.output_target = output_target()
 	v.capture_channels = CHANNELS
@@ -174,13 +193,14 @@ voice_destroy :: proc(v: ^Voice) {
 	ring_destroy(&v.capture)
 	ring_destroy(&v.playback)
 	ring_destroy(&v.loopback)
+	ring_destroy(&v.app)
 	notifications_destroy(&v.notifications)
 }
 
 // voice_step encodes and sends captured audio, and keeps the output fed.
 voice_step :: proc(c: ^Voice_Client) {
 	v := &c.voice
-	if sync.atomic_load(&v.input) {
+	if sync.atomic_load(&v.input) || sync.atomic_load(&v.app_input) {
 		send_captured(c)
 	}
 	if sync.atomic_load(&v.output) {
@@ -189,16 +209,33 @@ voice_step :: proc(c: ^Voice_Client) {
 	expire_speakers(v)
 }
 
+/*
+send_captured encodes and sends a frame for every 20 ms of microphone
+audio, with a shared application's mixed in. The microphone sets the
+pace; without one, the application does, and the frames it's mixed into
+are silent.
+*/
 @(private = "file")
 send_captured :: proc(c: ^Voice_Client) {
 	v := &c.voice
+	mic := sync.atomic_load(&v.input)
 	if backlog := ring_available(&v.capture) - capture_backlog(); backlog > 0 {
 		ring_skip(&v.capture, backlog)
 	}
 
 	frame: [FRAME]f32
-	for ring_available(&v.capture) >= FRAME {
-		ring_read(&v.capture, frame[:])
+	for {
+		if mic {
+			if ring_available(&v.capture) < FRAME {
+				break
+			}
+			ring_read(&v.capture, frame[:])
+		} else {
+			if !app_frame_ready(v) {
+				break
+			}
+			frame = {}
+		}
 		// The sequence number tracks time, so it advances even for frames
 		// that aren't sent; receivers read long gaps as pauses.
 		seq := v.send_seq
@@ -207,11 +244,20 @@ send_captured :: proc(c: ^Voice_Client) {
 		level, pass := mic_process(v, frame[:])
 		listen_feed(v, frame[:], pass)
 		publish_mic(c, level, v.gate.open)
-		if v.muted || v.encoder == nil || !c.has_current || !in_settled_channel(c) {
+		// Muted or gated, the microphone's part of the frame is silence,
+		// and only the application's goes out.
+		mic_on := pass && !v.muted
+		if !mic_on {
+			frame = {}
+		}
+		app_on := app_mix(v, frame[:])
+		if v.encoder == nil || !c.has_current || !in_settled_channel(c) {
 			continue
 		}
-		if !pass {
-			v.gated += 1
+		if !mic_on && !app_on {
+			if !v.muted {
+				v.gated += 1
+			}
 			continue
 		}
 
@@ -372,6 +418,61 @@ decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
 		return
 	}
 	ring_write(&sp.queue, pcm[:n * CHANNELS])
+}
+
+/*
+app_mix adds a frame of the shared application's audio to `frame` (which
+mic_process has left as it will be sent), and says whether there was
+any. It's buffered and drift-corrected like a speaker, since the
+application plays on its own clock. Everything queued is dropped while
+nothing is shared, so a share starts fresh.
+*/
+app_mix :: proc(v: ^Voice, frame: []f32) -> bool {
+	queued := ring_available(&v.app)
+	if !sync.atomic_load(&v.app_input) {
+		ring_skip(&v.app, queued)
+		v.app_playing = false
+		return false
+	}
+	if !v.app_playing {
+		if queued < APP_PREFILL {
+			return false
+		}
+		v.app_playing = true
+	}
+	if queued > APP_MAX {
+		ring_skip(&v.app, queued - APP_PREFILL)
+	}
+	app: [FRAME]f32
+	got := ring_read(&v.app, app[:len(frame)])
+	if got < len(frame) {
+		v.app_playing = false // ran dry: buffer up again before resuming
+	}
+	gain := v.app_volume
+	if QUALITY_PRESETS[v.quality].channels == 1 {
+		// Mono presets send the left channel; both sides of the
+		// application go into it.
+		for i := 0; i < got; i += CHANNELS {
+			s := (app[i] + app[i + 1]) / 2 * gain
+			frame[i] = clamp(frame[i] + s, -1, 1)
+			frame[i + 1] = frame[i]
+		}
+	} else {
+		for s, i in app[:got] {
+			frame[i] = clamp(frame[i] + s * gain, -1, 1)
+		}
+	}
+	return true
+}
+
+// app_frame_ready is whether app_mix has a frame to give, for when the
+// application sets the pace (no microphone).
+app_frame_ready :: proc(v: ^Voice) -> bool {
+	if !sync.atomic_load(&v.app_input) {
+		return false
+	}
+	queued := ring_available(&v.app)
+	return queued >= (FRAME if v.app_playing else APP_PREFILL)
 }
 
 // listen_feed queues a processed microphone frame for listen back: the
