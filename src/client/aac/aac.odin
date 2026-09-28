@@ -27,9 +27,11 @@ when !#exists(LIB) {
 }
 
 when ODIN_OS == .Windows {
-	foreign import lib {LIB, "system:ole32.lib", "system:user32.lib"}
+	// uuid.lib for IID_IUnknown; the audio GUIDs are in yap_aac.c.
+	foreign import lib {LIB, "system:ole32.lib", "system:user32.lib", "system:uuid.lib"}
 } else when ODIN_OS == .Darwin {
-	foreign import lib {LIB, "system:Foundation.framework", "system:CoreAudio.framework"}
+	// AppKit for the applications' names (NSRunningApplication).
+	foreign import lib {LIB, "system:Foundation.framework", "system:AppKit.framework", "system:CoreAudio.framework"}
 } else when ODIN_OS == .Linux {
 	// libpipewire-0.3 is dlopen'd at runtime (yap_aac.c) rather than
 	// linked, so yap-client still starts without PipeWire.

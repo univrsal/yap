@@ -68,15 +68,15 @@ fi
 
 # tinyaac, for sharing an application's audio. On Linux it needs the
 # libpipewire-0.3 dev headers to compile against (dlopen'd at runtime,
-# not linked -- see yap_aac.c); on macOS it's Core Audio and Foundation,
-# so it has to be built as Objective-C. The BSDs get tinyaac's stub,
+# not linked -- see yap_aac.c); on macOS it's Core Audio and AppKit, so
+# it has to be built as Objective-C, with ARC as tinyaac.h asks. The BSDs get tinyaac's stub,
 # which says application audio is unavailable.
 aac=src/client/aac
 lib=$aac/libyap_aac.a
 if [ ! -f "$lib" ] || [ "$aac/yap_aac.c" -nt "$lib" ] || [ deps/thirdparty/tinyaac/tinyaac.h -nt "$lib" ]; then
 	echo "building $lib"
 	case "$(uname -s)" in
-	Darwin) aac_flags="-x objective-c" ;;
+	Darwin) aac_flags="-x objective-c -fobjc-arc" ;;
 	Linux) aac_flags="$(pkg-config --cflags libpipewire-0.3)" ;;
 	*) aac_flags= ;;
 	esac
