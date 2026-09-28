@@ -69,6 +69,13 @@ MAX_CAPTURE_BACKLOG :: 5 * FRAME
 // microphone's.
 APP_PREFILL :: 3 * FRAME
 APP_MAX :: 8 * FRAME
+// A shared application counts as silent below this level (dBFS, after
+// its volume), and stops being sent once it has been for APP_HANGOVER
+// frames (500 ms), so pauses and quiet endings aren't cut short. Opus's
+// own DTX lets the low noise of a quiet application through often
+// enough to make the speaking indicator flicker.
+APP_SILENCE_DB :: -70
+APP_HANGOVER :: 25
 
 Speaker :: struct {
 	decoder:      ^opus.Decoder,
@@ -123,6 +130,7 @@ Voice :: struct {
 	app:              Ring,
 	app_input:        bool,
 	app_playing:      bool, // prefill reached, being mixed
+	app_quiet:        int, // frames in a row below APP_SILENCE_DB
 	app_volume:       f32, // 1 = as the application plays it
 	// How much to keep queued for the output device (see OUTPUT_TARGET).
 	output_target:    int,
@@ -423,9 +431,10 @@ decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
 /*
 app_mix adds a frame of the shared application's audio to `frame` (which
 mic_process has left as it will be sent), and says whether there was
-any. It's buffered and drift-corrected like a speaker, since the
-application plays on its own clock. Everything queued is dropped while
-nothing is shared, so a share starts fresh.
+any worth sending: it isn't once the application has been silent for a
+while (APP_SILENCE_DB). It's buffered and drift-corrected like a
+speaker, since the application plays on its own clock. Everything
+queued is dropped while nothing is shared, so a share starts fresh.
 */
 app_mix :: proc(v: ^Voice, frame: []f32) -> bool {
 	queued := ring_available(&v.app)
@@ -439,6 +448,7 @@ app_mix :: proc(v: ^Voice, frame: []f32) -> bool {
 			return false
 		}
 		v.app_playing = true
+		v.app_quiet = APP_HANGOVER // silent until it's heard to be otherwise
 	}
 	if queued > APP_MAX {
 		ring_skip(&v.app, queued - APP_PREFILL)
@@ -448,21 +458,28 @@ app_mix :: proc(v: ^Voice, frame: []f32) -> bool {
 	if got < len(frame) {
 		v.app_playing = false // ran dry: buffer up again before resuming
 	}
+	// What goes into the frame: at its volume, and for mono presets
+	// (which send the left channel) both sides averaged into each.
 	gain := v.app_volume
 	if QUALITY_PRESETS[v.quality].channels == 1 {
-		// Mono presets send the left channel; both sides of the
-		// application go into it.
 		for i := 0; i < got; i += CHANNELS {
 			s := (app[i] + app[i + 1]) / 2 * gain
-			frame[i] = clamp(frame[i] + s, -1, 1)
-			frame[i + 1] = frame[i]
+			app[i], app[i + 1] = s, s
 		}
 	} else {
-		for s, i in app[:got] {
-			frame[i] = clamp(frame[i] + s * gain, -1, 1)
+		for &s in app[:got] {
+			s *= gain
 		}
 	}
-	return true
+	for s, i in app[:got] {
+		frame[i] = clamp(frame[i] + s, -1, 1)
+	}
+	if got > 0 && level_dbfs(app[:got]) >= APP_SILENCE_DB {
+		v.app_quiet = 0
+	} else {
+		v.app_quiet += 1
+	}
+	return v.app_quiet <= APP_HANGOVER
 }
 
 // app_frame_ready is whether app_mix has a frame to give, for when the

@@ -51,6 +51,49 @@ test_app_mix :: proc(t: ^testing.T) {
 	testing.expect_value(t, frame[0], 1)
 }
 
+// A quiet application isn't sent (its noise would come through Opus's
+// DTX now and then), except for a while after it was last heard.
+@(test)
+test_app_mix_silence :: proc(t: ^testing.T) {
+	v: Voice
+	testing.expect(t, voice_init(&v))
+	defer voice_destroy(&v)
+	sync.atomic_store(&v.app_input, true)
+
+	// Square waves, the same on both sides (the default preset is mono).
+	quiet, loud: [FRAME]f32
+	for &s, i in quiet {
+		s = 1e-5 if i / CHANNELS % 2 == 0 else -1e-5 // -100 dBFS
+	}
+	for &s, i in loud {
+		s = 0.2 if i / CHANNELS % 2 == 0 else -0.2
+	}
+	// One frame of `samples`, with nothing older left queued before it.
+	mix :: proc(v: ^Voice, samples: []f32) -> bool {
+		ring_skip(&v.app, ring_available(&v.app))
+		for ring_available(&v.app) < APP_PREFILL {
+			ring_write(&v.app, samples)
+		}
+		frame: [FRAME]f32
+		return app_mix(v, frame[:])
+	}
+
+	testing.expect(t, !mix(&v, quiet[:]), "a quiet application was sent")
+	testing.expect(t, mix(&v, loud[:]))
+	for i in 0 ..< APP_HANGOVER {
+		testing.expectf(t, mix(&v, quiet[:]), "cut off %d frames into a pause", i)
+	}
+	testing.expect(t, !mix(&v, quiet[:]), "still sent after the hangover")
+	testing.expect(t, mix(&v, loud[:]))
+
+	// Turned down to nothing, it's silent however loud it plays.
+	v.app_volume = 0
+	for _ in 0 ..= APP_HANGOVER {
+		mix(&v, loud[:])
+	}
+	testing.expect(t, !mix(&v, loud[:]))
+}
+
 // A mono preset sends the left channel, so the application's two sides
 // are averaged into it, as the microphone's are.
 @(test)
