@@ -233,7 +233,7 @@ conversation :: proc(ui: ^UI) {
 	conv, have := &v.dms[key]
 	// Their name, and the button that deletes what's been said.
 	if have {
-		mu.layout_row(ctx, {-(ICON_BUTTON + ctx.style.spacing), ICON_BUTTON})
+		mu.layout_row(ctx, {-(ICON_BUTTON + ctx.style.spacing * 2), ICON_BUTTON})
 	} else {
 		mu.layout_row(ctx, {-1})
 	}
