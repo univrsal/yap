@@ -120,7 +120,7 @@ picture, and a way back. Call with the View locked.
 */
 fullscreen_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {-(70 + ctx.style.spacing), 70})
+	title_row(ui, {-(70 + ctx.style.spacing), 70})
 	with_text_color(
 		ctx,
 		DIM_COLOR,

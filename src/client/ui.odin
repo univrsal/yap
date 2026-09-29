@@ -139,6 +139,11 @@ UI :: struct {
 	// Logical pixels per window coordinate, for mouse input. See
 	// window_metrics.
 	input_scale:         f32,
+	// The strip along the top where macOS draws the window's buttons
+	// over the UI, in logical pixels: where the first row starts, and
+	// how tall the strip is. Zero elsewhere (see ui_titlebar_darwin.odin).
+	titlebar_left:       i32,
+	titlebar_height:     i32,
 	// Where this frame's text boxes are, and whether one has the focus:
 	// for a phone's keyboard, in a web build (see ui_text_box.odin).
 	text_boxes:          [dynamic]Text_Box,
@@ -397,6 +402,9 @@ draw_frame :: proc(ui: ^UI) {
 		ui.metrics = m
 	}
 	ui.input_scale = m.input_scale
+	left, height := titlebar_area(ui.window)
+	ui.titlebar_left = i32(left * m.input_scale)
+	ui.titlebar_height = i32(height * m.input_scale)
 	ui_images_frame(ui)
 	clear(&ui.text_boxes)
 	mu.begin(&ui.ctx)
@@ -520,6 +528,7 @@ window_open :: proc(ui: ^UI) -> bool {
 		ui.window = nil
 		return false
 	}
+	titlebar_merge(ui.window)
 	set_swap_pace(ui)
 	ui.renderer.images = &ui.images
 
@@ -935,7 +944,7 @@ connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {70, -74, ICON_BUTTON, ICON_BUTTON})
+	title_row(ui, {70, -74, ICON_BUTTON, ICON_BUTTON})
 	mu.label(ctx, "Server")
 	if .SUBMIT in text_box(ui, ui.server_buf[:], &ui.server_len) {
 		ui.action = .Connect
@@ -1080,6 +1089,20 @@ session_screen :: proc(ui: ^UI) {
 }
 
 /*
+title_row is mu.layout_row for a screen's first row. On macOS that row
+shares the top of the window with the close, minimize and zoom buttons
+(see ui_titlebar_darwin.odin), so it starts to the right of them; the
+widths counted from the right-hand edge stay where they are.
+*/
+title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
+	layout := mu.get_layout(&ui.ctx)
+	indent := layout.indent
+	layout.indent += max(ui.titlebar_left - layout.body.x, 0)
+	mu.layout_row(&ui.ctx, widths, height)
+	layout.indent = indent
+}
+
+/*
 session_header is the row along the top while connected: who we are
 where, how the connection is doing, and the buttons. The session screen
 and the buddy screen share it.
@@ -1097,7 +1120,7 @@ session_header :: proc(ui: ^UI) {
 	for &w in widths[1:][:icons] {
 		w = ICON_BUTTON
 	}
-	mu.layout_row(ctx, widths[:1 + icons])
+	title_row(ui, widths[:1 + icons])
 	switch v.status {
 	case .Connected:
 		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
@@ -1430,6 +1453,17 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	// Hover was worked out at the last known pointer position. If the
 	// press is somewhere else (motion events were missed), it would click
 	// whatever was under the old position, so drop the hover instead.
+	// The strip where a title bar would be moves the window instead,
+	// where it isn't a control in the main window (macOS only, see
+	// ui_titlebar_darwin.odin).
+	if btn == .LEFT &&
+	   action == glfw.PRESS &&
+	   y < g_ui.titlebar_height &&
+	   g_ui.ctx.hover_id == 0 &&
+	   g_ui.ctx.hover_root == mu.get_container(&g_ui.ctx, "yap") {
+		titlebar_press(window)
+		return
+	}
 	if action == glfw.PRESS && g_ui.ctx.mouse_pos != {x, y} {
 		g_ui.ctx.hover_id = 0
 	}

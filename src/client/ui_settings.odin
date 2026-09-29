@@ -19,7 +19,7 @@ settings_page :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.audio
 
-	mu.layout_row(ctx, {60, -230, 70, 70, 70})
+	title_row(ui, {60, -230, 70, 70, 70})
 
 	mu.label(ctx, "Name")
 	submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
