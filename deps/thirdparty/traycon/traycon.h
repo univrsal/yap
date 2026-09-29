@@ -3068,6 +3068,7 @@ static NSImage *image_from_rgba(const unsigned char *rgba, int w, int h)
                             hasAlpha:YES
                             isPlanar:NO
                       colorSpaceName:NSDeviceRGBColorSpace
+                        bitmapFormat:NSBitmapFormatAlphaNonpremultiplied
                          bytesPerRow:w * 4
                         bitsPerPixel:32];
     if (!rep) return nil;
