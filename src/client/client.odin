@@ -441,6 +441,10 @@ log_stats :: proc(c: ^Voice_Client) {
 	if v.dropouts > 0 {
 		fmt.sbprintf(&b, " | %d dropouts", v.dropouts)
 	}
+	// Should be about the application's sample rate while sharing.
+	if received := sync.atomic_exchange(&v.app_received, 0); sync.atomic_load(&v.app_input) {
+		fmt.sbprintf(&b, " | app audio %d frames in", received)
+	}
 	if underruns := sync.atomic_exchange(&v.underruns, 0); underruns > 0 {
 		fmt.sbprintf(&b, " | %d output underruns", underruns)
 	}

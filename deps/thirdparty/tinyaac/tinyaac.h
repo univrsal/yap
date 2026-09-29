@@ -598,10 +598,12 @@ static DWORD WINAPI tinyaac_win_capture_thread(void *data)
 	if (backend->process_handle)
 		handles[handles_count++] = backend->process_handle;
 	for (;;) {
-		DWORD wait = WaitForMultipleObjects(handles_count, handles, FALSE, INFINITE);
+		/* yap fork: the buffer is also checked every 10 ms without the
+		 * event, in case a process loopback stream never signals it. */
+		DWORD wait = WaitForMultipleObjects(handles_count, handles, FALSE, 10);
 		if (wait == WAIT_OBJECT_0)
 			break;
-		if (wait == WAIT_OBJECT_0 + 1)
+		if (wait == WAIT_OBJECT_0 + 1 || wait == WAIT_TIMEOUT)
 			tinyaac_win_drain_capture(backend, capture_client, format);
 		else if (handles_count == 3 && wait == WAIT_OBJECT_0 + 2) {
 			tinyaac_win_enqueue_event(backend, TINYAAC_EVENT_TARGET_ENDED,
