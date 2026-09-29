@@ -254,6 +254,11 @@ struct tinyaac_win_capture {
 	HRESULT start_result;
 };
 
+/* IAgileObject. ActivateAudioInterfaceAsync rejects completion handlers that are not
+ * agile with E_ILLEGAL_METHOD_CALL; defined locally to avoid depending on uuid.lib. */
+static const IID tinyaac_win_iid_agile_object = {
+	0x94ea2b94, 0xe9cc, 0x49e0, {0xc0, 0xff, 0xee, 0x64, 0xca, 0x8f, 0x5b, 0x90}};
+
 struct tinyaac_win_activation_handler {
 	IActivateAudioInterfaceCompletionHandler iface;
 	LONG references;
@@ -269,7 +274,8 @@ static HRESULT STDMETHODCALLTYPE tinyaac_win_activation_query_interface(
 		return E_POINTER;
 	*out = NULL;
 	if (IsEqualIID(iid, TINYAAC_WIN_REFIID(IID_IUnknown)) ||
-		IsEqualIID(iid, TINYAAC_WIN_REFIID(IID_IActivateAudioInterfaceCompletionHandler))) {
+		IsEqualIID(iid, TINYAAC_WIN_REFIID(IID_IActivateAudioInterfaceCompletionHandler)) ||
+		IsEqualIID(iid, TINYAAC_WIN_REFIID(tinyaac_win_iid_agile_object))) {
 		InterlockedIncrement(&((struct tinyaac_win_activation_handler *)self)->references);
 		*out = self;
 		return S_OK;
