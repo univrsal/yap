@@ -154,6 +154,7 @@ Voice :: struct {
 	concealed:         int,
 	dropouts:          int, // speakers running dry mid-speech (see Speaker.dried)
 	underruns:         u32, // atomic; incremented by the playback callback
+	app_received:      u32, // atomic; frames from the shared application
 }
 
 voice_init :: proc(v: ^Voice) -> bool {

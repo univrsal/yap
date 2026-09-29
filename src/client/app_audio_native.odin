@@ -277,6 +277,7 @@ app_audio_callback :: proc "c" (frame: ^aac.Audio_Frame, user: rawptr) {
 		s.rate, s.pos, s.prev = frame.sample_rate, 0, {}
 	}
 	frames := int(frame.frame_count)
+	sync.atomic_add(&s.voice.app_received, u32(frames))
 	CHUNK :: 256
 	stereo: [CHUNK * CHANNELS]f32
 	for done := 0; done < frames; done += CHUNK {
