@@ -63,6 +63,9 @@ MAX_CONCEAL :: 5
 SPEAKER_TIMEOUT :: 10 * time.Second
 // If the network thread falls behind, don't send a backlog of old audio.
 MAX_CAPTURE_BACKLOG :: 5 * FRAME
+// A microphone that's open but has sent nothing for this long no longer sets the pace of
+// what's sent; a shared application does instead (see send_captured).
+MIC_STALL :: 200 * time.Millisecond
 // A shared application's audio starts being mixed in once 60 ms are
 // queued (it arrives in chunks of up to ~40 ms, the PipeWire quantum), and
 // is trimmed back to that past 160 ms: it runs on its own clock, not the
@@ -129,6 +132,7 @@ Voice :: struct {
 	// feeds it, like `input`.
 	app:               Ring,
 	app_input:         bool,
+	mic_heard:         time.Tick, // when the microphone last had audio for us
 	app_playing:       bool, // prefill reached, being mixed
 	app_quiet:         int, // frames in a row below APP_SILENCE_DB
 	app_volume:        f32, // 1 = as the application plays it
@@ -223,13 +227,19 @@ voice_step :: proc(c: ^Voice_Client) {
 /*
 send_captured encodes and sends a frame for every 20 ms of microphone
 audio, with a shared application's mixed in. The microphone sets the
-pace; without one, the application does, and the frames it's mixed into
-are silent.
+pace; without one, or with one that sends nothing (MIC_STALL), the
+application does, and the frames it's mixed into are silent.
 */
 @(private = "file")
 send_captured :: proc(c: ^Voice_Client) {
 	v := &c.voice
 	mic := sync.atomic_load(&v.input)
+	if ring_available(&v.capture) > 0 {
+		v.mic_heard = time.tick_now()
+	}
+	if mic && time.tick_since(v.mic_heard) > MIC_STALL {
+		mic = false
+	}
 	if backlog := ring_available(&v.capture) - capture_backlog(); backlog > 0 {
 		ring_skip(&v.capture, backlog)
 	}
