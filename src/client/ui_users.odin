@@ -227,6 +227,12 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 // user_menu shows the menu for ui.menu_user while it's open.
 user_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
+	if ui.menu_user == ui.view.my_num {
+		if ui.view.my_num > 0 {
+			log.warnf("ui: tried to open user menu for self %i//%i", ui.menu_user, ui.view.my_num)
+		}
+		return
+	}
 	if ui.menu_requested {
 		ui.menu_requested = false
 		mu.open_popup(ctx, MENU)
@@ -258,17 +264,94 @@ user_menu :: proc(ui: ^UI) {
 	} else if b, is := ui.settings.buddies[user_key(key)]; is && b.name != "" {
 		name = b.name
 	}
-	myself := here && ui.menu_user == ui.view.my_num
-	mu.layout_row(ctx, {MENU_WIDTH})
-	mu.label(ctx, name)
-	mu.layout_row(ctx, {MENU_WIDTH})
-	with_text_color(ctx, DIM_COLOR, fmt.tprintf("key %s...", user_key(key)[:16]), label_proc)
 
-	mu.layout_row(ctx, {MENU_WIDTH})
-	if .SUBMIT in stable_button(ctx, "mute", "Unmute" if u.muted else "Mute for me") {
+	num_buttons := 2
+	user_is_screen_sharing := false
+
+	if user, ok := ui.view.users[ui.menu_user];
+	   ok && user.key == key && user.sharing && ui.menu_user != ui.view.my_num {
+		user_is_screen_sharing = true
+		num_buttons += 1
+	}
+
+	if is_buddy(&ui.settings, key) {
+		num_buttons += 1
+	}
+
+	switch num_buttons {
+	case 2:
+		mu.layout_row(ctx, {i32(MENU_WIDTH - ICON_BUTTON * num_buttons), ICON_BUTTON, ICON_BUTTON})
+	case 3:
+		mu.layout_row(
+			ctx,
+			{i32(MENU_WIDTH - ICON_BUTTON * num_buttons), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
+		)
+	case 4:
+		mu.layout_row(
+			ctx,
+			{
+				i32(MENU_WIDTH - ICON_BUTTON * num_buttons),
+				ICON_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+			},
+		)
+	}
+
+	mu.label(ctx, name)
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "mute",
+		   .Mic_Off if u.muted else .Mic,
+		   "Unmute" if u.muted else "Mute for me",
+	   ) {
 		u.muted = !u.muted
 		changed = true
 	}
+
+	// Watch their screen, if they're sharing it.
+	if user_is_screen_sharing {
+		if video_can_watch() {
+			watching := ui.view.watching == ui.menu_user
+			if .SUBMIT in
+			   icon_button(
+				   ui,
+				   "watch",
+				   .Screen,
+				   "Stop watching" if watching else "Watch their screen",
+			   ) {
+				watch(ui, 0 if watching else ui.menu_user)
+			}
+		} else {
+			icon_button(
+				ui,
+				"watch",
+				.Screen,
+				"Sharing their screen (watch in a browser)",
+				DIM_COLOR,
+			)
+		}
+	}
+	if is_buddy(&ui.settings, key) {
+		if .SUBMIT in icon_button(ui, "message", .Buddies, "Open chat") {
+			open_conversation(ui, key)
+			mu.get_current_container(ctx).open = false
+		}
+		if .SUBMIT in icon_button(ui, "buddy", .Remove_Buddy, "Remove buddy") {
+			remove_buddy(&ui.settings, key)
+			ui.settings_dirty = true
+			log.debugf("ui: %s is no longer a buddy", name)
+		}
+	} else if .SUBMIT in icon_button(ui, "buddy", .Buddies, "Add as buddy") {
+		add_buddy(&ui.settings, key, name if here else "")
+		ui.settings_dirty = true
+		log.debugf("ui: %s is a buddy now", name)
+	}
+
+	mu.layout_row(ctx, {MENU_WIDTH})
+	with_text_color(ctx, DIM_COLOR, fmt.tprintf("key %s...", user_key(key)[:16]), label_proc)
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 	mu.label(ctx, "Volume")
@@ -277,57 +360,9 @@ user_menu :: proc(ui: ^UI) {
 		changed = true
 	}
 
-	mu.layout_row(ctx, {MENU_WIDTH})
-	if .SUBMIT in stable_button(ctx, "reset", "Reset") {
-		u = DEFAULT_USER
-		ui.menu_volume = 100
-		changed = true
-	}
-
-	// Watch their screen, if they're sharing it.
-	if user, ok := ui.view.users[ui.menu_user];
-	   ok && user.key == key && user.sharing && ui.menu_user != ui.view.my_num {
-		mu.layout_row(ctx, {MENU_WIDTH})
-		if video_can_watch() {
-			watching := ui.view.watching == ui.menu_user
-			if .SUBMIT in
-			   stable_button(ctx, "watch", "Stop watching" if watching else "Watch their screen") {
-				watch(ui, 0 if watching else ui.menu_user)
-			}
-		} else {
-			with_text_color(
-				ctx,
-				DIM_COLOR,
-				"Sharing their screen (watch in a browser)",
-				label_proc,
-			)
-		}
-	}
-
-	// Keep them as a buddy, or stop. Not ourselves.
-	if !myself {
-		mu.layout_row(ctx, {MENU_WIDTH})
-		if is_buddy(&ui.settings, key) {
-			if .SUBMIT in stable_button(ctx, "message", "Open conversation") {
-				open_conversation(ui, key)
-				mu.get_current_container(ctx).open = false
-			}
-			mu.layout_row(ctx, {MENU_WIDTH})
-			if .SUBMIT in stable_button(ctx, "buddy", "Remove buddy") {
-				remove_buddy(&ui.settings, key)
-				ui.settings_dirty = true
-				log.debugf("ui: %s is no longer a buddy", name)
-			}
-		} else if .SUBMIT in stable_button(ctx, "buddy", "Add as buddy") {
-			add_buddy(&ui.settings, key, name if here else "")
-			ui.settings_dirty = true
-			log.debugf("ui: %s is a buddy now", name)
-		}
-	}
-
 	// Poke them, with a message if there's one in the box. Not ourselves,
 	// and only someone who's here.
-	if here && !myself {
+	if here {
 		mu.layout_row(ctx, {MENU_WIDTH - 60 - ctx.style.spacing, 60})
 		poke := .SUBMIT in text_box(ui, ui.poke_buf[:], &ui.poke_len)
 		if .SUBMIT in stable_button(ctx, "poke", "Poke") {

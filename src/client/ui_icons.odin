@@ -29,6 +29,7 @@ Icon :: enum {
 	Send, // a paper dart: post what's in the chat box
 	Screen, // a monitor: sharing a screen, or watching one
 	Buddies, // two people: the buddy list
+	Remove_Buddy, // a person with a line through them: remove from buddies
 	File, // a sheet of paper with a corner turned down: send a file
 	Trash, // a bin with its lid on: delete
 	App_Audio, // two notes: share an application's audio
@@ -165,6 +166,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return monitor(p)
 	case .Buddies:
 		return two_people(p)
+	case .Remove_Buddy:
+		return crossed_out(one_person(p), p)
 	case .File:
 		return document(p)
 	case .Trash:
@@ -250,6 +253,12 @@ two_people :: proc(p: Point) -> f32 {
 	behind = cut(behind, front - 0.07)
 	behind = max(behind, p.y - 0.83) // and stands on the same ground
 	return nearer(front, behind)
+}
+
+// One person
+@(private = "file")
+one_person :: proc(p: Point) -> f32 {
+	return person(p, {0.40, 0.33}, 1)
 }
 
 // A microphone: the capsule you talk into, the bracket under it, and a
