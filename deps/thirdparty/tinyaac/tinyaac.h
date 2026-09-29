@@ -504,7 +504,8 @@ static DWORD WINAPI tinyaac_win_capture_thread(void *data)
 	IActivateAudioInterfaceAsyncOperation *operation = NULL;
 	IAudioClient *audio_client = NULL;
 	IAudioCaptureClient *capture_client = NULL;
-	WAVEFORMATEX *format = NULL;
+	WAVEFORMATEXTENSIBLE capture_format;
+	const WAVEFORMATEX *format = &capture_format.Format;
 	AUDIOCLIENT_ACTIVATION_PARAMS parameters;
 	PROPVARIANT activation_parameters;
 	HRESULT result = E_FAIL;
@@ -516,6 +517,7 @@ static DWORD WINAPI tinyaac_win_capture_thread(void *data)
 	if (FAILED(result))
 		goto done;
 	com_initialized = 1;
+	result = E_FAIL;
 	module = LoadLibraryW(L"Mmdevapi.dll");
 	if (!module)
 		goto done;
@@ -536,22 +538,40 @@ static DWORD WINAPI tinyaac_win_capture_thread(void *data)
 	activation_parameters.blob.pBlobData = (BYTE *)&parameters;
 	result = activate(VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, TINYAAC_WIN_REFIID(IID_IAudioClient),
 		&activation_parameters, &handler->iface, &operation);
-	if (FAILED(result) || WaitForSingleObject(handler->completed_event, 5000) != WAIT_OBJECT_0)
+	if (FAILED(result))
 		goto done;
+	if (WaitForSingleObject(handler->completed_event, 5000) != WAIT_OBJECT_0) {
+		result = HRESULT_FROM_WIN32(ERROR_TIMEOUT);
+		goto done;
+	}
 	result = handler->result;
-	if (FAILED(result) || !handler->client)
+	if (SUCCEEDED(result) && !handler->client)
+		result = E_NOINTERFACE;
+	if (FAILED(result))
 		goto done;
 	audio_client = handler->client;
 	handler->client = NULL;
-	result = IAudioClient_GetMixFormat(audio_client, &format);
-	if (FAILED(result) || !format ||
-		(!tinyaac_win_format_is_float(format) && !tinyaac_win_format_is_pcm(format)))
-		goto done;
+	/* Process loopback clients do not implement GetMixFormat (E_NOTIMPL), so the
+	 * capture format has to be supplied by the caller. */
+	memset(&capture_format, 0, sizeof(capture_format));
+	capture_format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+	capture_format.Format.nChannels = 2;
+	capture_format.Format.nSamplesPerSec = 48000;
+	capture_format.Format.wBitsPerSample = 32;
+	capture_format.Format.nBlockAlign = 2 * 32 / 8;
+	capture_format.Format.nAvgBytesPerSec = 48000 * capture_format.Format.nBlockAlign;
+	capture_format.Format.cbSize = sizeof(capture_format) - sizeof(capture_format.Format);
+	capture_format.Samples.wValidBitsPerSample = 32;
+	capture_format.dwChannelMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
+	capture_format.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
 	backend->audio_event = CreateEventW(NULL, FALSE, FALSE, NULL);
-	if (!backend->audio_event)
+	if (!backend->audio_event) {
+		result = HRESULT_FROM_WIN32(GetLastError());
 		goto done;
+	}
 	result = IAudioClient_Initialize(audio_client, AUDCLNT_SHAREMODE_SHARED,
-		AUDCLNT_STREAMFLAGS_EVENTCALLBACK, 0, 0, format, NULL);
+		AUDCLNT_STREAMFLAGS_LOOPBACK | AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+		5 * 10000000, 0, format, NULL);
 	if (FAILED(result))
 		goto done;
 	result = IAudioClient_SetEventHandle(audio_client, backend->audio_event);
@@ -592,8 +612,6 @@ done:
 	}
 	if (capture_client)
 		IAudioCaptureClient_Release(capture_client);
-	if (format)
-		CoTaskMemFree(format);
 	if (audio_client)
 		IAudioClient_Release(audio_client);
 	if (operation)
@@ -747,7 +765,15 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 	return TINYAAC_OK;
 
 failed:
-	tinyaac_internal_set_error("Unable to activate WASAPI process loopback for the selected application");
+	if (FAILED(backend->start_result)) {
+		char message[128];
+		snprintf(message, sizeof(message),
+			"Unable to activate WASAPI process loopback for the selected application "
+			"(HRESULT 0x%08lX)", (unsigned long)backend->start_result);
+		tinyaac_internal_set_error(message);
+	} else {
+		tinyaac_internal_set_error("Unable to activate WASAPI process loopback for the selected application");
+	}
 	tinyaac_win_capture_cleanup(capture, backend);
 	return TINYAAC_ERR_BACKEND;
 }
@@ -1703,8 +1729,6 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 		tap_description = [[CATapDescription alloc] init];
 		tap_description.name = @"tinyaac process tap";
 		tap_description.processes = @[@((AudioObjectID)process_id)];
-		/* yap fork: the properties are privateTap, mixdown and mono;
-		 * isPrivate, isMixdown and isMono are only their getters. */
 		tap_description.privateTap = YES;
 		tap_description.mixdown = YES;
 		tap_description.mono = NO;
@@ -1721,8 +1745,6 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 			goto failed;
 		aggregate_uid = [NSUUID UUID].UUIDString;
 		aggregate_properties = @{
-			/* yap fork: the keys are C string literals, not CFStrings,
-			 * so they're made NSStrings with @ rather than cast. */
 			@kAudioAggregateDeviceNameKey: @"tinyaac aggregate device",
 			@kAudioAggregateDeviceUIDKey: aggregate_uid,
 			@kAudioAggregateDeviceIsPrivateKey: @YES,
