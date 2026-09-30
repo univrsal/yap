@@ -177,8 +177,13 @@ select_line :: proc(ui: ^UI, item: i64, text: string, start, end: int, pos: mu.V
 	if a >= b {
 		return
 	}
-	x := pos.x + ctx.text_width(font, text[start:a])
-	mu.draw_rect(ctx, {x, pos.y, ctx.text_width(font, text[a:b]), h}, SELECTION_COLOR)
+	// Both edges are measured from the start of the line. Widths come in
+	// whole pixels, rounded up, so the width of text[a:b] by itself can
+	// be a pixel off what the two edges are apart, and the far edge
+	// would shift about as the near one moved.
+	x0 := pos.x + ctx.text_width(font, text[start:a])
+	x1 := pos.x + ctx.text_width(font, text[start:b])
+	mu.draw_rect(ctx, {x0, pos.y, x1 - x0, h}, SELECTION_COLOR)
 }
 
 // selected_range is the part of an item's text, `length` bytes long,
@@ -205,14 +210,18 @@ selected_range :: proc(s: ^Selection, item: i64, length: int) -> (lo, hi: int, o
 // where it starts, between two characters.
 @(private = "file")
 offset_at :: proc(ctx: ^mu.Context, font: mu.Font, text: string, start, end: int, x: i32) -> int {
-	w: i32
+	// Each character's edges are where the text up to them ends, as
+	// select_line paints them. Adding up the characters' own widths
+	// instead would add up their rounding too, and land further left
+	// the longer the line.
+	left: i32
 	for ch, i in text[start:end] {
-		size := utf8.rune_size(ch)
-		cw := ctx.text_width(font, text[start + i:][:size])
-		if x < w + cw / 2 {
+		next := start + i + utf8.rune_size(ch)
+		right := ctx.text_width(font, text[start:next])
+		if x < (left + right) / 2 {
 			return start + i
 		}
-		w += cw
+		left = right
 	}
 	return end
 }
