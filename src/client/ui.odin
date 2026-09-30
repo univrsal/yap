@@ -1079,7 +1079,7 @@ session_screen :: proc(ui: ^UI) {
 			marker = "~ "
 		}
 		mu.layout_row(ctx, {-1})
-		label := fmt.tprintf("%s%s (%d)", marker, ch.name, len(ch.members))
+		label := fmt.tprintf("%s%s", marker, ch.name)
 		if .SUBMIT in stable_button(ctx, "join", label) && i != v.my_channel && ui.session != nil {
 			log.debugf("ui: join %q", ch.name)
 			conn.push_command(
