@@ -8,6 +8,7 @@ import "core:time"
 
 import "common:proto"
 import "client:audio"
+import "client:settings"
 
 /*
 Sending files in DMs (see src/common/proto/files.odin for the protocol).
@@ -135,6 +136,15 @@ File_Action_Command :: struct {
 // Transfer_Limits_Command sets the settings' limits, in bytes per second.
 Transfer_Limits_Command :: struct {
 	upload, download: u32,
+}
+
+// transfer_limits_command is the transfer limits as configured in `s`,
+// in bytes per second.
+transfer_limits_command :: proc(s: ^settings.Settings) -> Transfer_Limits_Command {
+	to_bytes :: proc(mb: f32) -> u32 {
+		return u32(clamp(mb, 0, settings.MAX_TRANSFER_LIMIT) * 1024 * 1024)
+	}
+	return {upload = to_bytes(s.upload_limit), download = to_bytes(s.download_limit)}
 }
 
 files_destroy :: proc(c: ^Voice_Client) {

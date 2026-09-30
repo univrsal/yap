@@ -11,6 +11,8 @@ import "core:time"
 import "common:."
 import "common:proto"
 import "client:audio"
+import "client:platform"
+import "client:settings"
 
 /*
 Direct messages (see src/common/proto/dm.odin for the protocol): our end of
@@ -119,7 +121,7 @@ DM_Typing_Command :: struct {
 // dm_open loads the DM history kept next to `key_path` and hands it to
 // the UI.
 dm_open :: proc(c: ^Voice_Client, key_path: string) {
-	c.dms.dir = store_sibling(key_path, "dms")
+	c.dms.dir = platform.store_sibling(key_path, "dms")
 	index_name := dm_store_name(c, "index")
 	if !common.store_exists(index_name) {
 		return
@@ -129,7 +131,7 @@ dm_open :: proc(c: ^Voice_Client, key_path: string) {
 		return
 	}
 	for line in strings.split_lines_iterator(&index) {
-		key, key_ok := parse_user_key(strings.trim_space(line))
+		key, key_ok := settings.parse_user_key(strings.trim_space(line))
 		if key_ok && key not_in c.dms.conversations {
 			conv := dm_load_conversation(c, key)
 			c.dms.conversations[key] = conv
@@ -586,7 +588,7 @@ dm_store_name :: proc(c: ^Voice_Client, name: string) -> string {
 
 @(private = "file")
 conversation_store_name :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) -> string {
-	return dm_store_name(c, strings.concatenate({user_key(key), ".json"}, context.temp_allocator))
+	return dm_store_name(c, strings.concatenate({settings.user_key(key), ".json"}, context.temp_allocator))
 }
 
 @(private = "file")
@@ -596,7 +598,7 @@ dm_save_index :: proc(c: ^Voice_Client) {
 	}
 	b := strings.builder_make(context.temp_allocator)
 	for key in c.dms.conversations {
-		strings.write_string(&b, user_key(key))
+		strings.write_string(&b, settings.user_key(key))
 		strings.write_byte(&b, '\n')
 	}
 	common.store_write(dm_store_name(c, "index"), strings.to_string(b), private = true)

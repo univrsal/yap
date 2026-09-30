@@ -1,6 +1,6 @@
 #+build !windows
 #+build !wasi
-package client
+package platform
 
 import "core:os"
 import "core:thread"

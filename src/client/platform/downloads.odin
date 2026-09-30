@@ -1,5 +1,5 @@
 #+build !wasi
-package client
+package platform
 
 import log "common:wlog"
 import "core:crypto"

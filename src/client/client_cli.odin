@@ -6,6 +6,7 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import "client:audio"
+import "client:settings"
 
 
 // run_headless is the command-line client: commands come from stdin.
@@ -18,7 +19,7 @@ run_headless :: proc(
 	input_file: string,
 	image_dir: string,
 	download_dir: string,
-	limits: Settings, // only the transfer limits are read
+	limits: settings.Settings, // only the transfer limits are read
 	denoise: bool,
 	gate: bool,
 	quality: audio.Quality,

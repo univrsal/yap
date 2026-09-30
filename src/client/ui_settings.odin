@@ -4,11 +4,13 @@ import log "common:wlog"
 import "core:fmt"
 import mu "vendor:microui"
 import "client:audio"
+import "client:platform"
+import "client:settings"
 
 /*
 The settings page: name, noise suppression, the voice gate (ui_gate.odin),
 and choosing the microphone and the speakers/headphones. Changes are saved
-right away (see settings.odin) and apply to a running connection.
+right away (see settings/settings.odin) and apply to a running connection.
 
 Everything below the name row sits in one scrolling panel, grouped into
 tree nodes a person can collapse, so a short window (or one that isn't
@@ -63,7 +65,7 @@ audio_settings :: proc(ui: ^UI) {
 		return
 	}
 	defer mu.end_treenode(ctx)
-	current := settings_quality(&ui.settings)
+	current := settings.settings_quality(&ui.settings)
 	mu.layout_row(ctx, {60, 90, 90, 90})
 	mu.label(ctx, "Quality")
 	for preset, q in audio.QUALITY_PRESETS {
@@ -76,8 +78,8 @@ audio_settings :: proc(ui: ^UI) {
 				   preset.description,
 			   ) &&
 		   q != current {
-			set_setting(&ui.settings.quality, preset.name)
-			settings_save(ui.opts.settings_path, ui.settings)
+			settings.set_setting(&ui.settings.quality, preset.name)
+			settings.settings_save(ui.opts.settings_path, ui.settings)
 			if ui.session != nil {
 				push_command(&ui.session.client.commands, Quality_Command{q})
 			}
@@ -87,7 +89,7 @@ audio_settings :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in mu.checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
-		settings_save(ui.opts.settings_path, ui.settings)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
 		if ui.session != nil {
 			push_command(&ui.session.client.commands, Noise_Command{ui.settings.noise_suppression})
 		}
@@ -100,7 +102,7 @@ audio_settings :: proc(ui: ^UI) {
 			   "Mute audio sharing when microphone is muted",
 			   &ui.settings.mute_app_audio_with_mic,
 		   ) {
-			settings_save(ui.opts.settings_path, ui.settings)
+			settings.settings_save(ui.opts.settings_path, ui.settings)
 			if ui.session != nil {
 				push_command(&ui.session.client.commands, app_audio_command(&ui.settings))
 			}
@@ -125,18 +127,18 @@ ui_settings :: proc(ui: ^UI) {
 	// window_metrics) once the drag lets go.
 	id := mu.get_id(ctx, uintptr(&ui.ui_scale_draft))
 	was_dragging := ctx.focus_id == id
-	mu.slider(ctx, &ui.ui_scale_draft, MIN_UI_SCALE * 100, MAX_UI_SCALE * 100, 10, "%.0f%%")
+	mu.slider(ctx, &ui.ui_scale_draft, settings.MIN_UI_SCALE * 100, settings.MAX_UI_SCALE * 100, 10, "%.0f%%")
 	if was_dragging && ctx.focus_id != id {
 		ui.settings.ui_scale = ui.ui_scale_draft / 100
-		settings_save(ui.opts.settings_path, ui.settings)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 
-	volume := notification_gain(&ui.settings) * 100
+	volume := settings.notification_gain(&ui.settings) * 100
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Notifications volume")
-	if .CHANGE in mu.slider(ctx, &volume, 0, MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+	if .CHANGE in mu.slider(ctx, &volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.notification_volume = volume / 100
-		settings_save(ui.opts.settings_path, ui.settings)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
 		if ui.session != nil {
 			push_command(
 				&ui.session.client.commands,
@@ -145,10 +147,10 @@ ui_settings :: proc(ui: ^UI) {
 		}
 	}
 
-	when !WEB {
+	when !platform.WEB {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in mu.checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
-			settings_save(ui.opts.settings_path, ui.settings)
+			settings.settings_save(ui.opts.settings_path, ui.settings)
 			tray_update(ui)
 		}
 
@@ -160,10 +162,10 @@ ui_settings :: proc(ui: ^UI) {
 
 		mu.layout_row(ctx, {230, -1})
 		if .CHANGE in mu.checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
-			settings_save(ui.opts.settings_path, ui.settings)
+			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
 		if .CHANGE in mu.checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
-			settings_save(ui.opts.settings_path, ui.settings)
+			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
 		// Only the desktop can tell us a window has been minimized, and
 		// Wayland has no message for it, so say so rather than leave the
@@ -194,11 +196,11 @@ transfer_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "Upload limit")
 	changed |=
 		.CHANGE in
-		mu.slider(ctx, &ui.settings.upload_limit, 0, MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+		mu.slider(ctx, &ui.settings.upload_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
 	mu.label(ctx, "Download limit")
 	changed |=
 		.CHANGE in
-		mu.slider(ctx, &ui.settings.download_limit, 0, MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+		mu.slider(ctx, &ui.settings.download_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
@@ -248,8 +250,8 @@ device_settings :: proc(ui: ^UI) {
 			ui.settings.input_device,
 			200,
 		); changed {
-			set_setting(&ui.settings.input_device, choice)
-			settings_save(ui.opts.settings_path, ui.settings)
+			settings.set_setting(&ui.settings.input_device, choice)
+			settings.settings_save(ui.opts.settings_path, ui.settings)
 			log.infof("input device: %s", choice if choice != "" else "system default")
 			reopen_audio(ui, true)
 		}
@@ -263,8 +265,8 @@ device_settings :: proc(ui: ^UI) {
 			ui.settings.output_device,
 			200,
 		); changed {
-			set_setting(&ui.settings.output_device, choice)
-			settings_save(ui.opts.settings_path, ui.settings)
+			settings.set_setting(&ui.settings.output_device, choice)
+			settings.settings_save(ui.opts.settings_path, ui.settings)
 			log.infof("output device: %s", choice if choice != "" else "system default")
 			reopen_audio(ui, false)
 		}

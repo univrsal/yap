@@ -3,6 +3,7 @@ package client
 
 import log "common:wlog"
 import "core:strings"
+import "client:platform"
 
 /*
 Pasting a picture into the chat. A page can only read the clipboard
@@ -43,7 +44,7 @@ web_pasted_text :: proc() -> string {
 // one's, so pasting a picture doesn't also paste old text.
 @(export)
 web_paste_text :: proc "c" (data: [^]u8, size: i32) {
-	context = callback_context()
+	context = platform.callback_context()
 	delete(g_pasted_text)
 	g_pasted_text = strings.clone(string(data[:max(size, 0)]))
 }
@@ -56,7 +57,7 @@ web_copy_text :: proc(text: string) -> bool {
 // The bytes are copied: the page's buffer is only good for this call.
 @(export)
 web_paste_image :: proc "c" (data: [^]u8, size: i32, width, height: i32) {
-	context = callback_context()
+	context = platform.callback_context()
 	if g_ui == nil || size <= 0 {
 		return
 	}
@@ -82,6 +83,6 @@ web_paste_image :: proc "c" (data: [^]u8, size: i32, width, height: i32) {
 // The page could not make a picture of what was pasted.
 @(export)
 web_paste_failed :: proc "c" () {
-	context = callback_context()
+	context = platform.callback_context()
 	log.warn("the pasted image could not be prepared for sending")
 }

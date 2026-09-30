@@ -1,11 +1,11 @@
-package client
+package settings
 
 import "core:os"
 import "core:strings"
 import win "core:sys/windows"
 
 /*
-Installing on Windows (see ui_install_native.odin): a shortcut in the
+Installing on Windows (see the client's ui_install_native.odin): a shortcut in the
 user's Start menu, which is also what makes yap searchable from it. The
 shortcut takes its icon from the .exe (see build.bat).
 
@@ -181,7 +181,7 @@ install_query :: proc(allocator := context.allocator) -> (target: string, instal
 	return target, true
 }
 
-install_self :: proc(exe: string) -> (err: string) {
+install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 	path, ok := shortcut_path()
 	if !ok {
 		return "Could not find the Start menu."

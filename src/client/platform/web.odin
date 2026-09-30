@@ -1,4 +1,4 @@
-package client
+package platform
 
 /*
 WEB is true in a build meant for a browser: Odin compiled to wasm and

@@ -8,6 +8,7 @@ import "core:time"
 
 import "common:proto"
 import "client:audio"
+import "client:settings"
 
 // Channel_Client is the client's copy of the channel state, plus any Join
 // or name change still waiting to be acknowledged.
@@ -414,6 +415,18 @@ App_Audio_Command :: struct {
 	mute_with_mic: bool,
 }
 
+// gate_command is the voice gate as configured in `s`.
+gate_command :: proc(s: ^settings.Settings) -> Gate_Command {
+	open := clamp(s.gate_open_db, audio.MIN_LEVEL_DB, 0)
+	return {s.voice_gate, open, clamp(s.gate_close_db, audio.MIN_LEVEL_DB, open)}
+}
+
+// app_audio_command is how a shared application is sent, as configured
+// in `s`.
+app_audio_command :: proc(s: ^settings.Settings) -> App_Audio_Command {
+	return {volume = settings.app_audio_gain(s), mute_with_mic = s.mute_app_audio_with_mic}
+}
+
 Command :: union {
 	Join_Command,
 	List_Command,
@@ -547,10 +560,10 @@ process_commands :: proc(c: ^Voice_Client) {
 			g := &c.voice.gate
 			g.enabled, g.open_db, g.close_db = v.enabled, v.open_db, v.close_db
 		case Notification_Volume_Command:
-			c.voice.notifications.volume = clamp(v.volume, 0, MAX_USER_VOLUME)
+			c.voice.notifications.volume = clamp(v.volume, 0, settings.MAX_USER_VOLUME)
 			log.infof("notification volume: %.0f%%", c.voice.notifications.volume * 100)
 		case App_Audio_Command:
-			c.voice.app_volume = clamp(v.volume, 0, MAX_USER_VOLUME)
+			c.voice.app_volume = clamp(v.volume, 0, settings.MAX_USER_VOLUME)
 			c.voice.app_mute_with_mic = v.mute_with_mic
 		case Name_Command:
 			set_name(c, v.name)

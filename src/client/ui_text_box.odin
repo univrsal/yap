@@ -1,6 +1,7 @@
 package client
 
 import mu "vendor:microui"
+import "client:platform"
 
 /*
 Every text box goes through text_box, which is mu.textbox plus a note
@@ -25,7 +26,7 @@ text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.R
 	// afterwards as it did.
 	id := mu.get_id(ctx, uintptr(&buf[0]))
 	r := mu.layout_next(ctx)
-	when WEB {
+	when platform.WEB {
 		append(&ui.text_boxes, Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx))})
 	}
 	return mu.textbox_raw(ctx, buf, textlen, id, r, opt)

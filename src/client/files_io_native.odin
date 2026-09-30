@@ -5,6 +5,7 @@ import log "common:wlog"
 import "core:fmt"
 import "core:os"
 import "core:strings"
+import "client:platform"
 
 /*
 Reading a file being sent and writing one being received, on a desktop:
@@ -75,7 +76,7 @@ file_sink_create :: proc(
 ) {
 	dir := dir
 	if dir == "" {
-		dir = downloads_dir(context.temp_allocator)
+		dir = platform.downloads_dir(context.temp_allocator)
 		if dir == "" {
 			log.error("file: could not work out where the downloads folder is")
 			return

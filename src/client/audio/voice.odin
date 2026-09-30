@@ -8,6 +8,7 @@ import "core:time"
 import "common:proto"
 import "client:audio/opus"
 import "client:audio/rnn"
+import "client:platform"
 
 /*
 The voice pipeline. Everything here runs on the network thread; the audio
@@ -50,7 +51,7 @@ FRAME :: FRAME_SAMPLES * CHANNELS // one 20 ms frame, interleaved
 
 // Keep ~30 ms queued for the output device. A browser only gets to mix
 // once per animation frame (~17 ms, see net_web.odin), so it keeps 60.
-OUTPUT_TARGET :: FRAME * 3 when WEB else FRAME * 3 / 2
+OUTPUT_TARGET :: FRAME * 3 when platform.WEB else FRAME * 3 / 2
 // A speaker starts playing once 40 ms are queued (absorbs network jitter),
 // or more for a speaker whose packets come unevenly (speaker_prefill)...
 JITTER_PREFILL :: 2 * FRAME

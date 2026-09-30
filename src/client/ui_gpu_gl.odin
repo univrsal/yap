@@ -5,6 +5,7 @@ import log "common:wlog"
 import mu "vendor:microui"
 import gl "client:wgl"
 import glfw "client:wglfw"
+import "client:platform"
 
 /*
 The renderer's OpenGL 3.3 backend (WebGL 2 in a browser), for everywhere
@@ -29,7 +30,7 @@ same language as desktop GLSL 3.30 - it only wants its own version line
 and a default precision for floats.
 */
 @(private = "file")
-SHADER_HEADER :: "#version 300 es\nprecision highp float;\n" when WEB else "#version 330 core\n"
+SHADER_HEADER :: "#version 300 es\nprecision highp float;\n" when platform.WEB else "#version 330 core\n"
 
 @(private = "file")
 VERTEX_SHADER ::

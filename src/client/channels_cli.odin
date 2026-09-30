@@ -6,6 +6,7 @@ import "core:bufio"
 import "core:os"
 import "core:strings"
 import "core:thread"
+import "client:settings"
 
 /*
 Headless mode reads commands from stdin on a separate thread, so the
@@ -81,7 +82,7 @@ read_commands :: proc(q: ^Command_Queue) {
 			cmd := Send_File_Command {
 				path = strings.clone(strings.trim_space(path)),
 			}
-			if key, is_key := parse_user_key(to); is_key {
+			if key, is_key := settings.parse_user_key(to); is_key {
 				cmd.to = key
 			} else {
 				cmd.name = strings.clone(to)
@@ -99,7 +100,7 @@ read_commands :: proc(q: ^Command_Queue) {
 			}
 			push_command(q, File_Action_Command{action = action})
 		case strings.has_prefix(line, "/seen "):
-			if key, ok := parse_user_key(strings.trim_space(line[len("/seen "):])); ok {
+			if key, ok := settings.parse_user_key(strings.trim_space(line[len("/seen "):])); ok {
 				cmd := Last_Seen_Command {
 					count = 1,
 				}
@@ -118,7 +119,7 @@ read_commands :: proc(q: ^Command_Queue) {
 			cmd := DM_Image_Command {
 				image = image,
 			}
-			if key, is_key := parse_user_key(to); is_key {
+			if key, is_key := settings.parse_user_key(to); is_key {
 				cmd.to = key
 			} else {
 				cmd.name = strings.clone(to)
@@ -130,7 +131,7 @@ read_commands :: proc(q: ^Command_Queue) {
 			cmd := DM_Command {
 				text = strings.clone(text),
 			}
-			if key, is_key := parse_user_key(to); is_key {
+			if key, is_key := settings.parse_user_key(to); is_key {
 				cmd.to = key
 			} else {
 				cmd.name = strings.clone(to)

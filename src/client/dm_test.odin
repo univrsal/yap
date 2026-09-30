@@ -9,6 +9,7 @@ import "core:testing"
 
 import "common:."
 import "common:proto"
+import "client:settings"
 
 // Deleting a conversation takes it off the screen, out of the index and
 // off the disk, and leaves the others as they were.
@@ -40,7 +41,7 @@ test_dm_delete :: proc(t: ^testing.T) {
 		dm_save(c, conv)
 		publish_dm_conversation(c, conv, unread = true)
 	}
-	alice_file := strings.concatenate({c.dms.dir, "/", user_key(alice), ".json"}, context.temp_allocator)
+	alice_file := strings.concatenate({c.dms.dir, "/", settings.user_key(alice), ".json"}, context.temp_allocator)
 	testing.expect(t, common.store_exists(alice_file))
 
 	dm_delete(c, alice)

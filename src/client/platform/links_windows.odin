@@ -1,4 +1,4 @@
-package client
+package platform
 
 import win "core:sys/windows"
 

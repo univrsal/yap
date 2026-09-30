@@ -1,4 +1,4 @@
-package client
+package settings
 
 import log "common:wlog"
 import "core:encoding/hex"
@@ -279,33 +279,12 @@ settings_quality :: proc(s: ^Settings) -> audio.Quality {
 
 MAX_TRANSFER_LIMIT :: 100 // MB/s, the most the settings' sliders go to
 
-// transfer_limits_command is the transfer limits as configured in `s`,
-// in bytes per second.
-transfer_limits_command :: proc(s: ^Settings) -> Transfer_Limits_Command {
-	to_bytes :: proc(mb: f32) -> u32 {
-		return u32(clamp(mb, 0, MAX_TRANSFER_LIMIT) * 1024 * 1024)
-	}
-	return {upload = to_bytes(s.upload_limit), download = to_bytes(s.download_limit)}
-}
-
-// gate_command is the voice gate as configured in `s`.
-gate_command :: proc(s: ^Settings) -> Gate_Command {
-	open := clamp(s.gate_open_db, audio.MIN_LEVEL_DB, 0)
-	return {s.voice_gate, open, clamp(s.gate_close_db, audio.MIN_LEVEL_DB, open)}
-}
-
 notification_gain :: proc(s: ^Settings) -> f32 {
 	return clamp(s.notification_volume, 0, MAX_USER_VOLUME)
 }
 
 app_audio_gain :: proc(s: ^Settings) -> f32 {
 	return clamp(s.app_audio_volume, 0, MAX_USER_VOLUME)
-}
-
-// app_audio_command is how a shared application is sent, as configured
-// in `s`.
-app_audio_command :: proc(s: ^Settings) -> App_Audio_Command {
-	return {volume = app_audio_gain(s), mute_with_mic = s.mute_app_audio_with_mic}
 }
 
 // ui_scale_factor is the configured UI zoom, clamped in case a hand-edited

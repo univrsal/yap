@@ -9,6 +9,7 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "common:proto"
+import "client:platform"
 
 /*
 The right-hand side of the session screen: the channel's text chat and
@@ -63,7 +64,7 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 	}
 	ui.chat.hovering = false
 	if ui.chat.open != "" {
-		open_url(ui.chat.open)
+		platform.open_url(ui.chat.open)
 		delete(ui.chat.open)
 		ui.chat.open = ""
 	}
@@ -222,7 +223,7 @@ chat_input :: proc(ui: ^UI) {
 	// the frame (see paste). The id is the one text_box uses.
 	// A browser hands the picture over from its paste event instead (see
 	// web/paste.js), so the key is left to the text box there.
-	if !WEB &&
+	if !platform.WEB &&
 	   ctx.focus_id == mu.get_id(ctx, uintptr(&ui.chat.buf[0])) &&
 	   .V in ctx.key_pressed_bits &&
 	   .CTRL in ctx.key_down_bits &&
@@ -551,7 +552,7 @@ file_status :: proc(f: View_File) -> (string, mu.Color) {
 		if f.outgoing {
 			return "sent", SPEAKING_COLOR
 		}
-		when WEB {
+		when platform.WEB {
 			return "downloaded", SPEAKING_COLOR
 		} else {
 			return fmt.tprintf("saved to %s", f.path), SPEAKING_COLOR
@@ -601,7 +602,7 @@ chat_message :: proc(
 	if !merged {
 		selectable_header(ui, header, header_color, item)
 	}
-	wrapped_text(ui, text, color, find_links(text) if links else nil, item + 1)
+	wrapped_text(ui, text, color, platform.find_links(text) if links else nil, item + 1)
 }
 
 // selectable_header draws a message's header line in the next layout
@@ -620,7 +621,7 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 // draws `links` (byte ranges of `text`) as clickable links. It continues
 // the current row layout. The text can be selected as `item`.
 @(private = "file")
-wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, links: []Link, item: i64) {
+wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, links: []platform.Link, item: i64) {
 	ctx := &ui.ctx
 	font := ctx.style.font
 	select_item(ui, item, text)
@@ -643,7 +644,7 @@ draw_line :: proc(
 	start, end: int,
 	pos: mu.Vec2,
 	color: mu.Color,
-	links: []Link,
+	links: []platform.Link,
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -699,7 +700,7 @@ draw_line :: proc(
 			   ui.select.panel == ui.select.drawing &&
 			   !has_selection(&ui.select, ui.select.drawing) &&
 			   ui.chat.open == "" {
-				ui.chat.open = link_url(text, l, context.allocator)
+				ui.chat.open = platform.link_url(text, l, context.allocator)
 			}
 		}
 		at = link_end

@@ -7,6 +7,7 @@ import "core:sync"
 import mu "vendor:microui"
 
 import "common:proto"
+import "client:platform"
 
 /*
 Server keys from the UI, rather than by editing known_servers (or, in a
@@ -35,7 +36,7 @@ ERROR_COLOR :: mu.Color{230, 90, 90, 255}
 open_settings :: proc(ui: ^UI) {
 	ui.page = .Settings
 	ui.known.loaded = false
-	when !WEB {
+	when !platform.WEB {
 		ui.install.loaded = false
 	}
 }

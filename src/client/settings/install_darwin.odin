@@ -1,11 +1,11 @@
-package client
+package settings
 
 import "core:encoding/endian"
 import "core:os"
 import "core:strings"
 
 /*
-Installing on macOS (see ui_install_native.odin): a bundle,
+Installing on macOS (see the client's ui_install_native.odin): a bundle,
 ~/Applications/Yap.app, which Finder, Launchpad and Spotlight list with
 the other apps. Its executable is a link to the binary rather than a
 copy, and its icon is assets/icon.png wrapped as an .icns.
@@ -80,7 +80,7 @@ install_query :: proc(allocator := context.allocator) -> (target: string, instal
 	return target, true
 }
 
-install_self :: proc(exe: string) -> (err: string) {
+install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 	p, ok := install_paths()
 	if !ok {
 		return "Could not find your home folder."
@@ -90,7 +90,7 @@ install_self :: proc(exe: string) -> (err: string) {
 	if os.write_entire_file(p.plist, INFO_PLIST) != nil {
 		return strings.concatenate({"Could not write ", p.plist}, context.temp_allocator)
 	}
-	if os.write_entire_file(p.icon, icns_from_png(ICON_PNG)) != nil {
+	if os.write_entire_file(p.icon, icns_from_png(icon_png)) != nil {
 		return strings.concatenate({"Could not write ", p.icon}, context.temp_allocator)
 	}
 	os.remove(p.exe)

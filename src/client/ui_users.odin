@@ -6,6 +6,7 @@ import "core:strings"
 import mu "vendor:microui"
 
 import "common:proto"
+import "client:settings"
 
 /*
 Per-user playback settings: clicking (left or right) on another user in
@@ -162,7 +163,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		return
 	}
 
-	u := user_settings(&ui.settings, user.key)
+	u := settings.user_settings(&ui.settings, user.key)
 	text := user.name
 	if u.volume != 1 && !u.muted {
 		text = fmt.tprintf("%s  (%.0f%%)", text, u.volume * 100)
@@ -251,7 +252,7 @@ user_menu :: proc(ui: ^UI) {
 	defer mu.end_popup(ctx)
 
 	key := ui.menu_key
-	u := user_settings(&ui.settings, key)
+	u := settings.user_settings(&ui.settings, key)
 	changed := false
 
 	// The name as currently shown, or as saved for a buddy who isn't
@@ -261,7 +262,7 @@ user_menu :: proc(ui: ^UI) {
 	here := false
 	if user, ok := ui.view.users[ui.menu_user]; ok && user.key == key {
 		name, here = user.name, true
-	} else if b, is := ui.settings.buddies[user_key(key)]; is && b.name != "" {
+	} else if b, is := ui.settings.buddies[settings.user_key(key)]; is && b.name != "" {
 		name = b.name
 	}
 
@@ -274,7 +275,7 @@ user_menu :: proc(ui: ^UI) {
 		num_buttons += 1
 	}
 
-	if is_buddy(&ui.settings, key) {
+	if settings.is_buddy(&ui.settings, key) {
 		num_buttons += 1
 	}
 
@@ -334,28 +335,28 @@ user_menu :: proc(ui: ^UI) {
 			)
 		}
 	}
-	if is_buddy(&ui.settings, key) {
+	if settings.is_buddy(&ui.settings, key) {
 		if .SUBMIT in icon_button(ui, "message", .Buddies, "Open chat") {
 			open_conversation(ui, key)
 			mu.get_current_container(ctx).open = false
 		}
 		if .SUBMIT in icon_button(ui, "buddy", .Remove_Buddy, "Remove buddy") {
-			remove_buddy(&ui.settings, key)
+			settings.remove_buddy(&ui.settings, key)
 			ui.settings_dirty = true
 			log.debugf("ui: %s is no longer a buddy", name)
 		}
 	} else if .SUBMIT in icon_button(ui, "buddy", .Buddies, "Add as buddy") {
-		add_buddy(&ui.settings, key, name if here else "")
+		settings.add_buddy(&ui.settings, key, name if here else "")
 		ui.settings_dirty = true
 		log.debugf("ui: %s is a buddy now", name)
 	}
 
 	mu.layout_row(ctx, {MENU_WIDTH})
-	with_text_color(ctx, DIM_COLOR, fmt.tprintf("key %s...", user_key(key)[:16]), label_proc)
+	with_text_color(ctx, DIM_COLOR, fmt.tprintf("key %s...", settings.user_key(key)[:16]), label_proc)
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 	mu.label(ctx, "Volume")
-	if .CHANGE in mu.slider(ctx, &ui.menu_volume, 0, MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+	if .CHANGE in mu.slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		u.volume = ui.menu_volume / 100
 		changed = true
 	}
@@ -379,11 +380,11 @@ user_menu :: proc(ui: ^UI) {
 	}
 
 	if changed {
-		set_user_settings(&ui.settings, key, u)
+		settings.set_user_settings(&ui.settings, key, u)
 		ui.settings_dirty = true
 		log.debugf("ui: %s volume %.0f%%%s", name, u.volume * 100, " (muted)" if u.muted else "")
 		if ui.session != nil {
-			push_command(&ui.session.client.commands, Gain_Command{key, user_gain(u)})
+			push_command(&ui.session.client.commands, Gain_Command{key, settings.user_gain(u)})
 		}
 	}
 }

@@ -1,11 +1,11 @@
 #+build linux, freebsd, openbsd, netbsd
-package client
+package settings
 
 import "core:os"
 import "core:strings"
 
 /*
-Installing on Linux and the BSDs (see ui_install_native.odin), as the
+Installing on Linux and the BSDs (see the client's ui_install_native.odin), as the
 freedesktop.org specs have it: a .desktop entry in
 $XDG_DATA_HOME/applications, which is what puts yap in the desktop's
 application menu, with the icon beside it under icons/, and a link to
@@ -61,7 +61,7 @@ install_query :: proc(allocator := context.allocator) -> (target: string, instal
 	return target, true
 }
 
-install_self :: proc(exe: string) -> (err: string) {
+install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 	p, ok := install_paths()
 	if !ok {
 		return "Could not find your home directory."
@@ -69,7 +69,7 @@ install_self :: proc(exe: string) -> (err: string) {
 	// Whatever the entry pointed at before, so its link can go too.
 	old, _ := install_query(context.temp_allocator)
 
-	if !write_file_all(p.icon, ICON_PNG) {
+	if !write_file_all(p.icon, icon_png) {
 		return strings.concatenate({"Could not write ", p.icon}, context.temp_allocator)
 	}
 	entry := strings.concatenate(

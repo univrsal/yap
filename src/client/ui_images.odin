@@ -10,6 +10,7 @@ import mu "vendor:microui"
 
 import "common:proto"
 import "client:clipboard"
+import "client:platform"
 
 /*
 Showing chat images. The network thread hands over the JPEG it fetched
@@ -147,7 +148,7 @@ ui_images_frame :: proc(ui: ^UI) {
 	im := &ui.images
 	im.frame += 1
 	clear(&im.draws)
-	when WEB {
+	when platform.WEB {
 		decode_queued(im)
 	}
 
@@ -421,7 +422,7 @@ ui_images_after_frame :: proc(ui: ^UI) {
 		delete(im.save)
 		im.save = nil
 	}
-	if path, ok := save_to_downloads(im.save, "jpg"); ok {
+	if path, ok := platform.save_to_downloads(im.save, "jpg"); ok {
 		log.infof("saved the image to %s", path)
 		delete(im.saved_to)
 		im.saved_to = path

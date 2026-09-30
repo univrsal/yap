@@ -5,6 +5,7 @@ import "core:strings"
 import mu "vendor:microui"
 
 import "common:."
+import "client:platform"
 
 /*
 The About dialog: which build this is (see src/common/version.odin), and
@@ -197,7 +198,7 @@ about_dialog :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	mu.label(ctx, "")
 	mu.label(ctx, "Third-party software (click one for its license):")
-	build := Build.Web if WEB else Build.Desktop
+	build := Build.Web if platform.WEB else Build.Desktop
 	for &p, i in THIRD_PARTY {
 		if build not_in p.builds {
 			continue

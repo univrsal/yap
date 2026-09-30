@@ -4,6 +4,7 @@ package client
 import "core:strings"
 
 import "common:proto"
+import "client:platform"
 
 /*
 Picking a file to send, in a browser: a file input the page opens
@@ -36,7 +37,7 @@ file_pick_wait :: proc(ui: ^UI) {}
 // The page's picked file: offered to whoever the button was pressed for.
 @(export)
 web_file_picked :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64) {
-	context = callback_context()
+	context = platform.callback_context()
 	if g_ui == nil || g_ui.session == nil {
 		yap_file_close(handle)
 		return

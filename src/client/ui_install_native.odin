@@ -6,6 +6,7 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 import mu "vendor:microui"
+import "client:settings"
 
 /*
 Installing yap for the current user, from the settings page: whatever
@@ -14,7 +15,7 @@ binary that's running, so a downloaded yap can be started like any
 other program without moving it anywhere. Uninstalling removes it again
 and leaves the binary alone.
 
-What that is depends on the platform (install_<os>.odin):
+What that is depends on the platform (settings/install_<os>.odin):
 
 - Linux and the BSDs: a .desktop entry and its icon under
   $XDG_DATA_HOME (~/.local/share), and a link in ~/.local/bin.
@@ -25,11 +26,13 @@ Each platform provides:
 
 	INSTALL_DESCRIPTION :: string
 	install_query :: proc(allocator) -> (target: string, installed: bool)
-	install_self :: proc(exe: string) -> (err: string)
+	install_self :: proc(exe: string, icon_png: []u8) -> (err: string)
 	uninstall_self :: proc() -> (err: string)
 
 install_query says which binary the installed entry starts (empty if it
 can't tell), so a yap run from somewhere else can point it at itself.
+icon_png is the icon to install with it, where the entry has one of its
+own (Linux, the BSDs and macOS).
 */
 
 UI_Install :: struct {
@@ -56,7 +59,7 @@ install_load :: proc(ui: ^UI) {
 	delete(st.target)
 	delete(st.exe)
 	st.exe, _ = os.get_executable_path(context.allocator)
-	st.target, st.installed = install_query(context.allocator)
+	st.target, st.installed = settings.install_query(context.allocator)
 	st.loaded = true
 }
 
@@ -70,10 +73,10 @@ install_do :: proc(ui: ^UI, install: bool) {
 		if st.exe == "" {
 			err = "Could not find out where this program is."
 		} else {
-			err = install_self(st.exe)
+			err = settings.install_self(st.exe, ICON_PNG)
 		}
 	} else {
-		err = uninstall_self()
+		err = settings.uninstall_self()
 	}
 	if err != "" {
 		log.errorf("%s: %s", "install" if install else "uninstall", err)
@@ -97,7 +100,7 @@ install_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	mu.text(ctx, INSTALL_DESCRIPTION)
+	mu.text(ctx, settings.INSTALL_DESCRIPTION)
 
 	// Windows paths don't care about case.
 	same := strings.equal_fold(st.target, st.exe) if ODIN_OS == .Windows else st.target == st.exe

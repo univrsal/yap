@@ -1,5 +1,5 @@
 #+build !wasi
-package client
+package platform
 
 import "core:testing"
 

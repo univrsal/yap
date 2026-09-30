@@ -16,10 +16,6 @@ The context lives for the whole run: devices are opened through it, and
 device ids are only meaningful to the context that listed them.
 */
 
-// WEB is true in a build meant for a browser (see client's web.odin).
-@(private)
-WEB :: ODIN_OS == .WASI
-
 Audio_Device :: struct {
 	name:       string, // owned
 	is_default: bool, // the system's current default

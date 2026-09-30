@@ -8,6 +8,8 @@ import "core:time"
 import mu "vendor:microui"
 
 import "common:proto"
+import "client:platform"
+import "client:settings"
 
 /*
 The buddy screen (buddies.odin): the buddy list on the left, with
@@ -110,7 +112,7 @@ buddies_screen :: proc(ui: ^UI) {
 	// Someone removed as a buddy, with no conversation to keep them in
 	// the list, takes it along.
 	if ui.buddies.has_selected &&
-	   !is_buddy(&ui.settings, ui.buddies.selected) &&
+	   !settings.is_buddy(&ui.settings, ui.buddies.selected) &&
 	   ui.buddies.selected not_in ui.view.dms {
 		ui.buddies.has_selected = false
 	}
@@ -167,7 +169,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	mu.layout_row(ctx, {ICON_SIZE + 4, -1})
 	status_icon(ctx, .Buddies, ONLINE_COLOR if b.online != 0 else DIM_COLOR)
 
-	mu.push_id(ctx, user_key(b.key))
+	mu.push_id(ctx, settings.user_key(b.key))
 	defer mu.pop_id(ctx)
 	id := mu.get_id(ctx, "buddy")
 	r := mu.layout_next(ctx)
@@ -198,7 +200,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	case ctx.mouse_pressed_bits == {.LEFT}:
 		open_conversation(ui, b.key)
 	case .RIGHT in ctx.mouse_pressed_bits:
-		u := user_settings(&ui.settings, b.key)
+		u := settings.user_settings(&ui.settings, b.key)
 		ui.menu_user = b.online
 		ui.menu_key = b.key
 		ui.menu_volume = u.volume * 100
@@ -254,7 +256,7 @@ conversation :: proc(ui: ^UI) {
 	with_text_color(
 		ctx,
 		status_color,
-		fmt.tprintf("%s  -  key %s...", status, user_key(key)[:16]),
+		fmt.tprintf("%s  -  key %s...", status, settings.user_key(key)[:16]),
 		label_proc,
 	)
 
@@ -273,7 +275,7 @@ conversation :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 10), ICON_BUTTON, ICON_BUTTON})
 	// Ctrl+V could be an image, as in the chat box (chat_input); this
 	// one goes to them.
-	if !WEB &&
+	if !platform.WEB &&
 	   ctx.focus_id == mu.get_id(ctx, uintptr(&ui.buddies.buf[0])) &&
 	   .V in ctx.key_pressed_bits &&
 	   .CTRL in ctx.key_down_bits &&

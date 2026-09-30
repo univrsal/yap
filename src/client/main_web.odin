@@ -12,6 +12,7 @@ import glfw "client:wglfw"
 
 import "common:."
 import "client:audio"
+import "client:platform"
 
 /*
 The web build's way in. A browser has no main loop to hand over: the
@@ -58,7 +59,7 @@ query_param :: proc(name: cstring) -> string {
 web_start :: proc "c" () -> b32 {
 	// Everything allocates through emscripten's malloc (web_alloc.odin),
 	// including whatever the runtime's start-up sets up.
-	g_context = web_context_init()
+	g_context = platform.web_context_init()
 	context = g_context
 	runtime._startup_runtime()
 
@@ -73,7 +74,7 @@ web_start :: proc "c" () -> b32 {
 	g_logger = logger
 	g_context.logger = logger
 	context.logger = logger
-	web_context_set_logger(logger)
+	platform.web_context_set_logger(logger)
 	log.infof("yap %s", common.version_string())
 
 	server := query_param("server")
@@ -93,11 +94,11 @@ web_start :: proc "c" () -> b32 {
 	if !ui_startup(
 		g_web_ui,
 		{
-			key_path = default_config_path("client.key"),
-			known_servers = default_config_path("known_servers"),
+			key_path = platform.default_config_path("client.key"),
+			known_servers = platform.default_config_path("known_servers"),
 			server = server,
 			logs = &g_logs,
-			settings_path = default_config_path("settings.json"),
+			settings_path = platform.default_config_path("settings.json"),
 		},
 	) {
 		log.error("could not start the client")

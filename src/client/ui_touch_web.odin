@@ -4,6 +4,7 @@ package client
 import "core:unicode/utf8"
 
 import mu "vendor:microui"
+import "client:platform"
 
 /*
 Touch and the phone keyboard, as the page hands them over (see
@@ -135,7 +136,7 @@ text_box_at :: proc(x, y: f64) -> bool {
 // the end, where the keyboard's typing arrives.
 @(export)
 web_touch_tap :: proc "c" (x, y: f64) {
-	context = callback_context()
+	context = platform.callback_context()
 	if g_ui == nil {
 		return
 	}
@@ -154,14 +155,14 @@ web_touch_tap :: proc "c" (x, y: f64) {
 // keyboard while it's still handling the tap.
 @(export)
 web_text_box_at :: proc "c" (x, y: f64) -> b32 {
-	context = callback_context()
+	context = platform.callback_context()
 	return g_ui != nil && b32(text_box_at(x, y))
 }
 
 // A sideways drag: pressed where it started, then following the finger.
 @(export)
 web_touch_drag_begin :: proc "c" (x, y: f64) {
-	context = callback_context()
+	context = platform.callback_context()
 	if g_ui == nil {
 		return
 	}
@@ -172,7 +173,7 @@ web_touch_drag_begin :: proc "c" (x, y: f64) {
 
 @(export)
 web_touch_drag_move :: proc "c" (x, y: f64) {
-	context = callback_context()
+	context = platform.callback_context()
 	if g_ui == nil {
 		return
 	}
@@ -181,7 +182,7 @@ web_touch_drag_move :: proc "c" (x, y: f64) {
 
 @(export)
 web_touch_drag_end :: proc "c" () {
-	context = callback_context()
+	context = platform.callback_context()
 	if g_ui == nil {
 		return
 	}
@@ -193,7 +194,7 @@ web_touch_drag_end :: proc "c" () {
 // (positive: the finger went up, towards what's further down).
 @(export)
 web_touch_scroll :: proc "c" (x, y, dy: f64) {
-	context = callback_context()
+	context = platform.callback_context()
 	if g_ui == nil {
 		return
 	}
@@ -210,7 +211,7 @@ web_touch_scroll :: proc "c" (x, y, dy: f64) {
 // Typing from the phone's keyboard: one character, a backspace, Enter.
 @(export)
 web_text_rune :: proc "c" (r: rune) {
-	context = callback_context()
+	context = platform.callback_context()
 	e := Touch_Event {
 		kind = .Text,
 	}
@@ -221,12 +222,12 @@ web_text_rune :: proc "c" (r: rune) {
 
 @(export)
 web_text_backspace :: proc "c" () {
-	context = callback_context()
+	context = platform.callback_context()
 	queue({kind = .Key, key = .BACKSPACE})
 }
 
 @(export)
 web_text_enter :: proc "c" () {
-	context = callback_context()
+	context = platform.callback_context()
 	queue({kind = .Key, key = .RETURN})
 }

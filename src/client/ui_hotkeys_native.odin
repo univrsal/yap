@@ -7,6 +7,7 @@ import mu "vendor:microui"
 
 import "client:hotkeys"
 import glfw "client:wglfw"
+import "client:settings"
 
 /*
 Global hotkeys for mute and deafen (see the hotkeys package), and their
@@ -118,12 +119,12 @@ set_hotkey :: proc(ui: ^UI, action: Hotkey_Action, h: hotkeys.Hotkey) {
 	text := hotkeys.format(h, context.temp_allocator)
 	for other in Hotkey_Action {
 		if other != action && h.key != .None && bound(ui, other) == h {
-			set_setting(hotkey_setting(ui, other), "")
+			settings.set_setting(hotkey_setting(ui, other), "")
 			hotkeys.set_bind(&ui.hotkeys.watcher, int(other), {})
 		}
 	}
-	set_setting(hotkey_setting(ui, action), text)
-	settings_save(ui.opts.settings_path, ui.settings)
+	settings.set_setting(hotkey_setting(ui, action), text)
+	settings.settings_save(ui.opts.settings_path, ui.settings)
 	hotkeys.set_bind(&ui.hotkeys.watcher, int(action), h)
 	log.infof("%s hotkey: %s", HOTKEY_LABELS[action], text if text != "" else "none")
 }

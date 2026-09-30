@@ -8,6 +8,7 @@ import "core:os"
 
 import "common:."
 import "client:audio"
+import "client:platform"
 
 Options :: struct {
 	server:             string `args:"pos=0" usage:"Server to connect to, host or host:port (default port 7777). Required with -headless; otherwise the UI connects to it right away."`,
@@ -52,10 +53,10 @@ main :: proc() {
 	log.infof("yap %s", common.version_string())
 
 	if opt.key == "" {
-		opt.key = default_config_path("client.key")
+		opt.key = platform.default_config_path("client.key")
 	}
 	if opt.known_servers == "" {
-		opt.known_servers = default_config_path("known_servers")
+		opt.known_servers = platform.default_config_path("known_servers")
 	}
 	if opt.key == "" || opt.known_servers == "" {
 		log.error(
@@ -88,7 +89,7 @@ main :: proc() {
 			opt.server,
 			opt.known_servers,
 			opt.channel,
-			opt.name if opt.name != "" else default_name(),
+			opt.name if opt.name != "" else platform.default_name(),
 			opt.password,
 			opt.tone,
 			opt.input_file,
@@ -112,7 +113,7 @@ main :: proc() {
 			password = opt.password,
 			channel = opt.channel,
 			logs = &logs,
-			settings_path = default_config_path("settings.json"),
+			settings_path = platform.default_config_path("settings.json"),
 		},
 	)
 	if !ui_ok {

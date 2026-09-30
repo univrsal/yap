@@ -4,6 +4,7 @@ import log "common:wlog"
 import "core:sync"
 
 import ma "client:audio/miniaudio"
+import "client:platform"
 
 /*
 The ends of the voice pipeline: real audio devices (UI), or a generated
@@ -30,7 +31,7 @@ web_device_period_ms: u32 = WEB_DEVICE_PERIOD_MS
 
 // device_period_ms is the period the devices are opened with.
 device_period_ms :: proc() -> u32 {
-	return web_device_period_ms when WEB else DEVICE_PERIOD_MS
+	return web_device_period_ms when platform.WEB else DEVICE_PERIOD_MS
 }
 
 // device_period_samples is how many interleaved samples one callback
@@ -38,7 +39,7 @@ device_period_ms :: proc() -> u32 {
 // ScriptProcessorNode (a power of two from 256 to 16384 frames).
 device_period_samples :: proc() -> int {
 	frames := int(SAMPLE_RATE * device_period_ms() / 1000)
-	when WEB {
+	when platform.WEB {
 		size := 256
 		for size < frames && size < 16384 {
 			size *= 2
@@ -52,7 +53,7 @@ device_period_samples :: proc() -> int {
 // OUTPUT_TARGET, or on the web at least a whole period, which a callback
 // takes in one go, and a frame to spare.
 output_target :: proc() -> int {
-	when WEB {
+	when platform.WEB {
 		return max(OUTPUT_TARGET, device_period_samples() + FRAME)
 	} else {
 		return OUTPUT_TARGET
@@ -63,7 +64,7 @@ output_target :: proc() -> int {
 // is dropped (see capture_begin): MAX_CAPTURE_BACKLOG, or on the web at
 // least two periods, since a callback delivers a whole one at once.
 capture_backlog :: proc() -> int {
-	when WEB {
+	when platform.WEB {
 		return max(MAX_CAPTURE_BACKLOG, 2 * device_period_samples() + FRAME)
 	} else {
 		return MAX_CAPTURE_BACKLOG

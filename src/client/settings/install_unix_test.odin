@@ -1,9 +1,12 @@
 #+build linux, freebsd, openbsd, netbsd
-package client
+package settings
 
 import "core:os"
 import "core:strings"
 import "core:testing"
+
+@(private = "file")
+ICON_PNG :: #load("../assets/icon.png")
 
 @(test)
 test_desktop_escapes :: proc(t: ^testing.T) {
@@ -49,7 +52,7 @@ test_install_self :: proc(t: ^testing.T) {
 	_, installed := install_query(context.temp_allocator)
 	testing.expect(t, !installed)
 
-	testing.expect_value(t, install_self(exe), "")
+	testing.expect_value(t, install_self(exe, ICON_PNG), "")
 	target, now_installed := install_query(context.temp_allocator)
 	testing.expect(t, now_installed)
 	testing.expect_value(t, target, exe)
@@ -67,7 +70,7 @@ test_install_self :: proc(t: ^testing.T) {
 
 	// Installing another copy moves the link along with the entry.
 	other := path(home, "other", "yap")
-	testing.expect_value(t, install_self(other), "")
+	testing.expect_value(t, install_self(other, ICON_PNG), "")
 	to, _ = os.read_link(link, context.temp_allocator)
 	testing.expect_value(t, to, other)
 
@@ -80,7 +83,7 @@ test_install_self :: proc(t: ^testing.T) {
 
 	// A file of someone else's in the link's place is left alone.
 	testing.expect(t, os.write_entire_file(link, "not ours") == nil)
-	testing.expect_value(t, install_self(exe), "")
+	testing.expect_value(t, install_self(exe, ICON_PNG), "")
 	testing.expect_value(t, uninstall_self(), "")
 	kept, _ := os.read_entire_file(link, context.temp_allocator)
 	testing.expect_value(t, string(kept), "not ours")

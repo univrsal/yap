@@ -6,6 +6,7 @@ import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 import "client:audio"
+import "client:settings"
 
 /*
 The voice gate's part of the settings page: an on/off toggle, a live
@@ -74,7 +75,7 @@ monitor_update :: proc(ui: ^UI) {
 	m.voice.denoise = ui.settings.noise_suppression
 	// Mono or stereo processing, as the chosen preset would send (the
 	// monitor never encodes, so no encoder change is needed).
-	m.voice.quality = settings_quality(&ui.settings)
+	m.voice.quality = settings.settings_quality(&ui.settings)
 	cmd := gate_command(&ui.settings)
 	m.voice.gate.enabled, m.voice.gate.open_db, m.voice.gate.close_db =
 		cmd.enabled, cmd.open_db, cmd.close_db

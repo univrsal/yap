@@ -9,6 +9,7 @@ import mu "vendor:microui"
 
 import "client:audio"
 import "client:audio/aac"
+import "client:settings"
 
 /*
 Sharing an application's audio with the channel, next to the
@@ -112,7 +113,7 @@ app_audio_button :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in icon_button(ui, "app audio", .App_Audio, hint, color) {
 		app_audio_refresh(ui)
-		a.volume = app_audio_gain(&ui.settings) * 100
+		a.volume = settings.app_audio_gain(&ui.settings) * 100
 		a.requested = true
 	}
 }
@@ -147,7 +148,7 @@ app_audio_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 	mu.label(ctx, "Volume")
-	if .CHANGE in mu.slider(ctx, &a.volume, 0, MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+	if .CHANGE in mu.slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.app_audio_volume = a.volume / 100
 		ui.settings_dirty = true
 		if ui.session != nil {

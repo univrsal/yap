@@ -15,6 +15,8 @@ import "common:."
 import "common:proto"
 import "client:clipboard"
 import "client:audio"
+import "client:platform"
+import "client:settings"
 
 /*
 The windowed client: GLFW for the window and input, microui for widgets,
@@ -125,7 +127,7 @@ UI :: struct {
 	settings_dirty:      bool,
 	settings_saved:      time.Tick,
 	page:                Page,
-	settings:            Settings,
+	settings:            settings.Settings,
 	about:               UI_About, // the About dialog (ui_about.odin)
 	known:               UI_Known_Servers, // saved server keys (ui_known_servers.odin)
 	hotkeys:             UI_Hotkeys, // global hotkeys (ui_hotkeys_native.odin)
@@ -230,16 +232,16 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 			ecdh.private_key_clear(&key)
 		}
 	}
-	ui.settings = settings_load(opts.settings_path)
-	ui.ui_scale_draft = ui_scale_factor(&ui.settings) * 100
+	ui.settings = settings.settings_load(opts.settings_path)
+	ui.ui_scale_draft = settings.ui_scale_factor(&ui.settings) * 100
 	initial := opts.server if opts.server != "" else ui.settings.server
 	ui.server_len = copy(ui.server_buf[:], initial)
 	password := opts.password
 	if password == "" {
-		password = recent_password(&ui.settings, initial)
+		password = settings.recent_password(&ui.settings, initial)
 	}
 	ui.password_len = copy(ui.password_buf[:], password)
-	name := ui.settings.name if ui.settings.name != "" else default_name()
+	name := ui.settings.name if ui.settings.name != "" else platform.default_name()
 	ui.name_len = copy(ui.name_buf[:], name)
 
 	// Audio problems shouldn't keep the rest of the client from working;
@@ -326,7 +328,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	// Without threads there is nobody else to run the connection, so it
 	// gets its turn here, between frames (see net_thread).
 	// Touch comes in as a queue, one event per frame (ui_touch_web.odin).
-	when WEB {
+	when platform.WEB {
 		net_step(ui)
 		touch_step(ui)
 	}
@@ -361,7 +363,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	}
 	draw_frame(ui)
 	// A browser paces frames itself, and a page can't sleep.
-	when !WEB {
+	when !platform.WEB {
 		if ui.frame_pace > 0 {
 			if left := ui.frame_pace - time.tick_since(ui.last_swap); left > 0 {
 				time.sleep(left)
@@ -387,7 +389,7 @@ draw_frame :: proc(ui: ^UI) {
 		reset_gpu(ui)
 	}
 
-	m := window_metrics(ui.window, ui_scale_factor(&ui.settings))
+	m := window_metrics(ui.window, settings.ui_scale_factor(&ui.settings))
 	if m != ui.metrics {
 		ww, wh := glfw.GetWindowSize(ui.window)
 		log.debugf(
@@ -411,7 +413,7 @@ draw_frame :: proc(ui: ^UI) {
 	mu.begin(&ui.ctx)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
 	mu.end(&ui.ctx)
-	when WEB {
+	when platform.WEB {
 		touch_after_frame(ui)
 	}
 	switch {
@@ -450,7 +452,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	window_close(ui)
 	glfw.Terminate()
 	audio.audio_destroy(&ui.audio)
-	settings_destroy(&ui.settings)
+	settings.settings_destroy(&ui.settings)
 	known_servers_destroy(ui)
 	install_destroy(ui)
 	ui_chat_destroy(ui)
@@ -484,7 +486,7 @@ lost.
 @(private = "file")
 set_swap_pace :: proc(ui: ^UI) {
 	ui.frame_pace = 0
-	when !WEB {
+	when !platform.WEB {
 		if on_wayland() {
 			gpu_swap_interval(&ui.renderer.gpu, 0)
 			refresh: i32 = 60
@@ -506,8 +508,8 @@ window_open :: proc(ui: ^UI) -> bool {
 	// Where window coordinates are physical pixels (Windows, X11), size
 	// the window for the monitor's scale so it isn't tiny on high DPI.
 	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
-	when !WEB {
-		// The name of the installed .desktop entry (install_unix.odin),
+	when !platform.WEB {
+		// The name of the installed .desktop entry (settings/install_unix.odin),
 		// which is how Wayland finds the window's icon and how the
 		// desktop groups the window under the entry.
 		glfw.WindowHintString(glfw.WAYLAND_APP_ID, "yap")
@@ -520,7 +522,7 @@ window_open :: proc(ui: ^UI) -> bool {
 		return false
 	}
 	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
-	when !WEB {
+	when !platform.WEB {
 		set_window_icon(ui.window)
 	}
 	if !renderer_init(&ui.renderer, ui.window) {
@@ -642,7 +644,7 @@ apply_name :: proc(ui: ^UI) {
 	if name == ui.settings.name {
 		return
 	}
-	set_setting(&ui.settings.name, name)
+	settings.set_setting(&ui.settings.name, name)
 	ui.settings_dirty = true
 	if ui.session != nil {
 		push_command(&ui.session.client.commands, Name_Command{strings.clone(name)})
@@ -650,7 +652,7 @@ apply_name :: proc(ui: ^UI) {
 }
 
 save_settings :: proc(ui: ^UI) {
-	settings_save(ui.opts.settings_path, ui.settings)
+	settings.settings_save(ui.opts.settings_path, ui.settings)
 	ui.settings_dirty = false
 	ui.settings_saved = time.tick_now()
 }
@@ -681,7 +683,7 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 	// whole pixels would only give an approximation that changes with the
 	// window's size, and with it the font's rasterization.
 	ratio := f32(m.fb_w) / f32(w)
-	if ratio > 1.01 && !WEB {
+	if ratio > 1.01 && !platform.WEB {
 		m.scale = ratio
 		m.logical_w, m.logical_h = f32(w), f32(h)
 	} else {
@@ -714,9 +716,9 @@ connect :: proc(ui: ^UI) {
 	ui.server_len = copy(ui.server_buf[:], server)
 	// Taken as typed: spaces may well be part of a password.
 	password := string(ui.password_buf[:ui.password_len])
-	set_setting(&ui.settings.server, server)
-	remember_recent_server(&ui.settings, server, password)
-	set_setting(&ui.settings.name, typed_name(ui))
+	settings.set_setting(&ui.settings.server, server)
+	settings.remember_recent_server(&ui.settings, server, password)
+	settings.set_setting(&ui.settings.name, typed_name(ui))
 	save_settings(ui)
 
 	ns := new(Net_Session)
@@ -740,13 +742,13 @@ connect :: proc(ui: ^UI) {
 	ns.client.channels.sound = sound_flags(ui.muted, ui.deafened)
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
-	ns.client.voice.notifications.volume = notification_gain(&ui.settings)
-	push_command(&ns.client.commands, Quality_Command{settings_quality(&ui.settings)})
+	ns.client.voice.notifications.volume = settings.notification_gain(&ui.settings)
+	push_command(&ns.client.commands, Quality_Command{settings.settings_quality(&ui.settings)})
 	push_command(&ns.client.commands, gate_command(&ui.settings))
 	push_command(&ns.client.commands, transfer_limits_command(&ui.settings))
 	for hex_key, u in ui.settings.users {
-		if key, ok := parse_user_key(hex_key); ok {
-			push_command(&ns.client.commands, Gain_Command{key, user_gain(u)})
+		if key, ok := settings.parse_user_key(hex_key); ok {
+			push_command(&ns.client.commands, Gain_Command{key, settings.user_gain(u)})
 		}
 	}
 
@@ -1023,7 +1025,7 @@ recent_servers_panel :: proc(ui: ^UI) {
 	}
 	// Not while going through the list, which this changes.
 	if forget >= 0 {
-		forget_recent_server(s, s.recent_servers[forget].address)
+		settings.forget_recent_server(s, s.recent_servers[forget].address)
 		ui.settings_dirty = true
 	}
 }
@@ -1383,7 +1385,7 @@ with_text_color :: proc(
 
 @(private = "file")
 glfw_error_callback :: proc "c" (code: i32, description: cstring) {
-	context = callback_context()
+	context = platform.callback_context()
 	context.logger = g_logger
 	log.errorf("GLFW: %s (0x%x)", description, code)
 }
@@ -1420,7 +1422,7 @@ drag lasts. Only resizing needs it: nothing else stops the loop.
 */
 @(private = "file")
 refresh_callback :: proc "c" (window: glfw.WindowHandle) {
-	context = callback_context()
+	context = platform.callback_context()
 	context.logger = g_logger
 	if g_ui.window == window && !g_ui.hidden {
 		draw_frame(g_ui)
@@ -1429,13 +1431,13 @@ refresh_callback :: proc "c" (window: glfw.WindowHandle) {
 
 @(private = "file")
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
-	context = callback_context()
+	context = platform.callback_context()
 	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
 }
 
 @(private = "file")
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
-	context = callback_context()
+	context = platform.callback_context()
 	context.logger = g_logger
 	btn: mu.Mouse
 	switch button {
@@ -1478,20 +1480,20 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 
 @(private = "file")
 scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
-	context = callback_context()
+	context = platform.callback_context()
 	mu.input_scroll(&g_ui.ctx, i32(-x * 30), i32(-y * 30))
 }
 
 @(private = "file")
 char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
-	context = callback_context()
+	context = platform.callback_context()
 	buf, n := utf8.encode_rune(codepoint)
 	mu.input_text(&g_ui.ctx, string(buf[:n]))
 }
 
 @(private = "file")
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
-	context = callback_context()
+	context = platform.callback_context()
 	k: mu.Key
 	switch key {
 	case glfw.KEY_LEFT_SHIFT, glfw.KEY_RIGHT_SHIFT:
@@ -1542,7 +1544,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 set_clipboard :: proc(user_data: rawptr, text: string) -> bool {
 	// Emscripten's GLFW has no clipboard: a browser's comes from the page
 	// (ui_paste_web.odin).
-	when WEB {
+	when platform.WEB {
 		return web_copy_text(text)
 	} else {
 		glfw.SetClipboardString(
@@ -1555,7 +1557,7 @@ set_clipboard :: proc(user_data: rawptr, text: string) -> bool {
 
 @(private = "file")
 get_clipboard :: proc(user_data: rawptr) -> (string, bool) {
-	when WEB {
+	when platform.WEB {
 		text := web_pasted_text()
 	} else {
 		text := glfw.GetClipboardString(g_ui.window)
