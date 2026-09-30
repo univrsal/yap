@@ -1,12 +1,12 @@
 package client
 
+import "client:audio"
+import "client:conn"
+import "client:platform"
+import "client:settings"
 import log "common:wlog"
 import "core:fmt"
 import mu "vendor:microui"
-import "client:audio"
-import "client:platform"
-import "client:settings"
-import "client:conn"
 
 /*
 The settings page: name, noise suppression, the voice gate (ui_gate.odin),
@@ -70,7 +70,7 @@ audio_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {60, 90, 90, 90})
 	mu.label(ctx, "Quality")
 	for preset, q in audio.QUALITY_PRESETS {
-		mark := "> " if q == current else "  "
+		mark := "⏵ " if q == current else "  "
 		if .SUBMIT in
 			   stable_button_hint(
 				   ui,
@@ -92,7 +92,10 @@ audio_settings :: proc(ui: ^UI) {
 	if .CHANGE in mu.checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 		if ui.session != nil {
-			conn.push_command(&ui.session.client.commands, conn.Noise_Command{ui.settings.noise_suppression})
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.Noise_Command{ui.settings.noise_suppression},
+			)
 		}
 	}
 	if app_audio_available(ui) {
@@ -105,7 +108,10 @@ audio_settings :: proc(ui: ^UI) {
 		   ) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 			if ui.session != nil {
-				conn.push_command(&ui.session.client.commands, conn.app_audio_command(&ui.settings))
+				conn.push_command(
+					&ui.session.client.commands,
+					conn.app_audio_command(&ui.settings),
+				)
 			}
 		}
 	}
@@ -128,7 +134,14 @@ ui_settings :: proc(ui: ^UI) {
 	// window_metrics) once the drag lets go.
 	id := mu.get_id(ctx, uintptr(&ui.ui_scale_draft))
 	was_dragging := ctx.focus_id == id
-	mu.slider(ctx, &ui.ui_scale_draft, settings.MIN_UI_SCALE * 100, settings.MAX_UI_SCALE * 100, 10, "%.0f%%")
+	mu.slider(
+		ctx,
+		&ui.ui_scale_draft,
+		settings.MIN_UI_SCALE * 100,
+		settings.MAX_UI_SCALE * 100,
+		10,
+		"%.0f%%",
+	)
 	if was_dragging && ctx.focus_id != id {
 		ui.settings.ui_scale = ui.ui_scale_draft / 100
 		settings.settings_save(ui.opts.settings_path, ui.settings)
@@ -201,7 +214,14 @@ transfer_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "Download limit")
 	changed |=
 		.CHANGE in
-		mu.slider(ctx, &ui.settings.download_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+		mu.slider(
+			ctx,
+			&ui.settings.download_limit,
+			0,
+			settings.MAX_TRANSFER_LIMIT,
+			0.5,
+			"%.1f MB/s",
+		)
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
@@ -213,7 +233,10 @@ transfer_settings :: proc(ui: ^UI) {
 		// Sliders change every frame while dragged; saved within a second.
 		ui.settings_dirty = true
 		if ui.session != nil {
-			conn.push_command(&ui.session.client.commands, conn.transfer_limits_command(&ui.settings))
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.transfer_limits_command(&ui.settings),
+			)
 		}
 	}
 }
@@ -300,7 +323,7 @@ device_list :: proc(
 	missing := selected != "" && audio.find_device(devices, selected) == nil
 
 	mu.layout_row(ctx, {-1})
-	mark := "> " if selected == "" || missing else "  "
+	mark := "⏵ " if selected == "" || missing else "  "
 	if .SUBMIT in stable_button(ctx, "default", fmt.tprintf("%sSystem default", mark)) &&
 	   selected != "" {
 		choice, changed = "", true
@@ -319,7 +342,7 @@ device_list :: proc(
 		mu.push_id(ctx, uintptr(i))
 		defer mu.pop_id(ctx)
 		mu.layout_row(ctx, {-1})
-		mark = "> " if d.name == selected else "  "
+		mark = "⏵ " if d.name == selected else "  "
 		suffix := "  (current default)" if d.is_default else ""
 		if .SUBMIT in stable_button(ctx, "device", fmt.tprintf("%s%s%s", mark, d.name, suffix)) &&
 		   d.name != selected {

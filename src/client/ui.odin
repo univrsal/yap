@@ -1,5 +1,6 @@
 package client
 
+import glfw "client:wglfw"
 import log "common:wlog"
 import "core:crypto/ecdh"
 import "core:fmt"
@@ -9,16 +10,15 @@ import "core:sync"
 import "core:time"
 import "core:unicode/utf8"
 import mu "vendor:microui"
-import glfw "client:wglfw"
 
+import "client:audio"
+import "client:clipboard"
+import "client:conn"
+import "client:platform"
+import "client:render"
+import "client:settings"
 import "common:."
 import "common:proto"
-import "client:clipboard"
-import "client:audio"
-import "client:platform"
-import "client:settings"
-import "client:render"
-import "client:conn"
 
 /*
 The windowed client: GLFW for the window and input, microui for widgets,
@@ -745,7 +745,10 @@ connect :: proc(ui: ^UI) {
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
 	ns.client.voice.notifications.volume = settings.notification_gain(&ui.settings)
-	conn.push_command(&ns.client.commands, conn.Quality_Command{settings.settings_quality(&ui.settings)})
+	conn.push_command(
+		&ns.client.commands,
+		conn.Quality_Command{settings.settings_quality(&ui.settings)},
+	)
 	conn.push_command(&ns.client.commands, conn.gate_command(&ui.settings))
 	conn.push_command(&ns.client.commands, conn.transfer_limits_command(&ui.settings))
 	for hex_key, u in ui.settings.users {
@@ -845,7 +848,10 @@ set_muted :: proc(ui: ^UI, muted: bool, feedback := true) {
 	}
 	ui.muted = muted
 	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.Mute_Command{muted = muted, feedback = feedback})
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.Mute_Command{muted = muted, feedback = feedback},
+		)
 	}
 }
 
@@ -1068,7 +1074,7 @@ session_screen :: proc(ui: ^UI) {
 		marker := "  "
 		switch i {
 		case v.my_channel:
-			marker = "> "
+			marker = "⏵ "
 		case v.joining:
 			marker = "~ "
 		}
@@ -1076,7 +1082,10 @@ session_screen :: proc(ui: ^UI) {
 		label := fmt.tprintf("%s%s (%d)", marker, ch.name, len(ch.members))
 		if .SUBMIT in stable_button(ctx, "join", label) && i != v.my_channel && ui.session != nil {
 			log.debugf("ui: join %q", ch.name)
-			conn.push_command(&ui.session.client.commands, conn.Join_Command{strings.clone(ch.name)})
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.Join_Command{strings.clone(ch.name)},
+			)
 		}
 
 		for m in ch.members {
