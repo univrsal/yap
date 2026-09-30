@@ -3,7 +3,7 @@ package client
 import "core:fmt"
 import mu "vendor:microui"
 
-import "../proto"
+import "common:proto"
 
 /*
 Screen sharing in the UI (see video.odin): the Share button beside mute

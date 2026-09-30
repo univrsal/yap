@@ -1,8 +1,8 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:math"
-import stbi "wstbi"
+import stbi "client:wstbi"
 
 /*
 The fallback font: GNU Unifont, for what Roboto hasn't got - Chinese,

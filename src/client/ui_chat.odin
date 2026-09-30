@@ -1,6 +1,6 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:fmt"
 import "core:strings"
 import "core:time"
@@ -8,7 +8,7 @@ import "core:time/datetime"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "../proto"
+import "common:proto"
 
 /*
 The right-hand side of the session screen: the channel's text chat and

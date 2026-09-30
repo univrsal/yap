@@ -1,12 +1,12 @@
 #+build windows
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import win32 "core:sys/windows"
 import "vendor:directx/d3d11"
 import "vendor:directx/dxgi"
 import mu "vendor:microui"
-import glfw "wglfw"
+import glfw "client:wglfw"
 
 /*
 The renderer's Direct3D 11 backend, for Windows. It does what the OpenGL

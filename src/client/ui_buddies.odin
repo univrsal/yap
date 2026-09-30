@@ -1,13 +1,13 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
-import "../proto"
+import "common:proto"
 
 /*
 The buddy screen (buddies.odin): the buddy list on the left, with

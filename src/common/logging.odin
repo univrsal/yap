@@ -4,7 +4,7 @@ import "core:fmt"
 import "core:strings"
 import "core:sync"
 import "core:time"
-import log "wlog"
+import log "common:wlog"
 
 /*
 A core:log logger, so code just uses log.info, log.warnf, etc.

@@ -1,7 +1,7 @@
 package clipboard
 
-import log "../../common/wlog"
-import stbi "../wstbi"
+import log "common:wlog"
+import stbi "client:wstbi"
 
 // decode turns PNG, JPEG, BMP or GIF data into RGBA pixels, refusing
 // images over MAX_PIXELS before decoding them.

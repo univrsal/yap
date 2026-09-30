@@ -1,11 +1,11 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 
-import "../proto"
+import "common:proto"
 
 /*
-When users were last on the server (src/proto/last_seen.odin), for the
+When users were last on the server (src/common/proto/last_seen.odin), for the
 buddy screen to say about those who aren't here. The UI asks
 (Last_Seen_Command), the network loop passes the question on, and the
 answer goes to the View.

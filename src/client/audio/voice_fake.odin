@@ -1,7 +1,7 @@
 #+build !wasi
-package client
+package audio
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:math"
 import "core:sync"
 import "core:thread"

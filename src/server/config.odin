@@ -6,8 +6,8 @@ import "core:os"
 import "core:reflect"
 import "core:strings"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
 
 /*
 The server's settings, all in one file (config.json by default), read

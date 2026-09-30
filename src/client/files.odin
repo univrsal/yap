@@ -1,15 +1,16 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:crypto"
 import "core:fmt"
 import "core:strings"
 import "core:time"
 
-import "../proto"
+import "common:proto"
+import "client:audio"
 
 /*
-Sending files in DMs (see src/proto/files.odin for the protocol).
+Sending files in DMs (see src/common/proto/files.odin for the protocol).
 
 A file is offered in a DM, which shows up in the conversation on both
 sides. Only an offer from this run of the client can go ahead: the file
@@ -593,7 +594,7 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 		log.infof("[file] received %q, saved to %s", t.name, t.path)
 		end_transfer(c, t, .Done)
 		send_file_ack(c, t, now)
-		voice_notification_play(&c.voice, .Done)
+		audio.voice_notification_play(&c.voice, .Done)
 	}
 }
 

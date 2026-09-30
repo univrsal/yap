@@ -1,9 +1,9 @@
-package client
+package audio
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:sync"
 
-import ma "miniaudio"
+import ma "client:audio/miniaudio"
 
 /*
 The ends of the voice pipeline: real audio devices (UI), or a generated
@@ -60,7 +60,7 @@ output_target :: proc() -> int {
 }
 
 // capture_backlog is how much captured audio may wait before the oldest
-// is dropped (see send_captured): MAX_CAPTURE_BACKLOG, or on the web at
+// is dropped (see capture_begin): MAX_CAPTURE_BACKLOG, or on the web at
 // least two periods, since a callback delivers a whole one at once.
 capture_backlog :: proc() -> int {
 	when WEB {

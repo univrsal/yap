@@ -1,7 +1,7 @@
 #+build !darwin
 package client
 
-import glfw "wglfw"
+import glfw "client:wglfw"
 
 // Only macOS puts the UI in the title bar (see ui_titlebar_darwin.odin);
 // everywhere else the desktop's own stays where it is.

@@ -1,6 +1,6 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:crypto/ecdh"
 import "core:encoding/endian"
 import "core:fmt"
@@ -8,8 +8,9 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
+import "client:audio"
 
 Voice_Client :: struct {
 	transport:     Transport,
@@ -31,7 +32,7 @@ Voice_Client :: struct {
 	previous:      proto.Session,
 	has_previous:  bool,
 	last_sent:     time.Tick,
-	voice:         Voice, // set up by the owner before client_open
+	voice:         audio.Voice, // set up by the owner before client_open
 	channels:      Channel_Client,
 	chat:          Chat_Client,
 	images:        Image_Client,
@@ -269,7 +270,8 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			if len(pt) >= proto.VOICE_DOWN_HEADER_SIZE && in_settled_channel(c) {
 				speaker := proto.User_Num(endian.unchecked_get_u32le(pt[1:]))
 				seq := endian.unchecked_get_u32le(pt[5:])
-				voice_receive(c, speaker, seq, pt[proto.VOICE_DOWN_HEADER_SIZE:])
+				publish_voice(c, speaker)
+				audio.voice_receive(&c.voice, speaker, seq, pt[proto.VOICE_DOWN_HEADER_SIZE:])
 			}
 		case .State:
 			handle_state_message(c, pt)
@@ -334,7 +336,7 @@ promote_pending :: proc(c: ^Voice_Client) {
 		c.last_stats = time.tick_now()
 		log.infof("connected to %s", c.server_addr)
 		publish_status(c, .Connected)
-		voice_notification_play(&c.voice, .Welcome)
+		audio.voice_notification_play(&c.voice, .Welcome)
 	}
 }
 
@@ -431,7 +433,7 @@ log_stats :: proc(c: ^Voice_Client) {
 			fmt.sbprintf(
 				&b,
 				" (prefill %d ms)",
-				speaker_prefill(sp) * 1000 / (SAMPLE_RATE * CHANNELS),
+				audio.speaker_prefill(sp) * 1000 / (audio.SAMPLE_RATE * audio.CHANNELS),
 			)
 		}
 	}

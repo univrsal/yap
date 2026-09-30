@@ -2,7 +2,7 @@
 package common
 
 import "core:os"
-import log "wlog"
+import log "common:wlog"
 
 // On a desktop the name is a path and these are plain files. A private
 // one (the key) is written readable by its owner only.

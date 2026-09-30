@@ -2,7 +2,7 @@
 package common
 
 import "core:strings"
-import log "wlog"
+import log "common:wlog"
 
 /*
 In a browser the same named blobs live in the page's local storage,

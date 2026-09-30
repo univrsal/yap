@@ -3,7 +3,7 @@ package client
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
 import vglfw "vendor:glfw"
-import glfw "wglfw"
+import glfw "client:wglfw"
 
 /*
 On macOS the window has no title bar of its own: the UI runs up to the

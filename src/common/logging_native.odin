@@ -7,7 +7,7 @@ import "core:terminal"
 import "core:terminal/ansi"
 import "core:time/datetime"
 import "core:time/timezone"
-import log "wlog"
+import log "common:wlog"
 
 // Where a desktop's log lines go: the terminal, in colour if it is one,
 // and a file as well if one was asked for.

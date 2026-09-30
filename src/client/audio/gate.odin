@@ -1,9 +1,9 @@
-package client
+package audio
 
 import "core:math"
 import "core:time"
 
-import "rnn"
+import "client:audio/rnn"
 
 /*
 The voice gate: only send while the microphone is loud enough, so

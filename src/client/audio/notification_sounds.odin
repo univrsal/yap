@@ -1,36 +1,36 @@
-package client
+package audio
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:encoding/endian"
 
-import "opus"
+import "client:audio/opus"
 
 @(private = "file")
-JOIN_SOUND_DATA := #load("assets/join.opus")
+JOIN_SOUND_DATA := #load("../assets/join.opus")
 
 @(private = "file")
-LEAVE_SOUND_DATA := #load("assets/leave.opus")
+LEAVE_SOUND_DATA := #load("../assets/leave.opus")
 
 @(private = "file")
-MESSAGE_SOUND_DATA := #load("assets/msg.opus")
+MESSAGE_SOUND_DATA := #load("../assets/msg.opus")
 
 @(private = "file")
-WELCOME_SOUND_DATA := #load("assets/welcome.opus")
+WELCOME_SOUND_DATA := #load("../assets/welcome.opus")
 
 @(private = "file")
-GOODBYE_SOUND_DATA := #load("assets/goodbye.opus")
+GOODBYE_SOUND_DATA := #load("../assets/goodbye.opus")
 
 @(private = "file")
-MUTED_SOUND_DATA := #load("assets/muted.opus")
+MUTED_SOUND_DATA := #load("../assets/muted.opus")
 
 @(private = "file")
-UNMUTED_SOUND_DATA := #load("assets/unmuted.opus")
+UNMUTED_SOUND_DATA := #load("../assets/unmuted.opus")
 
 @(private = "file")
-MAIL_SOUND_DATA := #load("assets/mail.opus")
+MAIL_SOUND_DATA := #load("../assets/mail.opus")
 
 @(private = "file")
-DONE_SOUND_DATA := #load("assets/done.opus")
+DONE_SOUND_DATA := #load("../assets/done.opus")
 
 notifications_init :: proc(s: ^Notification_Sounds) {
 	s.volume = 1

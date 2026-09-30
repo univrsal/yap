@@ -6,10 +6,10 @@ import "core:log"
 import "core:os"
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 /*
-When each user was last here (src/proto/last_seen.odin): noted as they
+When each user was last here (src/common/proto/last_seen.odin): noted as they
 leave, and kept in a file next to the config, rewritten whenever someone
 leaves, so the buddy screen can say how long ago it was even after a
 restart.

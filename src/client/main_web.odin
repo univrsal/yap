@@ -1,16 +1,17 @@
 #+build wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "base:runtime"
 import "core:reflect"
 import "core:strconv"
 import "core:strings"
 import "core:time"
 
-import glfw "wglfw"
+import glfw "client:wglfw"
 
-import "../common"
+import "common:."
+import "client:audio"
 
 /*
 The web build's way in. A browser has no main loop to hand over: the
@@ -44,7 +45,7 @@ its command line:
 
 	index.html?server=host:port   connect straight away
 	index.html?log=debug          log level: debug, info, warn, error
-	index.html?audio_period=20    audio device period in ms (voice_io.odin)
+	index.html?audio_period=20    audio device period in ms (audio/voice_io.odin)
 */
 @(private = "file")
 query_param :: proc(name: cstring) -> string {
@@ -80,12 +81,12 @@ web_start :: proc "c" () -> b32 {
 	// 10 to 100 ms: at the top end two periods and a frame still fit the
 	// 0.5 s capture ring (capture_backlog).
 	if ms, parsed := strconv.parse_uint(query_param("audio_period")); parsed {
-		web_device_period_ms = u32(clamp(ms, 10, 100))
+		audio.web_device_period_ms = u32(clamp(ms, 10, 100))
 	}
 	log.debugf(
 		"audio: %d ms device period (%d frames)",
-		device_period_ms(),
-		device_period_samples() / CHANNELS,
+		audio.device_period_ms(),
+		audio.device_period_samples() / audio.CHANNELS,
 	)
 
 	g_web_ui = new(UI)

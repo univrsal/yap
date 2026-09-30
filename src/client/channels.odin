@@ -1,12 +1,13 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
 
-import "../proto"
+import "common:proto"
+import "client:audio"
 
 // Channel_Client is the client's copy of the channel state, plus any Join
 // or name change still waiting to be acknowledged.
@@ -200,16 +201,16 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 		if state.your_channel != old_channel {
 			// A channel move is one local departure and arrival, not a join
 			// from every member already in the destination channel.
-			voice_notification_play(&c.voice, .Join)
+			audio.voice_notification_play(&c.voice, .Join)
 		} else {
 			for member in current.members {
 				if !member_present(old_members, member) {
-					voice_notification_play(&c.voice, .Join)
+					audio.voice_notification_play(&c.voice, .Join)
 				}
 			}
 			for member in old_members {
 				if !member_present(current.members, member) {
-					voice_notification_play(&c.voice, .Leave)
+					audio.voice_notification_play(&c.voice, .Leave)
 				}
 			}
 		}
@@ -397,7 +398,7 @@ Chat_Command :: struct {
 // We're typing in the chat box.
 Typing_Command :: struct {}
 Quality_Command :: struct {
-	quality: Quality,
+	quality: audio.Quality,
 }
 Gate_Command :: struct {
 	enabled:           bool,
@@ -406,7 +407,7 @@ Gate_Command :: struct {
 Notification_Volume_Command :: struct {
 	volume: f32,
 }
-// How to send a shared application (app_audio_native.odin): how loud,
+// How to send a shared application (ui_app_audio_native.odin): how loud,
 // and whether muting the microphone mutes it too.
 App_Audio_Command :: struct {
 	volume:        f32,
@@ -510,14 +511,14 @@ process_commands :: proc(c: ^Voice_Client) {
 			list_channels(c)
 		case Mute_Command:
 			if v.feedback && v.muted != c.voice.muted {
-				voice_feedback_play(&c.voice, v.muted)
+				audio.voice_feedback_play(&c.voice, v.muted)
 			}
 			c.voice.muted = v.muted
 			set_sound(c, .Muted, v.muted)
 			log.infof("voice %s", "muted" if v.muted else "unmuted")
 		case Deafen_Command:
 			if v.feedback && v.deafened != c.voice.deafened {
-				voice_feedback_play(&c.voice, v.deafened)
+				audio.voice_feedback_play(&c.voice, v.deafened)
 			}
 			c.voice.deafened = v.deafened
 			set_sound(c, .Deafened, v.deafened)
@@ -532,11 +533,11 @@ process_commands :: proc(c: ^Voice_Client) {
 				c.voice.gains[v.key] = v.gain
 			}
 		case Quality_Command:
-			if v.quality != c.voice.quality && encoder_setup(&c.voice, v.quality) {
+			if v.quality != c.voice.quality && audio.encoder_setup(&c.voice, v.quality) {
 				log.infof(
 					"quality: %s (%s)",
-					QUALITY_PRESETS[v.quality].label,
-					QUALITY_PRESETS[v.quality].description,
+					audio.QUALITY_PRESETS[v.quality].label,
+					audio.QUALITY_PRESETS[v.quality].description,
 				)
 			}
 		case Listen_Command:

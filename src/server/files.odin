@@ -3,10 +3,10 @@ package server
 import "core:log"
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 /*
-File transfers in DMs (see src/proto/files.odin). The server only
+File transfers in DMs (see src/common/proto/files.odin). The server only
 relays: it sets a route up when a recipient accepts an offer while its
 sender is online, and passes chunks one way and acks the other until
 either side cancels, leaves, or the transfer goes quiet. It can't read

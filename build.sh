@@ -4,15 +4,15 @@
 # Extra arguments are passed to both builds, e.g.
 # ./build.sh -debug -define:YAP_LOSS_PERCENT=30
 #
-# The client links a trimmed-down miniaudio (src/client/miniaudio), RNNoise
-# (src/client/rnn) and traycon (src/client/tray), whose third-party sources
+# The client links a trimmed-down miniaudio (src/client/audio/miniaudio), RNNoise
+# (src/client/audio/rnn) and traycon (src/client/tray), whose third-party sources
 # are in deps/thirdparty, compiled here with the system C
 # compiler ($CC, default cc) whenever their sources change.
 set -e
 cd "$(dirname "$0")"
 mkdir -p bin
 
-ma=src/client/miniaudio
+ma=src/client/audio/miniaudio
 lib=$ma/libyap_audio.a
 if [ ! -f "$lib" ] || [ "$ma/yap_audio.c" -nt "$lib" ] || [ "$ma/yap_audio.h" -nt "$lib" ] || [ deps/thirdparty/miniaudio/miniaudio.h -nt "$lib" ]; then
 	echo "building $lib"
@@ -21,7 +21,7 @@ if [ ! -f "$lib" ] || [ "$ma/yap_audio.c" -nt "$lib" ] || [ "$ma/yap_audio.h" -n
 	rm "$ma/yap_audio.o"
 fi
 
-rnn=src/client/rnn
+rnn=src/client/audio/rnn
 lib=$rnn/libyap_rnn.a
 if [ ! -f "$lib" ] || [ -n "$(find "$rnn/yap_rnn.c" "$rnn/yap_rnn.h" deps/thirdparty/rnnoise -newer "$lib" | head -n 1)" ]; then
 	echo "building $lib"
@@ -71,7 +71,7 @@ fi
 # not linked -- see yap_aac.c); on macOS it's Core Audio and AppKit, so
 # it has to be built as Objective-C, with ARC as tinyaac.h asks. The BSDs get tinyaac's stub,
 # which says application audio is unavailable.
-aac=src/client/aac
+aac=src/client/audio/aac
 lib=$aac/libyap_aac.a
 if [ ! -f "$lib" ] || [ "$aac/yap_aac.c" -nt "$lib" ] || [ deps/thirdparty/tinyaac/tinyaac.h -nt "$lib" ]; then
 	echo "building $lib"
@@ -86,17 +86,17 @@ if [ ! -f "$lib" ] || [ "$aac/yap_aac.c" -nt "$lib" ] || [ deps/thirdparty/tinya
 fi
 
 # libopus on macOS and OpenBSD: there's no prebuilt library for them in
-# src/client/opus, so it's built from the release source
+# src/client/audio/opus, so it's built from the release source
 # (scripts/fetch-opus.sh), the float API without DRED or OSCE, which is
-# what src/client/opus binds.
+# what src/client/audio/opus binds.
 case "$(uname -s)" in
 Darwin) opus_os=macos ;;
 OpenBSD) opus_os=openbsd ;;
 *) opus_os= ;;
 esac
-if [ -n "$opus_os" ] && [ ! -f "src/client/opus/libopus_$opus_os.a" ]; then
+if [ -n "$opus_os" ] && [ ! -f "src/client/audio/opus/libopus_$opus_os.a" ]; then
 	scripts/fetch-opus.sh .cache
-	echo "building src/client/opus/libopus_$opus_os.a"
+	echo "building src/client/audio/opus/libopus_$opus_os.a"
 	cmake -S .cache/opus-1.6 -B ".cache/opus-$opus_os" \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DOPUS_BUILD_PROGRAMS=OFF \
@@ -107,7 +107,7 @@ if [ -n "$opus_os" ] && [ ! -f "src/client/opus/libopus_$opus_os.a" ]; then
 	# A job count, since OpenBSD's make won't take a bare -j.
 	jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || getconf NPROCESSORS_ONLN)
 	cmake --build ".cache/opus-$opus_os" --parallel "$jobs"
-	cp ".cache/opus-$opus_os/libopus.a" "src/client/opus/libopus_$opus_os.a"
+	cp ".cache/opus-$opus_os/libopus.a" "src/client/audio/opus/libopus_$opus_os.a"
 fi
 
 # OpenBSD: two libraries Odin's own packages ask the linker for aren't
@@ -136,5 +136,7 @@ fi
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
 version_defines=$(scripts/version-defines.sh)
-odin build src/server -vet -strict-style -out:bin/yap-server $version_defines "$@"
-odin build src/client -vet -strict-style -out:bin/yap $client_link_flags $version_defines "$@"
+# The collections the imports name: "common:wlog", "client:audio/opus".
+collections="-collection:common=src/common -collection:client=src/client"
+odin build src/server $collections -vet -strict-style -out:bin/yap-server $version_defines "$@"
+odin build src/client $collections -vet -strict-style -out:bin/yap $client_link_flags $version_defines "$@"

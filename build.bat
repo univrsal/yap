@@ -2,8 +2,8 @@
 rem Builds bin\yap-server.exe and bin\yap.exe, both with the yap icon.
 rem Extra arguments are passed to both builds. Run from a Visual Studio developer prompt (Odin
 rem needs MSVC's linker anyway); cl.exe compiles the trimmed-down miniaudio
-rem (src\client\miniaudio), RNNoise (src\client\rnn), traycon
-rem (src\client\tray), tinydialogs (src\client\dialogs) and tinyaac (src\client\aac), whose
+rem (src\client\audio\miniaudio), RNNoise (src\client\audio\rnn), traycon
+rem (src\client\tray), tinydialogs (src\client\dialogs) and tinyaac (src\client\audio\aac), whose
 rem third-party sources are in deps\thirdparty,
 rem with the static C runtime
 rem (/MT) like Odin's vendor libraries, so no runtime DLL is needed.
@@ -21,12 +21,12 @@ if not defined VCVARSALL (
 )
 call "%VCVARSALL%" x64 >nul || exit /b 1
 
-set MA=src\client\miniaudio
+set MA=src\client\audio\miniaudio
 cl /nologo /MT /O1 /c %MA%\yap_audio.c /Fo:%MA%\yap_audio.obj || exit /b 1
 lib /nologo /out:%MA%\yap_audio.lib %MA%\yap_audio.obj || exit /b 1
 del %MA%\yap_audio.obj
 
-set RNN=src\client\rnn
+set RNN=src\client\audio\rnn
 cl /nologo /MT /O1 /c %RNN%\yap_rnn.c /Fo:%RNN%\yap_rnn.obj || exit /b 1
 lib /nologo /out:%RNN%\yap_rnn.lib %RNN%\yap_rnn.obj || exit /b 1
 del %RNN%\yap_rnn.obj
@@ -41,7 +41,7 @@ cl /nologo /MT /O1 /c %DIALOGS%\yap_dialogs.c /Fo:%DIALOGS%\yap_dialogs.obj || e
 lib /nologo /out:%DIALOGS%\yap_dialogs.lib %DIALOGS%\yap_dialogs.obj || exit /b 1
 del %DIALOGS%\yap_dialogs.obj
 
-set AAC=src\client\aac
+set AAC=src\client\audio\aac
 cl /nologo /MT /O1 /c %AAC%\yap_aac.c /Fo:%AAC%\yap_aac.obj || exit /b 1
 lib /nologo /out:%AAC%\yap_aac.lib %AAC%\yap_aac.obj || exit /b 1
 del %AAC%\yap_aac.obj
@@ -65,8 +65,10 @@ rem rc.exe compiles it, and MSVC's linker takes the .res as it is.
 set ICON=src\client\assets\icon
 rc /nologo /i src\client\assets /fo %ICON%.res %ICON%.rc || exit /b 1
 
-odin build src\server -vet -strict-style -out:bin\yap-server.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
-odin build src\client -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res /SUBSYSTEM:WINDOWS" %DEFINES% %* || exit /b 1
+rem The collections the imports name: "common:wlog", "client:audio/opus".
+set COLLECTIONS=-collection:common=src\common -collection:client=src\client
+odin build src\server %COLLECTIONS% -vet -strict-style -out:bin\yap-server.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
+odin build src\client %COLLECTIONS% -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res /SUBSYSTEM:WINDOWS" %DEFINES% %* || exit /b 1
 exit /b 0
 
 :add_version

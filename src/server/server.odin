@@ -9,8 +9,8 @@ import "core:log"
 import "core:net"
 import "core:time"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
 
 // Bounds memory used by unauthenticated Handshake_Init floods.
 MAX_SESSIONS :: 256

@@ -1,26 +1,29 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:os"
 import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-import "aac"
+import "client:audio"
+import "client:audio/aac"
 
 /*
 Sharing an application's audio with the channel, next to the
-microphone (native clients; see aac/aac.odin for which systems can).
+microphone (native clients; see audio/aac/aac.odin for which systems
+can).
 
 The header's button opens a menu of the applications playing audio;
 picking one captures it (on tinyaac's thread) into the Voice's app ring,
-converted to 48 kHz stereo on the way. The network thread mixes it into
-every frame it sends, after noise suppression and the voice gate, which
-only ever see the microphone (see send_captured in voice.odin). Muting
-the microphone mutes the application as well, unless the settings say
-otherwise (mute_app_audio_with_mic); then it keeps being heard until the
-share is stopped.
+converted to 48 kHz stereo on the way (audio/app_audio_native.odin). The
+network thread mixes it into every frame it sends, after noise
+suppression and the voice gate, which only ever see the microphone (see
+capture_frame in audio/voice.odin). Muting the microphone mutes the
+application as well, unless the settings say otherwise
+(mute_app_audio_with_mic); then it keeps being heard until the share is
+stopped.
 
 Like the audio devices, the capture belongs to the UI thread and to one
 connection: disconnecting stops it.
@@ -32,26 +35,9 @@ MENU_NAME :: "app audio"
 @(private = "file")
 MENU_WIDTH :: 240
 
-// One application being captured into a Voice's app ring. Its address
-// is what tinyaac's callbacks get.
-App_Share :: struct {
-	capture: ^aac.Capture,
-	voice:   ^Voice,
-	// Resampling to SAMPLE_RATE (resample_write): the application's rate,
-	// where the next output frame falls in the next input chunk (-1 is
-	// `prev`), and the chunk before's last frame.
-	rate:    u32,
-	pos:     f64,
-	prev:    [CHANNELS]f32,
-	// Set by tinyaac's thread when the application has gone or the
-	// capture failed, with why; the UI stops the share (app_audio_frame).
-	ended:   bool, // atomic
-	why:     [128]u8,
-}
-
 UI_App_Audio :: struct {
 	available: bool, // tinyaac came up
-	share:     ^App_Share, // nil while nothing is shared
+	share:     ^audio.App_Share, // nil while nothing is shared
 	name:      string, // what's being shared; owned
 	// The menu's applications, as they were when it was opened.
 	list:      ^aac.App_List,
@@ -94,7 +80,7 @@ app_audio_available :: proc(ui: ^UI) -> bool {
 // app_audio_frame ends a share whose application has gone away.
 app_audio_frame :: proc(ui: ^UI) {
 	s := ui.app_audio.share
-	if s == nil || !sync.atomic_load(&s.ended) {
+	if s == nil || !audio.app_share_ended(s) {
 		return
 	}
 	log.infof("app audio: %s stopped: %s", ui.app_audio.name, cstring(&s.why[0]))
@@ -108,10 +94,7 @@ app_audio_stop :: proc(ui: ^UI) {
 	if s == nil {
 		return
 	}
-	sync.atomic_store(&s.voice.app_input, false)
-	aac.capture_stop(s.capture) // after this the callbacks no longer run
-	aac.capture_destroy(s.capture)
-	free(s)
+	audio.app_share_stop(s)
 	a.share = nil
 	log.infof("app audio: stopped sharing %s", a.name)
 	delete(a.name)
@@ -234,27 +217,16 @@ app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
 	if ns == nil || !ns.client.voice.ready || a.list == nil {
 		return
 	}
-	s := new(App_Share)
-	s.voice = &ns.client.voice
-	st := aac.capture_create(a.list, index, &s.capture)
-	if st == .Ok {
-		st = aac.capture_set_callbacks(s.capture, app_audio_callback, app_event_callback, s)
-	}
-	if st == .Ok {
-		st = aac.capture_start(s.capture)
-	}
+	s, st, why := audio.app_share_start(&ns.client.voice, a.list, index)
 	if st != .Ok {
-		why := string(aac.last_error())
 		log.errorf("app audio: could not share %s: %s", name, why)
 		if st == .Permission_Denied {
-			a.error = strings.clone("Not allowed to capture its audio; see the system's privacy settings.")
+			a.error = strings.clone(
+				"Not allowed to capture its audio; see the system's privacy settings.",
+			)
 		} else {
 			a.error = strings.concatenate({"Could not share it: ", why})
 		}
-		if s.capture != nil {
-			aac.capture_destroy(s.capture)
-		}
-		free(s)
 		return
 	}
 	push_command(&ns.client.commands, app_audio_command(&ui.settings))
@@ -262,79 +234,4 @@ app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
 	a.share = s
 	a.name = strings.clone(name)
 	log.infof("app audio: sharing %s", name)
-}
-
-// Runs on tinyaac's thread. Like the device callbacks, it only moves
-// samples into the ring, which drops what doesn't fit.
-@(private = "file")
-app_audio_callback :: proc "c" (frame: ^aac.Audio_Frame, user: rawptr) {
-	s := (^App_Share)(user)
-	channels := int(frame.channels)
-	if channels == 0 || frame.sample_rate == 0 {
-		return
-	}
-	if frame.sample_rate != s.rate {
-		s.rate, s.pos, s.prev = frame.sample_rate, 0, {}
-	}
-	frames := int(frame.frame_count)
-	sync.atomic_add(&s.voice.app_received, u32(frames))
-	CHUNK :: 256
-	stereo: [CHUNK * CHANNELS]f32
-	for done := 0; done < frames; done += CHUNK {
-		n := min(CHUNK, frames - done)
-		to_stereo(frame.samples[done * channels:][:n * channels], channels, stereo[:n * CHANNELS])
-		if s.rate == SAMPLE_RATE {
-			ring_write(&s.voice.app, stereo[:n * CHANNELS])
-		} else {
-			resample_write(s, stereo[:n * CHANNELS])
-		}
-	}
-}
-
-@(private = "file")
-app_event_callback :: proc "c" (event: aac.Event, status: aac.Status, message: cstring, user: rawptr) {
-	s := (^App_Share)(user)
-	if event != .Target_Ended && event != .Backend_Error {
-		return
-	}
-	if !sync.atomic_load(&s.ended) {
-		text := string(message) if message != nil else ""
-		copy(s.why[:len(s.why) - 1], text)
-		sync.atomic_store(&s.ended, true)
-	}
-}
-
-/*
-resample_write converts stereo audio at s.rate to SAMPLE_RATE and writes
-it to the ring, interpolating linearly between neighbouring frames. That
-aliases a little, which is lost in Opus at the rates we send; most
-applications play at 48 kHz anyway and skip this altogether.
-*/
-resample_write :: proc "contextless" (s: ^App_Share, input: []f32) {
-	frames := len(input) / CHANNELS
-	if frames == 0 {
-		return
-	}
-	step := f64(s.rate) / SAMPLE_RATE
-	out: [512 * CHANNELS]f32
-	n := 0
-	for s.pos < f64(frames - 1) {
-		// pos >= -1, so this is its floor.
-		i := int(s.pos + 1) - 1
-		frac := f32(s.pos - f64(i))
-		for c in 0 ..< CHANNELS {
-			from := s.prev[c] if i < 0 else input[i * CHANNELS + c]
-			to := input[(i + 1) * CHANNELS + c]
-			out[n + c] = from + (to - from) * frac
-		}
-		n += CHANNELS
-		if n == len(out) {
-			ring_write(&s.voice.app, out[:n])
-			n = 0
-		}
-		s.pos += step
-	}
-	ring_write(&s.voice.app, out[:n])
-	s.pos -= f64(frames)
-	copy(s.prev[:], input[(frames - 1) * CHANNELS:])
 }

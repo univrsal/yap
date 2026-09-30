@@ -3,7 +3,7 @@ package client
 
 import "core:testing"
 
-import "../proto"
+import "common:proto"
 
 // An encoded frame of `size` bytes, owned by whoever it's handed to.
 @(private = "file")

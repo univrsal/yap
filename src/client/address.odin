@@ -3,7 +3,7 @@ package client
 import "core:fmt"
 import "core:strings"
 
-import "../proto"
+import "common:proto"
 
 /*
 with_default_port returns the server address the user typed with

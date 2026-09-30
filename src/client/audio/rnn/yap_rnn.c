@@ -73,12 +73,12 @@ from files) and the training code are left out.
     #pragma GCC diagnostic ignored "-Wnull-dereference"
 #endif
 
-#include "../../../deps/thirdparty/rnnoise/kiss_fft.c"
-#include "../../../deps/thirdparty/rnnoise/celt_lpc.c"
-#include "../../../deps/thirdparty/rnnoise/pitch.c"
-#include "../../../deps/thirdparty/rnnoise/rnn.c"
-#include "../../../deps/thirdparty/rnnoise/rnn_data.c"
-#include "../../../deps/thirdparty/rnnoise/denoise.c"
+#include "../../../../deps/thirdparty/rnnoise/kiss_fft.c"
+#include "../../../../deps/thirdparty/rnnoise/celt_lpc.c"
+#include "../../../../deps/thirdparty/rnnoise/pitch.c"
+#include "../../../../deps/thirdparty/rnnoise/rnn.c"
+#include "../../../../deps/thirdparty/rnnoise/rnn_data.c"
+#include "../../../../deps/thirdparty/rnnoise/denoise.c"
 
 /* denoise.c fills its FFT and window tables lazily on first use, without
    locking; call this once before using denoisers from any thread. */

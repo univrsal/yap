@@ -1,6 +1,6 @@
 package clipboard
 
-import log "../../common/wlog"
+import log "common:wlog"
 
 // OpenBSD's desktops are X11, so that's the only backend here; the
 // Wayland display init is given is always nil.

@@ -1,10 +1,11 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:fmt"
 import "core:sync"
 import "core:time"
 import mu "vendor:microui"
+import "client:audio"
 
 /*
 The voice gate's part of the settings page: an on/off toggle, a live
@@ -35,8 +36,8 @@ METER_HEIGHT :: 26
 
 Mic_Monitor :: struct {
 	active:  bool,
-	voice:   Voice, // only its capture ring, denoiser and gate are used
-	streams: Audio_Streams,
+	voice:   audio.Voice, // only its capture ring, denoiser and gate are used
+	streams: audio.Audio_Streams,
 	level:   f32,
 	open:    bool,
 	time:    time.Tick,
@@ -49,8 +50,8 @@ monitor_update :: proc(ui: ^UI) {
 	m := &ui.monitor
 	want := ui.page == .Settings && ui.session == nil && ui.audio.ctx != nil
 	if want && !m.active {
-		if voice_init(&m.voice) {
-			open_capture(&ui.audio, &m.streams, &m.voice, ui.settings.input_device)
+		if audio.voice_init(&m.voice) {
+			audio.open_capture(&ui.audio, &m.streams, &m.voice, ui.settings.input_device)
 			m.active = true
 		}
 	}
@@ -64,10 +65,10 @@ monitor_update :: proc(ui: ^UI) {
 	if ui.listen_back && m.streams.playback == nil {
 		// The UI thread only gets here once per frame, so keep more queued
 		// than the network thread does.
-		m.voice.output_target = max(3 * FRAME, output_target())
-		open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
+		m.voice.output_target = max(3 * audio.FRAME, audio.output_target())
+		audio.open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
 	} else if !ui.listen_back && m.streams.playback != nil {
-		close_playback(&m.streams, &m.voice)
+		audio.close_playback(&m.streams, &m.voice)
 	}
 
 	m.voice.denoise = ui.settings.noise_suppression
@@ -78,17 +79,17 @@ monitor_update :: proc(ui: ^UI) {
 	m.voice.gate.enabled, m.voice.gate.open_db, m.voice.gate.close_db =
 		cmd.enabled, cmd.open_db, cmd.close_db
 
-	frame: [FRAME]f32
-	for ring_available(&m.voice.capture) >= FRAME {
-		ring_read(&m.voice.capture, frame[:])
+	frame: [audio.FRAME]f32
+	for audio.ring_available(&m.voice.capture) >= audio.FRAME {
+		audio.ring_read(&m.voice.capture, frame[:])
 		pass: bool
-		m.level, pass = mic_process(&m.voice, frame[:])
-		listen_feed(&m.voice, frame[:], pass)
+		m.level, pass = audio.mic_process(&m.voice, frame[:])
+		audio.listen_feed(&m.voice, frame[:], pass)
 		m.open = m.voice.gate.open
 		m.time = time.tick_now()
 	}
 	if m.streams.playback != nil {
-		mix_output(&m.voice)
+		audio.mix_output(&m.voice)
 	}
 }
 
@@ -97,8 +98,8 @@ monitor_stop :: proc(ui: ^UI) {
 	if !m.active {
 		return
 	}
-	close_streams(&m.streams, &m.voice)
-	voice_destroy(&m.voice)
+	audio.close_streams(&m.streams, &m.voice)
+	audio.voice_destroy(&m.voice)
 	m^ = {}
 }
 
@@ -125,12 +126,12 @@ gate_settings :: proc(ui: ^UI) {
 	current_width := (mu.layout_next(ctx).w - 70 - 90 - 20) / 2
 	mu.layout_row(ctx, {70, current_width, 90, current_width})
 	mu.label(ctx, "Open at")
-	if .CHANGE in mu.slider(ctx, &s.gate_open_db, MIN_LEVEL_DB, 0, 1, "%.0f dB") {
+	if .CHANGE in mu.slider(ctx, &s.gate_open_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_close_db = min(s.gate_close_db, s.gate_open_db)
 		gate_changed(ui)
 	}
 	mu.label(ctx, "Close below")
-	if .CHANGE in mu.slider(ctx, &s.gate_close_db, MIN_LEVEL_DB, 0, 1, "%.0f dB") {
+	if .CHANGE in mu.slider(ctx, &s.gate_close_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_open_db = max(s.gate_open_db, s.gate_close_db)
 		gate_changed(ui)
 	}
@@ -175,7 +176,7 @@ level_meter :: proc(ui: ^UI) {
 	r := mu.layout_next(ctx)
 
 	// The latest level, from whichever side is processing the microphone.
-	level: f32 = MIN_LEVEL_DB
+	level: f32 = audio.MIN_LEVEL_DB
 	open := false
 	fresh := false
 	if ui.session != nil {
@@ -189,7 +190,7 @@ level_meter :: proc(ui: ^UI) {
 		fresh = m.time != {} && time.tick_since(m.time) < METER_STALE
 	}
 	if !fresh {
-		level, open = MIN_LEVEL_DB, false
+		level, open = audio.MIN_LEVEL_DB, false
 	}
 
 	// Rise instantly, fall smoothly, so short peaks are readable.
@@ -199,7 +200,7 @@ level_meter :: proc(ui: ^UI) {
 	ui.meter_level = max(level, ui.meter_level - METER_DECAY_DB_PER_SEC * min(dt, 1))
 
 	x_of := proc(r: mu.Rect, db: f32) -> i32 {
-		t := clamp((db - MIN_LEVEL_DB) / -f32(MIN_LEVEL_DB), 0, 1)
+		t := clamp((db - audio.MIN_LEVEL_DB) / -f32(audio.MIN_LEVEL_DB), 0, 1)
 		return r.x + i32(t * f32(r.w))
 	}
 	closed_color := mu.Color{110, 45, 45, 255}

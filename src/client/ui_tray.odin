@@ -1,13 +1,13 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
-import glfw "wglfw"
+import glfw "client:wglfw"
 
-import "tray"
+import "client:tray"
 
 /*
 The tray icon: a microphone in the system tray showing whether we're

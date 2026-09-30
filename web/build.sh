@@ -15,8 +15,8 @@ mkdir -p "$out"
 stb="$(odin root)/vendor/stb/src"
 
 # libopus, built for wasm. The desktop builds link the prebuilt libraries
-# in client/opus; there's none for wasm, and the source is too big to keep
-# in the repo (its DNN model data), so the release client/opus is bound
+# in client/audio/opus; there's none for wasm, and the source is too big to keep
+# in the repo (its DNN model data), so the release client/audio/opus is bound
 # against is fetched once, checked and built into web/deps/ (gitignored).
 # Delete web/deps/ to build it again.
 opus_version=1.6
@@ -28,7 +28,7 @@ if [ ! -f "$opus_lib" ]; then
 	rm -rf "$opus_build"
 	echo "building $opus_lib"
 	# The float API without DRED or OSCE (both off by default), which is
-	# what client/opus binds. Hardening only adds _FORTIFY_SOURCE and stack
+	# what client/audio/opus binds. Hardening only adds _FORTIFY_SOURCE and stack
 	# protectors, neither of which means anything on wasm.
 	emcmake cmake -S "$deps/opus-$opus_version" -B "$opus_build" \
 		-DCMAKE_BUILD_TYPE=Release \
@@ -63,15 +63,15 @@ version_defines=$(scripts/version-defines.sh)
 # The object's name is spelled out: without an extension Odin picks one,
 # and newer versions pick .wasm rather than .obj, which left emcc below
 # linking a stale yap.obj.
-odin build src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -o:speed -out:"$out/yap.obj" $version_defines "$@"
+odin build src/client -collection:common=src/common -collection:client=src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -o:speed -out:"$out/yap.obj" $version_defines "$@"
 
 # -sSTACK_SIZE: the client keeps some large buffers on the stack (a state
 # snapshot, a stored blob), and emscripten's default of 64 KiB is too
 # small for them.
 emcc "$out/yap.obj" \
 	web/shell.c \
-	src/client/miniaudio/yap_audio.c \
-	src/client/rnn/yap_rnn.c \
+	src/client/audio/miniaudio/yap_audio.c \
+	src/client/audio/rnn/yap_rnn.c \
 	"$opus_lib" \
 	"$stb/stb_truetype.c" \
 	"$stb/stb_image.c" \

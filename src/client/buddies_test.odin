@@ -5,7 +5,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:testing"
 
-import "../proto"
+import "common:proto"
 
 @(test)
 test_buddies_saved_and_loaded :: proc(t: ^testing.T) {

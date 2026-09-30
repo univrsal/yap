@@ -1,6 +1,6 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "base:runtime"
 import "core:fmt"
 import "core:math"
@@ -8,8 +8,8 @@ import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-import "../proto"
-import "clipboard"
+import "common:proto"
+import "client:clipboard"
 
 /*
 Showing chat images. The network thread hands over the JPEG it fetched

@@ -1,7 +1,7 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:bufio"
 import "core:os"
 import "core:strings"
@@ -20,7 +20,7 @@ network loop never blocks on input.
 	/say <text>      post to the channel's text chat
 	/send <file>     post an image file (scaled and compressed first)
 	/typing          tell the channel you're typing
-	/poke <name> [message]  poke someone (see src/proto/poke.odin)
+	/poke <name> [message]  poke someone (see src/common/proto/poke.odin)
 	/dm <name|key> <text>   send a direct message: to someone online by
 	                        name, or to anyone by their key (64 hex digits)
 	/dmimage <name|key> <file>  send an image file in a direct message

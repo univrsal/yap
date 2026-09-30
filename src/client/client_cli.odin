@@ -1,10 +1,11 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:os"
 import "core:slice"
 import "core:strings"
+import "client:audio"
 
 
 // run_headless is the command-line client: commands come from stdin.
@@ -20,15 +21,15 @@ run_headless :: proc(
 	limits: Settings, // only the transfer limits are read
 	denoise: bool,
 	gate: bool,
-	quality: Quality,
+	quality: audio.Quality,
 ) -> bool {
 	// Heap-allocated: the channel state buffers make it fairly large.
 	c := new(Voice_Client)
 	defer free(c)
-	if !voice_init(&c.voice) {
+	if !audio.voice_init(&c.voice) {
 		return false
 	}
-	defer voice_destroy(&c.voice)
+	defer audio.voice_destroy(&c.voice)
 	c.voice.denoise = denoise
 	c.voice.gate.enabled = gate
 	c.images.dir = image_dir
@@ -36,10 +37,10 @@ run_headless :: proc(
 	limits := limits
 	lim := transfer_limits_command(&limits)
 	c.files.upload_limit, c.files.download_limit = lim.upload, lim.download
-	if quality != .Voice && !encoder_setup(&c.voice, quality) {
+	if quality != .Voice && !audio.encoder_setup(&c.voice, quality) {
 		return false
 	}
-	fake: Fake_Audio
+	fake: audio.Fake_Audio
 	input: []f32
 	if input_file != "" {
 		data, err := os.read_entire_file(input_file, context.allocator)
@@ -51,9 +52,9 @@ run_headless :: proc(
 	}
 	defer delete(input)
 	if tone_hz > 0 || len(input) > 0 {
-		fake_audio_start(&fake, &c.voice, tone_hz, input)
+		audio.fake_audio_start(&fake, &c.voice, tone_hz, input)
 	}
-	defer fake_audio_stop(&fake)
+	defer audio.fake_audio_stop(&fake)
 	defer client_close(c)
 	if !client_open(c, key_path, server_addr, known_servers, name, password) {
 		return false

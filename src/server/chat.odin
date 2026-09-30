@@ -4,7 +4,7 @@ import "core:log"
 import "core:net"
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 // How many messages each channel keeps, and what a user gets on joining.
 CHAT_HISTORY :: 50

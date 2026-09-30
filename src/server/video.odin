@@ -4,10 +4,10 @@ import "core:log"
 import "core:net"
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 /*
-Screen sharing (see src/proto/video.odin): the server passes a sharer's
+Screen sharing (see src/common/proto/video.odin): the server passes a sharer's
 video fragments on to whoever in their channel holds a Watch lease on
 them, and passes the viewers' keyframe requests back. It never looks
 inside the video.

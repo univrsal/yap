@@ -3,7 +3,7 @@ package client
 import "core:slice"
 import "core:strings"
 
-import "../proto"
+import "common:proto"
 
 /*
 Buddies: people we've chosen to keep, whether or not they're on the

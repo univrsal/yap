@@ -1,13 +1,13 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "base:runtime"
 import "core:math"
 import "core:os"
 import stbi "vendor:stb/image"
 
-import "clipboard"
+import "client:clipboard"
 
 /*
 Turning a pasted image (RGBA, see clipboard) into something worth

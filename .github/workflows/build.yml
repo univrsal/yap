@@ -96,7 +96,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/cache@v6
         with:
-          path: src/client/opus/libopus_macos.a
+          path: src/client/audio/opus/libopus_macos.a
           key: opus-macos-${{ runner.arch }}-${{ hashFiles('scripts/fetch-opus.sh', 'build.sh') }}
 
       - name: Odin's stb libraries
@@ -126,8 +126,9 @@ jobs:
       - name: Test
         shell: bash
         run: |
-          odin test src/proto -vet -strict-style
-          odin test src/client/hotkeys -vet -strict-style
+          collections="-collection:common=src/common -collection:client=src/client"
+          odin test src/common/proto $collections -vet -strict-style
+          odin test src/client/hotkeys $collections -vet -strict-style
 
       - uses: actions/download-artifact@v8
         with:

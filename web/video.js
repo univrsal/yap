@@ -293,7 +293,7 @@ or getDisplayMedia (a phone) can still watch.
 	};
 
 	function show(sharer, data, ts, key, codec) {
-		if (!canWatch() || codec !== 0 /* H264, src/proto/video.odin */) return;
+		if (!canWatch() || codec !== 0 /* H264, src/common/proto/video.odin */) return;
 		if (sharer !== watch.sharer) end();
 		watch.sharer = sharer;
 		if (!watch.decoder) {

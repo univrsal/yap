@@ -4,7 +4,7 @@ package client
 import "core:testing"
 import stbi "vendor:stb/image"
 
-import "clipboard"
+import "client:clipboard"
 
 // test_image makes a w*h RGBA image: noise (so it doesn't compress to
 // nothing) with an alpha ramp across the first rows.

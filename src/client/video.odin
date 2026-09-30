@@ -1,12 +1,12 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 /*
-Screen sharing (see src/proto/video.odin), the part that's the same
+Screen sharing (see src/common/proto/video.odin), the part that's the same
 wherever the client runs. The capturing, encoding and decoding are the
 browser's (video_web.odin); a desktop build has none of it, so it never
 shares or watches, but still shows who is sharing.

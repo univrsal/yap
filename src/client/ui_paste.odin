@@ -1,13 +1,13 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:sync"
 import "core:thread"
 import mu "vendor:microui"
-import glfw "wglfw"
+import glfw "client:wglfw"
 
-import "clipboard"
+import "client:clipboard"
 
 /*
 Pasting an image runs on a thread of its own: the program that owns the

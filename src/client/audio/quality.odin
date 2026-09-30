@@ -1,8 +1,8 @@
-package client
+package audio
 
-import log "../common/wlog"
+import log "common:wlog"
 
-import "opus"
+import "client:audio/opus"
 
 /*
 Send quality presets. Each client picks its own; receivers decode whatever

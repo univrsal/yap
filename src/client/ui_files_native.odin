@@ -1,15 +1,15 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import glfw "wglfw"
+import glfw "client:wglfw"
 
-import "../proto"
-import "dialogs"
+import "common:proto"
+import "client:dialogs"
 
 /*
 Picking a file to send, on a desktop: the system's file dialog

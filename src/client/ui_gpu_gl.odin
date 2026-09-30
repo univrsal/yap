@@ -1,10 +1,10 @@
 #+build !windows
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import mu "vendor:microui"
-import gl "wgl"
-import glfw "wglfw"
+import gl "client:wgl"
+import glfw "client:wglfw"
 
 /*
 The renderer's OpenGL 3.3 backend (WebGL 2 in a browser), for everywhere

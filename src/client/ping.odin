@@ -2,7 +2,7 @@ package client
 
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 /*
 How good the connection to the server is, for the indicator next to the

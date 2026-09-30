@@ -1,11 +1,11 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:fmt"
 import "core:strings"
 import mu "vendor:microui"
 
-import "../proto"
+import "common:proto"
 
 /*
 Per-user playback settings: clicking (left or right) on another user in
@@ -96,7 +96,7 @@ sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu
 /*
 The mark for somebody whose audio still comes through while they're
 muted, at the end of the row (in front of the others): that can only be
-an application they're sharing (app_audio_native.odin), since muting
+an application they're sharing (ui_app_audio_native.odin), since muting
 stops the microphone. Without it, all there is to see is a crossed-out
 microphone, however much is being heard. Dim for somebody we've muted
 for ourselves, whom we don't hear either way.

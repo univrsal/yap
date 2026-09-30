@@ -3,11 +3,11 @@ package server
 import "core:log"
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 /*
 Chat images. A client announces one with Image_Send and uploads the JPEG
-in chunks (src/proto/blob.odin); once it's all there the image gets an id,
+in chunks (src/common/proto/blob.odin); once it's all there the image gets an id,
 the message is posted like a text one, and anyone in the channel can ask
 for the bytes with Image_Get.
 

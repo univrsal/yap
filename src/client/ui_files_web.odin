@@ -3,7 +3,7 @@ package client
 
 import "core:strings"
 
-import "../proto"
+import "common:proto"
 
 /*
 Picking a file to send, in a browser: a file input the page opens

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Regenerates the web build's copies of the C bindings' declarations:
-src/client/<pkg>/<pkg>_foreign_web.odin from src/client/<pkg>/<pkg>_foreign.odin.
+src/client/audio/<pkg>/<pkg>_foreign_web.odin from
+src/client/audio/<pkg>/<pkg>_foreign.odin.
 
 On wasm, Odin names the procs of a named foreign import after the import
 ("system:c..yap_audio_create"), which no C object defines. The unnamed
@@ -28,7 +29,7 @@ IMPORT_CHAIN = re.compile(r"when ODIN_OS == [^\n]*\{\n\tforeign import.*?\n\}\n\
 
 root = pathlib.Path(__file__).resolve().parent.parent
 for pkg in ("opus", "rnn", "miniaudio"):
-    native = root / "src" / "client" / pkg / f"{pkg}_foreign.odin"
+    native = root / "src" / "client" / "audio" / pkg / f"{pkg}_foreign.odin"
     text = native.read_text()
     tag = "#+build !wasi\n"
     assert text.startswith(tag), native

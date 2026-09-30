@@ -37,13 +37,13 @@ when ODIN_OS == .Windows {
 	@(private)
 	LIB :: ""
 } else {
-	#panic("no libopus build for this platform in client/opus")
+	#panic("no libopus build for this platform in client/audio/opus")
 }
 
 when ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin || ODIN_OS == .OpenBSD {
 	when !#exists(LIB) {
 		#panic(
-			"src/client/opus/" +
+			"src/client/audio/opus/" +
 			LIB +
 			" is missing (on macOS and OpenBSD, build it with build.sh)",
 		)

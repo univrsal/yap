@@ -4,8 +4,8 @@ import "core:encoding/hex"
 import "core:fmt"
 import "core:strings"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
 
 /*
 Trust-on-first-use store for server keys, like ssh's known_hosts: one

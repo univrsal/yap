@@ -7,8 +7,8 @@ import "core:path/filepath"
 import "core:strings"
 import "core:testing"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
 
 // Deleting a conversation takes it off the screen, out of the index and
 // off the disk, and leaves the others as they were.

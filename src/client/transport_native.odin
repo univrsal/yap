@@ -1,7 +1,7 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:net"
 import "core:time"
 

@@ -8,11 +8,11 @@ import "core:os"
 import "core:strconv"
 import "core:time"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
 
 /*
-Direct messages (src/proto/dm.odin). The server can't read them: it
+Direct messages (src/common/proto/dm.odin). The server can't read them: it
 holds each one for its recipient until they acknowledge it, handing it
 over whenever they're online, and keeps what's held in a file next to
 the config, so a restart doesn't lose them.
@@ -170,7 +170,7 @@ send_dm_sent :: proc(s: ^Server, c: ^Client, id: u64, result: proto.DM_Result) {
 }
 
 /*
-Image DMs (see src/proto/dm.odin): the sealed picture comes in while the
+Image DMs (see src/common/proto/dm.odin): the sealed picture comes in while the
 recipient is online, and is kept in memory, never on disk, until they've
 fetched it or proto.DM_IMAGE_KEEP has passed. The DM that describes it is
 held like any other.

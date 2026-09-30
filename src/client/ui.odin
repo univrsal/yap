@@ -1,6 +1,6 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:crypto/ecdh"
 import "core:fmt"
 import "core:math"
@@ -9,11 +9,12 @@ import "core:sync"
 import "core:time"
 import "core:unicode/utf8"
 import mu "vendor:microui"
-import glfw "wglfw"
+import glfw "client:wglfw"
 
-import "../common"
-import "../proto"
-import "clipboard"
+import "common:."
+import "common:proto"
+import "client:clipboard"
+import "client:audio"
 
 /*
 The windowed client: GLFW for the window and input, microui for widgets,
@@ -55,7 +56,7 @@ Net_Session :: struct {
 
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
-	streams:       Audio_Streams,
+	streams:       audio.Audio_Streams,
 	// An explicit disconnect keeps playback open while this local effect
 	// drains. Application shutdown and reconnects skip it.
 	goodbye_tail:  bool,
@@ -96,7 +97,7 @@ UI :: struct {
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
 	chat:                UI_Chat, // the chat tab (ui_chat.odin)
 	video:               UI_Video, // screen sharing (ui_video.odin)
-	app_audio:           UI_App_Audio, // sharing an application's audio (app_audio_native.odin)
+	app_audio:           UI_App_Audio, // sharing an application's audio (ui_app_audio_native.odin)
 	muted:               bool,
 	deafened:            bool,
 	// Mute as it was before deafening turned it on, so undeafening can
@@ -134,7 +135,7 @@ UI :: struct {
 	// applying it while dragging resizes the very slider being dragged
 	// (see ui_settings.odin).
 	ui_scale_draft:      f32,
-	audio:               Audio,
+	audio:               audio.Audio,
 
 	// Logical pixels per window coordinate, for mouse input. See
 	// window_metrics.
@@ -243,7 +244,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 
 	// Audio problems shouldn't keep the rest of the client from working;
 	// the settings page shows what went wrong.
-	audio_init(&ui.audio)
+	audio.audio_init(&ui.audio)
 	app_audio_init(ui)
 
 	glfw.SetErrorCallback(glfw_error_callback)
@@ -448,7 +449,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	clipboard.destroy()
 	window_close(ui)
 	glfw.Terminate()
-	audio_destroy(&ui.audio)
+	audio.audio_destroy(&ui.audio)
 	settings_destroy(&ui.settings)
 	known_servers_destroy(ui)
 	install_destroy(ui)
@@ -727,11 +728,11 @@ connect :: proc(ui: ^UI) {
 	ns.name = strings.clone(ui.settings.name)
 	ns.client = new(Voice_Client)
 	ns.client.view = &ui.view
-	if voice_init(&ns.client.voice) {
+	if audio.voice_init(&ns.client.voice) {
 		// Devices may have come or gone since the list was made.
-		audio_refresh(&ui.audio)
-		open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
-		open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
+		audio.audio_refresh(&ui.audio)
+		audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+		audio.open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.deafened = ui.deafened
@@ -775,12 +776,12 @@ disconnect :: proc(ui: ^UI, play_goodbye := false) {
 	if play_goodbye && sync.atomic_load(&ns.client.voice.output) {
 		// Stop the network producer, but leave the playback callback running.
 		// The UI then owns the playback ring until the goodbye clip drains.
-		close_capture(&ns.streams, &ns.client.voice)
+		audio.close_capture(&ns.streams, &ns.client.voice)
 		sync.atomic_store(&ns.stop, true)
 		net_stop(ns)
 		ns.goodbye_tail = true
-		voice_notification_play(&ns.client.voice, .Goodbye)
-		if notifications_pending(&ns.client.voice.notifications) {
+		audio.voice_notification_play(&ns.client.voice, .Goodbye)
+		if audio.notifications_pending(&ns.client.voice.notifications) {
 			return
 		}
 	}
@@ -795,9 +796,9 @@ disconnect_tail_step :: proc(ui: ^UI) {
 	if ns == nil || !ns.goodbye_tail {
 		return
 	}
-	notification_tail_step(&ns.client.voice)
-	if !notifications_pending(&ns.client.voice.notifications) &&
-	   ring_available(&ns.client.voice.playback) == 0 {
+	audio.notification_tail_step(&ns.client.voice)
+	if !audio.notifications_pending(&ns.client.voice.notifications) &&
+	   audio.ring_available(&ns.client.voice.playback) == 0 {
 		disconnect_finish(ui)
 	}
 }
@@ -810,13 +811,13 @@ disconnect_finish :: proc(ui: ^UI) {
 	}
 	ui.session = nil
 	// Devices first, so nothing touches the rings once the voice goes away.
-	close_streams(&ns.streams, &ns.client.voice)
+	audio.close_streams(&ns.streams, &ns.client.voice)
 	if !ns.goodbye_tail {
 		sync.atomic_store(&ns.stop, true)
 		net_stop(ns)
 	}
 
-	voice_destroy(&ns.client.voice)
+	audio.voice_destroy(&ns.client.voice)
 	free(ns.client)
 	delete(ns.key_path)
 	delete(ns.server)
@@ -875,9 +876,9 @@ set_deafened :: proc(ui: ^UI, deafened: bool) {
 reopen_audio :: proc(ui: ^UI, input: bool) {
 	if m := &ui.monitor; m.active {
 		if input {
-			open_capture(&ui.audio, &m.streams, &m.voice, ui.settings.input_device)
+			audio.open_capture(&ui.audio, &m.streams, &m.voice, ui.settings.input_device)
 		} else if m.streams.playback != nil {
-			open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
+			audio.open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
 		}
 	}
 	ns := ui.session
@@ -885,9 +886,9 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 		return
 	}
 	if input {
-		open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+		audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
 	} else {
-		open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
+		audio.open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 }
 

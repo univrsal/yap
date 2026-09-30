@@ -1,7 +1,7 @@
 #+build linux, openbsd
 package clipboard
 
-import log "../../common/wlog"
+import log "common:wlog"
 import "core:c"
 import "core:dynlib"
 import "core:sys/posix"

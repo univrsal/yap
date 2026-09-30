@@ -1,7 +1,7 @@
 #!/bin/sh
 # Makes sure the libopus source is unpacked in <deps-dir>/opus-<version>,
 # fetching and checking the release tarball if need be. The desktop
-# builds link prebuilt libraries in client/opus (macOS and OpenBSD build
+# builds link prebuilt libraries in client/audio/opus (macOS and OpenBSD build
 # their own, see build.sh) and the web build compiles it for wasm (web/build.sh);
 # the source is too big to keep in the repo (its DNN model data).
 # Usage: scripts/fetch-opus.sh <deps-dir>

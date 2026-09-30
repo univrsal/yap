@@ -1,5 +1,5 @@
 #+build !wasi
-package client
+package audio
 
 import "core:sync"
 import "core:testing"

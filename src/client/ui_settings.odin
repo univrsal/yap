@@ -1,8 +1,9 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:fmt"
 import mu "vendor:microui"
+import "client:audio"
 
 /*
 The settings page: name, noise suppression, the voice gate (ui_gate.odin),
@@ -52,9 +53,9 @@ settings_page :: proc(ui: ^UI) {
 	install_settings(ui)
 }
 
-// audio_settings picks the send quality preset (see quality.odin),
+// audio_settings picks the send quality preset (see audio/quality.odin),
 // whether the microphone gets denoised, and whether muting it mutes a
-// shared application too (app_audio_native.odin).
+// shared application too (ui_app_audio_native.odin).
 @(private = "file")
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -65,7 +66,7 @@ audio_settings :: proc(ui: ^UI) {
 	current := settings_quality(&ui.settings)
 	mu.layout_row(ctx, {60, 90, 90, 90})
 	mu.label(ctx, "Quality")
-	for preset, q in QUALITY_PRESETS {
+	for preset, q in audio.QUALITY_PRESETS {
 		mark := "> " if q == current else "  "
 		if .SUBMIT in
 			   stable_button_hint(
@@ -230,7 +231,7 @@ device_settings :: proc(ui: ^UI) {
 
 	if .SUBMIT in mu.button(ctx, "Refresh device list") {
 		log.debug("ui: refresh audio devices")
-		audio_refresh(a)
+		audio.audio_refresh(a)
 	}
 
 	// The width left of the panel once the tree nodes have indented it.
@@ -277,7 +278,7 @@ device_settings :: proc(ui: ^UI) {
 device_list :: proc(
 	ctx: ^mu.Context,
 	title, id: string,
-	devices: []Audio_Device,
+	devices: []audio.Audio_Device,
 	selected: string,
 	height: i32,
 ) -> (
@@ -293,7 +294,7 @@ device_list :: proc(
 
 	// A saved device that isn't plugged in falls back to the default, so
 	// the default is what's in effect; say so rather than hiding it.
-	missing := selected != "" && find_device(devices, selected) == nil
+	missing := selected != "" && audio.find_device(devices, selected) == nil
 
 	mu.layout_row(ctx, {-1})
 	mark := "> " if selected == "" || missing else "  "

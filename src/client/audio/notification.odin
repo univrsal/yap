@@ -1,4 +1,4 @@
-package client
+package audio
 
 Notification_Kind :: enum {
 	Join,

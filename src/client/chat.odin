@@ -1,11 +1,12 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:crypto"
 import "core:strings"
 import "core:time"
 
-import "../proto"
+import "common:proto"
+import "client:audio"
 
 // Typing notices go out at most this often while typing, and are shown
 // for TYPING_SHOW after the last one arrives.
@@ -31,7 +32,7 @@ Chat_Outgoing :: struct {
 	last_chunk: time.Tick,
 }
 
-// Chat_Client is our end of the text chat (see src/proto/chat.odin): the
+// Chat_Client is our end of the text chat (see src/common/proto/chat.odin): the
 // stream of the current channel's messages, and messages waiting for
 // the server to confirm them.
 Chat_Client :: struct {
@@ -69,7 +70,7 @@ chat_channel_changed :: proc(c: ^Voice_Client) {
 }
 
 // poke_send pokes another user, with a message or without (see
-// src/proto/poke.odin). `to` 0 means the user called `name`.
+// src/common/proto/poke.odin). `to` 0 means the user called `name`.
 poke_send :: proc(c: ^Voice_Client, to: proto.User_Num, name: string, raw: string) {
 	ch := &c.channels
 	if !ch.have_state || !c.has_current {
@@ -204,7 +205,7 @@ handle_poke :: proc(c: ^Voice_Client, pt: []byte) {
 	} else {
 		log.infof("[poke] %s poked you: %s", name, text)
 	}
-	voice_notification_play(&c.voice, .Message)
+	audio.voice_notification_play(&c.voice, .Message)
 	publish_poke(c, name, text)
 }
 
@@ -238,7 +239,7 @@ handle_chat :: proc(c: ^Voice_Client, pt: []byte) {
 		}
 		unread := e.sender != my_num(c) && time.tick_since(ch.started_at) > CHAT_HISTORY_WINDOW
 		if unread {
-			voice_notification_play(&c.voice, .Message)
+			audio.voice_notification_play(&c.voice, .Message)
 		}
 		publish_chat(c, e, unread)
 		if c.view == nil {

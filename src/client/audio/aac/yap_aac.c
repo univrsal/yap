@@ -127,7 +127,7 @@ static int yap_pw_load(void)
 #endif
 
 #define TINYAAC_IMPLEMENTATION
-#include "../../../deps/thirdparty/tinyaac/tinyaac.h"
+#include "../../../../deps/thirdparty/tinyaac/tinyaac.h"
 
 /* tinyaac_init, after making sure there's a backend library to call:
  * TINYAAC_ERR_PLATFORM_UNAVAILABLE where libpipewire couldn't be loaded. */

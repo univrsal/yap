@@ -1,4 +1,4 @@
-package client
+package audio
 
 import "core:sync"
 

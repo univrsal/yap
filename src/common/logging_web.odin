@@ -3,7 +3,7 @@ package common
 
 import "core:strings"
 import "core:time/datetime"
-import log "wlog"
+import log "common:wlog"
 
 /*
 In a browser the log goes to the page's console, which is where anyone

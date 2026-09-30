@@ -3,8 +3,8 @@ package client
 import "core:fmt"
 import "core:strings"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
 
 /*
 How users are shown. Names are chosen by users and prove nothing, so a

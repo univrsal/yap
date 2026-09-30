@@ -1,12 +1,13 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:encoding/hex"
 import "core:encoding/json"
 import "core:strings"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
+import "client:audio"
 
 /*
 Client settings, kept in <config dir>/yap/settings.json:
@@ -54,7 +55,7 @@ Settings :: struct {
 	name:                    string, // the name to go by
 	input_device:            string,
 	output_device:           string,
-	// Send quality preset by name ("voice", "high", "music"; quality.odin).
+	// Send quality preset by name ("voice", "high", "music"; audio/quality.odin).
 	quality:                 string,
 	// RNNoise on the microphone.
 	noise_suppression:       bool,
@@ -66,14 +67,14 @@ Settings :: struct {
 	close_to_tray:           bool,
 	minimize_to_tray:        bool,
 	// Only send while the microphone level is above the thresholds (dBFS);
-	// see gate.odin.
+	// see audio/gate.odin.
 	voice_gate:              bool,
 	gate_open_db:            f32,
 	gate_close_db:           f32,
 	// How loudly local join, leave, message, and poke effects are mixed.
 	notification_volume:     f32, // 1 = as encoded, 0..MAX_USER_VOLUME
 	// How loudly a shared application's audio is sent
-	// (app_audio_native.odin).
+	// (ui_app_audio_native.odin).
 	app_audio_volume:        f32, // 1 = as it plays, 0..MAX_USER_VOLUME
 	// Muting the microphone mutes a shared application as well.
 	mute_app_audio_with_mic: bool,
@@ -121,8 +122,8 @@ DEFAULT_SETTINGS :: Settings {
 	noise_suppression       = true,
 	close_to_tray           = true,
 	voice_gate              = true,
-	gate_open_db            = DEFAULT_GATE_OPEN_DB,
-	gate_close_db           = DEFAULT_GATE_CLOSE_DB,
+	gate_open_db            = audio.DEFAULT_GATE_OPEN_DB,
+	gate_close_db           = audio.DEFAULT_GATE_CLOSE_DB,
 	notification_volume     = 1,
 	app_audio_volume        = 1,
 	mute_app_audio_with_mic = true,
@@ -271,8 +272,8 @@ set_user_settings :: proc(s: ^Settings, user: [proto.KEY_SIZE]u8, u: User_Settin
 }
 
 // settings_quality is the configured preset; Voice if unset or unknown.
-settings_quality :: proc(s: ^Settings) -> Quality {
-	q, _ := parse_quality(s.quality)
+settings_quality :: proc(s: ^Settings) -> audio.Quality {
+	q, _ := audio.parse_quality(s.quality)
 	return q
 }
 
@@ -289,8 +290,8 @@ transfer_limits_command :: proc(s: ^Settings) -> Transfer_Limits_Command {
 
 // gate_command is the voice gate as configured in `s`.
 gate_command :: proc(s: ^Settings) -> Gate_Command {
-	open := clamp(s.gate_open_db, MIN_LEVEL_DB, 0)
-	return {s.voice_gate, open, clamp(s.gate_close_db, MIN_LEVEL_DB, open)}
+	open := clamp(s.gate_open_db, audio.MIN_LEVEL_DB, 0)
+	return {s.voice_gate, open, clamp(s.gate_close_db, audio.MIN_LEVEL_DB, open)}
 }
 
 notification_gain :: proc(s: ^Settings) -> f32 {

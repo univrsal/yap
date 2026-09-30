@@ -1,11 +1,11 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:sync"
 import "core:thread"
 
-import "clipboard"
+import "client:clipboard"
 
 // Pictures are decoded on a thread of their own, so a big one doesn't
 // hold up a frame. The queue and the results are the only things the

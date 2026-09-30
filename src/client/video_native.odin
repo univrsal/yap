@@ -1,7 +1,7 @@
 #+build !wasi
 package client
 
-import "../proto"
+import "common:proto"
 
 /*
 A desktop build neither shares nor watches screens: that takes a video

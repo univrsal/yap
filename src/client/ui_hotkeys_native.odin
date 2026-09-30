@@ -1,12 +1,12 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:fmt"
 import mu "vendor:microui"
 
-import "hotkeys"
-import glfw "wglfw"
+import "client:hotkeys"
+import glfw "client:wglfw"
 
 /*
 Global hotkeys for mute and deafen (see the hotkeys package), and their

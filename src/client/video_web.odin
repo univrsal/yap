@@ -1,7 +1,7 @@
 #+build wasi
 package client
 
-import "../proto"
+import "common:proto"
 
 /*
 Screen sharing in the browser: the page captures, encodes and decodes

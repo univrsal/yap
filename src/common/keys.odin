@@ -3,9 +3,9 @@ package common
 import "core:crypto/ecdh"
 import "core:encoding/hex"
 import "core:strings"
-import log "wlog"
+import log "common:wlog"
 
-import "../proto"
+import "common:proto"
 
 // generate_private_key returns a new private key as hex, the form keys
 // are stored in.

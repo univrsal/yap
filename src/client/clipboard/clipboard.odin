@@ -1,6 +1,6 @@
 package clipboard
 
-import log "../../common/wlog"
+import log "common:wlog"
 import "core:encoding/endian"
 
 /*

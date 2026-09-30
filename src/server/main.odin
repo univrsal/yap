@@ -4,7 +4,7 @@ import "core:flags"
 import "core:log"
 import "core:os"
 
-import "../common"
+import "common:."
 
 Options :: struct {
 	config: string `args:"pos=0" usage:"Config file (default config.json): port, key, password, relay, channels... Created with defaults and a new key if missing."`,

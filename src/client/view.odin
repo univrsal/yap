@@ -1,11 +1,11 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:strings"
 import "core:sync"
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 /*
 State shared between the network thread (which writes it) and the UI

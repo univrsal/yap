@@ -1,6 +1,6 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:crypto"
 import "core:encoding/json"
 import "core:fmt"
@@ -8,11 +8,12 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
-import "../common"
-import "../proto"
+import "common:."
+import "common:proto"
+import "client:audio"
 
 /*
-Direct messages (see src/proto/dm.odin for the protocol): our end of
+Direct messages (see src/common/proto/dm.odin for the protocol): our end of
 them, and the history of each conversation. Images in them are in
 dm_images.odin.
 
@@ -377,10 +378,10 @@ handle_dm :: proc(c: ^Voice_Client, pt: []u8) {
 	// DMs that waited for us are mail, announced once as we join; one
 	// sent while we're here is a message like the chat's.
 	if .Waited not_in flags {
-		voice_notification_play(&c.voice, .Message)
+		audio.voice_notification_play(&c.voice, .Message)
 	} else if !c.dms.mail_played {
 		c.dms.mail_played = true
-		voice_notification_play(&c.voice, .Mail)
+		audio.voice_notification_play(&c.voice, .Mail)
 	}
 	if c.view == nil {
 		// Headless: the log is the only place to show it.

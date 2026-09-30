@@ -1,9 +1,9 @@
-package client
+package audio
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:strings"
 
-import ma "miniaudio"
+import ma "client:audio/miniaudio"
 
 /*
 Audio device discovery, through our trimmed-down miniaudio (see
@@ -15,6 +15,10 @@ browser, which offers one default input and one default output.
 The context lives for the whole run: devices are opened through it, and
 device ids are only meaningful to the context that listed them.
 */
+
+// WEB is true in a build meant for a browser (see client's web.odin).
+@(private)
+WEB :: ODIN_OS == .WASI
 
 Audio_Device :: struct {
 	name:       string, // owned

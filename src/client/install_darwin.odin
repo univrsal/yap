@@ -13,7 +13,7 @@ copy, and its icon is assets/icon.png wrapped as an .icns.
 Started from the bundle, macOS asks for the microphone on the app's
 behalf (NSMicrophoneUsageDescription) instead of on the terminal's, and
 likewise for other applications' audio (NSAudioCaptureUsageDescription,
-see app_audio_native.odin).
+see ui_app_audio_native.odin).
 */
 
 INSTALL_DESCRIPTION :: "Adds Yap.app to the Applications folder in your home folder, so it can be started from Finder, Launchpad or Spotlight. The app starts this copy of yap; nothing is copied or moved. Uninstall removes it again."

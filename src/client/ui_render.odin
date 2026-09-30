@@ -2,7 +2,7 @@ package client
 
 import "core:math"
 import mu "vendor:microui"
-import glfw "wglfw"
+import glfw "client:wglfw"
 
 /*
 Draws microui's command list. Rects and text are quads from the font

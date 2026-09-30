@@ -4,7 +4,7 @@ package client
 import "core:os"
 import "core:testing"
 
-import "../proto"
+import "common:proto"
 
 @(test)
 test_known_servers :: proc(t: ^testing.T) {

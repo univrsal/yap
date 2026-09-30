@@ -1,12 +1,13 @@
 #+build !wasi
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:flags"
 import "core:fmt"
 import "core:os"
 
-import "../common"
+import "common:."
+import "client:audio"
 
 Options :: struct {
 	server:             string `args:"pos=0" usage:"Server to connect to, host or host:port (default port 7777). Required with -headless; otherwise the UI connects to it right away."`,
@@ -67,9 +68,9 @@ main :: proc() {
 		os.exit(0 if list_audio_devices() else 1)
 	}
 
-	quality := Quality.Voice
+	quality := audio.Quality.Voice
 	if opt.quality != "" {
-		q, known := parse_quality(opt.quality)
+		q, known := audio.parse_quality(opt.quality)
 		if !known {
 			log.errorf("unknown quality %q (voice, high or music)", opt.quality)
 			os.exit(2)
@@ -121,12 +122,12 @@ main :: proc() {
 
 @(private = "file")
 list_audio_devices :: proc() -> bool {
-	a: Audio
-	defer audio_destroy(&a)
-	if !audio_init(&a) {
+	a: audio.Audio
+	defer audio.audio_destroy(&a)
+	if !audio.audio_init(&a) {
 		return false
 	}
-	print_list :: proc(title: string, devices: []Audio_Device) {
+	print_list :: proc(title: string, devices: []audio.Audio_Device) {
 		fmt.println(title)
 		if len(devices) == 0 {
 			fmt.println("  (none)")

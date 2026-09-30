@@ -4,7 +4,7 @@ package client
 /*
 A page can't capture another application's audio (a browser only offers
 a tab's, alongside sharing it), so a web build has no application audio
-and no button for it. See app_audio_native.odin.
+and no button for it. See ui_app_audio_native.odin.
 */
 
 UI_App_Audio :: struct {}

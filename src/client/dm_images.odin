@@ -1,12 +1,12 @@
 package client
 
-import log "../common/wlog"
+import log "common:wlog"
 import "core:time"
 
-import "../proto"
+import "common:proto"
 
 /*
-Images in direct messages (see src/proto/dm.odin): sending one to
+Images in direct messages (see src/common/proto/dm.odin): sending one to
 someone who's online, and fetching the ones sent to us.
 
 Sending: the JPEG is sealed on its own, and the DM that describes it
