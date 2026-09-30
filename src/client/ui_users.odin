@@ -7,6 +7,7 @@ import mu "vendor:microui"
 
 import "common:proto"
 import "client:settings"
+import "client:render"
 
 /*
 Per-user playback settings: clicking (left or right) on another user in
@@ -23,26 +24,26 @@ MENU_WIDTH :: 240
 
 // status_icon fills the column in front of a name (here and in the
 // buddy list).
-status_icon :: proc(ctx: ^mu.Context, icon: Icon, color: mu.Color) {
-	mu.draw_icon(ctx, icon_id(icon), mu.layout_next(ctx), color)
+status_icon :: proc(ctx: ^mu.Context, icon: render.Icon, color: mu.Color) {
+	mu.draw_icon(ctx, render.icon_id(icon), mu.layout_next(ctx), color)
 }
 
 // What the icon in front of your own name says, most to least telling:
 // deafened hears nobody, muted says nothing to anybody. This is the one
 // state we don't wait for the server to tell us about.
 @(private = "file")
-my_status :: proc(ui: ^UI, speaking: bool) -> (Icon, mu.Color) {
+my_status :: proc(ui: ^UI, speaking: bool) -> (render.Icon, mu.Color) {
 	return sound_status(ui.muted, ui.deafened, speaking)
 }
 
 // And the same for somebody else, from what the server passed on.
 @(private = "file")
-their_status :: proc(user: View_User, speaking: bool) -> (Icon, mu.Color) {
+their_status :: proc(user: View_User, speaking: bool) -> (render.Icon, mu.Color) {
 	return sound_status(user.muted, user.deafened, speaking)
 }
 
 @(private = "file")
-sound_status :: proc(muted, deafened, speaking: bool) -> (Icon, mu.Color) {
+sound_status :: proc(muted, deafened, speaking: bool) -> (render.Icon, mu.Color) {
 	switch {
 	case deafened:
 		// Somebody who isn't listening is usually muted as well, and of
@@ -64,14 +65,14 @@ would otherwise be easy to mix up.
 */
 @(private = "file")
 local_mute_mark :: proc(ctx: ^mu.Context, row: mu.Rect) {
-	mu.draw_icon(ctx, icon_id(.Sound_Off), end_of_row(row, 0), DIM_COLOR)
+	mu.draw_icon(ctx, render.icon_id(.Sound_Off), end_of_row(row, 0), DIM_COLOR)
 }
 
 // end_of_row is the icon-sized square `slot` places in from a row's end.
 @(private = "file")
 end_of_row :: proc(row: mu.Rect, slot: i32) -> mu.Rect {
-	x := row.x + row.w - ICON_SIZE - slot * (ICON_SIZE + 4)
-	return {x, row.y + (row.h - ICON_SIZE) / 2, ICON_SIZE, ICON_SIZE}
+	x := row.x + row.w - render.ICON_SIZE - slot * (render.ICON_SIZE + 4)
+	return {x, row.y + (row.h - render.ICON_SIZE) / 2, render.ICON_SIZE, render.ICON_SIZE}
 }
 
 /*
@@ -90,7 +91,7 @@ sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu
 	case !video_can_watch() || id == ui.view.my_num:
 		color = DIM_COLOR
 	}
-	mu.draw_icon(ctx, icon_id(.Screen), r, color)
+	mu.draw_icon(ctx, render.icon_id(.Screen), r, color)
 	return r
 }
 
@@ -106,7 +107,7 @@ for ourselves, whom we don't hear either way.
 app_audio_mark :: proc(ctx: ^mu.Context, row: mu.Rect, slot: i32, heard: bool) {
 	mu.draw_icon(
 		ctx,
-		icon_id(.App_Audio),
+		render.icon_id(.App_Audio),
 		end_of_row(row, slot),
 		SPEAKING_COLOR if heard else DIM_COLOR,
 	)
@@ -133,7 +134,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {ICON_SIZE + 4, -1})
+	mu.layout_row(ctx, {render.ICON_SIZE + 4, -1})
 
 	user, known := v.users[id]
 	if !known {

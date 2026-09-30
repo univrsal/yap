@@ -17,11 +17,12 @@ import "client:clipboard"
 import "client:audio"
 import "client:platform"
 import "client:settings"
+import "client:render"
 
 /*
 The windowed client: GLFW for the window and input, microui for widgets,
 Direct3D 11 on Windows and OpenGL 3.3 elsewhere to draw them (see
-ui_render.odin).
+render/render.odin).
 
 The UI owns the main thread (GLFW requires it). Each connection runs the
 same network loop as headless mode on its own thread; the two sides meet
@@ -81,7 +82,7 @@ Action :: enum {
 UI :: struct {
 	window:              glfw.WindowHandle,
 	ctx:                 mu.Context,
-	renderer:            Renderer,
+	renderer:            render.Renderer,
 	opts:                UI_Options,
 	my_key:              [proto.KEY_SIZE]u8,
 	server_buf:          [256]u8,
@@ -263,8 +264,8 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui_images_init(ui)
 
 	mu.init(&ui.ctx, set_clipboard, get_clipboard)
-	ui.ctx.text_width = ui_text_width
-	ui.ctx.text_height = ui_text_height
+	ui.ctx.text_width = render.ui_text_width
+	ui.ctx.text_height = render.ui_text_height
 	ui.input_scale = 1
 
 	if opts.server != "" {
@@ -385,7 +386,7 @@ draw_frame :: proc(ui: ^UI) {
 	}
 	ui.drawing = true
 	defer ui.drawing = false
-	if gpu_lost(&ui.renderer.gpu) {
+	if render.gpu_lost(&ui.renderer.gpu) {
 		reset_gpu(ui)
 	}
 
@@ -427,8 +428,8 @@ draw_frame :: proc(ui: ^UI) {
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
 	ui_images_after_frame(ui)
-	render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, BACKGROUND)
-	gpu_present(&ui.renderer.gpu)
+	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, BACKGROUND)
+	render.gpu_present(&ui.renderer.gpu)
 }
 
 // ui_shutdown takes everything down in the order it went up.
@@ -488,7 +489,7 @@ set_swap_pace :: proc(ui: ^UI) {
 	ui.frame_pace = 0
 	when !platform.WEB {
 		if on_wayland() {
-			gpu_swap_interval(&ui.renderer.gpu, 0)
+			render.gpu_swap_interval(&ui.renderer.gpu, 0)
 			refresh: i32 = 60
 			if monitor := glfw.GetPrimaryMonitor(); monitor != nil {
 				if mode := glfw.GetVideoMode(monitor); mode != nil && mode.refresh_rate > 0 {
@@ -500,11 +501,11 @@ set_swap_pace :: proc(ui: ^UI) {
 			return
 		}
 	}
-	gpu_swap_interval(&ui.renderer.gpu, 1)
+	render.gpu_swap_interval(&ui.renderer.gpu, 1)
 }
 
 window_open :: proc(ui: ^UI) -> bool {
-	gpu_window_hints()
+	render.gpu_window_hints()
 	// Where window coordinates are physical pixels (Windows, X11), size
 	// the window for the monitor's scale so it isn't tiny on high DPI.
 	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
@@ -518,22 +519,22 @@ window_open :: proc(ui: ^UI) -> bool {
 	}
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
 	if ui.window == nil {
-		log.errorf("failed to create a window (%s is required)", GPU_REQUIREMENT)
+		log.errorf("failed to create a window (%s is required)", render.GPU_REQUIREMENT)
 		return false
 	}
 	glfw.SetWindowSizeLimits(ui.window, 480, 300, glfw.DONT_CARE, glfw.DONT_CARE)
 	when !platform.WEB {
 		set_window_icon(ui.window)
 	}
-	if !renderer_init(&ui.renderer, ui.window) {
-		log.errorf("failed to set up %s rendering", GPU_REQUIREMENT)
+	if !render.renderer_init(&ui.renderer, ui.window) {
+		log.errorf("failed to set up %s rendering", render.GPU_REQUIREMENT)
 		glfw.DestroyWindow(ui.window)
 		ui.window = nil
 		return false
 	}
 	titlebar_merge(ui.window)
 	set_swap_pace(ui)
-	ui.renderer.images = &ui.images
+	ui.renderer.images = &ui.images.draws
 
 	glfw.SetWindowIconifyCallback(ui.window, iconify_callback)
 	when ODIN_OS == .Windows {
@@ -566,7 +567,7 @@ reset_gpu :: proc(ui: ^UI) {
 	log.warn("ui: lost the GPU device, setting it up again")
 	ui_images_forget_textures(ui)
 	ui_video_forget_texture(ui)
-	if !renderer_reset(&ui.renderer, ui.window) {
+	if !render.renderer_reset(&ui.renderer, ui.window) {
 		log.error("ui: could not set the GPU device up again")
 		return
 	}
@@ -590,7 +591,7 @@ window_close :: proc(ui: ^UI) {
 		}
 		ui.window_size = {w, h}
 	}
-	renderer_destroy(&ui.renderer)
+	render.renderer_destroy(&ui.renderer)
 	// The pictures' textures belong to the device that's about to go;
 	// they are decoded again when they're next on screen.
 	ui_images_forget_textures(ui)
@@ -1197,7 +1198,7 @@ log_panel :: proc(ui: ^UI) {
 		// on the same ones as new lines come in (ui_select.odin).
 		first := i64(logs.total - len(logs.lines))
 		for line, i in logs.lines {
-			mu.layout_row(ctx, {-1}, LINE_HEIGHT)
+			mu.layout_row(ctx, {-1}, render.LINE_HEIGHT)
 			// Drop the date; the time is enough on screen.
 			text := line.text[11:] if len(line.text) > 11 else line.text
 			color := ctx.style.colors[.TEXT]
@@ -1230,6 +1231,15 @@ log_panel :: proc(ui: ^UI) {
 	}
 }
 
+// A button with nothing but an icon on it is this wide.
+ICON_BUTTON :: 30
+
+// What the state icons are coloured with: green for a voice coming
+// through, red for something switched off, grey for a quiet channel.
+SPEAKING_COLOR :: mu.Color{110, 220, 110, 255}
+OFF_COLOR :: mu.Color{225, 115, 115, 255}
+DIM_COLOR :: mu.Color{140, 140, 140, 255}
+
 // stable_button is mu.button, except its id comes from `id_name` (under
 // the current id stack) rather than from the label, so the label can
 // change from frame to frame without the button becoming a new control.
@@ -1242,7 +1252,7 @@ what it shows (mute to unmute) keeps the same one.
 icon_button :: proc(
 	ui: ^UI,
 	id_name: string,
-	icon: Icon,
+	icon: render.Icon,
 	hint: string,
 	color := mu.Color{},
 ) -> (
@@ -1256,7 +1266,7 @@ icon_button :: proc(
 		res += {.SUBMIT}
 	}
 	mu.draw_control_frame(ctx, id, r, .BUTTON)
-	mu.draw_icon(ctx, icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
+	mu.draw_icon(ctx, render.icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
 	if ctx.hover_id == id {
 		ui.hint, ui.hint_of = hint, r
 	}

@@ -1,6 +1,6 @@
 #+build !wasi
 /*
-The font rasterizer, as ui_font.odin uses it.
+The font rasterizer, as render/font.odin uses it.
 
 A desktop build is vendor:stb/truetype as it is. vendor:stb supports
 wasm too, but through its own libc shim, which wants threads the web

@@ -1,4 +1,4 @@
-package client
+package render
 
 import "core:math"
 import "core:slice"
@@ -9,7 +9,7 @@ import stbtt "client:wstbtt"
 The UI font: Roboto (embedded with #load), rasterized with stb_truetype.
 Every character the font has is used: its Latin, Greek and Cyrillic
 letters and common punctuation and symbols. Anything else comes from
-Unifont (ui_unifont.odin) if it has it, and draws as the replacement
+Unifont (unifont.odin) if it has it, and draws as the replacement
 character if not.
 
 Layout happens in logical pixels, but glyphs are rasterized at the
@@ -22,7 +22,7 @@ and with them the whole layout, are the same at every scale.
 */
 
 @(private = "file")
-FONT_DATA := #load("assets/Roboto-Regular.ttf")
+FONT_DATA := #load("../assets/Roboto-Regular.ttf")
 
 FONT_SIZE :: 15 // logical pixels
 LINE_HEIGHT :: 18 // logical pixels; microui's default, which its layout metrics assume

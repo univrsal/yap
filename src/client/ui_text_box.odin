@@ -2,6 +2,7 @@ package client
 
 import mu "vendor:microui"
 import "client:platform"
+import "client:render"
 
 /*
 Every text box goes through text_box, which is mu.textbox plus a note
@@ -50,7 +51,7 @@ password_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> 
 
 	text_width := ctx.text_width
 	ctx.text_width = proc(font: mu.Font, text: string) -> i32 {
-		return i32(len(text)) * ui_text_width(font, "*")
+		return i32(len(text)) * render.ui_text_width(font, "*")
 	}
 	first := ctx.command_list.idx
 	res := text_box(ui, buf, textlen, opt)

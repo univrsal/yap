@@ -2,6 +2,7 @@
 package client
 
 import "common:proto"
+import "client:render"
 
 /*
 Screen sharing in the browser: the page captures, encodes and decodes
@@ -117,9 +118,9 @@ video_share_state :: proc() -> Share_State {
 
 // video_upload puts the newest frame of what we're watching into
 // `texture`, if one has come since the last call, and says its size.
-video_upload :: proc(texture: Gpu_Texture) -> (width, height: int, ok: bool) {
+video_upload :: proc(texture: render.Gpu_Texture) -> (width, height: int, ok: bool) {
 	w, h: i32
-	// An OpenGL texture name, as the page knows it (ui_gpu_gl.odin).
+	// An OpenGL texture name, as the page knows it (render/gpu_gl.odin).
 	if yap_video_upload(u32(texture), &w, &h) == 0 {
 		return
 	}

@@ -2,6 +2,7 @@
 package client
 
 import "common:proto"
+import "client:render"
 
 /*
 A desktop build neither shares nor watches screens: that takes a video
@@ -50,7 +51,7 @@ video_share_state :: proc() -> Share_State {
 	return .Off
 }
 
-video_upload :: proc(texture: Gpu_Texture) -> (width, height: int, ok: bool) {
+video_upload :: proc(texture: render.Gpu_Texture) -> (width, height: int, ok: bool) {
 	return
 }
 

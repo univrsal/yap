@@ -1,4 +1,4 @@
-package client
+package render
 
 import log "common:wlog"
 import "core:math"
@@ -28,7 +28,7 @@ letters, left to right.
 */
 
 @(private = "file")
-UNIFONT_PNG := #load("assets/unifont-16.0.04.png")
+UNIFONT_PNG := #load("../assets/unifont-16.0.04.png")
 
 // Where the grid starts in the chart, past its headers.
 @(private = "file")

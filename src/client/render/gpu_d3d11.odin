@@ -1,5 +1,5 @@
 #+build windows
-package client
+package render
 
 import log "common:wlog"
 import win32 "core:sys/windows"
@@ -10,7 +10,7 @@ import glfw "client:wglfw"
 
 /*
 The renderer's Direct3D 11 backend, for Windows. It does what the OpenGL
-one does (ui_gpu_gl.odin), but costs far less: an OpenGL context brings
+one does (gpu_gl.odin), but costs far less: an OpenGL context brings
 the whole of the graphics driver's OpenGL implementation into the
 process, about 100 MB of it with AMD's, where Direct3D is part of
 Windows and costs a tenth of that.

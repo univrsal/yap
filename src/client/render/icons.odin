@@ -1,4 +1,4 @@
-package client
+package render
 
 import "core:math"
 import mu "vendor:microui"
@@ -7,7 +7,7 @@ import mu "vendor:microui"
 The UI's icons, without an icon font to ship: each one is a handful of
 shapes - discs, capsules, rounded boxes, arcs - written down as distance
 functions over a unit square and rasterized into an alpha atlas, the way
-ui_font.odin rasterizes glyphs. Coverage comes from the distance, so the
+font.odin rasterizes glyphs. Coverage comes from the distance, so the
 edges are smooth, and the atlas is rebuilt at the display's density
 whenever the scale changes, so they stay sharp on high-DPI screens.
 
@@ -16,7 +16,7 @@ an icon in whatever colour it's drawn with: icons take the colour of the
 text they stand next to.
 
 Icons reach the renderer as microui icon commands whose ids are offset
-by UI_ICON_BASE; ui_render.odin takes them apart again.
+by UI_ICON_BASE; render.odin takes them apart again.
 */
 
 Icon :: enum {
@@ -36,20 +36,12 @@ Icon :: enum {
 }
 
 // Icon command ids start here, above microui's own icons and below the
-// chat images' (IMAGE_ICON_BASE, ui_images.odin).
+// pictures' (IMAGE_ICON_BASE, render.odin).
 UI_ICON_BASE :: 100
 
 // Logical pixels. Icons are square and drawn at this size everywhere, so
 // one atlas at one size does for all of them.
 ICON_SIZE :: 16
-// A button with nothing but an icon on it is this wide.
-ICON_BUTTON :: 30
-
-// What the state icons are coloured with: green for a voice coming
-// through, red for something switched off, grey for a quiet channel.
-SPEAKING_COLOR :: mu.Color{110, 220, 110, 255}
-OFF_COLOR :: mu.Color{225, 115, 115, 255}
-DIM_COLOR :: mu.Color{140, 140, 140, 255}
 
 // The id to draw this icon with (mu.draw_icon, icon_button).
 icon_id :: proc(icon: Icon) -> mu.Icon {

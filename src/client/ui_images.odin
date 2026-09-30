@@ -11,12 +11,13 @@ import mu "vendor:microui"
 import "common:proto"
 import "client:clipboard"
 import "client:platform"
+import "client:render"
 
 /*
 Showing chat images. The network thread hands over the JPEG it fetched
 (View.images); here it's decoded on a worker thread, uploaded to a
 texture on the UI thread, and drawn in microui's command list so it's
-clipped and layered like everything else (see ui_render.odin, which
+clipped and layered like everything else (see render/render.odin, which
 takes an icon id of IMAGE_ICON_BASE or more as "draw image N of this
 frame's list").
 
@@ -28,16 +29,8 @@ MAX_IMAGE_TEXTURES :: 32
 // How tall an image may be drawn, in logical pixels.
 MAX_IMAGE_DISPLAY_HEIGHT :: 320
 
-// Icon ids from here on mean "the image at this index of the frame's
-// draw list", which microui's own icons never reach.
-IMAGE_ICON_BASE :: 1000
-
 @(private = "file")
 IMAGE_WINDOW :: "image"
-
-Image_Draw :: struct {
-	texture: Gpu_Texture,
-}
 
 @(private = "file")
 Texture_State :: enum {
@@ -49,7 +42,7 @@ Texture_State :: enum {
 @(private = "file")
 Texture :: struct {
 	state:   Texture_State,
-	texture: Gpu_Texture,
+	texture: render.Gpu_Texture,
 	frame:   int, // when it was last drawn
 }
 
@@ -86,7 +79,7 @@ UI_Images :: struct {
 	viewer_save: bool,
 	saved_to:    string,
 	// What this frame draws, indexed by icon id (see IMAGE_ICON_BASE).
-	draws:       [dynamic]Image_Draw,
+	draws:       [dynamic]render.Image_Draw,
 	frame:       int,
 
 	// The decoding thread, its queue and what it has finished.
@@ -131,7 +124,7 @@ ui_images_destroy :: proc(ui: ^UI) {
 	}
 	for _, &t in im.textures {
 		if t.state == .Ready {
-			gpu_texture_delete(&ui.renderer.gpu, &t.texture)
+			render.gpu_texture_delete(&ui.renderer.gpu, &t.texture)
 		}
 	}
 	delete(im.queue)
@@ -169,7 +162,7 @@ ui_images_frame :: proc(ui: ^UI) {
 			continue
 		}
 		t.state = .Ready
-		t.texture = gpu_texture_make(
+		t.texture = render.gpu_texture_make(
 			&ui.renderer.gpu,
 			.Rgba,
 			i32(result.image.width),
@@ -224,10 +217,10 @@ image_block :: proc(
 	if known && t.state == .Ready {
 		t.frame = im.frame
 		im.textures[info.id] = t
-		append(&im.draws, Image_Draw{texture = t.texture})
+		append(&im.draws, render.Image_Draw{texture = t.texture})
 		// An icon command, which the renderer draws as this frame's image
 		// number N; microui takes care of clipping it to the panel.
-		mu.draw_icon(ctx, mu.Icon(IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
+		mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
 		return
 	}
 
@@ -323,11 +316,11 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	viewer_input(ui, picture, max_zoom)
 	rect := viewer_rect(im, picture)
 	if t, known := im.textures[im.viewer]; known && t.state == .Ready {
-		append(&im.draws, Image_Draw{texture = t.texture})
+		append(&im.draws, render.Image_Draw{texture = t.texture})
 		// Zoomed in, the image is bigger than the picture area; only the
 		// part inside it is drawn.
 		mu.push_clip_rect(ctx, picture)
-		mu.draw_icon(ctx, mu.Icon(IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
+		mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
 		mu.pop_clip_rect(ctx)
 	} else {
 		mu.draw_rect(ctx, rect, {50, 50, 50, 255})
@@ -464,7 +457,7 @@ enqueue_decode :: proc(im: ^UI_Images, id: u32, jpeg: []u8) {
 
 // trim_textures frees the textures that haven't been drawn for longest.
 @(private = "file")
-trim_textures :: proc(im: ^UI_Images, gpu: ^Gpu) {
+trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 	for len(im.textures) > MAX_IMAGE_TEXTURES {
 		oldest_id: u32
 		oldest_frame := max(int)
@@ -478,7 +471,7 @@ trim_textures :: proc(im: ^UI_Images, gpu: ^Gpu) {
 		}
 		t := im.textures[oldest_id]
 		if t.state == .Ready {
-			gpu_texture_delete(gpu, &t.texture)
+			render.gpu_texture_delete(gpu, &t.texture)
 		}
 		delete_key(&im.textures, oldest_id)
 	}

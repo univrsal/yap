@@ -110,7 +110,7 @@ GetWaylandDisplay :: proc "contextless" () -> rawptr {
 	}
 }
 
-// Windows only: the window, for Direct3D to draw into (ui_gpu_d3d11.odin).
+// Windows only: the window, for Direct3D to draw into (render/gpu_d3d11.odin).
 when ODIN_OS == .Windows {
 	GetWin32Window :: glfw.GetWin32Window
 }

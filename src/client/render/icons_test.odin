@@ -1,5 +1,5 @@
 #+build !wasi
-package client
+package render
 
 import "core:fmt"
 import "core:os"

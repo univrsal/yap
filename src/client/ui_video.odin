@@ -4,6 +4,7 @@ import "core:fmt"
 import mu "vendor:microui"
 
 import "common:proto"
+import "client:render"
 
 /*
 Screen sharing in the UI (see video.odin): the Share button beside mute
@@ -18,14 +19,14 @@ the page but the picture.
 */
 
 UI_Video :: struct {
-	texture: Gpu_Texture, // 0 until the first frame
+	texture: render.Gpu_Texture, // 0 until the first frame
 	size:    [2]int, // of the picture in `texture`; 0 until there is one
 	// Whom the tabs were last arranged for (see screen_tab_follow).
 	watched: proto.User_Num,
 }
 
 ui_video_destroy :: proc(ui: ^UI) {
-	gpu_texture_delete(&ui.renderer.gpu, &ui.video.texture)
+	render.gpu_texture_delete(&ui.renderer.gpu, &ui.video.texture)
 	ui.video = {}
 }
 
@@ -140,7 +141,7 @@ picture :: proc(ui: ^UI, r: mu.Rect) {
 	ctx := &ui.ctx
 	vid := &ui.video
 	if vid.texture == 0 {
-		vid.texture = gpu_texture_make(&ui.renderer.gpu, .Rgba, 0, 0, nil)
+		vid.texture = render.gpu_texture_make(&ui.renderer.gpu, .Rgba, 0, 0, nil)
 	}
 	if w, h, ok := video_upload(vid.texture); ok {
 		vid.size = {w, h}
@@ -165,6 +166,6 @@ picture :: proc(ui: ^UI, r: mu.Rect) {
 	w, h := i32(f32(vid.size.x) * scale), i32(f32(vid.size.y) * scale)
 	fitted := mu.Rect{r.x + (r.w - w) / 2, r.y + (r.h - h) / 2, w, h}
 	im := &ui.images
-	append(&im.draws, Image_Draw{texture = vid.texture})
-	mu.draw_icon(ctx, mu.Icon(IMAGE_ICON_BASE + len(im.draws) - 1), fitted, {255, 255, 255, 255})
+	append(&im.draws, render.Image_Draw{texture = vid.texture})
+	mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), fitted, {255, 255, 255, 255})
 }

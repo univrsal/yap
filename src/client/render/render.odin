@@ -1,4 +1,4 @@
-package client
+package render
 
 import "core:math"
 import mu "vendor:microui"
@@ -6,13 +6,13 @@ import glfw "client:wglfw"
 
 /*
 Draws microui's command list. Rects and text are quads from the font
-atlas (ui_font.odin), rasterized at the display's density so they stay
+atlas (font.odin), rasterized at the display's density so they stay
 sharp on high-DPI screens; microui's own icons come from its built-in
 atlas. Quads are batched and flushed whenever the clip rect or the
 texture changes.
 
 What the quads are drawn with is the GPU backend's business: Direct3D 11
-on Windows (ui_gpu_d3d11.odin), OpenGL everywhere else (ui_gpu_gl.odin).
+on Windows (gpu_d3d11.odin), OpenGL everywhere else (gpu_gl.odin).
 Both give the same procs, gpu_*, over the same vertices.
 
 Everything is laid out in logical pixels; `scale` is physical pixels per
@@ -42,17 +42,25 @@ Texture_Kind :: enum {
 	Rgba,
 }
 
+// Icon ids from here on mean "the picture at this index of the frame's
+// draw list" (Renderer.images), which microui's own icons never reach.
+IMAGE_ICON_BASE :: 1000
+
+Image_Draw :: struct {
+	texture: Gpu_Texture,
+}
+
 Renderer :: struct {
 	gpu:             Gpu,
 	font:            Font,
 	font_texture:    Gpu_Texture,
 	unifont_texture: Gpu_Texture, // the fallback font's atlas; 0 until it has glyphs
 	icon_texture:    Gpu_Texture, // microui's own icons
-	icons:           Icon_Atlas, // ours (ui_icons.odin)
+	icons:           Icon_Atlas, // ours (icons.odin)
 	icons_texture:   Gpu_Texture,
 	bound:           Gpu_Texture, // texture the pending quads use
 	rgba:            bool, // the bound texture is a picture, not the atlas
-	images:          ^UI_Images, // this frame's chat images (ui_images.odin)
+	images:          ^[dynamic]Image_Draw, // this frame's pictures; the UI's to fill
 	vertices:        [MAX_QUADS * 4]Vertex,
 	quads:           int,
 	scale:           f32,
@@ -291,10 +299,10 @@ use_texture :: proc(r: ^Renderer, tex: Gpu_Texture, rgba := false) {
 // commands so microui clips and layers them like anything else.
 @(private = "file")
 draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
-	if r.images == nil || index >= len(r.images.draws) {
+	if r.images == nil || index >= len(r.images) {
 		return
 	}
-	use_texture(r, r.images.draws[index].texture, rgba = true)
+	use_texture(r, r.images[index].texture, rgba = true)
 	push_quad(
 		r,
 		{f32(rect.x), f32(rect.y), f32(rect.x + rect.w), f32(rect.y + rect.h)},
@@ -304,7 +312,7 @@ draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 }
 
 /*
-draw_ui_icon draws one of our own icons (ui_icons.odin), centred in the
+draw_ui_icon draws one of our own icons (icons.odin), centred in the
 space the layout gave it. It's drawn at the size it was rasterized for,
 snapped to physical pixels, so it stays as crisp as the text beside it.
 */

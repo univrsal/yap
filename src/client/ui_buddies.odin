@@ -10,6 +10,7 @@ import mu "vendor:microui"
 import "common:proto"
 import "client:platform"
 import "client:settings"
+import "client:render"
 
 /*
 The buddy screen (buddies.odin): the buddy list on the left, with
@@ -166,7 +167,7 @@ click the same menu as clicking them in a channel.
 buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	ctx := &ui.ctx
 
-	mu.layout_row(ctx, {ICON_SIZE + 4, -1})
+	mu.layout_row(ctx, {render.ICON_SIZE + 4, -1})
 	status_icon(ctx, .Buddies, ONLINE_COLOR if b.online != 0 else DIM_COLOR)
 
 	mu.push_id(ctx, settings.user_key(b.key))

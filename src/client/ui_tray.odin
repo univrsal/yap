@@ -8,12 +8,13 @@ import mu "vendor:microui"
 import glfw "client:wglfw"
 
 import "client:tray"
+import "client:render"
 
 /*
 The tray icon: a microphone in the system tray showing whether we're
 talking, muted or deafened, with a right-click menu to disconnect or
 quit. It's drawn from the same shapes as the icons in the window (see
-ui_icons.odin), so the two always say the same thing.
+render/icons.odin), so the two always say the same thing.
 
 It's off by default and turned on in the settings. Nothing depends on
 it: a desktop with nowhere to put a tray icon just doesn't get one, and
@@ -60,7 +61,7 @@ Tray_Request :: enum {
 Tray :: struct {
 	handle:    ^tray.Tray,
 	// What the icon is showing, so it's only redrawn when it changes.
-	icon:      Icon,
+	icon:      render.Icon,
 	color:     mu.Color,
 	// What the menu was last built for: Disconnect is greyed out when
 	// there's nothing to disconnect from, and the first item says
@@ -94,7 +95,7 @@ tray_update :: proc(ui: ^UI) {
 	}
 
 	if icon, color := tray_state(ui); icon != t.icon || color != t.color {
-		pixels := icon_rgba(icon, TRAY_ICON_PIXELS, color, context.temp_allocator)
+		pixels := render.icon_rgba(icon, TRAY_ICON_PIXELS, color, context.temp_allocator)
 		tray.update_icon(t.handle, raw_data(pixels), TRAY_ICON_PIXELS, TRAY_ICON_PIXELS)
 		t.icon, t.color = icon, color
 	}
@@ -137,7 +138,7 @@ tray_show :: proc(ui: ^UI) {
 		return
 	}
 	icon, color := tray_state(ui)
-	pixels := icon_rgba(icon, TRAY_ICON_PIXELS, color, context.temp_allocator)
+	pixels := render.icon_rgba(icon, TRAY_ICON_PIXELS, color, context.temp_allocator)
 	t.handle = tray.create(raw_data(pixels), TRAY_ICON_PIXELS, TRAY_ICON_PIXELS, tray_clicked, ui)
 	if t.handle == nil {
 		log.warn("this desktop has nowhere to put a tray icon")
@@ -161,7 +162,7 @@ tray_hide :: proc(ui: ^UI) {
 // What the icon should show, in the same order as the icon in front of
 // your own name in the channel list.
 @(private = "file")
-tray_state :: proc(ui: ^UI) -> (Icon, mu.Color) {
+tray_state :: proc(ui: ^UI) -> (render.Icon, mu.Color) {
 	switch {
 	case ui.deafened:
 		return .Sound_Off, TRAY_OFF

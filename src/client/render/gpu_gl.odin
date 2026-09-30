@@ -1,5 +1,5 @@
 #+build !windows
-package client
+package render
 
 import log "common:wlog"
 import mu "vendor:microui"
