@@ -5,6 +5,7 @@ import "core:strings"
 
 import "common:proto"
 import "client:platform"
+import "client:conn"
 
 /*
 Picking a file to send, in a browser: a file input the page opens
@@ -28,7 +29,7 @@ file_pick_start :: proc(ui: ^UI, to: [proto.KEY_SIZE]u8) {
 		strings.write_byte(&b, '.')
 		strings.write_string(&b, ext)
 	}
-	yap_file_pick(strings.to_cstring(&b))
+	conn.yap_file_pick(strings.to_cstring(&b))
 }
 
 file_pick_poll :: proc(ui: ^UI) {}
@@ -39,12 +40,12 @@ file_pick_wait :: proc(ui: ^UI) {}
 web_file_picked :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64) {
 	context = platform.callback_context()
 	if g_ui == nil || g_ui.session == nil {
-		yap_file_close(handle)
+		conn.yap_file_close(handle)
 		return
 	}
-	push_command(
+	conn.push_command(
 		&g_ui.session.client.commands,
-		Send_File_Command {
+		conn.Send_File_Command {
 			to = g_pick_to,
 			web_file = handle,
 			web_name = strings.clone(string(name[:max(name_len, 0)])),

@@ -178,7 +178,7 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 
 // gpu_texture_make makes a width x height texture from `pixels` (one
 // byte a pixel for .Alpha, four for .Rgba). Without pixels it's left
-// empty, for the page's video decoder to fill (video_web.odin).
+// empty, for the page's video decoder to fill (conn/video_web.odin).
 gpu_texture_make :: proc(
 	g: ^Gpu,
 	kind: Texture_Kind,

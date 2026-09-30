@@ -10,7 +10,7 @@ Notification_Kind :: enum {
 	Muted,
 	Unmuted,
 	Mail,
-	// A file sent to us has all arrived (files.odin).
+	// A file sent to us has all arrived (conn/files.odin).
 	Done,
 }
 

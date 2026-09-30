@@ -10,6 +10,7 @@ import mu "vendor:microui"
 
 import "common:proto"
 import "client:platform"
+import "client:conn"
 
 /*
 The right-hand side of the session screen: the channel's text chat and
@@ -235,7 +236,7 @@ chat_input :: proc(ui: ^UI) {
 	res := text_box(ui, ui.chat.buf[:], &ui.chat.len)
 	box := ctx.last_id
 	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil {
-		push_command(&ui.session.client.commands, Typing_Command{})
+		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
 	if .SUBMIT in icon_button(ui, "send", .Send, "Send") {
@@ -251,19 +252,19 @@ chat_input :: proc(ui: ^UI) {
 		return
 	}
 	log.debug("ui: chat message")
-	push_command(&ui.session.client.commands, Chat_Command{strings.clone(text)})
+	conn.push_command(&ui.session.client.commands, conn.Chat_Command{strings.clone(text)})
 	ui.chat.len = 0
 }
 
 // typing_text says who in our channel is typing, or "".
 @(private = "file")
-typing_text :: proc(v: ^View) -> string {
+typing_text :: proc(v: ^conn.View) -> string {
 	if v.my_channel < 0 || v.my_channel >= len(v.channels) {
 		return ""
 	}
 	names := make([dynamic]string, context.temp_allocator)
 	for m in v.channels[v.my_channel].members {
-		if m != v.my_num && is_typing(v, m) {
+		if m != v.my_num && conn.is_typing(v, m) {
 			u, ok := v.users[m]
 			append(&names, u.name if ok else "someone")
 		}
@@ -318,7 +319,7 @@ chat_image :: proc(
 	header: string,
 	header_color: mu.Color,
 	info: proto.Image_Info,
-	img: View_Image,
+	img: conn.View_Image,
 	merged: bool,
 	item: i64,
 	gone := "image no longer on the server",
@@ -344,7 +345,7 @@ chat_image :: proc(
 		selectable_header(ui, header, header_color, item)
 	}
 	// An image the server has dropped has no id left to look it up by.
-	state := img.state if info.id != 0 else Image_State.Gone
+	state := img.state if info.id != 0 else conn.Image_State.Gone
 	image_block(ui, info, state, img.jpeg, gone)
 }
 
@@ -353,7 +354,7 @@ dm_panel shows a conversation's messages, as the chat panel does the
 channel's: a header over each block of messages from one side within a
 minute, saying for ours how far they've got. Call with the View locked.
 */
-dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
+dm_panel :: proc(ui: ^UI, conv: ^conn.View_Conversation, their_name: string) {
 	ctx := &ui.ctx
 	v := &ui.view
 
@@ -366,7 +367,7 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 	}
 	me := v.my_name if v.my_name != "" else "me"
 	for m, i in conv.messages {
-		prev := conv.messages[i - 1] if i > 0 else View_DM{}
+		prev := conv.messages[i - 1] if i > 0 else conn.View_DM{}
 		merged :=
 			i > 0 &&
 			m.mine == prev.mine &&
@@ -395,7 +396,7 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 		item := i64(i) * 4
 		if m.is_file {
 			f :=
-				v.dm_files[m.id] or_else View_File {
+				v.dm_files[m.id] or_else conn.View_File {
 					name = m.text,
 					state = .Expired,
 					outgoing = m.mine,
@@ -404,7 +405,7 @@ dm_panel :: proc(ui: ^UI, conv: ^View_Conversation, their_name: string) {
 			continue
 		}
 		if m.is_image {
-			img := v.dm_images[m.image.id] or_else View_Image{info = m.image, state = .Gone}
+			img := v.dm_images[m.image.id] or_else conn.View_Image{info = m.image, state = .Gone}
 			chat_image(
 				ui,
 				header,
@@ -451,7 +452,7 @@ file_message :: proc(
 	header: string,
 	header_color: mu.Color,
 	id: u64,
-	f: View_File,
+	f: conn.View_File,
 	merged: bool,
 	item: i64,
 ) {
@@ -473,7 +474,7 @@ file_message :: proc(
 	}
 	wrapped_text(
 		ui,
-		fmt.tprintf("File: %s  (%s)", f.name, format_bytes(f.size)),
+		fmt.tprintf("File: %s  (%s)", f.name, conn.format_bytes(f.size)),
 		ctx.style.colors[.TEXT],
 		nil,
 		item + 1,
@@ -497,11 +498,11 @@ file_message :: proc(
 	wrapped_text(ui, status, color, nil, item + 2)
 
 	// The buttons, spaced like the rest of the UI.
-	send :: proc(ui: ^UI, id: u64, action: File_Action) {
+	send :: proc(ui: ^UI, id: u64, action: conn.File_Action) {
 		if ui.session != nil {
-			push_command(
+			conn.push_command(
 				&ui.session.client.commands,
-				File_Action_Command{id = id, action = action},
+				conn.File_Action_Command{id = id, action = action},
 			)
 		}
 	}
@@ -528,7 +529,7 @@ file_message :: proc(
 
 // file_status says how a transfer is going, and in what colour.
 @(private = "file")
-file_status :: proc(f: View_File) -> (string, mu.Color) {
+file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 	switch f.state {
 	case .Offered:
 		return "waiting for them to accept", CHAT_DIM_COLOR
@@ -541,11 +542,11 @@ file_status :: proc(f: View_File) -> (string, mu.Color) {
 		text := fmt.tprintf(
 			"%.0f%%  -  %s of %s",
 			percent,
-			format_bytes(f.done),
-			format_bytes(f.size),
+			conn.format_bytes(f.done),
+			conn.format_bytes(f.size),
 		)
 		if f.rate > 0 {
-			text = fmt.tprintf("%s  -  %s/s", text, format_bytes(u64(f.rate)))
+			text = fmt.tprintf("%s  -  %s/s", text, conn.format_bytes(u64(f.rate)))
 		}
 		return text, CHAT_DIM_COLOR
 	case .Done:

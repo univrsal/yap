@@ -12,6 +12,7 @@ import "common:proto"
 import "client:clipboard"
 import "client:platform"
 import "client:render"
+import "client:conn"
 
 /*
 Showing chat images. The network thread hands over the JPEG it fetched
@@ -71,7 +72,7 @@ UI_Images :: struct {
 	// A saved copy of what's on screen, so the viewer and saving can work
 	// outside the View's lock.
 	shown:       proto.Image_Info,
-	state:       Image_State,
+	state:       conn.Image_State,
 	// Bytes to write to the downloads folder after the frame, and where
 	// the last one went. viewer_save is the viewer's Save button, acted
 	// on where the bytes are at hand.
@@ -182,7 +183,7 @@ ui_images_frame :: proc(ui: ^UI) {
 image_block :: proc(
 	ui: ^UI,
 	info: proto.Image_Info,
-	state: Image_State,
+	state: conn.Image_State,
 	jpeg: []u8,
 	gone := "image no longer on the server",
 ) {
@@ -306,7 +307,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	row := ctx.style.size.y + 2 * ctx.style.padding + 10
 	mu.layout_row(ctx, {-1}, cnt.body.h - i32(row) - ctx.style.spacing)
 	picture := mu.layout_next(ctx)
-	fit_w, _ := fit_box(
+	fit_w, _ := conn.fit_box(
 		int(im.shown.width),
 		int(im.shown.height),
 		max(int(picture.w), 1),
@@ -386,7 +387,7 @@ viewer_input :: proc(ui: ^UI, picture: mu.Rect, max_zoom: f32) {
 // viewer_rect is where the viewer's image goes, zoomed and panned.
 @(private = "file")
 viewer_rect :: proc(im: ^UI_Images, picture: mu.Rect) -> mu.Rect {
-	fw, fh := fit_box(
+	fw, fh := conn.fit_box(
 		int(im.shown.width),
 		int(im.shown.height),
 		max(int(picture.w), 1),
@@ -436,7 +437,7 @@ image_display_size :: proc(ctx: ^mu.Context, width, height: int) -> (w, h: int) 
 			32,
 		)
 	}
-	return fit_box(width, height, available, MAX_IMAGE_DISPLAY_HEIGHT)
+	return conn.fit_box(width, height, available, MAX_IMAGE_DISPLAY_HEIGHT)
 }
 
 @(private = "file")

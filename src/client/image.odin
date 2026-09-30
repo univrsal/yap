@@ -8,6 +8,7 @@ import "core:os"
 import stbi "vendor:stb/image"
 
 import "client:clipboard"
+import "client:conn"
 
 /*
 Turning a pasted image (RGBA, see clipboard) into something worth
@@ -42,7 +43,7 @@ MAX_SCALE_ROUNDS :: 4
 
 // image_load prepares an image file (PNG, JPEG, ...) the same way a
 // pasted one is prepared.
-image_load :: proc(path: string, allocator := context.allocator) -> (img: Chat_Image, ok: bool) {
+image_load :: proc(path: string, allocator := context.allocator) -> (img: conn.Chat_Image, ok: bool) {
 	data, err := os.read_entire_file(path, context.temp_allocator)
 	if err != nil {
 		log.errorf("could not read %s: %v", path, err)
@@ -62,7 +63,7 @@ image_prepare :: proc(
 	src: clipboard.Image,
 	allocator := context.allocator,
 ) -> (
-	img: Chat_Image,
+	img: conn.Chat_Image,
 	ok: bool,
 ) {
 	if src.width <= 0 || src.height <= 0 || len(src.pixels) < src.width * src.height * 4 {

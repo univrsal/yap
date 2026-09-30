@@ -3,6 +3,7 @@ package client
 
 import "core:sync"
 import "core:time"
+import "client:conn"
 
 /*
 A browser build has no threads, so the network loop doesn't get one: it
@@ -22,19 +23,19 @@ NET_FRAME_BUDGET :: 4 * time.Millisecond
 
 net_start :: proc(ns: ^Net_Session) {
 	c := ns.client
-	if !client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name, ns.password) {
+	if !conn.client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name, ns.password) {
 		ns.stopped = true
 		return
 	}
 	if ns.channel != "" {
-		request_join(c, ns.channel)
+		conn.request_join(c, ns.channel)
 	}
 }
 
 net_stop :: proc(ns: ^Net_Session) {
 	if !ns.stopped {
 		ns.stopped = true
-		client_close(ns.client)
+		conn.client_close(ns.client)
 	}
 }
 
@@ -46,13 +47,13 @@ net_step :: proc(ui: ^UI) {
 	}
 	start := time.tick_now()
 	for i := 0;; i += 1 {
-		if !client_step(ns.client) {
+		if !conn.client_step(ns.client) {
 			ns.stopped = true
-			client_close(ns.client)
+			conn.client_close(ns.client)
 			return
 		}
 		if i + 1 >= NET_STEPS_PER_FRAME &&
-		   (!transport_pending(&ns.client.transport) ||
+		   (!conn.transport_pending(&ns.client.transport) ||
 				   time.tick_since(start) >= NET_FRAME_BUDGET) {
 			return
 		}

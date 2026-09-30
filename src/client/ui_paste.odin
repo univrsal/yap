@@ -8,6 +8,7 @@ import mu "vendor:microui"
 import glfw "client:wglfw"
 
 import "client:clipboard"
+import "client:conn"
 
 /*
 Pasting an image runs on a thread of its own: the program that owns the
@@ -25,7 +26,7 @@ Paste_Job :: struct {
 	thread:             ^thread.Thread,
 	done:               bool, // atomic: set by the thread, read by the UI
 	err:                clipboard.Error,
-	image:              Chat_Image,
+	image:              conn.Chat_Image,
 	ok:                 bool, // the image was scaled and compressed
 	target:             Paste_Target, // where it goes
 	source_w, source_h: int, // before scaling, for the log
@@ -74,7 +75,7 @@ paste_poll :: proc(ui: ^UI) {
 	thread.destroy(job.thread)
 	ui.paste = nil
 	defer {
-		chat_image_destroy(&job.image)
+		conn.chat_image_destroy(&job.image)
 		free(job)
 	}
 
@@ -136,7 +137,7 @@ paste_wait :: proc(ui: ^UI) {
 	}
 	thread.join(job.thread)
 	thread.destroy(job.thread)
-	chat_image_destroy(&job.image)
+	conn.chat_image_destroy(&job.image)
 	free(job)
 	ui.paste = nil
 }

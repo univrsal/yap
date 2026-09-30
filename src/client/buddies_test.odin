@@ -5,6 +5,7 @@ import "core:testing"
 
 import "common:proto"
 import "client:settings"
+import "client:conn"
 
 @(test)
 test_buddy_list_order :: proc(t: ^testing.T) {
@@ -17,7 +18,7 @@ test_buddy_list_order :: proc(t: ^testing.T) {
 	settings.add_buddy(&s, b, "Amy")
 	settings.add_buddy(&s, c, "bob")
 
-	v: View
+	v: conn.View
 	defer delete(v.users)
 	v.my_num = 1
 	v.users[7] = {

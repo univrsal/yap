@@ -10,6 +10,7 @@ import mu "vendor:microui"
 import "client:audio"
 import "client:audio/aac"
 import "client:settings"
+import "client:conn"
 
 /*
 Sharing an application's audio with the channel, next to the
@@ -152,7 +153,7 @@ app_audio_menu :: proc(ui: ^UI) {
 		ui.settings.app_audio_volume = a.volume / 100
 		ui.settings_dirty = true
 		if ui.session != nil {
-			push_command(&ui.session.client.commands, app_audio_command(&ui.settings))
+			conn.push_command(&ui.session.client.commands, conn.app_audio_command(&ui.settings))
 		}
 	}
 
@@ -230,7 +231,7 @@ app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
 		}
 		return
 	}
-	push_command(&ns.client.commands, app_audio_command(&ui.settings))
+	conn.push_command(&ns.client.commands, conn.app_audio_command(&ui.settings))
 	sync.atomic_store(&s.voice.app_input, true)
 	a.share = s
 	a.name = strings.clone(name)

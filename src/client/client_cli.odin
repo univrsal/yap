@@ -7,6 +7,7 @@ import "core:slice"
 import "core:strings"
 import "client:audio"
 import "client:settings"
+import "client:conn"
 
 
 // run_headless is the command-line client: commands come from stdin.
@@ -25,7 +26,7 @@ run_headless :: proc(
 	quality: audio.Quality,
 ) -> bool {
 	// Heap-allocated: the channel state buffers make it fairly large.
-	c := new(Voice_Client)
+	c := new(conn.Voice_Client)
 	defer free(c)
 	if !audio.voice_init(&c.voice) {
 		return false
@@ -36,7 +37,7 @@ run_headless :: proc(
 	c.images.dir = image_dir
 	c.files.download_dir = strings.clone(download_dir)
 	limits := limits
-	lim := transfer_limits_command(&limits)
+	lim := conn.transfer_limits_command(&limits)
 	c.files.upload_limit, c.files.download_limit = lim.upload, lim.download
 	if quality != .Voice && !audio.encoder_setup(&c.voice, quality) {
 		return false
@@ -56,16 +57,16 @@ run_headless :: proc(
 		audio.fake_audio_start(&fake, &c.voice, tone_hz, input)
 	}
 	defer audio.fake_audio_stop(&fake)
-	defer client_close(c)
-	if !client_open(c, key_path, server_addr, known_servers, name, password) {
+	defer conn.client_close(c)
+	if !conn.client_open(c, key_path, server_addr, known_servers, name, password) {
 		return false
 	}
 
 	if initial_channel != "" {
-		request_join(c, initial_channel)
+		conn.request_join(c, initial_channel)
 	}
 	start_command_reader(&c.commands)
 
-	for client_step(c) {}
+	for conn.client_step(c) {}
 	return false
 }

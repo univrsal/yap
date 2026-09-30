@@ -11,11 +11,12 @@ import "common:proto"
 import "client:platform"
 import "client:settings"
 import "client:render"
+import "client:conn"
 
 /*
 The buddy screen (buddies.odin): the buddy list on the left, with
 anyone else we have a conversation with, and the conversation with
-whoever's picked on the right (dm.odin). It's there while connected,
+whoever's picked on the right (conn/dm.odin). It's there while connected,
 opened and closed by the buddies button along the top, which it shares
 with the session screen.
 */
@@ -77,7 +78,7 @@ ONLINE_COLOR :: SPEAKING_COLOR
 // lights up for DMs that haven't been seen.
 buddies_button :: proc(ui: ^UI) {
 	open := ui.page == .Buddies
-	unread := dm_unread(&ui.view)
+	unread := conn.dm_unread(&ui.view)
 	hint := "Back to the channels" if open else "Buddies"
 	color := CHAT_NAME_COLOR if open else mu.Color{}
 	if unread > 0 && !open {
@@ -248,7 +249,7 @@ conversation :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	status := "here now" if entry.online != 0 else last_seen_text(ui, key)
 	status_color := ONLINE_COLOR if entry.online != 0 else DIM_COLOR
-	if t, ok := v.dm_typing[key]; ok && time.tick_since(t) < TYPING_SHOW {
+	if t, ok := v.dm_typing[key]; ok && time.tick_since(t) < conn.TYPING_SHOW {
 		status = "typing..."
 	}
 	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
@@ -269,7 +270,7 @@ conversation :: proc(ui: ^UI) {
 		conv.unread = 0
 		dm_panel(ui, conv, entry.name)
 	} else {
-		empty: View_Conversation
+		empty: conn.View_Conversation
 		dm_panel(ui, &empty, entry.name)
 	}
 
@@ -291,7 +292,7 @@ conversation :: proc(ui: ^UI) {
 	res := text_box(ui, ui.buddies.buf[:], &ui.buddies.len)
 	box := ctx.last_id
 	if .CHANGE in res && ui.buddies.len > 0 && ui.session != nil {
-		push_command(&ui.session.client.commands, DM_Typing_Command{key})
+		conn.push_command(&ui.session.client.commands, conn.DM_Typing_Command{key})
 	}
 	send := .SUBMIT in res
 	if .SUBMIT in icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
@@ -315,7 +316,7 @@ conversation :: proc(ui: ^UI) {
 		return
 	}
 	log.debug("ui: direct message")
-	push_command(&ui.session.client.commands, DM_Command{to = key, text = strings.clone(text)})
+	conn.push_command(&ui.session.client.commands, conn.DM_Command{to = key, text = strings.clone(text)})
 	ui.buddies.len = 0
 }
 
@@ -345,7 +346,7 @@ delete_confirm :: proc(ui: ^UI) {
 	defer mu.end_popup(ctx)
 
 	key := b.deleting
-	name := fingerprint(key)
+	name := conn.fingerprint(key)
 	for e in buddy_list(&ui.settings, &ui.view) {
 		if e.key == key {
 			name = e.name
@@ -370,7 +371,7 @@ delete_confirm :: proc(ui: ^UI) {
 		mu.get_current_container(ctx).open = false
 		if ui.session != nil {
 			log.debug("ui: delete a conversation")
-			push_command(&ui.session.client.commands, Delete_DM_Command{with = key})
+			conn.push_command(&ui.session.client.commands, conn.Delete_DM_Command{with = key})
 		}
 		if b.has_selected && b.selected == key {
 			b.has_selected = false
@@ -389,7 +390,7 @@ ask_last_seen :: proc(ui: ^UI) {
 	if ui.session == nil {
 		return
 	}
-	cmd: Last_Seen_Command
+	cmd: conn.Last_Seen_Command
 	online := 0
 	for b in buddy_list(&ui.settings, &ui.view) {
 		if b.online != 0 {
@@ -407,7 +408,7 @@ ask_last_seen :: proc(ui: ^UI) {
 		return
 	}
 	ui.buddies.seen_asked = time.tick_now()
-	push_command(&ui.session.client.commands, cmd)
+	conn.push_command(&ui.session.client.commands, cmd)
 }
 
 // last_seen_text is what the conversation's header says about someone
@@ -445,15 +446,15 @@ meant for, taking it over. Images only go to someone who's online, and a
 conversation with somebody who isn't says so instead. Call it outside
 the View lock.
 */
-send_pasted_image :: proc(ui: ^UI, target: Paste_Target, image: Chat_Image) {
+send_pasted_image :: proc(ui: ^UI, target: Paste_Target, image: conn.Chat_Image) {
 	image := image
 	if ui.session == nil {
 		log.warn("not connected, so the pasted image wasn't sent")
-		chat_image_destroy(&image)
+		conn.chat_image_destroy(&image)
 		return
 	}
 	if !target.dm {
-		push_command(&ui.session.client.commands, Chat_Image_Command{image})
+		conn.push_command(&ui.session.client.commands, conn.Chat_Image_Command{image})
 		return
 	}
 	online := false
@@ -468,10 +469,10 @@ send_pasted_image :: proc(ui: ^UI, target: Paste_Target, image: Chat_Image) {
 	if !online {
 		ui.buddies.notice = "images only go to someone who's online"
 		ui.buddies.notice_at = time.tick_now()
-		chat_image_destroy(&image)
+		conn.chat_image_destroy(&image)
 		return
 	}
-	push_command(&ui.session.client.commands, DM_Image_Command{to = target.to, image = image})
+	conn.push_command(&ui.session.client.commands, conn.DM_Image_Command{to = target.to, image = image})
 }
 
 @(private = "file")

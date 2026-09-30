@@ -4,12 +4,13 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 import mu "vendor:microui"
+import "client:conn"
 
 /*
 The connection indicator: three bars rising left to right, like a
 phone's signal. Three green for a good connection, two yellow for a
 fair one, one red for a poor one, and none lit until there's anything
-to go by (ping.odin says which is which). Hovering over it shows the
+to go by (conn/ping.odin says which is which). Hovering over it shows the
 numbers behind it.
 */
 
@@ -61,7 +62,7 @@ connection_indicator :: proc(ui: ^UI) {
 // connection_hint is the indicator's tooltip, one line per figure. It's
 // in the temp allocator, which lasts the frame.
 @(private = "file")
-connection_hint :: proc(status: Status, s: Connection_Stats) -> string {
+connection_hint :: proc(status: conn.Status, s: conn.Connection_Stats) -> string {
 	if status != .Connected {
 		return "Connecting..."
 	}
@@ -86,8 +87,8 @@ connection_hint :: proc(status: Status, s: Connection_Stats) -> string {
 	fmt.sbprintf(&b, "Ping: %s (last %s)\n", ms(s.avg_rtt), ms(s.last_rtt))
 	fmt.sbprintf(&b, "Range: %s to %s\n", ms(s.min_rtt), ms(s.max_rtt))
 	fmt.sbprintf(&b, "Jitter: %s\n", ms(s.jitter))
-	fmt.sbprintf(&b, "Packet loss: %.1f%% (%d of %d)", connection_loss(s), s.lost, s.sent)
-	if s.lost_run >= LOST_IN_A_ROW {
+	fmt.sbprintf(&b, "Packet loss: %.1f%% (%d of %d)", conn.connection_loss(s), s.lost, s.sent)
+	if s.lost_run >= conn.LOST_IN_A_ROW {
 		fmt.sbprintf(&b, "\nNo answer to the last %d pings", s.lost_run)
 	}
 	return strings.to_string(b)

@@ -7,6 +7,7 @@ import "core:os"
 import "core:strings"
 import "core:thread"
 import "client:settings"
+import "client:conn"
 
 /*
 Headless mode reads commands from stdin on a separate thread, so the
@@ -32,7 +33,7 @@ network loop never blocks on input.
 	/cancel                 stop every file transfer
 	/seen <key>             ask when someone was last on the server
 */
-start_command_reader :: proc(q: ^Command_Queue) {
+start_command_reader :: proc(q: ^conn.Command_Queue) {
 	thread.create_and_start_with_poly_data(
 		q,
 		read_commands,
@@ -42,7 +43,7 @@ start_command_reader :: proc(q: ^Command_Queue) {
 }
 
 @(private = "file")
-read_commands :: proc(q: ^Command_Queue) {
+read_commands :: proc(q: ^conn.Command_Queue) {
 	sc: bufio.Scanner
 	bufio.scanner_init(&sc, os.to_reader(os.stdin))
 	defer bufio.scanner_destroy(&sc)
@@ -51,35 +52,35 @@ read_commands :: proc(q: ^Command_Queue) {
 		switch {
 		case line == "":
 		case line == "/channels":
-			push_command(q, List_Command{})
+			conn.push_command(q, conn.List_Command{})
 		case strings.has_prefix(line, "/name "):
-			push_command(q, Name_Command{strings.clone(strings.trim_space(line[len("/name "):]))})
+			conn.push_command(q, conn.Name_Command{strings.clone(strings.trim_space(line[len("/name "):]))})
 		case line == "/listen" || line == "/unlisten":
-			push_command(q, Listen_Command{line == "/listen"})
+			conn.push_command(q, conn.Listen_Command{line == "/listen"})
 		case line == "/mute" || line == "/unmute":
-			push_command(q, Mute_Command{muted = line == "/mute", feedback = true})
+			conn.push_command(q, conn.Mute_Command{muted = line == "/mute", feedback = true})
 		case line == "/deafen" || line == "/undeafen":
-			push_command(q, Deafen_Command{deafened = line == "/deafen", feedback = true})
+			conn.push_command(q, conn.Deafen_Command{deafened = line == "/deafen", feedback = true})
 		case line == "/typing":
-			push_command(q, Typing_Command{})
+			conn.push_command(q, conn.Typing_Command{})
 		case strings.has_prefix(line, "/send "):
 			// Scaling and compressing happens here rather than on the
 			// network loop, which has voice to carry.
 			path := strings.trim_space(line[len("/send "):])
 			if image, ok := image_load(path); ok {
-				push_command(q, Chat_Image_Command{image})
+				conn.push_command(q, conn.Chat_Image_Command{image})
 			}
 		case strings.has_prefix(line, "/poke "):
 			rest := strings.trim_space(line[len("/poke "):])
 			name, _, message := strings.partition(rest, " ")
-			push_command(
+			conn.push_command(
 				q,
-				Poke_Command{name = strings.clone(name), message = strings.clone(message)},
+				conn.Poke_Command{name = strings.clone(name), message = strings.clone(message)},
 			)
 		case strings.has_prefix(line, "/file "):
 			rest := strings.trim_space(line[len("/file "):])
 			to, _, path := strings.partition(rest, " ")
-			cmd := Send_File_Command {
+			cmd := conn.Send_File_Command {
 				path = strings.clone(strings.trim_space(path)),
 			}
 			if key, is_key := settings.parse_user_key(to); is_key {
@@ -87,25 +88,25 @@ read_commands :: proc(q: ^Command_Queue) {
 			} else {
 				cmd.name = strings.clone(to)
 			}
-			push_command(q, cmd)
+			conn.push_command(q, cmd)
 		case line == "/accept" || line == "/decline" || line == "/cancel":
 			// Answered on the network loop, which has the offers: an id
 			// of 0 means all of them.
-			action := File_Action.Accept
+			action := conn.File_Action.Accept
 			switch line {
 			case "/decline":
 				action = .Decline
 			case "/cancel":
 				action = .Cancel
 			}
-			push_command(q, File_Action_Command{action = action})
+			conn.push_command(q, conn.File_Action_Command{action = action})
 		case strings.has_prefix(line, "/seen "):
 			if key, ok := settings.parse_user_key(strings.trim_space(line[len("/seen "):])); ok {
-				cmd := Last_Seen_Command {
+				cmd := conn.Last_Seen_Command {
 					count = 1,
 				}
 				cmd.keys[0] = key
-				push_command(q, cmd)
+				conn.push_command(q, cmd)
 			} else {
 				log.warn("/seen takes a key (64 hex digits)")
 			}
@@ -116,7 +117,7 @@ read_commands :: proc(q: ^Command_Queue) {
 			if !ok {
 				continue
 			}
-			cmd := DM_Image_Command {
+			cmd := conn.DM_Image_Command {
 				image = image,
 			}
 			if key, is_key := settings.parse_user_key(to); is_key {
@@ -124,11 +125,11 @@ read_commands :: proc(q: ^Command_Queue) {
 			} else {
 				cmd.name = strings.clone(to)
 			}
-			push_command(q, cmd)
+			conn.push_command(q, cmd)
 		case strings.has_prefix(line, "/dm "):
 			rest := strings.trim_space(line[len("/dm "):])
 			to, _, text := strings.partition(rest, " ")
-			cmd := DM_Command {
+			cmd := conn.DM_Command {
 				text = strings.clone(text),
 			}
 			if key, is_key := settings.parse_user_key(to); is_key {
@@ -136,11 +137,11 @@ read_commands :: proc(q: ^Command_Queue) {
 			} else {
 				cmd.name = strings.clone(to)
 			}
-			push_command(q, cmd)
+			conn.push_command(q, cmd)
 		case strings.has_prefix(line, "/say "):
-			push_command(q, Chat_Command{strings.clone(line[len("/say "):])})
+			conn.push_command(q, conn.Chat_Command{strings.clone(line[len("/say "):])})
 		case strings.has_prefix(line, "/join "):
-			push_command(q, Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
+			conn.push_command(q, conn.Join_Command{strings.clone(strings.trim_space(line[len("/join "):]))})
 		case:
 			log.warn(
 				"commands: /channels, /join <channel>, /name <name>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /send <file>, /typing, /poke <name> [message], /dm <name|key> <text>, /dmimage <name|key> <file>, /file <name|key> <file>, /accept, /decline, /cancel, /seen <key>",

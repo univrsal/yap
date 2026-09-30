@@ -13,6 +13,7 @@ import glfw "client:wglfw"
 import "common:."
 import "client:audio"
 import "client:platform"
+import "client:conn"
 
 /*
 The web build's way in. A browser has no main loop to hand over: the
@@ -30,7 +31,7 @@ g_context: runtime.Context
 @(private = "file")
 g_web_ui: ^UI
 @(private = "file")
-g_logs: Log_Lines
+g_logs: conn.Log_Lines
 @(private = "file")
 g_logger: log.Logger
 
@@ -67,7 +68,7 @@ web_start :: proc "c" () -> b32 {
 	if !known {
 		level = .info
 	}
-	logger, ok := common.init_logging(level, "", {log_lines_sink, &g_logs})
+	logger, ok := common.init_logging(level, "", {conn.log_lines_sink, &g_logs})
 	if !ok {
 		return false
 	}

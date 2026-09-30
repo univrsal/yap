@@ -18,6 +18,7 @@ import "client:audio"
 import "client:platform"
 import "client:settings"
 import "client:render"
+import "client:conn"
 
 /*
 The windowed client: GLFW for the window and input, microui for widgets,
@@ -35,14 +36,14 @@ UI_Options :: struct {
 	server:        string, // prefilled, and connected to right away
 	password:      string, // for `server`
 	channel:       string, // joined on connect
-	logs:          ^Log_Lines,
+	logs:          ^conn.Log_Lines,
 	settings_path: string,
 }
 
 // The connection and the thread (or the frame loop) running it; see
 // net_native.odin and net_web.odin.
 Net_Session :: struct {
-	client:        ^Voice_Client,
+	client:        ^conn.Voice_Client,
 	thread:        Net_Thread,
 	stop:          bool, // set atomically to end the network loop
 	// Without threads there is nobody to notice `stop`, so the frame
@@ -92,7 +93,7 @@ UI :: struct {
 	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
 	name_buf:            [2 * proto.MAX_NAME_SIZE]u8,
 	name_len:            int,
-	view:                View,
+	view:                conn.View,
 	session:             ^Net_Session,
 	// Connecting/disconnecting waits on the network thread, which may be
 	// waiting on the View lock, so it happens after layout, not during.
@@ -222,7 +223,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	g_ui = ui
 	g_logger = context.logger
 	ui.opts = opts
-	view_init(&ui.view)
+	conn.view_init(&ui.view)
 	ui_chat_init(ui)
 
 	// Load (or create) the key now, to show our id before connecting.
@@ -458,7 +459,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	install_destroy(ui)
 	ui_chat_destroy(ui)
 	ui_select_destroy(ui)
-	view_destroy(&ui.view)
+	conn.view_destroy(&ui.view)
 }
 
 /*
@@ -648,7 +649,7 @@ apply_name :: proc(ui: ^UI) {
 	settings.set_setting(&ui.settings.name, name)
 	ui.settings_dirty = true
 	if ui.session != nil {
-		push_command(&ui.session.client.commands, Name_Command{strings.clone(name)})
+		conn.push_command(&ui.session.client.commands, conn.Name_Command{strings.clone(name)})
 	}
 }
 
@@ -709,7 +710,7 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 connect :: proc(ui: ^UI) {
 	disconnect(ui)
 	monitor_stop(ui) // the connection opens the microphone itself
-	server := with_default_port(string(ui.server_buf[:ui.server_len]))
+	server := conn.with_default_port(string(ui.server_buf[:ui.server_len]))
 	if server == "" {
 		return
 	}
@@ -729,7 +730,7 @@ connect :: proc(ui: ^UI) {
 	ns.known_servers = strings.clone(ui.opts.known_servers)
 	ns.channel = strings.clone(ui.opts.channel)
 	ns.name = strings.clone(ui.settings.name)
-	ns.client = new(Voice_Client)
+	ns.client = new(conn.Voice_Client)
 	ns.client.view = &ui.view
 	if audio.voice_init(&ns.client.voice) {
 		// Devices may have come or gone since the list was made.
@@ -740,20 +741,20 @@ connect :: proc(ui: ^UI) {
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.deafened = ui.deafened
 	// Told to the others as soon as we're in a channel (drive_sound).
-	ns.client.channels.sound = sound_flags(ui.muted, ui.deafened)
+	ns.client.channels.sound = conn.sound_flags(ui.muted, ui.deafened)
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
 	ns.client.voice.notifications.volume = settings.notification_gain(&ui.settings)
-	push_command(&ns.client.commands, Quality_Command{settings.settings_quality(&ui.settings)})
-	push_command(&ns.client.commands, gate_command(&ui.settings))
-	push_command(&ns.client.commands, transfer_limits_command(&ui.settings))
+	conn.push_command(&ns.client.commands, conn.Quality_Command{settings.settings_quality(&ui.settings)})
+	conn.push_command(&ns.client.commands, conn.gate_command(&ui.settings))
+	conn.push_command(&ns.client.commands, conn.transfer_limits_command(&ui.settings))
 	for hex_key, u in ui.settings.users {
 		if key, ok := settings.parse_user_key(hex_key); ok {
-			push_command(&ns.client.commands, Gain_Command{key, settings.user_gain(u)})
+			conn.push_command(&ns.client.commands, conn.Gain_Command{key, settings.user_gain(u)})
 		}
 	}
 
-	view_reset(&ui.view)
+	conn.view_reset(&ui.view)
 	{
 		sync.guard(&ui.view.mutex)
 		ui.view.status = .Connecting
@@ -770,7 +771,7 @@ disconnect :: proc(ui: ^UI, play_goodbye := false) {
 		return
 	}
 	// Nobody to share with any more.
-	video_share_stop()
+	conn.video_share_stop()
 	app_audio_stop(ui)
 	if ns.goodbye_tail {
 		disconnect_finish(ui)
@@ -832,7 +833,7 @@ disconnect_finish :: proc(ui: ^UI) {
 
 	// A failure message stays up until the next attempt.
 	if ui.view.status != .Failed {
-		view_reset(&ui.view)
+		conn.view_reset(&ui.view)
 	}
 }
 
@@ -844,7 +845,7 @@ set_muted :: proc(ui: ^UI, muted: bool, feedback := true) {
 	}
 	ui.muted = muted
 	if ui.session != nil {
-		push_command(&ui.session.client.commands, Mute_Command{muted = muted, feedback = feedback})
+		conn.push_command(&ui.session.client.commands, conn.Mute_Command{muted = muted, feedback = feedback})
 	}
 }
 
@@ -867,9 +868,9 @@ set_deafened :: proc(ui: ^UI, deafened: bool) {
 		set_muted(ui, ui.muted_before_deafen, feedback = false)
 	}
 	if ui.session != nil {
-		push_command(
+		conn.push_command(
 			&ui.session.client.commands,
-			Deafen_Command{deafened = deafened, feedback = true},
+			conn.Deafen_Command{deafened = deafened, feedback = true},
 		)
 	}
 }
@@ -1043,7 +1044,7 @@ session_screen :: proc(ui: ^UI) {
 	narrow := body.w < NARROW_LAYOUT
 
 	screen_tab_follow(ui)
-	if v.watching != 0 && video_is_fullscreen() {
+	if v.watching != 0 && conn.video_is_fullscreen() {
 		fullscreen_screen(ui)
 		return
 	}
@@ -1075,7 +1076,7 @@ session_screen :: proc(ui: ^UI) {
 		label := fmt.tprintf("%s%s (%d)", marker, ch.name, len(ch.members))
 		if .SUBMIT in stable_button(ctx, "join", label) && i != v.my_channel && ui.session != nil {
 			log.debugf("ui: join %q", ch.name)
-			push_command(&ui.session.client.commands, Join_Command{strings.clone(ch.name)})
+			conn.push_command(&ui.session.client.commands, conn.Join_Command{strings.clone(ch.name)})
 		}
 
 		for m in ch.members {
@@ -1114,7 +1115,7 @@ and the buddy screen share it.
 session_header :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
-	can_share := video_can_share()
+	can_share := conn.video_can_share()
 	can_share_audio := app_audio_available(ui)
 	// The status, then the connection indicator and the buttons, each
 	// ICON_BUTTON wide plus the spacing between them.
@@ -1127,7 +1128,7 @@ session_header :: proc(ui: ^UI) {
 	title_row(ui, widths[:1 + icons])
 	switch v.status {
 	case .Connected:
-		me := v.my_name if v.my_name != "" else fingerprint(v.my_key)
+		me := v.my_name if v.my_name != "" else conn.fingerprint(v.my_key)
 		mu.label(ctx, fmt.tprintf("Connected to %s as %s", v.server, me))
 	case .Connecting, .Disconnected, .Failed:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))

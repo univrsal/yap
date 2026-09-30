@@ -7,6 +7,7 @@ import "core:time"
 import mu "vendor:microui"
 import "client:audio"
 import "client:settings"
+import "client:conn"
 
 /*
 The voice gate's part of the settings page: an on/off toggle, a live
@@ -76,7 +77,7 @@ monitor_update :: proc(ui: ^UI) {
 	// Mono or stereo processing, as the chosen preset would send (the
 	// monitor never encodes, so no encoder change is needed).
 	m.voice.quality = settings.settings_quality(&ui.settings)
-	cmd := gate_command(&ui.settings)
+	cmd := conn.gate_command(&ui.settings)
 	m.voice.gate.enabled, m.voice.gate.open_db, m.voice.gate.close_db =
 		cmd.enabled, cmd.open_db, cmd.close_db
 
@@ -158,7 +159,7 @@ set_listen_back :: proc(ui: ^UI, on: bool) {
 	ui.listen_back = on
 	log.infof("listen back %s", "on" if on else "off")
 	if ui.session != nil {
-		push_command(&ui.session.client.commands, Listen_Command{on})
+		conn.push_command(&ui.session.client.commands, conn.Listen_Command{on})
 	}
 }
 
@@ -166,7 +167,7 @@ set_listen_back :: proc(ui: ^UI, on: bool) {
 gate_changed :: proc(ui: ^UI) {
 	ui.settings_dirty = true // saved within a second; sliders change every frame
 	if ui.session != nil {
-		push_command(&ui.session.client.commands, gate_command(&ui.settings))
+		conn.push_command(&ui.session.client.commands, conn.gate_command(&ui.settings))
 	}
 }
 

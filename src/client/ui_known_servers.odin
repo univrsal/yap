@@ -8,6 +8,7 @@ import mu "vendor:microui"
 
 import "common:proto"
 import "client:platform"
+import "client:conn"
 
 /*
 Server keys from the UI, rather than by editing known_servers (or, in a
@@ -25,7 +26,7 @@ change can mean and how to check it with whoever runs the server.
 UI_Known_Servers :: struct {
 	// The settings page's copy of the file, read when the page is
 	// opened (open_settings) and after a change, not every frame.
-	list:   []Known_Server,
+	list:   []conn.Known_Server,
 	loaded: bool,
 }
 
@@ -52,7 +53,7 @@ known_servers_destroy :: proc(ui: ^UI) {
 // grouped_key is a whole key in groups of 8 hex digits, for reading out
 // and comparing; the first group is the fingerprint shown elsewhere.
 grouped_key :: proc(key: [proto.KEY_SIZE]u8) -> string {
-	full := key_hex(key)
+	full := conn.key_hex(key)
 	b := strings.builder_make(context.temp_allocator)
 	for i := 0; i < len(full); i += 8 {
 		if i > 0 {
@@ -101,7 +102,7 @@ key_change_panel :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in mu.button(ctx, "Keep the old key") {
 		log.debug("ui: keep the old server key")
-		view_clear_key_change(&ui.view)
+		conn.view_clear_key_change(&ui.view)
 	}
 }
 
@@ -121,13 +122,13 @@ trust_new_key :: proc(ui: ^UI) {
 		key = v.key_change.received
 	}
 
-	if !replace_server_key(ui.opts.known_servers, server, key) {
+	if !conn.replace_server_key(ui.opts.known_servers, server, key) {
 		sync.guard(&v.mutex)
 		delete(v.error)
 		v.error = fmt.aprintf("Could not save the new key of %s.", server)
 		return
 	}
-	log.infof("trusting the new key of %s: %s", server, key_hex(key))
+	log.infof("trusting the new key of %s: %s", server, conn.key_hex(key))
 	ui.known.loaded = false
 	ui.server_len = copy(ui.server_buf[:], server)
 	connect(ui)
@@ -144,7 +145,7 @@ trusted_servers_settings :: proc(ui: ^UI) {
 	k := &ui.known
 	if !k.loaded {
 		known_servers_destroy(ui)
-		k.list = list_known_servers(ui.opts.known_servers)
+		k.list = conn.list_known_servers(ui.opts.known_servers)
 		k.loaded = true
 	}
 
@@ -155,7 +156,7 @@ trusted_servers_settings :: proc(ui: ^UI) {
 	)
 
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, fmt.tprintf("Your key: %s", fingerprint(ui.my_key)))
+	mu.label(ctx, fmt.tprintf("Your key: %s", conn.fingerprint(ui.my_key)))
 	if len(k.list) == 0 {
 		mu.label(ctx, "  None yet.")
 		return
@@ -167,7 +168,7 @@ trusted_servers_settings :: proc(ui: ^UI) {
 		defer mu.pop_id(ctx)
 
 		mu.layout_row(ctx, {-(80 + ctx.style.spacing), -1})
-		mu.label(ctx, fmt.tprintf("%s   %s", s.addr, fingerprint(s.key)))
+		mu.label(ctx, fmt.tprintf("%s   %s", s.addr, conn.fingerprint(s.key)))
 		if .SUBMIT in stable_button(ctx, "forget", "Forget") {
 			forget = i
 		}
@@ -175,7 +176,7 @@ trusted_servers_settings :: proc(ui: ^UI) {
 	// Not while going through the list, which this replaces.
 	if forget >= 0 {
 		addr := k.list[forget].addr
-		if forget_server_key(ui.opts.known_servers, addr) {
+		if conn.forget_server_key(ui.opts.known_servers, addr) {
 			log.infof("forgot the key of %s", addr)
 		}
 		k.loaded = false

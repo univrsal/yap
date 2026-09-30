@@ -6,6 +6,7 @@ import mu "vendor:microui"
 import "client:audio"
 import "client:platform"
 import "client:settings"
+import "client:conn"
 
 /*
 The settings page: name, noise suppression, the voice gate (ui_gate.odin),
@@ -81,7 +82,7 @@ audio_settings :: proc(ui: ^UI) {
 			settings.set_setting(&ui.settings.quality, preset.name)
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 			if ui.session != nil {
-				push_command(&ui.session.client.commands, Quality_Command{q})
+				conn.push_command(&ui.session.client.commands, conn.Quality_Command{q})
 			}
 			current = q
 		}
@@ -91,7 +92,7 @@ audio_settings :: proc(ui: ^UI) {
 	if .CHANGE in mu.checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 		if ui.session != nil {
-			push_command(&ui.session.client.commands, Noise_Command{ui.settings.noise_suppression})
+			conn.push_command(&ui.session.client.commands, conn.Noise_Command{ui.settings.noise_suppression})
 		}
 	}
 	if app_audio_available(ui) {
@@ -104,7 +105,7 @@ audio_settings :: proc(ui: ^UI) {
 		   ) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 			if ui.session != nil {
-				push_command(&ui.session.client.commands, app_audio_command(&ui.settings))
+				conn.push_command(&ui.session.client.commands, conn.app_audio_command(&ui.settings))
 			}
 		}
 	}
@@ -140,9 +141,9 @@ ui_settings :: proc(ui: ^UI) {
 		ui.settings.notification_volume = volume / 100
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 		if ui.session != nil {
-			push_command(
+			conn.push_command(
 				&ui.session.client.commands,
-				Notification_Volume_Command{ui.settings.notification_volume},
+				conn.Notification_Volume_Command{ui.settings.notification_volume},
 			)
 		}
 	}
@@ -212,7 +213,7 @@ transfer_settings :: proc(ui: ^UI) {
 		// Sliders change every frame while dragged; saved within a second.
 		ui.settings_dirty = true
 		if ui.session != nil {
-			push_command(&ui.session.client.commands, transfer_limits_command(&ui.settings))
+			conn.push_command(&ui.session.client.commands, conn.transfer_limits_command(&ui.settings))
 		}
 	}
 }

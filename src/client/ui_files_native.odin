@@ -10,6 +10,7 @@ import glfw "client:wglfw"
 
 import "common:proto"
 import "client:dialogs"
+import "client:conn"
 
 /*
 Picking a file to send, on a desktop: the system's file dialog
@@ -98,9 +99,9 @@ file_pick_poll :: proc(ui: ^UI) {
 	switch job.status {
 	case .Ok:
 		if ui.session != nil && job.path != "" {
-			push_command(
+			conn.push_command(
 				&ui.session.client.commands,
-				Send_File_Command{to = job.to, path = job.path},
+				conn.Send_File_Command{to = job.to, path = job.path},
 			)
 			job.path = "" // the command has it now
 		}

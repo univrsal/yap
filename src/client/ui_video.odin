@@ -5,9 +5,10 @@ import mu "vendor:microui"
 
 import "common:proto"
 import "client:render"
+import "client:conn"
 
 /*
-Screen sharing in the UI (see video.odin): the Share button beside mute
+Screen sharing in the UI (see conn/video.odin): the Share button beside mute
 and deafen, and the Screen tab beside the chat, which opens by itself on
 starting to watch somebody. Both only do anything in a browser; a
 desktop build still marks who is sharing in the channel list.
@@ -39,7 +40,7 @@ ui_video_forget_texture :: proc(ui: ^UI) {
 // share_button starts or stops sharing our screen. Only shown where the
 // browser can (video_can_share).
 share_button :: proc(ui: ^UI) {
-	state := video_share_state()
+	state := conn.video_share_state()
 	hint := "Share your screen"
 	color := mu.Color{}
 	switch state {
@@ -55,9 +56,9 @@ share_button :: proc(ui: ^UI) {
 		// Straight from the click: the browser only opens its picker
 		// for something the user just did.
 		if state == .Live || state == .Starting {
-			video_share_stop()
+			conn.video_share_stop()
 		} else {
-			video_share_start()
+			conn.video_share_start()
 		}
 	}
 }
@@ -65,7 +66,7 @@ share_button :: proc(ui: ^UI) {
 // watch starts watching `user`, or stops with 0.
 watch :: proc(ui: ^UI, user: proto.User_Num) {
 	if ui.session != nil {
-		push_command(&ui.session.client.commands, Watch_Command{user})
+		conn.push_command(&ui.session.client.commands, conn.Watch_Command{user})
 	}
 }
 
@@ -87,7 +88,7 @@ screen_tab_follow :: proc(ui: ^UI) {
 		if ui.chat.tab == .Screen {
 			ui.chat.tab = .Chat
 		}
-		video_set_fullscreen(false)
+		conn.video_set_fullscreen(false)
 	}
 }
 
@@ -106,7 +107,7 @@ screen_panel :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-(110 + 70 + 2 * ctx.style.spacing), 110, 70})
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(ui)))
 	if .SUBMIT in stable_button(ctx, "fullscreen", "Fullscreen") {
-		video_set_fullscreen(true)
+		conn.video_set_fullscreen(true)
 	}
 	if .SUBMIT in stable_button(ctx, "stop watching", "Stop") {
 		watch(ui, 0)
@@ -129,7 +130,7 @@ fullscreen_screen :: proc(ui: ^UI) {
 		label_proc,
 	)
 	if .SUBMIT in stable_button(ctx, "exit fullscreen", "Exit") {
-		video_set_fullscreen(false)
+		conn.video_set_fullscreen(false)
 	}
 	mu.layout_row(ctx, {-1}, -1)
 	picture(ui, mu.layout_next(ctx))
@@ -143,7 +144,7 @@ picture :: proc(ui: ^UI, r: mu.Rect) {
 	if vid.texture == 0 {
 		vid.texture = render.gpu_texture_make(&ui.renderer.gpu, .Rgba, 0, 0, nil)
 	}
-	if w, h, ok := video_upload(vid.texture); ok {
+	if w, h, ok := conn.video_upload(vid.texture); ok {
 		vid.size = {w, h}
 	}
 

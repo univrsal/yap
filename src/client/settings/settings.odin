@@ -79,7 +79,7 @@ Settings :: struct {
 	// Muting the microphone mutes a shared application as well.
 	mute_app_audio_with_mic: bool,
 	// How fast files in DMs may go out and come in, in MB/s; 0 for no
-	// limit (files.odin).
+	// limit (conn/files.odin).
 	upload_limit:            f32,
 	download_limit:          f32,
 	// The UI's own zoom, independent of the display's DPI scale (see

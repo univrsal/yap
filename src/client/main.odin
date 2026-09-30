@@ -9,6 +9,7 @@ import "core:os"
 import "common:."
 import "client:audio"
 import "client:platform"
+import "client:conn"
 
 Options :: struct {
 	server:             string `args:"pos=0" usage:"Server to connect to, host or host:port (default port 7777). Required with -headless; otherwise the UI connects to it right away."`,
@@ -39,10 +40,10 @@ main :: proc() {
 	flags.parse_or_exit(&opt, os.args, .Odin)
 
 	// In the UI, log lines also go to the log panel.
-	logs: Log_Lines
+	logs: conn.Log_Lines
 	sink: common.Log_Sink
 	if !opt.headless {
-		sink = {log_lines_sink, &logs}
+		sink = {conn.log_lines_sink, &logs}
 	}
 	logger, ok := common.init_logging(opt.log_level, opt.log_file, sink)
 	if !ok {

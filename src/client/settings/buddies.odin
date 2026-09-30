@@ -12,7 +12,7 @@ list can say who they are while they're away. They're saved with the
 settings, keyed like the per-user volumes.
 
 Adding someone is our business alone: they aren't asked or told. Direct
-messages (dm.odin) come from anyone, buddy or not, so the list the
+messages (conn/dm.odin) come from anyone, buddy or not, so the list the
 buddy screen shows is the buddies and whoever else we have a
 conversation with (buddy_list, in the client's buddies.odin).
 */

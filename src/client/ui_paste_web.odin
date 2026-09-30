@@ -4,6 +4,7 @@ package client
 import log "common:wlog"
 import "core:strings"
 import "client:platform"
+import "client:conn"
 
 /*
 Pasting a picture into the chat. A page can only read the clipboard
@@ -61,7 +62,7 @@ web_paste_image :: proc "c" (data: [^]u8, size: i32, width, height: i32) {
 	if g_ui == nil || size <= 0 {
 		return
 	}
-	img := Chat_Image {
+	img := conn.Chat_Image {
 		jpeg   = make([]u8, size),
 		width  = int(width),
 		height = int(height),

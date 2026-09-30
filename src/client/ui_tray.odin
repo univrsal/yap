@@ -9,6 +9,7 @@ import glfw "client:wglfw"
 
 import "client:tray"
 import "client:render"
+import "client:conn"
 
 /*
 The tray icon: a microphone in the system tray showing whether we're
@@ -172,7 +173,7 @@ tray_state :: proc(ui: ^UI) -> (render.Icon, mu.Color) {
 	speaking := false
 	if ui.session != nil {
 		sync.guard(&ui.view.mutex)
-		speaking = is_speaking(&ui.view, ui.view.my_num)
+		speaking = conn.is_speaking(&ui.view, ui.view.my_num)
 	}
 	return .Mic, TRAY_TALKING if speaking else TRAY_QUIET
 }

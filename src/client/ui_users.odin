@@ -8,6 +8,7 @@ import mu "vendor:microui"
 import "common:proto"
 import "client:settings"
 import "client:render"
+import "client:conn"
 
 /*
 Per-user playback settings: clicking (left or right) on another user in
@@ -38,7 +39,7 @@ my_status :: proc(ui: ^UI, speaking: bool) -> (render.Icon, mu.Color) {
 
 // And the same for somebody else, from what the server passed on.
 @(private = "file")
-their_status :: proc(user: View_User, speaking: bool) -> (render.Icon, mu.Color) {
+their_status :: proc(user: conn.View_User, speaking: bool) -> (render.Icon, mu.Color) {
 	return sound_status(user.muted, user.deafened, speaking)
 }
 
@@ -88,7 +89,7 @@ sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu
 	switch {
 	case ui.view.watching == id:
 		color = SPEAKING_COLOR
-	case !video_can_watch() || id == ui.view.my_num:
+	case !conn.video_can_watch() || id == ui.view.my_num:
 		color = DIM_COLOR
 	}
 	mu.draw_icon(ctx, render.icon_id(.Screen), r, color)
@@ -143,7 +144,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		return
 	}
 	if id == v.my_num {
-		speaking := is_speaking(v, id)
+		speaking := conn.is_speaking(v, id)
 		icon, color := my_status(ui, speaking)
 		status_icon(ctx, icon, color)
 		text := fmt.tprintf("%s (you)", user.name)
@@ -169,7 +170,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	if u.volume != 1 && !u.muted {
 		text = fmt.tprintf("%s  (%.0f%%)", text, u.volume * 100)
 	}
-	speaking := is_speaking(v, id)
+	speaking := conn.is_speaking(v, id)
 	icon, icon_color := their_status(user, speaking)
 	status_icon(ctx, icon, icon_color)
 	color := ctx.style.colors[.TEXT]
@@ -212,7 +213,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		// A click on the screen mark watches them, or stops watching.
 		if user.sharing &&
 		   ctx.mouse_pressed_bits == {.LEFT} &&
-		   video_can_watch() &&
+		   conn.video_can_watch() &&
 		   inside(share_r, ctx.mouse_pos) {
 			watch(ui, 0 if v.watching == id else id)
 			return
@@ -259,7 +260,7 @@ user_menu :: proc(ui: ^UI) {
 	// The name as currently shown, or as saved for a buddy who isn't
 	// here, or else the key. (Opened from the buddy list, menu_user is 0
 	// for someone who isn't on the server.)
-	name := fingerprint(key)
+	name := conn.fingerprint(key)
 	here := false
 	if user, ok := ui.view.users[ui.menu_user]; ok && user.key == key {
 		name, here = user.name, true
@@ -315,7 +316,7 @@ user_menu :: proc(ui: ^UI) {
 
 	// Watch their screen, if they're sharing it.
 	if user_is_screen_sharing {
-		if video_can_watch() {
+		if conn.video_can_watch() {
 			watching := ui.view.watching == ui.menu_user
 			if .SUBMIT in
 			   icon_button(
@@ -372,9 +373,9 @@ user_menu :: proc(ui: ^UI) {
 		}
 		if poke && ui.session != nil {
 			text := strings.trim_space(string(ui.poke_buf[:ui.poke_len]))
-			push_command(
+			conn.push_command(
 				&ui.session.client.commands,
-				Poke_Command{target_uid = ui.menu_user, message = strings.clone(text)},
+				conn.Poke_Command{target_uid = ui.menu_user, message = strings.clone(text)},
 			)
 			ui.poke_len = 0
 		}
@@ -385,7 +386,7 @@ user_menu :: proc(ui: ^UI) {
 		ui.settings_dirty = true
 		log.debugf("ui: %s volume %.0f%%%s", name, u.volume * 100, " (muted)" if u.muted else "")
 		if ui.session != nil {
-			push_command(&ui.session.client.commands, Gain_Command{key, settings.user_gain(u)})
+			conn.push_command(&ui.session.client.commands, conn.Gain_Command{key, settings.user_gain(u)})
 		}
 	}
 }

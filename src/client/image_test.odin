@@ -5,6 +5,7 @@ import "core:testing"
 import stbi "vendor:stb/image"
 
 import "client:clipboard"
+import "client:conn"
 
 // test_image makes a w*h RGBA image: noise (so it doesn't compress to
 // nothing) with an alpha ramp across the first rows.
@@ -67,7 +68,7 @@ test_image_prepare :: proc(t: ^testing.T) {
 	src := test_image(200, 100)
 	defer delete(src.pixels)
 	img, ok := image_prepare(src)
-	defer chat_image_destroy(&img)
+	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 	testing.expect_value(t, img.width, 200)
 	testing.expect_value(t, img.height, 100)
@@ -91,7 +92,7 @@ test_image_scaled_to_4k :: proc(t: ^testing.T) {
 	src := gradient_image(5000, 400)
 	defer delete(src.pixels)
 	img, ok := image_prepare(src)
-	defer chat_image_destroy(&img)
+	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 	testing.expect_value(t, img.width, MAX_IMAGE_SIDE)
 	testing.expect_value(t, img.height, 307) // 400 * 3840 / 5000
@@ -105,7 +106,7 @@ test_image_scaled_to_fit_budget :: proc(t: ^testing.T) {
 	src := test_image(5000, 400)
 	defer delete(src.pixels)
 	img, ok := image_prepare(src)
-	defer chat_image_destroy(&img)
+	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 	testing.expectf(t, len(img.jpeg) <= MAX_IMAGE_BYTES, "%d bytes", len(img.jpeg))
 	testing.expect(t, img.width <= MAX_IMAGE_SIDE && img.height <= MAX_IMAGE_SIDE)
@@ -119,7 +120,7 @@ test_image_transparency :: proc(t: ^testing.T) {
 	src := test_image(64, 64, alpha = true)
 	defer delete(src.pixels)
 	img, ok := image_prepare(src)
-	defer chat_image_destroy(&img)
+	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 
 	w, h, comp: i32

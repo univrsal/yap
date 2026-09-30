@@ -3,6 +3,7 @@ package client
 
 import "core:sync"
 import "core:thread"
+import "client:conn"
 
 // The network loop runs on a thread of its own, so a slow frame never
 // holds up the voice and a slow network never holds up the window.
@@ -20,15 +21,15 @@ net_stop :: proc(ns: ^Net_Session) {
 @(private = "file")
 net_thread :: proc(ns: ^Net_Session) {
 	c := ns.client
-	defer client_close(c)
-	if !client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name, ns.password) {
+	defer conn.client_close(c)
+	if !conn.client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name, ns.password) {
 		return
 	}
 	if ns.channel != "" {
-		request_join(c, ns.channel)
+		conn.request_join(c, ns.channel)
 	}
 	for !sync.atomic_load(&ns.stop) {
-		if !client_step(c) {
+		if !conn.client_step(c) {
 			return
 		}
 	}

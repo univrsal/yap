@@ -5,6 +5,7 @@ import "core:strings"
 
 import "common:proto"
 import "client:settings"
+import "client:conn"
 
 // The buddy screen's list: the buddies kept in the settings
 // (settings/buddies.odin), and what the View knows of them.
@@ -24,7 +25,7 @@ with, online ones first, then by name. Names come from the View where
 they're online, as that's what they go by now. The slice is in the temp
 allocator; call with the View locked.
 */
-buddy_list :: proc(s: ^settings.Settings, v: ^View) -> []Buddy_Entry {
+buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
 	list := make([dynamic]Buddy_Entry, 0, len(s.buddies) + len(v.dms), context.temp_allocator)
 	for k, b in s.buddies {
 		key, ok := settings.parse_user_key(k)
@@ -50,7 +51,7 @@ buddy_list :: proc(s: ^settings.Settings, v: ^View) -> []Buddy_Entry {
 }
 
 @(private = "file")
-buddy_entry :: proc(v: ^View, key: [proto.KEY_SIZE]u8, name: string, buddy: bool) -> Buddy_Entry {
+buddy_entry :: proc(v: ^conn.View, key: [proto.KEY_SIZE]u8, name: string, buddy: bool) -> Buddy_Entry {
 	e := Buddy_Entry {
 		key   = key,
 		name  = name,
@@ -69,14 +70,14 @@ buddy_entry :: proc(v: ^View, key: [proto.KEY_SIZE]u8, name: string, buddy: bool
 		}
 	}
 	if e.name == "" {
-		e.name = fingerprint(key)
+		e.name = conn.fingerprint(key)
 	}
 	return e
 }
 
 // buddies_seen keeps the saved names up with what buddies go by on the
 // server. Returns whether any changed. Call with the View locked.
-buddies_seen :: proc(s: ^settings.Settings, v: ^View) -> bool {
+buddies_seen :: proc(s: ^settings.Settings, v: ^conn.View) -> bool {
 	if len(s.buddies) == 0 {
 		return false
 	}
