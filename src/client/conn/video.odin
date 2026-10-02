@@ -229,7 +229,7 @@ video_watch :: proc(c: ^Voice_Client, user: proto.User_Num) {
 		}
 		proto.video_assembler_reset(v.assembler)
 	}
-	log.infof("watching %s", display_name(c.channels.state.users, user) if user != 0 else "nobody")
+	log.infof("watching %s", display_name(c, user) if user != 0 else "nobody")
 	video_show_end()
 	v.watching = user
 	v.last_watch, v.last_key_asked = {}, {}
@@ -269,7 +269,7 @@ drive_watch :: proc(c: ^Voice_Client) {
 	v.last_watch = time.tick_now()
 }
 
-// can_watch says whether `user` is sharing, in our channel, and not us.
+// can_watch says whether `user` is sharing, in our voice room, and not us.
 can_watch :: proc(c: ^Voice_Client, user: proto.User_Num) -> bool {
 	ch := &c.channels
 	if !ch.have_state || user == ch.state.your_user {
@@ -279,12 +279,8 @@ can_watch :: proc(c: ^Voice_Client, user: proto.User_Num) -> bool {
 	if u == nil || .Sharing not_in u.flags {
 		return false
 	}
-	for m in ch.state.channels[ch.state.your_channel].members {
-		if m == user {
-			return true
-		}
-	}
-	return false
+	room := my_room(c)
+	return room != 0 && u.room == room
 }
 
 handle_video :: proc(c: ^Voice_Client, pt: []u8) {

@@ -1,8 +1,9 @@
 package client
 
-import log "common:wlog"
 import "core:fmt"
+import "core:slice"
 import "core:strings"
+import "core:sync"
 import "core:time"
 import "core:time/datetime"
 import "core:unicode/utf8"
@@ -11,10 +12,13 @@ import mu "vendor:microui"
 import "common:proto"
 import "client:platform"
 import "client:conn"
+import "client:render"
+import glfw "client:wglfw"
 
 /*
-The right-hand side of the session screen: the channel's text chat and
-the log, as tabs.
+The right-hand side of the session screen: the channel's text chat, or
+the log (opened from the header, ui.odin), or while watching somebody's
+screen, that and the chat as tabs.
 */
 
 Side_Tab :: enum {
@@ -27,7 +31,6 @@ UI_Chat :: struct {
 	tab:      Side_Tab,
 	buf:      [proto.MAX_CHAT_SIZE]u8,
 	len:      int,
-	scrolled: int, // chat_total + outbox length when last scrolled to the bottom
 	tz:       ^datetime.TZ_Region, // for local timestamps; nil means UTC
 
 	// The link under the mouse (as its first byte's address), found while
@@ -40,6 +43,10 @@ UI_Chat :: struct {
 	// thread looks for an image on the clipboard, else its text is
 	// pasted (see ui_paste.odin).
 	paste:    bool,
+	// The message of ours being edited in the chat box, 0 for none, and
+	// its conversation (ui_message_menu.odin).
+	editing:      proto.Msg_Id,
+	editing_conv: proto.Conv_Id,
 }
 
 CHAT_NAME_COLOR :: mu.Color{120, 170, 230, 255}
@@ -54,6 +61,11 @@ ui_chat_init :: proc(ui: ^UI) {
 
 ui_chat_destroy :: proc(ui: ^UI) {
 	chat_unload_timezone(ui)
+	timeline_destroy(&ui.timeline)
+	ui_threads_destroy(ui)
+	ui_message_menu_destroy(ui)
+	ui_completion_destroy(ui)
+	ui_forward_destroy(ui)
 	delete(ui.chat.open)
 }
 
@@ -69,6 +81,7 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 		delete(ui.chat.open)
 		ui.chat.open = ""
 	}
+	links_after_frame(ui)
 	if ui.chat.paste {
 		ui.chat.paste = false
 		paste_start(ui)
@@ -79,47 +92,78 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 	}
 	paste_poll(ui)
 	file_pick_poll(ui)
+	avatar_pick_poll(ui)
+
+	// What's read, and what's unread: for the network, the window's title
+	// and the tray.
+	focused := ui.window != nil && !ui.hidden && (ALWAYS_FOCUSED || glfw.WindowFocused(ui.window))
+	timeline_reading(ui, focused)
+	{
+		sync.guard(&ui.view.mutex)
+		ui.unread = unread_total(&ui.settings, &ui.view) if ui.session != nil else 0
+	}
+	if ui.window != nil && ui.unread != ui.title_unread {
+		ui.title_unread = ui.unread
+		title := "Yap" if ui.unread == 0 else fmt.tprintf("(%s) Yap", conn.unread_count(ui.unread))
+		glfw.SetWindowTitle(ui.window, strings.clone_to_cstring(title, context.temp_allocator))
+	}
 }
 
-// side_panel lays out the tabs in the current layout cell. Call with the
-// View locked.
-side_panel :: proc(ui: ^UI) {
+// side_panel lays out the channel's header and the tabs in the current
+// layout cell. Call with the View locked.
+side_panel :: proc(ui: ^UI, narrow: bool) {
 	ctx := &ui.ctx
 	v := &ui.view
 
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 
+	conversation_header(ui, narrow)
+
 	if ui.chat.tab == .Chat {
-		v.chat_unread = 0
+		v.unread = 0
 	}
+	// Tabs only while there's a screen to watch beside the chat; the
+	// status line has the row to itself otherwise.
 	if v.watching != 0 {
-		mu.layout_row(ctx, {90, 90, 90, -1})
-	} else {
 		mu.layout_row(ctx, {90, 90, -1})
-	}
-	chat_label := "Chat" if v.chat_unread == 0 else fmt.tprintf("Chat (%d)", v.chat_unread)
-	if .SUBMIT in tab_button(ctx, "chat tab", chat_label, ui.chat.tab == .Chat) {
-		ui.chat.tab = .Chat
-		ui.chat.scrolled = -1 // back to the newest messages
-	}
-	if .SUBMIT in tab_button(ctx, "log tab", "Log", ui.chat.tab == .Log) {
-		ui.chat.tab = .Log
-		ui.log_seen = -1
-	}
-	if v.watching != 0 &&
-	   .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
-		ui.chat.tab = .Screen
+		chat_label := "Chat" if v.unread == 0 else fmt.tprintf("Chat (%d)", v.unread)
+		if .SUBMIT in tab_button(ctx, "chat tab", chat_label, ui.chat.tab == .Chat) {
+			ui.chat.tab = .Chat
+		}
+		if .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
+			ui.chat.tab = .Screen
+		}
+	} else {
+		mu.layout_row(ctx, {-1})
 	}
 	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
-	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
+	status_color := CHAT_DIM_COLOR
+	if editing := composer_status(composer_of_page(ui)); editing != "" {
+		status = editing
+	}
+	if notice, ok, fresh := fresh_notice(v); fresh {
+		status, status_color = notice, CHAT_DIM_COLOR if ok else ERROR_COLOR
+	}
+	when TIMELINE_DEBUG {
+		status = fmt.tprintf("%s  [%d laid out, %d off]", status, ui.timeline.laid_out, ui.timeline.mismatched)
+	}
+	with_text_color(ctx, status_color, status, label_proc)
 
 	switch ui.chat.tab {
 	case .Chat:
+		// In a narrow window an open thread takes the conversation's
+		// place (ui_threads.odin).
+		if narrow {
+			if slot := narrow_thread(ui); slot != 0 {
+				thread_panel(ui, slot, true)
+				break
+			}
+		}
 		// Leave room for the input row below.
-		input_h := ctx.style.size.y + 2 * ctx.style.padding
+		input_h := composer_height(ui)
 		mu.layout_row(ctx, {-1}, -(input_h + ctx.style.spacing + 1))
-		chat_panel(ui)
+		timeline(ui, &ui.timeline, {v.viewing, 0})
 		chat_input(ui)
 	case .Log:
 		mu.layout_row(ctx, {-1}, -1)
@@ -129,97 +173,42 @@ side_panel :: proc(ui: ^UI) {
 	}
 }
 
+// composer_height is how tall a box we write messages in is: a
+// control's height, or more for the chat's text when it's bigger
+// (settings.chat_scale).
+composer_height :: proc(ui: ^UI) -> i32 {
+	ctx := &ui.ctx
+	return max(ctx.style.size.y + 2 * ctx.style.padding, ctx.text_height(render.CHAT_FONT) + 4)
+}
+
+// chat_text_box is text_box in the chat's font: the box we write
+// messages in.
+chat_text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int) -> mu.Result_Set {
+	ctx := &ui.ctx
+	saved := ctx.style.font
+	ctx.style.font = render.CHAT_FONT
+	defer ctx.style.font = saved
+	return text_box(ui, buf, textlen)
+}
+
 // tab_button is a stable_button drawn pressed while its tab is shown.
-@(private = "file")
 tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu.Result_Set {
 	if !active {
 		return stable_button(ctx, id_name, label)
 	}
-	saved := ctx.style.colors[.BUTTON]
+	// Lighter, and its label in the colour of a header button that's
+	// open, so which tab is shown reads at a glance.
+	saved, saved_text := ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT]
 	ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
-	defer ctx.style.colors[.BUTTON] = saved
+	ctx.style.colors[.TEXT] = CHAT_NAME_COLOR
+	defer ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT] = saved, saved_text
 	return stable_button(ctx, id_name, label)
-}
-
-@(private = "file")
-chat_panel :: proc(ui: ^UI) {
-	ctx := &ui.ctx
-	v := &ui.view
-
-	mu.begin_panel(ctx, "chat")
-	cnt := mu.get_current_container(ctx)
-	select_begin(ui, .Chat)
-	// Each message is two items to select from, its header and its text,
-	// numbered by the running total so they keep their numbers as lines
-	// come and go (see ui_select.odin).
-	first := i64(v.chat_total - len(v.chat))
-	if len(v.chat) == 0 && len(v.outbox) == 0 {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, CHAT_DIM_COLOR, "No messages in this channel yet.", label_proc)
-	}
-	for line, i in v.chat {
-		// Same sender, same minute as the line right before it: read as
-		// one block, so only the first of them needs a header, and the
-		// gap between them is tighter (see chat_message).
-		merged :=
-			i > 0 &&
-			line.sender == v.chat[i - 1].sender &&
-			chat_same_minute(line.time, v.chat[i - 1].time)
-		header := "" if merged else fmt.tprintf("%s  %s", chat_time(ui, line.time), line.name)
-		header_color := CHAT_OWN_COLOR if line.sender == v.my_num else CHAT_NAME_COLOR
-		switch line.kind {
-		case .Text:
-			chat_message(
-				ui,
-				header,
-				header_color,
-				line.text,
-				ctx.style.colors[.TEXT],
-				links = true,
-				merged = merged,
-				item = (first + i64(i)) * 2,
-			)
-		case .Image:
-			img := v.images[line.image.id] or_else {}
-			chat_image(
-				ui,
-				header,
-				header_color,
-				line.image,
-				img,
-				merged = merged,
-				item = (first + i64(i)) * 2,
-			)
-		}
-	}
-	for text, i in v.outbox {
-		chat_message(
-			ui,
-			"sending...",
-			CHAT_DIM_COLOR,
-			text,
-			CHAT_DIM_COLOR,
-			links = false,
-			merged = false,
-			item = (i64(v.chat_total) + i64(i)) * 2,
-		)
-	}
-	select_end(ui)
-	mu.end_panel(ctx)
-
-	// Follow new messages, unless that would pull the text out from
-	// under a selection being dragged.
-	dragging := ui.select.dragging && ui.select.panel == .Chat
-	if seen := v.chat_total + len(v.outbox); seen != ui.chat.scrolled && !dragging {
-		ui.chat.scrolled = seen
-		cnt.scroll.y = cnt.content_size.y
-	}
 }
 
 @(private = "file")
 chat_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {-(ICON_BUTTON + 6), ICON_BUTTON})
+	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 10), ICON_BUTTON, ICON_BUTTON}, composer_height(ui))
 	// Ctrl+V could be an image: hold the text paste back and decide after
 	// the frame (see paste). The id is the one text_box uses.
 	// A browser hands the picture over from its paste event instead (see
@@ -233,13 +222,21 @@ chat_input :: proc(ui: ^UI) {
 		ui.chat.paste = true
 		ui.paste_to = {}
 	}
-	res := text_box(ui, ui.chat.buf[:], &ui.chat.len)
+	composer := Composer{ui.chat.buf[:], &ui.chat.len, &ui.chat.editing, &ui.chat.editing_conv, 0}
+	completion_keys(ui, composer)
+	composer_keys(ui, composer)
+	res := chat_text_box(ui, ui.chat.buf[:], &ui.chat.len)
 	box := ctx.last_id
-	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil {
+	if takes_focus(ui, composer) {
+		focus_at(ctx, box, ui.chat.len if ui.focus_composer_at < 0 else ui.focus_composer_at)
+	}
+	completion_update(ui, composer)
+	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil && ui.chat.editing == 0 {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
-	if .SUBMIT in icon_button(ui, "send", .Send, "Send") {
+	emoji_button(ui, composer)
+	if .SUBMIT in icon_button(ui, "send", .Send, "Save" if ui.chat.editing != 0 else "Send") {
 		send = true
 	}
 	if !send {
@@ -247,37 +244,52 @@ chat_input :: proc(ui: ^UI) {
 	}
 	// Enter takes the focus away from the box; keep typing instead.
 	mu.set_focus(ctx, box)
-	text := strings.trim_space(string(ui.chat.buf[:ui.chat.len]))
-	if text == "" || ui.session == nil {
-		return
-	}
-	log.debug("ui: chat message")
-	conn.push_command(&ui.session.client.commands, conn.Chat_Command{strings.clone(text)})
-	ui.chat.len = 0
+	composer_send(ui, composer)
 }
 
-// typing_text says who in our channel is typing, or "".
+// How long a notice (conn.notify) shows in the line over a conversation.
 @(private = "file")
-typing_text :: proc(v: ^conn.View) -> string {
-	if v.my_channel < 0 || v.my_channel >= len(v.channels) {
-		return ""
+NOTICE_SHOW :: 5 * time.Second
+
+// fresh_notice is the notice the network side gave last, if it was
+// lately. Call with the View locked.
+fresh_notice :: proc(v: ^conn.View) -> (text: string, ok: bool, fresh: bool) {
+	if v.notice.text == "" || v.notice.at == {} || time.tick_since(v.notice.at) > NOTICE_SHOW {
+		return
 	}
+	return v.notice.text, v.notice.ok, true
+}
+
+// typing_text says who is typing in the conversation we're looking at
+// (or with `root`, in that thread of it), or "". For the conversation,
+// with nobody typing in it, it says who is typing in its threads.
+typing_text :: proc(v: ^conn.View, root: proto.Msg_Id = 0) -> string {
 	names := make([dynamic]string, context.temp_allocator)
-	for m in v.channels[v.my_channel].members {
-		if m != v.my_num && conn.is_typing(v, m) {
-			u, ok := v.users[m]
-			append(&names, u.name if ok else "someone")
+	in_threads := false
+	for pass in 0 ..< 2 {
+		for account in v.typing {
+			typing :=
+				conn.is_typing(v, account, v.viewing, root) if pass == 0 else conn.is_typing_in_thread(v, account, v.viewing)
+			if account != v.me && typing {
+				acc, ok := v.accounts[account]
+				append(&names, acc.display if ok else "someone")
+			}
 		}
+		if len(names) > 0 || root != 0 {
+			break
+		}
+		in_threads = true
 	}
+	place := " in a thread" if in_threads else ""
 	switch len(names) {
 	case 0:
 		return ""
 	case 1:
-		return fmt.tprintf("%s is typing...", names[0])
+		return fmt.tprintf("%s is typing%s...", names[0], place)
 	case 2:
-		return fmt.tprintf("%s and %s are typing...", names[0], names[1])
+		return fmt.tprintf("%s and %s are typing%s...", names[0], names[1], place)
 	case:
-		return fmt.tprintf("%d people are typing...", len(names))
+		return fmt.tprintf("%d people are typing%s...", len(names), place)
 	}
 }
 
@@ -300,29 +312,31 @@ chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 // chat_same_minute says whether two messages read as part of the same
 // block: close enough in time that showing both their headers would
 // just repeat the same sender and (usually) the same minute.
-@(private = "file")
 chat_same_minute :: proc(a, b: proto.Unix_Time) -> bool {
 	return a / 60 == b / 60
 }
 
 // How much closer together a merged message sits, against the usual gap
 // between two separate ones (ctx.style.spacing).
-@(private = "file")
 MERGED_GAP :: 1
 
-// chat_image draws an image message: the gap before it, the header
+// chat_image draws a picture message: the gap before it, the header
 // (unless `merged`, in which case it's part of the previous message's
-// block and sits right under it instead), then the picture.
-@(private = "file")
+// block and sits right under it instead), then the picture, which is
+// `key` to image_block. `tight` is a header with the gap of a merged
+// one: under a reply's line.
 chat_image :: proc(
 	ui: ^UI,
 	header: string,
 	header_color: mu.Color,
-	info: proto.Image_Info,
+	key: u64,
+	info: proto.Msg_Image,
 	img: conn.View_Image,
 	merged: bool,
 	item: i64,
 	gone := "image no longer on the server",
+	available := 0, // how wide the picture may be; 0 for the panel's width
+	tight := false,
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -337,124 +351,56 @@ chat_image :: proc(
 	ctx.style.spacing = 0
 	defer ctx.style.spacing = saved
 
-	mu.layout_row(ctx, {-1}, MERGED_GAP if merged else saved)
+	mu.layout_row(ctx, {-1}, MERGED_GAP if merged || tight else saved)
 	mu.layout_next(ctx) // the gap
 
 	if !merged {
 		mu.layout_row(ctx, {-1}, ctx.text_height(font))
 		selectable_header(ui, header, header_color, item)
 	}
-	// An image the server has dropped has no id left to look it up by.
-	state := img.state if info.id != 0 else conn.Image_State.Gone
-	image_block(ui, info, state, img.jpeg, gone)
+	image_block(ui, key, info, img.state, img.jpeg, gone, available)
 }
 
-/*
-dm_panel shows a conversation's messages, as the chat panel does the
-channel's: a header over each block of messages from one side within a
-minute, saying for ours how far they've got. Call with the View locked.
-*/
-dm_panel :: proc(ui: ^UI, conv: ^conn.View_Conversation, their_name: string) {
-	ctx := &ui.ctx
-	v := &ui.view
+// chat_block_height is how far chat_message or chat_image moves the
+// layout down, `body` being the height of what's under the header (the
+// text's lines, or the picture). The timeline works out where messages
+// are with it, without laying them out; it has to agree with those two.
+chat_block_height :: proc(ctx: ^mu.Context, merged: bool, body: i32, tight := false) -> i32 {
+	line := ctx.text_height(ctx.style.font)
+	h := (MERGED_GAP if merged || tight else ctx.style.spacing) + (0 if merged else line) + body
+	// The one-pixel row the block's column starts on, and its spacing.
+	return max(h, 1 + ctx.style.spacing)
+}
 
-	mu.begin_panel(ctx, "conversation")
-	cnt := mu.get_current_container(ctx)
-	select_begin(ui, .DM)
-	if len(conv.messages) == 0 {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, CHAT_DIM_COLOR, "No messages yet.", label_proc)
+// wrapped_lines is how many lines wrapped_text breaks `text` into at
+// `width`.
+wrapped_lines :: proc(ctx: ^mu.Context, text: string, width: i32) -> (n: i32) {
+	font := ctx.style.font
+	rest := text
+	for len(rest) > 0 {
+		end := line_end(ctx, font, rest, width)
+		rest = strings.trim_left_space(rest[end:])
+		n += 1
 	}
-	me := v.my_name if v.my_name != "" else "me"
-	for m, i in conv.messages {
-		prev := conv.messages[i - 1] if i > 0 else conn.View_DM{}
-		merged :=
-			i > 0 &&
-			m.mine == prev.mine &&
-			m.state == prev.state &&
-			chat_same_minute(m.time, prev.time)
-		status := ""
-		color := ctx.style.colors[.TEXT]
-		header_color := CHAT_OWN_COLOR if m.mine else CHAT_NAME_COLOR
-		switch m.state {
-		case .Received, .Delivered:
-		case .Sending:
-			status, color = "  sending...", CHAT_DIM_COLOR
-		case .Sent:
-			status = "  sent"
-		case .Failed:
-			status, header_color = "  not sent", OFF_COLOR
-		}
-		header := fmt.tprintf(
-			"%s  %s%s",
-			chat_time(ui, m.time),
-			me if m.mine else their_name,
-			status,
-		)
-		// Each message is up to four items to select from (a file's
-		// header, name and state), numbered by where it is.
-		item := i64(i) * 4
-		if m.is_file {
-			f :=
-				v.dm_files[m.id] or_else conn.View_File {
-					name = m.text,
-					state = .Expired,
-					outgoing = m.mine,
-				}
-			file_message(ui, header, header_color, m.id, f, merged, item)
-			continue
-		}
-		if m.is_image {
-			img := v.dm_images[m.image.id] or_else conn.View_Image{info = m.image, state = .Gone}
-			chat_image(
-				ui,
-				header,
-				header_color,
-				m.image,
-				img,
-				merged = merged,
-				item = item,
-				gone = "image no longer available",
-			)
-			continue
-		}
-		chat_message(
-			ui,
-			header,
-			header_color,
-			m.text,
-			color,
-			links = true,
-			merged = merged,
-			item = item,
-		)
-	}
-	select_end(ui)
-	mu.end_panel(ctx)
-
-	// Follow new messages, unless a selection is being dragged.
-	dragging := ui.select.dragging && ui.select.panel == .DM
-	if conv.changes != ui.buddies.scrolled && !dragging {
-		ui.buddies.scrolled = conv.changes
-		cnt.scroll.y = cnt.content_size.y
-	}
+	return
 }
 
 /*
 file_message draws a file offer in a conversation: the header, the file's
-name and size, how it's going (with a bar while it's under way), and the
-buttons that fit: Accept and Decline for one offered to us, Cancel while
-it isn't over.
+name and size, how it's going (with a bar while it's under way, and room
+for one otherwise), and the buttons that fit: Accept and Decline for one
+offered to us, Cancel while it isn't over. file_block_height has to agree
+with it.
 */
-@(private = "file")
 file_message :: proc(
 	ui: ^UI,
 	header: string,
 	header_color: mu.Color,
-	id: u64,
+	id: proto.Msg_Id,
 	f: conn.View_File,
 	merged: bool,
-	item: i64,
+	item: i64, // the header's; the file's name and state are the next two
+	tight := false, // as in chat_image
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -466,39 +412,33 @@ file_message :: proc(
 	ctx.style.spacing = 0
 	defer ctx.style.spacing = saved
 
-	mu.layout_row(ctx, {-1}, MERGED_GAP if merged else saved)
+	mu.layout_row(ctx, {-1}, MERGED_GAP if merged || tight else saved)
 	mu.layout_next(ctx) // the gap
 	mu.layout_row(ctx, {-1}, ctx.text_height(font))
 	if !merged {
 		selectable_header(ui, header, header_color, item)
 	}
-	wrapped_text(
-		ui,
-		fmt.tprintf("File: %s  (%s)", f.name, conn.format_bytes(f.size)),
-		ctx.style.colors[.TEXT],
-		nil,
-		item + 1,
-	)
+	wrapped_text(ui, file_title(f), ctx.style.colors[.TEXT], nil, item + 1)
 
-	status, color := file_status(f)
+	// The bar, below the name, while it's under way; its room either way.
+	mu.layout_row(ctx, {-1}, FILE_BAR_GAP)
+	mu.layout_next(ctx)
+	mu.layout_row(ctx, {-1}, FILE_BAR)
+	r := mu.layout_next(ctx)
 	if f.state == .Transferring {
-		// The bar, below the name.
-		mu.layout_row(ctx, {-1}, 3)
-		mu.layout_next(ctx)
-		mu.layout_row(ctx, {-1}, 6)
-		r := mu.layout_next(ctx)
 		r.w = min(r.w, 300)
 		mu.draw_rect(ctx, r, {60, 60, 60, 255})
 		done := f32(f.done) / f32(max(f.size, 1))
 		mu.draw_rect(ctx, {r.x, r.y, i32(f32(r.w) * clamp(done, 0, 1)), r.h}, SPEAKING_COLOR)
-		mu.layout_row(ctx, {-1}, 2)
-		mu.layout_next(ctx)
 	}
+	mu.layout_row(ctx, {-1}, FILE_BAR_GAP)
+	mu.layout_next(ctx)
+	status, color := file_status(f)
 	mu.layout_row(ctx, {-1}, ctx.text_height(font))
 	wrapped_text(ui, status, color, nil, item + 2)
 
 	// The buttons, spaced like the rest of the UI.
-	send :: proc(ui: ^UI, id: u64, action: conn.File_Action) {
+	send :: proc(ui: ^UI, id: proto.Msg_Id, action: conn.File_Action) {
 		if ui.session != nil {
 			conn.push_command(
 				&ui.session.client.commands,
@@ -523,14 +463,63 @@ file_message :: proc(
 		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
 			send(ui, id, .Cancel)
 		}
-	case .Done, .Declined, .Cancelled, .Failed, .Interrupted, .Expired:
+	case .Unknown,
+	     .Posting,
+	     .Done,
+	     .Declined,
+	     .Cancelled,
+	     .Failed,
+	     .Interrupted,
+	     .Expired,
+	     .Elsewhere:
 	}
+}
+
+// The room under a file's name for the bar, and around it.
+@(private = "file")
+FILE_BAR :: 6
+@(private = "file")
+FILE_BAR_GAP :: 2
+
+@(private = "file")
+file_title :: proc(f: conn.View_File) -> string {
+	return fmt.tprintf("File: %s  (%s)", f.name, conn.format_bytes(f.size))
+}
+
+@(private = "file")
+file_has_buttons :: proc(f: conn.View_File) -> bool {
+	#partial switch f.state {
+	case .Incoming, .Offered, .Starting, .Transferring:
+		return true
+	}
+	return false
+}
+
+// file_block_height is how far file_message moves the layout down at
+// `width`.
+file_block_height :: proc(ui: ^UI, f: conn.View_File, width: i32, merged: bool, tight := false) -> i32 {
+	ctx := &ui.ctx
+	line := ctx.text_height(ctx.style.font)
+	status, _ := file_status(f)
+	body :=
+		wrapped_lines(ctx, file_title(f), width) * line +
+		2 * FILE_BAR_GAP +
+		FILE_BAR +
+		wrapped_lines(ctx, status, width) * line
+	if file_has_buttons(f) {
+		body += ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing
+	}
+	return chat_block_height(ctx, merged, body, tight)
 }
 
 // file_status says how a transfer is going, and in what colour.
 @(private = "file")
 file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 	switch f.state {
+	case .Unknown:
+		return "offered earlier, or on another device" if !f.outgoing else "offered from another device", CHAT_DIM_COLOR
+	case .Posting:
+		return "offering...", CHAT_DIM_COLOR
 	case .Offered:
 		return "waiting for them to accept", CHAT_DIM_COLOR
 	case .Incoming:
@@ -568,6 +557,8 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 		return "stopped: one side left", OFF_COLOR
 	case .Expired:
 		return "no longer available", CHAT_DIM_COLOR
+	case .Elsewhere:
+		return "answered on another of your devices", CHAT_DIM_COLOR
 	}
 	return "", CHAT_DIM_COLOR
 }
@@ -575,7 +566,6 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 // chat_message draws the gap before this message, a header line unless
 // `merged` (see chat_image), and the wrapped text under it, with the
 // lines packed tightly.
-@(private = "file")
 chat_message :: proc(
 	ui: ^UI,
 	header: string,
@@ -585,6 +575,10 @@ chat_message :: proc(
 	links: bool,
 	merged: bool,
 	item: i64, // the header's; the text is the next one
+	mentions: []conn.Mention_Span = nil, // in `text`, as text_display has them
+	emoji: []conn.Emoji_Span = nil, // the same
+	tight := false, // as in chat_image
+	msg_links: []conn.Link_Span = nil, // links to messages, the same
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -596,14 +590,36 @@ chat_message :: proc(
 	ctx.style.spacing = 0
 	defer ctx.style.spacing = saved
 
-	mu.layout_row(ctx, {-1}, MERGED_GAP if merged else saved)
+	mu.layout_row(ctx, {-1}, MERGED_GAP if merged || tight else saved)
 	mu.layout_next(ctx) // the gap
 
 	mu.layout_row(ctx, {-1}, ctx.text_height(font))
 	if !merged {
 		selectable_header(ui, header, header_color, item)
 	}
-	wrapped_text(ui, text, color, platform.find_links(text) if links else nil, item + 1)
+	// Web links and links to messages, in order, the first where they'd
+	// overlap (a message's words may have an address in them).
+	all: []platform.Link
+	if links {
+		all = platform.find_links(text)
+	}
+	if len(msg_links) > 0 {
+		merged := make([dynamic]platform.Link, context.temp_allocator)
+		for ml in msg_links {
+			append(&merged, platform.Link{ml.start, ml.end})
+		}
+		outer: for l in all {
+			for ml in msg_links {
+				if l.start < ml.end && ml.start < l.end {
+					continue outer
+				}
+			}
+			append(&merged, l)
+		}
+		slice.sort_by(merged[:], proc(a, b: platform.Link) -> bool {return a.start < b.start})
+		all = merged[:]
+	}
+	wrapped_text(ui, text, color, all, item + 1, mentions, emoji, msg_links)
 }
 
 // selectable_header draws a message's header line in the next layout
@@ -619,10 +635,20 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 
 // wrapped_text is mu.text, except it also breaks words too long for a
 // line, wraps the last word of a paragraph (which mu.text doesn't), and
-// draws `links` (byte ranges of `text`) as clickable links. It continues
-// the current row layout. The text can be selected as `item`.
+// draws `links` (byte ranges of `text`) as clickable links and `mentions`
+// highlighted. It continues the current row layout. The text can be
+// selected as `item`.
 @(private = "file")
-wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, links: []platform.Link, item: i64) {
+wrapped_text :: proc(
+	ui: ^UI,
+	text: string,
+	color: mu.Color,
+	links: []platform.Link,
+	item: i64,
+	mentions: []conn.Mention_Span = nil,
+	emoji: []conn.Emoji_Span = nil,
+	msg_links: []conn.Link_Span = nil,
+) {
 	ctx := &ui.ctx
 	font := ctx.style.font
 	select_item(ui, item, text)
@@ -632,12 +658,15 @@ wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, links: []platform.L
 		end := line_end(ctx, font, rest, r.w)
 		start := len(text) - len(rest)
 		select_line(ui, item, text, start, start + end, {r.x, r.y})
-		draw_line(ui, text, start, start + end, {r.x, r.y}, color, links)
+		draw_line(ui, text, start, start + end, {r.x, r.y}, color, links, mentions, msg_links)
+		draw_emoji(ui, text, start, start + end, {r.x, r.y}, emoji)
+		emoji_hint(ui, text, start, start + end, {r.x, r.y, r.w, ctx.text_height(font)}, emoji)
 		rest = strings.trim_left_space(rest[end:])
 	}
 }
 
-// draw_line draws text[start:end], in pieces where it overlaps links.
+// draw_line draws text[start:end], in pieces where it overlaps links and
+// mentions.
 @(private = "file")
 draw_line :: proc(
 	ui: ^UI,
@@ -646,6 +675,8 @@ draw_line :: proc(
 	pos: mu.Vec2,
 	color: mu.Color,
 	links: []platform.Link,
+	mentions: []conn.Mention_Span,
+	msg_links: []conn.Link_Span = nil,
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -671,7 +702,7 @@ draw_line :: proc(
 			continue
 		}
 		if l.start > at {
-			piece(ctx, font, text[at:l.start], &x, pos.y, color)
+			mention_pieces(ctx, text, at, l.start, &x, pos.y, color, mentions)
 			at = l.start
 		}
 		link_end := min(l.end, end)
@@ -701,13 +732,138 @@ draw_line :: proc(
 			   ui.select.panel == ui.select.drawing &&
 			   !has_selection(&ui.select, ui.select.drawing) &&
 			   ui.chat.open == "" {
-				ui.chat.open = platform.link_url(text, l, context.allocator)
+				// A link to a message is gone to; anything else is a
+				// web address.
+				to_message := false
+				for ml in msg_links {
+					if ml.start == l.start {
+						ui.forward.go_conv, ui.forward.go_id = ml.link.conv, ml.link.id
+						to_message = true
+					}
+				}
+				if !to_message {
+					ui.chat.open = platform.link_url(text, l, context.allocator)
+				}
 			}
 		}
 		at = link_end
 	}
 	if at < end {
-		piece(ctx, font, text[at:end], &x, pos.y, color)
+		mention_pieces(ctx, text, at, end, &x, pos.y, color, mentions)
+	}
+}
+
+/*
+emoji_hint names the emoji under the pointer, if it's over one in
+text[start:end], drawn in `line`: `:name:`, one of the font's (by its
+first shortcode) or one of the server's (a placeholder character, with a
+span saying which).
+*/
+@(private = "file")
+emoji_hint :: proc(ui: ^UI, text: string, start, end: int, line: mu.Rect, emoji: []conn.Emoji_Span) {
+	ctx := &ui.ctx
+	if !mu.mouse_over(ctx, line) {
+		return
+	}
+	font := ctx.style.font
+	mouse := ctx.mouse_pos.x
+	x := line.x
+	for i := start; i < end; {
+		r, size := utf8.decode_rune_in_string(text[i:end])
+		w := ctx.text_width(font, text[i:i + size])
+		if mouse >= x && mouse < x + w {
+			name := ""
+			for e in emoji {
+				if e.start == i && e.index < len(ui.view.emoji.names) {
+					name = ui.view.emoji.names[e.index]
+				}
+			}
+			if name == "" {
+				if index, ok := proto.emoji_index(r); ok {
+					name = proto.emoji_name(proto.EMOJI[index])
+				}
+			}
+			if name != "" {
+				ui.hint, ui.hint_of = fmt.tprintf(":%s:", name), {x, line.y, w, line.h}
+			}
+			return
+		}
+		x += w
+		i += size
+	}
+}
+
+// custom_emoji_size is how big one of the server's emoji is drawn and
+// how much room it has, in the current font: bigger in the chat when
+// its text is (render.CHAT_FONT).
+custom_emoji_size :: proc(ctx: ^mu.Context) -> (size, advance: i32) {
+	zoom := f32(ctx.text_height(ctx.style.font)) / render.LINE_HEIGHT
+	return i32(render.CUSTOM_EMOJI_SIZE * zoom), i32(render.CUSTOM_EMOJI_ADVANCE * zoom)
+}
+
+// draw_emoji draws the server's emoji over their placeholders in
+// text[start:end], drawn at `pos`.
+@(private = "file")
+draw_emoji :: proc(ui: ^UI, text: string, start, end: int, pos: mu.Vec2, emoji: []conn.Emoji_Span) {
+	ctx := &ui.ctx
+	font := ctx.style.font
+	for e in emoji {
+		if e.start < start || e.start >= end {
+			continue
+		}
+		icon, ok := custom_emoji_icon(ui, e.index)
+		if !ok {
+			continue
+		}
+		x := pos.x + ctx.text_width(font, text[start:e.start])
+		size, advance := custom_emoji_size(ctx)
+		gap := (advance - size) / 2
+		y := pos.y + (ctx.text_height(font) - size) / 2
+		mu.draw_icon(ctx, icon, {x + gap, y, size, size}, {255, 255, 255, 255})
+	}
+}
+
+// How a mention is drawn: in its own colour, and on a background when it's
+// the reader's.
+MENTION_COLOR :: mu.Color{235, 185, 95, 255}
+MENTION_ME_BACKGROUND :: mu.Color{110, 80, 25, 255}
+
+// mention_pieces draws text[start:end] from x along, in pieces where it
+// overlaps mentions, and moves x on past it.
+@(private = "file")
+mention_pieces :: proc(
+	ctx: ^mu.Context,
+	text: string,
+	start, end: int,
+	x: ^i32,
+	y: i32,
+	color: mu.Color,
+	mentions: []conn.Mention_Span,
+) {
+	font := ctx.style.font
+	draw :: proc(ctx: ^mu.Context, font: mu.Font, s: string, x: ^i32, y: i32, color: mu.Color, background: mu.Color) {
+		w := ctx.text_width(font, s)
+		if background.a > 0 {
+			mu.draw_rect(ctx, {x^ - 1, y, w + 2, ctx.text_height(font)}, background)
+		}
+		mu.draw_text(ctx, font, s, {x^, y}, color)
+		x^ += w
+	}
+	at := start
+	for m in mentions {
+		if m.end <= at || m.start >= end {
+			continue
+		}
+		if m.start > at {
+			draw(ctx, font, text[at:m.start], x, y, color, {})
+			at = m.start
+		}
+		upto := min(m.end, end)
+		draw(ctx, font, text[at:upto], x, y, MENTION_COLOR, MENTION_ME_BACKGROUND if m.me else {})
+		at = upto
+	}
+	if at < end {
+		draw(ctx, font, text[at:end], x, y, color, {})
 	}
 }
 

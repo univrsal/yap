@@ -55,8 +55,8 @@ Net_Session :: struct {
 	server:        string,
 	password:      string,
 	known_servers: string,
-	channel:       string,
-	name:          string,
+	channel:       string, // to look at and talk in from the start, if any
+	view:          string, // or else the channel to look at
 
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
@@ -64,6 +64,13 @@ Net_Session :: struct {
 	// An explicit disconnect keeps playback open while this local effect
 	// drains. Application shutdown and reconnects skip it.
 	goodbye_tail:  bool,
+}
+
+Extra_Key :: enum {
+	Up,
+	Down,
+	Tab,
+	Escape,
 }
 
 Page :: enum {
@@ -91,6 +98,7 @@ UI :: struct {
 	password_buf:        [proto.MAX_PASSWORD_SIZE]u8,
 	password_len:        int,
 	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
+	// What our account is called, as it's being edited in the settings.
 	name_buf:            [2 * proto.MAX_NAME_SIZE]u8,
 	name_len:            int,
 	view:                conn.View,
@@ -99,7 +107,19 @@ UI :: struct {
 	// waiting on the View lock, so it happens after layout, not during.
 	action:              Action,
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
+	account:             UI_Account, // logging in, and the account's settings (ui_account.odin)
+	channels:            UI_Channels, // the channel list and the Channels window (ui_channels.odin)
+	timeline:            UI_Timeline, // the messages on screen (ui_timeline.odin)
+	// Messages unread in channels that aren't muted, and what the window's
+	// title says (-1: not set on this window yet).
+	unread:              int,
+	title_unread:        int,
 	chat:                UI_Chat, // the chat tab (ui_chat.odin)
+	settings_tab:        Settings_Tab, // which the settings page shows (ui_settings.odin)
+	reactors_asked:      Reactors_Asked, // who reacted, last asked for (ui_timeline.odin)
+	activity:            UI_Activity, // whether whoever uses this is idle (ui_activity.odin)
+	forward:             UI_Forward, // forwarding, and links to messages (ui_forward.odin)
+	search:              UI_Search, // searching messages (ui_search.odin)
 	video:               UI_Video, // screen sharing (ui_video.odin)
 	app_audio:           UI_App_Audio, // sharing an application's audio (ui_app_audio_native.odin)
 	muted:               bool,
@@ -110,8 +130,8 @@ UI :: struct {
 
 	// The user whose menu is open, and its volume slider's value (the
 	// slider needs a stable address). See user_menu.
-	menu_user:           proto.User_Num,
-	menu_key:            [proto.KEY_SIZE]u8,
+	menu_user:           proto.User_Num, // the connection clicked, if one was
+	menu_account:        proto.Account_Id,
 	menu_volume:         mu.Real,
 	menu_requested:      bool,
 	// The menu's poke message (ui_users.odin).
@@ -127,6 +147,41 @@ UI :: struct {
 	// Slider drags change the settings every frame; save at most once a
 	// second, and on exit.
 	settings_dirty:      bool,
+	// Keys microui has no name for, pressed since the last frame.
+	keys:                bit_set[Extra_Key],
+	// A message was picked to edit, or a mention completed: its composer
+	// takes the focus, with the cursor at `focus_composer_at` (-1: the
+	// end).
+	focus_composer:      bool,
+	focus_composer_at:   int,
+	focus_thread:        int, // which composer: Composer.thread
+	// The thread windows (ui_threads.odin), by slot, and how many
+	// threads have been opened, for which was opened first; and whether
+	// the last frame was laid out narrow, when an open thread takes the
+	// conversation's place instead of floating.
+	threads:             [conn.MAX_THREADS]UI_Thread,
+	// People's pictures (ui_avatars.odin), and statuses, members and
+	// settings on the server (ui_profiles.odin).
+	avatars:             UI_Avatars,
+	profiles:            UI_Profiles,
+	// Managing the server, for who may (ui_manage.odin), calls
+	// (ui_calls.odin), and the voice panel (ui_voice_panel.odin).
+	manage:              UI_Manage,
+	calls:               UI_Calls,
+	voice_panel:         UI_Voice_Panel,
+	threads_opened:      u64,
+	narrow:              bool,
+	// Completing a mention in a composer (ui_completion.odin).
+	completion:          UI_Completion,
+	// The emoji picker (ui_picker.odin).
+	picker:              UI_Picker,
+	// The pinned messages' window (ui_pins.odin), and the menu of a
+	// message (ui_message_menu.odin).
+	pins:                UI_Pins,
+	msg_menu:            UI_Message_Menu,
+	// The server whose per-user volumes the session has been given
+	// (apply_gains).
+	gains_for:           [proto.KEY_SIZE]u8,
 	settings_saved:      time.Tick,
 	page:                Page,
 	settings:            settings.Settings,
@@ -139,6 +194,7 @@ UI :: struct {
 	// applying it while dragging resizes the very slider being dragged
 	// (see ui_settings.odin).
 	ui_scale_draft:      f32,
+	chat_scale_draft:    f32, // the same, for the chat's text size
 	audio:               audio.Audio,
 
 	// Logical pixels per window coordinate, for mouse input. See
@@ -236,6 +292,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	}
 	ui.settings = settings.settings_load(opts.settings_path)
 	ui.ui_scale_draft = settings.ui_scale_factor(&ui.settings) * 100
+	ui.chat_scale_draft = settings.chat_scale_factor(&ui.settings) * 100
 	initial := opts.server if opts.server != "" else ui.settings.server
 	ui.server_len = copy(ui.server_buf[:], initial)
 	password := opts.password
@@ -243,8 +300,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 		password = settings.recent_password(&ui.settings, initial)
 	}
 	ui.password_len = copy(ui.password_buf[:], password)
-	name := ui.settings.name if ui.settings.name != "" else platform.default_name()
-	ui.name_len = copy(ui.name_buf[:], name)
+	ui.account.username_len = copy(ui.account.username_buf[:], ui.settings.username)
 
 	// Audio problems shouldn't keep the rest of the client from working;
 	// the settings page shows what went wrong.
@@ -412,6 +468,9 @@ draw_frame :: proc(ui: ^UI) {
 	ui.titlebar_height = i32(height * m.input_scale)
 	ui_images_frame(ui)
 	clear(&ui.text_boxes)
+	// The chat's text size, for measuring this frame and drawing it.
+	render.set_chat_zoom(&ui.renderer, settings.chat_scale_factor(&ui.settings))
+	activity_input(ui)
 	mu.begin(&ui.ctx)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
 	mu.end(&ui.ctx)
@@ -428,6 +487,7 @@ draw_frame :: proc(ui: ^UI) {
 	}
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
+	ui.keys = {}
 	ui_images_after_frame(ui)
 	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, BACKGROUND)
 	render.gpu_present(&ui.renderer.gpu)
@@ -443,6 +503,7 @@ ui_shutdown :: proc(ui: ^UI) {
 		save_settings(ui)
 	}
 	ui_images_destroy(ui)
+	ui_avatars_destroy(ui)
 	ui_video_destroy(ui)
 	app_audio_destroy(ui)
 	delete(ui.text_boxes)
@@ -450,6 +511,11 @@ ui_shutdown :: proc(ui: ^UI) {
 	// has to be done before that.
 	paste_wait(ui)
 	file_pick_wait(ui)
+	avatar_pick_wait(ui)
+	ui_profiles_destroy(ui)
+	ui_manage_destroy(ui)
+	delete(ui.reactors_asked.emoji)
+	delete(ui.channels.find_asked)
 	clipboard.destroy()
 	window_close(ui)
 	glfw.Terminate()
@@ -519,6 +585,7 @@ window_open :: proc(ui: ^UI) -> bool {
 		glfw.WindowHintString(glfw.X11_INSTANCE_NAME, "yap")
 	}
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
+	ui.title_unread = 0 // what "Yap" says
 	if ui.window == nil {
 		log.errorf("failed to create a window (%s is required)", render.GPU_REQUIREMENT)
 		return false
@@ -567,6 +634,7 @@ reset_gpu :: proc(ui: ^UI) {
 	ui.gpu_reset_at = time.tick_now()
 	log.warn("ui: lost the GPU device, setting it up again")
 	ui_images_forget_textures(ui)
+	ui_avatars_forget_textures(ui)
 	ui_video_forget_texture(ui)
 	if !render.renderer_reset(&ui.renderer, ui.window) {
 		log.error("ui: could not set the GPU device up again")
@@ -596,6 +664,7 @@ window_close :: proc(ui: ^UI) {
 	// The pictures' textures belong to the device that's about to go;
 	// they are decoded again when they're next on screen.
 	ui_images_forget_textures(ui)
+	ui_avatars_forget_textures(ui)
 	ui_video_forget_texture(ui)
 	glfw.DestroyWindow(ui.window)
 	ui.window = nil
@@ -632,25 +701,6 @@ set_cursor :: proc(ui: ^UI, cursor: Cursor) {
 		)
 	}
 	glfw.SetCursor(ui.window, ui.cursors[cursor])
-}
-
-// typed_name is the name field's contents, sanitized as the server would.
-typed_name :: proc(ui: ^UI) -> string {
-	buf := new([proto.MAX_NAME_SIZE]u8, context.temp_allocator)
-	return proto.sanitize_name(string(ui.name_buf[:ui.name_len]), buf)
-}
-
-// apply_name saves the name field and, when connected, renames us.
-apply_name :: proc(ui: ^UI) {
-	name := typed_name(ui)
-	if name == ui.settings.name {
-		return
-	}
-	settings.set_setting(&ui.settings.name, name)
-	ui.settings_dirty = true
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.Name_Command{strings.clone(name)})
-	}
 }
 
 save_settings :: proc(ui: ^UI) {
@@ -720,7 +770,6 @@ connect :: proc(ui: ^UI) {
 	password := string(ui.password_buf[:ui.password_len])
 	settings.set_setting(&ui.settings.server, server)
 	settings.remember_recent_server(&ui.settings, server, password)
-	settings.set_setting(&ui.settings.name, typed_name(ui))
 	save_settings(ui)
 
 	ns := new(Net_Session)
@@ -729,7 +778,10 @@ connect :: proc(ui: ^UI) {
 	ns.password = strings.clone(password)
 	ns.known_servers = strings.clone(ui.opts.known_servers)
 	ns.channel = strings.clone(ui.opts.channel)
-	ns.name = strings.clone(ui.settings.name)
+	// Without one asked for, the channel that was on screen the last
+	// time is looked at again (and only looked at).
+	ns.view = strings.clone(settings.recent_channel(&ui.settings, server))
+	ui.channels = {}
 	ns.client = new(conn.Voice_Client)
 	ns.client.view = &ui.view
 	if audio.voice_init(&ns.client.voice) {
@@ -751,11 +803,9 @@ connect :: proc(ui: ^UI) {
 	)
 	conn.push_command(&ns.client.commands, conn.gate_command(&ui.settings))
 	conn.push_command(&ns.client.commands, conn.transfer_limits_command(&ui.settings))
-	for hex_key, u in ui.settings.users {
-		if key, ok := settings.parse_user_key(hex_key); ok {
-			conn.push_command(&ns.client.commands, conn.Gain_Command{key, settings.user_gain(u)})
-		}
-	}
+	// The per-user volumes go once the server's key says which are
+	// this server's (apply_gains).
+	ui.gains_for = {}
 
 	conn.view_reset(&ui.view)
 	{
@@ -831,7 +881,7 @@ disconnect_finish :: proc(ui: ^UI) {
 	delete(ns.password)
 	delete(ns.known_servers)
 	delete(ns.channel)
-	delete(ns.name)
+	delete(ns.view)
 	free(ns)
 
 	// A failure message stays up until the next attempt.
@@ -909,6 +959,10 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// One window that always fills the OS window.
 	if cnt := mu.get_container(ctx, "yap"); cnt != nil {
 		cnt.rect = {0, 0, w, h}
+		// Always under the windows that float over it (pins, threads,
+		// the picker...): microui raises a clicked window unless its
+		// zindex is below 0, and sorts the lowest first.
+		cnt.zindex = -1
 	}
 	if mu.begin_window(ctx, "yap", {0, 0, w, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
 		main_window(ui)
@@ -918,6 +972,14 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// does the About dialog (ui_about.odin).
 	image_viewer(ui, w, h)
 	about_dialog(ui, w, h)
+	pins_window(ui, w, h)
+	thread_windows(ui, w, h)
+	profile_windows(ui, w, h)
+	completion_window(ui)
+	picker_window(ui, w, h)
+	channels_window(ui, w, h)
+	forward_window(ui, w, h)
+	search_window(ui, w, h)
 	// Last, and in a window of its own, so it's over the popups too.
 	icon_hint(ui, w, h)
 }
@@ -931,9 +993,7 @@ main_window :: proc(ui: ^UI) {
 
 	v := &ui.view
 	sync.guard(&v.mutex)
-	if buddies_seen(&ui.settings, v) {
-		ui.settings_dirty = true
-	}
+	apply_gains(ui)
 	switch v.status {
 	case .Disconnected, .Failed:
 		// The buddy screen goes with the connection.
@@ -942,9 +1002,19 @@ main_window :: proc(ui: ^UI) {
 		}
 		connect_screen(ui)
 	case .Connecting, .Connected:
-		if ui.page == .Buddies {
+		// A server that doesn't know this device shows nothing until it's
+		// logged in (ui_account.odin), nor one whose password was chosen
+		// by somebody else until it has been replaced.
+		switch {
+		case v.status == .Connected && v.login.state != .Done:
+			ui.page = .Main
+			login_screen(ui)
+		case v.status == .Connected && v.login.must_change:
+			ui.page = .Main
+			password_screen(ui)
+		case ui.page == .Buddies:
 			buddies_screen(ui)
-		} else {
+		case:
 			session_screen(ui)
 		}
 	}
@@ -973,12 +1043,8 @@ connect_screen :: proc(ui: ^UI) {
 		ui.action = .Connect
 	}
 
-	mu.layout_row(ctx, {70, 200, -1})
-	mu.label(ctx, "Name")
-	if .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len) {
-		ui.action = .Connect
-	}
 	if v.status == .Failed && v.error != "" {
+		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, ERROR_COLOR, v.error, label_proc)
 	}
 	if v.status == .Failed && v.key_change.changed {
@@ -1048,8 +1114,10 @@ session_screen :: proc(ui: ^UI) {
 	v := &ui.view
 	body := mu.get_current_container(ctx).body
 	narrow := body.w < NARROW_LAYOUT
+	ui.narrow = narrow
 
 	screen_tab_follow(ui)
+	back_from_dms(ui)
 	if v.watching != 0 && conn.video_is_fullscreen() {
 		fullscreen_screen(ui)
 		return
@@ -1057,49 +1125,24 @@ session_screen :: proc(ui: ^UI) {
 
 	session_header(ui)
 
+	// Side by side where there's room; in a narrow window the list and
+	// the chat take turns (ui_channels.odin), over the voice panel.
 	if narrow {
-		mu.layout_row(ctx, {-1}, max(body.h / 3, 120))
+		mu.layout_row(ctx, {-1}, -(voice_panel_height(ui) + 1))
+		if ui.channels.show_list {
+			channel_list(ui)
+		} else {
+			side_panel(ui, narrow)
+		}
+		voice_panel(ui)
 	} else {
 		mu.layout_row(ctx, {280, -1}, -1)
+		channel_list(ui)
+		side_panel(ui, narrow)
 	}
-	mu.begin_panel(ctx, "channels")
-	if len(v.channels) == 0 {
-		mu.layout_row(ctx, {-1})
-		mu.label(ctx, "Waiting for the channel list...")
-	}
-	for ch, i in v.channels {
-		mu.push_id(ctx, uintptr(i))
-		defer mu.pop_id(ctx)
-
-		marker := "  "
-		switch i {
-		case v.my_channel:
-			marker = "⏵ "
-		case v.joining:
-			marker = "~ "
-		}
-		mu.layout_row(ctx, {-1})
-		label := fmt.tprintf("%s%s", marker, ch.name)
-		if .SUBMIT in stable_button(ctx, "join", label) && i != v.my_channel && ui.session != nil {
-			log.debugf("ui: join %q", ch.name)
-			conn.push_command(
-				&ui.session.client.commands,
-				conn.Join_Command{strings.clone(ch.name)},
-			)
-		}
-
-		for m in ch.members {
-			member_row(ui, m)
-		}
-	}
-	mu.end_panel(ctx)
 	user_menu(ui)
+	message_menu(ui)
 	app_audio_menu(ui)
-
-	if narrow {
-		mu.layout_row(ctx, {-1}, -1)
-	}
-	side_panel(ui)
 }
 
 /*
@@ -1124,12 +1167,11 @@ and the buddy screen share it.
 session_header :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
-	can_share := conn.video_can_share()
-	can_share_audio := app_audio_available(ui)
 	// The status, then the connection indicator and the buttons, each
-	// ICON_BUTTON wide plus the spacing between them.
-	icons := 6 + int(can_share) + int(can_share_audio)
-	widths: [9]i32
+	// ICON_BUTTON wide plus the spacing between them. Mute, deafen and
+	// what's shared are in the voice panel (ui_voice_panel.odin).
+	icons := 5
+	widths: [6]i32
 	widths[0] = -i32(4 + (ICON_BUTTON + 4) * icons)
 	for &w in widths[1:][:icons] {
 		w = ICON_BUTTON
@@ -1137,45 +1179,37 @@ session_header :: proc(ui: ^UI) {
 	title_row(ui, widths[:1 + icons])
 	switch v.status {
 	case .Connected:
-		me := v.my_name if v.my_name != "" else conn.fingerprint(v.my_key)
-		mu.label(ctx, fmt.tprintf("Connected to %s as %s", v.server, me))
+		me := v.my_name if v.my_name != "" else v.login.username
+		server := v.server_name if v.server_name != "" else v.server
+		mu.label(ctx, fmt.tprintf("Connected to %s as %s", server, me))
 	case .Connecting, .Disconnected, .Failed:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
 	}
 	connection_indicator(ui)
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "mute",
-		   .Mic_Off if ui.muted else .Mic,
-		   "Unmute" if ui.muted else "Mute",
-		   OFF_COLOR if ui.muted else mu.Color{},
-	   ) {
-		set_muted(ui, !ui.muted)
-	}
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "deafen",
-		   .Sound_Off if ui.deafened else .Sound,
-		   "Undeafen" if ui.deafened else "Deafen (hear nobody)",
-		   OFF_COLOR if ui.deafened else mu.Color{},
-	   ) {
-		set_deafened(ui, !ui.deafened)
-	}
-	if can_share {
-		share_button(ui)
-	}
-	if can_share_audio {
-		app_audio_button(ui)
-	}
 	buddies_button(ui)
+	log_button(ui)
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
 		open_settings(ui)
 	}
 	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
 		log.debug("ui: disconnect")
 		ui.action = .Disconnect
+	}
+}
+
+// log_button shows the log in place of the chat, from the channels or
+// the buddies, and pressed again goes back to the chat.
+@(private = "file")
+log_button :: proc(ui: ^UI) {
+	open := ui.page == .Main && ui.chat.tab == .Log
+	if .SUBMIT in icon_button(ui, "log", .Log, "Back to the chat" if open else "Log", CHAT_NAME_COLOR if open else mu.Color{}) {
+		if open {
+			ui.chat.tab = .Chat
+		} else {
+			ui.page = .Main
+			ui.chat.tab = .Log
+			ui.log_seen = -1
+		}
 	}
 }
 
@@ -1354,6 +1388,7 @@ stable_button_hint :: proc(
 	id_name: string,
 	label: string,
 	hint: string,
+	opt: mu.Options = {},
 ) -> (
 	res: mu.Result_Set,
 ) {
@@ -1366,7 +1401,7 @@ stable_button_hint :: proc(
 		res += {.SUBMIT}
 	}
 	mu.draw_control_frame(ctx, id, r, .BUTTON)
-	mu.draw_control_text(ctx, label, r, .TEXT)
+	mu.draw_control_text(ctx, label, r, .TEXT, opt)
 	if ctx.hover_id == id {
 		ui.hint, ui.hint_of = hint, r
 	}
@@ -1374,7 +1409,14 @@ stable_button_hint :: proc(
 	return
 }
 
-stable_button :: proc(ctx: ^mu.Context, id_name: string, label: string) -> (res: mu.Result_Set) {
+stable_button :: proc(
+	ctx: ^mu.Context,
+	id_name: string,
+	label: string,
+	opt: mu.Options = {},
+) -> (
+	res: mu.Result_Set,
+) {
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
@@ -1382,7 +1424,7 @@ stable_button :: proc(ctx: ^mu.Context, id_name: string, label: string) -> (res:
 		res += {.SUBMIT}
 	}
 	mu.draw_control_frame(ctx, id, r, .BUTTON)
-	mu.draw_control_text(ctx, label, r, .TEXT)
+	mu.draw_control_text(ctx, label, r, .TEXT, opt)
 
 	return
 }
@@ -1527,9 +1569,23 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	case glfw.KEY_DELETE:
 		k = .DELETE
 	case glfw.KEY_ESCAPE:
-		// Close the enlarged image, if one is open.
+		// Close the enlarged image, if one is open; and for the rest of
+		// the frame, a key like microui's (UI.keys).
 		if action == glfw.PRESS {
 			g_ui.images.viewer = 0
+			g_ui.keys += {.Escape}
+		}
+		return
+	case glfw.KEY_UP, glfw.KEY_DOWN, glfw.KEY_TAB:
+		if action == glfw.PRESS || action == glfw.REPEAT {
+			switch key {
+			case glfw.KEY_UP:
+				g_ui.keys += {.Up}
+			case glfw.KEY_DOWN:
+				g_ui.keys += {.Down}
+			case:
+				g_ui.keys += {.Tab}
+			}
 		}
 		return
 	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:

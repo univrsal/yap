@@ -25,7 +25,7 @@ send_captured :: proc(c: ^Voice_Client) {
 	}
 	buf: [audio.VOICE_MESSAGE_MAX]u8
 	for {
-		sending := c.has_current && in_settled_channel(c)
+		sending := c.has_current && in_room(c)
 		level, msg := audio.capture_frame(v, mic, sending, buf[:]) or_break
 		publish_mic(c, level, v.gate.open)
 		if len(msg) > 0 && send_data(c, msg) {

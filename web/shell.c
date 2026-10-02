@@ -24,6 +24,17 @@ extern void web_frame(void);
 
 /* ---- localStorage ---- */
 
+// Whether the page has the focus and is on screen: a conversation is only
+// read while it is.
+EM_JS(int, yap_page_focused, (void), {
+	return document.hasFocus() && !document.hidden ? 1 : 0;
+});
+
+// The tab's title, which says when something is unread.
+EM_JS(void, yap_set_title, (const char *title), {
+	document.title = UTF8ToString(title);
+});
+
 EM_JS(int, yap_store_exists, (const char *name), {
 	try {
 		return localStorage.getItem(UTF8ToString(name)) !== null ? 1 : 0;

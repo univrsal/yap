@@ -20,6 +20,10 @@ src/client/audio/aac/*.a
 src/client/audio/aac/*.lib
 src/client/audio/aac/*.o
 src/client/audio/aac/*.obj
+src/server/sqlite/*.a
+src/server/sqlite/*.lib
+src/server/sqlite/*.o
+src/server/sqlite/*.obj
 src/client/assets/*.res
 web/out/
 web/deps/
@@ -30,3 +34,6 @@ dist/
 # The server config holds its private key.
 /config.json
 /server.key
+# And what a server run from here keeps next to it.
+/yap.db*
+/blobs/

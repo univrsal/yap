@@ -68,3 +68,11 @@ password_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> 
 	}
 	return res
 }
+
+// focus_at gives the text box `id` the focus, with the cursor `at` bytes
+// into its text: where typing goes on from text put in it.
+focus_at :: proc(ctx: ^mu.Context, id: mu.Id, at: int) {
+	mu.set_focus(ctx, id)
+	ctx.textbox_state.id = u64(id)
+	ctx.textbox_state.selection = {at, at}
+}

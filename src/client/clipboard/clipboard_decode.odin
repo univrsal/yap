@@ -1,13 +1,21 @@
 package clipboard
 
+import "core:bytes"
+import "core:encoding/endian"
+import "core:image/qoi"
 import log "common:wlog"
 import stbi "client:wstbi"
 
-// decode turns PNG, JPEG, BMP or GIF data into RGBA pixels, refusing
-// images over MAX_PIXELS before decoding them.
+// decode turns PNG, JPEG, BMP, GIF or QOI data into RGBA pixels, refusing
+// images over MAX_PIXELS before decoding them. (QOI is what a server's
+// sheet of emoji comes as: core Odin writes it, and stb_image doesn't
+// read it.)
 decode :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: Error) {
 	if len(data) == 0 || len(data) > MAX_DATA_SIZE {
 		return {}, .Decode_Failed if len(data) == 0 else .Too_Large
+	}
+	if len(data) > 14 && string(data[:4]) == "qoif" {
+		return decode_qoi(data, allocator)
 	}
 	w, h, comp: i32
 	if stbi.info_from_memory(raw_data(data), i32(len(data)), &w, &h, &comp) == 0 {
@@ -31,5 +39,27 @@ decode :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: 
 		pixels = make([]u8, n, allocator),
 	}
 	copy(img.pixels, pixels[:n])
+	return img, .None
+}
+
+@(private = "file")
+decode_qoi :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: Error) {
+	w := endian.unchecked_get_u32be(data[4:])
+	h := endian.unchecked_get_u32be(data[8:])
+	if w == 0 || h == 0 || i64(w) * i64(h) > MAX_PIXELS {
+		return {}, .Too_Large
+	}
+	q, qerr := qoi.load_from_bytes(data, {.alpha_add_if_missing}, context.temp_allocator)
+	if qerr != nil || q == nil || q.channels != 4 || q.depth != 8 {
+		log.debugf("clipboard: can't decode the QOI: %v", qerr)
+		return {}, .Decode_Failed
+	}
+	pixels := bytes.buffer_to_bytes(&q.pixels)
+	img = {
+		width  = q.width,
+		height = q.height,
+		pixels = make([]u8, len(pixels), allocator),
+	}
+	copy(img.pixels, pixels)
 	return img, .None
 }

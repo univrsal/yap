@@ -24,6 +24,13 @@ Notification_Sounds :: struct {
 	unmuted:      []f32,
 	mail:         []f32,
 	done:         []f32,
+	// A call ringing in, or ours ringing out: played over and over
+	// while it rings (notification_loop), not while deafened.
+	ring:         []f32,
+	ringback:     []f32,
+	loop:         []f32,
+	loop_pos:     int,
+	loop_quiet:   bool,
 	volume:       f32,
 	active:       []f32,
 	position:     int,

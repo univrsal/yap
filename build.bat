@@ -1,5 +1,6 @@
 @echo off
-rem Builds bin\yap-server.exe and bin\yap.exe, both with the yap icon.
+rem Builds bin\yap-server.exe and bin\yap.exe, both with the yap icon. The server
+rem links SQLite (src\server\sqlite), whose source is fetched into .cache the first time.
 rem Extra arguments are passed to both builds. Run from a Visual Studio developer prompt (Odin
 rem needs MSVC's linker anyway); cl.exe compiles the trimmed-down miniaudio
 rem (src\client\audio\miniaudio), RNNoise (src\client\audio\rnn), traycon
@@ -46,6 +47,14 @@ cl /nologo /MT /O1 /c %AAC%\yap_aac.c /Fo:%AAC%\yap_aac.obj || exit /b 1
 lib /nologo /out:%AAC%\yap_aac.lib %AAC%\yap_aac.obj || exit /b 1
 del %AAC%\yap_aac.obj
 
+rem SQLite, for the server's database (src\server\sqlite): one big C file,
+rem fetched into .cache on first use and compiled the way yap_sqlite.c
+rem configures it. It takes a little while, so it's only built when the
+rem library isn't there; delete it after changing yap_sqlite.c or
+rem scripts\sqlite.version. curl and tar come with Windows 10 and later.
+set SQLITE=src\server\sqlite
+if not exist %SQLITE%\yap_sqlite.lib call :build_sqlite || exit /b 1
+
 rem The version and commit (src\common\version.odin), as
 rem scripts/version-defines.sh finds them. The values are passed with
 rem their quotes (\" survives the command line as "), see version.odin.
@@ -69,6 +78,31 @@ rem The collections the imports name: "common:wlog", "client:audio/opus".
 set COLLECTIONS=-collection:common=src\common -collection:client=src\client
 odin build src\server %COLLECTIONS% -vet -strict-style -out:bin\yap-server.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
 odin build src\client %COLLECTIONS% -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res /SUBSYSTEM:WINDOWS" %DEFINES% %* || exit /b 1
+exit /b 0
+
+:build_sqlite
+rem scripts\sqlite.version is name=value lines, and # comments.
+for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\sqlite.version") do set "%%a=%%b"
+set SQLITE_NAME=sqlite-autoconf-%sqlite_version%
+if not exist .cache mkdir .cache
+if exist .cache\%SQLITE_NAME%\sqlite3.c goto :compile_sqlite
+if not exist .cache\%SQLITE_NAME%.tar.gz (
+	echo fetching sqlite %sqlite_version%
+	curl -fL --retry 3 -o .cache\%SQLITE_NAME%.tar.gz.part https://www.sqlite.org/%sqlite_year%/%SQLITE_NAME%.tar.gz || exit /b 1
+	move /y .cache\%SQLITE_NAME%.tar.gz.part .cache\%SQLITE_NAME%.tar.gz >nul || exit /b 1
+)
+rem certutil prints the sum on a line of its own, in lower case.
+certutil -hashfile .cache\%SQLITE_NAME%.tar.gz SHA256 | findstr /x /i /c:"%sqlite_sha256%" >nul
+if errorlevel 1 (
+	echo .cache\%SQLITE_NAME%.tar.gz: checksum mismatch; delete it to fetch it again
+	exit /b 1
+)
+tar -xzf .cache\%SQLITE_NAME%.tar.gz -C .cache || exit /b 1
+:compile_sqlite
+echo building %SQLITE%\yap_sqlite.lib
+cl /nologo /MT /O1 /I.cache\%SQLITE_NAME% /c %SQLITE%\yap_sqlite.c /Fo:%SQLITE%\yap_sqlite.obj || exit /b 1
+lib /nologo /out:%SQLITE%\yap_sqlite.lib %SQLITE%\yap_sqlite.obj || exit /b 1
+del %SQLITE%\yap_sqlite.obj
 exit /b 0
 
 :add_version

@@ -14,9 +14,12 @@ The server's settings, all in one file (config.json by default), read
 once at startup:
 
 	{
+		"name": "",
 		"port": 7777,
 		"key": "<64 hex digits>",
 		"password": "",
+		"data_dir": "",
+		"max_sessions": 256,
 		"log_level": "info",
 		"log_file": "",
 		"relay": {
@@ -27,21 +30,44 @@ once at startup:
 		"channels": [
 			{ "name": "Lobby" },
 			{ "name": "Gaming" }
-		]
+		],
+		"retention": {
+			"message_days": 0,
+			"image_days": 0,
+			"blob_megabytes": 0
+		}
 	}
 
+name       what clients show for this server, up to 64 bytes; empty for
+           none, and they show its address.
 port       the UDP port to listen on.
 key        the server's private key. Keep it: clients remember the
            public half and refuse to connect if it changes.
 password   what clients have to give to get in; empty for none.
+data_dir   where the server keeps what it stores: its database (yap.db,
+           see db.odin) and the blobs folder (blobs.odin). Empty for the
+           folder the config is in. It's created if it isn't there.
+max_sessions  how many sessions there may be at once, which is about how
+           many clients can be connected (each has one, two while it
+           rekeys). Left out or 0, it's 256.
 log_level  the lowest level to log: debug, info, warn or error.
 log_file   also append the log to this file; empty for none.
 relay      serve the web client over HTTP on `port` and relay browsers to
            this server over WebSockets (relay.odin), with the web build
            in `web_dir`; empty for web/out, or web in a release archive.
-channels   the channel layout. New users land in the first channel.
-           Channels are objects rather than bare strings so fields like a
-           description or user limit can be added later.
+channels   the channels a new server starts with: they're taken over
+           into its database the first time it runs, the first of them
+           as the home channel everyone is in, and not read again after
+           that (channels are made from a client then). Channels are
+           objects rather than bare strings so fields like a description
+           can be added later.
+retention  how long what's posted is kept (retention.odin); 0 for no
+           limit, which is what they start as. `message_days`: messages
+           older than this many days are removed. `image_days`: older
+           messages lose their pictures, the text staying; ignored unless
+           shorter than message_days. `blob_megabytes`: when the pictures
+           in messages take more than this, the oldest lose theirs.
+           Pinned messages are kept whole whatever these say.
 
 Fields left out keep the defaults above, and with no channels there's a
 single Lobby.
@@ -67,13 +93,17 @@ LEGACY_KEY_FILE :: "server.key"
 LEGACY_CHANNELS_FILE :: "channels.json"
 
 Config :: struct {
+	name:      string,
 	port:      int,
 	key:       string,
 	password:  string,
+	data_dir:  string,
+	max_sessions: int,
 	log_level: string,
 	log_file:  string,
 	relay:     Relay_Config,
 	channels:  []Channel_Config,
+	retention: Retention_Config,
 }
 
 Relay_Config :: struct {
@@ -88,18 +118,22 @@ Channel_Config :: struct {
 
 // The parts of a Config the server runs on, checked and parsed.
 Settings :: struct {
+	name:           string, // sanitized
 	port:           int,
 	key:            string, // hex; parsed by run_server
 	password:       string,
+	max_sessions:   int,
 	log_level:      common.Log_Level,
 	log_file:       string,
 	relay:          Relay_Config, // web_dir resolved, see default_web_dir
 	channels:       []string,
-	// Where direct messages waiting for their recipients are kept: next
-	// to the config (dm.odin).
-	dm_path:        string,
-	// Where it's kept when users were last here (last_seen.odin).
-	last_seen_path: string,
+	// The database and the blobs' folder, in the data directory (db.odin,
+	// blobs.odin).
+	db_path:        string,
+	blobs_dir:      string,
+	// The pictures that are the server's own emoji (emoji.odin).
+	emoji_dir:      string,
+	retention:      Retention_Config,
 }
 
 @(private = "file")
@@ -207,6 +241,16 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		log.errorf("%s: invalid port %d", path, cfg.port)
 		return
 	}
+	if len(cfg.name) > proto.MAX_SERVER_NAME {
+		log.errorf("%s: the name is longer than %d bytes", path, proto.MAX_SERVER_NAME)
+		return
+	}
+	if cfg.max_sessions < 0 || cfg.max_sessions > 65535 {
+		log.errorf("%s: invalid max_sessions %d", path, cfg.max_sessions)
+		return
+	}
+	name_buf := make([]u8, proto.MAX_SERVER_NAME)
+	name := proto.sanitize_text(cfg.name, name_buf)
 	if len(cfg.password) > proto.MAX_PASSWORD_SIZE {
 		log.errorf("%s: the password is longer than %d bytes", path, proto.MAX_PASSWORD_SIZE)
 		return
@@ -230,17 +274,37 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	if relay.web_dir == "" {
 		relay.web_dir = default_web_dir()
 	}
+	r := cfg.retention
+	if r.message_days < 0 || r.image_days < 0 || r.blob_megabytes < 0 {
+		log.errorf("%s: a retention limit can't be negative (0 is none)", path)
+		return
+	}
+	if r.message_days > 0 && r.image_days >= r.message_days {
+		log.warnf("%s: image_days isn't shorter than message_days, so it does nothing", path)
+	}
 
 	s = {
+		name      = name,
 		port      = cfg.port,
 		key       = cfg.key,
 		password  = cfg.password,
+		max_sessions = cfg.max_sessions if cfg.max_sessions > 0 else DEFAULT_MAX_SESSIONS,
 		log_level = level,
 		log_file  = cfg.log_file,
 		relay     = relay,
+		retention = r,
 	}
-	s.dm_path, _ = os.join_path({os.dir(path), "dms.json"}, context.allocator)
-	s.last_seen_path, _ = os.join_path({os.dir(path), "lastseen.json"}, context.allocator)
+	data_dir := cfg.data_dir if cfg.data_dir != "" else os.dir(path)
+	if data_dir == "" {
+		data_dir = "."
+	}
+	if err := os.make_directory_all(data_dir); err != nil && !os.is_directory(data_dir) {
+		log.errorf("%s: could not create the data directory %s: %v", path, data_dir, err)
+		return
+	}
+	s.db_path, _ = os.join_path({data_dir, DB_FILE}, context.allocator)
+	s.blobs_dir, _ = os.join_path({data_dir, BLOBS_DIR}, context.allocator)
+	s.emoji_dir, _ = os.join_path({data_dir, EMOJI_DIR}, context.allocator)
 	s.channels = check_channels(path, cfg.channels) or_return
 	return s, true
 }

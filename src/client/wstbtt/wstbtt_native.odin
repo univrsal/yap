@@ -28,3 +28,5 @@ GetCodepointHMetrics :: stbtt.GetCodepointHMetrics
 PackBegin :: stbtt.PackBegin
 PackEnd :: stbtt.PackEnd
 PackFontRanges :: stbtt.PackFontRanges
+GetCodepointBitmapBox :: stbtt.GetCodepointBitmapBox
+MakeCodepointBitmap :: stbtt.MakeCodepointBitmap

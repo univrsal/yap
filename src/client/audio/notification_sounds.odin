@@ -32,6 +32,20 @@ MAIL_SOUND_DATA := #load("../assets/mail.opus")
 @(private = "file")
 DONE_SOUND_DATA := #load("../assets/done.opus")
 
+// Made by scripts/call_sounds.py.
+@(private = "file")
+RING_SOUND_DATA := #load("../assets/ring.opus")
+
+@(private = "file")
+RINGBACK_SOUND_DATA := #load("../assets/ringback.opus")
+
+// What plays over and over, while a call rings.
+Loop_Kind :: enum {
+	None,
+	Ring, // a call coming in
+	Ringback, // ours, going out
+}
+
 notifications_init :: proc(s: ^Notification_Sounds) {
 	s.volume = 1
 	s.join = decode_ogg_opus(JOIN_SOUND_DATA, "join")
@@ -43,6 +57,8 @@ notifications_init :: proc(s: ^Notification_Sounds) {
 	s.unmuted = decode_ogg_opus(UNMUTED_SOUND_DATA, "unmuted")
 	s.mail = decode_ogg_opus(MAIL_SOUND_DATA, "mail")
 	s.done = decode_ogg_opus(DONE_SOUND_DATA, "done")
+	s.ring = decode_ogg_opus(RING_SOUND_DATA, "ring")
+	s.ringback = decode_ogg_opus(RINGBACK_SOUND_DATA, "ringback")
 
 }
 
@@ -56,6 +72,8 @@ notifications_destroy :: proc(s: ^Notification_Sounds) {
 	delete(s.unmuted)
 	delete(s.mail)
 	delete(s.done)
+	delete(s.ring)
+	delete(s.ringback)
 	s^ = {}
 }
 
@@ -98,7 +116,32 @@ notification_play :: proc(s: ^Notification_Sounds, kind: Notification_Kind) {
 	}
 }
 
+// notification_loop starts a sound playing over and over (from its
+// start, unless it's that one already), or with .None stops it.
+notification_loop :: proc(s: ^Notification_Sounds, kind: Loop_Kind) {
+	clip: []f32
+	switch kind {
+	case .None:
+	case .Ring:
+		clip = s.ring
+	case .Ringback:
+		clip = s.ringback
+	}
+	if raw_data(clip) == raw_data(s.loop) {
+		return
+	}
+	s.loop, s.loop_pos = clip, 0
+}
+
 notifications_mix :: proc(s: ^Notification_Sounds, mix: []f32) {
+	if len(s.loop) > 0 {
+		for &m in mix {
+			if !s.loop_quiet {
+				m += s.loop[s.loop_pos] * s.volume
+			}
+			s.loop_pos = (s.loop_pos + 1) % len(s.loop)
+		}
+	}
 	at := 0
 	for at < len(mix) {
 		if len(s.active) == 0 {

@@ -84,6 +84,20 @@ foreign _ {
 	// it covers, and returns that size.
 	yap_canvas_fit :: proc(width, height: ^i32) ---
 	yap_device_pixel_ratio :: proc() -> f64 ---
+	// web/shell.c: whether the page has the focus and is on screen, and
+	// its title.
+	yap_page_focused :: proc() -> i32 ---
+	yap_set_title :: proc(title: cstring) ---
+}
+
+// The window is the page: focused when the page is.
+WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {
+	return yap_page_focused() != 0
+}
+
+// The window's title is the tab's.
+SetWindowTitle :: proc "contextless" (window: WindowHandle, title: cstring) {
+	yap_set_title(title)
 }
 
 // The canvas' backing store, in device pixels. Not GLFW's own answer:
@@ -193,6 +207,9 @@ KEY_ENTER :: 257
 KEY_BACKSPACE :: 259
 KEY_DELETE :: 261
 KEY_RIGHT :: 262
+KEY_UP :: 265
+KEY_DOWN :: 264
+KEY_TAB :: 258
 KEY_LEFT :: 263
 KEY_HOME :: 268
 KEY_END :: 269

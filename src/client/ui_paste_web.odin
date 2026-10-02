@@ -72,11 +72,8 @@ web_paste_image :: proc "c" (data: [^]u8, size: i32, width, height: i32) {
 	// The page's paste isn't tied to a text box: it goes to the open
 	// conversation on the buddy screen, else to the chat.
 	target: Paste_Target
-	if g_ui.page == .Buddies && g_ui.buddies.has_selected {
-		target = {
-			dm = true,
-			to = g_ui.buddies.selected,
-		}
+	if g_ui.page == .Buddies {
+		target.dm_to = g_ui.buddies.selected
 	}
 	send_pasted_image(g_ui, target, img)
 }

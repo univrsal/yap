@@ -1,0 +1,10 @@
+# The SQLite release the server is built with: read by
+# scripts/fetch-sqlite.sh (and with it build.sh) and by build.bat, so
+# lines are name=value and nothing else.
+#
+# sqlite.org publishes SHA3-256 sums, which few systems can compute out
+# of the box, so the sum here is the SHA-256 of a download that was
+# checked against the published one.
+sqlite_version=3530400
+sqlite_year=2026
+sqlite_sha256=0e9483900e92cd5de8fd48d16bf9200145a61f7fd5be542a5ac81d8a9516eb9c

@@ -15,8 +15,7 @@ only the server whose key the client checked ever sees it.
 	                                 <-  Handshake_Resp    e, ee, s, es
 	  (check server key)
 	Handshake_Finish  s, se          ->
-	                                 <-  Data (empty = confirmation,
-	                                           or Refused)
+	                                 <-  Data (Welcome, or Refused)
 
 All integers are little-endian.
 
@@ -77,6 +76,7 @@ HANDSHAKE_RETRY :: 1 * time.Second // resend the last handshake packet if no rep
 HANDSHAKE_TIMEOUT :: 5 * time.Second // give up on a handshake and start over / drop it
 KEEPALIVE_AFTER :: 10 * time.Second // send an empty Data packet when idle
 SESSION_TIMEOUT :: 30 * time.Second // server drops silent sessions
+SERVER_SILENT :: 8 * time.Second // client handshakes again when it hears nothing (pongs come twice a second)
 
 // Hard cap on messages per session, far below nonce exhaustion.
 REJECT_AFTER_MESSAGES :: u64(1) << 60

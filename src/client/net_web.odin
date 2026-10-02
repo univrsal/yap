@@ -23,12 +23,14 @@ NET_FRAME_BUDGET :: 4 * time.Millisecond
 
 net_start :: proc(ns: ^Net_Session) {
 	c := ns.client
-	if !conn.client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name, ns.password) {
+	if !conn.client_open(c, ns.key_path, ns.server, ns.known_servers, ns.password) {
 		ns.stopped = true
 		return
 	}
 	if ns.channel != "" {
-		conn.request_join(c, ns.channel)
+		conn.conv_start_in(c, ns.channel)
+	} else if ns.view != "" {
+		conn.conv_start_viewing(c, ns.view)
 	}
 }
 

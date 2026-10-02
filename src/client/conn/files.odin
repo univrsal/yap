@@ -1,7 +1,6 @@
 package conn
 
 import log "common:wlog"
-import "core:crypto"
 import "core:fmt"
 import "core:strings"
 import "core:time"
@@ -13,10 +12,15 @@ import "client:settings"
 /*
 Sending files in DMs (see src/common/proto/files.odin for the protocol).
 
-A file is offered in a DM, which shows up in the conversation on both
-sides. Only an offer from this run of the client can go ahead: the file
-behind it is open until the transfer ends, and after a restart an offer
-that never went anywhere is Expired.
+A file is offered in a DM, as a message (messages.odin), which shows up
+in the conversation on both sides. The transfer is known by that
+message's id once it has one, and by its post's nonce until then. Only
+an offer from this run of the client can go ahead, and only from the
+device it was made on: the file behind it is open there until the
+transfer ends. An offer is answered on the device it arrives at while
+it's here (Msg_New); one found in the history, made earlier or answered
+on another device, is shown as what's known of it (nothing much: the
+server keeps no record of transfers).
 
 Sending paces chunks to the lower of our upload limit and the
 recipient's download limit (the settings), and at most FILE_MAX_RATE.
@@ -43,16 +47,19 @@ FILE_COMPLETE_ACKS :: 4
 FILE_PUBLISH_INTERVAL :: 200 * time.Millisecond
 
 File_State :: enum u8 {
-	Offered      = 0, // ours, waiting for them to say yes
-	Incoming     = 1, // theirs, waiting for us to say yes
-	Starting     = 2, // accepted, nothing sent yet
-	Transferring = 3,
-	Done         = 4,
-	Declined     = 5,
-	Cancelled    = 6,
-	Failed       = 7, // couldn't be read or written, or went quiet
-	Interrupted  = 8, // the other side left
-	Expired      = 9, // from a previous run of the client
+	Unknown      = 0, // in the history: we can't tell what became of it
+	Posting      = 1, // ours, the offer on its way to the server
+	Offered      = 2, // ours, waiting for them to say yes
+	Incoming     = 3, // theirs, waiting for us to say yes
+	Starting     = 4, // accepted, nothing sent yet
+	Transferring = 5,
+	Done         = 6,
+	Declined     = 7,
+	Cancelled    = 8,
+	Failed       = 9, // couldn't be read or written, or went quiet
+	Interrupted  = 10, // the other side left
+	Expired      = 11, // the offer isn't there to be taken up any more
+	Elsewhere    = 12, // answered on another of our devices
 }
 
 // file_state_over is whether a transfer has ended, one way or another.
@@ -61,7 +68,9 @@ file_state_over :: proc(s: File_State) -> bool {
 }
 
 File_Client :: struct {
-	transfers:      map[u64]^File_Transfer,
+	transfers:      map[proto.Msg_Id]^File_Transfer,
+	// Offers of ours on their way to the server, by their post's nonce.
+	posting:        map[u64]^File_Transfer,
 	// Bytes per second; 0 for no limit (settings: Transfer_Limits_Command).
 	upload_limit:   u32,
 	download_limit: u32,
@@ -70,11 +79,9 @@ File_Client :: struct {
 }
 
 File_Transfer :: struct {
-	id:            u64,
-	peer:          [proto.KEY_SIZE]u8,
+	id:            proto.Msg_Id, // the offer's; 0 while it's being posted
+	peer:          proto.Account_Id,
 	outgoing:      bool,
-	key:           [proto.DM_KEY_SIZE]u8, // shared with the peer (dm.odin)
-	prefix:        [proto.FILE_NONCE_PREFIX_SIZE]u8,
 	name:          string, // owned
 	size:          u64,
 	chunks:        u32,
@@ -114,8 +121,8 @@ File_Transfer :: struct {
 // Send_File_Command offers `to` a file: at `path` on a desktop, or the
 // page's picked file `web_file` in a browser (files_io_web.odin).
 Send_File_Command :: struct {
-	to:       [proto.KEY_SIZE]u8,
-	name:     string, // owned: `to`'s name, when `to` is zero (headless)
+	to:       proto.Account_Id,
+	name:     string, // owned: `to`'s name, when `to` is 0 (headless)
 	path:     string, // owned
 	web_file: i32,
 	web_name: string, // owned
@@ -129,7 +136,7 @@ File_Action :: enum u8 {
 }
 
 File_Action_Command :: struct {
-	id:     u64,
+	id:     proto.Msg_Id,
 	action: File_Action,
 }
 
@@ -153,6 +160,11 @@ files_destroy :: proc(c: ^Voice_Client) {
 		transfer_free(t)
 	}
 	delete(c.files.transfers)
+	for _, t in c.files.posting {
+		transfer_close(t, keep = false)
+		transfer_free(t)
+	}
+	delete(c.files.posting)
 	delete(c.files.download_dir)
 }
 
@@ -161,14 +173,16 @@ Offering.
 */
 
 // send_file offers a file. The file is opened now and stays open until
-// the transfer ends.
+// the transfer ends. Files only go to someone who's here: the file is
+// on this device, and they'd have to come and take it before it went.
 send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
-	to, found := dm_recipient(c, cmd.to, cmd.name)
-	if !found {
+	to := cmd.to if cmd.to != 0 else account_named(c, cmd.name)
+	if to == 0 || to == c.auth.me {
+		log.warnf("file: there's nobody called %q to send it to", cmd.name)
 		return
 	}
-	if !dm_online(c, to) {
-		log.warnf("file: %s isn't online, and files only go to someone who is", fingerprint(to))
+	if !is_online(c, to) {
+		log.warnf("file: %s isn't here, and files only go to someone who is", account_display(c, to))
 		return
 	}
 	src, raw_name, size, ok := file_source_open(cmd)
@@ -190,97 +204,90 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 		file_source_close(&src)
 		return
 	}
-	key, key_ok := dm_shared_key(c, to)
-	if !key_ok {
-		file_source_close(&src)
-		return
-	}
 
 	t := new(File_Transfer)
 	t^ = {
-		id         = random_id(),
 		peer       = to,
 		outgoing   = true,
-		key        = key,
 		name       = strings.clone(name),
 		size       = size,
 		chunks     = proto.file_chunk_count(size),
-		state      = .Offered,
+		state      = .Posting,
 		src        = src,
 		last_heard = time.tick_now(),
 	}
-	crypto.rand_bytes(t.prefix[:])
-	c.files.transfers[t.id] = t
+	c.files.posting[file_post(c, to, name, size)] = t
+	log.infof("[file] offering %s %q (%s)", account_display(c, to), name, format_bytes(size))
+}
 
-	body_buf: [proto.MAX_DM_BODY]u8
-	body := proto.encode_dm_file(&body_buf, {size = size, prefix = t.prefix, name = name})
-	dm_queue(
-		c,
-		to,
-		t.id,
-		body,
-		DM_Message {
-			mine = true,
-			text = strings.clone(name),
-			file = true,
-			file_size = size,
-			file_state = .Offered,
-		},
-	)
-	log.infof("[file] offering %s %q (%s)", fingerprint(to), name, format_bytes(size))
+// file_posted is the offer with `nonce` posted, as message `id`: from
+// here on the transfer goes by that.
+file_posted :: proc(c: ^Voice_Client, nonce: u64, id: proto.Msg_Id) {
+	t, ok := c.files.posting[nonce]
+	if !ok {
+		return
+	}
+	delete_key(&c.files.posting, nonce)
+	t.id, t.state = id, .Offered
+	t.last_heard = time.tick_now()
+	c.files.transfers[id] = t
 	publish_file(c, t, force = true)
 }
 
-// file_offer_received takes in an offer that came in a DM; `m` is the
-// message it's going to be, which it fills in.
-file_offer_received :: proc(
-	c: ^Voice_Client,
-	from: [proto.KEY_SIZE]u8,
-	id: u64,
-	offer: proto.DM_File,
-	m: ^DM_Message,
-) {
-	name_buf: [proto.MAX_FILE_NAME]u8
-	name := proto.sanitize_file_name(offer.name, &name_buf)
-	m.file = true
-	m.file_size = offer.size
-	m.file_state = .Incoming
-	delete(m.text)
-	m.text = strings.clone(name if name != "" else "file")
-	key, key_ok := dm_shared_key(c, from)
-	if !key_ok || name == "" || !proto.file_type_allowed(name) {
-		// Nothing we'd save: say no straight away.
-		log.warnf(
-			"file: refusing %q from %s, not a kind of file that can be sent",
-			offer.name,
-			fingerprint(from),
-		)
-		m.file_state = .Declined
-		send_file_cancel(c, id, from, .Declined)
+// file_post_failed is the offer with `nonce` not posted: there's nothing
+// to send it for.
+file_post_failed :: proc(c: ^Voice_Client, nonce: u64) {
+	t, ok := c.files.posting[nonce]
+	if !ok {
 		return
 	}
+	delete_key(&c.files.posting, nonce)
+	transfer_close(t, keep = false)
+	transfer_free(t)
+}
+
+// file_offer_received takes in an offer that has just been posted to us.
+file_offer_received :: proc(c: ^Voice_Client, m: proto.Message) {
+	if m.id in c.files.transfers {
+		return
+	}
+	name_buf: [proto.MAX_FILE_NAME]u8
+	name := proto.sanitize_file_name(m.file_name, &name_buf)
 	t := new(File_Transfer)
 	t^ = {
-		id         = id,
-		peer       = from,
-		key        = key,
-		prefix     = offer.prefix,
-		name       = strings.clone(m.text),
-		size       = offer.size,
-		chunks     = proto.file_chunk_count(offer.size),
+		id         = m.id,
+		peer       = m.sender,
+		name       = strings.clone(name if name != "" else "file"),
+		size       = m.file_size,
+		chunks     = proto.file_chunk_count(m.file_size),
 		state      = .Incoming,
 		last_heard = time.tick_now(),
 	}
-	c.files.transfers[id] = t
-	log.infof("[file] %s offers %q (%s)", fingerprint(from), t.name, format_bytes(t.size))
+	c.files.transfers[m.id] = t
+	if name == "" || !proto.file_type_allowed(name) || m.file_size == 0 {
+		// Nothing we'd save: say no straight away.
+		log.warnf("file: refusing %q, not a kind of file that can be sent", m.file_name)
+		end_transfer(c, t, .Declined, .Declined)
+		return
+	}
+	log.infof("[file] %s offers %q (%s)", account_display(c, t.peer), t.name, format_bytes(t.size))
 	publish_file(c, t, force = true)
+}
+
+// file_offer_deleted is an offer whose message was deleted: one that
+// hasn't been taken up can't be any more.
+file_offer_deleted :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
+	t := c.files.transfers[id] or_else nil
+	if t != nil && (t.state == .Incoming || t.state == .Offered) {
+		end_transfer(c, t, .Expired)
+	}
 }
 
 // file_action is the person's answer to an offer, or stopping a
 // transfer. An id of 0 means every one it applies to (headless mode).
-file_action :: proc(c: ^Voice_Client, id: u64, action: File_Action) {
+file_action :: proc(c: ^Voice_Client, id: proto.Msg_Id, action: File_Action) {
 	if id == 0 {
-		ids := make([dynamic]u64, context.temp_allocator)
+		ids := make([dynamic]proto.Msg_Id, context.temp_allocator)
 		for other in c.files.transfers {
 			append(&ids, other)
 		}
@@ -342,7 +349,7 @@ files_step :: proc(c: ^Voice_Client) {
 			continue
 		}
 		if t.state == .Starting || t.state == .Transferring {
-			if !dm_online(c, t.peer) {
+			if !is_online(c, t.peer) {
 				log.infof("[file] %q: the other side left", t.name)
 				end_transfer(c, t, .Interrupted)
 				continue
@@ -373,14 +380,17 @@ files_step :: proc(c: ^Voice_Client) {
 				if time.tick_diff(t.last_ack, now) >= FILE_ACK_INTERVAL {
 					send_file_ack(c, t, now)
 				}
-			case .Offered,
+			case .Unknown,
+			     .Posting,
+			     .Offered,
 			     .Incoming,
 			     .Done,
 			     .Declined,
 			     .Cancelled,
 			     .Failed,
 			     .Interrupted,
-			     .Expired:
+			     .Expired,
+			     .Elsewhere:
 			}
 		}
 		update_rate(t, now)
@@ -456,19 +466,8 @@ send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 			ordered_remove(&t.resend, 0)
 		}
 		t.resent[index] = now
-		sealed_buf: [proto.FILE_CHUNK_DATA + proto.TAG_SIZE]u8
-		sealed := proto.dm_seal_with(
-			&t.key,
-			c.my_key,
-			t.peer,
-			t.id,
-			.File,
-			proto.file_chunk_nonce(t.prefix, index),
-			data[:end - start],
-			sealed_buf[:],
-		)
 		out: [proto.MAX_PAYLOAD_SIZE]u8
-		send_data(c, proto.encode_file_chunk(out[:], t.id, index, sealed))
+		send_data(c, proto.encode_file_chunk(out[:], t.id, index, data[:end - start]))
 		t.tokens -= f32(end - start)
 	}
 }
@@ -508,7 +507,7 @@ handle_file_accept :: proc(c: ^Voice_Client, pt: []u8) {
 	t.last_pace = time.tick_now()
 	t.rate_at = t.last_pace
 	t.progress_at = t.last_pace
-	log.infof("[file] %s accepted %q", fingerprint(from), t.name)
+	log.infof("[file] %s accepted %q", account_display(c, from), t.name)
 	publish_file(c, t, force = true)
 }
 
@@ -549,7 +548,7 @@ handle_file_ack :: proc(c: ^Voice_Client, pt: []u8) {
 }
 
 handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
-	id, index, sealed := proto.decode_file_chunk(pt)
+	id, index, data := proto.decode_file_chunk(pt)
 	t := c.files.transfers[id] or_else nil
 	if t == nil || t.outgoing || (t.state != .Starting && t.state != .Transferring) {
 		return
@@ -567,20 +566,9 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 	if t.have[index / 64] & (1 << (index % 64)) != 0 {
 		return // a repeat
 	}
-	out: [proto.FILE_CHUNK_DATA]u8
-	data, ok := proto.dm_open(
-		&t.key,
-		t.peer,
-		c.my_key,
-		t.id,
-		.File,
-		proto.file_chunk_nonce(t.prefix, index),
-		sealed,
-		out[:],
-	)
 	start, end := proto.file_chunk_range(t.size, index)
-	if !ok || u64(len(data)) != end - start {
-		return // not from them, or broken; it'll be asked for again
+	if u64(len(data)) != end - start {
+		return // broken; it'll be asked for again
 	}
 	if !file_sink_write(&t.sink, start, data) {
 		log.errorf("[file] could not write %s", t.path)
@@ -652,6 +640,8 @@ handle_file_cancel :: proc(c: ^Voice_Client, pt: []u8) {
 		state = .Interrupted
 	case .Expired:
 		state = .Expired
+	case .Elsewhere:
+		state = .Elsewhere
 	case:
 		state = .Failed
 	}
@@ -676,7 +666,6 @@ end_transfer :: proc(
 	}
 	t.state = state
 	transfer_close(t, keep = state == .Done)
-	dm_file_state(c, t.peer, t.id, state, t.path)
 	publish_file(c, t, force = true)
 }
 
@@ -703,8 +692,8 @@ transfer_free :: proc(t: ^File_Transfer) {
 @(private = "file")
 send_file_cancel :: proc(
 	c: ^Voice_Client,
-	id: u64,
-	to: [proto.KEY_SIZE]u8,
+	id: proto.Msg_Id,
+	to: proto.Account_Id,
 	reason: proto.File_Cancel_Reason,
 ) {
 	buf: [proto.FILE_CANCEL_SIZE]u8

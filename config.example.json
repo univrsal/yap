@@ -1,7 +1,9 @@
 {
+	"name": "",
 	"port": 7777,
 	"key": "",
 	"password": "",
+	"data_dir": "",
 	"log_level": "info",
 	"log_file": "",
 	"relay": {
@@ -13,5 +15,10 @@
 		{ "name": "Lobby" },
 		{ "name": "Gaming" },
 		{ "name": "AFK" }
-	]
+	],
+	"retention": {
+		"message_days": 0,
+		"image_days": 0,
+		"blob_megabytes": 0
+	}
 }

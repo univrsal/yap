@@ -3,7 +3,6 @@ package settings
 
 import "core:fmt"
 import "core:os"
-import "core:path/filepath"
 import "core:testing"
 
 import "common:proto"
@@ -52,78 +51,69 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	path := "yap-settings-test.json"
 	defer os.remove(path)
 
-	alice := [proto.KEY_SIZE]u8 {
-		0  = 0x8e,
-		1  = 0x41,
-		31 = 1,
-	}
-	bob := [proto.KEY_SIZE]u8 {
-		0  = 0xab,
-		31 = 2,
-	}
-	carol := [proto.KEY_SIZE]u8 {
-		0  = 0x11,
-		31 = 3,
-	}
-
 	s := DEFAULT_SETTINGS
 	defer settings_destroy(&s)
 	set_setting(&s.server, "localhost:7777")
-	set_setting(&s.name, "me")
+	set_setting(&s.username, "me")
 	s.notification_volume = 0.5
-	set_user_settings(&s, alice, {volume = 0.5})
-	set_user_settings(&s, bob, {volume = 1, muted = true})
-	set_user_settings(&s, carol, {volume = 1.5})
-	set_user_settings(&s, carol, DEFAULT_USER) // back to default: not stored
+	server, other: [proto.KEY_SIZE]u8
+	server[0], other[0] = 7, 8
+	set_user_settings(&s, server, 1, {volume = 0.5})
+	set_user_settings(&s, server, 2, {volume = 1, muted = true})
+	set_user_settings(&s, server, 3, {volume = 1.5})
+	set_user_settings(&s, server, 3, DEFAULT_USER) // back to default: not stored
+	set_user_settings(&s, other, 1, {volume = 2})
+	hide_dm(&s, server, 40, 1234)
+	hide_dm(&s, server, 41, 10)
+	hide_dm(&s, server, 41, 0) // put back
 	settings_save(path, s)
 
 	loaded := settings_load(path)
 	defer settings_destroy(&loaded)
 	testing.expect_value(t, loaded.server, "localhost:7777")
-	testing.expect_value(t, loaded.name, "me")
+	testing.expect_value(t, loaded.username, "me")
 	testing.expect_value(t, loaded.noise_suppression, true)
 	testing.expect_value(t, notification_gain(&loaded), f32(0.5))
-	testing.expect_value(t, len(loaded.users), 2)
-	testing.expect_value(t, user_settings(&loaded, alice), User_Settings{volume = 0.5})
-	testing.expect_value(t, user_settings(&loaded, bob), User_Settings{volume = 1, muted = true})
-	testing.expect_value(t, user_settings(&loaded, carol), DEFAULT_USER)
-	testing.expect_value(t, user_gain(user_settings(&loaded, bob)), 0)
-	// Entries are keyed by the full key, and parse back to it.
-	for hex_key in loaded.users {
-		key, ok := parse_user_key(hex_key)
-		testing.expect(t, ok && (key == alice || key == bob))
+	testing.expect_value(t, len(loaded.users), 3)
+	testing.expect_value(t, user_settings(&loaded, server, 1), User_Settings{volume = 0.5})
+	testing.expect_value(t, user_settings(&loaded, server, 2), User_Settings{volume = 1, muted = true})
+	testing.expect_value(t, user_settings(&loaded, server, 3), DEFAULT_USER)
+	// Account 1 on another server is somebody else.
+	testing.expect_value(t, user_settings(&loaded, other, 1), User_Settings{volume = 2})
+	testing.expect_value(t, user_gain(user_settings(&loaded, server, 2)), 0)
+	// Entries are keyed by the server and the account, and parse back.
+	for k in loaded.users {
+		got_server, account, ok := parse_server_key(k)
+		testing.expect(t, ok && (got_server == server || got_server == other) && account >= 1 && account <= 2)
 	}
-	_, legacy_ok := parse_user_key("8e41fa62") // the old 4-byte ids
-	testing.expect(t, !legacy_ok)
+	_, _, legacy_ok := parse_server_key("8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933")
+	testing.expect(t, !legacy_ok, "a key from before accounts")
+
+	// Hidden until there's something newer.
+	testing.expect(t, dm_hidden(&loaded, server, 40, 1234))
+	testing.expect(t, !dm_hidden(&loaded, server, 40, 1235))
+	testing.expect(t, !dm_hidden(&loaded, other, 40, 1234))
+	testing.expect(t, !dm_hidden(&loaded, server, 41, 10))
 }
 
+
 @(test)
-test_buddies_saved_and_loaded :: proc(t: ^testing.T) {
-	alice, bob: [proto.KEY_SIZE]u8
-	alice[0], bob[0] = 1, 2
-
-	s := DEFAULT_SETTINGS
-	testing.expect(t, add_buddy(&s, alice, "alice"))
-	testing.expect(t, add_buddy(&s, bob, ""))
-	testing.expect(t, !add_buddy(&s, alice, "alice"), "adding again changed something")
-	testing.expect(t, add_buddy(&s, alice, "alice2"), "a new name wasn't kept")
-
-	dir := os.get_env("TMPDIR", context.temp_allocator)
-	if dir == "" {
-		dir = "/tmp"
-	}
-	path, _ := filepath.join({dir, "yap-buddies-test.json"}, context.temp_allocator)
+test_settings_from_before_accounts :: proc(t: ^testing.T) {
+	path := "yap-settings-old-test.json"
 	defer os.remove(path)
-	settings_save(path, s)
-	settings_destroy(&s)
-
-	loaded := settings_load(path)
-	defer settings_destroy(&loaded)
-	testing.expect(t, is_buddy(&loaded, alice))
-	testing.expect(t, is_buddy(&loaded, bob))
-	testing.expect_value(t, loaded.buddies[user_key(alice)].name, "alice2")
-
-	testing.expect(t, remove_buddy(&loaded, bob))
-	testing.expect(t, !remove_buddy(&loaded, bob))
-	testing.expect(t, !is_buddy(&loaded, bob))
+	old := `{
+		"server": "localhost:7777",
+		"users": {
+			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "volume": 0.5, "muted": false },
+			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933/2": { "volume": 2, "muted": false }
+		},
+		"buddies": {
+			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "name": "alice" }
+		}
+	}`
+	testing.expect(t, os.write_entire_file(path, old) == nil)
+	s := settings_load(path)
+	defer settings_destroy(&s)
+	testing.expect_value(t, s.server, "localhost:7777")
+	testing.expect_value(t, len(s.users), 1)
 }

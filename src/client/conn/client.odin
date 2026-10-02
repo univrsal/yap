@@ -1,6 +1,7 @@
 package conn
 
 import log "common:wlog"
+import "core:crypto"
 import "core:crypto/ecdh"
 import "core:encoding/endian"
 import "core:fmt"
@@ -19,6 +20,10 @@ Voice_Client :: struct {
 	password:      string, // sent in every hello; empty for none
 	key:           ecdh.Private_Key,
 	my_key:        [proto.KEY_SIZE]u8,
+	// The server's key, once the handshake has shown it: what this
+	// server's accounts are told apart from another's by (the per-user
+	// settings).
+	server_key:    [proto.KEY_SIZE]u8,
 	handshake:     proto.Initiator,
 	// Keys derived, Finish sent, waiting for the server's first Data
 	// packet before switching to it.
@@ -32,14 +37,33 @@ Voice_Client :: struct {
 	previous:      proto.Session,
 	has_previous:  bool,
 	last_sent:     time.Tick,
+	// When the server was last heard from, on any session.
+	last_recv:     time.Tick,
+	// Which connection this is (see the hello and Welcome in
+	// proto/names.odin): ours, the same in every handshake, and the
+	// server's for it, which changes when the connection is new to it.
+	conn_id:       u64,
+	instance:      u64,
+	has_instance:  bool,
+	// We've given up on the connection and are handshaking for a new
+	// one (connection_restart).
+	restart:       bool,
+	stream:        Stream_Client, // requests and events (stream.odin, rpc.odin)
+	rpc:           Rpc_Client,
+	auth:          Auth_Client, // our account and the others (auth.odin)
 	voice:         audio.Voice, // set up by the owner before client_open
-	channels:      Channel_Client,
-	chat:          Chat_Client,
-	images:        Image_Client,
+	channels:      Channel_Client, // who is here (channels.odin)
+	convs:         Conv_Client, // our channels (convs.odin)
+	msgs:          Message_Client, // messages (messages.odin)
+	search:        Search_Client, // searching them (search.odin)
+	blobs:         Blob_Client, // pictures (blobs.odin)
+	buddies:       Buddy_Client, // our buddies, and when people were last here (buddies.odin)
+	emoji:         Emoji_Client, // the server's own emoji (emoji.odin)
+	profiles:      Profile_Client, // statuses, pictures, settings (profiles.odin)
+	call:          Call_Client, // the call we're in (calls.odin)
 	video:         Video_Client,
 	ping:          Ping_Tracker,
-	dms:           DM_Client,
-	files:         File_Client,
+	files:         File_Client, // files in DMs (files.odin)
 	commands:      Command_Queue,
 	status:        Status,
 	// Shared with the UI, if there is one; nil in headless mode.
@@ -50,13 +74,14 @@ Voice_Client :: struct {
 }
 
 // client_open loads our key and opens the transport. It doesn't wait
-// for the server: the handshake happens in client_step.
+// for the server: the handshake happens in client_step. `password` is
+// the server's, if it has one; what to log in to an account with is
+// given with auth_credentials or a Login_Command.
 client_open :: proc(
 	c: ^Voice_Client,
-	key_path, typed_addr, known_servers, name: string,
+	key_path, typed_addr, known_servers: string,
 	password := "",
 ) -> bool {
-	set_name(c, name)
 	server_addr := with_default_port(typed_addr)
 	c.server_addr = strings.clone(server_addr)
 	c.known_servers = strings.clone(known_servers)
@@ -68,6 +93,7 @@ client_open :: proc(
 	}
 	ecdh.private_key_public_bytes(&c.key, c.my_key[:])
 	log.infof("my public key: %s", common.public_key_hex(&c.key))
+	crypto.rand_bytes(([^]byte)(&c.conn_id)[:size_of(c.conn_id)])
 	publish_status(c, .Connecting)
 
 	if !transport_open(&c.transport, server_addr) {
@@ -79,7 +105,6 @@ client_open :: proc(
 		return false
 	}
 	c.last_stats = time.tick_now()
-	dm_open(c, key_path)
 	return true
 }
 
@@ -104,14 +129,19 @@ client_close :: proc(c: ^Voice_Client) {
 	delete(c.server_addr)
 	delete(c.known_servers)
 	delete(c.password)
-	delete(c.channels.wanted)
-	delete(c.channels.name)
 	commands_destroy(&c.commands)
-	chat_destroy(c)
-	images_destroy(c)
+	messages_destroy(c)
+	search_destroy(c)
+	profiles_destroy(c)
+	blobs_destroy(c)
 	video_destroy(c)
-	dm_destroy(c)
+	buddies_destroy(c)
+	emoji_destroy(c)
 	files_destroy(c)
+	stream_destroy(c)
+	rpc_destroy(c)
+	auth_destroy(c)
+	convs_destroy(c)
 }
 
 // client_step runs one iteration of the network loop, waiting up to a
@@ -122,14 +152,13 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 
 	drive_handshake(c)
 	process_commands(c)
-	drive_join(c)
-	drive_name(c)
 	drive_sound(c)
-	drive_chat(c)
-	drive_dm(c)
-	images_step(c)
-	dm_images_step(c)
+	drive_outbox(c)
+	blobs_step(c)
 	files_step(c)
+	rpc_step(c)
+	convs_step(c)
+	stream_step(c)
 
 	if c.has_current {
 		voice_step(c)
@@ -152,9 +181,10 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	return true
 }
 
-// drive_handshake starts a handshake when there's no usable session or
-// the current one is due for rekeying, retransmits lost handshake
-// packets, and starts over if a handshake stalls.
+// drive_handshake starts a handshake when there's no usable session, the
+// current one is due for rekeying, or the server has gone quiet on it (it
+// may have restarted, and knows nothing of our session); retransmits lost
+// handshake packets, and starts over if a handshake stalls.
 drive_handshake :: proc(c: ^Voice_Client) {
 	if c.has_current && time.tick_since(c.current.created) > proto.REJECT_AFTER {
 		log.warn("session expired without a successful rekey")
@@ -170,8 +200,15 @@ drive_handshake :: proc(c: ^Voice_Client) {
 
 	switch ini.state {
 	case .Idle:
-		if c.has_current && time.tick_since(c.current.created) <= proto.REKEY_AFTER {
+		silent := c.has_current && time.tick_since(c.last_recv) > proto.SERVER_SILENT
+		if c.has_current &&
+		   time.tick_since(c.current.created) <= proto.REKEY_AFTER &&
+		   !silent &&
+		   !c.restart {
 			return
+		}
+		if silent {
+			log.warnf("nothing from %s for a while, connecting again", c.server_addr)
 		}
 		packet, ok := proto.initiator_start(ini, &c.key)
 		if !ok {
@@ -221,9 +258,9 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			return false
 		}
 		// Only now, with the server's identity checked, send ours, along
-		// with our name and the password in the (encrypted) hello.
+		// with the server's password in the (encrypted) hello.
 		hello_buf: [proto.HELLO_MAX_SIZE]u8
-		hello := proto.encode_hello(&hello_buf, c.channels.name, c.password)
+		hello := proto.encode_hello(&hello_buf, c.conn_id, c.password)
 		finish, ok := proto.initiator_finish(&c.handshake, &c.pending, hello)
 		if !ok {
 			return true
@@ -251,14 +288,19 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		if !ok {
 			return true
 		}
+		c.last_recv = time.tick_now()
 		kind, kind_ok := proto.message_kind(pt)
 		if sess == &c.pending {
-			// The server's answer to our hello: the confirmation, or why
-			// it won't have us.
+			// The server's answer to our hello: the Welcome, or why it
+			// won't have us. Nothing else counts until one of them comes:
+			// the Welcome says what the rest belongs to.
 			if kind_ok && kind == .Refused {
 				abandon_handshake(c)
 				publish_status(c, .Failed, refusal_text(c, proto.decode_refused(pt)))
 				return false
+			}
+			if !kind_ok || kind != .Welcome {
+				return true
 			}
 			promote_pending(c)
 		}
@@ -266,8 +308,14 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			return true // keepalive, or malformed
 		}
 		#partial switch kind {
+		case .Welcome:
+			handle_welcome(c, pt)
+		case .Stream:
+			handle_stream(c, pt)
+		case .Stream_Ack:
+			handle_stream_ack(c, pt)
 		case .Voice:
-			if len(pt) >= proto.VOICE_DOWN_HEADER_SIZE && in_settled_channel(c) {
+			if len(pt) >= proto.VOICE_DOWN_HEADER_SIZE && in_room(c) {
 				speaker := proto.User_Num(endian.unchecked_get_u32le(pt[1:]))
 				seq := endian.unchecked_get_u32le(pt[5:])
 				publish_voice(c, speaker)
@@ -275,18 +323,12 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			}
 		case .State:
 			handle_state_message(c, pt)
-		case .Chat:
-			handle_chat(c, pt)
-		case .Chat_Sent:
-			handle_chat_sent(c, pt)
 		case .Typing:
 			handle_typing(c, pt)
 		case .Blob_Chunk:
 			handle_blob_chunk(c, pt)
 		case .Blob_Need:
 			handle_blob_need(c, pt)
-		case .Image_Gone:
-			handle_image_gone(c, pt)
 		case .Poke:
 			handle_poke(c, pt)
 		case .Video:
@@ -295,16 +337,6 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			video_keyframe_requested(c)
 		case .Pong:
 			handle_pong(c, pt)
-		case .DM:
-			handle_dm(c, pt)
-		case .DM_Sent:
-			handle_dm_sent(c, pt)
-		case .DM_Delivered:
-			handle_dm_delivered(c, pt)
-		case .DM_Typing:
-			handle_dm_typing(c, pt)
-		case .DM_Image_Gone:
-			handle_dm_image_gone(c, pt)
 		case .File_Accept:
 			handle_file_accept(c, pt)
 		case .File_Chunk:
@@ -313,8 +345,6 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			handle_file_ack(c, pt)
 		case .File_Cancel:
 			handle_file_cancel(c, pt)
-		case .Last_Seen:
-			handle_last_seen(c, pt)
 		}
 	}
 	return true
@@ -340,6 +370,39 @@ promote_pending :: proc(c: ^Voice_Client) {
 	}
 }
 
+/*
+handle_welcome takes the server's answer to our hello (proto/names.odin).
+After a rekey it names the connection we already have, and nothing
+changes. Any other means the server has made a new one for us - this is
+our first handshake, or the server restarted, or it had given up on us -
+so whatever we knew of the old one is void.
+*/
+handle_welcome :: proc(c: ^Voice_Client, pt: []byte) {
+	instance, logged_in := proto.decode_welcome(pt)
+	if c.has_instance && instance == c.instance {
+		return
+	}
+	if c.has_instance {
+		log.infof("%s has started a new connection for us", c.server_addr)
+	}
+	c.instance, c.has_instance = instance, true
+
+	// Nothing from the old connection may arrive any more.
+	if c.has_previous {
+		proto.session_reset(&c.previous)
+		c.has_previous = false
+	}
+	// Before who is here is forgotten: it's where our voice was.
+	convs_restart(c)
+	channels_restart(c)
+	messages_restart(c)
+	calls_restart(c)
+	stream_restart(c)
+	c.restart = false
+	server_info_ask(c)
+	auth_restart(c, logged_in)
+}
+
 refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
 	log.warnf("%s refused the connection: %v", c.server_addr, reason)
 	#partial switch reason {
@@ -360,6 +423,10 @@ refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
 // new key once they know why it changed.
 verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 	trust, saved := check_server_key(c.known_servers, c.server_addr, key)
+	if trust != .Mismatch {
+		c.server_key = key
+		publish_server_key(c)
+	}
 	switch trust {
 	case .Known:
 		return true

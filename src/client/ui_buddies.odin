@@ -2,58 +2,59 @@ package client
 
 import log "common:wlog"
 import "core:fmt"
-import "core:strings"
-import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
 import "common:proto"
 import "client:platform"
 import "client:settings"
-import "client:render"
 import "client:conn"
 
 /*
 The buddy screen (buddies.odin): the buddy list on the left, with
-anyone else we have a conversation with, and the conversation with
-whoever's picked on the right (conn/dm.odin). It's there while connected,
-opened and closed by the buddies button along the top, which it shares
-with the session screen.
+anyone else we have a DM with, and the DM with whoever's picked on the
+right, drawn by the same timeline as a channel's (ui_timeline.odin).
+It's there while connected, opened and closed by the buddies button
+along the top, which it shares with the session screen.
+
+The network side looks at one conversation at a time: while this screen
+shows a DM, that's the one, and going back to the channels goes back to
+the channel that was being looked at (keep_viewing).
 */
 
 UI_Buddies :: struct {
-	// Whose conversation is open.
-	selected:     [proto.KEY_SIZE]u8,
-	has_selected: bool,
+	// Whose DM is open; 0 for nobody.
+	selected:    proto.Account_Id,
 	// What's being written to them.
-	buf:          [proto.MAX_DM_SIZE]u8,
-	len:          int,
-	// The open conversation's View_Conversation.changes when it was last
-	// scrolled to the bottom.
-	scrolled:     int,
+	buf:         [proto.MAX_CHAT_SIZE]u8,
+	len:         int,
 	// Something to tell about the conversation, and since when.
-	notice:       string,
-	notice_at:    time.Tick,
+	notice:      string,
+	notice_at:   time.Tick,
 	// The file button was pressed: after the frame, the dialog opens for
 	// a file to offer `pick_to` (ui_files_*.odin).
-	pick:         bool,
-	pick_to:      [proto.KEY_SIZE]u8,
+	pick:        bool,
+	pick_to:     proto.Account_Id,
 	// When the server was last asked when the people in the list were
 	// last here, and how many of them were online then: fewer now means
 	// someone just left, and it's worth asking again.
-	seen_asked:   time.Tick,
-	seen_online:  int,
-	// The delete button was pressed: the confirmation opens for the
-	// conversation with `deleting` (delete_confirm).
-	confirm:      bool,
-	deleting:     [proto.KEY_SIZE]u8,
+	seen_asked:  time.Tick,
+	seen_online: int,
+	// The message of ours being edited, 0 for none, and its conversation
+	// (ui_message_menu.odin).
+	editing:      proto.Msg_Id,
+	editing_conv: proto.Conv_Id,
+	// The conversation the network side was last asked to look at, and
+	// when (keep_viewing).
+	view_asked:  proto.Conv_Id,
+	view_back:   bool,
+	view_at:     time.Tick,
 }
 
-// Paste_Target is where a pasted image goes: the channel's chat, or a
-// DM to `to`.
+// Paste_Target is where a pasted image goes: the conversation being
+// looked at, or with `dm_to`, the DM with that account.
 Paste_Target :: struct {
-	dm: bool,
-	to: [proto.KEY_SIZE]u8,
+	dm_to: proto.Account_Id,
 }
 
 // How often the buddy screen asks when those who aren't here were last.
@@ -64,25 +65,24 @@ LAST_SEEN_REFRESH :: 30 * time.Second
 @(private = "file")
 NOTICE_SHOW :: 5 * time.Second
 
-// The confirmation before a conversation is deleted.
+// How long to wait for the network side to look at what it was asked
+// to before asking again.
 @(private = "file")
-DELETE_CONFIRM :: "delete conversation"
-@(private = "file")
-DELETE_CONFIRM_WIDTH :: 260
+VIEW_RETRY :: time.Second
 
 // The buddy list's colours: a buddy who's here, and one who isn't.
 @(private = "file")
 ONLINE_COLOR :: SPEAKING_COLOR
 
 // buddies_button opens the buddy screen, or goes back from it. It
-// lights up for DMs that haven't been seen.
+// lights up for DMs that haven't been read.
 buddies_button :: proc(ui: ^UI) {
 	open := ui.page == .Buddies
-	unread := conn.dm_unread(&ui.view)
+	unread := dm_unread(&ui.settings, &ui.view)
 	hint := "Back to the channels" if open else "Buddies"
 	color := CHAT_NAME_COLOR if open else mu.Color{}
 	if unread > 0 && !open {
-		hint = fmt.tprintf("Buddies (%d new message%s)", unread, "" if unread == 1 else "s")
+		hint = fmt.tprintf("Buddies (%s unread)", conn.unread_count(unread))
 		color = SPEAKING_COLOR
 	}
 	if .SUBMIT in icon_button(ui, "buddies", .Buddies, hint, color) {
@@ -91,14 +91,49 @@ buddies_button :: proc(ui: ^UI) {
 	}
 }
 
-// open_conversation shows the buddy screen with `key`'s conversation.
-open_conversation :: proc(ui: ^UI, key: [proto.KEY_SIZE]u8) {
+// open_conversation shows the buddy screen with the DM with `account`.
+open_conversation :: proc(ui: ^UI, account: proto.Account_Id) {
 	ui.page = .Buddies
-	if !ui.buddies.has_selected || ui.buddies.selected != key {
+	if ui.buddies.selected != account {
 		ui.buddies.len = 0
-		ui.buddies.scrolled = -1 // start at the newest
 	}
-	ui.buddies.selected, ui.buddies.has_selected = key, true
+	ui.buddies.selected = account
+}
+
+/*
+keep_viewing has the network side look at `conv` (with `back`, the
+channel it was looking at before a DM), if it isn't: once, and again
+only if that doesn't come about. Call with the View locked.
+*/
+keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
+	v := &ui.view
+	b := &ui.buddies
+	if ui.session == nil {
+		return
+	}
+	want := v.channel if back else conv
+	if v.viewing == want && (want != 0 || !back) {
+		b.view_asked, b.view_back = want, back
+		return
+	}
+	if b.view_asked == want && b.view_back == back && time.tick_since(b.view_at) < VIEW_RETRY {
+		return
+	}
+	b.view_asked, b.view_back, b.view_at = want, back, time.tick_now()
+	conn.push_command(&ui.session.client.commands, conn.View_Command{conv = conv, back = back})
+}
+
+// back_from_dms is the session screen making sure what it shows is a
+// channel's: coming back from the buddy screen, or having been sent
+// there by something else. Call with the View locked.
+back_from_dms :: proc(ui: ^UI) {
+	v := &ui.view
+	if v.viewing == 0 && v.channel == 0 {
+		return // not told of any yet
+	}
+	if v.viewing == 0 || viewed_channel(v) == nil {
+		keep_viewing(ui, 0, back = true)
+	}
 }
 
 // buddies_screen lays the screen out, like session_screen: side by
@@ -111,39 +146,61 @@ buddies_screen :: proc(ui: ^UI) {
 
 	session_header(ui)
 
-	// Someone removed as a buddy, with no conversation to keep them in
-	// the list, takes it along.
-	if ui.buddies.has_selected &&
-	   !settings.is_buddy(&ui.settings, ui.buddies.selected) &&
-	   ui.buddies.selected not_in ui.view.dms {
-		ui.buddies.has_selected = false
+	list := buddy_list(&ui.settings, &ui.view)
+	// Somebody who's left the list (taken off it, or no buddy any more
+	// and no DM) takes the conversation along.
+	entry: Buddy_Entry
+	found := false
+	for e in list {
+		if e.account == ui.buddies.selected {
+			entry, found = e, true
+		}
 	}
+	if !found && ui.buddies.selected != 0 {
+		if ui.buddies.selected in ui.view.accounts && ui.buddies.selected != ui.view.me {
+			// Picked from somewhere else (a channel's member list).
+			entry, found = buddy_entry(&ui.view, ui.buddies.selected, false), true
+		} else {
+			ui.buddies.selected = 0
+		}
+	}
+	keep_viewing(ui, entry.conv if found else 0)
 
+	// The list over the voice panel; in a narrow window, the list, the
+	// conversation and the panel one over the other.
+	panel_h := voice_panel_height(ui)
 	if narrow {
 		mu.layout_row(ctx, {-1}, max(body.h / 3, 120))
 	} else {
 		mu.layout_row(ctx, {280, -1}, -1)
 	}
-	ask_last_seen(ui)
-	buddy_list_panel(ui)
+	ask_last_seen(ui, list)
 	if narrow {
-		mu.layout_row(ctx, {-1}, -1)
+		buddy_list_panel(ui, list)
+		mu.layout_row(ctx, {-1}, -(panel_h + 1))
+	} else {
+		mu.layout_begin_column(ctx)
+		mu.layout_row(ctx, {-1}, -(panel_h + 1))
+		buddy_list_panel(ui, list)
+		voice_panel(ui)
+		mu.layout_end_column(ctx)
 	}
-	conversation(ui)
+	conversation(ui, entry, found)
+	if narrow {
+		voice_panel(ui)
+	}
 	user_menu(ui)
-	delete_confirm(ui)
+	message_menu(ui)
 	app_audio_menu(ui)
 }
 
 @(private = "file")
-buddy_list_panel :: proc(ui: ^UI) {
+buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 	ctx := &ui.ctx
-	v := &ui.view
 
 	mu.begin_panel(ctx, "buddies")
 	defer mu.end_panel(ctx)
 
-	list := buddy_list(&ui.settings, v)
 	if len(list) == 0 {
 		mu.layout_row(ctx, {-1}, -1)
 		with_text_color(
@@ -168,113 +225,131 @@ click the same menu as clicking them in a channel.
 buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	ctx := &ui.ctx
 
-	mu.layout_row(ctx, {render.ICON_SIZE + 4, -1})
-	status_icon(ctx, .Buddies, ONLINE_COLOR if b.online != 0 else DIM_COLOR)
+	pic := ctx.text_height(ctx.style.font) + 2
+	mu.layout_row(ctx, {pic + 4, -1})
+	cell := mu.layout_next(ctx)
+	avatar(ui, b.account, {cell.x, cell.y + (cell.h - pic) / 2, pic, pic})
 
-	mu.push_id(ctx, settings.user_key(b.key))
+	mu.push_id(ctx, uintptr(b.account))
 	defer mu.pop_id(ctx)
 	id := mu.get_id(ctx, "buddy")
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	selected := ui.buddies.has_selected && ui.buddies.selected == b.key
+	selected := ui.buddies.selected == b.account
 	switch {
 	case selected:
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_FOCUS])
 	case ctx.hover_id == id:
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
-	saved := ctx.style.colors[.TEXT]
-	if b.online == 0 {
-		ctx.style.colors[.TEXT] = DIM_COLOR
-	}
+	color := ctx.style.colors[.TEXT] if b.online else DIM_COLOR
 	text := b.name
 	if b.unread > 0 {
-		text = fmt.tprintf("%s  (%d)", b.name, b.unread)
-		ctx.style.colors[.TEXT] = SPEAKING_COLOR
+		text = fmt.tprintf("%s  (%s)", b.name, conn.unread_count(b.unread))
+		color = SPEAKING_COLOR
 	}
-	mu.draw_control_text(ctx, text, r, .TEXT)
-	ctx.style.colors[.TEXT] = saved
+	acc := ui.view.accounts[b.account] or_else {}
+	name_and_status(ctx, r, text, color, status_line(acc))
 
 	if ctx.hover_id != id {
 		return
 	}
 	switch {
 	case ctx.mouse_pressed_bits == {.LEFT}:
-		open_conversation(ui, b.key)
+		open_conversation(ui, b.account)
 	case .RIGHT in ctx.mouse_pressed_bits:
-		u := settings.user_settings(&ui.settings, b.key)
-		ui.menu_user = b.online
-		ui.menu_key = b.key
-		ui.menu_volume = u.volume * 100
-		ui.menu_requested = true
+		open_user_menu(ui, 0, b.account)
 	}
 }
 
 // conversation is the right-hand side: who it's with, the messages,
 // and the box to write in.
 @(private = "file")
-conversation :: proc(ui: ^UI) {
+conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	ctx := &ui.ctx
 	v := &ui.view
 
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 
-	if !ui.buddies.has_selected {
+	if !found {
 		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, DIM_COLOR, "Pick a buddy to talk to them.", label_proc)
 		return
 	}
-	key := ui.buddies.selected
-	entry: Buddy_Entry
-	for b in buddy_list(&ui.settings, v) {
-		if b.key == key {
-			entry = b
-			break
-		}
-	}
+	account := entry.account
 
-	conv, have := &v.dms[key]
-	// Their name, and the button that deletes what's been said.
-	if have {
-		mu.layout_row(ctx, {-(ICON_BUTTON + ctx.style.spacing * 2), ICON_BUTTON})
-	} else {
-		mu.layout_row(ctx, {-1})
+	// Their name, and the button that takes a DM off the list (somebody
+	// who isn't a buddy, where there's something to take off).
+	can_hide := entry.conv != 0 && !entry.buddy
+	switch {
+	case entry.conv == 0:
+		mu.layout_row(ctx, {-(CALL_BUTTON + ctx.style.spacing * 2), CALL_BUTTON})
+	case can_hide:
+		mu.layout_row(ctx, {-(CALL_BUTTON + 3 * ICON_BUTTON + ctx.style.spacing * 5), CALL_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+	case:
+		mu.layout_row(ctx, {-(CALL_BUTTON + 2 * ICON_BUTTON + ctx.style.spacing * 4), CALL_BUTTON, ICON_BUTTON, ICON_BUTTON})
 	}
 	mu.label(ctx, entry.name if entry.buddy else fmt.tprintf("%s  (not a buddy)", entry.name))
-	if have &&
-	   .SUBMIT in icon_button(ui, "dm delete", .Trash, "Delete this conversation", OFF_COLOR) {
-		ui.buddies.confirm, ui.buddies.deleting = true, key
+	// Calling them, while they're here and we're in no call.
+	if may_call(v, account) {
+		if .SUBMIT in stable_button(ctx, "dm call", "Call", {.ALIGN_CENTER}) {
+			call_account(ui, account)
+		}
+	} else {
+		mu.label(ctx, "")
+	}
+	if entry.conv != 0 {
+		pins_button(ui)
+		search_button(ui)
+	}
+	if can_hide &&
+	   .SUBMIT in icon_button(ui, "dm hide", .Trash, "Take this conversation off the list until something new is said in it", OFF_COLOR) {
+		last: proto.Msg_Id
+		for dm in v.dms {
+			if dm.id == entry.conv {
+				last = dm.last
+			}
+		}
+		settings.hide_dm(&ui.settings, v.server_key, entry.conv, max(last, 1))
+		shared_hidden_changed(ui, entry.conv, max(last, 1))
+		ui.settings_dirty = true
+		ui.buddies.selected = 0
+		log.debug("ui: hid a conversation")
+		return
 	}
 	mu.layout_row(ctx, {-1})
-	status := "here now" if entry.online != 0 else last_seen_text(ui, key)
-	status_color := ONLINE_COLOR if entry.online != 0 else DIM_COLOR
-	if t, ok := v.dm_typing[key]; ok && time.tick_since(t) < conn.TYPING_SHOW {
+	status := "here now" if entry.online else last_seen_text(ui, account)
+	status_color := ONLINE_COLOR if entry.online else DIM_COLOR
+	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {
 		status = "typing..."
+	} else if entry.conv != 0 && conn.is_typing_in_thread(v, account, entry.conv) {
+		status = "typing in a thread..."
+	}
+	if ui.paste != nil {
+		status = "reading the clipboard..."
+	}
+	if editing := composer_status(composer_of_page(ui)); editing != "" {
+		status, status_color = editing, DIM_COLOR
+	}
+	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
+		status, status_color = notice, OFF_COLOR
 	}
 	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
 		status, status_color = ui.buddies.notice, OFF_COLOR
 	}
-	with_text_color(
-		ctx,
-		status_color,
-		fmt.tprintf("%s  -  key %s...", status, settings.user_key(key)[:16]),
-		label_proc,
-	)
+	with_text_color(ctx, status_color, status, label_proc)
 
 	// Leave room for the input row below, as the chat does.
-	input_h := ctx.style.size.y + 2 * ctx.style.padding
+	input_h := composer_height(ui)
 	mu.layout_row(ctx, {-1}, -(input_h + ctx.style.spacing + 1))
-	if have {
-		// Open, so it's been seen.
-		conv.unread = 0
-		dm_panel(ui, conv, entry.name)
+	if entry.conv != 0 && v.viewing == entry.conv {
+		timeline(ui, &ui.timeline, {entry.conv, 0})
 	} else {
-		empty: conn.View_Conversation
-		dm_panel(ui, &empty, entry.name)
+		no_conversation_yet(ui, entry)
 	}
 
-	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 10), ICON_BUTTON, ICON_BUTTON})
+	mu.layout_row(ctx, {-(3 * ICON_BUTTON + 14), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON}, input_h)
 	// Ctrl+V could be an image, as in the chat box (chat_input); this
 	// one goes to them.
 	if !platform.WEB &&
@@ -284,26 +359,31 @@ conversation :: proc(ui: ^UI) {
 	   .ALT not_in ctx.key_down_bits {
 		ctx.key_pressed_bits -= {.V}
 		ui.chat.paste = true
-		ui.paste_to = {
-			dm = true,
-			to = key,
-		}
+		ui.paste_to = {dm_to = account}
 	}
-	res := text_box(ui, ui.buddies.buf[:], &ui.buddies.len)
+	composer := composer_of_page(ui)
+	completion_keys(ui, composer)
+	composer_keys(ui, composer)
+	res := chat_text_box(ui, ui.buddies.buf[:], &ui.buddies.len)
 	box := ctx.last_id
-	if .CHANGE in res && ui.buddies.len > 0 && ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.DM_Typing_Command{key})
+	if takes_focus(ui, composer) {
+		focus_at(ctx, box, ui.buddies.len if ui.focus_composer_at < 0 else ui.focus_composer_at)
+	}
+	completion_update(ui, composer)
+	if .CHANGE in res && ui.buddies.len > 0 && ui.session != nil && v.viewing == entry.conv && entry.conv != 0 && ui.buddies.editing == 0 {
+		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
+	emoji_button(ui, composer)
 	if .SUBMIT in icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
-		if entry.online == 0 {
-			ui.buddies.notice = "files only go to someone who's online"
+		if !entry.online {
+			ui.buddies.notice = "files only go to someone who's here"
 			ui.buddies.notice_at = time.tick_now()
 		} else {
-			ui.buddies.pick, ui.buddies.pick_to = true, key
+			ui.buddies.pick, ui.buddies.pick_to = true, account
 		}
 	}
-	if .SUBMIT in icon_button(ui, "dm send", .Send, "Send") {
+	if .SUBMIT in icon_button(ui, "dm send", .Send, "Save" if ui.buddies.editing != 0 else "Send") {
 		send = true
 	}
 	if !send {
@@ -311,73 +391,29 @@ conversation :: proc(ui: ^UI) {
 	}
 	// Enter takes the focus away from the box; keep typing instead.
 	mu.set_focus(ctx, box)
-	text := strings.trim_space(string(ui.buddies.buf[:ui.buddies.len]))
-	if text == "" || ui.session == nil {
-		return
-	}
-	log.debug("ui: direct message")
-	conn.push_command(&ui.session.client.commands, conn.DM_Command{to = key, text = strings.clone(text)})
-	ui.buddies.len = 0
+	composer_send(ui, composer, account)
 }
 
-/*
-delete_confirm asks whether to delete the conversation the delete
-button was pressed for, and does it: the history goes (dm_delete), and
-the conversation closes. A buddy stays in the list, with nothing said
-yet; anyone else leaves it. Clicking anywhere else is no. Call with the
-View locked.
-*/
+// no_conversation_yet stands in for the timeline where there's no DM
+// yet (or it's on its way): what we've written to them, going out.
 @(private = "file")
-delete_confirm :: proc(ui: ^UI) {
+no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 	ctx := &ui.ctx
-	b := &ui.buddies
-	if b.confirm {
-		b.confirm = false
-		mu.open_popup(ctx, DELETE_CONFIRM)
+	mu.begin_panel(ctx, "no conversation")
+	defer mu.end_panel(ctx)
+	pending := 0
+	for p, i in ui.view.outbox {
+		if p.dm_to == entry.account && (p.conv == 0 || p.conv == entry.conv) {
+			pending_message(ui, p, i64(i) * ITEMS_PER_MESSAGE)
+			pending += 1
+		}
 	}
-	if cnt := mu.get_container(ctx, DELETE_CONFIRM, {.CLOSED}); cnt != nil && cnt.open {
-		w, h := i32(ui.metrics.logical_w), i32(ui.metrics.logical_h)
-		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
-		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
-	}
-	if !mu.begin_popup(ctx, DELETE_CONFIRM) {
+	if pending > 0 {
 		return
 	}
-	defer mu.end_popup(ctx)
-
-	key := b.deleting
-	name := conn.fingerprint(key)
-	for e in buddy_list(&ui.settings, &ui.view) {
-		if e.key == key {
-			name = e.name
-			break
-		}
-	}
-	mu.layout_row(ctx, {DELETE_CONFIRM_WIDTH})
-	mu.label(ctx, fmt.tprintf("Delete the conversation with %s?", name))
-	mu.layout_row(ctx, {DELETE_CONFIRM_WIDTH}, 0)
-	with_text_color(
-		ctx,
-		DIM_COLOR,
-		"Every message in it is removed from this computer, for good. They keep their copy.",
-		text_proc,
-	)
-	half := (DELETE_CONFIRM_WIDTH - ctx.style.spacing) / 2
-	mu.layout_row(ctx, {half, half})
-	if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
-		mu.get_current_container(ctx).open = false
-	}
-	if .SUBMIT in stable_button(ctx, "delete", "Delete") {
-		mu.get_current_container(ctx).open = false
-		if ui.session != nil {
-			log.debug("ui: delete a conversation")
-			conn.push_command(&ui.session.client.commands, conn.Delete_DM_Command{with = key})
-		}
-		if b.has_selected && b.selected == key {
-			b.has_selected = false
-			b.len = 0
-		}
-	}
+	mu.layout_row(ctx, {-1})
+	text := "Loading messages..." if entry.conv != 0 else fmt.tprintf("Nothing said with %s yet.", entry.name)
+	with_text_color(ctx, CHAT_DIM_COLOR, text, label_proc)
 }
 
 /*
@@ -386,17 +422,17 @@ were last: when the screen opens, every LAST_SEEN_REFRESH, and as soon
 as someone in it leaves. Call with the View locked.
 */
 @(private = "file")
-ask_last_seen :: proc(ui: ^UI) {
+ask_last_seen :: proc(ui: ^UI, list: []Buddy_Entry) {
 	if ui.session == nil {
 		return
 	}
 	cmd: conn.Last_Seen_Command
 	online := 0
-	for b in buddy_list(&ui.settings, &ui.view) {
-		if b.online != 0 {
+	for b in list {
+		if b.online {
 			online += 1
-		} else if cmd.count < len(cmd.keys) {
-			cmd.keys[cmd.count] = b.key
+		} else if cmd.count < len(cmd.accounts) {
+			cmd.accounts[cmd.count] = b.account
 			cmd.count += 1
 		}
 	}
@@ -412,18 +448,14 @@ ask_last_seen :: proc(ui: ^UI) {
 }
 
 // last_seen_text is what the conversation's header says about someone
-// who isn't here: how long ago they were, as far as the server knows.
-@(private = "file")
-last_seen_text :: proc(ui: ^UI, key: [proto.KEY_SIZE]u8) -> string {
-	seen, known := ui.view.last_seen[key]
-	if !known || seen == proto.LAST_SEEN_HIDDEN {
-		// The server only says to people who've sent each other DMs.
+// who isn't here: how long ago they were, as far as the server says.
+last_seen_text :: proc(ui: ^UI, account: proto.Account_Id) -> string {
+	seen, known := ui.view.last_seen[account]
+	if !known || seen == proto.LAST_SEEN_HIDDEN || seen == 0 {
+		// The server only says to people who've written to each other.
 		return "not on this server right now"
 	}
-	if seen == 0 {
-		return "not seen on this server yet"
-	}
-	ago := time.time_to_unix(time.now()) - i64(seen)
+	ago := (time.time_to_unix_nano(time.now()) / 1_000_000 - i64(seen)) / 1000
 	plural :: proc(n: i64) -> string {
 		return "" if n == 1 else "s"
 	}
@@ -437,14 +469,12 @@ last_seen_text :: proc(ui: ^UI, key: [proto.KEY_SIZE]u8) -> string {
 	case ago < 7 * 24 * 60 * 60:
 		return fmt.tprintf("last seen %d day%s ago", ago / 86400, plural(ago / 86400))
 	}
-	return fmt.tprintf("last seen %s", chat_time(ui, seen))
+	return fmt.tprintf("last seen %s", chat_time(ui, proto.Unix_Time(i64(seen) / 1000)))
 }
 
 /*
 send_pasted_image sends an image that was pasted to where the paste was
-meant for, taking it over. Images only go to someone who's online, and a
-conversation with somebody who isn't says so instead. Call it outside
-the View lock.
+meant for, taking it over. Call it outside the View lock.
 */
 send_pasted_image :: proc(ui: ^UI, target: Paste_Target, image: conn.Chat_Image) {
 	image := image
@@ -453,26 +483,8 @@ send_pasted_image :: proc(ui: ^UI, target: Paste_Target, image: conn.Chat_Image)
 		conn.chat_image_destroy(&image)
 		return
 	}
-	if !target.dm {
-		conn.push_command(&ui.session.client.commands, conn.Chat_Image_Command{image})
-		return
-	}
-	online := false
-	{
-		sync.guard(&ui.view.mutex)
-		for _, u in ui.view.users {
-			if u.key == target.to {
-				online = true
-			}
-		}
-	}
-	if !online {
-		ui.buddies.notice = "images only go to someone who's online"
-		ui.buddies.notice_at = time.tick_now()
-		conn.chat_image_destroy(&image)
-		return
-	}
-	conn.push_command(&ui.session.client.commands, conn.DM_Image_Command{to = target.to, image = image})
+	conn.push_command(&ui.session.client.commands, conn.Chat_Image_Command{image = image, dm_to = target.dm_to})
+	ui.timeline.to_end = true
 }
 
 @(private = "file")

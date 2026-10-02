@@ -1,104 +1,86 @@
 #+build !wasi
 package proto
 
-import "core:fmt"
 import "core:testing"
-
-@(private = "file")
-decode_bufs :: struct {
-	users:    [64]User_Info,
-	channels: [MAX_CHANNELS]Channel_Info,
-	members:  [1024]User_Num,
-}
 
 @(test)
 test_state_roundtrip :: proc(t: ^testing.T) {
 	users := []User_Info {
-		{num = 1, key = {0 = 0xaa, 31 = 0x01}, name = "alice", flags = {.Muted}},
-		{num = 2, key = {0 = 0xbb, 31 = 0x02}, name = "", flags = {.Muted, .Deafened}},
-		{num = 7, key = {0 = 0xcc, 31 = 0x03}, name = "Zoë"},
+		{num = 1, account = 10, flags = {.Muted}, room = 3},
+		{num = 2, account = 10, flags = {.Muted, .Deafened}},
+		{num = 7, account = max(Account_Id), room = max(Room)},
 	}
-	channels := []Channel_Info {
-		{name = "Lobby", members = {1, 2}},
-		{name = "Empty"},
-		{name = "Gaming", members = {7}},
-	}
-	state := Channel_State {
-		your_channel = 2,
-		your_user    = 7,
-		join_ack     = 7,
-		users        = users,
-		channels     = channels,
+	state := Presence {
+		your_user = 7,
+		users     = users,
 	}
 
 	body_buf: [MAX_STATE_SIZE]byte
 	body, ok := encode_state(state, body_buf[:])
 	testing.expect(t, ok)
+	testing.expect_value(t, len(body), 4 + 2 + 3 * USER_SIZE)
 
-	bufs: decode_bufs
-	got: Channel_State
-	got, ok = decode_state(body, bufs.users[:], bufs.channels[:], bufs.members[:])
+	users_buf: [64]User_Info
+	got: Presence
+	got, ok = decode_state(body, users_buf[:])
 	testing.expect(t, ok)
-	testing.expect_value(t, got.your_channel, 2)
 	testing.expect_value(t, got.your_user, 7)
-	testing.expect_value(t, got.join_ack, 7)
 	testing.expect_value(t, len(got.users), 3)
 	for u, i in users {
 		testing.expect_value(t, got.users[i].num, u.num)
-		testing.expect_value(t, got.users[i].key, u.key)
-		testing.expect_value(t, got.users[i].name, u.name)
+		testing.expect_value(t, got.users[i].account, u.account)
 		testing.expect_value(t, got.users[i].flags, u.flags)
-	}
-	testing.expect_value(t, len(got.channels), 3)
-	for ch, i in channels {
-		testing.expect_value(t, got.channels[i].name, ch.name)
-		testing.expect_value(t, len(got.channels[i].members), len(ch.members))
-		for m, j in ch.members {
-			testing.expect_value(t, got.channels[i].members[j], m)
-		}
+		testing.expect_value(t, got.users[i].room, u.room)
 	}
 	me := find_user(&got, 7)
-	testing.expect(t, me != nil && me.name == "Zoë")
+	testing.expect(t, me != nil && me.account == max(Account_Id))
 	testing.expect(t, find_user(&got, 3) == nil)
+
+	// Nobody at all is a snapshot too.
+	body, ok = encode_state({your_user = 1}, body_buf[:])
+	testing.expect(t, ok)
+	got, ok = decode_state(body, users_buf[:])
+	testing.expect(t, ok)
+	testing.expect_value(t, len(got.users), 0)
 }
 
 @(test)
 test_state_decode_rejects_garbage :: proc(t: ^testing.T) {
-	state := Channel_State {
-		channels = []Channel_Info{{name = "Lobby", members = {1, 2}}},
+	state := Presence {
+		your_user = 1,
+		users     = []User_Info{{num = 1, account = 1}, {num = 2, account = 2}},
 	}
 	body_buf: [MAX_STATE_SIZE]byte
 	body, _ := encode_state(state, body_buf[:])
 
-	bufs: decode_bufs
-	// Truncated, trailing junk, and your_channel out of range.
-	_, ok := decode_state(body[:len(body) - 1], bufs.users[:], bufs.channels[:], bufs.members[:])
+	users_buf: [64]User_Info
+	// Truncated, trailing junk, and more users than there's room for.
+	_, ok := decode_state(body[:len(body) - 1], users_buf[:])
 	testing.expect(t, !ok)
 	junk := make([]byte, len(body) + 1, context.temp_allocator)
 	copy(junk, body)
-	_, ok = decode_state(junk, bufs.users[:], bufs.channels[:], bufs.members[:])
+	_, ok = decode_state(junk, users_buf[:])
 	testing.expect(t, !ok)
-	body[0] = 5
-	_, ok = decode_state(body, bufs.users[:], bufs.channels[:], bufs.members[:])
+	_, ok = decode_state(body, users_buf[:1])
+	testing.expect(t, !ok)
+	_, ok = decode_state(nil, users_buf[:])
 	testing.expect(t, !ok)
 }
 
 @(test)
 test_state_chunking :: proc(t: ^testing.T) {
 	// Big enough to need several chunks.
-	channels: [MAX_CHANNELS]Channel_Info
-	members: [256]User_Num
-	for &m, i in members {
-		m = User_Num(i)
+	users: [100]User_Info
+	for &u, i in users {
+		u = {
+			num     = User_Num(i + 1),
+			account = Account_Id(i + 1),
+			room    = Room(i % 5),
+		}
 	}
-	for &ch, i in channels {
-		ch.name = fmt.tprintf("channel-with-a-long-name-%02d", i)
-		ch.members = members[i * 4:][:4]
-	}
-	state := Channel_State {
-		your_channel = 63,
-		join_ack     = 1,
-		channels     = channels[:],
+	state := Presence {
+		your_user = 63,
+		users     = users[:],
 	}
 
 	body_buf: [MAX_STATE_SIZE]byte
@@ -139,12 +121,17 @@ test_state_chunking :: proc(t: ^testing.T) {
 	// Chunks of a version the caller already has are ignored.
 	_, _, complete := assembler_add(a, chunks[0], 9)
 	testing.expect(t, !complete)
+
+	// As many as a snapshot can hold still fit in one.
+	most := make([]User_Info, MAX_STATE_USERS, context.temp_allocator)
+	_, ok = encode_state({users = most}, body_buf[:])
+	testing.expect(t, ok)
 }
 
 @(test)
 test_assembler_prefers_newer_version :: proc(t: ^testing.T) {
 	body_buf: [MAX_STATE_SIZE]byte
-	body, _ := encode_state(Channel_State{channels = []Channel_Info{{name = "a"}}}, body_buf[:])
+	body, _ := encode_state(Presence{your_user = 1}, body_buf[:])
 
 	old_buf, new_buf: [MAX_PAYLOAD_SIZE]byte
 	older := encode_state_chunk(old_buf[:], 1, body, 0)
@@ -167,20 +154,16 @@ test_serial_newer :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_join_and_ack_encoding :: proc(t: ^testing.T) {
-	jb: [JOIN_SIZE]byte
-	msg := encode_join(&jb, 0xdeadbeef, 42)
-	kind, ok := message_kind(msg)
-	testing.expect(t, ok && kind == .Join)
-	request, channel := decode_join(msg)
-	testing.expect_value(t, request, 0xdeadbeef)
-	testing.expect_value(t, channel, 42)
-
+test_ack_encoding :: proc(t: ^testing.T) {
 	ab: [STATE_ACK_SIZE]byte
-	msg = encode_state_ack(&ab, 5)
-	kind, ok = message_kind(msg)
+	msg := encode_state_ack(&ab, 5)
+	kind, ok := message_kind(msg)
 	testing.expect(t, ok && kind == .State_Ack)
 	testing.expect_value(t, decode_state_ack(msg), 5)
+
+	// Join is retired: nothing that claims to be one is taken.
+	_, ok = message_kind([]u8{u8(Message_Kind.Join), 0, 0, 0, 0, 0, 0})
+	testing.expect(t, !ok)
 }
 
 @(test)
@@ -208,55 +191,64 @@ test_sanitize_name :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_hello_and_set_name :: proc(t: ^testing.T) {
+test_hello_and_welcome :: proc(t: ^testing.T) {
 	hb: [HELLO_MAX_SIZE]u8
-	name, password, ok := decode_hello(encode_hello(&hb, "alice"))
+	conn_id, password, ok := decode_hello(encode_hello(&hb, 7))
 	testing.expect(t, ok)
-	testing.expect_value(t, name, "alice")
+	testing.expect_value(t, conn_id, 7)
 	testing.expect_value(t, password, "")
 
-	name, password, ok = decode_hello(encode_hello(&hb, "alice", "hunter2"))
+	conn_id, password, ok = decode_hello(encode_hello(&hb, max(u64), "hunter2"))
 	testing.expect(t, ok)
-	testing.expect_value(t, name, "alice")
+	testing.expect_value(t, conn_id, max(u64))
 	testing.expect_value(t, password, "hunter2")
 
-	// The longest of both still fits.
-	long_name := "0123456789012345678901234567890123456789"
+	// The longest still fits.
 	long_password := "0123456789012345678901234567890123456789012345678901234567890123456789"
-	name, password, ok = decode_hello(encode_hello(&hb, long_name, long_password))
+	_, password, ok = decode_hello(encode_hello(&hb, 1, long_password))
 	testing.expect(t, ok)
-	testing.expect_value(t, name, long_name[:MAX_NAME_SIZE])
 	testing.expect_value(t, password, long_password[:MAX_PASSWORD_SIZE])
 
-	name, password, ok = decode_hello(nil) // no hello at all: fine, no name
+	_, _, ok = decode_hello(nil) // no hello at all: no conn_id
+	testing.expect(t, !ok)
+	id :: [8]u8{1, 2, 3, 4, 5, 6, 7, 8}
+	hello :: proc(version: u8, rest: ..u8) -> []u8 {
+		out := make([dynamic]u8, context.temp_allocator)
+		append(&out, version)
+		conn := id
+		append(&out, ..conn[:])
+		append(&out, ..rest)
+		return out[:]
+	}
+	_, _, ok = decode_hello(hello(HELLO_VERSION, 1, 'a'))
 	testing.expect(t, ok)
-	testing.expect_value(t, name, "")
-	testing.expect_value(t, password, "")
-	_, _, ok = decode_hello([]u8{9, 0, 0}) // unknown version
+	_, _, ok = decode_hello(hello(HELLO_VERSION + 1, 0)) // unknown version
 	testing.expect(t, !ok)
-	_, _, ok = decode_hello([]u8{3, 1, 'a'}) // version 3: no password field
+	_, _, ok = decode_hello(hello(5, 1, 'a', 0)) // version 5: with a name
 	testing.expect(t, !ok)
-	_, _, ok = decode_hello([]u8{HELLO_VERSION, 10, 'a'}) // truncated
+	_, _, ok = decode_hello(hello(HELLO_VERSION, 2, 'x')) // truncated password
 	testing.expect(t, !ok)
-	_, _, ok = decode_hello([]u8{HELLO_VERSION, 1, 'a', 2, 'x'}) // truncated password
+	_, _, ok = decode_hello(hello(HELLO_VERSION, 0, 'x')) // trailing bytes
 	testing.expect(t, !ok)
-	_, _, ok = decode_hello([]u8{HELLO_VERSION, 1, 'a', 0, 'x'}) // trailing bytes
-	testing.expect(t, !ok)
+
+	wb: [WELCOME_SIZE]u8
+	welcome := encode_welcome(&wb, 0x1122334455667788, false)
+	kind, kind_ok := message_kind(welcome)
+	testing.expect(t, kind_ok && kind == .Welcome)
+	instance, logged_in := decode_welcome(welcome)
+	testing.expect_value(t, instance, 0x1122334455667788)
+	testing.expect(t, !logged_in)
+	_, logged_in = decode_welcome(encode_welcome(&wb, 1, true))
+	testing.expect(t, logged_in)
 
 	rb: [REFUSED_SIZE]u8
 	refused := encode_refused(&rb, .Wrong_Password)
-	kind, kind_ok := message_kind(refused)
+	kind, kind_ok = message_kind(refused)
 	testing.expect(t, kind_ok && kind == .Refused)
 	testing.expect_value(t, decode_refused(refused), Refusal.Wrong_Password)
 
-	sb: [SET_NAME_MAX_SIZE]u8
-	msg := encode_set_name(&sb, "bob")
-	kind, kind_ok = message_kind(msg)
-	testing.expect(t, kind_ok && kind == .Set_Name)
-	testing.expect_value(t, decode_set_name(msg), "bob")
-	// A length byte that doesn't match the message is rejected.
-	msg[1] = 7
-	_, kind_ok = message_kind(msg)
+	// Set_Name is retired: nothing that claims to be one is taken.
+	_, kind_ok = message_kind([]u8{u8(Message_Kind.Set_Name), 1, 'a'})
 	testing.expect(t, !kind_ok)
 }
 

@@ -31,11 +31,11 @@ Video_State :: struct {
 	last_key_sent: time.Tick, // Keyframe requests passed to them
 }
 
-handle_watch :: proc(s: ^Server, u: ^User, pt: []byte) {
+handle_watch :: proc(s: ^Server, u: ^Conn, pt: []byte) {
 	sharer, need_key := proto.decode_watch(pt)
 	v := &u.video
 	if sharer != v.watching {
-		log.debugf("%s watches %d", user_label(u), sharer)
+		log.debugf("%s watches %d", conn_label(u), sharer)
 	}
 	v.watching = sharer
 	if sharer == 0 {
@@ -50,12 +50,12 @@ handle_watch :: proc(s: ^Server, u: ^User, pt: []byte) {
 // request_keyframe asks a sharer for a keyframe on a viewer's behalf,
 // at most once every KEYFRAME_REQUEST_MIN whoever is asking.
 @(private = "file")
-request_keyframe :: proc(s: ^Server, viewer: ^User, sharer: proto.User_Num) {
-	for _, u in s.users {
+request_keyframe :: proc(s: ^Server, viewer: ^Conn, sharer: proto.User_Num) {
+	for _, u in s.conns {
 		if u.num != sharer {
 			continue
 		}
-		if u.channel != viewer.channel || .Sharing not_in u.flags {
+		if viewer.room == 0 || u.room != viewer.room || .Sharing not_in u.flags {
 			return
 		}
 		now := time.tick_now()
@@ -81,12 +81,12 @@ who's watching them, re-encrypted for each. Video from somebody who
 hasn't said they're sharing, or over their budget, goes nowhere.
 */
 relay_video :: proc(s: ^Server, from: ^Client, pt: []byte) {
-	u := from.user
+	u := from.conn
 	if _, ok := proto.decode_video_up(pt); !ok || .Sharing not_in u.flags {
 		return
 	}
 	if !spend_budget(&u.video, len(pt)) {
-		log.debugf("%s is sharing faster than the server passes on", user_label(u))
+		log.debugf("%s is sharing faster than the server passes on", conn_label(u))
 		return
 	}
 
@@ -95,10 +95,15 @@ relay_video :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	now := time.tick_now()
 	pkt_buf: [proto.MAX_PACKET_SIZE]u8
 	for _, c in s.sessions {
-		if !c.keyed || c.superseded || c.user == u || c.user.channel != u.channel {
+		if !c.keyed ||
+		   c.superseded ||
+		   c.conn == u ||
+		   c.conn.account == nil ||
+		   u.room == 0 ||
+		   c.conn.room != u.room {
 			continue
 		}
-		v := &c.user.video
+		v := &c.conn.video
 		if v.watching != u.num || time.tick_diff(now, v.watch_until) <= 0 {
 			continue
 		}

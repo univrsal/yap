@@ -10,15 +10,16 @@ same encrypted Data packets as everything else, in both directions.
 	receiver -> sender  Blob_Need  [kind][handle u64][flags u8][count u16][index u16]...
 
 The receiver always knows the size in advance, and with it how many
-chunks to expect: an upload is announced with Image_Send, and for a
-download the size is in the chat entry (see chat.odin). A `handle`
-identifies the transfer: the message's nonce going up, the image's id
-coming down.
+chunks to expect: an upload is announced with Blob_Put, and a download
+asked for with Blob_Get, whose answer has the size (see msgs.odin). A
+`handle` identifies the transfer; the server hands one out for each.
 
 The sender pushes chunks at its own pace. The receiver asks for what
 hasn't arrived with Blob_Need, and repeats it until the gaps are filled;
 when everything is there it sends Blob_Need with the complete flag,
-which is also the sender's cue to let the transfer go. Blob_Need is
+which is also the sender's cue to let the transfer go. The server
+receiving an upload that turns out not to be what was announced says
+so with the failed flag instead. Blob_Need is
 unreliable like everything else, so both sides repeat themselves until
 the other's answer shows it got through.
 */
@@ -27,13 +28,14 @@ BLOB_CHUNK_HEADER_SIZE :: 1 + 8 + 2
 BLOB_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - BLOB_CHUNK_HEADER_SIZE
 BLOB_NEED_HEADER_SIZE :: 1 + 8 + 1 + 2
 BLOB_NEED_MAX_INDICES :: (MAX_PAYLOAD_SIZE - BLOB_NEED_HEADER_SIZE) / 2
-// The most we ever transfer: what a chat image may take up, and room for
-// the tag on one sealed for a DM (dm.odin).
-MAX_BLOB_SIZE :: 256 * 1024 + TAG_SIZE
+// The most we ever transfer: a server's sheet of custom emoji at its
+// biggest (emoji.odin). A picture in a message is smaller (MAX_IMAGE_SIZE).
+MAX_BLOB_SIZE :: 1024 * 1024
 MAX_BLOB_CHUNKS :: (MAX_BLOB_SIZE + BLOB_CHUNK_SIZE - 1) / BLOB_CHUNK_SIZE
 
 // Blob_Need flags.
 BLOB_COMPLETE :: 1 << 0
+BLOB_FAILED :: 1 << 1
 
 blob_chunk_count :: proc(size: int) -> int {
 	return (size + BLOB_CHUNK_SIZE - 1) / BLOB_CHUNK_SIZE
@@ -66,6 +68,7 @@ encode_blob_need :: proc(
 	handle: u64,
 	complete: bool,
 	indices: []u16,
+	failed := false,
 ) -> (
 	msg: []u8,
 	count: int,
@@ -73,7 +76,7 @@ encode_blob_need :: proc(
 	count = min(len(indices), (len(out) - BLOB_NEED_HEADER_SIZE) / 2, BLOB_NEED_MAX_INDICES)
 	out[0] = u8(Message_Kind.Blob_Need)
 	endian.unchecked_put_u64le(out[1:], handle)
-	out[9] = BLOB_COMPLETE if complete else 0
+	out[9] = (BLOB_COMPLETE if complete else 0) | (BLOB_FAILED if failed else 0)
 	endian.unchecked_put_u16le(out[10:], u16(count))
 	for i in 0 ..< count {
 		endian.unchecked_put_u16le(out[BLOB_NEED_HEADER_SIZE + i * 2:], indices[i])
@@ -103,6 +106,12 @@ decode_blob_need :: proc(
 		return
 	}
 	return handle, complete, count, pt[BLOB_NEED_HEADER_SIZE:], true
+}
+
+// blob_need_failed is whether a Blob_Need (one that decodes) says the
+// upload was refused.
+blob_need_failed :: proc(pt: []u8) -> bool {
+	return len(pt) >= BLOB_NEED_HEADER_SIZE && pt[9] & BLOB_FAILED != 0
 }
 
 blob_need_index :: proc(indices: []u8, i: int) -> int {

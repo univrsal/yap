@@ -15,8 +15,8 @@ import "client:render"
 import "client:conn"
 
 /*
-Showing chat images. The network thread hands over the JPEG it fetched
-(View.images); here it's decoded on a worker thread, uploaded to a
+Showing pictures. The network thread hands over the JPEG it fetched
+(View.blobs); here it's decoded on a worker thread, uploaded to a
 texture on the UI thread, and drawn in microui's command list so it's
 clipped and layered like everything else (see render/render.odin, which
 takes an icon id of IMAGE_ICON_BASE or more as "draw image N of this
@@ -26,7 +26,7 @@ Textures are kept for MAX_IMAGE_TEXTURES images, the least recently
 drawn going first; scrolling back to one decodes it again.
 */
 
-MAX_IMAGE_TEXTURES :: 32
+MAX_IMAGE_TEXTURES :: 96
 // How tall an image may be drawn, in logical pixels.
 MAX_IMAGE_DISPLAY_HEIGHT :: 320
 
@@ -47,22 +47,25 @@ Texture :: struct {
 	frame:   int, // when it was last drawn
 }
 
+// Pictures are known by a key their drawer gives (image_block): a
+// message's picture by its blob's id.
+
 Decode_Job :: struct {
-	id:   u32,
+	id:   u64,
 	jpeg: []u8, // owned by the job
 }
 
 Decode_Result :: struct {
-	id:    u32,
+	id:    u64,
 	image: clipboard.Image, // pixels owned by the result
 	ok:    bool,
 }
 
 UI_Images :: struct {
-	textures:    map[u32]Texture,
+	textures:    map[u64]Texture,
 	// The image shown enlarged, 0 for none, and whether it still has to
 	// be sized to the window.
-	viewer:      u32,
+	viewer:      u64,
 	placed:      bool,
 	// The viewer's zoom, relative to the image fitted to its window (1 is
 	// fitted, and as far out as it goes), and how far the image's centre
@@ -71,7 +74,7 @@ UI_Images :: struct {
 	pan:         [2]f32,
 	// A saved copy of what's on screen, so the viewer and saving can work
 	// outside the View's lock.
-	shown:       proto.Image_Info,
+	shown:       proto.Msg_Image,
 	state:       conn.Image_State,
 	// Bytes to write to the downloads folder after the frame, and where
 	// the last one went. viewer_save is the viewer's Save button, acted
@@ -162,6 +165,9 @@ ui_images_frame :: proc(ui: ^UI) {
 			}
 			continue
 		}
+		if result.id & AVATAR_KEY != 0 {
+			round_off(&result.image) // a picture of somebody (ui_avatars.odin)
+		}
 		t.state = .Ready
 		t.texture = render.gpu_texture_make(
 			&ui.renderer.gpu,
@@ -179,16 +185,19 @@ ui_images_frame :: proc(ui: ^UI) {
 // image_block draws one image message: the picture once it's here, and
 // what's happening with it until then (`gone` says why it isn't coming).
 // It's laid out at the size the image will take, so nothing jumps when
-// it arrives. Clicking it opens the viewer; the right button saves it.
+// it arrives. Clicking it opens the viewer; the message's menu (the right
+// button) saves it.
 image_block :: proc(
 	ui: ^UI,
-	info: proto.Image_Info,
+	key: u64, // which picture it is: its blob's id
+	info: proto.Msg_Image,
 	state: conn.Image_State,
 	jpeg: []u8,
 	gone := "image no longer on the server",
+	available := 0, // how wide it may be; 0 for the panel's width
 ) {
 	ctx := &ui.ctx
-	w, h := image_display_size(ctx, int(info.width), int(info.height))
+	w, h := image_display_size(ctx, int(info.width), int(info.height), available)
 	mu.layout_row(ctx, {i32(w)}, i32(h))
 	rect := mu.layout_next(ctx)
 
@@ -196,13 +205,10 @@ image_block :: proc(
 	if state == .Ready && mu.mouse_over(ctx, rect) {
 		ui.chat.hovering = true // the pointing hand
 		if .LEFT in ctx.mouse_pressed_bits {
-			im.viewer, im.placed = info.id, false
-		}
-		if .RIGHT in ctx.mouse_pressed_bits {
-			request_save(im, jpeg)
+			im.viewer, im.placed = key, false
 		}
 	}
-	if info.id == im.viewer {
+	if key == im.viewer {
 		// What the viewer draws, copied while the View is locked.
 		im.shown, im.state = info, state
 		if len(im.save) == 0 && im.viewer_save {
@@ -210,14 +216,14 @@ image_block :: proc(
 			request_save(im, jpeg)
 		}
 	}
-	t, known := im.textures[info.id]
+	t, known := im.textures[key]
 	if !known && state == .Ready && len(jpeg) > 0 {
-		enqueue_decode(im, info.id, jpeg)
-		t, known = im.textures[info.id]
+		enqueue_decode(im, key, jpeg)
+		t, known = im.textures[key]
 	}
 	if known && t.state == .Ready {
 		t.frame = im.frame
-		im.textures[info.id] = t
+		im.textures[key] = t
 		append(&im.draws, render.Image_Draw{texture = t.texture})
 		// An icon command, which the renderer draws as this frame's image
 		// number N; microui takes care of clipping it to the panel.
@@ -243,7 +249,6 @@ image_block :: proc(
 
 // request_save keeps a copy of an image to write out after the frame,
 // once the View isn't locked any more.
-@(private = "file")
 request_save :: proc(im: ^UI_Images, jpeg: []u8) {
 	if len(jpeg) == 0 || len(im.save) > 0 {
 		return
@@ -425,23 +430,25 @@ ui_images_after_frame :: proc(ui: ^UI) {
 
 // image_display_size is how big an image is drawn: as large as fits the
 // chat panel, never enlarged, and never taller than a few hundred pixels.
-image_display_size :: proc(ctx: ^mu.Context, width, height: int) -> (w, h: int) {
+image_display_size :: proc(ctx: ^mu.Context, width, height: int, available := 0) -> (w, h: int) {
 	if width <= 0 || height <= 0 {
 		return 160, 90
 	}
+	if available > 0 {
+		return conn.fit_box(width, height, available, MAX_IMAGE_DISPLAY_HEIGHT)
+	}
 	// As wide as the panel's content area.
-	available := 160
+	panel := 160
 	if cnt := mu.get_current_container(ctx); cnt != nil {
-		available = max(
+		panel = max(
 			int(cnt.body.w) - 2 * int(ctx.style.padding) - int(ctx.style.scrollbar_size),
 			32,
 		)
 	}
-	return conn.fit_box(width, height, available, MAX_IMAGE_DISPLAY_HEIGHT)
+	return conn.fit_box(width, height, panel, MAX_IMAGE_DISPLAY_HEIGHT)
 }
 
-@(private = "file")
-enqueue_decode :: proc(im: ^UI_Images, id: u32, jpeg: []u8) {
+enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8) {
 	copy_of := make([]u8, len(jpeg))
 	copy(copy_of, jpeg)
 	im.textures[id] = {
@@ -460,7 +467,7 @@ enqueue_decode :: proc(im: ^UI_Images, id: u32, jpeg: []u8) {
 @(private = "file")
 trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 	for len(im.textures) > MAX_IMAGE_TEXTURES {
-		oldest_id: u32
+		oldest_id: u64
 		oldest_frame := max(int)
 		for id, t in im.textures {
 			if t.state != .Decoding && t.frame < oldest_frame {
@@ -483,4 +490,42 @@ trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 file_name :: proc(path: string) -> string {
 	i := strings.last_index_any(path, "/\\")
 	return path[i + 1:]
+}
+
+// The key the server's sheet of emoji is decoded and kept under, beside
+// messages' pictures (which are their blob's id).
+@(private = "file")
+EMOJI_SHEET_KEY :: u64(1) << 62
+
+/*
+custom_emoji_icon is what draws the server's emoji number `index`: an
+icon id for mu.draw_icon, for this frame. False until the sheet is here
+and decoded. Call with the View locked.
+*/
+custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
+	v := &ui.view
+	im := &ui.images
+	e := &v.emoji
+	if e.blob == 0 || index < 0 || index >= len(e.names) {
+		return {}, false
+	}
+	key := EMOJI_SHEET_KEY | u64(e.blob)
+	t, known := im.textures[key]
+	if !known {
+		if img, ok := v.blobs[e.blob]; ok && img.state == .Ready && len(img.jpeg) > 0 {
+			enqueue_decode(im, key, img.jpeg)
+		}
+		return {}, false
+	}
+	if t.state != .Ready {
+		return {}, false
+	}
+	t.frame = im.frame
+	im.textures[key] = t
+	cols := proto.EMOJI_SHEET_COLUMNS
+	rows := (len(e.names) + cols - 1) / cols
+	u0 := f32(index % cols) / f32(cols)
+	v0 := f32(index / cols) / f32(rows)
+	append(&im.draws, render.Image_Draw{texture = t.texture, uv = {u0, v0, u0 + 1 / f32(cols), v0 + 1 / f32(rows)}})
+	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
 }

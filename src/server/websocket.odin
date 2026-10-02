@@ -40,9 +40,9 @@ accept_key :: proc(key: string, allocator := context.temp_allocator) -> string {
 	return base64.encode(digest[:], allocator = allocator)
 }
 
-// Conn reads a TCP socket through a buffer, so the HTTP request and the
+// Tcp_Conn reads a TCP socket through a buffer, so the HTTP request and the
 // frames after it can be taken apart piece by piece.
-Conn :: struct {
+Tcp_Conn :: struct {
 	sock:  net.TCP_Socket,
 	buf:   [8192]u8,
 	start: int,
@@ -50,7 +50,7 @@ Conn :: struct {
 }
 
 // read_exact fills `out` completely, or reports that the peer went away.
-read_exact :: proc(c: ^Conn, out: []u8) -> bool {
+read_exact :: proc(c: ^Tcp_Conn, out: []u8) -> bool {
 	done := 0
 	for done < len(out) {
 		if c.start == c.end {
@@ -72,7 +72,7 @@ read_frame reads one frame into `payload`, unmasked. Frames from a
 browser are always masked; one that isn't, or that is bigger than
 MAX_FRAME, ends the connection.
 */
-read_frame :: proc(c: ^Conn, payload: []u8) -> (op: Opcode, n: int, ok: bool) {
+read_frame :: proc(c: ^Tcp_Conn, payload: []u8) -> (op: Opcode, n: int, ok: bool) {
 	head: [2]u8
 	read_exact(c, head[:]) or_return
 	fin := head[0] & 0x80 != 0

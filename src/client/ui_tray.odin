@@ -40,6 +40,9 @@ TRAY_ICON_PIXELS :: 32
 TRAY_QUIET :: mu.Color{140, 148, 160, 255}
 @(private = "file")
 TRAY_TALKING :: mu.Color{60, 190, 90, 255}
+// Something is unread (see unread_total).
+@(private = "file")
+TRAY_UNREAD :: mu.Color{80, 140, 235, 255}
 @(private = "file")
 TRAY_OFF :: mu.Color{225, 80, 80, 255}
 
@@ -175,7 +178,13 @@ tray_state :: proc(ui: ^UI) -> (render.Icon, mu.Color) {
 		sync.guard(&ui.view.mutex)
 		speaking = conn.is_speaking(&ui.view, ui.view.my_num)
 	}
-	return .Mic, TRAY_TALKING if speaking else TRAY_QUIET
+	switch {
+	case speaking:
+		return .Mic, TRAY_TALKING
+	case ui.unread > 0:
+		return .Mic, TRAY_UNREAD
+	}
+	return .Mic, TRAY_QUIET
 }
 
 // on_wayland reports whether we're running as a Wayland client, which

@@ -37,6 +37,7 @@ ERROR_COLOR :: mu.Color{230, 90, 90, 255}
 open_settings :: proc(ui: ^UI) {
 	ui.page = .Settings
 	ui.known.loaded = false
+	ui_account_opened(ui)
 	when !platform.WEB {
 		ui.install.loaded = false
 	}

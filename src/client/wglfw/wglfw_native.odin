@@ -46,6 +46,7 @@ CreateStandardCursor :: glfw.CreateStandardCursor
 SetCursor :: glfw.SetCursor
 RequestWindowAttention :: glfw.RequestWindowAttention
 RestoreWindow :: glfw.RestoreWindow
+SetWindowTitle :: glfw.SetWindowTitle
 GetPlatform :: glfw.GetPlatform
 GetPrimaryMonitor :: glfw.GetPrimaryMonitor
 GetVideoMode :: glfw.GetVideoMode
@@ -94,11 +95,19 @@ KEY_LEFT_ALT :: glfw.KEY_LEFT_ALT
 KEY_LEFT_CONTROL :: glfw.KEY_LEFT_CONTROL
 KEY_LEFT_SHIFT :: glfw.KEY_LEFT_SHIFT
 KEY_RIGHT :: glfw.KEY_RIGHT
+KEY_UP :: glfw.KEY_UP
+KEY_DOWN :: glfw.KEY_DOWN
+KEY_TAB :: glfw.KEY_TAB
 KEY_RIGHT_ALT :: glfw.KEY_RIGHT_ALT
 KEY_RIGHT_CONTROL :: glfw.KEY_RIGHT_CONTROL
 KEY_RIGHT_SHIFT :: glfw.KEY_RIGHT_SHIFT
 KEY_V :: glfw.KEY_V
 KEY_X :: glfw.KEY_X
+
+// WindowFocused is whether the window has the keyboard's focus.
+WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {
+	return glfw.GetWindowAttrib(window, glfw.FOCUSED) != 0
+}
 
 // Wayland only, and only on a desktop: the clipboard needs GLFW's own
 // connection to read anything (see clipboard_init).

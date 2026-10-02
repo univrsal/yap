@@ -4,6 +4,8 @@ import "core:strings"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
+import "client:conn"
+
 /*
 Selecting text in the chat and the log with the mouse, and copying it
 with Ctrl+C.
@@ -25,8 +27,14 @@ Select_Panel :: enum {
 	None,
 	Chat,
 	Log,
-	DM, // the open conversation on the buddy screen
+	// The thread windows' (ui_threads.odin), by slot.
+	Thread_1,
+	Thread_2,
+	Thread_3,
+	Thread_4,
 }
+
+#assert(int(Select_Panel.Thread_4) - int(Select_Panel.Thread_1) + 1 == conn.MAX_THREADS)
 
 Text_Pos :: struct {
 	item:   i64,

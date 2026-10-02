@@ -22,11 +22,13 @@ net_stop :: proc(ns: ^Net_Session) {
 net_thread :: proc(ns: ^Net_Session) {
 	c := ns.client
 	defer conn.client_close(c)
-	if !conn.client_open(c, ns.key_path, ns.server, ns.known_servers, ns.name, ns.password) {
+	if !conn.client_open(c, ns.key_path, ns.server, ns.known_servers, ns.password) {
 		return
 	}
 	if ns.channel != "" {
-		conn.request_join(c, ns.channel)
+		conn.conv_start_in(c, ns.channel)
+	} else if ns.view != "" {
+		conn.conv_start_viewing(c, ns.view)
 	}
 	for !sync.atomic_load(&ns.stop) {
 		if !conn.client_step(c) {

@@ -4,6 +4,9 @@
 # Extra arguments are passed to both builds, e.g.
 # ./build.sh -debug -define:YAP_LOSS_PERCENT=30
 #
+# The server links SQLite (src/server/sqlite), whose source is fetched
+# into .cache the first time.
+#
 # The client links a trimmed-down miniaudio (src/client/audio/miniaudio), RNNoise
 # (src/client/audio/rnn) and traycon (src/client/tray), whose third-party sources
 # are in deps/thirdparty, compiled here with the system C
@@ -83,6 +86,21 @@ if [ ! -f "$lib" ] || [ "$aac/yap_aac.c" -nt "$lib" ] || [ deps/thirdparty/tinya
 	${CC:-cc} -std=c99 -Os $aac_flags -c "$aac/yap_aac.c" -o "$aac/yap_aac.o"
 	ar rcs "$lib" "$aac/yap_aac.o"
 	rm "$aac/yap_aac.o"
+fi
+
+# SQLite, for the server's database: one big C file, fetched on first
+# use (scripts/fetch-sqlite.sh) and compiled the way
+# src/server/sqlite/yap_sqlite.c configures it. It takes a little while,
+# and is only done again when that file or the version changes.
+sqlite=src/server/sqlite
+lib=$sqlite/libyap_sqlite.a
+if [ ! -f "$lib" ] || [ "$sqlite/yap_sqlite.c" -nt "$lib" ] || [ scripts/sqlite.version -nt "$lib" ]; then
+	. scripts/sqlite.version
+	scripts/fetch-sqlite.sh .cache
+	echo "building $lib"
+	${CC:-cc} -Os -I".cache/sqlite-autoconf-$sqlite_version" -c "$sqlite/yap_sqlite.c" -o "$sqlite/yap_sqlite.o"
+	ar rcs "$lib" "$sqlite/yap_sqlite.o"
+	rm "$sqlite/yap_sqlite.o"
 fi
 
 # libopus on macOS and OpenBSD: there's no prebuilt library for them in

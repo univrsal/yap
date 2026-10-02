@@ -152,3 +152,37 @@ test_image_rejects_bad_input :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, !ok)
 }
+
+@(test)
+test_avatar_prepare :: proc(t: ^testing.T) {
+	// A wide photo: the middle square, scaled to the largest picture,
+	// within the budget even when it's noisy.
+	src := test_image(1200, 600)
+	defer delete(src.pixels)
+	img, ok := avatar_prepare(src)
+	defer conn.chat_image_destroy(&img)
+	testing.expect(t, ok)
+	testing.expect_value(t, img.width, 256)
+	testing.expect_value(t, img.height, 256)
+	testing.expect(t, len(img.jpeg) <= 64 * 1024)
+	w, h, comp: i32
+	testing.expect(t, stbi.info_from_memory(raw_data(img.jpeg), i32(len(img.jpeg)), &w, &h, &comp) == 1)
+	testing.expect(t, w == 256 && h == 256)
+
+	noisy := gradient_image(900, 900)
+	defer delete(noisy.pixels)
+	big, big_ok := avatar_prepare(noisy)
+	defer conn.chat_image_destroy(&big)
+	testing.expect(t, big_ok && len(big.jpeg) <= 64 * 1024)
+
+	// A small tall one isn't grown, only cut square.
+	small := test_image(40, 80)
+	defer delete(small.pixels)
+	tiny, tiny_ok := avatar_prepare(small)
+	defer conn.chat_image_destroy(&tiny)
+	testing.expect(t, tiny_ok)
+	testing.expect(t, tiny.width == 40 && tiny.height == 40)
+
+	_, bad := avatar_prepare({})
+	testing.expect(t, !bad)
+}

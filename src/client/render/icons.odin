@@ -33,6 +33,10 @@ Icon :: enum {
 	File, // a sheet of paper with a corner turned down: send a file
 	Trash, // a bin with its lid on: delete
 	App_Audio, // two notes: share an application's audio
+	Pin, // a drawing pin: pinned messages
+	Smiley, // a smiling face: the emoji picker
+	Log, // a framed page of lines: the log
+	Search, // a magnifying glass: searching messages
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -166,6 +170,14 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return bin(p)
 	case .App_Audio:
 		return notes(p)
+	case .Pin:
+		return drawing_pin(p)
+	case .Smiley:
+		return smiley(p)
+	case .Log:
+		return log_page(p)
+	case .Search:
+		return magnifier(p)
 	}
 	return 1
 }
@@ -177,6 +189,50 @@ monitor :: proc(p: Point) -> f32 {
 	d := abs(rounded_box(p, {0.5, 0.40}, {0.39, 0.27}, 0.07)) - STROKE / 2
 	d = nearer(d, capsule(p, {0.5, 0.67}, {0.5, 0.83}, STROKE))
 	d = nearer(d, capsule(p, {0.30, 0.85}, {0.70, 0.85}, STROKE))
+	return d
+}
+
+// A magnifying glass: a ring, and its handle down to the right.
+@(private = "file")
+magnifier :: proc(p: Point) -> f32 {
+	STROKE :: 0.09
+	d := abs(rounded_box(p, {0.42, 0.42}, {0.24, 0.24}, 0.24)) - STROKE / 2
+	return nearer(d, capsule(p, {0.60, 0.60}, {0.82, 0.82}, 0.12))
+}
+
+// A page of the log: a frame round three lines of text of different
+// lengths.
+@(private = "file")
+log_page :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := abs(rounded_box(p, {0.5, 0.5}, {0.36, 0.38}, 0.07)) - STROKE / 2
+	d = nearer(d, capsule(p, {0.32, 0.35}, {0.68, 0.35}, STROKE))
+	d = nearer(d, capsule(p, {0.32, 0.50}, {0.60, 0.50}, STROKE))
+	d = nearer(d, capsule(p, {0.32, 0.65}, {0.66, 0.65}, STROKE))
+	return d
+}
+
+// A smiling face: a ring, two eyes, and a smile.
+@(private = "file")
+smiley :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := abs(rounded_box(p, {0.5, 0.5}, {0.38, 0.38}, 0.38)) - STROKE / 2
+	d = nearer(d, rounded_box(p, {0.37, 0.40}, {0.05, 0.06}, 0.05))
+	d = nearer(d, rounded_box(p, {0.63, 0.40}, {0.05, 0.06}, 0.05))
+	d = nearer(d, capsule(p, {0.32, 0.58}, {0.42, 0.67}, STROKE))
+	d = nearer(d, capsule(p, {0.42, 0.67}, {0.58, 0.67}, STROKE))
+	d = nearer(d, capsule(p, {0.58, 0.67}, {0.68, 0.58}, STROKE))
+	return d
+}
+
+// A drawing pin, upright: a round head on a wider collar, and the point
+// below.
+@(private = "file")
+drawing_pin :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := rounded_box(p, {0.5, 0.26}, {0.15, 0.15}, 0.12)
+	d = nearer(d, capsule(p, {0.26, 0.48}, {0.74, 0.48}, 0.13))
+	d = nearer(d, capsule(p, {0.5, 0.52}, {0.5, 0.88}, STROKE))
 	return d
 }
 

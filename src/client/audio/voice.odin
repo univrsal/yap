@@ -141,11 +141,11 @@ Voice :: struct {
 	// How much to keep queued for the output device (see OUTPUT_TARGET).
 	output_target:     int,
 	speakers:          map[proto.User_Num]^Speaker,
-	// Per-user playback gain (0 = muted), from the UI, by public key.
-	// Missing means 1.
-	gains:             map[[proto.KEY_SIZE]u8]f32, // by public key
-	// User number -> public key, from the latest snapshot.
-	user_keys:         map[proto.User_Num][proto.KEY_SIZE]u8,
+	// Per-user playback gain (0 = muted), from the UI, by account: the
+	// same for all of an account's devices. Missing means 1.
+	gains:             map[proto.Account_Id]f32,
+	// User number -> account, from the latest snapshot.
+	user_accounts:     map[proto.User_Num]proto.Account_Id,
 
 	// Stats, reset every second by log_stats.
 	captured:          int, // frames read from the microphone
@@ -196,7 +196,7 @@ voice_destroy :: proc(v: ^Voice) {
 	}
 	delete(v.speakers)
 	delete(v.gains)
-	delete(v.user_keys)
+	delete(v.user_accounts)
 	delete(v.received)
 	delete(v.lateness)
 	for &d in v.denoisers {
@@ -545,6 +545,7 @@ mix_output :: proc(v: ^Voice) {
 		if v.deafened {
 			notifications_deafen(&v.notifications)
 		}
+		v.notifications.loop_quiet = v.deafened
 		notifications_mix(&v.notifications, mix[:])
 		for id, sp in v.speakers {
 			queued := ring_available(&sp.queue)
@@ -564,8 +565,8 @@ mix_output :: proc(v: ^Voice) {
 			frame: [FRAME]f32
 			got := ring_read(&sp.queue, frame[:])
 			gain: f32 = 1
-			if key, known := v.user_keys[id]; known {
-				gain = v.gains[key] or_else 1
+			if account, known := v.user_accounts[id]; known {
+				gain = v.gains[account] or_else 1
 			}
 			if v.deafened {
 				gain = 0

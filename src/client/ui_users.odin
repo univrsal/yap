@@ -2,6 +2,7 @@ package client
 
 import log "common:wlog"
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 import mu "vendor:microui"
 
@@ -13,9 +14,11 @@ import "client:conn"
 /*
 Per-user playback settings: clicking (left or right) on another user in
 the channel list opens a small menu to mute them or change their volume,
-for you only. Settings are kept by public key in settings.json (names
-can be copied, keys can't) and applied to every connection (see
-user_settings / Gain_Command).
+for you only. Settings are kept by the server's key and the account in
+settings.json (names can be copied, and are the same on many servers;
+that can't be) and applied to every connection of the account (see
+user_settings / Gain_Command). The same menu adds or removes a buddy and
+opens a DM with them.
 */
 
 @(private = "file")
@@ -38,7 +41,7 @@ my_status :: proc(ui: ^UI, speaking: bool) -> (render.Icon, mu.Color) {
 }
 
 // And the same for somebody else, from what the server passed on.
-@(private = "file")
+// (Used by the voice panel for the other side of a call, too.)
 their_status :: proc(user: conn.View_User, speaking: bool) -> (render.Icon, mu.Color) {
 	return sound_status(user.muted, user.deafened, speaking)
 }
@@ -121,7 +124,8 @@ inside :: proc(r: mu.Rect, p: mu.Vec2) -> bool {
 
 /*
 member_row draws one user in the channel list, with an icon in front
-saying what they're up to: a microphone, lit while they're speaking, and
+saying what they're up to, their picture, and dimmed after their name
+their status (clicking our own row sets ours): a microphone, lit while they're speaking, and
 for you the mute and deafen you've set. Marks at the end of the row say
 who's sharing their screen, or an application's audio while muted
 (app_audio_mark). Other users are clickable.
@@ -135,25 +139,37 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	ctx := &ui.ctx
 	v := &ui.view
 
-	mu.layout_row(ctx, {render.ICON_SIZE + 4, -1})
+	pic := ctx.text_height(ctx.style.font) + 2
+	mu.layout_row(ctx, {render.ICON_SIZE + 4, pic + 4, -1})
 
 	user, known := v.users[id]
 	if !known {
 		status_icon(ctx, .Mic, DIM_COLOR)
+		mu.label(ctx, "")
 		mu.label(ctx, fmt.tprintf("user #%d", id))
 		return
 	}
+	acc := v.accounts[user.account] or_else {}
 	if id == v.my_num {
 		speaking := conn.is_speaking(v, id)
 		icon, color := my_status(ui, speaking)
 		status_icon(ctx, icon, color)
+		cell := mu.layout_next(ctx)
+		avatar(ui, user.account, {cell.x, cell.y + (cell.h - pic) / 2, pic, pic})
 		text := fmt.tprintf("%s (you)", user.name)
-		// Green while we're heard, muted or not, as for everybody else.
-		if speaking {
-			with_text_color(ctx, SPEAKING_COLOR, text, label_proc)
-		} else {
-			mu.label(ctx, text)
+		mu.push_id(ctx, uintptr(id))
+		cid := mu.get_id(ctx, "me")
+		mu.pop_id(ctx)
+		r := mu.layout_next(ctx)
+		mu.update_control(ctx, cid, r)
+		if ctx.hover_id == cid {
+			mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
+			if ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} {
+				open_status_editor(ui)
+			}
 		}
+		// Green while we're heard, muted or not, as for everybody else.
+		name_and_status(ctx, r, text, SPEAKING_COLOR if speaking else ctx.style.colors[.TEXT], status_line(acc))
 		slot: i32 = 0
 		if user.sharing {
 			sharing_mark(ui, ctx.last_rect, slot, id)
@@ -165,7 +181,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		return
 	}
 
-	u := settings.user_settings(&ui.settings, user.key)
+	u := settings.user_settings(&ui.settings, v.server_key, user.account)
 	text := user.name
 	if u.volume != 1 && !u.muted {
 		text = fmt.tprintf("%s  (%.0f%%)", text, u.volume * 100)
@@ -173,6 +189,8 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	speaking := conn.is_speaking(v, id)
 	icon, icon_color := their_status(user, speaking)
 	status_icon(ctx, icon, icon_color)
+	cell := mu.layout_next(ctx)
+	avatar(ui, user.account, {cell.x, cell.y + (cell.h - pic) / 2, pic, pic})
 	color := ctx.style.colors[.TEXT]
 	switch {
 	case u.muted:
@@ -191,10 +209,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	if ctx.hover_id == cid {
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
-	saved := ctx.style.colors[.TEXT]
-	ctx.style.colors[.TEXT] = color
-	mu.draw_control_text(ctx, text, r, .TEXT)
-	ctx.style.colors[.TEXT] = saved
+	name_and_status(ctx, r, text, color, status_line(acc))
 	slot: i32 = 0
 	if u.muted {
 		local_mute_mark(ctx, r)
@@ -218,22 +233,28 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 			watch(ui, 0 if v.watching == id else id)
 			return
 		}
-		ui.menu_user = id
-		ui.menu_key = user.key
-		ui.menu_volume = u.volume * 100
-		// Opened by user_menu: microui scopes container names by the id
-		// stack, and this row is nested in ids the menu isn't.
-		ui.menu_requested = true
+		open_user_menu(ui, id, user.account)
 	}
 }
 
-// user_menu shows the menu for ui.menu_user while it's open.
+// open_user_menu opens the menu for an account, and the connection `num`
+// of it that was clicked (0 for one from the buddy list, who may not be
+// here). Call with the View locked.
+open_user_menu :: proc(ui: ^UI, num: proto.User_Num, account: proto.Account_Id) {
+	u := settings.user_settings(&ui.settings, ui.view.server_key, account)
+	ui.menu_user = num
+	ui.menu_account = account
+	ui.menu_volume = u.volume * 100
+	// Opened by user_menu: microui scopes container names by the id
+	// stack, and the row it's opened from is nested in ids the menu isn't.
+	ui.menu_requested = true
+}
+
+// user_menu shows the menu for ui.menu_account while it's open.
 user_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if ui.menu_user == ui.view.my_num {
-		if ui.view.my_num > 0 {
-			log.warnf("ui: tried to open user menu for self %i//%i", ui.menu_user, ui.view.my_num)
-		}
+	if ui.menu_account == 0 || ui.menu_account == ui.view.me {
+		ui.menu_requested = false
 		return
 	}
 	if ui.menu_requested {
@@ -253,54 +274,33 @@ user_menu :: proc(ui: ^UI) {
 	}
 	defer mu.end_popup(ctx)
 
-	key := ui.menu_key
-	u := settings.user_settings(&ui.settings, key)
+	v := &ui.view
+	account := ui.menu_account
+	u := settings.user_settings(&ui.settings, v.server_key, account)
 	changed := false
 
-	// The name as currently shown, or as saved for a buddy who isn't
-	// here, or else the key. (Opened from the buddy list, menu_user is 0
-	// for someone who isn't on the server.)
-	name := conn.fingerprint(key)
+	// What the account is called; whether one of its connections is here
+	// (the one clicked, if it was one); and whether it's a buddy.
+	name := fmt.tprintf("account #%d", account)
+	if acc, ok := v.accounts[account]; ok {
+		name = acc.display
+	}
 	here := false
-	if user, ok := ui.view.users[ui.menu_user]; ok && user.key == key {
-		name, here = user.name, true
-	} else if b, is := ui.settings.buddies[settings.user_key(key)]; is && b.name != "" {
-		name = b.name
+	clicked, clicked_here := v.users[ui.menu_user]
+	clicked_here = clicked_here && clicked.account == account
+	for _, user in v.users {
+		here ||= user.account == account
 	}
+	buddy := slice.contains(v.buddies[:], account)
+	user_is_screen_sharing := clicked_here && clicked.sharing
 
-	num_buttons := 2
-	user_is_screen_sharing := false
-
-	if user, ok := ui.view.users[ui.menu_user];
-	   ok && user.key == key && user.sharing && ui.menu_user != ui.view.my_num {
-		user_is_screen_sharing = true
-		num_buttons += 1
+	widths := make([dynamic]i32, context.temp_allocator)
+	append(&widths, 0, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON)
+	if user_is_screen_sharing {
+		append(&widths, ICON_BUTTON)
 	}
-
-	if settings.is_buddy(&ui.settings, key) {
-		num_buttons += 1
-	}
-
-	switch num_buttons {
-	case 2:
-		mu.layout_row(ctx, {i32(MENU_WIDTH - ICON_BUTTON * num_buttons), ICON_BUTTON, ICON_BUTTON})
-	case 3:
-		mu.layout_row(
-			ctx,
-			{i32(MENU_WIDTH - ICON_BUTTON * num_buttons), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
-		)
-	case 4:
-		mu.layout_row(
-			ctx,
-			{
-				i32(MENU_WIDTH - ICON_BUTTON * num_buttons),
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-			},
-		)
-	}
+	widths[0] = i32(MENU_WIDTH) - ICON_BUTTON * i32(len(widths) - 1)
+	mu.layout_row(ctx, widths[:])
 
 	mu.label(ctx, name)
 	if .SUBMIT in
@@ -314,7 +314,7 @@ user_menu :: proc(ui: ^UI) {
 		changed = true
 	}
 
-	// Watch their screen, if they're sharing it.
+	// Watch their screen, if they're sharing it (the connection clicked).
 	if user_is_screen_sharing {
 		if conn.video_can_watch() {
 			watching := ui.view.watching == ui.menu_user
@@ -337,24 +337,35 @@ user_menu :: proc(ui: ^UI) {
 			)
 		}
 	}
-	if settings.is_buddy(&ui.settings, key) {
-		if .SUBMIT in icon_button(ui, "message", .Buddies, "Open chat") {
-			open_conversation(ui, key)
-			mu.get_current_container(ctx).open = false
+	// Anyone can be written to.
+	if .SUBMIT in icon_button(ui, "message", .Send, "Write to them") {
+		open_conversation(ui, account)
+		mu.get_current_container(ctx).open = false
+	}
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "buddy",
+		   .Remove_Buddy if buddy else .Buddies,
+		   "Remove buddy" if buddy else "Add as buddy",
+	   ) {
+		if ui.session != nil {
+			conn.push_command(&ui.session.client.commands, conn.Buddy_Command{account = account, on = !buddy})
 		}
-		if .SUBMIT in icon_button(ui, "buddy", .Remove_Buddy, "Remove buddy") {
-			settings.remove_buddy(&ui.settings, key)
-			ui.settings_dirty = true
-			log.debugf("ui: %s is no longer a buddy", name)
-		}
-	} else if .SUBMIT in icon_button(ui, "buddy", .Buddies, "Add as buddy") {
-		settings.add_buddy(&ui.settings, key, name if here else "")
-		ui.settings_dirty = true
-		log.debugf("ui: %s is a buddy now", name)
+		log.debugf("ui: %s %s", name, "is no longer a buddy" if buddy else "is a buddy now")
 	}
 
-	mu.layout_row(ctx, {MENU_WIDTH})
-	with_text_color(ctx, DIM_COLOR, fmt.tprintf("key %s...", settings.user_key(key)[:16]), label_proc)
+	if acc, ok := v.accounts[account]; ok {
+		mu.layout_row(ctx, {MENU_WIDTH})
+		with_text_color(ctx, DIM_COLOR, fmt.tprintf("@%s%s", acc.username, "" if here else ", not here"), label_proc)
+	}
+	if may_call(v, account) {
+		mu.layout_row(ctx, {MENU_WIDTH})
+		if .SUBMIT in stable_button(ctx, "call", "Call", {.ALIGN_CENTER}) {
+			call_account(ui, account)
+			mu.get_current_container(ctx).open = false
+		}
+	}
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 	mu.label(ctx, "Volume")
@@ -364,8 +375,8 @@ user_menu :: proc(ui: ^UI) {
 	}
 
 	// Poke them, with a message if there's one in the box. Not ourselves,
-	// and only someone who's here.
-	if here {
+	// and only a connection that's here.
+	if clicked_here {
 		mu.layout_row(ctx, {MENU_WIDTH - 60 - ctx.style.spacing, 60})
 		poke := .SUBMIT in text_box(ui, ui.poke_buf[:], &ui.poke_len)
 		if .SUBMIT in stable_button(ctx, "poke", "Poke") {
@@ -382,11 +393,31 @@ user_menu :: proc(ui: ^UI) {
 	}
 
 	if changed {
-		settings.set_user_settings(&ui.settings, key, u)
+		settings.set_user_settings(&ui.settings, v.server_key, account, u)
+		shared_user_changed(ui, account, u)
 		ui.settings_dirty = true
 		log.debugf("ui: %s volume %.0f%%%s", name, u.volume * 100, " (muted)" if u.muted else "")
 		if ui.session != nil {
-			conn.push_command(&ui.session.client.commands, conn.Gain_Command{key, settings.user_gain(u)})
+			conn.push_command(&ui.session.client.commands, conn.Gain_Command{account, settings.user_gain(u)})
+		}
+	}
+}
+
+// apply_gains gives the session the per-user volumes kept for its
+// server, once the handshake has said which server that is. Call with
+// the View locked.
+apply_gains :: proc(ui: ^UI) {
+	v := &ui.view
+	if ui.session == nil || v.server_key == {} || ui.gains_for == v.server_key {
+		return
+	}
+	ui.gains_for = v.server_key
+	for k, u in ui.settings.users {
+		if server, account, ok := settings.parse_server_key(k); ok && server == v.server_key {
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.Gain_Command{proto.Account_Id(account), settings.user_gain(u)},
+			)
 		}
 	}
 }

@@ -5,14 +5,7 @@ import "core:math"
 import "core:sync"
 import "core:testing"
 
-import "common:proto"
 import "client:audio/opus"
-
-@(private = "file")
-SPEAKER_KEY :: [proto.KEY_SIZE]u8 {
-	0  = 0x42,
-	31 = 0x42,
-}
 
 // Plays one speaker's tone through the receive path (decode -> jitter
 // queue -> mix) at the given gain and returns the output level.
@@ -24,9 +17,9 @@ played_level :: proc(t: ^testing.T, gain: f32, set_gain: bool, deafened := false
 	sync.atomic_store(&v.output, true)
 	v.deafened = deafened
 	if set_gain {
-		// User 42 is known by key; gains are looked up by key.
-		v.user_keys[42] = SPEAKER_KEY
-		v.gains[SPEAKER_KEY] = gain
+		// User 42 is account 7's; gains are looked up by account.
+		v.user_accounts[42] = 7
+		v.gains[7] = gain
 	}
 
 	err: opus.Error
@@ -96,6 +89,8 @@ test_notification_sounds :: proc(t: ^testing.T) {
 	testing.expect(t, len(v.notifications.goodbye) > 0)
 	testing.expect(t, len(v.notifications.muted) > 0)
 	testing.expect(t, len(v.notifications.unmuted) > 0)
+	testing.expect(t, len(v.notifications.ring) > 0)
+	testing.expect(t, len(v.notifications.ringback) > 0)
 
 	for kind in Notification_Kind {
 		notification_play(&v.notifications, kind)
@@ -301,4 +296,37 @@ test_to_stereo :: proc(t: ^testing.T) {
 	// More channels: the first two of each frame.
 	to_stereo([]f32{0.1, 0.2, 9, 9, 0.3, 0.4, 9, 9}, 4, out[:])
 	testing.expect_value(t, out, [4]f32{0.1, 0.2, 0.3, 0.4})
+}
+
+@(test)
+test_ring_loops :: proc(t: ^testing.T) {
+	s: Notification_Sounds
+	notifications_init(&s)
+	defer notifications_destroy(&s)
+
+	energy :: proc(s: ^Notification_Sounds, samples: int) -> f64 {
+		mix := make([]f32, samples, context.temp_allocator)
+		notifications_mix(s, mix)
+		sum: f64
+		for v in mix {
+			sum += f64(v * v)
+		}
+		return sum
+	}
+	// Ringing: it goes on past its own length, from the start again.
+	notification_loop(&s, .Ring)
+	testing.expect(t, energy(&s, len(s.ring)) > 0)
+	testing.expect(t, energy(&s, len(s.ring) / 2) > 0, "the ring didn't start again")
+	// The same again doesn't start it over; another does.
+	at := s.loop_pos
+	notification_loop(&s, .Ring)
+	testing.expect_value(t, s.loop_pos, at)
+	notification_loop(&s, .Ringback)
+	testing.expect_value(t, s.loop_pos, 0)
+	// Deafened, it's quiet; stopped, it's gone.
+	s.loop_quiet = true
+	testing.expect_value(t, energy(&s, 4800), 0)
+	s.loop_quiet = false
+	notification_loop(&s, .None)
+	testing.expect_value(t, energy(&s, 4800), 0)
 }

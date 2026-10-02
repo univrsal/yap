@@ -48,13 +48,34 @@ IMAGE_ICON_BASE :: 1000
 
 Image_Draw :: struct {
 	texture: Gpu_Texture,
+	// The part of the texture to draw (u0, v0, u1, v1); all of it if zero.
+	uv:      [4]f32,
+}
+
+/*
+The fonts: the UI's, and the chat's, which is the same font zoomed to
+the chat's size (font.odin). microui names a font by an opaque handle:
+nil is the UI's (its default), CHAT_FONT the chat's.
+*/
+Font_Kind :: enum {
+	UI,
+	Chat,
+}
+
+CHAT_FONT :: mu.Font(uintptr(1))
+
+Font_Slot :: struct {
+	font:            Font,
+	font_texture:    Gpu_Texture,
+	unifont_texture: Gpu_Texture, // the fallback font's atlas; 0 until it has glyphs
+	// The zoom wanted (font_set_zoom); the font takes it with its next
+	// atlas.
+	zoom:            f32,
 }
 
 Renderer :: struct {
 	gpu:             Gpu,
-	font:            Font,
-	font_texture:    Gpu_Texture,
-	unifont_texture: Gpu_Texture, // the fallback font's atlas; 0 until it has glyphs
+	fonts:           [Font_Kind]Font_Slot,
 	icon_texture:    Gpu_Texture, // microui's own icons
 	icons:           Icon_Atlas, // ours (icons.odin)
 	icons_texture:   Gpu_Texture,
@@ -66,9 +87,31 @@ Renderer :: struct {
 	scale:           f32,
 }
 
-// The font microui measures text with (its callbacks take no user data).
+// The fonts microui measures text with (its callbacks take no user data).
 @(private = "file")
-g_font: ^Font
+g_fonts: ^[Font_Kind]Font_Slot
+
+// font_of is the font microui's handle names.
+@(private = "file")
+font_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font {
+	return &fonts[.Chat].font if font == CHAT_FONT else &fonts[.UI].font
+}
+
+/*
+set_chat_zoom sets how much bigger than the UI's text the chat's is (1
+is the same). Measuring takes it at once; the glyphs are rasterized
+again for it at the next frame.
+*/
+set_chat_zoom :: proc(r: ^Renderer, zoom: f32) {
+	slot := &r.fonts[.Chat]
+	if zoom == slot.zoom {
+		return
+	}
+	slot.zoom = zoom
+	slot.font.zoom = zoom
+	// Built again, at the new size, by the next frame.
+	slot.font.scale, slot.font.uni.scale = 0, 0
+}
 
 // quad_indices is the index buffer's contents: two triangles per quad,
 // the same pattern every time. In the temp allocator.
@@ -84,12 +127,20 @@ quad_indices :: proc() -> ^[MAX_QUADS * 6]u16 {
 // renderer_init sets up drawing into `window`, which was made with
 // gpu_window_hints.
 renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
-	if !font_init(&r.font) {
-		return false
+	for &slot in r.fonts {
+		if !font_init(&slot.font) {
+			for &other in r.fonts {
+				font_destroy(&other.font)
+			}
+			return false
+		}
+		slot.zoom = 1
 	}
-	g_font = &r.font
+	g_fonts = &r.fonts
 	if !gpu_init(&r.gpu, window) {
-		font_destroy(&r.font)
+		for &slot in r.fonts {
+			font_destroy(&slot.font)
+		}
 		return false
 	}
 	r.icon_texture = gpu_texture_make(
@@ -103,13 +154,17 @@ renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 }
 
 renderer_destroy :: proc(r: ^Renderer) {
-	gpu_texture_delete(&r.gpu, &r.font_texture)
-	gpu_texture_delete(&r.gpu, &r.unifont_texture)
+	for &slot in r.fonts {
+		gpu_texture_delete(&r.gpu, &slot.font_texture)
+		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
 	icon_atlas_destroy(&r.icons)
 	gpu_destroy(&r.gpu)
-	font_destroy(&r.font)
+	for &slot in r.fonts {
+		font_destroy(&slot.font)
+	}
 	// Nothing in here outlives the device it was made on: the window can
 	// be taken down and built again (window_close), and a texture left
 	// lying about would then belong to somebody else.
@@ -122,12 +177,15 @@ the device was lost (gpu_lost). The atlases are rebuilt, and uploaded
 with them, when the next frame finds them missing.
 */
 renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
-	gpu_texture_delete(&r.gpu, &r.font_texture)
-	gpu_texture_delete(&r.gpu, &r.unifont_texture)
+	for &slot in r.fonts {
+		gpu_texture_delete(&r.gpu, &slot.font_texture)
+		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+		slot.font.scale, slot.font.uni.scale = 0, 0
+	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
 	gpu_destroy(&r.gpu)
-	r.font.scale, r.font.uni.scale, r.icons.scale = 0, 0, 0
+	r.icons.scale = 0
 	if !gpu_init(&r.gpu, window) {
 		return false
 	}
@@ -143,11 +201,11 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 
 // microui text metrics, in logical pixels.
 ui_text_width :: proc(font: mu.Font, text: string) -> i32 {
-	return i32(math.ceil(font_text_width(g_font, text)))
+	return i32(math.ceil(font_text_width(font_of(g_fonts, font), text)))
 }
 
 ui_text_height :: proc(font: mu.Font) -> i32 {
-	return LINE_HEIGHT
+	return font_line_height(font_of(g_fonts, font))
 }
 
 // render draws one frame of microui output into an fb_w x fb_h
@@ -170,23 +228,28 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 		return // minimized, or the device is gone
 	}
 
-	if scale != r.font.scale {
-		if font_build_atlas(&r.font, scale) {
-			gpu_texture_delete(&r.gpu, &r.font_texture)
-			r.font_texture = gpu_texture_make(
-				&r.gpu,
-				.Alpha,
-				r.font.width,
-				r.font.height,
-				r.font.pixels,
-			)
+	for &slot in r.fonts {
+		// A zoomed font's atlases are at its own density (font.odin).
+		at := scale * slot.font.zoom
+		if at != slot.font.scale {
+			if font_build_atlas(&slot.font, at) {
+				gpu_texture_delete(&r.gpu, &slot.font_texture)
+				slot.font_texture = gpu_texture_make(
+					&r.gpu,
+					.Alpha,
+					slot.font.width,
+					slot.font.height,
+					slot.font.pixels,
+				)
+			}
 		}
-	}
-	// The fallback font's atlas fills up as text needs glyphs; it starts
-	// empty at a new scale, and again once it has run out of room.
-	if scale != r.font.uni.scale || r.font.uni.full {
-		unifont_reset(&r.font.uni, scale)
-		gpu_texture_delete(&r.gpu, &r.unifont_texture)
+		// The fallback font's atlas fills up as text needs glyphs; it
+		// starts empty at a new scale, and again once it has run out of
+		// room.
+		if at != slot.font.uni.scale || slot.font.uni.full {
+			unifont_reset(&slot.font.uni, at)
+			gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+		}
 	}
 	if scale != r.icons.scale {
 		if icon_atlas_build(&r.icons, scale) {
@@ -207,30 +270,33 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	for variant in mu.next_command_iterator(ctx, &cmd) {
 		switch c in variant {
 		case ^mu.Command_Text:
-			font_cache_glyphs(&r.font, c.str)
-			upload_unifont(r)
+			slot := &r.fonts[.Chat] if c.font == CHAT_FONT else &r.fonts[.UI]
+			font_cache_glyphs(&slot.font, c.str)
+			upload_unifont(r, slot)
 			Emit :: struct {
 				r:     ^Renderer,
+				slot:  ^Font_Slot,
 				color: mu.Color,
 			}
-			emit := Emit{r, c.color}
+			emit := Emit{r, slot, c.color}
 			font_layout(
-				&r.font,
+				&slot.font,
 				c.str,
 				f32(c.pos.x),
 				f32(c.pos.y),
 				&emit,
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
-					use_texture(e.r, e.r.unifont_texture if q.unifont else e.r.font_texture)
+					use_texture(e.r, e.slot.unifont_texture if q.unifont else e.slot.font_texture)
 					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
 				},
 			)
 		case ^mu.Command_Rect:
-			use_texture(r, r.font_texture)
+			ui_font := &r.fonts[.UI]
+			use_texture(r, ui_font.font_texture)
 			// Snap edges to physical pixels so borders stay crisp at
 			// fractional scales.
-			w := r.font.white
+			w := ui_font.font.white
 			snap :: proc(v: i32, s: f32) -> f32 {return math.round(f32(v) * s) / s}
 			x0, y0 := snap(c.rect.x, r.scale), snap(c.rect.y, r.scale)
 			x1, y1 := snap(c.rect.x + c.rect.w, r.scale), snap(c.rect.y + c.rect.h, r.scale)
@@ -273,16 +339,16 @@ ever go into empty slots, so quads already waiting to be drawn still
 find theirs.
 */
 @(private = "file")
-upload_unifont :: proc(r: ^Renderer) {
-	u := &r.font.uni
+upload_unifont :: proc(r: ^Renderer, slot: ^Font_Slot) {
+	u := &slot.font.uni
 	if u.dirty_y1 <= u.dirty_y0 {
 		return
 	}
-	if r.unifont_texture == 0 {
-		r.unifont_texture = gpu_texture_make(&r.gpu, .Alpha, u.side, u.side, u.pixels)
+	if slot.unifont_texture == 0 {
+		slot.unifont_texture = gpu_texture_make(&r.gpu, .Alpha, u.side, u.side, u.pixels)
 	} else {
 		rows := u.pixels[int(u.dirty_y0) * int(u.side):int(u.dirty_y1) * int(u.side)]
-		gpu_texture_update_rows(&r.gpu, r.unifont_texture, u.side, u.dirty_y0, u.dirty_y1, rows)
+		gpu_texture_update_rows(&r.gpu, slot.unifont_texture, u.side, u.dirty_y0, u.dirty_y1, rows)
 	}
 	u.dirty_y0, u.dirty_y1 = u.side, 0
 }
@@ -303,10 +369,14 @@ draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 		return
 	}
 	use_texture(r, r.images[index].texture, rgba = true)
+	uv := r.images[index].uv
+	if uv == {} {
+		uv = {0, 0, 1, 1}
+	}
 	push_quad(
 		r,
 		{f32(rect.x), f32(rect.y), f32(rect.x + rect.w), f32(rect.y + rect.h)},
-		{0, 0, 1, 1},
+		{uv[0], uv[1], uv[2], uv[3]},
 		color,
 	)
 }

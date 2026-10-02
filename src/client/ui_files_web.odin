@@ -17,9 +17,9 @@ just did, which the click on the button is.
 File_Pick_Job :: struct {}
 
 @(private = "file")
-g_pick_to: [proto.KEY_SIZE]u8
+g_pick_to: proto.Account_Id
 
-file_pick_start :: proc(ui: ^UI, to: [proto.KEY_SIZE]u8) {
+file_pick_start :: proc(ui: ^UI, to: proto.Account_Id) {
 	g_pick_to = to
 	b := strings.builder_make(context.temp_allocator)
 	for ext, i in proto.FILE_EXTENSIONS {

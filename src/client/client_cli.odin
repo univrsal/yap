@@ -15,7 +15,8 @@ import "client:conn"
 // (see Fake_Audio), which exercises the whole voice path without devices.
 // input_file (raw 48 kHz mono f32) is looped as the microphone instead.
 run_headless :: proc(
-	key_path, server_addr, known_servers, initial_channel, name, password: string,
+	key_path, server_addr, known_servers, initial_channel, password: string,
+	user, user_password, device: string, // what to log in with, if the server asks
 	tone_hz: f32,
 	input_file: string,
 	image_dir: string,
@@ -34,7 +35,7 @@ run_headless :: proc(
 	defer audio.voice_destroy(&c.voice)
 	c.voice.denoise = denoise
 	c.voice.gate.enabled = gate
-	c.images.dir = image_dir
+	c.blobs.dir = image_dir
 	c.files.download_dir = strings.clone(download_dir)
 	limits := limits
 	lim := conn.transfer_limits_command(&limits)
@@ -58,12 +59,13 @@ run_headless :: proc(
 	}
 	defer audio.fake_audio_stop(&fake)
 	defer conn.client_close(c)
-	if !conn.client_open(c, key_path, server_addr, known_servers, name, password) {
+	conn.auth_credentials(c, user, user_password, device)
+	if !conn.client_open(c, key_path, server_addr, known_servers, password) {
 		return false
 	}
 
 	if initial_channel != "" {
-		conn.request_join(c, initial_channel)
+		conn.conv_start_in(c, initial_channel)
 	}
 	start_command_reader(&c.commands)
 

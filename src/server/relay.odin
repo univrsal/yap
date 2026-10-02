@@ -123,7 +123,7 @@ accept_browsers :: proc(r: ^Relay) {
 			log.warnf("accept failed: %v", accept_err)
 			continue
 		}
-		c := new(Conn)
+		c := new(Tcp_Conn)
 		c.sock = sock
 		log.debugf("connection from %s", net.endpoint_to_string(from, context.temp_allocator))
 		thread.create_and_start_with_poly_data2(
@@ -159,7 +159,7 @@ connection_temp_allocator :: proc(temp: ^runtime.Arena) -> runtime.Allocator {
 }
 
 @(private = "file")
-handle_connection :: proc(r: ^Relay, c: ^Conn) {
+handle_connection :: proc(r: ^Relay, c: ^Tcp_Conn) {
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
@@ -200,7 +200,7 @@ address the page was given for the server; it's only for the log, as
 the relay goes to its own server whatever the page asked for.
 */
 @(private = "file")
-relay_websocket :: proc(r: ^Relay, c: ^Conn, target: string, key: string) {
+relay_websocket :: proc(r: ^Relay, c: ^Tcp_Conn, target: string, key: string) {
 	udp, udp_err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if udp_err != nil {
 		log.errorf("could not open a UDP socket: %v", udp_err)
@@ -361,7 +361,7 @@ itoa :: proc(n: int) -> string {
 // read_request reads up to the end of the request's headers. Whatever
 // came in after them stays in the buffer for the frames that follow.
 @(private = "file")
-read_request :: proc(c: ^Conn) -> (head: string, ok: bool) {
+read_request :: proc(c: ^Tcp_Conn) -> (head: string, ok: bool) {
 	for {
 		if i := strings.index(string(c.buf[:c.end]), "\r\n\r\n"); i >= 0 {
 			c.start = i + 4

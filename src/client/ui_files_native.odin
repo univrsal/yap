@@ -23,7 +23,7 @@ dialog there.
 File_Pick_Job :: struct {
 	thread: ^thread.Thread,
 	done:   bool, // atomic: set by the thread, read by the UI
-	to:     [proto.KEY_SIZE]u8,
+	to:     proto.Account_Id,
 	path:   string,
 	status: dialogs.Status,
 	err:    string,
@@ -50,7 +50,7 @@ file_filters :: proc() -> []dialogs.Filter {
 }
 
 // file_pick_start opens the file dialog, for a file to offer `to`.
-file_pick_start :: proc(ui: ^UI, to: [proto.KEY_SIZE]u8) {
+file_pick_start :: proc(ui: ^UI, to: proto.Account_Id) {
 	if ui.file_pick != nil {
 		return // one's open already
 	}

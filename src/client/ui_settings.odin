@@ -6,31 +6,35 @@ import "client:platform"
 import "client:settings"
 import log "common:wlog"
 import "core:fmt"
+import "core:sync"
 import mu "vendor:microui"
 
 /*
-The settings page: name, noise suppression, the voice gate (ui_gate.odin),
-and choosing the microphone and the speakers/headphones. Changes are saved
-right away (see settings/settings.odin) and apply to a running connection.
+The settings page, in two tabs. This client's: noise suppression, the
+voice gate (ui_gate.odin), choosing the microphone and the
+speakers/headphones, the UI, hotkeys and the rest. This server's, while
+we're logged in to one: the account and, for who may, managing the
+server (ui_account.odin, ui_manage.odin). Changes are saved right away
+(see settings/settings.odin) and apply to a running connection.
 
-Everything below the name row sits in one scrolling panel, grouped into
+Everything below the top row sits in one scrolling panel, grouped into
 tree nodes a person can collapse, so a short window (or one that isn't
 interested in, say, the tray) still reaches every setting without
 wading through all of them. The voice gate and the devices are nodes
 inside Audio, and indented under it.
 */
+Settings_Tab :: enum {
+	Client,
+	Server,
+}
+
 settings_page :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.audio
 
-	title_row(ui, {60, -230, 70, 70, 70})
+	title_row(ui, {-150, 70, 70})
 
-	mu.label(ctx, "Name")
-	submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
-	if .SUBMIT in mu.button(ctx, "Apply") || submitted {
-		apply_name(ui)
-	}
-
+	mu.label(ctx, "Settings")
 	if .SUBMIT in mu.button(ctx, "About") {
 		open_about(ui)
 	}
@@ -38,9 +42,35 @@ settings_page :: proc(ui: ^UI) {
 		ui.page = .Main
 	}
 
+	// The server's tab is there while we're logged in to one.
+	server := ""
+	{
+		v := &ui.view
+		sync.guard(&v.mutex)
+		if v.status == .Connected && v.login.state == .Done {
+			server = v.server_name if v.server_name != "" else v.server
+		}
+	}
+	if server == "" {
+		ui.settings_tab = .Client
+	} else {
+		mu.layout_row(ctx, {140, 260})
+		if .SUBMIT in tab_button(ctx, "client tab", "This client", ui.settings_tab == .Client) {
+			ui.settings_tab = .Client
+		}
+		if .SUBMIT in tab_button(ctx, "server tab", fmt.tprintf("Server: %s", server), ui.settings_tab == .Server) {
+			ui.settings_tab = .Server
+		}
+	}
+
 	mu.layout_row(ctx, {-1}, -1)
 	mu.begin_panel(ctx, "settings_body")
 	defer mu.end_panel(ctx)
+
+	if ui.settings_tab == .Server {
+		account_settings(ui)
+		return
+	}
 
 	if a.ctx == nil {
 		mu.layout_row(ctx, {-1})
@@ -144,6 +174,30 @@ ui_settings :: proc(ui: ^UI) {
 	)
 	if was_dragging && ctx.focus_id != id {
 		ui.settings.ui_scale = ui.ui_scale_draft / 100
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+	}
+
+	// As the UI scale: taken when the slider is let go, as the glyphs
+	// are rasterized again for it.
+	mu.layout_row(ctx, {120, -1})
+	mu.label(ctx, "Chat text size")
+	chat_id := mu.get_id(ctx, uintptr(&ui.chat_scale_draft))
+	chat_dragging := ctx.focus_id == chat_id
+	mu.slider(
+		ctx,
+		&ui.chat_scale_draft,
+		settings.MIN_CHAT_SCALE * 100,
+		settings.MAX_CHAT_SCALE * 100,
+		10,
+		"%.0f%%",
+	)
+	if chat_dragging && ctx.focus_id != chat_id {
+		ui.settings.chat_scale = ui.chat_scale_draft / 100
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+	}
+
+	mu.layout_row(ctx, {-1})
+	if .CHANGE in mu.checkbox(ctx, "Show pictures beside messages", &ui.settings.chat_pictures) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 

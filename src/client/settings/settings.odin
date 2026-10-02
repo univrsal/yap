@@ -3,6 +3,8 @@ package settings
 import log "common:wlog"
 import "core:encoding/hex"
 import "core:encoding/json"
+import "core:fmt"
+import "core:strconv"
 import "core:strings"
 
 import "common:."
@@ -32,10 +34,15 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"app_audio_volume": 1,
 		"mute_app_audio_with_mic": true,
 		"ui_scale": 1,
+		"chat_pictures": true,
+		"chat_scale": 1,
 		"mute_hotkey": "Ctrl+Shift+M",
 		"deafen_hotkey": "",
 		"users": {
-			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "volume": 0.5, "muted": false }
+			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933/12": { "volume": 0.5, "muted": false }
+		},
+		"hidden_dms": {
+			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933/40": 1234
 		}
 	}
 
@@ -52,7 +59,7 @@ the file is written readable by its owner only.
 Settings :: struct {
 	server:                  string, // last server connected to
 	recent_servers:          [dynamic]Recent_Server, // newest first
-	name:                    string, // the name to go by
+	username:                string, // the account last logged in to, for the login form
 	input_device:            string,
 	output_device:           string,
 	// Send quality preset by name ("voice", "high", "music"; audio/quality.odin).
@@ -85,17 +92,26 @@ Settings :: struct {
 	// The UI's own zoom, independent of the display's DPI scale (see
 	// window_metrics in ui.odin). 1 = 100%, MIN_UI_SCALE..MAX_UI_SCALE.
 	ui_scale:                f32,
+	// People's pictures beside their messages; off, the chat is
+	// compact (ui_timeline.odin).
+	chat_pictures:           bool,
+	// The chat's text size, on top of ui_scale (it multiplies): 1 =
+	// the UI's, MIN_CHAT_SCALE..MAX_CHAT_SCALE.
+	chat_scale:              f32,
 	// Global hotkeys, as hotkeys.format writes them ("Ctrl+Shift+M"); ""
 	// for none. See ui_hotkeys_native.odin.
 	mute_hotkey:             string,
 	deafen_hotkey:           string,
-	// How to play other users, keyed by their public key (64 hex digits),
-	// which is what identifies a user; names can be copied. Users with
-	// default settings aren't stored.
+	// How to play other people, by their account: the server's public
+	// key (64 hex digits), a slash, and the account's id on that server
+	// (see server_key). Names can be copied and are the same on many
+	// servers; this can't be. People with default settings aren't
+	// stored.
 	users:                   map[string]User_Settings,
-	// The people we've added as buddies (buddies.odin), keyed by their
-	// public key like `users`.
-	buddies:                 map[string]Buddy,
+	// DMs taken off the buddy list, keyed like `users` but with the
+	// conversation's id: each is off it until a message after the one
+	// noted here arrives (dm_hidden).
+	hidden_dms:              map[string]u64,
 }
 
 User_Settings :: struct {
@@ -106,6 +122,7 @@ User_Settings :: struct {
 Recent_Server :: struct {
 	address:  string, // as typed
 	password: string, // empty for none
+	channel:  string, // the channel last looked at there, to start with next time
 }
 
 MAX_RECENT_SERVERS :: 10
@@ -117,6 +134,8 @@ MAX_USER_VOLUME :: 3
 
 MIN_UI_SCALE :: 0.5
 MAX_UI_SCALE :: 3.0
+MIN_CHAT_SCALE :: 0.8
+MAX_CHAT_SCALE :: 1.6
 
 DEFAULT_SETTINGS :: Settings {
 	noise_suppression       = true,
@@ -128,6 +147,8 @@ DEFAULT_SETTINGS :: Settings {
 	app_audio_volume        = 1,
 	mute_app_audio_with_mic = true,
 	ui_scale                = 1,
+	chat_pictures           = true,
+	chat_scale              = 1,
 }
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
@@ -147,6 +168,18 @@ settings_load :: proc(path: string) -> (s: Settings) {
 	// Settings from before the list still have the last server.
 	if len(s.recent_servers) == 0 && s.server != "" {
 		remember_recent_server(&s, s.server, "")
+	}
+	// Per-user settings from before accounts went by the user's key,
+	// which nothing is known by any more.
+	stale := make([dynamic]string, context.temp_allocator)
+	for k in s.users {
+		if _, _, parsed := parse_server_key(k); !parsed {
+			append(&stale, k)
+		}
+	}
+	for k in stale {
+		owned, _ := delete_key(&s.users, k)
+		delete(owned)
 	}
 	return
 }
@@ -170,7 +203,7 @@ settings_destroy :: proc(s: ^Settings) {
 		recent_server_destroy(r)
 	}
 	delete(s.recent_servers)
-	delete(s.name)
+	delete(s.username)
 	delete(s.quality)
 	delete(s.input_device)
 	delete(s.output_device)
@@ -180,11 +213,10 @@ settings_destroy :: proc(s: ^Settings) {
 		delete(key)
 	}
 	delete(s.users)
-	for key, b in s.buddies {
+	for key in s.hidden_dms {
 		delete(key)
-		buddy_destroy(b)
 	}
-	delete(s.buddies)
+	delete(s.hidden_dms)
 	s^ = {}
 }
 
@@ -199,7 +231,11 @@ set_setting :: proc(field: ^string, value: string) {
 // past MAX_RECENT_SERVERS.
 remember_recent_server :: proc(s: ^Settings, address, password: string) {
 	// Copied first: they may be the very entry about to be replaced.
-	entry := Recent_Server{strings.clone(address), strings.clone(password)}
+	entry := Recent_Server {
+		address  = strings.clone(address),
+		password = strings.clone(password),
+		channel  = strings.clone(recent_channel(s, address)),
+	}
 	forget_recent_server(s, entry.address)
 	inject_at(&s.recent_servers, 0, entry)
 	for len(s.recent_servers) > MAX_RECENT_SERVERS {
@@ -227,20 +263,46 @@ recent_password :: proc(s: ^Settings, address: string) -> string {
 	return ""
 }
 
+// recent_channel is the channel last looked at on `address`, or "".
+recent_channel :: proc(s: ^Settings, address: string) -> string {
+	for r in s.recent_servers {
+		if r.address == address {
+			return r.channel
+		}
+	}
+	return ""
+}
+
+// set_recent_channel notes the channel being looked at on `address`.
+// It returns whether that changed anything.
+set_recent_channel :: proc(s: ^Settings, address, channel: string) -> bool {
+	for &r in s.recent_servers {
+		if r.address == address {
+			if r.channel == channel {
+				return false
+			}
+			set_setting(&r.channel, channel)
+			return true
+		}
+	}
+	return false
+}
+
 @(private = "file")
 recent_server_destroy :: proc(r: Recent_Server) {
 	delete(r.address)
 	delete(r.password)
+	delete(r.channel)
 }
 
-user_key :: proc(key: [proto.KEY_SIZE]u8) -> string {
+// key_hex is a public key in hex, as settings and commands write one.
+key_hex :: proc(key: [proto.KEY_SIZE]u8) -> string {
 	key := key
 	return string(hex.encode(key[:], context.temp_allocator))
 }
 
-// parse_user_key turns a settings key back into a public key; entries in
-// any other form (e.g. the 8-digit ids of older versions) are skipped.
-parse_user_key :: proc(s: string) -> (key: [proto.KEY_SIZE]u8, ok: bool) {
+// parse_key_hex turns key_hex's back into a key.
+parse_key_hex :: proc(s: string) -> (key: [proto.KEY_SIZE]u8, ok: bool) {
 	if len(s) != 2 * proto.KEY_SIZE {
 		return
 	}
@@ -249,14 +311,33 @@ parse_user_key :: proc(s: string) -> (key: [proto.KEY_SIZE]u8, ok: bool) {
 	return key, true
 }
 
-user_settings :: proc(s: ^Settings, key: [proto.KEY_SIZE]u8) -> User_Settings {
-	u := s.users[user_key(key)] or_else DEFAULT_USER
+// server_key is how `users` and `hidden_dms` name a thing on a server:
+// the server's key, a slash, and the thing's id there. In the temp
+// allocator.
+server_key :: proc(server: [proto.KEY_SIZE]u8, id: u64) -> string {
+	return fmt.tprintf("%s/%d", key_hex(server), id)
+}
+
+// parse_server_key is server_key's the other way; false for anything
+// else (such as the public keys older versions kept users by).
+parse_server_key :: proc(k: string) -> (server: [proto.KEY_SIZE]u8, id: u64, ok: bool) {
+	slash := strings.index_byte(k, '/')
+	if slash < 0 {
+		return
+	}
+	server = parse_key_hex(k[:slash]) or_return
+	id = strconv.parse_u64_of_base(k[slash + 1:], 10) or_return
+	return server, id, true
+}
+
+user_settings :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, account: proto.Account_Id) -> User_Settings {
+	u := s.users[server_key(server, u64(account))] or_else DEFAULT_USER
 	u.volume = clamp(u.volume, 0, MAX_USER_VOLUME)
 	return u
 }
 
-set_user_settings :: proc(s: ^Settings, user: [proto.KEY_SIZE]u8, u: User_Settings) {
-	key := user_key(user)
+set_user_settings :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, account: proto.Account_Id, u: User_Settings) {
+	key := server_key(server, u64(account))
 	if u == DEFAULT_USER {
 		if key in s.users {
 			owned, _ := delete_key(&s.users, key)
@@ -268,6 +349,30 @@ set_user_settings :: proc(s: ^Settings, user: [proto.KEY_SIZE]u8, u: User_Settin
 		s.users[key] = u
 	} else {
 		s.users[strings.clone(key)] = u
+	}
+}
+
+// dm_hidden is whether a DM, whose newest message is `last`, is off the
+// buddy list.
+dm_hidden :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, conv: proto.Conv_Id, last: proto.Msg_Id) -> bool {
+	upto, ok := s.hidden_dms[server_key(server, u64(conv))]
+	return ok && u64(last) <= upto
+}
+
+// hide_dm takes a DM off the buddy list until a message after `last`
+// arrives; with `last` 0 it's put back.
+hide_dm :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, conv: proto.Conv_Id, last: proto.Msg_Id) {
+	key := server_key(server, u64(conv))
+	switch {
+	case last == 0:
+		if key in s.hidden_dms {
+			owned, _ := delete_key(&s.hidden_dms, key)
+			delete(owned)
+		}
+	case key in s.hidden_dms:
+		s.hidden_dms[key] = u64(last)
+	case:
+		s.hidden_dms[strings.clone(key)] = u64(last)
 	}
 }
 
@@ -292,6 +397,12 @@ app_audio_gain :: proc(s: ^Settings) -> f32 {
 // up past what's usable.
 ui_scale_factor :: proc(s: ^Settings) -> f32 {
 	return clamp(s.ui_scale, MIN_UI_SCALE, MAX_UI_SCALE)
+}
+
+// chat_scale_factor is the chat's text size, from a file that may say
+// anything.
+chat_scale_factor :: proc(s: ^Settings) -> f32 {
+	return clamp(s.chat_scale, MIN_CHAT_SCALE, MAX_CHAT_SCALE)
 }
 
 // user_gain is what the mixer multiplies a user's audio by.

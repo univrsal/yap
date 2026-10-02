@@ -7,6 +7,7 @@ import "core:math"
 import "core:os"
 import stbi "vendor:stb/image"
 
+import "common:proto"
 import "client:clipboard"
 import "client:conn"
 
@@ -195,4 +196,67 @@ encode_jpeg :: proc(
 		return nil, false
 	}
 	return writer.buf[:], true
+}
+
+/*
+avatar_prepare makes a profile picture of an image: the largest square
+from its centre, scaled down to at most proto.MAX_AVATAR_SIDE, and
+compressed to fit proto.MAX_AVATAR_SIZE (quality is lowered till it
+does; a picture that small always does at some quality).
+*/
+avatar_prepare :: proc(src: clipboard.Image, allocator := context.allocator) -> (img: conn.Chat_Image, ok: bool) {
+	if src.width <= 0 || src.height <= 0 || len(src.pixels) < src.width * src.height * 4 {
+		return {}, false
+	}
+	side := min(src.width, src.height)
+	x0, y0 := (src.width - side) / 2, (src.height - side) / 2
+	square := make([]u8, side * side * 4)
+	defer delete(square)
+	for y in 0 ..< side {
+		row := ((y0 + y) * src.width + x0) * 4
+		copy(square[y * side * 4:][:side * 4], src.pixels[row:][:side * 4])
+	}
+	rgb := make([]u8, side * side * 3)
+	defer delete(rgb)
+	flatten({width = side, height = side, pixels = square}, rgb)
+
+	out := min(side, proto.MAX_AVATAR_SIDE)
+	scaled := rgb
+	if out != side {
+		scaled = make([]u8, out * out * 3)
+		if stbi.resize_uint8_srgb(raw_data(rgb), i32(side), i32(side), 0, raw_data(scaled), i32(out), i32(out), 0, 3, stbi.ALPHA_CHANNEL_NONE, 0) == 0 {
+			delete(scaled)
+			log.error("could not scale the picture")
+			return {}, false
+		}
+	}
+	defer if out != side {
+		delete(scaled)
+	}
+	for quality: i32 = 88; quality >= 30; quality -= 12 {
+		jpeg := encode_jpeg(scaled, out, out, quality, allocator) or_return
+		if len(jpeg) <= proto.MAX_AVATAR_SIZE {
+			log.debugf("picture: %dx%d, quality %d, %d bytes", out, out, quality, len(jpeg))
+			return {jpeg = jpeg, width = out, height = out}, true
+		}
+		delete(jpeg, allocator)
+	}
+	log.error("could not compress the picture small enough")
+	return {}, false
+}
+
+// avatar_load makes a profile picture of an image file.
+avatar_load :: proc(path: string, allocator := context.allocator) -> (img: conn.Chat_Image, ok: bool) {
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	if err != nil {
+		log.errorf("could not read %s: %v", path, err)
+		return {}, false
+	}
+	decoded, decode_err := clipboard.decode(data, context.temp_allocator)
+	if decode_err != .None {
+		log.errorf("could not read the image in %s: %v", path, decode_err)
+		return {}, false
+	}
+	defer clipboard.image_destroy(&decoded, context.temp_allocator)
+	return avatar_prepare(decoded, allocator)
 }

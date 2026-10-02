@@ -63,4 +63,6 @@ foreign _ {
 	PackBegin :: proc(spc: ^pack_context, pixels: [^]byte, width, height, stride_in_bytes, padding: i32, alloc_context: rawptr) -> b32 ---
 	PackEnd :: proc(spc: ^pack_context) ---
 	PackFontRanges :: proc(spc: ^pack_context, fontdata: [^]byte, font_index: i32, ranges: [^]pack_range, num_ranges: i32) -> b32 ---
+	GetCodepointBitmapBox :: proc(info: ^fontinfo, codepoint: rune, scale_x, scale_y: f32, ix0, iy0, ix1, iy1: ^i32) ---
+	MakeCodepointBitmap :: proc(info: ^fontinfo, output: [^]byte, out_w, out_h, out_stride: i32, scale_x, scale_y: f32, codepoint: rune) ---
 }

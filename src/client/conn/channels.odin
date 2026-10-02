@@ -10,31 +10,20 @@ import "common:proto"
 import "client:audio"
 import "client:settings"
 
-// Channel_Client is the client's copy of the channel state, plus any Join
-// or name change still waiting to be acknowledged.
+/*
+Channel_Client is the client's copy of who is here: the snapshot
+(src/common/proto/messages.odin) of every connection that's logged in,
+whose it is, and which voice room it's in. The channels themselves, and
+which of them we look at and talk in, are in convs.odin.
+*/
 Channel_Client :: struct {
 	assembler:       proto.State_Assembler,
 
-	// The applied snapshot; `state` points into the buffers below.
-	state:           proto.Channel_State,
+	// The applied snapshot; `state` points into the buffer below.
+	state:           proto.Presence,
 	have_state:      bool,
 	applied_version: u32,
-	body:            [proto.MAX_STATE_SIZE]byte,
 	users_buf:       [proto.MAX_STATE_USERS]proto.User_Info,
-	channels_buf:    [proto.MAX_CHANNELS]proto.Channel_Info,
-	members_buf:     [proto.MAX_STATE_SIZE / 4]proto.User_Num,
-
-	// Channel to join as soon as the first snapshot arrives.
-	wanted:          string,
-	last_request:    u32, // newest Join request id used
-	join_pending:    bool,
-	join_channel:    u16,
-	last_join_sent:  time.Tick,
-
-	// Our name (sanitized, owned). Sent in the handshake, and with Set_Name
-	// until a snapshot shows the server has it.
-	name:            string,
-	last_name_sent:  time.Tick,
 
 	// What we've switched off for ourselves, for the others to see. Sent
 	// with Sound until a snapshot shows the server has it.
@@ -47,12 +36,43 @@ my_num :: proc(c: ^Voice_Client) -> proto.User_Num {
 	return c.channels.state.your_user if c.channels.have_state else 0
 }
 
-// set_name changes the name we go by; it's sent on the next drive_name.
-set_name :: proc(c: ^Voice_Client, name: string) {
-	buf: [proto.MAX_NAME_SIZE]u8
-	delete(c.channels.name)
-	c.channels.name = strings.clone(proto.sanitize_name(name, &buf))
-	c.channels.last_name_sent = {}
+// my_room is the voice room the server has us in, or 0 for none.
+my_room :: proc(c: ^Voice_Client) -> proto.Room {
+	ch := &c.channels
+	if !ch.have_state {
+		return 0
+	}
+	me := proto.find_user(&ch.state, ch.state.your_user)
+	return me.room if me != nil else 0
+}
+
+// room_members is who is in a voice room, in the temp allocator; nobody
+// is in room 0.
+room_members :: proc(c: ^Voice_Client, room: proto.Room) -> []proto.User_Num {
+	members := make([dynamic]proto.User_Num, context.temp_allocator)
+	if room != 0 && c.channels.have_state {
+		for u in c.channels.state.users {
+			if u.room == room {
+				append(&members, u.num)
+			}
+		}
+	}
+	slice.sort(members[:])
+	return members[:]
+}
+
+/*
+channels_restart forgets who is here, for a connection the server has
+made anew (see handle_welcome) or logged out: its snapshots count from
+the start again.
+*/
+channels_restart :: proc(c: ^Voice_Client) {
+	ch := &c.channels
+	ch.have_state = false
+	ch.state = {}
+	ch.applied_version = 0
+	ch.assembler.count = 0
+	ch.last_sound_sent = {}
 }
 
 // sound_flags is what a client muted or deafened like this publishes.
@@ -80,8 +100,8 @@ set_sound :: proc(c: ^Voice_Client, flag: proto.User_Flag, on: bool) {
 	c.channels.last_sound_sent = {}
 }
 
-// drive_sound resends Sound while the server shows different flags,
-// the same way drive_name does with the name.
+// drive_sound resends Sound while the server shows different flags.
+// It's idempotent, so repeats and reordering are harmless.
 drive_sound :: proc(c: ^Voice_Client) {
 	ch := &c.channels
 	if !ch.have_state ||
@@ -99,27 +119,14 @@ drive_sound :: proc(c: ^Voice_Client) {
 	log.debugf("sending sound state %v", ch.sound)
 }
 
-// drive_name resends Set_Name while the server shows a different name.
-// It's idempotent, so repeats and reordering are harmless.
-drive_name :: proc(c: ^Voice_Client) {
-	ch := &c.channels
-	if !ch.have_state ||
-	   !c.has_current ||
-	   time.tick_since(ch.last_name_sent) < proto.CONTROL_RESEND {
-		return
-	}
-	me := proto.find_user(&ch.state, ch.state.your_user)
-	if me == nil || me.name == ch.name {
-		return
-	}
-	buf: [proto.SET_NAME_MAX_SIZE]byte
-	send_data(c, proto.encode_set_name(&buf, ch.name))
-	ch.last_name_sent = time.tick_now()
-	log.debugf("sending name %q", ch.name)
-}
-
 handle_state_message :: proc(c: ^Voice_Client, pt: []byte) {
 	ch := &c.channels
+	// Who is here only means something once we know who everyone is,
+	// which the server says first (auth.odin). A snapshot that gets here
+	// before that is left unacknowledged, and so comes again.
+	if c.auth.state != .Done {
+		return
+	}
 	version := proto.state_message_version(pt)
 	if ch.have_state && !proto.serial_newer(version, ch.applied_version) {
 		// The server resends what we already have when our ack got lost,
@@ -145,176 +152,70 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 
 	// Validate into scratch space first, so a bad snapshot can't clobber
 	// the one we have.
-	{
-		scratch_users := make([]proto.User_Info, len(ch.users_buf), context.temp_allocator)
-		scratch_channels := make([]proto.Channel_Info, proto.MAX_CHANNELS, context.temp_allocator)
-		scratch_members := make([]proto.User_Num, len(ch.members_buf), context.temp_allocator)
-		if _, ok := proto.decode_state(body, scratch_users, scratch_channels, scratch_members);
-		   !ok {
-			log.warnf("ignoring invalid channel state v%d from the server", version)
-			return
-		}
+	scratch_users := make([]proto.User_Info, len(ch.users_buf), context.temp_allocator)
+	if _, ok := proto.decode_state(body, scratch_users); !ok {
+		log.warnf("ignoring invalid snapshot v%d from the server", version)
+		return
 	}
 
 	had_state := ch.have_state
-	old_channel := ch.state.your_channel
-	old_members: []proto.User_Num
-	if had_state {
-		old_members = slice.clone(ch.state.channels[old_channel].members, context.temp_allocator)
-	}
+	old_room := my_room(c)
+	old_members := room_members(c, old_room)
 
-	copy(ch.body[:], body)
-	ch.state, _ = proto.decode_state(
-		ch.body[:len(body)],
-		ch.users_buf[:],
-		ch.channels_buf[:],
-		ch.members_buf[:],
-	)
+	ch.state, _ = proto.decode_state(body, ch.users_buf[:])
 	ch.have_state = true
 	ch.applied_version = version
 	send_state_ack(c, version)
-	log.debugf("applied channel state v%d", version)
+	log.debugf("applied snapshot v%d", version)
 
-	state := &ch.state
-	// The mixer looks up per-user gains by key.
-	clear(&c.voice.user_keys)
-	for &u in state.users {
-		c.voice.user_keys[u.num] = u.key
-	}
-	if !had_state {
-		// Continue from the server's numbering: a restarted client's
-		// counter would otherwise look like old retransmits.
-		ch.last_request = state.join_ack
-	}
-	if ch.join_pending && !proto.serial_newer(ch.last_request, state.join_ack) {
-		ch.join_pending = false
-		if state.your_channel != ch.join_channel && int(ch.join_channel) < len(state.channels) {
-			log.warnf("the server didn't move us to %q", state.channels[ch.join_channel].name)
-		}
+	// The mixer looks up per-user gains by account.
+	clear(&c.voice.user_accounts)
+	for &u in ch.state.users {
+		c.voice.user_accounts[u.num] = u.account
 	}
 
-	if had_state && state.your_channel != old_channel {
-		chat_channel_changed(c)
-	}
-
-	current := state.channels[state.your_channel]
-	if had_state {
-		if state.your_channel != old_channel {
-			// A channel move is one local departure and arrival, not a join
-			// from every member already in the destination channel.
+	// The sounds and the log are about the room our voice is in: who
+	// came into it and who left, ourselves included.
+	room := my_room(c)
+	members := room_members(c, room)
+	switch {
+	case room != old_room:
+		if room != 0 {
+			// One arrival, ours: not one for everybody who was there.
 			audio.voice_notification_play(&c.voice, .Join)
-		} else {
-			for member in current.members {
-				if !member_present(old_members, member) {
-					audio.voice_notification_play(&c.voice, .Join)
-				}
-			}
-			for member in old_members {
-				if !member_present(current.members, member) {
-					audio.voice_notification_play(&c.voice, .Leave)
-				}
+			log.infof("in the voice of %q with %s", room_name(c, room), members_string(c, members))
+		} else if had_state {
+			audio.voice_notification_play(&c.voice, .Leave)
+			log.info("left voice")
+		}
+	case room != 0 && !slice.equal(old_members, members):
+		for member in members {
+			if !slice.contains(old_members, member) {
+				audio.voice_notification_play(&c.voice, .Join)
 			}
 		}
-	}
-	switch {
-	case !had_state || state.your_channel != old_channel:
-		log.infof("in channel %q with %s", current.name, members_string(c, current.members))
-	case !slice.equal(old_members, current.members):
-		log.infof("%q now has %s", current.name, members_string(c, current.members))
-	}
-
-	if ch.wanted != "" {
-		wanted := ch.wanted
-		ch.wanted = ""
-		request_join(c, wanted)
-		delete(wanted)
+		for member in old_members {
+			if !slice.contains(members, member) {
+				audio.voice_notification_play(&c.voice, .Leave)
+			}
+		}
+		log.infof("the voice of %q now has %s", room_name(c, room), members_string(c, members))
 	}
 	publish_channels(c)
 }
 
-@(private = "file")
-member_present :: proc(members: []proto.User_Num, wanted: proto.User_Num) -> bool {
-	for member in members {
-		if member == wanted {
-			return true
-		}
-	}
-	return false
-}
-
-// in_settled_channel is false until we know which channel we're in, and
-// while a move is pending. Voice is neither sent nor played then, so
-// nothing leaks into a channel we're only passing through (e.g. the
-// default channel, before a -channel request takes effect).
-in_settled_channel :: proc(c: ^Voice_Client) -> bool {
-	return c.channels.have_state && !c.channels.join_pending && c.channels.wanted == ""
-}
-
-// request_join asks the server to move us to the channel called `name`.
-request_join :: proc(c: ^Voice_Client, name: string) {
-	ch := &c.channels
-	if !ch.have_state {
-		delete(ch.wanted)
-		ch.wanted = strings.clone(name)
-		log.infof("will join %q once connected", name)
-		return
-	}
-
-	idx := -1
-	for info, i in ch.state.channels {
-		if info.name == name {
-			idx = i
-			break
-		}
-	}
-	switch {
-	case idx < 0:
-		log.warnf("there's no channel called %q (/channels lists them)", name)
-		return
-	case idx == int(ch.state.your_channel) && !ch.join_pending:
-		log.infof("already in %q", name)
-		return
-	}
-
-	ch.last_request += 1
-	ch.join_pending = true
-	ch.join_channel = u16(idx)
-	send_join(c)
-	publish_channels(c)
-}
-
-// drive_join resends an unacknowledged Join request.
-drive_join :: proc(c: ^Voice_Client) {
-	ch := &c.channels
-	if ch.join_pending &&
-	   c.has_current &&
-	   time.tick_since(ch.last_join_sent) >= proto.CONTROL_RESEND {
-		log.debug("resending join request")
-		send_join(c)
-	}
-}
-
-send_join :: proc(c: ^Voice_Client) {
-	buf: [proto.JOIN_SIZE]byte
-	send_data(c, proto.encode_join(&buf, c.channels.last_request, c.channels.join_channel))
-	c.channels.last_join_sent = time.tick_now()
+/*
+in_room is whether our voice is going anywhere: we're in a room, and not
+in the middle of changing it. Voice is neither sent nor played
+otherwise.
+*/
+in_room :: proc(c: ^Voice_Client) -> bool {
+	return my_room(c) != 0 && !c.convs.voice_pending
 }
 
 send_state_ack :: proc(c: ^Voice_Client, version: u32) {
 	buf: [proto.STATE_ACK_SIZE]byte
 	send_data(c, proto.encode_state_ack(&buf, version))
-}
-
-list_channels :: proc(c: ^Voice_Client) {
-	ch := &c.channels
-	if !ch.have_state {
-		log.info("not connected yet")
-		return
-	}
-	for info, i in ch.state.channels {
-		marker := i == int(ch.state.your_channel) ? "*" : " "
-		log.infof("%s %s: %s", marker, info.name, members_string(c, info.members))
-	}
 }
 
 members_string :: proc(c: ^Voice_Client, members: []proto.User_Num) -> string {
@@ -326,7 +227,7 @@ members_string :: proc(c: ^Voice_Client, members: []proto.User_Num) -> string {
 		if i > 0 {
 			strings.write_string(&b, ", ")
 		}
-		strings.write_string(&b, display_name(c.channels.state.users, m))
+		strings.write_string(&b, display_name(c, m))
 		if m == my_num(c) {
 			strings.write_string(&b, " (you)")
 		}
@@ -351,9 +252,6 @@ members_string :: proc(c: ^Voice_Client, members: []proto.User_Num) -> string {
 Commands for the network loop, from the UI or (headless) from stdin.
 The queue is the only part of a Voice_Client other threads may touch.
 */
-Join_Command :: struct {
-	channel: string, // owned by the command
-}
 List_Command :: struct {}
 // With `feedback`, the muted/unmuted sound plays for it. Deafening
 // mutes as well (see set_deafened), and only the deafen plays its sound,
@@ -371,33 +269,26 @@ Deafen_Command :: struct {
 Noise_Command :: struct {
 	enabled: bool,
 }
-// How loud to play a user: 1 is unchanged, 0 is muted.
+// How loud to play an account's connections: 1 is unchanged, 0 is
+// muted.
 Gain_Command :: struct {
-	key:  [proto.KEY_SIZE]u8,
-	gain: f32,
+	account: proto.Account_Id,
+	gain:    f32,
 }
 Poke_Command :: struct {
 	target_uid: proto.User_Num, // or 0, and the user is looked up by name
 	name:       string, // owned by the command
 	message:    string, // owned by the command
 }
-Name_Command :: struct {
-	name: string, // owned by the command
-}
-// An image to post to the channel's chat; the JPEG is owned by the
-// command until the client takes it.
+// An image to post where a Chat_Command would go; the JPEG is owned by
+// the command until the client takes it.
 Chat_Image_Command :: struct {
 	image: Chat_Image,
+	dm_to: proto.Account_Id,
 }
 Listen_Command :: struct {
 	on: bool,
 }
-// Post a message to our channel's chat.
-Chat_Command :: struct {
-	text: string, // owned by the command
-}
-// We're typing in the chat box.
-Typing_Command :: struct {}
 Quality_Command :: struct {
 	quality: audio.Quality,
 }
@@ -428,13 +319,11 @@ app_audio_command :: proc(s: ^settings.Settings) -> App_Audio_Command {
 }
 
 Command :: union {
-	Join_Command,
 	List_Command,
 	Mute_Command,
 	Deafen_Command,
 	Noise_Command,
 	Gain_Command,
-	Name_Command,
 	Gate_Command,
 	Listen_Command,
 	Quality_Command,
@@ -445,14 +334,68 @@ Command :: union {
 	Chat_Image_Command,
 	Typing_Command,
 	Watch_Command,
-	DM_Command,
-	DM_Typing_Command,
-	Delete_DM_Command,
-	DM_Image_Command,
 	Send_File_Command,
 	File_Action_Command,
 	Transfer_Limits_Command,
+	// Buddies and DMs, see buddies.odin.
+	DM_Command,
+	Buddy_Command,
+	Buddies_Command,
 	Last_Seen_Command,
+	// Accounts, see auth.odin.
+	Login_Command,
+	Logout_Command,
+	Password_Command,
+	Display_Command,
+	Devices_Command,
+	Revoke_Command,
+	Account_Create_Command,
+	Account_Password_Command,
+	// Channels and voice rooms, see convs.odin.
+	View_Command,
+	Voice_Command,
+	Browse_Command,
+	Subscribe_Command,
+	Create_Channel_Command,
+	Reading_Command,
+	Notify_Command,
+	// Messages, see messages.odin.
+	History_Command,
+	Edit_Command,
+	Delete_Command,
+	Pin_Command,
+	Pins_Command,
+	Jump_Command,
+	React_Command,
+	Reactors_Command,
+	Forward_Command,
+	Search_Command,
+	Thread_Command,
+	Root_Command,
+	// Profiles and settings, see profiles.odin.
+	Status_Command,
+	Avatar_Command,
+	Avatar_Want_Command,
+	Setting_Command,
+	Members_Command,
+	// Roles and managing the server, see roles.odin.
+	Role_Set_Command,
+	Role_Delete_Command,
+	Account_Roles_Command,
+	Account_Disable_Command,
+	Conv_Update_Command,
+	Conv_Delete_Command,
+	Conv_Member_Command,
+	Roles_Command,
+	// Calls, see calls.odin.
+	Call_Command,
+	Call_Answer_Command,
+	Call_Hangup_Command,
+	// Purging, see purge.odin.
+	Purge_Command,
+	// Online, away, busy or offline, see activity.odin.
+	Activity_Command,
+	Idle_Command,
 }
 
 Command_Queue :: struct {
@@ -477,12 +420,71 @@ commands_destroy :: proc(q: ^Command_Queue) {
 @(private = "file")
 command_destroy :: proc(cmd: Command) {
 	#partial switch v in cmd {
-	case Join_Command:
-		delete(v.channel)
-	case Name_Command:
+	case View_Command:
+		delete(v.name)
+	case Voice_Command:
+		delete(v.name)
+	case Subscribe_Command:
+		delete(v.name)
+	case Browse_Command:
+		delete(v.query)
+	case Create_Channel_Command:
+		delete(v.name)
+		delete(v.topic)
+	case Notify_Command:
 		delete(v.name)
 	case Chat_Command:
 		delete(v.text)
+	case Status_Command:
+		delete(v.text)
+	case Avatar_Command:
+		image := v.image
+		chat_image_destroy(&image)
+	case Setting_Command:
+		delete(v.key)
+		delete(v.value)
+	case Role_Set_Command:
+		delete(v.name)
+	case Role_Delete_Command:
+		delete(v.name)
+	case Account_Roles_Command:
+		delete(v.name)
+		delete(v.role_names)
+	case Account_Disable_Command:
+		delete(v.name)
+	case Conv_Update_Command:
+		delete(v.name)
+		delete(v.topic)
+	case Conv_Member_Command:
+		delete(v.name)
+	case Call_Command:
+		delete(v.name)
+	case Edit_Command:
+		delete(v.text)
+	case React_Command:
+		delete(v.emoji)
+	case Reactors_Command:
+		delete(v.emoji)
+	case Forward_Command:
+		delete(v.name)
+	case Search_Command:
+		delete(v.query)
+	case Login_Command:
+		delete(v.username)
+		delete(v.password)
+		delete(v.device)
+	case Password_Command:
+		delete(v.old)
+		delete(v.new)
+	case Display_Command:
+		delete(v.name)
+	case Account_Create_Command:
+		delete(v.username)
+		delete(v.password)
+		delete(v.display)
+	case Account_Password_Command:
+		delete(v.username)
+		delete(v.password)
 	case Poke_Command:
 		delete(v.name)
 		delete(v.message)
@@ -492,10 +494,10 @@ command_destroy :: proc(cmd: Command) {
 	case DM_Command:
 		delete(v.name)
 		delete(v.text)
-	case DM_Image_Command:
+	case Buddy_Command:
 		delete(v.name)
-		image := v.image
-		chat_image_destroy(&image)
+	case Last_Seen_Command:
+		delete(v.name)
 	case Send_File_Command:
 		delete(v.name)
 		delete(v.path)
@@ -518,8 +520,89 @@ process_commands :: proc(c: ^Voice_Client) {
 
 	for &cmd in commands {
 		switch &v in cmd {
-		case Join_Command:
-			request_join(c, v.channel)
+		case View_Command:
+			conv_view_command(c, v)
+		case Voice_Command:
+			voice_command(c, v)
+		case Browse_Command:
+			conv_browse(c, v.query, v.more)
+		case Subscribe_Command:
+			conv_subscribe_command(c, v)
+		case Create_Channel_Command:
+			conv_create(c, v.name, v.topic, v.private)
+		case Reading_Command:
+			conv_reading(c, v.conv)
+		case Notify_Command:
+			conv_notify(c, v)
+		case History_Command:
+			messages_more(c, {v.conv if v.conv != 0 else c.convs.viewing, v.root}, v.newer)
+		case Edit_Command:
+			msg_edit(c, v.id, typed_text(c, v.text) if v.typed else v.text)
+		case Delete_Command:
+			msg_delete(c, v.id)
+		case Pin_Command:
+			msg_pin(c, v.id, v.on)
+		case Pins_Command:
+			pins_fetch(c, v.conv if v.conv != 0 else c.convs.viewing)
+		case Jump_Command:
+			messages_jump_to(c, v.id)
+		case React_Command:
+			msg_react(c, v)
+		case Reactors_Command:
+			reactors_fetch(c, v.id, v.emoji)
+		case Forward_Command:
+			msg_forward(c, v)
+		case Search_Command:
+			search_start(c, v)
+		case Thread_Command:
+			v.thread.conv = v.thread.conv if v.thread.conv != 0 else c.convs.viewing
+			if v.open {
+				thread_open(c, v.thread)
+			} else {
+				thread_close(c, v.thread)
+			}
+		case Root_Command:
+			root_want(c, v.conv, v.root)
+		case Status_Command:
+			status_set(c, v.text, v.until)
+		case Avatar_Command:
+			// The client takes the JPEG over, so it isn't freed twice.
+			avatar_set(c, v.image, v.remove)
+			v.image = {}
+		case Avatar_Want_Command:
+			blob_want(c, {blob = v.blob}, keep = true)
+		case Setting_Command:
+			setting_put(c, v.key, v.value)
+		case Role_Set_Command:
+			role_set(c, v)
+		case Role_Delete_Command:
+			role_delete(c, v)
+		case Account_Roles_Command:
+			account_roles_set(c, v)
+		case Account_Disable_Command:
+			account_disable(c, v)
+		case Conv_Update_Command:
+			conv_update(c, v)
+		case Conv_Delete_Command:
+			conv_delete(c, v.conv)
+		case Conv_Member_Command:
+			conv_member_set(c, v)
+		case Roles_Command:
+			roles_list(c)
+		case Call_Command:
+			call_start(c, v)
+		case Call_Answer_Command:
+			call_answer(c)
+		case Call_Hangup_Command:
+			call_hangup(c)
+		case Purge_Command:
+			purge_start(c, v)
+		case Activity_Command:
+			activity_set(c, v.activity)
+		case Idle_Command:
+			idle_set(c, v.idle)
+		case Members_Command:
+			members_fetch(c, v.conv if v.conv != 0 else c.convs.viewing)
 		case List_Command:
 			list_channels(c)
 		case Mute_Command:
@@ -541,9 +624,9 @@ process_commands :: proc(c: ^Voice_Client) {
 			log.infof("noise suppression %s", "on" if v.enabled else "off")
 		case Gain_Command:
 			if v.gain == 1 {
-				delete_key(&c.voice.gains, v.key)
+				delete_key(&c.voice.gains, v.account)
 			} else {
-				c.voice.gains[v.key] = v.gain
+				c.voice.gains[v.account] = v.gain
 			}
 		case Quality_Command:
 			if v.quality != c.voice.quality && audio.encoder_setup(&c.voice, v.quality) {
@@ -565,31 +648,30 @@ process_commands :: proc(c: ^Voice_Client) {
 		case App_Audio_Command:
 			c.voice.app_volume = clamp(v.volume, 0, settings.MAX_USER_VOLUME)
 			c.voice.app_mute_with_mic = v.mute_with_mic
-		case Name_Command:
-			set_name(c, v.name)
-			log.infof("name: %q", c.channels.name)
 		case Chat_Command:
-			chat_send(c, v.text)
+			if v.thread.root != 0 && v.thread.conv == 0 {
+				v.thread.conv = c.convs.viewing
+			}
+			chat_send(c, typed_text(c, v.text) if v.typed else v.text, v.dm_to, v.thread)
 		case Poke_Command:
 			poke_send(c, v.target_uid, v.name, v.message)
 		case Chat_Image_Command:
 			// The client takes the JPEG over, so it isn't freed twice.
-			chat_send_image(c, v.image.jpeg, v.image.width, v.image.height)
+			chat_send_image(c, v.image.jpeg, v.image.width, v.image.height, v.dm_to)
 			v.image = {}
 		case Typing_Command:
-			chat_typing(c)
+			if v.thread.root != 0 && v.thread.conv == 0 {
+				v.thread.conv = c.convs.viewing
+			}
+			chat_typing(c, v.thread)
 		case Watch_Command:
 			video_watch(c, v.user)
 		case DM_Command:
-			dm_send(c, v.to, v.name, v.text)
-		case DM_Typing_Command:
-			dm_typing(c, v.to)
-		case Delete_DM_Command:
-			dm_delete(c, v.with)
-		case DM_Image_Command:
-			// The client takes the JPEG over, so it isn't freed twice.
-			dm_send_image(c, v.to, v.name, v.image)
-			v.image = {}
+			dm_command(c, v)
+		case Buddy_Command:
+			buddy_command(c, v)
+		case Buddies_Command:
+			list_buddies(c)
 		case Send_File_Command:
 			send_file(c, v)
 		case File_Action_Command:
@@ -597,7 +679,23 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Transfer_Limits_Command:
 			c.files.upload_limit, c.files.download_limit = v.upload, v.download
 		case Last_Seen_Command:
-			last_seen_ask(c, v)
+			last_seen_command(c, v)
+		case Login_Command:
+			auth_login(c, v)
+		case Logout_Command:
+			auth_logout(c)
+		case Password_Command:
+			auth_password(c, v)
+		case Display_Command:
+			auth_display(c, v.name)
+		case Devices_Command:
+			auth_devices(c)
+		case Revoke_Command:
+			auth_revoke(c, v.key)
+		case Account_Create_Command:
+			auth_account_create(c, v)
+		case Account_Password_Command:
+			auth_account_password(c, v)
 		}
 	}
 }
