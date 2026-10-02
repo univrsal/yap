@@ -164,9 +164,22 @@ yap_audio_stream* yap_audio_stream_open(yap_audio* a, yap_audio_direction dir, c
     s->callback = callback;
     s->user     = user;
 
+#if defined(__EMSCRIPTEN__)
+    /* A page that isn't a secure context (plain http:// to anything but
+       localhost) has no navigator.mediaDevices, and miniaudio's Web Audio
+       device would call getUserMedia on it anyway: a TypeError that takes
+       the whole client down. No microphone there, as if there were none. */
+    if (dir == YAP_AUDIO_CAPTURE && !ma_is_capture_supported__webaudio()) {
+        EM_ASM({ console.warn("yap: no microphone, the browser only allows one on https:// or localhost"); });
+        free(s);
+        if (result) *result = MA_NO_DEVICE;
+        return NULL;
+    }
+#endif
+
     if (id) memcpy(&device_id, id->bytes, sizeof(device_id));
 
-    config = ma_device_config_init(dir == YAP_AUDIO_CAPTURE ? ma_device_type_capture : ma_device_type_playback);
+    config =ma_device_config_init(dir == YAP_AUDIO_CAPTURE ? ma_device_type_capture : ma_device_type_playback);
     config.sampleRate         = sample_rate;
     config.periodSizeInMilliseconds = period_ms;
     config.dataCallback       = data_callback;
