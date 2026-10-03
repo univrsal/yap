@@ -61,6 +61,9 @@ Net_Session :: struct {
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
 	streams:       audio.Audio_Streams,
+	// The microphone is wanted, and has been opened, or tried to be
+	// (session_capture_update).
+	capture_on:    bool,
 	// An explicit disconnect keeps playback open while this local effect
 	// drains. Application shutdown and reconnects skip it.
 	goodbye_tail:  bool,
@@ -410,6 +413,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		set_listen_back(ui, false)
 	}
 	monitor_update(ui)
+	session_capture_update(ui)
 	app_audio_frame(ui)
 	show_pokes(ui)
 	// Before the tray, so it shows what a hotkey just did, and before
@@ -785,9 +789,9 @@ connect :: proc(ui: ^UI) {
 	ns.client = new(conn.Voice_Client)
 	ns.client.view = &ui.view
 	if audio.voice_init(&ns.client.voice) {
-		// Devices may have come or gone since the list was made.
+		// Devices may have come or gone since the list was made. The
+		// microphone waits until it's needed (session_capture_update).
 		audio.audio_refresh(&ui.audio)
-		audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
 		audio.open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 	ns.client.voice.muted = ui.muted
@@ -946,12 +950,45 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 		return
 	}
 	if input {
-		audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+		// Not wanted is left closed (session_capture_update).
+		if ns.capture_on {
+			audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+		}
 	} else {
 		audio.open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 }
 
+/*
+session_capture_update runs every frame: it keeps the connection's
+microphone open only while it's wanted, which is while we're in a voice
+room (a channel's voice or a call) or on our way into one, and while the
+settings page is shown (its meter and listen back come from the
+connection). Joining a server alone doesn't open it.
+*/
+@(private = "file")
+session_capture_update :: proc(ui: ^UI) {
+	ns := ui.session
+	if ns == nil || ns.goodbye_tail || !ns.client.voice.ready {
+		return
+	}
+	want := ui.page == .Settings
+	if !want {
+		sync.guard(&ui.view.mutex)
+		want = ui.view.my_room != 0 || ui.view.voice_pending
+	}
+	if want == ns.capture_on {
+		return
+	}
+	ns.capture_on = want
+	if want {
+		// Devices may have come or gone since the list was made.
+		audio.audio_refresh(&ui.audio)
+		audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+	} else {
+		audio.close_capture(&ns.streams, &ns.client.voice)
+	}
+}
 
 @(private = "file")
 layout :: proc(ui: ^UI, w, h: i32) {
