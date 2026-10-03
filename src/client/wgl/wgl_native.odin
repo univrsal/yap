@@ -34,6 +34,7 @@ Enable :: gl.Enable
 EnableVertexAttribArray :: gl.EnableVertexAttribArray
 GenBuffers :: gl.GenBuffers
 GenTextures :: gl.GenTextures
+GenerateMipmap :: gl.GenerateMipmap
 GenVertexArrays :: gl.GenVertexArrays
 GetUniformLocation :: gl.GetUniformLocation
 PixelStorei :: gl.PixelStorei
@@ -55,6 +56,7 @@ DYNAMIC_DRAW :: gl.DYNAMIC_DRAW
 ELEMENT_ARRAY_BUFFER :: gl.ELEMENT_ARRAY_BUFFER
 FLOAT :: gl.FLOAT
 LINEAR :: gl.LINEAR
+LINEAR_MIPMAP_LINEAR :: gl.LINEAR_MIPMAP_LINEAR
 NEAREST :: gl.NEAREST
 ONE_MINUS_SRC_ALPHA :: gl.ONE_MINUS_SRC_ALPHA
 R8 :: gl.R8

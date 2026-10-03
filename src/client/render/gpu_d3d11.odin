@@ -547,13 +547,15 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 gpu_texture_make makes a width x height texture from `pixels` (one byte
 a pixel for .Alpha, four for .Rgba). A texture without pixels is none at
 all: only the page's video decoder fills one of those (conn/video_web.odin),
-and there's no page here.
+and there's no page here. With `mipmaps`, an .Rgba one gets smaller
+copies of itself (see gpu_gl.odin).
 */
 gpu_texture_make :: proc(
 	g: ^Gpu,
 	kind: Texture_Kind,
 	width, height: i32,
 	pixels: []u8,
+	mipmaps := false,
 ) -> Gpu_Texture {
 	if pixels == nil || width <= 0 || height <= 0 || g.device == nil {
 		return 0
@@ -573,8 +575,18 @@ gpu_texture_make :: proc(
 		pSysMem     = raw_data(pixels),
 		SysMemPitch = u32(width) * pixel_size,
 	}
+	initial := &data
+	generate := mipmaps && kind == .Rgba
+	if generate {
+		// The whole chain, made by the GPU from the first level, which
+		// is filled in once there's a texture to fill.
+		desc.MipLevels = 0
+		desc.BindFlags += {.RENDER_TARGET}
+		desc.MiscFlags = {.GENERATE_MIPS}
+		initial = nil
+	}
 	t := new(D3D_Texture)
-	if hr := g.device->CreateTexture2D(&desc, &data, &t.texture); failed(hr) {
+	if hr := g.device->CreateTexture2D(&desc, initial, &t.texture); failed(hr) {
 		log.errorf("gpu: no %dx%d texture (0x%8x)", width, height, u32(hr))
 		free(t)
 		return 0
@@ -584,6 +596,10 @@ gpu_texture_make :: proc(
 		t.texture->Release()
 		free(t)
 		return 0
+	}
+	if generate {
+		g.ctx->UpdateSubresource(t.texture, 0, nil, data.pSysMem, data.SysMemPitch, 0)
+		g.ctx->GenerateMips(t.view)
 	}
 	return Gpu_Texture(uintptr(t))
 }

@@ -28,6 +28,7 @@ foreign _ {
 	EnableVertexAttribArray :: proc(index: u32) ---
 	GenBuffers :: proc(n: i32, buffers: [^]u32) ---
 	GenTextures :: proc(n: i32, textures: [^]u32) ---
+	GenerateMipmap :: proc(target: u32) ---
 	GenVertexArrays :: proc(n: i32, arrays: [^]u32) ---
 	GetUniformLocation :: proc(program: u32, name: cstring) -> i32 ---
 	PixelStorei :: proc(pname: u32, param: i32) ---
@@ -63,6 +64,7 @@ DYNAMIC_DRAW :: 0x88E8
 ELEMENT_ARRAY_BUFFER :: 0x8893
 FLOAT :: 0x1406
 LINEAR :: 0x2601
+LINEAR_MIPMAP_LINEAR :: 0x2703
 NEAREST :: 0x2600
 ONE_MINUS_SRC_ALPHA :: 0x0303
 R8 :: 0x8229

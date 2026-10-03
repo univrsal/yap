@@ -175,6 +175,7 @@ ui_images_frame :: proc(ui: ^UI) {
 			i32(result.image.width),
 			i32(result.image.height),
 			result.image.pixels,
+			mipmaps = true, // usually drawn smaller, and pictures of people round
 		)
 		t.frame = im.frame
 		im.textures[result.id] = t

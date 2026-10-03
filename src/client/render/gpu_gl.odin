@@ -179,11 +179,15 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 // gpu_texture_make makes a width x height texture from `pixels` (one
 // byte a pixel for .Alpha, four for .Rgba). Without pixels it's left
 // empty, for the page's video decoder to fill (conn/video_web.odin).
+// With `mipmaps`, an .Rgba one with pixels gets smaller copies of itself,
+// so it's still smooth drawn much smaller than it is (round pictures'
+// edges); not for atlases, whose cells would bleed into each other.
 gpu_texture_make :: proc(
 	g: ^Gpu,
 	kind: Texture_Kind,
 	width, height: i32,
 	pixels: []u8,
+	mipmaps := false,
 ) -> Gpu_Texture {
 	tex: u32
 	gl.GenTextures(1, &tex)
@@ -218,7 +222,14 @@ gpu_texture_make :: proc(
 		}
 	}
 	filter: i32 = gl.NEAREST if kind == .Alpha else gl.LINEAR
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter)
+	min_filter := filter
+	// Only once there are pixels: a mipmap filter on a texture without
+	// its smaller copies samples black.
+	if mipmaps && kind == .Rgba && pixels != nil {
+		gl.GenerateMipmap(gl.TEXTURE_2D)
+		min_filter = gl.LINEAR_MIPMAP_LINEAR
+	}
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min_filter)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filter)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
