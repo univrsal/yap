@@ -17,9 +17,12 @@ Decode_Worker :: struct {}
 decode_worker_start :: proc(ui: ^UI) {}
 decode_worker_stop :: proc(ui: ^UI) {}
 
-// Nothing to wake: without threads, a semaphore can't be used at all
-// (Odin's futex panics on wasm without atomics).
-decode_wake :: proc(im: ^UI_Images) {}
+// No thread to wake: without threads, a semaphore can't be used at all
+// (Odin's futex panics on wasm without atomics). Only a frame, for
+// decode_queued to run in.
+decode_wake :: proc(im: ^UI_Images) {
+	ui_wake()
+}
 
 // decode_queued takes whatever is waiting and decodes it here and now.
 decode_queued :: proc(im: ^UI_Images) {

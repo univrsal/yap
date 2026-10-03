@@ -6,7 +6,6 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
-import glfw "client:wglfw"
 
 import "common:proto"
 import "client:dialogs"
@@ -76,7 +75,7 @@ pick_work :: proc(job: ^File_Pick_Job) {
 	job.path, job.status, job.err = dialogs.open_file("Send a file", file_filters())
 	sync.atomic_store(&job.done, true)
 	// The UI may be waiting for input; let it pick the result up now.
-	glfw.PostEmptyEvent()
+	ui_wake()
 }
 
 // file_pick_poll finishes a pick once the dialog is closed. Called on the

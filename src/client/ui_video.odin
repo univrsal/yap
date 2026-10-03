@@ -1,6 +1,7 @@
 package client
 
 import "core:fmt"
+import "core:time"
 import mu "vendor:microui"
 
 import "common:proto"
@@ -41,6 +42,10 @@ ui_video_forget_texture :: proc(ui: ^UI) {
 // browser can (video_can_share).
 share_button :: proc(ui: ^UI) {
 	state := conn.video_share_state()
+	if state != .Off {
+		// The page may change it (the browser's own Stop sharing).
+		ui_redraw_in(ui, 250 * time.Millisecond)
+	}
 	hint := "Share your screen"
 	color := mu.Color{}
 	switch state {
@@ -147,6 +152,9 @@ picture :: proc(ui: ^UI, r: mu.Rect) {
 	if w, h, ok := conn.video_upload(vid.texture); ok {
 		vid.size = {w, h}
 	}
+	// The page decodes frames as they come, without waking the UI: it
+	// takes a frame of ours to look for the next one.
+	ui_redraw_at(ui, time.tick_now())
 
 	mu.draw_rect(ctx, r, {0, 0, 0, 255})
 	if vid.size.x <= 0 || vid.size.y <= 0 || r.w <= 0 || r.h <= 0 {

@@ -254,6 +254,7 @@ conversation :: proc(ui: ^UI) {
 	}
 	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
 		status, status_color = ui.buddies.notice, OFF_COLOR
+		ui_redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
 	}
 	with_text_color(
 		ctx,
@@ -405,9 +406,13 @@ ask_last_seen :: proc(ui: ^UI) {
 	due :=
 		ui.buddies.seen_asked == {} || time.tick_since(ui.buddies.seen_asked) >= LAST_SEEN_REFRESH
 	if cmd.count == 0 || !(due || someone_left) {
+		if cmd.count != 0 {
+			ui_redraw_at(ui, time.tick_add(ui.buddies.seen_asked, LAST_SEEN_REFRESH))
+		}
 		return
 	}
 	ui.buddies.seen_asked = time.tick_now()
+	ui_redraw_in(ui, LAST_SEEN_REFRESH)
 	conn.push_command(&ui.session.client.commands, cmd)
 }
 

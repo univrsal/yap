@@ -52,11 +52,14 @@ decode_worker :: proc(im: ^UI_Images) {
 			}
 			defer delete(job.jpeg)
 			image, err := clipboard.decode(job.jpeg)
+			{
+				sync.guard(&im.mutex)
+				append(&im.results, Decode_Result{id = job.id, image = image, ok = err == .None})
+			}
+			ui_wake() // to take it (ui_images_frame)
 			if err != .None {
 				log.debugf("image %d could not be decoded: %v", job.id, err)
 			}
-			sync.guard(&im.mutex)
-			append(&im.results, Decode_Result{id = job.id, image = image, ok = err == .None})
 		}
 	}
 }
