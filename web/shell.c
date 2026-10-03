@@ -443,3 +443,44 @@ EM_JS(int, yap_sink_finish, (int handle), {
 EM_JS(void, yap_sink_abort, (int handle), {
 	Module.yapFiles.sinkAbort(handle);
 });
+
+/* The image cache (web/images.js, src/client/conn/image_cache_web.odin). */
+EM_JS(int, yap_image_cache_open, (double max_bytes), {
+	return Module.yapImages.open(max_bytes);
+});
+
+EM_JS(double, yap_image_cache_bytes, (void), {
+	return Module.yapImages.bytes();
+});
+
+EM_JS(int, yap_image_cache_count, (void), {
+	return Module.yapImages.count();
+});
+
+EM_JS(void, yap_image_cache_set_max, (double max_bytes), {
+	Module.yapImages.setMax(max_bytes);
+});
+
+EM_JS(void, yap_image_cache_clear, (void), {
+	Module.yapImages.clear();
+});
+
+EM_JS(int, yap_image_cache_request, (const char *key), {
+	return Module.yapImages.request(UTF8ToString(key));
+});
+
+EM_JS(int, yap_image_cache_poll, (int req), {
+	return Module.yapImages.poll(req);
+});
+
+EM_JS(void, yap_image_cache_take, (int req, unsigned char *buf, int len), {
+	Module.yapImages.take(req, buf, len);
+});
+
+EM_JS(void, yap_image_cache_cancel, (int req), {
+	Module.yapImages.cancel(req);
+});
+
+EM_JS(void, yap_image_cache_store, (const char *key, const unsigned char *data, int len), {
+	Module.yapImages.store(UTF8ToString(key), data, len);
+});

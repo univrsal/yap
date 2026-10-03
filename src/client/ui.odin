@@ -156,6 +156,12 @@ UI :: struct {
 	// Slider drags change the settings every frame; save at most once a
 	// second, and on exit.
 	settings_dirty:      bool,
+	// People's pictures and servers' emoji kept on disk between
+	// sessions (ui_image_cache.odin), and the settings page's box for
+	// its folder.
+	image_cache:         conn.Image_Cache,
+	image_cache_dir_buf: [512]u8,
+	image_cache_dir_len: int,
 	// Keys microui has no name for, pressed since the last frame.
 	keys:                bit_set[Extra_Key],
 	// A message was picked to edit, or a mention completed: its composer
@@ -313,6 +319,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui.settings = settings.settings_load(opts.settings_path)
 	ui.ui_scale_draft = settings.ui_scale_factor(&ui.settings) * 100
 	ui.chat_scale_draft = settings.chat_scale_factor(&ui.settings) * 100
+	image_cache_start(ui)
 	initial := opts.server if opts.server != "" else ui.settings.server
 	ui.server_len = copy(ui.server_buf[:], initial)
 	password := opts.password
@@ -664,6 +671,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	}
 	ui_images_destroy(ui)
 	ui_avatars_destroy(ui)
+	conn.image_cache_destroy(&ui.image_cache)
 	ui_video_destroy(ui)
 	app_audio_destroy(ui)
 	delete(ui.text_boxes)
@@ -945,6 +953,7 @@ connect :: proc(ui: ^UI) {
 	ui.channels = {}
 	ns.client = new(conn.Voice_Client)
 	ns.client.view = &ui.view
+	ns.client.blobs.disk = &ui.image_cache
 	if audio.voice_init(&ns.client.voice) {
 		// Devices may have come or gone since the list was made. The
 		// microphone waits until it's needed (session_capture_update).

@@ -82,6 +82,7 @@ settings_page :: proc(ui: ^UI) {
 	ui_settings(ui)
 	hotkey_settings(ui)
 	transfer_settings(ui)
+	image_cache_settings(ui)
 	trusted_servers_settings(ui)
 	install_settings(ui)
 }

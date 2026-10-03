@@ -36,6 +36,8 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"ui_scale": 1,
 		"chat_pictures": true,
 		"chat_scale": 1,
+		"image_cache_mb": 256,
+		"image_cache_dir": "",
 		"mute_hotkey": "Ctrl+Shift+M",
 		"deafen_hotkey": "",
 		"users": {
@@ -98,6 +100,11 @@ Settings :: struct {
 	// The chat's text size, on top of ui_scale (it multiplies): 1 =
 	// the UI's, MIN_CHAT_SCALE..MAX_CHAT_SCALE.
 	chat_scale:              f32,
+	// How much of people's pictures and servers' emoji to keep on disk
+	// between sessions, in MB (0: none), and where; "" for the system's
+	// cache folder (conn/image_cache_native.odin).
+	image_cache_mb:          f32,
+	image_cache_dir:         string,
 	// Global hotkeys, as hotkeys.format writes them ("Ctrl+Shift+M"); ""
 	// for none. See ui_hotkeys_native.odin.
 	mute_hotkey:             string,
@@ -149,6 +156,7 @@ DEFAULT_SETTINGS :: Settings {
 	ui_scale                = 1,
 	chat_pictures           = true,
 	chat_scale              = 1,
+	image_cache_mb          = 256,
 }
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
@@ -209,6 +217,7 @@ settings_destroy :: proc(s: ^Settings) {
 	delete(s.output_device)
 	delete(s.mute_hotkey)
 	delete(s.deafen_hotkey)
+	delete(s.image_cache_dir)
 	for key in s.users {
 		delete(key)
 	}
@@ -382,7 +391,13 @@ settings_quality :: proc(s: ^Settings) -> audio.Quality {
 	return q
 }
 
+MAX_IMAGE_CACHE_MB :: 4096 // the most the settings' slider goes to
 MAX_TRANSFER_LIMIT :: 100 // MB/s, the most the settings' sliders go to
+
+// image_cache_bytes is how much of the image cache to keep, in bytes.
+image_cache_bytes :: proc(s: ^Settings) -> int {
+	return int(clamp(s.image_cache_mb, 0, MAX_IMAGE_CACHE_MB) * 1024 * 1024)
+}
 
 notification_gain :: proc(s: ^Settings) -> f32 {
 	return clamp(s.notification_volume, 0, MAX_USER_VOLUME)

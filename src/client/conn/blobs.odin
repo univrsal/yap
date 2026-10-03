@@ -20,6 +20,13 @@ over).
 Pictures stay in memory as the JPEG they arrived as; the UI decodes
 them (ui_images.odin). Past BLOB_CACHE_BYTES the ones fetched first are
 dropped, and fetched again if they're shown again.
+
+Those fetched with `keep` (people's pictures and the server's emoji) are
+kept on disk as well, when the UI has given us somewhere to keep them
+(`disk`, image_cache.odin), and are taken from there next time instead
+of being fetched. Taking one from there may take a moment (in a
+browser), so it's Loading meanwhile, as if fetched, and only fetched
+after all if the cache can't give it after all.
 */
 
 // How much of other people's pictures to keep.
@@ -46,6 +53,7 @@ Blob_Fetch :: struct {
 	started:    bool, // chunks have begun to arrive
 	order:      int, // when it was fetched, to drop the oldest first
 	keep:       bool, // not to be dropped: the server's sheet of emoji
+	disk:       Cache_Request, // being taken from the image cache instead
 }
 
 Blob_Client :: struct {
@@ -56,6 +64,11 @@ Blob_Client :: struct {
 	count:  int,
 	// Headless: where to save the pictures that arrive.
 	dir:    string,
+	// The UI's: where pictures fetched with `keep` are kept between
+	// sessions; nil for nowhere.
+	disk:   ^Image_Cache,
+	// The pictures being taken from there.
+	loads:  [dynamic]proto.Blob_Id,
 }
 
 blobs_destroy :: proc(c: ^Voice_Client) {
@@ -65,10 +78,15 @@ blobs_destroy :: proc(c: ^Voice_Client) {
 	}
 	delete(c.blobs.cache)
 	delete(c.blobs.queue)
+	delete(c.blobs.loads)
 }
 
 @(private = "file")
 fetch_release :: proc(c: ^Voice_Client, f: ^Blob_Fetch) {
+	if f.disk != 0 {
+		image_cache_cancel(c.blobs.disk, f.disk)
+		f.disk = 0
+	}
 	if f.state == .Ready {
 		c.blobs.bytes -= len(f.data)
 	}
@@ -86,6 +104,11 @@ blob_want :: proc(c: ^Voice_Client, image: proto.Msg_Image, keep := false) {
 	}
 	bc := &c.blobs
 	if f, seen := bc.cache[image.blob]; seen {
+		if keep && !f.keep && f.state == .Ready {
+			// Wanted to keep only now (a message's picture that's also
+			// somebody's, or our own new one).
+			disk_store(c, image.blob, f.data)
+		}
 		f.keep ||= keep
 		if f.state == .Wanted {
 			// Wanted again: to the front.
@@ -104,8 +127,65 @@ blob_want :: proc(c: ^Voice_Client, image: proto.Msg_Image, keep := false) {
 	f.state = .Wanted
 	f.keep = keep
 	bc.cache[image.blob] = f
-	inject_at(&bc.queue, 0, image.blob)
+	if keep && bc.disk != nil && c.server_key != {} {
+		f.disk = image_cache_request(bc.disk, c.server_key, image.blob)
+	}
+	if f.disk != 0 {
+		f.state = .Loading
+		append(&bc.loads, image.blob)
+	} else {
+		inject_at(&bc.queue, 0, image.blob)
+	}
 	publish_blob(c, image.blob)
+}
+
+// disk_poll looks for the pictures being taken from the image cache:
+// one that's here is Ready, as if it had just been fetched, and one the
+// cache couldn't give is fetched after all.
+@(private = "file")
+disk_poll :: proc(c: ^Voice_Client) {
+	bc := &c.blobs
+	for i := 0; i < len(bc.loads); {
+		id := bc.loads[i]
+		f := bc.cache[id] or_else nil
+		if f == nil || f.disk == 0 {
+			// Gone meanwhile (blob_have).
+			unordered_remove(&bc.loads, i)
+			continue
+		}
+		data, state := image_cache_poll(bc.disk, f.disk)
+		if state == .Pending {
+			i += 1
+			continue
+		}
+		unordered_remove(&bc.loads, i)
+		f.disk = 0
+		if state == .Done && (f.image.size == 0 || int(f.image.size) == len(data)) {
+			f.data = data
+			f.image.size = u32(len(data))
+			f.state = .Ready
+			bc.bytes += len(data)
+			bc.count += 1
+			f.order = bc.count
+			log.debugf("picture %d from the image cache (%d bytes)", id, len(data))
+			publish_blob(c, id)
+			trim_blobs(c)
+			continue
+		}
+		// Not there after all, or not what we were told it is.
+		delete(data)
+		f.state = .Wanted
+		inject_at(&bc.queue, 0, id)
+		publish_blob(c, id)
+	}
+}
+
+// disk_store keeps a picture on disk for next time.
+@(private = "file")
+disk_store :: proc(c: ^Voice_Client, id: proto.Blob_Id, data: []u8) {
+	if c.blobs.disk != nil && c.server_key != {} {
+		image_cache_store(c.blobs.disk, c.server_key, id, data)
+	}
 }
 
 // blob_have is a picture of ours the server has just taken: nothing to
@@ -153,6 +233,9 @@ blobs_restart :: proc(c: ^Voice_Client) {
 
 // blobs_step drives the fetch of one picture at a time.
 blobs_step :: proc(c: ^Voice_Client) {
+	if len(c.blobs.loads) > 0 {
+		disk_poll(c)
+	}
 	if !c.has_current || !c.convs.synced {
 		return
 	}
@@ -267,6 +350,9 @@ handle_blob_chunk :: proc(c: ^Voice_Client, pt: []byte) {
 	bc.active = 0
 	log.debugf("picture %d received (%d bytes)", id, len(f.data))
 	save_image(c, id, f)
+	if f.keep {
+		disk_store(c, id, f.data)
+	}
 	publish_blob(c, id)
 	trim_blobs(c)
 }
