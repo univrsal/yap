@@ -25,24 +25,16 @@ server keeps no record of transfers).
 Sending paces chunks to the lower of our upload limit and the
 recipient's download limit (the settings), and at most FILE_MAX_RATE.
 Receiving writes each chunk where it goes as it comes (files_io_*.odin),
-into the downloads folder under the name the sender gave it.
+into the downloads folder under the name the sender gave it. The window,
+acks and resends are proto/transfer.odin's, as for attachments.
 */
 
 // Even with no limit set, a transfer doesn't go faster than this, so it
 // leaves room for voice.
 FILE_MAX_RATE :: 16 * 1024 * 1024
 FILE_BURST :: 256 * 1024
-// How often the recipient says what it has.
-FILE_ACK_INTERVAL :: 100 * time.Millisecond
-// A chunk asked for again isn't resent sooner than this after it last
-// went, as it may still be on its way.
-FILE_RESEND_GAP :: 300 * time.Millisecond
 // Giving up on a transfer that hears nothing from the other side.
 FILE_TIMEOUT :: 30 * time.Second
-// How long the acks may stand still before the sender resends the end.
-FILE_TAIL_WAIT :: time.Second
-// How many times the last ack, saying it's complete, is sent.
-FILE_COMPLETE_ACKS :: 4
 // How often progress is shown.
 FILE_PUBLISH_INTERVAL :: 200 * time.Millisecond
 
@@ -93,29 +85,14 @@ File_Transfer :: struct {
 	rate_at:       time.Tick,
 	rate_done:     u64,
 
-	// Sending.
+	// Sending (proto/transfer.odin).
 	src:           File_Source,
-	next:          u32, // the first chunk never sent
-	base:          u32, // everything below has arrived
-	highest:       u32,
-	peer_rate:     u32,
-	acked:         bool, // an ack has come, so `highest` means something
-	progress_at:   time.Tick, // when the acks last moved on
-	resend:        [dynamic]u32,
-	resent:        map[u32]time.Tick,
-	tokens:        f32,
-	last_pace:     time.Tick,
+	send:          proto.Transfer_Sender,
 
 	// Receiving.
 	sink:          File_Sink,
 	path:          string, // where it's being saved; owned
-	have:          []u64, // a bit per chunk
-	received:      u32,
-	rbase:         u32, // the first chunk not here
-	rhighest:      u32,
-	any:           bool, // a chunk has come
-	last_ack:      time.Tick,
-	complete_acks: int,
+	recv:          proto.Transfer_Receiver,
 }
 
 // Send_File_Command offers `to` a file: at `path` on a desktop, or the
@@ -312,10 +289,9 @@ file_action :: proc(c: ^Voice_Client, id: proto.Msg_Id, action: File_Action) {
 			return
 		}
 		t.sink, t.path = sink, path
-		t.have = make([]u64, (int(t.chunks) + 63) / 64)
+		proto.transfer_receiver_init(&t.recv, t.size)
 		t.state = .Starting
 		t.last_heard = time.tick_now()
-		t.last_ack = {}
 		log.infof("[file] accepted %q, saving to %s", t.name, path)
 		publish_file(c, t, force = true)
 	case .Decline:
@@ -342,8 +318,8 @@ files_step :: proc(c: ^Voice_Client) {
 			// first didn't get there.
 			if !t.outgoing &&
 			   t.state == .Done &&
-			   t.complete_acks < FILE_COMPLETE_ACKS &&
-			   time.tick_diff(t.last_ack, now) >= FILE_ACK_INTERVAL * 3 {
+			   t.recv.complete_acks < proto.TRANSFER_COMPLETE_ACKS &&
+			   time.tick_diff(t.recv.last_ack, now) >= proto.TRANSFER_ACK_INTERVAL * 3 {
 				send_file_ack(c, t, now)
 			}
 			continue
@@ -368,8 +344,8 @@ files_step :: proc(c: ^Voice_Client) {
 			switch t.state {
 			case .Starting:
 				// Until chunks come, ask for them.
-				if t.last_ack == {} || time.tick_diff(t.last_ack, now) >= proto.CONTROL_RESEND {
-					t.last_ack = now
+				if t.recv.last_ack == {} || time.tick_diff(t.recv.last_ack, now) >= proto.CONTROL_RESEND {
+					t.recv.last_ack = now
 					buf: [proto.FILE_ACCEPT_SIZE]u8
 					send_data(
 						c,
@@ -377,7 +353,7 @@ files_step :: proc(c: ^Voice_Client) {
 					)
 				}
 			case .Transferring:
-				if time.tick_diff(t.last_ack, now) >= FILE_ACK_INTERVAL {
+				if time.tick_diff(t.recv.last_ack, now) >= proto.TRANSFER_ACK_INTERVAL {
 					send_file_ack(c, t, now)
 				}
 			case .Unknown,
@@ -400,59 +376,21 @@ files_step :: proc(c: ^Voice_Client) {
 	}
 }
 
-// send_chunks sends what the pace allows: chunks asked for again first,
-// then new ones within the window.
+// send_chunks sends what the pace allows (transfer.odin): chunks asked
+// for again first, then new ones within the window.
 @(private = "file")
 send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
-	rate := f32(FILE_MAX_RATE)
-	if c.files.upload_limit > 0 {
-		rate = min(rate, f32(c.files.upload_limit))
-	}
-	if t.peer_rate > 0 {
-		rate = min(rate, f32(t.peer_rate))
-	}
-	elapsed := f32(time.duration_seconds(time.tick_diff(t.last_pace, now)))
-	t.last_pace = now
-	t.tokens = min(
-		t.tokens + elapsed * rate,
-		max(FILE_BURST * rate / FILE_MAX_RATE, proto.FILE_CHUNK_DATA),
-	)
-
-	// Everything sent once, but the acks have stopped moving: what's
-	// after the highest chunk they have may have been lost too, and
-	// they can't know to ask for it.
-	if t.next == t.chunks &&
-	   t.base < t.chunks &&
-	   time.tick_diff(t.progress_at, now) > FILE_TAIL_WAIT {
-		from := t.base
-		if t.acked {
-			from = max(from, t.highest + 1)
-		}
-		for i := from; i < t.chunks && len(t.resend) < 64; i += 1 {
-			queue_resend(t, i, now)
-		}
-	}
-
+	rate := transfer_rate(c.files.upload_limit, t.send.peer_rate)
+	proto.transfer_refill(&t.send, now, rate, FILE_BURST * rate / FILE_MAX_RATE)
 	data: [proto.FILE_CHUNK_DATA]u8
-	for t.tokens > 0 {
-		index: u32
-		first_pass := false
-		switch {
-		case len(t.resend) > 0:
-			index = t.resend[0]
-			if index < t.base {
-				ordered_remove(&t.resend, 0)
-				continue
-			}
-		case t.next < t.chunks && t.next < t.base + proto.FILE_WINDOW:
-			index = t.next
-			first_pass = true
-		case:
+	for {
+		index, first, ok := proto.transfer_pick(&t.send, now)
+		if !ok {
 			return
 		}
 		start, end := proto.file_chunk_range(t.size, index)
-		ready, ok := file_source_read(&t.src, start, data[:end - start])
-		if !ok {
+		ready, read_ok := file_source_read(&t.src, start, data[:end - start])
+		if !read_ok {
 			log.errorf("[file] could not read %q", t.name)
 			end_transfer(c, t, .Failed, .Failed)
 			return
@@ -460,34 +398,23 @@ send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 		if !ready {
 			return // a browser is still reading it; next time
 		}
-		if first_pass {
-			t.next += 1
-		} else {
-			ordered_remove(&t.resend, 0)
-		}
-		t.resent[index] = now
 		out: [proto.MAX_PAYLOAD_SIZE]u8
-		send_data(c, proto.encode_file_chunk(out[:], t.id, index, data[:end - start]))
-		t.tokens -= f32(end - start)
+		send_data(c, proto.encode_transfer_chunk(out[:], .File_Chunk, u64(t.id), index, data[:end - start]))
+		proto.transfer_sent(&t.send, index, first, int(end - start), now)
 	}
 }
 
-// queue_resend asks for chunk `index` to go again, unless it went lately
-// or is already waiting to.
-@(private = "file")
-queue_resend :: proc(t: ^File_Transfer, index: u32, now: time.Tick) {
-	if index >= t.next {
-		return // not sent yet in the first place
+// transfer_rate is how fast to send: our limit and the receiver's, and
+// at most FILE_MAX_RATE.
+transfer_rate :: proc(ours, theirs: u32) -> f32 {
+	rate := f32(FILE_MAX_RATE)
+	if ours > 0 {
+		rate = min(rate, f32(ours))
 	}
-	if last, ok := t.resent[index]; ok && time.tick_diff(last, now) < FILE_RESEND_GAP {
-		return
+	if theirs > 0 {
+		rate = min(rate, f32(theirs))
 	}
-	for queued in t.resend {
-		if queued == index {
-			return
-		}
-	}
-	append(&t.resend, index)
+	return rate
 }
 
 handle_file_accept :: proc(c: ^Voice_Client, pt: []u8) {
@@ -498,62 +425,40 @@ handle_file_accept :: proc(c: ^Voice_Client, pt: []u8) {
 		send_file_cancel(c, id, from, .Expired)
 		return
 	}
-	t.peer_rate = rate
+	t.send.peer_rate = rate
 	t.last_heard = time.tick_now()
 	if t.state != .Offered {
 		return // a repeat
 	}
 	t.state = .Transferring
-	t.last_pace = time.tick_now()
-	t.rate_at = t.last_pace
-	t.progress_at = t.last_pace
+	proto.transfer_sender_init(&t.send, t.size, t.last_heard)
+	t.send.peer_rate = rate
+	t.rate_at = t.last_heard
 	log.infof("[file] %s accepted %q", account_display(c, from), t.name)
 	publish_file(c, t, force = true)
 }
 
 handle_file_ack :: proc(c: ^Voice_Client, pt: []u8) {
-	ack, count, missing, ok := proto.decode_file_ack(pt)
-	t := c.files.transfers[ack.id] or_else nil
-	if !ok || t == nil || !t.outgoing || file_state_over(t.state) {
+	ack, count, missing, ok := proto.decode_transfer_ack(pt)
+	t := c.files.transfers[proto.Msg_Id(ack.id)] or_else nil
+	if !ok || t == nil || !t.outgoing || t.state != .Transferring {
 		return
 	}
 	now := time.tick_now()
 	t.last_heard = now
-	t.peer_rate = ack.max_rate
-	if ack.complete {
-		t.base = t.chunks
+	if proto.transfer_acked(&t.send, ack, count, missing, now) {
 		t.done = t.size
 		log.infof("[file] sent %q", t.name)
 		end_transfer(c, t, .Done)
 		return
 	}
-	if ack.base > t.base || ack.highest > t.highest || !t.acked {
-		t.progress_at = now
-	}
-	t.acked = true
-	if ack.base > t.base && ack.base <= t.chunks {
-		t.base = ack.base
-		// What's below the base is theirs; no need to remember sending it.
-		for index in t.resent {
-			if index < t.base {
-				delete_key(&t.resent, index)
-			}
-		}
-	}
-	t.highest = max(t.highest, min(ack.highest, t.chunks - 1))
-	t.done = min(u64(t.base) * proto.FILE_CHUNK_DATA, t.size)
-	for i in 0 ..< count {
-		queue_resend(t, proto.file_ack_missing(missing, i), now)
-	}
+	t.done = proto.transfer_sender_done(&t.send)
 }
 
 handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
-	id, index, data := proto.decode_file_chunk(pt)
-	t := c.files.transfers[id] or_else nil
+	id, index, data := proto.decode_transfer_chunk(pt)
+	t := c.files.transfers[proto.Msg_Id(id)] or_else nil
 	if t == nil || t.outgoing || (t.state != .Starting && t.state != .Transferring) {
-		return
-	}
-	if index >= t.chunks {
 		return
 	}
 	now := time.tick_now()
@@ -563,27 +468,18 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 		publish_file(c, t, force = true)
 	}
 	t.last_heard = now
-	if t.have[index / 64] & (1 << (index % 64)) != 0 {
-		return // a repeat
+	if !proto.transfer_wants(&t.recv, index, len(data)) {
+		return // a repeat, or broken; it'll be asked for again
 	}
-	start, end := proto.file_chunk_range(t.size, index)
-	if u64(len(data)) != end - start {
-		return // broken; it'll be asked for again
-	}
+	start, _ := proto.file_chunk_range(t.size, index)
 	if !file_sink_write(&t.sink, start, data) {
 		log.errorf("[file] could not write %s", t.path)
 		end_transfer(c, t, .Failed, .Failed)
 		return
 	}
-	t.have[index / 64] |= 1 << (index % 64)
-	t.received += 1
-	t.done += u64(len(data))
-	t.any = true
-	t.rhighest = max(t.rhighest, index)
-	for t.rbase < t.chunks && t.have[t.rbase / 64] & (1 << (t.rbase % 64)) != 0 {
-		t.rbase += 1
-	}
-	if t.received == t.chunks {
+	proto.transfer_got(&t.recv, index, len(data))
+	t.done = t.recv.done
+	if proto.transfer_complete(&t.recv) {
 		if !file_sink_finish(&t.sink, t.path) {
 			log.errorf("[file] could not finish %s", t.path)
 			end_transfer(c, t, .Failed, .Failed)
@@ -600,28 +496,8 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 // chunk that came.
 @(private = "file")
 send_file_ack :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
-	t.last_ack = now
-	complete := t.received == t.chunks
-	if complete {
-		t.complete_acks += 1
-	}
-	missing: [proto.FILE_ACK_MAX_MISSING]u32
-	n := 0
-	for i := t.rbase; i < t.rhighest && n < len(missing); i += 1 {
-		if t.have[i / 64] & (1 << (i % 64)) == 0 {
-			missing[n] = i
-			n += 1
-		}
-	}
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	ack := proto.File_Ack {
-		id       = t.id,
-		max_rate = c.files.download_limit,
-		base     = t.rbase,
-		highest  = t.rhighest,
-		complete = complete,
-	}
-	send_data(c, proto.encode_file_ack(out[:], ack, missing[:n]))
+	send_data(c, proto.transfer_encode_ack(&t.recv, out[:], .File_Ack, u64(t.id), c.files.download_limit, now))
 }
 
 handle_file_cancel :: proc(c: ^Voice_Client, pt: []u8) {
@@ -676,10 +552,8 @@ transfer_close :: proc(t: ^File_Transfer, keep: bool) {
 	} else if !keep {
 		file_sink_abort(&t.sink)
 	}
-	delete(t.resend)
-	delete(t.resent)
-	delete(t.have)
-	t.resend, t.resent, t.have = nil, nil, nil
+	proto.transfer_sender_destroy(&t.send)
+	proto.transfer_receiver_destroy(&t.recv)
 }
 
 @(private = "file")

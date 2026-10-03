@@ -89,6 +89,34 @@ Msg :: struct {
 	system_arg:  u32,
 	// A forwarded message's original (forward.odin).
 	forward:     proto.Forward_Info,
+	// The files it carries (.Has_Attachments; attachments.odin).
+	files:       []Msg_File, // owned, as are their names
+}
+
+// Msg_File is a file a message carries: its blob, 0 once it's been
+// removed (retention), how big it is and what it's called.
+Msg_File :: struct {
+	blob: proto.Blob_Id,
+	size: u64,
+	name: string,
+}
+
+msg_files_clone :: proc(files: []Msg_File) -> []Msg_File {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]Msg_File, len(files))
+	for f, i in files {
+		out[i] = {f.blob, f.size, strings.clone(f.name)}
+	}
+	return out
+}
+
+msg_files_destroy :: proc(files: []Msg_File) {
+	for f in files {
+		delete(f.name)
+	}
+	delete(files)
 }
 
 // Reaction is an emoji a message has been reacted to with: how many did,
@@ -156,6 +184,8 @@ Pending :: struct {
 	blob:   proto.Blob_Id,
 	upload: Upload,
 	tries:  int,
+	// A message with files (attachments.odin), whose uploads it names.
+	attach: ^Attach_Post,
 }
 
 // Upload is a picture's bytes on their way to the server.
@@ -258,6 +288,7 @@ pending_destroy :: proc(p: ^Pending) {
 msg_destroy :: proc(m: ^Msg) {
 	delete(m.text)
 	reactions_destroy(&m.reactions)
+	msg_files_destroy(m.files)
 	m^ = {}
 }
 
@@ -283,6 +314,15 @@ msg_of :: proc(m: proto.Message) -> Msg {
 	buf: [proto.MAX_REACTIONS]proto.Reaction
 	for r in proto.reactions_of(m, buf[:]) {
 		append(&out.reactions, Reaction{strings.clone(r.emoji), r.count, r.me})
+	}
+	if .Has_Attachments in m.flags && m.attachment_count > 0 {
+		out.files = make([]Msg_File, m.attachment_count)
+		for i in 0 ..< m.attachment_count {
+			a := m.attachments[i]
+			name_buf: [proto.MAX_FILE_NAME]u8
+			name := proto.sanitize_file_name(a.name, &name_buf)
+			out.files[i] = {a.blob, a.size, strings.clone(name if name != "" else "file")}
+		}
 	}
 	return out
 }
@@ -786,6 +826,19 @@ describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 		text = system_text(m.system, m.system_arg, account_display(c, m.sender), m.sender == c.auth.me)
 	case .Text:
 		text, _ = mentions_display(m.text, c.auth.accounts, c.auth.me)
+		if .Has_Attachments in m.flags {
+			b := strings.builder_make(context.temp_allocator)
+			strings.write_string(&b, text)
+			for i in 0 ..< m.attachment_count {
+				a := m.attachments[i]
+				if a.blob == 0 {
+					fmt.sbprintf(&b, " [file %d: %q, no longer kept]", i + 1, a.name)
+				} else {
+					fmt.sbprintf(&b, " [file %d: %q, %s]", i + 1, a.name, format_bytes(a.size))
+				}
+			}
+			text = strings.to_string(b)
+		}
 	case .File:
 		text = fmt.tprintf("offers the file %q (%s)", m.file_name, format_bytes(m.file_size))
 	case .Image:
@@ -877,7 +930,8 @@ ones'. A window with nothing left is fetched again if it's on screen.
 @(private = "file")
 msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	if p.what == .Files {
-		return // messages' files aren't kept here yet: nothing to take out
+		purge_files(c, p)
+		return
 	}
 	strip :: proc(m: ^Msg, before: proto.Msg_Id) -> bool {
 		if m.id >= before || m.kind != .Image || .Pinned in m.flags || m.image.blob == 0 {
@@ -951,6 +1005,39 @@ msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 			"pictures of messages" if p.what == .Images else "messages",
 			p.before,
 		)
+	}
+}
+
+// purge_files takes the files out of a conversation's messages below
+// the purge's boundary, but for pinned ones: they stay listed, without
+// their blobs.
+@(private = "file")
+purge_files :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
+	strip :: proc(m: ^Msg, before: proto.Msg_Id) -> bool {
+		if m.id >= before || .Pinned in m.flags {
+			return false
+		}
+		changed := false
+		for &f in m.files {
+			changed ||= f.blob != 0
+			f.blob = 0
+		}
+		return changed
+	}
+	for key, cache in c.msgs.caches {
+		if key.conv != p.conv {
+			continue
+		}
+		for &m in cache.messages {
+			if strip(&m, p.before) {
+				publish_message_changed(c, key, m)
+			}
+		}
+	}
+	for _, &r in c.msgs.roots {
+		if r.conv == p.conv && r.have && strip(&r.msg, p.before) {
+			publish_root(c, r)
+		}
 	}
 }
 
@@ -1255,6 +1342,7 @@ messages_restart :: proc(c: ^Voice_Client, forget := false) {
 	// The pins shown are asked for again when they're looked at again.
 	mc.pins_conv = 0
 	blobs_restart(c)
+	attachments_restart(c, forget)
 	publish_outbox(c)
 }
 
@@ -1299,7 +1387,6 @@ chat_send :: proc(c: ^Voice_Client, raw: string, dm_to: proto.Account_Id = 0, th
 // or with `dm_to`, the DM with that account, which may have to be opened
 // first (`first` says which state the post starts in). False if there's
 // nowhere.
-@(private = "file")
 post_target :: proc(
 	c: ^Voice_Client,
 	dm_to: proto.Account_Id,
@@ -1322,7 +1409,6 @@ post_target :: proc(
 
 // msg_find is a message of a conversation, if one of our windows (or
 // the roots fetched) has it.
-@(private = "file")
 msg_find :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) -> (Msg, bool) {
 	for key, cache in c.msgs.caches {
 		if key.conv != conv {
@@ -1342,7 +1428,6 @@ msg_find :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) -> (Ms
 
 // to_the_end has a conversation's window reach its end, where what we
 // post is shown: the newest page replaces one scrolled far back.
-@(private = "file")
 to_the_end :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	if cache := c.msgs.caches[key] or_else nil; cache != nil && !cache.have_newest && !cache.loading {
 		history_ask(c, key, 0, .Before)
@@ -1453,6 +1538,9 @@ drive_outbox :: proc(c: ^Voice_Client) {
 		if p.kind == .File {
 			file_post_failed(c, p.nonce)
 		}
+		if p.attach != nil {
+			attach_post_failed(c, p.attach)
+		}
 		pending_destroy(p)
 		ordered_remove(&mc.outbox, 0)
 		publish_outbox(c)
@@ -1487,19 +1575,22 @@ drive_outbox :: proc(c: ^Voice_Client) {
 		} else if !p.asking {
 			p.asking = true
 			buf: [proto.MSG_POST_MAX_SIZE]u8
-			body := proto.encode_msg_post(
-				buf[:],
-				{
-					conv = p.conv,
-					nonce = p.nonce,
-					thread_root = p.root,
-					kind = p.kind,
-					text = p.text,
-					blob = p.blob,
-					file_size = p.size,
-				},
-			)
-			request(c, .Msg_Post, body, post_done, p.nonce)
+			post := proto.Msg_Post {
+				conv        = p.conv,
+				nonce       = p.nonce,
+				thread_root = p.root,
+				kind        = p.kind,
+				text        = p.text,
+				blob        = p.blob,
+				file_size   = p.size,
+			}
+			if p.attach != nil {
+				post.attachment_count = len(p.attach.files)
+				for f, i in p.attach.files {
+					post.uploads[i] = f.id
+				}
+			}
+			request(c, .Msg_Post, proto.encode_msg_post(buf[:], post), post_done, p.nonce)
 		}
 	}
 }
@@ -1518,6 +1609,9 @@ outbox_give_up :: proc(c: ^Voice_Client, why: string) {
 	notify(c, false, why)
 	if c.msgs.outbox[0].kind == .File {
 		file_post_failed(c, c.msgs.outbox[0].nonce)
+	}
+	if attach := c.msgs.outbox[0].attach; attach != nil {
+		attach_post_failed(c, attach)
 	}
 	pending_destroy(&c.msgs.outbox[0])
 	ordered_remove(&c.msgs.outbox, 0)
@@ -1681,6 +1775,14 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 			p.blob, p.state = 0, .Put
 			return
 		}
+		if p.attach != nil && p.state == .Post {
+			// Its files have: they go again, and it's queued after.
+			attach_upload_again(c, p.attach)
+			pending_destroy(p)
+			ordered_remove(&c.msgs.outbox, 0)
+			publish_outbox(c)
+			return
+		}
 		outbox_give_up(c, "A message wasn't posted: the channel isn't there any more.")
 		return
 	case .Invalid:
@@ -1700,6 +1802,14 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 	}
 	id, at, ok := proto.decode_msg_posted(body)
 	if !ok {
+		return
+	}
+	if p.attach != nil {
+		// Its Msg_New, which comes next, has it with its files' blobs.
+		attach_posted(c, p.attach)
+		pending_destroy(p)
+		ordered_remove(&c.msgs.outbox, 0)
+		publish_outbox(c)
 		return
 	}
 	m := proto.Message {
@@ -1756,6 +1866,7 @@ View_Message :: struct {
 	system_arg:  u32,
 	// A forwarded one's original.
 	forward:     proto.Forward_Info,
+	files:       []Msg_File, // owned, as are their names
 }
 
 // view_message_destroy lets go of what a View_Message owns.
@@ -1763,6 +1874,7 @@ view_message_destroy :: proc(m: View_Message) {
 	m := m
 	delete(m.text)
 	reactions_destroy(&m.reactions)
+	msg_files_destroy(m.files)
 }
 
 // A conversation's window, as the UI sees it.
@@ -1777,6 +1889,11 @@ View_Timeline :: struct {
 
 // A message of ours on its way.
 View_Pending :: struct {
+	nonce: u64,
+	// A message with files: what they are and how far they've got, and
+	// whether they're still being uploaded (it's not in the outbox yet).
+	files: []View_Pending_File, // owned
+	uploading: bool,
 	conv:  proto.Conv_Id, // 0 while its DM is being opened
 	root:  proto.Msg_Id, // a reply's thread
 	avatar: bool, // not a message: our new picture
@@ -1817,6 +1934,7 @@ view_message_of :: proc(m: Msg) -> View_Message {
 		system = m.system,
 		system_arg = m.system_arg,
 		forward = m.forward,
+		files = msg_files_clone(m.files),
 	}
 }
 
@@ -1980,7 +2098,7 @@ view_clear_timelines :: proc(v: ^View) {
 	}
 	clear(&v.roots)
 	for p in v.outbox {
-		delete(p.text)
+		view_pending_destroy(p)
 	}
 	clear(&v.outbox)
 	clear(&v.typing)
@@ -2063,13 +2181,15 @@ publish_outbox :: proc(c: ^Voice_Client) {
 	}
 	view_write(v)
 	for p in v.outbox {
-		delete(p.text)
+		view_pending_destroy(p)
 	}
 	clear(&v.outbox)
 	for p in c.msgs.outbox {
 		append(
 			&v.outbox,
 			View_Pending {
+				nonce = p.nonce,
+				files = pending_files(p.attach) if p.attach != nil else nil,
 				conv = p.conv,
 				root = p.root,
 				avatar = p.avatar,
@@ -2078,6 +2198,26 @@ publish_outbox :: proc(c: ^Voice_Client) {
 				text = strings.clone(p.text),
 				width = p.put.width,
 				height = p.put.height,
+			},
+		)
+	}
+	// Messages whose files are on their way, after: they're posted when
+	// they're there.
+	for p in c.attach.posts {
+		if p.queued {
+			continue
+		}
+		append(
+			&v.outbox,
+			View_Pending {
+				nonce = p.nonce,
+				files = pending_files(p),
+				uploading = true,
+				conv = p.conv,
+				root = p.root,
+				dm_to = p.dm_to,
+				kind = .Text,
+				text = strings.clone(p.text),
 			},
 		)
 	}

@@ -40,6 +40,8 @@ Server_Details :: struct {
 	known:   bool,
 	name:    string, // owned; may be empty
 	version: string, // owned
+	// How big a file attached to a message may be; 0 if it takes none.
+	max_attachment: u64,
 }
 
 rpc_destroy :: proc(c: ^Voice_Client) {
@@ -172,6 +174,7 @@ server_info_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag
 	delete(s.version)
 	s.name = strings.clone(proto.sanitize_text(info.name, name_buf[:]))
 	s.version = strings.clone(proto.sanitize_text(info.version, version_buf[:]))
+	s.max_attachment = info.max_attachment
 	when proto.STREAM_FLOOD {
 		log.infof("flood: %d bytes came back", len(body))
 		if s.known {

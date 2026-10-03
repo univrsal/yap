@@ -104,18 +104,16 @@ set_file_message_account :: proc(pt: []u8, account: Account_Id) {
 	endian.unchecked_put_u32le(pt[9:], u32(account))
 }
 
+// A DM's chunks and acks are transfer.odin's, under File_Chunk and
+// File_Ack, with the offer's id.
 encode_file_chunk :: proc(out: []u8, id: Msg_Id, index: u32, data: []u8) -> []u8 {
-	out[0] = u8(Message_Kind.File_Chunk)
-	endian.unchecked_put_u64le(out[1:], u64(id))
-	endian.unchecked_put_u32le(out[9:], index)
-	n := copy(out[FILE_CHUNK_HEADER_SIZE:], data)
-	return out[:FILE_CHUNK_HEADER_SIZE + n]
+	return encode_transfer_chunk(out, .File_Chunk, u64(id), index, data)
 }
 
 decode_file_chunk :: proc(pt: []u8) -> (id: Msg_Id, index: u32, data: []u8) {
-	return Msg_Id(endian.unchecked_get_u64le(pt[1:])),
-		endian.unchecked_get_u32le(pt[9:]),
-		pt[FILE_CHUNK_HEADER_SIZE:]
+	raw: u64
+	raw, index, data = decode_transfer_chunk(pt)
+	return Msg_Id(raw), index, data
 }
 
 // file_message_id is the transfer a File_* message is about.
@@ -131,36 +129,15 @@ File_Ack :: struct {
 	complete: bool,
 }
 
-// encode_file_ack writes as many of `missing` as fit.
 encode_file_ack :: proc(out: []u8, ack: File_Ack, missing: []u32) -> []u8 {
-	count := min(len(missing), FILE_ACK_MAX_MISSING, (len(out) - FILE_ACK_HEADER_SIZE) / 4)
-	out[0] = u8(Message_Kind.File_Ack)
-	endian.unchecked_put_u64le(out[1:], u64(ack.id))
-	endian.unchecked_put_u32le(out[9:], ack.max_rate)
-	endian.unchecked_put_u32le(out[13:], ack.base)
-	endian.unchecked_put_u32le(out[17:], ack.highest)
-	out[21] = FILE_ACK_COMPLETE if ack.complete else 0
-	endian.unchecked_put_u16le(out[22:], u16(count))
-	for i in 0 ..< count {
-		endian.unchecked_put_u32le(out[FILE_ACK_HEADER_SIZE + i * 4:], missing[i])
-	}
-	return out[:FILE_ACK_HEADER_SIZE + count * 4]
+	return encode_transfer_ack(out, .File_Ack, {u64(ack.id), ack.max_rate, ack.base, ack.highest, ack.complete}, missing)
 }
 
-// decode_file_ack returns the missing indices as the raw bytes they are
-// in the packet; read them with file_ack_missing.
 @(require_results)
 decode_file_ack :: proc(pt: []u8) -> (ack: File_Ack, count: int, missing: []u8, ok: bool) {
-	ack.id = Msg_Id(endian.unchecked_get_u64le(pt[1:]))
-	ack.max_rate = endian.unchecked_get_u32le(pt[9:])
-	ack.base = endian.unchecked_get_u32le(pt[13:])
-	ack.highest = endian.unchecked_get_u32le(pt[17:])
-	ack.complete = pt[21] & FILE_ACK_COMPLETE != 0
-	count = int(endian.unchecked_get_u16le(pt[22:]))
-	if len(pt) != FILE_ACK_HEADER_SIZE + count * 4 {
-		return
-	}
-	return ack, count, pt[FILE_ACK_HEADER_SIZE:], true
+	raw: Transfer_Ack
+	raw, count, missing, ok = decode_transfer_ack(pt)
+	return {Msg_Id(raw.id), raw.max_rate, raw.base, raw.highest, raw.complete}, count, missing, ok
 }
 
 file_ack_missing :: proc(missing: []u8, i: int) -> u32 {

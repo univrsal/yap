@@ -65,6 +65,8 @@ View :: struct {
 	server:      string,
 	// What the server calls itself, if it has said and has a name.
 	server_name: string,
+	// How big a file attached to a message may be; 0 if it takes none.
+	max_attachment: u64,
 	my_key:      [proto.KEY_SIZE]u8,
 	// The server's, once the handshake has shown it (zero until then):
 	// per-user settings are kept by it and the account (settings.odin).
@@ -114,6 +116,9 @@ View :: struct {
 	// Messages asked for by id (roots, links) that aren't to be had.
 	roots_missing: map[proto.Msg_Id]bool,
 	outbox:      [dynamic]View_Pending,
+	// Files of messages being saved, or saved, by their blobs
+	// (attachments.odin).
+	saves:       map[proto.Blob_Id]View_Save,
 	blobs:       map[proto.Blob_Id]View_Image,
 	typing:      map[proto.Account_Id]View_Typing,
 	unread:      int,
@@ -217,6 +222,7 @@ view_reset :: proc(v: ^View) {
 	v.connection = {}
 	clear(&v.speaking)
 	view_clear_timelines(v)
+	view_clear_saves(v)
 	view_clear_blobs(v)
 	view_clear_pokes(v)
 	view_clear_files(v)
@@ -250,6 +256,7 @@ publish_logged_out :: proc(c: ^Voice_Client) {
 	view_write(v)
 	view_clear_channels(v)
 	view_clear_timelines(v)
+	view_clear_saves(v)
 	view_clear_blobs(v)
 	view_clear_accounts(v)
 	view_clear_devices(v)
@@ -279,6 +286,7 @@ view_destroy :: proc(v: ^View) {
 	view_clear_search(v)
 	delete(v.search.found)
 	delete(v.outbox)
+	delete(v.saves)
 	delete(v.typing)
 	delete(v.blobs)
 	delete(v.pokes)
@@ -464,6 +472,7 @@ publish_server :: proc(c: ^Voice_Client) {
 	view_write(v)
 	delete(v.server_name)
 	v.server_name = strings.clone(c.rpc.server.name)
+	v.max_attachment = c.rpc.server.max_attachment
 }
 
 // publish_server_key tells the UI the server's key, which the per-user

@@ -5,8 +5,8 @@ there until the message is deleted. The DM file transfer (an offer, the
 file going client to client through the server and never stored) stays
 as it is, for sending something once without it taking up room.
 
-Branch `attachments`, from `dev` at `bb652eb`. Phase 1 is built (see
-"As built" below); phases 2–5 are to come.
+Branch `attachments`, from `dev` at `bb652eb`. Phases 1 and 2 are built
+(see "As built" below); phases 3–5 are to come.
 
 ## The workflow
 
@@ -159,7 +159,7 @@ window, ack and resend bookkeeping is shared (`proto/transfer.odin`):
 | # | What | Done when | Size |
 |---|---|---|---|
 | 1 ✅ | **Protocol and server.** Message section, Msg_Post with attachments, schema step 15, Attach_Put/Get and the transfer datagrams, the server as upload receiver (part file, hash, store) and download sender (block reads), uploader notes, `Attach_Files`, config limits, `blob_visible`/collect/delete/forward/`file_days`. | Server tests: upload, dedupe, post, fetch, visibility refused, delete then collect, limits | L |
-| 2 | **Client connection.** The DM transfer's sender and receiver made peer-neutral; outbox with files; saving; View state; headless `/attach` and `/save`. | Two headless clients: one attaches 3 files (one 50 MB) in a channel and a DM, the other saves them byte-identical; a reconnect in the middle resumes | L |
+| 2 ✅ | **Client connection.** The DM transfer's sender and receiver made peer-neutral; outbox with files; saving; View state; headless `/attach` and `/save`. | Two headless clients: one attaches 3 files (one 50 MB) in a channel and a DM, the other saves them byte-identical; a reconnect in the middle resumes | L |
 | 3 | **Desktop UI.** Multi-file dialog (`td_open_files`), chips, send, pending progress, attachment rows, Save/progress/Open folder. | Off-screen: pick, remove, add, send with text, watch progress, save | M |
 | 4 | **Web.** `files.js` picks several files; uploads read from them; downloads through the sink; narrow layout. | Headless Chromium: same as phase 3 | M |
 | 5 | **Extras.** Drag and drop onto the window (GLFW drop callback; the page's drop event), file names in search, a picture attachment shown small with Save and open in the image viewer. | Each on its own | S each |
@@ -198,7 +198,7 @@ the connection can carry it.
   Checked by hand: an old database migrates, and a headless client
   logs in and posts.
 
-Deviations from the plan above:
+Deviations from the plan above (phase 1):
 
 - **No `Attach_Done`.** A post names upload ids, not blob ids. The
   upload already knows its account, name and size, so the server checks
@@ -208,8 +208,61 @@ Deviations from the plan above:
   43–47. Requests are 0x0052 and 0x0053.
 - **Empty files** are refused (`Invalid`): a transfer of no chunks isn't
   worth the special case.
-- The client's `msgs_purged` ignores `Files` until phase 2 keeps
-  messages' files.
+- The client's `msgs_purged` ignored `Files` until phase 2 kept
+  messages' files (it does now).
+
+### Phase 2: client connection
+
+- The DM transfer runs on `proto/transfer.odin` too (`files.odin`): one
+  copy of the window, ack and resend logic. The old `File_Chunk` /
+  `File_Ack` encoders are wrappers over the shared ones.
+- `conn/attachments.odin`:
+  - `Attach_Send_Command` (text, files, DM or thread like a chat): the
+    files are opened and checked (not empty, within the server's
+    `max_attachment`, at most 10), then uploaded one at a time, all
+    messages' files in turn. The message joins the outbox once they're
+    all on the server, so what's written meanwhile goes first.
+    `Attach_Cancel_Command` drops one that's still on its way.
+  - `Attach_Save_Command` (conversation, message, file index) saves into
+    the downloads folder under the uploader's name, `name (1).ext`… if
+    it's taken, written to `.part` until whole.
+  - A connection that starts over: uploads under way start again (the
+    server has dropped them); finished ones stay, as the server keeps
+    them for the account; a post that finds them gone (`Not_Found`, the
+    server restarted or an hour passed) uploads them again. Saves carry
+    on from where they got to: the receiver says what it has, and the
+    server's sender skips it.
+  - The View: `View_Pending` has the files and their progress (and
+    `uploading` for a message not in the outbox yet); `View.saves` has
+    each file being saved, by blob; `View.max_attachment` the server's
+    limit. Messages (`Msg`, `View_Message`) carry `files`.
+- Saved files are marked as downloaded (`download_mark_*.odin`): the
+  Mark of the Web on Windows, the quarantine attribute on macOS; Linux
+  has nothing like it. A DM's received file gets the mark too.
+- Headless: `/attach <file>` (up to 10, for the next `/say`),
+  `/unattach`, `/save <id> <n>`; a message's files are in the log line.
+- Checked end to end with two headless clients (a script, not in the
+  repo): three files (50 MB, 12 bytes, an `.exe`) in a channel, with a
+  text written meanwhile that's posted first; the server frozen for 10 s
+  during the upload; the other client saving them with the server
+  restarted in the middle (it picked up 14.8 MB in); saving one again
+  (`notes (1).txt`); a file in a DM; and a DM's file transfer as before.
+  Every file arrived byte-identical.
+
+Deviations and notes:
+
+- **Our own message comes from its `Msg_New`.** A post's answer has its
+  id and time but not the blobs its files were kept as, so a message
+  with files isn't added from the answer; the server's `Msg_New` for it,
+  which follows on the same stream, is.
+- The macOS quarantine call is type-checked only as far as the build
+  allows here (the macOS opus library isn't on this machine); Windows
+  and Linux type-check.
+- Not exercised end to end: a post finding its uploads gone because the
+  server restarted between the upload and the post (the re-upload path).
+- Found on the way, not changed: a headless `/dm <name> <text>` that
+  opens a new DM doesn't make it where `/say` goes when the server tells
+  of the DM before answering; `/dm <name>` again does.
 
 ## Decisions (settled 2026-10-03)
 

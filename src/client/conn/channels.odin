@@ -335,6 +335,9 @@ Command :: union {
 	Typing_Command,
 	Watch_Command,
 	Send_File_Command,
+	Attach_Send_Command,
+	Attach_Cancel_Command,
+	Attach_Save_Command,
 	File_Action_Command,
 	Transfer_Limits_Command,
 	// Buddies and DMs, see buddies.odin.
@@ -502,6 +505,9 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.name)
 		delete(v.path)
 		delete(v.web_name)
+	case Attach_Send_Command:
+		cmd := v
+		attach_command_destroy(&cmd)
 	}
 }
 
@@ -674,6 +680,15 @@ process_commands :: proc(c: ^Voice_Client) {
 			list_buddies(c)
 		case Send_File_Command:
 			send_file(c, v)
+		case Attach_Send_Command:
+			if v.thread.root != 0 && v.thread.conv == 0 {
+				v.thread.conv = c.convs.viewing
+			}
+			attach_send(c, v)
+		case Attach_Cancel_Command:
+			attach_cancel(c, v.nonce)
+		case Attach_Save_Command:
+			attach_save(c, v)
 		case File_Action_Command:
 			file_action(c, v.id, v.action)
 		case Transfer_Limits_Command:

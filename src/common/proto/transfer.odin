@@ -216,6 +216,9 @@ transfer_acked :: proc(s: ^Transfer_Sender, ack: Transfer_Ack, count: int, missi
 	s.acked = true
 	if ack.base > s.base && ack.base <= s.chunks {
 		s.base = ack.base
+		// A receiver that had some of it already (a download picked up
+		// again): what it has needn't go at all.
+		s.next = max(s.next, s.base)
 		// What's below the base is theirs; no need to remember sending it.
 		for index in s.resent {
 			if index < s.base {

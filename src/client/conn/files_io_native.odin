@@ -132,6 +132,8 @@ file_sink_finish :: proc(sink: ^File_Sink, path: string) -> bool {
 		log.errorf("file: could not rename %s: %v", sink.part, err)
 		return false
 	}
+	// It came from someone else: the system asks before running it.
+	mark_downloaded(path)
 	return true
 }
 
