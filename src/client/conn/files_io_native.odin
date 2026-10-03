@@ -149,3 +149,6 @@ file_sink_abort :: proc(sink: ^File_Sink) {
 		sink.part = ""
 	}
 }
+
+// web_file_close lets go of a browser's picked file; a desktop has none.
+web_file_close :: proc(handle: i32) {}

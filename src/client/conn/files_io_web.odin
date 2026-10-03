@@ -98,3 +98,10 @@ file_sink_abort :: proc(sink: ^File_Sink) {
 		sink.handle = 0
 	}
 }
+
+// web_file_close lets go of a picked file that isn't going anywhere.
+web_file_close :: proc(handle: i32) {
+	if handle > 0 {
+		yap_file_close(handle)
+	}
+}

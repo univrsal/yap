@@ -5,8 +5,8 @@ there until the message is deleted. The DM file transfer (an offer, the
 file going client to client through the server and never stored) stays
 as it is, for sending something once without it taking up room.
 
-Branch `attachments`, from `dev` at `bb652eb`. Phases 1 and 2 are built
-(see "As built" below); phases 3–5 are to come.
+Branch `attachments`, from `dev` at `bb652eb`. Phases 1–3 are built
+(see "As built" below); phases 4 and 5 are to come.
 
 ## The workflow
 
@@ -160,7 +160,7 @@ window, ack and resend bookkeeping is shared (`proto/transfer.odin`):
 |---|---|---|---|
 | 1 ✅ | **Protocol and server.** Message section, Msg_Post with attachments, schema step 15, Attach_Put/Get and the transfer datagrams, the server as upload receiver (part file, hash, store) and download sender (block reads), uploader notes, `Attach_Files`, config limits, `blob_visible`/collect/delete/forward/`file_days`. | Server tests: upload, dedupe, post, fetch, visibility refused, delete then collect, limits | L |
 | 2 ✅ | **Client connection.** The DM transfer's sender and receiver made peer-neutral; outbox with files; saving; View state; headless `/attach` and `/save`. | Two headless clients: one attaches 3 files (one 50 MB) in a channel and a DM, the other saves them byte-identical; a reconnect in the middle resumes | L |
-| 3 | **Desktop UI.** Multi-file dialog (`td_open_files`), chips, send, pending progress, attachment rows, Save/progress/Open folder. | Off-screen: pick, remove, add, send with text, watch progress, save | M |
+| 3 ✅ | **Desktop UI.** Multi-file dialog (`td_open_files`), chips, send, pending progress, attachment rows, Save/progress/Open folder. | Off-screen: pick, remove, add, send with text, watch progress, save | M |
 | 4 | **Web.** `files.js` picks several files; uploads read from them; downloads through the sink; narrow layout. | Headless Chromium: same as phase 3 | M |
 | 5 | **Extras.** Drag and drop onto the window (GLFW drop callback; the page's drop event), file names in search, a picture attachment shown small with Save and open in the image viewer. | Each on its own | S each |
 
@@ -263,6 +263,54 @@ Deviations and notes:
 - Found on the way, not changed: a headless `/dm <name> <text>` that
   opens a new DM doesn't make it where `/say` goes when the server tells
   of the DM before answering; `/dm <name>` again does.
+
+### Phase 3: desktop UI
+
+- `ui_attachments.odin`: the paperclip (a new icon, `render.Icon.Attach`)
+  beside the emoji button of every composer: the channel's, the DM
+  page's and each thread window's, each with its own files. It opens
+  the system's dialog with several files selectable
+  (`dialogs.open_files`, binding `td_open_files`), any kind of file. Each
+  file picked is checked against the server's limit and the ten a message
+  may carry; one that isn't taken says why in the conversation's status
+  line (`conn.view_notice`). It isn't there while a message is being
+  edited, or if the server takes no files.
+- Picked files wait above the text box as chips, `× name  size`, wrapping
+  onto more rows as needed; one clicked is taken off. Send (or Enter)
+  sends them, with the text or without it.
+- A message of ours on its way shows "sending files...", its text, and a
+  row per file with how far it's got and a bar, and Cancel while its
+  files are going up.
+- A message's files: a row each under its text, with the file icon, the
+  name cut to fit, the size, and Save; while it's being saved, the
+  percentage, a bar under the row and Cancel; then "saved" and Open
+  folder (whose hint is the path). A file retention removed says
+  "removed" and has no button.
+- Checked off-screen (weston, zenity), with the timeline's height check
+  on (`YAP_TIMELINE_DEBUG`, "0 off" throughout): saving a 50 MB file with
+  its progress, Open folder; picking three files in three goes, taking
+  one off, sending with text and watching both go up, the message
+  arriving with its files; a message of files only; saving our own;
+  cancelling an upload; the DM page's paperclip and a DM's file row.
+
+Deviations and notes:
+
+- **One icon for every kind of file.** The plan had an icon per kind
+  (archive, picture, video…); it's the file icon for now, left for
+  phase 5 with the pictures' previews.
+- **Two timeline fixes on the way.** The timeline stopped following the
+  end when what's on its way below the messages grew (a message with
+  files gets its rows a frame later), which hid a long upload's
+  progress: following now survives that. And a row of microui's "the
+  rest" width ends a pixel past the panel, which brought up a
+  horizontal scrollbar over the last message; the file rows leave that
+  pixel out.
+- Picking several files at once in one go wasn't exercised off-screen
+  (the dialog there takes no Ctrl or Shift); the binding is
+  tinydialogs' own multi-select, and several goes were.
+- Off-screen testing note: GTK's file dialog goes through the desktop
+  portal on the session bus, so a test has to run without one, or the
+  dialog opens on the real desktop.
 
 ## Decisions (settled 2026-10-03)
 

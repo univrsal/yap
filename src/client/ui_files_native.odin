@@ -2,6 +2,7 @@
 package client
 
 import log "common:wlog"
+import "core:os"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -26,6 +27,11 @@ File_Pick_Job :: struct {
 	path:   string,
 	status: dialogs.Status,
 	err:    string,
+	// Files to attach (ui_attachments.odin) rather than one to offer:
+	// as many as are picked, of any kind, for `at`.
+	attach: bool,
+	at:     Attach_Target,
+	paths:  []string,
 }
 
 // The dialog's type list, all of it in one: what may be sent.
@@ -50,11 +56,21 @@ file_filters :: proc() -> []dialogs.Filter {
 
 // file_pick_start opens the file dialog, for a file to offer `to`.
 file_pick_start :: proc(ui: ^UI, to: proto.Account_Id) {
+	pick_start(ui, {to = to})
+}
+
+// attach_pick_start opens the file dialog, for files to attach.
+attach_pick_start :: proc(ui: ^UI, at: Attach_Target) {
+	pick_start(ui, {attach = true, at = at})
+}
+
+@(private = "file")
+pick_start :: proc(ui: ^UI, what: File_Pick_Job) {
 	if ui.file_pick != nil {
 		return // one's open already
 	}
 	job := new(File_Pick_Job)
-	job.to = to
+	job^ = what
 	when ODIN_OS == .Darwin {
 		pick_work(job)
 		ui.file_pick = job
@@ -72,7 +88,11 @@ file_pick_start :: proc(ui: ^UI, to: proto.Account_Id) {
 
 @(private = "file")
 pick_work :: proc(job: ^File_Pick_Job) {
-	job.path, job.status, job.err = dialogs.open_file("Send a file", file_filters())
+	if job.attach {
+		job.paths, job.status, job.err = dialogs.open_files("Attach files", nil)
+	} else {
+		job.path, job.status, job.err = dialogs.open_file("Send a file", file_filters())
+	}
 	sync.atomic_store(&job.done, true)
 	// The UI may be waiting for input; let it pick the result up now.
 	ui_wake()
@@ -90,14 +110,12 @@ file_pick_poll :: proc(ui: ^UI) {
 		thread.destroy(job.thread)
 	}
 	ui.file_pick = nil
-	defer {
-		delete(job.path)
-		delete(job.err)
-		free(job)
-	}
+	defer pick_free(job)
 	switch job.status {
 	case .Ok:
-		if ui.session != nil && job.path != "" {
+		if job.attach {
+			attach_picked(ui, job)
+		} else if ui.session != nil && job.path != "" {
 			conn.push_command(
 				&ui.session.client.commands,
 				conn.Send_File_Command{to = job.to, path = job.path},
@@ -126,8 +144,33 @@ file_pick_wait :: proc(ui: ^UI) {
 		thread.join(job.thread)
 		thread.destroy(job.thread)
 	}
+	pick_free(job)
+	ui.file_pick = nil
+}
+
+@(private = "file")
+pick_free :: proc(job: ^File_Pick_Job) {
 	delete(job.path)
 	delete(job.err)
+	for p in job.paths {
+		delete(p)
+	}
+	delete(job.paths)
 	free(job)
-	ui.file_pick = nil
+}
+
+// attach_picked takes what was picked to attach: each file's name and
+// size, as they are now.
+@(private = "file")
+attach_picked :: proc(ui: ^UI, job: ^File_Pick_Job) {
+	picked := make([dynamic]Picked_File, context.temp_allocator)
+	for path in job.paths {
+		info, err := os.stat(path, context.temp_allocator)
+		if err != nil || info.type != .Regular {
+			log.warnf("can't attach %s: %v", path, err)
+			continue
+		}
+		append(&picked, Picked_File{path = path, name = os.base(path), size = u64(max(info.size, 0))})
+	}
+	attach_add(ui, job.at, picked[:])
 }

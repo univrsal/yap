@@ -47,6 +47,8 @@ UI_Chat :: struct {
 	// its conversation (ui_message_menu.odin).
 	editing:      proto.Msg_Id,
 	editing_conv: proto.Conv_Id,
+	// Files to go with the next message (ui_attachments.odin).
+	files:        [dynamic]Picked_File,
 }
 
 CHAT_NAME_COLOR :: mu.Color{120, 170, 230, 255}
@@ -89,6 +91,10 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 	if ui.buddies.pick {
 		ui.buddies.pick = false
 		file_pick_start(ui, ui.buddies.pick_to)
+	}
+	if ui.attach_pick {
+		ui.attach_pick = false
+		attach_pick_start(ui, ui.attach_to)
 	}
 	paste_poll(ui)
 	file_pick_poll(ui)
@@ -160,10 +166,13 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 				break
 			}
 		}
-		// Leave room for the input row below.
+		// Leave room for the input row below, and the files above it.
 		input_h := composer_height(ui)
-		mu.layout_row(ctx, {-1}, -(input_h + ctx.style.spacing + 1))
+		width := panel_width(ctx)
+		files_h := composer_files_height(ui, composer_of(ui, 0), width)
+		mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
 		timeline(ui, &ui.timeline, {v.viewing, 0})
+		composer_files(ui, composer_of(ui, 0), width)
 		chat_input(ui)
 	case .Log:
 		mu.layout_row(ctx, {-1}, -1)
@@ -171,6 +180,11 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	case .Screen:
 		screen_panel(ui)
 	}
+}
+
+// panel_width is how wide the rows of the panel being laid out are.
+panel_width :: proc(ctx: ^mu.Context) -> i32 {
+	return mu.get_current_container(ctx).body.w - 2 * ctx.style.padding
 }
 
 // composer_height is how tall a box we write messages in is: a
@@ -208,7 +222,7 @@ tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu
 @(private = "file")
 chat_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 10), ICON_BUTTON, ICON_BUTTON}, composer_height(ui))
+	mu.layout_row(ctx, {-(3 * ICON_BUTTON + 14), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON}, composer_height(ui))
 	// Ctrl+V could be an image: hold the text paste back and decide after
 	// the frame (see paste). The id is the one text_box uses.
 	// A browser hands the picture over from its paste event instead (see
@@ -222,7 +236,7 @@ chat_input :: proc(ui: ^UI) {
 		ui.chat.paste = true
 		ui.paste_to = {}
 	}
-	composer := Composer{ui.chat.buf[:], &ui.chat.len, &ui.chat.editing, &ui.chat.editing_conv, 0}
+	composer := Composer{ui.chat.buf[:], &ui.chat.len, &ui.chat.editing, &ui.chat.editing_conv, 0, &ui.chat.files}
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
 	res := chat_text_box(ui, ui.chat.buf[:], &ui.chat.len)
@@ -235,6 +249,7 @@ chat_input :: proc(ui: ^UI) {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
+	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	if .SUBMIT in icon_button(ui, "send", .Send, "Save" if ui.chat.editing != 0 else "Send") {
 		send = true

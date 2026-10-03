@@ -230,15 +230,16 @@ Composer :: struct {
 	editing: ^proto.Msg_Id, // 0 for writing a new message
 	conv:    ^proto.Conv_Id, // where the message being edited is
 	thread:  int, // 0 for the page's, else the thread window's slot
+	files:   ^[dynamic]Picked_File, // what goes with it (ui_attachments.odin)
 }
 
 composer_of_page :: proc(ui: ^UI) -> Composer {
 	if ui.page == .Buddies {
 		b := &ui.buddies
-		return {b.buf[:], &b.len, &b.editing, &b.editing_conv, 0}
+		return {b.buf[:], &b.len, &b.editing, &b.editing_conv, 0, &b.files}
 	}
 	ch := &ui.chat
-	return {ch.buf[:], &ch.len, &ch.editing, &ch.editing_conv, 0}
+	return {ch.buf[:], &ch.len, &ch.editing, &ch.editing_conv, 0, &ch.files}
 }
 
 // composer_of is the page's composer (0) or a thread window's.
@@ -247,7 +248,7 @@ composer_of :: proc(ui: ^UI, thread: int) -> Composer {
 		return composer_of_page(ui)
 	}
 	t := &ui.threads[thread - 1]
-	return {t.buf[:], &t.len, &t.editing, &t.editing_conv, thread}
+	return {t.buf[:], &t.len, &t.editing, &t.editing_conv, thread, &t.files}
 }
 
 /*
@@ -287,10 +288,17 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 // thread). False if there was nothing to send.
 composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool {
 	text := strings.trim_space(string(c.buf[:c.len^]))
-	if text == "" || ui.session == nil {
+	has_files := c.files != nil && len(c.files) > 0 && c.editing^ == 0
+	if (text == "" && !has_files) || ui.session == nil {
 		return false
 	}
 	text = conn.emoji_encode(conn.mentions_encode(text, ui.view.accounts), ui.view.emoji.names[:])
+	if has_files {
+		log.debug("ui: a message with files")
+		composer_send_files(ui, c, text, dm_to)
+		c.len^ = 0
+		return true
+	}
 	cmds := &ui.session.client.commands
 	if c.editing^ != 0 {
 		log.debug("ui: edit a message")

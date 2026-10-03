@@ -33,6 +33,9 @@ file_pick_start :: proc(ui: ^UI, to: proto.Account_Id) {
 }
 
 file_pick_poll :: proc(ui: ^UI) {}
+
+// attach_pick_start: a browser picks files to attach in phase 4.
+attach_pick_start :: proc(ui: ^UI, at: Attach_Target) {}
 file_pick_wait :: proc(ui: ^UI) {}
 
 // The page's picked file: offered to whoever the button was pressed for.

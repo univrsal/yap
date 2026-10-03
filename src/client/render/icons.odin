@@ -37,6 +37,8 @@ Icon :: enum {
 	Smiley, // a smiling face: the emoji picker
 	Log, // a framed page of lines: the log
 	Search, // a magnifying glass: searching messages
+	Attach, // a paperclip: attach files to a message
+	Download, // an arrow down into a tray: save a file
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -178,6 +180,10 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return log_page(p)
 	case .Search:
 		return magnifier(p)
+	case .Attach:
+		return paperclip(p)
+	case .Download:
+		return download(p)
 	}
 	return 1
 }
@@ -189,6 +195,35 @@ monitor :: proc(p: Point) -> f32 {
 	d := abs(rounded_box(p, {0.5, 0.40}, {0.39, 0.27}, 0.07)) - STROKE / 2
 	d = nearer(d, capsule(p, {0.5, 0.67}, {0.5, 0.83}, STROKE))
 	d = nearer(d, capsule(p, {0.30, 0.85}, {0.70, 0.85}, STROKE))
+	return d
+}
+
+// A paperclip, leaning to the right: a long loop, and inside it a
+// shorter one that's open at the bottom, where the wire ends.
+@(private = "file")
+paperclip :: proc(p: Point) -> f32 {
+	STROKE :: 0.08
+	// Turned about the middle, so the clip leans.
+	ANGLE :: 0.6
+	c, s := f32(0.8253356), f32(0.5646425) // cos and sin of ANGLE
+	d := p - Point{0.5, 0.5}
+	q := Point{d.x * c + d.y * s, -d.x * s + d.y * c} + Point{0.5, 0.5}
+	outer := abs(rounded_box(q, {0.5, 0.5}, {0.15, 0.40}, 0.15)) - STROKE / 2
+	inner := abs(rounded_box(q, {0.5, 0.42}, {0.075, 0.27}, 0.075)) - STROKE / 2
+	// The inner loop stops short of its bottom.
+	inner = max(inner, q.y - 0.62)
+	return nearer(outer, inner)
+}
+
+// Saving: an arrow down into an open tray.
+@(private = "file")
+download :: proc(p: Point) -> f32 {
+	STROKE :: 0.09
+	d := capsule(p, {0.5, 0.12}, {0.5, 0.58}, STROKE)
+	d = nearer(d, triangle(p, {0.30, 0.48}, {0.70, 0.48}, {0.5, 0.70}))
+	d = nearer(d, capsule(p, {0.16, 0.66}, {0.16, 0.86}, STROKE))
+	d = nearer(d, capsule(p, {0.16, 0.86}, {0.84, 0.86}, STROKE))
+	d = nearer(d, capsule(p, {0.84, 0.66}, {0.84, 0.86}, STROKE))
 	return d
 }
 
