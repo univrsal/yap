@@ -128,7 +128,8 @@ are the DM transfer's, made to work for either peer:
   after it** (decision 4): text sent meanwhile goes first. A failed
   upload leaves the message pending with Retry/Discard.
 - A `Save_Attachment_Command` (message, index) starts a download into
-  the downloads folder (unique name, `.part` until whole) or, on the web,
+  the downloads folder under the name it was uploaded with (`name (1).ext`,
+  `name (2).ext`… if that's taken; `.part` until whole) or, on the web,
   the browser's download. The `View` gets each transfer's progress, as
   for DM files.
 - The headless client gets `/attach <file>...` (the next `/say` takes
@@ -159,7 +160,7 @@ are the DM transfer's, made to work for either peer:
 | 2 | **Client connection.** The DM transfer's sender and receiver made peer-neutral; outbox with files; saving; View state; headless `/attach` and `/save`. | Two headless clients: one attaches 3 files (one 50 MB) in a channel and a DM, the other saves them byte-identical; a reconnect in the middle resumes | L |
 | 3 | **Desktop UI.** Multi-file dialog (`td_open_files`), chips, send, pending progress, attachment rows, Save/progress/Open folder. | Off-screen: pick, remove, add, send with text, watch progress, save | M |
 | 4 | **Web.** `files.js` picks several files; uploads read from them; downloads through the sink; narrow layout. | Headless Chromium: same as phase 3 | M |
-| 5 | **Extras.** Drag and drop onto the window (GLFW drop callback; the page's drop event), file names in search, a picture attachment shown small with Save. | Each on its own | S each |
+| 5 | **Extras.** Drag and drop onto the window (GLFW drop callback; the page's drop event), file names in search, a picture attachment shown small with Save and open in the image viewer. | Each on its own | S each |
 
 Phases 1 and 2 are most of the work. Each phase is committed on its own,
 with tests, and leaves `dev`-mergeable code: nothing in the UI before
@@ -169,10 +170,10 @@ the connection can carry it.
 
 | # | Question | Recommendation |
 |---|---|---|
-| 1 | Which file types? | **Any.** The server only keeps bytes. The client never opens anything on its own: Save writes it to downloads, and an executable is saved with a note that it came from someone else. The DM transfer's allowlist stays as it is. |
+| 1 | Which file types? | **Any.** The server only keeps bytes. The client never opens or runs anything on its own: Save only writes the file to downloads. Saved files get the system's downloaded-from-the-internet mark (Windows' Mark of the Web, macOS's quarantine attribute; Linux has none), so the system warns before running one, as it does for a browser's downloads. The DM transfer's allowlist stays as it is. |
 | 2 | Largest file, and per message | **100 MB per file, 10 files per message**, the size in the server's config (0 turns attachments off). |
 | 3 | Who may attach | **A permission, `Attach_Files`, that everyone has by default**, so a server can restrict it per role. |
-| 4 | A message with files still uploading, and what's written after it | **Post each when it's ready**: text written meanwhile isn't held up, and so may come first. The alternative (strict order) makes a big upload block the chat. |
+| 4 | A message with files still uploading, and what's written after it | **Post each when it's ready**: text written meanwhile isn't held up, and so may come first. |
 | 5 | Pictures among the files | **Shown as files** (with Save) in phases 1–4; a small preview in phase 5. Pasting a picture keeps posting it as a picture message, as now. |
 | 6 | Retention | Attachments count towards `blob_megabytes`, and a new **`file_days`** (default 0: kept) drops old ones, leaving the message with "file removed". |
-| 7 | Where a desktop saves | **The downloads folder**, a unique name if one's taken, with Open folder afterwards. (A "Save as…" dialog could come later.) |
+| 7 | Where a desktop saves | **The downloads folder**, the original file name that the file had on the uploaders side should be used by default (if it's taken: `name (1).ext`, `name (2).ext`, …), with Open folder afterwards. (A "Save as…" dialog could come later.) |
