@@ -1,7 +1,6 @@
 package conn
 
 import log "common:wlog"
-import "core:sync"
 import "core:time"
 
 import "common:proto"
@@ -318,7 +317,7 @@ publish_blob :: proc(c: ^Voice_Client, id: proto.Blob_Id) {
 		return
 	}
 	f := c.blobs.cache[id] or_else nil
-	sync.guard(&v.mutex)
+	view_write(v)
 	if old, ok := v.blobs[id]; ok {
 		delete(old.jpeg)
 	}

@@ -60,6 +60,7 @@ touch_step :: proc(ui: ^UI) {
 		return
 	}
 	e := pop_front(&g_touch)
+	ui_redraw(ui) // and with more queued, the frames to take them
 	ctx := &ui.ctx
 	switch e.kind {
 	case .Move:
@@ -95,6 +96,7 @@ touch_after_frame :: proc(ui: ^UI) {
 @(private = "file")
 queue :: proc(e: Touch_Event) {
 	append(&g_touch, e)
+	ui_wake()
 }
 
 // Page coordinates (CSS pixels, from the canvas' corner) to layout pixels.
@@ -206,6 +208,7 @@ web_touch_scroll :: proc "c" (x, y, dy: f64) {
 		mu.input_mouse_move(&g_ui.ctx, lx, ly)
 	}
 	mu.input_scroll(&g_ui.ctx, 0, i32(dy * f64(g_ui.input_scale)))
+	ui_wake()
 }
 
 // Typing from the phone's keyboard: one character, a backspace, Enter.

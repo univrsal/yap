@@ -2,7 +2,6 @@ package conn
 
 import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import "common:proto"
 
@@ -76,7 +75,7 @@ publish_emoji :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_emoji(v)
 	v.emoji.blob, v.emoji.cell = c.emoji.blob, c.emoji.cell
 	for n in c.emoji.names {

@@ -260,6 +260,15 @@ fresh_notice :: proc(v: ^conn.View) -> (text: string, ok: bool, fresh: bool) {
 	return v.notice.text, v.notice.ok, true
 }
 
+// notice_until is when the notice the network side gave last comes
+// down; zero if it isn't up. Call with the View locked.
+notice_until :: proc(v: ^conn.View) -> time.Tick {
+	if _, _, fresh := fresh_notice(v); !fresh {
+		return {}
+	}
+	return time.tick_add(v.notice.at, NOTICE_SHOW)
+}
+
 // typing_text says who is typing in the conversation we're looking at
 // (or with `root`, in that thread of it), or "". For the conversation,
 // with nobody typing in it, it says who is typing in its threads.

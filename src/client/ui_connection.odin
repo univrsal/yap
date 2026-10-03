@@ -56,6 +56,8 @@ connection_indicator :: proc(ui: ^UI) {
 
 	if mu.mouse_over(ctx, r) {
 		ui.hint, ui.hint_of = connection_hint(v.status, s), r
+		// The figures change with every ping, without waking the UI.
+		ui_redraw_in(ui, conn.PING_INTERVAL)
 	}
 }
 

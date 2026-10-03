@@ -5,7 +5,6 @@ import "core:crypto"
 import "core:fmt"
 import "core:crypto/hash"
 import "core:strings"
-import "core:sync"
 import "core:time"
 
 import "common:proto"
@@ -997,7 +996,7 @@ reaction_changed :: proc(c: ^Voice_Client, change: proto.Reaction_Change) {
 	}
 	// Who reacted with it, if that's what's shown, isn't any more.
 	if v := c.view; v != nil {
-		sync.guard(&v.mutex)
+		view_write(v)
 		if v.reactors.id == change.id && v.reactors.emoji == change.emoji {
 			view_clear_reactors(v)
 		}
@@ -1842,7 +1841,7 @@ publish_message_changed :: proc(c: ^Voice_Client, key: Timeline_Key, m: Msg) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	tl, ok := &v.timelines[key]
 	if !ok {
 		return
@@ -1863,7 +1862,7 @@ publish_pins_loading :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	if v.pins.conv != conv {
 		view_clear_pins(v)
 		v.pins.conv = conv
@@ -1877,7 +1876,7 @@ publish_pins :: proc(c: ^Voice_Client, conv: proto.Conv_Id, pins: []proto.Messag
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_pins(v)
 	v.pins.conv = conv
 	for m in pins {
@@ -1895,7 +1894,7 @@ publish_root :: proc(c: ^Voice_Client, r: Root) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	if old, ok := v.roots[r.msg.id]; ok {
 		view_message_destroy(old.msg)
 	}
@@ -1911,7 +1910,7 @@ publish_root_missing :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 		log.infof("[chat] message #%d isn't there for us", id)
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	v.roots_missing[id] = true
 }
 
@@ -1921,7 +1920,7 @@ publish_root_gone :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	if old, ok := v.roots[id]; ok {
 		view_message_destroy(old.msg)
 		delete_key(&v.roots, id)
@@ -1944,7 +1943,7 @@ publish_reactors :: proc(c: ^Voice_Client, id: proto.Msg_Id, emoji: string, tota
 		log.infof("[chat] #%d %s: %d reacted (%v)", id, emoji, total, accounts)
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_reactors(v)
 	v.reactors.id, v.reactors.emoji, v.reactors.total = id, strings.clone(emoji), total
 	append(&v.reactors.accounts, ..accounts)
@@ -1996,7 +1995,7 @@ publish_timeline :: proc(c: ^Voice_Client, key: Timeline_Key) {
 		return
 	}
 	cache := c.msgs.caches[key] or_else nil
-	sync.guard(&v.mutex)
+	view_write(v)
 	if cache == nil {
 		if tl, ok := &v.timelines[key]; ok {
 			timeline_clear_messages(tl)
@@ -2059,7 +2058,7 @@ publish_outbox :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	for p in v.outbox {
 		delete(p.text)
 	}
@@ -2089,7 +2088,7 @@ publish_unread :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	v.unread += 1
 }
 
@@ -2099,7 +2098,7 @@ publish_typing :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.Accoun
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	v.typing[account] = {to, time.tick_now()}
 }
 
@@ -2110,7 +2109,7 @@ publish_typing_done :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.A
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	if t, ok := v.typing[account]; ok && t.to == to {
 		delete_key(&v.typing, account)
 	}
@@ -2122,6 +2121,20 @@ publish_typing_done :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.A
 is_typing :: proc(v: ^View, account: proto.Account_Id, conv: proto.Conv_Id, root: proto.Msg_Id = 0) -> bool {
 	t, ok := v.typing[account]
 	return ok && t.to == {conv, root} && time.tick_since(t.at) < TYPING_SHOW
+}
+
+// typing_until is when the first typing notice still shown stops being
+// shown, unless another comes; zero if none is. Call with the mutex held.
+typing_until :: proc(v: ^View) -> (until: time.Tick) {
+	for _, t in v.typing {
+		if time.tick_since(t.at) < TYPING_SHOW {
+			end := time.tick_add(t.at, TYPING_SHOW)
+			if until == {} || time.tick_diff(end, until) > 0 {
+				until = end
+			}
+		}
+	}
+	return
 }
 
 // is_typing_in_thread says whether an account has told us lately it's

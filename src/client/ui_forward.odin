@@ -231,8 +231,13 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 	f := &ui.forward
 	asked, was := f.links_asked[l.id]
 	if (!was || time.tick_since(asked) > LINK_ASK_AGAIN) && ui.session != nil {
-		f.links_asked[l.id] = time.tick_now()
+		asked = time.tick_now()
+		f.links_asked[l.id] = asked
 		conn.push_command(&ui.session.client.commands, conn.Root_Command{conv = l.conv, root = l.id})
+	}
+	// To ask again, should no answer come.
+	if asked != {} {
+		ui_redraw_at(ui, time.tick_add(asked, LINK_ASK_AGAIN + time.Millisecond))
 	}
 	return conn.LINK_TEXT
 }

@@ -115,6 +115,9 @@ tray_update :: proc(ui: ^UI) {
 
 	request := t.request
 	t.request = .None
+	if request != .None {
+		ui_redraw(ui)
+	}
 	switch request {
 	case .None:
 	case .Show_Window:

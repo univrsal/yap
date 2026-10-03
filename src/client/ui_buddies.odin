@@ -117,9 +117,11 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 		return
 	}
 	if b.view_asked == want && b.view_back == back && time.tick_since(b.view_at) < VIEW_RETRY {
+		ui_redraw_at(ui, time.tick_add(b.view_at, VIEW_RETRY)) // to ask again
 		return
 	}
 	b.view_asked, b.view_back, b.view_at = want, back, time.tick_now()
+	ui_redraw_in(ui, VIEW_RETRY)
 	conn.push_command(&ui.session.client.commands, conn.View_Command{conv = conv, back = back})
 }
 
@@ -337,6 +339,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	}
 	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
 		status, status_color = ui.buddies.notice, OFF_COLOR
+		ui_redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
 	}
 	with_text_color(ctx, status_color, status, label_proc)
 
@@ -441,9 +444,13 @@ ask_last_seen :: proc(ui: ^UI, list: []Buddy_Entry) {
 	due :=
 		ui.buddies.seen_asked == {} || time.tick_since(ui.buddies.seen_asked) >= LAST_SEEN_REFRESH
 	if cmd.count == 0 || !(due || someone_left) {
+		if cmd.count != 0 {
+			ui_redraw_at(ui, time.tick_add(ui.buddies.seen_asked, LAST_SEEN_REFRESH))
+		}
 		return
 	}
 	ui.buddies.seen_asked = time.tick_now()
+	ui_redraw_in(ui, LAST_SEEN_REFRESH)
 	conn.push_command(&ui.session.client.commands, cmd)
 }
 

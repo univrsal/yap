@@ -87,6 +87,7 @@ app_audio_frame :: proc(ui: ^UI) {
 	}
 	log.infof("app audio: %s stopped: %s", ui.app_audio.name, cstring(&s.why[0]))
 	app_audio_stop(ui)
+	ui_redraw(ui)
 }
 
 // app_audio_stop stops sharing, if anything is shared.

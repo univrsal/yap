@@ -204,7 +204,9 @@ level_meter :: proc(ui: ^UI) {
 		level, open = audio.MIN_LEVEL_DB, false
 	}
 
-	// Rise instantly, fall smoothly, so short peaks are readable.
+	// Rise instantly, fall smoothly, so short peaks are readable. It
+	// moves for as long as it's on screen.
+	ui_redraw_in(ui, ANIMATION_FRAME)
 	now := time.tick_now()
 	dt := f32(time.duration_seconds(time.tick_diff(ui.meter_time, now)))
 	ui.meter_time = now

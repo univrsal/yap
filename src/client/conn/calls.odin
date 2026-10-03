@@ -2,7 +2,6 @@ package conn
 
 import log "common:wlog"
 import "core:fmt"
-import "core:sync"
 import "core:time"
 
 import "common:proto"
@@ -214,7 +213,7 @@ publish_call :: proc(c: ^Voice_Client) {
 		return
 	}
 	cc := &c.call
-	sync.guard(&v.mutex)
+	view_write(v)
 	v.call = {
 		id     = cc.id,
 		status = cc.status,

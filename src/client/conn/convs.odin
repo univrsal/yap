@@ -4,7 +4,6 @@ import log "common:wlog"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import "core:time"
 
 import "common:proto"
@@ -795,7 +794,7 @@ publish_browse :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_browse(v)
 	for e in c.convs.browse {
 		append(

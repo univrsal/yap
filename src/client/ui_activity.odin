@@ -77,6 +77,9 @@ activity_input :: proc(ui: ^UI) {
 		a.idle = idle
 		conn.push_command(&ui.session.client.commands, conn.Idle_Command{idle = idle})
 	}
+	if !idle {
+		ui_redraw_at(ui, time.tick_add(a.last_input, IDLE_AFTER))
+	}
 }
 
 /*

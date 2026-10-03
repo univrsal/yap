@@ -1153,6 +1153,7 @@ message_mouse :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, block: mu
 	if lit {
 		if since := time.tick_since(st.lit_at); since < JUMP_HIGHLIGHT {
 			fade := 1 - f32(since) / f32(JUMP_HIGHLIGHT)
+			ui_redraw_in(ui, ANIMATION_FRAME)
 			mu.draw_rect(ctx, block, {255, 220, 120, u8(50 * fade)})
 		} else {
 			st.lit, st.lit_mentions = 0, false

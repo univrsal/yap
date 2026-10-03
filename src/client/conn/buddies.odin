@@ -3,7 +3,6 @@ package conn
 import log "common:wlog"
 import "core:fmt"
 import "core:slice"
-import "core:sync"
 import "core:time"
 
 import "common:proto"
@@ -269,7 +268,7 @@ publish_buddies :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	clear(&v.buddies)
 	append(&v.buddies, ..c.buddies.buddies[:])
 }
@@ -279,7 +278,7 @@ publish_last_seen :: proc(c: ^Voice_Client, entries: []proto.Last_Seen_Entry) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	for e in entries {
 		v.last_seen[e.account] = e.time
 	}

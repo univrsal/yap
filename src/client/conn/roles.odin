@@ -4,7 +4,6 @@ import log "common:wlog"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 
 import "common:proto"
 
@@ -272,7 +271,7 @@ publish_roles :: proc(c: ^Voice_Client) {
 	}
 	ids, _ := slice.map_keys(c.auth.roles, context.temp_allocator)
 	slice.sort(ids)
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_roles(v)
 	for id in ids {
 		r := c.auth.roles[id]

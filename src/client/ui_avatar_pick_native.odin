@@ -4,7 +4,6 @@ package client
 import log "common:wlog"
 import "core:sync"
 import "core:thread"
-import glfw "client:wglfw"
 
 import "client:clipboard"
 import "client:conn"
@@ -58,7 +57,7 @@ avatar_pick_start :: proc(ui: ^UI, paste: bool) {
 pick_work :: proc(job: ^Avatar_Pick) {
 	defer {
 		sync.atomic_store(&job.done, true)
-		glfw.PostEmptyEvent()
+		ui_wake()
 	}
 	if job.paste {
 		img, err := clipboard.read_image()

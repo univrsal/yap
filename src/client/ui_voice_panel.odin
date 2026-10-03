@@ -98,7 +98,7 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	} else {
 		mu.label(ctx, "")
 	}
-	length := conn.call_length(int(time.duration_seconds(time.tick_since(p.since))))
+	length := call_length_shown(ui, p.since)
 	with_text_color(ctx, DIM_COLOR, length, label_proc)
 }
 
@@ -208,7 +208,7 @@ voice_panel :: proc(ui: ^UI) {
 		} else if state == .Voice {
 			mu.layout_row(ctx, {-60, 56})
 			mu.label(ctx, where_)
-			length := conn.call_length(int(time.duration_seconds(time.tick_since(p.since))))
+			length := call_length_shown(ui, p.since)
 			with_text_color(ctx, DIM_COLOR, length, label_proc)
 		} else {
 			mu.layout_row(ctx, {-1})
@@ -297,4 +297,13 @@ voice_panel :: proc(ui: ^UI) {
 	   ) {
 		set_deafened(ui, !ui.deafened)
 	}
+}
+
+// call_length_shown is how long it's been since `since`, as a call's
+// length, with a frame asked for when the next second ticks over.
+@(private = "file")
+call_length_shown :: proc(ui: ^UI, since: time.Tick) -> string {
+	d := time.tick_since(since)
+	ui_redraw_in(ui, time.Second - d % time.Second)
+	return conn.call_length(int(d / time.Second))
 }

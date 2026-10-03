@@ -6,7 +6,6 @@ import "core:fmt"
 import mu "vendor:microui"
 
 import "client:hotkeys"
-import glfw "client:wglfw"
 import "client:settings"
 
 /*
@@ -73,7 +72,7 @@ hotkeys_frame :: proc(ui: ^UI) {
 		for action in Hotkey_Action {
 			hotkeys.set_bind(w, int(action), bound(ui, action))
 		}
-		hotkeys.start(w, glfw.PostEmptyEvent)
+		hotkeys.start(w, ui_wake)
 		hk.running = true
 		log.debug("hotkeys: watching the keyboard")
 	case !wanted && hk.running:

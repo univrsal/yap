@@ -442,8 +442,13 @@ run :: proc(w: ^Watcher) {
 		cur: State
 		backend_poll(&b, &cur, wanted)
 		if now, now_message, changed := backend_status(&b); changed {
-			sync.guard(&w.mutex)
-			w.status, w.message = now, now_message
+			{
+				sync.guard(&w.mutex)
+				w.status, w.message = now, now_message
+			}
+			if w.wake != nil {
+				w.wake()
+			}
 		}
 		woke: bool
 		{

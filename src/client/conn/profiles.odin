@@ -5,7 +5,6 @@ import "core:crypto/hash"
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
-import "core:sync"
 
 import "common:proto"
 
@@ -312,7 +311,7 @@ publish_shared :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_shared(v)
 	for k, value in c.profiles.shared {
 		v.shared[strings.clone(k)] = strings.clone(value)
@@ -328,7 +327,7 @@ publish_members :: proc(c: ^Voice_Client, conv: proto.Conv_Id, accounts: []proto
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	if v.members.conv != conv || !loading {
 		clear(&v.members.accounts)
 	}

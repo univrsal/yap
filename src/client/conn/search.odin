@@ -3,7 +3,6 @@ package conn
 import log "common:wlog"
 import "core:fmt"
 import "core:strings"
-import "core:sync"
 
 import "common:proto"
 
@@ -123,7 +122,7 @@ publish_search :: proc(c: ^Voice_Client, found: []proto.Message, more, loading: 
 		return
 	}
 	sc := &c.search
-	sync.guard(&v.mutex)
+	view_write(v)
 	s := &v.search
 	if fresh {
 		view_clear_search(v)

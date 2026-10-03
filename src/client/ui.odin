@@ -1,10 +1,13 @@
 package client
 
+import "base:intrinsics"
 import glfw "client:wglfw"
 import log "common:wlog"
 import "core:crypto/ecdh"
 import "core:fmt"
+import "core:hash"
 import "core:math"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -253,6 +256,15 @@ UI :: struct {
 	// A frame is being drawn (draw_frame), which a refresh mustn't
 	// start another one in the middle of.
 	drawing:             bool,
+	// A frame is only drawn when there's something new to show (see
+	// frame_due): how many more to draw whatever happens, when the
+	// clock next changes something on screen (zero: nothing does), the
+	// hash of the last frame's draw commands, and how many log lines
+	// the log panel showed in it (-1: it wasn't on screen).
+	redraw_frames:       int,
+	redraw_at:           time.Tick,
+	drawn_hash:          u64,
+	log_drawn:           int,
 }
 
 // For GLFW's callbacks, which have no user data we can use cheaply, and
@@ -285,7 +297,9 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	g_ui = ui
 	g_logger = context.logger
 	ui.opts = opts
+	ui.log_drawn = -1
 	conn.view_init(&ui.view)
+	ui.view.wake = ui_wake
 	ui_chat_init(ui)
 
 	// Load (or create) the key now, to show our id before connecting.
@@ -370,6 +384,9 @@ ui_frame :: proc(ui: ^UI) -> bool {
 
 	free_all(context.temp_allocator)
 
+	if ui.action != .None {
+		ui_redraw(ui)
+	}
 	switch ui.action {
 	case .None:
 	case .Connect:
@@ -382,8 +399,9 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	ui.action = .None
 	disconnect_tail_step(ui)
 
-	// Wake up for input, or often enough to animate the speaking
-	// indicators. Listen back without a connection is fed from this
+	// Wake up for input, or often enough for the work below that isn't
+	// drawing; a frame is only drawn when there's something new to show
+	// (frame_due). Listen back without a connection is fed from this
 	// loop (monitor_update), so it needs to run at the display's rate.
 	// In a web build the browser has already decided when this frame
 	// happens, and there is nothing to wait for.
@@ -395,16 +413,6 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	when platform.WEB {
 		net_step(ui)
 		touch_step(ui)
-	}
-
-	// microui turns a press into focus for whatever `hover_id` names,
-	// without re-checking the pointer, and only a control itself clears
-	// its hover. If a hovered control vanishes (a screen change, a
-	// relabeled button), the stale id could fire on a click anywhere
-	// once the id reappears. Recomputing hover on every frame without a
-	// press keeps it tied to what's actually under the pointer.
-	if ui.ctx.mouse_pressed_bits == {} && ui.ctx.mouse_down_bits == {} {
-		ui.ctx.hover_id = 0
 	}
 
 	if ui.settings_dirty && time.tick_since(ui.settings_saved) > time.Second {
@@ -426,6 +434,9 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	if ui.hidden {
 		ui.meter_shown = false
 		return true // no window to draw in
+	}
+	if !frame_due(ui) {
+		return true
 	}
 	draw_frame(ui)
 	// A browser paces frames itself, and a page can't sleep.
@@ -474,6 +485,20 @@ draw_frame :: proc(ui: ^UI) {
 	left, height := titlebar_area(ui.window)
 	ui.titlebar_left = i32(left * m.input_scale)
 	ui.titlebar_height = i32(height * m.input_scale)
+	// Whatever asked for this frame has it; the layout asks again for
+	// what still needs more (see frame_due).
+	ui.redraw_frames = max(ui.redraw_frames - 1, 0)
+	ui.redraw_at = {}
+	ui.log_drawn = -1
+	// microui turns a press into focus for whatever `hover_id` names,
+	// without re-checking the pointer, and only a control itself clears
+	// its hover. If a hovered control vanishes (a screen change, a
+	// relabeled button), the stale id could fire on a click anywhere
+	// once the id reappears. Recomputing hover on every frame without a
+	// press keeps it tied to what's actually under the pointer.
+	if ui.ctx.mouse_pressed_bits == {} && ui.ctx.mouse_down_bits == {} {
+		ui.ctx.hover_id = 0
+	}
 	ui_images_frame(ui)
 	clear(&ui.text_boxes)
 	// The chat's text size, for measuring this frame and drawing it.
@@ -483,6 +508,8 @@ draw_frame :: proc(ui: ^UI) {
 	ui.meter_shown = false // until gate_settings draws it again
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
 	mu.end(&ui.ctx)
+	clock_redraws(ui)
+	settle(ui)
 	when platform.WEB {
 		touch_after_frame(ui)
 	}
@@ -500,6 +527,130 @@ draw_frame :: proc(ui: ^UI) {
 	ui_images_after_frame(ui)
 	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, BACKGROUND)
 	render.gpu_present(&ui.renderer.gpu)
+}
+
+/*
+Drawing a frame lays out the whole UI, which costs the same whether
+anything has changed or not, so the loop only draws one when something
+asks for it:
+
+- input, and the window changing size or needing its contents again
+  (ui_redraw, from GLFW's callbacks);
+- another thread changing something that's shown - the network side
+  through the View (conn.view_write), pictures decoded, a dialog or
+  paste done (ui_wake);
+- the clock: what fades, counts or comes down after a while asks for a
+  frame by when it next changes, every frame it's on screen
+  (ui_redraw_at).
+
+And a frame whose draw commands differ from the last one's is followed
+by another (settle): much of the layout only catches up a frame later
+(scrolling to the end, a focus moved, a menu opened by a click), and a
+frame that changed nothing is the sign that's done.
+*/
+
+// After input, at least this many frames: microui answers some of it
+// (a click) in the frame after the one that saw it.
+@(private = "file")
+SETTLE_FRAMES :: 2
+
+// How often what moves smoothly (a fade, the level meter) is redrawn.
+ANIMATION_FRAME :: time.Second / 30
+
+// Set by ui_wake, from any thread.
+@(private = "file")
+g_wake: bool
+
+/*
+ui_wake asks for a frame from any thread, for a change that no input
+says has happened: from the network side (View.wake), and threads done
+with their work. It wakes the loop, if it's waiting.
+*/
+ui_wake :: proc "c" () {
+	if !intrinsics.atomic_exchange(&g_wake, true) {
+		glfw.PostEmptyEvent()
+	}
+}
+
+// ui_redraw asks for frames now, from the UI's own thread.
+ui_redraw :: proc "contextless" (ui: ^UI) {
+	ui.redraw_frames = max(ui.redraw_frames, SETTLE_FRAMES)
+}
+
+// ui_redraw_at asks for a frame by `at`, for what changes by the clock
+// alone. The layout asks again every frame that still needs it.
+ui_redraw_at :: proc(ui: ^UI, at: time.Tick) {
+	if ui.redraw_at == {} || time.tick_diff(at, ui.redraw_at) > 0 {
+		ui.redraw_at = at
+	}
+}
+
+ui_redraw_in :: proc(ui: ^UI, after: time.Duration) {
+	ui_redraw_at(ui, time.tick_add(time.tick_now(), max(after, 0)))
+}
+
+// frame_due says whether the loop should draw a frame this turn.
+@(private = "file")
+frame_due :: proc(ui: ^UI) -> bool {
+	if intrinsics.atomic_exchange(&g_wake, false) {
+		ui_redraw(ui)
+	}
+	if ui.redraw_frames > 0 {
+		return true
+	}
+	if ui.redraw_at != {} && time.tick_diff(ui.redraw_at, time.tick_now()) >= 0 {
+		return true
+	}
+	// A new size or scale; no callback for it is needed this way.
+	if window_metrics(ui.window, settings.ui_scale_factor(&ui.settings)) != ui.metrics {
+		return true
+	}
+	// Lines are logged from everywhere, far too often to wake for each
+	// one, so it's only while they're on screen that they're looked for.
+	if ui.log_drawn >= 0 && ui.opts.logs != nil {
+		sync.guard(&ui.opts.logs.mutex)
+		return ui.opts.logs.total != ui.log_drawn
+	}
+	return false
+}
+
+// clock_redraws asks for frames for what changes by the clock and is
+// shown in too many places to ask from each: who is speaking and who is
+// typing, which stop by themselves, the network side's notices, which
+// come down after a while, and times shown to the minute.
+@(private = "file")
+clock_redraws :: proc(ui: ^UI) {
+	{
+		v := &ui.view
+		sync.guard(&v.mutex)
+		if t := conn.speaking_until(v); t != {} {
+			ui_redraw_at(ui, t)
+		}
+		if t := conn.typing_until(v); t != {} {
+			ui_redraw_at(ui, t)
+		}
+		if t := notice_until(v); t != {} {
+			ui_redraw_at(ui, t)
+		}
+	}
+	// Message times, "Today", "last seen 5 minutes ago": all of them
+	// change on the minute.
+	MINUTE :: i64(time.Minute)
+	into := time.time_to_unix_nano(time.now()) % MINUTE
+	ui_redraw_in(ui, time.Duration(MINUTE - into))
+}
+
+// settle asks for another frame when this one's draw commands differ
+// from the last one's.
+@(private = "file")
+settle :: proc(ui: ^UI) {
+	list := &ui.ctx.command_list
+	h := hash.fnv64a(list.items[:list.idx])
+	h = hash.fnv64a(slice.to_bytes(ui.images.draws[:]), h)
+	if h != ui.drawn_hash {
+		ui.drawn_hash = h
+		ui.redraw_frames = max(ui.redraw_frames, 1)
+	}
 }
 
 // ui_shutdown takes everything down in the order it went up.
@@ -614,7 +765,7 @@ window_open :: proc(ui: ^UI) -> bool {
 	ui.renderer.images = &ui.images.draws
 
 	glfw.SetWindowIconifyCallback(ui.window, iconify_callback)
-	when ODIN_OS == .Windows {
+	when !platform.WEB {
 		glfw.SetWindowRefreshCallback(ui.window, refresh_callback)
 	}
 	glfw.SetCursorPosCallback(ui.window, cursor_pos_callback)
@@ -626,6 +777,7 @@ window_open :: proc(ui: ^UI) -> bool {
 	// doesn't (see set_cursor).
 	ui.cursor_shown = .Arrow
 	ui.metrics = {}
+	ui_redraw(ui)
 	return true
 }
 
@@ -1274,6 +1426,7 @@ log_panel :: proc(ui: ^UI) {
 		// No logging in here: the log sink takes this same lock.
 		sync.guard(&logs.mutex)
 		total = logs.total
+		ui.log_drawn = total // for frame_due to look out for more
 
 		saved_spacing := ctx.style.spacing
 		ctx.style.spacing = LOG_LINE_SPACING
@@ -1515,27 +1668,34 @@ iconify_callback :: proc "c" (window: glfw.WindowHandle, iconified: i32) {
 	if iconified != 0 {
 		g_ui.minimized = true
 	}
+	ui_redraw(g_ui)
 }
 
 /*
-refresh_callback draws a frame while the window is being resized. On
-Windows, dragging its edge runs a loop of the system's own until the
-mouse is let go, and glfw.WaitEventsTimeout doesn't come back before
-then, so without this the window would stand still for as long as the
-drag lasts. Only resizing needs it: nothing else stops the loop.
+refresh_callback is the window needing its contents again: uncovered,
+say, where nothing keeps them. That's a frame drawn at the next turn
+round the loop - except on Windows, where it draws one right away, since
+it also comes while the window is being resized: dragging its edge runs
+a loop of the system's own until the mouse is let go, and
+glfw.WaitEventsTimeout doesn't come back before then, so without this
+the window would stand still for as long as the drag lasts.
 */
 @(private = "file")
 refresh_callback :: proc "c" (window: glfw.WindowHandle) {
 	context = platform.callback_context()
 	context.logger = g_logger
-	if g_ui.window == window && !g_ui.hidden {
-		draw_frame(g_ui)
+	ui_redraw(g_ui)
+	when ODIN_OS == .Windows {
+		if g_ui.window == window && !g_ui.hidden {
+			draw_frame(g_ui)
+		}
 	}
 }
 
 @(private = "file")
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
+	ui_redraw(g_ui)
 	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
 }
 
@@ -1543,6 +1703,7 @@ cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mods: i32) {
 	context = platform.callback_context()
 	context.logger = g_logger
+	ui_redraw(g_ui)
 	btn: mu.Mouse
 	switch button {
 	case glfw.MOUSE_BUTTON_LEFT:
@@ -1585,12 +1746,14 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 @(private = "file")
 scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
+	ui_redraw(g_ui)
 	mu.input_scroll(&g_ui.ctx, i32(-x * 30), i32(-y * 30))
 }
 
 @(private = "file")
 char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 	context = platform.callback_context()
+	ui_redraw(g_ui)
 	buf, n := utf8.encode_rune(codepoint)
 	mu.input_text(&g_ui.ctx, string(buf[:n]))
 }
@@ -1598,6 +1761,7 @@ char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 @(private = "file")
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
 	context = platform.callback_context()
+	ui_redraw(g_ui)
 	k: mu.Key
 	switch key {
 	case glfw.KEY_LEFT_SHIFT, glfw.KEY_RIGHT_SHIFT:

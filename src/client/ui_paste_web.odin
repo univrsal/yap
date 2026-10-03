@@ -48,6 +48,7 @@ web_paste_text :: proc "c" (data: [^]u8, size: i32) {
 	context = platform.callback_context()
 	delete(g_pasted_text)
 	g_pasted_text = strings.clone(string(data[:max(size, 0)]))
+	ui_wake()
 }
 
 web_copy_text :: proc(text: string) -> bool {
@@ -76,6 +77,7 @@ web_paste_image :: proc "c" (data: [^]u8, size: i32, width, height: i32) {
 		target.dm_to = g_ui.buddies.selected
 	}
 	send_pasted_image(g_ui, target, img)
+	ui_wake()
 }
 
 // The page could not make a picture of what was pasted.

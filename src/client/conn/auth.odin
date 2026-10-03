@@ -4,7 +4,6 @@ import log "common:wlog"
 import "core:fmt"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import "core:time"
 
 import "common:proto"
@@ -463,7 +462,7 @@ notify :: proc(c: ^Voice_Client, ok: bool, text: string) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	delete(v.notice.text)
 	v.notice.text = strings.clone(text)
 	v.notice.ok = ok
@@ -640,7 +639,7 @@ publish_login :: proc(c: ^Voice_Client) {
 		return
 	}
 	a := &c.auth
-	sync.guard(&v.mutex)
+	view_write(v)
 	delete(v.login.error)
 	delete(v.login.username)
 	v.login = {
@@ -661,7 +660,7 @@ publish_login :: proc(c: ^Voice_Client) {
 publish_directory :: proc(c: ^Voice_Client) {
 	if v := c.view; v != nil {
 		a := &c.auth
-		sync.guard(&v.mutex)
+		view_write(v)
 		view_clear_accounts(v)
 		for id, acc in a.accounts {
 			v.accounts[id] = {
@@ -703,7 +702,7 @@ publish_devices :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_devices(v)
 	for d in c.auth.devices {
 		d := d

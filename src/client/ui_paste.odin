@@ -5,7 +5,6 @@ import log "common:wlog"
 import "core:sync"
 import "core:thread"
 import mu "vendor:microui"
-import glfw "client:wglfw"
 
 import "client:clipboard"
 import "client:conn"
@@ -61,7 +60,7 @@ paste_work :: proc(job: ^Paste_Job) {
 	}
 	sync.atomic_store(&job.done, true)
 	// The UI may be waiting for input; let it pick the result up now.
-	glfw.PostEmptyEvent()
+	ui_wake()
 }
 
 // paste_poll finishes a paste once its thread is done. It's called on

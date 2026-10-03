@@ -53,6 +53,10 @@ View_User :: struct {
 
 View :: struct {
 	mutex:       sync.Mutex,
+	// Called, from whichever thread, when something the UI shows has
+	// changed, for it to draw a frame (see view_write); set once by the
+	// UI before any connection starts.
+	wake:        proc "c" (),
 	status:      Status,
 	error:       string, // why we Failed
 	// Set when we Failed because the server's key isn't the one saved
@@ -243,7 +247,7 @@ publish_logged_out :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_channels(v)
 	view_clear_timelines(v)
 	view_clear_blobs(v)
@@ -308,7 +312,7 @@ publish_file :: proc(c: ^Voice_Client, t: ^File_Transfer, force := false) {
 		return
 	}
 	t.last_publish = now
-	sync.guard(&v.mutex)
+	view_write(v)
 	_, f, just_added, _ := map_entry(&v.files, t.id)
 	if just_added || f.name != t.name {
 		delete(f.name)
@@ -341,7 +345,7 @@ publish_mentioned :: proc(c: ^Voice_Client, name, place, text: string) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	append(&v.mentioned, View_Mention{strings.clone(name), strings.clone(place), strings.clone(text)})
 }
 
@@ -410,13 +414,38 @@ is_speaking :: proc(v: ^View, id: proto.User_Num) -> bool {
 // The publish_* procs are called from the network thread. They do
 // nothing when there's no UI (headless mode).
 
+/*
+view_write is sync.guard for a change to the View: once the lock is let
+go, it wakes the UI to draw what changed. The UI only draws a frame when
+there's something new to show (see ui_frame), so a change made under a
+plain sync.guard waits for the next thing that does wake it.
+*/
+@(deferred_in = view_write_end)
+view_write :: proc(v: ^View) -> bool {
+	sync.mutex_lock(&v.mutex)
+	return true
+}
+
+@(private = "file")
+view_write_end :: proc(v: ^View) {
+	sync.mutex_unlock(&v.mutex)
+	view_changed(v)
+}
+
+// view_changed wakes the UI to draw a frame.
+view_changed :: proc "contextless" (v: ^View) {
+	if v.wake != nil {
+		v.wake()
+	}
+}
+
 publish_status :: proc(c: ^Voice_Client, status: Status, error := "") {
 	c.status = status
 	v := c.view
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	v.status = status
 	v.my_key = c.my_key
 	if v.server == "" {
@@ -432,7 +461,7 @@ publish_server :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	delete(v.server_name)
 	v.server_name = strings.clone(c.rpc.server.name)
 }
@@ -444,7 +473,7 @@ publish_server_key :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	v.server_key = c.server_key
 }
 
@@ -455,7 +484,7 @@ publish_key_change :: proc(c: ^Voice_Client, saved, received: [proto.KEY_SIZE]u8
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_key_change(v)
 	v.key_change = {
 		changed  = true,
@@ -494,7 +523,7 @@ publish_channels :: proc(c: ^Voice_Client) {
 			)
 		}
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	view_clear_channels(v)
 	append(&v.dms, ..dms[:])
 	for id in order {
@@ -539,6 +568,8 @@ publish_mic :: proc(c: ^Voice_Client, level_db: f32, gate_open: bool) {
 	if v == nil {
 		return
 	}
+	// Every captured frame: no waking for this. The meter, the only
+	// thing that shows it, keeps drawing frames while it's on screen.
 	sync.guard(&v.mutex)
 	v.mic_level, v.mic_open, v.mic_time = level_db, gate_open, time.tick_now()
 }
@@ -548,8 +579,29 @@ publish_voice :: proc(c: ^Voice_Client, speaker: proto.User_Num) {
 	if v == nil {
 		return
 	}
+	// Every voice frame: the UI is only woken as someone starts to
+	// speak, and wakes itself for when they'd stop (speaking_until).
 	sync.guard(&v.mutex)
+	was := is_speaking(v, speaker)
 	v.speaking[speaker] = time.tick_now()
+	if !was {
+		view_changed(v)
+	}
+}
+
+// speaking_until is when the first of those speaking stops, as far as
+// is_speaking goes, unless more of their voice comes before then; zero
+// if nobody is speaking. Call with the View locked.
+speaking_until :: proc(v: ^View) -> (until: time.Tick) {
+	for _, t in v.speaking {
+		if time.tick_since(t) < SPEAKING_HOLD {
+			end := time.tick_add(t, SPEAKING_HOLD)
+			if until == {} || time.tick_diff(end, until) > 0 {
+				until = end
+			}
+		}
+	}
+	return
 }
 
 publish_watching :: proc(c: ^Voice_Client) {
@@ -557,7 +609,7 @@ publish_watching :: proc(c: ^Voice_Client) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	v.watching = c.video.watching
 }
 
@@ -567,7 +619,12 @@ publish_connection :: proc(c: ^Voice_Client) {
 		return
 	}
 	stats := connection_stats(&c.ping, time.tick_now())
+	// Twice a second: the UI is only woken when the indicator's bars
+	// would change. Its tooltip, with the figures, keeps up by itself.
 	sync.guard(&v.mutex)
+	if stats.quality != v.connection.quality {
+		view_changed(v)
+	}
 	v.connection = stats
 }
 
@@ -576,7 +633,7 @@ publish_poke :: proc(c: ^Voice_Client, name, message: string) {
 	if v == nil {
 		return
 	}
-	sync.guard(&v.mutex)
+	view_write(v)
 	append(&v.pokes, View_Poke{strings.clone(name), strings.clone(message)})
 }
 
