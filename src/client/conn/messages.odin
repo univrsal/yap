@@ -876,6 +876,9 @@ ones'. A window with nothing left is fetched again if it's on screen.
 */
 @(private = "file")
 msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
+	if p.what == .Files {
+		return // messages' files aren't kept here yet: nothing to take out
+	}
 	strip :: proc(m: ^Msg, before: proto.Msg_Id) -> bool {
 		if m.id >= before || m.kind != .Image || .Pinned in m.flags || m.image.blob == 0 {
 			return false

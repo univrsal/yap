@@ -27,7 +27,7 @@ a little older than the other.
 A body's layout goes by its op:
 
 	Server_Info  request   (nothing)
-	             response  [name str8][version str8]
+	             response  [name str8][version str8][max_attachment u64]
 
 where str8 is [len u8][bytes]; the rest are in accounts.odin,
 buddies.odin, convs.odin and msgs.odin. A body may grow at its end: a decoder
@@ -95,6 +95,9 @@ Request_Op :: enum u16 {
 	Purge                = 0x0090,
 	Blob_Put             = 0x0050,
 	Blob_Get             = 0x0051,
+	// Attachments, see attachments.odin.
+	Attach_Put           = 0x0052,
+	Attach_Get           = 0x0053,
 }
 
 Event_Op :: enum u16 {
@@ -248,11 +251,12 @@ decode_event :: proc(msg: []u8) -> (op: Event_Op, body: []u8) {
 
 // Server_Info is what a server says about itself.
 Server_Info :: struct {
-	name:    string, // may be empty
-	version: string, // of yap-server, as its log says when it starts
+	name:           string, // may be empty
+	version:        string, // of yap-server, as its log says when it starts
+	max_attachment: u64, // bytes a file attached to a message may have; 0 for no attachments
 }
 
-SERVER_INFO_MAX_SIZE :: 1 + MAX_SERVER_NAME + 1 + 255
+SERVER_INFO_MAX_SIZE :: 1 + MAX_SERVER_NAME + 1 + 255 + 8
 
 // encode_server_info writes a Server_Info response's body.
 @(require_results)
@@ -265,6 +269,7 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	}
 	put_str8(&w, info.name)
 	put_str8(&w, info.version)
+	put_u64(&w, info.max_attachment)
 	if w.overflow {
 		return
 	}
@@ -280,6 +285,7 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	}
 	info.name = get_str8(&r)
 	info.version = get_str8(&r)
+	info.max_attachment = get_u64(&r)
 	if r.overflow || len(info.name) > MAX_SERVER_NAME {
 		return {}, false
 	}

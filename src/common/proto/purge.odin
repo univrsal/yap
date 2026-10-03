@@ -25,12 +25,15 @@ Msgs_Purged tells the members of a conversation that its messages with
 ids below `before` are gone, but for those kept (which they can ask for
 again), or with Purge_What.Images, that those messages' pictures are,
 but for pinned ones. A message whose picture is gone is still an Image,
-with blob 0.
+with blob 0. With Purge_What.Files it's those messages' attachments
+that are gone: the messages keep the list of their files, each with
+blob 0.
 */
 
 Purge_What :: enum u8 {
 	Messages = 0,
 	Images   = 1,
+	Files    = 2, // the files messages carry (attachments.odin)
 }
 
 PURGE_SIZE :: 4 + 8 + 1

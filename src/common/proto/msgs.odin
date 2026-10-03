@@ -8,7 +8,8 @@ server for good, and read a page at a time. Everything here travels as
 requests and events (rpc.odin), except Typing, which is a datagram.
 
 	Msg_Post     [conv u32][nonce u64][thread_root u64][kind u8]
-	             text: [text str16]   image: [blob u64]
+	             text: [text str16][count u8][upload u64]... (attachments)
+	             image: [blob u64]
 	             file: [size u64][name str8]
 	             ->  [id u64][time u64]
 	Msg_History  [conv u32][thread_root u64][anchor u64][dir u8][limit u8]
@@ -36,6 +37,8 @@ requests and events (rpc.odin), except Typing, which is a datagram.
 	message   [id u64][conv u32][sender u32][time u64][kind u8][flags u8]
 	          [thread_root u64][edited u64]
 	          text:    [text str16]
+	                   if Has_Attachments: [count u8] per file:
+	                   [blob u64][size u64][name str8]
 	          image:   [blob u64][width u16][height u16][size u32]
 	          file:    [size u64][name str8]
 	          system:  [what u8][arg u32]
@@ -69,6 +72,12 @@ with Blob_Need when it has them all (BLOB_COMPLETE, then Blob_Put again
 gives the id) or can't take them (BLOB_FAILED: the hash or the
 picture's size wasn't what was announced). Blob_Get is the other way:
 the size and the handle the chunks will come under.
+
+Attachments: a text message may carry up to MAX_ATTACHMENTS files that
+were uploaded to the server (attachments.odin), and then has the
+Has_Attachments flag; its text may be empty then. Posting names the
+poster's uploads, and the server fills in each file's blob, name and
+size from them. They go when the message is deleted.
 
 Files: a message of kind File is an offer to send one, in a DM only; it
 says the file's name and size, and the file itself goes between the two
@@ -121,6 +130,7 @@ Msg_Flag :: enum u8 {
 	Pinned,
 	Has_Thread,
 	Forwarded, // a copy of another message (forward.odin)
+	Has_Attachments, // files uploaded with it (attachments.odin)
 }
 Msg_Flags :: distinct bit_set[Msg_Flag;u8]
 
@@ -129,10 +139,21 @@ Blob_Kind :: enum u8 {
 	Image       = 1, // in a message
 	Avatar      = 2, // somebody's profile picture
 	Emoji_Sheet = 3, // the server's custom emoji, as one image
+	File        = 4, // a message's attachment (attachments.odin)
 }
 
 // The largest picture a message may carry.
 MAX_IMAGE_SIZE :: 256 * 1024
+
+// The most files a message may carry.
+MAX_ATTACHMENTS :: 10
+
+// A file a message carries. The name points into what it was read from.
+Attachment :: struct {
+	blob: Blob_Id, // 0 once it's been removed (retention)
+	size: u64,
+	name: string,
+}
 
 Msg_Image :: struct {
 	blob:          Blob_Id,
@@ -159,14 +180,20 @@ Message :: struct {
 	reply_count:    u32, // .Has_Thread
 	last_reply:     Msg_Id,
 	forward:        Forward_Info, // .Forwarded: where the original was
+	// .Has_Attachments: the files, the first `attachment_count`.
+	attachment_count: int,
+	attachments:    [MAX_ATTACHMENTS]Attachment,
 	// The reactions, as they came, for when there are any.
 	reaction_count: int,
 	reactions:      []u8,
 }
 
-// A message without reactions takes at most this much.
+// What a message's files take at most.
+ATTACHMENTS_MAX_SIZE :: 1 + MAX_ATTACHMENTS * (8 + 8 + 1 + MAX_FILE_NAME)
+
+// A message takes at most this much.
 MESSAGE_MAX_SIZE ::
-	8 + 4 + 4 + 8 + 1 + 1 + 8 + 8 + (2 + MAX_CHAT_SIZE) + 4 + 8 + FORWARD_INFO_SIZE + 1 + MAX_REACTIONS * (1 + MAX_REACTION_EMOJI + 2 + 1)
+	8 + 4 + 4 + 8 + 1 + 1 + 8 + 8 + (2 + MAX_CHAT_SIZE) + ATTACHMENTS_MAX_SIZE + 4 + 8 + FORWARD_INFO_SIZE + 1 + MAX_REACTIONS * (1 + MAX_REACTION_EMOJI + 2 + 1)
 
 MAX_HISTORY_LIMIT :: 50
 
@@ -193,7 +220,7 @@ MSG_EDIT_MAX_SIZE :: 8 + 2 + MAX_CHAT_SIZE
 MSG_ID_SIZE :: 8
 MSG_PIN_SIZE :: 8 + 1
 MSG_POSTED_SIZE :: 8 + 8
-MSG_POST_MAX_SIZE :: 4 + 8 + 8 + 1 + max(2 + MAX_CHAT_SIZE, 8 + 1 + 255)
+MSG_POST_MAX_SIZE :: 4 + 8 + 8 + 1 + max(2 + MAX_CHAT_SIZE + 1 + MAX_ATTACHMENTS * 8, 8 + 1 + 255)
 HISTORY_HEADER_SIZE :: 1 + 2
 BLOB_PUT_SIZE :: 1 + 4 + 32 + 2 + 2
 BLOB_PUT_ANSWER_SIZE :: 8 + 1 + 8
@@ -224,6 +251,13 @@ message_size :: proc(m: Message) -> int {
 	switch m.kind {
 	case .Text:
 		n += 2 + len(m.text)
+		if .Has_Attachments in m.flags {
+			n += 1
+			for i in 0 ..< m.attachment_count {
+				a := m.attachments[i]
+				n += 8 + 8 + 1 + len(a.name)
+			}
+		}
 	case .Image:
 		n += 8 + 2 + 2 + 4
 	case .File:
@@ -256,6 +290,19 @@ put_message :: proc(w: ^Writer, m: Message) {
 			w.overflow = true
 		}
 		put_str16(w, m.text)
+		if .Has_Attachments in m.flags {
+			if m.attachment_count < 1 || m.attachment_count > MAX_ATTACHMENTS {
+				w.overflow = true
+				return
+			}
+			put_u8(w, u8(m.attachment_count))
+			for i in 0 ..< m.attachment_count {
+				a := m.attachments[i]
+				put_u64(w, u64(a.blob))
+				put_u64(w, a.size)
+				put_str8(w, a.name)
+			}
+		}
 	case .Image:
 		put_u64(w, u64(m.image.blob))
 		put_u16(w, m.image.width)
@@ -296,6 +343,17 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 		m.text = get_str16(r)
 		if len(m.text) > MAX_CHAT_SIZE {
 			return
+		}
+		if .Has_Attachments in m.flags {
+			m.attachment_count = int(get_u8(r))
+			if m.attachment_count < 1 || m.attachment_count > MAX_ATTACHMENTS {
+				return
+			}
+			for &a in m.attachments[:m.attachment_count] {
+				a.blob = Blob_Id(get_u64(r))
+				a.size = get_u64(r)
+				a.name = get_str8(r)
+			}
 		}
 	case .Image:
 		m.image = {
@@ -366,6 +424,10 @@ Msg_Post :: struct {
 	text:        string, // .Text, and .File's name; raw until sanitized
 	blob:        Blob_Id, // .Image
 	file_size:   u64, // .File
+	// .Text: the uploads of its files (Attach_Put), the first
+	// `attachment_count`.
+	attachment_count: int,
+	uploads:     [MAX_ATTACHMENTS]u64,
 }
 
 encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
@@ -379,6 +441,13 @@ encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
 	#partial switch p.kind {
 	case .Text:
 		put_str16(&w, p.text)
+		if p.attachment_count < 0 || p.attachment_count > MAX_ATTACHMENTS {
+			return nil
+		}
+		put_u8(&w, u8(p.attachment_count))
+		for i in 0 ..< p.attachment_count {
+			put_u64(&w, p.uploads[i])
+		}
 	case .Image:
 		put_u64(&w, u64(p.blob))
 	case .File:
@@ -403,6 +472,13 @@ decode_msg_post :: proc(body: []u8) -> (p: Msg_Post, ok: bool) {
 		p.text = get_str16(&r)
 		if len(p.text) > MAX_CHAT_SIZE {
 			return
+		}
+		p.attachment_count = int(get_u8(&r))
+		if p.attachment_count > MAX_ATTACHMENTS {
+			return
+		}
+		for &upload in p.uploads[:p.attachment_count] {
+			upload = get_u64(&r)
 		}
 	case .Image:
 		p.blob = Blob_Id(get_u64(&r))

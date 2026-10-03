@@ -34,7 +34,12 @@ once at startup:
 		"retention": {
 			"message_days": 0,
 			"image_days": 0,
+			"file_days": 0,
 			"blob_megabytes": 0
+		},
+		"attachments": {
+			"max_megabytes": 100,
+			"rate_kb": 2048
 		}
 	}
 
@@ -65,9 +70,15 @@ retention  how long what's posted is kept (retention.odin); 0 for no
            limit, which is what they start as. `message_days`: messages
            older than this many days are removed. `image_days`: older
            messages lose their pictures, the text staying; ignored unless
-           shorter than message_days. `blob_megabytes`: when the pictures
+           shorter than message_days. `file_days`: the same for the files
+           messages carry. `blob_megabytes`: when the pictures and files
            in messages take more than this, the oldest lose theirs.
            Pinned messages are kept whole whatever these say.
+attachments  files uploaded with messages (attachments.odin).
+           `max_megabytes`: how big one may be; 0 takes none. `rate_kb`:
+           how fast, in KB/s, the server takes and sends them, for each
+           connection, which leaves room for voice. Left out, they're
+           100 and 2048.
 
 Fields left out keep the defaults above, and with no channels there's a
 single Lobby.
@@ -104,6 +115,12 @@ Config :: struct {
 	relay:     Relay_Config,
 	channels:  []Channel_Config,
 	retention: Retention_Config,
+	attachments: Attach_Config,
+}
+
+Attach_Config :: struct {
+	max_megabytes: int,
+	rate_kb:       int,
 }
 
 Relay_Config :: struct {
@@ -134,6 +151,7 @@ Settings :: struct {
 	// The pictures that are the server's own emoji (emoji.odin).
 	emoji_dir:      string,
 	retention:      Retention_Config,
+	attachments:    Attach_Config,
 }
 
 @(private = "file")
@@ -142,6 +160,7 @@ default_config :: proc() -> Config {
 		port = proto.DEFAULT_PORT,
 		log_level = "info",
 		relay = {port = DEFAULT_RELAY_PORT, web_dir = default_web_dir()},
+		attachments = {max_megabytes = 100, rate_kb = 2048},
 	}
 }
 
@@ -275,12 +294,23 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		relay.web_dir = default_web_dir()
 	}
 	r := cfg.retention
-	if r.message_days < 0 || r.image_days < 0 || r.blob_megabytes < 0 {
+	if r.message_days < 0 || r.image_days < 0 || r.file_days < 0 || r.blob_megabytes < 0 {
 		log.errorf("%s: a retention limit can't be negative (0 is none)", path)
 		return
 	}
 	if r.message_days > 0 && r.image_days >= r.message_days {
 		log.warnf("%s: image_days isn't shorter than message_days, so it does nothing", path)
+	}
+	if r.message_days > 0 && r.file_days >= r.message_days {
+		log.warnf("%s: file_days isn't shorter than message_days, so it does nothing", path)
+	}
+	attach := cfg.attachments
+	if attach.max_megabytes < 0 || attach.rate_kb < 0 {
+		log.errorf("%s: an attachment limit can't be negative", path)
+		return
+	}
+	if attach.rate_kb == 0 {
+		attach.rate_kb = 2048
 	}
 
 	s = {
@@ -293,6 +323,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		log_file  = cfg.log_file,
 		relay     = relay,
 		retention = r,
+		attachments = attach,
 	}
 	data_dir := cfg.data_dir if cfg.data_dir != "" else os.dir(path)
 	if data_dir == "" {

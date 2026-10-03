@@ -364,6 +364,7 @@ PERMISSION_TEXT := [proto.Permission]string {
 	.Manage_Accounts  = "Make, disable and reset accounts",
 	.Mention_Everyone = "Mention @everyone",
 	.Purge            = "Purge history",
+	.Attach_Files     = "Attach files to messages",
 }
 
 @(private = "file")

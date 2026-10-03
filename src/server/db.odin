@@ -159,8 +159,19 @@ Stmt :: enum {
 	Pin_Clear,
 	Msg_Remove,
 	Msg_Strip_Picture,
-	Picture_Bytes,
+	Stored_Bytes,
+	Purge_Count_Files,
+	Purge_Count_Files_Conv,
+	Purge_Files,
+	Purge_Files_Conv,
+	Purge_Stored,
+	Attach_Strip,
 	Blob_Scan,
+	Blob_Touch,
+	Attach_Add,
+	Attach_Of_Msg,
+	Attach_Clear,
+	Attach_Blob_Convs,
 }
 
 @(private = "file", rodata)
@@ -214,7 +225,8 @@ STMT_SQL := [Stmt]string {
 	.Msg_Posted_In = "SELECT 1 FROM messages WHERE conv = ?1 AND sender = ?2 LIMIT 1",
 	.Msg_By_Id = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.blob, b.width, b.height, b.size, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages m LEFT JOIN blobs b ON b.id = m.blob WHERE m.id = ?1",
 	.Msg_Edit = "UPDATE messages SET text = ?2, edited = ?3 WHERE id = ?1",
-	.Msg_Delete = "UPDATE messages SET flags = (flags | 1) & ~2, text = NULL, blob = NULL, file_size = 0 WHERE id = ?1",
+	// Deleted, and neither pinned nor carrying files any more.
+	.Msg_Delete = "UPDATE messages SET flags = (flags | 1) & ~18, text = NULL, blob = NULL, file_size = 0 WHERE id = ?1",
 	.Msg_Set_Flags = "UPDATE messages SET flags = ?2 WHERE id = ?1",
 	.Pin_Add = "INSERT OR IGNORE INTO pins (conv, message, by, time) VALUES (?1, ?2, ?3, ?4)",
 	.Pin_Remove = "DELETE FROM pins WHERE conv = ?1 AND message = ?2",
@@ -258,8 +270,21 @@ STMT_SQL := [Stmt]string {
 	.Pin_Clear = "DELETE FROM pins WHERE conv = ?1 AND message = ?2",
 	.Msg_Remove = "DELETE FROM messages WHERE id = ?1",
 	.Msg_Strip_Picture = "UPDATE messages SET blob = NULL WHERE id = ?1",
-	.Picture_Bytes = "SELECT coalesce(sum(size), 0) FROM blobs WHERE kind = 1",
-	.Blob_Scan = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM messages WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	// What messages' pictures and files take.
+	.Stored_Bytes = "SELECT coalesce(sum(size), 0) FROM blobs WHERE kind IN (1, 4)",
+	// Messages with files, and with pictures or files, and how big those are.
+	.Purge_Count_Files = "SELECT count(DISTINCT a.msg) FROM attachments a WHERE a.blob IS NOT NULL AND a.msg < ?1",
+	.Purge_Count_Files_Conv = "SELECT count(DISTINCT a.msg) FROM attachments a JOIN messages m ON m.id = a.msg WHERE a.blob IS NOT NULL AND a.msg < ?1 AND m.conv = ?2",
+	.Purge_Files = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0) FROM messages m WHERE m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
+	.Purge_Files_Conv = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0) FROM messages m WHERE m.conv = ?4 AND m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
+	.Purge_Stored = "SELECT m.id, m.conv, m.flags, coalesce(b.size, 0) + coalesce((SELECT sum(fb.size) FROM attachments a JOIN blobs fb ON fb.id = a.blob WHERE a.msg = m.id), 0) FROM messages m LEFT JOIN blobs b ON b.id = m.blob WHERE m.id > ?1 AND m.id < ?2 AND (m.blob IS NOT NULL OR (m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL))) ORDER BY m.id LIMIT ?3",
+	.Attach_Strip = "UPDATE attachments SET blob = NULL WHERE msg = ?1",
+	.Blob_Scan = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM messages WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	.Blob_Touch = "UPDATE blobs SET created = ?2 WHERE id = ?1",
+	.Attach_Add = "INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?1, ?2, ?3, ?4, ?5)",
+	.Attach_Of_Msg = "SELECT blob, name, size FROM attachments WHERE msg = ?1 ORDER BY idx",
+	.Attach_Clear = "DELETE FROM attachments WHERE msg = ?1",
+	.Attach_Blob_Convs = "SELECT DISTINCT m.conv FROM attachments a JOIN messages m ON m.id = a.msg WHERE a.blob = ?1",
 }
 
 DB :: struct {

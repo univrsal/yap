@@ -190,6 +190,7 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	sqlite.reset(q)
 	for &m in found {
 		attach_reactions(s, &m, me)
+		attach_files(s, &m)
 	}
 	out := make([]u8, proto.MAX_BODY_SIZE, context.temp_allocator)
 	page, fitted := proto.encode_search_answer(out, searched_to, more, found[:])

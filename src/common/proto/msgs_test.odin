@@ -337,3 +337,64 @@ test_reactors_roundtrip :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(accounts), MAX_REACTORS)
 	testing.expect_value(t, accounts[MAX_REACTORS - 1], Account_Id(MAX_REACTORS))
 }
+
+@(test)
+test_attachments_record :: proc(t: ^testing.T) {
+	m := Message {
+		id               = 5,
+		conv             = 2,
+		sender           = 3,
+		kind             = .Text,
+		flags            = {.Has_Attachments},
+		text             = "",
+		attachment_count = 2,
+	}
+	m.attachments[0] = {blob = 11, size = 1 << 33, name = "big.iso"}
+	m.attachments[1] = {blob = 12, size = 7, name = "setup.exe"}
+	buf: [MESSAGE_MAX_SIZE]u8
+	body := encode_message(buf[:], m)
+	testing.expect_value(t, len(body), message_size(m))
+	got, ok := decode_message(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, got.attachment_count, 2)
+	testing.expect_value(t, got.attachments[0].size, u64(1 << 33))
+	testing.expect_value(t, got.attachments[1].name, "setup.exe")
+	testing.expect_value(t, got.attachments[1].blob, Blob_Id(12))
+
+	// The most a message can carry fits in MESSAGE_MAX_SIZE.
+	name := strings.repeat("n", MAX_FILE_NAME, context.temp_allocator)
+	m.text = strings.repeat("t", MAX_CHAT_SIZE, context.temp_allocator)
+	m.attachment_count = MAX_ATTACHMENTS
+	for &a in m.attachments {
+		a = {blob = 1, size = 1, name = name}
+	}
+	testing.expect(t, encode_message(buf[:], m) != nil)
+
+	// The flag without files, or with too many, isn't a message.
+	m.attachment_count = 0
+	testing.expect(t, encode_message(buf[:], m) == nil)
+	m.attachment_count = 1
+	body = encode_message(buf[:], m)
+	body[8 + 4 + 4 + 8 + 1 + 1 + 8 + 8 + 2 + MAX_CHAT_SIZE] = MAX_ATTACHMENTS + 1
+	_, ok = decode_message(body)
+	testing.expect(t, !ok)
+
+	// Posting names the uploads.
+	post_buf: [MSG_POST_MAX_SIZE]u8
+	p := Msg_Post {
+		conv             = 3,
+		nonce            = 9,
+		kind             = .Text,
+		text             = strings.repeat("x", MAX_CHAT_SIZE, context.temp_allocator),
+		attachment_count = MAX_ATTACHMENTS,
+	}
+	for &u, i in p.uploads {
+		u = u64(100 + i)
+	}
+	post := encode_msg_post(post_buf[:], p)
+	testing.expect(t, post != nil)
+	back, post_ok := decode_msg_post(post)
+	testing.expect(t, post_ok)
+	testing.expect_value(t, back.attachment_count, MAX_ATTACHMENTS)
+	testing.expect_value(t, back.uploads[9], 109)
+}

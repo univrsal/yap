@@ -5,7 +5,8 @@ there until the message is deleted. The DM file transfer (an offer, the
 file going client to client through the server and never stored) stays
 as it is, for sending something once without it taking up room.
 
-Branch `attachments`, from `dev` at `bb652eb`.
+Branch `attachments`, from `dev` at `bb652eb`. Phase 1 is built (see
+"As built" below); phases 2–5 are to come.
 
 ## The workflow
 
@@ -56,8 +57,9 @@ messages (edits, threads, forwarding, search, reactions) keeps working:
   `MAX_FILE_NAME` (200 bytes), so a message grows by at most ~2.2 KB.
   History pages already hold "fewer if they wouldn't fit" in the
   stream's 64 KB message.
-- `Msg_Post` gets the same section after the text: the blobs it
-  attaches, which have to be uploads the poster made (below).
+- `Msg_Post` gets a list after the text: the uploads it attaches, which
+  have to be the poster's (below); the server fills in each file's blob,
+  name and size from its upload.
 - Editing changes the text only. Deleting a message drops its
   attachments' rows; their blobs go at the next collect (within about
   two hours), as a deleted message's picture does now.
@@ -67,46 +69,46 @@ messages (edits, threads, forwarding, search, reactions) keeps working:
 	  attachments (msg INTEGER, idx INTEGER, blob INTEGER, name TEXT, size INTEGER,
 	               PRIMARY KEY (msg, idx))
 
-  and `.Blob_Scan` (collect) and `blob_visible` learn about it.
+  and `.Blob_Scan` (collect) learns about it; downloads have their own
+  visibility check (`attachment_visible`).
 
 ### Uploads and downloads
 
 The DM transfer's chunks and acks, with the server as the other end.
 They get kinds of their own, so the server never confuses one with a
-transfer it only relays. The layouts and the sending and receiving code
-are the DM transfer's, made to work for either peer:
+transfer it only relays. The layouts are the DM transfer's, and the
+window, ack and resend bookkeeping is shared (`proto/transfer.odin`):
 
-	Attach_Put   [size u64][name str8]  ->  [upload u64]          (request 0x0052)
-	Attach_Done  [upload u64]           ->  [blob u64]            (request 0x0053)
-	Attach_Get   [blob u64]             ->  [size u64][download u64]  (request 0x0054)
+	Attach_Put   [size u64][name str8]  ->  [upload u64]              (request 0x0052)
+	Attach_Get   [blob u64]             ->  [size u64][download u64]  (request 0x0053)
 
-	Upload_Chunk / Upload_Ack      client -> server / server -> client  (datagrams 25, 26)
-	Download_Chunk / Download_Ack  server -> client / client -> server  (datagrams 27, 28)
-	Transfer_Cancel                either way                            (datagram 29)
+	Upload_Chunk / Upload_Ack      client -> server / server -> client  (datagrams 43, 44)
+	Download_Chunk / Download_Ack  server -> client / client -> server  (datagrams 45, 46)
+	Transfer_Cancel                either way                            (datagram 47)
 
 - **Upload.** `Attach_Put` checks the size against the server's limit
   and the poster's permission, and answers a transfer id. The server
-  writes the chunks to `blobs/tmp/<id>.part` as they come, in order of
-  arrival at their offsets, and hashes the file once it's whole. Then:
-  if the store has that content, the part file goes and it's the existing
-  blob; else it's renamed into the store. `Attach_Done` answers the blob
-  id, and the server notes that this account uploaded it (in memory, for
-  an hour: what `Msg_Post` checks, so nobody can attach a blob of a
-  conversation they can't see by guessing its id).
-- **Download.** `Attach_Get` answers to whoever `blob_visible` says may
-  see it (a member of a conversation with a message that has it). The
-  server reads the file in blocks as the window moves, never all of it.
+  writes the chunks to `blobs/incoming/<id>` as they come, each at its
+  offset, and hashes the file as the part that's there from the start
+  grows, so nothing big happens at once. Once it's whole: if the store
+  has that content, the part file goes and it's the existing blob; else
+  it's renamed into the store. The ack then says complete, and the
+  upload stays known to its account for an hour: what `Msg_Post` names,
+  so nobody can attach a blob of a conversation they can't see by
+  guessing its id.
+- **Download.** `Attach_Get` answers to a member of a conversation with
+  a message that has the file. The server reads it a chunk at a time as
+  the window and the pace allow, never all of it.
 - The client hashes nothing: the server does, as the file arrives. A
   file uploaded twice is kept once.
 - An upload or download that goes quiet for a minute is dropped, and a
   part file with it. A finished upload that's never posted is
   unreferenced and goes at a collect.
-- **Pacing.** The server sends and takes at most `attachment_rate`
-  (config, KB/s per connection, default 2048) and the client sends at
-  most its upload limit (settings). It never sends more than the voice
-  loop can spare: the same token bucket per connection as blob
-  downloads, refilled at that rate. At most `MAX_TRANSFERS` (4) of
-  each per connection.
+- **Pacing.** The server sends and takes at most `rate_kb` (config, KB/s
+  per connection, default 2048; its acks say so to the uploader), and the
+  client sends at most its upload limit (settings). A connection's
+  downloads share its rate. At most `MAX_ATTACH_TRANSFERS` (4) of each
+  per connection.
 
 ### Limits and permission (server config)
 
@@ -156,7 +158,7 @@ are the DM transfer's, made to work for either peer:
 
 | # | What | Done when | Size |
 |---|---|---|---|
-| 1 | **Protocol and server.** Message section, Msg_Post with attachments, schema step 15, Attach_Put/Done/Get and the transfer datagrams, the server as upload receiver (part file, hash, store) and download sender (block reads), uploader notes, `Attach_Files`, config limits, `blob_visible`/collect/delete/forward/`file_days`. | Server tests: upload, dedupe, post, fetch, visibility refused, delete then collect, limits | L |
+| 1 ✅ | **Protocol and server.** Message section, Msg_Post with attachments, schema step 15, Attach_Put/Get and the transfer datagrams, the server as upload receiver (part file, hash, store) and download sender (block reads), uploader notes, `Attach_Files`, config limits, `blob_visible`/collect/delete/forward/`file_days`. | Server tests: upload, dedupe, post, fetch, visibility refused, delete then collect, limits | L |
 | 2 | **Client connection.** The DM transfer's sender and receiver made peer-neutral; outbox with files; saving; View state; headless `/attach` and `/save`. | Two headless clients: one attaches 3 files (one 50 MB) in a channel and a DM, the other saves them byte-identical; a reconnect in the middle resumes | L |
 | 3 | **Desktop UI.** Multi-file dialog (`td_open_files`), chips, send, pending progress, attachment rows, Save/progress/Open folder. | Off-screen: pick, remove, add, send with text, watch progress, save | M |
 | 4 | **Web.** `files.js` picks several files; uploads read from them; downloads through the sink; narrow layout. | Headless Chromium: same as phase 3 | M |
@@ -166,9 +168,52 @@ Phases 1 and 2 are most of the work. Each phase is committed on its own,
 with tests, and leaves `dev`-mergeable code: nothing in the UI before
 the connection can carry it.
 
-## Decisions for you
+## As built
 
-| # | Question | Recommendation |
+### Phase 1: protocol and server
+
+- `proto/transfer.odin`: `Transfer_Sender` / `Transfer_Receiver`, the
+  DM transfer's window, ack, resend and tail logic without any I/O, and
+  kind-parameterized chunk/ack/cancel encoders. A test runs a 2,500-chunk
+  file through a link losing every fifth chunk and every third ack.
+  The client's DM transfer still has its own copy; phase 2 moves it over.
+- `proto/attachments.odin`: `Attach_Put`, `Attach_Get`, `Server_Info`'s
+  `max_attachment`, `Permission.Attach_Files`, `Blob_Kind.File`,
+  `Purge_What.Files`. `msgs.odin`: `Msg_Flag.Has_Attachments`, the
+  record section, `Msg_Post.uploads`. Hello version 10, so an older
+  client is refused rather than misreading records.
+- `server/attachments.odin`: uploads (part file, incremental hash,
+  `blob_adopt`), downloads (positional reads), pacing, timeouts, a
+  connection's transfers ending with it. `blobs/incoming/` is emptied
+  at startup.
+- Schema step 15: `attachments` table, an index by blob, a trigger
+  dropping a purged message's rows, and `Attach_Files` for everyone.
+- Retention: `file_days`; `blob_megabytes` counts pictures and files
+  together, and the oldest messages lose either first (a `Stored` step
+  replacing the picture-only cap); `yap-server purge ... files`.
+- Tests: `server/attachments_test.odin` (upload out of order with
+  repeats, dedupe, post, files only, someone else's upload refused,
+  fetch byte-identical, visibility, delete then collect, limits, a
+  connection leaving mid-upload, `file_days` / purge / size cap).
+  Checked by hand: an old database migrates, and a headless client
+  logs in and posts.
+
+Deviations from the plan above:
+
+- **No `Attach_Done`.** A post names upload ids, not blob ids. The
+  upload already knows its account, name and size, so the server checks
+  ownership and fills in the rest; and the ack saying complete comes only
+  once the file is kept. One request fewer.
+- **Numbers.** Datagrams 25–29 were taken by retired kinds: they're
+  43–47. Requests are 0x0052 and 0x0053.
+- **Empty files** are refused (`Invalid`): a transfer of no chunks isn't
+  worth the special case.
+- The client's `msgs_purged` ignores `Files` until phase 2 keeps
+  messages' files.
+
+## Decisions (settled 2026-10-03)
+
+| # | Question | Decision |
 |---|---|---|
 | 1 | Which file types? | **Any.** The server only keeps bytes. The client never opens or runs anything on its own: Save only writes the file to downloads. Saved files get the system's downloaded-from-the-internet mark (Windows' Mark of the Web, macOS's quarantine attribute; Linux has none), so the system warns before running one, as it does for a browser's downloads. The DM transfer's allowlist stays as it is. |
 | 2 | Largest file, and per message | **100 MB per file, 10 files per message**, the size in the server's config (0 turns attachments off). |

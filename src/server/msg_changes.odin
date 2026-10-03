@@ -54,6 +54,7 @@ msg_by_id :: proc(s: ^Server, id: proto.Msg_Id) -> (m: proto.Message, found: boo
 	m = msg_of_row(q)
 	sqlite.reset(q)
 	attach_reactions(s, &m, 0)
+	attach_files(s, &m)
 	return m, true
 }
 
@@ -153,15 +154,18 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	mentioned := mentioned_in(s, m.id)
 	q = db_stmt(&s.db, .React_Clear)
 	db_bind_int(q, 1, i64(m.id))
-	if !db_run(&s.db, q) || !mentions_clear(s, m.id) {
+	clear_files := db_stmt(&s.db, .Attach_Clear)
+	db_bind_int(clear_files, 1, i64(m.id))
+	if !db_run(&s.db, q) || !db_run(&s.db, clear_files) || !mentions_clear(s, m.id) {
 		respond(u, id, .Internal)
 		return
 	}
 	respond(u, id, .Ok)
 	log.debugf("%s deleted message %d", conn_label(u), m.id)
 	// As it now is: nothing left of it but that it was there.
-	m.flags = m.flags + {.Deleted} - {.Pinned}
+	m.flags = m.flags + {.Deleted} - {.Pinned, .Has_Attachments}
 	m.text, m.file_name, m.file_size, m.image = "", "", 0, {}
+	m.attachment_count = 0
 	m.reaction_count, m.reactions = 0, nil
 	msg_deliver(s, conv, m, .Msg_Changed)
 	mentions_changed(s, conv, m.id, mentioned)
@@ -276,6 +280,7 @@ pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	for &m in list {
 		attach_reactions(s, &m, u.account.id)
+		attach_files(s, &m)
 	}
 	out := make([]u8, proto.MAX_BODY_SIZE, context.temp_allocator)
 	respond(u, id, .Ok, proto.encode_message_list(out, list[:]))

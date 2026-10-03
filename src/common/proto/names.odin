@@ -78,7 +78,7 @@ Hello: the encrypted payload of Handshake_Finish (msg3), which says
 which of the client's connections this is, and carries the server
 password if the server asks for one.
 
-	[version u8 = 9][conn_id u64][password_len u8][password]
+	[version u8 = 10][conn_id u64][password_len u8][password]
 
 The version is what keeps a client and a server that disagree about the
 wire format from talking past each other: the server refuses a hello it
@@ -98,6 +98,8 @@ server (msgs.odin), and Typing names a conversation.
 Version 9 retired the direct message and last-seen kinds (DMs are
 conversations now), took the device's key out of the snapshot's users,
 and has file transfers name accounts (files.odin).
+Version 10 added attachments: a message's files (msgs.odin), and the
+datagrams that move them (transfer.odin, attachments.odin).
 
 `conn_id` is a random number the client picks when it opens a
 connection and sends in every handshake of it. A client handshakes again
@@ -125,7 +127,7 @@ It's unreliable like Refused, so the server sends a few copies, and
 again whenever the client repeats its Handshake_Finish. Until it comes,
 a client takes nothing else on a new session.
 */
-HELLO_VERSION :: 9
+HELLO_VERSION :: 10
 MAX_PASSWORD_SIZE :: 64 // bytes
 HELLO_MAX_SIZE :: 1 + 8 + 1 + MAX_PASSWORD_SIZE
 WELCOME_SIZE :: 1 + 8 + 1

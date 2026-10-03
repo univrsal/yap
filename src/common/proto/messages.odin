@@ -128,6 +128,13 @@ Message_Kind :: enum u8 {
 	// The reliable stream, see stream.odin.
 	Stream        = 41,
 	Stream_Ack    = 42,
+	// Attachments on their way to and from the server, see transfer.odin
+	// and attachments.odin.
+	Upload_Chunk    = 43,
+	Upload_Ack      = 44,
+	Download_Chunk  = 45,
+	Download_Ack    = 46,
+	Transfer_Cancel = 47,
 }
 
 // Why the server refused a hello.
@@ -257,6 +264,12 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) > STREAM_HEADER_SIZE
 	case .Stream_Ack:
 		ok = len(pt) == STREAM_ACK_SIZE
+	case .Upload_Chunk, .Download_Chunk:
+		ok = len(pt) > FILE_CHUNK_HEADER_SIZE
+	case .Upload_Ack, .Download_Ack:
+		ok = len(pt) >= FILE_ACK_HEADER_SIZE
+	case .Transfer_Cancel:
+		ok = len(pt) == TRANSFER_CANCEL_SIZE
 	}
 	return
 }

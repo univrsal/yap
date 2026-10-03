@@ -15,33 +15,36 @@ import "sqlite"
 `yap-server purge ...`: purging from the command line, with the server
 stopped (retention.odin has what's kept and what goes).
 
-	yap-server purge <what> <before> [pictures] [-y] [config.json]
+	yap-server purge <what> <before> [pictures|files] [-y] [config.json]
 
 <what>     all, a channel's name, or a DM as alice+bob
 <before>   a day, 2026-09-01 (midnight UTC), or a number of days ago, 30d
 pictures   only the pictures go; the messages stay
+files      only the files messages carry go; the messages stay
 
 It says what it would remove and asks first, unless given -y. Then it
 removes it, the stored files nothing uses any more, and the free room
 in the database, and says how it went.
 */
 
-PURGE_USAGE :: `usage: yap-server purge <all|channel|alice+bob> <YYYY-MM-DD|<days>d> [pictures] [-y] [config.json]`
+PURGE_USAGE :: `usage: yap-server purge <all|channel|alice+bob> <YYYY-MM-DD|<days>d> [pictures|files] [-y] [config.json]`
 
 run_purge_command :: proc(args: []string) -> int {
 	positional := make([dynamic]string, context.temp_allocator)
-	yes, pictures := false, false
+	yes, pictures, files := false, false, false
 	for a in args {
 		switch a {
 		case "-y", "--yes":
 			yes = true
 		case "pictures", "images":
 			pictures = true
+		case "files", "attachments":
+			files = true
 		case:
 			append(&positional, a)
 		}
 	}
-	if len(positional) < 2 || len(positional) > 3 {
+	if len(positional) < 2 || len(positional) > 3 || (pictures && files) {
 		fmt.eprintln(PURGE_USAGE)
 		return 2
 	}
@@ -112,13 +115,24 @@ run_purge_command :: proc(args: []string) -> int {
 	if conv != nil {
 		db_bind_int(q, 2, i64(conv.id))
 	}
-	count, pics: i64
+	count, pics, with_files: i64
 	if row, ok := db_step(&db, q); ok && row {
 		count, pics = db_col_int(q, 0), db_col_int(q, 1)
 		sqlite.reset(q)
 	}
+	q = db_stmt(&db, .Purge_Count_Files_Conv if conv != nil else .Purge_Count_Files)
+	db_bind_int(q, 1, i64(below))
+	if conv != nil {
+		db_bind_int(q, 2, i64(conv.id))
+	}
+	if row, ok := db_step(&db, q); ok && row {
+		with_files = db_col_int(q, 0)
+		sqlite.reset(q)
+	}
 	day := format_day(before)
-	if pictures {
+	if files {
+		fmt.printfln("the files of messages in %s from before %s: up to %d messages' (pinned messages keep theirs)", place, day, with_files)
+	} else if pictures {
 		fmt.printfln("the pictures in %s from before %s: up to %d (pinned messages keep theirs)", place, day, pics)
 	} else {
 		fmt.printfln(
@@ -129,7 +143,7 @@ run_purge_command :: proc(args: []string) -> int {
 			pics,
 		)
 	}
-	if (pics if pictures else count) == 0 {
+	if (with_files if files else pics if pictures else count) == 0 {
 		fmt.println("nothing to purge there; tidying up what's unused")
 	} else if !yes && !confirm("remove them for good?") {
 		fmt.println("nothing purged")
@@ -139,7 +153,7 @@ run_purge_command :: proc(args: []string) -> int {
 	p := proto.Purge {
 		conv   = conv.id if conv != nil else 0,
 		before = proto.Unix_Ms(before),
-		what   = .Images if pictures else .Messages,
+		what   = .Files if files else .Images if pictures else .Messages,
 	}
 	retention_ask(&r, &db, p, unix_ms())
 	messages, blobs := retention_drain(&r, &bs)
@@ -148,7 +162,7 @@ run_purge_command :: proc(args: []string) -> int {
 	fmt.printfln(
 		"purged %d %s; removed %d stored file(s); the database went from %s to %s",
 		messages,
-		"picture(s)" if pictures else "message(s)",
+		"messages' files" if files else "picture(s)" if pictures else "message(s)",
 		blobs,
 		megabytes(size_before),
 		megabytes(db_files_size(settings.db_path)),

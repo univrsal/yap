@@ -372,7 +372,7 @@ test_retention_config :: proc(t: ^testing.T) {
 	r.config.blob_megabytes = 0
 	// Not settable below a megabyte from the config, but the step
 	// works the same with a smaller aim.
-	append(&r.steps, Purge_Step{kind = .Pictures, below = pics[4] + 1, bytes = 1})
+	append(&r.steps, Purge_Step{kind = .Stored, below = pics[4] + 1, bytes = 1})
 	append(&r.steps, Purge_Step{kind = .Collect})
 	retention_drain(r, &s.blobs, s)
 	m, _ = msg_by_id(s, pics[3])
