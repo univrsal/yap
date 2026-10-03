@@ -6,10 +6,10 @@ import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:clipboard"
 import "client:conn"
 import "client:render"
+import "common:proto"
 
 /*
 People's pictures, drawn round: a picture is decoded like a message's
@@ -32,13 +32,13 @@ AVATAR_KEY :: u64(1) << 61
 DISC_SIDE :: 128
 
 UI_Avatars :: struct {
-	disc:    render.Gpu_Texture, // a white disc, made on first use
-	have:    bool,
-	ring:    render.Gpu_Texture, // a white ring, the same
+	disc:      render.Gpu_Texture, // a white disc, made on first use
+	have:      bool,
+	ring:      render.Gpu_Texture, // a white ring, the same
 	have_ring: bool,
 	// The pictures asked for, and for which session.
-	asked:   map[proto.Blob_Id]bool,
-	session: rawptr,
+	asked:     map[proto.Blob_Id]bool,
+	session:   rawptr,
 }
 
 ui_avatars_destroy :: proc(ui: ^UI) {
@@ -93,7 +93,13 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	}
 	letter := utf8.runes_to_string({unicode.to_upper(first)}, context.temp_allocator)
 	w := ctx.text_width(font, letter)
-	mu.draw_text(ctx, font, letter, {r.x + (r.w - w) / 2, r.y + (r.h - ctx.text_height(font)) / 2}, {255, 255, 255, 255})
+	mu.draw_text(
+		ctx,
+		font,
+		letter,
+		{r.x + (r.w - w) / 2, r.y + (r.h - ctx.text_height(font)) / 2},
+		{255, 255, 255, 255},
+	)
 }
 
 // avatar_color is an account's own colour: a hue from its id, not too
@@ -144,7 +150,10 @@ avatar_icon :: proc(ui: ^UI, blob: proto.Blob_Id) -> (mu.Icon, bool) {
 			}
 			if !a.asked[blob] {
 				a.asked[blob] = true
-				conn.push_command(&ui.session.client.commands, conn.Avatar_Want_Command{blob = blob})
+				conn.push_command(
+					&ui.session.client.commands,
+					conn.Avatar_Want_Command{blob = blob},
+				)
 			}
 		}
 		return {}, false
@@ -168,7 +177,11 @@ disc_icon :: proc(ui: ^UI) -> (mu.Icon, bool) {
 		for &p in pixels {
 			p = 255
 		}
-		disc := clipboard.Image{width = DISC_SIDE, height = DISC_SIDE, pixels = pixels}
+		disc := clipboard.Image {
+			width  = DISC_SIDE,
+			height = DISC_SIDE,
+			pixels = pixels,
+		}
 		round_off(&disc)
 		a.disc = render.gpu_texture_make(&ui.renderer.gpu, .Rgba, DISC_SIDE, DISC_SIDE, pixels)
 		a.have = true
@@ -193,36 +206,44 @@ talking. The picture is drawn inset by the ring's width and gap whether
 the ring is there or not, so nothing moves when it comes and goes, and
 the ring stays inside the slot, clear of what's next to it.
 */
-avatar_ringed :: proc(ui: ^UI, account: proto.Account_Id, slot: mu.Rect, ring: bool, color := SPEAKING_COLOR) {
+avatar_ringed :: proc(
+	ui: ^UI,
+	account: proto.Account_Id,
+	slot: mu.Rect,
+	ring: bool,
+	color := SPEAKING_COLOR,
+) {
 	ctx := &ui.ctx
 	a := &ui.avatars
 	im := &ui.images
 	inset := i32(RING_SPACE)
-	avatar(ui, account, {slot.x + inset, slot.y + inset, slot.w - 2 * inset, slot.h - 2 * inset})
-	if !ring {
-		return
-	}
-	if !a.have_ring {
-		// The ring's width as a share of the texture, for a slot round a
-		// picture a little taller than a line (as the voice panel's); it
-		// scales with the slot.
-		pixels := make([]u8, DISC_SIDE * DISC_SIDE * 4, context.temp_allocator)
-		side := f32(DISC_SIDE)
-		radius := side / 2
-		width := side * RING_WIDTH / f32(ctx.text_height(ctx.style.font) + 6 + 2 * RING_SPACE)
-		for y in 0 ..< DISC_SIDE {
-			for x in 0 ..< DISC_SIDE {
-				d := math.sqrt(math.pow(f32(x) + 0.5 - radius, 2) + math.pow(f32(y) + 0.5 - radius, 2))
-				cover := clamp(radius - d + 0.5, 0, 1) * clamp(d - (radius - width) + 0.5, 0, 1)
-				p := pixels[(y * DISC_SIDE + x) * 4:]
-				p[0], p[1], p[2], p[3] = 255, 255, 255, u8(cover * 255)
+	if ring {
+		if !a.have_ring {
+			// The ring's width as a share of the texture, for a slot round a
+			// picture a little taller than a line (as the voice panel's); it
+			// scales with the slot.
+			pixels := make([]u8, DISC_SIDE * DISC_SIDE * 4, context.temp_allocator)
+			side := f32(DISC_SIDE)
+			radius := side / 2
+			width := side * RING_WIDTH / f32(ctx.text_height(ctx.style.font) + 6 + 2 * RING_SPACE)
+			for y in 0 ..< DISC_SIDE {
+				for x in 0 ..< DISC_SIDE {
+					d := math.sqrt(
+						math.pow(f32(x) + 0.5 - radius, 2) + math.pow(f32(y) + 0.5 - radius, 2),
+					)
+					cover :=
+						clamp(radius - d + 0.5, 0, 1) * clamp(d - (radius - width) + 0.5, 0, 1)
+					p := pixels[(y * DISC_SIDE + x) * 4:]
+					p[0], p[1], p[2], p[3] = 255, 255, 255, u8(cover * 255)
+				}
 			}
+			a.ring = render.gpu_texture_make(&ui.renderer.gpu, .Rgba, DISC_SIDE, DISC_SIDE, pixels)
+			a.have_ring = true
 		}
-		a.ring = render.gpu_texture_make(&ui.renderer.gpu, .Rgba, DISC_SIDE, DISC_SIDE, pixels)
-		a.have_ring = true
+		append(&im.draws, render.Image_Draw{texture = a.ring})
+		mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), slot, color)
 	}
-	append(&im.draws, render.Image_Draw{texture = a.ring})
-	mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), slot, color)
+	avatar(ui, account, {slot.x + inset, slot.y + inset, slot.w - 2 * inset, slot.h - 2 * inset})
 }
 
 // disc draws a round dot of `color` in `r`.
