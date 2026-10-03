@@ -207,6 +207,10 @@ timeline_reset :: proc(st: ^UI_Timeline, key: conn.Timeline_Key, unread_line: bo
 		slot        = st.slot,
 		roots_asked = asked,
 		follow      = true,
+		// Until its newest page is here: while that's loading the window
+		// doesn't reach the end yet, which would end `follow` (a browser
+		// always draws a frame or more in between).
+		to_end      = true,
 		layouts     = layouts,
 		unread_line = unread_line,
 		unread_from = unread_from,
@@ -438,8 +442,8 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 	}
 	end := max(cnt.content_size.y + 2 * pad - cnt.body.h, 0)
 	st.follow = cnt.scroll.y >= end - 2 && (tl == nil || tl.have_newest)
-	if moved < 0 || (st.follow && (tl == nil || !tl.loading)) {
-		st.to_end = false // scrolled away from it, or there
+	if moved < 0 || (st.follow && tl != nil && !tl.loading) {
+		st.to_end = false // scrolled away from it, or there (with what's there in)
 	}
 
 	// Near either end of the window, the next page that way.
