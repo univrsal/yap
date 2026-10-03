@@ -402,7 +402,7 @@ static td_status td_linux_file_dialog(const td_dialog_options *options, int mode
     if (strcmp(tool, "zenity") == 0) {
         const char *kind = mode == 3 ? "--file-selection --save --confirm-overwrite" : "--file-selection";
         command = (char *)malloc(strlen(title) + strlen(initial) + strlen(filters) + 256);
-        if (command) snprintf(command, strlen(title) + strlen(initial) + strlen(filters) + 256, "zenity %s --title=%s --filename=%s%s%s%s 2>/dev/null", kind, title, initial, mode == 1 ? " --multiple --separator='\\n'" : "", mode == 2 ? " --directory" : "", filters);
+        if (command) snprintf(command, strlen(title) + strlen(initial) + strlen(filters) + 256, "zenity %s --title=%s --filename=%s%s%s%s 2>/dev/null", kind, title, initial, mode == 1 ? " --multiple --separator='\n'" : "", mode == 2 ? " --directory" : "", filters);
     } else {
         const char *kind = mode == 3 ? "--getsavefilename" : mode == 2 ? "--getexistingdirectory" : mode == 1 ? "--getopenfilename --multiple --separate-output" : "--getopenfilename";
         command = (char *)malloc(strlen(title) + strlen(initial) + 256);
