@@ -41690,6 +41690,15 @@ static ma_result ma_device_uninit__webaudio(ma_device* pDevice)
             }
 
             /*
+            yap: stop the microphone's tracks too. Closing the AudioContext
+            leaves them live, and the browser keeps the microphone in use.
+            */
+            if (device.mediaStream !== undefined) {
+                device.mediaStream.getTracks().forEach(function(track) { track.stop(); });
+                device.mediaStream = undefined;
+            }
+
+            /*
             Stop the device. I think there is a chance the callback could get fired after calling this, hence why we want
             to clear the callback before closing.
             */
@@ -42211,6 +42220,12 @@ static ma_result ma_device_init__webaudio(ma_device* pDevice, const ma_device_co
             if (deviceType == window.miniaudio.device_type.capture || deviceType == window.miniaudio.device_type.duplex) {
                 navigator.mediaDevices.getUserMedia({audio:true, video:false})
                     .then(function(stream) {
+                        /* yap: closed while the browser was still asking: let the microphone go again. */
+                        if (device.webaudio === undefined) {
+                            stream.getTracks().forEach(function(track) { track.stop(); });
+                            return;
+                        }
+                        device.mediaStream = stream;  /* yap: so uninit can stop it */
                         device.streamNode = device.webaudio.createMediaStreamSource(stream);
                         device.streamNode.connect(device.scriptNode);
                         device.scriptNode.connect(device.webaudio.destination);

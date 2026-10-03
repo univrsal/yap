@@ -144,6 +144,7 @@ close_capture :: proc(s: ^Audio_Streams, v: ^Voice) {
 		sync.atomic_store(&v.input, false)
 		ma.stream_close(s.capture) // after this the callback no longer runs
 		s.capture = nil
+		log.info("audio: microphone closed")
 	}
 }
 

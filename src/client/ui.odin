@@ -145,6 +145,9 @@ UI :: struct {
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
 	monitor:             Mic_Monitor,
 	listen_back:         bool,
+	// The voice gate section, with the meter, was on screen last frame
+	// (gate_settings); the microphone is only opened for it then.
+	meter_shown:         bool,
 	meter_level:         f32,
 	meter_time:          time.Tick,
 	// Slider drags change the settings every frame; save at most once a
@@ -421,6 +424,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	hotkeys_frame(ui)
 	tray_update(ui)
 	if ui.hidden {
+		ui.meter_shown = false
 		return true // no window to draw in
 	}
 	draw_frame(ui)
@@ -476,6 +480,7 @@ draw_frame :: proc(ui: ^UI) {
 	render.set_chat_zoom(&ui.renderer, settings.chat_scale_factor(&ui.settings))
 	activity_input(ui)
 	mu.begin(&ui.ctx)
+	ui.meter_shown = false // until gate_settings draws it again
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
 	mu.end(&ui.ctx)
 	when platform.WEB {
@@ -963,8 +968,8 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 session_capture_update runs every frame: it keeps the connection's
 microphone open only while it's wanted, which is while we're in a voice
 room (a channel's voice or a call) or on our way into one, and while the
-settings page is shown (its meter and listen back come from the
-connection). Joining a server alone doesn't open it.
+settings page tests it (mic_test_wanted; its meter and listen back come
+from the connection). Joining a server alone doesn't open it.
 */
 @(private = "file")
 session_capture_update :: proc(ui: ^UI) {
@@ -972,7 +977,7 @@ session_capture_update :: proc(ui: ^UI) {
 	if ns == nil || ns.goodbye_tail || !ns.client.voice.ready {
 		return
 	}
-	want := ui.page == .Settings
+	want := mic_test_wanted(ui)
 	if !want {
 		sync.guard(&ui.view.mutex)
 		want = ui.view.my_room != 0 || ui.view.voice_pending

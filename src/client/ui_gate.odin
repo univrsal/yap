@@ -24,6 +24,8 @@ gate does at each level:
 While connected the level comes from the network thread (the frames
 actually being sent). Otherwise the settings page opens the microphone
 itself (Mic_Monitor) and runs the same processing, sending nothing.
+Either way the microphone is only open for the meter while its section
+is expanded, or while listen back is on (mic_test_wanted).
 */
 
 // How fast the meter's bar falls; it rises instantly.
@@ -45,12 +47,18 @@ Mic_Monitor :: struct {
 	time:    time.Tick,
 }
 
+// mic_test_wanted is whether the settings page is using the microphone:
+// its meter is on screen, or listen back is on.
+mic_test_wanted :: proc(ui: ^UI) -> bool {
+	return ui.page == .Settings && (ui.meter_shown || ui.listen_back)
+}
+
 // monitor_update runs every frame: it keeps the microphone open while the
-// settings page is shown without a connection, and processes what it
+// settings page uses it without a connection, and processes what it
 // captured.
 monitor_update :: proc(ui: ^UI) {
 	m := &ui.monitor
-	want := ui.page == .Settings && ui.session == nil && ui.audio.ctx != nil
+	want := mic_test_wanted(ui) && ui.session == nil && ui.audio.ctx != nil
 	if want && !m.active {
 		if audio.voice_init(&m.voice) {
 			audio.open_capture(&ui.audio, &m.streams, &m.voice, ui.settings.input_device)
@@ -112,6 +120,7 @@ gate_settings :: proc(ui: ^UI) {
 		return
 	}
 	defer mu.end_treenode(ctx)
+	ui.meter_shown = true
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
