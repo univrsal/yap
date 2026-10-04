@@ -168,7 +168,12 @@ fetch :: proc(
 		time.sleep(time.Millisecond)
 		attachments_sync(&ts.s)
 		for msg in taken(u) {
+			// Kept uploads' acks come again a while (attachments_sync): a
+			// client's uploads take those.
 			kind, _ := proto.message_kind(msg)
+			if kind == .Upload_Ack {
+				continue
+			}
 			testing.expect_value(t, kind, proto.Message_Kind.Download_Chunk)
 			got_id, index, chunk := proto.decode_transfer_chunk(msg)
 			testing.expect_value(t, got_id, download)
