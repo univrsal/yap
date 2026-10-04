@@ -52,113 +52,113 @@ View_User :: struct {
 }
 
 View :: struct {
-	mutex:       sync.Mutex,
+	mutex:          sync.Mutex,
 	// Called, from whichever thread, when something the UI shows has
 	// changed, for it to draw a frame (see view_write); set once by the
 	// UI before any connection starts.
-	wake:        proc "c" (),
-	status:      Status,
-	error:       string, // why we Failed
+	wake:           proc "c" (),
+	status:         Status,
+	error:          string, // why we Failed
 	// Set when we Failed because the server's key isn't the one saved
 	// for it (see verify_server_key), for the UI to offer trusting it.
-	key_change:  Key_Change,
-	server:      string,
+	key_change:     Key_Change,
+	server:         string,
 	// What the server calls itself, if it has said and has a name.
-	server_name: string,
+	server_name:    string,
 	// How big a file attached to a message may be; 0 if it takes none.
 	max_attachment: u64,
-	my_key:      [proto.KEY_SIZE]u8,
+	my_key:         [proto.KEY_SIZE]u8,
 	// The server's, once the handshake has shown it (zero until then):
 	// per-user settings are kept by it and the account (settings.odin).
-	server_key:  [proto.KEY_SIZE]u8,
-	my_num:      proto.User_Num, // 0 until the first snapshot
-	my_name:     string, // what our account is called
+	server_key:     [proto.KEY_SIZE]u8,
+	my_num:         proto.User_Num, // 0 until the first snapshot
+	my_name:        string, // what our account is called
 	// Our account and the others (auth.odin).
-	login:       View_Login,
-	me:          proto.Account_Id,
-	permissions: proto.Permissions,
-	my_activity: proto.Activity, // what we chose to be (activity.odin)
-	accounts:    map[proto.Account_Id]View_Account,
+	login:          View_Login,
+	me:             proto.Account_Id,
+	permissions:    proto.Permissions,
+	my_activity:    proto.Activity, // what we chose to be (activity.odin)
+	accounts:       map[proto.Account_Id]View_Account,
 	// Our account's devices as of the last time they were asked for, and
 	// how many times they've arrived.
-	devices:     [dynamic]Dir_Device,
-	devices_count: int,
-	notice:      View_Notice,
-	users:       map[proto.User_Num]View_User,
+	devices:        [dynamic]Dir_Device,
+	devices_count:  int,
+	notice:         View_Notice,
+	users:          map[proto.User_Num]View_User,
 	// Our channels, in the order to list them (convs.odin); the
 	// conversation whose messages are shown, and the channel last shown
 	// (to go back to from a DM); the one whose voice room we're in (0
 	// for none); and whether a change of room is on its way.
-	channels:    [dynamic]View_Channel,
-	viewing:     proto.Conv_Id,
-	channel:     proto.Conv_Id,
-	my_room:     proto.Conv_Id,
-	voice_pending: bool,
+	channels:       [dynamic]View_Channel,
+	viewing:        proto.Conv_Id,
+	channel:        proto.Conv_Id,
+	my_room:        proto.Conv_Id,
+	voice_pending:  bool,
 	// The channels there were to subscribe to the last time they were
 	// asked for, and how many times they've arrived.
-	browse:      [dynamic]Browse_Entry,
-	browse_count: int,
-	browse_more:  bool, // there are more of them to ask for
+	browse:         [dynamic]Browse_Entry,
+	browse_count:   int,
+	browse_more:    bool, // there are more of them to ask for
 	// The microphone's level and the voice gate, per captured frame.
-	mic_level:   f32, // dBFS
-	mic_open:    bool,
-	mic_time:    time.Tick,
+	mic_level:      f32, // dBFS
+	mic_open:       bool,
+	mic_time:       time.Tick,
 	// Last time each user's voice was heard, for a speaking indicator.
-	speaking:    map[proto.User_Num]time.Tick,
+	speaking:       map[proto.User_Num]time.Tick,
 	// Messages (messages.odin): the windows of the conversations we
 	// keep, ours on their way, the pictures messages show (blobs.odin),
 	// who said last they're typing where, and how many messages from
 	// others have come in the one on screen (the UI zeroes it when seen).
-	timelines:   map[Timeline_Key]View_Timeline,
+	timelines:      map[Timeline_Key]View_Timeline,
 	// Roots of threads, fetched for the replies that point at them and
 	// for the threads open.
-	roots:       map[proto.Msg_Id]View_Root,
+	roots:          map[proto.Msg_Id]View_Root,
 	// Messages asked for by id (roots, links) that aren't to be had.
-	roots_missing: map[proto.Msg_Id]bool,
-	outbox:      [dynamic]View_Pending,
+	roots_missing:  map[proto.Msg_Id]bool,
+	outbox:         [dynamic]View_Pending,
 	// Files of messages being saved, or saved, by their blobs
 	// (attachments.odin).
-	saves:       map[proto.Blob_Id]View_Save,
-	blobs:       map[proto.Blob_Id]View_Image,
-	typing:      map[proto.Account_Id]View_Typing,
-	unread:      int,
+	saves:          map[proto.Blob_Id]View_Save,
+	blobs:          map[proto.Blob_Id]View_Image,
+	typing:         map[proto.Account_Id]View_Typing,
+	unread:         int,
 	// Pokes that came in, and mentions of us, for the UI to show (and
 	// take) next frame.
-	pokes:       [dynamic]View_Poke,
-	mentioned:   [dynamic]View_Mention,
+	pokes:          [dynamic]View_Poke,
+	mentioned:      [dynamic]View_Mention,
 	// Whose screen we're watching, or 0.
-	watching:    proto.User_Num,
+	watching:       proto.User_Num,
 	// How the pings to the server are doing (ping.odin).
-	connection:  Connection_Stats,
+	connection:     Connection_Stats,
 	// Our DMs (buddies.odin): who each is with, and what's unread there.
 	// Our buddies. And when people were last here, as far as the server
 	// has said (proto/buddies.odin).
-	dms:         [dynamic]View_DM,
-	buddies:     [dynamic]proto.Account_Id,
-	last_seen:   map[proto.Account_Id]proto.Unix_Ms,
+	dms:            [dynamic]View_DM,
+	buddies:        [dynamic]proto.Account_Id,
+	last_seen:      map[proto.Account_Id]proto.Unix_Ms,
 	// File transfers in DMs, by the message that offers the file
 	// (files.odin).
-	files:       map[proto.Msg_Id]View_File,
+	files:          map[proto.Msg_Id]View_File,
 	// The pinned messages of a conversation, last asked for (messages.odin).
-	pins:        View_Pins,
+	pins:           View_Pins,
 	// Who reacted with an emoji, as last asked (messages.odin).
-	reactors:    View_Reactors,
+	reactors:       View_Reactors,
 	// What the latest search found (search.odin).
-	search:      View_Search,
+	search:         View_Search,
 	// The server's own emoji (emoji.odin).
-	emoji:       View_Emoji,
+	emoji:          View_Emoji,
 	// Our account's settings as the server keeps them, whether the sync
 	// has brought them all, and a count bumped whenever they change; and
 	// the members last asked for (profiles.odin).
-	shared:        map[string]string,
-	shared_synced: bool,
-	shared_count:  int,
-	shared_syncs:  int, // how many syncs have brought them
-	members:       View_Members,
+	shared:         map[string]string,
+	shared_synced:  bool,
+	shared_count:   int,
+	shared_syncs:   int, // how many syncs have brought them
+	members:        View_Members,
 	// The server's roles, by id (roles.odin).
-	roles:         [dynamic]View_Role,
+	roles:          [dynamic]View_Role,
 	// The call our account is in, if any (calls.odin).
-	call:          View_Call,
+	call:           View_Call,
 }
 
 // A DM: who it's with, and what's unread there (see View_Channel).
@@ -354,7 +354,10 @@ publish_mentioned :: proc(c: ^Voice_Client, name, place, text: string) {
 		return
 	}
 	view_write(v)
-	append(&v.mentioned, View_Mention{strings.clone(name), strings.clone(place), strings.clone(text)})
+	append(
+		&v.mentioned,
+		View_Mention{strings.clone(name), strings.clone(place), strings.clone(text)},
+	)
 }
 
 // view_take_mentions hands the UI the mentions of us that have come in,

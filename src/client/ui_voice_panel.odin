@@ -4,9 +4,9 @@ import "core:fmt"
 import "core:time"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
 import "client:render"
+import "common:proto"
 
 /*
 The voice panel, at the foot of the channel list and the buddy list (in
@@ -84,7 +84,16 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	}
 	slot := picture_slot(ctx)
 	icon, icon_color := their_status(peer, num != 0 && conn.is_speaking(v, num))
-	mu.layout_row(ctx, {slot + PICTURE_GAP, -(60 + render.ICON_SIZE + 2 * ctx.style.spacing), render.ICON_SIZE + 4, 56}, max(slot, ctx.style.size.y + 2 * ctx.style.padding))
+	mu.layout_row(
+		ctx,
+		{
+			slot + PICTURE_GAP,
+			-(60 + render.ICON_SIZE + 2 * ctx.style.spacing),
+			render.ICON_SIZE + 4,
+			56,
+		},
+		max(slot, ctx.style.size.y + 2 * ctx.style.padding),
+	)
 	cell := mu.layout_next(ctx)
 	talking := num != 0 && conn.is_speaking(v, num) && !peer.muted
 	avatar_ringed(ui, v.call.peer, {cell.x, cell.y + (cell.h - slot) / 2, slot, slot}, talking)
@@ -93,7 +102,8 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	if num != 0 && (peer.muted || peer.deafened) {
 		status_icon(ctx, icon, icon_color)
 		if ctx.hover_root == mu.get_current_container(ctx) && mu.mouse_over(ctx, ctx.last_rect) {
-			ui.hint, ui.hint_of = "Deafened: hears nobody" if peer.deafened else "Muted", ctx.last_rect
+			ui.hint, ui.hint_of =
+				"Deafened: hears nobody" if peer.deafened else "Muted", ctx.last_rect
 		}
 	} else {
 		mu.label(ctx, "")
@@ -158,7 +168,8 @@ voice_panel :: proc(ui: ^UI) {
 	state := panel_state(v)
 
 	// How long we've been where we are.
-	room := proto.Room(v.my_room) if state == .Voice else (proto.call_room(v.call.id) if state == .Call else 0)
+	room :=
+		proto.Room(v.my_room) if state == .Voice else (proto.call_room(v.call.id) if state == .Call else 0)
 	if room != p.room {
 		p.room, p.since = room, time.tick_now()
 	}
@@ -181,7 +192,7 @@ voice_panel :: proc(ui: ^UI) {
 	}
 
 	if state != .Idle {
-		what, color: = "", CONNECTED_COLOR
+		what, color := "", CONNECTED_COLOR
 		where_ := ""
 		switch state {
 		case .Idle:
@@ -266,7 +277,11 @@ voice_panel :: proc(ui: ^UI) {
 
 	// Who we are, and mute and deafen.
 	slot := picture_slot(ctx)
-	mu.layout_row(ctx, {slot + PICTURE_GAP, -(2 * ICON_BUTTON + 2 * ctx.style.spacing), ICON_BUTTON, ICON_BUTTON}, max(slot, ctx.style.size.y + 2 * ctx.style.padding))
+	mu.layout_row(
+		ctx,
+		{slot + PICTURE_GAP, -(2 * ICON_BUTTON + 2 * ctx.style.spacing), ICON_BUTTON, ICON_BUTTON},
+		max(slot, ctx.style.size.y + 2 * ctx.style.padding),
+	)
 	cell := mu.layout_next(ctx)
 	talking := (state == .Voice || state == .Call) && conn.is_speaking(v, v.my_num)
 	avatar_ringed(ui, v.me, {cell.x, cell.y + (cell.h - slot) / 2, slot, slot}, talking)
@@ -284,7 +299,13 @@ voice_panel :: proc(ui: ^UI) {
 	name := me.display if me.display != "" else v.my_name
 	name_and_status(ctx, me_r, name, ctx.style.colors[.TEXT], status_line(me))
 	if .SUBMIT in
-	   icon_button(ui, "mute", .Mic_Off if ui.muted else .Mic, "Unmute" if ui.muted else "Mute", OFF_COLOR if ui.muted else mu.Color{}) {
+	   icon_button(
+		   ui,
+		   "mute",
+		   .Mic_Off if ui.muted else .Mic,
+		   "Unmute" if ui.muted else "Mute",
+		   OFF_COLOR if ui.muted else mu.Color{},
+	   ) {
 		set_muted(ui, !ui.muted)
 	}
 	if .SUBMIT in

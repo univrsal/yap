@@ -3,9 +3,9 @@ package client
 
 import "core:strings"
 
-import "common:proto"
-import "client:platform"
 import "client:conn"
+import "client:platform"
+import "common:proto"
 
 /*
 Picking a file to send, in a browser: a file input the page opens

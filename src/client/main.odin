@@ -6,10 +6,10 @@ import "core:flags"
 import "core:fmt"
 import "core:os"
 
-import "common:."
 import "client:audio"
-import "client:platform"
 import "client:conn"
+import "client:platform"
+import "common:."
 
 Options :: struct {
 	server:             string `args:"pos=0" usage:"Server to connect to, host or host:port (default port 7777). Required with -headless; otherwise the UI connects to it right away."`,

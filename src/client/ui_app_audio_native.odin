@@ -9,8 +9,8 @@ import mu "vendor:microui"
 
 import "client:audio"
 import "client:audio/aac"
-import "client:settings"
 import "client:conn"
+import "client:settings"
 
 /*
 Sharing an application's audio with the channel, next to the

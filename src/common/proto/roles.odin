@@ -82,7 +82,14 @@ encode_account_roles :: proc(out: []u8, account: Account_Id, roles: []Role_Id) -
 }
 
 // decode_account_roles reads one; the roles are in `buf`.
-decode_account_roles :: proc(body: []u8, buf: []Role_Id) -> (account: Account_Id, roles: []Role_Id, ok: bool) {
+decode_account_roles :: proc(
+	body: []u8,
+	buf: []Role_Id,
+) -> (
+	account: Account_Id,
+	roles: []Role_Id,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}
@@ -99,7 +106,11 @@ decode_account_roles :: proc(body: []u8, buf: []Role_Id) -> (account: Account_Id
 
 ACCOUNT_DISABLE_SIZE :: 4 + 1
 
-encode_account_disable :: proc(out: ^[ACCOUNT_DISABLE_SIZE]u8, account: Account_Id, on: bool) -> []u8 {
+encode_account_disable :: proc(
+	out: ^[ACCOUNT_DISABLE_SIZE]u8,
+	account: Account_Id,
+	on: bool,
+) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}

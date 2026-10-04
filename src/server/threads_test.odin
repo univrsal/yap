@@ -20,7 +20,10 @@ reply :: proc(
 	id: proto.Msg_Id,
 ) {
 	buf := make([]u8, proto.MSG_POST_MAX_SIZE, context.temp_allocator)
-	body := proto.encode_msg_post(buf, {conv = conv, nonce = nonce, thread_root = root, kind = .Text, text = text})
+	body := proto.encode_msg_post(
+		buf,
+		{conv = conv, nonce = nonce, thread_root = root, kind = .Text, text = text},
+	)
 	answer: []u8
 	status, answer = ts_ask(t, ts, u, .Msg_Post, body)
 	if status == .Ok {
@@ -52,7 +55,10 @@ page :: proc(
 		ts,
 		u,
 		.Msg_History,
-		proto.encode_msg_history(buf, {conv = conv, thread_root = root, anchor = anchor, dir = dir, limit = limit}),
+		proto.encode_msg_history(
+			buf,
+			{conv = conv, thread_root = root, anchor = anchor, dir = dir, limit = limit},
+		),
 	)
 	if status != .Ok {
 		return
@@ -67,7 +73,15 @@ page :: proc(
 // root_told is the last Msg_Changed a connection was sent about `id`
 // since the last look.
 @(private = "file")
-root_told :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id) -> (m: proto.Message, told: bool) {
+root_told :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	id: proto.Msg_Id,
+) -> (
+	m: proto.Message,
+	told: bool,
+) {
 	for e in ts_events(t, ts, u) {
 		if e.op != .Msg_Changed {
 			continue

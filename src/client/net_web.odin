@@ -1,9 +1,9 @@
 #+build wasi
 package client
 
+import "client:conn"
 import "core:sync"
 import "core:time"
-import "client:conn"
 
 /*
 A browser build has no threads, so the network loop doesn't get one: it

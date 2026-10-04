@@ -268,7 +268,8 @@ blobs_step :: proc(c: ^Voice_Client) {
 	switch {
 	case f.asking:
 	// Waiting for the answer.
-	case f.handle == 0 || time.tick_since(f.asked) > FETCH_QUIET && time.tick_since(f.last_chunk) > FETCH_QUIET:
+	case f.handle == 0 ||
+	     time.tick_since(f.asked) > FETCH_QUIET && time.tick_since(f.last_chunk) > FETCH_QUIET:
 		// Not asked for yet, or gone quiet: ask for it (again).
 		f.asking = true
 		f.asked = time.tick_now()
@@ -298,7 +299,10 @@ get_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	#partial switch status {
 	case .Ok:
 		size, handle, ok := proto.decode_blob_get_answer(body)
-		if ok && f.image.size == 0 && size <= proto.MAX_AVATAR_SIZE && proto.blob_receiver_init(&f.recv, size) {
+		if ok &&
+		   f.image.size == 0 &&
+		   size <= proto.MAX_AVATAR_SIZE &&
+		   proto.blob_receiver_init(&f.recv, size) {
 			// Its size, now we know it.
 			f.image.size = u32(size)
 		}
@@ -417,9 +421,9 @@ publish_blob :: proc(c: ^Voice_Client, id: proto.Blob_Id) {
 		copy(jpeg, f.data)
 	}
 	v.blobs[id] = {
-		info = f.image,
+		info  = f.image,
 		state = f.state,
-		jpeg = jpeg,
+		jpeg  = jpeg,
 	}
 }
 

@@ -115,7 +115,9 @@ convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> b
 			append(&conv.members, account)
 			conv.reads[account] = {
 				read   = proto.Msg_Id(db_col_int(q, 2)),
-				notify = proto.Notify_Level(clamp(db_col_int(q, 3), 0, i64(max(proto.Notify_Level)))),
+				notify = proto.Notify_Level(
+					clamp(db_col_int(q, 3), 0, i64(max(proto.Notify_Level))),
+				),
 			}
 		}
 	}
@@ -282,7 +284,9 @@ conv_by_id :: proc(c: ^Convs, id: proto.Conv_Id) -> ^Conv {
 // there's none (an archived one's name is free).
 conv_by_name :: proc(c: ^Convs, name: string) -> ^Conv {
 	for _, conv in c.by_id {
-		if conv.kind == .Channel && .Archived not_in conv.flags && strings.equal_fold(conv.name, name) {
+		if conv.kind == .Channel &&
+		   .Archived not_in conv.flags &&
+		   strings.equal_fold(conv.name, name) {
 			return conv
 		}
 	}
@@ -309,17 +313,19 @@ conv_visible :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
 	if .Archived in conv.flags {
 		return false
 	}
-	return(
-		conv_is_member(conv, account) ||
-		(conv.kind == .Channel && .Private not_in conv.flags) \
-	)
+	return conv_is_member(conv, account) || (conv.kind == .Channel && .Private not_in conv.flags)
 }
 
 // conv_member_add makes an account a member; one that is already stays
 // one. A new member has read what's there already, up to `read_upto` at
 // most: it isn't news to someone who has only just come. False only if
 // the database failed.
-conv_member_add :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, read_upto := max(proto.Msg_Id)) -> bool {
+conv_member_add :: proc(
+	c: ^Convs,
+	conv: ^Conv,
+	account: proto.Account_Id,
+	read_upto := max(proto.Msg_Id),
+) -> bool {
 	if conv_is_member(conv, account) {
 		return true
 	}
@@ -342,7 +348,12 @@ conv_set_read moves what a member has read up to `id`, which can't be
 past the conversation's last message. It only moves forward: true if it
 did.
 */
-conv_set_read :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, id: proto.Msg_Id) -> bool {
+conv_set_read :: proc(
+	c: ^Convs,
+	conv: ^Conv,
+	account: proto.Account_Id,
+	id: proto.Msg_Id,
+) -> bool {
 	m, ok := &conv.reads[account]
 	upto := min(id, conv.last_msg)
 	if !ok || upto <= m.read {
@@ -358,7 +369,12 @@ conv_set_read :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, id: pro
 }
 
 // conv_set_notify sets how much a conversation may interrupt a member.
-conv_set_notify :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, notify: proto.Notify_Level) -> bool {
+conv_set_notify :: proc(
+	c: ^Convs,
+	conv: ^Conv,
+	account: proto.Account_Id,
+	notify: proto.Notify_Level,
+) -> bool {
 	m, ok := &conv.reads[account]
 	if !ok {
 		return false
@@ -406,7 +422,12 @@ conv_read_state :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> pr
 
 // conv_mentions is how many messages after `read` mention `account`, up
 // to proto.UNREAD_CAP.
-conv_mentions :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, read: proto.Msg_Id) -> int {
+conv_mentions :: proc(
+	c: ^Convs,
+	conv: ^Conv,
+	account: proto.Account_Id,
+	read: proto.Msg_Id,
+) -> int {
 	if read >= conv.last_msg {
 		return 0
 	}
@@ -463,21 +484,22 @@ convs_sorted :: proc(c: ^Convs) -> []^Conv {
 // for a member, what it has read there.
 conv_record :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> proto.Conv {
 	record := proto.Conv {
-		id     = conv.id,
-		kind   = conv.kind,
-		flags  = conv.flags,
-		name   = conv.name,
-		topic  = conv.topic,
-		member = conv_is_member(conv, account),
-		last   = conv.last_msg,
-		a      = conv.a,
-		b      = conv.b,
+		id       = conv.id,
+		kind     = conv.kind,
+		flags    = conv.flags,
+		name     = conv.name,
+		topic    = conv.topic,
+		member   = conv_is_member(conv, account),
+		last     = conv.last_msg,
+		a        = conv.a,
+		b        = conv.b,
 		position = conv.position,
 	}
 	if record.member {
 		state := conv_read_state(c, conv, account)
 		m := conv.reads[account]
-		record.read, record.unread, record.mentions, record.notify = state.read, state.unread, state.mentions, m.notify
+		record.read, record.unread, record.mentions, record.notify =
+			state.read, state.unread, state.mentions, m.notify
 	}
 	return record
 }

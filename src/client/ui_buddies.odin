@@ -5,10 +5,10 @@ import "core:fmt"
 import "core:time"
 import mu "vendor:microui"
 
-import "common:proto"
+import "client:conn"
 import "client:platform"
 import "client:settings"
-import "client:conn"
+import "common:proto"
 
 /*
 The buddy screen (buddies.odin): the buddy list on the left, with
@@ -24,34 +24,34 @@ the channel that was being looked at (keep_viewing).
 
 UI_Buddies :: struct {
 	// Whose DM is open; 0 for nobody.
-	selected:    proto.Account_Id,
+	selected:     proto.Account_Id,
 	// What's being written to them.
-	buf:         [proto.MAX_CHAT_SIZE]u8,
-	len:         int,
-	area:        Text_Area, // the box it's written in
+	buf:          [proto.MAX_CHAT_SIZE]u8,
+	len:          int,
+	area:         Text_Area, // the box it's written in
 	// Something to tell about the conversation, and since when.
-	notice:      string,
-	notice_at:   time.Tick,
+	notice:       string,
+	notice_at:    time.Tick,
 	// The file button was pressed: after the frame, the dialog opens for
 	// a file to offer `pick_to` (ui_files_*.odin).
-	pick:        bool,
-	pick_to:     proto.Account_Id,
+	pick:         bool,
+	pick_to:      proto.Account_Id,
 	// Files to go with the next message (ui_attachments.odin).
-	files:       [dynamic]Picked_File,
+	files:        [dynamic]Picked_File,
 	// When the server was last asked when the people in the list were
 	// last here, and how many of them were online then: fewer now means
 	// someone just left, and it's worth asking again.
-	seen_asked:  time.Tick,
-	seen_online: int,
+	seen_asked:   time.Tick,
+	seen_online:  int,
 	// The message of ours being edited, 0 for none, and its conversation
 	// (ui_message_menu.odin).
 	editing:      proto.Msg_Id,
 	editing_conv: proto.Conv_Id,
 	// The conversation the network side was last asked to look at, and
 	// when (keep_viewing).
-	view_asked:  proto.Conv_Id,
-	view_back:   bool,
-	view_at:     time.Tick,
+	view_asked:   proto.Conv_Id,
+	view_back:    bool,
+	view_at:      time.Tick,
 }
 
 // Paste_Target is where a pasted image goes: the conversation being
@@ -291,9 +291,26 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	case entry.conv == 0:
 		mu.layout_row(ctx, {-(CALL_BUTTON + ctx.style.spacing * 2), CALL_BUTTON})
 	case can_hide:
-		mu.layout_row(ctx, {-(CALL_BUTTON + 3 * ICON_BUTTON + ctx.style.spacing * 5), CALL_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+		mu.layout_row(
+			ctx,
+			{
+				-(CALL_BUTTON + 3 * ICON_BUTTON + ctx.style.spacing * 5),
+				CALL_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+			},
+		)
 	case:
-		mu.layout_row(ctx, {-(CALL_BUTTON + 2 * ICON_BUTTON + ctx.style.spacing * 4), CALL_BUTTON, ICON_BUTTON, ICON_BUTTON})
+		mu.layout_row(
+			ctx,
+			{
+				-(CALL_BUTTON + 2 * ICON_BUTTON + ctx.style.spacing * 4),
+				CALL_BUTTON,
+				ICON_BUTTON,
+				ICON_BUTTON,
+			},
+		)
 	}
 	mu.label(ctx, entry.name if entry.buddy else fmt.tprintf("%s  (not a buddy)", entry.name))
 	// Calling them, while they're here and we're in no call.
@@ -309,7 +326,14 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		search_button(ui)
 	}
 	if can_hide &&
-	   .SUBMIT in icon_button(ui, "dm hide", .Trash, "Take this conversation off the list until something new is said in it", OFF_COLOR) {
+	   .SUBMIT in
+		   icon_button(
+			   ui,
+			   "dm hide",
+			   .Trash,
+			   "Take this conversation off the list until something new is said in it",
+			   OFF_COLOR,
+		   ) {
 		last: proto.Msg_Id
 		for dm in v.dms {
 			if dm.id == entry.conv {
@@ -368,13 +392,20 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	   .ALT not_in ctx.key_down_bits {
 		ctx.key_pressed_bits -= {.V}
 		ui.chat.paste = true
-		ui.paste_to = {dm_to = account}
+		ui.paste_to = {
+			dm_to = account,
+		}
 	}
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
 	res, box := composer_box(ui, composer)
 	completion_update(ui, composer)
-	if .CHANGE in res && ui.buddies.len > 0 && ui.session != nil && v.viewing == entry.conv && entry.conv != 0 && ui.buddies.editing == 0 {
+	if .CHANGE in res &&
+	   ui.buddies.len > 0 &&
+	   ui.session != nil &&
+	   v.viewing == entry.conv &&
+	   entry.conv != 0 &&
+	   ui.buddies.editing == 0 {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
@@ -390,7 +421,8 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 			ui.buddies.pick, ui.buddies.pick_to = true, account
 		}
 	}
-	if .SUBMIT in icon_button(ui, "dm send", .Send, "Save" if ui.buddies.editing != 0 else "Send") {
+	if .SUBMIT in
+	   icon_button(ui, "dm send", .Send, "Save" if ui.buddies.editing != 0 else "Send") {
 		send = true
 	}
 	mu.layout_end_column(ctx)
@@ -420,7 +452,8 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	text := "Loading messages..." if entry.conv != 0 else fmt.tprintf("Nothing said with %s yet.", entry.name)
+	text :=
+		"Loading messages..." if entry.conv != 0 else fmt.tprintf("Nothing said with %s yet.", entry.name)
 	with_text_color(ctx, CHAT_DIM_COLOR, text, label_proc)
 }
 
@@ -495,7 +528,10 @@ send_pasted_image :: proc(ui: ^UI, target: Paste_Target, image: conn.Chat_Image)
 		conn.chat_image_destroy(&image)
 		return
 	}
-	conn.push_command(&ui.session.client.commands, conn.Chat_Image_Command{image = image, dm_to = target.dm_to})
+	conn.push_command(
+		&ui.session.client.commands,
+		conn.Chat_Image_Command{image = image, dm_to = target.dm_to},
+	)
 	ui.timeline.to_end = true
 }
 

@@ -1,13 +1,13 @@
 #+build !wasi
 package client
 
+import "client:audio"
+import "client:conn"
+import "client:settings"
 import log "common:wlog"
 import "core:os"
 import "core:slice"
 import "core:strings"
-import "client:audio"
-import "client:settings"
-import "client:conn"
 
 
 // run_headless is the command-line client: commands come from stdin.

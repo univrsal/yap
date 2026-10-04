@@ -92,47 +92,47 @@ Server :: struct {
 	// (profiles.odin).
 	status_checked: time.Tick,
 	// The calls going on (calls.odin).
-	calls:         Calls,
-	sock:          net.UDP_Socket,
-	key:           ecdh.Private_Key,
-	name:          string, // what clients show for this server; may be empty
-	password:      string, // empty: anyone may join
-	sessions:      map[proto.Session_Id]^Client, // by local_idx
-	max_sessions:  int,
+	calls:          Calls,
+	sock:           net.UDP_Socket,
+	key:            ecdh.Private_Key,
+	name:           string, // what clients show for this server; may be empty
+	password:       string, // empty: anyone may join
+	sessions:       map[proto.Session_Id]^Client, // by local_idx
+	max_sessions:   int,
 	// The connections that are logged in, and those that aren't yet, by
 	// their device's key (see Conn).
-	conns:         map[[proto.KEY_SIZE]byte]^Conn,
-	waiting:       map[[proto.KEY_SIZE]byte]^Conn,
+	conns:          map[[proto.KEY_SIZE]byte]^Conn,
+	waiting:        map[[proto.KEY_SIZE]byte]^Conn,
 	// Accounts and their devices (accounts.odin), and logging in to them
 	// (auth.odin), which has a thread hash the passwords (hash_worker.odin).
-	accounts:      Accounts,
-	auth:          Auth,
-	hasher:        Hash_Worker,
+	accounts:       Accounts,
+	auth:           Auth,
+	hasher:         Hash_Worker,
 	// The channels and who is in each (convs.odin); their messages are in
 	// the database (messages.odin).
-	convs:         Convs,
+	convs:          Convs,
 	// Bumped on every change clients should hear about. Never 0, which
 	// means "nothing acked yet".
-	version:       u32,
+	version:        u32,
 	// The last user number handed out; numbers are never reused.
-	last_num:      proto.User_Num,
+	last_num:       proto.User_Num,
 	// Files offered in DMs, by the message that offers them, and the
 	// transfers being relayed, by the same (files.odin).
-	file_offers:   map[proto.Msg_Id]File_Offer,
-	file_routes:   map[proto.Msg_Id]^File_Route,
+	file_offers:    map[proto.Msg_Id]File_Offer,
+	file_routes:    map[proto.Msg_Id]^File_Route,
 	// What the server keeps for good: its database (db.odin) and the
 	// files that go with it (blobs.odin).
-	db:            DB,
-	blobs:         Blob_Store,
+	db:             DB,
+	blobs:          Blob_Store,
 	// Files uploaded with messages, and on their way in and out
 	// (attachments.odin).
-	attach:        Attachments,
+	attach:         Attachments,
 	// The server's own emoji (emoji.odin).
-	emoji:         Custom_Emoji,
+	emoji:          Custom_Emoji,
 	// Removing what's old (retention.odin).
-	retention:     Retention,
+	retention:      Retention,
 	// What the loop is handling this time round, for slow_iteration.
-	handling:      proto.Message_Kind,
+	handling:       proto.Message_Kind,
 }
 
 // A turn of the server's loop that takes longer than this is logged:
@@ -143,11 +143,11 @@ IDLE_WAIT :: 100 * time.Millisecond
 
 run_server :: proc(settings: Settings) -> bool {
 	s := Server {
-		version      = 1,
-		name         = settings.name,
-		password     = settings.password,
+		version = 1,
+		name = settings.name,
+		password = settings.password,
 		max_sessions = settings.max_sessions,
-		auth         = {params = HASH_PARAMS_NOW},
+		auth = {params = HASH_PARAMS_NOW},
 	}
 	if !common.parse_private_key(settings.key, &s.key) {
 		log.error("the key in the config is not a valid private key")

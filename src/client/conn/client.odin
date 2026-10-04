@@ -9,9 +9,9 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
+import "client:audio"
 import "common:."
 import "common:proto"
-import "client:audio"
 
 Voice_Client :: struct {
 	transport:     Transport,

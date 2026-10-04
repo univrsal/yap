@@ -1,8 +1,8 @@
 #+build wasi
 package common
 
-import "core:strings"
 import log "common:wlog"
+import "core:strings"
 
 /*
 In a browser the same named blobs live in the page's local storage,

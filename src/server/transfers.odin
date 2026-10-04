@@ -73,7 +73,9 @@ blob_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Too_Large)
 		return
 	case p.kind == .Avatar &&
-	     (p.size > proto.MAX_AVATAR_SIZE || p.width > proto.MAX_AVATAR_SIDE || p.height > proto.MAX_AVATAR_SIDE):
+	     (p.size > proto.MAX_AVATAR_SIZE ||
+			     p.width > proto.MAX_AVATAR_SIDE ||
+			     p.height > proto.MAX_AVATAR_SIDE):
 		respond(u, id, .Too_Large)
 		return
 	}
@@ -95,7 +97,13 @@ blob_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		up.handle = new_handle()
 		up.put = p
 		up.last_data = time.tick_now()
-		log.debugf("%s is uploading a %dx%d picture, %d bytes", conn_label(u), p.width, p.height, p.size)
+		log.debugf(
+			"%s is uploading a %dx%d picture, %d bytes",
+			conn_label(u),
+			p.width,
+			p.height,
+			p.size,
+		)
 	}
 	respond(u, id, .Ok, proto.encode_blob_put_answer(&answer, 0, false, up.handle))
 }

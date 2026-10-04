@@ -9,11 +9,11 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-import "common:proto"
-import "client:dialogs"
 import "client:conn"
+import "client:dialogs"
 import "client:platform"
 import glfw "client:wglfw"
+import "common:proto"
 
 /*
 Picking a file to send, on a desktop: the system's file dialog
@@ -200,7 +200,10 @@ attach_paths :: proc(ui: ^UI, at: Attach_Target, paths: []string) {
 			log.warnf("can't attach %s: %v", path, err)
 			continue
 		}
-		append(&picked, Picked_File{path = path, name = os.base(path), size = u64(max(info.size, 0))})
+		append(
+			&picked,
+			Picked_File{path = path, name = os.base(path), size = u64(max(info.size, 0))},
+		)
 	}
 	attach_add(ui, at, picked[:])
 }

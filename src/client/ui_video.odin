@@ -4,9 +4,9 @@ import "core:fmt"
 import "core:time"
 import mu "vendor:microui"
 
-import "common:proto"
-import "client:render"
 import "client:conn"
+import "client:render"
+import "common:proto"
 
 /*
 Screen sharing in the UI (see conn/video.odin): the Share button beside mute
@@ -176,5 +176,10 @@ picture :: proc(ui: ^UI, r: mu.Rect) {
 	fitted := mu.Rect{r.x + (r.w - w) / 2, r.y + (r.h - h) / 2, w, h}
 	im := &ui.images
 	append(&im.draws, render.Image_Draw{texture = vid.texture})
-	mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), fitted, {255, 255, 255, 255})
+	mu.draw_icon(
+		ctx,
+		mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1),
+		fitted,
+		{255, 255, 255, 255},
+	)
 }

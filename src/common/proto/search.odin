@@ -46,7 +46,15 @@ encode_msg_search :: proc(out: ^[MSG_SEARCH_MAX_SIZE]u8, s: Msg_Search) -> []u8 
 // encode_search_answer writes a Msg_Search answer: how far back it
 // looked, and a page as Msg_History's (as many of `msgs` as fit; `fitted`
 // says how many).
-encode_search_answer :: proc(out: []u8, searched_to: Msg_Id, more: u8, msgs: []Message) -> (body: []u8, fitted: int) {
+encode_search_answer :: proc(
+	out: []u8,
+	searched_to: Msg_Id,
+	more: u8,
+	msgs: []Message,
+) -> (
+	body: []u8,
+	fitted: int,
+) {
 	if len(out) < 8 {
 		return
 	}
@@ -62,7 +70,15 @@ encode_search_answer :: proc(out: []u8, searched_to: Msg_Id, more: u8, msgs: []M
 	return out[:8 + len(page)], fitted
 }
 
-decode_search_answer :: proc(body: []u8, buf: []Message) -> (searched_to: Msg_Id, more: u8, msgs: []Message, ok: bool) {
+decode_search_answer :: proc(
+	body: []u8,
+	buf: []Message,
+) -> (
+	searched_to: Msg_Id,
+	more: u8,
+	msgs: []Message,
+	ok: bool,
+) {
 	if len(body) < 8 {
 		return
 	}
@@ -82,7 +98,10 @@ decode_msg_search :: proc(body: []u8) -> (s: Msg_Search, ok: bool) {
 	s.before = Msg_Id(get_u64(&r))
 	s.limit = int(get_u8(&r))
 	s.query = get_str8(&r)
-	if r.overflow || s.limit == 0 || s.limit > MAX_SEARCH_LIMIT || len(s.query) > MAX_SEARCH_QUERY {
+	if r.overflow ||
+	   s.limit == 0 ||
+	   s.limit > MAX_SEARCH_LIMIT ||
+	   len(s.query) > MAX_SEARCH_QUERY {
 		return {}, false
 	}
 	return s, true

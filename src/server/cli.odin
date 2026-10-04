@@ -134,7 +134,11 @@ run_account_command :: proc(args: []string) -> int {
 		if account_add(&a, username, username, secret, flags) == nil {
 			return 1
 		}
-		fmt.printfln("made the account %s%s", username, " (the server's owner)" if .Owner in flags else "")
+		fmt.printfln(
+			"made the account %s%s",
+			username,
+			" (the server's owner)" if .Owner in flags else "",
+		)
 		fmt.printfln("password: %s", text)
 		fmt.println("it has to be changed on first login")
 
@@ -198,7 +202,12 @@ run_account_command :: proc(args: []string) -> int {
 		if !account_roles_set(&a, acc, roles[:]) {
 			return 1
 		}
-		fmt.printfln("%s %s the role %s now", username, "has" if command == "role" else "doesn't have", r.name)
+		fmt.printfln(
+			"%s %s the role %s now",
+			username,
+			"has" if command == "role" else "doesn't have",
+			r.name,
+		)
 	}
 	return 0
 }
@@ -239,10 +248,20 @@ generated_secret :: proc(
 @(private = "file")
 account_list :: proc(a: ^Accounts) {
 	if len(a.by_id) == 0 {
-		fmt.println("no accounts yet: the server makes one called admin when it starts, or use `account add`")
+		fmt.println(
+			"no accounts yet: the server makes one called admin when it starts, or use `account add`",
+		)
 		return
 	}
-	fmt.printfln("%-5s %-32s %-12s %-7s %-20s %s", "id", "username", "", "devices", "last here", "name")
+	fmt.printfln(
+		"%-5s %-32s %-12s %-7s %-20s %s",
+		"id",
+		"username",
+		"",
+		"devices",
+		"last here",
+		"name",
+	)
 	// By id, which is the order they were made in.
 	ids, _ := slice.map_keys(a.by_id, context.temp_allocator)
 	slice.sort(ids)

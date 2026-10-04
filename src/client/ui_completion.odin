@@ -193,7 +193,13 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 		delete(item.label)
 	}
 	if .Mention_Everyone in v.permissions && strings.has_prefix(proto.MENTION_EVERYONE, prefix) {
-		append(&cm.items, Completion_Item{insert = strings.clone("@" + proto.MENTION_EVERYONE + " "), label = strings.clone("@" + proto.MENTION_EVERYONE + "   everyone here")})
+		append(
+			&cm.items,
+			Completion_Item {
+				insert = strings.clone("@" + proto.MENTION_EVERYONE + " "),
+				label = strings.clone("@" + proto.MENTION_EVERYONE + "   everyone here"),
+			},
+		)
 	}
 	cm.active = len(cm.items) > 0
 	cm.selected = clamp(cm.selected, 0, max(len(cm.items) - 1, 0))
@@ -218,7 +224,10 @@ emoji_items :: proc(ui: ^UI, prefix: string) {
 		for code in strings.split_iterator(&names, " ") {
 			if strings.has_prefix(code, prefix) {
 				char := utf8.runes_to_string({e.r})
-				append(&cm.items, Completion_Item{insert = char, label = fmt.aprintf("%s   :%s:", char, code)})
+				append(
+					&cm.items,
+					Completion_Item{insert = char, label = fmt.aprintf("%s   :%s:", char, code)},
+				)
 				break
 			}
 		}
@@ -266,7 +275,12 @@ completion_window :: proc(ui: ^UI) {
 		cnt.open = true
 		mu.bring_to_front(ctx, cnt)
 	}
-	if !mu.begin_window(ctx, COMPLETION_WINDOW, rect, {.NO_TITLE, .NO_RESIZE, .NO_SCROLL, .NO_CLOSE}) {
+	if !mu.begin_window(
+		ctx,
+		COMPLETION_WINDOW,
+		rect,
+		{.NO_TITLE, .NO_RESIZE, .NO_SCROLL, .NO_CLOSE},
+	) {
 		return
 	}
 	defer mu.end_window(ctx)

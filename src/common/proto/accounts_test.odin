@@ -18,7 +18,15 @@ test_username_clean :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, len(name), MAX_USERNAME_SIZE)
 
-	for bad in ([]string{"", "a", "abcdefghijklmnopqrstuvwxyz0123456", "has space", "ümlaut", "semi;colon", "a\x00b"}) {
+	for bad in ([]string {
+			"",
+			"a",
+			"abcdefghijklmnopqrstuvwxyz0123456",
+			"has space",
+			"ümlaut",
+			"semi;colon",
+			"a\x00b",
+		}) {
 		_, ok = username_clean(bad, &buf)
 		testing.expectf(t, !ok, "%q should not be a username", bad)
 	}
@@ -42,7 +50,10 @@ test_account_bodies :: proc(t: ^testing.T) {
 		testing.expect(t, !ok)
 		// The longest of each still fits.
 		long := make([]u8, 255, context.temp_allocator)
-		testing.expect(t, encode_auth_login(buf[:], string(long), string(long), string(long)) != nil)
+		testing.expect(
+			t,
+			encode_auth_login(buf[:], string(long), string(long), string(long)) != nil,
+		)
 		// And a string too long for its length byte doesn't.
 		longer := make([]u8, 256, context.temp_allocator)
 		testing.expect(t, encode_auth_login(buf[:], "a", string(longer), "") == nil)
@@ -57,7 +68,9 @@ test_account_bodies :: proc(t: ^testing.T) {
 		testing.expect_value(t, flags, Account_Flags{.Must_Change})
 	}
 	{
-		old, new, revoke, ok := decode_password_change(encode_password_change(buf[:], "old one", "new one", true))
+		old, new, revoke, ok := decode_password_change(
+			encode_password_change(buf[:], "old one", "new one", true),
+		)
 		testing.expect(t, ok)
 		testing.expect_value(t, old, "old one")
 		testing.expect_value(t, new, "new one")
@@ -75,13 +88,23 @@ test_account_bodies :: proc(t: ^testing.T) {
 		testing.expect(t, !ok)
 	}
 	{
-		p, ok := decode_profile_set(encode_profile_set(buf[:], {mask = PROFILE_DISPLAY, display = "Alice A."}))
+		p, ok := decode_profile_set(
+			encode_profile_set(buf[:], {mask = PROFILE_DISPLAY, display = "Alice A."}),
+		)
 		testing.expect(t, ok)
 		testing.expect_value(t, p.mask, PROFILE_DISPLAY)
 		testing.expect_value(t, p.display, "Alice A.")
 		// The others, without the name.
 		p, ok = decode_profile_set(
-			encode_profile_set(buf[:], {mask = PROFILE_STATUS | PROFILE_AVATAR, status = "away", status_until = 1234, avatar = 9}),
+			encode_profile_set(
+				buf[:],
+				{
+					mask = PROFILE_STATUS | PROFILE_AVATAR,
+					status = "away",
+					status_until = 1234,
+					avatar = 9,
+				},
+			),
 		)
 		testing.expect(t, ok)
 		testing.expect_value(t, p.mask, PROFILE_STATUS | PROFILE_AVATAR)
@@ -136,14 +159,14 @@ test_account_bodies :: proc(t: ^testing.T) {
 test_account_record :: proc(t: ^testing.T) {
 	buf: [ACCOUNT_MAX_SIZE]u8
 	a := Account {
-		id       = 42,
-		flags    = {.Owner},
-		username = "abcdefghijklmnopqrstuvwxyz012345",
-		display  = "0123456789012345678901234567890!",
-		status   = "01234567890123456789012345678901234567890123456789012345678901234567890123456789",
+		id           = 42,
+		flags        = {.Owner},
+		username     = "abcdefghijklmnopqrstuvwxyz012345",
+		display      = "0123456789012345678901234567890!",
+		status       = "01234567890123456789012345678901234567890123456789012345678901234567890123456789",
 		status_until = 77,
-		avatar   = 5,
-		roles    = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17},
+		avatar       = 5,
+		roles        = {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17},
 	}
 	body := encode_account(buf[:], a)
 	testing.expect(t, body != nil)

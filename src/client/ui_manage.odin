@@ -7,8 +7,8 @@ import "core:strings"
 import "core:time"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
+import "common:proto"
 
 /*
 Managing the server, for those who may (conn/roles.odin). Everything is
@@ -33,32 +33,32 @@ again.
 UI_Manage :: struct {
 	// The channel whose settings are open in the Channels window, and
 	// its name and topic as they're being edited.
-	conv:         proto.Conv_Id,
-	loaded:       proto.Conv_Id,
+	conv:           proto.Conv_Id,
+	loaded:         proto.Conv_Id,
 	// What the server said they were when they were loaded: loaded again
 	// when that changes.
-	loaded_name:  string, // owned
-	loaded_topic: string, // owned
-	name_buf:     [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
-	name_len:     int,
-	topic_buf:    [proto.MAX_TOPIC_SIZE]u8,
-	topic_len:    int,
-	confirm:      bool, // Delete was pressed once
-	private:      bool, // making a private channel
+	loaded_name:    string, // owned
+	loaded_topic:   string, // owned
+	name_buf:       [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
+	name_len:       int,
+	topic_buf:      [proto.MAX_TOPIC_SIZE]u8,
+	topic_len:      int,
+	confirm:        bool, // Delete was pressed once
+	private:        bool, // making a private channel
 	// The members window's list of people to add, open.
-	adding:       bool,
+	adding:         bool,
 	// The role being edited (0: none), and as it's being edited.
-	role:         proto.Role_Id,
-	role_loaded:  proto.Role_Id,
-	role_seen:    proto.Role, // name owned
-	role_buf:     [proto.MAX_ROLE_NAME]u8,
-	role_len:     int,
-	role_perms:   proto.Permissions,
-	new_role_buf: [proto.MAX_ROLE_NAME]u8,
-	new_role_len: int,
+	role:           proto.Role_Id,
+	role_loaded:    proto.Role_Id,
+	role_seen:      proto.Role, // name owned
+	role_buf:       [proto.MAX_ROLE_NAME]u8,
+	role_len:       int,
+	role_perms:     proto.Permissions,
+	new_role_buf:   [proto.MAX_ROLE_NAME]u8,
+	new_role_len:   int,
 	// The account whose roles are being chosen (0: none), and which.
-	account:      proto.Account_Id,
-	account_roles: [dynamic]proto.Role_Id,
+	account:        proto.Account_Id,
+	account_roles:  [dynamic]proto.Role_Id,
 	// The purge being set up: which conversation (0: all), how many days
 	// back, only pictures, and Purge pressed once.
 	purge_conv:     proto.Conv_Id,
@@ -135,13 +135,17 @@ channel_settings :: proc(ui: ^UI) {
 	if index <= 1 {
 		mu.label(ctx, "")
 	}
-	down := index > 0 && index < len(v.channels) - 1 && .SUBMIT in stable_button(ctx, "move down", "Move down", {.ALIGN_CENTER})
+	down :=
+		index > 0 &&
+		index < len(v.channels) - 1 &&
+		.SUBMIT in stable_button(ctx, "move down", "Move down", {.ALIGN_CENTER})
 	if index == 0 || index == len(v.channels) - 1 {
 		mu.label(ctx, "")
 	}
 	if !ch.home {
 		if m.confirm {
-			if .SUBMIT in stable_button(ctx, "delete channel", "Delete it for everyone", {.ALIGN_CENTER}) {
+			if .SUBMIT in
+			   stable_button(ctx, "delete channel", "Delete it for everyone", {.ALIGN_CENTER}) {
 				command(ui, conn.Conv_Delete_Command{conv = ch.id})
 				m.conv, m.confirm = 0, false
 				return
@@ -173,7 +177,14 @@ channel_settings :: proc(ui: ^UI) {
 		for id, i in order {
 			for c in v.channels {
 				if c.id == id && c.position != i && !c.home {
-					command(ui, conn.Conv_Update_Command{conv = id, mask = proto.CONV_UPDATE_POSITION, position = i})
+					command(
+						ui,
+						conn.Conv_Update_Command {
+							conv = id,
+							mask = proto.CONV_UPDATE_POSITION,
+							position = i,
+						},
+					)
 				}
 			}
 		}
@@ -216,7 +227,8 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	if .SUBMIT in stable_button(ctx, "add people", "Hide" if m.adding else "Add people...", {.ALIGN_CENTER}) {
+	if .SUBMIT in
+	   stable_button(ctx, "add people", "Hide" if m.adding else "Add people...", {.ALIGN_CENTER}) {
 		m.adding = !m.adding
 	}
 	if !m.adding {
@@ -285,10 +297,16 @@ roles_settings :: proc(ui: ^UI) {
 		defer mu.pop_id(ctx)
 		mu.layout_row(ctx, {160, -1})
 		selected := m.role == r.id
-		if .SUBMIT in stable_button(ctx, "role", fmt.tprintf("%s %s", "-" if selected else "+", r.name)) {
+		if .SUBMIT in
+		   stable_button(ctx, "role", fmt.tprintf("%s %s", "-" if selected else "+", r.name)) {
 			m.role = 0 if selected else r.id
 		}
-		with_text_color(ctx, DIM_COLOR, "nothing more" if r.perms == {} else perms_text(r.perms), label_proc)
+		with_text_color(
+			ctx,
+			DIM_COLOR,
+			"nothing more" if r.perms == {} else perms_text(r.perms),
+			label_proc,
+		)
 		if m.role != r.id {
 			continue
 		}
@@ -297,7 +315,11 @@ roles_settings :: proc(ui: ^UI) {
 			m.role_len = copy(m.role_buf[:], r.name)
 			m.role_perms = r.perms
 			delete(m.role_seen.name)
-			m.role_seen = {id = r.id, perms = r.perms, name = strings.clone(r.name)}
+			m.role_seen = {
+				id    = r.id,
+				perms = r.perms,
+				name  = strings.clone(r.name),
+			}
 		}
 		everyone := r.id == proto.EVERYONE_ROLE
 		// A role that can do more than we can is above us: shown, not
@@ -316,7 +338,12 @@ roles_settings :: proc(ui: ^UI) {
 			mu.label(ctx, "")
 			on := p in m.role_perms
 			if p not_in mine || above {
-				with_text_color(ctx, DIM_COLOR, fmt.tprintf("[%s] %s", "x" if on else " ", PERMISSION_TEXT[p]), label_proc)
+				with_text_color(
+					ctx,
+					DIM_COLOR,
+					fmt.tprintf("[%s] %s", "x" if on else " ", PERMISSION_TEXT[p]),
+					label_proc,
+				)
 				continue
 			}
 			if .CHANGE in mu.checkbox(ctx, PERMISSION_TEXT[p], &on) {
@@ -330,15 +357,28 @@ roles_settings :: proc(ui: ^UI) {
 		if above {
 			mu.layout_row(ctx, {20, -1})
 			mu.label(ctx, "")
-			with_text_color(ctx, DIM_COLOR, "It allows more than you may, so you can't change it.", label_proc)
+			with_text_color(
+				ctx,
+				DIM_COLOR,
+				"It allows more than you may, so you can't change it.",
+				label_proc,
+			)
 			continue
 		}
 		mu.layout_row(ctx, {20, 100, 100})
 		mu.label(ctx, "")
 		if .SUBMIT in stable_button(ctx, "save role", "Save", {.ALIGN_CENTER}) && m.role_len > 0 {
-			command(ui, conn.Role_Set_Command{id = r.id, name = strings.clone(string(m.role_buf[:m.role_len])), perms = m.role_perms})
+			command(
+				ui,
+				conn.Role_Set_Command {
+					id = r.id,
+					name = strings.clone(string(m.role_buf[:m.role_len])),
+					perms = m.role_perms,
+				},
+			)
 		}
-		if !everyone && .SUBMIT in stable_button(ctx, "delete role", "Delete role", {.ALIGN_CENTER}) {
+		if !everyone &&
+		   .SUBMIT in stable_button(ctx, "delete role", "Delete role", {.ALIGN_CENTER}) {
 			command(ui, conn.Role_Delete_Command{id = r.id})
 			m.role = 0
 		}
@@ -348,7 +388,10 @@ roles_settings :: proc(ui: ^UI) {
 	submit := .SUBMIT in text_box(ui, m.new_role_buf[:], &m.new_role_len)
 	submit |= .SUBMIT in stable_button(ctx, "make role", "Make role", {.ALIGN_CENTER})
 	if submit && m.new_role_len > 0 {
-		command(ui, conn.Role_Set_Command{name = strings.clone(string(m.new_role_buf[:m.new_role_len]))})
+		command(
+			ui,
+			conn.Role_Set_Command{name = strings.clone(string(m.new_role_buf[:m.new_role_len]))},
+		)
 		m.new_role_len = 0
 	}
 }
@@ -402,7 +445,8 @@ account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	}
 	if .Manage_Accounts in v.permissions && !owner && id != v.me && below_us(v, acc) {
 		disabled := .Disabled in acc.flags
-		if .SUBMIT in stable_button(ctx, "disable", "Enable" if disabled else "Disable", {.ALIGN_CENTER}) {
+		if .SUBMIT in
+		   stable_button(ctx, "disable", "Enable" if disabled else "Disable", {.ALIGN_CENTER}) {
 			command(ui, conn.Account_Disable_Command{account = id, on = !disabled})
 		}
 	} else {
@@ -429,7 +473,12 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 		mu.label(ctx, "")
 		i, has := slice.linear_search(m.account_roles[:], r.id)
 		if !(r.perms <= v.permissions) {
-			with_text_color(ctx, DIM_COLOR, fmt.tprintf("[%s] %s (above you)", "x" if has else " ", r.name), label_proc)
+			with_text_color(
+				ctx,
+				DIM_COLOR,
+				fmt.tprintf("[%s] %s (above you)", "x" if has else " ", r.name),
+				label_proc,
+			)
 			continue
 		}
 		on := has
@@ -444,7 +493,9 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 	mu.layout_row(ctx, {30, 100, 100})
 	mu.label(ctx, "")
 	if .SUBMIT in stable_button(ctx, "save roles", "Save", {.ALIGN_CENTER}) {
-		cmd := conn.Account_Roles_Command{account = id}
+		cmd := conn.Account_Roles_Command {
+			account = id,
+		}
 		for r in m.account_roles {
 			if cmd.count < len(cmd.roles) {
 				cmd.roles[cmd.count] = r
@@ -536,7 +587,14 @@ purge_settings :: proc(ui: ^UI) {
 	}
 	dt, _ := time.time_to_datetime(time.unix(before / 1000, 0))
 	local := chat_local_time(ui, dt)
-	when_text := fmt.tprintf("%d-%02d-%02d %02d:%02d", local.year, local.month, local.day, local.hour, local.minute)
+	when_text := fmt.tprintf(
+		"%d-%02d-%02d %02d:%02d",
+		local.year,
+		local.month,
+		local.day,
+		local.hour,
+		local.minute,
+	)
 	mu.label(ctx, "")
 	with_text_color(
 		ctx,

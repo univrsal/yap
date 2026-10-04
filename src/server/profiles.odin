@@ -90,7 +90,9 @@ avatar_ok :: proc(s: ^Server, blob: proto.Blob_Id) -> proto.Status {
 		return .Not_Found
 	case b.kind != .Avatar && b.kind != .Image:
 		return .Invalid
-	case b.size > proto.MAX_AVATAR_SIZE || b.width > proto.MAX_AVATAR_SIDE || b.height > proto.MAX_AVATAR_SIDE:
+	case b.size > proto.MAX_AVATAR_SIZE ||
+	     b.width > proto.MAX_AVATAR_SIDE ||
+	     b.height > proto.MAX_AVATAR_SIDE:
 		return .Too_Large
 	}
 	return .Ok

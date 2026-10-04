@@ -9,7 +9,15 @@ import "common:proto"
 
 // seen_as is how `u` was last told `account` is, and whether it was told.
 @(private = "file")
-seen_as :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, account: proto.Account_Id) -> (a: proto.Activity, told: bool) {
+seen_as :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	account: proto.Account_Id,
+) -> (
+	a: proto.Activity,
+	told: bool,
+) {
 	for e in ts_events(t, ts, u) {
 		if e.op != .Account_Changed {
 			continue
@@ -98,11 +106,17 @@ test_activity :: proc(t: ^testing.T) {
 		ask_activity(t, &ts, bob, .Offline)
 		a, _ = seen_as(t, &ts, alice, bob_id)
 		testing.expect_value(t, a, proto.Activity.Offline)
-		users := []proto.User_Info{{num = alice.num, account = alice.account.id}, {num = bob.num, account = bob_id}}
+		users := []proto.User_Info {
+			{num = alice.num, account = alice.account.id},
+			{num = bob.num, account = bob_id},
+		}
 		hidden := []bool{false, appears_offline(bob.account)}
 		testing.expect_value(t, len(users_seen_by(s, users, hidden, alice.account.id)), 1)
 		testing.expect_value(t, len(users_seen_by(s, users, hidden, bob_id)), 2)
-		in_room := []proto.User_Info{users[0], {num = bob.num, account = bob_id, room = proto.Room(s.convs.home.id)}}
+		in_room := []proto.User_Info {
+			users[0],
+			{num = bob.num, account = bob_id, room = proto.Room(s.convs.home.id)},
+		}
 		testing.expect_value(t, len(users_seen_by(s, in_room, hidden, alice.account.id)), 2)
 		// Not here, as far as when he was last here goes.
 		testing.expect(t, last_seen_by(s, alice.account, bob_id, 12345) != 12345)

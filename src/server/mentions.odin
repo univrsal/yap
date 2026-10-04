@@ -59,7 +59,10 @@ mentions_resolve :: proc(
 		if m.everyone {
 			if !can(u.account, .Mention_Everyone) {
 				// Not ours to use: it says what was meant, and nothing more.
-				kept = strings.concatenate({kept[:m.start], "@", proto.MENTION_EVERYONE, kept[m.end:]}, context.temp_allocator)
+				kept = strings.concatenate(
+					{kept[:m.start], "@", proto.MENTION_EVERYONE, kept[m.end:]},
+					context.temp_allocator,
+				)
 				at = m.start + 1 + len(proto.MENTION_EVERYONE)
 				continue
 			}
@@ -96,7 +99,12 @@ mentions_resolve :: proc(
 
 // mentions_store records who message `id` mentions, in place of what was
 // recorded for it before. False if the database failed.
-mentions_store :: proc(s: ^Server, conv: ^Conv, id: proto.Msg_Id, accounts: []proto.Account_Id) -> bool {
+mentions_store :: proc(
+	s: ^Server,
+	conv: ^Conv,
+	id: proto.Msg_Id,
+	accounts: []proto.Account_Id,
+) -> bool {
 	mentions_clear(s, id) or_return
 	for a in accounts {
 		q := db_stmt(&s.db, .Mention_Add)

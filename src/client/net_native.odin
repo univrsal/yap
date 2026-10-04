@@ -1,9 +1,9 @@
 #+build !wasi
 package client
 
+import "client:conn"
 import "core:sync"
 import "core:thread"
-import "client:conn"
 
 // The network loop runs on a thread of its own, so a slow frame never
 // holds up the voice and a slow network never holds up the window.

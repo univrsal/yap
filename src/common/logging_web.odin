@@ -1,9 +1,9 @@
 #+build wasi
 package common
 
+import log "common:wlog"
 import "core:strings"
 import "core:time/datetime"
-import log "common:wlog"
 
 /*
 In a browser the log goes to the page's console, which is where anyone

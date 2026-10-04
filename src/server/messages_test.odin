@@ -155,7 +155,10 @@ test_post_and_read :: proc(t: ^testing.T) {
 		&ts,
 		bob,
 		.Msg_Post,
-		proto.encode_msg_post(buf[:], {conv = gaming.id, nonce = 5, thread_root = 999, kind = .Text, text = "re"}),
+		proto.encode_msg_post(
+			buf[:],
+			{conv = gaming.id, nonce = 5, thread_root = 999, kind = .Text, text = "re"},
+		),
 	)
 	testing.expect_value(t, status, proto.Status.Invalid)
 	status, _ = ts_ask(t, &ts, bob, .Msg_Post, []u8{1, 2, 3})
@@ -368,14 +371,24 @@ test_pictures :: proc(t: ^testing.T) {
 
 	// Posted in Gaming, where bob isn't.
 	post_buf: [proto.MSG_POST_MAX_SIZE]u8
-	body := proto.encode_msg_post(post_buf[:], {conv = gaming.id, nonce = 9, kind = .Image, blob = blob})
+	body := proto.encode_msg_post(
+		post_buf[:],
+		{conv = gaming.id, nonce = 9, kind = .Image, blob = blob},
+	)
 	status, _ = ts_ask(t, &ts, alice, .Msg_Post, body)
 	testing.expect_value(t, status, proto.Status.Ok)
 	msgs, _ := history(t, &ts, alice, gaming.id)
 	testing.expect_value(t, len(msgs), 1)
 	testing.expect_value(t, msgs[0].kind, proto.Msg_Kind.Image)
-	testing.expect_value(t, msgs[0].image, proto.Msg_Image{blob = blob, width = 640, height = 480, size = u32(len(jpeg))})
-	body = proto.encode_msg_post(post_buf[:], {conv = gaming.id, nonce = 10, kind = .Image, blob = 999})
+	testing.expect_value(
+		t,
+		msgs[0].image,
+		proto.Msg_Image{blob = blob, width = 640, height = 480, size = u32(len(jpeg))},
+	)
+	body = proto.encode_msg_post(
+		post_buf[:],
+		{conv = gaming.id, nonce = 10, kind = .Image, blob = 999},
+	)
 	status, _ = ts_ask(t, &ts, alice, .Msg_Post, body)
 	testing.expect_value(t, status, proto.Status.Not_Found)
 

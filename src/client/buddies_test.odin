@@ -3,9 +3,9 @@ package client
 
 import "core:testing"
 
-import "common:proto"
-import "client:settings"
 import "client:conn"
+import "client:settings"
+import "common:proto"
 
 @(test)
 test_buddy_list :: proc(t: ^testing.T) {
@@ -21,12 +21,22 @@ test_buddy_list :: proc(t: ^testing.T) {
 	v.me = 1
 	v.my_num = 1
 	v.server_key[0] = 9
-	v.accounts[2] = {display = "zed"}
-	v.accounts[3] = {display = "Amy"}
-	v.accounts[4] = {display = "bob"}
-	v.accounts[5] = {display = "carol"}
+	v.accounts[2] = {
+		display = "zed",
+	}
+	v.accounts[3] = {
+		display = "Amy",
+	}
+	v.accounts[4] = {
+		display = "bob",
+	}
+	v.accounts[5] = {
+		display = "carol",
+	}
 	append(&v.buddies, 2, 3, 4)
-	v.users[7] = {account = 2} // online, so first
+	v.users[7] = {
+		account = 2,
+	} 	// online, so first
 	// A DM with a buddy shows once; one with somebody else shows too,
 	// unless it was hidden and nothing's been said since.
 	append(&v.dms, conn.View_DM{id = 10, with = 3, last = 100, unread = 2})

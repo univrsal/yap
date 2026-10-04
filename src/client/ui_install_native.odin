@@ -1,12 +1,12 @@
 #+build !wasi
 package client
 
+import "client:settings"
 import log "common:wlog"
 import "core:fmt"
 import "core:os"
 import "core:strings"
 import mu "vendor:microui"
-import "client:settings"
 
 /*
 Installing yap for the current user, from the settings page: whatever

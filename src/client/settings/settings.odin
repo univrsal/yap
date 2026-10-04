@@ -7,9 +7,9 @@ import "core:fmt"
 import "core:strconv"
 import "core:strings"
 
+import "client:audio"
 import "common:."
 import "common:proto"
-import "client:audio"
 
 /*
 Client settings, kept in <config dir>/yap/settings.json:
@@ -339,13 +339,22 @@ parse_server_key :: proc(k: string) -> (server: [proto.KEY_SIZE]u8, id: u64, ok:
 	return server, id, true
 }
 
-user_settings :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, account: proto.Account_Id) -> User_Settings {
+user_settings :: proc(
+	s: ^Settings,
+	server: [proto.KEY_SIZE]u8,
+	account: proto.Account_Id,
+) -> User_Settings {
 	u := s.users[server_key(server, u64(account))] or_else DEFAULT_USER
 	u.volume = clamp(u.volume, 0, MAX_USER_VOLUME)
 	return u
 }
 
-set_user_settings :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, account: proto.Account_Id, u: User_Settings) {
+set_user_settings :: proc(
+	s: ^Settings,
+	server: [proto.KEY_SIZE]u8,
+	account: proto.Account_Id,
+	u: User_Settings,
+) {
 	key := server_key(server, u64(account))
 	if u == DEFAULT_USER {
 		if key in s.users {
@@ -363,14 +372,24 @@ set_user_settings :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, account: pro
 
 // dm_hidden is whether a DM, whose newest message is `last`, is off the
 // buddy list.
-dm_hidden :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, conv: proto.Conv_Id, last: proto.Msg_Id) -> bool {
+dm_hidden :: proc(
+	s: ^Settings,
+	server: [proto.KEY_SIZE]u8,
+	conv: proto.Conv_Id,
+	last: proto.Msg_Id,
+) -> bool {
 	upto, ok := s.hidden_dms[server_key(server, u64(conv))]
 	return ok && u64(last) <= upto
 }
 
 // hide_dm takes a DM off the buddy list until a message after `last`
 // arrives; with `last` 0 it's put back.
-hide_dm :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, conv: proto.Conv_Id, last: proto.Msg_Id) {
+hide_dm :: proc(
+	s: ^Settings,
+	server: [proto.KEY_SIZE]u8,
+	conv: proto.Conv_Id,
+	last: proto.Msg_Id,
+) {
 	key := server_key(server, u64(conv))
 	switch {
 	case last == 0:

@@ -37,31 +37,35 @@ purge_start :: proc(c: ^Voice_Client, cmd: Purge_Command) {
 	buf: [proto.PURGE_SIZE]u8
 	body := proto.encode_purge(&buf, {conv = conv, before = cmd.before, what = cmd.what})
 	request(c, .Purge, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		pictures := proto.Purge_What(tag) == .Images
-		#partial switch status {
-		case .Ok:
-			messages, blobs, _ := proto.decode_purge_answer(body)
-			notify(
-				c,
-				true,
-				fmt.tprintf(
-					"Purged %d %s; %d stored file(s) removed.",
-					messages,
-					"picture(s)" if pictures else "message(s)",
-					blobs,
-				),
-			)
-		case .Reset:
-			notify(c, false, "The connection started over during the purge; it goes on on the server.")
-		case .Conflict:
-			notify(c, false, "A purge is under way already; try again when it's done.")
-		case .Denied:
-			notify(c, false, "You aren't allowed to purge.")
-		case .Not_Found:
-			notify(c, false, "That conversation isn't there.")
-		case:
-			notify(c, false, fmt.tprintf("The server wouldn't purge (%v).", status))
-		}
-	}, u64(cmd.what))
+			pictures := proto.Purge_What(tag) == .Images
+			#partial switch status {
+			case .Ok:
+				messages, blobs, _ := proto.decode_purge_answer(body)
+				notify(
+					c,
+					true,
+					fmt.tprintf(
+						"Purged %d %s; %d stored file(s) removed.",
+						messages,
+						"picture(s)" if pictures else "message(s)",
+						blobs,
+					),
+				)
+			case .Reset:
+				notify(
+					c,
+					false,
+					"The connection started over during the purge; it goes on on the server.",
+				)
+			case .Conflict:
+				notify(c, false, "A purge is under way already; try again when it's done.")
+			case .Denied:
+				notify(c, false, "You aren't allowed to purge.")
+			case .Not_Found:
+				notify(c, false, "That conversation isn't there.")
+			case:
+				notify(c, false, fmt.tprintf("The server wouldn't purge (%v).", status))
+			}
+		}, u64(cmd.what))
 	notify(c, true, "Purging... this can take a while.")
 }

@@ -2,13 +2,13 @@ package conn
 
 import log "common:wlog"
 import "core:crypto"
-import "core:fmt"
 import "core:crypto/hash"
+import "core:fmt"
 import "core:strings"
 import "core:time"
 
-import "common:proto"
 import "client:audio"
+import "common:proto"
 
 /*
 Messages on our end (src/common/proto/msgs.odin).
@@ -198,23 +198,23 @@ Upload :: struct {
 }
 
 Message_Client :: struct {
-	caches:      map[Timeline_Key]^Conv_Cache,
+	caches:         map[Timeline_Key]^Conv_Cache,
 	// The threads open, oldest first.
-	threads:     [dynamic]Timeline_Key,
+	threads:        [dynamic]Timeline_Key,
 	// Roots fetched for the replies that point at them, or being
 	// fetched (`have` false).
-	roots:       map[proto.Msg_Id]Root,
+	roots:          map[proto.Msg_Id]Root,
 	// The conversation whose pins the UI was last shown (pins_fetch).
-	pins_conv:   proto.Conv_Id,
+	pins_conv:      proto.Conv_Id,
 	// Who reacted with what was asked for last (reactors_fetch): only
 	// its answer is shown.
 	reactors_id:    proto.Msg_Id,
 	reactors_emoji: string, // owned
-	generation:  u32,
-	outbox:      [dynamic]Pending,
+	generation:     u32,
+	outbox:         [dynamic]Pending,
 	// Typing notices: when the last one went, and for where.
-	last_typing: time.Tick,
-	typing_to:   Timeline_Key,
+	last_typing:    time.Tick,
+	typing_to:      Timeline_Key,
 }
 
 // Root is a thread's root as fetched, for its conversation.
@@ -233,7 +233,7 @@ Chat_Command :: struct {
 	thread: Timeline_Key,
 	// As typed, with `@username` for a mention, rather than stored
 	// (headless; the UI turns it into tokens itself).
-	typed: bool,
+	typed:  bool,
 }
 // We're typing in the conversation we're looking at, or in a thread.
 Typing_Command :: struct {
@@ -295,21 +295,21 @@ msg_destroy :: proc(m: ^Msg) {
 // msg_of is a message as we keep it, with its text copied.
 msg_of :: proc(m: proto.Message) -> Msg {
 	out := Msg {
-		id = m.id,
-		sender = m.sender,
-		time = m.time,
-		kind = m.kind,
-		flags = m.flags,
+		id          = m.id,
+		sender      = m.sender,
+		time        = m.time,
+		kind        = m.kind,
+		flags       = m.flags,
 		thread_root = m.thread_root,
-		edited = m.edited,
-		text = strings.clone(m.file_name if m.kind == .File else m.text),
-		image = m.image,
-		file_size = m.file_size,
+		edited      = m.edited,
+		text        = strings.clone(m.file_name if m.kind == .File else m.text),
+		image       = m.image,
+		file_size   = m.file_size,
 		reply_count = int(m.reply_count),
-		last_reply = m.last_reply,
-		system = m.system,
-		system_arg = m.system_arg,
-		forward = m.forward,
+		last_reply  = m.last_reply,
+		system      = m.system,
+		system_arg  = m.system_arg,
+		forward     = m.forward,
 	}
 	buf: [proto.MAX_REACTIONS]proto.Reaction
 	for r in proto.reactions_of(m, buf[:]) {
@@ -490,7 +490,8 @@ messages_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 				continue
 			}
 			count += 1
-			if k != key && (oldest == {} || time.tick_diff(other.used, c.msgs.caches[oldest].used) < 0) {
+			if k != key &&
+			   (oldest == {} || time.tick_diff(other.used, c.msgs.caches[oldest].used) < 0) {
 				oldest = k
 			}
 		}
@@ -530,7 +531,12 @@ messages_jump :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) {
 }
 
 @(private = "file")
-history_ask :: proc(c: ^Voice_Client, key: Timeline_Key, anchor: proto.Msg_Id, dir: proto.History_Dir) {
+history_ask :: proc(
+	c: ^Voice_Client,
+	key: Timeline_Key,
+	anchor: proto.Msg_Id,
+	dir: proto.History_Dir,
+) {
 	if !c.convs.synced {
 		return
 	}
@@ -539,7 +545,13 @@ history_ask :: proc(c: ^Voice_Client, key: Timeline_Key, anchor: proto.Msg_Id, d
 	buf: [proto.MSG_HISTORY_SIZE]u8
 	body := proto.encode_msg_history(
 		&buf,
-		{conv = key.conv, thread_root = key.root, anchor = anchor, dir = dir, limit = HISTORY_PAGE},
+		{
+			conv = key.conv,
+			thread_root = key.root,
+			anchor = anchor,
+			dir = dir,
+			limit = HISTORY_PAGE,
+		},
 	)
 	// Which window (each has a generation of its own), and what to do
 	// with the page: add it after, or have it replace the window (a
@@ -571,7 +583,11 @@ history_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u6
 	cache.loading = false
 	if status != .Ok {
 		if status != .Reset {
-			log.warnf("the server won't give us the messages of %q (%v)", room_name(c, proto.Room(conv)), status)
+			log.warnf(
+				"the server won't give us the messages of %q (%v)",
+				room_name(c, proto.Room(conv)),
+				status,
+			)
 		}
 		publish_timeline(c, key)
 		return
@@ -668,33 +684,41 @@ root_want :: proc(c: ^Voice_Client, conv: proto.Conv_Id, root: proto.Msg_Id) {
 	if root == 0 || root in c.msgs.roots || !c.convs.synced || conv not_in c.convs.convs {
 		return
 	}
-	c.msgs.roots[root] = {conv = conv}
+	c.msgs.roots[root] = {
+		conv = conv,
+	}
 	buf: [proto.MSG_HISTORY_SIZE]u8
 	body := proto.encode_msg_history(&buf, {conv = conv, anchor = root, dir = .Around, limit = 1})
-	request(c, .Msg_History, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		root := proto.Msg_Id(tag)
-		r, ok := &c.msgs.roots[root]
-		if !ok || r.have {
-			return // let go of since
-		}
-		if status != .Ok {
-			if status == .Reset {
-				delete_key(&c.msgs.roots, root) // asked again
-			} else {
-				publish_root_missing(c, root)
+	request(
+		c,
+		.Msg_History,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			root := proto.Msg_Id(tag)
+			r, ok := &c.msgs.roots[root]
+			if !ok || r.have {
+				return // let go of since
 			}
-			return
-		}
-		buf: [1]proto.Message
-		_, got, read := proto.decode_history_page(body, buf[:])
-		if !read || len(got) != 1 || got[0].id != root {
-			publish_root_missing(c, root)
-			return
-		}
-		r.have, r.msg = true, msg_of(got[0])
-		want_picture(c, got[0])
-		publish_root(c, r^)
-	}, u64(root))
+			if status != .Ok {
+				if status == .Reset {
+					delete_key(&c.msgs.roots, root) // asked again
+				} else {
+					publish_root_missing(c, root)
+				}
+				return
+			}
+			buf: [1]proto.Message
+			_, got, read := proto.decode_history_page(body, buf[:])
+			if !read || len(got) != 1 || got[0].id != root {
+				publish_root_missing(c, root)
+				return
+			}
+			r.have, r.msg = true, msg_of(got[0])
+			want_picture(c, got[0])
+			publish_root(c, r^)
+		},
+		u64(root),
+	)
 }
 
 @(private = "file")
@@ -784,7 +808,12 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 		shown, _ := mentions_display(m.text, c.auth.accounts, c.auth.me)
 		publish_mentioned(c, account_display(c, m.sender), room_name(c, proto.Room(m.conv)), shown)
 		if c.view == nil {
-			log.infof("[mention] %s mentioned you in %s: %s", account_display(c, m.sender), room_name(c, proto.Room(m.conv)), shown)
+			log.infof(
+				"[mention] %s mentioned you in %s: %s",
+				account_display(c, m.sender),
+				room_name(c, proto.Room(m.conv)),
+				shown,
+			)
 		}
 	case interrupts && !quiet(c):
 		audio.voice_notification_play(&c.voice, .Message)
@@ -800,7 +829,14 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 		place := room_name(c, proto.Room(m.conv))
 		who := account_display(c, m.sender)
 		if m.thread_root != 0 {
-			log.infof("[chat] %s %s (#%d, in the thread of #%d): %s", place, who, m.id, m.thread_root, describe(c, m))
+			log.infof(
+				"[chat] %s %s (#%d, in the thread of #%d): %s",
+				place,
+				who,
+				m.id,
+				m.thread_root,
+				describe(c, m),
+			)
 		} else {
 			log.infof("[chat] %s %s (#%d): %s", place, who, m.id, describe(c, m))
 		}
@@ -823,7 +859,12 @@ describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 	text: string
 	#partial switch m.kind {
 	case .System:
-		text = system_text(m.system, m.system_arg, account_display(c, m.sender), m.sender == c.auth.me)
+		text = system_text(
+			m.system,
+			m.system_arg,
+			account_display(c, m.sender),
+			m.sender == c.auth.me,
+		)
 	case .Text:
 		text, _ = mentions_display(m.text, c.auth.accounts, c.auth.me)
 		if .Has_Attachments in m.flags {
@@ -864,7 +905,12 @@ describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 		text = fmt.tprintf("%s (%d replies)", text, m.reply_count)
 	}
 	if .Forwarded in m.flags {
-		text = fmt.tprintf("%s (forwarded from %s, #%d)", text, account_display(c, m.forward.sender), m.forward.conv)
+		text = fmt.tprintf(
+			"%s (forwarded from %s, #%d)",
+			text,
+			account_display(c, m.forward.sender),
+			m.forward.conv,
+		)
 	}
 	return text
 }
@@ -892,7 +938,10 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 	// The conversation's window, and its thread's (a reply) or the
 	// thread it's the root of.
-	for key in ([]Timeline_Key{{m.conv, 0}, {m.conv, m.thread_root if m.thread_root != 0 else m.id}}) {
+	for key in ([]Timeline_Key {
+			{m.conv, 0},
+			{m.conv, m.thread_root if m.thread_root != 0 else m.id},
+		}) {
 		cache := c.msgs.caches[key] or_else nil
 		if cache == nil {
 			continue
@@ -916,7 +965,12 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 		pins_fetch(c, m.conv)
 	}
 	if c.view == nil {
-		log.infof("[chat] %s, message #%d is now: %s", room_name(c, proto.Room(m.conv)), m.id, describe(c, m))
+		log.infof(
+			"[chat] %s, message #%d is now: %s",
+			room_name(c, proto.Room(m.conv)),
+			m.id,
+			describe(c, m),
+		)
 	}
 }
 
@@ -1063,7 +1117,14 @@ reaction_changed :: proc(c: ^Voice_Client, change: proto.Reaction_Change) {
 			break
 		}
 		if !found && change.count > 0 {
-			append(&m.reactions, Reaction{strings.clone(change.emoji), change.count, change.account == c.auth.me && change.on})
+			append(
+				&m.reactions,
+				Reaction {
+					strings.clone(change.emoji),
+					change.count,
+					change.account == c.auth.me && change.on,
+				},
+			)
 		}
 	}
 	// Whichever windows of the conversation have it: its own, a
@@ -1111,18 +1172,24 @@ reactors_fetch :: proc(c: ^Voice_Client, id: proto.Msg_Id, emoji: string) {
 	if body == nil {
 		return
 	}
-	request(c, .Reactors_Get, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		mc := &c.msgs
-		if status != .Ok || proto.Msg_Id(tag) != mc.reactors_id {
-			return
-		}
-		buf: [proto.MAX_REACTORS]proto.Account_Id
-		total, accounts, ok := proto.decode_reactors(body, &buf)
-		if !ok {
-			return
-		}
-		publish_reactors(c, mc.reactors_id, mc.reactors_emoji, total, accounts)
-	}, u64(id))
+	request(
+		c,
+		.Reactors_Get,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			mc := &c.msgs
+			if status != .Ok || proto.Msg_Id(tag) != mc.reactors_id {
+				return
+			}
+			buf: [proto.MAX_REACTORS]proto.Account_Id
+			total, accounts, ok := proto.decode_reactors(body, &buf)
+			if !ok {
+				return
+			}
+			publish_reactors(c, mc.reactors_id, mc.reactors_emoji, total, accounts)
+		},
+		u64(id),
+	)
 }
 
 // React with an emoji to a message, or (`on` false) take it back.
@@ -1140,17 +1207,33 @@ msg_react :: proc(c: ^Voice_Client, cmd: React_Command) {
 	if body == nil {
 		return
 	}
-	request(c, .Msg_React, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		#partial switch status {
-		case .Ok, .Reset:
-		case .Too_Large:
-			notify(c, false, fmt.tprintf("A message can't have more than %d different reactions.", proto.MAX_REACTIONS))
-		case .Invalid:
-			notify(c, false, "That isn't an emoji that can be reacted with here.")
-		case:
-			notify(c, false, fmt.tprintf("The server wouldn't take that reaction (%v).", status))
-		}
-	})
+	request(
+		c,
+		.Msg_React,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Ok, .Reset:
+			case .Too_Large:
+				notify(
+					c,
+					false,
+					fmt.tprintf(
+						"A message can't have more than %d different reactions.",
+						proto.MAX_REACTIONS,
+					),
+				)
+			case .Invalid:
+				notify(c, false, "That isn't an emoji that can be reacted with here.")
+			case:
+				notify(
+					c,
+					false,
+					fmt.tprintf("The server wouldn't take that reaction (%v).", status),
+				)
+			}
+		},
+	)
 }
 
 // Forward a message (Msg_Forward) to a conversation; headless, to a
@@ -1169,21 +1252,26 @@ msg_forward :: proc(c: ^Voice_Client, cmd: Forward_Command) {
 	}
 	buf: [proto.MSG_FORWARD_SIZE]u8
 	body := proto.encode_msg_forward(&buf, {conv = conv, nonce = new_nonce(), msg = cmd.msg})
-	request(c, .Msg_Forward, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		#partial switch status {
-		case .Ok:
-			notify(c, true, "Forwarded.")
-		case .Reset:
-		case .Not_Found:
-			notify(c, false, "That message, or where it was to go, isn't there for you.")
-		case .Invalid:
-			notify(c, false, "That message can't be forwarded.")
-		case .Denied:
-			notify(c, false, "You can't post there.")
-		case:
-			notify(c, false, fmt.tprintf("The server wouldn't forward it (%v).", status))
-		}
-	})
+	request(
+		c,
+		.Msg_Forward,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Ok:
+				notify(c, true, "Forwarded.")
+			case .Reset:
+			case .Not_Found:
+				notify(c, false, "That message, or where it was to go, isn't there for you.")
+			case .Invalid:
+				notify(c, false, "That message can't be forwarded.")
+			case .Denied:
+				notify(c, false, "You can't post there.")
+			case:
+				notify(c, false, fmt.tprintf("The server wouldn't forward it (%v).", status))
+			}
+		},
+	)
 }
 
 // Change a message of ours (Msg_Edit), delete one (Msg_Delete), or pin or
@@ -1240,7 +1328,11 @@ change_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64
 	case .Denied:
 		notify(c, false, "You aren't allowed to do that to this message.")
 	case .Too_Large:
-		notify(c, false, fmt.tprintf("A conversation can't have more than %d pinned messages.", proto.MAX_PINS))
+		notify(
+			c,
+			false,
+			fmt.tprintf("A conversation can't have more than %d pinned messages.", proto.MAX_PINS),
+		)
 	case .Not_Found:
 		notify(c, false, "That message isn't there any more.")
 	case:
@@ -1257,29 +1349,41 @@ pins_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	c.msgs.pins_conv = conv
 	publish_pins_loading(c, conv)
 	buf: [4]u8
-	request(c, .Pins_Get, proto.encode_conv_id(&buf, conv), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		conv := proto.Conv_Id(tag)
-		if c.msgs.pins_conv != conv || status != .Ok {
-			return
-		}
-		buf: [proto.MAX_PINS]proto.Message
-		pins, ok := proto.decode_message_list(body, buf[:])
-		if !ok {
-			return
-		}
-		for m in pins {
-			want_picture(c, m)
-		}
-		publish_pins(c, conv, pins)
-		if c.view == nil {
-			if len(pins) == 0 {
-				log.infof("[pins] %s: nothing pinned", room_name(c, proto.Room(conv)))
+	request(
+		c,
+		.Pins_Get,
+		proto.encode_conv_id(&buf, conv),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			conv := proto.Conv_Id(tag)
+			if c.msgs.pins_conv != conv || status != .Ok {
+				return
+			}
+			buf: [proto.MAX_PINS]proto.Message
+			pins, ok := proto.decode_message_list(body, buf[:])
+			if !ok {
+				return
 			}
 			for m in pins {
-				log.infof("[pins] %s %s (#%d): %s", room_name(c, proto.Room(conv)), account_display(c, m.sender), m.id, describe(c, m))
+				want_picture(c, m)
 			}
-		}
-	}, u64(conv))
+			publish_pins(c, conv, pins)
+			if c.view == nil {
+				if len(pins) == 0 {
+					log.infof("[pins] %s: nothing pinned", room_name(c, proto.Room(conv)))
+				}
+				for m in pins {
+					log.infof(
+						"[pins] %s %s (#%d): %s",
+						room_name(c, proto.Room(conv)),
+						account_display(c, m.sender),
+						m.id,
+						describe(c, m),
+					)
+				}
+			}
+		},
+		u64(conv),
+	)
 }
 
 // messages_jump_to has the window of the conversation we're looking at
@@ -1349,7 +1453,12 @@ messages_restart :: proc(c: ^Voice_Client, forget := false) {
 // chat_send puts a message in the outbox: for the conversation we're
 // looking at, or with `dm_to`, the DM with that account, or with
 // `thread`, a reply in that thread.
-chat_send :: proc(c: ^Voice_Client, raw: string, dm_to: proto.Account_Id = 0, thread := Timeline_Key{}) {
+chat_send :: proc(
+	c: ^Voice_Client,
+	raw: string,
+	dm_to: proto.Account_Id = 0,
+	thread := Timeline_Key{},
+) {
 	buf: [proto.MAX_CHAT_SIZE]u8
 	text := proto.sanitize_message(raw, buf[:])
 	conv, state, ok := post_target(c, dm_to)
@@ -1429,14 +1538,20 @@ msg_find :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) -> (Ms
 // to_the_end has a conversation's window reach its end, where what we
 // post is shown: the newest page replaces one scrolled far back.
 to_the_end :: proc(c: ^Voice_Client, key: Timeline_Key) {
-	if cache := c.msgs.caches[key] or_else nil; cache != nil && !cache.have_newest && !cache.loading {
+	if cache := c.msgs.caches[key] or_else nil;
+	   cache != nil && !cache.have_newest && !cache.loading {
 		history_ask(c, key, 0, .Before)
 	}
 }
 
 // chat_send_image puts a picture in the outbox, for where chat_send
 // would; it takes over `jpeg`.
-chat_send_image :: proc(c: ^Voice_Client, jpeg: []u8, width, height: int, dm_to: proto.Account_Id = 0) {
+chat_send_image :: proc(
+	c: ^Voice_Client,
+	jpeg: []u8,
+	width, height: int,
+	dm_to: proto.Account_Id = 0,
+) {
 	conv, state, ok := post_target(c, dm_to, .Put)
 	if len(jpeg) == 0 || len(jpeg) > proto.MAX_IMAGE_SIZE || !ok {
 		log.warnf("not sending a picture of %d bytes", len(jpeg))
@@ -1515,9 +1630,18 @@ handle_typing :: proc(c: ^Voice_Client, pt: []u8) {
 	publish_typing(c, {conv, root}, account)
 	if c.view == nil {
 		if root != 0 {
-			log.infof("[chat] %s is typing in %s, in the thread of #%d", account_display(c, account), room_name(c, proto.Room(conv)), root)
+			log.infof(
+				"[chat] %s is typing in %s, in the thread of #%d",
+				account_display(c, account),
+				room_name(c, proto.Room(conv)),
+				root,
+			)
 		} else {
-			log.infof("[chat] %s is typing in %s", account_display(c, account), room_name(c, proto.Room(conv)))
+			log.infof(
+				"[chat] %s is typing in %s",
+				account_display(c, account),
+				room_name(c, proto.Room(conv)),
+			)
 		}
 	}
 }
@@ -1680,8 +1804,8 @@ put_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 		proto.blob_sender_destroy(&p.upload.send)
 		now := time.tick_now()
 		p.upload = {
-			handle     = handle,
-			send       = {data = p.jpeg},
+			handle = handle,
+			send = {data = p.jpeg},
 			last_chunk = now,
 			last_heard = now,
 		}
@@ -1714,7 +1838,9 @@ upload_step :: proc(c: ^Voice_Client, p: ^Pending) {
 		send_data(c, proto.encode_blob_chunk(buf[:], up.handle, index, data))
 		up.tokens -= f32(len(data))
 	}
-	if proto.blob_sender_idle(&up.send) && !p.asking && time.tick_since(up.last_heard) > UPLOAD_QUIET {
+	if proto.blob_sender_idle(&up.send) &&
+	   !p.asking &&
+	   time.tick_since(up.last_heard) > UPLOAD_QUIET {
 		up.last_heard = now
 		p.asking = true
 		put_buf: [proto.BLOB_PUT_SIZE]u8
@@ -1787,7 +1913,10 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 		return
 	case .Invalid:
 		if p.kind == .File {
-			outbox_give_up(c, "That file can't be offered: only archives, pictures and videos, in a DM.")
+			outbox_give_up(
+				c,
+				"That file can't be offered: only archives, pictures and videos, in a DM.",
+			)
 			return
 		}
 		if p.root != 0 {
@@ -1889,19 +2018,19 @@ View_Timeline :: struct {
 
 // A message of ours on its way.
 View_Pending :: struct {
-	nonce: u64,
+	nonce:     u64,
 	// A message with files: what they are and how far they've got, and
 	// whether they're still being uploaded (it's not in the outbox yet).
-	files: []View_Pending_File, // owned
+	files:     []View_Pending_File, // owned
 	uploading: bool,
-	conv:  proto.Conv_Id, // 0 while its DM is being opened
-	root:  proto.Msg_Id, // a reply's thread
-	avatar: bool, // not a message: our new picture
-	dm_to: proto.Account_Id,
-	kind:  proto.Msg_Kind,
-	text:  string, // owned
-	width: int, // a picture's
-	height: int,
+	conv:      proto.Conv_Id, // 0 while its DM is being opened
+	root:      proto.Msg_Id, // a reply's thread
+	avatar:    bool, // not a message: our new picture
+	dm_to:     proto.Account_Id,
+	kind:      proto.Msg_Kind,
+	text:      string, // owned
+	width:     int, // a picture's
+	height:    int,
 }
 
 View_Typing :: struct {
@@ -2058,7 +2187,13 @@ View_Reactors :: struct {
 }
 
 @(private = "file")
-publish_reactors :: proc(c: ^Voice_Client, id: proto.Msg_Id, emoji: string, total: int, accounts: []proto.Account_Id) {
+publish_reactors :: proc(
+	c: ^Voice_Client,
+	id: proto.Msg_Id,
+	emoji: string,
+	total: int,
+	accounts: []proto.Account_Id,
+) {
 	v := c.view
 	if v == nil {
 		log.infof("[chat] #%d %s: %d reacted (%v)", id, emoji, total, accounts)
@@ -2130,7 +2265,8 @@ publish_timeline :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	have := tl.messages[:]
 	// A window that doesn't overlap the one shown replaces it.
 	if len(src) == 0 ||
-	   (len(have) > 0 && (have[len(have) - 1].id < src[0].id || have[0].id > src[len(src) - 1].id)) {
+	   (len(have) > 0 &&
+			   (have[len(have) - 1].id < src[0].id || have[0].id > src[len(src) - 1].id)) {
 		timeline_clear_messages(tl)
 	}
 	if len(src) > 0 {
@@ -2170,7 +2306,8 @@ publish_timeline :: proc(c: ^Voice_Client, key: Timeline_Key) {
 			}
 		}
 	}
-	tl.have_oldest, tl.have_newest, tl.loading = cache.have_oldest, cache.have_newest, cache.loading
+	tl.have_oldest, tl.have_newest, tl.loading =
+		cache.have_oldest, cache.have_newest, cache.loading
 	tl.revision += 1
 }
 
@@ -2261,7 +2398,12 @@ publish_typing_done :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.A
 // is_typing says whether an account has told us lately it's typing in a
 // conversation (or with `root`, in that thread of it). Call with the
 // mutex held.
-is_typing :: proc(v: ^View, account: proto.Account_Id, conv: proto.Conv_Id, root: proto.Msg_Id = 0) -> bool {
+is_typing :: proc(
+	v: ^View,
+	account: proto.Account_Id,
+	conv: proto.Conv_Id,
+	root: proto.Msg_Id = 0,
+) -> bool {
 	t, ok := v.typing[account]
 	return ok && t.to == {conv, root} && time.tick_since(t.at) < TYPING_SHOW
 }

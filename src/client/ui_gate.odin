@@ -1,13 +1,13 @@
 package client
 
+import "client:audio"
+import "client:conn"
+import "client:settings"
 import log "common:wlog"
 import "core:fmt"
 import "core:sync"
 import "core:time"
 import mu "vendor:microui"
-import "client:audio"
-import "client:settings"
-import "client:conn"
 
 /*
 The voice gate's part of the settings page: an on/off toggle, a live

@@ -178,7 +178,10 @@ attach_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 
 	up := new(Attach_Upload)
 	up.id = new_transfer_id(s)
-	up.part, _ = os.join_path({blob_incoming_dir(&s.blobs), fmt.tprintf("%x", up.id)}, context.allocator)
+	up.part, _ = os.join_path(
+		{blob_incoming_dir(&s.blobs), fmt.tprintf("%x", up.id)},
+		context.allocator,
+	)
 	file, err := os.open(up.part, {.Read, .Write, .Create, .Trunc}, {.Read_User, .Write_User})
 	if err != nil {
 		log.errorf("could not create %s: %v", up.part, err)
@@ -294,7 +297,14 @@ send_cancel :: proc(s: ^Server, u: ^Conn, id: u64, reason: proto.File_Cancel_Rea
 
 // attach_upload_for is the upload `id` of `account`'s, once it's kept,
 // for a post to name.
-attach_upload_for :: proc(s: ^Server, account: proto.Account_Id, id: u64) -> (^Attach_Upload, bool) {
+attach_upload_for :: proc(
+	s: ^Server,
+	account: proto.Account_Id,
+	id: u64,
+) -> (
+	^Attach_Upload,
+	bool,
+) {
 	up := s.attach.uploads[id] or_else nil
 	if up == nil || up.account != account || up.blob == 0 {
 		return nil, false
@@ -427,7 +437,8 @@ attachments_sync :: proc(s: ^Server) {
 			append(&drop, id)
 			continue
 		}
-		if time.tick_diff(up.recv.last_ack, now) >= proto.TRANSFER_ACK_INTERVAL && can_send(s, up.conn) {
+		if time.tick_diff(up.recv.last_ack, now) >= proto.TRANSFER_ACK_INTERVAL &&
+		   can_send(s, up.conn) {
 			send_upload_ack(s, up.conn, up, now)
 		}
 	}
@@ -507,7 +518,11 @@ send_download :: proc(s: ^Server, down: ^Attach_Download, now: time.Tick, budget
 			send_cancel(s, down.conn, down.id, .Failed)
 			return true
 		}
-		attach_send(s, down.conn, proto.encode_transfer_chunk(out[:], .Download_Chunk, down.id, index, chunk))
+		attach_send(
+			s,
+			down.conn,
+			proto.encode_transfer_chunk(out[:], .Download_Chunk, down.id, index, chunk),
+		)
 		proto.transfer_sent(&down.send, index, first, len(chunk), now)
 		budget^ -= len(chunk)
 	}

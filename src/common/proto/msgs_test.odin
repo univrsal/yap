@@ -8,7 +8,14 @@ import "core:testing"
 test_message_record :: proc(t: ^testing.T) {
 	long := strings.repeat("x", MAX_CHAT_SIZE, context.temp_allocator)
 	msgs := []Message {
-		{id = 1, conv = 2, sender = 3, time = 1_700_000_000_123, kind = .Text, text = "Zoë says ☺"},
+		{
+			id = 1,
+			conv = 2,
+			sender = 3,
+			time = 1_700_000_000_123,
+			kind = .Text,
+			text = "Zoë says ☺",
+		},
 		{id = 2, conv = 2, sender = 3, time = 1, kind = .Text, text = long},
 		{
 			id = 3,
@@ -43,7 +50,10 @@ test_message_record :: proc(t: ^testing.T) {
 		testing.expect_value(t, string(encode_message(again[:], got)), string(body))
 		testing.expect(t, got.id == m.id && got.conv == m.conv && got.sender == m.sender)
 		testing.expect(t, got.kind == m.kind && got.flags == m.flags && got.time == m.time)
-		testing.expect(t, got.text == m.text && got.image == m.image && got.file_name == m.file_name)
+		testing.expect(
+			t,
+			got.text == m.text && got.image == m.image && got.file_name == m.file_name,
+		)
 		testing.expect(t, got.reply_count == m.reply_count && got.system_arg == m.system_arg)
 		// Cut short, or with something left over, it doesn't read.
 		_, ok = decode_message(body[:len(body) - 1])
@@ -84,7 +94,13 @@ test_history_page :: proc(t: ^testing.T) {
 	long := strings.repeat("y", MAX_CHAT_SIZE, context.temp_allocator)
 	msgs := make([]Message, MAX_HISTORY_LIMIT, context.temp_allocator)
 	for &m, i in msgs {
-		m = {id = Msg_Id(100 + i), conv = 1, sender = 2, kind = .Text, text = long}
+		m = {
+			id     = Msg_Id(100 + i),
+			conv   = 1,
+			sender = 2,
+			kind   = .Text,
+			text   = long,
+		}
 	}
 	// A page of the longest messages is as many as fit in one stream
 	// message (the server cuts pages to fit, history_page).
@@ -101,7 +117,11 @@ test_history_page :: proc(t: ^testing.T) {
 	testing.expect_value(t, got[fit - 1].text, long)
 
 	// Where they don't all fit, as many as do, from the first.
-	small := make([]u8, 3 * message_size(msgs[0]) + HISTORY_HEADER_SIZE + 10, context.temp_allocator)
+	small := make(
+		[]u8,
+		3 * message_size(msgs[0]) + HISTORY_HEADER_SIZE + 10,
+		context.temp_allocator,
+	)
 	body, count = encode_history_page(small, 0, msgs)
 	testing.expect_value(t, count, 3)
 	more, got, ok = decode_history_page(body, buf[:])
@@ -129,7 +149,10 @@ test_msg_bodies :: proc(t: ^testing.T) {
 	p, ok := decode_msg_post(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, p, Msg_Post{conv = 3, nonce = 0xfeed, kind = .Text, text = "hello"})
-	body = encode_msg_post(post_buf[:], {conv = 3, nonce = 1, thread_root = 8, kind = .Image, blob = 42})
+	body = encode_msg_post(
+		post_buf[:],
+		{conv = 3, nonce = 1, thread_root = 8, kind = .Image, blob = 42},
+	)
 	p, ok = decode_msg_post(body)
 	testing.expect(t, ok && p.kind == .Image && p.blob == 42 && p.thread_root == 8)
 	_, ok = decode_msg_post(body[:len(body) - 1])
@@ -152,7 +175,12 @@ test_msg_bodies :: proc(t: ^testing.T) {
 
 	// History.
 	history_buf: [MSG_HISTORY_SIZE]u8
-	want := Msg_History{conv = 5, anchor = 900, dir = .Around, limit = 20}
+	want := Msg_History {
+		conv   = 5,
+		anchor = 900,
+		dir    = .Around,
+		limit  = 20,
+	}
 	h, h_ok := decode_msg_history(encode_msg_history(&history_buf, want))
 	testing.expect(t, h_ok)
 	testing.expect_value(t, h, want)
@@ -166,16 +194,25 @@ test_msg_bodies :: proc(t: ^testing.T) {
 
 	// Blobs.
 	put_buf: [BLOB_PUT_SIZE]u8
-	put := Blob_Put{kind = .Image, size = 1234, width = 640, height = 480}
+	put := Blob_Put {
+		kind   = .Image,
+		size   = 1234,
+		width  = 640,
+		height = 480,
+	}
 	put.hash[0], put.hash[31] = 1, 2
 	got_put, put_ok := decode_blob_put(encode_blob_put(&put_buf, put))
 	testing.expect(t, put_ok)
 	testing.expect_value(t, got_put, put)
 
 	answer_buf: [BLOB_PUT_ANSWER_SIZE]u8
-	blob, have, handle, answer_ok := decode_blob_put_answer(encode_blob_put_answer(&answer_buf, 7, true, 0))
+	blob, have, handle, answer_ok := decode_blob_put_answer(
+		encode_blob_put_answer(&answer_buf, 7, true, 0),
+	)
 	testing.expect(t, answer_ok && blob == 7 && have && handle == 0)
-	blob, have, handle, answer_ok = decode_blob_put_answer(encode_blob_put_answer(&answer_buf, 0, false, 99))
+	blob, have, handle, answer_ok = decode_blob_put_answer(
+		encode_blob_put_answer(&answer_buf, 0, false, 99),
+	)
 	testing.expect(t, answer_ok && !have && handle == 99)
 	_, _, _, answer_ok = decode_blob_put_answer(encode_blob_put_answer(&answer_buf, 0, true, 0))
 	testing.expect(t, !answer_ok)
@@ -222,7 +259,15 @@ test_typing :: proc(t: ^testing.T) {
 
 @(test)
 test_old_chat_retired :: proc(t: ^testing.T) {
-	for kind in ([]Message_Kind{.Chat_Send, .Chat_Sent, .Chat, .Chat_Received, .Image_Send, .Image_Get, .Image_Gone}) {
+	for kind in ([]Message_Kind {
+			.Chat_Send,
+			.Chat_Sent,
+			.Chat,
+			.Chat_Received,
+			.Image_Send,
+			.Image_Get,
+			.Image_Gone,
+		}) {
 		pt := make([]u8, 64, context.temp_allocator)
 		pt[0] = u8(kind)
 		_, ok := message_kind(pt)
@@ -338,7 +383,9 @@ test_reactions :: proc(t: ^testing.T) {
 	id, emoji, on, react_ok := decode_msg_react(encode_msg_react(&react_buf, 5, "🎉", true))
 	testing.expect(t, react_ok && id == 5 && emoji == "🎉" && on)
 	changed_buf: [REACTION_CHANGED_MAX_SIZE]u8
-	c, changed_ok := decode_reaction_changed(encode_reaction_changed(&changed_buf, {5, 6, ":party:", 2, 7, false}))
+	c, changed_ok := decode_reaction_changed(
+		encode_reaction_changed(&changed_buf, {5, 6, ":party:", 2, 7, false}),
+	)
 	testing.expect(t, changed_ok)
 	testing.expect_value(t, c, Reaction_Change{5, 6, ":party:", 2, 7, false})
 }
@@ -378,8 +425,16 @@ test_attachments_record :: proc(t: ^testing.T) {
 		text             = "",
 		attachment_count = 2,
 	}
-	m.attachments[0] = {blob = 11, size = 1 << 33, name = "big.iso"}
-	m.attachments[1] = {blob = 12, size = 7, name = "setup.exe"}
+	m.attachments[0] = {
+		blob = 11,
+		size = 1 << 33,
+		name = "big.iso",
+	}
+	m.attachments[1] = {
+		blob = 12,
+		size = 7,
+		name = "setup.exe",
+	}
 	buf: [MESSAGE_MAX_SIZE]u8
 	body := encode_message(buf[:], m)
 	testing.expect_value(t, len(body), message_size(m))
@@ -395,7 +450,11 @@ test_attachments_record :: proc(t: ^testing.T) {
 	m.text = strings.repeat("t", MAX_CHAT_SIZE, context.temp_allocator)
 	m.attachment_count = MAX_ATTACHMENTS
 	for &a in m.attachments {
-		a = {blob = 1, size = 1, name = name}
+		a = {
+			blob = 1,
+			size = 1,
+			name = name,
+		}
 	}
 	testing.expect(t, encode_message(buf[:], m) != nil)
 

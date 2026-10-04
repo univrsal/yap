@@ -1,9 +1,9 @@
 package client
 
 import "base:intrinsics"
+import glfw "client:wglfw"
 import NS "core:sys/darwin/Foundation"
 import vglfw "vendor:glfw"
-import glfw "client:wglfw"
 
 /*
 On macOS the window has no title bar of its own: the UI runs up to the
@@ -64,7 +64,12 @@ titlebar_area :: proc(window: glfw.WindowHandle) -> (left, height: f32) {
 	if height <= 0 {
 		return 0, 0
 	}
-	if zoom := intrinsics.objc_send(^NS.View, w, "standardWindowButton:", NS.UInteger(ZOOM_BUTTON)); zoom != nil {
+	if zoom := intrinsics.objc_send(
+		^NS.View,
+		w,
+		"standardWindowButton:",
+		NS.UInteger(ZOOM_BUTTON),
+	); zoom != nil {
 		left = f32(NS.MaxX(intrinsics.objc_send(NS.Rect, zoom, "frame"))) + TITLEBAR_GAP
 	}
 	return
@@ -88,7 +93,12 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 		return
 	}
 	defaults := NS.UserDefaults.standardUserDefaults()
-	action := intrinsics.objc_send(^NS.String, defaults, "stringForKey:", NS.AT("AppleActionOnDoubleClick"))
+	action := intrinsics.objc_send(
+		^NS.String,
+		defaults,
+		"stringForKey:",
+		NS.AT("AppleActionOnDoubleClick"),
+	)
 	switch {
 	case action == nil:
 		w->performZoom()

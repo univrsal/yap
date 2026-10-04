@@ -1,18 +1,18 @@
 package client
 
-import log "common:wlog"
 import "base:runtime"
+import log "common:wlog"
 import "core:fmt"
 import "core:math"
 import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:clipboard"
+import "client:conn"
 import "client:platform"
 import "client:render"
-import "client:conn"
+import "common:proto"
 
 /*
 Showing pictures. The network thread hands over the JPEG it fetched
@@ -232,7 +232,12 @@ image_block :: proc(
 		append(&im.draws, render.Image_Draw{texture = t.texture})
 		// An icon command, which the renderer draws as this frame's image
 		// number N; microui takes care of clipping it to the panel.
-		mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
+		mu.draw_icon(
+			ctx,
+			mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1),
+			rect,
+			{255, 255, 255, 255},
+		)
 		return
 	}
 
@@ -259,7 +264,15 @@ attached picture, ui_attachments.odin): the area doesn't change when it
 arrives. Clicking it opens the viewer. `save` says the viewer's Save was
 pressed for this one, for the caller to save it its own way.
 */
-image_fitted :: proc(ui: ^UI, key: u64, state: conn.Image_State, data: []u8, area: mu.Rect) -> (save: bool) {
+image_fitted :: proc(
+	ui: ^UI,
+	key: u64,
+	state: conn.Image_State,
+	data: []u8,
+	area: mu.Rect,
+) -> (
+	save: bool,
+) {
 	ctx := &ui.ctx
 	im := &ui.images
 	t, known := im.textures[key]
@@ -278,7 +291,12 @@ image_fitted :: proc(ui: ^UI, key: u64, state: conn.Image_State, data: []u8, are
 	t.frame = im.frame
 	im.textures[key] = t
 	append(&im.draws, render.Image_Draw{texture = t.texture})
-	mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
+	mu.draw_icon(
+		ctx,
+		mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1),
+		rect,
+		{255, 255, 255, 255},
+	)
 	if mu.mouse_over(ctx, rect) {
 		ui.chat.hovering = true // the pointing hand
 		if .LEFT in ctx.mouse_pressed_bits {
@@ -286,7 +304,10 @@ image_fitted :: proc(ui: ^UI, key: u64, state: conn.Image_State, data: []u8, are
 		}
 	}
 	if key == im.viewer {
-		im.shown = {width = u16(min(t.width, 65535)), height = u16(min(t.height, 65535))}
+		im.shown = {
+			width  = u16(min(t.width, 65535)),
+			height = u16(min(t.height, 65535)),
+		}
 		im.state = .Ready
 		if im.viewer_save {
 			im.viewer_save = false
@@ -375,7 +396,12 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		// Zoomed in, the image is bigger than the picture area; only the
 		// part inside it is drawn.
 		mu.push_clip_rect(ctx, picture)
-		mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
+		mu.draw_icon(
+			ctx,
+			mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1),
+			rect,
+			{255, 255, 255, 255},
+		)
 		mu.pop_clip_rect(ctx)
 	} else {
 		mu.draw_rect(ctx, rect, {50, 50, 50, 255})
@@ -575,6 +601,12 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	rows := (len(e.names) + cols - 1) / cols
 	u0 := f32(index % cols) / f32(cols)
 	v0 := f32(index / cols) / f32(rows)
-	append(&im.draws, render.Image_Draw{texture = t.texture, uv = {u0, v0, u0 + 1 / f32(cols), v0 + 1 / f32(rows)}})
+	append(
+		&im.draws,
+		render.Image_Draw {
+			texture = t.texture,
+			uv = {u0, v0, u0 + 1 / f32(cols), v0 + 1 / f32(rows)},
+		},
+	)
 	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
 }

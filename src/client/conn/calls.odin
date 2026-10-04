@@ -4,8 +4,8 @@ import log "common:wlog"
 import "core:fmt"
 import "core:time"
 
-import "common:proto"
 import "client:audio"
+import "common:proto"
 
 /*
 Calls on our end (src/common/proto/calls.odin): the one call our account
@@ -23,13 +23,13 @@ Call_Status :: enum {
 }
 
 Call_Client :: struct {
-	id:       proto.Call_Id,
-	status:   Call_Status,
-	peer:     proto.Account_Id, // whom it's with
+	id:     proto.Call_Id,
+	status: Call_Status,
+	peer:   proto.Account_Id, // whom it's with
 	// This connection started it, or answered it: it's the one in it.
-	here:     bool,
-	asking:   bool, // a Call_Start is out
-	since:    time.Tick, // when it started ringing, or was answered
+	here:   bool,
+	asking: bool, // a Call_Start is out
+	since:  time.Tick, // when it started ringing, or was answered
 }
 
 // Call somebody; headless, by name.
@@ -64,28 +64,45 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 	}
 	cc.asking = true
 	buf: [4]u8
-	request(c, .Call_Start, proto.encode_account_id(&buf, account), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		cc := &c.call
-		cc.asking = false
-		#partial switch status {
-		case .Ok:
-			id, _ := proto.decode_call_id(body)
-			// Ours, from here: told of it as it changes (Call_Changed).
-			if cc.id == 0 || cc.id == id {
-				cc.id = id
-				cc.here = true
-				publish_call(c)
+	request(
+		c,
+		.Call_Start,
+		proto.encode_account_id(&buf, account),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			cc := &c.call
+			cc.asking = false
+			#partial switch status {
+			case .Ok:
+				id, _ := proto.decode_call_id(body)
+				// Ours, from here: told of it as it changes (Call_Changed).
+				if cc.id == 0 || cc.id == id {
+					cc.id = id
+					cc.here = true
+					publish_call(c)
+				}
+				call_sounds(c)
+			case .Closed:
+				notify(
+					c,
+					false,
+					fmt.tprintf(
+						"%s isn't here; they'll see a missed call.",
+						account_display(c, proto.Account_Id(tag)),
+					),
+				)
+			case .Conflict:
+				notify(
+					c,
+					false,
+					fmt.tprintf("%s is in a call.", account_display(c, proto.Account_Id(tag))),
+				)
+			case .Reset:
+			case:
+				notify(c, false, fmt.tprintf("The call couldn't be made (%v).", status))
 			}
-			call_sounds(c)
-		case .Closed:
-			notify(c, false, fmt.tprintf("%s isn't here; they'll see a missed call.", account_display(c, proto.Account_Id(tag))))
-		case .Conflict:
-			notify(c, false, fmt.tprintf("%s is in a call.", account_display(c, proto.Account_Id(tag))))
-		case .Reset:
-		case:
-			notify(c, false, fmt.tprintf("The call couldn't be made (%v).", status))
-		}
-	}, u64(account))
+		},
+		u64(account),
+	)
 }
 
 call_answer :: proc(c: ^Voice_Client) {
@@ -95,13 +112,18 @@ call_answer :: proc(c: ^Voice_Client) {
 	}
 	cc.here = true
 	buf: [4]u8
-	request(c, .Call_Accept, proto.encode_call_id(&buf, cc.id), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status != .Ok && status != .Reset {
-			c.call.here = false
-			notify(c, false, "That call was answered elsewhere, or is over.")
-			publish_call(c)
-		}
-	})
+	request(
+		c,
+		.Call_Accept,
+		proto.encode_call_id(&buf, cc.id),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status != .Ok && status != .Reset {
+				c.call.here = false
+				notify(c, false, "That call was answered elsewhere, or is over.")
+				publish_call(c)
+			}
+		},
+	)
 	publish_call(c)
 }
 
@@ -164,14 +186,22 @@ calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 				since  = time.tick_now(),
 			}
 			if c.view == nil {
-				log.infof("[call] in a call with %s%s", account_display(c, peer), "" if here else " (on another device)")
+				log.infof(
+					"[call] in a call with %s%s",
+					account_display(c, peer),
+					"" if here else " (on another device)",
+				)
 			}
 		case .Ended:
 			if cc.id == change.id {
 				cc^ = {}
 			}
 			if c.view == nil {
-				log.infof("[call] the call with %s is over (%v)", account_display(c, peer), change.reason)
+				log.infof(
+					"[call] the call with %s is over (%v)",
+					account_display(c, peer),
+					change.reason,
+				)
 			}
 		}
 	case:

@@ -30,7 +30,15 @@ taken up.
 // msg_of_member is message `id` if the connection's account is a member
 // of its conversation, with the conversation; else why not.
 @(private = "file")
-msg_of_member :: proc(s: ^Server, u: ^Conn, id: proto.Msg_Id) -> (m: proto.Message, conv: ^Conv, status: proto.Status) {
+msg_of_member :: proc(
+	s: ^Server,
+	u: ^Conn,
+	id: proto.Msg_Id,
+) -> (
+	m: proto.Message,
+	conv: ^Conv,
+	status: proto.Status,
+) {
 	found: bool
 	m, found = msg_by_id(s, id)
 	if !found {

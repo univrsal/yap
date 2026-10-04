@@ -24,7 +24,16 @@ search :: proc(
 ) {
 	buf: [proto.MSG_SEARCH_MAX_SIZE]u8
 	body: []u8
-	status, body = ts_ask(t, ts, u, .Msg_Search, proto.encode_msg_search(&buf, {conv = conv, before = before, limit = limit, query = query}))
+	status, body = ts_ask(
+		t,
+		ts,
+		u,
+		.Msg_Search,
+		proto.encode_msg_search(
+			&buf,
+			{conv = conv, before = before, limit = limit, query = query},
+		),
+	)
 	ids = make([dynamic]proto.Msg_Id, context.temp_allocator)
 	if status != .Ok {
 		return
@@ -54,7 +63,15 @@ test_fts_query :: proc(t: ^testing.T) {
 			{"from:alice", "", "alice", false},
 		}) {
 		query, from, ok := fts_query(c.typed)
-		testing.expectf(t, ok == c.ok && query == c.query && from == c.from, "%q: got %q %q %v", c.typed, query, from, ok)
+		testing.expectf(
+			t,
+			ok == c.ok && query == c.query && from == c.from,
+			"%q: got %q %q %v",
+			c.typed,
+			query,
+			from,
+			ok,
+		)
 	}
 }
 
@@ -142,10 +159,21 @@ test_search :: proc(t: ^testing.T) {
 	testing.expect(t, db_exec(&s.db, "UPDATE messages SET time = 1"))
 	buf: [proto.PURGE_SIZE]u8
 	ts.requests += 1
-	rpc_handle(s, admin, proto.encode_request(ts.requests, .Purge, proto.encode_purge(&buf, {conv = home, before = proto.Unix_Ms(unix_ms())})))
+	rpc_handle(
+		s,
+		admin,
+		proto.encode_request(
+			ts.requests,
+			.Purge,
+			proto.encode_purge(&buf, {conv = home, before = proto.Unix_Ms(unix_ms())}),
+		),
+	)
 	retention_drain(&s.retention, &s.blobs, s)
 	_, ids, _, _ = search(t, &ts, bob, home, "running")
 	testing.expect_value(t, len(ids), 0)
-	n, _ := db_pragma_int(&s.db, "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH 'morning'")
+	n, _ := db_pragma_int(
+		&s.db,
+		"SELECT count(*) FROM messages_fts WHERE messages_fts MATCH 'morning'",
+	)
 	testing.expect_value(t, n, 0)
 }

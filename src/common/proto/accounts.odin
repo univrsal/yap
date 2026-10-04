@@ -219,7 +219,13 @@ encode_auth_login_response :: proc(
 	return out[:]
 }
 
-decode_auth_login_response :: proc(body: []u8) -> (account: Account_Id, flags: Account_Flags, ok: bool) {
+decode_auth_login_response :: proc(
+	body: []u8,
+) -> (
+	account: Account_Id,
+	flags: Account_Flags,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}
@@ -354,7 +360,13 @@ encode_account_password_set :: proc(out: []u8, account: Account_Id, password: st
 	return written(&w)
 }
 
-decode_account_password_set :: proc(body: []u8) -> (account: Account_Id, password: string, ok: bool) {
+decode_account_password_set :: proc(
+	body: []u8,
+) -> (
+	account: Account_Id,
+	password: string,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}
@@ -364,7 +376,16 @@ decode_account_password_set :: proc(body: []u8) -> (account: Account_Id, passwor
 }
 
 ACCOUNT_MAX_SIZE ::
-	4 + 1 + (1 + MAX_USERNAME_SIZE) + (1 + MAX_NAME_SIZE) + (1 + MAX_STATUS_SIZE) + 8 + 8 + 1 + 4 * MAX_ACCOUNT_ROLES + 1
+	4 +
+	1 +
+	(1 + MAX_USERNAME_SIZE) +
+	(1 + MAX_NAME_SIZE) +
+	(1 + MAX_STATUS_SIZE) +
+	8 +
+	8 +
+	1 +
+	4 * MAX_ACCOUNT_ROLES +
+	1
 
 // encode_account writes an account as it's told to clients.
 encode_account :: proc(out: []u8, a: Account) -> []u8 {
@@ -436,7 +457,14 @@ encode_self :: proc(
 	return out[:]
 }
 
-decode_self :: proc(body: []u8) -> (account: Account_Id, permissions: Permissions, flags: Account_Flags, ok: bool) {
+decode_self :: proc(
+	body: []u8,
+) -> (
+	account: Account_Id,
+	permissions: Permissions,
+	flags: Account_Flags,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}

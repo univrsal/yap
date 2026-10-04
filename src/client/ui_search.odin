@@ -5,8 +5,8 @@ import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
+import "common:proto"
 
 /*
 Searching messages (src/common/proto/search.odin): a floating window,
@@ -35,7 +35,14 @@ SEARCH_WINDOW :: "Search"
 // window. Call with the View locked.
 search_button :: proc(ui: ^UI) {
 	s := &ui.search
-	if .SUBMIT in icon_button(ui, "search", .Search, "Close the search" if s.open else "Search messages", CHAT_NAME_COLOR if s.open else {}) {
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "search",
+		   .Search,
+		   "Close the search" if s.open else "Search messages",
+		   CHAT_NAME_COLOR if s.open else {},
+	   ) {
 		s.open = !s.open
 		s.placed = false
 	}
@@ -97,7 +104,12 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		with_text_color(ctx, CHAT_DIM_COLOR, "Searching...", label_proc)
 		return
 	case len(found.found) == 0 && !found.more:
-		with_text_color(ctx, CHAT_DIM_COLOR, fmt.tprintf("Nothing has %q.", found.query), label_proc)
+		with_text_color(
+			ctx,
+			CHAT_DIM_COLOR,
+			fmt.tprintf("Nothing has %q.", found.query),
+			label_proc,
+		)
 		return
 	case len(found.found) == 0:
 		// Stopped for time before finding any: older messages are left.
@@ -137,7 +149,12 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 				names[j] = f.name
 			}
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, CHAT_DIM_COLOR, fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)), mu.text)
+			with_text_color(
+				ctx,
+				CHAT_DIM_COLOR,
+				fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)),
+				mu.text,
+			)
 		}
 		if i < len(found.found) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
@@ -149,7 +166,13 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		with_text_color(ctx, CHAT_DIM_COLOR, "Searching...", label_proc)
 	} else if found.more {
 		mu.layout_row(ctx, {140})
-		if .SUBMIT in stable_button(ctx, "more", "Search further" if len(found.found) == 0 else "More...", {.ALIGN_CENTER}) {
+		if .SUBMIT in
+		   stable_button(
+			   ctx,
+			   "more",
+			   "Search further" if len(found.found) == 0 else "More...",
+			   {.ALIGN_CENTER},
+		   ) {
 			conn.push_command(cmds, conn.Search_Command{more = true})
 		}
 	}

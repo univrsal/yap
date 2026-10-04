@@ -52,7 +52,13 @@ Transfer_Ack :: struct {
 	complete: bool,
 }
 
-encode_transfer_chunk :: proc(out: []u8, kind: Message_Kind, id: u64, index: u32, data: []u8) -> []u8 {
+encode_transfer_chunk :: proc(
+	out: []u8,
+	kind: Message_Kind,
+	id: u64,
+	index: u32,
+	data: []u8,
+) -> []u8 {
 	out[0] = u8(kind)
 	endian.unchecked_put_u64le(out[1:], id)
 	endian.unchecked_put_u32le(out[9:], index)
@@ -63,11 +69,18 @@ encode_transfer_chunk :: proc(out: []u8, kind: Message_Kind, id: u64, index: u32
 // decode_transfer_chunk: the caller has checked it's at least a header
 // long (message_kind).
 decode_transfer_chunk :: proc(pt: []u8) -> (id: u64, index: u32, data: []u8) {
-	return endian.unchecked_get_u64le(pt[1:]), endian.unchecked_get_u32le(pt[9:]), pt[FILE_CHUNK_HEADER_SIZE:]
+	return endian.unchecked_get_u64le(pt[1:]),
+		endian.unchecked_get_u32le(pt[9:]),
+		pt[FILE_CHUNK_HEADER_SIZE:]
 }
 
 // encode_transfer_ack writes as many of `missing` as fit.
-encode_transfer_ack :: proc(out: []u8, kind: Message_Kind, ack: Transfer_Ack, missing: []u32) -> []u8 {
+encode_transfer_ack :: proc(
+	out: []u8,
+	kind: Message_Kind,
+	ack: Transfer_Ack,
+	missing: []u32,
+) -> []u8 {
 	count := min(len(missing), FILE_ACK_MAX_MISSING, (len(out) - FILE_ACK_HEADER_SIZE) / 4)
 	out[0] = u8(kind)
 	endian.unchecked_put_u64le(out[1:], ack.id)
@@ -101,7 +114,11 @@ decode_transfer_ack :: proc(pt: []u8) -> (ack: Transfer_Ack, count: int, missing
 	return ack, count, pt[FILE_ACK_HEADER_SIZE:], true
 }
 
-encode_transfer_cancel :: proc(out: ^[TRANSFER_CANCEL_SIZE]u8, id: u64, reason: File_Cancel_Reason) -> []u8 {
+encode_transfer_cancel :: proc(
+	out: ^[TRANSFER_CANCEL_SIZE]u8,
+	id: u64,
+	reason: File_Cancel_Reason,
+) -> []u8 {
 	out[0] = u8(Message_Kind.Transfer_Cancel)
 	endian.unchecked_put_u64le(out[1:], id)
 	out[9] = u8(reason)
@@ -169,7 +186,9 @@ transfer_pick :: proc(s: ^Transfer_Sender, now: time.Tick) -> (index: u32, first
 	// Everything sent once, but the acks have stopped moving: what's
 	// after the highest chunk they have may have been lost too, and they
 	// can't know to ask for it.
-	if s.next == s.chunks && s.base < s.chunks && time.tick_diff(s.progress_at, now) > TRANSFER_TAIL_WAIT {
+	if s.next == s.chunks &&
+	   s.base < s.chunks &&
+	   time.tick_diff(s.progress_at, now) > TRANSFER_TAIL_WAIT {
 		from := s.base
 		if s.acked {
 			from = max(from, s.highest + 1)
@@ -204,7 +223,13 @@ transfer_sent :: proc(s: ^Transfer_Sender, index: u32, first: bool, bytes: int, 
 
 // transfer_acked takes what the receiver says it has; true once it has
 // everything.
-transfer_acked :: proc(s: ^Transfer_Sender, ack: Transfer_Ack, count: int, missing: []u8, now: time.Tick) -> bool {
+transfer_acked :: proc(
+	s: ^Transfer_Sender,
+	ack: Transfer_Ack,
+	count: int,
+	missing: []u8,
+	now: time.Tick,
+) -> bool {
 	s.peer_rate = ack.max_rate
 	if ack.complete {
 		s.base = s.chunks

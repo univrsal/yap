@@ -163,29 +163,29 @@ Msg_Image :: struct {
 
 // Message is one message. Strings point into what it was read from.
 Message :: struct {
-	id:             Msg_Id,
-	conv:           Conv_Id,
-	sender:         Account_Id,
-	time:           Unix_Ms,
-	kind:           Msg_Kind,
-	flags:          Msg_Flags,
-	thread_root:    Msg_Id,
-	edited:         Unix_Ms,
-	text:           string, // .Text
-	image:          Msg_Image, // .Image
-	file_size:      u64, // .File
-	file_name:      string,
-	system:         u8, // .System: what happened
-	system_arg:     u32,
-	reply_count:    u32, // .Has_Thread
-	last_reply:     Msg_Id,
-	forward:        Forward_Info, // .Forwarded: where the original was
+	id:               Msg_Id,
+	conv:             Conv_Id,
+	sender:           Account_Id,
+	time:             Unix_Ms,
+	kind:             Msg_Kind,
+	flags:            Msg_Flags,
+	thread_root:      Msg_Id,
+	edited:           Unix_Ms,
+	text:             string, // .Text
+	image:            Msg_Image, // .Image
+	file_size:        u64, // .File
+	file_name:        string,
+	system:           u8, // .System: what happened
+	system_arg:       u32,
+	reply_count:      u32, // .Has_Thread
+	last_reply:       Msg_Id,
+	forward:          Forward_Info, // .Forwarded: where the original was
 	// .Has_Attachments: the files, the first `attachment_count`.
 	attachment_count: int,
-	attachments:    [MAX_ATTACHMENTS]Attachment,
+	attachments:      [MAX_ATTACHMENTS]Attachment,
 	// The reactions, as they came, for when there are any.
-	reaction_count: int,
-	reactions:      []u8,
+	reaction_count:   int,
+	reactions:        []u8,
 }
 
 // What a message's files take at most.
@@ -193,7 +193,21 @@ ATTACHMENTS_MAX_SIZE :: 1 + MAX_ATTACHMENTS * (8 + 8 + 1 + MAX_FILE_NAME)
 
 // A message takes at most this much.
 MESSAGE_MAX_SIZE ::
-	8 + 4 + 4 + 8 + 1 + 1 + 8 + 8 + (2 + MAX_CHAT_SIZE) + ATTACHMENTS_MAX_SIZE + 4 + 8 + FORWARD_INFO_SIZE + 1 + MAX_REACTIONS * (1 + MAX_REACTION_EMOJI + 2 + 1)
+	8 +
+	4 +
+	4 +
+	8 +
+	1 +
+	1 +
+	8 +
+	8 +
+	(2 + MAX_CHAT_SIZE) +
+	ATTACHMENTS_MAX_SIZE +
+	4 +
+	8 +
+	FORWARD_INFO_SIZE +
+	1 +
+	MAX_REACTIONS * (1 + MAX_REACTION_EMOJI + 2 + 1)
 
 MAX_HISTORY_LIMIT :: 50
 
@@ -417,17 +431,17 @@ decode_message :: proc(body: []u8) -> (m: Message, ok: bool) {
 
 // Msg_Post is what posting a message says.
 Msg_Post :: struct {
-	conv:        Conv_Id,
-	nonce:       u64,
-	thread_root: Msg_Id,
-	kind:        Msg_Kind, // .Text, .Image or .File
-	text:        string, // .Text, and .File's name; raw until sanitized
-	blob:        Blob_Id, // .Image
-	file_size:   u64, // .File
+	conv:             Conv_Id,
+	nonce:            u64,
+	thread_root:      Msg_Id,
+	kind:             Msg_Kind, // .Text, .Image or .File
+	text:             string, // .Text, and .File's name; raw until sanitized
+	blob:             Blob_Id, // .Image
+	file_size:        u64, // .File
 	// .Text: the uploads of its files (Attach_Put), the first
 	// `attachment_count`.
 	attachment_count: int,
-	uploads:     [MAX_ATTACHMENTS]u64,
+	uploads:          [MAX_ATTACHMENTS]u64,
 }
 
 encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
@@ -540,14 +554,7 @@ decode_msg_history :: proc(body: []u8) -> (h: Msg_History, ok: bool) {
 // encode_history_page writes a Msg_History response: `msgs`, oldest
 // first, or as many of them from the start as fit in `out`; `count` says
 // how many. Whoever cuts a page short says so in `more`.
-encode_history_page :: proc(
-	out: []u8,
-	more: u8,
-	msgs: []Message,
-) -> (
-	body: []u8,
-	count: int,
-) {
+encode_history_page :: proc(out: []u8, more: u8, msgs: []Message) -> (body: []u8, count: int) {
 	w := Writer {
 		buf = out,
 	}
@@ -568,14 +575,7 @@ encode_history_page :: proc(
 }
 
 // decode_history_page reads one into `buf`.
-decode_history_page :: proc(
-	body: []u8,
-	buf: []Message,
-) -> (
-	more: u8,
-	msgs: []Message,
-	ok: bool,
-) {
+decode_history_page :: proc(body: []u8, buf: []Message) -> (more: u8, msgs: []Message, ok: bool) {
 	r := Reader {
 		buf = body,
 	}
@@ -699,9 +699,9 @@ encode_typing_down :: proc(
 }
 
 decode_typing_down :: proc(pt: []u8) -> (conv: Conv_Id, thread_root: Msg_Id, account: Account_Id) {
-	return Conv_Id(endian.unchecked_get_u32le(pt[1:])),
-		Msg_Id(endian.unchecked_get_u64le(pt[5:])),
-		Account_Id(endian.unchecked_get_u32le(pt[13:]))
+	return Conv_Id(
+		endian.unchecked_get_u32le(pt[1:]),
+	), Msg_Id(endian.unchecked_get_u64le(pt[5:])), Account_Id(endian.unchecked_get_u32le(pt[13:]))
 }
 
 encode_msg_edit :: proc(out: ^[MSG_EDIT_MAX_SIZE]u8, id: Msg_Id, text: string) -> []u8 {
@@ -835,7 +835,12 @@ reactions_of :: proc(m: Message, buf: []Reaction) -> []Reaction {
 	return buf[:n]
 }
 
-encode_msg_react :: proc(out: ^[MSG_REACT_MAX_SIZE]u8, id: Msg_Id, emoji: string, on: bool) -> []u8 {
+encode_msg_react :: proc(
+	out: ^[MSG_REACT_MAX_SIZE]u8,
+	id: Msg_Id,
+	emoji: string,
+	on: bool,
+) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
@@ -884,7 +889,14 @@ encode_reactors :: proc(out: ^[REACTORS_MAX_SIZE]u8, total: int, accounts: []Acc
 }
 
 // decode_reactors reads a Reactors_Get answer, the accounts into `buf`.
-decode_reactors :: proc(body: []u8, buf: ^[MAX_REACTORS]Account_Id) -> (total: int, accounts: []Account_Id, ok: bool) {
+decode_reactors :: proc(
+	body: []u8,
+	buf: ^[MAX_REACTORS]Account_Id,
+) -> (
+	total: int,
+	accounts: []Account_Id,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}
@@ -906,7 +918,10 @@ decode_msg_react :: proc(body: []u8) -> (id: Msg_Id, emoji: string, on: bool, ok
 	id = Msg_Id(get_u64(&r))
 	emoji = get_str8(&r)
 	on = get_u8(&r) != 0
-	return id, emoji, on, !r.overflow && id != 0 && len(emoji) > 0 && len(emoji) <= MAX_REACTION_EMOJI
+	return id,
+		emoji,
+		on,
+		!r.overflow && id != 0 && len(emoji) > 0 && len(emoji) <= MAX_REACTION_EMOJI
 }
 
 Reaction_Change :: struct {

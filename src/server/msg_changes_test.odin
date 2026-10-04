@@ -8,7 +8,13 @@ import "common:proto"
 // Tests of editing, deleting and pinning, on the Test_Server of
 // auth_test.odin.
 
-edit_as :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id, text: string) -> proto.Status {
+edit_as :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	id: proto.Msg_Id,
+	text: string,
+) -> proto.Status {
 	buf := new([proto.MSG_EDIT_MAX_SIZE]u8, context.temp_allocator)
 	status, _ := ts_ask(t, ts, u, .Msg_Edit, proto.encode_msg_edit(buf, id, text))
 	return status
@@ -21,14 +27,25 @@ delete_as :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id) -
 }
 
 @(private = "file")
-pin_as :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id, on: bool) -> proto.Status {
+pin_as :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	id: proto.Msg_Id,
+	on: bool,
+) -> proto.Status {
 	buf := new([proto.MSG_PIN_SIZE]u8, context.temp_allocator)
 	status, _ := ts_ask(t, ts, u, .Msg_Pin, proto.encode_msg_pin(buf, id, on))
 	return status
 }
 
 @(private = "file")
-pins_of :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id) -> []proto.Message {
+pins_of :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	conv: proto.Conv_Id,
+) -> []proto.Message {
 	buf: [4]u8
 	status, body := ts_ask(t, ts, u, .Pins_Get, proto.encode_conv_id(&buf, conv))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -41,7 +58,15 @@ pins_of :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id) 
 // changed is the last Msg_Changed a connection was sent about `id`
 // since the last look, and whether there was one.
 @(private = "file")
-changed :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id) -> (m: proto.Message, told: bool) {
+changed :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	id: proto.Msg_Id,
+) -> (
+	m: proto.Message,
+	told: bool,
+) {
 	for e in ts_events(t, ts, u) {
 		if e.op != .Msg_Changed {
 			continue
@@ -91,7 +116,11 @@ test_edit :: proc(t: ^testing.T) {
 		posted, found := msg_by_id(&ts.s, lines)
 		testing.expect(t, found)
 		testing.expect_value(t, posted.text, "first\n  second\n\n\nthird")
-		testing.expect_value(t, edit_as(t, &ts, alice, lines, "first\nsecond\n\tthird"), proto.Status.Ok)
+		testing.expect_value(
+			t,
+			edit_as(t, &ts, alice, lines, "first\nsecond\n\tthird"),
+			proto.Status.Ok,
+		)
 		m, told = changed(t, &ts, bob, lines)
 		testing.expect(t, told, "bob wasn't told of the edit")
 		testing.expect_value(t, m.text, "first\nsecond\n third")
@@ -137,7 +166,13 @@ test_delete :: proc(t: ^testing.T) {
 	blob, stored := upload(t, &ts, alice, jpeg, put)
 	testing.expect(t, stored)
 	post_buf: [proto.MSG_POST_MAX_SIZE]u8
-	status, answer := ts_ask(t, &ts, alice, .Msg_Post, proto.encode_msg_post(post_buf[:], {conv = home, nonce = 1, kind = .Image, blob = blob}))
+	status, answer := ts_ask(
+		t,
+		&ts,
+		alice,
+		.Msg_Post,
+		proto.encode_msg_post(post_buf[:], {conv = home, nonce = 1, kind = .Image, blob = blob}),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	picture, _, _ := proto.decode_msg_posted(answer)
 	id_buf: [proto.BLOB_GET_SIZE]u8

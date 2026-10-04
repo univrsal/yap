@@ -97,7 +97,8 @@ run_purge_command :: proc(args: []string) -> int {
 		if conv == nil {
 			return 1
 		}
-		place = fmt.tprintf("#%s", conv.name) if conv.kind == .Channel else fmt.tprintf("the DM %s", target)
+		place =
+			fmt.tprintf("#%s", conv.name) if conv.kind == .Channel else fmt.tprintf("the DM %s", target)
 	}
 
 	r: Retention
@@ -131,9 +132,19 @@ run_purge_command :: proc(args: []string) -> int {
 	}
 	day := format_day(before)
 	if files {
-		fmt.printfln("the files of messages in %s from before %s: up to %d messages' (pinned messages keep theirs)", place, day, with_files)
+		fmt.printfln(
+			"the files of messages in %s from before %s: up to %d messages' (pinned messages keep theirs)",
+			place,
+			day,
+			with_files,
+		)
 	} else if pictures {
-		fmt.printfln("the pictures in %s from before %s: up to %d (pinned messages keep theirs)", place, day, pics)
+		fmt.printfln(
+			"the pictures in %s from before %s: up to %d (pinned messages keep theirs)",
+			place,
+			day,
+			pics,
+		)
 	} else {
 		fmt.printfln(
 			"the messages in %s from before %s: up to %d, %d of them pictures (pinned ones are kept, and so are threads with newer replies)",
@@ -178,7 +189,10 @@ purge_target :: proc(convs: ^Convs, a: ^Accounts, name: string) -> ^Conv {
 		x := account_find(a, name[:plus])
 		y := account_find(a, name[plus + 1:])
 		if x == nil || y == nil {
-			fmt.eprintfln("%s: there's no such account", name[:plus] if x == nil else name[plus + 1:])
+			fmt.eprintfln(
+				"%s: there's no such account",
+				name[:plus] if x == nil else name[plus + 1:],
+			)
 			return nil
 		}
 		pair := [2]proto.Account_Id{min(x.id, y.id), max(x.id, y.id)}

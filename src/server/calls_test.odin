@@ -8,7 +8,15 @@ import "common:proto"
 // Tests of calls, on the Test_Server of auth_test.odin.
 
 @(private = "file")
-call_start :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, to: proto.Account_Id) -> (proto.Status, proto.Call_Id) {
+call_start :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	to: proto.Account_Id,
+) -> (
+	proto.Status,
+	proto.Call_Id,
+) {
 	buf: [4]u8
 	status, body := ts_ask(t, ts, u, .Call_Start, proto.encode_account_id(&buf, to))
 	id, _ := proto.decode_call_id(body)
@@ -16,7 +24,13 @@ call_start :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, to: proto.Account_
 }
 
 @(private = "file")
-call_ask :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, op: proto.Request_Op, id: proto.Call_Id) -> proto.Status {
+call_ask :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	op: proto.Request_Op,
+	id: proto.Call_Id,
+) -> proto.Status {
 	buf: [4]u8
 	status, _ := ts_ask(t, ts, u, op, proto.encode_call_id(&buf, id))
 	return status
@@ -25,7 +39,15 @@ call_ask :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, op: proto.Request_Op
 // call_events is what a connection was told of calls since the last
 // look: whether it rang, and the last change.
 @(private = "file")
-call_events :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> (rang: bool, change: proto.Call_Change, changed: bool) {
+call_events :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+) -> (
+	rang: bool,
+	change: proto.Call_Change,
+	changed: bool,
+) {
 	for e in ts_events(t, ts, u) {
 		#partial switch e.op {
 		case .Call_Ring:
@@ -42,7 +64,14 @@ call_events :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> (rang: bool, c
 // last_note is the newest message of the DM between two accounts: the
 // line a call left there.
 @(private = "file")
-last_note :: proc(t: ^testing.T, ts: ^Test_Server, a, b: proto.Account_Id) -> (m: proto.Message, ok: bool) {
+last_note :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	a, b: proto.Account_Id,
+) -> (
+	m: proto.Message,
+	ok: bool,
+) {
 	conv := dm_find(&ts.s.convs, a, b)
 	if conv == nil || conv.last_msg == 0 {
 		return
@@ -72,7 +101,13 @@ test_calls :: proc(t: ^testing.T) {
 	status, _ := call_start(t, &ts, alice, carol_acc.id)
 	testing.expect_value(t, status, proto.Status.Closed)
 	note, found := last_note(t, &ts, alice_acc.id, carol_acc.id)
-	testing.expect(t, found && note.kind == .System && note.system == u8(proto.Call_System.Missed) && note.sender == alice_acc.id)
+	testing.expect(
+		t,
+		found &&
+		note.kind == .System &&
+		note.system == u8(proto.Call_System.Missed) &&
+		note.sender == alice_acc.id,
+	)
 	status, _ = call_start(t, &ts, alice, alice_acc.id)
 	testing.expect_value(t, status, proto.Status.Invalid)
 	status, _ = call_start(t, &ts, alice, 999)
@@ -85,7 +120,12 @@ test_calls :: proc(t: ^testing.T) {
 	for u in ([]^Conn{laptop, phone}) {
 		rang, change, _ := call_events(t, &ts, u)
 		testing.expect(t, rang, "a device of bob's didn't ring")
-		testing.expect(t, change.state == .Ringing && change.caller == alice_acc.id && change.callee == bob_acc.id)
+		testing.expect(
+			t,
+			change.state == .Ringing &&
+			change.caller == alice_acc.id &&
+			change.callee == bob_acc.id,
+		)
 	}
 	_, change, changed := call_events(t, &ts, alice)
 	testing.expect(t, changed && change.state == .Ringing)
@@ -156,7 +196,13 @@ test_calls :: proc(t: ^testing.T) {
 	// Joining a channel's voice ends it.
 	_, call = call_start(t, &ts, alice, bob_acc.id)
 	call_ask(t, &ts, laptop, .Call_Accept, call)
-	status, _ = ts_ask(t, &ts, laptop, .Voice_Join, proto.encode_room(&room_buf, proto.Room(s.convs.home.id)))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		laptop,
+		.Voice_Join,
+		proto.encode_room(&room_buf, proto.Room(s.convs.home.id)),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, call not_in s.calls.by_id)
 	testing.expect_value(t, alice.room, 0)
@@ -181,7 +227,13 @@ test_calls :: proc(t: ^testing.T) {
 	// The line it leaves comes back with the history, as it was.
 	history_buf: [proto.MSG_HISTORY_SIZE]u8
 	conv := dm_find(&s.convs, alice_acc.id, bob_acc.id)
-	status2, body := ts_ask(t, &ts, laptop, .Msg_History, proto.encode_msg_history(&history_buf, {conv = conv.id, limit = proto.MAX_HISTORY_LIMIT}))
+	status2, body := ts_ask(
+		t,
+		&ts,
+		laptop,
+		.Msg_History,
+		proto.encode_msg_history(&history_buf, {conv = conv.id, limit = proto.MAX_HISTORY_LIMIT}),
+	)
 	testing.expect_value(t, status2, proto.Status.Ok)
 	page_buf := make([]proto.Message, proto.MAX_HISTORY_LIMIT, context.temp_allocator)
 	_, page, _ := proto.decode_history_page(body, page_buf)

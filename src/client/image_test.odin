@@ -166,7 +166,10 @@ test_avatar_prepare :: proc(t: ^testing.T) {
 	testing.expect_value(t, img.height, 256)
 	testing.expect(t, len(img.jpeg) <= 64 * 1024)
 	w, h, comp: i32
-	testing.expect(t, stbi.info_from_memory(raw_data(img.jpeg), i32(len(img.jpeg)), &w, &h, &comp) == 1)
+	testing.expect(
+		t,
+		stbi.info_from_memory(raw_data(img.jpeg), i32(len(img.jpeg)), &w, &h, &comp) == 1,
+	)
 	testing.expect(t, w == 256 && h == 256)
 
 	noisy := gradient_image(900, 900)

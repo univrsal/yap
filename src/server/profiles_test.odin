@@ -18,7 +18,15 @@ profile :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, p: proto.Profile_Set)
 // told is the last Account_Changed a connection was sent about `id`
 // since the last look.
 @(private = "file")
-told :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Account_Id) -> (a: proto.Account, heard: bool) {
+told :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	id: proto.Account_Id,
+) -> (
+	a: proto.Account,
+	heard: bool,
+) {
 	for e in ts_events(t, ts, u) {
 		if e.op != .Account_Changed {
 			continue
@@ -53,7 +61,20 @@ test_status :: proc(t: ^testing.T) {
 
 		// Sanitized, cut to its size, and told to everyone.
 		long := "  in a meeting\tuntil three, then lunch, then probably another meeting after that one  "
-		testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_STATUS, status = long, status_until = proto.Unix_Ms(now + 30 * 60 * 1000)}), proto.Status.Ok)
+		testing.expect_value(
+			t,
+			profile(
+				t,
+				&ts,
+				a,
+				{
+					mask = proto.PROFILE_STATUS,
+					status = long,
+					status_until = proto.Unix_Ms(now + 30 * 60 * 1000),
+				},
+			),
+			proto.Status.Ok,
+		)
 		acc, heard := told(t, &ts, b, alice.id)
 		testing.expect(t, heard)
 		testing.expect(t, len(acc.status) <= proto.MAX_STATUS_SIZE)
@@ -70,8 +91,25 @@ test_status :: proc(t: ^testing.T) {
 
 		// One that doesn't end, for bob; and alice's again, ending sooner.
 		bob := account_find(&ts.s.accounts, "bob")
-		testing.expect_value(t, profile(t, &ts, b, {mask = proto.PROFILE_STATUS, status = "here", status_until = 0}), proto.Status.Ok)
-		testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_STATUS, status = "brb", status_until = proto.Unix_Ms(now + 1000)}), proto.Status.Ok)
+		testing.expect_value(
+			t,
+			profile(t, &ts, b, {mask = proto.PROFILE_STATUS, status = "here", status_until = 0}),
+			proto.Status.Ok,
+		)
+		testing.expect_value(
+			t,
+			profile(
+				t,
+				&ts,
+				a,
+				{
+					mask = proto.PROFILE_STATUS,
+					status = "brb",
+					status_until = proto.Unix_Ms(now + 1000),
+				},
+			),
+			proto.Status.Ok,
+		)
 		testing.expect_value(t, bob.status, "here")
 		ts_events(t, &ts, b)
 	}
@@ -97,7 +135,11 @@ test_status :: proc(t: ^testing.T) {
 	testing.expect_value(t, account_find(&ts.s.accounts, "bob").status, "here")
 
 	// No status, no end.
-	testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_STATUS, status = " ", status_until = 5}), proto.Status.Ok)
+	testing.expect_value(
+		t,
+		profile(t, &ts, a, {mask = proto.PROFILE_STATUS, status = " ", status_until = 5}),
+		proto.Status.Ok,
+	)
 	testing.expect_value(t, alice.status_until, 0)
 }
 
@@ -131,7 +173,11 @@ test_avatar :: proc(t: ^testing.T) {
 	id_buf: [proto.BLOB_GET_SIZE]u8
 	status, _ := ts_ask(t, &ts, b, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
 	testing.expect_value(t, status, proto.Status.Not_Found)
-	testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = blob}), proto.Status.Ok)
+	testing.expect_value(
+		t,
+		profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = blob}),
+		proto.Status.Ok,
+	)
 	acc, heard := told(t, &ts, b, alice.id)
 	testing.expect(t, heard)
 	testing.expect_value(t, acc.avatar, blob)
@@ -148,22 +194,53 @@ test_avatar :: proc(t: ^testing.T) {
 	big.size = proto.MAX_AVATAR_SIZE + 1
 	status, _ = ts_ask(t, &ts, a, .Blob_Put, proto.encode_blob_put(&put_buf, big))
 	testing.expect_value(t, status, proto.Status.Too_Large)
-	testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = 999}), proto.Status.Not_Found)
+	testing.expect_value(
+		t,
+		profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = 999}),
+		proto.Status.Not_Found,
+	)
 	if sheet, ok := blob_put(&s.blobs, .Emoji_Sheet, test_jpeg(16, 16, 1), 16, 16); ok {
-		testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = sheet}), proto.Status.Invalid)
+		testing.expect_value(
+			t,
+			profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = sheet}),
+			proto.Status.Invalid,
+		)
 	}
 	// A message's picture that's too big for a profile.
 	photo := test_jpeg(300, 200, 4)
-	pic, _ := upload(t, &ts, a, photo, {kind = .Image, size = len(photo), hash = blob_hash(photo), width = 300, height = 200})
-	testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = pic}), proto.Status.Too_Large)
+	pic, _ := upload(
+		t,
+		&ts,
+		a,
+		photo,
+		{kind = .Image, size = len(photo), hash = blob_hash(photo), width = 300, height = 200},
+	)
+	testing.expect_value(
+		t,
+		profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = pic}),
+		proto.Status.Too_Large,
+	)
 	// A refused request changes nothing, not even what came with it.
-	testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_STATUS | proto.PROFILE_AVATAR, status = "x", avatar = 999}), proto.Status.Not_Found)
+	testing.expect_value(
+		t,
+		profile(
+			t,
+			&ts,
+			a,
+			{mask = proto.PROFILE_STATUS | proto.PROFILE_AVATAR, status = "x", avatar = 999},
+		),
+		proto.Status.Not_Found,
+	)
 	testing.expect_value(t, alice.status, "")
 	testing.expect_value(t, alice.avatar, blob)
 
 	// Taken away.
 	ts_events(t, &ts, b)
-	testing.expect_value(t, profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = 0}), proto.Status.Ok)
+	testing.expect_value(
+		t,
+		profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = 0}),
+		proto.Status.Ok,
+	)
 	acc, _ = told(t, &ts, b, alice.id)
 	testing.expect_value(t, acc.avatar, 0)
 	status, _ = ts_ask(t, &ts, b, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
@@ -171,7 +248,13 @@ test_avatar :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-setting :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, key: string, value: []u8) -> proto.Status {
+setting :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	key: string,
+	value: []u8,
+) -> proto.Status {
 	buf := make([]u8, proto.SETTING_MAX_SIZE + 16, context.temp_allocator)
 	body := proto.encode_setting(buf, key, value)
 	status, _ := ts_ask(t, ts, u, .Setting_Set, body)
@@ -203,8 +286,28 @@ test_settings :: proc(t: ^testing.T) {
 	// Keys and values within bounds.
 	testing.expect_value(t, setting(t, &ts, laptop, "User/2", {1}), proto.Status.Invalid)
 	testing.expect_value(t, setting(t, &ts, laptop, "", {1}), proto.Status.Invalid)
-	testing.expect_value(t, setting(t, &ts, laptop, "big", make([]u8, proto.MAX_SETTING_VALUE + 1, context.temp_allocator)), proto.Status.Too_Large)
-	testing.expect_value(t, setting(t, &ts, laptop, "big", make([]u8, proto.MAX_SETTING_VALUE, context.temp_allocator)), proto.Status.Ok)
+	testing.expect_value(
+		t,
+		setting(
+			t,
+			&ts,
+			laptop,
+			"big",
+			make([]u8, proto.MAX_SETTING_VALUE + 1, context.temp_allocator),
+		),
+		proto.Status.Too_Large,
+	)
+	testing.expect_value(
+		t,
+		setting(
+			t,
+			&ts,
+			laptop,
+			"big",
+			make([]u8, proto.MAX_SETTING_VALUE, context.temp_allocator),
+		),
+		proto.Status.Ok,
+	)
 
 	// At most MAX_SETTINGS; one that's there may still change.
 	key_buf: [16]u8
@@ -249,7 +352,7 @@ fmt_key :: proc(buf: []u8, i: int) -> string {
 	n := copy(buf, "key/")
 	digits: [8]u8
 	d := 0
-	for v := i; ; v /= 10 {
+	for v := i;; v /= 10 {
 		digits[d] = u8('0' + v % 10)
 		d += 1
 		if v < 10 {

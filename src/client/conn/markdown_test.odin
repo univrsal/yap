@@ -40,7 +40,11 @@ md_atoms :: proc(text: string, parts: ..string) -> []Md_Atom {
 	atoms := make([]Md_Atom, len(parts), context.temp_allocator)
 	for part, i in parts {
 		at := strings.index(text, part)
-		atoms[i] = {at, at + len(part), strings.has_prefix(part, "http") || strings.has_prefix(part, "www.")}
+		atoms[i] = {
+			at,
+			at + len(part),
+			strings.has_prefix(part, "http") || strings.has_prefix(part, "www."),
+		}
 	}
 	return atoms
 }
@@ -97,13 +101,20 @@ test_markdown_blocks :: proc(t: ^testing.T) {
 	testing.expect_value(t, markdown_parse(">_<", nil).text, ">_<")
 
 	rt = markdown_parse("- one\n* two *it*\n  - nested\n1. first\n10. tenth\n-not\n2020 was", nil)
-	testing.expect_value(t, md_show(rt), "• one\n• two [I:it]\n  • nested\n1. first\n10. tenth\n-not\n2020 was")
+	testing.expect_value(
+		t,
+		md_show(rt),
+		"• one\n• two [I:it]\n  • nested\n1. first\n10. tenth\n-not\n2020 was",
+	)
 	kinds := [?]Md_Line_Kind{.Bullet, .Bullet, .Bullet, .Number, .Number, .Plain, .Plain}
 	markers := [?]int{4, 4, 6, 3, 4, 0, 0}
 	testing.expect_value(t, len(rt.lines), len(kinds))
 	for l, i in rt.lines {
 		testing.expectf(t, l.kind == kinds[i] && l.marker == markers[i], "line %d: %v", i, l)
-		testing.expect(t, rt.text[l.start:l.end] == strings.split_lines(rt.text, context.temp_allocator)[i])
+		testing.expect(
+			t,
+			rt.text[l.start:l.end] == strings.split_lines(rt.text, context.temp_allocator)[i],
+		)
 	}
 
 	// A code block: the fences go, a language word with them; nothing
@@ -201,7 +212,11 @@ test_markdown_links :: proc(t: ^testing.T) {
 @(test)
 test_markdown_plain :: proc(t: ^testing.T) {
 	testing.expect_value(t, markdown_plain("just words"), "just words")
-	testing.expect_value(t, markdown_plain("**a** _b_\n> c [d](https://x.org) https://y.org/a_b_c"), "a b c d https://y.org/a_b_c")
+	testing.expect_value(
+		t,
+		markdown_plain("**a** _b_\n> c [d](https://x.org) https://y.org/a_b_c"),
+		"a b c d https://y.org/a_b_c",
+	)
 	testing.expect_value(t, markdown_plain("- one\n- two"), "• one • two")
 	testing.expect_value(t, markdown_plain("```\ncode\n```"), "code")
 }
@@ -236,7 +251,18 @@ test_markdown_toggle :: proc(t: ^testing.T) {
 	}
 	for c in cases {
 		out, lo, hi := markdown_toggle(c.text, c.lo, c.hi, c.marker)
-		testing.expectf(t, out == c.out && lo == c.sel[0] && hi == c.sel[1], "%q [%d:%d] %q: %q [%d:%d]", c.text, c.lo, c.hi, c.marker, out, lo, hi)
+		testing.expectf(
+			t,
+			out == c.out && lo == c.sel[0] && hi == c.sel[1],
+			"%q [%d:%d] %q: %q [%d:%d]",
+			c.text,
+			c.lo,
+			c.hi,
+			c.marker,
+			out,
+			lo,
+			hi,
+		)
 	}
 }
 
@@ -244,7 +270,27 @@ test_markdown_toggle :: proc(t: ^testing.T) {
 // every result has to be.
 @(test)
 test_markdown_random :: proc(t: ^testing.T) {
-	pieces := [?]string{"*", "_", "~", "`", "[", "]", "(", ")", "\\", "> ", "- ", "1. ", " ", "\n", "a", "é", "```", "URL", "@M"}
+	pieces := [?]string {
+		"*",
+		"_",
+		"~",
+		"`",
+		"[",
+		"]",
+		"(",
+		")",
+		"\\",
+		"> ",
+		"- ",
+		"1. ",
+		" ",
+		"\n",
+		"a",
+		"é",
+		"```",
+		"URL",
+		"@M",
+	}
 	state: u64 = 0x9e3779b97f4a7c15
 	next :: proc(state: ^u64) -> u64 {
 		state^ ~= state^ << 13
@@ -281,16 +327,34 @@ test_markdown_random :: proc(t: ^testing.T) {
 		testing.expectf(t, at == len(rt.text), "%q: runs end at %d of %d", text, at, len(rt.text))
 		last := 0
 		for l in rt.lines {
-			testing.expectf(t, l.start >= last && l.end >= l.start && l.end <= len(rt.text), "%q: lines %v", text, rt.lines)
+			testing.expectf(
+				t,
+				l.start >= last && l.end >= l.start && l.end <= len(rt.text),
+				"%q: lines %v",
+				text,
+				rt.lines,
+			)
 			last = l.end
 		}
 		for l in rt.links {
-			testing.expectf(t, l.start < l.end && l.end <= len(rt.text), "%q: links %v", text, rt.links)
+			testing.expectf(
+				t,
+				l.start < l.end && l.end <= len(rt.text),
+				"%q: links %v",
+				text,
+				rt.links,
+			)
 		}
 		for a, i in rt.atoms {
 			if a.start >= 0 {
 				src := atoms[i]
-				testing.expectf(t, rt.text[a.start:a.end] == text[src.start:src.end], "%q: atom %d", text, i)
+				testing.expectf(
+					t,
+					rt.text[a.start:a.end] == text[src.start:src.end],
+					"%q: atom %d",
+					text,
+					i,
+				)
 			}
 		}
 	}

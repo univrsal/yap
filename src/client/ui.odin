@@ -1435,7 +1435,14 @@ session_header :: proc(ui: ^UI) {
 @(private = "file")
 log_button :: proc(ui: ^UI) {
 	open := ui.page == .Main && ui.chat.tab == .Log
-	if .SUBMIT in icon_button(ui, "log", .Log, "Back to the chat" if open else "Log", CHAT_NAME_COLOR if open else mu.Color{}) {
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "log",
+		   .Log,
+		   "Back to the chat" if open else "Log",
+		   CHAT_NAME_COLOR if open else mu.Color{},
+	   ) {
 		if open {
 			ui.chat.tab = .Chat
 		} else {

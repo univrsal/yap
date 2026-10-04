@@ -37,9 +37,9 @@ Rpc_Client :: struct {
 }
 
 Server_Details :: struct {
-	known:   bool,
-	name:    string, // owned; may be empty
-	version: string, // owned
+	known:          bool,
+	name:           string, // owned; may be empty
+	version:        string, // owned
 	// How big a file attached to a message may be; 0 if it takes none.
 	max_attachment: u64,
 }

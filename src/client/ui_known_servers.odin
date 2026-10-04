@@ -6,9 +6,9 @@ import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-import "common:proto"
-import "client:platform"
 import "client:conn"
+import "client:platform"
+import "common:proto"
 
 /*
 Server keys from the UI, rather than by editing known_servers (or, in a

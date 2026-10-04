@@ -1,6 +1,10 @@
 #+build !wasi
 package client
 
+import "client:conn"
+import "client:platform"
+import "client:settings"
+import "common:proto"
 import log "common:wlog"
 import "core:bufio"
 import "core:fmt"
@@ -9,10 +13,6 @@ import "core:strconv"
 import "core:strings"
 import "core:thread"
 import "core:time"
-import "client:settings"
-import "client:conn"
-import "client:platform"
-import "common:proto"
 
 /*
 Headless mode reads commands from stdin on a separate thread, so the
@@ -129,9 +129,15 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case line == "/channels":
 			conn.push_command(q, conn.List_Command{})
 		case strings.has_prefix(line, "/name "):
-			conn.push_command(q, conn.Display_Command{strings.clone(strings.trim_space(line[len("/name "):]))})
+			conn.push_command(
+				q,
+				conn.Display_Command{strings.clone(strings.trim_space(line[len("/name "):]))},
+			)
 		case strings.has_prefix(line, "/login "):
-			username, _, password := strings.partition(strings.trim_space(line[len("/login "):]), " ")
+			username, _, password := strings.partition(
+				strings.trim_space(line[len("/login "):]),
+				" ",
+			)
 			conn.push_command(
 				q,
 				conn.Login_Command {
@@ -144,7 +150,10 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			conn.push_command(q, conn.Logout_Command{})
 		case strings.has_prefix(line, "/passwd "):
 			old, _, new := strings.partition(strings.trim_space(line[len("/passwd "):]), " ")
-			conn.push_command(q, conn.Password_Command{old = strings.clone(old), new = strings.clone(new)})
+			conn.push_command(
+				q,
+				conn.Password_Command{old = strings.clone(old), new = strings.clone(new)},
+			)
 		case line == "/devices":
 			conn.push_command(q, conn.Devices_Command{})
 		case strings.has_prefix(line, "/revoke "):
@@ -154,7 +163,10 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				log.warn("/revoke takes a device's key (64 hex digits)")
 			}
 		case strings.has_prefix(line, "/adduser "):
-			username, _, rest := strings.partition(strings.trim_space(line[len("/adduser "):]), " ")
+			username, _, rest := strings.partition(
+				strings.trim_space(line[len("/adduser "):]),
+				" ",
+			)
 			password, _, display := strings.partition(rest, " ")
 			conn.push_command(
 				q,
@@ -165,17 +177,26 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				},
 			)
 		case strings.has_prefix(line, "/setpass "):
-			username, _, password := strings.partition(strings.trim_space(line[len("/setpass "):]), " ")
+			username, _, password := strings.partition(
+				strings.trim_space(line[len("/setpass "):]),
+				" ",
+			)
 			conn.push_command(
 				q,
-				conn.Account_Password_Command{username = strings.clone(username), password = strings.clone(password)},
+				conn.Account_Password_Command {
+					username = strings.clone(username),
+					password = strings.clone(password),
+				},
 			)
 		case line == "/listen" || line == "/unlisten":
 			conn.push_command(q, conn.Listen_Command{line == "/listen"})
 		case line == "/mute" || line == "/unmute":
 			conn.push_command(q, conn.Mute_Command{muted = line == "/mute", feedback = true})
 		case line == "/deafen" || line == "/undeafen":
-			conn.push_command(q, conn.Deafen_Command{deafened = line == "/deafen", feedback = true})
+			conn.push_command(
+				q,
+				conn.Deafen_Command{deafened = line == "/deafen", feedback = true},
+			)
 		case line == "/typing":
 			conn.push_command(q, conn.Typing_Command{})
 		case line == "/status", strings.has_prefix(line, "/status "):
@@ -184,12 +205,17 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			until: proto.Unix_Ms
 			if minutes, ok := strconv.parse_u64(first); ok {
 				if minutes > 0 {
-					until = proto.Unix_Ms(time.time_to_unix_nano(time.now()) / 1e6) + proto.Unix_Ms(minutes * 60 * 1000)
+					until =
+						proto.Unix_Ms(time.time_to_unix_nano(time.now()) / 1e6) +
+						proto.Unix_Ms(minutes * 60 * 1000)
 				}
 			} else {
 				text = rest
 			}
-			conn.push_command(q, conn.Status_Command{text = strings.clone(strings.trim_space(text)), until = until})
+			conn.push_command(
+				q,
+				conn.Status_Command{text = strings.clone(strings.trim_space(text)), until = until},
+			)
 		case strings.has_prefix(line, "/avatar "):
 			if image, ok := avatar_load(strings.trim_space(line[len("/avatar "):])); ok {
 				conn.push_command(q, conn.Avatar_Command{image = image})
@@ -198,13 +224,24 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			conn.push_command(q, conn.Avatar_Command{remove = true})
 		case strings.has_prefix(line, "/set "):
 			key, _, value := strings.partition(strings.trim_space(line[len("/set "):]), " ")
-			conn.push_command(q, conn.Setting_Command{key = strings.clone(key), value = strings.clone(value)})
+			conn.push_command(
+				q,
+				conn.Setting_Command{key = strings.clone(key), value = strings.clone(value)},
+			)
 		case strings.has_prefix(line, "/unset "):
-			conn.push_command(q, conn.Setting_Command{key = strings.clone(strings.trim_space(line[len("/unset "):]))})
+			conn.push_command(
+				q,
+				conn.Setting_Command {
+					key = strings.clone(strings.trim_space(line[len("/unset "):])),
+				},
+			)
 		case line == "/members":
 			conn.push_command(q, conn.Members_Command{})
 		case strings.has_prefix(line, "/call "):
-			conn.push_command(q, conn.Call_Command{name = strings.clone(strings.trim_space(line[len("/call "):]))})
+			conn.push_command(
+				q,
+				conn.Call_Command{name = strings.clone(strings.trim_space(line[len("/call "):]))},
+			)
 		case line == "/answer":
 			conn.push_command(q, conn.Call_Answer_Command{})
 		case line == "/hangup":
@@ -221,7 +258,13 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case strings.has_prefix(line, "/forward "):
 			id_text, _, name := strings.partition(strings.trim_space(line[len("/forward "):]), " ")
 			if id, ok := strconv.parse_u64(id_text); ok && strings.trim_space(name) != "" {
-				conn.push_command(q, conn.Forward_Command{msg = proto.Msg_Id(id), name = strings.clone(strings.trim_space(name))})
+				conn.push_command(
+					q,
+					conn.Forward_Command {
+						msg = proto.Msg_Id(id),
+						name = strings.clone(strings.trim_space(name)),
+					},
+				)
 			} else {
 				log.warn("/forward <id> <channel>")
 			}
@@ -250,41 +293,95 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				break
 			}
 			now := time.time_to_unix_nano(time.now()) / 1e6
-			conn.push_command(q, conn.Purge_Command{
-				all    = fields[0] == "all",
-				here   = fields[0] == "here",
-				before = proto.Unix_Ms(now - i64(days * 24 * 60 * 60 * 1000)),
-				what   = .Images if len(fields) > 2 && fields[2] == "pictures" else .Messages,
-			})
+			conn.push_command(
+				q,
+				conn.Purge_Command {
+					all = fields[0] == "all",
+					here = fields[0] == "here",
+					before = proto.Unix_Ms(now - i64(days * 24 * 60 * 60 * 1000)),
+					what = .Images if len(fields) > 2 && fields[2] == "pictures" else .Messages,
+				},
+			)
 		case line == "/roles":
 			conn.push_command(q, conn.Roles_Command{})
 		case strings.has_prefix(line, "/mkrole "), strings.has_prefix(line, "/setrole "):
 			_, _, rest := strings.partition(line, " ")
 			name, _, perms := strings.partition(strings.trim_space(rest), " ")
-			conn.push_command(q, conn.Role_Set_Command{name = strings.clone(name), perms = parse_perms(perms), by_name = strings.has_prefix(line, "/setrole ")})
+			conn.push_command(
+				q,
+				conn.Role_Set_Command {
+					name = strings.clone(name),
+					perms = parse_perms(perms),
+					by_name = strings.has_prefix(line, "/setrole "),
+				},
+			)
 		case strings.has_prefix(line, "/delrole "):
-			conn.push_command(q, conn.Role_Delete_Command{name = strings.clone(strings.trim_space(line[len("/delrole "):]))})
+			conn.push_command(
+				q,
+				conn.Role_Delete_Command {
+					name = strings.clone(strings.trim_space(line[len("/delrole "):])),
+				},
+			)
 		case strings.has_prefix(line, "/assign "):
 			name, _, roles := strings.partition(strings.trim_space(line[len("/assign "):]), " ")
-			conn.push_command(q, conn.Account_Roles_Command{name = strings.clone(name), role_names = strings.clone(roles)})
+			conn.push_command(
+				q,
+				conn.Account_Roles_Command {
+					name = strings.clone(name),
+					role_names = strings.clone(roles),
+				},
+			)
 		case strings.has_prefix(line, "/disable "), strings.has_prefix(line, "/enable "):
 			_, _, name := strings.partition(line, " ")
-			conn.push_command(q, conn.Account_Disable_Command{name = strings.clone(strings.trim_space(name)), on = strings.has_prefix(line, "/disable ")})
+			conn.push_command(
+				q,
+				conn.Account_Disable_Command {
+					name = strings.clone(strings.trim_space(name)),
+					on = strings.has_prefix(line, "/disable "),
+				},
+			)
 		case strings.has_prefix(line, "/private "):
-			conn.push_command(q, conn.Create_Channel_Command{name = strings.clone(strings.trim_space(line[len("/private "):])), private = true})
+			conn.push_command(
+				q,
+				conn.Create_Channel_Command {
+					name = strings.clone(strings.trim_space(line[len("/private "):])),
+					private = true,
+				},
+			)
 		case strings.has_prefix(line, "/rename "):
-			conn.push_command(q, conn.Conv_Update_Command{mask = proto.CONV_UPDATE_NAME, name = strings.clone(strings.trim_space(line[len("/rename "):]))})
+			conn.push_command(
+				q,
+				conn.Conv_Update_Command {
+					mask = proto.CONV_UPDATE_NAME,
+					name = strings.clone(strings.trim_space(line[len("/rename "):])),
+				},
+			)
 		case strings.has_prefix(line, "/topic "):
-			conn.push_command(q, conn.Conv_Update_Command{mask = proto.CONV_UPDATE_TOPIC, topic = strings.clone(strings.trim_space(line[len("/topic "):]))})
+			conn.push_command(
+				q,
+				conn.Conv_Update_Command {
+					mask = proto.CONV_UPDATE_TOPIC,
+					topic = strings.clone(strings.trim_space(line[len("/topic "):])),
+				},
+			)
 		case strings.has_prefix(line, "/move "):
 			if n, ok := strconv.parse_int(strings.trim_space(line[len("/move "):])); ok {
-				conn.push_command(q, conn.Conv_Update_Command{mask = proto.CONV_UPDATE_POSITION, position = n})
+				conn.push_command(
+					q,
+					conn.Conv_Update_Command{mask = proto.CONV_UPDATE_POSITION, position = n},
+				)
 			}
 		case line == "/archive":
 			conn.push_command(q, conn.Conv_Delete_Command{})
 		case strings.has_prefix(line, "/invite "), strings.has_prefix(line, "/kick "):
 			_, _, name := strings.partition(line, " ")
-			conn.push_command(q, conn.Conv_Member_Command{name = strings.clone(strings.trim_space(name)), on = strings.has_prefix(line, "/invite ")})
+			conn.push_command(
+				q,
+				conn.Conv_Member_Command {
+					name = strings.clone(strings.trim_space(name)),
+					on = strings.has_prefix(line, "/invite "),
+				},
+			)
 		case strings.has_prefix(line, "/typing "):
 			if n, ok := strconv.parse_u64(strings.trim_space(line[len("/typing "):])); ok {
 				conn.push_command(q, conn.Typing_Command{thread = {root = proto.Msg_Id(n)}})
@@ -292,12 +389,25 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case strings.has_prefix(line, "/thread "), strings.has_prefix(line, "/unthread "):
 			_, _, id := strings.partition(line, " ")
 			if n, ok := strconv.parse_u64(strings.trim_space(id)); ok {
-				conn.push_command(q, conn.Thread_Command{thread = {root = proto.Msg_Id(n)}, open = strings.has_prefix(line, "/thread ")})
+				conn.push_command(
+					q,
+					conn.Thread_Command {
+						thread = {root = proto.Msg_Id(n)},
+						open = strings.has_prefix(line, "/thread "),
+					},
+				)
 			}
 		case strings.has_prefix(line, "/reply "):
 			id, _, text := strings.partition(strings.trim_space(line[len("/reply "):]), " ")
 			if n, ok := strconv.parse_u64(id); ok {
-				conn.push_command(q, conn.Chat_Command{text = typed_lines(text), thread = {root = proto.Msg_Id(n)}, typed = true})
+				conn.push_command(
+					q,
+					conn.Chat_Command {
+						text = typed_lines(text),
+						thread = {root = proto.Msg_Id(n)},
+						typed = true,
+					},
+				)
 			}
 		case strings.has_prefix(line, "/send "):
 			// Scaling and compressing happens here rather than on the
@@ -318,7 +428,10 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			to, _, path := strings.partition(rest, " ")
 			conn.push_command(
 				q,
-				conn.Send_File_Command{name = strings.clone(to), path = strings.clone(strings.trim_space(path))},
+				conn.Send_File_Command {
+					name = strings.clone(to),
+					path = strings.clone(strings.trim_space(path)),
+				},
 			)
 		case line == "/accept" || line == "/decline" || line == "/cancel":
 			// Answered on the network loop, which has the offers: an id
@@ -332,18 +445,29 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			}
 			conn.push_command(q, conn.File_Action_Command{action = action})
 		case strings.has_prefix(line, "/seen "):
-			conn.push_command(q, conn.Last_Seen_Command{name = strings.clone(strings.trim_space(line[len("/seen "):]))})
+			conn.push_command(
+				q,
+				conn.Last_Seen_Command {
+					name = strings.clone(strings.trim_space(line[len("/seen "):])),
+				},
+			)
 		case line == "/buddies":
 			conn.push_command(q, conn.Buddies_Command{})
 		case strings.has_prefix(line, "/buddy "), strings.has_prefix(line, "/unbuddy "):
 			_, _, name := strings.partition(line, " ")
 			conn.push_command(
 				q,
-				conn.Buddy_Command{name = strings.clone(strings.trim_space(name)), on = strings.has_prefix(line, "/buddy ")},
+				conn.Buddy_Command {
+					name = strings.clone(strings.trim_space(name)),
+					on = strings.has_prefix(line, "/buddy "),
+				},
 			)
 		case strings.has_prefix(line, "/dm "):
 			to, _, text := strings.partition(strings.trim_space(line[len("/dm "):]), " ")
-			conn.push_command(q, conn.DM_Command{name = strings.clone(to), text = typed_lines(text)})
+			conn.push_command(
+				q,
+				conn.DM_Command{name = strings.clone(to), text = typed_lines(text)},
+			)
 		case strings.has_prefix(line, "/say "):
 			text := line[len("/say "):]
 			if len(attached) == 0 {
@@ -352,10 +476,15 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			}
 			files := make([]conn.Attach_File, len(attached))
 			for path, i in attached {
-				files[i] = {path = path}
+				files[i] = {
+					path = path,
+				}
 			}
 			clear(&attached)
-			conn.push_command(q, conn.Attach_Send_Command{text = typed_lines(text), files = files, typed = true})
+			conn.push_command(
+				q,
+				conn.Attach_Send_Command{text = typed_lines(text), files = files, typed = true},
+			)
 		case strings.has_prefix(line, "/attach "):
 			path := strings.trim_space(line[len("/attach "):])
 			if len(attached) >= proto.MAX_ATTACHMENTS {
@@ -374,12 +503,22 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			msg, id_ok := strconv.parse_u64(id)
 			index, n_ok := strconv.parse_int(strings.trim_space(n))
 			if id_ok && n_ok && index >= 1 {
-				conn.push_command(q, conn.Attach_Save_Command{msg = proto.Msg_Id(msg), index = index - 1})
+				conn.push_command(
+					q,
+					conn.Attach_Save_Command{msg = proto.Msg_Id(msg), index = index - 1},
+				)
 			}
 		case strings.has_prefix(line, "/edit "):
 			id, _, text := strings.partition(strings.trim_space(line[len("/edit "):]), " ")
 			if n, ok := strconv.parse_u64(id); ok {
-				conn.push_command(q, conn.Edit_Command{id = proto.Msg_Id(n), text = typed_lines(text), typed = true})
+				conn.push_command(
+					q,
+					conn.Edit_Command {
+						id = proto.Msg_Id(n),
+						text = typed_lines(text),
+						typed = true,
+					},
+				)
 			}
 		case strings.has_prefix(line, "/delete "):
 			if n, ok := strconv.parse_u64(strings.trim_space(line[len("/delete "):])); ok {
@@ -388,13 +527,24 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case strings.has_prefix(line, "/pin "), strings.has_prefix(line, "/unpin "):
 			_, _, id := strings.partition(line, " ")
 			if n, ok := strconv.parse_u64(strings.trim_space(id)); ok {
-				conn.push_command(q, conn.Pin_Command{id = proto.Msg_Id(n), on = strings.has_prefix(line, "/pin ")})
+				conn.push_command(
+					q,
+					conn.Pin_Command{id = proto.Msg_Id(n), on = strings.has_prefix(line, "/pin ")},
+				)
 			}
 		case strings.has_prefix(line, "/react "), strings.has_prefix(line, "/unreact "):
 			_, _, rest := strings.partition(line, " ")
 			id, _, emoji := strings.partition(strings.trim_space(rest), " ")
 			if n, ok := strconv.parse_u64(id); ok {
-				conn.push_command(q, conn.React_Command{id = proto.Msg_Id(n), emoji = strings.clone(strings.trim_space(emoji)), on = strings.has_prefix(line, "/react "), typed = true})
+				conn.push_command(
+					q,
+					conn.React_Command {
+						id = proto.Msg_Id(n),
+						emoji = strings.clone(strings.trim_space(emoji)),
+						on = strings.has_prefix(line, "/react "),
+						typed = true,
+					},
+				)
 			}
 		case line == "/pins":
 			conn.push_command(q, conn.Pins_Command{})
@@ -405,11 +555,17 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case line == "/older" || line == "/newer":
 			conn.push_command(q, conn.History_Command{newer = line == "/newer"})
 		case strings.has_prefix(line, "/join "):
-			conn.push_command(q, conn.Voice_Command{name = strings.clone(strings.trim_space(line[len("/join "):]))})
+			conn.push_command(
+				q,
+				conn.Voice_Command{name = strings.clone(strings.trim_space(line[len("/join "):]))},
+			)
 		case line == "/leave":
 			conn.push_command(q, conn.Voice_Command{})
 		case strings.has_prefix(line, "/view "):
-			conn.push_command(q, conn.View_Command{name = strings.clone(strings.trim_space(line[len("/view "):]))})
+			conn.push_command(
+				q,
+				conn.View_Command{name = strings.clone(strings.trim_space(line[len("/view "):]))},
+			)
 		case strings.has_prefix(line, "/notify "):
 			name, _, level := strings.partition(strings.trim_space(line[len("/notify "):]), " ")
 			notify: proto.Notify_Level
@@ -428,7 +584,12 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case line == "/browse more":
 			conn.push_command(q, conn.Browse_Command{more = true})
 		case line == "/browse", strings.has_prefix(line, "/browse "):
-			conn.push_command(q, conn.Browse_Command{query = strings.clone(strings.trim_space(line[len("/browse"):]))})
+			conn.push_command(
+				q,
+				conn.Browse_Command {
+					query = strings.clone(strings.trim_space(line[len("/browse"):])),
+				},
+			)
 		case strings.has_prefix(line, "/subscribe "), strings.has_prefix(line, "/unsubscribe "):
 			_, _, name := strings.partition(line, " ")
 			conn.push_command(
@@ -442,7 +603,10 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			name, _, topic := strings.partition(strings.trim_space(line[len("/create "):]), " ")
 			conn.push_command(
 				q,
-				conn.Create_Channel_Command{name = strings.clone(name), topic = strings.clone(topic)},
+				conn.Create_Channel_Command {
+					name = strings.clone(name),
+					topic = strings.clone(topic),
+				},
 			)
 		case:
 			log.warn(

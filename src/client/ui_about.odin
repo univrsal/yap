@@ -4,8 +4,8 @@ import "core:fmt"
 import "core:strings"
 import mu "vendor:microui"
 
-import "common:."
 import "client:platform"
+import "common:."
 
 /*
 The About dialog: which build this is (see src/common/version.odin), and

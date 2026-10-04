@@ -130,7 +130,12 @@ File_Ack :: struct {
 }
 
 encode_file_ack :: proc(out: []u8, ack: File_Ack, missing: []u32) -> []u8 {
-	return encode_transfer_ack(out, .File_Ack, {u64(ack.id), ack.max_rate, ack.base, ack.highest, ack.complete}, missing)
+	return encode_transfer_ack(
+		out,
+		.File_Ack,
+		{u64(ack.id), ack.max_rate, ack.base, ack.highest, ack.complete},
+		missing,
+	)
 }
 
 @(require_results)
@@ -158,7 +163,13 @@ encode_file_cancel :: proc(
 }
 
 // decode_file_cancel may return a reason this build has no name for.
-decode_file_cancel :: proc(pt: []u8) -> (id: Msg_Id, account: Account_Id, reason: File_Cancel_Reason) {
+decode_file_cancel :: proc(
+	pt: []u8,
+) -> (
+	id: Msg_Id,
+	account: Account_Id,
+	reason: File_Cancel_Reason,
+) {
 	id = Msg_Id(endian.unchecked_get_u64le(pt[1:]))
 	account = Account_Id(endian.unchecked_get_u32le(pt[9:]))
 	reason = File_Cancel_Reason(pt[13])

@@ -4,8 +4,8 @@ package conn
 import "core:os"
 import "core:testing"
 
-import "common:."
 import "client:settings"
+import "common:."
 
 // Muting mutes a shared application too unless it's switched off: on by
 // default, also for settings from before there was such a setting.

@@ -164,15 +164,20 @@ setting_put :: proc(c: ^Voice_Client, key, value: string) {
 	}
 	shared_store(c, key, value)
 	buf: [proto.SETTING_MAX_SIZE]u8
-	request(c, .Setting_Set, proto.encode_setting(buf[:], key, transmute([]u8)value), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		#partial switch status {
-		case .Ok, .Reset:
-		case .Too_Large:
-			log.warn("the server keeps no more settings for this account")
-		case:
-			log.warnf("the server wouldn't keep a setting (%v)", status)
-		}
-	})
+	request(
+		c,
+		.Setting_Set,
+		proto.encode_setting(buf[:], key, transmute([]u8)value),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Ok, .Reset:
+			case .Too_Large:
+				log.warn("the server keeps no more settings for this account")
+			case:
+				log.warnf("the server wouldn't keep a setting (%v)", status)
+			}
+		},
+	)
 }
 
 // status_set sets our status.
@@ -180,7 +185,10 @@ status_set :: proc(c: ^Voice_Client, raw: string, until: proto.Unix_Ms) {
 	buf: [proto.MAX_STATUS_SIZE]u8
 	text := proto.sanitize_text(raw, buf[:])
 	body_buf: [proto.ACCOUNT_BODY_MAX + proto.MAX_STATUS_SIZE]u8
-	body := proto.encode_profile_set(body_buf[:], {mask = proto.PROFILE_STATUS, status = text, status_until = until if text != "" else 0})
+	body := proto.encode_profile_set(
+		body_buf[:],
+		{mask = proto.PROFILE_STATUS, status = text, status_until = until if text != "" else 0},
+	)
 	request(c, .Profile_Set, body, profile_done)
 }
 
@@ -189,24 +197,34 @@ status_set :: proc(c: ^Voice_Client, raw: string, until: proto.Unix_Ms) {
 avatar_set :: proc(c: ^Voice_Client, image: Chat_Image, remove: bool) {
 	if remove {
 		buf: [proto.ACCOUNT_BODY_MAX]u8
-		request(c, .Profile_Set, proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR}), profile_done)
+		request(
+			c,
+			.Profile_Set,
+			proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR}),
+			profile_done,
+		)
 		return
 	}
 	if len(image.jpeg) == 0 ||
 	   len(image.jpeg) > proto.MAX_AVATAR_SIZE ||
 	   image.width > proto.MAX_AVATAR_SIDE ||
 	   image.height > proto.MAX_AVATAR_SIDE {
-		log.warnf("not setting a picture of %d bytes, %dx%d", len(image.jpeg), image.width, image.height)
+		log.warnf(
+			"not setting a picture of %d bytes, %dx%d",
+			len(image.jpeg),
+			image.width,
+			image.height,
+		)
 		delete(image.jpeg)
 		return
 	}
 	p := Pending {
-		nonce  = new_nonce(),
+		nonce = new_nonce(),
 		avatar = true,
-		kind   = .Image,
-		jpeg   = image.jpeg,
-		state  = .Put,
-		put    = {kind = .Avatar, size = len(image.jpeg), width = image.width, height = image.height},
+		kind = .Image,
+		jpeg = image.jpeg,
+		state = .Put,
+		put = {kind = .Avatar, size = len(image.jpeg), width = image.width, height = image.height},
 	}
 	hash.hash_bytes_to_buffer(.SHA256, image.jpeg, p.put.hash[:])
 	append(&c.msgs.outbox, p)
@@ -217,33 +235,39 @@ avatar_set :: proc(c: ^Voice_Client, image: Chat_Image, remove: bool) {
 // last step for one).
 avatar_post :: proc(c: ^Voice_Client, p: ^Pending) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	request(c, .Profile_Set, proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR, avatar = p.blob}), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		p := outbox_head(c, tag)
-		if p == nil || !p.avatar {
-			return
-		}
-		p.asking = false
-		#partial switch status {
-		case .Ok:
-		case .Reset:
-			return // set again on the new connection
-		case .Not_Found:
-			// The picture has gone from the server; send it again.
-			p.blob, p.state = 0, .Put
-			return
-		case:
-			outbox_give_up(c, "Your picture wasn't set: the server wouldn't take it.")
-			return
-		}
-		blob_have(c, p.blob, p.jpeg, p.put.width, p.put.height)
-		p.jpeg = nil
-		pending_destroy(p)
-		ordered_remove(&c.msgs.outbox, 0)
-		publish_outbox(c)
-		if c.view == nil {
-			log.info("[status] picture set")
-		}
-	}, p.nonce)
+	request(
+		c,
+		.Profile_Set,
+		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR, avatar = p.blob}),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			p := outbox_head(c, tag)
+			if p == nil || !p.avatar {
+				return
+			}
+			p.asking = false
+			#partial switch status {
+			case .Ok:
+			case .Reset:
+				return // set again on the new connection
+			case .Not_Found:
+				// The picture has gone from the server; send it again.
+				p.blob, p.state = 0, .Put
+				return
+			case:
+				outbox_give_up(c, "Your picture wasn't set: the server wouldn't take it.")
+				return
+			}
+			blob_have(c, p.blob, p.jpeg, p.put.width, p.put.height)
+			p.jpeg = nil
+			pending_destroy(p)
+			ordered_remove(&c.msgs.outbox, 0)
+			publish_outbox(c)
+			if c.view == nil {
+				log.info("[status] picture set")
+			}
+		},
+		p.nonce,
+	)
 }
 
 @(private = "file")
@@ -262,35 +286,41 @@ members_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	c.profiles.members_conv = conv
 	publish_members(c, conv, nil, true)
 	buf: [4]u8
-	request(c, .Conv_Members, proto.encode_conv_id(&buf, conv), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		conv := proto.Conv_Id(tag)
-		if c.profiles.members_conv != conv {
-			return
-		}
-		if status != .Ok {
-			publish_members(c, conv, nil, false)
-			return
-		}
-		buf := make([]proto.Account_Id, max(len(body) / 4, 1), context.temp_allocator)
-		members, ok := proto.decode_conv_members(body, buf)
-		if !ok {
-			publish_members(c, conv, nil, false)
-			return
-		}
-		publish_members(c, conv, members, false)
-		if c.view == nil {
-			for m in members {
-				acc := c.auth.accounts[m] or_else {}
-				log.infof(
-					"[members] %s: %s%s%s",
-					room_name(c, proto.Room(conv)),
-					account_display(c, m),
-					" (here)" if is_online(c, m) else "",
-					fmt.tprintf(" - %s", acc.status) if acc.status != "" else "",
-				)
+	request(
+		c,
+		.Conv_Members,
+		proto.encode_conv_id(&buf, conv),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			conv := proto.Conv_Id(tag)
+			if c.profiles.members_conv != conv {
+				return
 			}
-		}
-	}, u64(conv))
+			if status != .Ok {
+				publish_members(c, conv, nil, false)
+				return
+			}
+			buf := make([]proto.Account_Id, max(len(body) / 4, 1), context.temp_allocator)
+			members, ok := proto.decode_conv_members(body, buf)
+			if !ok {
+				publish_members(c, conv, nil, false)
+				return
+			}
+			publish_members(c, conv, members, false)
+			if c.view == nil {
+				for m in members {
+					acc := c.auth.accounts[m] or_else {}
+					log.infof(
+						"[members] %s: %s%s%s",
+						room_name(c, proto.Room(conv)),
+						account_display(c, m),
+						" (here)" if is_online(c, m) else "",
+						fmt.tprintf(" - %s", acc.status) if acc.status != "" else "",
+					)
+				}
+			}
+		},
+		u64(conv),
+	)
 }
 
 /*
@@ -322,7 +352,12 @@ publish_shared :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-publish_members :: proc(c: ^Voice_Client, conv: proto.Conv_Id, accounts: []proto.Account_Id, loading: bool) {
+publish_members :: proc(
+	c: ^Voice_Client,
+	conv: proto.Conv_Id,
+	accounts: []proto.Account_Id,
+	loading: bool,
+) {
 	v := c.view
 	if v == nil {
 		return

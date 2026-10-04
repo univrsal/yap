@@ -9,7 +9,14 @@ import "common:proto"
 
 // read_state is what the last Read_Changed a connection was sent says,
 // and whether it was sent one.
-read_state :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> (state: proto.Read_State, told: bool) {
+read_state :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+) -> (
+	state: proto.Read_State,
+	told: bool,
+) {
 	for e in ts_events(t, ts, u) {
 		if e.op == .Read_Changed {
 			ok: bool
@@ -94,7 +101,11 @@ test_unread :: proc(t: ^testing.T) {
 		for i in 0 ..< proto.UNREAD_CAP + 20 {
 			post(t, &ts, bob, home.id, "flood", u64(100 + i))
 		}
-		testing.expect_value(t, conv_record(&s.convs, home, laptop.account.id).unread, proto.UNREAD_CAP)
+		testing.expect_value(
+			t,
+			conv_record(&s.convs, home, laptop.account.id).unread,
+			proto.UNREAD_CAP,
+		)
 
 		// Only a member reads, and subscribing starts with everything read.
 		gaming := conv_by_name(&s.convs, "Gaming")
@@ -104,7 +115,13 @@ test_unread :: proc(t: ^testing.T) {
 		status, _ = ts_ask(t, &ts, laptop, .Mark_Read, mark_body(gaming.id, 1))
 		testing.expect_value(t, status, proto.Status.Denied)
 		sub_buf: [proto.CONV_SUBSCRIBE_SIZE]u8
-		ts_ask(t, &ts, laptop, .Conv_Subscribe, proto.encode_conv_subscribe(&sub_buf, gaming.id, true))
+		ts_ask(
+			t,
+			&ts,
+			laptop,
+			.Conv_Subscribe,
+			proto.encode_conv_subscribe(&sub_buf, gaming.id, true),
+		)
 		record = conv_record(&s.convs, gaming, laptop.account.id)
 		testing.expect_value(t, record.read, gaming.last_msg)
 		testing.expect_value(t, record.unread, 0)
@@ -112,7 +129,13 @@ test_unread :: proc(t: ^testing.T) {
 		// How much a channel may interrupt: set, and told to every device.
 		ts_events(t, &ts, phone)
 		notify_buf: [proto.CONV_NOTIFY_SIZE]u8
-		status, _ = ts_ask(t, &ts, laptop, .Conv_Notify, proto.encode_conv_notify(&notify_buf, home.id, .None))
+		status, _ = ts_ask(
+			t,
+			&ts,
+			laptop,
+			.Conv_Notify,
+			proto.encode_conv_notify(&notify_buf, home.id, .None),
+		)
 		testing.expect_value(t, status, proto.Status.Ok)
 		e, changed := has_event(ts_events(t, &ts, phone), .Conv_Changed)
 		testing.expect(t, changed)

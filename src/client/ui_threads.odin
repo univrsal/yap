@@ -4,8 +4,8 @@ import "core:fmt"
 import "core:sync"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
+import "common:proto"
 
 /*
 Threads, each in a window of its own beside the conversation: the
@@ -85,7 +85,10 @@ open_thread :: proc(ui: ^UI, key: conn.Timeline_Key) {
 		t := &ui.threads[slot - 1]
 		t.key = key
 		t.timeline.slot = slot
-		conn.push_command(&ui.session.client.commands, conn.Thread_Command{thread = key, open = true})
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.Thread_Command{thread = key, open = true},
+		)
 	}
 	t := &ui.threads[slot - 1]
 	ui.threads_opened += 1
@@ -101,7 +104,10 @@ close_thread :: proc(ui: ^UI, slot: int) {
 		return
 	}
 	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.Thread_Command{thread = t.key, open = false})
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.Thread_Command{thread = t.key, open = false},
+		)
 	}
 	timeline_destroy(&t.timeline)
 	picked_files_destroy(&t.files)
@@ -203,7 +209,12 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 		}
 	}
 	when TIMELINE_DEBUG {
-		status = fmt.tprintf("%s  [%d laid out, %d off]", status, t.timeline.laid_out, t.timeline.mismatched)
+		status = fmt.tprintf(
+			"%s  [%d laid out, %d off]",
+			status,
+			t.timeline.laid_out,
+			t.timeline.mismatched,
+		)
 	}
 	if back {
 		mu.layout_row(ctx, {70, -1})

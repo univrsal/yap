@@ -396,7 +396,11 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 			}
 		}
 		if len(roles) > 0 {
-			what = fmt.tprintf("%s  [%s]", what, strings.join(roles[:], ", ", context.temp_allocator))
+			what = fmt.tprintf(
+				"%s  [%s]",
+				what,
+				strings.join(roles[:], ", ", context.temp_allocator),
+			)
 		}
 		mu.label(ctx, fmt.tprintf("%s  %s%s", acc.username, acc.display, what))
 		// The owner's password is the owner's to change, as their own.

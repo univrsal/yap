@@ -52,7 +52,14 @@ test_area_lines :: proc(t: ^testing.T) {
 		last := 0
 		for at in 0 ..= len(c.text) {
 			i := area_line_of(got, at)
-			testing.expectf(t, i >= last && got[i].start <= at && at <= got[i].stop, "%q: %d on line %d", c.text, at, i)
+			testing.expectf(
+				t,
+				i >= last && got[i].start <= at && at <= got[i].stop,
+				"%q: %d on line %d",
+				c.text,
+				at,
+				i,
+			)
 			last = i
 		}
 	}
@@ -73,7 +80,11 @@ test_area_vertical :: proc(t: ^testing.T) {
 	testing.expect_value(t, at, 7)
 	// On down, aiming for the column it started in, not where it is.
 	testing.expect_value(t, area_vertical(ctx, nil, text, lines, at, x, true), 12)
-	testing.expect_value(t, area_vertical(ctx, nil, text, lines, at, area_x(ctx, nil, text, lines[1], at), true), 10)
+	testing.expect_value(
+		t,
+		area_vertical(ctx, nil, text, lines, at, area_x(ctx, nil, text, lines[1], at), true),
+		10,
+	)
 	// And back up.
 	testing.expect_value(t, area_vertical(ctx, nil, text, lines, 12, 32, false), 7)
 	testing.expect_value(t, area_vertical(ctx, nil, text, lines, 9, 8, false), 6)

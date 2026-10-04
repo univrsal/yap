@@ -6,10 +6,10 @@ import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
 import "client:platform"
 import "client:render"
+import "common:proto"
 
 /*
 Attachments in the composers (src/client/conn/attachments.odin has the
@@ -80,9 +80,16 @@ attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 		case f.size == 0:
 			refused = fmt.tprintf("%s is empty, so it can't be sent.", f.name)
 		case f.size > max_size:
-			refused = fmt.tprintf("%s is bigger than this server takes (%s).", f.name, conn.format_bytes(max_size))
+			refused = fmt.tprintf(
+				"%s is bigger than this server takes (%s).",
+				f.name,
+				conn.format_bytes(max_size),
+			)
 		case:
-			append(files, Picked_File{strings.clone(f.path), f.web_file, strings.clone(f.name), f.size})
+			append(
+				files,
+				Picked_File{strings.clone(f.path), f.web_file, strings.clone(f.name), f.size},
+			)
 			continue
 		}
 		if f.web_file != 0 {
@@ -133,7 +140,11 @@ attach_button :: proc(ui: ^UI, c: Composer) {
 // What a chip takes besides its name: the ×, the size and the gaps.
 @(private = "file")
 chip_label :: proc(ctx: ^mu.Context, f: Picked_File, name_width: i32) -> string {
-	return fmt.tprintf("× %s  %s", cut_to_width(ctx, f.name, name_width), conn.format_bytes(f.size))
+	return fmt.tprintf(
+		"× %s  %s",
+		cut_to_width(ctx, f.name, name_width),
+		conn.format_bytes(f.size),
+	)
 }
 
 // chip_rows lays a composer's chips out in rows `width` wide: each
@@ -183,7 +194,13 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 		for _ in row {
 			f := c.files[i]
 			label := chip_label(ctx, f, width / 2)
-			if .SUBMIT in stable_button_hint(ui, fmt.tprintf("chip %d %d", c.thread, i), label, fmt.tprintf("Take %s off", f.name)) {
+			if .SUBMIT in
+			   stable_button_hint(
+				   ui,
+				   fmt.tprintf("chip %d %d", c.thread, i),
+				   label,
+				   fmt.tprintf("Take %s off", f.name),
+			   ) {
 				remove = i
 			}
 			i += 1
@@ -208,7 +225,12 @@ composer_send_files :: proc(ui: ^UI, c: Composer, text: string, dm_to: proto.Acc
 	}
 	files := make([]conn.Attach_File, len(c.files))
 	for f, i in c.files {
-		files[i] = {path = strings.clone(f.path), web_file = f.web_file, web_name = strings.clone(f.name), web_size = f.size}
+		files[i] = {
+			path     = strings.clone(f.path),
+			web_file = f.web_file,
+			web_name = strings.clone(f.name),
+			web_size = f.size,
+		}
 	}
 	// The command has the browser's files now; they aren't closed here.
 	for &f in c.files {
@@ -289,7 +311,13 @@ message_files_height :: proc(ui: ^UI, m: conn.View_Message) -> (h: i32) {
 // file_preview draws a picture's preview under its row, asking for it
 // the first time it's drawn (and again now and then until it's here).
 @(private = "file")
-file_preview :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, i: int, f: conn.Msg_File) {
+file_preview :: proc(
+	ui: ^UI,
+	conv: proto.Conv_Id,
+	m: conn.View_Message,
+	i: int,
+	f: conn.Msg_File,
+) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, PREVIEW_HEIGHT)
 	area := mu.layout_next(ctx)
@@ -303,7 +331,13 @@ file_preview :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message, i: int,
 			attach_command(ui, conn.Attach_Preview_Command{conv = conv, msg = m.id, index = i})
 		}
 	}
-	if image_fitted(ui, u64(f.blob), img.state if here else .Wanted, img.jpeg if here else nil, area) {
+	if image_fitted(
+		ui,
+		u64(f.blob),
+		img.state if here else .Wanted,
+		img.jpeg if here else nil,
+		area,
+	) {
 		// The viewer's Save: the file itself, under its name.
 		attach_command(ui, conn.Attach_Save_Command{conv = conv, msg = m.id, index = i})
 	}
@@ -323,13 +357,32 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 		defer mu.pop_id(ctx)
 		// The name takes what's left, and one more: microui's "the rest"
 		// is a pixel more than the rest, which would widen the panel.
-		mu.layout_row(ctx, {ICON_SIZE_CELL, -(FILES_STATE_W + FILES_BUTTON_W + 2 * ctx.style.spacing + 1), FILES_STATE_W, FILES_BUTTON_W}, control_height(ctx))
+		mu.layout_row(
+			ctx,
+			{
+				ICON_SIZE_CELL,
+				-(FILES_STATE_W + FILES_BUTTON_W + 2 * ctx.style.spacing + 1),
+				FILES_STATE_W,
+				FILES_BUTTON_W,
+			},
+			control_height(ctx),
+		)
 		r := mu.layout_next(ctx)
-		mu.draw_icon(ctx, render.icon_id(file_icon(f.name)), r, CHAT_DIM_COLOR if f.blob == 0 else ctx.style.colors[.TEXT])
+		mu.draw_icon(
+			ctx,
+			render.icon_id(file_icon(f.name)),
+			r,
+			CHAT_DIM_COLOR if f.blob == 0 else ctx.style.colors[.TEXT],
+		)
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
 		name := cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding)
-		with_text_color(ctx, CHAT_DIM_COLOR if f.blob == 0 else ctx.style.colors[.TEXT], name, label_proc)
+		with_text_color(
+			ctx,
+			CHAT_DIM_COLOR if f.blob == 0 else ctx.style.colors[.TEXT],
+			name,
+			label_proc,
+		)
 
 		s, has_save := file_save(ui, f)
 		state, color := conn.format_bytes(f.size), CHAT_DIM_COLOR
@@ -345,7 +398,11 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 		}
 		with_text_color(ctx, color, state, label_proc)
 
-		save := conn.Attach_Save_Command{conv = conv, msg = m.id, index = i}
+		save := conn.Attach_Save_Command {
+			conv  = conv,
+			msg   = m.id,
+			index = i,
+		}
 		switch {
 		case f.blob == 0:
 			mu.layout_next(ctx)
@@ -355,11 +412,19 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 				attach_command(ui, save)
 			}
 		case has_save && s.state == .Done && !platform.WEB:
-			if .SUBMIT in stable_button_hint(ui, "open folder", "Open folder", s.path, {.ALIGN_CENTER}) {
+			if .SUBMIT in
+			   stable_button_hint(ui, "open folder", "Open folder", s.path, {.ALIGN_CENTER}) {
 				platform.open_url(os_dir(s.path))
 			}
 		case:
-			if .SUBMIT in stable_button_hint(ui, "save", "Save", fmt.tprintf("Save %s to the downloads folder", f.name), {.ALIGN_CENTER}) {
+			if .SUBMIT in
+			   stable_button_hint(
+				   ui,
+				   "save",
+				   "Save",
+				   fmt.tprintf("Save %s to the downloads folder", f.name),
+				   {.ALIGN_CENTER},
+			   ) {
 				attach_command(ui, save)
 			}
 		}
@@ -370,7 +435,11 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			bar.w = min(bar.w - ICON_SIZE_CELL - ctx.style.spacing, 300)
 			mu.draw_rect(ctx, bar, {60, 60, 60, 255})
 			done := f32(s.done) / f32(max(s.size, 1))
-			mu.draw_rect(ctx, {bar.x, bar.y, i32(f32(bar.w) * clamp(done, 0, 1)), bar.h}, SPEAKING_COLOR)
+			mu.draw_rect(
+				ctx,
+				{bar.x, bar.y, i32(f32(bar.w) * clamp(done, 0, 1)), bar.h},
+				SPEAKING_COLOR,
+			)
 		}
 		if previewed(f) {
 			file_preview(ui, conv, m, i, f)
@@ -391,11 +460,84 @@ File_Kind :: enum {
 @(rodata, private = "file")
 FILE_KIND_EXTENSIONS := [File_Kind][]string {
 	.Other   = {},
-	.Archive = {"zip", "rar", "7z", "tar", "gz", "tgz", "bz2", "tbz2", "xz", "txz", "zst", "lz", "lzma", "cab", "iso", "dmg", "deb", "rpm", "apk", "jar"},
-	.Picture = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff", "heic", "heif", "avif", "ico", "psd", "raw", "svg"},
-	.Video   = {"mp4", "m4v", "mkv", "webm", "mov", "avi", "wmv", "flv", "mpg", "mpeg", "ts", "m2ts", "3gp", "ogv"},
+	.Archive = {
+		"zip",
+		"rar",
+		"7z",
+		"tar",
+		"gz",
+		"tgz",
+		"bz2",
+		"tbz2",
+		"xz",
+		"txz",
+		"zst",
+		"lz",
+		"lzma",
+		"cab",
+		"iso",
+		"dmg",
+		"deb",
+		"rpm",
+		"apk",
+		"jar",
+	},
+	.Picture = {
+		"png",
+		"jpg",
+		"jpeg",
+		"gif",
+		"webp",
+		"bmp",
+		"tif",
+		"tiff",
+		"heic",
+		"heif",
+		"avif",
+		"ico",
+		"psd",
+		"raw",
+		"svg",
+	},
+	.Video   = {
+		"mp4",
+		"m4v",
+		"mkv",
+		"webm",
+		"mov",
+		"avi",
+		"wmv",
+		"flv",
+		"mpg",
+		"mpeg",
+		"ts",
+		"m2ts",
+		"3gp",
+		"ogv",
+	},
 	.Audio   = {"mp3", "m4a", "flac", "wav", "ogg", "opus", "aac", "wma", "alac", "mid", "midi"},
-	.Text    = {"txt", "md", "pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "csv", "ppt", "pptx", "odp", "epub", "log", "json", "xml", "html", "htm"},
+	.Text    = {
+		"txt",
+		"md",
+		"pdf",
+		"doc",
+		"docx",
+		"odt",
+		"rtf",
+		"xls",
+		"xlsx",
+		"ods",
+		"csv",
+		"ppt",
+		"pptx",
+		"odp",
+		"epub",
+		"log",
+		"json",
+		"xml",
+		"html",
+		"htm",
+	},
 }
 
 file_kind :: proc(name: string) -> File_Kind {
@@ -454,19 +596,41 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 	mu.push_id(ctx, uintptr(p.nonce))
 	defer mu.pop_id(ctx)
 	for f in p.files {
-		mu.layout_row(ctx, {ICON_SIZE_CELL, -(FILES_STATE_W + ctx.style.spacing + 1), FILES_STATE_W}, control_height(ctx))
+		mu.layout_row(
+			ctx,
+			{ICON_SIZE_CELL, -(FILES_STATE_W + ctx.style.spacing + 1), FILES_STATE_W},
+			control_height(ctx),
+		)
 		mu.draw_icon(ctx, render.icon_id(file_icon(f.name)), mu.layout_next(ctx), CHAT_DIM_COLOR)
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
-		with_text_color(ctx, CHAT_DIM_COLOR, cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding), label_proc)
-		with_text_color(ctx, CHAT_DIM_COLOR, fmt.tprintf("%s, %d%%", conn.format_bytes(f.size), int(f64(f.done) * 100 / f64(max(f.size, 1)))), label_proc)
+		with_text_color(
+			ctx,
+			CHAT_DIM_COLOR,
+			cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding),
+			label_proc,
+		)
+		with_text_color(
+			ctx,
+			CHAT_DIM_COLOR,
+			fmt.tprintf(
+				"%s, %d%%",
+				conn.format_bytes(f.size),
+				int(f64(f.done) * 100 / f64(max(f.size, 1))),
+			),
+			label_proc,
+		)
 		mu.layout_row(ctx, {-1}, FILES_BAR)
 		bar := mu.layout_next(ctx)
 		bar.x += ICON_SIZE_CELL + ctx.style.spacing
 		bar.w = min(bar.w - ICON_SIZE_CELL - ctx.style.spacing, 300)
 		mu.draw_rect(ctx, bar, {60, 60, 60, 255})
 		done := f32(f.done) / f32(max(f.size, 1))
-		mu.draw_rect(ctx, {bar.x, bar.y, i32(f32(bar.w) * clamp(done, 0, 1)), bar.h}, SPEAKING_COLOR)
+		mu.draw_rect(
+			ctx,
+			{bar.x, bar.y, i32(f32(bar.w) * clamp(done, 0, 1)), bar.h},
+			SPEAKING_COLOR,
+		)
 	}
 	if p.uploading {
 		mu.layout_row(ctx, {FILES_BUTTON_W})

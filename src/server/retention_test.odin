@@ -14,7 +14,18 @@ import "sqlite"
 @(private = "file")
 age_messages :: proc(t: ^testing.T, ts: ^Test_Server, first, last: proto.Msg_Id, days: int) {
 	at := unix_ms() - i64(days) * DAY_MS
-	testing.expect(t, db_exec(&ts.s.db, fmt.tprintf("UPDATE messages SET time = %d WHERE id BETWEEN %d AND %d", at, first, last)))
+	testing.expect(
+		t,
+		db_exec(
+			&ts.s.db,
+			fmt.tprintf(
+				"UPDATE messages SET time = %d WHERE id BETWEEN %d AND %d",
+				at,
+				first,
+				last,
+			),
+		),
+	)
 }
 
 @(private = "file")
@@ -37,9 +48,20 @@ exists :: proc(ts: ^Test_Server, id: proto.Msg_Id) -> bool {
 }
 
 @(private = "file")
-reply :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id, root: proto.Msg_Id, text: string, nonce: u64) -> proto.Msg_Id {
+reply :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	conv: proto.Conv_Id,
+	root: proto.Msg_Id,
+	text: string,
+	nonce: u64,
+) -> proto.Msg_Id {
 	buf := make([]u8, proto.MSG_POST_MAX_SIZE, context.temp_allocator)
-	body := proto.encode_msg_post(buf, {conv = conv, nonce = nonce, kind = .Text, text = text, thread_root = root})
+	body := proto.encode_msg_post(
+		buf,
+		{conv = conv, nonce = nonce, kind = .Text, text = text, thread_root = root},
+	)
 	status, answer := ts_ask(t, ts, u, .Msg_Post, body)
 	testing.expect_value(t, status, proto.Status.Ok)
 	id, _, _ := proto.decode_msg_posted(answer)
@@ -47,7 +69,14 @@ reply :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id, ro
 }
 
 @(private = "file")
-picture :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id, blob: Blob_Id, nonce: u64) -> proto.Msg_Id {
+picture :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	conv: proto.Conv_Id,
+	blob: Blob_Id,
+	nonce: u64,
+) -> proto.Msg_Id {
 	buf := make([]u8, proto.MSG_POST_MAX_SIZE, context.temp_allocator)
 	body := proto.encode_msg_post(buf, {conv = conv, nonce = nonce, kind = .Image, blob = blob})
 	status, answer := ts_ask(t, ts, u, .Msg_Post, body)
@@ -132,7 +161,13 @@ test_msg_boundary :: proc(t: ^testing.T) {
 	testing.expect_value(t, msg_boundary(db, now - 5 * DAY_MS - 1000), ids[5])
 	testing.expect_value(t, msg_boundary(db, now), ids[9] + 1)
 	// With gaps where messages were.
-	testing.expect(t, db_exec(db, fmt.tprintf("DELETE FROM messages WHERE id IN (%d, %d, %d)", ids[4], ids[5], ids[6])))
+	testing.expect(
+		t,
+		db_exec(
+			db,
+			fmt.tprintf("DELETE FROM messages WHERE id IN (%d, %d, %d)", ids[4], ids[5], ids[6]),
+		),
+	)
 	// Anywhere in the gap will do: what's below is the same.
 	for before in ([]i64{now - 5 * DAY_MS - 1000, now - 7 * DAY_MS + 1000}) {
 		b := msg_boundary(db, before)
@@ -162,7 +197,14 @@ test_purge_messages :: proc(t: ^testing.T) {
 	testing.expect(t, conv_member_add(&s.convs, gaming, alice.account.id))
 
 	nonce: u64
-	say :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id, nonce: ^u64, text := "hello <@3>") -> proto.Msg_Id {
+	say :: proc(
+		t: ^testing.T,
+		ts: ^Test_Server,
+		u: ^Conn,
+		conv: proto.Conv_Id,
+		nonce: ^u64,
+		text := "hello <@3>",
+	) -> proto.Msg_Id {
 		nonce^ += 1
 		_, id := post(t, ts, u, conv, text, nonce^)
 		return id
@@ -179,20 +221,36 @@ test_purge_messages :: proc(t: ^testing.T) {
 	recent := say(t, &ts, alice, home, &nonce)
 	pin(t, &ts, admin, pinned)
 	react_buf: [proto.MSG_REACT_MAX_SIZE]u8
-	react_status, _ := ts_ask(t, &ts, bob, .Msg_React, proto.encode_msg_react(&react_buf, old, "👍", true))
+	react_status, _ := ts_ask(
+		t,
+		&ts,
+		bob,
+		.Msg_React,
+		proto.encode_msg_react(&react_buf, old, "👍", true),
+	)
 	testing.expect_value(t, react_status, proto.Status.Ok)
 	testing.expect(t, count_of(t, &ts, "SELECT count(*) FROM mentions") > 0)
 	ts_events(t, &ts, bob)
 
 	// Not for everyone.
-	status, _, _ := purge(t, &ts, bob, {conv = home, before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)})
+	status, _, _ := purge(
+		t,
+		&ts,
+		bob,
+		{conv = home, before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)},
+	)
 	testing.expect_value(t, status, proto.Status.Denied)
 	status, _, _ = purge(t, &ts, admin, {conv = 999, before = proto.Unix_Ms(unix_ms())})
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
 	// What's older than a week in the home channel.
 	messages: int
-	status, messages, _ = purge(t, &ts, admin, {conv = home, before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)})
+	status, messages, _ = purge(
+		t,
+		&ts,
+		admin,
+		{conv = home, before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)},
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, messages, 4) // old, gone_root, old_reply, gone_reply
 	for id in ([]proto.Msg_Id{old, gone_root, old_reply, gone_reply}) {
@@ -202,8 +260,16 @@ test_purge_messages :: proc(t: ^testing.T) {
 		testing.expectf(t, exists(&ts, id), "message %d went", id)
 	}
 	// With what hung off them, and nothing left in their place.
-	testing.expect_value(t, count_of(t, &ts, fmt.tprintf("SELECT count(*) FROM reactions WHERE message = %d", old)), 0)
-	testing.expect_value(t, count_of(t, &ts, fmt.tprintf("SELECT count(*) FROM mentions WHERE message = %d", old)), 0)
+	testing.expect_value(
+		t,
+		count_of(t, &ts, fmt.tprintf("SELECT count(*) FROM reactions WHERE message = %d", old)),
+		0,
+	)
+	testing.expect_value(
+		t,
+		count_of(t, &ts, fmt.tprintf("SELECT count(*) FROM mentions WHERE message = %d", old)),
+		0,
+	)
 	// The root that stays counts the reply it has left.
 	m, _ := msg_by_id(s, root)
 	testing.expect_value(t, m.reply_count, 1)
@@ -212,7 +278,11 @@ test_purge_messages :: proc(t: ^testing.T) {
 	// Bob is told; and it can't be fetched.
 	p, told := purged(t, &ts, bob)
 	testing.expect(t, told)
-	testing.expect_value(t, p, proto.Msgs_Purged{conv = home, before = new_reply, what = .Messages})
+	testing.expect_value(
+		t,
+		p,
+		proto.Msgs_Purged{conv = home, before = new_reply, what = .Messages},
+	)
 	msgs, _ := history_of(t, &ts, bob, home)
 	for msg in msgs {
 		testing.expect(t, msg.id != old && msg.id != old_reply)
@@ -233,7 +303,15 @@ test_purge_messages :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-history_of :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id) -> (msgs: []proto.Message, more: u8) {
+history_of :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	conv: proto.Conv_Id,
+) -> (
+	msgs: []proto.Message,
+	more: u8,
+) {
 	status, body := ts_ask(t, ts, u, .Msg_History, history_body(conv))
 	testing.expect_value(t, status, proto.Status.Ok)
 	buf := make([]proto.Message, proto.MAX_HISTORY_LIMIT, context.temp_allocator)
@@ -275,11 +353,17 @@ test_purge_pictures :: proc(t: ^testing.T) {
 		b, _ := blob_get(&s.blobs, id)
 		return blob_path(&s.blobs, b.hash)
 	}
-	shared_file, alone_file, unused_file := file_of(s, shared), file_of(s, alone), file_of(s, unused)
+	shared_file, alone_file, unused_file :=
+		file_of(s, shared), file_of(s, alone), file_of(s, unused)
 	ts_events(t, &ts, alice)
 
 	// Uploaded this past hour: nothing is collected yet, used or not.
-	status, messages, blobs := purge(t, &ts, admin, {before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS), what = .Images})
+	status, messages, blobs := purge(
+		t,
+		&ts,
+		admin,
+		{before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS), what = .Images},
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, messages, 2)
 	testing.expect_value(t, blobs, 0)
@@ -299,7 +383,12 @@ test_purge_pictures :: proc(t: ^testing.T) {
 	// An hour on: what nothing uses goes, file and all; the picture the
 	// new message shows, the pinned one's, and a profile's stay.
 	age_blobs(t, &ts, 2)
-	status, _, blobs = purge(t, &ts, admin, {before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS), what = .Images})
+	status, _, blobs = purge(
+		t,
+		&ts,
+		admin,
+		{before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS), what = .Images},
+	)
 	testing.expect_value(t, blobs, 2) // alone, unused
 	_, found := blob_get(&s.blobs, alone)
 	testing.expect(t, !found)
@@ -312,7 +401,12 @@ test_purge_pictures :: proc(t: ^testing.T) {
 
 	// Once the new message has gone too, its picture does.
 	age_messages(t, &ts, again, again, 30)
-	status, messages, blobs = purge(t, &ts, admin, {before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)})
+	status, messages, blobs = purge(
+		t,
+		&ts,
+		admin,
+		{before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)},
+	)
 	testing.expect_value(t, messages, 3) // first, second, again
 	testing.expect_value(t, blobs, 1)
 	testing.expect(t, !os.exists(shared_file))
@@ -347,7 +441,10 @@ test_retention_config :: proc(t: ^testing.T) {
 	r := &s.retention
 
 	// Messages a month old go, pictures over three weeks old.
-	r.config = {message_days = 31, image_days = 21}
+	r.config = {
+		message_days = 31,
+		image_days   = 21,
+	}
 	retention_schedule(r, &s.db, unix_ms())
 	retention_drain(r, &s.blobs, s)
 	testing.expect(t, !exists(&ts, pics[0]) && !exists(&ts, texts[1]))
@@ -364,7 +461,9 @@ test_retention_config :: proc(t: ^testing.T) {
 	// The pictures may take no more than one of them: the older goes.
 	sizes := count_of(t, &ts, "SELECT sum(size) FROM blobs WHERE kind = 1")
 	testing.expect(t, sizes > 0)
-	r.config = {blob_megabytes = 1}
+	r.config = {
+		blob_megabytes = 1,
+	}
 	retention_schedule(r, &s.db, unix_ms())
 	retention_drain(r, &s.blobs, s)
 	m, _ = msg_by_id(s, pics[3])
@@ -413,12 +512,22 @@ test_purge_resumes :: proc(t: ^testing.T) {
 		}
 		age_messages(t, &ts, 1, last, 30)
 		// Asked for, and part done when the server stops.
-		testing.expect(t, retention_ask(&s.retention, &s.db, {before = proto.Unix_Ms(unix_ms())}, unix_ms()))
-		testing.expect(t, !retention_ask(&s.retention, &s.db, {before = proto.Unix_Ms(unix_ms())}, unix_ms()))
+		testing.expect(
+			t,
+			retention_ask(&s.retention, &s.db, {before = proto.Unix_Ms(unix_ms())}, unix_ms()),
+		)
+		testing.expect(
+			t,
+			!retention_ask(&s.retention, &s.db, {before = proto.Unix_Ms(unix_ms())}, unix_ms()),
+		)
 		_, finished := retention_chunk(&s.retention, &s.blobs, unix_ms())
 		testing.expect(t, !finished)
 		db_commit(&s.db)
-		testing.expect_value(t, count_of(t, &ts, "SELECT count(*) FROM messages"), COUNT - PURGE_CHUNK)
+		testing.expect_value(
+			t,
+			count_of(t, &ts, "SELECT count(*) FROM messages"),
+			COUNT - PURGE_CHUNK,
+		)
 	}
 
 	// Started again, it carries on.

@@ -92,7 +92,11 @@ test_rich_layout :: proc(t: ^testing.T) {
 		testing.expect(t, vl.end > vl.start)
 		total += vl.end - vl.start
 	}
-	testing.expect_value(t, total, len(r.text) - strings.count(r.text, " ") - strings.count(r.text, "\n"))
+	testing.expect_value(
+		t,
+		total,
+		len(r.text) - strings.count(r.text, " ") - strings.count(r.text, "\n"),
+	)
 }
 
 @(test)

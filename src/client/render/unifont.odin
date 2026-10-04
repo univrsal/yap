@@ -1,8 +1,8 @@
 package render
 
+import stbi "client:wstbi"
 import log "common:wlog"
 import "core:math"
-import stbi "client:wstbi"
 
 /*
 The fallback font: GNU Unifont, for what Roboto hasn't got - Chinese,

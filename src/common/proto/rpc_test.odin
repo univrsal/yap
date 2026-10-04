@@ -40,7 +40,11 @@ test_rpc_messages :: proc(t: ^testing.T) {
 
 	// A body as long as a stream message can carry, and one longer.
 	most := make([]u8, MAX_BODY_SIZE + 1, context.temp_allocator)
-	testing.expect_value(t, len(encode_request(1, .Server_Info, most[:MAX_BODY_SIZE])), STREAM_MAX_MESSAGE)
+	testing.expect_value(
+		t,
+		len(encode_request(1, .Server_Info, most[:MAX_BODY_SIZE])),
+		STREAM_MAX_MESSAGE,
+	)
 	testing.expect(t, encode_request(1, .Server_Info, most) == nil)
 }
 

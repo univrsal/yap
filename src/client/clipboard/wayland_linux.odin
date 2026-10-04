@@ -1,7 +1,7 @@
 package clipboard
 
-import log "common:wlog"
 import "base:runtime"
+import log "common:wlog"
 import "core:dynlib"
 import "core:strings"
 import "core:sys/linux"

@@ -230,7 +230,12 @@ account_secret :: proc(a: ^Accounts, acc: ^Account) -> (s: Secret, ok: bool) {
 
 // account_set_password replaces an account's password. `must_change`
 // says an admin chose it, and its owner has to choose another.
-account_set_password :: proc(a: ^Accounts, acc: ^Account, secret: Secret, must_change: bool) -> bool {
+account_set_password :: proc(
+	a: ^Accounts,
+	acc: ^Account,
+	secret: Secret,
+	must_change: bool,
+) -> bool {
 	secret := secret
 	q := db_stmt(a.db, .Account_Set_Password)
 	db_bind_int(q, 1, i64(acc.id))
@@ -293,7 +298,12 @@ enough. A device that was logged in to another account is taken from
 that one; one already in this account just gets its new name.
 */
 @(require_results)
-device_link :: proc(a: ^Accounts, key: [proto.KEY_SIZE]u8, acc: ^Account, name: string) -> ^Device {
+device_link :: proc(
+	a: ^Accounts,
+	key: [proto.KEY_SIZE]u8,
+	acc: ^Account,
+	name: string,
+) -> ^Device {
 	key := key
 	now := unix_ms()
 	q := db_stmt(a.db, .Device_Put)
@@ -350,7 +360,9 @@ devices_of :: proc(a: ^Accounts, acc: ^Account) -> []^Device {
 	for _, d in a.devices {
 		if d.account == acc.id {
 			i := 0
-			for i < len(list) && (list[i].created < d.created || (list[i].created == d.created && key_less(list[i].key, d.key))) {
+			for i < len(list) &&
+			    (list[i].created < d.created ||
+					    (list[i].created == d.created && key_less(list[i].key, d.key))) {
 				i += 1
 			}
 			inject_at(&list, i, d)

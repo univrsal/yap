@@ -59,7 +59,11 @@ image_cache_clear :: proc(ic: ^Image_Cache) {
 	yap_image_cache_clear()
 }
 
-image_cache_request :: proc(ic: ^Image_Cache, server: [proto.KEY_SIZE]u8, id: proto.Blob_Id) -> Cache_Request {
+image_cache_request :: proc(
+	ic: ^Image_Cache,
+	server: [proto.KEY_SIZE]u8,
+	id: proto.Blob_Id,
+) -> Cache_Request {
 	key := strings.clone_to_cstring(settings.server_key(server, u64(id)), context.temp_allocator)
 	return Cache_Request(yap_image_cache_request(key))
 }
@@ -88,7 +92,12 @@ image_cache_cancel :: proc(ic: ^Image_Cache, req: Cache_Request) {
 	yap_image_cache_cancel(i32(req))
 }
 
-image_cache_store :: proc(ic: ^Image_Cache, server: [proto.KEY_SIZE]u8, id: proto.Blob_Id, data: []u8) {
+image_cache_store :: proc(
+	ic: ^Image_Cache,
+	server: [proto.KEY_SIZE]u8,
+	id: proto.Blob_Id,
+	data: []u8,
+) {
 	if len(data) == 0 {
 		return
 	}

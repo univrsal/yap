@@ -168,7 +168,9 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case in_role.id != 0 && existing == nil:
 		respond(u, id, .Not_Found)
 		return
-	case !outranks(u.account, in_role.perms), existing != nil && !outranks(u.account, existing.perms):
+	case !outranks(u.account, in_role.perms),
+	     existing != nil &&
+	     !outranks(u.account, existing.perms):
 		respond(u, id, .Denied)
 		return
 	case in_role.id == proto.EVERYONE_ROLE && name != existing.name:
@@ -398,6 +400,10 @@ roles_changed :: proc(s: ^Server, r: ^Role) {
 send_roles :: proc(s: ^Server, u: ^Conn) {
 	buf: [proto.ROLE_MAX_SIZE]u8
 	for r in roles_sorted(&s.accounts) {
-		send_event(u, .Role_Changed, proto.encode_role(buf[:], {id = r.id, perms = r.perms, name = r.name}))
+		send_event(
+			u,
+			.Role_Changed,
+			proto.encode_role(buf[:], {id = r.id, perms = r.perms, name = r.name}),
+		)
 	}
 }

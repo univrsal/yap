@@ -6,8 +6,8 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-import "common:proto"
 import "client:audio"
+import "common:proto"
 
 /*
 The channels we're subscribed to and our DMs (src/common/proto/convs.odin),
@@ -393,7 +393,10 @@ conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		publish_channels(c)
 	case .Voice_Moved:
 		room, _ := proto.decode_room(body)
-		log.infof("another of your devices joined the voice of %q, which took this one out", room_name(c, room))
+		log.infof(
+			"another of your devices joined the voice of %q, which took this one out",
+			room_name(c, room),
+		)
 	case:
 		return false
 	}
@@ -414,7 +417,10 @@ conv_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	}
 	cv.viewing = conv
 	if conv != 0 {
-		log.infof("looking at %s", room_name(c, proto.Room(conv)) if info.kind == .DM else fmt.tprintf("%q", info.name))
+		log.infof(
+			"looking at %s",
+			room_name(c, proto.Room(conv)) if info.kind == .DM else fmt.tprintf("%q", info.name),
+		)
 	}
 	if known && info.kind == .Channel {
 		cv.channel = conv
@@ -461,13 +467,23 @@ voice_join :: proc(c: ^Voice_Client, room: proto.Room) {
 	}
 	cv.voice_pending = true
 	buf: [4]u8
-	request(c, .Voice_Join, proto.encode_room(&buf, room), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		c.convs.voice_pending = false
-		if status != .Ok && status != .Reset {
-			log.warnf("couldn't join the voice of %q (%v)", room_name(c, proto.Room(tag)), status)
-		}
-		publish_channels(c)
-	}, u64(room))
+	request(
+		c,
+		.Voice_Join,
+		proto.encode_room(&buf, room),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			c.convs.voice_pending = false
+			if status != .Ok && status != .Reset {
+				log.warnf(
+					"couldn't join the voice of %q (%v)",
+					room_name(c, proto.Room(tag)),
+					status,
+				)
+			}
+			publish_channels(c)
+		},
+		u64(room),
+	)
 	publish_channels(c)
 }
 
@@ -506,45 +522,61 @@ conv_browse :: proc(c: ^Voice_Client, query: string, more := false) {
 	}
 	cv.browse_asked += 1
 	buf: [proto.CONV_BROWSE_MAX_SIZE]u8
-	body := proto.encode_conv_browse(&buf, {query = cv.browse_query, offset = offset, limit = proto.BROWSE_PAGE})
+	body := proto.encode_conv_browse(
+		&buf,
+		{query = cv.browse_query, offset = offset, limit = proto.BROWSE_PAGE},
+	)
 	tag := cv.browse_asked << 16 | u64(offset)
-	request(c, .Conv_Browse, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		cv := &c.convs
-		if status != .Ok || tag >> 16 != cv.browse_asked {
-			return
-		}
-		buf: [proto.MAX_BROWSE_LIMIT]proto.Conv
-		more, found, ok := proto.decode_browse_page(body, buf[:])
-		if !ok {
-			return
-		}
-		if tag & 0xffff == 0 {
-			browse_clear(cv)
-		}
-		cv.browse_more = more
-		for record in found {
-			append(
-				&cv.browse,
-				Browse_Entry {
-					id = record.id,
-					name = strings.clone(record.name),
-					topic = strings.clone(record.topic),
-				},
-			)
-		}
-		if c.view == nil {
-			if len(cv.browse) == 0 {
-				log.info("there are no other channels to subscribe to" if cv.browse_query == "" else "no other channel has that in its name or topic")
+	request(
+		c,
+		.Conv_Browse,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			cv := &c.convs
+			if status != .Ok || tag >> 16 != cv.browse_asked {
+				return
 			}
+			buf: [proto.MAX_BROWSE_LIMIT]proto.Conv
+			more, found, ok := proto.decode_browse_page(body, buf[:])
+			if !ok {
+				return
+			}
+			if tag & 0xffff == 0 {
+				browse_clear(cv)
+			}
+			cv.browse_more = more
 			for record in found {
-				log.infof("can subscribe to %q%s%s", record.name, ": " if record.topic != "" else "", record.topic)
+				append(
+					&cv.browse,
+					Browse_Entry {
+						id = record.id,
+						name = strings.clone(record.name),
+						topic = strings.clone(record.topic),
+					},
+				)
 			}
-			if more {
-				log.info("and more (/browse more)")
+			if c.view == nil {
+				if len(cv.browse) == 0 {
+					log.info(
+						"there are no other channels to subscribe to" if cv.browse_query == "" else "no other channel has that in its name or topic",
+					)
+				}
+				for record in found {
+					log.infof(
+						"can subscribe to %q%s%s",
+						record.name,
+						": " if record.topic != "" else "",
+						record.topic,
+					)
+				}
+				if more {
+					log.info("and more (/browse more)")
+				}
 			}
-		}
-		publish_browse(c)
-	}, tag)
+			publish_browse(c)
+		},
+		tag,
+	)
 }
 
 conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
@@ -565,24 +597,29 @@ conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
 		cv.finding, cv.finding_on = strings.clone(cmd.name), cmd.on
 		buf: [proto.CONV_BROWSE_MAX_SIZE]u8
 		body := proto.encode_conv_browse(&buf, {query = cmd.name, limit = proto.MAX_BROWSE_LIMIT})
-		request(c, .Conv_Browse, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-			cv := &c.convs
-			name := cv.finding
-			cv.finding = ""
-			defer delete(name)
-			buf: [proto.MAX_BROWSE_LIMIT]proto.Conv
-			_, found, ok := proto.decode_browse_page(body, buf[:])
-			if status != .Ok || !ok {
-				return
-			}
-			for record in found {
-				if strings.equal_fold(record.name, name) {
-					conv_subscribe(c, record.id, cv.finding_on)
+		request(
+			c,
+			.Conv_Browse,
+			body,
+			proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+				cv := &c.convs
+				name := cv.finding
+				cv.finding = ""
+				defer delete(name)
+				buf: [proto.MAX_BROWSE_LIMIT]proto.Conv
+				_, found, ok := proto.decode_browse_page(body, buf[:])
+				if status != .Ok || !ok {
 					return
 				}
-			}
-			log.warnf("there's no channel called %q to subscribe to", name)
-		})
+				for record in found {
+					if strings.equal_fold(record.name, name) {
+						conv_subscribe(c, record.id, cv.finding_on)
+						return
+					}
+				}
+				log.warnf("there's no channel called %q to subscribe to", name)
+			},
+		)
 		return
 	}
 	if conv == 0 {
@@ -595,18 +632,23 @@ conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
 @(private = "file")
 conv_subscribe :: proc(c: ^Voice_Client, conv: proto.Conv_Id, on: bool) {
 	buf: [proto.CONV_SUBSCRIBE_SIZE]u8
-	request(c, .Conv_Subscribe, proto.encode_conv_subscribe(&buf, conv, on), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		#partial switch status {
-		case .Ok:
-			// What there is to subscribe to has changed with it.
-			conv_browse(c, c.convs.browse_query)
-		case .Denied:
-			log.warn("that channel can't be left: everyone is in it")
-		case .Reset:
-		case:
-			log.warnf("the server wouldn't do that (%v)", status)
-		}
-	})
+	request(
+		c,
+		.Conv_Subscribe,
+		proto.encode_conv_subscribe(&buf, conv, on),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Ok:
+				// What there is to subscribe to has changed with it.
+				conv_browse(c, c.convs.browse_query)
+			case .Denied:
+				log.warn("that channel can't be left: everyone is in it")
+			case .Reset:
+			case:
+				log.warnf("the server wouldn't do that (%v)", status)
+			}
+		},
+	)
 }
 
 conv_create :: proc(c: ^Voice_Client, name, topic: string, private := false) {
@@ -616,26 +658,31 @@ conv_create :: proc(c: ^Voice_Client, name, topic: string, private := false) {
 		log.warn("that name or topic is too long")
 		return
 	}
-	request(c, .Conv_Create, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		text: string
-		#partial switch status {
-		case .Ok:
-			text = "Channel made."
-		case .Denied:
-			text = "You aren't allowed to make channels."
-		case .Conflict:
-			text = "There's a channel with that name already."
-		case .Invalid:
-			text = "A channel needs a name."
-		case .Too_Large:
-			text = "There are as many channels as there can be."
-		case .Reset:
-			return
-		case:
-			text = fmt.tprintf("The server couldn't do that (%v).", status)
-		}
-		notify(c, status == .Ok, text)
-	})
+	request(
+		c,
+		.Conv_Create,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			text: string
+			#partial switch status {
+			case .Ok:
+				text = "Channel made."
+			case .Denied:
+				text = "You aren't allowed to make channels."
+			case .Conflict:
+				text = "There's a channel with that name already."
+			case .Invalid:
+				text = "A channel needs a name."
+			case .Too_Large:
+				text = "There are as many channels as there can be."
+			case .Reset:
+				return
+			case:
+				text = fmt.tprintf("The server couldn't do that (%v).", status)
+			}
+			notify(c, status == .Ok, text)
+		},
+	)
 }
 
 /*
@@ -665,7 +712,8 @@ conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: boo
 	case:
 		info.unread = min(info.unread + 1, proto.UNREAD_CAP)
 		// <@everyone> is only ever stored from someone allowed it.
-		mention = m.kind == .Text && .Deleted not_in m.flags && proto.mentions_account(m.text, c.auth.me)
+		mention =
+			m.kind == .Text && .Deleted not_in m.flags && proto.mentions_account(m.text, c.auth.me)
 		if mention {
 			info.mentions = min(info.mentions + 1, proto.UNREAD_CAP)
 		}
@@ -725,11 +773,16 @@ conv_notify :: proc(c: ^Voice_Client, cmd: Notify_Command) {
 		return
 	}
 	buf: [proto.CONV_NOTIFY_SIZE]u8
-	request(c, .Conv_Notify, proto.encode_conv_notify(&buf, conv, cmd.notify), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status != .Ok && status != .Reset {
-			log.warnf("the server wouldn't change that (%v)", status)
-		}
-	})
+	request(
+		c,
+		.Conv_Notify,
+		proto.encode_conv_notify(&buf, conv, cmd.notify),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status != .Ok && status != .Reset {
+				log.warnf("the server wouldn't change that (%v)", status)
+			}
+		},
+	)
 }
 
 // list_channels logs our channels, with who is talking in each.
@@ -744,8 +797,14 @@ list_channels :: proc(c: ^Voice_Client) {
 		info := cv.convs[id]
 		unread := ""
 		if info.unread > 0 {
-			mentions := fmt.tprintf(", %s mentioning you", unread_count(info.mentions)) if info.mentions > 0 else ""
-			unread = fmt.tprintf(" (%s unread%s%s)", unread_count(info.unread), mentions, ", muted" if info.notify == .None else "")
+			mentions :=
+				fmt.tprintf(", %s mentioning you", unread_count(info.mentions)) if info.mentions > 0 else ""
+			unread = fmt.tprintf(
+				" (%s unread%s%s)",
+				unread_count(info.unread),
+				mentions,
+				", muted" if info.notify == .None else "",
+			)
 		}
 		log.infof(
 			"%s%s %s%s: %s",

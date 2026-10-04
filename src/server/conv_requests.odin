@@ -59,7 +59,11 @@ conv_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 // sees it.
 send_conv :: proc(s: ^Server, u: ^Conn, conv: ^Conv) {
 	buf: [proto.CONV_MAX_SIZE]u8
-	send_event(u, .Conv_Changed, proto.encode_conv(buf[:], conv_record(&s.convs, conv, u.account.id)))
+	send_event(
+		u,
+		.Conv_Changed,
+		proto.encode_conv(buf[:], conv_record(&s.convs, conv, u.account.id)),
+	)
 }
 
 // send_read tells every connection of an account what it has read of a
@@ -551,7 +555,9 @@ member_gone :: proc(s: ^Server, conv: ^Conv, account: proto.Account_Id) {
 room_check :: proc(s: ^Server, conv: ^Conv) {
 	changed := .Private in conv.flags
 	for _, other in s.conns {
-		if other.account == nil || other.room != proto.Room(conv.id) || conv_visible(conv, other.account.id) {
+		if other.account == nil ||
+		   other.room != proto.Room(conv.id) ||
+		   conv_visible(conv, other.account.id) {
 			continue
 		}
 		conn_set_room(s, other, 0)

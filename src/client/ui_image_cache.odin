@@ -48,7 +48,8 @@ image_cache_settings :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Maximum size")
-	if .CHANGE in mu.slider(ctx, &ui.settings.image_cache_mb, 0, settings.MAX_IMAGE_CACHE_MB, 16, "%.0f MB") {
+	if .CHANGE in
+	   mu.slider(ctx, &ui.settings.image_cache_mb, 0, settings.MAX_IMAGE_CACHE_MB, 16, "%.0f MB") {
 		// Sliders change every frame while dragged; saved within a second.
 		ui.settings_dirty = true
 		conn.image_cache_set_max(&ui.image_cache, settings.image_cache_bytes(&ui.settings))
@@ -92,10 +93,18 @@ folder_settings :: proc(ui: ^UI) {
 	with_text_color(
 		ctx,
 		DIM_COLOR,
-		fmt.tprintf("  Kept in %s. Empty for the default; pictures already kept elsewhere stay there.", folder),
+		fmt.tprintf(
+			"  Kept in %s. Empty for the default; pictures already kept elsewhere stay there.",
+			folder,
+		),
 		label_proc,
 	)
-	with_text_color(ctx, DIM_COLOR, "  People's pictures and servers' emoji. 0 keeps none.", label_proc)
+	with_text_color(
+		ctx,
+		DIM_COLOR,
+		"  People's pictures and servers' emoji. 0 keeps none.",
+		label_proc,
+	)
 }
 
 // format_bytes is a size the way a person reads one.

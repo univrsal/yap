@@ -6,7 +6,11 @@ import "core:testing"
 @(test)
 test_purge_roundtrip :: proc(t: ^testing.T) {
 	buf: [PURGE_SIZE]u8
-	p := Purge{conv = 7, before = 1_790_000_000_000, what = .Images}
+	p := Purge {
+		conv   = 7,
+		before = 1_790_000_000_000,
+		what   = .Images,
+	}
 	got, ok := decode_purge(encode_purge(&buf, p))
 	testing.expect(t, ok)
 	testing.expect_value(t, got, p)
@@ -27,7 +31,11 @@ test_purge_roundtrip :: proc(t: ^testing.T) {
 	testing.expect_value(t, blobs, 5)
 
 	purged_buf: [MSGS_PURGED_SIZE]u8
-	mp := Msgs_Purged{conv = 3, before = 99, what = .Messages}
+	mp := Msgs_Purged {
+		conv   = 3,
+		before = 99,
+		what   = .Messages,
+	}
 	got_mp, mp_ok := decode_msgs_purged(encode_msgs_purged(&purged_buf, mp))
 	testing.expect(t, mp_ok)
 	testing.expect_value(t, got_mp, mp)

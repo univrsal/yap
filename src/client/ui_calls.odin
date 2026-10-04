@@ -3,9 +3,9 @@ package client
 import "core:fmt"
 import mu "vendor:microui"
 
+import "client:conn"
 import glfw "client:wglfw"
 import "common:proto"
-import "client:conn"
 
 /*
 Calls on screen (conn/calls.odin). The call itself is in the voice

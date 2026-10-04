@@ -1,11 +1,11 @@
 #+build !wasi
 package conn
 
+import "client:platform"
 import log "common:wlog"
 import "core:fmt"
 import "core:os"
 import "core:strings"
-import "client:platform"
 
 /*
 Reading a file being sent and writing one being received, on a desktop:

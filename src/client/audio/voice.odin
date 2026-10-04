@@ -5,10 +5,10 @@ import "core:encoding/endian"
 import "core:sync"
 import "core:time"
 
-import "common:proto"
 import "client:audio/opus"
 import "client:audio/rnn"
 import "client:platform"
+import "common:proto"
 
 /*
 The voice pipeline. Everything here runs on the network thread; the audio

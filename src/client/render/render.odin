@@ -1,8 +1,8 @@
 package render
 
+import glfw "client:wglfw"
 import "core:math"
 import mu "vendor:microui"
-import glfw "client:wglfw"
 
 /*
 Draws microui's command list. Rects and text are quads from the font
@@ -96,17 +96,17 @@ Font_Slot :: struct {
 }
 
 Renderer :: struct {
-	gpu:             Gpu,
-	fonts:           [Font_Kind]Font_Slot,
-	icon_texture:    Gpu_Texture, // microui's own icons
-	icons:           Icon_Atlas, // ours (icons.odin)
-	icons_texture:   Gpu_Texture,
-	bound:           Gpu_Texture, // texture the pending quads use
-	rgba:            bool, // the bound texture is a picture, not the atlas
-	images:          ^[dynamic]Image_Draw, // this frame's pictures; the UI's to fill
-	vertices:        [MAX_QUADS * 4]Vertex,
-	quads:           int,
-	scale:           f32,
+	gpu:           Gpu,
+	fonts:         [Font_Kind]Font_Slot,
+	icon_texture:  Gpu_Texture, // microui's own icons
+	icons:         Icon_Atlas, // ours (icons.odin)
+	icons_texture: Gpu_Texture,
+	bound:         Gpu_Texture, // texture the pending quads use
+	rgba:          bool, // the bound texture is a picture, not the atlas
+	images:        ^[dynamic]Image_Draw, // this frame's pictures; the UI's to fill
+	vertices:      [MAX_QUADS * 4]Vertex,
+	quads:         int,
+	scale:         f32,
 }
 
 // The fonts microui measures text with (its callbacks take no user data).
@@ -313,7 +313,10 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				&emit,
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
-					use_texture(e.r, e.slot.unifont_texture if q.unifont else e.slot.textures[q.face])
+					use_texture(
+						e.r,
+						e.slot.unifont_texture if q.unifont else e.slot.textures[q.face],
+					)
 					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
 				},
 				style,

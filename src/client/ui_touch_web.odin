@@ -3,8 +3,8 @@ package client
 
 import "core:unicode/utf8"
 
-import mu "vendor:microui"
 import "client:platform"
+import mu "vendor:microui"
 
 /*
 Touch and the phone keyboard, as the page hands them over (see

@@ -31,7 +31,9 @@ test_emoji_table :: proc(t: ^testing.T) {
 
 	names := []string{"foo", "bar_2"}
 	buf: [64]u8
-	sheet, sheet_ok := decode_emoji_sheet(encode_emoji_sheet(buf[:], {blob = 7, size = 900, cell = 32, names = names}))
+	sheet, sheet_ok := decode_emoji_sheet(
+		encode_emoji_sheet(buf[:], {blob = 7, size = 900, cell = 32, names = names}),
+	)
 	testing.expect(t, sheet_ok)
 	testing.expect_value(t, sheet.blob, Blob_Id(7))
 	testing.expect_value(t, sheet.size, 900)

@@ -17,7 +17,9 @@ test_transfer_lossy :: proc(t: ^testing.T) {
 	got := make([]u8, size)
 	defer delete(got)
 
-	now := time.Tick{_nsec = 1_000_000_000}
+	now := time.Tick {
+		_nsec = 1_000_000_000,
+	}
 	s: Transfer_Sender
 	transfer_sender_init(&s, size, now)
 	defer transfer_sender_destroy(&s)

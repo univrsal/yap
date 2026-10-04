@@ -173,8 +173,7 @@ stream_next_frame :: proc(
 ) {
 	for seq := s.send_base; seq != s.send_next; seq += 1 {
 		f := &s.out[seq % STREAM_WINDOW]
-		if f.acked ||
-		   (!f.skipped && time.tick_diff(f.sent, now) < resend_after(resend, f.sends)) {
+		if f.acked || (!f.skipped && time.tick_diff(f.sent, now) < resend_after(resend, f.sends)) {
 			continue
 		}
 		f.skipped = false

@@ -179,7 +179,13 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		// Before it's stored: whoever is subscribed by being mentioned
 		// hasn't read it.
-		m.text, mentioned = mentions_resolve(s, u, conv, links_restrict(s, conv, m.text), conv.last_msg)
+		m.text, mentioned = mentions_resolve(
+			s,
+			u,
+			conv,
+			links_restrict(s, conv, m.text),
+			conv.last_msg,
+		)
 	case .Image:
 		b, found := blob_get(&s.blobs, p.blob)
 		if !found || b.kind != .Image {
@@ -200,14 +206,21 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	respond(u, id, .Ok, proto.encode_msg_posted(&posted, m.id, m.time))
 	// Message content stays out of the log unless debugging.
-	place := conv.name if conv.kind == .Channel else fmt.tprintf("a DM with account %d", dm_other(conv, sender))
+	place :=
+		conv.name if conv.kind == .Channel else fmt.tprintf("a DM with account %d", dm_other(conv, sender))
 	#partial switch m.kind {
 	case .Text:
 		log.debugf("%s in %q: %s (%d files)", conn_label(u), place, m.text, m.attachment_count)
 	case .Image:
 		log.debugf("%s in %q: a picture (blob %d)", conn_label(u), place, m.image.blob)
 	case .File:
-		log.debugf("%s in %q: offers %q (%d bytes)", conn_label(u), place, m.file_name, m.file_size)
+		log.debugf(
+			"%s in %q: offers %q (%d bytes)",
+			conn_label(u),
+			place,
+			m.file_name,
+			m.file_size,
+		)
 		file_offered(s, u, conv, m)
 	}
 	if first && conv.kind == .DM {
@@ -278,7 +291,9 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Not_Found)
 		return
 	}
-	if .Deleted in src.flags || (src.kind != .Text && src.kind != .Image) || (src.kind == .Image && src.image.blob == 0) {
+	if .Deleted in src.flags ||
+	   (src.kind != .Text && src.kind != .Image) ||
+	   (src.kind == .Image && src.image.blob == 0) {
 		respond(u, id, .Invalid)
 		return
 	}
@@ -305,16 +320,16 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		from = src.forward
 	}
 	m := proto.Message {
-		conv        = conv.id,
-		sender      = u.account.id,
-		kind        = src.kind,
-		flags       = {.Forwarded},
-		thread_root = root.id,
-		text        = links_restrict(s, conv, src.text),
-		image       = src.image,
-		forward     = from,
+		conv             = conv.id,
+		sender           = u.account.id,
+		kind             = src.kind,
+		flags            = {.Forwarded},
+		thread_root      = root.id,
+		text             = links_restrict(s, conv, src.text),
+		image            = src.image,
+		forward          = from,
 		attachment_count = src.attachment_count,
-		attachments = src.attachments,
+		attachments      = src.attachments,
 	}
 	if .Has_Attachments in src.flags {
 		m.flags += {.Has_Attachments}
@@ -460,12 +475,21 @@ msg_history :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	// A thread's replies: its root has to be a message of this
 	// conversation.
 	if h.thread_root != 0 {
-		if root, found := msg_by_id(s, h.thread_root); !found || root.conv != conv.id || root.thread_root != 0 {
+		if root, found := msg_by_id(s, h.thread_root);
+		   !found || root.conv != conv.id || root.thread_root != 0 {
 			respond(u, id, .Not_Found)
 			return
 		}
 	}
-	msgs, more, read_ok := history_page(s, conv.id, h.anchor, h.dir, h.limit, u.account.id, h.thread_root)
+	msgs, more, read_ok := history_page(
+		s,
+		conv.id,
+		h.anchor,
+		h.dir,
+		h.limit,
+		u.account.id,
+		h.thread_root,
+	)
 	if !read_ok {
 		respond(u, id, .Internal)
 		return

@@ -134,7 +134,11 @@ ts_pump :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) {
 		if !ok {
 			break
 		}
-		testing.expect_value(t, proto.stream_receive(&client.stream, frame), proto.Stream_Error.None)
+		testing.expect_value(
+			t,
+			proto.stream_receive(&client.stream, frame),
+			proto.Stream_Error.None,
+		)
 		ack_buf: [proto.STREAM_ACK_SIZE]u8
 		if ack, due := proto.stream_ack(&client.stream, &ack_buf); due {
 			proto.stream_acked(&u.stream, ack)
@@ -205,7 +209,13 @@ ts_login :: proc(
 ) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	body: []u8
-	status, body = ts_ask(t, ts, u, .Auth_Login, proto.encode_auth_login(buf[:], username, password, device))
+	status, body = ts_ask(
+		t,
+		ts,
+		u,
+		.Auth_Login,
+		proto.encode_auth_login(buf[:], username, password, device),
+	)
 	if status == .Ok {
 		ok: bool
 		_, flags, ok = proto.decode_auth_login_response(body)
@@ -331,7 +341,7 @@ test_accounts_kept :: proc(t: ^testing.T) {
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
 	key := [proto.KEY_SIZE]u8 {
-		0 = 7,
+		0  = 7,
 		31 = 9,
 	}
 	{
@@ -560,18 +570,48 @@ test_account_create :: proc(t: ^testing.T) {
 	body: []u8
 
 	// Only who manages accounts makes them.
-	status, _ = ts_ask(t, &ts, alice, .Account_Create, proto.encode_account_create(buf[:], "bob", "first password", "Bob"))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		alice,
+		.Account_Create,
+		proto.encode_account_create(buf[:], "bob", "first password", "Bob"),
+	)
 	testing.expect_value(t, status, proto.Status.Denied)
 
 	// Nothing that couldn't be an account is made into one.
-	status, _ = ts_ask(t, &ts, admin, .Account_Create, proto.encode_account_create(buf[:], "b", "first password", "Bob"))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Create,
+		proto.encode_account_create(buf[:], "b", "first password", "Bob"),
+	)
 	testing.expect_value(t, status, proto.Status.Invalid)
-	status, _ = ts_ask(t, &ts, admin, .Account_Create, proto.encode_account_create(buf[:], "bob", "short", "Bob"))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Create,
+		proto.encode_account_create(buf[:], "bob", "short", "Bob"),
+	)
 	testing.expect_value(t, status, proto.Status.Invalid)
-	status, _ = ts_ask(t, &ts, admin, .Account_Create, proto.encode_account_create(buf[:], "ALICE", "first password", ""))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Create,
+		proto.encode_account_create(buf[:], "ALICE", "first password", ""),
+	)
 	testing.expect_value(t, status, proto.Status.Conflict)
 
-	status, body = ts_ask(t, &ts, admin, .Account_Create, proto.encode_account_create(buf[:], "Bob", "first password", "  Bob\tB. "))
+	status, body = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Create,
+		proto.encode_account_create(buf[:], "Bob", "first password", "  Bob\tB. "),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	id, ok := proto.decode_account_id(body)
 	testing.expect(t, ok)
@@ -592,7 +632,13 @@ test_account_create :: proc(t: ^testing.T) {
 	}
 
 	// With no name given, it's called by its username.
-	status, _ = ts_ask(t, &ts, admin, .Account_Create, proto.encode_account_create(buf[:], "carol", "first password", ""))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Create,
+		proto.encode_account_create(buf[:], "carol", "first password", ""),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, account_find(&s.accounts, "carol").display, "carol")
 
@@ -605,11 +651,29 @@ test_account_create :: proc(t: ^testing.T) {
 	testing.expect_value(t, flags, proto.Account_Flags{.Must_Change})
 	ts_events(t, &ts, b)
 
-	status, _ = ts_ask(t, &ts, b, .Password_Change, proto.encode_password_change(buf[:], "not it", "bob's own password", false))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		b,
+		.Password_Change,
+		proto.encode_password_change(buf[:], "not it", "bob's own password", false),
+	)
 	testing.expect_value(t, status, proto.Status.Wrong_Password)
-	status, _ = ts_ask(t, &ts, b, .Password_Change, proto.encode_password_change(buf[:], "first password", "short", false))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		b,
+		.Password_Change,
+		proto.encode_password_change(buf[:], "first password", "short", false),
+	)
 	testing.expect_value(t, status, proto.Status.Invalid)
-	status, _ = ts_ask(t, &ts, b, .Password_Change, proto.encode_password_change(buf[:], "first password", "bob's own password", false))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		b,
+		.Password_Change,
+		proto.encode_password_change(buf[:], "first password", "bob's own password", false),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, bob.flags, proto.Account_Flags{})
 	e, told := has_event(ts_events(t, &ts, b), .Self)
@@ -679,7 +743,13 @@ test_devices :: proc(t: ^testing.T) {
 
 	// One's own is: it's logged out there and then, told why, and has
 	// to log in again.
-	status, _ = ts_ask(t, &ts, laptop, .Device_Revoke, proto.encode_device_revoke(buf[:], phone.key))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		laptop,
+		.Device_Revoke,
+		proto.encode_device_revoke(buf[:], phone.key),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, phone.account == nil)
 	testing.expect(t, phone.key in s.waiting && phone.key not_in s.conns)
@@ -698,7 +768,13 @@ test_devices :: proc(t: ^testing.T) {
 	status, _ = ts_login(t, &ts, tablet, "alice", "alice's password", "tablet")
 	testing.expect_value(t, status, proto.Status.Ok)
 	ts_events(t, &ts, tablet)
-	status, _ = ts_ask(t, &ts, laptop, .Password_Change, proto.encode_password_change(buf[:], "alice's password", "a new password", true))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		laptop,
+		.Password_Change,
+		proto.encode_password_change(buf[:], "alice's password", "a new password", true),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, laptop.account != nil)
 	testing.expect(t, tablet.account == nil)
@@ -724,17 +800,41 @@ test_password_set_by_admin :: proc(t: ^testing.T) {
 
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	// Not for anyone to do, nor to the owner, nor to nobody.
-	status, _ = ts_ask(t, &ts, a, .Account_Password_Set, proto.encode_account_password_set(buf[:], alice.id, "another password"))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		a,
+		.Account_Password_Set,
+		proto.encode_account_password_set(buf[:], alice.id, "another password"),
+	)
 	testing.expect_value(t, status, proto.Status.Denied)
-	status, _ = ts_ask(t, &ts, admin, .Account_Password_Set, proto.encode_account_password_set(buf[:], 999, "another password"))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Password_Set,
+		proto.encode_account_password_set(buf[:], 999, "another password"),
+	)
 	testing.expect_value(t, status, proto.Status.Not_Found)
-	status, _ = ts_ask(t, &ts, admin, .Account_Password_Set, proto.encode_account_password_set(buf[:], alice.id, "short"))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Password_Set,
+		proto.encode_account_password_set(buf[:], alice.id, "short"),
+	)
 	testing.expect_value(t, status, proto.Status.Invalid)
 	testing.expect(t, a.account == alice)
 
 	// Alice forgot hers: the admin sets one, which logs her devices out
 	// and is only good until she has chosen her own.
-	status, _ = ts_ask(t, &ts, admin, .Account_Password_Set, proto.encode_account_password_set(buf[:], alice.id, "another password"))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Account_Password_Set,
+		proto.encode_account_password_set(buf[:], alice.id, "another password"),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, a.account == nil)
 	testing.expect(t, admin.account == owner)
@@ -768,7 +868,16 @@ test_profile_set :: proc(t: ^testing.T) {
 	ts_events(t, &ts, b)
 
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	status, _ = ts_ask(t, &ts, a, .Profile_Set, proto.encode_profile_set(buf[:], {mask = proto.PROFILE_DISPLAY, display = "  Alice\x00 the Great "}))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		a,
+		.Profile_Set,
+		proto.encode_profile_set(
+			buf[:],
+			{mask = proto.PROFILE_DISPLAY, display = "  Alice\x00 the Great "},
+		),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, alice.display, "Alice the Great")
 	e, heard := has_event(ts_events(t, &ts, b), .Account_Changed)
@@ -778,9 +887,24 @@ test_profile_set :: proc(t: ^testing.T) {
 	testing.expect_value(t, conn_name(a), "Alice the Great")
 
 	// A name of nothing isn't one, and the same name again is no news.
-	status, _ = ts_ask(t, &ts, a, .Profile_Set, proto.encode_profile_set(buf[:], {mask = proto.PROFILE_DISPLAY, display = " \t "}))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		a,
+		.Profile_Set,
+		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_DISPLAY, display = " \t "}),
+	)
 	testing.expect_value(t, status, proto.Status.Invalid)
-	status, _ = ts_ask(t, &ts, a, .Profile_Set, proto.encode_profile_set(buf[:], {mask = proto.PROFILE_DISPLAY, display = "Alice the Great"}))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		a,
+		.Profile_Set,
+		proto.encode_profile_set(
+			buf[:],
+			{mask = proto.PROFILE_DISPLAY, display = "Alice the Great"},
+		),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, len(ts_events(t, &ts, b)), 0)
 	testing.expect_value(t, alice.display, "Alice the Great")
@@ -797,10 +921,26 @@ test_login_gone_before_answer :: proc(t: ^testing.T) {
 	alice := ts_account(t, &ts, "alice", "alice's password")
 	u := ts_connect(&ts)
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	rpc_handle(s, u, proto.encode_request(1, .Auth_Login, proto.encode_auth_login(buf[:], "alice", "alice's password", "x")))
+	rpc_handle(
+		s,
+		u,
+		proto.encode_request(
+			1,
+			.Auth_Login,
+			proto.encode_auth_login(buf[:], "alice", "alice's password", "x"),
+		),
+	)
 	testing.expect(t, u.auth_busy)
 	// A second while the first is under way has to wait its turn.
-	rpc_handle(s, u, proto.encode_request(2, .Auth_Login, proto.encode_auth_login(buf[:], "alice", "alice's password", "x")))
+	rpc_handle(
+		s,
+		u,
+		proto.encode_request(
+			2,
+			.Auth_Login,
+			proto.encode_auth_login(buf[:], "alice", "alice's password", "x"),
+		),
+	)
 	ts_pump(t, &ts, u)
 	testing.expect_value(t, ts.clients[u].responses[2].status, proto.Status.Rate_Limited)
 

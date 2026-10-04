@@ -1,7 +1,7 @@
 package server
 
-import "core:os"
 import "core:fmt"
+import "core:os"
 import "core:testing"
 
 import "common:proto"
@@ -208,16 +208,40 @@ test_conv_create :: proc(t: ^testing.T) {
 
 	buf: [proto.CONV_CREATE_MAX_SIZE]u8
 	// Only who may makes channels, and only ones that could be.
-	status, _ := ts_ask(t, &ts, alice, .Conv_Create, proto.encode_conv_create(buf[:], "Music", "", false))
+	status, _ := ts_ask(
+		t,
+		&ts,
+		alice,
+		.Conv_Create,
+		proto.encode_conv_create(buf[:], "Music", "", false),
+	)
 	testing.expect_value(t, status, proto.Status.Denied)
-	status, _ = ts_ask(t, &ts, admin, .Conv_Create, proto.encode_conv_create(buf[:], " \t ", "", false))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Conv_Create,
+		proto.encode_conv_create(buf[:], " \t ", "", false),
+	)
 	testing.expect_value(t, status, proto.Status.Invalid)
-	status, _ = ts_ask(t, &ts, admin, .Conv_Create, proto.encode_conv_create(buf[:], "GAMING", "", false))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Conv_Create,
+		proto.encode_conv_create(buf[:], "GAMING", "", false),
+	)
 	testing.expect_value(t, status, proto.Status.Conflict)
 	testing.expect_value(t, len(s.convs.by_id), 2)
 
 	body: []u8
-	status, body = ts_ask(t, &ts, admin, .Conv_Create, proto.encode_conv_create(buf[:], "  Music\n", "what we're\tlistening to", false))
+	status, body = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Conv_Create,
+		proto.encode_conv_create(buf[:], "  Music\n", "what we're\tlistening to", false),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	id, ok := proto.decode_conv_id(body)
 	testing.expect(t, ok)
@@ -347,14 +371,22 @@ test_browse_search :: proc(t: ^testing.T) {
 	// Lobby and Gaming, and 130 more: every tenth about music.
 	for i in 0 ..< 130 {
 		topic := "all about music" if i % 10 == 0 else ""
-		testing.expect(t, conv_add(&s.convs, fmt.tprintf("room-%03d", i), topic, {}, owner.id) != nil)
+		testing.expect(
+			t,
+			conv_add(&s.convs, fmt.tprintf("room-%03d", i), topic, {}, owner.id) != nil,
+		)
 	}
 	testing.expect(t, conv_add(&s.convs, "Gamers Corner", "", {}, owner.id) != nil)
 
 	// All of them, a page at a time, and the last says there are no more.
 	seen := 0
-	for offset := 0; ; offset += proto.BROWSE_PAGE {
-		status, more, convs := browse_page(t, &ts, alice, {offset = offset, limit = proto.BROWSE_PAGE})
+	for offset := 0;; offset += proto.BROWSE_PAGE {
+		status, more, convs := browse_page(
+			t,
+			&ts,
+			alice,
+			{offset = offset, limit = proto.BROWSE_PAGE},
+		)
 		testing.expect_value(t, status, proto.Status.Ok)
 		seen += len(convs)
 		if !more {

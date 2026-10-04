@@ -1,9 +1,9 @@
 #+build !wasi
 package client
 
-import log "common:wlog"
 import glfw "client:wglfw"
 import stbi "client:wstbi"
+import log "common:wlog"
 
 /*
 The window's icon, for the title bar and the taskbar, from

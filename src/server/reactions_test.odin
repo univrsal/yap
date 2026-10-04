@@ -8,14 +8,25 @@ import "common:proto"
 // Tests of reactions, on the Test_Server of auth_test.odin.
 
 @(private = "file")
-react_as :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id, emoji: string, on: bool) -> proto.Status {
+react_as :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	id: proto.Msg_Id,
+	emoji: string,
+	on: bool,
+) -> proto.Status {
 	buf := new([proto.MSG_REACT_MAX_SIZE]u8, context.temp_allocator)
 	status, _ := ts_ask(t, ts, u, .Msg_React, proto.encode_msg_react(buf, id, emoji, on))
 	return status
 }
 
 @(private = "file")
-reaction_events :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> [dynamic]proto.Reaction_Change {
+reaction_events :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+) -> [dynamic]proto.Reaction_Change {
 	out := make([dynamic]proto.Reaction_Change, context.temp_allocator)
 	for e in ts_events(t, ts, u) {
 		if e.op == .Reaction_Changed {
@@ -52,7 +63,11 @@ test_reactions :: proc(t: ^testing.T) {
 	got := reaction_events(t, &ts, carol)
 	testing.expect_value(t, len(got), 1)
 	if len(got) == 1 {
-		testing.expect_value(t, got[0], proto.Reaction_Change{id, home, "👍", 1, bob_acc.id, true})
+		testing.expect_value(
+			t,
+			got[0],
+			proto.Reaction_Change{id, home, "👍", 1, bob_acc.id, true},
+		)
 	}
 	// Twice is once, and tells nobody.
 	testing.expect_value(t, react_as(t, &ts, bob, id, "👍", true), proto.Status.Ok)
@@ -96,7 +111,11 @@ test_reactions :: proc(t: ^testing.T) {
 
 	// No more than so many kinds.
 	for e in proto.EMOJI[:proto.MAX_REACTIONS - 2] {
-		testing.expect_value(t, react_as(t, &ts, alice, id, fmt.tprintf("%r", e.r), true), proto.Status.Ok)
+		testing.expect_value(
+			t,
+			react_as(t, &ts, alice, id, fmt.tprintf("%r", e.r), true),
+			proto.Status.Ok,
+		)
 	}
 	testing.expect_value(t, react_as(t, &ts, alice, id, "🦄", true), proto.Status.Too_Large)
 	// ... but more of a kind there is.
@@ -161,7 +180,13 @@ test_reactors :: proc(t: ^testing.T) {
 	testing.expect_value(t, react_as(t, &ts, alice, id, "👍", true), proto.Status.Ok)
 	testing.expect_value(t, react_as(t, &ts, carol, id, "🎉", true), proto.Status.Ok)
 	// In the same millisecond, the lower account would come first.
-	testing.expect(t, db_exec(&s.db, fmt.tprintf("UPDATE reactions SET time = time - 1000 WHERE account = %d", bob_acc.id)))
+	testing.expect(
+		t,
+		db_exec(
+			&s.db,
+			fmt.tprintf("UPDATE reactions SET time = time - 1000 WHERE account = %d", bob_acc.id),
+		),
+	)
 
 	// The earliest first, and only that emoji's.
 	status, total, accounts := reactors(t, &ts, carol, id, "👍")

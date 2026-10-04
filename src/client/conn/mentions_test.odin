@@ -10,9 +10,18 @@ import "common:proto"
 test_mentions_transform :: proc(t: ^testing.T) {
 	accounts: map[proto.Account_Id]Dir_Account
 	defer delete(accounts)
-	accounts[17] = {username = "alice", display = "Alice A."}
-	accounts[4] = {username = "bob", display = "Bob"}
-	accounts[5] = {username = "bob.b", display = "Other Bob"}
+	accounts[17] = {
+		username = "alice",
+		display  = "Alice A.",
+	}
+	accounts[4] = {
+		username = "bob",
+		display  = "Bob",
+	}
+	accounts[5] = {
+		username = "bob.b",
+		display  = "Other Bob",
+	}
 
 	// Typed to stored: at word starts, the longest username, a full stop
 	// left alone, emails left alone.
@@ -21,11 +30,19 @@ test_mentions_transform :: proc(t: ^testing.T) {
 	testing.expect_value(t, mentions_encode("@bob.b and @bob.", accounts), "<@5> and <@4>.")
 	testing.expect_value(t, mentions_encode("@alice@bob", accounts), "<@17>@bob")
 	testing.expect_value(t, mentions_encode("mail me@alice.com", accounts), "mail me@alice.com")
-	testing.expect_value(t, mentions_encode("@nobody @ @everyone", accounts), "@nobody @ <@everyone>")
+	testing.expect_value(
+		t,
+		mentions_encode("@nobody @ @everyone", accounts),
+		"@nobody @ <@everyone>",
+	)
 	testing.expect_value(t, mentions_encode("no mentions", accounts), "no mentions")
 
 	// And back, for editing.
-	testing.expect_value(t, mentions_for_edit("<@17>, <@5><@4> <@everyone> <@99> <@x>", accounts), "@alice, @bob.b@bob @everyone <@99> <@x>")
+	testing.expect_value(
+		t,
+		mentions_for_edit("<@17>, <@5><@4> <@everyone> <@99> <@x>", accounts),
+		"@alice, @bob.b@bob @everyone <@99> <@x>",
+	)
 	round := "@alice and @bob.b, @everyone"
 	testing.expect_value(t, mentions_for_edit(mentions_encode(round, accounts), accounts), round)
 
@@ -50,7 +67,11 @@ test_emoji_transform :: proc(t: ^testing.T) {
 	// Shortcodes become characters, but not the server's own names, nor
 	// what isn't a shortcode.
 	testing.expect_value(t, emoji_encode("hi :+1: :grinning:", custom), "hi 👍 😀")
-	testing.expect_value(t, emoji_encode(":smile: :party: :nope: a:b", custom), ":smile: :party: :nope: a:b")
+	testing.expect_value(
+		t,
+		emoji_encode(":smile: :party: :nope: a:b", custom),
+		":smile: :party: :nope: a:b",
+	)
 	testing.expect_value(t, emoji_encode("::grinning:", custom), ":😀")
 
 	// Shown: the server's own as placeholders, with which they are.

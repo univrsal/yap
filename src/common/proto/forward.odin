@@ -108,11 +108,20 @@ next_link :: proc(text: string, from: int) -> (l: Msg_Link, ok: bool) {
 			inside := text[inside_from:][:close]
 			if colon := strings.index_byte(inside, ':'); colon > 0 {
 				conv_text, id_text := inside[:colon], inside[colon + 1:]
-				if all_digits(conv_text) && all_digits(id_text) && len(conv_text) <= 10 && len(id_text) <= 20 {
+				if all_digits(conv_text) &&
+				   all_digits(id_text) &&
+				   len(conv_text) <= 10 &&
+				   len(id_text) <= 20 {
 					c, c_ok := strconv.parse_u64_of_base(conv_text, 10)
 					m, m_ok := strconv.parse_u64_of_base(id_text, 10)
 					if c_ok && m_ok && c > 0 && c <= u64(max(Conv_Id)) && m > 0 {
-						return {start = start, end = inside_from + close + 1, conv = Conv_Id(c), id = Msg_Id(m)}, true
+						return {
+								start = start,
+								end = inside_from + close + 1,
+								conv = Conv_Id(c),
+								id = Msg_Id(m),
+							},
+							true
 					}
 				}
 			}

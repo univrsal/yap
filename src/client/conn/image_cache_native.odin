@@ -154,7 +154,11 @@ image_cache_clear :: proc(ic: ^Image_Cache) {
 
 // image_cache_request asks for a picture, if the cache has it; 0 if it
 // hasn't.
-image_cache_request :: proc(ic: ^Image_Cache, server: [proto.KEY_SIZE]u8, id: proto.Blob_Id) -> Cache_Request {
+image_cache_request :: proc(
+	ic: ^Image_Cache,
+	server: [proto.KEY_SIZE]u8,
+	id: proto.Blob_Id,
+) -> Cache_Request {
 	sync.guard(&ic.mutex)
 	if settings.server_key(server, u64(id)) not_in ic.files {
 		return 0
@@ -222,7 +226,12 @@ image_cache_load :: proc(
 
 // image_cache_store keeps a picture, unless there's no room for it at
 // all.
-image_cache_store :: proc(ic: ^Image_Cache, server: [proto.KEY_SIZE]u8, id: proto.Blob_Id, data: []u8) {
+image_cache_store :: proc(
+	ic: ^Image_Cache,
+	server: [proto.KEY_SIZE]u8,
+	id: proto.Blob_Id,
+	data: []u8,
+) {
 	sync.guard(&ic.mutex)
 	if ic.dir == "" || len(data) == 0 || len(data) > ic.max_bytes {
 		return

@@ -1,8 +1,8 @@
 #+build wasi
 package conn
 
-import "common:proto"
 import "client:render"
+import "common:proto"
 
 /*
 Screen sharing in the browser: the page captures, encodes and decodes

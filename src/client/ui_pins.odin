@@ -5,8 +5,8 @@ import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
+import "common:proto"
 
 /*
 The pinned messages of the conversation being looked at, in a floating
@@ -32,7 +32,14 @@ PINS_WINDOW :: "Pinned messages"
 // pins_button is the header's pin button, which opens and closes the
 // window. Call with the View locked.
 pins_button :: proc(ui: ^UI) {
-	if .SUBMIT in icon_button(ui, "pins", .Pin, "Hide the pinned messages" if ui.pins.open else "Pinned messages", CHAT_NAME_COLOR if ui.pins.open else {}) {
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "pins",
+		   .Pin,
+		   "Hide the pinned messages" if ui.pins.open else "Pinned messages",
+		   CHAT_NAME_COLOR if ui.pins.open else {},
+	   ) {
 		ui.pins.open = !ui.pins.open
 		ui.pins.placed = false
 		ui.pins.asked = 0

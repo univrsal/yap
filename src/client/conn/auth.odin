@@ -269,7 +269,7 @@ login_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 		log.infof("logged in to %s as %s", c.server_addr, a.username)
 		forget_password(a)
 	case .Reset:
-		// The connection started over; auth_restart takes it from there.
+	// The connection started over; auth_restart takes it from there.
 	case .Wrong_Password:
 		log.warnf("%s: wrong username or password", c.server_addr)
 		forget_password(a)
@@ -310,12 +310,17 @@ auth_logout :: proc(c: ^Voice_Client) {
 	if c.auth.state != .Done {
 		return
 	}
-	request(c, .Auth_Logout, nil, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status == .Ok {
-			log.info("logged out")
-			auth_logged_out(c, "")
-		}
-	})
+	request(
+		c,
+		.Auth_Logout,
+		nil,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status == .Ok {
+				log.info("logged out")
+				auth_logged_out(c, "")
+			}
+		},
+	)
 }
 
 // auth_event takes an event about accounts; false if `op` isn't one.
@@ -355,7 +360,12 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 			if record.status == "" {
 				log.infof("[status] %s has no status", record.display)
 			} else {
-				log.infof("[status] %s: %s%s", record.display, record.status, " (for a while)" if record.status_until != 0 else "")
+				log.infof(
+					"[status] %s: %s%s",
+					record.display,
+					record.status,
+					" (for a while)" if record.status_until != 0 else "",
+				)
 			}
 		}
 		publish_directory(c)
@@ -375,7 +385,9 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 			if .Must_Change in flags && c.view == nil {
 				// The UI asks for a new one; headless, it's up to whoever
 				// is typing.
-				log.warn("the password was set by an admin and has to be changed (/passwd <old> <new>)")
+				log.warn(
+					"the password was set by an admin and has to be changed (/passwd <old> <new>)",
+				)
 			}
 		} else {
 			publish_login(c)
@@ -489,16 +501,21 @@ auth_password :: proc(c: ^Voice_Client, cmd: Password_Command) {
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	body := proto.encode_password_change(buf[:], cmd.old, cmd.new, cmd.revoke_others)
-	request(c, .Password_Change, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		// What we'd log in with on a new connection is no good any more;
-		// but this device stays logged in, so it isn't needed either.
-		forget_password(&c.auth)
-		if status == .Ok {
-			notify(c, true, "Password changed.")
-		} else {
-			notify(c, false, status_text(status))
-		}
-	})
+	request(
+		c,
+		.Password_Change,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			// What we'd log in with on a new connection is no good any more;
+			// but this device stays logged in, so it isn't needed either.
+			forget_password(&c.auth)
+			if status == .Ok {
+				notify(c, true, "Password changed.")
+			} else {
+				notify(c, false, status_text(status))
+			}
+		},
+	)
 }
 
 auth_display :: proc(c: ^Voice_Client, name: string) {
@@ -509,62 +526,77 @@ auth_display :: proc(c: ^Voice_Client, name: string) {
 		return
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	request(c, .Profile_Set, proto.encode_profile_set(buf[:], {mask = proto.PROFILE_DISPLAY, display = clean}), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status != .Ok {
-			notify(c, false, status_text(status))
-		}
-	})
+	request(
+		c,
+		.Profile_Set,
+		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_DISPLAY, display = clean}),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status != .Ok {
+				notify(c, false, status_text(status))
+			}
+		},
+	)
 }
 
 auth_devices :: proc(c: ^Voice_Client) {
-	request(c, .Device_List, nil, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status != .Ok {
-			return
-		}
-		buf: [64]proto.Device
-		devices, ok := proto.decode_devices(body, buf[:])
-		if !ok {
-			return
-		}
-		a := &c.auth
-		devices_clear(a)
-		for d in devices {
-			append(
-				&a.devices,
-				Dir_Device {
-					key = d.key,
-					name = strings.clone(d.name),
-					created = d.created,
-					last_seen = d.last_seen,
-					flags = d.flags,
-				},
-			)
-			if c.view == nil {
-				log.infof(
-					"device %s %q%s%s",
-					fingerprint(d.key),
-					d.name,
-					" (this one)" if .Current in d.flags else "",
-					" online" if .Online in d.flags else "",
-				)
+	request(
+		c,
+		.Device_List,
+		nil,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status != .Ok {
+				return
 			}
-		}
-		publish_devices(c)
-	})
+			buf: [64]proto.Device
+			devices, ok := proto.decode_devices(body, buf[:])
+			if !ok {
+				return
+			}
+			a := &c.auth
+			devices_clear(a)
+			for d in devices {
+				append(
+					&a.devices,
+					Dir_Device {
+						key = d.key,
+						name = strings.clone(d.name),
+						created = d.created,
+						last_seen = d.last_seen,
+						flags = d.flags,
+					},
+				)
+				if c.view == nil {
+					log.infof(
+						"device %s %q%s%s",
+						fingerprint(d.key),
+						d.name,
+						" (this one)" if .Current in d.flags else "",
+						" online" if .Online in d.flags else "",
+					)
+				}
+			}
+			publish_devices(c)
+		},
+	)
 }
 
 auth_revoke :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	request(c, .Device_Revoke, proto.encode_device_revoke(buf[:], key), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status == .Ok {
-			notify(c, true, "Device logged out.")
-			if c.auth.state == .Done {
-				auth_devices(c)
+	request(
+		c,
+		.Device_Revoke,
+		proto.encode_device_revoke(buf[:], key),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status == .Ok {
+				notify(c, true, "Device logged out.")
+				if c.auth.state == .Done {
+					auth_devices(c)
+				}
+			} else {
+				notify(c, false, status_text(status))
 			}
-		} else {
-			notify(c, false, status_text(status))
-		}
-	})
+		},
+	)
 }
 
 auth_account_create :: proc(c: ^Voice_Client, cmd: Account_Create_Command) {
@@ -596,13 +628,18 @@ auth_account_create :: proc(c: ^Voice_Client, cmd: Account_Create_Command) {
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	body := proto.encode_account_create(buf[:], username, cmd.password, cmd.display)
-	request(c, .Account_Create, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status == .Ok {
-			notify(c, true, "Account made. Its password has to be changed on first login.")
-		} else {
-			notify(c, false, status_text(status))
-		}
-	})
+	request(
+		c,
+		.Account_Create,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status == .Ok {
+				notify(c, true, "Account made. Its password has to be changed on first login.")
+			} else {
+				notify(c, false, status_text(status))
+			}
+		},
+	)
 }
 
 auth_account_password :: proc(c: ^Voice_Client, cmd: Account_Password_Command) {
@@ -628,13 +665,22 @@ auth_account_password :: proc(c: ^Voice_Client, cmd: Account_Password_Command) {
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	body := proto.encode_account_password_set(buf[:], account, cmd.password)
-	request(c, .Account_Password_Set, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status == .Ok {
-			notify(c, true, "Password set. Their devices were logged out, and it has to be changed on first login.")
-		} else {
-			notify(c, false, status_text(status))
-		}
-	})
+	request(
+		c,
+		.Account_Password_Set,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status == .Ok {
+				notify(
+					c,
+					true,
+					"Password set. Their devices were logged out, and it has to be changed on first login.",
+				)
+			} else {
+				notify(c, false, status_text(status))
+			}
+		},
+	)
 }
 
 publish_login :: proc(c: ^Voice_Client) {

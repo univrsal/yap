@@ -42,18 +42,45 @@ test_display_names :: proc(t: ^testing.T) {
 	defer free(c)
 	defer delete(c.auth.accounts)
 	ch := &c.channels
-	ch.users_buf[0] = {num = 1, account = 10}
-	ch.users_buf[1] = {num = 2, account = 11}
-	ch.users_buf[2] = {num = 3, account = 12}
-	ch.users_buf[3] = {num = 4, account = 10} // alice's other device
-	ch.users_buf[4] = {num = 5, account = 99} // one we weren't told of
+	ch.users_buf[0] = {
+		num     = 1,
+		account = 10,
+	}
+	ch.users_buf[1] = {
+		num     = 2,
+		account = 11,
+	}
+	ch.users_buf[2] = {
+		num     = 3,
+		account = 12,
+	}
+	ch.users_buf[3] = {
+		num     = 4,
+		account = 10,
+	} 	// alice's other device
+	ch.users_buf[4] = {
+		num     = 5,
+		account = 99,
+	} 	// one we weren't told of
 	ch.state.users = ch.users_buf[:5]
 	ch.have_state = true
-	c.auth.accounts[10] = {username = "alice", display = "Alice"}
-	c.auth.accounts[11] = {username = "bob", display = "Bob"}
-	c.auth.accounts[12] = {username = "robert", display = "bob"}
+	c.auth.accounts[10] = {
+		username = "alice",
+		display  = "Alice",
+	}
+	c.auth.accounts[11] = {
+		username = "bob",
+		display  = "Bob",
+	}
+	c.auth.accounts[12] = {
+		username = "robert",
+		display  = "bob",
+	}
 	// Here, but not connected: doesn't make anyone's name ambiguous.
-	c.auth.accounts[13] = {username = "alice2", display = "alice"}
+	c.auth.accounts[13] = {
+		username = "alice2",
+		display  = "alice",
+	}
 
 	testing.expect_value(t, display_name(c, 1), "Alice")
 	// The same account twice is still only one Alice.

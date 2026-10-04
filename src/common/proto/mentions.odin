@@ -49,7 +49,8 @@ next_mention :: proc(text: string, from: int) -> (m: Mention, ok: bool) {
 		case inside == MENTION_EVERYONE:
 			return {start = start, end = end, everyone = true}, true
 		case len(inside) > 0 && len(inside) <= 10 && all_digits(inside):
-			if n, parsed := strconv.parse_u64_of_base(inside, 10); parsed && n > 0 && n <= u64(max(Account_Id)) {
+			if n, parsed := strconv.parse_u64_of_base(inside, 10);
+			   parsed && n > 0 && n <= u64(max(Account_Id)) {
 				return {start = start, end = end, account = Account_Id(n)}, true
 			}
 		}
@@ -74,7 +75,10 @@ mention_token :: proc(account: Account_Id) -> string {
 		return "<@" + MENTION_EVERYONE + ">"
 	}
 	buf := make([]u8, 16, context.temp_allocator)
-	return strings.concatenate({"<@", strconv.write_uint(buf, u64(account), 10), ">"}, context.temp_allocator)
+	return strings.concatenate(
+		{"<@", strconv.write_uint(buf, u64(account), 10), ">"},
+		context.temp_allocator,
+	)
 }
 
 // mentions_account is whether `text` mentions `account`: by its token,

@@ -143,8 +143,8 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	// Stopped once it has taken its share of the loop.
 	deadline := time.tick_add(time.tick_now(), SEARCH_BUDGET)
 	sqlite.progress_handler(s.db.conn, 1000, proc "c" (arg: rawptr) -> c.int {
-		return 1 if time.tick_diff(time.tick_now(), (^time.Tick)(arg)^) < 0 else 0
-	}, &deadline)
+			return 1 if time.tick_diff(time.tick_now(), (^time.Tick)(arg)^) < 0 else 0
+		}, &deadline)
 	defer sqlite.progress_handler(s.db.conn, 0, nil, nil)
 
 	// Every match comes, newest first; those of the conversations asked
@@ -209,7 +209,12 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			// Out of time: what's found so far, and maybe more older than
 			// where it got to.
 			more = proto.MORE_BEFORE
-			log.debugf("%s's search stopped after %d, at message %d", conn_label(u), len(found), searched_to)
+			log.debugf(
+				"%s's search stopped after %d, at message %d",
+				conn_label(u),
+				len(found),
+				searched_to,
+			)
 		case:
 			// FTS5 says no to the query: nothing typed should get here.
 			log.warnf("search for %q: %s", query, db_error(&s.db))
@@ -232,7 +237,12 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	page, fitted := proto.encode_search_answer(out, searched_to, more, found[:])
 	if fitted < len(found) {
 		// The rest didn't fit: the next search goes on from the last.
-		page, _ = proto.encode_search_answer(out, found[fitted - 1].id, proto.MORE_BEFORE, found[:fitted])
+		page, _ = proto.encode_search_answer(
+			out,
+			found[fitted - 1].id,
+			proto.MORE_BEFORE,
+			found[:fitted],
+		)
 	}
 	respond(u, id, .Ok, page)
 }

@@ -236,7 +236,14 @@ text_display_links :: proc(
 				case:
 					strings.write_string(&b, "unknown")
 				}
-				append(&list, Mention_Span{start, strings.builder_len(b), m.everyone || (me != 0 && m.account == me)})
+				append(
+					&list,
+					Mention_Span {
+						start,
+						strings.builder_len(b),
+						m.everyone || (me != 0 && m.account == me),
+					},
+				)
 				i = m.end
 				continue
 			}

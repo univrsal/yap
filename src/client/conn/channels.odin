@@ -6,9 +6,9 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
-import "common:proto"
 import "client:audio"
 import "client:settings"
+import "common:proto"
 
 /*
 Channel_Client is the client's copy of who is here: the snapshot

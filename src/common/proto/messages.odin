@@ -65,69 +65,69 @@ and a user may have several.
 User_Num :: distinct u32
 
 Message_Kind :: enum u8 {
-	Voice         = 1,
+	Voice           = 1,
 	// Retired: a voice room is joined with a request (Voice_Join,
 	// convs.odin).
-	Join          = 2,
-	State         = 3,
-	State_Ack     = 4,
-	Leave         = 5,
+	Join            = 2,
+	State           = 3,
+	State_Ack       = 4,
+	Leave           = 5,
 	// Retired: a name is an account's now (Profile_Set, accounts.odin).
-	Set_Name      = 6,
+	Set_Name        = 6,
 	// Retired: messages are posted and read with requests (msgs.odin).
-	Chat_Send     = 7,
-	Chat_Sent     = 8,
-	Chat          = 9,
-	Chat_Received = 10,
+	Chat_Send       = 7,
+	Chat_Sent       = 8,
+	Chat            = 9,
+	Chat_Received   = 10,
 	// Who is typing where, see msgs.odin.
-	Typing        = 11,
+	Typing          = 11,
 	// Retired: pictures are blobs, announced and asked for with requests
 	// (msgs.odin), and sent in chunks as before.
-	Image_Send    = 12,
-	Image_Get     = 13,
+	Image_Send      = 12,
+	Image_Get       = 13,
 	// A blob's chunks, see blob.odin.
-	Blob_Chunk    = 14,
-	Blob_Need     = 15,
+	Blob_Chunk      = 14,
+	Blob_Need       = 15,
 	// Retired with Image_Send.
-	Image_Gone    = 16,
+	Image_Gone      = 16,
 	// What a user has switched off for themselves.
-	Sound         = 17,
+	Sound           = 17,
 	// One user nudging another, see poke.odin.
-	Poke          = 18,
+	Poke            = 18,
 	// The server won't have us (see Refusal).
-	Refused       = 19,
+	Refused         = 19,
 	// Screen sharing, see video.odin.
-	Video         = 20,
-	Watch         = 21,
-	Keyframe      = 22,
+	Video           = 20,
+	Watch           = 21,
+	Keyframe        = 22,
 	// Measuring the connection, see ping.odin.
-	Ping          = 23,
-	Pong          = 24,
+	Ping            = 23,
+	Pong            = 24,
 	// Retired: direct messages are conversations (DM_Open, convs.odin)
 	// and their messages like any other's (msgs.odin).
-	DM_Send       = 25,
-	DM_Sent       = 26,
-	DM            = 27,
-	DM_Ack        = 28,
-	DM_Delivered  = 29,
-	DM_Typing     = 30,
-	DM_Image_Send = 31,
-	DM_Image_Get  = 32,
-	DM_Image_Gone = 33,
+	DM_Send         = 25,
+	DM_Sent         = 26,
+	DM              = 27,
+	DM_Ack          = 28,
+	DM_Delivered    = 29,
+	DM_Typing       = 30,
+	DM_Image_Send   = 31,
+	DM_Image_Get    = 32,
+	DM_Image_Gone   = 33,
 	// File transfers, see files.odin.
-	File_Accept   = 34,
-	File_Chunk    = 35,
-	File_Ack      = 36,
-	File_Cancel   = 37,
+	File_Accept     = 34,
+	File_Chunk      = 35,
+	File_Ack        = 36,
+	File_Cancel     = 37,
 	// Retired: when someone was last here is asked with a request
 	// (Last_Seen, accounts.odin).
-	Last_Seen_Get = 38,
-	Last_Seen     = 39,
+	Last_Seen_Get   = 38,
+	Last_Seen       = 39,
 	// The server's answer to a hello it accepts, see names.odin.
-	Welcome       = 40,
+	Welcome         = 40,
 	// The reliable stream, see stream.odin.
-	Stream        = 41,
-	Stream_Ack    = 42,
+	Stream          = 41,
+	Stream_Ack      = 42,
 	// Attachments on their way to and from the server, see transfer.odin
 	// and attachments.odin.
 	Upload_Chunk    = 43,

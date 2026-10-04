@@ -4,8 +4,8 @@ import "core:strings"
 import "core:time"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
+import "common:proto"
 
 /*
 Activity (src/common/proto/activity.odin): a dot at the bottom right of

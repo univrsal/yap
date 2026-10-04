@@ -1,9 +1,9 @@
 package common
 
+import log "common:wlog"
 import "core:crypto/ecdh"
 import "core:encoding/hex"
 import "core:strings"
-import log "common:wlog"
 
 import "common:proto"
 

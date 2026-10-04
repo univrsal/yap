@@ -4,8 +4,8 @@ import log "common:wlog"
 import "core:strings"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
+import "common:proto"
 
 /*
 A message's own menu, opened by right-clicking it in a timeline: copy
@@ -163,7 +163,10 @@ message_menu :: proc(ui: ^UI) {
 		open_thread(ui, {mm.conv, mm.root if mm.root != 0 else mm.id})
 		close(ctx)
 	}
-	if mine && mm.kind == .Text && .Forwarded not_in mm.flags && .SUBMIT in stable_button(ctx, "edit", "Edit") {
+	if mine &&
+	   mm.kind == .Text &&
+	   .Forwarded not_in mm.flags &&
+	   .SUBMIT in stable_button(ctx, "edit", "Edit") {
 		start_editing(ui, mm.id, mm.text, composer_of(ui, mm.slot))
 		close(ctx)
 	}
@@ -174,7 +177,8 @@ message_menu :: proc(ui: ^UI) {
 			close(ctx)
 		}
 	}
-	if (mine || .Manage_Messages in v.permissions) && .SUBMIT in stable_button(ctx, "delete?", "Delete...") {
+	if (mine || .Manage_Messages in v.permissions) &&
+	   .SUBMIT in stable_button(ctx, "delete?", "Delete...") {
 		mm.confirm = true
 	}
 }
@@ -309,7 +313,12 @@ composer_format :: proc(ui: ^UI, c: Composer) {
 		if s.id == u64(mu.get_id(ctx, uintptr(&c.buf[0]))) {
 			sel = {clamp(s.selection[0], 0, c.len^), clamp(s.selection[1], 0, c.len^)}
 		}
-		out, lo, hi := conn.markdown_toggle(string(c.buf[:c.len^]), min(sel[0], sel[1]), max(sel[0], sel[1]), k.marker)
+		out, lo, hi := conn.markdown_toggle(
+			string(c.buf[:c.len^]),
+			min(sel[0], sel[1]),
+			max(sel[0], sel[1]),
+			k.marker,
+		)
 		if len(out) > len(c.buf) {
 			continue
 		}

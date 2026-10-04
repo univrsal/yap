@@ -177,7 +177,10 @@ test_db_not_a_database :: proc(t: ^testing.T) {
 	dir := test_dir(t)
 	defer os.remove_all(dir)
 	path := file_in(dir, DB_FILE)
-	testing.expect(t, os.write_entire_file(path, "this is no database, only a text file of some length") == nil)
+	testing.expect(
+		t,
+		os.write_entire_file(path, "this is no database, only a text file of some length") == nil,
+	)
 	context.logger = log.nil_logger()
 	db: DB
 	testing.expect(t, !db_open(&db, path))
@@ -353,8 +356,18 @@ test_query_plans :: proc(t: ^testing.T) {
 			}
 		}
 		#partial switch id {
-		case .Thread_Before, .Thread_After, .Thread_Any_Before, .Thread_Any_After, .Purge_Reply_Kept:
-			testing.expectf(t, strings.contains(plan, "messages_thread"), "%v doesn't use messages_thread: %s", id, plan)
+		case .Thread_Before,
+		     .Thread_After,
+		     .Thread_Any_Before,
+		     .Thread_Any_After,
+		     .Purge_Reply_Kept:
+			testing.expectf(
+				t,
+				strings.contains(plan, "messages_thread"),
+				"%v doesn't use messages_thread: %s",
+				id,
+				plan,
+			)
 		case .Thread_Recount:
 			testing.expectf(
 				t,

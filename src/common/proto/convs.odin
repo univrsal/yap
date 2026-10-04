@@ -113,11 +113,11 @@ Notify_Level :: enum u8 {
 }
 
 Conv :: struct {
-	id:     Conv_Id,
-	kind:   Conv_Kind,
-	flags:  Conv_Flags,
-	name:   string, // sanitized; never empty for a channel
-	topic:  string,
+	id:       Conv_Id,
+	kind:     Conv_Kind,
+	flags:    Conv_Flags,
+	name:     string, // sanitized; never empty for a channel
+	topic:    string,
 	member:   bool, // whether whoever is told this is one
 	last:     Msg_Id, // the newest message, 0 for none
 	// Of whoever is told this, as a member:
@@ -132,7 +132,20 @@ Conv :: struct {
 }
 
 CONV_MAX_SIZE ::
-	4 + 1 + 1 + (1 + MAX_CHANNEL_NAME_SIZE) + (1 + MAX_TOPIC_SIZE) + 4 + 4 + 8 + 1 + 8 + 2 + 2 + 1 + 4
+	4 +
+	1 +
+	1 +
+	(1 + MAX_CHANNEL_NAME_SIZE) +
+	(1 + MAX_TOPIC_SIZE) +
+	4 +
+	4 +
+	8 +
+	1 +
+	8 +
+	2 +
+	2 +
+	1 +
+	4
 
 @(private = "file")
 put_conv :: proc(w: ^Writer, c: Conv) {
@@ -230,7 +243,10 @@ decode_conv_browse :: proc(body: []u8) -> (b: Browse, ok: bool) {
 	b.query = get_str8(&r)
 	b.offset = int(get_u16(&r))
 	b.limit = int(get_u16(&r))
-	if r.overflow || len(b.query) > MAX_BROWSE_QUERY || b.limit == 0 || b.limit > MAX_BROWSE_LIMIT {
+	if r.overflow ||
+	   len(b.query) > MAX_BROWSE_QUERY ||
+	   b.limit == 0 ||
+	   b.limit > MAX_BROWSE_LIMIT {
 		return {}, false
 	}
 	return b, true
@@ -252,7 +268,14 @@ encode_browse_page :: proc(out: []u8, more: bool, convs: []Conv) -> []u8 {
 	return out[:1 + len(list)]
 }
 
-decode_browse_page :: proc(body: []u8, convs_buf: []Conv) -> (more: bool, convs: []Conv, ok: bool) {
+decode_browse_page :: proc(
+	body: []u8,
+	convs_buf: []Conv,
+) -> (
+	more: bool,
+	convs: []Conv,
+	ok: bool,
+) {
 	if len(body) < 1 {
 		return
 	}
@@ -391,7 +414,13 @@ encode_conv_members :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
 	return nil if w.overflow else out[:w.pos]
 }
 
-decode_conv_members :: proc(body: []u8, accounts_buf: []Account_Id) -> (accounts: []Account_Id, ok: bool) {
+decode_conv_members :: proc(
+	body: []u8,
+	accounts_buf: []Account_Id,
+) -> (
+	accounts: []Account_Id,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}
@@ -433,7 +462,11 @@ decode_mark_read :: proc(body: []u8) -> (conv: Conv_Id, id: Msg_Id, ok: bool) {
 	return conv, id, true
 }
 
-encode_conv_notify :: proc(out: ^[CONV_NOTIFY_SIZE]u8, conv: Conv_Id, notify: Notify_Level) -> []u8 {
+encode_conv_notify :: proc(
+	out: ^[CONV_NOTIFY_SIZE]u8,
+	conv: Conv_Id,
+	notify: Notify_Level,
+) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
@@ -530,7 +563,12 @@ decode_conv_update :: proc(body: []u8) -> (u: Conv_Update, ok: bool) {
 
 CONV_MEMBER_SET_SIZE :: 4 + 4 + 1
 
-encode_conv_member_set :: proc(out: ^[CONV_MEMBER_SET_SIZE]u8, conv: Conv_Id, account: Account_Id, on: bool) -> []u8 {
+encode_conv_member_set :: proc(
+	out: ^[CONV_MEMBER_SET_SIZE]u8,
+	conv: Conv_Id,
+	account: Account_Id,
+	on: bool,
+) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
@@ -540,7 +578,14 @@ encode_conv_member_set :: proc(out: ^[CONV_MEMBER_SET_SIZE]u8, conv: Conv_Id, ac
 	return out[:]
 }
 
-decode_conv_member_set :: proc(body: []u8) -> (conv: Conv_Id, account: Account_Id, on: bool, ok: bool) {
+decode_conv_member_set :: proc(
+	body: []u8,
+) -> (
+	conv: Conv_Id,
+	account: Account_Id,
+	on: bool,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}

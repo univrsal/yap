@@ -93,14 +93,22 @@ last_seen :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	entries := make([]proto.Last_Seen_Entry, len(asked), context.temp_allocator)
 	now := proto.Unix_Ms(unix_ms())
 	for account, i in asked {
-		entries[i] = {account = account, time = last_seen_by(s, u.account, account, now)}
+		entries[i] = {
+			account = account,
+			time    = last_seen_by(s, u.account, account, now),
+		}
 	}
 	out := make([]u8, 2 + len(entries) * proto.LAST_SEEN_ENTRY_SIZE, context.temp_allocator)
 	respond(u, id, .Ok, proto.encode_last_seen_answer(out, entries))
 }
 
 // last_seen_by is when `account` was last here, as `asker` may know it.
-last_seen_by :: proc(s: ^Server, asker: ^Account, account: proto.Account_Id, now: proto.Unix_Ms) -> proto.Unix_Ms {
+last_seen_by :: proc(
+	s: ^Server,
+	asker: ^Account,
+	account: proto.Account_Id,
+	now: proto.Unix_Ms,
+) -> proto.Unix_Ms {
 	acc := account_by_id(&s.accounts, account)
 	switch {
 	case acc == nil:

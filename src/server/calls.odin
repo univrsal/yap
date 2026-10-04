@@ -85,7 +85,11 @@ call_start :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	// Both calling each other at once: this is the answer to theirs.
-	if theirs := call_of(s, me); theirs != nil && theirs.state == .Ringing && theirs.caller == callee_id && theirs.callee == me {
+	if theirs := call_of(s, me);
+	   theirs != nil &&
+	   theirs.state == .Ringing &&
+	   theirs.caller == callee_id &&
+	   theirs.callee == me {
 		buf: [4]u8
 		respond(u, id, .Ok, proto.encode_call_id(&buf, theirs.id))
 		call_accept(s, theirs, u)
@@ -227,7 +231,13 @@ call_tell :: proc(s: ^Server, call: ^Call, reason: proto.Call_End_Reason) {
 	buf: [proto.CALL_CHANGED_SIZE]u8
 	body := proto.encode_call_changed(
 		&buf,
-		{id = call.id, state = call.state, reason = reason, caller = call.caller, callee = call.callee},
+		{
+			id = call.id,
+			state = call.state,
+			reason = reason,
+			caller = call.caller,
+			callee = call.callee,
+		},
 	)
 	for account in ([]proto.Account_Id{call.caller, call.callee}) {
 		if acc := account_by_id(&s.accounts, account); acc != nil {
@@ -243,7 +253,12 @@ call_note leaves a call's line in the two accounts' DM, from the caller:
 a system message, which counts as unread like any other.
 */
 @(private = "file")
-call_note :: proc(s: ^Server, caller, callee: proto.Account_Id, what: proto.Call_System, seconds: int) {
+call_note :: proc(
+	s: ^Server,
+	caller, callee: proto.Account_Id,
+	what: proto.Call_System,
+	seconds: int,
+) {
 	conv := dm_find(&s.convs, caller, callee)
 	if conv == nil {
 		conv = dm_add(&s.convs, caller, callee, caller)
@@ -284,7 +299,8 @@ calls_sync :: proc(s: ^Server) {
 	}
 	unanswered := make([dynamic]^Call, context.temp_allocator)
 	for _, call in s.calls.by_id {
-		if call.state == .Ringing && time.tick_since(call.rang) >= proto.CALL_RING_SECONDS * time.Second {
+		if call.state == .Ringing &&
+		   time.tick_since(call.rang) >= proto.CALL_RING_SECONDS * time.Second {
 			append(&unanswered, call)
 		}
 	}

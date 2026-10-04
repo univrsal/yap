@@ -38,7 +38,8 @@ display_name :: proc(c: ^Voice_Client, num: proto.User_Num) -> string {
 		if other.account == user.account {
 			continue
 		}
-		if o, ok := c.auth.accounts[other.account]; ok && strings.equal_fold(o.display, acc.display) {
+		if o, ok := c.auth.accounts[other.account];
+		   ok && strings.equal_fold(o.display, acc.display) {
 			return fmt.tprintf("%s (%s)", acc.display, acc.username)
 		}
 	}

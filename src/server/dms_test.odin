@@ -64,7 +64,12 @@ told_of :: proc(
 }
 
 @(private = "file")
-last_seen_of :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, account: proto.Account_Id) -> proto.Unix_Ms {
+last_seen_of :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	account: proto.Account_Id,
+) -> proto.Unix_Ms {
 	ask := [1]proto.Account_Id{account}
 	buf: [16]u8
 	status, body := ts_ask(t, ts, u, .Last_Seen, proto.encode_last_seen_ask(buf[:], ask[:]))
@@ -149,7 +154,11 @@ test_dm_messages :: proc(t: ^testing.T) {
 		testing.expect(t, told, "alice wasn't told of the DM with its first message")
 		testing.expect(t, message_after, "the message didn't come after the conversation")
 		testing.expect_value(t, record.unread, 0)
-		testing.expect_value(t, conv_record(&ts.s.convs, ts.s.convs.by_id[conv], alice_acc.id).unread, 1)
+		testing.expect_value(
+			t,
+			conv_record(&ts.s.convs, ts.s.convs.by_id[conv], alice_acc.id).unread,
+			1,
+		)
 		status, _ = post(t, &ts, alice, conv, "hi", 2)
 		testing.expect_value(t, status, proto.Status.Ok)
 		_, told, _ = told_of(t, &ts, alice, conv)
@@ -168,10 +177,22 @@ test_dm_messages :: proc(t: ^testing.T) {
 		testing.expect_value(t, status, proto.Status.Not_Found)
 		// Nor is it a channel.
 		sub_buf: [proto.CONV_SUBSCRIBE_SIZE]u8
-		status, _ = ts_ask(t, &ts, carol, .Conv_Subscribe, proto.encode_conv_subscribe(&sub_buf, conv, true))
+		status, _ = ts_ask(
+			t,
+			&ts,
+			carol,
+			.Conv_Subscribe,
+			proto.encode_conv_subscribe(&sub_buf, conv, true),
+		)
 		testing.expect_value(t, status, proto.Status.Not_Found)
 		room_buf: [4]u8
-		status, _ = ts_ask(t, &ts, alice, .Voice_Join, proto.encode_room(&room_buf, proto.Room(conv)))
+		status, _ = ts_ask(
+			t,
+			&ts,
+			alice,
+			.Voice_Join,
+			proto.encode_room(&room_buf, proto.Room(conv)),
+		)
 		testing.expect_value(t, status, proto.Status.Not_Found)
 		for c in browse_all(t, &ts, alice) {
 			testing.expect(t, c.id != conv, "a DM in the channel browser")
@@ -354,7 +375,10 @@ test_file_offers :: proc(t: ^testing.T) {
 		id: proto.Msg_Id,
 	) {
 		buf := make([]u8, proto.MSG_POST_MAX_SIZE, context.temp_allocator)
-		body := proto.encode_msg_post(buf, {conv = conv, nonce = nonce, kind = .File, text = name, file_size = size})
+		body := proto.encode_msg_post(
+			buf,
+			{conv = conv, nonce = nonce, kind = .File, text = name, file_size = size},
+		)
 		answer: []u8
 		status, answer = ts_ask(t, ts, u, .Msg_Post, body)
 		if status == .Ok {

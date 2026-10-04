@@ -3,8 +3,8 @@ package render
 
 import "core:testing"
 
-import "common:proto"
 import stbtt "client:wstbtt"
+import "common:proto"
 
 @(test)
 test_emoji_glyphs :: proc(t: ^testing.T) {
@@ -20,7 +20,10 @@ test_emoji_glyphs :: proc(t: ^testing.T) {
 	// They take room like a wide character; text stays as it was.
 	smile := font_text_width(&f, "😀")
 	testing.expect(t, smile >= EMOJI_SIZE - 2 && smile <= EMOJI_SIZE + 4)
-	testing.expect(t, abs(font_text_width(&f, "a😀b") - (font_text_width(&f, "ab") + smile)) < 0.01)
+	testing.expect(
+		t,
+		abs(font_text_width(&f, "a😀b") - (font_text_width(&f, "ab") + smile)) < 0.01,
+	)
 	testing.expect_value(t, font_text_width(&f, "\uE000"), f32(CUSTOM_EMOJI_ADVANCE))
 
 	// Drawn from the fallback atlas, at its scale.

@@ -23,7 +23,13 @@ forward :: proc(
 ) {
 	buf: [proto.MSG_FORWARD_SIZE]u8
 	answer: []u8
-	status, answer = ts_ask(t, ts, u, .Msg_Forward, proto.encode_msg_forward(&buf, {conv = to, nonce = nonce, msg = msg}))
+	status, answer = ts_ask(
+		t,
+		ts,
+		u,
+		.Msg_Forward,
+		proto.encode_msg_forward(&buf, {conv = to, nonce = nonce, msg = msg}),
+	)
 	if status == .Ok {
 		ok: bool
 		id, _, ok = proto.decode_msg_posted(answer)
@@ -33,7 +39,12 @@ forward :: proc(
 }
 
 @(private = "file")
-open_dm :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, other: proto.Account_Id) -> proto.Conv_Id {
+open_dm :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	other: proto.Account_Id,
+) -> proto.Conv_Id {
 	buf: [4]u8
 	status, body := ts_ask(t, ts, u, .DM_Open, proto.encode_account_id(&buf, other))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -101,7 +112,13 @@ test_forward :: proc(t: ^testing.T) {
 	blob, _ := blob_put(&s.blobs, .Image, test_jpeg(32, 32, 1), 32, 32)
 	post_buf: [proto.MSG_POST_MAX_SIZE]u8
 	answer: []u8
-	status, answer = ts_ask(t, &ts, alice, .Msg_Post, proto.encode_msg_post(post_buf[:], {conv = home, nonce = 3, kind = .Image, blob = blob}))
+	status, answer = ts_ask(
+		t,
+		&ts,
+		alice,
+		.Msg_Post,
+		proto.encode_msg_post(post_buf[:], {conv = home, nonce = 3, kind = .Image, blob = blob}),
+	)
 	pic, _, _ := proto.decode_msg_posted(answer)
 	status, copy_id = forward(t, &ts, bob, dm, pic, 102)
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -116,10 +133,24 @@ test_forward :: proc(t: ^testing.T) {
 	// A link to a DM's message stays in that DM, and only there.
 	_, in_dm := post(t, &ts, bob, dm, "between us", 104)
 	link := proto.link_token(dm, in_dm)
-	_, kept := post(t, &ts, carol, dm, strings.concatenate({"see ", link}, context.temp_allocator), 301)
+	_, kept := post(
+		t,
+		&ts,
+		carol,
+		dm,
+		strings.concatenate({"see ", link}, context.temp_allocator),
+		301,
+	)
 	m, _ = msg_by_id(s, kept)
 	testing.expect_value(t, m.text, strings.concatenate({"see ", link}, context.temp_allocator))
-	_, plain := post(t, &ts, bob, home, strings.concatenate({"see ", link}, context.temp_allocator), 105)
+	_, plain := post(
+		t,
+		&ts,
+		bob,
+		home,
+		strings.concatenate({"see ", link}, context.temp_allocator),
+		105,
+	)
 	m, _ = msg_by_id(s, plain)
 	testing.expect_value(t, m.text, "see (a message in a DM)")
 	// A channel's can go anywhere.

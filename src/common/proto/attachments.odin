@@ -80,7 +80,11 @@ decode_attach_id :: proc(body: []u8) -> (id: u64, ok: bool) {
 	return endian.unchecked_get_u64le(body), true
 }
 
-encode_attach_get_answer :: proc(out: ^[ATTACH_GET_ANSWER_SIZE]u8, size: u64, download: u64) -> []u8 {
+encode_attach_get_answer :: proc(
+	out: ^[ATTACH_GET_ANSWER_SIZE]u8,
+	size: u64,
+	download: u64,
+) -> []u8 {
 	endian.unchecked_put_u64le(out[0:], size)
 	endian.unchecked_put_u64le(out[8:], download)
 	return out[:]

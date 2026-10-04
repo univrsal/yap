@@ -183,7 +183,14 @@ disc_icon :: proc(ui: ^UI) -> (mu.Icon, bool) {
 			pixels = pixels,
 		}
 		round_off(&disc)
-		a.disc = render.gpu_texture_make(&ui.renderer.gpu, .Rgba, DISC_SIDE, DISC_SIDE, pixels, mipmaps = true)
+		a.disc = render.gpu_texture_make(
+			&ui.renderer.gpu,
+			.Rgba,
+			DISC_SIDE,
+			DISC_SIDE,
+			pixels,
+			mipmaps = true,
+		)
 		a.have = true
 	}
 	append(&im.draws, render.Image_Draw{texture = a.disc})
@@ -237,7 +244,14 @@ avatar_ringed :: proc(
 					p[0], p[1], p[2], p[3] = 255, 255, 255, u8(cover * 255)
 				}
 			}
-			a.ring = render.gpu_texture_make(&ui.renderer.gpu, .Rgba, DISC_SIDE, DISC_SIDE, pixels, mipmaps = true)
+			a.ring = render.gpu_texture_make(
+				&ui.renderer.gpu,
+				.Rgba,
+				DISC_SIDE,
+				DISC_SIDE,
+				pixels,
+				mipmaps = true,
+			)
 			a.have_ring = true
 		}
 		append(&im.draws, render.Image_Draw{texture = a.ring})

@@ -167,10 +167,23 @@ retention_open :: proc(r: ^Retention, db: ^DB, config: Retention_Config) {
 	conv, _ := db_meta(db, PURGE_META_CONV)
 	cursor, _ := db_meta(db, PURGE_META_CURSOR)
 	kind := step_kind(proto.Purge_What(what))
-	append(&r.steps, Purge_Step{kind = kind, conv = proto.Conv_Id(conv), below = proto.Msg_Id(below), cursor = cursor, asked = true})
+	append(
+		&r.steps,
+		Purge_Step {
+			kind = kind,
+			conv = proto.Conv_Id(conv),
+			below = proto.Msg_Id(below),
+			cursor = cursor,
+			asked = true,
+		},
+	)
 	append(&r.steps, Purge_Step{kind = .Collect, asked = true}, Purge_Step{kind = .Vacuum})
 	r.asked = true
-	log.infof("carrying on with the purge of %s below message %d", conv_label(proto.Conv_Id(conv)), below)
+	log.infof(
+		"carrying on with the purge of %s below message %d",
+		conv_label(proto.Conv_Id(conv)),
+		below,
+	)
 }
 
 // step_kind is the step that purges `what`.
@@ -296,7 +309,13 @@ retention_ask :: proc(r: ^Retention, db: ^DB, p: proto.Purge, now_ms: i64) -> bo
 	db_meta_set(db, PURGE_META_BELOW, i64(step.below))
 	// After the step that's under way, which may be halfway.
 	at := min(1, len(r.steps))
-	inject_at(&r.steps, at, step, Purge_Step{kind = .Collect, asked = true}, Purge_Step{kind = .Vacuum})
+	inject_at(
+		&r.steps,
+		at,
+		step,
+		Purge_Step{kind = .Collect, asked = true},
+		Purge_Step{kind = .Vacuum},
+	)
 	r.asked = true
 	r.messages, r.blobs = 0, 0
 	return true
@@ -307,7 +326,14 @@ retention_chunk does a little of the first step. When that finishes the
 step it's taken off the queue and returned, `finished`, for the caller
 to tell whoever needs telling and destroy.
 */
-retention_chunk :: proc(r: ^Retention, bs: ^Blob_Store, now_ms: i64) -> (done: Purge_Step, finished: bool) {
+retention_chunk :: proc(
+	r: ^Retention,
+	bs: ^Blob_Store,
+	now_ms: i64,
+) -> (
+	done: Purge_Step,
+	finished: bool,
+) {
 	if len(r.steps) == 0 {
 		return
 	}
@@ -335,9 +361,17 @@ retention_chunk :: proc(r: ^Retention, bs: ^Blob_Store, now_ms: i64) -> (done: P
 			over = true
 			break
 		}
-		log.infof("pictures and files take %d MB, more than %d: the oldest go", total / (1024 * 1024), r.config.blob_megabytes)
+		log.infof(
+			"pictures and files take %d MB, more than %d: the oldest go",
+			total / (1024 * 1024),
+			r.config.blob_megabytes,
+		)
 		_, last := msg_bounds(db)
-		step^ = {kind = .Stored, below = last + 1, bytes = total - limit}
+		step^ = {
+			kind  = .Stored,
+			below = last + 1,
+			bytes = total - limit,
+		}
 	case .Collect:
 		if step.cursor == 0 {
 			keep, _ := db_meta(db, EMOJI_SHEET_META)
@@ -389,7 +423,15 @@ Scanned :: struct {
 
 // scan reads the next few messages a step goes through, past its cursor.
 @(private = "file")
-scan :: proc(db: ^DB, step: ^Purge_Step, all, one: Stmt, out: ^[PURGE_CHUNK]Scanned) -> (rows: []Scanned, ok: bool) {
+scan :: proc(
+	db: ^DB,
+	step: ^Purge_Step,
+	all, one: Stmt,
+	out: ^[PURGE_CHUNK]Scanned,
+) -> (
+	rows: []Scanned,
+	ok: bool,
+) {
 	q := db_stmt(db, one if step.conv != 0 else all)
 	db_bind_int(q, 1, step.cursor)
 	db_bind_int(q, 2, i64(step.below))
@@ -658,7 +700,13 @@ retention_busy :: proc(s: ^Server) -> bool {
 
 // retention_drain does everything that's queued, all at once: for tests,
 // and for the command line.
-retention_drain :: proc(r: ^Retention, bs: ^Blob_Store, s: ^Server = nil) -> (messages, blobs: int) {
+retention_drain :: proc(
+	r: ^Retention,
+	bs: ^Blob_Store,
+	s: ^Server = nil,
+) -> (
+	messages, blobs: int,
+) {
 	for len(r.steps) > 0 {
 		step, finished := retention_chunk(r, bs, unix_ms())
 		if !finished {
@@ -707,7 +755,13 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 		}
 		what := whats[0]
 		if step.count > 0 {
-			log.infof("purged %d %s below message %d in %d conversation(s)", step.count, noun, step.below, len(step.convs))
+			log.infof(
+				"purged %d %s below message %d in %d conversation(s)",
+				step.count,
+				noun,
+				step.below,
+				len(step.convs),
+			)
 		}
 		buf: [proto.MSGS_PURGED_SIZE]u8
 		for id in step.convs {
@@ -722,7 +776,14 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 				}
 				for c in acc.conns {
 					for w in whats[:n] {
-						send_event(c, .Msgs_Purged, proto.encode_msgs_purged(&buf, {conv = id, before = step.below, what = w}))
+						send_event(
+							c,
+							.Msgs_Purged,
+							proto.encode_msgs_purged(
+								&buf,
+								{conv = id, before = step.below, what = w},
+							),
+						)
 					}
 				}
 				if what == .Messages {

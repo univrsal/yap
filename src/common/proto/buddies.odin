@@ -103,7 +103,13 @@ encode_last_seen_answer :: proc(out: []u8, entries: []Last_Seen_Entry) -> []u8 {
 	return nil if w.overflow else out[:w.pos]
 }
 
-decode_last_seen_answer :: proc(body: []u8, buf: []Last_Seen_Entry) -> (entries: []Last_Seen_Entry, ok: bool) {
+decode_last_seen_answer :: proc(
+	body: []u8,
+	buf: []Last_Seen_Entry,
+) -> (
+	entries: []Last_Seen_Entry,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}

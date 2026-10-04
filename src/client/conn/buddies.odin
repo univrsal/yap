@@ -87,7 +87,11 @@ buddies_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool 
 		return true
 	}
 	if c.convs.synced {
-		log.infof("%s is %s", account_display(c, account), "a buddy now" if on else "no longer a buddy")
+		log.infof(
+			"%s is %s",
+			account_display(c, account),
+			"a buddy now" if on else "no longer a buddy",
+		)
 	}
 	publish_buddies(c)
 	return true
@@ -128,11 +132,16 @@ buddy_command :: proc(c: ^Voice_Client, cmd: Buddy_Command) {
 		return
 	}
 	buf: [proto.BUDDY_SET_SIZE]u8
-	request(c, .Buddy_Set, proto.encode_buddy(&buf, account, cmd.on), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status != .Ok && status != .Reset {
-			log.warnf("the server wouldn't change your buddies (%v)", status)
-		}
-	})
+	request(
+		c,
+		.Buddy_Set,
+		proto.encode_buddy(&buf, account, cmd.on),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status != .Ok && status != .Reset {
+				log.warnf("the server wouldn't change your buddies (%v)", status)
+			}
+		},
+	)
 }
 
 // is_online is whether an account has a connection here.
@@ -195,37 +204,45 @@ last_seen_command :: proc(c: ^Voice_Client, cmd: Last_Seen_Command) {
 	}
 	buf: [2 + len(cmd.accounts) * 4]u8
 	body := proto.encode_last_seen_ask(buf[:], cmd.accounts[:cmd.count])
-	request(c, .Last_Seen, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status != .Ok {
-			return
-		}
-		buf: [64]proto.Last_Seen_Entry
-		entries, ok := proto.decode_last_seen_answer(body, buf[:])
-		if !ok {
-			return
-		}
-		publish_last_seen(c, entries)
-		if c.view != nil {
-			return
-		}
-		// Headless (/seen): the log is the only place to show it.
-		for e in entries {
-			name := account_display(c, e.account)
-			switch e.time {
-			case 0:
-				log.infof("[seen] there's no account %d", e.account)
-			case proto.LAST_SEEN_HIDDEN:
-				log.infof("[seen] %s: not shared (you haven't both written to each other)", name)
-			case:
-				if is_online(c, e.account) {
-					log.infof("[seen] %s: here now", name)
-					break
-				}
-				ago := time.duration_seconds(time.since(time.unix(0, i64(e.time) * 1_000_000)))
-				log.infof("[seen] %s: last here %.0f seconds ago", name, ago)
+	request(
+		c,
+		.Last_Seen,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status != .Ok {
+				return
 			}
-		}
-	})
+			buf: [64]proto.Last_Seen_Entry
+			entries, ok := proto.decode_last_seen_answer(body, buf[:])
+			if !ok {
+				return
+			}
+			publish_last_seen(c, entries)
+			if c.view != nil {
+				return
+			}
+			// Headless (/seen): the log is the only place to show it.
+			for e in entries {
+				name := account_display(c, e.account)
+				switch e.time {
+				case 0:
+					log.infof("[seen] there's no account %d", e.account)
+				case proto.LAST_SEEN_HIDDEN:
+					log.infof(
+						"[seen] %s: not shared (you haven't both written to each other)",
+						name,
+					)
+				case:
+					if is_online(c, e.account) {
+						log.infof("[seen] %s: here now", name)
+						break
+					}
+					ago := time.duration_seconds(time.since(time.unix(0, i64(e.time) * 1_000_000)))
+					log.infof("[seen] %s: last here %.0f seconds ago", name, ago)
+				}
+			}
+		},
+	)
 }
 
 // list_buddies logs our buddies and our DMs (headless /buddies).

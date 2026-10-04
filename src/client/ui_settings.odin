@@ -58,7 +58,13 @@ settings_page :: proc(ui: ^UI) {
 		if .SUBMIT in tab_button(ctx, "client tab", "This client", ui.settings_tab == .Client) {
 			ui.settings_tab = .Client
 		}
-		if .SUBMIT in tab_button(ctx, "server tab", fmt.tprintf("Server: %s", server), ui.settings_tab == .Server) {
+		if .SUBMIT in
+		   tab_button(
+			   ctx,
+			   "server tab",
+			   fmt.tprintf("Server: %s", server),
+			   ui.settings_tab == .Server,
+		   ) {
 			ui.settings_tab = .Server
 		}
 	}

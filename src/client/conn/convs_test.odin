@@ -18,8 +18,17 @@ test_unread_counting :: proc(t: ^testing.T) {
 	defer convs_destroy(&c)
 	c.auth.me = 1
 	lobby, gaming := proto.Conv_Id(1), proto.Conv_Id(2)
-	c.convs.convs[lobby] = {name = strings.clone("Lobby"), last = 10, read = 10}
-	c.convs.convs[gaming] = {name = strings.clone("Gaming"), last = 5, read = 5, notify = .None}
+	c.convs.convs[lobby] = {
+		name = strings.clone("Lobby"),
+		last = 10,
+		read = 10,
+	}
+	c.convs.convs[gaming] = {
+		name   = strings.clone("Gaming"),
+		last   = 5,
+		read   = 5,
+		notify = .None,
+	}
 
 	// Someone else's message is unread, and may interrupt; in a muted
 	// channel it's unread and may not.
@@ -50,7 +59,11 @@ test_unread_counting :: proc(t: ^testing.T) {
 	// What the server says of an older read than ours is behind: kept
 	// out. A newer one (another device read further) is taken.
 	buf: [proto.READ_CHANGED_SIZE]u8
-	conv_event(&c, .Read_Changed, proto.encode_read_changed(&buf, {conv = gaming, read = 12, unread = 3}))
+	conv_event(
+		&c,
+		.Read_Changed,
+		proto.encode_read_changed(&buf, {conv = gaming, read = 12, unread = 3}),
+	)
 	testing.expect_value(t, c.convs.convs[gaming].read, proto.Msg_Id(15))
 	testing.expect_value(t, c.convs.convs[gaming].unread, 1)
 	c.convs.marks[gaming] = {}
@@ -73,9 +86,23 @@ test_mention_counting :: proc(t: ^testing.T) {
 	defer convs_destroy(&c)
 	c.auth.me = 1
 	lobby, gaming, quiet := proto.Conv_Id(1), proto.Conv_Id(2), proto.Conv_Id(3)
-	c.convs.convs[lobby] = {name = strings.clone("Lobby"), last = 10, read = 10, notify = .Mentions}
-	c.convs.convs[gaming] = {name = strings.clone("Gaming"), last = 5, read = 5}
-	c.convs.convs[quiet] = {name = strings.clone("Quiet"), last = 5, read = 5, notify = .None}
+	c.convs.convs[lobby] = {
+		name   = strings.clone("Lobby"),
+		last   = 10,
+		read   = 10,
+		notify = .Mentions,
+	}
+	c.convs.convs[gaming] = {
+		name = strings.clone("Gaming"),
+		last = 5,
+		read = 5,
+	}
+	c.convs.convs[quiet] = {
+		name   = strings.clone("Quiet"),
+		last   = 5,
+		read   = 5,
+		notify = .None,
+	}
 
 	// "Mentions only": a plain message is counted and quiet; a mention
 	// is counted twice over, and isn't.

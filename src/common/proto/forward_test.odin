@@ -16,7 +16,14 @@ test_links :: proc(t: ^testing.T) {
 	_, ok = next_link(text, l.end)
 	testing.expect(t, !ok)
 	// What only looks like one is text.
-	for bad in ([]string{"<msg:>", "<msg:12>", "<msg:0:5>", "<msg:a:5>", "<msg:12:5", "<msg:1:0>"}) {
+	for bad in ([]string {
+			"<msg:>",
+			"<msg:12>",
+			"<msg:0:5>",
+			"<msg:a:5>",
+			"<msg:12:5",
+			"<msg:1:0>",
+		}) {
 		_, ok = next_link(bad, 0)
 		testing.expectf(t, !ok, "%q is a link", bad)
 	}
@@ -29,12 +36,12 @@ test_links :: proc(t: ^testing.T) {
 @(test)
 test_forwarded_message :: proc(t: ^testing.T) {
 	m := Message {
-		id      = 9,
-		conv    = 2,
-		sender  = 3,
-		kind    = .Text,
-		flags   = {.Forwarded},
-		text    = "words",
+		id = 9,
+		conv = 2,
+		sender = 3,
+		kind = .Text,
+		flags = {.Forwarded},
+		text = "words",
 		forward = {sender = 5, conv = 6, time = 777},
 	}
 	buf: [MESSAGE_MAX_SIZE]u8
@@ -46,7 +53,9 @@ test_forwarded_message :: proc(t: ^testing.T) {
 	testing.expect_value(t, got.text, "words")
 
 	fwd_buf: [MSG_FORWARD_SIZE]u8
-	f, f_ok := decode_msg_forward(encode_msg_forward(&fwd_buf, {conv = 2, nonce = 7, thread_root = 3, msg = 4}))
+	f, f_ok := decode_msg_forward(
+		encode_msg_forward(&fwd_buf, {conv = 2, nonce = 7, thread_root = 3, msg = 4}),
+	)
 	testing.expect(t, f_ok)
 	testing.expect_value(t, f, Msg_Forward{conv = 2, nonce = 7, thread_root = 3, msg = 4})
 	_, f_ok = decode_msg_forward(encode_msg_forward(&fwd_buf, {conv = 2, msg = 4}))

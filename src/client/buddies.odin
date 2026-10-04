@@ -4,9 +4,9 @@ import "core:fmt"
 import "core:slice"
 import "core:strings"
 
-import "common:proto"
-import "client:settings"
 import "client:conn"
+import "client:settings"
+import "common:proto"
 
 // The buddy screen's list: our account's buddies, kept by the server,
 // and everyone else we have a DM with (conn/buddies.odin).

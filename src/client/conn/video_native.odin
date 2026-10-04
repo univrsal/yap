@@ -1,8 +1,8 @@
 #+build !wasi
 package conn
 
-import "common:proto"
 import "client:render"
+import "common:proto"
 
 /*
 A desktop build neither shares nor watches screens: that takes a video

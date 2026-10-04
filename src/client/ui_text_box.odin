@@ -1,8 +1,8 @@
 package client
 
-import mu "vendor:microui"
 import "client:platform"
 import "client:render"
+import mu "vendor:microui"
 
 /*
 Every text box goes through text_box, which is mu.textbox plus a note

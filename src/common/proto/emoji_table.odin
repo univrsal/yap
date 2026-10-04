@@ -17,7 +17,7 @@ Emoji_Category :: enum u8 {
 // The emoji there are, in picker order: the character, its shortcodes
 // (the first is its name), and its category.
 @(rodata)
-EMOJI := [?]Emoji{
+EMOJI := [?]Emoji {
 	{0x1F600, "grinning", .Smileys},
 	{0x1F603, "smiley", .Smileys},
 	{0x1F604, "smile", .Smileys},
@@ -1400,7 +1400,7 @@ EMOJI := [?]Emoji{
 // The same characters in order, with where each is in EMOJI, to look
 // one up (emoji_index).
 @(rodata)
-EMOJI_BY_RUNE := [?]Emoji_Ref{
+EMOJI_BY_RUNE := [?]Emoji_Ref {
 	{0xA9, 1295},
 	{0xAE, 1296},
 	{0x203C, 1268},

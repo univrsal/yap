@@ -74,7 +74,14 @@ password_of :: proc(text: string) -> (p: Password) {
 // password_hash is the hash of a password with a salt, which takes a
 // while. False for a parameter set this build doesn't know.
 @(require_results)
-password_hash :: proc(p: ^Password, salt: [SALT_SIZE]u8, params: int) -> (hash: [HASH_SIZE]u8, ok: bool) {
+password_hash :: proc(
+	p: ^Password,
+	salt: [SALT_SIZE]u8,
+	params: int,
+) -> (
+	hash: [HASH_SIZE]u8,
+	ok: bool,
+) {
 	if params < 0 || params >= len(HASH_PARAMS) {
 		return
 	}

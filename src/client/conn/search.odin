@@ -39,10 +39,10 @@ View_Search :: struct {
 }
 
 Search_Client :: struct {
-	query:  string, // owned; the latest search
-	conv:   proto.Conv_Id,
-	last:   proto.Msg_Id, // the oldest looked at so far
-	asked:  u64, // which asking is the latest
+	query: string, // owned; the latest search
+	conv:  proto.Conv_Id,
+	last:  proto.Msg_Id, // the oldest looked at so far
+	asked: u64, // which asking is the latest
 }
 
 // How many a page asks for.
@@ -61,45 +61,60 @@ search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
 	}
 	sc.asked += 1
 	buf: [proto.MSG_SEARCH_MAX_SIZE]u8
-	body := proto.encode_msg_search(&buf, {conv = sc.conv, before = sc.last, limit = SEARCH_PAGE, query = sc.query})
+	body := proto.encode_msg_search(
+		&buf,
+		{conv = sc.conv, before = sc.last, limit = SEARCH_PAGE, query = sc.query},
+	)
 	publish_search(c, nil, false, true, "", !cmd.more)
-	request(c, .Msg_Search, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		sc := &c.search
-		if tag != sc.asked {
-			return
-		}
-		#partial switch status {
-		case .Ok:
-		case .Invalid:
-			publish_search(c, nil, false, false, "Type a word to look for.", false)
-			return
-		case .Reset:
-			publish_search(c, nil, false, false, "", false)
-			return
-		case:
-			publish_search(c, nil, false, false, "The server wouldn't search there.", false)
-			return
-		}
-		buf: [proto.MAX_SEARCH_LIMIT + 1]proto.Message
-		searched_to, more, found, ok := proto.decode_search_answer(body, buf[:])
-		if !ok {
-			return
-		}
-		// Where the next page goes on from.
-		sc.last = searched_to
-		if c.view == nil {
-			if len(found) == 0 && sc.last == 0 {
-				log.infof("[search] nothing has %q", sc.query)
+	request(
+		c,
+		.Msg_Search,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			sc := &c.search
+			if tag != sc.asked {
+				return
 			}
-			for m in found {
-				log.infof("[search] %s %s (#%d): %s", room_name(c, proto.Room(m.conv)), account_display(c, m.sender), m.id, m.text)
+			#partial switch status {
+			case .Ok:
+			case .Invalid:
+				publish_search(c, nil, false, false, "Type a word to look for.", false)
+				return
+			case .Reset:
+				publish_search(c, nil, false, false, "", false)
+				return
+			case:
+				publish_search(c, nil, false, false, "The server wouldn't search there.", false)
+				return
 			}
-			if more & proto.MORE_BEFORE != 0 {
-				log.info("[search] and maybe more (/search more)")
+			buf: [proto.MAX_SEARCH_LIMIT + 1]proto.Message
+			searched_to, more, found, ok := proto.decode_search_answer(body, buf[:])
+			if !ok {
+				return
 			}
-		}
-		publish_search(c, found, more & proto.MORE_BEFORE != 0, false, "", false)
-	}, sc.asked)
+			// Where the next page goes on from.
+			sc.last = searched_to
+			if c.view == nil {
+				if len(found) == 0 && sc.last == 0 {
+					log.infof("[search] nothing has %q", sc.query)
+				}
+				for m in found {
+					log.infof(
+						"[search] %s %s (#%d): %s",
+						room_name(c, proto.Room(m.conv)),
+						account_display(c, m.sender),
+						m.id,
+						m.text,
+					)
+				}
+				if more & proto.MORE_BEFORE != 0 {
+					log.info("[search] and maybe more (/search more)")
+				}
+			}
+			publish_search(c, found, more & proto.MORE_BEFORE != 0, false, "", false)
+		},
+		sc.asked,
+	)
 }
 
 search_destroy :: proc(c: ^Voice_Client) {
@@ -113,7 +128,13 @@ to what's shown (after clearing it, with `fresh`), whether there may be
 more, whether it's still being looked for, and what went wrong.
 */
 @(private = "file")
-publish_search :: proc(c: ^Voice_Client, found: []proto.Message, more, loading: bool, error: string, fresh: bool) {
+publish_search :: proc(
+	c: ^Voice_Client,
+	found: []proto.Message,
+	more, loading: bool,
+	error: string,
+	fresh: bool,
+) {
 	v := c.view
 	if v == nil {
 		if error != "" {

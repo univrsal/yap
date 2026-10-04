@@ -52,9 +52,13 @@ MAX_CUSTOM_EMOJI :: 512
 
 // emoji_index is where a character is in EMOJI, if it's an emoji.
 emoji_index :: proc(r: rune) -> (index: int, ok: bool) {
-	i, found := slice.binary_search_by(EMOJI_BY_RUNE[:], r, proc(e: Emoji_Ref, r: rune) -> slice.Ordering {
-		return slice.cmp(e.r, r)
-	})
+	i, found := slice.binary_search_by(
+		EMOJI_BY_RUNE[:],
+		r,
+		proc(e: Emoji_Ref, r: rune) -> slice.Ordering {
+			return slice.cmp(e.r, r)
+		},
+	)
 	if !found {
 		return
 	}

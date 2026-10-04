@@ -27,11 +27,16 @@ Idle_Command :: struct {
 
 activity_set :: proc(c: ^Voice_Client, activity: proto.Activity) {
 	buf: [proto.ACTIVITY_SET_SIZE]u8
-	request(c, .Activity_Set, proto.encode_activity(&buf, activity), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		if status != .Ok && status != .Reset {
-			notify(c, false, fmt.tprintf("The server wouldn't change that (%v).", status))
-		}
-	})
+	request(
+		c,
+		.Activity_Set,
+		proto.encode_activity(&buf, activity),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status != .Ok && status != .Reset {
+				notify(c, false, fmt.tprintf("The server wouldn't change that (%v).", status))
+			}
+		},
+	)
 }
 
 // idle_set tells the server whether this client's user is idle; it's
@@ -42,7 +47,12 @@ idle_set :: proc(c: ^Voice_Client, idle: bool) {
 		return
 	}
 	buf: [1]u8
-	request(c, .Idle_Set, proto.encode_idle(&buf, idle), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {})
+	request(
+		c,
+		.Idle_Set,
+		proto.encode_idle(&buf, idle),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {},
+	)
 }
 
 // quiet is whether we chose to be busy: no sounds but for mentions and

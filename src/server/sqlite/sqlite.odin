@@ -20,7 +20,11 @@ when ODIN_OS == .Windows {
 }
 
 when !#exists(LIB) {
-	#panic("src/server/sqlite/" + LIB + " is missing; build it with build.sh (or build.bat on Windows)")
+	#panic(
+		"src/server/sqlite/" +
+		LIB +
+		" is missing; build it with build.sh (or build.bat on Windows)",
+	)
 }
 
 when ODIN_OS == .Windows {

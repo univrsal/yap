@@ -1,10 +1,10 @@
 package clipboard
 
+import stbi "client:wstbi"
+import log "common:wlog"
 import "core:bytes"
 import "core:encoding/endian"
 import "core:image/qoi"
-import log "common:wlog"
-import stbi "client:wstbi"
 
 // decode turns PNG, JPEG, BMP, GIF or QOI data into RGBA pixels, refusing
 // images over MAX_PIXELS before decoding them. (QOI is what a server's

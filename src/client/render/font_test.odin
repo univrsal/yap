@@ -59,10 +59,10 @@ test_font_face_atlas :: proc(t: ^testing.T) {
 	count :: proc(f: ^Font, text: string, style: Font_Style) -> Count {
 		c: Count
 		font_layout(f, text, 0, 0, &c, proc(data: rawptr, q: Glyph_Quad) {
-			c := (^Count)(data)
-			c.quads += 1
-			c.faces += {q.face}
-		}, style)
+				c := (^Count)(data)
+				c.quads += 1
+				c.faces += {q.face}
+			}, style)
 		return c
 	}
 

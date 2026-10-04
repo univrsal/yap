@@ -191,7 +191,12 @@ account_roles_set :: proc(c: ^Voice_Client, cmd: Account_Roles_Command) {
 		return
 	}
 	buf: [proto.ACCOUNT_ROLES_MAX_SIZE]u8
-	request(c, .Account_Roles_Set, proto.encode_account_roles(buf[:], cmd.account, cmd.roles[:cmd.count]), manage_done)
+	request(
+		c,
+		.Account_Roles_Set,
+		proto.encode_account_roles(buf[:], cmd.account, cmd.roles[:cmd.count]),
+		manage_done,
+	)
 }
 
 account_disable :: proc(c: ^Voice_Client, cmd: Account_Disable_Command) {
@@ -209,7 +214,13 @@ conv_update :: proc(c: ^Voice_Client, cmd: Conv_Update_Command) {
 	buf: [proto.CONV_UPDATE_MAX_SIZE]u8
 	body := proto.encode_conv_update(
 		buf[:],
-		{conv = conv, mask = cmd.mask, name = cmd.name, topic = cmd.topic, position = cmd.position},
+		{
+			conv = conv,
+			mask = cmd.mask,
+			name = cmd.name,
+			topic = cmd.topic,
+			position = cmd.position,
+		},
 	)
 	if body == nil {
 		notify(c, false, "That name or topic is too long.")
@@ -220,7 +231,12 @@ conv_update :: proc(c: ^Voice_Client, cmd: Conv_Update_Command) {
 
 conv_delete :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	buf: [4]u8
-	request(c, .Conv_Delete, proto.encode_conv_id(&buf, conv if conv != 0 else c.convs.viewing), manage_done)
+	request(
+		c,
+		.Conv_Delete,
+		proto.encode_conv_id(&buf, conv if conv != 0 else c.convs.viewing),
+		manage_done,
+	)
 }
 
 conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
@@ -231,13 +247,18 @@ conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
 		return
 	}
 	buf: [proto.CONV_MEMBER_SET_SIZE]u8
-	request(c, .Conv_Member_Set, proto.encode_conv_member_set(&buf, conv, account, cmd.on), proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-		manage_done(c, status, body, tag)
-		// The members shown are fetched again.
-		if status == .Ok && c.profiles.members_conv != 0 {
-			members_fetch(c, c.profiles.members_conv)
-		}
-	})
+	request(
+		c,
+		.Conv_Member_Set,
+		proto.encode_conv_member_set(&buf, conv, account, cmd.on),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			manage_done(c, status, body, tag)
+			// The members shown are fetched again.
+			if status == .Ok && c.profiles.members_conv != 0 {
+				members_fetch(c, c.profiles.members_conv)
+			}
+		},
+	)
 }
 
 // manage_done says what went wrong with a change to the server's roles,

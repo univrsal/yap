@@ -40,7 +40,14 @@ attach_reactions :: proc(s: ^Server, m: ^proto.Message, asker: proto.Account_Id)
 			sqlite.reset(q)
 			break
 		}
-		append(&list, proto.Reaction{db_col_text(q, 0), int(db_col_int(q, 1)), asker != 0 && db_col_int(q, 2) != 0})
+		append(
+			&list,
+			proto.Reaction {
+				db_col_text(q, 0),
+				int(db_col_int(q, 1)),
+				asker != 0 && db_col_int(q, 2) != 0,
+			},
+		)
 	}
 	if len(list) > 0 {
 		proto.set_reactions(m, list[:])
@@ -157,7 +164,13 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	if after == before {
 		return // already so: nothing to tell
 	}
-	log.debugf("%s %s %s on message %d", conn_label(u), "reacted with" if on else "took back", emoji, m.id)
+	log.debugf(
+		"%s %s %s on message %d",
+		conn_label(u),
+		"reacted with" if on else "took back",
+		emoji,
+		m.id,
+	)
 	buf: [proto.REACTION_CHANGED_MAX_SIZE]u8
 	event := proto.encode_reaction_changed(&buf, {m.id, conv.id, emoji, after, u.account.id, on})
 	for member in conv.members {

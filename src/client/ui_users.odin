@@ -6,10 +6,10 @@ import "core:slice"
 import "core:strings"
 import mu "vendor:microui"
 
-import "common:proto"
-import "client:settings"
-import "client:render"
 import "client:conn"
+import "client:render"
+import "client:settings"
+import "common:proto"
 
 /*
 Per-user playback settings: clicking (left or right) on another user in
@@ -169,7 +169,13 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 			}
 		}
 		// Green while we're heard, muted or not, as for everybody else.
-		name_and_status(ctx, r, text, SPEAKING_COLOR if speaking else ctx.style.colors[.TEXT], status_line(acc))
+		name_and_status(
+			ctx,
+			r,
+			text,
+			SPEAKING_COLOR if speaking else ctx.style.colors[.TEXT],
+			status_line(acc),
+		)
 		slot: i32 = 0
 		if user.sharing {
 			sharing_mark(ui, ctx.last_rect, slot, id)
@@ -350,14 +356,22 @@ user_menu :: proc(ui: ^UI) {
 		   "Remove buddy" if buddy else "Add as buddy",
 	   ) {
 		if ui.session != nil {
-			conn.push_command(&ui.session.client.commands, conn.Buddy_Command{account = account, on = !buddy})
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.Buddy_Command{account = account, on = !buddy},
+			)
 		}
 		log.debugf("ui: %s %s", name, "is no longer a buddy" if buddy else "is a buddy now")
 	}
 
 	if acc, ok := v.accounts[account]; ok {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, DIM_COLOR, fmt.tprintf("@%s%s", acc.username, "" if here else ", not here"), label_proc)
+		with_text_color(
+			ctx,
+			DIM_COLOR,
+			fmt.tprintf("@%s%s", acc.username, "" if here else ", not here"),
+			label_proc,
+		)
 	}
 	if may_call(v, account) {
 		mu.layout_row(ctx, {MENU_WIDTH})
@@ -398,7 +412,10 @@ user_menu :: proc(ui: ^UI) {
 		ui.settings_dirty = true
 		log.debugf("ui: %s volume %.0f%%%s", name, u.volume * 100, " (muted)" if u.muted else "")
 		if ui.session != nil {
-			conn.push_command(&ui.session.client.commands, conn.Gain_Command{account, settings.user_gain(u)})
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.Gain_Command{account, settings.user_gain(u)},
+			)
 		}
 	}
 }

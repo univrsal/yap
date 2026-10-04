@@ -2,8 +2,8 @@ package client
 
 import "client:conn"
 import "client:settings"
-import log "common:wlog"
 import "common:proto"
+import log "common:wlog"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
@@ -30,15 +30,15 @@ the two take turns: the list, or the chat with a way back to the list.
 
 UI_Channels :: struct {
 	// The Channels window.
-	open:      bool,
-	placed:    bool,
+	open:        bool,
+	placed:      bool,
 	// Making one: its name and topic.
-	name_buf:  [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
-	name_len:  int,
-	topic_buf: [proto.MAX_TOPIC_SIZE]u8,
-	topic_len: int,
+	name_buf:    [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
+	name_len:    int,
+	topic_buf:   [proto.MAX_TOPIC_SIZE]u8,
+	topic_len:   int,
 	// In a narrow window: the list is showing, rather than the chat.
-	show_list: bool,
+	show_list:   bool,
 	// What the server had said by the time the window opened isn't about
 	// anything asked in it (conn.View_Notice.count).
 	notice_seen: int,
@@ -116,7 +116,12 @@ channel_list :: proc(ui: ^UI) {
 
 		mu.layout_row(ctx, {-1})
 		viewing := ch.id == v.viewing
-		label := fmt.tprintf("%s%s%s", "⏵ " if viewing else "  ", ch.name, " 🔒" if ch.private else "")
+		label := fmt.tprintf(
+			"%s%s%s",
+			"⏵ " if viewing else "  ",
+			ch.name,
+			" 🔒" if ch.private else "",
+		)
 		// Unread, and not muted: brighter, as well as the count.
 		saved := ctx.style.colors[.TEXT]
 		if ch.unread > 0 && ch.notify != .None {
@@ -216,7 +221,8 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 			hint = "Talk in this channel instead of the one you're in"
 		}
 	}
-	if .SUBMIT in stable_button_hint(ui, "voice", label, hint, {.ALIGN_CENTER}) && !v.voice_pending {
+	if .SUBMIT in stable_button_hint(ui, "voice", label, hint, {.ALIGN_CENTER}) &&
+	   !v.voice_pending {
 		log.debugf("ui: %s %q", "leave voice of" if in_it else "join voice of", ch.name)
 		if in_it {
 			command(ui, conn.Voice_Command{})
@@ -245,7 +251,14 @@ unread_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, muted: bool) -> i
 // channel too: a mention is still one.
 @(private = "file")
 mention_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, taken: i32) {
-	badge(ctx, r, fmt.tprintf("@%s", conn.unread_count(count)), MENTION_BADGE_COLOR, MENTION_COLOR, taken)
+	badge(
+		ctx,
+		r,
+		fmt.tprintf("@%s", conn.unread_count(count)),
+		MENTION_BADGE_COLOR,
+		MENTION_COLOR,
+		taken,
+	)
 }
 
 @(private = "file")
@@ -254,7 +267,13 @@ MENTION_BADGE_COLOR :: mu.Color{90, 65, 20, 255}
 // badge draws `text` on a little box at the right end of `r`, leaving
 // `taken` of it; it says how much more it took.
 @(private = "file")
-badge :: proc(ctx: ^mu.Context, r: mu.Rect, text: string, background, color: mu.Color, taken: i32) -> i32 {
+badge :: proc(
+	ctx: ^mu.Context,
+	r: mu.Rect,
+	text: string,
+	background, color: mu.Color,
+	taken: i32,
+) -> i32 {
 	font := ctx.style.font
 	w := ctx.text_width(font, text) + 10
 	h := ctx.text_height(font) + 2
@@ -305,7 +324,14 @@ open_channels :: proc(ui: ^UI) {
 	ui.channels.open = true
 	ui.channels.placed = false
 	ui.channels.notice_seen = -1 // taken from the View when it's next locked
-	command(ui, conn.Browse_Command{query = strings.clone(strings.trim_space(string(ui.channels.find_buf[:ui.channels.find_len])))})
+	command(
+		ui,
+		conn.Browse_Command {
+			query = strings.clone(
+				strings.trim_space(string(ui.channels.find_buf[:ui.channels.find_len])),
+			),
+		},
+	)
 }
 
 /*
@@ -358,27 +384,48 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		if manage {
 			mu.layout_row(
 				ctx,
-				{-(NOTIFY_BUTTON + SUBSCRIBE_BUTTON + MANAGE_BUTTON + 3 * ctx.style.spacing + 1), MANAGE_BUTTON, NOTIFY_BUTTON, SUBSCRIBE_BUTTON},
+				{
+					-(NOTIFY_BUTTON +
+						SUBSCRIBE_BUTTON +
+						MANAGE_BUTTON +
+						3 * ctx.style.spacing +
+						1),
+					MANAGE_BUTTON,
+					NOTIFY_BUTTON,
+					SUBSCRIBE_BUTTON,
+				},
 			)
 		} else {
 			mu.layout_row(
 				ctx,
-				{-(NOTIFY_BUTTON + SUBSCRIBE_BUTTON + 2 * ctx.style.spacing + 1), NOTIFY_BUTTON, SUBSCRIBE_BUTTON},
+				{
+					-(NOTIFY_BUTTON + SUBSCRIBE_BUTTON + 2 * ctx.style.spacing + 1),
+					NOTIFY_BUTTON,
+					SUBSCRIBE_BUTTON,
+				},
 			)
 		}
 		channel_label(ctx, fmt.tprintf("%s%s", ch.name, " 🔒" if ch.private else ""), ch.topic)
-		if manage && .SUBMIT in stable_button(ctx, "manage", "Close" if ui.manage.conv == ch.id else "Settings", {.ALIGN_CENTER}) {
+		if manage &&
+		   .SUBMIT in
+			   stable_button(
+				   ctx,
+				   "manage",
+				   "Close" if ui.manage.conv == ch.id else "Settings",
+				   {.ALIGN_CENTER},
+			   ) {
 			ui.manage.conv = 0 if ui.manage.conv == ch.id else ch.id
 			ui.manage.loaded = 0
 		}
 		// All, mentions only, muted, and round again.
-		if .SUBMIT in stable_button_hint(
-			ui,
-			"notify",
-			NOTIFY_LABELS[ch.notify],
-			"How much this channel may interrupt: click to change",
-			{.ALIGN_CENTER},
-		) {
+		if .SUBMIT in
+		   stable_button_hint(
+			   ui,
+			   "notify",
+			   NOTIFY_LABELS[ch.notify],
+			   "How much this channel may interrupt: click to change",
+			   {.ALIGN_CENTER},
+		   ) {
 			next := proto.Notify_Level((int(ch.notify) + 1) % len(proto.Notify_Level))
 			command(ui, conn.Notify_Command{conv = ch.id, notify = next})
 		}
@@ -404,8 +451,14 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		command(ui, conn.Browse_Command{query = strings.clone(strings.trim_space(find))})
 	}
 	if len(v.browse) == 0 {
-		none := "  There are none you aren't in." if c.find_len == 0 else "  None has that in its name or topic."
-		with_text_color(ctx, DIM_COLOR, none if v.browse_count > 0 else "  Asking the server...", label_proc)
+		none :=
+			"  There are none you aren't in." if c.find_len == 0 else "  None has that in its name or topic."
+		with_text_color(
+			ctx,
+			DIM_COLOR,
+			none if v.browse_count > 0 else "  Asking the server...",
+			label_proc,
+		)
 	}
 	for e in v.browse {
 		mu.push_id(ctx, uintptr(e.id))

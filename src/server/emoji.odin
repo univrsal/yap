@@ -141,15 +141,19 @@ emoji_sync :: proc(s: ^Server) {
 	log.infof("%s has changed; making the emoji again", e.dir)
 	b := new(Emoji_Build)
 	b.dir, b.signature = e.dir, signature
-	b.thread = thread.create_and_start_with_poly_data(b, proc(b: ^Emoji_Build) {
-		// This thread's own scratch space: the loop's is emptied every turn.
-		scratch: runtime.Default_Temp_Allocator
-		runtime.default_temp_allocator_init(&scratch, 4 * 1024 * 1024, context.allocator)
-		defer runtime.default_temp_allocator_destroy(&scratch)
-		context.temp_allocator = runtime.default_temp_allocator(&scratch)
-		b.sheet = build_sheet(b.dir)
-		sync.atomic_store(&b.done, true)
-	}, context)
+	b.thread = thread.create_and_start_with_poly_data(
+		b,
+		proc(b: ^Emoji_Build) {
+			// This thread's own scratch space: the loop's is emptied every turn.
+			scratch: runtime.Default_Temp_Allocator
+			runtime.default_temp_allocator_init(&scratch, 4 * 1024 * 1024, context.allocator)
+			defer runtime.default_temp_allocator_destroy(&scratch)
+			context.temp_allocator = runtime.default_temp_allocator(&scratch)
+			b.sheet = build_sheet(b.dir)
+			sync.atomic_store(&b.done, true)
+		},
+		context,
+	)
 	if b.thread == nil {
 		free(b)
 		return
@@ -168,7 +172,13 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 	if len(sheet.qoi) > 0 {
 		ok: bool
 		rows := (len(sheet.names) + EMOJI_COLUMNS - 1) / EMOJI_COLUMNS
-		blob, ok = blob_put(&s.blobs, .Emoji_Sheet, sheet.qoi, EMOJI_COLUMNS * EMOJI_CELL, rows * EMOJI_CELL)
+		blob, ok = blob_put(
+			&s.blobs,
+			.Emoji_Sheet,
+			sheet.qoi,
+			EMOJI_COLUMNS * EMOJI_CELL,
+			rows * EMOJI_CELL,
+		)
 		if !ok {
 			log.error("could not keep the sheet of emoji")
 			return
@@ -196,8 +206,15 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 // send_emoji_sheet tells a connection of the server's emoji.
 send_emoji_sheet :: proc(s: ^Server, u: ^Conn) {
 	e := &s.emoji
-	out := make([]u8, 8 + 4 + 2 + 2 + len(e.names) * (1 + proto.MAX_EMOJI_NAME), context.temp_allocator)
-	body := proto.encode_emoji_sheet(out, {blob = e.blob, size = e.size, cell = EMOJI_CELL, names = e.names[:]})
+	out := make(
+		[]u8,
+		8 + 4 + 2 + 2 + len(e.names) * (1 + proto.MAX_EMOJI_NAME),
+		context.temp_allocator,
+	)
+	body := proto.encode_emoji_sheet(
+		out,
+		{blob = e.blob, size = e.size, cell = EMOJI_CELL, names = e.names[:]},
+	)
 	send_event(u, .Emoji_Sheet, body)
 }
 
@@ -266,7 +283,11 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 			log.warnf("%s is too big for an emoji; skipping it", f.fullpath)
 			continue
 		case len(names) >= proto.MAX_CUSTOM_EMOJI:
-			log.warnf("%s: a server has at most %d emoji; skipping it", f.fullpath, proto.MAX_CUSTOM_EMOJI)
+			log.warnf(
+				"%s: a server has at most %d emoji; skipping it",
+				f.fullpath,
+				proto.MAX_CUSTOM_EMOJI,
+			)
 			continue
 		}
 		cell, ok := read_emoji(f.fullpath)
@@ -294,7 +315,11 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 		}
 		delete(data)
 		keep := len(cells) * 9 / 10
-		log.warnf("the sheet of %d emoji is too big; leaving out the last %d", len(cells), len(cells) - keep)
+		log.warnf(
+			"the sheet of %d emoji is too big; leaving out the last %d",
+			len(cells),
+			len(cells) - keep,
+		)
 		for n in names[keep:] {
 			delete(n)
 		}
@@ -369,7 +394,10 @@ encode_sheet :: proc(cells: [][]u8) -> (data: []u8, ok: bool) {
 	for cell, i in cells {
 		cx, cy := (i % EMOJI_COLUMNS) * EMOJI_CELL, (i / EMOJI_COLUMNS) * EMOJI_CELL
 		for y in 0 ..< EMOJI_CELL {
-			copy(pixels[((cy + y) * width + cx) * 4:][:EMOJI_CELL * 4], cell[y * EMOJI_CELL * 4:][:EMOJI_CELL * 4])
+			copy(
+				pixels[((cy + y) * width + cx) * 4:][:EMOJI_CELL * 4],
+				cell[y * EMOJI_CELL * 4:][:EMOJI_CELL * 4],
+			)
 		}
 	}
 	img := image.Image {

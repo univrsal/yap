@@ -11,10 +11,10 @@ test_conv_record :: proc(t: ^testing.T) {
 		b = 't'
 	}
 	c := Conv {
-		id     = 9,
-		kind   = .Channel,
-		flags  = {.Home},
-		name   = "01234567890123456789012345678901",
+		id       = 9,
+		kind     = .Channel,
+		flags    = {.Home},
+		name     = "01234567890123456789012345678901",
 		topic    = string(topic),
 		member   = true,
 		last     = 1234,
@@ -102,7 +102,9 @@ test_conv_list :: proc(t: ^testing.T) {
 @(test)
 test_browse :: proc(t: ^testing.T) {
 	req_buf: [CONV_BROWSE_MAX_SIZE]u8
-	b, ok := decode_conv_browse(encode_conv_browse(&req_buf, {query = "gam", offset = 50, limit = 20}))
+	b, ok := decode_conv_browse(
+		encode_conv_browse(&req_buf, {query = "gam", offset = 50, limit = 20}),
+	)
 	testing.expect(t, ok)
 	testing.expect_value(t, b, Browse{query = "gam", offset = 50, limit = 20})
 	// Empty: the first page of all.
@@ -124,7 +126,10 @@ test_browse :: proc(t: ^testing.T) {
 	more, got, read = decode_browse_page(encode_browse_page(out[:], false, convs), buf[:])
 	testing.expect(t, read && !more)
 	// What doesn't fit means there are more.
-	more, got, read = decode_browse_page(encode_browse_page(out[:1 + 2 + CONV_MAX_SIZE], false, convs), buf[:])
+	more, got, read = decode_browse_page(
+		encode_browse_page(out[:1 + 2 + CONV_MAX_SIZE], false, convs),
+		buf[:],
+	)
 	testing.expect(t, read && more)
 	testing.expect_value(t, len(got), 1)
 }
@@ -133,7 +138,9 @@ test_browse :: proc(t: ^testing.T) {
 test_conv_bodies :: proc(t: ^testing.T) {
 	{
 		buf: [CONV_CREATE_MAX_SIZE]u8
-		name, topic, private, ok := decode_conv_create(encode_conv_create(buf[:], "Gaming", "for games", true))
+		name, topic, private, ok := decode_conv_create(
+			encode_conv_create(buf[:], "Gaming", "for games", true),
+		)
 		testing.expect(t, ok)
 		testing.expect_value(t, name, "Gaming")
 		testing.expect_value(t, topic, "for games")
@@ -196,7 +203,12 @@ test_read_bodies :: proc(t: ^testing.T) {
 	testing.expect(t, !ok2)
 
 	read_buf: [READ_CHANGED_SIZE]u8
-	want := Read_State{conv = 4, read = 120, unread = 3, mentions = 1}
+	want := Read_State {
+		conv     = 4,
+		read     = 120,
+		unread   = 3,
+		mentions = 1,
+	}
 	got, ok3 := decode_read_changed(encode_read_changed(&read_buf, want))
 	testing.expect(t, ok3)
 	testing.expect_value(t, got, want)
@@ -240,10 +252,16 @@ test_buddies_and_last_seen :: proc(t: ^testing.T) {
 	_, ask_ok = decode_last_seen_ask(encode_last_seen_ask(ask_buf[:], asked[:]), got_buf[:2])
 	testing.expect(t, !ask_ok, "more than fit")
 
-	entries := [2]Last_Seen_Entry{{account = 1, time = 1000}, {account = 2, time = LAST_SEEN_HIDDEN}}
+	entries := [2]Last_Seen_Entry {
+		{account = 1, time = 1000},
+		{account = 2, time = LAST_SEEN_HIDDEN},
+	}
 	answer_buf: [64]u8
 	entry_buf: [4]Last_Seen_Entry
-	back, answer_ok := decode_last_seen_answer(encode_last_seen_answer(answer_buf[:], entries[:]), entry_buf[:])
+	back, answer_ok := decode_last_seen_answer(
+		encode_last_seen_answer(answer_buf[:], entries[:]),
+		entry_buf[:],
+	)
 	testing.expect(t, answer_ok)
 	testing.expect_value(t, len(back), 2)
 	if len(back) == 2 {
@@ -254,9 +272,26 @@ test_buddies_and_last_seen :: proc(t: ^testing.T) {
 @(test)
 test_conv_update :: proc(t: ^testing.T) {
 	buf: [CONV_UPDATE_MAX_SIZE]u8
-	u, ok := decode_conv_update(encode_conv_update(buf[:], {conv = 3, mask = CONV_UPDATE_NAME | CONV_UPDATE_POSITION, name = "Games", position = 2}))
+	u, ok := decode_conv_update(
+		encode_conv_update(
+			buf[:],
+			{
+				conv = 3,
+				mask = CONV_UPDATE_NAME | CONV_UPDATE_POSITION,
+				name = "Games",
+				position = 2,
+			},
+		),
+	)
 	testing.expect(t, ok)
-	testing.expect(t, u.conv == 3 && u.mask == CONV_UPDATE_NAME | CONV_UPDATE_POSITION && u.name == "Games" && u.topic == "" && u.position == 2)
+	testing.expect(
+		t,
+		u.conv == 3 &&
+		u.mask == CONV_UPDATE_NAME | CONV_UPDATE_POSITION &&
+		u.name == "Games" &&
+		u.topic == "" &&
+		u.position == 2,
+	)
 	body := encode_conv_update(buf[:], {conv = 3, mask = 0x80})
 	_, ok = decode_conv_update(body)
 	testing.expect(t, !ok)
@@ -281,7 +316,13 @@ test_calls :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 
 	changed_buf: [CALL_CHANGED_SIZE]u8
-	c := Call_Change{id = 3, state = .Ended, reason = .Declined, caller = 4, callee = 5}
+	c := Call_Change {
+		id     = 3,
+		state  = .Ended,
+		reason = .Declined,
+		caller = 4,
+		callee = 5,
+	}
 	got, c_ok := decode_call_changed(encode_call_changed(&changed_buf, c))
 	testing.expect(t, c_ok)
 	testing.expect_value(t, got, c)

@@ -104,18 +104,18 @@ LEGACY_KEY_FILE :: "server.key"
 LEGACY_CHANNELS_FILE :: "channels.json"
 
 Config :: struct {
-	name:      string,
-	port:      int,
-	key:       string,
-	password:  string,
-	data_dir:  string,
+	name:         string,
+	port:         int,
+	key:          string,
+	password:     string,
+	data_dir:     string,
 	max_sessions: int,
-	log_level: string,
-	log_file:  string,
-	relay:     Relay_Config,
-	channels:  []Channel_Config,
-	retention: Retention_Config,
-	attachments: Attach_Config,
+	log_level:    string,
+	log_file:     string,
+	relay:        Relay_Config,
+	channels:     []Channel_Config,
+	retention:    Retention_Config,
+	attachments:  Attach_Config,
 }
 
 Attach_Config :: struct {
@@ -135,23 +135,23 @@ Channel_Config :: struct {
 
 // The parts of a Config the server runs on, checked and parsed.
 Settings :: struct {
-	name:           string, // sanitized
-	port:           int,
-	key:            string, // hex; parsed by run_server
-	password:       string,
-	max_sessions:   int,
-	log_level:      common.Log_Level,
-	log_file:       string,
-	relay:          Relay_Config, // web_dir resolved, see default_web_dir
-	channels:       []string,
+	name:         string, // sanitized
+	port:         int,
+	key:          string, // hex; parsed by run_server
+	password:     string,
+	max_sessions: int,
+	log_level:    common.Log_Level,
+	log_file:     string,
+	relay:        Relay_Config, // web_dir resolved, see default_web_dir
+	channels:     []string,
 	// The database and the blobs' folder, in the data directory (db.odin,
 	// blobs.odin).
-	db_path:        string,
-	blobs_dir:      string,
+	db_path:      string,
+	blobs_dir:    string,
 	// The pictures that are the server's own emoji (emoji.odin).
-	emoji_dir:      string,
-	retention:      Retention_Config,
-	attachments:    Attach_Config,
+	emoji_dir:    string,
+	retention:    Retention_Config,
+	attachments:  Attach_Config,
 }
 
 @(private = "file")
@@ -314,16 +314,16 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	}
 
 	s = {
-		name      = name,
-		port      = cfg.port,
-		key       = cfg.key,
-		password  = cfg.password,
+		name         = name,
+		port         = cfg.port,
+		key          = cfg.key,
+		password     = cfg.password,
 		max_sessions = cfg.max_sessions if cfg.max_sessions > 0 else DEFAULT_MAX_SESSIONS,
-		log_level = level,
-		log_file  = cfg.log_file,
-		relay     = relay,
-		retention = r,
-		attachments = attach,
+		log_level    = level,
+		log_file     = cfg.log_file,
+		relay        = relay,
+		retention    = r,
+		attachments  = attach,
 	}
 	data_dir := cfg.data_dir if cfg.data_dir != "" else os.dir(path)
 	if data_dir == "" {

@@ -34,8 +34,8 @@ MAX_FILE_ROUTES :: 8
 
 // File_Offer is a file offered in a DM that may still be taken up.
 File_Offer :: struct {
-	sender:    [proto.KEY_SIZE]u8, // the connection that has the file
-	from, to:  proto.Account_Id,
+	sender:   [proto.KEY_SIZE]u8, // the connection that has the file
+	from, to: proto.Account_Id,
 }
 
 File_Route :: struct {
@@ -257,7 +257,12 @@ files_destroy :: proc(s: ^Server) {
 // cancel_both tells each side of a route that it's over, naming the
 // other's account; whoever has left just doesn't hear it.
 @(private = "file")
-cancel_both :: proc(s: ^Server, id: proto.Msg_Id, route: ^File_Route, reason: proto.File_Cancel_Reason) {
+cancel_both :: proc(
+	s: ^Server,
+	id: proto.Msg_Id,
+	route: ^File_Route,
+	reason: proto.File_Cancel_Reason,
+) {
 	offer := s.file_offers[id]
 	if c := online_session(s, route.sender); c != nil {
 		send_file_cancel(s, c, id, offer.to, reason)

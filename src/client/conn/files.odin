@@ -5,9 +5,9 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 
-import "common:proto"
 import "client:audio"
 import "client:settings"
+import "common:proto"
 
 /*
 Sending files in DMs (see src/common/proto/files.odin for the protocol).
@@ -71,28 +71,28 @@ File_Client :: struct {
 }
 
 File_Transfer :: struct {
-	id:            proto.Msg_Id, // the offer's; 0 while it's being posted
-	peer:          proto.Account_Id,
-	outgoing:      bool,
-	name:          string, // owned
-	size:          u64,
-	chunks:        u32,
-	state:         File_State,
-	done:          u64, // bytes through
-	last_heard:    time.Tick, // anything from the other side
-	last_publish:  time.Tick,
-	rate:          f32, // bytes per second, lately
-	rate_at:       time.Tick,
-	rate_done:     u64,
+	id:           proto.Msg_Id, // the offer's; 0 while it's being posted
+	peer:         proto.Account_Id,
+	outgoing:     bool,
+	name:         string, // owned
+	size:         u64,
+	chunks:       u32,
+	state:        File_State,
+	done:         u64, // bytes through
+	last_heard:   time.Tick, // anything from the other side
+	last_publish: time.Tick,
+	rate:         f32, // bytes per second, lately
+	rate_at:      time.Tick,
+	rate_done:    u64,
 
 	// Sending (proto/transfer.odin).
-	src:           File_Source,
-	send:          proto.Transfer_Sender,
+	src:          File_Source,
+	send:         proto.Transfer_Sender,
 
 	// Receiving.
-	sink:          File_Sink,
-	path:          string, // where it's being saved; owned
-	recv:          proto.Transfer_Receiver,
+	sink:         File_Sink,
+	path:         string, // where it's being saved; owned
+	recv:         proto.Transfer_Receiver,
 }
 
 // Send_File_Command offers `to` a file: at `path` on a desktop, or the
@@ -159,7 +159,10 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 		return
 	}
 	if !is_online(c, to) {
-		log.warnf("file: %s isn't here, and files only go to someone who is", account_display(c, to))
+		log.warnf(
+			"file: %s isn't here, and files only go to someone who is",
+			account_display(c, to),
+		)
 		return
 	}
 	src, raw_name, size, ok := file_source_open(cmd)
@@ -344,7 +347,8 @@ files_step :: proc(c: ^Voice_Client) {
 			switch t.state {
 			case .Starting:
 				// Until chunks come, ask for them.
-				if t.recv.last_ack == {} || time.tick_diff(t.recv.last_ack, now) >= proto.CONTROL_RESEND {
+				if t.recv.last_ack == {} ||
+				   time.tick_diff(t.recv.last_ack, now) >= proto.CONTROL_RESEND {
 					t.recv.last_ack = now
 					buf: [proto.FILE_ACCEPT_SIZE]u8
 					send_data(
@@ -399,7 +403,10 @@ send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 			return // a browser is still reading it; next time
 		}
 		out: [proto.MAX_PAYLOAD_SIZE]u8
-		send_data(c, proto.encode_transfer_chunk(out[:], .File_Chunk, u64(t.id), index, data[:end - start]))
+		send_data(
+			c,
+			proto.encode_transfer_chunk(out[:], .File_Chunk, u64(t.id), index, data[:end - start]),
+		)
 		proto.transfer_sent(&t.send, index, first, int(end - start), now)
 	}
 }
@@ -497,7 +504,17 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 @(private = "file")
 send_file_ack :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	send_data(c, proto.transfer_encode_ack(&t.recv, out[:], .File_Ack, u64(t.id), c.files.download_limit, now))
+	send_data(
+		c,
+		proto.transfer_encode_ack(
+			&t.recv,
+			out[:],
+			.File_Ack,
+			u64(t.id),
+			c.files.download_limit,
+			now,
+		),
+	)
 }
 
 handle_file_cancel :: proc(c: ^Voice_Client, pt: []u8) {

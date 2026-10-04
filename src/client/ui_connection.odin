@@ -1,10 +1,10 @@
 package client
 
+import "client:conn"
 import "core:fmt"
 import "core:strings"
 import "core:time"
 import mu "vendor:microui"
-import "client:conn"
 
 /*
 The connection indicator: three bars rising left to right, like a

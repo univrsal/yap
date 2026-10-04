@@ -228,13 +228,17 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	username, clean := proto.username_clean(raw_username, &name_buf)
 	acc := account_find(&s.accounts, username) if clean else nil
 	if acc != nil && time.tick_diff(time.tick_now(), acc.locked_until) > 0 {
-		log.infof("%s: too many wrong passwords for %s, not taking more yet", conn_label(u), acc.username)
+		log.infof(
+			"%s: too many wrong passwords for %s, not taking more yet",
+			conn_label(u),
+			acc.username,
+		)
 		respond(u, id, .Rate_Limited)
 		return
 	}
 
 	job := Hash_Job {
-		check   = true,
+		check = true,
 		against = {params = s.auth.params},
 	}
 	if len(password) <= proto.MAX_ACCOUNT_PASSWORD {
@@ -425,7 +429,12 @@ login_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 	case acc == nil || !result.matched:
 		if acc != nil {
 			wrong_password(acc)
-			log.infof("%s: wrong password for %s (%d in a row)", conn_label(u), acc.username, acc.failures)
+			log.infof(
+				"%s: wrong password for %s (%d in a row)",
+				conn_label(u),
+				acc.username,
+				acc.failures,
+			)
 		} else {
 			log.infof("%s: tried to log in to an account there isn't", conn_label(u))
 		}
@@ -571,7 +580,8 @@ device_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Not_Found)
 		return
 	}
-	if owner := account_by_id(&s.accounts, d.account); owner != nil && owner != u.account && !outranks(u.account, permissions(owner)) {
+	if owner := account_by_id(&s.accounts, d.account);
+	   owner != nil && owner != u.account && !outranks(u.account, permissions(owner)) {
 		respond(u, id, .Denied)
 		return
 	}

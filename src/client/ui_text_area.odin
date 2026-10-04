@@ -31,25 +31,25 @@ TEXT_AREA_MAX_LINES :: 10
 
 // What a text area keeps between frames.
 Text_Area :: struct {
-	width:    i32, // the text's width last frame, for working out the height
-	scroll:   i32, // pixels of the text above the box's top
+	width:     i32, // the text's width last frame, for working out the height
+	scroll:    i32, // pixels of the text above the box's top
 	// Up and Down keep to the column they started in: where they left the
 	// caret, and the x they were aiming for.
-	vert_at:  int,
-	vert_x:   i32,
+	vert_at:   int,
+	vert_x:    i32,
 	// The selection and length last frame: when either changes, the box
 	// scrolls to the caret.
-	last_sel: [2]int,
-	last_len: int,
+	last_sel:  [2]int,
+	last_len:  int,
 	// Its scrollbar, when there's more than it shows: where it was last
 	// frame (none: zero), and while its thumb is dragged, how far down the
 	// thumb it was taken.
-	bar:      mu.Rect,
-	dragging: bool,
-	drag_at:  i32,
+	bar:       mu.Rect,
+	dragging:  bool,
+	drag_at:   i32,
 	// Showing the message as it will look instead (the composer's eye,
 	// preview_button).
-	preview:  bool,
+	preview:   bool,
 	had_focus: bool, // last frame
 }
 
@@ -141,7 +141,10 @@ text_area_height :: proc(ctx: ^mu.Context, font: mu.Font, text: string, area: ^T
 	if area.width > 0 {
 		n = len(area_lines(ctx, font, text, area.width))
 	}
-	return text_area_single(ctx, font) + i32(min(n, TEXT_AREA_MAX_LINES) - 1) * ctx.text_height(font)
+	return(
+		text_area_single(ctx, font) +
+		i32(min(n, TEXT_AREA_MAX_LINES) - 1) * ctx.text_height(font) \
+	)
 }
 
 /*
@@ -285,7 +288,14 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar {
 			i := clamp((ctx.mouse_pos.y - r.y - top + area.scroll) / lh, 0, i32(len(lines) - 1))
 			pl := lines[i]
-			at := offset_at(ctx, font, text, pl.start, pl.stop, ctx.mouse_pos.x - r.x - ctx.style.padding)
+			at := offset_at(
+				ctx,
+				font,
+				text,
+				pl.start,
+				pl.stop,
+				ctx.mouse_pos.x - r.x - ctx.style.padding,
+			)
 			s.selection[0] = at
 			if .LEFT in ctx.mouse_pressed_bits && !shift {
 				s.selection[1] = at

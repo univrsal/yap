@@ -10,11 +10,11 @@ import "core:time"
 import "core:time/datetime"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
 import "client:platform"
 import "client:render"
 import "client:settings"
+import "common:proto"
 
 /*
 Profiles on screen: our status and picture, everyone else's in the lists,
@@ -174,7 +174,14 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 		if a != .Offline {
 			ctx.style.colors[.TEXT] = ACTIVITY_COLORS[a]
 		}
-		if .SUBMIT in stable_button_hint(ui, fmt.tprint(a), ACTIVITY_LABELS[a], ACTIVITY_HINTS[a], {.ALIGN_CENTER}) &&
+		if .SUBMIT in
+			   stable_button_hint(
+				   ui,
+				   fmt.tprint(a),
+				   ACTIVITY_LABELS[a],
+				   ACTIVITY_HINTS[a],
+				   {.ALIGN_CENTER},
+			   ) &&
 		   ui.view.my_activity != a {
 			conn.push_command(&ui.session.client.commands, conn.Activity_Command{activity = a})
 		}
@@ -187,7 +194,12 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	with_text_color(ctx, DIM_COLOR, "Clear it after:", label_proc)
 	widths: [len(Clear_After)]i32
 	for &w in widths {
-		w = (STATUS_WINDOW_W - 2 * ctx.style.padding - (len(Clear_After) - 1) * ctx.style.spacing - 8) / len(Clear_After)
+		w =
+			(STATUS_WINDOW_W -
+				2 * ctx.style.padding -
+				(len(Clear_After) - 1) * ctx.style.spacing -
+				8) /
+			len(Clear_After)
 	}
 	mu.layout_row(ctx, widths[:])
 	for c in Clear_After {
@@ -219,7 +231,8 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	with_text_color(ctx, DIM_COLOR, when_text, label_proc)
 	mu.layout_row(ctx, {120, -1})
 	cleared := .SUBMIT in stable_button(ctx, "status clear", "Clear status", {.ALIGN_CENTER})
-	saved := .SUBMIT in stable_button(ctx, "status save", "Save", {.ALIGN_CENTER}) || .SUBMIT in res
+	saved :=
+		.SUBMIT in stable_button(ctx, "status save", "Save", {.ALIGN_CENTER}) || .SUBMIT in res
 	if p.clear_after == .Days && status_days(p) == 0 {
 		saved = false
 	}
@@ -303,7 +316,14 @@ status_until :: proc(ui: ^UI, c: Clear_After, days: int) -> proto.Unix_Ms {
 // members_button is the header's button for the members window.
 members_button :: proc(ui: ^UI) {
 	p := &ui.profiles
-	if .SUBMIT in icon_button(ui, "members", .Buddies, "Hide the members" if p.members_open else "Members", CHAT_NAME_COLOR if p.members_open else {}) {
+	if .SUBMIT in
+	   icon_button(
+		   ui,
+		   "members",
+		   .Buddies,
+		   "Hide the members" if p.members_open else "Members",
+		   CHAT_NAME_COLOR if p.members_open else {},
+	   ) {
 		p.members_open = !p.members_open
 		p.members_placed = false
 		p.members_asked = 0
@@ -398,7 +418,12 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, DIM_COLOR, fmt.tprintf("%d members, %d here", len(list), here), label_proc)
+	with_text_color(
+		ctx,
+		DIM_COLOR,
+		fmt.tprintf("%d members, %d here", len(list), here),
+		label_proc,
+	)
 	add_people(ui, m.accounts[:])
 	for e in list {
 		extra := "" if e.online else last_seen_text(ui, e.account)
@@ -417,7 +442,13 @@ person_row is a person in a list: their picture, their name (dimmed if
 they aren't here), and dimmed after it their status and `extra`. A flat
 control the width of the list; true when it's clicked.
 */
-person_row :: proc(ui: ^UI, account: proto.Account_Id, name: string, online: bool, extra := "") -> bool {
+person_row :: proc(
+	ui: ^UI,
+	account: proto.Account_Id,
+	name: string,
+	online: bool,
+	extra := "",
+) -> bool {
 	ctx := &ui.ctx
 	v := &ui.view
 	size := ctx.text_height(ctx.style.font) + 4
@@ -434,7 +465,14 @@ person_row :: proc(ui: ^UI, account: proto.Account_Id, name: string, online: boo
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
 	acc := v.accounts[account] or_else {}
-	name_and_status(ctx, r, name, ctx.style.colors[.TEXT] if online else DIM_COLOR, status_line(acc), extra)
+	name_and_status(
+		ctx,
+		r,
+		name,
+		ctx.style.colors[.TEXT] if online else DIM_COLOR,
+		status_line(acc),
+		extra,
+	)
 	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {}
 }
 
@@ -442,7 +480,14 @@ person_row :: proc(ui: ^UI, account: proto.Account_Id, name: string, online: boo
 name_and_status draws a name in `r`, and dimmed after it a status and
 whatever else there is to say, cut where the row ends.
 */
-name_and_status :: proc(ctx: ^mu.Context, r: mu.Rect, name: string, color: mu.Color, status: string, extra := "") {
+name_and_status :: proc(
+	ctx: ^mu.Context,
+	r: mu.Rect,
+	name: string,
+	color: mu.Color,
+	status: string,
+	extra := "",
+) {
 	font := ctx.style.font
 	y := r.y + (r.h - ctx.text_height(font)) / 2
 	x := r.x + ctx.style.padding
@@ -477,7 +522,11 @@ profile_settings :: proc(ui: ^UI) {
 	// The buttons, of the usual height, in the middle of the row.
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
-	mu.layout_row(ctx, {-1}, max((size - ctx.style.size.y - 2 * ctx.style.padding) / 2 - ctx.style.spacing, 1))
+	mu.layout_row(
+		ctx,
+		{-1},
+		max((size - ctx.style.size.y - 2 * ctx.style.padding) / 2 - ctx.style.spacing, 1),
+	)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, {110, 110, 110})
 	uploading := false
@@ -523,7 +572,11 @@ status_settings :: proc(ui: ^UI) {
 	}
 	text := me.status if me.status != "" else "none"
 	if me.status != "" && me.status_until != 0 {
-		text = fmt.tprintf("%s  (until %s)", me.status, chat_time(ui, proto.Unix_Time(me.status_until / 1000)))
+		text = fmt.tprintf(
+			"%s  (until %s)",
+			me.status,
+			chat_time(ui, proto.Unix_Time(me.status_until / 1000)),
+		)
 	}
 	with_text_color(ctx, DIM_COLOR, text, label_proc)
 }
@@ -573,7 +626,13 @@ parse_user_value :: proc(s: string) -> (u: settings.User_Settings, ok: bool) {
 // shared_user_changed tells the server how we play somebody now.
 shared_user_changed :: proc(ui: ^UI, account: proto.Account_Id, u: settings.User_Settings) {
 	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.Setting_Command{key = strings.clone(user_key(account)), value = strings.clone(user_value(u))})
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.Setting_Command {
+				key = strings.clone(user_key(account)),
+				value = strings.clone(user_value(u)),
+			},
+		)
 	}
 }
 
@@ -582,7 +641,13 @@ shared_user_changed :: proc(ui: ^UI, account: proto.Account_Id, u: settings.User
 shared_hidden_changed :: proc(ui: ^UI, conv: proto.Conv_Id, last: proto.Msg_Id) {
 	if ui.session != nil {
 		value := fmt.tprint(u64(last)) if last != 0 else ""
-		conn.push_command(&ui.session.client.commands, conn.Setting_Command{key = strings.clone(hidden_key(conv)), value = strings.clone(value)})
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.Setting_Command {
+				key = strings.clone(hidden_key(conv)),
+				value = strings.clone(value),
+			},
+		)
 	}
 }
 
@@ -653,10 +718,19 @@ shared_apply :: proc(ui: ^UI) {
 		}
 		u := settings.user_settings(s, server, account)
 		if first {
-			conn.push_command(cmds, conn.Setting_Command{key = strings.clone(user_key(account)), value = strings.clone(user_value(u))})
+			conn.push_command(
+				cmds,
+				conn.Setting_Command {
+					key = strings.clone(user_key(account)),
+					value = strings.clone(user_value(u)),
+				},
+			)
 		} else {
 			settings.set_user_settings(s, server, account, settings.DEFAULT_USER)
-			conn.push_command(cmds, conn.Gain_Command{account, settings.user_gain(settings.DEFAULT_USER)})
+			conn.push_command(
+				cmds,
+				conn.Gain_Command{account, settings.user_gain(settings.DEFAULT_USER)},
+			)
 			ui.settings_dirty = true
 		}
 	}
@@ -667,11 +741,18 @@ shared_apply :: proc(ui: ^UI) {
 		}
 	}
 	for h in hidden {
-		if hidden_key(proto.Conv_Id(h[0])) in v.shared || (!first && hidden_key(proto.Conv_Id(h[0])) not_in known) {
+		if hidden_key(proto.Conv_Id(h[0])) in v.shared ||
+		   (!first && hidden_key(proto.Conv_Id(h[0])) not_in known) {
 			continue
 		}
 		if first {
-			conn.push_command(cmds, conn.Setting_Command{key = strings.clone(hidden_key(proto.Conv_Id(h[0]))), value = strings.clone(fmt.tprint(h[1]))})
+			conn.push_command(
+				cmds,
+				conn.Setting_Command {
+					key = strings.clone(hidden_key(proto.Conv_Id(h[0]))),
+					value = strings.clone(fmt.tprint(h[1])),
+				},
+			)
 		} else {
 			settings.hide_dm(s, server, proto.Conv_Id(h[0]), 0)
 			ui.settings_dirty = true

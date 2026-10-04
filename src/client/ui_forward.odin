@@ -7,8 +7,8 @@ import "core:time"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
+import "common:proto"
 
 /*
 Forwarding and links (src/common/proto/forward.odin).
@@ -26,18 +26,18 @@ to the message: in this conversation, or in its channel or DM.
 */
 
 UI_Forward :: struct {
-	open:       bool,
-	placed:     bool,
-	msg:        proto.Msg_Id,
-	filter_buf: [proto.MAX_CHANNEL_NAME_SIZE]u8,
-	filter_len: int,
+	open:        bool,
+	placed:      bool,
+	msg:         proto.Msg_Id,
+	filter_buf:  [proto.MAX_CHANNEL_NAME_SIZE]u8,
+	filter_len:  int,
 	// Linked messages asked for, and when: asked again a while later if
 	// they haven't come (the network side lets them go with their
 	// conversation's window, and asking twice is one asking there).
 	links_asked: map[proto.Msg_Id]time.Tick,
 	// A link clicked this frame, gone to after it.
-	go_conv:    proto.Conv_Id,
-	go_id:      proto.Msg_Id,
+	go_conv:     proto.Conv_Id,
+	go_id:       proto.Msg_Id,
 }
 
 @(private = "file")
@@ -91,9 +91,13 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	mu.layout_row(ctx, {-1})
 	text_box(ui, f.filter_buf[:], &f.filter_len)
-	filter := strings.to_lower(strings.trim_space(string(f.filter_buf[:f.filter_len])), context.temp_allocator)
+	filter := strings.to_lower(
+		strings.trim_space(string(f.filter_buf[:f.filter_len])),
+		context.temp_allocator,
+	)
 	row :: proc(ui: ^UI, conv: proto.Conv_Id, name, filter: string) -> bool {
-		if filter != "" && !strings.contains(strings.to_lower(name, context.temp_allocator), filter) {
+		if filter != "" &&
+		   !strings.contains(strings.to_lower(name, context.temp_allocator), filter) {
 			return false
 		}
 		ctx := &ui.ctx
@@ -102,7 +106,10 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.layout_row(ctx, {-(90 + ctx.style.spacing + 1), 90})
 		mu.label(ctx, name)
 		if .SUBMIT in stable_button(ctx, "forward", "Send here", {.ALIGN_CENTER}) {
-			conn.push_command(&ui.session.client.commands, conn.Forward_Command{msg = ui.forward.msg, conv = conv})
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.Forward_Command{msg = ui.forward.msg, conv = conv},
+			)
 			mu.get_current_container(ctx).open = false
 			ui.forward.open = false
 			return true
@@ -234,7 +241,10 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 	if (!was || time.tick_since(asked) > LINK_ASK_AGAIN) && ui.session != nil {
 		asked = time.tick_now()
 		f.links_asked[l.id] = asked
-		conn.push_command(&ui.session.client.commands, conn.Root_Command{conv = l.conv, root = l.id})
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.Root_Command{conv = l.conv, root = l.id},
+		)
 	}
 	// To ask again, should no answer come.
 	if asked != {} {
@@ -245,7 +255,15 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 
 // message_text is a message's text as the timeline shows it: mentions,
 // the server's emoji and links. Call with the View locked.
-message_text :: proc(ui: ^UI, text: string) -> (shown: string, spans: []conn.Mention_Span, emoji: []conn.Emoji_Span, links: []conn.Link_Span) {
+message_text :: proc(
+	ui: ^UI,
+	text: string,
+) -> (
+	shown: string,
+	spans: []conn.Mention_Span,
+	emoji: []conn.Emoji_Span,
+	links: []conn.Link_Span,
+) {
 	v := &ui.view
 	return conn.text_display_links(text, v.accounts, v.me, v.emoji.names[:], link_label, ui)
 }

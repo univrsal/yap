@@ -1,10 +1,10 @@
 #+build wasi
 package client
 
+import "client:conn"
+import "client:platform"
 import log "common:wlog"
 import "core:strings"
-import "client:platform"
-import "client:conn"
 
 /*
 Pasting a picture into the chat. A page can only read the clipboard

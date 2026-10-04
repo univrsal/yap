@@ -5,8 +5,8 @@ import "core:strings"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
+import "common:proto"
 
 /*
 The emoji picker: a floating window of every emoji, a category at a time
@@ -73,7 +73,12 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		p.open = false
 		return
 	}
-	width := i32(PICKER_COLUMNS * (PICKER_CELL + ctx.style.spacing) + 2 * ctx.style.padding + ctx.style.scrollbar_size + 8)
+	width := i32(
+		PICKER_COLUMNS * (PICKER_CELL + ctx.style.spacing) +
+		2 * ctx.style.padding +
+		ctx.style.scrollbar_size +
+		8,
+	)
 	height := min(window_h - 80, 380)
 	if !p.placed {
 		p.placed = true
@@ -173,7 +178,8 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	hint := p.hovered
 	if hint == "" {
-		hint = "Pick one to react with." if p.react_to != 0 else "Pick one to put it in the message."
+		hint =
+			"Pick one to react with." if p.react_to != 0 else "Pick one to put it in the message."
 	}
 	with_text_color(ctx, DIM_COLOR, hint, label_proc)
 }
@@ -202,7 +208,12 @@ custom_emoji_cell :: proc(ui: ^UI, index: int, code: string) -> bool {
 	if have {
 		r := ctx.last_rect
 		size: i32 = 20
-		mu.draw_icon(ctx, icon, {r.x + (r.w - size) / 2, r.y + (r.h - size) / 2, size, size}, {255, 255, 255, 255})
+		mu.draw_icon(
+			ctx,
+			icon,
+			{r.x + (r.w - size) / 2, r.y + (r.h - size) / 2, size, size},
+			{255, 255, 255, 255},
+		)
 	}
 	if ctx.hover_id == ctx.last_id {
 		ui.picker.hovered = code
@@ -229,7 +240,10 @@ picked :: proc(ui: ^UI, emoji: string) {
 	p := &ui.picker
 	if p.react_to != 0 {
 		if ui.session != nil {
-			conn.push_command(&ui.session.client.commands, conn.React_Command{id = p.react_to, emoji = strings.clone(emoji), on = true})
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.React_Command{id = p.react_to, emoji = strings.clone(emoji), on = true},
+			)
 		}
 		p.open = false
 		return

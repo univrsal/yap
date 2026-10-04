@@ -3,8 +3,8 @@ package client
 import "core:fmt"
 import "core:sync"
 
-import glfw "client:wglfw"
 import "client:conn"
+import glfw "client:wglfw"
 
 /*
 Pokes (src/common/proto/poke.odin): someone nudging us, shown as a desktop

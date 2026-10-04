@@ -43,10 +43,25 @@ test_file :: proc(size: int, seed: u8) -> []u8 {
 
 // put announces an upload; its id, if it's taken.
 @(private = "file")
-put :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, size: int, name: string) -> (status: proto.Status, id: u64) {
+put :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	size: int,
+	name: string,
+) -> (
+	status: proto.Status,
+	id: u64,
+) {
 	buf: [proto.ATTACH_PUT_MAX_SIZE]u8
 	answer: []u8
-	status, answer = ts_ask(t, ts, u, .Attach_Put, proto.encode_attach_put(buf[:], {size = u64(size), name = name}))
+	status, answer = ts_ask(
+		t,
+		ts,
+		u,
+		.Attach_Put,
+		proto.encode_attach_put(buf[:], {size = u64(size), name = name}),
+	)
 	if status == .Ok {
 		ok: bool
 		id, ok = proto.decode_attach_id(answer)
@@ -59,7 +74,13 @@ put :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, size: int, name: string) 
 // `order` (indices; every chunk when it's nil), then whatever wasn't.
 // The blob it was kept as, if it was.
 @(private = "file")
-send_file :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: u64, data: []u8) -> proto.Blob_Id {
+send_file :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	id: u64,
+	data: []u8,
+) -> proto.Blob_Id {
 	chunks := proto.file_chunk_count(u64(len(data)))
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 	// Backwards and with every third one twice: out of order, and repeats.
@@ -114,7 +135,15 @@ post_files :: proc(
 
 // fetch downloads a blob as `u`, acking as a client would; what came.
 @(private = "file")
-fetch :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, blob: proto.Blob_Id) -> (status: proto.Status, data: []u8) {
+fetch :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+	blob: proto.Blob_Id,
+) -> (
+	status: proto.Status,
+	data: []u8,
+) {
 	id_buf: [8]u8
 	answer: []u8
 	status, answer = ts_ask(t, ts, u, .Attach_Get, proto.encode_attach_id(&id_buf, u64(blob)))
@@ -141,7 +170,11 @@ fetch :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, blob: proto.Blob_Id) ->
 				proto.transfer_got(&r, index, len(chunk))
 			}
 		}
-		handle_download_ack(&ts.s, u, proto.transfer_encode_ack(&r, out[:], .Download_Ack, download, 0, time.tick_now()))
+		handle_download_ack(
+			&ts.s,
+			u,
+			proto.transfer_encode_ack(&r, out[:], .Download_Ack, download, 0, time.tick_now()),
+		)
 		if proto.transfer_complete(&r) {
 			testing.expect(t, download not_in ts.s.attach.downloads)
 			proto.transfer_receiver_destroy(&r)
@@ -224,8 +257,16 @@ test_attachments :: proc(t: ^testing.T) {
 		m := news[0]
 		testing.expect(t, .Has_Attachments in m.flags)
 		testing.expect_value(t, m.attachment_count, 2)
-		testing.expect_value(t, m.attachments[0], proto.Attachment{blob, u64(len(report)), "report 2026.pdf"})
-		testing.expect_value(t, m.attachments[1], proto.Attachment{tool_blob, u64(len(tool)), "setup.exe"})
+		testing.expect_value(
+			t,
+			m.attachments[0],
+			proto.Attachment{blob, u64(len(report)), "report 2026.pdf"},
+		)
+		testing.expect_value(
+			t,
+			m.attachments[1],
+			proto.Attachment{tool_blob, u64(len(tool)), "setup.exe"},
+		)
 	}
 	// Read back as it was posted.
 	m, found := msg_by_id(s, id)
@@ -310,7 +351,11 @@ test_attachments_conn_gone :: proc(t: ^testing.T) {
 	testing.expect(t, send_file(t, &ts, alice, done, data) != 0)
 	_, half := put(t, &ts, alice, len(data), "half.zip")
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	handle_upload_chunk(s, alice, proto.encode_transfer_chunk(out[:], .Upload_Chunk, half, 0, data[:proto.FILE_CHUNK_DATA]))
+	handle_upload_chunk(
+		s,
+		alice,
+		proto.encode_transfer_chunk(out[:], .Upload_Chunk, half, 0, data[:proto.FILE_CHUNK_DATA]),
+	)
 	part := s.attach.uploads[half].part
 	testing.expect(t, os.exists(part))
 
@@ -352,7 +397,15 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	ts_account(t, &ts, "alice", "a password")
 	alice := logged_in(t, &ts, "alice")
 	home := s.convs.home.id
-	posted :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id, data: []u8, name: string, nonce: u64) -> proto.Msg_Id {
+	posted :: proc(
+		t: ^testing.T,
+		ts: ^Test_Server,
+		u: ^Conn,
+		conv: proto.Conv_Id,
+		data: []u8,
+		name: string,
+		nonce: u64,
+	) -> proto.Msg_Id {
 		_, upload := put(t, ts, u, len(data), name)
 		send_file(t, ts, u, upload, data)
 		status, id := post_files(t, ts, u, conv, "", nonce, upload)
@@ -367,7 +420,15 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	// (Of what's older than now, which the second isn't if it was posted
 	// this very millisecond.)
 	time.sleep(2 * time.Millisecond)
-	testing.expect(t, retention_ask(&s.retention, &s.db, {before = proto.Unix_Ms(unix_ms() + 1000), what = .Files}, unix_ms()))
+	testing.expect(
+		t,
+		retention_ask(
+			&s.retention,
+			&s.db,
+			{before = proto.Unix_Ms(unix_ms() + 1000), what = .Files},
+			unix_ms(),
+		),
+	)
 	messages, _ := retention_drain(&s.retention, &s.blobs, s)
 	testing.expect_value(t, messages, 2)
 	m, found := msg_by_id(s, first)
@@ -426,7 +487,13 @@ test_attachments_search :: proc(t: ^testing.T) {
 	}
 	search :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, query: string) -> []proto.Msg_Id {
 		buf: [proto.MSG_SEARCH_MAX_SIZE]u8
-		status, body := ts_ask(t, ts, u, .Msg_Search, proto.encode_msg_search(&buf, {limit = 20, query = query}))
+		status, body := ts_ask(
+			t,
+			ts,
+			u,
+			.Msg_Search,
+			proto.encode_msg_search(&buf, {limit = 20, query = query}),
+		)
 		testing.expect_value(t, status, proto.Status.Ok)
 		msgs := make([]proto.Message, 20, context.temp_allocator)
 		_, _, found, ok := proto.decode_search_answer(body, msgs)
@@ -439,12 +506,34 @@ test_attachments_search :: proc(t: ^testing.T) {
 	}
 
 	_, words := post(t, &ts, alice, home, "the quarterly report is late", 1)
-	_, report := post_files(t, &ts, alice, home, "", 2, upload(t, &ts, alice, "Quarterly Report.pdf", 1))
-	_, both := post_files(t, &ts, alice, home, "the report, attached", 3, upload(t, &ts, alice, "report-final.pdf", 2))
+	_, report := post_files(
+		t,
+		&ts,
+		alice,
+		home,
+		"",
+		2,
+		upload(t, &ts, alice, "Quarterly Report.pdf", 1),
+	)
+	_, both := post_files(
+		t,
+		&ts,
+		alice,
+		home,
+		"the report, attached",
+		3,
+		upload(t, &ts, alice, "report-final.pdf", 2),
+	)
 	_, other := post_files(t, &ts, alice, home, "", 4, upload(t, &ts, alice, "holiday.jpg", 3))
 
-	testing.expect(t, slice.equal(search(t, &ts, alice, "report"), []proto.Msg_Id{both, report, words}))
-	testing.expect(t, slice.equal(search(t, &ts, alice, "quarterly"), []proto.Msg_Id{report, words}))
+	testing.expect(
+		t,
+		slice.equal(search(t, &ts, alice, "report"), []proto.Msg_Id{both, report, words}),
+	)
+	testing.expect(
+		t,
+		slice.equal(search(t, &ts, alice, "quarterly"), []proto.Msg_Id{report, words}),
+	)
 	testing.expect(t, slice.equal(search(t, &ts, alice, "holiday"), []proto.Msg_Id{other}))
 	testing.expect(t, slice.equal(search(t, &ts, alice, "final"), []proto.Msg_Id{both}))
 

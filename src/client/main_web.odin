@@ -1,8 +1,8 @@
 #+build wasi
 package client
 
-import log "common:wlog"
 import "base:runtime"
+import log "common:wlog"
 import "core:reflect"
 import "core:strconv"
 import "core:strings"
@@ -10,10 +10,10 @@ import "core:time"
 
 import glfw "client:wglfw"
 
-import "common:."
 import "client:audio"
-import "client:platform"
 import "client:conn"
+import "client:platform"
+import "common:."
 
 /*
 The web build's way in. A browser has no main loop to hand over: the

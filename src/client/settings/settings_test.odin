@@ -76,7 +76,11 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	testing.expect_value(t, notification_gain(&loaded), f32(0.5))
 	testing.expect_value(t, len(loaded.users), 3)
 	testing.expect_value(t, user_settings(&loaded, server, 1), User_Settings{volume = 0.5})
-	testing.expect_value(t, user_settings(&loaded, server, 2), User_Settings{volume = 1, muted = true})
+	testing.expect_value(
+		t,
+		user_settings(&loaded, server, 2),
+		User_Settings{volume = 1, muted = true},
+	)
 	testing.expect_value(t, user_settings(&loaded, server, 3), DEFAULT_USER)
 	// Account 1 on another server is somebody else.
 	testing.expect_value(t, user_settings(&loaded, other, 1), User_Settings{volume = 2})
@@ -84,9 +88,14 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	// Entries are keyed by the server and the account, and parse back.
 	for k in loaded.users {
 		got_server, account, ok := parse_server_key(k)
-		testing.expect(t, ok && (got_server == server || got_server == other) && account >= 1 && account <= 2)
+		testing.expect(
+			t,
+			ok && (got_server == server || got_server == other) && account >= 1 && account <= 2,
+		)
 	}
-	_, _, legacy_ok := parse_server_key("8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933")
+	_, _, legacy_ok := parse_server_key(
+		"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933",
+	)
 	testing.expect(t, !legacy_ok, "a key from before accounts")
 
 	// Hidden until there's something newer.

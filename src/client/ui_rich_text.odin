@@ -6,10 +6,10 @@ import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
 import "client:platform"
 import "client:render"
+import "common:proto"
 
 /*
 A message's text as the timeline draws it: its markdown worked out
@@ -232,7 +232,15 @@ characters as fit if the first word doesn't (but always one); or with
 line starts at `next`, past the spaces it broke at.
 */
 @(private = "file")
-rich_wrap :: proc(ctx: ^mu.Context, r: ^Rich, from, to: int, width: i32, anywhere: bool) -> (end, next: int) {
+rich_wrap :: proc(
+	ctx: ^mu.Context,
+	r: ^Rich,
+	from, to: int,
+	width: i32,
+	anywhere: bool,
+) -> (
+	end, next: int,
+) {
 	text := r.text
 	last_space := -1
 	fit := from
@@ -326,7 +334,11 @@ rich_text :: proc(ui: ^UI, r: ^Rich, color: mu.Color, item: i64) {
 			mu.draw_rect(ctx, {row.x + qx, row.y, row.w - qx, h}, CODE_BLOCK_COLOR)
 		}
 		for q in 0 ..< l.quote {
-			mu.draw_rect(ctx, {row.x + i32(q) * QUOTE_STEP + QUOTE_BAR_X, row.y, QUOTE_BAR_W, h}, QUOTE_BAR_COLOR)
+			mu.draw_rect(
+				ctx,
+				{row.x + i32(q) * QUOTE_STEP + QUOTE_BAR_X, row.y, QUOTE_BAR_W, h},
+				QUOTE_BAR_COLOR,
+			)
 		}
 		// Then what's behind its pieces, the selection over that, and the
 		// pieces.
@@ -504,7 +516,12 @@ rich_emoji :: proc(ui: ^UI, r: ^Rich, vl: Rich_Line, pos: mu.Vec2) {
 		x := pos.x + rich_width(ctx, r, vl.start, e.start)
 		size, advance := custom_emoji_size(ctx)
 		gap := (advance - size) / 2
-		mu.draw_icon(ctx, icon, {x + gap, pos.y + (h - size) / 2, size, size}, {255, 255, 255, 255})
+		mu.draw_icon(
+			ctx,
+			icon,
+			{x + gap, pos.y + (h - size) / 2, size, size},
+			{255, 255, 255, 255},
+		)
 	}
 
 	line := mu.Rect{pos.x, pos.y, rich_width(ctx, r, vl.start, vl.end), h}

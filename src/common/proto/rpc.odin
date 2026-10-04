@@ -103,33 +103,33 @@ Request_Op :: enum u16 {
 Event_Op :: enum u16 {
 	// Around what a connection is told when it logs in: everything
 	// between them is how things are, not news.
-	Sync_Begin      = 0x0001,
-	Sync_End        = 0x0002,
+	Sync_Begin       = 0x0001,
+	Sync_End         = 0x0002,
 	// See accounts.odin.
-	Self            = 0x0003,
-	Account_Changed = 0x0010,
-	Role_Changed    = 0x0011,
-	Role_Removed    = 0x0012,
-	Setting_Changed = 0x0020,
-	Logged_Out      = 0x0013,
+	Self             = 0x0003,
+	Account_Changed  = 0x0010,
+	Role_Changed     = 0x0011,
+	Role_Removed     = 0x0012,
+	Setting_Changed  = 0x0020,
+	Logged_Out       = 0x0013,
 	// See buddies.odin.
-	Buddy_Changed   = 0x0021,
+	Buddy_Changed    = 0x0021,
 	// See convs.odin.
-	Conv_Changed    = 0x0030,
-	Conv_Removed    = 0x0031,
-	Read_Changed    = 0x0032,
-	Voice_Moved     = 0x0033,
+	Conv_Changed     = 0x0030,
+	Conv_Removed     = 0x0031,
+	Read_Changed     = 0x0032,
+	Voice_Moved      = 0x0033,
 	// See msgs.odin.
-	Msg_New         = 0x0040,
-	Msg_Changed     = 0x0041,
+	Msg_New          = 0x0040,
+	Msg_Changed      = 0x0041,
 	Reaction_Changed = 0x0042,
 	// See purge.odin.
-	Msgs_Purged     = 0x0043,
+	Msgs_Purged      = 0x0043,
 	// See emoji.odin.
-	Emoji_Sheet     = 0x0060,
+	Emoji_Sheet      = 0x0060,
 	// See calls.odin.
-	Call_Ring       = 0x0080,
-	Call_Changed    = 0x0081,
+	Call_Ring        = 0x0080,
+	Call_Changed     = 0x0081,
 }
 
 Status :: enum u8 {

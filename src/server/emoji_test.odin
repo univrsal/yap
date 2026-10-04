@@ -73,9 +73,18 @@ test_emoji_sheet :: proc(t: ^testing.T) {
 
 	emoji := path(dir, "emoji")
 	testing.expect(t, os.make_directory(emoji) == nil)
-	testing.expect(t, os.write_entire_file(path(emoji, "party.png"), test_png(64, 32, {255, 0, 0, 255})) == nil)
-	testing.expect(t, os.write_entire_file(path(emoji, "ok_2.png"), test_png(8, 8, {0, 255, 0, 128})) == nil)
-	testing.expect(t, os.write_entire_file(path(emoji, "Bad Name.png"), test_png(8, 8, {0, 0, 255, 255})) == nil)
+	testing.expect(
+		t,
+		os.write_entire_file(path(emoji, "party.png"), test_png(64, 32, {255, 0, 0, 255})) == nil,
+	)
+	testing.expect(
+		t,
+		os.write_entire_file(path(emoji, "ok_2.png"), test_png(8, 8, {0, 255, 0, 128})) == nil,
+	)
+	testing.expect(
+		t,
+		os.write_entire_file(path(emoji, "Bad Name.png"), test_png(8, 8, {0, 0, 255, 255})) == nil,
+	)
 	testing.expect(t, os.write_entire_file(path(emoji, "fake.png"), "not a picture") == nil)
 	testing.expect(t, os.write_entire_file(path(emoji, "notes.txt"), "hello") == nil)
 

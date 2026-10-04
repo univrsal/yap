@@ -9,11 +9,11 @@ import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "common:proto"
-import "client:platform"
 import "client:conn"
+import "client:platform"
 import "client:render"
 import glfw "client:wglfw"
+import "common:proto"
 
 /*
 The right-hand side of the session screen: the channel's text chat, or
@@ -28,22 +28,22 @@ Side_Tab :: enum {
 }
 
 UI_Chat :: struct {
-	tab:      Side_Tab,
-	buf:      [proto.MAX_CHAT_SIZE]u8,
-	len:      int,
-	area:     Text_Area, // the box it's written in
-	tz:       ^datetime.TZ_Region, // for local timestamps; nil means UTC
+	tab:          Side_Tab,
+	buf:          [proto.MAX_CHAT_SIZE]u8,
+	len:          int,
+	area:         Text_Area, // the box it's written in
+	tz:           ^datetime.TZ_Region, // for local timestamps; nil means UTC
 
 	// The link under the mouse (as its first byte's address), found while
 	// drawing a frame and used for the next, since a link wrapped over
 	// several lines is drawn in pieces. 0 if none.
-	hover:    uintptr,
-	hovering: bool, // this frame; the cursor becomes a hand
-	open:     string, // clicked link to open after the frame; owned
+	hover:        uintptr,
+	hovering:     bool, // this frame; the cursor becomes a hand
+	open:         string, // clicked link to open after the frame; owned
 	// Ctrl+V was pressed in the chat box: after the frame, the paste
 	// thread looks for an image on the clipboard, else its text is
 	// pasted (see ui_paste.odin).
-	paste:    bool,
+	paste:        bool,
 	// The message of ours being edited in the chat box, 0 for none, and
 	// its conversation (ui_message_menu.odin).
 	editing:      proto.Msg_Id,
@@ -156,7 +156,12 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 		status, status_color = notice, CHAT_DIM_COLOR if ok else ERROR_COLOR
 	}
 	when TIMELINE_DEBUG {
-		status = fmt.tprintf("%s  [%d laid out, %d off]", status, ui.timeline.laid_out, ui.timeline.mismatched)
+		status = fmt.tprintf(
+			"%s  [%d laid out, %d off]",
+			status,
+			ui.timeline.laid_out,
+			ui.timeline.mismatched,
+		)
 	}
 	with_text_color(ctx, status_color, status, label_proc)
 
@@ -251,7 +256,8 @@ composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id) {
 // preview_button is the eye beside a composer's box, which shows the
 // message as it will look in its place, and back (D8).
 preview_button :: proc(ui: ^UI, c: Composer) {
-	if .SUBMIT in icon_button(ui, "preview", .Eye, "Back to writing" if c.area.preview else "Preview") {
+	if .SUBMIT in
+	   icon_button(ui, "preview", .Eye, "Back to writing" if c.area.preview else "Preview") {
 		c.area.preview = !c.area.preview
 		if !c.area.preview {
 			focus_composer(ui, c, -1)
@@ -278,7 +284,10 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	if typed == "" {
 		text, color = rich_plain("Nothing to preview yet."), CHAT_DIM_COLOR
 	} else {
-		text = message_rich(ui, conn.emoji_encode(conn.mentions_encode(typed, v.accounts), v.emoji.names[:]))
+		text = message_rich(
+			ui,
+			conn.emoji_encode(conn.mentions_encode(typed, v.accounts), v.emoji.names[:]),
+		)
 	}
 	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread))
 	defer mu.end_panel(ctx)
@@ -615,7 +624,13 @@ file_has_buttons :: proc(f: conn.View_File) -> bool {
 
 // file_block_height is how far file_message moves the layout down at
 // `width`.
-file_block_height :: proc(ui: ^UI, f: conn.View_File, width: i32, merged: bool, tight := false) -> i32 {
+file_block_height :: proc(
+	ui: ^UI,
+	f: conn.View_File,
+	width: i32,
+	merged: bool,
+	tight := false,
+) -> i32 {
 	ctx := &ui.ctx
 	line := ctx.text_height(ctx.style.font)
 	status, _ := file_status(f)
@@ -635,7 +650,8 @@ file_block_height :: proc(ui: ^UI, f: conn.View_File, width: i32, merged: bool, 
 file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 	switch f.state {
 	case .Unknown:
-		return "offered earlier, or on another device" if !f.outgoing else "offered from another device", CHAT_DIM_COLOR
+		return "offered earlier, or on another device" if !f.outgoing else "offered from another device",
+			CHAT_DIM_COLOR
 	case .Posting:
 		return "offering...", CHAT_DIM_COLOR
 	case .Offered:
@@ -803,6 +819,9 @@ next_line :: proc(text: string, end: int) -> string {
 	if strings.has_prefix(rest, "\n") {
 		return rest[1:]
 	}
-	rest = strings.trim_left_proc(rest, proc(r: rune) -> bool {return r != '\n' && unicode.is_space(r)})
+	rest = strings.trim_left_proc(
+		rest,
+		proc(r: rune) -> bool {return r != '\n' && unicode.is_space(r)},
+	)
 	return strings.trim_prefix(rest, "\n")
 }

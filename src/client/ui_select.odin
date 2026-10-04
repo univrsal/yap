@@ -149,7 +149,14 @@ select_line is one line of an item as it's drawn: text[start:end] at
 text), and works out whether the pointer is on the line, or past it,
 for the place a press or a drag lands on.
 */
-select_line :: proc(ui: ^UI, item: i64, text: string, start, end: int, pos: mu.Vec2, rich: ^Rich = nil) {
+select_line :: proc(
+	ui: ^UI,
+	item: i64,
+	text: string,
+	start, end: int,
+	pos: mu.Vec2,
+	rich: ^Rich = nil,
+) {
 	ctx := &ui.ctx
 	s := &ui.select
 	font := ctx.style.font
@@ -216,7 +223,13 @@ selected_range :: proc(s: ^Selection, item: i64, length: int) -> (lo, hi: int, o
 
 // span_width is how wide text[a:b] is drawn: in `font`, or for a
 // message's text (`rich`, ui_rich_text.odin) in its runs' faces.
-span_width :: proc(ctx: ^mu.Context, font: mu.Font, text: string, a, b: int, rich: ^Rich = nil) -> i32 {
+span_width :: proc(
+	ctx: ^mu.Context,
+	font: mu.Font,
+	text: string,
+	a, b: int,
+	rich: ^Rich = nil,
+) -> i32 {
 	if rich != nil {
 		return rich_width(ctx, rich, a, b)
 	}
@@ -225,7 +238,14 @@ span_width :: proc(ctx: ^mu.Context, font: mu.Font, text: string, a, b: int, ric
 
 // offset_at is the place in text[start:end] nearest `x` pixels from
 // where it starts, between two characters.
-offset_at :: proc(ctx: ^mu.Context, font: mu.Font, text: string, start, end: int, x: i32, rich: ^Rich = nil) -> int {
+offset_at :: proc(
+	ctx: ^mu.Context,
+	font: mu.Font,
+	text: string,
+	start, end: int,
+	x: i32,
+	rich: ^Rich = nil,
+) -> int {
 	// Each character's edges are where the text up to them ends, as
 	// select_line paints them. Adding up the characters' own widths
 	// instead would add up their rounding too, and land further left

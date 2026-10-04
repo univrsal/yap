@@ -8,9 +8,9 @@ import "core:time/datetime"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "common:proto"
 import "client:conn"
 import "client:render"
+import "common:proto"
 
 _ :: log // only used when TIMELINE_DEBUG
 
@@ -111,78 +111,78 @@ TIMELINE_DEBUG :: #config(YAP_TIMELINE_DEBUG, false)
 ALWAYS_FOCUSED :: #config(YAP_ALWAYS_FOCUSED, false)
 
 UI_Timeline :: struct {
-	key:         conn.Timeline_Key, // what was shown last frame
+	key:          conn.Timeline_Key, // what was shown last frame
 	// Which timeline it is: 0 the conversation's, else the thread
 	// window's in ui.threads[slot - 1].
-	slot:        int,
+	slot:         int,
 	// The roots asked for, for replies' lines.
-	roots_asked: map[proto.Msg_Id]bool,
+	roots_asked:  map[proto.Msg_Id]bool,
 	// The message at the top of the panel, and how far down it the
 	// panel's top is.
-	anchor:      proto.Msg_Id,
-	offset:      i32,
+	anchor:       proto.Msg_Id,
+	offset:       i32,
 	// Showing the end, and staying there as messages come.
-	follow:      bool,
+	follow:       bool,
 	// Going to the end, which the window may not reach yet: we've posted
 	// (set by whatever sent it, since the post may be answered before a
 	// frame shows it on its way), and the newest page is coming.
-	to_end:      bool,
+	to_end:       bool,
 	// The scroll set last frame, to tell by how much the wheel or the
 	// scrollbar has moved it since.
-	scroll:      i32,
+	scroll:       i32,
 	// What's known of each message.
-	layouts:     map[proto.Msg_Id]Msg_Layout,
+	layouts:      map[proto.Msg_Id]Msg_Layout,
 	// The messages of ours on their way, as tall as they were last frame.
-	outbox_h:    i32,
+	outbox_h:     i32,
 	// The window's first and last message when the page before or after
 	// it was last asked for, so it's asked for once.
-	asked_older: proto.Msg_Id,
-	asked_newer: proto.Msg_Id,
-	laid_out:    int,
-	mismatched:  int, // messages drawn at another height than worked out
+	asked_older:  proto.Msg_Id,
+	asked_newer:  proto.Msg_Id,
+	laid_out:     int,
+	mismatched:   int, // messages drawn at another height than worked out
 	// Where the unread messages began when the conversation was opened,
 	// if any were: the "new messages" line goes above the first message
 	// after `unread_from` (which may be 0: all of them).
-	unread_line: bool,
-	unread_from: proto.Msg_Id,
+	unread_line:  bool,
+	unread_from:  proto.Msg_Id,
 	// The window reaches the conversation's first message this frame, so
 	// the line can go above the first message shown.
-	at_start:    bool,
+	at_start:     bool,
 	// A thread's root's day this frame (0 if it isn't here): the first
 	// reply has a day's line only for another day.
-	root_day:    i64,
+	root_day:     i64,
 	// Drawn this frame; and the conversation last said to be read, and to
 	// which session (see timeline_reading).
-	shown:       bool,
-	reading:     proto.Conv_Id,
-	reading_to:  rawptr,
+	shown:        bool,
+	reading:      proto.Conv_Id,
+	reading_to:   rawptr,
 	// A message to go to (ui_pins.odin), and whether the page around it
 	// has been asked for; and the one gone to, lit up for a while.
-	jump_to:     proto.Msg_Id,
-	jump_asked:  bool,
+	jump_to:      proto.Msg_Id,
+	jump_asked:   bool,
 	// The conversation jump_to is in, if it's being switched to (a
 	// link's, ui_forward.odin); 0 for this one.
-	jump_conv:   proto.Conv_Id,
+	jump_conv:    proto.Conv_Id,
 	// Opened with unread mentions of us: the first of them is gone to,
 	// once the first page is here (if it's in it).
 	seek_mention: bool,
 	lit_mentions: bool, // ... and they're lit up with the one gone to
-	lit:         proto.Msg_Id,
-	lit_at:      time.Tick,
+	lit:          proto.Msg_Id,
+	lit_at:       time.Tick,
 }
 
 Msg_Layout :: struct {
 	// How tall it is, for the width and the neighbours it was worked out
 	// for; 0 until it has been.
-	height:   i32,
-	width:    i32,
-	merged:   bool,
-	new_day:  bool,
-	new_line: bool, // the "new messages" line is above it
-	edited:   proto.Unix_Ms, // what it said when it was worked out
-	flags:    proto.Msg_Flags,
-	shown:    int, // how long its text was as shown (mentions' names change)
-	day:     i64, // the local day it was posted, 0 until worked out
+	height:     i32,
+	width:      i32,
+	merged:     bool,
+	new_day:    bool,
+	new_line:   bool, // the "new messages" line is above it
+	edited:     proto.Unix_Ms, // what it said when it was worked out
+	flags:      proto.Msg_Flags,
+	shown:      int, // how long its text was as shown (mentions' names change)
+	day:        i64, // the local day it was posted, 0 until worked out
 	// A root's replies (its line under it), and whether it has a reply's
 	// line over it.
 	replies:    int,
@@ -198,7 +198,12 @@ timeline_destroy :: proc(st: ^UI_Timeline) {
 }
 
 @(private = "file")
-timeline_reset :: proc(st: ^UI_Timeline, key: conn.Timeline_Key, unread_line: bool, unread_from: proto.Msg_Id) {
+timeline_reset :: proc(
+	st: ^UI_Timeline,
+	key: conn.Timeline_Key,
+	unread_line: bool,
+	unread_from: proto.Msg_Id,
+) {
 	clear(&st.layouts)
 	clear(&st.roots_asked)
 	layouts, asked := st.layouts, st.roots_asked
@@ -398,7 +403,11 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 				bar_top = bar_end
 			}
 			bar_bottom := layout.body.y + layout.next_row - spacing
-			mu.draw_rect(ctx, {block.x + REPLY_BAR_X, bar_top, REPLY_BAR_W, bar_bottom - bar_top}, REPLY_BAR_COLOR)
+			mu.draw_rect(
+				ctx,
+				{block.x + REPLY_BAR_X, bar_top, REPLY_BAR_W, bar_bottom - bar_top},
+				REPLY_BAR_COLOR,
+			)
 			bar_end, bar_root = bar_bottom, msgs[i].thread_root
 		} else {
 			bar_root = 0
@@ -406,7 +415,12 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 		when TIMELINE_DEBUG {
 			if drawn := layout.next_row - start; drawn != tops[i + 1] - tops[i] {
 				st.mismatched += 1
-				log.debugf("message %d: drawn %d high, worked out %d", msgs[i].id, drawn, tops[i + 1] - tops[i])
+				log.debugf(
+					"message %d: drawn %d high, worked out %d",
+					msgs[i].id,
+					drawn,
+					tops[i + 1] - tops[i],
+				)
 			}
 		} else {
 			_ = start
@@ -419,7 +433,12 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 
 	if n == 0 && len(pending) == 0 && tl != nil && !tl.loading {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, CHAT_DIM_COLOR, "No replies yet." if key.root != 0 else "No messages here yet.", label_proc)
+		with_text_color(
+			ctx,
+			CHAT_DIM_COLOR,
+			"No replies yet." if key.root != 0 else "No messages here yet.",
+			label_proc,
+		)
 	}
 	start := layout.next_row
 	last_id := i64(msgs[n - 1].id) if n > 0 else 0
@@ -446,7 +465,8 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 		}
 	}
 	end := max(cnt.content_size.y + 2 * pad - cnt.body.h, 0)
-	st.follow = (cnt.scroll.y >= end - 2 || following && outbox_grew) && (tl == nil || tl.have_newest)
+	st.follow =
+		(cnt.scroll.y >= end - 2 || following && outbox_grew) && (tl == nil || tl.have_newest)
 	if moved < 0 || (st.follow && tl != nil && !tl.loading) {
 		st.to_end = false // scrolled away from it, or there (with what's there in)
 	}
@@ -455,10 +475,16 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 	if tl != nil && !tl.loading && n > 0 && ui.session != nil {
 		if !tl.have_oldest && first == 0 && st.asked_older != msgs[0].id {
 			st.asked_older = msgs[0].id
-			conn.push_command(&ui.session.client.commands, conn.History_Command{conv = conv, root = key.root})
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.History_Command{conv = conv, root = key.root},
+			)
 		} else if !tl.have_newest && last == n && st.asked_newer != msgs[n - 1].id {
 			st.asked_newer = msgs[n - 1].id
-			conn.push_command(&ui.session.client.commands, conn.History_Command{conv = conv, root = key.root, newer = true})
+			conn.push_command(
+				&ui.session.client.commands,
+				conn.History_Command{conv = conv, root = key.root, newer = true},
+			)
 		}
 	}
 }
@@ -563,7 +589,12 @@ thread_head :: proc(ui: ^UI, st: ^UI_Timeline, root: conn.View_Message, have: bo
 	}
 	layout := mu.get_layout(ctx)
 	from := timeline_message(ui, st, {root}, 0, width)
-	message_mouse(ui, st, root, {layout.body.x, layout.body.y + from, width, layout.next_row - from})
+	message_mouse(
+		ui,
+		st,
+		root,
+		{layout.body.x, layout.body.y + from, width, layout.next_row - from},
+	)
 }
 
 // message_flags says whether a message starts a day (and gets the day's
@@ -586,7 +617,10 @@ message_flags :: proc(
 	if i == 0 {
 		// Above the first message shown only if it's the conversation's
 		// first: else the line's place may be further up, not loaded yet.
-		return true, st.unread_line && st.at_start && msgs[0].id > st.unread_from, false, !in_thread && msgs[0].thread_root != 0
+		return true,
+			st.unread_line && st.at_start && msgs[0].id > st.unread_from,
+			false,
+			!in_thread && msgs[0].thread_root != 0
 	}
 	m, prev := msgs[i], msgs[i - 1]
 	from := st.unread_from
@@ -645,7 +679,12 @@ pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 	case .File:
 		text = rich_plain(fmt.tprintf("the file %s", p.text))
 	case:
-		shown, spans, emoji := conn.text_display(p.text, ui.view.accounts, ui.view.me, ui.view.emoji.names[:])
+		shown, spans, emoji := conn.text_display(
+			p.text,
+			ui.view.accounts,
+			ui.view.me,
+			ui.view.emoji.names[:],
+		)
 		text = rich_make(shown, spans, emoji, nil, false)
 	}
 	status := "sending files..." if p.uploading else "sending..."
@@ -681,7 +720,13 @@ message_file :: proc(v: ^conn.View, m: conn.View_Message) -> conn.View_File {
 // message_height is how far drawing msgs[i] at `width` moves the layout
 // down (timeline_message).
 @(private = "file")
-message_height :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i: int, full: i32) -> i32 {
+message_height :: proc(
+	ui: ^UI,
+	st: ^UI_Timeline,
+	msgs: []conn.View_Message,
+	i: int,
+	full: i32,
+) -> i32 {
 	new_day, new_line, merged, reply_line := message_flags(ui, st, msgs, i)
 	m := msgs[i]
 	replies := m.reply_count if has_thread_line(st, m) else 0
@@ -781,7 +826,15 @@ local_day :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message) -> i64 {
 // message itself starts (after a day's line, the "new messages" line, and
 // the gap over a header).
 @(private = "file")
-timeline_message :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i: int, full: i32) -> (from: i32) {
+timeline_message :: proc(
+	ui: ^UI,
+	st: ^UI_Timeline,
+	msgs: []conn.View_Message,
+	i: int,
+	full: i32,
+) -> (
+	from: i32,
+) {
 	ctx := &ui.ctx
 	v := &ui.view
 	m := msgs[i]
@@ -812,7 +865,8 @@ timeline_message :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display
 	}
-	header := "" if merged else fmt.tprintf("%s  %s%s%s%s", chat_time(ui, seconds), name, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
+	header :=
+		"" if merged else fmt.tprintf("%s  %s%s%s%s", chat_time(ui, seconds), name, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
 	header_color := CHAT_OWN_COLOR if m.sender == v.me else CHAT_NAME_COLOR
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
@@ -824,7 +878,11 @@ timeline_message :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i
 			size := avatar_size(ctx)
 			avatar(ui, m.sender, {layout.body.x + indent, y, size, size})
 		} else {
-			activity_dot_alone(ui, m.sender, {layout.body.x + indent, y, COMPACT_DOT_COLUMN, ctx.text_height(ctx.style.font)})
+			activity_dot_alone(
+				ui,
+				m.sender,
+				{layout.body.x + indent, y, COMPACT_DOT_COLUMN, ctx.text_height(ctx.style.font)},
+			)
 		}
 	}
 	if .Deleted in m.flags {
@@ -846,7 +904,18 @@ timeline_message :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i
 			break
 		}
 		img := v.blobs[m.image.blob] or_else conn.View_Image{state = .Wanted}
-		chat_image(ui, header, header_color, u64(m.image.blob), m.image, img, merged, item, available = int(width), tight = tight)
+		chat_image(
+			ui,
+			header,
+			header_color,
+			u64(m.image.blob),
+			m.image,
+			img,
+			merged,
+			item,
+			available = int(width),
+			tight = tight,
+		)
 	case .System:
 		text := rich_plain(system_line(ui, m))
 		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
@@ -897,9 +966,16 @@ reply_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, width: i32) 
 		text = fmt.tprintf("%s: %s", name, said)
 	} else if !st.roots_asked[m.thread_root] && ui.session != nil {
 		st.roots_asked[m.thread_root] = true
-		conn.push_command(&ui.session.client.commands, conn.Root_Command{conv = key.conv, root = key.root})
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.Root_Command{conv = key.conv, root = key.root},
+		)
 	}
-	text = cut_to_width(ctx, strings.concatenate({REPLY_MARK, text}, context.temp_allocator), width)
+	text = cut_to_width(
+		ctx,
+		strings.concatenate({REPLY_MARK, text}, context.temp_allocator),
+		width,
+	)
 	if thread_link(ui, text, r, CHAT_DIM_COLOR) {
 		open_thread(ui, key)
 	}
@@ -915,7 +991,11 @@ thread_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message) {
 	text := "1 reply" if m.reply_count == 1 else fmt.tprintf("%d replies", m.reply_count)
 	if tl, ok := ui.view.timelines[{st.key.conv, 0}]; ok {
 		if i, found := message_index(tl.messages[:], m.last_reply); found {
-			text = fmt.tprintf("%s \u00b7 last at %s", text, chat_time(ui, proto.Unix_Time(tl.messages[i].time / 1000)))
+			text = fmt.tprintf(
+				"%s \u00b7 last at %s",
+				text,
+				chat_time(ui, proto.Unix_Time(tl.messages[i].time / 1000)),
+			)
 		}
 	}
 	if thread_link(ui, text, r, CHAT_NAME_COLOR) {
@@ -987,7 +1067,12 @@ reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]C
 	x := width + 1
 	for r in m.reactions {
 		code := fmt.tprintf("%s %d", r.emoji, r.count)
-		shown, _, icons := conn.text_display(code, map[proto.Account_Id]conn.View_Account{}, 0, ui.view.emoji.names[:])
+		shown, _, icons := conn.text_display(
+			code,
+			map[proto.Account_Id]conn.View_Account{},
+			0,
+			ui.view.emoji.names[:],
+		)
 		w := ctx.text_width(ctx.style.font, shown) + 12
 		if x + w > width && x > 0 {
 			append(&rows, make([dynamic]Chip, context.temp_allocator))
@@ -1050,7 +1135,10 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32) {
 				reactors_hint(ui, m.id, c.r, rect)
 			}
 			if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} && ui.session != nil {
-				conn.push_command(&ui.session.client.commands, conn.React_Command{id = m.id, emoji = strings.clone(c.r.emoji), on = !c.r.me})
+				conn.push_command(
+					&ui.session.client.commands,
+					conn.React_Command{id = m.id, emoji = strings.clone(c.r.emoji), on = !c.r.me},
+				)
 			}
 			mu.pop_id(ctx)
 		}
@@ -1089,10 +1177,15 @@ reactors_hint :: proc(ui: ^UI, id: proto.Msg_Id, r: conn.Reaction, rect: mu.Rect
 		}
 	}
 	have := v.reactors.id == id && v.reactors.emoji == r.emoji && v.reactors.total == r.count
-	if !have && (asked.id != id || asked.emoji != r.emoji || asked.count != r.count) && ui.session != nil {
+	if !have &&
+	   (asked.id != id || asked.emoji != r.emoji || asked.count != r.count) &&
+	   ui.session != nil {
 		delete(asked.emoji)
 		asked^ = {id, strings.clone(r.emoji), r.count}
-		conn.push_command(&ui.session.client.commands, conn.Reactors_Command{id = id, emoji = strings.clone(r.emoji)})
+		conn.push_command(
+			&ui.session.client.commands,
+			conn.Reactors_Command{id = id, emoji = strings.clone(r.emoji)},
+		)
 	}
 	b := strings.builder_make(context.temp_allocator)
 	strings.write_string(&b, name)
@@ -1145,7 +1238,10 @@ system_line :: proc(ui: ^UI, m: conn.View_Message) -> string {
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display
 	}
-	return fmt.tprintf("\U0001F4DE %s", conn.system_text(m.system, m.system_arg, name, m.sender == v.me))
+	return fmt.tprintf(
+		"\U0001F4DE %s",
+		conn.system_text(m.system, m.system_arg, name, m.sender == v.me),
+	)
 }
 
 // What's left of a deleted message.

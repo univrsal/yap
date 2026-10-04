@@ -33,9 +33,20 @@ test_mentions :: proc(t: ^testing.T) {
 	}
 
 	// Who exists and isn't the poster; <@everyone> only from who may.
-	_, id := post(t, &ts, alice, home.id, fmt.tprintf("hi %s <@999> %s <@everyone>", tok(bob_acc), tok(alice_acc)), 1)
+	_, id := post(
+		t,
+		&ts,
+		alice,
+		home.id,
+		fmt.tprintf("hi %s <@999> %s <@everyone>", tok(bob_acc), tok(alice_acc)),
+		1,
+	)
 	m, _ := msg_by_id(s, id)
-	testing.expect_value(t, m.text, fmt.tprintf("hi %s <@999> %s @everyone", tok(bob_acc), tok(alice_acc)))
+	testing.expect_value(
+		t,
+		m.text,
+		fmt.tprintf("hi %s <@999> %s @everyone", tok(bob_acc), tok(alice_acc)),
+	)
 	testing.expect_value(t, mentions_of(&ts, home, bob_acc), 1)
 	testing.expect_value(t, mentions_of(&ts, home, carol_acc), 0)
 	testing.expect_value(t, mentions_of(&ts, home, alice_acc), 0)
@@ -55,7 +66,11 @@ test_mentions :: proc(t: ^testing.T) {
 	// one, too.
 	ts_events(t, &ts, carol)
 	_, plain := post(t, &ts, alice, home.id, "nothing to see", 3)
-	testing.expect_value(t, edit_as(t, &ts, alice, plain, fmt.tprintf("look %s", tok(carol_acc))), proto.Status.Ok)
+	testing.expect_value(
+		t,
+		edit_as(t, &ts, alice, plain, fmt.tprintf("look %s", tok(carol_acc))),
+		proto.Status.Ok,
+	)
 	state, told = read_state(t, &ts, carol)
 	testing.expect(t, told, "carol wasn't told she's mentioned now")
 	testing.expect_value(t, state.mentions, 2)

@@ -2,8 +2,8 @@ package conn
 
 import log "common:wlog"
 
-import "common:proto"
 import "client:audio"
+import "common:proto"
 
 // poke_send pokes another user, with a message or without (see
 // src/common/proto/poke.odin). `to` 0 means the user called `name`.

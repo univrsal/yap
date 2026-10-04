@@ -1,10 +1,10 @@
 package render
 
+import stbtt "client:wstbtt"
+import "common:proto"
 import "core:math"
 import "core:slice"
 import "core:unicode/utf8"
-import "common:proto"
-import stbtt "client:wstbtt"
 
 /*
 The UI font: Roboto (embedded with #load), rasterized with stb_truetype.
@@ -475,12 +475,20 @@ font_layout :: proc(
 		emit: proc(data: rawptr, q: Glyph_Quad),
 	}
 	z := Zoomed{f.zoom, data, emit}
-	font_layout_unzoomed(f, text, style, x / f.zoom, y / f.zoom, &z, proc(data: rawptr, q: Glyph_Quad) {
-		z := (^Zoomed)(data)
-		q := q
-		q.x0, q.y0, q.x1, q.y1 = q.x0 * z.zoom, q.y0 * z.zoom, q.x1 * z.zoom, q.y1 * z.zoom
-		z.emit(z.data, q)
-	})
+	font_layout_unzoomed(
+		f,
+		text,
+		style,
+		x / f.zoom,
+		y / f.zoom,
+		&z,
+		proc(data: rawptr, q: Glyph_Quad) {
+			z := (^Zoomed)(data)
+			q := q
+			q.x0, q.y0, q.x1, q.y1 = q.x0 * z.zoom, q.y0 * z.zoom, q.x1 * z.zoom, q.y1 * z.zoom
+			z.emit(z.data, q)
+		},
+	)
 }
 
 @(private = "file")

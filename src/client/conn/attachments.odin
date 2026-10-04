@@ -4,8 +4,8 @@ import log "common:wlog"
 import "core:strings"
 import "core:time"
 
-import "common:proto"
 import "client:audio"
+import "common:proto"
 
 /*
 Attachments on our end (src/common/proto/attachments.odin): files sent
@@ -243,7 +243,12 @@ attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 	}
 	for spec, i in cmd.files {
 		src, raw_name, size, opened := file_source_open(
-			{path = spec.path, web_file = spec.web_file, web_name = spec.web_name, web_size = spec.web_size},
+			{
+				path = spec.path,
+				web_file = spec.web_file,
+				web_name = spec.web_name,
+				web_size = spec.web_size,
+			},
 		)
 		name_buf: [proto.MAX_FILE_NAME]u8
 		name := proto.sanitize_file_name(raw_name, &name_buf) if opened else ""
@@ -329,7 +334,13 @@ upload_turn :: proc(c: ^Voice_Client, now: time.Tick) {
 		case .Waiting:
 			active.state = .Putting
 			buf: [proto.ATTACH_PUT_MAX_SIZE]u8
-			request(c, .Attach_Put, proto.encode_attach_put(buf[:], {size = active.size, name = active.name}), put_answer, p.nonce)
+			request(
+				c,
+				.Attach_Put,
+				proto.encode_attach_put(buf[:], {size = active.size, name = active.name}),
+				put_answer,
+				p.nonce,
+			)
 		case .Putting:
 		case .Sending:
 			if time.tick_diff(active.last_heard, now) > FILE_TIMEOUT {
@@ -370,7 +381,10 @@ send_upload :: proc(c: ^Voice_Client, f: ^Attach_Upload, now: time.Tick) -> bool
 		if !ready {
 			return true // a browser is still reading it; next time
 		}
-		send_data(c, proto.encode_transfer_chunk(out[:], .Upload_Chunk, f.id, index, data[:end - start]))
+		send_data(
+			c,
+			proto.encode_transfer_chunk(out[:], .Upload_Chunk, f.id, index, data[:end - start]),
+		)
 		proto.transfer_sent(&f.send, index, first, int(end - start), now)
 	}
 }
@@ -693,7 +707,17 @@ save_turn :: proc(c: ^Voice_Client, sv: ^Attach_Save, now: time.Tick) {
 @(private = "file")
 send_save_ack :: proc(c: ^Voice_Client, sv: ^Attach_Save, now: time.Tick) {
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	send_data(c, proto.transfer_encode_ack(&sv.recv, out[:], .Download_Ack, sv.id, c.files.download_limit, now))
+	send_data(
+		c,
+		proto.transfer_encode_ack(
+			&sv.recv,
+			out[:],
+			.Download_Ack,
+			sv.id,
+			c.files.download_limit,
+			now,
+		),
+	)
 }
 
 @(private = "file")
@@ -726,7 +750,12 @@ get_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	}
 	sv.id, sv.state, sv.last_heard = id, .Receiving, time.tick_now()
 	if sv.recv.done > 0 {
-		log.infof("[file] picking %q up again, %s of %s in", sv.name, format_bytes(sv.recv.done), format_bytes(sv.size))
+		log.infof(
+			"[file] picking %q up again, %s of %s in",
+			sv.name,
+			format_bytes(sv.recv.done),
+			format_bytes(sv.size),
+		)
 	}
 	// What's here already (from before the connection started over) is
 	// said straight away, so it isn't sent again.
@@ -832,7 +861,11 @@ attachments_restart :: proc(c: ^Voice_Client, forget: bool) {
 // allocator.
 @(private = "file")
 all_saves :: proc(c: ^Voice_Client) -> map[proto.Blob_Id]^Attach_Save {
-	all := make(map[proto.Blob_Id]^Attach_Save, len(c.attach.saves) + len(c.attach.previews), context.temp_allocator)
+	all := make(
+		map[proto.Blob_Id]^Attach_Save,
+		len(c.attach.saves) + len(c.attach.previews),
+		context.temp_allocator,
+	)
 	for blob, sv in c.attach.saves {
 		all[blob] = sv
 	}
