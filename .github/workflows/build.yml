@@ -6,10 +6,11 @@ name: Build
 # this for a tag and attaches the zips to a draft release.
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
     paths:
       - '**/*.c'
       - '**/*.h'
+      - '**/*.js'
       - '**/*.odin'
   pull_request:
   workflow_call:
