@@ -21,6 +21,14 @@ record_sent :: proc(u: ^Conn, msg: []u8) {
 	append(&sent[u], temp_copy(msg))
 }
 
+// sent_reset forgets what was sent, for the next test on this thread: the
+// lists are in this test's temp allocator, the map in its allocator.
+@(private = "file")
+sent_reset :: proc() {
+	delete(sent)
+	sent = nil
+}
+
 // taken is what was sent `u` since last asked.
 @(private = "file")
 taken :: proc(u: ^Conn) -> [][]u8 {
@@ -199,7 +207,7 @@ test_attachments :: proc(t: ^testing.T) {
 	defer attachments_close(s)
 	attach_test_sent = record_sent
 	defer attach_test_sent = nil
-	defer delete(sent)
+	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")
 	ts_account(t, &ts, "bob", "a password")
@@ -342,7 +350,7 @@ test_attachments_conn_gone :: proc(t: ^testing.T) {
 	defer attachments_close(s)
 	attach_test_sent = record_sent
 	defer attach_test_sent = nil
-	defer delete(sent)
+	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")
 	alice := logged_in(t, &ts, "alice")
@@ -392,7 +400,7 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	defer attachments_close(s)
 	attach_test_sent = record_sent
 	defer attach_test_sent = nil
-	defer delete(sent)
+	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")
 	alice := logged_in(t, &ts, "alice")
@@ -474,7 +482,7 @@ test_attachments_search :: proc(t: ^testing.T) {
 	defer attachments_close(s)
 	attach_test_sent = record_sent
 	defer attach_test_sent = nil
-	defer delete(sent)
+	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")
 	alice := logged_in(t, &ts, "alice")
