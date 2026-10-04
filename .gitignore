@@ -1,5 +1,6 @@
 yap
 bin/
+docs/
 src/client/audio/miniaudio/*.a
 src/client/audio/miniaudio/*.lib
 src/client/audio/miniaudio/*.o
