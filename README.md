@@ -1,6 +1,6 @@
 ![header](scripts/demo.png)
 
-A sloppy, minimal and limited VOIP application.
+A sloppy and minimal chat and VOIP application.
 
 - Single binary client and server (client about 4 MiB, server about 2.2)
 - Runs on Linux, Windows, macOS (and optionally in a browser)
@@ -17,8 +17,13 @@ A sloppy, minimal and limited VOIP application.
 - Per user volumes, muting and poking
 - Accounts, made by an admin; a device logs in once and is known by its key after
 - Optional server password; the client remembers the last 10 servers
-- No permission system
+- Basic user roles with permissions
 - Per user direct chats with file transfers
+- Message file attachments stored on server
+- Message reactions
+- Custom server emotes
+- Per channel pinned messages
+- Link and forward messages
 - Screen sharing (low frame rate) between web clients (not for native clients)
 - Global hotkeys (requires `input` group on wayland)
 - Option to share audio of a specific application (native clients only)
