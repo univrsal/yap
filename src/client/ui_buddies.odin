@@ -35,6 +35,8 @@ UI_Buddies :: struct {
 	// a file to offer `pick_to` (ui_files_*.odin).
 	pick:        bool,
 	pick_to:     proto.Account_Id,
+	// Files to go with the next message (ui_attachments.odin).
+	files:       [dynamic]Picked_File,
 	// When the server was last asked when the people in the list were
 	// last here, and how many of them were online then: fewer now means
 	// someone just left, and it's worth asking again.
@@ -345,14 +347,17 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 
 	// Leave room for the input row below, as the chat does.
 	input_h := composer_height(ui)
-	mu.layout_row(ctx, {-1}, -(input_h + ctx.style.spacing + 1))
+	files_h := composer_files_height(ui, composer_of_page(ui), panel_width(ctx))
+	mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
 	if entry.conv != 0 && v.viewing == entry.conv {
 		timeline(ui, &ui.timeline, {entry.conv, 0})
 	} else {
 		no_conversation_yet(ui, entry)
 	}
 
-	mu.layout_row(ctx, {-(3 * ICON_BUTTON + 14), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON}, input_h)
+	composer := composer_of_page(ui)
+	composer_files(ui, composer, panel_width(ctx))
+	mu.layout_row(ctx, {-(4 * ICON_BUTTON + 18), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON}, input_h)
 	// Ctrl+V could be an image, as in the chat box (chat_input); this
 	// one goes to them.
 	if !platform.WEB &&
@@ -364,7 +369,6 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		ui.chat.paste = true
 		ui.paste_to = {dm_to = account}
 	}
-	composer := composer_of_page(ui)
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
 	res := chat_text_box(ui, ui.buddies.buf[:], &ui.buddies.len)
@@ -377,6 +381,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
+	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	if .SUBMIT in icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
 		if !entry.online {

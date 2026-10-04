@@ -57,6 +57,7 @@ SetCharCallback :: glfw.SetCharCallback
 SetCursorPosCallback :: glfw.SetCursorPosCallback
 SetMouseButtonCallback :: glfw.SetMouseButtonCallback
 SetScrollCallback :: glfw.SetScrollCallback
+SetDropCallback :: glfw.SetDropCallback
 SetWindowIconifyCallback :: glfw.SetWindowIconifyCallback
 SetWindowRefreshCallback :: glfw.SetWindowRefreshCallback
 

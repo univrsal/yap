@@ -64,6 +64,7 @@ Voice_Client :: struct {
 	video:         Video_Client,
 	ping:          Ping_Tracker,
 	files:         File_Client, // files in DMs (files.odin)
+	attach:        Attach_Client, // files sent with messages (attachments.odin)
 	commands:      Command_Queue,
 	status:        Status,
 	// Shared with the UI, if there is one; nil in headless mode.
@@ -138,6 +139,7 @@ client_close :: proc(c: ^Voice_Client) {
 	buddies_destroy(c)
 	emoji_destroy(c)
 	files_destroy(c)
+	attachments_destroy(c)
 	stream_destroy(c)
 	rpc_destroy(c)
 	auth_destroy(c)
@@ -156,6 +158,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	drive_outbox(c)
 	blobs_step(c)
 	files_step(c)
+	attachments_step(c)
 	rpc_step(c)
 	convs_step(c)
 	stream_step(c)
@@ -345,6 +348,12 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			handle_file_ack(c, pt)
 		case .File_Cancel:
 			handle_file_cancel(c, pt)
+		case .Upload_Ack:
+			handle_upload_ack(c, pt)
+		case .Download_Chunk:
+			handle_download_chunk(c, pt)
+		case .Transfer_Cancel:
+			handle_transfer_cancel(c, pt)
 		}
 	}
 	return true

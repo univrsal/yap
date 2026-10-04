@@ -88,6 +88,7 @@ Permission :: enum u8 {
 	Manage_Accounts  = 6,
 	Mention_Everyone = 7,
 	Purge            = 8,
+	Attach_Files     = 9, // attachments.odin; everyone has it unless taken away
 }
 Permissions :: distinct bit_set[Permission;u64]
 

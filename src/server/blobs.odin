@@ -21,6 +21,8 @@ saying what it is:
 
 	blobs/ab/abcdef0123...   the first two digits are a folder, so no
 	                         folder ends up with every file in it
+	blobs/incoming/<id>      an attachment on its way in, emptied when
+	                         the server starts
 
 Being named by its content, the same picture posted twice is kept once,
 and a file never changes once it's there: it can be copied for a backup
@@ -68,7 +70,22 @@ blob_store_open :: proc(bs: ^Blob_Store, db: ^DB, dir: string) -> bool {
 	}
 	bs.db = db
 	bs.dir = strings.clone(dir)
+	// What was on its way in when the server stopped isn't coming.
+	incoming := blob_incoming_dir(bs)
+	os.remove_all(incoming)
+	if err := os.make_directory_all(incoming); err != nil && !os.is_directory(incoming) {
+		log.errorf("could not create %s: %v", incoming, err)
+		return false
+	}
 	return true
+}
+
+// blob_incoming_dir is where files being uploaded are written until
+// they're whole (attachments.odin): beside the blobs, so that keeping
+// one is a rename.
+blob_incoming_dir :: proc(bs: ^Blob_Store, allocator := context.temp_allocator) -> string {
+	path, _ := os.join_path({bs.dir, "incoming"}, allocator)
+	return path
 }
 
 blob_store_close :: proc(bs: ^Blob_Store) {
@@ -145,6 +162,55 @@ blob_put :: proc(
 	} else {
 		db_bind_null(q, 7)
 	}
+	db_run(bs.db, q) or_return
+	return Blob_Id(db_last_id(bs.db)), true
+}
+
+/*
+blob_adopt keeps the file at `part`, whose content hashes to `sum`, as a
+blob: renamed into the store, or, if the store has that content already,
+deleted, and the id is the one it has. Either way the blob counts as new
+for an hour, so a collect doesn't take it before it's used.
+*/
+@(require_results)
+blob_adopt :: proc(
+	bs: ^Blob_Store,
+	kind: Blob_Kind,
+	part: string,
+	sum: [BLOB_HASH_SIZE]u8,
+	size: int,
+	by: i64,
+) -> (
+	id: Blob_Id,
+	ok: bool,
+) {
+	sum := sum
+	if existing, found := blob_find(bs, sum); found {
+		os.remove(part)
+		q := db_stmt(bs.db, .Blob_Touch)
+		db_bind_int(q, 1, i64(existing))
+		db_bind_int(q, 2, unix_ms())
+		db_run(bs.db, q) or_return
+		return existing, true
+	}
+	path := blob_path(bs, sum)
+	dir := os.dir(path)
+	if err := os.make_directory_all(dir); err != nil && !os.is_directory(dir) {
+		log.errorf("could not create %s: %v", dir, err)
+		return
+	}
+	if err := os.rename(part, path); err != nil {
+		log.errorf("could not rename %s to %s: %v", part, path, err)
+		return
+	}
+	q := db_stmt(bs.db, .Blob_Add)
+	db_bind_blob(q, 1, sum[:])
+	db_bind_int(q, 2, i64(size))
+	db_bind_int(q, 3, i64(kind))
+	db_bind_int(q, 4, 0)
+	db_bind_int(q, 5, 0)
+	db_bind_int(q, 6, unix_ms())
+	db_bind_int(q, 7, by)
 	db_run(bs.db, q) or_return
 	return Blob_Id(db_last_id(bs.db)), true
 }

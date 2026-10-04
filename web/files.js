@@ -2,9 +2,10 @@
 Files in DMs, for the web client (emcc --pre-js, see web/build.sh and
 src/client/files_io_web.odin).
 
-Picking: a file input the page clicks for the client; the File is kept
-here under a handle and only its name and size go to the client
-(web_file_picked). Reading it: the client asks for bytes at an offset
+Picking: a file input the page clicks for the client, for one file or
+(to attach to a message) several; each File is kept here under a handle
+and only its name and size go to the client (web_file_picked, once for
+each). Reading it: the client asks for bytes at an offset
 (read), which come out of 1 MB blocks read ahead with File.slice. A
 block that isn't here yet starts loading and the client is told to come
 back (-1).
@@ -33,21 +34,48 @@ under the sender's name.
 		);
 	}
 
+	// A File the client is to know of: kept under a handle, and its name
+	// and size told to `notify` (an export of the client's).
+	function tell(file, notify) {
+		const handle = next++;
+		files.set(handle, { file, blocks: new Map(), order: [], failed: false });
+		const name = new TextEncoder().encode(file.name);
+		const ptr = _malloc(name.length + 1);
+		HEAPU8.set(name, ptr);
+		notify(handle, ptr, name.length, file.size);
+		_free(ptr);
+	}
+
+	// Files dropped on the page are attached to the message being written
+	// (web_file_dropped). Without this the browser would open them.
+	window.addEventListener("dragover", (e) => {
+		if (e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")) {
+			e.preventDefault();
+			e.dataTransfer.dropEffect = "copy";
+		}
+	});
+	window.addEventListener("drop", (e) => {
+		if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+		e.preventDefault();
+		if (typeof Module._web_file_dropped !== "function") return;
+		for (const file of e.dataTransfer.files) {
+			// A folder comes as a File of no type and no size; it can't be read.
+			if (file.size === 0 && file.type === "") continue;
+			tell(file, Module._web_file_dropped);
+		}
+	});
+
 	Module.yapFiles = {
-		pick(accept) {
+		pick(accept, multiple) {
 			const input = document.createElement("input");
 			input.type = "file";
 			input.accept = accept;
+			input.multiple = !!multiple;
 			input.addEventListener("change", () => {
-				const file = input.files && input.files[0];
-				if (!file || typeof Module._web_file_picked !== "function") return;
-				const handle = next++;
-				files.set(handle, { file, blocks: new Map(), order: [], failed: false });
-				const name = new TextEncoder().encode(file.name);
-				const ptr = _malloc(name.length + 1);
-				HEAPU8.set(name, ptr);
-				Module._web_file_picked(handle, ptr, name.length, file.size);
-				_free(ptr);
+				if (!input.files || typeof Module._web_file_picked !== "function") return;
+				for (const file of input.files) {
+					tell(file, Module._web_file_picked);
+				}
 			});
 			input.click();
 		},

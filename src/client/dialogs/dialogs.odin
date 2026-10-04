@@ -69,6 +69,8 @@ foreign lib {
 	td_path_list_free :: proc(paths: ^Path_List) ---
 	@(private)
 	td_open_file :: proc(options: ^Options, result: ^Path_List) -> Status ---
+	@(private)
+	td_open_files :: proc(options: ^Options, result: ^Path_List) -> Status ---
 }
 
 // open_file asks for one file to open. The path is in `allocator`; `err`
@@ -92,6 +94,37 @@ open_file :: proc(
 	defer td_path_list_free(&result)
 	if status == .Ok && result.count > 0 {
 		path = strings.clone(string(result.items[0]), allocator)
+	}
+	if status == .Unavailable || status == .Failed {
+		err = strings.clone(string(td_last_error()), allocator)
+	}
+	return
+}
+
+// open_files asks for files to open, as many as are picked. The paths
+// and the slice are in `allocator`; `err` is as for open_file.
+open_files :: proc(
+	title: string,
+	filters: []Filter,
+	allocator := context.allocator,
+) -> (
+	paths: []string,
+	status: Status,
+	err: string,
+) {
+	options := Options {
+		title        = strings.clone_to_cstring(title, context.temp_allocator),
+		filters      = raw_data(filters),
+		filter_count = uint(len(filters)),
+	}
+	result: Path_List
+	status = td_open_files(&options, &result)
+	defer td_path_list_free(&result)
+	if status == .Ok && result.count > 0 {
+		paths = make([]string, int(result.count), allocator)
+		for i in 0 ..< int(result.count) {
+			paths[i] = strings.clone(string(result.items[i]), allocator)
+		}
 	}
 	if status == .Unavailable || status == .Failed {
 		err = strings.clone(string(td_last_error()), allocator)

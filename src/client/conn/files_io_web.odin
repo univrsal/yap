@@ -13,7 +13,7 @@ by the page and offered as a download under its name once it's whole.
 
 @(default_calling_convention = "c")
 foreign _ {
-	yap_file_pick :: proc(accept: cstring) ---
+	yap_file_pick :: proc(accept: cstring, multiple: b32) ---
 	yap_file_read :: proc(handle: i32, offset: f64, buf: [^]u8, len: i32) -> i32 ---
 	yap_file_close :: proc(handle: i32) ---
 	yap_sink_open :: proc(name: cstring, size: f64) -> i32 ---
@@ -96,5 +96,12 @@ file_sink_abort :: proc(sink: ^File_Sink) {
 	if sink.handle > 0 {
 		yap_sink_abort(sink.handle)
 		sink.handle = 0
+	}
+}
+
+// web_file_close lets go of a picked file that isn't going anywhere.
+web_file_close :: proc(handle: i32) {
+	if handle > 0 {
+		yap_file_close(handle)
 	}
 }

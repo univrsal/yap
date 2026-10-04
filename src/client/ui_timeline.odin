@@ -328,9 +328,13 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 			conn.push_command(&ui.session.client.commands, conn.Jump_Command{id = st.jump_to})
 		}
 	}
+	// Following the end: what's on its way below the messages may have
+	// grown since last frame (a message with files gets its rows), which
+	// this frame's end doesn't know of yet.
+	following := (st.follow || st.to_end) && moved >= 0
 	scroll: i32
 	switch {
-	case (st.follow || st.to_end) && moved >= 0:
+	case following:
 		scroll = max_scroll
 	case:
 		scroll = cnt.scroll.y
@@ -425,6 +429,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 		pending_message(ui, p, (last_id + 1 + i64(i)) * ITEMS_PER_MESSAGE)
 	}
 	layout.indent -= avatar_column(ui)
+	outbox_grew := layout.next_row - start != st.outbox_h
 	st.outbox_h = layout.next_row - start
 	mu.layout_end_column(ctx)
 	select_end(ui)
@@ -441,7 +446,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 		}
 	}
 	end := max(cnt.content_size.y + 2 * pad - cnt.body.h, 0)
-	st.follow = cnt.scroll.y >= end - 2 && (tl == nil || tl.have_newest)
+	st.follow = (cnt.scroll.y >= end - 2 || following && outbox_grew) && (tl == nil || tl.have_newest)
 	if moved < 0 || (st.follow && tl != nil && !tl.loading) {
 		st.to_end = false // scrolled away from it, or there (with what's there in)
 	}
@@ -640,7 +645,9 @@ pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 	case .File:
 		text, spans, emoji = fmt.tprintf("the file %s", p.text), nil, nil
 	}
-	chat_message(ui, "sending...", CHAT_DIM_COLOR, text, CHAT_DIM_COLOR, false, false, item, spans, emoji)
+	status := "sending files..." if p.uploading else "sending..."
+	chat_message(ui, status, CHAT_DIM_COLOR, text, CHAT_DIM_COLOR, false, false, item, spans, emoji)
+	pending_files(ui, p)
 }
 
 // viewed_unread is what's unread in the conversation being looked at,
@@ -686,6 +693,7 @@ message_height :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i: 
 	}
 	if m.kind != .File &&
 	   len(m.reactions) == 0 &&
+	   len(m.files) == 0 &&
 	   l.height > 0 &&
 	   l.shown == len(shown) &&
 	   l.edited == m.edited &&
@@ -726,6 +734,7 @@ message_height :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i: 
 	if m.kind == .File && .Deleted not_in m.flags {
 		h = file_block_height(ui, message_file(&ui.view, m), width, merged, reply_line)
 	}
+	h += message_files_height(ui, m)
 	h += reactions_height(ui, m, width)
 	if reply_line {
 		h += reply_line_height(ctx)
@@ -821,6 +830,7 @@ timeline_message :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i
 	case .Text:
 		shown, spans, emoji, links := message_text(ui, m.text)
 		chat_message(ui, header, header_color, shown, ctx.style.colors[.TEXT], true, merged, item, spans, emoji, tight, links)
+		message_files(ui, st.key.conv, m)
 	case .Image:
 		if picture_gone(m) {
 			chat_message(ui, header, header_color, PICTURE_GONE_TEXT, CHAT_DIM_COLOR, false, merged, item, tight = tight)
@@ -918,7 +928,6 @@ thread_link :: proc(ui: ^UI, text: string, r: mu.Rect, color: mu.Color) -> bool 
 }
 
 // cut_to_width is `text`, cut with an ellipsis to fit `width`.
-@(private = "file")
 cut_to_width :: proc(ctx: ^mu.Context, text: string, width: i32) -> string {
 	font := ctx.style.font
 	if ctx.text_width(font, text) <= width {

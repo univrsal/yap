@@ -416,8 +416,8 @@ int main(void) {
 }
 
 /* Files in DMs (web/files.js, src/client/files_io_web.odin). */
-EM_JS(void, yap_file_pick, (const char *accept), {
-	Module.yapFiles.pick(UTF8ToString(accept));
+EM_JS(void, yap_file_pick, (const char *accept, int multiple), {
+	Module.yapFiles.pick(UTF8ToString(accept), multiple);
 });
 
 EM_JS(int, yap_file_read, (int handle, double offset, unsigned char *buf, int len), {

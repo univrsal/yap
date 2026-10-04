@@ -252,7 +252,8 @@ test_first_admin :: proc(t: ^testing.T) {
 	testing.expect(t, ensure_first_admin(&a, HASH_PARAMS_TEST))
 	testing.expect_value(t, len(a.by_id), 1)
 
-	// The owner may do everything, and nobody else anything.
+	// The owner may do everything, and anybody else only what everyone
+	// may: attach files.
 	for p in proto.Permission {
 		testing.expect(t, can(admin, p))
 	}
@@ -261,7 +262,7 @@ test_first_admin :: proc(t: ^testing.T) {
 	other := account_add(&a, "other", "Other", secret, {})
 	testing.expect(t, other != nil)
 	for p in proto.Permission {
-		testing.expect(t, !can(other, p))
+		testing.expect_value(t, can(other, p), p == .Attach_Files)
 	}
 	testing.expect(t, !can(nil, .Manage_Accounts))
 	// What others are told of an account leaves out what's its own.
@@ -389,7 +390,7 @@ test_schema_upgrade :: proc(t: ^testing.T) {
 			t,
 			db_exec(
 				&db,
-				"DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
+				"DROP TABLE files_fts; DROP TABLE attachments; DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
 			),
 		)
 		db_close(&db)
@@ -484,7 +485,7 @@ test_login :: proc(t: ^testing.T) {
 	me, perms, self_flags, ok := proto.decode_self(events[6].body)
 	testing.expect(t, ok)
 	testing.expect_value(t, me, alice.id)
-	testing.expect_value(t, perms, proto.Permissions{})
+	testing.expect_value(t, perms, proto.Permissions{.Attach_Files})
 	testing.expect_value(t, self_flags, proto.Account_Flags{})
 	testing.expect_value(t, events[7].op, proto.Event_Op.Sync_End)
 

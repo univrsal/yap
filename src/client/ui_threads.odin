@@ -37,6 +37,12 @@ UI_Thread :: struct {
 	editing_conv: proto.Conv_Id,
 	opened:       u64, // when it was opened, by ui.threads_opened
 	placed:       bool, // its window's place has been set since it opened
+	// Files to go with the next reply (ui_attachments.odin).
+	files:        [dynamic]Picked_File,
+	// Where its window was last frame, and how far up: what's dropped
+	// there is for it (drop_target).
+	rect:         mu.Rect,
+	zindex:       i32,
 }
 
 @(private = "file")
@@ -97,6 +103,7 @@ close_thread :: proc(ui: ^UI, slot: int) {
 		conn.push_command(&ui.session.client.commands, conn.Thread_Command{thread = t.key, open = false})
 	}
 	timeline_destroy(&t.timeline)
+	picked_files_destroy(&t.files)
 	t^ = {}
 	if ui.select.panel == timeline_select_panel(slot) {
 		ui.select.panel = .None
@@ -162,6 +169,9 @@ thread_windows :: proc(ui: ^UI, window_w, window_h: i32) {
 			close_thread(ui, slot) // closed with the title bar's button
 			continue
 		}
+		if cnt := mu.get_current_container(ctx); cnt != nil {
+			t.rect, t.zindex = cnt.rect, cnt.zindex
+		}
 		thread_panel(ui, slot, false)
 		mu.end_window(ctx)
 	}
@@ -206,10 +216,13 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
 
 	input_h := composer_height(ui)
-	mu.layout_row(ctx, {-1}, -(input_h + ctx.style.spacing + 1))
+	width := panel_width(ctx)
+	files_h := composer_files_height(ui, composer, width)
+	mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
 	timeline(ui, &t.timeline, t.key)
+	composer_files(ui, composer, width)
 
-	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 10), ICON_BUTTON, ICON_BUTTON}, input_h)
+	mu.layout_row(ctx, {-(3 * ICON_BUTTON + 14), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON}, input_h)
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
 	res := chat_text_box(ui, t.buf[:], &t.len)
@@ -222,6 +235,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{thread = t.key})
 	}
 	send := .SUBMIT in res
+	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	if .SUBMIT in icon_button(ui, "send", .Send, "Save" if t.editing != 0 else "Reply") {
 		send = true

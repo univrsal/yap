@@ -237,6 +237,15 @@ UI :: struct {
 	paste_to:            Paste_Target,
 	// The file dialog, while it's open (ui_files_native.odin).
 	file_pick:           ^File_Pick_Job,
+	// The paperclip was pressed: after the frame, the dialog opens for
+	// files to go with `attach_to`'s next message (ui_attachments.odin).
+	attach_pick:         bool,
+	attach_to:           Attach_Target,
+	// Files dropped on the window since the last frame, to attach
+	// (ui_files_*.odin); owned.
+	dropped:             [dynamic]string,
+	// Pictures messages carry, asked for to be shown, and when.
+	previews_asked:      map[proto.Blob_Id]time.Tick,
 	// What the icon button under the pointer does, and where it is, for
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
@@ -682,6 +691,16 @@ ui_shutdown :: proc(ui: ^UI) {
 	avatar_pick_wait(ui)
 	ui_profiles_destroy(ui)
 	ui_manage_destroy(ui)
+	for path in ui.dropped {
+		delete(path)
+	}
+	delete(ui.dropped)
+	delete(ui.previews_asked)
+	picked_files_destroy(&ui.chat.files)
+	picked_files_destroy(&ui.buddies.files)
+	for &t in ui.threads {
+		picked_files_destroy(&t.files)
+	}
 	delete(ui.reactors_asked.emoji)
 	delete(ui.channels.find_asked)
 	clipboard.destroy()
@@ -781,6 +800,9 @@ window_open :: proc(ui: ^UI) -> bool {
 	glfw.SetScrollCallback(ui.window, scroll_callback)
 	glfw.SetKeyCallback(ui.window, key_callback)
 	glfw.SetCharCallback(ui.window, char_callback)
+	when !platform.WEB {
+		glfw.SetDropCallback(ui.window, drop_callback)
+	}
 	// The cursor outlives the window, but which one the window shows
 	// doesn't (see set_cursor).
 	ui.cursor_shown = .Arrow

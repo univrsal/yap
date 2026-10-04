@@ -124,6 +124,9 @@ Server :: struct {
 	// files that go with it (blobs.odin).
 	db:            DB,
 	blobs:         Blob_Store,
+	// Files uploaded with messages, and on their way in and out
+	// (attachments.odin).
+	attach:        Attachments,
 	// The server's own emoji (emoji.odin).
 	emoji:         Custom_Emoji,
 	// Removing what's old (retention.odin).
@@ -160,6 +163,8 @@ run_server :: proc(settings: Settings) -> bool {
 		return false
 	}
 	defer blob_store_close(&s.blobs)
+	attachments_open(&s, settings.attachments)
+	defer attachments_close(&s)
 	retention_open(&s.retention, &s.db, settings.retention)
 	defer retention_close(&s.retention)
 	emoji_open(&s, settings.emoji_dir)
@@ -235,6 +240,7 @@ run_server :: proc(settings: Settings) -> bool {
 		stream_sync(&s)
 		sync_state(&s)
 		transfers_sync(&s)
+		attachments_sync(&s)
 		files_sync(&s)
 		emoji_sync(&s)
 		profiles_sync(&s)
@@ -250,7 +256,8 @@ run_server :: proc(settings: Settings) -> bool {
 		if idle {
 			db_idle(&s.db)
 		}
-		if want := RETENTION_WAIT if retention_busy(&s) else IDLE_WAIT; want != wait {
+		busy := retention_busy(&s) || attachments_busy(&s)
+		if want := min(RETENTION_WAIT, ATTACH_WAIT) if busy else IDLE_WAIT; want != wait {
 			wait = want
 			net.set_option(sock, .Receive_Timeout, wait)
 		}
@@ -480,6 +487,7 @@ conn_left :: proc(s: ^Server, u: ^Conn) {
 	log.infof("%s left", conn_label(u))
 	calls_conn_gone(s, u)
 	drop_conn_transfers(u)
+	attachments_conn_gone(s, u)
 	delete_key(&s.conns, u.key)
 	// After it's gone from `conns`, so only the other side hears about it.
 	drop_conn_files(s, u)
@@ -651,7 +659,13 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		handle_file_ack(s, c, pt)
 	case .File_Cancel:
 		handle_file_cancel(s, c, pt)
-	case .State, .Refused, .Keyframe, .Pong, .Welcome:
+	case .Upload_Chunk:
+		handle_upload_chunk(s, c.conn, pt)
+	case .Download_Ack:
+		handle_download_ack(s, c.conn, pt)
+	case .Transfer_Cancel:
+		handle_transfer_cancel(s, c.conn, pt)
+	case .State, .Refused, .Keyframe, .Pong, .Welcome, .Upload_Ack, .Download_Chunk:
 	// Server-to-client only.
 	case .Set_Name,
 	     .Join,

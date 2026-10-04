@@ -26,6 +26,8 @@ post that comes again with the same one (the client repeated it after
 its connection started over) is answered with the message it already is.
 
 Pictures are blobs (blobs.odin, transfers.odin); a message names one.
+A text message may carry files that were uploaded for it
+(attachments.odin), which a post names by their uploads.
 A file is offered in a DM by a message that names it and says how big
 it is; the file itself goes between the two clients (files.odin).
 
@@ -65,6 +67,10 @@ message_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, bod
 		blob_put_request(s, u, id, body)
 	case .Blob_Get:
 		blob_get_request(s, u, id, body)
+	case .Attach_Put:
+		attach_put_request(s, u, id, body)
+	case .Attach_Get:
+		attach_get_request(s, u, id, body)
 	case .Purge:
 		purge_request(s, u, id, body)
 	case:
@@ -145,7 +151,29 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 	case .Text:
 		m.text = proto.sanitize_text(p.text, text_buf[:])
-		if m.text == "" {
+		// The files it carries: uploads of the poster's, each once.
+		for i in 0 ..< p.attachment_count {
+			up, kept := attach_upload_for(s, sender, p.uploads[i])
+			if !kept {
+				respond(u, id, .Not_Found)
+				return
+			}
+			for j in 0 ..< i {
+				if p.uploads[j] == p.uploads[i] {
+					respond(u, id, .Invalid)
+					return
+				}
+			}
+			m.attachments[i] = {
+				blob = up.blob,
+				size = up.size,
+				name = up.name,
+			}
+		}
+		m.attachment_count = p.attachment_count
+		if m.attachment_count > 0 {
+			m.flags += {.Has_Attachments}
+		} else if m.text == "" {
 			respond(u, id, .Invalid)
 			return
 		}
@@ -175,7 +203,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	place := conv.name if conv.kind == .Channel else fmt.tprintf("a DM with account %d", dm_other(conv, sender))
 	#partial switch m.kind {
 	case .Text:
-		log.debugf("%s in %q: %s", conn_label(u), place, m.text)
+		log.debugf("%s in %q: %s (%d files)", conn_label(u), place, m.text, m.attachment_count)
 	case .Image:
 		log.debugf("%s in %q: a picture (blob %d)", conn_label(u), place, m.image.blob)
 	case .File:
@@ -285,6 +313,11 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		text        = links_restrict(s, conv, src.text),
 		image       = src.image,
 		forward     = from,
+		attachment_count = src.attachment_count,
+		attachments = src.attachments,
+	}
+	if .Has_Attachments in src.flags {
+		m.flags += {.Has_Attachments}
 	}
 	first := conv.last_msg == 0
 	if !msg_store(s, conv, &m, f.nonce) {
@@ -351,6 +384,7 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	db_bind_int(q, 13, i64(m.forward.time))
 	db_run(&s.db, q) or_return
 	m.id = proto.Msg_Id(db_last_id(&s.db))
+	attachments_store(s, m^) or_return
 	if conv.kind == .DM {
 		conv.posted[0 if m.sender == conv.a else 1] = true
 	}
@@ -516,6 +550,7 @@ history_page :: proc(
 
 	for &m in list {
 		attach_reactions(s, &m, asker)
+		attach_files(s, &m)
 	}
 	// Pages are small enough that this doesn't happen, but should a page
 	// not fit, what's furthest from the anchor goes.

@@ -127,7 +127,18 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 		mu.layout_row(ctx, {-1})
 		text, _, _ := conn.text_display(m.text, v.accounts, v.me, v.emoji.names[:])
-		mu.text(ctx, text)
+		if text != "" {
+			mu.text(ctx, text)
+		}
+		// Its files, which may be what it was found by.
+		if len(m.files) > 0 {
+			names := make([]string, len(m.files), context.temp_allocator)
+			for f, j in m.files {
+				names[j] = f.name
+			}
+			mu.layout_row(ctx, {-1})
+			with_text_color(ctx, CHAT_DIM_COLOR, fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)), mu.text)
+		}
 		if i < len(found.found) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
 			mu.draw_rect(ctx, mu.layout_next(ctx), {70, 70, 70, 255})

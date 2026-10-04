@@ -14,7 +14,7 @@ test_purge_roundtrip :: proc(t: ^testing.T) {
 	_, ok = decode_purge(encode_purge(&buf, {conv = 7}))
 	testing.expect(t, !ok)
 	body := encode_purge(&buf, p)
-	body[12] = 2
+	body[12] = 3
 	_, ok = decode_purge(body)
 	testing.expect(t, !ok)
 	_, ok = decode_purge(body[:12])

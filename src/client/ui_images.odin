@@ -45,6 +45,9 @@ Texture :: struct {
 	state:   Texture_State,
 	texture: render.Gpu_Texture,
 	frame:   int, // when it was last drawn
+	// The picture's own size, once it's decoded.
+	width:   int,
+	height:  int,
 }
 
 // Pictures are known by a key their drawer gives (image_block): a
@@ -169,6 +172,7 @@ ui_images_frame :: proc(ui: ^UI) {
 			round_off(&result.image) // a picture of somebody (ui_avatars.odin)
 		}
 		t.state = .Ready
+		t.width, t.height = result.image.width, result.image.height
 		t.texture = render.gpu_texture_make(
 			&ui.renderer.gpu,
 			.Rgba,
@@ -246,6 +250,50 @@ image_block :: proc(
 		label = "loading image..."
 	}
 	mu.draw_control_text(ctx, label, rect, .TEXT, {.ALIGN_CENTER})
+}
+
+/*
+image_fitted draws a picture as large as fits `area`, at its left, for
+pictures whose size isn't known until they're decoded (a message's
+attached picture, ui_attachments.odin): the area doesn't change when it
+arrives. Clicking it opens the viewer. `save` says the viewer's Save was
+pressed for this one, for the caller to save it its own way.
+*/
+image_fitted :: proc(ui: ^UI, key: u64, state: conn.Image_State, data: []u8, area: mu.Rect) -> (save: bool) {
+	ctx := &ui.ctx
+	im := &ui.images
+	t, known := im.textures[key]
+	if !known && state == .Ready && len(data) > 0 {
+		enqueue_decode(im, key, data)
+		t, known = im.textures[key]
+	}
+	if !known || t.state != .Ready {
+		label := "broken image" if known && t.state == .Failed else "loading picture..."
+		mu.draw_rect(ctx, area, {50, 50, 50, 255})
+		mu.draw_control_text(ctx, label, area, .TEXT, {.ALIGN_CENTER})
+		return
+	}
+	w, h := conn.fit_box(t.width, t.height, int(area.w), int(area.h))
+	rect := mu.Rect{area.x, area.y, i32(w), i32(h)}
+	t.frame = im.frame
+	im.textures[key] = t
+	append(&im.draws, render.Image_Draw{texture = t.texture})
+	mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), rect, {255, 255, 255, 255})
+	if mu.mouse_over(ctx, rect) {
+		ui.chat.hovering = true // the pointing hand
+		if .LEFT in ctx.mouse_pressed_bits {
+			im.viewer, im.placed = key, false
+		}
+	}
+	if key == im.viewer {
+		im.shown = {width = u16(min(t.width, 65535)), height = u16(min(t.height, 65535))}
+		im.state = .Ready
+		if im.viewer_save {
+			im.viewer_save = false
+			save = true
+		}
+	}
+	return
 }
 
 // request_save keeps a copy of an image to write out after the frame,

@@ -458,10 +458,14 @@ notify :: proc(c: ^Voice_Client, ok: bool, text: string) {
 	} else {
 		log.warn(text)
 	}
-	v := c.view
-	if v == nil {
-		return
+	if c.view != nil {
+		view_notice(c.view, ok, text)
 	}
+}
+
+// view_notice puts a notice up for the UI, as notify does; the UI's own
+// (a file it won't attach) come this way too.
+view_notice :: proc(v: ^View, ok: bool, text: string) {
 	view_write(v)
 	delete(v.notice.text)
 	v.notice.text = strings.clone(text)

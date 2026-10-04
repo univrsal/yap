@@ -80,7 +80,7 @@ test_roles :: proc(t: ^testing.T) {
 	testing.expect(t, can(alice_acc, .Purge))
 	perms, self_told := self_perms(t, &ts, alice)
 	testing.expect(t, self_told, "alice wasn't told what she may do now")
-	testing.expect_value(t, perms, proto.Permissions{.Manage_Messages, .Manage_Accounts, .Purge})
+	testing.expect_value(t, perms, proto.Permissions{.Manage_Messages, .Manage_Accounts, .Purge, .Attach_Files})
 	e, told = has_event(ts_events(t, &ts, bob), .Account_Changed)
 	acc, _ := proto.decode_account(e.body)
 	testing.expect(t, told && acc.id == alice_acc.id && len(acc.roles) == 1 && acc.roles[0] == mod)
@@ -92,7 +92,7 @@ test_roles :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, !can(alice_acc, .Purge))
 	perms, _ = self_perms(t, &ts, alice)
-	testing.expect_value(t, perms, proto.Permissions{.Manage_Messages, .Manage_Accounts})
+	testing.expect_value(t, perms, proto.Permissions{.Manage_Messages, .Manage_Accounts, .Attach_Files})
 
 	// Everyone's: what a plain member may do. Its name stays, and it stays.
 	status, _ = role_set(t, &ts, owner, {id = proto.EVERYONE_ROLE, name = "everyone", perms = {.Pin_Messages}})

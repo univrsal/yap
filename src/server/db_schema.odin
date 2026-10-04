@@ -245,6 +245,39 @@ MIGRATIONS := [?]string {
 	INSERT INTO messages_fts (rowid, text)
 		SELECT id, text FROM messages WHERE kind = 0 AND text IS NOT NULL;
 	`,
+	// 15: the files messages carry (attachments.odin), in the order they
+	// were attached; a blob of NULL is one retention has removed. They go
+	// with their message, when it's purged as when it's deleted
+	// (msg_delete). Everyone may attach files to start with.
+	`
+	CREATE TABLE attachments (
+		msg  INTEGER NOT NULL,
+		idx  INTEGER NOT NULL,
+		blob INTEGER,
+		name TEXT NOT NULL,
+		size INTEGER NOT NULL,
+		PRIMARY KEY (msg, idx)
+	) WITHOUT ROWID;
+	CREATE INDEX attachments_blob ON attachments (blob) WHERE blob IS NOT NULL;
+	CREATE TRIGGER attachments_purged AFTER DELETE ON messages BEGIN
+		DELETE FROM attachments WHERE msg = old.id;
+	END;
+	UPDATE roles SET perms = perms | 512 WHERE id = 1;
+	`,
+	// 16: an index of the names of messages' files, for searching them
+	// with the words of messages (search.odin): one row a message, its
+	// files' names, written with it and gone with it.
+	`
+	CREATE VIRTUAL TABLE files_fts USING fts5(
+		names,
+		tokenize = 'unicode61 remove_diacritics 2'
+	);
+	INSERT INTO files_fts (rowid, names)
+		SELECT msg, group_concat(name, ' ') FROM attachments GROUP BY msg;
+	CREATE TRIGGER files_fts_purged AFTER DELETE ON messages BEGIN
+		DELETE FROM files_fts WHERE rowid = old.id;
+	END;
+	`,
 }
 
 // The version a database is at once it has been through every step.

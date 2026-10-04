@@ -37,6 +37,14 @@ Icon :: enum {
 	Smiley, // a smiling face: the emoji picker
 	Log, // a framed page of lines: the log
 	Search, // a magnifying glass: searching messages
+	Attach, // a paperclip: attach files to a message
+	Download, // an arrow down into a tray: save a file
+	// Kinds of file, beside a message's files' names (File for the rest,
+	// App_Audio's notes for sound).
+	Archive, // a sheet with a zip down it
+	Picture, // a frame with a hill and the sun
+	Video, // a frame with a play button
+	Text_File, // a sheet with lines of writing
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -178,6 +186,18 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return log_page(p)
 	case .Search:
 		return magnifier(p)
+	case .Attach:
+		return paperclip(p)
+	case .Download:
+		return download(p)
+	case .Archive:
+		return archive(p)
+	case .Picture:
+		return picture(p)
+	case .Video:
+		return video(p)
+	case .Text_File:
+		return text_file(p)
 	}
 	return 1
 }
@@ -189,6 +209,79 @@ monitor :: proc(p: Point) -> f32 {
 	d := abs(rounded_box(p, {0.5, 0.40}, {0.39, 0.27}, 0.07)) - STROKE / 2
 	d = nearer(d, capsule(p, {0.5, 0.67}, {0.5, 0.83}, STROKE))
 	d = nearer(d, capsule(p, {0.30, 0.85}, {0.70, 0.85}, STROKE))
+	return d
+}
+
+// A paperclip, leaning to the right: a long loop, and inside it a
+// shorter one that's open at the bottom, where the wire ends.
+@(private = "file")
+paperclip :: proc(p: Point) -> f32 {
+	STROKE :: 0.08
+	// Turned about the middle, so the clip leans.
+	ANGLE :: 0.6
+	c, s := f32(0.8253356), f32(0.5646425) // cos and sin of ANGLE
+	d := p - Point{0.5, 0.5}
+	q := Point{d.x * c + d.y * s, -d.x * s + d.y * c} + Point{0.5, 0.5}
+	outer := abs(rounded_box(q, {0.5, 0.5}, {0.15, 0.40}, 0.15)) - STROKE / 2
+	inner := abs(rounded_box(q, {0.5, 0.42}, {0.075, 0.27}, 0.075)) - STROKE / 2
+	// The inner loop stops short of its bottom.
+	inner = max(inner, q.y - 0.62)
+	return nearer(outer, inner)
+}
+
+// An archive: a sheet, and down its middle a zip, its teeth alternating
+// either side.
+@(private = "file")
+archive :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := abs(rounded_box(p, {0.5, 0.5}, {0.30, 0.40}, 0.05)) - STROKE / 2
+	for i in 0 ..< 5 {
+		y := 0.22 + f32(i) * 0.09
+		x := f32(0.44) if i % 2 == 0 else 0.56
+		d = nearer(d, rounded_box(p, {x, y}, {0.06, 0.025}, 0.01))
+	}
+	// The pull, at the bottom of the teeth.
+	return nearer(d, rounded_box(p, {0.5, 0.71}, {0.07, 0.07}, 0.02))
+}
+
+// A picture: a frame, a hill in it, and the sun over the hill.
+@(private = "file")
+picture :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := abs(rounded_box(p, {0.5, 0.5}, {0.36, 0.30}, 0.06)) - STROKE / 2
+	hill := triangle(p, {0.22, 0.74}, {0.46, 0.42}, {0.70, 0.74})
+	d = nearer(d, hill)
+	d = nearer(d, triangle(p, {0.52, 0.74}, {0.66, 0.54}, {0.80, 0.74}))
+	return nearer(d, disc(p, {0.68, 0.34}, 0.07))
+}
+
+// A video: a frame, and a play button in it.
+@(private = "file")
+video :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := abs(rounded_box(p, {0.5, 0.5}, {0.36, 0.30}, 0.06)) - STROKE / 2
+	return nearer(d, triangle(p, {0.42, 0.34}, {0.66, 0.5}, {0.42, 0.66}))
+}
+
+// A text: the folded sheet, with lines of writing on it.
+@(private = "file")
+text_file :: proc(p: Point) -> f32 {
+	STROKE :: 0.07
+	d := document(p)
+	d = nearer(d, capsule(p, {0.34, 0.46}, {0.66, 0.46}, STROKE))
+	d = nearer(d, capsule(p, {0.34, 0.60}, {0.66, 0.60}, STROKE))
+	return nearer(d, capsule(p, {0.34, 0.74}, {0.56, 0.74}, STROKE))
+}
+
+// Saving: an arrow down into an open tray.
+@(private = "file")
+download :: proc(p: Point) -> f32 {
+	STROKE :: 0.09
+	d := capsule(p, {0.5, 0.12}, {0.5, 0.58}, STROKE)
+	d = nearer(d, triangle(p, {0.30, 0.48}, {0.70, 0.48}, {0.5, 0.70}))
+	d = nearer(d, capsule(p, {0.16, 0.66}, {0.16, 0.86}, STROKE))
+	d = nearer(d, capsule(p, {0.16, 0.86}, {0.84, 0.86}, STROKE))
+	d = nearer(d, capsule(p, {0.84, 0.66}, {0.84, 0.86}, STROKE))
 	return d
 }
 

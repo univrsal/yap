@@ -13,7 +13,9 @@ import "sqlite"
 Searching messages (src/common/proto/search.odin), with SQLite's full
 text search: the index `messages_fts` (schema step 14) has the words of
 every text message, kept by triggers as messages are posted, edited,
-deleted and purged.
+deleted and purged, and `files_fts` (step 16) the names of the files
+messages carry (attachments.odin). Both are read newest first, side by
+side, and a message is found once whichever way it matches.
 
 What's typed is never handed to FTS5's own query language as it is: it's
 taken apart into words, "phrases" and from:username, and put together
@@ -128,9 +130,15 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	before := req.before if req.before != 0 else max(proto.Msg_Id)
 	me := u.account.id
 
-	q := db_stmt(&s.db, .Msg_Search)
-	db_bind_text(q, 1, query)
-	db_bind_int(q, 2, i64(min(before, proto.Msg_Id(max(i64)))))
+	// The words, and the files' names: two lists, each newest first.
+	qs := [2]^sqlite.Stmt{db_stmt(&s.db, .Msg_Search), db_stmt(&s.db, .File_Search)}
+	for q in qs {
+		db_bind_text(q, 1, query)
+		db_bind_int(q, 2, i64(min(before, proto.Msg_Id(max(i64)))))
+	}
+	// Each list's next message: its id, 0 once it's run out, -1 while
+	// it's to be stepped to.
+	heads := [2]i64{-1, -1}
 
 	// Stopped once it has taken its share of the loop.
 	deadline := time.tick_add(time.tick_now(), SEARCH_BUDGET)
@@ -146,8 +154,32 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	more: u8
 	searched_to := before
 	for {
-		rc := sqlite.step(q)
+		rc: c.int = sqlite.ROW
+		for &head, i in heads {
+			if head != -1 {
+				continue
+			}
+			step := sqlite.step(qs[i])
+			switch step {
+			case sqlite.ROW:
+				head = db_col_int(qs[i], 0)
+			case sqlite.DONE:
+				head = 0
+			case:
+				rc = step
+			}
+		}
+		if rc == sqlite.ROW && heads == {0, 0} {
+			rc = sqlite.DONE
+		}
 		if rc == sqlite.ROW {
+			// The newer of the two; a message that's in both is taken once.
+			pick := 0 if heads[0] >= heads[1] else 1
+			if heads[0] == heads[1] {
+				heads[1] = -1
+			}
+			q := qs[pick]
+			heads[pick] = -1
 			id := proto.Msg_Id(db_col_int(q, 0))
 			conv_id := proto.Conv_Id(db_col_int(q, 1))
 			author := proto.Account_Id(db_col_int(q, 2))
@@ -181,15 +213,20 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		case:
 			// FTS5 says no to the query: nothing typed should get here.
 			log.warnf("search for %q: %s", query, db_error(&s.db))
-			sqlite.reset(q)
+			for q in qs {
+				sqlite.reset(q)
+			}
 			respond(u, id, .Invalid)
 			return
 		}
 		break
 	}
-	sqlite.reset(q)
+	for q in qs {
+		sqlite.reset(q)
+	}
 	for &m in found {
 		attach_reactions(s, &m, me)
+		attach_files(s, &m)
 	}
 	out := make([]u8, proto.MAX_BODY_SIZE, context.temp_allocator)
 	page, fitted := proto.encode_search_answer(out, searched_to, more, found[:])

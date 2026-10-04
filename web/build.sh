@@ -47,7 +47,7 @@ background_exports=_web_tick
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
 paste_exports=_web_paste_image,_web_paste_failed,_web_paste_text,_malloc,_free
 # What web/files.js calls (src/client/ui_files_web.odin).
-files_exports=_web_file_picked
+files_exports=_web_file_picked,_web_file_dropped
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.

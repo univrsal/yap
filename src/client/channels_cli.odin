@@ -42,7 +42,10 @@ network loop never blocks on input.
 	/deafen, /undeafen  stop or resume playing everyone else
 	/listen, /unlisten  hear your own processed voice (listen back)
 	/say <text>      post to the conversation being looked at (@username
-	                 mentions someone)
+	                 mentions someone), with the files attached, if any
+	/attach <file>   attach a file to the next /say (up to 10);
+	                 /unattach drops them
+	/save <id> <n>   save file n of a message to the downloads folder
 	/older, /newer   fetch the page of its messages before (or after) those
 	                 fetched so far
 	/edit <id> <text>  change a message of yours (ids are in the log: #id)
@@ -109,6 +112,14 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 	sc: bufio.Scanner
 	bufio.scanner_init(&sc, os.to_reader(os.stdin))
 	defer bufio.scanner_destroy(&sc)
+	// Files for the next /say; owned.
+	attached: [dynamic]string
+	defer {
+		for path in attached {
+			delete(path)
+		}
+		delete(attached)
+	}
 	for bufio.scanner_scan(&sc) {
 		line := strings.trim_space(bufio.scanner_text(&sc))
 		switch {
@@ -332,7 +343,37 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			to, _, text := strings.partition(strings.trim_space(line[len("/dm "):]), " ")
 			conn.push_command(q, conn.DM_Command{name = strings.clone(to), text = strings.clone(text)})
 		case strings.has_prefix(line, "/say "):
-			conn.push_command(q, conn.Chat_Command{text = strings.clone(line[len("/say "):]), typed = true})
+			text := line[len("/say "):]
+			if len(attached) == 0 {
+				conn.push_command(q, conn.Chat_Command{text = strings.clone(text), typed = true})
+				break
+			}
+			files := make([]conn.Attach_File, len(attached))
+			for path, i in attached {
+				files[i] = {path = path}
+			}
+			clear(&attached)
+			conn.push_command(q, conn.Attach_Send_Command{text = strings.clone(text), files = files, typed = true})
+		case strings.has_prefix(line, "/attach "):
+			path := strings.trim_space(line[len("/attach "):])
+			if len(attached) >= proto.MAX_ATTACHMENTS {
+				log.warn("a message can carry at most 10 files")
+				break
+			}
+			append(&attached, strings.clone(path))
+			log.infof("%d file(s) attached to the next /say", len(attached))
+		case line == "/unattach":
+			for path in attached {
+				delete(path)
+			}
+			clear(&attached)
+		case strings.has_prefix(line, "/save "):
+			id, _, n := strings.partition(strings.trim_space(line[len("/save "):]), " ")
+			msg, id_ok := strconv.parse_u64(id)
+			index, n_ok := strconv.parse_int(strings.trim_space(n))
+			if id_ok && n_ok && index >= 1 {
+				conn.push_command(q, conn.Attach_Save_Command{msg = proto.Msg_Id(msg), index = index - 1})
+			}
 		case strings.has_prefix(line, "/edit "):
 			id, _, text := strings.partition(strings.trim_space(line[len("/edit "):]), " ")
 			if n, ok := strconv.parse_u64(id); ok {
@@ -403,7 +444,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case:
 			log.warn(
-				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /send <file>, /typing, /poke <name> [message], /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
+				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /send <file>, /typing, /poke <name> [message], /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
 			)
 		}
 	}

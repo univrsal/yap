@@ -31,8 +31,9 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 	case .Server_Info:
 		buf: [proto.SERVER_INFO_MAX_SIZE]u8
 		info := proto.Server_Info {
-			name    = s.name,
-			version = common.version_string(),
+			name           = s.name,
+			version        = common.version_string(),
+			max_attachment = s.attach.max_size,
 		}
 		body, fits := proto.encode_server_info(buf[:], info)
 		if !fits {

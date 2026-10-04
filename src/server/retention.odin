@@ -12,8 +12,9 @@ Retention: removing what's old for good (src/common/proto/purge.odin).
 
 What the config says to keep no longer goes on its own, at startup and
 once an hour after: messages older than `message_days`, the pictures of
-those older than `image_days`, and the oldest pictures while they take
-more than `blob_megabytes`. Somebody with Permission.Purge can purge a
+those older than `image_days`, their files (attachments.odin) older than
+`file_days`, and the oldest pictures and files while they take more than
+`blob_megabytes`. Somebody with Permission.Purge can purge a
 conversation, or all of them, up to a time (Purge), and so can whoever
 runs the server, from the command line with it stopped (cli.odin). Each
 run, and each purge, then removes the stored files nothing uses any
@@ -25,6 +26,10 @@ filesystem.
 	                 any of its replies is kept
 	purge pictures   the messages stay, with blob NULL: an Image
 	                 without a picture; not pinned ones
+	purge files      the same for the files messages carry: each stays
+	                 in the message's list, with blob NULL
+	purge stored     pictures and files both, the oldest messages' first,
+	                 until enough room is free (blob_megabytes)
 	collect          the blobs nothing points at (no message, no
 	                 account's picture, not the emoji sheet) that are
 	                 older than an hour, so one that's just been uploaded
@@ -50,6 +55,7 @@ it starts again. The hourly run needs no such note: it starts over.
 Retention_Config :: struct {
 	message_days:   int,
 	image_days:     int,
+	file_days:      int,
 	blob_megabytes: int,
 }
 
@@ -94,18 +100,19 @@ EMOJI_SHEET_META :: "emoji_sheet"
 Purge_Step_Kind :: enum u8 {
 	Messages,
 	Pictures,
-	Size_Cap, // becomes Pictures if they take too much room
+	Files,
+	Stored, // pictures and files, until `bytes` of them have gone
+	Size_Cap, // becomes Stored if they take too much room
 	Collect,
 	Vacuum,
 }
 
 Purge_Step :: struct {
 	kind:   Purge_Step_Kind,
-	conv:   proto.Conv_Id, // Messages, Pictures: 0 for every one
-	below:  proto.Msg_Id, // Messages, Pictures: what's below this id
+	conv:   proto.Conv_Id, // Messages, Pictures, Files: 0 for every one
+	below:  proto.Msg_Id, // Messages, Pictures, Files, Stored: what's below this id
 	cursor: i64, // the last message or blob looked at
-	// Pictures: stop once this many bytes of them have gone (0: go on
-	// to `below`).
+	// Stored: stop once this many bytes have gone (0: go on to `below`).
 	bytes:  i64,
 	// Somebody asked for it: it's written down until it's done, and
 	// what it did is the answer.
@@ -159,11 +166,24 @@ retention_open :: proc(r: ^Retention, db: ^DB, config: Retention_Config) {
 	what, _ := db_meta(db, PURGE_META_WHAT)
 	conv, _ := db_meta(db, PURGE_META_CONV)
 	cursor, _ := db_meta(db, PURGE_META_CURSOR)
-	kind := Purge_Step_Kind.Pictures if what == i64(proto.Purge_What.Images) else .Messages
+	kind := step_kind(proto.Purge_What(what))
 	append(&r.steps, Purge_Step{kind = kind, conv = proto.Conv_Id(conv), below = proto.Msg_Id(below), cursor = cursor, asked = true})
 	append(&r.steps, Purge_Step{kind = .Collect, asked = true}, Purge_Step{kind = .Vacuum})
 	r.asked = true
 	log.infof("carrying on with the purge of %s below message %d", conv_label(proto.Conv_Id(conv)), below)
+}
+
+// step_kind is the step that purges `what`.
+@(private = "file")
+step_kind :: proc(what: proto.Purge_What) -> Purge_Step_Kind {
+	switch what {
+	case .Images:
+		return .Pictures
+	case .Files:
+		return .Files
+	case .Messages:
+	}
+	return .Messages
 }
 
 retention_close :: proc(r: ^Retention) {
@@ -243,6 +263,10 @@ retention_schedule :: proc(r: ^Retention, db: ^DB, now_ms: i64) {
 		below := msg_boundary(db, now_ms - i64(c.image_days) * DAY_MS)
 		append(&r.steps, Purge_Step{kind = .Pictures, below = below})
 	}
+	if c.file_days > 0 && (c.message_days == 0 || c.file_days < c.message_days) {
+		below := msg_boundary(db, now_ms - i64(c.file_days) * DAY_MS)
+		append(&r.steps, Purge_Step{kind = .Files, below = below})
+	}
 	append(&r.steps, Purge_Step{kind = .Collect})
 	if c.blob_megabytes > 0 {
 		append(&r.steps, Purge_Step{kind = .Size_Cap}, Purge_Step{kind = .Collect})
@@ -261,7 +285,7 @@ retention_ask :: proc(r: ^Retention, db: ^DB, p: proto.Purge, now_ms: i64) -> bo
 	}
 	before := min(i64(p.before), now_ms)
 	step := Purge_Step {
-		kind  = .Pictures if p.what == .Images else .Messages,
+		kind  = step_kind(p.what),
 		conv  = p.conv,
 		below = msg_boundary(db, before),
 		asked = true,
@@ -295,9 +319,13 @@ retention_chunk :: proc(r: ^Retention, bs: ^Blob_Store, now_ms: i64) -> (done: P
 		over = purge_messages_chunk(db, step)
 	case .Pictures:
 		over = purge_pictures_chunk(db, step)
+	case .Files:
+		over = purge_files_chunk(db, step)
+	case .Stored:
+		over = purge_stored_chunk(db, step)
 	case .Size_Cap:
 		total: i64
-		q := db_stmt(db, .Picture_Bytes)
+		q := db_stmt(db, .Stored_Bytes)
 		if row, ok := db_step(db, q); ok && row {
 			total = db_col_int(q, 0)
 			sqlite.reset(q)
@@ -307,9 +335,9 @@ retention_chunk :: proc(r: ^Retention, bs: ^Blob_Store, now_ms: i64) -> (done: P
 			over = true
 			break
 		}
-		log.infof("pictures take %d MB, more than %d: the oldest go", total / (1024 * 1024), r.config.blob_megabytes)
+		log.infof("pictures and files take %d MB, more than %d: the oldest go", total / (1024 * 1024), r.config.blob_megabytes)
 		_, last := msg_bounds(db)
-		step^ = {kind = .Pictures, below = last + 1, bytes = total - limit}
+		step^ = {kind = .Stored, below = last + 1, bytes = total - limit}
 	case .Collect:
 		if step.cursor == 0 {
 			keep, _ := db_meta(db, EMOJI_SHEET_META)
@@ -325,7 +353,7 @@ retention_chunk :: proc(r: ^Retention, bs: ^Blob_Store, now_ms: i64) -> (done: P
 		free, _ := db_pragma_int(db, "PRAGMA freelist_count")
 		over = free == 0
 	}
-	if step.asked && (step.kind == .Messages || step.kind == .Pictures) {
+	if step.asked && (step.kind == .Messages || step.kind == .Pictures || step.kind == .Files) {
 		if over {
 			db_meta_set(db, PURGE_META_BELOW, 0)
 		} else {
@@ -464,6 +492,54 @@ purge_pictures_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 			return true
 		}
 		step.count += 1
+		step.convs[m.conv] = true
+	}
+	return len(rows) < PURGE_CHUNK
+}
+
+// purge_files_chunk takes the files out of the next few messages below
+// the step's boundary; true when it's done.
+@(private = "file")
+purge_files_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
+	buf: [PURGE_CHUNK]Scanned
+	rows, ok := scan(db, step, .Purge_Files, .Purge_Files_Conv, &buf)
+	if !ok {
+		return true
+	}
+	for m in rows {
+		step.cursor = i64(m.id)
+		if .Pinned in m.flags {
+			continue
+		}
+		if !run_on(db, .Attach_Strip, i64(m.id)) {
+			log.errorf("could not take the files out of message %d", m.id)
+			return true
+		}
+		step.count += 1
+		step.convs[m.conv] = true
+	}
+	return len(rows) < PURGE_CHUNK
+}
+
+// purge_stored_chunk takes pictures and files out of the oldest messages
+// until enough room is free; true when it's done.
+@(private = "file")
+purge_stored_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
+	buf: [PURGE_CHUNK]Scanned
+	rows, ok := scan(db, step, .Purge_Stored, .Purge_Stored, &buf)
+	if !ok {
+		return true
+	}
+	for m in rows {
+		step.cursor = i64(m.id)
+		if .Pinned in m.flags {
+			continue
+		}
+		if !run_on(db, .Msg_Strip_Picture, i64(m.id)) || !run_on(db, .Attach_Strip, i64(m.id)) {
+			log.errorf("could not take what's stored out of message %d", m.id)
+			return true
+		}
+		step.count += 1
 		step.freed += m.size
 		step.convs[m.conv] = true
 		if step.bytes > 0 && step.freed >= step.bytes {
@@ -589,7 +665,7 @@ retention_drain :: proc(r: ^Retention, bs: ^Blob_Store, s: ^Server = nil) -> (me
 			continue
 		}
 		switch step.kind {
-		case .Messages, .Pictures:
+		case .Messages, .Pictures, .Files, .Stored:
 			messages += step.count
 		case .Collect:
 			blobs += step.count
@@ -615,16 +691,23 @@ changed, and, once a purge somebody asked for is through, them.
 step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 	r := &s.retention
 	switch step.kind {
-	case .Messages, .Pictures:
-		what := proto.Purge_What.Images if step.kind == .Pictures else .Messages
+	case .Messages, .Pictures, .Files, .Stored:
+		// What clients are told went: pictures and files both, for room.
+		whats: [2]proto.Purge_What
+		n := 1
+		noun := "messages"
+		switch step.kind {
+		case .Pictures:
+			whats[0], noun = .Images, "pictures"
+		case .Files:
+			whats[0], noun = .Files, "messages' files"
+		case .Stored:
+			whats, n, noun = {.Images, .Files}, 2, "messages' pictures and files"
+		case .Messages, .Size_Cap, .Collect, .Vacuum:
+		}
+		what := whats[0]
 		if step.count > 0 {
-			log.infof(
-				"purged %d %s below message %d in %d conversation(s)",
-				step.count,
-				"pictures" if what == .Images else "messages",
-				step.below,
-				len(step.convs),
-			)
+			log.infof("purged %d %s below message %d in %d conversation(s)", step.count, noun, step.below, len(step.convs))
 		}
 		buf: [proto.MSGS_PURGED_SIZE]u8
 		for id in step.convs {
@@ -632,14 +715,15 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 			if conv == nil {
 				continue
 			}
-			body := proto.encode_msgs_purged(&buf, {conv = id, before = step.below, what = what})
 			for member in conv.members {
 				acc := s.accounts.by_id[member] or_else nil
 				if acc == nil || len(acc.conns) == 0 {
 					continue
 				}
 				for c in acc.conns {
-					send_event(c, .Msgs_Purged, body)
+					for w in whats[:n] {
+						send_event(c, .Msgs_Purged, proto.encode_msgs_purged(&buf, {conv = id, before = step.below, what = w}))
+					}
 				}
 				if what == .Messages {
 					// What it hadn't read may have gone.
