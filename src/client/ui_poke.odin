@@ -39,7 +39,7 @@ show_pokes :: proc(ui: ^UI) {
 	}
 	for m in conn.view_take_mentions(&ui.view) {
 		title := fmt.tprintf("%s mentioned you in %s", m.name, m.place)
-		if !tray_notify(ui, title, m.text) && ui.window != nil {
+		if !tray_notify(ui, title, conn.markdown_plain(m.text)) && ui.window != nil {
 			glfw.RequestWindowAttention(ui.window)
 		}
 	}

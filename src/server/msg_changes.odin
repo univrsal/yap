@@ -78,7 +78,7 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	text_buf: [proto.MAX_CHAT_SIZE]u8
-	text := proto.sanitize_text(raw, text_buf[:])
+	text := proto.sanitize_message(raw, text_buf[:])
 	if text == "" {
 		respond(u, id, .Invalid)
 		return

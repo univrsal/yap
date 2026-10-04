@@ -54,8 +54,10 @@ Image_Draw :: struct {
 
 /*
 The fonts: the UI's, and the chat's, which is the same font zoomed to
-the chat's size (font.odin). microui names a font by an opaque handle:
-nil is the UI's (its default), CHAT_FONT the chat's.
+the chat's size (font.odin). microui names a font by an opaque handle,
+which says which of the two and which face (Font_Style): nil is the
+UI's in Regular (microui's default), CHAT_FONT the chat's, and
+chat_font any face of the chat's.
 */
 Font_Kind :: enum {
 	UI,
@@ -64,9 +66,29 @@ Font_Kind :: enum {
 
 CHAT_FONT :: mu.Font(uintptr(1))
 
+// font_handle is the handle for `kind`'s font in `style`.
+font_handle :: proc(kind: Font_Kind, style: Font_Style) -> mu.Font {
+	return mu.Font(uintptr(kind) | uintptr(style) << 4)
+}
+
+// chat_font is the handle for the chat's font in `style`.
+chat_font :: proc(style: Font_Style) -> mu.Font {
+	return font_handle(.Chat, style)
+}
+
+// font_with_style is `font` (the UI's or the chat's) in another face.
+font_with_style :: proc(font: mu.Font, style: Font_Style) -> mu.Font {
+	return mu.Font(uintptr(font) & 0xf | uintptr(style) << 4)
+}
+
+// font_style is the face a handle names.
+font_style :: proc(font: mu.Font) -> Font_Style {
+	return Font_Style((uintptr(font) >> 4) % len(Font_Style))
+}
+
 Font_Slot :: struct {
 	font:            Font,
-	font_texture:    Gpu_Texture,
+	textures:        [Font_Style]Gpu_Texture, // the faces' atlases; 0 until drawn
 	unifont_texture: Gpu_Texture, // the fallback font's atlas; 0 until it has glyphs
 	// The zoom wanted (font_set_zoom); the font takes it with its next
 	// atlas.
@@ -91,10 +113,10 @@ Renderer :: struct {
 @(private = "file")
 g_fonts: ^[Font_Kind]Font_Slot
 
-// font_of is the font microui's handle names.
+// slot_of is the font microui's handle names (font_style its face).
 @(private = "file")
-font_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font {
-	return &fonts[.Chat].font if font == CHAT_FONT else &fonts[.UI].font
+slot_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font_Slot {
+	return &fonts[.Chat] if uintptr(font) & 0xf == uintptr(Font_Kind.Chat) else &fonts[.UI]
 }
 
 /*
@@ -155,7 +177,9 @@ renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 
 renderer_destroy :: proc(r: ^Renderer) {
 	for &slot in r.fonts {
-		gpu_texture_delete(&r.gpu, &slot.font_texture)
+		for &t in slot.textures {
+			gpu_texture_delete(&r.gpu, &t)
+		}
 		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
@@ -178,7 +202,9 @@ with them, when the next frame finds them missing.
 */
 renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	for &slot in r.fonts {
-		gpu_texture_delete(&r.gpu, &slot.font_texture)
+		for &t in slot.textures {
+			gpu_texture_delete(&r.gpu, &t)
+		}
 		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
 		slot.font.scale, slot.font.uni.scale = 0, 0
 	}
@@ -201,11 +227,11 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 
 // microui text metrics, in logical pixels.
 ui_text_width :: proc(font: mu.Font, text: string) -> i32 {
-	return i32(math.ceil(font_text_width(font_of(g_fonts, font), text)))
+	return i32(math.ceil(font_text_width(&slot_of(g_fonts, font).font, text, font_style(font))))
 }
 
 ui_text_height :: proc(font: mu.Font) -> i32 {
-	return font_line_height(font_of(g_fonts, font))
+	return font_line_height(&slot_of(g_fonts, font).font)
 }
 
 // render draws one frame of microui output into an fb_w x fb_h
@@ -230,19 +256,13 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 
 	for &slot in r.fonts {
 		// A zoomed font's atlases are at its own density (font.odin).
+		// Regular's is always there (rects are drawn from it); the other
+		// faces' are built when text in them is first drawn.
 		at := scale * slot.font.zoom
 		if at != slot.font.scale {
-			if font_build_atlas(&slot.font, at) {
-				gpu_texture_delete(&r.gpu, &slot.font_texture)
-				slot.font_texture = gpu_texture_make(
-					&r.gpu,
-					.Alpha,
-					slot.font.width,
-					slot.font.height,
-					slot.font.pixels,
-				)
-			}
+			font_set_scale(&slot.font, at)
 		}
+		face_ready(r, &slot, .Regular)
 		// The fallback font's atlas fills up as text needs glyphs; it
 		// starts empty at a new scale, and again once it has run out of
 		// room.
@@ -270,9 +290,15 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	for variant in mu.next_command_iterator(ctx, &cmd) {
 		switch c in variant {
 		case ^mu.Command_Text:
-			slot := &r.fonts[.Chat] if c.font == CHAT_FONT else &r.fonts[.UI]
-			font_cache_glyphs(&slot.font, c.str)
+			slot := slot_of(&r.fonts, c.font)
+			style := font_style(c.font)
+			font_cache_glyphs(&slot.font, c.str, style)
 			upload_unifont(r, slot)
+			if style != .Regular {
+				for face in font_faces_used(&slot.font, c.str, style) {
+					face_ready(r, slot, face)
+				}
+			}
 			Emit :: struct {
 				r:     ^Renderer,
 				slot:  ^Font_Slot,
@@ -287,16 +313,17 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				&emit,
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
-					use_texture(e.r, e.slot.unifont_texture if q.unifont else e.slot.font_texture)
+					use_texture(e.r, e.slot.unifont_texture if q.unifont else e.slot.textures[q.face])
 					push_quad(e.r, {q.x0, q.y0, q.x1, q.y1}, {q.u0, q.v0, q.u1, q.v1}, e.color)
 				},
+				style,
 			)
 		case ^mu.Command_Rect:
 			ui_font := &r.fonts[.UI]
-			use_texture(r, ui_font.font_texture)
+			use_texture(r, ui_font.textures[.Regular])
 			// Snap edges to physical pixels so borders stay crisp at
 			// fractional scales.
-			w := ui_font.font.white
+			w := ui_font.font.faces[.Regular].white
 			snap :: proc(v: i32, s: f32) -> f32 {return math.round(f32(v) * s) / s}
 			x0, y0 := snap(c.rect.x, r.scale), snap(c.rect.y, r.scale)
 			x1, y1 := snap(c.rect.x + c.rect.w, r.scale), snap(c.rect.y + c.rect.h, r.scale)
@@ -330,6 +357,16 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	}
 	flush(r)
 	gpu_end(&r.gpu)
+}
+
+// face_ready has a face's atlas built for the font's scale and on the GPU.
+@(private = "file")
+face_ready :: proc(r: ^Renderer, slot: ^Font_Slot, face: Font_Style) {
+	fc := &slot.font.faces[face]
+	if font_build_atlas(&slot.font, face) || (slot.textures[face] == 0 && fc.pixels != nil) {
+		gpu_texture_delete(&r.gpu, &slot.textures[face])
+		slot.textures[face] = gpu_texture_make(&r.gpu, .Alpha, fc.width, fc.height, fc.pixels)
+	}
 }
 
 /*

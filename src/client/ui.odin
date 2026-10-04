@@ -77,6 +77,14 @@ Extra_Key :: enum {
 	Down,
 	Tab,
 	Escape,
+	Newline, // Shift+Enter, or Enter on a phone's keyboard: a new line in a text area
+	// Markdown in a composer (composer_keys): Ctrl+B, Ctrl+I, Ctrl+U,
+	// Ctrl+Shift+X, Ctrl+E.
+	Bold,
+	Italic,
+	Underline,
+	Strike,
+	Code,
 }
 
 Page :: enum {
@@ -1793,6 +1801,28 @@ char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
 	context = platform.callback_context()
 	ui_redraw(g_ui)
+	// The composer's markdown keys, from the key's own modifiers.
+	// Ctrl+Shift+X isn't Ctrl+X: it doesn't go on to cut.
+	if action != glfw.RELEASE && mods & glfw.MOD_CONTROL != 0 && mods & glfw.MOD_ALT == 0 {
+		shift := mods & glfw.MOD_SHIFT != 0
+		format: Maybe(Extra_Key)
+		switch {
+		case key == glfw.KEY_B && !shift:
+			format = .Bold
+		case key == glfw.KEY_I && !shift:
+			format = .Italic
+		case key == glfw.KEY_U && !shift:
+			format = .Underline
+		case key == glfw.KEY_E && !shift:
+			format = .Code
+		case key == glfw.KEY_X && shift:
+			format = .Strike
+		}
+		if f, ok := format.?; ok {
+			g_ui.keys += {f}
+			return
+		}
+	}
 	k: mu.Key
 	switch key {
 	case glfw.KEY_LEFT_SHIFT, glfw.KEY_RIGHT_SHIFT:
@@ -1827,6 +1857,12 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		return
 	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:
 		k = .RETURN
+		// Shift+Enter starts a line in a text area. The key's own
+		// modifiers say so, even when Shift is let go again before the
+		// frame (and with it microui's SHIFT).
+		if action != glfw.RELEASE && mods & glfw.MOD_SHIFT != 0 {
+			g_ui.keys += {.Newline}
+		}
 	case glfw.KEY_LEFT:
 		k = .LEFT
 	case glfw.KEY_RIGHT:

@@ -23,6 +23,7 @@ pack_range :: stbtt.pack_range
 InitFont :: stbtt.InitFont
 FindGlyphIndex :: stbtt.FindGlyphIndex
 ScaleForPixelHeight :: stbtt.ScaleForPixelHeight
+ScaleForMappingEmToPixels :: stbtt.ScaleForMappingEmToPixels
 GetFontVMetrics :: stbtt.GetFontVMetrics
 GetCodepointHMetrics :: stbtt.GetCodepointHMetrics
 PackBegin :: stbtt.PackBegin

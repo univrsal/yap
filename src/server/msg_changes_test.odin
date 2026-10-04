@@ -84,6 +84,17 @@ test_edit :: proc(t: ^testing.T) {
 		testing.expect(t, told, "bob wasn't told of the edit")
 		testing.expect_value(t, m.text, "the words")
 		testing.expect(t, m.edited > 0)
+
+		// Lines stay, on posts and edits.
+		lines: proto.Msg_Id
+		_, lines = post(t, &ts, alice, home, "first\r\n  second  \n\n\n\n\nthird\n", 2)
+		posted, found := msg_by_id(&ts.s, lines)
+		testing.expect(t, found)
+		testing.expect_value(t, posted.text, "first\n  second\n\n\nthird")
+		testing.expect_value(t, edit_as(t, &ts, alice, lines, "first\nsecond\n\tthird"), proto.Status.Ok)
+		m, told = changed(t, &ts, bob, lines)
+		testing.expect(t, told, "bob wasn't told of the edit")
+		testing.expect_value(t, m.text, "first\nsecond\n third")
 	}
 
 	// Kept.

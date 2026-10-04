@@ -23,8 +23,9 @@ sanitize_name :: proc(name: string, buf: ^[MAX_NAME_SIZE]u8) -> string {
 	return sanitize_text(name, buf[:])
 }
 
-// sanitize_text is sanitize_name for any text and limit (len(buf)); used
-// for chat messages too. Tabs and newlines become spaces.
+// sanitize_text is sanitize_name for any text and limit (len(buf)), on
+// one line: tabs and newlines become spaces. Chat messages, which keep
+// their lines, have sanitize_message.
 sanitize_text :: proc(text: string, buf: []u8) -> string {
 	n := 0
 	for r in text {
@@ -51,6 +52,66 @@ sanitize_text :: proc(text: string, buf: []u8) -> string {
 		n += w
 	}
 	return strings.trim_space(string(buf[:n]))
+}
+
+// The most blank lines in a row a message keeps.
+MAX_BLANK_LINES :: 2
+
+/*
+sanitize_message is sanitize_text for a chat message, which may have
+several lines: newlines are kept (`\r\n` and a lone `\r` become `\n`,
+and so do the Unicode line and paragraph separators). Each line loses
+its trailing whitespace but keeps its indentation; blank lines at either
+end go, and more than MAX_BLANK_LINES blank lines in a row become that
+many. Whitespace before the first line's text goes too, as it does in
+sanitize_text.
+*/
+sanitize_message :: proc(text: string, buf: []u8) -> string {
+	n := 0
+	// Held back until something shows after them, so whitespace at the
+	// end of a line and blank lines at the end are dropped.
+	newlines, spaces := 0, 0
+	after_cr := false
+	for r in text {
+		cr := after_cr
+		after_cr = false
+		switch {
+		case r == utf8.RUNE_ERROR:
+			continue // invalid UTF-8
+		case r == '\n' && cr:
+			continue // the second half of a \r\n
+		case r == '\n', r == '\r', r == 0x2028, r == 0x2029:
+			newlines += 1
+			spaces = 0
+			after_cr = r == '\r'
+			continue
+		case r == '\t', r == ' ':
+			spaces += 1
+			continue
+		case r < 0x20, r == 0x7f, r >= 0x80 && r < 0xa0:
+			continue // other control characters go
+		case invisible(r), r == CUSTOM_EMOJI_PLACEHOLDER:
+			continue
+		}
+		breaks := 0 if n == 0 else min(newlines, MAX_BLANK_LINES + 1)
+		indent := spaces if n > 0 else 0
+		bytes, w := utf8.encode_rune(r)
+		if n + breaks + indent + w > len(buf) {
+			break
+		}
+		for _ in 0 ..< breaks {
+			buf[n] = '\n'
+			n += 1
+		}
+		for _ in 0 ..< indent {
+			buf[n] = ' '
+			n += 1
+		}
+		copy(buf[n:], bytes[:w])
+		n += w
+		newlines, spaces = 0, 0
+	}
+	return string(buf[:n])
 }
 
 // Zero-width characters, bidirectional controls and the BOM: they'd let a
@@ -127,7 +188,7 @@ It's unreliable like Refused, so the server sends a few copies, and
 again whenever the client repeats its Handshake_Finish. Until it comes,
 a client takes nothing else on a new session.
 */
-HELLO_VERSION :: 10
+HELLO_VERSION :: 11
 MAX_PASSWORD_SIZE :: 64 // bytes
 HELLO_MAX_SIZE :: 1 + 8 + 1 + MAX_PASSWORD_SIZE
 WELCOME_SIZE :: 1 + 8 + 1

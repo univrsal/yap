@@ -128,7 +128,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.layout_row(ctx, {-1})
 		text, _, _ := conn.text_display(m.text, v.accounts, v.me, v.emoji.names[:])
 		if text != "" {
-			mu.text(ctx, text)
+			mu.text(ctx, conn.markdown_plain(text))
 		}
 		// Its files, which may be what it was found by.
 		if len(m.files) > 0 {

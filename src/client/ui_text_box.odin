@@ -17,8 +17,9 @@ build notes nothing.
 */
 
 Text_Box :: struct {
-	id:   mu.Id,
-	rect: mu.Rect, // as visible: clipped to its container
+	id:        mu.Id,
+	rect:      mu.Rect, // as visible: clipped to its container
+	multiline: bool, // a text area (ui_text_area.odin), where Enter starts a line
 }
 
 text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.Result_Set {
@@ -28,7 +29,7 @@ text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.R
 	id := mu.get_id(ctx, uintptr(&buf[0]))
 	r := mu.layout_next(ctx)
 	when platform.WEB {
-		append(&ui.text_boxes, Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx))})
+		append(&ui.text_boxes, Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), false})
 	}
 	return mu.textbox_raw(ctx, buf, textlen, id, r, opt)
 }

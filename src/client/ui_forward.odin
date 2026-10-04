@@ -215,6 +215,7 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 			said = "a call"
 		case:
 			said, _, _ = conn.text_display(m.text, v.accounts, v.me, v.emoji.names[:])
+			said = conn.markdown_plain(said)
 			if len(said) > LINK_SNIPPET {
 				cut := LINK_SNIPPET
 				for cut > 0 && !utf8.rune_start(said[cut]) {
@@ -247,6 +248,13 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 message_text :: proc(ui: ^UI, text: string) -> (shown: string, spans: []conn.Mention_Span, emoji: []conn.Emoji_Span, links: []conn.Link_Span) {
 	v := &ui.view
 	return conn.text_display_links(text, v.accounts, v.me, v.emoji.names[:], link_label, ui)
+}
+
+// message_rich is a message's text as the timeline draws it: its markdown
+// and web links too (ui_rich_text.odin). Call with the View locked.
+message_rich :: proc(ui: ^UI, text: string) -> Rich {
+	shown, spans, emoji, links := message_text(ui, text)
+	return rich_make(shown, spans, emoji, links, true)
 }
 
 // forward_note is what a forwarded message's header says of where it

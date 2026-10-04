@@ -45,6 +45,7 @@ Icon :: enum {
 	Picture, // a frame with a hill and the sun
 	Video, // a frame with a play button
 	Text_File, // a sheet with lines of writing
+	Eye, // an eye: show a message as it will look (the composer's preview)
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -198,6 +199,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return video(p)
 	case .Text_File:
 		return text_file(p)
+	case .Eye:
+		return eye(p)
 	}
 	return 1
 }
@@ -303,6 +306,16 @@ log_page :: proc(p: Point) -> f32 {
 	d = nearer(d, capsule(p, {0.32, 0.50}, {0.60, 0.50}, STROKE))
 	d = nearer(d, capsule(p, {0.32, 0.65}, {0.66, 0.65}, STROKE))
 	return d
+}
+
+// An eye: the outline of a lens - where two big discs, one above the
+// other, overlap - and the pupil in it.
+@(private = "file")
+eye :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	lens := max(disc(p, {0.5, 0.77}, 0.45), disc(p, {0.5, 0.23}, 0.45))
+	d := abs(lens) - STROKE / 2
+	return nearer(d, disc(p, {0.5, 0.5}, 0.11))
 }
 
 // A smiling face: a ring, two eyes, and a smile.

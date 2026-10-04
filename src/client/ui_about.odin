@@ -117,9 +117,17 @@ THIRD_PARTY := [?]Third_Party {
 	{
 		name = "Roboto",
 		license = "Apache-2.0",
-		use = "The font (font data copyright Google 2012)",
+		use = "The font, regular, bold and italic (font data copyright Google 2012)",
 		url = "https://fonts.google.com/specimen/Roboto",
 		text = #load("licenses/roboto.txt", string),
+		builds = {.Desktop, .Web},
+	},
+	{
+		name = "JetBrains Mono",
+		license = "OFL-1.1",
+		use = "The font for code in messages",
+		url = "https://www.jetbrains.com/lp/mono/",
+		text = #load("licenses/jetbrainsmono.txt", string),
 		builds = {.Desktop, .Web},
 	},
 	{

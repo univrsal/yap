@@ -231,15 +231,16 @@ Composer :: struct {
 	conv:    ^proto.Conv_Id, // where the message being edited is
 	thread:  int, // 0 for the page's, else the thread window's slot
 	files:   ^[dynamic]Picked_File, // what goes with it (ui_attachments.odin)
+	area:    ^Text_Area, // the box it's written in
 }
 
 composer_of_page :: proc(ui: ^UI) -> Composer {
 	if ui.page == .Buddies {
 		b := &ui.buddies
-		return {b.buf[:], &b.len, &b.editing, &b.editing_conv, 0, &b.files}
+		return {b.buf[:], &b.len, &b.editing, &b.editing_conv, 0, &b.files, &b.area}
 	}
 	ch := &ui.chat
-	return {ch.buf[:], &ch.len, &ch.editing, &ch.editing_conv, 0, &ch.files}
+	return {ch.buf[:], &ch.len, &ch.editing, &ch.editing_conv, 0, &ch.files, &ch.area}
 }
 
 // composer_of is the page's composer (0) or a thread window's.
@@ -248,7 +249,7 @@ composer_of :: proc(ui: ^UI, thread: int) -> Composer {
 		return composer_of_page(ui)
 	}
 	t := &ui.threads[thread - 1]
-	return {t.buf[:], &t.len, &t.editing, &t.editing_conv, thread, &t.files}
+	return {t.buf[:], &t.len, &t.editing, &t.editing_conv, thread, &t.files, &t.area}
 }
 
 /*
@@ -272,6 +273,7 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 		c.editing^ = 0
 		c.len^ = 0
 	}
+	composer_format(ui, c)
 	if .Up in ui.keys && c.len^ == 0 && c.editing^ == 0 {
 		key := conn.Timeline_Key{v.viewing, 0}
 		if c.thread != 0 {
@@ -279,7 +281,41 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 		}
 		if m, ok := newest_own_text(v, key); ok {
 			start_editing(ui, m.id, m.text, c)
+			ui.keys -= {.Up} // not for the text area as well
 		}
+	}
+}
+
+/*
+composer_format does the markdown keys (Ctrl+B, Ctrl+I, Ctrl+U,
+Ctrl+Shift+X, Ctrl+E) in a composer with the focus: the markers go round
+the selection, or come off it (conn.markdown_toggle). Nothing happens if
+the text wouldn't fit.
+*/
+@(private = "file")
+composer_format :: proc(ui: ^UI, c: Composer) {
+	ctx := &ui.ctx
+	MARKERS :: [?]struct {
+		key:    Extra_Key,
+		marker: string,
+	}{{.Bold, "**"}, {.Italic, "*"}, {.Underline, "__"}, {.Strike, "~~"}, {.Code, "`"}}
+	for k in MARKERS {
+		if k.key not_in ui.keys {
+			continue
+		}
+		ui.keys -= {k.key}
+		s := &ctx.textbox_state
+		sel := [2]int{c.len^, c.len^}
+		if s.id == u64(mu.get_id(ctx, uintptr(&c.buf[0]))) {
+			sel = {clamp(s.selection[0], 0, c.len^), clamp(s.selection[1], 0, c.len^)}
+		}
+		out, lo, hi := conn.markdown_toggle(string(c.buf[:c.len^]), min(sel[0], sel[1]), max(sel[0], sel[1]), k.marker)
+		if len(out) > len(c.buf) {
+			continue
+		}
+		c.len^ = copy(c.buf, out)
+		// The caret stays at the end it was at.
+		s.selection = {hi, lo} if sel[0] >= sel[1] else {lo, hi}
 	}
 }
 
@@ -292,6 +328,8 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	if (text == "" && !has_files) || ui.session == nil {
 		return false
 	}
+	ui_redraw(ui) // for the box to shrink back to a line
+	c.area.preview = false
 	text = conn.emoji_encode(conn.mentions_encode(text, ui.view.accounts), ui.view.emoji.names[:])
 	if has_files {
 		log.debug("ui: a message with files")

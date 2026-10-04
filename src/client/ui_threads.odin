@@ -32,6 +32,7 @@ UI_Thread :: struct {
 	timeline:     UI_Timeline,
 	buf:          [proto.MAX_CHAT_SIZE]u8,
 	len:          int,
+	area:         Text_Area, // the box it's written in
 	// The reply of ours being edited in it, and where (Composer).
 	editing:      proto.Msg_Id,
 	editing_conv: proto.Conv_Id,
@@ -215,31 +216,30 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	}
 	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
 
-	input_h := composer_height(ui)
+	input_h := composer_height(ui, composer)
 	width := panel_width(ctx)
 	files_h := composer_files_height(ui, composer, width)
 	mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
 	timeline(ui, &t.timeline, t.key)
 	composer_files(ui, composer, width)
 
-	mu.layout_row(ctx, {-(3 * ICON_BUTTON + 14), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON}, input_h)
+	composer_row(ui, input_h, 4)
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
-	res := chat_text_box(ui, t.buf[:], &t.len)
-	box := ctx.last_id
-	if takes_focus(ui, composer) {
-		focus_at(ctx, box, t.len if ui.focus_composer_at < 0 else ui.focus_composer_at)
-	}
+	res, box := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && t.len > 0 && ui.session != nil && t.editing == 0 {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{thread = t.key})
 	}
 	send := .SUBMIT in res
+	composer_buttons(ui, input_h, 4)
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
+	preview_button(ui, composer)
 	if .SUBMIT in icon_button(ui, "send", .Send, "Save" if t.editing != 0 else "Reply") {
 		send = true
 	}
+	mu.layout_end_column(ctx)
 	if !send {
 		return
 	}

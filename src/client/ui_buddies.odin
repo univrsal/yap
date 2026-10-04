@@ -28,6 +28,7 @@ UI_Buddies :: struct {
 	// What's being written to them.
 	buf:         [proto.MAX_CHAT_SIZE]u8,
 	len:         int,
+	area:        Text_Area, // the box it's written in
 	// Something to tell about the conversation, and since when.
 	notice:      string,
 	notice_at:   time.Tick,
@@ -346,7 +347,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	with_text_color(ctx, status_color, status, label_proc)
 
 	// Leave room for the input row below, as the chat does.
-	input_h := composer_height(ui)
+	input_h := composer_height(ui, composer_of_page(ui))
 	files_h := composer_files_height(ui, composer_of_page(ui), panel_width(ctx))
 	mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
 	if entry.conv != 0 && v.viewing == entry.conv {
@@ -357,7 +358,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 
 	composer := composer_of_page(ui)
 	composer_files(ui, composer, panel_width(ctx))
-	mu.layout_row(ctx, {-(4 * ICON_BUTTON + 18), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON}, input_h)
+	composer_row(ui, input_h, 5)
 	// Ctrl+V could be an image, as in the chat box (chat_input); this
 	// one goes to them.
 	if !platform.WEB &&
@@ -371,18 +372,16 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	}
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
-	res := chat_text_box(ui, ui.buddies.buf[:], &ui.buddies.len)
-	box := ctx.last_id
-	if takes_focus(ui, composer) {
-		focus_at(ctx, box, ui.buddies.len if ui.focus_composer_at < 0 else ui.focus_composer_at)
-	}
+	res, box := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && ui.buddies.len > 0 && ui.session != nil && v.viewing == entry.conv && entry.conv != 0 && ui.buddies.editing == 0 {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
+	composer_buttons(ui, input_h, 5)
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
+	preview_button(ui, composer)
 	if .SUBMIT in icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
 		if !entry.online {
 			ui.buddies.notice = "files only go to someone who's here"
@@ -394,6 +393,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	if .SUBMIT in icon_button(ui, "dm send", .Send, "Save" if ui.buddies.editing != 0 else "Send") {
 		send = true
 	}
+	mu.layout_end_column(ctx)
 	if !send {
 		return
 	}

@@ -58,6 +58,7 @@ foreign _ {
 	InitFont :: proc(info: ^fontinfo, data: [^]byte, offset: i32) -> b32 ---
 	FindGlyphIndex :: proc(info: ^fontinfo, unicode_codepoint: rune) -> i32 ---
 	ScaleForPixelHeight :: proc(info: ^fontinfo, pixels: f32) -> f32 ---
+	ScaleForMappingEmToPixels :: proc(info: ^fontinfo, pixels: f32) -> f32 ---
 	GetFontVMetrics :: proc(info: ^fontinfo, ascent, descent, lineGap: ^i32) ---
 	GetCodepointHMetrics :: proc(info: ^fontinfo, codepoint: rune, advanceWidth, leftSideBearing: ^i32) ---
 	PackBegin :: proc(spc: ^pack_context, pixels: [^]byte, width, height, stride_in_bytes, padding: i32, alloc_context: rawptr) -> b32 ---

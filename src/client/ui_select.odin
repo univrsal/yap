@@ -149,7 +149,7 @@ select_line is one line of an item as it's drawn: text[start:end] at
 text), and works out whether the pointer is on the line, or past it,
 for the place a press or a drag lands on.
 */
-select_line :: proc(ui: ^UI, item: i64, text: string, start, end: int, pos: mu.Vec2) {
+select_line :: proc(ui: ^UI, item: i64, text: string, start, end: int, pos: mu.Vec2, rich: ^Rich = nil) {
 	ctx := &ui.ctx
 	s := &ui.select
 	font := ctx.style.font
@@ -161,8 +161,8 @@ select_line :: proc(ui: ^UI, item: i64, text: string, start, end: int, pos: mu.V
 	// every line, it lands at the start of the first.
 	if mouse.y >= pos.y {
 		if mouse.y < pos.y + h {
-			s.hit = {item, offset_at(ctx, font, text, start, end, mouse.x - pos.x)}
-			width := ctx.text_width(font, text[start:end])
+			s.hit = {item, offset_at(ctx, font, text, start, end, mouse.x - pos.x, rich)}
+			width := span_width(ctx, font, text, start, end, rich)
 			if mouse.x >= pos.x &&
 			   mouse.x < pos.x + width &&
 			   mu.mouse_over(ctx, {pos.x, pos.y, width, h}) {
@@ -189,8 +189,8 @@ select_line :: proc(ui: ^UI, item: i64, text: string, start, end: int, pos: mu.V
 	// whole pixels, rounded up, so the width of text[a:b] by itself can
 	// be a pixel off what the two edges are apart, and the far edge
 	// would shift about as the near one moved.
-	x0 := pos.x + ctx.text_width(font, text[start:a])
-	x1 := pos.x + ctx.text_width(font, text[start:b])
+	x0 := pos.x + span_width(ctx, font, text, start, a, rich)
+	x1 := pos.x + span_width(ctx, font, text, start, b, rich)
 	mu.draw_rect(ctx, {x0, pos.y, x1 - x0, h}, SELECTION_COLOR)
 }
 
@@ -214,10 +214,18 @@ selected_range :: proc(s: ^Selection, item: i64, length: int) -> (lo, hi: int, o
 	return lo, hi, lo < hi
 }
 
+// span_width is how wide text[a:b] is drawn: in `font`, or for a
+// message's text (`rich`, ui_rich_text.odin) in its runs' faces.
+span_width :: proc(ctx: ^mu.Context, font: mu.Font, text: string, a, b: int, rich: ^Rich = nil) -> i32 {
+	if rich != nil {
+		return rich_width(ctx, rich, a, b)
+	}
+	return ctx.text_width(font, text[a:b])
+}
+
 // offset_at is the place in text[start:end] nearest `x` pixels from
 // where it starts, between two characters.
-@(private = "file")
-offset_at :: proc(ctx: ^mu.Context, font: mu.Font, text: string, start, end: int, x: i32) -> int {
+offset_at :: proc(ctx: ^mu.Context, font: mu.Font, text: string, start, end: int, x: i32, rich: ^Rich = nil) -> int {
 	// Each character's edges are where the text up to them ends, as
 	// select_line paints them. Adding up the characters' own widths
 	// instead would add up their rounding too, and land further left
@@ -225,7 +233,7 @@ offset_at :: proc(ctx: ^mu.Context, font: mu.Font, text: string, start, end: int
 	left: i32
 	for ch, i in text[start:end] {
 		next := start + i + utf8.rune_size(ch)
-		right := ctx.text_width(font, text[start:next])
+		right := span_width(ctx, font, text, start, next, rich)
 		if x < (left + right) / 2 {
 			return start + i
 		}

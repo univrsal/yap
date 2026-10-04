@@ -42,7 +42,9 @@ network loop never blocks on input.
 	/deafen, /undeafen  stop or resume playing everyone else
 	/listen, /unlisten  hear your own processed voice (listen back)
 	/say <text>      post to the conversation being looked at (@username
-	                 mentions someone), with the files attached, if any
+	                 mentions someone), with the files attached, if any;
+	                 in a message's text (/say, /reply, /edit, /dm), \n
+	                 starts a new line
 	/attach <file>   attach a file to the next /say (up to 10);
 	                 /unattach drops them
 	/save <id> <n>   save file n of a message to the downloads folder
@@ -295,7 +297,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case strings.has_prefix(line, "/reply "):
 			id, _, text := strings.partition(strings.trim_space(line[len("/reply "):]), " ")
 			if n, ok := strconv.parse_u64(id); ok {
-				conn.push_command(q, conn.Chat_Command{text = strings.clone(text), thread = {root = proto.Msg_Id(n)}, typed = true})
+				conn.push_command(q, conn.Chat_Command{text = typed_lines(text), thread = {root = proto.Msg_Id(n)}, typed = true})
 			}
 		case strings.has_prefix(line, "/send "):
 			// Scaling and compressing happens here rather than on the
@@ -341,11 +343,11 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case strings.has_prefix(line, "/dm "):
 			to, _, text := strings.partition(strings.trim_space(line[len("/dm "):]), " ")
-			conn.push_command(q, conn.DM_Command{name = strings.clone(to), text = strings.clone(text)})
+			conn.push_command(q, conn.DM_Command{name = strings.clone(to), text = typed_lines(text)})
 		case strings.has_prefix(line, "/say "):
 			text := line[len("/say "):]
 			if len(attached) == 0 {
-				conn.push_command(q, conn.Chat_Command{text = strings.clone(text), typed = true})
+				conn.push_command(q, conn.Chat_Command{text = typed_lines(text), typed = true})
 				break
 			}
 			files := make([]conn.Attach_File, len(attached))
@@ -353,7 +355,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				files[i] = {path = path}
 			}
 			clear(&attached)
-			conn.push_command(q, conn.Attach_Send_Command{text = strings.clone(text), files = files, typed = true})
+			conn.push_command(q, conn.Attach_Send_Command{text = typed_lines(text), files = files, typed = true})
 		case strings.has_prefix(line, "/attach "):
 			path := strings.trim_space(line[len("/attach "):])
 			if len(attached) >= proto.MAX_ATTACHMENTS {
@@ -377,7 +379,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case strings.has_prefix(line, "/edit "):
 			id, _, text := strings.partition(strings.trim_space(line[len("/edit "):]), " ")
 			if n, ok := strconv.parse_u64(id); ok {
-				conn.push_command(q, conn.Edit_Command{id = proto.Msg_Id(n), text = strings.clone(text), typed = true})
+				conn.push_command(q, conn.Edit_Command{id = proto.Msg_Id(n), text = typed_lines(text), typed = true})
 			}
 		case strings.has_prefix(line, "/delete "):
 			if n, ok := strconv.parse_u64(strings.trim_space(line[len("/delete "):])); ok {
@@ -448,6 +450,14 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		}
 	}
+}
+
+// typed_lines is a message's text as typed on one line, with each `\n`
+// in it as a newline; a copy.
+@(private = "file")
+typed_lines :: proc(text: string) -> string {
+	out, allocated := strings.replace_all(text, "\\n", "\n")
+	return out if allocated else strings.clone(text)
 }
 
 // parse_perms is permissions by name, comma separated, as /mkrole takes

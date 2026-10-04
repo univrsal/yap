@@ -352,6 +352,13 @@ EM_JS(void, yap_keyboard_hide, (), {
 	if (field && document.activeElement === field) field.blur();
 });
 
+/* Labels a phone keyboard's Enter key for the text box that has the focus:
+   a new line in a text area (src/client/ui_text_area.odin), else send. */
+EM_JS(void, yap_keyboard_multiline, (int on), {
+	const field = document.getElementById("yap-keyboard");
+	if (field) field.enterKeyHint = on ? "enter" : "send";
+});
+
 /* ---- the canvas' pixels ---- */
 
 /* Sizes the canvas' backing store to exactly the device pixels it covers,

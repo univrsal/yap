@@ -238,7 +238,7 @@ attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 		root  = thread.root,
 		dm_to = cmd.dm_to,
 		first = first,
-		text  = strings.clone(proto.sanitize_text(raw, buf[:])),
+		text  = strings.clone(proto.sanitize_message(raw, buf[:])),
 		files = make([]Attach_Upload, len(cmd.files)),
 	}
 	for spec, i in cmd.files {

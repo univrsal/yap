@@ -86,17 +86,19 @@ test_history_page :: proc(t: ^testing.T) {
 	for &m, i in msgs {
 		m = {id = Msg_Id(100 + i), conv = 1, sender = 2, kind = .Text, text = long}
 	}
-	// A full page of the longest messages fits in one stream message.
+	// A page of the longest messages is as many as fit in one stream
+	// message (the server cuts pages to fit, history_page).
 	out := make([]u8, MAX_BODY_SIZE, context.temp_allocator)
 	body, count := encode_history_page(out, MORE_BEFORE, msgs)
-	testing.expect_value(t, count, MAX_HISTORY_LIMIT)
+	fit := min(MAX_HISTORY_LIMIT, (MAX_BODY_SIZE - HISTORY_HEADER_SIZE) / message_size(msgs[0]))
+	testing.expect_value(t, count, fit)
 	buf: [MAX_HISTORY_LIMIT]Message
 	more, got, ok := decode_history_page(body, buf[:])
 	testing.expect(t, ok)
 	testing.expect_value(t, more, MORE_BEFORE)
-	testing.expect_value(t, len(got), MAX_HISTORY_LIMIT)
-	testing.expect_value(t, got[49].id, Msg_Id(149))
-	testing.expect_value(t, got[49].text, long)
+	testing.expect_value(t, len(got), fit)
+	testing.expect_value(t, got[fit - 1].id, Msg_Id(100 + fit - 1))
+	testing.expect_value(t, got[fit - 1].text, long)
 
 	// Where they don't all fit, as many as do, from the first.
 	small := make([]u8, 3 * message_size(msgs[0]) + HISTORY_HEADER_SIZE + 10, context.temp_allocator)
@@ -236,6 +238,33 @@ test_sanitize_text :: proc(t: ^testing.T) {
 	got := sanitize_text(long, buf[:])
 	// Cut at a character boundary.
 	testing.expect_value(t, len(got), MAX_CHAT_SIZE)
+}
+
+@(test)
+test_sanitize_message :: proc(t: ^testing.T) {
+	buf: [MAX_CHAT_SIZE]u8
+	cases := [?][2]string {
+		{"one line", "one line"},
+		{"  \n\n  first\nsecond  \n\n", "first\nsecond"},
+		{"a\r\nb\rc\u2028d", "a\nb\nc\nd"},
+		{"a\r\n\r\nb", "a\n\nb"},
+		// Indentation stays, trailing whitespace goes.
+		{"list:\n  - one \t\n\t- two", "list:\n  - one\n - two"},
+		// At most two blank lines in a row.
+		{"a\n\n\n\n\n\nb", "a\n\n\nb"},
+		{"a\n \n\t\n \n\nb", "a\n\n\nb"},
+		{"a\x00b\u202ec\x7f", "abc"},
+		{" \n\t\r\n", ""},
+	}
+	for c in cases {
+		testing.expect_value(t, sanitize_message(c[0], buf[:]), c[1])
+	}
+	long := strings.repeat("é", MAX_CHAT_SIZE, context.temp_allocator)
+	got := sanitize_message(long, buf[:])
+	testing.expect_value(t, len(got), MAX_CHAT_SIZE)
+	// A line that doesn't fit isn't started.
+	small: [4]u8
+	testing.expect_value(t, sanitize_message("abc\nd", small[:]), "abc")
 }
 
 @(test)

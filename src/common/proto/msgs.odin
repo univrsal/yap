@@ -106,7 +106,7 @@ A thread root comes in a later phase; the record has room for it from
 the start, and it's zero until then.
 */
 
-MAX_CHAT_SIZE :: 500 // bytes of UTF-8 in a message
+MAX_CHAT_SIZE :: 2000 // bytes of UTF-8 in a message
 
 // Unix_Time is seconds since the epoch, the server's clock: what the
 // UI's clock shows a time to the minute in.

@@ -638,15 +638,18 @@ ITEMS_PER_MESSAGE :: 4
 
 // pending_message draws a message of ours on its way.
 pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
-	text, spans, emoji := conn.text_display(p.text, ui.view.accounts, ui.view.me, ui.view.emoji.names[:])
+	text: Rich
 	#partial switch p.kind {
 	case .Image:
-		text, spans, emoji = fmt.tprintf("a picture, %dx%d", p.width, p.height), nil, nil
+		text = rich_plain(fmt.tprintf("a picture, %dx%d", p.width, p.height))
 	case .File:
-		text, spans, emoji = fmt.tprintf("the file %s", p.text), nil, nil
+		text = rich_plain(fmt.tprintf("the file %s", p.text))
+	case:
+		shown, spans, emoji := conn.text_display(p.text, ui.view.accounts, ui.view.me, ui.view.emoji.names[:])
+		text = rich_make(shown, spans, emoji, nil, false)
 	}
 	status := "sending files..." if p.uploading else "sending..."
-	chat_message(ui, status, CHAT_DIM_COLOR, text, CHAT_DIM_COLOR, false, false, item, spans, emoji)
+	chat_message(ui, status, CHAT_DIM_COLOR, &text, CHAT_DIM_COLOR, false, item)
 	pending_files(ui, p)
 }
 
@@ -714,21 +717,25 @@ message_height :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i: 
 	if .Deleted in m.flags {
 		kind = .System // drawn as DELETED_TEXT, like a kind there's no drawing for
 	}
+	// Measured as chat_message draws it (rich_text).
 	#partial switch kind {
 	case .Text:
-		body = wrapped_lines(ctx, shown, width) * ctx.text_height(ctx.style.font)
+		text := message_rich(ui, m.text)
+		body = rich_height(ctx, &text, width)
 	case .Image:
 		if picture_gone(m) {
-			body = wrapped_lines(ctx, PICTURE_GONE_TEXT, width) * ctx.text_height(ctx.style.font)
+			text := rich_plain(PICTURE_GONE_TEXT)
+			body = rich_height(ctx, &text, width)
 			break
 		}
 		_, h := image_display_size(ctx, int(m.image.width), int(m.image.height), int(width))
 		body = i32(h)
 	case .System:
-		body = wrapped_lines(ctx, system_line(ui, m), width) * ctx.text_height(ctx.style.font)
+		text := rich_plain(DELETED_TEXT if .Deleted in m.flags else system_line(ui, m))
+		body = rich_height(ctx, &text, width)
 	case:
-		text := DELETED_TEXT if .Deleted in m.flags else UNKNOWN_KIND_TEXT
-		body = wrapped_lines(ctx, text, width) * ctx.text_height(ctx.style.font)
+		text := rich_plain(UNKNOWN_KIND_TEXT)
+		body = rich_height(ctx, &text, width)
 	}
 	h := chat_block_height(ctx, merged, body, reply_line)
 	if m.kind == .File && .Deleted not_in m.flags {
@@ -821,27 +828,31 @@ timeline_message :: proc(ui: ^UI, st: ^UI_Timeline, msgs: []conn.View_Message, i
 		}
 	}
 	if .Deleted in m.flags {
-		chat_message(ui, header, header_color, DELETED_TEXT, CHAT_DIM_COLOR, false, merged, item, tight = tight)
+		text := rich_plain(DELETED_TEXT)
+		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
 		return from
 	}
 	#partial switch m.kind {
 	case .File:
 		file_message(ui, header, header_color, m.id, message_file(v, m), merged, item, tight)
 	case .Text:
-		shown, spans, emoji, links := message_text(ui, m.text)
-		chat_message(ui, header, header_color, shown, ctx.style.colors[.TEXT], true, merged, item, spans, emoji, tight, links)
+		text := message_rich(ui, m.text)
+		chat_message(ui, header, header_color, &text, ctx.style.colors[.TEXT], merged, item, tight)
 		message_files(ui, st.key.conv, m)
 	case .Image:
 		if picture_gone(m) {
-			chat_message(ui, header, header_color, PICTURE_GONE_TEXT, CHAT_DIM_COLOR, false, merged, item, tight = tight)
+			text := rich_plain(PICTURE_GONE_TEXT)
+			chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
 			break
 		}
 		img := v.blobs[m.image.blob] or_else conn.View_Image{state = .Wanted}
 		chat_image(ui, header, header_color, u64(m.image.blob), m.image, img, merged, item, available = int(width), tight = tight)
 	case .System:
-		chat_message(ui, header, header_color, system_line(ui, m), CHAT_DIM_COLOR, false, merged, item, tight = tight)
+		text := rich_plain(system_line(ui, m))
+		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
 	case:
-		chat_message(ui, header, header_color, UNKNOWN_KIND_TEXT, CHAT_DIM_COLOR, false, merged, item, tight = tight)
+		text := rich_plain(UNKNOWN_KIND_TEXT)
+		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
 	}
 	reaction_chips(ui, m, width)
 	return from
@@ -879,9 +890,10 @@ reply_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, width: i32) 
 		case root.kind == .File:
 			said = fmt.tprintf("the file %s", root.text)
 		case:
-			said, _ = conn.mentions_display(root.text, v.accounts, v.me)
+			shown, _ := conn.mentions_display(root.text, v.accounts, v.me)
+			said = conn.markdown_plain(shown)
 		}
-		said, _ = strings.replace_all(said, "\n", " ", context.temp_allocator)
+		said = conn.one_line(said)
 		text = fmt.tprintf("%s: %s", name, said)
 	} else if !st.roots_asked[m.thread_root] && ui.session != nil {
 		st.roots_asked[m.thread_root] = true

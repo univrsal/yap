@@ -150,7 +150,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			return
 		}
 	case .Text:
-		m.text = proto.sanitize_text(p.text, text_buf[:])
+		m.text = proto.sanitize_message(p.text, text_buf[:])
 		// The files it carries: uploads of the poster's, each once.
 		for i in 0 ..< p.attachment_count {
 			up, kept := attach_upload_for(s, sender, p.uploads[i])
@@ -552,21 +552,30 @@ history_page :: proc(
 		attach_reactions(s, &m, asker)
 		attach_files(s, &m)
 	}
-	// Pages are small enough that this doesn't happen, but should a page
-	// not fit, what's furthest from the anchor goes.
+	// A page of long messages (with files and reactions) can be too big
+	// for one answer: what's furthest from the anchor goes.
 	msgs = list[:]
 	size := proto.HISTORY_HEADER_SIZE
 	for m in msgs {
 		size += proto.message_size(m)
 	}
+	// Around: where the anchor is in the page, to keep the page about it.
+	at := len(msgs) / 2
+	for m, i in msgs {
+		if m.id == anchor {
+			at = i
+		}
+	}
 	for size > proto.MAX_BODY_SIZE && len(msgs) > 0 {
-		if dir == .After {
+		newer_side := dir == .After || (dir == .Around && len(msgs) - 1 - at > at)
+		if newer_side {
 			size -= proto.message_size(msgs[len(msgs) - 1])
 			msgs = msgs[:len(msgs) - 1]
 			more |= proto.MORE_AFTER
 		} else {
 			size -= proto.message_size(msgs[0])
 			msgs = msgs[1:]
+			at -= 1
 			more |= proto.MORE_BEFORE
 		}
 	}

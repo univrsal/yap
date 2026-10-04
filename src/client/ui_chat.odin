@@ -1,11 +1,11 @@
 package client
 
 import "core:fmt"
-import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
 import "core:time/datetime"
+import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
@@ -31,6 +31,7 @@ UI_Chat :: struct {
 	tab:      Side_Tab,
 	buf:      [proto.MAX_CHAT_SIZE]u8,
 	len:      int,
+	area:     Text_Area, // the box it's written in
 	tz:       ^datetime.TZ_Region, // for local timestamps; nil means UTC
 
 	// The link under the mouse (as its first byte's address), found while
@@ -170,7 +171,7 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 			}
 		}
 		// Leave room for the input row below, and the files above it.
-		input_h := composer_height(ui)
+		input_h := composer_height(ui, composer_of(ui, 0))
 		width := panel_width(ctx)
 		files_h := composer_files_height(ui, composer_of(ui, 0), width)
 		mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
@@ -190,22 +191,112 @@ panel_width :: proc(ctx: ^mu.Context) -> i32 {
 	return mu.get_current_container(ctx).body.w - 2 * ctx.style.padding
 }
 
-// composer_height is how tall a box we write messages in is: a
-// control's height, or more for the chat's text when it's bigger
-// (settings.chat_scale).
-composer_height :: proc(ui: ^UI) -> i32 {
-	ctx := &ui.ctx
-	return max(ctx.style.size.y + 2 * ctx.style.padding, ctx.text_height(render.CHAT_FONT) + 4)
+// composer_height is how tall the box a composer's message is written in
+// is: a line or more of the chat's text (ui_text_area.odin).
+composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
+	return text_area_height(&ui.ctx, render.CHAT_FONT, string(c.buf[:c.len^]), c.area)
 }
 
-// chat_text_box is text_box in the chat's font: the box we write
-// messages in.
-chat_text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int) -> mu.Result_Set {
+/*
+composer_row lays out the row a composer's box is in, `height` tall,
+with `buttons` icon buttons beside it: the box, then a column for the
+buttons, which stay a line's height at the foot of the box however tall
+it grows. Lay the box out, then the buttons, then end the column with
+mu.layout_end_column.
+*/
+composer_row :: proc(ui: ^UI, height: i32, buttons: int) {
+	ctx := &ui.ctx
+	mu.layout_row(ctx, {-(i32(buttons) * (ICON_BUTTON + 4) + 2), -1}, height)
+}
+
+// composer_buttons starts the column of a composer_row's buttons, after
+// its box.
+composer_buttons :: proc(ui: ^UI, height: i32, buttons: int) {
+	ctx := &ui.ctx
+	mu.layout_begin_column(ctx)
+	single := text_area_single(ctx, render.CHAT_FONT)
+	if height > single {
+		mu.layout_row(ctx, {-1}, height - single - ctx.style.spacing)
+		mu.layout_next(ctx)
+	}
+	widths: [8]i32
+	for &w in widths[:buttons] {
+		w = ICON_BUTTON
+	}
+	mu.layout_row(ctx, widths[:buttons], single)
+}
+
+/*
+composer_box lays out the box a composer's message is written in: its
+text area, or with the preview on (preview_button), the message as it
+will look. It has the composer take the focus when it's to (which ends
+the preview), and says what the text area did and the box's id.
+*/
+composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id) {
+	ctx := &ui.ctx
+	box = mu.get_id(ctx, uintptr(&c.buf[0]))
+	if c.area.preview {
+		chat_preview(ui, c)
+	} else {
+		res = chat_text_area(ui, c)
+	}
+	if takes_focus(ui, c) {
+		c.area.preview = false
+		focus_at(ctx, box, c.len^ if ui.focus_composer_at < 0 else ui.focus_composer_at)
+		ui_redraw(ui) // for the box to show it has the focus, and the caret
+	}
+	return
+}
+
+// preview_button is the eye beside a composer's box, which shows the
+// message as it will look in its place, and back (D8).
+preview_button :: proc(ui: ^UI, c: Composer) {
+	if .SUBMIT in icon_button(ui, "preview", .Eye, "Back to writing" if c.area.preview else "Preview") {
+		c.area.preview = !c.area.preview
+		if !c.area.preview {
+			focus_composer(ui, c, -1)
+		}
+	}
+}
+
+/*
+chat_preview shows what's in a composer as it will look sent, in its
+box's place: what's typed made into what's stored (mentions, emoji), and
+shown as the timeline shows it, in a panel that scrolls. Call with the
+View locked.
+*/
+@(private = "file")
+chat_preview :: proc(ui: ^UI, c: Composer) {
+	ctx := &ui.ctx
+	v := &ui.view
+	saved := ctx.style.font
+	ctx.style.font = render.CHAT_FONT
+	defer ctx.style.font = saved
+	typed := strings.trim_space(string(c.buf[:c.len^]))
+	color := ctx.style.colors[.TEXT]
+	text: Rich
+	if typed == "" {
+		text, color = rich_plain("Nothing to preview yet."), CHAT_DIM_COLOR
+	} else {
+		text = message_rich(ui, conn.emoji_encode(conn.mentions_encode(typed, v.accounts), v.emoji.names[:]))
+	}
+	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread))
+	defer mu.end_panel(ctx)
+	spacing := ctx.style.spacing
+	ctx.style.spacing = 0
+	defer ctx.style.spacing = spacing
+	mu.layout_row(ctx, {-1}, ctx.text_height(ctx.style.font))
+	rich_text(ui, &text, color, 0)
+}
+
+// chat_text_area is text_area in the chat's font: the box a composer's
+// message is written in.
+chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 	ctx := &ui.ctx
 	saved := ctx.style.font
 	ctx.style.font = render.CHAT_FONT
 	defer ctx.style.font = saved
-	return text_box(ui, buf, textlen)
+	return text_area(ui, c.buf, c.len, c.area)
 }
 
 // tab_button is a stable_button drawn pressed while its tab is shown.
@@ -225,7 +316,9 @@ tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu
 @(private = "file")
 chat_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {-(3 * ICON_BUTTON + 14), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON}, composer_height(ui))
+	composer := composer_of(ui, 0)
+	input_h := composer_height(ui, composer)
+	composer_row(ui, input_h, 4)
 	// Ctrl+V could be an image: hold the text paste back and decide after
 	// the frame (see paste). The id is the one text_box uses.
 	// A browser hands the picture over from its paste event instead (see
@@ -239,24 +332,22 @@ chat_input :: proc(ui: ^UI) {
 		ui.chat.paste = true
 		ui.paste_to = {}
 	}
-	composer := Composer{ui.chat.buf[:], &ui.chat.len, &ui.chat.editing, &ui.chat.editing_conv, 0, &ui.chat.files}
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
-	res := chat_text_box(ui, ui.chat.buf[:], &ui.chat.len)
-	box := ctx.last_id
-	if takes_focus(ui, composer) {
-		focus_at(ctx, box, ui.chat.len if ui.focus_composer_at < 0 else ui.focus_composer_at)
-	}
+	res, box := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil && ui.chat.editing == 0 {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
+	composer_buttons(ui, input_h, 4)
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
+	preview_button(ui, composer)
 	if .SUBMIT in icon_button(ui, "send", .Send, "Save" if ui.chat.editing != 0 else "Send") {
 		send = true
 	}
+	mu.layout_end_column(ctx)
 	if !send {
 		return
 	}
@@ -406,7 +497,7 @@ wrapped_lines :: proc(ctx: ^mu.Context, text: string, width: i32) -> (n: i32) {
 	rest := text
 	for len(rest) > 0 {
 		end := line_end(ctx, font, rest, width)
-		rest = strings.trim_left_space(rest[end:])
+		rest = next_line(rest, end)
 		n += 1
 	}
 	return
@@ -445,7 +536,7 @@ file_message :: proc(
 	if !merged {
 		selectable_header(ui, header, header_color, item)
 	}
-	wrapped_text(ui, file_title(f), ctx.style.colors[.TEXT], nil, item + 1)
+	wrapped_text(ui, file_title(f), ctx.style.colors[.TEXT], item + 1)
 
 	// The bar, below the name, while it's under way; its room either way.
 	mu.layout_row(ctx, {-1}, FILE_BAR_GAP)
@@ -462,7 +553,7 @@ file_message :: proc(
 	mu.layout_next(ctx)
 	status, color := file_status(f)
 	mu.layout_row(ctx, {-1}, ctx.text_height(font))
-	wrapped_text(ui, status, color, nil, item + 2)
+	wrapped_text(ui, status, color, item + 2)
 
 	// The buttons, spaced like the rest of the UI.
 	send :: proc(ui: ^UI, id: proto.Msg_Id, action: conn.File_Action) {
@@ -591,21 +682,17 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 }
 
 // chat_message draws the gap before this message, a header line unless
-// `merged` (see chat_image), and the wrapped text under it, with the
-// lines packed tightly.
+// `merged` (see chat_image), and the text under it (ui_rich_text.odin),
+// with the lines packed tightly.
 chat_message :: proc(
 	ui: ^UI,
 	header: string,
 	header_color: mu.Color,
-	text: string,
+	text: ^Rich,
 	color: mu.Color,
-	links: bool,
 	merged: bool,
 	item: i64, // the header's; the text is the next one
-	mentions: []conn.Mention_Span = nil, // in `text`, as text_display has them
-	emoji: []conn.Emoji_Span = nil, // the same
 	tight := false, // as in chat_image
-	msg_links: []conn.Link_Span = nil, // links to messages, the same
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -624,29 +711,7 @@ chat_message :: proc(
 	if !merged {
 		selectable_header(ui, header, header_color, item)
 	}
-	// Web links and links to messages, in order, the first where they'd
-	// overlap (a message's words may have an address in them).
-	all: []platform.Link
-	if links {
-		all = platform.find_links(text)
-	}
-	if len(msg_links) > 0 {
-		merged := make([dynamic]platform.Link, context.temp_allocator)
-		for ml in msg_links {
-			append(&merged, platform.Link{ml.start, ml.end})
-		}
-		outer: for l in all {
-			for ml in msg_links {
-				if l.start < ml.end && ml.start < l.end {
-					continue outer
-				}
-			}
-			append(&merged, l)
-		}
-		slice.sort_by(merged[:], proc(a, b: platform.Link) -> bool {return a.start < b.start})
-		all = merged[:]
-	}
-	wrapped_text(ui, text, color, all, item + 1, mentions, emoji, msg_links)
+	rich_text(ui, text, color, item + 1)
 }
 
 // selectable_header draws a message's header line in the next layout
@@ -661,21 +726,12 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 }
 
 // wrapped_text is mu.text, except it also breaks words too long for a
-// line, wraps the last word of a paragraph (which mu.text doesn't), and
-// draws `links` (byte ranges of `text`) as clickable links and `mentions`
-// highlighted. It continues the current row layout. The text can be
-// selected as `item`.
+// line, wraps the last word of a paragraph (which mu.text doesn't) and
+// breaks lines at newlines. It continues the current row layout. The
+// text can be selected as `item`. For plain text (a file's name); a
+// message's is rich_text.
 @(private = "file")
-wrapped_text :: proc(
-	ui: ^UI,
-	text: string,
-	color: mu.Color,
-	links: []platform.Link,
-	item: i64,
-	mentions: []conn.Mention_Span = nil,
-	emoji: []conn.Emoji_Span = nil,
-	msg_links: []conn.Link_Span = nil,
-) {
+wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, item: i64) {
 	ctx := &ui.ctx
 	font := ctx.style.font
 	select_item(ui, item, text)
@@ -685,138 +741,8 @@ wrapped_text :: proc(
 		end := line_end(ctx, font, rest, r.w)
 		start := len(text) - len(rest)
 		select_line(ui, item, text, start, start + end, {r.x, r.y})
-		draw_line(ui, text, start, start + end, {r.x, r.y}, color, links, mentions, msg_links)
-		draw_emoji(ui, text, start, start + end, {r.x, r.y}, emoji)
-		emoji_hint(ui, text, start, start + end, {r.x, r.y, r.w, ctx.text_height(font)}, emoji)
-		rest = strings.trim_left_space(rest[end:])
-	}
-}
-
-// draw_line draws text[start:end], in pieces where it overlaps links and
-// mentions.
-@(private = "file")
-draw_line :: proc(
-	ui: ^UI,
-	text: string,
-	start, end: int,
-	pos: mu.Vec2,
-	color: mu.Color,
-	links: []platform.Link,
-	mentions: []conn.Mention_Span,
-	msg_links: []conn.Link_Span = nil,
-) {
-	ctx := &ui.ctx
-	font := ctx.style.font
-	x := pos.x
-	piece :: proc(
-		ctx: ^mu.Context,
-		font: mu.Font,
-		s: string,
-		x: ^i32,
-		y: i32,
-		color: mu.Color,
-	) -> mu.Rect {
-		w := ctx.text_width(font, s)
-		mu.draw_text(ctx, font, s, {x^, y}, color)
-		r := mu.Rect{x^, y, w, ctx.text_height(font)}
-		x^ += w
-		return r
-	}
-
-	at := start
-	for l in links {
-		if l.end <= at || l.start >= end {
-			continue
-		}
-		if l.start > at {
-			mention_pieces(ctx, text, at, l.start, &x, pos.y, color, mentions)
-			at = l.start
-		}
-		link_end := min(l.end, end)
-		id := uintptr(raw_data(text)) + uintptr(l.start)
-		hovered := ui.chat.hover == id
-		r := piece(
-			ctx,
-			font,
-			text[at:link_end],
-			&x,
-			pos.y,
-			LINK_HOVER_COLOR if hovered else LINK_COLOR,
-		)
-		// Underline, just below the baseline.
-		mu.draw_rect(
-			ctx,
-			{r.x, r.y + r.h - 2, r.w, 1},
-			LINK_HOVER_COLOR if hovered else LINK_COLOR,
-		)
-		if mu.mouse_over(ctx, r) {
-			ui.chat.hover = id
-			ui.chat.hovering = true
-			// On the release of a press in this panel, and only if that
-			// didn't end a drag that selected something (ui_select.odin).
-			if .LEFT in ctx.mouse_released_bits &&
-			   ui.select.dragging &&
-			   ui.select.panel == ui.select.drawing &&
-			   !has_selection(&ui.select, ui.select.drawing) &&
-			   ui.chat.open == "" {
-				// A link to a message is gone to; anything else is a
-				// web address.
-				to_message := false
-				for ml in msg_links {
-					if ml.start == l.start {
-						ui.forward.go_conv, ui.forward.go_id = ml.link.conv, ml.link.id
-						to_message = true
-					}
-				}
-				if !to_message {
-					ui.chat.open = platform.link_url(text, l, context.allocator)
-				}
-			}
-		}
-		at = link_end
-	}
-	if at < end {
-		mention_pieces(ctx, text, at, end, &x, pos.y, color, mentions)
-	}
-}
-
-/*
-emoji_hint names the emoji under the pointer, if it's over one in
-text[start:end], drawn in `line`: `:name:`, one of the font's (by its
-first shortcode) or one of the server's (a placeholder character, with a
-span saying which).
-*/
-@(private = "file")
-emoji_hint :: proc(ui: ^UI, text: string, start, end: int, line: mu.Rect, emoji: []conn.Emoji_Span) {
-	ctx := &ui.ctx
-	if !mu.mouse_over(ctx, line) {
-		return
-	}
-	font := ctx.style.font
-	mouse := ctx.mouse_pos.x
-	x := line.x
-	for i := start; i < end; {
-		r, size := utf8.decode_rune_in_string(text[i:end])
-		w := ctx.text_width(font, text[i:i + size])
-		if mouse >= x && mouse < x + w {
-			name := ""
-			for e in emoji {
-				if e.start == i && e.index < len(ui.view.emoji.names) {
-					name = ui.view.emoji.names[e.index]
-				}
-			}
-			if name == "" {
-				if index, ok := proto.emoji_index(r); ok {
-					name = proto.emoji_name(proto.EMOJI[index])
-				}
-			}
-			if name != "" {
-				ui.hint, ui.hint_of = fmt.tprintf(":%s:", name), {x, line.y, w, line.h}
-			}
-			return
-		}
-		x += w
-		i += size
+		mu.draw_text(ctx, font, text[start:start + end], {r.x, r.y}, color)
+		rest = next_line(rest, end)
 	}
 }
 
@@ -828,81 +754,32 @@ custom_emoji_size :: proc(ctx: ^mu.Context) -> (size, advance: i32) {
 	return i32(render.CUSTOM_EMOJI_SIZE * zoom), i32(render.CUSTOM_EMOJI_ADVANCE * zoom)
 }
 
-// draw_emoji draws the server's emoji over their placeholders in
-// text[start:end], drawn at `pos`.
-@(private = "file")
-draw_emoji :: proc(ui: ^UI, text: string, start, end: int, pos: mu.Vec2, emoji: []conn.Emoji_Span) {
-	ctx := &ui.ctx
-	font := ctx.style.font
-	for e in emoji {
-		if e.start < start || e.start >= end {
-			continue
-		}
-		icon, ok := custom_emoji_icon(ui, e.index)
-		if !ok {
-			continue
-		}
-		x := pos.x + ctx.text_width(font, text[start:e.start])
-		size, advance := custom_emoji_size(ctx)
-		gap := (advance - size) / 2
-		y := pos.y + (ctx.text_height(font) - size) / 2
-		mu.draw_icon(ctx, icon, {x + gap, y, size, size}, {255, 255, 255, 255})
-	}
-}
-
 // How a mention is drawn: in its own colour, and on a background when it's
 // the reader's.
 MENTION_COLOR :: mu.Color{235, 185, 95, 255}
 MENTION_ME_BACKGROUND :: mu.Color{110, 80, 25, 255}
 
-// mention_pieces draws text[start:end] from x along, in pieces where it
-// overlaps mentions, and moves x on past it.
-@(private = "file")
-mention_pieces :: proc(
-	ctx: ^mu.Context,
-	text: string,
-	start, end: int,
-	x: ^i32,
-	y: i32,
-	color: mu.Color,
-	mentions: []conn.Mention_Span,
-) {
-	font := ctx.style.font
-	draw :: proc(ctx: ^mu.Context, font: mu.Font, s: string, x: ^i32, y: i32, color: mu.Color, background: mu.Color) {
-		w := ctx.text_width(font, s)
-		if background.a > 0 {
-			mu.draw_rect(ctx, {x^ - 1, y, w + 2, ctx.text_height(font)}, background)
-		}
-		mu.draw_text(ctx, font, s, {x^, y}, color)
-		x^ += w
-	}
-	at := start
-	for m in mentions {
-		if m.end <= at || m.start >= end {
-			continue
-		}
-		if m.start > at {
-			draw(ctx, font, text[at:m.start], x, y, color, {})
-			at = m.start
-		}
-		upto := min(m.end, end)
-		draw(ctx, font, text[at:upto], x, y, MENTION_COLOR, MENTION_ME_BACKGROUND if m.me else {})
-		at = upto
-	}
-	if at < end {
-		draw(ctx, font, text[at:end], x, y, color, {})
-	}
+// wrap_line is the first line of `text` wrapped at `width`, as the chat
+// wraps it: text[:end] is drawn, and the next line starts at `next`
+// (past the newline or the spaces it broke at).
+wrap_line :: proc(ctx: ^mu.Context, font: mu.Font, text: string, width: i32) -> (end, next: int) {
+	end = line_end(ctx, font, text, width)
+	return end, len(text) - len(next_line(text, end))
 }
 
-// line_end is how much of `text` fits in `width`: up to the last space
-// that fits, or as many characters as fit if the first word doesn't
-// (but always at least one character).
+// line_end is how much of `text` fits in `width`: up to the first
+// newline if that fits, else up to the last space that fits, or as many
+// characters as fit if the first word doesn't (but always at least one
+// character, unless the line is empty).
 @(private = "file")
 line_end :: proc(ctx: ^mu.Context, font: mu.Font, text: string, width: i32) -> int {
 	last_space := -1
 	fit := 0
 	w: i32
 	for ch, i in text {
+		if ch == '\n' {
+			return i
+		}
 		size := utf8.rune_size(ch)
 		w += ctx.text_width(font, text[i:][:size])
 		if w > width && fit > 0 {
@@ -914,4 +791,18 @@ line_end :: proc(ctx: ^mu.Context, font: mu.Font, text: string, width: i32) -> i
 		}
 	}
 	return len(text)
+}
+
+// next_line is what's left of `text` after a line of it that ended at
+// `end` (line_end): past the newline that ended it, or past the spaces it
+// was wrapped at (and a newline right after them, which the wrap has
+// already broken the line for). The next line's indentation stays.
+@(private = "file")
+next_line :: proc(text: string, end: int) -> string {
+	rest := text[end:]
+	if strings.has_prefix(rest, "\n") {
+		return rest[1:]
+	}
+	rest = strings.trim_left_proc(rest, proc(r: rune) -> bool {return r != '\n' && unicode.is_space(r)})
+	return strings.trim_prefix(rest, "\n")
 }

@@ -33,6 +33,7 @@ Touch_Event_Kind :: enum {
 	Release,
 	Key, // down and up again
 	Text,
+	Newline, // Enter, in a text area: a new line (Extra_Key.Newline)
 }
 
 @(private = "file")
@@ -47,10 +48,17 @@ Touch_Event :: struct {
 @(private = "file")
 g_touch: [dynamic]Touch_Event
 
+// The focused text box is a text area, where the keyboard's Enter starts
+// a new line rather than sending (touch_after_frame).
+@(private = "file")
+g_multiline: bool
+
 @(default_calling_convention = "c")
 foreign _ {
 	// Takes the keyboard away: the page's hidden field loses the focus.
 	yap_keyboard_hide :: proc() ---
+	// Labels the keyboard's Enter key: a new line, or send.
+	yap_keyboard_multiline :: proc(on: b32) ---
 }
 
 // touch_step feeds microui the next queued event. Called once per frame,
@@ -75,22 +83,29 @@ touch_step :: proc(ui: ^UI) {
 		mu.input_key_up(ctx, e.key)
 	case .Text:
 		mu.input_text(ctx, string(e.text[:e.text_n]))
+	case .Newline:
+		ui.keys += {.Newline}
 	}
 }
 
 // touch_after_frame puts the keyboard away once no text box has the
-// focus any more (a message sent and the page changed, say).
+// focus any more (a message sent and the page changed, say), and labels
+// its Enter key for the one that has.
 touch_after_frame :: proc(ui: ^UI) {
-	focused := false
+	focused, multiline := false, false
 	for b in ui.text_boxes {
 		if b.id == ui.ctx.focus_id {
-			focused = true
+			focused, multiline = true, b.multiline
 		}
 	}
 	if ui.text_focused && !focused {
 		yap_keyboard_hide()
 	}
 	ui.text_focused = focused
+	if focused && multiline != g_multiline {
+		g_multiline = multiline
+		yap_keyboard_multiline(b32(multiline))
+	}
 }
 
 @(private = "file")
@@ -135,7 +150,8 @@ text_box_at :: proc(x, y: f64) -> bool {
 }
 
 // A tap: a click where the finger was. On a text box, the caret goes to
-// the end, where the keyboard's typing arrives.
+// the end (in a text area, of the line tapped), where the keyboard's
+// typing arrives.
 @(export)
 web_touch_tap :: proc "c" (x, y: f64) {
 	context = platform.callback_context()
@@ -211,7 +227,9 @@ web_touch_scroll :: proc "c" (x, y, dy: f64) {
 	ui_wake()
 }
 
-// Typing from the phone's keyboard: one character, a backspace, Enter.
+// Typing from the phone's keyboard: one character, a backspace, Enter
+// (in a text area, a new line: there's no Shift for it, and the send
+// button sends).
 @(export)
 web_text_rune :: proc "c" (r: rune) {
 	context = platform.callback_context()
@@ -232,5 +250,5 @@ web_text_backspace :: proc "c" () {
 @(export)
 web_text_enter :: proc "c" () {
 	context = platform.callback_context()
-	queue({kind = .Key, key = .RETURN})
+	queue({kind = .Newline} if g_multiline else {kind = .Key, key = .RETURN})
 }

@@ -1213,7 +1213,7 @@ Jump_Command :: struct {
 
 msg_edit :: proc(c: ^Voice_Client, id: proto.Msg_Id, raw: string) {
 	buf: [proto.MAX_CHAT_SIZE]u8
-	text := proto.sanitize_text(raw, buf[:])
+	text := proto.sanitize_message(raw, buf[:])
 	if text == "" {
 		return
 	}
@@ -1351,7 +1351,7 @@ messages_restart :: proc(c: ^Voice_Client, forget := false) {
 // `thread`, a reply in that thread.
 chat_send :: proc(c: ^Voice_Client, raw: string, dm_to: proto.Account_Id = 0, thread := Timeline_Key{}) {
 	buf: [proto.MAX_CHAT_SIZE]u8
-	text := proto.sanitize_text(raw, buf[:])
+	text := proto.sanitize_message(raw, buf[:])
 	conv, state, ok := post_target(c, dm_to)
 	thread := thread
 	if thread.root != 0 {
