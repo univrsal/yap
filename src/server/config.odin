@@ -129,6 +129,16 @@ Relay_Config :: struct {
 	web_dir: string,
 }
 
+// Config_Bootstrap holds settings taken from a container environment while a
+// new config is created. Nothing here overrides a config that already exists.
+Config_Bootstrap :: struct {
+	relay_enabled_set:      bool,
+	relay_enabled:          bool,
+	relay_port_set:         bool,
+	relay_port:             int,
+	initial_admin_password: string,
+}
+
 Channel_Config :: struct {
 	name: string,
 }
@@ -170,9 +180,21 @@ exist. Anything wrong with it is logged, and fails the load rather than
 being ignored: a server that silently ran without its password would be
 worse than one that doesn't start.
 */
-load_config :: proc(path: string) -> (settings: Settings, ok: bool) {
+load_config :: proc(
+	path: string,
+	bootstrap := Config_Bootstrap{},
+) -> (
+	settings: Settings,
+	ok: bool,
+) {
 	cfg := default_config()
 	if !os.exists(path) {
+		if bootstrap.relay_enabled_set {
+			cfg.relay.enabled = bootstrap.relay_enabled
+		}
+		if bootstrap.relay_port_set {
+			cfg.relay.port = bootstrap.relay_port
+		}
 		create_config(path, &cfg) or_return
 		return check_config(path, cfg)
 	}

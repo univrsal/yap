@@ -141,7 +141,7 @@ SLOW_ITERATION :: 5 * time.Millisecond
 // How long the loop waits for a packet before it comes round anyway.
 IDLE_WAIT :: 100 * time.Millisecond
 
-run_server :: proc(settings: Settings) -> bool {
+run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	s := Server {
 		version = 1,
 		name = settings.name,
@@ -173,7 +173,7 @@ run_server :: proc(settings: Settings) -> bool {
 		return false
 	}
 	defer accounts_destroy(&s.accounts)
-	if !ensure_first_admin(&s.accounts) {
+	if !ensure_first_admin(&s.accounts, initial_password = initial_admin_password) {
 		return false
 	}
 	// The config's channels are only what a new database starts with.

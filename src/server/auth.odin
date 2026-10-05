@@ -116,8 +116,30 @@ server, with a password made up here and written to the log this once.
 Whoever runs the server logs in with it and makes the others.
 */
 @(require_results)
-ensure_first_admin :: proc(a: ^Accounts, params := HASH_PARAMS_NOW) -> bool {
+ensure_first_admin :: proc(
+	a: ^Accounts,
+	params := HASH_PARAMS_NOW,
+	initial_password := "",
+) -> bool {
 	if len(a.by_id) > 0 {
+		return true
+	}
+	if initial_password != "" {
+		if !proto.account_password_ok(initial_password) {
+			log.error("the initial admin password isn't a valid length")
+			return false
+		}
+		password := password_of(initial_password)
+		defer crypto.zero_explicit(&password, size_of(password))
+		secret, hashed := secret_make(&password, params)
+		if !hashed || account_add(a, FIRST_ADMIN, FIRST_ADMIN, secret, {.Owner}) == nil {
+			log.error("could not make the first admin account")
+			return false
+		}
+		log.warnf(
+			"this server has no accounts yet, so an initial %q owner account was made",
+			FIRST_ADMIN,
+		)
 		return true
 	}
 	buf: [GENERATED_PASSWORD_SIZE]u8

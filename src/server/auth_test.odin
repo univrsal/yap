@@ -280,6 +280,26 @@ test_first_admin :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_supplied_first_admin :: proc(t: ^testing.T) {
+	db: DB
+	testing.expect(t, db_open(&db, DB_MEMORY))
+	defer db_close(&db)
+	a: Accounts
+	testing.expect(t, accounts_load(&a, &db))
+	defer accounts_destroy(&a)
+
+	text := "initial admin password"
+	testing.expect(t, ensure_first_admin(&a, HASH_PARAMS_TEST, text))
+	admin := account_find(&a, FIRST_ADMIN)
+	testing.expect(t, admin != nil)
+	testing.expect_value(t, admin.flags, proto.Account_Flags{.Owner})
+	secret, secret_ok := account_secret(&a, admin)
+	testing.expect(t, secret_ok)
+	password := password_of(text)
+	testing.expect(t, secret_matches(&password, &secret))
+}
+
+@(test)
 test_generated_password :: proc(t: ^testing.T) {
 	a, b: [GENERATED_PASSWORD_SIZE]u8
 	one := generated_password(&a)

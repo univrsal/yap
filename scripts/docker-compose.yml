@@ -1,0 +1,16 @@
+services:
+  yap-extended-server:
+    image: ${YAP_IMAGE:-ghcr.io/univrsal/yap-extended:latest}
+    restart: unless-stopped
+    ports:
+      - '7777:7777/udp'
+      - '${YAP_RELAY_PORT:-8080}:${YAP_RELAY_PORT:-8080}/tcp'
+    volumes:
+      - yap-extended-data:/data
+    environment:
+      YAP_RELAY_ENABLED: ${YAP_RELAY_ENABLED:-false}
+      YAP_RELAY_PORT: ${YAP_RELAY_PORT:-8080}
+      YAP_INITIAL_ADMIN_PASSWORD: ${YAP_INITIAL_ADMIN_PASSWORD:-}
+
+volumes:
+  yap-extended-data:
