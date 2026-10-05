@@ -54,9 +54,11 @@ net_step :: proc(ui: ^UI) {
 			conn.client_close(ns.client)
 			return
 		}
+		c := ns.client
+		waiting :=
+			conn.transport_pending(&c.transport) || conn.transport_pending(&c.bulk.transport)
 		if i + 1 >= NET_STEPS_PER_FRAME &&
-		   (!conn.transport_pending(&ns.client.transport) ||
-				   time.tick_since(start) >= NET_FRAME_BUDGET) {
+		   (!waiting || time.tick_since(start) >= NET_FRAME_BUDGET) {
 			return
 		}
 	}

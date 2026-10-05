@@ -13,8 +13,35 @@ import "client:audio"
 import "common:."
 import "common:proto"
 
+/*
+Link is one of the connection's two ways to the server (proto.Link): a
+transport and the sessions over it. The main link is the connection;
+the bulk link joins it once it's there, for what's heavy (bulk.odin).
+*/
+Link :: struct {
+	transport:    Transport,
+	handshake:    proto.Initiator,
+	// Keys derived, Finish sent, waiting for the server's first Data
+	// packet before switching to it.
+	pending:      proto.Session,
+	has_pending:  bool,
+	// The session used for sending.
+	current:      proto.Session,
+	has_current:  bool,
+	// Kept after a rekey so packets already in flight on the old session
+	// still decrypt.
+	previous:     proto.Session,
+	has_previous: bool,
+	last_sent:    time.Tick,
+	// When the server was last heard from, on any session.
+	last_recv:    time.Tick,
+}
+
 Voice_Client :: struct {
-	transport:     Transport,
+	// The main link: the connection itself.
+	using link:    Link,
+	// The bulk link, for heavy messages (proto.HEAVY_KINDS, bulk.odin).
+	bulk:          Bulk_Link,
 	server_addr:   string, // as typed; the key in known_servers
 	known_servers: string,
 	password:      string, // sent in every hello; empty for none
@@ -24,21 +51,6 @@ Voice_Client :: struct {
 	// server's accounts are told apart from another's by (the per-user
 	// settings).
 	server_key:    [proto.KEY_SIZE]u8,
-	handshake:     proto.Initiator,
-	// Keys derived, Finish sent, waiting for the server's first Data
-	// packet before switching to it.
-	pending:       proto.Session,
-	has_pending:   bool,
-	// The session used for sending.
-	current:       proto.Session,
-	has_current:   bool,
-	// Kept after a rekey so packets already in flight on the old session
-	// still decrypt.
-	previous:      proto.Session,
-	has_previous:  bool,
-	last_sent:     time.Tick,
-	// When the server was last heard from, on any session.
-	last_recv:     time.Tick,
 	// Which connection this is (see the hello and Welcome in
 	// proto/names.odin): ours, the same in every handshake, and the
 	// server's for it, which changes when the connection is new to it.
@@ -120,11 +132,8 @@ client_close :: proc(c: ^Voice_Client) {
 		}
 	}
 	transport_close(&c.transport)
-
-	proto.initiator_reset(&c.handshake)
-	proto.session_reset(&c.pending)
-	proto.session_reset(&c.current)
-	proto.session_reset(&c.previous)
+	link_reset(&c.link)
+	bulk_close(c)
 	ecdh.private_key_clear(&c.key)
 
 	delete(c.server_addr)
@@ -172,13 +181,16 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	}
 	// After the voice, which it mustn't hold up.
 	video_step(c)
+	bulk_step(c)
 
+	// The main link first: what's on it is what can't wait.
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
 	if packet, ok := transport_recv(&c.transport, recv_buf[:]); ok {
 		if !common.simulate_loss() && !handle_server_packet(c, packet) {
 			return false
 		}
 	}
+	bulk_receive(c)
 
 	log_stats(c)
 	return true
@@ -198,7 +210,7 @@ drive_handshake :: proc(c: ^Voice_Client) {
 	ini := &c.handshake
 	if ini.state != .Idle && time.tick_since(ini.started) > proto.HANDSHAKE_TIMEOUT {
 		log.warn("handshake timed out, retrying")
-		abandon_handshake(c)
+		abandon_handshake(&c.link)
 	}
 
 	switch ini.state {
@@ -232,12 +244,66 @@ drive_handshake :: proc(c: ^Voice_Client) {
 	}
 }
 
-abandon_handshake :: proc(c: ^Voice_Client) {
-	proto.initiator_reset(&c.handshake)
-	if c.has_pending {
-		proto.session_reset(&c.pending)
-		c.has_pending = false
+abandon_handshake :: proc(l: ^Link) {
+	proto.initiator_reset(&l.handshake)
+	if l.has_pending {
+		proto.session_reset(&l.pending)
+		l.has_pending = false
 	}
+}
+
+// link_reset forgets a link's handshake and sessions; its transport
+// stays as it is.
+link_reset :: proc(l: ^Link) {
+	proto.initiator_reset(&l.handshake)
+	proto.session_reset(&l.pending)
+	proto.session_reset(&l.current)
+	proto.session_reset(&l.previous)
+	l.has_pending, l.has_current, l.has_previous = false, false, false
+}
+
+/*
+link_open opens a Data packet that came over the link, on whichever of
+its sessions it's addressed to. `pending` says it was the pending one,
+which the caller has to promote once it's sure of it.
+*/
+link_open :: proc(
+	l: ^Link,
+	packet: []byte,
+	out: []byte,
+) -> (
+	pt: []byte,
+	pending: bool,
+	ok: bool,
+) {
+	idx := proto.receiver_index(packet)
+	sess: ^proto.Session
+	switch {
+	case l.has_pending && idx == l.pending.local_idx:
+		sess = &l.pending
+	case l.has_current && idx == l.current.local_idx:
+		sess = &l.current
+	case l.has_previous && idx == l.previous.local_idx:
+		sess = &l.previous
+	case:
+		return
+	}
+	pt = proto.open(sess, packet, out) or_return
+	l.last_recv = time.tick_now()
+	return pt, sess == &l.pending, true
+}
+
+// link_promote switches the link over to its pending session, which the
+// server has confirmed. It says whether this is the link's first.
+link_promote :: proc(l: ^Link) -> (first: bool) {
+	if l.has_previous {
+		proto.session_reset(&l.previous)
+	}
+	l.previous, l.has_previous = l.current, l.has_current
+	l.current, l.has_current = l.pending, true
+	l.pending, l.has_pending = {}, false
+	proto.initiator_reset(&l.handshake)
+	return !l.has_previous
 }
 
 // Returns false if the connection must be aborted.
@@ -249,7 +315,7 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 			return true // ignored, or failed and will be retried
 		}
 		if !verify_server_key(c, server_key) {
-			abandon_handshake(c)
+			abandon_handshake(&c.link)
 			publish_status(
 				c,
 				.Failed,
@@ -273,32 +339,18 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		transport_send(&c.transport, finish)
 
 	case .Data:
-		idx := proto.receiver_index(packet)
-		sess: ^proto.Session
-		switch {
-		case c.has_pending && idx == c.pending.local_idx:
-			sess = &c.pending
-		case c.has_current && idx == c.current.local_idx:
-			sess = &c.current
-		case c.has_previous && idx == c.previous.local_idx:
-			sess = &c.previous
-		case:
-			return true
-		}
-
 		pt_buf: [proto.MAX_PACKET_SIZE]byte
-		pt, ok := proto.open(sess, packet, pt_buf[:])
+		pt, pending, ok := link_open(&c.link, packet, pt_buf[:])
 		if !ok {
 			return true
 		}
-		c.last_recv = time.tick_now()
 		kind, kind_ok := proto.message_kind(pt)
-		if sess == &c.pending {
+		if pending {
 			// The server's answer to our hello: the Welcome, or why it
 			// won't have us. Nothing else counts until one of them comes:
 			// the Welcome says what the rest belongs to.
 			if kind_ok && kind == .Refused {
-				abandon_handshake(c)
+				abandon_handshake(&c.link)
 				publish_status(c, .Failed, refusal_text(c, proto.decode_refused(pt)))
 				return false
 			}
@@ -310,66 +362,65 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		if !kind_ok {
 			return true // keepalive, or malformed
 		}
-		#partial switch kind {
-		case .Welcome:
+		if kind == .Welcome {
 			handle_welcome(c, pt)
-		case .Stream:
-			handle_stream(c, pt)
-		case .Stream_Ack:
-			handle_stream_ack(c, pt)
-		case .Voice:
-			if len(pt) >= proto.VOICE_DOWN_HEADER_SIZE && in_room(c) {
-				speaker := proto.User_Num(endian.unchecked_get_u32le(pt[1:]))
-				seq := endian.unchecked_get_u32le(pt[5:])
-				publish_voice(c, speaker)
-				audio.voice_receive(&c.voice, speaker, seq, pt[proto.VOICE_DOWN_HEADER_SIZE:])
-			}
-		case .State:
-			handle_state_message(c, pt)
-		case .Typing:
-			handle_typing(c, pt)
-		case .Blob_Chunk:
-			handle_blob_chunk(c, pt)
-		case .Blob_Need:
-			handle_blob_need(c, pt)
-		case .Poke:
-			handle_poke(c, pt)
-		case .Video:
-			handle_video(c, pt)
-		case .Keyframe:
-			video_keyframe_requested(c)
-		case .Pong:
-			handle_pong(c, pt)
-		case .File_Accept:
-			handle_file_accept(c, pt)
-		case .File_Chunk:
-			handle_file_chunk(c, pt)
-		case .File_Ack:
-			handle_file_ack(c, pt)
-		case .File_Cancel:
-			handle_file_cancel(c, pt)
-		case .Upload_Ack:
-			handle_upload_ack(c, pt)
-		case .Download_Chunk:
-			handle_download_chunk(c, pt)
-		case .Transfer_Cancel:
-			handle_transfer_cancel(c, pt)
+		} else {
+			handle_message(c, kind, pt)
 		}
 	}
 	return true
 }
 
+// handle_message handles a message from the server, from either link.
+handle_message :: proc(c: ^Voice_Client, kind: proto.Message_Kind, pt: []byte) {
+	#partial switch kind {
+	case .Stream:
+		handle_stream(c, pt)
+	case .Stream_Ack:
+		handle_stream_ack(c, pt)
+	case .Voice:
+		if len(pt) >= proto.VOICE_DOWN_HEADER_SIZE && in_room(c) {
+			speaker := proto.User_Num(endian.unchecked_get_u32le(pt[1:]))
+			seq := endian.unchecked_get_u32le(pt[5:])
+			publish_voice(c, speaker)
+			audio.voice_receive(&c.voice, speaker, seq, pt[proto.VOICE_DOWN_HEADER_SIZE:])
+		}
+	case .State:
+		handle_state_message(c, pt)
+	case .Typing:
+		handle_typing(c, pt)
+	case .Blob_Chunk:
+		handle_blob_chunk(c, pt)
+	case .Blob_Need:
+		handle_blob_need(c, pt)
+	case .Poke:
+		handle_poke(c, pt)
+	case .Video:
+		handle_video(c, pt)
+	case .Keyframe:
+		video_keyframe_requested(c)
+	case .Pong:
+		handle_pong(c, pt)
+	case .File_Accept:
+		handle_file_accept(c, pt)
+	case .File_Chunk:
+		handle_file_chunk(c, pt)
+	case .File_Ack:
+		handle_file_ack(c, pt)
+	case .File_Cancel:
+		handle_file_cancel(c, pt)
+	case .Upload_Ack:
+		handle_upload_ack(c, pt)
+	case .Download_Chunk:
+		handle_download_chunk(c, pt)
+	case .Transfer_Cancel:
+		handle_transfer_cancel(c, pt)
+	}
+}
+
 // The server has confirmed the pending session: start sending on it.
 promote_pending :: proc(c: ^Voice_Client) {
-	if c.has_previous {
-		proto.session_reset(&c.previous)
-	}
-	c.previous, c.has_previous = c.current, c.has_current
-	c.current, c.has_current = c.pending, true
-	c.pending, c.has_pending = {}, false
-	proto.initiator_reset(&c.handshake)
-
-	if c.has_previous {
+	if !link_promote(&c.link) {
 		log.debugf("rekeyed (session %08x)", c.current.local_idx)
 	} else {
 		c.last_stats = time.tick_now()
@@ -401,6 +452,8 @@ handle_welcome :: proc(c: ^Voice_Client, pt: []byte) {
 		proto.session_reset(&c.previous)
 		c.has_previous = false
 	}
+	// Its bulk link went with it.
+	bulk_restart(c)
 	// Before who is here is forgotten: it's where our voice was.
 	convs_restart(c)
 	channels_restart(c)
@@ -476,14 +529,24 @@ verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 	return false
 }
 
+// send_data sends a message to the server: a heavy one (proto.HEAVY_KINDS)
+// on the bulk link once it's there, anything else on the main link.
 send_data :: proc(c: ^Voice_Client, plaintext: []byte) -> bool {
+	l := &c.link
+	if c.bulk.has_current && proto.is_heavy(plaintext) {
+		l = &c.bulk.link
+	}
+	return link_send(l, plaintext)
+}
+
+link_send :: proc(l: ^Link, plaintext: []byte) -> bool {
 	pkt_buf: [proto.MAX_PACKET_SIZE]byte
-	pkt, ok := proto.seal(&c.current, plaintext, pkt_buf[:])
+	pkt, ok := proto.seal(&l.current, plaintext, pkt_buf[:])
 	if !ok {
 		return false
 	}
-	c.last_sent = time.tick_now()
-	return transport_send(&c.transport, pkt)
+	l.last_sent = time.tick_now()
+	return transport_send(&l.transport, pkt)
 }
 
 log_stats :: proc(c: ^Voice_Client) {
@@ -503,14 +566,23 @@ log_stats :: proc(c: ^Voice_Client) {
 	if v.gated > 0 {
 		fmt.sbprintf(&b, ", %d held by the gate", v.gated)
 	}
+	if v.skipped > 0 {
+		fmt.sbprintf(
+			&b,
+			", %d ms of capture skipped",
+			v.skipped * 1000 / (audio.SAMPLE_RATE * audio.CHANNELS),
+		)
+	}
 	for speaker, n in v.received {
 		fmt.sbprintf(&b, " | %08x: %d", speaker, n)
 		if sp := v.speakers[speaker] or_else nil; sp != nil {
 			fmt.sbprintf(
 				&b,
-				" (prefill %d ms)",
+				" (prefill %d ms, late up to %.0f ms)",
 				audio.speaker_prefill(sp) * 1000 / (audio.SAMPLE_RATE * audio.CHANNELS),
+				time.duration_milliseconds(sp.late_peak),
 			)
+			sp.late_peak = 0
 		}
 	}
 	if v.concealed > 0 {
@@ -529,12 +601,23 @@ log_stats :: proc(c: ^Voice_Client) {
 	if ping := connection_stats(&c.ping, c.last_stats); ping.quality != .Unknown {
 		fmt.sbprintf(
 			&b,
-			" | ping %.1f ms, loss %.1f%%",
+			" | ping %.1f ms (up to %.1f), loss %.1f%%",
 			time.duration_milliseconds(ping.avg_rtt),
+			time.duration_milliseconds(ping.max_rtt),
 			connection_loss(ping),
 		)
 	}
+	if c.video.bytes_out > 0 || c.video.bytes_in > 0 {
+		fmt.sbprintf(
+			&b,
+			" | video %d kB out, %d kB in",
+			c.video.bytes_out / 1000,
+			c.video.bytes_in / 1000,
+		)
+		c.video.bytes_out, c.video.bytes_in = 0, 0
+	}
 	log.debug(strings.to_string(b))
 	v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed, v.dropouts = 0, 0, 0, 0, 0, 0
+	v.skipped = 0
 	clear(&v.received)
 }

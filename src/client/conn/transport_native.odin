@@ -12,7 +12,9 @@ Transport :: struct {
 	open:   bool,
 }
 
-transport_open :: proc(t: ^Transport, server_addr: string) -> bool {
+// transport_open opens a socket to the server. The main link's waits a
+// little for a packet, which paces the loop; the bulk link's never waits.
+transport_open :: proc(t: ^Transport, server_addr: string, bulk := false) -> bool {
 	ep, resolve_err := net.resolve_ip4(server_addr)
 	if resolve_err != nil {
 		log.errorf("failed to resolve %s: %v", server_addr, resolve_err)
@@ -27,8 +29,12 @@ transport_open :: proc(t: ^Transport, server_addr: string) -> bool {
 	}
 	t.sock = sock
 	t.open = true
-	// Short timeout so the loop can also pace outgoing frames.
-	net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
+	if bulk {
+		net.set_blocking(sock, false)
+	} else {
+		// Short timeout so the loop can also pace outgoing frames.
+		net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
+	}
 	return true
 }
 

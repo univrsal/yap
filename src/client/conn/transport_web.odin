@@ -18,25 +18,28 @@ handshake is resent until it gets through, so that sorts itself out.
 
 @(default_calling_convention = "c")
 foreign _ {
-	// Opens the socket, dropping whatever was open before. The address
-	// is a ws:// or wss:// URL.
-	yap_ws_open :: proc(url: cstring) -> i32 ---
-	yap_ws_close :: proc() ---
+	// Each takes the socket's slot: 0 for the main link, 1 for the bulk
+	// link (bulk.odin).
+	// Opens the socket, dropping whatever was open before in that slot.
+	// The address is a ws:// or wss:// URL.
+	yap_ws_open :: proc(slot: i32, url: cstring) -> i32 ---
+	yap_ws_close :: proc(slot: i32) ---
 	// 1 once the socket is open, 0 while it's connecting, -1 if it has
 	// failed or closed.
-	yap_ws_state :: proc() -> i32 ---
-	yap_ws_send :: proc(data: [^]u8, size: i32) -> i32 ---
+	yap_ws_state :: proc(slot: i32) -> i32 ---
+	yap_ws_send :: proc(slot: i32, data: [^]u8, size: i32) -> i32 ---
 	// Copies the oldest queued message into buf and returns its size,
 	// or -1 if there is nothing waiting.
-	yap_ws_recv :: proc(buf: [^]u8, buf_size: i32) -> i32 ---
+	yap_ws_recv :: proc(slot: i32, buf: [^]u8, buf_size: i32) -> i32 ---
 	// Bytes handed to the socket that it hasn't sent yet.
-	yap_ws_buffered :: proc() -> i32 ---
+	yap_ws_buffered :: proc(slot: i32) -> i32 ---
 	// How many messages have arrived and wait for yap_ws_recv.
-	yap_ws_pending :: proc() -> i32 ---
+	yap_ws_pending :: proc(slot: i32) -> i32 ---
 }
 
 Transport :: struct {
 	open: bool,
+	slot: i32,
 }
 
 /*
@@ -45,7 +48,8 @@ relay. A plain host:port becomes a WebSocket to the relay beside this
 page - ws://<page host>/yap/<host:port> - so the usual "localhost:7777"
 still works; anything that already looks like a URL is used as it is.
 */
-transport_open :: proc(t: ^Transport, server_addr: string) -> bool {
+transport_open :: proc(t: ^Transport, server_addr: string, bulk := false) -> bool {
+	t.slot = 1 if bulk else 0
 	url := server_addr
 	if !strings.has_prefix(url, "ws://") && !strings.has_prefix(url, "wss://") {
 		url = strings.concatenate(
@@ -53,18 +57,20 @@ transport_open :: proc(t: ^Transport, server_addr: string) -> bool {
 			context.temp_allocator,
 		)
 	}
-	if yap_ws_open(strings.clone_to_cstring(url, context.temp_allocator)) == 0 {
+	if yap_ws_open(t.slot, strings.clone_to_cstring(url, context.temp_allocator)) == 0 {
 		log.errorf("could not open a WebSocket to %s", url)
 		return false
 	}
-	log.infof("connecting through %s", url)
+	if !bulk {
+		log.infof("connecting through %s", url)
+	}
 	t.open = true
 	return true
 }
 
 transport_close :: proc(t: ^Transport) {
 	if t.open {
-		yap_ws_close()
+		yap_ws_close(t.slot)
 		t.open = false
 	}
 }
@@ -72,17 +78,17 @@ transport_close :: proc(t: ^Transport) {
 transport_send :: proc(t: ^Transport, packet: []byte) -> bool {
 	// Anything sent before the socket is open is dropped; the protocol
 	// resends what matters (handshakes, joins, names, state acks).
-	if !t.open || yap_ws_state() != 1 {
+	if !t.open || yap_ws_state(t.slot) != 1 {
 		return false
 	}
-	return yap_ws_send(raw_data(packet), i32(len(packet))) != 0
+	return yap_ws_send(t.slot, raw_data(packet), i32(len(packet))) != 0
 }
 
 transport_recv :: proc(t: ^Transport, buf: []byte) -> (packet: []byte, ok: bool) {
 	if !t.open {
 		return nil, false
 	}
-	n := yap_ws_recv(raw_data(buf), i32(len(buf)))
+	n := yap_ws_recv(t.slot, raw_data(buf), i32(len(buf)))
 	if n < 0 {
 		return nil, false
 	}
@@ -92,12 +98,12 @@ transport_recv :: proc(t: ^Transport, buf: []byte) -> (packet: []byte, ok: bool)
 // transport_backlog is how much the socket still has to send, which is
 // how the video queue knows to hold back (see video.odin).
 transport_backlog :: proc(t: ^Transport) -> int {
-	return int(yap_ws_buffered()) if t.open else 0
+	return int(yap_ws_buffered(t.slot)) if t.open else 0
 }
 
 // transport_pending says whether packets are waiting to be received.
 transport_pending :: proc(t: ^Transport) -> bool {
-	return t.open && yap_ws_pending() > 0
+	return t.open && yap_ws_pending(t.slot) > 0
 }
 
 @(private = "file", default_calling_convention = "c")

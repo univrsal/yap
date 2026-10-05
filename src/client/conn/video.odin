@@ -12,9 +12,10 @@ browser's (video_web.odin); a desktop build has none of it, so it never
 shares or watches, but still shows who is sharing.
 
 Sharing: encoded frames are numbered and queued, and go out a fragment
-at a time, paced to VIDEO_SEND_RATE and only while the socket isn't
-already backed up. Voice doesn't wait in this queue, so a keyframe
-going out doesn't hold it up. When the queue has fallen too far behind,
+at a time over the bulk link (bulk.odin), paced to VIDEO_SEND_RATE and
+only while its socket isn't already backed up. Voice doesn't wait in
+this queue or on that socket, so a keyframe going out doesn't hold it
+up. When the queue has fallen too far behind,
 the frames not yet started are thrown away and the encoder is asked for
 a keyframe, since what follows a lost frame can't be decoded anyway;
 until it comes, nothing else is queued.
@@ -32,7 +33,8 @@ VIDEO_SEND_BURST :: 16 * 1024
 // More than this still waiting to go out means we can't keep up.
 VIDEO_QUEUE_MAX :: VIDEO_SEND_RATE
 // Video only goes out while less than this is waiting on the socket, so
-// that voice, which goes straight out, never queues behind much of it.
+// that the socket's buffer never holds much more than a burst. (Voice
+// doesn't wait in it: video goes over the bulk link, bulk.odin.)
 VIDEO_BACKLOG_MAX :: 16 * 1024
 
 Video_Client :: struct {
@@ -52,6 +54,10 @@ Video_Client :: struct {
 	last_watch:     time.Tick,
 	last_key_asked: time.Tick,
 	assembler:      ^proto.Video_Assembler, // while watching
+
+	// Bytes sent and received since log_stats last looked.
+	bytes_out:      int,
+	bytes_in:       int,
 }
 
 Outgoing_Frame :: struct {
@@ -194,13 +200,16 @@ video_send :: proc(c: ^Voice_Client) {
 	v.budget_at = now
 
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
-	for v.budget > 0 && transport_backlog(&c.transport) < VIDEO_BACKLOG_MAX {
+	// What video goes out on (send_data).
+	link := &c.bulk.link if c.bulk.has_current else &c.link
+	for v.budget > 0 && transport_backlog(&link.transport) < VIDEO_BACKLOG_MAX {
 		msg, ok := video_next_fragment(v, buf[:])
 		if !ok {
 			break
 		}
 		send_data(c, msg)
 		v.budget -= len(msg)
+		v.bytes_out += len(msg)
 	}
 }
 
@@ -289,6 +298,7 @@ handle_video :: proc(c: ^Voice_Client, pt: []u8) {
 	if !ok || sharer != v.watching || v.watching == 0 {
 		return
 	}
+	v.bytes_in += len(pt)
 	if frame, complete := proto.video_assembler_add(v.assembler, f); complete {
 		video_show_frame(sharer, frame)
 	}

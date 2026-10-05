@@ -73,7 +73,7 @@ connection_restart :: proc(c: ^Voice_Client) {
 	}
 	crypto.rand_bytes(([^]byte)(&c.conn_id)[:size_of(c.conn_id)])
 	// One under way would still say the old conn_id.
-	abandon_handshake(c)
+	abandon_handshake(&c.link)
 	c.restart = true // until the Welcome (handle_welcome)
 }
 

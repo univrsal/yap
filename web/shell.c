@@ -78,16 +78,21 @@ EM_JS(int, yap_store_remove, (const char *name), {
 	}
 });
 
-/* ---- the WebSocket to the relay ---- */
+/* ---- the WebSockets to the relay ----
+One per link of the connection (src/client/conn/bulk.odin), by slot: 0
+for the main link, 1 for the bulk link. Each queues what arrives on it,
+so the main link's messages never wait behind the bulk link's. */
 
-EM_JS(int, yap_ws_open, (const char *url), {
-	if (!Module.yapWs) Module.yapWs = {socket: null, queue: [], state: -1};
-	const w = Module.yapWs;
+EM_JS(int, yap_ws_open, (int slot, const char *url), {
+	if (!Module.yapWs) Module.yapWs = [];
+	if (!Module.yapWs[slot]) Module.yapWs[slot] = {socket: null, queue: [], head: 0, state: -1};
+	const w = Module.yapWs[slot];
 	if (w.socket) {
 		w.socket.onopen = w.socket.onmessage = w.socket.onclose = w.socket.onerror = null;
 		w.socket.close();
 	}
 	w.queue = [];
+	w.head = 0;
 	w.state = 0;
 	try {
 		w.socket = new WebSocket(UTF8ToString(url));
@@ -105,34 +110,41 @@ EM_JS(int, yap_ws_open, (const char *url), {
 	return 1;
 });
 
-EM_JS(void, yap_ws_close, (), {
-	const w = Module.yapWs;
+EM_JS(void, yap_ws_close, (int slot), {
+	const w = Module.yapWs && Module.yapWs[slot];
 	if (w && w.socket) {
 		w.socket.onopen = w.socket.onmessage = w.socket.onclose = w.socket.onerror = null;
 		w.socket.close();
 		w.socket = null;
 		w.state = -1;
 		w.queue = [];
+		w.head = 0;
 	}
 });
 
-EM_JS(int, yap_ws_state, (), {
-	const w = Module.yapWs;
+EM_JS(int, yap_ws_state, (int slot), {
+	const w = Module.yapWs && Module.yapWs[slot];
 	return w ? w.state : -1;
 });
 
-EM_JS(int, yap_ws_send, (const unsigned char *data, int size), {
-	const w = Module.yapWs;
+EM_JS(int, yap_ws_send, (int slot, const unsigned char *data, int size), {
+	const w = Module.yapWs && Module.yapWs[slot];
 	if (!w || w.state !== 1) return 0;
 	// A copy: the heap view is only good until the next allocation.
 	w.socket.send(HEAPU8.slice(data, data + size));
 	return 1;
 });
 
-EM_JS(int, yap_ws_recv, (unsigned char *buf, int buf_size), {
-	const w = Module.yapWs;
-	if (!w || w.queue.length === 0) return -1;
-	const message = w.queue.shift();
+EM_JS(int, yap_ws_recv, (int slot, unsigned char *buf, int buf_size), {
+	const w = Module.yapWs && Module.yapWs[slot];
+	if (!w || w.head === w.queue.length) return -1;
+	// Taken from the front without shifting the array, which costs as
+	// much as what's queued behind: a keyframe is a hundred and more.
+	const message = w.queue[w.head++];
+	if (w.head === w.queue.length) {
+		w.queue = [];
+		w.head = 0;
+	}
 	// Too big for a packet: not one of ours, so it's dropped.
 	if (message.length > buf_size) return -1;
 	HEAPU8.set(message, buf);
@@ -146,14 +158,14 @@ EM_JS(int, yap_ws_origin, (char *buf, int buf_size), {
 	return lengthBytesUTF8(origin);
 });
 
-EM_JS(int, yap_ws_buffered, (), {
-	const w = Module.yapWs;
+EM_JS(int, yap_ws_buffered, (int slot), {
+	const w = Module.yapWs && Module.yapWs[slot];
 	return w && w.socket && w.state === 1 ? w.socket.bufferedAmount : 0;
 });
 
-EM_JS(int, yap_ws_pending, (), {
-	const w = Module.yapWs;
-	return w ? w.queue.length : 0;
+EM_JS(int, yap_ws_pending, (int slot), {
+	const w = Module.yapWs && Module.yapWs[slot];
+	return w ? w.queue.length - w.head : 0;
 });
 
 /* ---- idle ----

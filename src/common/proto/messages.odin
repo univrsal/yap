@@ -141,6 +141,10 @@ Message_Kind :: enum u8 {
 Refusal :: enum u8 {
 	Wrong_Password = 1, // missing, or not the server's
 	Version        = 2, // a hello this server can't read
+	// A bulk link's hello names no connection of this device's (see Link
+	// in names.odin): it has gone, or the main link hasn't been welcomed
+	// yet.
+	No_Connection  = 3,
 }
 
 /*

@@ -97,6 +97,8 @@ Speaker :: struct {
 	arrival_base: time.Tick,
 	base_seq:     u32,
 	lateness:     time.Duration,
+	// The latest any packet came since log_stats last looked.
+	late_peak:    time.Duration,
 }
 
 Voice :: struct {
@@ -158,6 +160,9 @@ Voice :: struct {
 	lateness:          map[proto.User_Num]time.Duration,
 	concealed:         int,
 	dropouts:          int, // speakers running dry mid-speech (see Speaker.dried)
+	// Captured samples thrown away because the network loop fell behind
+	// (capture_begin).
+	skipped:           int,
 	underruns:         u32, // atomic; incremented by the playback callback
 	app_received:      u32, // atomic; frames from the shared application
 }
@@ -245,6 +250,7 @@ capture_begin :: proc(v: ^Voice) -> (mic: bool, ok: bool) {
 	}
 	if backlog := ring_available(&v.capture) - capture_backlog(); backlog > 0 {
 		ring_skip(&v.capture, backlog)
+		v.skipped += backlog
 	}
 	return mic, true
 }
@@ -418,6 +424,7 @@ track_arrival :: proc(sp: ^Speaker, seq: u32, now: time.Tick) {
 		if late >= 0 && late < DISCONTINUITY {
 			sp.arrival_base = time.tick_add(sp.arrival_base, LEAK)
 			sp.lateness = max(late, time.Duration(f64(sp.lateness) * DECAY))
+			sp.late_peak = max(sp.late_peak, late)
 			return
 		}
 	}

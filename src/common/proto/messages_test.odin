@@ -193,23 +193,25 @@ test_sanitize_name :: proc(t: ^testing.T) {
 @(test)
 test_hello_and_welcome :: proc(t: ^testing.T) {
 	hb: [HELLO_MAX_SIZE]u8
-	conn_id, password, ok := decode_hello(encode_hello(&hb, 7))
+	conn_id, password, link, ok := decode_hello(encode_hello(&hb, 7))
 	testing.expect(t, ok)
 	testing.expect_value(t, conn_id, 7)
 	testing.expect_value(t, password, "")
+	testing.expect_value(t, link, Link.Main)
 
-	conn_id, password, ok = decode_hello(encode_hello(&hb, max(u64), "hunter2"))
+	conn_id, password, link, ok = decode_hello(encode_hello(&hb, max(u64), "hunter2", .Bulk))
 	testing.expect(t, ok)
 	testing.expect_value(t, conn_id, max(u64))
 	testing.expect_value(t, password, "hunter2")
+	testing.expect_value(t, link, Link.Bulk)
 
 	// The longest still fits.
 	long_password := "0123456789012345678901234567890123456789012345678901234567890123456789"
-	_, password, ok = decode_hello(encode_hello(&hb, 1, long_password))
+	_, password, _, ok = decode_hello(encode_hello(&hb, 1, long_password))
 	testing.expect(t, ok)
 	testing.expect_value(t, password, long_password[:MAX_PASSWORD_SIZE])
 
-	_, _, ok = decode_hello(nil) // no hello at all: no conn_id
+	_, _, _, ok = decode_hello(nil) // no hello at all: no conn_id
 	testing.expect(t, !ok)
 	id :: [8]u8{1, 2, 3, 4, 5, 6, 7, 8}
 	hello :: proc(version: u8, rest: ..u8) -> []u8 {
@@ -220,16 +222,24 @@ test_hello_and_welcome :: proc(t: ^testing.T) {
 		append(&out, ..rest)
 		return out[:]
 	}
-	_, _, ok = decode_hello(hello(HELLO_VERSION, 1, 'a'))
+	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 0, 1, 'a'))
 	testing.expect(t, ok)
-	_, _, ok = decode_hello(hello(HELLO_VERSION + 1, 0)) // unknown version
+	_, _, _, ok = decode_hello(hello(HELLO_VERSION + 1, 0, 0)) // unknown version
 	testing.expect(t, !ok)
-	_, _, ok = decode_hello(hello(5, 1, 'a', 0)) // version 5: with a name
+	_, _, _, ok = decode_hello(hello(5, 1, 'a', 0)) // version 5: with a name
 	testing.expect(t, !ok)
-	_, _, ok = decode_hello(hello(HELLO_VERSION, 2, 'x')) // truncated password
+	_, _, _, ok = decode_hello(hello(11, 1, 'a')) // version 11: no link
 	testing.expect(t, !ok)
-	_, _, ok = decode_hello(hello(HELLO_VERSION, 0, 'x')) // trailing bytes
+	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 2, 0)) // no such link
 	testing.expect(t, !ok)
+	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 0, 2, 'x')) // truncated password
+	testing.expect(t, !ok)
+	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 0, 0, 'x')) // trailing bytes
+	testing.expect(t, !ok)
+
+	testing.expect(t, is_heavy({u8(Message_Kind.Video)}))
+	testing.expect(t, !is_heavy({u8(Message_Kind.Voice)}))
+	testing.expect(t, !is_heavy(nil))
 
 	wb: [WELCOME_SIZE]u8
 	welcome := encode_welcome(&wb, 0x1122334455667788, false)

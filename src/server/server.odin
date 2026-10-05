@@ -15,15 +15,21 @@ import "common:proto"
 
 // How many sessions there may be unless the config says otherwise
 // (max_sessions). It bounds the memory unauthenticated Handshake_Init
-// floods can take up, and with it how many clients can be connected.
-DEFAULT_MAX_SESSIONS :: 256
+// floods can take up, and with it how many clients can be connected:
+// each has two links (proto.Link), so about half this many.
+DEFAULT_MAX_SESSIONS :: 512
 
-// Client is one session: a keyed connection from one client instance.
-// A user has more than one briefly while rekeying.
+// Client is one session: a keyed connection from one client instance,
+// on one of its links (proto.Link). A connection has one of each, and
+// more briefly while rekeying.
 Client :: struct {
 	using session: proto.Session,
 	handshake:     proto.Responder, // in use until keyed
 	conn:          ^Conn, // set once keyed
+	// The connection's bulk link (proto.Link): heavy messages to the
+	// client go out on it (send_message). Only the main link's sessions
+	// keep a connection.
+	bulk:          bool,
 	endpoint:      net.Endpoint,
 	started:       time.Tick, // when the Handshake_Init arrived
 	last_recv:     time.Tick,
@@ -72,7 +78,7 @@ Conn :: struct {
 	flags:           proto.User_Flags,
 	// The voice room it's in, 0 for none (conv_requests.odin).
 	room:            proto.Room,
-	sessions:        int, // keyed sessions pointing here
+	sessions:        int, // keyed sessions of the main link pointing here
 
 	// State sync: the newest snapshot version the client confirmed, and
 	// when we last sent it one.
@@ -386,8 +392,8 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		return
 	}
 	// The msg3 payload is the client's hello: which of its connections
-	// this is, and the server's password.
-	conn_id, hello_password, hello_ok := proto.decode_hello(payload)
+	// this is, which of the connection's links, and the server's password.
+	conn_id, hello_password, link, hello_ok := proto.decode_hello(payload)
 	switch {
 	case !hello_ok:
 		refuse(s, c, from, .Version)
@@ -397,11 +403,16 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		return
 	}
 
+	u := conn_of(s, c.peer_key)
+	if link == .Bulk {
+		bind_bulk(s, c, u, conn_id, from)
+		return
+	}
+
 	c.keyed = true
 	c.endpoint = from
 	c.last_recv = time.tick_now()
 
-	u := conn_of(s, c.peer_key)
 	if u != nil && u.conn_id != conn_id {
 		// Not a rekey: the client has started over, and knows nothing of
 		// what this connection was. It goes, as if they had left, and
@@ -411,11 +422,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		u = nil
 	}
 
-	for _, other in s.sessions {
-		if other != c && other.keyed && other.peer_key == c.peer_key {
-			other.superseded = true
-		}
-	}
+	supersede(s, c)
 
 	if u == nil {
 		u = new(Conn)
@@ -445,6 +452,40 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	// After the Welcome, which a client waits for on a new session: what
 	// logging in has queued for it goes out later in this turn.
 	send_welcome(s, c)
+}
+
+/*
+bind_bulk makes a session that has just finished its handshake the
+bulk link of the device's connection `u` (proto.Link), if the hello
+names it. Otherwise there's nothing to bind it to - the connection has
+gone, or the main link's handshake hasn't got this far - and the client
+is told so, to try again later.
+*/
+@(private = "file")
+bind_bulk :: proc(s: ^Server, c: ^Client, u: ^Conn, conn_id: u64, from: net.Endpoint) {
+	if u == nil || u.conn_id != conn_id {
+		refuse(s, c, from, .No_Connection)
+		return
+	}
+	c.keyed = true
+	c.bulk = true
+	c.endpoint = from
+	c.last_recv = time.tick_now()
+	c.conn = u
+	supersede(s, c)
+	log.debugf("%s has a new bulk link", conn_label(u))
+	send_welcome(s, c)
+}
+
+// supersede marks the older sessions of a new session's link as
+// superseded: still there for what's in flight, never sent on.
+@(private = "file")
+supersede :: proc(s: ^Server, c: ^Client) {
+	for _, other in s.sessions {
+		if other != c && other.keyed && other.peer_key == c.peer_key && other.bulk == c.bulk {
+			other.superseded = true
+		}
+	}
 }
 
 // conn_of is the connection from the device with this key, logged in
@@ -695,7 +736,18 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 }
 
+/*
+send_message sends a message on a session of `c`'s connection: a heavy
+one (proto.HEAVY_KINDS) on its bulk link if it has one, anything else
+on `c`.
+*/
 send_message :: proc(s: ^Server, c: ^Client, msg: []byte) {
+	c := c
+	if proto.is_heavy(msg) && !c.bulk && c.conn != nil {
+		if b := bulk_session(s, c.conn); b != nil {
+			c = b
+		}
+	}
 	pkt_buf: [proto.MAX_PACKET_SIZE]byte
 	if pkt, ok := proto.seal(&c.session, msg, pkt_buf[:]); ok {
 		net.send_udp(s.sock, pkt, c.endpoint)
@@ -807,10 +859,22 @@ sync_state :: proc(s: ^Server) {
 	}
 }
 
-// sending_session returns the user's newest session.
+// sending_session returns the newest session of the connection's main
+// link.
 sending_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 	for _, c in s.sessions {
-		if c.conn == u && c.keyed && !c.superseded {
+		if c.conn == u && c.keyed && !c.superseded && !c.bulk {
+			return c
+		}
+	}
+	return nil
+}
+
+// bulk_session returns the newest session of the connection's bulk
+// link, nil while it has none.
+bulk_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
+	for _, c in s.sessions {
+		if c.conn == u && c.keyed && !c.superseded && c.bulk {
 			return c
 		}
 	}
@@ -840,6 +904,7 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	for _, c in s.sessions {
 		if !c.keyed ||
 		   c.superseded ||
+		   c.bulk ||
 		   c.conn == from.conn ||
 		   c.conn.account == nil ||
 		   c.conn.room != from.conn.room {
@@ -856,7 +921,7 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 retire_superseded :: proc(s: ^Server, current: ^Client) {
 	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, c in s.sessions {
-		if c != current && c.superseded && c.conn == current.conn {
+		if c != current && c.superseded && c.conn == current.conn && c.bulk == current.bulk {
 			append(&stale, idx)
 		}
 	}
@@ -900,13 +965,28 @@ reap_sessions :: proc(s: ^Server) {
 	}
 }
 
+// drop_session ends a session; one already gone (with its connection's
+// main link) is left be.
 drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
-	c := s.sessions[idx]
+	c := s.sessions[idx] or_else nil
+	if c == nil {
+		return
+	}
 	delete_key(&s.sessions, idx)
 
-	if u := c.conn; u != nil {
+	if u := c.conn; u != nil && !c.bulk {
 		u.sessions -= 1
 		if u.sessions == 0 {
+			// Its bulk link goes with it, before it's freed.
+			bulk := make([dynamic]proto.Session_Id, context.temp_allocator)
+			for other_idx, other in s.sessions {
+				if other.conn == u {
+					append(&bulk, other_idx)
+				}
+			}
+			for other_idx in bulk {
+				drop_session(s, other_idx)
+			}
 			if u.account != nil {
 				conn_left(s, u)
 			} else {

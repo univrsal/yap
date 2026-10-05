@@ -139,7 +139,7 @@ Hello: the encrypted payload of Handshake_Finish (msg3), which says
 which of the client's connections this is, and carries the server
 password if the server asks for one.
 
-	[version u8 = 10][conn_id u64][password_len u8][password]
+	[version u8 = 12][conn_id u64][link u8][password_len u8][password]
 
 The version is what keeps a client and a server that disagree about the
 wire format from talking past each other: the server refuses a hello it
@@ -161,6 +161,8 @@ conversations now), took the device's key out of the snapshot's users,
 and has file transfers name accounts (files.odin).
 Version 10 added attachments: a message's files (msgs.odin), and the
 datagrams that move them (transfer.odin, attachments.odin).
+Version 12 added `link`: which of the connection's two links the
+handshake is for (Link below).
 
 `conn_id` is a random number the client picks when it opens a
 connection and sends in every handshake of it. A client handshakes again
@@ -169,6 +171,24 @@ that started over, since a connection has state (the reliable stream,
 stream.odin) that a rekey must keep and a new start must not. The same
 `conn_id` as the connection it has for that client is a rekey; any other
 is a client starting over, and the old connection goes as if it had left.
+
+Each connection has two links, each with its own transport (a UDP
+socket, or a WebSocket on the web) and its own sessions, so the
+connection's light traffic never queues behind its heavy traffic:
+
+	Main  voice, pings, the reliable stream, snapshots, typing, watch
+	      leases, keyframe requests: everything small and urgent
+	Bulk  video fragments, and the chunks of blobs, attachments and
+	      file transfers (HEAVY_KINDS)
+
+The main link is the connection: it's what the hello's conn_id makes
+or carries on, and what the server times out. The bulk link joins a
+connection the main link has made, with a hello of the same conn_id
+and link = Bulk, through a handshake of its own with the same device
+key; the server binds it to that connection (or refuses it with
+No_Connection, for the client to try again later). It goes when its
+connection does. Until it's there, heavy messages go over the main
+link.
 
 Welcome is the server's answer to a hello it accepts, the first Data on
 the new session:
@@ -188,9 +208,23 @@ It's unreliable like Refused, so the server sends a few copies, and
 again whenever the client repeats its Handshake_Finish. Until it comes,
 a client takes nothing else on a new session.
 */
-HELLO_VERSION :: 11
+HELLO_VERSION :: 12
 MAX_PASSWORD_SIZE :: 64 // bytes
-HELLO_MAX_SIZE :: 1 + 8 + 1 + MAX_PASSWORD_SIZE
+HELLO_MAX_SIZE :: 1 + 8 + 1 + 1 + MAX_PASSWORD_SIZE
+
+// Which of a connection's links a handshake is for.
+Link :: enum u8 {
+	Main = 0,
+	Bulk = 1,
+}
+
+// What goes over the bulk link once there is one.
+HEAVY_KINDS :: bit_set[Message_Kind]{.Video, .Blob_Chunk, .Upload_Chunk, .Download_Chunk, .File_Chunk}
+
+// is_heavy says whether a message goes over the bulk link.
+is_heavy :: proc(msg: []u8) -> bool {
+	return len(msg) > 0 && Message_Kind(msg[0]) in HEAVY_KINDS
+}
 WELCOME_SIZE :: 1 + 8 + 1
 
 // Welcome flags.
@@ -198,27 +232,41 @@ WELCOME_LOGGED_IN :: 1 << 0
 
 // encode_hello writes a hello. A password longer than MAX_PASSWORD_SIZE
 // is cut short (and so won't match).
-encode_hello :: proc(out: ^[HELLO_MAX_SIZE]u8, conn_id: u64, password := "") -> []u8 {
+encode_hello :: proc(
+	out: ^[HELLO_MAX_SIZE]u8,
+	conn_id: u64,
+	password := "",
+	link := Link.Main,
+) -> []u8 {
 	p := min(len(password), MAX_PASSWORD_SIZE)
 	out[0] = HELLO_VERSION
 	endian.unchecked_put_u64le(out[1:], conn_id)
-	out[9] = u8(p)
-	copy(out[10:], password[:p])
-	return out[:10 + p]
+	out[9] = u8(link)
+	out[10] = u8(p)
+	copy(out[11:], password[:p])
+	return out[:11 + p]
 }
 
 // decode_hello reads a hello; the password is as sent.
-decode_hello :: proc(payload: []u8) -> (conn_id: u64, password: string, ok: bool) {
-	if len(payload) < 10 || payload[0] != HELLO_VERSION {
+decode_hello :: proc(
+	payload: []u8,
+) -> (
+	conn_id: u64,
+	password: string,
+	link: Link,
+	ok: bool,
+) {
+	if len(payload) < 11 || payload[0] != HELLO_VERSION || payload[9] > u8(max(Link)) {
 		return
 	}
-	password_len := int(payload[9])
-	if len(payload) != 10 + password_len {
+	password_len := int(payload[10])
+	if len(payload) != 11 + password_len {
 		return
 	}
 	conn_id = endian.unchecked_get_u64le(payload[1:])
-	password = string(payload[10:][:password_len])
-	return conn_id, password, true
+	link = Link(payload[9])
+	password = string(payload[11:][:password_len])
+	return conn_id, password, link, true
 }
 
 encode_welcome :: proc(out: ^[WELCOME_SIZE]u8, instance: u64, logged_in: bool) -> []u8 {

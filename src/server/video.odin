@@ -1,7 +1,6 @@
 package server
 
 import "core:log"
-import "core:net"
 import "core:time"
 
 import "common:proto"
@@ -93,10 +92,10 @@ relay_video :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	out_buf: [proto.MAX_PAYLOAD_SIZE]u8
 	msg := proto.video_up_to_down(&out_buf, u.num, pt)
 	now := time.tick_now()
-	pkt_buf: [proto.MAX_PACKET_SIZE]u8
 	for _, c in s.sessions {
 		if !c.keyed ||
 		   c.superseded ||
+		   c.bulk ||
 		   c.conn == u ||
 		   c.conn.account == nil ||
 		   u.room == 0 ||
@@ -107,9 +106,7 @@ relay_video :: proc(s: ^Server, from: ^Client, pt: []byte) {
 		if v.watching != u.num || time.tick_diff(now, v.watch_until) <= 0 {
 			continue
 		}
-		if pkt, ok := proto.seal(&c.session, msg, pkt_buf[:]); ok {
-			net.send_udp(s.sock, pkt, c.endpoint)
-		}
+		send_message(s, c, msg) // on its bulk link
 	}
 }
 
