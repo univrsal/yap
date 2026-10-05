@@ -60,9 +60,16 @@ locked.
 */
 avatar :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	picture(ui, account, r)
-	// Online, away, busy or offline (ui_activity.odin).
-	activity_dot(ui, account, r)
+	// Online, away, busy or offline (ui_activity.odin); a deleted account
+	// is none of them.
+	if acc, known := ui.view.accounts[account]; !known || .Deleted not_in acc.flags {
+		activity_dot(ui, account, r)
+	}
 }
+
+// A deleted account's disc, which has no letter.
+@(private = "file")
+DELETED_COLOR :: mu.Color{90, 90, 90, 255}
 
 // picture draws an account's picture, or its disc and letter.
 @(private = "file")
@@ -76,15 +83,17 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 			return
 		}
 	}
-	// A disc and a letter.
+	// A disc and a letter; a plain grey disc for a deleted account.
+	deleted := known && .Deleted in acc.flags
+	color := DELETED_COLOR if deleted else avatar_color(account)
 	if icon, ok := disc_icon(ui); ok {
-		mu.draw_icon(ctx, icon, r, avatar_color(account))
+		mu.draw_icon(ctx, icon, r, color)
 	} else {
-		mu.draw_rect(ctx, r, avatar_color(account))
+		mu.draw_rect(ctx, r, color)
 	}
 	font := ctx.style.font
 	// Smaller than a line of text, a letter wouldn't fit.
-	if !known || r.h < ctx.text_height(font) {
+	if !known || deleted || r.h < ctx.text_height(font) {
 		return
 	}
 	first, size := utf8.decode_rune_in_string(acc.display)

@@ -24,7 +24,7 @@ again.
     one, deleting one. A permission we don't have ourselves can't be
     ticked.
   - Accounts, in the settings: their roles (Manage_Roles), and disabling
-    them (Manage_Accounts).
+    or deleting them (Manage_Accounts).
   - Purging, in the settings (Purge): a conversation's messages, or
     every one's, or only their pictures, from before so many days ago,
     once it's been confirmed.
@@ -59,6 +59,8 @@ UI_Manage :: struct {
 	// The account whose roles are being chosen (0: none), and which.
 	account:        proto.Account_Id,
 	account_roles:  [dynamic]proto.Role_Id,
+	// The account Delete... was pressed for (0: none).
+	delete_account: proto.Account_Id,
 	// The purge being set up: which conversation (0: all), how many days
 	// back, only pictures, and Purge pressed once.
 	purge_conv:     proto.Conv_Id,
@@ -239,7 +241,7 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	any := false
 	for id in ids {
 		acc := v.accounts[id]
-		if slice.contains(members, id) || .Disabled in acc.flags {
+		if slice.contains(members, id) || acc.flags & {.Disabled, .Deleted} != {} {
 			continue
 		}
 		any = true
@@ -421,9 +423,9 @@ perms_text :: proc(perms: proto.Permissions) -> string {
 
 /*
 account_manage is what the accounts list offers for one account, beside
-its password: choosing its roles (Manage_Roles) and disabling it
-(Manage_Accounts). `roles_open` says its roles are being chosen. Call
-with the View locked, in a row with two cells for it.
+its password: choosing its roles (Manage_Roles), and disabling or
+deleting it (Manage_Accounts). Call with the View locked, in a row with
+three cells for it.
 */
 account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	ctx := &ui.ctx
@@ -449,8 +451,43 @@ account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 		   stable_button(ctx, "disable", "Enable" if disabled else "Disable", {.ALIGN_CENTER}) {
 			command(ui, conn.Account_Disable_Command{account = id, on = !disabled})
 		}
+		if .SUBMIT in stable_button(ctx, "delete?", "Delete...", {.ALIGN_CENTER}) {
+			m.delete_account = 0 if m.delete_account == id else id
+		}
 	} else {
 		mu.label(ctx, "")
+		mu.label(ctx, "")
+	}
+}
+
+// account_delete_confirm asks whether the account picked with Delete...
+// is to be deleted. Call with the View locked, after its row.
+account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
+	ctx := &ui.ctx
+	m := &ui.manage
+	if m.delete_account != id {
+		return
+	}
+	mu.layout_row(ctx, {30, -1})
+	mu.label(ctx, "")
+	with_text_color(
+		ctx,
+		WARNING_COLOR,
+		fmt.tprintf(
+			"Delete %s for good? What they wrote stays, under \"%s\".",
+			acc.username,
+			proto.DELETED_NAME,
+		),
+		label_proc,
+	)
+	mu.layout_row(ctx, {30, 140, 100})
+	mu.label(ctx, "")
+	if .SUBMIT in stable_button(ctx, "delete account", "Delete for good", {.ALIGN_CENTER}) {
+		command(ui, conn.Account_Delete_Command{account = id})
+		m.delete_account = 0
+	}
+	if .SUBMIT in stable_button(ctx, "cancel delete", "Cancel", {.ALIGN_CENTER}) {
+		m.delete_account = 0
 	}
 }
 

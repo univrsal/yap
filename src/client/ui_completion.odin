@@ -164,7 +164,7 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 		return
 	}
 	for id, acc in v.accounts {
-		if id == v.me || .Disabled in acc.flags {
+		if id == v.me || acc.flags & {.Disabled, .Deleted} != {} {
 			continue
 		}
 		if strings.has_prefix(acc.username, prefix) ||

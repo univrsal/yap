@@ -69,7 +69,7 @@ mentions_resolve :: proc(
 			everyone = true
 			continue
 		}
-		acc := account_by_id(&s.accounts, m.account)
+		acc := account_live(&s.accounts, m.account)
 		if acc == nil || acc.id == sender {
 			continue
 		}

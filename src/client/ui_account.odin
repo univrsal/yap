@@ -60,6 +60,9 @@ UI_Account :: struct {
 	set_account:   proto.Account_Id,
 	set_pass_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
 	set_pass_len:  int,
+	// Deleting our own account: the password, typed again.
+	delete_buf:    [proto.MAX_ACCOUNT_PASSWORD]u8,
+	delete_len:    int,
 }
 
 @(private = "file")
@@ -310,6 +313,14 @@ account_settings :: proc(ui: ^UI) {
 			ui.page = .Main
 		}
 		with_text_color(ctx, DIM_COLOR, "This device has to log in again afterwards.", label_proc)
+
+		// Not the owner's: somebody has to be.
+		if .Owner not_in me.flags {
+			if .ACTIVE in mu.begin_treenode(ctx, "Delete this account") {
+				delete_own_account(ui, v)
+				mu.end_treenode(ctx)
+			}
+		}
 	}
 
 	if .Manage_Roles in v.permissions {
@@ -330,6 +341,44 @@ account_settings :: proc(ui: ^UI) {
 			mu.end_treenode(ctx)
 		}
 	}
+}
+
+// delete_own_account is the form for deleting our own account, which
+// takes its password again. Call with the View locked.
+@(private = "file")
+delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
+	ctx := &ui.ctx
+	a := &ui.account
+	mu.layout_row(ctx, {-1})
+	with_text_color(
+		ctx,
+		WARNING_COLOR,
+		fmt.tprintf(
+			"For good: your name, picture, status, roles and devices go. What you wrote stays, under \"%s\".",
+			proto.DELETED_NAME,
+		),
+		label_proc,
+	)
+	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD, 140})
+	mu.label(ctx, "Password")
+	submit := .SUBMIT in password_box(ui, a.delete_buf[:], &a.delete_len)
+	submit |= .SUBMIT in mu.button(ctx, "Delete my account")
+	if submit && a.delete_len > 0 {
+		a.mistake = ""
+		command(
+			ui,
+			conn.Account_Delete_Command {
+				own = true,
+				password = strings.clone(string(a.delete_buf[:a.delete_len])),
+			},
+		)
+		wipe(a.delete_buf[:], &a.delete_len)
+	}
+	// A wrong password, say (afterwards it's the login screen that says
+	// the account is gone).
+	mu.layout_row(ctx, {FORM_LABEL, -1})
+	mu.label(ctx, "")
+	notice_label(ui, v)
 }
 
 @(private = "file")
@@ -374,12 +423,12 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	for id in 1 ..= most {
 		acc, ok := v.accounts[id]
-		if !ok {
+		if !ok || .Deleted in acc.flags {
 			continue
 		}
 		mu.push_id(ctx, uintptr(id))
 		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-(140 + 2 * 90 + 3 * ctx.style.spacing), 140, 90, 90})
+		mu.layout_row(ctx, {-(140 + 3 * 90 + 4 * ctx.style.spacing), 140, 90, 90, 90})
 		what := ""
 		switch {
 		case .Owner in acc.flags:
@@ -412,6 +461,7 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 		}
 		account_manage(ui, id, acc)
 		account_roles_editor(ui, id)
+		account_delete_confirm(ui, id, acc)
 	}
 	if .Manage_Accounts not_in v.permissions {
 		return

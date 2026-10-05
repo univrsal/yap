@@ -75,7 +75,7 @@ call_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 call_start :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	callee_id, ok := proto.decode_account_id(body)
 	me := u.account.id
-	callee := account_by_id(&s.accounts, callee_id)
+	callee := account_live(&s.accounts, callee_id)
 	switch {
 	case !ok || callee_id == me:
 		respond(u, id, .Invalid)

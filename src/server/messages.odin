@@ -105,6 +105,10 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, status)
 		return
 	}
+	if dm_closed(s, conv) {
+		respond(u, id, .Denied)
+		return
+	}
 	// A reply goes to a thread's root: a message of this conversation
 	// that isn't deleted. A reply to a reply goes to its root.
 	root: proto.Message
@@ -283,6 +287,10 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	conv, status := conv_of_member(s, u, f.conv)
 	if conv == nil {
 		respond(u, id, status)
+		return
+	}
+	if dm_closed(s, conv) {
+		respond(u, id, .Denied)
 		return
 	}
 	src, found := msg_by_id(s, f.msg)

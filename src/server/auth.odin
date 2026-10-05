@@ -49,6 +49,7 @@ Pending_Kind :: enum {
 	Password_Change,
 	Account_Create,
 	Account_Password_Set,
+	Account_Delete,
 }
 
 // What a job with the hashing thread is for.
@@ -169,7 +170,7 @@ auth_known_device :: proc(s: ^Server, u: ^Conn) {
 		return
 	}
 	acc := account_by_id(&s.accounts, d.account)
-	if acc == nil || .Disabled in acc.flags {
+	if acc == nil || .Disabled in acc.flags || .Deleted in acc.flags {
 		return
 	}
 	device_seen(&s.accounts, d)
@@ -204,6 +205,8 @@ auth_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		account_create(s, u, id, body)
 	case .Account_Password_Set:
 		account_password_set(s, u, id, body)
+	case .Account_Delete:
+		account_delete(s, u, id, body)
 	case:
 		return false
 	}
@@ -358,7 +361,7 @@ account_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 @(private = "file")
 account_password_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	target_id, password, ok := proto.decode_account_password_set(body)
-	target := account_by_id(&s.accounts, target_id)
+	target := account_live(&s.accounts, target_id)
 	switch {
 	case !can(u.account, .Manage_Accounts):
 		respond(u, id, .Denied)
@@ -387,6 +390,59 @@ account_password_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		params = s.auth.params,
 	}
 	submit(s, u, id, &job, {kind = .Account_Password_Set, account = target.id})
+}
+
+/*
+account_delete deletes an account (account_delete.odin): the asker's
+own, once its password has been checked, or, for whoever has
+Manage_Accounts, one that may do less than they may. Never the owner.
+*/
+@(private = "file")
+account_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	target_id, password, ok := proto.decode_account_delete(body)
+	target := account_by_id(&s.accounts, target_id)
+	switch {
+	case !ok:
+		respond(u, id, .Invalid)
+		return
+	case target == nil || .Deleted in target.flags:
+		respond(u, id, .Not_Found)
+		return
+	case .Owner in target.flags:
+		respond(u, id, .Invalid)
+		return
+	case target == u.account:
+		if u.auth_busy {
+			respond(u, id, .Rate_Limited)
+			return
+		}
+		secret, found := account_secret(&s.accounts, target)
+		if !found {
+			respond(u, id, .Internal)
+			return
+		}
+		job := Hash_Job {
+			check   = true,
+			against = secret,
+		}
+		if len(password) <= proto.MAX_ACCOUNT_PASSWORD {
+			job.given = password_of(password)
+		}
+		submit(s, u, id, &job, {kind = .Account_Delete, account = target.id})
+		return
+	case !can(u.account, .Manage_Accounts):
+		respond(u, id, .Denied)
+		return
+	case !outranks(u.account, permissions(target)):
+		respond(u, id, .Denied)
+		return
+	}
+	if !account_erase(s, target) {
+		respond(u, id, .Internal)
+		return
+	}
+	log.infof("%s deleted the account %d", conn_label(u), target.id)
+	respond(u, id, .Ok)
 }
 
 // auth_sync finishes the requests whose passwords the hashing thread
@@ -424,6 +480,8 @@ auth_sync :: proc(s: ^Server) {
 			account_create_finish(s, u, p, result)
 		case .Account_Password_Set:
 			account_password_set_finish(s, u, p, result)
+		case .Account_Delete:
+			account_delete_finish(s, u, p, result)
 		}
 	}
 }
@@ -462,7 +520,7 @@ login_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 		}
 		respond(u, p.request, .Wrong_Password)
 		return
-	case .Disabled in acc.flags:
+	case .Disabled in acc.flags, .Deleted in acc.flags:
 		respond(u, p.request, .Denied)
 		return
 	}
@@ -540,6 +598,30 @@ account_password_set_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Ha
 	revoke_devices(s, target, .Password_Changed, u.key)
 	respond(u, p.request, .Ok)
 	account_changed(s, target)
+}
+
+@(private = "file")
+account_delete_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
+	acc := u.account
+	switch {
+	case acc == nil || acc.id != p.account:
+		respond(u, p.request, .Unauthenticated)
+		return
+	case !result.matched:
+		wrong_password(acc)
+		respond(u, p.request, .Wrong_Password)
+		return
+	case .Owner in acc.flags:
+		respond(u, p.request, .Invalid)
+		return
+	}
+	log.infof("%s deleted their account", conn_label(u))
+	if !account_erase(s, acc) {
+		respond(u, p.request, .Internal)
+		return
+	}
+	// Logged out by now, but still connected: the answer gets there.
+	respond(u, p.request, .Ok)
 }
 
 /*

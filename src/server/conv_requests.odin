@@ -110,7 +110,7 @@ dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case !ok || other == me:
 		respond(u, id, .Invalid)
 		return
-	case account_by_id(&s.accounts, other) == nil:
+	case account_live(&s.accounts, other) == nil:
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -486,7 +486,7 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	conv := conv_by_id(&s.convs, conv_id)
-	target := account_by_id(&s.accounts, account)
+	target := account_live(&s.accounts, account)
 	switch {
 	case conv == nil || conv.kind != .Channel || !conv_visible(conv, u.account.id):
 		respond(u, id, .Not_Found)

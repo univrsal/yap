@@ -290,6 +290,13 @@ user_menu :: proc(ui: ^UI) {
 	name := fmt.tprintf("account #%d", account)
 	if acc, ok := v.accounts[account]; ok {
 		name = acc.display
+		// Nothing to do with what's left of a deleted account.
+		if .Deleted in acc.flags {
+			mu.layout_row(ctx, {MENU_WIDTH})
+			mu.label(ctx, name)
+			with_text_color(ctx, DIM_COLOR, "This account was deleted.", label_proc)
+			return
+		}
 	}
 	here := false
 	clicked, clicked_here := v.users[ui.menu_user]

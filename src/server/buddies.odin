@@ -50,7 +50,7 @@ buddy_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case !ok || other == acc.id:
 		respond(u, id, .Invalid)
 		return
-	case account_by_id(&s.accounts, other) == nil:
+	case account_live(&s.accounts, other) == nil:
 		respond(u, id, .Not_Found)
 		return
 	}

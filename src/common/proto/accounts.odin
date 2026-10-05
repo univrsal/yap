@@ -29,6 +29,7 @@ Everything here travels as requests and events (rpc.odin):
 	Account_Create        [username str8][password str8][display str8]
 	                  ->  [account u32]
 	Account_Password_Set  [account u32][password str8]
+	Account_Delete        [account u32][password str8]
 
 	Sync_Begin, Sync_End  (nothing): around everything a connection is told
 	                      when it logs in
@@ -43,7 +44,7 @@ Everything here travels as requests and events (rpc.odin):
 	         [activity u8] (activity.odin)
 	device   [key 32][name str8][created u64][last seen u64][flags u8]
 
-The last two requests are an admin's (Manage_Accounts). A password an
+Account_Create and Account_Password_Set are an admin's (Manage_Accounts). A password an
 admin sets, a new account's or one to replace a forgotten one, is only
 good for getting in: Must_Change is set on the account, and the client
 asks for a new one first thing.
@@ -54,6 +55,14 @@ server clears it then. Its avatar is a blob of kind Avatar (a JPEG at
 most MAX_AVATAR_SIDE pixels a side and MAX_AVATAR_SIZE bytes), 0 for
 none, which anyone logged in may fetch. Its roles are for later, and
 empty for now.
+
+Account_Delete deletes an account: its own, with its password, or
+another's by whoever has Manage_Accounts and may do more than it; never
+the owner. What's left is a tombstone, so that what it wrote still has
+an author: the Deleted flag, the display name DELETED_NAME, a username
+nobody can log in with, and nothing else - no devices, roles,
+memberships, buddies, settings, status or picture. Its messages and
+reactions stay. A DM with it can be read but not written to.
 
 Times are Unix milliseconds.
 */
@@ -71,7 +80,11 @@ Account_Flag :: enum u8 {
 	Owner, // the first admin: may do everything, and can't be made less
 	Disabled, // can't log in
 	Must_Change, // the password was set by an admin, and has to be changed
+	Deleted, // a tombstone: what's left of an account that was deleted
 }
+
+// What a deleted account is called.
+DELETED_NAME :: "Deleted user"
 Account_Flags :: distinct bit_set[Account_Flag;u8]
 
 /*
@@ -127,6 +140,7 @@ Logout_Reason :: enum u8 {
 	Revoked          = 1, // from another of the account's devices, or by an admin
 	Password_Changed = 2,
 	Disabled         = 3, // the account was
+	Deleted          = 4, // the account was
 }
 
 // Profile_Set's mask.
@@ -374,6 +388,11 @@ decode_account_password_set :: proc(
 	password = get_str8(&r)
 	return account, password, !r.overflow
 }
+
+// Account_Delete's body is Account_Password_Set's: the account, and the
+// password when it's the asker's own ("" otherwise).
+encode_account_delete :: encode_account_password_set
+decode_account_delete :: decode_account_password_set
 
 ACCOUNT_MAX_SIZE ::
 	4 +

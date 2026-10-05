@@ -124,6 +124,10 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	for dm in v.dms {
 		name := "someone"
 		if acc, ok := v.accounts[dm.with]; ok {
+			// Not to be written to (ui_buddies.odin).
+			if .Deleted in acc.flags {
+				continue
+			}
 			name = acc.display
 		}
 		if row(ui, dm.id, name, filter) {

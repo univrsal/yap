@@ -175,6 +175,12 @@ Stmt :: enum {
 	Files_Index_Add,
 	Files_Index_Remove,
 	File_Search,
+	Account_Erase,
+	Device_Erase,
+	Buddy_Erase,
+	Setting_Erase,
+	Mention_Erase,
+	Member_Erase,
 }
 
 @(private = "file", rodata)
@@ -292,6 +298,14 @@ STMT_SQL := [Stmt]string {
 	.Files_Index_Remove     = "DELETE FROM files_fts WHERE rowid = ?1",
 	// As Msg_Search, by the names of messages' files.
 	.File_Search            = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.blob, b.width, b.height, b.size, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid LEFT JOIN blobs b ON b.id = m.blob WHERE files_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
+	// What's left of a deleted account (account_erase): a name nobody can
+	// log in with, and nothing of its own.
+	.Account_Erase          = "UPDATE accounts SET username = ?2, display = ?3, flags = ?4, status = '', status_until = 0, avatar = NULL, activity = 0, pw_hash = zeroblob(32) WHERE id = ?1",
+	.Device_Erase           = "DELETE FROM devices WHERE account = ?1",
+	.Buddy_Erase            = "DELETE FROM buddies WHERE account = ?1 OR buddy = ?1",
+	.Setting_Erase          = "DELETE FROM settings WHERE account = ?1",
+	.Mention_Erase          = "DELETE FROM mentions WHERE account = ?1",
+	.Member_Erase           = "DELETE FROM members WHERE account = ?1",
 }
 
 DB :: struct {

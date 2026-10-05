@@ -289,7 +289,7 @@ account_roles_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	buf: [proto.MAX_ACCOUNT_ROLES]proto.Role_Id
 	account, wanted, ok := proto.decode_account_roles(body, buf[:])
 	a := &s.accounts
-	target := account_by_id(a, account)
+	target := account_live(a, account)
 	switch {
 	case !can(u.account, .Manage_Roles):
 		respond(u, id, .Denied)
@@ -338,7 +338,7 @@ account_roles_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 @(private = "file")
 account_disable :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	account, on, ok := proto.decode_account_disable(body)
-	target := account_by_id(&s.accounts, account)
+	target := account_live(&s.accounts, account)
 	switch {
 	case !can(u.account, .Manage_Accounts):
 		respond(u, id, .Denied)

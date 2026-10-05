@@ -312,7 +312,11 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 			},
 		)
 	}
-	mu.label(ctx, entry.name if entry.buddy else fmt.tprintf("%s  (not a buddy)", entry.name))
+	deleted := .Deleted in (v.accounts[account] or_else {}).flags
+	mu.label(
+		ctx,
+		entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name),
+	)
 	// Calling them, while they're here and we're in no call.
 	if may_call(v, account) {
 		if .SUBMIT in stable_button(ctx, "dm call", "Call", {.ALIGN_CENTER}) {
@@ -348,6 +352,21 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
+	if deleted {
+		// What's there can be read, and nothing more said (the server
+		// refuses it too).
+		with_text_color(
+			ctx,
+			DIM_COLOR,
+			"Their account was deleted: this conversation can be read, but not written to.",
+			label_proc,
+		)
+		mu.layout_row(ctx, {-1}, -1)
+		if entry.conv != 0 && v.viewing == entry.conv {
+			timeline(ui, &ui.timeline, {entry.conv, 0})
+		}
+		return
+	}
 	status := "here now" if entry.online else last_seen_text(ui, account)
 	status_color := ONLINE_COLOR if entry.online else DIM_COLOR
 	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {

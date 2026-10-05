@@ -71,6 +71,7 @@ network loop never blocks on input.
 	                 Invite,Pin_Messages)
 	/assign <name> [role,...]  give someone exactly these roles
 	/disable <name>, /enable <name>  stop someone logging in, or let them
+	/deluser <name>  delete someone's account; /deleteme <password> our own
 	/private <name>  make a private channel
 	/rename <name>, /topic <text>, /move <position>, /archive   change or
 	                 delete the channel being looked at
@@ -338,6 +339,21 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				conn.Account_Disable_Command {
 					name = strings.clone(strings.trim_space(name)),
 					on = strings.has_prefix(line, "/disable "),
+				},
+			)
+		case strings.has_prefix(line, "/deluser "):
+			conn.push_command(
+				q,
+				conn.Account_Delete_Command {
+					name = strings.clone(strings.trim_space(line[len("/deluser "):])),
+				},
+			)
+		case strings.has_prefix(line, "/deleteme "):
+			conn.push_command(
+				q,
+				conn.Account_Delete_Command {
+					own = true,
+					password = strings.clone(strings.trim_space(line[len("/deleteme "):])),
 				},
 			)
 		case strings.has_prefix(line, "/private "):

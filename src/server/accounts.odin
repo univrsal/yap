@@ -169,6 +169,13 @@ account_by_id :: proc(a: ^Accounts, id: proto.Account_Id) -> ^Account {
 	return a.by_id[id] or_else nil
 }
 
+// account_live is the account with this id if it's there and not
+// deleted: what can be messaged, called, added or given a role.
+account_live :: proc(a: ^Accounts, id: proto.Account_Id) -> ^Account {
+	acc := account_by_id(a, id)
+	return acc if acc != nil && .Deleted not_in acc.flags else nil
+}
+
 /*
 account_add makes an account. The username has to be a clean one
 (proto.username_clean) that isn't taken, and the display name sanitized

@@ -54,6 +54,14 @@ Account_Disable_Command :: struct {
 	name:    string, // owned by the command; headless
 	on:      bool,
 }
+// Delete an account: ours, with our password, or somebody else's, for
+// who may; headless, by name.
+Account_Delete_Command :: struct {
+	account:  proto.Account_Id,
+	name:     string, // owned by the command; headless
+	own:      bool, // ours, whatever `account` says
+	password: string, // owned by the command; for our own
+}
 // Change a channel (0: the one we're looking at): what the mask names.
 Conv_Update_Command :: struct {
 	conv:     proto.Conv_Id,
@@ -207,6 +215,38 @@ account_disable :: proc(c: ^Voice_Client, cmd: Account_Disable_Command) {
 	}
 	buf: [proto.ACCOUNT_DISABLE_SIZE]u8
 	request(c, .Account_Disable, proto.encode_account_disable(&buf, account, cmd.on), manage_done)
+}
+
+account_delete :: proc(c: ^Voice_Client, cmd: Account_Delete_Command) {
+	account := cmd.account if cmd.account != 0 else account_named(c, cmd.name)
+	if cmd.own {
+		account = c.auth.me
+	}
+	if account == 0 {
+		log.warn("there's no such account")
+		return
+	}
+	buf: [proto.ACCOUNT_BODY_MAX]u8
+	body := proto.encode_account_delete(buf[:], account, cmd.password)
+	if body == nil {
+		notify(c, false, "That password is too long.")
+		return
+	}
+	request(
+		c,
+		.Account_Delete,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Wrong_Password:
+				notify(c, false, "Wrong password: the account wasn't deleted.")
+			case .Rate_Limited:
+				notify(c, false, "Too many attempts. Wait a little and try again.")
+			case:
+				manage_done(c, status, body, tag)
+			}
+		},
+	)
 }
 
 conv_update :: proc(c: ^Voice_Client, cmd: Conv_Update_Command) {

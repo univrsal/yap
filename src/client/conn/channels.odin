@@ -387,6 +387,7 @@ Command :: union {
 	Role_Delete_Command,
 	Account_Roles_Command,
 	Account_Disable_Command,
+	Account_Delete_Command,
 	Conv_Update_Command,
 	Conv_Delete_Command,
 	Conv_Member_Command,
@@ -456,6 +457,9 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.role_names)
 	case Account_Disable_Command:
 		delete(v.name)
+	case Account_Delete_Command:
+		delete(v.name)
+		delete(v.password)
 	case Conv_Update_Command:
 		delete(v.name)
 		delete(v.topic)
@@ -588,6 +592,8 @@ process_commands :: proc(c: ^Voice_Client) {
 			account_roles_set(c, v)
 		case Account_Disable_Command:
 			account_disable(c, v)
+		case Account_Delete_Command:
+			account_delete(c, v)
 		case Conv_Update_Command:
 			conv_update(c, v)
 		case Conv_Delete_Command:

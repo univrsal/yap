@@ -408,6 +408,8 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 			why = "The account's password was changed. Log in again."
 		case .Disabled:
 			why = "The account was disabled."
+		case .Deleted:
+			why = "The account was deleted."
 		}
 		log.warnf("%s: %s", c.server_addr, why)
 		auth_logged_out(c, why)

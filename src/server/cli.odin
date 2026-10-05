@@ -20,6 +20,7 @@ more (the owner's password is forgotten, say).
 	yap-server account owner <username>  [config.json]
 	yap-server account role <username> <role>    [config.json]
 	yap-server account unrole <username> <role>  [config.json]
+	yap-server account delete <username> [config.json]
 	yap-server role list                [config.json]
 
 `add` and `passwd` make up a password and print it; like any password
@@ -27,7 +28,9 @@ somebody else chose, it's only good for logging in and choosing one's
 own. `passwd` also logs the account's devices out. `owner` makes the
 account the server's owner, in place of whoever was. `role` and `unrole`
 give an account a role or take it away, and `role list` lists the roles
-and what they allow: for a server nobody can manage any more.
+and what they allow: for a server nobody can manage any more. `delete`
+deletes an account for good (account_delete.odin): what it wrote stays,
+under "Deleted user"; never the owner's.
 
 These work on the database directly, and it's one process's at a time:
 they can't run while the server does.
@@ -39,6 +42,7 @@ ACCOUNT_USAGE :: `usage: yap-server account list [config.json]
        yap-server account owner <username> [config.json]
        yap-server account role <username> <role> [config.json]
        yap-server account unrole <username> <role> [config.json]
+       yap-server account delete <username> [config.json]
        yap-server role list [config.json]`
 
 // run_account_command runs `yap-server account <args...>` and returns
@@ -53,7 +57,7 @@ run_account_command :: proc(args: []string) -> int {
 	names := 0
 	switch command {
 	case "list", "roles":
-	case "add", "passwd", "owner":
+	case "add", "passwd", "owner", "delete":
 		names = 1
 	case "role", "unrole":
 		names = 2
@@ -176,6 +180,27 @@ run_account_command :: proc(args: []string) -> int {
 		}
 		fmt.printfln("%s is the server's owner now", username)
 
+	case "delete":
+		switch {
+		case acc == nil:
+			fmt.eprintfln("there is no account called %s", username)
+			return 1
+		case .Owner in acc.flags:
+			fmt.eprintfln(
+				"%s is the server's owner; make another account the owner first",
+				username,
+			)
+			return 1
+		case !account_erase_rows(&db, acc.id):
+			return 1
+		}
+		db_commit(&db)
+		fmt.printfln(
+			"deleted the account %s; what it wrote is kept, under %q",
+			username,
+			proto.DELETED_NAME,
+		)
+
 	case "role", "unrole":
 		if acc == nil {
 			fmt.eprintfln("there is no account called %s", username)
@@ -271,6 +296,8 @@ account_list :: proc(a: ^Accounts) {
 		switch {
 		case .Owner in acc.flags:
 			role = "owner"
+		case .Deleted in acc.flags:
+			role = "deleted"
 		case .Disabled in acc.flags:
 			role = "disabled"
 		case len(acc.roles) > 0:
