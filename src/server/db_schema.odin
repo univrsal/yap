@@ -278,6 +278,11 @@ MIGRATIONS := [?]string {
 		DELETE FROM files_fts WHERE rowid = old.id;
 	END;
 	`,
+	// 17: a role's colour, which names are shown in (roles.odin); its
+	// position, there since step 10, says which is above another.
+	`
+	ALTER TABLE roles ADD COLUMN color INTEGER NOT NULL DEFAULT 0;
+	`,
 }
 
 // The version a database is at once it has been through every step.

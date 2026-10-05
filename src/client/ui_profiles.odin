@@ -484,14 +484,13 @@ person_row :: proc(
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
 	acc := v.accounts[account] or_else {}
-	name_and_status(
-		ctx,
-		r,
-		name,
-		ctx.style.colors[.TEXT] if online else DIM_COLOR,
-		status_line(acc),
-		extra,
-	)
+	// In the colour of their roles, if they have one; fainter when they
+	// aren't here.
+	color := ctx.style.colors[.TEXT] if online else DIM_COLOR
+	if c, ok := name_color(v, account); ok {
+		color = c if online else {c.r, c.g, c.b, 140}
+	}
+	name_and_status(ctx, r, name, color, status_line(acc), extra)
 	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {}
 }
 

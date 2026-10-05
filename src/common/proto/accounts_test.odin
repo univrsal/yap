@@ -217,15 +217,41 @@ test_account_record :: proc(t: ^testing.T) {
 test_roles :: proc(t: ^testing.T) {
 	buf: [ROLE_MAX_SIZE]u8
 	name := "0123456789abcdef0123456789abcdef"
-	body := encode_role(buf[:], {id = 4, perms = {.Invite, .Purge}, name = name})
+	body := encode_role(
+		buf[:],
+		{
+			id = 4,
+			perms = {.Invite, .Purge},
+			name = name,
+			color = ROLE_COLOR_SET | 0x3366CC,
+			position = 7,
+		},
+	)
 	testing.expect_value(t, len(body), ROLE_MAX_SIZE)
 	role, ok := decode_role(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, role.id, 4)
 	testing.expect_value(t, role.perms, Permissions{.Invite, .Purge})
 	testing.expect_value(t, role.name, name)
+	testing.expect_value(t, role.color, ROLE_COLOR_SET | 0x3366CC)
+	testing.expect_value(t, role.position, 7)
 	_, ok = decode_role(body[:len(body) - 1])
 	testing.expect(t, !ok)
+	// As an older client sends it: no colour, no position.
+	role, ok = decode_role(body[:len(body) - 6])
+	testing.expect(t, ok && role.name == name && role.color == 0 && role.position == 0)
+	// A colour without the bit that says it's set is none.
+	role, ok = decode_role(encode_role(buf[:], {id = 4, name = "x", color = 0x3366CC}))
+	testing.expect(t, ok && role.color == 0)
+
+	order_buf: [ROLE_ORDER_MAX_SIZE]u8
+	order := []Role_Id{5, 3, 9}
+	got_order_buf: [MAX_ROLES]Role_Id
+	got_order, order_ok := decode_role_order(
+		encode_role_order(order_buf[:], order),
+		got_order_buf[:],
+	)
+	testing.expect(t, order_ok && len(got_order) == 3 && got_order[0] == 5 && got_order[2] == 9)
 
 	roles_buf: [ACCOUNT_ROLES_MAX_SIZE]u8
 	ids := [MAX_ACCOUNT_ROLES]Role_Id{}

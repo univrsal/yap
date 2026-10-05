@@ -17,23 +17,34 @@ that, and the server checks again.
 */
 
 Dir_Role :: struct {
-	name:  string, // owned
-	perms: proto.Permissions,
+	name:     string, // owned
+	perms:    proto.Permissions,
+	color:    u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
+	position: u16,
 }
 
+// The roles in View.roles are in the server's order, top first, with
+// everyone's last.
 View_Role :: struct {
 	id:    proto.Role_Id,
 	name:  string, // owned
 	perms: proto.Permissions,
+	color: u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
 }
 
 // Make a role (id 0) or change one; headless, `by_name` changes the
-// one called `name`.
+// one called `name`, and keeps its colour.
 Role_Set_Command :: struct {
 	id:      proto.Role_Id,
 	name:    string, // owned by the command
 	perms:   proto.Permissions,
+	color:   u32,
 	by_name: bool,
+}
+// Put the roles in this order, top first: every role but everyone's.
+Role_Order_Command :: struct {
+	roles: [proto.MAX_ROLES]proto.Role_Id,
+	count: int,
 }
 // Delete a role; headless, by name.
 Role_Delete_Command :: struct {
@@ -102,7 +113,7 @@ roles_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) {
 		}
 		_, dir, _, _ := map_entry(&a.roles, r.id)
 		delete(dir.name)
-		dir^ = {strings.clone(r.name), r.perms}
+		dir^ = {strings.clone(r.name), r.perms, r.color, r.position}
 		if c.view == nil && a.state == .Done {
 			log.infof("[roles] %s: %v", r.name, r.perms)
 		}
@@ -148,21 +159,28 @@ roles_list :: proc(c: ^Voice_Client) {
 }
 
 role_set :: proc(c: ^Voice_Client, cmd: Role_Set_Command) {
-	id := cmd.id
+	id, color := cmd.id, cmd.color
 	if cmd.by_name {
 		id = role_named(c, cmd.name)
 		if id == 0 {
 			log.warnf("there's no role called %q", cmd.name)
 			return
 		}
+		color = c.auth.roles[id].color
 	}
 	buf: [proto.ROLE_MAX_SIZE]u8
-	body := proto.encode_role(buf[:], {id = id, perms = cmd.perms, name = cmd.name})
+	body := proto.encode_role(buf[:], {id = id, perms = cmd.perms, name = cmd.name, color = color})
 	if body == nil {
 		notify(c, false, "That name is too long for a role.")
 		return
 	}
 	request(c, .Role_Set, body, manage_done)
+}
+
+role_order :: proc(c: ^Voice_Client, cmd: Role_Order_Command) {
+	cmd := cmd
+	buf: [proto.ROLE_ORDER_MAX_SIZE]u8
+	request(c, .Role_Order, proto.encode_role_order(buf[:], cmd.roles[:cmd.count]), manage_done)
 }
 
 role_delete :: proc(c: ^Voice_Client, cmd: Role_Delete_Command) {
@@ -331,12 +349,23 @@ publish_roles :: proc(c: ^Voice_Client) {
 		return
 	}
 	ids, _ := slice.map_keys(c.auth.roles, context.temp_allocator)
-	slice.sort(ids)
+	// As the server lists them (roles.odin there): by position, then as
+	// they were made, everyone's last.
+	context.user_ptr = &c.auth.roles
+	slice.sort_by(ids, proc(x, y: proto.Role_Id) -> bool {
+		roles := (^map[proto.Role_Id]Dir_Role)(context.user_ptr)
+		xe, ye := x == proto.EVERYONE_ROLE, y == proto.EVERYONE_ROLE
+		if xe != ye {
+			return ye
+		}
+		xp, yp := roles[x].position, roles[y].position
+		return xp < yp if xp != yp else x < y
+	})
 	view_write(v)
 	view_clear_roles(v)
 	for id in ids {
 		r := c.auth.roles[id]
-		append(&v.roles, View_Role{id, strings.clone(r.name), r.perms})
+		append(&v.roles, View_Role{id, strings.clone(r.name), r.perms, r.color})
 	}
 }
 

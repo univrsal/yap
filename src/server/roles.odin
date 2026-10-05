@@ -19,13 +19,19 @@ given or taken away by them (outranks). Nor can the owner's account be
 disabled, and an account that may do more than the asker can't be
 disabled, given a password or have its devices revoked by them.
 
+A role's colour and its place in the list (Role_Order) are only for
+showing names: which role is above another for handling them goes by
+what they allow.
+
 Like the accounts, roles are few and all kept in memory.
 */
 
 Role :: struct {
-	id:    proto.Role_Id,
-	name:  string, // owned
-	perms: proto.Permissions,
+	id:       proto.Role_Id,
+	name:     string, // owned
+	perms:    proto.Permissions,
+	color:    u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
+	position: int, // lower is higher up; ties go by id
 }
 
 // roles_load reads the roles and who has them (accounts_load).
@@ -44,6 +50,8 @@ roles_load :: proc(a: ^Accounts) -> bool {
 		r.id = proto.Role_Id(db_col_int(q, 0))
 		r.name = db_col_text(q, 1, context.allocator)
 		r.perms = transmute(proto.Permissions)u64(db_col_int(q, 2))
+		r.color = u32(db_col_int(q, 3))
+		r.position = int(db_col_int(q, 4))
 		a.roles[r.id] = r
 	}
 	if proto.EVERYONE_ROLE not_in a.roles {
@@ -97,8 +105,32 @@ roles_sorted :: proc(a: ^Accounts) -> []^Role {
 	for _, r in a.roles {
 		append(&list, r)
 	}
-	slice.sort_by(list[:], proc(x, y: ^Role) -> bool {return x.id < y.id})
+	slice.sort_by(list[:], role_before)
 	return list[:]
+}
+
+// role_before is the order roles are listed in: by position, then as
+// they were made, with everyone's last.
+role_before :: proc(x, y: ^Role) -> bool {
+	xe, ye := x.id == proto.EVERYONE_ROLE, y.id == proto.EVERYONE_ROLE
+	if xe != ye {
+		return ye
+	}
+	if x.position != y.position {
+		return x.position < y.position
+	}
+	return x.id < y.id
+}
+
+// role_record is a role as it's told.
+role_record :: proc(r: ^Role) -> proto.Role {
+	return {
+		id = r.id,
+		perms = r.perms,
+		name = r.name,
+		color = r.color,
+		position = u16(clamp(r.position, 0, int(max(u16)))),
+	}
 }
 
 role_by_name :: proc(a: ^Accounts, name: string) -> ^Role {
@@ -145,6 +177,8 @@ role_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		account_roles_request(s, u, id, body)
 	case .Account_Disable:
 		account_disable(s, u, id, body)
+	case .Role_Order:
+		role_order(s, u, id, body)
 	case:
 		return false
 	}
@@ -188,14 +222,23 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		known += {p}
 	}
 	perms := in_role.perms & known
+	// Everyone's role has no colour: it would be everybody's.
+	color := in_role.color if in_role.id != proto.EVERYONE_ROLE else 0
 	if existing == nil {
 		if len(a.roles) >= proto.MAX_ROLES {
 			respond(u, id, .Too_Large)
 			return
 		}
+		// A new role goes under the others.
+		position := 0
+		for _, r in a.roles {
+			position = max(position, r.position + 1)
+		}
 		q := db_stmt(a.db, .Role_Add)
 		db_bind_text(q, 1, name)
 		db_bind_int(q, 2, i64(transmute(u64)perms))
+		db_bind_int(q, 3, i64(color))
+		db_bind_int(q, 4, i64(position))
 		if !db_run(a.db, q) {
 			respond(u, id, .Internal)
 			return
@@ -204,6 +247,8 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		existing.id = proto.Role_Id(db_last_id(a.db))
 		existing.name = strings.clone(name)
 		existing.perms = perms
+		existing.color = color
+		existing.position = position
 		a.roles[existing.id] = existing
 		log.infof("%s made the role %q", conn_label(u), name)
 	} else {
@@ -211,6 +256,7 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		db_bind_int(q, 1, i64(existing.id))
 		db_bind_text(q, 2, name)
 		db_bind_int(q, 3, i64(transmute(u64)perms))
+		db_bind_int(q, 4, i64(color))
 		if !db_run(a.db, q) {
 			respond(u, id, .Internal)
 			return
@@ -218,6 +264,7 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		delete(existing.name)
 		existing.name = strings.clone(name)
 		existing.perms = perms
+		existing.color = color
 		log.infof("%s changed the role %q", conn_label(u), name)
 	}
 	buf: [4]u8
@@ -228,6 +275,59 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 @(private = "file")
 encode_role_id :: proc(out: ^[4]u8, id: proto.Role_Id) -> []u8 {
 	return proto.encode_account_id(out, proto.Account_Id(id))
+}
+
+/*
+role_order puts the roles in the order given, top first: every role but
+everyone's, each once. It only changes whose colour a name takes, so
+whoever has Manage_Roles may, whatever the roles allow.
+*/
+@(private = "file")
+role_order :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	a := &s.accounts
+	buf: [proto.MAX_ROLES]proto.Role_Id
+	order, ok := proto.decode_role_order(body, buf[:])
+	switch {
+	case !can(u.account, .Manage_Roles):
+		respond(u, id, .Denied)
+		return
+	case !ok || len(order) != len(a.roles) - 1:
+		respond(u, id, .Invalid)
+		return
+	}
+	for role, i in order {
+		if role == proto.EVERYONE_ROLE || role not_in a.roles || slice.contains(order[:i], role) {
+			respond(u, id, .Invalid)
+			return
+		}
+	}
+	moved := make([dynamic]^Role, context.temp_allocator)
+	for role, i in order {
+		r := a.roles[role]
+		if r.position == i {
+			continue
+		}
+		q := db_stmt(a.db, .Role_Set_Position)
+		db_bind_int(q, 1, i64(role))
+		db_bind_int(q, 2, i64(i))
+		if !db_run(a.db, q) {
+			respond(u, id, .Internal)
+			return
+		}
+		r.position = i
+		append(&moved, r)
+	}
+	log.infof("%s put the roles in a new order", conn_label(u))
+	respond(u, id, .Ok)
+	rec_buf: [proto.ROLE_MAX_SIZE]u8
+	for r in moved {
+		changed := proto.encode_role(rec_buf[:], role_record(r))
+		for _, other in s.conns {
+			if other.account != nil {
+				send_event(other, .Role_Changed, changed)
+			}
+		}
+	}
 }
 
 @(private = "file")
@@ -381,7 +481,7 @@ everyone has of an account doesn't change: it names its roles.
 */
 roles_changed :: proc(s: ^Server, r: ^Role) {
 	buf: [proto.ROLE_MAX_SIZE]u8
-	body := proto.encode_role(buf[:], {id = r.id, perms = r.perms, name = r.name})
+	body := proto.encode_role(buf[:], role_record(r))
 	for _, acc in s.accounts.by_id {
 		if r.id == proto.EVERYONE_ROLE || slice.contains(acc.roles[:], r.id) {
 			account_perms_update(&s.accounts, acc)
@@ -400,10 +500,6 @@ roles_changed :: proc(s: ^Server, r: ^Role) {
 send_roles :: proc(s: ^Server, u: ^Conn) {
 	buf: [proto.ROLE_MAX_SIZE]u8
 	for r in roles_sorted(&s.accounts) {
-		send_event(
-			u,
-			.Role_Changed,
-			proto.encode_role(buf[:], {id = r.id, perms = r.perms, name = r.name}),
-		)
+		send_event(u, .Role_Changed, proto.encode_role(buf[:], role_record(r)))
 	}
 }

@@ -649,3 +649,88 @@ test_private_channels :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Invalid)
 }
+
+@(test)
+test_role_colors :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	ts_account(t, &ts, "admin", "a password", {.Owner})
+	ts_account(t, &ts, "alice", "a password")
+	owner := logged_in(t, &ts, "admin")
+	alice := logged_in(t, &ts, "alice")
+
+	red := proto.ROLE_COLOR_SET | 0xCC3333
+	status, mods := role_set(t, &ts, owner, {name = "mods", color = red})
+	testing.expect_value(t, status, proto.Status.Ok)
+	helpers: proto.Role_Id
+	status, helpers = role_set(t, &ts, owner, {name = "helpers"})
+	testing.expect_value(t, status, proto.Status.Ok)
+	// Told with its colour, and a new role goes under the others.
+	_, told := has_event(ts_events(t, &ts, alice), .Role_Changed)
+	testing.expect(t, told)
+	m := s.accounts.roles[mods]
+	h := s.accounts.roles[helpers]
+	testing.expect_value(t, m.color, red)
+	testing.expect(t, h.position > m.position)
+
+	// Everyone's role takes no colour.
+	status, _ = role_set(t, &ts, owner, {id = proto.EVERYONE_ROLE, name = "everyone", color = red})
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, s.accounts.roles[proto.EVERYONE_ROLE].color, 0)
+
+	// The order: only with Manage_Roles, every role but everyone's once.
+	order_buf: [proto.ROLE_ORDER_MAX_SIZE]u8
+	ask_order :: proc(
+		t: ^testing.T,
+		ts: ^Test_Server,
+		u: ^Conn,
+		buf: []u8,
+		order: ..proto.Role_Id,
+	) -> proto.Status {
+		status, _ := ts_ask(t, ts, u, .Role_Order, proto.encode_role_order(buf, order))
+		return status
+	}
+	testing.expect_value(
+		t,
+		ask_order(t, &ts, alice, order_buf[:], helpers, mods),
+		proto.Status.Denied,
+	)
+	testing.expect_value(t, ask_order(t, &ts, owner, order_buf[:], helpers), proto.Status.Invalid)
+	testing.expect_value(
+		t,
+		ask_order(t, &ts, owner, order_buf[:], helpers, helpers),
+		proto.Status.Invalid,
+	)
+	testing.expect_value(
+		t,
+		ask_order(t, &ts, owner, order_buf[:], helpers, proto.EVERYONE_ROLE),
+		proto.Status.Invalid,
+	)
+	ts_events(t, &ts, alice)
+	testing.expect_value(t, ask_order(t, &ts, owner, order_buf[:], helpers, mods), proto.Status.Ok)
+	sorted := roles_sorted(&s.accounts)
+	testing.expect(t, sorted[0].id == helpers && sorted[1].id == mods)
+	testing.expect_value(t, sorted[2].id, proto.EVERYONE_ROLE)
+	moved := 0
+	for ev in ts_events(t, &ts, alice) {
+		if ev.op == .Role_Changed {
+			r, ok := proto.decode_role(ev.body)
+			testing.expect(t, ok)
+			if r.id == helpers {
+				testing.expect_value(t, r.position, 0)
+			}
+			moved += 1
+		}
+	}
+	// Only what moved is told: mods was second already.
+	testing.expect_value(t, moved, 1)
+
+	// As the database has it.
+	again: Accounts
+	testing.expect(t, accounts_load(&again, &s.db))
+	defer accounts_destroy(&again)
+	testing.expect_value(t, again.roles[mods].color, red)
+	testing.expect(t, again.roles[helpers].position < again.roles[mods].position)
+}

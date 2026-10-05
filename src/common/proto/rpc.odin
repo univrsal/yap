@@ -88,6 +88,7 @@ Request_Op :: enum u16 {
 	Role_Delete          = 0x0071,
 	Account_Roles_Set    = 0x0072,
 	Account_Disable      = 0x0073,
+	Role_Order           = 0x0074,
 	// Calls, see calls.odin.
 	Call_Start           = 0x0080,
 	Call_Accept          = 0x0081,

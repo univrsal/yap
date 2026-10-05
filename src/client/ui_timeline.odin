@@ -867,7 +867,7 @@ timeline_message :: proc(
 	}
 	header :=
 		"" if merged else fmt.tprintf("%s  %s%s%s%s", chat_time(ui, seconds), name, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
-	header_color := CHAT_OWN_COLOR if m.sender == v.me else CHAT_NAME_COLOR
+	header_color := author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
 		// The picture, beside the header (which comes after the gap);

@@ -324,10 +324,12 @@ account_settings :: proc(ui: ^UI) {
 	}
 
 	if .Manage_Roles in v.permissions {
-		if .ACTIVE in mu.begin_treenode(ctx, "Roles") {
-			roles_settings(ui)
-			mu.end_treenode(ctx)
+		mu.layout_row(ctx, {FORM_LABEL, 140, -1})
+		mu.label(ctx, "Roles")
+		if .SUBMIT in mu.button(ctx, "Roles...") {
+			open_roles(ui)
 		}
+		with_text_color(ctx, DIM_COLOR, "What each allows, and who has it.", label_proc)
 	}
 	if v.permissions & {.Manage_Accounts, .Manage_Roles} != {} {
 		if .ACTIVE in mu.begin_treenode(ctx, "Accounts on this server") {

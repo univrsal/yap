@@ -10,8 +10,11 @@ account) may do everything whatever its roles. Other roles are made by
 whoever has Manage_Roles, who can't give a role a permission they don't
 have themselves, nor change, delete, give or take a role that has one.
 
-	Role_Set           [id u32][perms u64][name str8]  ->  [id u32]
-	                   id 0 makes a role; else changes that one
+	Role_Set           a role  ->  [id u32]
+	                   id 0 makes a role; else changes that one (its
+	                   position is Role_Order's to change, and ignored)
+	Role_Order         [count u8][role u32]...: the order of every role
+	                   but everyone's, top first
 	Role_Delete        [id u32]
 	Account_Roles_Set  [account u32][count u8][role u32]...  the account's
 	                   roles besides `everyone`
@@ -21,7 +24,14 @@ have themselves, nor change, delete, give or take a role that has one.
 	Role_Changed       a role, new or changed
 	Role_Removed       [id u32]
 
-	role     [id u32][perms u64][name str8]
+	role     [id u32][perms u64][name str8][color u32][position u16]
+
+A role's colour is 0xRRGGBB with ROLE_COLOR_SET, or 0 for none; a name
+is shown in the colour of the highest of its account's roles that has
+one. That's all the order is for: which role is above another for
+handling them goes by what they allow, never by where they are.
+Everyone's role is under the others and has no colour. A role from an
+older client, without the last two, has neither.
 
 Roles are told in the login sync before the accounts (whose records name
 their roles), and as they change after; Self again when a connection's
@@ -40,12 +50,16 @@ MAX_ROLES :: 64
 MAX_ACCOUNT_ROLES :: 16
 
 Role :: struct {
-	id:    Role_Id,
-	perms: Permissions,
-	name:  string,
+	id:       Role_Id,
+	perms:    Permissions,
+	name:     string,
+	color:    u32, // 0xRRGGBB | ROLE_COLOR_SET, or 0 for none
+	position: u16, // lower is higher up; ties go by id
 }
 
-ROLE_MAX_SIZE :: 4 + 8 + 1 + MAX_ROLE_NAME
+ROLE_COLOR_SET :: u32(1) << 24
+
+ROLE_MAX_SIZE :: 4 + 8 + 1 + MAX_ROLE_NAME + 4 + 2
 
 encode_role :: proc(out: []u8, role: Role) -> []u8 {
 	w := Writer {
@@ -54,6 +68,8 @@ encode_role :: proc(out: []u8, role: Role) -> []u8 {
 	put_u32(&w, u32(role.id))
 	put_u64(&w, transmute(u64)role.perms)
 	put_str8(&w, role.name)
+	put_u32(&w, role.color)
+	put_u16(&w, role.position)
 	return nil if w.overflow else out[:w.pos]
 }
 
@@ -64,7 +80,43 @@ decode_role :: proc(body: []u8) -> (role: Role, ok: bool) {
 	role.id = Role_Id(get_u32(&r))
 	role.perms = transmute(Permissions)get_u64(&r)
 	role.name = get_str8(&r)
+	if !r.overflow && r.pos < len(r.buf) {
+		role.color = get_u32(&r)
+		role.position = get_u16(&r)
+	}
+	if role.color & ROLE_COLOR_SET == 0 {
+		role.color = 0
+	}
+	role.color &= ROLE_COLOR_SET | 0xFF_FF_FF
 	return role, !r.overflow
+}
+
+ROLE_ORDER_MAX_SIZE :: 1 + 4 * MAX_ROLES
+
+encode_role_order :: proc(out: []u8, roles: []Role_Id) -> []u8 {
+	w := Writer {
+		buf = out,
+	}
+	put_u8(&w, u8(min(len(roles), 255)))
+	for role in roles {
+		put_u32(&w, u32(role))
+	}
+	return nil if w.overflow || len(roles) > MAX_ROLES else out[:w.pos]
+}
+
+// decode_role_order reads one; the roles are in `buf`.
+decode_role_order :: proc(body: []u8, buf: []Role_Id) -> (roles: []Role_Id, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	count := int(get_u8(&r))
+	if r.overflow || count > len(buf) {
+		return
+	}
+	for &role in buf[:count] {
+		role = Role_Id(get_u32(&r))
+	}
+	return buf[:count], !r.overflow && r.pos == len(body)
 }
 
 ACCOUNT_ROLES_MAX_SIZE :: 4 + 1 + 4 * MAX_ACCOUNT_ROLES

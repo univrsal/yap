@@ -190,6 +190,7 @@ UI :: struct {
 	// Managing the server, for who may (ui_manage.odin), calls
 	// (ui_calls.odin), and the voice panel (ui_voice_panel.odin).
 	manage:              UI_Manage,
+	roles:               UI_Roles, // the Roles window (ui_roles.odin)
 	calls:               UI_Calls,
 	voice_panel:         UI_Voice_Panel,
 	threads_opened:      u64,
@@ -700,6 +701,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	avatar_pick_wait(ui)
 	ui_profiles_destroy(ui)
 	ui_manage_destroy(ui)
+	ui_roles_destroy(ui)
 	for path in ui.dropped {
 		delete(path)
 	}
@@ -1213,6 +1215,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	completion_window(ui)
 	picker_window(ui, w, h)
 	channels_window(ui, w, h)
+	roles_window(ui, w, h)
 	forward_window(ui, w, h)
 	search_window(ui, w, h)
 	// Last, and in a window of its own, so it's over the popups too.

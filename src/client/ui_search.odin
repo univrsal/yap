@@ -130,7 +130,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.layout_row(ctx, {-70, -1})
 		with_text_color(
 			ctx,
-			CHAT_OWN_COLOR if m.sender == v.me else CHAT_NAME_COLOR,
+			author_color(v, m.sender),
 			fmt.tprintf("%s  %s%s", chat_time(ui, proto.Unix_Time(m.time / 1000)), name, place),
 			label_proc,
 		)

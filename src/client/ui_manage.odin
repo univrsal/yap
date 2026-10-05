@@ -20,9 +20,7 @@ again.
     private one, taking people out of it.
   - Adding people to a channel, in the members window (Invite, and being
     in it).
-  - The roles, in the settings (Manage_Roles): what each allows, a new
-    one, deleting one. A permission we don't have ourselves can't be
-    ticked.
+  - The roles, in their own window (ui_roles.odin).
   - Accounts, in the settings: their roles (Manage_Roles), and disabling
     or deleting them (Manage_Accounts).
   - Purging, in the settings (Purge): a conversation's messages, or
@@ -47,15 +45,6 @@ UI_Manage :: struct {
 	private:        bool, // making a private channel
 	// The members window's list of people to add, open.
 	adding:         bool,
-	// The role being edited (0: none), and as it's being edited.
-	role:           proto.Role_Id,
-	role_loaded:    proto.Role_Id,
-	role_seen:      proto.Role, // name owned
-	role_buf:       [proto.MAX_ROLE_NAME]u8,
-	role_len:       int,
-	role_perms:     proto.Permissions,
-	new_role_buf:   [proto.MAX_ROLE_NAME]u8,
-	new_role_len:   int,
 	// The account whose roles are being chosen (0: none), and which.
 	account:        proto.Account_Id,
 	account_roles:  [dynamic]proto.Role_Id,
@@ -75,8 +64,7 @@ ui_manage_destroy :: proc(ui: ^UI) {
 	delete(m.account_roles)
 	delete(m.loaded_name)
 	delete(m.loaded_topic)
-	delete(m.role_seen.name)
-	m.account_roles, m.loaded_name, m.loaded_topic, m.role_seen = nil, "", "", {}
+	m.account_roles, m.loaded_name, m.loaded_topic = nil, "", ""
 }
 
 @(private = "file")
@@ -282,143 +270,6 @@ is_channel :: proc(v: ^conn.View, conv: proto.Conv_Id) -> bool {
 		}
 	}
 	return false
-}
-
-/*
-roles_settings is the settings' part about roles, for whoever has
-Manage_Roles. Call with the View locked.
-*/
-roles_settings :: proc(ui: ^UI) {
-	ctx := &ui.ctx
-	v := &ui.view
-	m := &ui.manage
-	mine := v.permissions
-
-	for r in v.roles {
-		mu.push_id(ctx, uintptr(r.id))
-		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {160, -1})
-		selected := m.role == r.id
-		if .SUBMIT in
-		   stable_button(ctx, "role", fmt.tprintf("%s %s", "-" if selected else "+", r.name)) {
-			m.role = 0 if selected else r.id
-		}
-		with_text_color(
-			ctx,
-			DIM_COLOR,
-			"nothing more" if r.perms == {} else perms_text(r.perms),
-			label_proc,
-		)
-		if m.role != r.id {
-			continue
-		}
-		if m.role_loaded != r.id || m.role_seen.perms != r.perms || m.role_seen.name != r.name {
-			m.role_loaded = r.id
-			m.role_len = copy(m.role_buf[:], r.name)
-			m.role_perms = r.perms
-			delete(m.role_seen.name)
-			m.role_seen = {
-				id    = r.id,
-				perms = r.perms,
-				name  = strings.clone(r.name),
-			}
-		}
-		everyone := r.id == proto.EVERYONE_ROLE
-		// A role that can do more than we can is above us: shown, not
-		// changed.
-		above := !(r.perms <= mine)
-		mu.layout_row(ctx, {20, 60, 200})
-		mu.label(ctx, "")
-		mu.label(ctx, "Name")
-		if everyone || above {
-			mu.label(ctx, r.name)
-		} else {
-			text_box(ui, m.role_buf[:], &m.role_len)
-		}
-		for p in proto.Permission {
-			mu.layout_row(ctx, {20, -1})
-			mu.label(ctx, "")
-			on := p in m.role_perms
-			if p not_in mine || above {
-				with_text_color(
-					ctx,
-					DIM_COLOR,
-					fmt.tprintf("[%s] %s", "x" if on else " ", PERMISSION_TEXT[p]),
-					label_proc,
-				)
-				continue
-			}
-			if .CHANGE in mu.checkbox(ctx, PERMISSION_TEXT[p], &on) {
-				if on {
-					m.role_perms += {p}
-				} else {
-					m.role_perms -= {p}
-				}
-			}
-		}
-		if above {
-			mu.layout_row(ctx, {20, -1})
-			mu.label(ctx, "")
-			with_text_color(
-				ctx,
-				DIM_COLOR,
-				"It allows more than you may, so you can't change it.",
-				label_proc,
-			)
-			continue
-		}
-		mu.layout_row(ctx, {20, 100, 100})
-		mu.label(ctx, "")
-		if .SUBMIT in stable_button(ctx, "save role", "Save", {.ALIGN_CENTER}) && m.role_len > 0 {
-			command(
-				ui,
-				conn.Role_Set_Command {
-					id = r.id,
-					name = strings.clone(string(m.role_buf[:m.role_len])),
-					perms = m.role_perms,
-				},
-			)
-		}
-		if !everyone &&
-		   .SUBMIT in stable_button(ctx, "delete role", "Delete role", {.ALIGN_CENTER}) {
-			command(ui, conn.Role_Delete_Command{id = r.id})
-			m.role = 0
-		}
-	}
-	mu.layout_row(ctx, {160, 200, 100})
-	mu.label(ctx, "New role")
-	submit := .SUBMIT in text_box(ui, m.new_role_buf[:], &m.new_role_len)
-	submit |= .SUBMIT in stable_button(ctx, "make role", "Make role", {.ALIGN_CENTER})
-	if submit && m.new_role_len > 0 {
-		command(
-			ui,
-			conn.Role_Set_Command{name = strings.clone(string(m.new_role_buf[:m.new_role_len]))},
-		)
-		m.new_role_len = 0
-	}
-}
-
-// What each permission allows, as the settings say it.
-PERMISSION_TEXT := [proto.Permission]string {
-	.Create_Channels  = "Make channels",
-	.Manage_Channels  = "Change and delete channels",
-	.Invite           = "Add people to channels",
-	.Manage_Roles     = "Manage roles and who has them",
-	.Manage_Messages  = "Delete others' messages",
-	.Pin_Messages     = "Pin messages",
-	.Manage_Accounts  = "Make, disable and reset accounts",
-	.Mention_Everyone = "Mention @everyone",
-	.Purge            = "Purge history",
-	.Attach_Files     = "Attach files to messages",
-}
-
-@(private = "file")
-perms_text :: proc(perms: proto.Permissions) -> string {
-	parts := make([dynamic]string, context.temp_allocator)
-	for p in perms {
-		append(&parts, PERMISSION_TEXT[p])
-	}
-	return strings.join(parts[:], ", ", context.temp_allocator)
 }
 
 /*

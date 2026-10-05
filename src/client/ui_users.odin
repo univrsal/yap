@@ -256,6 +256,51 @@ open_user_menu :: proc(ui: ^UI, num: proto.User_Num, account: proto.Account_Id) 
 	ui.menu_requested = true
 }
 
+// How someone else is, in their card.
+@(private = "file")
+SEEN_AS := [proto.Activity]string {
+	.Online  = "online",
+	.Away    = "away",
+	.Busy    = "busy",
+	.Offline = "offline",
+}
+
+/*
+user_card is the top of the user menu: who the account is. Call with
+the View locked, inside the menu.
+*/
+@(private = "file")
+user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
+	ctx := &ui.ctx
+	v := &ui.view
+	PICTURE :: 44
+	line := ctx.text_height(ctx.style.font)
+	mu.layout_row(ctx, {PICTURE, -1}, PICTURE)
+	avatar(ui, account, mu.layout_next(ctx))
+	r := mu.layout_next(ctx)
+	color, colored := name_color(v, account)
+	if !colored {
+		color = ctx.style.colors[.TEXT]
+	}
+	font := ctx.style.font
+	top := r.y + (r.h - 2 * line - 2) / 2
+	mu.draw_text(ctx, font, acc.display, {r.x, top}, color)
+	mu.draw_text(
+		ctx,
+		font,
+		fmt.tprintf("@%s, %s", acc.username, SEEN_AS[acc.activity]),
+		{r.x, top + line + 2},
+		DIM_COLOR,
+	)
+	if status := status_line(acc); status != "" {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, ctx.style.colors[.TEXT], status, label_proc)
+	}
+	if len(acc.roles) > 0 {
+		role_chips(ui, acc.roles, MENU_WIDTH)
+	}
+}
+
 // user_menu shows the menu for ui.menu_account while it's open.
 user_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -307,6 +352,12 @@ user_menu :: proc(ui: ^UI) {
 	buddy := slice.contains(v.buddies[:], account)
 	user_is_screen_sharing := clicked_here && clicked.sharing
 
+	// Who they are: their picture, their name in their roles' colour,
+	// their username and how they are; their status; their roles.
+	if acc, ok := v.accounts[account]; ok {
+		user_card(ui, account, acc)
+	}
+
 	widths := make([dynamic]i32, context.temp_allocator)
 	append(&widths, 0, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON)
 	if user_is_screen_sharing {
@@ -315,7 +366,7 @@ user_menu :: proc(ui: ^UI) {
 	widths[0] = i32(MENU_WIDTH) - ICON_BUTTON * i32(len(widths) - 1)
 	mu.layout_row(ctx, widths[:])
 
-	mu.label(ctx, name)
+	mu.label(ctx, "")
 	if .SUBMIT in
 	   icon_button(
 		   ui,
@@ -371,15 +422,6 @@ user_menu :: proc(ui: ^UI) {
 		log.debugf("ui: %s %s", name, "is no longer a buddy" if buddy else "is a buddy now")
 	}
 
-	if acc, ok := v.accounts[account]; ok {
-		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(
-			ctx,
-			DIM_COLOR,
-			fmt.tprintf("@%s%s", acc.username, "" if here else ", not here"),
-			label_proc,
-		)
-	}
 	if may_call(v, account) {
 		mu.layout_row(ctx, {MENU_WIDTH})
 		if .SUBMIT in stable_button(ctx, "call", "Call", {.ALIGN_CENTER}) {
