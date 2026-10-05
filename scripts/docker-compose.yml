@@ -1,0 +1,11 @@
+services:
+  yap-server:
+    image: ${YAP_IMAGE:-ghcr.io/univrsal/yap:latest}
+    restart: unless-stopped
+    ports:
+      - '7777:7777/udp'
+    volumes:
+      - yap-data:/data
+
+volumes:
+  yap-data:
