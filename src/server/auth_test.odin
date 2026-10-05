@@ -70,6 +70,7 @@ ts_close :: proc(ts: ^Test_Server) {
 	delete(ts.clients)
 	delete(s.conns)
 	delete(s.waiting)
+	calls_destroy(s)
 	convs_destroy(&s.convs)
 	retention_close(&s.retention)
 	blob_store_close(&s.blobs)
