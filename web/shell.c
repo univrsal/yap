@@ -156,6 +156,67 @@ EM_JS(int, yap_ws_pending, (), {
 	return w ? w.queue.length : 0;
 });
 
+/* ---- idle ----
+The Idle Detection API (Chromium only): whether there's been input
+anywhere on the computer, for being away by ourselves (src/client/idle).
+It needs the page to have been allowed, which takes a click to ask for
+(yap_idle_web_ask); the browser remembers the answer, so later pages
+start it at once. Its shortest threshold is a minute. */
+
+EM_JS(void, yap_idle_web_open, (int after_ms), {
+	const s = (Module.yapIdle = { state: -1, permission: "none", controller: null });
+	s.after = Math.max(after_ms, 60000);
+	if (typeof IdleDetector !== "function" || !navigator.permissions) return;
+	s.start = async () => {
+		if (s.controller) return;
+		const controller = new AbortController();
+		try {
+			const detector = new IdleDetector();
+			detector.addEventListener("change", () => {
+				s.state = detector.userState === "idle" ? 1 : 0;
+			});
+			await detector.start({ threshold: s.after, signal: controller.signal });
+			s.controller = controller;
+			s.state = detector.userState === "idle" ? 1 : 0;
+		} catch (e) {
+			console.warn("yap: no idle detection:", e);
+		}
+	};
+	navigator.permissions.query({ name: "idle-detection" }).then((p) => {
+		s.permission = p.state;
+		p.onchange = () => {
+			s.permission = p.state;
+			if (p.state === "granted") s.start();
+		};
+		if (p.state === "granted") s.start();
+	}, () => {});
+});
+
+EM_JS(int, yap_idle_web_check, (), {
+	const s = Module.yapIdle;
+	return s ? s.state : -1;
+});
+
+EM_JS(int, yap_idle_web_can_ask, (), {
+	const s = Module.yapIdle;
+	return s && s.permission === "prompt" ? 1 : 0;
+});
+
+EM_JS(void, yap_idle_web_ask, (), {
+	const s = Module.yapIdle;
+	if (!s || !s.start) return;
+	IdleDetector.requestPermission().then((answer) => {
+		s.permission = answer;
+		if (answer === "granted") s.start();
+	}, () => {});
+});
+
+EM_JS(void, yap_idle_web_close, (), {
+	const s = Module.yapIdle;
+	if (s && s.controller) s.controller.abort();
+	Module.yapIdle = null;
+});
+
 /* ---- screen sharing ----
 
 The capturing, encoding and decoding are the page's, in Module.yapVideo

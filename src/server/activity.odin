@@ -88,6 +88,9 @@ idle_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
+	if idle != u.idle {
+		log.debugf("%s is %s", conn_label(u), "idle" if idle else "back")
+	}
 	u.idle = idle
 	respond(u, id, .Ok)
 	activity_check(s, u.account)

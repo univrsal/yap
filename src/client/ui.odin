@@ -455,6 +455,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	// giving up for a hidden window, since they work without one.
 	hotkeys_frame(ui)
 	tray_update(ui)
+	activity_step(ui)
 	if ui.hidden {
 		ui.meter_shown = false
 		return true // no window to draw in
@@ -712,6 +713,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	delete(ui.reactors_asked.emoji)
 	delete(ui.channels.find_asked)
 	clipboard.destroy()
+	activity_close(ui)
 	window_close(ui)
 	glfw.Terminate()
 	audio.audio_destroy(&ui.audio)

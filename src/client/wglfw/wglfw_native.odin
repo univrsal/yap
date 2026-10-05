@@ -85,6 +85,7 @@ MOUSE_BUTTON_MIDDLE :: glfw.MOUSE_BUTTON_MIDDLE
 HAND_CURSOR :: glfw.HAND_CURSOR
 IBEAM_CURSOR :: glfw.IBEAM_CURSOR
 PLATFORM_WAYLAND :: glfw.PLATFORM_WAYLAND
+PLATFORM_X11 :: glfw.PLATFORM_X11
 KEY_A :: glfw.KEY_A
 KEY_B :: glfw.KEY_B
 KEY_E :: glfw.KEY_E
@@ -122,6 +123,16 @@ WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {
 GetWaylandDisplay :: proc "contextless" () -> rawptr {
 	when ODIN_OS == .Linux {
 		return glfw.GetWaylandDisplay()
+	} else {
+		return nil
+	}
+}
+
+// X11 only, and only on Linux: GLFW's connection, for asking how long
+// since the last input (client:idle).
+GetX11Display :: proc "contextless" () -> rawptr {
+	when ODIN_OS == .Linux {
+		return glfw.GetX11Display()
 	} else {
 		return nil
 	}

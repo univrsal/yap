@@ -88,6 +88,21 @@ if [ ! -f "$lib" ] || [ "$aac/yap_aac.c" -nt "$lib" ] || [ deps/thirdparty/tinya
 	rm "$aac/yap_aac.o"
 fi
 
+# How long since the last input on the desktop (src/client/idle), on
+# Linux only: Wayland's ext-idle-notify-v1 or X11's libXss, both loaded
+# with dlopen() at runtime, so nothing to compile against. Windows and
+# macOS need no C for it.
+if [ "$(uname -s)" = Linux ]; then
+	idle=src/client/idle
+	lib=$idle/libyap_idle.a
+	if [ ! -f "$lib" ] || [ "$idle/yap_idle.c" -nt "$lib" ] || [ "$idle/yap_idle.h" -nt "$lib" ]; then
+		echo "building $lib"
+		${CC:-cc} -std=c99 -Os -D_POSIX_C_SOURCE=200809L -c "$idle/yap_idle.c" -o "$idle/yap_idle.o"
+		ar rcs "$lib" "$idle/yap_idle.o"
+		rm "$idle/yap_idle.o"
+	fi
+fi
+
 # SQLite, for the server's database: one big C file, fetched on first
 # use (scripts/fetch-sqlite.sh) and compiled the way
 # src/server/sqlite/yap_sqlite.c configures it. It takes a little while,

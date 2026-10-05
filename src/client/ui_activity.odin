@@ -1,10 +1,14 @@
 package client
 
+import log "common:wlog"
 import "core:strings"
+import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:idle"
+import glfw "client:wglfw"
 import "common:proto"
 
 /*
@@ -14,18 +18,31 @@ choosing ours (the status window, ui_profiles.odin); and noticing that
 nobody has touched this window for a while, which makes us away unless
 we chose otherwise.
 
-Idle is input in yap's own window only: there's no asking the desktop
-about input elsewhere yet.
+Idle is no input for IDLE_AFTER, anywhere on the desktop where the
+system says (client:idle), and in yap's own window always: input in
+either is enough not to be idle. It's only looked for while we chose to
+be online, since for any other choice the server shows what we chose
+whatever the idle; otherwise we're not idle.
 */
 
-// No input in the window for this long is idle: ten minutes, or for
-// testing, -define:YAP_IDLE_SECONDS=n.
+// No input for this long is idle: ten minutes, or for testing,
+// -define:YAP_IDLE_SECONDS=n.
 IDLE_SECONDS :: #config(YAP_IDLE_SECONDS, 600)
 IDLE_AFTER :: IDLE_SECONDS * time.Second
+// How often the system is asked: not every turn of the loop, since on
+// X11 it's a round trip to the X server.
+@(private = "file")
+IDLE_CHECK_EVERY :: min(15 * time.Second, IDLE_AFTER / 4)
 
 UI_Activity :: struct {
-	last_input: time.Tick,
-	idle:       bool, // as last told the network side
+	last_input:   time.Tick, // in the window
+	source:       idle.Source, // where the system's idle comes from
+	opened:       bool,
+	last_check:   time.Tick,
+	system_idle:  bool, // as the system last said, if it could
+	system_known: bool,
+	idle:         bool, // as last told the network side
+	told:         ^Net_Session, // the session `idle` was told to
 }
 
 ACTIVITY_COLORS := [proto.Activity]mu.Color {
@@ -50,35 +67,76 @@ ACTIVITY_HINTS := [proto.Activity]string {
 }
 
 /*
-activity_input notices input since the last frame, before microui takes
-it: any is activity, and none for IDLE_AFTER is idle, which the network
-side tells the server either way. Call once a frame, before mu.begin.
+activity_input notices input in the window since the last frame, before
+microui takes it. Call once a frame, before mu.begin.
 */
 activity_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	a := &ui.activity
-	if a.last_input == {} {
-		a.last_input = time.tick_now()
-	}
 	input :=
 		ctx.mouse_pos != ctx.last_mouse_pos ||
 		ctx.mouse_pressed_bits != {} ||
 		ctx.key_pressed_bits != {} ||
 		ctx.scroll_delta != {} ||
 		strings.builder_len(ctx.text_input) > 0
-	idle := a.idle
 	if input {
-		a.last_input = time.tick_now()
-		idle = false
-	} else if time.tick_since(a.last_input) >= IDLE_AFTER {
-		idle = true
+		ui.activity.last_input = time.tick_now()
 	}
-	if idle != a.idle && ui.session != nil {
-		a.idle = idle
-		conn.push_command(&ui.session.client.commands, conn.Idle_Command{idle = idle})
+}
+
+/*
+activity_step works out whether we're idle and tells the network side
+when that changes. Call every turn of the loop, drawn or not, hidden
+window or not: it draws nothing.
+*/
+activity_step :: proc(ui: ^UI) {
+	a := &ui.activity
+	now := time.tick_now()
+	if a.last_input == {} {
+		a.last_input = now
 	}
-	if !idle {
-		ui_redraw_at(ui, time.tick_add(a.last_input, IDLE_AFTER))
+	if !a.opened {
+		a.opened = true
+		wayland, x11: rawptr
+		switch glfw.GetPlatform() {
+		case glfw.PLATFORM_WAYLAND:
+			wayland = glfw.GetWaylandDisplay()
+		case glfw.PLATFORM_X11:
+			x11 = glfw.GetX11Display()
+		}
+		a.source = idle.open(IDLE_AFTER, wayland, x11)
+		log.infof("idle from: %v", a.source)
+	}
+	if ui.session != a.told {
+		// A new connection starts out not idle.
+		a.told, a.idle = ui.session, false
+	}
+	online := false
+	if ui.session != nil {
+		sync.guard(&ui.view.mutex)
+		online = ui.view.my_activity == .Online
+	}
+	is_idle := false
+	if online {
+		if a.last_check == {} || time.tick_diff(a.last_check, now) >= IDLE_CHECK_EVERY {
+			a.last_check = now
+			a.system_idle, a.system_known = idle.check()
+		}
+		is_idle =
+			time.tick_diff(a.last_input, now) >= IDLE_AFTER && (a.system_idle || !a.system_known)
+	} else {
+		// Asked afresh once we're online again.
+		a.last_check = {}
+	}
+	if is_idle != a.idle && ui.session != nil {
+		a.idle = is_idle
+		conn.push_command(&ui.session.client.commands, conn.Idle_Command{idle = is_idle})
+	}
+}
+
+activity_close :: proc(ui: ^UI) {
+	if ui.activity.opened {
+		idle.close()
+		ui.activity.opened = false
 	}
 }
 

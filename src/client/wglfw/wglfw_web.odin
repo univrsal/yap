@@ -179,6 +179,7 @@ gl_set_proc_address :: proc(p: rawptr, name: cstring) {}
 
 GetPlatform :: proc "contextless" () -> i32 {return 0}
 GetWaylandDisplay :: proc "contextless" () -> rawptr {return nil}
+GetX11Display :: proc "contextless" () -> rawptr {return nil}
 
 CONTEXT_VERSION_MAJOR :: 0x00022002
 CONTEXT_VERSION_MINOR :: 0x00022003
@@ -200,6 +201,7 @@ MOUSE_BUTTON_MIDDLE :: 2
 HAND_CURSOR :: 0x00036004
 IBEAM_CURSOR :: 0x00036002
 PLATFORM_WAYLAND :: 0x00060003
+PLATFORM_X11 :: 0x00060004
 
 KEY_A :: 65
 KEY_B :: 66

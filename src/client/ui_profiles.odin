@@ -11,6 +11,7 @@ import "core:time/datetime"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:idle"
 import "client:platform"
 import "client:render"
 import "client:settings"
@@ -147,6 +148,9 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	if !p.edit_placed {
 		p.edit_placed = true
 		w, h: i32 = STATUS_WINDOW_W, 192
+		if idle.can_ask() {
+			h += 28
+		}
 		if cnt := mu.get_container(ctx, STATUS_WINDOW); cnt != nil {
 			cnt.rect = {(window_w - w) / 2, max((window_h - h) / 3, 0), w, h}
 			cnt.open = true
@@ -186,6 +190,21 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 			conn.push_command(&ui.session.client.commands, conn.Activity_Command{activity = a})
 		}
 		ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT] = saved, saved_text
+	}
+	// A page only sees its own input unless the browser lets it ask
+	// about the rest (client:idle), which takes a click to ask for.
+	if idle.can_ask() {
+		mu.layout_row(ctx, {-1})
+		if .SUBMIT in
+		   stable_button_hint(
+			   ui,
+			   "idle-ask",
+			   "Away when not at this computer",
+			   "Let the browser say when there's no input anywhere on this computer, not only on this page",
+			   {.ALIGN_CENTER},
+		   ) {
+			idle.ask()
+		}
 	}
 
 	mu.layout_row(ctx, {-1})
