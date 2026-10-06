@@ -517,7 +517,7 @@ last_seen_text :: proc(ui: ^UI, account: proto.Account_Id) -> string {
 	seen, known := ui.view.last_seen[account]
 	if !known || seen == proto.LAST_SEEN_HIDDEN || seen == 0 {
 		// The server only says to people who've written to each other.
-		return "not on this server right now"
+		return ""
 	}
 	ago := (time.time_to_unix_nano(time.now()) / 1_000_000 - i64(seen)) / 1000
 	plural :: proc(n: i64) -> string {

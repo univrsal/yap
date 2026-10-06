@@ -470,6 +470,10 @@ person_row :: proc(
 ) -> bool {
 	ctx := &ui.ctx
 	v := &ui.view
+	if acc, known := ui.view.accounts[account]; !known || .Deleted in acc.flags {
+		return false // Deleted accounts aren't in lists.
+	}
+
 	size := ctx.text_height(ctx.style.font) + 4
 	mu.layout_row(ctx, {size + 4, -1})
 	cell := mu.layout_next(ctx)
