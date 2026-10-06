@@ -141,6 +141,10 @@ Server :: struct {
 	handling:       proto.Message_Kind,
 	// The server's own email account, if it has one (email.odin).
 	email:          Email,
+	// Who may register, and how fast registrations are taken
+	// (register.odin).
+	registration:   Registration_Config,
+	register_rate:  Register_Rate,
 }
 
 // A turn of the server's loop that takes longer than this is logged:
@@ -156,6 +160,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		password = settings.password,
 		max_sessions = settings.max_sessions,
 		auth = {params = HASH_PARAMS_NOW},
+		registration = settings.registration,
 	}
 	if !common.parse_private_key(settings.key, &s.key) {
 		log.error("the key in the config is not a valid private key")

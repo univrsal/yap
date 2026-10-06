@@ -43,9 +43,9 @@ AUTH_LOCK_MOST :: time.Minute
 FIRST_ADMIN :: "admin"
 GENERATED_PASSWORD_SIZE :: 16
 
-@(private = "file")
 Pending_Kind :: enum {
 	Login,
+	Register, // register.odin
 	Password_Change,
 	Account_Create,
 	Account_Password_Set,
@@ -53,7 +53,6 @@ Pending_Kind :: enum {
 }
 
 // What a job with the hashing thread is for.
-@(private = "file")
 Pending :: struct {
 	kind:          Pending_Kind,
 	// Who asked: the connection, if it's still the same one by then.
@@ -65,7 +64,9 @@ Pending :: struct {
 	account:       proto.Account_Id,
 	username:      string, // Account_Create; owned
 	display:       string, // Account_Create; owned
-	device:        string, // Login: what the device calls itself; owned
+	device:        string, // Login, Register: what the device calls itself; owned
+	email:         string, // Register; owned
+	invite:        string, // Register; owned
 	revoke_others: bool, // Password_Change
 }
 
@@ -84,11 +85,12 @@ auth_destroy :: proc(a: ^Auth) {
 	a^ = {}
 }
 
-@(private = "file")
 pending_destroy :: proc(p: Pending) {
 	delete(p.username)
 	delete(p.display)
 	delete(p.device)
+	delete(p.email)
+	delete(p.invite)
 }
 
 // generated_password is a random password of letters and digits that
@@ -209,6 +211,16 @@ auth_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		account_delete(s, u, id, body)
 	case .Email_Set:
 		email_set(s, u, id, body)
+	case .Register:
+		register(s, u, id, body)
+	case .Invite_Create:
+		invite_create(s, u, id, body)
+	case .Invite_List:
+		invite_list(s, u, id)
+	case .Invite_Revoke:
+		invite_revoke(s, u, id, body)
+	case .Invite_Of:
+		invite_of(s, u, id, body)
 	case:
 		return false
 	}
@@ -217,7 +229,6 @@ auth_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 
 // submit hands a job to the hashing thread for a request, which is
 // answered Rate_Limited if the thread has too much to do already.
-@(private = "file")
 submit :: proc(s: ^Server, u: ^Conn, id: u32, job: ^Hash_Job, p: Pending) {
 	p := p
 	defer crypto.zero_explicit(job, size_of(job^))
@@ -476,6 +487,8 @@ auth_sync :: proc(s: ^Server) {
 		switch p.kind {
 		case .Login:
 			login_finish(s, u, p, result)
+		case .Register:
+			register_finish(s, u, p, result)
 		case .Password_Change:
 			password_change_finish(s, u, p, result)
 		case .Account_Create:

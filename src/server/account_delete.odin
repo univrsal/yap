@@ -61,6 +61,7 @@ account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 			.Mention_Erase,
 			.Member_Erase,
 			.Account_Roles_Clear,
+			.Invite_Erase,
 		}) {
 		q = db_stmt(db, stmt)
 		db_bind_int(q, 1, i64(id))

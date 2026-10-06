@@ -290,6 +290,26 @@ MIGRATIONS := [?]string {
 	ALTER TABLE accounts ADD COLUMN email TEXT NOT NULL DEFAULT '';
 	CREATE UNIQUE INDEX accounts_email ON accounts(email) WHERE email != '';
 	`,
+	// 19: invite codes (invites.odin), and who registered with which
+	// (register.odin).
+	`
+	CREATE TABLE invites (
+		code     TEXT PRIMARY KEY,
+		creator  INTEGER NOT NULL,
+		created  INTEGER NOT NULL,
+		max_uses INTEGER NOT NULL,
+		uses     INTEGER NOT NULL DEFAULT 0,
+		expires  INTEGER NOT NULL DEFAULT 0,
+		revoked  INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE INDEX invites_creator ON invites(creator);
+	CREATE TABLE invite_uses (
+		code    TEXT NOT NULL,
+		account INTEGER NOT NULL,
+		used    INTEGER NOT NULL
+	);
+	CREATE INDEX invite_uses_account ON invite_uses(account);
+	`,
 }
 
 // The version a database is at once it has been through every step.

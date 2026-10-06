@@ -81,6 +81,10 @@ foreign lib {
 	reset :: proc(stmt: ^Stmt) -> c.int ---
 	clear_bindings :: proc(stmt: ^Stmt) -> c.int ---
 	step :: proc(stmt: ^Stmt) -> c.int ---
+	// Non-zero while a statement has been stepped and not yet reset or
+	// run to its end: it holds a read open, which keeps checkpoints from
+	// finishing.
+	stmt_busy :: proc(stmt: ^Stmt) -> c.int ---
 
 	// Parameters are numbered from 1.
 	bind_int64 :: proc(stmt: ^Stmt, index: c.int, value: i64) -> c.int ---

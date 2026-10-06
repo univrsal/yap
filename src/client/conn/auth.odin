@@ -111,6 +111,15 @@ Login_Command :: struct {
 	password: string, // owned by the command
 	device:   string, // owned by the command
 }
+// Make an account (when the server takes registrations) and log in to
+// it, as Login_Command; email and invite are "" for none.
+Register_Command :: struct {
+	username: string, // owned by the command
+	password: string, // owned by the command
+	device:   string, // owned by the command
+	email:    string, // owned by the command
+	invite:   string, // owned by the command
+}
 // Log this device out: it has to log in again.
 Logout_Command :: struct {}
 Password_Command :: struct {
@@ -241,6 +250,94 @@ auth_restart :: proc(c: ^Voice_Client, logged_in: bool) {
 		log.infof("%s wants a login", c.server_addr)
 		set_state(c, .Needed)
 	}
+}
+
+/*
+auth_register makes an account and logs in to it. What it was made with
+is kept like a login's, so that if the connection starts over before the
+answer comes, the new one logs in to it.
+*/
+auth_register :: proc(c: ^Voice_Client, cmd: Register_Command) {
+	if c.auth.state != .Needed {
+		return
+	}
+	auth_credentials(c, cmd.username, cmd.password, cmd.device)
+	a := &c.auth
+	buf: [proto.REGISTER_BODY_MAX]u8
+	body := proto.encode_register(
+		buf[:],
+		{
+			username = a.username,
+			password = a.password,
+			device = a.device,
+			email = cmd.email,
+			invite = cmd.invite,
+		},
+	)
+	if body == nil {
+		forget_password(a)
+		set_state(c, .Needed, "Something there is too long.")
+		return
+	}
+	set_state(c, .Working)
+	request(c, .Register, body, register_done)
+}
+
+@(private = "file")
+register_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+	a := &c.auth
+	#partial switch status {
+	case .Ok:
+		log.infof("registered at %s as %s", c.server_addr, a.username)
+		forget_password(a)
+		return
+	case .Reset:
+		return
+	case .Rate_Limited:
+		forget_password(a)
+		set_state(c, .Needed, "Too many registrations at once. Wait a little and try again.")
+		return
+	}
+	forget_password(a)
+	reason, known := proto.decode_register_refusal(body)
+	if !known {
+		log.warnf("%s: registering failed: %v", c.server_addr, status)
+		set_state(c, .Needed, fmt.tprintf("The server couldn't register you (%v).", status))
+		return
+	}
+	set_state(c, .Needed, register_refusal_text(reason))
+}
+
+register_refusal_text :: proc(reason: proto.Register_Refusal) -> string {
+	switch reason {
+	case .Closed:
+		return "This server doesn't take registrations."
+	case .Username:
+		return fmt.tprintf(
+			"A username is %d to %d of a-z 0-9 _ . -",
+			proto.MIN_USERNAME_SIZE,
+			proto.MAX_USERNAME_SIZE,
+		)
+	case .Username_Taken:
+		return "That username is taken."
+	case .Password:
+		return fmt.tprintf(
+			"A password is %d to %d characters.",
+			proto.MIN_ACCOUNT_PASSWORD,
+			proto.MAX_ACCOUNT_PASSWORD,
+		)
+	case .Email_Missing:
+		return "This server asks for an email address."
+	case .Email:
+		return "That's no email address."
+	case .Email_Taken:
+		return "Another account has that email address."
+	case .Invite_Missing:
+		return "This server asks for an invite code."
+	case .Invite:
+		return "That invite code isn't good: unknown, used up, expired or revoked."
+	}
+	return ""
 }
 
 // auth_login logs in with a username and password.

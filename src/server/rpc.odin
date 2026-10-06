@@ -20,10 +20,10 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 		return
 	}
 	id, op, request := proto.decode_request(msg)
-	// A connection that isn't logged in may ask what it's talking to and
-	// log in, and nothing else (as with what doesn't come over the
-	// stream: see handle_data).
-	if u.account == nil && op != .Server_Info && op != .Auth_Login {
+	// A connection that isn't logged in may ask what it's talking to,
+	// log in and register, and nothing else (as with what doesn't come
+	// over the stream: see handle_data).
+	if u.account == nil && op != .Server_Info && op != .Auth_Login && op != .Register {
 		respond(u, id, .Unauthenticated)
 		return
 	}
@@ -34,6 +34,7 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 			name           = s.name,
 			version        = common.version_string(),
 			max_attachment = s.attach.max_size,
+			registration   = registration_flags(s),
 		}
 		body, fits := proto.encode_server_info(buf[:], info)
 		if !fits {

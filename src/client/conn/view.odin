@@ -67,6 +67,8 @@ View :: struct {
 	server_name:    string,
 	// How big a file attached to a message may be; 0 if it takes none.
 	max_attachment: u64,
+	// Whether one may register an account there, and with what.
+	registration:   proto.Registration_Flags,
 	my_key:         [proto.KEY_SIZE]u8,
 	// The server's, once the handshake has shown it (zero until then):
 	// per-user settings are kept by it and the account (settings.odin).
@@ -83,6 +85,7 @@ View :: struct {
 	// how many times they've arrived.
 	devices:        [dynamic]Dir_Device,
 	devices_count:  int,
+	invites:        View_Invites, // invites.odin
 	notice:         View_Notice,
 	users:          map[proto.User_Num]View_User,
 	// Our channels, in the order to list them (convs.odin); the
@@ -239,6 +242,8 @@ view_reset :: proc(v: ^View) {
 	v.members.conv = 0
 	view_clear_accounts(v)
 	view_clear_devices(v)
+	view_clear_invites(v)
+	v.registration = {}
 	delete(v.login.error)
 	delete(v.login.username)
 	delete(v.login.email)
@@ -261,6 +266,7 @@ publish_logged_out :: proc(c: ^Voice_Client) {
 	view_clear_blobs(v)
 	view_clear_accounts(v)
 	view_clear_devices(v)
+	view_clear_invites(v)
 	clear(&v.buddies)
 	clear(&v.last_seen)
 	v.my_num, v.me, v.permissions = 0, 0, {}
@@ -300,6 +306,7 @@ view_destroy :: proc(v: ^View) {
 	delete(v.emoji.names)
 	delete(v.accounts)
 	delete(v.devices)
+	view_destroy_invites(v)
 	delete(v.browse)
 }
 
@@ -477,6 +484,7 @@ publish_server :: proc(c: ^Voice_Client) {
 	delete(v.server_name)
 	v.server_name = strings.clone(c.rpc.server.name)
 	v.max_attachment = c.rpc.server.max_attachment
+	v.registration = c.rpc.server.registration
 }
 
 // publish_server_key tells the UI the server's key, which the per-user

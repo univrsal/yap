@@ -299,6 +299,10 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	if len(acc.roles) > 0 {
 		role_chips(ui, acc.roles, MENU_WIDTH)
 	}
+	if invited := invited_by_line(ui, v, account); invited != "" {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, DIM_COLOR, invited, label_proc)
+	}
 }
 
 // user_menu shows the menu for ui.menu_account while it's open.

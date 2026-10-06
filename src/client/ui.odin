@@ -122,6 +122,10 @@ UI :: struct {
 	action:              Action,
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
 	account:             UI_Account, // logging in, and the account's settings (ui_account.odin)
+	invites:             UI_Invites, // invite codes in the settings (ui_invites.odin)
+	// When the code accounts registered with was last asked for
+	// (invited_by_line).
+	invites_asked:       map[proto.Account_Id]time.Tick,
 	channels:            UI_Channels, // the channel list and the Channels window (ui_channels.odin)
 	timeline:            UI_Timeline, // the messages on screen (ui_timeline.odin)
 	// Messages unread in channels that aren't muted, and what the window's
@@ -702,6 +706,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	ui_profiles_destroy(ui)
 	ui_manage_destroy(ui)
 	ui_roles_destroy(ui)
+	delete(ui.invites_asked)
 	for path in ui.dropped {
 		delete(path)
 	}

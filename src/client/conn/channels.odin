@@ -348,11 +348,17 @@ Command :: union {
 	Last_Seen_Command,
 	// Accounts, see auth.odin.
 	Login_Command,
+	Register_Command,
 	Logout_Command,
 	Password_Command,
 	Display_Command,
 	Email_Command,
 	Devices_Command,
+	// Invite codes, see invites.odin.
+	Invite_Create_Command,
+	Invites_Command,
+	Invite_Revoke_Command,
+	Invite_Of_Command,
 	Revoke_Command,
 	Account_Create_Command,
 	Account_Password_Command,
@@ -483,6 +489,14 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.username)
 		delete(v.password)
 		delete(v.device)
+	case Register_Command:
+		delete(v.username)
+		delete(v.password)
+		delete(v.device)
+		delete(v.email)
+		delete(v.invite)
+	case Invite_Revoke_Command:
+		delete(v.code)
 	case Password_Command:
 		delete(v.old)
 		delete(v.new)
@@ -712,6 +726,16 @@ process_commands :: proc(c: ^Voice_Client) {
 			last_seen_command(c, v)
 		case Login_Command:
 			auth_login(c, v)
+		case Register_Command:
+			auth_register(c, v)
+		case Invite_Create_Command:
+			invite_create(c, v)
+		case Invites_Command:
+			invites_list(c)
+		case Invite_Revoke_Command:
+			invite_revoke(c, v.code)
+		case Invite_Of_Command:
+			invite_of(c, v.account)
 		case Logout_Command:
 			auth_logout(c)
 		case Password_Command:

@@ -42,6 +42,7 @@ Server_Details :: struct {
 	version:        string, // owned
 	// How big a file attached to a message may be; 0 if it takes none.
 	max_attachment: u64,
+	registration:   proto.Registration_Flags,
 }
 
 rpc_destroy :: proc(c: ^Voice_Client) {
@@ -175,6 +176,7 @@ server_info_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag
 	s.name = strings.clone(proto.sanitize_text(info.name, name_buf[:]))
 	s.version = strings.clone(proto.sanitize_text(info.version, version_buf[:]))
 	s.max_attachment = info.max_attachment
+	s.registration = info.registration
 	when proto.STREAM_FLOOD {
 		log.infof("flood: %d bytes came back", len(body))
 		if s.known {
@@ -186,6 +188,14 @@ server_info_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag
 		log.infof("%s is %q, yap-server %s", c.server_addr, s.name, s.version)
 	} else {
 		log.infof("%s runs yap-server %s", c.server_addr, s.version)
+	}
+	if .Open in s.registration {
+		log.infof(
+			"%s takes registrations%s%s",
+			c.server_addr,
+			", with an email address" if .Email in s.registration else "",
+			", with an invite code" if .Invite in s.registration else "",
+		)
 	}
 	publish_server(c)
 }

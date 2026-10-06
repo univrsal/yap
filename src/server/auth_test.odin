@@ -191,6 +191,14 @@ ts_ask :: proc(
 		auth_sync(&ts.s)
 		ts_pump(t, ts, u)
 		if r, answered := client.responses[id]; answered {
+			// No query left holding a read open, which would keep
+			// checkpoints from finishing.
+			testing.expectf(
+				t,
+				db_open_reads(&ts.s.db) == 0,
+				"%v left a statement open",
+				op,
+			)
 			return r.status, r.body
 		}
 		time.sleep(time.Millisecond)
@@ -421,7 +429,7 @@ test_schema_upgrade :: proc(t: ^testing.T) {
 			t,
 			db_exec(
 				&db,
-				"DROP TABLE files_fts; DROP TABLE attachments; DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
+				"DROP TABLE invite_uses; DROP TABLE invites; DROP TABLE files_fts; DROP TABLE attachments; DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
 			),
 		)
 		db_close(&db)
@@ -449,15 +457,15 @@ test_login :: proc(t: ^testing.T) {
 	alice := ts_account(t, &ts, "alice", "alice's password")
 	ts_account(t, &ts, "bob", "bob's password")
 
-	// A device the server hasn't seen can ask what it's talking to and
-	// log in, and that's all.
+	// A device the server hasn't seen can ask what it's talking to, log
+	// in and register (register_test.odin), and that's all.
 	u := ts_connect(&ts)
 	testing.expect(t, u.account == nil)
 	testing.expect(t, u.key in s.waiting && u.key not_in s.conns)
 	status, _ := ts_ask(t, &ts, u, .Server_Info)
 	testing.expect_value(t, status, proto.Status.Ok)
 	for op in proto.Request_Op {
-		if op == .Server_Info || op == .Auth_Login {
+		if op == .Server_Info || op == .Auth_Login || op == .Register {
 			continue
 		}
 		status, _ = ts_ask(t, &ts, u, op)

@@ -14,7 +14,8 @@ Accounts in the UI (conn/auth.odin is the network's end of it).
 
   - The login screen, shown while connected to a server that doesn't know
     this device yet: username and password, and whatever the server said
-    to the last attempt.
+    to the last attempt; or, where the server takes registrations,
+    registering instead, with what it asks for.
   - The screen that follows a login with a password an admin chose: it
     has to be replaced before anything else.
   - The Account section of the settings: what we're called, our
@@ -22,7 +23,8 @@ Accounts in the UI (conn/auth.odin is the network's end of it).
   - For whoever manages accounts, an Accounts section under it: the
     accounts there are, making one, and giving one a new password.
 
-There's no registering: accounts are made by an admin.
+Where the server doesn't take registrations, accounts are made by an
+admin.
 */
 
 UI_Account :: struct {
@@ -31,6 +33,15 @@ UI_Account :: struct {
 	username_len:  int,
 	password_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
 	password_len:  int,
+	// Registering instead: the password again, the address and the
+	// invite code, if the server asks for them.
+	registering:   bool,
+	reg_again_buf: [proto.MAX_ACCOUNT_PASSWORD]u8,
+	reg_again_len: int,
+	reg_email_buf: [proto.MAX_EMAIL_SIZE]u8,
+	reg_email_len: int,
+	invite_buf:    [proto.INVITE_CODE_SIZE + 8]u8,
+	invite_len:    int,
 	// Changing the password: the current one, the new one, and again.
 	old_buf:       [proto.MAX_ACCOUNT_PASSWORD]u8,
 	old_len:       int,
@@ -87,6 +98,7 @@ ui_account_opened :: proc(ui: ^UI) {
 	ui.account.devices_asked = false
 	ui.account.mistake = ""
 	ui.account.notice_reset = true
+	ui_invites_opened(ui)
 }
 
 // wipe clears a buffer that held a password.
@@ -113,10 +125,15 @@ login_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := &ui.view
 	a := &ui.account
+	open := .Open in v.registration
+	if !open {
+		a.registering = false
+	}
+	registering := a.registering
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	server := v.server_name if v.server_name != "" else v.server
-	mu.label(ctx, fmt.tprintf("Log in to %s", server))
+	mu.label(ctx, fmt.tprintf("%s %s", "Register at" if registering else "Log in to", server))
 	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
 		ui.action = .Disconnect
 	}
@@ -128,39 +145,139 @@ login_screen :: proc(ui: ^UI) {
 	submit |= .SUBMIT in text_box(ui, a.username_buf[:], &a.username_len)
 	mu.label(ctx, "Password")
 	submit |= .SUBMIT in password_box(ui, a.password_buf[:], &a.password_len)
+	if registering {
+		mu.label(ctx, "Password again")
+		submit |= .SUBMIT in password_box(ui, a.reg_again_buf[:], &a.reg_again_len)
+		if .Email in v.registration {
+			mu.label(ctx, "Email")
+			submit |= .SUBMIT in text_box(ui, a.reg_email_buf[:], &a.reg_email_len)
+		}
+		if .Invite in v.registration {
+			mu.label(ctx, "Invite code")
+			submit |= .SUBMIT in text_box(ui, a.invite_buf[:], &a.invite_len)
+		}
+	}
 	mu.label(ctx, "")
-	submit |= .SUBMIT in mu.button(ctx, "Logging in..." if working else "Log in")
+	label := "Log in"
+	switch {
+	case working && registering:
+		label = "Registering..."
+	case working:
+		label = "Logging in..."
+	case registering:
+		label = "Register"
+	}
+	submit |= .SUBMIT in mu.button(ctx, label)
+	if open && !working {
+		mu.label(ctx, "")
+		other := "Log in to an account instead" if registering else "Register an account instead"
+		if .SUBMIT in mu.button(ctx, other) {
+			a.registering = !registering
+			a.mistake = ""
+		}
+	}
 
 	mu.layout_row(ctx, {-1})
 	switch {
+	case a.mistake != "":
+		with_text_color(ctx, ERROR_COLOR, a.mistake, label_proc)
 	case v.login.error != "":
 		with_text_color(ctx, ERROR_COLOR, v.login.error, label_proc)
-	case !working:
+	case !working && !open:
 		with_text_color(
 			ctx,
 			DIM_COLOR,
 			"This device isn't logged in here yet. Accounts are made by the server's admin.",
 			label_proc,
 		)
+	case !working && !registering:
+		with_text_color(ctx, DIM_COLOR, "This device isn't logged in here yet.", label_proc)
 	}
 
 	if submit && !working && a.username_len > 0 && a.password_len > 0 {
 		username := string(a.username_buf[:a.username_len])
+		password := string(a.password_buf[:a.password_len])
+		if registering {
+			if !register_mistake(ui) {
+				return
+			}
+		}
 		settings.set_setting(&ui.settings.username, username)
 		ui.settings_dirty = true
-		command(
-			ui,
-			conn.Login_Command {
-				username = strings.clone(username),
-				password = strings.clone(string(a.password_buf[:a.password_len])),
-				device = strings.clone(platform.default_name()),
-			},
-		)
+		if registering {
+			command(
+				ui,
+				conn.Register_Command {
+					username = strings.clone(username),
+					password = strings.clone(password),
+					device = strings.clone(platform.default_name()),
+					email = strings.clone(string(a.reg_email_buf[:a.reg_email_len])),
+					invite = strings.clone(string(a.invite_buf[:a.invite_len])),
+				},
+			)
+			wipe(a.reg_again_buf[:], &a.reg_again_len)
+		} else {
+			command(
+				ui,
+				conn.Login_Command {
+					username = strings.clone(username),
+					password = strings.clone(password),
+					device = strings.clone(platform.default_name()),
+				},
+			)
+		}
 		wipe(a.password_buf[:], &a.password_len)
 	}
 
 	mu.layout_row(ctx, {-1}, -1)
 	log_panel(ui)
+}
+
+/*
+register_mistake checks what was typed to register before the server is
+asked, as far as it can be told here; false, with a.mistake saying why,
+if it won't do.
+*/
+@(private = "file")
+register_mistake :: proc(ui: ^UI) -> bool {
+	a := &ui.account
+	v := &ui.view
+	a.mistake = ""
+	name_buf: [proto.MAX_USERNAME_SIZE]u8
+	password := string(a.password_buf[:a.password_len])
+	email := string(a.reg_email_buf[:a.reg_email_len])
+	email_buf: [proto.MAX_EMAIL_SIZE]u8
+	code_buf: [proto.INVITE_CODE_SIZE]u8
+	switch {
+	case !username_ok(string(a.username_buf[:a.username_len]), &name_buf):
+		a.mistake = "A username is 2 to 32 of a-z 0-9 _ . - (no spaces)."
+	case !proto.account_password_ok(password):
+		a.mistake = "A password is 8 to 128 characters."
+	case password != string(a.reg_again_buf[:a.reg_again_len]):
+		a.mistake = "The two passwords aren't the same."
+	case .Email in v.registration && strings.trim_space(email) == "":
+		a.mistake = "This server asks for an email address."
+	case strings.trim_space(email) != "" && !email_ok(email, &email_buf):
+		a.mistake = "That's no email address."
+	case .Invite in v.registration && a.invite_len == 0:
+		a.mistake = "This server asks for an invite code."
+	case a.invite_len > 0 && !invite_ok(string(a.invite_buf[:a.invite_len]), &code_buf):
+		a.mistake = "That isn't an invite code: they're 10 letters and digits, as given to you."
+	}
+	return a.mistake == ""
+
+	username_ok :: proc(raw: string, buf: ^[proto.MAX_USERNAME_SIZE]u8) -> bool {
+		_, ok := proto.username_clean(raw, buf)
+		return ok
+	}
+	email_ok :: proc(raw: string, buf: ^[proto.MAX_EMAIL_SIZE]u8) -> bool {
+		_, ok := proto.email_clean(raw, buf)
+		return ok
+	}
+	invite_ok :: proc(raw: string, buf: ^[proto.INVITE_CODE_SIZE]u8) -> bool {
+		_, ok := proto.invite_code_clean(raw, buf)
+		return ok
+	}
 }
 
 /*
@@ -361,6 +478,7 @@ account_settings :: proc(ui: ^UI) {
 			mu.end_treenode(ctx)
 		}
 	}
+	invites_settings(ui, v)
 	if .Purge in v.permissions {
 		if .ACTIVE in mu.begin_treenode(ctx, "Purge history") {
 			purge_settings(ui)

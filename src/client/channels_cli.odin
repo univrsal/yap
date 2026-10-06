@@ -33,6 +33,11 @@ network loop never blocks on input.
 	/name <name>     change what your account is called
 	/email [address] set your account's email address (none: remove it)
 	/login <username> <password>   log in, if the server asks for it
+	/register <username> <password> [email] [invite]   make an account,
+	                 where the server lets you, and log in to it
+	/invite [uses] [days]   make an invite code (uses 0: any; days 0:
+	                 no end), for who may
+	/invites         list the invite codes; /uninvite <code> revokes one
 	/logout          log this device out
 	/passwd <old> <new>   change your password
 	/devices         list your account's devices
@@ -152,6 +157,56 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 					password = strings.clone(password),
 					device = strings.clone(platform.default_name()),
 				},
+			)
+		case strings.has_prefix(line, "/register "):
+			fields := strings.fields(line[len("/register "):], context.temp_allocator)
+			if len(fields) < 2 {
+				log.warn("/register <username> <password> [email] [invite]")
+				break
+			}
+			email, invite := "", ""
+			for f in fields[2:] {
+				if strings.contains_rune(f, '@') {
+					email = f
+				} else {
+					invite = f
+				}
+			}
+			conn.push_command(
+				q,
+				conn.Register_Command {
+					username = strings.clone(fields[0]),
+					password = strings.clone(fields[1]),
+					device = strings.clone(platform.default_name()),
+					email = strings.clone(email),
+					invite = strings.clone(invite),
+				},
+			)
+		case line == "/invite" || strings.has_prefix(line, "/invite "):
+			fields := strings.fields(line[len("/invite"):], context.temp_allocator)
+			uses, days := 1, 0
+			if len(fields) > 0 {
+				uses, _ = strconv.parse_int(fields[0])
+			}
+			if len(fields) > 1 {
+				days, _ = strconv.parse_int(fields[1])
+			}
+			expires: proto.Unix_Ms
+			if days > 0 {
+				expires =
+					proto.Unix_Ms(time.time_to_unix_nano(time.now()) / 1e6) +
+					proto.Unix_Ms(days * 24 * 60 * 60 * 1000)
+			}
+			conn.push_command(
+				q,
+				conn.Invite_Create_Command{max_uses = u16(clamp(uses, 0, proto.MAX_INVITE_USES)), expires = expires},
+			)
+		case line == "/invites":
+			conn.push_command(q, conn.Invites_Command{})
+		case strings.has_prefix(line, "/uninvite "):
+			conn.push_command(
+				q,
+				conn.Invite_Revoke_Command{strings.clone(strings.trim_space(line[len("/uninvite "):]))},
 			)
 		case line == "/logout":
 			conn.push_command(q, conn.Logout_Command{})

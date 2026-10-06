@@ -147,6 +147,15 @@ Stmt :: enum {
 	Buddy_Remove,
 	Account_Set_Activity,
 	Account_Set_Email,
+	Invite_Add,
+	Invite_Get,
+	Invite_All,
+	Invite_Mine,
+	Invite_Live_Count,
+	Invite_Revoke,
+	Invite_Use,
+	Invite_Use_Add,
+	Invite_Of,
 	Msg_Search,
 	Reactors_Of,
 	Msg_Bounds,
@@ -183,6 +192,7 @@ Stmt :: enum {
 	Setting_Erase,
 	Mention_Erase,
 	Member_Erase,
+	Invite_Erase,
 }
 
 @(private = "file", rodata)
@@ -269,6 +279,15 @@ STMT_SQL := [Stmt]string {
 	.Buddy_Remove           = "DELETE FROM buddies WHERE account = ?1 AND buddy = ?2",
 	.Account_Set_Activity   = "UPDATE accounts SET activity = ?2 WHERE id = ?1",
 	.Account_Set_Email      = "UPDATE accounts SET email = ?2 WHERE id = ?1",
+	.Invite_Add             = "INSERT INTO invites (code, creator, created, max_uses, expires) VALUES (?1, ?2, ?3, ?4, ?5)",
+	.Invite_Get             = "SELECT code, creator, created, max_uses, uses, expires, revoked FROM invites WHERE code = ?1",
+	.Invite_All             = "SELECT code, creator, created, max_uses, uses, expires, revoked FROM invites ORDER BY rowid DESC LIMIT ?1",
+	.Invite_Mine            = "SELECT code, creator, created, max_uses, uses, expires, revoked FROM invites WHERE creator = ?2 ORDER BY rowid DESC LIMIT ?1",
+	.Invite_Live_Count      = "SELECT count(*) FROM invites WHERE creator = ?1 AND revoked = 0 AND (expires = 0 OR expires > ?2) AND (max_uses = 0 OR uses < max_uses)",
+	.Invite_Revoke          = "UPDATE invites SET revoked = 1 WHERE code = ?1",
+	.Invite_Use             = "UPDATE invites SET uses = uses + 1 WHERE code = ?1",
+	.Invite_Use_Add         = "INSERT INTO invite_uses (code, account, used) VALUES (?1, ?2, ?3)",
+	.Invite_Of              = "SELECT u.code, i.creator FROM invite_uses u JOIN invites i ON i.code = u.code WHERE u.account = ?1 ORDER BY u.used LIMIT 1",
 	.Msg_Search             = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.blob, b.width, b.height, b.size, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages_fts f CROSS JOIN messages m ON m.id = f.rowid LEFT JOIN blobs b ON b.id = m.blob WHERE messages_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
 	.Reactors_Of            = "SELECT account FROM reactions WHERE message = ?1 AND emoji = ?2 ORDER BY time, account LIMIT ?3",
 	.Msg_Bounds             = "SELECT coalesce((SELECT min(id) FROM messages), 0), coalesce((SELECT max(id) FROM messages), 0)",
@@ -310,6 +329,7 @@ STMT_SQL := [Stmt]string {
 	.Setting_Erase          = "DELETE FROM settings WHERE account = ?1",
 	.Mention_Erase          = "DELETE FROM mentions WHERE account = ?1",
 	.Member_Erase           = "DELETE FROM members WHERE account = ?1",
+	.Invite_Erase           = "UPDATE invites SET revoked = 1 WHERE creator = ?1",
 }
 
 DB :: struct {
@@ -555,6 +575,18 @@ db_checkpoint :: proc(db: ^DB, keep_file := false) {
 	} else {
 		log.debugf("database: checkpointed %d pages in %.1f ms", pages, ms)
 	}
+}
+
+// db_open_reads is how many statements hold a read open: stepped to a
+// row and not reset since. Between turns of the loop it should be none,
+// or checkpoints can't finish ("database table is locked").
+db_open_reads :: proc(db: ^DB) -> (n: int) {
+	for s in db.stmts {
+		if s != nil && sqlite.stmt_busy(s) != 0 {
+			n += 1
+		}
+	}
+	return
 }
 
 // db_stmt is a prepared statement, ready for its parameters.

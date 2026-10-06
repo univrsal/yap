@@ -49,6 +49,13 @@ once at startup:
 			"password": "",
 			"poll_seconds": 60,
 			"trusted_auth_host": ""
+		},
+		"registration": {
+			"open": false,
+			"require_email": false,
+			"verify_email": false,
+			"unverified_hours": 48,
+			"require_invite": false
 		}
 	}
 
@@ -102,6 +109,15 @@ email      the server's own email account (email.odin); with no
            libcurl, which Linux and macOS have to have installed (the
            server runs without email if they don't); `yap-server email
            test` tries it out.
+registration  whether people may make their own accounts (register.odin);
+           left out, they may not, and accounts are made by an admin.
+           `open`: anyone may register. `require_email`: with an email
+           address, which takes email (above). `verify_email`: the
+           address has to be shown to be theirs (also takes email; not
+           done yet). `unverified_hours`: how long an account may wait
+           for that (48 if left out). `require_invite`: with an invite
+           code, made by someone with Create_Invites; codes work, and
+           are kept with the account, whether required or not.
 
 Fields left out keep the defaults above, and with no channels there's a
 single Lobby.
@@ -118,6 +134,7 @@ owner only.
 
 DEFAULT_CONFIG_FILE :: "config.json"
 DEFAULT_RELAY_PORT :: 8080
+DEFAULT_UNVERIFIED_HOURS :: 48
 DEFAULT_CHANNEL_NAME :: "Lobby"
 
 // Where a server from before config.json kept its key and channels.
@@ -140,6 +157,15 @@ Config :: struct {
 	retention:    Retention_Config,
 	attachments:  Attach_Config,
 	email:        Email_Config,
+	registration: Registration_Config,
+}
+
+Registration_Config :: struct {
+	open:             bool,
+	require_email:    bool,
+	verify_email:     bool,
+	unverified_hours: int,
+	require_invite:   bool,
 }
 
 Attach_Config :: struct {
@@ -187,6 +213,7 @@ Settings :: struct {
 	retention:    Retention_Config,
 	attachments:  Attach_Config,
 	email:        Email_Config, // checked; address "" for none
+	registration: Registration_Config,
 }
 
 @(private = "file")
@@ -361,9 +388,28 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	}
 
 	email := check_email(path, cfg.email) or_return
+	registration := cfg.registration
+	if (registration.require_email || registration.verify_email) && email.address == "" {
+		log.errorf(
+			"%s: registration asks for an email address (require_email or verify_email), but the server has no email configured",
+			path,
+		)
+		return
+	}
+	if registration.unverified_hours < 0 {
+		log.errorf("%s: unverified_hours can't be negative", path)
+		return
+	}
+	if registration.unverified_hours == 0 {
+		registration.unverified_hours = DEFAULT_UNVERIFIED_HOURS
+	}
+	if !registration.open && (registration.require_email || registration.require_invite) {
+		log.warnf("%s: registration isn't open, so what it requires does nothing", path)
+	}
 
 	s = {
 		email        = email,
+		registration = registration,
 		name         = name,
 		port         = cfg.port,
 		key          = cfg.key,

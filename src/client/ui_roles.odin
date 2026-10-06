@@ -184,6 +184,7 @@ PERMISSION_TEXT := [proto.Permission]string {
 	.Mention_Everyone = "Mention @everyone",
 	.Purge            = "Purge history",
 	.Attach_Files     = "Attach files to messages",
+	.Create_Invites   = "Make invite codes",
 }
 
 ui_roles_destroy :: proc(ui: ^UI) {
