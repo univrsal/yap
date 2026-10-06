@@ -42,8 +42,14 @@ UI_Account :: struct {
 	// What's wrong with what was typed, before the server is asked.
 	mistake:       string, // static
 	// The name field (ui.name_buf) has been filled with what we're
-	// called, and the devices asked for, since the settings were opened.
+	// called, and the email field with our address, and the devices
+	// asked for, since the settings were opened.
 	name_loaded:   bool,
+	email_buf:     [proto.MAX_EMAIL_SIZE]u8,
+	email_len:     int,
+	// The name's or the email's Apply was used: what the server made of
+	// it is shown under them.
+	profile_asked: bool,
 	devices_asked: bool,
 	// What the server had said by then isn't about anything asked since:
 	// only a notice newer than this one (View_Notice.count) is shown.
@@ -77,6 +83,7 @@ FORM_FIELD :: 220
 // the account is fetched anew.
 ui_account_opened :: proc(ui: ^UI) {
 	ui.account.name_loaded = false
+	ui.account.profile_asked = false
 	ui.account.devices_asked = false
 	ui.account.mistake = ""
 	ui.account.notice_reset = true
@@ -281,13 +288,30 @@ account_settings :: proc(ui: ^UI) {
 		if !a.name_loaded {
 			a.name_loaded = true
 			ui.name_len = copy(ui.name_buf[:], me.display)
+			a.email_len = copy(a.email_buf[:], v.login.email)
 		}
 		mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD, 70})
 		mu.label(ctx, "Name")
 		submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
 		if (.SUBMIT in mu.button(ctx, "Apply") || submitted) && ui.name_len > 0 {
 			a.mistake = ""
+			a.profile_asked = true
 			command(ui, conn.Display_Command{strings.clone(string(ui.name_buf[:ui.name_len]))})
+		}
+		// Its own id: the name's button says Apply too.
+		mu.push_id(ctx, "email")
+		mu.label(ctx, "Email")
+		email_submitted := .SUBMIT in text_box(ui, a.email_buf[:], &a.email_len)
+		if .SUBMIT in mu.button(ctx, "Apply") || email_submitted {
+			a.mistake = ""
+			a.profile_asked = true
+			command(ui, conn.Email_Command{strings.clone(string(a.email_buf[:a.email_len]))})
+		}
+		mu.pop_id(ctx)
+		if a.profile_asked {
+			mu.layout_row(ctx, {FORM_LABEL, -1})
+			mu.label(ctx, "")
+			notice_label(ui, v)
 		}
 		profile_settings(ui)
 		status_settings(ui)

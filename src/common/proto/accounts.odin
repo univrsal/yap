@@ -30,10 +30,13 @@ Everything here travels as requests and events (rpc.odin):
 	                  ->  [account u32]
 	Account_Password_Set  [account u32][password str8]
 	Account_Delete        [account u32][password str8]
+	Email_Set             [email str8]: the account's own address, ""
+	                      for none
 
 	Sync_Begin, Sync_End  (nothing): around everything a connection is told
 	                      when it logs in
 	Self                  [account u32][permissions u64][flags u8][activity u8]
+	                      [email str8]
 	Account_Changed       an account, new or changed
 	Setting_Changed       [key str8][value bytes16]: one of the account's
 	                      settings (settings.odin)
@@ -63,6 +66,11 @@ an author: the Deleted flag, the display name DELETED_NAME, a username
 nobody can log in with, and nothing else - no devices, roles,
 memberships, buddies, settings, status or picture. Its messages and
 reactions stay. A DM with it can be read but not written to.
+
+An account's email address is its own business: only its connections
+are told it (Self), and only it sets it (Email_Set), as email_clean
+has it, no other account's (Conflict if it is). It's for mail from the
+server (src/server/email.odin).
 
 Times are Unix milliseconds.
 */
@@ -178,6 +186,59 @@ username_clean :: proc(raw: string, buf: ^[MAX_USERNAME_SIZE]u8) -> (name: strin
 			return
 		}
 		buf[i] = ch
+	}
+	return string(buf[:len(raw)]), true
+}
+
+// The longest an email address may be (RFC 5321's path limit).
+MAX_EMAIL_SIZE :: 254
+
+/*
+email_clean is `raw` as an email address, without the spaces around it
+and in lower case, if it could be one: a local part and a domain with a
+dot in it, around one @, and nothing that would need quoting. It's no
+more than a check for typos; whether the address is real only mail can
+tell. The result points into `buf`.
+*/
+email_clean :: proc(raw: string, buf: ^[MAX_EMAIL_SIZE]u8) -> (address: string, ok: bool) {
+	raw := raw
+	for len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t') {
+		raw = raw[1:]
+	}
+	for len(raw) > 0 && (raw[len(raw) - 1] == ' ' || raw[len(raw) - 1] == '\t') {
+		raw = raw[:len(raw) - 1]
+	}
+	if len(raw) < 5 || len(raw) > MAX_EMAIL_SIZE {
+		return
+	}
+	at := -1
+	for i in 0 ..< len(raw) {
+		ch := raw[i]
+		switch ch {
+		case 'A' ..= 'Z':
+			ch += 'a' - 'A'
+		case '@':
+			if at >= 0 {
+				return
+			}
+			at = i
+		case 0 ..= ' ', 0x7f, '<', '>', '(', ')', '[', ']', ',', ';', ':', '"', '\\':
+			return
+		}
+		buf[i] = ch
+	}
+	if at < 1 || at > 64 {
+		return
+	}
+	domain := string(buf[at + 1:len(raw)])
+	dot := -1
+	for i in 0 ..< len(domain) {
+		if domain[i] == '.' {
+			dot = i
+		}
+	}
+	if dot < 1 || dot == len(domain) - 1 || domain[0] == '.' {
+		return
 	}
 	return string(buf[:len(raw)]), true
 }
@@ -457,7 +518,9 @@ decode_account :: proc(body: []u8) -> (a: Account, ok: bool) {
 	return a, true
 }
 
-SELF_SIZE :: 4 + 8 + 1 + 1
+// Self's fields before the email, and the most it can be with it.
+SELF_FIXED_SIZE :: 4 + 8 + 1 + 1
+SELF_SIZE :: SELF_FIXED_SIZE + 1 + MAX_EMAIL_SIZE
 
 encode_self :: proc(
 	out: ^[SELF_SIZE]u8,
@@ -465,6 +528,7 @@ encode_self :: proc(
 	permissions: Permissions,
 	flags: Account_Flags,
 	activity := Activity.Online, // as the account chose it (self_activity)
+	email := "", // self_email
 ) -> []u8 {
 	w := Writer {
 		buf = out[:],
@@ -473,7 +537,36 @@ encode_self :: proc(
 	put_u64(&w, transmute(u64)permissions)
 	put_u8(&w, transmute(u8)flags)
 	put_u8(&w, u8(activity))
-	return out[:]
+	put_str8(&w, email)
+	return written(&w)
+}
+
+// self_email is the account's email address in a Self; "" for none.
+self_email :: proc(body: []u8) -> string {
+	if len(body) <= SELF_FIXED_SIZE {
+		return ""
+	}
+	r := Reader {
+		buf = body[SELF_FIXED_SIZE:],
+	}
+	email := get_str8(&r)
+	return "" if r.overflow else email
+}
+
+encode_email_set :: proc(out: []u8, email: string) -> []u8 {
+	w := Writer {
+		buf = out,
+	}
+	put_str8(&w, email)
+	return written(&w)
+}
+
+decode_email_set :: proc(body: []u8) -> (email: string, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	email = get_str8(&r)
+	return email, !r.overflow && r.pos == len(body)
 }
 
 decode_self :: proc(

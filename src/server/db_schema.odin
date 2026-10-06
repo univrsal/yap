@@ -283,6 +283,13 @@ MIGRATIONS := [?]string {
 	`
 	ALTER TABLE roles ADD COLUMN color INTEGER NOT NULL DEFAULT 0;
 	`,
+	// 18: an account's email address, in lower case, '' for none
+	// (email.odin, accounts.odin): one account's at a time, deleted
+	// accounts (flag 8) having none.
+	`
+	ALTER TABLE accounts ADD COLUMN email TEXT NOT NULL DEFAULT '';
+	CREATE UNIQUE INDEX accounts_email ON accounts(email) WHERE email != '';
+	`,
 }
 
 // The version a database is at once it has been through every step.

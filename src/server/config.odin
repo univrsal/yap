@@ -40,6 +40,15 @@ once at startup:
 		"attachments": {
 			"max_megabytes": 100,
 			"rate_kb": 2048
+		},
+		"email": {
+			"address": "",
+			"imap": "imaps://mail.example.org",
+			"smtp": "smtps://mail.example.org",
+			"username": "",
+			"password": "",
+			"poll_seconds": 60,
+			"trusted_auth_host": ""
 		}
 	}
 
@@ -52,9 +61,10 @@ password   what clients have to give to get in; empty for none.
 data_dir   where the server keeps what it stores: its database (yap.db,
            see db.odin) and the blobs folder (blobs.odin). Empty for the
            folder the config is in. It's created if it isn't there.
-max_sessions  how many sessions there may be at once, which is about how
-           many clients can be connected (each has one, two while it
-           rekeys). Left out or 0, it's 256.
+max_sessions  how many sessions there may be at once, which is about
+           twice how many clients can be connected (each has two, one
+           for each of its links, and more while they rekey). Left out
+           or 0, it's 512.
 log_level  the lowest level to log: debug, info, warn or error.
 log_file   also append the log to this file; empty for none.
 relay      serve the web client over HTTP on `port` and relay browsers to
@@ -79,6 +89,19 @@ attachments  files uploaded with messages (attachments.odin).
            how fast, in KB/s, the server takes and sends them, for each
            connection, which leaves room for voice. Left out, they're
            100 and 2048.
+email      the server's own email account (email.odin); with no
+           `address`, the server has no email. `imap` and `smtp` are the
+           mail servers' URLs: imaps:// and smtps:// for TLS from the
+           start, imap:// and smtp:// for STARTTLS (which only a server
+           on this machine may do without), with the port if it isn't
+           the usual one. No `smtp`: nothing is sent. `username` is the
+           address if left empty. The mailbox is read every
+           `poll_seconds` (at least 10; 60 if left out).
+           `trusted_auth_host` is the mail server whose
+           Authentication-Results headers are believed. Email needs
+           libcurl, which Linux and macOS have to have installed (the
+           server runs without email if they don't); `yap-server email
+           test` tries it out.
 
 Fields left out keep the defaults above, and with no channels there's a
 single Lobby.
@@ -116,6 +139,7 @@ Config :: struct {
 	channels:     []Channel_Config,
 	retention:    Retention_Config,
 	attachments:  Attach_Config,
+	email:        Email_Config,
 }
 
 Attach_Config :: struct {
@@ -162,6 +186,7 @@ Settings :: struct {
 	emoji_dir:    string,
 	retention:    Retention_Config,
 	attachments:  Attach_Config,
+	email:        Email_Config, // checked; address "" for none
 }
 
 @(private = "file")
@@ -335,7 +360,10 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		attach.rate_kb = 2048
 	}
 
+	email := check_email(path, cfg.email) or_return
+
 	s = {
+		email        = email,
 		name         = name,
 		port         = cfg.port,
 		key          = cfg.key,
@@ -360,6 +388,38 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	s.emoji_dir, _ = os.join_path({data_dir, EMOJI_DIR}, context.allocator)
 	s.channels = check_channels(path, cfg.channels) or_return
 	return s, true
+}
+
+// check_email checks the email config; an empty address is no email.
+@(private = "file")
+check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bool) {
+	e = cfg
+	if e.address == "" {
+		return {}, true
+	}
+	buf: [proto.MAX_EMAIL_SIZE]u8
+	address, address_ok := proto.email_clean(e.address, &buf)
+	if !address_ok {
+		log.errorf("%s: %q is no email address", path, e.address)
+		return
+	}
+	e.address = strings.clone(address)
+	if !strings.has_prefix(e.imap, "imaps://") && !strings.has_prefix(e.imap, "imap://") {
+		log.errorf("%s: email needs an imap URL, imaps://host or imap://host", path)
+		return
+	}
+	if e.smtp != "" && !strings.has_prefix(e.smtp, "smtps://") && !strings.has_prefix(e.smtp, "smtp://") {
+		log.errorf("%s: the smtp URL has to be smtps://host or smtp://host", path)
+		return
+	}
+	if e.poll_seconds == 0 {
+		e.poll_seconds = DEFAULT_POLL_SECONDS
+	}
+	if e.poll_seconds < MIN_POLL_SECONDS {
+		log.errorf("%s: email's poll_seconds has to be at least %d", path, MIN_POLL_SECONDS)
+		return
+	}
+	return e, true
 }
 
 // check_channels returns the channel names, or a single default channel

@@ -139,6 +139,8 @@ Server :: struct {
 	retention:      Retention,
 	// What the loop is handling this time round, for slow_iteration.
 	handling:       proto.Message_Kind,
+	// The server's own email account, if it has one (email.odin).
+	email:          Email,
 }
 
 // A turn of the server's loop that takes longer than this is logged:
@@ -195,6 +197,8 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 	defer hash_worker_stop(&s.hasher)
 	defer auth_destroy(&s.auth)
+	email_open(&s.email, settings.email)
+	defer email_close(&s.email)
 
 	port := settings.port
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
@@ -252,6 +256,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		profiles_sync(&s)
 		calls_sync(&s)
 		retention_sync(&s)
+		email_sync(&s)
 		db_exercise(&s)
 		// What this turn wrote, in one go.
 		db_commit(&s.db)

@@ -61,8 +61,8 @@ decode_idle :: proc(body: []u8) -> (idle: bool, ok: bool) {
 // self_activity is what a Self event says the account chose; Online if
 // it doesn't say.
 self_activity :: proc(body: []u8) -> Activity {
-	if len(body) < SELF_SIZE || body[SELF_SIZE - 1] > u8(max(Activity)) {
+	if len(body) < SELF_FIXED_SIZE || body[SELF_FIXED_SIZE - 1] > u8(max(Activity)) {
 		return .Online
 	}
-	return Activity(body[SELF_SIZE - 1])
+	return Activity(body[SELF_FIXED_SIZE - 1])
 }

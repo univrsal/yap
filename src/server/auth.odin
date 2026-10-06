@@ -207,6 +207,8 @@ auth_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		account_password_set(s, u, id, body)
 	case .Account_Delete:
 		account_delete(s, u, id, body)
+	case .Email_Set:
+		email_set(s, u, id, body)
 	case:
 		return false
 	}

@@ -152,6 +152,18 @@ test_account_bodies :: proc(t: ^testing.T) {
 		testing.expect_value(t, account, 3)
 		testing.expect_value(t, permissions, Permissions{.Manage_Accounts, .Purge})
 		testing.expect_value(t, flags, Account_Flags{.Owner})
+		testing.expect_value(t, self_email(encode_self(&sb, 3, {}, {})), "")
+		with := encode_self(&sb, 3, {}, {}, .Busy, "alice@example.com")
+		testing.expect_value(t, self_email(with), "alice@example.com")
+		testing.expect_value(t, self_activity(with), Activity.Busy)
+	}
+	{
+		buf: [1 + MAX_EMAIL_SIZE]u8
+		email, ok := decode_email_set(encode_email_set(buf[:], "bob@example.net"))
+		testing.expect(t, ok)
+		testing.expect_value(t, email, "bob@example.net")
+		_, ok = decode_email_set({3, 'a'})
+		testing.expect(t, !ok)
 	}
 }
 

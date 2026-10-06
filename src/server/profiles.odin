@@ -25,6 +25,47 @@ Settings are kept as they come, by key, and not looked inside.
 // How often statuses are looked at for ones that have ended.
 STATUS_CHECK :: time.Second
 
+/*
+email_set sets the asking account's email address (Email_Set): one that
+could be one (proto.email_clean) and no other account's, or none.
+*/
+email_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	raw, ok := proto.decode_email_set(body)
+	if !ok {
+		respond(u, id, .Invalid)
+		return
+	}
+	acc := u.account
+	email := ""
+	if raw != "" {
+		buf: [proto.MAX_EMAIL_SIZE]u8
+		email, ok = proto.email_clean(raw, &buf)
+		if !ok {
+			respond(u, id, .Invalid)
+			return
+		}
+		email = strings.clone(email, context.temp_allocator)
+	}
+	if email == acc.email {
+		respond(u, id, .Ok)
+		return
+	}
+	if other := account_by_email(&s.accounts, email); other != nil {
+		respond(u, id, .Conflict)
+		return
+	}
+	if !account_set_email(&s.accounts, acc, email) {
+		respond(u, id, .Internal)
+		return
+	}
+	log.infof("%s %s their email address", conn_label(u), "changed" if email != "" else "removed")
+	// Only its own connections know it.
+	for c in acc.conns {
+		send_self(c)
+	}
+	respond(u, id, .Ok)
+}
+
 profile_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	p, ok := proto.decode_profile_set(body)
 	if !ok {

@@ -51,6 +51,7 @@ Request_Op :: enum u16 {
 	Device_Revoke        = 0x0015,
 	Account_Password_Set = 0x0016,
 	Account_Delete       = 0x0017,
+	Email_Set            = 0x0018,
 	Profile_Set          = 0x0020,
 	Setting_Set          = 0x0021,
 	// Buddies and when people were last here, see buddies.odin.

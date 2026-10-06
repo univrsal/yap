@@ -10,7 +10,7 @@ import "common:."
 import "common:proto"
 
 Options :: struct {
-	config: string `args:"pos=0" usage:"Config file (default config.json): port, key, password, relay, channels... Created with defaults and a new key if missing. For the accounts, see: yap-server account; to purge old messages: yap-server purge"`,
+	config: string `args:"pos=0" usage:"Config file (default config.json): port, key, password, relay, channels... Created with defaults and a new key if missing. For the accounts, see: yap-server account; to purge old messages: yap-server purge; to try the email config: yap-server email test"`,
 }
 
 main :: proc() {
@@ -34,6 +34,16 @@ main :: proc() {
 			args = list[:]
 		}
 		os.exit(run_account_command(args))
+	}
+
+	// `yap-server email test` tries the email config out (cli_email.odin).
+	if len(os.args) > 1 && os.args[1] == "email" {
+		quiet, quiet_ok := common.init_logging(.warn)
+		if !quiet_ok {
+			os.exit(1)
+		}
+		context.logger = quiet
+		os.exit(run_email_command(os.args[2:]))
 	}
 
 	// `yap-server purge ...` purges and exits (cli_purge.odin). Nobody

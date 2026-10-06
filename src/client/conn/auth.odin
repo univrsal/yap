@@ -56,6 +56,7 @@ Auth_Client :: struct {
 	// last told the server (activity.odin).
 	chosen:      proto.Activity,
 	idle:        bool,
+	email:       string, // ours, as in Self; owned
 	accounts:    map[proto.Account_Id]Dir_Account,
 	roles:       map[proto.Role_Id]Dir_Role, // roles.odin
 	// What to log in with as soon as the server wants it: given when
@@ -81,6 +82,7 @@ View_Login :: struct {
 	error:       string, // owned
 	must_change: bool, // logged in, but the password has to be changed first
 	username:    string, // ours, once logged in; owned
+	email:       string, // ours, "" for none; owned
 }
 
 View_Account :: struct {
@@ -120,6 +122,10 @@ Password_Command :: struct {
 Display_Command :: struct {
 	name: string, // owned by the command
 }
+// Change our account's email address; "" for none.
+Email_Command :: struct {
+	email: string, // owned by the command
+}
 // Ask for our account's devices.
 Devices_Command :: struct {}
 Revoke_Command :: struct {
@@ -149,6 +155,7 @@ auth_destroy :: proc(c: ^Voice_Client) {
 	delete(a.devices)
 	delete(a.error)
 	delete(a.username)
+	delete(a.email)
 	forget_password(a)
 	delete(a.device)
 	a^ = {}
@@ -376,6 +383,8 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		}
 		a.me, a.permissions, a.flags = me, permissions, flags
 		a.chosen = proto.self_activity(body)
+		delete(a.email)
+		a.email = strings.clone(proto.self_email(body))
 		if a.state != .Done {
 			set_state(c, .Done)
 			// A new connection starts out not idle.
@@ -540,6 +549,38 @@ auth_display :: proc(c: ^Voice_Client, name: string) {
 	)
 }
 
+auth_email :: proc(c: ^Voice_Client, raw: string) {
+	email := ""
+	if strings.trim_space(raw) != "" {
+		buf: [proto.MAX_EMAIL_SIZE]u8
+		ok: bool
+		email, ok = proto.email_clean(raw, &buf)
+		if !ok {
+			notify(c, false, "That's no email address.")
+			return
+		}
+		email = strings.clone(email, context.temp_allocator)
+	}
+	buf: [1 + proto.MAX_EMAIL_SIZE]u8
+	request(
+		c,
+		.Email_Set,
+		proto.encode_email_set(buf[:], email),
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Ok:
+				notify(c, true, "Email address saved.")
+			case .Conflict:
+				notify(c, false, "Another account has that email address.")
+			case .Invalid:
+				notify(c, false, "That's no email address.")
+			case:
+				notify(c, false, status_text(status))
+			}
+		},
+	)
+}
+
 auth_devices :: proc(c: ^Voice_Client) {
 	request(
 		c,
@@ -694,10 +735,12 @@ publish_login :: proc(c: ^Voice_Client) {
 	view_write(v)
 	delete(v.login.error)
 	delete(v.login.username)
+	delete(v.login.email)
 	v.login = {
 		state       = a.state,
 		error       = strings.clone(a.error),
 		must_change = a.state == .Done && .Must_Change in a.flags,
+		email       = strings.clone(a.email),
 	}
 	if me, ok := a.accounts[a.me]; ok {
 		v.login.username = strings.clone(me.username)

@@ -69,6 +69,12 @@ RUN sh web/build.sh
 # current Odin Linux toolchain, so the runtime needs glibc.
 FROM ubuntu:24.04
 
+# libcurl is loaded at runtime for the server's email, if configured;
+# the certificates are for checking the mail server's.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libcurl4t64 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system yap \
     && useradd --system --gid yap --home-dir /nonexistent --shell /usr/sbin/nologin yap \
     && install --directory --owner yap --group yap /data

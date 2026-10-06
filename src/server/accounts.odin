@@ -32,6 +32,9 @@ Account :: struct {
 	status:       string,
 	status_until: i64,
 	avatar:       proto.Blob_Id,
+	// Its email address (owned; "" for none), in lower case, which no
+	// other account has. Only it is told it.
+	email:        string,
 	// What it chose to be (online, away, busy or offline), and how
 	// everyone was last told it is (activity.odin).
 	chosen:       proto.Activity,
@@ -94,6 +97,7 @@ accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 		if chosen := db_col_int(q, 9); chosen >= 0 && chosen <= i64(max(proto.Activity)) {
 			acc.chosen = proto.Activity(chosen)
 		}
+		acc.email = db_col_text(q, 10, context.allocator)
 		acc.shown = .Offline // nobody is here yet
 		a.by_id[acc.id] = acc
 		a.by_name[acc.username] = acc
@@ -143,6 +147,7 @@ accounts_destroy :: proc(a: ^Accounts) {
 		delete(acc.username)
 		delete(acc.display)
 		delete(acc.status)
+		delete(acc.email)
 		delete(acc.conns)
 		delete(acc.buddies)
 		delete(acc.roles)
@@ -281,6 +286,32 @@ account_set_display :: proc(a: ^Accounts, acc: ^Account, display: string) -> boo
 	db_run(a.db, q) or_return
 	delete(acc.display)
 	acc.display = strings.clone(display)
+	return true
+}
+
+// account_by_email is the account with this address (in lower case),
+// nil if none has it.
+account_by_email :: proc(a: ^Accounts, email: string) -> ^Account {
+	if email == "" {
+		return nil
+	}
+	for _, acc in a.by_id {
+		if acc.email == email {
+			return acc
+		}
+	}
+	return nil
+}
+
+// account_set_email sets an account's email address: clean, in lower
+// case, and no other account's (account_by_email); "" for none.
+account_set_email :: proc(a: ^Accounts, acc: ^Account, email: string) -> bool {
+	q := db_stmt(a.db, .Account_Set_Email)
+	db_bind_int(q, 1, i64(acc.id))
+	db_bind_text(q, 2, email)
+	db_run(a.db, q) or_return
+	delete(acc.email)
+	acc.email = strings.clone(email)
 	return true
 }
 

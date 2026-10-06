@@ -54,11 +54,15 @@ send_account :: proc(u: ^Conn, acc: ^Account) {
 }
 
 // send_self tells a connection who it is: its account, what that may
-// do, and whether its password has to be changed.
+// do, whether its password has to be changed, and its email address.
 send_self :: proc(u: ^Conn) {
 	buf: [proto.SELF_SIZE]u8
 	acc := u.account
-	send_event(u, .Self, proto.encode_self(&buf, acc.id, permissions(acc), acc.flags, acc.chosen))
+	send_event(
+		u,
+		.Self,
+		proto.encode_self(&buf, acc.id, permissions(acc), acc.flags, acc.chosen, acc.email),
+	)
 }
 
 // account_told tells everyone logged in but `except` about an account,

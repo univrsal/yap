@@ -1,6 +1,7 @@
 package server
 
 import "core:os"
+import "core:strings"
 import "core:testing"
 
 import "common:proto"
@@ -364,4 +365,57 @@ fmt_key :: proc(buf: []u8, i: int) -> string {
 		n += 1
 	}
 	return string(buf[:n])
+}
+
+@(test)
+test_email_set :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	ts_account(t, &ts, "alice", "alice's password")
+	ts_account(t, &ts, "bob", "bob's password")
+	alice := ts_connect(&ts)
+	bob := ts_connect(&ts)
+	status, _ := ts_login(t, &ts, alice, "alice", "alice's password")
+	testing.expect_value(t, status, proto.Status.Ok)
+	status, _ = ts_login(t, &ts, bob, "bob", "bob's password")
+	testing.expect_value(t, status, proto.Status.Ok)
+	ts_events(t, &ts, alice)
+	ts_events(t, &ts, bob)
+
+	set :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, email: string) -> proto.Status {
+		buf: [1 + proto.MAX_EMAIL_SIZE]u8
+		status, _ := ts_ask(t, ts, u, .Email_Set, proto.encode_email_set(buf[:], email))
+		return status
+	}
+	testing.expect_value(t, set(t, &ts, alice, " Alice@Example.COM"), proto.Status.Ok)
+	testing.expect_value(t, alice.account.email, "alice@example.com")
+	// Told to itself, in a Self; nobody else hears of it.
+	self, told_self := has_event(ts_events(t, &ts, alice), .Self)
+	testing.expect(t, told_self)
+	testing.expect_value(t, proto.self_email(self.body), "alice@example.com")
+	_, bob_told := has_event(ts_events(t, &ts, bob), .Self)
+	testing.expect(t, !bob_told)
+
+	testing.expect_value(t, set(t, &ts, bob, "ALICE@example.com"), proto.Status.Conflict)
+	testing.expect_value(t, set(t, &ts, bob, "not an address"), proto.Status.Invalid)
+	testing.expect_value(t, bob.account.email, "")
+
+	// Kept, and given up.
+	db_email :: proc(ts: ^Test_Server, acc: ^Account) -> string {
+		a: Accounts
+		_ = accounts_load(&a, &ts.s.db)
+		defer accounts_destroy(&a)
+		return strings.clone(a.by_id[acc.id].email, context.temp_allocator)
+	}
+	testing.expect_value(t, db_email(&ts, alice.account), "alice@example.com")
+	testing.expect_value(t, set(t, &ts, alice, ""), proto.Status.Ok)
+	testing.expect_value(t, set(t, &ts, bob, "alice@example.com"), proto.Status.Ok)
+	testing.expect_value(t, db_email(&ts, bob.account), "alice@example.com")
+
+	// A deleted account has none.
+	acc := bob.account
+	testing.expect(t, account_erase(&ts.s, acc))
+	testing.expect_value(t, acc.email, "")
+	testing.expect_value(t, db_email(&ts, acc), "")
 }

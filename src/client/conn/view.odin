@@ -241,6 +241,7 @@ view_reset :: proc(v: ^View) {
 	view_clear_devices(v)
 	delete(v.login.error)
 	delete(v.login.username)
+	delete(v.login.email)
 	delete(v.notice.text)
 	v.login, v.notice = {}, {}
 	v.me, v.permissions = 0, {}

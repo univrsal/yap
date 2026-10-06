@@ -31,6 +31,7 @@ network loop never blocks on input.
 	/subscribe <channel>, /unsubscribe <channel>
 	/create <channel> [topic]   make a channel (for who may)
 	/name <name>     change what your account is called
+	/email [address] set your account's email address (none: remove it)
 	/login <username> <password>   log in, if the server asks for it
 	/logout          log this device out
 	/passwd <old> <new>   change your password
@@ -133,6 +134,11 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			conn.push_command(
 				q,
 				conn.Display_Command{strings.clone(strings.trim_space(line[len("/name "):]))},
+			)
+		case line == "/email" || strings.has_prefix(line, "/email "):
+			conn.push_command(
+				q,
+				conn.Email_Command{strings.clone(strings.trim_space(line[len("/email"):]))},
 			)
 		case strings.has_prefix(line, "/login "):
 			username, _, password := strings.partition(

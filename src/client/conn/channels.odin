@@ -351,6 +351,7 @@ Command :: union {
 	Logout_Command,
 	Password_Command,
 	Display_Command,
+	Email_Command,
 	Devices_Command,
 	Revoke_Command,
 	Account_Create_Command,
@@ -487,6 +488,8 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.new)
 	case Display_Command:
 		delete(v.name)
+	case Email_Command:
+		delete(v.email)
 	case Account_Create_Command:
 		delete(v.username)
 		delete(v.password)
@@ -715,6 +718,8 @@ process_commands :: proc(c: ^Voice_Client) {
 			auth_password(c, v)
 		case Display_Command:
 			auth_display(c, v.name)
+		case Email_Command:
+			auth_email(c, v.email)
 		case Devices_Command:
 			auth_devices(c)
 		case Revoke_Command:
