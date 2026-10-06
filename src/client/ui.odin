@@ -707,6 +707,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	ui_manage_destroy(ui)
 	ui_roles_destroy(ui)
 	delete(ui.invites_asked)
+	delete(ui.account.verify_loaded)
 	for path in ui.dropped {
 		delete(path)
 	}
@@ -1255,6 +1256,9 @@ main_window :: proc(ui: ^UI) {
 		case v.status == .Connected && v.login.must_change:
 			ui.page = .Main
 			password_screen(ui)
+		case v.status == .Connected && v.login.unverified:
+			ui.page = .Main
+			verify_screen(ui)
 		case ui.page == .Buddies:
 			buddies_screen(ui)
 		case:

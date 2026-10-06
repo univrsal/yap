@@ -18,6 +18,7 @@ more (the owner's password is forgotten, say).
 	yap-server account add <username>    [config.json]
 	yap-server account passwd <username> [config.json]
 	yap-server account owner <username>  [config.json]
+	yap-server account verify <username> [config.json]
 	yap-server account role <username> <role>    [config.json]
 	yap-server account unrole <username> <role>  [config.json]
 	yap-server account delete <username> [config.json]
@@ -26,7 +27,9 @@ more (the owner's password is forgotten, say).
 `add` and `passwd` make up a password and print it; like any password
 somebody else chose, it's only good for logging in and choosing one's
 own. `passwd` also logs the account's devices out. `owner` makes the
-account the server's owner, in place of whoever was. `role` and `unrole`
+account the server's owner, in place of whoever was. `verify` takes
+an account whose email address hasn't been verified (verify.odin) as if
+it had been. `role` and `unrole`
 give an account a role or take it away, and `role list` lists the roles
 and what they allow: for a server nobody can manage any more. `delete`
 deletes an account for good (account_delete.odin): what it wrote stays,
@@ -40,6 +43,7 @@ ACCOUNT_USAGE :: `usage: yap-server account list [config.json]
        yap-server account add <username> [config.json]
        yap-server account passwd <username> [config.json]
        yap-server account owner <username> [config.json]
+       yap-server account verify <username> [config.json]
        yap-server account role <username> <role> [config.json]
        yap-server account unrole <username> <role> [config.json]
        yap-server account delete <username> [config.json]
@@ -57,7 +61,7 @@ run_account_command :: proc(args: []string) -> int {
 	names := 0
 	switch command {
 	case "list", "roles":
-	case "add", "passwd", "owner", "delete":
+	case "add", "passwd", "owner", "verify", "delete":
 		names = 1
 	case "role", "unrole":
 		names = 2
@@ -179,6 +183,20 @@ run_account_command :: proc(args: []string) -> int {
 			return 1
 		}
 		fmt.printfln("%s is the server's owner now", username)
+
+	case "verify":
+		switch {
+		case acc == nil:
+			fmt.eprintfln("there is no account called %s", username)
+			return 1
+		case .Unverified not_in acc.flags:
+			fmt.printfln("%s has nothing to verify", username)
+			return 0
+		}
+		if !account_set_verify(&a, acc, acc.flags - {.Unverified}, "", 0) {
+			return 1
+		}
+		fmt.printfln("%s is verified", username)
 
 	case "delete":
 		switch {

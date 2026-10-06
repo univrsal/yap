@@ -24,8 +24,8 @@ once and one every REGISTER_EVERY after that, so a script can't fill
 the server with accounts. Open servers that want more of a say use
 invite codes (invites.odin).
 
-Whether an address is the registrant's is item 8's (docs/next); for now
-verify_email asks for an address like require_email does.
+With verify_email the new account starts Unverified, and is deleted if
+its address isn't verified in unverified_hours (verify.odin).
 */
 
 REGISTER_BURST :: 10
@@ -221,6 +221,15 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 		respond(u, p.request, .Internal)
 		return
 	}
+	// Verifying the address comes first, if it has to be: until it's
+	// done the account is out of sight (verify.odin).
+	if verify_on(s) {
+		hours := i64(s.registration.unverified_hours)
+		if !account_unverify(s, acc, unix_ms() + hours * 60 * 60 * 1000) {
+			respond(u, p.request, .Internal)
+			return
+		}
+	}
 	if device_link(&s.accounts, u.key, acc, p.device) == nil {
 		respond(u, p.request, .Internal)
 		return
@@ -230,9 +239,11 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 	} else {
 		log.infof("%s registered the account %s", conn_label(u), acc.username)
 	}
-	// Everyone else hears of it; the device itself is told everything as
-	// it logs in.
-	account_changed(s, acc)
+	// Everyone else hears of it, once it's verified if it has to be; the
+	// device itself is told everything as it logs in.
+	if .Unverified not_in acc.flags {
+		account_changed(s, acc)
+	}
 	buf: [proto.AUTH_LOGIN_RESPONSE_SIZE]u8
 	respond(u, p.request, .Ok, proto.encode_auth_login_response(&buf, acc.id, acc.flags))
 	conn_login(s, u, acc)
@@ -242,16 +253,20 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 invite_code_new :: proc(out: ^[proto.INVITE_CODE_SIZE]u8) -> string {
 	alphabet := proto.INVITE_ALPHABET
 	for &ch in out {
-		for {
-			r: [1]u8
-			crypto.rand_bytes(r[:])
-			// Without the few values that would make some characters
-			// likelier than others.
-			if int(r[0]) < 256 - 256 % len(alphabet) {
-				ch = alphabet[int(r[0]) % len(alphabet)]
-				break
-			}
-		}
+		ch = alphabet[random_below(len(alphabet))]
 	}
 	return string(out[:])
+}
+
+// random_below is a random number from 0 up to `n` (at most 256), each
+// as likely as the others.
+random_below :: proc(n: int) -> int {
+	for {
+		r: [1]u8
+		crypto.rand_bytes(r[:])
+		// Without the few values that would make some likelier.
+		if int(r[0]) < 256 - 256 % n {
+			return int(r[0]) % n
+		}
+	}
 }

@@ -147,6 +147,7 @@ Stmt :: enum {
 	Buddy_Remove,
 	Account_Set_Activity,
 	Account_Set_Email,
+	Account_Set_Verify,
 	Invite_Add,
 	Invite_Get,
 	Invite_All,
@@ -204,7 +205,7 @@ STMT_SQL := [Stmt]string {
 	.Blob_By_Hash           = "SELECT id FROM blobs WHERE sha256 = ?1",
 	.Blob_Delete            = "DELETE FROM blobs WHERE id = ?1",
 	.Account_Add            = "INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, flags, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-	.Account_All            = "SELECT id, username, display, flags, created, last_seen, status, status_until, coalesce(avatar, 0), activity, email FROM accounts ORDER BY id",
+	.Account_All            = "SELECT id, username, display, flags, created, last_seen, status, status_until, coalesce(avatar, 0), activity, email, verify_code, verify_expires FROM accounts ORDER BY id",
 	.Account_Secret         = "SELECT pw_hash, pw_salt, pw_params FROM accounts WHERE id = ?1",
 	.Account_Set_Password   = "UPDATE accounts SET pw_hash = ?2, pw_salt = ?3, pw_params = ?4 WHERE id = ?1",
 	.Account_Set_Display    = "UPDATE accounts SET display = ?2 WHERE id = ?1",
@@ -279,6 +280,7 @@ STMT_SQL := [Stmt]string {
 	.Buddy_Remove           = "DELETE FROM buddies WHERE account = ?1 AND buddy = ?2",
 	.Account_Set_Activity   = "UPDATE accounts SET activity = ?2 WHERE id = ?1",
 	.Account_Set_Email      = "UPDATE accounts SET email = ?2 WHERE id = ?1",
+	.Account_Set_Verify     = "UPDATE accounts SET flags = ?2, verify_code = ?3, verify_expires = ?4 WHERE id = ?1",
 	.Invite_Add             = "INSERT INTO invites (code, creator, created, max_uses, expires) VALUES (?1, ?2, ?3, ?4, ?5)",
 	.Invite_Get             = "SELECT code, creator, created, max_uses, uses, expires, revoked FROM invites WHERE code = ?1",
 	.Invite_All             = "SELECT code, creator, created, max_uses, uses, expires, revoked FROM invites ORDER BY rowid DESC LIMIT ?1",
@@ -323,7 +325,7 @@ STMT_SQL := [Stmt]string {
 	.File_Search            = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.blob, b.width, b.height, b.size, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid LEFT JOIN blobs b ON b.id = m.blob WHERE files_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
 	// What's left of a deleted account (account_erase): a name nobody can
 	// log in with, and nothing of its own.
-	.Account_Erase          = "UPDATE accounts SET username = ?2, display = ?3, flags = ?4, status = '', status_until = 0, avatar = NULL, activity = 0, email = '', pw_hash = zeroblob(32) WHERE id = ?1",
+	.Account_Erase          = "UPDATE accounts SET username = ?2, display = ?3, flags = ?4, status = '', status_until = 0, avatar = NULL, activity = 0, email = '', verify_code = '', verify_expires = 0, pw_hash = zeroblob(32) WHERE id = ?1",
 	.Device_Erase           = "DELETE FROM devices WHERE account = ?1",
 	.Buddy_Erase            = "DELETE FROM buddies WHERE account = ?1 OR buddy = ?1",
 	.Setting_Erase          = "DELETE FROM settings WHERE account = ?1",

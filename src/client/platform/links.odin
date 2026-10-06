@@ -118,3 +118,38 @@ open_url :: proc(url: string) {
 		log.errorf("could not open %s in the browser", url)
 	}
 }
+
+/*
+open_mailto opens the mail program on a new mail to `to` with `subject`.
+Only what an address and a code are made of is taken - letters, digits
+and . _ + - @ - so nothing but those two can end up in the link, and
+nothing needs escaping.
+*/
+open_mailto :: proc(to, subject: string) {
+	plain :: proc(s: string, at_ok: bool) -> bool {
+		if s == "" {
+			return false
+		}
+		for i in 0 ..< len(s) {
+			switch s[i] {
+			case 'a' ..= 'z', 'A' ..= 'Z', '0' ..= '9', '.', '_', '+', '-':
+			case '@':
+				if !at_ok {
+					return false
+				}
+			case:
+				return false
+			}
+		}
+		return true
+	}
+	if !plain(to, true) || !plain(subject, false) {
+		log.warnf("not writing a mail to %q about %q", to, subject)
+		return
+	}
+	url := strings.concatenate({"mailto:", to, "?subject=", subject}, context.temp_allocator)
+	log.infof("opening %s", url)
+	if !platform_open_url(url) {
+		log.errorf("could not open %s", url)
+	}
+}

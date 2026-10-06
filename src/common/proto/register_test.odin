@@ -61,8 +61,12 @@ test_register_codecs :: proc(t: ^testing.T) {
 	testing.expect(t, list_ok && len(got) == 1)
 
 	info_buf: [SERVER_INFO_MAX_SIZE]u8
-	body, info_ok := encode_server_info(info_buf[:], {name = "x", registration = {.Open, .Email}})
+	body, info_ok := encode_server_info(
+		info_buf[:],
+		{name = "x", registration = {.Open, .Email}, email = "yap@example.org"},
+	)
 	testing.expect(t, info_ok)
 	info, _ := decode_server_info(body)
 	testing.expect_value(t, info.registration, Registration_Flags{.Open, .Email})
+	testing.expect_value(t, info.email, "yap@example.org")
 }

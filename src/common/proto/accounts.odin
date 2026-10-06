@@ -36,7 +36,7 @@ Everything here travels as requests and events (rpc.odin):
 	Sync_Begin, Sync_End  (nothing): around everything a connection is told
 	                      when it logs in
 	Self                  [account u32][permissions u64][flags u8][activity u8]
-	                      [email str8]
+	                      [email str8][verify code str8][verify by u64]
 	Account_Changed       an account, new or changed
 	Setting_Changed       [key str8][value bytes16]: one of the account's
 	                      settings (settings.odin)
@@ -89,6 +89,9 @@ Account_Flag :: enum u8 {
 	Disabled, // can't log in
 	Must_Change, // the password was set by an admin, and has to be changed
 	Deleted, // a tombstone: what's left of an account that was deleted
+	// Its email address has yet to be shown to be its own (verify.odin):
+	// it can do nothing else until it is.
+	Unverified,
 }
 
 // What a deleted account is called.
@@ -519,9 +522,10 @@ decode_account :: proc(body: []u8) -> (a: Account, ok: bool) {
 	return a, true
 }
 
-// Self's fields before the email, and the most it can be with it.
+// Self's fields before the email, and the most it can be with it and
+// what verifying it takes (verify.odin).
 SELF_FIXED_SIZE :: 4 + 8 + 1 + 1
-SELF_SIZE :: SELF_FIXED_SIZE + 1 + MAX_EMAIL_SIZE
+SELF_SIZE :: SELF_FIXED_SIZE + 1 + MAX_EMAIL_SIZE + 1 + VERIFY_CODE_SIZE + 8
 
 encode_self :: proc(
 	out: ^[SELF_SIZE]u8,
@@ -530,6 +534,8 @@ encode_self :: proc(
 	flags: Account_Flags,
 	activity := Activity.Online, // as the account chose it (self_activity)
 	email := "", // self_email
+	verify_code := "", // self_verify
+	verify_by := Unix_Ms(0),
 ) -> []u8 {
 	w := Writer {
 		buf = out[:],
@@ -539,7 +545,30 @@ encode_self :: proc(
 	put_u8(&w, transmute(u8)flags)
 	put_u8(&w, u8(activity))
 	put_str8(&w, email)
+	put_str8(&w, verify_code)
+	put_u64(&w, u64(verify_by))
 	return written(&w)
+}
+
+/*
+self_verify is what verifying the account's address takes, in a Self of
+an Unverified account: the code a mail's subject has to have, and when
+the account is deleted if none comes (0: it isn't).
+*/
+self_verify :: proc(body: []u8) -> (code: string, by: Unix_Ms) {
+	if len(body) <= SELF_FIXED_SIZE {
+		return
+	}
+	r := Reader {
+		buf = body[SELF_FIXED_SIZE:],
+	}
+	_ = get_str8(&r)
+	code = get_str8(&r)
+	by = Unix_Ms(get_u64(&r))
+	if r.overflow {
+		return "", 0
+	}
+	return
 }
 
 // self_email is the account's email address in a Self; "" for none.

@@ -43,12 +43,14 @@ Server_Details :: struct {
 	// How big a file attached to a message may be; 0 if it takes none.
 	max_attachment: u64,
 	registration:   proto.Registration_Flags,
+	email:          string, // where verifying mail goes; owned
 }
 
 rpc_destroy :: proc(c: ^Voice_Client) {
 	delete(c.rpc.pending)
 	delete(c.rpc.server.name)
 	delete(c.rpc.server.version)
+	delete(c.rpc.server.email)
 	c.rpc = {}
 }
 
@@ -177,6 +179,10 @@ server_info_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag
 	s.version = strings.clone(proto.sanitize_text(info.version, version_buf[:]))
 	s.max_attachment = info.max_attachment
 	s.registration = info.registration
+	delete(s.email)
+	email_buf: [proto.MAX_EMAIL_SIZE]u8
+	email, email_ok := proto.email_clean(info.email, &email_buf)
+	s.email = strings.clone(email if email_ok else "")
 	when proto.STREAM_FLOOD {
 		log.infof("flood: %d bytes came back", len(body))
 		if s.known {

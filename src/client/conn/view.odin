@@ -67,8 +67,10 @@ View :: struct {
 	server_name:    string,
 	// How big a file attached to a message may be; 0 if it takes none.
 	max_attachment: u64,
-	// Whether one may register an account there, and with what.
+	// Whether one may register an account there, and with what; and the
+	// server's own address, where verifying mail goes (verify.odin).
 	registration:   proto.Registration_Flags,
+	server_email:   string,
 	my_key:         [proto.KEY_SIZE]u8,
 	// The server's, once the handshake has shown it (zero until then):
 	// per-user settings are kept by it and the account (settings.odin).
@@ -244,9 +246,12 @@ view_reset :: proc(v: ^View) {
 	view_clear_devices(v)
 	view_clear_invites(v)
 	v.registration = {}
+	delete(v.server_email)
+	v.server_email = ""
 	delete(v.login.error)
 	delete(v.login.username)
 	delete(v.login.email)
+	delete(v.login.verify_code)
 	delete(v.notice.text)
 	v.login, v.notice = {}, {}
 	v.me, v.permissions = 0, {}
@@ -485,6 +490,8 @@ publish_server :: proc(c: ^Voice_Client) {
 	v.server_name = strings.clone(c.rpc.server.name)
 	v.max_attachment = c.rpc.server.max_attachment
 	v.registration = c.rpc.server.registration
+	delete(v.server_email)
+	v.server_email = strings.clone(c.rpc.server.email)
 }
 
 // publish_server_key tells the UI the server's key, which the per-user

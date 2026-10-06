@@ -68,6 +68,13 @@ ts_close :: proc(ts: ^Test_Server) {
 		free(u)
 	}
 	delete(ts.clients)
+	// What verify_test.odin put in the email's queues; there's no thread,
+	// nor a config of its own to free.
+	for &m in s.email.inbox {
+		mail_destroy(&m)
+	}
+	delete(s.email.inbox)
+	delete(s.email.jobs)
 	delete(s.conns)
 	delete(s.waiting)
 	calls_destroy(s)

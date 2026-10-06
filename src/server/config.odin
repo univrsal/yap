@@ -48,6 +48,7 @@ once at startup:
 			"username": "",
 			"password": "",
 			"poll_seconds": 60,
+			"check_auth_results": true,
 			"trusted_auth_host": ""
 		},
 		"registration": {
@@ -105,7 +106,14 @@ email      the server's own email account (email.odin); with no
            address if left empty. The mailbox is read every
            `poll_seconds` (at least 10; 60 if left out).
            `trusted_auth_host` is the mail server whose
-           Authentication-Results headers are believed. Email needs
+           Authentication-Results headers are believed: the first word
+           of the one it adds to mail it receives. With
+           `check_auth_results` (true if left out) a mail that verifies
+           an address has to have one of those saying the mail is from
+           where its From says; false skips that, for a mail server
+           that adds none, at the cost that anyone could verify an
+           address that isn't theirs by writing it as the From (the
+           server warns). Email needs
            libcurl, which Linux and macOS have to have installed (the
            server runs without email if they don't); `yap-server email
            test` tries it out.
@@ -223,6 +231,7 @@ default_config :: proc() -> Config {
 		log_level = "info",
 		relay = {port = DEFAULT_RELAY_PORT, web_dir = default_web_dir()},
 		attachments = {max_megabytes = 100, rate_kb = 2048},
+		email = {check_auth_results = true},
 	}
 }
 
@@ -395,6 +404,19 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 			path,
 		)
 		return
+	}
+	if registration.verify_email && email.check_auth_results && email.trusted_auth_host == "" {
+		log.errorf(
+			"%s: verify_email needs email's trusted_auth_host: the mail server whose Authentication-Results say where a mail came from (or check_auth_results false, to go without)",
+			path,
+		)
+		return
+	}
+	if registration.verify_email && !email.check_auth_results {
+		log.warnf(
+			"%s: check_auth_results is off, so a mail that says it's from an address verifies it: anyone can verify an address that isn't theirs",
+			path,
+		)
 	}
 	if registration.unverified_hours < 0 {
 		log.errorf("%s: unverified_hours can't be negative", path)

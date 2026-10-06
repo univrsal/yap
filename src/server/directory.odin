@@ -61,7 +61,16 @@ send_self :: proc(u: ^Conn) {
 	send_event(
 		u,
 		.Self,
-		proto.encode_self(&buf, acc.id, permissions(acc), acc.flags, acc.chosen, acc.email),
+		proto.encode_self(
+			&buf,
+			acc.id,
+			permissions(acc),
+			acc.flags,
+			acc.chosen,
+			acc.email,
+			acc.verify_code,
+			proto.Unix_Ms(acc.verify_expires),
+		),
 	)
 }
 

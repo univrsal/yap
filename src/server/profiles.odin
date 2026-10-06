@@ -36,6 +36,11 @@ email_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	acc := u.account
+	r := s.registration
+	if raw == "" && (r.require_email || r.verify_email) && .Owner not_in acc.flags {
+		respond(u, id, .Invalid) // this server wants one
+		return
+	}
 	email := ""
 	if raw != "" {
 		buf: [proto.MAX_EMAIL_SIZE]u8
@@ -59,6 +64,15 @@ email_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	log.infof("%s %s their email address", conn_label(u), "changed" if email != "" else "removed")
+	// A new address has to be verified, as a registration's does; but
+	// the owner is never locked out (verify.odin).
+	if email != "" && verify_on(s) && .Owner not_in acc.flags {
+		by := acc.verify_expires if .Unverified in acc.flags else 0
+		if !account_unverify(s, acc, by) {
+			respond(u, id, .Internal)
+			return
+		}
+	}
 	// Only its own connections know it.
 	for c in acc.conns {
 		send_self(c)

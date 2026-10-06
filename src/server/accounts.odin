@@ -35,6 +35,10 @@ Account :: struct {
 	// Its email address (owned; "" for none), in lower case, which no
 	// other account has. Only it is told it.
 	email:        string,
+	// While it's Unverified: the code a mail has to have (owned), and
+	// when it's deleted if none comes (0: never). verify.odin.
+	verify_code:    string,
+	verify_expires: i64,
 	// What it chose to be (online, away, busy or offline), and how
 	// everyone was last told it is (activity.odin).
 	chosen:       proto.Activity,
@@ -98,6 +102,8 @@ accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 			acc.chosen = proto.Activity(chosen)
 		}
 		acc.email = db_col_text(q, 10, context.allocator)
+		acc.verify_code = db_col_text(q, 11, context.allocator)
+		acc.verify_expires = db_col_int(q, 12)
 		acc.shown = .Offline // nobody is here yet
 		a.by_id[acc.id] = acc
 		a.by_name[acc.username] = acc
@@ -148,6 +154,7 @@ accounts_destroy :: proc(a: ^Accounts) {
 		delete(acc.display)
 		delete(acc.status)
 		delete(acc.email)
+		delete(acc.verify_code)
 		delete(acc.conns)
 		delete(acc.buddies)
 		delete(acc.roles)
@@ -315,6 +322,28 @@ account_set_email :: proc(a: ^Accounts, acc: ^Account, email: string) -> bool {
 	return true
 }
 
+// account_set_verify sets an account's flags and what verifying its
+// address takes (verify.odin).
+account_set_verify :: proc(
+	a: ^Accounts,
+	acc: ^Account,
+	flags: proto.Account_Flags,
+	code: string,
+	expires: i64,
+) -> bool {
+	q := db_stmt(a.db, .Account_Set_Verify)
+	db_bind_int(q, 1, i64(acc.id))
+	db_bind_int(q, 2, i64(transmute(u8)flags))
+	db_bind_text(q, 3, code)
+	db_bind_int(q, 4, expires)
+	db_run(a.db, q) or_return
+	acc.flags = flags
+	delete(acc.verify_code)
+	acc.verify_code = strings.clone(code)
+	acc.verify_expires = expires
+	return true
+}
+
 // account_seen notes that an account was here just now.
 account_seen :: proc(a: ^Accounts, acc: ^Account) {
 	acc.last_seen = unix_ms()
@@ -441,7 +470,7 @@ can :: proc(acc: ^Account, permission: proto.Permission) -> bool {
 account_record :: proc(acc: ^Account) -> proto.Account {
 	return {
 		id = acc.id,
-		flags = acc.flags - {.Must_Change},
+		flags = acc.flags - {.Must_Change, .Unverified},
 		username = acc.username,
 		display = acc.display,
 		status = acc.status,

@@ -57,6 +57,10 @@ Auth_Client :: struct {
 	chosen:      proto.Activity,
 	idle:        bool,
 	email:       string, // ours, as in Self; owned
+	// While our address isn't verified: the code a mail to the server
+	// has to have (owned), and when the account goes without one.
+	verify_code: string,
+	verify_by:   proto.Unix_Ms,
 	accounts:    map[proto.Account_Id]Dir_Account,
 	roles:       map[proto.Role_Id]Dir_Role, // roles.odin
 	// What to log in with as soon as the server wants it: given when
@@ -83,6 +87,12 @@ View_Login :: struct {
 	must_change: bool, // logged in, but the password has to be changed first
 	username:    string, // ours, once logged in; owned
 	email:       string, // ours, "" for none; owned
+	// Our address has yet to be verified (proto/verify.odin): nothing
+	// else until it is. The code its mail needs (owned), and when the
+	// account is deleted without it (0: it isn't).
+	unverified:  bool,
+	verify_code: string,
+	verify_by:   proto.Unix_Ms,
 }
 
 View_Account :: struct {
@@ -165,6 +175,7 @@ auth_destroy :: proc(c: ^Voice_Client) {
 	delete(a.error)
 	delete(a.username)
 	delete(a.email)
+	delete(a.verify_code)
 	forget_password(a)
 	delete(a.device)
 	a^ = {}
@@ -482,6 +493,17 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		a.chosen = proto.self_activity(body)
 		delete(a.email)
 		a.email = strings.clone(proto.self_email(body))
+		code, by := proto.self_verify(body)
+		delete(a.verify_code)
+		a.verify_code, a.verify_by = strings.clone(code), by
+		if .Unverified in flags && c.view == nil {
+			log.warnf(
+				"verify your email address: mail %s from %s with %s in the subject",
+				c.rpc.server.email if c.rpc.server.email != "" else "the server",
+				a.email,
+				code,
+			)
+		}
 		if a.state != .Done {
 			set_state(c, .Done)
 			// A new connection starts out not idle.
@@ -833,11 +855,15 @@ publish_login :: proc(c: ^Voice_Client) {
 	delete(v.login.error)
 	delete(v.login.username)
 	delete(v.login.email)
+	delete(v.login.verify_code)
 	v.login = {
 		state       = a.state,
 		error       = strings.clone(a.error),
 		must_change = a.state == .Done && .Must_Change in a.flags,
 		email       = strings.clone(a.email),
+		unverified  = a.state == .Done && .Unverified in a.flags,
+		verify_code = strings.clone(a.verify_code),
+		verify_by   = a.verify_by,
 	}
 	if me, ok := a.accounts[a.me]; ok {
 		v.login.username = strings.clone(me.username)

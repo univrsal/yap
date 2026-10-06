@@ -27,6 +27,16 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 		respond(u, id, .Unauthenticated)
 		return
 	}
+	// One whose address isn't verified yet may fix it, leave or go, and
+	// nothing else (verify.odin).
+	if u.account != nil && .Unverified in u.account.flags {
+		#partial switch op {
+		case .Server_Info, .Email_Set, .Auth_Logout, .Account_Delete:
+		case:
+			respond(u, id, .Denied)
+			return
+		}
+	}
 	#partial switch op {
 	case .Server_Info:
 		buf: [proto.SERVER_INFO_MAX_SIZE]u8
@@ -35,6 +45,7 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 			version        = common.version_string(),
 			max_attachment = s.attach.max_size,
 			registration   = registration_flags(s),
+			email          = s.email.config.address if verify_on(s) else "",
 		}
 		body, fits := proto.encode_server_info(buf[:], info)
 		if !fits {

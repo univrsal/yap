@@ -156,6 +156,14 @@ test_account_bodies :: proc(t: ^testing.T) {
 		with := encode_self(&sb, 3, {}, {}, .Busy, "alice@example.com")
 		testing.expect_value(t, self_email(with), "alice@example.com")
 		testing.expect_value(t, self_activity(with), Activity.Busy)
+		code, by := self_verify(with)
+		testing.expect_value(t, code, "")
+		testing.expect_value(t, by, 0)
+		waiting := encode_self(&sb, 3, {}, {.Unverified}, .Online, "a@b.cd", "ABCD2345", 1234)
+		code, by = self_verify(waiting)
+		testing.expect_value(t, code, "ABCD2345")
+		testing.expect_value(t, by, 1234)
+		testing.expect_value(t, self_email(waiting), "a@b.cd")
 	}
 	{
 		buf: [1 + MAX_EMAIL_SIZE]u8

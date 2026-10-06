@@ -28,7 +28,7 @@ A body's layout goes by its op:
 
 	Server_Info  request   (nothing)
 	             response  [name str8][version str8][max_attachment u64]
-	                       [registration u8] (register.odin)
+	                       [registration u8] (register.odin)[email str8]
 
 where str8 is [len u8][bytes]; the rest are in accounts.odin,
 buddies.odin, convs.odin and msgs.odin. A body may grow at its end: a decoder
@@ -265,9 +265,10 @@ Server_Info :: struct {
 	version:        string, // of yap-server, as its log says when it starts
 	max_attachment: u64, // bytes a file attached to a message may have; 0 for no attachments
 	registration:   Registration_Flags, // what registering takes, if it's open
+	email:          string, // the server's own address, "" for none (verify.odin)
 }
 
-SERVER_INFO_MAX_SIZE :: 1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1
+SERVER_INFO_MAX_SIZE :: 1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1 + 1 + MAX_EMAIL_SIZE
 
 // encode_server_info writes a Server_Info response's body.
 @(require_results)
@@ -282,6 +283,7 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	put_str8(&w, info.version)
 	put_u64(&w, info.max_attachment)
 	put_u8(&w, transmute(u8)info.registration)
+	put_str8(&w, info.email)
 	if w.overflow {
 		return
 	}
@@ -299,6 +301,7 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	info.version = get_str8(&r)
 	info.max_attachment = get_u64(&r)
 	info.registration = transmute(Registration_Flags)get_u8(&r)
+	info.email = get_str8(&r)
 	if r.overflow || len(info.name) > MAX_SERVER_NAME {
 		return {}, false
 	}

@@ -125,7 +125,9 @@ account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 	acc.display = strings.clone(proto.DELETED_NAME)
 	delete(acc.status)
 	delete(acc.email)
+	delete(acc.verify_code)
 	acc.status, acc.status_until, acc.avatar, acc.email = "", 0, 0, ""
+	acc.verify_code, acc.verify_expires = "", 0
 	acc.flags = {.Deleted}
 	acc.chosen = .Online
 	clear(&acc.buddies)

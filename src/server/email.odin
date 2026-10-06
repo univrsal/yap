@@ -18,9 +18,8 @@ import "common:proto"
 /*
 The server's own email account (config.json's "email", see config.odin):
 it reads what's sent to it over IMAP, and sends over SMTP, both through
-libcurl (curl.odin). Nothing reads its mail yet; verifying an account's
-address by mail will (docs/next, item 8), and password resets and
-missed-mention mails will send it.
+libcurl (curl.odin). What it reads verifies accounts' addresses
+(verify.odin); password resets and missed-mention mails will send it.
 
 Mail is slow and may hang, so it's all on a thread of its own, which
 the loop talks to through two queues, like the password hasher's
@@ -51,9 +50,11 @@ Email_Config :: struct {
 	username:          string, // empty: the address
 	password:          string,
 	poll_seconds:      int,
-	// The mail server whose Authentication-Results are to be believed
-	// (item 8); other hosts' are anybody's say-so.
-	trusted_auth_host: string,
+	// Whether a verifying mail has to be shown to come from where its
+	// From says, by trusted_auth_host's Authentication-Results header
+	// (verify.odin); other hosts' are anybody's say-so.
+	check_auth_results: bool,
+	trusted_auth_host:  string,
 }
 
 DEFAULT_POLL_SECONDS :: 60
@@ -221,19 +222,6 @@ email_poll :: proc(e: ^Email) -> (m: Mail, ok: bool) {
 	m = e.inbox[0]
 	ordered_remove(&e.inbox, 0)
 	return m, true
-}
-
-/*
-email_sync gives the loop what has come in. Nothing reads the server's
-mail yet (verifying addresses will, docs/next item 8), so it's only
-logged; it stays in the mailbox, seen.
-*/
-email_sync :: proc(s: ^Server) {
-	for {
-		m := email_poll(&s.email) or_break
-		log.debugf("mail %d from %q: %q", m.uid, m.from, m.subject)
-		mail_destroy(&m)
-	}
 }
 
 @(private = "file")

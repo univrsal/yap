@@ -145,6 +145,9 @@ Server :: struct {
 	// (register.odin).
 	registration:   Registration_Config,
 	register_rate:  Register_Rate,
+	// Deleting registrations whose addresses weren't verified
+	// (verify.odin).
+	verify:         Verify_State,
 }
 
 // A turn of the server's loop that takes longer than this is logged:
@@ -204,6 +207,9 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	defer auth_destroy(&s.auth)
 	email_open(&s.email, settings.email)
 	defer email_close(&s.email)
+	if s.registration.verify_email && !s.email.enabled {
+		log.warn("registration asks for addresses to be verified, but there's no email, so they aren't")
+	}
 
 	port := settings.port
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, port)
@@ -261,7 +267,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		profiles_sync(&s)
 		calls_sync(&s)
 		retention_sync(&s)
-		email_sync(&s)
+		verify_sync(&s)
 		db_exercise(&s)
 		// What this turn wrote, in one go.
 		db_commit(&s.db)
@@ -509,12 +515,29 @@ conn_of :: proc(s: ^Server, key: [proto.KEY_SIZE]byte) -> ^Conn {
 
 /*
 conn_login makes a connection its account's: from here on it's one of
-the connections everyone sees. The caller has made sure it may be.
+the connections everyone sees - unless its account is Unverified
+(verify.odin), when it stays out of sight, in Server.waiting, and is
+told nothing but who it is until it's verified. The caller has made
+sure it may log in.
 */
 conn_login :: proc(s: ^Server, u: ^Conn, acc: ^Account) {
-	delete_key(&s.waiting, u.key)
 	u.account = acc
 	append(&acc.conns, u)
+	if .Unverified in acc.flags {
+		log.infof("%s logged in, unverified", conn_label(u))
+		send_event(u, .Sync_Begin)
+		send_self(u)
+		send_event(u, .Sync_End)
+		return
+	}
+	conn_seen(s, u)
+}
+
+// conn_seen puts a logged in connection where everyone sees it, and
+// tells it everything a login is told.
+conn_seen :: proc(s: ^Server, u: ^Conn) {
+	acc := u.account
+	delete_key(&s.waiting, u.key)
 	s.conns[u.key] = u
 	bump_version(s)
 	log.infof("%s logged in", conn_label(u))
@@ -526,6 +549,23 @@ conn_login :: proc(s: ^Server, u: ^Conn, acc: ^Account) {
 	if changed {
 		account_told(s, acc, except = u)
 	}
+}
+
+/*
+conn_unseen takes a connection out of everyone's sight, still logged in,
+because its account has become Unverified (verify.odin): whatever it was
+in the middle of ends, as if it had left.
+*/
+conn_unseen :: proc(s: ^Server, u: ^Conn) {
+	calls_conn_gone(s, u)
+	drop_conn_transfers(u)
+	attachments_conn_gone(s, u)
+	delete_key(&s.conns, u.key)
+	drop_conn_files(s, u)
+	s.waiting[u.key] = u
+	u.room, u.flags = 0, {}
+	u.acked_version, u.sent_version = 0, 0
+	u.last_typing, u.video = {}, {}
 }
 
 /*
@@ -652,7 +692,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		return // keepalive, or malformed
 	}
 	s.handling = kind
-	if c.conn.account == nil {
+	if c.conn.account == nil || .Unverified in c.conn.account.flags {
 		// Not logged in: nothing but what it takes to stay connected and
 		// to log in, which goes over the stream (rpc.odin has the same
 		// gate for what's asked there).

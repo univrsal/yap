@@ -7,6 +7,7 @@ import "common:proto"
 import "core:fmt"
 import "core:strings"
 import "core:sync"
+import "core:time"
 import mu "vendor:microui"
 
 /*
@@ -18,6 +19,9 @@ Accounts in the UI (conn/auth.odin is the network's end of it).
     registering instead, with what it asks for.
   - The screen that follows a login with a password an admin chose: it
     has to be replaced before anything else.
+  - The screen an account whose email address isn't verified yet gets
+    instead of everything else: how to verify it, by mailing the server
+    (proto/verify.odin).
   - The Account section of the settings: what we're called, our
     password, the devices logged in to the account, logging out.
   - For whoever manages accounts, an Accounts section under it: the
@@ -42,6 +46,11 @@ UI_Account :: struct {
 	reg_email_len: int,
 	invite_buf:    [proto.INVITE_CODE_SIZE + 8]u8,
 	invite_len:    int,
+	// Fixing the address on the page that waits for it to be verified,
+	// which starts out as it is.
+	verify_buf:    [proto.MAX_EMAIL_SIZE]u8,
+	verify_len:    int,
+	verify_loaded: string, // what it was filled with; owned
 	// Changing the password: the current one, the new one, and again.
 	old_buf:       [proto.MAX_ACCOUNT_PASSWORD]u8,
 	old_len:       int,
@@ -281,6 +290,101 @@ register_mistake :: proc(ui: ^UI) -> bool {
 }
 
 /*
+verify_screen is all an account whose address isn't verified gets: what
+to mail where, a way to fix the address, and logging out. It goes on by
+itself once the server has the mail. Call with the View locked.
+*/
+verify_screen :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	v := &ui.view
+	a := &ui.account
+	server := v.server_name if v.server_name != "" else v.server
+
+	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
+	mu.label(ctx, fmt.tprintf("Verify your email address for %s", server))
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
+		ui.action = .Disconnect
+	}
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, "Send a mail from your address to the server's, with the code in its subject:")
+
+	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD + 80, 90})
+	mu.label(ctx, "From")
+	mu.label(ctx, v.login.email)
+	mu.label(ctx, "")
+	mu.label(ctx, "To")
+	mu.label(ctx, v.server_email if v.server_email != "" else "(the server hasn't said)")
+	if .SUBMIT in stable_button(ctx, "copy_to", "Copy") {
+		set_clipboard(nil, v.server_email)
+	}
+	mu.label(ctx, "Subject")
+	mu.label(ctx, v.login.verify_code)
+	if .SUBMIT in stable_button(ctx, "copy_code", "Copy") {
+		set_clipboard(nil, v.login.verify_code)
+	}
+	mu.label(ctx, "")
+	if .SUBMIT in stable_button(ctx, "mailto", "Write it in my mail program") {
+		platform.open_mailto(v.server_email, v.login.verify_code)
+	}
+	mu.label(ctx, "")
+
+	mu.layout_row(ctx, {-1})
+	with_text_color(
+		ctx,
+		DIM_COLOR,
+		"The server reads its mail every minute or so; this page goes on by itself once it has yours.",
+		label_proc,
+	)
+	if v.login.verify_by != 0 {
+		dt, _ := time.time_to_datetime(time.unix(i64(v.login.verify_by) / 1000, 0))
+		local := chat_local_time(ui, dt)
+		with_text_color(
+			ctx,
+			WARN_COLOR,
+			fmt.tprintf(
+				"Without it, the account is deleted on %d-%02d-%02d at %02d:%02d.",
+				local.year,
+				local.month,
+				local.day,
+				local.hour,
+				local.minute,
+			),
+			label_proc,
+		)
+	}
+
+	// Mistyped? Fixed here, with a new code.
+	if a.verify_loaded != v.login.email {
+		delete(a.verify_loaded)
+		a.verify_loaded = strings.clone(v.login.email)
+		a.verify_len = copy(a.verify_buf[:], v.login.email)
+	}
+	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD, 70})
+	mu.label(ctx, "Not your address?")
+	submitted := .SUBMIT in text_box(ui, a.verify_buf[:], &a.verify_len)
+	if (.SUBMIT in mu.button(ctx, "Change") || submitted) && a.verify_len > 0 {
+		a.mistake = ""
+		a.profile_asked = true
+		command(ui, conn.Email_Command{strings.clone(string(a.verify_buf[:a.verify_len]))})
+	}
+	if a.profile_asked {
+		mu.layout_row(ctx, {FORM_LABEL, -1})
+		mu.label(ctx, "")
+		notice_label(ui, v)
+	}
+
+	mu.layout_row(ctx, {FORM_LABEL, 140, -1})
+	mu.label(ctx, "")
+	if .SUBMIT in mu.button(ctx, "Log out") {
+		command(ui, conn.Logout_Command{})
+	}
+	with_text_color(ctx, DIM_COLOR, "This device has to log in again afterwards.", label_proc)
+
+	mu.layout_row(ctx, {-1}, -1)
+	log_panel(ui)
+}
+
+/*
 password_screen is what follows a login with a password somebody else
 chose: nothing else until it has been replaced. Call with the View
 locked.
@@ -425,6 +529,16 @@ account_settings :: proc(ui: ^UI) {
 			command(ui, conn.Email_Command{strings.clone(string(a.email_buf[:a.email_len]))})
 		}
 		mu.pop_id(ctx)
+		if v.server_email != "" && .Owner not_in me.flags {
+			mu.layout_row(ctx, {FORM_LABEL, -1})
+			mu.label(ctx, "")
+			with_text_color(
+				ctx,
+				DIM_COLOR,
+				"A new address has to be verified by mail before you can go on.",
+				label_proc,
+			)
+		}
 		if a.profile_asked {
 			mu.layout_row(ctx, {FORM_LABEL, -1})
 			mu.label(ctx, "")

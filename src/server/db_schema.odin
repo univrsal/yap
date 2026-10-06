@@ -310,6 +310,13 @@ MIGRATIONS := [?]string {
 	);
 	CREATE INDEX invite_uses_account ON invite_uses(account);
 	`,
+	// 20: what verifying an account's email address takes (verify.odin):
+	// the code its mail has to have, and when it's deleted without one
+	// (0: never). Set while it's Unverified (flag 16).
+	`
+	ALTER TABLE accounts ADD COLUMN verify_code TEXT NOT NULL DEFAULT '';
+	ALTER TABLE accounts ADD COLUMN verify_expires INTEGER NOT NULL DEFAULT 0;
+	`,
 }
 
 // The version a database is at once it has been through every step.
