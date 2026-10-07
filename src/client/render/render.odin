@@ -322,11 +322,9 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				style,
 			)
 		case ^mu.Command_Rect:
-			ui_font := &r.fonts[.UI]
-			use_texture(r, ui_font.textures[.Regular])
+			w := rect_white(r)
 			// Snap edges to physical pixels so borders stay crisp at
 			// fractional scales.
-			w := ui_font.font.faces[.Regular].white
 			snap :: proc(v: i32, s: f32) -> f32 {return math.round(f32(v) * s) / s}
 			x0, y0 := snap(c.rect.x, r.scale), snap(c.rect.y, r.scale)
 			x1, y1 := snap(c.rect.x + c.rect.w, r.scale), snap(c.rect.y + c.rect.h, r.scale)
@@ -391,6 +389,33 @@ upload_unifont :: proc(r: ^Renderer, slot: ^Font_Slot) {
 		gpu_texture_update_rows(&r.gpu, slot.unifont_texture, u.side, u.dirty_y0, u.dirty_y1, rows)
 	}
 	u.dirty_y0, u.dirty_y1 = u.side, 0
+}
+
+/*
+rect_white is where a rect's white texel is: in whichever font atlas is
+bound, as they all have one, so rects between glyphs (the frame of each
+button in the emoji picker, around its emoji) don't each switch textures
+and cost a draw call; else in the UI font's, which it binds.
+*/
+@(private = "file")
+rect_white :: proc(r: ^Renderer) -> [2]f32 {
+	if r.bound != 0 && !r.rgba {
+		for &slot in r.fonts {
+			if r.bound == slot.unifont_texture {
+				if uv, ok := unifont_white(&slot.font.uni); ok {
+					return uv
+				}
+			}
+			for t, face in slot.textures {
+				if r.bound == t && slot.font.faces[face].pixels != nil {
+					return slot.font.faces[face].white
+				}
+			}
+		}
+	}
+	ui_font := &r.fonts[.UI]
+	use_texture(r, ui_font.textures[.Regular])
+	return ui_font.font.faces[.Regular].white
 }
 
 @(private = "file")

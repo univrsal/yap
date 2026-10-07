@@ -389,13 +389,11 @@ emoji_cache :: proc(f: ^Font, r: rune) -> (slot: i32, box: Emoji_Box, ok: bool) 
 		return
 	}
 	slot = i32(len(u.slots))
-	if slot >= u.per_row * u.per_row {
+	if slot >= unifont_capacity(u) {
 		u.full = true
 		return
 	}
-	if u.pixels == nil {
-		u.pixels = make([]u8, int(u.side) * int(u.side))
-	}
+	unifont_pixels(u)
 	scale := f.emoji_unit * u.scale
 	x0, y0, x1, y1: i32
 	stbtt.GetCodepointBitmapBox(&f.emoji, r, scale, scale, &x0, &y0, &x1, &y1)

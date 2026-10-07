@@ -166,6 +166,45 @@ unifont_reset :: proc(u: ^Unifont, scale: f32) {
 	u.dirty_y0, u.dirty_y1 = u.side, 0
 }
 
+// How many glyphs the atlas holds: all its slots but the last, which is
+// solid white, so rects can be drawn from this atlas too (unifont_white)
+// and a run of emoji between rects needn't switch textures.
+unifont_capacity :: proc(u: ^Unifont) -> i32 {
+	return u.per_row * u.per_row - 1
+}
+
+// unifont_pixels makes the atlas's pixels, with its white slot, if it
+// hasn't any yet.
+unifont_pixels :: proc(u: ^Unifont) {
+	if u.pixels != nil {
+		return
+	}
+	u.pixels = make([]u8, int(u.side) * int(u.side))
+	slot := u.per_row * u.per_row - 1
+	x0 := (slot % u.per_row) * u.cell
+	y0 := (slot / u.per_row) * u.cell
+	for y in 0 ..< u.cell - 1 {
+		line := u.pixels[int(y0 + y) * int(u.side) + int(x0):]
+		for x in 0 ..< u.cell - 1 {
+			line[x] = 255
+		}
+	}
+	u.dirty_y0 = min(u.dirty_y0, y0)
+	u.dirty_y1 = max(u.dirty_y1, y0 + u.cell)
+}
+
+// unifont_white is a texel in the middle of the white slot, as texture
+// coordinates; not ok before the atlas has pixels.
+unifont_white :: proc(u: ^Unifont) -> (uv: [2]f32, ok: bool) {
+	if u.pixels == nil {
+		return
+	}
+	slot := u.per_row * u.per_row - 1
+	x := f32((slot % u.per_row) * u.cell) + f32(u.cell - 1) / 2
+	y := f32((slot / u.per_row) * u.cell) + f32(u.cell - 1) / 2
+	return {x / f32(u.side), y / f32(u.side)}, true
+}
+
 // A glyph's height in physical pixels at `scale`.
 unifont_glyph_height :: proc(scale: f32) -> i32 {
 	return max(1, i32(math.round(UNIFONT_SIZE * scale)))
@@ -183,13 +222,11 @@ unifont_cache :: proc(u: ^Unifont, r: rune) -> (slot: i32, ok: bool) {
 		return
 	}
 	slot = i32(len(u.slots))
-	if slot >= u.per_row * u.per_row {
+	if slot >= unifont_capacity(u) {
 		u.full = true
 		return
 	}
-	if u.pixels == nil {
-		u.pixels = make([]u8, int(u.side) * int(u.side))
-	}
+	unifont_pixels(u)
 
 	h := unifont_glyph_height(u.scale)
 	w := unifont_glyph_width(u, r)

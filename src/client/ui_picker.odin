@@ -131,11 +131,20 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		c = PICKER_CELL
 	}
 	n := 0
-	row :: proc(ctx: ^mu.Context, cells: []i32, n: ^int) {
+	// cell takes the next cell, and says whether any of it is in view: a
+	// category has hundreds, and a search can find thousands, of which a
+	// few dozen show; the rest only take their room.
+	cell :: proc(ctx: ^mu.Context, cells: []i32, n: ^int) -> bool {
 		if n^ % PICKER_COLUMNS == 0 {
 			mu.layout_row(ctx, cells, PICKER_CELL)
 		}
 		n^ += 1
+		r := mu.layout_next(ctx)
+		if mu.check_clip(ctx, r) == .ALL {
+			return false
+		}
+		mu.layout_set_next(ctx, r, false)
+		return true
 	}
 	// The server's own, when they're shown or found.
 	if search != "" || p.category == -1 {
@@ -143,7 +152,9 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			if search != "" && !strings.contains(name, search) {
 				continue
 			}
-			row(ctx, cells, &n)
+			if !cell(ctx, cells, &n) {
+				continue
+			}
 			code := strings.concatenate({":", name, ":"}, context.temp_allocator)
 			if custom_emoji_cell(ui, i, code) {
 				picked(ui, code)
@@ -159,7 +170,9 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		case int(e.category) != p.category:
 			continue
 		}
-		row(ctx, cells, &n)
+		if !cell(ctx, cells, &n) {
+			continue
+		}
 		char := utf8.runes_to_string({e.r}, context.temp_allocator)
 		mu.push_id(ctx, uintptr(e.r))
 		if .SUBMIT in stable_button(ctx, "emoji", char, {.ALIGN_CENTER}) {
