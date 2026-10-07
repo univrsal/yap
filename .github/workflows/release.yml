@@ -24,6 +24,12 @@ jobs:
         with:
           pattern: yap-*
           path: dist
+      # The macOS disk image is attached as it is.
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dmg-*
+          path: dist
+          merge-multiple: true
       - name: Zip and create the draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -31,6 +37,6 @@ jobs:
           # Artifacts don't keep the executable bit.
           find dist -type f \( -name yap -o -name yap-server \) -exec chmod +x {} +
           (cd dist && for d in yap-*; do zip -qr "$d.zip" "$d"; done)
-          gh release create "$GITHUB_REF_NAME" dist/*.zip \
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.dmg \
             --repo "$GITHUB_REPOSITORY" \
             --draft --generate-notes --title "$GITHUB_REF_NAME"

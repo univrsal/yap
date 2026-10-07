@@ -2,7 +2,8 @@ name: Build
 
 # Builds the web client and the desktop client and server for Linux,
 # Windows and macOS, and packs each desktop platform into a zip holding
-# the client, the server and the web build (in web/). release.yml calls
+# the client, the server and the web build (in web/). macOS also gets a
+# .dmg holding just the client. release.yml calls
 # this for a tag and attaches the zips to a draft release.
 on:
   push:
@@ -158,6 +159,16 @@ jobs:
           else
             echo "name=yap-${{ matrix.platform }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
+      - name: Disk image (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/package-macos.sh arm64
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'macOS'
+        with:
+          name: dmg-${{ matrix.platform }}
+          path: dist/Yap-arm64.dmg
+          if-no-files-found: error
+
       # GitHub zips an artifact itself, so the folder is uploaded rather
       # than a zip (which would end up zipped twice).
       - uses: actions/upload-artifact@v7
