@@ -30,9 +30,9 @@ server.
     first, the rest with when they were last here. Clicking one opens
     the same menu as anywhere else; clicking ourselves, the status
     editor.
-  - Our picture is set in the settings, from a file or the clipboard
-    (ui_avatar_pick_native.odin): made square and small (avatar_prepare)
-    and uploaded.
+  - Our picture is set in the settings, from a file or (on a desktop)
+    the clipboard (ui_avatar_pick_native.odin, ui_avatar_pick_web.odin):
+    made square and small (avatar_prepare, web/avatar.js) and uploaded.
   - Settings kept on the server (conn/profiles.odin): how loud each
     person is, and which DMs are off the buddy list. settings.json keeps
     a copy for each server, so they apply before the sync; what the
@@ -555,12 +555,11 @@ profile_settings :: proc(ui: ^UI) {
 	for o in v.outbox {
 		uploading ||= o.avatar
 	}
-	when platform.WEB {
-		with_text_color(ctx, DIM_COLOR, "Set it from the desktop client.", label_proc)
-	} else {
-		if .SUBMIT in stable_button(ctx, "avatar file", "Choose...", {.ALIGN_CENTER}) {
-			avatar_pick_start(ui, false)
-		}
+	if .SUBMIT in stable_button(ctx, "avatar file", "Choose...", {.ALIGN_CENTER}) {
+		avatar_pick_start(ui, false)
+	}
+	// A page can only read the clipboard inside a paste event.
+	when !platform.WEB {
 		if .SUBMIT in stable_button(ctx, "avatar paste", "Paste", {.ALIGN_CENTER}) {
 			avatar_pick_start(ui, true)
 		}

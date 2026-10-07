@@ -495,6 +495,11 @@ int main(void) {
 	return 0;
 }
 
+/* Choosing our picture (web/avatar.js, src/client/ui_avatar_pick_web.odin). */
+EM_JS(void, yap_avatar_pick, (void), {
+	Module.yapAvatar.pick();
+});
+
 /* Files in DMs (web/files.js, src/client/files_io_web.odin). */
 EM_JS(void, yap_file_pick, (const char *accept, int multiple), {
 	Module.yapFiles.pick(UTF8ToString(accept), multiple);

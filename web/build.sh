@@ -48,6 +48,8 @@ background_exports=_web_tick
 paste_exports=_web_paste_image,_web_paste_failed,_web_paste_text,_malloc,_free
 # What web/files.js calls (src/client/ui_files_web.odin).
 files_exports=_web_file_picked,_web_file_dropped
+# What web/avatar.js calls (src/client/ui_avatar_pick_web.odin).
+avatar_exports=_web_avatar_reading,_web_avatar_picked,_web_avatar_failed
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
@@ -80,12 +82,13 @@ emcc "$out/yap.obj" \
 	-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3 \
 	-sALLOW_MEMORY_GROWTH \
 	-sSTACK_SIZE=4MB \
-	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$background_exports,$paste_exports,$files_exports \
+	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$background_exports,$paste_exports,$files_exports,$avatar_exports \
 	--js-library web/wasi.js \
 	--pre-js web/touch.js \
 	--pre-js web/background.js \
 	--pre-js web/paste.js \
 	--pre-js web/files.js \
+	--pre-js web/avatar.js \
 	--pre-js web/keys.js \
 	--pre-js web/images.js \
 	--pre-js web/video.js \
