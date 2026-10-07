@@ -83,7 +83,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	if !p.placed {
 		p.placed = true
 		if cnt := mu.get_container(ctx, PICKER_WINDOW); cnt != nil {
-			cnt.rect = {window_w - width - 12, window_h - height - 44, width, height}
+			cnt.rect = {window_w - width - 12, window_h - height - 44, width + 3, height}
 			cnt.open = true
 			cnt.scroll = {}
 			mu.bring_to_front(ctx, cnt)
@@ -124,7 +124,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 
 	p.hovered = ""
-	mu.layout_row(ctx, {-1}, -(ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing))
+	mu.layout_row(ctx, {-1}, -(ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing + 2))
 	mu.begin_panel(ctx, "emoji grid")
 	cells := make([]i32, PICKER_COLUMNS, context.temp_allocator)
 	for &c in cells {
