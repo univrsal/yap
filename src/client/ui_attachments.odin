@@ -127,6 +127,12 @@ drop_target :: proc(ui: ^UI) -> Attach_Target {
 // message is being edited.
 attach_button :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
+
+	if .Attach_Files not_in ui.view.permissions {
+		mu.layout_next(ctx) // its place stays empty
+		return
+	}
+	
 	if ui.view.max_attachment == 0 || c.editing^ != 0 || c.files == nil {
 		mu.layout_next(ctx) // its place stays empty
 		return
