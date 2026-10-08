@@ -191,6 +191,10 @@ Msg_Layout :: struct {
 	reply_line: bool,
 	pictures:   bool, // laid out with the pictures' column (avatar_column)
 	line:       i32, // and lines of text this tall (the chat's text size)
+	// Worked out with what's worked out afresh every frame (reactions,
+	// files, an offer of a file), so not to be taken as it is once that
+	// has gone: the last reaction taken back, say.
+	changing:   bool,
 }
 
 timeline_destroy :: proc(st: ^UI_Timeline) {
@@ -741,9 +745,9 @@ message_height :: proc(
 		// Which also tells the layout kept from when it had one apart.
 		shown = PICTURE_GONE_TEXT
 	}
-	if m.kind != .File &&
-	   len(m.reactions) == 0 &&
-	   len(m.files) == 0 &&
+	changing := m.kind == .File || len(m.reactions) > 0 || len(m.files) > 0
+	if !changing &&
+	   !l.changing &&
 	   l.height > 0 &&
 	   l.shown == len(shown) &&
 	   l.edited == m.edited &&
@@ -807,6 +811,7 @@ message_height :: proc(
 	l.replies, l.reply_line = replies, reply_line
 	l.pictures = ui.settings.chat_pictures
 	l.line = ctx.text_height(ctx.style.font)
+	l.changing = changing
 	return h
 }
 
