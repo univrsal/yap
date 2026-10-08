@@ -117,7 +117,7 @@ timeline of the frame.
 */
 message_bar :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	b := &ui.msg_bar
 	defer {
 		b.found, b.tap_claimed = false, false

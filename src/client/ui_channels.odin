@@ -140,7 +140,7 @@ channel_list :: proc(ui: ^UI) {
 				log.debugf("ui: view %q", ch.name)
 				command(ui, conn.View_Command{conv = ch.id})
 				// Where to start the next time we're on this server.
-				if settings.set_recent_channel(&ui.settings, v.server, ch.name) {
+				if settings.set_joined_channel(&ui.settings, v.server, ch.name) {
 					ui.settings_dirty = true
 				}
 			}

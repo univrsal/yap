@@ -71,9 +71,9 @@ text_proc :: proc(ctx: ^mu.Context, text: string) {
 }
 
 /*
-key_change_panel is drawn on the connect screen, under the error, when
-the last connection failed because the server's key has changed. Called
-with the View locked.
+key_change_panel is drawn on the connect screen (or the + dialog's),
+under the error, when the last connection failed because the server's
+key has changed. Called with the View locked.
 */
 key_change_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -131,6 +131,11 @@ trust_new_key :: proc(ui: ^UI) {
 	}
 	log.infof("trusting the new key of %s: %s", server, conn.key_hex(key))
 	ui.known.loaded = false
+	// From the + dialog, which goes on joining it (ui_join.odin).
+	if ns := ui.session; ns != nil && ns.joining {
+		join_connect(ui, server, strings.clone(ns.password, context.temp_allocator))
+		return
+	}
 	ui.server_len = copy(ui.server_buf[:], server)
 	connect(ui)
 }

@@ -143,7 +143,9 @@ login_screen :: proc(ui: ^UI) {
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	server := v.server_name if v.server_name != "" else v.server
 	mu.label(ctx, fmt.tprintf("%s %s", "Register at" if registering else "Log in to", server))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
+	// In the + dialog, giving up joining it (ui_join.odin).
+	leave := "Cancel" if ui.session != nil && ui.session.joining else "Leave this server"
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, leave, OFF_COLOR) {
 		ui.action = .Disconnect
 	}
 
@@ -302,7 +304,7 @@ verify_screen :: proc(ui: ^UI) {
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	mu.label(ctx, fmt.tprintf("Verify your email address for %s", server))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", OFF_COLOR) {
 		ui.action = .Disconnect
 	}
 	mu.layout_row(ctx, {-1})
@@ -395,7 +397,7 @@ password_screen :: proc(ui: ^UI) {
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	mu.label(ctx, fmt.tprintf("Choose a password for %s", v.login.username))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", OFF_COLOR) {
 		ui.action = .Disconnect
 	}
 	mu.layout_row(ctx, {-1})

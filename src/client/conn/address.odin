@@ -12,7 +12,7 @@ proto.DEFAULT_PORT added if it names no port: "example.com" becomes
 the web client, see transport_web.odin) is left as it is.
 
 It's applied before the address is used for anything, so that it's also
-what known_servers and the recent servers are keyed by: "example.com"
+what known_servers and the joined servers are keyed by: "example.com"
 and "example.com:7777" are the same server.
 */
 with_default_port :: proc(typed: string, allocator := context.temp_allocator) -> string {

@@ -2,7 +2,6 @@ package client
 
 import "core:fmt"
 import "core:strings"
-import "core:sync"
 import "core:time"
 import "core:time/datetime"
 import "core:unicode"
@@ -32,7 +31,6 @@ UI_Chat :: struct {
 	buf:          [proto.MAX_CHAT_SIZE]u8,
 	len:          int,
 	area:         Text_Area, // the box it's written in
-	tz:           ^datetime.TZ_Region, // for local timestamps; nil means UTC
 
 	// The link under the mouse (as its first byte's address), found while
 	// drawing a frame and used for the next, since a link wrapped over
@@ -100,19 +98,10 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 	file_pick_poll(ui)
 	avatar_pick_poll(ui)
 
-	// What's read, and what's unread: for the network, the window's title
-	// and the tray.
+	// What's read, for the network; what's unread, every server's, is
+	// counted for the window's title and the tray (servers_frame).
 	focused := ui.window != nil && !ui.hidden && (ALWAYS_FOCUSED || glfw.WindowFocused(ui.window))
 	timeline_reading(ui, focused)
-	{
-		sync.guard(&ui.view.mutex)
-		ui.unread = unread_total(&ui.settings, ui.view) if ui.session != nil else 0
-	}
-	if ui.window != nil && ui.unread != ui.title_unread {
-		ui.title_unread = ui.unread
-		title := "Yap" if ui.unread == 0 else fmt.tprintf("(%s) Yap", conn.unread_count(ui.unread))
-		glfw.SetWindowTitle(ui.window, strings.clone_to_cstring(title, context.temp_allocator))
-	}
 }
 
 // side_panel lays out the channel's header and the tabs in the current

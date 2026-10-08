@@ -119,14 +119,20 @@ test_mention_counting :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.convs.convs[lobby].mentions, 2)
 
 	// Our own aren't, a muted one is counted and says nothing, and one
-	// being read is read.
+	// being read is read, but still a mention.
 	_, mention = conv_new_message(&c, {id = 15, conv = gaming, sender = 1, text = "<@1>"})
 	testing.expect(t, !mention)
 	i, mention = conv_new_message(&c, {id = 16, conv = quiet, sender = 2, text = "<@1>"})
 	testing.expect(t, !i && !mention)
 	testing.expect_value(t, c.convs.convs[quiet].mentions, 1)
+	i, mention = conv_new_message(&c, {id = 17, conv = quiet, sender = 2, text = "hi"})
+	testing.expect(t, !i && !mention)
 	conv_reading(&c, gaming)
-	_, mention = conv_new_message(&c, {id = 17, conv = gaming, sender = 2, text = "<@1>"})
-	testing.expect(t, !mention)
+	i, mention = conv_new_message(&c, {id = 18, conv = gaming, sender = 2, text = "<@1>"})
+	testing.expect(t, !i && mention)
 	testing.expect_value(t, c.convs.convs[gaming].mentions, 0)
+	testing.expect_value(t, c.convs.convs[gaming].unread, 0)
+	conv_reading(&c, quiet)
+	_, mention = conv_new_message(&c, {id = 19, conv = quiet, sender = 2, text = "<@1>"})
+	testing.expect(t, !mention, "a muted one being read")
 }

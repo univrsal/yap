@@ -132,7 +132,7 @@ tray_update :: proc(ui: ^UI) {
 		// Picked up at the top of the next turn round the loop, rather
 		// than while traycon is in the middle of a callback.
 		log.debug("tray: disconnect")
-		ui.action = .Disconnect
+		ui.action = .Close
 	case .Quit:
 		log.debug("tray: quit")
 		ui.quitting = true
