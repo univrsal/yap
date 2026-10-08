@@ -94,7 +94,7 @@ Call with the View locked.
 */
 channel_list :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 
 	// The list, and under it the way to the rest of the channels.
 	mu.layout_begin_column(ctx)
@@ -169,7 +169,7 @@ narrow window it also leads back to the list. Call with the View locked.
 */
 conversation_header :: proc(ui: ^UI, narrow: bool) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	ch := viewed_channel(v)
 
 	right := VOICE_BUTTON + 3 * ICON_BUTTON + 4 * ctx.style.spacing + 1
@@ -227,6 +227,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		if in_it {
 			command(ui, conn.Voice_Command{})
 		} else {
+			leave_voice_elsewhere(ui)
 			command(ui, conn.Voice_Command{conv = ch.id})
 		}
 	}
@@ -345,7 +346,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	sync.guard(&v.mutex)
 	if v.status != .Connected || v.login.state != .Done {
 		c.open = false

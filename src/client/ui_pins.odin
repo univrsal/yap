@@ -52,7 +52,7 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	sync.guard(&v.mutex)
 	if ui.session == nil || v.viewing == 0 || v.status != .Connected {
 		p.open = false

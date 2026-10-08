@@ -179,7 +179,7 @@ tray_state :: proc(ui: ^UI) -> (render.Icon, mu.Color) {
 	speaking := false
 	if ui.session != nil {
 		sync.guard(&ui.view.mutex)
-		speaking = conn.is_speaking(&ui.view, ui.view.my_num)
+		speaking = conn.is_speaking(ui.view, ui.view.my_num)
 	}
 	switch {
 	case speaking:

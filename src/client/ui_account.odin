@@ -132,7 +132,7 @@ instead of its channels. Call with the View locked.
 */
 login_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	a := &ui.account
 	open := .Open in v.registration
 	if !open {
@@ -250,7 +250,7 @@ if it won't do.
 @(private = "file")
 register_mistake :: proc(ui: ^UI) -> bool {
 	a := &ui.account
-	v := &ui.view
+	v := ui.view
 	a.mistake = ""
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
 	password := string(a.password_buf[:a.password_len])
@@ -296,7 +296,7 @@ itself once the server has the mail. Call with the View locked.
 */
 verify_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	a := &ui.account
 	server := v.server_name if v.server_name != "" else v.server
 
@@ -391,7 +391,7 @@ locked.
 */
 password_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	mu.label(ctx, fmt.tprintf("Choose a password for %s", v.login.username))
@@ -488,7 +488,7 @@ lock, so it's taken here.
 */
 account_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	a := &ui.account
 	sync.guard(&v.mutex)
 	if a.notice_reset {

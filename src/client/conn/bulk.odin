@@ -51,7 +51,7 @@ bulk_step :: proc(c: ^Voice_Client) {
 		if b.retry_at != {} && time.tick_diff(time.tick_now(), b.retry_at) > 0 {
 			return
 		}
-		if !transport_open(&b.transport, c.server_addr, bulk = true) {
+		if !transport_open(&b.transport, c.server_addr, c.slot, bulk = true) {
 			b.retry_at = time.tick_add(time.tick_now(), BULK_RETRY)
 			return
 		}

@@ -27,7 +27,7 @@ show_pokes :: proc(ui: ^UI) {
 		sync.guard(&ui.view.mutex)
 		busy = ui.view.my_activity == .Busy
 	}
-	for p in conn.view_take_pokes(&ui.view) {
+	for p in conn.view_take_pokes(ui.view) {
 		// Busy: kept quiet (ui_activity.odin); it's in the log.
 		if busy {
 			continue
@@ -37,7 +37,7 @@ show_pokes :: proc(ui: ^UI) {
 			glfw.RequestWindowAttention(ui.window)
 		}
 	}
-	for m in conn.view_take_mentions(&ui.view) {
+	for m in conn.view_take_mentions(ui.view) {
 		title := fmt.tprintf("%s mentioned you in %s", m.name, m.place)
 		if !tray_notify(ui, title, conn.markdown_plain(m.text)) && ui.window != nil {
 			glfw.RequestWindowAttention(ui.window)

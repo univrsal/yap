@@ -120,7 +120,7 @@ order. Call with the View locked.
 */
 role_chips :: proc(ui: ^UI, roles: []proto.Role_Id, width: i32) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	font := ctx.style.font
 	dot := ctx.text_height(font) - 4
 	line := make([dynamic]Chip, context.temp_allocator)
@@ -215,7 +215,7 @@ roles_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	sync.guard(&v.mutex)
 	if v.status != .Connected || v.login.state != .Done || .Manage_Roles not_in v.permissions {
 		r.open = false
@@ -278,7 +278,7 @@ role_of :: proc(v: ^conn.View, id: proto.Role_Id) -> ^conn.View_Role {
 @(private = "file")
 role_list :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	r := &ui.roles
 	for role in v.roles {
 		mu.push_id(ctx, uintptr(role.id))
@@ -324,7 +324,7 @@ role_list :: proc(ui: ^UI) {
 @(private = "file")
 role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	r := &ui.roles
 	mine := v.permissions
 	if r.loaded != role.id ||
@@ -491,7 +491,7 @@ color_picker :: proc(ui: ^UI, editable: bool) {
 @(private = "file")
 move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	cmd: conn.Role_Order_Command
 	at := -1
 	for role in v.roles {
@@ -535,7 +535,7 @@ move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 @(private = "file")
 role_members :: proc(ui: ^UI, role: conn.View_Role, editable: bool) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	r := &ui.roles
 	ids, _ := slice.map_keys(v.accounts, context.temp_allocator)
 	slice.sort(ids)
@@ -629,7 +629,7 @@ give :: proc(
 @(private = "file")
 roles_notice :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	if v.notice.text == "" || v.notice.count <= ui.roles.notice_seen {
 		return
 	}

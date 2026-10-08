@@ -138,7 +138,7 @@ Threads not of the conversation on screen are closed.
 */
 thread_windows :: proc(ui: ^UI, window_w, window_h: i32) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	sync.guard(&v.mutex)
 	for &t, i in ui.threads {
 		switch {
@@ -194,7 +194,7 @@ narrow layout). Call with the View locked.
 */
 thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	t := &ui.threads[slot - 1]
 	composer := composer_of(ui, slot)
 

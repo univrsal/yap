@@ -114,7 +114,7 @@ known_clear :: proc(p: ^UI_Profiles) {
 // open_status_editor opens the editor with our status as it is.
 open_status_editor :: proc(ui: ^UI) {
 	p := &ui.profiles
-	v := &ui.view
+	v := ui.view
 	me := v.accounts[v.me] or_else {}
 	p.len = copy(p.buf[:], me.status)
 	p.clear_after = .Never
@@ -127,7 +127,7 @@ profile_windows draws the status editor and the members window while
 they're open, and applies the server's settings when they've changed.
 */
 profile_windows :: proc(ui: ^UI, window_w, window_h: i32) {
-	v := &ui.view
+	v := ui.view
 	sync.guard(&v.mutex)
 	if ui.session == nil || v.status != .Connected || v.login.state != .Done {
 		ui.profiles.editing, ui.profiles.members_open = false, false
@@ -360,7 +360,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	if v.viewing == 0 {
 		p.members_open = false
 		return
@@ -469,7 +469,7 @@ person_row :: proc(
 	extra := "",
 ) -> bool {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	if acc, known := ui.view.accounts[account]; !known || .Deleted in acc.flags {
 		return false // Deleted accounts aren't in lists.
 	}
@@ -532,7 +532,7 @@ Call with the View locked, inside the Account section.
 */
 profile_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	p := &ui.profiles
 	me := v.accounts[v.me] or_else {}
 
@@ -584,7 +584,7 @@ profile_settings :: proc(ui: ^UI) {
 // View locked, inside the Account section.
 status_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	me := v.accounts[v.me] or_else {}
 	mu.layout_row(ctx, {FORM_LABEL, 140, -1})
 	mu.label(ctx, "Status")
@@ -678,7 +678,7 @@ server's, when that has changed. Call with the View locked.
 */
 @(private = "file")
 shared_apply :: proc(ui: ^UI) {
-	v := &ui.view
+	v := ui.view
 	p := &ui.profiles
 	if !v.shared_synced || v.shared_count == p.shared_seen || v.server_key == {} {
 		return

@@ -75,7 +75,7 @@ DELETED_COLOR :: mu.Color{90, 90, 90, 255}
 @(private = "file")
 picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	acc, known := v.accounts[account]
 	if known && acc.avatar != 0 {
 		if icon, ok := avatar_icon(ui, acc.avatar); ok {
@@ -142,7 +142,7 @@ avatar_color :: proc(account: proto.Account_Id) -> mu.Color {
 // decoded; it's asked for the first time it's wanted.
 @(private = "file")
 avatar_icon :: proc(ui: ^UI, blob: proto.Blob_Id) -> (mu.Icon, bool) {
-	v := &ui.view
+	v := ui.view
 	im := &ui.images
 	key := AVATAR_KEY | u64(blob)
 	t, known := im.textures[key]

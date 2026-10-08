@@ -54,14 +54,16 @@ Texture :: struct {
 // message's picture by its blob's id.
 
 Decode_Job :: struct {
-	id:   u64,
-	jpeg: []u8, // owned by the job
+	id:         u64,
+	jpeg:       []u8, // owned by the job
+	generation: u64, // UI_Images.generation when it was asked for
 }
 
 Decode_Result :: struct {
-	id:    u64,
-	image: clipboard.Image, // pixels owned by the result
-	ok:    bool,
+	id:         u64,
+	image:      clipboard.Image, // pixels owned by the result
+	ok:         bool,
+	generation: u64,
 }
 
 UI_Images :: struct {
@@ -97,6 +99,10 @@ UI_Images :: struct {
 	results:     [dynamic]Decode_Result,
 	stopping:    bool,
 	ctx:         runtime.Context,
+	// Bumped when the server shown changes (ui_images_switch): pictures
+	// are known by its blob ids, so what was decoded for another server
+	// is thrown away.
+	generation:  u64,
 }
 
 ui_images_init :: proc(ui: ^UI) {
@@ -114,6 +120,30 @@ ui_images_forget_textures :: proc(ui: ^UI) {
 	im := &ui.images
 	clear(&im.textures)
 	clear(&im.draws)
+}
+
+/*
+ui_images_switch drops every picture, as another server is shown: they
+are known by the server's blob ids, which mean something else there.
+What's still being decoded is thrown away when it's done, and the new
+server's pictures are decoded as they're drawn.
+*/
+ui_images_switch :: proc(ui: ^UI) {
+	im := &ui.images
+	for _, &t in im.textures {
+		if t.state == .Ready {
+			render.gpu_texture_delete(&ui.renderer.gpu, &t.texture)
+		}
+	}
+	clear(&im.textures)
+	clear(&im.draws)
+	im.viewer, im.placed = 0, false
+	sync.guard(&im.mutex)
+	im.generation += 1
+	for job in im.queue {
+		delete(job.jpeg)
+	}
+	clear(&im.queue)
 }
 
 ui_images_destroy :: proc(ui: ^UI) {
@@ -160,6 +190,9 @@ ui_images_frame :: proc(ui: ^UI) {
 	defer delete(results)
 	for &result in results {
 		defer clipboard.image_destroy(&result.image)
+		if result.generation != im.generation {
+			continue // another server's
+		}
 		t := im.textures[result.id] or_else {}
 		if !result.ok {
 			im.textures[result.id] = {
@@ -532,7 +565,7 @@ enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8) {
 	}
 	{
 		sync.guard(&im.mutex)
-		append(&im.queue, Decode_Job{id = id, jpeg = copy_of})
+		append(&im.queue, Decode_Job{id = id, jpeg = copy_of, generation = im.generation})
 	}
 	decode_wake(im)
 }
@@ -578,7 +611,7 @@ icon id for mu.draw_icon, for this frame. False until the sheet is here
 and decoded. Call with the View locked.
 */
 custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
-	v := &ui.view
+	v := ui.view
 	im := &ui.images
 	e := &v.emoji
 	if e.blob == 0 || index < 0 || index >= len(e.names) {

@@ -29,7 +29,7 @@ UNLIT_COLOR :: mu.Color{75, 75, 75, 255}
 
 connection_indicator :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	r := mu.layout_next(ctx)
 	s := v.connection
 

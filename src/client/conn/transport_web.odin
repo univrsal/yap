@@ -18,8 +18,8 @@ handshake is resent until it gets through, so that sorts itself out.
 
 @(default_calling_convention = "c")
 foreign _ {
-	// Each takes the socket's slot: 0 for the main link, 1 for the bulk
-	// link (bulk.odin).
+	// Each takes the socket's slot: a connection's main link has an even
+	// one (Voice_Client.slot), its bulk link (bulk.odin) the one after.
 	// Opens the socket, dropping whatever was open before in that slot.
 	// The address is a ws:// or wss:// URL.
 	yap_ws_open :: proc(slot: i32, url: cstring) -> i32 ---
@@ -48,8 +48,8 @@ relay. A plain host:port becomes a WebSocket to the relay beside this
 page - ws://<page host>/yap/<host:port> - so the usual "localhost:7777"
 still works; anything that already looks like a URL is used as it is.
 */
-transport_open :: proc(t: ^Transport, server_addr: string, bulk := false) -> bool {
-	t.slot = 1 if bulk else 0
+transport_open :: proc(t: ^Transport, server_addr: string, slot: i32, bulk := false) -> bool {
+	t.slot = slot + 1 if bulk else slot
 	url := server_addr
 	if !strings.has_prefix(url, "ws://") && !strings.has_prefix(url, "wss://") {
 		url = strings.concatenate(

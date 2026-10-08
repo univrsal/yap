@@ -103,7 +103,7 @@ key_change_panel :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in mu.button(ctx, "Keep the old key") {
 		log.debug("ui: keep the old server key")
-		conn.view_clear_key_change(&ui.view)
+		conn.view_clear_key_change(ui.view)
 	}
 }
 
@@ -111,7 +111,7 @@ key_change_panel :: proc(ui: ^UI) {
 // the old one, then connects to it again. Runs between frames, like
 // connect, with the View unlocked.
 trust_new_key :: proc(ui: ^UI) {
-	v := &ui.view
+	v := ui.view
 	server: string
 	key: [proto.KEY_SIZE]u8
 	{

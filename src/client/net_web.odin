@@ -29,8 +29,8 @@ net_start :: proc(ns: ^Net_Session) {
 	}
 	if ns.channel != "" {
 		conn.conv_start_in(c, ns.channel)
-	} else if ns.view != "" {
-		conn.conv_start_viewing(c, ns.view)
+	} else if ns.look_at != "" {
+		conn.conv_start_viewing(c, ns.look_at)
 	}
 }
 
@@ -41,13 +41,25 @@ net_stop :: proc(ns: ^Net_Session) {
 	}
 }
 
-// net_step gives the connection its turn between frames.
+// net_step gives every connection its turn between frames: the frame's
+// network budget goes round them, the shown one first.
 net_step :: proc(ui: ^UI) {
-	ns := ui.session
-	if ns == nil || ns.stopped || sync.atomic_load(&ns.stop) {
+	start := time.tick_now()
+	if ui.session != nil {
+		session_step(ui.session, start)
+	}
+	for ns in ui.sessions {
+		if ns != ui.session {
+			session_step(ns, start)
+		}
+	}
+}
+
+@(private = "file")
+session_step :: proc(ns: ^Net_Session, start: time.Tick) {
+	if ns.stopped || sync.atomic_load(&ns.stop) {
 		return
 	}
-	start := time.tick_now()
 	for i := 0;; i += 1 {
 		if !conn.client_step(ns.client) {
 			ns.stopped = true

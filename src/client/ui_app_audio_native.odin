@@ -40,6 +40,7 @@ MENU_WIDTH :: 240
 UI_App_Audio :: struct {
 	available: bool, // tinyaac came up
 	share:     ^audio.App_Share, // nil while nothing is shared
+	session:   ^Net_Session, // whose voice it goes into
 	name:      string, // what's being shared; owned
 	// The menu's applications, as they were when it was opened.
 	list:      ^aac.App_List,
@@ -91,6 +92,13 @@ app_audio_frame :: proc(ui: ^UI) {
 }
 
 // app_audio_stop stops sharing, if anything is shared.
+// app_audio_session_gone stops sharing into a session about to be freed.
+app_audio_session_gone :: proc(ui: ^UI, ns: ^Net_Session) {
+	if ui.app_audio.session == ns {
+		app_audio_stop(ui)
+	}
+}
+
 app_audio_stop :: proc(ui: ^UI) {
 	a := &ui.app_audio
 	s := a.share
@@ -98,7 +106,7 @@ app_audio_stop :: proc(ui: ^UI) {
 		return
 	}
 	audio.app_share_stop(s)
-	a.share = nil
+	a.share, a.session = nil, nil
 	log.infof("app audio: stopped sharing %s", a.name)
 	delete(a.name)
 	a.name = ""
@@ -153,9 +161,7 @@ app_audio_menu :: proc(ui: ^UI) {
 	if .CHANGE in mu.slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.app_audio_volume = a.volume / 100
 		ui.settings_dirty = true
-		if ui.session != nil {
-			conn.push_command(&ui.session.client.commands, conn.app_audio_command(&ui.settings))
-		}
+		command_all(ui, conn.app_audio_command(&ui.settings))
 	}
 
 	mu.layout_row(ctx, {MENU_WIDTH})
@@ -216,7 +222,8 @@ app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
 	app_audio_stop(ui)
 	delete(a.error)
 	a.error = ""
-	ns := ui.session
+	// Into the voice it goes with: the server it's in, wherever that is.
+	ns := sound_session(ui)
 	if ns == nil || !ns.client.voice.ready || a.list == nil {
 		return
 	}
@@ -234,7 +241,7 @@ app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
 	}
 	conn.push_command(&ns.client.commands, conn.app_audio_command(&ui.settings))
 	sync.atomic_store(&s.voice.app_input, true)
-	a.share = s
+	a.share, a.session = s, ns
 	a.name = strings.clone(name)
 	log.infof("app audio: sharing %s", name)
 }

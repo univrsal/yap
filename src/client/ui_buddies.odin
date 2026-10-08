@@ -81,7 +81,7 @@ ONLINE_COLOR :: SPEAKING_COLOR
 // lights up for DMs that haven't been read.
 buddies_button :: proc(ui: ^UI) {
 	open := ui.page == .Buddies
-	unread := dm_unread(&ui.settings, &ui.view)
+	unread := dm_unread(&ui.settings, ui.view)
 	hint := "Back to the channels" if open else "Buddies"
 	color := CHAT_NAME_COLOR if open else mu.Color{}
 	if unread > 0 && !open {
@@ -109,7 +109,7 @@ channel it was looking at before a DM), if it isn't: once, and again
 only if that doesn't come about. Call with the View locked.
 */
 keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
-	v := &ui.view
+	v := ui.view
 	b := &ui.buddies
 	if ui.session == nil {
 		return
@@ -132,7 +132,7 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 // channel's: coming back from the buddy screen, or having been sent
 // there by something else. Call with the View locked.
 back_from_dms :: proc(ui: ^UI) {
-	v := &ui.view
+	v := ui.view
 	if v.viewing == 0 && v.channel == 0 {
 		return // not told of any yet
 	}
@@ -151,7 +151,7 @@ buddies_screen :: proc(ui: ^UI) {
 
 	session_header(ui)
 
-	list := buddy_list(&ui.settings, &ui.view)
+	list := buddy_list(&ui.settings, ui.view)
 	// Somebody who's left the list (taken off it, or no buddy any more
 	// and no DM) takes the conversation along.
 	entry: Buddy_Entry
@@ -164,7 +164,7 @@ buddies_screen :: proc(ui: ^UI) {
 	if !found && ui.buddies.selected != 0 {
 		if ui.buddies.selected in ui.view.accounts && ui.buddies.selected != ui.view.me {
 			// Picked from somewhere else (a channel's member list).
-			entry, found = buddy_entry(&ui.view, ui.buddies.selected, false), true
+			entry, found = buddy_entry(ui.view, ui.buddies.selected, false), true
 		} else {
 			ui.buddies.selected = 0
 		}
@@ -272,7 +272,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 @(private = "file")
 conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)

@@ -71,7 +71,7 @@ crossed out if they're muted or deafened; and how long it has lasted.
 @(private = "file")
 call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	// Their device in the call's room: the one whose state counts.
 	room := proto.call_room(v.call.id)
 	peer: conn.View_User
@@ -143,7 +143,7 @@ voice_panel_height :: proc(ui: ^UI) -> i32 {
 	rows: i32 = 1
 	// Ours, and in a call the other side's, have a picture.
 	pictures: i32 = 1
-	switch panel_state(&ui.view) {
+	switch panel_state(ui.view) {
 	case .Idle:
 	case .Elsewhere:
 		rows += 2
@@ -162,7 +162,7 @@ row, as tall as voice_panel_height). Call with the View locked.
 */
 voice_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	p := &ui.voice_panel
 	call_announce(ui)
 	state := panel_state(v)
@@ -231,6 +231,7 @@ voice_panel :: proc(ui: ^UI) {
 		case .Ringing_In:
 			mu.layout_row(ctx, {-(90 + ctx.style.spacing), 90})
 			if .SUBMIT in stable_button(ctx, "call accept", "Accept", {.ALIGN_CENTER}) {
+				leave_voice_elsewhere(ui)
 				command(cmds, conn.Call_Answer_Command{})
 			}
 			if .SUBMIT in stable_button(ctx, "call decline", "Decline", {.ALIGN_CENTER}) {

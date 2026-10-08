@@ -45,7 +45,7 @@ settings_page :: proc(ui: ^UI) {
 	// The server's tab is there while we're logged in to one.
 	server := ""
 	{
-		v := &ui.view
+		v := ui.view
 		sync.guard(&v.mutex)
 		if v.status == .Connected && v.login.state == .Done {
 			server = v.server_name if v.server_name != "" else v.server
@@ -118,9 +118,7 @@ audio_settings :: proc(ui: ^UI) {
 		   q != current {
 			settings.set_setting(&ui.settings.quality, preset.name)
 			settings.settings_save(ui.opts.settings_path, ui.settings)
-			if ui.session != nil {
-				conn.push_command(&ui.session.client.commands, conn.Quality_Command{q})
-			}
+			command_all(ui, conn.Quality_Command{q})
 			current = q
 		}
 	}
@@ -128,12 +126,7 @@ audio_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in mu.checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
-		if ui.session != nil {
-			conn.push_command(
-				&ui.session.client.commands,
-				conn.Noise_Command{ui.settings.noise_suppression},
-			)
-		}
+		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
 	if app_audio_available(ui) {
 		mu.layout_row(ctx, {-1})
@@ -214,12 +207,7 @@ ui_settings :: proc(ui: ^UI) {
 	if .CHANGE in mu.slider(ctx, &volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.notification_volume = volume / 100
 		settings.settings_save(ui.opts.settings_path, ui.settings)
-		if ui.session != nil {
-			conn.push_command(
-				&ui.session.client.commands,
-				conn.Notification_Volume_Command{ui.settings.notification_volume},
-			)
-		}
+		command_all(ui, conn.Notification_Volume_Command{ui.settings.notification_volume})
 	}
 
 	when !platform.WEB {
@@ -293,12 +281,7 @@ transfer_settings :: proc(ui: ^UI) {
 	if changed {
 		// Sliders change every frame while dragged; saved within a second.
 		ui.settings_dirty = true
-		if ui.session != nil {
-			conn.push_command(
-				&ui.session.client.commands,
-				conn.transfer_limits_command(&ui.settings),
-			)
-		}
+		command_all(ui, conn.transfer_limits_command(&ui.settings))
 	}
 }
 

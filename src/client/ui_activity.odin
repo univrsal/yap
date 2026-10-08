@@ -41,8 +41,7 @@ UI_Activity :: struct {
 	last_check:   time.Tick,
 	system_idle:  bool, // as the system last said, if it could
 	system_known: bool,
-	idle:         bool, // as last told the network side
-	told:         ^Net_Session, // the session `idle` was told to
+	idle:         bool, // as last worked out (each session: Net_Session.idle_told)
 }
 
 ACTIVITY_COLORS := [proto.Activity]mu.Color {
@@ -106,14 +105,12 @@ activity_step :: proc(ui: ^UI) {
 		a.source = idle.open(IDLE_AFTER, wayland, x11)
 		log.infof("idle from: %v", a.source)
 	}
-	if ui.session != a.told {
-		// A new connection starts out not idle.
-		a.told, a.idle = ui.session, false
-	}
+	// Only asked while we chose to be online somewhere: elsewhere it
+	// changes nothing.
 	online := false
-	if ui.session != nil {
-		sync.guard(&ui.view.mutex)
-		online = ui.view.my_activity == .Online
+	for ns in ui.sessions {
+		sync.guard(&ns.view.mutex)
+		online ||= ns.view.my_activity == .Online
 	}
 	is_idle := false
 	if online {
@@ -127,9 +124,14 @@ activity_step :: proc(ui: ^UI) {
 		// Asked afresh once we're online again.
 		a.last_check = {}
 	}
-	if is_idle != a.idle && ui.session != nil {
-		a.idle = is_idle
-		conn.push_command(&ui.session.client.commands, conn.Idle_Command{idle = is_idle})
+	// Every server is told, each once; a new connection starts out not
+	// idle, and the client tells it again after starting over itself.
+	a.idle = is_idle
+	for ns in ui.sessions {
+		if ns.idle_told != is_idle {
+			ns.idle_told = is_idle
+			conn.push_command(&ns.client.commands, conn.Idle_Command{idle = is_idle})
+		}
 	}
 }
 

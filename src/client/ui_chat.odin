@@ -62,14 +62,10 @@ ui_chat_init :: proc(ui: ^UI) {
 	chat_load_timezone(ui)
 }
 
+// ui_chat_destroy frees what the chat keeps that isn't one server's;
+// that is server_ui_destroy's (ui_servers.odin).
 ui_chat_destroy :: proc(ui: ^UI) {
 	chat_unload_timezone(ui)
-	timeline_destroy(&ui.timeline)
-	ui_threads_destroy(ui)
-	ui_message_menu_destroy(ui)
-	ui_completion_destroy(ui)
-	ui_forward_destroy(ui)
-	delete(ui.chat.open)
 }
 
 // ui_chat_after_frame acts on what the frame's layout found: the mouse
@@ -110,7 +106,7 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 	timeline_reading(ui, focused)
 	{
 		sync.guard(&ui.view.mutex)
-		ui.unread = unread_total(&ui.settings, &ui.view) if ui.session != nil else 0
+		ui.unread = unread_total(&ui.settings, ui.view) if ui.session != nil else 0
 	}
 	if ui.window != nil && ui.unread != ui.title_unread {
 		ui.title_unread = ui.unread
@@ -123,7 +119,7 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 // layout cell. Call with the View locked.
 side_panel :: proc(ui: ^UI, narrow: bool) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
@@ -274,7 +270,7 @@ View locked.
 @(private = "file")
 chat_preview :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	saved := ctx.style.font
 	ctx.style.font = render.CHAT_FONT
 	defer ctx.style.font = saved

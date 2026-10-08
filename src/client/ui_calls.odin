@@ -31,7 +31,7 @@ call_peer_name :: proc(v: ^conn.View) -> string {
 // call_announce tells the desktop of a call coming in, once. Call with
 // the View locked, every frame.
 call_announce :: proc(ui: ^UI) {
-	v := &ui.view
+	v := ui.view
 	if v.call.status != .Ringing_In {
 		if v.call.status == .None {
 			ui.calls.announced = 0
@@ -65,6 +65,7 @@ may_call :: proc(v: ^conn.View, account: proto.Account_Id) -> bool {
 // call_account calls somebody.
 call_account :: proc(ui: ^UI, account: proto.Account_Id) {
 	if ui.session != nil {
+		leave_voice_elsewhere(ui)
 		conn.push_command(&ui.session.client.commands, conn.Call_Command{account = account})
 	}
 }
