@@ -55,17 +55,11 @@ avatar_exports=_web_avatar_reading,_web_avatar_picked,_web_avatar_failed
 # so it's expanded unquoted.
 version_defines=$(scripts/version-defines.sh)
 
-# -o:speed, always: at Odin's default optimization level Safari's web
-# process crashes a few seconds into a call. Its optimizing wasm compiler
-# (OMG, on B3) runs out of memory tiering up strings.index once that gets
-# hot - seen in WebKitGTK 2.52 and iOS 26.6, reproduced only inside this
-# module - and the page dies without a word in the console. The code
-# -o:speed gives it compiles fine.
-#
+# have to test -o:speed again to see if that actually fixed the safari crashes
 # The object's name is spelled out: without an extension Odin picks one,
 # and newer versions pick .wasm rather than .obj, which left emcc below
 # linking a stale yap.obj.
-odin build src/client -collection:common=src/common -collection:client=src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -o:speed -out:"$out/yap.obj" $version_defines "$@"
+odin build src/client -collection:common=src/common -collection:client=src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap.obj" $version_defines "$@"
 
 # -sSTACK_SIZE: the client keeps some large buffers on the stack (a state
 # snapshot, a stored blob), and emscripten's default of 64 KiB is too
@@ -77,7 +71,7 @@ emcc "$out/yap.obj" \
 	"$opus_lib" \
 	"$stb/stb_truetype.c" \
 	"$stb/stb_image.c" \
-	-O2 \
+	-O1 \
 	-sUSE_GLFW=3 \
 	-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3 \
 	-sALLOW_MEMORY_GROWTH \
