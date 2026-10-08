@@ -141,7 +141,7 @@ message_menu :: proc(ui: ^UI) {
 		return
 	}
 	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "copy", "Copy text") {
-		shown, _ := conn.mentions_display(mm.text, v.accounts, v.me)
+		shown, _ := conn.mentions_display(mm.text, v.accounts, v.roles[:], v.me)
 		set_clipboard(nil, shown)
 		close(ctx)
 	}
@@ -167,7 +167,7 @@ message_menu :: proc(ui: ^UI) {
 // start_editing loads one of our messages into a composer, to be edited
 // there.
 start_editing :: proc(ui: ^UI, id: proto.Msg_Id, text: string, c: Composer) {
-	c.len^ = copy(c.buf, conn.mentions_for_edit(text, ui.view.accounts))
+	c.len^ = copy(c.buf, conn.mentions_for_edit(text, ui.view.accounts, ui.view.roles[:]))
 	c.editing^ = id
 	c.conv^ = ui.view.viewing
 	focus_composer(ui, c, -1)
@@ -320,7 +320,10 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	}
 	ui_redraw(ui) // for the box to shrink back to a line
 	c.area.preview = false
-	text = conn.emoji_encode(conn.mentions_encode(text, ui.view.accounts), ui.view.emoji.names[:])
+	text = conn.emoji_encode(
+		conn.mentions_encode(text, ui.view.accounts, ui.view.roles[:]),
+		ui.view.emoji.names[:],
+	)
 	if has_files {
 		log.debug("ui: a message with files")
 		composer_send_files(ui, c, text, dm_to)

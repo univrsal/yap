@@ -805,7 +805,7 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 	case mention:
 		// Its own sound, and said on the desktop like a poke.
 		audio.voice_notification_play(&c.voice, .Mail)
-		shown, _ := mentions_display(m.text, c.auth.accounts, c.auth.me)
+		shown, _ := mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 		publish_mentioned(c, account_display(c, m.sender), room_name(c, proto.Room(m.conv)), shown)
 		if c.view == nil {
 			log.infof(
@@ -866,7 +866,7 @@ describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 			m.sender == c.auth.me,
 		)
 	case .Text:
-		text, _ = mentions_display(m.text, c.auth.accounts, c.auth.me)
+		text, _ = mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 		if .Has_Attachments in m.flags {
 			b := strings.builder_make(context.temp_allocator)
 			strings.write_string(&b, text)

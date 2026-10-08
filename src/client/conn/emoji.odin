@@ -96,5 +96,5 @@ view_clear_emoji :: proc(v: ^View) {
 // typed_text is what was typed as it's stored: mentions and emoji
 // written as their tokens and characters (mentions.odin).
 typed_text :: proc(c: ^Voice_Client, text: string) -> string {
-	return emoji_encode(mentions_encode(text, c.auth.accounts), c.emoji.names[:])
+	return emoji_encode(mentions_encode(text, c.auth.accounts, dir_roles(c)), c.emoji.names[:])
 }

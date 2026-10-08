@@ -245,6 +245,7 @@ test_roles :: proc(t: ^testing.T) {
 			name = name,
 			color = ROLE_COLOR_SET | 0x3366CC,
 			position = 7,
+			flags = {.Mentionable},
 		},
 	)
 	testing.expect_value(t, len(body), ROLE_MAX_SIZE)
@@ -255,10 +256,13 @@ test_roles :: proc(t: ^testing.T) {
 	testing.expect_value(t, role.name, name)
 	testing.expect_value(t, role.color, ROLE_COLOR_SET | 0x3366CC)
 	testing.expect_value(t, role.position, 7)
-	_, ok = decode_role(body[:len(body) - 1])
+	testing.expect_value(t, role.flags, Role_Flags{.Mentionable})
+	_, ok = decode_role(body[:len(body) - 2])
 	testing.expect(t, !ok)
-	// As an older client sends it: no colour, no position.
-	role, ok = decode_role(body[:len(body) - 6])
+	// As older clients send it: no flags; nor colour or position.
+	role, ok = decode_role(body[:len(body) - 1])
+	testing.expect(t, ok && role.position == 7 && role.flags == {})
+	role, ok = decode_role(body[:len(body) - 7])
 	testing.expect(t, ok && role.name == name && role.color == 0 && role.position == 0)
 	// A colour without the bit that says it's set is none.
 	role, ok = decode_role(encode_role(buf[:], {id = 4, name = "x", color = 0x3366CC}))

@@ -13,7 +13,8 @@ import "common:proto"
 The Roles window, for whoever has Manage_Roles (conn/roles.odin): the
 roles on the left, with a box to make one under them, and the role
 picked on the right - its name, its colour, its place in the list,
-what it allows, and who has it, with people to give it to.
+whether it can be mentioned, what it allows, and who has it, with
+people to give it to.
 
 A name is shown in the colour of the highest of its account's roles
 that has one (name_color): in the chat, the members list, the user
@@ -39,6 +40,7 @@ UI_Roles :: struct {
 	name_len:    int,
 	perms:       proto.Permissions,
 	color:       u32,
+	flags:       proto.Role_Flags,
 	// Delete was pressed once; the list of people to give it to is open.
 	confirm:     bool,
 	adding:      bool,
@@ -330,17 +332,20 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	if r.loaded != role.id ||
 	   r.seen.perms != role.perms ||
 	   r.seen.name != role.name ||
-	   r.seen.color != role.color {
+	   r.seen.color != role.color ||
+	   r.seen.flags != role.flags {
 		r.loaded = role.id
 		r.name_len = copy(r.name_buf[:], role.name)
 		r.perms = role.perms
 		r.color = role.color
+		r.flags = role.flags
 		delete(r.seen.name)
 		r.seen = {
 			id    = role.id,
 			perms = role.perms,
 			name  = strings.clone(role.name),
 			color = role.color,
+			flags = role.flags,
 		}
 	}
 	everyone := role.id == proto.EVERYONE_ROLE
@@ -361,6 +366,21 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		color_picker(ui, editable)
 		if editable {
 			move_buttons(ui, role.id)
+		}
+		// Whether `@name` pings whoever has it.
+		mentionable := .Mentionable in r.flags
+		mu.layout_row(ctx, {-1})
+		if editable {
+			if .CHANGE in mu.checkbox(ctx, "Can be mentioned with @name", &mentionable) {
+				r.flags ~= {.Mentionable}
+			}
+		} else {
+			with_text_color(
+				ctx,
+				DIM_COLOR,
+				fmt.tprintf("[%s] Can be mentioned with @name", "x" if mentionable else " "),
+				label_proc,
+			)
 		}
 	}
 	mu.layout_row(ctx, {-1})
@@ -407,6 +427,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		changed :=
 			r.perms != role.perms ||
 			r.color != role.color ||
+			r.flags != role.flags ||
 			string(r.name_buf[:r.name_len]) != role.name
 		mu.layout_row(ctx, {100, 140, -1})
 		if .SUBMIT in
@@ -420,6 +441,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 					name = strings.clone(string(r.name_buf[:r.name_len])),
 					perms = r.perms,
 					color = r.color,
+					flags = r.flags,
 				},
 			)
 		}

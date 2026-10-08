@@ -21,6 +21,7 @@ Dir_Role :: struct {
 	perms:    proto.Permissions,
 	color:    u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
 	position: u16,
+	flags:    proto.Role_Flags,
 }
 
 // The roles in View.roles are in the server's order, top first, with
@@ -30,15 +31,17 @@ View_Role :: struct {
 	name:  string, // owned
 	perms: proto.Permissions,
 	color: u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
+	flags: proto.Role_Flags,
 }
 
 // Make a role (id 0) or change one; headless, `by_name` changes the
-// one called `name`, and keeps its colour.
+// one called `name`, and keeps its colour and flags.
 Role_Set_Command :: struct {
 	id:      proto.Role_Id,
 	name:    string, // owned by the command
 	perms:   proto.Permissions,
 	color:   u32,
+	flags:   proto.Role_Flags,
 	by_name: bool,
 }
 // Put the roles in this order, top first: every role but everyone's.
@@ -113,7 +116,7 @@ roles_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) {
 		}
 		_, dir, _, _ := map_entry(&a.roles, r.id)
 		delete(dir.name)
-		dir^ = {strings.clone(r.name), r.perms, r.color, r.position}
+		dir^ = {strings.clone(r.name), r.perms, r.color, r.position, r.flags}
 		if c.view == nil && a.state == .Done {
 			log.infof("[roles] %s: %v", r.name, r.perms)
 		}
@@ -159,17 +162,20 @@ roles_list :: proc(c: ^Voice_Client) {
 }
 
 role_set :: proc(c: ^Voice_Client, cmd: Role_Set_Command) {
-	id, color := cmd.id, cmd.color
+	id, color, flags := cmd.id, cmd.color, cmd.flags
 	if cmd.by_name {
 		id = role_named(c, cmd.name)
 		if id == 0 {
 			log.warnf("there's no role called %q", cmd.name)
 			return
 		}
-		color = c.auth.roles[id].color
+		color, flags = c.auth.roles[id].color, c.auth.roles[id].flags
 	}
 	buf: [proto.ROLE_MAX_SIZE]u8
-	body := proto.encode_role(buf[:], {id = id, perms = cmd.perms, name = cmd.name, color = color})
+	body := proto.encode_role(
+		buf[:],
+		{id = id, perms = cmd.perms, name = cmd.name, color = color, flags = flags},
+	)
 	if body == nil {
 		notify(c, false, "That name is too long for a role.")
 		return
@@ -365,8 +371,19 @@ publish_roles :: proc(c: ^Voice_Client) {
 	view_clear_roles(v)
 	for id in ids {
 		r := c.auth.roles[id]
-		append(&v.roles, View_Role{id, strings.clone(r.name), r.perms, r.color})
+		append(&v.roles, View_Role{id, strings.clone(r.name), r.perms, r.color, r.flags})
 	}
+}
+
+// dir_roles is the roles as mentions take them (mentions.odin), from
+// what we know of them rather than the View's: in the temp allocator,
+// their names not copied.
+dir_roles :: proc(c: ^Voice_Client) -> []View_Role {
+	list := make([dynamic]View_Role, 0, len(c.auth.roles), context.temp_allocator)
+	for id, r in c.auth.roles {
+		append(&list, View_Role{id, r.name, r.perms, r.color, r.flags})
+	}
+	return list[:]
 }
 
 // Call with the mutex held.

@@ -138,7 +138,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			go_to_message(ui, f.conv, m.id)
 		}
 		mu.layout_row(ctx, {-1})
-		text, _, _ := conn.text_display(m.text, v.accounts, v.me, v.emoji.names[:])
+		text, _, _ := conn.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
 		if text != "" {
 			mu.text(ctx, conn.markdown_plain(text))
 		}

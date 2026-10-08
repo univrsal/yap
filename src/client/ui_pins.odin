@@ -110,7 +110,7 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			ui.timeline.jump_conv = 0
 		}
 		mu.layout_row(ctx, {-1})
-		shown, _ := conn.mentions_display(m.text, v.accounts, v.me)
+		shown, _ := conn.mentions_display(m.text, v.accounts, v.roles[:], v.me)
 		text := conn.markdown_plain(shown)
 		#partial switch m.kind {
 		case .Image:

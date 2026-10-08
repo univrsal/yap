@@ -225,7 +225,7 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 		case m.kind == .System:
 			said = "a call"
 		case:
-			said, _, _ = conn.text_display(m.text, v.accounts, v.me, v.emoji.names[:])
+			said, _, _ = conn.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
 			said = conn.markdown_plain(said)
 			if len(said) > LINK_SNIPPET {
 				cut := LINK_SNIPPET
@@ -269,7 +269,15 @@ message_text :: proc(
 	links: []conn.Link_Span,
 ) {
 	v := &ui.view
-	return conn.text_display_links(text, v.accounts, v.me, v.emoji.names[:], link_label, ui)
+	return conn.text_display_links(
+		text,
+		v.accounts,
+		v.roles[:],
+		v.me,
+		v.emoji.names[:],
+		link_label,
+		ui,
+	)
 }
 
 // message_rich is a message's text as the timeline draws it: its markdown

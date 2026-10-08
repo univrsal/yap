@@ -120,3 +120,63 @@ test_mentions :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, !conv_is_member(conv_by_id(&s.convs, dm), carol_acc.id))
 }
+
+@(test)
+test_role_mentions :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	gaming := conv_by_name(&s.convs, "Gaming")
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	bob_acc := ts_account(t, &ts, "bob", "a password")
+	carol_acc := ts_account(t, &ts, "carol", "a password")
+	ts_account(t, &ts, "admin", "a password", {.Owner})
+	alice := logged_in(t, &ts, "alice")
+	admin := logged_in(t, &ts, "admin")
+	make_role :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, r: proto.Role) -> proto.Role_Id {
+		buf: [proto.ROLE_MAX_SIZE]u8
+		status, body := ts_ask(t, ts, u, .Role_Set, proto.encode_role(buf[:], r))
+		testing.expect_value(t, status, proto.Status.Ok)
+		id, _ := proto.decode_account_id(body)
+		return proto.Role_Id(id)
+	}
+	leads := make_role(t, &ts, admin, {name = "Team Leads", flags = {.Mentionable}})
+	quiet := make_role(t, &ts, admin, {name = "quiet"})
+	testing.expect_value(t, s.accounts.roles[leads].flags, proto.Role_Flags{.Mentionable})
+	for acc in ([]^Account{alice_acc, bob_acc, carol_acc}) {
+		testing.expect(t, account_roles_set(&s.accounts, acc, {leads, quiet}))
+	}
+	// Everyone's role can't be: that's @everyone.
+	make_role(t, &ts, admin, {id = proto.EVERYONE_ROLE, name = "everyone", flags = {.Mentionable}})
+	testing.expect_value(t, s.accounts.roles[proto.EVERYONE_ROLE].flags, proto.Role_Flags{})
+
+	// Whoever has it, among the members, but not the poster; nobody is
+	// subscribed by it.
+	testing.expect(t, conv_member_add(&s.convs, gaming, alice_acc.id))
+	testing.expect(t, conv_member_add(&s.convs, gaming, bob_acc.id))
+	testing.expect(t, !conv_is_member(gaming, carol_acc.id))
+	text := fmt.tprintf(
+		"%s and %s",
+		proto.role_mention_token(leads),
+		proto.role_mention_token(quiet),
+	)
+	_, id := post(t, &ts, alice, gaming.id, text, 1)
+	m, _ := msg_by_id(s, id)
+	// One that can't be mentioned is its name.
+	testing.expect_value(t, m.text, fmt.tprintf("%s and @quiet", proto.role_mention_token(leads)))
+	testing.expect(t, !conv_is_member(gaming, carol_acc.id), "carol was subscribed by a role")
+	mentioned := mentioned_in(s, id)
+	testing.expect_value(t, len(mentioned), 1)
+	if len(mentioned) == 1 {
+		testing.expect_value(t, mentioned[0], bob_acc.id)
+	}
+	testing.expect_value(t, mentions_of(&ts, gaming, bob_acc), 1)
+
+	// Once it can't be, an edit drops it.
+	make_role(t, &ts, admin, {id = leads, name = "Team Leads"})
+	testing.expect_value(t, edit_as(t, &ts, alice, id, m.text), proto.Status.Ok)
+	m, _ = msg_by_id(s, id)
+	testing.expect_value(t, m.text, "@Team Leads and @quiet")
+	testing.expect_value(t, len(mentioned_in(s, id)), 0)
+}

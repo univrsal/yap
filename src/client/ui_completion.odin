@@ -6,6 +6,7 @@ import "core:strings"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
+import "client:conn"
 import "common:proto"
 
 /*
@@ -14,8 +15,14 @@ is at the end of starts with `@` (at the start of a word), a list over the
 composer shows the accounts it could be: by username or display name,
 those here first, at most COMPLETION_MAX. Choosing completes the word to
 `@username ` (conn/mentions.odin turns it into a token when the message
-is sent). A word of at least two more characters after a `:` lists the
-emoji whose shortcode starts so, the server's own first; choosing puts
+is sent). Under them are the roles that can be mentioned whose names
+start so, at most ROLE_COMPLETION_MAX, each in its colour and marked as
+a role, so one called what an account is called is told apart from it.
+A role's name may have spaces in it, so the list stays open past them
+while what's after the `@` is the start of one. Choosing one completes
+to `@role name `, or to its token if `@role name` would be the account's
+(conn/mentions.odin). A word of at least two more characters after a `:`
+lists the emoji whose shortcode starts so, the server's own first; choosing puts
 the emoji in its place (a Unicode one as its character, the server's as
 its `:name:`). Up and Down move in the list, Tab or Enter choose, Escape
 closes it until the word changes; or a click.
@@ -28,6 +35,7 @@ over everything else (completion_window).
 */
 
 COMPLETION_MAX :: 6
+ROLE_COMPLETION_MAX :: 3
 
 Completion_Item :: struct {
 	insert: string, // what the word becomes; owned (the list is used the frame after it's made)
@@ -35,6 +43,7 @@ Completion_Item :: struct {
 	// For sorting mentions: the username, and whether the account is here.
 	key:    string,
 	here:   bool,
+	color:  u32, // a role's, to show it in; 0 for the usual
 }
 
 UI_Completion :: struct {
@@ -136,13 +145,19 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 		start -= 1
 	}
 	trigger: u8 = text[start - 1] if start > 0 else 0
+	// Past a space, only a role's name.
+	spaced := false
 	if (trigger != '@' && trigger != ':') ||
 	   (start > 1 && !strings.is_space(rune(text[start - 2]))) ||
 	   (trigger == ':' && cursor - start < 2) {
-		cm.active = false
-		delete(cm.dismissed)
-		cm.dismissed = ""
-		return
+		at := role_word_start(v, text, cursor)
+		if at < 0 {
+			cm.active = false
+			delete(cm.dismissed)
+			cm.dismissed = ""
+			return
+		}
+		start, trigger, spaced = at + 1, '@', true
 	}
 	start -= 1
 	word := text[start:cursor]
@@ -164,7 +179,7 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 		return
 	}
 	for id, acc in v.accounts {
-		if id == v.me || acc.flags & {.Disabled, .Deleted} != {} {
+		if spaced || id == v.me || acc.flags & {.Disabled, .Deleted} != {} {
 			continue
 		}
 		if strings.has_prefix(acc.username, prefix) ||
@@ -192,7 +207,10 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 		delete(item.insert)
 		delete(item.label)
 	}
-	if .Mention_Everyone in v.permissions && strings.has_prefix(proto.MENTION_EVERYONE, prefix) {
+	role_items(ui, prefix)
+	if !spaced &&
+	   .Mention_Everyone in v.permissions &&
+	   strings.has_prefix(proto.MENTION_EVERYONE, prefix) {
 		append(
 			&cm.items,
 			Completion_Item {
@@ -203,6 +221,67 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 	}
 	cm.active = len(cm.items) > 0
 	cm.selected = clamp(cm.selected, 0, max(len(cm.items) - 1, 0))
+}
+
+/*
+role_word_start is where the `@` is that a role's name the cursor is in
+starts after, when there's a space in what's been typed of it; -1 if the
+cursor isn't in one. Call with the View locked.
+*/
+@(private = "file")
+role_word_start :: proc(v: ^conn.View, text: string, cursor: int) -> int {
+	for at := cursor - 1; at >= 0 && cursor - at <= proto.MAX_ROLE_NAME + 1; at -= 1 {
+		if text[at] != '@' || (at > 0 && !strings.is_space(rune(text[at - 1]))) {
+			continue
+		}
+		typed := text[at + 1:cursor]
+		if strings.index_byte(typed, ' ') < 0 {
+			return -1 // a word, which the usual list is for
+		}
+		for r in v.roles {
+			if conn.role_mentionable(r) &&
+			   len(r.name) >= len(typed) &&
+			   strings.equal_fold(r.name[:len(typed)], typed) {
+				return at
+			}
+		}
+		return -1
+	}
+	return -1
+}
+
+// role_items lists the roles that can be mentioned whose name starts
+// with `prefix` (in lower case), in the roles' order. Call with the View
+// locked.
+@(private = "file")
+role_items :: proc(ui: ^UI, prefix: string) {
+	v := &ui.view
+	cm := &ui.completion
+	n := 0
+	for r in v.roles {
+		if n == ROLE_COMPLETION_MAX {
+			break
+		}
+		if !conn.role_mentionable(r) ||
+		   !strings.has_prefix(strings.to_lower(r.name, context.temp_allocator), prefix) {
+			continue
+		}
+		insert: string
+		if conn.role_name_shadowed(v.accounts, r.name) {
+			insert = strings.concatenate({proto.role_mention_token(r.id), " "})
+		} else {
+			insert = strings.concatenate({"@", r.name, " "})
+		}
+		append(
+			&cm.items,
+			Completion_Item {
+				insert = insert,
+				label = strings.concatenate({"@", r.name, "   role"}),
+				color = r.color,
+			},
+		)
+		n += 1
+	}
 }
 
 // emoji_items lists the emoji whose name starts with `prefix`: the
@@ -290,12 +369,17 @@ completion_window :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		label := item.label
 		saved := ctx.style.colors[.BUTTON]
+		saved_text := ctx.style.colors[.TEXT]
 		if i == cm.selected {
 			ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
+		}
+		if item.color != 0 {
+			ctx.style.colors[.TEXT] = role_rgb(item.color)
 		}
 		if .SUBMIT in stable_button(ctx, "item", label) {
 			completion_choose(ui, composer_of(ui, cm.thread), i)
 		}
 		ctx.style.colors[.BUTTON] = saved
+		ctx.style.colors[.TEXT] = saved_text
 	}
 }

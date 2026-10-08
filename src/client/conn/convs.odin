@@ -711,9 +711,12 @@ conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: boo
 		return false, false
 	case:
 		info.unread = min(info.unread + 1, proto.UNREAD_CAP)
-		// <@everyone> is only ever stored from someone allowed it.
+		// <@everyone> is only ever stored from someone allowed it, and a
+		// role's only if it can be mentioned.
 		mention =
-			m.kind == .Text && .Deleted not_in m.flags && proto.mentions_account(m.text, c.auth.me)
+			m.kind == .Text &&
+			.Deleted not_in m.flags &&
+			proto.mentions_account(m.text, c.auth.me, c.auth.accounts[c.auth.me].roles)
 		if mention {
 			info.mentions = min(info.mentions + 1, proto.UNREAD_CAP)
 		}

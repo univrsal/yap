@@ -25,13 +25,19 @@ have themselves, nor change, delete, give or take a role that has one.
 	Role_Removed       [id u32]
 
 	role     [id u32][perms u64][name str8][color u32][position u16]
+	         [flags u8]
 
 A role's colour is 0xRRGGBB with ROLE_COLOR_SET, or 0 for none; a name
 is shown in the colour of the highest of its account's roles that has
 one. That's all the order is for: which role is above another for
 handling them goes by what they allow, never by where they are.
 Everyone's role is under the others and has no colour. A role from an
-older client, without the last two, has neither.
+older client, without the last three, has none of them (an even older
+one without the last two).
+
+A role that's Mentionable can be mentioned (mentions.odin): `@name`
+pings whoever has it, among the members of where it's said. Everyone's
+role never is; `@everyone` is for that.
 
 Roles are told in the login sync before the accounts (whose records name
 their roles), and as they change after; Self again when a connection's
@@ -55,11 +61,17 @@ Role :: struct {
 	name:     string,
 	color:    u32, // 0xRRGGBB | ROLE_COLOR_SET, or 0 for none
 	position: u16, // lower is higher up; ties go by id
+	flags:    Role_Flags,
 }
 
 ROLE_COLOR_SET :: u32(1) << 24
 
-ROLE_MAX_SIZE :: 4 + 8 + 1 + MAX_ROLE_NAME + 4 + 2
+Role_Flag :: enum u8 {
+	Mentionable = 0,
+}
+Role_Flags :: bit_set[Role_Flag;u8]
+
+ROLE_MAX_SIZE :: 4 + 8 + 1 + MAX_ROLE_NAME + 4 + 2 + 1
 
 encode_role :: proc(out: []u8, role: Role) -> []u8 {
 	w := Writer {
@@ -70,6 +82,7 @@ encode_role :: proc(out: []u8, role: Role) -> []u8 {
 	put_str8(&w, role.name)
 	put_u32(&w, role.color)
 	put_u16(&w, role.position)
+	put_u8(&w, transmute(u8)role.flags)
 	return nil if w.overflow else out[:w.pos]
 }
 
@@ -84,6 +97,14 @@ decode_role :: proc(body: []u8) -> (role: Role, ok: bool) {
 		role.color = get_u32(&r)
 		role.position = get_u16(&r)
 	}
+	if !r.overflow && r.pos < len(r.buf) {
+		role.flags = transmute(Role_Flags)get_u8(&r)
+	}
+	known: Role_Flags
+	for f in Role_Flag {
+		known += {f}
+	}
+	role.flags &= known
 	if role.color & ROLE_COLOR_SET == 0 {
 		role.color = 0
 	}

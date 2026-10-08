@@ -312,7 +312,9 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	if st.seek_mention && tl != nil && !tl.loading && n > 0 {
 		st.seek_mention = false
 		for m in msgs {
-			if m.id > st.unread_from && m.kind == .Text && proto.mentions_account(m.text, v.me) {
+			if m.id > st.unread_from &&
+			   m.kind == .Text &&
+			   proto.mentions_account(m.text, v.me, v.accounts[v.me].roles) {
 				st.jump_to, st.jump_asked = m.id, false
 				st.lit_mentions = true
 				break
@@ -696,6 +698,7 @@ pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 		shown, spans, emoji := conn.text_display(
 			p.text,
 			ui.view.accounts,
+			ui.view.roles[:],
 			ui.view.me,
 			ui.view.emoji.names[:],
 		)
@@ -996,7 +999,7 @@ reply_line :: proc(
 		case root.kind == .File:
 			said = fmt.tprintf("the file %s", root.text)
 		case:
-			shown, _ := conn.mentions_display(root.text, v.accounts, v.me)
+			shown, _ := conn.mentions_display(root.text, v.accounts, v.roles[:], v.me)
 			said = conn.markdown_plain(shown)
 		}
 		said = conn.one_line(said)
@@ -1107,6 +1110,7 @@ reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]C
 		shown, _, icons := conn.text_display(
 			code,
 			map[proto.Account_Id]conn.View_Account{},
+			nil,
 			0,
 			ui.view.emoji.names[:],
 		)
@@ -1312,7 +1316,7 @@ message_mouse :: proc(
 	ctx := &ui.ctx
 	lit := st.lit == m.id
 	if st.lit_mentions && st.lit_at != {} && m.id > st.unread_from && m.kind == .Text {
-		lit ||= proto.mentions_account(m.text, ui.view.me)
+		lit ||= proto.mentions_account(m.text, ui.view.me, ui.view.accounts[ui.view.me].roles)
 	}
 	if lit {
 		if since := time.tick_since(st.lit_at); since < JUMP_HIGHLIGHT {

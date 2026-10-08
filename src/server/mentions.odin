@@ -16,8 +16,10 @@ read the message: a member of the conversation. In a public channel an
 account that isn't subscribed is subscribed by being mentioned (D19), and
 told of the channel. <@everyone> is every other member, from an account
 with Mention_Everyone; from anyone else it's kept as the plain text
-"@everyone". Other tokens are kept as they were written, and count for
-nobody.
+"@everyone". A role's token is every other member who has the role, if
+it's Mentionable; if it isn't, it's kept as the plain text "@name". It
+subscribes nobody: who isn't a member isn't told. Other tokens are kept
+as they were written, and count for nobody.
 
 The rows are written when a message is posted, written again when it's
 edited, and go when it's deleted. A member whose count that changes, by
@@ -67,6 +69,27 @@ mentions_resolve :: proc(
 				continue
 			}
 			everyone = true
+			continue
+		}
+		if m.role != 0 {
+			r := s.accounts.roles[m.role] or_else nil
+			if r == nil || r.id == proto.EVERYONE_ROLE {
+				continue
+			}
+			if .Mentionable not_in r.flags {
+				kept = strings.concatenate(
+					{kept[:m.start], "@", r.name, kept[m.end:]},
+					context.temp_allocator,
+				)
+				at = m.start + 1 + len(r.name)
+				continue
+			}
+			for member in conv.members {
+				acc := account_live(&s.accounts, member)
+				if acc != nil && acc.id != sender && slice.contains(acc.roles[:], r.id) {
+					add(&list, acc.id)
+				}
+			}
 			continue
 		}
 		acc := account_live(&s.accounts, m.account)

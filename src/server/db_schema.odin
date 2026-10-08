@@ -317,6 +317,10 @@ MIGRATIONS := [?]string {
 	ALTER TABLE accounts ADD COLUMN verify_code TEXT NOT NULL DEFAULT '';
 	ALTER TABLE accounts ADD COLUMN verify_expires INTEGER NOT NULL DEFAULT 0;
 	`,
+	// 21: a role's flags (proto.Role_Flags): whether it can be mentioned.
+	`
+	ALTER TABLE roles ADD COLUMN flags INTEGER NOT NULL DEFAULT 0;
+	`,
 }
 
 // The version a database is at once it has been through every step.

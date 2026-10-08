@@ -286,7 +286,10 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	} else {
 		text = message_rich(
 			ui,
-			conn.emoji_encode(conn.mentions_encode(typed, v.accounts), v.emoji.names[:]),
+			conn.emoji_encode(
+				conn.mentions_encode(typed, v.accounts, v.roles[:]),
+				v.emoji.names[:],
+			),
 		)
 	}
 	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread))

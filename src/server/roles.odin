@@ -21,7 +21,8 @@ disabled, given a password or have its devices revoked by them.
 
 A role's colour and its place in the list (Role_Order) are only for
 showing names: which role is above another for handling them goes by
-what they allow.
+what they allow. Whether it can be mentioned (Mentionable) is up to
+whoever may change it; everyone's never can.
 
 Like the accounts, roles are few and all kept in memory.
 */
@@ -32,6 +33,7 @@ Role :: struct {
 	perms:    proto.Permissions,
 	color:    u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
 	position: int, // lower is higher up; ties go by id
+	flags:    proto.Role_Flags,
 }
 
 // roles_load reads the roles and who has them (accounts_load).
@@ -52,6 +54,7 @@ roles_load :: proc(a: ^Accounts) -> bool {
 		r.perms = transmute(proto.Permissions)u64(db_col_int(q, 2))
 		r.color = u32(db_col_int(q, 3))
 		r.position = int(db_col_int(q, 4))
+		r.flags = transmute(proto.Role_Flags)u8(db_col_int(q, 5))
 		a.roles[r.id] = r
 	}
 	if proto.EVERYONE_ROLE not_in a.roles {
@@ -130,6 +133,7 @@ role_record :: proc(r: ^Role) -> proto.Role {
 		name = r.name,
 		color = r.color,
 		position = u16(clamp(r.position, 0, int(max(u16)))),
+		flags = r.flags,
 	}
 }
 
@@ -224,6 +228,8 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	perms := in_role.perms & known
 	// Everyone's role has no colour: it would be everybody's.
 	color := in_role.color if in_role.id != proto.EVERYONE_ROLE else 0
+	// Nor can it be mentioned: that's @everyone.
+	flags := in_role.flags if in_role.id != proto.EVERYONE_ROLE else {}
 	if existing == nil {
 		if len(a.roles) >= proto.MAX_ROLES {
 			respond(u, id, .Too_Large)
@@ -239,6 +245,7 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		db_bind_int(q, 2, i64(transmute(u64)perms))
 		db_bind_int(q, 3, i64(color))
 		db_bind_int(q, 4, i64(position))
+		db_bind_int(q, 5, i64(transmute(u8)flags))
 		if !db_run(a.db, q) {
 			respond(u, id, .Internal)
 			return
@@ -249,6 +256,7 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		existing.perms = perms
 		existing.color = color
 		existing.position = position
+		existing.flags = flags
 		a.roles[existing.id] = existing
 		log.infof("%s made the role %q", conn_label(u), name)
 	} else {
@@ -257,6 +265,7 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		db_bind_text(q, 2, name)
 		db_bind_int(q, 3, i64(transmute(u64)perms))
 		db_bind_int(q, 4, i64(color))
+		db_bind_int(q, 5, i64(transmute(u8)flags))
 		if !db_run(a.db, q) {
 			respond(u, id, .Internal)
 			return
@@ -265,6 +274,7 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		existing.name = strings.clone(name)
 		existing.perms = perms
 		existing.color = color
+		existing.flags = flags
 		log.infof("%s changed the role %q", conn_label(u), name)
 	}
 	buf: [4]u8
