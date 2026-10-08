@@ -1602,18 +1602,19 @@ session_header :: proc(ui: ^UI) {
 	// The status, then the connection indicator and the buttons, each
 	// ICON_BUTTON wide plus the spacing between them. Mute, deafen and
 	// what's shared are in the voice panel (ui_voice_panel.odin).
-	icons := 5
+	icons := 4
 	widths: [6]i32
-	widths[0] = -i32(4 + (ICON_BUTTON + 4) * icons)
+	widths[0] = -i32(1 + (ICON_BUTTON + 4) * icons)
 	for &w in widths[1:][:icons] {
 		w = ICON_BUTTON
 	}
 	title_row(ui, widths[:1 + icons])
 	switch v.status {
 	case .Connected:
-		me := v.my_name if v.my_name != "" else v.login.username
 		server := v.server_name if v.server_name != "" else v.server
-		mu.label(ctx, fmt.tprintf("Connected to %s as %s", server, me))
+		opts := mu.Options{.ALIGN_CENTER}
+		mu.draw_control_text(ctx, fmt.tprintf("%s", server), mu.layout_next(ctx), .TEXT, opts)
+
 	case .Connecting, .Disconnected, .Failed:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
 	}
