@@ -3,6 +3,7 @@ package conn
 
 import log "common:wlog"
 import "core:strings"
+import "core:time"
 
 /*
 A WebSocket to the relay, which puts the packets back on a UDP socket
@@ -38,9 +39,14 @@ foreign _ {
 }
 
 Transport :: struct {
-	open: bool,
-	slot: i32,
+	open:     bool,
+	slot:     i32,
+	url:      string, // owned; what transport_revive opens again
+	retry_at: time.Tick,
 }
+
+// How long to wait before opening a socket that has died again.
+REVIVE_AFTER :: 2 * time.Second
 
 /*
 transport_open turns the address the user typed into a URL for the
@@ -57,6 +63,8 @@ transport_open :: proc(t: ^Transport, server_addr: string, bulk := false) -> boo
 			context.temp_allocator,
 		)
 	}
+	delete(t.url)
+	t.url = strings.clone(url)
 	if yap_ws_open(t.slot, strings.clone_to_cstring(url, context.temp_allocator)) == 0 {
 		log.errorf("could not open a WebSocket to %s", url)
 		return false
@@ -73,6 +81,27 @@ transport_close :: proc(t: ^Transport) {
 		yap_ws_close(t.slot)
 		t.open = false
 	}
+	delete(t.url)
+	t.url = ""
+}
+
+/*
+transport_revive opens the socket again once it has died - the server
+went away, or the network did - which a UDP socket never needs: there the
+packets just stop arriving. Without it the page would sit behind a closed
+socket for good. It tries again every REVIVE_AFTER for as long as the
+connection lasts; client_step gives up on it when that's too long.
+*/
+transport_revive :: proc(t: ^Transport) {
+	if !t.open || yap_ws_state(t.slot) != -1 {
+		return
+	}
+	if t.retry_at != {} && time.tick_diff(time.tick_now(), t.retry_at) > 0 {
+		return
+	}
+	t.retry_at = time.tick_add(time.tick_now(), REVIVE_AFTER)
+	log.debugf("the WebSocket on slot %d is closed, opening it again", t.slot)
+	yap_ws_open(t.slot, strings.clone_to_cstring(t.url, context.temp_allocator))
 }
 
 transport_send :: proc(t: ^Transport, packet: []byte) -> bool {

@@ -89,10 +89,10 @@ test_connection_quality :: proc(t: ^testing.T) {
 		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Good)
 	}
 	{
-		// A few scattered losses make it fair.
+		// Several scattered losses make it fair.
 		p: Ping_Tracker
 		rtts := good
-		rtts[10], rtts[20], rtts[30] = -1, -1, -1
+		rtts[5], rtts[15], rtts[25], rtts[35], rtts[45], rtts[55] = -1, -1, -1, -1, -1, -1
 		fill(&p, now, rtts[:])
 		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Fair)
 	}
@@ -104,17 +104,19 @@ test_connection_quality :: proc(t: ^testing.T) {
 	}
 	{
 		p: Ping_Tracker
-		fill(&p, now, {300 * MS, 400 * MS})
+		fill(&p, now, {500 * MS, 600 * MS})
 		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Poor)
 	}
 	{
-		// The latest few lost in a row is poor straight away.
+		// The latest several lost in a row is poor straight away.
 		p: Ping_Tracker
 		rtts := good
-		rtts[PING_WINDOW - 1], rtts[PING_WINDOW - 2], rtts[PING_WINDOW - 3] = -1, -1, -1
+		for i in 1 ..= LOST_IN_A_ROW {
+				rtts[PING_WINDOW - i] = -1
+			}
 		fill(&p, now, rtts[:])
 		s := connection_stats(&p, now)
-		testing.expect_value(t, s.lost_run, 3)
+		testing.expect_value(t, s.lost_run, LOST_IN_A_ROW)
 		testing.expect_value(t, s.quality, Connection_Quality.Poor)
 	}
 }

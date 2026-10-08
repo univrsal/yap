@@ -57,6 +57,10 @@ transport_send :: proc(t: ^Transport, packet: []byte) -> bool {
 	return true
 }
 
+// transport_revive has nothing to do for a UDP socket, which doesn't
+// die with the server.
+transport_revive :: proc(t: ^Transport) {}
+
 // transport_backlog is how much is waiting to go out. A UDP socket
 // sends or drops at once, so nothing ever waits.
 transport_backlog :: proc(t: ^Transport) -> int {

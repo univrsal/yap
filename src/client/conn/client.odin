@@ -84,6 +84,9 @@ Voice_Client :: struct {
 
 	// Per-second stats, keyed by speaker id.
 	last_stats:    time.Tick,
+	// When client_step last ran, to tell the loop from the computer
+	// having slept.
+	last_step:     time.Tick,
 }
 
 // client_open loads our key and opens the transport. It doesn't wait
@@ -118,6 +121,8 @@ client_open :: proc(
 		return false
 	}
 	c.last_stats = time.tick_now()
+	c.last_recv = time.tick_now()
+	c.last_step = c.last_recv
 	return true
 }
 
@@ -161,6 +166,10 @@ client_close :: proc(c: ^Voice_Client) {
 client_step :: proc(c: ^Voice_Client) -> bool {
 	free_all(context.temp_allocator)
 
+	if !check_alive(c) {
+		return false
+	}
+	transport_revive(&c.transport)
 	drive_handshake(c)
 	process_commands(c)
 	drive_sound(c)
@@ -194,6 +203,32 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 
 	log_stats(c)
 	return true
+}
+
+/*
+check_alive gives up on the server once nothing has come from it for
+CONNECTION_LOST: it's not coming back soon, and the user is better told
+than left looking at a connection that never recovers. Handshaking again
+(drive_handshake) carries on until then, so a server that restarts
+meanwhile is picked up without anyone noticing.
+*/
+CONNECTION_LOST :: 30 * time.Second
+// A loop that didn't run for this long means the computer was asleep (or
+// the tab was in the background): the silence isn't the server's doing.
+LOOP_STALLED :: 5 * time.Second
+
+check_alive :: proc(c: ^Voice_Client) -> bool {
+	now := time.tick_now()
+	if time.tick_diff(c.last_step, now) > LOOP_STALLED {
+		c.last_recv = now
+	}
+	c.last_step = now
+	if time.tick_diff(c.last_recv, now) <= CONNECTION_LOST {
+		return true
+	}
+	log.warnf("nothing from %s for %v, giving up", c.server_addr, CONNECTION_LOST)
+	publish_status(c, .Failed, fmt.tprintf("Lost the connection to %s.", c.server_addr))
+	return false
 }
 
 // drive_handshake starts a handshake when there's no usable session, the

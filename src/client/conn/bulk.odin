@@ -56,6 +56,7 @@ bulk_step :: proc(c: ^Voice_Client) {
 			return
 		}
 	}
+	transport_revive(&b.transport)
 	bulk_handshake(c)
 	if b.has_current && time.tick_since(b.last_ping) >= BULK_PING {
 		buf: [proto.PING_SIZE]u8

@@ -16,23 +16,24 @@ anyway. Pings younger than that are still out and aren't counted either
 way.
 
 The bars go by the worse of latency and loss (connection_quality).
-Loss is judged over the whole window, so one lost ping doesn't turn the
-bars yellow, but a few in a row do straight away: that's the connection
-going, not noise.
+Loss is judged over the whole window, so a hiccup doesn't turn the bars
+yellow, but several pings in a row going unanswered (a few seconds of
+silence) does: that's the connection going, not noise. Past that,
+client_step gives up on the connection altogether (CONNECTION_LOST).
 */
 
 PING_INTERVAL :: 500 * time.Millisecond
 PING_WINDOW :: 60 // 30 seconds' worth
-PING_TIMEOUT :: 2 * time.Second
+PING_TIMEOUT :: 3 * time.Second
 
 // Where the bars change colour.
-GOOD_RTT :: 100 * time.Millisecond
-FAIR_RTT :: 250 * time.Millisecond
-GOOD_LOSS :: 2 // percent
-FAIR_LOSS :: 10
+GOOD_RTT :: 150 * time.Millisecond
+FAIR_RTT :: 400 * time.Millisecond
+GOOD_LOSS :: 5 // percent
+FAIR_LOSS :: 20
 // This many unanswered pings in a row is a poor connection, whatever
 // the rest of the window says.
-LOST_IN_A_ROW :: 3
+LOST_IN_A_ROW :: 6
 
 Ping_Record :: struct {
 	id:       u32,
