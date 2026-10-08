@@ -46,6 +46,7 @@ CreateStandardCursor :: glfw.CreateStandardCursor
 SetCursor :: glfw.SetCursor
 RequestWindowAttention :: glfw.RequestWindowAttention
 RestoreWindow :: glfw.RestoreWindow
+FocusWindow :: glfw.FocusWindow
 SetWindowTitle :: glfw.SetWindowTitle
 GetPlatform :: glfw.GetPlatform
 GetPrimaryMonitor :: glfw.GetPrimaryMonitor
@@ -116,6 +117,11 @@ KEY_X :: glfw.KEY_X
 // WindowFocused is whether the window has the keyboard's focus.
 WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {
 	return glfw.GetWindowAttrib(window, glfw.FOCUSED) != 0
+}
+
+// WindowIconified is whether the window is minimized.
+WindowIconified :: proc "contextless" (window: WindowHandle) -> bool {
+	return glfw.GetWindowAttrib(window, glfw.ICONIFIED) != 0
 }
 
 // Wayland only, and only on a desktop: the clipboard needs GLFW's own

@@ -15,8 +15,9 @@ Channels in the UI (conn/convs.odin is the network's end of it).
   - The list down the left of the session screen: the channels we're
     subscribed to, the home channel first, with how many messages are
     unread in each (dimmer for a muted one). Clicking one shows its chat
-    and does nothing else. Under each are the people in its voice room,
-    as they always were.
+    and does nothing else; right-clicking one opens its menu (how much
+    it may interrupt, its settings, leaving it). Under each are the
+    people in its voice room, as they always were.
   - The line above the chat: which channel it is, and the button that
     joins or leaves its voice room. Looking at a channel and talking in
     it are two things, and that button is the only place they meet.
@@ -47,7 +48,16 @@ UI_Channels :: struct {
 	find_buf:    [proto.MAX_BROWSE_QUERY]u8,
 	find_len:    int,
 	find_asked:  string,
+	// The channel whose menu is open (channel_menu), and that it was
+	// right-clicked this frame.
+	menu_conv:   proto.Conv_Id,
+	menu_asked:  bool,
 }
+
+@(private = "file")
+CHANNEL_MENU :: "channel menu"
+@(private = "file")
+CHANNEL_MENU_WIDTH :: 200
 
 @(private = "file")
 CHANNELS_WINDOW :: "Channels"
@@ -127,6 +137,9 @@ channel_list :: proc(ui: ^UI) {
 		}
 		clicked := .SUBMIT in stable_button(ctx, "view", label)
 		ctx.style.colors[.TEXT] = saved
+		if ctx.hover_id == mu.get_id(ctx, "view") && .RIGHT in ctx.mouse_pressed_bits {
+			ui.channels.menu_conv, ui.channels.menu_asked = ch.id, true
+		}
 		if ch.unread > 0 {
 			w := unread_badge(ctx, ctx.last_rect, ch.unread, ch.notify == .None)
 			if ch.mentions > 0 {
@@ -299,6 +312,67 @@ NOTIFY_LABELS := [proto.Notify_Level]string {
 	.All      = "Notify: all",
 	.Mentions = "Mentions only",
 	.None     = "Muted",
+}
+
+/*
+channel_menu is a channel's menu, opened by right-clicking it in the
+list: how much it may interrupt (clicked round, as in the Channels
+window), its settings for who may change them, and leaving it. Drawn
+after the list, with the View locked.
+*/
+channel_menu :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	c := &ui.channels
+	if c.menu_asked {
+		c.menu_asked = false
+		mu.open_popup(ctx, CHANNEL_MENU)
+	}
+	if cnt := mu.get_container(ctx, CHANNEL_MENU, {.CLOSED}); cnt != nil && cnt.open {
+		w, h := i32(ui.metrics.logical_w), i32(ui.metrics.logical_h)
+		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
+		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
+	}
+	if !mu.begin_popup(ctx, CHANNEL_MENU) {
+		return
+	}
+	defer mu.end_popup(ctx)
+	close :: proc(ctx: ^mu.Context) {
+		mu.get_current_container(ctx).open = false
+	}
+	v := ui.view
+	ch: ^conn.View_Channel
+	for &each in v.channels {
+		if each.id == c.menu_conv {
+			ch = &each
+		}
+	}
+	// Left, or gone, under the menu.
+	if ch == nil {
+		close(ctx)
+		return
+	}
+
+	mu.layout_row(ctx, {CHANNEL_MENU_WIDTH})
+	with_text_color(ctx, DIM_COLOR, ch.name, label_proc)
+	if .SUBMIT in
+	   stable_button_hint(
+		   ui,
+		   "notify",
+		   NOTIFY_LABELS[ch.notify],
+		   "How much this channel may interrupt: click to change",
+	   ) {
+		next := proto.Notify_Level((int(ch.notify) + 1) % len(proto.Notify_Level))
+		command(ui, conn.Notify_Command{conv = ch.id, notify = next})
+	}
+	if .Manage_Channels in v.permissions && .SUBMIT in stable_button(ctx, "settings", "Settings...") {
+		open_channels(ui)
+		ui.manage.conv, ui.manage.loaded = ch.id, 0
+		close(ctx)
+	}
+	if !ch.home && .SUBMIT in stable_button(ctx, "unsubscribe", "Unsubscribe") {
+		command(ui, conn.Subscribe_Command{conv = ch.id, on = false})
+		close(ctx)
+	}
 }
 
 // voice_room_name is the channel whose voice room we're in, or "".

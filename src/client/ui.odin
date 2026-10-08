@@ -147,6 +147,9 @@ UI :: struct {
 	// Messages unread on every server, in channels and DMs that aren't
 	// muted: for the window's title and the tray (servers_frame).
 	unread:              int,
+	// Mentions unread on every server, muted channels too, and DMs: the
+	// same, which the title and the tray show before `unread`.
+	mentions:            int,
 	// Voice, or a call ringing, in a server that isn't shown, as of this
 	// frame (ui_voice_panel.odin).
 	voice_other:         Voice_Elsewhere,
@@ -166,8 +169,9 @@ UI :: struct {
 	// waiting on the View lock, so it happens after layout, not during.
 	action:              Action,
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
-	// What the window's title says of unread messages (-1: not set on
-	// this window yet).
+	// What the window's title says of unread messages: the mentions, -1
+	// for "(*)" (something unread but no mention), 0 for neither (see
+	// title_key).
 	title_unread:        int,
 	settings_tab:        Settings_Tab, // which the settings page shows (ui_settings.odin)
 	// For the chat's local timestamps, every server's; nil means UTC
@@ -1573,6 +1577,7 @@ session_screen :: proc(ui: ^UI) {
 		side_panel(ui, narrow)
 	}
 	user_menu(ui)
+	channel_menu(ui)
 	message_menu(ui)
 	app_audio_menu(ui)
 }

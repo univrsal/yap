@@ -58,6 +58,7 @@ Tray_Request :: enum {
 	None,
 	Show_Window,
 	Toggle_Window,
+	Focus_Window, // a notification was clicked
 	Disconnect,
 	Quit,
 }
@@ -122,6 +123,8 @@ tray_update :: proc(ui: ^UI) {
 	case .None:
 	case .Show_Window:
 		show_from_tray(ui)
+	case .Focus_Window:
+		focus_window(ui)
 	case .Toggle_Window:
 		if ui.hidden {
 			show_from_tray(ui)
@@ -248,6 +251,33 @@ show_from_tray :: proc(ui: ^UI) {
 	log.debug("back from the tray")
 }
 
+/*
+focus_window brings the window to the front for a notification that was
+clicked: back from the tray, up from being minimized, and given the
+focus. Wayland won't let a window take the focus, and Windows may only
+flash its button on the taskbar instead; either way it asks for
+attention.
+*/
+@(private = "file")
+focus_window :: proc(ui: ^UI) {
+	if ui.hidden {
+		show_from_tray(ui)
+		return
+	}
+	if ui.window == nil {
+		return
+	}
+	if glfw.WindowIconified(ui.window) {
+		glfw.RestoreWindow(ui.window)
+	}
+	if on_wayland() {
+		glfw.RequestWindowAttention(ui.window)
+	} else {
+		glfw.FocusWindow(ui.window)
+	}
+	log.debug("tray: notification clicked")
+}
+
 @(private = "file")
 tray_menu :: proc(ui: ^UI) {
 	t := &ui.tray
@@ -268,6 +298,13 @@ tray_clicked :: proc "c" (handle: ^tray.Tray, userdata: rawptr) {
 	ui.tray.request = .Show_Window
 }
 
+// A click on a notification, or on one of its buttons (it has none).
+@(private = "file")
+tray_notification_clicked :: proc "c" (handle: ^tray.Tray, action_id: cstring, userdata: rawptr) {
+	ui := (^UI)(userdata)
+	ui.tray.request = .Focus_Window
+}
+
 @(private = "file")
 tray_menu_picked :: proc "c" (handle: ^tray.Tray, item_id: i32, userdata: rawptr) {
 	ui := (^UI)(userdata)
@@ -284,8 +321,9 @@ tray_menu_picked :: proc "c" (handle: ^tray.Tray, item_id: i32, userdata: rawptr
 /*
 tray_notify shows a desktop notification, through the tray icon: traycon
 has the desktop's notification service to hand once there's an icon.
-Called on the UI thread, which is the one traycon runs on. False if
-there's no icon to go through, or the desktop wouldn't take it.
+Called on the UI thread, which is the one traycon runs on. Clicking it
+brings the window up (focus_window). False if there's no icon to go
+through, or the desktop wouldn't take it.
 */
 tray_notify :: proc(ui: ^UI, title, body: string) -> bool {
 	t := &ui.tray
@@ -294,7 +332,7 @@ tray_notify :: proc(ui: ^UI, title, body: string) -> bool {
 	}
 	ctitle := strings.clone_to_cstring(title, context.temp_allocator)
 	cbody := strings.clone_to_cstring(body, context.temp_allocator) if body != "" else nil
-	if tray.notify(t.handle, ctitle, cbody, nil, 0, nil, nil) != 0 {
+	if tray.notify(t.handle, ctitle, cbody, nil, 0, tray_notification_clicked, ui) != 0 {
 		log.warn("tray: the desktop wouldn't show a notification")
 		return false
 	}

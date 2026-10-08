@@ -224,7 +224,7 @@ frames, with no View locked.
 */
 servers_frame :: proc(ui: ^UI) {
 	named := rail_count(ui) > 1
-	total := 0
+	total, mentions := 0, 0
 	for ns in ui.sessions {
 		if ns.joining {
 			continue
@@ -244,14 +244,35 @@ servers_frame :: proc(ui: ^UI) {
 			}
 		}
 		total += ns.unread
+		mentions += ns.mentions
 		session_notices(ui, ns, named)
 	}
-	ui.unread = total
-	if ui.window != nil && ui.unread != ui.title_unread {
-		ui.title_unread = ui.unread
-		title := "Yap" if ui.unread == 0 else fmt.tprintf("(%s) Yap", conn.unread_count(ui.unread))
+	ui.unread, ui.mentions = total, mentions
+	if key := title_key(ui.unread, ui.mentions); ui.window != nil && key != ui.title_unread {
+		ui.title_unread = key
+		title: string
+		switch {
+		case key > 0:
+			title = fmt.tprintf("(%s) Yap", conn.unread_count(key))
+		case key < 0:
+			title = "(*) Yap"
+		case:
+			title = "Yap"
+		}
 		glfw.SetWindowTitle(ui.window, strings.clone_to_cstring(title, context.temp_allocator))
 	}
+}
+
+/*
+title_key is what the window's title says: the number of mentions when
+there are any, -1 for "(*)" when only other messages are unread, 0 when
+nothing is.
+*/
+title_key :: proc(unread, mentions: int) -> int {
+	if mentions > 0 {
+		return mentions
+	}
+	return -1 if unread > 0 else 0
 }
 
 // rail_count is how many servers are on the rail.

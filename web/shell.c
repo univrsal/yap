@@ -404,7 +404,9 @@ EM_JS(int, yap_notify, (const char *title, const char *body), {
 	if (typeof Notification === "undefined") return 0;
 	if (Notification.permission === "granted") {
 		const text = UTF8ToString(body);
-		new Notification(UTF8ToString(title), text ? { body: text } : {});
+		const n = new Notification(UTF8ToString(title), text ? { body: text } : {});
+		// Clicked: back to the tab it came from.
+		n.onclick = () => { window.focus(); n.close(); };
 		return 1;
 	}
 	if (Notification.permission === "default" && !Module.yapAskToNotify) {
