@@ -152,6 +152,10 @@ UI :: struct {
 	menu_account:        proto.Account_Id,
 	menu_volume:         mu.Real,
 	menu_requested:      bool,
+	// Whose message header is being drawn, and where their name is in it
+	// (byte range), so a click on the name opens their menu. 0: none.
+	header_sender:       proto.Account_Id,
+	header_name:         [2]int,
 	// The menu's poke message (ui_users.odin).
 	// The buddy screen (ui_buddies.odin).
 	buddies:             UI_Buddies,

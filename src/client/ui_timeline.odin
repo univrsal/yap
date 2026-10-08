@@ -872,8 +872,16 @@ timeline_message :: proc(
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display
 	}
+	stamp := "" if merged else chat_time(ui, seconds)
+	// Their name opens their menu, unless it's ours.
+	ui.header_sender = 0
+	if !merged && m.sender != v.me {
+		ui.header_sender = m.sender
+		ui.header_name = {len(stamp) + 2, len(stamp) + 2 + len(name)}
+	}
+	defer ui.header_sender = 0
 	header :=
-		"" if merged else fmt.tprintf("%s  %s%s%s%s", chat_time(ui, seconds), name, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
+		"" if merged else fmt.tprintf("%s  %s%s%s%s", stamp, name, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
 	header_color := author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
@@ -883,7 +891,14 @@ timeline_message :: proc(
 		y := layout.body.y + layout.next_row + (MERGED_GAP if tight else ctx.style.spacing)
 		if ui.settings.chat_pictures {
 			size := avatar_size(ctx)
-			avatar(ui, m.sender, {layout.body.x + indent, y, size, size})
+			pic := mu.Rect{layout.body.x + indent, y, size, size}
+			avatar(ui, m.sender, pic)
+			if m.sender != v.me && mu.mouse_over(ctx, pic) {
+				ui.chat.hovering = true // a hand, as over a link
+				if clicked_not_dragged(ui) {
+					open_user_menu(ui, 0, m.sender)
+				}
+			}
 		} else {
 			activity_dot_alone(
 				ui,

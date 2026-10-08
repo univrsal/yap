@@ -739,6 +739,30 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 	select_item(ui, item, header)
 	select_line(ui, item, header, 0, len(header), {r.x, r.y})
 	mu.draw_text(ctx, ctx.style.font, header, {r.x, r.y}, color)
+	if ui.header_sender != 0 {
+		font := ctx.style.font
+		lo, hi := ui.header_name[0], ui.header_name[1]
+		x := r.x + ctx.text_width(font, header[:lo])
+		hit := mu.Rect{x, r.y, ctx.text_width(font, header[lo:hi]), r.h}
+		if mu.mouse_over(ctx, hit) {
+			ui.chat.hovering = true // a hand, as over a link
+			if clicked_not_dragged(ui) {
+				open_user_menu(ui, 0, ui.header_sender)
+			}
+		}
+	}
+}
+
+// clicked_not_dragged is whether the left button was released in this
+// panel's text without a press that selected something, as for a link
+// (ui_rich_text.odin).
+clicked_not_dragged :: proc(ui: ^UI) -> bool {
+	return(
+		.LEFT in ui.ctx.mouse_released_bits &&
+		ui.select.dragging &&
+		ui.select.panel == ui.select.drawing &&
+		!has_selection(&ui.select, ui.select.drawing) \
+	)
 }
 
 // wrapped_text is mu.text, except it also breaks words too long for a
