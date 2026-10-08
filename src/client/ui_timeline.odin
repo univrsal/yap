@@ -1286,10 +1286,12 @@ message_mouse :: proc(
 			st.lit, st.lit_mentions = 0, false
 		}
 	}
-	if !readonly && .RIGHT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, block) {
-		open_message_menu(ui, m, st.slot)
+	if !readonly {
+		message_bar_track(ui, st.key.conv, st.slot, m, block)
+		if .RIGHT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, block) {
+			open_message_menu(ui, m, st.slot)
+		}
 	}
-	message_bar_track(ui, st.key.conv, st.slot, m, block)
 }
 
 // day_line is the line above the first message of a day.
