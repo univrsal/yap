@@ -367,6 +367,10 @@ user_menu :: proc(ui: ^UI) {
 	if user_is_screen_sharing {
 		append(&widths, ICON_BUTTON)
 	}
+	can_call := may_call(v, account)
+	if can_call {
+		append(&widths, ICON_BUTTON)
+	}
 	widths[0] = i32(MENU_WIDTH) - ICON_BUTTON * i32(len(widths) - 1)
 	mu.layout_row(ctx, widths[:])
 
@@ -410,6 +414,10 @@ user_menu :: proc(ui: ^UI) {
 		open_conversation(ui, account)
 		mu.get_current_container(ctx).open = false
 	}
+	if can_call && .SUBMIT in icon_button(ui, "call", .Phone, "Call") {
+		call_account(ui, account)
+		mu.get_current_container(ctx).open = false
+	}
 	if .SUBMIT in
 	   icon_button(
 		   ui,
@@ -424,14 +432,6 @@ user_menu :: proc(ui: ^UI) {
 			)
 		}
 		log.debugf("ui: %s %s", name, "is no longer a buddy" if buddy else "is a buddy now")
-	}
-
-	if may_call(v, account) {
-		mu.layout_row(ctx, {MENU_WIDTH})
-		if .SUBMIT in stable_button(ctx, "call", "Call", {.ALIGN_CENTER}) {
-			call_account(ui, account)
-			mu.get_current_container(ctx).open = false
-		}
 	}
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})

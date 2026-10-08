@@ -69,7 +69,4 @@ call_account :: proc(ui: ^UI, account: proto.Account_Id) {
 	}
 }
 
-// Text buttons beside a name (a DM's header).
-CALL_BUTTON :: 60
-
 _ :: mu

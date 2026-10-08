@@ -289,13 +289,13 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	can_hide := entry.conv != 0 && !entry.buddy
 	switch {
 	case entry.conv == 0:
-		mu.layout_row(ctx, {-(CALL_BUTTON + ctx.style.spacing * 2), CALL_BUTTON})
+		mu.layout_row(ctx, {-(ICON_BUTTON + ctx.style.spacing * 2), ICON_BUTTON})
 	case can_hide:
 		mu.layout_row(
 			ctx,
 			{
-				-(CALL_BUTTON + 3 * ICON_BUTTON + ctx.style.spacing * 5),
-				CALL_BUTTON,
+				-(ICON_BUTTON + 3 * ICON_BUTTON + ctx.style.spacing * 5),
+				ICON_BUTTON,
 				ICON_BUTTON,
 				ICON_BUTTON,
 				ICON_BUTTON,
@@ -305,8 +305,8 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		mu.layout_row(
 			ctx,
 			{
-				-(CALL_BUTTON + 2 * ICON_BUTTON + ctx.style.spacing * 4),
-				CALL_BUTTON,
+				-(ICON_BUTTON + 2 * ICON_BUTTON + ctx.style.spacing * 4),
+				ICON_BUTTON,
 				ICON_BUTTON,
 				ICON_BUTTON,
 			},
@@ -319,7 +319,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	)
 	// Calling them, while they're here and we're in no call.
 	if may_call(v, account) {
-		if .SUBMIT in stable_button(ctx, "dm call", "Call", {.ALIGN_CENTER}) {
+		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
 			call_account(ui, account)
 		}
 	} else {

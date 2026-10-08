@@ -48,6 +48,7 @@ Icon :: enum {
 	Eye, // an eye: show a message as it will look (the composer's preview)
 	Reply, // an arrow down and round to the right: reply in a thread
 	Edit, // a pencil: edit a message
+	Phone, // a telephone receiver: call someone
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -207,8 +208,39 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return hooked_arrow(p)
 	case .Edit:
 		return pencil(p)
+	case .Phone:
+		return receiver(p)
 	}
 	return 1
+}
+
+// A telephone receiver, earpiece at the top right and mouthpiece at the
+// bottom left: a thick quarter of a ring bulging to the bottom right, and
+// at each end a pad turned in towards the middle, blended into the handle
+// so the three read as one piece.
+@(private = "file")
+receiver :: proc(p: Point) -> f32 {
+	// Drawn bulging to the bottom left, then mirrored.
+	q := Point{1 - p.x, p.y}
+	CENTRE :: Point{0.70, 0.30}
+	RADIUS :: 0.48
+	BLEND :: 0.07
+	handle := arc(q, CENTRE, RADIUS, 0.11, .Bottom, CENTRE.y)
+	handle = max(handle, q.x - CENTRE.x)
+	// The pads sit on the ends, reaching a little past them along the
+	// handle and in towards the middle.
+	ear := rounded_box(q, {CENTRE.x - RADIUS + 0.04, CENTRE.y - 0.04}, {0.12, 0.09}, 0.07)
+	mouth := rounded_box(q, {CENTRE.x + 0.04, CENTRE.y + RADIUS - 0.04}, {0.09, 0.12}, 0.07)
+	d := blend(handle, ear, BLEND)
+	return blend(d, mouth, BLEND)
+}
+
+// blend joins two shapes like nearer, but rounds off the corners where they
+// meet, so they run into each other.
+@(private = "file")
+blend :: proc(a, b, k: f32) -> f32 {
+	h := clamp(0.5 + 0.5 * (b - a) / k, 0, 1)
+	return math.lerp(b, a, h) - k * h * (1 - h)
 }
 
 // A monitor: the outline of a screen on a short stand.
