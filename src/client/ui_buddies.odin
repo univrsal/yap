@@ -88,7 +88,7 @@ buddies_button :: proc(ui: ^UI) {
 		hint = fmt.tprintf("Buddies (%s unread)", conn.unread_count(unread))
 		color = SPEAKING_COLOR
 	}
-	if .SUBMIT in icon_button(ui, "buddies", .Buddies, hint, color) {
+	if .SUBMIT in icon_button(ui, "buddies", .Mail, hint, color) {
 		ui.page = .Main if open else .Buddies
 		ui.buddies.seen_asked = {} // ask afresh when it opens
 	}

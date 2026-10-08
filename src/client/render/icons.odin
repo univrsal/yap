@@ -49,6 +49,7 @@ Icon :: enum {
 	Reply, // an arrow down and round to the right: reply in a thread
 	Edit, // a pencil: edit a message
 	Phone, // a telephone receiver: call someone
+	Mail, // a closed envelope: for direct messages
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -210,6 +211,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return pencil(p)
 	case .Phone:
 		return receiver(p)
+	case .Mail:
+		return mail_letter(p)
 	}
 	return 1
 }
@@ -241,6 +244,17 @@ receiver :: proc(p: Point) -> f32 {
 blend :: proc(a, b, k: f32) -> f32 {
 	h := clamp(0.5 + 0.5 * (b - a) / k, 0, 1)
 	return math.lerp(b, a, h) - k * h * (1 - h)
+}
+
+@(private = "file")
+mail_letter :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	OFFSET :: 0.02
+	d := abs(rounded_box(p, {0.5, 0.5}, {0.45, 0.34}, 0.06)) - STROKE / 2
+	d = nearer(d, triangle(p, {0.05, 0.16}, {0.95, 0.16}, {0.50, 0.65}))
+	d = nearer(d, capsule(p, {0.5, 0.4}, {0.95 - OFFSET, 0.84 - OFFSET}, STROKE * .75))
+	d = nearer(d, capsule(p, {0.05 + OFFSET, 0.84 - OFFSET}, {0.5, 0.4}, STROKE * .75))
+	return d
 }
 
 // A monitor: the outline of a screen on a short stand.
