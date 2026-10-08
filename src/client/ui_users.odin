@@ -137,7 +137,7 @@ entirely, so it's marked at the other end of the row instead.
 */
 member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 
 	pic := ctx.text_height(ctx.style.font) + 2
 	mu.layout_row(ctx, {render.ICON_SIZE + 4, pic + 4, -1})
@@ -272,7 +272,7 @@ the View locked, inside the menu.
 @(private = "file")
 user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	PICTURE :: 44
 	line := ctx.text_height(ctx.style.font)
 	mu.layout_row(ctx, {PICTURE, -1}, PICTURE)
@@ -329,7 +329,7 @@ user_menu :: proc(ui: ^UI) {
 	}
 	defer mu.end_popup(ctx)
 
-	v := &ui.view
+	v := ui.view
 	account := ui.menu_account
 	u := settings.user_settings(&ui.settings, v.server_key, account)
 	changed := false
@@ -477,7 +477,7 @@ user_menu :: proc(ui: ^UI) {
 // server, once the handshake has said which server that is. Call with
 // the View locked.
 apply_gains :: proc(ui: ^UI) {
-	v := &ui.view
+	v := ui.view
 	if ui.session == nil || v.server_key == {} || ui.gains_for == v.server_key {
 		return
 	}

@@ -1,6 +1,7 @@
 package conn
 
 import log "common:wlog"
+import "core:sync"
 import "core:time"
 
 import "common:proto"
@@ -55,6 +56,9 @@ Video_Client :: struct {
 	last_key_asked: time.Tick,
 	assembler:      ^proto.Video_Assembler, // while watching
 
+	// This connection is the one whose voice the page's screen goes to
+	// (set by the UI, which has several; atomic). Only it shares.
+	share_here:     bool,
 	// Bytes sent and received since log_stats last looked.
 	bytes_out:      int,
 	bytes_in:       int,
@@ -84,7 +88,7 @@ video_destroy :: proc(c: ^Voice_Client) {
 video_step :: proc(c: ^Voice_Client) {
 	v := &c.video
 
-	if live := video_capture_live(); live != v.sharing {
+	if live := video_capture_live() && sync.atomic_load(&v.share_here); live != v.sharing {
 		v.sharing = live
 		set_sound(c, .Sharing, live)
 		video_clear_queue(v)

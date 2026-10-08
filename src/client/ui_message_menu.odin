@@ -91,7 +91,7 @@ Call with the View locked, where user_menu is called.
 */
 message_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	mm := &ui.msg_menu
 	if mm.requested {
 		mm.requested = false
@@ -246,7 +246,7 @@ the View locked.
 */
 composer_keys :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	if c.editing^ != 0 && c.conv^ != v.viewing {
 		c.editing^ = 0
 		c.len^ = 0

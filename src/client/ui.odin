@@ -11,6 +11,7 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
+import "core:time/datetime"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
@@ -59,7 +60,26 @@ Net_Session :: struct {
 	password:      string,
 	known_servers: string,
 	channel:       string, // to look at and talk in from the start, if any
-	view:          string, // or else the channel to look at
+	look_at:       string, // or else the channel to look at
+	// What the connection says, for the UI (the client's View), and what
+	// the UI keeps of this server while another is shown (ui_servers.odin).
+	view:          conn.View,
+	stash:         Server_UI,
+	// Which WebSockets are this session's in a web build: slot and
+	// slot + 1 (conn/transport_web.odin).
+	slot:          i32,
+	// Whether it was last told whoever uses this is idle (ui_activity.odin).
+	idle_told:     bool,
+	// Being joined from the + dialog (ui_join.odin): off the rail, and
+	// not in the settings, until it's logged in.
+	joining:       bool,
+	// Messages unread there, and how many of them are for us (mentions
+	// and DMs), as of this frame: for the rail (servers_frame).
+	unread:        int,
+	mentions:      int,
+	// The call coming in there last told of on the desktop, so it's told
+	// once (session_notices).
+	call_announced: proto.Call_Id,
 
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
@@ -96,8 +116,10 @@ Page :: enum {
 @(private = "file")
 Action :: enum {
 	None,
+	Start, // connect to every joined server, on the first frame
 	Connect,
 	Disconnect,
+	Close, // the tray's Disconnect: off the rail for now, still joined
 	Trust_Key, // the connect screen's "trust the new key" (ui_known_servers.odin)
 }
 
@@ -111,33 +133,47 @@ UI :: struct {
 	server_len:          int,
 	password_buf:        [proto.MAX_PASSWORD_SIZE]u8,
 	password_len:        int,
-	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
-	// What our account is called, as it's being edited in the settings.
-	name_buf:            [2 * proto.MAX_NAME_SIZE]u8,
-	name_len:            int,
-	view:                conn.View,
+	// What the shown server's connection says (its session's View), or
+	// with none, `no_view`, which says nothing is connected.
+	view:                ^conn.View,
+	no_view:             conn.View,
 	session:             ^Net_Session,
+	// Every connection, in the rail's order (ui_servers.odin); `session`
+	// is one of them, or nil with none. The one being joined from the +
+	// dialog is among them too, though not on the rail (ui_join.odin).
+	sessions:            [dynamic]^Net_Session,
+	join:                UI_Join,
+	rail:                UI_Rail, // its menu, and dragging (ui_servers.odin)
+	// Messages unread on every server, in channels and DMs that aren't
+	// muted: for the window's title and the tray (servers_frame).
+	unread:              int,
+	// Voice, or a call ringing, in a server that isn't shown, as of this
+	// frame (ui_voice_panel.odin).
+	voice_other:         Voice_Elsewhere,
+	// What the UI keeps of the shown server, which each session keeps
+	// while it isn't shown (Net_Session.stash; ui_servers.odin).
+	using srv:           Server_UI,
+	// Sessions off the rail whose goodbye sound is still playing out
+	// (disconnect_tail_step).
+	closing:             [dynamic]^Net_Session,
+	// The session in voice, as of this frame (session_capture_update).
+	voice_at:            ^Net_Session,
+	// The rail was clicked: which session to show after the frame. See
+	// switch_now.
+	switch_to:           ^Net_Session,
+	switching:           bool,
 	// Connecting/disconnecting waits on the network thread, which may be
 	// waiting on the View lock, so it happens after layout, not during.
 	action:              Action,
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
-	account:             UI_Account, // logging in, and the account's settings (ui_account.odin)
-	invites:             UI_Invites, // invite codes in the settings (ui_invites.odin)
-	// When the code accounts registered with was last asked for
-	// (invited_by_line).
-	invites_asked:       map[proto.Account_Id]time.Tick,
-	channels:            UI_Channels, // the channel list and the Channels window (ui_channels.odin)
-	timeline:            UI_Timeline, // the messages on screen (ui_timeline.odin)
-	// Messages unread in channels that aren't muted, and what the window's
-	// title says (-1: not set on this window yet).
-	unread:              int,
+	// What the window's title says of unread messages (-1: not set on
+	// this window yet).
 	title_unread:        int,
-	chat:                UI_Chat, // the chat tab (ui_chat.odin)
 	settings_tab:        Settings_Tab, // which the settings page shows (ui_settings.odin)
-	reactors_asked:      Reactors_Asked, // who reacted, last asked for (ui_timeline.odin)
+	// For the chat's local timestamps, every server's; nil means UTC
+	// (ui_chat_time_native.odin).
+	chat_tz:             ^datetime.TZ_Region,
 	activity:            UI_Activity, // whether whoever uses this is idle (ui_activity.odin)
-	forward:             UI_Forward, // forwarding, and links to messages (ui_forward.odin)
-	search:              UI_Search, // searching messages (ui_search.odin)
 	video:               UI_Video, // screen sharing (ui_video.odin)
 	app_audio:           UI_App_Audio, // sharing an application's audio (ui_app_audio_native.odin)
 	muted:               bool,
@@ -146,21 +182,10 @@ UI :: struct {
 	// put it back rather than always unmuting (see set_deafened).
 	muted_before_deafen: bool,
 
-	// The user whose menu is open, and its volume slider's value (the
-	// slider needs a stable address). See user_menu.
-	menu_user:           proto.User_Num, // the connection clicked, if one was
-	menu_account:        proto.Account_Id,
-	menu_volume:         mu.Real,
-	menu_requested:      bool,
 	// Whose message header is being drawn, and where their name is in it
 	// (byte range), so a click on the name opens their menu. 0: none.
 	header_sender:       proto.Account_Id,
 	header_name:         [2]int,
-	// The menu's poke message (ui_users.odin).
-	// The buddy screen (ui_buddies.odin).
-	buddies:             UI_Buddies,
-	poke_buf:            [proto.MAX_POKE_SIZE]u8,
-	poke_len:            int,
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
 	monitor:             Mic_Monitor,
 	listen_back:         bool,
@@ -186,39 +211,16 @@ UI :: struct {
 	focus_composer:      bool,
 	focus_composer_at:   int,
 	focus_thread:        int, // which composer: Composer.thread
-	// The thread windows (ui_threads.odin), by slot, and how many
-	// threads have been opened, for which was opened first; and whether
-	// the last frame was laid out narrow, when an open thread takes the
-	// conversation's place instead of floating.
-	threads:             [conn.MAX_THREADS]UI_Thread,
-	// People's pictures (ui_avatars.odin), and statuses, members and
-	// settings on the server (ui_profiles.odin).
+	// People's pictures (ui_avatars.odin).
 	avatars:             UI_Avatars,
-	profiles:            UI_Profiles,
-	// Managing the server, for who may (ui_manage.odin), calls
-	// (ui_calls.odin), and the voice panel (ui_voice_panel.odin).
-	manage:              UI_Manage,
-	roles:               UI_Roles, // the Roles window (ui_roles.odin)
-	calls:               UI_Calls,
-	voice_panel:         UI_Voice_Panel,
-	threads_opened:      u64,
+	// The last frame was laid out narrow, when an open thread takes the
+	// conversation's place instead of floating (ui_threads.odin).
 	narrow:              bool,
-	// Completing a mention in a composer (ui_completion.odin).
-	completion:          UI_Completion,
-	// The emoji picker (ui_picker.odin).
-	picker:              UI_Picker,
-	// The pinned messages' window (ui_pins.odin), and the menu of a
-	// message (ui_message_menu.odin).
-	pins:                UI_Pins,
-	msg_menu:            UI_Message_Menu,
 	// The bar over the message under the pointer (ui_message_bar.odin),
 	// and whether this frame is a touch screen's tap (ui_touch_web.odin),
 	// which shows a message's bar there.
 	msg_bar:             UI_Message_Bar,
 	touch_tap:           bool,
-	// The server whose per-user volumes the session has been given
-	// (apply_gains).
-	gains_for:           [proto.KEY_SIZE]u8,
 	settings_saved:      time.Tick,
 	page:                Page,
 	settings:            settings.Settings,
@@ -266,8 +268,6 @@ UI :: struct {
 	// Files dropped on the window since the last frame, to attach
 	// (ui_files_*.odin); owned.
 	dropped:             [dynamic]string,
-	// Pictures messages carry, asked for to be shown, and when.
-	previews_asked:      map[proto.Blob_Id]time.Tick,
 	// What the icon button under the pointer does, and where it is, for
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
@@ -335,7 +335,8 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	g_logger = context.logger
 	ui.opts = opts
 	ui.log_drawn = -1
-	conn.view_init(&ui.view)
+	ui.view = &ui.no_view
+	conn.view_init(ui.view)
 	ui.view.wake = ui_wake
 	ui_chat_init(ui)
 
@@ -351,14 +352,6 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui.ui_scale_draft = settings.ui_scale_factor(&ui.settings) * 100
 	ui.chat_scale_draft = settings.chat_scale_factor(&ui.settings) * 100
 	image_cache_start(ui)
-	initial := opts.server if opts.server != "" else ui.settings.server
-	ui.server_len = copy(ui.server_buf[:], initial)
-	password := opts.password
-	if password == "" {
-		password = settings.recent_password(&ui.settings, initial)
-	}
-	ui.password_len = copy(ui.password_buf[:], password)
-	ui.account.username_len = copy(ui.account.username_buf[:], ui.settings.username)
 
 	// Audio problems shouldn't keep the rest of the client from working;
 	// the settings page shows what went wrong.
@@ -383,9 +376,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui.ctx.text_height = render.ui_text_height
 	ui.input_scale = 1
 
-	if opts.server != "" {
-		ui.action = .Connect
-	}
+	ui.action = .Start
 	return true
 }
 
@@ -427,14 +418,21 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	}
 	switch ui.action {
 	case .None:
+	case .Start:
+		connect_joined(ui)
 	case .Connect:
 		connect(ui)
 	case .Disconnect:
-		disconnect(ui, true)
+		disconnect(ui, ui.session, true)
+	case .Close:
+		disconnect(ui, ui.session, true, leave = false)
 	case .Trust_Key:
 		trust_new_key(ui)
 	}
 	ui.action = .None
+	join_frame(ui)
+	rail_frame(ui)
+	switch_now(ui)
 	disconnect_tail_step(ui)
 
 	// Wake up for input, or often enough for the work below that isn't
@@ -464,7 +462,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	monitor_update(ui)
 	session_capture_update(ui)
 	app_audio_frame(ui)
-	show_pokes(ui)
+	servers_frame(ui)
 	// Before the tray, so it shows what a hotkey just did, and before
 	// giving up for a hidden window, since they work without one.
 	hotkeys_frame(ui)
@@ -543,6 +541,7 @@ draw_frame :: proc(ui: ^UI) {
 	// The chat's text size, for measuring this frame and drawing it.
 	render.set_chat_zoom(&ui.renderer, settings.chat_scale_factor(&ui.settings))
 	activity_input(ui)
+	voice_elsewhere_update(ui)
 	mu.begin(&ui.ctx)
 	ui.meter_shown = false // until gate_settings draws it again
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
@@ -660,7 +659,7 @@ frame_due :: proc(ui: ^UI) -> bool {
 @(private = "file")
 clock_redraws :: proc(ui: ^UI) {
 	{
-		v := &ui.view
+		v := ui.view
 		sync.guard(&v.mutex)
 		if t := conn.speaking_until(v); t != {} {
 			ui_redraw_at(ui, t)
@@ -694,7 +693,9 @@ settle :: proc(ui: ^UI) {
 
 // ui_shutdown takes everything down in the order it went up.
 ui_shutdown :: proc(ui: ^UI) {
-	disconnect(ui)
+	disconnect_all(ui)
+	delete(ui.sessions)
+	delete(ui.closing)
 	hotkeys_stop(ui)
 	tray_hide(ui)
 	monitor_stop(ui)
@@ -711,24 +712,12 @@ ui_shutdown :: proc(ui: ^UI) {
 	// has to be done before that.
 	paste_wait(ui)
 	file_pick_wait(ui)
-	avatar_pick_wait(ui)
-	ui_profiles_destroy(ui)
-	ui_manage_destroy(ui)
-	ui_roles_destroy(ui)
-	delete(ui.invites_asked)
-	delete(ui.account.verify_loaded)
+	// What the UI kept of each server went with its session
+	// (disconnect_all).
 	for path in ui.dropped {
 		delete(path)
 	}
 	delete(ui.dropped)
-	delete(ui.previews_asked)
-	picked_files_destroy(&ui.chat.files)
-	picked_files_destroy(&ui.buddies.files)
-	for &t in ui.threads {
-		picked_files_destroy(&t.files)
-	}
-	delete(ui.reactors_asked.emoji)
-	delete(ui.channels.find_asked)
 	clipboard.destroy()
 	activity_close(ui)
 	window_close(ui)
@@ -739,7 +728,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	install_destroy(ui)
 	ui_chat_destroy(ui)
 	ui_select_destroy(ui)
-	conn.view_destroy(&ui.view)
+	conn.view_destroy(ui.view)
 }
 
 /*
@@ -975,9 +964,37 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 	return
 }
 
+/*
+connect_joined connects to every joined server at start, in the rail's
+order, and shows the first; or, with a server given when the client was
+started, joins that one (if it isn't joined yet) and shows it, looking
+at the channel given with it.
+*/
+@(private = "file")
+connect_joined :: proc(ui: ^UI) {
+	first := conn.with_default_port(ui.opts.server)
+	if first != "" {
+		password := ui.opts.password
+		if password == "" {
+			password = settings.joined_password(&ui.settings, first)
+		}
+		settings.join_server(&ui.settings, first, password)
+		save_settings(ui)
+	} else if len(ui.settings.joined_servers) > 0 {
+		first = ui.settings.joined_servers[0].address
+	}
+	for r in ui.settings.joined_servers {
+		this := r.address == first
+		connect_to(ui, r.address, r.password, ui.opts.channel if this else "", show = this)
+	}
+}
+
+/*
+connect connects again to the server on the connect screen: a server on
+the rail that isn't connected, perhaps with another password now. The
+connection takes the old one's place.
+*/
 connect :: proc(ui: ^UI) {
-	disconnect(ui)
-	monitor_stop(ui) // the connection opens the microphone itself
 	server := conn.with_default_port(string(ui.server_buf[:ui.server_len]))
 	if server == "" {
 		return
@@ -986,22 +1003,83 @@ connect :: proc(ui: ^UI) {
 	ui.server_len = copy(ui.server_buf[:], server)
 	// Taken as typed: spaces may well be part of a password.
 	password := string(ui.password_buf[:ui.password_len])
-	settings.set_setting(&ui.settings.server, server)
-	settings.remember_recent_server(&ui.settings, server, password)
+	settings.join_server(&ui.settings, server, password)
 	save_settings(ui)
+	connect_to(ui, server, password)
+}
 
+/*
+connect_to connects to a server: a new session at the end of the rail,
+or, for a server that has one already (failed, say, or with a key just
+trusted), a new one in its place, which goes on with what the UI had of
+it. With `show`, it's shown.
+*/
+connect_to :: proc(
+	ui: ^UI,
+	server, password: string,
+	channel := "",
+	show := true,
+) -> ^Net_Session {
+	monitor_stop(ui) // the connection opens the microphone itself
+	ns := session_new(ui, server, password, channel)
+	old_index := -1
+	for other, i in ui.sessions {
+		if other.server == server && !other.joining {
+			old_index = i
+		}
+	}
+	if old_index >= 0 {
+		old := ui.sessions[old_index]
+		ui.sessions[old_index] = ns
+		if old == ui.session {
+			ui.session, ui.view = ns, &ns.view
+		} else {
+			ns.stash, old.stash = old.stash, {}
+			if show {
+				show_session(ui, ns)
+			}
+		}
+		session_free(ui, old)
+	} else {
+		append(&ui.sessions, ns)
+		if show {
+			show_session(ui, ns)
+		}
+	}
+	// The per-user volumes go once the server's key says which are
+	// this server's (apply_gains).
+	if ns == ui.session {
+		ui.gains_for = {}
+	} else {
+		ns.stash.gains_for = {}
+	}
+	net_start(ns)
+	return ns
+}
+
+// session_new makes a session for `server`, ready to start, which joins
+// `channel` if there is one.
+session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Session {
 	ns := new(Net_Session)
 	ns.key_path = strings.clone(ui.opts.key_path)
 	ns.server = strings.clone(server)
 	ns.password = strings.clone(password)
 	ns.known_servers = strings.clone(ui.opts.known_servers)
-	ns.channel = strings.clone(ui.opts.channel)
+	ns.channel = strings.clone(channel)
 	// Without one asked for, the channel that was on screen the last
 	// time is looked at again (and only looked at).
-	ns.view = strings.clone(settings.recent_channel(&ui.settings, server))
-	ui.channels = {}
+	ns.look_at = strings.clone(settings.joined_channel(&ui.settings, server))
+	ns.slot = session_slot(ui)
+	// Its login form, should it need one, starts with the account last
+	// logged in to anywhere.
+	ns.stash.account.username_len = copy(ns.stash.account.username_buf[:], ui.settings.username)
+	conn.view_init(&ns.view)
+	ns.view.wake = ui_wake
+	ns.view.status = .Connecting
+	ns.view.server = strings.clone(server)
 	ns.client = new(conn.Voice_Client)
-	ns.client.view = &ui.view
+	ns.client.view = &ns.view
+	ns.client.slot = ns.slot
 	ns.client.blobs.disk = &ui.image_cache
 	if audio.voice_init(&ns.client.voice) {
 		// Devices may have come or gone since the list was made. The
@@ -1022,33 +1100,61 @@ connect :: proc(ui: ^UI) {
 	)
 	conn.push_command(&ns.client.commands, conn.gate_command(&ui.settings))
 	conn.push_command(&ns.client.commands, conn.transfer_limits_command(&ui.settings))
-	// The per-user volumes go once the server's key says which are
-	// this server's (apply_gains).
-	ui.gains_for = {}
-
-	conn.view_reset(&ui.view)
-	{
-		sync.guard(&ui.view.mutex)
-		ui.view.status = .Connecting
-		ui.view.server = strings.clone(server)
-	}
-	net_start(ns)
-	ui.session = ns
+	return ns
 }
 
+/*
+session_slot is the first pair of WebSocket slots no session has, for a
+web build (conn/transport_web.odin): 0 and 1 for the first, 2 and 3 for
+the next. A desktop build has no use for it.
+*/
 @(private = "file")
-disconnect :: proc(ui: ^UI, play_goodbye := false) {
-	ns := ui.session
+session_slot :: proc(ui: ^UI) -> i32 {
+	for slot := i32(0);; slot += 2 {
+		taken := false
+		for other in ui.sessions {
+			taken ||= other.slot == slot
+		}
+		for other in ui.closing {
+			taken ||= other.slot == slot
+		}
+		if !taken {
+			return slot
+		}
+	}
+}
+
+/*
+disconnect leaves a server: its session ends, it's no longer joined
+(unless not to `leave`, when it's back the next time the client
+starts), and if it was the one shown, the one beside it in the rail is.
+With `play_goodbye` the goodbye sound plays out first, the session
+waiting in `closing` until it has. One being joined from the + dialog
+is given up instead. Between frames.
+*/
+disconnect :: proc(ui: ^UI, ns: ^Net_Session, play_goodbye := false, leave := true) {
 	if ns == nil {
 		return
 	}
-	// Nobody to share with any more.
-	conn.video_share_stop()
-	app_audio_stop(ui)
-	if ns.goodbye_tail {
-		disconnect_finish(ui)
+	if ns.joining {
+		join_close(ui)
 		return
 	}
+	if leave {
+		settings.leave_server(&ui.settings, ns.server)
+		save_settings(ui)
+	}
+	in_voice: bool
+	{
+		sync.guard(&ns.view.mutex)
+		in_voice = ns.view.my_room != 0 || ns.view.voice_pending
+	}
+	if in_voice {
+		// What was shared there has nobody to go to any more.
+		conn.video_share_stop()
+		app_audio_stop(ui)
+	}
+	session_remove(ui, ns)
 	if play_goodbye && sync.atomic_load(&ns.client.voice.output) {
 		// Stop the network producer, but leave the playback callback running.
 		// The UI then owns the playback ring until the goodbye clip drains.
@@ -1058,55 +1164,97 @@ disconnect :: proc(ui: ^UI, play_goodbye := false) {
 		ns.goodbye_tail = true
 		audio.voice_notification_play(&ns.client.voice, .Goodbye)
 		if audio.notifications_pending(&ns.client.voice.notifications) {
+			append(&ui.closing, ns)
 			return
 		}
 	}
-	disconnect_finish(ui)
+	session_free(ui, ns)
 }
 
-// disconnect_tail_step runs after an explicit disconnect. No network thread is
-// writing playback now, so the UI can fill it until the clip has drained.
+/*
+session_remove takes a session off the rail, with what the UI kept of
+it; if it was the one shown, the one after it is shown, or the one
+before, or none.
+*/
+session_remove :: proc(ui: ^UI, ns: ^Net_Session) {
+	index := -1
+	for other, i in ui.sessions {
+		if other == ns {
+			index = i
+		}
+	}
+	if index < 0 {
+		return
+	}
+	ordered_remove(&ui.sessions, index)
+	if ui.voice_at == ns {
+		ui.voice_at = nil
+	}
+	if ns != ui.session {
+		stash_destroy(ui, ns)
+		return
+	}
+	server_ui_destroy(ui)
+	ui.session, ui.view = nil, &ui.no_view
+	// Not one being joined, which isn't on the rail.
+	next: ^Net_Session
+	for i := min(index, len(ui.sessions) - 1); i >= 0; i -= 1 {
+		if !ui.sessions[i].joining {
+			next = ui.sessions[i]
+			break
+		}
+	}
+	show_session(ui, next)
+}
+
+// disconnect_tail_step runs after explicit disconnects: no network thread
+// is writing playback now, so the UI fills it until each goodbye clip has
+// drained.
 @(private = "file")
 disconnect_tail_step :: proc(ui: ^UI) {
-	ns := ui.session
-	if ns == nil || !ns.goodbye_tail {
-		return
-	}
-	audio.notification_tail_step(&ns.client.voice)
-	if !audio.notifications_pending(&ns.client.voice.notifications) &&
-	   audio.ring_available(&ns.client.voice.playback) == 0 {
-		disconnect_finish(ui)
+	for i := len(ui.closing) - 1; i >= 0; i -= 1 {
+		ns := ui.closing[i]
+		audio.notification_tail_step(&ns.client.voice)
+		if !audio.notifications_pending(&ns.client.voice.notifications) &&
+		   audio.ring_available(&ns.client.voice.playback) == 0 {
+			unordered_remove(&ui.closing, i)
+			session_free(ui, ns)
+		}
 	}
 }
 
-@(private = "file")
-disconnect_finish :: proc(ui: ^UI) {
-	ns := ui.session
-	if ns == nil {
-		return
-	}
-	ui.session = nil
+// session_free stops a session that's off the rail and frees it.
+session_free :: proc(ui: ^UI, ns: ^Net_Session) {
+	app_audio_session_gone(ui, ns)
 	// Devices first, so nothing touches the rings once the voice goes away.
 	audio.close_streams(&ns.streams, &ns.client.voice)
 	if !ns.goodbye_tail {
 		sync.atomic_store(&ns.stop, true)
 		net_stop(ns)
 	}
-
 	audio.voice_destroy(&ns.client.voice)
 	free(ns.client)
+	conn.view_destroy(&ns.view)
 	delete(ns.key_path)
 	delete(ns.server)
 	delete(ns.password)
 	delete(ns.known_servers)
 	delete(ns.channel)
-	delete(ns.view)
+	delete(ns.look_at)
 	free(ns)
+}
 
-	// A failure message stays up until the next attempt.
-	if ui.view.status != .Failed {
-		conn.view_reset(&ui.view)
+// disconnect_all ends every session, at once.
+disconnect_all :: proc(ui: ^UI) {
+	for len(ui.sessions) > 0 {
+		ns := ui.sessions[len(ui.sessions) - 1]
+		session_remove(ui, ns)
+		session_free(ui, ns)
 	}
+	for ns in ui.closing {
+		session_free(ui, ns)
+	}
+	clear(&ui.closing)
 }
 
 // set_muted plays the muted/unmuted sound, unless it's part of a
@@ -1116,11 +1264,11 @@ set_muted :: proc(ui: ^UI, muted: bool, feedback := true) {
 		return
 	}
 	ui.muted = muted
-	if ui.session != nil {
-		conn.push_command(
-			&ui.session.client.commands,
-			conn.Mute_Command{muted = muted, feedback = feedback},
-		)
+	// Every server's: the feedback sound only from the one in voice, or
+	// with none, the one shown.
+	for ns in ui.sessions {
+		heard := feedback && ns == sound_session(ui)
+		conn.push_command(&ns.client.commands, conn.Mute_Command{muted = muted, feedback = heard})
 	}
 }
 
@@ -1142,16 +1290,16 @@ set_deafened :: proc(ui: ^UI, deafened: bool) {
 	} else {
 		set_muted(ui, ui.muted_before_deafen, feedback = false)
 	}
-	if ui.session != nil {
+	for ns in ui.sessions {
 		conn.push_command(
-			&ui.session.client.commands,
-			conn.Deafen_Command{deafened = deafened, feedback = true},
+			&ns.client.commands,
+			conn.Deafen_Command{deafened = deafened, feedback = ns == sound_session(ui)},
 		)
 	}
 }
 
-// reopen_audio switches a running connection to the devices now selected
-// in the settings.
+// reopen_audio switches the running connections to the devices now
+// selected in the settings.
 reopen_audio :: proc(ui: ^UI, input: bool) {
 	if m := &ui.monitor; m.active {
 		if input {
@@ -1160,63 +1308,80 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 			audio.open_playback(&ui.audio, &m.streams, &m.voice, ui.settings.output_device)
 		}
 	}
-	ns := ui.session
-	if ns == nil || !ns.client.voice.ready {
-		return
-	}
-	if input {
-		// Not wanted is left closed (session_capture_update).
-		if ns.capture_on {
-			audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+	for ns in ui.sessions {
+		if !ns.client.voice.ready {
+			continue
 		}
-	} else {
-		audio.open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
+		if input {
+			// Not wanted is left closed (session_capture_update).
+			if ns.capture_on {
+				audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+			}
+		} else {
+			audio.open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
+		}
 	}
 }
 
 /*
-session_capture_update runs every frame: it keeps the connection's
-microphone open only while it's wanted, which is while we're in a voice
-room (a channel's voice or a call) or on our way into one, and while the
-settings page tests it (mic_test_wanted; its meter and listen back come
-from the connection). Joining a server alone doesn't open it.
+session_capture_update runs every frame, before the layout and with no
+View locked: it notes which session is in voice (UI.voice_at; there's
+one at most), and keeps a connection's microphone open only while it's
+wanted, which is while it's in a voice room (a channel's voice or a
+call) or on its way into one, and for the one shown, or in voice, while
+the settings page tests it (mic_test_wanted; its meter and listen back
+come from the connection). Joining a server alone doesn't open it.
 */
 @(private = "file")
 session_capture_update :: proc(ui: ^UI) {
-	ns := ui.session
-	if ns == nil || ns.goodbye_tail || !ns.client.voice.ready {
-		return
+	ui.voice_at = nil
+	for ns in ui.sessions {
+		if in_voice(ns) {
+			ui.voice_at = ns
+			break
+		}
 	}
-	want := mic_test_wanted(ui)
-	if !want {
-		sync.guard(&ui.view.mutex)
-		want = ui.view.my_room != 0 || ui.view.voice_pending
+	// The page's screen, if it's being shared, goes to the voice too.
+	for ns in ui.sessions {
+		sync.atomic_store(&ns.client.video.share_here, ns == ui.voice_at)
 	}
-	if want == ns.capture_on {
-		return
-	}
-	ns.capture_on = want
-	if want {
-		// Devices may have come or gone since the list was made.
-		audio.audio_refresh(&ui.audio)
-		audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
-	} else {
-		audio.close_capture(&ns.streams, &ns.client.voice)
+	test := mic_test_wanted(ui)
+	tester := ui.voice_at if ui.voice_at != nil else ui.session
+	for ns in ui.sessions {
+		if ns.goodbye_tail || !ns.client.voice.ready {
+			continue
+		}
+		want := ns == ui.voice_at || (test && ns == tester)
+		if want == ns.capture_on {
+			continue
+		}
+		ns.capture_on = want
+		if want {
+			// Devices may have come or gone since the list was made.
+			audio.audio_refresh(&ui.audio)
+			audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+		} else {
+			audio.close_capture(&ns.streams, &ns.client.voice)
+		}
 	}
 }
 
 @(private = "file")
 layout :: proc(ui: ^UI, w, h: i32) {
 	ctx := &ui.ctx
-	// One window that always fills the OS window.
+	// The server rail down the left (ui_servers.odin), and one window
+	// that always fills the rest of the OS window.
+	rail := rail_width(ui)
+	server_rail(ui, h)
+	rail_menu(ui)
 	if cnt := mu.get_container(ctx, "yap"); cnt != nil {
-		cnt.rect = {0, 0, w, h}
+		cnt.rect = {rail, 0, w - rail, h}
 		// Always under the windows that float over it (pins, threads,
 		// the picker...): microui raises a clicked window unless its
 		// zindex is below 0, and sorts the lowest first.
 		cnt.zindex = -1
 	}
-	if mu.begin_window(ctx, "yap", {0, 0, w, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+	if mu.begin_window(ctx, "yap", {rail, 0, w - rail, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
 		main_window(ui)
 		mu.end_window(ctx)
 	}
@@ -1224,6 +1389,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// does the About dialog (ui_about.odin).
 	image_viewer(ui, w, h)
 	about_dialog(ui, w, h)
+	join_dialog(ui, w, h)
 	pins_window(ui, w, h)
 	thread_windows(ui, w, h)
 	profile_windows(ui, w, h)
@@ -1241,12 +1407,22 @@ layout :: proc(ui: ^UI, w, h: i32) {
 
 @(private = "file")
 main_window :: proc(ui: ^UI) {
+	// Behind the + dialog while it connects (ui_join.odin), and with
+	// no server at all, the start screen.
+	if ui.session != nil && ui.session.joining {
+		start_screen(ui)
+		return
+	}
 	if ui.page == .Settings {
 		settings_page(ui)
 		return
 	}
+	if ui.session == nil {
+		start_screen(ui)
+		return
+	}
 
-	v := &ui.view
+	v := ui.view
 	sync.guard(&v.mutex)
 	apply_gains(ui)
 	switch v.status {
@@ -1281,7 +1457,7 @@ main_window :: proc(ui: ^UI) {
 @(private = "file")
 connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 
 	title_row(ui, {70, -74, ICON_BUTTON, ICON_BUTTON})
 	mu.label(ctx, "Server")
@@ -1308,58 +1484,56 @@ connect_screen :: proc(ui: ^UI) {
 	if v.status == .Failed && v.key_change.changed {
 		key_change_panel(ui)
 	}
-
-	// Recent servers beside the log, or above it where there's no room.
-	body := mu.get_current_container(ctx).body
-	if len(ui.settings.recent_servers) == 0 {
-		mu.layout_row(ctx, {-1}, -1)
-	} else if body.w < NARROW_LAYOUT {
-		mu.layout_row(ctx, {-1}, max(body.h / 3, 120))
-		recent_servers_panel(ui)
-		mu.layout_row(ctx, {-1}, -1)
-	} else {
-		mu.layout_row(ctx, {280, -1}, -1)
-		recent_servers_panel(ui)
+	// A server on the rail that isn't connected: connected again above,
+	// or left here.
+	mu.layout_row(ctx, {70, 200})
+	mu.label(ctx, "")
+	if .SUBMIT in mu.button(ctx, "Leave this server") {
+		ui.action = .Disconnect
 	}
+
+	mu.layout_row(ctx, {-1}, -1)
 	log_panel(ui)
 }
 
-// recent_servers_panel lists the servers connected to lately: one click
-// connects again, with the password used last time.
+/*
+start_screen is what the main window shows with no server to show: none
+joined yet, which it says, pointing at the + that joins one; or behind
+the + dialog while it connects.
+*/
 @(private = "file")
-recent_servers_panel :: proc(ui: ^UI) {
+start_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	s := &ui.settings
-
-	mu.begin_panel(ctx, "recent")
-	defer mu.end_panel(ctx)
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "Recent servers")
-
-	forget := -1
-	for r, i in s.recent_servers {
-		mu.push_id(ctx, uintptr(i))
-		defer mu.pop_id(ctx)
-
-		mu.layout_row(ctx, {-(ICON_BUTTON + ctx.style.spacing), -1})
-		label := r.address
-		if r.password != "" {
-			label = fmt.tprintf("%s  (password)", r.address)
-		}
-		if .SUBMIT in stable_button(ctx, "connect", label) {
-			ui.server_len = copy(ui.server_buf[:], r.address)
-			ui.password_len = copy(ui.password_buf[:], r.password)
-			ui.action = .Connect
-		}
-		if .SUBMIT in stable_button(ctx, "forget", "x") {
-			forget = i
+	joining := ui.session != nil && ui.session.joining
+	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
+	switch {
+	case joining:
+		mu.label(ctx, "Joining a server...")
+	case len(ui.sessions) == 0:
+		mu.label(ctx, "Not on any server yet")
+	case:
+		mu.label(ctx, "No server shown")
+	}
+	if joining {
+		mu.label(ctx, "")
+	} else if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
+		open_settings(ui)
+	}
+	if !joining {
+		mu.layout_row(ctx, {-1})
+		with_text_color(
+			ctx,
+			DIM_COLOR,
+			"Join a server with the + on the left: its address, and its password if it has one.",
+			label_proc,
+		)
+		mu.layout_row(ctx, {160})
+		if .SUBMIT in mu.button(ctx, "Join a server") {
+			join_open(ui)
 		}
 	}
-	// Not while going through the list, which this changes.
-	if forget >= 0 {
-		settings.forget_recent_server(s, s.recent_servers[forget].address)
-		ui.settings_dirty = true
-	}
+	mu.layout_row(ctx, {-1}, -1)
+	log_panel(ui)
 }
 
 // Narrower than this (a phone, a window squeezed aside), the channels
@@ -1369,7 +1543,7 @@ NARROW_LAYOUT :: 600
 @(private = "file")
 session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	body := mu.get_current_container(ctx).body
 	narrow := body.w < NARROW_LAYOUT
 	ui.narrow = narrow
@@ -1424,7 +1598,7 @@ and the buddy screen share it.
 */
 session_header :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	// The status, then the connection indicator and the buttons, each
 	// ICON_BUTTON wide plus the spacing between them. Mute, deafen and
 	// what's shared are in the voice panel (ui_voice_panel.odin).
@@ -1449,8 +1623,8 @@ session_header :: proc(ui: ^UI) {
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
 		open_settings(ui)
 	}
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
-		log.debug("ui: disconnect")
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", OFF_COLOR) {
+		log.debug("ui: leave the server")
 		ui.action = .Disconnect
 	}
 }

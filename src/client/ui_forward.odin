@@ -65,7 +65,7 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	sync.guard(&v.mutex)
 	if ui.session == nil || v.status != .Connected {
 		f.open = false
@@ -142,7 +142,7 @@ goes to it once it's that conversation's, which it's switched to if it
 isn't. Call with the View locked.
 */
 go_to_message :: proc(ui: ^UI, conv: proto.Conv_Id, id: proto.Msg_Id) {
-	v := &ui.view
+	v := ui.view
 	st := &ui.timeline
 	st.jump_to, st.jump_asked, st.jump_conv = id, false, conv
 	if conv == v.viewing || ui.session == nil {
@@ -207,7 +207,7 @@ isn't ours to see. The message is asked for the first time it's wanted.
 */
 link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 	ui := (^UI)(data)
-	v := &ui.view
+	v := ui.view
 	if root, ok := v.roots[l.id]; ok {
 		m := root.msg
 		name := "someone"
@@ -268,7 +268,7 @@ message_text :: proc(
 	emoji: []conn.Emoji_Span,
 	links: []conn.Link_Span,
 ) {
-	v := &ui.view
+	v := ui.view
 	return conn.text_display_links(
 		text,
 		v.accounts,
@@ -294,7 +294,7 @@ forward_note :: proc(ui: ^UI, m: conn.View_Message) -> string {
 	if .Forwarded not_in m.flags {
 		return ""
 	}
-	v := &ui.view
+	v := ui.view
 	name := "someone"
 	if acc, ok := v.accounts[m.forward.sender]; ok {
 		name = acc.display

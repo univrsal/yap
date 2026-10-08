@@ -81,7 +81,7 @@ one, taking people out. Call with the View locked.
 */
 channel_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	m := &ui.manage
 	if m.conv == 0 || .Manage_Channels not_in v.permissions {
 		return
@@ -211,7 +211,7 @@ with the View locked.
 */
 add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	m := &ui.manage
 	if .Invite not_in v.permissions || !is_channel(v, v.viewing) {
 		return
@@ -280,7 +280,7 @@ three cells for it.
 */
 account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	m := &ui.manage
 	owner := .Owner in acc.flags
 	if .Manage_Roles in v.permissions && !owner {
@@ -346,7 +346,7 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 // to tick and save. Call with the View locked, after its row.
 account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	m := &ui.manage
 	if m.account != id {
 		return
@@ -406,7 +406,7 @@ says what will. Call with the View locked.
 */
 purge_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	m := &ui.manage
 	if m.purge_days_len == 0 && !m.purge_confirm {
 		m.purge_days_len = copy(m.purge_days_buf[:], "90")

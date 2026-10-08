@@ -15,10 +15,9 @@ import "common:proto"
 Client settings, kept in <config dir>/yap/settings.json:
 
 	{
-		"server": "localhost:7777",
-		"recent_servers": [
-			{ "address": "localhost:7777", "password": "" },
-			{ "address": "voice.example.com:7777", "password": "hunter2" }
+		"joined_servers": [
+			{ "address": "localhost:7777", "password": "", "channel": "general" },
+			{ "address": "voice.example.com:7777", "password": "hunter2", "channel": "" }
 		],
 		"input_device": "",
 		"output_device": "Built-in Audio Analog Stereo",
@@ -53,14 +52,19 @@ backend-specific binary blobs, while names are stable across runs and
 readable. An empty name, or one that's no longer present (unplugged),
 means the system default.
 
-recent_servers are the last MAX_RECENT_SERVERS servers connected to,
-newest first, with the password each was connected to with, so the
-connect screen can offer them. The passwords are kept as they are, so
-the file is written readable by its owner only.
+joined_servers are the servers this client has joined, in the order of
+the server rail (docs/next, item 9), each with the password it was
+joined with; all are connected to at start. The passwords are kept as
+they are, so the file is written readable by its owner only. Settings
+from before then had the last server (`server`) and the recent ones
+(`recent_servers`) instead, which become the joined ones once
+(settings_load).
 */
 Settings :: struct {
-	server:                  string, // last server connected to
-	recent_servers:          [dynamic]Recent_Server, // newest first
+	joined_servers:          [dynamic]Joined_Server, // in the rail's order
+	// From before joined_servers, only read (settings_load).
+	server:                  string `json:"server,omitempty"`,
+	recent_servers:          [dynamic]Joined_Server `json:"recent_servers,omitempty"`,
 	username:                string, // the account last logged in to, for the login form
 	input_device:            string,
 	output_device:           string,
@@ -126,13 +130,11 @@ User_Settings :: struct {
 	muted:  bool,
 }
 
-Recent_Server :: struct {
+Joined_Server :: struct {
 	address:  string, // as typed
 	password: string, // empty for none
 	channel:  string, // the channel last looked at there, to start with next time
 }
-
-MAX_RECENT_SERVERS :: 10
 
 DEFAULT_USER :: User_Settings {
 	volume = 1,
@@ -173,10 +175,24 @@ settings_load :: proc(path: string) -> (s: Settings) {
 		settings_destroy(&s)
 		return DEFAULT_SETTINGS
 	}
-	// Settings from before the list still have the last server.
-	if len(s.recent_servers) == 0 && s.server != "" {
-		remember_recent_server(&s, s.server, "")
+	// Settings from before joining many servers: the recent servers, or
+	// before those the last one, are the joined ones, once.
+	if len(s.joined_servers) == 0 {
+		for r in s.recent_servers {
+			join_server(&s, r.address, r.password)
+			set_joined_channel(&s, r.address, r.channel)
+		}
+		if len(s.recent_servers) == 0 && s.server != "" {
+			join_server(&s, s.server, "")
+		}
 	}
+	for r in s.recent_servers {
+		joined_server_destroy(r)
+	}
+	delete(s.recent_servers)
+	s.recent_servers = nil
+	delete(s.server)
+	s.server = ""
 	// Per-user settings from before accounts went by the user's key,
 	// which nothing is known by any more.
 	stale := make([dynamic]string, context.temp_allocator)
@@ -208,9 +224,13 @@ settings_save :: proc(path: string, s: Settings) {
 settings_destroy :: proc(s: ^Settings) {
 	delete(s.server)
 	for r in s.recent_servers {
-		recent_server_destroy(r)
+		joined_server_destroy(r)
 	}
 	delete(s.recent_servers)
+	for r in s.joined_servers {
+		joined_server_destroy(r)
+	}
+	delete(s.joined_servers)
 	delete(s.username)
 	delete(s.quality)
 	delete(s.input_device)
@@ -235,36 +255,53 @@ set_setting :: proc(field: ^string, value: string) {
 	field^ = strings.clone(value)
 }
 
-// remember_recent_server puts `address` at the top of the recent servers
-// with `password`, replacing what was there for it, and drops the oldest
-// past MAX_RECENT_SERVERS.
-remember_recent_server :: proc(s: ^Settings, address, password: string) {
-	// Copied first: they may be the very entry about to be replaced.
-	entry := Recent_Server {
-		address  = strings.clone(address),
-		password = strings.clone(password),
-		channel  = strings.clone(recent_channel(s, address)),
+// join_server adds `address` to the end of the joined servers, with
+// `password`; one joined already keeps its place, with the new password.
+join_server :: proc(s: ^Settings, address, password: string) {
+	for &r in s.joined_servers {
+		if r.address == address {
+			set_setting(&r.password, password)
+			return
+		}
 	}
-	forget_recent_server(s, entry.address)
-	inject_at(&s.recent_servers, 0, entry)
-	for len(s.recent_servers) > MAX_RECENT_SERVERS {
-		recent_server_destroy(pop(&s.recent_servers))
-	}
+	append(
+		&s.joined_servers,
+		Joined_Server{address = strings.clone(address), password = strings.clone(password)},
+	)
 }
 
-forget_recent_server :: proc(s: ^Settings, address: string) {
-	for r, i in s.recent_servers {
+// leave_server takes `address` off the joined servers.
+leave_server :: proc(s: ^Settings, address: string) {
+	for r, i in s.joined_servers {
 		if r.address == address {
-			recent_server_destroy(r)
-			ordered_remove(&s.recent_servers, i)
+			joined_server_destroy(r)
+			ordered_remove(&s.joined_servers, i)
 			return
 		}
 	}
 }
 
-// recent_password is the password `address` was last connected to with.
-recent_password :: proc(s: ^Settings, address: string) -> string {
-	for r in s.recent_servers {
+// order_joined_servers puts the joined servers in the order of
+// `addresses` (the rail's, after a drag); any not among them keep their
+// order after those.
+order_joined_servers :: proc(s: ^Settings, addresses: []string) {
+	k := 0
+	for a in addresses {
+		for i in k ..< len(s.joined_servers) {
+			if s.joined_servers[i].address == a {
+				r := s.joined_servers[i]
+				ordered_remove(&s.joined_servers, i)
+				inject_at(&s.joined_servers, k, r)
+				k += 1
+				break
+			}
+		}
+	}
+}
+
+// joined_password is the password `address` was joined with, or "".
+joined_password :: proc(s: ^Settings, address: string) -> string {
+	for r in s.joined_servers {
 		if r.address == address {
 			return r.password
 		}
@@ -272,9 +309,9 @@ recent_password :: proc(s: ^Settings, address: string) -> string {
 	return ""
 }
 
-// recent_channel is the channel last looked at on `address`, or "".
-recent_channel :: proc(s: ^Settings, address: string) -> string {
-	for r in s.recent_servers {
+// joined_channel is the channel last looked at on `address`, or "".
+joined_channel :: proc(s: ^Settings, address: string) -> string {
+	for r in s.joined_servers {
 		if r.address == address {
 			return r.channel
 		}
@@ -282,10 +319,10 @@ recent_channel :: proc(s: ^Settings, address: string) -> string {
 	return ""
 }
 
-// set_recent_channel notes the channel being looked at on `address`.
+// set_joined_channel notes the channel being looked at on `address`.
 // It returns whether that changed anything.
-set_recent_channel :: proc(s: ^Settings, address, channel: string) -> bool {
-	for &r in s.recent_servers {
+set_joined_channel :: proc(s: ^Settings, address, channel: string) -> bool {
+	for &r in s.joined_servers {
 		if r.address == address {
 			if r.channel == channel {
 				return false
@@ -298,7 +335,7 @@ set_recent_channel :: proc(s: ^Settings, address, channel: string) -> bool {
 }
 
 @(private = "file")
-recent_server_destroy :: proc(r: Recent_Server) {
+joined_server_destroy :: proc(r: Joined_Server) {
 	delete(r.address)
 	delete(r.password)
 	delete(r.channel)

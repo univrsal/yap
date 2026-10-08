@@ -239,7 +239,7 @@ or one of its threads (`st` is its window's). Call with the View locked.
 */
 timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := false) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	// Messages are in the chat's text size (settings.chat_scale), and
 	// everything here is measured with it.
 	saved_font := ctx.style.font
@@ -556,7 +556,7 @@ conversation's window, or fetched (conn.View_Root). Call with the View
 locked.
 */
 thread_root_message :: proc(ui: ^UI, key: conn.Timeline_Key) -> (conn.View_Message, bool) {
-	v := &ui.view
+	v := ui.view
 	if key.root == 0 {
 		return {}, false
 	}
@@ -801,7 +801,7 @@ message_height :: proc(
 	}
 	h := chat_block_height(ctx, merged, body, reply_line)
 	if m.kind == .File && .Deleted not_in m.flags {
-		h = file_block_height(ui, message_file(&ui.view, m), width, merged, reply_line)
+		h = file_block_height(ui, message_file(ui.view, m), width, merged, reply_line)
 	}
 	h += message_files_height(ui, m)
 	h += reactions_height(ui, m, width)
@@ -855,7 +855,7 @@ timeline_message :: proc(
 	from: i32,
 ) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	m := msgs[i]
 	new_day, new_line, merged, tight := message_flags(ui, st, msgs, i)
 	seconds := proto.Unix_Time(m.time / 1000)
@@ -976,7 +976,7 @@ reply_line :: proc(
 	readonly := false,
 ) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	font := ctx.style.font
 	mu.layout_row(ctx, {-1}, 1)
 	mu.layout_next(ctx) // the gap over it
@@ -1211,7 +1211,7 @@ on it, and again when the count has changed.
 */
 @(private = "file")
 reactors_hint :: proc(ui: ^UI, id: proto.Msg_Id, r: conn.Reaction, rect: mu.Rect) {
-	v := &ui.view
+	v := ui.view
 	asked := &ui.reactors_asked
 	name := r.emoji
 	if !strings.has_prefix(name, ":") {
@@ -1277,7 +1277,7 @@ draw_chip_emoji :: proc(ui: ^UI, c: Chip, pos: mu.Vec2) {
 // system_line is what a system message says (a call's line, so far).
 @(private = "file")
 system_line :: proc(ui: ^UI, m: conn.View_Message) -> string {
-	v := &ui.view
+	v := ui.view
 	name := "someone"
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display

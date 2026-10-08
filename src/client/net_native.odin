@@ -27,8 +27,8 @@ net_thread :: proc(ns: ^Net_Session) {
 	}
 	if ns.channel != "" {
 		conn.conv_start_in(c, ns.channel)
-	} else if ns.view != "" {
-		conn.conv_start_viewing(c, ns.view)
+	} else if ns.look_at != "" {
+		conn.conv_start_viewing(c, ns.look_at)
 	}
 	for !sync.atomic_load(&ns.stop) {
 		if !conn.client_step(c) {

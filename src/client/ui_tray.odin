@@ -132,7 +132,7 @@ tray_update :: proc(ui: ^UI) {
 		// Picked up at the top of the next turn round the loop, rather
 		// than while traycon is in the middle of a callback.
 		log.debug("tray: disconnect")
-		ui.action = .Disconnect
+		ui.action = .Close
 	case .Quit:
 		log.debug("tray: quit")
 		ui.quitting = true
@@ -179,7 +179,7 @@ tray_state :: proc(ui: ^UI) -> (render.Icon, mu.Color) {
 	speaking := false
 	if ui.session != nil {
 		sync.guard(&ui.view.mutex)
-		speaking = conn.is_speaking(&ui.view, ui.view.my_num)
+		speaking = conn.is_speaking(ui.view, ui.view.my_num)
 	}
 	switch {
 	case speaking:

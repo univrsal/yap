@@ -54,7 +54,12 @@ decode_worker :: proc(im: ^UI_Images) {
 			image, err := clipboard.decode(job.jpeg)
 			{
 				sync.guard(&im.mutex)
-				append(&im.results, Decode_Result{id = job.id, image = image, ok = err == .None})
+				append(&im.results, Decode_Result {
+					id = job.id,
+					image = image,
+					ok = err == .None,
+					generation = job.generation,
+				})
 			}
 			ui_wake() // to take it (ui_images_frame)
 			if err != .None {

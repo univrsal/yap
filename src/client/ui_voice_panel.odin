@@ -1,6 +1,8 @@
 package client
 
 import "core:fmt"
+import "core:strings"
+import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
@@ -21,7 +23,31 @@ a narrow window, across the foot of the screen):
 The top part only while our voice is somewhere (a channel's room, or a
 call on this device) or a call rings; the bottom always: who we are,
 with our status (clicking it sets it), and mute and deafen.
+
+Voice is in one server at a time, and it stays there when another is
+shown. Then, over the rest, the panel has a part for it - where it is,
+with the server's name, a button that shows that server, and the way
+out - and the same for a call ringing in another server:
+
+	Voice connected on Bravo
+	# Lobby  12:34
+	[ Show ]  [ Leave ]
 */
+
+/*
+Voice_Elsewhere is our voice, or a call ringing, in a server that isn't
+shown, as of this frame. It's worked out before the layout
+(voice_elsewhere_update), with that server's View locked in turn, so
+that the panel's height and what it draws agree without it.
+*/
+Voice_Elsewhere :: struct {
+	ns:     ^Net_Session, // nil: nothing elsewhere
+	state:  Panel_State,
+	// In the temp allocator.
+	server: string,
+	where_: string,
+	since:  time.Tick,
+}
 
 UI_Voice_Panel :: struct {
 	// Where our voice was last frame, and since when: for how long.
@@ -36,7 +62,6 @@ CONNECTED_COLOR :: mu.Color{110, 200, 120, 255}
 @(private = "file")
 RINGING_COLOR :: mu.Color{230, 180, 90, 255}
 
-@(private = "file")
 Panel_State :: enum {
 	Idle, // nowhere: only the bottom part
 	Voice, // in a channel's room
@@ -71,7 +96,7 @@ crossed out if they're muted or deafened; and how long it has lasted.
 @(private = "file")
 call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	// Their device in the call's room: the one whose state counts.
 	room := proto.call_room(v.call.id)
 	peer: conn.View_User
@@ -136,14 +161,61 @@ row_height :: proc(ctx: ^mu.Context) -> i32 {
 	return ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing
 }
 
+/*
+voice_elsewhere_update notes whether our voice, or a call ringing, is in
+a server other than the one shown (UI.voice_other). Before the layout,
+with no View locked.
+*/
+voice_elsewhere_update :: proc(ui: ^UI) {
+	ui.voice_other = {}
+	for ns in ui.sessions {
+		if ns == ui.session || ns.joining {
+			continue
+		}
+		v := &ns.view
+		sync.guard(&v.mutex)
+		state := panel_state(v)
+		if state == .Idle || state == .Elsewhere {
+			continue
+		}
+		e := Voice_Elsewhere {
+			ns     = ns,
+			state  = state,
+			server = strings.clone(v.server_name if v.server_name != "" else ns.server, context.temp_allocator),
+		}
+		switch state {
+		case .Idle, .Elsewhere:
+		case .Voice:
+			e.where_ = fmt.tprintf("# %s", voice_room_name(v))
+			// How long, as the panel there counts it (its stash's, which
+			// the UI thread keeps).
+			p := &ns.stash.voice_panel
+			if room := proto.Room(v.my_room); p.room != room {
+				p.room, p.since = room, time.tick_now()
+			}
+			e.since = p.since
+		case .Call:
+			e.where_ = strings.clone(call_peer_name(v), context.temp_allocator)
+			e.since = v.call.since
+		case .Ringing_In, .Ringing_Out:
+			e.where_ = strings.clone(call_peer_name(v), context.temp_allocator)
+		}
+		ui.voice_other = e
+		return
+	}
+}
+
 // voice_panel_height is how tall the panel is this frame. Call with the
 // View locked.
 voice_panel_height :: proc(ui: ^UI) -> i32 {
 	ctx := &ui.ctx
 	rows: i32 = 1
+	if ui.voice_other.ns != nil {
+		rows += 3
+	}
 	// Ours, and in a call the other side's, have a picture.
 	pictures: i32 = 1
-	switch panel_state(&ui.view) {
+	switch panel_state(ui.view) {
 	case .Idle:
 	case .Elsewhere:
 		rows += 2
@@ -162,9 +234,8 @@ row, as tall as voice_panel_height). Call with the View locked.
 */
 voice_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	p := &ui.voice_panel
-	call_announce(ui)
 	state := panel_state(v)
 
 	// How long we've been where we are.
@@ -189,6 +260,9 @@ voice_panel :: proc(ui: ^UI) {
 		if cmds != nil {
 			conn.push_command(cmds, cmd)
 		}
+	}
+	if ui.voice_other.ns != nil {
+		voice_elsewhere_part(ui, ui.voice_other)
 	}
 
 	if state != .Idle {
@@ -231,6 +305,7 @@ voice_panel :: proc(ui: ^UI) {
 		case .Ringing_In:
 			mu.layout_row(ctx, {-(90 + ctx.style.spacing), 90})
 			if .SUBMIT in stable_button(ctx, "call accept", "Accept", {.ALIGN_CENTER}) {
+				leave_voice_elsewhere(ui)
 				command(cmds, conn.Call_Answer_Command{})
 			}
 			if .SUBMIT in stable_button(ctx, "call decline", "Decline", {.ALIGN_CENTER}) {
@@ -317,6 +392,71 @@ voice_panel :: proc(ui: ^UI) {
 		   OFF_COLOR if ui.deafened else mu.Color{},
 	   ) {
 		set_deafened(ui, !ui.deafened)
+	}
+}
+
+/*
+voice_elsewhere_part is the panel's part for voice, or a call ringing,
+in a server that isn't shown: what and where, with the server's name;
+Show, which shows that server; and the way out, or for a call ringing
+in, Accept (which shows it too) and Decline.
+*/
+@(private = "file")
+voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
+	ctx := &ui.ctx
+	cmds := &e.ns.client.commands
+	what, color := "", CONNECTED_COLOR
+	switch e.state {
+	case .Idle, .Elsewhere:
+	case .Voice:
+		what = "Voice connected"
+	case .Call:
+		what = "In a call"
+	case .Ringing_In:
+		what, color = "Incoming call", RINGING_COLOR
+	case .Ringing_Out:
+		what, color = "Calling...", RINGING_COLOR
+	}
+	mu.layout_row(ctx, {-1})
+	with_text_color(ctx, color, fmt.tprintf("%s on %s", what, e.server), label_proc)
+	if e.state == .Voice || e.state == .Call {
+		mu.layout_row(ctx, {-60, 56})
+		mu.label(ctx, e.where_)
+		with_text_color(ctx, DIM_COLOR, call_length_shown(ui, e.since), label_proc)
+	} else {
+		mu.layout_row(ctx, {-1})
+		mu.label(ctx, e.where_)
+	}
+
+	half := -(90 + ctx.style.spacing)
+	mu.layout_row(ctx, {half, -1})
+	switch e.state {
+	case .Idle, .Elsewhere:
+	case .Ringing_In:
+		if .SUBMIT in stable_button(ctx, "other accept", "Accept", {.ALIGN_CENTER}) {
+			leave_voice_elsewhere(ui, e.ns)
+			conn.push_command(cmds, conn.Call_Answer_Command{})
+			ui.switch_to, ui.switching = e.ns, true
+		}
+		if .SUBMIT in stable_button(ctx, "other decline", "Decline", {.ALIGN_CENTER}) {
+			conn.push_command(cmds, conn.Call_Hangup_Command{})
+		}
+	case .Ringing_Out, .Voice, .Call:
+		if .SUBMIT in stable_button(ctx, "other show", "Show", {.ALIGN_CENTER}) {
+			ui.switch_to, ui.switching = e.ns, true
+		}
+		label := "Leave" if e.state == .Voice else ("Cancel" if e.state == .Ringing_Out else "Hang up")
+		saved := ctx.style.colors[.TEXT]
+		ctx.style.colors[.TEXT] = OFF_COLOR
+		out := .SUBMIT in stable_button(ctx, "other leave", label, {.ALIGN_CENTER})
+		ctx.style.colors[.TEXT] = saved
+		if out {
+			if e.state == .Voice {
+				conn.push_command(cmds, conn.Voice_Command{})
+			} else {
+				conn.push_command(cmds, conn.Call_Hangup_Command{})
+			}
+		}
 	}
 }
 

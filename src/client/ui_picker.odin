@@ -68,7 +68,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	if ui.session == nil || v.status != .Connected {
 		p.open = false
 		return

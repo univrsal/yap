@@ -123,7 +123,7 @@ after laying the box out, with the View locked.
 */
 completion_update :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	cm := &ui.completion
 	box := mu.get_id(ctx, uintptr(&c.buf[0]))
 	if ctx.focus_id != box {
@@ -255,7 +255,7 @@ role_word_start :: proc(v: ^conn.View, text: string, cursor: int) -> int {
 // locked.
 @(private = "file")
 role_items :: proc(ui: ^UI, prefix: string) {
-	v := &ui.view
+	v := ui.view
 	cm := &ui.completion
 	n := 0
 	for r in v.roles {

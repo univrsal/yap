@@ -97,7 +97,7 @@ attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 		}
 	}
 	if refused != "" {
-		conn.view_notice(&ui.view, false, refused)
+		conn.view_notice(ui.view, false, refused)
 	}
 }
 

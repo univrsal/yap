@@ -14,5 +14,6 @@ app_audio_destroy :: proc(ui: ^UI) {}
 app_audio_available :: proc(ui: ^UI) -> bool {return false}
 app_audio_frame :: proc(ui: ^UI) {}
 app_audio_stop :: proc(ui: ^UI) {}
+app_audio_session_gone :: proc(ui: ^UI, ns: ^Net_Session) {}
 app_audio_button :: proc(ui: ^UI) {}
 app_audio_menu :: proc(ui: ^UI) {}

@@ -14,7 +14,7 @@ Transport :: struct {
 
 // transport_open opens a socket to the server. The main link's waits a
 // little for a packet, which paces the loop; the bulk link's never waits.
-transport_open :: proc(t: ^Transport, server_addr: string, bulk := false) -> bool {
+transport_open :: proc(t: ^Transport, server_addr: string, slot: i32, bulk := false) -> bool {
 	ep, resolve_err := net.resolve_ip4(server_addr)
 	if resolve_err != nil {
 		log.errorf("failed to resolve %s: %v", server_addr, resolve_err)

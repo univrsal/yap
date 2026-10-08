@@ -689,8 +689,10 @@ conv_create :: proc(c: ^Voice_Client, name, topic: string, private := false) {
 conv_new_message counts a message that was just posted (and wasn't here
 before) as unread, or not: our own read everything up to them, and one
 in the conversation being read is read. It says whether the message may
-interrupt, by its conversation's level, and whether it's a mention of us
-that counts as one (it isn't read).
+interrupt, by its conversation's level, and whether it's a mention of
+us that's told on the desktop: not in a muted conversation (where it's
+still counted), but in the one being read too (which may be on a server
+that isn't shown, or in a window that's in the background).
 */
 conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: bool, mention: bool) {
 	cv := &c.convs
@@ -708,15 +710,10 @@ conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: boo
 		return false, false
 	case cv.reading == m.conv:
 		mark_read(c, m.conv, m.id)
-		return false, false
+		return false, info.notify != .None && mentions_me(c, m)
 	case:
 		info.unread = min(info.unread + 1, proto.UNREAD_CAP)
-		// <@everyone> is only ever stored from someone allowed it, and a
-		// role's only if it can be mentioned.
-		mention =
-			m.kind == .Text &&
-			.Deleted not_in m.flags &&
-			proto.mentions_account(m.text, c.auth.me, c.auth.accounts[c.auth.me].roles)
+		mention = mentions_me(c, m)
 		if mention {
 			info.mentions = min(info.mentions + 1, proto.UNREAD_CAP)
 		}
@@ -725,6 +722,17 @@ conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: boo
 	}
 	publish_channels(c)
 	return
+}
+
+// mentions_me is whether a message mentions us, or a role of ours.
+// <@everyone> is only ever stored from someone allowed it, and a role's
+// only if it can be mentioned.
+@(private = "file")
+mentions_me :: proc(c: ^Voice_Client, m: proto.Message) -> bool {
+	if m.kind != .Text || .Deleted in m.flags {
+		return false
+	}
+	return proto.mentions_account(m.text, c.auth.me, c.auth.accounts[c.auth.me].roles)
 }
 
 // conv_reading is the UI saying which conversation is being read, if

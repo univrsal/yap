@@ -43,6 +43,9 @@ Voice_Client :: struct {
 	// The bulk link, for heavy messages (proto.HEAVY_KINDS, bulk.odin).
 	bulk:          Bulk_Link,
 	server_addr:   string, // as typed; the key in known_servers
+	// The first of this connection's two WebSocket slots in a web build
+	// (transport_web.odin); the owner sets it before client_open.
+	slot:          i32,
 	known_servers: string,
 	password:      string, // sent in every hello; empty for none
 	key:           ecdh.Private_Key,
@@ -112,7 +115,7 @@ client_open :: proc(
 	crypto.rand_bytes(([^]byte)(&c.conn_id)[:size_of(c.conn_id)])
 	publish_status(c, .Connecting)
 
-	if !transport_open(&c.transport, server_addr) {
+	if !transport_open(&c.transport, server_addr, c.slot) {
 		publish_status(
 			c,
 			.Failed,

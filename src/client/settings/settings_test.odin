@@ -1,49 +1,83 @@
 #+build !wasi
 package settings
 
-import "core:fmt"
 import "core:os"
 import "core:testing"
 
 import "common:proto"
 
 @(test)
-test_recent_servers :: proc(t: ^testing.T) {
+test_joined_servers :: proc(t: ^testing.T) {
 	s: Settings
 	defer settings_destroy(&s)
 
-	remember_recent_server(&s, "a:1", "")
-	remember_recent_server(&s, "b:1", "pw")
-	testing.expect_value(t, len(s.recent_servers), 2)
-	testing.expect_value(t, s.recent_servers[0].address, "b:1") // newest first
-	testing.expect_value(t, recent_password(&s, "b:1"), "pw")
-	testing.expect_value(t, recent_password(&s, "c:1"), "")
+	join_server(&s, "a:1", "")
+	join_server(&s, "b:1", "pw")
+	testing.expect_value(t, len(s.joined_servers), 2)
+	testing.expect_value(t, s.joined_servers[0].address, "a:1") // in the order joined
+	testing.expect_value(t, joined_password(&s, "b:1"), "pw")
+	testing.expect_value(t, joined_password(&s, "c:1"), "")
 
-	// Connecting again moves it to the top, with the new password,
-	// rather than listing it twice.
-	remember_recent_server(&s, "a:1", "new")
-	testing.expect_value(t, len(s.recent_servers), 2)
-	testing.expect_value(t, s.recent_servers[0].address, "a:1")
-	testing.expect_value(t, recent_password(&s, "a:1"), "new")
+	// Joining again keeps its place, with the new password, rather than
+	// listing it twice.
+	join_server(&s, "a:1", "new")
+	testing.expect_value(t, len(s.joined_servers), 2)
+	testing.expect_value(t, s.joined_servers[0].address, "a:1")
+	testing.expect_value(t, joined_password(&s, "a:1"), "new")
 
-	// What the connect screen does on a click: the entry is its own
-	// argument.
-	remember_recent_server(&s, s.recent_servers[1].address, s.recent_servers[1].password)
-	testing.expect_value(t, s.recent_servers[0].address, "b:1")
-	testing.expect_value(t, s.recent_servers[0].password, "pw")
+	testing.expect(t, set_joined_channel(&s, "b:1", "general"))
+	testing.expect(t, !set_joined_channel(&s, "b:1", "general"))
+	testing.expect(t, !set_joined_channel(&s, "c:1", "general"))
+	testing.expect_value(t, joined_channel(&s, "b:1"), "general")
 
-	for i in 0 ..< 2 * MAX_RECENT_SERVERS {
-		remember_recent_server(&s, fmt.tprintf("host%d:1", i), "")
-	}
-	testing.expect_value(t, len(s.recent_servers), MAX_RECENT_SERVERS)
-	testing.expect_value(
-		t,
-		s.recent_servers[0].address,
-		fmt.tprintf("host%d:1", 2 * MAX_RECENT_SERVERS - 1),
-	)
+	// Dragged on the rail: c:1 isn't on it (off it till the next start),
+	// so it goes after those that are.
+	join_server(&s, "c:1", "")
+	join_server(&s, "d:1", "")
+	order_joined_servers(&s, {"d:1", "b:1", "a:1"})
+	testing.expect_value(t, s.joined_servers[0].address, "d:1")
+	testing.expect_value(t, s.joined_servers[1].address, "b:1")
+	testing.expect_value(t, s.joined_servers[2].address, "a:1")
+	testing.expect_value(t, s.joined_servers[3].address, "c:1")
+	testing.expect_value(t, joined_password(&s, "b:1"), "pw")
+	leave_server(&s, "c:1")
+	leave_server(&s, "d:1")
 
-	forget_recent_server(&s, s.recent_servers[0].address)
-	testing.expect_value(t, len(s.recent_servers), MAX_RECENT_SERVERS - 1)
+	leave_server(&s, "a:1")
+	testing.expect_value(t, len(s.joined_servers), 1)
+	testing.expect_value(t, s.joined_servers[0].address, "b:1")
+	leave_server(&s, "c:1") // not joined: nothing
+	testing.expect_value(t, len(s.joined_servers), 1)
+}
+
+@(test)
+test_recent_servers_become_joined :: proc(t: ^testing.T) {
+	path := "yap-settings-recent-test.json"
+	defer os.remove(path)
+	old := `{
+		"server": "b:1",
+		"recent_servers": [
+			{ "address": "b:1", "password": "pw", "channel": "general" },
+			{ "address": "a:1", "password": "", "channel": "" }
+		]
+	}`
+	testing.expect(t, os.write_entire_file(path, old) == nil)
+	s := settings_load(path)
+	defer settings_destroy(&s)
+	testing.expect_value(t, len(s.joined_servers), 2)
+	testing.expect_value(t, s.joined_servers[0].address, "b:1")
+	testing.expect_value(t, joined_password(&s, "b:1"), "pw")
+	testing.expect_value(t, joined_channel(&s, "b:1"), "general")
+	testing.expect_value(t, len(s.recent_servers), 0)
+	testing.expect_value(t, s.server, "")
+
+	// Once: leaving them all doesn't bring them back.
+	leave_server(&s, "a:1")
+	leave_server(&s, "b:1")
+	settings_save(path, s)
+	again := settings_load(path)
+	defer settings_destroy(&again)
+	testing.expect_value(t, len(again.joined_servers), 0)
 }
 
 @(test)
@@ -53,7 +87,7 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 
 	s := DEFAULT_SETTINGS
 	defer settings_destroy(&s)
-	set_setting(&s.server, "localhost:7777")
+	join_server(&s, "localhost:7777", "pw")
 	set_setting(&s.username, "me")
 	s.notification_volume = 0.5
 	server, other: [proto.KEY_SIZE]u8
@@ -70,7 +104,8 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 
 	loaded := settings_load(path)
 	defer settings_destroy(&loaded)
-	testing.expect_value(t, loaded.server, "localhost:7777")
+	testing.expect_value(t, len(loaded.joined_servers), 1)
+	testing.expect_value(t, joined_password(&loaded, "localhost:7777"), "pw")
 	testing.expect_value(t, loaded.username, "me")
 	testing.expect_value(t, loaded.noise_suppression, true)
 	testing.expect_value(t, notification_gain(&loaded), f32(0.5))
@@ -123,6 +158,7 @@ test_settings_from_before_accounts :: proc(t: ^testing.T) {
 	testing.expect(t, os.write_entire_file(path, old) == nil)
 	s := settings_load(path)
 	defer settings_destroy(&s)
-	testing.expect_value(t, s.server, "localhost:7777")
+	testing.expect_value(t, len(s.joined_servers), 1)
+	testing.expect_value(t, s.joined_servers[0].address, "localhost:7777")
 	testing.expect_value(t, len(s.users), 1)
 }

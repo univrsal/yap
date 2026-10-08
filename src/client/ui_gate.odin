@@ -167,17 +167,13 @@ set_listen_back :: proc(ui: ^UI, on: bool) {
 	}
 	ui.listen_back = on
 	log.infof("listen back %s", "on" if on else "off")
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.Listen_Command{on})
-	}
+	command_all(ui, conn.Listen_Command{on})
 }
 
 @(private = "file")
 gate_changed :: proc(ui: ^UI) {
 	ui.settings_dirty = true // saved within a second; sliders change every frame
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.gate_command(&ui.settings))
-	}
+	command_all(ui, conn.gate_command(&ui.settings))
 }
 
 @(private = "file")
@@ -191,7 +187,7 @@ level_meter :: proc(ui: ^UI) {
 	open := false
 	fresh := false
 	if ui.session != nil {
-		v := &ui.view
+		v := ui.view
 		sync.guard(&v.mutex)
 		level, open = v.mic_level, v.mic_open
 		fresh = v.mic_time != {} && time.tick_since(v.mic_time) < METER_STALE

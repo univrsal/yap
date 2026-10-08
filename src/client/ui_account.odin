@@ -132,7 +132,7 @@ instead of its channels. Call with the View locked.
 */
 login_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	a := &ui.account
 	open := .Open in v.registration
 	if !open {
@@ -143,7 +143,9 @@ login_screen :: proc(ui: ^UI) {
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	server := v.server_name if v.server_name != "" else v.server
 	mu.label(ctx, fmt.tprintf("%s %s", "Register at" if registering else "Log in to", server))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
+	// In the + dialog, giving up joining it (ui_join.odin).
+	leave := "Cancel" if ui.session != nil && ui.session.joining else "Leave this server"
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, leave, OFF_COLOR) {
 		ui.action = .Disconnect
 	}
 
@@ -250,7 +252,7 @@ if it won't do.
 @(private = "file")
 register_mistake :: proc(ui: ^UI) -> bool {
 	a := &ui.account
-	v := &ui.view
+	v := ui.view
 	a.mistake = ""
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
 	password := string(a.password_buf[:a.password_len])
@@ -296,13 +298,13 @@ itself once the server has the mail. Call with the View locked.
 */
 verify_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	a := &ui.account
 	server := v.server_name if v.server_name != "" else v.server
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	mu.label(ctx, fmt.tprintf("Verify your email address for %s", server))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", OFF_COLOR) {
 		ui.action = .Disconnect
 	}
 	mu.layout_row(ctx, {-1})
@@ -391,11 +393,11 @@ locked.
 */
 password_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	mu.label(ctx, fmt.tprintf("Choose a password for %s", v.login.username))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Disconnect", OFF_COLOR) {
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", OFF_COLOR) {
 		ui.action = .Disconnect
 	}
 	mu.layout_row(ctx, {-1})
@@ -488,7 +490,7 @@ lock, so it's taken here.
 */
 account_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	v := &ui.view
+	v := ui.view
 	a := &ui.account
 	sync.guard(&v.mutex)
 	if a.notice_reset {

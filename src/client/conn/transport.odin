@@ -20,7 +20,7 @@ receiving never blocks for long. A client has two transports, one for
 each of its links (bulk.odin); the bulk link's receive doesn't block at
 all. Each side provides the same procedures:
 
-	transport_open(t, server_addr, bulk) -> bool
+	transport_open(t, server_addr, slot, bulk) -> bool
 	transport_close(t)
 	transport_send(t, packet) -> bool
 	transport_recv(t, buf) -> (packet, ok)   // ok = false: nothing waiting
