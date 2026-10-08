@@ -8,17 +8,12 @@ import "client:conn"
 import "common:proto"
 
 /*
-A message's own menu, opened by right-clicking it in a timeline: copy
-its text, save its picture, react to it, reply in its thread, edit it,
-pin or unpin it, delete it. Each is offered only where it's allowed (the
-server checks again):
-
-	Reply in thread   in the conversation's timeline (a thread's window
-	                  has its composer already)
-	Edit     our own text messages
-	Delete   our own, or anyone's with Manage_Messages; asked twice
-	Pin      either of the two in a DM, Pin_Messages in a channel; not a
-	         reply in a thread
+A message's own menu, opened by right-clicking it in a timeline (a long
+press on a touch screen): copy its text, save its picture, forward it,
+copy a link to it. What's done to the message itself - reacting,
+replying, editing, pinning, deleting - is on the bar over it instead
+(ui_message_bar.odin), and the menu only asks whether to delete it when
+the bar's Delete is pressed without Shift.
 */
 
 UI_Message_Menu :: struct {
@@ -34,7 +29,7 @@ UI_Message_Menu :: struct {
 	slot:      int,
 	text:      string, // owned
 	blob:      proto.Blob_Id,
-	// Delete was pressed once: the menu asks whether to.
+	// Delete was pressed on the bar: the menu only asks whether to.
 	confirm:   bool,
 }
 
@@ -43,9 +38,10 @@ MENU :: "message menu"
 @(private = "file")
 MENU_WIDTH :: 180
 
-// open_message_menu opens the menu for a message shown in a timeline.
+// open_message_menu opens the menu for a message shown in a timeline,
+// or with `confirm_delete`, only the question whether to delete it.
 // Call with the View locked.
-open_message_menu :: proc(ui: ^UI, m: conn.View_Message, slot: int) {
+open_message_menu :: proc(ui: ^UI, m: conn.View_Message, slot: int, confirm_delete := false) {
 	mm := &ui.msg_menu
 	delete(mm.text)
 	mm^ = {
@@ -59,12 +55,23 @@ open_message_menu :: proc(ui: ^UI, m: conn.View_Message, slot: int) {
 		slot      = slot,
 		text      = strings.clone(m.text),
 		blob      = m.image.blob,
+		confirm   = confirm_delete,
 	}
+}
+
+// message_menu_open is whether the menu is open (or opens next frame).
+message_menu_open :: proc(ui: ^UI) -> bool {
+	if ui.msg_menu.requested {
+		return true
+	}
+	cnt := mu.get_container(&ui.ctx, MENU, {.CLOSED})
+	return cnt != nil && bool(cnt.open)
 }
 
 ui_message_menu_destroy :: proc(ui: ^UI) {
 	delete(ui.msg_menu.text)
 	ui.msg_menu = {}
+	ui.msg_bar = {}
 }
 
 // may_pin_here is whether we may pin and unpin in the conversation
@@ -108,7 +115,6 @@ message_menu :: proc(ui: ^UI) {
 	}
 	cmds := &ui.session.client.commands
 	deleted := .Deleted in mm.flags
-	mine := mm.sender == v.me
 	close :: proc(ctx: ^mu.Context) {
 		mu.get_current_container(ctx).open = false
 	}
@@ -120,6 +126,7 @@ message_menu :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {half, half})
 		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
 			mm.confirm = false
+			close(ctx)
 		}
 		if .SUBMIT in stable_button(ctx, "delete", "Delete") {
 			conn.push_command(cmds, conn.Delete_Command{id = mm.id})
@@ -145,10 +152,6 @@ message_menu :: proc(ui: ^UI) {
 			close(ctx)
 		}
 	}
-	if .SUBMIT in stable_button(ctx, "react", "React...") {
-		open_picker(ui, mm.id)
-		close(ctx)
-	}
 	// A copy elsewhere, or a link to it (ui_forward.odin).
 	if (mm.kind == .Text || (mm.kind == .Image && mm.blob != 0)) &&
 	   .SUBMIT in stable_button(ctx, "forward", "Forward...") {
@@ -158,28 +161,6 @@ message_menu :: proc(ui: ^UI) {
 	if .SUBMIT in stable_button(ctx, "link", "Copy link") {
 		set_clipboard(nil, proto.link_token(mm.conv, mm.id))
 		close(ctx)
-	}
-	if mm.slot == 0 && .SUBMIT in stable_button(ctx, "reply", "Reply in thread") {
-		open_thread(ui, {mm.conv, mm.root if mm.root != 0 else mm.id})
-		close(ctx)
-	}
-	if mine &&
-	   mm.kind == .Text &&
-	   .Forwarded not_in mm.flags &&
-	   .SUBMIT in stable_button(ctx, "edit", "Edit") {
-		start_editing(ui, mm.id, mm.text, composer_of(ui, mm.slot))
-		close(ctx)
-	}
-	if may_pin_here(v) && mm.root == 0 {
-		pinned := .Pinned in mm.flags
-		if .SUBMIT in stable_button(ctx, "pin", "Unpin" if pinned else "Pin") {
-			conn.push_command(cmds, conn.Pin_Command{id = mm.id, on = !pinned})
-			close(ctx)
-		}
-	}
-	if (mine || .Manage_Messages in v.permissions) &&
-	   .SUBMIT in stable_button(ctx, "delete?", "Delete...") {
-		mm.confirm = true
 	}
 }
 

@@ -41,7 +41,7 @@ if [ ! -f "$opus_lib" ]; then
 fi
 
 # What web/touch.js calls (src/client/ui_touch_web.odin).
-touch_exports=_web_touch_tap,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_text_rune,_web_text_backspace,_web_text_enter
+touch_exports=_web_touch_tap,_web_touch_hold,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_text_rune,_web_text_backspace,_web_text_enter
 # What web/background.js calls (src/client/main_web.odin).
 background_exports=_web_tick
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.

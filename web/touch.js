@@ -8,6 +8,7 @@ the client can't use that (see src/client/ui_touch_web.odin). Instead this
 tells gestures apart and hands them over:
 
 - a tap is a click, and on a text box it also brings up the keyboard;
+- a finger held still for a while is a right click (a message's menu);
 - a mostly vertical drag scrolls;
 - a mostly sideways drag drags, for the sliders.
 
@@ -23,6 +24,8 @@ looks empty.
 	const canvas = Module.canvas;
 	// How far a finger may wander and still be tapping, in page pixels.
 	const SLOP = 10;
+	// How long a finger is held still for a right click, in ms.
+	const HOLD = 500;
 	// The character the hidden field keeps, and when to clear it out.
 	const KEEP = "​";
 	const TIDY_AT = 40;
@@ -107,7 +110,7 @@ looks empty.
 
 	// ---- touch ----
 
-	let finger = null; // {id, x0, y0, x, y, mode: "tap" | "scroll" | "drag"}
+	let finger = null; // {id, x0, y0, x, y, timer, mode: "tap" | "held" | "scroll" | "drag"}
 
 	const own = (e) => {
 		// Ours alone: no emulated mouse, no GLFW, no page scrolling.
@@ -127,6 +130,13 @@ looks empty.
 			const t = e.changedTouches[0];
 			const [x, y] = where(t);
 			finger = { id: t.identifier, x0: x, y0: y, x, y, mode: "tap" };
+			const held = finger;
+			finger.timer = setTimeout(() => {
+				if (finger !== held || held.mode !== "tap" || !ready()) return;
+				held.mode = "held";
+				if (navigator.vibrate) navigator.vibrate(15);
+				Module._web_touch_hold(held.x0, held.y0);
+			}, HOLD);
 		},
 		{ capture: true, passive: false },
 	);
@@ -138,10 +148,14 @@ looks empty.
 			const t = find(e.changedTouches);
 			if (!t || !ready()) return;
 			const [x, y] = where(t);
+			// Held: the right click is done, and the rest of the touch is
+			// nothing.
+			if (finger.mode === "held") return;
 			if (finger.mode === "tap") {
 				const dx = x - finger.x0;
 				const dy = y - finger.y0;
 				if (Math.hypot(dx, dy) < SLOP) return;
+				clearTimeout(finger.timer);
 				finger.mode = Math.abs(dy) >= Math.abs(dx) ? "scroll" : "drag";
 				if (finger.mode === "drag") Module._web_touch_drag_begin(finger.x0, finger.y0);
 			}
@@ -162,6 +176,7 @@ looks empty.
 		if (!t) return;
 		const done = finger;
 		finger = null;
+		clearTimeout(done.timer);
 		if (!ready()) return;
 		if (done.mode === "drag") {
 			Module._web_touch_drag_end();

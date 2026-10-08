@@ -207,6 +207,11 @@ UI :: struct {
 	// message (ui_message_menu.odin).
 	pins:                UI_Pins,
 	msg_menu:            UI_Message_Menu,
+	// The bar over the message under the pointer (ui_message_bar.odin),
+	// and whether this frame is a touch screen's tap (ui_touch_web.odin),
+	// which shows a message's bar there.
+	msg_bar:             UI_Message_Bar,
+	touch_tap:           bool,
 	// The server whose per-user volumes the session has been given
 	// (apply_gains).
 	gains_for:           [proto.KEY_SIZE]u8,
@@ -1224,6 +1229,8 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	roles_window(ui, w, h)
 	forward_window(ui, w, h)
 	search_window(ui, w, h)
+	// After every timeline, the thread windows' too.
+	message_bar(ui)
 	// Last, and in a window of its own, so it's over the popups too.
 	icon_hint(ui, w, h)
 }

@@ -14,9 +14,10 @@ decides what a press hits from what the pointer hovered in the frame
 before, and a finger has no hover. And a drag through the channel list
 would join every channel on the way.
 
-So the page tells taps, vertical drags (scrolling) and sideways drags
-(the sliders) apart, and they come here as a queue of plain pointer
-and key events that is fed to microui one per frame: the pointer moves
+So the page tells taps, long presses (a right click), vertical drags
+(scrolling) and sideways drags (the sliders) apart, and they come here
+as a queue of plain pointer and key events that is fed to microui one
+per frame: the pointer moves
 to where the finger landed, two frames go by - one for microui to find
 the panel under the pointer, one for the control in it - then it
 presses, and lets go in the frame after. Typing from the phone's keyboard - which types into
@@ -40,6 +41,7 @@ Touch_Event_Kind :: enum {
 Touch_Event :: struct {
 	kind:   Touch_Event_Kind,
 	x, y:   i32, // Move, in layout pixels
+	button: mu.Mouse, // Press and Release
 	key:    mu.Key,
 	text:   [4]u8, // one character, UTF-8
 	text_n: int,
@@ -75,9 +77,11 @@ touch_step :: proc(ui: ^UI) {
 		mu.input_mouse_move(ctx, e.x, e.y)
 	case .Settle:
 	case .Press:
-		mu.input_mouse_down(ctx, ctx.mouse_pos.x, ctx.mouse_pos.y, .LEFT)
+		mu.input_mouse_down(ctx, ctx.mouse_pos.x, ctx.mouse_pos.y, e.button)
+		// A tap stands in for hovering over a message (ui_message_bar.odin).
+		ui.touch_tap = e.button == .LEFT
 	case .Release:
-		mu.input_mouse_up(ctx, ctx.mouse_pos.x, ctx.mouse_pos.y, .LEFT)
+		mu.input_mouse_up(ctx, ctx.mouse_pos.x, ctx.mouse_pos.y, e.button)
 	case .Key:
 		mu.input_key_down(ctx, e.key)
 		mu.input_key_up(ctx, e.key)
@@ -166,6 +170,20 @@ web_touch_tap :: proc "c" (x, y: f64) {
 	if on_text {
 		queue({kind = .Key, key = .END})
 	}
+	queue_lift()
+}
+
+// A long press: a right click where the finger is, for a message's menu.
+@(export)
+web_touch_hold :: proc "c" (x, y: f64) {
+	context = platform.callback_context()
+	if g_ui == nil {
+		return
+	}
+	queue_move(x, y)
+	queue({kind = .Settle})
+	queue({kind = .Press, button = .RIGHT})
+	queue({kind = .Release, button = .RIGHT})
 	queue_lift()
 }
 

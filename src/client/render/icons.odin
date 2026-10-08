@@ -46,6 +46,8 @@ Icon :: enum {
 	Video, // a frame with a play button
 	Text_File, // a sheet with lines of writing
 	Eye, // an eye: show a message as it will look (the composer's preview)
+	Reply, // an arrow down and round to the right: reply in a thread
+	Edit, // a pencil: edit a message
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -201,6 +203,10 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return text_file(p)
 	case .Eye:
 		return eye(p)
+	case .Reply:
+		return hooked_arrow(p)
+	case .Edit:
+		return pencil(p)
 	}
 	return 1
 }
@@ -316,6 +322,27 @@ eye :: proc(p: Point) -> f32 {
 	lens := max(disc(p, {0.5, 0.77}, 0.45), disc(p, {0.5, 0.23}, 0.45))
 	d := abs(lens) - STROKE / 2
 	return nearer(d, disc(p, {0.5, 0.5}, 0.11))
+}
+
+// Replying in a thread: a line down from the top left that bends round
+// into an arrow pointing right, as ↪ does over a reply.
+@(private = "file")
+hooked_arrow :: proc(p: Point) -> f32 {
+	STROKE :: 0.1
+	d := capsule(p, {0.22, 0.16}, {0.22, 0.42}, STROKE)
+	// The bend: the bottom left quarter of a ring.
+	bend := max(arc(p, {0.44, 0.42}, 0.22, STROKE, .Bottom, 0.42), p.x - 0.44)
+	d = nearer(d, bend)
+	d = nearer(d, capsule(p, {0.44, 0.64}, {0.66, 0.64}, STROKE))
+	return nearer(d, triangle(p, {0.62, 0.46}, {0.86, 0.64}, {0.62, 0.82}))
+}
+
+// A pencil, leaning to the right with its point at the bottom left: the
+// body, and a little apart from it the point.
+@(private = "file")
+pencil :: proc(p: Point) -> f32 {
+	d := capsule(p, {0.42, 0.58}, {0.78, 0.22}, 0.2)
+	return nearer(d, triangle(p, {0.239, 0.619}, {0.381, 0.761}, {0.14, 0.86}))
 }
 
 // A smiling face: a ring, two eyes, and a smile.

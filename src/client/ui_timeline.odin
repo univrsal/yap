@@ -43,7 +43,9 @@ we have).
     deleted or pinned, which has its header to say so).
   - Jumping to a message (from the pins): the page around it is fetched
     if the window doesn't have it, and it's scrolled to and lit up.
-  - Right-clicking a message opens its menu (ui_message_menu.odin).
+  - The pointer on a message shows the bar of what can be done to it
+    (ui_message_bar.odin), and right-clicking it opens its menu
+    (ui_message_menu.odin).
   - Threads (ui_threads.odin): a reply is drawn indented, with a bar
     beside it (one bar down a run of replies to the same thread), and a
     dim line over it saying what it replies to (once for such a run),
@@ -1257,7 +1259,8 @@ picture_gone :: proc(m: conn.View_Message) -> bool {
 }
 
 // message_mouse is what the pointer does to a message laid out in
-// `block`: a right click opens its menu. And the one jumped to is lit up
+// `block`: on it, the message's bar is over it, and a right click opens
+// its menu. And the one jumped to is lit up
 // for a while; when it was jumped to as the first unread mention of us,
 // so are the others.
 @(private = "file")
@@ -1279,6 +1282,7 @@ message_mouse :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, block: mu
 	if .RIGHT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, block) {
 		open_message_menu(ui, m, st.slot)
 	}
+	message_bar_track(ui, st.key.conv, st.slot, m, block)
 }
 
 // day_line is the line above the first message of a day.
