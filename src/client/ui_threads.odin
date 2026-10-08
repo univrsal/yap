@@ -258,7 +258,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	preview_button(ui, composer)
-	if .SUBMIT in icon_button(ui, "send", .Send, "Save" if t.editing != 0 else "Reply") {
+	if .SUBMIT in icon_button(ui, "send", .Send, "Enter: Save\nCtrl+Enter: New line" if t.editing != 0 else "Enter: Reply\nCtrl+Enter: New line") {
 		send = true
 	}
 	mu.layout_end_column(ctx)

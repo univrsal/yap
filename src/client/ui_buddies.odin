@@ -441,7 +441,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		}
 	}
 	if .SUBMIT in
-	   icon_button(ui, "dm send", .Send, "Save" if ui.buddies.editing != 0 else "Send") {
+	   icon_button(ui, "dm send", .Send, "Save" if ui.buddies.editing != 0 else "Enter: Send\nCtrl+Enter: New line") {
 		send = true
 	}
 	mu.layout_end_column(ctx)
