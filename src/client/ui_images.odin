@@ -463,6 +463,23 @@ ui_images_after_frame :: proc(ui: ^UI) {
 	}
 }
 
+// image_want has a picture decoded under `key` from `data` (copied),
+// unless it's known already, for image_fitted to draw without the bytes.
+image_want :: proc(ui: ^UI, key: u64, data: []u8) {
+	if key not_in ui.images.textures && len(data) > 0 {
+		enqueue_decode(&ui.images, key, data)
+	}
+}
+
+// image_size is a decoded picture's own size; false until it's decoded.
+image_size :: proc(ui: ^UI, key: u64) -> (w, h: int, ok: bool) {
+	t, known := ui.images.textures[key]
+	if !known || t.state != .Ready {
+		return
+	}
+	return t.width, t.height, true
+}
+
 enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8) {
 	copy_of := make([]u8, len(jpeg))
 	copy(copy_of, jpeg)

@@ -207,3 +207,21 @@ attach_paths :: proc(ui: ^UI, at: Attach_Target, paths: []string) {
 	}
 	attach_add(ui, at, picked[:])
 }
+
+// picked_file_read reads a picked file into its `preview`, for its chip
+// (ui_attachments.odin): all of it, now; it's no bigger than
+// conn.PREVIEW_MAX. False, and preview_failed, if it can't be read.
+picked_file_read :: proc(f: ^Picked_File) -> (done: bool) {
+	if f.preview != nil {
+		return true
+	}
+	data, err := os.read_entire_file(f.path, context.allocator)
+	if err != nil || len(data) == 0 {
+		log.warnf("can't read %s to preview it: %v", f.path, err)
+		delete(data)
+		f.preview_failed = true
+		return false
+	}
+	f.preview = data
+	return true
+}

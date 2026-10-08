@@ -97,3 +97,33 @@ web_file_dropped :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64
 	attach_add(g_ui, drop_target(g_ui), {picked})
 	ui_redraw(g_ui)
 }
+
+// picked_file_read reads a picked file into its `preview`, for its chip
+// (ui_attachments.odin), a block at a time as the page has them
+// (web/files.js): false until it's all here. If it can't be read, false
+// and preview_failed.
+picked_file_read :: proc(f: ^Picked_File) -> (done: bool) {
+	BLOCK :: 1 << 20 // the page's
+	if f.preview == nil {
+		f.preview = make([]u8, int(f.size))
+	}
+	for f.preview_read < len(f.preview) {
+		n := min(BLOCK - f.preview_read % BLOCK, len(f.preview) - f.preview_read)
+		got := conn.yap_file_read(
+			f.web_file,
+			f64(f.preview_read),
+			raw_data(f.preview[f.preview_read:]),
+			i32(n),
+		)
+		switch got {
+		case -1:
+			return false // on its way
+		case i32(n):
+			f.preview_read += n
+		case:
+			f.preview_failed = true
+			return false
+		}
+	}
+	return true
+}

@@ -17,7 +17,8 @@ rest): the paperclip next to a composer opens the file dialog, for as
 many files as are picked (ui_files_*.odin), and they wait above the text
 box as chips until the message is sent. A chip clicked is taken off. A
 picture pasted into a composer (ui_paste*.odin) joins them the same way.
-Sending (composer_send) takes them along, even with no text.
+The pointer on a picture's chip shows the picture above it
+(chip_preview_popup). Sending (composer_send) takes them along, even with no text.
 
 Each composer keeps its own: the channel's, the DM page's and each
 thread window's.
@@ -30,6 +31,14 @@ Picked_File :: struct {
 	data:     []u8, // owned; a pasted picture's
 	name:     string, // owned
 	size:     u64,
+	// Its chip's preview, for a picture (chip_preview_bytes): the bytes
+	// read so far (owned; a pasted picture's are `data`), how many, its
+	// texture's key (0 until it's first shown), and whether it couldn't
+	// be read.
+	preview:        []u8,
+	preview_read:   int,
+	preview_key:    u64,
+	preview_failed: bool,
 }
 
 picked_files_clear :: proc(files: ^[dynamic]Picked_File) {
@@ -37,6 +46,7 @@ picked_files_clear :: proc(files: ^[dynamic]Picked_File) {
 		delete(f.path)
 		delete(f.data)
 		delete(f.name)
+		delete(f.preview)
 	}
 	clear(files)
 }
@@ -93,7 +103,13 @@ attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 		case:
 			append(
 				files,
-				Picked_File{strings.clone(f.path), f.web_file, f.data, strings.clone(f.name), f.size},
+				Picked_File {
+					path = strings.clone(f.path),
+					web_file = f.web_file,
+					data = f.data,
+					name = strings.clone(f.name),
+					size = f.size,
+				},
 			)
 			continue
 		}
@@ -229,30 +245,164 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 	for row in rows {
 		mu.layout_row(ctx, row[:], control_height(ctx))
 		for _ in row {
-			f := c.files[i]
-			label := chip_label(ctx, f, width / 2)
+			f := &c.files[i]
+			label := chip_label(ctx, f^, width / 2)
+			id_name := fmt.tprintf("chip %d %d", c.thread, i)
 			if .SUBMIT in
-			   stable_button_hint(
-				   ui,
-				   fmt.tprintf("chip %d %d", c.thread, i),
-				   label,
-				   fmt.tprintf("Take %s off", f.name),
-			   ) {
+			   stable_button_hint(ui, id_name, label, fmt.tprintf("Take %s off", f.name)) {
 				remove = i
+			}
+			if ctx.hover_id == mu.get_id(ctx, id_name) {
+				chip_hovered(ui, f)
 			}
 			i += 1
 		}
 	}
 	if remove >= 0 {
+		ui.chip_preview = {}
 		f := c.files[remove]
 		delete(f.path)
 		delete(f.data)
 		delete(f.name)
+		delete(f.preview)
 		if f.web_file != 0 {
 			conn.web_file_close(f.web_file)
 		}
 		ordered_remove(c.files, remove)
 	}
+}
+
+/*
+A picture's chip with the pointer on it shows the picture over it, with
+its hint under it, in a frameless window of its own raised above the
+rest, as icon_hint does. The bytes are read the first time (a file
+picked on a desktop at once, a browser's as the page has them); the
+popup is drawn at the end of the frame from the decoded texture alone,
+so a chip taken off or sent meanwhile leaves nothing behind it to use.
+*/
+
+// The keys chips' previews are decoded under, beside messages' pictures
+// (their blob's id), avatars (AVATAR_KEY) and the emoji sheet: this bit
+// and a count.
+@(private = "file")
+CHIP_PREVIEW_KEY :: u64(1) << 60
+@(private = "file")
+g_chip_previews: u64
+
+@(private = "file")
+CHIP_PREVIEW_WINDOW :: "chip preview"
+// The most room the picture takes in the popup.
+@(private = "file")
+CHIP_PREVIEW_W :: 320
+@(private = "file")
+CHIP_PREVIEW_H :: 240
+
+// The chip the pointer is on this frame, for chip_preview_popup.
+Chip_Preview :: struct {
+	key:     u64, // 0 for none
+	of:      mu.Rect, // the chip
+	caption: string,
+}
+
+// chip_preview_bytes is a picture chip's bytes, once they're all read
+// (picked_file_read). Not ready while they're on their way (another
+// frame is asked for), or if they can't be read (preview_failed).
+@(private = "file")
+chip_preview_bytes :: proc(ui: ^UI, f: ^Picked_File) -> (data: []u8, ready: bool) {
+	if f.data != nil {
+		return f.data, true
+	}
+	if f.preview_failed {
+		return nil, false
+	}
+	if !picked_file_read(f) {
+		if !f.preview_failed {
+			ui_redraw(ui)
+		}
+		return nil, false
+	}
+	return f.preview, true
+}
+
+// chip_hovered has a picture's chip show the picture, in place of its
+// hint, this frame. Call after the chip, which set the hint.
+@(private = "file")
+chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
+	if !conn.preview_wanted(f.name, f.size) {
+		return
+	}
+	data, ready := chip_preview_bytes(ui, f)
+	if !ready && f.preview_failed {
+		return // the plain hint
+	}
+	if f.preview_key == 0 {
+		g_chip_previews += 1
+		f.preview_key = CHIP_PREVIEW_KEY | g_chip_previews
+	}
+	if ready {
+		image_want(ui, f.preview_key, data)
+	}
+	ui.chip_preview = {
+		key     = f.preview_key,
+		of      = ui.hint_of,
+		caption = ui.hint,
+	}
+	ui.hint = ""
+}
+
+// chip_preview_popup draws the picture of the chip under the pointer
+// above it (below it if there's no room), with the chip's hint.
+chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
+	p := ui.chip_preview
+	if p.key == 0 {
+		return
+	}
+	ui.chip_preview = {}
+	ctx := &ui.ctx
+	pad := ctx.style.padding
+	line_h := ctx.text_height(ctx.style.font)
+	// While it's being read or decoded, room for "loading picture...".
+	pic_w, pic_h := i32(CHIP_PREVIEW_W), i32(CHIP_PREVIEW_H / 2)
+	if iw, ih, ok := image_size(ui, p.key); ok {
+		fw, fh := conn.fit_box(iw, ih, CHIP_PREVIEW_W, CHIP_PREVIEW_H)
+		pic_w, pic_h = i32(fw), i32(fh)
+	}
+	w := max(pic_w, ctx.text_width(ctx.style.font, p.caption)) + 2 * pad
+	h := pic_h + line_h + 3 * pad
+	x := min(p.of.x, max(window_w - w, 0))
+	y := p.of.y - h - 2
+	if y < 0 {
+		y = min(p.of.y + p.of.h + 2, max(window_h - h, 0))
+	}
+	r := mu.Rect{x, y, w, h}
+	// Off the chip, so the pointer stays on it.
+	cnt := mu.get_container(ctx, CHIP_PREVIEW_WINDOW)
+	if cnt == nil {
+		return
+	}
+	cnt.rect = r
+	if cnt.zindex != ctx.last_zindex {
+		mu.bring_to_front(ctx, cnt)
+	}
+	if !mu.begin_window(
+		ctx,
+		CHIP_PREVIEW_WINDOW,
+		r,
+		{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_SCROLL, .NO_CLOSE, .NO_INTERACT},
+	) {
+		return
+	}
+	defer mu.end_window(ctx)
+	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
+	mu.draw_box(ctx, r, ctx.style.colors[.BORDER])
+	image_fitted(ui, p.key, .Wanted, nil, {x + pad, y + pad, pic_w, pic_h})
+	mu.draw_text(
+		ctx,
+		ctx.style.font,
+		p.caption,
+		{x + pad, y + 2 * pad + pic_h},
+		ctx.style.colors[.TEXT],
+	)
 }
 
 // composer_send_files sends what's in a composer with its files; true if

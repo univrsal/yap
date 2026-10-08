@@ -276,6 +276,9 @@ UI :: struct {
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
 	hint_of:             mu.Rect,
+	// The picture chip under the pointer, shown over it
+	// (chip_preview_popup).
+	chip_preview:        Chip_Preview,
 	// Chat images: decoded pictures and their textures (ui_images.odin).
 	images:              UI_Images,
 	// The system tray icon, if it's switched on (ui_tray.odin).
@@ -1405,7 +1408,8 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	search_window(ui, w, h)
 	// After every timeline, the thread windows' too.
 	message_bar(ui)
-	// Last, and in a window of its own, so it's over the popups too.
+	// Last, and in windows of their own, so they're over the popups too.
+	chip_preview_popup(ui, w, h)
 	icon_hint(ui, w, h)
 }
 
