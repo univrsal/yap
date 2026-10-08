@@ -1624,10 +1624,6 @@ session_header :: proc(ui: ^UI) {
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
 		open_settings(ui)
 	}
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", OFF_COLOR) {
-		log.debug("ui: leave the server")
-		ui.action = .Disconnect
-	}
 }
 
 // log_button shows the log in place of the chat, from the channels or
