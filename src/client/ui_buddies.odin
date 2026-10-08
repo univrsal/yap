@@ -318,7 +318,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name),
 	)
 	// Calling them, while they're here and we're in no call.
-	if may_call(v, account) {
+	if !deleted && may_call(v, account) {
 		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
 			call_account(ui, account)
 		}
@@ -363,7 +363,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		)
 		mu.layout_row(ctx, {-1}, -1)
 		if entry.conv != 0 && v.viewing == entry.conv {
-			timeline(ui, &ui.timeline, {entry.conv, 0})
+			timeline(ui, &ui.timeline, {entry.conv, 0}, readonly = true)
 		}
 		return
 	}

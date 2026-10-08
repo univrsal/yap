@@ -237,7 +237,7 @@ timeline lays out a timeline in the current layout cell: the
 conversation being looked at, a channel or a DM (`st` is ui.timeline),
 or one of its threads (`st` is its window's). Call with the View locked.
 */
-timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
+timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := false) {
 	ctx := &ui.ctx
 	v := &ui.view
 	// Messages are in the chat's text size (settings.chat_scale), and
@@ -385,7 +385,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 	// In a thread, its root over it.
 	if first == 0 {
 		if key.root != 0 {
-			thread_head(ui, st, root, have_root, width)
+			thread_head(ui, st, root, have_root, width, readonly)
 		}
 		top_line(ui, st, tl, n)
 	} else {
@@ -400,9 +400,9 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key) {
 		// Where the message itself is: below the lines over it, and the
 		// gap before its header (not a merged one's: one message runs on
 		// into the next).
-		from := timeline_message(ui, st, msgs, i, width)
+		from := timeline_message(ui, st, msgs, i, width, readonly)
 		block := mu.Rect{layout.body.x, layout.body.y + from, width, layout.next_row - from}
-		message_mouse(ui, st, msgs[i], block)
+		message_mouse(ui, st, msgs[i], block, readonly)
 		if is_indented(st, msgs[i]) {
 			bar_top := block.y
 			if bar_root == msgs[i].thread_root && i > first {
@@ -586,7 +586,14 @@ message_index :: proc(msgs: []conn.View_Message, id: proto.Msg_Id) -> (int, bool
 // thread_head draws a thread's root, over its replies (or a line saying
 // it's on its way): as tall as the timeline works out.
 @(private = "file")
-thread_head :: proc(ui: ^UI, st: ^UI_Timeline, root: conn.View_Message, have: bool, width: i32) {
+thread_head :: proc(
+	ui: ^UI,
+	st: ^UI_Timeline,
+	root: conn.View_Message,
+	have: bool,
+	width: i32,
+	readonly := false,
+) {
 	ctx := &ui.ctx
 	if !have {
 		mu.layout_row(ctx, {-1})
@@ -600,6 +607,7 @@ thread_head :: proc(ui: ^UI, st: ^UI_Timeline, root: conn.View_Message, have: bo
 		st,
 		root,
 		{layout.body.x, layout.body.y + from, width, layout.next_row - from},
+		readonly,
 	)
 }
 
@@ -839,6 +847,7 @@ timeline_message :: proc(
 	msgs: []conn.View_Message,
 	i: int,
 	full: i32,
+	readonly := false,
 ) -> (
 	from: i32,
 ) {
@@ -863,10 +872,10 @@ timeline_message :: proc(
 	if tight {
 		// Its reply's line, and the message close under it.
 		from = mu.get_layout(ctx).next_row + 1 + ctx.style.spacing
-		reply_line(ui, st, m, width)
+		reply_line(ui, st, m, width, readonly)
 	}
 	defer if has_thread_line(st, m) {
-		thread_line(ui, st, m)
+		thread_line(ui, st, m, readonly)
 	}
 	name := "someone"
 	if acc, ok := v.accounts[m.sender]; ok {
@@ -945,7 +954,7 @@ timeline_message :: proc(
 		text := rich_plain(UNKNOWN_KIND_TEXT)
 		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
 	}
-	reaction_chips(ui, m, width)
+	reaction_chips(ui, m, width, readonly)
 	return from
 }
 
@@ -956,7 +965,13 @@ it says only that it's a reply, and the root is asked for. Clicking it
 opens the thread.
 */
 @(private = "file")
-reply_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, width: i32) {
+reply_line :: proc(
+	ui: ^UI,
+	st: ^UI_Timeline,
+	m: conn.View_Message,
+	width: i32,
+	readonly := false,
+) {
 	ctx := &ui.ctx
 	v := &ui.view
 	font := ctx.style.font
@@ -999,14 +1014,14 @@ reply_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, width: i32) 
 		width,
 	)
 	if thread_link(ui, text, r, CHAT_DIM_COLOR) {
-		open_thread(ui, key)
+		open_thread(ui, key, readonly)
 	}
 }
 
 // thread_line is the line under a root with replies: how many, and when
 // the last was, if it's here. Clicking it opens the thread.
 @(private = "file")
-thread_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message) {
+thread_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, readonly := false) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, ctx.text_height(ctx.style.font))
 	r := mu.layout_next(ctx)
@@ -1021,7 +1036,7 @@ thread_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message) {
 		}
 	}
 	if thread_link(ui, text, r, CHAT_NAME_COLOR) {
-		open_thread(ui, {st.key.conv, m.id})
+		open_thread(ui, {st.key.conv, m.id}, readonly)
 	}
 }
 
@@ -1117,7 +1132,7 @@ reactions_height :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> i32 {
 }
 
 @(private = "file")
-reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32) {
+reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := false) {
 	if len(m.reactions) == 0 || .Deleted in m.flags {
 		return
 	}
@@ -1156,7 +1171,10 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32) {
 			if ctx.hover_id == id {
 				reactors_hint(ui, m.id, c.r, rect)
 			}
-			if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} && ui.session != nil {
+			if !readonly &&
+			   ctx.hover_id == id &&
+			   ctx.mouse_pressed_bits == {.LEFT} &&
+			   ui.session != nil {
 				conn.push_command(
 					&ui.session.client.commands,
 					conn.React_Command{id = m.id, emoji = strings.clone(c.r.emoji), on = !c.r.me},
@@ -1284,7 +1302,13 @@ picture_gone :: proc(m: conn.View_Message) -> bool {
 // for a while; when it was jumped to as the first unread mention of us,
 // so are the others.
 @(private = "file")
-message_mouse :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, block: mu.Rect) {
+message_mouse :: proc(
+	ui: ^UI,
+	st: ^UI_Timeline,
+	m: conn.View_Message,
+	block: mu.Rect,
+	readonly := false,
+) {
 	ctx := &ui.ctx
 	lit := st.lit == m.id
 	if st.lit_mentions && st.lit_at != {} && m.id > st.unread_from && m.kind == .Text {
@@ -1299,7 +1323,7 @@ message_mouse :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, block: mu
 			st.lit, st.lit_mentions = 0, false
 		}
 	}
-	if .RIGHT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, block) {
+	if !readonly && .RIGHT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, block) {
 		open_message_menu(ui, m, st.slot)
 	}
 	message_bar_track(ui, st.key.conv, st.slot, m, block)

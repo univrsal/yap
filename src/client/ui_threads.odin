@@ -38,6 +38,7 @@ UI_Thread :: struct {
 	editing_conv: proto.Conv_Id,
 	opened:       u64, // when it was opened, by ui.threads_opened
 	placed:       bool, // its window's place has been set since it opened
+	readonly:     bool, // the thread is read-only (it is part of a DM whose other side is deleted)
 	// Files to go with the next reply (ui_attachments.odin).
 	files:        [dynamic]Picked_File,
 	// Where its window was last frame, and how far up: what's dropped
@@ -60,7 +61,7 @@ open_thread opens a thread's window, or brings it to the front if it's
 open; either way its composer takes the focus. Call with the View
 locked.
 */
-open_thread :: proc(ui: ^UI, key: conn.Timeline_Key) {
+open_thread :: proc(ui: ^UI, key: conn.Timeline_Key, readonly := false) {
 	if key.conv == 0 || key.root == 0 || ui.session == nil {
 		return
 	}
@@ -94,6 +95,7 @@ open_thread :: proc(ui: ^UI, key: conn.Timeline_Key) {
 	ui.threads_opened += 1
 	t.opened = ui.threads_opened
 	t.placed = false
+	t.readonly = readonly
 	focus_composer(ui, composer_of(ui, slot), -1)
 }
 
@@ -227,11 +229,20 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	}
 	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
 
-	input_h := composer_height(ui, composer)
+	input_h: i32 = 0
+	files_h: i32 = 0
 	width := panel_width(ctx)
-	files_h := composer_files_height(ui, composer, width)
+
+	if !t.readonly {
+		input_h = composer_height(ui, composer)
+		files_h = composer_files_height(ui, composer, width)
+	}
 	mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
-	timeline(ui, &t.timeline, t.key)
+	timeline(ui, &t.timeline, t.key, t.readonly)
+	if t.readonly {
+		return
+	}
+
 	composer_files(ui, composer, width)
 
 	composer_row(ui, input_h, 4)

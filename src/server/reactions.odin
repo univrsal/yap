@@ -121,7 +121,10 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	m, found := msg_by_id(s, msg_id)
 	conv := conv_by_id(&s.convs, m.conv) if found else nil
-	if conv == nil || !conv_is_member(conv, u.account.id) || .Archived in conv.flags {
+	if conv == nil ||
+	   !conv_is_member(conv, u.account.id) ||
+	   .Archived in conv.flags ||
+	   .Deleted in u.account.flags {
 		respond(u, id, .Not_Found)
 		return
 	}
