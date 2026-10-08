@@ -38,11 +38,14 @@ decode_queued :: proc(im: ^UI_Images) {
 		image, err := clipboard.decode(job.jpeg)
 		delete(job.jpeg)
 		sync.guard(&im.mutex)
-		append(&im.results, Decode_Result {
-					id = job.id,
-					image = image,
-					ok = err == .None,
-					generation = job.generation,
-				})
+		append(
+			&im.results,
+			Decode_Result {
+				id = job.id,
+				image = image,
+				ok = err == .None,
+				generation = job.generation,
+			},
+		)
 	}
 }

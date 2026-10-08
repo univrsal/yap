@@ -58,16 +58,20 @@ CURL_ERROR_SIZE :: 256
 Curl_Io :: #type proc "c" (data: [^]u8, size, count: uint, user: rawptr) -> uint
 
 Curl :: struct {
-	loaded:       bool,
-	version:      proc "c" () -> cstring,
-	global_init:  proc "c" (flags: i64) -> Curl_Code,
-	easy_init:    proc "c" () -> Curl_Handle,
-	easy_cleanup: proc "c" (h: Curl_Handle),
-	easy_reset:   proc "c" (h: Curl_Handle),
-	easy_setopt:  proc "c" (h: Curl_Handle, option: Curl_Option, #c_vararg args: ..any) -> Curl_Code,
-	easy_perform: proc "c" (h: Curl_Handle) -> Curl_Code,
-	easy_strerror: proc "c" (code: Curl_Code) -> cstring,
-	slist_append: proc "c" (list: Curl_Slist, text: cstring) -> Curl_Slist,
+	loaded:         bool,
+	version:        proc "c" () -> cstring,
+	global_init:    proc "c" (flags: i64) -> Curl_Code,
+	easy_init:      proc "c" () -> Curl_Handle,
+	easy_cleanup:   proc "c" (h: Curl_Handle),
+	easy_reset:     proc "c" (h: Curl_Handle),
+	easy_setopt:    proc "c" (
+		h: Curl_Handle,
+		option: Curl_Option,
+		#c_vararg args: ..any,
+	) -> Curl_Code,
+	easy_perform:   proc "c" (h: Curl_Handle) -> Curl_Code,
+	easy_strerror:  proc "c" (code: Curl_Code) -> cstring,
+	slist_append:   proc "c" (list: Curl_Slist, text: cstring) -> Curl_Slist,
 	slist_free_all: proc "c" (list: Curl_Slist),
 }
 

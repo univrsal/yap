@@ -15,7 +15,9 @@ test_register_codecs :: proc(t: ^testing.T) {
 	}
 	out: [REGISTER_BODY_MAX]u8
 	testing.expect(t, encode_register(out[:], longest) != nil)
-	r, ok := decode_register(encode_register(out[:], {username = "alice", password = "pw", email = "a@b.cd"}))
+	r, ok := decode_register(
+		encode_register(out[:], {username = "alice", password = "pw", email = "a@b.cd"}),
+	)
 	testing.expect(t, ok)
 	testing.expect_value(t, r.username, "alice")
 	testing.expect_value(t, r.email, "a@b.cd")

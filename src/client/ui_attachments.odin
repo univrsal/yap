@@ -26,11 +26,11 @@ thread window's.
 
 // Picked_File is a file waiting to go with a composer's next message.
 Picked_File :: struct {
-	path:     string, // owned; a desktop's
-	web_file: i32, // a browser's (files_io_web.odin)
-	data:     []u8, // owned; a pasted picture's
-	name:     string, // owned
-	size:     u64,
+	path:           string, // owned; a desktop's
+	web_file:       i32, // a browser's (files_io_web.odin)
+	data:           []u8, // owned; a pasted picture's
+	name:           string, // owned
+	size:           u64,
 	// Its chip's preview, for a picture (chip_preview_bytes): the bytes
 	// read so far (owned; a pasted picture's are `data`), how many, its
 	// texture's key (0 until it's first shown), and whether it couldn't
@@ -179,7 +179,7 @@ attach_button :: proc(ui: ^UI, c: Composer) {
 		mu.layout_next(ctx) // its place stays empty
 		return
 	}
-	
+
 	if ui.view.max_attachment == 0 || c.editing^ != 0 || c.files == nil {
 		mu.layout_next(ctx) // its place stays empty
 		return

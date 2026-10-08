@@ -112,8 +112,8 @@ test_connection_quality :: proc(t: ^testing.T) {
 		p: Ping_Tracker
 		rtts := good
 		for i in 1 ..= LOST_IN_A_ROW {
-				rtts[PING_WINDOW - i] = -1
-			}
+			rtts[PING_WINDOW - i] = -1
+		}
 		fill(&p, now, rtts[:])
 		s := connection_stats(&p, now)
 		testing.expect_value(t, s.lost_run, LOST_IN_A_ROW)

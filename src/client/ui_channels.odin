@@ -232,8 +232,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 			hint = "Talk in this channel instead of the one you're in"
 		}
 	}
-	if .SUBMIT in icon_button(ui, "voice", .Phone, hint, color) &&
-	   !v.voice_pending {
+	if .SUBMIT in icon_button(ui, "voice", .Phone, hint, color) && !v.voice_pending {
 		log.debugf("ui: %s %q", "leave voice of" if in_it else "join voice of", ch.name)
 		if in_it {
 			command(ui, conn.Voice_Command{})
@@ -364,7 +363,8 @@ channel_menu :: proc(ui: ^UI) {
 		next := proto.Notify_Level((int(ch.notify) + 1) % len(proto.Notify_Level))
 		command(ui, conn.Notify_Command{conv = ch.id, notify = next})
 	}
-	if .Manage_Channels in v.permissions && .SUBMIT in stable_button(ctx, "settings", "Settings...") {
+	if .Manage_Channels in v.permissions &&
+	   .SUBMIT in stable_button(ctx, "settings", "Settings...") {
 		open_channels(ui)
 		ui.manage.conv, ui.manage.loaded = ch.id, 0
 		close(ctx)

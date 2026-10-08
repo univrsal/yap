@@ -97,7 +97,8 @@ run_email_command :: proc(args: []string) -> int {
 			fmt.printfln("SMTP %s: mailed %s", cfg.smtp, to)
 		}
 	case:
-		if err := curl_request(&e, nil, url_base(cfg.smtp), custom = "NOOP", no_body = true); err != "" {
+		if err := curl_request(&e, nil, url_base(cfg.smtp), custom = "NOOP", no_body = true);
+		   err != "" {
 			fmt.printfln("SMTP %s: failed: %s", cfg.smtp, err)
 			failed = true
 		} else {

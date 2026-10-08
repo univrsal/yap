@@ -392,7 +392,8 @@ server_rail :: proc(ui: ^UI, h: i32) {
 			status = v.status
 			name := v.server_name if v.server_name != "" else ns.server
 			initials = server_initials(name)
-			label = fmt.tprintf("%s\n%s", v.server_name, ns.server) if v.server_name != "" else ns.server
+			label =
+				fmt.tprintf("%s\n%s", v.server_name, ns.server) if v.server_name != "" else ns.server
 		}
 		color := server_color(ns.server)
 		text := mu.Color{255, 255, 255, 255}
@@ -482,7 +483,8 @@ rail_drag :: proc(ui: ^UI, order: []^Net_Session, middles: []i32) {
 	}
 	if .LEFT in ctx.mouse_down_bits {
 		if rl.dragging && to != from && to != from + 1 {
-			line_y := middles[to] - RAIL_SLOT / 2 if to < len(middles) else middles[len(middles) - 1] + RAIL_SLOT / 2
+			line_y :=
+				middles[to] - RAIL_SLOT / 2 if to < len(middles) else middles[len(middles) - 1] + RAIL_SLOT / 2
 			x := i32((RAIL_WIDTH - RAIL_ICON) / 2)
 			mu.draw_rect(ctx, {x, line_y - 1, RAIL_ICON, 3}, MARK_COLOR)
 		}
@@ -588,7 +590,10 @@ rail_menu :: proc(ui: ^UI) {
 	{
 		v := &ns.view
 		sync.guard(&v.mutex)
-		name = strings.clone(v.server_name if v.server_name != "" else ns.server, context.temp_allocator)
+		name = strings.clone(
+			v.server_name if v.server_name != "" else ns.server,
+			context.temp_allocator,
+		)
 		logged_in = v.status == .Connected && v.login.state == .Done
 	}
 

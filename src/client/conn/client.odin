@@ -305,15 +305,7 @@ link_open opens a Data packet that came over the link, on whichever of
 its sessions it's addressed to. `pending` says it was the pending one,
 which the caller has to promote once it's sure of it.
 */
-link_open :: proc(
-	l: ^Link,
-	packet: []byte,
-	out: []byte,
-) -> (
-	pt: []byte,
-	pending: bool,
-	ok: bool,
-) {
+link_open :: proc(l: ^Link, packet: []byte, out: []byte) -> (pt: []byte, pending: bool, ok: bool) {
 	idx := proto.receiver_index(packet)
 	sess: ^proto.Session
 	switch {

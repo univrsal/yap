@@ -172,9 +172,7 @@ blob_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	b, found := blob_get(&s.blobs, blob)
-	visible :=
-		found &&
-		(b.kind == .Emoji_Sheet && blob == s.emoji.blob || is_avatar(s, blob))
+	visible := found && (b.kind == .Emoji_Sheet && blob == s.emoji.blob || is_avatar(s, blob))
 	if !visible {
 		respond(u, id, .Not_Found)
 		return

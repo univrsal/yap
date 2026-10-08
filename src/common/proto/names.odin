@@ -221,7 +221,13 @@ Link :: enum u8 {
 }
 
 // What goes over the bulk link once there is one.
-HEAVY_KINDS :: bit_set[Message_Kind]{.Video, .Blob_Chunk, .Upload_Chunk, .Download_Chunk, .File_Chunk}
+HEAVY_KINDS :: bit_set[Message_Kind] {
+	.Video,
+	.Blob_Chunk,
+	.Upload_Chunk,
+	.Download_Chunk,
+	.File_Chunk,
+}
 
 // is_heavy says whether a message goes over the bulk link.
 is_heavy :: proc(msg: []u8) -> bool {
@@ -250,14 +256,7 @@ encode_hello :: proc(
 }
 
 // decode_hello reads a hello; the password is as sent.
-decode_hello :: proc(
-	payload: []u8,
-) -> (
-	conn_id: u64,
-	password: string,
-	link: Link,
-	ok: bool,
-) {
+decode_hello :: proc(payload: []u8) -> (conn_id: u64, password: string, link: Link, ok: bool) {
 	if len(payload) < 11 || payload[0] != HELLO_VERSION || payload[9] > u8(max(Link)) {
 		return
 	}

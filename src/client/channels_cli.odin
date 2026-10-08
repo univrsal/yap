@@ -198,14 +198,19 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			}
 			conn.push_command(
 				q,
-				conn.Invite_Create_Command{max_uses = u16(clamp(uses, 0, proto.MAX_INVITE_USES)), expires = expires},
+				conn.Invite_Create_Command {
+					max_uses = u16(clamp(uses, 0, proto.MAX_INVITE_USES)),
+					expires = expires,
+				},
 			)
 		case line == "/invites":
 			conn.push_command(q, conn.Invites_Command{})
 		case strings.has_prefix(line, "/uninvite "):
 			conn.push_command(
 				q,
-				conn.Invite_Revoke_Command{strings.clone(strings.trim_space(line[len("/uninvite "):]))},
+				conn.Invite_Revoke_Command {
+					strings.clone(strings.trim_space(line[len("/uninvite "):])),
+				},
 			)
 		case line == "/logout":
 			conn.push_command(q, conn.Logout_Command{})

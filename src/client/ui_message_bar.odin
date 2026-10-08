@@ -74,7 +74,13 @@ message_bar_track is told of each message a timeline lays out, in
 `block`, with the timeline's panel the current container; the one the
 pointer is on (or that was tapped) is the one the bar is for this frame.
 */
-message_bar_track :: proc(ui: ^UI, conv: proto.Conv_Id, slot: int, m: conn.View_Message, block: mu.Rect) {
+message_bar_track :: proc(
+	ui: ^UI,
+	conv: proto.Conv_Id,
+	slot: int,
+	m: conn.View_Message,
+	block: mu.Rect,
+) {
 	ctx := &ui.ctx
 	b := &ui.msg_bar
 	t := Bar_Target{conv, slot, m.id}

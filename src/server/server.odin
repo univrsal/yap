@@ -208,7 +208,9 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	email_open(&s.email, settings.email)
 	defer email_close(&s.email)
 	if s.registration.verify_email && !s.email.enabled {
-		log.warn("registration asks for addresses to be verified, but there's no email, so they aren't")
+		log.warn(
+			"registration asks for addresses to be verified, but there's no email, so they aren't",
+		)
 	}
 
 	port := settings.port

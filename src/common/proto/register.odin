@@ -67,7 +67,12 @@ MAX_INVITES_LISTED :: 500
 INVITE_MAX_SIZE :: 1 + INVITE_CODE_SIZE + 4 + 8 + 2 + 2 + 8 + 1
 
 REGISTER_BODY_MAX ::
-	5 + MAX_USERNAME_SIZE + MAX_ACCOUNT_PASSWORD + MAX_DEVICE_NAME + MAX_EMAIL_SIZE + INVITE_CODE_SIZE
+	5 +
+	MAX_USERNAME_SIZE +
+	MAX_ACCOUNT_PASSWORD +
+	MAX_DEVICE_NAME +
+	MAX_EMAIL_SIZE +
+	INVITE_CODE_SIZE
 
 Register :: struct {
 	username: string,
@@ -160,7 +165,9 @@ decode_register :: proc(body: []u8) -> (r: Register, ok: bool) {
 // decode_register_refusal reads why a Register was refused; ok false
 // for a body without a reason this build knows.
 decode_register_refusal :: proc(body: []u8) -> (reason: Register_Refusal, ok: bool) {
-	if len(body) < 1 || body[0] < u8(min(Register_Refusal)) || body[0] > u8(max(Register_Refusal)) {
+	if len(body) < 1 ||
+	   body[0] < u8(min(Register_Refusal)) ||
+	   body[0] > u8(max(Register_Refusal)) {
 		return
 	}
 	return Register_Refusal(body[0]), true
@@ -168,7 +175,11 @@ decode_register_refusal :: proc(body: []u8) -> (reason: Register_Refusal, ok: bo
 
 INVITE_CREATE_SIZE :: 2 + 8
 
-encode_invite_create :: proc(out: ^[INVITE_CREATE_SIZE]u8, max_uses: u16, expires: Unix_Ms) -> []u8 {
+encode_invite_create :: proc(
+	out: ^[INVITE_CREATE_SIZE]u8,
+	max_uses: u16,
+	expires: Unix_Ms,
+) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
@@ -233,7 +244,13 @@ encode_invites :: proc(out: []u8, invites: []Invite) -> []u8 {
 
 // decode_invites reads an Invite_List response, into `allocator`; the
 // codes point into `body`.
-decode_invites :: proc(body: []u8, allocator := context.temp_allocator) -> (invites: []Invite, ok: bool) {
+decode_invites :: proc(
+	body: []u8,
+	allocator := context.temp_allocator,
+) -> (
+	invites: []Invite,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}

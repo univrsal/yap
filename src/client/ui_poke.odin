@@ -56,11 +56,20 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 		notice(ui, fmt.tprintf("%s poked you%s", p.name, on), p.message)
 	}
 	for m in conn.view_take_mentions(v) {
-		notice(ui, fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on), conn.markdown_plain(m.text))
+		notice(
+			ui,
+			fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on),
+			conn.markdown_plain(m.text),
+		)
 	}
 	if call != 0 && call != ns.call_announced {
 		ns.call_announced = call
-		notice(ui, fmt.tprintf("%s is calling you%s", caller, on), "Answer it in yap.", attention = true)
+		notice(
+			ui,
+			fmt.tprintf("%s is calling you%s", caller, on),
+			"Answer it in yap.",
+			attention = true,
+		)
 	}
 }
 

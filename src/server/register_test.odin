@@ -45,7 +45,13 @@ invite_new :: proc(
 ) {
 	buf: [proto.INVITE_CREATE_SIZE]u8
 	body: []u8
-	status, body = ts_ask(t, ts, u, .Invite_Create, proto.encode_invite_create(&buf, max_uses, expires))
+	status, body = ts_ask(
+		t,
+		ts,
+		u,
+		.Invite_Create,
+		proto.encode_invite_create(&buf, max_uses, expires),
+	)
 	if status == .Ok {
 		code, _ = proto.decode_invite_code(body)
 	}
@@ -65,7 +71,9 @@ test_register :: proc(t: ^testing.T) {
 	testing.expect_value(t, r.status, proto.Status.Denied)
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Closed)
 
-	ts.s.registration = {open = true}
+	ts.s.registration = {
+		open = true,
+	}
 	r = reg(t, &ts, {username = "x", password = PW})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Username)
 	r = reg(t, &ts, {username = "alice", password = "short"})
@@ -79,7 +87,11 @@ test_register :: proc(t: ^testing.T) {
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Invite)
 
 	// In: logged in, in the home channel, not having to change anything.
-	r = reg(t, &ts, {username = "Alice", password = PW, device = "phone", email = "Alice@Example.org"})
+	r = reg(
+		t,
+		&ts,
+		{username = "Alice", password = PW, device = "phone", email = "Alice@Example.org"},
+	)
 	testing.expect_value(t, r.status, proto.Status.Ok)
 	alice := account_by_id(&ts.s.accounts, r.account)
 	testing.expect(t, alice != nil)
@@ -97,13 +109,22 @@ test_register :: proc(t: ^testing.T) {
 	r = reg(t, &ts, {username = "alice2", password = PW, email = "alice@example.org"})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Email_Taken)
 
-	ts.s.registration = {open = true, require_email = true}
+	ts.s.registration = {
+		open          = true,
+		require_email = true,
+	}
 	r = reg(t, &ts, {username = "bob", password = PW})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Email_Missing)
-	ts.s.registration = {open = true, verify_email = true}
+	ts.s.registration = {
+		open         = true,
+		verify_email = true,
+	}
 	r = reg(t, &ts, {username = "bob", password = PW})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Email_Missing)
-	ts.s.registration = {open = true, require_invite = true}
+	ts.s.registration = {
+		open           = true,
+		require_invite = true,
+	}
 	r = reg(t, &ts, {username = "bob", password = PW})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Invite_Missing)
 
@@ -111,12 +132,20 @@ test_register :: proc(t: ^testing.T) {
 	u := ts_connect(&ts)
 	ts_login(t, &ts, u, "alice", PW)
 	buf: [proto.REGISTER_BODY_MAX]u8
-	got, _ := ts_ask(t, &ts, u, .Register, proto.encode_register(buf[:], {username = "carol", password = PW}))
+	got, _ := ts_ask(
+		t,
+		&ts,
+		u,
+		.Register,
+		proto.encode_register(buf[:], {username = "carol", password = PW}),
+	)
 	testing.expect_value(t, got, proto.Status.Conflict)
 
 	// What the server tells clients.
 	testing.expect_value(t, registration_flags(&ts.s), proto.Registration_Flags{.Open, .Invite})
-	ts.s.registration = {require_invite = true}
+	ts.s.registration = {
+		require_invite = true,
+	}
 	testing.expect_value(t, registration_flags(&ts.s), proto.Registration_Flags{})
 }
 
@@ -125,7 +154,9 @@ test_register_rate :: proc(t: ^testing.T) {
 	ts: Test_Server
 	ts_open(t, &ts)
 	defer ts_close(&ts)
-	ts.s.registration = {open = true}
+	ts.s.registration = {
+		open = true,
+	}
 	limited := 0
 	for i in 0 ..< REGISTER_BURST + 2 {
 		name := [?]u8{'u', 's', 'e', 'r', 'a' + u8(i)}
@@ -142,7 +173,10 @@ test_invites :: proc(t: ^testing.T) {
 	ts: Test_Server
 	ts_open(t, &ts)
 	defer ts_close(&ts)
-	ts.s.registration = {open = true, require_invite = true}
+	ts.s.registration = {
+		open           = true,
+		require_invite = true,
+	}
 	ts_account(t, &ts, "owner", "owner's password", {.Owner})
 	ts_account(t, &ts, "plain", "plain password")
 	owner := ts_connect(&ts)
@@ -224,7 +258,9 @@ test_invites :: proc(t: ^testing.T) {
 	testing.expect_value(t, got, proto.Status.Denied)
 
 	// Not required, still counted.
-	ts.s.registration = {open = true}
+	ts.s.registration = {
+		open = true,
+	}
 	status, code = invite_new(t, &ts, owner, 3)
 	code = clone_temp(code)
 	r = reg(t, &ts, {username = "seventh", password = PW, invite = code})

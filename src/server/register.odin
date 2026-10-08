@@ -75,7 +75,10 @@ register_take :: proc(s: ^Server) -> bool {
 		r.tokens = REGISTER_BURST
 	} else {
 		elapsed := time.duration_seconds(time.tick_diff(r.last, now))
-		r.tokens = min(f64(REGISTER_BURST), r.tokens + elapsed / time.duration_seconds(REGISTER_EVERY))
+		r.tokens = min(
+			f64(REGISTER_BURST),
+			r.tokens + elapsed / time.duration_seconds(REGISTER_EVERY),
+		)
 	}
 	r.last = now
 	if r.tokens < 1 {
@@ -235,7 +238,12 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 		return
 	}
 	if p.invite != "" {
-		log.infof("%s registered the account %s with invite %s", conn_label(u), acc.username, p.invite)
+		log.infof(
+			"%s registered the account %s with invite %s",
+			conn_label(u),
+			acc.username,
+			p.invite,
+		)
 	} else {
 		log.infof("%s registered the account %s", conn_label(u), acc.username)
 	}

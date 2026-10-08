@@ -83,7 +83,19 @@ test_email_clean :: proc(t: ^testing.T) {
 	address, ok := proto.email_clean("  Alice@Example.COM ", &buf)
 	testing.expect(t, ok)
 	testing.expect_value(t, address, "alice@example.com")
-	for bad in ([]string{"", "alice", "alice@", "@example.com", "a@b@example.com", "alice@example", "alice@.com", "alice@example.", "al ice@example.com", "<alice@example.com>", "alice@example.com\r\nBcc: x@y.z"}) {
+	for bad in ([]string {
+			"",
+			"alice",
+			"alice@",
+			"@example.com",
+			"a@b@example.com",
+			"alice@example",
+			"alice@.com",
+			"alice@example.",
+			"al ice@example.com",
+			"<alice@example.com>",
+			"alice@example.com\r\nBcc: x@y.z",
+		}) {
 		_, bad_ok := proto.email_clean(bad, &buf)
 		testing.expectf(t, !bad_ok, "%q taken for an address", bad)
 	}

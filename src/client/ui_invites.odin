@@ -13,9 +13,9 @@ ours, or with Manage_Accounts everybody's - to copy or revoke.
 */
 
 UI_Invites :: struct {
-	asked:    bool, // the list, since the settings were opened
-	uses:     u16, // for the next code; 0: any number
-	days:     int, // how long it's good for; 0: no end
+	asked:     bool, // the list, since the settings were opened
+	uses:      u16, // for the next code; 0: any number
+	days:      int, // how long it's good for; 0: no end
 	// The code just made was shown, and copied with the button.
 	made_seen: int,
 }
@@ -187,7 +187,14 @@ invited_by_line :: proc(ui: ^UI, v: ^conn.View, account: proto.Account_Id) -> st
 invite_date :: proc(ui: ^UI, ms: proto.Unix_Ms) -> string {
 	dt, _ := time.time_to_datetime(time.unix(i64(ms) / 1000, 0))
 	local := chat_local_time(ui, dt)
-	return fmt.tprintf("%d-%02d-%02d %02d:%02d", local.year, local.month, local.day, local.hour, local.minute)
+	return fmt.tprintf(
+		"%d-%02d-%02d %02d:%02d",
+		local.year,
+		local.month,
+		local.day,
+		local.hour,
+		local.minute,
+	)
 }
 
 // choice_button is a button that's one of a set, showing whether it's

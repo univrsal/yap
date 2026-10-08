@@ -26,7 +26,12 @@ curl_load_system :: proc(c: ^Curl) -> bool {
 			continue
 		}
 		if count != CURL_PROCS {
-			log.errorf("%s lacks some of what email needs (%d of %d found)", path, count, CURL_PROCS)
+			log.errorf(
+				"%s lacks some of what email needs (%d of %d found)",
+				path,
+				count,
+				CURL_PROCS,
+			)
 			return false
 		}
 		return true

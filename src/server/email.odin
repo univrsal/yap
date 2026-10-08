@@ -44,12 +44,12 @@ clear - while one on this machine (localhost, 127.x) may do without.
 */
 
 Email_Config :: struct {
-	address:           string, // the server's address; empty: no email
-	imap:              string, // imaps://host[:port]
-	smtp:              string, // smtps://host[:port]; empty: no sending
-	username:          string, // empty: the address
-	password:          string,
-	poll_seconds:      int,
+	address:            string, // the server's address; empty: no email
+	imap:               string, // imaps://host[:port]
+	smtp:               string, // smtps://host[:port]; empty: no sending
+	username:           string, // empty: the address
+	password:           string,
+	poll_seconds:       int,
 	// Whether a verifying mail has to be shown to come from where its
 	// From says, by trusted_auth_host's Authentication-Results header
 	// (verify.odin); other hosts' are anybody's say-so.
@@ -109,16 +109,16 @@ Email_Job :: struct {
 }
 
 Email :: struct {
-	enabled: bool, // configured, and libcurl is there
-	config:  Email_Config,
-	curl:    Curl,
-	thread:  ^thread.Thread,
-	mutex:   sync.Mutex,
-	wake:    sync.Cond,
-	stop:    bool,
-	poll:    bool, // poll now rather than when it's due
-	jobs:    [dynamic]Email_Job,
-	inbox:   [dynamic]Mail,
+	enabled:      bool, // configured, and libcurl is there
+	config:       Email_Config,
+	curl:         Curl,
+	thread:       ^thread.Thread,
+	mutex:        sync.Mutex,
+	wake:         sync.Cond,
+	stop:         bool,
+	poll:         bool, // poll now rather than when it's due
+	jobs:         [dynamic]Email_Job,
+	inbox:        [dynamic]Mail,
 	// The thread's: its handle for IMAP, kept so the connection is too,
 	// and whether the last try at each failed, so a failure is logged
 	// once rather than every poll.
@@ -143,7 +143,12 @@ email_open :: proc(e: ^Email, config: Email_Config) {
 	e.config = email_config_clone(config)
 	e.enabled = true
 	e.thread = thread.create_and_start_with_poly_data(e, email_run, init_context = context)
-	log.infof("email as %s, reading %s every %d s", config.address, config.imap, config.poll_seconds)
+	log.infof(
+		"email as %s, reading %s every %d s",
+		config.address,
+		config.imap,
+		config.poll_seconds,
+	)
 }
 
 email_close :: proc(e: ^Email) {
@@ -322,7 +327,11 @@ email_run :: proc(e: ^Email) {
 imap_poll :: proc(e: ^Email) {
 	box := fmt.tprintf("%s/INBOX", url_base(e.config.imap))
 	found := make([dynamic]u8, context.temp_allocator)
-	if !email_report(e, true, curl_request(e, e.imap, box, custom = "UID SEARCH UNSEEN", out = &found)) {
+	if !email_report(
+		e,
+		true,
+		curl_request(e, e.imap, box, custom = "UID SEARCH UNSEEN", out = &found),
+	) {
 		return
 	}
 	uids := imap_search_uids(string(found[:]))
@@ -455,7 +464,9 @@ curl_request :: proc(
 	}
 	errors: [CURL_ERROR_SIZE]u8
 	sink := Curl_Sink{context, out}
-	source := Curl_Source{data = upload}
+	source := Curl_Source {
+		data = upload,
+	}
 	user := e.config.username if e.config.username != "" else e.config.address
 	c.easy_setopt(h, .Url, tc(url))
 	c.easy_setopt(h, .Username, tc(user))
@@ -511,7 +522,9 @@ tls_wanted :: proc(url: string) -> int {
 	if i := strings.index_any(rest, ":/"); i >= 0 {
 		host = rest[:i]
 	}
-	if host == "localhost" || strings.has_prefix(host, "127.") || strings.has_prefix(rest, "[::1]") {
+	if host == "localhost" ||
+	   strings.has_prefix(host, "127.") ||
+	   strings.has_prefix(rest, "[::1]") {
 		return CURL_USESSL_TRY
 	}
 	return CURL_USESSL_ALL
@@ -558,7 +571,10 @@ mail_parse :: proc(uid: u32, header: string) -> Mail {
 		}
 		if (line[0] == ' ' || line[0] == '\t') && len(fields) > 0 {
 			last := &fields[len(fields) - 1]
-			last^ = strings.concatenate({last^, " ", strings.trim_space(line)}, context.temp_allocator)
+			last^ = strings.concatenate(
+				{last^, " ", strings.trim_space(line)},
+				context.temp_allocator,
+			)
 			continue
 		}
 		append(&fields, line)
@@ -762,7 +778,20 @@ encode_subject :: proc(subject: string) -> string {
 // rfc5322_date is a time as a Date header has it, in UTC.
 rfc5322_date :: proc(t: time.Time) -> string {
 	DAYS :: [7]string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
-	MONTHS :: [12]string{"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"}
+	MONTHS :: [12]string {
+		"Jan",
+		"Feb",
+		"Mar",
+		"Apr",
+		"May",
+		"Jun",
+		"Jul",
+		"Aug",
+		"Sep",
+		"Oct",
+		"Nov",
+		"Dec",
+	}
 	year, month, day := time.date(t)
 	hour, minute, second := time.clock_from_time(t)
 	days := DAYS

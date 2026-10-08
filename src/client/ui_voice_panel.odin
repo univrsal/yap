@@ -181,7 +181,10 @@ voice_elsewhere_update :: proc(ui: ^UI) {
 		e := Voice_Elsewhere {
 			ns     = ns,
 			state  = state,
-			server = strings.clone(v.server_name if v.server_name != "" else ns.server, context.temp_allocator),
+			server = strings.clone(
+				v.server_name if v.server_name != "" else ns.server,
+				context.temp_allocator,
+			),
 		}
 		switch state {
 		case .Idle, .Elsewhere:
@@ -445,7 +448,8 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 		if .SUBMIT in stable_button(ctx, "other show", "Show", {.ALIGN_CENTER}) {
 			ui.switch_to, ui.switching = e.ns, true
 		}
-		label := "Leave" if e.state == .Voice else ("Cancel" if e.state == .Ringing_Out else "Hang up")
+		label :=
+			"Leave" if e.state == .Voice else ("Cancel" if e.state == .Ringing_Out else "Hang up")
 		saved := ctx.style.colors[.TEXT]
 		ctx.style.colors[.TEXT] = OFF_COLOR
 		out := .SUBMIT in stable_button(ctx, "other leave", label, {.ALIGN_CENTER})

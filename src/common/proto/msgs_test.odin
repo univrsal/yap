@@ -52,10 +52,7 @@ test_message_record :: proc(t: ^testing.T) {
 		testing.expect_value(t, string(encode_message(again[:], got)), string(body))
 		testing.expect(t, got.id == m.id && got.conv == m.conv && got.sender == m.sender)
 		testing.expect(t, got.kind == m.kind && got.flags == m.flags && got.time == m.time)
-		testing.expect(
-			t,
-			got.text == m.text && got.file_name == m.file_name,
-		)
+		testing.expect(t, got.text == m.text && got.file_name == m.file_name)
 		testing.expect(t, got.reply_count == m.reply_count && got.system_arg == m.system_arg)
 		testing.expect(t, got.attachment_count == m.attachment_count)
 		testing.expect(t, got.attachments[0].blob == m.attachments[0].blob)

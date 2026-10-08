@@ -57,11 +57,11 @@ test_display_names :: proc(t: ^testing.T) {
 	ch.users_buf[3] = {
 		num     = 4,
 		account = 10,
-	} 	// alice's other device
+	} // alice's other device
 	ch.users_buf[4] = {
 		num     = 5,
 		account = 99,
-	} 	// one we weren't told of
+	} // one we weren't told of
 	ch.state.users = ch.users_buf[:5]
 	ch.have_state = true
 	c.auth.accounts[10] = {

@@ -732,7 +732,10 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 					send_event(
 						c,
 						.Msgs_Purged,
-						proto.encode_msgs_purged(&buf, {conv = id, before = step.below, what = what}),
+						proto.encode_msgs_purged(
+							&buf,
+							{conv = id, before = step.below, what = what},
+						),
 					)
 				}
 				if what == .Messages {

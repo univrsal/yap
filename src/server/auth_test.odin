@@ -200,12 +200,7 @@ ts_ask :: proc(
 		if r, answered := client.responses[id]; answered {
 			// No query left holding a read open, which would keep
 			// checkpoints from finishing.
-			testing.expectf(
-				t,
-				db_open_reads(&ts.s.db) == 0,
-				"%v left a statement open",
-				op,
-			)
+			testing.expectf(t, db_open_reads(&ts.s.db) == 0, "%v left a statement open", op)
 			return r.status, r.body
 		}
 		time.sleep(time.Millisecond)

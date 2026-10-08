@@ -23,40 +23,40 @@ clients ask for is in auth.odin.
 */
 
 Account :: struct {
-	id:           proto.Account_Id,
-	username:     string, // owned; lower case
-	display:      string, // owned
-	flags:        proto.Account_Flags,
+	id:             proto.Account_Id,
+	username:       string, // owned; lower case
+	display:        string, // owned
+	flags:          proto.Account_Flags,
 	// Its status (owned; "" for none) and when it ends (0: it doesn't),
 	// and its picture (profiles.odin).
-	status:       string,
-	status_until: i64,
-	avatar:       proto.Blob_Id,
+	status:         string,
+	status_until:   i64,
+	avatar:         proto.Blob_Id,
 	// Its email address (owned; "" for none), in lower case, which no
 	// other account has. Only it is told it.
-	email:        string,
+	email:          string,
 	// While it's Unverified: the code a mail has to have (owned), and
 	// when it's deleted if none comes (0: never). verify.odin.
 	verify_code:    string,
 	verify_expires: i64,
 	// What it chose to be (online, away, busy or offline), and how
 	// everyone was last told it is (activity.odin).
-	chosen:       proto.Activity,
-	shown:        proto.Activity,
-	created:      i64, // Unix milliseconds
-	last_seen:    i64, // when its last connection left; 0 if never here
+	chosen:         proto.Activity,
+	shown:          proto.Activity,
+	created:        i64, // Unix milliseconds
+	last_seen:      i64, // when its last connection left; 0 if never here
 	// Its connections right now, one per device that's here.
-	conns:        [dynamic]^Conn,
+	conns:          [dynamic]^Conn,
 	// The accounts it keeps in its buddy list (buddies.odin).
-	buddies:      [dynamic]proto.Account_Id,
+	buddies:        [dynamic]proto.Account_Id,
 	// Its roles besides everyone's, and what they let it do, worked out
 	// again whenever a role or the list changes (roles.odin).
-	roles:        [dynamic]proto.Role_Id,
-	perms:        proto.Permissions,
+	roles:          [dynamic]proto.Role_Id,
+	perms:          proto.Permissions,
 	// Wrong passwords in a row, and until when no more are taken
 	// (auth.odin).
-	failures:     int,
-	locked_until: time.Tick,
+	failures:       int,
+	locked_until:   time.Tick,
 }
 
 Device :: struct {

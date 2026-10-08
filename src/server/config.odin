@@ -471,7 +471,9 @@ check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bo
 		log.errorf("%s: email needs an imap URL, imaps://host or imap://host", path)
 		return
 	}
-	if e.smtp != "" && !strings.has_prefix(e.smtp, "smtps://") && !strings.has_prefix(e.smtp, "smtp://") {
+	if e.smtp != "" &&
+	   !strings.has_prefix(e.smtp, "smtps://") &&
+	   !strings.has_prefix(e.smtp, "smtp://") {
 		log.errorf("%s: the smtp URL has to be smtps://host or smtp://host", path)
 		return
 	}

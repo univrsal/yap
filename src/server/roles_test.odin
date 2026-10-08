@@ -469,12 +469,7 @@ test_private_channels :: proc(t: ^testing.T) {
 	ts_ask(t, &ts, owner, .Voice_Join, proto.encode_room(&room_buf, proto.Room(staff_id)))
 
 	// Nothing of it reaches anyone else.
-	nothing :: proc(
-		t: ^testing.T,
-		ts: ^Test_Server,
-		u: ^Conn,
-		conv: proto.Conv_Id,
-	) {
+	nothing :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id) {
 		status, body := ts_ask(t, ts, u, .Conv_Browse, nil)
 		list_buf: [8]proto.Conv
 		_, browsed, _ := proto.decode_browse_page(body, list_buf[:])

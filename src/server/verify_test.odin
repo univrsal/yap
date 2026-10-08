@@ -12,8 +12,21 @@ import "common:proto"
 @(test)
 test_auth_passed :: proc(t: ^testing.T) {
 	MX :: "mx.example.org"
-	check :: proc(t: ^testing.T, want: bool, from: string, results: ..string, loc := #caller_location) {
-		testing.expectf(t, auth_passed(results, MX, from) == want, "%v for %q", results, from, loc = loc)
+	check :: proc(
+		t: ^testing.T,
+		want: bool,
+		from: string,
+		results: ..string,
+		loc := #caller_location,
+	) {
+		testing.expectf(
+			t,
+			auth_passed(results, MX, from) == want,
+			"%v for %q",
+			results,
+			from,
+			loc = loc,
+		)
 	}
 	check(t, true, "a@b.com", "mx.example.org; dmarc=pass (p=none) header.from=b.com")
 	check(t, true, "a@b.com", "MX.example.org 1; dkim=pass header.d=b.com header.s=x")
@@ -21,7 +34,12 @@ test_auth_passed :: proc(t: ^testing.T) {
 	check(t, true, "a@b.com", "mx.example.org; dkim=pass header.i=@b.com")
 	check(t, true, "a@b.com", "mx.example.org; spf=pass smtp.mailfrom=bounce@b.com")
 	check(t, true, "a@b.com", "mx.example.org;\n\tspf=pass (sender is ok) smtp.mailfrom=\"b.com\"")
-	check(t, true, "a@b.com", "mx.example.org; dkim=fail header.d=b.com; spf=pass smtp.mailfrom=b.com")
+	check(
+		t,
+		true,
+		"a@b.com",
+		"mx.example.org; dkim=fail header.d=b.com; spf=pass smtp.mailfrom=b.com",
+	)
 
 	check(t, false, "a@b.com", "mx.example.org; dkim=fail header.d=b.com")
 	check(t, false, "a@b.com", "mx.example.org; dkim=pass header.d=evil.com")
@@ -41,7 +59,10 @@ test_auth_passed :: proc(t: ^testing.T) {
 	// A comment can't make a pass.
 	check(t, false, "a@b.com", "mx.example.org; dkim=none (dkim=pass header.d=b.com)")
 	check(t, false, "a@b.com")
-	testing.expect(t, !auth_passed({"mx.example.org; dmarc=pass header.from=b.com"}, "", "a@b.com"))
+	testing.expect(
+		t,
+		!auth_passed({"mx.example.org; dmarc=pass header.from=b.com"}, "", "a@b.com"),
+	)
 
 	testing.expect(t, subject_has_code("Verify: abcd2345 please", "ABCD2345"))
 	testing.expect(t, !subject_has_code("Verify", "ABCD2345"))
@@ -81,7 +102,11 @@ deletes_asked :: proc(ts: ^Test_Server) -> int {
 @(private = "file")
 verifying_server :: proc(t: ^testing.T, ts: ^Test_Server) {
 	ts_open(t, ts)
-	ts.s.registration = {open = true, verify_email = true, unverified_hours = 48}
+	ts.s.registration = {
+		open             = true,
+		verify_email     = true,
+		unverified_hours = 48,
+	}
 	// Email that's there without a thread: what it reads is put in its
 	// queue by hand, and what it's asked to do waits in its jobs.
 	ts.s.email.enabled = true
@@ -107,7 +132,10 @@ test_verify :: proc(t: ^testing.T) {
 		&ts,
 		u,
 		.Register,
-		proto.encode_register(buf[:], {username = "carol", password = "carol's password", email = "Carol@Example.com"}),
+		proto.encode_register(
+			buf[:],
+			{username = "carol", password = "carol's password", email = "Carol@Example.com"},
+		),
 	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	acc := u.account
@@ -136,8 +164,20 @@ test_verify :: proc(t: ^testing.T) {
 	mail_in(&ts, 1, "someone@example.com", subject) // not hers
 	mail_in(&ts, 2, "carol@example.com", "hello") // no code
 	mail_in(&ts, 3, "carol@example.com", subject, auth = "") // nothing says it's from there
-	mail_in(&ts, 4, "carol@example.com", subject, auth = "mx.example.org; dkim=fail header.d=example.com")
-	mail_in(&ts, 5, "carol@example.com", subject, auth = "evil.example; dmarc=pass header.from=example.com")
+	mail_in(
+		&ts,
+		4,
+		"carol@example.com",
+		subject,
+		auth = "mx.example.org; dkim=fail header.d=example.com",
+	)
+	mail_in(
+		&ts,
+		5,
+		"carol@example.com",
+		subject,
+		auth = "evil.example; dmarc=pass header.from=example.com",
+	)
 	verify_sync(s)
 	testing.expect(t, .Unverified in acc.flags)
 	testing.expect_value(t, deletes_asked(&ts), 5)
@@ -182,7 +222,10 @@ test_verify :: proc(t: ^testing.T) {
 		&ts,
 		ts_connect(&ts),
 		.Register,
-		proto.encode_register(buf[:], {username = "dave", password = "dave's password", email = "dave@example.com"}),
+		proto.encode_register(
+			buf[:],
+			{username = "dave", password = "dave's password", email = "dave@example.com"},
+		),
 	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	dave := account_find(&s.accounts, "dave")
@@ -201,7 +244,10 @@ test_verify :: proc(t: ^testing.T) {
 		&ts,
 		ts_connect(&ts),
 		.Register,
-		proto.encode_register(buf[:], {username = "erin", password = "erin's password", email = "erin@example.com"}),
+		proto.encode_register(
+			buf[:],
+			{username = "erin", password = "erin's password", email = "erin@example.com"},
+		),
 	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	erin := account_find(&s.accounts, "erin")

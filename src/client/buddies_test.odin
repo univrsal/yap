@@ -36,7 +36,7 @@ test_buddy_list :: proc(t: ^testing.T) {
 	append(&v.buddies, 2, 3, 4)
 	v.users[7] = {
 		account = 2,
-	} 	// online, so first
+	} // online, so first
 	// A DM with a buddy shows once; one with somebody else shows too,
 	// unless it was hidden and nothing's been said since.
 	append(&v.dms, conn.View_DM{id = 10, with = 3, last = 100, unread = 2})

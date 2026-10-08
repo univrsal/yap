@@ -47,49 +47,49 @@ UI_Options :: struct {
 // The connection and the thread (or the frame loop) running it; see
 // net_native.odin and net_web.odin.
 Net_Session :: struct {
-	client:        ^conn.Voice_Client,
-	thread:        Net_Thread,
-	stop:          bool, // set atomically to end the network loop
+	client:         ^conn.Voice_Client,
+	thread:         Net_Thread,
+	stop:           bool, // set atomically to end the network loop
 	// Without threads there is nobody to notice `stop`, so the frame
 	// loop notes here that the connection is done with (net_web.odin).
-	stopped:       bool,
+	stopped:        bool,
 
 	// Owned copies; the UI's buffers may change while the thread runs.
-	key_path:      string,
-	server:        string,
-	password:      string,
-	known_servers: string,
-	channel:       string, // to look at and talk in from the start, if any
-	look_at:       string, // or else the channel to look at
+	key_path:       string,
+	server:         string,
+	password:       string,
+	known_servers:  string,
+	channel:        string, // to look at and talk in from the start, if any
+	look_at:        string, // or else the channel to look at
 	// What the connection says, for the UI (the client's View), and what
 	// the UI keeps of this server while another is shown (ui_servers.odin).
-	view:          conn.View,
-	stash:         Server_UI,
+	view:           conn.View,
+	stash:          Server_UI,
 	// Which WebSockets are this session's in a web build: slot and
 	// slot + 1 (conn/transport_web.odin).
-	slot:          i32,
+	slot:           i32,
 	// Whether it was last told whoever uses this is idle (ui_activity.odin).
-	idle_told:     bool,
+	idle_told:      bool,
 	// Being joined from the + dialog (ui_join.odin): off the rail, and
 	// not in the settings, until it's logged in.
-	joining:       bool,
+	joining:        bool,
 	// Messages unread there, and how many of them are for us (mentions
 	// and DMs), as of this frame: for the rail (servers_frame).
-	unread:        int,
-	mentions:      int,
+	unread:         int,
+	mentions:       int,
 	// The call coming in there last told of on the desktop, so it's told
 	// once (session_notices).
 	call_announced: proto.Call_Id,
 
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
-	streams:       audio.Audio_Streams,
+	streams:        audio.Audio_Streams,
 	// The microphone is wanted, and has been opened, or tried to be
 	// (session_capture_update).
-	capture_on:    bool,
+	capture_on:     bool,
 	// An explicit disconnect keeps playback open while this local effect
 	// drains. Application shutdown and reconnects skip it.
-	goodbye_tail:  bool,
+	goodbye_tail:   bool,
 }
 
 Extra_Key :: enum {
@@ -1322,10 +1322,20 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 		if input {
 			// Not wanted is left closed (session_capture_update).
 			if ns.capture_on {
-				audio.open_capture(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.input_device)
+				audio.open_capture(
+					&ui.audio,
+					&ns.streams,
+					&ns.client.voice,
+					ui.settings.input_device,
+				)
 			}
 		} else {
-			audio.open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
+			audio.open_playback(
+				&ui.audio,
+				&ns.streams,
+				&ns.client.voice,
+				ui.settings.output_device,
+			)
 		}
 	}
 }
