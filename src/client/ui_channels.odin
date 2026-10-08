@@ -52,8 +52,6 @@ UI_Channels :: struct {
 @(private = "file")
 CHANNELS_WINDOW :: "Channels"
 @(private = "file")
-VOICE_BUTTON :: 110
-@(private = "file")
 SUBSCRIBE_BUTTON :: 120
 @(private = "file")
 MANAGE_BUTTON :: 90
@@ -172,14 +170,14 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	v := ui.view
 	ch := viewed_channel(v)
 
-	right := VOICE_BUTTON + 3 * ICON_BUTTON + 4 * ctx.style.spacing + 1
+	right := 4 * ICON_BUTTON + 4 * ctx.style.spacing + 1
 	if narrow {
-		mu.layout_row(ctx, {40, -right, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, VOICE_BUTTON})
+		mu.layout_row(ctx, {40, -right, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
 		if .SUBMIT in stable_button_hint(ui, "to list", "<", "Channels", {.ALIGN_CENTER}) {
 			ui.channels.show_list = true
 		}
 	} else {
-		mu.layout_row(ctx, {-right, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, VOICE_BUTTON})
+		mu.layout_row(ctx, {-right, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
 	}
 	if ch == nil {
 		mu.label(ctx, "")
@@ -207,21 +205,21 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	search_button(ui)
 
 	in_it := v.my_room == ch.id
-	label: string
 	hint: string
+	color := mu.Color{}
 	switch {
 	case v.voice_pending:
-		label, hint = "...", ""
+		hint = "Joining call..."
 	case in_it:
-		label, hint = "Leave voice", "Stop talking in this channel"
+		hint = "Stop talking in this channel"
+		color = OFF_COLOR
 	case:
-		label = "Join voice"
 		hint = "Talk in this channel"
 		if v.my_room != 0 {
 			hint = "Talk in this channel instead of the one you're in"
 		}
 	}
-	if .SUBMIT in stable_button_hint(ui, "voice", label, hint, {.ALIGN_CENTER}) &&
+	if .SUBMIT in icon_button(ui, "voice", .Phone, hint, color) &&
 	   !v.voice_pending {
 		log.debugf("ui: %s %q", "leave voice of" if in_it else "join voice of", ch.name)
 		if in_it {
