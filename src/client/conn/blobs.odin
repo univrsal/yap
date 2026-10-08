@@ -34,6 +34,14 @@ BLOB_CACHE_BYTES :: 16 * 1024 * 1024
 // A picture that's been silent this long is asked for again.
 FETCH_QUIET :: 5 * time.Second
 
+// Image_Info is what's known of a picture: its blob, and once it's here
+// (or we sent it), its size in pixels and bytes.
+Image_Info :: struct {
+	blob:          proto.Blob_Id,
+	width, height: u16, // pixels
+	size:          u32, // bytes of JPEG
+}
+
 Image_State :: enum {
 	Wanted, // queued to fetch
 	Loading,
@@ -43,7 +51,7 @@ Image_State :: enum {
 
 Blob_Fetch :: struct {
 	state:      Image_State,
-	image:      proto.Msg_Image, // what the message says about it
+	image:      Image_Info,
 	data:       []u8, // the JPEG, once Ready; owned
 	recv:       proto.Blob_Receiver,
 	handle:     u64, // 0 until the server has said
@@ -62,8 +70,6 @@ Blob_Client :: struct {
 	active: proto.Blob_Id, // the one being fetched, 0 for none
 	bytes:  int, // what the ready ones take up
 	count:  int,
-	// Headless: where to save the pictures that arrive.
-	dir:    string,
 	// The UI's: where pictures fetched with `keep` are kept between
 	// sessions; nil for nowhere.
 	disk:   ^Image_Cache,
@@ -95,10 +101,10 @@ fetch_release :: proc(c: ^Voice_Client, f: ^Blob_Fetch) {
 	proto.blob_receiver_destroy(&f.recv)
 }
 
-// blob_want makes sure we have, or will fetch, a message's picture; with
+// blob_want makes sure we have, or will fetch, a picture; with
 // `keep`, one that stays however many others there are. A size of 0 is
 // one the server will tell us (somebody's picture).
-blob_want :: proc(c: ^Voice_Client, image: proto.Msg_Image, keep := false) {
+blob_want :: proc(c: ^Voice_Client, image: Image_Info, keep := false) {
 	if image.blob == 0 || int(image.size) > proto.MAX_BLOB_SIZE {
 		return
 	}
@@ -353,7 +359,6 @@ handle_blob_chunk :: proc(c: ^Voice_Client, pt: []byte) {
 	f.order = bc.count
 	bc.active = 0
 	log.debugf("picture %d received (%d bytes)", id, len(f.data))
-	save_image(c, id, f)
 	if f.keep {
 		disk_store(c, id, f.data)
 	}
@@ -391,10 +396,10 @@ trim_blobs :: proc(c: ^Voice_Client) {
 	}
 }
 
-// View_Image is a picture a message shows: what it looks like, how far
+// View_Image is a picture to show: what it looks like, how far
 // along it is, and the JPEG itself once it's here.
 View_Image :: struct {
-	info:  proto.Msg_Image,
+	info:  Image_Info,
 	state: Image_State,
 	jpeg:  []u8, // owned; only when Ready
 }

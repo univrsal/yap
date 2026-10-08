@@ -163,6 +163,8 @@ Version 10 added attachments: a message's files (msgs.odin), and the
 datagrams that move them (transfer.odin, attachments.odin).
 Version 12 added `link`: which of the connection's two links the
 handshake is for (Link below).
+Version 13 retired the picture kind of message, and purging only
+pictures: a picture in a message is an attachment (msgs.odin).
 
 `conn_id` is a random number the client picks when it opens a
 connection and sends in every handshake of it. A client handshakes again
@@ -208,7 +210,7 @@ It's unreliable like Refused, so the server sends a few copies, and
 again whenever the client repeats its Handshake_Finish. Until it comes,
 a client takes nothing else on a new session.
 */
-HELLO_VERSION :: 12
+HELLO_VERSION :: 13
 MAX_PASSWORD_SIZE :: 64 // bytes
 HELLO_MAX_SIZE :: 1 + 8 + 1 + 1 + MAX_PASSWORD_SIZE
 

@@ -108,22 +108,28 @@ test_forward :: proc(t: ^testing.T) {
 	// A copy isn't anybody's to edit.
 	testing.expect_value(t, edit_as(t, &ts, carol, copy_id, "changed"), proto.Status.Invalid)
 
-	// A picture is the same blob.
-	blob, _ := blob_put(&s.blobs, .Image, test_jpeg(32, 32, 1), 32, 32)
-	post_buf: [proto.MSG_POST_MAX_SIZE]u8
-	answer: []u8
-	status, answer = ts_ask(
-		t,
-		&ts,
-		alice,
-		.Msg_Post,
-		proto.encode_msg_post(post_buf[:], {conv = home, nonce = 3, kind = .Image, blob = blob}),
-	)
-	pic, _, _ := proto.decode_msg_posted(answer)
-	status, copy_id = forward(t, &ts, bob, dm, pic, 102)
+	// A message's files (a pasted picture, say) are the same blobs.
+	blob, _ := blob_put(&s.blobs, .File, test_jpeg(32, 32, 1), 32, 32)
+	pic := proto.Message {
+		conv             = home,
+		sender           = alice_acc.id,
+		kind             = .Text,
+		flags            = {.Has_Attachments},
+		attachment_count = 1,
+	}
+	pic.attachments[0] = {
+		blob = blob,
+		size = 3000,
+		name = "pasted-image.jpg",
+	}
+	testing.expect(t, msg_store(s, conv_by_id(&s.convs, home), &pic, 3))
+	status, copy_id = forward(t, &ts, bob, dm, pic.id, 102)
 	testing.expect_value(t, status, proto.Status.Ok)
 	m, _ = msg_by_id(s, copy_id)
-	testing.expect_value(t, m.image.blob, blob)
+	testing.expect(t, .Has_Attachments in m.flags)
+	testing.expect_value(t, m.attachment_count, 1)
+	testing.expect_value(t, m.attachments[0].blob, blob)
+	testing.expect_value(t, m.attachments[0].name, "pasted-image.jpg")
 
 	// Not a deleted one.
 	testing.expect_value(t, delete_as(t, &ts, alice, said), proto.Status.Ok)
@@ -154,7 +160,7 @@ test_forward :: proc(t: ^testing.T) {
 	m, _ = msg_by_id(s, plain)
 	testing.expect_value(t, m.text, "see (a message in a DM)")
 	// A channel's can go anywhere.
-	channel_link := proto.link_token(home, pic)
+	channel_link := proto.link_token(home, pic.id)
 	_, kept = post(t, &ts, bob, dm, channel_link, 106)
 	m, _ = msg_by_id(s, kept)
 	testing.expect_value(t, m.text, channel_link)

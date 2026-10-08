@@ -1,6 +1,7 @@
 package conn
 
 import log "common:wlog"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -47,12 +48,14 @@ PREVIEW_MAX :: 8 * 1024 * 1024
 PREVIEW_TAG :: u64(1) << 63
 
 // Attach_File is a file to attach: at `path` on a desktop, or the
-// page's picked file `web_file` in a browser (files_io_web.odin).
+// page's picked file `web_file` in a browser (files_io_web.odin), or a
+// pasted picture's bytes in `data`, named `web_name`.
 Attach_File :: struct {
 	path:     string, // owned
 	web_file: i32,
 	web_name: string, // owned
 	web_size: u64,
+	data:     []u8, // owned
 }
 
 // Attach_Send_Command sends a message with files, where chat_send
@@ -93,6 +96,7 @@ attach_command_destroy :: proc(cmd: ^Attach_Send_Command) {
 	for f in cmd.files {
 		delete(f.path)
 		delete(f.web_name)
+		delete(f.data)
 	}
 	delete(cmd.files)
 	cmd^ = {}
@@ -109,6 +113,7 @@ Attach_Upload :: struct {
 	name:       string, // owned
 	size:       u64,
 	src:        File_Source,
+	memory:     []u8, // owned: a pasted picture, read from here, not src
 	state:      Upload_State,
 	id:         u64, // the server's, once it's said
 	send:       proto.Transfer_Sender,
@@ -182,6 +187,7 @@ attachments_destroy :: proc(c: ^Voice_Client) {
 attach_post_free :: proc(p: ^Attach_Post) {
 	for &f in p.files {
 		file_source_close(&f.src)
+		delete(f.memory)
 		proto.transfer_sender_destroy(&f.send)
 		delete(f.name)
 	}
@@ -242,14 +248,22 @@ attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 		files = make([]Attach_Upload, len(cmd.files)),
 	}
 	for spec, i in cmd.files {
-		src, raw_name, size, opened := file_source_open(
-			{
-				path = spec.path,
-				web_file = spec.web_file,
-				web_name = spec.web_name,
-				web_size = spec.web_size,
-			},
-		)
+		src: File_Source
+		raw_name: string
+		size: u64
+		opened: bool
+		if spec.data != nil {
+			raw_name, size, opened = spec.web_name, u64(len(spec.data)), true
+		} else {
+			src, raw_name, size, opened = file_source_open(
+				{
+					path = spec.path,
+					web_file = spec.web_file,
+					web_name = spec.web_name,
+					web_size = spec.web_size,
+				},
+			)
+		}
 		name_buf: [proto.MAX_FILE_NAME]u8
 		name := proto.sanitize_file_name(raw_name, &name_buf) if opened else ""
 		why := ""
@@ -273,9 +287,10 @@ attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 			return
 		}
 		p.files[i] = {
-			name = strings.clone(name),
-			size = size,
-			src  = src,
+			name   = strings.clone(name),
+			size   = size,
+			src    = src,
+			memory = slice.clone(spec.data) if spec.data != nil else nil,
 		}
 	}
 	append(&c.attach.posts, p)
@@ -373,7 +388,12 @@ send_upload :: proc(c: ^Voice_Client, f: ^Attach_Upload, now: time.Tick) -> bool
 			return true
 		}
 		start, end := proto.file_chunk_range(f.size, index)
-		ready, read_ok := file_source_read(&f.src, start, data[:end - start])
+		ready, read_ok := true, true
+		if f.memory != nil {
+			copy(data[:end - start], f.memory[start:end])
+		} else {
+			ready, read_ok = file_source_read(&f.src, start, data[:end - start])
+		}
 		if !read_ok {
 			log.errorf("[file] could not read %q", f.name)
 			return false

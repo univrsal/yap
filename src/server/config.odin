@@ -33,7 +33,6 @@ once at startup:
 		],
 		"retention": {
 			"message_days": 0,
-			"image_days": 0,
 			"file_days": 0,
 			"blob_megabytes": 0
 		},
@@ -86,11 +85,10 @@ channels   the channels a new server starts with: they're taken over
            can be added later.
 retention  how long what's posted is kept (retention.odin); 0 for no
            limit, which is what they start as. `message_days`: messages
-           older than this many days are removed. `image_days`: older
-           messages lose their pictures, the text staying; ignored unless
-           shorter than message_days. `file_days`: the same for the files
-           messages carry. `blob_megabytes`: when the pictures and files
-           in messages take more than this, the oldest lose theirs.
+           older than this many days are removed. `file_days`: older
+           messages lose the files they carry, the text staying; ignored
+           unless shorter than message_days. `blob_megabytes`: when the
+           files in messages take more than this, the oldest lose theirs.
            Pinned messages are kept whole whatever these say.
 attachments  files uploaded with messages (attachments.odin).
            `max_megabytes`: how big one may be; 0 takes none. `rate_kb`:
@@ -377,12 +375,9 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		relay.web_dir = default_web_dir()
 	}
 	r := cfg.retention
-	if r.message_days < 0 || r.image_days < 0 || r.file_days < 0 || r.blob_megabytes < 0 {
+	if r.message_days < 0 || r.file_days < 0 || r.blob_megabytes < 0 {
 		log.errorf("%s: a retention limit can't be negative (0 is none)", path)
 		return
-	}
-	if r.message_days > 0 && r.image_days >= r.message_days {
-		log.warnf("%s: image_days isn't shorter than message_days, so it does nothing", path)
 	}
 	if r.message_days > 0 && r.file_days >= r.message_days {
 		log.warnf("%s: file_days isn't shorter than message_days, so it does nothing", path)

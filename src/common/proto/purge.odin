@@ -1,7 +1,7 @@
 package proto
 
 /*
-Purging: removing old messages, or only their pictures, for good
+Purging: removing old messages, or only their files, for good
 (phase 15). The server does it on its own for what its config says to
 keep no longer, and on demand for whoever has Permission.Purge.
 
@@ -12,28 +12,25 @@ keep no longer, and on demand for whoever has Permission.Purge.
 
 A Purge names a conversation, or 0 for all of them, and a time in Unix
 milliseconds: what was posted before it goes. `what` says whether the
-messages go, or only the pictures in them. It's answered once it's done,
+messages go, or only the files they carry. It's answered once it's done,
 which can take a while, with how many messages went (or lost their
-picture) and how many stored files were removed with them. One purge
+files) and how many stored files were removed with them. One purge
 asked for at a time: another while one is under way is Conflict.
 
-Pinned messages are kept, pictures and all, and so is a thread's root
+Pinned messages are kept, files and all, and so is a thread's root
 while replies to it are kept. Everything else goes with its reactions,
 mentions and pins; unlike a deleted message nothing is left in its place.
 
 Msgs_Purged tells the members of a conversation that its messages with
 ids below `before` are gone, but for those kept (which they can ask for
-again), or with Purge_What.Images, that those messages' pictures are,
-but for pinned ones. A message whose picture is gone is still an Image,
-with blob 0. With Purge_What.Files it's those messages' attachments
-that are gone: the messages keep the list of their files, each with
-blob 0.
+again), or with Purge_What.Files, that those messages' attachments
+are, but for pinned ones: the messages keep the list of their files,
+each with blob 0.
 */
 
 Purge_What :: enum u8 {
 	Messages = 0,
-	Images   = 1,
-	Files    = 2, // the files messages carry (attachments.odin)
+	Files    = 1, // the files messages carry (attachments.odin)
 }
 
 PURGE_SIZE :: 4 + 8 + 1

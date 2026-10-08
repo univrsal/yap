@@ -218,8 +218,8 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 		switch {
 		case .Deleted in m.flags:
 			return "↪ a deleted message"
-		case m.kind == .Image:
-			said = "a picture"
+		case m.text == "" && len(m.files) > 0:
+			said = files_said(m.files)
 		case m.kind == .File:
 			said = fmt.tprintf("the file %s", m.text)
 		case m.kind == .System:

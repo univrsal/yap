@@ -321,6 +321,35 @@ MIGRATIONS := [?]string {
 	`
 	ALTER TABLE roles ADD COLUMN flags INTEGER NOT NULL DEFAULT 0;
 	`,
+	// 22: a picture in a message is an attachment: each picture message
+	// (kind 1) becomes a text message with no text, carrying its picture
+	// as its one file (flag 16), named for when it was posted, and the
+	// picture's blob is a file's (kind 4). A deleted one stays deleted.
+	// `messages.blob` is unused from here on, always NULL; it stays, as
+	// SQLite can't drop a column that references another table, and so
+	// does its index, which spares deleting a blob a look through every
+	// message for that reference.
+	`
+	INSERT INTO attachments (msg, idx, blob, name, size)
+		SELECT m.id, 0, m.blob,
+			'pasted-image-' || strftime('%Y%m%d-%H%M%S', m.time / 1000, 'unixepoch') || '.jpg',
+			coalesce(b.size, 0)
+		FROM messages m LEFT JOIN blobs b ON b.id = m.blob
+		WHERE m.kind = 1 AND m.flags & 1 = 0;
+	INSERT INTO files_fts (rowid, names)
+		SELECT m.id, a.name FROM messages m JOIN attachments a ON a.msg = m.id
+		WHERE m.kind = 1;
+	INSERT INTO messages_fts (rowid, text)
+		SELECT id, '' FROM messages WHERE kind = 1 AND flags & 1 = 0;
+	UPDATE messages SET
+		kind  = 0,
+		text  = CASE WHEN flags & 1 = 0 THEN '' END,
+		flags = CASE WHEN flags & 1 = 0 THEN flags | 16 ELSE flags END,
+		blob  = NULL
+	WHERE kind = 1;
+	UPDATE blobs SET kind = 4 WHERE kind = 1;
+	DROP INDEX messages_pictures;
+	`,
 }
 
 // The version a database is at once it has been through every step.

@@ -143,7 +143,7 @@ avatar_ok :: proc(s: ^Server, blob: proto.Blob_Id) -> proto.Status {
 	switch {
 	case !found:
 		return .Not_Found
-	case b.kind != .Avatar && b.kind != .Image:
+	case b.kind != .Avatar:
 		return .Invalid
 	case b.size > proto.MAX_AVATAR_SIZE ||
 	     b.width > proto.MAX_AVATAR_SIDE ||

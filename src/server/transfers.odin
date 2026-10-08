@@ -65,17 +65,15 @@ new_handle :: proc() -> (handle: u64) {
 blob_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	p, ok := proto.decode_blob_put(body)
 	switch {
-	// Pictures, for messages and for profiles, are all that's uploaded.
-	case !ok || (p.kind != .Image && p.kind != .Avatar) || p.width == 0 || p.height == 0:
+	// Profile pictures are all that's uploaded this way; files go with
+	// attachments.odin.
+	case !ok || p.kind != .Avatar || p.width == 0 || p.height == 0:
 		respond(u, id, .Invalid)
 		return
-	case p.size <= 0 || p.size > proto.MAX_IMAGE_SIZE:
-		respond(u, id, .Too_Large)
-		return
-	case p.kind == .Avatar &&
-	     (p.size > proto.MAX_AVATAR_SIZE ||
-			     p.width > proto.MAX_AVATAR_SIDE ||
-			     p.height > proto.MAX_AVATAR_SIDE):
+	case p.size <= 0 ||
+	     p.size > proto.MAX_AVATAR_SIZE ||
+	     p.width > proto.MAX_AVATAR_SIDE ||
+	     p.height > proto.MAX_AVATAR_SIDE:
 		respond(u, id, .Too_Large)
 		return
 	}
@@ -176,9 +174,7 @@ blob_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	b, found := blob_get(&s.blobs, blob)
 	visible :=
 		found &&
-		(b.kind == .Image && blob_visible(s, u.account.id, blob) ||
-				b.kind == .Emoji_Sheet && blob == s.emoji.blob ||
-				is_avatar(s, blob))
+		(b.kind == .Emoji_Sheet && blob == s.emoji.blob || is_avatar(s, blob))
 	if !visible {
 		respond(u, id, .Not_Found)
 		return

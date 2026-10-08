@@ -218,7 +218,7 @@ test_blob_put_and_read :: proc(t: ^testing.T) {
 	for &b, i in data {
 		b = u8(i * 7)
 	}
-	id, ok := blob_put(bs, .Image, data, 640, 480)
+	id, ok := blob_put(bs, .File, data, 640, 480)
 	testing.expect(t, ok)
 	testing.expect(t, id != 0)
 
@@ -226,7 +226,7 @@ test_blob_put_and_read :: proc(t: ^testing.T) {
 	testing.expect(t, found)
 	testing.expect_value(t, b.id, id)
 	testing.expect_value(t, b.size, len(data))
-	testing.expect_value(t, b.kind, Blob_Kind.Image)
+	testing.expect_value(t, b.kind, Blob_Kind.File)
 	testing.expect_value(t, b.width, 640)
 	testing.expect_value(t, b.height, 480)
 	testing.expect_value(t, b.hash, blob_hash(data))
@@ -258,19 +258,19 @@ test_blob_same_content_once :: proc(t: ^testing.T) {
 
 	one := []u8{1, 2, 3, 4}
 	two := []u8{1, 2, 3, 5}
-	a, ok_a := blob_put(bs, .Image, one)
+	a, ok_a := blob_put(bs, .File, one)
 	b, ok_b := blob_put(bs, .Avatar, one)
-	c, ok_c := blob_put(bs, .Image, two)
+	c, ok_c := blob_put(bs, .File, two)
 	testing.expect(t, ok_a && ok_b && ok_c)
 	// The same content is the same blob, kept as it first came.
 	testing.expect_value(t, b, a)
 	testing.expect(t, c != a)
 	first, _ := blob_get(bs, a)
-	testing.expect_value(t, first.kind, Blob_Kind.Image)
+	testing.expect_value(t, first.kind, Blob_Kind.File)
 	testing.expect_value(t, pragma(t, &ts.db, "SELECT count(*) FROM blobs"), 2)
 
 	// Even nothing at all can be kept.
-	empty, ok_empty := blob_put(bs, .Image, nil)
+	empty, ok_empty := blob_put(bs, .File, nil)
 	testing.expect(t, ok_empty)
 	content, read := blob_read(bs, empty, context.temp_allocator)
 	testing.expect(t, read)
@@ -285,7 +285,7 @@ test_blob_delete :: proc(t: ^testing.T) {
 	bs := &ts.blobs
 
 	data := []u8{9, 9, 9}
-	id, ok := blob_put(bs, .Image, data)
+	id, ok := blob_put(bs, .File, data)
 	testing.expect(t, ok)
 	b, _ := blob_get(bs, id)
 	path := blob_path(bs, b.hash)
@@ -303,7 +303,7 @@ test_blob_delete :: proc(t: ^testing.T) {
 	testing.expect(t, !read)
 
 	// Put again it's a new blob: an id is never given out twice.
-	again, ok_again := blob_put(bs, .Image, data)
+	again, ok_again := blob_put(bs, .File, data)
 	testing.expect(t, ok_again)
 	testing.expect(t, again > id)
 }
@@ -315,7 +315,7 @@ test_blob_file_damaged :: proc(t: ^testing.T) {
 	defer store_close(&ts)
 	bs := &ts.blobs
 
-	id, ok := blob_put(bs, .Image, []u8{1, 2, 3, 4, 5})
+	id, ok := blob_put(bs, .File, []u8{1, 2, 3, 4, 5})
 	testing.expect(t, ok)
 	b, _ := blob_get(bs, id)
 	path := blob_path(bs, b.hash)

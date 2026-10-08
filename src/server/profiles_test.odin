@@ -207,19 +207,12 @@ test_avatar :: proc(t: ^testing.T) {
 			proto.Status.Invalid,
 		)
 	}
-	// A message's picture that's too big for a profile.
-	photo := test_jpeg(300, 200, 4)
-	pic, _ := upload(
-		t,
-		&ts,
-		a,
-		photo,
-		{kind = .Image, size = len(photo), hash = blob_hash(photo), width = 300, height = 200},
-	)
+	// A message's file, a picture or not, isn't a profile picture.
+	pic, _ := blob_put(&s.blobs, .File, test_jpeg(64, 64, 4), 64, 64)
 	testing.expect_value(
 		t,
 		profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = pic}),
-		proto.Status.Too_Large,
+		proto.Status.Invalid,
 	)
 	// A refused request changes nothing, not even what came with it.
 	testing.expect_value(

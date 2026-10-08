@@ -69,23 +69,6 @@ reply :: proc(
 }
 
 @(private = "file")
-picture :: proc(
-	t: ^testing.T,
-	ts: ^Test_Server,
-	u: ^Conn,
-	conv: proto.Conv_Id,
-	blob: Blob_Id,
-	nonce: u64,
-) -> proto.Msg_Id {
-	buf := make([]u8, proto.MSG_POST_MAX_SIZE, context.temp_allocator)
-	body := proto.encode_msg_post(buf, {conv = conv, nonce = nonce, kind = .Image, blob = blob})
-	status, answer := ts_ask(t, ts, u, .Msg_Post, body)
-	testing.expect_value(t, status, proto.Status.Ok)
-	id, _, _ := proto.decode_msg_posted(answer)
-	return id
-}
-
-@(private = "file")
 pin :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id, on := true) {
 	buf: [proto.MSG_PIN_SIZE]u8
 	status, _ := ts_ask(t, ts, u, .Msg_Pin, proto.encode_msg_pin(&buf, id, on))
@@ -322,97 +305,6 @@ history_of :: proc(
 }
 
 @(test)
-test_purge_pictures :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
-	ts: Test_Server
-	ts_open(t, &ts)
-	defer ts_close(&ts)
-	s := &ts.s
-	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
-	home := s.convs.home.id
-	ts_account(t, &ts, "admin", "a password", {.Owner})
-	ts_account(t, &ts, "alice", "a password")
-	admin := logged_in(t, &ts, "admin")
-	alice := logged_in(t, &ts, "alice")
-
-	shared, _ := blob_put(&s.blobs, .Image, test_jpeg(32, 32, 1), 32, 32)
-	alone, _ := blob_put(&s.blobs, .Image, test_jpeg(32, 32, 2), 32, 32)
-	kept, _ := blob_put(&s.blobs, .Image, test_jpeg(32, 32, 3), 32, 32)
-	unused, _ := blob_put(&s.blobs, .Image, test_jpeg(32, 32, 4), 32, 32)
-	avatar, _ := blob_put(&s.blobs, .Avatar, test_jpeg(32, 32, 5), 32, 32)
-	testing.expect(t, account_set_avatar(&s.accounts, alice.account, avatar))
-	first := picture(t, &ts, alice, home, shared, 1)
-	second := picture(t, &ts, alice, home, alone, 2)
-	pinned := picture(t, &ts, alice, home, kept, 3)
-	pin(t, &ts, admin, pinned)
-	age_messages(t, &ts, first, pinned, 30)
-	again := picture(t, &ts, alice, home, shared, 4) // the same picture, new
-	file_of :: proc(s: ^Server, id: Blob_Id) -> string {
-		b, _ := blob_get(&s.blobs, id)
-		return blob_path(&s.blobs, b.hash)
-	}
-	shared_file, alone_file, unused_file :=
-		file_of(s, shared), file_of(s, alone), file_of(s, unused)
-	ts_events(t, &ts, alice)
-
-	// Uploaded this past hour: nothing is collected yet, used or not.
-	status, messages, blobs := purge(
-		t,
-		&ts,
-		admin,
-		{before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS), what = .Images},
-	)
-	testing.expect_value(t, status, proto.Status.Ok)
-	testing.expect_value(t, messages, 2)
-	testing.expect_value(t, blobs, 0)
-	p, told := purged(t, &ts, alice)
-	testing.expect(t, told)
-	testing.expect_value(t, p.what, proto.Purge_What.Images)
-	// The messages stay, without their pictures.
-	m, _ := msg_by_id(s, second)
-	testing.expect_value(t, m.kind, proto.Msg_Kind.Image)
-	testing.expect_value(t, m.image.blob, Blob_Id(0))
-	m, _ = msg_by_id(s, pinned)
-	testing.expect_value(t, m.image.blob, kept)
-	id_buf: [proto.BLOB_GET_SIZE]u8
-	status, _ = ts_ask(t, &ts, alice, .Blob_Get, proto.encode_blob_id(&id_buf, alone))
-	testing.expect_value(t, status, proto.Status.Not_Found)
-
-	// An hour on: what nothing uses goes, file and all; the picture the
-	// new message shows, the pinned one's, and a profile's stay.
-	age_blobs(t, &ts, 2)
-	status, _, blobs = purge(
-		t,
-		&ts,
-		admin,
-		{before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS), what = .Images},
-	)
-	testing.expect_value(t, blobs, 2) // alone, unused
-	_, found := blob_get(&s.blobs, alone)
-	testing.expect(t, !found)
-	testing.expect(t, !os.exists(alone_file) && !os.exists(unused_file))
-	testing.expect(t, os.exists(shared_file))
-	for id in ([]Blob_Id{shared, kept, avatar}) {
-		_, found = blob_get(&s.blobs, id)
-		testing.expectf(t, found, "blob %d went", id)
-	}
-
-	// Once the new message has gone too, its picture does.
-	age_messages(t, &ts, again, again, 30)
-	status, messages, blobs = purge(
-		t,
-		&ts,
-		admin,
-		{before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)},
-	)
-	testing.expect_value(t, messages, 3) // first, second, again
-	testing.expect_value(t, blobs, 1)
-	testing.expect(t, !os.exists(shared_file))
-}
-
-@(test)
 test_retention_config :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
@@ -426,60 +318,23 @@ test_retention_config :: proc(t: ^testing.T) {
 	ts_account(t, &ts, "alice", "a password")
 	alice := logged_in(t, &ts, "alice")
 
-	// Five pictures of about 3 KB each, a day apart, and a text from
-	// each day; the oldest is 50 days old.
-	pics, texts: [5]proto.Msg_Id
-	blobs: [5]Blob_Id
+	// A text every ten days; the oldest is 50 days old. What a size
+	// limit and file_days do is in attachments_test.odin.
+	texts: [5]proto.Msg_Id
 	for i in 0 ..< 5 {
-		jpeg := test_jpeg(64, 64, u8(i + 1))
-		blobs[i], _ = blob_put(&s.blobs, .Image, jpeg, 64, 64)
-		pics[i] = picture(t, &ts, alice, home, blobs[i], u64(2 * i + 1))
-		_, texts[i] = post(t, &ts, alice, home, "a day's words", u64(2 * i + 2))
-		age_messages(t, &ts, pics[i], texts[i], 50 - 10 * i)
+		_, texts[i] = post(t, &ts, alice, home, "a day's words", u64(i + 1))
+		age_messages(t, &ts, texts[i], texts[i], 50 - 10 * i)
 	}
-	age_blobs(t, &ts, 2)
 	r := &s.retention
 
-	// Messages a month old go, pictures over three weeks old.
+	// Messages a month old go.
 	r.config = {
 		message_days = 31,
-		image_days   = 21,
 	}
 	retention_schedule(r, &s.db, unix_ms())
 	retention_drain(r, &s.blobs, s)
-	testing.expect(t, !exists(&ts, pics[0]) && !exists(&ts, texts[1]))
-	testing.expect(t, exists(&ts, pics[2]) && exists(&ts, texts[2]))
-	m, _ := msg_by_id(s, pics[2])
-	testing.expect_value(t, m.image.blob, Blob_Id(0))
-	m, _ = msg_by_id(s, pics[3])
-	testing.expect_value(t, m.image.blob, blobs[3])
-	for b, i in blobs {
-		_, found := blob_get(&s.blobs, b)
-		testing.expect_value(t, found, i >= 3)
-	}
-
-	// The pictures may take no more than one of them: the older goes.
-	sizes := count_of(t, &ts, "SELECT sum(size) FROM blobs WHERE kind = 1")
-	testing.expect(t, sizes > 0)
-	r.config = {
-		blob_megabytes = 1,
-	}
-	retention_schedule(r, &s.db, unix_ms())
-	retention_drain(r, &s.blobs, s)
-	m, _ = msg_by_id(s, pics[3])
-	testing.expect_value(t, m.image.blob, blobs[3]) // within a megabyte
-	r.config.blob_megabytes = 0
-	// Not settable below a megabyte from the config, but the step
-	// works the same with a smaller aim.
-	append(&r.steps, Purge_Step{kind = .Stored, below = pics[4] + 1, bytes = 1})
-	append(&r.steps, Purge_Step{kind = .Collect})
-	retention_drain(r, &s.blobs, s)
-	m, _ = msg_by_id(s, pics[3])
-	testing.expect_value(t, m.image.blob, Blob_Id(0))
-	m, _ = msg_by_id(s, pics[4])
-	testing.expect_value(t, m.image.blob, blobs[4])
-	_, found := blob_get(&s.blobs, blobs[3])
-	testing.expect(t, !found)
+	testing.expect(t, !exists(&ts, texts[0]) && !exists(&ts, texts[1]))
+	testing.expect(t, exists(&ts, texts[2]) && exists(&ts, texts[4]))
 
 	// No limits: nothing goes.
 	r.config = {}

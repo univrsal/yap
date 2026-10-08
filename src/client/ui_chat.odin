@@ -38,9 +38,9 @@ UI_Chat :: struct {
 	hover:        uintptr,
 	hovering:     bool, // this frame; the cursor becomes a hand
 	open:         string, // clicked link to open after the frame; owned
-	// Ctrl+V was pressed in the chat box: after the frame, the paste
-	// thread looks for an image on the clipboard, else its text is
-	// pasted (see ui_paste.odin).
+	// Ctrl+V was pressed in a composer (ui.paste_to): after the frame,
+	// the paste thread looks for an image on the clipboard, to attach,
+	// else its text is pasted (see ui_paste.odin).
 	paste:        bool,
 	// The message of ours being edited in the chat box, 0 for none, and
 	// its conversation (ui_message_menu.odin).
@@ -316,19 +316,6 @@ chat_input :: proc(ui: ^UI) {
 	composer := composer_of(ui, 0)
 	input_h := composer_height(ui, composer)
 	composer_row(ui, input_h, 4)
-	// Ctrl+V could be an image: hold the text paste back and decide after
-	// the frame (see paste). The id is the one text_box uses.
-	// A browser hands the picture over from its paste event instead (see
-	// web/paste.js), so the key is left to the text box there.
-	if !platform.WEB &&
-	   ctx.focus_id == mu.get_id(ctx, uintptr(&ui.chat.buf[0])) &&
-	   .V in ctx.key_pressed_bits &&
-	   .CTRL in ctx.key_down_bits &&
-	   .ALT not_in ctx.key_down_bits {
-		ctx.key_pressed_bits -= {.V}
-		ui.chat.paste = true
-		ui.paste_to = {}
-	}
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
 	res, box := composer_box(ui, composer)
@@ -435,50 +422,9 @@ chat_same_minute :: proc(a, b: proto.Unix_Time) -> bool {
 // between two separate ones (ctx.style.spacing).
 MERGED_GAP :: 1
 
-// chat_image draws a picture message: the gap before it, the header
-// (unless `merged`, in which case it's part of the previous message's
-// block and sits right under it instead), then the picture, which is
-// `key` to image_block. `tight` is a header with the gap of a merged
-// one: under a reply's line.
-chat_image :: proc(
-	ui: ^UI,
-	header: string,
-	header_color: mu.Color,
-	key: u64,
-	info: proto.Msg_Image,
-	img: conn.View_Image,
-	merged: bool,
-	item: i64,
-	gone := "image no longer on the server",
-	available := 0, // how wide the picture may be; 0 for the panel's width
-	tight := false,
-) {
-	ctx := &ui.ctx
-	font := ctx.style.font
-	// 1, not 0: a height of 0 tells layout_row to fall back to the
-	// default control size, which (plus the parent's own row spacing)
-	// would set a floor under how short this block can be - taller than
-	// a merged one-liner is supposed to end up.
-	mu.layout_row(ctx, {-1}, 1)
-	mu.layout_begin_column(ctx)
-	defer mu.layout_end_column(ctx)
-	saved := ctx.style.spacing
-	ctx.style.spacing = 0
-	defer ctx.style.spacing = saved
-
-	mu.layout_row(ctx, {-1}, MERGED_GAP if merged || tight else saved)
-	mu.layout_next(ctx) // the gap
-
-	if !merged {
-		mu.layout_row(ctx, {-1}, ctx.text_height(font))
-		selectable_header(ui, header, header_color, item)
-	}
-	image_block(ui, key, info, img.state, img.jpeg, gone, available)
-}
-
-// chat_block_height is how far chat_message or chat_image moves the
+// chat_block_height is how far chat_message or file_message moves the
 // layout down, `body` being the height of what's under the header (the
-// text's lines, or the picture). The timeline works out where messages
+// text's lines). The timeline works out where messages
 // are with it, without laying them out; it has to agree with those two.
 chat_block_height :: proc(ctx: ^mu.Context, merged: bool, body: i32, tight := false) -> i32 {
 	line := ctx.text_height(ctx.style.font)
@@ -515,11 +461,11 @@ file_message :: proc(
 	f: conn.View_File,
 	merged: bool,
 	item: i64, // the header's; the file's name and state are the next two
-	tight := false, // as in chat_image
+	tight := false, // as in chat_message
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
-	// 1, not 0: see the same line in chat_image.
+	// 1, not 0: see the same line in chat_message.
 	mu.layout_row(ctx, {-1}, 1)
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
@@ -686,8 +632,10 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 }
 
 // chat_message draws the gap before this message, a header line unless
-// `merged` (see chat_image), and the text under it (ui_rich_text.odin),
-// with the lines packed tightly.
+// `merged` (in which case it's part of the previous message's block and
+// sits right under it instead), and the text under it (ui_rich_text.odin),
+// with the lines packed tightly. `tight` is a header with the gap of a
+// merged one: under a reply's line.
 chat_message :: proc(
 	ui: ^UI,
 	header: string,
@@ -696,11 +644,14 @@ chat_message :: proc(
 	color: mu.Color,
 	merged: bool,
 	item: i64, // the header's; the text is the next one
-	tight := false, // as in chat_image
+	tight := false,
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
-	// 1, not 0: see the same line in chat_image.
+	// 1, not 0: a height of 0 tells layout_row to fall back to the
+	// default control size, which (plus the parent's own row spacing)
+	// would set a floor under how short this block can be - taller than
+	// a merged one-liner is supposed to end up.
 	mu.layout_row(ctx, {-1}, 1)
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)

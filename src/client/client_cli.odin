@@ -19,7 +19,6 @@ run_headless :: proc(
 	user, user_password, device: string, // what to log in with, if the server asks
 	tone_hz: f32,
 	input_file: string,
-	image_dir: string,
 	download_dir: string,
 	limits: settings.Settings, // only the transfer limits are read
 	denoise: bool,
@@ -35,7 +34,6 @@ run_headless :: proc(
 	defer audio.voice_destroy(&c.voice)
 	c.voice.denoise = denoise
 	c.voice.gate.enabled = gate
-	c.blobs.dir = image_dir
 	c.files.download_dir = strings.clone(download_dir)
 	limits := limits
 	lim := conn.transfer_limits_command(&limits)

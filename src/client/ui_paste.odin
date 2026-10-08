@@ -10,6 +10,10 @@ import "client:clipboard"
 import "client:conn"
 
 /*
+A pasted image is attached to the message being written in the composer
+it was pasted in (ui.paste_to), as a JPEG named for when it was pasted
+(pasted_image_name), and goes with that message like any other file.
+
 Pasting an image runs on a thread of its own: the program that owns the
 clipboard may take a moment to hand the data over, and a large image
 then takes a while to scale and compress (about a second for a 4K
@@ -27,7 +31,7 @@ Paste_Job :: struct {
 	err:                clipboard.Error,
 	image:              conn.Chat_Image,
 	ok:                 bool, // the image was scaled and compressed
-	target:             Paste_Target, // where it goes
+	target:             Attach_Target, // where it goes
 	source_w, source_h: int, // before scaling, for the log
 }
 
@@ -101,9 +105,14 @@ paste_poll :: proc(ui: ^UI) {
 				len(job.image.jpeg) / 1024,
 			)
 		}
-		// Sending takes the image over, so it isn't freed here.
-		send_pasted_image(ui, job.target, job.image)
+		// The composer takes the JPEG over, so it isn't freed here.
+		picked := Picked_File {
+			data = job.image.jpeg,
+			name = pasted_image_name(ui),
+			size = u64(len(job.image.jpeg)),
+		}
 		job.image = {}
+		attach_add(ui, job.target, {picked})
 		return
 	case .Too_Large:
 		log.warnf(

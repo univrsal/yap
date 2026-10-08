@@ -55,7 +55,7 @@ UI_Manage :: struct {
 	purge_conv:     proto.Conv_Id,
 	purge_days_buf: [6]u8,
 	purge_days_len: int,
-	purge_pictures: bool,
+	purge_files:    bool,
 	purge_confirm:  bool,
 }
 
@@ -453,7 +453,7 @@ purge_settings :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	if .CHANGE in mu.checkbox(ctx, "Only the pictures; the messages stay", &m.purge_pictures) {
+	if .CHANGE in mu.checkbox(ctx, "Only their files; the messages stay", &m.purge_files) {
 		m.purge_confirm = false
 	}
 
@@ -489,7 +489,7 @@ purge_settings :: proc(ui: ^UI) {
 		{230, 90, 90, 255},
 		fmt.tprintf(
 			"This removes for good the %s in %s from before %s.",
-			"pictures" if m.purge_pictures else "messages",
+			"files of the messages" if m.purge_files else "messages",
 			place,
 			when_text,
 		),
@@ -504,7 +504,7 @@ purge_settings :: proc(ui: ^UI) {
 				conv = m.purge_conv,
 				all = m.purge_conv == 0,
 				before = proto.Unix_Ms(before),
-				what = .Images if m.purge_pictures else .Messages,
+				what = .Files if m.purge_files else .Messages,
 			},
 		)
 		m.purge_confirm = false

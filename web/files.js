@@ -106,6 +106,10 @@ under the sender's name.
 			return len;
 		},
 
+		// A File made here rather than picked (a pasted picture, web/paste.js),
+		// kept and told of like a picked one.
+		tell,
+
 		close(handle) {
 			files.delete(handle);
 		},

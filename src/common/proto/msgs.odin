@@ -9,7 +9,6 @@ requests and events (rpc.odin), except Typing, which is a datagram.
 
 	Msg_Post     [conv u32][nonce u64][thread_root u64][kind u8]
 	             text: [text str16][count u8][upload u64]... (attachments)
-	             image: [blob u64]
 	             file: [size u64][name str8]
 	             ->  [id u64][time u64]
 	Msg_History  [conv u32][thread_root u64][anchor u64][dir u8][limit u8]
@@ -39,7 +38,6 @@ requests and events (rpc.odin), except Typing, which is a datagram.
 	          text:    [text str16]
 	                   if Has_Attachments: [count u8] per file:
 	                   [blob u64][size u64][name str8]
-	          image:   [blob u64][width u16][height u16][size u32]
 	          file:    [size u64][name str8]
 	          system:  [what u8][arg u32]
 	          if Has_Thread: [reply_count u32][last_reply u64]
@@ -64,8 +62,9 @@ wouldn't fit in one stream message. `more` says whether the
 conversation has messages beyond the page: older ones (MORE_BEFORE),
 newer ones (MORE_AFTER).
 
-Images: the picture is a blob, stored once per content. The client
-announces it with Blob_Put: if the server has that content already
+Pictures (people's own, the server's emoji: profiles.odin, emoji.odin)
+are blobs, stored once per content. The client announces one with
+Blob_Put: if the server has that content already
 (`have`), the answer is its id and nothing is sent; else the answer is
 the handle to send the chunks under (blob.odin), and the server says
 with Blob_Need when it has them all (BLOB_COMPLETE, then Blob_Put again
@@ -75,7 +74,8 @@ the size and the handle the chunks will come under.
 
 Attachments: a text message may carry up to MAX_ATTACHMENTS files that
 were uploaded to the server (attachments.odin), and then has the
-Has_Attachments flag; its text may be empty then. Posting names the
+Has_Attachments flag; its text may be empty then. A picture in a
+message is one of these (a pasted one too). Posting names the
 poster's uploads, and the server fills in each file's blob, name and
 size from them. They go when the message is deleted.
 
@@ -86,7 +86,7 @@ clients when the offer is taken up (files.odin).
 Editing, deleting, pinning: a text message may be edited by its author,
 and then says when (`edited`); the old text isn't kept. A message may be
 deleted by its author, or by an account with Manage_Messages: it stays,
-with the Deleted flag, but its text, picture and file are gone for good,
+with the Deleted flag, but its text and files are gone for good,
 and it's no longer pinned. Pinning marks a message Pinned, for either
 member of a DM and for those with Pin_Messages in a channel, at most
 MAX_PINS in a conversation (Too_Large past that). Each change goes to
@@ -118,9 +118,9 @@ Unix_Ms :: distinct u64
 Msg_Id :: distinct u64
 Blob_Id :: distinct u64
 
+// 1 was a picture, which is an attachment now.
 Msg_Kind :: enum u8 {
 	Text   = 0,
-	Image  = 1,
 	File   = 2,
 	System = 3,
 }
@@ -136,14 +136,10 @@ Msg_Flags :: distinct bit_set[Msg_Flag;u8]
 
 // What a blob is, which decides how big it may be.
 Blob_Kind :: enum u8 {
-	Image       = 1, // in a message
 	Avatar      = 2, // somebody's profile picture
 	Emoji_Sheet = 3, // the server's custom emoji, as one image
 	File        = 4, // a message's attachment (attachments.odin)
 }
-
-// The largest picture a message may carry.
-MAX_IMAGE_SIZE :: 256 * 1024
 
 // The most files a message may carry.
 MAX_ATTACHMENTS :: 10
@@ -153,12 +149,6 @@ Attachment :: struct {
 	blob: Blob_Id, // 0 once it's been removed (retention)
 	size: u64,
 	name: string,
-}
-
-Msg_Image :: struct {
-	blob:          Blob_Id,
-	width, height: u16, // pixels
-	size:          u32, // bytes of JPEG
 }
 
 // Message is one message. Strings point into what it was read from.
@@ -172,7 +162,6 @@ Message :: struct {
 	thread_root:      Msg_Id,
 	edited:           Unix_Ms,
 	text:             string, // .Text
-	image:            Msg_Image, // .Image
 	file_size:        u64, // .File
 	file_name:        string,
 	system:           u8, // .System: what happened
@@ -272,8 +261,6 @@ message_size :: proc(m: Message) -> int {
 				n += 8 + 8 + 1 + len(a.name)
 			}
 		}
-	case .Image:
-		n += 8 + 2 + 2 + 4
 	case .File:
 		n += 8 + 1 + len(m.file_name)
 	case .System:
@@ -317,11 +304,6 @@ put_message :: proc(w: ^Writer, m: Message) {
 				put_str8(w, a.name)
 			}
 		}
-	case .Image:
-		put_u64(w, u64(m.image.blob))
-		put_u16(w, m.image.width)
-		put_u16(w, m.image.height)
-		put_u32(w, m.image.size)
 	case .File:
 		put_u64(w, m.file_size)
 		put_str8(w, m.file_name)
@@ -368,13 +350,6 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 				a.size = get_u64(r)
 				a.name = get_str8(r)
 			}
-		}
-	case .Image:
-		m.image = {
-			blob   = Blob_Id(get_u64(r)),
-			width  = get_u16(r),
-			height = get_u16(r),
-			size   = get_u32(r),
 		}
 	case .File:
 		m.file_size = get_u64(r)
@@ -434,9 +409,8 @@ Msg_Post :: struct {
 	conv:             Conv_Id,
 	nonce:            u64,
 	thread_root:      Msg_Id,
-	kind:             Msg_Kind, // .Text, .Image or .File
+	kind:             Msg_Kind, // .Text or .File
 	text:             string, // .Text, and .File's name; raw until sanitized
-	blob:             Blob_Id, // .Image
 	file_size:        u64, // .File
 	// .Text: the uploads of its files (Attach_Put), the first
 	// `attachment_count`.
@@ -462,8 +436,6 @@ encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
 		for i in 0 ..< p.attachment_count {
 			put_u64(&w, p.uploads[i])
 		}
-	case .Image:
-		put_u64(&w, u64(p.blob))
 	case .File:
 		put_u64(&w, p.file_size)
 		put_str8(&w, p.text)
@@ -494,8 +466,6 @@ decode_msg_post :: proc(body: []u8) -> (p: Msg_Post, ok: bool) {
 		for &upload in p.uploads[:p.attachment_count] {
 			upload = get_u64(&r)
 		}
-	case .Image:
-		p.blob = Blob_Id(get_u64(&r))
 	case .File:
 		p.file_size = get_u64(&r)
 		p.text = get_str8(&r)

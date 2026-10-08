@@ -24,10 +24,11 @@ What's made, by default (see --help for the knobs):
   - messages, until yap.db is DB_SIZE (3 GB): spread over YEARS years
     up to now, in bursts of a few people talking, with threads,
     mentions, reactions, edits, deletions, forwards, pins, file offers
-    in DMs, and pictures: one message in IMAGE_EVERY is one. Each
-    picture is a JPEG of the kind the client sends (at most 3840 pixels
-    a side and 256 KB), in blobs/ like the server keeps them; a few are
-    posted twice, so they're stored once.
+    in DMs, and pictures: one message in IMAGE_EVERY is one, a message
+    with no text carrying the picture as its one file, the way a pasted
+    one is sent. Each picture is a JPEG of the kind the client makes of
+    a paste (at most 3840 pixels a side and 256 KB), in blobs/ like the
+    server keeps them; a few are posted twice, so they're stored once.
   - who has read how far, buddies.
 
 The pictures are made from a pool of POOL drawings (screenshots,
@@ -66,14 +67,15 @@ SCHEMA_FILE = os.path.join(ROOT, "src/server/db_schema.odin")
 DB_FILE = "yap.db"
 BLOBS_DIR = "blobs"
 
-MSG_TEXT, MSG_IMAGE, MSG_FILE = 0, 1, 2
+MSG_TEXT, MSG_FILE = 0, 2
 FLAG_DELETED, FLAG_PINNED, FLAG_HAS_THREAD, FLAG_FORWARDED = 1, 2, 4, 8
+FLAG_HAS_ATTACHMENTS = 16
 CONV_CHANNEL, CONV_DM = 0, 1
 CONV_HOME, CONV_PRIVATE, CONV_ARCHIVED = 1, 2, 4
 ACCOUNT_OWNER = 1
-BLOB_IMAGE = 1
+BLOB_FILE = 4
 MAX_CHAT_SIZE = 500
-MAX_IMAGE_SIZE = 256 * 1024
+MAX_IMAGE_SIZE = 256 * 1024  # what the client makes of a paste (src/client/image.odin)
 MAX_IMAGE_SIDE = 3840
 MAX_PINS = 50
 PERM_MANAGE_MESSAGES, PERM_PIN_MESSAGES = 4, 5
@@ -433,7 +435,7 @@ class Blobs:
             f.write(data)
         bid = self.next_id
         self.next_id += 1
-        self.rows.append((bid, sha, len(data), BLOB_IMAGE, width, height, created, by))
+        self.rows.append((bid, sha, len(data), BLOB_FILE, width, height, created, by))
         self.bytes += len(data)
         self.count += 1
         return bid
@@ -591,7 +593,10 @@ class Gen:
         self.words = Words(rng)
         self.pool = pool
         self.blobs = blobs
-        self.posted_blobs = []
+        self.posted_blobs = []  # (id, size)
+        self.pictures = 0
+        self.attachments = []
+        self.file_names = []
         self.next_id = 1
         self.msgs = []
         self.mentions = []
@@ -640,23 +645,29 @@ class Gen:
         self.next_id += 1
         kind = MSG_TEXT
         text = None
-        blob = None
         flags = 0
         edited = 0
         file_size = 0
         fwd = (0, 0, 0)
         r = rng.random()
         if r < self.args.image_rate:
-            kind = MSG_IMAGE
+            # A pasted picture: no text, the picture its one file.
             if self.posted_blobs and rng.random() < 0.02:
-                blob = rng.choice(self.posted_blobs)  # the same picture again
+                blob, size = rng.choice(self.posted_blobs)  # the same picture again
             else:
                 jpeg, w, h = rng.choice(self.pool)
-                blob = self.blobs.put(unique_copy(jpeg, str(self.blobs.next_id).encode()), w, h, t, sender)
+                data = unique_copy(jpeg, str(self.blobs.next_id).encode())
+                blob, size = self.blobs.put(data, w, h, t, sender), len(data)
                 if len(self.posted_blobs) < 10000:
-                    self.posted_blobs.append(blob)
+                    self.posted_blobs.append((blob, size))
                 else:
-                    self.posted_blobs[rng.randrange(10000)] = blob
+                    self.posted_blobs[rng.randrange(10000)] = (blob, size)
+            text = ""
+            flags |= FLAG_HAS_ATTACHMENTS
+            name = time.strftime("pasted-image-%Y%m%d-%H%M%S.jpg", time.gmtime(t // 1000))
+            self.attachments.append((mid, 0, blob, name, size))
+            self.file_names.append((mid, name))
+            self.pictures += 1
         elif conv.kind == CONV_DM and r < self.args.image_rate + 0.003:
             kind = MSG_FILE
             text = rng.choice(FILE_NAMES)
@@ -689,7 +700,7 @@ class Gen:
                     self.reactions.append((mid, emoji, who, t + rng.randint(1_000, 3_600_000)))
 
         nonce = rng.getrandbits(63)
-        self.msgs.append((mid, conv.id, sender, t, kind, flags, thread_root, text, blob, edited, nonce,
+        self.msgs.append((mid, conv.id, sender, t, kind, flags, thread_root, text, edited, nonce,
                           file_size, fwd[0], fwd[1], fwd[2]))
         if thread_root:
             th = self.threads.setdefault(thread_root, [0, 0])
@@ -727,12 +738,16 @@ class Gen:
     def flush(self):
         self.blobs.flush()
         self.db.executemany(
-            "INSERT INTO messages (id, conv, sender, time, kind, flags, thread_root, text, blob, edited, nonce, file_size, fwd_sender, fwd_conv, fwd_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO messages (id, conv, sender, time, kind, flags, thread_root, text, edited, nonce, file_size, fwd_sender, fwd_conv, fwd_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             self.msgs,
         )
+        self.db.executemany("INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?, ?, ?, ?, ?)", self.attachments)
+        self.db.executemany("INSERT INTO files_fts (rowid, names) VALUES (?, ?)", self.file_names)
         self.db.executemany("INSERT OR IGNORE INTO mentions (account, conv, message) VALUES (?, ?, ?)", self.mentions)
         self.db.executemany("INSERT OR IGNORE INTO reactions (message, emoji, account, time) VALUES (?, ?, ?, ?)", self.reactions)
         self.msgs.clear()
+        self.attachments.clear()
+        self.file_names.clear()
         self.mentions.clear()
         self.reactions.clear()
         self.db.commit()
@@ -933,7 +948,7 @@ def main():
     print()
     print(f"made {args.data_dir} in {time.monotonic() - began:.0f} s (schema version {version}):")
     print(f"  yap.db     {size / 2**30:.2f} GiB")
-    print(f"  messages   {gen.count:,}: {gen.kinds[MSG_TEXT]:,} text, {gen.kinds[MSG_IMAGE]:,} pictures, "
+    print(f"  messages   {gen.count:,}: {gen.kinds[MSG_TEXT] - gen.pictures:,} text, {gen.pictures:,} pictures, "
           f"{gen.kinds[MSG_FILE]:,} file offers; {len(gen.threads):,} threads; "
           f"{gen.text_bytes / gen.count if gen.count else 0:.0f} bytes of text each on average")
     print(f"  blobs/     {blobs.count:,} pictures, {blobs.bytes / 2**30:.2f} GiB")

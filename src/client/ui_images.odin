@@ -27,8 +27,6 @@ drawn going first; scrolling back to one decodes it again.
 */
 
 MAX_IMAGE_TEXTURES :: 96
-// How tall an image may be drawn, in logical pixels.
-MAX_IMAGE_DISPLAY_HEIGHT :: 320
 
 @(private = "file")
 IMAGE_WINDOW :: "image"
@@ -50,8 +48,7 @@ Texture :: struct {
 	height:  int,
 }
 
-// Pictures are known by a key their drawer gives (image_block): a
-// message's picture by its blob's id.
+// Pictures are known by a key their drawer gives (image_fitted).
 
 Decode_Job :: struct {
 	id:         u64,
@@ -79,7 +76,7 @@ UI_Images :: struct {
 	pan:         [2]f32,
 	// A saved copy of what's on screen, so the viewer and saving can work
 	// outside the View's lock.
-	shown:       proto.Msg_Image,
+	shown:       conn.Image_Info,
 	state:       conn.Image_State,
 	// Bytes to write to the downloads folder after the frame, and where
 	// the last one went. viewer_save is the viewer's Save button, acted
@@ -218,76 +215,6 @@ ui_images_frame :: proc(ui: ^UI) {
 		im.textures[result.id] = t
 	}
 	trim_textures(im, &ui.renderer.gpu)
-}
-
-// image_block draws one image message: the picture once it's here, and
-// what's happening with it until then (`gone` says why it isn't coming).
-// It's laid out at the size the image will take, so nothing jumps when
-// it arrives. Clicking it opens the viewer; the message's menu (the right
-// button) saves it.
-image_block :: proc(
-	ui: ^UI,
-	key: u64, // which picture it is: its blob's id
-	info: proto.Msg_Image,
-	state: conn.Image_State,
-	jpeg: []u8,
-	gone := "image no longer on the server",
-	available := 0, // how wide it may be; 0 for the panel's width
-) {
-	ctx := &ui.ctx
-	w, h := image_display_size(ctx, int(info.width), int(info.height), available)
-	mu.layout_row(ctx, {i32(w)}, i32(h))
-	rect := mu.layout_next(ctx)
-
-	im := &ui.images
-	if state == .Ready && mu.mouse_over(ctx, rect) {
-		ui.chat.hovering = true // the pointing hand
-		if .LEFT in ctx.mouse_pressed_bits {
-			im.viewer, im.placed = key, false
-		}
-	}
-	if key == im.viewer {
-		// What the viewer draws, copied while the View is locked.
-		im.shown, im.state = info, state
-		if len(im.save) == 0 && im.viewer_save {
-			im.viewer_save = false
-			request_save(im, jpeg)
-		}
-	}
-	t, known := im.textures[key]
-	if !known && state == .Ready && len(jpeg) > 0 {
-		enqueue_decode(im, key, jpeg)
-		t, known = im.textures[key]
-	}
-	if known && t.state == .Ready {
-		t.frame = im.frame
-		im.textures[key] = t
-		append(&im.draws, render.Image_Draw{texture = t.texture})
-		// An icon command, which the renderer draws as this frame's image
-		// number N; microui takes care of clipping it to the panel.
-		mu.draw_icon(
-			ctx,
-			mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1),
-			rect,
-			{255, 255, 255, 255},
-		)
-		return
-	}
-
-	// A frame where the picture will be, with a word on why it isn't.
-	mu.draw_rect(ctx, rect, {50, 50, 50, 255})
-	label: string
-	switch {
-	case known && t.state == .Failed:
-		label = "broken image"
-	case state == .Gone:
-		label = gone
-	case known && t.state == .Decoding, state == .Ready:
-		label = "showing image..."
-	case:
-		label = "loading image..."
-	}
-	mu.draw_control_text(ctx, label, rect, .TEXT, {.ALIGN_CENTER})
 }
 
 /*
@@ -534,26 +461,6 @@ ui_images_after_frame :: proc(ui: ^UI) {
 		delete(im.saved_to)
 		im.saved_to = path
 	}
-}
-
-// image_display_size is how big an image is drawn: as large as fits the
-// chat panel, never enlarged, and never taller than a few hundred pixels.
-image_display_size :: proc(ctx: ^mu.Context, width, height: int, available := 0) -> (w, h: int) {
-	if width <= 0 || height <= 0 {
-		return 160, 90
-	}
-	if available > 0 {
-		return conn.fit_box(width, height, available, MAX_IMAGE_DISPLAY_HEIGHT)
-	}
-	// As wide as the panel's content area.
-	panel := 160
-	if cnt := mu.get_current_container(ctx); cnt != nil {
-		panel = max(
-			int(cnt.body.w) - 2 * int(ctx.style.padding) - int(ctx.style.scrollbar_size),
-			32,
-		)
-	}
-	return conn.fit_box(width, height, panel, MAX_IMAGE_DISPLAY_HEIGHT)
 }
 
 enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8) {

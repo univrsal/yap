@@ -317,8 +317,10 @@ upload :: proc(
 	return got, true
 }
 
+// Blob transfer, both ways, with a profile picture: the one kind that's
+// uploaded with Blob_Put.
 @(test)
-test_pictures :: proc(t: ^testing.T) {
+test_blob_transfer :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
 	defer os.remove_all(dir)
@@ -331,16 +333,14 @@ test_pictures :: proc(t: ^testing.T) {
 	ts_account(t, &ts, "bob", "a password")
 	alice := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
-	gaming := conv_by_name(&s.convs, "Gaming")
-	testing.expect(t, conv_member_add(&s.convs, gaming, alice.account.id))
 
-	jpeg := test_jpeg(640, 480, 1)
+	jpeg := test_jpeg(200, 150, 1)
 	put := proto.Blob_Put {
-		kind   = .Image,
+		kind   = .Avatar,
 		size   = len(jpeg),
 		hash   = blob_hash(jpeg),
-		width  = 640,
-		height = 480,
+		width  = 200,
+		height = 150,
 	}
 	// Not what was announced: another hash, or another size of picture.
 	wrong := put
@@ -349,13 +349,13 @@ test_pictures :: proc(t: ^testing.T) {
 	testing.expect(t, !stored)
 	testing.expect(t, !alice.upload.active)
 	wrong = put
-	wrong.width = 641
+	wrong.width = 201
 	_, stored = upload(t, &ts, alice, jpeg, wrong)
 	testing.expect(t, !stored)
 	// Not a picture at all, too big, or of a kind not uploaded.
 	put_buf: [proto.BLOB_PUT_SIZE]u8
 	bad := put
-	bad.size = proto.MAX_IMAGE_SIZE + 1
+	bad.size = proto.MAX_AVATAR_SIZE + 1
 	status, _ := ts_ask(t, &ts, alice, .Blob_Put, proto.encode_blob_put(&put_buf, bad))
 	testing.expect_value(t, status, proto.Status.Too_Large)
 	bad = put
@@ -369,31 +369,20 @@ test_pictures :: proc(t: ^testing.T) {
 	again, _ := upload(t, &ts, bob, jpeg, put)
 	testing.expect_value(t, again, blob)
 
-	// Posted in Gaming, where bob isn't.
-	post_buf: [proto.MSG_POST_MAX_SIZE]u8
-	body := proto.encode_msg_post(
-		post_buf[:],
-		{conv = gaming.id, nonce = 9, kind = .Image, blob = blob},
-	)
-	status, _ = ts_ask(t, &ts, alice, .Msg_Post, body)
-	testing.expect_value(t, status, proto.Status.Ok)
-	msgs, _ := history(t, &ts, alice, gaming.id)
-	testing.expect_value(t, len(msgs), 1)
-	testing.expect_value(t, msgs[0].kind, proto.Msg_Kind.Image)
-	testing.expect_value(
-		t,
-		msgs[0].image,
-		proto.Msg_Image{blob = blob, width = 640, height = 480, size = u32(len(jpeg))},
-	)
-	body = proto.encode_msg_post(
-		post_buf[:],
-		{conv = gaming.id, nonce = 10, kind = .Image, blob = 999},
-	)
-	status, _ = ts_ask(t, &ts, alice, .Msg_Post, body)
-	testing.expect_value(t, status, proto.Status.Not_Found)
-
-	// Fetched by who may read it, and nobody else.
+	// Nobody's picture yet: nobody fetches it, not even who sent it.
 	id_buf: [proto.BLOB_GET_SIZE]u8
+	status, _ = ts_ask(t, &ts, alice, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
+	testing.expect_value(t, status, proto.Status.Not_Found)
+	// Once it's alice's, everyone may.
+	profile_buf: [proto.ACCOUNT_BODY_MAX]u8
+	status, _ = ts_ask(
+		t,
+		&ts,
+		alice,
+		.Profile_Set,
+		proto.encode_profile_set(profile_buf[:], {mask = proto.PROFILE_AVATAR, avatar = blob}),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
 	answer: []u8
 	status, answer = ts_ask(t, &ts, alice, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -403,10 +392,8 @@ test_pictures :: proc(t: ^testing.T) {
 	testing.expect_value(t, alice.download.handle, handle)
 	testing.expect_value(t, string(alice.download.data), string(jpeg))
 	status, _ = ts_ask(t, &ts, bob, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
-	testing.expect_value(t, status, proto.Status.Not_Found)
-	testing.expect(t, conv_member_add(&s.convs, gaming, bob.account.id))
-	status, _ = ts_ask(t, &ts, bob, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
 	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, string(bob.download.data), string(jpeg))
 }
 
 @(test)

@@ -37,7 +37,7 @@ purge_start :: proc(c: ^Voice_Client, cmd: Purge_Command) {
 	buf: [proto.PURGE_SIZE]u8
 	body := proto.encode_purge(&buf, {conv = conv, before = cmd.before, what = cmd.what})
 	request(c, .Purge, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-			pictures := proto.Purge_What(tag) == .Images
+			files := proto.Purge_What(tag) == .Files
 			#partial switch status {
 			case .Ok:
 				messages, blobs, _ := proto.decode_purge_answer(body)
@@ -47,7 +47,7 @@ purge_start :: proc(c: ^Voice_Client, cmd: Purge_Command) {
 					fmt.tprintf(
 						"Purged %d %s; %d stored file(s) removed.",
 						messages,
-						"picture(s)" if pictures else "message(s)",
+						"messages' files" if files else "message(s)",
 						blobs,
 					),
 				)

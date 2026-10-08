@@ -9,7 +9,7 @@ test_purge_roundtrip :: proc(t: ^testing.T) {
 	p := Purge {
 		conv   = 7,
 		before = 1_790_000_000_000,
-		what   = .Images,
+		what   = .Files,
 	}
 	got, ok := decode_purge(encode_purge(&buf, p))
 	testing.expect(t, ok)
@@ -18,7 +18,7 @@ test_purge_roundtrip :: proc(t: ^testing.T) {
 	_, ok = decode_purge(encode_purge(&buf, {conv = 7}))
 	testing.expect(t, !ok)
 	body := encode_purge(&buf, p)
-	body[12] = 3
+	body[12] = 2
 	_, ok = decode_purge(body)
 	testing.expect(t, !ok)
 	_, ok = decode_purge(body[:12])

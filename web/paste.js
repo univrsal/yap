@@ -5,8 +5,8 @@ the user caused, so this listens for that event and does the whole job
 here: it decodes the picture, scales it down to fit MAX_SIDE and
 compresses it to a JPEG within MAX_BYTES - the same budget image.odin
 keeps on a desktop, and the same order of giving things up: quality
-first, then size - then hands the JPEG to the client (web_paste_image,
-src/client/ui_paste_web.odin).
+first, then size - then hands the JPEG to the client as a file to attach
+(web/files.js keeps it; web_file_pasted, src/client/ui_paste_web.odin).
 
 Transparent parts are put on white, since JPEG has no transparency.
 The text of every paste goes to the client as well (web_paste_text),
@@ -48,7 +48,7 @@ clipboard.
 			if (!blob) break;
 			if (blob.size <= MAX_BYTES) {
 				bitmap.close();
-				return { bytes: new Uint8Array(await blob.arrayBuffer()), w, h };
+				return blob;
 			}
 			if (round === 0) {
 				quality = QUALITY_SECOND; // same size, cheaper bits first
@@ -65,11 +65,10 @@ clipboard.
 		return null;
 	};
 
-	const send = ({ bytes, w, h }) => {
-		const ptr = _malloc(bytes.length);
-		HEAPU8.set(bytes, ptr);
-		Module._web_paste_image(ptr, bytes.length, w, h);
-		_free(ptr);
+	// The client names it (pasted_image_name); this name is only the File's.
+	const send = (blob) => {
+		const file = new File([blob], "pasted-image.jpg", { type: "image/jpeg" });
+		Module.yapFiles.tell(file, Module._web_file_pasted);
 	};
 
 	// The text, for the client to paste when it gets to the Ctrl+V (see
@@ -84,7 +83,7 @@ clipboard.
 	};
 
 	document.addEventListener("paste", async (event) => {
-		if (typeof Module._web_paste_image !== "function") return;
+		if (typeof Module._web_file_pasted !== "function") return;
 		const target = event.target;
 		if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
 		sendText(event.clipboardData ? event.clipboardData.getData("text/plain") : "");

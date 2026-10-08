@@ -31,7 +31,8 @@ photos and noisy images, which compress far worse.
 
 // The longest side an image keeps; bigger images are scaled down.
 MAX_IMAGE_SIDE :: 3840
-// What a chat image may take up, compressed.
+// What a pasted image may take up, compressed: a screenshot uploads in
+// a moment, and its preview is fetched as quickly.
 MAX_IMAGE_BYTES :: 256 * 1024
 // Quality for the first try, for the second (same size), and for the
 // tries after that (which shrink the image instead).
@@ -42,30 +43,7 @@ QUALITY_SCALED :: 75
 MAX_SCALE_ROUNDS :: 4
 
 
-// image_load prepares an image file (PNG, JPEG, ...) the same way a
-// pasted one is prepared.
-image_load :: proc(
-	path: string,
-	allocator := context.allocator,
-) -> (
-	img: conn.Chat_Image,
-	ok: bool,
-) {
-	data, err := os.read_entire_file(path, context.temp_allocator)
-	if err != nil {
-		log.errorf("could not read %s: %v", path, err)
-		return {}, false
-	}
-	decoded, decode_err := clipboard.decode(data, context.temp_allocator)
-	if decode_err != .None {
-		log.errorf("could not read the image in %s: %v", path, decode_err)
-		return {}, false
-	}
-	defer clipboard.image_destroy(&decoded, context.temp_allocator)
-	return image_prepare(decoded, allocator)
-}
-
-// image_prepare scales and compresses a pasted image for sending.
+// image_prepare scales and compresses a pasted image, to attach.
 image_prepare :: proc(
 	src: clipboard.Image,
 	allocator := context.allocator,

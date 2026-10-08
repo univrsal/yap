@@ -89,15 +89,14 @@ network loop never blocks on input.
 	/forward <id> <channel>   forward a message to one of your channels
 	/search [all] <words>     search the conversation looked at (or all
 	                 of yours); /search more for the next page
-	/purge here|all <days> [pictures]   remove for good the messages (or
-	                 only the pictures) older than that many days, of the
+	/purge here|all <days> [files]   remove for good the messages (or
+	                 only their files) older than that many days, of the
 	                 conversation being looked at or of all (for who may)
-	/send <file>     post an image file (scaled and compressed first)
 	/typing [id]     tell the conversation (or the thread) you're typing
 	/poke <name> [message]  poke someone (see src/common/proto/poke.odin)
 	/dm <name> [text]       look at the DMs with someone (their username or
 	                        name), writing to them first if there's text;
-	                        /say, /send, /older and /newer go there then,
+	                        /say, /older and /newer go there then,
 	                        until /view
 	/buddies                list your buddies and your DMs
 	/buddy <name>, /unbuddy <name>   add or remove a buddy
@@ -361,7 +360,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 					all = fields[0] == "all",
 					here = fields[0] == "here",
 					before = proto.Unix_Ms(now - i64(days * 24 * 60 * 60 * 1000)),
-					what = .Images if len(fields) > 2 && fields[2] == "pictures" else .Messages,
+					what = .Files if len(fields) > 2 && fields[2] == "files" else .Messages,
 				},
 			)
 		case line == "/roles":
@@ -485,13 +484,6 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 						typed = true,
 					},
 				)
-			}
-		case strings.has_prefix(line, "/send "):
-			// Scaling and compressing happens here rather than on the
-			// network loop, which has voice to carry.
-			path := strings.trim_space(line[len("/send "):])
-			if image, ok := image_load(path); ok {
-				conn.push_command(q, conn.Chat_Image_Command{image = image})
 			}
 		case strings.has_prefix(line, "/poke "):
 			rest := strings.trim_space(line[len("/poke "):])
@@ -687,7 +679,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case:
 			log.warn(
-				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /send <file>, /typing, /poke <name> [message], /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
+				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /poke <name> [message], /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
 			)
 		}
 	}

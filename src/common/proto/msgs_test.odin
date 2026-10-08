@@ -21,8 +21,10 @@ test_message_record :: proc(t: ^testing.T) {
 			id = 3,
 			conv = 2,
 			sender = 4,
-			kind = .Image,
-			image = {blob = 77, width = 1920, height = 1080, size = 200_000},
+			kind = .Text,
+			flags = {.Has_Attachments},
+			attachment_count = 1,
+			attachments = {0 = {blob = 77, size = 200_000, name = "pasted-image.jpg"}},
 		},
 		{id = 4, conv = 9, sender = 4, kind = .File, file_size = 1 << 40, file_name = "a.tar"},
 		{id = 5, conv = 9, sender = 4, kind = .System, system = 2, system_arg = 17},
@@ -52,9 +54,12 @@ test_message_record :: proc(t: ^testing.T) {
 		testing.expect(t, got.kind == m.kind && got.flags == m.flags && got.time == m.time)
 		testing.expect(
 			t,
-			got.text == m.text && got.image == m.image && got.file_name == m.file_name,
+			got.text == m.text && got.file_name == m.file_name,
 		)
 		testing.expect(t, got.reply_count == m.reply_count && got.system_arg == m.system_arg)
+		testing.expect(t, got.attachment_count == m.attachment_count)
+		testing.expect(t, got.attachments[0].blob == m.attachments[0].blob)
+		testing.expect(t, got.attachments[0].name == m.attachments[0].name)
 		// Cut short, or with something left over, it doesn't read.
 		_, ok = decode_message(body[:len(body) - 1])
 		testing.expect(t, !ok)
@@ -151,16 +156,17 @@ test_msg_bodies :: proc(t: ^testing.T) {
 	testing.expect_value(t, p, Msg_Post{conv = 3, nonce = 0xfeed, kind = .Text, text = "hello"})
 	body = encode_msg_post(
 		post_buf[:],
-		{conv = 3, nonce = 1, thread_root = 8, kind = .Image, blob = 42},
+		{conv = 3, nonce = 1, thread_root = 8, kind = .File, file_size = 42, text = "a.tar"},
 	)
 	p, ok = decode_msg_post(body)
-	testing.expect(t, ok && p.kind == .Image && p.blob == 42 && p.thread_root == 8)
+	testing.expect(t, ok && p.kind == .File && p.file_size == 42 && p.thread_root == 8)
 	_, ok = decode_msg_post(body[:len(body) - 1])
 	testing.expect(t, !ok)
-	// Only text and pictures are posted like this.
+	// Only text and file offers are posted like this.
 	testing.expect(t, encode_msg_post(post_buf[:], {conv = 3, kind = .System}) == nil)
-	body = encode_msg_post(post_buf[:], {conv = 3, kind = .Image, blob = 1})
-	body[20] = u8(Msg_Kind.File)
+	// Nor is a picture any more (kind 1): it's an attachment.
+	body = encode_msg_post(post_buf[:], {conv = 3, kind = .Text, text = "hi"})
+	body[20] = 1
 	_, ok = decode_msg_post(body)
 	testing.expect(t, !ok)
 	long := strings.repeat("z", MAX_CHAT_SIZE + 1, context.temp_allocator)
@@ -195,7 +201,7 @@ test_msg_bodies :: proc(t: ^testing.T) {
 	// Blobs.
 	put_buf: [BLOB_PUT_SIZE]u8
 	put := Blob_Put {
-		kind   = .Image,
+		kind   = .Avatar,
 		size   = 1234,
 		width  = 640,
 		height = 480,

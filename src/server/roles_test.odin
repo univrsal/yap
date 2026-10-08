@@ -463,28 +463,8 @@ test_private_channels :: proc(t: ^testing.T) {
 	staff := conv_by_id(&s.convs, staff_id)
 	testing.expect(t, .Private in staff.flags)
 
-	// Something in it: a message and a picture.
+	// Something in it: a message.
 	post(t, &ts, owner, staff_id, "secret plans", 1)
-	jpeg := test_jpeg(32, 32, 5)
-	blob, _ := upload(
-		t,
-		&ts,
-		owner,
-		jpeg,
-		{kind = .Image, size = len(jpeg), hash = blob_hash(jpeg), width = 32, height = 32},
-	)
-	post_buf: [proto.MSG_POST_MAX_SIZE]u8
-	status, _ = ts_ask(
-		t,
-		&ts,
-		owner,
-		.Msg_Post,
-		proto.encode_msg_post(
-			post_buf[:],
-			{conv = staff_id, nonce = 2, kind = .Image, blob = blob},
-		),
-	)
-	testing.expect_value(t, status, proto.Status.Ok)
 	room_buf: [4]u8
 	ts_ask(t, &ts, owner, .Voice_Join, proto.encode_room(&room_buf, proto.Room(staff_id)))
 
@@ -494,7 +474,6 @@ test_private_channels :: proc(t: ^testing.T) {
 		ts: ^Test_Server,
 		u: ^Conn,
 		conv: proto.Conv_Id,
-		blob: proto.Blob_Id,
 	) {
 		status, body := ts_ask(t, ts, u, .Conv_Browse, nil)
 		list_buf: [8]proto.Conv
@@ -519,17 +498,14 @@ test_private_channels :: proc(t: ^testing.T) {
 		room_buf: [4]u8
 		status, _ = ts_ask(t, ts, u, .Voice_Join, proto.encode_room(&room_buf, proto.Room(conv)))
 		testing.expect_value(t, status, proto.Status.Not_Found)
-		blob_buf: [proto.BLOB_GET_SIZE]u8
-		status, _ = ts_ask(t, ts, u, .Blob_Get, proto.encode_blob_id(&blob_buf, blob))
-		testing.expect_value(t, status, proto.Status.Not_Found)
 		testing.expect(
 			t,
 			room_hidden(&ts.s, proto.Room(conv), u.account.id),
 			"who's in its room shows",
 		)
 	}
-	nothing(t, &ts, alice, staff_id, blob)
-	nothing(t, &ts, bob, staff_id, blob)
+	nothing(t, &ts, alice, staff_id)
+	nothing(t, &ts, bob, staff_id)
 
 	// Adding someone takes Invite and being in it.
 	_, inviter := role_set(t, &ts, owner, {name = "inviter", perms = {.Invite}})
@@ -591,7 +567,7 @@ test_private_channels :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	_, told = has_event(ts_events(t, &ts, bob), .Conv_Removed)
 	testing.expect(t, told)
-	nothing(t, &ts, bob, staff_id, blob)
+	nothing(t, &ts, bob, staff_id)
 
 	// Taken out by someone who manages channels, and out of its room.
 	ts_ask(t, &ts, alice, .Voice_Join, proto.encode_room(&room_buf, proto.Room(staff_id)))
@@ -617,7 +593,7 @@ test_private_channels :: proc(t: ^testing.T) {
 	_, told = has_event(events, .Conv_Removed)
 	testing.expect(t, told)
 	testing.expect_value(t, alice.room, 0)
-	nothing(t, &ts, alice, staff_id, blob)
+	nothing(t, &ts, alice, staff_id)
 
 	// Not someone who may do more than the asker.
 	_, keeper := role_set(t, &ts, owner, {name = "keeper", perms = {.Manage_Channels}})

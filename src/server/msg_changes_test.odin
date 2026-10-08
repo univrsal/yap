@@ -154,30 +154,7 @@ test_delete :: proc(t: ^testing.T) {
 	alice := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
 
-	// A picture, which nobody can fetch once its message is gone.
-	jpeg := test_jpeg(64, 48, 3)
-	put := proto.Blob_Put {
-		kind   = .Image,
-		size   = len(jpeg),
-		hash   = blob_hash(jpeg),
-		width  = 64,
-		height = 48,
-	}
-	blob, stored := upload(t, &ts, alice, jpeg, put)
-	testing.expect(t, stored)
-	post_buf: [proto.MSG_POST_MAX_SIZE]u8
-	status, answer := ts_ask(
-		t,
-		&ts,
-		alice,
-		.Msg_Post,
-		proto.encode_msg_post(post_buf[:], {conv = home, nonce = 1, kind = .Image, blob = blob}),
-	)
-	testing.expect_value(t, status, proto.Status.Ok)
-	picture, _, _ := proto.decode_msg_posted(answer)
-	id_buf: [proto.BLOB_GET_SIZE]u8
-	status, _ = ts_ask(t, &ts, bob, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
-	testing.expect_value(t, status, proto.Status.Ok)
+	// A message's files going with it is in attachments_test.odin.
 	_, text := post(t, &ts, alice, home, "a secret", 2)
 	_, bobs := post(t, &ts, bob, home, "bob's", 3)
 	testing.expect_value(t, pin_as(t, &ts, admin, text, true), proto.Status.Ok)
@@ -186,7 +163,6 @@ test_delete :: proc(t: ^testing.T) {
 	// Not somebody else's, unless one may.
 	testing.expect_value(t, delete_as(t, &ts, alice, bobs), proto.Status.Denied)
 	testing.expect_value(t, delete_as(t, &ts, admin, bobs), proto.Status.Ok)
-	testing.expect_value(t, delete_as(t, &ts, alice, picture), proto.Status.Ok)
 	testing.expect_value(t, delete_as(t, &ts, alice, text), proto.Status.Ok)
 	testing.expect_value(t, delete_as(t, &ts, alice, text), proto.Status.Ok) // again: nothing to do
 	m, told := changed(t, &ts, bob, text)
@@ -194,17 +170,12 @@ test_delete :: proc(t: ^testing.T) {
 	testing.expect(t, .Deleted in m.flags && .Pinned not_in m.flags)
 	testing.expect_value(t, m.text, "")
 
-	// Nothing of them is left to read or fetch.
-	for id in ([]proto.Msg_Id{picture, text, bobs}) {
+	// Nothing of them is left to read.
+	for id in ([]proto.Msg_Id{text, bobs}) {
 		got, _ := msg_by_id(s, id)
 		testing.expect(t, .Deleted in got.flags)
 		testing.expect_value(t, got.text, "")
-		testing.expect_value(t, got.image.blob, proto.Blob_Id(0))
 	}
-	status, _ = ts_ask(t, &ts, bob, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
-	testing.expect_value(t, status, proto.Status.Not_Found)
-	status, _ = ts_ask(t, &ts, alice, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
-	testing.expect_value(t, status, proto.Status.Not_Found)
 	testing.expect_value(t, len(pins_of(t, &ts, bob, home)), 0)
 	// Nor edited, nor pinned again.
 	testing.expect_value(t, edit_as(t, &ts, alice, text, "back"), proto.Status.Invalid)

@@ -2,7 +2,6 @@ package conn
 
 import log "common:wlog"
 import "core:crypto"
-import "core:crypto/hash"
 import "core:fmt"
 import "core:strings"
 import "core:time"
@@ -78,7 +77,6 @@ Msg :: struct {
 	thread_root: proto.Msg_Id,
 	edited:      proto.Unix_Ms,
 	text:        string, // owned; a file's name
-	image:       proto.Msg_Image,
 	file_size:   u64,
 	reactions:   [dynamic]Reaction, // owned, as are their emoji
 	// A root's thread (.Has_Thread): how many replies, and the last.
@@ -303,7 +301,6 @@ msg_of :: proc(m: proto.Message) -> Msg {
 		thread_root = m.thread_root,
 		edited      = m.edited,
 		text        = strings.clone(m.file_name if m.kind == .File else m.text),
-		image       = m.image,
 		file_size   = m.file_size,
 		reply_count = int(m.reply_count),
 		last_reply  = m.last_reply,
@@ -602,7 +599,6 @@ history_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u6
 	page := make([]Msg, len(got), context.temp_allocator)
 	for m, i in got {
 		page[i] = msg_of(m)
-		want_picture(c, m)
 	}
 	switch {
 	case tag & (1 << 32) != 0:
@@ -714,7 +710,6 @@ root_want :: proc(c: ^Voice_Client, conv: proto.Conv_Id, root: proto.Msg_Id) {
 				return
 			}
 			r.have, r.msg = true, msg_of(got[0])
-			want_picture(c, got[0])
 			publish_root(c, r^)
 		},
 		u64(root),
@@ -729,14 +724,6 @@ root_forget :: proc(c: ^Voice_Client, id: proto.Msg_Id, publish := true) {
 	}
 	if publish {
 		publish_root_gone(c, id)
-	}
-}
-
-// want_picture has the picture of a message fetched (blobs.odin).
-@(private = "file")
-want_picture :: proc(c: ^Voice_Client, m: proto.Message) {
-	if m.kind == .Image && m.image.blob != 0 {
-		blob_want(c, m.image)
 	}
 }
 
@@ -781,9 +768,7 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 		// Its thread's, if that's open; and the conversation's, below.
 		key := Timeline_Key{m.conv, m.thread_root}
 		if cache := c.msgs.caches[key] or_else nil; cache != nil && !cache_has_newer(cache, m.id) {
-			if cache_new(cache, msg_of(m)) {
-				want_picture(c, m)
-			}
+			cache_new(cache, msg_of(m))
 			publish_timeline(c, key)
 		}
 	}
@@ -791,9 +776,7 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 		if cache_has_newer(cache, m.id) {
 			return // had it: ours, told of after its answer, or the other way round
 		}
-		if cache_new(cache, msg_of(m)) {
-			want_picture(c, m)
-		}
+		cache_new(cache, msg_of(m))
 		publish_timeline(c, {m.conv, 0})
 	} else if info, ok := c.convs.convs[m.conv]; ok && m.id <= info.last {
 		// The same, for a conversation we keep no window of: nothing
@@ -882,18 +865,6 @@ describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 		}
 	case .File:
 		text = fmt.tprintf("offers the file %q (%s)", m.file_name, format_bytes(m.file_size))
-	case .Image:
-		if m.image.blob == 0 {
-			text = "[picture no longer kept]"
-			break
-		}
-		text = fmt.tprintf(
-			"[picture %d, %dx%d, %d bytes]",
-			m.image.blob,
-			m.image.width,
-			m.image.height,
-			m.image.size,
-		)
 	}
 	if m.edited != 0 {
 		text = fmt.tprintf("%s (edited)", text)
@@ -978,21 +949,14 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 msgs_purged takes the server saying it has purged a conversation below
 an id (phase 15): the messages there, but for some it kept (pinned ones,
 roots of threads that go on), which the windows let go of and fetch
-again when they're scrolled to; or the pictures in them, but for pinned
-ones'. A window with nothing left is fetched again if it's on screen.
+again when they're scrolled to; or the files they carry (purge_files). A
+window with nothing left is fetched again if it's on screen.
 */
 @(private = "file")
 msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	if p.what == .Files {
 		purge_files(c, p)
 		return
-	}
-	strip :: proc(m: ^Msg, before: proto.Msg_Id) -> bool {
-		if m.id >= before || m.kind != .Image || .Pinned in m.flags || m.image.blob == 0 {
-			return false
-		}
-		m.image = {}
-		return true
 	}
 	keys := make([dynamic]Timeline_Key, context.temp_allocator)
 	for key in c.msgs.caches {
@@ -1002,14 +966,6 @@ msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	}
 	for key in keys {
 		cache := c.msgs.caches[key]
-		if p.what == .Images {
-			for &m in cache.messages {
-				if strip(&m, p.before) {
-					publish_message_changed(c, key, m)
-				}
-			}
-			continue
-		}
 		n := 0
 		for n < len(cache.messages) && cache.messages[n].id < p.before {
 			msg_destroy(&cache.messages[n])
@@ -1037,11 +993,7 @@ msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 		if r.conv != p.conv || !r.have || id >= p.before {
 			continue
 		}
-		if p.what == .Messages {
-			append(&gone, id)
-		} else if strip(&r.msg, p.before) {
-			publish_root(c, r)
-		}
+		append(&gone, id)
 	}
 	for id in gone {
 		root_forget(c, id)
@@ -1054,9 +1006,8 @@ msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	}
 	if c.view == nil {
 		log.infof(
-			"[chat] %s: the %s below #%d were purged",
+			"[chat] %s: the messages below #%d were purged",
 			room_name(c, proto.Room(p.conv)),
-			"pictures of messages" if p.what == .Images else "messages",
 			p.before,
 		)
 	}
@@ -1363,9 +1314,6 @@ pins_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 			if !ok {
 				return
 			}
-			for m in pins {
-				want_picture(c, m)
-			}
 			publish_pins(c, conv, pins)
 			if c.view == nil {
 				if len(pins) == 0 {
@@ -1435,7 +1383,7 @@ messages_restart :: proc(c: ^Voice_Client, forget := false) {
 	}
 	for &p in mc.outbox {
 		p.asking = false
-		if p.kind == .Image && p.blob == 0 {
+		if p.avatar && p.blob == 0 {
 			// The server has forgotten the upload with the connection.
 			p.state = .Put
 			proto.blob_sender_destroy(&p.upload.send)
@@ -1544,36 +1492,6 @@ to_the_end :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	}
 }
 
-// chat_send_image puts a picture in the outbox, for where chat_send
-// would; it takes over `jpeg`.
-chat_send_image :: proc(
-	c: ^Voice_Client,
-	jpeg: []u8,
-	width, height: int,
-	dm_to: proto.Account_Id = 0,
-) {
-	conv, state, ok := post_target(c, dm_to, .Put)
-	if len(jpeg) == 0 || len(jpeg) > proto.MAX_IMAGE_SIZE || !ok {
-		log.warnf("not sending a picture of %d bytes", len(jpeg))
-		delete(jpeg)
-		return
-	}
-	p := Pending {
-		nonce = new_nonce(),
-		conv = conv,
-		dm_to = dm_to,
-		kind = .Image,
-		jpeg = jpeg,
-		state = state,
-		put = {kind = .Image, size = len(jpeg), width = width, height = height},
-	}
-	hash.hash_bytes_to_buffer(.SHA256, jpeg, p.put.hash[:])
-	append(&c.msgs.outbox, p)
-	c.msgs.last_typing = {}
-	to_the_end(c, {conv, 0})
-	publish_outbox(c)
-}
-
 // file_post puts the offer of a file in the outbox, for the DM with
 // `to`; its nonce, which files.odin knows the transfer by until the
 // offer has its id.
@@ -1675,7 +1593,7 @@ drive_outbox :: proc(c: ^Voice_Client) {
 		if conv := dm_with(c, p.dm_to); conv != 0 {
 			// Opened since, by this post's DM_Open or another way.
 			p.conv = conv
-			p.state = .Put if p.kind == .Image else .Post
+			p.state = .Post
 			p.asking = false
 			to_the_end(c, {conv, 0})
 			publish_outbox(c)
@@ -1705,7 +1623,6 @@ drive_outbox :: proc(c: ^Voice_Client) {
 				thread_root = p.root,
 				kind        = p.kind,
 				text        = p.text,
-				blob        = p.blob,
 				file_size   = p.size,
 			}
 			if p.attach != nil {
@@ -1764,7 +1681,7 @@ open_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 		return // asked again
 	}
 	p.conv = conv
-	p.state = .Put if p.kind == .Image else .Post
+	p.state = .Post
 	to_the_end(c, {conv, 0})
 	if c.view == nil && c.convs.viewing != conv {
 		// Headless: where /say goes from here.
@@ -1896,11 +1813,6 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 	case .Reset:
 		return // posted again, with the same nonce, on the new connection
 	case .Not_Found:
-		if p.kind == .Image {
-			// The picture has gone from the server; send it again.
-			p.blob, p.state = 0, .Put
-			return
-		}
 		if p.attach != nil && p.state == .Post {
 			// Its files have: they go again, and it's queued after.
 			attach_upload_again(c, p.attach)
@@ -1954,17 +1866,6 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 		m.text, m.file_name, m.file_size = "", p.text, p.size
 		file_posted(c, p.nonce, id)
 	}
-	if p.kind == .Image {
-		m.image = {
-			blob   = p.blob,
-			width  = u16(p.put.width),
-			height = u16(p.put.height),
-			size   = u32(p.put.size),
-		}
-		// We have the picture: no need to fetch it.
-		blob_have(c, p.blob, p.jpeg, p.put.width, p.put.height)
-		p.jpeg = nil
-	}
 	message_arrived(c, m)
 	pending_destroy(p)
 	ordered_remove(&c.msgs.outbox, 0)
@@ -1984,7 +1885,6 @@ View_Message :: struct {
 	flags:       proto.Msg_Flags,
 	thread_root: proto.Msg_Id, // a reply's
 	text:        string, // owned; a file's name
-	image:       proto.Msg_Image,
 	file_size:   u64,
 	reactions:   [dynamic]Reaction, // owned, as are their emoji
 	// A root's (.Has_Thread): how many replies, and the last.
@@ -2029,8 +1929,6 @@ View_Pending :: struct {
 	dm_to:     proto.Account_Id,
 	kind:      proto.Msg_Kind,
 	text:      string, // owned
-	width:     int, // a picture's
-	height:    int,
 }
 
 View_Typing :: struct {
@@ -2055,7 +1953,6 @@ view_message_of :: proc(m: Msg) -> View_Message {
 		flags = m.flags,
 		thread_root = m.thread_root,
 		text = strings.clone(m.text),
-		image = m.image,
 		file_size = m.file_size,
 		reactions = reactions_clone(m.reactions[:]),
 		reply_count = m.reply_count,
@@ -2333,8 +2230,6 @@ publish_outbox :: proc(c: ^Voice_Client) {
 				dm_to = p.dm_to,
 				kind = p.kind,
 				text = strings.clone(p.text),
-				width = p.put.width,
-				height = p.put.height,
 			},
 		)
 	}

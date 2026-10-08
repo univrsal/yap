@@ -262,7 +262,7 @@ UI :: struct {
 	// The image paste being read, if any (ui_paste.odin), and where the
 	// next one goes.
 	paste:               ^Paste_Job,
-	paste_to:            Paste_Target,
+	paste_to:            Attach_Target,
 	// The file dialog, while it's open (ui_files_native.odin).
 	file_pick:           ^File_Pick_Job,
 	// The paperclip was pressed: after the frame, the dialog opens for

@@ -14,8 +14,8 @@ import "sqlite"
 _ :: time // only used when DB_EXERCISE
 
 /*
-The blob store: files the server keeps for good, such as the pictures
-in messages. Each is a file in the data directory's blobs/ folder, named by the
+The blob store: files the server keeps for good, such as the files
+messages carry. Each is a file in the data directory's blobs/ folder, named by the
 SHA-256 of its content, with a row in the database's `blobs` table
 saying what it is:
 
@@ -266,7 +266,7 @@ when DB_EXERCISE {
 		exercise_last = time.tick_now()
 		data := make([]u8, 64 * 1024, context.temp_allocator)
 		crypto.rand_bytes(data)
-		if id, ok := blob_put(&s.blobs, .Image, data, 100, 100); ok {
+		if id, ok := blob_put(&s.blobs, .Avatar, data, 100, 100); ok {
 			append(&exercise_ids, id)
 		}
 		db_meta_set(&s.db, "exercise", i64(len(exercise_ids)))

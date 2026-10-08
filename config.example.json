@@ -18,7 +18,7 @@
 	],
 	"retention": {
 		"message_days": 0,
-		"image_days": 0,
+		"file_days": 0,
 		"blob_megabytes": 0
 	}
 }

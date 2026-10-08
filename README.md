@@ -13,7 +13,7 @@ A sloppy and minimal chat and VOIP application.
   join
 - Chat in every channel, kept on the server for good and read back a page at
   a time; messages arrive for all your channels, not only the one on screen
-- Paste images from clipboard into chat (stored once, however often posted)
+- Paste images from the clipboard into a message, as an attachment (stored once, however often posted)
 - Per user volumes, muting and poking
 - Accounts, made by an admin; a device logs in once and is known by its key after
 - Optional server password; the client remembers the last 10 servers
@@ -55,15 +55,15 @@ yap-server account passwd <username>   # a new one, if it was forgotten
 
 A device logs in once; after that the server knows it by its key.
 
-Messages and pictures are kept for good unless `retention` in the config
-says otherwise (`message_days`, `image_days`, `blob_megabytes`; 0 keeps
-everything); the server applies it at startup and every hour. Whoever has
+Messages and their files are kept for good unless `retention` in the
+config says otherwise (`message_days`, `file_days`, `blob_megabytes`; 0
+keeps everything); the server applies it at startup and every hour. Whoever has
 the Purge permission can also purge from the client's settings, and with
 the server stopped:
 
 ```sh
 yap-server purge all 90d               # messages older than 90 days
-yap-server purge Lobby 2026-01-01 pictures   # only the pictures, before a day
+yap-server purge Lobby 2026-01-01 files   # only the files, before a day
 ```
 
 Pinned messages are kept. Purged content is gone from the database and

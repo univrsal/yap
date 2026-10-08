@@ -280,12 +280,6 @@ Poke_Command :: struct {
 	name:       string, // owned by the command
 	message:    string, // owned by the command
 }
-// An image to post where a Chat_Command would go; the JPEG is owned by
-// the command until the client takes it.
-Chat_Image_Command :: struct {
-	image: Chat_Image,
-	dm_to: proto.Account_Id,
-}
 Listen_Command :: struct {
 	on: bool,
 }
@@ -331,7 +325,6 @@ Command :: union {
 	App_Audio_Command,
 	Chat_Command,
 	Poke_Command,
-	Chat_Image_Command,
 	Typing_Command,
 	Watch_Command,
 	Send_File_Command,
@@ -514,9 +507,6 @@ command_destroy :: proc(cmd: Command) {
 	case Poke_Command:
 		delete(v.name)
 		delete(v.message)
-	case Chat_Image_Command:
-		image := v.image
-		chat_image_destroy(&image)
 	case DM_Command:
 		delete(v.name)
 		delete(v.text)
@@ -688,10 +678,6 @@ process_commands :: proc(c: ^Voice_Client) {
 			chat_send(c, typed_text(c, v.text) if v.typed else v.text, v.dm_to, v.thread)
 		case Poke_Command:
 			poke_send(c, v.target_uid, v.name, v.message)
-		case Chat_Image_Command:
-			// The client takes the JPEG over, so it isn't freed twice.
-			chat_send_image(c, v.image.jpeg, v.image.width, v.image.height, v.dm_to)
-			v.image = {}
 		case Typing_Command:
 			if v.thread.root != 0 && v.thread.conv == 0 {
 				v.thread.conv = c.convs.viewing

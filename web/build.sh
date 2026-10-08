@@ -45,7 +45,7 @@ touch_exports=_web_touch_tap,_web_touch_hold,_web_text_box_at,_web_touch_drag_be
 # What web/background.js calls (src/client/main_web.odin).
 background_exports=_web_tick
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
-paste_exports=_web_paste_image,_web_paste_failed,_web_paste_text,_malloc,_free
+paste_exports=_web_file_pasted,_web_paste_failed,_web_paste_text,_malloc,_free
 # What web/files.js calls (src/client/ui_files_web.odin).
 files_exports=_web_file_picked,_web_file_dropped
 # What web/avatar.js calls (src/client/ui_avatar_pick_web.odin).

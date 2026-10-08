@@ -690,8 +690,6 @@ ITEMS_PER_MESSAGE :: 4
 pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 	text: Rich
 	#partial switch p.kind {
-	case .Image:
-		text = rich_plain(fmt.tprintf("a picture, %dx%d", p.width, p.height))
 	case .File:
 		text = rich_plain(fmt.tprintf("the file %s", p.text))
 	case:
@@ -752,10 +750,6 @@ message_height :: proc(
 	width := full - (REPLY_INDENT if is_indented(st, m) else 0) - avatar_column(ui)
 	_, l, _, _ := map_entry(&st.layouts, m.id)
 	shown, _, _, _ := message_text(ui, m.text)
-	if picture_gone(m) {
-		// Which also tells the layout kept from when it had one apart.
-		shown = PICTURE_GONE_TEXT
-	}
 	changing := m.kind == .File || len(m.reactions) > 0 || len(m.files) > 0
 	if !changing &&
 	   !l.changing &&
@@ -784,14 +778,6 @@ message_height :: proc(
 	case .Text:
 		text := message_rich(ui, m.text)
 		body = rich_height(ctx, &text, width)
-	case .Image:
-		if picture_gone(m) {
-			text := rich_plain(PICTURE_GONE_TEXT)
-			body = rich_height(ctx, &text, width)
-			break
-		}
-		_, h := image_display_size(ctx, int(m.image.width), int(m.image.height), int(width))
-		body = i32(h)
 	case .System:
 		text := rich_plain(DELETED_TEXT if .Deleted in m.flags else system_line(ui, m))
 		body = rich_height(ctx, &text, width)
@@ -931,25 +917,6 @@ timeline_message :: proc(
 		text := message_rich(ui, m.text)
 		chat_message(ui, header, header_color, &text, ctx.style.colors[.TEXT], merged, item, tight)
 		message_files(ui, st.key.conv, m)
-	case .Image:
-		if picture_gone(m) {
-			text := rich_plain(PICTURE_GONE_TEXT)
-			chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
-			break
-		}
-		img := v.blobs[m.image.blob] or_else conn.View_Image{state = .Wanted}
-		chat_image(
-			ui,
-			header,
-			header_color,
-			u64(m.image.blob),
-			m.image,
-			img,
-			merged,
-			item,
-			available = int(width),
-			tight = tight,
-		)
 	case .System:
 		text := rich_plain(system_line(ui, m))
 		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
@@ -994,8 +961,8 @@ reply_line :: proc(
 		switch {
 		case .Deleted in root.flags:
 			said = DELETED_TEXT
-		case root.kind == .Image:
-			said = "a picture"
+		case root.text == "" && len(root.files) > 0:
+			said = files_said(root.files)
 		case root.kind == .File:
 			said = fmt.tprintf("the file %s", root.text)
 		case:
@@ -1291,14 +1258,6 @@ system_line :: proc(ui: ^UI, m: conn.View_Message) -> string {
 // What's left of a deleted message.
 @(private = "file")
 DELETED_TEXT :: "message deleted"
-// What a picture the server no longer keeps says (phase 15).
-PICTURE_GONE_TEXT :: "picture no longer kept"
-
-// picture_gone is whether a message was a picture that has been purged:
-// it's still an Image, without one.
-picture_gone :: proc(m: conn.View_Message) -> bool {
-	return m.kind == .Image && m.image.blob == 0 && .Deleted not_in m.flags
-}
 
 // message_mouse is what the pointer does to a message laid out in
 // `block`: on it, the message's bar is over it, and a right click opens

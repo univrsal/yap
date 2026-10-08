@@ -221,7 +221,6 @@ avatar_set :: proc(c: ^Voice_Client, image: Chat_Image, remove: bool) {
 	p := Pending {
 		nonce = new_nonce(),
 		avatar = true,
-		kind = .Image,
 		jpeg = image.jpeg,
 		state = .Put,
 		put = {kind = .Avatar, size = len(image.jpeg), width = image.width, height = image.height},

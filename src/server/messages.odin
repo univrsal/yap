@@ -25,9 +25,9 @@ A post carries a nonce of the poster's. The database keeps it, and a
 post that comes again with the same one (the client repeated it after
 its connection started over) is answered with the message it already is.
 
-Pictures are blobs (blobs.odin, transfers.odin); a message names one.
 A text message may carry files that were uploaded for it
-(attachments.odin), which a post names by their uploads.
+(attachments.odin), which a post names by their uploads; a picture in a
+message is one of these.
 A file is offered in a DM by a message that names it and says how big
 it is; the file itself goes between the two clients (files.odin).
 
@@ -190,18 +190,6 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			links_restrict(s, conv, m.text),
 			conv.last_msg,
 		)
-	case .Image:
-		b, found := blob_get(&s.blobs, p.blob)
-		if !found || b.kind != .Image {
-			respond(u, id, .Not_Found)
-			return
-		}
-		m.image = {
-			blob   = b.id,
-			width  = u16(b.width),
-			height = u16(b.height),
-			size   = u32(b.size),
-		}
 	}
 	first := conv.last_msg == 0
 	if !msg_store(s, conv, &m, p.nonce) || !mentions_store(s, conv, m.id, mentioned) {
@@ -215,8 +203,6 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	#partial switch m.kind {
 	case .Text:
 		log.debugf("%s in %q: %s (%d files)", conn_label(u), place, m.text, m.attachment_count)
-	case .Image:
-		log.debugf("%s in %q: a picture (blob %d)", conn_label(u), place, m.image.blob)
 	case .File:
 		log.debugf(
 			"%s in %q: offers %q (%d bytes)",
@@ -299,9 +285,7 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Not_Found)
 		return
 	}
-	if .Deleted in src.flags ||
-	   (src.kind != .Text && src.kind != .Image) ||
-	   (src.kind == .Image && src.image.blob == 0) {
+	if .Deleted in src.flags || src.kind != .Text {
 		respond(u, id, .Invalid)
 		return
 	}
@@ -334,7 +318,6 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		flags            = {.Forwarded},
 		thread_root      = root.id,
 		text             = links_restrict(s, conv, src.text),
-		image            = src.image,
 		forward          = from,
 		attachment_count = src.attachment_count,
 		attachments      = src.attachments,
@@ -389,22 +372,17 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	case:
 		db_bind_null(q, 5)
 	}
-	if m.kind == .Image {
-		db_bind_int(q, 6, i64(m.image.blob))
-	} else {
-		db_bind_null(q, 6)
-	}
 	if nonce != 0 {
-		db_bind_int(q, 7, i64(nonce))
+		db_bind_int(q, 6, i64(nonce))
 	} else {
-		db_bind_null(q, 7) // the server's own, which no client repeats
+		db_bind_null(q, 6) // the server's own, which no client repeats
 	}
-	db_bind_int(q, 8, i64(m.system_arg) if m.kind == .System else i64(m.file_size))
-	db_bind_int(q, 9, i64(m.thread_root))
-	db_bind_int(q, 10, i64(transmute(u8)m.flags))
-	db_bind_int(q, 11, i64(m.forward.sender))
-	db_bind_int(q, 12, i64(m.forward.conv))
-	db_bind_int(q, 13, i64(m.forward.time))
+	db_bind_int(q, 7, i64(m.system_arg) if m.kind == .System else i64(m.file_size))
+	db_bind_int(q, 8, i64(m.thread_root))
+	db_bind_int(q, 9, i64(transmute(u8)m.flags))
+	db_bind_int(q, 10, i64(m.forward.sender))
+	db_bind_int(q, 11, i64(m.forward.conv))
+	db_bind_int(q, 12, i64(m.forward.time))
 	db_run(&s.db, q) or_return
 	m.id = proto.Msg_Id(db_last_id(&s.db))
 	attachments_store(s, m^) or_return
@@ -656,24 +634,6 @@ msg_any :: proc(s: ^Server, stmt: Stmt, conv: proto.Conv_Id, id: proto.Msg_Id) -
 	return false
 }
 
-// blob_visible is whether an account may fetch a blob: a message it may
-// read shows it.
-blob_visible :: proc(s: ^Server, account: proto.Account_Id, blob: Blob_Id) -> bool {
-	q := db_stmt(&s.db, .Msg_Blob_Convs)
-	db_bind_int(q, 1, i64(blob))
-	for {
-		row, ok := db_step(&s.db, q)
-		if !ok || !row {
-			return false
-		}
-		conv := conv_by_id(&s.convs, proto.Conv_Id(db_col_int(q, 0)))
-		if conv != nil && conv_is_member(conv, account) {
-			sqlite.reset(q)
-			return true
-		}
-	}
-}
-
 // handle_typing tells the other members of a conversation who are here
 // that someone is typing in it.
 handle_typing :: proc(s: ^Server, from: ^Conn, pt: []u8) {
@@ -715,14 +675,14 @@ msg_of_row :: proc(q: ^sqlite.Stmt) -> proto.Message {
 		flags       = transmute(proto.Msg_Flags)u8(db_col_int(q, 5)),
 		thread_root = proto.Msg_Id(db_col_int(q, 6)),
 		edited      = proto.Unix_Ms(db_col_int(q, 7)),
-		reply_count = u32(db_col_int(q, 13)),
-		last_reply  = proto.Msg_Id(db_col_int(q, 14)),
+		reply_count = u32(db_col_int(q, 9)),
+		last_reply  = proto.Msg_Id(db_col_int(q, 10)),
 	}
 	if .Forwarded in m.flags {
 		m.forward = {
-			sender = proto.Account_Id(db_col_int(q, 16)),
-			conv   = proto.Conv_Id(db_col_int(q, 17)),
-			time   = proto.Unix_Ms(db_col_int(q, 18)),
+			sender = proto.Account_Id(db_col_int(q, 12)),
+			conv   = proto.Conv_Id(db_col_int(q, 13)),
+			time   = proto.Unix_Ms(db_col_int(q, 14)),
 		}
 	}
 	#partial switch m.kind {
@@ -730,18 +690,11 @@ msg_of_row :: proc(q: ^sqlite.Stmt) -> proto.Message {
 		m.text = db_col_text(q, 8)
 	case .File:
 		m.file_name = db_col_text(q, 8)
-		m.file_size = u64(db_col_int(q, 15))
+		m.file_size = u64(db_col_int(q, 11))
 	case .System:
 		what, _ := strconv.parse_uint(db_col_text(q, 8))
 		m.system = u8(what)
-		m.system_arg = u32(db_col_int(q, 15))
-	case .Image:
-		m.image = {
-			blob   = proto.Blob_Id(db_col_int(q, 9)),
-			width  = u16(db_col_int(q, 10)),
-			height = u16(db_col_int(q, 11)),
-			size   = u32(db_col_int(q, 12)),
-		}
+		m.system_arg = u32(db_col_int(q, 11))
 	}
 	return m
 }

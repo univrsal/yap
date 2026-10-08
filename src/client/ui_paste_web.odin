@@ -5,15 +5,17 @@ import "client:conn"
 import "client:platform"
 import log "common:wlog"
 import "core:strings"
+import mu "vendor:microui"
 
 /*
 Pasting a picture into the chat. A page can only read the clipboard
 inside the paste event the user caused, so the page does the whole job
 there (web/paste.js): it decodes the picture, scales it to fit
 MAX_IMAGE_SIDE and compresses it to a JPEG within MAX_IMAGE_BYTES -
-what image.odin does for a desktop - and hands the result to
-web_paste_image. Nothing is read from here, so the calls below are
-empty.
+what image.odin does for a desktop - and keeps the result as a file
+(web/files.js), which web_file_pasted attaches to the message being
+written, as a desktop's paste is. Nothing is read from here, so the
+calls below are empty.
 
 Text comes the same way. Emscripten's GLFW has no clipboard, so the page
 hands over the text of every paste event (web_paste_text) before the
@@ -55,29 +57,30 @@ web_copy_text :: proc(text: string) -> bool {
 	return yap_copy_text(strings.clone_to_cstring(text, context.temp_allocator)) != 0
 }
 
-// The page's finished JPEG, posted to the chat like a desktop's paste.
-// The bytes are copied: the page's buffer is only good for this call.
+// The page's finished JPEG, kept by the page under `handle` like a picked
+// file: attached in the composer with the focus, else the page's.
 @(export)
-web_paste_image :: proc "c" (data: [^]u8, size: i32, width, height: i32) {
+web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64) {
 	context = platform.callback_context()
-	if g_ui == nil || size <= 0 {
+	if g_ui == nil || g_ui.session == nil || g_ui.page == .Settings {
+		conn.yap_file_close(handle)
 		return
 	}
-	img := conn.Chat_Image {
-		jpeg   = make([]u8, size),
-		width  = int(width),
-		height = int(height),
+	log.infof("pasted an image, %d KB as JPEG", int(size) / 1024)
+	at := Attach_Target{g_ui.page, 0}
+	ctx := &g_ui.ctx
+	for &t, i in g_ui.threads {
+		if t.key != {} && ctx.focus_id == mu.get_id(ctx, uintptr(&t.buf[0])) {
+			at.thread = i + 1
+		}
 	}
-	copy(img.jpeg, data[:size])
-	log.infof("pasted a %dx%d image, %d KB as JPEG", img.width, img.height, len(img.jpeg) / 1024)
-	// The page's paste isn't tied to a text box: it goes to the open
-	// conversation on the buddy screen, else to the chat.
-	target: Paste_Target
-	if g_ui.page == .Buddies {
-		target.dm_to = g_ui.buddies.selected
+	picked := Picked_File {
+		web_file = handle,
+		name     = pasted_image_name(g_ui),
+		size     = u64(size),
 	}
-	send_pasted_image(g_ui, target, img)
-	ui_wake()
+	attach_add(g_ui, at, {picked})
+	ui_redraw(g_ui)
 }
 
 // The page could not make a picture of what was pasted.

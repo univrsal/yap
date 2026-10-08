@@ -6,7 +6,6 @@ import "core:time"
 import mu "vendor:microui"
 
 import "client:conn"
-import "client:platform"
 import "client:settings"
 import "common:proto"
 
@@ -52,12 +51,6 @@ UI_Buddies :: struct {
 	view_asked:   proto.Conv_Id,
 	view_back:    bool,
 	view_at:      time.Tick,
-}
-
-// Paste_Target is where a pasted image goes: the conversation being
-// looked at, or with `dm_to`, the DM with that account.
-Paste_Target :: struct {
-	dm_to: proto.Account_Id,
 }
 
 // How often the buddy screen asks when those who aren't here were last.
@@ -402,19 +395,6 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	composer := composer_of_page(ui)
 	composer_files(ui, composer, panel_width(ctx))
 	composer_row(ui, input_h, 5)
-	// Ctrl+V could be an image, as in the chat box (chat_input); this
-	// one goes to them.
-	if !platform.WEB &&
-	   ctx.focus_id == mu.get_id(ctx, uintptr(&ui.buddies.buf[0])) &&
-	   .V in ctx.key_pressed_bits &&
-	   .CTRL in ctx.key_down_bits &&
-	   .ALT not_in ctx.key_down_bits {
-		ctx.key_pressed_bits -= {.V}
-		ui.chat.paste = true
-		ui.paste_to = {
-			dm_to = account,
-		}
-	}
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
 	res, box := composer_box(ui, composer)
@@ -534,24 +514,6 @@ last_seen_text :: proc(ui: ^UI, account: proto.Account_Id) -> string {
 		return fmt.tprintf("last seen %d day%s ago", ago / 86400, plural(ago / 86400))
 	}
 	return fmt.tprintf("last seen %s", chat_time(ui, proto.Unix_Time(i64(seen) / 1000)))
-}
-
-/*
-send_pasted_image sends an image that was pasted to where the paste was
-meant for, taking it over. Call it outside the View lock.
-*/
-send_pasted_image :: proc(ui: ^UI, target: Paste_Target, image: conn.Chat_Image) {
-	image := image
-	if ui.session == nil {
-		log.warn("not connected, so the pasted image wasn't sent")
-		conn.chat_image_destroy(&image)
-		return
-	}
-	conn.push_command(
-		&ui.session.client.commands,
-		conn.Chat_Image_Command{image = image, dm_to = target.dm_to},
-	)
-	ui.timeline.to_end = true
 }
 
 @(private = "file")

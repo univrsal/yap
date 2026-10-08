@@ -113,10 +113,12 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		shown, _ := conn.mentions_display(m.text, v.accounts, v.roles[:], v.me)
 		text := conn.markdown_plain(shown)
 		#partial switch m.kind {
-		case .Image:
-			text = fmt.tprintf("a picture, %dx%d", m.image.width, m.image.height)
 		case .File:
 			text = fmt.tprintf("the file %s", m.text)
+		case .Text:
+			if m.text == "" && len(m.files) > 0 {
+				text = files_said(m.files)
+			}
 		}
 		mu.text(ctx, conn.one_line(text))
 		if i < len(pins.messages) - 1 {

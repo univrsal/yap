@@ -3,7 +3,7 @@ package proto
 import "core:encoding/endian"
 
 /*
-Blob transfer: moving a few hundred kilobytes (a chat image) through the
+Blob transfer: moving a few hundred kilobytes (a profile picture) through the
 same encrypted Data packets as everything else, in both directions.
 
 	sender -> receiver  Blob_Chunk [kind][handle u64][index u16][data]
@@ -29,7 +29,7 @@ BLOB_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - BLOB_CHUNK_HEADER_SIZE
 BLOB_NEED_HEADER_SIZE :: 1 + 8 + 1 + 2
 BLOB_NEED_MAX_INDICES :: (MAX_PAYLOAD_SIZE - BLOB_NEED_HEADER_SIZE) / 2
 // The most we ever transfer: a server's sheet of custom emoji at its
-// biggest (emoji.odin). A picture in a message is smaller (MAX_IMAGE_SIZE).
+// biggest (emoji.odin).
 MAX_BLOB_SIZE :: 1024 * 1024
 MAX_BLOB_CHUNKS :: (MAX_BLOB_SIZE + BLOB_CHUNK_SIZE - 1) / BLOB_CHUNK_SIZE
 

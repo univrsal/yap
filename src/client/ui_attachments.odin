@@ -15,7 +15,8 @@ import "common:proto"
 Attachments in the composers (src/client/conn/attachments.odin has the
 rest): the paperclip next to a composer opens the file dialog, for as
 many files as are picked (ui_files_*.odin), and they wait above the text
-box as chips until the message is sent. A chip clicked is taken off.
+box as chips until the message is sent. A chip clicked is taken off. A
+picture pasted into a composer (ui_paste*.odin) joins them the same way.
 Sending (composer_send) takes them along, even with no text.
 
 Each composer keeps its own: the channel's, the DM page's and each
@@ -26,6 +27,7 @@ thread window's.
 Picked_File :: struct {
 	path:     string, // owned; a desktop's
 	web_file: i32, // a browser's (files_io_web.odin)
+	data:     []u8, // owned; a pasted picture's
 	name:     string, // owned
 	size:     u64,
 }
@@ -33,6 +35,7 @@ Picked_File :: struct {
 picked_files_clear :: proc(files: ^[dynamic]Picked_File) {
 	for f in files {
 		delete(f.path)
+		delete(f.data)
 		delete(f.name)
 	}
 	clear(files)
@@ -61,7 +64,9 @@ composer_files_of :: proc(ui: ^UI, at: Attach_Target) -> ^[dynamic]Picked_File {
 }
 
 // attach_add takes in what the dialog gave: each file that may go,
-// and a notice for those that may not. Call without the View locked.
+// and a notice for those that may not. A file's `data` and `web_file`
+// are taken over (and let go of if it may not go); its path and name
+// are copied. Call without the View locked.
 attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 	files := composer_files_of(ui, at)
 	max_size: u64
@@ -88,17 +93,43 @@ attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 		case:
 			append(
 				files,
-				Picked_File{strings.clone(f.path), f.web_file, strings.clone(f.name), f.size},
+				Picked_File{strings.clone(f.path), f.web_file, f.data, strings.clone(f.name), f.size},
 			)
 			continue
 		}
 		if f.web_file != 0 {
 			conn.web_file_close(f.web_file)
 		}
+		delete(f.data)
 	}
 	if refused != "" {
 		conn.view_notice(ui.view, false, refused)
 	}
+}
+
+// pasted_image_name names a pasted picture after when it was pasted, in
+// the local zone: pasted-image-20261008-143012.jpg. In the temp allocator.
+pasted_image_name :: proc(ui: ^UI) -> string {
+	utc, _ := time.time_to_datetime(time.now())
+	dt := chat_local_time(ui, utc)
+	return fmt.tprintf(
+		"pasted-image-%04d%02d%02d-%02d%02d%02d.jpg",
+		dt.year,
+		dt.month,
+		dt.day,
+		dt.hour,
+		dt.minute,
+		dt.second,
+	)
+}
+
+// files_said is what a message of only files (a pasted picture, say)
+// says in a line about it: a reply's, a link's, a pin's.
+files_said :: proc(files: []conn.Msg_File) -> string {
+	if len(files) == 1 {
+		return fmt.tprintf("the file %s", files[0].name)
+	}
+	return fmt.tprintf("%d files", len(files))
 }
 
 // drop_target is where files dropped on the window go: the thread
@@ -215,6 +246,7 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 	if remove >= 0 {
 		f := c.files[remove]
 		delete(f.path)
+		delete(f.data)
 		delete(f.name)
 		if f.web_file != 0 {
 			conn.web_file_close(f.web_file)
@@ -236,11 +268,13 @@ composer_send_files :: proc(ui: ^UI, c: Composer, text: string, dm_to: proto.Acc
 			web_file = f.web_file,
 			web_name = strings.clone(f.name),
 			web_size = f.size,
+			data     = f.data,
 		}
 	}
-	// The command has the browser's files now; they aren't closed here.
+	// The command has the browser's files and the pasted pictures now;
+	// they aren't let go of here.
 	for &f in c.files {
-		f.web_file = 0
+		f.web_file, f.data = 0, nil
 	}
 	picked_files_clear(c.files)
 	cmd := conn.Attach_Send_Command {

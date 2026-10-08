@@ -5,6 +5,7 @@ import "core:strings"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:platform"
 import "common:proto"
 
 /*
@@ -28,7 +29,6 @@ UI_Message_Menu :: struct {
 	// thread window's (UI_Timeline.slot).
 	slot:      int,
 	text:      string, // owned
-	blob:      proto.Blob_Id,
 	// Delete was pressed on the bar: the menu only asks whether to.
 	confirm:   bool,
 }
@@ -54,7 +54,6 @@ open_message_menu :: proc(ui: ^UI, m: conn.View_Message, slot: int, confirm_dele
 		root      = m.thread_root,
 		slot      = slot,
 		text      = strings.clone(m.text),
-		blob      = m.image.blob,
 		confirm   = confirm_delete,
 	}
 }
@@ -145,16 +144,8 @@ message_menu :: proc(ui: ^UI) {
 		set_clipboard(nil, shown)
 		close(ctx)
 	}
-	if mm.kind == .Image {
-		img, have := v.blobs[mm.blob]
-		if have && img.state == .Ready && .SUBMIT in stable_button(ctx, "save", "Save picture") {
-			request_save(&ui.images, img.jpeg)
-			close(ctx)
-		}
-	}
 	// A copy elsewhere, or a link to it (ui_forward.odin).
-	if (mm.kind == .Text || (mm.kind == .Image && mm.blob != 0)) &&
-	   .SUBMIT in stable_button(ctx, "forward", "Forward...") {
+	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "forward", "Forward...") {
 		open_forward(ui, mm.id)
 		close(ctx)
 	}
@@ -238,9 +229,10 @@ composer_of :: proc(ui: ^UI, thread: int) -> Composer {
 }
 
 /*
-composer_keys is what a composer does with Up and Escape, before its
-text box is laid out: Up in an empty one starts editing our newest
-message, and Escape stops editing (and empties it). A message being
+composer_keys is what a composer does with Up, Escape and Ctrl+V, before
+its text box is laid out: Up in an empty one starts editing our newest
+message, Escape stops editing (and empties it), and Ctrl+V may be a
+picture, to attach (ui_paste.odin). A message being
 edited in a conversation that isn't shown any more is let go. Call with
 the View locked.
 */
@@ -259,6 +251,19 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 		c.len^ = 0
 	}
 	composer_format(ui, c)
+	// Ctrl+V could be a picture: hold the text paste back and decide
+	// after the frame (paste_poll). A browser hands the picture over from
+	// its paste event instead (web/paste.js), so the key is left to the
+	// text box there. A message being edited takes no files, so it's text.
+	if !platform.WEB &&
+	   c.editing^ == 0 &&
+	   .V in ctx.key_pressed_bits &&
+	   .CTRL in ctx.key_down_bits &&
+	   .ALT not_in ctx.key_down_bits {
+		ctx.key_pressed_bits -= {.V}
+		ui.chat.paste = true
+		ui.paste_to = {ui.page, c.thread}
+	}
 	if .Up in ui.keys && c.len^ == 0 && c.editing^ == 0 {
 		key := conn.Timeline_Key{v.viewing, 0}
 		if c.thread != 0 {

@@ -175,7 +175,7 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	log.debugf("%s deleted message %d", conn_label(u), m.id)
 	// As it now is: nothing left of it but that it was there.
 	m.flags = m.flags + {.Deleted} - {.Pinned, .Has_Attachments}
-	m.text, m.file_name, m.file_size, m.image = "", "", 0, {}
+	m.text, m.file_name, m.file_size = "", "", 0
 	m.attachment_count = 0
 	m.reaction_count, m.reactions = 0, nil
 	msg_deliver(s, conv, m, .Msg_Changed)
