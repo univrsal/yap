@@ -127,12 +127,21 @@ server's pictures are decoded as they're drawn.
 */
 ui_images_switch :: proc(ui: ^UI) {
 	im := &ui.images
-	for _, &t in im.textures {
+	// The servers' own pictures stay: they're known by address, and
+	// the rail draws them whichever server is shown.
+	drop := make([dynamic]u64, context.temp_allocator)
+	for id, &t in im.textures {
+		if is_server_icon_key(id) && t.state == .Ready {
+			continue
+		}
 		if t.state == .Ready {
 			render.gpu_texture_delete(&ui.renderer.gpu, &t.texture)
 		}
+		append(&drop, id)
 	}
-	clear(&im.textures)
+	for id in drop {
+		delete_key(&im.textures, id)
+	}
 	clear(&im.draws)
 	im.viewer, im.placed = 0, false
 	sync.guard(&im.mutex)

@@ -40,6 +40,12 @@ UI_Server_Info :: struct {
 @(private = "file")
 SERVER_ICON_KEY :: u64(1) << 59
 
+// is_server_icon_key says whether a texture key is a server's picture,
+// which is known by the server's address rather than by its blob ids.
+is_server_icon_key :: proc(key: u64) -> bool {
+	return key & (AVATAR_KEY | SERVER_ICON_KEY) == AVATAR_KEY | SERVER_ICON_KEY
+}
+
 /*
 server_icon is what draws a server's picture this frame, once it's here
 and decoded; `server` is its address. Call with `v` (its View) locked.
