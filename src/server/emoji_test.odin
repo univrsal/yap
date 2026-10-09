@@ -99,18 +99,21 @@ test_emoji_sheet :: proc(t: ^testing.T) {
 	img, err := qoi.load_from_bytes(sheet.qoi, {}, context.temp_allocator)
 	testing.expect(t, err == nil && img != nil)
 	if img != nil {
-		testing.expect_value(t, img.width, EMOJI_COLUMNS * EMOJI_CELL)
-		testing.expect_value(t, img.height, EMOJI_CELL)
+		testing.expect_value(t, img.width, EMOJI_COLUMNS * EMOJI_STRIDE)
+		testing.expect_value(t, img.height, EMOJI_STRIDE)
 		px := bytes.buffer_to_bytes(&img.pixels)
 		// The second cell: party, 64 by 32, scaled to 32 by 16 and
 		// centred, red; transparent above and below.
 		at :: proc(px: []u8, x, y: int) -> [4]u8 {
-			i := (y * EMOJI_COLUMNS * EMOJI_CELL + x) * 4
+			i := (y * EMOJI_COLUMNS * EMOJI_STRIDE + x) * 4
 			return {px[i], px[i + 1], px[i + 2], px[i + 3]}
 		}
-		testing.expect_value(t, at(px, EMOJI_CELL + 16, 16), [4]u8{255, 0, 0, 255})
-		testing.expect_value(t, at(px, EMOJI_CELL + 16, 2)[3], 0)
+		testing.expect_value(t, at(px, EMOJI_STRIDE + 16, 16), [4]u8{255, 0, 0, 255})
+		testing.expect_value(t, at(px, EMOJI_STRIDE + 16, 2)[3], 0)
 		testing.expect_value(t, at(px, 16, 16), [4]u8{0, 255, 0, 128})
+		// The gap after a cell is transparent.
+		testing.expect_value(t, at(px, EMOJI_CELL, 16)[3], 0)
+		testing.expect_value(t, at(px, EMOJI_STRIDE + 16, EMOJI_CELL)[3], 0)
 	}
 
 	// The same folder makes the same sheet.

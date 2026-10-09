@@ -23,7 +23,8 @@ the admin fills, `emoji/` in the data directory. `foo.png` is the emoji
 `a-z 0-9 _`), or that isn't a PNG, is skipped with a warning.
 
 They go to clients as one picture, the sheet: every emoji scaled into a
-cell of EMOJI_CELL pixels, EMOJI_COLUMNS to a row, in name order. Core
+cell of EMOJI_CELL pixels (and a transparent pixel of gap after it),
+EMOJI_COLUMNS to a row, in name order. Core
 Odin writes no PNG but writes QOI, which both clients read in pure Odin,
 so the sheet is a QOI. It's kept as a blob (of kind Emoji_Sheet), so an
 unchanged folder makes the same blob and clients keep their copy. Every
@@ -37,8 +38,11 @@ to everyone when it's done. Nothing has to be restarted.
 */
 
 EMOJI_DIR :: "emoji"
-EMOJI_CELL :: 32 // pixels: twice the size an emoji is drawn at, for scaled-up screens
+EMOJI_CELL :: 64 // pixels: twice the size an emoji is drawn at, for scaled-up screens
 EMOJI_COLUMNS :: proto.EMOJI_SHEET_COLUMNS
+// Every cell is followed by a transparent pixel, right and below, so
+// scaling a cell up (filtering) doesn't bleed its neighbour into it.
+EMOJI_STRIDE :: EMOJI_CELL + 1
 EMOJI_RESCAN :: 5 * time.Second
 // A picture bigger than this isn't read: an emoji is small.
 EMOJI_MAX_FILE :: 1024 * 1024
@@ -176,8 +180,8 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 			&s.blobs,
 			.Emoji_Sheet,
 			sheet.qoi,
-			EMOJI_COLUMNS * EMOJI_CELL,
-			rows * EMOJI_CELL,
+			EMOJI_COLUMNS * EMOJI_STRIDE,
+			rows * EMOJI_STRIDE,
 		)
 		if !ok {
 			log.error("could not keep the sheet of emoji")
@@ -389,10 +393,10 @@ read_emoji :: proc(path: string) -> (cell: []u8, ok: bool) {
 @(private = "file")
 encode_sheet :: proc(cells: [][]u8) -> (data: []u8, ok: bool) {
 	rows := (len(cells) + EMOJI_COLUMNS - 1) / EMOJI_COLUMNS
-	width, height := EMOJI_COLUMNS * EMOJI_CELL, rows * EMOJI_CELL
+	width, height := EMOJI_COLUMNS * EMOJI_STRIDE, rows * EMOJI_STRIDE
 	pixels := make([]u8, width * height * 4, context.temp_allocator)
 	for cell, i in cells {
-		cx, cy := (i % EMOJI_COLUMNS) * EMOJI_CELL, (i / EMOJI_COLUMNS) * EMOJI_CELL
+		cx, cy := (i % EMOJI_COLUMNS) * EMOJI_STRIDE, (i / EMOJI_COLUMNS) * EMOJI_STRIDE
 		for y in 0 ..< EMOJI_CELL {
 			copy(
 				pixels[((cy + y) * width + cx) * 4:][:EMOJI_CELL * 4],

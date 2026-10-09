@@ -564,13 +564,17 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	im.textures[key] = t
 	cols := proto.EMOJI_SHEET_COLUMNS
 	rows := (len(e.names) + cols - 1) / cols
+	// Cells are followed by a pixel of gap (EMOJI_STRIDE on the server).
+	stride := f32(e.cell + 1)
 	u0 := f32(index % cols) / f32(cols)
 	v0 := f32(index / cols) / f32(rows)
+	du := f32(e.cell) / (f32(cols) * stride)
+	dv := f32(e.cell) / (f32(rows) * stride)
 	append(
 		&im.draws,
 		render.Image_Draw {
 			texture = t.texture,
-			uv = {u0, v0, u0 + 1 / f32(cols), v0 + 1 / f32(rows)},
+			uv = {u0, v0, u0 + du, v0 + dv},
 		},
 	)
 	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
