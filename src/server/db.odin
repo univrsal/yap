@@ -219,7 +219,7 @@ STMT_SQL := [Stmt]string {
 	.Device_Set_Seen        = "UPDATE devices SET last_seen = ?2 WHERE key = ?1",
 	.Conv_Add               = "INSERT INTO convs (kind, flags, name, topic, position, created, created_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
 	.Conv_Add_DM            = "INSERT INTO convs (kind, a, b, created, created_by) VALUES (1, ?1, ?2, ?3, ?4)",
-	.Conv_All               = "SELECT id, kind, flags, name, topic, position, created, created_by, last_msg, a, b FROM convs ORDER BY id",
+	.Conv_All               = "SELECT id, kind, flags, name, topic, position, created, created_by, last_msg, a, b, COALESCE((SELECT time FROM messages WHERE id = convs.last_msg), 0) FROM convs ORDER BY id",
 	.Member_Add             = "INSERT OR IGNORE INTO members (conv, account, joined, read_id) VALUES (?1, ?2, ?3, ?4)",
 	.Member_Remove          = "DELETE FROM members WHERE conv = ?1 AND account = ?2",
 	.Member_All             = "SELECT conv, account, read_id, notify FROM members",

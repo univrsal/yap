@@ -50,7 +50,7 @@ Everything here travels as requests and events (rpc.odin):
 	conversation  [id u32][kind u8][flags u8][name str8][topic str8]
 	              [a u32][b u32][last message u64][member u8]
 	              [read u64][unread u16][mentions u16][notify u8]
-	              [position u32]
+	              [position u32][last time u64]
 
 A private channel (flag Private) is only for those added to it: nobody
 else is told of it, can find it or join its room. An archived one
@@ -60,7 +60,9 @@ When a connection logs in it's told of every conversation its account
 is a member of, between Sync_Begin and Sync_End (accounts.odin).
 
 A conversation's last message is the id of the newest message posted
-to it (msgs.odin), 0 for none.
+to it (msgs.odin), 0 for none, and `last time` when it was posted, in
+Unix milliseconds (0 for none): what a list of DMs from many servers is
+put in order by, as ids from different servers can't be compared.
 
 A direct message (DM) is a conversation of two accounts, `a` and `b`
 (a < b), both members for good; for a channel they're 0. There's one
@@ -113,22 +115,24 @@ Notify_Level :: enum u8 {
 }
 
 Conv :: struct {
-	id:       Conv_Id,
-	kind:     Conv_Kind,
-	flags:    Conv_Flags,
-	name:     string, // sanitized; never empty for a channel
-	topic:    string,
-	member:   bool, // whether whoever is told this is one
-	last:     Msg_Id, // the newest message, 0 for none
+	id:        Conv_Id,
+	kind:      Conv_Kind,
+	flags:     Conv_Flags,
+	name:      string, // sanitized; never empty for a channel
+	topic:     string,
+	member:    bool, // whether whoever is told this is one
+	last:      Msg_Id, // the newest message, 0 for none
 	// Of whoever is told this, as a member:
-	read:     Msg_Id, // what it has read up to
-	unread:   int, // messages since that aren't its own, at most UNREAD_CAP
-	mentions: int, // ... that mention it
-	notify:   Notify_Level,
+	read:      Msg_Id, // what it has read up to
+	unread:    int, // messages since that aren't its own, at most UNREAD_CAP
+	mentions:  int, // ... that mention it
+	notify:    Notify_Level,
 	// A DM's two accounts, the lower first; 0 for a channel.
-	a, b:     Account_Id,
+	a, b:      Account_Id,
 	// Where a channel goes in a list: by position, then by id.
-	position: int,
+	position:  int,
+	// When the newest message was posted, 0 for none.
+	last_time: Unix_Ms,
 }
 
 CONV_MAX_SIZE ::
@@ -145,7 +149,8 @@ CONV_MAX_SIZE ::
 	2 +
 	2 +
 	1 +
-	4
+	4 +
+	8
 
 @(private = "file")
 put_conv :: proc(w: ^Writer, c: Conv) {
@@ -163,6 +168,7 @@ put_conv :: proc(w: ^Writer, c: Conv) {
 	put_u16(w, u16(clamp(c.mentions, 0, UNREAD_CAP)))
 	put_u8(w, u8(c.notify))
 	put_u32(w, u32(c.position))
+	put_u64(w, u64(c.last_time))
 }
 
 @(private = "file")
@@ -184,6 +190,7 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 		c.notify = .All // a level from a newer server
 	}
 	c.position = int(get_u32(r))
+	c.last_time = Unix_Ms(get_u64(r))
 	return
 }
 

@@ -10,11 +10,15 @@ import "client:settings"
 import "common:proto"
 
 /*
-The buddy screen (buddies.odin): the buddy list on the left, with
-anyone else we have a DM with, and the DM with whoever's picked on the
-right, drawn by the same timeline as a channel's (ui_timeline.odin).
-It's there while connected, opened and closed by the buddies button
-along the top, which it shares with the session screen.
+The inbox, or buddy screen (buddies.odin): on the left, the buddies and
+anyone else we have a DM with, on every server we're logged in to, in
+two sections; on the right, the DM with whoever's picked, drawn by the
+same timeline as a channel's (ui_timeline.odin). It's opened and closed
+by the inbox's icon at the top of the rail (ui_servers.odin).
+
+A DM is on one server, so picking one on another server shows that
+server (switch_now), behind the inbox: what's open is always the shown
+server's, as everything else about the conversation is.
 
 The network side looks at one conversation at a time: while this screen
 shows a DM, that's the one, and going back to the channels goes back to
@@ -37,11 +41,6 @@ UI_Buddies :: struct {
 	pick_to:      proto.Account_Id,
 	// Files to go with the next message (ui_attachments.odin).
 	files:        [dynamic]Picked_File,
-	// When the server was last asked when the people in the list were
-	// last here, and how many of them were online then: fewer now means
-	// someone just left, and it's worth asking again.
-	seen_asked:   time.Tick,
-	seen_online:  int,
 	// The message of ours being edited, 0 for none, and its conversation
 	// (ui_message_menu.odin).
 	editing:      proto.Msg_Id,
@@ -53,7 +52,7 @@ UI_Buddies :: struct {
 	view_at:      time.Tick,
 }
 
-// How often the buddy screen asks when those who aren't here were last.
+// How often the inbox asks when those who aren't here were last.
 @(private = "file")
 LAST_SEEN_REFRESH :: 30 * time.Second
 
@@ -66,30 +65,39 @@ NOTICE_SHOW :: 5 * time.Second
 @(private = "file")
 VIEW_RETRY :: time.Second
 
-// buddies_button opens the buddy screen, or goes back from it. It
-// lights up for DMs that haven't been read.
-buddies_button :: proc(ui: ^UI) {
-	open := ui.page == .Buddies
-	unread := dm_unread(&ui.settings, ui.view)
-	hint := "Back to the channels" if open else "Buddies"
-	color := theme.chat_name if open else mu.Color{}
-	if unread > 0 && !open {
-		hint = fmt.tprintf("Buddies (%s unread)", conn.unread_count(unread))
-		color = theme.speaking
+// toggle_inbox opens the inbox, or goes back from it to the shown
+// server's channels.
+toggle_inbox :: proc(ui: ^UI) {
+	if ui.page == .Buddies {
+		ui.page = .Main
+		return
 	}
-	if .SUBMIT in icon_button(ui, "buddies", .Mail, hint, color) {
-		ui.page = .Main if open else .Buddies
-		ui.buddies.seen_asked = {} // ask afresh when it opens
+	ui.page = .Buddies
+	for ns in ui.sessions {
+		ns.seen_asked = {} // ask afresh when it opens
 	}
 }
 
-// open_conversation shows the buddy screen with the DM with `account`.
+// open_conversation shows the inbox with the DM with `account`, on the
+// shown server.
 open_conversation :: proc(ui: ^UI, account: proto.Account_Id) {
 	ui.page = .Buddies
 	if ui.buddies.selected != account {
 		ui.buddies.len = 0
 	}
 	ui.buddies.selected = account
+}
+
+// open_entry opens the DM with someone in the inbox: straight away on
+// the shown server, or once theirs is shown (switch_now).
+@(private = "file")
+open_entry :: proc(ui: ^UI, e: Buddy_Entry) {
+	if e.ns == ui.session {
+		open_conversation(ui, e.account)
+		return
+	}
+	ui.switch_to, ui.switching = e.ns, true
+	ui.inbox_open = e.account
 }
 
 /*
@@ -140,13 +148,13 @@ buddies_screen :: proc(ui: ^UI) {
 
 	session_header(ui)
 
-	list := buddy_list(&ui.settings, ui.view)
+	list := ui.inbox
 	// Somebody who's left the list (taken off it, or no buddy any more
 	// and no DM) takes the conversation along.
 	entry: Buddy_Entry
 	found := false
 	for e in list {
-		if e.account == ui.buddies.selected {
+		if e.ns == ui.session && e.account == ui.buddies.selected {
 			entry, found = e, true
 		}
 	}
@@ -154,6 +162,7 @@ buddies_screen :: proc(ui: ^UI) {
 		if ui.buddies.selected in ui.view.accounts && ui.buddies.selected != ui.view.me {
 			// Picked from somewhere else (a channel's member list).
 			entry, found = buddy_entry(ui.view, ui.buddies.selected, false), true
+			entry.ns = ui.session
 		} else {
 			ui.buddies.selected = 0
 		}
@@ -168,7 +177,6 @@ buddies_screen :: proc(ui: ^UI) {
 	} else {
 		mu.layout_row(ctx, {280, -1}, -1)
 	}
-	ask_last_seen(ui, list)
 	if narrow {
 		buddy_list_panel(ui, list)
 		mu.layout_row(ctx, {-1}, -(panel_h + 1))
@@ -205,36 +213,77 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 		)
 		return
 	}
-	for b in list {
+	// The buddies first, then everyone else (buddy_before).
+	others := len(list)
+	for b, i in list {
+		if !b.buddy {
+			others = i
+			break
+		}
+	}
+	section_label(ui, "Buddies")
+	if others == 0 {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, theme.dim, "None yet: add someone from their menu.", label_proc)
+	}
+	for b in list[:others] {
 		buddy_row(ui, b)
 	}
+	if others < len(list) {
+		section_label(ui, "Other conversations")
+		for b in list[others:] {
+			buddy_row(ui, b)
+		}
+	}
+}
+
+// section_label heads one of the list's sections.
+@(private = "file")
+section_label :: proc(ui: ^UI, text: string) {
+	mu.layout_row(&ui.ctx, {-1})
+	with_text_color(&ui.ctx, theme.dim, text, label_proc)
 }
 
 /*
 buddy_row is one buddy in the list: a flat, full-width control like the
-channel list's rows. A left click opens their conversation, a right
-click the same menu as clicking them in a channel.
+channel list's rows, ending in their server's tag when there's more
+than one. A left click opens their conversation, a right click (on the
+shown server) the same menu as clicking them in a channel.
 */
 @(private = "file")
 buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	ctx := &ui.ctx
+	here := b.ns == ui.session
+	servers := rail_count(ui) > 1
 
 	pic := ctx.text_height(ctx.style.font) + 2
 	mu.layout_row(ctx, {pic + 4, -1})
 	cell := mu.layout_next(ctx)
-	avatar(ui, b.account, {cell.x, cell.y + (cell.h - pic) / 2, pic, pic})
+	pic_r := mu.Rect{cell.x, cell.y + (cell.h - pic) / 2, pic, pic}
+	if here {
+		avatar(ui, b.account, pic_r)
+	} else {
+		// Pictures are known by the shown server's blob ids.
+		letter_disc(ui, b.account, b.name, pic_r)
+	}
 
+	mu.push_id(ctx, uintptr(rawptr(b.ns)))
+	defer mu.pop_id(ctx)
 	mu.push_id(ctx, uintptr(b.account))
 	defer mu.pop_id(ctx)
 	id := mu.get_id(ctx, "buddy")
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	selected := ui.buddies.selected == b.account
+	selected := here && ui.buddies.selected == b.account
 	switch {
 	case selected:
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_FOCUS])
 	case ctx.hover_id == id:
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
+	}
+	text_r := r
+	if servers {
+		text_r.w -= server_tag(ui, r, b.server, b.ns.server)
 	}
 	color := ctx.style.colors[.TEXT] if b.online else theme.dim
 	text := b.name
@@ -242,16 +291,18 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 		text = fmt.tprintf("%s  (%s)", b.name, conn.unread_count(b.unread))
 		color = theme.speaking
 	}
-	acc := ui.view.accounts[b.account] or_else {}
-	name_and_status(ctx, r, text, color, status_line(acc))
+	name_and_status(ctx, text_r, text, color, b.status)
 
 	if ctx.hover_id != id {
 		return
 	}
+	if servers {
+		ui.hint, ui.hint_of = fmt.tprintf("On %s", b.server), r
+	}
 	switch {
 	case ctx.mouse_pressed_bits == {.LEFT}:
-		open_conversation(ui, b.account)
-	case .RIGHT in ctx.mouse_pressed_bits:
+		open_entry(ui, b)
+	case .RIGHT in ctx.mouse_pressed_bits && here:
 		open_user_menu(ui, 0, b.account)
 	}
 }
@@ -302,10 +353,12 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		)
 	}
 	deleted := .Deleted in (v.accounts[account] or_else {}).flags
-	mu.label(
-		ctx,
-		entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name),
-	)
+	title := entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name)
+	if rail_count(ui) > 1 {
+		// Which of the inbox's servers it's on.
+		title = fmt.tprintf("%s  ·  %s", title, v.server_name if v.server_name != "" else v.server)
+	}
+	mu.label(ctx, title)
 	// Calling them, while they're here and we're in no call.
 	if !deleted && may_call(v, account) {
 		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
@@ -458,15 +511,12 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 }
 
 /*
-ask_last_seen asks the server when those in the list who aren't here
-were last: when the screen opens, every LAST_SEEN_REFRESH, and as soon
-as someone in it leaves. Call with the View locked.
+ask_last_seen asks a server when those in its part of the inbox who
+aren't here were last: when the inbox opens, every LAST_SEEN_REFRESH,
+and as soon as someone in it leaves. Each server is asked about its own
+accounts. Call with its View locked.
 */
-@(private = "file")
-ask_last_seen :: proc(ui: ^UI, list: []Buddy_Entry) {
-	if ui.session == nil {
-		return
-	}
+ask_last_seen :: proc(ui: ^UI, ns: ^Net_Session, list: []Buddy_Entry) {
 	cmd: conn.Last_Seen_Command
 	online := 0
 	for b in list {
@@ -477,19 +527,18 @@ ask_last_seen :: proc(ui: ^UI, list: []Buddy_Entry) {
 			cmd.count += 1
 		}
 	}
-	someone_left := online < ui.buddies.seen_online
-	ui.buddies.seen_online = online
-	due :=
-		ui.buddies.seen_asked == {} || time.tick_since(ui.buddies.seen_asked) >= LAST_SEEN_REFRESH
+	someone_left := online < ns.seen_online
+	ns.seen_online = online
+	due := ns.seen_asked == {} || time.tick_since(ns.seen_asked) >= LAST_SEEN_REFRESH
 	if cmd.count == 0 || !(due || someone_left) {
 		if cmd.count != 0 {
-			ui_redraw_at(ui, time.tick_add(ui.buddies.seen_asked, LAST_SEEN_REFRESH))
+			ui_redraw_at(ui, time.tick_add(ns.seen_asked, LAST_SEEN_REFRESH))
 		}
 		return
 	}
-	ui.buddies.seen_asked = time.tick_now()
+	ns.seen_asked = time.tick_now()
 	ui_redraw_in(ui, LAST_SEEN_REFRESH)
-	conn.push_command(&ui.session.client.commands, cmd)
+	conn.push_command(&ns.client.commands, cmd)
 }
 
 // last_seen_text is what the conversation's header says about someone

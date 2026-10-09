@@ -394,7 +394,7 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	db_bind_int(q, 1, i64(conv.id))
 	db_bind_int(q, 2, i64(m.id))
 	db_run(&s.db, q) or_return
-	conv.last_msg = m.id
+	conv.last_msg, conv.last_time = m.id, m.time
 	return true
 }
 

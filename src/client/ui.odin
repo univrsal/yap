@@ -73,13 +73,21 @@ Net_Session :: struct {
 	// Being joined from the + dialog (ui_join.odin): off the rail, and
 	// not in the settings, until it's logged in.
 	joining:        bool,
-	// Messages unread there, and how many of them are for us (mentions
-	// and DMs), as of this frame: for the rail (servers_frame).
+	// Messages unread in its channels, and how many of them mention us,
+	// as of this frame: for the rail (servers_frame).
 	unread:         int,
 	mentions:       int,
 	// The call coming in there last told of on the desktop, so it's told
 	// once (session_notices).
 	call_announced: proto.Call_Id,
+	// DMs unread there, which count on the inbox's icon rather than the
+	// server's (servers_frame).
+	dm_unread:      int,
+	// When the server was last asked when the people in the inbox were
+	// last here, and how many of them were online then: fewer now means
+	// someone just left, and it's worth asking again (ask_last_seen).
+	seen_asked:     time.Tick,
+	seen_online:    int,
 
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context); they feed the client's Voice rings.
@@ -150,6 +158,13 @@ UI :: struct {
 	// Mentions unread on every server, muted channels too, and DMs: the
 	// same, which the title and the tray show before `unread`.
 	mentions:            int,
+	// DMs unread on every server, for the inbox's icon on the rail.
+	dm_unread:           int,
+	// The inbox (ui_buddies.odin): everyone in it on every server, as of
+	// this frame, and whose DM to open once the rail has switched to
+	// their server (switch_now).
+	inbox:               []Buddy_Entry,
+	inbox_open:          proto.Account_Id,
 	// Voice, or a call ringing, in a server that isn't shown, as of this
 	// frame (ui_voice_panel.odin).
 	voice_other:         Voice_Elsewhere,
@@ -1440,6 +1455,9 @@ main_window :: proc(ui: ^UI) {
 		return
 	}
 
+	// Every server's part of the inbox, each View locked in turn, before
+	// the shown one's is for the frame.
+	ui.inbox = inbox_list(ui) if ui.page == .Buddies else nil
 	v := ui.view
 	sync.guard(&v.mutex)
 	apply_gains(ui)
@@ -1477,16 +1495,13 @@ connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 
-	title_row(ui, {70, -74, ICON_BUTTON, ICON_BUTTON})
+	title_row(ui, {70, -(ICON_BUTTON + 8), ICON_BUTTON})
 	mu.label(ctx, "Server")
 	if .SUBMIT in text_box(ui, ui.server_buf[:], &ui.server_len) {
 		ui.action = .Connect
 	}
 	if .SUBMIT in icon_button(ui, "send", .Send, "Connect") {
 		ui.action = .Connect
-	}
-	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
-		open_settings(ui)
 	}
 
 	mu.layout_row(ctx, {70, 200})
@@ -1521,7 +1536,7 @@ the + dialog while it connects.
 start_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	joining := ui.session != nil && ui.session.joining
-	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
+	title_row(ui, {-1})
 	switch {
 	case joining:
 		mu.label(ctx, "Joining a server...")
@@ -1529,11 +1544,6 @@ start_screen :: proc(ui: ^UI) {
 		mu.label(ctx, "Not on any server yet")
 	case:
 		mu.label(ctx, "No server shown")
-	}
-	if joining {
-		mu.label(ctx, "")
-	} else if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
-		open_settings(ui)
 	}
 	if !joining {
 		mu.layout_row(ctx, {-1})
@@ -1607,36 +1617,26 @@ title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 }
 
 /*
-session_header is the row along the top while connected: who we are
-where, how the connection is doing, and the buttons. The session screen
-and the buddy screen share it.
+session_header is the row along the top while connected: the server
+shown, or the inbox. The session screen and the inbox share it. How the
+connection is doing and the settings are at the bottom of the rail
+(rail_bottom); mute, deafen and what's shared are in the voice panel
+(ui_voice_panel.odin).
 */
 session_header :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
-	// The status, then the connection indicator and the buttons, each
-	// ICON_BUTTON wide plus the spacing between them. Mute, deafen and
-	// what's shared are in the voice panel (ui_voice_panel.odin).
-	icons := 3
-	widths: [5]i32
-	widths[0] = -i32(1 + (ICON_BUTTON + 4) * icons)
-	for &w in widths[1:][:icons] {
-		w = ICON_BUTTON
-	}
-	title_row(ui, widths[:1 + icons])
-	switch v.status {
-	case .Connected:
+	title_row(ui, {-1})
+	switch {
+	case ui.page == .Buddies:
+		opts := mu.Options{.ALIGN_CENTER}
+		mu.draw_control_text(ctx, "Direct messages", mu.layout_next(ctx), .TEXT, opts)
+	case v.status == .Connected:
 		server := v.server_name if v.server_name != "" else v.server
 		opts := mu.Options{.ALIGN_CENTER}
 		mu.draw_control_text(ctx, fmt.tprintf("%s", server), mu.layout_next(ctx), .TEXT, opts)
-
-	case .Connecting, .Disconnected, .Failed:
+	case:
 		mu.label(ctx, fmt.tprintf("Connecting to %s...", v.server))
-	}
-	connection_indicator(ui)
-	buddies_button(ui)
-	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
-		open_settings(ui)
 	}
 }
 

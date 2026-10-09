@@ -37,19 +37,22 @@ there is.
 
 // A channel we're subscribed to, or a DM.
 Conv_Info :: struct {
-	kind:     proto.Conv_Kind,
-	flags:    proto.Conv_Flags,
-	name:     string, // owned
-	topic:    string, // owned
+	kind:      proto.Conv_Kind,
+	flags:     proto.Conv_Flags,
+	name:      string, // owned
+	topic:     string, // owned
 	// Its newest message, what we've read, and so what's unread.
-	last:     proto.Msg_Id,
-	read:     proto.Msg_Id,
-	unread:   int, // at most proto.UNREAD_CAP
-	mentions: int,
-	notify:   proto.Notify_Level,
+	last:      proto.Msg_Id,
+	read:      proto.Msg_Id,
+	unread:    int, // at most proto.UNREAD_CAP
+	// When the newest message was posted, 0 for none: what DMs from
+	// every server are put in order by.
+	last_time: proto.Unix_Ms,
+	mentions:  int,
+	notify:    proto.Notify_Level,
 	// A DM's two accounts (dm_other); 0 for a channel.
-	a, b:     proto.Account_Id,
-	position: int, // a channel's place in the list
+	a, b:      proto.Account_Id,
+	position:  int, // a channel's place in the list
 }
 
 // A Mark_Read to send, once a second has passed since the last.
@@ -340,18 +343,19 @@ conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 			read, unread, mentions = info.read, info.unread, info.mentions
 		}
 		info^ = {
-			kind     = record.kind,
-			flags    = record.flags,
-			name     = strings.clone(record.name),
-			topic    = strings.clone(record.topic),
-			last     = max(record.last, info.last),
-			read     = read,
-			unread   = unread,
-			mentions = mentions,
-			notify   = record.notify,
-			a        = record.a,
-			b        = record.b,
-			position = record.position,
+			kind      = record.kind,
+			flags     = record.flags,
+			name      = strings.clone(record.name),
+			topic     = strings.clone(record.topic),
+			last      = max(record.last, info.last),
+			last_time = max(record.last_time, info.last_time),
+			read      = read,
+			unread    = unread,
+			mentions  = mentions,
+			notify    = record.notify,
+			a         = record.a,
+			b         = record.b,
+			position  = record.position,
 		}
 		if cv.synced {
 			if added && record.kind == .Channel {
@@ -701,15 +705,25 @@ conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: boo
 		return false, false
 	}
 	info.last = max(info.last, m.id)
+	// Nothing unread changes below without it, but the order of the DMs
+	// does.
+	newer := m.time > info.last_time
+	info.last_time = max(info.last_time, m.time)
 	switch {
 	case m.sender == c.auth.me:
 		if m.id > info.read {
 			info.read, info.unread, info.mentions = m.id, 0, 0
 		}
 	case m.id <= info.read:
+		if newer {
+			publish_channels(c)
+		}
 		return false, false
 	case cv.reading == m.conv:
 		mark_read(c, m.conv, m.id)
+		if newer {
+			publish_channels(c)
+		}
 		return false, info.notify != .None && mentions_me(c, m)
 	case:
 		info.unread = min(info.unread + 1, proto.UNREAD_CAP)
@@ -767,7 +781,11 @@ convs_step :: proc(c: ^Voice_Client) {
 	if !cv.synced || !c.has_current || len(cv.marks) == 0 {
 		return
 	}
-	for conv, &m in cv.marks {
+	// Through a pointer from the map rather than `for conv, &m in`: with
+	// a u32 key, Odin (dev-2026-10) iterates a copy, so the mark was
+	// never taken off and went out again on every step.
+	for conv in cv.marks {
+		m := &cv.marks[conv]
 		if m.due == 0 || (m.sent != {} && time.tick_since(m.sent) < MARK_INTERVAL) {
 			continue
 		}

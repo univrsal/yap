@@ -210,7 +210,7 @@ It's unreliable like Refused, so the server sends a few copies, and
 again whenever the client repeats its Handshake_Finish. Until it comes,
 a client takes nothing else on a new session.
 */
-HELLO_VERSION :: 13
+HELLO_VERSION :: 14
 MAX_PASSWORD_SIZE :: 64 // bytes
 HELLO_MAX_SIZE :: 1 + 8 + 1 + 1 + MAX_PASSWORD_SIZE
 

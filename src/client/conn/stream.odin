@@ -59,6 +59,15 @@ stream_send :: proc(c: ^Voice_Client, msg: []u8) {
 	// connection is as good as gone. Ask for a new one, which starts
 	// everything over (handle_welcome).
 	log.warnf("the stream to %s is backed up, starting the connection over", c.server_addr)
+	// What was asked and not answered, which is likely what filled it.
+	asked: map[proto.Request_Op]int
+	defer delete(asked)
+	for _, p in c.rpc.pending {
+		asked[p.op] += 1
+	}
+	for op, n in asked {
+		log.warnf("  %d %v requests unanswered", n, op)
+	}
 	connection_restart(c)
 }
 

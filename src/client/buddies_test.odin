@@ -53,6 +53,14 @@ test_buddy_list :: proc(t: ^testing.T) {
 	testing.expect_value(t, list[1].unread, 2)
 	testing.expect(t, !list[3].buddy)
 
+	// The newest conversation first in each section, before who's here.
+	v.dms[0].last_time = 5000
+	list = buddy_list(&s, &v)
+	testing.expect_value(t, list[0].name, "Amy")
+	testing.expect_value(t, list[1].name, "zed")
+	testing.expect_value(t, list[3].name, "carol")
+	v.dms[0].last_time = 0
+
 	settings.hide_dm(&s, v.server_key, 11, 200)
 	testing.expect_value(t, len(buddy_list(&s, &v)), 3)
 	v.dms[1].last = 201

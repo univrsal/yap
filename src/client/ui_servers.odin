@@ -218,14 +218,14 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 }
 
 /*
-servers_frame counts what's unread on every server, for its icon on the
-rail and, all of them together, for the window's title and the tray; and
-tells the desktop what each has for us (session_notices). Between
-frames, with no View locked.
+servers_frame counts what's unread on every server: in its channels for
+its icon on the rail, in its DMs for the inbox's, and all of it together
+for the window's title and the tray; and tells the desktop what each
+has for us (session_notices). Between frames, with no View locked.
 */
 servers_frame :: proc(ui: ^UI) {
 	named := rail_count(ui) > 1
-	total, mentions := 0, 0
+	total, mentions, dms := 0, 0, 0
 	for ns in ui.sessions {
 		if ns.joining {
 			continue
@@ -233,22 +233,23 @@ servers_frame :: proc(ui: ^UI) {
 		v := &ns.view
 		{
 			sync.guard(&v.mutex)
-			ns.unread, ns.mentions = 0, 0
+			ns.unread, ns.mentions, ns.dm_unread = 0, 0, 0
 			if v.status == .Connected {
-				ns.unread = unread_total(&ui.settings, v)
-				// A mention counts in a muted channel too; a DM is for us
-				// as much as one.
+				ns.dm_unread = dm_unread(&ui.settings, v)
+				ns.unread = unread_total(&ui.settings, v) - ns.dm_unread
+				// A mention counts in a muted channel too.
 				for ch in v.channels {
 					ns.mentions += ch.mentions
 				}
-				ns.mentions += dm_unread(&ui.settings, v)
 			}
 		}
-		total += ns.unread
-		mentions += ns.mentions
+		// A DM is for us as much as a mention.
+		total += ns.unread + ns.dm_unread
+		mentions += ns.mentions + ns.dm_unread
+		dms += ns.dm_unread
 		session_notices(ui, ns, named)
 	}
-	ui.unread, ui.mentions = total, mentions
+	ui.unread, ui.mentions, ui.dm_unread = total, mentions, dms
 	if key := title_key(ui.unread, ui.mentions); ui.window != nil && key != ui.title_unread {
 		ui.title_unread = key
 		title: string
@@ -370,6 +371,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
+	inbox_icon(ui)
 	// The rail's servers, and the middle of each one's row, for dragging.
 	order := make([dynamic]^Net_Session, context.temp_allocator)
 	middles := make([dynamic]i32, context.temp_allocator)
@@ -413,8 +415,8 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		if rl.dragging && rl.drag == ns {
 			color, text = dimmed(color), dimmed(text)
 		}
-		shown := ns == ui.session && !ui.join.open
-		r, id := rail_icon(ui, ns, initials, color, text, label, shown, picture)
+		shown := ns == ui.session && !ui.join.open && ui.page != .Buddies
+		r, id := rail_icon(ui, uintptr(rawptr(ns)), initials, color, text, label, shown, picture)
 		if !shown && ns.unread > 0 {
 			mu.draw_rect(ctx, {r.x - ctx.style.padding, r.y + r.h / 2 - 4, 4, 8}, theme.mark)
 		}
@@ -432,11 +434,89 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 	}
 	white := mu.Color{255, 255, 255, 255}
-	_, plus := rail_icon(ui, nil, "+", theme.plus_disc, white, "Join a server", ui.join.open)
+	_, plus := rail_icon(ui, RAIL_PLUS, "+", theme.plus_disc, white, "Join a server", ui.join.open)
 	if ctx.hover_id == plus && ctx.mouse_pressed_bits == {.LEFT} {
 		join_open(ui)
 	}
 	rail_drag(ui, order[:], middles[:])
+	rail_bottom(ui, h)
+}
+
+// The ids of the rail's icons that aren't a server's (rail_icon).
+@(private = "file")
+RAIL_PLUS :: 1
+@(private = "file")
+RAIL_INBOX :: 2
+
+/*
+inbox_icon is the rail's first icon: the inbox, the DMs of every server
+(ui_buddies.odin), with how many of them are unread on it, as a server's
+mentions are on its own.
+*/
+@(private = "file")
+inbox_icon :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	open := ui.page == .Buddies && !ui.join.open
+	hint := "Direct messages"
+	if ui.dm_unread > 0 {
+		hint = fmt.tprintf("Direct messages\n%s unread", conn.unread_count(ui.dm_unread))
+	}
+	white := mu.Color{255, 255, 255, 255}
+	r, id := rail_icon(ui, RAIL_INBOX, "", theme.plus_disc, white, hint, open)
+	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
+	mu.draw_icon(ctx, render.icon_id(.Mail), icon, white)
+	if ui.dm_unread > 0 {
+		mentions_badge(ui, r, ui.dm_unread)
+	}
+	// Under it, a line between it and the servers.
+	mu.layout_row(ctx, {-1}, 2)
+	line := mu.layout_next(ctx)
+	mu.draw_rect(ctx, {line.x + (line.w - RAIL_ICON) / 2 + 6, line.y, RAIL_ICON - 12, 2}, theme.unlit)
+	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+		// Logged in nowhere, there's nothing to show in it.
+		if ui.session != nil && !ui.join.open {
+			toggle_inbox(ui)
+		}
+	}
+}
+
+/*
+rail_bottom is the bottom of the rail: how the shown server's connection
+is doing (ui_connection.odin), and the settings. Neither is one
+conversation's, nor scrolls away with the rail's servers.
+*/
+@(private = "file")
+rail_bottom :: proc(ui: ^UI, h: i32) {
+	ctx := &ui.ctx
+	x := i32((RAIL_WIDTH - ICON_BUTTON) / 2)
+	settings_y := h - ICON_BUTTON - ctx.style.padding
+	if ui.session != nil && !ui.session.joining {
+		v := ui.view
+		sync.guard(&v.mutex)
+		mu.layout_set_next(ctx, {x, settings_y - ICON_BUTTON - ctx.style.spacing, ICON_BUTTON, ICON_BUTTON}, false)
+		connection_indicator(ui)
+	}
+	mu.layout_set_next(ctx, {x, settings_y, ICON_BUTTON, ICON_BUTTON}, false)
+	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
+		open_settings(ui)
+	}
+}
+
+/*
+server_tag draws a server's initials (from its `name`) on its colour (from
+its `address`) at the right end of `r`, as a row in the inbox ends; it
+says how much of the row it took.
+*/
+server_tag :: proc(ui: ^UI, r: mu.Rect, name, address: string) -> i32 {
+	ctx := &ui.ctx
+	font := ctx.style.font
+	text := server_initials(name)
+	w := ctx.text_width(font, text) + 10
+	h := ctx.text_height(font) + 2
+	b := mu.Rect{r.x + r.w - w - 4, r.y + (r.h - h) / 2, w, h}
+	pill(ui, b, server_color(address))
+	mu.draw_text(ctx, font, text, {b.x + 5, b.y + 1}, {255, 255, 255, 255})
+	return w + 8
 }
 
 @(private = "file")
@@ -654,8 +734,13 @@ rail_frame :: proc(ui: ^UI) {
 	}
 }
 
-// switch_now acts on a click on the rail, after the frame that had it.
-// The + dialog is given up for it.
+/*
+switch_now acts on a click on the rail, after the frame that had it: a
+server's icon shows its channels, even the shown one's from the inbox.
+Or on one in the inbox (ui_buddies.odin) of a DM on another server,
+which is shown behind the inbox with the DM open. The + dialog is given
+up for it.
+*/
 switch_now :: proc(ui: ^UI) {
 	if !ui.switching {
 		return
@@ -664,9 +749,16 @@ switch_now :: proc(ui: ^UI) {
 	join_close(ui)
 	settings_after := ui.rail.settings
 	ui.rail.settings = false
+	dm := ui.inbox_open
+	ui.inbox_open = 0
 	for ns in ui.sessions {
 		if ns == ui.switch_to {
 			show_session(ui, ns)
+			if dm != 0 {
+				open_conversation(ui, dm)
+			} else if ui.page == .Buddies {
+				ui.page = .Main
+			}
 			if settings_after {
 				open_settings(ui)
 			}
@@ -676,13 +768,13 @@ switch_now :: proc(ui: ^UI) {
 }
 
 // rail_icon draws one of the rail's icons, and says where its row is and
-// its control's id. `key` tells it from the others: its session, or nil
-// for +. With a `picture`, that's drawn instead of the disc and its
-// text, as dim as the text would be.
+// its control's id. `key` tells it from the others: its session's
+// pointer, or RAIL_PLUS or RAIL_INBOX. With a `picture`, that's drawn
+// instead of the disc and its text, as dim as the text would be.
 @(private = "file")
 rail_icon :: proc(
 	ui: ^UI,
-	key: ^Net_Session,
+	key: uintptr,
 	text: string,
 	color: mu.Color,
 	text_color: mu.Color,
@@ -696,7 +788,7 @@ rail_icon :: proc(
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, RAIL_SLOT)
 	r = mu.layout_next(ctx)
-	id = mu.get_id(ctx, uintptr(rawptr(key)) if key != nil else 1)
+	id = mu.get_id(ctx, key)
 	mu.update_control(ctx, id, r)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	if shown {

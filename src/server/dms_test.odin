@@ -132,6 +132,7 @@ test_dm_messages :: proc(t: ^testing.T) {
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
 	conv: proto.Conv_Id
+	last_time: proto.Unix_Ms
 	{
 		ts: Test_Server
 		ts_open(t, &ts, path)
@@ -154,6 +155,7 @@ test_dm_messages :: proc(t: ^testing.T) {
 		testing.expect(t, told, "alice wasn't told of the DM with its first message")
 		testing.expect(t, message_after, "the message didn't come after the conversation")
 		testing.expect_value(t, record.unread, 0)
+		testing.expect_value(t, record.last_time, 0) // as it was before the message
 		testing.expect_value(
 			t,
 			conv_record(&ts.s.convs, ts.s.convs.by_id[conv], alice_acc.id).unread,
@@ -163,6 +165,15 @@ test_dm_messages :: proc(t: ^testing.T) {
 		testing.expect_value(t, status, proto.Status.Ok)
 		_, told, _ = told_of(t, &ts, alice, conv)
 		testing.expect(t, !told, "told of the DM again")
+		// When the newest was posted, for putting DMs from many servers
+		// in order.
+		last_time = ts.s.convs.by_id[conv].last_time
+		testing.expect(t, last_time != 0, "no time for the last message")
+		testing.expect_value(
+			t,
+			conv_record(&ts.s.convs, ts.s.convs.by_id[conv], alice_acc.id).last_time,
+			last_time,
+		)
 
 		// Nobody else may read or write it, or know it's there.
 		status, _ = post(t, &ts, carol, conv, "me too", 3)
@@ -210,8 +221,9 @@ test_dm_messages :: proc(t: ^testing.T) {
 	for name in ([]string{"alice", "bob"}) {
 		u := ts_connect(&ts)
 		testing.expect(t, u.account != nil && u.account.username == name)
-		_, told, _ := told_of(t, &ts, u, conv)
+		record, told, _ := told_of(t, &ts, u, conv)
 		testing.expectf(t, told, "%s isn't told of the DM at login", name)
+		testing.expect_value(t, record.last_time, last_time)
 	}
 	carol := ts_connect(&ts)
 	testing.expect(t, carol.account != nil && carol.account.username == "carol")

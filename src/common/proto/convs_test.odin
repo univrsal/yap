@@ -11,18 +11,19 @@ test_conv_record :: proc(t: ^testing.T) {
 		b = 't'
 	}
 	c := Conv {
-		id       = 9,
-		kind     = .Channel,
-		flags    = {.Home},
-		name     = "01234567890123456789012345678901",
-		topic    = string(topic),
-		member   = true,
-		last     = 1234,
-		read     = 1200,
-		unread   = 7,
-		mentions = 2,
-		notify   = .Mentions,
-		position = 70000,
+		id        = 9,
+		kind      = .Channel,
+		flags     = {.Home},
+		name      = "01234567890123456789012345678901",
+		topic     = string(topic),
+		member    = true,
+		last      = 1234,
+		read      = 1200,
+		unread    = 7,
+		mentions  = 2,
+		notify    = .Mentions,
+		position  = 70000,
+		last_time = 1_700_000_000_000,
 	}
 	body := encode_conv(buf[:], c)
 	testing.expect(t, body != nil)
@@ -38,6 +39,7 @@ test_conv_record :: proc(t: ^testing.T) {
 	testing.expect(t, got.member)
 	testing.expect_value(t, got.last, c.last)
 	testing.expect_value(t, got.read, c.read)
+	testing.expect_value(t, got.last_time, c.last_time)
 	testing.expect_value(t, got.unread, 7)
 	testing.expect_value(t, got.mentions, 2)
 	testing.expect_value(t, got.notify, Notify_Level.Mentions)
@@ -50,7 +52,7 @@ test_conv_record :: proc(t: ^testing.T) {
 	got, ok = decode_conv(encode_conv(buf[:], many))
 	testing.expect_value(t, got.unread, UNREAD_CAP)
 	body = encode_conv(buf[:], c)
-	body[len(body) - 5] = 9 // the notify level, before the position
+	body[len(body) - 13] = 9 // the notify level, before the position and the last time
 	got, ok = decode_conv(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, got.notify, Notify_Level.All)

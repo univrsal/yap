@@ -173,12 +173,14 @@ View :: struct {
 
 // A DM: who it's with, and what's unread there (see View_Channel).
 View_DM :: struct {
-	id:     proto.Conv_Id,
-	with:   proto.Account_Id,
-	last:   proto.Msg_Id,
-	read:   proto.Msg_Id,
-	unread: int,
-	notify: proto.Notify_Level,
+	id:        proto.Conv_Id,
+	with:      proto.Account_Id,
+	last:      proto.Msg_Id,
+	read:      proto.Msg_Id,
+	unread:    int,
+	notify:    proto.Notify_Level,
+	// When its newest message was posted, 0 for none.
+	last_time: proto.Unix_Ms,
 }
 
 View_File :: struct {
@@ -582,6 +584,7 @@ publish_channels :: proc(c: ^Voice_Client) {
 					read = info.read,
 					unread = info.unread,
 					notify = info.notify,
+					last_time = info.last_time,
 				},
 			)
 		}

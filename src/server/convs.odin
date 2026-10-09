@@ -36,6 +36,7 @@ Conv :: struct {
 	created:    i64, // Unix milliseconds
 	created_by: proto.Account_Id, // 0 for one that came from the config
 	last_msg:   proto.Msg_Id, // the newest message, 0 for none (messages.odin)
+	last_time:  proto.Unix_Ms, // when it was posted
 	// A DM's two accounts, the lower first; 0 for a channel. And whether
 	// each has posted there yet, and whether the database has been asked
 	// (dm_posted); posting keeps it up to date after that.
@@ -92,6 +93,7 @@ convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> b
 		conv.last_msg = proto.Msg_Id(db_col_int(q, 8))
 		conv.a = proto.Account_Id(db_col_int(q, 9))
 		conv.b = proto.Account_Id(db_col_int(q, 10))
+		conv.last_time = proto.Unix_Ms(db_col_int(q, 11))
 		c.by_id[conv.id] = conv
 		if conv.kind == .DM {
 			c.dms[{conv.a, conv.b}] = conv
@@ -494,6 +496,9 @@ conv_record :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> proto.
 		a        = conv.a,
 		b        = conv.b,
 		position = conv.position,
+	}
+	if conv.last_msg != 0 {
+		record.last_time = conv.last_time
 	}
 	if record.member {
 		state := conv_read_state(c, conv, account)

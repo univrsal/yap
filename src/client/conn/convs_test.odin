@@ -136,3 +136,32 @@ test_mention_counting :: proc(t: ^testing.T) {
 	_, mention = conv_new_message(&c, {id = 19, conv = quiet, sender = 2, text = "<@1>"})
 	testing.expect(t, !mention, "a muted one being read")
 }
+
+// Reading a conversation while messages keep coming tells the server
+// at most once every MARK_INTERVAL, and nothing more once it's told.
+@(test)
+test_mark_read_paced :: proc(t: ^testing.T) {
+	c: Voice_Client
+	defer convs_destroy(&c)
+	defer stream_destroy(&c)
+	defer delete(c.rpc.pending)
+	c.auth.me = 1
+	c.convs.synced = true
+	c.has_current = true
+	dm := proto.Conv_Id(5)
+	c.convs.convs[dm] = {
+		kind = .DM,
+		a    = 1,
+		b    = 2,
+		last = 10,
+		read = 10,
+	}
+	conv_reading(&c, dm)
+	for i in 0 ..< 200 {
+		conv_new_message(&c, {id = proto.Msg_Id(11 + i), conv = dm, sender = 2})
+		convs_step(&c)
+	}
+	testing.expect_value(t, len(c.rpc.pending), 1)
+	// The rest waits for the next one.
+	testing.expect_value(t, c.convs.marks[dm].due, proto.Msg_Id(210))
+}

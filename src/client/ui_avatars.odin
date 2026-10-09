@@ -82,6 +82,23 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	// A disc and a letter; a plain grey disc for a deleted account.
 	deleted := known && .Deleted in acc.flags
 	color := theme.deleted_disc if deleted else avatar_color(account)
+	disc_letter(ui, r, color, acc.display if known && !deleted else "")
+}
+
+/*
+letter_disc draws an account's disc and letter, from its name, without
+looking it up in the View: for one on a server that isn't shown, whose
+picture isn't to be had.
+*/
+letter_disc :: proc(ui: ^UI, account: proto.Account_Id, name: string, r: mu.Rect) {
+	disc_letter(ui, r, avatar_color(account), name)
+}
+
+// disc_letter draws a disc of `color` in `r`, with the first letter of
+// `name` on it if there's room.
+@(private = "file")
+disc_letter :: proc(ui: ^UI, r: mu.Rect, color: mu.Color, name: string) {
+	ctx := &ui.ctx
 	if icon, ok := disc_icon(ui); ok {
 		mu.draw_icon(ctx, icon, r, color)
 	} else {
@@ -89,10 +106,10 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	}
 	font := ctx.style.font
 	// Smaller than a line of text, a letter wouldn't fit.
-	if !known || deleted || r.h < ctx.text_height(font) {
+	if name == "" || r.h < ctx.text_height(font) {
 		return
 	}
-	first, size := utf8.decode_rune_in_string(acc.display)
+	first, size := utf8.decode_rune_in_string(name)
 	if size == 0 || first == utf8.RUNE_ERROR {
 		return
 	}
