@@ -65,6 +65,7 @@ Pending :: struct {
 	username:      string, // Account_Create; owned
 	display:       string, // Account_Create; owned
 	device:        string, // Login, Register: what the device calls itself; owned
+	agent:         string, // Login, Register: what the client says it is; owned
 	email:         string, // Register; owned
 	invite:        string, // Register; owned
 	revoke_others: bool, // Password_Change
@@ -89,6 +90,7 @@ pending_destroy :: proc(p: Pending) {
 	delete(p.username)
 	delete(p.display)
 	delete(p.device)
+	delete(p.agent)
 	delete(p.email)
 	delete(p.invite)
 }
@@ -246,7 +248,7 @@ submit :: proc(s: ^Server, u: ^Conn, id: u32, job: ^Hash_Job, p: Pending) {
 
 @(private = "file")
 login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
-	raw_username, password, raw_device, ok := proto.decode_auth_login(body)
+	raw_username, password, raw_device, raw_agent, ok := proto.decode_auth_login(body)
 	switch {
 	case !ok:
 		respond(u, id, .Invalid)
@@ -294,6 +296,8 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	device_buf: [proto.MAX_DEVICE_NAME]u8
 	device := proto.sanitize_text(raw_device, device_buf[:])
 	p.device = strings.clone(device if device != "" else "device")
+	agent_buf: [proto.MAX_AGENT]u8
+	p.agent = strings.clone(proto.sanitize_text(raw_agent, agent_buf[:]))
 	submit(s, u, id, &job, p)
 }
 
@@ -540,7 +544,7 @@ login_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 		return
 	}
 	acc.failures, acc.locked_until = 0, {}
-	if device_link(&s.accounts, u.key, acc, p.device) == nil {
+	if device_link(&s.accounts, u.key, acc, p.device, p.agent) == nil {
 		respond(u, p.request, .Internal)
 		return
 	}
@@ -671,6 +675,7 @@ device_list :: proc(s: ^Server, u: ^Conn, id: u32) {
 		records[i] = {
 			key       = d.key,
 			name      = d.name,
+			agent     = d.agent,
 			created   = u64(d.created),
 			last_seen = u64(d.last_seen),
 		}

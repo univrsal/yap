@@ -12,6 +12,7 @@ it from Server_Info's `registration` (rpc.odin), before logging in:
 	Invite  with an invite code
 
 	Register       [username str8][password str8][device str8][email str8][invite str8]
+	               [agent str8] (see MAX_AGENT)
 	           ->  [account u32][flags u8], as Auth_Login's
 	               or, refused, [reason u8] (Register_Refusal)
 	Invite_Create  [max uses u16][expires u64]  ->  [code str8]
@@ -71,6 +72,8 @@ REGISTER_BODY_MAX ::
 	MAX_USERNAME_SIZE +
 	MAX_ACCOUNT_PASSWORD +
 	MAX_DEVICE_NAME +
+	1 +
+	MAX_AGENT +
 	MAX_EMAIL_SIZE +
 	INVITE_CODE_SIZE
 
@@ -80,6 +83,7 @@ Register :: struct {
 	device:   string,
 	email:    string,
 	invite:   string,
+	agent:    string,
 }
 
 Invite :: struct {
@@ -147,6 +151,7 @@ encode_register :: proc(out: []u8, r: Register) -> []u8 {
 	put_str8(&w, r.device)
 	put_str8(&w, r.email)
 	put_str8(&w, r.invite)
+	put_str8(&w, r.agent)
 	return nil if w.overflow else out[:w.pos]
 }
 
@@ -159,6 +164,9 @@ decode_register :: proc(body: []u8) -> (r: Register, ok: bool) {
 	r.device = get_str8(&rd)
 	r.email = get_str8(&rd)
 	r.invite = get_str8(&rd)
+	if rd.pos < len(rd.buf) {
+		r.agent = get_str8(&rd)
+	}
 	return r, !rd.overflow
 }
 

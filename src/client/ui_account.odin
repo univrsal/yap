@@ -754,6 +754,17 @@ devices_list :: proc(ui: ^UI, v: ^conn.View) {
 			ui.account.mistake = ""
 			command(ui, conn.Revoke_Command{d.key})
 		}
+		// What it is and when it was last here; a device that is has
+		// no need to say.
+		detail := d.agent
+		if .Online not_in d.flags && d.last_seen != 0 {
+			seen := fmt.tprintf("last seen %s", ago_text(ui, i64(d.last_seen)))
+			detail = fmt.tprintf("%s  -  %s", d.agent, seen) if d.agent != "" else seen
+		}
+		if detail != "" {
+			mu.layout_row(ctx, {-1})
+			with_text_color(ctx, theme.dim, detail, label_proc)
+		}
 	}
 }
 

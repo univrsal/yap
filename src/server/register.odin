@@ -181,6 +181,7 @@ register :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 
 	device_buf: [proto.MAX_DEVICE_NAME]u8
 	device := proto.sanitize_text(req.device, device_buf[:])
+	agent_buf: [proto.MAX_AGENT]u8
 	job := Hash_Job {
 		create = true,
 		wanted = password_of(req.password),
@@ -196,6 +197,7 @@ register :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			username = strings.clone(username),
 			display = strings.clone(username),
 			device = strings.clone(device if device != "" else "device"),
+			agent = strings.clone(proto.sanitize_text(req.agent, agent_buf[:])),
 			email = strings.clone(email),
 			invite = strings.clone(invite),
 		},
@@ -233,7 +235,7 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 			return
 		}
 	}
-	if device_link(&s.accounts, u.key, acc, p.device) == nil {
+	if device_link(&s.accounts, u.key, acc, p.device, p.agent) == nil {
 		respond(u, p.request, .Internal)
 		return
 	}

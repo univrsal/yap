@@ -549,21 +549,27 @@ last_seen_text :: proc(ui: ^UI, account: proto.Account_Id) -> string {
 		// The server only says to people who've written to each other.
 		return ""
 	}
-	ago := (time.time_to_unix_nano(time.now()) / 1_000_000 - i64(seen)) / 1000
+	return fmt.tprintf("last seen %s", ago_text(ui, i64(seen)))
+}
+
+// ago_text is how long ago a time (Unix milliseconds) was: "just now",
+// "3 hours ago", or its date once it's more than a week.
+ago_text :: proc(ui: ^UI, ms: i64) -> string {
+	ago := (time.time_to_unix_nano(time.now()) / 1_000_000 - ms) / 1000
 	plural :: proc(n: i64) -> string {
 		return "" if n == 1 else "s"
 	}
 	switch {
 	case ago < 60:
-		return "last seen just now"
+		return "just now"
 	case ago < 60 * 60:
-		return fmt.tprintf("last seen %d minute%s ago", ago / 60, plural(ago / 60))
+		return fmt.tprintf("%d minute%s ago", ago / 60, plural(ago / 60))
 	case ago < 24 * 60 * 60:
-		return fmt.tprintf("last seen %d hour%s ago", ago / 3600, plural(ago / 3600))
+		return fmt.tprintf("%d hour%s ago", ago / 3600, plural(ago / 3600))
 	case ago < 7 * 24 * 60 * 60:
-		return fmt.tprintf("last seen %d day%s ago", ago / 86400, plural(ago / 86400))
+		return fmt.tprintf("%d day%s ago", ago / 86400, plural(ago / 86400))
 	}
-	return fmt.tprintf("last seen %s", chat_time(ui, proto.Unix_Time(i64(seen) / 1000)))
+	return chat_time(ui, proto.Unix_Time(ms / 1000))
 }
 
 @(private = "file")

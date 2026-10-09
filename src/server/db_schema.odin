@@ -350,6 +350,11 @@ MIGRATIONS := [?]string {
 	UPDATE blobs SET kind = 4 WHERE kind = 1;
 	DROP INDEX messages_pictures;
 	`,
+	// 23: what a device said it is when it logged in (proto.MAX_AGENT),
+	// for the account's list of devices.
+	`
+	ALTER TABLE devices ADD COLUMN agent TEXT NOT NULL DEFAULT '';
+	`,
 }
 
 // The version a database is at once it has been through every step.

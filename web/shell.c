@@ -503,6 +503,39 @@ EM_JS(int, yap_prefers_dark, (void), {
 	return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? 1 : 0;
 });
 
+/* What the browser and system are, for the account's list of devices
+   (src/client/platform/agent_web.odin): "Firefox 128 on Windows". */
+EM_JS(int, yap_agent, (char *buf, int buf_size), {
+	const ua = navigator.userAgent || "";
+	const hint = navigator.userAgentData;
+	let browser = "";
+	/* Order matters: most of these also say Chrome or Safari. No backslashes:
+	   this is a C string, which would eat them. */
+	for (const [re, name] of [
+		[/Edg(?:e|A|iOS)?[/]([0-9]+)/, "Edge"],
+		[/OPR[/]([0-9]+)/, "Opera"],
+		[/(?:Firefox|FxiOS)[/]([0-9]+)/, "Firefox"],
+		[/(?:Chrome|CriOS)[/]([0-9]+)/, "Chrome"],
+		[/Version[/]([0-9]+)[^]*Safari/, "Safari"],
+	]) {
+		const m = ua.match(re);
+		if (m) { browser = name + " " + m[1]; break; }
+	}
+	if (!browser) browser = "Browser";
+	let os = "";
+	const platform = hint && hint.platform ? hint.platform : "";
+	if (/Android/.test(ua)) os = "Android";
+	else if (/iPhone|iPad|iPod/.test(ua)) os = "iOS";
+	else if (/CrOS/.test(ua)) os = "ChromeOS";
+	else if (/Windows/.test(ua) || platform === "Windows") os = "Windows";
+	else if (/Mac/.test(ua) || platform === "macOS") os = "macOS";
+	else if (/Linux|X11/.test(ua)) os = "Linux";
+	const text = os ? browser + " on " + os : browser;
+	if (lengthBytesUTF8(text) + 1 > buf_size) return 0;
+	stringToUTF8(text, buf, buf_size);
+	return lengthBytesUTF8(text);
+});
+
 EM_JS(void, yap_avatar_pick, (int side, int size), {
 	Module.yapAvatar.pick(side, size);
 });

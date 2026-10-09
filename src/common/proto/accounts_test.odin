@@ -40,19 +40,20 @@ test_account_bodies :: proc(t: ^testing.T) {
 	buf: [ACCOUNT_BODY_MAX]u8
 
 	{
-		body := encode_auth_login(buf[:], "alice", "correct horse", "laptop")
-		username, password, device, ok := decode_auth_login(body)
+		body := encode_auth_login(buf[:], "alice", "correct horse", "laptop", "yap")
+		username, password, device, agent, ok := decode_auth_login(body)
 		testing.expect(t, ok)
 		testing.expect_value(t, username, "alice")
 		testing.expect_value(t, password, "correct horse")
 		testing.expect_value(t, device, "laptop")
-		_, _, _, ok = decode_auth_login(body[:len(body) - 1])
+		testing.expect_value(t, agent, "yap")
+		_, _, _, _, ok = decode_auth_login(body[:len(body) - 1])
 		testing.expect(t, !ok)
 		// The longest of each still fits.
 		long := make([]u8, 255, context.temp_allocator)
 		testing.expect(
 			t,
-			encode_auth_login(buf[:], string(long), string(long), string(long)) != nil,
+			encode_auth_login(buf[:], string(long), string(long), string(long), string(long)) != nil,
 		)
 		// And a string too long for its length byte doesn't.
 		longer := make([]u8, 256, context.temp_allocator)
@@ -308,6 +309,13 @@ test_devices :: proc(t: ^testing.T) {
 	devices[0].flags = {.Current, .Online}
 	devices[1].name = "phone"
 	devices[2].name = "a name that is a good deal longer than any device's may be"
+	long_agent := make([]u8, MAX_AGENT, context.temp_allocator)
+	for &b in long_agent {
+		b = 'a'
+	}
+	for &d in devices {
+		d.agent = string(long_agent)
+	}
 
 	out: [2 + 3 * DEVICE_MAX_SIZE]u8
 	body := encode_devices(out[:], devices[:])
@@ -337,6 +345,66 @@ test_devices :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 	_, ok = decode_devices(body[:len(body) - 1], buf[:])
 	testing.expect(t, !ok)
+}
+
+@(test)
+test_agent :: proc(t: ^testing.T) {
+	// A login says what the client is; one from before that did not.
+	buf: [ACCOUNT_BODY_MAX]u8
+	body := encode_auth_login(buf[:], "alice", "pw", "laptop", "yap 1.2.0 on Linux")
+	_, _, device, agent, ok := decode_auth_login(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, device, "laptop")
+	testing.expect_value(t, agent, "yap 1.2.0 on Linux")
+	_, _, device, agent, ok = decode_auth_login(body[:len(body) - 1 - len(agent)])
+	testing.expect(t, ok)
+	testing.expect_value(t, device, "laptop")
+	testing.expect_value(t, agent, "")
+
+	// A device list names it, and one from an older server still reads.
+	devices: [2]Device
+	devices[0] = {
+		key   = {1 = 1},
+		name  = "laptop",
+		agent = "Firefox 128 on Windows",
+	}
+	devices[1] = {
+		key  = {1 = 2},
+		name = "phone",
+	}
+	out: [2 + 2 * DEVICE_MAX_SIZE]u8
+	list := encode_devices(out[:], devices[:])
+	got_buf: [4]Device
+	got, got_ok := decode_devices(list, got_buf[:])
+	testing.expect(t, got_ok)
+	testing.expect_value(t, got[0].agent, "Firefox 128 on Windows")
+	testing.expect_value(t, got[1].agent, "")
+
+	// The records come first and as they were, so that a client from
+	// before agents, which reads no further, reads a list from now.
+	records_end := len(list) - (1 + len(devices[0].agent)) - (1 + len(devices[1].agent))
+	got, got_ok = decode_devices(list[:records_end], got_buf[:])
+	testing.expect(t, got_ok)
+	testing.expect_value(t, len(got), 2)
+	testing.expect_value(t, got[0].name, "laptop")
+	testing.expect_value(t, got[0].agent, "")
+
+	legacy := make([dynamic]u8, context.temp_allocator)
+	append(&legacy, 2, 0)
+	for d in devices {
+		key := d.key
+		append(&legacy, ..key[:])
+		append(&legacy, u8(len(d.name)))
+		append(&legacy, d.name)
+		for _ in 0 ..< 17 {
+			append(&legacy, 0) // created, last seen, flags
+		}
+	}
+	got, got_ok = decode_devices(legacy[:], got_buf[:])
+	testing.expect(t, got_ok)
+	testing.expect_value(t, len(got), 2)
+	testing.expect_value(t, got[1].name, "phone")
+	testing.expect_value(t, got[1].agent, "")
 }
 
 @(test)

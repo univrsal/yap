@@ -16,6 +16,7 @@ the server remembers which account it belongs to.
 Everything here travels as requests and events (rpc.odin):
 
 	Auth_Login            [username str8][password str8][device name str8]
+                          [agent str8]: what the client is, see MAX_AGENT
 	                  ->  [account u32][flags u8]
 	Auth_Logout           (nothing): this device forgets the account
 	Password_Change       [old str8][new str8][revoke others u8]
@@ -46,6 +47,7 @@ Everything here travels as requests and events (rpc.odin):
 	         [status str8][status until u64][avatar u64][role count u8][role u32]...
 	         [activity u8] (activity.odin)
 	device   [key 32][name str8][created u64][last seen u64][flags u8]
+	         (Device_List then adds each one's [agent str8], after the last)
 
 Account_Create and Account_Password_Set are an admin's (Manage_Accounts). A password an
 admin sets, a new account's or one to replace a forgotten one, is only
@@ -83,6 +85,10 @@ MAX_USERNAME_SIZE :: 32
 MIN_ACCOUNT_PASSWORD :: 8
 MAX_ACCOUNT_PASSWORD :: 128
 MAX_DEVICE_NAME :: 32
+// What a client says it is when it logs in, for the account's list of
+// devices: "yap 1.2.0 on Linux", "Firefox 128 on Windows". Only for
+// people to read. Left off by older clients, and then "".
+MAX_AGENT :: 64
 
 Account_Flag :: enum u8 {
 	Owner, // the first admin: may do everything, and can't be made less
@@ -145,6 +151,7 @@ Device :: struct {
 	created:   u64,
 	last_seen: u64,
 	flags:     Device_Flags,
+	agent:     string,
 }
 
 // Why a device was logged out by the server.
@@ -256,31 +263,48 @@ account_password_ok :: proc(password: string) -> bool {
 // doesn't fit; bodies are small, and ACCOUNT_BODY_MAX holds any of the
 // requests'. The decoders' strings point into the body they read.
 
-ACCOUNT_BODY_MAX :: 4 + 3 * (1 + 255) + 8
+ACCOUNT_BODY_MAX :: 4 + 4 * (1 + 255) + 8
 
 @(private = "file")
 written :: proc(w: ^Writer) -> []u8 {
 	return nil if w.overflow else w.buf[:w.pos]
 }
 
-encode_auth_login :: proc(out: []u8, username, password, device: string) -> []u8 {
+// get_str8_opt is get_str8 for a trailing field that older peers leave
+// off: "" if the body has ended.
+@(private = "file")
+get_str8_opt :: proc(r: ^Reader) -> string {
+	if r.pos >= len(r.buf) {
+		return ""
+	}
+	return get_str8(r)
+}
+
+encode_auth_login :: proc(out: []u8, username, password, device: string, agent := "") -> []u8 {
 	w := Writer {
 		buf = out,
 	}
 	put_str8(&w, username)
 	put_str8(&w, password)
 	put_str8(&w, device)
+	put_str8(&w, agent)
 	return written(&w)
 }
 
-decode_auth_login :: proc(body: []u8) -> (username, password, device: string, ok: bool) {
+decode_auth_login :: proc(
+	body: []u8,
+) -> (
+	username, password, device, agent: string,
+	ok: bool,
+) {
 	r := Reader {
 		buf = body,
 	}
 	username = get_str8(&r)
 	password = get_str8(&r)
 	device = get_str8(&r)
-	return username, password, device, !r.overflow
+	agent = get_str8_opt(&r)
+	return username, password, device, agent, !r.overflow
 }
 
 AUTH_LOGIN_RESPONSE_SIZE :: 4 + 1
@@ -616,10 +640,15 @@ decode_self :: proc(
 	return account, permissions, flags, !r.overflow
 }
 
-DEVICE_MAX_SIZE :: KEY_SIZE + (1 + MAX_DEVICE_NAME) + 8 + 8 + 1
+DEVICE_MAX_SIZE :: KEY_SIZE + (1 + MAX_DEVICE_NAME) + 8 + 8 + 1 + (1 + MAX_AGENT)
 
-// encode_devices writes a Device_List response: as many of `devices` as
-// fit in `out`.
+/*
+encode_devices writes a Device_List response: as many of `devices` as
+fit in `out`. The records are as they always were, and after them come
+the devices' agents, one str8 each in the same order. A client from
+before agents reads the records and leaves the rest unread; one from
+after them reads a list without any as all "".
+*/
 encode_devices :: proc(out: []u8, devices: []Device) -> []u8 {
 	w := Writer {
 		buf = out,
@@ -627,7 +656,8 @@ encode_devices :: proc(out: []u8, devices: []Device) -> []u8 {
 	put_u16(&w, 0)
 	count := 0
 	for d in devices {
-		if w.pos + DEVICE_MAX_SIZE > len(out) || count == int(max(u16)) {
+		// Room for this one and for every agent that follows the records.
+		if w.pos + DEVICE_MAX_SIZE + count * (1 + MAX_AGENT) > len(out) || count == int(max(u16)) {
 			break
 		}
 		key := d.key
@@ -637,6 +667,9 @@ encode_devices :: proc(out: []u8, devices: []Device) -> []u8 {
 		put_u64(&w, d.last_seen)
 		put_u8(&w, transmute(u8)d.flags)
 		count += 1
+	}
+	for d in devices[:count] {
+		put_str8(&w, d.agent[:min(len(d.agent), MAX_AGENT)])
 	}
 	if w.overflow {
 		return nil
@@ -660,6 +693,13 @@ decode_devices :: proc(body: []u8, devices_buf: []Device) -> (devices: []Device,
 		d.created = get_u64(&r)
 		d.last_seen = get_u64(&r)
 		d.flags = transmute(Device_Flags)get_u8(&r)
+		d.agent = ""
+	}
+	// From a server that has them, the agents follow.
+	if r.pos < len(r.buf) {
+		for &d in devices_buf[:count] {
+			d.agent = get_str8(&r)
+		}
 	}
 	if r.overflow {
 		return

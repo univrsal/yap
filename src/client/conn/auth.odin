@@ -7,6 +7,7 @@ import "core:strings"
 import "core:time"
 
 import "common:proto"
+import "client:platform"
 
 /*
 Our account on the server (src/common/proto/accounts.odin): logging in,
@@ -75,6 +76,7 @@ Auth_Client :: struct {
 Dir_Device :: struct {
 	key:       [proto.KEY_SIZE]u8,
 	name:      string, // owned
+	agent:     string, // owned; "" if not told
 	created:   u64,
 	last_seen: u64,
 	flags:     proto.Device_Flags,
@@ -196,6 +198,7 @@ accounts_clear :: proc(a: ^Auth_Client) {
 devices_clear :: proc(a: ^Auth_Client) {
 	for d in a.devices {
 		delete(d.name)
+		delete(d.agent)
 	}
 	clear(&a.devices)
 }
@@ -283,6 +286,7 @@ auth_register :: proc(c: ^Voice_Client, cmd: Register_Command) {
 			device = a.device,
 			email = cmd.email,
 			invite = cmd.invite,
+			agent = platform.agent(),
 		},
 	)
 	if body == nil {
@@ -364,7 +368,7 @@ auth_login :: proc(c: ^Voice_Client, cmd: Login_Command) {
 login_send :: proc(c: ^Voice_Client) {
 	a := &c.auth
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	body := proto.encode_auth_login(buf[:], a.username, a.password, a.device)
+	body := proto.encode_auth_login(buf[:], a.username, a.password, a.device, platform.agent())
 	if body == nil {
 		forget_password(a)
 		set_state(c, .Needed, "That username or password is too long.")
@@ -722,6 +726,7 @@ auth_devices :: proc(c: ^Voice_Client) {
 					Dir_Device {
 						key = d.key,
 						name = strings.clone(d.name),
+						agent = strings.clone(d.agent),
 						created = d.created,
 						last_seen = d.last_seen,
 						flags = d.flags,
@@ -911,6 +916,7 @@ view_clear_accounts :: proc(v: ^View) {
 view_clear_devices :: proc(v: ^View) {
 	for d in v.devices {
 		delete(d.name)
+		delete(d.agent)
 	}
 	clear(&v.devices)
 }
@@ -925,6 +931,7 @@ publish_devices :: proc(c: ^Voice_Client) {
 	for d in c.auth.devices {
 		d := d
 		d.name = strings.clone(d.name)
+		d.agent = strings.clone(d.agent)
 		append(&v.devices, d)
 	}
 	v.devices_count += 1

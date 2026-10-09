@@ -63,6 +63,7 @@ Device :: struct {
 	key:       [proto.KEY_SIZE]u8,
 	account:   proto.Account_Id,
 	name:      string, // owned
+	agent:     string, // owned; what the client said it is, "" if it didn't
 	created:   i64, // when it logged in
 	last_seen: i64, // when it last connected
 }
@@ -128,6 +129,7 @@ accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 		d.name = db_col_text(q, 2, context.allocator)
 		d.created = db_col_int(q, 3)
 		d.last_seen = db_col_int(q, 4)
+		d.agent = db_col_text(q, 5, context.allocator)
 		a.devices[d.key] = d
 	}
 
@@ -162,6 +164,7 @@ accounts_destroy :: proc(a: ^Accounts) {
 	}
 	for _, d in a.devices {
 		delete(d.name)
+		delete(d.agent)
 		free(d)
 	}
 	delete(a.by_id)
@@ -369,7 +372,7 @@ device_link :: proc(
 	a: ^Accounts,
 	key: [proto.KEY_SIZE]u8,
 	acc: ^Account,
-	name: string,
+	name, agent: string,
 ) -> ^Device {
 	key := key
 	now := unix_ms()
@@ -378,6 +381,7 @@ device_link :: proc(
 	db_bind_int(q, 2, i64(acc.id))
 	db_bind_text(q, 3, name)
 	db_bind_int(q, 4, now)
+	db_bind_text(q, 5, agent)
 	if !db_run(a.db, q) {
 		return nil
 	}
@@ -388,7 +392,9 @@ device_link :: proc(
 		a.devices[key] = d
 	}
 	delete(d.name)
+	delete(d.agent)
 	d.name = strings.clone(name)
+	d.agent = strings.clone(agent)
 	d.account = acc.id
 	d.created, d.last_seen = now, now
 	return d
@@ -406,6 +412,7 @@ device_unlink :: proc(a: ^Accounts, key: [proto.KEY_SIZE]u8) -> bool {
 	db_run(a.db, q) or_return
 	delete_key(&a.devices, key)
 	delete(d.name)
+	delete(d.agent)
 	free(d)
 	return true
 }

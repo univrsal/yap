@@ -389,7 +389,7 @@ test_accounts_kept :: proc(t: ^testing.T) {
 		// A username is taken whatever its case; account_add is given
 		// clean ones, and the database would refuse the other as well.
 		testing.expect(t, account_add(&a, "alice", "Another", secret, {}) == nil)
-		testing.expect(t, device_link(&a, key, acc, "laptop") != nil)
+		testing.expect(t, device_link(&a, key, acc, "laptop", "") != nil)
 		testing.expect(t, account_set_display(&a, acc, "Alice B."))
 		account_seen(&a, acc)
 	}
@@ -721,6 +721,61 @@ test_account_create :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Wrong_Password)
 	status, _ = ts_login(t, &ts, c, "bob", "bob's own password")
 	testing.expect_value(t, status, proto.Status.Ok)
+}
+
+@(test)
+test_device_agent :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	ts_account(t, &ts, "alice", "alice's password")
+
+	// What the client says it is is kept, on one line and not too long;
+	// a client that says nothing gets "".
+	laptop := ts_connect(&ts)
+	phone := ts_connect(&ts)
+	buf: [proto.ACCOUNT_BODY_MAX]u8
+	long := make([]u8, 200, context.temp_allocator)
+	for &b in long {
+		b = 'x'
+	}
+	status, _ := ts_ask(
+		t,
+		&ts,
+		laptop,
+		.Auth_Login,
+		proto.encode_auth_login(buf[:], "alice", "alice's password", "laptop", "Firefox 128\non Windows"),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	status, _ = ts_ask(
+		t,
+		&ts,
+		phone,
+		.Auth_Login,
+		proto.encode_auth_login(buf[:], "alice", "alice's password", "phone", string(long)),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, device_of(&ts.s.accounts, laptop.key).agent, "Firefox 128 on Windows")
+	testing.expect_value(t, len(device_of(&ts.s.accounts, phone.key).agent), proto.MAX_AGENT)
+
+	body: []u8
+	status, body = ts_ask(t, &ts, laptop, .Device_List)
+	testing.expect_value(t, status, proto.Status.Ok)
+	devices_buf: [8]proto.Device
+	devices, ok := proto.decode_devices(body, devices_buf[:])
+	testing.expect(t, ok)
+	testing.expect_value(t, len(devices), 2)
+	for d in devices {
+		if d.key == laptop.key {
+			testing.expect_value(t, d.agent, "Firefox 128 on Windows")
+		}
+	}
+
+	// It's in the database too.
+	reloaded: Accounts
+	testing.expect(t, accounts_load(&reloaded, &ts.s.db))
+	defer accounts_destroy(&reloaded)
+	testing.expect_value(t, device_of(&reloaded, laptop.key).agent, "Firefox 128 on Windows")
 }
 
 @(test)
