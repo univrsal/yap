@@ -15,7 +15,8 @@ import "client:tray"
 /*
 The tray icon: the window's icon in the system tray, and while we're in
 voice a microphone instead, showing whether we're talking, muted or
-deafened, with a right-click menu to disconnect or quit. The microphone
+deafened. Clicking it shows or hides the window, and its right-click
+menu does the same, or quits. The microphone
 is drawn from the same shapes as the icons in the window (see
 render/icons.odin), so the two always say the same thing. Either has a
 dot in its corner while something is unread: red with mentions of us
@@ -56,9 +57,7 @@ TRAY_MENTIONS :: mu.Color{225, 60, 60, 255}
 @(private = "file")
 MENU_WINDOW :: 1
 @(private = "file")
-MENU_DISCONNECT :: 2
-@(private = "file")
-MENU_QUIT :: 3
+MENU_QUIT :: 2
 
 // How many notifications a click can still be told apart for.
 NOTICE_TARGETS :: 16
@@ -66,10 +65,8 @@ NOTICE_TARGETS :: 16
 // What a click asked for, acted on after traycon is done stepping.
 Tray_Request :: enum {
 	None,
-	Show_Window,
 	Toggle_Window,
 	Focus_Window, // a notification was clicked
-	Disconnect,
 	Quit,
 }
 
@@ -77,10 +74,8 @@ Tray :: struct {
 	handle:    ^tray.Tray,
 	// What the icon is showing, so it's only redrawn when it changes.
 	look:      Tray_Look,
-	// What the menu was last built for: Disconnect is greyed out when
-	// there's nothing to disconnect from, and the first item says
-	// whether the window is to be shown or hidden.
-	connected: bool,
+	// What the menu was last built for: its first item says whether the
+	// window is to be shown or hidden.
 	hidden:    bool,
 	request:   Tray_Request,
 	// Where the notifications shown lately go when clicked, kept in a ring
@@ -119,7 +114,7 @@ tray_update :: proc(ui: ^UI) {
 		tray.update_icon(t.handle, raw_data(pixels), TRAY_ICON_PIXELS, TRAY_ICON_PIXELS)
 		t.look = look
 	}
-	if connected := ui.session != nil; connected != t.connected || ui.hidden != t.hidden {
+	if ui.hidden != t.hidden {
 		tray_menu(ui)
 	}
 	if tray.step(t.handle) != 0 {
@@ -136,8 +131,6 @@ tray_update :: proc(ui: ^UI) {
 	}
 	switch request {
 	case .None:
-	case .Show_Window:
-		show_from_tray(ui)
 	case .Focus_Window:
 		focus_window(ui)
 		clicked := t.clicked
@@ -149,11 +142,6 @@ tray_update :: proc(ui: ^UI) {
 		} else {
 			hide_to_tray(ui)
 		}
-	case .Disconnect:
-		// Picked up at the top of the next turn round the loop, rather
-		// than while traycon is in the middle of a callback.
-		log.debug("tray: disconnect")
-		ui.action = .Close
 	case .Quit:
 		log.debug("tray: quit")
 		ui.quitting = true
@@ -374,11 +362,9 @@ focus_window :: proc(ui: ^UI) {
 @(private = "file")
 tray_menu :: proc(ui: ^UI) {
 	t := &ui.tray
-	t.connected = ui.session != nil
 	t.hidden = ui.hidden
 	items := [?]tray.Menu_Item {
 		{label = "Show window" if t.hidden else "Hide window", id = MENU_WINDOW},
-		{label = "Disconnect", id = MENU_DISCONNECT, flags = {} if t.connected else {.Disabled}},
 		{label = nil, id = 0}, // a line between them
 		{label = "Quit", id = MENU_QUIT},
 	}
@@ -388,7 +374,7 @@ tray_menu :: proc(ui: ^UI) {
 @(private = "file")
 tray_clicked :: proc "c" (handle: ^tray.Tray, userdata: rawptr) {
 	ui := (^UI)(userdata)
-	ui.tray.request = .Show_Window
+	ui.tray.request = .Toggle_Window
 }
 
 // A click on a notification, or on one of its buttons (it has none).
@@ -406,8 +392,6 @@ tray_menu_picked :: proc "c" (handle: ^tray.Tray, item_id: i32, userdata: rawptr
 	switch item_id {
 	case MENU_WINDOW:
 		ui.tray.request = .Toggle_Window
-	case MENU_DISCONNECT:
-		ui.tray.request = .Disconnect
 	case MENU_QUIT:
 		ui.tray.request = .Quit
 	}

@@ -95,9 +95,6 @@ Net_Session :: struct {
 	// The microphone is wanted, and has been opened, or tried to be
 	// (session_capture_update).
 	capture_on:     bool,
-	// An explicit disconnect keeps playback open while this local effect
-	// drains. Application shutdown and reconnects skip it.
-	goodbye_tail:   bool,
 }
 
 Extra_Key :: enum {
@@ -127,7 +124,6 @@ Action :: enum {
 	Start, // connect to every joined server, on the first frame
 	Connect,
 	Disconnect,
-	Close, // the tray's Disconnect: off the rail for now, still joined
 	Trust_Key, // the connect screen's "trust the new key" (ui_known_servers.odin)
 }
 
@@ -171,9 +167,6 @@ UI :: struct {
 	// What the UI keeps of the shown server, which each session keeps
 	// while it isn't shown (Net_Session.stash; ui_servers.odin).
 	using srv:           Server_UI,
-	// Sessions off the rail whose goodbye sound is still playing out
-	// (disconnect_tail_step).
-	closing:             [dynamic]^Net_Session,
 	// The session in voice, as of this frame (session_capture_update).
 	voice_at:            ^Net_Session,
 	// The rail was clicked: which session to show after the frame. See
@@ -213,6 +206,8 @@ UI :: struct {
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
 	monitor:             Mic_Monitor,
 	listen_back:         bool,
+	// The welcome and goodbye sounds (ui_app_sounds.odin).
+	app_sound:           App_Sound,
 	// The voice gate section, with the meter, was on screen last frame
 	// (gate_settings); the microphone is only opened for it then.
 	meter_shown:         bool,
@@ -352,6 +347,7 @@ run_ui :: proc(opts: UI_Options) -> bool {
 		return false
 	}
 	for ui_frame(ui) {}
+	app_sound_goodbye(ui)
 	ui_shutdown(ui)
 	return true
 }
@@ -383,6 +379,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	// the settings page shows what went wrong.
 	audio.audio_init(&ui.audio)
 	app_audio_init(ui)
+	app_sound_play(ui, .Welcome)
 
 	glfw.SetErrorCallback(glfw_error_callback)
 	if !glfw.Init() {
@@ -449,9 +446,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	case .Connect:
 		connect(ui)
 	case .Disconnect:
-		disconnect(ui, ui.session, true)
-	case .Close:
-		disconnect(ui, ui.session, true, leave = false)
+		disconnect(ui, ui.session)
 	case .Trust_Key:
 		trust_new_key(ui)
 	}
@@ -459,7 +454,6 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	join_frame(ui)
 	rail_frame(ui)
 	switch_now(ui)
-	disconnect_tail_step(ui)
 
 	// Wake up for input, or often enough for the work below that isn't
 	// drawing; a frame is only drawn when there's something new to show
@@ -486,6 +480,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		set_listen_back(ui, false)
 	}
 	monitor_update(ui)
+	app_sound_step(ui)
 	session_capture_update(ui)
 	app_audio_frame(ui)
 	servers_frame(ui)
@@ -723,10 +718,10 @@ settle :: proc(ui: ^UI) {
 ui_shutdown :: proc(ui: ^UI) {
 	disconnect_all(ui)
 	delete(ui.sessions)
-	delete(ui.closing)
 	hotkeys_stop(ui)
 	tray_hide(ui)
 	monitor_stop(ui)
+	app_sound_stop(ui)
 	if ui.settings_dirty {
 		save_settings(ui)
 	}
@@ -1143,9 +1138,6 @@ session_slot :: proc(ui: ^UI) -> i32 {
 		for other in ui.sessions {
 			taken ||= other.slot == slot
 		}
-		for other in ui.closing {
-			taken ||= other.slot == slot
-		}
 		if !taken {
 			return slot
 		}
@@ -1153,14 +1145,11 @@ session_slot :: proc(ui: ^UI) -> i32 {
 }
 
 /*
-disconnect leaves a server: its session ends, it's no longer joined
-(unless not to `leave`, when it's back the next time the client
-starts), and if it was the one shown, the one beside it in the rail is.
-With `play_goodbye` the goodbye sound plays out first, the session
-waiting in `closing` until it has. One being joined from the + dialog
-is given up instead. Between frames.
+disconnect leaves a server: its session ends, it's no longer joined,
+and if it was the one shown, the one beside it in the rail is. One being
+joined from the + dialog is given up instead. Between frames.
 */
-disconnect :: proc(ui: ^UI, ns: ^Net_Session, play_goodbye := false, leave := true) {
+disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	if ns == nil {
 		return
 	}
@@ -1168,10 +1157,8 @@ disconnect :: proc(ui: ^UI, ns: ^Net_Session, play_goodbye := false, leave := tr
 		join_close(ui)
 		return
 	}
-	if leave {
-		settings.leave_server(&ui.settings, ns.server)
-		save_settings(ui)
-	}
+	settings.leave_server(&ui.settings, ns.server)
+	save_settings(ui)
 	in_voice: bool
 	{
 		sync.guard(&ns.view.mutex)
@@ -1183,19 +1170,6 @@ disconnect :: proc(ui: ^UI, ns: ^Net_Session, play_goodbye := false, leave := tr
 		app_audio_stop(ui)
 	}
 	session_remove(ui, ns)
-	if play_goodbye && sync.atomic_load(&ns.client.voice.output) {
-		// Stop the network producer, but leave the playback callback running.
-		// The UI then owns the playback ring until the goodbye clip drains.
-		audio.close_capture(&ns.streams, &ns.client.voice)
-		sync.atomic_store(&ns.stop, true)
-		net_stop(ns)
-		ns.goodbye_tail = true
-		audio.voice_notification_play(&ns.client.voice, .Goodbye)
-		if audio.notifications_pending(&ns.client.voice.notifications) {
-			append(&ui.closing, ns)
-			return
-		}
-	}
 	session_free(ui, ns)
 }
 
@@ -1235,31 +1209,13 @@ session_remove :: proc(ui: ^UI, ns: ^Net_Session) {
 	show_session(ui, next)
 }
 
-// disconnect_tail_step runs after explicit disconnects: no network thread
-// is writing playback now, so the UI fills it until each goodbye clip has
-// drained.
-@(private = "file")
-disconnect_tail_step :: proc(ui: ^UI) {
-	for i := len(ui.closing) - 1; i >= 0; i -= 1 {
-		ns := ui.closing[i]
-		audio.notification_tail_step(&ns.client.voice)
-		if !audio.notifications_pending(&ns.client.voice.notifications) &&
-		   audio.ring_available(&ns.client.voice.playback) == 0 {
-			unordered_remove(&ui.closing, i)
-			session_free(ui, ns)
-		}
-	}
-}
-
 // session_free stops a session that's off the rail and frees it.
 session_free :: proc(ui: ^UI, ns: ^Net_Session) {
 	app_audio_session_gone(ui, ns)
 	// Devices first, so nothing touches the rings once the voice goes away.
 	audio.close_streams(&ns.streams, &ns.client.voice)
-	if !ns.goodbye_tail {
-		sync.atomic_store(&ns.stop, true)
-		net_stop(ns)
-	}
+	sync.atomic_store(&ns.stop, true)
+	net_stop(ns)
 	audio.voice_destroy(&ns.client.voice)
 	free(ns.client)
 	conn.view_destroy(&ns.view)
@@ -1279,10 +1235,6 @@ disconnect_all :: proc(ui: ^UI) {
 		session_remove(ui, ns)
 		session_free(ui, ns)
 	}
-	for ns in ui.closing {
-		session_free(ui, ns)
-	}
-	clear(&ui.closing)
 }
 
 // set_muted plays the muted/unmuted sound, unless it's part of a
@@ -1386,7 +1338,7 @@ session_capture_update :: proc(ui: ^UI) {
 	test := mic_test_wanted(ui)
 	tester := ui.voice_at if ui.voice_at != nil else ui.session
 	for ns in ui.sessions {
-		if ns.goodbye_tail || !ns.client.voice.ready {
+		if !ns.client.voice.ready {
 			continue
 		}
 		want := ns == ui.voice_at || (test && ns == tester)

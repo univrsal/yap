@@ -482,7 +482,8 @@ inbox_icon :: proc(ui: ^UI) {
 
 /*
 rail_bottom is the bottom of the rail: how the shown server's connection
-is doing (ui_connection.odin), and the settings. Neither is one
+is doing (ui_connection.odin), and the settings, opened and closed by the
+same button. Neither is one
 conversation's, nor scrolls away with the rail's servers.
 */
 @(private = "file")
@@ -498,7 +499,11 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 	}
 	mu.layout_set_next(ctx, {x, settings_y, ICON_BUTTON, ICON_BUTTON}, false)
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
-		open_settings(ui)
+		if ui.page == .Settings {
+			ui.page = .Main
+		} else {
+			open_settings(ui)
+		}
 	}
 }
 
@@ -727,7 +732,7 @@ rail_frame :: proc(ui: ^UI) {
 	}
 	server := strings.clone(ns.server, context.temp_allocator)
 	log.infof("ui: leaving %s", server)
-	disconnect(ui, ns, play_goodbye = true)
+	disconnect(ui, ns)
 	if rl.forget_key && conn.forget_server_key(ui.opts.known_servers, server) {
 		log.infof("forgot the key of %s", server)
 		ui.known.loaded = false
@@ -754,9 +759,11 @@ switch_now :: proc(ui: ^UI) {
 	for ns in ui.sessions {
 		if ns == ui.switch_to {
 			show_session(ui, ns)
+			// Away from the inbox or the settings, even for the one
+			// that's shown already.
 			if dm != 0 {
 				open_conversation(ui, dm)
-			} else if ui.page == .Buddies {
+			} else {
 				ui.page = .Main
 			}
 			if settings_after {

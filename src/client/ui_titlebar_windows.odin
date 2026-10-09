@@ -122,17 +122,15 @@ title_proc :: proc "system" (
 }
 
 // titlebar_merge lets the UI take the title bar's place. Called once
-// the window has its rendering set up.
+// each window has its rendering set up: hiding to the tray takes the
+// window down, and the one that comes back is a new one.
 titlebar_merge :: proc(window: glfw.WindowHandle) {
 	hwnd := win.HWND(glfw.GetWin32Window(window))
-	if hwnd == nil || glfw_proc != nil {
+	ours := win.LONG_PTR(uintptr(rawptr(title_proc)))
+	if hwnd == nil || win.GetWindowLongPtrW(hwnd, win.GWLP_WNDPROC) == ours {
 		return
 	}
-	previous := win.SetWindowLongPtrW(
-		hwnd,
-		win.GWLP_WNDPROC,
-		win.LONG_PTR(uintptr(rawptr(title_proc))),
-	)
+	previous := win.SetWindowLongPtrW(hwnd, win.GWLP_WNDPROC, ours)
 	glfw_proc = cast(win.WNDPROC)rawptr(uintptr(previous))
 	// A sliver of frame keeps the shadow around the window.
 	margins := win.MARGINS{0, 0, 1, 0}

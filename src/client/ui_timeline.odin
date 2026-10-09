@@ -152,6 +152,10 @@ UI_Timeline :: struct {
 	shown:        bool,
 	reading:      proto.Conv_Id,
 	reading_to:   rawptr,
+	// The conversation drawn last frame, focused or not, and in which
+	// session (dm_open).
+	open:         proto.Conv_Id,
+	open_to:      rawptr,
 	// A message to go to (ui_pins.odin), and whether the page around it
 	// has been asked for; and the one gone to, lit up for a while.
 	jump_to:      proto.Msg_Id,
@@ -1335,6 +1339,8 @@ timeline_reading :: proc(ui: ^UI, focused: bool) {
 	if st.shown && st.follow && focused {
 		reading = st.key.conv
 	}
+	st.open = st.key.conv if st.shown else 0
+	st.open_to = rawptr(ui.session)
 	st.shown = false
 	// A new session knows of nothing being read.
 	session := rawptr(ui.session)

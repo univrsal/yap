@@ -788,10 +788,33 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 		return
 	}
 	interrupts, mention := conv_new_message(c, m)
+	// A DM from someone else is said on the desktop whatever's in it
+	// (unless it's muted); the UI leaves it out while it's being read.
+	info := c.convs.convs[m.conv] or_else Conv_Info{}
+	dm :=
+		info.kind == .DM &&
+		info.notify != .None &&
+		m.sender != c.auth.me &&
+		m.kind != .System &&
+		.Deleted not_in m.flags
+	if dm {
+		publish_mentioned(
+			c,
+			account_display(c, m.sender),
+			room_name(c, proto.Room(m.conv)),
+			dm_notice_text(c, m),
+			m.conv,
+			m.id,
+			dm = true,
+		)
+	}
 	switch {
 	case mention:
 		// Its own sound, and said on the desktop like a poke.
 		audio.voice_notification_play(&c.voice, .Mail)
+		if dm {
+			break // said above
+		}
 		shown, _ := mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 		publish_mentioned(
 			c,
@@ -842,6 +865,19 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 @(private = "file")
 cache_has_newer :: proc(cache: ^Conv_Cache, id: proto.Msg_Id) -> bool {
 	return len(cache.messages) > 0 && id <= cache.messages[len(cache.messages) - 1].id
+}
+
+// dm_notice_text is a DM as its desktop notification says it.
+@(private = "file")
+dm_notice_text :: proc(c: ^Voice_Client, m: proto.Message) -> string {
+	if m.kind == .File {
+		return fmt.tprintf("Sent you the file %q", m.file_name)
+	}
+	text, _ := mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
+	if text == "" && .Has_Attachments in m.flags {
+		return "Sent you a file"
+	}
+	return text
 }
 
 // describe is a message as the log shows it (headless).

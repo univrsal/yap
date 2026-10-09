@@ -212,6 +212,9 @@ View_Mention :: struct {
 	// The message, for a notification to go to when it's clicked.
 	conv:  proto.Conv_Id,
 	msg:   proto.Msg_Id,
+	// Not a mention but a DM (`place` is who it's with), which isn't
+	// told while it's being read.
+	dm:    bool,
 }
 
 SPEAKING_HOLD :: 250 * time.Millisecond
@@ -379,6 +382,7 @@ publish_mentioned :: proc(
 	name, place, text: string,
 	conv: proto.Conv_Id,
 	msg: proto.Msg_Id,
+	dm := false,
 ) {
 	v := c.view
 	if v == nil {
@@ -393,6 +397,7 @@ publish_mentioned :: proc(
 			text = strings.clone(text),
 			conv = conv,
 			msg = msg,
+			dm = dm,
 		},
 	)
 }
@@ -412,6 +417,7 @@ view_take_mentions :: proc(v: ^View) -> []View_Mention {
 			text  = strings.clone(m.text, context.temp_allocator),
 			conv  = m.conv,
 			msg   = m.msg,
+			dm    = m.dm,
 		}
 		delete(m.name)
 		delete(m.place)

@@ -70,12 +70,9 @@ CATEGORY_WIDTH :: 160
 settings_page :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 
-	title_row(ui, {-80, 70})
-
+	// The rail's settings button, the inbox or a server closes it.
+	title_row(ui, {-1})
 	mu.label(ctx, "Settings")
-	if .SUBMIT in mu.button(ctx, "Back") {
-		ui.page = .Main
-	}
 
 	// The server's tab is there while we're logged in to one, with what
 	// we may do there.

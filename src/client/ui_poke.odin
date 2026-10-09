@@ -17,15 +17,16 @@ side logs it) and the window asks for attention, which is what a
 taskbar shows.
 
 Poking someone is in their menu (user_menu). Being mentioned
-(conn/mentions.odin), and a call coming in (ui_calls.odin), are told the
-same way. They're told from every server, not only the one shown, and
-where there are several, which one's it is.
+(conn/mentions.odin), a DM (unless it's being read: dm_open), and a call
+coming in (ui_calls.odin), are told the same way. They're told from
+every server, not only the one shown, and where there are several, which
+one's it is.
 */
 
 /*
 session_notices tells of what a server has for us since the last frame:
 pokes, mentions of us (in a conversation being read too, but not a
-muted one: conv_new_message), and a call coming in (once). With `named`, the server's name goes with it. Between frames,
+muted one: conv_new_message), DMs, and a call coming in (once). With `named`, the server's name goes with it. Between frames,
 with no View locked.
 */
 session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
@@ -56,9 +57,16 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 		notice(ui, fmt.tprintf("%s poked you%s", p.name, on), p.message)
 	}
 	for m in conn.view_take_mentions(v) {
+		if m.dm && dm_open(ui, ns, m.conv) {
+			continue
+		}
+		title := fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on)
+		if m.dm {
+			title = fmt.tprintf("%s messaged you%s", m.name, on)
+		}
 		notice(
 			ui,
-			fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on),
+			title,
 			conn.markdown_plain(m.text),
 			target = {ui = ui, ns = ns, conv = m.conv, msg = m.msg},
 		)
@@ -72,6 +80,21 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 			attention = true,
 		)
 	}
+}
+
+/*
+dm_open is whether a DM is being read, so a message in it needn't be told
+on the desktop: it's the conversation drawn last frame, in the window,
+which has the focus. Wayland doesn't say which window has it, so there
+being open is enough.
+*/
+@(private = "file")
+dm_open :: proc(ui: ^UI, ns: ^Net_Session, conv: proto.Conv_Id) -> bool {
+	st := &ui.timeline
+	if ui.window == nil || ui.hidden || st.open != conv || st.open_to != rawptr(ns) {
+		return false
+	}
+	return on_wayland() || ALWAYS_FOCUSED || glfw.WindowFocused(ui.window)
 }
 
 // Notice_Target is where clicking a notification goes: the message that
