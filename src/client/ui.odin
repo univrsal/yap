@@ -1620,8 +1620,8 @@ session_header :: proc(ui: ^UI) {
 	// The status, then the connection indicator and the buttons, each
 	// ICON_BUTTON wide plus the spacing between them. Mute, deafen and
 	// what's shared are in the voice panel (ui_voice_panel.odin).
-	icons := 4
-	widths: [6]i32
+	icons := 3
+	widths: [5]i32
 	widths[0] = -i32(1 + (ICON_BUTTON + 4) * icons)
 	for &w in widths[1:][:icons] {
 		w = ICON_BUTTON
@@ -1638,32 +1638,8 @@ session_header :: proc(ui: ^UI) {
 	}
 	connection_indicator(ui)
 	buddies_button(ui)
-	log_button(ui)
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
 		open_settings(ui)
-	}
-}
-
-// log_button shows the log in place of the chat, from the channels or
-// the buddies, and pressed again goes back to the chat.
-@(private = "file")
-log_button :: proc(ui: ^UI) {
-	open := ui.page == .Main && ui.chat.tab == .Log
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "log",
-		   .Log,
-		   "Back to the chat" if open else "Log",
-		   theme.chat_name if open else mu.Color{},
-	   ) {
-		if open {
-			ui.chat.tab = .Chat
-		} else {
-			ui.page = .Main
-			ui.chat.tab = .Log
-			ui.log_seen = -1
-		}
 	}
 }
 
