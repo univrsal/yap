@@ -262,10 +262,12 @@ UI :: struct {
 	// Logical pixels per window coordinate, for mouse input. See
 	// window_metrics.
 	input_scale:         f32,
-	// The strip along the top where macOS draws the window's buttons
-	// over the UI, in logical pixels: where the first row starts, and
-	// how tall the strip is. Zero elsewhere (see ui_titlebar_darwin.odin).
+	// The strip along the top where macOS and Windows draw the window's
+	// buttons over the UI, in logical pixels: where the first row starts,
+	// how far in from the right it ends, and how tall the strip is. Zero
+	// elsewhere (see ui_titlebar_darwin.odin, ui_titlebar_windows.odin).
 	titlebar_left:       i32,
+	titlebar_right:      i32,
 	titlebar_height:     i32,
 	// Where this frame's text boxes are, and whether one has the focus:
 	// for a phone's keyboard, in a web build (see ui_text_box.odin).
@@ -543,8 +545,9 @@ draw_frame :: proc(ui: ^UI) {
 		ui.metrics = m
 	}
 	ui.input_scale = m.input_scale
-	left, height := titlebar_area(ui.window)
+	left, right, height := titlebar_area(ui.window)
 	ui.titlebar_left = i32(left * m.input_scale)
+	ui.titlebar_right = i32(right * m.input_scale)
 	ui.titlebar_height = i32(height * m.input_scale)
 	// Whatever asked for this frame has it; the layout asks again for
 	// what still needs more (see frame_due).
@@ -1417,6 +1420,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 		cnt.zindex = -1
 	}
 	if mu.begin_window(ctx, "yap", {rail, 0, w - rail, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+		titlebar_buttons(ui, w)
 		main_window(ui)
 		mu.end_window(ctx)
 	}
@@ -1603,16 +1607,26 @@ session_screen :: proc(ui: ^UI) {
 }
 
 /*
-title_row is mu.layout_row for a screen's first row. On macOS that row
-shares the top of the window with the close, minimize and zoom buttons
-(see ui_titlebar_darwin.odin), so it starts to the right of them; the
-widths counted from the right-hand edge stay where they are.
+title_row is mu.layout_row for a screen's first row. That row shares the
+top of the window with the window's buttons (see ui_titlebar_darwin.odin,
+ui_titlebar_windows.odin), so it keeps clear of them: on macOS they're on
+the left, and it starts to the right of them; on Windows they're on the
+right, and the widths counted from the right-hand edge are counted from
+them instead.
 */
 title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 	layout := mu.get_layout(&ui.ctx)
 	indent := layout.indent
 	layout.indent += max(ui.titlebar_left - layout.body.x, 0)
-	mu.layout_row(&ui.ctx, widths, height)
+	if ui.titlebar_right == 0 {
+		mu.layout_row(&ui.ctx, widths, height)
+	} else {
+		kept_clear := make([]i32, len(widths), context.temp_allocator)
+		for w, i in widths {
+			kept_clear[i] = w <= 0 ? w - ui.titlebar_right : w
+		}
+		mu.layout_row(&ui.ctx, kept_clear, height)
+	}
 	layout.indent = indent
 }
 

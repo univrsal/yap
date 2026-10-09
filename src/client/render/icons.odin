@@ -50,6 +50,11 @@ Icon :: enum {
 	Edit, // a pencil: edit a message
 	Phone, // a telephone receiver: call someone
 	Mail, // a closed envelope: for direct messages
+	// The window's own controls, where Windows has none (ui_titlebar_windows.odin).
+	Minimize, // a line
+	Maximize, // a box
+	Restore, // two boxes, one behind the other
+	Close, // a cross
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -213,9 +218,30 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return receiver(p)
 	case .Mail:
 		return mail_letter(p)
+	case .Minimize:
+		return capsule(p, {0.2, 0.5}, {0.8, 0.5}, WINDOW_STROKE)
+	case .Maximize:
+		return abs(rounded_box(p, {0.5, 0.5}, {0.3, 0.3}, 0.02)) - WINDOW_STROKE / 2
+	case .Restore:
+		// The box in front hides the part of the one behind it that
+		// it covers.
+		front := abs(rounded_box(p, {0.43, 0.57}, {0.23, 0.23}, 0.02)) - WINDOW_STROKE / 2
+		back := abs(rounded_box(p, {0.57, 0.43}, {0.23, 0.23}, 0.02)) - WINDOW_STROKE / 2
+		covered := rounded_box(p, {0.43, 0.57}, {0.23 + WINDOW_STROKE, 0.23 + WINDOW_STROKE}, 0.02)
+		return nearer(front, max(back, -covered))
+	case .Close:
+		return nearer(
+			capsule(p, {0.2, 0.2}, {0.8, 0.8}, WINDOW_STROKE),
+			capsule(p, {0.8, 0.2}, {0.2, 0.8}, WINDOW_STROKE),
+		)
 	}
 	return 1
 }
+
+// How thick the lines of the window's controls are: about a pixel, at
+// the icon's usual size.
+@(private = "file")
+WINDOW_STROKE :: 0.07
 
 // A telephone receiver, earpiece at the top right and mouthpiece at the
 // bottom left: a thick quarter of a ring bulging to the bottom right, and

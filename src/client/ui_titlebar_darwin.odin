@@ -51,18 +51,19 @@ titlebar_merge :: proc(window: glfw.WindowHandle) {
 
 /*
 titlebar_area is the strip along the top that the title bar would have
-taken, in window coordinates: how far in from the left the window's own
-buttons reach, and how tall the strip is. Zero in fullscreen, where the
+taken, in window coordinates: how far in from the left and from the right
+the window's own buttons reach (only the left here), and how tall the
+strip is. Zero in fullscreen, where the
 title bar only slides in over the UI when the pointer goes up there.
 */
-titlebar_area :: proc(window: glfw.WindowHandle) -> (left, height: f32) {
+titlebar_area :: proc(window: glfw.WindowHandle) -> (left, right, height: f32) {
 	w := vglfw.GetCocoaWindow(window)
 	if w == nil {
 		return
 	}
 	height = f32(w->frame().size.height - w->contentLayoutRect().size.height)
 	if height <= 0 {
-		return 0, 0
+		return 0, 0, 0
 	}
 	if zoom := intrinsics.objc_send(
 		^NS.View,
@@ -109,3 +110,6 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 		w->performZoom()
 	}
 }
+
+// The buttons are the system's here.
+titlebar_buttons :: proc(ui: ^UI, w: i32) {}
