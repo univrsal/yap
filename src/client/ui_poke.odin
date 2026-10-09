@@ -60,6 +60,7 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 			ui,
 			fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on),
 			conn.markdown_plain(m.text),
+			target = {ui = ui, ns = ns, conv = m.conv, msg = m.msg},
 		)
 	}
 	if call != 0 && call != ns.call_announced {
@@ -73,11 +74,37 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 	}
 }
 
+// Notice_Target is where clicking a notification goes: the message that
+// caused it, if there is one, on the server (session) it came from.
+Notice_Target :: struct {
+	ui:   ^UI,
+	ns:   ^Net_Session,
+	conv: proto.Conv_Id,
+	msg:  proto.Msg_Id,
+}
+
+// notice_open goes to what a clicked notification was about, if that's
+// a message and its server is still there.
+notice_open :: proc(ui: ^UI, target: Notice_Target) {
+	if target.msg == 0 {
+		return
+	}
+	for ns in ui.sessions {
+		if ns == target.ns && !ns.joining {
+			show_session(ui, ns)
+			sync.guard(&ui.view.mutex)
+			go_to_message(ui, target.conv, target.msg)
+			ui_redraw(ui)
+			return
+		}
+	}
+}
+
 // notice puts something on the desktop; without a way to, or with
 // `attention`, the window asks for it too.
 @(private = "file")
-notice :: proc(ui: ^UI, title, body: string, attention := false) {
-	if (!tray_notify(ui, title, body) || attention) && ui.window != nil {
+notice :: proc(ui: ^UI, title, body: string, attention := false, target := Notice_Target{}) {
+	if (!tray_notify(ui, title, body, target) || attention) && ui.window != nil {
 		glfw.RequestWindowAttention(ui.window)
 	}
 }

@@ -207,6 +207,9 @@ View_Mention :: struct {
 	name:  string, // who mentioned us; owned
 	place: string, // where; owned
 	text:  string, // what they said, as shown; owned
+	// The message, for a notification to go to when it's clicked.
+	conv:  proto.Conv_Id,
+	msg:   proto.Msg_Id,
 }
 
 SPEAKING_HOLD :: 250 * time.Millisecond
@@ -369,7 +372,12 @@ view_clear_pokes :: proc(v: ^View) {
 	clear(&v.mentioned)
 }
 
-publish_mentioned :: proc(c: ^Voice_Client, name, place, text: string) {
+publish_mentioned :: proc(
+	c: ^Voice_Client,
+	name, place, text: string,
+	conv: proto.Conv_Id,
+	msg: proto.Msg_Id,
+) {
 	v := c.view
 	if v == nil {
 		return
@@ -377,7 +385,13 @@ publish_mentioned :: proc(c: ^Voice_Client, name, place, text: string) {
 	view_write(v)
 	append(
 		&v.mentioned,
-		View_Mention{strings.clone(name), strings.clone(place), strings.clone(text)},
+		View_Mention {
+			name = strings.clone(name),
+			place = strings.clone(place),
+			text = strings.clone(text),
+			conv = conv,
+			msg = msg,
+		},
 	)
 }
 
@@ -394,6 +408,8 @@ view_take_mentions :: proc(v: ^View) -> []View_Mention {
 			name  = strings.clone(m.name, context.temp_allocator),
 			place = strings.clone(m.place, context.temp_allocator),
 			text  = strings.clone(m.text, context.temp_allocator),
+			conv  = m.conv,
+			msg   = m.msg,
 		}
 		delete(m.name)
 		delete(m.place)

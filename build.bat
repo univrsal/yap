@@ -8,6 +8,8 @@ rem (src\client\tray), tinydialogs (src\client\dialogs) and tinyaac (src\client\
 rem third-party sources are in deps\thirdparty,
 rem with the static C runtime
 rem (/MT) like Odin's vendor libraries, so no runtime DLL is needed.
+rem libopus (src\client\audio\opus) is fetched into .cache and built with
+rem CMake, which comes with Visual Studio's C++ CMake tools.
 setlocal
 cd /d "%~dp0"
 if not exist bin mkdir bin
@@ -46,6 +48,14 @@ set AAC=src\client\audio\aac
 cl /nologo /MT /O1 /c %AAC%\yap_aac.c /Fo:%AAC%\yap_aac.obj || exit /b 1
 lib /nologo /out:%AAC%\yap_aac.lib %AAC%\yap_aac.obj || exit /b 1
 del %AAC%\yap_aac.obj
+
+rem libopus, for the voice codec (src\client\audio\opus): fetched into
+rem .cache on first use and built from the release source with the static
+rem C runtime, the float API without DRED or OSCE, which is what
+rem src\client\audio\opus binds. Delete opus.lib after changing
+rem scripts\opus.version to build it again.
+set OPUS=src\client\audio\opus
+if not exist %OPUS%\opus.lib call :build_opus || exit /b 1
 
 rem SQLite, for the server's database (src\server\sqlite): one big C file,
 rem fetched into .cache on first use and compiled the way yap_sqlite.c
@@ -104,6 +114,47 @@ cl /nologo /MT /O1 /I.cache\%SQLITE_NAME% /c %SQLITE%\yap_sqlite.c /Fo:%SQLITE%\
 lib /nologo /out:%SQLITE%\yap_sqlite.lib %SQLITE%\yap_sqlite.obj || exit /b 1
 del %SQLITE%\yap_sqlite.obj
 exit /b 0
+
+:build_opus
+rem scripts\opus.version is name=value lines, and # comments.
+for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\opus.version") do set "%%a=%%b"
+set OPUS_NAME=opus-%opus_version%
+if not exist .cache mkdir .cache
+if exist .cache\%OPUS_NAME%\CMakeLists.txt goto :compile_opus
+if not exist .cache\%OPUS_NAME%.tar.gz (
+	echo fetching opus %opus_version%
+	curl -fL --retry 3 -o .cache\%OPUS_NAME%.tar.gz.part https://downloads.xiph.org/releases/opus/%OPUS_NAME%.tar.gz || exit /b 1
+	move /y .cache\%OPUS_NAME%.tar.gz.part .cache\%OPUS_NAME%.tar.gz >nul || exit /b 1
+)
+certutil -hashfile .cache\%OPUS_NAME%.tar.gz SHA256 | findstr /x /i /c:"%opus_sha256%" >nul
+if errorlevel 1 (
+	echo .cache\%OPUS_NAME%.tar.gz: checksum mismatch; delete it to fetch it again
+	exit /b 1
+)
+tar -xzf .cache\%OPUS_NAME%.tar.gz -C .cache || exit /b 1
+:compile_opus
+echo building %OPUS%\opus.lib
+where cmake >nul 2>nul || goto :no_cmake
+rem Ninja if it's there (it comes with CMake in Visual Studio), as NMake
+rem builds one file at a time.
+set "OPUS_GEN=NMake Makefiles"
+where ninja >nul 2>nul && set OPUS_GEN=Ninja
+if exist .cache\%OPUS_NAME%-windows rmdir /s /q .cache\%OPUS_NAME%-windows
+cmake -S .cache\%OPUS_NAME% -B .cache\%OPUS_NAME%-windows -G "%OPUS_GEN%" ^
+	-DCMAKE_BUILD_TYPE=Release ^
+	-DCMAKE_C_COMPILER=cl ^
+	-DOPUS_STATIC_RUNTIME=ON ^
+	-DOPUS_BUILD_PROGRAMS=OFF ^
+	-DOPUS_BUILD_TESTING=OFF ^
+	-DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF ^
+	-DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF >nul || exit /b 1
+cmake --build .cache\%OPUS_NAME%-windows --parallel || exit /b 1
+copy /y .cache\%OPUS_NAME%-windows\opus.lib %OPUS%\opus.lib >nul || exit /b 1
+exit /b 0
+
+:no_cmake
+echo CMake is needed to build libopus: install Visual Studio's "C++ CMake tools for Windows"
+exit /b 1
 
 :add_version
 if "%YAP_VERSION:~0,1%"=="v" set "YAP_VERSION=%YAP_VERSION:~1%"

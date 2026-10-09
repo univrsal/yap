@@ -120,7 +120,7 @@ fi
 
 # libopus on macOS and OpenBSD: there's no prebuilt library for them in
 # src/client/audio/opus, so it's built from the release source
-# (scripts/fetch-opus.sh), the float API without DRED or OSCE, which is
+# (scripts/fetch-opus.sh, scripts/opus.version), the float API without DRED or OSCE, which is
 # what src/client/audio/opus binds.
 case "$(uname -s)" in
 Darwin) opus_os=macos ;;
@@ -130,7 +130,8 @@ esac
 if [ -n "$opus_os" ] && [ ! -f "src/client/audio/opus/libopus_$opus_os.a" ]; then
 	scripts/fetch-opus.sh .cache
 	echo "building src/client/audio/opus/libopus_$opus_os.a"
-	cmake -S .cache/opus-1.6 -B ".cache/opus-$opus_os" \
+	. scripts/opus.version
+	cmake -S ".cache/opus-$opus_version" -B ".cache/opus-$opus_os" \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DOPUS_BUILD_PROGRAMS=OFF \
 		-DOPUS_BUILD_TESTING=OFF \

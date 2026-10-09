@@ -1,9 +1,9 @@
 /*
 Bindings for libopus (https://opus-codec.org), statically linked from the
-prebuilt libraries in this directory:
+libraries in this directory:
 
-	libopus.a          Linux x86-64
-	opus.lib           Windows x86-64 (MSVC)
+	libopus.a          Linux x86-64, prebuilt
+	opus.lib           Windows x86-64; not kept in the repo, build.bat builds it
 	libopus_macos.a    macOS; not kept in the repo, build.sh builds it
 	libopus_openbsd.a  OpenBSD; likewise
 
@@ -45,7 +45,7 @@ when ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin || ODIN_OS =
 		#panic(
 			"src/client/audio/opus/" +
 			LIB +
-			" is missing (on macOS and OpenBSD, build it with build.sh)",
+			" is missing (build it with build.sh, or build.bat on Windows)",
 		)
 	}
 }

@@ -1,13 +1,13 @@
 #!/bin/sh
 # Makes sure the libopus source is unpacked in <deps-dir>/opus-<version>,
-# fetching and checking the release tarball if need be. The desktop
-# builds link prebuilt libraries in client/audio/opus (macOS and OpenBSD build
-# their own, see build.sh) and the web build compiles it for wasm (web/build.sh);
-# the source is too big to keep in the repo (its DNN model data).
+# fetching and checking the release tarball if need be. macOS and OpenBSD
+# build it into client/audio/opus (build.sh; Windows does the same in
+# build.bat, Linux links the prebuilt libopus.a) and the web build
+# compiles it for wasm (web/build.sh); the source is too big to keep in
+# the repo (its DNN model data).
 # Usage: scripts/fetch-opus.sh <deps-dir>
 set -e
-opus_version=1.6
-opus_sha256=b7637334527201fdfd6dd6a02e67aceffb0e5e60155bbd89175647a80301c92c
+. "$(dirname "$0")/opus.version"
 deps=${1:?usage: fetch-opus.sh <deps-dir>}
 [ -d "$deps/opus-$opus_version" ] && exit 0
 mkdir -p "$deps"

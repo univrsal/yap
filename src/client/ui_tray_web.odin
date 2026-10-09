@@ -27,7 +27,8 @@ on_wayland :: proc() -> bool {return false}
 
 // tray_notify is a browser notification here: there's no tray, but the
 // browser has its own, once the user has allowed it (see web/shell.c).
-tray_notify :: proc(ui: ^UI, title, body: string) -> bool {
+// Clicking it only brings the tab up; it doesn't go to `target`.
+tray_notify :: proc(ui: ^UI, title, body: string, target := Notice_Target{}) -> bool {
 	return bool(
 		yap_notify(
 			strings.clone_to_cstring(title, context.temp_allocator),

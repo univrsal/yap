@@ -60,6 +60,9 @@ MENU_DISCONNECT :: 2
 @(private = "file")
 MENU_QUIT :: 3
 
+// How many notifications a click can still be told apart for.
+NOTICE_TARGETS :: 16
+
 // What a click asked for, acted on after traycon is done stepping.
 Tray_Request :: enum {
 	None,
@@ -80,6 +83,12 @@ Tray :: struct {
 	connected: bool,
 	hidden:    bool,
 	request:   Tray_Request,
+	// Where the notifications shown lately go when clicked, kept in a ring
+	// so a click (which only hands back a pointer into it) knows which one
+	// it was; `clicked` is where the last click on one went.
+	targets:   [NOTICE_TARGETS]Notice_Target,
+	next:      int,
+	clicked:   Notice_Target,
 	// The desktop wouldn't take an icon, or took ours away again. We
 	// stop asking until the setting is switched off and on, and leave
 	// the setting alone: it's the user's, and their tray may well be
@@ -131,6 +140,9 @@ tray_update :: proc(ui: ^UI) {
 		show_from_tray(ui)
 	case .Focus_Window:
 		focus_window(ui)
+		clicked := t.clicked
+		t.clicked = {}
+		notice_open(ui, clicked)
 	case .Toggle_Window:
 		if ui.hidden {
 			show_from_tray(ui)
@@ -382,7 +394,9 @@ tray_clicked :: proc "c" (handle: ^tray.Tray, userdata: rawptr) {
 // A click on a notification, or on one of its buttons (it has none).
 @(private = "file")
 tray_notification_clicked :: proc "c" (handle: ^tray.Tray, action_id: cstring, userdata: rawptr) {
-	ui := (^UI)(userdata)
+	target := (^Notice_Target)(userdata)
+	ui := target.ui
+	ui.tray.clicked = target^
 	ui.tray.request = .Focus_Window
 }
 
@@ -403,17 +417,22 @@ tray_menu_picked :: proc "c" (handle: ^tray.Tray, item_id: i32, userdata: rawptr
 tray_notify shows a desktop notification, through the tray icon: traycon
 has the desktop's notification service to hand once there's an icon.
 Called on the UI thread, which is the one traycon runs on. Clicking it
-brings the window up (focus_window). False if there's no icon to go
+brings the window up (focus_window), and goes to `target`'s message
+(notice_open) if it has one. False if there's no icon to go
 through, or the desktop wouldn't take it.
 */
-tray_notify :: proc(ui: ^UI, title, body: string) -> bool {
+tray_notify :: proc(ui: ^UI, title, body: string, target := Notice_Target{}) -> bool {
 	t := &ui.tray
 	if t.handle == nil {
 		return false
 	}
+	slot := &t.targets[t.next]
+	t.next = (t.next + 1) % NOTICE_TARGETS
+	slot^ = target
+	slot.ui = ui
 	ctitle := strings.clone_to_cstring(title, context.temp_allocator)
 	cbody := strings.clone_to_cstring(body, context.temp_allocator) if body != "" else nil
-	if tray.notify(t.handle, ctitle, cbody, nil, 0, tray_notification_clicked, ui) != 0 {
+	if tray.notify(t.handle, ctitle, cbody, nil, 0, tray_notification_clicked, slot) != 0 {
 		log.warn("tray: the desktop wouldn't show a notification")
 		return false
 	}

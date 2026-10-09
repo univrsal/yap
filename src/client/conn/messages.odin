@@ -793,7 +793,14 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 		// Its own sound, and said on the desktop like a poke.
 		audio.voice_notification_play(&c.voice, .Mail)
 		shown, _ := mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
-		publish_mentioned(c, account_display(c, m.sender), room_name(c, proto.Room(m.conv)), shown)
+		publish_mentioned(
+			c,
+			account_display(c, m.sender),
+			room_name(c, proto.Room(m.conv)),
+			shown,
+			m.conv,
+			m.id,
+		)
 		if c.view == nil {
 			log.infof(
 				"[mention] %s mentioned you in %s: %s",

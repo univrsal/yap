@@ -1,0 +1,5 @@
+# The libopus release src/client/audio/opus is bound against: read by
+# scripts/fetch-opus.sh (and with it build.sh and web/build.sh) and by
+# build.bat, so lines are name=value and nothing else.
+opus_version=1.6
+opus_sha256=b7637334527201fdfd6dd6a02e67aceffb0e5e60155bbd89175647a80301c92c

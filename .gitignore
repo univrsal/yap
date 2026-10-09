@@ -30,6 +30,7 @@ src/server/sqlite/*.obj
 src/client/assets/*.res
 web/out/
 web/deps/
+src/client/audio/opus/opus.lib
 src/client/audio/opus/libopus_macos.a
 src/client/audio/opus/libopus_openbsd.a
 .cache/

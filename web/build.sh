@@ -14,12 +14,11 @@ mkdir -p "$out"
 
 stb="$(odin root)/vendor/stb/src"
 
-# libopus, built for wasm. The desktop builds link the prebuilt libraries
-# in client/audio/opus; there's none for wasm, and the source is too big to keep
-# in the repo (its DNN model data), so the release client/audio/opus is bound
-# against is fetched once, checked and built into web/deps/ (gitignored).
-# Delete web/deps/ to build it again.
-opus_version=1.6
+# libopus, built for wasm. The source is too big to keep in the repo (its
+# DNN model data), so the release client/audio/opus is bound against
+# (scripts/opus.version) is fetched once, checked and built into
+# web/deps/ (gitignored). Delete web/deps/ to build it again.
+. scripts/opus.version
 deps=web/deps
 opus_build=$deps/opus-$opus_version-wasm
 opus_lib=$opus_build/libopus.a
