@@ -148,7 +148,25 @@ if errorlevel 1 (
 tar -xzf .cache\%OPUS_NAME%.tar.gz -C .cache || exit /b 1
 :compile_opus
 echo building %OPUS%\opus.lib
-where cmake >nul 2>nul || goto :fetch_webp
+where cmake >nul 2>nul || goto :no_cmake
+rem Ninja if it's there (it comes with CMake in Visual Studio), as NMake
+rem builds one file at a time.
+set "OPUS_GEN=NMake Makefiles"
+where ninja >nul 2>nul && set OPUS_GEN=Ninja
+if exist .cache\%OPUS_NAME%-windows rmdir /s /q .cache\%OPUS_NAME%-windows
+cmake -S .cache\%OPUS_NAME% -B .cache\%OPUS_NAME%-windows -G "%OPUS_GEN%" ^
+	-DCMAKE_BUILD_TYPE=Release ^
+	-DCMAKE_C_COMPILER=cl ^
+	-DOPUS_STATIC_RUNTIME=ON ^
+	-DOPUS_BUILD_PROGRAMS=OFF ^
+	-DOPUS_BUILD_TESTING=OFF ^
+	-DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF ^
+	-DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF >nul || exit /b 1
+cmake --build .cache\%OPUS_NAME%-windows --parallel || exit /b 1
+copy /y .cache\%OPUS_NAME%-windows\opus.lib %OPUS%\opus.lib >nul || exit /b 1
+exit /b 0
+
+:fetch_webp
 rem scripts\webp.version is name=value lines, and # comments.
 for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\webp.version") do set "%%a=%%b"
 set WEBP_NAME=libwebp-%webp_version%
@@ -194,24 +212,6 @@ cmake -S .cache\%WEBP_NAME% -B .cache\%WEBP_NAME%-windows -G "%WEBP_GEN%" ^
 cmake --build .cache\%WEBP_NAME%-windows --parallel || exit /b 1
 copy /y .cache\%WEBP_NAME%-windows\libwebp.lib %WEBP%\libwebp.lib >nul || exit /b 1
 copy /y .cache\%WEBP_NAME%-windows\libsharpyuv.lib %WEBP%\libsharpyuv.lib >nul || exit /b 1
-exit /b 0
-
-:no_cmake
-rem Ninja if it's there (it comes with CMake in Visual Studio), as NMake
-rem builds one file at a time.
-set "OPUS_GEN=NMake Makefiles"
-where ninja >nul 2>nul && set OPUS_GEN=Ninja
-if exist .cache\%OPUS_NAME%-windows rmdir /s /q .cache\%OPUS_NAME%-windows
-cmake -S .cache\%OPUS_NAME% -B .cache\%OPUS_NAME%-windows -G "%OPUS_GEN%" ^
-	-DCMAKE_BUILD_TYPE=Release ^
-	-DCMAKE_C_COMPILER=cl ^
-	-DOPUS_STATIC_RUNTIME=ON ^
-	-DOPUS_BUILD_PROGRAMS=OFF ^
-	-DOPUS_BUILD_TESTING=OFF ^
-	-DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF ^
-	-DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF >nul || exit /b 1
-cmake --build .cache\%OPUS_NAME%-windows --parallel || exit /b 1
-copy /y .cache\%OPUS_NAME%-windows\opus.lib %OPUS%\opus.lib >nul || exit /b 1
 exit /b 0
 
 :no_cmake

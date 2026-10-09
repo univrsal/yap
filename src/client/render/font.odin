@@ -10,12 +10,10 @@ import "core:unicode/utf8"
 The UI font: Roboto (embedded with #load), rasterized with stb_truetype.
 Every character the font has is used: its Latin, Greek and Cyrillic
 letters and common punctuation and symbols. Emoji (proto/emoji.odin)
-come from Noto Emoji, a single-colour outline font, drawn in the text's
-colour like any other glyph. Anything else comes from Unifont
-(unifont.odin) if it has it, and draws as the replacement character if
-not. Emoji glyphs are rasterized as they're first drawn, into Unifont's
-atlas, which is how the renderer gets them without a texture of their
-own.
+are pictures, in colour, from a sheet of them (emoji_atlas.odin): each
+takes a fixed room in the line and is drawn from a texture of its own,
+not from a font's atlas. Anything else comes from Unifont (unifont.odin)
+if it has it, and draws as the replacement character if not.
 
 A font has faces, one per Font_Style: Roboto Regular, which is what the
 UI uses, and for messages Roboto Bold, Italic and Bold Italic, and
@@ -60,13 +58,6 @@ FACE_DATA := [Font_Style][]u8 {
 	.Bold_Italic = #load("../assets/Roboto-BoldItalic.ttf"),
 	.Mono        = #load("../assets/JetBrainsMono-Regular.ttf"),
 }
-@(private = "file")
-EMOJI_FONT_DATA := #load("../assets/NotoEmoji.ttf")
-
-// How tall an emoji is, from the font's ascent to its descent, in
-// logical pixels: Unifont's cell, so it fits in that atlas's slots.
-EMOJI_SIZE :: UNIFONT_SIZE
-
 FONT_SIZE :: 15 // logical pixels, Regular's ascent to descent
 LINE_HEIGHT :: 18 // logical pixels; microui's default, which its layout metrics assume
 
@@ -114,11 +105,6 @@ Font :: struct {
 
 	// The fallback font, with an atlas of its own.
 	uni:        Unifont,
-	// The emoji font, which draws into that atlas too; and how much it's
-	// scaled by for EMOJI_SIZE (unscaled, in font units per logical pixel).
-	emoji:      stbtt.fontinfo,
-	emoji_ok:   bool,
-	emoji_unit: f32,
 }
 
 font_init :: proc(f: ^Font) -> bool {
@@ -138,11 +124,6 @@ font_init :: proc(f: ^Font) -> bool {
 	text_height := f32(ascent - descent) * s
 	f.baseline = (LINE_HEIGHT - text_height) / 2 + f32(ascent) * s
 
-	// Without its emoji the UI still works: they draw as the fallback.
-	if stbtt.InitFont(&f.emoji, raw_data(EMOJI_FONT_DATA), 0) {
-		f.emoji_ok = true
-		f.emoji_unit = stbtt.ScaleForPixelHeight(&f.emoji, EMOJI_SIZE)
-	}
 	f.zoom = 1
 	f.ok = true
 	return true
@@ -289,7 +270,7 @@ font_build_atlas :: proc(f: ^Font, style: Font_Style) -> bool {
 Glyph_Source :: enum {
 	Face, // the index is into the face's arrays
 	Unifont, // the index is the character itself
-	Emoji, // the index is the character itself
+	Emoji, // the index is its cell in the sheet (emoji_cell)
 	Placeholder, // one of the server's emoji, drawn over it by the UI: room, nothing drawn
 	None, // draws nothing and takes no room (is_ignorable)
 }
@@ -327,9 +308,9 @@ find_glyph :: proc(
 	if r == proto.CUSTOM_EMOJI_PLACEHOLDER {
 		return 0, .Placeholder, face
 	}
-	if f.emoji_ok && r >= 0xa9 {
-		if _, is := proto.emoji_index(r); is {
-			return int(r), .Emoji, face
+	if r >= 0xa9 {
+		if cell, is := emoji_cell(r); is {
+			return cell, .Emoji, face
 		}
 	}
 	if unifont_width(&f.uni, r) > 0 {
@@ -353,7 +334,7 @@ font_text_width_unzoomed :: proc(f: ^Font, text: string, style: Font_Style) -> f
 		case .Unifont:
 			w += f32(f.uni.width[i])
 		case .Emoji:
-			w += emoji_advance(f, r)
+			w += EMOJI_ADVANCE
 		case .Placeholder:
 			w += CUSTOM_EMOJI_ADVANCE
 		case .None:
@@ -367,59 +348,6 @@ font_text_width_unzoomed :: proc(f: ^Font, text: string, style: Font_Style) -> f
 CUSTOM_EMOJI_ADVANCE :: 19
 CUSTOM_EMOJI_SIZE :: 17
 
-// emoji_advance is how far an emoji moves the pen, in logical pixels.
-@(private = "file")
-emoji_advance :: proc(f: ^Font, r: rune) -> f32 {
-	advance, lsb: i32
-	stbtt.GetCodepointHMetrics(&f.emoji, r, &advance, &lsb)
-	return math.round(f32(advance) * f.emoji_unit)
-}
-
-// emoji_cache puts an emoji's glyph in Unifont's atlas at its scale, if
-// it isn't there already, and says which slot it has and where the glyph
-// is from the pen and the baseline (physical pixels). Fails once the
-// atlas is full, as unifont_cache does.
-@(private = "file")
-emoji_cache :: proc(f: ^Font, r: rune) -> (slot: i32, box: Emoji_Box, ok: bool) {
-	u := &f.uni
-	if s, found := u.slots[r]; found {
-		return s, u.emoji_boxes[r], true
-	}
-	if u.full || u.side == 0 {
-		return
-	}
-	slot = i32(len(u.slots))
-	if slot >= unifont_capacity(u) {
-		u.full = true
-		return
-	}
-	unifont_pixels(u)
-	scale := f.emoji_unit * u.scale
-	x0, y0, x1, y1: i32
-	stbtt.GetCodepointBitmapBox(&f.emoji, r, scale, scale, &x0, &y0, &x1, &y1)
-	// What doesn't fit in a slot is cut off; at EMOJI_SIZE nothing is.
-	box = {x0, y0, min(x1 - x0, u.cell - 1), min(y1 - y0, u.cell - 1)}
-	sx := (slot % u.per_row) * u.cell
-	sy := (slot / u.per_row) * u.cell
-	if box.w > 0 && box.h > 0 {
-		stbtt.MakeCodepointBitmap(
-			&f.emoji,
-			raw_data(u.pixels[int(sy) * int(u.side) + int(sx):]),
-			box.w,
-			box.h,
-			u.side,
-			scale,
-			scale,
-			r,
-		)
-	}
-	u.slots[r] = slot
-	u.emoji_boxes[r] = box
-	u.dirty_y0 = min(u.dirty_y0, sy)
-	u.dirty_y1 = max(u.dirty_y1, sy + u.cell)
-	return slot, box, true
-}
-
 // font_cache_glyphs puts the Unifont glyphs `text` needs in their atlas,
 // ahead of font_layout; the renderer uploads what changed in between.
 font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular) {
@@ -427,8 +355,6 @@ font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular) {
 		#partial switch _, source, _ := find_glyph(f, style, r); source {
 		case .Unifont:
 			unifont_cache(&f.uni, r)
-		case .Emoji:
-			emoji_cache(f, r)
 		}
 	}
 }
@@ -448,6 +374,7 @@ Glyph_Quad :: struct {
 	x0, y0, x1, y1: f32, // logical pixels
 	u0, v0, u1, v1: f32,
 	unifont:        bool, // from the Unifont atlas rather than a face's
+	emoji:          bool, // from the emoji sheet, in colour: neither of those
 	face:           Font_Style, // which face's atlas, if not
 }
 
@@ -544,32 +471,26 @@ font_layout_unzoomed :: proc(
 			}
 			pen += f32(u.width[i])
 		case .Emoji:
-			u := &f.uni
-			if slot, box, ok := emoji_cache(f, r); ok && u.scale == s {
-				px := origin + math.round(pen * s) + f32(box.x)
-				py := baseline + f32(box.y)
-				sx := f32((slot % u.per_row) * u.cell)
-				sy := f32((slot / u.per_row) * u.cell)
-				side := f32(u.side)
-				w, h := f32(box.w), f32(box.h)
-				emit(
-					data,
-					Glyph_Quad {
-						x0 = px / s,
-						y0 = py / s,
-						x1 = (px + w) / s,
-						y1 = (py + h) / s,
-						u0 = sx / side,
-						v0 = sy / side,
-						u1 = (sx + w) / side,
-						v1 = (sy + h) / side,
-						unifont = true,
-					},
-				)
-			} else {
-				emit_glyph(f, .Regular, int(f.faces[.Regular].fallback), pen, origin, baseline, data, emit)
-			}
-			pen += emoji_advance(f, r)
+			// On whole physical pixels, as the text beside it is.
+			px := origin + math.round(pen * s) + math.round((EMOJI_ADVANCE - EMOJI_SIZE) / 2 * s)
+			py := math.round((y + (LINE_HEIGHT - EMOJI_SIZE) / 2) * s)
+			side := math.round(EMOJI_SIZE * s)
+			u0, v0, u1, v1 := emoji_uv(i)
+			emit(
+				data,
+				Glyph_Quad {
+					x0 = px / s,
+					y0 = py / s,
+					x1 = (px + side) / s,
+					y1 = (py + side) / s,
+					u0 = u0,
+					v0 = v0,
+					u1 = u1,
+					v1 = v1,
+					emoji = true,
+				},
+			)
+			pen += EMOJI_ADVANCE
 		case .Face:
 			emit_glyph(f, face, i, pen, origin, baseline, data, emit)
 			pen += f.faces[face].advance[i]

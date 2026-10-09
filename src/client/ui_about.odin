@@ -136,14 +136,6 @@ THIRD_PARTY := [?]Third_Party {
 		builds = {.Desktop, .Web},
 	},
 	{
-		name = "Noto Emoji",
-		license = "OFL-1.1",
-		use = "Emoji, drawn like text (a cut-down copy: scripts/emoji.py)",
-		url = "https://fonts.google.com/noto/specimen/Noto+Emoji",
-		text = #load("licenses/notoemoji.txt", string),
-		builds = {.Desktop, .Web},
-	},
-	{
 		name = "gemoji",
 		license = "MIT",
 		use = "The list of emoji and their shortcodes",

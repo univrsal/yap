@@ -151,6 +151,7 @@ Renderer :: struct {
 	icon_texture:  Gpu_Texture, // microui's own icons
 	icons:         Icon_Atlas, // ours (icons.odin)
 	icons_texture: Gpu_Texture,
+	emoji_texture: Gpu_Texture, // the emoji sheet (emoji_atlas.odin); 0 until it's decoded
 	bound:         Gpu_Texture, // texture the pending quads use
 	rgba:          bool, // the bound texture is a picture, not the atlas
 	images:        ^[dynamic]Image_Draw, // this frame's pictures; the UI's to fill
@@ -241,6 +242,7 @@ renderer_destroy :: proc(r: ^Renderer) {
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
+	gpu_texture_delete(&r.gpu, &r.emoji_texture)
 	icon_atlas_destroy(&r.icons)
 	gpu_destroy(&r.gpu)
 	for &slot in r.fonts {
@@ -267,6 +269,9 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
+	// The sheet's pixels aren't kept: the client decodes it again (it
+	// sees the texture is missing, ui_images_frame).
+	gpu_texture_delete(&r.gpu, &r.emoji_texture)
 	gpu_destroy(&r.gpu)
 	r.icons.scale = 0
 	if !gpu_init(&r.gpu, window) {
@@ -362,6 +367,20 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				&emit,
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
+					if q.emoji {
+						// Its own colours, in the text's opacity; nothing
+						// till the sheet is decoded.
+						if e.r.emoji_texture != 0 {
+							use_texture(e.r, e.r.emoji_texture, rgba = true)
+							push_quad(
+								e.r,
+								{q.x0, q.y0, q.x1, q.y1},
+								{q.u0, q.v0, q.u1, q.v1},
+								{255, 255, 255, e.color.a},
+							)
+						}
+						return
+					}
 					use_texture(
 						e.r,
 						e.slot.unifont_texture if q.unifont else e.slot.textures[q.face],
@@ -551,10 +570,14 @@ upload_unifont :: proc(r: ^Renderer, slot: ^Font_Slot) {
 rect_white is where a rect's white texel is: in whichever font atlas is
 bound, as they all have one, so rects between glyphs (the frame of each
 button in the emoji picker, around its emoji) don't each switch textures
-and cost a draw call; else in the UI font's, which it binds.
+and cost a draw call; else in the UI font's, which it binds. The
+emoji sheet has one too, which is what a run of emoji uses.
 */
 @(private = "file")
 rect_white :: proc(r: ^Renderer) -> [2]f32 {
+	if r.bound != 0 && r.rgba && r.bound == r.emoji_texture {
+		return emoji_white()
+	}
 	if r.bound != 0 && !r.rgba {
 		for &slot in r.fonts {
 			if r.bound == slot.unifont_texture {

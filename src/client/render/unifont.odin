@@ -62,13 +62,6 @@ Unifont :: struct {
 	side:               i32,
 	full:               bool, // out of slots: start again next frame
 	dirty_y0, dirty_y1: i32, // rows changed since the atlas was last uploaded
-	// The emoji (font.odin) in the atlas too: where each glyph is from the
-	// pen and the baseline, and its size, in physical pixels.
-	emoji_boxes:        map[rune]Emoji_Box,
-}
-
-Emoji_Box :: struct {
-	x, y, w, h: i32,
 }
 
 unifont_destroy :: proc(u: ^Unifont) {
@@ -76,7 +69,6 @@ unifont_destroy :: proc(u: ^Unifont) {
 	delete(u.width)
 	delete(u.pixels)
 	delete(u.slots)
-	delete(u.emoji_boxes)
 	u^ = {}
 }
 
@@ -154,7 +146,6 @@ unifont_reset :: proc(u: ^Unifont, scale: f32) {
 	delete(u.pixels)
 	u.pixels = nil
 	clear(&u.slots)
-	clear(&u.emoji_boxes)
 	u.scale = scale
 	u.full = false
 	u.cell = unifont_glyph_height(scale) + 1

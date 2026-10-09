@@ -4,6 +4,7 @@ import "base:runtime"
 import log "common:wlog"
 import "core:fmt"
 import "core:math"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
@@ -100,7 +101,20 @@ UI_Images :: struct {
 	// are known by its blob ids, so what was decoded for another server
 	// is thrown away.
 	generation:  u64,
+	// The emoji sheet (render/emoji_atlas.odin) is being decoded, or
+	// couldn't be (and isn't tried again).
+	sheet_pending: bool,
+	sheet_failed:  bool,
 }
+
+// The id the emoji sheet is decoded under, which no picture's key is.
+// Unlike them it belongs to no server and to no texture in `textures`:
+// it goes straight to the renderer (ui_images_frame).
+@(private = "file")
+EMOJI_SHEET_ID :: u64(1) << 61
+
+@(private = "file")
+EMOJI_SHEET_DATA := #load("assets/emoji.webp")
 
 ui_images_init :: proc(ui: ^UI) {
 	ui.images.ctx = context
@@ -146,10 +160,17 @@ ui_images_switch :: proc(ui: ^UI) {
 	im.viewer, im.placed = 0, false
 	sync.guard(&im.mutex)
 	im.generation += 1
+	// The emoji sheet is every server's.
+	kept := 0
 	for job in im.queue {
-		delete(job.jpeg)
+		if job.id == EMOJI_SHEET_ID {
+			im.queue[kept] = job
+			kept += 1
+		} else {
+			delete(job.jpeg)
+		}
 	}
-	clear(&im.queue)
+	resize(&im.queue, kept)
 }
 
 ui_images_destroy :: proc(ui: ^UI) {
@@ -184,6 +205,23 @@ ui_images_frame :: proc(ui: ^UI) {
 	im := &ui.images
 	im.frame += 1
 	clear(&im.draws)
+	// The emoji sheet is wanted from the first frame, and again if the
+	// device it was on was lost.
+	if !render.emoji_sheet_ready(&ui.renderer) && !im.sheet_pending && !im.sheet_failed {
+		im.sheet_pending = true
+		{
+			sync.guard(&im.mutex)
+			append(
+				&im.queue,
+				Decode_Job {
+					id = EMOJI_SHEET_ID,
+					jpeg = slice.clone(EMOJI_SHEET_DATA),
+					generation = im.generation,
+				},
+			)
+		}
+		decode_wake(im)
+	}
 	when platform.WEB {
 		decode_queued(im)
 	}
@@ -196,6 +234,20 @@ ui_images_frame :: proc(ui: ^UI) {
 	defer delete(results)
 	for &result in results {
 		defer clipboard.image_destroy(&result.image)
+		if result.id == EMOJI_SHEET_ID {
+			im.sheet_pending = false
+			if !result.ok ||
+			   !render.emoji_sheet_upload(
+				   &ui.renderer,
+				   result.image.pixels,
+				   result.image.width,
+				   result.image.height,
+			   ) {
+				log.warn("could not decode the emoji sheet")
+				im.sheet_failed = true
+			}
+			continue
+		}
 		if result.generation != im.generation {
 			continue // another server's
 		}
