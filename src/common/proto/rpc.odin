@@ -26,11 +26,17 @@ a little older than the other.
 
 A body's layout goes by its op:
 
-	Server_Info  request   (nothing)
-	             response  [name str8][version str8][max_attachment u64]
-	                       [registration u8] (register.odin)[email str8]
+	Server_Info      request   (nothing)
+	                 response  [name str8][version str8][max_attachment u64]
+	                           [registration u8] (register.odin)[email str8]
+	                           [description str16][icon u64]
+	Server_Icon      request   [icon u64]
+	                 response  [the icon's JPEG]
+	Server_Info_Set  request   [name str8][description str16][icon u64]
+	                 response  (nothing)
+	Server_Info      event     as Server_Info's response, when it changes
 
-where str8 is [len u8][bytes]; the rest are in accounts.odin,
+where str8 is [len u8][bytes] and str16 [len u16][bytes]; the rest are in accounts.odin,
 buddies.odin, convs.odin and msgs.odin. A body may grow at its end: a decoder
 ignores what follows the fields it knows.
 */
@@ -43,6 +49,10 @@ App_Kind :: enum u8 {
 
 Request_Op :: enum u16 {
 	Server_Info          = 0x0001,
+	// The server's picture, which may be asked for before logging in,
+	// and changing what Server_Info says (the owner only).
+	Server_Icon          = 0x0002,
+	Server_Info_Set      = 0x0003,
 	// Accounts and devices, see accounts.odin.
 	Auth_Login           = 0x0010,
 	Account_Create       = 0x0011,
@@ -117,6 +127,8 @@ Event_Op :: enum u16 {
 	Sync_End         = 0x0002,
 	// See accounts.odin.
 	Self             = 0x0003,
+	// What the server says about itself changed (Server_Info_Set).
+	Server_Info      = 0x0004,
 	Account_Changed  = 0x0010,
 	Role_Changed     = 0x0011,
 	Role_Removed     = 0x0012,
@@ -266,14 +278,69 @@ Server_Info :: struct {
 	max_attachment: u64, // bytes a file attached to a message may have; 0 for no attachments
 	registration:   Registration_Flags, // what registering takes, if it's open
 	email:          string, // the server's own address, "" for none (verify.odin)
+	description:    string, // what it says it's for; may be empty
+	icon:           Blob_Id, // its picture (Server_Icon), 0 for none
 }
 
-SERVER_INFO_MAX_SIZE :: 1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1 + 1 + MAX_EMAIL_SIZE
+SERVER_INFO_MAX_SIZE ::
+	1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1 + 1 + MAX_EMAIL_SIZE + 2 + MAX_SERVER_DESCRIPTION + 8
+
+// What a server says it's for, in bytes of UTF-8.
+MAX_SERVER_DESCRIPTION :: 512
+
+// A server's picture: a square JPEG, made as a profile picture is
+// (Blob_Kind.Avatar) but smaller, so it fits in one response.
+MAX_SERVER_ICON_SIDE :: 128
+MAX_SERVER_ICON_SIZE :: 32 * 1024
+
+// Server_Info_Set: what the server is to say about itself.
+Server_Info_Set :: struct {
+	name:        string,
+	description: string,
+	icon:        Blob_Id, // 0 for none
+}
+
+SERVER_INFO_SET_MAX_SIZE :: 1 + MAX_SERVER_NAME + 2 + MAX_SERVER_DESCRIPTION + 8
+
+@(require_results)
+encode_server_info_set :: proc(out: []u8, set: Server_Info_Set) -> (body: []u8, ok: bool) {
+	if len(set.name) > MAX_SERVER_NAME || len(set.description) > MAX_SERVER_DESCRIPTION {
+		return
+	}
+	w := Writer {
+		buf = out,
+	}
+	put_str8(&w, set.name)
+	put_str16(&w, set.description)
+	put_u64(&w, u64(set.icon))
+	if w.overflow {
+		return
+	}
+	return out[:w.pos], true
+}
+
+// decode_server_info_set reads one; the strings point into `body`, and
+// are raw until sanitized.
+@(require_results)
+decode_server_info_set :: proc(body: []u8) -> (set: Server_Info_Set, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	set.name = get_str8(&r)
+	set.description = get_str16(&r)
+	set.icon = Blob_Id(get_u64(&r))
+	if r.overflow ||
+	   len(set.name) > MAX_SERVER_NAME ||
+	   len(set.description) > MAX_SERVER_DESCRIPTION {
+		return {}, false
+	}
+	return set, true
+}
 
 // encode_server_info writes a Server_Info response's body.
 @(require_results)
 encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: bool) {
-	if len(info.name) > MAX_SERVER_NAME {
+	if len(info.name) > MAX_SERVER_NAME || len(info.description) > MAX_SERVER_DESCRIPTION {
 		return
 	}
 	w := Writer {
@@ -284,6 +351,8 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	put_u64(&w, info.max_attachment)
 	put_u8(&w, transmute(u8)info.registration)
 	put_str8(&w, info.email)
+	put_str16(&w, info.description)
+	put_u64(&w, u64(info.icon))
 	if w.overflow {
 		return
 	}
@@ -302,7 +371,14 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	info.max_attachment = get_u64(&r)
 	info.registration = transmute(Registration_Flags)get_u8(&r)
 	info.email = get_str8(&r)
-	if r.overflow || len(info.name) > MAX_SERVER_NAME {
+	// A server older than these doesn't send them.
+	if !r.overflow && r.pos < len(r.buf) {
+		info.description = get_str16(&r)
+		info.icon = Blob_Id(get_u64(&r))
+	}
+	if r.overflow ||
+	   len(info.name) > MAX_SERVER_NAME ||
+	   len(info.description) > MAX_SERVER_DESCRIPTION {
 		return {}, false
 	}
 	return info, true

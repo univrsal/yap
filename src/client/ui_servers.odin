@@ -68,7 +68,8 @@ Server_UI :: struct {
 	// Managing the server, for who may (ui_manage.odin), and the voice
 	// panel (ui_voice_panel.odin).
 	manage:         UI_Manage,
-	roles:          UI_Roles, // the Roles window (ui_roles.odin)
+	roles:          UI_Roles, // the settings' Roles (ui_roles.odin)
+	server_info:    UI_Server_Info, // and its Server (ui_server_info.odin)
 	voice_panel:    UI_Voice_Panel,
 	// Completing a mention in a composer (ui_completion.odin).
 	completion:     UI_Completion,
@@ -386,10 +387,15 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 		label, initials: string
 		status: conn.Status
+		// Its picture, if it has one and it's here (ui_server_info.odin).
+		picture: Maybe(mu.Icon)
 		{
 			v := &ns.view
 			sync.guard(&v.mutex)
 			status = v.status
+			if icon, ok := server_icon(ui, ns.server, v); ok {
+				picture = icon
+			}
 			name := v.server_name if v.server_name != "" else ns.server
 			initials = server_initials(name)
 			label =
@@ -416,7 +422,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 			color, text = dimmed(color), dimmed(text)
 		}
 		shown := ns == ui.session && !ui.join.open
-		r, id := rail_icon(ui, ns, initials, color, text, label, shown)
+		r, id := rail_icon(ui, ns, initials, color, text, label, shown, picture)
 		if !shown && ns.unread > 0 {
 			mu.draw_rect(ctx, {r.x - ctx.style.padding, r.y + r.h / 2 - 4, 4, 8}, MARK_COLOR)
 		}
@@ -679,7 +685,8 @@ switch_now :: proc(ui: ^UI) {
 
 // rail_icon draws one of the rail's icons, and says where its row is and
 // its control's id. `key` tells it from the others: its session, or nil
-// for +.
+// for +. With a `picture`, that's drawn instead of the disc and its
+// text, as dim as the text would be.
 @(private = "file")
 rail_icon :: proc(
 	ui: ^UI,
@@ -689,6 +696,7 @@ rail_icon :: proc(
 	text_color: mu.Color,
 	hint: string,
 	shown: bool,
+	picture: Maybe(mu.Icon) = nil,
 ) -> (
 	r: mu.Rect,
 	id: mu.Id,
@@ -701,6 +709,13 @@ rail_icon :: proc(
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	if shown {
 		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, MARK_COLOR)
+	}
+	if pic, ok := picture.?; ok {
+		mu.draw_icon(ctx, pic, icon, text_color)
+		if ctx.hover_id == id {
+			ui.hint, ui.hint_of = hint, icon
+		}
+		return
 	}
 	disc(ui, icon, color)
 	font := ctx.style.font
@@ -721,7 +736,6 @@ rail_icon :: proc(
 // server_initials is what a server's icon says: the first letters of
 // the first two words of its name (or address), or the first two
 // letters of its only word.
-@(private = "file")
 server_initials :: proc(name: string) -> string {
 	words := make([dynamic]string, context.temp_allocator)
 	start := -1
@@ -760,7 +774,6 @@ server_initials :: proc(name: string) -> string {
 
 // server_color is a server's own colour, from its address, as people's
 // are from their ids (avatar_color).
-@(private = "file")
 server_color :: proc(server: string) -> mu.Color {
 	h: u32 = 2166136261
 	for i in 0 ..< len(server) {

@@ -2,7 +2,6 @@ package conn
 
 import log "common:wlog"
 import "core:slice"
-import "core:strings"
 import "core:time"
 
 import "common:proto"
@@ -44,6 +43,11 @@ Server_Details :: struct {
 	max_attachment: u64,
 	registration:   proto.Registration_Flags,
 	email:          string, // where verifying mail goes; owned
+	// What it's for (owned), and its picture: the id it goes by, and its
+	// JPEG once fetched (owned; nil until then). See server_info.odin.
+	description:    string,
+	icon:           proto.Blob_Id,
+	icon_jpeg:      []u8,
 }
 
 rpc_destroy :: proc(c: ^Voice_Client) {
@@ -51,6 +55,8 @@ rpc_destroy :: proc(c: ^Voice_Client) {
 	delete(c.rpc.server.name)
 	delete(c.rpc.server.version)
 	delete(c.rpc.server.email)
+	delete(c.rpc.server.description)
+	delete(c.rpc.server.icon_jpeg)
 	c.rpc = {}
 }
 
@@ -126,6 +132,7 @@ rpc_handle :: proc(c: ^Voice_Client, msg: []u8) {
 		// One we don't know is from a newer server, and left alone.
 		op, body := proto.decode_event(msg)
 		if !auth_event(c, op, body) &&
+		   !server_info_event(c, op, body) &&
 		   !conv_event(c, op, body) &&
 		   !messages_event(c, op, body) &&
 		   !buddies_event(c, op, body) &&
@@ -165,24 +172,10 @@ server_info_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag
 	if status != .Ok {
 		return // Reset: it's asked again on the new connection
 	}
-	info, ok := proto.decode_server_info(body)
-	if !ok {
-		log.warnf("%s sent a Server_Info we can't read", c.server_addr)
+	if !server_info_take(c, body) {
 		return
 	}
-	name_buf: [proto.MAX_SERVER_NAME]u8
-	version_buf: [64]u8
 	s := &c.rpc.server
-	delete(s.name)
-	delete(s.version)
-	s.name = strings.clone(proto.sanitize_text(info.name, name_buf[:]))
-	s.version = strings.clone(proto.sanitize_text(info.version, version_buf[:]))
-	s.max_attachment = info.max_attachment
-	s.registration = info.registration
-	delete(s.email)
-	email_buf: [proto.MAX_EMAIL_SIZE]u8
-	email, email_ok := proto.email_clean(info.email, &email_buf)
-	s.email = strings.clone(email if email_ok else "")
 	when proto.STREAM_FLOOD {
 		log.infof("flood: %d bytes came back", len(body))
 		if s.known {

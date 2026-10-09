@@ -33,10 +33,6 @@ image_cache_reopen :: proc(ui: ^UI) {
 // image_cache_settings is the settings page's section for it.
 image_cache_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if .ACTIVE not_in mu.begin_treenode(ctx, "Image cache") {
-		return
-	}
-	defer mu.end_treenode(ctx)
 
 	bytes, count := conn.image_cache_usage(&ui.image_cache)
 	mu.layout_row(ctx, {120, -90, -1})

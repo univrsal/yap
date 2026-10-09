@@ -62,9 +62,17 @@ UI_Profiles :: struct {
 	// The keys the server had then: one of ours that's gone from it was
 	// removed (from another device); one it never had is ours to send.
 	shared_known:   map[string]bool,
-	// Choosing a picture (ui_avatar_pick_*.odin).
+	// Choosing a picture (ui_avatar_pick_*.odin), and what for.
 	pick:           ^Avatar_Pick,
+	pick_for:       Pick_For,
 	pick_notice:    string, // static
+}
+
+// What a picture being chosen is for: ours, or the server's
+// (ui_server_info.odin).
+Pick_For :: enum {
+	Avatar,
+	Server_Icon,
 }
 
 Clear_After :: enum {

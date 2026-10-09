@@ -32,7 +32,8 @@ admin.
 */
 
 UI_Account :: struct {
-	// The login form.
+	// The login form, and how tall its card was last frame (login_screen).
+	card_h:        i32,
 	username_buf:  [proto.MAX_USERNAME_SIZE]u8,
 	username_len:  int,
 	password_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
@@ -96,8 +97,15 @@ NOTICE_OK_COLOR :: mu.Color{120, 200, 120, 255}
 @(private = "file")
 WARN_COLOR :: mu.Color{230, 200, 90, 255}
 FORM_LABEL :: 130
-@(private = "file")
 FORM_FIELD :: 220
+// The login screen's card: how wide, its labels, and the server's
+// picture at the top.
+@(private = "file")
+LOGIN_CARD_WIDTH :: 400
+@(private = "file")
+LOGIN_LABEL :: 110
+@(private = "file")
+LOGIN_PICTURE :: 72
 
 // ui_account_opened is the settings page being opened: what it shows of
 // the account is fetched anew.
@@ -141,17 +149,56 @@ login_screen :: proc(ui: ^UI) {
 	registering := a.registering
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
-	server := v.server_name if v.server_name != "" else v.server
-	mu.label(ctx, fmt.tprintf("%s %s", "Register at" if registering else "Log in to", server))
+	mu.label(ctx, "Register" if registering else "Log in")
 	// In the + dialog, giving up joining it (ui_join.odin).
 	leave := "Cancel" if ui.session != nil && ui.session.joining else "Leave this server"
 	if .SUBMIT in icon_button(ui, "disconnect", .Leave, leave, OFF_COLOR) {
 		ui.action = .Disconnect
 	}
 
+	// The rest is a card in the middle of what's left: the server, as it
+	// says it is, over the form. It's as tall as it was last frame (or
+	// all there is, the first time), and scrolls if that won't fit.
+	mu.layout_row(ctx, {-1}, -1)
+	area := mu.layout_next(ctx)
+	w := min(area.w, LOGIN_CARD_WIDTH)
+	h := area.h if a.card_h <= 0 else min(a.card_h, area.h)
+	mu.layout_set_next(ctx, {area.x + (area.w - w) / 2, area.y + (area.h - h) / 2, w, h}, false)
+	mu.begin_panel(ctx, "login card")
+	defer {
+		cnt := mu.get_current_container(ctx)
+		mu.end_panel(ctx)
+		a.card_h = cnt.content_size.y + 2 * ctx.style.padding
+	}
+
+	server := ui.session.server if ui.session != nil else v.server
+	mu.layout_row(ctx, {-1}, LOGIN_PICTURE)
+	pic := mu.layout_next(ctx)
+	server_picture(
+		ui,
+		server,
+		v,
+		{pic.x + (pic.w - LOGIN_PICTURE) / 2, pic.y, LOGIN_PICTURE, LOGIN_PICTURE},
+	)
+	mu.layout_row(ctx, {-1})
+	name := mu.layout_next(ctx)
+	mu.draw_control_text(
+		ctx,
+		v.server_name if v.server_name != "" else server,
+		name,
+		.TEXT,
+		{.ALIGN_CENTER},
+	)
+	if v.server_about != "" {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, DIM_COLOR, v.server_about, mu.text)
+	}
+	mu.layout_row(ctx, {-1}, ctx.style.spacing)
+	mu.layout_next(ctx)
+
 	working := v.login.state != .Needed
 	submit := false
-	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD})
+	mu.layout_row(ctx, {LOGIN_LABEL, -1})
 	mu.label(ctx, "Username")
 	submit |= .SUBMIT in text_box(ui, a.username_buf[:], &a.username_len)
 	mu.label(ctx, "Password")
@@ -191,18 +238,18 @@ login_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case a.mistake != "":
-		with_text_color(ctx, ERROR_COLOR, a.mistake, label_proc)
+		with_text_color(ctx, ERROR_COLOR, a.mistake, mu.text)
 	case v.login.error != "":
-		with_text_color(ctx, ERROR_COLOR, v.login.error, label_proc)
+		with_text_color(ctx, ERROR_COLOR, v.login.error, mu.text)
 	case !working && !open:
 		with_text_color(
 			ctx,
 			DIM_COLOR,
 			"This device isn't logged in here yet. Accounts are made by the server's admin.",
-			label_proc,
+			mu.text,
 		)
 	case !working && !registering:
-		with_text_color(ctx, DIM_COLOR, "This device isn't logged in here yet.", label_proc)
+		with_text_color(ctx, DIM_COLOR, "This device isn't logged in here yet.", mu.text)
 	}
 
 	if submit && !working && a.username_len > 0 && a.password_len > 0 {
@@ -240,8 +287,6 @@ login_screen :: proc(ui: ^UI) {
 		wipe(a.password_buf[:], &a.password_len)
 	}
 
-	mu.layout_row(ctx, {-1}, -1)
-	log_panel(ui)
 }
 
 /*
@@ -382,8 +427,6 @@ verify_screen :: proc(ui: ^UI) {
 	}
 	with_text_color(ctx, DIM_COLOR, "This device has to log in again afterwards.", label_proc)
 
-	mu.layout_row(ctx, {-1}, -1)
-	log_panel(ui)
 }
 
 /*
@@ -409,8 +452,6 @@ password_screen :: proc(ui: ^UI) {
 	)
 	password_form(ui, v, "Password you logged in with", false)
 
-	mu.layout_row(ctx, {-1}, -1)
-	log_panel(ui)
 }
 
 // password_form is the three fields and the button that change the
@@ -465,7 +506,6 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 
 // notice_label says what's wrong with what was typed, or else what the
 // server made of the last thing asked.
-@(private = "file")
 notice_label :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	switch {
@@ -483,13 +523,63 @@ notice_label :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
+// The server's tab's categories, in the order they're listed.
+Server_Category :: enum {
+	Server_Info,
+	Account,
+	Roles,
+	Accounts,
+	Invites,
+	Purge,
+}
+
+SERVER_CATEGORY_NAMES := [Server_Category]string {
+	.Server_Info = "Server",
+	.Account     = "Account",
+	.Roles       = "Roles",
+	.Accounts    = "Accounts",
+	.Invites     = "Invite codes",
+	.Purge       = "Purge history",
+}
+
+// server_settings_categories is which of the server's tab's categories
+// we may see: our account, and what we may manage (the server's name and
+// picture only if it's ours). Call with the View locked.
+server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category]) {
+	c += {.Account}
+	if me, known := v.accounts[v.me]; known && .Owner in me.flags {
+		c += {.Server_Info}
+	}
+	if .Manage_Roles in v.permissions {
+		c += {.Roles}
+	}
+	if v.permissions & {.Manage_Accounts, .Manage_Roles} != {} {
+		c += {.Accounts}
+	}
+	if v.permissions & {.Create_Invites, .Manage_Accounts} != {} {
+		c += {.Invites}
+	}
+	if .Purge in v.permissions {
+		c += {.Purge}
+	}
+	return
+}
+
+// server_category_opened is for a category of the server's tab that has
+// just been picked.
+server_category_opened :: proc(ui: ^UI, c: Server_Category) {
+	if c == .Roles {
+		ui.roles.notice_seen = -1 // taken from the View when it's next locked
+	}
+}
+
 /*
-account_settings is the settings page's part about our account, and for
-who manages them, everybody's. The settings page doesn't hold the View's
-lock, so it's taken here.
+server_settings is the settings page's server tab, the category `c` of
+it: our account, and for who manages them, the roles, everybody's
+accounts, invite codes and purging. The settings page doesn't hold the
+View's lock, so it's taken here.
 */
-account_settings :: proc(ui: ^UI) {
-	ctx := &ui.ctx
+server_settings :: proc(ui: ^UI, c: Server_Category) {
 	v := ui.view
 	a := &ui.account
 	sync.guard(&v.mutex)
@@ -500,104 +590,104 @@ account_settings :: proc(ui: ^UI) {
 	if v.status != .Connected || v.login.state != .Done {
 		return
 	}
+	switch c {
+	case .Server_Info:
+		server_info_settings(ui, v) // ui_server_info.odin
+	case .Account:
+		account_settings(ui, v)
+	case .Roles:
+		roles_settings(ui)
+	case .Accounts:
+		accounts_admin(ui, v)
+	case .Invites:
+		invites_settings(ui, v)
+	case .Purge:
+		purge_settings(ui)
+	}
+}
+
+// account_settings is our own account: its name, picture, status,
+// password and devices, logging out and deleting it. Call with the View
+// locked.
+@(private = "file")
+account_settings :: proc(ui: ^UI, v: ^conn.View) {
+	ctx := &ui.ctx
+	a := &ui.account
 	me, known := v.accounts[v.me]
 	if !known {
 		return
 	}
 
-	if .ACTIVE in mu.begin_treenode(ctx, fmt.tprintf("Account (%s)", me.username), {.EXPANDED}) {
-		defer mu.end_treenode(ctx)
+	mu.layout_row(ctx, {-1})
+	with_text_color(ctx, DIM_COLOR, fmt.tprintf("Logged in as %s", me.username), label_proc)
 
-		if !a.name_loaded {
-			a.name_loaded = true
-			ui.name_len = copy(ui.name_buf[:], me.display)
-			a.email_len = copy(a.email_buf[:], v.login.email)
-		}
-		mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD, 70})
-		mu.label(ctx, "Name")
-		submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
-		if (.SUBMIT in mu.button(ctx, "Apply") || submitted) && ui.name_len > 0 {
-			a.mistake = ""
-			a.profile_asked = true
-			command(ui, conn.Display_Command{strings.clone(string(ui.name_buf[:ui.name_len]))})
-		}
-		// Its own id: the name's button says Apply too.
-		mu.push_id(ctx, "email")
-		mu.label(ctx, "Email")
-		email_submitted := .SUBMIT in text_box(ui, a.email_buf[:], &a.email_len)
-		if .SUBMIT in mu.button(ctx, "Apply") || email_submitted {
-			a.mistake = ""
-			a.profile_asked = true
-			command(ui, conn.Email_Command{strings.clone(string(a.email_buf[:a.email_len]))})
-		}
-		mu.pop_id(ctx)
-		if v.server_email != "" && .Owner not_in me.flags {
-			mu.layout_row(ctx, {FORM_LABEL, -1})
-			mu.label(ctx, "")
-			with_text_color(
-				ctx,
-				DIM_COLOR,
-				"A new address has to be verified by mail before you can go on.",
-				label_proc,
-			)
-		}
-		if a.profile_asked {
-			mu.layout_row(ctx, {FORM_LABEL, -1})
-			mu.label(ctx, "")
-			notice_label(ui, v)
-		}
-		profile_settings(ui)
-		status_settings(ui)
-
-		if .ACTIVE in mu.begin_treenode(ctx, "Password") {
-			password_form(ui, v, "Current password", true)
-			mu.end_treenode(ctx)
-		}
-
-		if .ACTIVE in mu.begin_treenode(ctx, "Devices") {
-			if !a.devices_asked {
-				a.devices_asked = true
-				command(ui, conn.Devices_Command{})
-			}
-			devices_list(ui, v)
-			mu.end_treenode(ctx)
-		}
-
-		mu.layout_row(ctx, {FORM_LABEL, 140, -1})
+	if !a.name_loaded {
+		a.name_loaded = true
+		ui.name_len = copy(ui.name_buf[:], me.display)
+		a.email_len = copy(a.email_buf[:], v.login.email)
+	}
+	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD, 70})
+	mu.label(ctx, "Name")
+	submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
+	if (.SUBMIT in mu.button(ctx, "Apply") || submitted) && ui.name_len > 0 {
+		a.mistake = ""
+		a.profile_asked = true
+		command(ui, conn.Display_Command{strings.clone(string(ui.name_buf[:ui.name_len]))})
+	}
+	// Its own id: the name's button says Apply too.
+	mu.push_id(ctx, "email")
+	mu.label(ctx, "Email")
+	email_submitted := .SUBMIT in text_box(ui, a.email_buf[:], &a.email_len)
+	if .SUBMIT in mu.button(ctx, "Apply") || email_submitted {
+		a.mistake = ""
+		a.profile_asked = true
+		command(ui, conn.Email_Command{strings.clone(string(a.email_buf[:a.email_len]))})
+	}
+	mu.pop_id(ctx)
+	if v.server_email != "" && .Owner not_in me.flags {
+		mu.layout_row(ctx, {FORM_LABEL, -1})
 		mu.label(ctx, "")
-		if .SUBMIT in mu.button(ctx, "Log out") {
-			command(ui, conn.Logout_Command{})
-			ui.page = .Main
-		}
-		with_text_color(ctx, DIM_COLOR, "This device has to log in again afterwards.", label_proc)
+		with_text_color(
+			ctx,
+			DIM_COLOR,
+			"A new address has to be verified by mail before you can go on.",
+			label_proc,
+		)
+	}
+	if a.profile_asked {
+		mu.layout_row(ctx, {FORM_LABEL, -1})
+		mu.label(ctx, "")
+		notice_label(ui, v)
+	}
+	profile_settings(ui)
+	status_settings(ui)
 
-		// Not the owner's: somebody has to be.
-		if .Owner not_in me.flags {
-			if .ACTIVE in mu.begin_treenode(ctx, "Delete this account") {
-				delete_own_account(ui, v)
-				mu.end_treenode(ctx)
-			}
-		}
+	if .ACTIVE in mu.begin_treenode(ctx, "Password") {
+		password_form(ui, v, "Current password", true)
+		mu.end_treenode(ctx)
 	}
 
-	if .Manage_Roles in v.permissions {
-		mu.layout_row(ctx, {FORM_LABEL, 140, -1})
-		mu.label(ctx, "Roles")
-		if .SUBMIT in mu.button(ctx, "Roles...") {
-			open_roles(ui)
+	if .ACTIVE in mu.begin_treenode(ctx, "Devices") {
+		if !a.devices_asked {
+			a.devices_asked = true
+			command(ui, conn.Devices_Command{})
 		}
-		with_text_color(ctx, DIM_COLOR, "What each allows, and who has it.", label_proc)
+		devices_list(ui, v)
+		mu.end_treenode(ctx)
 	}
-	if v.permissions & {.Manage_Accounts, .Manage_Roles} != {} {
-		if .ACTIVE in mu.begin_treenode(ctx, "Accounts on this server") {
-			accounts_admin(ui, v)
-			mu.end_treenode(ctx)
-		}
+
+	mu.layout_row(ctx, {FORM_LABEL, 140, -1})
+	mu.label(ctx, "")
+	if .SUBMIT in mu.button(ctx, "Log out") {
+		command(ui, conn.Logout_Command{})
+		ui.page = .Main
 	}
-	invites_settings(ui, v)
-	if .Purge in v.permissions {
-		if .ACTIVE in mu.begin_treenode(ctx, "Purge history") {
-			purge_settings(ui)
+	with_text_color(ctx, DIM_COLOR, "This device has to log in again afterwards.", label_proc)
+
+	// Not the owner's: somebody has to be.
+	if .Owner not_in me.flags {
+		if .ACTIVE in mu.begin_treenode(ctx, "Delete this account") {
+			delete_own_account(ui, v)
 			mu.end_treenode(ctx)
 		}
 	}

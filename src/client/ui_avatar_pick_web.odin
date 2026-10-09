@@ -3,6 +3,7 @@ package client
 
 import "client:conn"
 import "client:platform"
+import "common:proto"
 import log "common:wlog"
 
 /*
@@ -21,16 +22,22 @@ Avatar_Pick :: struct {}
 
 @(default_calling_convention = "c")
 foreign _ {
-	// Opens the page's file input (see web/shell.c).
-	yap_avatar_pick :: proc() ---
+	// Opens the page's file input (see web/shell.c), for a picture of at
+	// most `side` pixels square and `size` bytes.
+	yap_avatar_pick :: proc(side, size: i32) ---
 }
 
-avatar_pick_start :: proc(ui: ^UI, paste: bool) {
+avatar_pick_start :: proc(ui: ^UI, paste: bool, use := Pick_For.Avatar) {
 	if paste || ui.profiles.pick != nil {
 		return
 	}
+	ui.profiles.pick_for = use
 	ui.profiles.pick_notice = ""
-	yap_avatar_pick()
+	if use == .Server_Icon {
+		yap_avatar_pick(proto.MAX_SERVER_ICON_SIDE, proto.MAX_SERVER_ICON_SIZE)
+	} else {
+		yap_avatar_pick(proto.MAX_AVATAR_SIDE, proto.MAX_AVATAR_SIZE)
+	}
 }
 
 avatar_pick_poll :: proc(ui: ^UI) {}
@@ -70,7 +77,7 @@ web_avatar_picked :: proc "c" (data: [^]u8, size: i32, side: i32) {
 	}
 	avatar_pick_finish(g_ui)
 	defer ui_wake()
-	if size <= 0 || g_ui.session == nil {
+	if size <= 0 {
 		return
 	}
 	img := conn.Chat_Image {
@@ -80,7 +87,7 @@ web_avatar_picked :: proc "c" (data: [^]u8, size: i32, side: i32) {
 	}
 	copy(img.jpeg, data[:size])
 	log.infof("chose a %dx%d picture, %d KB as JPEG", img.width, img.height, len(img.jpeg) / 1024)
-	conn.push_command(&g_ui.session.client.commands, conn.Avatar_Command{image = img})
+	picture_picked(g_ui, g_ui.profiles.pick_for, img)
 }
 
 // The page could not make a picture of the file.

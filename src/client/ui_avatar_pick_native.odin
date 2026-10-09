@@ -8,6 +8,7 @@ import "core:thread"
 import "client:clipboard"
 import "client:conn"
 import "client:dialogs"
+import "common:proto"
 
 /*
 Choosing our picture on a desktop: from an image file (the system's file
@@ -20,6 +21,7 @@ Avatar_Pick :: struct {
 	thread: ^thread.Thread,
 	done:   bool, // atomic: set by the thread, read by the UI
 	paste:  bool, // from the clipboard, not a file
+	use:    Pick_For,
 	image:  conn.Chat_Image,
 	ok:     bool,
 	why:    string, // static: what went wrong, for the settings to say
@@ -28,13 +30,16 @@ Avatar_Pick :: struct {
 @(private = "file")
 AVATAR_FILTERS := [1]dialogs.Filter{{"Pictures", "*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.webp"}}
 
-// avatar_pick_start reads a picture from a file or the clipboard.
-avatar_pick_start :: proc(ui: ^UI, paste: bool) {
+// avatar_pick_start reads a picture from a file or the clipboard, for
+// `use`.
+avatar_pick_start :: proc(ui: ^UI, paste: bool, use := Pick_For.Avatar) {
 	if ui.profiles.pick != nil {
 		return
 	}
 	job := new(Avatar_Pick)
 	job.paste = paste
+	job.use = use
+	ui.profiles.pick_for = use
 	ui.profiles.pick_notice = ""
 	when ODIN_OS == .Darwin {
 		if !paste {
@@ -59,6 +64,10 @@ pick_work :: proc(job: ^Avatar_Pick) {
 		sync.atomic_store(&job.done, true)
 		ui_wake()
 	}
+	side, size := proto.MAX_AVATAR_SIDE, proto.MAX_AVATAR_SIZE
+	if job.use == .Server_Icon {
+		side, size = proto.MAX_SERVER_ICON_SIDE, proto.MAX_SERVER_ICON_SIZE
+	}
 	if job.paste {
 		img, err := clipboard.read_image()
 		defer clipboard.image_destroy(&img)
@@ -66,7 +75,7 @@ pick_work :: proc(job: ^Avatar_Pick) {
 			job.why = "there's no picture on the clipboard"
 			return
 		}
-		job.image, job.ok = avatar_prepare(img)
+		job.image, job.ok = avatar_prepare(img, max_side = side, max_size = size)
 	} else {
 		path, status, err := dialogs.open_file("Choose a picture", AVATAR_FILTERS[:])
 		defer delete(path)
@@ -79,7 +88,7 @@ pick_work :: proc(job: ^Avatar_Pick) {
 			job.why = "the file dialog didn't open"
 			return
 		}
-		job.image, job.ok = avatar_load(path)
+		job.image, job.ok = avatar_load(path, max_side = side, max_size = size)
 	}
 	if !job.ok && job.why == "" {
 		job.why = "that isn't a picture that can be read"
@@ -104,11 +113,7 @@ avatar_pick_poll :: proc(ui: ^UI) {
 		conn.chat_image_destroy(&job.image)
 		return
 	}
-	if ui.session == nil {
-		conn.chat_image_destroy(&job.image)
-		return
-	}
-	conn.push_command(&ui.session.client.commands, conn.Avatar_Command{image = job.image})
+	picture_picked(ui, job.use, job.image)
 }
 
 // avatar_pick_wait lets a pick finish before shutting down.

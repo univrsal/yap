@@ -17,38 +17,74 @@ we're logged in to one: the account and, for who may, managing the
 server (ui_account.odin, ui_manage.odin). Changes are saved right away
 (see settings/settings.odin) and apply to a running connection.
 
-Everything below the top row sits in one scrolling panel, grouped into
-tree nodes a person can collapse, so a short window (or one that isn't
-interested in, say, the tray) still reaches every setting without
-wading through all of them. The voice gate and the devices are nodes
-inside Audio, and indented under it.
+Each tab is split in two: its categories down the left, and the one
+picked on the right, in a panel that scrolls. The voice gate and the
+devices are nodes inside Audio, and smaller parts of a category (the
+account's password, its devices) are nodes a person can open too. About
+is under the client's categories, and opens its own window.
 */
 Settings_Tab :: enum {
 	Client,
 	Server,
 }
 
+// The client's tab's categories, in the order they're listed.
+Client_Category :: enum {
+	Audio,
+	Interface,
+	Hotkeys,
+	Transfers,
+	Image_Cache,
+	Trusted_Servers,
+	Install,
+	Log,
+}
+
+@(private = "file")
+CLIENT_CATEGORY_NAMES := [Client_Category]string {
+	.Audio           = "Audio",
+	.Interface       = "User interface",
+	.Hotkeys         = "Global hotkeys",
+	.Transfers       = "File transfers",
+	.Image_Cache     = "Image cache",
+	.Trusted_Servers = "Trusted servers",
+	.Install         = "Install",
+	.Log             = "Log",
+}
+
+// The ones a web build has: a page has neither global hotkeys nor
+// anything to install (ui_hotkeys_web.odin, ui_install_web.odin).
+@(private = "file")
+CLIENT_CATEGORIES ::
+	~bit_set[Client_Category] {
+		.Hotkeys,
+		.Install,
+	} when platform.WEB else ~bit_set[Client_Category]{}
+
+// How wide the list of categories is.
+@(private = "file")
+CATEGORY_WIDTH :: 160
+
 settings_page :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	a := &ui.audio
 
-	title_row(ui, {-150, 70, 70})
+	title_row(ui, {-80, 70})
 
 	mu.label(ctx, "Settings")
-	if .SUBMIT in mu.button(ctx, "About") {
-		open_about(ui)
-	}
 	if .SUBMIT in mu.button(ctx, "Back") {
 		ui.page = .Main
 	}
 
-	// The server's tab is there while we're logged in to one.
+	// The server's tab is there while we're logged in to one, with what
+	// we may do there.
 	server := ""
+	server_categories: bit_set[Server_Category]
 	{
 		v := ui.view
 		sync.guard(&v.mutex)
 		if v.status == .Connected && v.login.state == .Done {
 			server = v.server_name if v.server_name != "" else v.server
+			server_categories = server_settings_categories(v)
 		}
 	}
 	if server == "" {
@@ -69,28 +105,100 @@ settings_page :: proc(ui: ^UI) {
 		}
 	}
 
-	mu.layout_row(ctx, {-1}, -1)
-	mu.begin_panel(ctx, "settings_body")
-	defer mu.end_panel(ctx)
+	// One that isn't there (any more): the first that is.
+	if ui.settings_client not_in CLIENT_CATEGORIES {
+		ui.settings_client = .Audio
+	}
+	if ui.settings_server not_in server_categories {
+		ui.settings_server = .Account
+	}
 
-	if ui.settings_tab == .Server {
-		account_settings(ui)
+	mu.layout_row(ctx, {CATEGORY_WIDTH, -1}, -1)
+	mu.layout_begin_column(ctx)
+	if ui.settings_tab == .Client {
+		// The list, and About under it.
+		button_h := ctx.style.size.y + 2 * ctx.style.padding
+		mu.layout_row(ctx, {-1}, -(button_h + ctx.style.spacing + 1))
+		mu.begin_panel(ctx, "settings categories")
+		for c in CLIENT_CATEGORIES {
+			if category_row(ctx, CLIENT_CATEGORY_NAMES[c], ui.settings_client == c) {
+				ui.settings_client = c
+			}
+		}
+		mu.end_panel(ctx)
+		mu.layout_row(ctx, {-1})
+		if .SUBMIT in mu.button(ctx, "About") {
+			open_about(ui)
+		}
+	} else {
+		mu.layout_row(ctx, {-1}, -1)
+		mu.begin_panel(ctx, "settings categories")
+		for c in server_categories {
+			if category_row(ctx, SERVER_CATEGORY_NAMES[c], ui.settings_server == c) &&
+			   ui.settings_server != c {
+				ui.settings_server = c
+				server_category_opened(ui, c)
+			}
+		}
+		mu.end_panel(ctx)
+	}
+	mu.layout_end_column(ctx)
+
+	// The log scrolls on its own, and keeps to the bottom as lines come
+	// in, so it's the whole of the right rather than in a panel that
+	// scrolls too.
+	if ui.settings_tab == .Client && ui.settings_client == .Log {
+		log_panel(ui)
 		return
 	}
-
-	if a.ctx == nil {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, {230, 90, 90, 255}, a.error, label_proc)
-	} else {
-		audio_settings(ui)
+	mu.begin_panel(ctx, "settings_body")
+	defer mu.end_panel(ctx)
+	if ui.settings_tab == .Server {
+		server_settings(ui, ui.settings_server)
+		return
 	}
+	switch ui.settings_client {
+	case .Audio:
+		if a := &ui.audio; a.ctx == nil {
+			mu.layout_row(ctx, {-1})
+			with_text_color(ctx, {230, 90, 90, 255}, a.error, label_proc)
+		} else {
+			audio_settings(ui)
+		}
+	case .Interface:
+		ui_settings(ui)
+	case .Hotkeys:
+		hotkey_settings(ui)
+	case .Transfers:
+		transfer_settings(ui)
+	case .Image_Cache:
+		image_cache_settings(ui)
+	case .Trusted_Servers:
+		trusted_servers_settings(ui)
+	case .Install:
+		install_settings(ui)
+	case .Log:
+	}
+}
 
-	ui_settings(ui)
-	hotkey_settings(ui)
-	transfer_settings(ui)
-	image_cache_settings(ui)
-	trusted_servers_settings(ui)
-	install_settings(ui)
+/*
+category_row is one line of a settings tab's list of categories (or the
+Roles list, ui_roles.odin): highlighted while it's the one picked, true
+when it's clicked.
+*/
+category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
+	mu.layout_row(ctx, {-1})
+	id := mu.get_id(ctx, label)
+	rect := mu.layout_next(ctx)
+	mu.update_control(ctx, id, rect)
+	switch {
+	case selected:
+		mu.draw_rect(ctx, rect, ctx.style.colors[.BUTTON_FOCUS])
+	case ctx.hover_id == id:
+		mu.draw_rect(ctx, rect, ctx.style.colors[.BUTTON_HOVER])
+	}
+	mu.draw_control_text(ctx, label, rect, .TEXT, {})
+	return ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT}
 }
 
 // audio_settings picks the send quality preset (see audio/quality.odin),
@@ -99,10 +207,6 @@ settings_page :: proc(ui: ^UI) {
 @(private = "file")
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if .ACTIVE not_in mu.begin_treenode(ctx, "Audio", {.EXPANDED}) {
-		return
-	}
-	defer mu.end_treenode(ctx)
 	current := settings.settings_quality(&ui.settings)
 	mu.layout_row(ctx, {60, 90, 90, 90})
 	mu.label(ctx, "Quality")
@@ -152,10 +256,6 @@ audio_settings :: proc(ui: ^UI) {
 @(private = "file")
 ui_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if .ACTIVE not_in mu.begin_treenode(ctx, "User interface", {.EXPANDED}) {
-		return
-	}
-	defer mu.end_treenode(ctx)
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "UI scale")
 	// Applying every change live would resize the window mid-drag, which
@@ -249,11 +349,6 @@ ui_settings :: proc(ui: ^UI) {
 @(private = "file")
 transfer_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if .ACTIVE not_in mu.begin_treenode(ctx, "File transfers") {
-		return
-	}
-	defer mu.end_treenode(ctx)
-
 	changed := false
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Upload limit")

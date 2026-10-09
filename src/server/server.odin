@@ -101,7 +101,11 @@ Server :: struct {
 	calls:          Calls,
 	sock:           net.UDP_Socket,
 	key:            ecdh.Private_Key,
-	name:           string, // what clients show for this server; may be empty
+	// What clients show for this server: its name (may be empty), what
+	// it's for, and its picture (server_info.odin). Owned.
+	name:           string,
+	description:    string,
+	icon:           proto.Blob_Id,
 	password:       string, // empty: anyone may join
 	sessions:       map[proto.Session_Id]^Client, // by local_idx
 	max_sessions:   int,
@@ -159,7 +163,6 @@ IDLE_WAIT :: 100 * time.Millisecond
 run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	s := Server {
 		version = 1,
-		name = settings.name,
 		password = settings.password,
 		max_sessions = settings.max_sessions,
 		auth = {params = HASH_PARAMS_NOW},
@@ -185,6 +188,8 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	defer retention_close(&s.retention)
 	emoji_open(&s, settings.emoji_dir)
 	defer emoji_close(&s)
+	server_info_load(&s, settings.name)
+	defer server_info_destroy(&s)
 	if !accounts_load(&s.accounts, &s.db) {
 		return false
 	}

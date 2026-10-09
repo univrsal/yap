@@ -382,6 +382,8 @@ Command :: union {
 	Avatar_Want_Command,
 	Setting_Command,
 	Members_Command,
+	// What the server says about itself, see server_info.odin.
+	Server_Info_Command,
 	// Roles and managing the server, see roles.odin.
 	Role_Set_Command,
 	Role_Delete_Command,
@@ -444,6 +446,11 @@ command_destroy :: proc(cmd: Command) {
 	case Status_Command:
 		delete(v.text)
 	case Avatar_Command:
+		image := v.image
+		chat_image_destroy(&image)
+	case Server_Info_Command:
+		delete(v.name)
+		delete(v.description)
 		image := v.image
 		chat_image_destroy(&image)
 	case Setting_Command:
@@ -590,6 +597,10 @@ process_commands :: proc(c: ^Voice_Client) {
 			v.image = {}
 		case Avatar_Want_Command:
 			blob_want(c, {blob = v.blob}, keep = true)
+		case Server_Info_Command:
+			// The client takes the strings and the JPEG over.
+			server_info_set(c, v)
+			v.name, v.description, v.image = "", "", {}
 		case Setting_Command:
 			setting_put(c, v.key, v.value)
 		case Role_Set_Command:

@@ -2,7 +2,6 @@ package server
 
 import "core:log"
 
-import "common:."
 import "common:proto"
 
 /*
@@ -23,7 +22,11 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 	// A connection that isn't logged in may ask what it's talking to,
 	// log in and register, and nothing else (as with what doesn't come
 	// over the stream: see handle_data).
-	if u.account == nil && op != .Server_Info && op != .Auth_Login && op != .Register {
+	if u.account == nil &&
+	   op != .Server_Info &&
+	   op != .Server_Icon &&
+	   op != .Auth_Login &&
+	   op != .Register {
 		respond(u, id, .Unauthenticated)
 		return
 	}
@@ -31,7 +34,7 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 	// nothing else (verify.odin).
 	if u.account != nil && .Unverified in u.account.flags {
 		#partial switch op {
-		case .Server_Info, .Email_Set, .Auth_Logout, .Account_Delete:
+		case .Server_Info, .Server_Icon, .Email_Set, .Auth_Logout, .Account_Delete:
 		case:
 			respond(u, id, .Denied)
 			return
@@ -39,16 +42,8 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 	}
 	#partial switch op {
 	case .Server_Info:
-		buf: [proto.SERVER_INFO_MAX_SIZE]u8
-		info := proto.Server_Info {
-			name           = s.name,
-			version        = common.version_string(),
-			max_attachment = s.attach.max_size,
-			registration   = registration_flags(s),
-			email          = s.email.config.address if verify_on(s) else "",
-		}
-		body, fits := proto.encode_server_info(buf[:], info)
-		if !fits {
+		body := server_info_body(s) // server_info.odin
+		if body == nil {
 			respond(u, id, .Internal)
 			break
 		}
@@ -62,8 +57,11 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 			_ = request
 		}
 		respond(u, id, .Ok, body)
+	case .Server_Icon:
+		server_icon_request(s, u, id, request)
 	case:
 		if !auth_request(s, u, id, op, request) &&
+		   !server_info_request(s, u, id, op, request) &&
 		   !conv_request(s, u, id, op, request) &&
 		   !buddy_request(s, u, id, op, request) &&
 		   !message_request(s, u, id, op, request) &&

@@ -232,22 +232,6 @@ BLOB_GET_ANSWER_SIZE :: 4 + 8
 TYPING_UP_SIZE :: 1 + 4 + 8
 TYPING_DOWN_SIZE :: TYPING_UP_SIZE + 4
 
-@(private = "file")
-put_str16 :: proc(w: ^Writer, str: string) {
-	if len(str) > int(max(u16)) {
-		w.overflow = true
-		return
-	}
-	put_u16(w, u16(len(str)))
-	put_bytes(w, transmute([]u8)str)
-}
-
-@(private = "file")
-get_str16 :: proc(r: ^Reader) -> string {
-	n := int(get_u16(r))
-	return string(get_bytes(r, n))
-}
-
 // message_size is how many bytes `m` takes as a record.
 message_size :: proc(m: Message) -> int {
 	n := 8 + 4 + 4 + 8 + 1 + 1 + 8 + 8

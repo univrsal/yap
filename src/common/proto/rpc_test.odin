@@ -75,3 +75,52 @@ test_server_info :: proc(t: ^testing.T) {
 	_, ok = encode_server_info(buf[:], {name = string(long_name)})
 	testing.expect(t, !ok)
 }
+
+@(test)
+test_server_info_description_and_icon :: proc(t: ^testing.T) {
+	buf: [SERVER_INFO_MAX_SIZE]u8
+	body, ok := encode_server_info(
+		buf[:],
+		{name = "The Shed", version = "1.2.3", description = "For the band.", icon = 42},
+	)
+	testing.expect(t, ok)
+	info: Server_Info
+	info, ok = decode_server_info(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, info.description, "For the band.")
+	testing.expect_value(t, info.icon, Blob_Id(42))
+
+	// An older server ends at the email address: no description, no icon.
+	old := body[:len(body) - 2 - len("For the band.") - 8]
+	info, ok = decode_server_info(old)
+	testing.expect(t, ok)
+	testing.expect_value(t, info.name, "The Shed")
+	testing.expect_value(t, info.description, "")
+	testing.expect_value(t, info.icon, Blob_Id(0))
+
+	long_text := make([]u8, MAX_SERVER_DESCRIPTION + 1, context.temp_allocator)
+	_, ok = encode_server_info(buf[:], {description = string(long_text)})
+	testing.expect(t, !ok)
+}
+
+@(test)
+test_server_info_set :: proc(t: ^testing.T) {
+	buf: [SERVER_INFO_SET_MAX_SIZE]u8
+	body, ok := encode_server_info_set(
+		buf[:],
+		{name = "The Shed", description = "For the band.", icon = 7},
+	)
+	testing.expect(t, ok)
+	set: Server_Info_Set
+	set, ok = decode_server_info_set(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, set.name, "The Shed")
+	testing.expect_value(t, set.description, "For the band.")
+	testing.expect_value(t, set.icon, Blob_Id(7))
+
+	_, ok = decode_server_info_set(body[:len(body) - 1])
+	testing.expect(t, !ok)
+	long_text := make([]u8, MAX_SERVER_DESCRIPTION + 1, context.temp_allocator)
+	_, ok = encode_server_info_set(buf[:], {description = string(long_text)})
+	testing.expect(t, !ok)
+}

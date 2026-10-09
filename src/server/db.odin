@@ -303,7 +303,7 @@ STMT_SQL := [Stmt]string {
 	.Purge_Files            = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0) FROM messages m WHERE m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Purge_Files_Conv       = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0) FROM messages m WHERE m.conv = ?4 AND m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Attach_Strip           = "UPDATE attachments SET blob = NULL WHERE msg = ?1",
-	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
 	.Blob_Touch             = "UPDATE blobs SET created = ?2 WHERE id = ?1",
 	.Attach_Add             = "INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?1, ?2, ?3, ?4, ?5)",
 	.Attach_Of_Msg          = "SELECT blob, name, size FROM attachments WHERE msg = ?1 ORDER BY idx",
@@ -712,5 +712,24 @@ db_meta_set :: proc(db: ^DB, key: string, value: i64) -> bool {
 	q := db_stmt(db, .Meta_Set)
 	db_bind_text(q, 1, key)
 	db_bind_int(q, 2, value)
+	return db_run(db, q)
+}
+
+// db_meta_text is db_meta for a note that's text, in the temp allocator.
+db_meta_text :: proc(db: ^DB, key: string) -> (value: string, found: bool) {
+	q := db_stmt(db, .Meta_Get)
+	db_bind_text(q, 1, key)
+	if row, ok := db_step(db, q); ok && row {
+		value = db_col_text(q, 0)
+		sqlite.reset(q)
+		return value, true
+	}
+	return
+}
+
+db_meta_set_text :: proc(db: ^DB, key: string, value: string) -> bool {
+	q := db_stmt(db, .Meta_Set)
+	db_bind_text(q, 1, key)
+	db_bind_text(q, 2, value)
 	return db_run(db, q)
 }

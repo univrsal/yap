@@ -4,7 +4,9 @@ web/build.sh and src/client/ui_avatar_pick_web.odin). A file input the
 page clicks for the client; the picture is made here, the way
 avatar_prepare (src/client/image.odin) makes it on a desktop: the
 largest square from its centre, scaled down to MAX_SIDE, and compressed
-to a JPEG within MAX_BYTES by lowering the quality till it fits.
+to a JPEG within MAX_BYTES by lowering the quality till it fits. A
+server's picture is made the same way, smaller: the client says how big
+(proto.MAX_SERVER_ICON_SIDE and MAX_SERVER_ICON_SIZE).
 Transparent parts are put on white, since JPEG has no transparency.
 
 The client is told when a file was chosen (web_avatar_reading, for its
@@ -13,7 +15,8 @@ The client is told when a file was chosen (web_avatar_reading, for its
 Closing the dialog without a choice tells it nothing.
 */
 (() => {
-	// Keep these in step with proto.MAX_AVATAR_SIDE and MAX_AVATAR_SIZE.
+	// The defaults: keep these in step with proto.MAX_AVATAR_SIDE and
+	// MAX_AVATAR_SIZE.
 	const MAX_SIDE = 256;
 	const MAX_BYTES = 64 * 1024;
 	// 88, 76, 64, 52, 40: as avatar_prepare tries them.
@@ -22,12 +25,12 @@ Closing the dialog without a choice tells it nothing.
 	const toBlob = (canvas, quality) =>
 		new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 
-	const prepare = async (file) => {
+	const prepare = async (file, maxSide, maxBytes) => {
 		const bitmap = await createImageBitmap(file);
 		try {
 			const side = Math.min(bitmap.width, bitmap.height);
 			if (side <= 0) return null;
-			const out = Math.min(side, MAX_SIDE);
+			const out = Math.min(side, maxSide);
 			const canvas = document.createElement("canvas");
 			canvas.width = out;
 			canvas.height = out;
@@ -41,7 +44,7 @@ Closing the dialog without a choice tells it nothing.
 			for (const quality of QUALITIES) {
 				const blob = await toBlob(canvas, quality);
 				if (!blob) return null;
-				if (blob.size <= MAX_BYTES) {
+				if (blob.size <= maxBytes) {
 					return { bytes: new Uint8Array(await blob.arrayBuffer()), side: out };
 				}
 			}
@@ -59,7 +62,7 @@ Closing the dialog without a choice tells it nothing.
 	};
 
 	Module.yapAvatar = {
-		pick() {
+		pick(maxSide = MAX_SIDE, maxBytes = MAX_BYTES) {
 			const input = document.createElement("input");
 			input.type = "file";
 			input.accept = "image/*";
@@ -68,7 +71,7 @@ Closing the dialog without a choice tells it nothing.
 				if (!file || typeof Module._web_avatar_picked !== "function") return;
 				Module._web_avatar_reading();
 				try {
-					const result = await prepare(file);
+					const result = await prepare(file, maxSide, maxBytes);
 					if (result) send(result);
 					else Module._web_avatar_failed();
 				} catch (e) {

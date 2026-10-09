@@ -3,14 +3,13 @@ package client
 import "core:fmt"
 import "core:slice"
 import "core:strings"
-import "core:sync"
 import mu "vendor:microui"
 
 import "client:conn"
 import "common:proto"
 
 /*
-The Roles window, for whoever has Manage_Roles (conn/roles.odin): the
+Roles, in the settings' server tab, for whoever has Manage_Roles (conn/roles.odin): the
 roles on the left, with a box to make one under them, and the role
 picked on the right - its name, its colour, its place in the list,
 whether it can be mentioned, what it allows, and who has it, with
@@ -23,14 +22,9 @@ menu. The order is only for that.
 A role that allows more than we may is above us: it's shown, but
 neither changed nor given nor taken. A permission we don't have
 ourselves can't be ticked. The server checks all of it again.
-
-Opened from the server's tab of the settings; it floats over whatever
-page is showing, like the Channels window.
 */
 
 UI_Roles :: struct {
-	open:        bool,
-	placed:      bool,
 	// The role picked (0: none), and as it's being edited: loaded again
 	// whenever another is picked or the server says it changed.
 	role:        proto.Role_Id,
@@ -46,13 +40,11 @@ UI_Roles :: struct {
 	adding:      bool,
 	new_buf:     [proto.MAX_ROLE_NAME]u8,
 	new_len:     int,
-	// What the server said by the time the window opened isn't about
-	// anything asked in it (conn.View_Notice.count).
+	// What the server said by the time the category was picked isn't
+	// about anything asked in it (conn.View_Notice.count).
 	notice_seen: int,
 }
 
-@(private = "file")
-ROLES_WINDOW :: "Roles"
 @(private = "file")
 LIST_WIDTH :: 170
 @(private = "file")
@@ -201,50 +193,20 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 	}
 }
 
-open_roles :: proc(ui: ^UI) {
-	r := &ui.roles
-	r.open, r.placed = true, false
-	r.notice_seen = -1 // taken from the View when it's next locked
-}
-
 /*
-roles_window draws the Roles window while it's open. Call with the View
-unlocked.
+roles_settings is the Roles category of the settings' server tab
+(server_settings), for who has Manage_Roles. Call with the View locked.
 */
-roles_window :: proc(ui: ^UI, window_w, window_h: i32) {
+roles_settings :: proc(ui: ^UI) {
 	r := &ui.roles
-	if !r.open {
-		return
-	}
 	ctx := &ui.ctx
 	v := ui.view
-	sync.guard(&v.mutex)
-	if v.status != .Connected || v.login.state != .Done || .Manage_Roles not_in v.permissions {
-		r.open = false
+	if .Manage_Roles not_in v.permissions {
 		return
 	}
 	if r.notice_seen < 0 {
 		r.notice_seen = v.notice.count
 	}
-	if !r.placed {
-		r.placed = true
-		w := clamp(window_w - 40, 360, 760)
-		h := clamp(window_h - 40, 260, 560)
-		if cnt := mu.get_container(ctx, ROLES_WINDOW); cnt != nil {
-			cnt.rect = {(window_w - w) / 2, (window_h - h) / 2, w, h}
-			cnt.open = true
-			cnt.scroll = {}
-			mu.bring_to_front(ctx, cnt)
-			// The click that opened it would raise the window behind at
-			// the end of the frame (see image_viewer).
-			ctx.hover_root, ctx.next_hover_root = cnt, cnt
-		}
-	}
-	if !mu.begin_window(ctx, ROLES_WINDOW, {}) {
-		r.open = false // closed with the title bar's button
-		return
-	}
-	defer mu.end_window(ctx)
 
 	// A role that's gone takes the right-hand side with it.
 	if r.role != 0 && role_of(v, r.role) == nil {

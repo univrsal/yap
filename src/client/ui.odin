@@ -174,6 +174,9 @@ UI :: struct {
 	// title_key).
 	title_unread:        int,
 	settings_tab:        Settings_Tab, // which the settings page shows (ui_settings.odin)
+	// And the category picked in each of its tabs.
+	settings_client:     Client_Category,
+	settings_server:     Server_Category,
 	// For the chat's local timestamps, every server's; nil means UTC
 	// (ui_chat_time_native.odin).
 	chat_tz:             ^datetime.TZ_Region,
@@ -1413,7 +1416,6 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	completion_window(ui)
 	picker_window(ui, w, h)
 	channels_window(ui, w, h)
-	roles_window(ui, w, h)
 	forward_window(ui, w, h)
 	search_window(ui, w, h)
 	// After every timeline, the thread windows' too.
@@ -1510,8 +1512,6 @@ connect_screen :: proc(ui: ^UI) {
 		ui.action = .Disconnect
 	}
 
-	mu.layout_row(ctx, {-1}, -1)
-	log_panel(ui)
 }
 
 /*
@@ -1550,8 +1550,6 @@ start_screen :: proc(ui: ^UI) {
 			join_open(ui)
 		}
 	}
-	mu.layout_row(ctx, {-1}, -1)
-	log_panel(ui)
 }
 
 // Narrower than this (a phone, a window squeezed aside), the channels

@@ -168,8 +168,11 @@ Pending :: struct {
 	root:   proto.Msg_Id, // the thread it replies in, if it does
 	dm_to:  proto.Account_Id, // whom it's for, if it's a DM
 	// Not a message at all: our new picture, set once it's uploaded
-	// (profiles.odin).
+	// (profiles.odin); or with `server`, the server's, set with its name
+	// (`text`) and its description (`about`, owned; server_info.odin).
 	avatar: bool,
+	server: bool,
+	about:  string,
 	kind:   proto.Msg_Kind,
 	text:   string, // .Text, .File's name; owned
 	size:   u64, // .File's
@@ -278,6 +281,7 @@ messages_destroy :: proc(c: ^Voice_Client) {
 
 pending_destroy :: proc(p: ^Pending) {
 	delete(p.text)
+	delete(p.about)
 	delete(p.jpeg)
 	proto.blob_sender_destroy(&p.upload.send)
 	p^ = {}
@@ -1611,7 +1615,10 @@ drive_outbox :: proc(c: ^Voice_Client) {
 	case .Upload:
 		upload_step(c, p)
 	case .Post:
-		if !p.asking && p.avatar {
+		if !p.asking && p.server {
+			p.asking = true
+			server_info_post(c, p)
+		} else if !p.asking && p.avatar {
 			p.asking = true
 			avatar_post(c, p)
 		} else if !p.asking {
@@ -1926,6 +1933,7 @@ View_Pending :: struct {
 	conv:      proto.Conv_Id, // 0 while its DM is being opened
 	root:      proto.Msg_Id, // a reply's thread
 	avatar:    bool, // not a message: our new picture
+	server:    bool, // or the server's (server_info.odin)
 	dm_to:     proto.Account_Id,
 	kind:      proto.Msg_Kind,
 	text:      string, // owned
@@ -2226,7 +2234,8 @@ publish_outbox :: proc(c: ^Voice_Client) {
 				files = pending_files(p.attach) if p.attach != nil else nil,
 				conv = p.conv,
 				root = p.root,
-				avatar = p.avatar,
+				avatar = p.avatar && !p.server,
+				server = p.server,
 				dm_to = p.dm_to,
 				kind = p.kind,
 				text = strings.clone(p.text),

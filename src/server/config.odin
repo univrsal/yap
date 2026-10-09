@@ -60,7 +60,9 @@ once at startup:
 	}
 
 name       what clients show for this server, up to 64 bytes; empty for
-           none, and they show its address.
+           none, and they show its address. Only what a new database
+           starts with: after that the owner changes it from a client,
+           with a description and a picture (server_info.odin).
 port       the UDP port to listen on.
 key        the server's private key. Keep it: clients remember the
            public half and refuse to connect if it changes.

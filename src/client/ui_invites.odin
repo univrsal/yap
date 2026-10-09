@@ -43,10 +43,6 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	if !make_codes && .Manage_Accounts not_in v.permissions {
 		return
 	}
-	if .ACTIVE not_in mu.begin_treenode(ctx, "Invite codes") {
-		return
-	}
-	defer mu.end_treenode(ctx)
 	if !st.asked {
 		st.asked = true
 		invites_command(ui, conn.Invites_Command{})

@@ -240,7 +240,7 @@ avatar_post :: proc(c: ^Voice_Client, p: ^Pending) {
 		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR, avatar = p.blob}),
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			p := outbox_head(c, tag)
-			if p == nil || !p.avatar {
+			if p == nil || !p.avatar || p.server {
 				return
 			}
 			p.asking = false

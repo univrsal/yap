@@ -90,10 +90,6 @@ install_do :: proc(ui: ^UI, install: bool) {
 // install_settings is the settings page's section for it.
 install_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if .ACTIVE not_in mu.begin_treenode(ctx, "Install") {
-		return
-	}
-	defer mu.end_treenode(ctx)
 	st := &ui.install
 	if !st.loaded {
 		install_load(ui)

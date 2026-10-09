@@ -38,3 +38,46 @@ set_window_icon :: proc(window: glfw.WindowHandle) {
 	// GLFW copies the pixels, so they needn't outlive the call.
 	glfw.SetWindowIcon(window, {{width = w, height = h, pixels = pixels}})
 }
+
+/*
+window_icon_rgba is the window's icon at `side` pixels square, RGBA, for
+the tray (ui_tray.odin): each pixel the average of the ones it covers,
+weighted by how opaque they are, so the edges don't go dark. nil if
+icon.png won't decode. The caller owns the result.
+*/
+window_icon_rgba :: proc(side: int, allocator := context.allocator) -> []u8 {
+	png := ICON_PNG
+	w, h, comp: i32
+	src := stbi.load_from_memory(raw_data(png), i32(len(png)), &w, &h, &comp, 4)
+	if src == nil {
+		log.warn("could not decode the window icon")
+		return nil
+	}
+	defer stbi.image_free(src)
+	sw, sh := int(w), int(h)
+	pixels := make([]u8, side * side * 4, allocator)
+	for y in 0 ..< side {
+		y0 := y * sh / side
+		y1 := max((y + 1) * sh / side, y0 + 1)
+		for x in 0 ..< side {
+			x0 := x * sw / side
+			x1 := max((x + 1) * sw / side, x0 + 1)
+			sum: [4]int
+			for sy in y0 ..< y1 {
+				for sx in x0 ..< x1 {
+					p := src[(sy * sw + sx) * 4:]
+					a := int(p[3])
+					sum += {int(p[0]) * a, int(p[1]) * a, int(p[2]) * a, a}
+				}
+			}
+			i := (y * side + x) * 4
+			if sum[3] > 0 {
+				pixels[i] = u8(sum[0] / sum[3])
+				pixels[i + 1] = u8(sum[1] / sum[3])
+				pixels[i + 2] = u8(sum[2] / sum[3])
+			}
+			pixels[i + 3] = u8(sum[3] / ((y1 - y0) * (x1 - x0)))
+		}
+	}
+	return pixels
+}

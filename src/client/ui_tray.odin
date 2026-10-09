@@ -3,6 +3,7 @@ package client
 
 import glfw "client:wglfw"
 import log "common:wlog"
+import "core:math/linalg"
 import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
@@ -12,10 +13,13 @@ import "client:render"
 import "client:tray"
 
 /*
-The tray icon: a microphone in the system tray showing whether we're
-talking, muted or deafened, with a right-click menu to disconnect or
-quit. It's drawn from the same shapes as the icons in the window (see
-render/icons.odin), so the two always say the same thing.
+The tray icon: the window's icon in the system tray, and while we're in
+voice a microphone instead, showing whether we're talking, muted or
+deafened, with a right-click menu to disconnect or quit. The microphone
+is drawn from the same shapes as the icons in the window (see
+render/icons.odin), so the two always say the same thing. Either has a
+dot in its corner while something is unread: red with mentions of us
+(or DMs), blue with only other messages.
 
 It's off by default and turned on in the settings. Nothing depends on
 it: a desktop with nowhere to put a tray icon just doesn't get one, and
@@ -40,11 +44,14 @@ TRAY_ICON_PIXELS :: 32
 TRAY_QUIET :: mu.Color{140, 148, 160, 255}
 @(private = "file")
 TRAY_TALKING :: mu.Color{60, 190, 90, 255}
-// Something is unread (see unread_total).
+@(private = "file")
+TRAY_OFF :: mu.Color{225, 80, 80, 255}
+// The dot: something is unread (see unread_total), or some of it is for
+// us.
 @(private = "file")
 TRAY_UNREAD :: mu.Color{80, 140, 235, 255}
 @(private = "file")
-TRAY_OFF :: mu.Color{225, 80, 80, 255}
+TRAY_MENTIONS :: mu.Color{225, 60, 60, 255}
 
 @(private = "file")
 MENU_WINDOW :: 1
@@ -66,8 +73,7 @@ Tray_Request :: enum {
 Tray :: struct {
 	handle:    ^tray.Tray,
 	// What the icon is showing, so it's only redrawn when it changes.
-	icon:      render.Icon,
-	color:     mu.Color,
+	look:      Tray_Look,
 	// What the menu was last built for: Disconnect is greyed out when
 	// there's nothing to disconnect from, and the first item says
 	// whether the window is to be shown or hidden.
@@ -99,10 +105,10 @@ tray_update :: proc(ui: ^UI) {
 		return
 	}
 
-	if icon, color := tray_state(ui); icon != t.icon || color != t.color {
-		pixels := render.icon_rgba(icon, TRAY_ICON_PIXELS, color, context.temp_allocator)
+	if look := tray_state(ui); look != t.look {
+		pixels := tray_pixels(look)
 		tray.update_icon(t.handle, raw_data(pixels), TRAY_ICON_PIXELS, TRAY_ICON_PIXELS)
-		t.icon, t.color = icon, color
+		t.look = look
 	}
 	if connected := ui.session != nil; connected != t.connected || ui.hidden != t.hidden {
 		tray_menu(ui)
@@ -147,15 +153,15 @@ tray_show :: proc(ui: ^UI) {
 	if t.handle != nil {
 		return
 	}
-	icon, color := tray_state(ui)
-	pixels := render.icon_rgba(icon, TRAY_ICON_PIXELS, color, context.temp_allocator)
+	look := tray_state(ui)
+	pixels := tray_pixels(look)
 	t.handle = tray.create(raw_data(pixels), TRAY_ICON_PIXELS, TRAY_ICON_PIXELS, tray_clicked, ui)
 	if t.handle == nil {
 		log.warn("this desktop has nowhere to put a tray icon")
 		t.refused = true
 		return
 	}
-	t.icon, t.color = icon, color
+	t.look = look
 	tray_menu(ui)
 	log.debug("tray icon shown")
 }
@@ -169,28 +175,103 @@ tray_hide :: proc(ui: ^UI) {
 	t^ = {}
 }
 
-// What the icon should show, in the same order as the icon in front of
-// your own name in the channel list.
+// What the tray icon shows.
+Tray_Look :: struct {
+	// In voice (UI.voice_at): the microphone, as `icon` in `color`;
+	// otherwise the window's icon.
+	voice: bool,
+	icon:  render.Icon,
+	color: mu.Color,
+	dot:   Tray_Dot,
+}
+
+Tray_Dot :: enum {
+	None,
+	Unread,
+	Mentions,
+}
+
+/*
+What the icon should show: in voice, the microphone, in the same order
+as the icon in front of your own name in the channel list; and whether
+there's a dot, for what's unread on every server (servers_frame).
+*/
 @(private = "file")
-tray_state :: proc(ui: ^UI) -> (render.Icon, mu.Color) {
+tray_state :: proc(ui: ^UI) -> (look: Tray_Look) {
+	switch {
+	case ui.mentions > 0:
+		look.dot = .Mentions
+	case ui.unread > 0:
+		look.dot = .Unread
+	}
+	ns := ui.voice_at
+	if ns == nil {
+		return
+	}
+	look.voice = true
 	switch {
 	case ui.deafened:
-		return .Sound_Off, TRAY_OFF
+		look.icon, look.color = .Sound_Off, TRAY_OFF
 	case ui.muted:
-		return .Mic_Off, TRAY_OFF
+		look.icon, look.color = .Mic_Off, TRAY_OFF
+	case:
+		v := &ns.view
+		sync.guard(&v.mutex)
+		speaking := conn.is_speaking(v, v.my_num)
+		look.icon, look.color = .Mic, TRAY_TALKING if speaking else TRAY_QUIET
 	}
-	speaking := false
-	if ui.session != nil {
-		sync.guard(&ui.view.mutex)
-		speaking = conn.is_speaking(ui.view, ui.view.my_num)
+	return
+}
+
+/*
+tray_pixels draws `look` for the desktop, TRAY_ICON_PIXELS square, in
+the frame's temp allocator. The dot sits in the bottom right corner with
+a clear ring round it, so it stands apart from the picture under it.
+*/
+@(private = "file")
+tray_pixels :: proc(look: Tray_Look) -> []u8 {
+	side := TRAY_ICON_PIXELS
+	pixels: []u8
+	if !look.voice {
+		pixels = window_icon_rgba(side, context.temp_allocator)
 	}
-	switch {
-	case speaking:
-		return .Mic, TRAY_TALKING
-	case ui.unread > 0:
-		return .Mic, TRAY_UNREAD
+	if pixels == nil {
+		icon, color := look.icon, look.color
+		if !look.voice {
+			// The window's icon wouldn't decode.
+			icon, color = .Mic, TRAY_QUIET
+		}
+		pixels = render.icon_rgba(icon, side, color, context.temp_allocator)
 	}
-	return .Mic, TRAY_QUIET
+	if look.dot == .None {
+		return pixels
+	}
+	c := TRAY_MENTIONS if look.dot == .Mentions else TRAY_UNREAD
+	color := [3]u8{c.r, c.g, c.b}
+	radius := f32(side) * 0.2
+	ring := f32(side) * 0.07
+	center := [2]f32{f32(side) - radius - 0.5, f32(side) - radius - 0.5}
+	for y in 0 ..< side {
+		for x in 0 ..< side {
+			d := linalg.distance([2]f32{f32(x) + 0.5, f32(y) + 0.5}, center) - radius
+			i := (y * side + x) * 4
+			// Cleared under the ring, fading back in past it.
+			pixels[i + 3] = u8(f32(pixels[i + 3]) * clamp(d - ring + 0.5, 0, 1))
+			// The dot, over whatever is left.
+			cover := clamp(0.5 - d, 0, 1)
+			if cover == 0 {
+				continue
+			}
+			under := f32(pixels[i + 3]) / 255
+			alpha := cover + under * (1 - cover)
+			for k in 0 ..< 3 {
+				top, bottom := f32(color[k]), f32(pixels[i + k])
+				pixels[i + k] = u8((top * cover + bottom * under * (1 - cover)) / alpha)
+			}
+			pixels[i + 3] = u8(alpha * 255)
+		}
+	}
+	return pixels
 }
 
 // on_wayland reports whether we're running as a Wayland client, which

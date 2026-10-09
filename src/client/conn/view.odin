@@ -63,8 +63,13 @@ View :: struct {
 	// for it (see verify_server_key), for the UI to offer trusting it.
 	key_change:     Key_Change,
 	server:         string,
-	// What the server calls itself, if it has said and has a name.
+	// What the server calls itself, if it has said and has a name; what
+	// it says it's for; and its picture, once fetched (the JPEG, owned,
+	// and the id it goes by). See server_info.odin.
 	server_name:    string,
+	server_about:   string,
+	server_icon:    proto.Blob_Id,
+	icon_jpeg:      []u8,
 	// How big a file attached to a message may be; 0 if it takes none.
 	max_attachment: u64,
 	// Whether one may register an account there, and with what; and the
@@ -218,6 +223,9 @@ view_reset :: proc(v: ^View) {
 	delete(v.server)
 	delete(v.server_name)
 	v.error, v.server, v.server_name = "", "", ""
+	delete(v.server_about)
+	delete(v.icon_jpeg)
+	v.server_about, v.server_icon, v.icon_jpeg = "", 0, nil
 	view_clear_key_change(v)
 	v.status = .Disconnected
 	v.server_key = {}
@@ -492,6 +500,17 @@ publish_server :: proc(c: ^Voice_Client) {
 	v.registration = c.rpc.server.registration
 	delete(v.server_email)
 	v.server_email = strings.clone(c.rpc.server.email)
+	delete(v.server_about)
+	v.server_about = strings.clone(c.rpc.server.description)
+	if v.server_icon != c.rpc.server.icon || len(v.icon_jpeg) != len(c.rpc.server.icon_jpeg) {
+		delete(v.icon_jpeg)
+		v.icon_jpeg = nil
+		if len(c.rpc.server.icon_jpeg) > 0 {
+			v.icon_jpeg = make([]u8, len(c.rpc.server.icon_jpeg))
+			copy(v.icon_jpeg, c.rpc.server.icon_jpeg)
+		}
+	}
+	v.server_icon = c.rpc.server.icon
 }
 
 // publish_server_key tells the UI the server's key, which the per-user

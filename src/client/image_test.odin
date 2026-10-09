@@ -6,6 +6,7 @@ import stbi "vendor:stb/image"
 
 import "client:clipboard"
 import "client:conn"
+import "common:proto"
 
 // test_image makes a w*h RGBA image: noise (so it doesn't compress to
 // nothing) with an alpha ramp across the first rows.
@@ -188,4 +189,15 @@ test_avatar_prepare :: proc(t: ^testing.T) {
 
 	_, bad := avatar_prepare({})
 	testing.expect(t, !bad)
+
+	// A server's picture: smaller, and fits in one response.
+	icon, icon_ok := avatar_prepare(
+		noisy,
+		max_side = proto.MAX_SERVER_ICON_SIDE,
+		max_size = proto.MAX_SERVER_ICON_SIZE,
+	)
+	defer conn.chat_image_destroy(&icon)
+	testing.expect(t, icon_ok)
+	testing.expect(t, icon.width == proto.MAX_SERVER_ICON_SIDE && icon.height == icon.width)
+	testing.expect(t, len(icon.jpeg) <= proto.MAX_SERVER_ICON_SIZE)
 }

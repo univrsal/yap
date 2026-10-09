@@ -523,6 +523,25 @@ get_str8 :: proc(r: ^Reader) -> string {
 	return string(get_bytes(r, n))
 }
 
+// put_str16 writes [len u16][bytes]; a string too long for that
+// overflows.
+@(private)
+put_str16 :: proc(w: ^Writer, str: string) {
+	if len(str) > int(max(u16)) {
+		w.overflow = true
+		return
+	}
+	put_u16(w, u16(len(str)))
+	put_bytes(w, transmute([]byte)str)
+}
+
+// get_str16 reads [len u16][bytes]; the string points into the buffer.
+@(private)
+get_str16 :: proc(r: ^Reader) -> string {
+	n := int(get_u16(r))
+	return string(get_bytes(r, n))
+}
+
 @(private)
 Reader :: struct {
 	buf:      []byte,

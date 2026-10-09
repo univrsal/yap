@@ -498,8 +498,8 @@ int main(void) {
 }
 
 /* Choosing our picture (web/avatar.js, src/client/ui_avatar_pick_web.odin). */
-EM_JS(void, yap_avatar_pick, (void), {
-	Module.yapAvatar.pick();
+EM_JS(void, yap_avatar_pick, (int side, int size), {
+	Module.yapAvatar.pick(side, size);
 });
 
 /* Files in DMs (web/files.js, src/client/files_io_web.odin). */

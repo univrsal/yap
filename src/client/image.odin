@@ -184,13 +184,16 @@ encode_jpeg :: proc(
 
 /*
 avatar_prepare makes a profile picture of an image: the largest square
-from its centre, scaled down to at most proto.MAX_AVATAR_SIDE, and
-compressed to fit proto.MAX_AVATAR_SIZE (quality is lowered till it
-does; a picture that small always does at some quality).
+from its centre, scaled down to at most `max_side`, and compressed to
+fit `max_size` (quality is lowered till it does; a picture that small
+always does at some quality). A server's picture is made the same way,
+smaller (proto.MAX_SERVER_ICON_SIDE).
 */
 avatar_prepare :: proc(
 	src: clipboard.Image,
 	allocator := context.allocator,
+	max_side := proto.MAX_AVATAR_SIDE,
+	max_size := proto.MAX_AVATAR_SIZE,
 ) -> (
 	img: conn.Chat_Image,
 	ok: bool,
@@ -210,7 +213,7 @@ avatar_prepare :: proc(
 	defer delete(rgb)
 	flatten({width = side, height = side, pixels = square}, rgb)
 
-	out := min(side, proto.MAX_AVATAR_SIDE)
+	out := min(side, max_side)
 	scaled := rgb
 	if out != side {
 		scaled = make([]u8, out * out * 3)
@@ -238,7 +241,7 @@ avatar_prepare :: proc(
 	}
 	for quality: i32 = 88; quality >= 30; quality -= 12 {
 		jpeg := encode_jpeg(scaled, out, out, quality, allocator) or_return
-		if len(jpeg) <= proto.MAX_AVATAR_SIZE {
+		if len(jpeg) <= max_size {
 			log.debugf("picture: %dx%d, quality %d, %d bytes", out, out, quality, len(jpeg))
 			return {jpeg = jpeg, width = out, height = out}, true
 		}
@@ -248,10 +251,13 @@ avatar_prepare :: proc(
 	return {}, false
 }
 
-// avatar_load makes a profile picture of an image file.
+// avatar_load makes a profile picture of an image file, as
+// avatar_prepare does.
 avatar_load :: proc(
 	path: string,
 	allocator := context.allocator,
+	max_side := proto.MAX_AVATAR_SIDE,
+	max_size := proto.MAX_AVATAR_SIZE,
 ) -> (
 	img: conn.Chat_Image,
 	ok: bool,
@@ -267,5 +273,5 @@ avatar_load :: proc(
 		return {}, false
 	}
 	defer clipboard.image_destroy(&decoded, context.temp_allocator)
-	return avatar_prepare(decoded, allocator)
+	return avatar_prepare(decoded, allocator, max_side, max_size)
 }
