@@ -52,13 +52,13 @@ sound_status :: proc(muted, deafened, speaking: bool) -> (render.Icon, mu.Color)
 	case deafened:
 		// Somebody who isn't listening is usually muted as well, and of
 		// the two that's the one worth showing.
-		return .Sound_Off, OFF_COLOR
+		return .Sound_Off, theme.off
 	case muted:
-		return .Mic_Off, OFF_COLOR
+		return .Mic_Off, theme.off
 	case speaking:
-		return .Mic, SPEAKING_COLOR
+		return .Mic, theme.speaking
 	}
-	return .Mic, DIM_COLOR
+	return .Mic, theme.dim
 }
 
 /*
@@ -69,7 +69,7 @@ would otherwise be easy to mix up.
 */
 @(private = "file")
 local_mute_mark :: proc(ctx: ^mu.Context, row: mu.Rect) {
-	mu.draw_icon(ctx, render.icon_id(.Sound_Off), end_of_row(row, 0), DIM_COLOR)
+	mu.draw_icon(ctx, render.icon_id(.Sound_Off), end_of_row(row, 0), theme.dim)
 }
 
 // end_of_row is the icon-sized square `slot` places in from a row's end.
@@ -91,9 +91,9 @@ sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu
 	color := ctx.style.colors[.TEXT]
 	switch {
 	case ui.view.watching == id:
-		color = SPEAKING_COLOR
+		color = theme.speaking
 	case !conn.video_can_watch() || id == ui.view.my_num:
-		color = DIM_COLOR
+		color = theme.dim
 	}
 	mu.draw_icon(ctx, render.icon_id(.Screen), r, color)
 	return r
@@ -113,7 +113,7 @@ app_audio_mark :: proc(ctx: ^mu.Context, row: mu.Rect, slot: i32, heard: bool) {
 		ctx,
 		render.icon_id(.App_Audio),
 		end_of_row(row, slot),
-		SPEAKING_COLOR if heard else DIM_COLOR,
+		theme.speaking if heard else theme.dim,
 	)
 }
 
@@ -144,7 +144,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 
 	user, known := v.users[id]
 	if !known {
-		status_icon(ctx, .Mic, DIM_COLOR)
+		status_icon(ctx, .Mic, theme.dim)
 		mu.label(ctx, "")
 		mu.label(ctx, fmt.tprintf("user #%d", id))
 		return
@@ -173,7 +173,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 			ctx,
 			r,
 			text,
-			SPEAKING_COLOR if speaking else ctx.style.colors[.TEXT],
+			theme.speaking if speaking else ctx.style.colors[.TEXT],
 			status_line(acc),
 		)
 		slot: i32 = 0
@@ -200,9 +200,9 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	color := ctx.style.colors[.TEXT]
 	switch {
 	case u.muted:
-		color = DIM_COLOR // nothing of theirs is reaching us
+		color = theme.dim // nothing of theirs is reaching us
 	case speaking:
-		color = SPEAKING_COLOR
+		color = theme.speaking
 	}
 
 	// A flat, full-width control: highlighted on hover, any click opens
@@ -290,7 +290,7 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 		font,
 		fmt.tprintf("@%s, %s", acc.username, SEEN_AS[acc.activity]),
 		{r.x, top + line + 2},
-		DIM_COLOR,
+		theme.dim,
 	)
 	if status := status_line(acc); status != "" {
 		mu.layout_row(ctx, {-1})
@@ -301,7 +301,7 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	}
 	if invited := invited_by_line(ui, v, account); invited != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, invited, label_proc)
+		with_text_color(ctx, theme.dim, invited, label_proc)
 	}
 }
 
@@ -343,7 +343,7 @@ user_menu :: proc(ui: ^UI) {
 		if .Deleted in acc.flags {
 			mu.layout_row(ctx, {MENU_WIDTH})
 			mu.label(ctx, name)
-			with_text_color(ctx, DIM_COLOR, "This account was deleted.", label_proc)
+			with_text_color(ctx, theme.dim, "This account was deleted.", label_proc)
 			return
 		}
 	}
@@ -405,7 +405,7 @@ user_menu :: proc(ui: ^UI) {
 				"watch",
 				.Screen,
 				"Sharing their screen (watch in a browser)",
-				DIM_COLOR,
+				theme.dim,
 			)
 		}
 	}

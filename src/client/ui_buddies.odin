@@ -66,20 +66,16 @@ NOTICE_SHOW :: 5 * time.Second
 @(private = "file")
 VIEW_RETRY :: time.Second
 
-// The buddy list's colours: a buddy who's here, and one who isn't.
-@(private = "file")
-ONLINE_COLOR :: SPEAKING_COLOR
-
 // buddies_button opens the buddy screen, or goes back from it. It
 // lights up for DMs that haven't been read.
 buddies_button :: proc(ui: ^UI) {
 	open := ui.page == .Buddies
 	unread := dm_unread(&ui.settings, ui.view)
 	hint := "Back to the channels" if open else "Buddies"
-	color := CHAT_NAME_COLOR if open else mu.Color{}
+	color := theme.chat_name if open else mu.Color{}
 	if unread > 0 && !open {
 		hint = fmt.tprintf("Buddies (%s unread)", conn.unread_count(unread))
-		color = SPEAKING_COLOR
+		color = theme.speaking
 	}
 	if .SUBMIT in icon_button(ui, "buddies", .Mail, hint, color) {
 		ui.page = .Main if open else .Buddies
@@ -203,7 +199,7 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 		mu.layout_row(ctx, {-1}, -1)
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			"No buddies yet. Click someone in the channel list and add them from the menu.",
 			text_proc,
 		)
@@ -240,11 +236,11 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	case ctx.hover_id == id:
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
-	color := ctx.style.colors[.TEXT] if b.online else DIM_COLOR
+	color := ctx.style.colors[.TEXT] if b.online else theme.dim
 	text := b.name
 	if b.unread > 0 {
 		text = fmt.tprintf("%s  (%s)", b.name, conn.unread_count(b.unread))
-		color = SPEAKING_COLOR
+		color = theme.speaking
 	}
 	acc := ui.view.accounts[b.account] or_else {}
 	name_and_status(ctx, r, text, color, status_line(acc))
@@ -272,7 +268,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 
 	if !found {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, "Pick a buddy to talk to them.", label_proc)
+		with_text_color(ctx, theme.dim, "Pick a buddy to talk to them.", label_proc)
 		return
 	}
 	account := entry.account
@@ -329,7 +325,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 			   "dm hide",
 			   .Trash,
 			   "Take this conversation off the list until something new is said in it",
-			   OFF_COLOR,
+			   theme.off,
 		   ) {
 		last: proto.Msg_Id
 		for dm in v.dms {
@@ -350,7 +346,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		// refuses it too).
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			"Their account was deleted: this conversation can be read, but not written to.",
 			label_proc,
 		)
@@ -361,7 +357,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		return
 	}
 	status := "here now" if entry.online else last_seen_text(ui, account)
-	status_color := ONLINE_COLOR if entry.online else DIM_COLOR
+	status_color := theme.speaking if entry.online else theme.dim
 	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {
 		status = "typing..."
 	} else if entry.conv != 0 && conn.is_typing_in_thread(v, account, entry.conv) {
@@ -371,13 +367,13 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 		status = "reading the clipboard..."
 	}
 	if editing := composer_status(composer_of_page(ui)); editing != "" {
-		status, status_color = editing, DIM_COLOR
+		status, status_color = editing, theme.dim
 	}
 	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
-		status, status_color = notice, OFF_COLOR
+		status, status_color = notice, theme.off
 	}
 	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
-		status, status_color = ui.buddies.notice, OFF_COLOR
+		status, status_color = ui.buddies.notice, theme.off
 		ui_redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
 	}
 	with_text_color(ctx, status_color, status, label_proc)
@@ -458,7 +454,7 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 	mu.layout_row(ctx, {-1})
 	text :=
 		"Loading messages..." if entry.conv != 0 else fmt.tprintf("Nothing said with %s yet.", entry.name)
-	with_text_color(ctx, CHAT_DIM_COLOR, text, label_proc)
+	with_text_color(ctx, theme.dim, text, label_proc)
 }
 
 /*

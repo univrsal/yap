@@ -48,8 +48,6 @@ UI_Roles :: struct {
 @(private = "file")
 LIST_WIDTH :: 170
 @(private = "file")
-NOTICE_OK_COLOR :: mu.Color{120, 200, 120, 255}
-@(private = "file")
 SWATCH :: 20
 
 // The colours a role can have, readable on the dark background.
@@ -97,7 +95,7 @@ author_color :: proc(v: ^conn.View, sender: proto.Account_Id) -> mu.Color {
 	if c, ok := name_color(v, sender); ok {
 		return c
 	}
-	return CHAT_OWN_COLOR if sender == v.me else CHAT_NAME_COLOR
+	return theme.chat_own if sender == v.me else theme.chat_name
 }
 
 @(private = "file")
@@ -222,7 +220,7 @@ roles_settings :: proc(ui: ^UI) {
 		role_editor(ui, role^)
 	} else {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, "Pick a role to see and change it.", label_proc)
+		with_text_color(ctx, theme.dim, "Pick a role to see and change it.", label_proc)
 		roles_notice(ui)
 	}
 	mu.end_panel(ctx)
@@ -274,7 +272,7 @@ role_list :: proc(ui: ^UI) {
 	}
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "")
-	with_text_color(ctx, DIM_COLOR, "New role", label_proc)
+	with_text_color(ctx, theme.dim, "New role", label_proc)
 	mu.layout_row(ctx, {-1})
 	submit := .SUBMIT in text_box(ui, r.new_buf[:], &r.new_len)
 	submit |= .SUBMIT in stable_button(ctx, "make role", "Make role", {.ALIGN_CENTER})
@@ -339,7 +337,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		} else {
 			with_text_color(
 				ctx,
-				DIM_COLOR,
+				theme.dim,
 				fmt.tprintf("[%s] Can be mentioned with @name", "x" if mentionable else " "),
 				label_proc,
 			)
@@ -350,14 +348,14 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	case above:
 		with_text_color(
 			ctx,
-			WARNING_COLOR,
+			theme.warning,
 			"It allows more than you may, so you can't change, give or take it.",
 			label_proc,
 		)
 	case everyone:
-		with_text_color(ctx, DIM_COLOR, "What everyone may do. Everyone has it.", label_proc)
+		with_text_color(ctx, theme.dim, "What everyone may do. Everyone has it.", label_proc)
 	case:
-		with_text_color(ctx, DIM_COLOR, "What it allows, besides what everyone may:", label_proc)
+		with_text_color(ctx, theme.dim, "What it allows, besides what everyone may:", label_proc)
 	}
 
 	for p in proto.Permission {
@@ -369,7 +367,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 			why := "" if !editable else "  (you don't have it yourself)"
 			with_text_color(
 				ctx,
-				DIM_COLOR,
+				theme.dim,
 				fmt.tprintf("[%s] %s%s", "x" if on else " ", PERMISSION_TEXT[p], why),
 				label_proc,
 			)
@@ -455,7 +453,7 @@ color_picker :: proc(ui: ^UI, editable: bool) {
 			mu.update_control(ctx, id, cell)
 		}
 		if r.color == color {
-			mu.draw_rect(ctx, cell, {240, 240, 240, 255})
+			mu.draw_rect(ctx, cell, theme.strong)
 		}
 		mu.draw_rect(ctx, mu.expand_rect(cell, -2), role_rgb(c))
 		if editable && ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
@@ -502,7 +500,7 @@ move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 	} else {
 		mu.label(ctx, "")
 	}
-	with_text_color(ctx, DIM_COLOR, "The highest coloured role colours a name.", label_proc)
+	with_text_color(ctx, theme.dim, "The highest coloured role colours a name.", label_proc)
 	switch {
 	case up:
 		cmd.roles[at], cmd.roles[at - 1] = cmd.roles[at - 1], cmd.roles[at]
@@ -546,7 +544,7 @@ role_members :: proc(ui: ^UI, role: conn.View_Role, editable: bool) {
 	}
 	if !any {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, "  Nobody yet.", label_proc)
+		with_text_color(ctx, theme.dim, "  Nobody yet.", label_proc)
 	}
 	if !editable {
 		return
@@ -579,7 +577,7 @@ role_members :: proc(ui: ^UI, role: conn.View_Role, editable: bool) {
 	}
 	if !others {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, "  Nobody else to give it to.", label_proc)
+		with_text_color(ctx, theme.dim, "  Nobody else to give it to.", label_proc)
 	}
 }
 
@@ -620,7 +618,7 @@ roles_notice :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		NOTICE_OK_COLOR if v.notice.ok else ERROR_COLOR,
+		theme.notice_ok if v.notice.ok else theme.error,
 		v.notice.text,
 		label_proc,
 	)

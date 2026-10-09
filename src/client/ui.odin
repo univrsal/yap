@@ -177,6 +177,8 @@ UI :: struct {
 	// And the category picked in each of its tabs.
 	settings_client:     Client_Category,
 	settings_server:     Server_Category,
+	// Which palette is in use, and what the desktop said (theme.odin).
+	theme_state:         UI_Theme,
 	// For the chat's local timestamps, every server's; nil means UTC
 	// (ui_chat_time_native.odin).
 	chat_tz:             ^datetime.TZ_Region,
@@ -319,8 +321,6 @@ UI :: struct {
 g_ui: ^UI
 @(private = "file")
 g_logger: log.Logger
-
-BACKGROUND :: mu.Color{30, 30, 30, 255}
 
 /*
 run_ui drives the client from a loop of its own, which is what a desktop
@@ -552,6 +552,7 @@ draw_frame :: proc(ui: ^UI) {
 	render.set_chat_zoom(&ui.renderer, settings.chat_scale_factor(&ui.settings))
 	activity_input(ui)
 	voice_elsewhere_update(ui)
+	theme_update(ui) // the palette for this frame (theme.odin)
 	mu.begin(&ui.ctx)
 	ui.meter_shown = false // until gate_settings draws it again
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
@@ -573,7 +574,7 @@ draw_frame :: proc(ui: ^UI) {
 	ui_chat_after_frame(ui)
 	ui.keys = {}
 	ui_images_after_frame(ui)
-	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, BACKGROUND)
+	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, theme.background)
 	render.gpu_present(&ui.renderer.gpu)
 }
 
@@ -1499,7 +1500,7 @@ connect_screen :: proc(ui: ^UI) {
 
 	if v.status == .Failed && v.error != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, ERROR_COLOR, v.error, label_proc)
+		with_text_color(ctx, theme.error, v.error, label_proc)
 	}
 	if v.status == .Failed && v.key_change.changed {
 		key_change_panel(ui)
@@ -1541,7 +1542,7 @@ start_screen :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			"Join a server with the + on the left: its address, and its password if it has one.",
 			label_proc,
 		)
@@ -1654,7 +1655,7 @@ log_button :: proc(ui: ^UI) {
 		   "log",
 		   .Log,
 		   "Back to the chat" if open else "Log",
-		   CHAT_NAME_COLOR if open else mu.Color{},
+		   theme.chat_name if open else mu.Color{},
 	   ) {
 		if open {
 			ui.chat.tab = .Chat
@@ -1702,11 +1703,11 @@ log_panel :: proc(ui: ^UI) {
 			color := ctx.style.colors[.TEXT]
 			switch {
 			case line.level >= .Error:
-				color = {230, 90, 90, 255}
+				color = theme.error
 			case line.level >= .Warning:
-				color = {230, 200, 90, 255}
+				color = theme.warning
 			case line.level < .Info:
-				color = {140, 140, 140, 255}
+				color = theme.dim
 			}
 			// Where mu.label would put it.
 			r := mu.layout_next(ctx)
@@ -1731,12 +1732,6 @@ log_panel :: proc(ui: ^UI) {
 
 // A button with nothing but an icon on it is this wide.
 ICON_BUTTON :: 30
-
-// What the state icons are coloured with: green for a voice coming
-// through, red for something switched off, grey for a quiet channel.
-SPEAKING_COLOR :: mu.Color{110, 220, 110, 255}
-OFF_COLOR :: mu.Color{225, 115, 115, 255}
-DIM_COLOR :: mu.Color{140, 140, 140, 255}
 
 // stable_button is mu.button, except its id comes from `id_name` (under
 // the current id stack) rather than from the label, so the label can

@@ -22,11 +22,6 @@ BAR_GAP :: 2
 @(private = "file")
 BAR_HEIGHTS := [3]i32{6, 11, 16}
 
-FAIR_COLOR :: mu.Color{230, 200, 90, 255}
-// A bar that isn't lit.
-@(private = "file")
-UNLIT_COLOR :: mu.Color{75, 75, 75, 255}
-
 connection_indicator :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -34,15 +29,15 @@ connection_indicator :: proc(ui: ^UI) {
 	s := v.connection
 
 	lit := 0
-	color := UNLIT_COLOR
+	color := theme.unlit
 	switch s.quality {
 	case .Unknown:
 	case .Poor:
-		lit, color = 1, OFF_COLOR
+		lit, color = 1, theme.off
 	case .Fair:
-		lit, color = 2, FAIR_COLOR
+		lit, color = 2, theme.warning
 	case .Good:
-		lit, color = 3, SPEAKING_COLOR
+		lit, color = 3, theme.speaking
 	}
 
 	width := i32(len(BAR_HEIGHTS)) * BAR_WIDTH + i32(len(BAR_HEIGHTS) - 1) * BAR_GAP
@@ -51,7 +46,7 @@ connection_indicator :: proc(ui: ^UI) {
 	bottom := r.y + (r.h + tallest) / 2
 	for h, i in BAR_HEIGHTS {
 		bar := mu.Rect{x + i32(i) * (BAR_WIDTH + BAR_GAP), bottom - h, BAR_WIDTH, h}
-		mu.draw_rect(ctx, bar, color if i < lit else UNLIT_COLOR)
+		mu.draw_rect(ctx, bar, color if i < lit else theme.unlit)
 	}
 
 	if mu.mouse_over(ctx, r) {

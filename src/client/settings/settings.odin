@@ -22,6 +22,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"input_device": "",
 		"output_device": "Built-in Audio Analog Stereo",
 		"quality": "voice",
+		"theme": "system",
 		"noise_suppression": true,
 		"tray": false,
 		"close_to_tray": true,
@@ -70,6 +71,8 @@ Settings :: struct {
 	output_device:           string,
 	// Send quality preset by name ("voice", "high", "music"; audio/quality.odin).
 	quality:                 string,
+	// "system" (or unset), "dark" or "light" (theme.odin).
+	theme:                   string,
 	// RNNoise on the microphone.
 	noise_suppression:       bool,
 	// Show an icon in the system tray (ui_tray.odin).
@@ -233,6 +236,7 @@ settings_destroy :: proc(s: ^Settings) {
 	delete(s.joined_servers)
 	delete(s.username)
 	delete(s.quality)
+	delete(s.theme)
 	delete(s.input_device)
 	delete(s.output_device)
 	delete(s.mute_hotkey)

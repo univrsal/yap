@@ -82,7 +82,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 			}
 			invites_command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
 		}
-		with_text_color(ctx, DIM_COLOR, "Whoever has the code can register here.", label_proc)
+		with_text_color(ctx, theme.dim, "Whoever has the code can register here.", label_proc)
 
 		if v.invites.made != "" && v.invites.made_count > st.made_seen {
 			mu.layout_row(ctx, {FORM_LABEL, 150, 90, 90})
@@ -99,7 +99,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 
 	if len(v.invites.list) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, "No invite codes yet.", label_proc)
+		with_text_color(ctx, theme.dim, "No invite codes yet.", label_proc)
 		return
 	}
 	now := proto.Unix_Ms(time.time_to_unix_nano(time.now()) / 1_000_000)
@@ -127,14 +127,14 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 		case:
 			state = "no end"
 		}
-		with_text_color(ctx, ctx.style.colors[.TEXT] if usable else DIM_COLOR, state, label_proc)
+		with_text_color(ctx, ctx.style.colors[.TEXT] if usable else theme.dim, state, label_proc)
 		by := ""
 		if inv.creator != v.me {
 			if acc, known := v.accounts[inv.creator]; known {
 				by = fmt.tprintf("by %s", acc.display)
 			}
 		}
-		with_text_color(ctx, DIM_COLOR, by, label_proc)
+		with_text_color(ctx, theme.dim, by, label_proc)
 		if usable {
 			if .SUBMIT in stable_button(ctx, "copy", "Copy") {
 				set_clipboard(nil, inv.code)
@@ -195,7 +195,6 @@ invite_date :: proc(ui: ^UI, ms: proto.Unix_Ms) -> string {
 
 // choice_button is a button that's one of a set, showing whether it's
 // the one chosen; it says whether it was clicked.
-@(private = "file")
 choice_button :: proc(ui: ^UI, id, label: string, chosen: bool) -> bool {
 	text := fmt.tprintf("> %s", label) if chosen else label
 	return .SUBMIT in stable_button(&ui.ctx, id, text, {.ALIGN_CENTER})

@@ -227,7 +227,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	} else {
 		mu.layout_row(ctx, {-1})
 	}
-	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
+	with_text_color(ctx, theme.dim, status, label_proc)
 
 	input_h: i32 = 0
 	files_h: i32 = 0

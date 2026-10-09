@@ -562,29 +562,29 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			ctx,
 			render.icon_id(file_icon(f.name)),
 			r,
-			CHAT_DIM_COLOR if f.blob == 0 else ctx.style.colors[.TEXT],
+			theme.dim if f.blob == 0 else ctx.style.colors[.TEXT],
 		)
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
 		name := cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding)
 		with_text_color(
 			ctx,
-			CHAT_DIM_COLOR if f.blob == 0 else ctx.style.colors[.TEXT],
+			theme.dim if f.blob == 0 else ctx.style.colors[.TEXT],
 			name,
 			label_proc,
 		)
 
 		s, has_save := file_save(ui, f)
-		state, color := conn.format_bytes(f.size), CHAT_DIM_COLOR
+		state, color := conn.format_bytes(f.size), theme.dim
 		switch {
 		case f.blob == 0:
 			state = "removed"
 		case has_save && saving(s):
 			state = fmt.tprintf("%d%%", int(f64(s.done) * 100 / f64(max(s.size, 1))))
 		case has_save && s.state == .Done:
-			state, color = "saved", SPEAKING_COLOR
+			state, color = "saved", theme.speaking
 		case has_save && s.state == .Failed:
-			state, color = "not saved", ERROR_COLOR
+			state, color = "not saved", theme.error
 		}
 		with_text_color(ctx, color, state, label_proc)
 
@@ -623,12 +623,12 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			bar := mu.layout_next(ctx)
 			bar.x += ICON_SIZE_CELL + ctx.style.spacing
 			bar.w = min(bar.w - ICON_SIZE_CELL - ctx.style.spacing, 300)
-			mu.draw_rect(ctx, bar, {60, 60, 60, 255})
+			mu.draw_rect(ctx, bar, theme.track)
 			done := f32(s.done) / f32(max(s.size, 1))
 			mu.draw_rect(
 				ctx,
 				{bar.x, bar.y, i32(f32(bar.w) * clamp(done, 0, 1)), bar.h},
-				SPEAKING_COLOR,
+				theme.speaking,
 			)
 		}
 		if previewed(f) {
@@ -791,18 +791,18 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 			{ICON_SIZE_CELL, -(FILES_STATE_W + ctx.style.spacing + 1), FILES_STATE_W},
 			control_height(ctx),
 		)
-		mu.draw_icon(ctx, render.icon_id(file_icon(f.name)), mu.layout_next(ctx), CHAT_DIM_COLOR)
+		mu.draw_icon(ctx, render.icon_id(file_icon(f.name)), mu.layout_next(ctx), theme.dim)
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
 		with_text_color(
 			ctx,
-			CHAT_DIM_COLOR,
+			theme.dim,
 			cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding),
 			label_proc,
 		)
 		with_text_color(
 			ctx,
-			CHAT_DIM_COLOR,
+			theme.dim,
 			fmt.tprintf(
 				"%s, %d%%",
 				conn.format_bytes(f.size),
@@ -814,12 +814,12 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 		bar := mu.layout_next(ctx)
 		bar.x += ICON_SIZE_CELL + ctx.style.spacing
 		bar.w = min(bar.w - ICON_SIZE_CELL - ctx.style.spacing, 300)
-		mu.draw_rect(ctx, bar, {60, 60, 60, 255})
+		mu.draw_rect(ctx, bar, theme.track)
 		done := f32(f.done) / f32(max(f.size, 1))
 		mu.draw_rect(
 			ctx,
 			{bar.x, bar.y, i32(f32(bar.w) * clamp(done, 0, 1)), bar.h},
-			SPEAKING_COLOR,
+			theme.speaking,
 		)
 	}
 	if p.uploading {

@@ -119,7 +119,7 @@ app_audio_button :: proc(ui: ^UI) {
 	color := mu.Color{}
 	if a.share != nil {
 		hint = strings.concatenate({"Sharing the audio of ", a.name}, context.temp_allocator)
-		color = SPEAKING_COLOR
+		color = theme.speaking
 	}
 	if .SUBMIT in icon_button(ui, "app audio", .App_Audio, hint, color) {
 		app_audio_refresh(ui)
@@ -165,7 +165,7 @@ app_audio_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {MENU_WIDTH})
-	with_text_color(ctx, DIM_COLOR, "Share the audio of:", label_proc)
+	with_text_color(ctx, theme.dim, "Share the audio of:", label_proc)
 	count := 0
 	if a.list != nil {
 		me := u32(os.get_pid())
@@ -188,7 +188,7 @@ app_audio_menu :: proc(ui: ^UI) {
 	}
 	if count == 0 {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, DIM_COLOR, "Nothing is playing audio.", label_proc)
+		with_text_color(ctx, theme.dim, "Nothing is playing audio.", label_proc)
 	}
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if .SUBMIT in stable_button(ctx, "refresh", "Refresh") {
@@ -196,7 +196,7 @@ app_audio_menu :: proc(ui: ^UI) {
 	}
 	if a.error != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, OFF_COLOR, a.error, label_proc)
+		with_text_color(ctx, theme.off, a.error, label_proc)
 	}
 }
 

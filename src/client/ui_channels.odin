@@ -67,16 +67,6 @@ SUBSCRIBE_BUTTON :: 120
 MANAGE_BUTTON :: 90
 @(private = "file")
 NOTIFY_BUTTON :: 120
-@(private = "file")
-UNREAD_TEXT_COLOR :: mu.Color{255, 255, 255, 255}
-@(private = "file")
-UNREAD_BADGE_COLOR :: mu.Color{60, 110, 200, 255}
-@(private = "file")
-MUTED_BADGE_COLOR :: mu.Color{70, 70, 70, 255}
-@(private = "file")
-VIEWING_COLOR :: mu.Color{230, 230, 230, 255}
-@(private = "file")
-NOTICE_OK_COLOR :: mu.Color{120, 200, 120, 255}
 
 @(private = "file")
 command :: proc(ui: ^UI, cmd: conn.Command) {
@@ -133,7 +123,7 @@ channel_list :: proc(ui: ^UI) {
 		// Unread, and not muted: brighter, as well as the count.
 		saved := ctx.style.colors[.TEXT]
 		if ch.unread > 0 && ch.notify != .None {
-			ctx.style.colors[.TEXT] = UNREAD_TEXT_COLOR
+			ctx.style.colors[.TEXT] = theme.unread_text
 		}
 		clicked := .SUBMIT in stable_button(ctx, "view", label)
 		ctx.style.colors[.TEXT] = saved
@@ -207,10 +197,10 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	name := fmt.tprintf("# %s", ch.name)
 	y := r.y + (r.h - ctx.text_height(font)) / 2
 	mu.push_clip_rect(ctx, r)
-	mu.draw_text(ctx, font, name, {r.x + ctx.style.padding, y}, VIEWING_COLOR)
+	mu.draw_text(ctx, font, name, {r.x + ctx.style.padding, y}, theme.viewing)
 	if ch.topic != "" {
 		x := r.x + ctx.style.padding + ctx.text_width(font, name) + 12
-		mu.draw_text(ctx, font, ch.topic, {x, y}, DIM_COLOR)
+		mu.draw_text(ctx, font, ch.topic, {x, y}, theme.dim)
 	}
 	mu.pop_clip_rect(ctx)
 	members_button(ui)
@@ -225,7 +215,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		hint = "Joining call..."
 	case in_it:
 		hint = "Stop talking in this channel"
-		color = OFF_COLOR
+		color = theme.off
 	case:
 		hint = "Talk in this channel"
 		if v.my_room != 0 {
@@ -251,8 +241,8 @@ unread_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, muted: bool) -> i
 		ctx,
 		r,
 		conn.unread_count(count),
-		MUTED_BADGE_COLOR if muted else UNREAD_BADGE_COLOR,
-		DIM_COLOR if muted else UNREAD_TEXT_COLOR,
+		theme.muted_badge if muted else theme.unread_badge,
+		theme.dim if muted else theme.badge_text,
 		0,
 	)
 }
@@ -266,14 +256,11 @@ mention_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, taken: i32) {
 		ctx,
 		r,
 		fmt.tprintf("@%s", conn.unread_count(count)),
-		MENTION_BADGE_COLOR,
-		MENTION_COLOR,
+		theme.mention_badge,
+		theme.mention,
 		taken,
 	)
 }
-
-@(private = "file")
-MENTION_BADGE_COLOR :: mu.Color{90, 65, 20, 255}
 
 // badge draws `text` on a little box at the right end of `r`, leaving
 // `taken` of it; it says how much more it took.
@@ -352,7 +339,7 @@ channel_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {CHANNEL_MENU_WIDTH})
-	with_text_color(ctx, DIM_COLOR, ch.name, label_proc)
+	with_text_color(ctx, theme.dim, ch.name, label_proc)
 	if .SUBMIT in
 	   stable_button_hint(
 		   ui,
@@ -503,7 +490,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			command(ui, conn.Notify_Command{conv = ch.id, notify = next})
 		}
 		if ch.home {
-			with_text_color(ctx, DIM_COLOR, "everyone is in it", label_proc)
+			with_text_color(ctx, theme.dim, "everyone is in it", label_proc)
 		} else if .SUBMIT in stable_button(ctx, "unsubscribe", "Unsubscribe", {.ALIGN_CENTER}) {
 			command(ui, conn.Subscribe_Command{conv = ch.id, on = false})
 		}
@@ -528,7 +515,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			"  There are none you aren't in." if c.find_len == 0 else "  None has that in its name or topic."
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			none if v.browse_count > 0 else "  Asking the server...",
 			label_proc,
 		)
@@ -568,7 +555,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		if v.notice.text != "" && v.notice.count > c.notice_seen {
 			with_text_color(
 				ctx,
-				NOTICE_OK_COLOR if v.notice.ok else ERROR_COLOR,
+				theme.notice_ok if v.notice.ok else theme.error,
 				v.notice.text,
 				label_proc,
 			)
@@ -601,7 +588,7 @@ channel_label :: proc(ctx: ^mu.Context, name, topic: string) {
 	mu.draw_text(ctx, font, name, {r.x + ctx.style.padding, y}, ctx.style.colors[.TEXT])
 	if topic != "" {
 		x := r.x + ctx.style.padding + ctx.text_width(font, name) + 12
-		mu.draw_text(ctx, font, topic, {x, y}, DIM_COLOR)
+		mu.draw_text(ctx, font, topic, {x, y}, theme.dim)
 	}
 	mu.pop_clip_rect(ctx)
 }

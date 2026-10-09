@@ -50,12 +50,6 @@ UI_Chat :: struct {
 	files:        [dynamic]Picked_File,
 }
 
-CHAT_NAME_COLOR :: mu.Color{120, 170, 230, 255}
-CHAT_OWN_COLOR :: mu.Color{140, 200, 140, 255}
-CHAT_DIM_COLOR :: mu.Color{140, 140, 140, 255}
-LINK_COLOR :: mu.Color{100, 165, 245, 255}
-LINK_HOVER_COLOR :: mu.Color{160, 205, 255, 255}
-
 ui_chat_init :: proc(ui: ^UI) {
 	chat_load_timezone(ui)
 }
@@ -133,12 +127,12 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 		mu.layout_row(ctx, {-1})
 	}
 	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
-	status_color := CHAT_DIM_COLOR
+	status_color := theme.dim
 	if editing := composer_status(composer_of_page(ui)); editing != "" {
 		status = editing
 	}
 	if notice, ok, fresh := fresh_notice(v); fresh {
-		status, status_color = notice, CHAT_DIM_COLOR if ok else ERROR_COLOR
+		status, status_color = notice, theme.dim if ok else theme.error
 	}
 	when TIMELINE_DEBUG {
 		status = fmt.tprintf(
@@ -267,7 +261,7 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	color := ctx.style.colors[.TEXT]
 	text: Rich
 	if typed == "" {
-		text, color = rich_plain("Nothing to preview yet."), CHAT_DIM_COLOR
+		text, color = rich_plain("Nothing to preview yet."), theme.dim
 	} else {
 		text = message_rich(
 			ui,
@@ -305,7 +299,7 @@ tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu
 	// open, so which tab is shown reads at a glance.
 	saved, saved_text := ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT]
 	ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
-	ctx.style.colors[.TEXT] = CHAT_NAME_COLOR
+	ctx.style.colors[.TEXT] = theme.chat_name
 	defer ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT] = saved, saved_text
 	return stable_button(ctx, id_name, label)
 }
@@ -488,9 +482,9 @@ file_message :: proc(
 	r := mu.layout_next(ctx)
 	if f.state == .Transferring {
 		r.w = min(r.w, 300)
-		mu.draw_rect(ctx, r, {60, 60, 60, 255})
+		mu.draw_rect(ctx, r, theme.track)
 		done := f32(f.done) / f32(max(f.size, 1))
-		mu.draw_rect(ctx, {r.x, r.y, i32(f32(r.w) * clamp(done, 0, 1)), r.h}, SPEAKING_COLOR)
+		mu.draw_rect(ctx, {r.x, r.y, i32(f32(r.w) * clamp(done, 0, 1)), r.h}, theme.speaking)
 	}
 	mu.layout_row(ctx, {-1}, FILE_BAR_GAP)
 	mu.layout_next(ctx)
@@ -585,15 +579,15 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 	switch f.state {
 	case .Unknown:
 		return "offered earlier, or on another device" if !f.outgoing else "offered from another device",
-			CHAT_DIM_COLOR
+			theme.dim
 	case .Posting:
-		return "offering...", CHAT_DIM_COLOR
+		return "offering...", theme.dim
 	case .Offered:
-		return "waiting for them to accept", CHAT_DIM_COLOR
+		return "waiting for them to accept", theme.dim
 	case .Incoming:
-		return "wants to send you this", CHAT_NAME_COLOR
+		return "wants to send you this", theme.chat_name
 	case .Starting:
-		return "starting...", CHAT_DIM_COLOR
+		return "starting...", theme.dim
 	case .Transferring:
 		percent := 100 * f64(f.done) / f64(max(f.size, 1))
 		text := fmt.tprintf(
@@ -605,30 +599,30 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 		if f.rate > 0 {
 			text = fmt.tprintf("%s  -  %s/s", text, conn.format_bytes(u64(f.rate)))
 		}
-		return text, CHAT_DIM_COLOR
+		return text, theme.dim
 	case .Done:
 		if f.outgoing {
-			return "sent", SPEAKING_COLOR
+			return "sent", theme.speaking
 		}
 		when platform.WEB {
-			return "downloaded", SPEAKING_COLOR
+			return "downloaded", theme.speaking
 		} else {
-			return fmt.tprintf("saved to %s", f.path), SPEAKING_COLOR
+			return fmt.tprintf("saved to %s", f.path), theme.speaking
 		}
 	case .Declined:
-		return "declined" if !f.outgoing else "they declined", CHAT_DIM_COLOR
+		return "declined" if !f.outgoing else "they declined", theme.dim
 	case .Cancelled:
-		return "cancelled", CHAT_DIM_COLOR
+		return "cancelled", theme.dim
 	case .Failed:
-		return "failed", OFF_COLOR
+		return "failed", theme.off
 	case .Interrupted:
-		return "stopped: one side left", OFF_COLOR
+		return "stopped: one side left", theme.off
 	case .Expired:
-		return "no longer available", CHAT_DIM_COLOR
+		return "no longer available", theme.dim
 	case .Elsewhere:
-		return "answered on another of your devices", CHAT_DIM_COLOR
+		return "answered on another of your devices", theme.dim
 	}
-	return "", CHAT_DIM_COLOR
+	return "", theme.dim
 }
 
 // chat_message draws the gap before this message, a header line unless
@@ -732,11 +726,6 @@ custom_emoji_size :: proc(ctx: ^mu.Context) -> (size, advance: i32) {
 	zoom := f32(ctx.text_height(ctx.style.font)) / render.LINE_HEIGHT
 	return i32(render.CUSTOM_EMOJI_SIZE * zoom), i32(render.CUSTOM_EMOJI_ADVANCE * zoom)
 }
-
-// How a mention is drawn: in its own colour, and on a background when it's
-// the reader's.
-MENTION_COLOR :: mu.Color{235, 185, 95, 255}
-MENTION_ME_BACKGROUND :: mu.Color{110, 80, 25, 255}
 
 // wrap_line is the first line of `text` wrapped at `width`, as the chat
 // wraps it: text[:end] is drawn, and the next line starts at `next`

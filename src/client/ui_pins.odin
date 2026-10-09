@@ -38,7 +38,7 @@ pins_button :: proc(ui: ^UI) {
 		   "pins",
 		   .Pin,
 		   "Hide the pinned messages" if ui.pins.open else "Pinned messages",
-		   CHAT_NAME_COLOR if ui.pins.open else {},
+		   theme.chat_name if ui.pins.open else {},
 	   ) {
 		ui.pins.open = !ui.pins.open
 		ui.pins.placed = false
@@ -84,10 +84,10 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case pins.conv != v.viewing || (pins.loading && len(pins.messages) == 0):
-		with_text_color(ctx, CHAT_DIM_COLOR, "Loading...", label_proc)
+		with_text_color(ctx, theme.dim, "Loading...", label_proc)
 		return
 	case len(pins.messages) == 0:
-		with_text_color(ctx, CHAT_DIM_COLOR, "Nothing is pinned here.", label_proc)
+		with_text_color(ctx, theme.dim, "Nothing is pinned here.", label_proc)
 		return
 	}
 	for m, i in pins.messages {
@@ -123,7 +123,7 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.text(ctx, conn.one_line(text))
 		if i < len(pins.messages) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
-			mu.draw_rect(ctx, mu.layout_next(ctx), {70, 70, 70, 255})
+			mu.draw_rect(ctx, mu.layout_next(ctx), theme.divider)
 		}
 	}
 }

@@ -120,7 +120,7 @@ message_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if mm.confirm {
-		with_text_color(ctx, DIM_COLOR, "Delete it for everyone?", label_proc)
+		with_text_color(ctx, theme.dim, "Delete it for everyone?", label_proc)
 		half := (MENU_WIDTH - ctx.style.spacing) / 2
 		mu.layout_row(ctx, {half, half})
 		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
@@ -136,7 +136,7 @@ message_menu :: proc(ui: ^UI) {
 		return
 	}
 	if deleted {
-		with_text_color(ctx, DIM_COLOR, "This message was deleted.", label_proc)
+		with_text_color(ctx, theme.dim, "This message was deleted.", label_proc)
 		return
 	}
 	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "copy", "Copy text") {

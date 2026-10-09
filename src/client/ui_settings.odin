@@ -161,7 +161,7 @@ settings_page :: proc(ui: ^UI) {
 	case .Audio:
 		if a := &ui.audio; a.ctx == nil {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, {230, 90, 90, 255}, a.error, label_proc)
+			with_text_color(ctx, theme.error, a.error, label_proc)
 		} else {
 			audio_settings(ui)
 		}
@@ -256,6 +256,19 @@ audio_settings :: proc(ui: ^UI) {
 @(private = "file")
 ui_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
+	// Dark, light, or whichever the system is (theme.odin).
+	mu.layout_row(ctx, {120, 130, 130, 130})
+	mu.label(ctx, "Theme")
+	current := theme_choice(&ui.settings)
+	for label, choice in THEME_CHOICE_LABELS {
+		if choice_button(ui, THEME_CHOICE_NAMES[choice], label, choice == current) &&
+		   choice != current {
+			settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
+			settings.settings_save(ui.opts.settings_path, ui.settings)
+			ui_redraw(ui)
+		}
+	}
+
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "UI scale")
 	// Applying every change live would resize the window mid-drag, which
@@ -337,7 +350,7 @@ ui_settings :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {-1})
 			with_text_color(
 				ctx,
-				{230, 200, 90, 255},
+				theme.warning,
 				"  Wayland doesn't tell a window it has been minimized, so here it will just minimize.",
 				label_proc,
 			)
@@ -369,7 +382,7 @@ transfer_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		DIM_COLOR,
+		theme.dim,
 		"  0 is no limit. A download limit also slows down whoever is sending.",
 		label_proc,
 	)
@@ -471,7 +484,7 @@ device_list :: proc(
 		mu.layout_row(ctx, {-1})
 		with_text_color(
 			ctx,
-			{230, 200, 90, 255},
+			theme.warning,
 			fmt.tprintf("  %s is not available, using the default", selected),
 			label_proc,
 		)

@@ -58,8 +58,6 @@ Selection :: struct {
 	last_item: i64, // the item text was last added from
 }
 
-SELECTION_COLOR :: mu.Color{55, 85, 135, 255}
-
 ui_select_destroy :: proc(ui: ^UI) {
 	strings.builder_destroy(&ui.select.text)
 }
@@ -198,7 +196,7 @@ select_line :: proc(
 	// would shift about as the near one moved.
 	x0 := pos.x + span_width(ctx, font, text, start, a, rich)
 	x1 := pos.x + span_width(ctx, font, text, start, b, rich)
-	mu.draw_rect(ctx, {x0, pos.y, x1 - x0, h}, SELECTION_COLOR)
+	mu.draw_rect(ctx, {x0, pos.y, x1 - x0, h}, theme.selection)
 }
 
 // selected_range is the part of an item's text, `length` bytes long,

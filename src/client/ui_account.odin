@@ -92,10 +92,6 @@ UI_Account :: struct {
 	delete_len:    int,
 }
 
-@(private = "file")
-NOTICE_OK_COLOR :: mu.Color{120, 200, 120, 255}
-@(private = "file")
-WARN_COLOR :: mu.Color{230, 200, 90, 255}
 FORM_LABEL :: 130
 FORM_FIELD :: 220
 // The login screen's card: how wide, its labels, and the server's
@@ -152,7 +148,7 @@ login_screen :: proc(ui: ^UI) {
 	mu.label(ctx, "Register" if registering else "Log in")
 	// In the + dialog, giving up joining it (ui_join.odin).
 	leave := "Cancel" if ui.session != nil && ui.session.joining else "Leave this server"
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, leave, OFF_COLOR) {
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, leave, theme.off) {
 		ui.action = .Disconnect
 	}
 
@@ -191,7 +187,7 @@ login_screen :: proc(ui: ^UI) {
 	)
 	if v.server_about != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, v.server_about, mu.text)
+		with_text_color(ctx, theme.dim, v.server_about, mu.text)
 	}
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
@@ -238,18 +234,18 @@ login_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case a.mistake != "":
-		with_text_color(ctx, ERROR_COLOR, a.mistake, mu.text)
+		with_text_color(ctx, theme.error, a.mistake, mu.text)
 	case v.login.error != "":
-		with_text_color(ctx, ERROR_COLOR, v.login.error, mu.text)
+		with_text_color(ctx, theme.error, v.login.error, mu.text)
 	case !working && !open:
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			"This device isn't logged in here yet. Accounts are made by the server's admin.",
 			mu.text,
 		)
 	case !working && !registering:
-		with_text_color(ctx, DIM_COLOR, "This device isn't logged in here yet.", mu.text)
+		with_text_color(ctx, theme.dim, "This device isn't logged in here yet.", mu.text)
 	}
 
 	if submit && !working && a.username_len > 0 && a.password_len > 0 {
@@ -349,7 +345,7 @@ verify_screen :: proc(ui: ^UI) {
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	mu.label(ctx, fmt.tprintf("Verify your email address for %s", server))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", OFF_COLOR) {
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", theme.off) {
 		ui.action = .Disconnect
 	}
 	mu.layout_row(ctx, {-1})
@@ -378,7 +374,7 @@ verify_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		DIM_COLOR,
+		theme.dim,
 		"The server reads its mail every minute or so; this page goes on by itself once it has yours.",
 		label_proc,
 	)
@@ -387,7 +383,7 @@ verify_screen :: proc(ui: ^UI) {
 		local := chat_local_time(ui, dt)
 		with_text_color(
 			ctx,
-			WARN_COLOR,
+			theme.warning,
 			fmt.tprintf(
 				"Without it, the account is deleted on %d-%02d-%02d at %02d:%02d.",
 				local.year,
@@ -425,7 +421,7 @@ verify_screen :: proc(ui: ^UI) {
 	if .SUBMIT in mu.button(ctx, "Log out") {
 		command(ui, conn.Logout_Command{})
 	}
-	with_text_color(ctx, DIM_COLOR, "This device has to log in again afterwards.", label_proc)
+	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", label_proc)
 
 }
 
@@ -440,13 +436,13 @@ password_screen :: proc(ui: ^UI) {
 
 	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
 	mu.label(ctx, fmt.tprintf("Choose a password for %s", v.login.username))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", OFF_COLOR) {
+	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", theme.off) {
 		ui.action = .Disconnect
 	}
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		DIM_COLOR,
+		theme.dim,
 		"The one you logged in with was set by an admin, and is only good for getting in.",
 		label_proc,
 	)
@@ -510,11 +506,11 @@ notice_label :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	switch {
 	case ui.account.mistake != "":
-		with_text_color(ctx, ERROR_COLOR, ui.account.mistake, label_proc)
+		with_text_color(ctx, theme.error, ui.account.mistake, label_proc)
 	case v.notice.text != "" && v.notice.count > ui.account.notice_seen:
 		with_text_color(
 			ctx,
-			NOTICE_OK_COLOR if v.notice.ok else ERROR_COLOR,
+			theme.notice_ok if v.notice.ok else theme.error,
 			v.notice.text,
 			label_proc,
 		)
@@ -619,7 +615,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, DIM_COLOR, fmt.tprintf("Logged in as %s", me.username), label_proc)
+	with_text_color(ctx, theme.dim, fmt.tprintf("Logged in as %s", me.username), label_proc)
 
 	if !a.name_loaded {
 		a.name_loaded = true
@@ -649,7 +645,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		mu.label(ctx, "")
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			"A new address has to be verified by mail before you can go on.",
 			label_proc,
 		)
@@ -682,7 +678,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		command(ui, conn.Logout_Command{})
 		ui.page = .Main
 	}
-	with_text_color(ctx, DIM_COLOR, "This device has to log in again afterwards.", label_proc)
+	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", label_proc)
 
 	// Not the owner's: somebody has to be.
 	if .Owner not_in me.flags {
@@ -702,7 +698,7 @@ delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		WARNING_COLOR,
+		theme.warning,
 		fmt.tprintf(
 			"For good: your name, picture, status, roles and devices go. What you wrote stays, under \"%s\".",
 			proto.DELETED_NAME,
@@ -736,7 +732,7 @@ devices_list :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	if len(v.devices) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, "Asking the server...", label_proc)
+		with_text_color(ctx, theme.dim, "Asking the server...", label_proc)
 		return
 	}
 	for d, i in v.devices {
@@ -840,7 +836,7 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 		mu.layout_row(ctx, {-1})
 		with_text_color(
 			ctx,
-			WARN_COLOR,
+			theme.warning,
 			"  It logs their devices out, and they have to choose their own on logging in.",
 			label_proc,
 		)

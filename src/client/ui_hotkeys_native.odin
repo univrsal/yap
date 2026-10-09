@@ -143,9 +143,9 @@ hotkey_settings :: proc(ui: ^UI) {
 		text := hotkey_setting(ui, action)^
 		switch {
 		case capturing:
-			with_text_color(ctx, {230, 200, 90, 255}, "Press the keys...", label_proc)
+			with_text_color(ctx, theme.warning, "Press the keys...", label_proc)
 		case text == "":
-			with_text_color(ctx, DIM_COLOR, "None", label_proc)
+			with_text_color(ctx, theme.dim, "None", label_proc)
 		case:
 			mu.label(ctx, text)
 		}
@@ -169,7 +169,7 @@ hotkey_settings :: proc(ui: ^UI) {
 	if !hk.running {
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			"  These work in any window, and with yap minimized. Change one and press the keys for it.",
 			label_proc,
 		)
@@ -179,10 +179,10 @@ hotkey_settings :: proc(ui: ^UI) {
 	note := fmt.tprintf("  %s", message)
 	switch st {
 	case .Starting, .Ok:
-		with_text_color(ctx, DIM_COLOR, note, label_proc)
+		with_text_color(ctx, theme.dim, note, label_proc)
 	case .Limited:
-		with_text_color(ctx, {230, 200, 90, 255}, note, label_proc)
+		with_text_color(ctx, theme.warning, note, label_proc)
 	case .Unavailable:
-		with_text_color(ctx, {230, 90, 90, 255}, note, label_proc)
+		with_text_color(ctx, theme.error, note, label_proc)
 	}
 }

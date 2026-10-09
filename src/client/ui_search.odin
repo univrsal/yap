@@ -41,7 +41,7 @@ search_button :: proc(ui: ^UI) {
 		   "search",
 		   .Search,
 		   "Close the search" if s.open else "Search messages",
-		   CHAT_NAME_COLOR if s.open else {},
+		   theme.chat_name if s.open else {},
 	   ) {
 		s.open = !s.open
 		s.placed = false
@@ -95,25 +95,20 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case found.error != "":
-		with_text_color(ctx, ERROR_COLOR, found.error, label_proc)
+		with_text_color(ctx, theme.error, found.error, label_proc)
 		return
 	case found.query == "":
-		with_text_color(ctx, CHAT_DIM_COLOR, `Whole words, "a phrase", from:username.`, label_proc)
+		with_text_color(ctx, theme.dim, `Whole words, "a phrase", from:username.`, label_proc)
 		return
 	case found.loading && len(found.found) == 0:
-		with_text_color(ctx, CHAT_DIM_COLOR, "Searching...", label_proc)
+		with_text_color(ctx, theme.dim, "Searching...", label_proc)
 		return
 	case len(found.found) == 0 && !found.more:
-		with_text_color(
-			ctx,
-			CHAT_DIM_COLOR,
-			fmt.tprintf("Nothing has %q.", found.query),
-			label_proc,
-		)
+		with_text_color(ctx, theme.dim, fmt.tprintf("Nothing has %q.", found.query), label_proc)
 		return
 	case len(found.found) == 0:
 		// Stopped for time before finding any: older messages are left.
-		with_text_color(ctx, CHAT_DIM_COLOR, "Nothing yet in the newest messages.", label_proc)
+		with_text_color(ctx, theme.dim, "Nothing yet in the newest messages.", label_proc)
 	}
 	for f, i in found.found {
 		m := f.msg
@@ -151,19 +146,19 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			mu.layout_row(ctx, {-1})
 			with_text_color(
 				ctx,
-				CHAT_DIM_COLOR,
+				theme.dim,
 				fmt.tprintf("files: %s", strings.join(names, ", ", context.temp_allocator)),
 				mu.text,
 			)
 		}
 		if i < len(found.found) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
-			mu.draw_rect(ctx, mu.layout_next(ctx), {70, 70, 70, 255})
+			mu.draw_rect(ctx, mu.layout_next(ctx), theme.divider)
 		}
 	}
 	if found.loading {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, CHAT_DIM_COLOR, "Searching...", label_proc)
+		with_text_color(ctx, theme.dim, "Searching...", label_proc)
 	} else if found.more {
 		mu.layout_row(ctx, {140})
 		if .SUBMIT in

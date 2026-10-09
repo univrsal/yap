@@ -55,13 +55,6 @@ UI_Voice_Panel :: struct {
 	since: time.Tick,
 }
 
-@(private = "file")
-PANEL_COLOR :: mu.Color{38, 38, 38, 255}
-@(private = "file")
-CONNECTED_COLOR :: mu.Color{110, 200, 120, 255}
-@(private = "file")
-RINGING_COLOR :: mu.Color{230, 180, 90, 255}
-
 Panel_State :: enum {
 	Idle, // nowhere: only the bottom part
 	Voice, // in a channel's room
@@ -134,7 +127,7 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 		mu.label(ctx, "")
 	}
 	length := call_length_shown(ui, p.since)
-	with_text_color(ctx, DIM_COLOR, length, label_proc)
+	with_text_color(ctx, theme.dim, length, label_proc)
 }
 
 /*
@@ -253,7 +246,7 @@ voice_panel :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {-1}, voice_panel_height(ui) - ctx.style.spacing)
 	r := mu.layout_next(ctx)
-	mu.draw_rect(ctx, r, PANEL_COLOR)
+	mu.draw_rect(ctx, r, theme.panel)
 	pad := ctx.style.padding
 	mu.layout_set_next(ctx, {r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad}, false)
 	mu.layout_begin_column(ctx)
@@ -269,7 +262,7 @@ voice_panel :: proc(ui: ^UI) {
 	}
 
 	if state != .Idle {
-		what, color := "", CONNECTED_COLOR
+		what, color := "", theme.connected
 		where_ := ""
 		switch state {
 		case .Idle:
@@ -280,13 +273,13 @@ voice_panel :: proc(ui: ^UI) {
 			what = "In a call"
 			where_ = call_peer_name(v)
 		case .Ringing_In:
-			what, color = "Incoming call", RINGING_COLOR
+			what, color = "Incoming call", theme.ringing
 			where_ = call_peer_name(v)
 		case .Ringing_Out:
-			what, color = "Calling...", RINGING_COLOR
+			what, color = "Calling...", theme.ringing
 			where_ = call_peer_name(v)
 		case .Elsewhere:
-			what, color = "In a call on another device", DIM_COLOR
+			what, color = "In a call on another device", theme.dim
 			where_ = call_peer_name(v)
 		}
 		mu.layout_row(ctx, {-1})
@@ -297,7 +290,7 @@ voice_panel :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {-60, 56})
 			mu.label(ctx, where_)
 			length := call_length_shown(ui, p.since)
-			with_text_color(ctx, DIM_COLOR, length, label_proc)
+			with_text_color(ctx, theme.dim, length, label_proc)
 		} else {
 			mu.layout_row(ctx, {-1})
 			mu.label(ctx, where_)
@@ -340,7 +333,7 @@ voice_panel :: proc(ui: ^UI) {
 			}
 			label := "Hang up" if state == .Call else "Leave"
 			saved := ctx.style.colors[.TEXT]
-			ctx.style.colors[.TEXT] = OFF_COLOR
+			ctx.style.colors[.TEXT] = theme.off
 			leave := .SUBMIT in stable_button(ctx, "voice leave", label, {.ALIGN_CENTER})
 			ctx.style.colors[.TEXT] = saved
 			if leave {
@@ -382,7 +375,7 @@ voice_panel :: proc(ui: ^UI) {
 		   "mute",
 		   .Mic_Off if ui.muted else .Mic,
 		   "Unmute" if ui.muted else "Mute",
-		   OFF_COLOR if ui.muted else mu.Color{},
+		   theme.off if ui.muted else mu.Color{},
 	   ) {
 		set_muted(ui, !ui.muted)
 	}
@@ -392,7 +385,7 @@ voice_panel :: proc(ui: ^UI) {
 		   "deafen",
 		   .Sound_Off if ui.deafened else .Sound,
 		   "Undeafen" if ui.deafened else "Deafen (hear nobody)",
-		   OFF_COLOR if ui.deafened else mu.Color{},
+		   theme.off if ui.deafened else mu.Color{},
 	   ) {
 		set_deafened(ui, !ui.deafened)
 	}
@@ -408,7 +401,7 @@ in, Accept (which shows it too) and Decline.
 voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	ctx := &ui.ctx
 	cmds := &e.ns.client.commands
-	what, color := "", CONNECTED_COLOR
+	what, color := "", theme.connected
 	switch e.state {
 	case .Idle, .Elsewhere:
 	case .Voice:
@@ -416,16 +409,16 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	case .Call:
 		what = "In a call"
 	case .Ringing_In:
-		what, color = "Incoming call", RINGING_COLOR
+		what, color = "Incoming call", theme.ringing
 	case .Ringing_Out:
-		what, color = "Calling...", RINGING_COLOR
+		what, color = "Calling...", theme.ringing
 	}
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, color, fmt.tprintf("%s on %s", what, e.server), label_proc)
 	if e.state == .Voice || e.state == .Call {
 		mu.layout_row(ctx, {-60, 56})
 		mu.label(ctx, e.where_)
-		with_text_color(ctx, DIM_COLOR, call_length_shown(ui, e.since), label_proc)
+		with_text_color(ctx, theme.dim, call_length_shown(ui, e.since), label_proc)
 	} else {
 		mu.layout_row(ctx, {-1})
 		mu.label(ctx, e.where_)
@@ -451,7 +444,7 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 		label :=
 			"Leave" if e.state == .Voice else ("Cancel" if e.state == .Ringing_Out else "Hang up")
 		saved := ctx.style.colors[.TEXT]
-		ctx.style.colors[.TEXT] = OFF_COLOR
+		ctx.style.colors[.TEXT] = theme.off
 		out := .SUBMIT in stable_button(ctx, "other leave", label, {.ALIGN_CENTER})
 		ctx.style.colors[.TEXT] = saved
 		if out {

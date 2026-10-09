@@ -185,9 +185,9 @@ channel_settings :: proc(ui: ^UI) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, DIM_COLOR, "Who is in it:", label_proc)
+	with_text_color(ctx, theme.dim, "Who is in it:", label_proc)
 	if v.members.conv != ch.id {
-		with_text_color(ctx, DIM_COLOR, "  Loading...", label_proc)
+		with_text_color(ctx, theme.dim, "  Loading...", label_proc)
 		return
 	}
 	for account in v.members.accounts {
@@ -243,7 +243,7 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	}
 	if !any {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, "Everyone is in it.", label_proc)
+		with_text_color(ctx, theme.dim, "Everyone is in it.", label_proc)
 	}
 }
 
@@ -323,7 +323,7 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 	mu.label(ctx, "")
 	with_text_color(
 		ctx,
-		WARNING_COLOR,
+		theme.warning,
 		fmt.tprintf(
 			"Delete %s for good? What they wrote stays, under \"%s\".",
 			acc.username,
@@ -363,7 +363,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 		if !(r.perms <= v.permissions) {
 			with_text_color(
 				ctx,
-				DIM_COLOR,
+				theme.dim,
 				fmt.tprintf("[%s] %s (above you)", "x" if has else " ", r.name),
 				label_proc,
 			)
@@ -461,7 +461,7 @@ purge_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "")
 	if !days_ok {
 		mu.label(ctx, "")
-		with_text_color(ctx, DIM_COLOR, "How many days, as a number.", label_proc)
+		with_text_color(ctx, theme.dim, "How many days, as a number.", label_proc)
 		return
 	}
 	now_ms := time.time_to_unix_nano(time.now()) / 1_000_000
@@ -470,7 +470,7 @@ purge_settings :: proc(ui: ^UI) {
 		if .SUBMIT in stable_button(ctx, "purge", "Purge...", {.ALIGN_CENTER}) {
 			m.purge_confirm = true
 		}
-		with_text_color(ctx, DIM_COLOR, "Asks first. Pinned messages are always kept.", label_proc)
+		with_text_color(ctx, theme.dim, "Asks first. Pinned messages are always kept.", label_proc)
 		return
 	}
 	dt, _ := time.time_to_datetime(time.unix(before / 1000, 0))
@@ -486,7 +486,7 @@ purge_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "")
 	with_text_color(
 		ctx,
-		{230, 90, 90, 255},
+		theme.error,
 		fmt.tprintf(
 			"This removes for good the %s in %s from before %s.",
 			"files of the messages" if m.purge_files else "messages",

@@ -352,14 +352,6 @@ RAIL_MENU_WIDTH :: 220
 // How far an icon goes with the pointer before it's being dragged.
 @(private = "file")
 DRAG_START :: 6
-@(private = "file")
-FAILED_COLOR :: mu.Color{70, 70, 70, 255}
-@(private = "file")
-FAILED_TEXT :: mu.Color{235, 110, 110, 255}
-@(private = "file")
-MARK_COLOR :: mu.Color{230, 230, 230, 255}
-@(private = "file")
-MENTIONS_COLOR :: mu.Color{215, 60, 60, 255}
 
 // rail_width is how much of the window's left the rail takes.
 rail_width :: proc(ui: ^UI) -> i32 {
@@ -405,7 +397,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		text := mu.Color{255, 255, 255, 255}
 		switch status {
 		case .Failed, .Disconnected:
-			color, text = FAILED_COLOR, FAILED_TEXT
+			color, text = theme.failed_disc, theme.failed_text
 			label = fmt.tprintf("%s\nnot connected", label)
 		case .Connecting:
 			color = dimmed(color)
@@ -424,7 +416,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		shown := ns == ui.session && !ui.join.open
 		r, id := rail_icon(ui, ns, initials, color, text, label, shown, picture)
 		if !shown && ns.unread > 0 {
-			mu.draw_rect(ctx, {r.x - ctx.style.padding, r.y + r.h / 2 - 4, 4, 8}, MARK_COLOR)
+			mu.draw_rect(ctx, {r.x - ctx.style.padding, r.y + r.h / 2 - 4, 4, 8}, theme.mark)
 		}
 		if ns.mentions > 0 {
 			mentions_badge(ui, r, ns.mentions)
@@ -440,7 +432,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 	}
 	white := mu.Color{255, 255, 255, 255}
-	_, plus := rail_icon(ui, nil, "+", {70, 70, 70, 255}, white, "Join a server", ui.join.open)
+	_, plus := rail_icon(ui, nil, "+", theme.plus_disc, white, "Join a server", ui.join.open)
 	if ctx.hover_id == plus && ctx.mouse_pressed_bits == {.LEFT} {
 		join_open(ui)
 	}
@@ -492,7 +484,7 @@ rail_drag :: proc(ui: ^UI, order: []^Net_Session, middles: []i32) {
 			line_y :=
 				middles[to] - RAIL_SLOT / 2 if to < len(middles) else middles[len(middles) - 1] + RAIL_SLOT / 2
 			x := i32((RAIL_WIDTH - RAIL_ICON) / 2)
-			mu.draw_rect(ctx, {x, line_y - 1, RAIL_ICON, 3}, MARK_COLOR)
+			mu.draw_rect(ctx, {x, line_y - 1, RAIL_ICON, 3}, theme.mark)
 		}
 		return
 	}
@@ -542,7 +534,7 @@ mentions_badge :: proc(ui: ^UI, r: mu.Rect, count: int) {
 	icon_bottom := r.y + 3 + RAIL_ICON
 	b := mu.Rect{icon_right + 2 - w, icon_bottom + 2 - h, w, h}
 	pill(ui, {b.x - 2, b.y - 2, b.w + 4, b.h + 4}, ctx.style.colors[.WINDOW_BG])
-	pill(ui, b, MENTIONS_COLOR)
+	pill(ui, b, theme.mentions)
 	mu.draw_text(ctx, font, text, {b.x + (w - tw) / 2, b.y}, {255, 255, 255, 255})
 }
 
@@ -604,7 +596,7 @@ rail_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {RAIL_MENU_WIDTH})
-	with_text_color(ctx, DIM_COLOR, name, label_proc)
+	with_text_color(ctx, theme.dim, name, label_proc)
 	if rl.confirm != .None {
 		mu.text(
 			ctx,
@@ -708,7 +700,7 @@ rail_icon :: proc(
 	mu.update_control(ctx, id, r)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	if shown {
-		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, MARK_COLOR)
+		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, theme.mark)
 	}
 	if pic, ok := picture.?; ok {
 		mu.draw_icon(ctx, pic, icon, text_color)

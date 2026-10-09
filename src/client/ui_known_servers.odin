@@ -30,9 +30,6 @@ UI_Known_Servers :: struct {
 	loaded: bool,
 }
 
-WARNING_COLOR :: mu.Color{230, 200, 90, 255}
-ERROR_COLOR :: mu.Color{230, 90, 90, 255}
-
 // open_settings shows the settings page, with the saved keys read afresh.
 open_settings :: proc(ui: ^UI) {
 	ui.page = .Settings
@@ -88,7 +85,7 @@ key_change_panel :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		WARNING_COLOR,
+		theme.warning,
 		"A server's key normally stays the same. It changes when the server is set up again or its key file is replaced, but a changed key is also exactly what you would see if someone were intercepting the connection and pretending to be the server.",
 		text_proc,
 	)

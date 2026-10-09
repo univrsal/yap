@@ -75,8 +75,6 @@ REPLY_INDENT :: 14
 REPLY_BAR_X :: 5
 @(private = "file")
 REPLY_BAR_W :: 2
-@(private = "file")
-REPLY_BAR_COLOR :: mu.Color{85, 105, 135, 255}
 
 // The picture beside a message's header: as tall as the header and a
 // line, and the column it's in.
@@ -95,10 +93,6 @@ COMPACT_DOT_COLUMN :: 14
 // screens.
 @(private = "file")
 MARGIN_SCREENS :: 1
-@(private = "file")
-DAY_LINE_COLOR :: mu.Color{110, 110, 110, 255}
-@(private = "file")
-NEW_LINE_COLOR :: mu.Color{220, 90, 90, 255}
 @(private = "file")
 UNKNOWN_KIND_TEXT :: "(a message this version can't show)"
 
@@ -414,7 +408,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 			mu.draw_rect(
 				ctx,
 				{block.x + REPLY_BAR_X, bar_top, REPLY_BAR_W, bar_bottom - bar_top},
-				REPLY_BAR_COLOR,
+				theme.reply_bar,
 			)
 			bar_end, bar_root = bar_bottom, msgs[i].thread_root
 		} else {
@@ -443,7 +437,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 		mu.layout_row(ctx, {-1})
 		with_text_color(
 			ctx,
-			CHAT_DIM_COLOR,
+			theme.dim,
 			"No replies yet." if key.root != 0 else "No messages here yet.",
 			label_proc,
 		)
@@ -536,13 +530,13 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 			text = "Loading messages..." if n == 0 else "Loading older messages..."
 		}
 	case thread && tl.have_oldest && n > 0:
-		rule(ui, "Replies", DAY_LINE_COLOR)
+		rule(ui, "Replies", theme.day_line)
 		return
 	case tl.have_oldest && n > 0:
 		text = "The start of the conversation."
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, CHAT_DIM_COLOR, text, label_proc)
+	with_text_color(ctx, theme.dim, text, label_proc)
 }
 
 // timeline_select_panel is the panel a timeline's text is selected in.
@@ -599,7 +593,7 @@ thread_head :: proc(
 	ctx := &ui.ctx
 	if !have {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, CHAT_DIM_COLOR, "Loading the message replied to...", label_proc)
+		with_text_color(ctx, theme.dim, "Loading the message replied to...", label_proc)
 		return
 	}
 	layout := mu.get_layout(ctx)
@@ -703,7 +697,7 @@ pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 		text = rich_make(shown, spans, emoji, nil, false)
 	}
 	status := "sending files..." if p.uploading else "sending..."
-	chat_message(ui, status, CHAT_DIM_COLOR, &text, CHAT_DIM_COLOR, false, item)
+	chat_message(ui, status, theme.dim, &text, theme.dim, false, item)
 	pending_files(ui, p)
 }
 
@@ -849,7 +843,7 @@ timeline_message :: proc(
 		day_line(ui, seconds)
 	}
 	if new_line {
-		rule(ui, "New messages", NEW_LINE_COLOR)
+		rule(ui, "New messages", theme.new_line)
 	}
 	// A reply, indented: everything of it from here on.
 	indent: i32 = REPLY_INDENT if is_indented(st, m) else 0
@@ -907,7 +901,7 @@ timeline_message :: proc(
 	}
 	if .Deleted in m.flags {
 		text := rich_plain(DELETED_TEXT)
-		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
+		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)
 		return from
 	}
 	#partial switch m.kind {
@@ -919,10 +913,10 @@ timeline_message :: proc(
 		message_files(ui, st.key.conv, m)
 	case .System:
 		text := rich_plain(system_line(ui, m))
-		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
+		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)
 	case:
 		text := rich_plain(UNKNOWN_KIND_TEXT)
-		chat_message(ui, header, header_color, &text, CHAT_DIM_COLOR, merged, item, tight)
+		chat_message(ui, header, header_color, &text, theme.dim, merged, item, tight)
 	}
 	reaction_chips(ui, m, width, readonly)
 	return from
@@ -983,7 +977,7 @@ reply_line :: proc(
 		strings.concatenate({REPLY_MARK, text}, context.temp_allocator),
 		width,
 	)
-	if thread_link(ui, text, r, CHAT_DIM_COLOR) {
+	if thread_link(ui, text, r, theme.dim) {
 		open_thread(ui, key, readonly)
 	}
 }
@@ -1005,7 +999,7 @@ thread_line :: proc(ui: ^UI, st: ^UI_Timeline, m: conn.View_Message, readonly :=
 			)
 		}
 	}
-	if thread_link(ui, text, r, CHAT_NAME_COLOR) {
+	if thread_link(ui, text, r, theme.chat_name) {
 		open_thread(ui, {st.key.conv, m.id}, readonly)
 	}
 }
@@ -1018,7 +1012,7 @@ thread_link :: proc(ui: ^UI, text: string, r: mu.Rect, color: mu.Color) -> bool 
 	font := ctx.style.font
 	hit := mu.Rect{r.x, r.y, min(ctx.text_width(font, text), r.w), r.h}
 	over := mu.mouse_over(ctx, hit)
-	mu.draw_text(ctx, font, text, {r.x, r.y}, LINK_HOVER_COLOR if over else color)
+	mu.draw_text(ctx, font, text, {r.x, r.y}, theme.link_hover if over else color)
 	if !over {
 		return false
 	}
@@ -1124,15 +1118,15 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := fa
 			id := mu.get_id(ctx, "chip")
 			rect := mu.layout_next(ctx)
 			mu.update_control(ctx, id, rect)
-			background := mu.Color{60, 60, 60, 255}
+			background := theme.track
 			switch {
 			case c.r.me:
-				background = {70, 95, 140, 255}
+				background = theme.highlight
 			case ctx.hover_id == id:
 				background = ctx.style.colors[.BUTTON_HOVER]
 			}
 			if ctx.hover_id == id && c.r.me {
-				background = {85, 115, 165, 255}
+				background = theme.highlight_more
 			}
 			mu.draw_rect(ctx, rect, background)
 			font := ctx.style.font
@@ -1310,7 +1304,7 @@ day_line :: proc(ui: ^UI, seconds: proto.Unix_Time) {
 		weekday := datetime.day_of_week(ordinal)
 		text = fmt.tprintf("%v, %d-%02d-%02d", weekday, local.year, local.month, local.day)
 	}
-	rule(ui, text, DAY_LINE_COLOR)
+	rule(ui, text, theme.day_line)
 }
 
 // rule is a line across the timeline with `text` in the middle of it, a

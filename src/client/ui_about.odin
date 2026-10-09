@@ -239,7 +239,7 @@ about_dialog :: proc(ui: ^UI, window_w, window_h: i32) {
 			fmt.tprintf("%s.\n%s", p.use, p.url) if p.url != "" else fmt.tprintf("%s.", p.use),
 		)
 		mu.label(ctx, "")
-		with_text_color(ctx, DIM_COLOR, p.text, about_text)
+		with_text_color(ctx, theme.dim, p.text, about_text)
 	}
 }
 

@@ -145,7 +145,7 @@ fractional_width :: proc(font: mu.Font, s: string) -> i32 {
 selection_rect :: proc(t: ^Select_Test) -> (rect: mu.Rect, ok: bool) {
 	cmd: ^mu.Command
 	for variant in mu.next_command_iterator(&t.ui.ctx, &cmd) {
-		if r, is_rect := variant.(^mu.Command_Rect); is_rect && r.color == SELECTION_COLOR {
+		if r, is_rect := variant.(^mu.Command_Rect); is_rect && r.color == theme.selection {
 			return r.rect, true
 		}
 	}

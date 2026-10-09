@@ -154,7 +154,7 @@ activity_dot :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	}
 	d := max(r.w / 3, 7)
 	edge := mu.Rect{r.x + r.w - d + 1, r.y + r.h - d + 1, d + 1, d + 1}
-	disc(ui, edge, {32, 32, 32, 255})
+	disc(ui, edge, theme.dot_ring)
 	disc(ui, {edge.x + 1, edge.y + 1, d - 1, d - 1}, ACTIVITY_COLORS[acc.activity])
 }
 

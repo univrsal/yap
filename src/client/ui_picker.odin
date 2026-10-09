@@ -185,7 +185,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if n == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, DIM_COLOR, "No emoji by that name.", label_proc)
+		with_text_color(ctx, theme.dim, "No emoji by that name.", label_proc)
 	}
 	mu.end_panel(ctx)
 	mu.layout_row(ctx, {-1})
@@ -194,7 +194,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		hint =
 			"Pick one to react with." if p.react_to != 0 else "Pick one to put it in the message."
 	}
-	with_text_color(ctx, DIM_COLOR, hint, label_proc)
+	with_text_color(ctx, theme.dim, hint, label_proc)
 }
 
 // picker_tab is a category's button, drawn pressed while it's shown.

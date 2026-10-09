@@ -146,11 +146,11 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	switch {
 	case uploading:
-		with_text_color(ctx, DIM_COLOR, "uploading...", label_proc)
+		with_text_color(ctx, theme.dim, "uploading...", label_proc)
 	case p.pick != nil && p.pick_for == .Server_Icon:
-		with_text_color(ctx, DIM_COLOR, "reading the picture...", label_proc)
+		with_text_color(ctx, theme.dim, "reading the picture...", label_proc)
 	case p.pick_notice != "" && p.pick_for == .Server_Icon:
-		with_text_color(ctx, OFF_COLOR, p.pick_notice, label_proc)
+		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
 	case v.server_icon != 0:
 		if .SUBMIT in stable_button(ctx, "icon remove", "Remove", {.ALIGN_CENTER}) {
 			s.asked = true
@@ -201,7 +201,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	} else {
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			"Shown on everyone's rail, and before logging in.",
 			label_proc,
 		)

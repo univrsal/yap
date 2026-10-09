@@ -104,11 +104,11 @@ install_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-(2 * (110 + ctx.style.spacing)), 110, 110})
 	switch {
 	case !st.installed:
-		with_text_color(ctx, DIM_COLOR, "  Not installed.", label_proc)
+		with_text_color(ctx, theme.dim, "  Not installed.", label_proc)
 	case elsewhere:
 		with_text_color(
 			ctx,
-			WARNING_COLOR,
+			theme.warning,
 			fmt.tprintf("  Installed, but starts %s", st.target),
 			label_proc,
 		)
@@ -134,6 +134,6 @@ install_settings :: proc(ui: ^UI) {
 	}
 	if st.error != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, ERROR_COLOR, st.error, label_proc)
+		with_text_color(ctx, theme.error, st.error, label_proc)
 	}
 }

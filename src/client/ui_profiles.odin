@@ -218,7 +218,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	res := text_box(ui, p.buf[:], &p.len)
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, DIM_COLOR, "Clear it after:", label_proc)
+	with_text_color(ctx, theme.dim, "Clear it after:", label_proc)
 	widths: [len(Clear_After)]i32
 	for &w in widths {
 		w =
@@ -255,7 +255,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	} else if until != 0 {
 		when_text = fmt.tprintf("It clears %s.", until_text(ui, until))
 	}
-	with_text_color(ctx, DIM_COLOR, when_text, label_proc)
+	with_text_color(ctx, theme.dim, when_text, label_proc)
 	mu.layout_row(ctx, {120, -1})
 	cleared := .SUBMIT in stable_button(ctx, "status clear", "Clear status", {.ALIGN_CENTER})
 	saved :=
@@ -349,7 +349,7 @@ members_button :: proc(ui: ^UI) {
 		   "members",
 		   .Buddies,
 		   "Hide the members" if p.members_open else "Members",
-		   CHAT_NAME_COLOR if p.members_open else {},
+		   theme.chat_name if p.members_open else {},
 	   ) {
 		p.members_open = !p.members_open
 		p.members_placed = false
@@ -402,7 +402,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	m := &v.members
 	if m.conv != v.viewing || (m.loading && len(m.accounts) == 0) {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, CHAT_DIM_COLOR, "Loading...", label_proc)
+		with_text_color(ctx, theme.dim, "Loading...", label_proc)
 		return
 	}
 	Member :: struct {
@@ -447,7 +447,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
-		DIM_COLOR,
+		theme.dim,
 		fmt.tprintf("%d members, %d here", len(list), here),
 		label_proc,
 	)
@@ -498,7 +498,7 @@ person_row :: proc(
 	acc := v.accounts[account] or_else {}
 	// In the colour of their roles, if they have one; fainter when they
 	// aren't here.
-	color := ctx.style.colors[.TEXT] if online else DIM_COLOR
+	color := ctx.style.colors[.TEXT] if online else theme.dim
 	if c, ok := name_color(v, account); ok {
 		color = c if online else {c.r, c.g, c.b, 140}
 	}
@@ -530,7 +530,7 @@ name_and_status :: proc(
 		more = extra if more == "" else fmt.tprintf("%s  ·  %s", more, extra)
 	}
 	if more != "" {
-		mu.draw_text(ctx, font, more, {x, y}, DIM_COLOR)
+		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
 	}
 }
 
@@ -574,11 +574,11 @@ profile_settings :: proc(ui: ^UI) {
 	}
 	switch {
 	case uploading:
-		with_text_color(ctx, DIM_COLOR, "uploading...", label_proc)
+		with_text_color(ctx, theme.dim, "uploading...", label_proc)
 	case p.pick != nil:
-		with_text_color(ctx, DIM_COLOR, "reading the picture...", label_proc)
+		with_text_color(ctx, theme.dim, "reading the picture...", label_proc)
 	case p.pick_notice != "":
-		with_text_color(ctx, OFF_COLOR, p.pick_notice, label_proc)
+		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
 	case me.avatar != 0:
 		if .SUBMIT in stable_button(ctx, "avatar remove", "Remove", {.ALIGN_CENTER}) {
 			conn.push_command(&ui.session.client.commands, conn.Avatar_Command{remove = true})
@@ -607,7 +607,7 @@ status_settings :: proc(ui: ^UI) {
 			chat_time(ui, proto.Unix_Time(me.status_until / 1000)),
 		)
 	}
-	with_text_color(ctx, DIM_COLOR, text, label_proc)
+	with_text_color(ctx, theme.dim, text, label_proc)
 }
 
 /*

@@ -62,12 +62,6 @@ BAR_WINDOW :: "message bar"
 // How far in from the message's right edge the bar sits.
 @(private = "file")
 BAR_INSET :: 6
-// The pin, lit while the message is pinned.
-@(private = "file")
-PINNED_COLOR :: mu.Color{120, 170, 240, 255}
-// What the message the bar is for is lit with.
-@(private = "file")
-HOVER_COLOR :: mu.Color{255, 255, 255, 10}
 
 /*
 message_bar_track is told of each message a timeline lays out, in
@@ -104,7 +98,7 @@ message_bar_track :: proc(
 	if !want || mu.intersect_rects(block, clip).h <= 0 {
 		return
 	}
-	mu.draw_rect(ctx, block, HOVER_COLOR)
+	mu.draw_rect(ctx, block, theme.hover_tint)
 	b.found, b.target, b.msg, b.block, b.clip = true, t, m, block, clip
 	b.host = nil
 	for i := ctx.container_stack.idx - 1; i >= 0; i -= 1 {
@@ -199,7 +193,7 @@ message_bar :: proc(ui: ^UI) {
 	if pin {
 		pinned := .Pinned in m.flags
 		hint := "Unpin" if pinned else "Pin"
-		if .SUBMIT in icon_button(ui, "pin", .Pin, hint, PINNED_COLOR if pinned else {}) {
+		if .SUBMIT in icon_button(ui, "pin", .Pin, hint, theme.pinned if pinned else {}) {
 			conn.push_command(cmds, conn.Pin_Command{id = m.id, on = !pinned})
 			done = true
 		}

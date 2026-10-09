@@ -55,7 +55,7 @@ image_cache_settings :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			"  People's pictures and servers' emoji, kept in this browser for this site. 0 keeps none.",
 			label_proc,
 		)
@@ -88,7 +88,7 @@ folder_settings :: proc(ui: ^UI) {
 	}
 	with_text_color(
 		ctx,
-		DIM_COLOR,
+		theme.dim,
 		fmt.tprintf(
 			"  Kept in %s. Empty for the default; pictures already kept elsewhere stay there.",
 			folder,
@@ -97,7 +97,7 @@ folder_settings :: proc(ui: ^UI) {
 	)
 	with_text_color(
 		ctx,
-		DIM_COLOR,
+		theme.dim,
 		"  People's pictures and servers' emoji. 0 keeps none.",
 		label_proc,
 	)

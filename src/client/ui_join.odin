@@ -241,15 +241,15 @@ join_form :: proc(ui: ^UI, v: ^conn.View) {
 
 	mu.layout_row(ctx, {-1})
 	if v != nil && v.error != "" {
-		with_text_color(ctx, ERROR_COLOR, v.error, label_proc)
+		with_text_color(ctx, theme.error, v.error, label_proc)
 	} else {
 		with_text_color(
 			ctx,
-			DIM_COLOR,
+			theme.dim,
 			fmt.tprintf("The port is %d unless it's given (host:port).", proto.DEFAULT_PORT),
 			label_proc,
 		)
-		with_text_color(ctx, DIM_COLOR, "The password is the server's, if it has one.", label_proc)
+		with_text_color(ctx, theme.dim, "The password is the server's, if it has one.", label_proc)
 	}
 	if v != nil && v.key_change.changed {
 		key_change_panel(ui)

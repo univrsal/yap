@@ -42,16 +42,9 @@ QUOTE_STEP :: 14
 QUOTE_BAR_X :: 3
 @(private = "file")
 QUOTE_BAR_W :: 3
-@(private = "file")
-QUOTE_BAR_COLOR :: mu.Color{95, 95, 95, 255}
-// How far a code block's text is inside its box, and the box; and the
-// background of code in a line.
+// How far a code block's text is inside its box.
 @(private = "file")
 CODE_PAD :: 6
-@(private = "file")
-CODE_BLOCK_COLOR :: mu.Color{36, 36, 36, 255}
-@(private = "file")
-CODE_SPAN_COLOR :: mu.Color{28, 28, 28, 255}
 
 Rich :: struct {
 	using rt:  conn.Rich_Text,
@@ -331,13 +324,13 @@ rich_text :: proc(ui: ^UI, r: ^Rich, color: mu.Color, item: i64) {
 		// What's behind the text: a code block's box, quotes' bars.
 		if l.kind == .Code {
 			qx := i32(l.quote) * QUOTE_STEP
-			mu.draw_rect(ctx, {row.x + qx, row.y, row.w - qx, h}, CODE_BLOCK_COLOR)
+			mu.draw_rect(ctx, {row.x + qx, row.y, row.w - qx, h}, theme.code_block)
 		}
 		for q in 0 ..< l.quote {
 			mu.draw_rect(
 				ctx,
 				{row.x + i32(q) * QUOTE_STEP + QUOTE_BAR_X, row.y, QUOTE_BAR_W, h},
-				QUOTE_BAR_COLOR,
+				theme.quote_bar,
 			)
 		}
 		// Then what's behind its pieces, the selection over that, and the
@@ -444,23 +437,23 @@ rich_pieces :: proc(
 
 		if pass == .Back {
 			if .Code in styles && !code_line {
-				mu.draw_rect(ctx, {rect.x - 1, rect.y, rect.w + 2, rect.h}, CODE_SPAN_COLOR)
+				mu.draw_rect(ctx, {rect.x - 1, rect.y, rect.w + 2, rect.h}, theme.code_span)
 			}
 			if m, ok := mention.?; ok && m.me {
-				mu.draw_rect(ctx, {rect.x - 1, rect.y, rect.w + 2, rect.h}, MENTION_ME_BACKGROUND)
+				mu.draw_rect(ctx, {rect.x - 1, rect.y, rect.w + 2, rect.h}, theme.mention_me_bg)
 			}
 			continue
 		}
 		c := color
 		if _, ok := mention.?; ok {
-			c = MENTION_COLOR
+			c = theme.mention
 		}
 		id: uintptr
 		hovered := false
 		if link_start >= 0 {
 			id = rich_link_id(item, link_start)
 			hovered = ui.chat.hover == id
-			c = LINK_HOVER_COLOR if hovered else LINK_COLOR
+			c = theme.link_hover if hovered else theme.link
 		}
 		mu.draw_text(ctx, font, piece, {rect.x, rect.y}, c)
 		// Underlined just below the baseline, struck through the middle

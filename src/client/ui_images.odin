@@ -242,7 +242,7 @@ image_fitted :: proc(
 	}
 	if !known || t.state != .Ready {
 		label := "broken image" if known && t.state == .Failed else "loading picture..."
-		mu.draw_rect(ctx, area, {50, 50, 50, 255})
+		mu.draw_rect(ctx, area, theme.image_bg)
 		mu.draw_control_text(ctx, label, area, .TEXT, {.ALIGN_CENTER})
 		return
 	}
@@ -364,7 +364,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		)
 		mu.pop_clip_rect(ctx)
 	} else {
-		mu.draw_rect(ctx, rect, {50, 50, 50, 255})
+		mu.draw_rect(ctx, rect, theme.image_bg)
 		mu.draw_control_text(ctx, "loading image...", rect, .TEXT, {.ALIGN_CENTER})
 	}
 
@@ -383,7 +383,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	if im.saved_to != "" {
 		status = fmt.tprintf("%s   saved %s to your downloads", status, file_name(im.saved_to))
 	}
-	with_text_color(ctx, CHAT_DIM_COLOR, status, label_proc)
+	with_text_color(ctx, theme.dim, status, label_proc)
 }
 
 // viewer_input zooms with the mouse wheel over the picture area, keeping
@@ -493,7 +493,6 @@ enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8) {
 	}
 	decode_wake(im)
 }
-
 
 // trim_textures frees the textures that haven't been drawn for longest.
 @(private = "file")

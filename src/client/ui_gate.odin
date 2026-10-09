@@ -217,8 +217,7 @@ level_meter :: proc(ui: ^UI) {
 	open_color := mu.Color{45, 105, 55, 255}
 	if !s.voice_gate {
 		// The gate isn't doing anything; keep the scale but dim it.
-		closed_color, between_color, open_color =
-			{60, 60, 60, 255}, {70, 70, 70, 255}, {80, 80, 80, 255}
+		closed_color, between_color, open_color = theme.track, theme.divider, theme.unlit
 	}
 	close_x, open_x := x_of(r, s.gate_close_db), x_of(r, s.gate_open_db)
 	mu.draw_rect(ctx, {r.x, r.y, close_x - r.x, r.h}, closed_color)
@@ -232,8 +231,8 @@ level_meter :: proc(ui: ^UI) {
 	mu.draw_rect(ctx, {r.x, r.y + bar_h, x_of(r, ui.meter_level) - r.x, bar_h}, bar_color)
 
 	// Threshold markers.
-	mu.draw_rect(ctx, {close_x - 1, r.y, 2, r.h}, {240, 240, 240, 255})
-	mu.draw_rect(ctx, {open_x - 1, r.y, 2, r.h}, {240, 240, 240, 255})
+	mu.draw_rect(ctx, {close_x - 1, r.y, 2, r.h}, theme.strong)
+	mu.draw_rect(ctx, {open_x - 1, r.y, 2, r.h}, theme.strong)
 
 	text: string
 	switch {

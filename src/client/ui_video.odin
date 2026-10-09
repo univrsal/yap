@@ -50,11 +50,11 @@ share_button :: proc(ui: ^UI) {
 	color := mu.Color{}
 	switch state {
 	case .Live:
-		hint, color = "Stop sharing your screen", SPEAKING_COLOR
+		hint, color = "Stop sharing your screen", theme.speaking
 	case .Starting:
-		hint, color = "Choosing what to share...", DIM_COLOR
+		hint, color = "Choosing what to share...", theme.dim
 	case .Failed:
-		hint, color = "Sharing didn't work (the browser's console says why); try again", OFF_COLOR
+		hint, color = "Sharing didn't work (the browser's console says why); try again", theme.off
 	case .Off:
 	}
 	if .SUBMIT in icon_button(ui, "share", .Screen, hint, color) {
@@ -130,7 +130,7 @@ fullscreen_screen :: proc(ui: ^UI) {
 	title_row(ui, {-(70 + ctx.style.spacing), 70})
 	with_text_color(
 		ctx,
-		DIM_COLOR,
+		theme.dim,
 		fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui)),
 		label_proc,
 	)
@@ -166,7 +166,7 @@ picture :: proc(ui: ^UI, r: mu.Rect) {
 			ctx.style.font,
 			waiting,
 			{r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2},
-			DIM_COLOR,
+			theme.dim,
 		)
 		return
 	}

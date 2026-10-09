@@ -67,10 +67,6 @@ avatar :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	}
 }
 
-// A deleted account's disc, which has no letter.
-@(private = "file")
-DELETED_COLOR :: mu.Color{90, 90, 90, 255}
-
 // picture draws an account's picture, or its disc and letter.
 @(private = "file")
 picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
@@ -85,7 +81,7 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	}
 	// A disc and a letter; a plain grey disc for a deleted account.
 	deleted := known && .Deleted in acc.flags
-	color := DELETED_COLOR if deleted else avatar_color(account)
+	color := theme.deleted_disc if deleted else avatar_color(account)
 	if icon, ok := disc_icon(ui); ok {
 		mu.draw_icon(ctx, icon, r, color)
 	} else {
@@ -227,7 +223,7 @@ avatar_ringed :: proc(
 	account: proto.Account_Id,
 	slot: mu.Rect,
 	ring: bool,
-	color := SPEAKING_COLOR,
+	color := theme.speaking,
 ) {
 	ctx := &ui.ctx
 	a := &ui.avatars
