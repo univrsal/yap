@@ -61,7 +61,7 @@ COPY deps/thirdparty ./deps/thirdparty
 COPY src/common ./src/common
 COPY src/client ./src/client
 COPY web ./web
-COPY scripts/fetch-opus.sh scripts/version-defines.sh ./scripts/
+COPY scripts/fetch-opus.sh scripts/opus.version scripts/version-defines.sh ./scripts/
 
 RUN sh web/build.sh
 
