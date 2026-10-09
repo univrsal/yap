@@ -9,15 +9,19 @@ import stbi "vendor:stb/image"
 
 import "client:clipboard"
 import "client:conn"
+import "client:webp"
 import "common:proto"
 
 /*
 Turning a pasted image (RGBA, see clipboard) into something worth
-sending: scaled to at most 4K on its longest side, and JPEG compressed
-to fit a size budget.
+sending: scaled to at most 4K on its longest side, and WebP compressed
+to fit a size budget. A screenshot comes out at well under half the size
+JPEG needs for the same quality, so most fit at full size. (Profile and
+server pictures are still JPEGs, which the server checks they are; see
+avatar_prepare.)
 
-JPEG has no transparency, so transparent parts are put on white, the
-way a screenshot of a page would look.
+Transparent parts are put on white, the way a screenshot of a page would
+look, so dark text on nothing stays readable on a dark theme.
 
 Quality is lowered before the image is made smaller: a slightly softer
 screenshot is more readable than a sharp half-size one. Only when the
@@ -34,11 +38,15 @@ MAX_IMAGE_SIDE :: 3840
 // What a pasted image may take up, compressed: a screenshot uploads in
 // a moment, and its preview is fetched as quickly.
 MAX_IMAGE_BYTES :: 256 * 1024
-// Quality for the first try, for the second (same size), and for the
-// tries after that (which shrink the image instead).
-QUALITY_FIRST :: 85
+// WebP quality for the first try, for the second (same size), and for
+// the tries after that (which shrink the image instead). 80 is a little
+// sharper than the JPEG at 85 this used to make, at half the size.
+QUALITY_FIRST :: 80
 QUALITY_SECOND :: 60
-QUALITY_SCALED :: 75
+QUALITY_SCALED :: 70
+// libwebp's trade of speed for size, 0 to 6: 2 compresses twice as fast
+// as its default of 4, for files about 4% bigger.
+WEBP_METHOD :: 2
 // How often to shrink and try again before giving up.
 MAX_SCALE_ROUNDS :: 4
 
@@ -54,15 +62,15 @@ image_prepare :: proc(
 	if src.width <= 0 || src.height <= 0 || len(src.pixels) < src.width * src.height * 4 {
 		return {}, false
 	}
-	// On white, without the alpha channel JPEG can't store anyway. These
-	// buffers are large (24 MB for a 4K image), so they aren't left for
-	// the temporary allocator to hold on to.
+	// On white (see above). These buffers are large (24 MB for a 4K
+	// image), so they aren't left for the temporary allocator to hold on
+	// to.
 	rgb := make([]u8, src.width * src.height * 3)
 	defer delete(rgb)
 	flatten(src, rgb)
 
 	w, h := fit(src.width, src.height, MAX_IMAGE_SIDE)
-	quality: i32 = QUALITY_FIRST
+	quality: f32 = QUALITY_FIRST
 	for round in 0 ..= MAX_SCALE_ROUNDS + 1 {
 		scaled := rgb
 		defer if raw_data(scaled) != raw_data(rgb) {
@@ -89,31 +97,35 @@ image_prepare :: proc(
 			}
 		}
 
-		jpeg := encode_jpeg(scaled, w, h, quality, allocator) or_return
-		if len(jpeg) <= MAX_IMAGE_BYTES {
-			log.debugf("image: %dx%d, quality %d, %d bytes", w, h, quality, len(jpeg))
-			return {jpeg = jpeg, width = w, height = h}, true
+		data, encoded := webp.encode(scaled, w, h, quality, WEBP_METHOD, allocator)
+		if !encoded {
+			log.error("could not compress the image")
+			return {}, false
+		}
+		if len(data) <= MAX_IMAGE_BYTES {
+			log.debugf("image: %dx%d, quality %.0f, %d bytes", w, h, quality, len(data))
+			return {jpeg = data, width = w, height = h}, true
 		}
 		log.debugf(
-			"image: %dx%d, quality %d is %d bytes, over the budget",
+			"image: %dx%d, quality %.0f is %d bytes, over the budget",
 			w,
 			h,
 			quality,
-			len(jpeg),
+			len(data),
 		)
-		over := len(jpeg)
-		delete(jpeg, allocator)
+		over := len(data)
+		delete(data, allocator)
 
 		if round == 0 {
 			quality = QUALITY_SECOND // same size, cheaper bits first
 			continue
 		}
 		if w <= 64 || h <= 64 || round > MAX_SCALE_ROUNDS {
-			// It should never come to this: even a 64x64 JPEG is tiny.
+			// It should never come to this: even a 64x64 picture is tiny.
 			log.error("could not compress the image small enough")
 			return {}, false
 		}
-		// A JPEG's size roughly follows its pixel count, so scale by the
+		// A picture's size roughly follows its pixel count, so scale by the
 		// square root of how far over budget it was, and a little more so
 		// the next try lands inside rather than just on the line.
 		quality = QUALITY_SCALED

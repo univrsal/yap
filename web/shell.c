@@ -609,3 +609,24 @@ EM_JS(void, yap_image_cache_cancel, (int req), {
 EM_JS(void, yap_image_cache_store, (const char *key, const unsigned char *data, int len), {
 	Module.yapImages.store(UTF8ToString(key), data, len);
 });
+
+/* Pictures decoded by the browser (web/decode.js, src/client/ui_images_worker_web.odin). */
+EM_JS(int, yap_image_decode_start, (const unsigned char *data, int len, double max_pixels), {
+	return Module.yapDecode.start(data, len, max_pixels);
+});
+
+EM_JS(int, yap_image_decode_poll, (int req), {
+	return Module.yapDecode.poll(req);
+});
+
+EM_JS(int, yap_image_decode_width, (int req), {
+	return Module.yapDecode.width(req);
+});
+
+EM_JS(int, yap_image_decode_height, (int req), {
+	return Module.yapDecode.height(req);
+});
+
+EM_JS(void, yap_image_decode_take, (int req, unsigned char *buf), {
+	Module.yapDecode.take(req, buf);
+});

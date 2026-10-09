@@ -5,7 +5,8 @@
 # ./build.sh -debug -define:YAP_LOSS_PERCENT=30
 #
 # The server links SQLite (src/server/sqlite), whose source is fetched
-# into .cache the first time.
+# into .cache the first time; the client links libwebp (src/client/webp)
+# the same way, built with CMake.
 #
 # The client links a trimmed-down miniaudio (src/client/audio/miniaudio), RNNoise
 # (src/client/audio/rnn) and traycon (src/client/tray), whose third-party sources
@@ -142,6 +143,47 @@ if [ -n "$opus_os" ] && [ ! -f "src/client/audio/opus/libopus_$opus_os.a" ]; the
 	jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || getconf NPROCESSORS_ONLN)
 	cmake --build ".cache/opus-$opus_os" --parallel "$jobs"
 	cp ".cache/opus-$opus_os/libopus.a" "src/client/audio/opus/libopus_$opus_os.a"
+fi
+
+# libwebp, for WebP pictures (src/client/webp): built from the release
+# source (scripts/fetch-webp.sh, scripts/webp.version) for size, but with
+# its SIMD code, which decodes and compresses twice as fast for ~80 KB.
+# Without threads, which yap doesn't ask it for, so it needs no pthread.
+# Only built when it isn't there, as the CI keeps it between runs; delete
+# src/client/webp/libwebp.a after changing scripts/webp.version.
+webp=src/client/webp
+if [ ! -f "$webp/libwebp.a" ] || [ ! -f "$webp/libsharpyuv.a" ]; then
+	scripts/fetch-webp.sh .cache
+	. scripts/webp.version
+	echo "building $webp/libwebp.a"
+	cmake -S ".cache/libwebp-$webp_version" -B ".cache/libwebp-$webp_version-build" \
+		-DCMAKE_BUILD_TYPE=MinSizeRel \
+		-DBUILD_SHARED_LIBS=OFF \
+		-DWEBP_USE_THREAD=OFF \
+		-DWEBP_BUILD_ANIM_UTILS=OFF \
+		-DWEBP_BUILD_CWEBP=OFF \
+		-DWEBP_BUILD_DWEBP=OFF \
+		-DWEBP_BUILD_GIF2WEBP=OFF \
+		-DWEBP_BUILD_IMG2WEBP=OFF \
+		-DWEBP_BUILD_VWEBP=OFF \
+		-DWEBP_BUILD_WEBPINFO=OFF \
+		-DWEBP_BUILD_LIBWEBPMUX=OFF \
+		-DWEBP_BUILD_WEBPMUX=OFF \
+		-DWEBP_BUILD_EXTRAS=OFF >/dev/null
+	# A job count, since OpenBSD's make won't take a bare -j.
+	jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || getconf NPROCESSORS_ONLN)
+	cmake --build ".cache/libwebp-$webp_version-build" --parallel "$jobs"
+	cp ".cache/libwebp-$webp_version-build/libwebp.a" ".cache/libwebp-$webp_version-build/libsharpyuv.a" "$webp/"
+fi
+lib=$webp/libyap_webp.a
+if [ ! -f "$lib" ] || [ "$webp/yap_webp.c" -nt "$lib" ]; then
+	# The headers, which the CI's kept libraries come without.
+	scripts/fetch-webp.sh .cache
+	. scripts/webp.version
+	echo "building $lib"
+	${CC:-cc} -std=c99 -Os -I".cache/libwebp-$webp_version/src" -c "$webp/yap_webp.c" -o "$webp/yap_webp.o"
+	ar rcs "$lib" "$webp/yap_webp.o"
+	rm "$webp/yap_webp.o"
 fi
 
 # OpenBSD: two libraries Odin's own packages ask the linker for aren't

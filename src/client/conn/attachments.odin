@@ -908,7 +908,7 @@ preview_wanted :: proc(name: string, size: u64) -> bool {
 		return false
 	}
 	ext := name[dot + 1:]
-	for known in ([]string{"png", "jpg", "jpeg", "gif", "bmp"}) {
+	for known in ([]string{"png", "jpg", "jpeg", "gif", "bmp", "webp"}) {
 		if strings.equal_fold(ext, known) {
 			return true
 		}

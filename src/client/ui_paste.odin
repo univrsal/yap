@@ -11,7 +11,7 @@ import "client:conn"
 
 /*
 A pasted image is attached to the message being written in the composer
-it was pasted in (ui.paste_to), as a JPEG named for when it was pasted
+it was pasted in (ui.paste_to), as a WebP named for when it was pasted
 (pasted_image_name), and goes with that message like any other file.
 
 Pasting an image runs on a thread of its own: the program that owns the
@@ -90,7 +90,7 @@ paste_poll :: proc(ui: ^UI) {
 		}
 		if job.image.width != job.source_w || job.image.height != job.source_h {
 			log.infof(
-				"pasted a %dx%d image, scaled to %dx%d, %d KB as JPEG",
+				"pasted a %dx%d image, scaled to %dx%d, %d KB as WebP",
 				job.source_w,
 				job.source_h,
 				job.image.width,
@@ -99,13 +99,13 @@ paste_poll :: proc(ui: ^UI) {
 			)
 		} else {
 			log.infof(
-				"pasted a %dx%d image, %d KB as JPEG",
+				"pasted a %dx%d image, %d KB as WebP",
 				job.image.width,
 				job.image.height,
 				len(job.image.jpeg) / 1024,
 			)
 		}
-		// The composer takes the JPEG over, so it isn't freed here.
+		// The composer takes the WebP over, so it isn't freed here.
 		picked := Picked_File {
 			data = job.image.jpeg,
 			name = pasted_image_name(ui),

@@ -6,6 +6,7 @@ import stbi "vendor:stb/image"
 
 import "client:clipboard"
 import "client:conn"
+import "client:webp"
 import "common:proto"
 
 // test_image makes a w*h RGBA image: noise (so it doesn't compress to
@@ -75,15 +76,53 @@ test_image_prepare :: proc(t: ^testing.T) {
 	testing.expect_value(t, img.height, 100)
 	testing.expect(t, len(img.jpeg) <= MAX_IMAGE_BYTES)
 
-	// It's a JPEG of the right size.
-	w, h, comp: i32
-	testing.expect(
-		t,
-		stbi.info_from_memory(raw_data(img.jpeg), i32(len(img.jpeg)), &w, &h, &comp) != 0,
-	)
+	// It's a WebP of the right size.
+	testing.expect(t, webp.is_webp(img.jpeg))
+	w, h, size_ok := webp.size(img.jpeg)
+	testing.expect(t, size_ok)
 	testing.expect_value(t, w, 200)
 	testing.expect_value(t, h, 100)
-	testing.expect(t, img.jpeg[0] == 0xff && img.jpeg[1] == 0xd8) // SOI marker
+
+	// And it reads back as what was pasted.
+	back, err := clipboard.decode(img.jpeg)
+	defer clipboard.image_destroy(&back)
+	testing.expect_value(t, err, clipboard.Error.None)
+	testing.expect(t, back.width == 200 && back.height == 100)
+	testing.expect_value(t, len(back.pixels), 200 * 100 * 4)
+}
+
+@(test)
+test_webp_decode :: proc(t: ^testing.T) {
+	// A smooth image survives lossy compression nearly as it was.
+	src := gradient_image(64, 32)
+	defer delete(src.pixels)
+	rgb := make([]u8, 64 * 32 * 3)
+	defer delete(rgb)
+	for i in 0 ..< 64 * 32 {
+		copy(rgb[i * 3:][:3], src.pixels[i * 4:][:3])
+	}
+	data, ok := webp.encode(rgb, 64, 32, 90)
+	defer delete(data)
+	testing.expect(t, ok)
+
+	img, err := clipboard.decode(data)
+	defer clipboard.image_destroy(&img)
+	testing.expect_value(t, err, clipboard.Error.None)
+	testing.expect(t, img.width == 64 && img.height == 32)
+	worst := 0
+	for i in 0 ..< 64 * 32 {
+		for c in 0 ..< 3 {
+			worst = max(worst, abs(int(img.pixels[i * 4 + c]) - int(src.pixels[i * 4 + c])))
+		}
+		testing.expect_value(t, img.pixels[i * 4 + 3], 255) // opaque
+	}
+	testing.expectf(t, worst < 24, "a channel is off by %d", worst)
+
+	// Broken data is refused rather than read past.
+	_, bad := clipboard.decode(data[:len(data) / 2])
+	testing.expect_value(t, bad, clipboard.Error.Decode_Failed)
+	_, bad = clipboard.decode(transmute([]u8)string("RIFF\x04\x00\x00\x00WEBPVP8 "))
+	testing.expect_value(t, bad, clipboard.Error.Decode_Failed)
 }
 
 @(test)
@@ -124,21 +163,21 @@ test_image_transparency :: proc(t: ^testing.T) {
 	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 
-	w, h, comp: i32
-	pixels := stbi.load_from_memory(raw_data(img.jpeg), i32(len(img.jpeg)), &w, &h, &comp, 3)
-	testing.expect(t, pixels != nil)
-	defer stbi.image_free(pixels)
-	// The transparent first row came out white, not black. JPEG bleeds
-	// the noise below it into the row, so it isn't exactly 255.
-	for x in 0 ..< int(w) {
+	back, err := clipboard.decode(img.jpeg)
+	defer clipboard.image_destroy(&back)
+	testing.expect_value(t, err, clipboard.Error.None)
+	// The transparent first row came out white, not black. Lossy
+	// compression bleeds the noise below it into the row, so it isn't
+	// exactly 255.
+	for x in 0 ..< back.width {
 		for c in 0 ..< 3 {
 			testing.expectf(
 				t,
-				pixels[x * 3 + c] > 200,
+				back.pixels[x * 4 + c] > 200,
 				"pixel %d channel %d is %d",
 				x,
 				c,
-				pixels[x * 3 + c],
+				back.pixels[x * 4 + c],
 			)
 		}
 	}

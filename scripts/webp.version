@@ -1,0 +1,7 @@
+# The libwebp release src/client/webp is built from: read by
+# scripts/fetch-webp.sh (and with it build.sh) and by build.bat, so lines
+# are name=value and nothing else. The sum is of the release tarball,
+# whose signature (libwebp-<version>.tar.gz.asc, by the WebP release
+# signing key 6B0E6B70976DE303EDF2F601F9C3D6BDB8232B5D) was checked.
+webp_version=1.6.0
+webp_sha256=e4ab7009bf0629fd11982d4c2aa83964cf244cffba7347ecd39019a9e38c4564

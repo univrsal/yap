@@ -27,6 +27,10 @@ src/server/sqlite/*.a
 src/server/sqlite/*.lib
 src/server/sqlite/*.o
 src/server/sqlite/*.obj
+src/client/webp/*.a
+src/client/webp/*.lib
+src/client/webp/*.o
+src/client/webp/*.obj
 src/client/assets/*.res
 web/out/
 web/deps/

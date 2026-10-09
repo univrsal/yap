@@ -8,8 +8,8 @@ rem (src\client\tray), tinydialogs (src\client\dialogs) and tinyaac (src\client\
 rem third-party sources are in deps\thirdparty,
 rem with the static C runtime
 rem (/MT) like Odin's vendor libraries, so no runtime DLL is needed.
-rem libopus (src\client\audio\opus) is fetched into .cache and built with
-rem CMake, which comes with Visual Studio's C++ CMake tools.
+rem libopus (src\client\audio\opus) and libwebp (src\client\webp) are fetched
+rem into .cache and built with CMake, which comes with Visual Studio's C++ CMake tools.
 setlocal
 cd /d "%~dp0"
 if not exist bin mkdir bin
@@ -56,6 +56,20 @@ rem src\client\audio\opus binds. Delete opus.lib after changing
 rem scripts\opus.version to build it again.
 set OPUS=src\client\audio\opus
 if not exist %OPUS%\opus.lib call :build_opus || exit /b 1
+
+rem libwebp, for WebP pictures (src\client\webp): fetched into .cache on
+rem first use and built from the release source with CMake and the static
+rem C runtime, for size but with its SIMD code, and without threads. Delete
+rem libwebp.lib after changing scripts\webp.version to build it again.
+rem yap_webp.c, the part src\client\webp binds, is compiled against its
+rem headers every time, like the C above.
+set WEBP=src\client\webp
+call :fetch_webp || exit /b 1
+if not exist %WEBP%\libwebp.lib call :build_webp || exit /b 1
+if not exist %WEBP%\libsharpyuv.lib call :build_webp || exit /b 1
+cl /nologo /MT /O1 /I.cache\%WEBP_NAME%\src /c %WEBP%\yap_webp.c /Fo:%WEBP%\yap_webp.obj || exit /b 1
+lib /nologo /out:%WEBP%\yap_webp.lib %WEBP%\yap_webp.obj || exit /b 1
+del %WEBP%\yap_webp.obj
 
 rem SQLite, for the server's database (src\server\sqlite): one big C file,
 rem fetched into .cache on first use and compiled the way yap_sqlite.c
@@ -134,7 +148,55 @@ if errorlevel 1 (
 tar -xzf .cache\%OPUS_NAME%.tar.gz -C .cache || exit /b 1
 :compile_opus
 echo building %OPUS%\opus.lib
+where cmake >nul 2>nul || goto :fetch_webp
+rem scripts\webp.version is name=value lines, and # comments.
+for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\webp.version") do set "%%a=%%b"
+set WEBP_NAME=libwebp-%webp_version%
+if not exist .cache mkdir .cache
+if exist .cache\%WEBP_NAME%\CMakeLists.txt exit /b 0
+if not exist .cache\%WEBP_NAME%.tar.gz (
+	echo fetching libwebp %webp_version%
+	curl -fL --retry 3 -o .cache\%WEBP_NAME%.tar.gz.part https://storage.googleapis.com/downloads.webmproject.org/releases/webp/%WEBP_NAME%.tar.gz || exit /b 1
+	move /y .cache\%WEBP_NAME%.tar.gz.part .cache\%WEBP_NAME%.tar.gz >nul || exit /b 1
+)
+certutil -hashfile .cache\%WEBP_NAME%.tar.gz SHA256 | findstr /x /i /c:"%webp_sha256%" >nul
+if errorlevel 1 (
+	echo .cache\%WEBP_NAME%.tar.gz: checksum mismatch; delete it to fetch it again
+	exit /b 1
+)
+tar -xzf .cache\%WEBP_NAME%.tar.gz -C .cache || exit /b 1
+exit /b 0
+
+:build_webp
+echo building %WEBP%\libwebp.lib
 where cmake >nul 2>nul || goto :no_cmake
+set "WEBP_GEN=NMake Makefiles"
+where ninja >nul 2>nul && set WEBP_GEN=Ninja
+if exist .cache\%WEBP_NAME%-windows rmdir /s /q .cache\%WEBP_NAME%-windows
+rem MinSizeRel is /O1; CMAKE_MSVC_RUNTIME_LIBRARY picks the static C
+rem runtime (/MT), as libwebp asks for CMake 3.16 or later.
+cmake -S .cache\%WEBP_NAME% -B .cache\%WEBP_NAME%-windows -G "%WEBP_GEN%" ^
+	-DCMAKE_BUILD_TYPE=MinSizeRel ^
+	-DCMAKE_C_COMPILER=cl ^
+	-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded ^
+	-DBUILD_SHARED_LIBS=OFF ^
+	-DWEBP_USE_THREAD=OFF ^
+	-DWEBP_BUILD_ANIM_UTILS=OFF ^
+	-DWEBP_BUILD_CWEBP=OFF ^
+	-DWEBP_BUILD_DWEBP=OFF ^
+	-DWEBP_BUILD_GIF2WEBP=OFF ^
+	-DWEBP_BUILD_IMG2WEBP=OFF ^
+	-DWEBP_BUILD_VWEBP=OFF ^
+	-DWEBP_BUILD_WEBPINFO=OFF ^
+	-DWEBP_BUILD_LIBWEBPMUX=OFF ^
+	-DWEBP_BUILD_WEBPMUX=OFF ^
+	-DWEBP_BUILD_EXTRAS=OFF >nul || exit /b 1
+cmake --build .cache\%WEBP_NAME%-windows --parallel || exit /b 1
+copy /y .cache\%WEBP_NAME%-windows\libwebp.lib %WEBP%\libwebp.lib >nul || exit /b 1
+copy /y .cache\%WEBP_NAME%-windows\libsharpyuv.lib %WEBP%\libsharpyuv.lib >nul || exit /b 1
+exit /b 0
+
+:no_cmake
 rem Ninja if it's there (it comes with CMake in Visual Studio), as NMake
 rem builds one file at a time.
 set "OPUS_GEN=NMake Makefiles"
@@ -153,7 +215,7 @@ copy /y .cache\%OPUS_NAME%-windows\opus.lib %OPUS%\opus.lib >nul || exit /b 1
 exit /b 0
 
 :no_cmake
-echo CMake is needed to build libopus: install Visual Studio's "C++ CMake tools for Windows"
+echo CMake is needed to build libopus and libwebp: install Visual Studio's "C++ CMake tools for Windows"
 exit /b 1
 
 :add_version

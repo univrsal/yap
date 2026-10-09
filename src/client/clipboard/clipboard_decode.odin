@@ -6,16 +6,21 @@ import "core:bytes"
 import "core:encoding/endian"
 import "core:image/qoi"
 
-// decode turns PNG, JPEG, BMP, GIF or QOI data into RGBA pixels, refusing
-// images over MAX_PIXELS before decoding them. (QOI is what a server's
-// sheet of emoji comes as: core Odin writes it, and stb_image doesn't
-// read it.)
+// decode turns PNG, JPEG, BMP, GIF, WebP or QOI data into RGBA pixels,
+// refusing images over MAX_PIXELS before decoding them. (QOI is what a
+// server's sheet of emoji comes as: core Odin writes it, and stb_image
+// doesn't read it. Nor does it read WebP, which libwebp does; see
+// webp_decode.odin.)
 decode :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: Error) {
 	if len(data) == 0 || len(data) > MAX_DATA_SIZE {
 		return {}, .Decode_Failed if len(data) == 0 else .Too_Large
 	}
-	if len(data) > 14 && string(data[:4]) == "qoif" {
+	if is_qoi(data) {
 		return decode_qoi(data, allocator)
+	}
+	// RIFF, a size, WEBP.
+	if len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+		return decode_webp(data, allocator)
 	}
 	w, h, comp: i32
 	if stbi.info_from_memory(raw_data(data), i32(len(data)), &w, &h, &comp) == 0 {
@@ -40,6 +45,12 @@ decode :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: 
 	}
 	copy(img.pixels, pixels[:n])
 	return img, .None
+}
+
+// is_qoi is whether `data` is a QOI picture, which decode reads itself
+// (a web build hands everything else to the browser).
+is_qoi :: proc(data: []u8) -> bool {
+	return len(data) > 14 && string(data[:4]) == "qoif"
 }
 
 @(private = "file")

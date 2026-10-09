@@ -14,8 +14,8 @@ knows text).
 	Windows  the registered "PNG" format, else CF_DIBV5 / CF_DIB.
 	macOS    NSPasteboard: PNG, JPEG, or TIFF (converted to PNG).
 
-Whatever the source format, the result is decoded with stb_image into
-8-bit RGBA. Call everything from the thread that runs the window (on
+Whatever the source format, the result is decoded with stb_image (or
+libwebp, for WebP) into 8-bit RGBA. Call everything from the thread that runs the window (on
 Wayland, GLFW's event loop feeds our clipboard events).
 
 Based on how copycat (clipboard/copycat-main) talks to each platform.
@@ -45,7 +45,14 @@ READ_TIMEOUT_MS :: 2000
 
 // Image formats, most preferred first, as MIME types. Linux offers these
 // directly; the other platforms map them to their own names.
-MIME_TYPES :: [?]string{"image/png", "image/jpeg", "image/bmp", "image/x-bmp", "image/gif"}
+MIME_TYPES :: [?]string {
+	"image/png",
+	"image/jpeg",
+	"image/bmp",
+	"image/x-bmp",
+	"image/gif",
+	"image/webp",
+}
 
 // init prepares clipboard access. On Linux pass GLFW's Wayland display
 // (glfw.GetWaylandDisplay) when GLFW runs on Wayland, and nil for X11.

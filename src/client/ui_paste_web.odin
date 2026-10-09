@@ -11,7 +11,7 @@ import mu "vendor:microui"
 Pasting a picture into the chat. A page can only read the clipboard
 inside the paste event the user caused, so the page does the whole job
 there (web/paste.js): it decodes the picture, scales it to fit
-MAX_IMAGE_SIDE and compresses it to a JPEG within MAX_IMAGE_BYTES -
+MAX_IMAGE_SIDE and compresses it to a WebP within MAX_IMAGE_BYTES -
 what image.odin does for a desktop - and keeps the result as a file
 (web/files.js), which web_file_pasted attaches to the message being
 written, as a desktop's paste is. Nothing is read from here, so the
@@ -57,8 +57,10 @@ web_copy_text :: proc(text: string) -> bool {
 	return yap_copy_text(strings.clone_to_cstring(text, context.temp_allocator)) != 0
 }
 
-// The page's finished JPEG, kept by the page under `handle` like a picked
-// file: attached in the composer with the focus, else the page's.
+// The page's finished picture, kept by the page under `handle` like a
+// picked file: attached in the composer with the focus, else the page's.
+// Its name says what it was compressed to: a WebP, or a JPEG where the
+// browser can't write WebP.
 @(export)
 web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64) {
 	context = platform.callback_context()
@@ -66,7 +68,8 @@ web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 		conn.yap_file_close(handle)
 		return
 	}
-	log.infof("pasted an image, %d KB as JPEG", int(size) / 1024)
+	ext := "webp" if strings.has_suffix(string(name[:max(name_len, 0)]), ".webp") else "jpg"
+	log.infof("pasted an image, %d KB as %s", int(size) / 1024, "WebP" if ext == "webp" else "JPEG")
 	at := Attach_Target{g_ui.page, 0}
 	ctx := &g_ui.ctx
 	for &t, i in g_ui.threads {
@@ -76,7 +79,7 @@ web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 	}
 	picked := Picked_File {
 		web_file = handle,
-		name     = pasted_image_name(g_ui),
+		name     = pasted_image_name(g_ui, ext),
 		size     = u64(size),
 	}
 	attach_add(g_ui, at, {picked})

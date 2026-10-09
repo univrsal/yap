@@ -124,18 +124,20 @@ attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 }
 
 // pasted_image_name names a pasted picture after when it was pasted, in
-// the local zone: pasted-image-20261008-143012.jpg. In the temp allocator.
-pasted_image_name :: proc(ui: ^UI) -> string {
+// the local zone, with the extension of what it was compressed to:
+// pasted-image-20261008-143012.webp. In the temp allocator.
+pasted_image_name :: proc(ui: ^UI, ext := "webp") -> string {
 	utc, _ := time.time_to_datetime(time.now())
 	dt := chat_local_time(ui, utc)
 	return fmt.tprintf(
-		"pasted-image-%04d%02d%02d-%02d%02d%02d.jpg",
+		"pasted-image-%04d%02d%02d-%02d%02d%02d.%s",
 		dt.year,
 		dt.month,
 		dt.day,
 		dt.hour,
 		dt.minute,
 		dt.second,
+		ext,
 	)
 }
 

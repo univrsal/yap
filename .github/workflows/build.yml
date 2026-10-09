@@ -108,6 +108,19 @@ jobs:
           path: src/client/audio/opus/opus.lib
           key: opus-windows-${{ hashFiles('scripts/opus.version', 'build.bat') }}
 
+      - name: Cache libwebp
+        # build.sh and build.bat only build it when it isn't there; the
+        # small yap_webp.c is compiled every time against the source's
+        # headers, which they fetch.
+        uses: actions/cache@v6
+        with:
+          path: |
+            src/client/webp/libwebp.a
+            src/client/webp/libsharpyuv.a
+            src/client/webp/libwebp.lib
+            src/client/webp/libsharpyuv.lib
+          key: webp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/webp.version', 'build.sh', 'build.bat') }}
+
       - name: Cache the SQLite source
         # build.sh and build.bat fetch it (scripts/fetch-sqlite.sh) when
         # it isn't there, and check it either way.
