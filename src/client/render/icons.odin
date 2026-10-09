@@ -55,6 +55,11 @@ Icon :: enum {
 	Maximize, // a box
 	Restore, // two boxes, one behind the other
 	Close, // a cross
+	// Stand-ins for microui's own, which are bitmaps for one density
+	// (render.odin).
+	Check, // a tick: a checkbox that's on
+	Collapsed, // a triangle pointing right: a tree node that's closed
+	Expanded, // a triangle pointing down: a tree node that's open
 }
 
 // Icon command ids start here, above microui's own icons and below the
@@ -234,9 +239,19 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 			capsule(p, {0.2, 0.2}, {0.8, 0.8}, WINDOW_STROKE),
 			capsule(p, {0.8, 0.2}, {0.2, 0.8}, WINDOW_STROKE),
 		)
+	case .Check:
+		d := capsule(p, {0.24, 0.52}, {0.42, 0.70}, CHECK_STROKE)
+		return nearer(d, capsule(p, {0.42, 0.70}, {0.76, 0.30}, CHECK_STROKE))
+	case .Collapsed:
+		return triangle(p, {0.28, 0.18}, {0.72, 0.5}, {0.28, 0.82})
+	case .Expanded:
+		return triangle(p, {0.18, 0.28}, {0.82, 0.28}, {0.5, 0.72})
 	}
 	return 1
 }
+
+@(private = "file")
+CHECK_STROKE :: 0.12
 
 // How thick the lines of the window's controls are: about a pixel, at
 // the icon's usual size.

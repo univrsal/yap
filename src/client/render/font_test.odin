@@ -83,3 +83,56 @@ test_font_face_atlas :: proc(t: ^testing.T) {
 	testing.expect(t, font_build_atlas(&f, .Bold))
 	testing.expect(t, f.faces[.Bold].scale == 1.5)
 }
+
+// Text moved by whole logical pixels moves as a block: its glyphs keep
+// their places relative to each other on the physical grid (at 1.5 they
+// used to round one way or the other each on its own, and letters
+// shuffled as a window was resized).
+@(test)
+test_text_moves_as_a_block :: proc(t: ^testing.T) {
+	f: Font
+	testing.expect(t, font_init(&f))
+	defer font_destroy(&f)
+	for scale in ([]f32{1.25, 1.5, 1.75}) {
+		font_set_scale(&f, scale)
+		testing.expect(t, font_build_atlas(&f, .Regular))
+		first := glyph_lefts(&f, 0)
+		testing.expect(t, len(first) > 10)
+		for x in 1 ..< 12 {
+			at := glyph_lefts(&f, f32(x))
+			testing.expect_value(t, len(at), len(first))
+			shift := at[0] - first[0]
+			for i in 0 ..< min(len(at), len(first)) {
+				testing.expectf(
+					t,
+					abs(at[i] - first[i] - shift) < 0.01,
+					"scale %.2f, x %d: glyph %d moved %.1f, the first %.1f",
+					scale,
+					x,
+					i,
+					at[i] - first[i],
+					shift,
+				)
+			}
+		}
+	}
+}
+
+// glyph_lefts is where each glyph of a line starts, laid out from `x`
+// (physical pixels).
+@(private = "file")
+glyph_lefts :: proc(f: ^Font, x: f32) -> [dynamic]f32 {
+	Placed :: struct {
+		scale: f32,
+		xs:    [dynamic]f32,
+	}
+	p := Placed {
+		scale = f.scale,
+		xs    = make([dynamic]f32, context.temp_allocator),
+	}
+	font_layout(f, "Connect wobbly letters", x, 0, &p, proc(data: rawptr, q: Glyph_Quad) {
+		p := (^Placed)(data)
+		append(&p.xs, q.x0 * p.scale)
+	})
+	return p.xs
+}

@@ -46,10 +46,52 @@ Texture_Kind :: enum {
 // draw list" (Renderer.images), which microui's own icons never reach.
 IMAGE_ICON_BASE :: 1000
 
+// An icon command with this id is a border round its rect (draw_border).
+BORDER_ICON :: mu.Icon(UI_ICON_BASE - 1)
+// And this, what's inside that border, filled (draw_frame).
+INSIDE_BORDER_ICON :: mu.Icon(UI_ICON_BASE - 2)
+
+/*
+draw_border draws a one pixel border inside `rect`, as mu.draw_box
+does, but as one command, so the renderer can snap it as a whole
+(push_border).
+*/
+draw_border :: proc(ctx: ^mu.Context, rect: mu.Rect, color: mu.Color) {
+	mu.draw_icon(ctx, BORDER_ICON, rect, color)
+}
+
+/*
+draw_frame is microui's default_draw_frame, with its border drawn by
+draw_border. Set it as the context's draw_frame. With a border, the
+fill is snapped from the same box as the border and fills just what's
+inside it: snapped on its own, it could leave a pixel's gap inside the
+border on some sides and not others.
+*/
+draw_frame :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Type) {
+	bordered :=
+		colorid != .SCROLL_BASE &&
+		colorid != .SCROLL_THUMB &&
+		colorid != .TITLE_BG &&
+		ctx.style.colors[.BORDER].a != 0
+	if !bordered {
+		mu.draw_rect(ctx, rect, ctx.style.colors[colorid])
+		return
+	}
+	outer := mu.expand_rect(rect, 1)
+	if color := ctx.style.colors[colorid]; color.a != 0 {
+		mu.draw_icon(ctx, INSIDE_BORDER_ICON, outer, color)
+	}
+	draw_border(ctx, outer, ctx.style.colors[.BORDER])
+}
+
 Image_Draw :: struct {
 	texture: Gpu_Texture,
 	// The part of the texture to draw (u0, v0, u1, v1); all of it if zero.
 	uv:      [4]f32,
+	// Drawn this many line thicknesses (push_border's) in from its rect
+	// on every side, once that's snapped: a dot inside a ring of the same
+	// rect stays in its middle at any scale.
+	inset:   i32,
 }
 
 /*
@@ -62,7 +104,15 @@ chat_font any face of the chat's.
 Font_Kind :: enum {
 	UI,
 	Chat,
+	// The UI's, blown up PREVIEW_ZOOM times: an emoji to look at closely
+	// (a hover's preview). Its atlases are only made once it's drawn with.
+	Preview,
 }
+
+PREVIEW_ZOOM :: 3
+
+// PREVIEW_FONT is the large font's handle.
+PREVIEW_FONT :: mu.Font(uintptr(Font_Kind.Preview))
 
 CHAT_FONT :: mu.Font(uintptr(1))
 
@@ -116,7 +166,13 @@ g_fonts: ^[Font_Kind]Font_Slot
 // slot_of is the font microui's handle names (font_style its face).
 @(private = "file")
 slot_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font_Slot {
-	return &fonts[.Chat] if uintptr(font) & 0xf == uintptr(Font_Kind.Chat) else &fonts[.UI]
+	switch uintptr(font) & 0xf {
+	case uintptr(Font_Kind.Chat):
+		return &fonts[.Chat]
+	case uintptr(Font_Kind.Preview):
+		return &fonts[.Preview]
+	}
+	return &fonts[.UI]
 }
 
 /*
@@ -158,6 +214,7 @@ renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 		}
 		slot.zoom = 1
 	}
+	r.fonts[.Preview].zoom, r.fonts[.Preview].font.zoom = PREVIEW_ZOOM, PREVIEW_ZOOM
 	g_fonts = &r.fonts
 	if !gpu_init(&r.gpu, window) {
 		for &slot in r.fonts {
@@ -254,21 +311,10 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 		return // minimized, or the device is gone
 	}
 
-	for &slot in r.fonts {
-		// A zoomed font's atlases are at its own density (font.odin).
-		// Regular's is always there (rects are drawn from it); the other
-		// faces' are built when text in them is first drawn.
-		at := scale * slot.font.zoom
-		if at != slot.font.scale {
-			font_set_scale(&slot.font, at)
-		}
-		face_ready(r, &slot, .Regular)
-		// The fallback font's atlas fills up as text needs glyphs; it
-		// starts empty at a new scale, and again once it has run out of
-		// room.
-		if at != slot.font.uni.scale || slot.font.uni.full {
-			unifont_reset(&slot.font.uni, at)
-			gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+	for kind in Font_Kind {
+		// The preview font waits till it's drawn with (Command_Text).
+		if kind != .Preview {
+			slot_prepare(r, &r.fonts[kind], scale)
 		}
 	}
 	if scale != r.icons.scale {
@@ -291,6 +337,9 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 		switch c in variant {
 		case ^mu.Command_Text:
 			slot := slot_of(&r.fonts, c.font)
+			if slot == &r.fonts[.Preview] && slot.font.scale != scale * slot.font.zoom {
+				slot_prepare(r, slot, scale)
+			}
 			style := font_style(c.font)
 			font_cache_glyphs(&slot.font, c.str, style)
 			upload_unifont(r, slot)
@@ -323,13 +372,22 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 			)
 		case ^mu.Command_Rect:
 			w := rect_white(r)
-			// Snap edges to physical pixels so borders stay crisp at
-			// fractional scales.
-			snap :: proc(v: i32, s: f32) -> f32 {return math.round(f32(v) * s) / s}
-			x0, y0 := snap(c.rect.x, r.scale), snap(c.rect.y, r.scale)
-			x1, y1 := snap(c.rect.x + c.rect.w, r.scale), snap(c.rect.y + c.rect.h, r.scale)
+			x0, x1 := snap_span(c.rect.x, c.rect.w, r.scale)
+			y0, y1 := snap_span(c.rect.y, c.rect.h, r.scale)
 			push_quad(r, {x0, y0, x1, y1}, {w.x, w.y, w.x, w.y}, c.color)
 		case ^mu.Command_Icon:
+			if c.id == BORDER_ICON {
+				push_border(r, c.rect, c.color)
+				continue
+			}
+			if c.id == INSIDE_BORDER_ICON {
+				push_border(r, c.rect, c.color, inside = true)
+				continue
+			}
+			if own, ok := own_icon(c.id); ok {
+				draw_ui_icon(r, own, c.rect, c.color)
+				continue
+			}
 			if index := int(c.id) - IMAGE_ICON_BASE; index >= 0 {
 				draw_image(r, index, c.rect, c.color)
 				continue
@@ -358,6 +416,104 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	}
 	flush(r)
 	gpu_end(&r.gpu)
+}
+
+// slot_prepare has a font's atlases at the display's density: a zoomed
+// font's are at its own (font.odin).
+@(private = "file")
+slot_prepare :: proc(r: ^Renderer, slot: ^Font_Slot, scale: f32) {
+	// Regular's is always there (rects are drawn from it); the other
+	// faces' are built when text in them is first drawn.
+	at := scale * slot.font.zoom
+	if at != slot.font.scale {
+		font_set_scale(&slot.font, at)
+	}
+	face_ready(r, slot, .Regular)
+	// The fallback font's atlas fills up as text needs glyphs; it starts
+	// empty at a new scale, and again once it has run out of room.
+	if at != slot.font.uni.scale || slot.font.uni.full {
+		unifont_reset(&slot.font.uni, at)
+		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
+	}
+}
+
+/*
+snap_span is where a rect's edges go along one axis, in logical pixels
+on physical pixel boundaries, so borders stay crisp at fractional scales.
+Each edge rounds on its own, which keeps neighbouring rects meeting
+without gaps; but it would also make a line one logical pixel thick one
+physical pixel thick in one place and two in the next, as the position
+moves across the rounding (at 1.5, x = 10 and x = 11 are 15 and 16.5).
+So a thin rect - an underline, a caret, a separator - takes the same
+thickness wherever it is, rounded down, and only its start snaps. That
+would open gaps where lines meet, so boxes' borders aren't drawn as
+lines but as a whole (push_border).
+*/
+@(private)
+snap_span :: proc(start, size: i32, s: f32) -> (a, b: f32) {
+	first := math.round(f32(start) * s)
+	physical := f32(size) * s
+	if size > 0 && size <= THIN_RECT {
+		return first / s, (first + max(1, math.floor(physical + 0.001))) / s
+	}
+	return first / s, math.round(f32(start + size) * s) / s
+}
+
+// Rects this many logical pixels thick or less are lines (snap_span).
+@(private)
+THIN_RECT :: 2
+
+// own_icon is our icon to draw in place of one of microui's, whose
+// pictures are bitmaps for one density.
+@(private = "file")
+own_icon :: proc(id: mu.Icon) -> (Icon, bool) {
+	#partial switch id {
+	case .CLOSE:
+		return .Close, true
+	case .CHECK:
+		return .Check, true
+	case .COLLAPSED:
+		return .Collapsed, true
+	case .EXPANDED:
+		return .Expanded, true
+	}
+	return {}, false
+}
+
+// line_thickness is how many physical pixels a logical pixel's line is:
+// the whole ones it comes to, rounded down.
+@(private = "file")
+line_thickness :: proc(s: f32) -> f32 {
+	return max(1, math.floor(s + 0.001))
+}
+
+/*
+push_border draws a border inside `rect`: its edges snapped to physical
+pixels as a rect's are, and its sides one thickness all round, the
+whole pixels a logical one comes to (rounded down). Drawn as four lines
+each would snap on its own (microui's draw_box), and the sides could
+come apart at the corners or vary in thickness. Or, `inside`, it fills
+what that border goes round.
+*/
+@(private = "file")
+push_border :: proc(r: ^Renderer, rect: mu.Rect, color: mu.Color, inside := false) {
+	if rect.w <= 0 || rect.h <= 0 {
+		return
+	}
+	s := r.scale
+	w := rect_white(r)
+	uv := [4]f32{w.x, w.y, w.x, w.y}
+	x0, y0 := math.round(f32(rect.x) * s), math.round(f32(rect.y) * s)
+	x1, y1 := math.round(f32(rect.x + rect.w) * s), math.round(f32(rect.y + rect.h) * s)
+	t := min(line_thickness(s), (x1 - x0) / 2, (y1 - y0) / 2)
+	if inside {
+		push_quad(r, [4]f32{x0 + t, y0 + t, x1 - t, y1 - t} / s, uv, color)
+		return
+	}
+	push_quad(r, [4]f32{x0, y0, x1, y0 + t} / s, uv, color)
+	push_quad(r, [4]f32{x0, y1 - t, x1, y1} / s, uv, color)
+	push_quad(r, [4]f32{x0, y0 + t, x0 + t, y1 - t} / s, uv, color)
+	push_quad(r, [4]f32{x1 - t, y0 + t, x1, y1 - t} / s, uv, color)
 }
 
 // face_ready has a face's atlas built for the font's scale and on the GPU.
@@ -433,17 +589,26 @@ draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 	if r.images == nil || index >= len(r.images) {
 		return
 	}
-	use_texture(r, r.images[index].texture, rgba = true)
-	uv := r.images[index].uv
+	img := r.images[index]
+	use_texture(r, img.texture, rgba = true)
+	uv := img.uv
 	if uv == {} {
 		uv = {0, 0, 1, 1}
 	}
-	push_quad(
-		r,
-		{f32(rect.x), f32(rect.y), f32(rect.x + rect.w), f32(rect.y + rect.h)},
-		{uv[0], uv[1], uv[2], uv[3]},
-		color,
-	)
+	// On whole physical pixels, and as many of them wherever it is: else
+	// a picture between pixels is smudged across them, differently as it
+	// moves (a dot beside a name, as the window is resized).
+	s := r.scale
+	x0, y0 := math.round(f32(rect.x) * s), math.round(f32(rect.y) * s)
+	x1, y1 := x0 + math.round(f32(rect.w) * s), y0 + math.round(f32(rect.h) * s)
+	if img.inset > 0 {
+		t := f32(img.inset) * line_thickness(s)
+		x0, y0, x1, y1 = x0 + t, y0 + t, x1 - t, y1 - t
+		if x1 <= x0 || y1 <= y0 {
+			return
+		}
+	}
+	push_quad(r, [4]f32{x0, y0, x1, y1} / s, {uv[0], uv[1], uv[2], uv[3]}, color)
 }
 
 /*

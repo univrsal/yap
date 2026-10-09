@@ -1186,6 +1186,7 @@ reactors_hint :: proc(ui: ^UI, id: proto.Msg_Id, r: conn.Reaction, rect: mu.Rect
 		}
 	}
 	have := v.reactors.id == id && v.reactors.emoji == r.emoji && v.reactors.total == r.count
+	hint_emoji_of(ui, r.emoji)
 	if !have &&
 	   (asked.id != id || asked.emoji != r.emoji || asked.count != r.count) &&
 	   ui.session != nil {

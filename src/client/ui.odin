@@ -292,6 +292,8 @@ UI :: struct {
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
 	hint_of:             mu.Rect,
+	// The emoji the hint is about, drawn large above it (icon_hint).
+	hint_emoji:          Hint_Emoji,
 	// The picture chip under the pointer, shown over it
 	// (chip_preview_popup).
 	chip_preview:        Chip_Preview,
@@ -397,6 +399,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	mu.init(&ui.ctx, set_clipboard, get_clipboard)
 	ui.ctx.text_width = render.ui_text_width
 	ui.ctx.text_height = render.ui_text_height
+	ui.ctx.draw_frame = render.draw_frame
 	ui.input_scale = 1
 
 	ui.action = .Start
@@ -966,7 +969,13 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 	// window's size, and with it the font's rasterization.
 	ratio := f32(m.fb_w) / f32(w)
 	if ratio > 1.01 && !platform.WEB {
-		m.scale = ratio
+		// The framebuffer's whole pixels make the ratio wobble as the
+		// window is resized (1.5, then 1.4995), and everything snapped
+		// to physical pixels would shuffle by one, and the fonts be
+		// rasterized again, at every step. Scales are whole 120ths
+		// (Wayland's fractional scaling), which the wobble never
+		// reaches.
+		m.scale = math.round(ratio * 120) / 120
 		m.logical_w, m.logical_h = f32(w), f32(h)
 	} else {
 		content, _ := glfw.GetWindowContentScale(window)
@@ -1716,13 +1725,42 @@ cover it.
 @(private = "file")
 HINT_WINDOW :: "hint"
 
+// The emoji a hint is about: one of the server's (its index), or else a
+// character, as a string; both empty for none.
+Hint_Emoji :: struct {
+	custom:  Maybe(int),
+	unicode: string, // temp
+}
+
+// hint_emoji_of has the hint show `emoji` large: a reaction's or
+// message's, ":name:" for the server's, else the characters. Call with
+// the View locked.
+hint_emoji_of :: proc(ui: ^UI, emoji: string) {
+	if strings.has_prefix(emoji, ":") && strings.has_suffix(emoji, ":") && len(emoji) > 2 {
+		name := emoji[1:len(emoji) - 1]
+		for n, i in ui.view.emoji.names {
+			if n == name {
+				ui.hint_emoji = {
+					custom = i,
+				}
+				return
+			}
+		}
+		return
+	}
+	ui.hint_emoji = {
+		unicode = emoji,
+	}
+}
+
 @(private = "file")
 icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 	ctx := &ui.ctx
 	if ui.hint == "" {
 		return
 	}
-	defer ui.hint = ""
+	emoji := ui.hint_emoji
+	defer ui.hint, ui.hint_emoji = "", {}
 
 	pad := ctx.style.padding
 	line_h := ctx.text_height(ctx.style.font)
@@ -1732,8 +1770,21 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 		w = max(w, ctx.text_width(ctx.style.font, line))
 		lines += 1
 	}
+	// The emoji, large, above the text.
+	big_w, big_h: i32
+	if _, custom := emoji.custom.?; custom || emoji.unicode != "" {
+		big_h = ctx.text_height(render.PREVIEW_FONT)
+		big_w = big_h
+		if !custom {
+			big_w = ctx.text_width(render.PREVIEW_FONT, emoji.unicode)
+		}
+		w = max(w, big_w)
+	}
 	w += 2 * pad
 	h := lines * line_h + 2 * pad
+	if big_h > 0 {
+		h += big_h + pad
+	}
 	// Under the button, pushed left if it would go off the side, and
 	// above it if there's no room below (the chat box's Send button).
 	x := min(ui.hint_of.x, max(window_w - w, 0))
@@ -1762,8 +1813,19 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	defer mu.end_window(ctx)
 	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
-	mu.draw_box(ctx, r, ctx.style.colors[.BORDER])
+	render.draw_border(ctx, r, ctx.style.colors[.BORDER])
 	line_y := y + pad
+	if big_h > 0 {
+		at := mu.Vec2{x + (w - big_w) / 2, line_y}
+		if index, custom := emoji.custom.?; custom {
+			if icon, ok := custom_emoji_icon(ui, index); ok {
+				mu.draw_icon(ctx, icon, {at.x, at.y, big_w, big_h}, {255, 255, 255, 255})
+			}
+		} else {
+			mu.draw_text(ctx, render.PREVIEW_FONT, emoji.unicode, at, ctx.style.colors[.TEXT])
+		}
+		line_y += big_h + pad
+	}
 	rest = ui.hint
 	for line in strings.split_lines_iterator(&rest) {
 		mu.draw_text(ctx, ctx.style.font, line, {x + pad, line_y}, ctx.style.colors[.TEXT])

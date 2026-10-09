@@ -500,7 +500,13 @@ font_layout_unzoomed :: proc(
 ) {
 	s := f.scale
 	baseline := math.round((y + f.baseline) * s)
-	pen := x
+	// The text starts on a physical pixel, and its glyphs are placed from
+	// there: rounded each from its own logical position, a glyph would
+	// move one pixel and its neighbour two as the text moves (at 1.5, as
+	// a window is resized), and the letters would shuffle.
+	origin := math.round(x * s)
+	// From the start of the text, logical pixels.
+	pen: f32
 	for r in text {
 		i, source, face := find_glyph(f, style, r)
 		switch source {
@@ -512,7 +518,7 @@ font_layout_unzoomed :: proc(
 			if slot, ok := unifont_cache(u, r); ok && u.scale == s {
 				h := f32(unifont_glyph_height(s))
 				w := f32(unifont_glyph_width(u, r))
-				px := math.round(pen * s)
+				px := origin + math.round(pen * s)
 				py := baseline - math.round(UNIFONT_ASCENT * h / UNIFONT_SIZE)
 				sx := f32((slot % u.per_row) * u.cell)
 				sy := f32((slot / u.per_row) * u.cell)
@@ -534,13 +540,13 @@ font_layout_unzoomed :: proc(
 			} else {
 				// The atlas is full: this frame makes do with the
 				// fallback, in the room the glyph would have had.
-				emit_glyph(f, .Regular, int(f.faces[.Regular].fallback), pen, baseline, data, emit)
+				emit_glyph(f, .Regular, int(f.faces[.Regular].fallback), pen, origin, baseline, data, emit)
 			}
 			pen += f32(u.width[i])
 		case .Emoji:
 			u := &f.uni
 			if slot, box, ok := emoji_cache(f, r); ok && u.scale == s {
-				px := math.round(pen * s) + f32(box.x)
+				px := origin + math.round(pen * s) + f32(box.x)
 				py := baseline + f32(box.y)
 				sx := f32((slot % u.per_row) * u.cell)
 				sy := f32((slot / u.per_row) * u.cell)
@@ -561,17 +567,18 @@ font_layout_unzoomed :: proc(
 					},
 				)
 			} else {
-				emit_glyph(f, .Regular, int(f.faces[.Regular].fallback), pen, baseline, data, emit)
+				emit_glyph(f, .Regular, int(f.faces[.Regular].fallback), pen, origin, baseline, data, emit)
 			}
 			pen += emoji_advance(f, r)
 		case .Face:
-			emit_glyph(f, face, i, pen, baseline, data, emit)
+			emit_glyph(f, face, i, pen, origin, baseline, data, emit)
 			pen += f.faces[face].advance[i]
 		}
 	}
 }
 
-// emit_glyph emits one of a face's glyphs, at `pen` (logical pixels) on
+// emit_glyph emits one of a face's glyphs, `pen` logical pixels on from
+// `origin` (physical pixels, where the text starts), on
 // `baseline` (physical ones). Nothing, if the face has no atlas for this
 // scale (font_build_atlas).
 @(private = "file")
@@ -579,7 +586,7 @@ emit_glyph :: proc(
 	f: ^Font,
 	face: Font_Style,
 	i: int,
-	pen, baseline: f32,
+	pen, origin, baseline: f32,
 	data: rawptr,
 	emit: proc(data: rawptr, q: Glyph_Quad),
 ) {
@@ -592,7 +599,7 @@ emit_glyph :: proc(
 	if g.x1 <= g.x0 {
 		return
 	}
-	px := math.round(pen * s + g.xoff)
+	px := origin + math.round(pen * s + g.xoff)
 	py := baseline + math.round(g.yoff)
 	w, h := f32(g.x1 - g.x0), f32(g.y1 - g.y0)
 	emit(

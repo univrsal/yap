@@ -191,7 +191,7 @@ avatar_icon :: proc(ui: ^UI, blob: proto.Blob_Id) -> (mu.Icon, bool) {
 
 // disc_icon is what draws the white disc this frame, tinted.
 @(private = "file")
-disc_icon :: proc(ui: ^UI) -> (mu.Icon, bool) {
+disc_icon :: proc(ui: ^UI, inset: i32 = 0) -> (mu.Icon, bool) {
 	a := &ui.avatars
 	im := &ui.images
 	if !a.have {
@@ -215,7 +215,7 @@ disc_icon :: proc(ui: ^UI) -> (mu.Icon, bool) {
 		)
 		a.have = true
 	}
-	append(&im.draws, render.Image_Draw{texture = a.disc})
+	append(&im.draws, render.Image_Draw{texture = a.disc, inset = inset})
 	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
 }
 
@@ -282,9 +282,10 @@ avatar_ringed :: proc(
 	avatar(ui, account, {slot.x + inset, slot.y + inset, slot.w - 2 * inset, slot.h - 2 * inset})
 }
 
-// disc draws a round dot of `color` in `r`.
-disc :: proc(ui: ^UI, r: mu.Rect, color: mu.Color) {
-	if icon, ok := disc_icon(ui); ok {
+// disc draws a round dot of `color` in `r`; `inset` lines in from it, as
+// a dot in a ring drawn in the same `r` (render.Image_Draw).
+disc :: proc(ui: ^UI, r: mu.Rect, color: mu.Color, inset: i32 = 0) {
+	if icon, ok := disc_icon(ui, inset); ok {
 		mu.draw_icon(&ui.ctx, icon, r, color)
 	} else {
 		mu.draw_rect(&ui.ctx, r, color)

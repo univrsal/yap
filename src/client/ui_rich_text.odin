@@ -528,9 +528,11 @@ rich_emoji :: proc(ui: ^UI, r: ^Rich, vl: Rich_Line, pos: mu.Vec2) {
 		w := rich_width(ctx, r, i, i + size)
 		if mouse >= x && mouse < x + w {
 			name := ""
+			custom: Maybe(int)
 			for e in r.emoji {
 				if e.start == i && e.index < len(ui.view.emoji.names) {
 					name = ui.view.emoji.names[e.index]
+					custom = e.index
 				}
 			}
 			if name == "" {
@@ -540,6 +542,15 @@ rich_emoji :: proc(ui: ^UI, r: ^Rich, vl: Rich_Line, pos: mu.Vec2) {
 			}
 			if name != "" {
 				ui.hint, ui.hint_of = fmt.tprintf(":%s:", name), mu.Rect{x, pos.y, w, h}
+				if _, is := custom.?; is {
+					ui.hint_emoji = {
+						custom = custom,
+					}
+				} else {
+					ui.hint_emoji = {
+						unicode = r.text[i:i + size],
+					}
+				}
 			}
 			return
 		}

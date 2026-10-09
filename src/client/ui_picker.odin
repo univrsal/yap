@@ -30,6 +30,8 @@ UI_Picker :: struct {
 	search:   [proto.MAX_EMOJI_NAME]u8,
 	search_n: int,
 	hovered:  string, // what the emoji under the pointer is called; temp
+	hovered_emoji: Hint_Emoji, // and what it is, large
+	hovered_rect:  mu.Rect, // and where
 }
 
 @(private = "file")
@@ -123,7 +125,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 	}
 
-	p.hovered = ""
+	p.hovered, p.hovered_emoji = "", {}
 	mu.layout_row(ctx, {-1}, -(ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing + 2))
 	mu.begin_panel(ctx, "emoji grid")
 	cells := make([]i32, PICKER_COLUMNS, context.temp_allocator)
@@ -180,6 +182,10 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 		if ctx.hover_id == ctx.last_id {
 			p.hovered = fmt.tprintf(":%s:", proto.emoji_name(e))
+			p.hovered_emoji = {
+				unicode = char,
+			}
+			p.hovered_rect = ctx.last_rect
 		}
 		mu.pop_id(ctx)
 	}
@@ -195,6 +201,10 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			"Pick one to react with." if p.react_to != 0 else "Pick one to put it in the message."
 	}
 	with_text_color(ctx, theme.dim, hint, label_proc)
+	// And the emoji itself, large, beside its cell.
+	if p.hovered != "" {
+		ui.hint, ui.hint_of, ui.hint_emoji = p.hovered, p.hovered_rect, p.hovered_emoji
+	}
 }
 
 // picker_tab is a category's button, drawn pressed while it's shown.
@@ -230,6 +240,10 @@ custom_emoji_cell :: proc(ui: ^UI, index: int, code: string) -> bool {
 	}
 	if ctx.hover_id == ctx.last_id {
 		ui.picker.hovered = code
+		ui.picker.hovered_emoji = {
+			custom = index,
+		}
+		ui.picker.hovered_rect = ctx.last_rect
 	}
 	return .SUBMIT in res
 }

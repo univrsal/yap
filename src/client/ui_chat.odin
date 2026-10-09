@@ -271,8 +271,22 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 			),
 		)
 	}
+	// Inset as the text area's text is: its padding at the sides, but only
+	// what's left of a line in a single line's box above and below. With
+	// the panel's whole padding all round, the box the text area was
+	// sized to wouldn't hold it, and the preview would scroll.
+	padding := ctx.style.padding
+	lh := ctx.text_height(ctx.style.font)
+	top := (text_area_single(ctx, ctx.style.font) - lh) / 2
+	ctx.style.padding = top
+	defer ctx.style.padding = padding
 	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread))
 	defer mu.end_panel(ctx)
+	if side := padding - top; side > 0 {
+		l := mu.get_layout(ctx)
+		l.body.x += side
+		l.body.w = max(l.body.w - 2 * side, 1)
+	}
 	spacing := ctx.style.spacing
 	ctx.style.spacing = 0
 	defer ctx.style.spacing = spacing
