@@ -101,7 +101,7 @@ install_settings :: proc(ui: ^UI) {
 	// Windows paths don't care about case.
 	same := strings.equal_fold(st.target, st.exe) if ODIN_OS == .Windows else st.target == st.exe
 	elsewhere := st.installed && st.target != "" && st.exe != "" && !same
-	mu.layout_row(ctx, {-(2 * (110 + ctx.style.spacing)), 110, 110})
+	mu.layout_row(ctx, {-(2 * (110 + ctx.style.spacing)), 109, 109})
 	switch {
 	case !st.installed:
 		with_text_color(ctx, theme.dim, "  Not installed.", label_proc)

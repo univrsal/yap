@@ -774,7 +774,7 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 		}
 		mu.push_id(ctx, uintptr(id))
 		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-(140 + 3 * 90 + 4 * ctx.style.spacing), 140, 90, 90, 90})
+		mu.layout_row(ctx, {-(140 + 3 * 90 + 4 * ctx.style.spacing), 140, 89, 89, 89})
 		what := ""
 		switch {
 		case .Owner in acc.flags:
