@@ -83,7 +83,7 @@ test_db_transaction :: proc(t: ^testing.T) {
 @(test)
 test_db_file :: proc(t: ^testing.T) {
 	dir := test_dir(t)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path := file_in(dir, DB_FILE)
 
 	created: i64
@@ -133,7 +133,7 @@ test_db_uncommitted :: proc(t: ^testing.T) {
 	// What was committed survives the server going without closing the
 	// database; what wasn't doesn't.
 	dir := test_dir(t)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path := file_in(dir, DB_FILE)
 	{
 		db: DB
@@ -159,7 +159,7 @@ test_db_uncommitted :: proc(t: ^testing.T) {
 @(test)
 test_db_newer :: proc(t: ^testing.T) {
 	dir := test_dir(t)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path := file_in(dir, DB_FILE)
 	{
 		db: DB
@@ -175,7 +175,7 @@ test_db_newer :: proc(t: ^testing.T) {
 @(test)
 test_db_not_a_database :: proc(t: ^testing.T) {
 	dir := test_dir(t)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path := file_in(dir, DB_FILE)
 	testing.expect(
 		t,
@@ -204,7 +204,7 @@ store_open :: proc(t: ^testing.T, ts: ^Test_Store) {
 store_close :: proc(ts: ^Test_Store) {
 	blob_store_close(&ts.blobs)
 	db_close(&ts.db)
-	os.remove_all(ts.dir)
+	remove_tree(ts.dir)
 }
 
 @(test)

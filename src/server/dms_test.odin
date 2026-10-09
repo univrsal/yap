@@ -128,7 +128,7 @@ test_dm_open :: proc(t: ^testing.T) {
 test_dm_messages :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
 	conv: proto.Conv_Id
@@ -277,7 +277,7 @@ test_last_seen :: proc(t: ^testing.T) {
 test_buddies :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
 	buddy_body :: proc(account: proto.Account_Id, on: bool) -> []u8 {

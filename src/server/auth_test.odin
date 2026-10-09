@@ -368,7 +368,7 @@ test_accounts_kept :: proc(t: ^testing.T) {
 	// What's made is there when the database is opened again.
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
 	key := [proto.KEY_SIZE]u8 {
@@ -420,7 +420,7 @@ test_schema_upgrade :: proc(t: ^testing.T) {
 	// it had left alone.
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 	{
 		db: DB
@@ -459,15 +459,16 @@ test_login :: proc(t: ^testing.T) {
 	alice := ts_account(t, &ts, "alice", "alice's password")
 	ts_account(t, &ts, "bob", "bob's password")
 
-	// A device the server hasn't seen can ask what it's talking to, log
-	// in and register (register_test.odin), and that's all.
+	// A device the server hasn't seen can ask what it's talking to (and
+	// for its picture, server_info_test.odin), log in and register
+	// (register_test.odin), and that's all.
 	u := ts_connect(&ts)
 	testing.expect(t, u.account == nil)
 	testing.expect(t, u.key in s.waiting && u.key not_in s.conns)
 	status, _ := ts_ask(t, &ts, u, .Server_Info)
 	testing.expect_value(t, status, proto.Status.Ok)
 	for op in proto.Request_Op {
-		if op == .Server_Info || op == .Auth_Login || op == .Register {
+		if op == .Server_Info || op == .Server_Icon || op == .Auth_Login || op == .Register {
 			continue
 		}
 		status, _ = ts_ask(t, &ts, u, op)

@@ -59,7 +59,7 @@ test_png :: proc(width, height: int, rgba: [4]u8) -> []u8 {
 test_emoji_sheet :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path :: proc(dir, name: string) -> string {
 		p, _ := os.join_path({dir, name}, context.temp_allocator)
 		return p

@@ -72,7 +72,7 @@ blob_store_open :: proc(bs: ^Blob_Store, db: ^DB, dir: string) -> bool {
 	bs.dir = strings.clone(dir)
 	// What was on its way in when the server stopped isn't coming.
 	incoming := blob_incoming_dir(bs)
-	os.remove_all(incoming)
+	remove_tree(incoming)
 	if err := os.make_directory_all(incoming); err != nil && !os.is_directory(incoming) {
 		log.errorf("could not create %s: %v", incoming, err)
 		return false
@@ -86,6 +86,34 @@ blob_store_open :: proc(bs: ^Blob_Store, db: ^DB, dir: string) -> bool {
 blob_incoming_dir :: proc(bs: ^Blob_Store, allocator := context.temp_allocator) -> string {
 	path, _ := os.join_path({bs.dir, "incoming"}, allocator)
 	return path
+}
+
+/*
+remove_tree removes `path` and, if it's a folder, everything in it. It's
+os.remove_all done by hand: on Windows that goes through
+SHFileOperationW, which loads the shell and raises exceptions of its own
+on the way (RPC_S_SERVER_UNAVAILABLE where a service it asks is off).
+They're handled, but the test runner's exception handler takes any of
+them for a crash and stops the test, and then waits for it forever.
+*/
+remove_tree :: proc(path: string) {
+	if os.remove(path) == nil {
+		return
+	}
+	// Not empty, or not there. A link to a folder was removed above, so
+	// what's listed here is a folder's own.
+	entries, err := os.read_all_directory_by_path(path, context.temp_allocator)
+	if err != nil {
+		return
+	}
+	for e in entries {
+		if e.type == .Directory {
+			remove_tree(e.fullpath)
+		} else {
+			os.remove(e.fullpath)
+		}
+	}
+	os.remove(path)
 }
 
 blob_store_close :: proc(bs: ^Blob_Store) {

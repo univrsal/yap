@@ -163,7 +163,7 @@ test_msg_boundary :: proc(t: ^testing.T) {
 test_purge_messages :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
 	defer ts_close(&ts)
@@ -308,7 +308,7 @@ history_of :: proc(
 test_retention_config :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
 	defer ts_close(&ts)
@@ -348,7 +348,7 @@ test_retention_config :: proc(t: ^testing.T) {
 test_purge_resumes :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 	blobs_dir, _ := os.join_path({dir, BLOBS_DIR}, context.temp_allocator)
 

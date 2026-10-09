@@ -45,7 +45,7 @@ told :: proc(
 test_status :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
 	now := unix_ms()
@@ -148,7 +148,7 @@ test_status :: proc(t: ^testing.T) {
 test_avatar :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
 	defer ts_close(&ts)

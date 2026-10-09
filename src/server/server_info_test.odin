@@ -41,7 +41,7 @@ icon_of :: proc(
 test_server_info_set :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer os.remove_all(dir)
+	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 	blobs, _ := os.join_path({dir, "blobs"}, context.temp_allocator)
 
