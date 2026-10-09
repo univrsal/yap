@@ -8,15 +8,12 @@ import "client:platform"
 import "common:."
 
 /*
-The About dialog: which build this is (see src/common/version.odin), and
-the third-party software in it with their licenses, one collapsible
-header each. It floats above everything else, like the image viewer
-(ui_images.odin), and is opened from the settings page.
+The About category of the settings page: which build this is (see
+src/common/version.odin), and the third-party software in it with their
+licenses, one collapsible header each.
 
 The license texts are in licenses/, compiled in.
 */
-
-ABOUT_WINDOW :: "About yap"
 
 @(private = "file")
 Build :: enum {
@@ -164,57 +161,11 @@ THIRD_PARTY := [?]Third_Party {
 	},
 }
 
-UI_About :: struct {
-	open:   bool,
-	placed: bool, // centred since it was opened
-}
-
-open_about :: proc(ui: ^UI) {
-	ui.about = {
-		open = true,
-	}
-}
-
-about_dialog :: proc(ui: ^UI, window_w, window_h: i32) {
-	a := &ui.about
-	if !a.open {
-		return
-	}
+// about_settings fills the settings page's right-hand panel.
+about_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	// Open it centred, as big as fits up to a comfortable reading width.
-	if !a.placed {
-		a.placed = true
-		w := clamp(window_w - 40, 240, 600)
-		h := max(window_h - 40, 200)
-		if cnt := mu.get_container(ctx, ABOUT_WINDOW); cnt != nil {
-			cnt.rect = {(window_w - w) / 2, (window_h - h) / 2, w, h}
-			cnt.open = true
-			cnt.scroll = {}
-			mu.bring_to_front(ctx, cnt)
-			// The click that opened it would raise the window behind at
-			// the end of the frame (see image_viewer).
-			ctx.hover_root, ctx.next_hover_root = cnt, cnt
-		}
-	}
-	if cnt := mu.get_container(ctx, ABOUT_WINDOW, {.CLOSED});
-	   cnt != nil && cnt.open && cnt.zindex != ctx.last_zindex {
-		mu.bring_to_front(ctx, cnt)
-	}
-	if !mu.begin_window(ctx, ABOUT_WINDOW, {}) {
-		a.open = false // closed with the title bar's button
-		return
-	}
-	defer mu.end_window(ctx)
-
-	mu.layout_row(ctx, {-90, -1})
-	mu.label(ctx, fmt.tprintf("yap %s", common.version_string()))
-	if .SUBMIT in mu.button(ctx, "Close") {
-		a.open = false
-		if cnt := mu.get_current_container(ctx); cnt != nil {
-			cnt.open = false
-		}
-	}
 	mu.layout_row(ctx, {-1})
+	mu.label(ctx, fmt.tprintf("yap %s", common.version_string()))
 	about_text(
 		ctx,
 		"A sloppy, minimal and limited VOIP application.\nhttps://github.com/univrsal/yap",

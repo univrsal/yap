@@ -21,7 +21,7 @@ Each tab is split in two: its categories down the left, and the one
 picked on the right, in a panel that scrolls. The voice gate and the
 devices are nodes inside Audio, and smaller parts of a category (the
 account's password, its devices) are nodes a person can open too. About
-is under the client's categories, and opens its own window.
+is the last of the client's categories.
 */
 Settings_Tab :: enum {
 	Client,
@@ -38,6 +38,7 @@ Client_Category :: enum {
 	Trusted_Servers,
 	Install,
 	Log,
+	About,
 }
 
 @(private = "file")
@@ -50,6 +51,7 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 	.Trusted_Servers = "Trusted servers",
 	.Install         = "Install",
 	.Log             = "Log",
+	.About           = "About",
 }
 
 // The ones a web build has: a page has neither global hotkeys nor
@@ -116,9 +118,7 @@ settings_page :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {CATEGORY_WIDTH, -1}, -1)
 	mu.layout_begin_column(ctx)
 	if ui.settings_tab == .Client {
-		// The list, and About under it.
-		button_h := ctx.style.size.y + 2 * ctx.style.padding
-		mu.layout_row(ctx, {-1}, -(button_h + ctx.style.spacing + 1))
+		mu.layout_row(ctx, {-1}, -1)
 		mu.begin_panel(ctx, "settings categories")
 		for c in CLIENT_CATEGORIES {
 			if category_row(ctx, CLIENT_CATEGORY_NAMES[c], ui.settings_client == c) {
@@ -126,10 +126,6 @@ settings_page :: proc(ui: ^UI) {
 			}
 		}
 		mu.end_panel(ctx)
-		mu.layout_row(ctx, {-1})
-		if .SUBMIT in mu.button(ctx, "About") {
-			open_about(ui)
-		}
 	} else {
 		mu.layout_row(ctx, {-1}, -1)
 		mu.begin_panel(ctx, "settings categories")
@@ -178,6 +174,8 @@ settings_page :: proc(ui: ^UI) {
 	case .Install:
 		install_settings(ui)
 	case .Log:
+	case .About:
+		about_settings(ui)
 	}
 }
 

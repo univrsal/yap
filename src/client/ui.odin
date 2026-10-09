@@ -233,7 +233,6 @@ UI :: struct {
 	settings_saved:      time.Tick,
 	page:                Page,
 	settings:            settings.Settings,
-	about:               UI_About, // the About dialog (ui_about.odin)
 	known:               UI_Known_Servers, // saved server keys (ui_known_servers.odin)
 	hotkeys:             UI_Hotkeys, // global hotkeys (ui_hotkeys_native.odin)
 	install:             UI_Install, // installing for the user (ui_install_native.odin)
@@ -1406,10 +1405,8 @@ layout :: proc(ui: ^UI, w, h: i32) {
 		main_window(ui)
 		mu.end_window(ctx)
 	}
-	// An enlarged image floats above it all (ui_images.odin), and so
-	// does the About dialog (ui_about.odin).
+	// An enlarged image floats above it all (ui_images.odin).
 	image_viewer(ui, w, h)
-	about_dialog(ui, w, h)
 	join_dialog(ui, w, h)
 	pins_window(ui, w, h)
 	thread_windows(ui, w, h)
