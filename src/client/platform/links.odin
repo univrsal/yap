@@ -119,6 +119,44 @@ open_url :: proc(url: string) {
 	}
 }
 
+// Files that run when the desktop "opens" them. A saved attachment came
+// from someone else, so these are never handed to the opener.
+@(rodata, private = "file")
+RUNNABLE_EXTENSIONS := [?]string {
+	"exe", "com", "bat", "cmd", "msi", "scr", "pif", "lnk", "url", "vbs", "vbe", "js", "jse",
+	"wsf", "wsh", "ps1", "psm1", "reg", "hta", "cpl", "jar", "dll", "sh", "bash", "zsh", "run",
+	"desktop", "appimage", "command", "app", "pkg", "dmg", "workflow", "action", "scpt",
+	"terminal", "py", "pl", "rb",
+}
+
+// open_file opens a saved file with the system's default application.
+// Programs and scripts are refused.
+open_file :: proc(path: string) {
+	dot := strings.last_index_byte(path, '.')
+	sep := strings.last_index_any(path, `/\`)
+	if dot > sep {
+		ext := strings.to_lower(path[dot + 1:], context.temp_allocator)
+		for r in RUNNABLE_EXTENSIONS {
+			if ext == r {
+				log.warnf("not opening %q: .%s files could run as programs", path, ext)
+				return
+			}
+		}
+	}
+	log.infof("opening %s", path)
+	if !platform_open_url(path) {
+		log.errorf("could not open %s", path)
+	}
+}
+
+// open_folder shows a folder in the system's file manager.
+open_folder :: proc(path: string) {
+	log.infof("opening %s", path)
+	if !platform_open_url(path) {
+		log.errorf("could not open %s", path)
+	}
+}
+
 /*
 open_mailto opens the mail program on a new mail to `to` with `subject`.
 Only what an address and a code are made of is taken - letters, digits

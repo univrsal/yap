@@ -459,7 +459,7 @@ FILES_BAR :: 6
 @(private = "file")
 FILES_STATE_W :: 90
 @(private = "file")
-FILES_BUTTON_W :: 100
+FILES_BUTTON_W :: 100 when platform.WEB else 150
 
 @(private = "file")
 file_save :: proc(ui: ^UI, f: conn.Msg_File) -> (conn.View_Save, bool) {
@@ -604,9 +604,26 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 				attach_command(ui, save)
 			}
 		case has_save && s.state == .Done && !platform.WEB:
+			cell := mu.layout_next(ctx)
+			half := (cell.w - ctx.style.spacing) / 2
+			mu.layout_set_next(ctx, {cell.x, cell.y, half, cell.h}, false)
 			if .SUBMIT in
-			   stable_button_hint(ui, "open folder", "Open folder", s.path, {.ALIGN_CENTER}) {
-				platform.open_url(os_dir(s.path))
+			   stable_button_hint(
+				   ui,
+				   "open",
+				   "Open",
+				   fmt.tprintf("Open %s with the default application", f.name),
+				   {.ALIGN_CENTER},
+			   ) {
+				platform.open_file(s.path)
+			}
+			mu.layout_set_next(
+				ctx,
+				{cell.x + half + ctx.style.spacing, cell.y, half, cell.h},
+				false,
+			)
+			if .SUBMIT in stable_button_hint(ui, "browse", "Browse", s.path, {.ALIGN_CENTER}) {
+				platform.open_folder(os_dir(s.path))
 			}
 		case:
 			if .SUBMIT in
