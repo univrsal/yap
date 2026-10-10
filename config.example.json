@@ -1,24 +1,37 @@
 {
-	"name": "",
-	"port": 7777,
-	"key": "",
-	"password": "",
-	"data_dir": "",
-	"log_level": "info",
-	"log_file": "",
-	"relay": {
-		"enabled": false,
-		"port": 8080,
-		"web_dir": ""
-	},
-	"channels": [
-		{ "name": "Lobby" },
-		{ "name": "Gaming" },
-		{ "name": "AFK" }
-	],
-	"retention": {
-		"message_days": 0,
-		"file_days": 0,
-		"blob_megabytes": 0
-	}
+  "name": "",
+  "port": 7777,
+  "key": "",
+  "password": "",
+  "data_dir": "",
+  "max_sessions": 0,
+  "log_level": "info",
+  "log_file": "",
+  "relay": {
+    "enabled": false,
+    "port": 8080,
+    "web_dir": "./web"
+  },
+  "channels": [
+    {
+      "name": "Lobby"
+    }
+  ],
+  "email": {
+    "address": "yap@example.com",
+    "imap": "imap://example.com:143",
+    "smtp": "smtp://example.com:587",
+    "username": "yap@example.com",
+    "password": "",
+    "poll_seconds": 10,
+    "trusted_auth_host": "example.com",
+    "check_auth_results": true
+  },
+  "registration": {
+    "open": false,
+    "require_email": false,
+    "verify_email": false,
+    "unverified_hours": 1,
+    "require_invite": false
+  }
 }
