@@ -143,8 +143,10 @@ Server :: struct {
 	emoji:          Custom_Emoji,
 	// Removing what's old (retention.odin).
 	retention:      Retention,
-	// What the loop is handling this time round, for slow_iteration.
+	// What the loop is handling this time round, and how long its turns
+	// take (loop_stats.odin).
 	handling:       proto.Message_Kind,
+	loop:           Loop_Stats,
 	// The server's own email account, if it has one (email.odin).
 	email:          Email,
 	// Who may register, and how fast registrations are taken
@@ -156,9 +158,6 @@ Server :: struct {
 	verify:         Verify_State,
 }
 
-// A turn of the server's loop that takes longer than this is logged:
-// voice is relayed by that loop, and waits for whatever else it does.
-SLOW_ITERATION :: 5 * time.Millisecond
 // How long the loop waits for a packet before it comes round anyway.
 IDLE_WAIT :: 100 * time.Millisecond
 
@@ -215,6 +214,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	email_open(&s.email, settings.email)
 	defer email_close(&s.email)
 	memory_log_open(&s, settings.memory_log)
+	loop_stats_open(&s)
 	if s.registration.verify_email && !s.email.enabled {
 		log.warn(
 			"registration asks for addresses to be verified, but there's no email, so they aren't",
@@ -241,13 +241,37 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		log.info("clients need the password to join")
 	}
 
+	// What every turn does after its packet, in this order.
+	syncs := [?]struct {
+		phase: Loop_Phase,
+		run:   proc(s: ^Server),
+	} {
+		{.Reap, reap_sessions},
+		{.Auth, auth_sync},
+		// Before the snapshots: a connection that has just logged in is
+		// told who everyone is (on its stream) before it's told who is
+		// here.
+		{.Stream, stream_sync},
+		{.State, sync_state},
+		{.Transfers, transfers_sync},
+		{.Attachments, attachments_sync},
+		{.Files, files_sync},
+		{.Emoji, emoji_sync},
+		{.Profiles, profiles_sync},
+		{.Calls, calls_sync},
+		{.Retention, retention_sync},
+		{.Verify, verify_sync},
+		{.Exercise, db_exercise},
+		{.Memory, memory_sync},
+	}
+
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
 	for {
 		free_all(context.temp_allocator)
 
 		n, from, recv_err := net.recv_udp(sock, recv_buf[:])
 		// From here on, not from before the wait for a packet.
-		started := time.tick_now()
+		loop_turn_begin(&s)
 		s.handling = {}
 		// Nothing arrived for as long as the socket waits: nobody is
 		// talking, and what's slow can be done without anyone hearing it.
@@ -262,30 +286,17 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		case:
 			log.errorf("recv error: %v", recv_err)
 		}
+		loop_mark(&s, .Packet)
 
-		reap_sessions(&s)
-		auth_sync(&s)
-		// Before the snapshots: a connection that has just logged in is
-		// told who everyone is (on its stream) before it's told who is
-		// here.
-		stream_sync(&s)
-		sync_state(&s)
-		transfers_sync(&s)
-		attachments_sync(&s)
-		files_sync(&s)
-		emoji_sync(&s)
-		profiles_sync(&s)
-		calls_sync(&s)
-		retention_sync(&s)
-		verify_sync(&s)
-		db_exercise(&s)
-		memory_sync(&s)
+		for sync in syncs {
+			sync.run(&s)
+			loop_mark(&s, sync.phase)
+		}
 		// What this turn wrote, in one go.
 		db_commit(&s.db)
+		loop_mark(&s, .Commit)
+		loop_turn_end(&s, packet = recv_err == .None)
 
-		if took := time.tick_since(started); took > SLOW_ITERATION {
-			slow_iteration(&s, took)
-		}
 		if idle {
 			db_idle(&s.db)
 		}
@@ -336,16 +347,6 @@ users_seen_by :: proc(
 		shown[i - left_out].room = room
 	}
 	return shown[:len(shown) - left_out]
-}
-
-@(private = "file")
-slow_iteration :: proc(s: ^Server, took: time.Duration) {
-	ms := time.duration_milliseconds(took)
-	if s.handling == {} {
-		log.warnf("a turn of the loop took %.1f ms", ms)
-	} else {
-		log.warnf("a turn of the loop took %.1f ms, handling %v", ms, s.handling)
-	}
 }
 
 handle_packet :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {

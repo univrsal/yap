@@ -36,7 +36,7 @@ it found by then is the answer, with `more` set so the client can go on
 from the last.
 */
 
-// Within a turn of the loop's 5 ms, with room for the rest of the turn.
+// Within a slow turn of the loop (SLOW_TURN), with room for the rest of it.
 SEARCH_BUDGET :: 4 * time.Millisecond
 
 // fts_query turns a search as typed into an FTS5 query (in the temp

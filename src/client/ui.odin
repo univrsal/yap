@@ -592,7 +592,6 @@ draw_frame :: proc(ui: ^UI) {
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
 	ui.keys = {}
-	ui_images_after_frame(ui)
 	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, theme.background)
 	render.gpu_present(&ui.renderer.gpu)
 }

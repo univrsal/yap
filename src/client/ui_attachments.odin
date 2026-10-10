@@ -529,6 +529,7 @@ file_preview :: proc(
 		img.state if here else .Wanted,
 		img.jpeg if here else nil,
 		area,
+		f.name,
 	) {
 		// The viewer's Save: the file itself, under its name.
 		attach_command(ui, conn.Attach_Save_Command{conv = conv, msg = m.id, index = i})

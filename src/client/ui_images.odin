@@ -65,42 +65,46 @@ Decode_Result :: struct {
 }
 
 UI_Images :: struct {
-	textures:    map[u64]Texture,
+	textures:      map[u64]Texture,
 	// The image shown enlarged, 0 for none, and whether it still has to
 	// be sized to the window.
-	viewer:      u64,
-	placed:      bool,
+	viewer:        u64,
+	placed:        bool,
+	// The shown image's file name, for the window's title ("" if it has
+	// none). Owned; kept from the View, which isn't locked while the
+	// viewer is drawn.
+	viewer_name:   string,
 	// The viewer's zoom, relative to the image fitted to its window (1 is
 	// fitted, and as far out as it goes), and how far the image's centre
 	// is dragged from the picture area's, in pixels.
-	zoom:        f32,
-	pan:         [2]f32,
+	zoom:          f32,
+	pan:           [2]f32,
 	// A saved copy of what's on screen, so the viewer and saving can work
 	// outside the View's lock.
-	shown:       conn.Image_Info,
-	state:       conn.Image_State,
+	shown:         conn.Image_Info,
+	state:         conn.Image_State,
 	// Bytes to write to the downloads folder after the frame, and where
 	// the last one went. viewer_save is the viewer's Save button, acted
 	// on where the bytes are at hand.
-	save:        []u8,
-	viewer_save: bool,
-	saved_to:    string,
+	// save:          []u8,
+	// viewer_save:   bool,
+	// saved_to:      string,
 	// What this frame draws, indexed by icon id (see IMAGE_ICON_BASE).
-	draws:       [dynamic]render.Image_Draw,
-	frame:       int,
+	draws:         [dynamic]render.Image_Draw,
+	frame:         int,
 
 	// The decoding thread, its queue and what it has finished.
-	worker:      Decode_Worker,
-	mutex:       sync.Mutex,
-	wake:        sync.Sema,
-	queue:       [dynamic]Decode_Job,
-	results:     [dynamic]Decode_Result,
-	stopping:    bool,
-	ctx:         runtime.Context,
+	worker:        Decode_Worker,
+	mutex:         sync.Mutex,
+	wake:          sync.Sema,
+	queue:         [dynamic]Decode_Job,
+	results:       [dynamic]Decode_Result,
+	stopping:      bool,
+	ctx:           runtime.Context,
 	// Bumped when the server shown changes (ui_images_switch): pictures
 	// are known by its blob ids, so what was decoded for another server
 	// is thrown away.
-	generation:  u64,
+	generation:    u64,
 	// The emoji sheet (render/emoji_atlas.odin) is being decoded, or
 	// couldn't be (and isn't tried again).
 	sheet_pending: bool,
@@ -195,8 +199,6 @@ ui_images_destroy :: proc(ui: ^UI) {
 	delete(im.results)
 	delete(im.textures)
 	delete(im.draws)
-	delete(im.save)
-	delete(im.saved_to)
 }
 
 // ui_images_frame takes in what the worker decoded and starts a new
@@ -238,11 +240,11 @@ ui_images_frame :: proc(ui: ^UI) {
 			im.sheet_pending = false
 			if !result.ok ||
 			   !render.emoji_sheet_upload(
-				   &ui.renderer,
-				   result.image.pixels,
-				   result.image.width,
-				   result.image.height,
-			   ) {
+					   &ui.renderer,
+					   result.image.pixels,
+					   result.image.width,
+					   result.image.height,
+				   ) {
 				log.warn("could not decode the emoji sheet")
 				im.sheet_failed = true
 			}
@@ -291,6 +293,7 @@ image_fitted :: proc(
 	state: conn.Image_State,
 	data: []u8,
 	area: mu.Rect,
+	name := "",
 ) -> (
 	save: bool,
 ) {
@@ -330,22 +333,13 @@ image_fitted :: proc(
 			height = u16(min(t.height, 65535)),
 		}
 		im.state = .Ready
-		if im.viewer_save {
-			im.viewer_save = false
-			save = true
+		if name != im.viewer_name {
+			delete(im.viewer_name)
+			im.viewer_name = strings.clone(name)
 		}
+
 	}
 	return
-}
-
-// request_save keeps a copy of an image to write out after the frame,
-// once the View isn't locked any more.
-request_save :: proc(im: ^UI_Images, jpeg: []u8) {
-	if len(jpeg) == 0 || len(im.save) > 0 {
-		return
-	}
-	im.save = make([]u8, len(jpeg))
-	copy(im.save, jpeg)
 }
 
 // Zooming in stops once an image pixel is this many screen pixels.
@@ -368,6 +362,8 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	ctx := &ui.ctx
+	// The window's title is also what identifies it.
+	title := im.viewer_name if im.viewer_name != "" else IMAGE_WINDOW
 	// Open it centred, big enough for the image but inside the window.
 	if !im.placed {
 		im.placed = true
@@ -375,25 +371,13 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		w := max(min(int(im.shown.width) + 2 * int(ctx.style.padding), int(window_w) - 40), 240)
 		h := max(min(int(im.shown.height) + 60, int(window_h) - 40), 160)
 		rect := mu.Rect{(window_w - i32(w)) / 2, (window_h - i32(h)) / 2, i32(w), i32(h)}
-		if cnt := mu.get_container(ctx, IMAGE_WINDOW); cnt != nil {
+		if cnt := mu.get_container(ctx, title); cnt != nil {
 			cnt.rect = rect
 			cnt.open = true
-			mu.bring_to_front(ctx, cnt)
-			// The click that opened this landed on the window behind it,
-			// and microui raises whatever was clicked at the end of the
-			// frame, which would bury this one. Counting it as the
-			// clicked container instead keeps it on top, the same way
-			// microui opens its own popups.
-			ctx.hover_root, ctx.next_hover_root = cnt, cnt
 		}
 	}
-	// Clicking the window behind raises it (microui raises whatever was
-	// clicked), so keep this one above for as long as it's open.
-	if cnt := mu.get_container(ctx, IMAGE_WINDOW, {.CLOSED});
-	   cnt != nil && cnt.open && cnt.zindex != ctx.last_zindex {
-		mu.bring_to_front(ctx, cnt)
-	}
-	if !mu.begin_window(ctx, IMAGE_WINDOW, {}, {.NO_SCROLL}) {
+
+	if !mu.begin_window(ctx, title, {}, {.NO_SCROLL}) {
 		im.viewer = 0 // closed with the title bar's button
 		return
 	}
@@ -429,21 +413,12 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.draw_control_text(ctx, "loading image...", rect, .TEXT, {.ALIGN_CENTER})
 	}
 
-	mu.layout_row(ctx, {90, 90, 90, -1})
-	if .SUBMIT in mu.button(ctx, "Save") {
-		im.viewer_save = true
-	}
+	mu.layout_row(ctx, {90, -1})
 	if .SUBMIT in mu.button(ctx, "Fit") {
 		im.zoom, im.pan = 1, {}
 	}
-	if .SUBMIT in mu.button(ctx, "Close") {
-		im.viewer = 0
-	}
 	shown_percent := 100 * f32(rect.w) / f32(max(im.shown.width, 1))
 	status := fmt.tprintf("%dx%d   %.0f%%", im.shown.width, im.shown.height, shown_percent)
-	if im.saved_to != "" {
-		status = fmt.tprintf("%s   saved %s to your downloads", status, file_name(im.saved_to))
-	}
 	with_text_color(ctx, theme.dim, status, label_proc)
 }
 
@@ -503,24 +478,6 @@ viewer_rect :: proc(im: ^UI_Images, picture: mu.Rect) -> mu.Rect {
 		i32(math.round(cy - h / 2)),
 		i32(math.round(w)),
 		i32(math.round(h)),
-	}
-}
-
-// ui_images_after_frame writes out an image the viewer or a right-click
-// asked to save, now that the View isn't locked.
-ui_images_after_frame :: proc(ui: ^UI) {
-	im := &ui.images
-	if len(im.save) == 0 {
-		return
-	}
-	defer {
-		delete(im.save)
-		im.save = nil
-	}
-	if path, ok := platform.save_to_downloads(im.save, "jpg"); ok {
-		log.infof("saved the image to %s", path)
-		delete(im.saved_to)
-		im.saved_to = path
 	}
 }
 
@@ -622,12 +579,6 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	v0 := f32(index / cols) / f32(rows)
 	du := f32(e.cell) / (f32(cols) * stride)
 	dv := f32(e.cell) / (f32(rows) * stride)
-	append(
-		&im.draws,
-		render.Image_Draw {
-			texture = t.texture,
-			uv = {u0, v0, u0 + du, v0 + dv},
-		},
-	)
+	append(&im.draws, render.Image_Draw{texture = t.texture, uv = {u0, v0, u0 + du, v0 + dv}})
 	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
 }

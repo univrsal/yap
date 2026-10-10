@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:slice"
+import "core:strconv"
 import "core:time"
 
 import "common:proto"
@@ -22,6 +23,7 @@ more (the owner's password is forgotten, say).
 	yap-server account role <username> <role>    [config.json]
 	yap-server account unrole <username> <role>  [config.json]
 	yap-server account delete <username> [config.json]
+	yap-server account bots <count> <password> [config.json]
 	yap-server role list                [config.json]
 
 `add` and `passwd` make up a password and print it; like any password
@@ -47,7 +49,78 @@ ACCOUNT_USAGE :: `usage: yap-server account list [config.json]
        yap-server account role <username> <role> [config.json]
        yap-server account unrole <username> <role> [config.json]
        yap-server account delete <username> [config.json]
+       yap-server account bots <count> <password> [config.json]
        yap-server role list [config.json]`
+
+/*
+account_bots is `account bots <count> <password>`: accounts bot1 to
+bot<count>, all with that password and nothing to change on first login,
+for the stress test (src/stress) to log in as. Those there already are
+left as they are, so it can be run again for more. The password is
+hashed once and the same hash, salt and all, kept for every one of them:
+they're for testing, not for people.
+*/
+@(private = "file")
+account_bots :: proc(args: []string) -> int {
+	if len(args) < 2 || len(args) > 3 {
+		fmt.eprintln(ACCOUNT_USAGE)
+		return 2
+	}
+	count, count_ok := strconv.parse_int(args[0])
+	if !count_ok || count < 1 || count > 100_000 {
+		fmt.eprintfln("%q isn't a number of bots", args[0])
+		return 2
+	}
+	if !proto.account_password_ok(args[1]) {
+		fmt.eprintfln(
+			"a password is %d to %d bytes",
+			proto.MIN_ACCOUNT_PASSWORD,
+			proto.MAX_ACCOUNT_PASSWORD,
+		)
+		return 2
+	}
+	config := args[2] if len(args) == 3 else DEFAULT_CONFIG_FILE
+	if !os.exists(config) {
+		fmt.eprintfln("%s: no such config (run the server once, or name its config)", config)
+		return 2
+	}
+	settings, config_ok := load_config(config)
+	if !config_ok {
+		return 2
+	}
+	db: DB
+	if !db_open(&db, settings.db_path) {
+		return 1
+	}
+	defer db_close(&db)
+	a: Accounts
+	if !accounts_load(&a, &db) {
+		return 1
+	}
+	defer accounts_destroy(&a)
+
+	password := password_of(args[1])
+	defer crypto.zero_explicit(&password, size_of(password))
+	secret, hashed := secret_make(&password, HASH_PARAMS_NOW)
+	if !hashed {
+		log.error("could not hash the password")
+		return 1
+	}
+	made := 0
+	for i in 1 ..= count {
+		username := fmt.tprintf("bot%d", i)
+		if account_find(&a, username) != nil {
+			continue
+		}
+		if account_add(&a, username, username, secret, {}) == nil {
+			return 1
+		}
+		made += 1
+	}
+	db_commit(&db)
+	fmt.printfln("made %d bot accounts; %d were there already", made, count - made)
+	return 0
+}
 
 // run_account_command runs `yap-server account <args...>` and returns
 // the process's exit code.
@@ -57,6 +130,9 @@ run_account_command :: proc(args: []string) -> int {
 		return 2
 	}
 	command := args[0]
+	if command == "bots" {
+		return account_bots(args[1:])
+	}
 	// How many names it takes: a username, and for a role a role's.
 	names := 0
 	switch command {

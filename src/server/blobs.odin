@@ -276,8 +276,8 @@ Testing aid: built with -define:YAP_DB_EXERCISE=true, the server writes
 to its database and blob store all the time, which nothing else does
 yet: ten times a second a new blob of 64 KB and a note in `meta`, and
 every so often the oldest blobs are deleted again. Run with people
-talking, the log then says what that costs the loop (see SLOW_ITERATION
-in server.odin).
+talking, the log then says what that costs the loop (see SLOW_TURN
+in loop_stats.odin).
 */
 DB_EXERCISE :: #config(YAP_DB_EXERCISE, false)
 
