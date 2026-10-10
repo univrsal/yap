@@ -605,6 +605,16 @@ gpu_texture_make :: proc(
 	return Gpu_Texture(uintptr(t))
 }
 
+// gpu_texture_update replaces all of an .Rgba texture without mipmaps,
+// `width` x `height`, with `pixels`: an animation's next frame.
+gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels: []u8) {
+	t := (^D3D_Texture)(tex)
+	if t == nil || len(pixels) < int(width) * int(height) * 4 {
+		return
+	}
+	g.ctx->UpdateSubresource(t.texture, 0, nil, raw_data(pixels), u32(width) * 4, 0)
+}
+
 // gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture
 // that is `width` wide with `rows`.
 gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, rows: []u8) {

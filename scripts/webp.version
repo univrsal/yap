@@ -1,4 +1,4 @@
-# The libwebp release src/client/webp is built from: read by
+# The libwebp release src/common/webp is built from: read by
 # scripts/fetch-webp.sh (and with it build.sh) and by build.bat, so lines
 # are name=value and nothing else. The sum is of the release tarball,
 # whose signature (libwebp-<version>.tar.gz.asc, by the WebP release

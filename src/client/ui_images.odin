@@ -7,12 +7,15 @@ import "core:math"
 import "core:slice"
 import "core:strings"
 import "core:sync"
+import "core:time"
 import mu "vendor:microui"
 
 import "client:clipboard"
 import "client:conn"
 import "client:platform"
 import "client:render"
+import "client:settings"
+import glfw "client:wglfw"
 import "common:proto"
 
 /*
@@ -25,9 +28,19 @@ frame's list").
 
 Textures are kept for MAX_IMAGE_TEXTURES images, the least recently
 drawn going first; scrolling back to one decodes it again.
+
+An animated picture's texture holds one frame at a time: the worker
+decodes the next while the one before is shown (anims_advance), only
+for pictures that are drawn, and only while the window has the focus.
 */
 
 MAX_IMAGE_TEXTURES :: 96
+
+// The least an animation's frame is shown for, in milliseconds: shorter
+// ones are merged with the next (ui_images_anim_native.odin), and moving
+// emoji ask for no more frames than this allows (custom_emoji_frame), so
+// nothing animated redraws more than 30 times a second.
+ANIM_MIN_SHOWN :: 33
 
 @(private = "file")
 IMAGE_WINDOW :: "image"
@@ -47,11 +60,32 @@ Texture :: struct {
 	// The picture's own size, once it's decoded.
 	width:   int,
 	height:  int,
+	// An animation (ui_images_anim_native.odin): the texture shows a frame
+	// at a time, and `next` (owned) is the one after it once the worker
+	// has it, shown at `due` for `next_shown`. `asked` while the worker is
+	// on it; `ended` once there are no more. It moves on only if it was
+	// drawn playing the frame before (`played`, see image_fitted); `gif`
+	// is for the badge it has while it isn't.
+	anim:       bool,
+	gif:        bool,
+	played:     int,
+	next:       []u8,
+	next_shown: time.Duration,
+	due:        time.Tick,
+	asked:      bool,
+	ended:      bool,
 }
 
 // Pictures are known by a key their drawer gives (image_fitted).
 
+Decode_Job_Kind :: enum {
+	Decode, // the picture in `jpeg`
+	Next_Frame, // the animation's next frame
+	Drop, // stop playing the animation
+}
+
 Decode_Job :: struct {
+	kind:       Decode_Job_Kind,
 	id:         u64,
 	jpeg:       []u8, // owned by the job
 	generation: u64, // UI_Images.generation when it was asked for
@@ -62,6 +96,13 @@ Decode_Result :: struct {
 	image:      clipboard.Image, // pixels owned by the result
 	ok:         bool,
 	generation: u64,
+	// The picture is an animation, the image a frame of it shown for
+	// `shown`: its first, or with `frame` one asked for (Next_Frame),
+	// which without pixels says there are no more. `gif` for a GIF's.
+	anim:       bool,
+	frame:      bool,
+	gif:        bool,
+	shown:      time.Duration,
 }
 
 UI_Images :: struct {
@@ -109,6 +150,10 @@ UI_Images :: struct {
 	// couldn't be (and isn't tried again).
 	sheet_pending: bool,
 	sheet_failed:  bool,
+	// The frames of the server's emoji that move, by their texture's key,
+	// and when the client started, which their time goes from.
+	emoji_frames:  map[u64]Emoji_Timing,
+	anim_epoch:    time.Tick,
 }
 
 // The id the emoji sheet is decoded under, which no picture's key is.
@@ -122,6 +167,7 @@ EMOJI_SHEET_DATA := #load("assets/emoji.webp")
 
 ui_images_init :: proc(ui: ^UI) {
 	ui.images.ctx = context
+	ui.images.anim_epoch = time.tick_now()
 	decode_worker_start(ui)
 }
 
@@ -133,8 +179,38 @@ are decoded again when they're next drawn.
 */
 ui_images_forget_textures :: proc(ui: ^UI) {
 	im := &ui.images
+	for id, &t in im.textures {
+		texture_drop(im, nil, id, &t)
+	}
 	clear(&im.textures)
 	clear(&im.draws)
+}
+
+/*
+texture_drop lets go of what texture `id` holds - its pixels on `gpu`
+(nil when the device is gone already), an animation's next frame, and
+the worker's decoder of it - before it's removed from `textures`.
+*/
+@(private = "file")
+texture_drop :: proc(im: ^UI_Images, gpu: ^render.Gpu, id: u64, t: ^Texture) {
+	if gpu != nil && t.state == .Ready {
+		render.gpu_texture_delete(gpu, &t.texture)
+	}
+	delete(t.next)
+	t.next = nil
+	if t.anim {
+		anim_job(im, .Drop, id, im.generation)
+	}
+}
+
+// anim_job asks the worker for an animation's next frame, or to drop it.
+@(private = "file")
+anim_job :: proc(im: ^UI_Images, kind: Decode_Job_Kind, id, generation: u64) {
+	{
+		sync.guard(&im.mutex)
+		append(&im.queue, Decode_Job{kind = kind, id = id, generation = generation})
+	}
+	decode_wake(im)
 }
 
 /*
@@ -145,6 +221,7 @@ server's pictures are decoded as they're drawn.
 */
 ui_images_switch :: proc(ui: ^UI) {
 	im := &ui.images
+	emoji_frames_clear(im)
 	// The servers' own pictures stay: they're known by address, and
 	// the rail draws them whichever server is shown.
 	drop := make([dynamic]u64, context.temp_allocator)
@@ -152,9 +229,7 @@ ui_images_switch :: proc(ui: ^UI) {
 		if is_server_icon_key(id) && t.state == .Ready {
 			continue
 		}
-		if t.state == .Ready {
-			render.gpu_texture_delete(&ui.renderer.gpu, &t.texture)
-		}
+		texture_drop(im, &ui.renderer.gpu, id, &t)
 		append(&drop, id)
 	}
 	for id in drop {
@@ -164,10 +239,11 @@ ui_images_switch :: proc(ui: ^UI) {
 	im.viewer, im.placed = 0, false
 	sync.guard(&im.mutex)
 	im.generation += 1
-	// The emoji sheet is every server's.
+	// The emoji sheet is every server's, and the animations dropped above
+	// still have to be let go of.
 	kept := 0
 	for job in im.queue {
-		if job.id == EMOJI_SHEET_ID {
+		if job.id == EMOJI_SHEET_ID || job.kind == .Drop {
 			im.queue[kept] = job
 			kept += 1
 		} else {
@@ -194,11 +270,24 @@ ui_images_destroy :: proc(ui: ^UI) {
 		if t.state == .Ready {
 			render.gpu_texture_delete(&ui.renderer.gpu, &t.texture)
 		}
+		delete(t.next) // the worker has let go of its decoders already
 	}
 	delete(im.queue)
 	delete(im.results)
 	delete(im.textures)
 	delete(im.draws)
+	emoji_frames_clear(im)
+	delete(im.emoji_frames)
+}
+
+// emoji_frames_clear forgets the timings of the emoji that move, which
+// are a server's.
+@(private = "file")
+emoji_frames_clear :: proc(im: ^UI_Images) {
+	for _, timing in im.emoji_frames {
+		delete(timing.durations)
+	}
+	clear(&im.emoji_frames)
 }
 
 // ui_images_frame takes in what the worker decoded and starts a new
@@ -251,7 +340,16 @@ ui_images_frame :: proc(ui: ^UI) {
 			continue
 		}
 		if result.generation != im.generation {
-			continue // another server's
+			// Another server's; dropped with its texture (ui_images_switch)
+			// unless it was still being decoded then.
+			if result.anim && !result.frame {
+				anim_job(im, .Drop, result.id, result.generation)
+			}
+			continue
+		}
+		if result.frame {
+			anim_frame_arrived(im, &result)
+			continue
 		}
 		t := im.textures[result.id] or_else {}
 		if !result.ok {
@@ -272,12 +370,143 @@ ui_images_frame :: proc(ui: ^UI) {
 			i32(result.image.width),
 			i32(result.image.height),
 			result.image.pixels,
-			mipmaps = true, // usually drawn smaller, and pictures of people round
+			// Usually drawn smaller, and pictures of people round; but an
+			// animation's frames replace each other, and making them again
+			// for every frame isn't worth it.
+			mipmaps = !result.anim && !is_emoji_atlas(result.id),
 		)
 		t.frame = im.frame
+		if result.anim {
+			t.anim, t.gif = true, result.gif
+			t.due = time.tick_add(time.tick_now(), result.shown)
+		}
 		im.textures[result.id] = t
 	}
 	trim_textures(im, &ui.renderer.gpu)
+	anims_advance(ui)
+}
+
+/*
+anim_frame_arrived keeps an animation's next frame, which the worker
+decoded when asked, for anims_advance to show when it's time. One
+without pixels is the end of it.
+*/
+@(private = "file")
+anim_frame_arrived :: proc(im: ^UI_Images, result: ^Decode_Result) {
+	t, known := &im.textures[result.id]
+	if !known || !t.anim {
+		return // dropped meanwhile, and the worker told so
+	}
+	t.asked = false
+	if !result.ok || result.image.pixels == nil {
+		t.ended = true
+		return
+	}
+	delete(t.next)
+	t.next, t.next_shown = result.image.pixels, result.shown
+	result.image.pixels = nil // the texture's now
+}
+
+// How late a frame may be shown and still have the next one follow on
+// from when it was due; later (it wasn't drawn for a while, say), the
+// animation carries on from now.
+@(private = "file")
+ANIM_LATE :: 250 * time.Millisecond
+
+/*
+anims_advance moves the animations that were drawn playing last frame
+on: the next frame goes into the texture once it's due, and the one
+after it is asked for. Ones that weren't - scrolled away, say, or not
+under the pointer - stay where they are, as do all while the window
+isn't looked at (anims_running).
+*/
+@(private = "file")
+anims_advance :: proc(ui: ^UI) {
+	im := &ui.images
+	if !anims_running(ui) {
+		return
+	}
+	now := time.tick_now()
+	for id, &t in im.textures {
+		if !t.anim || t.state != .Ready || t.ended || t.played < im.frame - 1 {
+			continue
+		}
+		if t.next != nil && time.tick_diff(t.due, now) >= 0 {
+			render.gpu_texture_update(
+				&ui.renderer.gpu,
+				t.texture,
+				i32(t.width),
+				i32(t.height),
+				t.next,
+			)
+			delete(t.next)
+			t.next = nil
+			from := t.due if time.tick_diff(t.due, now) < ANIM_LATE else now
+			t.due = time.tick_add(from, t.next_shown)
+		}
+		if t.next == nil && !t.asked {
+			t.asked = true
+			anim_job(im, .Next_Frame, id, im.generation)
+		}
+	}
+}
+
+// anims_running is whether animations play: not while the window is
+// hidden or another has the focus.
+@(private = "file")
+anims_running :: proc(ui: ^UI) -> bool {
+	return ui.window != nil && !ui.hidden && (ALWAYS_FOCUSED || glfw.WindowFocused(ui.window))
+}
+
+// anim_badge says, in the corner of an animated picture that isn't
+// playing, that it would move (and as what).
+@(private = "file")
+anim_badge :: proc(ctx: ^mu.Context, rect: mu.Rect, label: string) {
+	font := ctx.style.font
+	pad: i32 = 3
+	w := ctx.text_width(font, label) + 2 * pad
+	h := ctx.text_height(font) + pad
+	if rect.w < w + 2 * pad || rect.h < h + 2 * pad {
+		return // too small a picture to put it on
+	}
+	r := mu.Rect{rect.x + pad, rect.y + rect.h - h - pad, w, h}
+	mu.draw_rect(ctx, r, {0, 0, 0, 170})
+	mu.draw_text(ctx, font, label, {r.x + pad, r.y + pad / 2}, {255, 255, 255, 255})
+}
+
+/*
+anim_drawn asks for a frame when an animation that was just drawn moves
+on: when its next frame is due, or right away if that's still to be
+asked for (it's been paused). The next frame being decoded doesn't wake
+the UI (that would be a whole frame drawn for nothing): it's taken when
+it's due, and if it isn't there yet, it's looked for again a tick later.
+*/
+@(private = "file")
+anim_drawn :: proc(ui: ^UI, t: Texture) {
+	if !t.anim || t.ended || !anims_running(ui) {
+		return
+	}
+	switch {
+	case t.next != nil:
+		anim_redraw_at(ui, t.due)
+	case !t.asked:
+		ui_redraw(ui)
+	case:
+		anim_redraw_at(ui, time.tick_add(time.tick_now(), time.Millisecond))
+	}
+}
+
+/*
+anim_redraw_at asks for a frame for an animation by `at`, put off to
+the next of the ticks ANIM_MIN_SHOWN apart that all animations share
+(from when the client started): however many there are, out of step
+with each other, they're drawn together, at most 30 times a second.
+*/
+anim_redraw_at :: proc(ui: ^UI, at: time.Tick) {
+	tick := ANIM_MIN_SHOWN * time.Millisecond
+	since := max(time.tick_diff(ui.images.anim_epoch, at), 0)
+	ticks := (since + tick - 1) / tick
+	ui_redraw_at(ui, time.tick_add(ui.images.anim_epoch, ticks * tick))
 }
 
 /*
@@ -286,6 +515,11 @@ pictures whose size isn't known until they're decoded (a message's
 attached picture, ui_attachments.odin): the area doesn't change when it
 arrives. Clicking it opens the viewer. `save` says the viewer's Save was
 pressed for this one, for the caller to save it its own way.
+
+An animated one plays as the "Animate pictures" setting says: while the
+pointer is on it (the default), always, or never. `hovered` is for one
+that's only shown while the pointer is on something (a chip's preview):
+it plays unless the setting is never.
 */
 image_fitted :: proc(
 	ui: ^UI,
@@ -294,6 +528,7 @@ image_fitted :: proc(
 	data: []u8,
 	area: mu.Rect,
 	name := "",
+	hovered := false,
 ) -> (
 	save: bool,
 ) {
@@ -312,7 +547,21 @@ image_fitted :: proc(
 	}
 	w, h := conn.fit_box(t.width, t.height, int(area.w), int(area.h))
 	rect := mu.Rect{area.x, area.y, i32(w), i32(h)}
+	over := mu.mouse_over(ctx, rect)
+	playing := false
+	if t.anim {
+		switch settings.animate_pictures(&ui.settings) {
+		case .Hover:
+			playing = over || hovered
+		case .Always:
+			playing = true
+		case .Never:
+		}
+	}
 	t.frame = im.frame
+	if playing {
+		t.played = im.frame
+	}
 	im.textures[key] = t
 	append(&im.draws, render.Image_Draw{texture = t.texture})
 	mu.draw_icon(
@@ -321,7 +570,12 @@ image_fitted :: proc(
 		rect,
 		{255, 255, 255, 255},
 	)
-	if mu.mouse_over(ctx, rect) {
+	if playing {
+		anim_drawn(ui, t)
+	} else if t.anim {
+		anim_badge(ctx, rect, "GIF" if t.gif else "WEBP")
+	}
+	if over {
 		ui.chat.hovering = true // the pointing hand
 		if .LEFT in ctx.mouse_pressed_bits {
 			im.viewer, im.placed = key, false
@@ -396,7 +650,11 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	max_zoom := max(1, MAX_PIXEL_SIZE * f32(im.shown.width) / f32(max(fit_w, 1)))
 	viewer_input(ui, picture, max_zoom)
 	rect := viewer_rect(im, picture)
-	if t, known := im.textures[im.viewer]; known && t.state == .Ready {
+	if t, known := &im.textures[im.viewer]; known && t.state == .Ready {
+		// Drawn, also when its place in the chat isn't: kept, and played
+		// whatever the setting says (opening it asks to see it).
+		t.frame, t.played = im.frame, im.frame
+		anim_drawn(ui, t^)
 		append(&im.draws, render.Image_Draw{texture = t.texture})
 		// Zoomed in, the image is bigger than the picture area; only the
 		// part inside it is drawn.
@@ -527,9 +785,7 @@ trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 			return
 		}
 		t := im.textures[oldest_id]
-		if t.state == .Ready {
-			render.gpu_texture_delete(gpu, &t.texture)
-		}
+		texture_drop(im, gpu, oldest_id, &t)
 		delete_key(&im.textures, oldest_id)
 	}
 }
@@ -542,14 +798,38 @@ file_name :: proc(path: string) -> string {
 }
 
 // The key the server's sheet of emoji is decoded and kept under, beside
-// messages' pictures (which are their blob's id).
+// messages' pictures (which are their blob's id), and the one the frames
+// of one that moves are (with their blob's id).
 @(private = "file")
 EMOJI_SHEET_KEY :: u64(1) << 62
+@(private = "file")
+EMOJI_FRAMES_KEY :: u64(1) << 58
+
+// is_emoji_atlas is whether a picture's key is one of the server's
+// sheets of emoji cells, which have no smaller copies made (mipmaps):
+// those would mix neighbouring cells.
+@(private = "file")
+is_emoji_atlas :: proc(key: u64) -> bool {
+	return key & (EMOJI_SHEET_KEY | EMOJI_FRAMES_KEY) != 0 && key & AVATAR_KEY == 0
+}
+
+// Emoji_Timing is how the frames of one of the server's emoji that move
+// are laid out and shown: each one's time in ms (owned), the columns of
+// their grid, and the time of them all.
+Emoji_Timing :: struct {
+	durations: []u16,
+	columns:   int,
+	total:     int,
+}
 
 /*
 custom_emoji_icon is what draws the server's emoji number `index`: an
 icon id for mu.draw_icon, for this frame. False until the sheet is here
 and decoded. Call with the View locked.
+
+One that moves is drawn from its own frames (custom_emoji_frame) once
+they're here, while the window has the focus; till then, and while it
+hasn't, it's its first frame, in the sheet.
 */
 custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	v := ui.view
@@ -557,6 +837,9 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	e := &v.emoji
 	if e.blob == 0 || index < 0 || index >= len(e.names) {
 		return {}, false
+	}
+	if icon, moving := custom_emoji_frame(ui, index); moving {
+		return icon, true
 	}
 	key := EMOJI_SHEET_KEY | u64(e.blob)
 	t, known := im.textures[key]
@@ -573,12 +856,96 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	im.textures[key] = t
 	cols := proto.EMOJI_SHEET_COLUMNS
 	rows := (len(e.names) + cols - 1) / cols
-	// Cells are followed by a pixel of gap (EMOJI_STRIDE on the server).
-	stride := f32(e.cell + 1)
+	return emoji_cell(im, t.texture, index, cols, rows, e.cell), true
+}
+
+// emoji_cell draws cell `index` of a grid of `cols` x `rows` cells of
+// `cell` pixels, each followed by a pixel of gap (EMOJI_STRIDE on the
+// server).
+@(private = "file")
+emoji_cell :: proc(
+	im: ^UI_Images,
+	texture: render.Gpu_Texture,
+	index, cols, rows, cell: int,
+) -> mu.Icon {
+	stride := f32(cell + 1)
 	u0 := f32(index % cols) / f32(cols)
 	v0 := f32(index / cols) / f32(rows)
-	du := f32(e.cell) / (f32(cols) * stride)
-	dv := f32(e.cell) / (f32(rows) * stride)
-	append(&im.draws, render.Image_Draw{texture = t.texture, uv = {u0, v0, u0 + du, v0 + dv}})
-	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
+	du := f32(cell) / (f32(cols) * stride)
+	dv := f32(cell) / (f32(rows) * stride)
+	append(&im.draws, render.Image_Draw{texture = texture, uv = {u0, v0, u0 + du, v0 + dv}})
+	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1)
+}
+
+/*
+custom_emoji_frame draws the server's emoji `index` as it is now, if it
+moves and its frames are here: the frame is the one the time since the
+client started is in, so all of them that are the same move together.
+It asks for a frame when the next one is due, at most 30 a second.
+*/
+@(private = "file")
+custom_emoji_frame :: proc(ui: ^UI, index: int) -> (icon: mu.Icon, ok: bool) {
+	v := ui.view
+	im := &ui.images
+	e := &v.emoji
+	blob: proto.Blob_Id
+	for a in e.animated {
+		if a.index == index {
+			blob = a.blob
+		}
+	}
+	if blob == 0 || !anims_running(ui) {
+		return
+	}
+	key := EMOJI_FRAMES_KEY | u64(blob)
+	t, known := im.textures[key]
+	if !known {
+		img, here := v.blobs[blob]
+		if !here || img.state != .Ready {
+			return
+		}
+		f, read := proto.decode_emoji_frames(img.jpeg)
+		total := 0
+		for d in f.durations {
+			total += int(d)
+		}
+		if !read || total == 0 {
+			im.textures[key] = {
+				state = .Failed,
+				frame = im.frame,
+			}
+			return
+		}
+		if old, had := im.emoji_frames[key]; had {
+			delete(old.durations)
+		}
+		im.emoji_frames[key] = {
+			durations = slice.clone(f.durations),
+			columns   = f.columns,
+			total     = total,
+		}
+		enqueue_decode(im, key, f.image)
+		return
+	}
+	timing, timed := im.emoji_frames[key]
+	if t.state != .Ready || !timed {
+		return
+	}
+	t.frame = im.frame
+	im.textures[key] = t
+
+	now := int(time.duration_milliseconds(time.tick_since(im.anim_epoch)))
+	at := now % timing.total
+	frame, ends := 0, 0
+	for d, i in timing.durations {
+		ends += int(d)
+		if at < ends {
+			frame = i
+			break
+		}
+	}
+	anim_redraw_at(ui, time.tick_add(time.tick_now(), time.Duration(ends - at) * time.Millisecond))
+	n := len(timing.durations)
+	rows := (n + timing.columns - 1) / timing.columns
+	return emoji_cell(im, t.texture, frame, timing.columns, rows, e.cell), true
 }

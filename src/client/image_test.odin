@@ -6,7 +6,7 @@ import stbi "vendor:stb/image"
 
 import "client:clipboard"
 import "client:conn"
-import "client:webp"
+import "common:webp"
 import "common:proto"
 
 // test_image makes a w*h RGBA image: noise (so it doesn't compress to

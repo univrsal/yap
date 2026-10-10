@@ -8,7 +8,7 @@ rem (src\client\tray), tinydialogs (src\client\dialogs) and tinyaac (src\client\
 rem third-party sources are in deps\thirdparty,
 rem with the static C runtime
 rem (/MT) like Odin's vendor libraries, so no runtime DLL is needed.
-rem libopus (src\client\audio\opus) and libwebp (src\client\webp) are fetched
+rem libopus (src\client\audio\opus) and libwebp (src\common\webp) are fetched
 rem into .cache and built with CMake, which comes with Visual Studio's C++ CMake tools.
 setlocal
 cd /d "%~dp0"
@@ -57,15 +57,16 @@ rem scripts\opus.version to build it again.
 set OPUS=src\client\audio\opus
 if not exist %OPUS%\opus.lib call :build_opus || exit /b 1
 
-rem libwebp, for WebP pictures (src\client\webp): fetched into .cache on
+rem libwebp, for WebP pictures (src\common\webp): fetched into .cache on
 rem first use and built from the release source with CMake and the static
 rem C runtime, for size but with its SIMD code, and without threads. Delete
 rem libwebp.lib after changing scripts\webp.version to build it again.
-rem yap_webp.c, the part src\client\webp binds, is compiled against its
+rem yap_webp.c, the part src\common\webp binds, is compiled against its
 rem headers every time, like the C above.
-set WEBP=src\client\webp
+set WEBP=src\common\webp
 call :fetch_webp || exit /b 1
 if not exist %WEBP%\libwebp.lib call :build_webp || exit /b 1
+if not exist %WEBP%\libwebpdemux.lib call :build_webp || exit /b 1
 if not exist %WEBP%\libsharpyuv.lib call :build_webp || exit /b 1
 cl /nologo /MT /O1 /I.cache\%WEBP_NAME%\src /c %WEBP%\yap_webp.c /Fo:%WEBP%\yap_webp.obj || exit /b 1
 lib /nologo /out:%WEBP%\yap_webp.lib %WEBP%\yap_webp.obj || exit /b 1
@@ -211,6 +212,7 @@ cmake -S .cache\%WEBP_NAME% -B .cache\%WEBP_NAME%-windows -G "%WEBP_GEN%" ^
 	-DWEBP_BUILD_EXTRAS=OFF >nul || exit /b 1
 cmake --build .cache\%WEBP_NAME%-windows --parallel || exit /b 1
 copy /y .cache\%WEBP_NAME%-windows\libwebp.lib %WEBP%\libwebp.lib >nul || exit /b 1
+copy /y .cache\%WEBP_NAME%-windows\libwebpdemux.lib %WEBP%\libwebpdemux.lib >nul || exit /b 1
 copy /y .cache\%WEBP_NAME%-windows\libsharpyuv.lib %WEBP%\libsharpyuv.lib >nul || exit /b 1
 exit /b 0
 

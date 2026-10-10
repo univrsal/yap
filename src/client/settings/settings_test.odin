@@ -51,6 +51,28 @@ test_joined_servers :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_animate_pictures :: proc(t: ^testing.T) {
+	path := "yap-settings-animate-test.json"
+	defer os.remove(path)
+
+	// A file from before the setting: on hover.
+	testing.expect(t, os.write_entire_file(path, `{ "theme": "dark" }`) == nil)
+	s := settings_load(path)
+	testing.expect_value(t, animate_pictures(&s), Animate_Pictures.Hover)
+	set_setting(&s.animate_pictures, ANIMATE_PICTURES_NAMES[.Always])
+	settings_save(path, s)
+	settings_destroy(&s)
+
+	again := settings_load(path)
+	testing.expect_value(t, animate_pictures(&again), Animate_Pictures.Always)
+	set_setting(&again.animate_pictures, "sometimes") // not one it knows
+	testing.expect_value(t, animate_pictures(&again), Animate_Pictures.Hover)
+	set_setting(&again.animate_pictures, "never")
+	testing.expect_value(t, animate_pictures(&again), Animate_Pictures.Never)
+	settings_destroy(&again)
+}
+
+@(test)
 test_recent_servers_become_joined :: proc(t: ^testing.T) {
 	path := "yap-settings-recent-test.json"
 	defer os.remove(path)

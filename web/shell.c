@@ -642,3 +642,19 @@ EM_JS(int, yap_image_decode_height, (int req), {
 EM_JS(void, yap_image_decode_take, (int req, unsigned char *buf), {
 	Module.yapDecode.take(req, buf);
 });
+
+EM_JS(int, yap_image_decode_kind, (int req), {
+	return Module.yapDecode.kind(req);
+});
+
+EM_JS(int, yap_image_decode_shown, (int req), {
+	return Module.yapDecode.shown(req);
+});
+
+EM_JS(int, yap_image_decode_next, (int req), {
+	return Module.yapDecode.next(req);
+});
+
+EM_JS(void, yap_image_decode_close, (int req), {
+	Module.yapDecode.close(req);
+});

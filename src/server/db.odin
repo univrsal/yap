@@ -68,6 +68,7 @@ below or above the anchor.
 Stmt :: enum {
 	Meta_Get,
 	Meta_Set,
+	Meta_Delete_Like,
 	Blob_Add,
 	Blob_By_Id,
 	Blob_By_Hash,
@@ -195,6 +196,7 @@ Stmt :: enum {
 STMT_SQL := [Stmt]string {
 	.Meta_Get               = "SELECT value FROM meta WHERE key = ?1",
 	.Meta_Set               = "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = ?2",
+	.Meta_Delete_Like       = "DELETE FROM meta WHERE key LIKE ?1",
 	.Blob_Add               = "INSERT INTO blobs (sha256, size, kind, width, height, created, by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
 	.Blob_By_Id             = "SELECT sha256, size, kind, width, height, created FROM blobs WHERE id = ?1",
 	.Blob_By_Hash           = "SELECT id FROM blobs WHERE sha256 = ?1",
@@ -303,7 +305,7 @@ STMT_SQL := [Stmt]string {
 	.Purge_Files            = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0) FROM messages m WHERE m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Purge_Files_Conv       = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0) FROM messages m WHERE m.conv = ?4 AND m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Attach_Strip           = "UPDATE attachments SET blob = NULL WHERE msg = ?1",
-	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
 	.Blob_Touch             = "UPDATE blobs SET created = ?2 WHERE id = ?1",
 	.Attach_Add             = "INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?1, ?2, ?3, ?4, ?5)",
 	.Attach_Of_Msg          = "SELECT blob, name, size FROM attachments WHERE msg = ?1 ORDER BY idx",

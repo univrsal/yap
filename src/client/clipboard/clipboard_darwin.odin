@@ -35,6 +35,13 @@ _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: stri
 	if pb == nil {
 		return nil, "", .Unavailable
 	}
+	// GIF and WebP first, as either may be an animation (MIME_TYPES).
+	if d := msgSend(^NS.Data, pb, "dataForType:", NS.AT("com.compuserve.gif")); d != nil {
+		return copy_data(d, "image/gif", allocator)
+	}
+	if d := msgSend(^NS.Data, pb, "dataForType:", NS.AT("org.webmproject.webp")); d != nil {
+		return copy_data(d, "image/webp", allocator)
+	}
 	if d := msgSend(^NS.Data, pb, "dataForType:", NS.AT("public.png")); d != nil {
 		return copy_data(d, "image/png", allocator)
 	}

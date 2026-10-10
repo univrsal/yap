@@ -56,10 +56,12 @@ SetErrorCallback :: glfw.SetErrorCallback
 SetKeyCallback :: glfw.SetKeyCallback
 SetCharCallback :: glfw.SetCharCallback
 SetCursorPosCallback :: glfw.SetCursorPosCallback
+SetCursorEnterCallback :: glfw.SetCursorEnterCallback
 SetMouseButtonCallback :: glfw.SetMouseButtonCallback
 SetScrollCallback :: glfw.SetScrollCallback
 SetDropCallback :: glfw.SetDropCallback
 SetWindowIconifyCallback :: glfw.SetWindowIconifyCallback
+SetWindowFocusCallback :: glfw.SetWindowFocusCallback
 SetWindowRefreshCallback :: glfw.SetWindowRefreshCallback
 
 CLIENT_API :: glfw.CLIENT_API

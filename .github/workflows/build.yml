@@ -109,17 +109,19 @@ jobs:
           key: opus-windows-${{ hashFiles('scripts/opus.version', 'build.bat') }}
 
       - name: Cache libwebp
-        # build.sh and build.bat only build it when it isn't there; the
-        # small yap_webp.c is compiled every time against the source's
+        # scripts/build-webp.sh and build.bat only build it when it isn't
+        # there; the small yap_webp.c is compiled against the source's
         # headers, which they fetch.
         uses: actions/cache@v6
         with:
           path: |
-            src/client/webp/libwebp.a
-            src/client/webp/libsharpyuv.a
-            src/client/webp/libwebp.lib
-            src/client/webp/libsharpyuv.lib
-          key: webp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/webp.version', 'build.sh', 'build.bat') }}
+            src/common/webp/libwebp.a
+            src/common/webp/libwebpdemux.a
+            src/common/webp/libsharpyuv.a
+            src/common/webp/libwebp.lib
+            src/common/webp/libwebpdemux.lib
+            src/common/webp/libsharpyuv.lib
+          key: webp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/webp.version', 'scripts/build-webp.sh', 'build.bat') }}
 
       - name: Cache the SQLite source
         # build.sh and build.bat fetch it (scripts/fetch-sqlite.sh) when
@@ -159,6 +161,8 @@ jobs:
         run: |
           collections="-collection:common=src/common -collection:client=src/client"
           odin test src/common/proto $collections -vet -strict-style
+          odin test src/common/webp $collections -vet -strict-style
+          odin test src/common/gif $collections -vet -strict-style
           odin test src/client/hotkeys $collections -vet -strict-style
           odin test src/server $collections -vet -strict-style
 

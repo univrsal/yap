@@ -16,5 +16,8 @@ import stbi "vendor:stb/image"
 
 info_from_memory :: stbi.info_from_memory
 load_from_memory :: stbi.load_from_memory
+// Every frame of a GIF, and each one's delay in milliseconds (both freed
+// with image_free). Native only: the web client leaves GIFs to the page.
+load_gif_from_memory :: stbi.load_gif_from_memory
 image_free :: stbi.image_free
 failure_reason :: stbi.failure_reason

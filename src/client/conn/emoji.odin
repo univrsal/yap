@@ -10,17 +10,21 @@ The server's own emoji (src/common/proto/emoji.odin): their names, and
 the picture with all of them, which is fetched like a message's picture
 (blobs.odin) and kept however many of those there are. The server tells
 us of them when we log in, and again whenever its folder of them changes.
+Those that move come with a blob of their frames each (Emoji_Frames),
+fetched and kept the same way.
 */
 
 Emoji_Client :: struct {
 	blob:  proto.Blob_Id, // 0 for none
 	cell:  int,
-	names: [dynamic]string, // owned, in the sheet's order, which is by name
+	names:    [dynamic]string, // owned, in the sheet's order, which is by name
+	animated: [dynamic]proto.Emoji_Anim, // the ones that move
 }
 
 emoji_destroy :: proc(c: ^Voice_Client) {
 	emoji_clear(c)
 	delete(c.emoji.names)
+	delete(c.emoji.animated)
 	c.emoji = {}
 }
 
@@ -30,6 +34,7 @@ emoji_clear :: proc(c: ^Voice_Client) {
 		delete(n)
 	}
 	clear(&c.emoji.names)
+	clear(&c.emoji.animated)
 	c.emoji.blob = 0
 }
 
@@ -52,6 +57,10 @@ emoji_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	if e.blob != 0 {
 		blob_want(c, {blob = e.blob, size = u32(sheet.size)}, keep = true)
 	}
+	append(&e.animated, ..sheet.animated)
+	for a in sheet.animated {
+		blob_want(c, {blob = a.blob, size = u32(a.size)}, keep = true)
+	}
 	publish_emoji(c)
 	return true
 }
@@ -67,6 +76,7 @@ View_Emoji :: struct {
 	blob:     proto.Blob_Id,
 	cell:     int,
 	names:    [dynamic]string, // owned
+	animated: [dynamic]proto.Emoji_Anim, // the ones that move
 	revision: int, // bumped when they change
 }
 
@@ -81,6 +91,7 @@ publish_emoji :: proc(c: ^Voice_Client) {
 	for n in c.emoji.names {
 		append(&v.emoji.names, strings.clone(n))
 	}
+	append(&v.emoji.animated, ..c.emoji.animated[:])
 	v.emoji.revision += 1
 }
 
@@ -90,6 +101,7 @@ view_clear_emoji :: proc(v: ^View) {
 		delete(n)
 	}
 	clear(&v.emoji.names)
+	clear(&v.emoji.animated)
 	v.emoji.blob = 0
 }
 

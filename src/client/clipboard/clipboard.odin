@@ -44,14 +44,16 @@ MAX_PIXELS :: 7680 * 4320
 READ_TIMEOUT_MS :: 2000
 
 // Image formats, most preferred first, as MIME types. Linux offers these
-// directly; the other platforms map them to their own names.
+// directly; the other platforms map them to their own names. GIF and
+// WebP come first: either may be an animation, which a pasted picture
+// keeps (ui_paste.odin), and a still one is as good as the PNG of it.
 MIME_TYPES :: [?]string {
+	"image/gif",
+	"image/webp",
 	"image/png",
 	"image/jpeg",
 	"image/bmp",
 	"image/x-bmp",
-	"image/gif",
-	"image/webp",
 }
 
 // init prepares clipboard access. On Linux pass GLFW's Wayland display
@@ -68,13 +70,23 @@ destroy :: proc() {
 // read_image returns the image on the clipboard, decoded. Delete its
 // pixels with image_destroy.
 read_image :: proc(allocator := context.allocator) -> (img: Image, err: Error) {
-	data, mime, read_err := _read_encoded(context.allocator)
+	data, read_err := read_encoded(context.allocator)
 	if read_err != .None {
 		return {}, read_err
 	}
 	defer delete(data)
-	log.debugf("clipboard: %d bytes of %s", len(data), mime)
 	return decode(data, allocator)
+}
+
+// read_encoded returns the image on the clipboard as it's there (PNG,
+// GIF, ...: decode reads them all), owned.
+read_encoded :: proc(allocator := context.allocator) -> (data: []u8, err: Error) {
+	mime: string
+	data, mime, err = _read_encoded(allocator)
+	if err == .None {
+		log.debugf("clipboard: %d bytes of %s", len(data), mime)
+	}
+	return
 }
 
 image_destroy :: proc(img: ^Image, allocator := context.allocator) {

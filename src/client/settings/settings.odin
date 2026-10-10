@@ -36,6 +36,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"ui_scale": 1,
 		"chat_pictures": true,
 		"chat_scale": 1,
+		"animate_pictures": "hover",
 		"image_cache_mb": 256,
 		"image_cache_dir": "",
 		"mute_hotkey": "Ctrl+Shift+M",
@@ -107,6 +108,9 @@ Settings :: struct {
 	// The chat's text size, on top of ui_scale (it multiplies): 1 =
 	// the UI's, MIN_CHAT_SCALE..MAX_CHAT_SCALE.
 	chat_scale:              f32,
+	// When animated pictures in the chat play: "hover" (or unset) while
+	// the pointer is on one, "always" or "never" (animate_pictures).
+	animate_pictures:        string,
 	// How much of people's pictures and servers' emoji to keep on disk
 	// between sessions, in MB (0: none), and where; "" for the system's
 	// cache folder (conn/image_cache_native.odin).
@@ -237,6 +241,7 @@ settings_destroy :: proc(s: ^Settings) {
 	delete(s.username)
 	delete(s.quality)
 	delete(s.theme)
+	delete(s.animate_pictures)
 	delete(s.input_device)
 	delete(s.output_device)
 	delete(s.mute_hotkey)
@@ -251,6 +256,31 @@ settings_destroy :: proc(s: ^Settings) {
 	}
 	delete(s.hidden_dms)
 	s^ = {}
+}
+
+// When animated pictures in the chat (previews of attached files) play;
+// the image viewer plays them whatever this says.
+Animate_Pictures :: enum {
+	Hover, // while the pointer is on one: the default
+	Always,
+	Never,
+}
+
+ANIMATE_PICTURES_NAMES := [Animate_Pictures]string {
+	.Hover  = "hover",
+	.Always = "always",
+	.Never  = "never",
+}
+
+// animate_pictures is the setting of that name; anything it doesn't know
+// (an older file without it) is the default.
+animate_pictures :: proc(s: ^Settings) -> Animate_Pictures {
+	for name, a in ANIMATE_PICTURES_NAMES {
+		if s.animate_pictures == name {
+			return a
+		}
+	}
+	return .Hover
 }
 
 // set_setting replaces an owned string field.

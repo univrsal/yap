@@ -840,6 +840,8 @@ window_open :: proc(ui: ^UI) -> bool {
 	glfw.SetWindowIconifyCallback(ui.window, iconify_callback)
 	when !platform.WEB {
 		glfw.SetWindowRefreshCallback(ui.window, refresh_callback)
+		glfw.SetWindowFocusCallback(ui.window, focus_callback)
+		glfw.SetCursorEnterCallback(ui.window, cursor_enter_callback)
 	}
 	glfw.SetCursorPosCallback(ui.window, cursor_pos_callback)
 	glfw.SetMouseButtonCallback(ui.window, mouse_button_callback)
@@ -1930,6 +1932,13 @@ iconify_callback :: proc "c" (window: glfw.WindowHandle, iconified: i32) {
 	ui_redraw(g_ui)
 }
 
+// focus_callback draws a frame when the window gets or loses the focus:
+// animated pictures play only while it has it (anims_running).
+@(private = "file")
+focus_callback :: proc "c" (window: glfw.WindowHandle, focused: i32) {
+	ui_redraw(g_ui)
+}
+
 /*
 refresh_callback is the window needing its contents again: uncovered,
 say, where nothing keeps them. That's a frame drawn at the next turn
@@ -1956,6 +1965,21 @@ cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
 	ui_redraw(g_ui)
 	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
+}
+
+/*
+cursor_enter_callback takes the pointer out of microui's sight when it
+leaves the window, so nothing stays hovered (an animated picture that
+plays while the pointer is on it, say) - unless a button is held, as
+something is being dragged, which goes on outside the window.
+*/
+@(private = "file")
+cursor_enter_callback :: proc "c" (window: glfw.WindowHandle, entered: i32) {
+	context = platform.callback_context()
+	if entered == 0 && g_ui.ctx.mouse_down_bits == {} {
+		ui_redraw(g_ui)
+		mu.input_mouse_move(&g_ui.ctx, -100_000, -100_000)
+	}
 }
 
 @(private = "file")

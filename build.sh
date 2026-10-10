@@ -5,8 +5,8 @@
 # ./build.sh -debug -define:YAP_LOSS_PERCENT=30
 #
 # The server links SQLite (src/server/sqlite), whose source is fetched
-# into .cache the first time; the client links libwebp (src/client/webp)
-# the same way, built with CMake.
+# into .cache the first time; both link libwebp (src/common/webp) the
+# same way, built with CMake (scripts/build-webp.sh).
 #
 # The client links a trimmed-down miniaudio (src/client/audio/miniaudio), RNNoise
 # (src/client/audio/rnn) and traycon (src/client/tray), whose third-party sources
@@ -145,54 +145,17 @@ if [ -n "$opus_os" ] && [ ! -f "src/client/audio/opus/libopus_$opus_os.a" ]; the
 	cp ".cache/opus-$opus_os/libopus.a" "src/client/audio/opus/libopus_$opus_os.a"
 fi
 
-# libwebp, for WebP pictures (src/client/webp): built from the release
-# source (scripts/fetch-webp.sh, scripts/webp.version) for size, but with
-# its SIMD code, which decodes and compresses twice as fast for ~80 KB.
-# Without threads, which yap doesn't ask it for, so it needs no pthread.
-# Only built when it isn't there, as the CI keeps it between runs; delete
-# src/client/webp/libwebp.a after changing scripts/webp.version.
-webp=src/client/webp
-if [ ! -f "$webp/libwebp.a" ] || [ ! -f "$webp/libsharpyuv.a" ]; then
-	scripts/fetch-webp.sh .cache
-	. scripts/webp.version
-	echo "building $webp/libwebp.a"
-	cmake -S ".cache/libwebp-$webp_version" -B ".cache/libwebp-$webp_version-build" \
-		-DCMAKE_BUILD_TYPE=MinSizeRel \
-		-DBUILD_SHARED_LIBS=OFF \
-		-DWEBP_USE_THREAD=OFF \
-		-DWEBP_BUILD_ANIM_UTILS=OFF \
-		-DWEBP_BUILD_CWEBP=OFF \
-		-DWEBP_BUILD_DWEBP=OFF \
-		-DWEBP_BUILD_GIF2WEBP=OFF \
-		-DWEBP_BUILD_IMG2WEBP=OFF \
-		-DWEBP_BUILD_VWEBP=OFF \
-		-DWEBP_BUILD_WEBPINFO=OFF \
-		-DWEBP_BUILD_LIBWEBPMUX=OFF \
-		-DWEBP_BUILD_WEBPMUX=OFF \
-		-DWEBP_BUILD_EXTRAS=OFF >/dev/null
-	# A job count, since OpenBSD's make won't take a bare -j.
-	jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || getconf NPROCESSORS_ONLN)
-	cmake --build ".cache/libwebp-$webp_version-build" --parallel "$jobs"
-	cp ".cache/libwebp-$webp_version-build/libwebp.a" ".cache/libwebp-$webp_version-build/libsharpyuv.a" "$webp/"
-fi
-lib=$webp/libyap_webp.a
-if [ ! -f "$lib" ] || [ "$webp/yap_webp.c" -nt "$lib" ]; then
-	# The headers, which the CI's kept libraries come without.
-	scripts/fetch-webp.sh .cache
-	. scripts/webp.version
-	echo "building $lib"
-	${CC:-cc} -std=c99 -Os -I".cache/libwebp-$webp_version/src" -c "$webp/yap_webp.c" -o "$webp/yap_webp.o"
-	ar rcs "$lib" "$webp/yap_webp.o"
-	rm "$webp/yap_webp.o"
-fi
+# libwebp, for WebP pictures, which the client and the server both link
+# (src/common/webp).
+scripts/build-webp.sh
 
 # OpenBSD: two libraries Odin's own packages ask the linker for aren't
 # there. vendor:stb only links its prebuilt vendor/stb/lib on Linux and
 # macOS and wants system libraries anywhere else, so the ones the client
-# uses are built here from Odin's copy of the source. And core:sys/posix
-# links libdl, which OpenBSD doesn't have (dlopen is in libc), so an
-# empty one stands in for it.
-client_link_flags=
+# and the server (GIF emoji) use are built here from Odin's copy of the
+# source. And core:sys/posix links libdl, which OpenBSD doesn't have
+# (dlopen is in libc), so an empty one stands in for it.
+link_flags=
 if [ "$(uname -s)" = OpenBSD ]; then
 	bsd_libs=.cache/openbsd-libs
 	stb_src="$(odin root)/vendor/stb/src"
@@ -206,7 +169,7 @@ if [ "$(uname -s)" = OpenBSD ]; then
 		fi
 	done
 	[ -f "$bsd_libs/libdl.a" ] || ar rcs "$bsd_libs/libdl.a"
-	client_link_flags="-extra-linker-flags:-L$bsd_libs"
+	link_flags="-extra-linker-flags:-L$bsd_libs"
 fi
 
 # The version and commit (src/common/version.odin); one word per define,
@@ -214,5 +177,5 @@ fi
 version_defines=$(scripts/version-defines.sh)
 # The collections the imports name: "common:wlog", "client:audio/opus".
 collections="-collection:common=src/common -collection:client=src/client"
-odin build src/server $collections -vet -strict-style -out:bin/yap-server $version_defines "$@"
-odin build src/client $collections -vet -strict-style -out:bin/yap $client_link_flags $version_defines "$@"
+odin build src/server $collections -vet -strict-style -out:bin/yap-server $link_flags $version_defines "$@"
+odin build src/client $collections -vet -strict-style -out:bin/yap $link_flags $version_defines "$@"

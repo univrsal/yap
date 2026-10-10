@@ -253,6 +253,13 @@ audio_settings :: proc(ui: ^UI) {
 }
 
 @(private = "file")
+ANIMATE_CHOICE_LABELS := [settings.Animate_Pictures]string {
+	.Hover  = "On hover",
+	.Always = "Always",
+	.Never  = "Never",
+}
+
+@(private = "file")
 ui_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	// Dark, light, or whichever the system is (theme.odin).
@@ -263,6 +270,20 @@ ui_settings :: proc(ui: ^UI) {
 		if choice_button(ui, THEME_CHOICE_NAMES[choice], label, choice == current) &&
 		   choice != current {
 			settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
+			settings.settings_save(ui.opts.settings_path, ui.settings)
+			ui_redraw(ui)
+		}
+	}
+
+	// When animated pictures in the chat play (ui_images.odin).
+	mu.layout_row(ctx, {120, 130, 130, 130})
+	mu.label(ctx, "Animate pictures")
+	animate := settings.animate_pictures(&ui.settings)
+	for label, choice in ANIMATE_CHOICE_LABELS {
+		name := settings.ANIMATE_PICTURES_NAMES[choice]
+		id := fmt.tprintf("animate %s", name)
+		if choice_button(ui, id, label, choice == animate) && choice != animate {
+			settings.set_setting(&ui.settings.animate_pictures, name)
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 			ui_redraw(ui)
 		}

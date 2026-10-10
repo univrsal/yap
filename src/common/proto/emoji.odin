@@ -21,6 +21,18 @@ picture holding all of them, in cells of `cell` pixels, and their names
 in the order of the cells.
 
 	Emoji_Sheet  [blob u64][size u32][cell u16][count u16][name str8]...
+	             [animated u16]([index u16][frames blob u64][size u32])...
+
+Some of them move (an animated WebP or GIF in the folder): those are
+`animated`, each with the index of its cell (which shows its first
+frame) and a blob of kind Emoji_Frames holding all its frames, cells of
+the same size in a grid of `columns`, with how long each is shown:
+
+	Emoji_Frames  ["YEMA"][count u8][columns u8][duration_ms u16]...[WebP]
+
+The list of animated ones came later: a client from before stops reading
+after the names (and shows every emoji still), and a sheet from a server
+from before has none.
 
 A `:name:` that isn't one of the server's emoji is just text.
 */
@@ -49,6 +61,9 @@ MIN_EMOJI_NAME :: 2
 MAX_EMOJI_NAME :: 32
 // How many emoji a server may have of its own.
 MAX_CUSTOM_EMOJI :: 512
+// How many frames an animated one keeps (more are thinned out).
+MAX_EMOJI_FRAMES :: 64
+EMOJI_FRAMES_MAGIC :: "YEMA"
 
 // emoji_index is where a character is in EMOJI, if it's an emoji.
 emoji_index :: proc(r: rune) -> (index: int, ok: bool) {
@@ -117,10 +132,25 @@ is_emoji :: proc(text: string) -> bool {
 }
 
 Emoji_Sheet :: struct {
-	blob:  Blob_Id, // 0 for none: the server has no emoji of its own
-	size:  int, // the blob's, in bytes
-	cell:  int, // pixels
-	names: []string,
+	blob:     Blob_Id, // 0 for none: the server has no emoji of its own
+	size:     int, // the blob's, in bytes
+	cell:     int, // pixels
+	names:    []string,
+	// The ones that move, by the index of their cell.
+	animated: []Emoji_Anim,
+}
+
+// One of the server's emoji that moves: the index of its cell, and the
+// blob (of kind Emoji_Frames) with its frames, and how big that is.
+Emoji_Anim :: struct {
+	index: int,
+	blob:  Blob_Id,
+	size:  int,
+}
+
+// The most an Emoji_Sheet takes, for `names`, `animated` of them moving.
+emoji_sheet_max_size :: proc(names, animated: int) -> int {
+	return 8 + 4 + 2 + 2 + names * (1 + MAX_EMOJI_NAME) + 2 + animated * (2 + 8 + 4)
 }
 
 encode_emoji_sheet :: proc(out: []u8, sheet: Emoji_Sheet) -> []u8 {
@@ -134,11 +164,17 @@ encode_emoji_sheet :: proc(out: []u8, sheet: Emoji_Sheet) -> []u8 {
 	for n in sheet.names {
 		put_str8(&w, n)
 	}
+	put_u16(&w, u16(len(sheet.animated)))
+	for a in sheet.animated {
+		put_u16(&w, u16(a.index))
+		put_u64(&w, u64(a.blob))
+		put_u32(&w, u32(a.size))
+	}
 	return nil if w.overflow else out[:w.pos]
 }
 
 // decode_emoji_sheet reads one; its names are in the temp allocator and
-// point into `body`.
+// point into `body`, as is the list of animated ones.
 decode_emoji_sheet :: proc(body: []u8) -> (sheet: Emoji_Sheet, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -158,5 +194,85 @@ decode_emoji_sheet :: proc(body: []u8) -> (sheet: Emoji_Sheet, ok: bool) {
 		return
 	}
 	sheet.names = names
+	// From a server from before animated ones, the list isn't there.
+	if r.pos == len(body) {
+		return sheet, true
+	}
+	moving := int(get_u16(&r))
+	if r.overflow || moving > count {
+		return
+	}
+	animated := make([]Emoji_Anim, moving, context.temp_allocator)
+	for &a in animated {
+		a.index = int(get_u16(&r))
+		a.blob = Blob_Id(get_u64(&r))
+		a.size = int(get_u32(&r))
+		if a.index >= count {
+			return
+		}
+	}
+	if r.overflow {
+		return
+	}
+	sheet.animated = animated
 	return sheet, true
+}
+
+// What an Emoji_Frames blob holds: how long each frame is shown, in
+// milliseconds, how many columns the grid has, and the grid, a WebP.
+Emoji_Frames :: struct {
+	durations: []u16,
+	columns:   int,
+	image:     []u8,
+}
+
+// encode_emoji_frames makes an Emoji_Frames blob, in `allocator`.
+encode_emoji_frames :: proc(
+	f: Emoji_Frames,
+	allocator := context.allocator,
+) -> (
+	data: []u8,
+	ok: bool,
+) {
+	n := len(f.durations)
+	if n == 0 || n > MAX_EMOJI_FRAMES || f.columns <= 0 || f.columns > n || len(f.image) == 0 {
+		return
+	}
+	data = make([]u8, 4 + 1 + 1 + 2 * n + len(f.image), allocator)
+	w := Writer {
+		buf = data,
+	}
+	put_bytes(&w, transmute([]u8)string(EMOJI_FRAMES_MAGIC))
+	put_u8(&w, u8(n))
+	put_u8(&w, u8(f.columns))
+	for d in f.durations {
+		put_u16(&w, d)
+	}
+	put_bytes(&w, f.image)
+	return data, !w.overflow
+}
+
+// decode_emoji_frames reads one; the durations are in the temp allocator
+// and the image points into `data`.
+decode_emoji_frames :: proc(data: []u8) -> (f: Emoji_Frames, ok: bool) {
+	r := Reader {
+		buf = data,
+	}
+	if string(get_bytes(&r, 4)) != EMOJI_FRAMES_MAGIC {
+		return
+	}
+	n := int(get_u8(&r))
+	f.columns = int(get_u8(&r))
+	if r.overflow || n == 0 || n > MAX_EMOJI_FRAMES || f.columns <= 0 || f.columns > n {
+		return
+	}
+	f.durations = make([]u16, n, context.temp_allocator)
+	for &d in f.durations {
+		d = get_u16(&r)
+	}
+	if r.overflow || r.pos == len(data) {
+		return
+	}
+	f.image = data[r.pos:]
+	return f, true
 }

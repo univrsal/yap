@@ -136,9 +136,10 @@ Msg_Flags :: distinct bit_set[Msg_Flag;u8]
 
 // What a blob is, which decides how big it may be.
 Blob_Kind :: enum u8 {
-	Avatar      = 2, // somebody's profile picture
-	Emoji_Sheet = 3, // the server's custom emoji, as one image
-	File        = 4, // a message's attachment (attachments.odin)
+	Avatar       = 2, // somebody's profile picture
+	Emoji_Sheet  = 3, // the server's custom emoji, as one image
+	File         = 4, // a message's attachment (attachments.odin)
+	Emoji_Frames = 5, // the frames of one of them that moves (emoji.odin)
 }
 
 // The most files a message may carry.

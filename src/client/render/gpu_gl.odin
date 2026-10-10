@@ -241,6 +241,28 @@ gpu_texture_make :: proc(
 	return Gpu_Texture(tex)
 }
 
+// gpu_texture_update replaces all of an .Rgba texture without mipmaps,
+// `width` x `height`, with `pixels`: an animation's next frame.
+gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels: []u8) {
+	if tex == 0 || len(pixels) < int(width) * int(height) * 4 {
+		return
+	}
+	gl.BindTexture(gl.TEXTURE_2D, u32(tex))
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexSubImage2D(
+		gl.TEXTURE_2D,
+		0,
+		0,
+		0,
+		width,
+		height,
+		gl.RGBA,
+		gl.UNSIGNED_BYTE,
+		raw_data(pixels),
+	)
+	gl.BindTexture(gl.TEXTURE_2D, 0)
+}
+
 // gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture
 // that is `width` wide with `rows`.
 gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, rows: []u8) {

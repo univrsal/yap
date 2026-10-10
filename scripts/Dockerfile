@@ -5,7 +5,7 @@ FROM ubuntu:24.04 AS builder
 ARG ODIN_RELEASE=dev-2026-09
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates clang curl \
+    && apt-get install -y --no-install-recommends ca-certificates clang cmake curl make \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir /opt/odin \
     && curl --fail --location --silent --show-error \
@@ -18,7 +18,14 @@ WORKDIR /build
 
 COPY src/common ./src/common
 COPY src/server ./src/server
-COPY scripts/fetch-sqlite.sh scripts/sqlite.version ./scripts/
+COPY scripts/fetch-sqlite.sh scripts/sqlite.version \
+    scripts/fetch-webp.sh scripts/build-webp.sh scripts/webp.version ./scripts/
+
+# libwebp, for animated emoji (src/common/webp), and Odin's stb_image,
+# which reads GIF emoji: a release doesn't always ship it built.
+RUN set -eux; \
+    CC=clang sh scripts/build-webp.sh; \
+    [ -f /opt/odin/vendor/stb/lib/stb_image.a ] || make -C /opt/odin/vendor/stb/src
 
 RUN set -eux; \
     . scripts/sqlite.version; \

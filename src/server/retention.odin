@@ -82,7 +82,7 @@ RETENTION_WAIT :: 2 * time.Millisecond
 DAY_MS :: 24 * 60 * 60 * 1000
 
 // Where the database keeps the purge somebody asked for, while it goes
-// on, and the emoji sheet that's in use (emoji.odin).
+// on, and the emoji sheet that's in use (emoji.odin), and its frames.
 @(private = "file")
 PURGE_META_WHAT :: "purge_what"
 @(private = "file")
@@ -92,6 +92,9 @@ PURGE_META_BELOW :: "purge_below"
 @(private = "file")
 PURGE_META_CURSOR :: "purge_cursor"
 EMOJI_SHEET_META :: "emoji_sheet"
+// And the frames of the emoji that move, one key each: this and the
+// blob's id (Blob_Scan keeps every blob named so).
+EMOJI_FRAMES_META :: "emoji_frames_"
 
 Purge_Step_Kind :: enum u8 {
 	Messages,

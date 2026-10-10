@@ -328,6 +328,7 @@ view_destroy :: proc(v: ^View) {
 	delete(v.files)
 	delete(v.pins.messages)
 	delete(v.emoji.names)
+	delete(v.emoji.animated)
 	delete(v.accounts)
 	delete(v.devices)
 	view_destroy_invites(v)

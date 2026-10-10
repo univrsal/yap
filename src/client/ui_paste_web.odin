@@ -5,6 +5,7 @@ import "client:conn"
 import "client:platform"
 import log "common:wlog"
 import "core:strings"
+import "core:sync"
 import mu "vendor:microui"
 
 /*
@@ -60,7 +61,8 @@ web_copy_text :: proc(text: string) -> bool {
 // The page's finished picture, kept by the page under `handle` like a
 // picked file: attached in the composer with the focus, else the page's.
 // Its name says what it was compressed to: a WebP, or a JPEG where the
-// browser can't write WebP.
+// browser can't write WebP; or, named pasted-animation, an animated GIF
+// or WebP as it was.
 @(export)
 web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64) {
 	context = platform.callback_context()
@@ -68,8 +70,18 @@ web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 		conn.yap_file_close(handle)
 		return
 	}
-	ext := "webp" if strings.has_suffix(string(name[:max(name_len, 0)]), ".webp") else "jpg"
-	log.infof("pasted an image, %d KB as %s", int(size) / 1024, "WebP" if ext == "webp" else "JPEG")
+	given := string(name[:max(name_len, 0)])
+	ext := "jpg"
+	for e in ([]string{"webp", "gif"}) {
+		if strings.has_suffix(given, e) {
+			ext = e
+		}
+	}
+	if strings.has_prefix(given, "pasted-animation") {
+		log.infof("pasted an animated %s, %d KB, as it is", ext, int(size) / 1024)
+	} else {
+		log.infof("pasted an image, %d KB as %s", int(size) / 1024, ext)
+	}
 	at := Attach_Target{g_ui.page, 0}
 	ctx := &g_ui.ctx
 	for &t, i in g_ui.threads {
@@ -84,6 +96,18 @@ web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 	}
 	attach_add(g_ui, at, {picked})
 	ui_redraw(g_ui)
+}
+
+// How big a file the server shown takes (0: none), for the page to say
+// whether a pasted animation goes as it is.
+@(export)
+web_max_attachment :: proc "c" () -> f64 {
+	context = platform.callback_context()
+	if g_ui == nil || g_ui.view == nil {
+		return 0
+	}
+	sync.guard(&g_ui.view.mutex)
+	return f64(g_ui.view.max_attachment)
 }
 
 // The page could not make a picture of what was pasted.

@@ -3,10 +3,10 @@ package clipboard
 
 import log "common:wlog"
 
-import "client:webp"
+import "common:webp"
 
 // decode_webp is decode for a WebP picture, which stb_image can't read:
-// libwebp (client:webp) decodes it straight into the result. Only a still
+// libwebp (common:webp) decodes it straight into the result. Only a still
 // picture; an animation is refused.
 @(private)
 decode_webp :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: Error) {

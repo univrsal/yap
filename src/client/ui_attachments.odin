@@ -397,7 +397,7 @@ chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 	defer mu.end_window(ctx)
 	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
 	render.draw_border(ctx, r, ctx.style.colors[.BORDER])
-	image_fitted(ui, p.key, .Wanted, nil, {x + pad, y + pad, pic_w, pic_h})
+	image_fitted(ui, p.key, .Wanted, nil, {x + pad, y + pad, pic_w, pic_h}, hovered = true)
 	mu.draw_text(
 		ctx,
 		ctx.style.font,

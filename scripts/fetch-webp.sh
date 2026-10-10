@@ -1,7 +1,7 @@
 #!/bin/sh
 # Makes sure the libwebp source is unpacked in <deps-dir>/libwebp-<version>,
 # fetching and checking the release tarball if need be. build.sh builds
-# it into src/client/webp (build.bat does the same on Windows); a web
+# it into src/common/webp (build.bat does the same on Windows); a web
 # build leaves pictures to the browser and doesn't need it.
 # Usage: scripts/fetch-webp.sh <deps-dir>
 set -e

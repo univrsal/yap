@@ -8,11 +8,15 @@ import mu "vendor:microui"
 
 import "client:clipboard"
 import "client:conn"
+import "common:gif"
+import "common:webp"
 
 /*
 A pasted image is attached to the message being written in the composer
 it was pasted in (ui.paste_to), as a WebP named for when it was pasted
-(pasted_image_name), and goes with that message like any other file.
+(pasted_image_name), and goes with that message like any other file. An
+animated GIF or WebP is attached as it is, if the server takes a file
+that big; otherwise it's made a WebP of its first frame like any other.
 
 Pasting an image runs on a thread of its own: the program that owns the
 clipboard may take a moment to hand the data over, and a large image
@@ -33,6 +37,12 @@ Paste_Job :: struct {
 	ok:                 bool, // the image was scaled and compressed
 	target:             Attach_Target, // where it goes
 	source_w, source_h: int, // before scaling, for the log
+	// An animated GIF or WebP that fits max_size (what the server takes)
+	// is attached as it is (owned), and `ext` says which it is; anything
+	// else is decoded and compressed into `image`.
+	max_size:           u64,
+	animated:           []u8,
+	ext:                string,
 }
 
 // paste_start reads the clipboard in the background, unless a paste is
@@ -44,6 +54,10 @@ paste_start :: proc(ui: ^UI) {
 	}
 	job := new(Paste_Job)
 	job.target = ui.paste_to
+	{
+		sync.guard(&ui.view.mutex)
+		job.max_size = ui.view.max_attachment
+	}
 	job.thread = thread.create_and_start_with_poly_data(job, paste_work, init_context = context)
 	if job.thread == nil {
 		log.error("could not start the paste thread")
@@ -55,16 +69,40 @@ paste_start :: proc(ui: ^UI) {
 
 @(private = "file")
 paste_work :: proc(job: ^Paste_Job) {
-	img, err := clipboard.read_image()
-	defer clipboard.image_destroy(&img)
+	defer {
+		sync.atomic_store(&job.done, true)
+		// The UI may be waiting for input; let it pick the result up now.
+		ui_wake()
+	}
+	data, err := clipboard.read_encoded()
 	job.err = err
-	if err == .None {
+	if err != .None {
+		return
+	}
+	if ext, is_anim := animation_ext(data); is_anim && u64(len(data)) <= job.max_size {
+		job.animated, job.ext, job.ok = data, ext, true
+		return
+	}
+	defer delete(data)
+	img, decode_err := clipboard.decode(data)
+	defer clipboard.image_destroy(&img)
+	job.err = decode_err
+	if decode_err == .None {
 		job.source_w, job.source_h = img.width, img.height
 		job.image, job.ok = image_prepare(img)
 	}
-	sync.atomic_store(&job.done, true)
-	// The UI may be waiting for input; let it pick the result up now.
-	ui_wake()
+}
+
+// animation_ext is "gif" or "webp" for an animation in either, which a
+// paste keeps as it is: compressing it would leave its first frame.
+animation_ext :: proc(data: []u8) -> (ext: string, ok: bool) {
+	if webp.is_webp(data) && webp.is_animation(data) {
+		return "webp", true
+	}
+	if info, read := gif.info(data); read && info.frames > 1 {
+		return "gif", true
+	}
+	return
 }
 
 // paste_poll finishes a paste once its thread is done. It's called on
@@ -79,11 +117,28 @@ paste_poll :: proc(ui: ^UI) {
 	ui.paste = nil
 	defer {
 		conn.chat_image_destroy(&job.image)
+		delete(job.animated)
 		free(job)
 	}
 
 	switch job.err {
 	case .None:
+		if job.animated != nil {
+			log.infof(
+				"pasted an animated %s, %d KB, as it is",
+				"GIF" if job.ext == "gif" else "WebP",
+				len(job.animated) / 1024,
+			)
+			// The composer takes the bytes over.
+			picked := Picked_File {
+				data = job.animated,
+				name = pasted_image_name(ui, job.ext),
+				size = u64(len(job.animated)),
+			}
+			job.animated = nil
+			attach_add(ui, job.target, {picked})
+			return
+		}
 		if !job.ok {
 			log.warn("the pasted image could not be prepared for sending")
 			return
@@ -146,6 +201,7 @@ paste_wait :: proc(ui: ^UI) {
 	thread.join(job.thread)
 	thread.destroy(job.thread)
 	conn.chat_image_destroy(&job.image)
+	delete(job.animated)
 	free(job)
 	ui.paste = nil
 }
