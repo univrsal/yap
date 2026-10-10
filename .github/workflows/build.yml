@@ -137,7 +137,7 @@ jobs:
         # Odin's release doesn't always ship these built for Linux/macOS.
         run: |
           stb="$(odin root)/vendor/stb/src"
-          [ -f "$(odin root)/vendor/stb/lib/stb_image.a" ] || make -C "$stb"
+          [ -f "$(odin root)/vendor/stb/lib/stb_image.a" ] || sh "$stb/build_stb.sh"
 
       - name: Build (Linux, macOS)
         if: runner.os != 'Windows'

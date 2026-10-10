@@ -25,7 +25,7 @@ COPY scripts/fetch-sqlite.sh scripts/sqlite.version \
 # which reads GIF emoji: a release doesn't always ship it built.
 RUN set -eux; \
     CC=clang sh scripts/build-webp.sh; \
-    [ -f /opt/odin/vendor/stb/lib/stb_image.a ] || make -C /opt/odin/vendor/stb/src
+    [ -f /opt/odin/vendor/stb/lib/stb_image.a ] || CC=clang sh /opt/odin/vendor/stb/src/build_stb.sh unix
 
 RUN set -eux; \
     . scripts/sqlite.version; \
