@@ -18,7 +18,7 @@ A sloppy, minimal and limited VOIP application.
 - Global hotkeys (requires `input` group on wayland)
 - Option to share audio of a specific application (native clients only)
 
-The `extended` branch contains a more feature-complete chat application with
+The [extended](https://github.com/univrsal/yap/tree/extended) branch contains a more feature-complete chat application with
 proper text channels, message persistence, user accounts, file attachments
 etc.
 
