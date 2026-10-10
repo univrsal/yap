@@ -135,9 +135,12 @@ jobs:
       - name: Odin's stb libraries
         if: runner.os != 'Windows'
         # Odin's release doesn't always ship these built for Linux/macOS.
+        # Newer releases build them with build_stb.sh, older ones (up to
+        # at least dev-2026-07) with a Makefile.
         run: |
           stb="$(odin root)/vendor/stb/src"
-          [ -f "$(odin root)/vendor/stb/lib/stb_image.a" ] || sh "$stb/build_stb.sh"
+          [ -f "$(odin root)/vendor/stb/lib/stb_image.a" ] && exit 0
+          if [ -f "$stb/build_stb.sh" ]; then sh "$stb/build_stb.sh"; else make -C "$stb"; fi
 
       - name: Build (Linux, macOS)
         if: runner.os != 'Windows'
