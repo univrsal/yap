@@ -1,25 +1,22 @@
 ![header](scripts/demo.png)
 
-A sloppy and minimal chat and VOIP application.
+A sloppy chat and VOIP application.
 
-- Single binary client and server (client about 4 MiB, server about 2.2)
+- Single binary client and server (client about 8 MiB, server about 4 MiB)
 - Runs on Linux, Windows, macOS (and optionally in a browser)
 - Uses only UDP (WebSocket for web client)
-- Minimal runtime dependencies (Mostly only Glfw)
+- Minimal runtime dependencies (Basically only Glfw, some optional ones for extra features)
 - Uses [noise protocol](https://noiseprotocol.org) for encryption between client and server\*
 - Uses [RNN](https://github.com/xiph/rnnoise) and Opus (with three options 24kbit/s, 64kbit/s and 192kbit/s stereo)
-- Channels to subscribe to, each with a chat and a voice room: looking at a
-  channel and talking in it are separate, and nobody is in voice until they
-  join
-- Chat in every channel, kept on the server for good and read back a page at
-  a time; messages arrive for all your channels, not only the one on screen
-- Paste images from the clipboard into a message, as an attachment (stored once, however often posted)
-- Per user volumes, muting and poking
-- Accounts, made by an admin; a device logs in once and is known by its key after
+- Channels to subscribe to, each with a chat and a voice room
+- Persistent chats and DMs stored on server
+- Client can join multiple servers
+- File attachments
+- Optional account registration via email confirmation
+- Invite codes
 - Optional server password; the client remembers the last 10 servers
 - Basic user roles with permissions
 - Per user direct chats with file transfers
-- Message file attachments stored on server
 - Message reactions
 - Custom server emotes
 - Per channel pinned messages
@@ -52,21 +49,5 @@ yap-server account list
 yap-server account add <username>      # prints a first password
 yap-server account passwd <username>   # a new one, if it was forgotten
 ```
-
-A device logs in once; after that the server knows it by its key.
-
-Messages and their files are kept for good unless `retention` in the
-config says otherwise (`message_days`, `file_days`, `blob_megabytes`; 0
-keeps everything); the server applies it at startup and every hour. Whoever has
-the Purge permission can also purge from the client's settings, and with
-the server stopped:
-
-```sh
-yap-server purge all 90d               # messages older than 90 days
-yap-server purge Lobby 2026-01-01 files   # only the files, before a day
-```
-
-Pinned messages are kept. Purged content is gone from the database and
-the `blobs` folder, but not from backups taken before.
 
 \*I have no idea how encryption works
