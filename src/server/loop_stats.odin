@@ -274,15 +274,11 @@ loop_report :: proc(s: ^Server) {
 			100 * f64(l.totals[phase]) / f64(l.busy),
 		)
 	}
-<<<<<<< HEAD
 	if slow > 0 {
 		log.info(strings.to_string(b))
 	} else {
 		log.debug(strings.to_string(b))
 	}
-=======
-	log.info(strings.to_string(b))
->>>>>>> loop-timing
 	l^ = {
 		since = now,
 	}
