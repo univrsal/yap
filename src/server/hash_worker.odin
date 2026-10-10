@@ -5,6 +5,7 @@ import "core:crypto/argon2id"
 import "core:sync"
 import "core:thread"
 
+import "common:memtrack"
 import "common:proto"
 
 /*
@@ -192,6 +193,7 @@ hash_poll :: proc(w: ^Hash_Worker) -> (result: Hash_Result, ok: bool) {
 
 @(private = "file")
 hash_worker_run :: proc(w: ^Hash_Worker) {
+	memtrack.thread_init()
 	for {
 		job: Hash_Job
 		{

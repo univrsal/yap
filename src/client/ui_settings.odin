@@ -37,6 +37,7 @@ Client_Category :: enum {
 	Image_Cache,
 	Trusted_Servers,
 	Install,
+	Memory,
 	Log,
 	About,
 }
@@ -50,6 +51,7 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 	.Image_Cache     = "Image cache",
 	.Trusted_Servers = "Trusted servers",
 	.Install         = "Install",
+	.Memory          = "Memory",
 	.Log             = "Log",
 	.About           = "About",
 }
@@ -170,6 +172,8 @@ settings_page :: proc(ui: ^UI) {
 		trusted_servers_settings(ui)
 	case .Install:
 		install_settings(ui)
+	case .Memory:
+		memory_settings(ui) // ui_memory.odin
 	case .Log:
 	case .About:
 		about_settings(ui)

@@ -17,10 +17,22 @@ main() starts the client and then lets the browser drive it: web_frame
 runs once for every frame the browser draws.
 */
 #include <emscripten.h>
+#include <malloc.h>
 #include <stdio.h>
 
 extern int web_start(void);
 extern void web_frame(void);
+
+/* ---- memory ---- */
+
+/* What of malloc's memory is in use and what it keeps free, for the
+   memory page (src/common/memtrack/process_web.odin): mallinfo returns
+   its struct by value, which is simpler handed over as two numbers. */
+void yap_malloc_stats(int *in_use, int *free_bytes) {
+	struct mallinfo info = mallinfo();
+	*in_use = info.uordblks;
+	*free_bytes = info.fordblks;
+}
 
 /* ---- localStorage ---- */
 

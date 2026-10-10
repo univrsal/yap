@@ -222,6 +222,9 @@ UI :: struct {
 	image_cache:         conn.Image_Cache,
 	image_cache_dir_buf: [512]u8,
 	image_cache_dir_len: int,
+	// Where the memory goes: the settings' page, the line in the log
+	// (ui_memory.odin).
+	memory:              UI_Memory,
 	// Keys microui has no name for, pressed since the last frame.
 	keys:                bit_set[Extra_Key],
 	// A message was picked to edit, or a mention completed: its composer
@@ -457,6 +460,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	join_frame(ui)
 	rail_frame(ui)
 	switch_now(ui)
+	memory_frame(ui)
 
 	// Wake up for input, or often enough for the work below that isn't
 	// drawing; a frame is only drawn when there's something new to show
@@ -733,6 +737,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	conn.image_cache_destroy(&ui.image_cache)
 	ui_video_destroy(ui)
 	app_audio_destroy(ui)
+	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
 	// Whatever the paste thread is doing, it uses the clipboard, so it
 	// has to be done before that.

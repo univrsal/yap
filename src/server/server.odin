@@ -97,6 +97,8 @@ Server :: struct {
 	// When statuses were last looked at for ones that have ended
 	// (profiles.odin).
 	status_checked: time.Tick,
+	// When the memory was last logged (memory.odin).
+	memory_log:     Memory_Log,
 	// The calls going on (calls.odin).
 	calls:          Calls,
 	sock:           net.UDP_Socket,
@@ -212,6 +214,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	defer auth_destroy(&s.auth)
 	email_open(&s.email, settings.email)
 	defer email_close(&s.email)
+	memory_log_open(&s, settings.memory_log)
 	if s.registration.verify_email && !s.email.enabled {
 		log.warn(
 			"registration asks for addresses to be verified, but there's no email, so they aren't",
@@ -276,6 +279,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		retention_sync(&s)
 		verify_sync(&s)
 		db_exercise(&s)
+		memory_sync(&s)
 		// What this turn wrote, in one go.
 		db_commit(&s.db)
 

@@ -10,6 +10,7 @@ import "client:audio"
 import "client:conn"
 import "client:platform"
 import "common:."
+import "common:memtrack"
 
 Options :: struct {
 	server:             string `args:"pos=0" usage:"Server to connect to, host or host:port (default port 7777). Required with -headless; otherwise the UI connects to it right away."`,
@@ -35,6 +36,9 @@ Options :: struct {
 }
 
 main :: proc() {
+	// Before anything allocates, so that it's all counted (ui_memory.odin).
+	context.allocator = memtrack.init()
+
 	opt := Options {
 		log_level = .info,
 	}

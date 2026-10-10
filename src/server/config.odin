@@ -5,6 +5,7 @@ import "core:log"
 import "core:os"
 import "core:reflect"
 import "core:strings"
+import "core:time"
 
 import "common:."
 import "common:proto"
@@ -22,6 +23,7 @@ once at startup:
 		"max_sessions": 256,
 		"log_level": "info",
 		"log_file": "",
+		"memory_log_minutes": 60,
 		"relay": {
 			"enabled": false,
 			"port": 8080,
@@ -76,6 +78,9 @@ max_sessions  how many sessions there may be at once, which is about
            or 0, it's 512.
 log_level  the lowest level to log: debug, info, warn or error.
 log_file   also append the log to this file; empty for none.
+memory_log_minutes  log a line about the server's memory this often
+           (memory.odin), to see a trend in a long log; 0 for never.
+           Left out, it's 60.
 relay      serve the web client over HTTP on `port` and relay browsers to
            this server over WebSockets (relay.odin), with the web build
            in `web_dir`; empty for web/out, or web in a release archive.
@@ -152,20 +157,21 @@ LEGACY_KEY_FILE :: "server.key"
 LEGACY_CHANNELS_FILE :: "channels.json"
 
 Config :: struct {
-	name:         string,
-	port:         int,
-	key:          string,
-	password:     string,
-	data_dir:     string,
-	max_sessions: int,
-	log_level:    string,
-	log_file:     string,
-	relay:        Relay_Config,
-	channels:     []Channel_Config,
-	retention:    Retention_Config,
-	attachments:  Attach_Config,
-	email:        Email_Config,
-	registration: Registration_Config,
+	name:               string,
+	port:               int,
+	key:                string,
+	password:           string,
+	data_dir:           string,
+	max_sessions:       int,
+	log_level:          string,
+	log_file:           string,
+	memory_log_minutes: int,
+	relay:              Relay_Config,
+	channels:           []Channel_Config,
+	retention:          Retention_Config,
+	attachments:        Attach_Config,
+	email:              Email_Config,
+	registration:       Registration_Config,
 }
 
 Registration_Config :: struct {
@@ -210,6 +216,7 @@ Settings :: struct {
 	max_sessions: int,
 	log_level:    common.Log_Level,
 	log_file:     string,
+	memory_log:   time.Duration, // 0: never
 	relay:        Relay_Config, // web_dir resolved, see default_web_dir
 	channels:     []string,
 	// The database and the blobs' folder, in the data directory (db.odin,
@@ -229,6 +236,7 @@ default_config :: proc() -> Config {
 	return {
 		port = proto.DEFAULT_PORT,
 		log_level = "info",
+		memory_log_minutes = 60,
 		relay = {port = DEFAULT_RELAY_PORT, web_dir = default_web_dir()},
 		attachments = {max_megabytes = 100, rate_kb = 2048},
 		email = {check_auth_results = true},
@@ -351,6 +359,10 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		log.errorf("%s: invalid max_sessions %d", path, cfg.max_sessions)
 		return
 	}
+	if cfg.memory_log_minutes < 0 {
+		log.errorf("%s: invalid memory_log_minutes %d", path, cfg.memory_log_minutes)
+		return
+	}
 	name_buf := make([]u8, proto.MAX_SERVER_NAME)
 	name := proto.sanitize_text(cfg.name, name_buf)
 	if len(cfg.password) > proto.MAX_PASSWORD_SIZE {
@@ -436,6 +448,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		max_sessions = cfg.max_sessions if cfg.max_sessions > 0 else DEFAULT_MAX_SESSIONS,
 		log_level    = level,
 		log_file     = cfg.log_file,
+		memory_log   = time.Duration(cfg.memory_log_minutes) * time.Minute,
 		relay        = relay,
 		retention    = r,
 		attachments  = attach,

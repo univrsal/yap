@@ -13,6 +13,7 @@ import "core:thread"
 import "core:time"
 import "core:unicode/utf8"
 
+import "common:memtrack"
 import "common:proto"
 
 /*
@@ -275,6 +276,7 @@ email_config_destroy :: proc(c: ^Email_Config) {
 // every poll_seconds.
 @(private = "file")
 email_run :: proc(e: ^Email) {
+	memtrack.thread_init()
 	every := time.Duration(e.config.poll_seconds) * time.Second
 	next_poll := time.tick_now()
 	jobs := make([dynamic]Email_Job)

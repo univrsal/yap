@@ -99,4 +99,12 @@ foreign lib {
 	column_text :: proc(stmt: ^Stmt, column: c.int) -> [^]u8 ---
 	column_blob :: proc(stmt: ^Stmt, column: c.int) -> rawptr ---
 	column_bytes :: proc(stmt: ^Stmt, column: c.int) -> c.int ---
+
+	// What a connection takes (DBSTATUS_*); kept without MEMSTATUS.
+	db_status :: proc(db: ^Connection, op: c.int, current: ^c.int, highwater: ^c.int, reset: c.int) -> c.int ---
 }
+
+// db_status ops: the page cache, the schema, prepared statements.
+DBSTATUS_CACHE_USED :: 1
+DBSTATUS_SCHEMA_USED :: 2
+DBSTATUS_STMT_USED :: 3

@@ -2,6 +2,7 @@
 package client
 
 import "client:conn"
+import "common:memtrack"
 import "core:sync"
 import "core:thread"
 
@@ -20,6 +21,7 @@ net_stop :: proc(ns: ^Net_Session) {
 
 @(private = "file")
 net_thread :: proc(ns: ^Net_Session) {
+	memtrack.thread_init()
 	c := ns.client
 	defer conn.client_close(c)
 	if !conn.client_open(c, ns.key_path, ns.server, ns.known_servers, ns.password) {

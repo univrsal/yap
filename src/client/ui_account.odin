@@ -112,6 +112,7 @@ ui_account_opened :: proc(ui: ^UI) {
 	ui.account.mistake = ""
 	ui.account.notice_reset = true
 	ui_invites_opened(ui)
+	ui_memory_opened(ui)
 }
 
 // wipe clears a buffer that held a password.
@@ -527,6 +528,7 @@ Server_Category :: enum {
 	Accounts,
 	Invites,
 	Purge,
+	Memory,
 }
 
 SERVER_CATEGORY_NAMES := [Server_Category]string {
@@ -536,6 +538,7 @@ SERVER_CATEGORY_NAMES := [Server_Category]string {
 	.Accounts    = "Accounts",
 	.Invites     = "Invite codes",
 	.Purge       = "Purge history",
+	.Memory      = "Memory",
 }
 
 // server_settings_categories is which of the server's tab's categories
@@ -544,7 +547,7 @@ SERVER_CATEGORY_NAMES := [Server_Category]string {
 server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category]) {
 	c += {.Account}
 	if me, known := v.accounts[v.me]; known && .Owner in me.flags {
-		c += {.Server_Info}
+		c += {.Server_Info, .Memory}
 	}
 	if .Manage_Roles in v.permissions {
 		c += {.Roles}
@@ -599,6 +602,8 @@ server_settings :: proc(ui: ^UI, c: Server_Category) {
 		invites_settings(ui, v)
 	case .Purge:
 		purge_settings(ui)
+	case .Memory:
+		server_memory_settings(ui, v) // ui_memory.odin
 	}
 }
 

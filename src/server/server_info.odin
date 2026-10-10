@@ -79,6 +79,8 @@ server_info_request :: proc(
 	#partial switch op {
 	case .Server_Info_Set:
 		server_info_set(s, u, id, body)
+	case .Server_Memory:
+		memory_request(s, u, id) // memory.odin
 	case:
 		return false
 	}

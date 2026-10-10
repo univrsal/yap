@@ -93,6 +93,7 @@ View :: struct {
 	devices:        [dynamic]Dir_Device,
 	devices_count:  int,
 	invites:        View_Invites, // invites.odin
+	server_memory:  View_Server_Memory, // server_info.odin
 	notice:         View_Notice,
 	users:          map[proto.User_Num]View_User,
 	// Our channels, in the order to list them (convs.odin); the
@@ -261,6 +262,7 @@ view_reset :: proc(v: ^View) {
 	view_clear_accounts(v)
 	view_clear_devices(v)
 	view_clear_invites(v)
+	view_clear_server_memory(v)
 	v.registration = {}
 	delete(v.server_email)
 	v.server_email = ""
@@ -288,6 +290,7 @@ publish_logged_out :: proc(c: ^Voice_Client) {
 	view_clear_accounts(v)
 	view_clear_devices(v)
 	view_clear_invites(v)
+	view_clear_server_memory(v)
 	clear(&v.buddies)
 	clear(&v.last_seen)
 	v.my_num, v.me, v.permissions = 0, 0, {}

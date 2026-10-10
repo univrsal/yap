@@ -4,6 +4,8 @@ package platform
 import "base:runtime"
 import "core:mem"
 
+import "common:memtrack"
+
 /*
 Memory in a web build.
 
@@ -45,7 +47,8 @@ g_web_context: runtime.Context
 // the heap and an arena on top of it for temporaries.
 web_context_init :: proc "contextless" () -> runtime.Context {
 	context = runtime.default_context()
-	context.allocator = malloc_allocator()
+	// Counted (common/memtrack), on top of malloc.
+	context.allocator = memtrack.init(malloc_allocator())
 	_ = runtime.arena_init(&g_temp_arena, TEMP_ARENA_SIZE, context.allocator)
 	context.temp_allocator = runtime.arena_allocator(&g_temp_arena)
 	g_web_context = context

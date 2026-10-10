@@ -235,6 +235,9 @@ gpu_texture_make :: proc(
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
+	if pixels != nil {
+		texture_noted(Gpu_Texture(tex), kind, width, height, min_filter != filter)
+	}
 	return Gpu_Texture(tex)
 }
 
@@ -260,6 +263,7 @@ gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, r
 // gpu_texture_delete deletes `tex`, if there is one, and makes it 0.
 gpu_texture_delete :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 	if tex^ != 0 {
+		texture_forgotten(tex^)
 		name := u32(tex^)
 		gl.DeleteTextures(1, &name)
 	}

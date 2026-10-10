@@ -4,6 +4,7 @@ import log "common:wlog"
 import "core:crypto/hash"
 import "core:strings"
 
+import "common:memtrack"
 import "common:proto"
 
 /*
@@ -215,4 +216,60 @@ info_set_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u
 		ordered_remove(&c.msgs.outbox, 0)
 		publish_outbox(c)
 	}
+}
+
+// Ask where the server's memory goes (the owner only): the report
+// (common/memtrack) comes to the View, or, headless, the log.
+Server_Memory_Command :: struct {}
+
+View_Server_Memory :: struct {
+	report: string, // owned; as the server sent it
+	status: proto.Status, // the last answer's: Ok, or why there's none
+	count:  int, // bumped each time an answer arrives
+}
+
+view_clear_server_memory :: proc(v: ^View) {
+	delete(v.server_memory.report)
+	v.server_memory = {}
+}
+
+server_memory :: proc(c: ^Voice_Client) {
+	request(
+		c,
+		.Server_Memory,
+		nil,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			if status == .Reset {
+				return
+			}
+			v := c.view
+			if v == nil {
+				if status == .Ok {
+					log.infof(
+						"%s's memory:\n%s",
+						c.server_addr,
+						memtrack.log_text(string(body), context.temp_allocator),
+					)
+				} else {
+					log.warnf("%s wouldn't say where its memory goes: %v", c.server_addr, status)
+				}
+				return
+			}
+			// Shown as it is, so nothing in it but text, tabs and lines.
+			report := strings.to_valid_utf8(string(body), "?")
+			for &b in transmute([]u8)report {
+				if b < ' ' && b != '\t' && b != '\n' {
+					b = ' '
+				}
+			}
+			view_write(v)
+			delete(v.server_memory.report)
+			v.server_memory.report = report if status == .Ok else ""
+			if status != .Ok {
+				delete(report)
+			}
+			v.server_memory.status = status
+			v.server_memory.count += 1
+		},
+	)
 }

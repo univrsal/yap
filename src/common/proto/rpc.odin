@@ -35,6 +35,8 @@ A body's layout goes by its op:
 	Server_Info_Set  request   [name str8][description str16][icon u64]
 	                 response  (nothing)
 	Server_Info      event     as Server_Info's response, when it changes
+	Server_Memory    request   (nothing; the owner only)
+	                 response  [a memory report, as text] (common/memtrack/report.odin)
 
 where str8 is [len u8][bytes] and str16 [len u16][bytes]; the rest are in accounts.odin,
 buddies.odin, convs.odin and msgs.odin. A body may grow at its end: a decoder
@@ -53,6 +55,8 @@ Request_Op :: enum u16 {
 	// and changing what Server_Info says (the owner only).
 	Server_Icon          = 0x0002,
 	Server_Info_Set      = 0x0003,
+	// Where the server's memory goes (the owner only).
+	Server_Memory        = 0x0004,
 	// Accounts and devices, see accounts.odin.
 	Auth_Login           = 0x0010,
 	Account_Create       = 0x0011,

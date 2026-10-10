@@ -4,6 +4,7 @@ package client
 import "client:conn"
 import "client:platform"
 import "client:settings"
+import "common:memtrack"
 import "common:proto"
 import log "common:wlog"
 import "core:bufio"
@@ -38,6 +39,8 @@ network loop never blocks on input.
 	/invite [uses] [days]   make an invite code (uses 0: any; days 0:
 	                 no end), for who may
 	/invites         list the invite codes; /uninvite <code> revokes one
+	/memory          log where this client's memory goes (common/memtrack)
+	/server-memory   and the server's (its owner only)
 	/logout          log this device out
 	/passwd <old> <new>   change your password
 	/devices         list your account's devices
@@ -205,6 +208,10 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case line == "/invites":
 			conn.push_command(q, conn.Invites_Command{})
+		case line == "/memory":
+			log.infof("memory:\n%s", memtrack.log_text(memtrack.report(), context.temp_allocator))
+		case line == "/server-memory":
+			conn.push_command(q, conn.Server_Memory_Command{})
 		case strings.has_prefix(line, "/uninvite "):
 			conn.push_command(
 				q,

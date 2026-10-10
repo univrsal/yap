@@ -1,6 +1,7 @@
 #+build !wasi
 package client
 
+import "common:memtrack"
 import log "common:wlog"
 import "core:sync"
 import "core:thread"
@@ -35,6 +36,7 @@ decode_worker_stop :: proc(ui: ^UI) {
 
 @(private = "file")
 decode_worker :: proc(im: ^UI_Images) {
+	memtrack.thread_init()
 	for {
 		sync.sema_wait(&im.wake)
 		for {

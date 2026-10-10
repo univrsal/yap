@@ -601,6 +601,7 @@ gpu_texture_make :: proc(
 		g.ctx->UpdateSubresource(t.texture, 0, nil, data.pSysMem, data.SysMemPitch, 0)
 		g.ctx->GenerateMips(t.view)
 	}
+	texture_noted(Gpu_Texture(uintptr(t)), kind, width, height, generate)
 	return Gpu_Texture(uintptr(t))
 }
 
@@ -625,6 +626,7 @@ gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, r
 // gpu_texture_delete deletes `tex`, if there is one, and makes it 0.
 gpu_texture_delete :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 	if t := (^D3D_Texture)(tex^); t != nil {
+		texture_forgotten(tex^)
 		release(&t.view)
 		release(&t.texture)
 		free(t)

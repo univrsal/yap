@@ -384,6 +384,7 @@ Command :: union {
 	Members_Command,
 	// What the server says about itself, see server_info.odin.
 	Server_Info_Command,
+	Server_Memory_Command,
 	// Roles and managing the server, see roles.odin.
 	Role_Set_Command,
 	Role_Delete_Command,
@@ -601,6 +602,8 @@ process_commands :: proc(c: ^Voice_Client) {
 			// The client takes the strings and the JPEG over.
 			server_info_set(c, v)
 			v.name, v.description, v.image = "", "", {}
+		case Server_Memory_Command:
+			server_memory(c)
 		case Setting_Command:
 			setting_put(c, v.key, v.value)
 		case Role_Set_Command:

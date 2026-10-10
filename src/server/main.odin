@@ -7,6 +7,7 @@ import "core:os"
 import "core:strconv"
 
 import "common:."
+import "common:memtrack"
 import "common:proto"
 
 Options :: struct {
@@ -14,6 +15,9 @@ Options :: struct {
 }
 
 main :: proc() {
+	// Before anything allocates, so that it's all counted (memory.odin).
+	context.allocator = memtrack.init()
+
 	// `yap-server account ...` works on the accounts and exits (cli.odin).
 	// And `yap-server role list`, which is its `roles`.
 	if len(os.args) > 1 && (os.args[1] == "account" || os.args[1] == "role") {
