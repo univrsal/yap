@@ -25,6 +25,8 @@ A sloppy chat and VOIP application.
 - Global hotkeys (requires `input` group on wayland)
 - Option to share audio of a specific application (native clients only)
 
+For a more minimal version more similar to Mumble check out the [master](https://github.com/univrsal/yap/tree/master) branch.
+
 ## Running a server
 
 ```sh
