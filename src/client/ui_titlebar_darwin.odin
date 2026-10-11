@@ -9,7 +9,7 @@ import vglfw "vendor:glfw"
 On macOS the window has no title bar of its own: the UI runs up to the
 top edge, and the close, minimize and zoom buttons sit on it, over the
 start of the first row (see title_row). Everywhere else the desktop's
-own title bar stays.
+own title bar stays, or on X11 goes (ui_titlebar_x11.odin).
 
 What's left of the strip the title bar used to be still moves the
 window when dragged and zooms it when double-clicked, as a title bar
@@ -31,19 +31,28 @@ ZOOM_BUTTON :: 2
 @(private = "file")
 TITLEBAR_GAP :: 8
 
-// titlebar_merge lets the UI take the title bar's place. Called once
-// the window has its GL context.
-titlebar_merge :: proc(window: glfw.WindowHandle) {
+// titlebar_merge lets the UI take the title bar's place, or gives it
+// back. Called once the window has its GL context, and when the setting
+// changes.
+titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	w := vglfw.GetCocoaWindow(window)
 	if w == nil {
 		return
 	}
 	mask := intrinsics.objc_send(NS.WindowStyleMask, w, "styleMask")
-	w->setStyleMask(mask + {.FullSizeContentView})
-	w->setTitlebarAppearsTransparent(true)
-	w->setTitleVisibility(.Hidden)
-	// The view under the context just grew by the title bar, which
-	// AppKit doesn't pass on to the context by itself.
+	if merged == (.FullSizeContentView in mask) {
+		return
+	}
+	if merged {
+		mask += {.FullSizeContentView}
+	} else {
+		mask -= {.FullSizeContentView}
+	}
+	w->setStyleMask(mask)
+	w->setTitlebarAppearsTransparent(NS.BOOL(merged))
+	w->setTitleVisibility(.Hidden if merged else .Visible)
+	// The view under the context just changed size by the title bar,
+	// which AppKit doesn't pass on to the context by itself.
 	if gl := intrinsics.objc_send(^GL_Context, GL_Context, "currentContext"); gl != nil {
 		intrinsics.objc_send(nil, gl, "update")
 	}
@@ -56,9 +65,10 @@ the window's own buttons reach (only the left here), and how tall the
 strip is. Zero in fullscreen, where the
 title bar only slides in over the UI when the pointer goes up there.
 */
-titlebar_area :: proc(window: glfw.WindowHandle) -> (left, right, height: f32) {
-	w := vglfw.GetCocoaWindow(window)
-	if w == nil {
+titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
+	w := vglfw.GetCocoaWindow(ui.window)
+	if w == nil ||
+	   .FullSizeContentView not_in intrinsics.objc_send(NS.WindowStyleMask, w, "styleMask") {
 		return
 	}
 	height = f32(w->frame().size.height - w->contentLayoutRect().size.height)
@@ -111,5 +121,21 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 	}
 }
 
-// The buttons are the system's here.
+// The buttons are the system's here, and so are the window's edges.
 titlebar_buttons :: proc(ui: ^UI, w: i32) {}
+
+titlebar_init :: proc(merged: bool) {}
+
+titlebar_window_hints :: proc(merged: bool) {}
+
+titlebar_motion :: proc(window: glfw.WindowHandle) {}
+
+titlebar_resizable :: proc(window: glfw.WindowHandle) -> bool {
+	return false
+}
+
+titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {}
+
+titlebar_restart_note :: proc(merged: bool) -> string {
+	return ""
+}

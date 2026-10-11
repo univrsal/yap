@@ -344,6 +344,20 @@ ui_settings :: proc(ui: ^UI) {
 	}
 
 	when !platform.WEB {
+		// The window's buttons in the first row rather than a title bar
+		// of the desktop's (ui_titlebar.odin).
+		mu.layout_row(ctx, {-1})
+		if .CHANGE in
+		   mu.checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
+			settings.settings_save(ui.opts.settings_path, ui.settings)
+			titlebar_merge(ui.window, ui.settings.merge_title_bar)
+			ui_redraw(ui)
+		}
+		if note := titlebar_restart_note(ui.settings.merge_title_bar); note != "" {
+			mu.layout_row(ctx, {-1})
+			with_text_color(ctx, theme.warning, fmt.tprintf("  %s", note), label_proc)
+		}
+
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in mu.checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)

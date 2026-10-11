@@ -228,8 +228,10 @@ static int wl_open(void *display) {
 	return 1;
 }
 
+/* libXss stays loaded: asking about the extension leaves a hook of its
+   own on GLFW's Display, which XCloseDisplay calls when GLFW closes it,
+   after this. Unloaded, that call jumps into nothing. */
 static void x11_close(void) {
-	if (xs.xss) dlclose(xs.xss);
 	if (xs.x11) dlclose(xs.x11);
 	xs = (__typeof__(xs)){0};
 }

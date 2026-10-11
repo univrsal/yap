@@ -49,10 +49,12 @@ test_icons_are_drawn :: proc(t: ^testing.T) {
 
 		for icon in Icon {
 			covered := ink(&a, icon)
-			// Enough to see, not so much that it's a blob.
+			// Enough to see, not so much that it's a blob. The window's
+			// controls are a pixel's line, and a line is less.
+			least: f32 = 0.02 if icon >= .Minimize && icon <= .Close else 0.1
 			testing.expectf(
 				t,
-				covered > 0.1 && covered < 0.6,
+				covered > least && covered < 0.6,
 				"%v at %.1fx covers %.0f%% of its square",
 				icon,
 				scale,
@@ -197,5 +199,36 @@ test_dump_tray_icons_when_asked :: proc(t: ^testing.T) {
 		}
 		err := os.write_entire_file(fmt.tprintf("%s/tray-%s.ppm", dir, state.name), out[:])
 		testing.expect_value(t, err, nil)
+	}
+}
+
+// The window's controls are lines a pixel or so thick, which only look
+// the same at every scale if they cover whole texels: none may be half
+// covered (but for the cross's diagonals, which can't help it).
+@(test)
+test_window_controls_are_sharp :: proc(t: ^testing.T) {
+	for scale in ([]f32{1, 1.25, 1.5, 1.75, 2, 3}) {
+		a: Icon_Atlas
+		defer icon_atlas_destroy(&a)
+		testing.expect(t, icon_atlas_build(&a, scale))
+		for icon in ([]Icon{.Minimize, .Maximize, .Restore}) {
+			blurred := 0
+			for y in 0 ..< int(a.side) {
+				for x in 0 ..< int(a.side) {
+					v := a.pixels[y * int(a.width) + int(icon) * int(a.side) + x]
+					if v != 0 && v != 255 {
+						blurred += 1
+					}
+				}
+			}
+			testing.expectf(
+				t,
+				blurred == 0,
+				"%v at %.2fx has %d texels half covered",
+				icon,
+				scale,
+				blurred,
+			)
+		}
 	}
 }

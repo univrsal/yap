@@ -99,10 +99,7 @@ icon_atlas_build :: proc(a: ^Icon_Atlas, scale: f32) -> bool {
 		left := int(icon) * int(side)
 		for y in 0 ..< int(side) {
 			for x in 0 ..< int(side) {
-				// The texel's centre, in the unit square the shapes are
-				// written in.
-				p := Point{(f32(x) + 0.5) / f32(side), (f32(y) + 0.5) / f32(side)}
-				d := icon_distance(icon, p) * f32(side) // texels, not units
+				d := texel_distance(icon, x, y, int(side))
 				// One texel of coverage across the edge.
 				alpha := clamp(0.5 - d, 0, 1)
 				pixels[y * int(width) + left + x] = u8(math.round(alpha * 255))
@@ -124,8 +121,7 @@ icon_rgba :: proc(icon: Icon, side: int, color: mu.Color, allocator := context.a
 	pixels := make([]u8, side * side * 4, allocator)
 	for y in 0 ..< side {
 		for x in 0 ..< side {
-			p := Point{(f32(x) + 0.5) / f32(side), (f32(y) + 0.5) / f32(side)}
-			d := icon_distance(icon, p) * f32(side)
+			d := texel_distance(icon, x, y, side)
 			// The shape is the picture's transparency; the colour is flat.
 			alpha := clamp(0.5 - d, 0, 1) * f32(color.a) / 255
 			i := (y * side + x) * 4
@@ -162,6 +158,18 @@ SLASH_TO :: Point{0.85, 0.87}
 SLASH_WIDTH :: 0.09
 @(private = "file")
 SLASH_GAP :: 0.045
+
+// texel_distance is how far texel `x, y` of an icon `side` texels square
+// has its centre from the icon's outline, in texels.
+@(private = "file")
+texel_distance :: proc(icon: Icon, x, y, side: int) -> f32 {
+	centre := Point{f32(x) + 0.5, f32(y) + 0.5}
+	if d, ok := window_control(icon, centre, f32(side)); ok {
+		return d
+	}
+	// In the unit square the shapes are written in.
+	return icon_distance(icon, centre / f32(side)) * f32(side)
+}
 
 @(private = "file")
 icon_distance :: proc(icon: Icon, p: Point) -> f32 {
@@ -220,22 +228,9 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return receiver(p)
 	case .Mail:
 		return mail_letter(p)
-	case .Minimize:
-		return capsule(p, {0.2, 0.5}, {0.8, 0.5}, WINDOW_STROKE)
-	case .Maximize:
-		return abs(rounded_box(p, {0.5, 0.5}, {0.3, 0.3}, 0.02)) - WINDOW_STROKE / 2
-	case .Restore:
-		// The box in front hides the part of the one behind it that
-		// it covers.
-		front := abs(rounded_box(p, {0.43, 0.57}, {0.23, 0.23}, 0.02)) - WINDOW_STROKE / 2
-		back := abs(rounded_box(p, {0.57, 0.43}, {0.23, 0.23}, 0.02)) - WINDOW_STROKE / 2
-		covered := rounded_box(p, {0.43, 0.57}, {0.23 + WINDOW_STROKE, 0.23 + WINDOW_STROKE}, 0.02)
-		return nearer(front, max(back, -covered))
-	case .Close:
-		return nearer(
-			capsule(p, {0.2, 0.2}, {0.8, 0.8}, WINDOW_STROKE),
-			capsule(p, {0.8, 0.2}, {0.2, 0.8}, WINDOW_STROKE),
-		)
+	case .Minimize, .Maximize, .Restore, .Close:
+		// Drawn in texels instead (window_control).
+		return 1
 	case .Check:
 		d := capsule(p, {0.24, 0.52}, {0.42, 0.70}, CHECK_STROKE)
 		return nearer(d, capsule(p, {0.42, 0.70}, {0.76, 0.30}, CHECK_STROKE))
@@ -250,10 +245,93 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 @(private = "file")
 CHECK_STROKE :: 0.12
 
-// How thick the lines of the window's controls are: about a pixel, at
-// the icon's usual size.
+/*
+window_control is the distance from `p` (in texels, in an icon `side`
+texels square) to the outline of one of the window's own controls, for
+those (`ok`). They're thin lines - a pixel at the icon's usual size, more
+only from about 1.75x up - and a line that thin is only sharp where it
+covers whole texels: one written in the unit square, like the other
+icons, falls across two rows half covered at some sizes and on one row
+at others, and looks thicker and greyer in one than the other. So these
+are worked out in texels, with whole texels of line, and their edges
+always on the texels' edges.
+*/
 @(private = "file")
-WINDOW_STROKE :: 0.07
+window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
+	width := max(1, math.floor(side / ICON_SIZE + 0.25))
+	// Where a line's middle goes for it to be at `v` across the square:
+	// on a texel's centre for an odd width, on an edge for an even one.
+	at :: proc(v, side, width: f32) -> f32 {
+		c := v * side
+		return math.round(c) if int(width) % 2 == 0 else math.floor(c) + 0.5
+	}
+	// A box's outline, `width` thick, whose lines' middles run from `lo`
+	// to `hi`. Its corners are square, so its edges stay on texel edges.
+	outline :: proc(p, lo, hi: Point, width: f32) -> f32 {
+		centre, half := (lo + hi) / 2, (hi - lo) / 2
+		outer := rounded_box(p, centre, half + width / 2, 0)
+		inner := rounded_box(p, centre, half - width / 2, 0)
+		return max(outer, -inner)
+	}
+	lo, hi := at(0.2, side, width), at(0.8, side, width)
+	switch icon {
+	case .Minimize:
+		y := at(0.5, side, width)
+		return rounded_box(p, {(lo + hi) / 2, y}, {(hi - lo + width) / 2, width / 2}, 0), true
+	case .Maximize:
+		return outline(p, {lo, lo}, {hi, hi}, width), true
+	case .Restore:
+		// The box in front hides the part of the one behind it that
+		// it covers, with a line's width of gap around it.
+		near, far := at(0.34, side, width), at(0.66, side, width)
+		front := outline(p, {lo, near}, {far, hi}, width)
+		back := outline(p, {near, lo}, {hi, far}, width)
+		covered := rounded_box(
+			p,
+			{(lo + far) / 2, (near + hi) / 2},
+			{(far - lo) / 2 + width * 1.5, (hi - near) / 2 + width * 1.5},
+			0,
+		)
+		return nearer(front, max(back, -covered)), true
+	case .Close:
+		return nearer(
+				capsule(p, {lo, lo}, {hi, hi}, width),
+				capsule(p, {hi, lo}, {lo, hi}, width),
+			),
+			true
+	case .Mic,
+	     .Mic_Off,
+	     .Sound,
+	     .Sound_Off,
+	     .Settings,
+	     .Send,
+	     .Screen,
+	     .Buddies,
+	     .Remove_Buddy,
+	     .File,
+	     .Trash,
+	     .App_Audio,
+	     .Pin,
+	     .Smiley,
+	     .Log,
+	     .Search,
+	     .Attach,
+	     .Download,
+	     .Archive,
+	     .Picture,
+	     .Video,
+	     .Text_File,
+	     .Eye,
+	     .Reply,
+	     .Edit,
+	     .Phone,
+	     .Mail,
+	     .Check,
+	     .Collapsed,
+	     .Expanded:
+	}
+	return 0, false
+}
 
 // A telephone receiver, earpiece at the top right and mouthpiece at the
 // bottom left: a thick quarter of a ring bulging to the bottom right, and

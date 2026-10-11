@@ -35,6 +35,7 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"mute_app_audio_with_mic": true,
 		"ui_scale": 1,
 		"chat_pictures": true,
+		"merge_title_bar": true,
 		"chat_scale": 1,
 		"animate_pictures": "hover",
 		"image_cache_mb": 256,
@@ -105,6 +106,10 @@ Settings :: struct {
 	// People's pictures beside their messages; off, the chat is
 	// compact (ui_timeline.odin).
 	chat_pictures:           bool,
+	// The window's buttons drawn in the UI's first row, in place of the
+	// desktop's title bar (ui_titlebar_*.odin). Where that isn't
+	// already the platform's look (Linux, the BSDs), off until asked for.
+	merge_title_bar:         bool,
 	// The chat's text size, on top of ui_scale (it multiplies): 1 =
 	// the UI's, MIN_CHAT_SCALE..MAX_CHAT_SCALE.
 	chat_scale:              f32,
@@ -164,6 +169,7 @@ DEFAULT_SETTINGS :: Settings {
 	mute_app_audio_with_mic = true,
 	ui_scale                = 1,
 	chat_pictures           = true,
+	merge_title_bar         = ODIN_OS == .Darwin || ODIN_OS == .Windows,
 	chat_scale              = 1,
 	image_cache_mb          = 256,
 }

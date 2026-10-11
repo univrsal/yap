@@ -261,10 +261,11 @@ UI :: struct {
 	// Logical pixels per window coordinate, for mouse input. See
 	// window_metrics.
 	input_scale:         f32,
-	// The strip along the top where macOS and Windows draw the window's
-	// buttons over the UI, in logical pixels: where the first row starts,
-	// how far in from the right it ends, and how tall the strip is. Zero
-	// elsewhere (see ui_titlebar_darwin.odin, ui_titlebar_windows.odin).
+	// The strip along the top where the window's buttons are drawn over
+	// the UI, with the title bar merged into it, in logical pixels: where
+	// the first row starts, how far in from the right it ends, and how
+	// tall the strip is. Zero where the title bar is the desktop's (see
+	// ui_titlebar.odin).
 	titlebar_left:       i32,
 	titlebar_right:      i32,
 	titlebar_height:     i32,
@@ -388,6 +389,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	app_sound_play(ui, .Welcome)
 
 	glfw.SetErrorCallback(glfw_error_callback)
+	titlebar_init(ui.settings.merge_title_bar)
 	if !glfw.Init() {
 		log.error("failed to initialize GLFW")
 		return false
@@ -546,7 +548,7 @@ draw_frame :: proc(ui: ^UI) {
 		ui.metrics = m
 	}
 	ui.input_scale = m.input_scale
-	left, right, height := titlebar_area(ui.window)
+	left, right, height := titlebar_area(ui)
 	ui.titlebar_left = i32(left * m.input_scale)
 	ui.titlebar_right = i32(right * m.input_scale)
 	ui.titlebar_height = i32(height * m.input_scale)
@@ -580,7 +582,13 @@ draw_frame :: proc(ui: ^UI) {
 	when platform.WEB {
 		touch_after_frame(ui)
 	}
+	edge := Window_Edge.None
+	if ui.ctx.mouse_down_bits == {} {
+		edge = window_edge(ui, ui.ctx.mouse_pos.x, ui.ctx.mouse_pos.y)
+	}
 	switch {
+	case edge != .None:
+		set_cursor(ui, EDGE_CURSORS[edge])
 	case ui.chat.hovering:
 		set_cursor(ui, .Hand)
 	case ui.select.over_text || ui.select.dragging:
@@ -816,6 +824,7 @@ window_open :: proc(ui: ^UI) -> bool {
 		glfw.WindowHintString(glfw.X11_CLASS_NAME, "yap")
 		glfw.WindowHintString(glfw.X11_INSTANCE_NAME, "yap")
 	}
+	titlebar_window_hints(ui.settings.merge_title_bar)
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
 	ui.title_unread = 0 // what "Yap" says
 	if ui.window == nil {
@@ -832,7 +841,7 @@ window_open :: proc(ui: ^UI) -> bool {
 		ui.window = nil
 		return false
 	}
-	titlebar_merge(ui.window)
+	titlebar_merge(ui.window, ui.settings.merge_title_bar)
 	set_swap_pace(ui)
 	ui.renderer.images = &ui.images.draws
 
@@ -925,6 +934,22 @@ Cursor :: enum {
 	Arrow, // the window's own, which is no cursor of ours
 	Hand,
 	IBeam,
+	// Over the edges of a window we resize ourselves (window_edge).
+	Resize_EW,
+	Resize_NS,
+	Resize_NWSE,
+	Resize_NESW,
+}
+
+@(private = "file")
+CURSOR_SHAPES := [Cursor]i32 {
+	.Arrow       = 0,
+	.Hand        = glfw.HAND_CURSOR,
+	.IBeam       = glfw.IBEAM_CURSOR,
+	.Resize_EW   = glfw.RESIZE_EW_CURSOR,
+	.Resize_NS   = glfw.RESIZE_NS_CURSOR,
+	.Resize_NWSE = glfw.RESIZE_NWSE_CURSOR,
+	.Resize_NESW = glfw.RESIZE_NESW_CURSOR,
 }
 
 // set_cursor switches the mouse cursor, if it isn't that one already.
@@ -934,9 +959,7 @@ set_cursor :: proc(ui: ^UI, cursor: Cursor) {
 	}
 	ui.cursor_shown = cursor
 	if cursor != .Arrow && ui.cursors[cursor] == nil {
-		ui.cursors[cursor] = glfw.CreateStandardCursor(
-			glfw.HAND_CURSOR if cursor == .Hand else glfw.IBEAM_CURSOR,
-		)
+		ui.cursors[cursor] = glfw.CreateStandardCursor(CURSOR_SHAPES[cursor])
 	}
 	glfw.SetCursor(ui.window, ui.cursors[cursor])
 }
@@ -1536,12 +1559,12 @@ session_screen :: proc(ui: ^UI) {
 }
 
 /*
-title_row is mu.layout_row for a screen's first row. That row shares the
-top of the window with the window's buttons (see ui_titlebar_darwin.odin,
-ui_titlebar_windows.odin), so it keeps clear of them: on macOS they're on
-the left, and it starts to the right of them; on Windows they're on the
-right, and the widths counted from the right-hand edge are counted from
-them instead.
+title_row is mu.layout_row for a screen's first row. With the title bar
+merged, that row shares the top of the window with the window's buttons
+(see ui_titlebar.odin), so it keeps clear of them: on macOS they're on
+the left, and it starts to the right of them; on Windows and X11 they're
+on the right, and the widths counted from the right-hand edge are counted
+from them instead.
 */
 title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 	layout := mu.get_layout(&ui.ctx)
@@ -1609,11 +1632,22 @@ log_panel :: proc(ui: ^UI) {
 		defer ctx.style.spacing = saved_spacing
 
 		font := ctx.style.font
+		// A line longer than the panel makes every row as wide as it,
+		// which is what has microui add a horizontal scrollbar.
+		widest: i32
+		for line in logs.lines {
+			text := line.text[11:] if len(line.text) > 11 else line.text
+			widest = max(widest, ctx.text_width(font, text))
+		}
+		row_w := widest + ctx.style.padding * 2
+		if row_w <= cnt.body.w - ctx.style.padding * 2 {
+			row_w = -1
+		}
 		// Lines are numbered by the running total, so a selection stays
 		// on the same ones as new lines come in (ui_select.odin).
 		first := i64(logs.total - len(logs.lines))
 		for line, i in logs.lines {
-			mu.layout_row(ctx, {-1}, render.LINE_HEIGHT)
+			mu.layout_row(ctx, {row_w}, render.LINE_HEIGHT)
 			// Drop the date; the time is enough on screen.
 			text := line.text[11:] if len(line.text) > 11 else line.text
 			color := ctx.style.colors[.TEXT]
@@ -1926,6 +1960,7 @@ refresh_callback :: proc "c" (window: glfw.WindowHandle) {
 cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
 	ui_redraw(g_ui)
+	titlebar_motion(window)
 	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
 }
 
@@ -1966,9 +2001,15 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	// Hover was worked out at the last known pointer position. If the
 	// press is somewhere else (motion events were missed), it would click
 	// whatever was under the old position, so drop the hover instead.
-	// The strip where a title bar would be moves the window instead,
-	// where it isn't a control in the main window (macOS only, see
-	// ui_titlebar_darwin.odin).
+	// The edges of a window without a frame resize it (X11 only, see
+	// ui_titlebar_x11.odin), and the strip where a title bar would be
+	// moves it instead, where it isn't a control in the main window.
+	if btn == .LEFT && action == glfw.PRESS {
+		if edge := window_edge(g_ui, x, y); edge != .None {
+			titlebar_resize(window, edge)
+			return
+		}
+	}
 	if btn == .LEFT &&
 	   action == glfw.PRESS &&
 	   y < g_ui.titlebar_height &&

@@ -1,9 +1,7 @@
 package client
 
-import "client:render"
 import glfw "client:wglfw"
 import win "core:sys/windows"
-import mu "vendor:microui"
 
 foreign import kernel32 "system:Kernel32.lib"
 foreign import user32 "system:User32.lib"
@@ -30,12 +28,6 @@ What's left of the strip the title bar used to be still moves the window
 when dragged and maximizes it when double-clicked, wherever there's no
 control of ours under the pointer (see mouse_button_callback).
 */
-
-// What Windows 10 and 11 give their caption buttons, at 96 dpi.
-@(private = "file")
-BUTTON_WIDTH :: 46
-@(private = "file")
-BUTTON_COUNT :: 3
 
 // Room left between the first row and the buttons, in pixels.
 @(private = "file")
@@ -121,19 +113,24 @@ title_proc :: proc "system" (
 	return win.CallWindowProcW(glfw_proc, hwnd, msg, wparam, lparam)
 }
 
-// titlebar_merge lets the UI take the title bar's place. Called once
-// each window has its rendering set up: hiding to the tray takes the
-// window down, and the one that comes back is a new one.
-titlebar_merge :: proc(window: glfw.WindowHandle) {
+// titlebar_merge lets the UI take the title bar's place, or gives it
+// back. Called once each window has its rendering set up (hiding to the
+// tray takes the window down, and the one that comes back is a new one),
+// and when the setting changes.
+titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	hwnd := win.HWND(glfw.GetWin32Window(window))
-	ours := win.LONG_PTR(uintptr(rawptr(title_proc)))
-	if hwnd == nil || win.GetWindowLongPtrW(hwnd, win.GWLP_WNDPROC) == ours {
+	if hwnd == nil || merged == is_merged(hwnd) {
 		return
 	}
-	previous := win.SetWindowLongPtrW(hwnd, win.GWLP_WNDPROC, ours)
-	glfw_proc = cast(win.WNDPROC)rawptr(uintptr(previous))
-	// A sliver of frame keeps the shadow around the window.
-	margins := win.MARGINS{0, 0, 1, 0}
+	margins: win.MARGINS
+	if merged {
+		previous := win.SetWindowLongPtrW(hwnd, win.GWLP_WNDPROC, our_proc())
+		glfw_proc = cast(win.WNDPROC)rawptr(uintptr(previous))
+		// A sliver of frame keeps the shadow around the window.
+		margins = {0, 0, 1, 0}
+	} else {
+		win.SetWindowLongPtrW(hwnd, win.GWLP_WNDPROC, win.LONG_PTR(uintptr(rawptr(glfw_proc))))
+	}
 	win.DwmExtendFrameIntoClientArea(hwnd, &margins)
 	win.SetWindowPos(
 		hwnd,
@@ -150,15 +147,27 @@ titlebar_merge :: proc(window: glfw.WindowHandle) {
 	)
 }
 
+@(private = "file")
+our_proc :: proc() -> win.LONG_PTR {
+	return win.LONG_PTR(uintptr(rawptr(title_proc)))
+}
+
+// is_merged reports whether the window has our window procedure, which
+// does the merging.
+@(private = "file")
+is_merged :: proc(hwnd: win.HWND) -> bool {
+	return win.GetWindowLongPtrW(hwnd, win.GWLP_WNDPROC) == our_proc()
+}
+
 /*
 titlebar_area is the strip along the top that the title bar would have
 taken, in window coordinates: how far in from the left and from the right
 the window's own buttons reach (only the right here), and how tall the
 strip is. Zero in fullscreen, where there's no title bar.
 */
-titlebar_area :: proc(window: glfw.WindowHandle) -> (left, right, height: f32) {
-	hwnd := win.HWND(glfw.GetWin32Window(window))
-	if hwnd == nil || glfw_proc == nil {
+titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
+	hwnd := win.HWND(glfw.GetWin32Window(ui.window))
+	if hwnd == nil || !is_merged(hwnd) {
 		return
 	}
 	if u32(win.GetWindowLongW(hwnd, win.GWL_STYLE)) & win.WS_CAPTION != win.WS_CAPTION {
@@ -166,7 +175,7 @@ titlebar_area :: proc(window: glfw.WindowHandle) -> (left, right, height: f32) {
 	}
 	dpi := win.GetDpiForWindow(hwnd)
 	height = f32(win.GetSystemMetricsForDpi(win.SM_CYCAPTION, dpi))
-	right = f32(BUTTON_WIDTH * BUTTON_COUNT * i32(dpi) / 96) + TITLEBAR_GAP
+	right = f32(TITLEBAR_BUTTON_WIDTH * TITLEBAR_BUTTON_COUNT * i32(dpi) / 96) + TITLEBAR_GAP
 	return
 }
 
@@ -180,43 +189,14 @@ titlebar_buttons :: proc(ui: ^UI, w: i32) {
 		return
 	}
 	hwnd := win.HWND(glfw.GetWin32Window(ui.window))
-	ctx := &ui.ctx
-	size := (ui.titlebar_right - i32(TITLEBAR_GAP * ui.input_scale)) / BUTTON_COUNT
 	maximized := bool(win.IsZoomed(hwnd))
-	Button :: struct {
-		id:   string,
-		icon: render.Icon,
-		hint: string,
-	}
-	buttons := [BUTTON_COUNT]Button {
-		{"minimize", .Minimize, "Minimize"},
-		{"maximize", .Restore if maximized else .Maximize, "Restore" if maximized else "Maximize"},
-		{"close", .Close, "Close"},
-	}
-	for b, i in buttons {
-		id := mu.get_id(ctx, b.id)
-		r := mu.Rect{w - size * i32(BUTTON_COUNT - i), 0, size, ui.titlebar_height}
-		mu.update_control(ctx, id, r)
-		color := ctx.style.colors[.TEXT]
-		if ctx.hover_id == id {
-			// Close goes red, as Windows' own does.
-			shade := mu.Color{232, 17, 35, 255} if i == 2 else ctx.style.colors[.BUTTON_HOVER]
-			mu.draw_rect(ctx, r, shade)
-			if i == 2 {
-				color = {255, 255, 255, 255}
-			}
-		}
-		mu.draw_icon(ctx, render.icon_id(b.icon), r, color)
-		if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
-			switch i {
-			case 0:
-				win.ShowWindow(hwnd, win.SW_MINIMIZE)
-			case 1:
-				win.ShowWindow(hwnd, win.SW_RESTORE if maximized else win.SW_MAXIMIZE)
-			case 2:
-				win.PostMessageW(hwnd, win.WM_CLOSE, 0, 0)
-			}
-		}
+	switch window_buttons(ui, w, TITLEBAR_GAP, maximized) {
+	case 0:
+		win.ShowWindow(hwnd, win.SW_MINIMIZE)
+	case 1:
+		win.ShowWindow(hwnd, win.SW_RESTORE if maximized else win.SW_MAXIMIZE)
+	case 2:
+		win.PostMessageW(hwnd, win.WM_CLOSE, 0, 0)
 	}
 }
 
@@ -247,4 +227,21 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 		win.HTCAPTION,
 		win.LPARAM(u32(u16(pos.x)) | u32(u16(pos.y)) << 16),
 	)
+}
+
+// The frame stays the system's, sizing borders and all (title_proc).
+titlebar_init :: proc(merged: bool) {}
+
+titlebar_window_hints :: proc(merged: bool) {}
+
+titlebar_motion :: proc(window: glfw.WindowHandle) {}
+
+titlebar_resizable :: proc(window: glfw.WindowHandle) -> bool {
+	return false
+}
+
+titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {}
+
+titlebar_restart_note :: proc(merged: bool) -> string {
+	return ""
 }
