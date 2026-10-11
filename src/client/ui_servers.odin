@@ -471,7 +471,11 @@ inbox_icon :: proc(ui: ^UI) {
 	// Under it, a line between it and the servers.
 	mu.layout_row(ctx, {-1}, 2)
 	line := mu.layout_next(ctx)
-	mu.draw_rect(ctx, {line.x + (line.w - RAIL_ICON) / 2 + 6, line.y, RAIL_ICON - 12, 2}, theme.unlit)
+	mu.draw_rect(
+		ctx,
+		{line.x + (line.w - RAIL_ICON) / 2 + 6, line.y, RAIL_ICON - 12, 2},
+		theme.unlit,
+	)
 	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
 		// Logged in nowhere, there's nothing to show in it.
 		if ui.session != nil && !ui.join.open {
@@ -490,11 +494,15 @@ conversation's, nor scrolls away with the rail's servers.
 rail_bottom :: proc(ui: ^UI, h: i32) {
 	ctx := &ui.ctx
 	x := i32((RAIL_WIDTH - ICON_BUTTON) / 2)
-	settings_y := h - ICON_BUTTON - ctx.style.padding
+	settings_y := h - ICON_BUTTON - x
 	if ui.session != nil && !ui.session.joining {
 		v := ui.view
 		sync.guard(&v.mutex)
-		mu.layout_set_next(ctx, {x, settings_y - ICON_BUTTON - ctx.style.spacing, ICON_BUTTON, ICON_BUTTON}, false)
+		mu.layout_set_next(
+			ctx,
+			{x, settings_y - ICON_BUTTON - ctx.style.spacing, ICON_BUTTON, ICON_BUTTON},
+			false,
+		)
 		connection_indicator(ui)
 	}
 	mu.layout_set_next(ctx, {x, settings_y, ICON_BUTTON, ICON_BUTTON}, false)
