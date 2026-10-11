@@ -73,6 +73,11 @@ gpu_window_hints :: proc() {
 	when ODIN_OS == .Darwin {
 		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true)
 	}
+	when platform.WEB {
+		// An opaque canvas (WebGL's alpha: false): the browser otherwise
+		// shows what's behind it wherever alpha falls short of 1.
+		glfw.WindowHint(glfw.ALPHA_BITS, 0)
+	}
 }
 
 GPU_REQUIREMENT :: "OpenGL 3.3"
@@ -143,7 +148,11 @@ gpu_begin :: proc(g: ^Gpu, fb_w, fb_h: i32, view_w, view_h: f32, clear: mu.Color
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 
 	gl.Enable(gl.BLEND)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	// Colour blends over what's there; alpha stays at the clear's 1.
+	// Blending it too would leave anti-aliased edges (text, circles)
+	// partly see-through, and the browser shows the page behind the
+	// canvas through them.
+	gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Enable(gl.SCISSOR_TEST)
 	gl.Scissor(0, 0, fb_w, fb_h)
 

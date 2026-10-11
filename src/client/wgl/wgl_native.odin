@@ -20,6 +20,7 @@ BindBuffer :: gl.BindBuffer
 BindTexture :: gl.BindTexture
 BindVertexArray :: gl.BindVertexArray
 BlendFunc :: gl.BlendFunc
+BlendFuncSeparate :: gl.BlendFuncSeparate
 BufferData :: gl.BufferData
 BufferSubData :: gl.BufferSubData
 Clear :: gl.Clear
@@ -58,6 +59,7 @@ FLOAT :: gl.FLOAT
 LINEAR :: gl.LINEAR
 LINEAR_MIPMAP_LINEAR :: gl.LINEAR_MIPMAP_LINEAR
 NEAREST :: gl.NEAREST
+ONE :: gl.ONE
 ONE_MINUS_SRC_ALPHA :: gl.ONE_MINUS_SRC_ALPHA
 R8 :: gl.R8
 RED :: gl.RED

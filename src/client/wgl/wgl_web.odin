@@ -14,6 +14,7 @@ foreign _ {
 	BindTexture :: proc(target: u32, texture: u32) ---
 	BindVertexArray :: proc(array: u32) ---
 	BlendFunc :: proc(sfactor, dfactor: u32) ---
+	BlendFuncSeparate :: proc(srcRGB, dstRGB, srcAlpha, dstAlpha: u32) ---
 	BufferData :: proc(target: u32, size: int, data: rawptr, usage: u32) ---
 	BufferSubData :: proc(target: u32, offset: uintptr, size: int, data: rawptr) ---
 	Clear :: proc(mask: u32) ---
@@ -66,6 +67,7 @@ FLOAT :: 0x1406
 LINEAR :: 0x2601
 LINEAR_MIPMAP_LINEAR :: 0x2703
 NEAREST :: 0x2600
+ONE :: 1
 ONE_MINUS_SRC_ALPHA :: 0x0303
 R8 :: 0x8229
 RED :: 0x1903
