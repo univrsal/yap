@@ -283,6 +283,12 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 			}
 		case .Timeout, .Would_Block:
 			idle = true
+		case .Connection_Refused:
+			// ICMP "port unreachable" for something sent earlier, to
+			// someone who has gone without a Leave (and on Windows,
+			// WSAECONNRESET for the same). It doesn't say who: their
+			// session times out as usual.
+			log.debug("recv: a client's port is closed")
 		case:
 			log.errorf("recv error: %v", recv_err)
 		}
@@ -1007,6 +1013,7 @@ drop_conn :: proc(s: ^Server, u: ^Conn) {
 }
 
 reap_sessions :: proc(s: ^Server) {
+	drop_departed_browsers(s)
 	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, c in s.sessions {
 		expired: bool

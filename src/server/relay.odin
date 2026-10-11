@@ -5,10 +5,13 @@ import "core:log"
 import "core:net"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
+
+import "common:proto"
 
 /*
 The relay, run alongside the server when the config enables it (see
@@ -263,6 +266,64 @@ relay_websocket :: proc(r: ^Relay, c: ^Tcp_Conn, target: string, key: string) {
 	thread.join(back)
 	thread.destroy(back)
 	log.infof("a browser left (which asked for %s)", target)
+	// Before the socket closes: what the server sends it from now on
+	// would only come back as ICMP "port unreachable".
+	if bound, bound_err := net.bound_endpoint(udp); bound_err == nil {
+		browser_left(bound.port)
+	}
+}
+
+/*
+Browsers that have gone, for the server to drop their sessions at once
+(drop_departed_browsers) rather than when they time out: the web client
+can't send Leave as the tab closes, but the relay sees its WebSocket go.
+It's the relay's own UDP port that's left, which the server knows the
+browser by. Shared by the relay's threads and the server's loop.
+*/
+@(private = "file")
+Departed :: struct {
+	port: int,
+	at:   time.Tick,
+}
+
+@(private = "file")
+departed_mutex: sync.Mutex
+@(private = "file")
+departed: [dynamic]Departed
+
+@(private = "file")
+browser_left :: proc(port: int) {
+	sync.guard(&departed_mutex)
+	append(&departed, Departed{port, time.tick_now()})
+}
+
+/*
+drop_departed_browsers drops the sessions of browsers that have left the
+relay. Only those not heard from since: should the port be taken by the
+next browser already, its session is left be.
+*/
+drop_departed_browsers :: proc(s: ^Server) {
+	gone: []Departed
+	{
+		sync.guard(&departed_mutex)
+		if len(departed) == 0 {
+			return
+		}
+		gone = slice.clone(departed[:], context.temp_allocator)
+		clear(&departed)
+	}
+	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
+	for d in gone {
+		for idx, c in s.sessions {
+			heard := c.last_recv if c.keyed else c.started
+			if c.endpoint == {net.IP4_Loopback, d.port} && time.tick_diff(heard, d.at) >= 0 {
+				append(&stale, idx)
+			}
+		}
+	}
+	for idx in stale {
+		drop_session(s, idx)
+	}
 }
 
 // The two directions share the WebSocket, whose frames mustn't
