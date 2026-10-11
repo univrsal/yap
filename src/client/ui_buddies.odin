@@ -356,7 +356,11 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	title := entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name)
 	if rail_count(ui) > 1 {
 		// Which of the inbox's servers it's on.
-		title = fmt.tprintf("%s  ·  %s", title, v.server_name if v.server_name != "" else v.server)
+		title = fmt.tprintf(
+			"%s  ·  %s",
+			title,
+			v.server_name if v.server_name != "" else v.server,
+		)
 	}
 	mu.label(ctx, title)
 	// Calling them, while they're here and we're in no call.

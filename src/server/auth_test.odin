@@ -744,7 +744,13 @@ test_device_agent :: proc(t: ^testing.T) {
 		&ts,
 		laptop,
 		.Auth_Login,
-		proto.encode_auth_login(buf[:], "alice", "alice's password", "laptop", "Firefox 128\non Windows"),
+		proto.encode_auth_login(
+			buf[:],
+			"alice",
+			"alice's password",
+			"laptop",
+			"Firefox 128\non Windows",
+		),
 	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	status, _ = ts_ask(

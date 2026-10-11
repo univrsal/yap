@@ -163,7 +163,10 @@ decode_into :: proc(data: []u8, pixels: []u8, width: int) -> bool {
 	if len(data) == 0 || len(pixels) == 0 {
 		return false
 	}
-	return decode_rgba(raw_data(data), len(data), raw_data(pixels), len(pixels), c.int(width * 4)) != 0
+	return(
+		decode_rgba(raw_data(data), len(data), raw_data(pixels), len(pixels), c.int(width * 4)) !=
+		0 \
+	)
 }
 
 /*

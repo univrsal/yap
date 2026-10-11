@@ -95,7 +95,10 @@ inbox_list :: proc(ui: ^UI) -> []Buddy_Entry {
 		}
 		v := &ns.view
 		sync.guard(&v.mutex)
-		if v.status != .Connected || v.login.state != .Done || v.login.must_change || v.login.unverified {
+		if v.status != .Connected ||
+		   v.login.state != .Done ||
+		   v.login.must_change ||
+		   v.login.unverified {
 			continue
 		}
 		server := v.server_name if v.server_name != "" else ns.server

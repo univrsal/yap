@@ -53,7 +53,8 @@ test_account_bodies :: proc(t: ^testing.T) {
 		long := make([]u8, 255, context.temp_allocator)
 		testing.expect(
 			t,
-			encode_auth_login(buf[:], string(long), string(long), string(long), string(long)) != nil,
+			encode_auth_login(buf[:], string(long), string(long), string(long), string(long)) !=
+			nil,
 		)
 		// And a string too long for its length byte doesn't.
 		longer := make([]u8, 256, context.temp_allocator)
@@ -364,12 +365,12 @@ test_agent :: proc(t: ^testing.T) {
 	// A device list names it, and one from an older server still reads.
 	devices: [2]Device
 	devices[0] = {
-		key   = {1 = 1},
-		name  = "laptop",
+		key = {1 = 1},
+		name = "laptop",
 		agent = "Firefox 128 on Windows",
 	}
 	devices[1] = {
-		key  = {1 = 2},
+		key = {1 = 2},
 		name = "phone",
 	}
 	out: [2 + 2 * DEVICE_MAX_SIZE]u8

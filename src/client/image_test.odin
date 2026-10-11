@@ -6,8 +6,8 @@ import stbi "vendor:stb/image"
 
 import "client:clipboard"
 import "client:conn"
-import "common:webp"
 import "common:proto"
+import "common:webp"
 
 // test_image makes a w*h RGBA image: noise (so it doesn't compress to
 // nothing) with an alpha ramp across the first rows.

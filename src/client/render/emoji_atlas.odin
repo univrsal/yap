@@ -49,7 +49,10 @@ emoji_cell :: proc(r: rune) -> (cell: int, ok: bool) {
 emoji_uv :: proc(cell: int) -> (u0, v0, u1, v1: f32) {
 	x := f32(cell % EMOJI_COLUMNS * EMOJI_CELL)
 	y := f32(cell / EMOJI_COLUMNS * EMOJI_CELL)
-	return x / EMOJI_SIDE, y / EMOJI_SIDE, (x + EMOJI_CELL) / EMOJI_SIDE, (y + EMOJI_CELL) / EMOJI_SIDE
+	return x / EMOJI_SIDE,
+		y / EMOJI_SIDE,
+		(x + EMOJI_CELL) / EMOJI_SIDE,
+		(y + EMOJI_CELL) / EMOJI_SIDE
 }
 
 // emoji_white is a texel in the middle of the sheet's white cell.

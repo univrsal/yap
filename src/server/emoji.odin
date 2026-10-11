@@ -388,7 +388,13 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 			if second.kind < first.kind {
 				first, second = second, first
 			}
-			log.warnf("%s and %s are both :%s:; using %s", first.path, second.path, name, first.path)
+			log.warnf(
+				"%s and %s are both :%s:; using %s",
+				first.path,
+				second.path,
+				name,
+				first.path,
+			)
 			chosen[name] = first
 			continue
 		}
@@ -405,7 +411,11 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 	for name in order {
 		path := chosen[name].path
 		if len(names) >= proto.MAX_CUSTOM_EMOJI {
-			log.warnf("%s: a server has at most %d emoji; skipping it", path, proto.MAX_CUSTOM_EMOJI)
+			log.warnf(
+				"%s: a server has at most %d emoji; skipping it",
+				path,
+				proto.MAX_CUSTOM_EMOJI,
+			)
 			continue
 		}
 		cell, anim, ok := read_emoji(path)
@@ -496,7 +506,10 @@ read_webp :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok
 		return
 	}
 	defer webp.anim_close(dec)
-	if info.width > EMOJI_MAX_SIDE || info.height > EMOJI_MAX_SIDE || info.width <= 0 || info.height <= 0 {
+	if info.width > EMOJI_MAX_SIDE ||
+	   info.height > EMOJI_MAX_SIDE ||
+	   info.width <= 0 ||
+	   info.height <= 0 {
 		log.warnf("%s is %dx%d, too big for an emoji; skipping it", path, info.width, info.height)
 		return
 	}
@@ -540,7 +553,9 @@ read_gif :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok:
 		return
 	}
 	all := g.frames > 1
-	if all && (g.frames > EMOJI_MAX_READ || i64(g.width) * i64(g.height) * 4 * i64(g.frames) > EMOJI_GIF_BUDGET) {
+	if all &&
+	   (g.frames > EMOJI_MAX_READ ||
+			   i64(g.width) * i64(g.height) * 4 * i64(g.frames) > EMOJI_GIF_BUDGET) {
 		log.warnf("%s has %d frames, too many to read; it stays still", path, g.frames)
 		all = false
 	}
@@ -556,7 +571,16 @@ read_gif :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok:
 	}
 	delays: [^]i32
 	x, y, z, comp: i32
-	pixels := stbi.load_gif_from_memory(raw_data(data), i32(len(data)), &delays, &x, &y, &z, &comp, 4)
+	pixels := stbi.load_gif_from_memory(
+		raw_data(data),
+		i32(len(data)),
+		&delays,
+		&x,
+		&y,
+		&z,
+		&comp,
+		4,
+	)
 	if pixels == nil || x <= 0 || y <= 0 || z <= 0 {
 		log.warnf("%s isn't a GIF that can be read; skipping it", path)
 		return
@@ -660,7 +684,14 @@ encode_frames :: proc(cells: [][]u8, durations: []int, path: string) -> (anim: B
 	pixels := make([]u8, width * height * 4)
 	defer delete(pixels)
 	place_cells(pixels, width, columns, cells)
-	image, ok := webp.encode_rgba(pixels, width, height, EMOJI_FRAMES_QUALITY, 4, context.temp_allocator)
+	image, ok := webp.encode_rgba(
+		pixels,
+		width,
+		height,
+		EMOJI_FRAMES_QUALITY,
+		4,
+		context.temp_allocator,
+	)
 	if !ok {
 		log.warnf("could not write the frames of %s; it stays still", path)
 		return
@@ -669,7 +700,9 @@ encode_frames :: proc(cells: [][]u8, durations: []int, path: string) -> (anim: B
 	for d, i in durations {
 		times[i] = u16(min(d, int(max(u16))))
 	}
-	data, encoded := proto.encode_emoji_frames({durations = times, columns = columns, image = image})
+	data, encoded := proto.encode_emoji_frames(
+		{durations = times, columns = columns, image = image},
+	)
 	if !encoded || len(data) > proto.MAX_BLOB_SIZE {
 		log.warnf("the frames of %s are too big to send; it stays still", path)
 		delete(data)

@@ -129,7 +129,10 @@ decode_queued :: proc(im: ^UI_Images) {
 		if clipboard.is_qoi(job.jpeg) {
 			image, err := clipboard.decode(job.jpeg)
 			delete(job.jpeg)
-			finish(im, {id = job.id, generation = job.generation, image = image, ok = err == .None})
+			finish(
+				im,
+				{id = job.id, generation = job.generation, image = image, ok = err == .None},
+			)
 			continue
 		}
 		req: i32

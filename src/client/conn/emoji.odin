@@ -15,8 +15,8 @@ fetched and kept the same way.
 */
 
 Emoji_Client :: struct {
-	blob:  proto.Blob_Id, // 0 for none
-	cell:  int,
+	blob:     proto.Blob_Id, // 0 for none
+	cell:     int,
 	names:    [dynamic]string, // owned, in the sheet's order, which is by name
 	animated: [dynamic]proto.Emoji_Anim, // the ones that move
 }

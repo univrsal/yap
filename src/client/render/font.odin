@@ -89,22 +89,22 @@ Face :: struct {
 }
 
 Font :: struct {
-	faces:      [Font_Style]Face,
-	ok:         bool,
+	faces:    [Font_Style]Face,
+	ok:       bool,
 	// The em size every face is set at, Regular's for FONT_SIZE (logical
 	// pixels).
-	em:         f32,
+	em:       f32,
 	// Distance from the top of a LINE_HEIGHT line box to the baseline.
-	baseline:   f32,
+	baseline: f32,
 	// How much bigger than FONT_SIZE this one is drawn: 1, or the
 	// chat's size (see above). Set before the atlases are built.
-	zoom:       f32,
+	zoom:     f32,
 	// The density the atlases are for (font_set_scale); a face whose
 	// atlas is for another is built again before it's drawn.
-	scale:      f32,
+	scale:    f32,
 
 	// The fallback font, with an atlas of its own.
-	uni:        Unifont,
+	uni:      Unifont,
 }
 
 font_init :: proc(f: ^Font) -> bool {
@@ -467,7 +467,16 @@ font_layout_unzoomed :: proc(
 			} else {
 				// The atlas is full: this frame makes do with the
 				// fallback, in the room the glyph would have had.
-				emit_glyph(f, .Regular, int(f.faces[.Regular].fallback), pen, origin, baseline, data, emit)
+				emit_glyph(
+					f,
+					.Regular,
+					int(f.faces[.Regular].fallback),
+					pen,
+					origin,
+					baseline,
+					data,
+					emit,
+				)
 			}
 			pen += f32(u.width[i])
 		case .Emoji:

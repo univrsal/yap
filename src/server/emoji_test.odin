@@ -280,6 +280,10 @@ test_emoji_animated :: proc(t: ^testing.T) {
 	if img != nil {
 		px := bytes.buffer_to_bytes(&img.pixels)
 		i := (32 * EMOJI_COLUMNS * EMOJI_STRIDE + 2 * EMOJI_STRIDE + 32) * 4
-		testing.expect_value(t, [4]u8{px[i], px[i + 1], px[i + 2], px[i + 3]}, [4]u8{255, 0, 0, 255})
+		testing.expect_value(
+			t,
+			[4]u8{px[i], px[i + 1], px[i + 2], px[i + 3]},
+			[4]u8{255, 0, 0, 255},
+		)
 	}
 }

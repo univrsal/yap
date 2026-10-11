@@ -37,7 +37,8 @@ info :: proc(data: []u8) -> (info: Info, ok: bool) {
 	}
 	for pos < len(data) {
 		switch data[pos] {
-		case 0x2C: // an image
+		case 0x2C:
+			// an image
 			if pos + 10 > len(data) {
 				return
 			}
@@ -49,21 +50,26 @@ info :: proc(data: []u8) -> (info: Info, ok: bool) {
 			pos += 1 // the LZW code size
 			pos = skip_sub_blocks(data, pos) or_return
 			info.frames += 1
-		case 0x21: // an extension
+		case 0x21:
+			// an extension
 			if pos + 2 > len(data) {
 				return
 			}
 			label := data[pos + 1]
 			pos += 2
 			app := data[pos:]
-			if label == 0xFF && len(app) >= 16 && app[0] == 11 && string(app[1:12]) == "NETSCAPE2.0" {
+			if label == 0xFF &&
+			   len(app) >= 16 &&
+			   app[0] == 11 &&
+			   string(app[1:12]) == "NETSCAPE2.0" {
 				if app[12] == 3 && app[13] == 1 {
 					n := int(app[14]) | int(app[15]) << 8
 					info.loops = 0 if n == 0 else n + 1
 				}
 			}
 			pos = skip_sub_blocks(data, pos) or_return
-		case 0x3B: // the end
+		case 0x3B:
+			// the end
 			return info, info.frames > 0 && info.width > 0 && info.height > 0
 		case:
 			return

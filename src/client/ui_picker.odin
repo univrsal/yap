@@ -18,18 +18,18 @@ shortcode.
 */
 
 UI_Picker :: struct {
-	open:     bool,
-	placed:   bool,
+	open:          bool,
+	placed:        bool,
 	// Reacting to this message, or (0) writing in a composer: the page's,
 	// or a thread window's (Composer.thread).
-	react_to: proto.Msg_Id,
-	thread:   int,
+	react_to:      proto.Msg_Id,
+	thread:        int,
 	// The category shown: -1 for the server's own, else an
 	// Emoji_Category.
-	category: int,
-	search:   [proto.MAX_EMOJI_NAME]u8,
-	search_n: int,
-	hovered:  string, // what the emoji under the pointer is called; temp
+	category:      int,
+	search:        [proto.MAX_EMOJI_NAME]u8,
+	search_n:      int,
+	hovered:       string, // what the emoji under the pointer is called; temp
 	hovered_emoji: Hint_Emoji, // and what it is, large
 	hovered_rect:  mu.Rect, // and where
 }

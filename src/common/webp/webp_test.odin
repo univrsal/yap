@@ -38,7 +38,11 @@ test_anim_frames :: proc(t: ^testing.T) {
 			testing.expect_value(t, len(pixels), 6 * 4 * 4)
 			testing.expect_value(t, ends, w.ends)
 			if len(pixels) == 6 * 4 * 4 {
-				testing.expect_value(t, [4]u8{pixels[20], pixels[21], pixels[22], pixels[23]}, w.rgba)
+				testing.expect_value(
+					t,
+					[4]u8{pixels[20], pixels[21], pixels[22], pixels[23]},
+					w.rgba,
+				)
 			}
 		}
 		_, _, next := anim_next(dec, info)
@@ -78,6 +82,10 @@ test_anim_still :: proc(t: ^testing.T) {
 	// A still WebP still decodes as one; an animation doesn't.
 	pixels: [6 * 4 * 4]u8
 	testing.expect(t, decode_into(STILL, pixels[:], 6))
-	testing.expect_value(t, [4]u8{pixels[0], pixels[1], pixels[2], pixels[3]}, [4]u8{10, 20, 30, 255})
+	testing.expect_value(
+		t,
+		[4]u8{pixels[0], pixels[1], pixels[2], pixels[3]},
+		[4]u8{10, 20, 30, 255},
+	)
 	testing.expect(t, !decode_into(ANIM, pixels[:], 6))
 }

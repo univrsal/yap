@@ -2,8 +2,8 @@ package client
 
 import "client:render"
 import glfw "client:wglfw"
-import mu "vendor:microui"
 import win "core:sys/windows"
+import mu "vendor:microui"
 
 foreign import kernel32 "system:Kernel32.lib"
 foreign import user32 "system:User32.lib"
@@ -142,7 +142,11 @@ titlebar_merge :: proc(window: glfw.WindowHandle) {
 		0,
 		0,
 		0,
-		win.SWP_FRAMECHANGED | win.SWP_NOMOVE | win.SWP_NOSIZE | win.SWP_NOZORDER | win.SWP_NOACTIVATE,
+		win.SWP_FRAMECHANGED |
+		win.SWP_NOMOVE |
+		win.SWP_NOSIZE |
+		win.SWP_NOZORDER |
+		win.SWP_NOACTIVATE,
 	)
 }
 

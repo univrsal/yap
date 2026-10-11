@@ -54,12 +54,12 @@ Texture_State :: enum {
 
 @(private = "file")
 Texture :: struct {
-	state:   Texture_State,
-	texture: render.Gpu_Texture,
-	frame:   int, // when it was last drawn
+	state:      Texture_State,
+	texture:    render.Gpu_Texture,
+	frame:      int, // when it was last drawn
 	// The picture's own size, once it's decoded.
-	width:   int,
-	height:  int,
+	width:      int,
+	height:     int,
 	// An animation (ui_images_anim_native.odin): the texture shows a frame
 	// at a time, and `next` (owned) is the one after it once the worker
 	// has it, shown at `due` for `next_shown`. `asked` while the worker is

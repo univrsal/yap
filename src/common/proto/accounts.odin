@@ -291,12 +291,7 @@ encode_auth_login :: proc(out: []u8, username, password, device: string, agent :
 	return written(&w)
 }
 
-decode_auth_login :: proc(
-	body: []u8,
-) -> (
-	username, password, device, agent: string,
-	ok: bool,
-) {
+decode_auth_login :: proc(body: []u8) -> (username, password, device, agent: string, ok: bool) {
 	r := Reader {
 		buf = body,
 	}

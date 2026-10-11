@@ -71,24 +71,24 @@ Tray_Request :: enum {
 }
 
 Tray :: struct {
-	handle:    ^tray.Tray,
+	handle:  ^tray.Tray,
 	// What the icon is showing, so it's only redrawn when it changes.
-	look:      Tray_Look,
+	look:    Tray_Look,
 	// What the menu was last built for: its first item says whether the
 	// window is to be shown or hidden.
-	hidden:    bool,
-	request:   Tray_Request,
+	hidden:  bool,
+	request: Tray_Request,
 	// Where the notifications shown lately go when clicked, kept in a ring
 	// so a click (which only hands back a pointer into it) knows which one
 	// it was; `clicked` is where the last click on one went.
-	targets:   [NOTICE_TARGETS]Notice_Target,
-	next:      int,
-	clicked:   Notice_Target,
+	targets: [NOTICE_TARGETS]Notice_Target,
+	next:    int,
+	clicked: Notice_Target,
 	// The desktop wouldn't take an icon, or took ours away again. We
 	// stop asking until the setting is switched off and on, and leave
 	// the setting alone: it's the user's, and their tray may well be
 	// there the next time they start the client.
-	refused:   bool,
+	refused: bool,
 }
 
 // tray_update keeps the icon in step with the client and handles what

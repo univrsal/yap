@@ -5,9 +5,9 @@ import log "common:wlog"
 import "core:time"
 
 import "client:clipboard"
+import stbi "client:wstbi"
 import "common:gif"
 import "common:webp"
-import stbi "client:wstbi"
 
 /*
 Animated pictures, on the decoding thread. An animated WebP isn't

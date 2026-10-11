@@ -102,6 +102,12 @@ test_emoji_frames :: proc(t: ^testing.T) {
 	testing.expect(t, !read)
 	_, ok = encode_emoji_frames({durations = {100}, columns = 2, image = image}) // too many columns
 	testing.expect(t, !ok)
-	_, ok = encode_emoji_frames({durations = make([]u16, MAX_EMOJI_FRAMES + 1, context.temp_allocator), columns = 1, image = image})
+	_, ok = encode_emoji_frames(
+		{
+			durations = make([]u16, MAX_EMOJI_FRAMES + 1, context.temp_allocator),
+			columns = 1,
+			image = image,
+		},
+	)
 	testing.expect(t, !ok)
 }

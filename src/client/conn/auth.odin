@@ -6,8 +6,8 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-import "common:proto"
 import "client:platform"
+import "common:proto"
 
 /*
 Our account on the server (src/common/proto/accounts.odin): logging in,

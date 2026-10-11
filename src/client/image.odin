@@ -9,8 +9,8 @@ import stbi "vendor:stb/image"
 
 import "client:clipboard"
 import "client:conn"
-import "common:webp"
 import "common:proto"
+import "common:webp"
 
 /*
 Turning a pasted image (RGBA, see clipboard) into something worth
