@@ -156,6 +156,8 @@ Server :: struct {
 	// Deleting registrations whose addresses weren't verified
 	// (verify.odin).
 	verify:         Verify_State,
+	// Mailing accounts what they missed (digest.odin).
+	digest:         Digest_State,
 }
 
 // How long the loop waits for a packet before it comes round anyway.
@@ -261,6 +263,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		{.Calls, calls_sync},
 		{.Retention, retention_sync},
 		{.Verify, verify_sync},
+		{.Digest, digest_sync},
 		{.Exercise, db_exercise},
 		{.Memory, memory_sync},
 	}

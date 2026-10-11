@@ -190,6 +190,11 @@ Stmt :: enum {
 	Mention_Erase,
 	Member_Erase,
 	Invite_Erase,
+	Account_Set_Digest,
+	Msg_Newest,
+	Digest_DMs,
+	Digest_Unread,
+	Digest_Mentions,
 }
 
 @(private = "file", rodata)
@@ -202,7 +207,7 @@ STMT_SQL := [Stmt]string {
 	.Blob_By_Hash           = "SELECT id FROM blobs WHERE sha256 = ?1",
 	.Blob_Delete            = "DELETE FROM blobs WHERE id = ?1",
 	.Account_Add            = "INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, flags, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-	.Account_All            = "SELECT id, username, display, flags, created, last_seen, status, status_until, coalesce(avatar, 0), activity, email, verify_code, verify_expires FROM accounts ORDER BY id",
+	.Account_All            = "SELECT id, username, display, flags, created, last_seen, status, status_until, coalesce(avatar, 0), activity, email, verify_code, verify_expires, digest_upto, coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'email/digest'), '') FROM accounts ORDER BY id",
 	.Account_Secret         = "SELECT pw_hash, pw_salt, pw_params FROM accounts WHERE id = ?1",
 	.Account_Set_Password   = "UPDATE accounts SET pw_hash = ?2, pw_salt = ?3, pw_params = ?4 WHERE id = ?1",
 	.Account_Set_Display    = "UPDATE accounts SET display = ?2 WHERE id = ?1",
@@ -324,6 +329,16 @@ STMT_SQL := [Stmt]string {
 	.Mention_Erase          = "DELETE FROM mentions WHERE account = ?1",
 	.Member_Erase           = "DELETE FROM members WHERE account = ?1",
 	.Invite_Erase           = "UPDATE invites SET revoked = 1 WHERE creator = ?1",
+	// Mailing accounts what they missed (digest.odin).
+	.Account_Set_Digest     = "UPDATE accounts SET digest_upto = ?2 WHERE id = ?1",
+	.Msg_Newest             = "SELECT coalesce(max(id), 0) FROM messages",
+	// Account ?1's unread messages in DMs it hears from, after message ?2
+	// and posted after ?3, at most ?4 of them.
+	.Digest_DMs             = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.kind = 1 AND x.notify != 2 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
+	// ... in every conversation it hears every message of, but archived
+	// channels.
+	.Digest_Unread          = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.flags & 4 = 0 AND x.notify = 0 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
+	.Digest_Mentions        = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM mentions y JOIN members x ON x.conv = y.conv AND x.account = y.account JOIN messages m ON m.id = y.message WHERE y.account = ?1 AND y.message > max(x.read_id, ?2) AND x.notify != 2 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 }
 
 DB :: struct {

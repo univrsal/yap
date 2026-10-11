@@ -355,6 +355,11 @@ MIGRATIONS := [?]string {
 	`
 	ALTER TABLE devices ADD COLUMN agent TEXT NOT NULL DEFAULT '';
 	`,
+	// 24: the newest message there was when an account was last mailed
+	// what it missed (digest.odin).
+	`
+	ALTER TABLE accounts ADD COLUMN digest_upto INTEGER NOT NULL DEFAULT 0;
+	`,
 }
 
 // The version a database is at once it has been through every step.

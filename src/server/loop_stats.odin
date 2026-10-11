@@ -58,6 +58,7 @@ Loop_Phase :: enum u8 {
 	Calls,
 	Retention,
 	Verify,
+	Digest,
 	Exercise,
 	Memory,
 	Commit,

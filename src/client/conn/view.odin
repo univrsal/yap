@@ -76,6 +76,9 @@ View :: struct {
 	// server's own address, where verifying mail goes (verify.odin).
 	registration:   proto.Registration_Flags,
 	server_email:   string,
+	// Whether it mails accounts what they missed, if they ask
+	// (proto.SETTING_EMAIL_DIGEST, in `shared`).
+	server_digests: bool,
 	my_key:         [proto.KEY_SIZE]u8,
 	// The server's, once the handshake has shown it (zero until then):
 	// per-user settings are kept by it and the account (settings.odin).
@@ -266,6 +269,7 @@ view_reset :: proc(v: ^View) {
 	v.registration = {}
 	delete(v.server_email)
 	v.server_email = ""
+	v.server_digests = false
 	delete(v.login.error)
 	delete(v.login.username)
 	delete(v.login.email)
@@ -528,6 +532,7 @@ publish_server :: proc(c: ^Voice_Client) {
 	v.registration = c.rpc.server.registration
 	delete(v.server_email)
 	v.server_email = strings.clone(c.rpc.server.email)
+	v.server_digests = c.rpc.server.digests
 	delete(v.server_about)
 	v.server_about = strings.clone(c.rpc.server.description)
 	if v.server_icon != c.rpc.server.icon || len(v.icon_jpeg) != len(c.rpc.server.icon_jpeg) {

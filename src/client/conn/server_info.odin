@@ -60,6 +60,7 @@ server_info_take :: proc(c: ^Voice_Client, body: []u8) -> bool {
 	email_buf: [proto.MAX_EMAIL_SIZE]u8
 	email, email_ok := proto.email_clean(info.email, &email_buf)
 	s.email = strings.clone(email if email_ok else "")
+	s.digests = info.digests
 
 	if info.icon != s.icon {
 		s.icon = info.icon

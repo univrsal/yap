@@ -50,7 +50,8 @@ once at startup:
 			"password": "",
 			"poll_seconds": 60,
 			"check_auth_results": true,
-			"trusted_auth_host": ""
+			"trusted_auth_host": "",
+			"digest_minutes": 30
 		},
 		"registration": {
 			"open": false,
@@ -118,7 +119,11 @@ email      the server's own email account (email.odin); with no
            where its From says; false skips that, for a mail server
            that adds none, at the cost that anyone could verify an
            address that isn't theirs by writing it as the From (the
-           server warns). Email needs
+           server warns). With `smtp`, accounts that ask for it in
+           their settings are mailed the messages, mentions and
+           direct messages they missed, once they've been away `digest_minutes` (at
+           least 5; 30 if left out), and at most that often after.
+           Email needs
            libcurl, which Linux and macOS have to have installed (the
            server runs without email if they don't); `yap-server email
            test` tries it out.
@@ -497,6 +502,13 @@ check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bo
 	}
 	if e.poll_seconds < MIN_POLL_SECONDS {
 		log.errorf("%s: email's poll_seconds has to be at least %d", path, MIN_POLL_SECONDS)
+		return
+	}
+	if e.digest_minutes == 0 {
+		e.digest_minutes = DEFAULT_DIGEST_MINUTES
+	}
+	if e.digest_minutes < MIN_DIGEST_MINUTES {
+		log.errorf("%s: email's digest_minutes has to be at least %d", path, MIN_DIGEST_MINUTES)
 		return
 	}
 	return e, true

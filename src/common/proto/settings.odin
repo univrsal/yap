@@ -58,3 +58,40 @@ decode_setting :: proc(body: []u8) -> (key: string, value: []u8, ok: bool) {
 	value = get_bytes(&r, n)
 	return key, value, !r.overflow
 }
+
+/*
+The one setting the server reads: which mails it sends an account about
+what came while it was away (server/digest.odin), if it sends any
+(Server_Info.digests). Mentions: unread mentions, and unread direct
+messages, which count as mentions; Missed: those, and every other
+unread message where the account hears of every message
+(Notify_Level.All). Not set is None. A value that isn't one of
+EMAIL_DIGEST_NAMES is refused.
+*/
+SETTING_EMAIL_DIGEST :: "email/digest"
+
+Email_Digest :: enum u8 {
+	None,
+	Missed,
+	Mentions,
+}
+
+@(rodata)
+EMAIL_DIGEST_NAMES := [Email_Digest]string {
+	.None     = "none",
+	.Missed   = "missed",
+	.Mentions = "mentions",
+}
+
+// email_digest_parse reads the setting's value; "" is None.
+email_digest_parse :: proc(value: string) -> (d: Email_Digest, ok: bool) {
+	if value == "" {
+		return .None, true
+	}
+	for name, choice in EMAIL_DIGEST_NAMES {
+		if value == name {
+			return choice, true
+		}
+	}
+	return .None, false
+}

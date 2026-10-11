@@ -43,6 +43,7 @@ Server_Details :: struct {
 	max_attachment: u64,
 	registration:   proto.Registration_Flags,
 	email:          string, // where verifying mail goes; owned
+	digests:        bool, // it mails what was missed (proto.SETTING_EMAIL_DIGEST)
 	// What it's for (owned), and its picture: the id it goes by, and its
 	// JPEG once fetched (owned; nil until then). See server_info.odin.
 	description:    string,

@@ -284,10 +284,11 @@ Server_Info :: struct {
 	email:          string, // the server's own address, "" for none (verify.odin)
 	description:    string, // what it says it's for; may be empty
 	icon:           Blob_Id, // its picture (Server_Icon), 0 for none
+	digests:        bool, // it mails what was missed to who wants it (SETTING_EMAIL_DIGEST)
 }
 
 SERVER_INFO_MAX_SIZE ::
-	1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1 + 1 + MAX_EMAIL_SIZE + 2 + MAX_SERVER_DESCRIPTION + 8
+	1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1 + 1 + MAX_EMAIL_SIZE + 2 + MAX_SERVER_DESCRIPTION + 8 + 1
 
 // What a server says it's for, in bytes of UTF-8.
 MAX_SERVER_DESCRIPTION :: 512
@@ -357,6 +358,7 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	put_str8(&w, info.email)
 	put_str16(&w, info.description)
 	put_u64(&w, u64(info.icon))
+	put_u8(&w, 1 if info.digests else 0)
 	if w.overflow {
 		return
 	}
@@ -379,6 +381,9 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	if !r.overflow && r.pos < len(r.buf) {
 		info.description = get_str16(&r)
 		info.icon = Blob_Id(get_u64(&r))
+	}
+	if !r.overflow && r.pos < len(r.buf) {
+		info.digests = get_u8(&r) != 0
 	}
 	if r.overflow ||
 	   len(info.name) > MAX_SERVER_NAME ||

@@ -33,6 +33,7 @@ network loop never blocks on input.
 	/create <channel> [topic]   make a channel (for who may)
 	/name <name>     change what your account is called
 	/email [address] set your account's email address (none: remove it)
+	/digest none|missed|mentions   what the server mails you that you missed
 	/login <username> <password>   log in, if the server asks for it
 	/register <username> <password> [email] [invite]   make an account,
 	                 where the server lets you, and log in to it
@@ -146,6 +147,19 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			conn.push_command(
 				q,
 				conn.Email_Command{strings.clone(strings.trim_space(line[len("/email"):]))},
+			)
+		case strings.has_prefix(line, "/digest "):
+			value := strings.trim_space(line[len("/digest "):])
+			if _, ok := proto.email_digest_parse(value); !ok || value == "" {
+				log.warn("/digest none|missed|mentions")
+				break
+			}
+			conn.push_command(
+				q,
+				conn.Setting_Command {
+					key = strings.clone(proto.SETTING_EMAIL_DIGEST),
+					value = strings.clone("" if value == "none" else value),
+				},
 			)
 		case strings.has_prefix(line, "/login "):
 			username, _, password := strings.partition(

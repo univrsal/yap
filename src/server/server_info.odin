@@ -62,6 +62,7 @@ server_info_body :: proc(s: ^Server) -> []u8 {
 		email          = s.email.config.address if verify_on(s) else "",
 		description    = s.description,
 		icon           = s.icon,
+		digests        = digest_on(s),
 	}
 	body, ok := proto.encode_server_info(buf, info)
 	return body if ok else nil

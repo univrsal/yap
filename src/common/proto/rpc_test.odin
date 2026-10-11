@@ -66,7 +66,8 @@ test_server_info :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, info.name, "The Shed")
 
-	_, ok = decode_server_info(body[:len(body) - 1])
+	// Cut in the icon, before the digests.
+	_, ok = decode_server_info(body[:len(body) - 2])
 	testing.expect(t, !ok)
 	_, ok = decode_server_info(nil)
 	testing.expect(t, !ok)
@@ -81,7 +82,13 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	buf: [SERVER_INFO_MAX_SIZE]u8
 	body, ok := encode_server_info(
 		buf[:],
-		{name = "The Shed", version = "1.2.3", description = "For the band.", icon = 42},
+		{
+			name = "The Shed",
+			version = "1.2.3",
+			description = "For the band.",
+			icon = 42,
+			digests = true,
+		},
 	)
 	testing.expect(t, ok)
 	info: Server_Info
@@ -89,9 +96,16 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, info.description, "For the band.")
 	testing.expect_value(t, info.icon, Blob_Id(42))
+	testing.expect(t, info.digests)
 
-	// An older server ends at the email address: no description, no icon.
-	old := body[:len(body) - 2 - len("For the band.") - 8]
+	// An older server ends at the icon: no digests.
+	info, ok = decode_server_info(body[:len(body) - 1])
+	testing.expect(t, ok)
+	testing.expect_value(t, info.icon, Blob_Id(42))
+	testing.expect(t, !info.digests)
+
+	// One older still ends at the email address: no description, no icon.
+	old := body[:len(body) - 1 - 2 - len("For the band.") - 8]
 	info, ok = decode_server_info(old)
 	testing.expect(t, ok)
 	testing.expect_value(t, info.name, "The Shed")

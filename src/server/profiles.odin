@@ -19,7 +19,9 @@ A picture is a blob, uploaded first like a message's (transfers.odin) as
 kind Avatar: a JPEG at most MAX_AVATAR_SIDE pixels a side. Anyone
 logged in may fetch a blob that is someone's picture.
 
-Settings are kept as they come, by key, and not looked inside.
+Settings are kept as they come, by key, and not looked inside; but for
+proto.SETTING_EMAIL_DIGEST, which has to be one of its values, and which
+the server keeps a copy of in the account (digest.odin).
 */
 
 // How often statuses are looked at for ones that have ended.
@@ -222,6 +224,15 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	acc := u.account
+	// The one the server reads (digest.odin).
+	digest: proto.Email_Digest
+	if key == proto.SETTING_EMAIL_DIGEST {
+		digest, ok = proto.email_digest_parse(string(value))
+		if !ok {
+			respond(u, id, .Invalid)
+			return
+		}
+	}
 	if len(value) == 0 {
 		q := db_stmt(&s.db, .Setting_Delete)
 		db_bind_int(q, 1, i64(acc.id))
@@ -243,6 +254,9 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			respond(u, id, .Internal)
 			return
 		}
+	}
+	if key == proto.SETTING_EMAIL_DIGEST {
+		acc.digest = digest
 	}
 	respond(u, id, .Ok)
 	// The account's other connections.

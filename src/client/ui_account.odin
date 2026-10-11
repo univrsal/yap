@@ -655,6 +655,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		mu.label(ctx, "")
 		notice_label(ui, v)
 	}
+	digest_settings(ui, v)
 	profile_settings(ui)
 	status_settings(ui)
 
@@ -687,6 +688,53 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 			mu.end_treenode(ctx)
 		}
 	}
+}
+
+@(private = "file", rodata)
+DIGEST_LABELS := [proto.Email_Digest]string {
+	.None     = "No emails",
+	.Missed   = "Missed messages",
+	.Mentions = "Mentions and direct messages",
+}
+
+/*
+digest_settings is which mails this server sends us about what came
+while we were away (proto.SETTING_EMAIL_DIGEST), if it sends any: an
+account setting, so it's the same on all our devices, and this server's
+alone. Call with the View locked.
+*/
+@(private = "file")
+digest_settings :: proc(ui: ^UI, v: ^conn.View) {
+	if !v.server_digests || !v.shared_synced {
+		return
+	}
+	ctx := &ui.ctx
+	current, _ := proto.email_digest_parse(v.shared[proto.SETTING_EMAIL_DIGEST] or_else "")
+	for choice in proto.Email_Digest {
+		// Two a row: the label, then the next two.
+		if int(choice) % 2 == 0 {
+			mu.layout_row(ctx, {FORM_LABEL, 210, 210})
+			mu.label(ctx, "Email digests" if choice == .None else "")
+		}
+		name := proto.EMAIL_DIGEST_NAMES[choice]
+		id := fmt.tprintf("digest %s", name)
+		if choice_button(ui, id, DIGEST_LABELS[choice], choice == current) && choice != current {
+			command(
+				ui,
+				conn.Setting_Command {
+					key = strings.clone(proto.SETTING_EMAIL_DIGEST),
+					value = strings.clone("" if choice == .None else name),
+				},
+			)
+		}
+	}
+	hint := "Mailed after you've been away a while; muted conversations are left out."
+	if v.login.email == "" {
+		hint = "These go to your email address, which you haven't set."
+	}
+	mu.layout_row(ctx, {FORM_LABEL, -1})
+	mu.label(ctx, "")
+	with_text_color(ctx, theme.dim, hint, label_proc)
 }
 
 // delete_own_account is the form for deleting our own account, which

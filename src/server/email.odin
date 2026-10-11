@@ -20,7 +20,8 @@ import "common:proto"
 The server's own email account (config.json's "email", see config.odin):
 it reads what's sent to it over IMAP, and sends over SMTP, both through
 libcurl (curl.odin). What it reads verifies accounts' addresses
-(verify.odin); password resets and missed-mention mails will send it.
+(verify.odin); what it sends tells accounts what they missed while they
+were away (digest.odin), and password resets will.
 
 Mail is slow and may hang, so it's all on a thread of its own, which
 the loop talks to through two queues, like the password hasher's
@@ -56,10 +57,15 @@ Email_Config :: struct {
 	// (verify.odin); other hosts' are anybody's say-so.
 	check_auth_results: bool,
 	trusted_auth_host:  string,
+	// How long an account has to be away before it's mailed what it
+	// missed, and how long between two such mails (digest.odin).
+	digest_minutes:     int,
 }
 
 DEFAULT_POLL_SECONDS :: 60
 MIN_POLL_SECONDS :: 10
+DEFAULT_DIGEST_MINUTES :: 30
+MIN_DIGEST_MINUTES :: 5
 
 // A poll fetches at most this many mails; the rest wait for the next.
 @(private = "file")
@@ -100,7 +106,7 @@ mail_destroy :: proc(m: ^Mail) {
 	m^ = {}
 }
 
-@(private = "file")
+// Email_Job is what the loop has asked of the email thread.
 Email_Job :: struct {
 	delete:  bool, // delete mail `uid`; otherwise send
 	uid:     u32,
