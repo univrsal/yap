@@ -48,18 +48,19 @@ known_servers_destroy :: proc(ui: ^UI) {
 	ui.known = {}
 }
 
-// grouped_key is a whole key in groups of 8 hex digits, for reading out
-// and comparing; the first group is the fingerprint shown elsewhere.
-grouped_key :: proc(key: [proto.KEY_SIZE]u8) -> string {
+// key_lines is a key in hex, four lines of two groups of eight.
+@(private = "file")
+key_lines :: proc(key: [proto.KEY_SIZE]u8) -> [4]string {
 	full := conn.key_hex(key)
-	b := strings.builder_make(context.temp_allocator)
-	for i := 0; i < len(full); i += 8 {
-		if i > 0 {
-			strings.write_byte(&b, ' ')
-		}
-		strings.write_string(&b, full[i:min(i + 8, len(full))])
+	lines: [4]string
+	per := (len(full) + 3) / 4
+	for &line, i in lines {
+		from := min(i * per, len(full))
+		to := min(from + per, len(full))
+		half := min(from + per / 2, to)
+		line = fmt.tprintf("%s %s", full[from:half], full[half:to])
 	}
-	return strings.to_string(b)
+	return lines
 }
 
 @(private = "file")
@@ -68,7 +69,7 @@ text_proc :: proc(ctx: ^mu.Context, text: string) {
 }
 
 /*
-key_change_panel is drawn on the connect screen (or the + dialog's),
+key_change_panel is drawn in the connect screen's card (or the join page's),
 under the error, when the last connection failed because the server's
 key has changed. Called with the View locked.
 */
@@ -76,11 +77,16 @@ key_change_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	kc := &ui.view.key_change
 
-	mu.layout_row(ctx, {80, -1})
-	mu.label(ctx, "Saved key")
-	mu.label(ctx, grouped_key(kc.saved))
-	mu.label(ctx, "New key")
-	mu.label(ctx, grouped_key(kc.received))
+	// The two side by side, each over its four lines.
+	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
+	mu.layout_row(ctx, {half, -1})
+	with_text_color(ctx, theme.dim, "Saved key", label_proc)
+	with_text_color(ctx, theme.dim, "New key", label_proc)
+	saved, received := key_lines(kc.saved), key_lines(kc.received)
+	for i in 0 ..< len(saved) {
+		mu.label(ctx, saved[i])
+		mu.label(ctx, received[i])
+	}
 
 	mu.layout_row(ctx, {-1})
 	with_text_color(
@@ -94,13 +100,9 @@ key_change_panel :: proc(ui: ^UI) {
 		`Only trust the new key if the person running the server confirms it changed. The server logs its key when it starts ("server public key: ..."), which should match the new key above.`,
 	)
 
-	mu.layout_row(ctx, {230, 130})
+	mu.layout_row(ctx, {-1})
 	if .SUBMIT in mu.button(ctx, "Trust the new key and connect") {
 		ui.action = .Trust_Key
-	}
-	if .SUBMIT in mu.button(ctx, "Keep the old key") {
-		log.debug("ui: keep the old server key")
-		conn.view_clear_key_change(ui.view)
 	}
 }
 
@@ -128,7 +130,7 @@ trust_new_key :: proc(ui: ^UI) {
 	}
 	log.infof("trusting the new key of %s: %s", server, conn.key_hex(key))
 	ui.known.loaded = false
-	// From the + dialog, which goes on joining it (ui_join.odin).
+	// From the join page, which goes on joining it (ui_join.odin).
 	if ns := ui.session; ns != nil && ns.joining {
 		join_connect(ui, server, strings.clone(ns.password, context.temp_allocator))
 		return

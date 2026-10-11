@@ -98,7 +98,6 @@ FORM_FIELD :: 220
 // picture at the top.
 @(private = "file")
 LOGIN_CARD_WIDTH :: 400
-@(private = "file")
 LOGIN_LABEL :: 110
 @(private = "file")
 LOGIN_PICTURE :: 72
@@ -132,6 +131,37 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 }
 
 /*
+card_begin starts a card in the middle of what's left of the main
+window, as the login screen has: LOGIN_CARD_WIDTH wide (or all there
+is), and as tall as `h`, what was in it last frame (all there is the
+first time), scrolling if that won't fit. card_end ends it, keeping its
+height in `h`.
+*/
+card_begin :: proc(ui: ^UI, name: string, h: i32) {
+	ctx := &ui.ctx
+	mu.layout_row(ctx, {-1}, -1)
+	area := mu.layout_next(ctx)
+	w := min(area.w, LOGIN_CARD_WIDTH)
+	ch := area.h if h <= 0 else min(h, area.h)
+	mu.layout_set_next(ctx, {area.x + (area.w - w) / 2, area.y + (area.h - ch) / 2, w, ch}, false)
+	mu.begin_panel(ctx, name)
+}
+
+card_end :: proc(ui: ^UI, h: ^i32) {
+	ctx := &ui.ctx
+	cnt := mu.get_current_container(ctx)
+	mu.end_panel(ctx)
+	h^ = cnt.content_size.y + 2 * ctx.style.padding
+}
+
+// card_heading is a row of `text` in the middle of a card.
+card_heading :: proc(ui: ^UI, text: string) {
+	ctx := &ui.ctx
+	mu.layout_row(ctx, {-1})
+	mu.draw_control_text(ctx, text, mu.layout_next(ctx), .TEXT, {.ALIGN_CENTER})
+}
+
+/*
 login_screen is what a server that doesn't know this device shows
 instead of its channels. Call with the View locked.
 */
@@ -145,28 +175,9 @@ login_screen :: proc(ui: ^UI) {
 	}
 	registering := a.registering
 
-	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
-	mu.label(ctx, "Register" if registering else "Log in")
-	// In the + dialog, giving up joining it (ui_join.odin).
-	leave := "Cancel" if ui.session != nil && ui.session.joining else "Leave this server"
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, leave, theme.off) {
-		ui.action = .Disconnect
-	}
-
-	// The rest is a card in the middle of what's left: the server, as it
-	// says it is, over the form. It's as tall as it was last frame (or
-	// all there is, the first time), and scrolls if that won't fit.
-	mu.layout_row(ctx, {-1}, -1)
-	area := mu.layout_next(ctx)
-	w := min(area.w, LOGIN_CARD_WIDTH)
-	h := area.h if a.card_h <= 0 else min(a.card_h, area.h)
-	mu.layout_set_next(ctx, {area.x + (area.w - w) / 2, area.y + (area.h - h) / 2, w, h}, false)
-	mu.begin_panel(ctx, "login card")
-	defer {
-		cnt := mu.get_current_container(ctx)
-		mu.end_panel(ctx)
-		a.card_h = cnt.content_size.y + 2 * ctx.style.padding
-	}
+	// A card in the middle: the server, as it says it is, over the form.
+	card_begin(ui, "login card", a.card_h)
+	defer card_end(ui, &a.card_h)
 
 	server := ui.session.server if ui.session != nil else v.server
 	mu.layout_row(ctx, {-1}, LOGIN_PICTURE)
@@ -177,15 +188,7 @@ login_screen :: proc(ui: ^UI) {
 		v,
 		{pic.x + (pic.w - LOGIN_PICTURE) / 2, pic.y, LOGIN_PICTURE, LOGIN_PICTURE},
 	)
-	mu.layout_row(ctx, {-1})
-	name := mu.layout_next(ctx)
-	mu.draw_control_text(
-		ctx,
-		v.server_name if v.server_name != "" else server,
-		name,
-		.TEXT,
-		{.ALIGN_CENTER},
-	)
+	card_heading(ui, v.server_name if v.server_name != "" else server)
 	if v.server_about != "" {
 		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, theme.dim, v.server_about, mu.text)
@@ -242,11 +245,9 @@ login_screen :: proc(ui: ^UI) {
 		with_text_color(
 			ctx,
 			theme.dim,
-			"This device isn't logged in here yet. Accounts are made by the server's admin.",
+			"This server does not allow registrations. Ask an admin for an account.",
 			mu.text,
 		)
-	case !working && !registering:
-		with_text_color(ctx, theme.dim, "This device isn't logged in here yet.", mu.text)
 	}
 
 	if submit && !working && a.username_len > 0 && a.password_len > 0 {
@@ -344,11 +345,8 @@ verify_screen :: proc(ui: ^UI) {
 	a := &ui.account
 	server := v.server_name if v.server_name != "" else v.server
 
-	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
+	title_row(ui, {-1})
 	mu.label(ctx, fmt.tprintf("Verify your email address for %s", server))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", theme.off) {
-		ui.action = .Disconnect
-	}
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "Send a mail from your address to the server's, with the code in its subject:")
 
@@ -435,11 +433,8 @@ password_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 
-	title_row(ui, {-(ICON_BUTTON + 8), ICON_BUTTON})
+	title_row(ui, {-1})
 	mu.label(ctx, fmt.tprintf("Choose a password for %s", v.login.username))
-	if .SUBMIT in icon_button(ui, "disconnect", .Leave, "Leave this server", theme.off) {
-		ui.action = .Disconnect
-	}
 	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,

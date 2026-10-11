@@ -70,7 +70,7 @@ Net_Session :: struct {
 	slot:           i32,
 	// Whether it was last told whoever uses this is idle (ui_activity.odin).
 	idle_told:      bool,
-	// Being joined from the + dialog (ui_join.odin): off the rail, and
+	// Being joined from the + page (ui_join.odin): off the rail, and
 	// not in the settings, until it's logged in.
 	joining:        bool,
 	// Messages unread in its channels, and how many of them mention us,
@@ -122,7 +122,6 @@ Page :: enum {
 Action :: enum {
 	None,
 	Start, // connect to every joined server, on the first frame
-	Connect,
 	Disconnect,
 	Trust_Key, // the connect screen's "trust the new key" (ui_known_servers.odin)
 }
@@ -137,6 +136,8 @@ UI :: struct {
 	server_len:          int,
 	password_buf:        [proto.MAX_PASSWORD_SIZE]u8,
 	password_len:        int,
+	// The connect screen's card's height last frame (card_end).
+	connect_card_h:      i32,
 	// What the shown server's connection says (its session's View), or
 	// with none, `no_view`, which says nothing is connected.
 	view:                ^conn.View,
@@ -449,8 +450,6 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	case .None:
 	case .Start:
 		connect_joined(ui)
-	case .Connect:
-		connect(ui)
 	case .Disconnect:
 		disconnect(ui, ui.session)
 	case .Trust_Key:
@@ -1162,7 +1161,7 @@ session_slot :: proc(ui: ^UI) -> i32 {
 /*
 disconnect leaves a server: its session ends, it's no longer joined,
 and if it was the one shown, the one beside it in the rail is. One being
-joined from the + dialog is given up instead. Between frames.
+joined from the + page is given up instead. Between frames.
 */
 disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	if ns == nil {
@@ -1393,7 +1392,6 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	}
 	// An enlarged image floats above it all (ui_images.odin).
 	image_viewer(ui, w, h)
-	join_dialog(ui, w, h)
 	pins_window(ui, w, h)
 	thread_windows(ui, w, h)
 	profile_windows(ui, w, h)
@@ -1411,10 +1409,10 @@ layout :: proc(ui: ^UI, w, h: i32) {
 
 @(private = "file")
 main_window :: proc(ui: ^UI) {
-	// Behind the + dialog while it connects (ui_join.odin), and with
-	// no server at all, the start screen.
-	if ui.session != nil && ui.session.joining {
-		start_screen(ui)
+	// Joining a server from the + (ui_join.odin), which is all there is
+	// with no server to show.
+	if ui.join.open || (ui.session != nil && ui.session.joining) {
+		join_page(ui)
 		return
 	}
 	if ui.page == .Settings {
@@ -1422,7 +1420,7 @@ main_window :: proc(ui: ^UI) {
 		return
 	}
 	if ui.session == nil {
-		start_screen(ui)
+		join_page(ui)
 		return
 	}
 
@@ -1461,73 +1459,37 @@ main_window :: proc(ui: ^UI) {
 	}
 }
 
+/*
+connect_screen is a server on the rail that isn't connected, in a card:
+what went wrong, the trust prompt if its key has changed, and leaving
+it.
+*/
 @(private = "file")
 connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
+	card_begin(ui, "connect card", ui.connect_card_h)
+	defer card_end(ui, &ui.connect_card_h)
 
-	title_row(ui, {70, -(ICON_BUTTON + 8), ICON_BUTTON})
-	mu.label(ctx, "Server")
-	if .SUBMIT in text_box(ui, ui.server_buf[:], &ui.server_len) {
-		ui.action = .Connect
-	}
-	if .SUBMIT in icon_button(ui, "send", .Send, "Connect") {
-		ui.action = .Connect
-	}
-
-	mu.layout_row(ctx, {70, 200})
-	mu.label(ctx, "Password")
-	if .SUBMIT in password_box(ui, ui.password_buf[:], &ui.password_len) {
-		ui.action = .Connect
-	}
-
-	if v.status == .Failed && v.error != "" {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.error, v.error, label_proc)
+	server := ui.session.server
+	card_heading(ui, v.server_name if v.server_name != "" else server)
+	mu.layout_row(ctx, {-1})
+	switch {
+	case v.status == .Failed && v.error != "":
+		with_text_color(ctx, theme.error, v.error, mu.text)
+	case v.status == .Failed:
+		with_text_color(ctx, theme.error, "Could not connect.", mu.text)
+	case:
+		with_text_color(ctx, theme.dim, "Not connected.", mu.text)
 	}
 	if v.status == .Failed && v.key_change.changed {
 		key_change_panel(ui)
 	}
-	// A server on the rail that isn't connected: connected again above,
-	// or left here.
-	mu.layout_row(ctx, {70, 200})
-	mu.label(ctx, "")
+	mu.layout_row(ctx, {-1}, ctx.style.spacing)
+	mu.layout_next(ctx)
+	mu.layout_row(ctx, {-1})
 	if .SUBMIT in mu.button(ctx, "Leave this server") {
 		ui.action = .Disconnect
-	}
-
-}
-
-/*
-start_screen is what the main window shows with no server to show: none
-joined yet, which it says, pointing at the + that joins one; or behind
-the + dialog while it connects.
-*/
-@(private = "file")
-start_screen :: proc(ui: ^UI) {
-	ctx := &ui.ctx
-	joining := ui.session != nil && ui.session.joining
-	title_row(ui, {-1})
-	switch {
-	case joining:
-		mu.label(ctx, "Joining a server...")
-	case len(ui.sessions) == 0:
-		mu.label(ctx, "Not on any server yet")
-	case:
-		mu.label(ctx, "No server shown")
-	}
-	if !joining {
-		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			"Join a server with the + on the left: its address, and its password if it has one.",
-			label_proc,
-		)
-		mu.layout_row(ctx, {160})
-		if .SUBMIT in mu.button(ctx, "Join a server") {
-			join_open(ui)
-		}
 	}
 }
 

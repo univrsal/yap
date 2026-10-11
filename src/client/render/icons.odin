@@ -25,7 +25,6 @@ Icon :: enum {
 	Sound, // a speaker with sound coming out: hearing the others
 	Sound_Off, // deafened: a speaker with a line through it
 	Settings, // sliders
-	Leave, // a power symbol: disconnect
 	Send, // a paper dart: post what's in the chat box
 	Screen, // a monitor: sharing a screen, or watching one
 	Buddies, // two people: the buddy list
@@ -177,8 +176,6 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return crossed_out(speaker(p), p)
 	case .Settings:
 		return sliders(p)
-	case .Leave:
-		return power(p)
 	case .Send:
 		return dart(p)
 	case .Screen:
@@ -580,16 +577,6 @@ sliders :: proc(p: Point) -> f32 {
 		d = nearer(d, disc(p, {handles[i], y}, KNOB))
 	}
 	return d
-}
-
-// The power symbol: a ring broken at the top, with a bar standing in
-// the break.
-@(private = "file")
-power :: proc(p: Point) -> f32 {
-	STROKE :: 0.105
-	ring := abs(length(p - {0.5, 0.57}) - 0.30) - STROKE / 2
-	ring = cut(ring, rounded_box(p, {0.5, 0.20}, {0.11, 0.16}, 0))
-	return nearer(ring, capsule(p, {0.5, 0.13}, {0.5, 0.45}, STROKE))
 }
 
 // A paper dart, pointing the way the message goes: a triangle with a

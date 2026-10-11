@@ -309,7 +309,7 @@ DMs for us their count in red.
 Clicking one shows it; dragging it moves it (the joined servers in the
 settings follow the rail's order); right-clicking it (a long press on a
 touch screen) opens its menu: its settings, logging out of it, leaving
-it, and leaving it and forgetting its key. + opens the dialog that joins
+it, and leaving it and forgetting its key. + opens the page that joins
 another (ui_join.odin), which has its session to itself until it's
 logged in.
 */
@@ -478,7 +478,7 @@ inbox_icon :: proc(ui: ^UI) {
 	)
 	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
 		// Logged in nowhere, there's nothing to show in it.
-		if ui.session != nil && !ui.join.open {
+		if ui.session != nil && !ui.session.joining && !ui.join.open {
 			toggle_inbox(ui)
 		}
 	}
@@ -507,9 +507,14 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 	}
 	mu.layout_set_next(ctx, {x, settings_y, ICON_BUTTON, ICON_BUTTON}, false)
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
-		if ui.page == .Settings {
+		switch {
+		case ui.join.open || ui.join.ns != nil:
+			// Joining a server is given up for them (ui_join.odin).
+			ui.join.close = true
+			open_settings(ui)
+		case ui.page == .Settings:
 			ui.page = .Main
-		} else {
+		case:
 			open_settings(ui)
 		}
 	}
@@ -751,8 +756,8 @@ rail_frame :: proc(ui: ^UI) {
 switch_now acts on a click on the rail, after the frame that had it: a
 server's icon shows its channels, even the shown one's from the inbox.
 Or on one in the inbox (ui_buddies.odin) of a DM on another server,
-which is shown behind the inbox with the DM open. The + dialog is given
-up for it.
+which is shown behind the inbox with the DM open. Joining a server is
+given up for it.
 */
 switch_now :: proc(ui: ^UI) {
 	if !ui.switching {
