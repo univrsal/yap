@@ -3,8 +3,8 @@ name: Docker
 on:
   pull_request:
   push:
-    branches: [master, extended]
-    tags: ['v*']
+    branches: [extended]
+    tags: ['v2*']
   workflow_dispatch:
 
 permissions:
