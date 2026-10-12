@@ -11,6 +11,8 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "common:gateway"
+import "common:http"
 import "common:proto"
 
 /*
@@ -30,6 +32,10 @@ The relay can't read what it carries: the session is end-to-end between
 the web client and the server, and the relay only ever sees sealed
 packets. It only relays to this server, whatever address the page names,
 so it can't be turned into a way to send UDP anywhere.
+
+The bot API (common/gateway, docs/bot-api) is on the same port, under
+/api/: one port, one proxy rule and one certificate for both. With the
+API enabled and the relay not, the port serves the API and nothing else.
 */
 
 DEFAULT_WEB_DIR :: "web/out"
@@ -38,11 +44,6 @@ DEFAULT_WEB_DIR :: "web/out"
 // has gone; also bounds how long a closed connection lingers.
 @(private = "file")
 UDP_POLL :: 200 * time.Millisecond
-
-// A browser's request line and headers fit comfortably in this; one
-// that doesn't isn't a browser asking for yap.
-@(private = "file")
-MAX_REQUEST :: 8192
 
 // A file a browser may ask for. They're read once, when the relay
 // starts, so rebuilding the web client means restarting the server.
@@ -58,16 +59,28 @@ Web_File :: struct {
 Relay :: struct {
 	listener: net.TCP_Socket,
 	server:   net.Endpoint, // the only place anything is relayed to
+	// Whether browsers are relayed and the web client served; without,
+	// it's only the API.
+	web:      bool,
 	// Nothing else in the web directory is served.
 	files:    [8]Web_File,
+	api:      ^gateway.Gateway, // nil without the API
 }
 
 /*
 start_relay listens for browsers on `port` and relays them to the server
-on `server_port` of this machine, on a thread of its own. It fails only
-if it can't listen; after that it runs for as long as the process does.
+on `server_port` of this machine, on a thread of its own; with `web`
+false it doesn't, and only answers the API. `api` is the gateway to hand
+/api/ to, if there's one. It fails only if it can't listen; after that
+it runs for as long as the process does.
 */
-start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
+start_relay :: proc(
+	port: int,
+	server_port: int,
+	web_dir: string,
+	web := true,
+	api: ^gateway.Gateway = nil,
+) -> bool {
 	listener, err := net.listen_tcp({net.IP4_Any, port})
 	if err != nil {
 		log.errorf("could not listen on port %d: %v", port, err)
@@ -77,6 +90,8 @@ start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
 	r := new(Relay)
 	r.listener = listener
 	r.server = {net.IP4_Loopback, server_port}
+	r.web = web
+	r.api = api
 	r.files = {
 		{name = "index.html", content_type = "text/html; charset=utf-8"},
 		{name = "index.js", content_type = "text/javascript; charset=utf-8"},
@@ -89,6 +104,9 @@ start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
 		{name = "apple-touch-icon.png", content_type = "image/png"},
 	}
 	for &f in r.files {
+		if !web {
+			break
+		}
 		full, _ := filepath.join({web_dir, f.name}, context.temp_allocator)
 		data, read_err := os.read_entire_file(full, context.allocator)
 		if read_err != nil {
@@ -101,12 +119,17 @@ start_relay :: proc(port: int, server_port: int, web_dir: string) -> bool {
 		}
 		f.data, f.loaded = data, true
 	}
-	log.infof(
-		"relaying browsers to udp :%d; serving %s on http://localhost:%d/",
-		server_port,
-		web_dir,
-		port,
-	)
+	if web {
+		log.infof(
+			"relaying browsers to udp :%d; serving %s on http://localhost:%d/",
+			server_port,
+			web_dir,
+			port,
+		)
+	}
+	if api != nil {
+		log.infof("serving the bot API on http://localhost:%d/api/v1/", port)
+	}
 	thread.create_and_start_with_poly_data(
 		r,
 		accept_browsers,
@@ -126,8 +149,8 @@ accept_browsers :: proc(r: ^Relay) {
 			log.warnf("accept failed: %v", accept_err)
 			continue
 		}
-		c := new(Tcp_Conn)
-		c.sock = sock
+		c := new(http.Conn)
+		c.sock, c.remote = sock, from
 		log.debugf("connection from %s", net.endpoint_to_string(from, context.temp_allocator))
 		thread.create_and_start_with_poly_data2(
 			r,
@@ -162,37 +185,49 @@ connection_temp_allocator :: proc(temp: ^runtime.Arena) -> runtime.Allocator {
 }
 
 @(private = "file")
-handle_connection :: proc(r: ^Relay, c: ^Tcp_Conn) {
+handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
 	defer free(c)
 	defer net.close(c.sock)
 
-	head, ok := read_request(c)
+	head, ok := http.read_head(c)
 	if !ok {
 		return
 	}
-	method, path, upgrade, key := parse_request(head)
-	if method != "GET" {
-		respond(c.sock, "405 Method Not Allowed", "text/plain", "the yap relay only answers GET\n")
+	// The address may carry the page's query (?server=...), which
+	// parse_request keeps apart from the path.
+	req, parsed := http.parse_request(head)
+	if !parsed {
 		return
 	}
-	// The address may carry the page's query (?server=...); only the
-	// path matters here.
-	if i := strings.index_byte(path, '?'); i >= 0 {
-		path = path[:i]
-	}
-
-	if strings.has_prefix(path, "/yap/") {
-		if !strings.equal_fold(upgrade, "websocket") || key == "" {
-			respond(c.sock, "400 Bad Request", "text/plain", "expected a WebSocket upgrade\n")
+	if strings.has_prefix(req.path, gateway.API_PREFIX) {
+		if r.api == nil {
+			http.respond(c.sock, "404 Not Found", "text/plain", "this server has no API\n")
 			return
 		}
-		relay_websocket(r, c, path[len("/yap/"):], key)
+		gateway.serve(r.api, c, req)
 		return
 	}
-	serve_file(r, c.sock, path)
+	if !r.web {
+		http.respond(c.sock, "404 Not Found", "text/plain", "only the API is here\n")
+		return
+	}
+	if req.method != "GET" {
+		http.respond(c.sock, "405 Method Not Allowed", "text/plain", "the yap relay only answers GET\n")
+		return
+	}
+	if strings.has_prefix(req.path, "/yap/") {
+		key := http.header(&req, "Sec-WebSocket-Key")
+		if !strings.equal_fold(http.header(&req, "Upgrade"), "websocket") || key == "" {
+			http.respond(c.sock, "400 Bad Request", "text/plain", "expected a WebSocket upgrade\n")
+			return
+		}
+		relay_websocket(r, c, req.path[len("/yap/"):], key)
+		return
+	}
+	serve_file(r, c.sock, req.path)
 }
 
 /*
@@ -203,11 +238,11 @@ address the page was given for the server; it's only for the log, as
 the relay goes to its own server whatever the page asked for.
 */
 @(private = "file")
-relay_websocket :: proc(r: ^Relay, c: ^Tcp_Conn, target: string, key: string) {
+relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string) {
 	udp, udp_err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if udp_err != nil {
 		log.errorf("could not open a UDP socket: %v", udp_err)
-		respond(c.sock, "502 Bad Gateway", "text/plain", "could not open a UDP socket\n")
+		http.respond(c.sock, "502 Bad Gateway", "text/plain", "could not open a UDP socket\n")
 		return
 	}
 	defer net.close(udp)
@@ -219,12 +254,12 @@ relay_websocket :: proc(r: ^Relay, c: ^Tcp_Conn, target: string, key: string) {
 			"Upgrade: websocket\r\n",
 			"Connection: Upgrade\r\n",
 			"Sec-WebSocket-Accept: ",
-			accept_key(key),
+			http.accept_key(key),
 			"\r\n\r\n",
 		},
 		context.temp_allocator,
 	)
-	if !send_all(c.sock, transmute([]u8)accept) {
+	if !http.send_all(c.sock, transmute([]u8)accept) {
 		return
 	}
 	log.infof("relaying a browser (which asked for %s)", target)
@@ -240,9 +275,9 @@ relay_websocket :: proc(r: ^Relay, c: ^Tcp_Conn, target: string, key: string) {
 		init_context = context,
 	)
 
-	payload: [MAX_FRAME]u8
+	payload: [http.MAX_FRAME]u8
 	loop: for !sync.atomic_load(&link.done) {
-		op, n, ok := read_frame(c, payload[:])
+		op, n, ok := http.read_frame(c, payload[:])
 		if !ok {
 			break
 		}
@@ -251,10 +286,10 @@ relay_websocket :: proc(r: ^Relay, c: ^Tcp_Conn, target: string, key: string) {
 			net.send_udp(udp, payload[:n], r.server)
 		case .Ping:
 			sync.guard(&link.write_mutex)
-			write_frame(c.sock, .Pong, payload[:n])
+			http.write_frame(c.sock, .Pong, payload[:n])
 		case .Close:
 			sync.guard(&link.write_mutex)
-			write_frame(c.sock, .Close, nil)
+			http.write_frame(c.sock, .Close, nil)
 			break loop
 		case .Text, .Pong:
 		// Nothing the client sends; ignored.
@@ -343,7 +378,7 @@ server_to_browser :: proc(link: ^Link) {
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
-	buf: [MAX_FRAME]u8
+	buf: [http.MAX_FRAME]u8
 	for !sync.atomic_load(&link.done) {
 		n, from, err := net.recv_udp(link.udp, buf[:])
 		if err != nil {
@@ -358,7 +393,7 @@ server_to_browser :: proc(link: ^Link) {
 			continue
 		}
 		sync.guard(&link.write_mutex)
-		if !write_frame(link.ws, .Binary, buf[:n]) {
+		if !http.write_frame(link.ws, .Binary, buf[:n]) {
 			break
 		}
 	}
@@ -376,92 +411,11 @@ serve_file :: proc(r: ^Relay, sock: net.TCP_Socket, path: string) {
 			continue
 		}
 		if !f.loaded {
-			respond(sock, "404 Not Found", "text/plain", "the web client hasn't been built\n")
+			http.respond(sock, "404 Not Found", "text/plain", "the web client hasn't been built\n")
 			return
 		}
-		respond(sock, "200 OK", f.content_type, string(f.data))
+		http.respond(sock, "200 OK", f.content_type, string(f.data))
 		return
 	}
-	respond(sock, "404 Not Found", "text/plain", "not found\n")
-}
-
-@(private = "file")
-respond :: proc(sock: net.TCP_Socket, status, content_type, body: string) {
-	head := strings.concatenate(
-		{
-			"HTTP/1.1 ",
-			status,
-			"\r\nContent-Type: ",
-			content_type,
-			"\r\nContent-Length: ",
-			itoa(len(body)),
-			"\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n",
-		},
-		context.temp_allocator,
-	)
-	send_all(sock, transmute([]u8)head)
-	send_all(sock, transmute([]u8)body)
-}
-
-@(private = "file")
-itoa :: proc(n: int) -> string {
-	buf: [20]u8
-	i := len(buf)
-	n := n
-	for {
-		i -= 1
-		buf[i] = u8('0' + n % 10)
-		n /= 10
-		if n == 0 {
-			break
-		}
-	}
-	return strings.clone(string(buf[i:]), context.temp_allocator)
-}
-
-// read_request reads up to the end of the request's headers. Whatever
-// came in after them stays in the buffer for the frames that follow.
-@(private = "file")
-read_request :: proc(c: ^Tcp_Conn) -> (head: string, ok: bool) {
-	for {
-		if i := strings.index(string(c.buf[:c.end]), "\r\n\r\n"); i >= 0 {
-			c.start = i + 4
-			return strings.clone(string(c.buf[:i]), context.temp_allocator), true
-		}
-		if c.end >= min(len(c.buf), MAX_REQUEST) {
-			return "", false
-		}
-		n, err := net.recv_tcp(c.sock, c.buf[c.end:])
-		if err != nil || n == 0 {
-			return "", false
-		}
-		c.end += n
-	}
-}
-
-@(private = "file")
-parse_request :: proc(head: string) -> (method, path, upgrade, key: string) {
-	lines := strings.split_lines(head, context.temp_allocator)
-	if len(lines) == 0 {
-		return
-	}
-	parts := strings.fields(lines[0], context.temp_allocator)
-	if len(parts) >= 2 {
-		method, path = parts[0], parts[1]
-	}
-	for line in lines[1:] {
-		colon := strings.index_byte(line, ':')
-		if colon < 0 {
-			continue
-		}
-		name := strings.trim_space(line[:colon])
-		value := strings.trim_space(line[colon + 1:])
-		switch {
-		case strings.equal_fold(name, "Upgrade"):
-			upgrade = value
-		case strings.equal_fold(name, "Sec-WebSocket-Key"):
-			key = value
-		}
-	}
-	return
+	http.respond(sock, "404 Not Found", "text/plain", "not found\n")
 }

@@ -83,6 +83,10 @@ call_start :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case callee == nil:
 		respond(u, id, .Not_Found)
 		return
+	case .Bot in u.account.flags || .Bot in callee.flags:
+		// Nobody to talk to on a bot's end (proto/bots.odin).
+		respond(u, id, .Denied)
+		return
 	}
 	// Both calling each other at once: this is the answer to theirs.
 	if theirs := call_of(s, me);

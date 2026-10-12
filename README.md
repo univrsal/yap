@@ -22,8 +22,10 @@ A sloppy chat and VOIP application.
 - Per channel pinned messages
 - Link and forward messages
 - Screen sharing (low frame rate) between web clients (not for native clients)
+- Bot accounts, and an HTTP/JSON API with an event WebSocket for them ([API.md](API.md))
 - Global hotkeys (requires `input` group on wayland)
 - Option to share audio of a specific application (native clients only)
+- Basic bot API, see [API.md](docs/API.md)
 
 For a more minimal version more similar to Mumble check out the [master](https://github.com/univrsal/yap/tree/master) branch.
 
@@ -51,5 +53,3 @@ yap-server account list
 yap-server account add <username>      # prints a first password
 yap-server account passwd <username>   # a new one, if it was forgotten
 ```
-
-\*I have no idea how encryption works

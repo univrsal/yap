@@ -876,8 +876,16 @@ timeline_message :: proc(
 		ui.header_name = {len(stamp) + 2, len(stamp) + 2 + len(name)}
 	}
 	defer ui.header_sender = 0
+	// Room for a bot's tag after its name, which selectable_header draws.
+	bot_room := ""
+	ui.header_bot = 0
+	if !merged && is_bot(v, m.sender) {
+		ui.header_bot = len(stamp) + 2 + len(name)
+		bot_room = header_room(ctx, bot_tag_width(ctx))
+	}
+	defer ui.header_bot = 0
 	header :=
-		"" if merged else fmt.tprintf("%s  %s%s%s%s", stamp, name, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
+		"" if merged else fmt.tprintf("%s  %s%s%s%s%s", stamp, name, bot_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
 	header_color := author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {

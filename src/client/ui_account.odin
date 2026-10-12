@@ -83,6 +83,8 @@ UI_Account :: struct {
 	add_name_len:  int,
 	add_pass_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
 	add_pass_len:  int,
+	// The bot whose tokens are shown (ui_bots.odin), 0 for none.
+	bot_tokens:    proto.Account_Id,
 	// Giving an account a new password: whose, and the password.
 	set_account:   proto.Account_Id,
 	set_pass_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
@@ -841,6 +843,9 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 		case .Disabled in acc.flags:
 			what = "  (disabled)"
 		}
+		if .Bot in acc.flags {
+			what = fmt.tprintf("  (bot)%s", what)
+		}
 		roles := make([dynamic]string, context.temp_allocator)
 		for r in acc.roles {
 			for vr in v.roles {
@@ -858,8 +863,16 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 		}
 		mu.label(ctx, fmt.tprintf("%s  %s%s", acc.username, acc.display, what))
 		// The owner's password is the owner's to change, as their own.
+		// A bot has none, but tokens.
 		if .Owner in acc.flags || .Manage_Accounts not_in v.permissions || !below_us(v, acc) {
 			mu.label(ctx, "")
+		} else if .Bot in acc.flags {
+			if .SUBMIT in stable_button(ctx, "tokens", "Tokens...") {
+				a.bot_tokens = 0 if a.bot_tokens == id else id
+				if a.bot_tokens != 0 {
+					command(ui, conn.Devices_Command{account = id})
+				}
+			}
 		} else if .SUBMIT in stable_button(ctx, "setpass", "New password...") {
 			a.set_account = id
 			wipe(a.set_pass_buf[:], &a.set_pass_len)
@@ -867,10 +880,14 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 		account_manage(ui, id, acc)
 		account_roles_editor(ui, id)
 		account_delete_confirm(ui, id, acc)
+		if a.bot_tokens == id {
+			bot_tokens(ui, v, id)
+		}
 	}
 	if .Manage_Accounts not_in v.permissions {
 		return
 	}
+	bot_token_shown(ui, v)
 
 	if target, ok := v.accounts[a.set_account]; ok && a.set_account != 0 {
 		mu.layout_row(ctx, {FORM_LABEL + 60, FORM_FIELD, 60, 70})
@@ -911,11 +928,24 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 	submit |= .SUBMIT in text_box(ui, a.add_name_buf[:], &a.add_name_len)
 	mu.label(ctx, "First password")
 	submit |= .SUBMIT in password_box(ui, a.add_pass_buf[:], &a.add_pass_len)
-	mu.layout_row(ctx, {FORM_LABEL, 140, -1})
+	mu.layout_row(ctx, {FORM_LABEL, 140, 140, -1})
 	mu.label(ctx, "")
 	submit |= .SUBMIT in mu.button(ctx, "Make account")
+	// A bot takes no password: it gets a token (ui_bots.odin).
+	bot := .SUBMIT in mu.button(ctx, "Make bot")
 	notice_label(ui, v)
-	if submit && a.add_user_len > 0 {
+	if bot && a.add_user_len > 0 {
+		a.mistake = ""
+		command(
+			ui,
+			conn.Bot_Create_Command {
+				username = strings.clone(string(a.add_user_buf[:a.add_user_len])),
+				display = strings.clone(string(a.add_name_buf[:a.add_name_len])),
+			},
+		)
+		wipe(a.add_pass_buf[:], &a.add_pass_len)
+		a.add_user_len, a.add_name_len = 0, 0
+	} else if submit && a.add_user_len > 0 {
 		a.mistake = ""
 		command(
 			ui,

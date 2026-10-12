@@ -101,7 +101,7 @@ digest_due :: proc(s: ^Server, acc: ^Account, now: i64) -> bool {
 	return(
 		acc.digest != .None &&
 		acc.email != "" &&
-		acc.flags & {.Unverified, .Deleted} == {} &&
+		acc.flags & {.Unverified, .Deleted, .Bot} == {} &&
 		len(acc.conns) == 0 &&
 		acc.last_seen != 0 &&
 		now - acc.last_seen >= wait &&

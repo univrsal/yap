@@ -73,6 +73,9 @@ Request_Op :: enum u16 {
 	Invite_List          = 0x001B,
 	Invite_Revoke        = 0x001C,
 	Invite_Of            = 0x001D,
+	// Bot accounts and their tokens, see bots.odin.
+	Bot_Create           = 0x001E,
+	Bot_Token_Add        = 0x001F,
 	Profile_Set          = 0x0020,
 	Setting_Set          = 0x0021,
 	// Buddies and when people were last here, see buddies.odin.

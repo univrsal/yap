@@ -95,6 +95,16 @@ View :: struct {
 	// how many times they've arrived.
 	devices:        [dynamic]Dir_Device,
 	devices_count:  int,
+	// Another account's devices (a bot's tokens), as an admin last asked
+	// for them: whose, and how many times they've arrived (bots.odin).
+	other_devices:       [dynamic]Dir_Device,
+	other_devices_of:    proto.Account_Id,
+	other_devices_count: int,
+	// A bot's token just made, to be shown once (owned; "" for none),
+	// whose it is, and bumped with each.
+	bot_token:         string,
+	bot_token_account: proto.Account_Id,
+	bot_token_count:   int,
 	invites:        View_Invites, // invites.odin
 	server_memory:  View_Server_Memory, // server_info.odin
 	notice:         View_Notice,
@@ -335,6 +345,7 @@ view_destroy :: proc(v: ^View) {
 	delete(v.emoji.animated)
 	delete(v.accounts)
 	delete(v.devices)
+	delete(v.other_devices)
 	view_destroy_invites(v)
 	delete(v.browse)
 }

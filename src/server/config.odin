@@ -29,6 +29,13 @@ once at startup:
 			"port": 8080,
 			"web_dir": "web/out"
 		},
+		"api": {
+			"enabled": false,
+			"behind_proxy": false,
+			"max_connections": 64,
+			"rate": 10,
+			"burst": 30
+		},
 		"channels": [
 			{ "name": "Lobby" },
 			{ "name": "Gaming" }
@@ -85,6 +92,18 @@ memory_log_minutes  log a line about the server's memory this often
 relay      serve the web client over HTTP on `port` and relay browsers to
            this server over WebSockets (relay.odin), with the web build
            in `web_dir`; empty for web/out, or web in a release archive.
+api        the bot API (docs/bot-api, common/gateway): HTTP and JSON for
+           programs, on the relay's port under /api/, whether the relay
+           is enabled or not (without it, the port serves only the API).
+           Plain HTTP, like the relay: put a reverse proxy with TLS in
+           front of it for anything but this machine, and say so with
+           `behind_proxy`, which has /login (a password) only taken
+           when the proxy says it came over HTTPS (X-Forwarded-Proto);
+           without it, only from this machine. `max_connections`: how
+           many tokens may be in use at once. `rate` and `burst`: how
+           many requests a second a token may make, and how many at
+           once (429 past that); a rate of 0 for no limit. Left out,
+           they're 64, 10 and 30.
 channels   the channels a new server starts with: they're taken over
            into its database the first time it runs, the first of them
            as the home channel everyone is in, and not read again after
@@ -172,6 +191,7 @@ Config :: struct {
 	log_file:           string,
 	memory_log_minutes: int,
 	relay:              Relay_Config,
+	api:                Api_Config,
 	channels:           []Channel_Config,
 	retention:          Retention_Config,
 	attachments:        Attach_Config,
@@ -196,6 +216,14 @@ Relay_Config :: struct {
 	enabled: bool,
 	port:    int,
 	web_dir: string,
+}
+
+Api_Config :: struct {
+	enabled:         bool,
+	behind_proxy:    bool,
+	max_connections: int,
+	rate:            f64,
+	burst:           f64,
 }
 
 // Config_Bootstrap holds settings taken from a container environment while a
@@ -223,6 +251,7 @@ Settings :: struct {
 	log_file:     string,
 	memory_log:   time.Duration, // 0: never
 	relay:        Relay_Config, // web_dir resolved, see default_web_dir
+	api:          Api_Config,
 	channels:     []string,
 	// The database and the blobs' folder, in the data directory (db.odin,
 	// blobs.odin).
@@ -243,6 +272,7 @@ default_config :: proc() -> Config {
 		log_level = "info",
 		memory_log_minutes = 60,
 		relay = {port = DEFAULT_RELAY_PORT, web_dir = default_web_dir()},
+		api = {max_connections = 64, rate = 10, burst = 30},
 		attachments = {max_megabytes = 100, rate_kb = 2048},
 		email = {check_auth_results = true},
 	}
@@ -380,7 +410,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		return
 	}
 	relay := cfg.relay
-	if relay.enabled {
+	if relay.enabled || cfg.api.enabled {
 		if relay.port <= 0 || relay.port > 65535 {
 			log.errorf("%s: invalid relay port %d", path, relay.port)
 			return
@@ -392,6 +422,15 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	}
 	if relay.web_dir == "" {
 		relay.web_dir = default_web_dir()
+	}
+	api := cfg.api
+	switch {
+	case api.max_connections < 0 || api.rate < 0 || api.burst < 0:
+		log.errorf("%s: an api limit can't be negative", path)
+		return
+	case api.rate > 0 && api.burst < 1:
+		log.errorf("%s: api's burst has to be at least 1, for any request to get through", path)
+		return
 	}
 	r := cfg.retention
 	if r.message_days < 0 || r.file_days < 0 || r.blob_megabytes < 0 {
@@ -455,6 +494,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		log_file     = cfg.log_file,
 		memory_log   = time.Duration(cfg.memory_log_minutes) * time.Minute,
 		relay        = relay,
+		api          = api,
 		retention    = r,
 		attachments  = attach,
 	}

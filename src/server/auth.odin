@@ -194,7 +194,7 @@ auth_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 	case .Password_Change:
 		password_change(s, u, id, body)
 	case .Device_List:
-		device_list(s, u, id)
+		device_list(s, u, id, body)
 	case .Device_Revoke:
 		device_revoke(s, u, id, body)
 	case .Profile_Set:
@@ -287,7 +287,11 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	p := Pending {
 		kind = .Login,
 	}
-	if acc != nil && len(password) <= proto.MAX_ACCOUNT_PASSWORD {
+	// A bot has no password, so it's checked against nothing too, and
+	// refused as if it were wrong (bots.odin).
+	if acc != nil && .Bot in acc.flags {
+		log.infof("%s tried a password for the bot %s", conn_label(u), acc.username)
+	} else if acc != nil && len(password) <= proto.MAX_ACCOUNT_PASSWORD {
 		if secret, found := account_secret(&s.accounts, acc); found {
 			job.against = secret
 			p.account = acc.id
@@ -305,6 +309,10 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 password_change :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	old, new, revoke_others, ok := proto.decode_password_change(body)
 	switch {
+	case .Bot in u.account.flags:
+		// It has none to change (bots.odin).
+		respond(u, id, .Denied)
+		return
 	case !ok || !proto.account_password_ok(new):
 		respond(u, id, .Invalid)
 		return
@@ -389,6 +397,10 @@ account_password_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case target == nil:
 		respond(u, id, .Not_Found)
 		return
+	case .Bot in target.flags:
+		// A bot gets in by its tokens, never a password (bots.odin).
+		respond(u, id, .Invalid)
+		return
 	case .Owner in target.flags && target != u.account:
 		// The owner's password is the owner's to change.
 		respond(u, id, .Denied)
@@ -427,6 +439,10 @@ account_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	case .Owner in target.flags:
 		respond(u, id, .Invalid)
+		return
+	case target == u.account && .Bot in target.flags:
+		// No password to prove it's its own: an admin deletes a bot.
+		respond(u, id, .Denied)
 		return
 	case target == u.account:
 		if u.auth_busy {
@@ -667,9 +683,29 @@ revoke_devices :: proc(
 	}
 }
 
+// device_list answers with an account's devices: the asker's own, or
+// with an account in the body, another's for an admin (a bot's tokens).
 @(private = "file")
-device_list :: proc(s: ^Server, u: ^Conn, id: u32) {
-	devices := devices_of(&s.accounts, u.account)
+device_list :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	target := u.account
+	if len(body) > 0 {
+		target_id, ok := proto.decode_account_id(body)
+		if !ok {
+			respond(u, id, .Invalid)
+			return
+		}
+		target = account_live(&s.accounts, target_id)
+		switch {
+		case target == nil:
+			respond(u, id, .Not_Found)
+			return
+		case target != u.account &&
+		     (!can(u.account, .Manage_Accounts) || !outranks(u.account, permissions(target))):
+			respond(u, id, .Denied)
+			return
+		}
+	}
+	devices := devices_of(&s.accounts, target)
 	records := make([]proto.Device, len(devices), context.temp_allocator)
 	for d, i in devices {
 		records[i] = {

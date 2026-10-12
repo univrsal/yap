@@ -231,6 +231,10 @@ run_account_command :: proc(args: []string) -> int {
 			fmt.eprintfln("there is no account called %s", username)
 			return 1
 		}
+		if .Bot in acc.flags {
+			fmt.eprintfln("%s is a bot: it has tokens, not a password (made in the client)", username)
+			return 1
+		}
 		text_buf: [GENERATED_PASSWORD_SIZE]u8
 		secret, text, hashed := generated_secret(&text_buf)
 		if !hashed || !account_set_password(&a, acc, secret, true) {
@@ -248,6 +252,10 @@ run_account_command :: proc(args: []string) -> int {
 	case "owner":
 		if acc == nil {
 			fmt.eprintfln("there is no account called %s", username)
+			return 1
+		}
+		if .Bot in acc.flags {
+			fmt.eprintfln("%s is a bot, and a bot can't own the server", username)
 			return 1
 		}
 		for _, other in a.by_id {
@@ -394,6 +402,8 @@ account_list :: proc(a: ^Accounts) {
 			role = "deleted"
 		case .Disabled in acc.flags:
 			role = "disabled"
+		case .Bot in acc.flags:
+			role = "bot"
 		case len(acc.roles) > 0:
 			role = a.roles[acc.roles[0]].name if acc.roles[0] in a.roles else ""
 		}

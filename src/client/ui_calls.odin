@@ -22,9 +22,10 @@ call_peer_name :: proc(v: ^conn.View) -> string {
 }
 
 // may_call is whether we could call an account now: it's somebody else,
-// here, and we aren't in a call. Call with the View locked.
+// here, not a bot (which has no voice), and we aren't in a call. Call
+// with the View locked.
 may_call :: proc(v: ^conn.View, account: proto.Account_Id) -> bool {
-	if account == v.me || account == 0 || v.call.status != .None {
+	if account == v.me || account == 0 || v.call.status != .None || is_bot(v, account) {
 		return false
 	}
 	for num, u in v.users {
