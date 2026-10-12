@@ -96,9 +96,15 @@ gt_settle :: proc(ts: ^Test_Server) {
 @(private = "file")
 gt_close :: proc(ts: ^Test_Server, h: ^Harness) {
 	sync.atomic_store(&h.stopping, true)
-	net.close(h.listener)
+	// Closing the listener doesn't wake an accept() blocked on another
+	// thread on Linux, so the accepter is woken by a connection, which it
+	// sees is too late and drops.
+	if wake, err := net.dial_tcp(net.Endpoint{net.IP4_Loopback, h.port}); err == nil {
+		net.close(wake)
+	}
 	thread.join(h.accepter)
 	thread.destroy(h.accepter)
+	net.close(h.listener)
 	for _ in 0 ..< 5000 {
 		if sync.atomic_load(&h.serving) == 0 {
 			break
@@ -121,6 +127,10 @@ gt_accept :: proc(h: ^Harness) {
 		sock, from, err := net.accept_tcp(h.listener)
 		if err != nil {
 			continue
+		}
+		if sync.atomic_load(&h.stopping) {
+			net.close(sock)
+			break
 		}
 		c := new(http.Conn)
 		c.sock, c.remote = sock, from
