@@ -21,5 +21,4 @@ cp "bin/yap$ext" "bin/yap-server$ext" "dist/$name/"
 cp "$web/index.html" "$web/index.js" "$web/index.wasm" "$web/favicon.ico" \
 	"$web/manifest.webmanifest" "$web/icon-192.png" "$web/icon-512.png" "$web/apple-touch-icon.png" \
 	"dist/$name/web/"
-cp config.example.json "dist/$name/"
 echo "packed dist/$name"
