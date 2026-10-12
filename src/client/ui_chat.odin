@@ -686,6 +686,9 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 	select_item(ui, item, header)
 	select_line(ui, item, header, 0, len(header), {r.x, r.y})
 	mu.draw_text(ctx, ctx.style.font, header, {r.x, r.y}, color)
+	if at := ui.header_bot; at > 0 && at <= len(header) {
+		bot_tag(ctx, r.x + ctx.text_width(ctx.style.font, header[:at]), r.y)
+	}
 	if ui.header_sender != 0 {
 		font := ctx.style.font
 		lo, hi := ui.header_name[0], ui.header_name[1]

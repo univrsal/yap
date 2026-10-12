@@ -285,6 +285,9 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	font := ctx.style.font
 	top := r.y + (r.h - 2 * line - 2) / 2
 	mu.draw_text(ctx, font, acc.display, {r.x, top}, color)
+	if .Bot in acc.flags {
+		bot_tag(ctx, r.x + ctx.text_width(font, acc.display), top)
+	}
 	mu.draw_text(
 		ctx,
 		font,

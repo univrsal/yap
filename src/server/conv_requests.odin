@@ -287,6 +287,11 @@ voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	if room != 0 {
+		// A bot has no voice (proto/bots.odin).
+		if .Bot in u.account.flags {
+			respond(u, id, .Denied)
+			return
+		}
 		conv := conv_by_id(&s.convs, proto.Conv_Id(room))
 		if conv == nil || conv.kind != .Channel || !conv_visible(conv, u.account.id) {
 			respond(u, id, .Not_Found)

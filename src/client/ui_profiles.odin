@@ -502,13 +502,14 @@ person_row :: proc(
 	if c, ok := name_color(v, account); ok {
 		color = c if online else {c.r, c.g, c.b, 140}
 	}
-	name_and_status(ctx, r, name, color, status_line(acc), extra)
+	name_and_status(ctx, r, name, color, status_line(acc), extra, .Bot in acc.flags)
 	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {}
 }
 
 /*
-name_and_status draws a name in `r`, and dimmed after it a status and
-whatever else there is to say, cut where the row ends.
+name_and_status draws a name in `r`, a bot's with its tag (ui_bots.odin),
+and dimmed after it a status and whatever else there is to say, cut
+where the row ends.
 */
 name_and_status :: proc(
 	ctx: ^mu.Context,
@@ -517,6 +518,7 @@ name_and_status :: proc(
 	color: mu.Color,
 	status: string,
 	extra := "",
+	bot := false,
 ) {
 	font := ctx.style.font
 	y := r.y + (r.h - ctx.text_height(font)) / 2
@@ -524,7 +526,11 @@ name_and_status :: proc(
 	mu.push_clip_rect(ctx, r)
 	defer mu.pop_clip_rect(ctx)
 	mu.draw_text(ctx, font, name, {x, y}, color)
-	x += ctx.text_width(font, name) + 10
+	x += ctx.text_width(font, name)
+	if bot {
+		x += bot_tag(ctx, x, y)
+	}
+	x += 10
 	more := status
 	if extra != "" {
 		more = extra if more == "" else fmt.tprintf("%s  ·  %s", more, extra)

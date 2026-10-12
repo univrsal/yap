@@ -1,12 +1,15 @@
 package server
 
+import "core:crypto/ecdh"
 import "core:flags"
 import "core:fmt"
 import "core:log"
+import "core:net"
 import "core:os"
 import "core:strconv"
 
 import "common:."
+import "common:gateway"
 import "common:memtrack"
 import "common:proto"
 
@@ -97,13 +100,51 @@ main :: proc() {
 	defer common.destroy_logging(logger)
 	context.logger = logger
 
-	if settings.relay.enabled &&
-	   !start_relay(settings.relay.port, settings.port, settings.relay.web_dir) {
+	api: ^gateway.Gateway
+	if settings.api.enabled {
+		api_ok: bool
+		api, api_ok = start_api(settings)
+		if !api_ok {
+			os.exit(1)
+		}
+	}
+	if (settings.relay.enabled || api != nil) &&
+	   !start_relay(
+		   settings.relay.port,
+		   settings.port,
+		   settings.relay.web_dir,
+		   settings.relay.enabled,
+		   api,
+	   ) {
 		os.exit(1)
 	}
 	if !run_server(settings, bootstrap.initial_admin_password) {
 		os.exit(1)
 	}
+}
+
+/*
+start_api starts the bot API's gateway (docs/bot-api), which is to the
+server only more clients: on this machine, and refusing any server that
+hasn't this one's key.
+*/
+start_api :: proc(settings: Settings) -> (^gateway.Gateway, bool) {
+	key: ecdh.Private_Key
+	defer ecdh.private_key_clear(&key)
+	if !common.parse_private_key(settings.key, &key) {
+		log.error("the key in the config is not a valid private key")
+		return nil, false
+	}
+	cfg := gateway.Config {
+		server          = {net.IP4_Loopback, settings.port},
+		password        = settings.password,
+		max_connections = settings.api.max_connections,
+		rate            = settings.api.rate,
+		burst           = settings.api.burst,
+		behind_proxy    = settings.api.behind_proxy,
+	}
+	ecdh.private_key_public_bytes(&key, cfg.server_key[:])
+	return gateway.start(cfg), true
 }
 
 // bootstrap_from_env reads settings used only while creating a new server.

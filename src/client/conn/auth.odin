@@ -71,6 +71,8 @@ Auth_Client :: struct {
 	device:      string,
 	// Our account's devices, as of the last time we asked.
 	devices:     [dynamic]Dir_Device,
+	// A bot's token on its way to the server (bots.odin); owned.
+	bot_token:   string,
 }
 
 Dir_Device :: struct {
@@ -147,8 +149,11 @@ Display_Command :: struct {
 Email_Command :: struct {
 	email: string, // owned by the command
 }
-// Ask for our account's devices.
-Devices_Command :: struct {}
+// Ask for our account's devices, or with an account another's (for
+// who may: a bot's tokens, bots.odin).
+Devices_Command :: struct {
+	account: proto.Account_Id,
+}
 Revoke_Command :: struct {
 	key: [proto.KEY_SIZE]u8,
 }
@@ -174,6 +179,7 @@ auth_destroy :: proc(c: ^Voice_Client) {
 	delete(a.roles)
 	devices_clear(a)
 	delete(a.devices)
+	bot_token_wipe(c)
 	delete(a.error)
 	delete(a.username)
 	delete(a.email)
@@ -704,18 +710,26 @@ auth_email :: proc(c: ^Voice_Client, raw: string) {
 	)
 }
 
-auth_devices :: proc(c: ^Voice_Client) {
+auth_devices :: proc(c: ^Voice_Client, account: proto.Account_Id = 0) {
+	id_buf: [4]u8
 	request(
 		c,
 		.Device_List,
-		nil,
+		nil if account == 0 else proto.encode_account_id(&id_buf, account),
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
+				if tag != 0 {
+					notify(c, false, status_text(status))
+				}
 				return
 			}
 			buf: [64]proto.Device
 			devices, ok := proto.decode_devices(body, buf[:])
 			if !ok {
+				return
+			}
+			if tag != 0 {
+				publish_other_devices(c, proto.Account_Id(tag), devices)
 				return
 			}
 			a := &c.auth
@@ -744,11 +758,22 @@ auth_devices :: proc(c: ^Voice_Client) {
 			}
 			publish_devices(c)
 		},
+		u64(account),
 	)
 }
 
 auth_revoke :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
+	// Whose list it's from, to ask for that one again after.
+	whose := proto.Account_Id(0)
+	if v := c.view; v != nil {
+		view_write(v)
+		for d in v.other_devices {
+			if d.key == key {
+				whose = v.other_devices_of
+			}
+		}
+	}
 	request(
 		c,
 		.Device_Revoke,
@@ -757,12 +782,13 @@ auth_revoke :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) {
 			if status == .Ok {
 				notify(c, true, "Device logged out.")
 				if c.auth.state == .Done {
-					auth_devices(c)
+					auth_devices(c, proto.Account_Id(tag))
 				}
 			} else {
 				notify(c, false, status_text(status))
 			}
 		},
+		u64(whose),
 	)
 }
 
@@ -919,6 +945,18 @@ view_clear_devices :: proc(v: ^View) {
 		delete(d.agent)
 	}
 	clear(&v.devices)
+	view_clear_other_devices(v)
+	view_forget_bot_token(v)
+}
+
+// Call with the mutex held.
+view_clear_other_devices :: proc(v: ^View) {
+	for d in v.other_devices {
+		delete(d.name)
+		delete(d.agent)
+	}
+	clear(&v.other_devices)
+	v.other_devices_of = 0
 }
 
 publish_devices :: proc(c: ^Voice_Client) {

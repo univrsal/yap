@@ -204,6 +204,9 @@ UI :: struct {
 	// (byte range), so a click on the name opens their menu. 0: none.
 	header_sender:       proto.Account_Id,
 	header_name:         [2]int,
+	// Where in the header a bot's tag goes (byte offset, after its name,
+	// where the header leaves room for it: ui_bots.odin); 0 for none.
+	header_bot:          int,
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
 	monitor:             Mic_Monitor,
 	listen_back:         bool,

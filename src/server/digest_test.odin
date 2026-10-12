@@ -113,11 +113,16 @@ test_digests :: proc(t: ^testing.T) {
 	if len(mails) == 1 {
 		m := mails[0]
 		testing.expect_value(t, m.to, "alice@example.org")
-		testing.expect_value(
+		testing.expect_value(t, m.subject, "Missed messages on Test server")
+		testing.expect(
 			t,
-			m.subject,
-			"1 direct message, 1 mention and 1 channel message on Test server",
+			strings.contains(
+				m.body,
+				"you've missed 1 direct message, 1 mention and 1 channel message on Test server:",
+			),
+			m.body,
 		)
+		testing.expect(t, strings.has_prefix(m.body, "Hi alice,\n\n"), m.body)
 		testing.expect(t, strings.contains(m.body, "hello @alice how are you?"), m.body)
 		testing.expect(t, strings.contains(m.body, "carol in #Lobby"), m.body)
 		testing.expect(t, strings.contains(m.body, "look, @alice"), m.body)
@@ -138,7 +143,12 @@ test_digests :: proc(t: ^testing.T) {
 	mails = mails_sent(&ts)
 	testing.expect_value(t, len(mails), 1)
 	if len(mails) == 1 {
-		testing.expect_value(t, mails[0].subject, "1 direct message on Test server")
+		testing.expect_value(t, mails[0].subject, "Missed messages on Test server")
+		testing.expect(
+			t,
+			strings.contains(mails[0].body, "you've missed 1 direct message on Test server:"),
+			mails[0].body,
+		)
 		testing.expect(t, strings.contains(mails[0].body, "still there?"), mails[0].body)
 		testing.expect(t, !strings.contains(mails[0].body, "hello"), mails[0].body)
 	}
@@ -157,7 +167,15 @@ test_digests :: proc(t: ^testing.T) {
 	mails = mails_sent(&ts)
 	testing.expect_value(t, len(mails), 1)
 	if len(mails) == 1 {
-		testing.expect_value(t, mails[0].subject, "1 direct message and 1 mention on Test server")
+		testing.expect_value(t, mails[0].subject, "Missed messages on Test server")
+		testing.expect(
+			t,
+			strings.contains(
+				mails[0].body,
+				"you've missed 1 direct message and 1 mention on Test server:",
+			),
+			mails[0].body,
+		)
 		testing.expect(t, strings.contains(mails[0].body, "a dm"), mails[0].body)
 		testing.expect(t, !strings.contains(mails[0].body, "more chatter"), mails[0].body)
 	}
@@ -185,7 +203,15 @@ test_digests :: proc(t: ^testing.T) {
 	mails = mails_sent(&ts)
 	testing.expect_value(t, len(mails), 1)
 	if len(mails) == 1 {
-		testing.expect_value(t, mails[0].subject, "1 direct message and 1 mention on Test server")
+		testing.expect_value(t, mails[0].subject, "Missed messages on Test server")
+		testing.expect(
+			t,
+			strings.contains(
+				mails[0].body,
+				"you've missed 1 direct message and 1 mention on Test server:",
+			),
+			mails[0].body,
+		)
 		testing.expect(t, strings.contains(mails[0].body, "@alice, quietly"), mails[0].body)
 		testing.expect(t, !strings.contains(mails[0].body, "quiet chatter"), mails[0].body)
 	}
@@ -203,7 +229,12 @@ test_digests :: proc(t: ^testing.T) {
 	mails = mails_sent(&ts)
 	testing.expect_value(t, len(mails), 1)
 	if len(mails) == 1 {
-		testing.expect_value(t, mails[0].subject, "1 direct message on Test server")
+		testing.expect_value(t, mails[0].subject, "Missed messages on Test server")
+		testing.expect(
+			t,
+			strings.contains(mails[0].body, "you've missed 1 direct message on Test server:"),
+			mails[0].body,
+		)
 		testing.expect(t, !strings.contains(mails[0].body, "muted,"), mails[0].body)
 	}
 

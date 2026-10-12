@@ -355,6 +355,10 @@ Command :: union {
 	Revoke_Command,
 	Account_Create_Command,
 	Account_Password_Command,
+	// Bot accounts, see bots.odin.
+	Bot_Create_Command,
+	Bot_Token_Command,
+	Bot_Token_Forget_Command,
 	// Channels and voice rooms, see convs.odin.
 	View_Command,
 	Voice_Command,
@@ -512,6 +516,9 @@ command_destroy :: proc(cmd: Command) {
 	case Account_Password_Command:
 		delete(v.username)
 		delete(v.password)
+	case Bot_Create_Command:
+		delete(v.username)
+		delete(v.display)
 	case Poke_Command:
 		delete(v.name)
 		delete(v.message)
@@ -745,13 +752,19 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Email_Command:
 			auth_email(c, v.email)
 		case Devices_Command:
-			auth_devices(c)
+			auth_devices(c, v.account)
 		case Revoke_Command:
 			auth_revoke(c, v.key)
 		case Account_Create_Command:
 			auth_account_create(c, v)
 		case Account_Password_Command:
 			auth_account_password(c, v)
+		case Bot_Create_Command:
+			auth_bot_create(c, v)
+		case Bot_Token_Command:
+			auth_bot_token(c, v.account)
+		case Bot_Token_Forget_Command:
+			auth_bot_token_forget(c)
 		}
 	}
 }

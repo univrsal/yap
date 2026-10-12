@@ -20,7 +20,8 @@ Everything here travels as requests and events (rpc.odin):
 	                  ->  [account u32][flags u8]
 	Auth_Logout           (nothing): this device forgets the account
 	Password_Change       [old str8][new str8][revoke others u8]
-	Device_List       ->  [count u16] devices...
+	Device_List           (nothing), or [account u32] for another's
+	                  ->  [count u16] devices...
 	Device_Revoke         [key 32]
 	Profile_Set           [mask u8] then, for each bit set, its field:
 	                        bit 0  [display str8]
@@ -48,6 +49,10 @@ Everything here travels as requests and events (rpc.odin):
 	         [activity u8] (activity.odin)
 	device   [key 32][name str8][created u64][last seen u64][flags u8]
 	         (Device_List then adds each one's [agent str8], after the last)
+
+Device_List with an account is an admin's (Manage_Accounts, and may do
+all that account may), for a bot's tokens (bots.odin); without one it's
+the asker's own devices.
 
 Account_Create and Account_Password_Set are an admin's (Manage_Accounts). A password an
 admin sets, a new account's or one to replace a forgotten one, is only
@@ -98,6 +103,9 @@ Account_Flag :: enum u8 {
 	// Its email address has yet to be shown to be its own (verify.odin):
 	// it can do nothing else until it is.
 	Unverified,
+	// A program's, not a person's (bots.odin): made by an admin, logged
+	// in only by its tokens, never with a password.
+	Bot,
 }
 
 // What a deleted account is called.

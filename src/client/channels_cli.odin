@@ -48,6 +48,9 @@ network loop never blocks on input.
 	/revoke <key>    log one of them out (64 hex digits, as /devices shows)
 	/adduser <username> <password> [name]   make an account (admins)
 	/setpass <username> <password>          give one a new password (admins)
+	/addbot <username> [name]   make a bot; its token goes to the log, once (admins)
+	/bottoken <account>         another token for a bot, by its account's id (admins)
+	/tokens <account>           a bot's tokens, by its account's id (admins)
 	/mute, /unmute   stop or resume sending voice
 	/deafen, /undeafen  stop or resume playing everyone else
 	/listen, /unlisten  hear your own processed voice (listen back)
@@ -263,6 +266,29 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 					display = strings.clone(display),
 				},
 			)
+		case strings.has_prefix(line, "/addbot "):
+			username, _, display := strings.partition(
+				strings.trim_space(line[len("/addbot "):]),
+				" ",
+			)
+			conn.push_command(
+				q,
+				conn.Bot_Create_Command {
+					username = strings.clone(username),
+					display = strings.clone(display),
+				},
+			)
+		case strings.has_prefix(line, "/bottoken "), strings.has_prefix(line, "/tokens "):
+			_, _, rest := strings.partition(line, " ")
+			id, ok := strconv.parse_uint(strings.trim_space(rest), 10)
+			switch {
+			case !ok || id == 0 || id > uint(max(u32)):
+				log.warn("give the bot's account by its id")
+			case strings.has_prefix(line, "/bottoken "):
+				conn.push_command(q, conn.Bot_Token_Command{proto.Account_Id(id)})
+			case:
+				conn.push_command(q, conn.Devices_Command{proto.Account_Id(id)})
+			}
 		case strings.has_prefix(line, "/setpass "):
 			username, _, password := strings.partition(
 				strings.trim_space(line[len("/setpass "):]),
@@ -705,7 +731,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case:
 			log.warn(
-				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /poke <name> [message], /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
+				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /poke <name> [message], /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
 			)
 		}
 	}

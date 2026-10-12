@@ -66,6 +66,7 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 		   !buddy_request(s, u, id, op, request) &&
 		   !message_request(s, u, id, op, request) &&
 		   !role_request(s, u, id, op, request) &&
+		   !bot_request(s, u, id, op, request) &&
 		   !call_request(s, u, id, op, request) {
 			log.debugf("%s asked for unknown op %d", conn_label(u), u16(op))
 			respond(u, id, .Unknown_Op)

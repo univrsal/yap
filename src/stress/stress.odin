@@ -15,8 +15,8 @@ import "common:."
 import "common:proto"
 
 /*
-yap-stress: a busy server, made up. Bots (bot.odin) connect over a few
-seconds, log in, and join the home channel's voice room; some of them
+yap-stress: a busy server, made up. Bots (bot.odin, each a headless
+client: common/lite) connect over a few seconds, log in, and join the home channel's voice room; some of them
 talk, 50 frames a second each, the way a client does. Meanwhile they
 post messages, read history and search, at the rates asked for, from
 bots picked at random.
@@ -90,7 +90,7 @@ Stats :: struct {
 	frames_missing:     int,
 	frames:             Hist, // how long voice took through the server
 	ops:                map[proto.Request_Op]Op_Stats,
-	handshake_timeouts: int,
+	failed:             int, // bots that gave up
 	reconnects:         int,
 	loop_gap:           time.Duration, // this tool's own, the longest
 }
@@ -249,18 +249,17 @@ main :: proc() {
 	for &b, i in r.bots {
 		b.run = r
 		b.name = fmt.aprintf("bot%d", opt.first + i)
-		path := fmt.tprintf("%s/%s.key", opt.keys, b.name)
-		if !bot_open(&b, path) {
-			os.exit(1)
-		}
+		b.key_path = fmt.aprintf("%s/%s.key", opt.keys, b.name)
 		b.connect_at = time.tick_add(
 			start,
 			time.Duration(opt.ramp * f64(time.Second) * f64(i) / f64(opt.bots)),
 		)
 		b.wants_voice = i < opt.voice
 		b.talker = i < opt.talkers
+		// Its socket once it has one (bot_step); poll passes over it
+		// until then.
 		fds[i] = {
-			fd     = posix.FD(b.sock),
+			fd     = -1,
 			events = {.IN},
 		}
 	}
@@ -292,6 +291,9 @@ main :: proc() {
 				bot_receive(&b)
 			}
 			bot_step(&b, now)
+			if b.opened {
+				fds[i].fd = posix.FD(b.client.sock)
+			}
 		}
 		work[0] += dt * opt.posts
 		work[1] += dt * opt.history
@@ -300,7 +302,7 @@ main :: proc() {
 			for work[kind] >= 1 {
 				work[kind] -= 1
 				if b := any_ready(r); b != nil {
-					do_work(b, kind, now)
+					do_work(b, kind)
 				}
 			}
 		}
@@ -329,14 +331,14 @@ main :: proc() {
 any_ready :: proc(r: ^Run) -> ^Bot {
 	for _ in 0 ..< 8 {
 		b := &r.bots[rand.int_max(len(r.bots))]
-		if b.phase == .Ready && b.home != 0 {
+		if bot_ready(b) {
 			return b
 		}
 	}
 	return nil
 }
 
-do_work :: proc(b: ^Bot, kind: int, now: time.Tick) {
+do_work :: proc(b: ^Bot, kind: int) {
 	words := WORDS
 	switch kind {
 	case 0:
@@ -350,26 +352,27 @@ do_work :: proc(b: ^Bot, kind: int, now: time.Tick) {
 			buf[:],
 			{conv = b.home, nonce = rand.uint64(), kind = .Text, text = strings.to_string(sb)},
 		)
-		bot_ask(b, .Msg_Post, body, now)
+		bot_ask(b, .Msg_Post, body)
 	case 1:
 		buf: [proto.MSG_HISTORY_SIZE]u8
 		body := proto.encode_msg_history(
 			&buf,
 			{conv = b.home, dir = .Before, limit = proto.MAX_HISTORY_LIMIT},
 		)
-		bot_ask(b, .Msg_History, body, now)
+		bot_ask(b, .Msg_History, body)
 	case 2:
 		buf: [proto.MSG_SEARCH_MAX_SIZE]u8
 		body := proto.encode_msg_search(
 			&buf,
 			{query = rand.choice(words[:]), limit = proto.MAX_SEARCH_LIMIT},
 		)
-		bot_ask(b, .Msg_Search, body, now)
+		bot_ask(b, .Msg_Search, body)
 	}
 }
 
-// bot_ready: a bot has logged in and been told everything.
-bot_ready :: proc(r: ^Run, b: ^Bot, took: time.Duration) {
+// ready_after: a bot has logged in and been told everything, `took`
+// after it started.
+ready_after :: proc(r: ^Run, took: time.Duration) {
 	hist_add(&r.stats.ready, took)
 }
 
@@ -404,7 +407,7 @@ report :: proc(r: ^Run, elapsed: time.Duration, final: bool) {
 	ready_now := 0
 	in_voice := 0
 	for &b in r.bots {
-		ready_now += int(b.phase == .Ready)
+		ready_now += int(bot_ready(&b))
 		in_voice += int(b.in_voice)
 	}
 	sb := strings.builder_make(context.temp_allocator)
@@ -423,13 +426,8 @@ report :: proc(r: ^Run, elapsed: time.Duration, final: bool) {
 	if s.ready.n > 0 {
 		fmt.sbprintf(&sb, "; %d got ready, in %s", s.ready.n, spread(&s.ready))
 	}
-	if s.handshake_timeouts > 0 || s.reconnects > 0 {
-		fmt.sbprintf(
-			&sb,
-			"; %d handshakes timed out, %d reconnects",
-			s.handshake_timeouts,
-			s.reconnects,
-		)
+	if s.failed > 0 || s.reconnects > 0 {
+		fmt.sbprintf(&sb, "; %d gave up, %d reconnects", s.failed, s.reconnects)
 	}
 	fmt.sbprintf(
 		&sb,
@@ -484,7 +482,7 @@ report :: proc(r: ^Run, elapsed: time.Duration, final: bool) {
 			to.failed[status] += n
 		}
 	}
-	t.handshake_timeouts += s.handshake_timeouts
+	t.failed += s.failed
 	t.reconnects += s.reconnects
 	t.loop_gap = max(t.loop_gap, s.loop_gap)
 	ops_map := s.ops
