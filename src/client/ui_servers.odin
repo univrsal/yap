@@ -371,6 +371,12 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
+	// With the title bar merged on macOS, the window's buttons sit over
+	// the rail's top left (see ui_titlebar_darwin.odin): start below them.
+	if ui.titlebar_left > 0 && ui.titlebar_height > 0 {
+		mu.layout_row(ctx, {-1}, ui.titlebar_height)
+		mu.layout_next(ctx)
+	}
 	inbox_icon(ui)
 	// The rail's servers, and the middle of each one's row, for dragging.
 	order := make([dynamic]^Net_Session, context.temp_allocator)
