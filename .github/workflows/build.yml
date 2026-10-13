@@ -3,7 +3,8 @@ name: Build
 # Builds the web client and the desktop client and server for Linux,
 # Windows and macOS, and packs each desktop platform into a zip holding
 # the client, the server and the web build (in web/). macOS also gets a
-# .dmg holding just the client. release.yml calls
+# .dmg holding just the client, and Windows an installer for the client
+# and the screen sharing add-on (scripts/yap.iss). release.yml calls
 # this for a tag and attaches the zips to a draft release.
 on:
   push:
@@ -229,6 +230,22 @@ jobs:
         with:
           name: dmg-${{ matrix.platform }}
           path: dist/Yap-arm64.dmg
+          if-no-files-found: error
+      # The installer has the add-on as a part to leave out, so it needs
+      # the add-on built.
+      - name: Installer (Windows)
+        if: runner.os == 'Windows' && steps.pack_video.outcome == 'success'
+        shell: bash
+        # Inno Setup, if the runner image doesn't come with it.
+        run: |
+          [ -d "$PROGRAMFILES (x86)/Inno Setup 6" ] || [ -d "$PROGRAMFILES/Inno Setup 7" ] ||
+            choco install innosetup -y --no-progress
+          scripts/package-windows.sh x64
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Windows' && steps.pack_video.outcome == 'success'
+        with:
+          name: setup-${{ matrix.platform }}
+          path: dist/Yap-Setup-x64.exe
           if-no-files-found: error
 
       # GitHub zips an artifact itself, so the folder is uploaded rather

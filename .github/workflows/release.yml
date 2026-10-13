@@ -2,7 +2,8 @@ name: Release
 
 # Pushing a tag like v0.1.0 builds everything (build.yml) and puts the
 # zips (the three platforms', and the screen sharing add-on with a
-# folder per platform) in a draft release, to be edited and published by hand.
+# folder per platform), the macOS disk image and the Windows installer
+# in a draft release, to be edited and published by hand.
 on:
   push:
     tags: ["v*"]
@@ -28,10 +29,16 @@ jobs:
         with:
           pattern: yap-*
           path: dist
-      # The macOS disk image is attached as it is.
+      # The macOS disk image and the Windows installer are attached as
+      # they are.
       - uses: actions/download-artifact@v8
         with:
           pattern: dmg-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: setup-*
           path: dist
           merge-multiple: true
       - name: Zip and create the draft release
@@ -41,6 +48,6 @@ jobs:
           # Artifacts don't keep the executable bit.
           find dist -type f \( -name yap -o -name yap-server -o -name yv-loopback \) -exec chmod +x {} +
           (cd dist && for d in yap-*; do zip -qr "$d.zip" "$d"; done)
-          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.dmg \
+          gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.dmg dist/*.exe \
             --repo "$GITHUB_REPOSITORY" \
             --draft --generate-notes --title "$GITHUB_REF_NAME"
