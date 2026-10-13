@@ -29,7 +29,8 @@ A body's layout goes by its op:
 	Server_Info      request   (nothing)
 	                 response  [name str8][version str8][max_attachment u64]
 	                           [registration u8] (register.odin)[email str8]
-	                           [description str16][icon u64]
+	                           [description str16][icon u64][digests u8]
+	                           [media_port u16][video_kbit u32]
 	Server_Icon      request   [icon u64]
 	                 response  [the icon's JPEG]
 	Server_Info_Set  request   [name str8][description str16][icon u64]
@@ -288,10 +289,15 @@ Server_Info :: struct {
 	description:    string, // what it says it's for; may be empty
 	icon:           Blob_Id, // its picture (Server_Icon), 0 for none
 	digests:        bool, // it mails what was missed to who wants it (SETTING_EMAIL_DIGEST)
+	// The port of its media link (Link.Media, server/media.odin), 0 for
+	// none: screen sharing then goes over the bulk link.
+	media_port:     u16,
+	// How fast one sharer's video may be, in kbit/s; 0 if it didn't say.
+	video_kbit:     u32,
 }
 
 SERVER_INFO_MAX_SIZE ::
-	1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1 + 1 + MAX_EMAIL_SIZE + 2 + MAX_SERVER_DESCRIPTION + 8 + 1
+	1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1 + 1 + MAX_EMAIL_SIZE + 2 + MAX_SERVER_DESCRIPTION + 8 + 1 + 2 + 4
 
 // What a server says it's for, in bytes of UTF-8.
 MAX_SERVER_DESCRIPTION :: 512
@@ -362,6 +368,8 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	put_str16(&w, info.description)
 	put_u64(&w, u64(info.icon))
 	put_u8(&w, 1 if info.digests else 0)
+	put_u16(&w, info.media_port)
+	put_u32(&w, info.video_kbit)
 	if w.overflow {
 		return
 	}
@@ -387,6 +395,10 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	}
 	if !r.overflow && r.pos < len(r.buf) {
 		info.digests = get_u8(&r) != 0
+	}
+	if !r.overflow && r.pos < len(r.buf) {
+		info.media_port = get_u16(&r)
+		info.video_kbit = get_u32(&r)
 	}
 	if r.overflow ||
 	   len(info.name) > MAX_SERVER_NAME ||

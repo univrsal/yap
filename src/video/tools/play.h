@@ -1,0 +1,33 @@
+// yv-loopback --play and --share: decode a file, or what a share of the
+// screen encodes, through a view and show it. Where there's no window
+// of our own yet (Linux, macOS), --share only encodes, and says how
+// that goes.
+#pragma once
+
+#include "yap_video.h"
+
+struct Play_Options {
+	const char *path = nullptr;
+	int fps = 60;
+	double seconds = 0;          // stop after this long; 0 runs until closed
+	bool once = false;           // push the file once instead of round and round
+	const char *dump = nullptr;  // save the last picture as a BMP here
+
+	// --share instead of a file.
+	bool share = false;
+	yv_source_kind kind = YV_SOURCE_MONITOR;
+	uint64_t source = 0;          // 0: the primary monitor
+	const char *encoder = "";     // "": the best
+	unsigned kbit = 8000;
+	unsigned then_kbit = 0; // switch to this bitrate 3 seconds in (yv_share_set_bitrate)
+	int max_w = 1920, max_h = 1080;
+	const char *out = nullptr; // the encoded stream, as --play reads it
+};
+
+int play(yv_context *ctx, const Play_Options &opt);
+
+// The share --share asks for: source 0 is the primary monitor.
+yv_share_config share_config(yv_context *ctx, const Play_Options &opt);
+
+// The extension --play needs to read what --out wrote.
+const char *stream_extension(yv_codec codec);

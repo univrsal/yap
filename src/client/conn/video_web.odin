@@ -43,7 +43,13 @@ video_capture_live :: proc() -> bool {
 
 // video_capture_pull returns the next encoded frame, which the caller
 // then owns.
-video_capture_pull :: proc() -> (data: []u8, ts: u32, key: bool, ok: bool) {
+video_capture_pull :: proc() -> (
+	data: []u8,
+	ts: u32,
+	key: bool,
+	codec: proto.Video_Codec,
+	ok: bool,
+) {
 	size := yap_video_next_size()
 	if size <= 0 {
 		return
@@ -52,9 +58,9 @@ video_capture_pull :: proc() -> (data: []u8, ts: u32, key: bool, ok: bool) {
 	key_flag: i32
 	if yap_video_pull(raw_data(data), size, &ts, &key_flag) != size {
 		delete(data)
-		return nil, 0, false, false
+		return nil, 0, false, .H264, false
 	}
-	return data, ts, key_flag != 0, true
+	return data, ts, key_flag != 0, .H264, true
 }
 
 video_capture_request_key :: proc() {
@@ -74,6 +80,7 @@ video_show_frame :: proc(sharer: proto.User_Num, frame: proto.Video_Frame) {
 
 video_show_end :: proc() {
 	yap_video_end()
+	web_picture.size = {} // not the last one's picture
 }
 
 // video_show_failed says, once, that the decoder gave up on what it was
@@ -116,15 +123,113 @@ video_share_state :: proc() -> Share_State {
 	return Share_State(yap_video_share_state())
 }
 
-// video_upload puts the newest frame of what we're watching into
-// `texture`, if one has come since the last call, and says its size.
-video_upload :: proc(texture: render.Gpu_Texture) -> (width, height: int, ok: bool) {
+// The browser asks what to share in its own picker.
+VIDEO_PICKER :: false
+
+// The browser asks in its picker, so nothing needs allowing first.
+video_capture_allowed :: proc() -> bool {
+	return true
+}
+
+video_allow_capture :: proc() {}
+
+// What the page encodes at isn't said; video.odin paces for it.
+video_share_kbit :: proc() -> int {
+	return 0
+}
+
+// The browser's share doesn't follow its viewers: it's on the bulk link,
+// where nobody reports on it.
+video_share_max_kbit :: proc() -> int {
+	return 0
+}
+
+video_share_adapt :: proc(kbit: int) {}
+
+Video_Source_Kind :: enum {
+	Monitor,
+	Window,
+}
+
+Video_Source :: struct {
+	kind:          Video_Source_Kind,
+	id:            u64,
+	name:          string,
+	app:           string,
+	width, height: int,
+	primary:       bool,
+}
+
+video_sources :: proc(allocator := context.temp_allocator) -> []Video_Source {
+	return nil
+}
+
+video_share_source :: proc(src: Video_Source, config: Share_Config) {}
+
+// A page has no library to look for.
+video_library_dir :: proc(allocator := context.temp_allocator) -> string {
+	return ""
+}
+
+// The browser's picker is ours to open, not the system's.
+video_system_picker :: proc() -> bool {
+	return false
+}
+
+// The browser chooses its encoder, and doesn't say.
+Video_Encoder :: struct {
+	name:  string,
+	label: string,
+	works: bool,
+}
+
+video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
+	return nil
+}
+
+// The page shows the picture without the library's counts.
+video_picture_info :: proc() -> (frames: u64, hardware: bool) {
+	return 0, false
+}
+
+// The page draws a new picture as it comes, with no waking needed.
+video_set_wake :: proc(wake: proc "c" ()) {}
+
+// The browser's console says why it failed.
+video_share_error :: proc() -> string {
+	return ""
+}
+
+// The texture the page draws frames into, and the size of the one in it.
+@(private = "file")
+web_picture: struct {
+	texture: render.Gpu_Texture,
+	size:    [2]int,
+}
+
+/*
+video_picture is the newest frame of what we're watching, as a texture
+of the renderer's: the page puts each new one into it (an OpenGL texture
+name, as the page knows it, render/gpu_gl.odin).
+*/
+video_picture :: proc(g: ^render.Gpu) -> (texture: render.Gpu_Texture, width, height: int, ok: bool) {
+	p := &web_picture
+	if p.texture == 0 {
+		p.texture = render.gpu_texture_make(g, .Rgba, 0, 0, nil)
+	}
 	w, h: i32
-	// An OpenGL texture name, as the page knows it (render/gpu_gl.odin).
-	if yap_video_upload(u32(texture), &w, &h) == 0 {
+	if yap_video_upload(u32(p.texture), &w, &h) != 0 {
+		p.size = {int(w), int(h)}
+	}
+	if p.size.x <= 0 || p.size.y <= 0 {
 		return
 	}
-	return int(w), int(h), true
+	return p.texture, p.size.x, p.size.y, true
+}
+
+// video_forget_gpu forgets the texture as its device goes.
+video_forget_gpu :: proc(g: ^render.Gpu) {
+	web_picture = {}
 }
 
 // The whole page fullscreen, for the picture (ui_video.odin).

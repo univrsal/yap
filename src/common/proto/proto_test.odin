@@ -222,11 +222,30 @@ test_short_init_rejected :: proc(t: ^testing.T) {
 @(test)
 test_replay_window_edges :: proc(t: ^testing.T) {
 	w: Replay_Window
-	replay_update(&w, 100)
-	testing.expect(t, replay_check(&w, 100 - REPLAY_WINDOW_SIZE + 1))
-	testing.expect(t, !replay_check(&w, 100 - REPLAY_WINDOW_SIZE))
-	replay_update(&w, 100 + 1000) // big jump clears the window
-	testing.expect(t, replay_check(&w, 1099))
-	testing.expect(t, !replay_check(&w, 1100))
-	testing.expect(t, !replay_check(&w, 100))
+	replay_update(&w, 5000)
+	testing.expect(t, replay_check(&w, 5000 - REPLAY_WINDOW_SIZE + 1))
+	testing.expect(t, !replay_check(&w, 5000 - REPLAY_WINDOW_SIZE))
+	replay_update(&w, 5000 + 2 * REPLAY_WINDOW_SIZE) // big jump clears the window
+	testing.expect(t, replay_check(&w, 5000 + 2 * REPLAY_WINDOW_SIZE - 1))
+	testing.expect(t, !replay_check(&w, 5000 + 2 * REPLAY_WINDOW_SIZE))
+	testing.expect(t, !replay_check(&w, 5000))
+}
+
+// The window is several words; what's seen has to move across them as
+// newer counters come, by any distance.
+@(test)
+test_replay_window_words :: proc(t: ^testing.T) {
+	w: Replay_Window
+	seen := [?]u64{1000, 1001, 1063, 1064, 1065, 1130, 1500}
+	for n in seen {
+		replay_update(&w, n)
+	}
+	for shift in ([?]u64{1, 63, 64, 65, 200, 500}) {
+		replay_update(&w, w.max + shift)
+		// Seen, or too old to tell: refused either way.
+		for n in seen {
+			testing.expectf(t, !replay_check(&w, n), "%d after +%d", n, shift)
+		}
+		testing.expect(t, replay_check(&w, 1499) == (w.max - 1499 < REPLAY_WINDOW_SIZE))
+	}
 }

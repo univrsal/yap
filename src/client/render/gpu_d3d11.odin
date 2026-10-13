@@ -42,8 +42,9 @@ Gpu :: struct {
 // What Gpu_Texture points at.
 @(private = "file")
 D3D_Texture :: struct {
-	texture: ^d3d11.ITexture2D,
-	view:    ^d3d11.IShaderResourceView,
+	texture:  ^d3d11.ITexture2D,
+	view:     ^d3d11.IShaderResourceView,
+	borrowed: bool, // somebody else's view (gpu_texture_wrap); not ours to release
 }
 
 // The vertex shader's constant buffer, padded to the 16 bytes one takes.
@@ -547,7 +548,7 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 gpu_texture_make makes a width x height texture from `pixels` (one byte
 a pixel for .Alpha, four for .Rgba). A texture without pixels is none at
 all: only the page's video decoder fills one of those (conn/video_web.odin),
-and there's no page here. With `mipmaps`, an .Rgba one gets smaller
+and there's no page here (the desktop's video comes from gpu_texture_wrap). With `mipmaps`, an .Rgba one gets smaller
 copies of itself (see gpu_gl.odin).
 */
 gpu_texture_make :: proc(
@@ -633,9 +634,37 @@ gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, r
 	g.ctx->UpdateSubresource(t.texture, 0, &box, raw_data(rows), u32(width), 0)
 }
 
+gpu_native :: proc(g: ^Gpu) -> Gpu_Native {
+	return {d3d11_device = g.device}
+}
+
+/*
+gpu_texture_wrap makes something drawable of a texture somebody else
+made on our device and keeps: `native` is its ID3D11ShaderResourceView.
+It stays theirs; gpu_texture_unwrap forgets it again.
+*/
+gpu_texture_wrap :: proc(g: ^Gpu, native: uintptr) -> Gpu_Texture {
+	if native == 0 {
+		return 0
+	}
+	t := new(D3D_Texture)
+	t.view = (^d3d11.IShaderResourceView)(native)
+	t.borrowed = true
+	return Gpu_Texture(uintptr(t))
+}
+
+gpu_texture_unwrap :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
+	if t := (^D3D_Texture)(tex^); t != nil && t.borrowed {
+		free(t)
+	}
+	tex^ = 0
+}
+
 // gpu_texture_delete deletes `tex`, if there is one, and makes it 0.
 gpu_texture_delete :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
-	if t := (^D3D_Texture)(tex^); t != nil {
+	if t := (^D3D_Texture)(tex^); t != nil && t.borrowed {
+		gpu_texture_unwrap(g, tex)
+	} else if t != nil {
 		texture_forgotten(tex^)
 		release(&t.view)
 		release(&t.texture)

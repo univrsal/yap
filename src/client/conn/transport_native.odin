@@ -31,6 +31,10 @@ transport_open :: proc(t: ^Transport, server_addr: string, slot: i32, bulk := fa
 	t.open = true
 	if bulk {
 		net.set_blocking(sock, false)
+		// Room for a shared screen's keyframe, which arrives in hundreds
+		// of packets between two turns of the loop.
+		net.set_option(sock, .Receive_Buffer_Size, 2 * 1024 * 1024)
+		net.set_option(sock, .Send_Buffer_Size, 1024 * 1024)
 	} else {
 		// Short timeout so the loop can also pace outgoing frames.
 		net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)

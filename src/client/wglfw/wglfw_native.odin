@@ -27,6 +27,7 @@ DestroyWindow :: glfw.DestroyWindow
 MakeContextCurrent :: glfw.MakeContextCurrent
 SwapBuffers :: glfw.SwapBuffers
 SwapInterval :: glfw.SwapInterval
+GetProcAddress :: glfw.GetProcAddress
 WaitEventsTimeout :: glfw.WaitEventsTimeout
 PostEmptyEvent :: glfw.PostEmptyEvent
 WindowShouldClose :: glfw.WindowShouldClose

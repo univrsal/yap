@@ -33,6 +33,16 @@ to the backend's own record of one. 0 is none.
 */
 Gpu_Texture :: distinct uintptr
 
+/*
+The device underneath, for a library that makes textures we draw
+(yap_video, see conn/video_native.odin): Direct3D 11's ID3D11Device, or
+for OpenGL glfwGetProcAddress, to find the current context's functions.
+*/
+Gpu_Native :: struct {
+	d3d11_device: rawptr,
+	gl_get_proc:  rawptr,
+}
+
 // What a texture holds, which decides how it's drawn.
 Texture_Kind :: enum {
 	// Coverage for text and icons, one byte a pixel, drawn in the

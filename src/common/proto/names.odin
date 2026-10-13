@@ -165,6 +165,8 @@ Version 12 added `link`: which of the connection's two links the
 handshake is for (Link below).
 Version 13 retired the picture kind of message, and purging only
 pictures: a picture in a message is an attachment (msgs.odin).
+(Link.Media came without a new version: only a server that names a
+media port in Server_Info is ever sent it, on that port.)
 
 `conn_id` is a random number the client picks when it opens a
 connection and sends in every handshake of it. A client handshakes again
@@ -182,6 +184,15 @@ connection's light traffic never queues behind its heavy traffic:
 	      leases, keyframe requests: everything small and urgent
 	Bulk  video fragments, and the chunks of blobs, attachments and
 	      file transfers (HEAVY_KINDS)
+
+A desktop client that shares or watches screens with the yap_video
+library has a third, on a port of its own (Server_Info's media_port),
+served by a thread of the server's own (server/media.odin):
+
+	Media video fragments, Watch leases and Keyframe requests, nothing
+	      else; its video and leases go there instead of the bulk link
+	      once it's up (the leases on the main link too, for sharers
+	      that are on bulk links)
 
 The main link is the connection: it's what the hello's conn_id makes
 or carries on, and what the server times out. The bulk link joins a
@@ -216,8 +227,9 @@ HELLO_MAX_SIZE :: 1 + 8 + 1 + 1 + MAX_PASSWORD_SIZE
 
 // Which of a connection's links a handshake is for.
 Link :: enum u8 {
-	Main = 0,
-	Bulk = 1,
+	Main  = 0,
+	Bulk  = 1,
+	Media = 2, // on the media port
 }
 
 // What goes over the bulk link once there is one.

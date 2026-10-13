@@ -1,7 +1,8 @@
 name: Release
 
 # Pushing a tag like v0.1.0 builds everything (build.yml) and puts the
-# three zips in a draft release, to be edited and published by hand.
+# zips (the three platforms', and their screen sharing add-ons) in a
+# draft release, to be edited and published by hand.
 on:
   push:
     tags: ["v*"]
@@ -19,7 +20,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      # Each artifact comes down as a folder named yap-<platform>.
+      # Each artifact comes down as a folder named yap-<platform> (or
+      # yap-video-<platform>, the add-on).
       - uses: actions/download-artifact@v8
         with:
           pattern: yap-*
@@ -35,7 +37,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Artifacts don't keep the executable bit.
-          find dist -type f \( -name yap -o -name yap-server \) -exec chmod +x {} +
+          find dist -type f \( -name yap -o -name yap-server -o -name yv-loopback \) -exec chmod +x {} +
           (cd dist && for d in yap-*; do zip -qr "$d.zip" "$d"; done)
           gh release create "$GITHUB_REF_NAME" dist/*.zip dist/*.dmg \
             --repo "$GITHUB_REPOSITORY" \

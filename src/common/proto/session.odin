@@ -361,16 +361,19 @@ open :: proc(s: ^Session, packet: []byte, out: []byte) -> (plaintext: []byte, ok
 	return pt, true
 }
 
-// Replay_Window is a 64-packet sliding window (RFC 6479 style). At
-// 50 packets/s that is ~1.3 s of reordering tolerance, which is longer
-// than any jitter buffer would wait for a late voice frame anyway.
+/*
+Replay_Window is a 1024-packet sliding window (RFC 6479 style). Voice at
+50 packets/s would do with far less, but a screen shared at 15 Mbit/s
+is some 1600 packets a second, and a burst of them reordered on the way
+mustn't be taken for replays: this is over half a second of it.
+*/
 Replay_Window :: struct {
 	max:  u64, // highest counter accepted so far
-	bits: u64, // bit i set => counter (max - i) was seen
+	bits: [REPLAY_WINDOW_SIZE / 64]u64, // bit i set => counter (max - i) was seen
 	init: bool,
 }
 
-REPLAY_WINDOW_SIZE :: 64
+REPLAY_WINDOW_SIZE :: 1024
 
 replay_check :: proc(w: ^Replay_Window, n: u64) -> bool {
 	if !w.init || n > w.max {
@@ -380,19 +383,37 @@ replay_check :: proc(w: ^Replay_Window, n: u64) -> bool {
 	if diff >= REPLAY_WINDOW_SIZE {
 		return false
 	}
-	return w.bits & (u64(1) << diff) == 0
+	return w.bits[diff / 64] & (u64(1) << (diff % 64)) == 0
 }
 
 replay_update :: proc(w: ^Replay_Window, n: u64) {
 	switch {
 	case !w.init:
-		w.init, w.max, w.bits = true, n, 1
+		w.init, w.max = true, n
+		w.bits = {}
+		w.bits[0] = 1
 	case n > w.max:
 		shift := n - w.max
-		w.bits = shift >= REPLAY_WINDOW_SIZE ? 0 : w.bits << shift
-		w.bits |= 1
+		if shift >= REPLAY_WINDOW_SIZE {
+			w.bits = {}
+		} else {
+			// Bit i moves to i + shift, a word at a time from the top.
+			words, bits := int(shift / 64), shift % 64
+			for i := len(w.bits) - 1; i >= 0; i -= 1 {
+				v: u64
+				if i - words >= 0 {
+					v = w.bits[i - words] << bits
+					if bits > 0 && i - words - 1 >= 0 {
+						v |= w.bits[i - words - 1] >> (64 - bits)
+					}
+				}
+				w.bits[i] = v
+			}
+		}
+		w.bits[0] |= 1
 		w.max = n
 	case:
-		w.bits |= u64(1) << (w.max - n)
+		diff := w.max - n
+		w.bits[diff / 64] |= u64(1) << (diff % 64)
 	}
 }

@@ -42,6 +42,12 @@ Client settings, kept in <config dir>/yap/settings.json:
 		"image_cache_dir": "",
 		"mute_hotkey": "Ctrl+Shift+M",
 		"deafen_hotkey": "",
+		"share_preset": "1080p",
+		"share_fps": 0,
+		"share_kbit": 0,
+		"share_encoder": "",
+		"share_cursor": true,
+		"share_stats": false,
 		"users": {
 			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933/12": { "volume": 0.5, "muted": false }
 		},
@@ -125,6 +131,18 @@ Settings :: struct {
 	// for none. See ui_hotkeys_native.odin.
 	mute_hotkey:             string,
 	deafen_hotkey:           string,
+	// Screen sharing on the desktop (ui_share_settings.odin): the size
+	// preset by name (conn.SHARE_PRESETS; unset is 1080p), and what
+	// Advanced changes about it: frames a second (0: 60), the bitrate in
+	// kbit/s (0: the preset's), the encoder by yap_video's name ("" for
+	// the best that works), and whether the pointer is in the picture.
+	// share_stats puts figures under what we watch.
+	share_preset:            string,
+	share_fps:               int,
+	share_kbit:              int,
+	share_encoder:           string,
+	share_cursor:            bool,
+	share_stats:             bool,
 	// How to play other people, by their account: the server's public
 	// key (64 hex digits), a slash, and the account's id on that server
 	// (see server_key). Names can be copied and are the same on many
@@ -172,6 +190,7 @@ DEFAULT_SETTINGS :: Settings {
 	merge_title_bar         = ODIN_OS == .Darwin || ODIN_OS == .Windows,
 	chat_scale              = 1,
 	image_cache_mb          = 256,
+	share_cursor            = true,
 }
 
 // settings_load reads `path`, falling back to defaults if it doesn't exist
@@ -253,6 +272,8 @@ settings_destroy :: proc(s: ^Settings) {
 	delete(s.mute_hotkey)
 	delete(s.deafen_hotkey)
 	delete(s.image_cache_dir)
+	delete(s.share_preset)
+	delete(s.share_encoder)
 	for key in s.users {
 		delete(key)
 	}

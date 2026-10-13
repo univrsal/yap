@@ -5,9 +5,10 @@ import "core:time"
 
 /*
 Screen sharing: a user's encoded video, forwarded by the server to
-whoever in the same channel is watching them. Only the web client shares
-or watches (the browser does the capturing, encoding and decoding), but
-the protocol doesn't care who's on either end.
+whoever in the same channel is watching them. The web client shares and
+watches with what the browser has (H.264); the desktop client with the
+optional yap_video library (H.264, HEVC or AV1). The protocol doesn't
+care who's on either end, and the server never looks inside the video.
 
 	client -> server  Video     [kind][frame u32][ts u32][index u16][count u16][flags u8][codec u8][data]
 	server -> client  Video     [kind][sharer u32][frame u32][ts u32][index u16][count u16][flags u8][codec u8][data]
@@ -21,9 +22,12 @@ something is missing. `ts` is the capture time in milliseconds, for the
 decoder.
 
 Video depends on the frames before it, so a lost fragment spoils every
-frame up to the next keyframe. The receiver then asks for one: Watch
-with WATCH_NEED_KEY, which the server passes on to the sharer as a
-Keyframe, at most once every KEYFRAME_REQUEST_MIN.
+frame up to the next keyframe. On the media link a viewer first asks the
+server for what's missing (Nack, video_window.odin), which keeps the
+last half second of every sharer's fragments; what can't be had that
+way, or on the other links, is given up on, and the receiver asks for a
+keyframe: Watch with WATCH_NEED_KEY, which the server passes on to the
+sharer as a Keyframe, at most once every KEYFRAME_REQUEST_MIN.
 
 Watch is a lease rather than a subscription: the viewer repeats it every
 WATCH_RESEND and the server forwards video only until WATCH_LEASE after
@@ -40,9 +44,9 @@ VIDEO_DOWN_HEADER_SIZE :: VIDEO_UP_HEADER_SIZE + 4
 // Sized for the way down, which has the longer header, so the server
 // can pass a fragment on without splitting it again.
 VIDEO_FRAGMENT_SIZE :: MAX_PAYLOAD_SIZE - VIDEO_DOWN_HEADER_SIZE
-// The largest frame, which a keyframe of a detailed screen can come
-// close to at a sharp enough quality.
-MAX_VIDEO_FRAME_SIZE :: 256 * 1024
+// The largest frame, which a keyframe of a detailed screen at 1440p
+// and a high bitrate can come close to.
+MAX_VIDEO_FRAME_SIZE :: 1024 * 1024
 MAX_VIDEO_FRAGMENTS :: (MAX_VIDEO_FRAME_SIZE + VIDEO_FRAGMENT_SIZE - 1) / VIDEO_FRAGMENT_SIZE
 
 WATCH_SIZE :: 1 + 4 + 1
@@ -58,9 +62,12 @@ WATCH_NEED_KEY :: 1 << 0
 // Video flags.
 VIDEO_KEY :: 1 << 0
 
-// How a frame is encoded; the receiver's decoder has to agree.
+// How a frame is encoded; the receiver's decoder has to agree. A viewer
+// that can't decode a codec shows nothing (the web client only H.264).
 Video_Codec :: enum u8 {
 	H264 = 0, // Annex B, so each keyframe carries its own parameter sets
+	HEVC = 1, // Annex B, with the VPS too
+	AV1  = 2, // a temporal unit of OBUs with sizes; keyframes with the sequence header
 }
 
 // One fragment of a frame. `data` points into the message it came from.
@@ -175,109 +182,11 @@ encode_keyframe :: proc(out: ^[KEYFRAME_SIZE]u8) -> []u8 {
 	return out[:]
 }
 
-// A frame as it comes out of a Video_Assembler.
+// A frame as it comes out of a Video_Window (video_window.odin).
 Video_Frame :: struct {
 	frame: u32,
 	ts:    u32,
 	key:   bool,
 	codec: Video_Codec,
-	data:  []u8, // valid until the assembler's next call
-}
-
-/*
-Video_Assembler puts one sharer's frames back together for the decoder.
-
-It works on one frame at a time: fragments come in order unless
-something went wrong, so a fragment of a newer frame means the one
-being collected will never be complete. Losing a frame, or seeing a
-frame number skipped, means everything up to the next keyframe would
-decode wrong, so from then on `broken` is set and only a keyframe gets
-through. It starts out broken, as there's nothing to decode against
-yet.
-
-It's large (a whole frame's buffer), so allocate it rather than keeping
-it on the stack.
-*/
-Video_Assembler :: struct {
-	broken:    bool,
-	active:    bool, // collecting `frame`
-	frame:     u32,
-	ts:        u32,
-	key:       bool,
-	codec:     Video_Codec,
-	count:     int,
-	received:  int,
-	size:      int,
-	have:      [MAX_VIDEO_FRAGMENTS]bool,
-	// The newest frame finished or given up on; nothing older is taken.
-	last:      u32,
-	have_last: bool,
-	// Room for every fragment full, a little over MAX_VIDEO_FRAME_SIZE.
-	buf:       [MAX_VIDEO_FRAGMENTS * VIDEO_FRAGMENT_SIZE]u8,
-}
-
-// video_assembler_reset readies an assembler for a new sharer.
-video_assembler_reset :: proc(a: ^Video_Assembler) {
-	a.broken, a.active, a.have_last = true, false, false
-}
-
-/*
-video_assembler_add feeds in a fragment. When it completes a frame that
-can be decoded, it returns it; a complete frame that can't (a delta
-while broken) is dropped.
-*/
-@(require_results)
-video_assembler_add :: proc(
-	a: ^Video_Assembler,
-	f: Video_Fragment,
-) -> (
-	frame: Video_Frame,
-	complete: bool,
-) {
-	if a.have_last && !serial_newer(f.frame, a.last) {
-		return // late, or a repeat
-	}
-	if a.active && f.frame != a.frame {
-		if !serial_newer(f.frame, a.frame) {
-			return
-		}
-		// The frame we were collecting won't be finished.
-		a.broken = true
-		a.last, a.have_last = a.frame, true
-		a.active = false
-	}
-	if !a.active {
-		if a.have_last && f.frame != a.last + 1 {
-			a.broken = true // a whole frame went missing
-		}
-		a.active = true
-		a.frame, a.ts, a.key, a.codec, a.count = f.frame, f.ts, f.key, f.codec, f.count
-		a.received, a.size = 0, 0
-		a.have = {}
-	} else if f.count != a.count || f.key != a.key {
-		return // doesn't belong with the others
-	}
-
-	if a.have[f.index] {
-		return
-	}
-	a.have[f.index] = true
-	a.received += 1
-	start := f.index * VIDEO_FRAGMENT_SIZE
-	copy(a.buf[start:], f.data)
-	if f.index == f.count - 1 {
-		a.size = start + len(f.data)
-	}
-	if a.received < a.count {
-		return
-	}
-
-	a.active = false
-	a.last, a.have_last = a.frame, true
-	if a.key {
-		a.broken = false
-	} else if a.broken {
-		return
-	}
-	return {frame = a.frame, ts = a.ts, key = a.key, codec = a.codec, data = a.buf[:a.size]}, true
+	data:  []u8, // valid until the window's next video_window_add
 }

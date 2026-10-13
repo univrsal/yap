@@ -291,6 +291,28 @@ gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, r
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 }
 
+gpu_native :: proc(g: ^Gpu) -> Gpu_Native {
+	when platform.WEB {
+		return {}
+	} else {
+		return {gl_get_proc = rawptr(glfw.GetProcAddress)}
+	}
+}
+
+/*
+gpu_texture_wrap makes something drawable of a texture somebody else
+made in our context and keeps: `native` is its name. It stays theirs;
+gpu_texture_unwrap forgets it again (and gpu_texture_delete mustn't be
+used on it).
+*/
+gpu_texture_wrap :: proc(g: ^Gpu, native: uintptr) -> Gpu_Texture {
+	return Gpu_Texture(native)
+}
+
+gpu_texture_unwrap :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
+	tex^ = 0
+}
+
 // gpu_texture_delete deletes `tex`, if there is one, and makes it 0.
 gpu_texture_delete :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 	if tex^ != 0 {

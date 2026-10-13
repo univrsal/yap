@@ -152,6 +152,10 @@ View :: struct {
 	mentioned:      [dynamic]View_Mention,
 	// Whose screen we're watching, or 0.
 	watching:       proto.User_Num,
+	// Screen sharing's figures (publish_video_stats), and how much the
+	// server takes from a sharer, in kbit/s (0 if it didn't say).
+	video_stats:    Video_Stats,
+	video_limit_kbit: int,
 	// How the pings to the server are doing (ping.odin).
 	connection:     Connection_Stats,
 	// Our DMs (buddies.odin): who each is with, and what's unread there.

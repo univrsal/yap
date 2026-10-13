@@ -44,6 +44,10 @@ Server_Details :: struct {
 	registration:   proto.Registration_Flags,
 	email:          string, // where verifying mail goes; owned
 	digests:        bool, // it mails what was missed (proto.SETTING_EMAIL_DIGEST)
+	// Its media link's port, 0 for none (media.odin), and how fast a
+	// sharer's video may be, in kbit/s, 0 if it didn't say.
+	media_port:     u16,
+	video_kbit:     u32,
 	// What it's for (owned), and its picture: the id it goes by, and its
 	// JPEG once fetched (owned; nil until then). See server_info.odin.
 	description:    string,
