@@ -1416,6 +1416,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 		main_window(ui)
 		mu.end_window(ctx)
 	}
+	rail_divider_gap(ui, rail)
 	// An enlarged image floats above it all (ui_images.odin).
 	image_viewer(ui, w, h)
 	pins_window(ui, w, h)
@@ -1431,6 +1432,33 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// Last, and in windows of their own, so they're over the popups too.
 	chip_preview_popup(ui, w, h)
 	icon_hint(ui, w, h)
+}
+
+/*
+rail_divider_gap hides the line between the rail and the main window
+(their two borders) along the strip of the merged macOS title bar, where
+the window's buttons are (ui_titlebar_darwin.odin). The borders belong to
+the windows, which can't draw outside themselves, so it's a window of its
+own, in the windows' colour, over them.
+*/
+@(private = "file")
+rail_divider_gap :: proc(ui: ^UI, rail: i32) {
+	if ui.titlebar_left <= 0 || ui.titlebar_height <= 0 {
+		return
+	}
+	ctx := &ui.ctx
+	r := mu.Rect{rail - 1, 0, 3, ui.titlebar_height}
+	cnt := mu.get_container(ctx, "title gap")
+	if cnt == nil {
+		return
+	}
+	cnt.rect = r
+	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_SCROLL, .NO_CLOSE, .NO_INTERACT}
+	if !mu.begin_window(ctx, "title gap", r, opts) {
+		return
+	}
+	defer mu.end_window(ctx)
+	mu.draw_rect(ctx, r, ctx.style.colors[.WINDOW_BG])
 }
 
 @(private = "file")
