@@ -213,10 +213,8 @@ jobs:
         run: |
           if [ "${{ inputs.release }}" = true ]; then
             echo "name=yap-${{ matrix.platform }}" >> "$GITHUB_OUTPUT"
-            echo "video=yap-video-${{ matrix.platform }}" >> "$GITHUB_OUTPUT"
           else
             echo "name=yap-${{ matrix.platform }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-            echo "video=yap-video-${{ matrix.platform }}-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
       - name: Pack the screen sharing add-on
         id: pack_video
@@ -240,12 +238,70 @@ jobs:
           name: ${{ steps.name.outputs.name }}
           path: dist/yap-${{ matrix.platform }}/
           if-no-files-found: error
-      # A separate download, unpacked next to yap (D12 in
-      # misc/hq-share/README.md).
+      # A part of the add-on's download, which the video job below
+      # gathers into one artifact with a folder per platform.
+      - name: Add-on part name
+        id: part
+        if: steps.pack_video.outcome == 'success'
+        shell: bash
+        run: |
+          platform=${{ matrix.platform }}
+          echo "name=video-part-${platform%%-*}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v7
         # Only if there's something: a failed build already says why.
         if: steps.pack_video.outcome == 'success'
         with:
-          name: ${{ steps.name.outputs.video }}
+          name: ${{ steps.part.outputs.name }}
           path: dist/yap-video-${{ matrix.platform }}/
           if-no-files-found: error
+          retention-days: 1
+
+  # The screen sharing add-on as a single download, yap-video/ holding
+  # linux/, macos/ and windows/, each unpacked next to yap (D12 in
+  # misc/hq-share/README.md). Whatever platforms built go in, even if
+  # another one failed.
+  video:
+    name: Screen sharing add-on
+    needs: desktop
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: video-part-*
+          path: parts
+      - name: Gather
+        id: gather
+        run: |
+          mkdir -p yap-video
+          for d in parts/video-part-*/; do
+            [ -d "$d" ] || continue
+            p=${d%/}
+            mv "$p" "yap-video/${p#parts/video-part-}"
+          done
+          if [ -z "$(ls yap-video)" ]; then
+            echo "no platform built the add-on" >&2
+            exit 1
+          fi
+          if [ "${{ inputs.release }}" = true ]; then
+            echo "name=yap-video" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=yap-video-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.gather.outputs.name }}
+          path: yap-video/
+          if-no-files-found: error
+      - name: Delete the parts
+        # A pull request from a fork can't delete artifacts; the parts
+        # expire after a day anyway.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name | startswith("video-part-")) | .id' |
+            xargs -r -I{} gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/{}"

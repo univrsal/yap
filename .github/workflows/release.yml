@@ -1,14 +1,16 @@
 name: Release
 
 # Pushing a tag like v0.1.0 builds everything (build.yml) and puts the
-# zips (the three platforms', and their screen sharing add-ons) in a
-# draft release, to be edited and published by hand.
+# zips (the three platforms', and the screen sharing add-on with a
+# folder per platform) in a draft release, to be edited and published by hand.
 on:
   push:
     tags: ["v*"]
 
 permissions:
   contents: write
+  # build.yml's video job deletes the add-on's per-platform parts.
+  actions: write
 
 jobs:
   build:
@@ -21,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Each artifact comes down as a folder named yap-<platform> (or
-      # yap-video-<platform>, the add-on).
+      # yap-video, the add-on, holding linux/, macos/ and windows/).
       - uses: actions/download-artifact@v8
         with:
           pattern: yap-*

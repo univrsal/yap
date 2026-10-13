@@ -3,7 +3,8 @@
 # yap_video, the FFmpeg libraries it uses and their licence, and
 # yv-loopback. It's unpacked next to yap (D12 in misc/hq-share/README.md);
 # without it the client runs as before, but neither shares nor watches.
-# CI uploads the folder as an artifact, which GitHub zips itself.
+# CI gathers the platforms' folders into one yap-video artifact, with
+# linux/, macos/ and windows/ in it, which GitHub zips itself.
 # Usage: scripts/package-video.sh <platform>
 # Run after build-video.sh / build-video.bat.
 set -e
