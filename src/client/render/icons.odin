@@ -49,6 +49,9 @@ Icon :: enum {
 	Edit, // a pencil: edit a message
 	Phone, // a telephone receiver: call someone
 	Mail, // a closed envelope: for direct messages
+	Screen_Off, // a monitor with a line through it: stop watching a screen
+	Fullscreen, // four corners pointing out: fill the screen
+	Exit_Fullscreen, // four corners pointing in: back from fullscreen
 	// The window's own controls, where Windows has none (ui_titlebar_windows.odin).
 	Minimize, // a line
 	Maximize, // a box
@@ -228,6 +231,12 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return receiver(p)
 	case .Mail:
 		return mail_letter(p)
+	case .Screen_Off:
+		return crossed_out(monitor(p), p)
+	case .Fullscreen:
+		return corners(p, false)
+	case .Exit_Fullscreen:
+		return corners(p, true)
 	case .Minimize, .Maximize, .Restore, .Close:
 		// Drawn in texels instead (window_control).
 		return 1
@@ -326,6 +335,9 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Edit,
 	     .Phone,
 	     .Mail,
+	     .Screen_Off,
+	     .Fullscreen,
+	     .Exit_Fullscreen,
 	     .Check,
 	     .Collapsed,
 	     .Expanded:
@@ -371,6 +383,26 @@ mail_letter :: proc(p: Point) -> f32 {
 	d = nearer(d, capsule(p, {0.5, 0.4}, {0.95 - OFFSET, 0.84 - OFFSET}, STROKE * .75))
 	d = nearer(d, capsule(p, {0.05 + OFFSET, 0.84 - OFFSET}, {0.5, 0.4}, STROKE * .75))
 	return d
+}
+
+/*
+Four corners, one in each quarter of the square: pointing out to its
+edges for going fullscreen, or folded in towards the middle for coming
+back. Drawn for the top left one; the others are its mirror images.
+*/
+@(private = "file")
+corners :: proc(p: Point, inwards: bool) -> f32 {
+	STROKE :: 0.1
+	NEAR :: 0.18 // from the square's edge, where an outward corner sits
+	FAR :: 0.40 // and where its arms reach to
+	q := Point{0.5 - abs(p.x - 0.5), 0.5 - abs(p.y - 0.5)}
+	if inwards {
+		// The corner at the middle end, its arms out to the edges.
+		d := capsule(q, {FAR, FAR}, {FAR, NEAR}, STROKE)
+		return nearer(d, capsule(q, {FAR, FAR}, {NEAR, FAR}, STROKE))
+	}
+	d := capsule(q, {NEAR, NEAR}, {NEAR, FAR}, STROKE)
+	return nearer(d, capsule(q, {NEAR, NEAR}, {FAR, NEAR}, STROKE))
 }
 
 // A monitor: the outline of a screen on a short stand.

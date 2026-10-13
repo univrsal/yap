@@ -93,6 +93,12 @@ test_icons_tell_states_apart :: proc(t: ^testing.T) {
 	testing.expect(t, !same(&a, .Mic, .Mic_Off), "muted looks like unmuted")
 	testing.expect(t, !same(&a, .Sound, .Sound_Off), "deafened looks like undeafened")
 	testing.expect(t, !same(&a, .Mic, .Sound), "the microphone looks like the speaker")
+	testing.expect(t, !same(&a, .Screen, .Screen_Off), "stop watching looks like the screen")
+	testing.expect(
+		t,
+		!same(&a, .Fullscreen, .Exit_Fullscreen),
+		"leaving fullscreen looks like going fullscreen",
+	)
 	// A line through an icon covers more of the square than the icon did.
 	testing.expect(
 		t,

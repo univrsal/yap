@@ -109,12 +109,12 @@ watched_name :: proc(ui: ^UI) -> string {
 // screen_panel fills the Screen tab. Call with the View locked.
 screen_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {-(110 + 70 + 2 * ctx.style.spacing), 110, 70})
+	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 2 * ctx.style.spacing), ICON_BUTTON, ICON_BUTTON})
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(ui)))
-	if .SUBMIT in stable_button(ctx, "fullscreen", "Fullscreen") {
+	if .SUBMIT in icon_button(ui, "fullscreen", .Fullscreen, "Fullscreen") {
 		conn.video_set_fullscreen(true)
 	}
-	if .SUBMIT in stable_button(ctx, "stop watching", "Stop") {
+	if .SUBMIT in icon_button(ui, "stop watching", .Screen_Off, "Stop watching") {
 		watch(ui, 0)
 	}
 	mu.layout_row(ctx, {-1}, -1)
@@ -127,14 +127,14 @@ picture, and a way back. Call with the View locked.
 */
 fullscreen_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	title_row(ui, {-(70 + ctx.style.spacing), 70})
+	title_row(ui, {-(ICON_BUTTON + ctx.style.spacing), ICON_BUTTON})
 	with_text_color(
 		ctx,
 		theme.dim,
 		fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui)),
 		label_proc,
 	)
-	if .SUBMIT in stable_button(ctx, "exit fullscreen", "Exit") {
+	if .SUBMIT in icon_button(ui, "exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") {
 		conn.video_set_fullscreen(false)
 	}
 	mu.layout_row(ctx, {-1}, -1)
