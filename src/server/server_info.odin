@@ -63,6 +63,8 @@ server_info_body :: proc(s: ^Server) -> []u8 {
 		description    = s.description,
 		icon           = s.icon,
 		digests        = digest_on(s),
+		media_port     = u16(s.media.port) if s.media.enabled else 0,
+		video_kbit     = u32(s.media.max_rate * 8 / 1000) if s.media.enabled else 0,
 	}
 	body, ok := proto.encode_server_info(buf, info)
 	return body if ok else nil

@@ -42,6 +42,8 @@ Voice_Client :: struct {
 	using link:    Link,
 	// The bulk link, for heavy messages (proto.HEAVY_KINDS, bulk.odin).
 	bulk:          Bulk_Link,
+	// The media link, for screen sharing on the desktop (media.odin).
+	media:         Media_Link,
 	server_addr:   string, // as typed; the key in known_servers
 	// The first of this connection's two WebSocket slots in a web build
 	// (transport_web.odin); the owner sets it before client_open.
@@ -142,6 +144,7 @@ client_close :: proc(c: ^Voice_Client) {
 	transport_close(&c.transport)
 	link_reset(&c.link)
 	bulk_close(c)
+	media_close(c)
 	ecdh.private_key_clear(&c.key)
 
 	delete(c.server_addr)
@@ -194,6 +197,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	// After the voice, which it mustn't hold up.
 	video_step(c)
 	bulk_step(c)
+	media_step(c)
 
 	// The main link first: what's on it is what can't wait.
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
@@ -203,6 +207,7 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 		}
 	}
 	bulk_receive(c)
+	media_receive(c)
 
 	log_stats(c)
 	return true
@@ -481,8 +486,9 @@ handle_welcome :: proc(c: ^Voice_Client, pt: []byte) {
 		proto.session_reset(&c.previous)
 		c.has_previous = false
 	}
-	// Its bulk link went with it.
+	// Its bulk and media links went with it.
 	bulk_restart(c)
+	media_restart(c)
 	// Before who is here is forgotten: it's where our voice was.
 	convs_restart(c)
 	channels_restart(c)
@@ -644,6 +650,20 @@ log_stats :: proc(c: ^Voice_Client) {
 			c.video.bytes_in / 1000,
 		)
 		c.video.bytes_out, c.video.bytes_in = 0, 0
+		if w := c.video.window; w != nil {
+			counts := [3]int{w.nacked, w.recovered, w.given_up}
+			d := counts - c.video.logged
+			c.video.logged = counts
+			if d[0] > 0 || d[2] > 0 {
+				fmt.sbprintf(
+					&b,
+					" (%d fragments asked for again, %d frames saved, %d lost)",
+					d[0],
+					d[1],
+					d[2],
+				)
+			}
+		}
 	}
 	log.debug(strings.to_string(b))
 	v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed, v.dropouts = 0, 0, 0, 0, 0, 0

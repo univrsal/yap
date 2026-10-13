@@ -88,6 +88,8 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 			description = "For the band.",
 			icon = 42,
 			digests = true,
+			media_port = 7778,
+			video_kbit = 20000,
 		},
 	)
 	testing.expect(t, ok)
@@ -97,8 +99,18 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	testing.expect_value(t, info.description, "For the band.")
 	testing.expect_value(t, info.icon, Blob_Id(42))
 	testing.expect(t, info.digests)
+	testing.expect_value(t, info.media_port, 7778)
+	testing.expect_value(t, info.video_kbit, 20000)
 
-	// An older server ends at the icon: no digests.
+	// An older server ends at the digests: no media link.
+	MEDIA :: 2 + 4
+	info, ok = decode_server_info(body[:len(body) - MEDIA])
+	testing.expect(t, ok)
+	testing.expect(t, info.digests)
+	testing.expect_value(t, info.media_port, 0)
+	body = body[:len(body) - MEDIA]
+
+	// One older still ends at the icon: no digests.
 	info, ok = decode_server_info(body[:len(body) - 1])
 	testing.expect(t, ok)
 	testing.expect_value(t, info.icon, Blob_Id(42))

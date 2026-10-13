@@ -66,6 +66,12 @@ once at startup:
 			"verify_email": false,
 			"unverified_hours": 48,
 			"require_invite": false
+		},
+		"video": {
+			"enabled": true,
+			"port": 0,
+			"max_kbit": 20000,
+			"cache_ms": 500
 		}
 	}
 
@@ -155,6 +161,16 @@ registration  whether people may make their own accounts (register.odin);
            for that (48 if left out). `require_invite`: with an invite
            code, made by someone with Create_Invites; codes work, and
            are kept with the account, whether required or not.
+video      screen sharing from desktop clients (media.odin): with
+           `enabled` (true if left out) it has a UDP port of its own,
+           `port` (0 for the one after the server's), and a thread of
+           its own; without, it goes through the main loop like a
+           browser's, which takes far less. `max_kbit`: how fast one
+           sharer's video may be, in kbit/s (20000 if left out); what's
+           over it is dropped. `cache_ms`: how long each sharer's video
+           is kept, to send again what viewers lost (500 if left out);
+           -1 keeps none. It costs about this much of a second of
+           `max_kbit` in memory a sharer, at most 2.5 MB.
 
 Fields left out keep the defaults above, and with no channels there's a
 single Lobby.
@@ -197,6 +213,14 @@ Config :: struct {
 	attachments:        Attach_Config,
 	email:              Email_Config,
 	registration:       Registration_Config,
+	video:              Video_Config,
+}
+
+Video_Config :: struct {
+	enabled:  bool,
+	port:     int,
+	max_kbit: int,
+	cache_ms: int,
 }
 
 Registration_Config :: struct {
@@ -263,6 +287,7 @@ Settings :: struct {
 	attachments:  Attach_Config,
 	email:        Email_Config, // checked; address "" for none
 	registration: Registration_Config,
+	video:        Video_Config, // checked; port 0 for the one after `port`
 }
 
 @(private = "file")
@@ -275,6 +300,7 @@ default_config :: proc() -> Config {
 		api = {max_connections = 64, rate = 10, burst = 30},
 		attachments = {max_megabytes = 100, rate_kb = 2048},
 		email = {check_auth_results = true},
+		video = {enabled = true, max_kbit = 20000},
 	}
 }
 
@@ -481,6 +507,33 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	if !registration.open && (registration.require_email || registration.require_invite) {
 		log.warnf("%s: registration isn't open, so what it requires does nothing", path)
 	}
+	video := cfg.video
+	switch {
+	case video.port < 0 || video.port > 65535:
+		log.errorf("%s: invalid video port %d", path, video.port)
+		return
+	case video.port == 0 && video.enabled && cfg.port == 65535:
+		log.errorf("%s: video's port can't be the one after port 65535; give it one", path)
+		return
+	case video.enabled && video.port == cfg.port:
+		log.errorf("%s: video can't have the server's own port %d", path, cfg.port)
+		return
+	case video.max_kbit < 0:
+		log.errorf("%s: video's max_kbit can't be negative", path)
+		return
+	case video.cache_ms < -1 || video.cache_ms > 5000:
+		log.errorf("%s: video's cache_ms has to be -1 (none) up to 5000", path)
+		return
+	}
+	if video.max_kbit == 0 {
+		video.max_kbit = 20000
+	}
+	switch video.cache_ms {
+	case 0:
+		video.cache_ms = 500
+	case -1:
+		video.cache_ms = 0
+	}
 
 	s = {
 		email        = email,
@@ -497,6 +550,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		api          = api,
 		retention    = r,
 		attachments  = attach,
+		video        = video,
 	}
 	data_dir := cfg.data_dir if cfg.data_dir != "" else os.dir(path)
 	if data_dir == "" {

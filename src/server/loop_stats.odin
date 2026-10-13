@@ -59,6 +59,7 @@ Loop_Phase :: enum u8 {
 	Retention,
 	Verify,
 	Digest,
+	Media,
 	Exercise,
 	Memory,
 	Commit,

@@ -158,6 +158,8 @@ Server :: struct {
 	verify:         Verify_State,
 	// Mailing accounts what they missed (digest.odin).
 	digest:         Digest_State,
+	// Screen sharing's own port and thread (media.odin).
+	media:          Media,
 }
 
 // How long the loop waits for a packet before it comes round anyway.
@@ -231,6 +233,10 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 	defer net.close(sock)
 	s.sock = sock
+	// Room for what arrives while a turn is busy: a shared screen's
+	// keyframe comes in hundreds of packets.
+	net.set_option(sock, .Receive_Buffer_Size, 4 * 1024 * 1024)
+	net.set_option(sock, .Send_Buffer_Size, 4 * 1024 * 1024)
 	// Wake up periodically even when idle so stale sessions get reaped
 	// and unacked state gets resent; and more often while old messages
 	// are being purged, a little at a time (retention.odin).
@@ -239,6 +245,8 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 
 	log.infof("listening on udp :%d", port)
 	log.infof("server public key: %s", common.public_key_hex(&s.key))
+	media_open(&s, settings)
+	defer media_close(&s)
 	if s.password != "" {
 		log.info("clients need the password to join")
 	}
@@ -264,6 +272,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		{.Retention, retention_sync},
 		{.Verify, verify_sync},
 		{.Digest, digest_sync},
+		{.Media, media_sync},
 		{.Exercise, db_exercise},
 		{.Memory, memory_sync},
 	}
@@ -680,7 +689,6 @@ refuse :: proc(s: ^Server, c: ^Client, from: net.Endpoint, reason: proto.Refusal
 
 // password_matches compares hashes of the two, so how long it takes
 // says nothing about the password, not even its length.
-@(private = "file")
 password_matches :: proc(want, got: string) -> bool {
 	a := hash.hash_string(.SHA256, want, context.temp_allocator)
 	b := hash.hash_string(.SHA256, got, context.temp_allocator)
@@ -779,6 +787,9 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		handle_transfer_cancel(s, c.conn, pt)
 	case .State, .Refused, .Keyframe, .Pong, .Welcome, .Upload_Ack, .Download_Chunk:
 	// Server-to-client only.
+	case .Nack, .Report:
+	// The media link's (media.odin): nothing is kept here to send again,
+	// and bulk link shares (a browser's) don't follow their viewers.
 	case .Set_Name,
 	     .Join,
 	     .Chat_Send,

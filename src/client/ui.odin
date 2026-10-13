@@ -370,6 +370,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui.view = &ui.no_view
 	conn.view_init(ui.view)
 	ui.view.wake = ui_wake
+	conn.video_set_wake(ui_wake)
 	ui_chat_init(ui)
 
 	// Load (or create) the key now, to show our id before connecting.
@@ -910,12 +911,14 @@ window_close :: proc(ui: ^UI) {
 		}
 		ui.window_size = {w, h}
 	}
+	// The video library lets go of what it made on the device while it's
+	// still there (an OpenGL context can only be cleaned up current).
+	ui_video_forget_texture(ui)
 	render.renderer_destroy(&ui.renderer)
 	// The pictures' textures belong to the device that's about to go;
 	// they are decoded again when they're next on screen.
 	ui_images_forget_textures(ui)
 	ui_avatars_forget_textures(ui)
-	ui_video_forget_texture(ui)
 	glfw.DestroyWindow(ui.window)
 	ui.window = nil
 }
@@ -1371,7 +1374,7 @@ session_capture_update :: proc(ui: ^UI) {
 			break
 		}
 	}
-	// The page's screen, if it's being shared, goes to the voice too.
+	// The screen, if it's being shared, goes to the voice too.
 	for ns in ui.sessions {
 		sync.atomic_store(&ns.client.video.share_here, ns == ui.voice_at)
 	}
@@ -1587,6 +1590,7 @@ session_screen :: proc(ui: ^UI) {
 	channel_menu(ui)
 	message_menu(ui)
 	app_audio_menu(ui)
+	share_menu(ui)
 }
 
 /*

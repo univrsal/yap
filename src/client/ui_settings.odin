@@ -33,6 +33,7 @@ Client_Category :: enum {
 	Audio,
 	Interface,
 	Hotkeys,
+	Screen_Sharing,
 	Transfers,
 	Image_Cache,
 	Trusted_Servers,
@@ -47,6 +48,7 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 	.Audio           = "Audio",
 	.Interface       = "User interface",
 	.Hotkeys         = "Global hotkeys",
+	.Screen_Sharing  = "Screen sharing",
 	.Transfers       = "File transfers",
 	.Image_Cache     = "Image cache",
 	.Trusted_Servers = "Trusted servers",
@@ -57,11 +59,13 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 }
 
 // The ones a web build has: a page has neither global hotkeys nor
-// anything to install (ui_hotkeys_web.odin, ui_install_web.odin).
+// anything to install (ui_hotkeys_web.odin, ui_install_web.odin), and
+// shares what the browser's picker says (ui_share_settings.odin).
 @(private = "file")
 CLIENT_CATEGORIES ::
 	~bit_set[Client_Category] {
 		.Hotkeys,
+		.Screen_Sharing,
 		.Install,
 	} when platform.WEB else ~bit_set[Client_Category]{}
 
@@ -164,6 +168,8 @@ settings_page :: proc(ui: ^UI) {
 		ui_settings(ui)
 	case .Hotkeys:
 		hotkey_settings(ui)
+	case .Screen_Sharing:
+		share_settings(ui)
 	case .Transfers:
 		transfer_settings(ui)
 	case .Image_Cache:

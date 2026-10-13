@@ -39,7 +39,7 @@ BULK_PING :: 1 * time.Second
 // again: the main link may not have got far enough yet.
 BULK_RETRY :: 1 * time.Second
 // The most packets taken off the bulk link in a turn of the loop.
-BULK_RECV_MAX :: 16
+BULK_RECV_MAX :: 64
 
 // bulk_step opens the bulk link when it's time, and keeps it going.
 bulk_step :: proc(c: ^Voice_Client) {

@@ -10,12 +10,17 @@ Screen sharing (see src/common/proto/video.odin): the server passes a sharer's
 video fragments on to whoever in their channel holds a Watch lease on
 them, and passes the viewers' keyframe requests back. It never looks
 inside the video.
+
+This is the way for video that comes over bulk links: a browser's, or a
+desktop client's that has no media link. A desktop client's on the media
+link is media.odin's, which sees to its keyframe requests too: here they
+only go to a sharer whose video has been coming this way.
 */
 
 // The most video one sharer may push through, in bytes a second, and
 // how far a burst (a keyframe) may run ahead of that. Anything over is
 // dropped, which the viewers see as a lost frame.
-VIDEO_MAX_RATE :: 4_000_000 / 8
+VIDEO_MAX_RATE :: 16_000_000 / 8
 VIDEO_MAX_BURST :: proto.MAX_VIDEO_FRAME_SIZE + 64 * 1024
 
 // What the server keeps about a user's screen sharing.
@@ -28,6 +33,7 @@ Video_State :: struct {
 	budget:        int,
 	budget_at:     time.Tick,
 	last_key_sent: time.Tick, // Keyframe requests passed to them
+	last_video:    time.Tick, // when their video last came through here
 }
 
 handle_watch :: proc(s: ^Server, u: ^Conn, pt: []byte) {
@@ -57,6 +63,10 @@ request_keyframe :: proc(s: ^Server, viewer: ^Conn, sharer: proto.User_Num) {
 		if viewer.room == 0 || u.room != viewer.room || .Sharing not_in u.flags {
 			return
 		}
+		// Shared over the media link, which asks them itself.
+		if u.video.last_video == {} || time.tick_since(u.video.last_video) > proto.WATCH_LEASE {
+			return
+		}
 		now := time.tick_now()
 		v := &u.video
 		if v.last_key_sent != {} &&
@@ -84,6 +94,7 @@ relay_video :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	if _, ok := proto.decode_video_up(pt); !ok || .Sharing not_in u.flags {
 		return
 	}
+	u.video.last_video = time.tick_now()
 	if !spend_budget(&u.video, len(pt)) {
 		log.debugf("%s is sharing faster than the server passes on", conn_label(u))
 		return

@@ -230,7 +230,9 @@ test_hello_and_welcome :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 	_, _, _, ok = decode_hello(hello(11, 1, 'a')) // version 11: no link
 	testing.expect(t, !ok)
-	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 2, 0)) // no such link
+	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 2, 0)) // the media link
+	testing.expect(t, ok)
+	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 3, 0)) // no such link
 	testing.expect(t, !ok)
 	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 0, 2, 'x')) // truncated password
 	testing.expect(t, !ok)

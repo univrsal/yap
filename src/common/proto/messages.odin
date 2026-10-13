@@ -135,6 +135,12 @@ Message_Kind :: enum u8 {
 	Download_Chunk  = 45,
 	Download_Ack    = 46,
 	Transfer_Cancel = 47,
+	// Fragments of a shared screen asked for again, on the media link
+	// (video_window.odin).
+	Nack            = 48,
+	// How a shared screen reaches its viewers, for its bitrate
+	// (video_report.odin).
+	Report          = 49,
 }
 
 // Why the server refused a hello.
@@ -240,6 +246,10 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == WATCH_SIZE
 	case .Keyframe:
 		ok = len(pt) == KEYFRAME_SIZE
+	case .Nack:
+		ok = len(pt) == NACK_SIZE
+	case .Report:
+		ok = len(pt) == REPORT_SIZE
 	case .Ping, .Pong:
 		ok = len(pt) == PING_SIZE
 	case .DM_Send,
