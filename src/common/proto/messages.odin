@@ -155,14 +155,20 @@ Refusal :: enum u8 {
 
 /*
 A user's own state, as everyone else sees it: what they've switched off
-for themselves, and whether they're sharing their screen. Muting a user
-for yourself is a local setting and never goes on the wire, so what
-arrives here is always what that user did to themselves.
+for themselves, whether they're sharing their screen, and what of a
+share their client can decode. Muting a user for yourself is a local
+setting and never goes on the wire, so what arrives here is always what
+that user did to themselves.
 */
 User_Flag :: enum u8 {
 	Muted, // their microphone is off
 	Deafened, // they aren't listening to the channel
 	Sharing, // their screen can be watched (see video.odin)
+	// Besides H.264, which every client decodes: a sharer encodes what
+	// everyone in the room can (decodable_codecs). A client too old to
+	// say counts as H.264 only.
+	Decodes_HEVC,
+	Decodes_AV1,
 }
 User_Flags :: distinct bit_set[User_Flag;u8]
 

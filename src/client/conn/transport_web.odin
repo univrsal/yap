@@ -19,8 +19,9 @@ handshake is resent until it gets through, so that sorts itself out.
 
 @(default_calling_convention = "c")
 foreign _ {
-	// Each takes the socket's slot: a connection's main link has an even
-	// one (Voice_Client.slot), its bulk link (bulk.odin) the one after.
+	// Each takes the socket's slot: a connection's main link has the
+	// first of three (Voice_Client.slot), its bulk link (bulk.odin) the
+	// next and its media link (media.odin) the last.
 	// Opens the socket, dropping whatever was open before in that slot.
 	// The address is a ws:// or wss:// URL.
 	yap_ws_open :: proc(slot: i32, url: cstring) -> i32 ---
@@ -53,13 +54,31 @@ transport_open turns the address the user typed into a URL for the
 relay. A plain host:port becomes a WebSocket to the relay beside this
 page - ws://<page host>/yap/<host:port> - so the usual "localhost:7777"
 still works; anything that already looks like a URL is used as it is.
+The media link goes to the relay's /yap-media/ instead, which takes it
+to the server's media port.
 */
-transport_open :: proc(t: ^Transport, server_addr: string, slot: i32, bulk := false) -> bool {
-	t.slot = slot + 1 if bulk else slot
+transport_open :: proc(
+	t: ^Transport,
+	server_addr: string,
+	slot: i32,
+	bulk := false,
+	media := false,
+) -> bool {
+	t.slot = slot + 2 if media else slot + 1 if bulk else slot
 	url := server_addr
 	if !strings.has_prefix(url, "ws://") && !strings.has_prefix(url, "wss://") {
 		url = strings.concatenate(
-			{relay_url_prefix(), "/yap/", server_addr},
+			{relay_url_prefix(), "/yap-media/" if media else "/yap/", server_addr},
+			context.temp_allocator,
+		)
+	} else if media {
+		at := strings.index(url, "/yap/")
+		if at < 0 {
+			log.debugf("no media link through %s, which isn't a relay's /yap/", url)
+			return false
+		}
+		url = strings.concatenate(
+			{url[:at], "/yap-media/", url[at + len("/yap/"):]},
 			context.temp_allocator,
 		)
 	}

@@ -28,6 +28,10 @@ needs:
 	"relay": { "enabled": true, "port": 8080 }   in config.json
 	open http://localhost:8080/?server=localhost:7777
 
+A browser's media link (client/conn/media.odin), for the video it
+watches, comes the same way under /yap-media/ and goes to the server's
+media port instead.
+
 The relay can't read what it carries: the session is end-to-end between
 the web client and the server, and the relay only ever sees sealed
 packets. It only relays to this server, whatever address the page names,
@@ -58,7 +62,8 @@ Web_File :: struct {
 @(private = "file")
 Relay :: struct {
 	listener: net.TCP_Socket,
-	server:   net.Endpoint, // the only place anything is relayed to
+	server:   net.Endpoint, // the only places anything is relayed to
+	media:    net.Endpoint, // the media port's; port 0 if there's none
 	// Whether browsers are relayed and the web client served; without,
 	// it's only the API.
 	web:      bool,
@@ -69,7 +74,8 @@ Relay :: struct {
 
 /*
 start_relay listens for browsers on `port` and relays them to the server
-on `server_port` of this machine, on a thread of its own; with `web`
+on `server_port` of this machine (and their media links to `media_port`,
+if it's not 0), on a thread of its own; with `web`
 false it doesn't, and only answers the API. `api` is the gateway to hand
 /api/ to, if there's one. It fails only if it can't listen; after that
 it runs for as long as the process does.
@@ -77,6 +83,7 @@ it runs for as long as the process does.
 start_relay :: proc(
 	port: int,
 	server_port: int,
+	media_port: int,
 	web_dir: string,
 	web := true,
 	api: ^gateway.Gateway = nil,
@@ -90,6 +97,7 @@ start_relay :: proc(
 	r := new(Relay)
 	r.listener = listener
 	r.server = {net.IP4_Loopback, server_port}
+	r.media = {net.IP4_Loopback, media_port}
 	r.web = web
 	r.api = api
 	r.files = {
@@ -223,13 +231,19 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 		)
 		return
 	}
-	if strings.has_prefix(req.path, "/yap/") {
+	media := strings.has_prefix(req.path, "/yap-media/")
+	if media || strings.has_prefix(req.path, "/yap/") {
 		key := http.header(&req, "Sec-WebSocket-Key")
 		if !strings.equal_fold(http.header(&req, "Upgrade"), "websocket") || key == "" {
 			http.respond(c.sock, "400 Bad Request", "text/plain", "expected a WebSocket upgrade\n")
 			return
 		}
-		relay_websocket(r, c, req.path[len("/yap/"):], key)
+		if media && r.media.port == 0 {
+			http.respond(c.sock, "404 Not Found", "text/plain", "the media link is off\n")
+			return
+		}
+		target := req.path[len("/yap-media/" if media else "/yap/"):]
+		relay_websocket(r, c, target, key, media)
 		return
 	}
 	serve_file(r, c.sock, req.path)
@@ -240,10 +254,12 @@ relay_websocket carries packets between one browser and the server
 until either end goes: WebSocket messages out as UDP datagrams, UDP
 datagrams back as WebSocket messages, one to one. `target` is the
 address the page was given for the server; it's only for the log, as
-the relay goes to its own server whatever the page asked for.
+the relay goes to its own server whatever the page asked for. A `media`
+link goes to the server's media port.
 */
 @(private = "file")
-relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string) {
+relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, media: bool) {
+	server := r.media if media else r.server
 	udp, udp_err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if udp_err != nil {
 		log.errorf("could not open a UDP socket: %v", udp_err)
@@ -267,12 +283,16 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string) {
 	if !http.send_all(c.sock, transmute([]u8)accept) {
 		return
 	}
-	log.infof("relaying a browser (which asked for %s)", target)
+	log.infof(
+		"relaying a browser%s (which asked for %s)",
+		"'s media link" if media else "",
+		target,
+	)
 
 	link := Link {
 		ws     = c.sock,
 		udp    = udp,
-		server = r.server,
+		server = server,
 	}
 	back := thread.create_and_start_with_poly_data(
 		&link,
@@ -288,7 +308,7 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string) {
 		}
 		#partial switch op {
 		case .Binary:
-			net.send_udp(udp, payload[:n], r.server)
+			net.send_udp(udp, payload[:n], server)
 		case .Ping:
 			sync.guard(&link.write_mutex)
 			http.write_frame(c.sock, .Pong, payload[:n])
@@ -305,10 +325,11 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string) {
 	sync.atomic_store(&link.done, true)
 	thread.join(back)
 	thread.destroy(back)
-	log.infof("a browser left (which asked for %s)", target)
+	log.infof("a browser%s left (which asked for %s)", "'s media link" if media else "", target)
 	// Before the socket closes: what the server sends it from now on
-	// would only come back as ICMP "port unreachable".
-	if bound, bound_err := net.bound_endpoint(udp); bound_err == nil {
+	// would only come back as ICMP "port unreachable". (A media link's
+	// session just times out: the main loop doesn't know it.)
+	if bound, bound_err := net.bound_endpoint(udp); bound_err == nil && !media {
 		browser_left(bound.port)
 	}
 }

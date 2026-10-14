@@ -168,6 +168,13 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
 	}
+	if cfg.encoder != "" && encoders != nil {
+		// The best that works keeps to what everyone in the room decodes
+		// (conn/video.odin); a chosen encoder is used regardless.
+		mu.layout_row(ctx, {120, -1})
+		mu.label(ctx, "")
+		with_text_color(ctx, theme.dim, "Viewers that can't decode it see nothing", label_proc)
+	}
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in mu.checkbox(ctx, "Show the pointer", &ui.settings.share_cursor) {

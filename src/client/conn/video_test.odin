@@ -277,3 +277,33 @@ test_adapt_bitrate :: proc(t: ^testing.T) {
 	// Back to as set, which is 0.
 	testing.expect_value(t, v.target_kbit, 0)
 }
+
+@(test)
+test_viewer_codecs :: proc(t: ^testing.T) {
+	c: Voice_Client
+	users := []proto.User_Info {
+		{num = 1, room = 7, flags = {.Sharing, .Decodes_HEVC, .Decodes_AV1}}, // us
+		{num = 2, room = 7, flags = {.Decodes_HEVC, .Decodes_AV1}},
+		{num = 3, room = 8}, // elsewhere, and too old to say
+	}
+	c.channels.have_state = true
+	c.channels.state.your_user = 1
+	c.channels.state.users = users
+	testing.expect_value(t, viewer_codecs(&c), proto.Video_Codecs{.H264, .HEVC, .AV1})
+
+	// A browser without HEVC joins.
+	users[2] = {
+		num   = 3,
+		room  = 7,
+		flags = {.Muted, .Decodes_AV1},
+	}
+	testing.expect_value(t, viewer_codecs(&c), proto.Video_Codecs{.H264, .AV1})
+
+	// Then a client too old to say: H.264 is all it surely decodes.
+	users[1].flags = {}
+	testing.expect_value(t, viewer_codecs(&c), proto.Video_Codecs{.H264})
+
+	// Out of the room, nobody's watching.
+	users[0].room = 0
+	testing.expect_value(t, viewer_codecs(&c), proto.Video_Codecs{.H264, .HEVC, .AV1})
+}

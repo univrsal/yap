@@ -6,7 +6,9 @@ and queues the packets for yv_share_pull.
 A still screen captures nothing new and so encodes nothing, which costs
 nothing; a keyframe asked for in the meantime is made from the last
 capture again. When the source changes size, the encoder is made again
-for the new size, which starts with a keyframe.
+for the new size, which starts with a keyframe. When the viewers can't
+decode what's encoded (yv_share_set_codecs), another encoder takes over,
+also from a keyframe.
 
 Low latency over everything: no B-frames, no lookahead, one frame in
 flight, keyframes when asked for (and every ten seconds, in case). The
@@ -47,6 +49,7 @@ constexpr uint64_t BITRATE_US = 3'000'000;
 struct Encoded {
 	std::vector<uint8_t> data;
 	uint64_t pts_us;
+	yv_codec codec;
 	bool key;
 };
 
@@ -228,6 +231,7 @@ struct yv_share {
 	std::atomic<bool> stop{false};
 	std::atomic<bool> want_key{true};
 	std::atomic<uint32_t> want_kbit{0}; // yv_share_set_bitrate's; 0 for none
+	std::atomic<uint32_t> want_codecs{0}; // yv_share_set_codecs's; 0 for any
 	std::atomic<int> state{YV_SHARE_STARTING};
 	std::string error; // set before state becomes Failed
 
@@ -238,6 +242,7 @@ struct yv_share {
 	// The thread's own.
 	std::string encoder_name;
 	yv_codec codec = YV_CODEC_H264;
+	uint32_t codecs = 0; // the want_codecs the encoder was picked for
 	AVCodecContext *enc = nullptr;
 	AVBufferRef *frames = nullptr;
 	int enc_w = 0, enc_h = 0;
@@ -346,6 +351,7 @@ void queue(yv_share *s, Encoded &&e) {
 }
 
 uint64_t now_us();
+void follow_codecs(yv_share *s, Parameter_Sets &sets);
 
 /*
 follow_bitrate takes up yv_share_set_bitrate's bitrate, if it's changed
@@ -379,6 +385,7 @@ void follow_bitrate(yv_share *s) {
 }
 
 bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
+	follow_codecs(s, sets);
 	follow_bitrate(s);
 	int w, h;
 	fit(pipe.width(), pipe.height(), s->config.max_width, s->config.max_height, w, h);
@@ -432,6 +439,7 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 		Encoded e;
 		e.data.assign(s->pkt->data, s->pkt->data + s->pkt->size);
 		e.pts_us = static_cast<uint64_t>(s->pkt->pts);
+		e.codec = s->codec;
 		e.key = (s->pkt->flags & AV_PKT_FLAG_KEY) != 0;
 		av_packet_unref(s->pkt);
 		sets.fix(e.data, e.key);
@@ -448,13 +456,50 @@ uint64_t now_us() {
 	                                 .count());
 }
 
-std::string pick_encoder(yv_share *s) {
+// What follows the last '_' of an encoder's name, which says whose GPU
+// it's on ("nvenc", "amf", "qsv", ...); "" for one without.
+std::string vendor_of(const std::string &encoder) {
+	size_t at = encoder.rfind('_');
+	return at == std::string::npos ? std::string() : encoder.substr(at + 1);
+}
+
+/*
+pick_encoder is the encoder named in the config, else the best that
+works of those the viewers can decode (`codecs`; 0 for any), or the best
+that works at all if none of those does. With `current` (sharing
+already), it keeps to that one's GPU, which the pipeline was made for,
+or to software; "" if neither has anything they can decode.
+*/
+std::string pick_encoder(yv_share *s, uint32_t codecs, const std::string &current) {
 	if (s->config.encoder[0]) {
 		return s->config.encoder;
 	}
 	int n = yv_list_encoders(s->ctx, nullptr, 0);
 	std::vector<yv_encoder> list(n);
 	n = yv_list_encoders(s->ctx, list.data(), n);
+	auto decodable = [&](const yv_encoder &e) {
+		return codecs == 0 || (codecs & (1u << e.codec)) != 0;
+	};
+	if (!current.empty()) {
+		std::string vendor = vendor_of(current);
+		for (int i = 0; i < n; i++) {
+			if (list[i].works && decodable(list[i]) && list[i].hardware &&
+			    vendor_of(list[i].name) == vendor) {
+				return list[i].name;
+			}
+		}
+		for (int i = 0; i < n; i++) {
+			if (list[i].works && decodable(list[i]) && !list[i].hardware) {
+				return list[i].name;
+			}
+		}
+		return {};
+	}
+	for (int i = 0; i < n; i++) {
+		if (list[i].works && decodable(list[i])) {
+			return list[i].name;
+		}
+	}
 	for (int i = 0; i < n; i++) {
 		if (list[i].works) {
 			return list[i].name;
@@ -463,8 +508,36 @@ std::string pick_encoder(yv_share *s) {
 	return {};
 }
 
+/*
+follow_codecs takes up yv_share_set_codecs's codecs: if they rule out
+what's being encoded, another encoder takes over (encode opens it, with
+a keyframe). One that's still fine is kept, even if a better one would
+now do: changing costs a keyframe, and viewers come and go.
+*/
+void follow_codecs(yv_share *s, Parameter_Sets &sets) {
+	uint32_t want = s->want_codecs.load();
+	if (want == s->codecs || s->config.encoder[0]) {
+		return;
+	}
+	s->codecs = want;
+	if (want == 0 || (want & (1u << s->codec)) != 0) {
+		return;
+	}
+	std::string next = pick_encoder(s, want, s->encoder_name);
+	if (next.empty()) {
+		log(YV_LOG_WARN, "share: nothing else here encodes what the viewers can decode");
+		return;
+	}
+	log(YV_LOG_INFO, "share: %s -> %s, for the viewers", s->encoder_name.c_str(), next.c_str());
+	s->encoder_name = next;
+	s->codec = codec_of(next.c_str());
+	sets = Parameter_Sets(s->codec);
+	close_encoder(s);
+}
+
 void run(yv_share *s) {
-	s->encoder_name = pick_encoder(s);
+	s->codecs = s->want_codecs.load();
+	s->encoder_name = pick_encoder(s, s->codecs, {});
 	if (s->encoder_name.empty()) {
 		fail(s, "this computer has no video encoder that works");
 		return;
@@ -548,6 +621,7 @@ YV_API yv_share *yv_share_start(yv_context *ctx, const yv_share_config *config) 
 	s->ctx = ctx;
 	s->config = *config;
 	s->config.encoder[sizeof(s->config.encoder) - 1] = 0;
+	s->want_codecs.store(s->config.codecs);
 	if (s->config.fps <= 0 || s->config.fps > 240) {
 		s->config.fps = 60;
 	}
@@ -571,7 +645,7 @@ YV_API bool yv_share_pull(yv_share *s, yv_packet *out) {
 	out->data = s->pulled.data.data();
 	out->size = s->pulled.data.size();
 	out->pts_us = s->pulled.pts_us;
-	out->codec = s->codec;
+	out->codec = s->pulled.codec;
 	out->key = s->pulled.key;
 	return true;
 }
@@ -585,6 +659,12 @@ YV_API void yv_share_request_key(yv_share *s) {
 YV_API void yv_share_set_bitrate(yv_share *s, uint32_t kbit) {
 	if (s && kbit > 0) {
 		s->want_kbit.store(kbit);
+	}
+}
+
+YV_API void yv_share_set_codecs(yv_share *s, uint32_t codecs) {
+	if (s) {
+		s->want_codecs.store(codecs);
 	}
 }
 

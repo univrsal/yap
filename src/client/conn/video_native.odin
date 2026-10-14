@@ -39,7 +39,7 @@ anything.
 
 // What this was built against: src/video/include/yap_video.h.
 @(private = "file")
-YV_API_VERSION :: 5
+YV_API_VERSION :: 6
 
 @(private = "file")
 Yv_Log_Proc :: #type proc "c" (user: rawptr, level: i32, msg: cstring)
@@ -98,6 +98,7 @@ Yv_Share_Config :: struct {
 	max_width, max_height: i32,
 	kbit:                  u32,
 	cursor:                bool,
+	codecs:                u32, // bits (1 << codec) the viewers decode; 0 for any
 }
 
 @(private = "file")
@@ -144,6 +145,7 @@ Yv :: struct {
 	share_pull:            proc "c" (share: rawptr, out: ^Yv_Packet) -> bool,
 	share_request_key:     proc "c" (share: rawptr),
 	share_set_bitrate:     proc "c" (share: rawptr, kbit: u32),
+	share_set_codecs:      proc "c" (share: rawptr, codecs: u32),
 	share_get_state:       proc "c" (share: rawptr) -> i32,
 	share_error:           proc "c" (share: rawptr) -> cstring,
 	share_stop:            proc "c" (share: rawptr),
@@ -155,7 +157,7 @@ Yv :: struct {
 }
 
 @(private = "file")
-YV_PROCS :: 22
+YV_PROCS :: 23
 
 when ODIN_OS == .Windows {
 	@(private = "file")
@@ -192,6 +194,7 @@ Native_Video :: struct {
 	share:         rawptr,
 	share_kbit:    int, // what it was set to encode at (atomic)
 	share_target:  int, // what it's held to for its viewers, 0 for that (atomic)
+	share_codecs:  u8, // what its viewers decode (Video_Codecs; atomic)
 	asked:         bool, // the UI's: video_allow_capture showed the prompt
 	// The UI's waking (video_set_wake; atomic), for each new picture.
 	wake:          proc "c" (),
@@ -398,6 +401,27 @@ video_can_watch :: proc() -> bool {
 	return loaded()
 }
 
+// The library's decoders take every codec (view.cpp).
+video_decodable :: proc() -> proto.Video_Codecs {
+	return {.H264, .HEVC, .AV1} if loaded() else {}
+}
+
+/*
+video_share_codecs says what the share's viewers can decode (video.odin):
+from the network's thread, as they come and go. A share started later
+starts with it too.
+*/
+video_share_codecs :: proc(codecs: proto.Video_Codecs) {
+	bits := transmute(u8)codecs
+	if sync.atomic_exchange(&nv.share_codecs, bits) == bits || !loaded() {
+		return
+	}
+	sync.guard(&nv.share_mu)
+	if nv.share != nil {
+		nv.yv.share_set_codecs(nv.share, u32(bits))
+	}
+}
+
 // The desktop asks what to share (video_sources) before starting; the
 // browser asks in its own picker.
 VIDEO_PICKER :: true
@@ -482,11 +506,16 @@ video_share_source :: proc(src: Video_Source, config: Share_Config) {
 		max_height = config.max.y,
 		kbit       = u32(config.kbit),
 		cursor     = config.cursor,
+		codecs     = u32(sync.atomic_load(&nv.share_codecs)),
 	}
 	copy(cfg.encoder[:len(cfg.encoder) - 1], config.encoder)
 	share := nv.yv.share_start(nv.ctx, &cfg)
 	sync.guard(&nv.share_mu)
 	nv.share = share
+	if share != nil {
+		// In case the viewers changed since cfg (video_share_codecs).
+		nv.yv.share_set_codecs(share, u32(sync.atomic_load(&nv.share_codecs)))
+	}
 	sync.atomic_store(&nv.share_kbit, config.kbit)
 	sync.atomic_store(&nv.share_target, 0)
 	log.infof(

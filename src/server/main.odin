@@ -112,6 +112,7 @@ main :: proc() {
 	   !start_relay(
 			   settings.relay.port,
 			   settings.port,
+			   media_port(settings),
 			   settings.relay.web_dir,
 			   settings.relay.enabled,
 			   api,

@@ -29,6 +29,9 @@ foreign _ {
 	yap_video_take_error :: proc() -> i32 ---
 	yap_video_can_share :: proc() -> i32 ---
 	yap_video_can_watch :: proc() -> i32 ---
+	// What the decoder takes, as bits (1 << codec); it grows as the
+	// browser answers.
+	yap_video_decodable :: proc() -> i32 ---
 	yap_video_share_start :: proc() ---
 	yap_video_share_stop :: proc() ---
 	yap_video_share_state :: proc() -> i32 ---
@@ -111,6 +114,13 @@ video_can_share :: proc() -> bool {
 video_can_watch :: proc() -> bool {
 	return yap_video_can_watch() != 0
 }
+
+video_decodable :: proc() -> proto.Video_Codecs {
+	return transmute(proto.Video_Codecs)u8(yap_video_decodable())
+}
+
+// The page always encodes H.264, which every viewer decodes.
+video_share_codecs :: proc(codecs: proto.Video_Codecs) {}
 
 video_share_start :: proc() {
 	yap_video_share_start()

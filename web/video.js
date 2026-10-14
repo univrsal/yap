@@ -12,7 +12,9 @@ is one, otherwise from a <video> playing the stream, sampled from a
 worker's timer - either keeps going when this tab is hidden, which it
 usually is while another tab is being shared.
 
-Watching: frames go to a VideoDecoder, and the newest decoded one waits
+Watching: frames go to a VideoDecoder - H.264, and HEVC and AV1 where
+the browser takes them (decodable, which the client tells the others so
+their shares keep to it) - and the newest decoded one waits
 until the client draws it, which it does in its own canvas as a texture
 (takeFrame, yap_video_upload in web/shell.c) - older ones are let go
 unseen. A decoder that fails says so through takeError, and the client
@@ -34,6 +36,12 @@ or getDisplayMedia (a phone) can still watch.
 	const MAX_DECODING = 30;
 	// Constrained Baseline, Main, High, all at level 4 (1080p30).
 	const H264_CODECS = ["avc1.42E028", "avc1.4D0028", "avc1.640028"];
+	// The other codecs, by their number in src/common/proto/video.odin:
+	// HEVC Main and AV1 Main (8-bit), both at level 5.1 (4K60), which is
+	// as far as a native share goes. Both come without a description:
+	// HEVC as Annex B, AV1 as OBUs with sizes.
+	const H264 = 0;
+	const OTHER_CODECS = { 1: "hev1.1.6.L153.B0", 2: "av01.0.13M.08" };
 
 	// What the client's Share_State says (src/client/video_web.odin).
 	const OFF = 0, STARTING = 1, LIVE = 2, FAILED = 3;
@@ -42,6 +50,17 @@ or getDisplayMedia (a phone) can still watch.
 		!!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia &&
 			window.VideoEncoder && window.VideoFrame);
 	const canWatch = () => !!(window.VideoDecoder && window.EncodedVideoChunk);
+
+	// What can be watched, as bits (1 << codec); H.264 always, the others
+	// once the browser has said it decodes them.
+	let decodable = 1 << H264;
+	if (canWatch() && VideoDecoder.isConfigSupported) {
+		for (const [codec, name] of Object.entries(OTHER_CODECS)) {
+			VideoDecoder.isConfigSupported({ codec: name, optimizeForLatency: true })
+				.then((support) => { if (support.supported) decodable |= 1 << codec; })
+				.catch(() => {});
+		}
+	}
 
 	/* ---- sharing ---- */
 
@@ -323,6 +342,7 @@ or getDisplayMedia (a phone) can still watch.
 
 	const watch = {
 		sharer: 0,
+		codec: H264, // what the decoder is set up for
 		decoder: null,
 		failed: false,
 		latest: null, // the newest decoded frame, not yet drawn
@@ -330,9 +350,15 @@ or getDisplayMedia (a phone) can still watch.
 	};
 
 	function show(sharer, data, ts, key, codec) {
-		if (!canWatch() || codec !== 0 /* H264, src/common/proto/video.odin */) return;
+		if (!canWatch() || !(decodable & (1 << codec))) return;
 		if (sharer !== watch.sharer) end();
 		watch.sharer = sharer;
+		if (codec !== watch.codec && watch.decoder) {
+			// The sharer changed encoder; a keyframe starts the new one.
+			if (watch.decoder.state !== "closed") watch.decoder.close();
+			watch.decoder = null;
+		}
+		watch.codec = codec;
 		if (!watch.decoder) {
 			if (!key) return;
 			watch.decoder = new VideoDecoder({
@@ -347,7 +373,8 @@ or getDisplayMedia (a phone) can still watch.
 		try {
 			if (decoder.state !== "configured") {
 				if (!key) return;
-				decoder.configure({ codec: h264Codec(data) || H264_CODECS[0], optimizeForLatency: true });
+				const name = codec === H264 ? h264Codec(data) || H264_CODECS[0] : OTHER_CODECS[codec];
+				decoder.configure({ codec: name, optimizeForLatency: true });
 			}
 			if (decoder.decodeQueueSize > MAX_DECODING) {
 				fail();
@@ -428,6 +455,7 @@ or getDisplayMedia (a phone) can still watch.
 	Module.yapVideo = {
 		canShare,
 		canWatch,
+		decodable: () => decodable,
 		start,
 		stop: () => stop(OFF),
 		state: () => share.state,

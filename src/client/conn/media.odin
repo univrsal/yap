@@ -14,7 +14,9 @@ The media link (proto.Link.Media, server/media.odin): a third transport
 to the server, to a port of its own, for screen sharing from the desktop
 with the yap_video library. The server serves it on a thread of its
 own, so a shared screen's video never queues in its main loop, and our
-video goes nowhere near what's on the other links.
+video goes nowhere near what's on the other links. Video shared on it
+only reaches viewers on it, so the browser has one too, through the
+relay (server/relay.odin).
 
 It's opened once we are logged in (auth state Done), the server has named its
 media port (Server_Info), and there's a library to share or watch with;
@@ -22,9 +24,6 @@ like the bulk link, with a handshake of its own whose hello names the
 connection. Our video goes over it once it's up, and Watch leases go
 over it as well as the main link (video.odin); the video we watch and
 the keyframe requests for ours come back on it.
-
-A browser has no media link: it reaches the server through the relay,
-and its video takes the bulk link.
 */
 
 Media_Link :: struct {
@@ -51,9 +50,6 @@ MEDIA_RECV_MAX :: 256
 
 // media_step opens the media link when it's time, and keeps it going.
 media_step :: proc(c: ^Voice_Client) {
-	when platform.WEB {
-		return
-	}
 	m := &c.media
 	port := c.rpc.server.media_port
 	if !c.has_current || !c.has_instance || c.restart || c.auth.state != .Done || port == 0 {
@@ -70,8 +66,9 @@ media_step :: proc(c: ^Voice_Client) {
 		if m.retry_at != {} && time.tick_diff(time.tick_now(), m.retry_at) > 0 {
 			return
 		}
-		addr := with_port(c.server_addr, port)
-		if !transport_open(&m.transport, addr, c.slot, bulk = true) {
+		// The relay knows the media port; the address is only for its log.
+		addr := c.server_addr when platform.WEB else with_port(c.server_addr, port)
+		if !transport_open(&m.transport, addr, c.slot, bulk = true, media = true) {
 			m.retry_at = time.tick_add(time.tick_now(), MEDIA_RETRY)
 			return
 		}

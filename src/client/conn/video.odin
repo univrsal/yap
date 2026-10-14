@@ -258,12 +258,51 @@ video_step :: proc(c: ^Voice_Client) {
 		video_capture_request_key()
 		v.want_key = false
 	}
+	say_decodable(c)
+	if v.sharing {
+		video_share_codecs(viewer_codecs(c))
+	}
 
 	if c.has_current {
 		video_send(c)
 		drive_watch(c)
 	}
 	publish_video_stats(c)
+}
+
+// say_decodable tells the others what we can watch (User_Flag), which
+// the page only knows once it's asked the browser.
+@(private = "file")
+say_decodable :: proc(c: ^Voice_Client) {
+	codecs := video_decodable() if video_can_watch() else {}
+	have := proto.decodable_codecs(c.channels.sound)
+	if (.HEVC in codecs) != (.HEVC in have) {
+		set_sound(c, .Decodes_HEVC, .HEVC in codecs)
+	}
+	if (.AV1 in codecs) != (.AV1 in have) {
+		set_sound(c, .Decodes_AV1, .AV1 in codecs)
+	}
+}
+
+/*
+viewer_codecs is what everyone else in our voice room can decode, any
+of whom may watch: a share is encoded in one of those (the best that
+works, video_share_codecs). Anything goes while nobody else is there.
+*/
+@(private)
+viewer_codecs :: proc(c: ^Voice_Client) -> proto.Video_Codecs {
+	ch := &c.channels
+	codecs := proto.Video_Codecs{.H264, .HEVC, .AV1}
+	room := my_room(c)
+	if room == 0 {
+		return codecs
+	}
+	for &u in ch.state.users {
+		if u.room == room && u.num != ch.state.your_user {
+			codecs &= proto.decodable_codecs(u.flags)
+		}
+	}
+	return codecs
 }
 
 // publish_video_stats puts the figures in the View once a second while

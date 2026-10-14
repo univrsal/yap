@@ -1178,13 +1178,13 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 }
 
 /*
-session_slot is the first pair of WebSocket slots no session has, for a
-web build (conn/transport_web.odin): 0 and 1 for the first, 2 and 3 for
+session_slot is the first three WebSocket slots no session has, for a
+web build (conn/transport_web.odin): 0 to 2 for the first, 3 to 5 for
 the next. A desktop build has no use for it.
 */
 @(private = "file")
 session_slot :: proc(ui: ^UI) -> i32 {
-	for slot := i32(0);; slot += 2 {
+	for slot := i32(0);; slot += 3 {
 		taken := false
 		for other in ui.sessions {
 			taken ||= other.slot == slot

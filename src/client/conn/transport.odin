@@ -16,11 +16,11 @@ relay carries sealed packets it can't read - and loss and reordering
 are still handled, they just happen a good deal less.
 
 Either way the rules here are the same: sending is best-effort, and
-receiving never blocks for long. A client has two transports, one for
-each of its links (bulk.odin); the bulk link's receive doesn't block at
-all. Each side provides the same procedures:
+receiving never blocks for long. A client has a transport for each of
+its links (bulk.odin, media.odin); the bulk and media links' receives
+don't block at all. Each side provides the same procedures:
 
-	transport_open(t, server_addr, slot, bulk) -> bool
+	transport_open(t, server_addr, slot, bulk, media) -> bool
 	transport_close(t)
 	transport_send(t, packet) -> bool
 	transport_recv(t, buf) -> (packet, ok)   // ok = false: nothing waiting

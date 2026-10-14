@@ -146,6 +146,15 @@ MEDIA_HOUSEKEEPING :: 1 * time.Second
 @(private = "file")
 MEDIA_WAIT :: 100 * time.Millisecond
 
+// media_port is the media link's port as `settings` have it; 0 if it's off.
+media_port :: proc(settings: Settings) -> int {
+	cfg := settings.video
+	if !cfg.enabled {
+		return 0
+	}
+	return cfg.port if cfg.port != 0 else settings.port + 1
+}
+
 /*
 media_open opens the media link's port and starts its thread, if the
 config has it. Without it, or if the port can't be had, desktop clients
@@ -158,7 +167,7 @@ media_open :: proc(s: ^Server, settings: Settings) {
 		log.info("the media link is off: screen sharing goes through the main loop")
 		return
 	}
-	m.port = cfg.port if cfg.port != 0 else settings.port + 1
+	m.port = media_port(settings)
 	m.max_rate = cfg.max_kbit * 1000 / 8
 	m.max_burst = proto.MAX_VIDEO_FRAME_SIZE + 64 * 1024
 	m.max_sessions = s.max_sessions

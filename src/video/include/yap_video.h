@@ -30,7 +30,7 @@ extern "C" {
 #endif
 
 // What a client was built against. yv_create refuses any other.
-#define YV_API_VERSION 5
+#define YV_API_VERSION 6
 
 typedef struct yv_context yv_context;
 
@@ -244,6 +244,13 @@ typedef struct yv_share_config {
 	int32_t max_width, max_height; // scaled down to fit, keeping its shape; 0 for no limit
 	uint32_t kbit;                 // the bitrate, in kbit/s
 	bool cursor;                   // the mouse pointer in the picture
+	/*
+	What the viewers can decode, as bits (1 << yv_codec); 0 for anything.
+	With encoder "", the best that works is the best of these, and
+	yv_share_set_codecs changes it as viewers come and go. A named
+	encoder is used whatever this says.
+	*/
+	uint32_t codecs;
 } yv_share_config;
 
 typedef enum yv_share_state {
@@ -278,6 +285,13 @@ only taken up for a change of a fifth or more, at most every 3 seconds;
 asking again later is how a smaller one gets through. Any thread.
 */
 YV_API void yv_share_set_bitrate(yv_share *share, uint32_t kbit);
+/*
+yv_share_set_codecs says what the viewers can decode now (as
+yv_share_config.codecs). Where that rules out the codec being encoded,
+the share goes on with another encoder (on the same GPU where there's
+one, else in software), starting with a keyframe. Any thread.
+*/
+YV_API void yv_share_set_codecs(yv_share *share, uint32_t codecs);
 YV_API yv_share_state yv_share_get_state(yv_share *share);
 // Why it failed, or "" ; valid until yv_share_stop.
 YV_API const char *yv_share_error(yv_share *share);

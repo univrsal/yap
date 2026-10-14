@@ -92,7 +92,7 @@ EM_JS(int, yap_store_remove, (const char *name), {
 
 /* ---- the WebSockets to the relay ----
 One per link of the connection (src/client/conn/bulk.odin), by slot: 0
-for the main link, 1 for the bulk link. Each queues what arrives on it,
+for the main link, 1 for the bulk link, 2 for the media link. Each queues what arrives on it,
 so the main link's messages never wait behind the bulk link's. */
 
 EM_JS(int, yap_ws_open, (int slot, const char *url), {
@@ -298,6 +298,11 @@ EM_JS(int, yap_video_can_share, (), {
 EM_JS(int, yap_video_can_watch, (), {
 	const v = Module.yapVideo;
 	return v && v.canWatch() ? 1 : 0;
+});
+
+EM_JS(int, yap_video_decodable, (), {
+	const v = Module.yapVideo;
+	return v ? v.decodable() : 0;
 });
 
 EM_JS(void, yap_video_share_start, (), {

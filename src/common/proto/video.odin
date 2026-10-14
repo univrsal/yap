@@ -63,11 +63,25 @@ WATCH_NEED_KEY :: 1 << 0
 VIDEO_KEY :: 1 << 0
 
 // How a frame is encoded; the receiver's decoder has to agree. A viewer
-// that can't decode a codec shows nothing (the web client only H.264).
+// that can't decode a codec shows nothing, so each client says what it
+// can (User_Flag) and sharers keep to that.
 Video_Codec :: enum u8 {
 	H264 = 0, // Annex B, so each keyframe carries its own parameter sets
 	HEVC = 1, // Annex B, with the VPS too
 	AV1  = 2, // a temporal unit of OBUs with sizes; keyframes with the sequence header
+}
+Video_Codecs :: bit_set[Video_Codec;u8]
+
+// decodable_codecs is what a user with `flags` says they can decode.
+decodable_codecs :: proc(flags: User_Flags) -> Video_Codecs {
+	codecs := Video_Codecs{.H264}
+	if .Decodes_HEVC in flags {
+		codecs += {.HEVC}
+	}
+	if .Decodes_AV1 in flags {
+		codecs += {.AV1}
+	}
+	return codecs
 }
 
 // One fragment of a frame. `data` points into the message it came from.

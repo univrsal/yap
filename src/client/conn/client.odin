@@ -45,7 +45,7 @@ Voice_Client :: struct {
 	// The media link, for screen sharing on the desktop (media.odin).
 	media:         Media_Link,
 	server_addr:   string, // as typed; the key in known_servers
-	// The first of this connection's two WebSocket slots in a web build
+	// The first of this connection's three WebSocket slots in a web build
 	// (transport_web.odin); the owner sets it before client_open.
 	slot:          i32,
 	known_servers: string,
