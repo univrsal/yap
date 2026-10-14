@@ -49,6 +49,7 @@ or getDisplayMedia (a phone) can still watch.
 		state: OFF,
 		generation: 0, // bumped by stop, so a start still underway knows to give up
 		stream: null,
+		cancelGesture: null, // while the picker waits for a click (displayMedia)
 		reader: null, // MediaStreamTrackProcessor's
 		video: null, // or a <video> of the stream
 		ticker: null, // and what samples it
@@ -77,14 +78,14 @@ or getDisplayMedia (a phone) can still watch.
 
 		let stream;
 		try {
-			stream = await navigator.mediaDevices.getDisplayMedia({
-				video: { frameRate: { ideal: FPS, max: 30 } },
-				audio: false,
-			});
+			stream = await displayMedia();
 		} catch (e) {
-			// Cancelling the browser's picker is a NotAllowedError, and no failure.
-			console.warn("yap: nothing to share:", e);
-			if (current()) share.state = e && e.name === "NotAllowedError" ? OFF : FAILED;
+			// Cancelling the browser's picker is a NotAllowedError, and no
+			// failure; neither is stop while waiting for a gesture (AbortError).
+			if (current()) {
+				console.warn("yap: nothing to share:", e);
+				share.state = e && e.name === "NotAllowedError" ? OFF : FAILED;
+			}
 			return;
 		}
 		const track = stream.getVideoTracks()[0];
@@ -128,6 +129,41 @@ or getDisplayMedia (a phone) can still watch.
 			});
 		}
 		share.state = LIVE;
+	}
+
+	/*
+	displayMedia opens the browser's picker. The client acts on a click a
+	frame after it, from its own loop, which most browsers take for the
+	click (they allow a few seconds after one). Safari only opens it from
+	inside the handler of a click or key, and fails with an
+	InvalidStateError; then it's asked again from the handler of the next
+	release - the client's buttons go on the press, so that's normally the
+	release of the same click.
+	*/
+	function displayMedia() {
+		const ask = () => navigator.mediaDevices.getDisplayMedia({
+			video: { frameRate: { ideal: FPS, max: 30 } },
+			audio: false,
+		});
+		return ask().catch((e) => {
+			if (!e || e.name !== "InvalidStateError") throw e;
+			return new Promise((resolve, reject) => {
+				const types = ["mouseup", "pointerup", "touchend", "keyup"];
+				const done = () => {
+					for (const type of types) window.removeEventListener(type, go, true);
+					share.cancelGesture = null;
+				};
+				const go = () => {
+					done();
+					ask().then(resolve, reject);
+				};
+				for (const type of types) window.addEventListener(type, go, true);
+				share.cancelGesture = () => {
+					done();
+					reject(new DOMException("Sharing was stopped", "AbortError"));
+				};
+			});
+		});
 	}
 
 	async function pump(reader, current) {
@@ -252,6 +288,7 @@ or getDisplayMedia (a phone) can still watch.
 
 	function stop(state) {
 		share.generation++;
+		if (share.cancelGesture) share.cancelGesture();
 		if (share.reader) share.reader.cancel().catch(() => {});
 		if (share.ticker) share.ticker.stop();
 		if (share.video) share.video.srcObject = null;
