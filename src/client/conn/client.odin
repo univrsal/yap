@@ -65,6 +65,10 @@ Voice_Client :: struct {
 	// We've given up on the connection and are handshaking for a new
 	// one (connection_restart).
 	restart:       bool,
+	// The server has gone (connection_lost): a new connection is tried
+	// every RECONNECT_EVERY, the next at retry_at, until one gets through.
+	lost:          bool,
+	retry_at:      time.Tick,
 	stream:        Stream_Client, // requests and events (stream.odin, rpc.odin)
 	rpc:           Rpc_Client,
 	auth:          Auth_Client, // our account and the others (auth.odin)
@@ -118,12 +122,9 @@ client_open :: proc(
 	publish_status(c, .Connecting)
 
 	if !transport_open(&c.transport, server_addr, c.slot) {
-		publish_status(
-			c,
-			.Failed,
-			fmt.tprintf("Could not reach %s. Expected host:port.", server_addr),
-		)
-		return false
+		// Offline, say, so the name doesn't resolve: tried again with
+		// the handshake.
+		connection_lost(c, fmt.tprintf("Could not reach %s. Expected host:port.", server_addr))
 	}
 	c.last_stats = time.tick_now()
 	c.last_recv = time.tick_now()
@@ -172,10 +173,11 @@ client_close :: proc(c: ^Voice_Client) {
 client_step :: proc(c: ^Voice_Client) -> bool {
 	free_all(context.temp_allocator)
 
-	if !check_alive(c) {
-		return false
+	check_alive(c)
+	// A server that's gone is only tried every RECONNECT_EVERY.
+	if !c.lost || c.handshake.state != .Idle {
+		transport_revive(&c.transport)
 	}
-	transport_revive(&c.transport)
 	drive_handshake(c)
 	process_commands(c)
 	drive_sound(c)
@@ -203,6 +205,9 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 	recv_buf: [proto.MAX_PACKET_SIZE]byte
 	if packet, ok := transport_recv(&c.transport, recv_buf[:]); ok {
 		if !common.simulate_loss() && !handle_server_packet(c, packet) {
+			// Refused: trying again won't help, unless the user asks.
+			c.lost = false
+			publish_retry(c)
 			return false
 		}
 	}
@@ -214,29 +219,46 @@ client_step :: proc(c: ^Voice_Client) -> bool {
 }
 
 /*
-check_alive gives up on the server once nothing has come from it for
-CONNECTION_LOST: it's not coming back soon, and the user is better told
-than left looking at a connection that never recovers. Handshaking again
-(drive_handshake) carries on until then, so a server that restarts
-meanwhile is picked up without anyone noticing.
+check_alive gives up on the connection once nothing has come from the
+server for CONNECTION_LOST: it's not coming back soon, and the user is
+better told than left looking at a connection that never recovers.
+Handshaking again (drive_handshake) carries on until then, so a server
+that restarts meanwhile is picked up without anyone noticing; after it,
+a new connection is tried every RECONNECT_EVERY, for as long as the
+server is on the rail.
 */
 CONNECTION_LOST :: 30 * time.Second
+RECONNECT_EVERY :: 30 * time.Second
 // A loop that didn't run for this long means the computer was asleep (or
 // the tab was in the background): the silence isn't the server's doing.
 LOOP_STALLED :: 5 * time.Second
 
-check_alive :: proc(c: ^Voice_Client) -> bool {
+check_alive :: proc(c: ^Voice_Client) {
 	now := time.tick_now()
 	if time.tick_diff(c.last_step, now) > LOOP_STALLED {
 		c.last_recv = now
 	}
 	c.last_step = now
-	if time.tick_diff(c.last_recv, now) <= CONNECTION_LOST {
-		return true
+	if c.lost || time.tick_diff(c.last_recv, now) <= CONNECTION_LOST {
+		return
 	}
-	log.warnf("nothing from %s for %v, giving up", c.server_addr, CONNECTION_LOST)
-	publish_status(c, .Failed, fmt.tprintf("Lost the connection to %s.", c.server_addr))
-	return false
+	log.warnf(
+		"nothing from %s for %v, trying again every %v",
+		c.server_addr,
+		CONNECTION_LOST,
+		RECONNECT_EVERY,
+	)
+	why := "Lost the connection to %s." if c.has_instance else "Could not connect to %s."
+	connection_lost(c, fmt.tprintf(why, c.server_addr))
+}
+
+// connection_lost drops the main link, says why, and has
+// drive_handshake try for a new connection every RECONNECT_EVERY.
+connection_lost :: proc(c: ^Voice_Client, why: string) {
+	link_reset(&c.link)
+	c.lost = true
+	c.retry_at = time.tick_add(time.tick_now(), RECONNECT_EVERY)
+	publish_status(c, .Failed, why)
 }
 
 // drive_handshake starts a handshake when there's no usable session, the
@@ -254,10 +276,23 @@ drive_handshake :: proc(c: ^Voice_Client) {
 	if ini.state != .Idle && time.tick_since(ini.started) > proto.HANDSHAKE_TIMEOUT {
 		log.warn("handshake timed out, retrying")
 		abandon_handshake(&c.link)
+		publish_retry(c)
 	}
 
 	switch ini.state {
 	case .Idle:
+		if c.lost {
+			if time.tick_diff(time.tick_now(), c.retry_at) > 0 {
+				return
+			}
+			c.retry_at = time.tick_add(time.tick_now(), RECONNECT_EVERY)
+			if !c.transport.open && !transport_open(&c.transport, c.server_addr, c.slot) {
+				publish_retry(c)
+				return
+			}
+			log.infof("trying %s again", c.server_addr)
+			transport_revive(&c.transport)
+		}
 		silent := c.has_current && time.tick_since(c.last_recv) > proto.SERVER_SILENT
 		if c.has_current &&
 		   time.tick_since(c.current.created) <= proto.REKEY_AFTER &&
@@ -275,6 +310,9 @@ drive_handshake :: proc(c: ^Voice_Client) {
 		}
 		ini.last_sent = time.tick_now()
 		transport_send(&c.transport, packet)
+		if c.lost {
+			publish_retry(c)
+		}
 
 	case .Sent_Init, .Sent_Finish:
 		// Resending verbatim is fine: the server answers a repeated Init
@@ -454,6 +492,7 @@ promote_pending :: proc(c: ^Voice_Client) {
 	} else {
 		c.last_stats = time.tick_now()
 		log.infof("connected to %s", c.server_addr)
+		c.lost = false
 		publish_status(c, .Connected)
 	}
 }

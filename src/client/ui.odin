@@ -123,6 +123,7 @@ Action :: enum {
 	None,
 	Start, // connect to every joined server, on the first frame
 	Disconnect,
+	Reconnect, // the connect screen's "Reconnect"
 	Trust_Key, // the connect screen's "trust the new key" (ui_known_servers.odin)
 }
 
@@ -458,6 +459,8 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		connect_joined(ui)
 	case .Disconnect:
 		disconnect(ui, ui.session)
+	case .Reconnect:
+		reconnect(ui, ui.session)
 	case .Trust_Key:
 		trust_new_key(ui)
 	}
@@ -1196,6 +1199,28 @@ session_slot :: proc(ui: ^UI) -> i32 {
 }
 
 /*
+reconnect tries a server that isn't connected again, now. A connection
+still trying (conn.connection_lost) is told to; one that has stopped
+(refused, say) is started again in its place. Between frames.
+*/
+reconnect :: proc(ui: ^UI, ns: ^Net_Session) {
+	if ns == nil || ns.joining {
+		return
+	}
+	retrying: bool
+	{
+		sync.guard(&ns.view.mutex)
+		retrying = ns.view.retrying
+	}
+	if retrying {
+		conn.push_command(&ns.client.commands, conn.Reconnect_Command{})
+		return
+	}
+	log.infof("ui: connecting to %s again", ns.server)
+	connect_to(ui, ns.server, ns.password)
+}
+
+/*
 disconnect leaves a server: its session ends, it's no longer joined,
 and if it was the one shown, the one beside it in the rail is. One being
 joined from the + page is given up instead. Between frames.
@@ -1542,8 +1567,8 @@ main_window :: proc(ui: ^UI) {
 
 /*
 connect_screen is a server on the rail that isn't connected, in a card:
-what went wrong, the trust prompt if its key has changed, and leaving
-it.
+what went wrong, when it's tried again, the trust prompt if its key has
+changed, and trying it again now or leaving it.
 */
 @(private = "file")
 connect_screen :: proc(ui: ^UI) {
@@ -1563,12 +1588,29 @@ connect_screen :: proc(ui: ^UI) {
 	case:
 		with_text_color(ctx, theme.dim, "Not connected.", mu.text)
 	}
-	if v.status == .Failed && v.key_change.changed {
+	if v.retrying {
+		mu.layout_row(ctx, {-1})
+		if v.retry_at == {} {
+			with_text_color(ctx, theme.dim, "Connecting...", mu.text)
+		} else {
+			// Counted down a second at a time.
+			left := time.tick_diff(time.tick_now(), v.retry_at)
+			secs := max(int(math.ceil(time.duration_seconds(left))), 1)
+			with_text_color(ctx, theme.dim, fmt.tprintf("Trying again in %ds.", secs), mu.text)
+			ui_redraw_in(ui, left - time.Duration(secs - 1) * time.Second)
+		}
+	}
+	key_change := v.status == .Failed && v.key_change.changed
+	if key_change {
 		key_change_panel(ui)
 	}
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, {-1})
+	// With a changed key, trusting it is what connects again.
+	if !key_change && .SUBMIT in mu.button(ctx, "Reconnect") {
+		ui.action = .Reconnect
+	}
 	if .SUBMIT in mu.button(ctx, "Leave this server") {
 		ui.action = .Disconnect
 	}

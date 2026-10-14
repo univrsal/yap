@@ -59,6 +59,11 @@ View :: struct {
 	wake:                proc "c" (),
 	status:              Status,
 	error:               string, // why we Failed
+	// After Failing, whether a new connection is being tried (every
+	// RECONNECT_EVERY), and when the next try is: {} while one is under
+	// way. See connection_lost.
+	retrying:            bool,
+	retry_at:            time.Tick,
 	// Set when we Failed because the server's key isn't the one saved
 	// for it (see verify_server_key), for the UI to offer trusting it.
 	key_change:          Key_Change,
@@ -249,6 +254,7 @@ view_reset :: proc(v: ^View) {
 	v.server_about, v.server_icon, v.icon_jpeg = "", 0, nil
 	view_clear_key_change(v)
 	v.status = .Disconnected
+	v.retrying, v.retry_at = false, {}
 	v.server_key = {}
 	v.viewing, v.my_room, v.voice_pending = 0, 0, false
 	view_clear_browse(v)
@@ -503,6 +509,24 @@ publish_status :: proc(c: ^Voice_Client, status: Status, error := "") {
 	}
 	delete(v.error)
 	v.error = strings.clone(error)
+	view_set_retry(v, c)
+}
+
+// publish_retry tells the UI whether, and when, a new connection is
+// tried (connection_lost).
+publish_retry :: proc(c: ^Voice_Client) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	view_write(v)
+	view_set_retry(v, c)
+}
+
+@(private = "file")
+view_set_retry :: proc(v: ^View, c: ^Voice_Client) {
+	v.retrying = c.lost
+	v.retry_at = c.retry_at if c.lost && c.handshake.state == .Idle else {}
 }
 
 // publish_server hands the UI what the server said about itself.

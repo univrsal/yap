@@ -19,7 +19,8 @@ The bars go by the worse of latency and loss (connection_quality).
 Loss is judged over the whole window, so a hiccup doesn't turn the bars
 yellow, but several pings in a row going unanswered (a few seconds of
 silence) does: that's the connection going, not noise. Past that,
-client_step gives up on the connection altogether (CONNECTION_LOST).
+client_step gives up on the connection and tries for a new one every so
+often (CONNECTION_LOST).
 */
 
 PING_INTERVAL :: 500 * time.Millisecond

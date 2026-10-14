@@ -278,6 +278,9 @@ Gain_Command :: struct {
 Listen_Command :: struct {
 	on: bool,
 }
+// Try a server that has gone again now, rather than when it's next
+// tried (connection_lost).
+Reconnect_Command :: struct {}
 Quality_Command :: struct {
 	quality: audio.Quality,
 }
@@ -315,6 +318,7 @@ Command :: union {
 	Gain_Command,
 	Gate_Command,
 	Listen_Command,
+	Reconnect_Command,
 	Quality_Command,
 	Notification_Volume_Command,
 	App_Audio_Command,
@@ -674,6 +678,10 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Listen_Command:
 			c.voice.listen = v.on
 			log.infof("listen back %s", "on" if v.on else "off")
+		case Reconnect_Command:
+			if c.lost && c.handshake.state == .Idle {
+				c.retry_at = time.tick_now()
+			}
 		case Gate_Command:
 			g := &c.voice.gate
 			g.enabled, g.open_db, g.close_db = v.enabled, v.open_db, v.close_db
