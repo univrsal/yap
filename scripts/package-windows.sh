@@ -40,8 +40,8 @@ fi
 rm -f "dist/Yap-Setup-$arch.exe"
 "$iscc" //Q \
 	"//DAppVersion=$version" \
-	"//DClientDir=$(cygpath -w "$client")" \
-	"//DVideoDir=$(cygpath -w "$video")" \
+	"//DClientDir=$(cygpath -aw "$client")" \
+	"//DVideoDir=$(cygpath -aw "$video")" \
 	"//DOutputName=Yap-Setup-$arch" \
 	scripts/yap.iss
 echo "packed dist/Yap-Setup-$arch.exe"
