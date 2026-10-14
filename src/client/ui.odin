@@ -1676,7 +1676,7 @@ log_panel :: proc(ui: ^UI) {
 		ctx.style.spacing = LOG_LINE_SPACING
 		defer ctx.style.spacing = saved_spacing
 
-		font := ctx.style.font
+		font := render.font_with_style(ctx.style.font, .Mono)
 		// A line longer than the panel makes every row as wide as it,
 		// which is what has microui add a horizontal scrollbar.
 		widest: i32
@@ -1715,14 +1715,6 @@ log_panel :: proc(ui: ^UI) {
 	}
 	select_end(ui)
 	mu.end_panel(ctx)
-
-	// Follow new lines, unless that would pull them out from under a
-	// selection being dragged.
-	dragging := ui.select.dragging && ui.select.panel == .Log
-	if total != ui.log_seen && !dragging {
-		ui.log_seen = total
-		cnt.scroll.y = cnt.content_size.y
-	}
 }
 
 // A button with nothing but an icon on it is this wide.

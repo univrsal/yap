@@ -103,7 +103,14 @@ memory_settings :: proc(ui: ^UI) {
 		m.taken = {}
 	}
 	if .SUBMIT in mu.button(ctx, "Write to log") {
-		log.infof("memory:\n%s", memtrack.log_text(m.report, context.temp_allocator))
+		mem_track := memtrack.log_text(m.report, context.temp_allocator)
+		
+		for line in strings.split_lines_iterator(&mem_track) {
+			if len(line) == 0 {
+				continue
+			}
+			log.infof("%s", line)
+		}
 	}
 	with_text_color(ctx, theme.dim, m.released, label_proc)
 	mu.layout_row(ctx, {-1})
