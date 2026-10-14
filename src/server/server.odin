@@ -203,7 +203,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		return false
 	}
 	// The config's channels are only what a new database starts with.
-	if !convs_load(&s.convs, &s.db, settings.channels, &s.accounts) {
+	if !convs_load(&s.convs, &s.db, []string{DEFAULT_CHANNEL_NAME}, &s.accounts) {
 		return false
 	}
 	defer convs_destroy(&s.convs)

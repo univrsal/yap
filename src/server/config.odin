@@ -36,10 +36,6 @@ once at startup:
 			"rate": 10,
 			"burst": 30
 		},
-		"channels": [
-			{ "name": "Lobby" },
-			{ "name": "Gaming" }
-		],
 		"retention": {
 			"message_days": 0,
 			"file_days": 0,
@@ -110,12 +106,6 @@ api        the bot API (docs/bot-api, common/gateway): HTTP and JSON for
            many requests a second a token may make, and how many at
            once (429 past that); a rate of 0 for no limit. Left out,
            they're 64, 10 and 30.
-channels   the channels a new server starts with: they're taken over
-           into its database the first time it runs, the first of them
-           as the home channel everyone is in, and not read again after
-           that (channels are made from a client then). Channels are
-           objects rather than bare strings so fields like a description
-           can be added later.
 retention  how long what's posted is kept (retention.odin); 0 for no
            limit, which is what they start as. `message_days`: messages
            older than this many days are removed. `file_days`: older
@@ -172,13 +162,16 @@ video      screen sharing from desktop clients (media.odin): with
            -1 keeps none. It costs about this much of a second of
            `max_kbit` in memory a sharer, at most 2.5 MB.
 
-Fields left out keep the defaults above, and with no channels there's a
-single Lobby.
+Fields left out keep the defaults above.
+
+Channels aren't configured here: a new database starts with a single
+Lobby, the home channel everyone is in (DEFAULT_CHANNEL_NAME), and the
+rest are made from a client.
 
 If the file doesn't exist it's written with the defaults and a new key.
-A server that predates it kept those in server.key and channels.json,
-and whatever of those is in the working directory is taken over into the
-new file, so clients keep trusting the key. A file without a key gets a
+A server that predates it kept its key in server.key, which is taken over
+into the new file if it's in the working directory, so clients keep
+trusting the key. A file without a key gets a
 new one written back into it.
 
 The file holds the key and the password, so it's written readable by its
@@ -190,11 +183,9 @@ DEFAULT_RELAY_PORT :: 8080
 DEFAULT_UNVERIFIED_HOURS :: 48
 DEFAULT_CHANNEL_NAME :: "Lobby"
 
-// Where a server from before config.json kept its key and channels.
+// Where a server from before config.json kept its key.
 @(private = "file")
 LEGACY_KEY_FILE :: "server.key"
-@(private = "file")
-LEGACY_CHANNELS_FILE :: "channels.json"
 
 Config :: struct {
 	name:               string,
@@ -208,7 +199,6 @@ Config :: struct {
 	memory_log_minutes: int,
 	relay:              Relay_Config,
 	api:                Api_Config,
-	channels:           []Channel_Config,
 	retention:          Retention_Config,
 	attachments:        Attach_Config,
 	email:              Email_Config,
@@ -260,10 +250,6 @@ Config_Bootstrap :: struct {
 	initial_admin_password: string,
 }
 
-Channel_Config :: struct {
-	name: string,
-}
-
 // The parts of a Config the server runs on, checked and parsed.
 Settings :: struct {
 	name:         string, // sanitized
@@ -276,7 +262,6 @@ Settings :: struct {
 	memory_log:   time.Duration, // 0: never
 	relay:        Relay_Config, // web_dir resolved, see default_web_dir
 	api:          Api_Config,
-	channels:     []string,
 	// The database and the blobs' folder, in the data directory (db.odin,
 	// blobs.odin).
 	db_path:      string,
@@ -348,8 +333,8 @@ load_config :: proc(
 	return settings, true
 }
 
-// create_config fills in what a server from before config.json left
-// behind, a new key if there isn't one, and writes the result.
+// create_config fills in the key a server from before config.json left
+// behind, or a new one, and writes the result.
 @(private = "file")
 create_config :: proc(path: string, cfg: ^Config) -> bool {
 	if os.exists(LEGACY_KEY_FILE) {
@@ -363,26 +348,6 @@ create_config :: proc(path: string, cfg: ^Config) -> bool {
 	} else {
 		cfg.key = common.generate_private_key() or_return
 		log.info("generated a new private key")
-	}
-
-	if os.exists(LEGACY_CHANNELS_FILE) {
-		data, err := os.read_entire_file(LEGACY_CHANNELS_FILE, context.allocator)
-		if err != nil {
-			log.errorf("failed to read %s: %v", LEGACY_CHANNELS_FILE, err)
-			return false
-		}
-		legacy: struct {
-			channels: []Channel_Config,
-		}
-		if json_err := json.unmarshal(data, &legacy); json_err != nil {
-			log.errorf("%s is not valid: %v", LEGACY_CHANNELS_FILE, json_err)
-			return false
-		}
-		cfg.channels = legacy.channels
-		log.infof("taking the channels over from %s", LEGACY_CHANNELS_FILE)
-	} else {
-		cfg.channels = make([]Channel_Config, 1)
-		cfg.channels[0] = {DEFAULT_CHANNEL_NAME}
 	}
 
 	if !save_config(path, cfg^) {
@@ -563,7 +528,6 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	s.db_path, _ = os.join_path({data_dir, DB_FILE}, context.allocator)
 	s.blobs_dir, _ = os.join_path({data_dir, BLOBS_DIR}, context.allocator)
 	s.emoji_dir, _ = os.join_path({data_dir, EMOJI_DIR}, context.allocator)
-	s.channels = check_channels(path, cfg.channels) or_return
 	return s, true
 }
 
@@ -606,49 +570,6 @@ check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bo
 		return
 	}
 	return e, true
-}
-
-// check_channels returns the channel names, or a single default channel
-// if there are none.
-@(private = "file")
-check_channels :: proc(path: string, channels: []Channel_Config) -> (names: []string, ok: bool) {
-	if len(channels) == 0 {
-		log.infof("%s lists no channels, using a single %q channel", path, DEFAULT_CHANNEL_NAME)
-		names = make([]string, 1)
-		names[0] = DEFAULT_CHANNEL_NAME
-		return names, true
-	}
-	if len(channels) > proto.MAX_CHANNELS {
-		log.errorf(
-			"%s has %d channels; the maximum is %d",
-			path,
-			len(channels),
-			proto.MAX_CHANNELS,
-		)
-		return
-	}
-
-	names = make([]string, len(channels))
-	for ch, i in channels {
-		if len(ch.name) == 0 || len(ch.name) > proto.MAX_CHANNEL_NAME_SIZE {
-			log.errorf(
-				"%s: channel %d must have a name of 1 to %d bytes",
-				path,
-				i + 1,
-				proto.MAX_CHANNEL_NAME_SIZE,
-			)
-			return
-		}
-		for prev in names[:i] {
-			if prev == ch.name {
-				log.errorf("%s: channel %q is listed twice", path, ch.name)
-				return
-			}
-		}
-		names[i] = ch.name
-	}
-	log.infof("%s: %d channels", path, len(names))
-	return names, true
 }
 
 // default_web_dir is where the web build is: web/out after web/build.sh,

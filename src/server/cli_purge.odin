@@ -82,7 +82,7 @@ run_purge_command :: proc(args: []string) -> int {
 	}
 	defer accounts_destroy(&a)
 	convs: Convs
-	if !convs_load(&convs, &db, settings.channels, &a) {
+	if !convs_load(&convs, &db, []string{DEFAULT_CHANNEL_NAME}, &a) {
 		return 1
 	}
 	defer convs_destroy(&convs)

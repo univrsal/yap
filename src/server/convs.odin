@@ -65,7 +65,8 @@ Convs :: struct {
 
 /*
 convs_load reads the conversations and their members from the database.
-A database without channels gets `seed`, the config's; and every account
+A database without channels gets `seed` (the server passes just the
+DEFAULT_CHANNEL_NAME one); and every account
 that isn't in the home channel is put there, which is how accounts made
 before there were channels, or from the command line, come to be in it.
 */
@@ -131,7 +132,7 @@ convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> b
 				return false
 			}
 		}
-		log.infof("took %d channels over from the config", len(seed))
+		log.infof("took %d channels", len(seed))
 	}
 	if c.home == nil {
 		log.error("the database has channels, but none of them is the home channel")
