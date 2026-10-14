@@ -72,4 +72,8 @@ std::unique_ptr<Pipeline> make_pipeline();
 // Whether `codec` takes `fmt` as input (encoders.cpp).
 bool takes_pix_fmt(const AVCodec *codec, int fmt);
 
+// nv12_to_i420 makes `dst` a YUV420P copy of the NV12 frame `src` in
+// memory, for encoders that take nothing else (OpenH264).
+bool nv12_to_i420(const AVFrame *src, AVFrame *dst);
+
 } // namespace yv

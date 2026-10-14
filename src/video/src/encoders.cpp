@@ -2,12 +2,19 @@
 Which encoders this computer has: every hardware encoder FFmpeg was built
 with for this platform, each tried on a small test frame, because "the
 driver says it exists" and "it opens and encodes" differ (an NVENC build
-on a machine without NVIDIA, an AMD driver too old for AV1, ...).
+on a machine without NVIDIA, an AMD driver too old for AV1, ...). Last,
+OpenH264 on the CPU, for machines where none of those work.
 */
 #include "pipeline.h"
 
 #include <algorithm>
 #include <cstring>
+
+#if defined(_WIN32)
+#include <windows.h>
+#elif !defined(__APPLE__)
+#include "dl_linux.h"
+#endif
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -24,10 +31,11 @@ struct Candidate {
 	const char *name;
 	yv_codec codec;
 	const char *vendor;
+	bool hardware = true;
 };
 
 // Best first: AV1 does most for screen content at a given bitrate, then
-// HEVC, then H.264. No software encoders yet (D5 in the plan).
+// HEVC, then H.264; any hardware encoder before the CPU's.
 const Candidate candidates[] = {
 #if defined(_WIN32)
 	{"av1_nvenc", YV_CODEC_AV1, "NVIDIA NVENC"},
@@ -50,7 +58,81 @@ const Candidate candidates[] = {
 	{"h264_nvenc", YV_CODEC_H264, "NVIDIA NVENC"},
 	{"h264_vaapi", YV_CODEC_H264, "VA-API"},
 #endif
+	// BSD, so it's in LGPL builds of FFmpeg (BtbN's have it; the macOS
+	// one doesn't, and needn't: every Mac has VideoToolbox).
+	{"libopenh264", YV_CODEC_H264, "OpenH264, on the CPU", false},
 };
+
+/*
+The NVENC API version FFmpeg's NVENC encoders were built against, that
+of the nv-codec-headers in our FFmpeg (scripts/ffmpeg.version), and the
+first NVIDIA driver that has it. An older driver opens none of them.
+*/
+constexpr uint32_t NVENC_API_MAJOR = 13;
+constexpr uint32_t NVENC_API_MINOR = 0;
+constexpr int NVENC_DRIVER = 570;
+
+// The newest NVENC API version the NVIDIA driver has, as
+// (major << 4) | minor, or 0 if there's no NVIDIA driver.
+uint32_t nvenc_driver_api() {
+	// NVENCSTATUS NvEncodeAPIGetMaxSupportedVersion(uint32_t *version);
+	using Get_Max = int (*)(uint32_t *);
+	uint32_t version = 0;
+#if defined(_WIN32)
+	HMODULE lib = LoadLibraryExW(L"nvEncodeAPI64.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+	if (!lib) {
+		return 0;
+	}
+	auto get = reinterpret_cast<Get_Max>(GetProcAddress(lib, "NvEncodeAPIGetMaxSupportedVersion"));
+	if (!get || get(&version) != 0) {
+		version = 0;
+	}
+	FreeLibrary(lib);
+#elif !defined(__APPLE__)
+	Dl_Lib lib;
+	Get_Max get = nullptr;
+	if (lib.open({"libnvidia-encode.so.1"})) {
+		if (!lib.sym(get, "NvEncodeAPIGetMaxSupportedVersion") || get(&version) != 0) {
+			version = 0;
+		}
+		dlclose(lib.handle);
+	}
+#endif
+	return version;
+}
+
+/*
+explain_nvenc says why, when FFmpeg has NVENC encoders and none of them
+worked, if it's the driver being too old for them: FFmpeg says so too,
+but it's quietened while trying (Quiet_FFmpeg), and "doesn't open"
+alone leaves people guessing.
+*/
+void explain_nvenc(const std::vector<yv_encoder> &found) {
+	bool tried = false;
+	for (const yv_encoder &e : found) {
+		if (strstr(e.name, "_nvenc")) {
+			if (e.works) {
+				return;
+			}
+			tried = true;
+		}
+	}
+	if (!tried) {
+		return;
+	}
+	uint32_t v = nvenc_driver_api();
+	if (v == 0) {
+		log(YV_LOG_DEBUG, "no NVIDIA driver, so no NVENC");
+		return;
+	}
+	uint32_t major = v >> 4, minor = v & 0xf;
+	if (major < NVENC_API_MAJOR || (major == NVENC_API_MAJOR && minor < NVENC_API_MINOR)) {
+		log(YV_LOG_WARN,
+		    "NVENC: the NVIDIA driver has NVENC API %u.%u, but this FFmpeg needs %u.%u; "
+		    "update the driver to %d or later to encode on the GPU",
+		    major, minor, NVENC_API_MAJOR, NVENC_API_MINOR, NVENC_DRIVER);
+	}
+}
 
 const char *codec_label(yv_codec c) {
 	switch (c) {
@@ -92,14 +174,24 @@ AVFrame *grey_nv12_frame() {
 
 /*
 An encoder that only takes frames in GPU memory (VA-API's) gets a device
-and a pool of frames to upload the test frame into. Returns the frame
-to encode, which is `sw` itself when no upload is needed.
+and a pool of frames to upload the test frame into, and one that only
+takes planar YUV (OpenH264) a copy in that. Returns the frame to encode,
+which is `sw` itself when it takes it as it is.
 */
 AVFrame *frame_for(AVCodecContext *enc, const AVCodec *codec, AVFrame *sw,
                    AVBufferRef **device) {
 	if (takes_pix_fmt(codec, AV_PIX_FMT_NV12)) {
 		enc->pix_fmt = AV_PIX_FMT_NV12;
 		return sw;
+	}
+	if (takes_pix_fmt(codec, AV_PIX_FMT_YUV420P)) {
+		enc->pix_fmt = AV_PIX_FMT_YUV420P;
+		AVFrame *planar = av_frame_alloc();
+		if (!planar || !nv12_to_i420(sw, planar)) {
+			av_frame_free(&planar);
+			return nullptr;
+		}
+		return planar;
 	}
 #if !defined(_WIN32) && !defined(__APPLE__)
 	if (takes_pix_fmt(codec, AV_PIX_FMT_VAAPI)) {
@@ -202,6 +294,31 @@ bool takes_pix_fmt(const AVCodec *codec, int fmt) {
 	return false;
 }
 
+bool nv12_to_i420(const AVFrame *src, AVFrame *dst) {
+	av_frame_unref(dst);
+	dst->format = AV_PIX_FMT_YUV420P;
+	dst->width = src->width;
+	dst->height = src->height;
+	if (av_frame_get_buffer(dst, 0) < 0) {
+		return false;
+	}
+	for (int y = 0; y < src->height; y++) {
+		memcpy(dst->data[0] + y * dst->linesize[0], src->data[0] + y * src->linesize[0],
+		       src->width);
+	}
+	int cw = (src->width + 1) / 2, ch = (src->height + 1) / 2;
+	for (int y = 0; y < ch; y++) {
+		const uint8_t *uv = src->data[1] + y * src->linesize[1];
+		uint8_t *u = dst->data[1] + y * dst->linesize[1];
+		uint8_t *v = dst->data[2] + y * dst->linesize[2];
+		for (int x = 0; x < cw; x++) {
+			u[x] = uv[2 * x];
+			v[x] = uv[2 * x + 1];
+		}
+	}
+	return av_frame_copy_props(dst, src) >= 0;
+}
+
 std::vector<yv_encoder> probe_encoders() {
 	std::vector<yv_encoder> found;
 	for (const Candidate &c : candidates) {
@@ -217,12 +334,13 @@ std::vector<yv_encoder> probe_encoders() {
 		copy_name(e.label, sizeof(e.label),
 		          std::string(codec_label(c.codec)) + " (" + c.vendor + ")");
 		e.codec = c.codec;
-		e.hardware = true;
+		e.hardware = c.hardware;
 		e.works = can_try && try_encoder(codec);
 		log(e.works ? YV_LOG_INFO : YV_LOG_DEBUG, "%s: %s", c.name,
 		    e.works ? "works" : "doesn't open or encode");
 		found.push_back(e);
 	}
+	explain_nvenc(found);
 	// Working ones first, keeping the order of preference within each.
 	std::stable_partition(found.begin(), found.end(), [](const yv_encoder &e) { return e.works; });
 	return found;

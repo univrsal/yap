@@ -14,7 +14,8 @@
 #
 # Stay on the 8.x branch: BtbN builds 8.0 and 8.1 against the NVENC 13.0
 # headers (NVIDIA driver 570 or later) and 9.0 against 13.1, which needs
-# driver 610, newer than most people have.
+# driver 610, newer than most people have. Moving it means changing
+# NVENC_API_* and NVENC_DRIVER in src/video/src/encoders.cpp too.
 ffmpeg_release=autobuild-2026-10-12-13-12
 ffmpeg_win=ffmpeg-n8.1.3-18-g46d899d7a0-win64-lgpl-shared-8.1
 ffmpeg_win_sha256=fa628b9de20254fe7c80605a4c6af54d0bffdda0807363ee7557131c2b78e051

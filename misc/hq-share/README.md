@@ -279,7 +279,8 @@ differently because it records and streams):
 Which encoder: the best codec the hardware encodes (AV1, then HEVC, then
 H.264), each tried in turn at start-up with a tiny test encode, because
 "the driver says it exists" and "it opens" differ. Overridable in
-settings. No software encoder in the first version (D5).
+settings. No software encoder in the first version (D5); OpenH264 came
+later, as the last choice.
 
 #### Decoding and presenting
 
@@ -1301,7 +1302,6 @@ Reports, aggregation on the server, `yv_share_set_bitrate`.
   share to web viewers on their bulk link; WebCodecs decodes H.264
   everywhere and AV1/HEVC in most browsers. Bandwidth through the
   WebSocket relay is the question (D9).
-- A software encoder (OpenH264 or SVT-AV1) for machines without one.
 - Intra refresh and reference invalidation instead of keyframes after
   loss.
 - Thumbnails in the picker, HDR, sharing a region, the sharer's own
@@ -1317,7 +1317,7 @@ Open until the owner answers. Recommended answers first.
 | D2 | FFmpeg, or the vendors' SDKs directly | FFmpeg for both directions. |
 | D3 | Transport | A third UDP link on its own port and server thread (Transport, option 3). |
 | D4 | Codecs | Every viewer decodes H.264, HEVC and AV1; the sharer encodes the best its hardware can. No negotiation. |
-| D5 | Software encoding | None at first: every GPU of the last ten years encodes H.264. OpenH264 later if someone needs it. |
+| D5 | Software encoding | None at first: every GPU of the last ten years encodes H.264. OpenH264 later if someone needs it; it was needed (a GTX 1050 Ti on driver 560, too old for our FFmpeg's NVENC), so `libopenh264` is the last encoder tried. |
 | D6 | HEVC's patents | Ship FFmpeg's HEVC decoder and use hardware HEVC encoders, as browsers and OBS do; make HEVC easy to switch off at build time. |
 | D7 | Where the library lives | `src/video/` in this repository, built by its own script, never by `build.sh`/`build.bat`. Keeps the protocol and the library in step. |
 | D8 | EGL instead of GLX on X11 | Only when phase 9 needs it, behind a check that EGL works. |

@@ -209,6 +209,11 @@ void encoder_options(const char *name, AVDictionary **opts) {
 	} else if (strstr(name, "_videotoolbox")) {
 		av_dict_set(opts, "realtime", "1", 0);
 		av_dict_set(opts, "prio_speed", "1", 0);
+	} else if (strcmp(name, "libopenh264") == 0) {
+		// Its default aims at a quality, not the bitrate it's given; and
+		// FFmpeg's default profile is one it doesn't take (it says so).
+		av_dict_set(opts, "rc_mode", "bitrate", 0);
+		av_dict_set(opts, "profile", "high", 0);
 	}
 }
 
@@ -239,6 +244,7 @@ struct yv_share {
 	uint32_t kbit = 0;        // what the encoder is set to
 	uint64_t rate_at = 0;     // when the bitrate last changed
 	AVFrame *frame = nullptr;
+	AVFrame *planar = nullptr; // frame as YUV420P, for encoders that want that
 	AVPacket *pkt = nullptr;
 };
 
@@ -281,6 +287,9 @@ bool open_encoder(yv_share *s, Pipeline &pipe, int w, int h) {
 	e->color_primaries = AVCOL_PRI_BT709;
 	e->color_trc = AVCOL_TRC_BT709;
 	e->color_range = AVCOL_RANGE_MPEG;
+	// 0 is as many as there are cores, for an encoder that has its own
+	// threads (OpenH264); the hardware ones ignore it.
+	e->thread_count = 0;
 
 	// GPU frames where the encoder takes them, so the picture never
 	// leaves the GPU; frames in memory otherwise. An encoder that takes
@@ -300,7 +309,9 @@ bool open_encoder(yv_share *s, Pipeline &pipe, int w, int h) {
 			reinterpret_cast<AVHWFramesContext *>(s->frames->data)->format);
 		e->hw_frames_ctx = av_buffer_ref(s->frames);
 	} else {
-		e->pix_fmt = AV_PIX_FMT_NV12;
+		// convert makes NV12, which encode turns into YUV420P for an
+		// encoder that takes nothing else.
+		e->pix_fmt = takes_pix_fmt(codec, AV_PIX_FMT_NV12) ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
 	}
 	AVDictionary *opts = nullptr;
 	encoder_options(s->encoder_name.c_str(), &opts);
@@ -383,18 +394,28 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 		fail(s, "can't convert the captured picture");
 		return false;
 	}
-	s->frame->pts = static_cast<int64_t>(pts);
-	s->frame->color_range = AVCOL_RANGE_MPEG;
-	s->frame->colorspace = AVCOL_SPC_BT709;
-	if (s->want_key.exchange(false)) {
-		s->frame->pict_type = AV_PICTURE_TYPE_I;
-		s->frame->flags |= AV_FRAME_FLAG_KEY;
-	} else {
-		s->frame->pict_type = AV_PICTURE_TYPE_NONE;
-		s->frame->flags &= ~AV_FRAME_FLAG_KEY;
+	AVFrame *in = s->frame;
+	if (s->enc->pix_fmt == AV_PIX_FMT_YUV420P) {
+		bool ok = nv12_to_i420(s->frame, s->planar);
+		av_frame_unref(s->frame);
+		if (!ok) {
+			fail(s, "can't convert the captured picture");
+			return false;
+		}
+		in = s->planar;
 	}
-	int err = avcodec_send_frame(s->enc, s->frame);
-	av_frame_unref(s->frame);
+	in->pts = static_cast<int64_t>(pts);
+	in->color_range = AVCOL_RANGE_MPEG;
+	in->colorspace = AVCOL_SPC_BT709;
+	if (s->want_key.exchange(false)) {
+		in->pict_type = AV_PICTURE_TYPE_I;
+		in->flags |= AV_FRAME_FLAG_KEY;
+	} else {
+		in->pict_type = AV_PICTURE_TYPE_NONE;
+		in->flags &= ~AV_FRAME_FLAG_KEY;
+	}
+	int err = avcodec_send_frame(s->enc, in);
+	av_frame_unref(in);
 	if (err < 0) {
 		fail(s, "the encoder refused a frame");
 		return false;
@@ -466,6 +487,7 @@ void run(yv_share *s) {
 		return;
 	}
 	s->frame = av_frame_alloc();
+	s->planar = av_frame_alloc();
 	s->pkt = av_packet_alloc();
 	Parameter_Sets sets(s->codec);
 
@@ -503,6 +525,7 @@ void run(yv_share *s) {
 	}
 	close_encoder(s);
 	av_frame_free(&s->frame);
+	av_frame_free(&s->planar);
 	av_packet_free(&s->pkt);
 	pipe.reset();
 }
