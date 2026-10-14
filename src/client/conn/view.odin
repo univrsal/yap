@@ -156,6 +156,8 @@ View :: struct {
 	// server takes from a sharer, in kbit/s (0 if it didn't say).
 	video_stats:         Video_Stats,
 	video_limit_kbit:    int,
+	// The media link is up, which sharing and watching need (video.odin).
+	video_link:          bool,
 	// How the pings to the server are doing (ping.odin).
 	connection:          Connection_Stats,
 	// Our DMs (buddies.odin): who each is with, and what's unread there.
@@ -257,7 +259,7 @@ view_reset :: proc(v: ^View) {
 	v.server_key = {}
 	v.viewing, v.my_room, v.voice_pending = 0, 0, false
 	view_clear_browse(v)
-	v.watching = 0
+	v.watching, v.video_link = 0, false
 	v.connection = {}
 	clear(&v.speaking)
 	view_clear_timelines(v)
@@ -314,7 +316,7 @@ publish_logged_out :: proc(c: ^Voice_Client) {
 	v.my_num, v.me, v.permissions = 0, 0, {}
 	v.viewing, v.my_room, v.voice_pending = 0, 0, false
 	view_clear_browse(v)
-	v.watching = 0
+	v.watching, v.video_link = 0, false
 	clear(&v.speaking)
 }
 

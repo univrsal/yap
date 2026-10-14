@@ -96,7 +96,7 @@ sharing_mark :: proc(ui: ^UI, row: mu.Rect, slot: i32, id: proto.User_Num) -> mu
 	switch {
 	case ui.view.watching == id:
 		color = theme.speaking
-	case !conn.video_can_watch() || id == ui.view.my_num:
+	case !can_watch_screens(ui) || id == ui.view.my_num:
 		color = theme.dim
 	}
 	mu.draw_icon(ctx, render.icon_id(.Screen), r, color)
@@ -238,7 +238,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		// A click on the screen mark watches them, or stops watching.
 		if user.sharing &&
 		   ctx.mouse_pressed_bits == {.LEFT} &&
-		   conn.video_can_watch() &&
+		   (can_watch_screens(ui) || v.watching == id) &&
 		   inside(share_r, ctx.mouse_pos) {
 			watch(ui, 0 if v.watching == id else id)
 			return
@@ -405,7 +405,7 @@ user_menu :: proc(ui: ^UI) {
 
 	// Watch their screen, if they're sharing it (the connection clicked).
 	if user_is_screen_sharing {
-		if conn.video_can_watch() {
+		if can_watch_screens(ui) || ui.view.watching == ui.menu_user {
 			watching := ui.view.watching == ui.menu_user
 			if .SUBMIT in
 			   icon_button(

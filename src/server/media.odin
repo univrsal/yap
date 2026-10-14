@@ -11,8 +11,8 @@ import "common:."
 import "common:proto"
 
 /*
-The media link (proto.Link.Media): screen sharing from the desktop
-client, on a UDP port and a thread of its own, so a shared screen's
+The media link (proto.Link.Media): screen sharing, all of it, on a UDP
+port and a thread of its own, so a shared screen's
 thousands of packets a second never pass through the main loop, and the
 main loop's turns never hold a frame up.
 
@@ -26,24 +26,19 @@ share reaches it (proto.Report, video_report.odin), and once a second
 each sharer is told the worst of its viewers' reports (media_reports),
 less one far behind the rest.
 
-A desktop client opens it once its connection is logged in, to the port
+A client opens it once its connection is logged in, to the port
 Server_Info names, with a handshake like the bulk link's: a hello with
 the connection's conn_id and link = Media, which the thread accepts if
-the device has a logged in connection of that conn_id. It sends its
-video on it, and its Watch leases (on the main link as well, see below);
-it gets the video it watches on it, and the Keyframe requests for its
-own share.
+the device has a logged in connection of that conn_id. A browser's
+comes through the relay (relay.odin). It sends its video on it, and its
+Watch leases; it gets the video it watches on it, and the Keyframe
+requests for its own share. Without it there's no screen sharing: the
+main loop drops any video that comes its way.
 
 What the thread knows about the connections is a table the main loop
 publishes whenever its state version moves (media_sync): who is who,
 in which room, sharing or not. Everything else, the sessions, leases,
 budgets and keyframe requests of the media link, is the thread's own.
-
-Video that comes the old way, over a bulk link (a browser's, or a
-desktop client without a media link), is still the main loop's
-(video.odin), and goes to its watchers on their bulk links: so a client
-leases on both links, and each side serves the sharers it has. Each
-side only asks its own sharers for keyframes, so a sharer is asked once.
 */
 
 // Who a connection is, as the media thread needs to know it.
@@ -164,7 +159,7 @@ media_open :: proc(s: ^Server, settings: Settings) {
 	m := &s.media
 	cfg := settings.video
 	if !cfg.enabled {
-		log.info("the media link is off: screen sharing goes through the main loop")
+		log.info("the media link is off, and with it screen sharing")
 		return
 	}
 	m.port = media_port(settings)
@@ -177,7 +172,7 @@ media_open :: proc(s: ^Server, settings: Settings) {
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, m.port)
 	if err != nil {
 		log.errorf(
-			"the media link can't have udp port %d (%v): screen sharing goes through the main loop",
+			"the media link can't have udp port %d (%v): there's no screen sharing",
 			m.port,
 			err,
 		)
@@ -679,7 +674,7 @@ media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byt
 		}
 	}
 	if target == nil {
-		return // not on the media link; the main loop asks them
+		return // not sharing on the media link, so not sharing at all
 	}
 	peer, known := m.peers[target.peer_key]
 	if !known || !peer.sharing || peer.room != viewer.room {

@@ -355,10 +355,12 @@ Its protocol is today's video messages with these changes:
 - `Server_Info` gets the media port and the rate limit, so the client
   knows where to connect and what it may send. `HELLO_VERSION` goes up.
 
-The web build keeps its video on the bulk link (the relay turns
-WebSocket frames into datagrams for the main port). The server relays a
-web sharer's fragments to native viewers on their media links too, so
-natives can watch web shares.
+The web build has a media link too: the relay takes WebSockets under
+`/yap-media/` to the media port, as it takes `/yap/` to the main one.
+(As built, 2026-10-14: the plan here was for the web build to keep its
+video on the bulk link, which left natives' shares unwatchable in a
+browser. Video on the bulk link is gone; without a media link there's
+no screen sharing.)
 
 ### Loss and pacing
 

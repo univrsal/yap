@@ -79,6 +79,13 @@ ui_video_forget_texture :: proc(ui: ^UI) {
 	conn.video_forget_gpu(&ui.renderer.gpu)
 }
 
+// can_watch_screens says whether we can watch anybody's screen: with
+// the add-on (or a browser that decodes), over the media link. Call
+// with the View locked.
+can_watch_screens :: proc(ui: ^UI) -> bool {
+	return conn.video_can_watch() && ui.view.video_link
+}
+
 // share_button starts or stops sharing our screen. Only shown where it's
 // possible (video_can_share). Call with the View locked.
 share_button :: proc(ui: ^UI) {

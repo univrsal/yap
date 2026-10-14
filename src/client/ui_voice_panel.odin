@@ -315,7 +315,9 @@ voice_panel :: proc(ui: ^UI) {
 		case .Voice, .Call:
 			// What may be shared there, then the way out.
 			widths := make([dynamic]i32, context.temp_allocator)
-			can_share := conn.video_can_share()
+			// Once started, it can always be stopped.
+			can_share :=
+				conn.video_can_share() && (ui.view.video_link || conn.video_share_state() != .Off)
 			can_music := app_audio_available(ui)
 			if can_music {
 				append(&widths, ICON_BUTTON)

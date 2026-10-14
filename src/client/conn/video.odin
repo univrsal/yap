@@ -14,10 +14,12 @@ browser's (video_web.odin), or on the desktop the optional yap_video
 library's (video_native.odin), which only watches so far. Without it a
 desktop build never shares or watches, but still shows who is sharing.
 
+Everything goes over the media link (media.odin): without it there's
+no sharing or watching, and the View says so (video_link).
+
 Sharing: encoded frames are numbered and queued, and go out a fragment
-at a time over the media link (media.odin) where there is one, else the
-bulk link (bulk.odin), paced to VIDEO_SEND_RATE and only while its
-socket isn't already backed up. Voice doesn't wait in
+at a time over the media link, paced to VIDEO_SEND_RATE and only while
+its socket isn't already backed up. Voice doesn't wait in
 this queue or on that socket, so a keyframe going out doesn't hold it
 up. When the queue has fallen too far behind,
 the frames not yet started are thrown away and the encoder is asked for
@@ -27,13 +29,10 @@ until it comes, nothing else is queued.
 Watching: a Watch lease on one sharer, repeated every WATCH_RESEND,
 and sooner - asking for a keyframe - whenever the frames coming in
 can't be decoded. What comes in is put together in a proto.Video_Window,
-which says what's missing; on the media link we ask the server for it
-again (Nack), and only what that doesn't bring is given up on. It goes over the main link, and the media link too
-when there is one: the server serves sharers on media links on its
-media thread and the others in its main loop, and each only knows of
-leases that come to it.
+which says what's missing; we ask the server for it again (Nack), and
+only what that doesn't bring is given up on.
 
-Adapting: on the media link, a viewer reports once a second how the
+Adapting: a viewer reports once a second how the
 share reaches it (proto.Report: fragments missing, how much later than
 at their quickest frames arrive, what came in), and the server passes
 the worst of a sharer's viewers on to it. The sharer holds its bitrate
@@ -55,7 +54,7 @@ VIDEO_SEND_BURST :: 16 * 1024
 VIDEO_QUEUE_MAX :: VIDEO_SEND_RATE
 // Video only goes out while less than this is waiting on the socket, so
 // that the socket's buffer never holds much more than a burst. (Voice
-// doesn't wait in it: video goes over the bulk link, bulk.odin.)
+// doesn't wait in it: video has the media link to itself.)
 VIDEO_BACKLOG_MAX :: 16 * 1024
 
 Video_Client :: struct {
@@ -259,6 +258,7 @@ video_step :: proc(c: ^Voice_Client) {
 		v.want_key = false
 	}
 	say_decodable(c)
+	publish_video_link(c)
 	if v.sharing {
 		video_share_codecs(viewer_codecs(c))
 	}
@@ -268,6 +268,19 @@ video_step :: proc(c: ^Voice_Client) {
 		drive_watch(c)
 	}
 	publish_video_stats(c)
+}
+
+// publish_video_link tells the View whether there's a media link, which
+// sharing and watching need. (Only we write it, so it may be read
+// without the lock.)
+@(private = "file")
+publish_video_link :: proc(c: ^Voice_Client) {
+	up := c.media.has_current
+	if c.view == nil || c.view.video_link == up {
+		return
+	}
+	view_write(c.view)
+	c.view.video_link = up
 }
 
 // say_decodable tells the others what we can watch (User_Flag), which
@@ -344,7 +357,7 @@ publish_video_stats :: proc(c: ^Voice_Client) {
 		s.kbit_max = video_share_max_kbit()
 		s.viewers, s.left_out = v.reports.viewers, v.reports.left_out
 	}
-	if v.watching != 0 && active && c.media.has_current {
+	if v.watching != 0 && active {
 		send_report(c, s)
 	}
 	v.stats_in, v.stats_out = 0, 0
@@ -456,21 +469,18 @@ video_send :: proc(c: ^Voice_Client) {
 		v.budget = min(VIDEO_SEND_BURST, v.budget + int(elapsed * f64(rate)))
 	}
 	v.budget_at = now
+	if !c.media.has_current {
+		return // the queue falls behind, which asks for a keyframe
+	}
 
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
-	// What video goes out on: the media link, else what send_data picks.
-	media := c.media.has_current
-	link := &c.media.link if media else &c.bulk.link if c.bulk.has_current else &c.link
+	link := &c.media.link
 	for v.budget > 0 && transport_backlog(&link.transport) < VIDEO_BACKLOG_MAX {
 		msg, ok := video_next_fragment(v, buf[:])
 		if !ok {
 			break
 		}
-		if media {
-			link_send(link, msg)
-		} else {
-			send_data(c, msg)
-		}
+		link_send(link, msg)
 		v.budget -= len(msg)
 		v.bytes_out += len(msg)
 		v.stats_out += len(msg)
@@ -492,10 +502,8 @@ video_watch :: proc(c: ^Voice_Client, user: proto.User_Num) {
 	}
 	if user == 0 {
 		// The lease would run out anyway; this just ends it sooner.
-		if c.has_current {
-			buf: [proto.WATCH_SIZE]u8
-			send_watch(c, proto.encode_watch(&buf, 0, false))
-		}
+		buf: [proto.WATCH_SIZE]u8
+		send_watch(c, proto.encode_watch(&buf, 0, false))
 	} else {
 		if v.window == nil {
 			v.window = new(proto.Video_Window)
@@ -511,8 +519,7 @@ video_watch :: proc(c: ^Voice_Client, user: proto.User_Num) {
 
 /*
 drive_watch renews the lease on whoever we're watching, asks again for
-what's gone missing (on the media link; without one, the window gives
-up on it when it would have), and asks for a keyframe while what
+what's gone missing, and asks for a keyframe while what
 arrives can't be decoded. Somebody who stops sharing or leaves the
 channel stops being watched.
 */
@@ -530,8 +537,7 @@ drive_watch :: proc(c: ^Voice_Client) {
 		// Whatever the decoder had is gone, so start again from a keyframe.
 		proto.video_window_reset(v.window)
 	}
-	asking := c.media.has_current
-	for n in proto.video_window_nacks(v.window, time.tick_now(), asking) {
+	for n in proto.video_window_nacks(v.window, time.tick_now(), c.media.has_current) {
 		buf: [proto.NACK_SIZE]u8
 		link_send(&c.media.link, proto.encode_nack(&buf, v.watching, n))
 	}
@@ -551,11 +557,9 @@ drive_watch :: proc(c: ^Voice_Client) {
 	v.last_watch = time.tick_now()
 }
 
-// send_watch sends a Watch on the main link, and the media link if
-// there is one.
+// send_watch sends a Watch, if there's a media link to send it on.
 @(private = "file")
 send_watch :: proc(c: ^Voice_Client, msg: []u8) {
-	send_data(c, msg)
 	if c.media.has_current {
 		link_send(&c.media.link, msg)
 	}

@@ -149,8 +149,8 @@ video_share_kbit :: proc() -> int {
 	return 0
 }
 
-// The browser's share doesn't follow its viewers: it's on the bulk link,
-// where nobody reports on it.
+// The browser's share doesn't follow its viewers' reports: the page's
+// encoder keeps to its own bitrate.
 video_share_max_kbit :: proc() -> int {
 	return 0
 }

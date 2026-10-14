@@ -21,9 +21,9 @@ relay (server/relay.odin).
 It's opened once we are logged in (auth state Done), the server has named its
 media port (Server_Info), and there's a library to share or watch with;
 like the bulk link, with a handshake of its own whose hello names the
-connection. Our video goes over it once it's up, and Watch leases go
-over it as well as the main link (video.odin); the video we watch and
-the keyframe requests for ours come back on it.
+connection. All of screen sharing goes over it (video.odin): our video
+and Watch leases, and the video we watch and the keyframe requests for
+ours. Without it, there's none.
 */
 
 Media_Link :: struct {
@@ -191,7 +191,7 @@ handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
 				log.debugf("the media link was refused: %v", proto.decode_refused(pt))
 				if m.refusals == MEDIA_GIVE_UP {
 					log.warn(
-						"the server keeps refusing the media link; video goes over the bulk link",
+						"the server keeps refusing the media link, so there's no screen sharing",
 					)
 				}
 				media_retry_later(m)

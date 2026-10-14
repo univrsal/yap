@@ -89,7 +89,6 @@ Conn :: struct {
 	last_poke:       time.Tick, // see handle_poke
 	upload:          Upload, // a blob on its way in (transfers.odin)
 	download:        Download, // a blob on its way out
-	video:           Video_State, // screen sharing (video.odin)
 	stream:          Conn_Stream, // requests and events (stream.odin, rpc.odin)
 }
 
@@ -595,7 +594,7 @@ conn_unseen :: proc(s: ^Server, u: ^Conn) {
 	s.waiting[u.key] = u
 	u.room, u.flags = 0, {}
 	u.acked_version, u.sent_version = 0, 0
-	u.last_typing, u.video = {}, {}
+	u.last_typing = {}
 }
 
 /*
@@ -641,7 +640,7 @@ conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
 	// As new, for whoever logs in on it next.
 	u.room, u.flags = 0, {}
 	u.acked_version, u.sent_version = 0, 0
-	u.last_typing, u.video = {}, {}
+	u.last_typing = {}
 	s.waiting[u.key] = u
 	if reason != {} {
 		body := [1]u8{u8(reason)}
@@ -758,10 +757,6 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		if len(pt) == proto.TYPING_UP_SIZE {
 			handle_typing(s, c.conn, pt)
 		}
-	case .Video:
-		relay_video(s, c, pt)
-	case .Watch:
-		handle_watch(s, c.conn, pt)
 	case .Ping:
 		// Back on the session it came on, so the client times the path
 		// it measured.
@@ -787,9 +782,8 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		handle_transfer_cancel(s, c.conn, pt)
 	case .State, .Refused, .Keyframe, .Pong, .Welcome, .Upload_Ack, .Download_Chunk:
 	// Server-to-client only.
-	case .Nack, .Report:
-	// The media link's (media.odin): nothing is kept here to send again,
-	// and bulk link shares (a browser's) don't follow their viewers.
+	case .Video, .Watch, .Nack, .Report:
+	// Screen sharing is the media link's alone (media.odin).
 	case .Set_Name,
 	     .Join,
 	     .Chat_Send,
