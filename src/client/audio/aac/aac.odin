@@ -71,6 +71,9 @@ App_Info :: struct {
 	display_name: cstring,
 	identifier:   cstring,
 	process_id:   u32, // 0 where the backend doesn't say
+	// What it calls what it plays (PipeWire's media.name, e.g. mpv's
+	// title), nil where the backend doesn't say. Owned by the list.
+	media_name:   cstring,
 }
 
 Audio_Frame :: struct {

@@ -1723,7 +1723,7 @@ log_panel :: proc(ui: ^UI) {
 			pos := mu.Vec2{r.x + ctx.style.padding, r.y + (r.h - ctx.text_height(font)) / 2}
 			item := first + i64(i)
 			select_item(ui, item, text)
-			select_line(ui, item, text, 0, len(text), pos)
+			select_line(ui, item, text, 0, len(text), pos, font = font)
 			mu.draw_text(ctx, font, text, pos, color)
 		}
 	}
@@ -1765,6 +1765,25 @@ icon_button :: proc(
 		ui.hint, ui.hint_of = hint, r
 	}
 	return
+}
+
+/*
+menu_list_begin starts a list of `rows` rows (buttons or labels, each a
+row of its own laid out with {-1}) in a menu, `width` wide: as tall as
+they are, up to half the window, past which it scrolls instead of the
+menu growing off the window. It has no frame or padding of its own, so
+its rows line up with the menu's. End it with mu.end_panel.
+*/
+menu_list_begin :: proc(ui: ^UI, name: string, width: i32, rows: int) {
+	ctx := &ui.ctx
+	row := ctx.style.size.y + 2 * ctx.style.padding
+	tall := i32(rows) * (row + ctx.style.spacing) - ctx.style.spacing
+	most := max(i32(ui.metrics.logical_h) / 2, 3 * row)
+	mu.layout_row(ctx, {width}, clamp(tall, 0, most))
+	padding := ctx.style.padding
+	ctx.style.padding = 0
+	mu.begin_panel(ctx, name, {.NO_FRAME})
+	ctx.style.padding = padding
 }
 
 /*

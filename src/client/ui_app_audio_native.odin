@@ -166,27 +166,35 @@ app_audio_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {MENU_WIDTH})
 	with_text_color(ctx, theme.dim, "Share the audio of:", label_proc)
+	// Not ourselves: everyone would hear themselves back.
+	me := u32(os.get_pid())
 	count := 0
 	if a.list != nil {
-		me := u32(os.get_pid())
+		for i in 0 ..< aac.app_list_count(a.list) {
+			if aac.app_list_get(a.list, i).process_id != me {
+				count += 1
+			}
+		}
+	}
+	if count > 0 {
+		menu_list_begin(ui, "apps", MENU_WIDTH, count)
+		menu := mu.get_container(ctx, MENU_NAME)
 		for i in 0 ..< aac.app_list_count(a.list) {
 			app := aac.app_list_get(a.list, i)
-			// Not ourselves: everyone would hear themselves back.
 			if app.process_id == me {
 				continue
 			}
-			count += 1
-			name := string(app.display_name)
+			name := app_label(app)
 			mu.push_id(ctx, uintptr(i))
-			mu.layout_row(ctx, {MENU_WIDTH})
+			mu.layout_row(ctx, {-1})
 			if .SUBMIT in stable_button(ctx, "app", name) {
 				app_audio_start(ui, i, name)
-				mu.get_current_container(ctx).open = false
+				menu.open = false
 			}
 			mu.pop_id(ctx)
 		}
-	}
-	if count == 0 {
+		mu.end_panel(ctx)
+	} else {
 		mu.layout_row(ctx, {MENU_WIDTH})
 		with_text_color(ctx, theme.dim, "Nothing is playing audio.", label_proc)
 	}
@@ -198,6 +206,35 @@ app_audio_menu :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {MENU_WIDTH})
 		with_text_color(ctx, theme.off, a.error, label_proc)
 	}
+}
+
+/*
+app_label is what the menu calls an application: its name, and after it
+what it says it plays, where that tells two of them apart - mpv's title
+("mpv: Some Show S01E02", from "Some Show S01E02 - mpv"), not a browser's
+"Playback". In the temp allocator.
+*/
+@(private = "file")
+app_label :: proc(app: ^aac.App_Info) -> string {
+	name := string(app.display_name)
+	media := strings.trim_space(string(app.media_name))
+	// Players that put their own name after the title.
+	for sep in ([]string{" - ", " — ", " | "}) {
+		tail := len(sep) + len(name)
+		if len(media) > tail &&
+		   strings.equal_fold(media[len(media) - tail:], strings.concatenate({sep, name}, context.temp_allocator)) {
+			media = strings.trim_space(media[:len(media) - tail])
+			break
+		}
+	}
+	// What a stream is called when the application names it nothing in
+	// particular (Chromium, Firefox), or just its own name.
+	for g in ([]string{"", "playback", "audiostream", "audio stream", "audio", "output", name}) {
+		if strings.equal_fold(media, g) {
+			return name
+		}
+	}
+	return strings.concatenate({name, ": ", media}, context.temp_allocator)
 }
 
 // app_audio_refresh lists the applications playing audio now.

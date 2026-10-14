@@ -63,6 +63,10 @@ typedef struct tinyaac_app_info {
 	const char *identifier;
 	/* Native process ID when the backend exposes one; otherwise zero. */
 	uint32_t process_id;
+	/* yap fork: what the application calls what it plays, where the
+	 * backend says (PipeWire's media.name, e.g. mpv's title); otherwise
+	 * NULL. Owned by the app-list, like the strings above. */
+	const char *media_name;
 } tinyaac_app_info;
 
 typedef struct tinyaac_audio_frame {
@@ -194,7 +198,22 @@ static TINYAAC_INTERNAL_UNUSED tinyaac_status tinyaac_internal_append_app(tinyaa
 	list->apps[list->count].display_name = name_copy;
 	list->apps[list->count].identifier = identifier_copy;
 	list->apps[list->count].process_id = process_id;
+	list->apps[list->count].media_name = NULL;
 	list->count++;
+	return TINYAAC_OK;
+}
+
+/* yap fork: sets the media name of the app appended last. */
+static TINYAAC_INTERNAL_UNUSED tinyaac_status tinyaac_internal_set_media_name(
+	tinyaac_app_list *list, const char *media_name)
+{
+	char *copy;
+	if (!list || !list->count || !media_name || !*media_name)
+		return TINYAAC_OK;
+	copy = tinyaac_internal_strdup(media_name);
+	if (!copy)
+		return TINYAAC_ERR_OUT_OF_MEMORY;
+	list->apps[list->count - 1].media_name = copy;
 	return TINYAAC_OK;
 }
 
@@ -830,6 +849,17 @@ struct tinyaac_pipewire_node_info {
 	char *app_name;
 	char *binary;
 	char *node_name;
+	char *media_name; /* yap fork: from the node's info (see below) */
+};
+
+/* yap fork: a bound output node, for its info: media.name isn't among
+ * the properties the registry announces a node with. Held apart from
+ * the node infos, which move as their array grows, as a hook can't. */
+struct tinyaac_pipewire_node_proxy {
+	uint32_t id;
+	struct tinyaac_pipewire_enumeration *enumeration;
+	struct pw_node *proxy;
+	struct spa_hook listener;
 };
 
 struct tinyaac_pipewire_enumeration {
@@ -839,11 +869,14 @@ struct tinyaac_pipewire_enumeration {
 	struct pw_core_events core_events;
 	struct pw_registry_events registry_events;
 	struct pw_client_events client_events;
+	struct pw_node_events node_events; /* yap fork */
 	tinyaac_app_list *list;
 	struct tinyaac_pipewire_client_info **clients;
 	struct tinyaac_pipewire_node_info *nodes;
 	size_t client_count;
 	size_t node_count;
+	struct tinyaac_pipewire_node_proxy **node_proxies; /* yap fork */
+	size_t node_proxy_count;
 	int out_of_memory;
 	int pending_sync;
 	int sync_stage;
@@ -938,6 +971,29 @@ static void tinyaac_pipewire_client_info(void *data, const struct pw_client_info
 	client->binary = tinyaac_internal_strdup(spa_dict_lookup(info->props, PW_KEY_APP_PROCESS_BINARY));
 }
 
+/* yap fork: a bound output node's info, for its media.name. */
+static void tinyaac_pipewire_node_info(void *data, const struct pw_node_info *info)
+{
+	struct tinyaac_pipewire_node_proxy *node_proxy =
+		(struct tinyaac_pipewire_node_proxy *)data;
+	struct tinyaac_pipewire_enumeration *enumeration = node_proxy->enumeration;
+	const char *media_name;
+	size_t index;
+	if (!info || !info->props)
+		return;
+	media_name = spa_dict_lookup(info->props, PW_KEY_MEDIA_NAME);
+	if (!media_name)
+		return;
+	for (index = 0; index < enumeration->node_count; ++index) {
+		struct tinyaac_pipewire_node_info *node = &enumeration->nodes[index];
+		if (node->id != node_proxy->id)
+			continue;
+		free(node->media_name);
+		node->media_name = tinyaac_internal_strdup(media_name);
+		break;
+	}
+}
+
 static void tinyaac_pipewire_free_enumeration(struct tinyaac_pipewire_enumeration *enumeration)
 {
 	size_t index;
@@ -950,9 +1006,13 @@ static void tinyaac_pipewire_free_enumeration(struct tinyaac_pipewire_enumeratio
 		free(enumeration->nodes[index].app_name);
 		free(enumeration->nodes[index].binary);
 		free(enumeration->nodes[index].node_name);
+		free(enumeration->nodes[index].media_name);
 	}
+	for (index = 0; index < enumeration->node_proxy_count; ++index)
+		free(enumeration->node_proxies[index]);
 	free(enumeration->clients);
 	free(enumeration->nodes);
+	free(enumeration->node_proxies);
 }
 
 static void tinyaac_pipewire_global(void *data, uint32_t id, uint32_t permissions,
@@ -1007,6 +1067,28 @@ static void tinyaac_pipewire_global(void *data, uint32_t id, uint32_t permission
 		nodes->app_name = tinyaac_internal_strdup(spa_dict_lookup(props, PW_KEY_APP_NAME));
 		nodes->binary = tinyaac_internal_strdup(spa_dict_lookup(props, PW_KEY_APP_PROCESS_BINARY));
 		nodes->node_name = tinyaac_internal_strdup(spa_dict_lookup(props, PW_KEY_NODE_NAME));
+	}
+	/* yap fork: bound for its info, which comes before the second sync's
+	 * done (tinyaac_pipewire_done), as the clients' does. */
+	{
+		struct tinyaac_pipewire_node_proxy **proxies =
+			(struct tinyaac_pipewire_node_proxy **)realloc(enumeration->node_proxies,
+				(enumeration->node_proxy_count + 1) * sizeof(*proxies));
+		struct tinyaac_pipewire_node_proxy *node_proxy;
+		if (!proxies)
+			goto out_of_memory;
+		enumeration->node_proxies = proxies;
+		node_proxy = (struct tinyaac_pipewire_node_proxy *)calloc(1, sizeof(*node_proxy));
+		if (!node_proxy)
+			goto out_of_memory;
+		enumeration->node_proxies[enumeration->node_proxy_count++] = node_proxy;
+		node_proxy->id = id;
+		node_proxy->enumeration = enumeration;
+		node_proxy->proxy = (struct pw_node *)pw_registry_bind(enumeration->registry,
+			id, PW_TYPE_INTERFACE_Node, PW_VERSION_NODE, 0);
+		if (node_proxy->proxy)
+			pw_node_add_listener(node_proxy->proxy, &node_proxy->listener,
+				&enumeration->node_events, node_proxy);
 		return;
 	}
 
@@ -1044,6 +1126,8 @@ static tinyaac_status tinyaac_pipewire_finish_enumeration(
 		if (tinyaac_internal_append_app(enumeration->list, display_name, identifier,
 			process_id) != TINYAAC_OK)
 			return TINYAAC_ERR_OUT_OF_MEMORY;
+		if (tinyaac_internal_set_media_name(enumeration->list, node->media_name) != TINYAAC_OK)
+			return TINYAAC_ERR_OUT_OF_MEMORY; /* yap fork */
 	}
 	return TINYAAC_OK;
 }
@@ -1232,6 +1316,8 @@ static tinyaac_status tinyaac_platform_enumerate(tinyaac_app_list *list)
 	enumeration.registry_events.global = tinyaac_pipewire_global;
 	enumeration.client_events.version = PW_VERSION_CLIENT_EVENTS;
 	enumeration.client_events.info = tinyaac_pipewire_client_info;
+	enumeration.node_events.version = PW_VERSION_NODE_EVENTS; /* yap fork */
+	enumeration.node_events.info = tinyaac_pipewire_node_info;
 	enumeration.loop = pw_thread_loop_new("tinyaac-enumerate", NULL);
 	if (!enumeration.loop)
 		goto done;
@@ -1276,6 +1362,16 @@ unlock:
 			if (enumeration.clients[client_index]->proxy) {
 				spa_hook_remove(&enumeration.clients[client_index]->listener);
 				pw_proxy_destroy((struct pw_proxy *)enumeration.clients[client_index]->proxy);
+			}
+		}
+	}
+	{
+		/* yap fork */
+		size_t node_index;
+		for (node_index = 0; node_index < enumeration.node_proxy_count; ++node_index) {
+			if (enumeration.node_proxies[node_index]->proxy) {
+				spa_hook_remove(&enumeration.node_proxies[node_index]->listener);
+				pw_proxy_destroy((struct pw_proxy *)enumeration.node_proxies[node_index]->proxy);
 			}
 		}
 	}
@@ -1947,6 +2043,7 @@ void tinyaac_app_list_destroy(tinyaac_app_list *list)
 	for (index = 0; index < list->count; ++index) {
 		free((void *)list->apps[index].display_name);
 		free((void *)list->apps[index].identifier);
+		free((void *)list->apps[index].media_name); /* yap fork */
 	}
 	free(list->apps);
 	free(list);

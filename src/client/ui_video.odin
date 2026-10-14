@@ -202,13 +202,20 @@ share_menu :: proc(ui: ^UI) {
 	with_text_color(ctx, theme.dim, "Share a monitor:", label_proc)
 	picked := -1
 	windows := 0
-	for s, i in vid.sources {
+	for s in vid.sources {
 		if s.kind != .Monitor {
 			windows += 1
+		}
+	}
+	// The monitors and windows scroll, past a point (menu_list_begin).
+	rows := len(vid.sources) + (1 if windows > 0 else 0)
+	menu_list_begin(ui, "sources", SHARE_MENU_WIDTH, rows)
+	for s, i in vid.sources {
+		if s.kind != .Monitor {
 			continue
 		}
 		mu.push_id(ctx, uintptr(i))
-		mu.layout_row(ctx, {SHARE_MENU_WIDTH})
+		mu.layout_row(ctx, {-1})
 		label := fmt.tprintf(
 			"%s, %dx%d%s",
 			s.name,
@@ -222,7 +229,7 @@ share_menu :: proc(ui: ^UI) {
 		mu.pop_id(ctx)
 	}
 	if windows > 0 {
-		mu.layout_row(ctx, {SHARE_MENU_WIDTH})
+		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, theme.dim, "Or a window:", label_proc)
 	}
 	for s, i in vid.sources {
@@ -230,12 +237,13 @@ share_menu :: proc(ui: ^UI) {
 			continue
 		}
 		mu.push_id(ctx, uintptr(i))
-		mu.layout_row(ctx, {SHARE_MENU_WIDTH})
+		mu.layout_row(ctx, {-1})
 		if .SUBMIT in stable_button(ctx, "source", s.name) {
 			picked = i
 		}
 		mu.pop_id(ctx)
 	}
+	mu.end_panel(ctx)
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
 	if .SUBMIT in stable_button(ctx, "refresh", "Refresh") {
 		vid.menu_requested = true
