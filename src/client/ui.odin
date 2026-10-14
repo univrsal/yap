@@ -1444,6 +1444,8 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	rail_divider_gap(ui, rail)
 	// An enlarged image floats above it all (ui_images.odin).
 	image_viewer(ui, w, h)
+	// A screen being watched, popped out of its tab (ui_video.odin).
+	screen_window(ui, w, h)
 	pins_window(ui, w, h)
 	thread_windows(ui, w, h)
 	profile_windows(ui, w, h)

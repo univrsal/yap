@@ -212,7 +212,7 @@ somebody's screen, that and the screen as tabs, like a channel's chat
 */
 @(private = "file")
 conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
-	if ui.view.watching == 0 {
+	if !screen_docked(ui) {
 		conversation(ui, entry, found)
 		return
 	}

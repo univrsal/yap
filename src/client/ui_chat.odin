@@ -114,7 +114,7 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	}
 	// Tabs only while there's a screen to watch beside the chat; the
 	// status line has the row to itself otherwise.
-	if v.watching != 0 {
+	if screen_docked(ui) {
 		mu.layout_row(ctx, {90, 90, -1})
 		chat_label := "Chat" if v.unread == 0 else fmt.tprintf("Chat (%d)", v.unread)
 		if .SUBMIT in tab_button(ctx, "chat tab", chat_label, ui.chat.tab == .Chat) {

@@ -2,6 +2,7 @@ package client
 
 import "core:fmt"
 import "core:strings"
+import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
@@ -18,7 +19,9 @@ with the yap_video library (conn/video_native.odin), where the Share
 button opens a menu of monitors and windows to share (share_menu), or
 where the system asks itself (Wayland's portal, macOS 15), the system's
 picker; a browser has its own. Either way, the channel list marks who
-is sharing. What's shared is set up in the settings (Screen sharing,
+is sharing. The Screen tab's picture can be popped out into a window of
+its own (screen_window), which floats over every page and stays while
+another server is shown. What's shared is set up in the settings (Screen sharing,
 ui_share_settings.odin), held to what the server takes.
 
 The page or the library decodes the picture and hands us the newest
@@ -33,6 +36,14 @@ nothing but the picture while it lasts.
 UI_Video :: struct {
 	// Whom the tabs were last arranged for (see screen_tab_follow).
 	watched:        proto.User_Num,
+	// The picture is in its own window (screen_window) instead of the
+	// Screen tab, for whoever is watched, till it's put back.
+	popped:         bool,
+	window_placed:  bool, // it has been given a place, once
+	window_shown:   bool, // it was drawn last frame
+	// Whom its close button stopped watching: kept closed until the
+	// network side has heard (the View still says them meanwhile).
+	window_closed:  proto.User_Num,
 	// The share menu: to be opened, and what it offers (owned).
 	menu_requested: bool,
 	sources:        []conn.Video_Source,
@@ -271,12 +282,19 @@ the View locked.
 */
 screen_tab_follow :: proc(ui: ^UI) {
 	watching := ui.view.watching
+	// The tab has nothing to show with the picture in its own window,
+	// or nobody watched (a stashed server's tab, shown again).
+	if ui.chat.tab == .Screen && (watching == 0 || ui.video.popped) {
+		ui.chat.tab = .Chat
+	}
 	if watching == ui.video.watched {
 		return
 	}
 	ui.video.watched = watching
 	if watching != 0 {
-		ui.chat.tab = .Screen
+		if !ui.video.popped {
+			ui.chat.tab = .Screen
+		}
 	} else {
 		if ui.chat.tab == .Screen {
 			ui.chat.tab = .Chat
@@ -285,10 +303,17 @@ screen_tab_follow :: proc(ui: ^UI) {
 	}
 }
 
-// watched_name is who we're watching, for a title.
+// screen_docked says whether the Screen tab is offered beside the chat:
+// while watching somebody, unless the picture is popped out. Call with
+// the View locked.
+screen_docked :: proc(ui: ^UI) -> bool {
+	return ui.view.watching != 0 && !ui.video.popped
+}
+
+// watched_name is who `v` is watching, for a title.
 @(private = "file")
-watched_name :: proc(ui: ^UI) -> string {
-	if u, ok := ui.view.users[ui.view.watching]; ok {
+watched_name :: proc(v: ^conn.View) -> string {
+	if u, ok := v.users[v.watching]; ok {
 		return u.name
 	}
 	return "somebody"
@@ -297,14 +322,30 @@ watched_name :: proc(ui: ^UI) -> string {
 // screen_panel fills the Screen tab. Call with the View locked.
 screen_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 2 * ctx.style.spacing), ICON_BUTTON, ICON_BUTTON})
-	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(ui)))
+	mu.layout_row(
+		ctx,
+		{-(3 * ICON_BUTTON + 3 * ctx.style.spacing), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
+	)
+	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(ui.view)))
+	if .SUBMIT in icon_button(ui, "pop out", .Pop_Out, "Pop out into its own window") {
+		ui.video.popped = true
+		ui.chat.tab = .Chat
+	}
 	if .SUBMIT in icon_button(ui, "fullscreen", .Fullscreen, "Fullscreen") {
 		conn.video_set_fullscreen(true)
 	}
 	if .SUBMIT in icon_button(ui, "stop watching", .Screen_Off, "Stop watching") {
 		watch(ui, 0)
 	}
+	picture_and_figures(ui, ui.view)
+}
+
+// picture_and_figures fills the rest of the panel or window with the
+// picture, and the figures under it if the settings say so. Call with
+// `v` locked.
+@(private = "file")
+picture_and_figures :: proc(ui: ^UI, v: ^conn.View) {
+	ctx := &ui.ctx
 	figures := ui.settings.share_stats
 	if figures {
 		mu.layout_row(ctx, {-1}, -(ctx.style.size.y + ctx.style.spacing))
@@ -314,8 +355,87 @@ screen_panel :: proc(ui: ^UI) {
 	picture(ui, mu.layout_next(ctx))
 	if figures {
 		mu.layout_row(ctx, {-1})
-		figures_line(ui)
+		figures_line(ui, v)
 	}
+}
+
+@(private = "file")
+SCREEN_WINDOW :: "Screen"
+
+/*
+screen_window is the picture popped out of the Screen tab: a window of
+its own over every page, at first in the bottom right-hand corner. It
+shows what the server our voice is in watches - watching takes being in
+the sharer's room - so it stays while another server is shown (see
+show_session). Fullscreen and putting it back are offered while that
+server is the one shown; its close button stops watching. Call with no
+View locked.
+*/
+screen_window :: proc(ui: ^UI, window_w, window_h: i32) {
+	vid := &ui.video
+	ns := ui.voice_at
+	if !vid.popped || ns == nil {
+		vid.window_shown = false
+		return
+	}
+	v := &ns.view
+	sync.guard(&v.mutex)
+	if v.watching != vid.window_closed {
+		vid.window_closed = 0
+	}
+	shown_here := ns == ui.session && ui.page != .Settings
+	// Fullscreen, it's the picture that fills the window (session_screen).
+	if v.watching == 0 || v.watching == vid.window_closed || (shown_here && conn.video_is_fullscreen()) {
+		vid.window_shown = false
+		return
+	}
+	ctx := &ui.ctx
+	if !vid.window_shown {
+		if cnt := mu.get_container(ctx, SCREEN_WINDOW); cnt != nil {
+			if !vid.window_placed {
+				vid.window_placed = true
+				w := clamp(window_w / 3, 320, 640)
+				h := w * 9 / 16 + 2 * (ctx.style.size.y + 2 * ctx.style.padding) + 3 * ctx.style.spacing
+				if ui.settings.share_stats {
+					h += ctx.style.size.y + ctx.style.spacing
+				}
+				cnt.rect = {window_w - w - 20, window_h - h - 20, w, h}
+			}
+			cnt.open = true
+			mu.bring_to_front(ctx, cnt)
+		}
+	}
+	vid.window_shown = true
+	if !mu.begin_window(ctx, SCREEN_WINDOW, {}, {.NO_SCROLL}) {
+		// Closed with the title bar's button.
+		vid.window_shown = false
+		vid.window_closed = v.watching
+		conn.push_command(&ns.client.commands, conn.Watch_Command{user = 0})
+		return
+	}
+	defer mu.end_window(ctx)
+
+	// No fullscreen over the settings, nor either button for a server
+	// not shown.
+	buttons: i32 = 0
+	if ns == ui.session {
+		buttons = 2 if shown_here else 1
+	}
+	widths := [3]i32{-1, ICON_BUTTON, ICON_BUTTON}
+	if buttons > 0 {
+		widths[0] = -(buttons * (ICON_BUTTON + ctx.style.spacing))
+	}
+	mu.layout_row(ctx, widths[:buttons + 1])
+	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(v)))
+	if shown_here && .SUBMIT in icon_button(ui, "popped fullscreen", .Fullscreen, "Fullscreen") {
+		conn.video_set_fullscreen(true)
+	}
+	if ns == ui.session &&
+	   .SUBMIT in icon_button(ui, "pop in", .Pop_In, "Put back beside the chat") {
+		vid.popped = false
+		ui.chat.tab = .Screen
+	}
+	picture_and_figures(ui, v)
 }
 
 /*
@@ -324,10 +444,10 @@ codec and bitrate, how it's decoded, and what got lost on the way (and
 how much of it asking again saved). Call with the View locked.
 */
 @(private = "file")
-figures_line :: proc(ui: ^UI) {
+figures_line :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	vid := &ui.video
-	s := ui.view.video_stats
+	s := v.video_stats
 	frames, hardware := conn.video_picture_info()
 	// The frame rate, from how many were decoded in the last second.
 	if now := time.tick_now(); vid.fps_at == {} || frames < vid.fps_frames {
@@ -381,7 +501,7 @@ fullscreen_screen :: proc(ui: ^UI) {
 	with_text_color(
 		ctx,
 		theme.dim,
-		fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui)),
+		fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui.view)),
 		label_proc,
 	)
 	if .SUBMIT in icon_button(ui, "exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||

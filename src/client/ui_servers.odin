@@ -181,7 +181,9 @@ stash_destroy :: proc(ui: ^UI, ns: ^Net_Session) {
 /*
 show_session shows another session (nil: none), keeping what the UI
 had of the one shown till now in its stash. What the shown server was
-watching of somebody's screen stops: there's one picture to show it in.
+watching of somebody's screen stops: there's one picture to show it in,
+the Screen tab - unless it's popped out into its own window, which
+stays (screen_window, ui_video.odin).
 */
 show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 	if ns == ui.session {
@@ -190,7 +192,9 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 	if old := ui.session; old != nil {
 		// Nothing there is being read or watched while it isn't shown;
 		// shown again, it's told what is.
-		conn.push_command(&old.client.commands, conn.Watch_Command{user = 0})
+		if !ui.video.popped || old != ui.voice_at {
+			conn.push_command(&old.client.commands, conn.Watch_Command{user = 0})
+		}
 		conn.push_command(&old.client.commands, conn.Reading_Command{conv = 0})
 		old.stash = ui.srv
 		old.stash.timeline.reading = 0

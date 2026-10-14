@@ -99,6 +99,7 @@ test_icons_tell_states_apart :: proc(t: ^testing.T) {
 		!same(&a, .Fullscreen, .Exit_Fullscreen),
 		"leaving fullscreen looks like going fullscreen",
 	)
+	testing.expect(t, !same(&a, .Pop_Out, .Pop_In), "popping in looks like popping out")
 	// A line through an icon covers more of the square than the icon did.
 	testing.expect(
 		t,

@@ -52,6 +52,8 @@ Icon :: enum {
 	Screen_Off, // a monitor with a line through it: stop watching a screen
 	Fullscreen, // four corners pointing out: fill the screen
 	Exit_Fullscreen, // four corners pointing in: back from fullscreen
+	Pop_Out, // an arrow out of a frame's corner: into a window of its own
+	Pop_In, // an arrow into a frame's corner: back from its own window
 	// The window's own controls, where Windows has none (ui_titlebar_windows.odin).
 	Minimize, // a line
 	Maximize, // a box
@@ -237,6 +239,10 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return corners(p, false)
 	case .Exit_Fullscreen:
 		return corners(p, true)
+	case .Pop_Out:
+		return popping(p, false)
+	case .Pop_In:
+		return popping(p, true)
 	case .Minimize, .Maximize, .Restore, .Close:
 		// Drawn in texels instead (window_control).
 		return 1
@@ -338,6 +344,8 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Screen_Off,
 	     .Fullscreen,
 	     .Exit_Fullscreen,
+	     .Pop_Out,
+	     .Pop_In,
 	     .Check,
 	     .Collapsed,
 	     .Expanded:
@@ -403,6 +411,25 @@ corners :: proc(p: Point, inwards: bool) -> f32 {
 	}
 	d := capsule(q, {NEAR, NEAR}, {NEAR, FAR}, STROKE)
 	return nearer(d, capsule(q, {NEAR, NEAR}, {FAR, NEAR}, STROKE))
+}
+
+/*
+Popping a picture out of the window, or back in: a frame open at its top
+right-hand corner, and across the gap an arrow between the frame's
+middle and that corner, pointing out to the corner or in from it.
+*/
+@(private = "file")
+popping :: proc(p: Point, inwards: bool) -> f32 {
+	STROKE :: 0.085
+	d := abs(rounded_box(p, {0.44, 0.56}, {0.32, 0.32}, 0.07)) - STROKE / 2
+	d = cut(d, rounded_box(p, {0.80, 0.20}, {0.26, 0.26}, 0))
+	d = nearer(d, capsule(p, {0.40, 0.60}, {0.84, 0.16}, STROKE))
+	if inwards {
+		d = nearer(d, capsule(p, {0.40, 0.60}, {0.40, 0.36}, STROKE))
+		return nearer(d, capsule(p, {0.40, 0.60}, {0.64, 0.60}, STROKE))
+	}
+	d = nearer(d, capsule(p, {0.84, 0.16}, {0.60, 0.16}, STROKE))
+	return nearer(d, capsule(p, {0.84, 0.16}, {0.84, 0.40}, STROKE))
 }
 
 // A monitor: the outline of a screen on a short stand.
