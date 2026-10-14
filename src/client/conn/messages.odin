@@ -991,9 +991,7 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 
 /*
 msgs_purged takes the server saying it has purged a conversation below
-an id (phase 15): the messages there, but for some it kept (pinned ones,
-roots of threads that go on), which the windows let go of and fetch
-again when they're scrolled to; or the files they carry (purge_files). A
+an id: Messages other than pinned ones and roots of threads that go on are removed. A
 window with nothing left is fetched again if it's on screen.
 */
 @(private = "file")
@@ -1058,7 +1056,7 @@ msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 }
 
 // purge_files takes the files out of a conversation's messages below
-// the purge's boundary, but for pinned ones: they stay listed, without
+// the purge's boundary, but for pinned ones  stay listed, without
 // their blobs.
 @(private = "file")
 purge_files :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
@@ -1090,8 +1088,7 @@ purge_files :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	}
 }
 
-// reaction_changed is someone's reaction added or taken back: the
-// message, where a window has it, says so.
+// reaction_changed is someone's reaction added or taken back
 @(private = "file")
 reaction_changed :: proc(c: ^Voice_Client, change: proto.Reaction_Change) {
 	react :: proc(c: ^Voice_Client, m: ^Msg, change: proto.Reaction_Change) {
@@ -1257,7 +1254,7 @@ msg_forward :: proc(c: ^Voice_Client, cmd: Forward_Command) {
 				notify(c, true, "Forwarded.")
 			case .Reset:
 			case .Not_Found:
-				notify(c, false, "That message, or where it was to go, isn't there for you.")
+				notify(c, false, "That message to forward or the forward destination can't be found.")
 			case .Invalid:
 				notify(c, false, "That message can't be forwarded.")
 			case .Denied:
@@ -1321,7 +1318,7 @@ change_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64
 	#partial switch status {
 	case .Ok, .Reset:
 	case .Denied:
-		notify(c, false, "You aren't allowed to do that to this message.")
+		notify(c, false, "You aren't allowed to modify this message.")
 	case .Too_Large:
 		notify(
 			c,
@@ -1379,7 +1376,7 @@ pins_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 }
 
 // messages_jump_to has the window of the conversation we're looking at
-// reach message `id`: a page around it, unless it's in the window
+// jump to message `id`: a page around it, unless it's in the window
 // already.
 messages_jump_to :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 	conv := c.convs.viewing
@@ -1874,7 +1871,7 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 		if p.kind == .File {
 			outbox_give_up(
 				c,
-				"That file can't be offered: only archives, pictures and videos, in a DM.",
+				"That file can't be offered: only archives, pictures and videos.",
 			)
 			return
 		}

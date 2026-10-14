@@ -297,7 +297,7 @@ auth_register :: proc(c: ^Voice_Client, cmd: Register_Command) {
 	)
 	if body == nil {
 		forget_password(a)
-		set_state(c, .Needed, "Something there is too long.")
+		set_state(c, .Needed, "Some field is too long.")
 		return
 	}
 	set_state(c, .Working)
@@ -350,7 +350,7 @@ register_refusal_text :: proc(reason: proto.Register_Refusal) -> string {
 	case .Email_Missing:
 		return "This server asks for an email address."
 	case .Email:
-		return "That's no email address."
+		return "That's not a valid email address."
 	case .Email_Taken:
 		return "Another account has that email address."
 	case .Invite_Missing:
@@ -702,7 +702,7 @@ auth_email :: proc(c: ^Voice_Client, raw: string) {
 			case .Conflict:
 				notify(c, false, "Another account has that email address.")
 			case .Invalid:
-				notify(c, false, "That's no email address.")
+				notify(c, false, "That's not a valid email address.")
 			case:
 				notify(c, false, status_text(status))
 			}

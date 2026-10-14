@@ -17,8 +17,7 @@ import log "common:wlog"
 Screen sharing on the desktop comes from an optional library, yap_video
 (src/video, misc/hq-share/README.md), loaded from next to the executable
 the first time anything here is asked. Without it, or with one of
-another version, the client neither shares nor watches, as before; it
-still shows who is sharing.
+another version, the client neither shares nor watches.
 
 The library decodes on threads of its own and keeps the newest picture
 on the GPU, made for our renderer's device (video_picture); frames are

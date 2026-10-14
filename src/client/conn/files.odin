@@ -344,7 +344,7 @@ files_step :: proc(c: ^Voice_Client) {
 				send_chunks(c, t, now)
 			}
 		} else {
-			switch t.state {
+			#partial switch t.state {
 			case .Starting:
 				// Until chunks come, ask for them.
 				if t.recv.last_ack == {} ||
@@ -360,17 +360,6 @@ files_step :: proc(c: ^Voice_Client) {
 				if time.tick_diff(t.recv.last_ack, now) >= proto.TRANSFER_ACK_INTERVAL {
 					send_file_ack(c, t, now)
 				}
-			case .Unknown,
-			     .Posting,
-			     .Offered,
-			     .Incoming,
-			     .Done,
-			     .Declined,
-			     .Cancelled,
-			     .Failed,
-			     .Interrupted,
-			     .Expired,
-			     .Elsewhere:
 			}
 		}
 		update_rate(t, now)
