@@ -188,22 +188,11 @@ settings_page :: proc(ui: ^UI) {
 
 /*
 category_row is one line of a settings tab's list of categories (or the
-Roles list, ui_roles.odin): highlighted while it's the one picked, true
-when it's clicked.
+Roles list, ui_roles.odin), a list_row: true when it's clicked.
 */
 category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 	mu.layout_row(ctx, {-1})
-	id := mu.get_id(ctx, label)
-	rect := mu.layout_next(ctx)
-	mu.update_control(ctx, id, rect)
-	switch {
-	case selected:
-		mu.draw_rect(ctx, rect, ctx.style.colors[.BUTTON_FOCUS])
-	case ctx.hover_id == id:
-		mu.draw_rect(ctx, rect, ctx.style.colors[.BUTTON_HOVER])
-	}
-	mu.draw_control_text(ctx, label, rect, .TEXT, {})
-	return ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT}
+	return .SUBMIT in list_row(ctx, label, label, selected)
 }
 
 // audio_settings picks the send quality preset (see audio/quality.odin),

@@ -161,6 +161,9 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		append(&ui.text_boxes, Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), true})
 	}
 	mu.update_control(ctx, id, r, {.HOLD_FOCUS})
+	if ctx.hover_id == id {
+		ui.select.over_text = true // an I-beam over it (draw_frame)
+	}
 
 	font := ctx.style.font
 	lh := ctx.text_height(font)

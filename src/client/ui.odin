@@ -1993,6 +1993,39 @@ stable_button :: proc(
 	return
 }
 
+/*
+list_row is a line of a list to pick from - a settings tab's categories,
+the channels - as text: boxed and bold while it's the one picked,
+highlighted under the mouse. Clicked with the left button, it submits.
+*/
+list_row :: proc(
+	ctx: ^mu.Context,
+	id_name, label: string,
+	selected: bool,
+) -> (
+	res: mu.Result_Set,
+) {
+	id := mu.get_id(ctx, id_name)
+	r := mu.layout_next(ctx)
+	mu.update_control(ctx, id, r)
+	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+		res += {.SUBMIT}
+	}
+	switch {
+	case selected:
+		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_FOCUS])
+	case ctx.hover_id == id:
+		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
+	}
+	saved := ctx.style.font
+	if selected {
+		ctx.style.font = render.font_with_style(saved, .Bold)
+	}
+	mu.draw_control_text(ctx, label, r, .TEXT, {})
+	ctx.style.font = saved
+	return
+}
+
 label_proc :: proc(ctx: ^mu.Context, text: string) {
 	mu.label(ctx, text)
 }

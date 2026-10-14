@@ -53,7 +53,7 @@ Selection :: struct {
 	pressed:   bool, // the button went down over the panel
 	hit:       Text_Pos, // the place under the pointer, so far
 	found:     bool, // `hit` is set
-	over_text: bool, // the pointer is on some text: an I-beam cursor
+	over_text: bool, // the pointer is on some text, or a text box: an I-beam cursor
 	text:      strings.Builder, // what's selected, for Ctrl+C
 	last_item: i64, // the item text was last added from
 }
