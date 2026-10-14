@@ -84,7 +84,9 @@ panel_state :: proc(v: ^conn.View) -> Panel_State {
 /*
 call_peer_row is the line of a call about whom it's with: their
 picture, ringed while they're heard; their name; the mic or speaker
-crossed out if they're muted or deafened; and how long it has lasted.
+crossed out if they're muted or deafened; while they share their
+screen, a button for watching it (there's no row of theirs in a
+channel's list to click); and how long it has lasted.
 */
 @(private = "file")
 call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
@@ -102,16 +104,20 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	}
 	slot := picture_slot(ctx)
 	icon, icon_color := their_status(peer, num != 0 && conn.is_speaking(v, num))
-	mu.layout_row(
-		ctx,
-		{
-			slot + PICTURE_GAP,
-			-(60 + render.ICON_SIZE + 2 * ctx.style.spacing),
-			render.ICON_SIZE + 4,
-			56,
-		},
-		max(slot, ctx.style.size.y + 2 * ctx.style.padding),
-	)
+	watching := num != 0 && v.watching == num
+	can_watch := num != 0 && peer.sharing && (can_watch_screens(ui) || watching)
+	widths := make([dynamic]i32, context.temp_allocator)
+	append(&widths, slot + PICTURE_GAP)
+	name_w := -(60 + render.ICON_SIZE + 2 * ctx.style.spacing)
+	if can_watch {
+		name_w -= ICON_BUTTON + ctx.style.spacing
+	}
+	append(&widths, name_w, render.ICON_SIZE + 4)
+	if can_watch {
+		append(&widths, ICON_BUTTON)
+	}
+	append(&widths, 56)
+	mu.layout_row(ctx, widths[:], max(slot, ctx.style.size.y + 2 * ctx.style.padding))
 	cell := mu.layout_next(ctx)
 	talking := num != 0 && conn.is_speaking(v, num) && !peer.muted
 	avatar_ringed(ui, v.call.peer, {cell.x, cell.y + (cell.h - slot) / 2, slot, slot}, talking)
@@ -125,6 +131,18 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 		}
 	} else {
 		mu.label(ctx, "")
+	}
+	if can_watch {
+		if .SUBMIT in
+		   icon_button(
+			   ui,
+			   "watch peer",
+			   .Screen_Off if watching else .Screen,
+			   "Stop watching" if watching else "Watch their screen",
+			   theme.speaking if watching else mu.Color{},
+		   ) {
+			watch(ui, 0 if watching else num)
+		}
 	}
 	length := call_length_shown(ui, p.since)
 	with_text_color(ctx, theme.dim, length, label_proc)
