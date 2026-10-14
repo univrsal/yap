@@ -23,6 +23,10 @@ opens a DM with them.
 
 @(private = "file")
 MENU :: "user menu"
+// Every row of the menu is laid out to this width, never -1: the popup
+// sizes itself to its content, and microui lays a frame out in the size
+// from two frames before, so a row filling the body would keep two widths
+// alternating forever (a wider one left over from the last menu opened).
 @(private = "file")
 MENU_WIDTH :: 240
 
@@ -275,7 +279,7 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	v := ui.view
 	PICTURE :: 44
 	line := ctx.text_height(ctx.style.font)
-	mu.layout_row(ctx, {PICTURE, -1}, PICTURE)
+	mu.layout_row(ctx, {PICTURE, MENU_WIDTH - PICTURE - ctx.style.spacing}, PICTURE)
 	avatar(ui, account, mu.layout_next(ctx))
 	r := mu.layout_next(ctx)
 	color, colored := name_color(v, account)
@@ -296,14 +300,14 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 		theme.dim,
 	)
 	if status := status_line(acc); status != "" {
-		mu.layout_row(ctx, {-1})
+		mu.layout_row(ctx, {MENU_WIDTH})
 		with_text_color(ctx, ctx.style.colors[.TEXT], status, label_proc)
 	}
 	if len(acc.roles) > 0 {
 		role_chips(ui, acc.roles, MENU_WIDTH)
 	}
 	if invited := invited_by_line(ui, v, account); invited != "" {
-		mu.layout_row(ctx, {-1})
+		mu.layout_row(ctx, {MENU_WIDTH})
 		with_text_color(ctx, theme.dim, invited, label_proc)
 	}
 }
@@ -378,7 +382,7 @@ user_menu :: proc(ui: ^UI) {
 	if talking_to {
 		append(&widths, ICON_BUTTON)
 	}
-	widths[0] = i32(MENU_WIDTH) - ICON_BUTTON * i32(len(widths) - 1)
+	widths[0] = i32(MENU_WIDTH) - (ICON_BUTTON + ctx.style.spacing) * i32(len(widths) - 1)
 	mu.layout_row(ctx, widths[:])
 
 	mu.label(ctx, "")
