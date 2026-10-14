@@ -70,7 +70,10 @@ rate_take :: proc(g: ^Gateway, key: ^ecdh.Private_Key) -> (r: Reply, limited: bo
 			last   = now,
 		}
 	}
-	b.tokens = min(b.tokens + time.duration_seconds(time.tick_diff(b.last, now)) * g.cfg.rate, burst)
+	b.tokens = min(
+		b.tokens + time.duration_seconds(time.tick_diff(b.last, now)) * g.cfg.rate,
+		burst,
+	)
 	b.last = now
 	defer g.buckets[pub] = b
 	if b.tokens < 1 {

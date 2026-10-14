@@ -37,9 +37,15 @@ BOT_TOKEN_SIZE :: len(BOT_TOKEN_PREFIX) + 43
 // What a token's device is called when the admin doesn't say.
 BOT_DEVICE_NAME :: "token"
 
-BOT_BODY_MAX :: 4 + (1 + MAX_USERNAME_SIZE) + (1 + MAX_NAME_SIZE) + KEY_SIZE + (1 + MAX_DEVICE_NAME)
+BOT_BODY_MAX ::
+	4 + (1 + MAX_USERNAME_SIZE) + (1 + MAX_NAME_SIZE) + KEY_SIZE + (1 + MAX_DEVICE_NAME)
 
-encode_bot_create :: proc(out: []u8, username, display: string, key: [KEY_SIZE]u8, device: string) -> []u8 {
+encode_bot_create :: proc(
+	out: []u8,
+	username, display: string,
+	key: [KEY_SIZE]u8,
+	device: string,
+) -> []u8 {
 	key := key
 	w := Writer {
 		buf = out,
@@ -69,7 +75,12 @@ decode_bot_create :: proc(
 	return username, display, key, device, !r.overflow
 }
 
-encode_bot_token_add :: proc(out: []u8, account: Account_Id, key: [KEY_SIZE]u8, device: string) -> []u8 {
+encode_bot_token_add :: proc(
+	out: []u8,
+	account: Account_Id,
+	key: [KEY_SIZE]u8,
+	device: string,
+) -> []u8 {
 	key := key
 	w := Writer {
 		buf = out,

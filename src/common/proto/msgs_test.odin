@@ -262,15 +262,7 @@ test_typing :: proc(t: ^testing.T) {
 
 @(test)
 test_old_chat_retired :: proc(t: ^testing.T) {
-	for kind in ([]Message_Kind {
-			.Chat_Send,
-			.Chat_Sent,
-			.Chat,
-			.Chat_Received,
-			.Image_Send,
-			.Image_Get,
-			.Image_Gone,
-		}) {
+	for kind in ([]Message_Kind{.Chat_Send, .Chat_Sent, .Chat, .Chat_Received, .Image_Send, .Image_Get, .Image_Gone}) {
 		pt := make([]u8, 64, context.temp_allocator)
 		pt[0] = u8(kind)
 		_, ok := message_kind(pt)

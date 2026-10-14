@@ -83,22 +83,22 @@ decode_nack :: proc(pt: []u8) -> (sharer: User_Num, n: Video_Nack, ok: bool) {
 
 @(private = "file")
 Window_Slot :: struct {
-	used:      bool,
-	frame:     u32,
-	ts:        u32,
-	key:       bool,
-	codec:     Video_Codec,
-	count:     int, // 0 while none of it has come
-	received:  int,
-	size:      int,
-	newest:    int, // the highest index come so far, -1 for none
-	have:      [MAX_VIDEO_FRAGMENTS]bool,
-	buf:       [dynamic]u8,
-	last_at:   time.Tick, // its last fragment
-	gap_at:    time.Tick, // when it was first seen to lack something
-	rounds:    int, // Nack rounds sent
-	nack_at:   time.Tick,
-	gave_up:   bool,
+	used:     bool,
+	frame:    u32,
+	ts:       u32,
+	key:      bool,
+	codec:    Video_Codec,
+	count:    int, // 0 while none of it has come
+	received: int,
+	size:     int,
+	newest:   int, // the highest index come so far, -1 for none
+	have:     [MAX_VIDEO_FRAGMENTS]bool,
+	buf:      [dynamic]u8,
+	last_at:  time.Tick, // its last fragment
+	gap_at:   time.Tick, // when it was first seen to lack something
+	rounds:   int, // Nack rounds sent
+	nack_at:  time.Tick,
+	gave_up:  bool,
 }
 
 Video_Window :: struct {
@@ -252,12 +252,13 @@ video_window_pop :: proc(w: ^Video_Window) -> (frame: Video_Frame, ok: bool) {
 			// is until the slot is taken again.
 			s.used = false
 			return {
-				frame = s.frame,
-				ts = s.ts,
-				key = s.key,
-				codec = s.codec,
-				data = s.buf[:s.size],
-			}, true
+					frame = s.frame,
+					ts = s.ts,
+					key = s.key,
+					codec = s.codec,
+					data = s.buf[:s.size],
+				},
+				true
 		case s.gave_up:
 			w.next += 1
 			w.broken = true

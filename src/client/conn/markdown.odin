@@ -111,7 +111,11 @@ markdown_parse is `shown` with its markdown worked out. `atoms` are
 byte ranges of it that aren't to be looked into (see above), in any
 order but not overlapping. All in `allocator`.
 */
-markdown_parse :: proc(shown: string, atoms: []Md_Atom, allocator := context.temp_allocator) -> Rich_Text {
+markdown_parse :: proc(
+	shown: string,
+	atoms: []Md_Atom,
+	allocator := context.temp_allocator,
+) -> Rich_Text {
 	o := Out {
 		b     = strings.builder_make(allocator),
 		segs  = make([dynamic]Seg, context.temp_allocator),
@@ -251,7 +255,14 @@ For `*`, which is both italic and half of bold, a run of them counts as
 italic when it's odd (`*`, `***`) and bold when it's two or more, so
 italic and bold go on and off separately.
 */
-markdown_toggle :: proc(text: string, lo, hi: int, marker: string) -> (out: string, new_lo, new_hi: int) {
+markdown_toggle :: proc(
+	text: string,
+	lo, hi: int,
+	marker: string,
+) -> (
+	out: string,
+	new_lo, new_hi: int,
+) {
 	m := len(marker)
 	c := marker[0]
 	there :: proc(c: u8, m, left, right: int) -> bool {
@@ -279,8 +290,13 @@ markdown_toggle :: proc(text: string, lo, hi: int, marker: string) -> (out: stri
 	case there(c, m, run_back(text, lo, c), run_on(text, hi, c)):
 		out = strings.concatenate({text[:lo - m], sel, text[hi + m:]}, context.temp_allocator)
 		return out, lo - m, hi - m
-	case len(sel) >= 2 * m && there(c, m, run_on(sel, 0, c), run_back(sel, len(sel), c)) && run_on(sel, 0, c) < len(sel):
-		out = strings.concatenate({text[:lo], sel[m:len(sel) - m], text[hi:]}, context.temp_allocator)
+	case len(sel) >= 2 * m &&
+	     there(c, m, run_on(sel, 0, c), run_back(sel, len(sel), c)) &&
+	     run_on(sel, 0, c) < len(sel):
+		out = strings.concatenate(
+			{text[:lo], sel[m:len(sel) - m], text[hi:]},
+			context.temp_allocator,
+		)
 		return out, lo, hi - 2 * m
 	}
 	out = strings.concatenate({text[:lo], marker, sel, marker, text[hi:]}, context.temp_allocator)
@@ -326,7 +342,10 @@ out_copy :: proc(o: ^Out, src: string, start, end: int, styles: Md_Styles) {
 	}
 	at := out_len(o)
 	strings.write_string(&o.b, src[start:end])
-	if n := len(o.segs); n > 0 && o.segs[n - 1].src + o.segs[n - 1].n == start && o.segs[n - 1].out + o.segs[n - 1].n == at {
+	if n := len(o.segs);
+	   n > 0 &&
+	   o.segs[n - 1].src + o.segs[n - 1].n == start &&
+	   o.segs[n - 1].out + o.segs[n - 1].n == at {
 		o.segs[n - 1].n += end - start
 	} else {
 		append(&o.segs, Seg{start, at, end - start})
@@ -421,7 +440,8 @@ inline :: proc(p: ^Parser, start, end: int) {
 		ch := src[i]
 		switch ch {
 		case '\\':
-			if i + 1 < end && strings.index_byte("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", src[i + 1]) >= 0 {
+			if i + 1 < end &&
+			   strings.index_byte("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~", src[i + 1]) >= 0 {
 				text(&toks, i + 1, i + 2)
 				i += 2
 				continue
@@ -465,7 +485,17 @@ inline :: proc(p: ^Parser, start, end: int) {
 				}
 			}
 			if opens || closes {
-				append(&toks, Tok{kind = .Delim, start = i, end = i + n, ch = ch, can_open = opens, can_close = closes})
+				append(
+					&toks,
+					Tok {
+						kind = .Delim,
+						start = i,
+						end = i + n,
+						ch = ch,
+						can_open = opens,
+						can_close = closes,
+					},
+				)
 			} else {
 				text(&toks, i, i + n)
 			}
@@ -492,7 +522,10 @@ inline :: proc(p: ^Parser, start, end: int) {
 		case .Link_Open:
 			link_start = out_len(o)
 		case .Link_Close:
-			append(&o.links, Md_Link{link_start, out_len(o), strings.clone(t.url, o.b.buf.allocator)})
+			append(
+				&o.links,
+				Md_Link{link_start, out_len(o), strings.clone(t.url, o.b.buf.allocator)},
+			)
 		}
 	}
 }

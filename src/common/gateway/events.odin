@@ -216,7 +216,7 @@ events_attach :: proc(c: ^Conn, j: ^Job) {
 			reply(j, {status = 101})
 			return
 		}
-		feed_push(f, event_frame("INVALID_SESSION", c.seq, struct {}{}))
+		feed_push(f, event_frame("INVALID_SESSION", c.seq, struct{}{}))
 	}
 	feed_push(f, event_frame("READY", c.seq, ready_json(c)))
 	j.feed = f
@@ -268,7 +268,11 @@ events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 		if !ok {
 			return
 		}
-		emit(c, "MESSAGES_PURGED", Purged_JSON{id_string(p.conv), id_string(p.before), enum_name(p.what)})
+		emit(
+			c,
+			"MESSAGES_PURGED",
+			Purged_JSON{id_string(p.conv), id_string(p.before), enum_name(p.what)},
+		)
 	case .Conv_Changed:
 		conv, ok := proto.decode_conv(body)
 		if !ok {
@@ -329,8 +333,8 @@ events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 		// Ready by then.
 		c.seq += 1
 		frame := event_frame("LOGGED_OUT", c.seq, struct {
-				reason: string,
-			}{enum_name(reason)})
+			reason: string,
+		}{enum_name(reason)})
 		if c.feed != nil {
 			feed_push(c.feed, frame)
 		}
@@ -442,7 +446,15 @@ events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 		token, _ = http.query_value(req.query, "token")
 	}
 	if token == "" || !proto.bot_token_parse(token, &j.key) {
-		send(c, error_reply(401, "unauthenticated", "A token is needed: Authorization: Bot <token>, or ?token=."), false)
+		send(
+			c,
+			error_reply(
+				401,
+				"unauthenticated",
+				"A token is needed: Authorization: Bot <token>, or ?token=.",
+			),
+			false,
+		)
 		return
 	}
 	if r, limited := rate_take(g, &j.key); limited {
@@ -452,7 +464,11 @@ events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 	j.params[0] = net.endpoint_to_string(c.remote, context.temp_allocator)
 	key := http.header(req, "Sec-WebSocket-Key")
 	if !strings.equal_fold(http.header(req, "Upgrade"), "websocket") || key == "" {
-		send(c, error_reply(400, "invalid", "This is a WebSocket: GET it with Upgrade: websocket."), false)
+		send(
+			c,
+			error_reply(400, "invalid", "This is a WebSocket: GET it with Upgrade: websocket."),
+			false,
+		)
 		return
 	}
 	if resume, given := http.query_value(req.query, "resume"); given {
@@ -484,7 +500,12 @@ events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 	}
 	// A live client answers the pings; one that doesn't is gone.
 	idle_timeout(c, EVENTS_IDLE)
-	writer := thread.create_and_start_with_poly_data2(f, c.sock, feed_writer, init_context = context)
+	writer := thread.create_and_start_with_poly_data2(
+		f,
+		c.sock,
+		feed_writer,
+		init_context = context,
+	)
 	payload: [http.MAX_FRAME]u8
 	loop: for {
 		op, n, ok := http.read_frame(c, payload[:])

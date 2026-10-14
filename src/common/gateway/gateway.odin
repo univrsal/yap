@@ -66,45 +66,44 @@ Config :: struct {
 }
 
 Gateway :: struct {
-	cfg:     Config, // password owned
+	cfg:          Config, // password owned
 	// Jobs handed over by HTTP threads, under the lock.
-	mutex:   sync.Mutex,
-	jobs:    [dynamic]^Job,
-	stop:    bool, // under the lock
-	thread:  ^thread.Thread,
+	mutex:        sync.Mutex,
+	jobs:         [dynamic]^Job,
+	stop:         bool, // under the lock
+	thread:       ^thread.Thread,
 	// Each token's bucket of requests (limits.odin), the HTTP threads'.
 	limits_mutex: sync.Mutex,
-	buckets: map[[proto.KEY_SIZE]u8]Bucket,
+	buckets:      map[[proto.KEY_SIZE]u8]Bucket,
 	// The gateway thread's own, from here on.
-	conns:   map[[proto.KEY_SIZE]u8]^Conn, // by the device's public key
+	conns:        map[[proto.KEY_SIZE]u8]^Conn, // by the device's public key
 	// The connection for what needs no token: logged in to nothing.
-	guest:   ^Conn,
+	guest:        ^Conn,
 }
 
 // Conn is a token's connection, and what the gateway knows through it.
 Conn :: struct {
-	g:         ^Gateway,
-	client:    lite.Client,
+	g:          ^Gateway,
+	client:     lite.Client,
 	// Jobs waiting for it to be logged in and synced.
-	waiting:   [dynamic]^Job,
+	waiting:    [dynamic]^Job,
 	// The /login that made it, until it's logged in or not.
-	login:     ^Job,
-	token:     string, // that /login's, to answer it with; owned
-	last_used: time.Tick,
+	login:      ^Job,
+	token:      string, // that /login's, to answer it with; owned
+	last_used:  time.Tick,
 	// It's to go: failed, logged out, or its token given up.
-	done:      bool,
-	transfers: Transfers, // files.odin
-	announced: bool, // its account logged
+	done:       bool,
+	transfers:  Transfers, // files.odin
+	announced:  bool, // its account logged
 	ready_once: bool, // it has been synced before
 	// Its event socket, if it has one, and what was told it (events.odin):
 	// from the first socket on, every event is numbered and the last
 	// EVENT_LOG kept, for a socket that comes back to resume.
-	feed:      ^Feed,
-	logging:   bool,
-	seq:       u64,
-	log:       [dynamic]Logged,
-
-	model:     Model, // model.odin
+	feed:       ^Feed,
+	logging:    bool,
+	seq:        u64,
+	log:        [dynamic]Logged,
+	model:      Model, // model.odin
 }
 
 /*
@@ -112,35 +111,35 @@ A Job is a request, from an HTTP thread to the gateway thread. What it
 carries in is the HTTP thread's, and stays valid until it has its reply.
 */
 Job :: struct {
-	reply:     Reply,
-	replied:   sync.Sema,
-	kind:      Job_Kind,
+	reply:    Reply,
+	replied:  sync.Sema,
+	kind:     Job_Kind,
 	// Which connection: the token's key (.Call), or none (.Guest).
-	key:       ecdh.Private_Key,
+	key:      ecdh.Private_Key,
 	// What to do on it once it's ready, on the gateway thread. It
 	// replies, there or later from the answer to a request it makes
 	// (ask).
-	run:       proc(c: ^Conn, j: ^Job),
+	run:      proc(c: ^Conn, j: ^Job),
 	// .Login's.
-	username:  string,
-	password:  string,
-	device:    string,
+	username: string,
+	password: string,
+	device:   string,
 	// The request's body, already read, its query (still encoded:
 	// query_param), and the {} parts of its path, decoded.
-	body:      []u8,
-	query:     string,
-	params:    [4]string,
+	body:     []u8,
+	query:    string,
+	params:   [4]string,
 	// What `run` asks the server, and what to make of the answer.
-	answer:    proc(c: ^Conn, j: ^Job, a: lite.Answer),
+	answer:   proc(c: ^Conn, j: ^Job, a: lite.Answer),
 	// What to do once the events of what was asked have come
 	// (after_events), and what an endpoint of more than one step keeps
 	// between them.
-	then:      proc(c: ^Conn, j: ^Job),
-	scratch:   [3]u64,
+	then:     proc(c: ^Conn, j: ^Job),
+	scratch:  [3]u64,
 	// An event socket's Feed, for its HTTP thread (events_attach), and
 	// a streaming upload's or download's Ring (files.odin).
-	feed:      ^Feed,
-	ring:      ^Ring,
+	feed:     ^Feed,
+	ring:     ^Ring,
 }
 
 Job_Kind :: enum {
@@ -152,12 +151,12 @@ Job_Kind :: enum {
 // An HTTP answer: its status, JSON (owned, from context.allocator; ""
 // for none) and when to try again, for 429.
 Reply :: struct {
-	status:      int,
-	json:        string,
-	retry_after: int, // seconds; 0 for none
-	allow:       string, // for 405: the methods there are
+	status:       int,
+	json:         string,
+	retry_after:  int, // seconds; 0 for none
+	allow:        string, // for 405: the methods there are
 	// Bytes rather than JSON (owned), and what they are.
-	body:        []u8,
+	body:         []u8,
 	content_type: string,
 }
 
@@ -237,7 +236,10 @@ is starting over.
 */
 ask :: proc(c: ^Conn, j: ^Job, op: proto.Request_Op, body: []u8 = nil) {
 	if !lite.request(&c.client, op, body, answered, u64(uintptr(j))) {
-		reply(j, error_reply(503, "reset", "The connection to the server is starting over; try again."))
+		reply(
+			j,
+			error_reply(503, "reset", "The connection to the server is starting over; try again."),
+		)
 	}
 }
 

@@ -85,14 +85,14 @@ Run :: struct {
 }
 
 Stats :: struct {
-	ready:              Hist, // how long the bots took to be ready
-	frames_sent:        int,
-	frames_missing:     int,
-	frames:             Hist, // how long voice took through the server
-	ops:                map[proto.Request_Op]Op_Stats,
-	failed:             int, // bots that gave up
-	reconnects:         int,
-	loop_gap:           time.Duration, // this tool's own, the longest
+	ready:          Hist, // how long the bots took to be ready
+	frames_sent:    int,
+	frames_missing: int,
+	frames:         Hist, // how long voice took through the server
+	ops:            map[proto.Request_Op]Op_Stats,
+	failed:         int, // bots that gave up
+	reconnects:     int,
+	loop_gap:       time.Duration, // this tool's own, the longest
 }
 
 Op_Stats :: struct {

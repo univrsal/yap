@@ -94,7 +94,15 @@ handle :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_alive: b
 		return false
 	}
 	if req.content_length > MAX_BODY {
-		send(c, error_reply(413, "too_large", fmt.tprintf("A body may be %d bytes at most.", MAX_BODY)), false)
+		send(
+			c,
+			error_reply(
+				413,
+				"too_large",
+				fmt.tprintf("A body may be %d bytes at most.", MAX_BODY),
+			),
+			false,
+		)
 		return false
 	}
 	body: []u8
@@ -136,7 +144,15 @@ handle :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_alive: b
 		}
 	case .Login:
 		if !login_allowed(g.cfg.behind_proxy, c.remote, http.header(req, "X-Forwarded-Proto")) {
-			send(c, error_reply(403, "denied", "A password only goes over HTTPS: through a reverse proxy with TLS (api.behind_proxy), or from this machine."), keep_alive)
+			send(
+				c,
+				error_reply(
+					403,
+					"denied",
+					"A password only goes over HTTPS: through a reverse proxy with TLS (api.behind_proxy), or from this machine.",
+				),
+				keep_alive,
+			)
 			return
 		}
 	case .Guest:
@@ -204,7 +220,11 @@ route_missing :: proc(req: ^http.Request) -> Reply {
 			}
 		}
 		if len(allowed) > 0 {
-			r := error_reply(405, "method_not_allowed", fmt.tprintf("%s isn't for %s.", req.path, req.method))
+			r := error_reply(
+				405,
+				"method_not_allowed",
+				fmt.tprintf("%s isn't for %s.", req.path, req.method),
+			)
 			r.allow = strings.join(allowed[:], ", ", context.temp_allocator)
 			return r
 		}
@@ -221,10 +241,20 @@ take_token :: proc(g: ^Gateway, j: ^Job, req: ^http.Request) -> (r: Reply, refus
 	auth := http.header(req, "Authorization")
 	scheme, _, token := strings.partition(auth, " ")
 	if auth == "" {
-		return error_reply(401, "unauthenticated", "A token is needed: Authorization: Bot <token>."), true
+		return error_reply(
+				401,
+				"unauthenticated",
+				"A token is needed: Authorization: Bot <token>.",
+			),
+			true
 	}
 	if !strings.equal_fold(scheme, "Bot") || !proto.bot_token_parse(token, &j.key) {
-		return error_reply(401, "unauthenticated", "That isn't a token: Authorization: Bot <token>."), true
+		return error_reply(
+				401,
+				"unauthenticated",
+				"That isn't a token: Authorization: Bot <token>.",
+			),
+			true
 	}
 	return rate_take(g, &j.key)
 }
@@ -362,7 +392,11 @@ status_reply :: proc(status: proto.Status) -> Reply {
 	case .Unknown_Op:
 		return error_reply(501, "unknown_op", "The server is too old for that.")
 	case .Reset:
-		return error_reply(503, "reset", "The connection to the server started over before it answered; try again.")
+		return error_reply(
+			503,
+			"reset",
+			"The connection to the server started over before it answered; try again.",
+		)
 	case .Internal:
 	}
 	return error_reply(500, "internal", "Something went wrong in the server.")
@@ -373,15 +407,27 @@ status_reply :: proc(status: proto.Status) -> Reply {
 failure_reply :: proc(c: ^lite.Client) -> Reply {
 	switch c.failure {
 	case .Not_Logged_In:
-		return error_reply(401, "unauthenticated", "The server knows no such token (or it was revoked).")
+		return error_reply(
+			401,
+			"unauthenticated",
+			"The server knows no such token (or it was revoked).",
+		)
 	case .Logged_Out:
-		return error_reply(401, "unauthenticated", fmt.tprintf("The token was logged out (%v).", c.logout_reason))
+		return error_reply(
+			401,
+			"unauthenticated",
+			fmt.tprintf("The token was logged out (%v).", c.logout_reason),
+		)
 	case .Login_Failed:
 		return status_reply(c.login_status)
 	case .Refused:
 		return error_reply(502, "bad_gateway", "The server wouldn't have the API's connection.")
 	case .Wrong_Server_Key:
-		return error_reply(502, "bad_gateway", "The server's key isn't the one the API was told to expect.")
+		return error_reply(
+			502,
+			"bad_gateway",
+			"The server's key isn't the one the API was told to expect.",
+		)
 	case .Lost:
 		return error_reply(503, "unavailable", "The server isn't answering.")
 	case .None:

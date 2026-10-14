@@ -69,7 +69,8 @@ login_prepare :: proc(j: ^Job, req: ^http.Request) -> (r: Reply, done: bool) {
 	}
 	b: Login_Body
 	if err := json.unmarshal(j.body, &b, allocator = context.temp_allocator); err != nil {
-		return error_reply(400, "invalid", "Expected {\"username\": ..., \"password\": ...}."), true
+		return error_reply(400, "invalid", "Expected {\"username\": ..., \"password\": ...}."),
+			true
 	}
 	if b.username == "" || b.password == "" {
 		return error_reply(400, "invalid", "A username and a password are needed."), true

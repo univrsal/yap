@@ -193,7 +193,9 @@ handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
 				m.refusals += 1
 				log.debugf("the media link was refused: %v", proto.decode_refused(pt))
 				if m.refusals == MEDIA_GIVE_UP {
-					log.warn("the server keeps refusing the media link; video goes over the bulk link")
+					log.warn(
+						"the server keeps refusing the media link; video goes over the bulk link",
+					)
 				}
 				media_retry_later(m)
 				return

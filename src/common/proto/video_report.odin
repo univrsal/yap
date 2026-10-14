@@ -121,7 +121,8 @@ summarize_reports :: proc(reports: []Video_Report) -> (s: Video_Reports) {
 	skip := -1
 	if len(reports) >= 3 {
 		a, b := reports[first], reports[second]
-		if a.loss - b.loss > REPORT_OUTLIER_LOSS || a.delay_ms - b.delay_ms > REPORT_OUTLIER_DELAY {
+		if a.loss - b.loss > REPORT_OUTLIER_LOSS ||
+		   a.delay_ms - b.delay_ms > REPORT_OUTLIER_DELAY {
 			skip = first
 			s.left_out = 1
 		}

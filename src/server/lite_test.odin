@@ -446,7 +446,13 @@ test_lite_logged_out :: proc(t: ^testing.T) {
 
 	// The admin revokes its token: it's out, for good, and goes.
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	status, _ = ts_ask(t, &ts, admin, .Device_Revoke, proto.encode_device_revoke(buf[:], c.public_key))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Device_Revoke,
+		proto.encode_device_revoke(buf[:], c.public_key),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	lt_until(t, &ts, &c, .Failed)
 	testing.expect_value(t, c.failure, lite.Failure.Logged_Out)

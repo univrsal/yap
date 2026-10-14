@@ -304,10 +304,7 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 
 	// Glyphs are drawn 1:1 with physical pixels, so no filtering is
 	// wanted; images are usually drawn smaller than they are.
-	for filter, kind in ([Texture_Kind]d3d11.FILTER {
-			.Alpha = .MIN_MAG_MIP_POINT,
-			.Rgba = .MIN_MAG_MIP_LINEAR,
-		}) {
+	for filter, kind in ([Texture_Kind]d3d11.FILTER{.Alpha = .MIN_MAG_MIP_POINT, .Rgba = .MIN_MAG_MIP_LINEAR}) {
 		sampler_desc := d3d11.SAMPLER_DESC {
 			Filter         = filter,
 			AddressU       = .CLAMP,

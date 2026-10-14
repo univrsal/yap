@@ -603,6 +603,9 @@ draw_frame :: proc(ui: ^UI) {
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
 	ui.keys = {}
+	// The window's buttons stay as they'd be at 100%: only the display's
+	// density scales them, not the UI's zoom.
+	ui.renderer.control_scale = m.scale / settings.ui_scale_factor(&ui.settings)
 	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, theme.background)
 	render.gpu_present(&ui.renderer.gpu)
 }

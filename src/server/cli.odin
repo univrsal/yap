@@ -232,7 +232,10 @@ run_account_command :: proc(args: []string) -> int {
 			return 1
 		}
 		if .Bot in acc.flags {
-			fmt.eprintfln("%s is a bot: it has tokens, not a password (made in the client)", username)
+			fmt.eprintfln(
+				"%s is a bot: it has tokens, not a password (made in the client)",
+				username,
+			)
 			return 1
 		}
 		text_buf: [GENERATED_PASSWORD_SIZE]u8

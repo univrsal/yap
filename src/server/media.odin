@@ -167,7 +167,11 @@ media_open :: proc(s: ^Server, settings: Settings) {
 	m.key = s.key
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, m.port)
 	if err != nil {
-		log.errorf("the media link can't have udp port %d (%v): screen sharing goes through the main loop", m.port, err)
+		log.errorf(
+			"the media link can't have udp port %d (%v): screen sharing goes through the main loop",
+			m.port,
+			err,
+		)
 		return
 	}
 	m.sock = sock
@@ -606,7 +610,8 @@ media_reports :: proc(m: ^Media) {
 		}
 		reports := make([dynamic]proto.Video_Report, context.temp_allocator)
 		for _, viewer in m.sessions {
-			if viewer.report_of != peer.num || viewer.report_at == {} ||
+			if viewer.report_of != peer.num ||
+			   viewer.report_at == {} ||
 			   time.tick_diff(viewer.report_at, now) > REPORT_FRESH {
 				continue
 			}
@@ -673,7 +678,8 @@ media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byt
 	}
 	sh := media_sharer(m, sharer)
 	now := time.tick_now()
-	if sh.last_key_sent != {} && time.tick_diff(sh.last_key_sent, now) < proto.KEYFRAME_REQUEST_MIN {
+	if sh.last_key_sent != {} &&
+	   time.tick_diff(sh.last_key_sent, now) < proto.KEYFRAME_REQUEST_MIN {
 		return
 	}
 	sh.last_key_sent = now

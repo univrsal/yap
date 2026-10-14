@@ -23,18 +23,18 @@ mention is of, which the server says when it says what's read).
 */
 
 Model :: struct {
-	self:        proto.Account_Id, // 0 until Self
-	permissions: proto.Permissions,
-	flags:       proto.Account_Flags,
-	roles:       map[proto.Role_Id]Role_Record,
-	accounts:    map[proto.Account_Id]Account_Record,
-	convs:       map[proto.Conv_Id]Conv_Record,
+	self:         proto.Account_Id, // 0 until Self
+	permissions:  proto.Permissions,
+	flags:        proto.Account_Flags,
+	roles:        map[proto.Role_Id]Role_Record,
+	accounts:     map[proto.Account_Id]Account_Record,
+	convs:        map[proto.Conv_Id]Conv_Record,
 	// How many connections each account has here (not those who appear
 	// offline, whom the server leaves out).
-	online:      map[proto.Account_Id]int,
+	online:       map[proto.Account_Id]int,
 	// What the server says about itself, asked once and then kept up
 	// with Server_Info events; its strings owned.
-	server:      proto.Server_Info,
+	server:       proto.Server_Info,
 	server_known: bool,
 }
 

@@ -135,15 +135,10 @@ gt_accept :: proc(h: ^Harness) {
 		c := new(http.Conn)
 		c.sock, c.remote = sock, from
 		sync.atomic_add(&h.serving, 1)
-		th := thread.create_and_start_with_poly_data2(
-			h,
-			c,
-			proc(h: ^Harness, c: ^http.Conn) {
+		th := thread.create_and_start_with_poly_data2(h, c, proc(h: ^Harness, c: ^http.Conn) {
 				defer sync.atomic_sub(&h.serving, 1)
 				gateway.serve_connection(h.g, c)
-			},
-			init_context = context,
-		)
+			}, init_context = context)
 		sync.guard(&h.mutex)
 		append(&h.threads, th)
 	}
@@ -256,7 +251,15 @@ error_of :: proc(reply: string) -> string {
 // gt_token is a bot's token (owned; the test's temp allocations go with
 // every turn of the server): its account made by `admin`.
 @(private = "file")
-gt_token :: proc(t: ^testing.T, ts: ^Test_Server, admin: ^Conn, username: string) -> (string, [proto.KEY_SIZE]u8) {
+gt_token :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	admin: ^Conn,
+	username: string,
+) -> (
+	string,
+	[proto.KEY_SIZE]u8,
+) {
 	token, pub, ok := proto.bot_token_make()
 	testing.expect(t, ok)
 	buf: [proto.BOT_BODY_MAX]u8
@@ -383,11 +386,19 @@ test_gateway_login :: proc(t: ^testing.T) {
 	defer gt_close(&ts, &h)
 
 	calls := []Call {
-		{method = "POST", path = "/api/v1/login", body = `{"username": "alice", "password": "wrong password"}`},
+		{
+			method = "POST",
+			path = "/api/v1/login",
+			body = `{"username": "alice", "password": "wrong password"}`,
+		},
 		{method = "POST", path = "/api/v1/login", body = `{"username": "alice"}`},
 		{method = "POST", path = "/api/v1/login", body = `not json`},
 		// A bot has no password to log in with.
-		{method = "POST", path = "/api/v1/login", body = `{"username": "helper", "password": "anything at all"}`},
+		{
+			method = "POST",
+			path = "/api/v1/login",
+			body = `{"username": "helper", "password": "anything at all"}`,
+		},
 		{
 			method = "POST",
 			path = "/api/v1/login",
@@ -555,7 +566,15 @@ Seen_Role :: struct {
 @(private = "file")
 gt_unmarshal :: proc(t: ^testing.T, call: Call, v: ^$T) -> bool {
 	err := json.unmarshal(transmute([]u8)call.reply, v, allocator = context.temp_allocator)
-	return testing.expectf(t, err == nil, "%s %s: %v in %s", call.method, call.path, err, call.reply)
+	return testing.expectf(
+		t,
+		err == nil,
+		"%s %s: %v in %s",
+		call.method,
+		call.path,
+		err,
+		call.reply,
+	)
 }
 
 // gt_post posts `text` to `conv` as `u`, and is the message's id.
@@ -736,7 +755,10 @@ test_gateway_reading :: proc(t: ^testing.T) {
 		testing.expect_value(t, roles[0].name, "Helpers")
 		testing.expect_value(t, roles[0].color, "#3366ff")
 		testing.expect(t, roles[0].mentionable)
-		testing.expect(t, len(roles[0].permissions) == 1 && roles[0].permissions[0] == "pin_messages")
+		testing.expect(
+			t,
+			len(roles[0].permissions) == 1 && roles[0].permissions[0] == "pin_messages",
+		)
 		testing.expect(t, roles[1].everyone)
 	}
 
@@ -854,16 +876,10 @@ Seen_Post :: struct {
 // gt_run makes calls, each a method, a path and a body, with the token,
 // and checks what each answered; the replies are in the temp allocator.
 @(private = "file")
-gt_run :: proc(
-	t: ^testing.T,
-	ts: ^Test_Server,
-	h: ^Harness,
-	token: string,
-	steps: []struct {
+gt_run :: proc(t: ^testing.T, ts: ^Test_Server, h: ^Harness, token: string, steps: []struct {
 		method, path, body: string,
 		want:               int,
-	},
-) -> []string {
+	}) -> []string {
 	calls := make([]Call, len(steps))
 	defer delete(calls)
 	defer calls_destroy(calls)
@@ -935,18 +951,18 @@ test_gateway_writing :: proc(t: ^testing.T) {
 
 	// Posting, the same post again, and what isn't a post.
 	r := gt_run(
-		t,
-		&ts,
-		&h,
-		token,
-		{
-			{"POST", home_messages, `{"content": "hello @alice", "nonce": "one"}`, 201},
-			{"POST", home_messages, `{"content": "hello @alice", "nonce": "one"}`, 201},
-			{"POST", home_messages, `{}`, 400},
-			{"POST", home_messages, `{"content": 5}`, 400},
-			{"POST", home_messages, `not json`, 400},
-			{"POST", home_messages, `{"content": "x", "attachments": ["1"]}`, 404}, // no such upload
-		},
+	t,
+	&ts,
+	&h,
+	token,
+	{
+		{"POST", home_messages, `{"content": "hello @alice", "nonce": "one"}`, 201},
+		{"POST", home_messages, `{"content": "hello @alice", "nonce": "one"}`, 201},
+		{"POST", home_messages, `{}`, 400},
+		{"POST", home_messages, `{"content": 5}`, 400},
+		{"POST", home_messages, `not json`, 400},
+		{"POST", home_messages, `{"content": "x", "attachments": ["1"]}`, 404}, // no such upload
+	},
 	)
 	if r == nil {
 		return
@@ -959,7 +975,11 @@ test_gateway_writing :: proc(t: ^testing.T) {
 	testing.expect_value(t, post.conv_id, fmt.tprint(home))
 	testing.expect_value(t, post.content, "hello @alice")
 	testing.expect_value(t, again.id, post.id)
-	testing.expect_value(t, ts.s.convs.home.last_msg, proto.Msg_Id(strconv.parse_u64(post.id) or_else 0))
+	testing.expect_value(
+		t,
+		ts.s.convs.home.last_msg,
+		proto.Msg_Id(strconv.parse_u64(post.id) or_else 0),
+	)
 	msg := strings.clone(post.id)
 	defer delete(msg)
 
@@ -1026,7 +1046,12 @@ test_gateway_writing :: proc(t: ^testing.T) {
 		{
 			{"PUT", at(&owned, "/api/v1/messages/%s/pin", in_dm_id), "", 204},
 			{"GET", at(&owned, "/api/v1/convs/%s/pins", dm_id), "", 200},
-			{"POST", at(&owned, "/api/v1/messages/%s/forward", msg), at(&owned, "%s%s%s", `{"conv": "`, dm_id, `"}`), 201},
+			{
+				"POST",
+				at(&owned, "/api/v1/messages/%s/forward", msg),
+				at(&owned, "%s%s%s", `{"conv": "`, dm_id, `"}`),
+				201,
+			},
 			{"DELETE", reaction, "", 204},
 			{"DELETE", message, "", 204},
 			{"GET", at(&owned, "%s?around=%s&limit=1", home_messages, msg), "", 200},
@@ -1164,8 +1189,15 @@ ws_run :: proc(w: ^Ws) {
 	defer free(c)
 	c.sock = sock
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintf(&b, "GET %s HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n", w.path)
-	strings.write_string(&b, "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n")
+	fmt.sbprintf(
+		&b,
+		"GET %s HTTP/1.1\r\nHost: test\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n",
+		w.path,
+	)
+	strings.write_string(
+		&b,
+		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n",
+	)
 	if w.token != "" {
 		fmt.sbprintf(&b, "Authorization: Bot %s\r\n", w.token)
 	}
@@ -1177,7 +1209,10 @@ ws_run :: proc(w: ^Ws) {
 	if !ok {
 		return
 	}
-	fields := strings.fields(strings.split_lines(head, context.temp_allocator)[0], context.temp_allocator)
+	fields := strings.fields(
+		strings.split_lines(head, context.temp_allocator)[0],
+		context.temp_allocator,
+	)
 	status, _ := strconv.parse_int(fields[1])
 	{
 		sync.guard(&w.mutex)
@@ -1246,7 +1281,8 @@ ws_find :: proc(t: ^testing.T, w: ^Ws, kind: string, from := 1, account := "") -
 	sync.guard(&w.mutex)
 	for f, i in w.frames[min(from, len(w.frames)):] {
 		e: Event_Other
-		if json.unmarshal(transmute([]u8)f, &e, allocator = context.temp_allocator) != nil || e.t != kind {
+		if json.unmarshal(transmute([]u8)f, &e, allocator = context.temp_allocator) != nil ||
+		   e.t != kind {
 			continue
 		}
 		if account == "" || e.d.account_id == account {
@@ -1431,7 +1467,13 @@ test_gateway_events :: proc(t: ^testing.T) {
 	ws_wait_for(t, &ts, w, "TYPING_START", "", &alice_client)
 	msg := gt_post(t, &ts, admin, home, "hello events")
 	react_buf: [proto.MSG_REACT_MAX_SIZE]u8
-	status, _ := ts_ask(t, &ts, admin, .Msg_React, proto.encode_msg_react(&react_buf, msg, "👍", true))
+	status, _ := ts_ask(
+		t,
+		&ts,
+		admin,
+		.Msg_React,
+		proto.encode_msg_react(&react_buf, msg, "👍", true),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	edit_buf: [proto.MSG_EDIT_MAX_SIZE]u8
 	status, _ = ts_ask(t, &ts, admin, .Msg_Edit, proto.encode_msg_edit(&edit_buf, msg, "changed"))
@@ -1496,7 +1538,11 @@ test_gateway_events :: proc(t: ^testing.T) {
 	last: Event_Other
 	{
 		sync.guard(&w.mutex)
-		json.unmarshal(transmute([]u8)w.frames[len(w.frames) - 1], &last, allocator = context.temp_allocator)
+		json.unmarshal(
+			transmute([]u8)w.frames[len(w.frames) - 1],
+			&last,
+			allocator = context.temp_allocator,
+		)
 	}
 	ws_close(&ts, w)
 
@@ -1526,7 +1572,13 @@ test_gateway_events :: proc(t: ^testing.T) {
 
 	// Its token revoked: told so, and closed.
 	revoke_buf: [proto.ACCOUNT_BODY_MAX]u8
-	status, _ = ts_ask(t, &ts, admin, .Device_Revoke, proto.encode_device_revoke(revoke_buf[:], pub))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		admin,
+		.Device_Revoke,
+		proto.encode_device_revoke(revoke_buf[:], pub),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	ws_wait(&ts, again, 1000)
 	{
@@ -1535,7 +1587,11 @@ test_gateway_events :: proc(t: ^testing.T) {
 		testing.expect(t, n >= 3)
 		if n >= 3 {
 			e: Event_Other
-			json.unmarshal(transmute([]u8)again.frames[n - 1], &e, allocator = context.temp_allocator)
+			json.unmarshal(
+				transmute([]u8)again.frames[n - 1],
+				&e,
+				allocator = context.temp_allocator,
+			)
 			testing.expect_value(t, e.t, "LOGGED_OUT")
 			testing.expect_value(t, e.d.reason, "revoked")
 		}
@@ -1580,7 +1636,12 @@ test_gateway_files :: proc(t: ^testing.T) {
 	defer delete(home_messages)
 
 	calls := []Call {
-		{method = "POST", path = "/api/v1/uploads?name=report%202026.bin", token = token, body = string(file)},
+		{
+			method = "POST",
+			path = "/api/v1/uploads?name=report%202026.bin",
+			token = token,
+			body = string(file),
+		},
 		{method = "POST", path = "/api/v1/uploads", token = token, body = "no name"},
 		{method = "PUT", path = "/api/v1/me/avatar", token = token, body = jpeg},
 		{method = "PUT", path = "/api/v1/me/avatar", token = token, body = "not a picture"},
@@ -1626,7 +1687,13 @@ test_gateway_files :: proc(t: ^testing.T) {
 	if !gt_calls(t, &ts, &h, posting) {
 		return
 	}
-	testing.expectf(t, posting[0].status == 201, "post: %d %s", posting[0].status, posting[0].reply)
+	testing.expectf(
+		t,
+		posting[0].status == 201,
+		"post: %d %s",
+		posting[0].status,
+		posting[0].reply,
+	)
 	post: struct {
 		content:     string,
 		attachments: []struct {
@@ -1739,8 +1806,18 @@ test_gateway_limits :: proc(t: ^testing.T) {
 		LOGIN :: `{"username": "alice", "password": "alice's password"}`
 		calls := []Call {
 			{method = "POST", path = "/api/v1/login", body = LOGIN},
-			{method = "POST", path = "/api/v1/login", body = LOGIN, header = "X-Forwarded-Proto: http\r\n"},
-			{method = "POST", path = "/api/v1/login", body = LOGIN, header = "X-Forwarded-Proto: https\r\n"},
+			{
+				method = "POST",
+				path = "/api/v1/login",
+				body = LOGIN,
+				header = "X-Forwarded-Proto: http\r\n",
+			},
+			{
+				method = "POST",
+				path = "/api/v1/login",
+				body = LOGIN,
+				header = "X-Forwarded-Proto: https\r\n",
+			},
 		}
 		defer calls_destroy(calls)
 		if gt_calls(t, &ts, &h, calls) {

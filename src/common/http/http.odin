@@ -24,9 +24,9 @@ MAX_HEAD :: 8192
 Conn :: struct {
 	sock:   net.TCP_Socket,
 	remote: net.Endpoint, // who's at the other end, as accept said
-	buf:   [MAX_HEAD]u8,
-	start: int,
-	end:   int,
+	buf:    [MAX_HEAD]u8,
+	start:  int,
+	end:    int,
 }
 
 Header :: struct {

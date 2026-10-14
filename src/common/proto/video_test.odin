@@ -389,9 +389,9 @@ test_video_report :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 
 	down := Video_Reports {
-		viewers  = 4,
+		viewers = 4,
 		left_out = 1,
-		worst    = {loss = 30, delay_ms = 120, kbit = 4500},
+		worst = {loss = 30, delay_ms = 120, kbit = 4500},
 	}
 	got, down_ok := decode_report_down(encode_report_down(&buf, down))
 	testing.expect(t, down_ok)
@@ -403,9 +403,16 @@ test_summarize_reports :: proc(t: ^testing.T) {
 	testing.expect_value(t, summarize_reports(nil), Video_Reports{})
 
 	// Two: the worst of each, whoever it's from.
-	two := []Video_Report{{loss = 10, delay_ms = 80, kbit = 6000}, {loss = 30, delay_ms = 20, kbit = 7000}}
+	two := []Video_Report {
+		{loss = 10, delay_ms = 80, kbit = 6000},
+		{loss = 30, delay_ms = 20, kbit = 7000},
+	}
 	s := summarize_reports(two)
-	testing.expect_value(t, s, Video_Reports{viewers = 2, worst = {loss = 30, delay_ms = 80, kbit = 6000}})
+	testing.expect_value(
+		t,
+		s,
+		Video_Reports{viewers = 2, worst = {loss = 30, delay_ms = 80, kbit = 6000}},
+	)
 
 	// One of three far behind the others: left out.
 	three := []Video_Report {
@@ -414,7 +421,11 @@ test_summarize_reports :: proc(t: ^testing.T) {
 		{loss = 8, delay_ms = 30, kbit = 5800},
 	}
 	s = summarize_reports(three)
-	testing.expect_value(t, s, Video_Reports{viewers = 3, left_out = 1, worst = {loss = 8, delay_ms = 30, kbit = 5800}})
+	testing.expect_value(
+		t,
+		s,
+		Video_Reports{viewers = 3, left_out = 1, worst = {loss = 8, delay_ms = 30, kbit = 5800}},
+	)
 
 	// Not far behind: counted.
 	close := []Video_Report {

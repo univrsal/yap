@@ -156,18 +156,25 @@ Font_Slot :: struct {
 }
 
 Renderer :: struct {
-	gpu:           Gpu,
-	fonts:         [Font_Kind]Font_Slot,
-	icon_texture:  Gpu_Texture, // microui's own icons
-	icons:         Icon_Atlas, // ours (icons.odin)
-	icons_texture: Gpu_Texture,
-	emoji_texture: Gpu_Texture, // the emoji sheet (emoji_atlas.odin); 0 until it's decoded
-	bound:         Gpu_Texture, // texture the pending quads use
-	rgba:          bool, // the bound texture is a picture, not the atlas
-	images:        ^[dynamic]Image_Draw, // this frame's pictures; the UI's to fill
-	vertices:      [MAX_QUADS * 4]Vertex,
-	quads:         int,
-	scale:         f32,
+	gpu:              Gpu,
+	fonts:            [Font_Kind]Font_Slot,
+	icon_texture:     Gpu_Texture, // microui's own icons
+	icons:            Icon_Atlas, // ours (icons.odin)
+	icons_texture:    Gpu_Texture,
+	// The window's own controls (Minimize..Close) are drawn at the
+	// display's density alone, not the UI's zoom on top: their own atlas,
+	// for `control_scale` physical pixels per logical pixel, which the
+	// client sets before each frame (0: the same as `scale`).
+	control_scale:    f32,
+	controls:         Icon_Atlas,
+	controls_texture: Gpu_Texture,
+	emoji_texture:    Gpu_Texture, // the emoji sheet (emoji_atlas.odin); 0 until it's decoded
+	bound:            Gpu_Texture, // texture the pending quads use
+	rgba:             bool, // the bound texture is a picture, not the atlas
+	images:           ^[dynamic]Image_Draw, // this frame's pictures; the UI's to fill
+	vertices:         [MAX_QUADS * 4]Vertex,
+	quads:            int,
+	scale:            f32,
 }
 
 // The fonts microui measures text with (its callbacks take no user data).
@@ -252,8 +259,10 @@ renderer_destroy :: proc(r: ^Renderer) {
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
+	gpu_texture_delete(&r.gpu, &r.controls_texture)
 	gpu_texture_delete(&r.gpu, &r.emoji_texture)
 	icon_atlas_destroy(&r.icons)
+	icon_atlas_destroy(&r.controls)
 	gpu_destroy(&r.gpu)
 	for &slot in r.fonts {
 		font_destroy(&slot.font)
@@ -279,11 +288,12 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	}
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
+	gpu_texture_delete(&r.gpu, &r.controls_texture)
 	// The sheet's pixels aren't kept: the client decodes it again (it
 	// sees the texture is missing, ui_images_frame).
 	gpu_texture_delete(&r.gpu, &r.emoji_texture)
 	gpu_destroy(&r.gpu)
-	r.icons.scale = 0
+	r.icons.scale, r.controls.scale = 0, 0
 	if !gpu_init(&r.gpu, window) {
 		return false
 	}
@@ -341,6 +351,19 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				r.icons.width,
 				r.icons.height,
 				r.icons.pixels,
+			)
+		}
+	}
+
+	if r.control_scale > 0 && r.control_scale != scale && r.control_scale != r.controls.scale {
+		if icon_atlas_build(&r.controls, r.control_scale) {
+			gpu_texture_delete(&r.gpu, &r.controls_texture)
+			r.controls_texture = gpu_texture_make(
+				&r.gpu,
+				.Alpha,
+				r.controls.width,
+				r.controls.height,
+				r.controls.pixels,
 			)
 		}
 	}
@@ -654,13 +677,20 @@ draw_ui_icon :: proc(r: ^Renderer, icon: Icon, rect: mu.Rect, color: mu.Color) {
 	if r.icons.side == 0 || int(icon) >= len(Icon) {
 		return
 	}
-	use_texture(r, r.icons_texture)
-	side := f32(r.icons.side) / r.scale
+	atlas, texture := &r.icons, r.icons_texture
+	if icon >= .Minimize &&
+	   icon <= .Close &&
+	   r.controls.scale == r.control_scale &&
+	   r.controls.side > 0 {
+		atlas, texture = &r.controls, r.controls_texture
+	}
+	use_texture(r, texture)
+	side := f32(atlas.side) / r.scale
 	snap :: proc(v: f32, s: f32) -> f32 {return math.round(v * s) / s}
 	x := snap(f32(rect.x) + (f32(rect.w) - side) / 2, r.scale)
 	y := snap(f32(rect.y) + (f32(rect.h) - side) / 2, r.scale)
-	u0 := f32(int(icon) * int(r.icons.side)) / f32(r.icons.width)
-	u1 := f32((int(icon) + 1) * int(r.icons.side)) / f32(r.icons.width)
+	u0 := f32(int(icon) * int(atlas.side)) / f32(atlas.width)
+	u1 := f32((int(icon) + 1) * int(atlas.side)) / f32(atlas.width)
 	push_quad(r, {x, y, x + side, y + side}, {u0, 0, u1, 1}, color)
 }
 

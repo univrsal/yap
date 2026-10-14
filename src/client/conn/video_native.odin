@@ -123,29 +123,36 @@ YV_SHARE_CANCELLED :: 4
 // The library's procedures, named without their yv_ prefix.
 @(private = "file")
 Yv :: struct {
-	api_version:      proc "c" () -> u32,
-	version_string:   proc "c" () -> cstring,
-	create:           proc "c" (init: ^Yv_Init) -> rawptr,
-	set_gpu:          proc "c" (ctx: rawptr, gpu: ^Yv_Gpu),
-	view_create:      proc "c" (ctx: rawptr) -> rawptr,
-	view_push:        proc "c" (view: rawptr, data: [^]u8, size: uint, codec: i32, pts_us: u64, key: bool),
-	view_clear:       proc "c" (view: rawptr),
-	view_take_failed: proc "c" (view: rawptr) -> bool,
-	view_present:     proc "c" (view: rawptr, out: ^Yv_Picture) -> bool,
-	list_sources:     proc "c" (ctx: rawptr, out: [^]Yv_Source, max: i32) -> i32,
-	list_encoders:    proc "c" (ctx: rawptr, out: [^]Yv_Encoder, max: i32) -> i32,
-	share_start:      proc "c" (ctx: rawptr, config: ^Yv_Share_Config) -> rawptr,
-	share_pull:       proc "c" (share: rawptr, out: ^Yv_Packet) -> bool,
-	share_request_key: proc "c" (share: rawptr),
-	share_set_bitrate: proc "c" (share: rawptr, kbit: u32),
-	share_get_state:  proc "c" (share: rawptr) -> i32,
-	share_error:      proc "c" (share: rawptr) -> cstring,
-	share_stop:       proc "c" (share: rawptr),
-	capture_allowed:  proc "c" (ctx: rawptr, ask: bool) -> bool,
+	api_version:           proc "c" () -> u32,
+	version_string:        proc "c" () -> cstring,
+	create:                proc "c" (init: ^Yv_Init) -> rawptr,
+	set_gpu:               proc "c" (ctx: rawptr, gpu: ^Yv_Gpu),
+	view_create:           proc "c" (ctx: rawptr) -> rawptr,
+	view_push:             proc "c" (
+		view: rawptr,
+		data: [^]u8,
+		size: uint,
+		codec: i32,
+		pts_us: u64,
+		key: bool,
+	),
+	view_clear:            proc "c" (view: rawptr),
+	view_take_failed:      proc "c" (view: rawptr) -> bool,
+	view_present:          proc "c" (view: rawptr, out: ^Yv_Picture) -> bool,
+	list_sources:          proc "c" (ctx: rawptr, out: [^]Yv_Source, max: i32) -> i32,
+	list_encoders:         proc "c" (ctx: rawptr, out: [^]Yv_Encoder, max: i32) -> i32,
+	share_start:           proc "c" (ctx: rawptr, config: ^Yv_Share_Config) -> rawptr,
+	share_pull:            proc "c" (share: rawptr, out: ^Yv_Packet) -> bool,
+	share_request_key:     proc "c" (share: rawptr),
+	share_set_bitrate:     proc "c" (share: rawptr, kbit: u32),
+	share_get_state:       proc "c" (share: rawptr) -> i32,
+	share_error:           proc "c" (share: rawptr) -> cstring,
+	share_stop:            proc "c" (share: rawptr),
+	capture_allowed:       proc "c" (ctx: rawptr, ask: bool) -> bool,
 	open_capture_settings: proc "c" (ctx: rawptr) -> bool,
-	system_picker:    proc "c" (ctx: rawptr) -> bool,
-	view_on_frame:    proc "c" (view: rawptr, fn: proc "c" (user: rawptr), user: rawptr),
-	__handle:         dynlib.Library,
+	system_picker:         proc "c" (ctx: rawptr) -> bool,
+	view_on_frame:         proc "c" (view: rawptr, fn: proc "c" (user: rawptr), user: rawptr),
+	__handle:              dynlib.Library,
 }
 
 @(private = "file")
@@ -164,34 +171,34 @@ when ODIN_OS == .Windows {
 
 @(private = "file")
 Native_Video :: struct {
-	once:    sync.Once,
-	loaded:  bool, // all of the below is there
-	yv:      Yv,
-	ctx:     rawptr,
-	view:    rawptr, // the one we watch with; it lives as long as the process
-	logger:  runtime.Logger,
+	once:          sync.Once,
+	loaded:        bool, // all of the below is there
+	yv:            Yv,
+	ctx:           rawptr,
+	view:          rawptr, // the one we watch with; it lives as long as the process
+	logger:        runtime.Logger,
 	// Whose frames the view is decoding (atomic: network threads).
-	sharer:  proto.User_Num,
+	sharer:        proto.User_Num,
 	// The UI thread's: whether the library has the renderer's device,
 	// and our handle on the picture it last gave us.
-	gpu_set: bool,
-	picture: render.Gpu_Texture,
-	wrapped: uintptr,
-	full:    bool, // video_set_fullscreen
+	gpu_set:       bool,
+	picture:       render.Gpu_Texture,
+	wrapped:       uintptr,
+	full:          bool, // video_set_fullscreen
 	// Sharing. `share` is started and stopped by the UI and pulled from
 	// by a network thread, so it's only touched under `share_mu`.
-	encoder_ok: bool, // atomic: an encoder works (probe_encoders)
+	encoder_ok:    bool, // atomic: an encoder works (probe_encoders)
 	encoders_done: bool, // atomic: probe_encoders has tried them
-	share_mu:   sync.Mutex,
-	share:      rawptr,
-	share_kbit: int, // what it was set to encode at (atomic)
-	share_target: int, // what it's held to for its viewers, 0 for that (atomic)
-	asked:      bool, // the UI's: video_allow_capture showed the prompt
+	share_mu:      sync.Mutex,
+	share:         rawptr,
+	share_kbit:    int, // what it was set to encode at (atomic)
+	share_target:  int, // what it's held to for its viewers, 0 for that (atomic)
+	asked:         bool, // the UI's: video_allow_capture showed the prompt
 	// The UI's waking (video_set_wake; atomic), for each new picture.
-	wake:       proc "c" (),
+	wake:          proc "c" (),
 	// The last picture's, for the figures (video_picture_info).
-	frames:     u64,
-	hardware:   bool,
+	frames:        u64,
+	hardware:      bool,
 }
 
 @(private = "file")
@@ -312,7 +319,8 @@ video_capture_live :: proc() -> bool {
 
 // video_capture_pull returns the next encoded frame, which the caller
 // then owns. From the network thread.
-video_capture_pull :: proc() -> (
+video_capture_pull :: proc(
+) -> (
 	data: []u8,
 	ts: u32,
 	key: bool,
@@ -618,7 +626,13 @@ video_picture is the newest frame of what we're watching, as a texture
 of the renderer's, until the next call or video_forget_gpu. From the UI
 thread, with the renderer's device up.
 */
-video_picture :: proc(g: ^render.Gpu) -> (texture: render.Gpu_Texture, width, height: int, ok: bool) {
+video_picture :: proc(
+	g: ^render.Gpu,
+) -> (
+	texture: render.Gpu_Texture,
+	width, height: int,
+	ok: bool,
+) {
 	if !loaded() {
 		return
 	}

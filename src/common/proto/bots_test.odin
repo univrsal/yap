@@ -28,13 +28,7 @@ test_bot_token :: proc(t: ^testing.T) {
 	other, other_public, _ := bot_token_make(context.temp_allocator)
 	testing.expect(t, other != token && other_public != public)
 
-	for bad in ([]string {
-			"",
-			token[:len(token) - 1],
-			strings.concatenate({token, "A"}, context.temp_allocator),
-			strings.concatenate({"yip_", token[4:]}, context.temp_allocator),
-			strings.concatenate({token[:10], "!", token[11:]}, context.temp_allocator),
-		}) {
+	for bad in ([]string{"", token[:len(token) - 1], strings.concatenate({token, "A"}, context.temp_allocator), strings.concatenate({"yip_", token[4:]}, context.temp_allocator), strings.concatenate({token[:10], "!", token[11:]}, context.temp_allocator)}) {
 		testing.expect(t, !bot_token_parse(bad, &key))
 	}
 }

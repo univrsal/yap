@@ -104,7 +104,12 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 	mu.layout_row(ctx, {120, 110, 110})
 	mu.label(ctx, "Frame rate")
 	for fps in conn.SHARE_FPS_CHOICES {
-		if choice_button(ui, fmt.tprintf("share fps %d", fps), fmt.tprintf("%d fps", fps), fps == cfg.fps) &&
+		if choice_button(
+			   ui,
+			   fmt.tprintf("share fps %d", fps),
+			   fmt.tprintf("%d fps", fps),
+			   fps == cfg.fps,
+		   ) &&
 		   fps != cfg.fps {
 			ui.settings.share_fps = fps
 			settings.settings_save(ui.opts.settings_path, ui.settings)
@@ -152,7 +157,12 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
 		label := e.label if e.works else fmt.tprintf("%s (doesn't work here)", e.label)
-		if choice_button(ui, fmt.tprintf("share encoder %s", e.name), label, e.name == cfg.encoder) &&
+		if choice_button(
+			   ui,
+			   fmt.tprintf("share encoder %s", e.name),
+			   label,
+			   e.name == cfg.encoder,
+		   ) &&
 		   e.name != cfg.encoder {
 			settings.set_setting(&ui.settings.share_encoder, e.name)
 			settings.settings_save(ui.opts.settings_path, ui.settings)

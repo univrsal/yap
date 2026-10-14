@@ -82,7 +82,14 @@ browse_run :: proc(c: ^Conn, j: ^Job) {
 	ok: bool
 	b.query, _ = query_param(j, "q")
 	if len(b.query) > proto.MAX_BROWSE_QUERY {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("q is at most %d bytes.", proto.MAX_BROWSE_QUERY)))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("q is at most %d bytes.", proto.MAX_BROWSE_QUERY),
+			),
+		)
 		return
 	}
 	if b.offset, ok = query_int(j, "offset", 0, 0, int(max(u16))); !ok {
@@ -90,7 +97,10 @@ browse_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	if b.limit, ok = query_int(j, "limit", proto.BROWSE_PAGE, 1, proto.MAX_BROWSE_LIMIT); !ok {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_BROWSE_LIMIT)))
+		reply(
+			j,
+			error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_BROWSE_LIMIT)),
+		)
 		return
 	}
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -186,8 +196,12 @@ history_run :: proc(c: ^Conn, j: ^Job) {
 		}
 		h.thread_root = proto.Msg_Id(root)
 	}
-	if h.limit, ok = query_int(j, "limit", proto.MAX_HISTORY_LIMIT, 1, proto.MAX_HISTORY_LIMIT); !ok {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_HISTORY_LIMIT)))
+	if h.limit, ok = query_int(j, "limit", proto.MAX_HISTORY_LIMIT, 1, proto.MAX_HISTORY_LIMIT);
+	   !ok {
+		reply(
+			j,
+			error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_HISTORY_LIMIT)),
+		)
 		return
 	}
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -253,7 +267,14 @@ search_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	if len(s.query) > proto.MAX_SEARCH_QUERY {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("q is at most %d bytes.", proto.MAX_SEARCH_QUERY)))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("q is at most %d bytes.", proto.MAX_SEARCH_QUERY),
+			),
+		)
 		return
 	}
 	for name in ([2]string{"conv", "before"}) {
@@ -274,7 +295,10 @@ search_run :: proc(c: ^Conn, j: ^Job) {
 	}
 	ok: bool
 	if s.limit, ok = query_int(j, "limit", 25, 1, proto.MAX_SEARCH_LIMIT); !ok {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_SEARCH_LIMIT)))
+		reply(
+			j,
+			error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_SEARCH_LIMIT)),
+		)
 		return
 	}
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {

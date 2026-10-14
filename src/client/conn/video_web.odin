@@ -43,7 +43,8 @@ video_capture_live :: proc() -> bool {
 
 // video_capture_pull returns the next encoded frame, which the caller
 // then owns.
-video_capture_pull :: proc() -> (
+video_capture_pull :: proc(
+) -> (
 	data: []u8,
 	ts: u32,
 	key: bool,
@@ -212,7 +213,13 @@ video_picture is the newest frame of what we're watching, as a texture
 of the renderer's: the page puts each new one into it (an OpenGL texture
 name, as the page knows it, render/gpu_gl.odin).
 */
-video_picture :: proc(g: ^render.Gpu) -> (texture: render.Gpu_Texture, width, height: int, ok: bool) {
+video_picture :: proc(
+	g: ^render.Gpu,
+) -> (
+	texture: render.Gpu_Texture,
+	width, height: int,
+	ok: bool,
+) {
 	p := &web_picture
 	if p.texture == 0 {
 		p.texture = render.gpu_texture_make(g, .Rgba, 0, 0, nil)

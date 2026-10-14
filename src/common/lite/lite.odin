@@ -155,7 +155,6 @@ Client :: struct {
 	has_previous:  bool,
 	last_sent:     time.Tick,
 	last_recv:     time.Tick,
-
 	login_at:      time.Tick, // when to ask to log in again; 0 for not
 	login_tries:   int,
 	stream:        proto.Stream,
@@ -706,7 +705,8 @@ handle_app :: proc(c: ^Client, msg: []u8) {
 				set_phase(c, .Syncing)
 			}
 		case .Logged_Out:
-			c.logout_reason = proto.Logout_Reason(body[0]) if len(body) > 0 else proto.Logout_Reason{}
+			c.logout_reason =
+				proto.Logout_Reason(body[0]) if len(body) > 0 else proto.Logout_Reason{}
 			log.warnf("%s: logged out: %v", c.opt.name, c.logout_reason)
 		}
 		if c.opt.handlers.event != nil {

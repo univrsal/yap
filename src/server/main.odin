@@ -110,12 +110,12 @@ main :: proc() {
 	}
 	if (settings.relay.enabled || api != nil) &&
 	   !start_relay(
-		   settings.relay.port,
-		   settings.port,
-		   settings.relay.web_dir,
-		   settings.relay.enabled,
-		   api,
-	   ) {
+			   settings.relay.port,
+			   settings.port,
+			   settings.relay.web_dir,
+			   settings.relay.enabled,
+			   api,
+		   ) {
 		os.exit(1)
 	}
 	if !run_server(settings, bootstrap.initial_admin_password) {

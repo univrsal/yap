@@ -59,7 +59,14 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 		if !is_array || len(list) > proto.MAX_ATTACHMENTS {
 			reply(
 				j,
-				error_reply(400, "invalid", fmt.tprintf("attachments is a list of at most %d uploads.", proto.MAX_ATTACHMENTS)),
+				error_reply(
+					400,
+					"invalid",
+					fmt.tprintf(
+						"attachments is a list of at most %d uploads.",
+						proto.MAX_ATTACHMENTS,
+					),
+				),
 			)
 			return
 		}
@@ -77,11 +84,25 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 		p.attachment_count = len(list)
 	}
 	if (got != .Value || p.text == "") && p.attachment_count == 0 {
-		reply(j, error_reply(400, "invalid", "content is the message's text (which files may go without)."))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				"content is the message's text (which files may go without).",
+			),
+		)
 		return
 	}
 	if len(p.text) > proto.MAX_CHAT_SIZE {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("content is at most %d bytes.", proto.MAX_CHAT_SIZE)))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("content is at most %d bytes.", proto.MAX_CHAT_SIZE),
+			),
+		)
 		return
 	}
 	if id, id_ok := field_id(j, obj, "thread"); id_ok {
@@ -161,7 +182,8 @@ posted :: proc(c: ^Conn, j: ^Job, a: lite.Answer) {
 		id := proto.Msg_Id(j.scratch[0])
 		if a.status == .Ok {
 			buf := make([]proto.Message, 1, context.temp_allocator)
-			if _, msgs, ok := proto.decode_history_page(a.body, buf); ok && len(msgs) == 1 && msgs[0].id == id {
+			if _, msgs, ok := proto.decode_history_page(a.body, buf);
+			   ok && len(msgs) == 1 && msgs[0].id == id {
 				reply(j, json_reply(201, message_json(&c.model, &msgs[0])))
 				return
 			}
@@ -208,7 +230,14 @@ edit_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	if len(text) > proto.MAX_CHAT_SIZE {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("content is at most %d bytes.", proto.MAX_CHAT_SIZE)))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("content is at most %d bytes.", proto.MAX_CHAT_SIZE),
+			),
+		)
 		return
 	}
 	j.answer = answered_empty
@@ -478,7 +507,14 @@ profile_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	if _, has := obj["avatar"]; has {
-		reply(j, error_reply(400, "invalid", "A picture is set with PUT /me/avatar, and taken away with DELETE."))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				"A picture is set with PUT /me/avatar, and taken away with DELETE.",
+			),
+		)
 		return
 	}
 	j.answer = answered_me

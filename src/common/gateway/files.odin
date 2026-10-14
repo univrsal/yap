@@ -266,7 +266,10 @@ files_message :: proc(c: ^Conn, kind: proto.Message_Kind, pt: []u8) {
 				sync.cond_broadcast(&u.ring.cond)
 			}
 			if done {
-				reply(u.job, json_reply(201, Upload_JSON{id_string(u.id), u.job.params[0], u.ring.size}))
+				reply(
+					u.job,
+					json_reply(201, Upload_JSON{id_string(u.id), u.job.params[0], u.ring.size}),
+				)
 				u.job = nil
 			}
 			return
@@ -284,7 +287,14 @@ files_message :: proc(c: ^Conn, kind: proto.Message_Kind, pt: []u8) {
 		for u, i in t.uploads {
 			if u.id == id {
 				if u.job != nil {
-					reply(u.job, error_reply(502, "bad_gateway", fmt.tprintf("The server stopped the upload (%v).", reason)))
+					reply(
+						u.job,
+						error_reply(
+							502,
+							"bad_gateway",
+							fmt.tprintf("The server stopped the upload (%v).", reason),
+						),
+					)
 				}
 				upload_free(u)
 				ordered_remove(&t.uploads, i)
@@ -322,7 +332,11 @@ files_message :: proc(c: ^Conn, kind: proto.Message_Kind, pt: []u8) {
 			case proto.blob_need_failed(pt):
 				b.tries += 1
 				if b.tries >= BLOB_UPLOAD_TRIES {
-					blob_upload_end(c, b, error_reply(400, "invalid", "The server wouldn't take the picture."))
+					blob_upload_end(
+						c,
+						b,
+						error_reply(400, "invalid", "The server wouldn't take the picture."),
+					)
 					return
 				}
 				fallthrough
@@ -525,9 +539,15 @@ blob_upload_turn :: proc(c: ^Conn, b: ^Blob_Upload, now: time.Tick) {
 		lite.send(&c.client, proto.encode_blob_chunk(buf[:], b.handle, index, data))
 		b.tokens -= f32(len(data))
 	}
-	if proto.blob_sender_idle(&b.send) && !b.asking && time.tick_diff(b.last_heard, now) > BLOB_UPLOAD_QUIET {
+	if proto.blob_sender_idle(&b.send) &&
+	   !b.asking &&
+	   time.tick_diff(b.last_heard, now) > BLOB_UPLOAD_QUIET {
 		if time.tick_diff(b.last_heard, now) > TRANSFER_QUIET {
-			blob_upload_end(c, b, error_reply(503, "unavailable", "The server went quiet about the picture."))
+			blob_upload_end(
+				c,
+				b,
+				error_reply(503, "unavailable", "The server went quiet about the picture."),
+			)
 			return
 		}
 		blob_put(c, b)
@@ -565,11 +585,27 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 	name, named := http.query_value(req.query, "name")
 	switch {
 	case !named || name == "":
-		return refuse(c, req, error_reply(400, "invalid", "name is what the file is called: ?name=."))
+		return refuse(
+			c,
+			req,
+			error_reply(400, "invalid", "name is what the file is called: ?name=."),
+		)
 	case len(name) > proto.MAX_FILE_NAME:
-		return refuse(c, req, error_reply(400, "invalid", fmt.tprintf("name is at most %d bytes.", proto.MAX_FILE_NAME)))
+		return refuse(
+			c,
+			req,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("name is at most %d bytes.", proto.MAX_FILE_NAME),
+			),
+		)
 	case req.chunked || req.content_length <= 0:
-		send(c, error_reply(411, "invalid", "An upload needs a Content-Length, and something in it."), false)
+		send(
+			c,
+			error_reply(411, "invalid", "An upload needs a Content-Length, and something in it."),
+			false,
+		)
 		return false
 	}
 	j.params[0] = name
@@ -645,7 +681,12 @@ upload_run :: proc(c: ^Conn, j: ^Job) {
 		append(&c.transfers.uploads, u)
 	}
 	buf: [proto.ATTACH_PUT_MAX_SIZE]u8
-	ask(c, j, .Attach_Put, proto.encode_attach_put(buf[:], {size = j.ring.size, name = j.params[0]}))
+	ask(
+		c,
+		j,
+		.Attach_Put,
+		proto.encode_attach_put(buf[:], {size = j.ring.size, name = j.params[0]}),
+	)
 }
 
 /*
@@ -654,7 +695,14 @@ server says how big it is, its bytes, written out as they come. False:
 the connection closes after, as one cut short has to.
 */
 @(private)
-downloads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request, blob: string) -> (keep_alive: bool) {
+downloads_serve :: proc(
+	g: ^Gateway,
+	c: ^http.Conn,
+	req: ^http.Request,
+	blob: string,
+) -> (
+	keep_alive: bool,
+) {
 	j := Job {
 		kind = .Call,
 		run  = download_run,
@@ -775,12 +823,29 @@ one.
 avatar_run :: proc(c: ^Conn, j: ^Job) {
 	data := j.body
 	if len(data) == 0 || len(data) > proto.MAX_AVATAR_SIZE {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("A picture is a JPEG of at most %d bytes.", proto.MAX_AVATAR_SIZE)))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("A picture is a JPEG of at most %d bytes.", proto.MAX_AVATAR_SIZE),
+			),
+		)
 		return
 	}
 	w, h, is_jpeg := jpeg_size(data)
 	if !is_jpeg || w > proto.MAX_AVATAR_SIDE || h > proto.MAX_AVATAR_SIDE {
-		reply(j, error_reply(400, "invalid", fmt.tprintf("A picture is a JPEG of at most %d pixels a side.", proto.MAX_AVATAR_SIDE)))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf(
+					"A picture is a JPEG of at most %d pixels a side.",
+					proto.MAX_AVATAR_SIDE,
+				),
+			),
+		)
 		return
 	}
 	b := new(Blob_Upload)
@@ -869,7 +934,12 @@ blob_upload_end :: proc(c: ^Conn, b: ^Blob_Upload, r: Reply) {
 set_avatar :: proc(c: ^Conn, j: ^Job, blob: proto.Blob_Id) {
 	j.answer = answered_me
 	buf: [64]u8
-	ask(c, j, .Profile_Set, proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR, avatar = blob}))
+	ask(
+		c,
+		j,
+		.Profile_Set,
+		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR, avatar = blob}),
+	)
 }
 
 /*

@@ -197,11 +197,11 @@ share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> Share_Config {
 
 // What the View shows of screen sharing, worked out once a second.
 Video_Stats :: struct {
-	kbit_in, kbit_out: int,
+	kbit_in, kbit_out:     int,
 	// Over that second: fragments asked for again, frames that saved,
 	// and frames lost all the same.
-	asked, saved, lost: int,
-	codec:             proto.Video_Codec, // of what we watch
+	asked, saved, lost:    int,
+	codec:                 proto.Video_Codec, // of what we watch
 	// Sharing: what we're held to for our viewers (0 when not), what
 	// the share was set to, and how many report (and were left out).
 	kbit_target, kbit_max: int,

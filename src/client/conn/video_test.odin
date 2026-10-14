@@ -226,8 +226,16 @@ test_adapt_bitrate :: proc(t: ^testing.T) {
 		return time.tick_add(at, d)
 	}
 	MAX :: 8000
-	bad := proto.Video_Report{loss = 50, delay_ms = 10, kbit = 8000}
-	good := proto.Video_Report{loss = 0, delay_ms = 5, kbit = 7800}
+	bad := proto.Video_Report {
+		loss     = 50,
+		delay_ms = 10,
+		kbit     = 8000,
+	}
+	good := proto.Video_Report {
+		loss     = 0,
+		delay_ms = 5,
+		kbit     = 7800,
+	}
 
 	adapt_bitrate(&v, bad, MAX, at)
 	testing.expect_value(t, v.target_kbit, 6000)
@@ -239,7 +247,12 @@ test_adapt_bitrate :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.target_kbit, 3000 * 3 / 4)
 	// Never under an eighth.
 	for i in 3 ..< 20 {
-		adapt_bitrate(&v, {loss = 900, kbit = 100}, MAX, later(at, time.Duration(i) * 2 * time.Second))
+		adapt_bitrate(
+			&v,
+			{loss = 900, kbit = 100},
+			MAX,
+			later(at, time.Duration(i) * 2 * time.Second),
+		)
 	}
 	testing.expect_value(t, v.target_kbit, MAX / ADAPT_FLOOR)
 
@@ -254,7 +267,12 @@ test_adapt_bitrate :: proc(t: ^testing.T) {
 	adapt_bitrate(&v, good, MAX, later(at, ADAPT_GOOD_FOR + 2 * time.Second))
 	testing.expect_value(t, v.target_kbit, MAX / ADAPT_FLOOR + MAX / 5)
 	for i in 1 ..= 10 {
-		adapt_bitrate(&v, good, MAX, later(at, ADAPT_GOOD_FOR + 2 * time.Second + time.Duration(i) * ADAPT_GOOD_FOR))
+		adapt_bitrate(
+			&v,
+			good,
+			MAX,
+			later(at, ADAPT_GOOD_FOR + 2 * time.Second + time.Duration(i) * ADAPT_GOOD_FOR),
+		)
 	}
 	// Back to as set, which is 0.
 	testing.expect_value(t, v.target_kbit, 0)

@@ -137,7 +137,11 @@ publish_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
 }
 
 // publish_other_devices hands the UI another account's devices.
-publish_other_devices :: proc(c: ^Voice_Client, account: proto.Account_Id, devices: []proto.Device) {
+publish_other_devices :: proc(
+	c: ^Voice_Client,
+	account: proto.Account_Id,
+	devices: []proto.Device,
+) {
 	v := c.view
 	if v == nil {
 		for d in devices {

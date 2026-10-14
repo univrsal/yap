@@ -190,7 +190,11 @@ test_media_link :: proc(t: ^testing.T) {
 	// The viewer lost it after all: asked for again, it comes from the
 	// cache. What was never sent isn't.
 	nack_buf: [proto.NACK_SIZE]u8
-	media_link_send(m, &links[1], proto.encode_nack(&nack_buf, sharer.num, {frame = 7, first = 0, missing = 0b11}))
+	media_link_send(
+		m,
+		&links[1],
+		proto.encode_nack(&nack_buf, sharer.num, {frame = 7, first = 0, missing = 0b11}),
+	)
 	pt = media_link_recv(t, &links[1], out[:])
 	from, f, ok = proto.decode_video_down(pt)
 	testing.expect(t, ok)
@@ -200,20 +204,32 @@ test_media_link :: proc(t: ^testing.T) {
 	testing.expect(t, media_link_quiet(&links[1]))
 
 	// Only of whom it watches.
-	media_link_send(m, &links[1], proto.encode_nack(&nack_buf, viewer.num, {frame = 7, first = 0, missing = 1}))
+	media_link_send(
+		m,
+		&links[1],
+		proto.encode_nack(&nack_buf, viewer.num, {frame = 7, first = 0, missing = 1}),
+	)
 	testing.expect(t, media_link_quiet(&links[1]))
 
 	// The viewer's report reaches the sharer as the summary of one; a
 	// report on somebody it doesn't watch is dropped.
 	report_buf: [proto.REPORT_SIZE]u8
 	media_link_send(m, &links[1], proto.encode_report_up(&report_buf, viewer.num, {loss = 900}))
-	media_link_send(m, &links[1], proto.encode_report_up(&report_buf, sharer.num, {loss = 25, delay_ms = 60, kbit = 5000}))
+	media_link_send(
+		m,
+		&links[1],
+		proto.encode_report_up(&report_buf, sharer.num, {loss = 25, delay_ms = 60, kbit = 5000}),
+	)
 	media_reports(m)
 	pt = media_link_recv(t, &links[0], out[:])
 	testing.expect_value(t, proto.Message_Kind(pt[0]), proto.Message_Kind.Report)
 	summary, summary_ok := proto.decode_report_down(pt)
 	testing.expect(t, summary_ok)
-	testing.expect_value(t, summary, proto.Video_Reports{viewers = 1, worst = {loss = 25, delay_ms = 60, kbit = 5000}})
+	testing.expect_value(
+		t,
+		summary,
+		proto.Video_Reports{viewers = 1, worst = {loss = 25, delay_ms = 60, kbit = 5000}},
+	)
 	testing.expect(t, media_link_quiet(&links[1]))
 
 	// Once they've stopped sharing, their video goes nowhere.

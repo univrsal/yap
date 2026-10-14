@@ -97,7 +97,10 @@ share_button :: proc(ui: ^UI) {
 		hint, color = "Stop sharing your screen", theme.speaking
 		s := ui.view.video_stats
 		if s.kbit_out > 0 {
-			hint = fmt.tprintf("Stop sharing your screen (%.1f Mbit/s going out)", f64(s.kbit_out) / 1000)
+			hint = fmt.tprintf(
+				"Stop sharing your screen (%.1f Mbit/s going out)",
+				f64(s.kbit_out) / 1000,
+			)
 		}
 		if s.kbit_target > 0 && s.kbit_max > 0 {
 			hint = fmt.tprintf(
@@ -374,7 +377,8 @@ fullscreen_screen :: proc(ui: ^UI) {
 		fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui)),
 		label_proc,
 	)
-	if .SUBMIT in icon_button(ui, "exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") || .Escape in ui.keys {
+	if .SUBMIT in icon_button(ui, "exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
+	   .Escape in ui.keys {
 		ui.keys -= {.Escape}
 		conn.video_set_fullscreen(false)
 	}

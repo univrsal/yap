@@ -215,7 +215,12 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 		return
 	}
 	if req.method != "GET" {
-		http.respond(c.sock, "405 Method Not Allowed", "text/plain", "the yap relay only answers GET\n")
+		http.respond(
+			c.sock,
+			"405 Method Not Allowed",
+			"text/plain",
+			"the yap relay only answers GET\n",
+		)
 		return
 	}
 	if strings.has_prefix(req.path, "/yap/") {

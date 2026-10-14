@@ -297,7 +297,20 @@ Server_Info :: struct {
 }
 
 SERVER_INFO_MAX_SIZE ::
-	1 + MAX_SERVER_NAME + 1 + 255 + 8 + 1 + 1 + MAX_EMAIL_SIZE + 2 + MAX_SERVER_DESCRIPTION + 8 + 1 + 2 + 4
+	1 +
+	MAX_SERVER_NAME +
+	1 +
+	255 +
+	8 +
+	1 +
+	1 +
+	MAX_EMAIL_SIZE +
+	2 +
+	MAX_SERVER_DESCRIPTION +
+	8 +
+	1 +
+	2 +
+	4
 
 // What a server says it's for, in bytes of UTF-8.
 MAX_SERVER_DESCRIPTION :: 512

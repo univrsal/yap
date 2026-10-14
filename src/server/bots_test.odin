@@ -148,13 +148,7 @@ test_bot_limits :: proc(t: ^testing.T) {
 		proto.encode_account_password_set(buf[:], id, "a new password"),
 	)
 	testing.expect_value(t, status, proto.Status.Invalid)
-	status, _ = ts_ask(
-		t,
-		&ts,
-		bot,
-		.Account_Delete,
-		proto.encode_account_delete(buf[:], id, ""),
-	)
+	status, _ = ts_ask(t, &ts, bot, .Account_Delete, proto.encode_account_delete(buf[:], id, ""))
 	testing.expect_value(t, status, proto.Status.Denied)
 
 	// No voice: not in a room, not in a call, either way round.
@@ -164,7 +158,13 @@ test_bot_limits :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Denied)
 	testing.expect_value(t, bot.room, proto.Room(0))
 	id_buf: [4]u8
-	status, _ = ts_ask(t, &ts, bot, .Call_Start, proto.encode_account_id(&id_buf, alice.account.id))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		bot,
+		.Call_Start,
+		proto.encode_account_id(&id_buf, alice.account.id),
+	)
 	testing.expect_value(t, status, proto.Status.Denied)
 	status, _ = ts_ask(t, &ts, alice, .Call_Start, proto.encode_account_id(&id_buf, id))
 	testing.expect_value(t, status, proto.Status.Denied)

@@ -64,7 +64,15 @@ browser are always masked; one that isn't, or that is bigger than
 MAX_FRAME, ends the connection. A client reading a server's frames,
 which never are, says so with `from_server`.
 */
-read_frame :: proc(c: ^Conn, payload: []u8, from_server := false) -> (op: Opcode, n: int, ok: bool) {
+read_frame :: proc(
+	c: ^Conn,
+	payload: []u8,
+	from_server := false,
+) -> (
+	op: Opcode,
+	n: int,
+	ok: bool,
+) {
 	head: [2]u8
 	read_exact(c, head[:]) or_return
 	fin := head[0] & 0x80 != 0
@@ -103,7 +111,12 @@ write_frame sends one frame: unmasked, as a server's always are, or
 masked with `mask`, as a client's always are (and then `payload` is
 masked where it is).
 */
-write_frame :: proc(sock: net.TCP_Socket, op: Opcode, payload: []u8, mask: Maybe([4]u8) = nil) -> bool {
+write_frame :: proc(
+	sock: net.TCP_Socket,
+	op: Opcode,
+	payload: []u8,
+	mask: Maybe([4]u8) = nil,
+) -> bool {
 	head: [14]u8
 	head[0] = 0x80 | u8(op)
 	head_len := 2
