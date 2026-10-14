@@ -386,13 +386,14 @@ user_menu :: proc(ui: ^UI) {
 	mu.layout_row(ctx, widths[:])
 
 	mu.label(ctx, "")
-	if talking_to && .SUBMIT in
-	   icon_button(
-		   ui,
-		   "mute",
-		   .Mic_Off if u.muted else .Mic,
-		   "Unmute" if u.muted else "Mute for me",
-	   ) {
+	if talking_to &&
+	   .SUBMIT in
+		   icon_button(
+			   ui,
+			   "mute",
+			   .Mic_Off if u.muted else .Mic,
+			   "Unmute" if u.muted else "Mute for me",
+		   ) {
 		u.muted = !u.muted
 		changed = true
 	}
@@ -451,7 +452,8 @@ user_menu :: proc(ui: ^UI) {
 		// Poke them, with a message if there's one in the box. Not ourselves,
 		// and only a connection that's here.
 
-		if .CHANGE in mu.slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+		if .CHANGE in
+		   mu.slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 			u.volume = ui.menu_volume / 100
 			changed = true
 		}

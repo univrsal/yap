@@ -1254,7 +1254,11 @@ msg_forward :: proc(c: ^Voice_Client, cmd: Forward_Command) {
 				notify(c, true, "Forwarded.")
 			case .Reset:
 			case .Not_Found:
-				notify(c, false, "That message to forward or the forward destination can't be found.")
+				notify(
+					c,
+					false,
+					"That message to forward or the forward destination can't be found.",
+				)
 			case .Invalid:
 				notify(c, false, "That message can't be forwarded.")
 			case .Denied:
@@ -1869,10 +1873,7 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 		return
 	case .Invalid:
 		if p.kind == .File {
-			outbox_give_up(
-				c,
-				"That file can't be offered: only archives, pictures and videos.",
-			)
+			outbox_give_up(c, "That file can't be offered: only archives, pictures and videos.")
 			return
 		}
 		if p.root != 0 {

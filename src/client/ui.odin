@@ -496,10 +496,12 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	session_capture_update(ui)
 	app_audio_frame(ui)
 	servers_frame(ui)
-	// Before the tray, so it shows what a hotkey just did, and before
-	// giving up for a hidden window, since they work without one.
+	// Before the tray and the taskbar, so they show what a hotkey just
+	// did, and before giving up for a hidden window, since they work
+	// without one.
 	hotkeys_frame(ui)
 	tray_update(ui)
+	thumbbar_update(ui)
 	activity_step(ui)
 	if ui.hidden {
 		ui.meter_shown = false
@@ -848,6 +850,8 @@ window_open :: proc(ui: ^UI) -> bool {
 		ui.window = nil
 		return false
 	}
+	// Before the title bar, whose window procedure goes in front of it.
+	thumbbar_attach(ui.window)
 	titlebar_merge(ui.window, ui.settings.merge_title_bar)
 	set_swap_pace(ui)
 	ui.renderer.images = &ui.images.draws
@@ -922,6 +926,7 @@ window_close :: proc(ui: ^UI) {
 	// they are decoded again when they're next on screen.
 	ui_images_forget_textures(ui)
 	ui_avatars_forget_textures(ui)
+	thumbbar_detach()
 	glfw.DestroyWindow(ui.window)
 	ui.window = nil
 }

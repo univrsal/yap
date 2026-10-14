@@ -104,7 +104,7 @@ memory_settings :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in mu.button(ctx, "Write to log") {
 		mem_track := memtrack.log_text(m.report, context.temp_allocator)
-		
+
 		for line in strings.split_lines_iterator(&mem_track) {
 			if len(line) == 0 {
 				continue
