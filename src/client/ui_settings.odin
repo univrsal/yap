@@ -18,7 +18,9 @@ server (ui_account.odin, ui_manage.odin). Changes are saved right away
 (see settings/settings.odin) and apply to a running connection.
 
 Each tab is split in two: its categories down the left, and the one
-picked on the right, in a panel that scrolls. The voice gate and the
+picked on the right, in a panel that scrolls. In a narrow window (a
+phone) the two take turns: the list, then the category picked with a
+way back to the list. The voice gate and the
 devices are nodes inside Audio, and smaller parts of a category (the
 account's password, its devices) are nodes a person can open too. About
 is the last of the client's categories.
@@ -75,10 +77,7 @@ CATEGORY_WIDTH :: 160
 
 settings_page :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-
-	// The rail's settings button, the inbox or a server closes it.
-	title_row(ui, {-1})
-	mu.label(ctx, "Settings")
+	narrow := mu.get_current_container(ctx).body.w < NARROW_LAYOUT
 
 	// The server's tab is there while we're logged in to one, with what
 	// we may do there.
@@ -94,8 +93,38 @@ settings_page :: proc(ui: ^UI) {
 	}
 	if server == "" {
 		ui.settings_tab = .Client
-	} else {
-		mu.layout_row(ctx, {140, 260})
+	}
+	// One that isn't there (any more): the first that is.
+	if ui.settings_client not_in CLIENT_CATEGORIES {
+		ui.settings_client = .Audio
+	}
+	if ui.settings_server not_in server_categories {
+		ui.settings_server = .Account
+	}
+
+	// In a narrow window the list and the category picked take turns,
+	// as a server's channels and chat do: the category under its name
+	// and a way back to the list.
+	if narrow && !ui.settings_list {
+		title_row(ui, {40, -1})
+		if .SUBMIT in stable_button_hint(ui, "to settings list", "<", "Settings", {.ALIGN_CENTER}) {
+			ui.settings_list = true
+		}
+		if ui.settings_tab == .Server {
+			mu.label(ctx, SERVER_CATEGORY_NAMES[ui.settings_server])
+		} else {
+			mu.label(ctx, CLIENT_CATEGORY_NAMES[ui.settings_client])
+		}
+		mu.layout_row(ctx, {-1}, -1)
+		settings_body(ui)
+		return
+	}
+
+	// The rail's settings button, the inbox or a server closes it.
+	title_row(ui, {-1})
+	mu.label(ctx, "Settings")
+	if server != "" {
+		mu.layout_row(ctx, {110, -1} if narrow else {140, 260})
 		if .SUBMIT in tab_button(ctx, "client tab", "This client", ui.settings_tab == .Client) {
 			ui.settings_tab = .Client
 		}
@@ -110,41 +139,62 @@ settings_page :: proc(ui: ^UI) {
 		}
 	}
 
-	// One that isn't there (any more): the first that is.
-	if ui.settings_client not_in CLIENT_CATEGORIES {
-		ui.settings_client = .Audio
+	if narrow {
+		mu.layout_row(ctx, {-1}, -1)
+		if category_list(ui, server_categories, narrow = true) {
+			ui.settings_list = false
+		}
+		return
 	}
-	if ui.settings_server not_in server_categories {
-		ui.settings_server = .Account
-	}
-
 	mu.layout_row(ctx, {CATEGORY_WIDTH, -1}, -1)
 	mu.layout_begin_column(ctx)
+	mu.layout_row(ctx, {-1}, -1)
+	category_list(ui, server_categories)
+	mu.layout_end_column(ctx)
+	settings_body(ui)
+}
+
+// category_list is the shown tab's categories, in a panel that fills the
+// next cell; true when one is clicked. Narrow, none is marked as picked:
+// the list is all there is on screen, so none is open.
+@(private = "file")
+category_list :: proc(
+	ui: ^UI,
+	server_categories: bit_set[Server_Category],
+	narrow := false,
+) -> (
+	picked: bool,
+) {
+	ctx := &ui.ctx
+	mu.begin_panel(ctx, "settings categories")
+	defer mu.end_panel(ctx)
 	if ui.settings_tab == .Client {
-		mu.layout_row(ctx, {-1}, -1)
-		mu.begin_panel(ctx, "settings categories")
 		for c in CLIENT_CATEGORIES {
-			if category_row(ctx, CLIENT_CATEGORY_NAMES[c], ui.settings_client == c) {
+			if category_row(ctx, CLIENT_CATEGORY_NAMES[c], ui.settings_client == c && !narrow) {
 				ui.settings_client = c
+				picked = true
 			}
 		}
-		mu.end_panel(ctx)
-	} else {
-		mu.layout_row(ctx, {-1}, -1)
-		mu.begin_panel(ctx, "settings categories")
-		for c in server_categories {
-			if category_row(ctx, SERVER_CATEGORY_NAMES[c], ui.settings_server == c) &&
-			   ui.settings_server != c {
+		return
+	}
+	for c in server_categories {
+		if category_row(ctx, SERVER_CATEGORY_NAMES[c], ui.settings_server == c && !narrow) {
+			if ui.settings_server != c {
 				ui.settings_server = c
 				server_category_opened(ui, c)
 			}
+			picked = true
 		}
-		mu.end_panel(ctx)
 	}
-	mu.layout_end_column(ctx)
+	return
+}
 
+// settings_body is the category picked, in the next cell.
+@(private = "file")
+settings_body :: proc(ui: ^UI) {
+	ctx := &ui.ctx
 	// The log scrolls on its own, and keeps to the bottom as lines come
-	// in, so it's the whole of the right rather than in a panel that
+	// in, so it's the whole of the cell rather than in a panel that
 	// scrolls too.
 	if ui.settings_tab == .Client && ui.settings_client == .Log {
 		log_panel(ui)
@@ -187,6 +237,126 @@ settings_page :: proc(ui: ^UI) {
 }
 
 /*
+In a narrow window (a phone) a row of settings that wouldn't fit across
+goes down instead: field_row puts its label on a line of its own, over
+the controls, and fit_widths shrinks fixed widths that still don't fit.
+Wide, everything is laid out as asked.
+*/
+
+// How wide a fill (a width of 0 or less) is counted when working out
+// whether a row fits.
+FILL_MIN :: 100
+
+// row_room is the width a row laid out now gets.
+row_room :: proc(ctx: ^mu.Context) -> i32 {
+	layout := mu.get_layout(ctx)
+	return layout.body.w - layout.indent
+}
+
+// row_fits says whether `widths` fit across a row laid out now, a fill
+// counted `fill_min` wide.
+row_fits :: proc(ctx: ^mu.Context, widths: []i32, fill_min: i32 = FILL_MIN) -> bool {
+	need := i32(max(len(widths) - 1, 0)) * ctx.style.spacing
+	for w in widths {
+		need += w if w > 0 else fill_min
+	}
+	return need <= row_room(ctx)
+}
+
+// fit_widths is `widths`, with the fixed ones shrunk in proportion if
+// they don't fit across a row laid out now.
+fit_widths :: proc(ctx: ^mu.Context, widths: []i32) -> []i32 {
+	if row_fits(ctx, widths) {
+		return widths
+	}
+	fixed, fills: i32
+	for w in widths {
+		if w > 0 {
+			fixed += w
+		} else {
+			fills += 1
+		}
+	}
+	room := row_room(ctx) - i32(len(widths) - 1) * ctx.style.spacing - fills * FILL_MIN
+	out := make([]i32, len(widths), context.temp_allocator)
+	copy(out, widths)
+	if fixed > 0 && room > 0 {
+		for &w in out {
+			if w > 0 {
+				w = max(w * room / fixed, 1)
+			}
+		}
+	}
+	return out
+}
+
+/*
+field_row lays out a row of a label `label_w` wide and controls of
+`widths` after it, and draws the label; the controls are the caller's.
+Where that doesn't fit (a fill counted `fill_min` wide), the label has a
+line of its own (none if it's empty) and the controls go under it.
+*/
+field_row :: proc(
+	ui: ^UI,
+	label_w: i32,
+	label: string,
+	widths: []i32,
+	height: i32 = 0,
+	fill_min: i32 = FILL_MIN,
+) {
+	ctx := &ui.ctx
+	row := make([]i32, len(widths) + 1, context.temp_allocator)
+	row[0] = label_w
+	copy(row[1:], widths)
+	if row_fits(ctx, row, fill_min) {
+		mu.layout_row(ctx, row, height)
+		mu.label(ctx, label)
+		return
+	}
+	if label != "" {
+		mu.layout_row(ctx, {-1})
+		mu.label(ctx, label)
+	}
+	mu.layout_row(ctx, fit_widths(ctx, widths), height)
+}
+
+/*
+wrap_text is mu.text as the settings' notes want it: the last word of
+it wraps too (mu.text only measures a word with a space after it), and
+so does a word longer than a line, a path say, as the chat's does
+(wrap_line). In the text colour, for with_text_color.
+*/
+wrap_text :: proc(ctx: ^mu.Context, text: string) {
+	font := ctx.style.font
+	mu.layout_begin_column(ctx)
+	defer mu.layout_end_column(ctx)
+	mu.layout_row(ctx, {-1}, ctx.text_height(font))
+	rest := text
+	for len(rest) > 0 {
+		r := mu.layout_next(ctx)
+		end, next := wrap_line(ctx, font, rest, r.w)
+		mu.draw_text(ctx, font, rest[:end], {r.x, r.y}, ctx.style.colors[.TEXT])
+		rest = rest[next:]
+	}
+}
+
+// checkbox_noted is a checkbox with a note: after its label in brackets
+// where that fits, or else under it, in text that wraps.
+checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_Set {
+	ctx := &ui.ctx
+	mu.layout_row(ctx, {-1})
+	full := fmt.tprintf("%s (%s)", label, note)
+	box := ctx.style.size.y + 2 * ctx.style.padding
+	if ctx.text_width(ctx.style.font, full) + box + ctx.style.padding <= row_room(ctx) {
+		return mu.checkbox(ctx, full, state)
+	}
+	res := mu.checkbox(ctx, label, state)
+	mu.layout_row(ctx, {-1})
+	with_text_color(ctx, theme.dim, fmt.tprintf("  %s", note), wrap_text)
+	return res
+}
+
+/*
 category_row is one line of a settings tab's list of categories (or the
 Roles list, ui_roles.odin), a list_row: true when it's clicked.
 */
@@ -202,8 +372,7 @@ category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	current := settings.settings_quality(&ui.settings)
-	mu.layout_row(ctx, {60, 90, 90, 90})
-	mu.label(ctx, "Quality")
+	field_row(ui, 60, "Quality", {90, 90, 90})
 	for preset, q in audio.QUALITY_PRESETS {
 		mark := "⏵ " if q == current else "  "
 		if .SUBMIT in
@@ -258,8 +427,7 @@ ANIMATE_CHOICE_LABELS := [settings.Animate_Pictures]string {
 ui_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	// Dark, light, or whichever the system is (theme.odin).
-	mu.layout_row(ctx, {120, 130, 130, 130})
-	mu.label(ctx, "Theme")
+	field_row(ui, 120, "Theme", {130, 130, 130})
 	current := theme_choice(&ui.settings)
 	for label, choice in THEME_CHOICE_LABELS {
 		if choice_button(ui, THEME_CHOICE_NAMES[choice], label, choice == current) &&
@@ -271,8 +439,7 @@ ui_settings :: proc(ui: ^UI) {
 	}
 
 	// When animated pictures in the chat play (ui_images.odin).
-	mu.layout_row(ctx, {120, 130, 130, 130})
-	mu.label(ctx, "Animate pictures")
+	field_row(ui, 120, "Animate pictures", {130, 130, 130})
 	animate := settings.animate_pictures(&ui.settings)
 	for label, choice in ANIMATE_CHOICE_LABELS {
 		name := settings.ANIMATE_PICTURES_NAMES[choice]
@@ -350,7 +517,7 @@ ui_settings :: proc(ui: ^UI) {
 		}
 		if note := titlebar_restart_note(ui.settings.merge_title_bar); note != "" {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, theme.warning, fmt.tprintf("  %s", note), label_proc)
+			with_text_color(ctx, theme.warning, fmt.tprintf("  %s", note), wrap_text)
 		}
 
 		mu.layout_row(ctx, {-1})
@@ -365,7 +532,8 @@ ui_settings :: proc(ui: ^UI) {
 			return
 		}
 
-		mu.layout_row(ctx, {230, -1})
+		// One under the other where they don't fit side by side.
+		mu.layout_row(ctx, {230, -1} if row_fits(ctx, {230, 200}) else {-1})
 		if .CHANGE in mu.checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
@@ -381,7 +549,7 @@ ui_settings :: proc(ui: ^UI) {
 				ctx,
 				theme.warning,
 				"  Wayland doesn't tell a window it has been minimized, so here it will just minimize.",
-				label_proc,
+				wrap_text,
 			)
 		}
 	}
@@ -413,7 +581,7 @@ transfer_settings :: proc(ui: ^UI) {
 		ctx,
 		theme.dim,
 		"  0 is no limit. A download limit also slows down whoever is sending.",
-		label_proc,
+		wrap_text,
 	)
 	if changed {
 		// Sliders change every frame while dragged; saved within a second.
@@ -422,10 +590,14 @@ transfer_settings :: proc(ui: ^UI) {
 	}
 }
 
-// device_settings shows the input and output pickers side by side, each
-// filling the rest of the settings panel's height, so neither has to
-// share the other's vertical space; either still scrolls on its own if
-// its device list doesn't fit.
+// device_settings shows the input and output pickers side by side (one
+// over the other in a narrow window), each in a box of its own height,
+// so neither has to share the other's space; either scrolls on its own
+// if its device list doesn't fit.
+// Narrower than this, the device lists go one over the other.
+@(private = "file")
+DEVICE_LIST_MIN :: 220
+
 @(private = "file")
 device_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -444,7 +616,7 @@ device_settings :: proc(ui: ^UI) {
 	// The width left of the panel once the tree nodes have indented it.
 	layout := mu.get_layout(ctx)
 	half := (layout.body.w - layout.indent - ctx.style.spacing) / 2
-	mu.layout_row(ctx, {half, -1}, 210)
+	mu.layout_row(ctx, {half, -1} if half >= DEVICE_LIST_MIN else {-1}, 210)
 
 	if mu.layout_column(ctx) {
 		if choice, changed := device_list(

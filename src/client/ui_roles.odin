@@ -47,6 +47,10 @@ UI_Roles :: struct {
 
 @(private = "file")
 LIST_WIDTH :: 170
+// Narrower than this beside the list, the role picked has the page to
+// itself (roles_settings).
+@(private = "file")
+EDITOR_MIN :: 300
 @(private = "file")
 SWATCH :: 20
 
@@ -209,6 +213,30 @@ roles_settings :: proc(ui: ^UI) {
 	// A role that's gone takes the right-hand side with it.
 	if r.role != 0 && role_of(v, r.role) == nil {
 		r.role = 0
+	}
+
+	// Narrow, the list and the role picked take turns, as the settings'
+	// categories do: the role under its name and a way back to the list.
+	if row_room(ctx) < LIST_WIDTH + EDITOR_MIN {
+		role := role_of(v, r.role)
+		if role == nil {
+			mu.layout_row(ctx, {-1}, -1)
+			mu.begin_panel(ctx, "role list")
+			role_list(ui)
+			mu.end_panel(ctx)
+			return
+		}
+		mu.layout_row(ctx, {40, -1})
+		if .SUBMIT in stable_button_hint(ui, "to role list", "<", "Roles", {.ALIGN_CENTER}) {
+			r.role = 0
+			r.confirm, r.adding = false, false
+		}
+		mu.label(ctx, role.name)
+		mu.layout_row(ctx, {-1}, -1)
+		mu.begin_panel(ctx, "role")
+		role_editor(ui, role^)
+		mu.end_panel(ctx)
+		return
 	}
 
 	mu.layout_row(ctx, {LIST_WIDTH, -1}, -1)
@@ -435,14 +463,12 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 color_picker :: proc(ui: ^UI, editable: bool) {
 	ctx := &ui.ctx
 	r := &ui.roles
-	widths := make([]i32, len(ROLE_PALETTE) + 2, context.temp_allocator)
-	widths[0] = 60
-	for &w in widths[1:] {
+	widths := make([]i32, len(ROLE_PALETTE) + 1, context.temp_allocator)
+	for &w in widths {
 		w = SWATCH
 	}
 	widths[len(widths) - 1] = 50
-	mu.layout_row(ctx, widths, SWATCH)
-	mu.label(ctx, "Colour")
+	field_row(ui, 60, "Colour", widths, SWATCH)
 	for c in ROLE_PALETTE {
 		mu.push_id(ctx, uintptr(c))
 		defer mu.pop_id(ctx)
@@ -486,8 +512,7 @@ move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 		cmd.roles[cmd.count] = role.id
 		cmd.count += 1
 	}
-	mu.layout_row(ctx, {60, 100, 100, -1})
-	mu.label(ctx, "Place")
+	field_row(ui, 60, "Place", {100, 100, -1})
 	up := false
 	if at > 0 {
 		up = .SUBMIT in stable_button(ctx, "move up", "Move up", {.ALIGN_CENTER})

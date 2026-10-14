@@ -329,7 +329,7 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 			acc.username,
 			proto.DELETED_NAME,
 		),
-		label_proc,
+		wrap_text,
 	)
 	mu.layout_row(ctx, {30, 140, 100})
 	mu.label(ctx, "")
@@ -430,8 +430,7 @@ purge_settings :: proc(ui: ^UI) {
 	m.purge_conv = choices[at]
 	place := purge_place(v, m.purge_conv)
 
-	mu.layout_row(ctx, {FORM_LABEL, 30, 220, 30})
-	mu.label(ctx, "Conversation")
+	field_row(ui, FORM_LABEL, "Conversation", {30, 220, 30})
 	if .SUBMIT in stable_button(ctx, "purge prev", "<", {.ALIGN_CENTER}) {
 		m.purge_conv = choices[(at + len(choices) - 1) % len(choices)]
 		m.purge_confirm = false
@@ -451,17 +450,15 @@ purge_settings :: proc(ui: ^UI) {
 	days, days_ok := strconv.parse_int(string(m.purge_days_buf[:m.purge_days_len]), 10)
 	days_ok = days_ok && days >= 0
 
-	mu.layout_row(ctx, {FORM_LABEL, -1})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", {-1}, fill_min = 240)
 	if .CHANGE in mu.checkbox(ctx, "Only their files; the messages stay", &m.purge_files) {
 		m.purge_confirm = false
 	}
 
-	mu.layout_row(ctx, {FORM_LABEL, 140, -1})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", {140, -1})
 	if !days_ok {
 		mu.label(ctx, "")
-		with_text_color(ctx, theme.dim, "How many days, as a number.", label_proc)
+		with_text_color(ctx, theme.dim, "How many days, as a number.", wrap_text)
 		return
 	}
 	now_ms := time.time_to_unix_nano(time.now()) / 1_000_000
@@ -470,7 +467,7 @@ purge_settings :: proc(ui: ^UI) {
 		if .SUBMIT in stable_button(ctx, "purge", "Purge...", {.ALIGN_CENTER}) {
 			m.purge_confirm = true
 		}
-		with_text_color(ctx, theme.dim, "Asks first. Pinned messages are always kept.", label_proc)
+		with_text_color(ctx, theme.dim, "Asks first. Pinned messages are always kept.", wrap_text)
 		return
 	}
 	dt, _ := time.time_to_datetime(time.unix(before / 1000, 0))
@@ -493,10 +490,9 @@ purge_settings :: proc(ui: ^UI) {
 			place,
 			when_text,
 		),
-		label_proc,
+		wrap_text,
 	)
-	mu.layout_row(ctx, {FORM_LABEL, 140, 140})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", {140, 140})
 	if .SUBMIT in stable_button(ctx, "purge yes", "Purge them", {.ALIGN_CENTER}) {
 		command(
 			ui,

@@ -118,7 +118,7 @@ memory_settings :: proc(ui: ^UI) {
 		ctx,
 		theme.dim,
 		"Give back returns heap free's pages to the system: resident drops, malloc still lists them.",
-		label_proc,
+		wrap_text,
 	)
 	memory_report(ui, m.report)
 }

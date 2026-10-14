@@ -122,11 +122,11 @@ gate_settings :: proc(ui: ^UI) {
 	defer mu.end_treenode(ctx)
 	ui.meter_shown = true
 
-	mu.layout_row(ctx, {-1})
 	if .CHANGE in
-	   mu.checkbox(
-		   ctx,
-		   "Voice gate (only sends while your microphone is above the threshold)",
+	   checkbox_noted(
+		   ui,
+		   "Voice gate",
+		   "only sends while your microphone is above the threshold",
 		   &s.voice_gate,
 	   ) {
 		gate_changed(ui)
@@ -135,7 +135,12 @@ gate_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1}, METER_HEIGHT)
 	level_meter(ui)
 	current_width := (mu.layout_next(ctx).w - 70 - 90 - 20) / 2
-	mu.layout_row(ctx, {70, current_width, 90, current_width})
+	// Too narrow for both on a line: one under the other.
+	if current_width >= GATE_SLIDER_MIN {
+		mu.layout_row(ctx, {70, current_width, 90, current_width})
+	} else {
+		mu.layout_row(ctx, {90, -1})
+	}
 	mu.label(ctx, "Open at")
 	if .CHANGE in mu.slider(ctx, &s.gate_open_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_close_db = min(s.gate_close_db, s.gate_open_db)
@@ -147,17 +152,21 @@ gate_settings :: proc(ui: ^UI) {
 		gate_changed(ui)
 	}
 
-	mu.layout_row(ctx, {-1})
 	listen := ui.listen_back
 	if .CHANGE in
-	   mu.checkbox(
-		   ctx,
-		   "Listen back (hear your microphone as others would; use headphones)",
+	   checkbox_noted(
+		   ui,
+		   "Listen back",
+		   "hear your microphone as others would; use headphones",
 		   &listen,
 	   ) {
 		set_listen_back(ui, listen)
 	}
 }
+
+// The thresholds' sliders are never narrower than this side by side.
+@(private = "file")
+GATE_SLIDER_MIN :: 110
 
 // set_listen_back turns listen back on or off, for the monitor (picked up
 // by monitor_update) and a running connection.

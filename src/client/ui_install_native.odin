@@ -96,7 +96,7 @@ install_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	mu.text(ctx, settings.INSTALL_DESCRIPTION)
+	wrap_text(ctx, settings.INSTALL_DESCRIPTION)
 
 	// Windows paths don't care about case.
 	same := strings.equal_fold(st.target, st.exe) if ODIN_OS == .Windows else st.target == st.exe

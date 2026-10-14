@@ -187,6 +187,9 @@ UI :: struct {
 	// And the category picked in each of its tabs.
 	settings_client:     Client_Category,
 	settings_server:     Server_Category,
+	// In a narrow window: the categories are showing, rather than the
+	// one picked (settings_page).
+	settings_list:       bool,
 	// Which palette is in use, and what the desktop said (theme.odin).
 	theme_state:         UI_Theme,
 	// For the chat's local timestamps, every server's; nil means UTC

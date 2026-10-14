@@ -119,8 +119,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	size: i32 = 48
-	mu.layout_row(ctx, {FORM_LABEL, size + 8, -1}, size)
-	mu.label(ctx, "Picture")
+	field_row(ui, FORM_LABEL, "Picture", {size + 8, -1}, size, fill_min = PICTURE_BUTTONS_MIN)
 	cell := mu.layout_next(ctx)
 	server_picture(
 		ui,
@@ -136,7 +135,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 		max((size - ctx.style.size.y - 2 * ctx.style.padding) / 2 - ctx.style.spacing, 1),
 	)
 	mu.layout_next(ctx)
-	mu.layout_row(ctx, {110, 110, 110})
+	mu.layout_row(ctx, fit_widths(ctx, {110, 110, 110}))
 	uploading := false
 	for o in v.outbox {
 		uploading ||= o.server
@@ -174,19 +173,23 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	mu.layout_end_column(ctx)
 
-	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD})
-	mu.label(ctx, "Name")
+	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
 	submitted := .SUBMIT in text_box(ui, s.name_buf[:], &s.name_len)
 
 	// What it's for, over several lines (Shift+Enter starts a new one).
 	about := string(s.about_buf[:s.about_len])
 	font := ctx.style.font
-	mu.layout_row(ctx, {FORM_LABEL, -1}, text_area_height(ctx, font, about, &s.about_area))
-	mu.label(ctx, "Description")
+	field_row(
+		ui,
+		FORM_LABEL,
+		"Description",
+		{-1},
+		text_area_height(ctx, font, about, &s.about_area),
+		fill_min = FORM_FIELD,
+	)
 	submitted |= .SUBMIT in text_area(ui, s.about_buf[:], &s.about_len, &s.about_area)
 
-	mu.layout_row(ctx, {FORM_LABEL, 110, 110, -1})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", {110, 110, -1})
 	if .SUBMIT in stable_button(ctx, "apply", "Apply", {.ALIGN_CENTER}) || submitted {
 		ui.account.mistake = ""
 		s.asked = true
