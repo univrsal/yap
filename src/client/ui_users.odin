@@ -353,6 +353,7 @@ user_menu :: proc(ui: ^UI) {
 	here := false
 	clicked, clicked_here := v.users[ui.menu_user]
 	clicked_here = clicked_here && clicked.account == account
+	talking_to := (v.call.status == .Active && v.call.peer == account) || clicked_here
 	for _, user in v.users {
 		here ||= user.account == account
 	}
@@ -366,7 +367,7 @@ user_menu :: proc(ui: ^UI) {
 	}
 
 	widths := make([dynamic]i32, context.temp_allocator)
-	append(&widths, 0, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON)
+	append(&widths, 0, ICON_BUTTON, ICON_BUTTON)
 	if user_is_screen_sharing {
 		append(&widths, ICON_BUTTON)
 	}
@@ -374,11 +375,14 @@ user_menu :: proc(ui: ^UI) {
 	if can_call {
 		append(&widths, ICON_BUTTON)
 	}
+	if talking_to {
+		append(&widths, ICON_BUTTON)
+	}
 	widths[0] = i32(MENU_WIDTH) - ICON_BUTTON * i32(len(widths) - 1)
 	mu.layout_row(ctx, widths[:])
 
 	mu.label(ctx, "")
-	if .SUBMIT in
+	if talking_to && .SUBMIT in
 	   icon_button(
 		   ui,
 		   "mute",
@@ -437,16 +441,16 @@ user_menu :: proc(ui: ^UI) {
 		log.debugf("ui: %s %s", name, "is no longer a buddy" if buddy else "is a buddy now")
 	}
 
-	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
-	mu.label(ctx, "Volume")
-	if .CHANGE in mu.slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
-		u.volume = ui.menu_volume / 100
-		changed = true
-	}
+	if talking_to {
+		mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
+		mu.label(ctx, "Volume")
+		// Poke them, with a message if there's one in the box. Not ourselves,
+		// and only a connection that's here.
 
-	// Poke them, with a message if there's one in the box. Not ourselves,
-	// and only a connection that's here.
-	if clicked_here {
+		if .CHANGE in mu.slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+			u.volume = ui.menu_volume / 100
+			changed = true
+		}
 		mu.layout_row(ctx, {MENU_WIDTH - 60 - ctx.style.spacing, 60})
 		poke := .SUBMIT in text_box(ui, ui.poke_buf[:], &ui.poke_len)
 		if .SUBMIT in stable_button(ctx, "poke", "Poke") {
