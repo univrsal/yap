@@ -1374,6 +1374,13 @@ session_capture_update :: proc(ui: ^UI) {
 			break
 		}
 	}
+	// Out of voice, what was shared has nobody to go to: the capture
+	// ends with it (or the OS keeps showing it, the yellow border and the
+	// menu bar's icon).
+	if ui.voice_at == nil {
+		conn.video_share_stop()
+		app_audio_stop(ui)
+	}
 	// The screen, if it's being shared, goes to the voice too.
 	for ns in ui.sessions {
 		sync.atomic_store(&ns.client.video.share_here, ns == ui.voice_at)
