@@ -324,7 +324,9 @@ screen_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	mu.layout_row(
 		ctx,
-		{-(3 * ICON_BUTTON + 3 * ctx.style.spacing), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
+		// -1 fills the row: -n leaves n - 1, for the buttons and the
+		// gaps before them.
+		{-(3 * ICON_BUTTON + 3 * ctx.style.spacing + 1), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
 	)
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(ui.view)))
 	if .SUBMIT in icon_button(ui, "pop out", .Pop_Out, "Pop out into its own window") {
@@ -348,7 +350,10 @@ picture_and_figures :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	figures := ui.settings.share_stats
 	if figures {
-		mu.layout_row(ctx, {-1}, -(ctx.style.size.y + ctx.style.spacing))
+		// Room for the figures' row, a label's height (its text and
+		// padding) after the gap; -1 would fill it all.
+		label_h := ctx.style.size.y + 2 * ctx.style.padding
+		mu.layout_row(ctx, {-1}, -(label_h + ctx.style.spacing + 1))
 	} else {
 		mu.layout_row(ctx, {-1}, -1)
 	}
@@ -397,7 +402,7 @@ screen_window :: proc(ui: ^UI, window_w, window_h: i32) {
 				w := clamp(window_w / 3, 320, 640)
 				h := w * 9 / 16 + 2 * (ctx.style.size.y + 2 * ctx.style.padding) + 3 * ctx.style.spacing
 				if ui.settings.share_stats {
-					h += ctx.style.size.y + ctx.style.spacing
+					h += ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing
 				}
 				cnt.rect = {window_w - w - 20, window_h - h - 20, w, h}
 			}
@@ -421,10 +426,7 @@ screen_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	if ns == ui.session {
 		buttons = 2 if shown_here else 1
 	}
-	widths := [3]i32{-1, ICON_BUTTON, ICON_BUTTON}
-	if buttons > 0 {
-		widths[0] = -(buttons * (ICON_BUTTON + ctx.style.spacing))
-	}
+	widths := [3]i32{-(buttons * (ICON_BUTTON + ctx.style.spacing) + 1), ICON_BUTTON, ICON_BUTTON}
 	mu.layout_row(ctx, widths[:buttons + 1])
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(v)))
 	if shown_here && .SUBMIT in icon_button(ui, "popped fullscreen", .Fullscreen, "Fullscreen") {
@@ -497,7 +499,7 @@ locked.
 */
 fullscreen_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	title_row(ui, {-(ICON_BUTTON + ctx.style.spacing), ICON_BUTTON})
+	title_row(ui, {-(ICON_BUTTON + ctx.style.spacing + 1), ICON_BUTTON})
 	with_text_color(
 		ctx,
 		theme.dim,
