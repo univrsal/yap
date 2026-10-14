@@ -94,6 +94,7 @@ WORKDIR /app
 
 VOLUME ["/data"]
 EXPOSE 7777/udp
+EXPOSE 7778/udp
 EXPOSE 8080/tcp
 
 ENTRYPOINT ["/usr/local/bin/yap-server", "/data/config.json"]
