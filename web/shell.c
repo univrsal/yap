@@ -412,10 +412,10 @@ EM_JS(int, yap_utc_offset_minutes, (), {
 	return -new Date().getTimezoneOffset();
 });
 
-/* A browser notification (a poke, see src/client/ui_poke.odin), if the page
+/* A browser notification (see src/client/ui_notices.odin), if the page
    may show them. Browsers only let a page ask while it's handling a
    click or a tap, so the first time one would be shown the page asks on
-   the next one - the poke that prompted it has gone by then, but the
+   the next one - the notice that prompted it has gone by then, but the
    ones after it get through. 1 if shown. */
 EM_JS(int, yap_notify, (const char *title, const char *body), {
 	if (typeof Notification === "undefined") return 0;

@@ -54,11 +54,8 @@ Server_UI :: struct {
 	menu_account:   proto.Account_Id,
 	menu_volume:    mu.Real,
 	menu_requested: bool,
-	// The buddy screen (ui_buddies.odin), and the menu's poke message
-	// (ui_users.odin).
+	// The buddy screen (ui_buddies.odin).
 	buddies:        UI_Buddies,
-	poke_buf:       [proto.MAX_POKE_SIZE]u8,
-	poke_len:       int,
 	// The thread windows (ui_threads.odin), by slot, and how many
 	// threads have been opened, for which was opened first.
 	threads:        [conn.MAX_THREADS]UI_Thread,

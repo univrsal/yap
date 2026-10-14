@@ -428,8 +428,6 @@ handle_message :: proc(c: ^Voice_Client, kind: proto.Message_Kind, pt: []byte) {
 		handle_blob_chunk(c, pt)
 	case .Blob_Need:
 		handle_blob_need(c, pt)
-	case .Poke:
-		handle_poke(c, pt)
 	case .Pong:
 		handle_pong(c, pt)
 	case .File_Accept:

@@ -12,7 +12,7 @@ its input and this connection tells the server. Everyone's, as the
 server works it out, is in their account's record (View_Account); ours as
 chosen is View.my_activity.
 
-While we're busy, messages and pokes make no sound; mentions and calls
+While we're busy, messages make no sound; mentions and calls
 still do.
 */
 

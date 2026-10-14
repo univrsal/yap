@@ -810,7 +810,7 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 	switch {
 	case mention:
-		// Its own sound, and said on the desktop like a poke.
+		// Its own sound, and said on the desktop.
 		audio.voice_notification_play(&c.voice, .Mail)
 		if dm {
 			break // said above

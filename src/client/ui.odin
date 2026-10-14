@@ -795,7 +795,7 @@ Usually that's the swap: it waits for the display (vsync). On Wayland
 that wait is for the compositor's go-ahead, which it only gives a window
 it's showing - minimized, or on another virtual desktop, the swap would
 wait until the window is looked at again, and everything else on this
-thread with it: pokes, the tray icon, listen back. So there the swap
+thread with it: notifications, the tray icon, listen back. So there the swap
 doesn't wait, and the loop keeps to the monitor's refresh rate itself
 (frame_pace, at the end of ui_frame). Wayland never tears, so nothing is
 lost.

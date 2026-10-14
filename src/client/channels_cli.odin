@@ -100,7 +100,6 @@ network loop never blocks on input.
 	                 only their files) older than that many days, of the
 	                 conversation being looked at or of all (for who may)
 	/typing [id]     tell the conversation (or the thread) you're typing
-	/poke <name> [message]  poke someone (see src/common/proto/poke.odin)
 	/dm <name> [text]       look at the DMs with someone (their username or
 	                        name), writing to them first if there's text;
 	                        /say, /older and /newer go there then,
@@ -537,13 +536,6 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 					},
 				)
 			}
-		case strings.has_prefix(line, "/poke "):
-			rest := strings.trim_space(line[len("/poke "):])
-			name, _, message := strings.partition(rest, " ")
-			conn.push_command(
-				q,
-				conn.Poke_Command{name = strings.clone(name), message = strings.clone(message)},
-			)
 		case strings.has_prefix(line, "/file "):
 			rest := strings.trim_space(line[len("/file "):])
 			to, _, path := strings.partition(rest, " ")
@@ -731,7 +723,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case:
 			log.warn(
-				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /poke <name> [message], /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
+				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
 			)
 		}
 	}

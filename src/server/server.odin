@@ -86,7 +86,6 @@ Conn :: struct {
 	sent_version:    u32,
 	last_state_sent: time.Tick,
 	last_typing:     time.Tick, // see handle_typing
-	last_poke:       time.Tick, // see handle_poke
 	upload:          Upload, // a blob on its way in (transfers.odin)
 	download:        Download, // a blob on its way out
 	stream:          Conn_Stream, // requests and events (stream.odin, rpc.odin)
@@ -741,8 +740,6 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		}
 	case .Leave:
 		drop_conn(s, c.conn)
-	case .Poke:
-		handle_poke(s, c.conn, pt)
 	case .Sound:
 		if flags := proto.decode_sound(pt); flags != c.conn.flags {
 			c.conn.flags = flags

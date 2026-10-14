@@ -275,11 +275,6 @@ Gain_Command :: struct {
 	account: proto.Account_Id,
 	gain:    f32,
 }
-Poke_Command :: struct {
-	target_uid: proto.User_Num, // or 0, and the user is looked up by name
-	name:       string, // owned by the command
-	message:    string, // owned by the command
-}
 Listen_Command :: struct {
 	on: bool,
 }
@@ -324,7 +319,6 @@ Command :: union {
 	Notification_Volume_Command,
 	App_Audio_Command,
 	Chat_Command,
-	Poke_Command,
 	Typing_Command,
 	Watch_Command,
 	Send_File_Command,
@@ -519,9 +513,6 @@ command_destroy :: proc(cmd: Command) {
 	case Bot_Create_Command:
 		delete(v.username)
 		delete(v.display)
-	case Poke_Command:
-		delete(v.name)
-		delete(v.message)
 	case DM_Command:
 		delete(v.name)
 		delete(v.text)
@@ -697,8 +688,6 @@ process_commands :: proc(c: ^Voice_Client) {
 				v.thread.conv = c.convs.viewing
 			}
 			chat_send(c, typed_text(c, v.text) if v.typed else v.text, v.dm_to, v.thread)
-		case Poke_Command:
-			poke_send(c, v.target_uid, v.name, v.message)
 		case Typing_Command:
 			if v.thread.root != 0 && v.thread.conv == 0 {
 				v.thread.conv = c.convs.viewing

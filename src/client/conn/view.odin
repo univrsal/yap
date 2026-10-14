@@ -146,9 +146,7 @@ View :: struct {
 	blobs:               map[proto.Blob_Id]View_Image,
 	typing:              map[proto.Account_Id]View_Typing,
 	unread:              int,
-	// Pokes that came in, and mentions of us, for the UI to show (and
-	// take) next frame.
-	pokes:               [dynamic]View_Poke,
+	// Mentions of us, for the UI to show (and take) next frame.
 	mentioned:           [dynamic]View_Mention,
 	// Whose screen we're watching, or 0.
 	watching:            proto.User_Num,
@@ -220,11 +218,6 @@ Key_Change :: struct {
 	received: [proto.KEY_SIZE]u8,
 }
 
-View_Poke :: struct {
-	name:    string, // who poked us; owned
-	message: string, // may be empty; owned
-}
-
 View_Mention :: struct {
 	name:  string, // who mentioned us; owned
 	place: string, // where; owned
@@ -265,7 +258,7 @@ view_reset :: proc(v: ^View) {
 	view_clear_timelines(v)
 	view_clear_saves(v)
 	view_clear_blobs(v)
-	view_clear_pokes(v)
+	view_clear_mentions(v)
 	view_clear_files(v)
 	view_clear_pins(v)
 	view_clear_reactors(v)
@@ -340,7 +333,6 @@ view_destroy :: proc(v: ^View) {
 	delete(v.saves)
 	delete(v.typing)
 	delete(v.blobs)
-	delete(v.pokes)
 	delete(v.mentioned)
 	delete(v.dms)
 	delete(v.buddies)
@@ -388,12 +380,7 @@ publish_file :: proc(c: ^Voice_Client, t: ^File_Transfer, force := false) {
 }
 
 @(private = "file")
-view_clear_pokes :: proc(v: ^View) {
-	for p in v.pokes {
-		delete(p.name)
-		delete(p.message)
-	}
-	clear(&v.pokes)
+view_clear_mentions :: proc(v: ^View) {
 	for m in v.mentioned {
 		delete(m.name)
 		delete(m.place)
@@ -449,24 +436,6 @@ view_take_mentions :: proc(v: ^View) -> []View_Mention {
 		delete(m.text)
 	}
 	clear(&v.mentioned)
-	return out
-}
-
-// view_take_pokes hands the UI the pokes that have come in, as copies in
-// the temp allocator, and forgets them.
-view_take_pokes :: proc(v: ^View) -> []View_Poke {
-	sync.guard(&v.mutex)
-	if len(v.pokes) == 0 {
-		return nil
-	}
-	out := make([]View_Poke, len(v.pokes), context.temp_allocator)
-	for p, i in v.pokes {
-		out[i] = {
-			name    = strings.clone(p.name, context.temp_allocator),
-			message = strings.clone(p.message, context.temp_allocator),
-		}
-	}
-	view_clear_pokes(v)
 	return out
 }
 
@@ -724,15 +693,6 @@ publish_connection :: proc(c: ^Voice_Client) {
 		view_changed(v)
 	}
 	v.connection = stats
-}
-
-publish_poke :: proc(c: ^Voice_Client, name, message: string) {
-	v := c.view
-	if v == nil {
-		return
-	}
-	view_write(v)
-	append(&v.pokes, View_Poke{strings.clone(name), strings.clone(message)})
 }
 
 /*
