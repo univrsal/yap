@@ -169,10 +169,7 @@ Lobby, the home channel everyone is in (DEFAULT_CHANNEL_NAME), and the
 rest are made from a client.
 
 If the file doesn't exist it's written with the defaults and a new key.
-A server that predates it kept its key in server.key, which is taken over
-into the new file if it's in the working directory, so clients keep
-trusting the key. A file without a key gets a
-new one written back into it.
+A file without a key gets a new one written back into it.
 
 The file holds the key and the password, so it's written readable by its
 owner only.
@@ -182,10 +179,6 @@ DEFAULT_CONFIG_FILE :: "config.json"
 DEFAULT_RELAY_PORT :: 8080
 DEFAULT_UNVERIFIED_HOURS :: 48
 DEFAULT_CHANNEL_NAME :: "Lobby"
-
-// Where a server from before config.json kept its key.
-@(private = "file")
-LEGACY_KEY_FILE :: "server.key"
 
 Config :: struct {
 	name:               string,
@@ -333,22 +326,11 @@ load_config :: proc(
 	return settings, true
 }
 
-// create_config fills in the key a server from before config.json left
-// behind, or a new one, and writes the result.
+// create_config gives a new config a new key, and writes it.
 @(private = "file")
 create_config :: proc(path: string, cfg: ^Config) -> bool {
-	if os.exists(LEGACY_KEY_FILE) {
-		data, err := os.read_entire_file(LEGACY_KEY_FILE, context.allocator)
-		if err != nil {
-			log.errorf("failed to read %s: %v", LEGACY_KEY_FILE, err)
-			return false
-		}
-		cfg.key = strings.trim_space(string(data))
-		log.infof("taking the key over from %s", LEGACY_KEY_FILE)
-	} else {
-		cfg.key = common.generate_private_key() or_return
-		log.info("generated a new private key")
-	}
+	cfg.key = common.generate_private_key() or_return
+	log.info("generated a new private key")
 
 	if !save_config(path, cfg^) {
 		return false
