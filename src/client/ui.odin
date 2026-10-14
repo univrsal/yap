@@ -1294,6 +1294,13 @@ set_muted :: proc(ui: ^UI, muted: bool, feedback := true) {
 	if muted == ui.muted {
 		return
 	}
+	if !muted && ui.deafened {
+		// Heard by everyone while hearing nobody isn't somewhere anyone
+		// means to be, so unmuting undeafens too, and stays unmuted.
+		ui.muted_before_deafen = false
+		set_deafened(ui, false)
+		return
+	}
 	ui.muted = muted
 	// Every server's: the feedback sound only from the one in voice, or
 	// with none, the one shown.
