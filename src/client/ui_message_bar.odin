@@ -1,9 +1,13 @@
 package client
 
 import log "common:wlog"
+import "core:fmt"
+import "core:strings"
+import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:settings"
 import "common:proto"
 
 /*
@@ -11,6 +15,10 @@ The bar over a message, at its top right corner while the pointer is on
 it: react to it, reply in its thread, edit it, pin or unpin it, delete
 it. Each is offered only where it's allowed (the server checks again):
 
+	Recent   the emoji last reacted with on this server
+	         (settings.recent_reactions), lit if we have already, when
+	         clicking takes ours back; a server's own emoji it no longer
+	         has are left out
 	Reply    in the conversation's timeline (a thread's window has its
 	         composer already)
 	Edit     our own text messages
@@ -140,7 +148,8 @@ message_bar :: proc(ui: ^UI) {
 	edit := mine && m.kind == .Text && .Forwarded not_in m.flags
 	pin := may_pin_here(v) && m.thread_root == 0
 	del := mine || .Manage_Messages in v.permissions
-	n := 1 + int(reply) + int(edit) + int(pin) + int(del)
+	recent := bar_recent_reactions(ui, m)
+	n := len(recent) + 1 + int(reply) + int(edit) + int(pin) + int(del)
 
 	// At the message's top right, half over the line above it, and kept
 	// on the part of its timeline that's on screen.
@@ -178,8 +187,16 @@ message_bar :: proc(ui: ^UI) {
 	mu.layout_row(ctx, widths, row_h)
 	cmds := &ui.session.client.commands
 	done := false
+	for r, i in recent {
+		mu.push_id(ctx, uintptr(i))
+		if recent_reaction_button(ui, r) {
+			send_reaction(ui, m.id, r.emoji, !r.me)
+			done = true
+		}
+		mu.pop_id(ctx)
+	}
 	if .SUBMIT in icon_button(ui, "react", .Smiley, "React") {
-		open_picker(ui, m.id)
+		open_picker(ui, m.id, r)
 		done = true
 	}
 	if reply && .SUBMIT in icon_button(ui, "reply", .Reply, "Reply in thread") {
@@ -209,5 +226,98 @@ message_bar :: proc(ui: ^UI) {
 	}
 	if done {
 		b.tapped = {}
+	}
+}
+
+// One of the bar's recent reactions.
+@(private = "file")
+Recent_Reaction :: struct {
+	emoji:  string, // as reacted with: ":name:" for the server's, else the characters
+	custom: Maybe(int), // the server's emoji's index
+	me:     bool, // we have already
+}
+
+// bar_recent_reactions are the recent reactions the bar offers for `m`.
+@(private = "file")
+bar_recent_reactions :: proc(ui: ^UI, m: conn.View_Message) -> []Recent_Reaction {
+	v := ui.view
+	out := make([dynamic]Recent_Reaction, context.temp_allocator)
+	for e in settings.recent_reactions(&ui.settings, v.server_key) {
+		r := Recent_Reaction {
+			emoji = e,
+		}
+		if strings.has_prefix(e, ":") && strings.has_suffix(e, ":") && len(e) > 2 {
+			index, ok := conn.custom_emoji_index(v.emoji.names[:], e[1:len(e) - 1])
+			if !ok {
+				continue
+			}
+			r.custom = index
+		}
+		for have in m.reactions {
+			if have.emoji == e {
+				r.me = have.me
+				break
+			}
+		}
+		append(&out, r)
+	}
+	return out[:]
+}
+
+// recent_reaction_button is a recent reaction's button: its emoji, on
+// the highlight if it's ours already, and its :name: under it.
+@(private = "file")
+recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
+	ctx := &ui.ctx
+	id := mu.get_id(ctx, "recent")
+	rect := mu.layout_next(ctx)
+	mu.update_control(ctx, id, rect)
+	if r.me {
+		mu.draw_rect(ctx, rect, theme.highlight_more if ctx.hover_id == id else theme.highlight)
+	} else {
+		mu.draw_control_frame(ctx, id, rect, .BUTTON)
+	}
+	if index, custom := r.custom.?; custom {
+		if icon, ok := custom_emoji_icon(ui, index); ok {
+			size: i32 = 20
+			mu.draw_icon(
+				ctx,
+				icon,
+				{rect.x + (rect.w - size) / 2, rect.y + (rect.h - size) / 2, size, size},
+				{255, 255, 255, 255},
+			)
+		}
+	} else {
+		mu.draw_control_text(ctx, r.emoji, rect, .TEXT, {.ALIGN_CENTER})
+	}
+	if ctx.hover_id == id {
+		name := r.emoji
+		if r.custom == nil {
+			first, _ := utf8.decode_rune_in_string(r.emoji)
+			if index, ok := proto.emoji_index(first); ok {
+				name = fmt.tprintf(":%s:", proto.emoji_name(proto.EMOJI[index]))
+			}
+		}
+		ui.hint, ui.hint_of = name, rect
+		hint_emoji_of(ui, r.emoji)
+	}
+	return ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id
+}
+
+/*
+send_reaction gives (`on`) or takes back our reaction to message `id`;
+one given is noted as recent on this server, for the bar to offer.
+*/
+send_reaction :: proc(ui: ^UI, id: proto.Msg_Id, emoji: string, on: bool) {
+	if ui.session == nil {
+		return
+	}
+	conn.push_command(
+		&ui.session.client.commands,
+		conn.React_Command{id = id, emoji = strings.clone(emoji), on = on},
+	)
+	server := ui.view.server_key
+	if on && server != {} && settings.note_reaction(&ui.settings, server, emoji) {
+		ui.settings_dirty = true
 	}
 }

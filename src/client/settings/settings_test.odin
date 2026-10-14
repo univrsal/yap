@@ -122,6 +122,11 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	hide_dm(&s, server, 40, 1234)
 	hide_dm(&s, server, 41, 10)
 	hide_dm(&s, server, 41, 0) // put back
+	for e in ([]string{"a", "b", ":c:", "d", "b"}) {
+		note_reaction(&s, server, e)
+	}
+	testing.expect(t, !note_reaction(&s, server, "b"), "already the latest")
+	note_reaction(&s, other, "x")
 	settings_save(path, s)
 
 	loaded := settings_load(path)
@@ -160,6 +165,17 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, !dm_hidden(&loaded, server, 40, 1235))
 	testing.expect(t, !dm_hidden(&loaded, other, 40, 1234))
 	testing.expect(t, !dm_hidden(&loaded, server, 41, 10))
+
+	// The latest first, each once, and only so many; each server its own.
+	recent := recent_reactions(&loaded, server)
+	testing.expect_value(t, len(recent), MAX_RECENT_REACTIONS)
+	testing.expect_value(t, recent[0], "b")
+	testing.expect_value(t, recent[1], "d")
+	testing.expect_value(t, recent[2], ":c:")
+	testing.expect_value(t, len(recent_reactions(&loaded, other)), 1)
+	third: [proto.KEY_SIZE]u8
+	third[0] = 9
+	testing.expect_value(t, len(recent_reactions(&loaded, third)), 0)
 }
 
 

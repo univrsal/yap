@@ -5,7 +5,6 @@ import "core:strings"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "client:conn"
 import "common:proto"
 
 /*
@@ -14,7 +13,8 @@ The emoji picker: a floating window of every emoji, a category at a time
 shortcode. It's opened by the smiley beside a composer, and picking one
 puts it in that composer; or by "React" in a message's menu, and picking
 one reacts to that message (conn/reactions.odin). Hovering one says its
-shortcode.
+shortcode. Opened from a message's bar it's put just under the bar (or
+over it, where there's no room below), so the pointer needn't go far.
 */
 
 UI_Picker :: struct {
@@ -24,6 +24,9 @@ UI_Picker :: struct {
 	// or a thread window's (Composer.thread).
 	react_to:      proto.Msg_Id,
 	thread:        int,
+	// What it was opened from, to be put beside; else it goes at the
+	// window's bottom right.
+	anchor:        Maybe(mu.Rect),
 	// The category shown: -1 for the server's own, else an
 	// Emoji_Category.
 	category:      int,
@@ -54,10 +57,10 @@ emoji_button :: proc(ui: ^UI, c: Composer) {
 }
 
 // open_picker opens the picker, for the composer (0) or to react to a
-// message.
-open_picker :: proc(ui: ^UI, react_to: proto.Msg_Id) {
+// message; beside `anchor`, if there is one.
+open_picker :: proc(ui: ^UI, react_to: proto.Msg_Id, anchor: Maybe(mu.Rect) = nil) {
 	p := &ui.picker
-	p.open, p.placed, p.react_to = true, false, react_to
+	p.open, p.placed, p.react_to, p.anchor = true, false, react_to, anchor
 	if p.category < 0 && len(ui.view.emoji.names) == 0 {
 		p.category = 0
 	}
@@ -86,6 +89,16 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		p.placed = true
 		if cnt := mu.get_container(ctx, PICKER_WINDOW); cnt != nil {
 			cnt.rect = {window_w - width - 12, window_h - height - 44, width + 3, height}
+			if a, ok := p.anchor.?; ok {
+				// Its right edge under the anchor's, kept in the window.
+				w := width + 3
+				x := clamp(a.x + a.w - w, 0, max(window_w - w, 0))
+				y := a.y + a.h + 2
+				if y + height > window_h {
+					y = max(a.y - height - 2, 0)
+				}
+				cnt.rect = {x, y, w, height}
+			}
 			cnt.open = true
 			cnt.scroll = {}
 			mu.bring_to_front(ctx, cnt)
@@ -266,12 +279,7 @@ category_first :: proc(cat: proto.Emoji_Category) -> rune {
 picked :: proc(ui: ^UI, emoji: string) {
 	p := &ui.picker
 	if p.react_to != 0 {
-		if ui.session != nil {
-			conn.push_command(
-				&ui.session.client.commands,
-				conn.React_Command{id = p.react_to, emoji = strings.clone(emoji), on = true},
-			)
-		}
+		send_reaction(ui, p.react_to, emoji, true)
 		p.open = false
 		return
 	}

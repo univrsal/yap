@@ -1148,14 +1148,8 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := fa
 			if ctx.hover_id == id {
 				reactors_hint(ui, m.id, c.r, rect)
 			}
-			if !readonly &&
-			   ctx.hover_id == id &&
-			   ctx.mouse_pressed_bits == {.LEFT} &&
-			   ui.session != nil {
-				conn.push_command(
-					&ui.session.client.commands,
-					conn.React_Command{id = m.id, emoji = strings.clone(c.r.emoji), on = !c.r.me},
-				)
+			if !readonly && ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+				send_reaction(ui, m.id, c.r.emoji, !c.r.me)
 			}
 			mu.pop_id(ctx)
 		}

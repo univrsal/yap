@@ -53,6 +53,9 @@ Client settings, kept in <config dir>/yap/settings.json:
 		},
 		"hidden_dms": {
 			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933/40": 1234
+		},
+		"recent_reactions": {
+			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": [":party:", "👍", "😂"]
 		}
 	}
 
@@ -153,6 +156,10 @@ Settings :: struct {
 	// conversation's id: each is off it until a message after the one
 	// noted here arrives (dm_hidden).
 	hidden_dms:              map[string]u64,
+	// The emoji last reacted with on each server, by its key (key_hex),
+	// the latest first: the message bar offers them (ui_message_bar.odin).
+	// Per server, since a server's own emoji (":name:") are only there.
+	recent_reactions:        map[string][dynamic]string,
 }
 
 User_Settings :: struct {
@@ -282,6 +289,14 @@ settings_destroy :: proc(s: ^Settings) {
 		delete(key)
 	}
 	delete(s.hidden_dms)
+	for key, recent in s.recent_reactions {
+		delete(key)
+		for e in recent {
+			delete(e)
+		}
+		delete(recent)
+	}
+	delete(s.recent_reactions)
 	s^ = {}
 }
 
@@ -500,6 +515,45 @@ hide_dm :: proc(
 	case:
 		s.hidden_dms[strings.clone(key)] = u64(last)
 	}
+}
+
+// How many recent reactions are kept for a server.
+MAX_RECENT_REACTIONS :: 3
+
+// recent_reactions are the emoji last reacted with on `server`, the
+// latest first.
+recent_reactions :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8) -> []string {
+	recent := s.recent_reactions[key_hex(server)] or_else nil
+	return recent[:min(len(recent), MAX_RECENT_REACTIONS)]
+}
+
+// note_reaction puts `emoji` first among the recent reactions on
+// `server`. It returns whether that changed anything.
+note_reaction :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, emoji: string) -> bool {
+	key := key_hex(server)
+	if key not_in s.recent_reactions {
+		s.recent_reactions[strings.clone(key)] = {}
+	}
+	recent := &s.recent_reactions[key]
+	if len(recent) > 0 && recent[0] == emoji {
+		return false
+	}
+	owned: string
+	for e, i in recent {
+		if e == emoji {
+			owned = e
+			ordered_remove(recent, i)
+			break
+		}
+	}
+	if owned == "" {
+		owned = strings.clone(emoji)
+	}
+	inject_at(recent, 0, owned)
+	for len(recent) > MAX_RECENT_REACTIONS {
+		delete(pop(recent))
+	}
+	return true
 }
 
 // settings_quality is the configured preset; Voice if unset or unknown.
