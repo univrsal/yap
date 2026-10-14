@@ -302,6 +302,11 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	if status := status_line(acc); status != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
 		with_text_color(ctx, ctx.style.colors[.TEXT], status, label_proc)
+		if acc.status_until != 0 {
+			mu.layout_row(ctx, {MENU_WIDTH})
+			until := chat_time(ui, proto.Unix_Time(acc.status_until / 1000))
+			with_text_color(ctx, theme.dim, fmt.tprintf("Until %s", until), label_proc)
+		}
 	}
 	if len(acc.roles) > 0 {
 		role_chips(ui, acc.roles, MENU_WIDTH)
