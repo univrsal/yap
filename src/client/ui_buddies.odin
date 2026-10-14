@@ -146,6 +146,14 @@ buddies_screen :: proc(ui: ^UI) {
 	body := mu.get_current_container(ctx).body
 	narrow := body.w < NARROW_LAYOUT
 
+	// Watching somebody's screen (from a call's row in the voice panel)
+	// works here as beside a channel: a Screen tab, and fullscreen.
+	screen_tab_follow(ui)
+	if ui.view.watching != 0 && conn.video_is_fullscreen() {
+		fullscreen_screen(ui)
+		return
+	}
+
 	session_header(ui)
 
 	list := ui.inbox
@@ -187,7 +195,7 @@ buddies_screen :: proc(ui: ^UI) {
 		voice_panel(ui)
 		mu.layout_end_column(ctx)
 	}
-	conversation(ui, entry, found)
+	conversation_or_screen(ui, entry, found)
 	if narrow {
 		voice_panel(ui)
 	}
@@ -195,6 +203,37 @@ buddies_screen :: proc(ui: ^UI) {
 	message_menu(ui)
 	app_audio_menu(ui)
 	share_menu(ui)
+}
+
+/*
+conversation_or_screen is the conversation, or while we're watching
+somebody's screen, that and the screen as tabs, like a channel's chat
+(side_panel, ui_chat.odin).
+*/
+@(private = "file")
+conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
+	if ui.view.watching == 0 {
+		conversation(ui, entry, found)
+		return
+	}
+	ctx := &ui.ctx
+	mu.layout_begin_column(ctx)
+	defer mu.layout_end_column(ctx)
+
+	mu.layout_row(ctx, {90, 90, -1})
+	if .SUBMIT in tab_button(ctx, "chat tab", "Chat", ui.chat.tab != .Screen) {
+		ui.chat.tab = .Chat
+	}
+	if .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
+		ui.chat.tab = .Screen
+	}
+	mu.label(ctx, "")
+	if ui.chat.tab == .Screen {
+		screen_panel(ui)
+	} else {
+		mu.layout_row(ctx, {-1}, -1)
+		conversation(ui, entry, found)
+	}
 }
 
 @(private = "file")
