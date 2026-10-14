@@ -275,7 +275,7 @@ attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 		case size > max_size:
 			why = "A file is bigger than this server takes."
 		case name == "":
-			why = "A file has no name that can be sent."
+			why = "A file has has a name that can't be sent."
 		}
 		if why != "" {
 			if opened {
