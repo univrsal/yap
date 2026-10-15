@@ -19,6 +19,6 @@ mkdir -p "dist/$name/web"
 cp "bin/yap$ext" "bin/yap-server$ext" "dist/$name/"
 # The page and its glue, not the object file the build leaves beside them.
 cp "$web/index.html" "$web/index.js" "$web/index.wasm" "$web/favicon.ico" \
-	"$web/manifest.webmanifest" "$web/icon-192.png" "$web/icon-512.png" "$web/apple-touch-icon.png" \
+	"$web/manifest.webmanifest" "$web/sw.js" "$web/icon-192.png" "$web/icon-512.png" "$web/apple-touch-icon.png" \
 	"dist/$name/web/"
 echo "packed dist/$name"

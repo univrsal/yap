@@ -42,6 +42,7 @@ UI_Activity :: struct {
 	system_idle:  bool, // as the system last said, if it could
 	system_known: bool,
 	idle:         bool, // as last worked out (each session: Net_Session.idle_told)
+	hidden:       bool, // the page is out of sight (web only; ui_push_web.odin)
 }
 
 ACTIVITY_COLORS := [proto.Activity]mu.Color {
@@ -124,13 +125,16 @@ activity_step :: proc(ui: ^UI) {
 		// Asked afresh once we're online again.
 		a.last_check = {}
 	}
+	// Out of sight is told whatever we chose: it makes nobody away, but
+	// has the server push to us (ui_push_web.odin).
+	hidden := page_hidden()
 	// Every server is told, each once; a new connection starts out not
 	// idle, and the client tells it again after starting over itself.
-	a.idle = is_idle
+	a.idle, a.hidden = is_idle, hidden
 	for ns in ui.sessions {
-		if ns.idle_told != is_idle {
-			ns.idle_told = is_idle
-			conn.push_command(&ns.client.commands, conn.Idle_Command{idle = is_idle})
+		if ns.idle_told != is_idle || ns.hidden_told != hidden {
+			ns.idle_told, ns.hidden_told = is_idle, hidden
+			conn.push_command(&ns.client.commands, conn.Idle_Command{idle = is_idle, hidden = hidden})
 		}
 	}
 }

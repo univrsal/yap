@@ -1,6 +1,7 @@
 package server
 
 import "core:encoding/json"
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:reflect"
@@ -68,6 +69,11 @@ once at startup:
 			"port": 0,
 			"max_kbit": 20000,
 			"cache_ms": 500
+		},
+		"push": {
+			"enabled": true,
+			"vapid_key": "<64 hex digits>",
+			"subject": ""
 		}
 	}
 
@@ -161,6 +167,16 @@ video      screen sharing from desktop clients (media.odin): with
            is kept, to send again what viewers lost (500 if left out);
            -1 keeps none. It costs about this much of a second of
            `max_kbit` in memory a sharer, at most 2.5 MB.
+push       Web Push (push.odin): telling browsers that turned it on
+           about messages while nobody has the client open, through
+           their push services (Google's, Mozilla's, Apple's), which
+           takes libcurl and the server reaching them over HTTPS. On
+           unless `enabled` is false. `vapid_key` is the key it signs
+           with, made on the first run: keep it, since browsers
+           subscribed with its public half. `subject` is how the push
+           services may reach whoever runs the server, a mailto: or
+           https: URL; empty for mailto: the email address, or the
+           project's page without one.
 
 Fields left out keep the defaults above.
 
@@ -168,8 +184,8 @@ Channels aren't configured here: a new database starts with a single
 Lobby, the home channel everyone is in (DEFAULT_CHANNEL_NAME), and the
 rest are made from a client.
 
-If the file doesn't exist it's written with the defaults and a new key.
-A file without a key gets a new one written back into it.
+If the file doesn't exist it's written with the defaults and new keys.
+A file without a key or a vapid_key gets one written back into it.
 
 The file holds the key and the password, so it's written readable by its
 owner only.
@@ -197,6 +213,7 @@ Config :: struct {
 	email:              Email_Config,
 	registration:       Registration_Config,
 	video:              Video_Config,
+	push:               Push_Config,
 }
 
 Video_Config :: struct {
@@ -266,7 +283,12 @@ Settings :: struct {
 	email:        Email_Config, // checked; address "" for none
 	registration: Registration_Config,
 	video:        Video_Config, // checked; port 0 for the one after `port`
+	push:         Push_Config, // subject filled in
 }
+
+// What push's subject is when neither it nor an email address is
+// configured.
+DEFAULT_PUSH_SUBJECT :: "https://github.com/univrsal/yap"
 
 @(private = "file")
 default_config :: proc() -> Config {
@@ -279,6 +301,7 @@ default_config :: proc() -> Config {
 		attachments = {max_megabytes = 100, rate_kb = 2048},
 		email = {check_auth_results = true},
 		video = {enabled = true, max_kbit = 20000},
+		push = {enabled = true},
 	}
 }
 
@@ -323,6 +346,12 @@ load_config :: proc(
 		settings.key = cfg.key
 		log.infof("%s had no key; generated a new one and saved it there", path)
 	}
+	if cfg.push.vapid_key == "" {
+		cfg.push.vapid_key = vapid_key_generate() or_return
+		save_config(path, cfg) or_return
+		settings.push.vapid_key = cfg.push.vapid_key
+		log.infof("%s had no push vapid_key; generated a new one and saved it there", path)
+	}
 	return settings, true
 }
 
@@ -330,6 +359,7 @@ load_config :: proc(
 @(private = "file")
 create_config :: proc(path: string, cfg: ^Config) -> bool {
 	cfg.key = common.generate_private_key() or_return
+	cfg.push.vapid_key = vapid_key_generate() or_return
 	log.info("generated a new private key")
 
 	if !save_config(path, cfg^) {
@@ -482,7 +512,20 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		video.cache_ms = 0
 	}
 
+	push := cfg.push
+	if push.subject == "" {
+		push.subject = fmt.aprintf("mailto:%s", email.address) if email.address != "" else DEFAULT_PUSH_SUBJECT
+	} else if !strings.has_prefix(push.subject, "mailto:") && !strings.has_prefix(push.subject, "https://") {
+		log.errorf("%s: push's subject has to be a mailto: or https:// URL", path)
+		return
+	}
+	if strings.contains_any(push.subject, "\"\\\r\n ") {
+		log.errorf("%s: push's subject has a character it can't have", path)
+		return
+	}
+
 	s = {
+		push         = push,
 		email        = email,
 		registration = registration,
 		name         = name,

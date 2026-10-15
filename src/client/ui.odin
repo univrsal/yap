@@ -68,8 +68,14 @@ Net_Session :: struct {
 	// Which WebSockets are this session's in a web build: slot and
 	// slot + 1 (conn/transport_web.odin).
 	slot:           i32,
-	// Whether it was last told whoever uses this is idle (ui_activity.odin).
+	// Whether it was last told whoever uses this is idle, and that the
+	// page is out of sight (ui_activity.odin).
 	idle_told:      bool,
+	hidden_told:    bool,
+	// Web Push (ui_push_web.odin): whether the browser has been asked
+	// what it has for this server's key, and the key it was asked for.
+	push_checked:   bool,
+	push_key:       [proto.PUSH_KEY_SIZE]u8,
 	// Being joined from the + page (ui_join.odin): off the rail, and
 	// not in the settings, until it's logged in.
 	joining:        bool,
@@ -509,6 +515,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	tray_update(ui)
 	thumbbar_update(ui)
 	activity_step(ui)
+	push_frame(ui)
 	if ui.hidden {
 		ui.meter_shown = false
 		return true // no window to draw in

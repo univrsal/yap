@@ -13,7 +13,10 @@ declined one, or how long it lasted).
 
 A call rings on every connection of the callee until one answers (and
 is put in the call's room with the caller's connection that called), or
-the caller cancels, the callee declines, or CALL_RING_SECONDS pass. Once
+the caller cancels, the callee declines, or CALL_RING_SECONDS pass. A
+callee that isn't here, but has turned push on (push_notify.odin), is
+pushed the call, and it rings for them all the same: a connection that
+logs in while it rings is told of it (calls_conn_seen), and may answer. Once
 on, it ends when either hangs up, or either connection leaves the room:
 for a channel's (conn_set_room), or by going (calls_conn_gone).
 
@@ -31,6 +34,9 @@ Call :: struct {
 	// answered, the callee's that answered.
 	caller_conn: ^Conn,
 	callee_conn: ^Conn,
+	// Whether the callee was pushed it, so the push is followed by what
+	// came of it.
+	pushed:      bool,
 }
 
 Calls :: struct {
@@ -103,7 +109,7 @@ call_start :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case call_of(s, me) != nil || call_of(s, callee_id) != nil:
 		respond(u, id, .Conflict)
 		return
-	case len(callee.conns) == 0:
+	case len(callee.conns) == 0 && !push_reaches(s, callee):
 		// Nobody to ring: a missed call, for when they're back.
 		respond(u, id, .Closed)
 		call_note(s, me, callee_id, .Missed, 0)
@@ -129,6 +135,30 @@ call_start :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		send_event(c, .Call_Ring, ring)
 	}
 	call_tell(s, call, .None)
+	call.pushed = push_call(s, call, .Ringing)
+}
+
+/*
+calls_conn_seen tells a connection that has just logged in of a call
+ringing for its account: it may be the one to answer, a phone that the
+call's push brought up.
+*/
+calls_conn_seen :: proc(s: ^Server, u: ^Conn) {
+	call := call_of(s, u.account.id)
+	if call == nil || call.state != .Ringing || call.callee != u.account.id {
+		return
+	}
+	ring_buf: [proto.CALL_RING_SIZE]u8
+	send_event(u, .Call_Ring, proto.encode_call_ring(&ring_buf, call.id, call.caller))
+	buf: [proto.CALL_CHANGED_SIZE]u8
+	send_event(
+		u,
+		.Call_Changed,
+		proto.encode_call_changed(
+			&buf,
+			{id = call.id, state = call.state, caller = call.caller, callee = call.callee},
+		),
+	)
 }
 
 @(private = "file")
@@ -192,14 +222,16 @@ call_end_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	if call.state == .Ringing {
 		reason = .Cancelled if me == call.caller else .Declined
 	}
-	call_end(s, call, reason)
+	call_end(s, call, reason, by = u)
 }
 
 /*
 call_end ends a call: out of the table, both connections out of its room,
-both accounts told, and the line it leaves in their DM.
+both accounts told, and the line it leaves in their DM; and a callee that
+was pushed it is pushed what came of it. `by` is the connection that
+ended it, if one did.
 */
-call_end :: proc(s: ^Server, call: ^Call, reason: proto.Call_End_Reason) {
+call_end :: proc(s: ^Server, call: ^Call, reason: proto.Call_End_Reason, by: ^Conn = nil) {
 	delete_key(&s.calls.by_id, call.id)
 	defer free(call)
 	call.state = .Ended
@@ -210,6 +242,16 @@ call_end :: proc(s: ^Server, call: ^Call, reason: proto.Call_End_Reason) {
 		}
 	}
 	call_tell(s, call, reason)
+	if call.pushed {
+		switch {
+		case call.answered != {}:
+			push_call(s, call, .Answered, except = call.callee_conn)
+		case reason == .Declined:
+			push_call(s, call, .Declined, except = by)
+		case:
+			push_call(s, call, .Missed)
+		}
+	}
 	seconds := 0
 	if call.answered != {} {
 		seconds = int(time.duration_seconds(time.tick_since(call.answered)))

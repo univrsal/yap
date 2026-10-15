@@ -138,7 +138,9 @@ nothing else would give net_step its turn; the audio devices keep
 running, but on rings nobody fills or drains. web/background.js calls
 this every 10 ms from a worker's timer, which a hidden tab doesn't
 throttle the way it does the page's own. While frames are coming it
-does nothing.
+does nothing. It also keeps up whether we're idle or out of sight
+(activity_step), which the frames would otherwise do: a hidden page is
+exactly when the server needs to know, to push to us.
 */
 @(export)
 web_tick :: proc "c" () {
@@ -146,6 +148,24 @@ web_tick :: proc "c" () {
 	if g_web_ui == nil || time.tick_since(g_last_frame) < TICK_TAKEOVER {
 		return
 	}
+	activity_step(g_web_ui)
+	net_step(g_web_ui)
+}
+
+/*
+web_visibility: the page has just gone out of sight, or come back
+(web/background.js). The servers are told at once, before anything
+else runs: a phone suspends a page it has put away within moments, and
+neither a frame nor web_tick may come first. Until a server hears it,
+it takes us to be looking, and doesn't push.
+*/
+@(export)
+web_visibility :: proc "c" () {
+	context = g_context
+	if g_web_ui == nil {
+		return
+	}
+	activity_step(g_web_ui)
 	net_step(g_web_ui)
 }
 

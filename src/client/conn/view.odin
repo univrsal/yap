@@ -84,6 +84,10 @@ View :: struct {
 	// Whether it mails accounts what they missed, if they ask
 	// (proto.SETTING_EMAIL_DIGEST, in `shared`).
 	server_digests:      bool,
+	// Its VAPID key, if it pushes (push.odin); a browser subscribes with
+	// it.
+	server_push:         bool,
+	server_push_key:     [proto.PUSH_KEY_SIZE]u8,
 	my_key:              [proto.KEY_SIZE]u8,
 	// The server's, once the handshake has shown it (zero until then):
 	// per-user settings are kept by it and the account (settings.odin).
@@ -285,6 +289,7 @@ view_reset :: proc(v: ^View) {
 	delete(v.server_email)
 	v.server_email = ""
 	v.server_digests = false
+	v.server_push = false
 	delete(v.login.error)
 	delete(v.login.username)
 	delete(v.login.email)
@@ -543,6 +548,8 @@ publish_server :: proc(c: ^Voice_Client) {
 	delete(v.server_email)
 	v.server_email = strings.clone(c.rpc.server.email)
 	v.server_digests = c.rpc.server.digests
+	v.server_push = c.rpc.server.push
+	v.server_push_key = c.rpc.server.push_key
 	delete(v.server_about)
 	v.server_about = strings.clone(c.rpc.server.description)
 	if v.server_icon != c.rpc.server.icon || len(v.icon_jpeg) != len(c.rpc.server.icon_jpeg) {

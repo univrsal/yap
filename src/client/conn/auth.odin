@@ -53,10 +53,11 @@ Auth_Client :: struct {
 	me:          proto.Account_Id,
 	permissions: proto.Permissions,
 	flags:       proto.Account_Flags, // ours, as in Self
-	// What we chose to be, as in Self; and whether our user is idle, as
-	// last told the server (activity.odin).
+	// What we chose to be, as in Self; and whether our user is idle and
+	// the client out of sight, as last told the server (activity.odin).
 	chosen:      proto.Activity,
 	idle:        bool,
+	hidden:      bool,
 	email:       string, // ours, as in Self; owned
 	// While our address isn't verified: the code a mail to the server
 	// has to have (owned), and when the account goes without one.
@@ -517,8 +518,8 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		if a.state != .Done {
 			set_state(c, .Done)
 			// A new connection starts out not idle.
-			if a.idle {
-				idle_set(c, true)
+			if a.idle || a.hidden {
+				idle_set(c, a.idle, a.hidden)
 			}
 			if .Must_Change in flags && c.view == nil {
 				// The UI asks for a new one; headless, it's up to whoever

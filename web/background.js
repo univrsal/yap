@@ -8,8 +8,17 @@ don't help: a hidden tab runs them at most once a second. A worker's
 timers aren't held back like that, and neither are the messages it posts,
 so a worker ticks every 10 ms and each tick calls web_tick, which takes
 over from the frames only while they've stopped (src/client/main_web.odin).
+
+Going out of sight, or coming back, is told to the client at once
+(web_visibility), so it tells the servers before a phone suspends the
+page: until they know, they don't push.
 */
 (() => {
+	const visibility = () => {
+		if (typeof Module._web_visibility === "function") Module._web_visibility();
+	};
+	document.addEventListener("visibilitychange", visibility);
+	window.addEventListener("pagehide", visibility);
 	const TICK_MS = 10;
 	const source = `setInterval(() => postMessage(0), ${TICK_MS});`;
 	let worker;

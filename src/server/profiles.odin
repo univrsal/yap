@@ -21,7 +21,9 @@ logged in may fetch a blob that is someone's picture.
 
 Settings are kept as they come, by key, and not looked inside; but for
 proto.SETTING_EMAIL_DIGEST, which has to be one of its values, and which
-the server keeps a copy of in the account (digest.odin).
+the server keeps a copy of in the account (digest.odin), and
+proto.SETTING_PUSH_TEXT, of which it keeps whether it hides
+(push_notify.odin).
 */
 
 // How often statuses are looked at for ones that have ended.
@@ -255,8 +257,11 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			return
 		}
 	}
-	if key == proto.SETTING_EMAIL_DIGEST {
+	switch key {
+	case proto.SETTING_EMAIL_DIGEST:
 		acc.digest = digest
+	case proto.SETTING_PUSH_TEXT:
+		acc.push_hide = string(value) == proto.PUSH_TEXT_HIDDEN
 	}
 	respond(u, id, .Ok)
 	// The account's other connections.

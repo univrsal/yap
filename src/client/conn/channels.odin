@@ -407,6 +407,9 @@ Command :: union {
 	// Online, away, busy or offline, see activity.odin.
 	Activity_Command,
 	Idle_Command,
+	// Web Push, see push.odin.
+	Push_Subscribe_Command,
+	Push_Unsubscribe_Command,
 }
 
 Command_Queue :: struct {
@@ -459,6 +462,8 @@ command_destroy :: proc(cmd: Command) {
 	case Setting_Command:
 		delete(v.key)
 		delete(v.value)
+	case Push_Subscribe_Command:
+		delete(v.sub.endpoint)
 	case Role_Set_Command:
 		delete(v.name)
 	case Role_Delete_Command:
@@ -639,7 +644,11 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Activity_Command:
 			activity_set(c, v.activity)
 		case Idle_Command:
-			idle_set(c, v.idle)
+			idle_set(c, v.idle, v.hidden)
+		case Push_Subscribe_Command:
+			push_subscribe(c, v.sub)
+		case Push_Unsubscribe_Command:
+			push_unsubscribe(c)
 		case Members_Command:
 			members_fetch(c, v.conv if v.conv != 0 else c.convs.viewing)
 		case List_Command:

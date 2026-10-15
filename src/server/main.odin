@@ -53,6 +53,16 @@ main :: proc() {
 		os.exit(run_email_command(os.args[2:]))
 	}
 
+	// `yap-server push test` tries push out (cli_push.odin).
+	if len(os.args) > 1 && os.args[1] == "push" {
+		quiet, quiet_ok := common.init_logging(.warn)
+		if !quiet_ok {
+			os.exit(1)
+		}
+		context.logger = quiet
+		os.exit(run_push_command(os.args[2:]))
+	}
+
 	// `yap-server purge ...` purges and exits (cli_purge.odin). Nobody
 	// is talking then, so a slow checkpoint isn't worth a word.
 	if len(os.args) > 1 && os.args[1] == "purge" {

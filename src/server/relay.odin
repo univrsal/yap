@@ -68,7 +68,7 @@ Relay :: struct {
 	// it's only the API.
 	web:      bool,
 	// Nothing else in the web directory is served.
-	files:    [8]Web_File,
+	files:    [9]Web_File,
 	api:      ^gateway.Gateway, // nil without the API
 }
 
@@ -110,6 +110,8 @@ start_relay :: proc(
 		{name = "icon-192.png", content_type = "image/png"},
 		{name = "icon-512.png", content_type = "image/png"},
 		{name = "apple-touch-icon.png", content_type = "image/png"},
+		// The service worker that shows pushes (push.odin, web/sw.js).
+		{name = "sw.js", content_type = "text/javascript; charset=utf-8"},
 	}
 	for &f in r.files {
 		if !web {

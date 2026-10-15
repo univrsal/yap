@@ -7,8 +7,12 @@ by their picture (polish 11).
 	Activity_Set  [activity u8]: what the account chooses to be, on all
 	              its devices: Online (and away by itself), Away, Busy,
 	              or Offline (appear offline); kept by the server
-	Idle_Set      [idle u8]: this connection's user has (or hasn't) been
-	              idle for a while
+	Idle_Set      [flags u8]: bit 0, this connection's user has (or
+	              hasn't) been idle for a while; bit 1, the client is out
+	              of sight (a hidden browser tab, a phone's browser in
+	              the background), which makes nobody away but has the
+	              server push to them (push.odin). A server that doesn't
+	              know bit 1 takes it as idle.
 
 	in an account's record:  [activity u8] as everyone sees it
 	in Self:                 [activity u8] as the account chose it
@@ -45,17 +49,18 @@ decode_activity :: proc(body: []u8) -> (a: Activity, ok: bool) {
 	return Activity(body[0]), true
 }
 
-// An Idle_Set body: whether this connection's user is idle.
-encode_idle :: proc(out: ^[1]u8, idle: bool) -> []u8 {
-	out[0] = u8(idle)
+// An Idle_Set body: whether this connection's user is idle, and whether
+// the client is out of sight.
+encode_idle :: proc(out: ^[1]u8, idle: bool, hidden := false) -> []u8 {
+	out[0] = u8(idle) | u8(hidden) << 1
 	return out[:]
 }
 
-decode_idle :: proc(body: []u8) -> (idle: bool, ok: bool) {
+decode_idle :: proc(body: []u8) -> (idle: bool, hidden: bool, ok: bool) {
 	if len(body) < 1 {
 		return
 	}
-	return body[0] != 0, true
+	return body[0] & 1 != 0, body[0] & 2 != 0, true
 }
 
 // self_activity is what a Self event says the account chose; Online if

@@ -20,9 +20,11 @@ still do.
 Activity_Command :: struct {
 	activity: proto.Activity,
 }
-// Whoever uses this client has been idle for a while, or is back.
+// Whoever uses this client has been idle for a while, or is back; and
+// whether the client is out of sight (a hidden page).
 Idle_Command :: struct {
-	idle: bool,
+	idle:   bool,
+	hidden: bool,
 }
 
 activity_set :: proc(c: ^Voice_Client, activity: proto.Activity) {
@@ -39,10 +41,11 @@ activity_set :: proc(c: ^Voice_Client, activity: proto.Activity) {
 	)
 }
 
-// idle_set tells the server whether this client's user is idle; it's
-// told again after the connection starts over (on login, auth.odin).
-idle_set :: proc(c: ^Voice_Client, idle: bool) {
-	c.auth.idle = idle
+// idle_set tells the server whether this client's user is idle and
+// whether it's out of sight; it's told again after the connection starts
+// over (on login, auth.odin).
+idle_set :: proc(c: ^Voice_Client, idle: bool, hidden: bool) {
+	c.auth.idle, c.auth.hidden = idle, hidden
 	if c.auth.state != .Done {
 		return
 	}
@@ -50,7 +53,7 @@ idle_set :: proc(c: ^Voice_Client, idle: bool) {
 	request(
 		c,
 		.Idle_Set,
-		proto.encode_idle(&buf, idle),
+		proto.encode_idle(&buf, idle, hidden),
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {},
 	)
 }

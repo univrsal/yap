@@ -75,6 +75,8 @@ ts_close :: proc(ts: ^Test_Server) {
 	}
 	delete(s.email.inbox)
 	delete(s.email.jobs)
+	// What push_test.odin queued; there's no thread either.
+	push_close(&s.push)
 	delete(s.conns)
 	delete(s.waiting)
 	calls_destroy(s)
@@ -431,7 +433,7 @@ test_schema_upgrade :: proc(t: ^testing.T) {
 			t,
 			db_exec(
 				&db,
-				"DROP TABLE invite_uses; DROP TABLE invites; DROP TABLE files_fts; DROP TABLE attachments; DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
+				"DROP TABLE push_subs; DROP TABLE invite_uses; DROP TABLE invites; DROP TABLE files_fts; DROP TABLE attachments; DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
 			),
 		)
 		db_close(&db)

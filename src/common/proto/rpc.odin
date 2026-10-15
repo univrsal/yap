@@ -30,7 +30,7 @@ A body's layout goes by its op:
 	                 response  [name str8][version str8][max_attachment u64]
 	                           [registration u8] (register.odin)[email str8]
 	                           [description str16][icon u64][digests u8]
-	                           [media_port u16][video_kbit u32]
+	                           [media_port u16][video_kbit u32][push_key str8]
 	Server_Icon      request   [icon u64]
 	                 response  [the icon's JPEG]
 	Server_Info_Set  request   [name str8][description str16][icon u64]
@@ -40,7 +40,7 @@ A body's layout goes by its op:
 	                 response  [a memory report, as text] (common/memtrack/report.odin)
 
 where str8 is [len u8][bytes] and str16 [len u16][bytes]; the rest are in accounts.odin,
-buddies.odin, convs.odin and msgs.odin. A body may grow at its end: a decoder
+buddies.odin, convs.odin, msgs.odin and push.odin. A body may grow at its end: a decoder
 ignores what follows the fields it knows.
 */
 
@@ -85,6 +85,9 @@ Request_Op :: enum u16 {
 	// Online, away, busy or offline, see activity.odin.
 	Activity_Set         = 0x0024,
 	Idle_Set             = 0x0025,
+	// Web Push subscriptions, see push.odin.
+	Push_Subscribe       = 0x0026,
+	Push_Unsubscribe     = 0x0027,
 	// Conversations and voice rooms, see convs.odin.
 	Conv_Create          = 0x0030,
 	Conv_Update          = 0x0031,
@@ -294,6 +297,8 @@ Server_Info :: struct {
 	media_port:     u16,
 	// How fast one sharer's video may be, in kbit/s; 0 if it didn't say.
 	video_kbit:     u32,
+	// Its VAPID public key (push.odin), empty if it doesn't push.
+	push_key:       []u8,
 }
 
 SERVER_INFO_MAX_SIZE ::
@@ -310,7 +315,9 @@ SERVER_INFO_MAX_SIZE ::
 	8 +
 	1 +
 	2 +
-	4
+	4 +
+	1 +
+	PUSH_KEY_SIZE
 
 // What a server says it's for, in bytes of UTF-8.
 MAX_SERVER_DESCRIPTION :: 512
@@ -367,7 +374,9 @@ decode_server_info_set :: proc(body: []u8) -> (set: Server_Info_Set, ok: bool) {
 // encode_server_info writes a Server_Info response's body.
 @(require_results)
 encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: bool) {
-	if len(info.name) > MAX_SERVER_NAME || len(info.description) > MAX_SERVER_DESCRIPTION {
+	if len(info.name) > MAX_SERVER_NAME ||
+	   len(info.description) > MAX_SERVER_DESCRIPTION ||
+	   (len(info.push_key) != 0 && len(info.push_key) != PUSH_KEY_SIZE) {
 		return
 	}
 	w := Writer {
@@ -383,6 +392,8 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	put_u8(&w, 1 if info.digests else 0)
 	put_u16(&w, info.media_port)
 	put_u32(&w, info.video_kbit)
+	put_u8(&w, u8(len(info.push_key)))
+	put_bytes(&w, info.push_key)
 	if w.overflow {
 		return
 	}
@@ -413,7 +424,11 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 		info.media_port = get_u16(&r)
 		info.video_kbit = get_u32(&r)
 	}
+	if !r.overflow && r.pos < len(r.buf) {
+		info.push_key = get_bytes(&r, int(get_u8(&r)))
+	}
 	if r.overflow ||
+	   (len(info.push_key) != 0 && len(info.push_key) != PUSH_KEY_SIZE) ||
 	   len(info.name) > MAX_SERVER_NAME ||
 	   len(info.description) > MAX_SERVER_DESCRIPTION {
 		return {}, false

@@ -80,6 +80,9 @@ test_server_info :: proc(t: ^testing.T) {
 @(test)
 test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	buf: [SERVER_INFO_MAX_SIZE]u8
+	push_key: [PUSH_KEY_SIZE]u8
+	push_key[0] = 4
+	push_key[PUSH_KEY_SIZE - 1] = 9
 	body, ok := encode_server_info(
 		buf[:],
 		{
@@ -90,6 +93,7 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 			digests = true,
 			media_port = 7778,
 			video_kbit = 20000,
+			push_key = push_key[:],
 		},
 	)
 	testing.expect(t, ok)
@@ -100,6 +104,22 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	testing.expect_value(t, info.icon, Blob_Id(42))
 	testing.expect(t, info.digests)
 	testing.expect_value(t, info.media_port, 7778)
+	testing.expect_value(t, info.video_kbit, 20000)
+	testing.expect(t, string(info.push_key) == string(push_key[:]))
+
+	// A push key is 65 bytes or nothing.
+	_, ok = encode_server_info(buf[:], {push_key = push_key[:10]})
+	testing.expect(t, !ok)
+	bad := slice_clone_tmp(body)
+	bad[len(bad) - PUSH_KEY_SIZE - 1] = 10
+	_, ok = decode_server_info(bad[:len(bad) - PUSH_KEY_SIZE + 10])
+	testing.expect(t, !ok)
+
+	// An older server ends at the video rate: no push.
+	body = body[:len(body) - 1 - PUSH_KEY_SIZE]
+	info, ok = decode_server_info(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, len(info.push_key), 0)
 	testing.expect_value(t, info.video_kbit, 20000)
 
 	// An older server ends at the digests: no media link.
@@ -148,5 +168,34 @@ test_server_info_set :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 	long_text := make([]u8, MAX_SERVER_DESCRIPTION + 1, context.temp_allocator)
 	_, ok = encode_server_info_set(buf[:], {description = string(long_text)})
+	testing.expect(t, !ok)
+}
+
+@(private = "file")
+slice_clone_tmp :: proc(b: []u8) -> []u8 {
+	out := make([]u8, len(b), context.temp_allocator)
+	copy(out, b)
+	return out
+}
+
+@(test)
+test_push_subscribe :: proc(t: ^testing.T) {
+	buf: [PUSH_SUBSCRIBE_MAX_SIZE]u8
+	sub := Push_Subscription {
+		endpoint = "https://push.example.net/abc",
+	}
+	sub.p256dh[0] = 4
+	sub.auth[15] = 7
+	body, ok := encode_push_subscribe(buf[:], sub)
+	testing.expect(t, ok)
+	got: Push_Subscription
+	got, ok = decode_push_subscribe(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, got.endpoint, sub.endpoint)
+	testing.expect(t, got.p256dh == sub.p256dh && got.auth == sub.auth)
+
+	_, ok = decode_push_subscribe(body[:len(body) - 1])
+	testing.expect(t, !ok)
+	_, ok = encode_push_subscribe(buf[:], {})
 	testing.expect(t, !ok)
 }

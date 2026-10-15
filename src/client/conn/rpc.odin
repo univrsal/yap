@@ -44,6 +44,9 @@ Server_Details :: struct {
 	registration:   proto.Registration_Flags,
 	email:          string, // where verifying mail goes; owned
 	digests:        bool, // it mails what was missed (proto.SETTING_EMAIL_DIGEST)
+	// Its VAPID key, if it pushes (push.odin).
+	push:           bool,
+	push_key:       [proto.PUSH_KEY_SIZE]u8,
 	// Its media link's port, 0 for none (media.odin), and how fast a
 	// sharer's video may be, in kbit/s, 0 if it didn't say.
 	media_port:     u16,

@@ -657,6 +657,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		notice_label(ui, v)
 	}
 	digest_settings(ui, v)
+	push_settings(ui, v)
 	profile_settings(ui)
 	status_settings(ui)
 

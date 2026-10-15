@@ -224,6 +224,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		conv.last_msg = last
 	}
 	msg_deliver(s, conv, m)
+	push_message(s, conv, m, mentioned)
 	if root.id != 0 {
 		thread_changed(s, conv, root.id)
 	}
@@ -340,6 +341,7 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		conv.last_msg = last
 	}
 	msg_deliver(s, conv, m)
+	push_message(s, conv, m, nil)
 	if root.id != 0 {
 		thread_changed(s, conv, root.id)
 	}

@@ -195,6 +195,11 @@ Stmt :: enum {
 	Digest_DMs,
 	Digest_Unread,
 	Digest_Mentions,
+	Push_Sub_Put,
+	Push_Sub_Others,
+	Push_Sub_Drop,
+	Push_Sub_Gone,
+	Push_Subs_Of,
 }
 
 @(private = "file", rodata)
@@ -207,7 +212,7 @@ STMT_SQL := [Stmt]string {
 	.Blob_By_Hash           = "SELECT id FROM blobs WHERE sha256 = ?1",
 	.Blob_Delete            = "DELETE FROM blobs WHERE id = ?1",
 	.Account_Add            = "INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, flags, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-	.Account_All            = "SELECT id, username, display, flags, created, last_seen, status, status_until, coalesce(avatar, 0), activity, email, verify_code, verify_expires, digest_upto, coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'email/digest'), '') FROM accounts ORDER BY id",
+	.Account_All            = "SELECT id, username, display, flags, created, last_seen, status, status_until, coalesce(avatar, 0), activity, email, verify_code, verify_expires, digest_upto, coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'email/digest'), ''), coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'push/text'), '') FROM accounts ORDER BY id",
 	.Account_Secret         = "SELECT pw_hash, pw_salt, pw_params FROM accounts WHERE id = ?1",
 	.Account_Set_Password   = "UPDATE accounts SET pw_hash = ?2, pw_salt = ?3, pw_params = ?4 WHERE id = ?1",
 	.Account_Set_Display    = "UPDATE accounts SET display = ?2 WHERE id = ?1",
@@ -339,6 +344,12 @@ STMT_SQL := [Stmt]string {
 	// channels.
 	.Digest_Unread          = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.flags & 4 = 0 AND x.notify = 0 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 	.Digest_Mentions        = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM mentions y JOIN members x ON x.conv = y.conv AND x.account = y.account JOIN messages m ON m.id = y.message WHERE y.account = ?1 AND y.message > max(x.read_id, ?2) AND x.notify != 2 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
+	// Web Push subscriptions (push_subs.odin).
+	.Push_Sub_Put           = "INSERT INTO push_subs (device, account, endpoint, p256dh, auth, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT (endpoint) DO UPDATE SET device = ?1, account = ?2, p256dh = ?4, auth = ?5, created = ?6",
+	.Push_Sub_Others        = "DELETE FROM push_subs WHERE device = ?1 AND endpoint != ?2",
+	.Push_Sub_Drop          = "DELETE FROM push_subs WHERE device = ?1",
+	.Push_Sub_Gone          = "DELETE FROM push_subs WHERE id = ?1",
+	.Push_Subs_Of           = "SELECT id, endpoint, p256dh, auth, device FROM push_subs WHERE account = ?1 ORDER BY id",
 }
 
 DB :: struct {

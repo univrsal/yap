@@ -360,6 +360,21 @@ MIGRATIONS := [?]string {
 	`
 	ALTER TABLE accounts ADD COLUMN digest_upto INTEGER NOT NULL DEFAULT 0;
 	`,
+	// 25: Web Push subscriptions (push_subs.odin), each a device's, and
+	// gone with it.
+	`
+	CREATE TABLE push_subs (
+		id       INTEGER PRIMARY KEY,
+		device   BLOB NOT NULL REFERENCES devices(key) ON DELETE CASCADE,
+		account  INTEGER NOT NULL REFERENCES accounts(id),
+		endpoint TEXT NOT NULL UNIQUE,
+		p256dh   BLOB NOT NULL,
+		auth     BLOB NOT NULL,
+		created  INTEGER NOT NULL
+	);
+	CREATE INDEX push_subs_account ON push_subs(account);
+	CREATE INDEX push_subs_device ON push_subs(device);
+	`,
 }
 
 // The version a database is at once it has been through every step.

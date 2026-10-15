@@ -83,7 +83,7 @@ activity_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 }
 
 idle_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
-	idle, ok := proto.decode_idle(body)
+	idle, hidden, ok := proto.decode_idle(body)
 	if !ok {
 		respond(u, id, .Invalid)
 		return
@@ -92,6 +92,7 @@ idle_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		log.debugf("%s is %s", conn_label(u), "idle" if idle else "back")
 	}
 	u.idle = idle
+	u.hidden = hidden
 	respond(u, id, .Ok)
 	activity_check(s, u.account)
 }

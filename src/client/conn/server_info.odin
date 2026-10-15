@@ -61,6 +61,9 @@ server_info_take :: proc(c: ^Voice_Client, body: []u8) -> bool {
 	email, email_ok := proto.email_clean(info.email, &email_buf)
 	s.email = strings.clone(email if email_ok else "")
 	s.digests = info.digests
+	s.push = len(info.push_key) == proto.PUSH_KEY_SIZE
+	s.push_key = {}
+	copy(s.push_key[:], info.push_key)
 	s.media_port = info.media_port
 	s.video_kbit = info.video_kbit
 	if view := c.view; view != nil {

@@ -431,14 +431,21 @@ EM_JS(int, yap_utc_offset_minutes, (), {
    may show them. Browsers only let a page ask while it's handling a
    click or a tap, so the first time one would be shown the page asks on
    the next one - the notice that prompted it has gone by then, but the
-   ones after it get through. 1 if shown. */
+   ones after it get through. Chrome on Android doesn't let a page make
+   one itself: there a service worker shows it (web/push.js). 1 if
+   shown. */
 EM_JS(int, yap_notify, (const char *title, const char *body), {
 	if (typeof Notification === "undefined") return 0;
 	if (Notification.permission === "granted") {
+		const head = UTF8ToString(title);
 		const text = UTF8ToString(body);
-		const n = new Notification(UTF8ToString(title), text ? { body: text } : {});
-		// Clicked: back to the tab it came from.
-		n.onclick = () => { window.focus(); n.close(); };
+		try {
+			const n = new Notification(head, text ? { body: text } : {});
+			// Clicked: back to the tab it came from.
+			n.onclick = () => { window.focus(); n.close(); };
+		} catch (err) {
+			Module.yapPush.notify(head, text);
+		}
 		return 1;
 	}
 	if (Notification.permission === "default" && !Module.yapAskToNotify) {
@@ -450,6 +457,72 @@ EM_JS(int, yap_notify, (const char *title, const char *body), {
 		for (const type of ["pointerup", "touchend", "keyup"]) document.addEventListener(type, ask, true);
 	}
 	return 0;
+});
+
+/* Web Push (web/push.js, src/client/ui_push_web.odin): a server is named
+   by its address; its key is the 65 bytes of Server_Info's push_key. */
+EM_JS(int, yap_push_state, (const char *server), {
+	return Module.yapPush.state(UTF8ToString(server));
+});
+
+EM_JS(void, yap_push_check, (const char *server, const unsigned char *key), {
+	Module.yapPush.check(UTF8ToString(server), HEAPU8.slice(key, key + 65));
+});
+
+EM_JS(void, yap_push_enable, (const char *server, const unsigned char *key), {
+	Module.yapPush.enable(UTF8ToString(server), HEAPU8.slice(key, key + 65));
+});
+
+EM_JS(void, yap_push_disable, (const char *server), {
+	Module.yapPush.disable(UTF8ToString(server));
+});
+
+/* The subscription to give the server, if there's a new one: the
+   endpoint's length (0 for none, -1 if it doesn't fit), with the keys
+   written to p256dh (65 bytes) and auth (16). */
+EM_JS(int, yap_push_take, (const char *server, char *endpoint, int size, unsigned char *p256dh, unsigned char *auth), {
+	const sub = Module.yapPush.take(UTF8ToString(server));
+	if (!sub) return 0;
+	const n = lengthBytesUTF8(sub.endpoint);
+	if (n + 1 > size || sub.p256dh.length !== 65 || sub.auth.length !== 16) return -1;
+	stringToUTF8(sub.endpoint, endpoint, size);
+	HEAPU8.set(sub.p256dh, p256dh);
+	HEAPU8.set(sub.auth, auth);
+	return n;
+});
+
+EM_JS(int, yap_push_take_unsubscribe, (const char *server), {
+	return Module.yapPush.takeUnsubscribe(UTF8ToString(server)) ? 1 : 0;
+});
+
+EM_JS(void, yap_push_seen, (const char *server, unsigned int conv), {
+	Module.yapPush.seen(UTF8ToString(server), conv);
+});
+
+/* What a tapped notification asked to show: the server's address's
+   length (0 for nothing), with the conversation and message. */
+EM_JS(int, yap_push_take_open, (char *server, int size, unsigned int *conv, double *msg), {
+	const o = Module.yapPush.takeOpen();
+	if (!o) return 0;
+	const n = lengthBytesUTF8(o.server);
+	if (n + 1 > size) return 0;
+	stringToUTF8(o.server, server, size);
+	HEAPU32[conv >> 2] = o.conv;
+	HEAPF64[msg >> 3] = o.msg;
+	return n;
+});
+
+/* The number on the installed app's icon (web/push.js): unread DMs and
+   mentions; 0 takes it away. */
+EM_JS(void, yap_set_badge, (int n), {
+	Module.yapPush.badge(n);
+});
+
+/* Whether the page is out of sight: a hidden tab, a phone's browser in
+   the background. Someone who can't see it is as good as idle, so the
+   server pushes to them (src/client/ui_activity.odin). */
+EM_JS(int, yap_page_hidden, (void), {
+	return document.hidden ? 1 : 0;
 });
 
 /* Puts a phone's keyboard away: the hidden field that brought it up

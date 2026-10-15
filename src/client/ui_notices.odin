@@ -15,7 +15,9 @@ notification. That goes through the tray icon, which is how traycon
 reaches the desktop's notification service; a web build uses the
 browser's own. Without either, the window asks for attention, which is
 what a taskbar shows. They're told from every server, not only the one
-shown, and where there are several, which one's it is.
+shown, and where there are several, which one's it is. In a web build
+with push on and the page out of sight, the server's push tells of
+mentions and DMs instead (ui_push_web.odin).
 */
 
 /*
@@ -42,8 +44,9 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 		}
 	}
 	on := fmt.tprintf(" on %s", server) if named else ""
+	pushed := push_covers(ns)
 	for m in conn.view_take_mentions(v) {
-		if m.dm && dm_open(ui, ns, m.conv) {
+		if pushed || (m.dm && dm_open(ui, ns, m.conv)) {
 			continue
 		}
 		title := fmt.tprintf("%s mentioned you in %s%s", m.name, m.place, on)
@@ -57,7 +60,7 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 			target = {ui = ui, ns = ns, conv = m.conv, msg = m.msg},
 		)
 	}
-	if call != 0 && call != ns.call_announced {
+	if call != 0 && call != ns.call_announced && !pushed {
 		ns.call_announced = call
 		notice(
 			ui,

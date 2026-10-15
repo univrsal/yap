@@ -60,7 +60,15 @@ decode_setting :: proc(body: []u8) -> (key: string, value: []u8, ok: bool) {
 }
 
 /*
-The one setting the server reads: which mails it sends an account about
+Whether pushes (push.odin) leave out what a message says, giving only
+who wrote and where: "hidden" if so; not set, they say it. The server
+reads it, and takes any value; only "hidden" hides.
+*/
+SETTING_PUSH_TEXT :: "push/text"
+PUSH_TEXT_HIDDEN :: "hidden"
+
+/*
+A setting the server reads: which mails it sends an account about
 what came while it was away (server/digest.odin), if it sends any
 (Server_Info.digests). Mentions: unread mentions, and unread direct
 messages, which count as mentions; Missed: those, and every other

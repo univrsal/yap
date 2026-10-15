@@ -16,10 +16,10 @@ CURL_LIBRARIES :: [?]string {
 
 // How many procedures there are in Curl.
 @(private = "file")
-CURL_PROCS :: 10
+CURL_PROCS :: 11
 
 // curl_load_system loads the system's libcurl into the table.
-curl_load_system :: proc(c: ^Curl) -> bool {
+curl_load_system :: proc(c: ^Curl, what: string) -> bool {
 	for path in CURL_LIBRARIES {
 		count, ok := dynlib.initialize_symbols(c, path, "curl_")
 		if !ok {
@@ -27,8 +27,9 @@ curl_load_system :: proc(c: ^Curl) -> bool {
 		}
 		if count != CURL_PROCS {
 			log.errorf(
-				"%s lacks some of what email needs (%d of %d found)",
+				"%s lacks some of what %s needs (%d of %d found)",
 				path,
+				what,
 				count,
 				CURL_PROCS,
 			)
@@ -36,6 +37,6 @@ curl_load_system :: proc(c: ^Curl) -> bool {
 		}
 		return true
 	}
-	log.error("libcurl isn't installed, so there's no email: install libcurl (curl) for it")
+	log.errorf("libcurl isn't installed, so there's no %s: install libcurl (curl) for it", what)
 	return false
 }

@@ -61,8 +61,10 @@ Conn :: struct {
 	// Whose it is; nil until it's logged in.
 	account:         ^Account,
 	// Its user hasn't done anything for a while, as its client says
-	// (activity.odin).
+	// (activity.odin); and it's out of sight, which makes nobody away
+	// but has them pushed to (push_notify.odin).
 	idle:            bool,
+	hidden:          bool,
 	// A request of its that needs a password hashed is with the hashing
 	// thread (auth.odin): one at a time.
 	auth_busy:       bool,
@@ -156,6 +158,8 @@ Server :: struct {
 	verify:         Verify_State,
 	// Mailing accounts what they missed (digest.odin).
 	digest:         Digest_State,
+	// Telling browsers what's new through their push services (push.odin).
+	push:           Push,
 	// Screen sharing's own port and thread (media.odin).
 	media:          Media,
 }
@@ -215,6 +219,8 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	defer auth_destroy(&s.auth)
 	email_open(&s.email, settings.email)
 	defer email_close(&s.email)
+	push_open(&s.push, settings.push)
+	defer push_close(&s.push)
 	memory_log_open(&s, settings.memory_log)
 	loop_stats_open(&s)
 	if s.registration.verify_email && !s.email.enabled {
@@ -270,6 +276,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		{.Retention, retention_sync},
 		{.Verify, verify_sync},
 		{.Digest, digest_sync},
+		{.Push, push_sync},
 		{.Media, media_sync},
 		{.Exercise, db_exercise},
 		{.Memory, memory_sync},
@@ -574,6 +581,7 @@ conn_seen :: proc(s: ^Server, u: ^Conn) {
 	changed := now != acc.shown
 	acc.shown = now
 	directory_sync(s, u)
+	calls_conn_seen(s, u)
 	if changed {
 		account_told(s, acc, except = u)
 	}
@@ -622,6 +630,7 @@ conn_left :: proc(s: ^Server, u: ^Conn) {
 	}
 	u.account = nil
 	u.idle = false
+	u.hidden = false
 	activity_check(s, acc)
 	bump_version(s)
 }
