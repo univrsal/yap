@@ -175,6 +175,11 @@ Renderer :: struct {
 	vertices:         [MAX_QUADS * 4]Vertex,
 	quads:            int,
 	scale:            f32,
+	// The root container being drawn: its position (logical), which its
+	// commands are taken relative to, and where that position snaps to
+	// (physical, whole), which push_quad puts them back at (origin_at).
+	origin:           [2]i32,
+	snapped:          [2]f32,
 }
 
 // The fonts microui measures text with (its callbacks take no user data).
@@ -369,9 +374,27 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	}
 
 	r.bound, r.rgba = 0, false
+	r.origin, r.snapped = {}, {}
+
+	// Where each root container's commands start (after its head jump,
+	// which next_command follows past), to know when one begins.
+	Root :: struct {
+		first: uintptr,
+		pos:   [2]i32,
+	}
+	roots: [mu.ROOT_LIST_SIZE]Root
+	for cnt, i in ctx.root_list.items[:ctx.root_list.idx] {
+		roots[i] = {uintptr(cnt.head) + size_of(mu.Command_Jump), {cnt.rect.x, cnt.rect.y}}
+	}
 
 	cmd: ^mu.Command
 	for variant in mu.next_command_iterator(ctx, &cmd) {
+		for root in roots[:ctx.root_list.idx] {
+			if root.first == uintptr(cmd) {
+				origin_at(r, root.pos)
+				break
+			}
+		}
 		switch c in variant {
 		case ^mu.Command_Text:
 			slot := slot_of(&r.fonts, c.font)
@@ -395,8 +418,8 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 			font_layout(
 				&slot.font,
 				c.str,
-				f32(c.pos.x),
-				f32(c.pos.y),
+				f32(c.pos.x - r.origin.x),
+				f32(c.pos.y - r.origin.y),
 				&emit,
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
@@ -424,34 +447,36 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 			)
 		case ^mu.Command_Rect:
 			w := rect_white(r)
-			x0, x1 := snap_span(c.rect.x, c.rect.w, r.scale)
-			y0, y1 := snap_span(c.rect.y, c.rect.h, r.scale)
+			rect := local(r, c.rect)
+			x0, x1 := snap_span(rect.x, rect.w, r.scale)
+			y0, y1 := snap_span(rect.y, rect.h, r.scale)
 			push_quad(r, {x0, y0, x1, y1}, {w.x, w.y, w.x, w.y}, c.color)
 		case ^mu.Command_Icon:
+			rect := local(r, c.rect)
 			if c.id == BORDER_ICON {
-				push_border(r, c.rect, c.color)
+				push_border(r, rect, c.color)
 				continue
 			}
 			if c.id == INSIDE_BORDER_ICON {
-				push_border(r, c.rect, c.color, inside = true)
+				push_border(r, rect, c.color, inside = true)
 				continue
 			}
 			if own, ok := own_icon(c.id); ok {
-				draw_ui_icon(r, own, c.rect, c.color)
+				draw_ui_icon(r, own, rect, c.color)
 				continue
 			}
 			if index := int(c.id) - IMAGE_ICON_BASE; index >= 0 {
-				draw_image(r, index, c.rect, c.color)
+				draw_image(r, index, rect, c.color)
 				continue
 			}
 			if index := int(c.id) - UI_ICON_BASE; index >= 0 {
-				draw_ui_icon(r, Icon(index), c.rect, c.color)
+				draw_ui_icon(r, Icon(index), rect, c.color)
 				continue
 			}
 			use_texture(r, r.icon_texture)
 			src := mu.default_atlas[c.id]
-			x := f32(c.rect.x + (c.rect.w - src.w) / 2)
-			y := f32(c.rect.y + (c.rect.h - src.h) / 2)
+			x := f32(rect.x + (rect.w - src.w) / 2)
+			y := f32(rect.y + (rect.h - src.h) / 2)
 			A :: f32(mu.DEFAULT_ATLAS_WIDTH)
 			push_quad(
 				r,
@@ -461,13 +486,35 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 			)
 		case ^mu.Command_Clip:
 			flush(r)
-			set_clip(r, c.rect)
+			set_clip(r, local(r, c.rect))
 		case ^mu.Command_Jump:
 			unreachable()
 		}
 	}
 	flush(r)
 	gpu_end(&r.gpu)
+}
+
+/*
+origin_at starts drawing a root container (a window, a popup) at `pos`.
+What's in it is snapped to physical pixels relative to where `pos`
+snaps, not each from its own place on the screen: at a fractional
+scale those round differently as the window moves (at 1.5, 1 logical
+pixel in from x = 10 is 1 physical pixel past its border's rounded
+edge, from x = 11 it's 2), so its title bar would come away from its
+border, or a letter shift in its box, in some places and not others.
+This way the whole window moves by whole pixels as one.
+*/
+@(private = "file")
+origin_at :: proc(r: ^Renderer, pos: [2]i32) {
+	r.origin = pos
+	r.snapped = {math.round(f32(pos.x) * r.scale), math.round(f32(pos.y) * r.scale)}
+}
+
+// local is a rect relative to the root container being drawn (origin_at).
+@(private = "file")
+local :: proc(r: ^Renderer, rect: mu.Rect) -> mu.Rect {
+	return {rect.x - r.origin.x, rect.y - r.origin.y, rect.w, rect.h}
 }
 
 // slot_prepare has a font's atlases at the display's density: a zoomed
@@ -701,11 +748,14 @@ push_quad :: proc(r: ^Renderer, dst, uv: [4]f32, color: mu.Color) {
 		flush(r)
 	}
 	c := [4]u8{color.r, color.g, color.b, color.a}
+	// Back from the root container's own to the screen (origin_at).
+	o := r.snapped / r.scale
+	p := dst + {o.x, o.y, o.x, o.y}
 	v := r.vertices[r.quads * 4:]
-	v[0] = {{dst[0], dst[1]}, {uv[0], uv[1]}, c}
-	v[1] = {{dst[2], dst[1]}, {uv[2], uv[1]}, c}
-	v[2] = {{dst[2], dst[3]}, {uv[2], uv[3]}, c}
-	v[3] = {{dst[0], dst[3]}, {uv[0], uv[3]}, c}
+	v[0] = {{p[0], p[1]}, {uv[0], uv[1]}, c}
+	v[1] = {{p[2], p[1]}, {uv[2], uv[1]}, c}
+	v[2] = {{p[2], p[3]}, {uv[2], uv[3]}, c}
+	v[3] = {{p[0], p[3]}, {uv[0], uv[3]}, c}
 	r.quads += 1
 }
 
@@ -721,9 +771,10 @@ flush :: proc(r: ^Renderer) {
 @(private = "file")
 set_clip :: proc(r: ^Renderer, rect: mu.Rect) {
 	s := r.scale
-	x0 := math.round(f32(rect.x) * s)
-	x1 := math.round(f32(rect.x + rect.w) * s)
-	y0 := math.round(f32(rect.y) * s)
-	y1 := math.round(f32(rect.y + rect.h) * s)
+	o := r.snapped
+	x0 := o.x + math.round(f32(rect.x) * s)
+	x1 := o.x + math.round(f32(rect.x + rect.w) * s)
+	y0 := o.y + math.round(f32(rect.y) * s)
+	y1 := o.y + math.round(f32(rect.y + rect.h) * s)
 	gpu_clip(&r.gpu, i32(x0), i32(y0), i32(x1 - x0), i32(y1 - y0))
 }
