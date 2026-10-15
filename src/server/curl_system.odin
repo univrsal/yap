@@ -1,8 +1,20 @@
 #+build !windows
 package server
 
+import "core:c"
 import "core:dynlib"
 import "core:log"
+import "core:sys/posix"
+
+// curl_socket_t, and the value curl takes as a failure to open one.
+Curl_Socket :: posix.FD
+CURL_SOCKET_BAD :: Curl_Socket(-1)
+AF_INET6 :: c.int(posix.AF.INET6)
+
+// curl_socket opens a socket, as a CURLOPT_OPENSOCKETFUNCTION does.
+curl_socket :: proc "c" (family, socktype, protocol: c.int) -> Curl_Socket {
+	return posix.socket(posix.AF(family), posix.Sock(socktype), posix.Protocol(protocol))
+}
 
 // The possible locations of the system's libcurl, with the most likely first.
 @(private = "file")

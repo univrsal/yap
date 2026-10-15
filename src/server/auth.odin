@@ -658,6 +658,10 @@ account_password_set_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Ha
 	case target == nil:
 		respond(u, p.request, .Not_Found)
 		return
+	// The target's roles may have changed while the password was hashed.
+	case !outranks(u.account, permissions(target)):
+		respond(u, p.request, .Denied)
+		return
 	case !account_set_password(&s.accounts, target, result.made, true):
 		respond(u, p.request, .Internal)
 		return

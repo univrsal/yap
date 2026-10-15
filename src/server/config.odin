@@ -46,7 +46,8 @@ import "common:proto"
 //		},
 //		"attachments": {
 //			"max_megabytes": 100,
-//			"rate_kb": 2048
+//			"rate_kb": 2048,
+//			"daily_megabytes": 4096
 //		},
 //		"email": {
 //			"address": "",
@@ -141,7 +142,10 @@ import "common:proto"
 //            `max_megabytes`: the maximum size of a single file. 0 disables
 //            attachments. `rate_kb`: the speed limit in KB/s per connection
 //            for sending and receiving files, which leaves bandwidth for
-//            voice. If left out, they are 100 and 2048.
+//            voice. Uploads faster than that are slowed down by the server.
+//            `daily_megabytes`: how much one account may upload in 24 hours,
+//            so that one account can't fill the disk. 0 means no limit. If
+//            left out, they are 100, 2048 and 4096.
 // email      The server's own email account (see email.odin). Without an
 //            `address`, the server has no email.
 //            `imap` and `smtp` are the URLs of the mail servers: use imaps://
@@ -256,8 +260,9 @@ Registration_Config :: struct {
 }
 
 Attach_Config :: struct {
-	max_megabytes: int,
-	rate_kb:       int,
+	max_megabytes:   int,
+	rate_kb:         int,
+	daily_megabytes: int, // 0 for no limit
 }
 
 Relay_Config :: struct {
@@ -325,7 +330,7 @@ default_config :: proc() -> Config {
 		memory_log_minutes = 60,
 		relay = {port = DEFAULT_RELAY_PORT, web_dir = default_web_dir()},
 		api = {max_connections = 64, rate = 10, burst = 30},
-		attachments = {max_megabytes = 100, rate_kb = 2048},
+		attachments = {max_megabytes = 100, rate_kb = 2048, daily_megabytes = 4096},
 		email = {check_auth_results = true},
 		video = {enabled = true, max_kbit = 20000},
 		push = {enabled = true},
@@ -479,7 +484,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		log.warnf("%s: file_days is not shorter than message_days, so it has no effect", path)
 	}
 	attach := cfg.attachments
-	if attach.max_megabytes < 0 || attach.rate_kb < 0 {
+	if attach.max_megabytes < 0 || attach.rate_kb < 0 || attach.daily_megabytes < 0 {
 		log.errorf("%s: an attachment limit can't be negative", path)
 		return
 	}

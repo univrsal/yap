@@ -25,10 +25,19 @@ import "sqlite"
 // the ack reports it as complete. The upload remains known to its account
 // for ATTACH_KEEP so that a post can refer to it (Msg_Post, messages.odin).
 //
+// An account may upload the config's `daily_megabytes` in 24 hours. What
+// counts is what arrives, including files the store already has, because
+// those are written before they are found to be duplicates. Uploads that
+// would go over it are refused with Quota. The count is kept in memory,
+// so a restart starts it over.
+//
 // A download reads from the blob's file one chunk at a time, as the
-// window and the pace allow. The server receives and sends at most the
-// config's `rate_kb` per connection, which is shared between that
-// connection's downloads. Each read is a system call and each chunk is
+// window and the pace allow. The server sends at most the config's
+// `rate_kb` per connection, which is shared between that connection's
+// downloads. Each upload is paced by its client to `rate_kb` (sent in its
+// acks), and chunks that come faster than that, with some slack, are
+// dropped unwritten, so a modified client can't write to the disk any
+// faster. The client sends them again once the acks list them missing. Each read is a system call and each chunk is
 // sealed and sent, so a turn of the loop sends at most ATTACH_TURN_BYTES
 // of chunks. While downloads are going, the loop wakes up every
 // ATTACH_WAIT (server.odin) instead of waiting for the next packet. This
@@ -54,12 +63,27 @@ ATTACH_WAIT :: 2 * time.Millisecond
 // on the disk of the blobs (counting the uploads in progress as written), so
 // that uploads can't fill the disk the database needs. Answered with Closed.
 ATTACH_FREE_FLOOR :: 512 * 1024 * 1024
+// The period `daily_megabytes` is counted over.
+ATTACH_QUOTA_PERIOD :: 24 * time.Hour
+// An upload may arrive this much faster than `rate_kb`, and this much of it
+// at once (or a second's worth, if that's more), before chunks are dropped.
+// Clients send faster than `rate_kb` until the first ack tells them the rate.
+ATTACH_UPLOAD_SLACK :: 1.25
+ATTACH_UPLOAD_BURST :: 1024 * 1024
 
 Attachments :: struct {
 	max_size:  u64, // bytes; 0 accepts no uploads
 	rate:      f32, // bytes per second, per connection
+	daily:     u64, // bytes per account per ATTACH_QUOTA_PERIOD; 0 for no limit
 	uploads:   map[u64]^Attach_Upload,
 	downloads: map[u64]^Attach_Download,
+	used:      map[proto.Account_Id]Attach_Use,
+}
+
+// Attach_Use is what an account has uploaded since `since`.
+Attach_Use :: struct {
+	since: time.Tick,
+	bytes: u64,
 }
 
 Attach_Upload :: struct {
@@ -74,6 +98,8 @@ Attach_Upload :: struct {
 	hasher:    hash.Context,
 	hashed:    u32, // number of chunks hashed, always counted from the start
 	last_data: time.Tick,
+	tokens:    f32, // bytes that may arrive now, see upload_paced
+	paced_at:  time.Tick,
 	blob:      Blob_Id, // once it's stored
 	kept_at:   time.Tick,
 }
@@ -90,6 +116,7 @@ Attach_Download :: struct {
 attachments_open :: proc(s: ^Server, config: Attach_Config) {
 	s.attach.max_size = u64(config.max_megabytes) * 1024 * 1024
 	s.attach.rate = f32(config.rate_kb) * 1024
+	s.attach.daily = u64(config.daily_megabytes) * 1024 * 1024
 }
 
 attachments_close :: proc(s: ^Server) {
@@ -101,6 +128,7 @@ attachments_close :: proc(s: ^Server) {
 	}
 	delete(s.attach.uploads)
 	delete(s.attach.downloads)
+	delete(s.attach.used)
 	s.attach = {}
 }
 
@@ -172,16 +200,31 @@ attach_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	busy := 0
 	coming: u64 // what the uploads in progress will still write
+	mine: u64 // what the account's uploads in progress will still write
 	for _, up in s.attach.uploads {
 		if up.conn == u {
 			busy += 1
 		}
 		if up.blob == 0 {
 			coming += up.size - up.recv.done
+			if up.account == u.account.id {
+				mine += up.size - up.recv.done
+			}
 		}
 	}
 	if busy >= proto.MAX_ATTACH_TRANSFERS {
 		respond(u, id, .Rate_Limited)
+		return
+	}
+	if used := attach_use(s, u.account.id);
+	   s.attach.daily > 0 && used.bytes + mine + p.size > s.attach.daily {
+		log.infof(
+			"%s: refused an upload of %d bytes, %d were uploaded today",
+			conn_label(u),
+			p.size,
+			used.bytes,
+		)
+		respond(u, id, .Quota)
 		return
 	}
 	if free, known := disk_free(blob_incoming_dir(&s.blobs));
@@ -216,6 +259,8 @@ attach_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	up.name = strings.clone(name)
 	up.size = p.size
 	up.last_data = time.tick_now()
+	up.paced_at = up.last_data
+	up.tokens = upload_burst(s)
 	proto.transfer_receiver_init(&up.recv, p.size)
 	hash.init(&up.hasher, .SHA256)
 	s.attach.uploads[up.id] = up
@@ -248,6 +293,9 @@ handle_upload_chunk :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 		// whole file in one go below, which would hold up the loop.
 		return
 	}
+	if !upload_paced(s, up, len(data)) {
+		return
+	}
 	start, _ := proto.file_chunk_range(up.size, index)
 	if n, err := os.write_at(up.file, data, i64(start)); err != nil || n != len(data) {
 		log.errorf("could not write %s: %v", up.part, err)
@@ -257,6 +305,7 @@ handle_upload_chunk :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 	}
 	proto.transfer_got(&up.recv, index, len(data))
 	up.last_data = time.tick_now()
+	attach_use(s, up.account).bytes += u64(len(data))
 
 	// Hash the chunks from the start of the file that haven't been hashed yet.
 	for up.hashed < up.recv.base {
@@ -279,6 +328,41 @@ handle_upload_chunk :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 	if proto.transfer_complete(&up.recv) {
 		upload_keep(s, u, up)
 	}
+}
+
+// attach_use returns what an account has uploaded in the current
+// ATTACH_QUOTA_PERIOD, starting a new period if the last one is over.
+@(private = "file")
+attach_use :: proc(s: ^Server, account: proto.Account_Id) -> ^Attach_Use {
+	now := time.tick_now()
+	_, use, just_added, _ := map_entry(&s.attach.used, account)
+	if just_added || time.tick_diff(use.since, now) >= ATTACH_QUOTA_PERIOD {
+		use^ = {
+			since = now,
+		}
+	}
+	return use
+}
+
+@(private = "file")
+upload_burst :: proc(s: ^Server) -> f32 {
+	return max(s.attach.rate, ATTACH_UPLOAD_BURST)
+}
+
+// upload_paced takes `bytes` from an upload's tokens, which refill at
+// ATTACH_UPLOAD_SLACK times the rate. It returns false, taking nothing, if
+// there aren't enough; the chunk is then dropped.
+@(private = "file")
+upload_paced :: proc(s: ^Server, up: ^Attach_Upload, bytes: int) -> bool {
+	now := time.tick_now()
+	elapsed := f32(time.duration_seconds(time.tick_diff(up.paced_at, now)))
+	up.paced_at = now
+	up.tokens = min(up.tokens + elapsed * s.attach.rate * ATTACH_UPLOAD_SLACK, upload_burst(s))
+	if up.tokens < f32(bytes) {
+		return false
+	}
+	up.tokens -= f32(bytes)
+	return true
 }
 
 // upload_keep stores a completed upload as a blob and acknowledges it.

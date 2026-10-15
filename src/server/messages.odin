@@ -656,7 +656,10 @@ handle_typing :: proc(s: ^Server, from: ^Conn, pt: []u8) {
 	}
 	conv_id, root := proto.decode_typing_up(pt)
 	conv := conv_by_id(&s.convs, conv_id)
-	if conv == nil || !conv_is_member(conv, from.account.id) {
+	if conv == nil ||
+	   !conv_is_member(conv, from.account.id) ||
+	   .Archived in conv.flags ||
+	   dm_closed(s, conv) {
 		return
 	}
 	from.last_typing = now

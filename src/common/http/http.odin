@@ -74,6 +74,29 @@ read_head :: proc(c: ^Conn) -> (head: string, ok: bool) {
 	}
 }
 
+// MAX_PRINTABLE is the most bytes of a string that printable keeps.
+MAX_PRINTABLE :: 200
+
+// printable returns `s` made safe to log: every byte that isn't printable
+// ASCII is written as \xNN, so a path from a request can't carry terminal
+// escapes, and it is cut to MAX_PRINTABLE bytes.
+printable :: proc(s: string, allocator := context.temp_allocator) -> string {
+	b := strings.builder_make(0, min(len(s), MAX_PRINTABLE) + 3, allocator)
+	for i in 0 ..< len(s) {
+		if i == MAX_PRINTABLE {
+			strings.write_string(&b, "...")
+			break
+		}
+		c := s[i]
+		if c >= 0x20 && c < 0x7f && c != '\\' {
+			strings.write_byte(&b, c)
+		} else {
+			fmt.sbprintf(&b, "\\x%02x", c)
+		}
+	}
+	return strings.to_string(b)
+}
+
 // parse_request parses a request head. It fails if the head has no valid
 // request line.
 parse_request :: proc(head: string) -> (req: Request, ok: bool) {

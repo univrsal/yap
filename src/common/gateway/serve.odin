@@ -403,6 +403,12 @@ status_reply :: proc(status: proto.Status) -> Reply {
 		return r
 	case .Closed:
 		return error_reply(410, "closed", "That item is closed.")
+	case .Quota:
+		return error_reply(
+			507,
+			"quota",
+			"The account has uploaded as much as the server allows for now.",
+		)
 	case .Unknown_Op:
 		return error_reply(501, "unknown_op", "The server is too old to support that.")
 	case .Reset:

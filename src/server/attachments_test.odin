@@ -418,6 +418,73 @@ test_attachments_conn_gone :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 }
 
+// Upload chunks that come faster than `rate_kb` (with some slack) are
+// dropped, and an account can't upload more than `daily_megabytes` in a
+// day, counting what its uploads in progress will still send.
+@(test)
+test_attachments_quota :: proc(t: ^testing.T) {
+	base, _ := os.temp_directory(context.temp_allocator)
+	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	defer remove_tree(dir)
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	attachments_open(s, {max_megabytes = 4, rate_kb = 1024, daily_megabytes = 3})
+	defer attachments_close(s)
+	attach_test_sent = record_sent
+	defer attach_test_sent = nil
+	defer sent_reset()
+
+	ts_account(t, &ts, "alice", "a password")
+	alice := logged_in(t, &ts, "alice")
+	MIB :: 1024 * 1024
+	data := test_file(2 * MIB, 4)
+	_, id := put(t, &ts, alice, len(data), "big.zip")
+	up := s.attach.uploads[id]
+	send_all :: proc(s: ^Server, u: ^Conn, id: u64, data: []u8) {
+		out: [proto.MAX_PAYLOAD_SIZE]u8
+		for i in 0 ..< proto.file_chunk_count(u64(len(data))) {
+			from, to := proto.file_chunk_range(u64(len(data)), i)
+			handle_upload_chunk(
+				s,
+				u,
+				proto.encode_transfer_chunk(out[:], .Upload_Chunk, id, i, data[from:to]),
+			)
+		}
+	}
+
+	// Sent all at once, only the burst (a second's worth) arrives.
+	send_all(s, alice, id, data)
+	testing.expectf(
+		t,
+		up.recv.done > MIB - proto.FILE_CHUNK_DATA && up.recv.done < MIB + 64 * 1024,
+		"%d bytes arrived",
+		up.recv.done,
+	)
+
+	// About 1 MiB has arrived and about 1 MiB is still to come, so 1.5 MiB
+	// more would go over 3 MiB, but 0.75 MiB wouldn't.
+	status, _ := put(t, &ts, alice, 3 * MIB / 2, "too much.zip")
+	testing.expect_value(t, status, proto.Status.Quota)
+	status, _ = put(t, &ts, alice, 3 * MIB / 4, "fits.zip")
+	testing.expect_value(t, status, proto.Status.Ok)
+
+	// A second later the rest arrives.
+	up.paced_at = time.tick_add(up.paced_at, -time.Second)
+	send_all(s, alice, id, data)
+	testing.expect(t, up.blob != 0)
+	status, _ = put(t, &ts, alice, MIB / 2, "too much.zip")
+	testing.expect_value(t, status, proto.Status.Quota)
+
+	// The next day the count starts over.
+	use := &s.attach.used[alice.account.id]
+	use.since = time.tick_add(use.since, -25 * time.Hour)
+	status, _ = put(t, &ts, alice, MIB / 2, "tomorrow.zip")
+	testing.expect_value(t, status, proto.Status.Ok)
+}
+
 // Retention removes the files of messages the same way it removes their
 // pictures. It removes the files of older messages (file_days, or a
 // purge of files) and the oldest files while pictures and files use too
@@ -432,7 +499,7 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	defer ts_close(&ts)
 	s := &ts.s
 	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
-	attachments_open(s, {max_megabytes = 8, rate_kb = 1024})
+	attachments_open(s, {max_megabytes = 8, rate_kb = 1024 * 1024})
 	defer attachments_close(s)
 	attach_test_sent = record_sent
 	defer attach_test_sent = nil

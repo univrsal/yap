@@ -458,3 +458,62 @@ test_push_calls :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Closed)
 	testing.expect_value(t, len(pushes_sent(t, &ts)), 0)
 }
+
+// Pushes only connect to addresses on the public internet.
+@(test)
+test_push_address_public :: proc(t: ^testing.T) {
+	v4 :: proc(a: [4]u8) -> bool {
+		sa := [16]u8 {
+			0 = 2,
+			4 = a[0],
+			5 = a[1],
+			6 = a[2],
+			7 = a[3],
+		}
+		return push_address_public(AF_INET, sa[:])
+	}
+	v6 :: proc(addr: [16]u8) -> bool {
+		addr := addr
+		sa: [28]u8
+		copy(sa[8:24], addr[:])
+		return push_address_public(AF_INET6, sa[:])
+	}
+	for public in ([][4]u8{{142, 250, 185, 10}, {100, 128, 0, 1}, {172, 32, 0, 1}}) {
+		testing.expectf(t, v4(public), "%v", public)
+	}
+	for private in ([][4]u8 {
+			{127, 0, 0, 1},
+			{10, 1, 2, 3},
+			{172, 16, 0, 1},
+			{172, 31, 255, 255},
+			{192, 168, 1, 1},
+			{169, 254, 169, 254},
+			{100, 64, 0, 1},
+			{0, 0, 0, 0},
+			{224, 0, 0, 1},
+			{255, 255, 255, 255},
+		}) {
+		testing.expectf(t, !v4(private), "%v", private)
+	}
+
+	testing.expect(t, v6({0 = 0x2a, 1 = 0x00, 2 = 0x14, 3 = 0x50, 15 = 1}))
+	testing.expect(t, v6({10 = 0xff, 11 = 0xff, 12 = 8, 13 = 8, 14 = 8, 15 = 8}))
+	for private in ([][16]u8 {
+			{15 = 1}, // ::1
+			{}, // ::
+			{0 = 0xfd, 1 = 0x12, 15 = 1}, // unique local
+			{0 = 0xfe, 1 = 0x80, 15 = 1}, // link-local
+			{0 = 0xff, 1 = 0x02, 15 = 1}, // multicast
+			{10 = 0xff, 11 = 0xff, 12 = 127, 15 = 1}, // ::ffff:127.0.0.1
+			{10 = 0xff, 11 = 0xff, 12 = 192, 13 = 168, 15 = 1}, // ::ffff:192.168.0.1
+			{1 = 0x64, 2 = 0xff, 3 = 0x9b, 12 = 10, 15 = 1}, // 64:ff9b::10.0.0.1
+			{0 = 0x20, 1 = 0x02, 2 = 0x7f, 5 = 1}, // 6to4 of 127.0.0.1
+		}) {
+		testing.expectf(t, !v6(private), "%v", private)
+	}
+	// Too short for what it claims to be, or another family.
+	short: [6]u8
+	testing.expect(t, !push_address_public(AF_INET, short[:]))
+	other: [16]u8
+	testing.expect(t, !push_address_public(1, other[:]))
+}

@@ -525,6 +525,9 @@ put_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	case .Closed:
 		drop_post(c, p, "The server has no room for more files.")
 		return
+	case .Quota:
+		drop_post(c, p, "You have sent as many files as this server allows for today.")
+		return
 	case:
 		drop_post(c, p, "The server rejected the file.")
 		return

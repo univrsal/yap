@@ -402,7 +402,7 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, m
 	log.infof(
 		"relaying a browser%s (which asked for %s)",
 		"'s media link" if media else "",
-		target,
+		http.printable(target),
 	)
 
 	link := Link {
@@ -441,7 +441,11 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, m
 	sync.atomic_store(&link.done, true)
 	thread.join(back)
 	thread.destroy(back)
-	log.infof("a browser%s left (which asked for %s)", "'s media link" if media else "", target)
+	log.infof(
+		"a browser%s left (which asked for %s)",
+		"'s media link" if media else "",
+		http.printable(target),
+	)
 	// This must happen before the socket closes. Anything the server sends
 	// to it from now on would only come back as an ICMP "port unreachable".
 	// (The session of a media link just times out, because the main loop

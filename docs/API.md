@@ -177,6 +177,7 @@ Anything that isn't a success answers with an HTTP status and:
 | 501 | `unknown_op` | The server is too old for that. |
 | 502 | `bad_gateway` | The server wouldn't have the gateway's connection (a wrong `-server-key` or `-password`). |
 | 503 | `reset`, `unavailable` | The connection to the server started over before it answered (try again), or the server isn't answering. |
+| 507 | `quota` | The account has uploaded as much in the last 24 hours as the server allows (`attachments.daily_megabytes`). |
 
 ## Endpoints
 
@@ -320,7 +321,8 @@ An upload needs a Content-Length and is posted by naming its `id` in a
 message's `attachments`, within an hour. It can be as big as the server
 takes (`max_attachment` in [`/server`](#server)). Files stream both
 ways, so their size doesn't matter to the gateway; the server's
-`attachments.rate_kb` is what sets the speed.
+`attachments.rate_kb` is what sets the speed, and
+`attachments.daily_megabytes` how much an account may upload a day.
 
 ```sh
 id=$(curl -s -H "Authorization: Bot $YAP_TOKEN" --data-binary @report.pdf \
