@@ -170,9 +170,13 @@ register :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		invite = strings.clone(clean, context.temp_allocator)
 	}
-	// The limit comes before the checks, since their answers say whether a
+	// The limits come before the checks, since their answers say whether a
 	// username, an email address or an invite code is known to the server.
 	// Otherwise anyone could ask about as many as they like.
+	if !login_allowed(s, u) {
+		respond(u, id, .Rate_Limited)
+		return
+	}
 	if !register_take(s) {
 		log.warnf("%s: too many registrations in a short time, refused one", conn_label(u))
 		respond(u, id, .Rate_Limited)

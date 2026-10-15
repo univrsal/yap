@@ -61,6 +61,7 @@ The [examples](examples/bots/) are short bots in Python and Node.
 "api": {
   "enabled": false,
   "behind_proxy": false,
+  "trusted_proxy": "",
   "max_connections": 64,
   "rate": 10,
   "burst": 30
@@ -70,7 +71,8 @@ The [examples](examples/bots/) are short bots in Python and Node.
 | Key | |
 | --- | --- |
 | `enabled` | Serve the API, on the relay's port (`relay.port`), under `/api/`. With the relay disabled, the port serves only the API. |
-| `behind_proxy` | The API is behind a reverse proxy with TLS. `/login` is then only taken when the proxy's `X-Forwarded-Proto` says `https`. Without it, `/login` is only taken from the server's own machine. |
+| `behind_proxy` | The API is behind a reverse proxy with TLS. `/login` is then only taken when the proxy's `X-Forwarded-Proto` says `https`, and only from the proxy (see `trusted_proxy`). Without it, `/login` is only taken from the server's own machine. |
+| `trusted_proxy` | With `behind_proxy`: the proxy's IP address. Its `X-Forwarded-Proto` and `X-Forwarded-For` headers are believed, nobody else's. If empty, they are believed from the server's own machine and from private networks (10.x, 172.16–31.x, 192.168.x, fc00::/7), which is where a proxy in front of a container usually is. Set `relay.bind` to `127.0.0.1` if the proxy is on the same machine, so the port can't be reached around it. |
 | `max_connections` | How many tokens may be in use at once. |
 | `rate`, `burst` | How many requests per second a token may make, and how many at once. `rate` 0 means no limit. |
 
@@ -89,7 +91,8 @@ bin/yap-gateway -server:chat.example.org:7777 -server-key:<64 hex digits>
 Key meaning the public key of the server, which can be optionally left out.
 It listens on `127.0.0.1:8080` unless told otherwise with `-listen`, and has
 `-password` (the server's, if it has one), `-rate`, `-burst`,
-`-max-connections` and `-behind-proxy`, as the config does.
+`-max-connections`, `-behind-proxy` and `-trusted-proxy`, as the config
+does.
 
 ## Tokens
 
@@ -169,7 +172,7 @@ Anything that isn't a success answers with an HTTP status and:
 | 410 | `closed` | It's closed, such as a call that has ended. |
 | 411 | `invalid` | A body without a Content-Length. |
 | 413 | `too_large` | Too big: a body over 64 KiB, or a file over what the server takes. |
-| 429 | `rate_limited` | Too many requests; `Retry-After` says how many seconds to wait. |
+| 429 | `rate_limited` | Too many requests; `Retry-After` says how many seconds to wait. This is also the answer when one address asks for too many new connections to the server at once: each `/login` and each token the gateway hasn't seen yet is one, and an address gets 10, then one every 6 seconds. |
 | 500 | `internal` | Something went wrong in the server. |
 | 501 | `unknown_op` | The server is too old for that. |
 | 502 | `bad_gateway` | The server wouldn't have the gateway's connection (a wrong `-server-key` or `-password`). |

@@ -490,6 +490,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		refuse(s, c, from, .Version)
 		return
 	case s.password != "" && !password_matches(s.password, hello_password):
+		gate_wrong_password(&s.gate, from)
 		refuse(s, c, from, .Wrong_Password)
 		return
 	}

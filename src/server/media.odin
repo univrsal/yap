@@ -360,6 +360,7 @@ media_finish :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 		media_refuse(m, ms, from, .Version)
 		return
 	case m.password != "" && !password_matches(m.password, hello_password):
+		gate_wrong_password(&m.gate, from)
 		media_refuse(m, ms, from, .Wrong_Password)
 		return
 	case !known || peer.conn_id != conn_id:

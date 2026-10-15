@@ -135,6 +135,7 @@ handle :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_alive: b
 	j := Job {
 		kind   = route.kind,
 		run    = route.run,
+		remote = client_address(g, c, req),
 		body   = body,
 		query  = req.query,
 		params = params,
@@ -146,7 +147,12 @@ handle :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_alive: b
 			return
 		}
 	case .Login:
-		if !login_allowed(g.cfg.behind_proxy, c.remote, http.header(req, "X-Forwarded-Proto")) {
+		if !login_allowed(
+			g.cfg.behind_proxy,
+			g.cfg.trusted_proxy,
+			c.remote,
+			http.header(req, "X-Forwarded-Proto"),
+		) {
 			send(
 				c,
 				error_reply(

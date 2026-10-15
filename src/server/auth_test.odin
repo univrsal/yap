@@ -1,5 +1,6 @@
 package server
 
+import "core:net"
 import "core:os"
 import "core:testing"
 import "core:time"
@@ -1058,4 +1059,73 @@ test_login_gone_before_answer :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(alice.conns), 0)
 	testing.expect(t, device_of(&s.accounts, u.key) == nil)
 
+}
+
+@(test)
+test_login_in_flight :: proc(t: ^testing.T) {
+	// Guesses that are still being hashed count towards the free ones, so
+	// sending many at once from different connections doesn't get around
+	// the lock.
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	alice := ts_account(t, &ts, "alice", "alice's password")
+	conns: [AUTH_FREE_FAILURES + 1]^Conn
+	buf: [proto.ACCOUNT_BODY_MAX]u8
+	body := proto.encode_auth_login(buf[:], "alice", "a guess at it", "x")
+	for &u, i in conns {
+		u = ts_connect(&ts)
+		rpc_handle(s, u, proto.encode_request(1, .Auth_Login, body))
+		ts_pump(t, &ts, u)
+		if i < AUTH_FREE_FAILURES {
+			testing.expect(t, u.auth_busy)
+		}
+	}
+	testing.expect_value(t, alice.checking, AUTH_FREE_FAILURES)
+	last := ts.clients[conns[AUTH_FREE_FAILURES]]
+	testing.expect_value(t, last.responses[1].status, proto.Status.Rate_Limited)
+
+	for len(s.auth.pending) > 0 {
+		auth_sync(s)
+		time.sleep(time.Millisecond)
+	}
+	testing.expect_value(t, alice.checking, 0)
+	testing.expect_value(t, alice.failures, AUTH_FREE_FAILURES)
+}
+
+@(test)
+test_addr_buckets :: proc(t: ^testing.T) {
+	b := Addr_Buckets {
+		burst = 3,
+		every = time.Hour,
+	}
+	defer addr_buckets_destroy(&b)
+	one := net.Endpoint{net.IP4_Address{192, 0, 2, 1}, 1000}
+	same := net.Endpoint{net.IP4_Address{192, 0, 2, 1}, 2000} // only the port differs
+	other := net.Endpoint{net.IP4_Address{192, 0, 2, 2}, 1000}
+	for _ in 0 ..< 3 {
+		testing.expect(t, addr_take(&b, one))
+	}
+	testing.expect(t, !addr_take(&b, same))
+	testing.expect(t, !addr_allowed(&b, one))
+	testing.expect(t, addr_take(&b, other))
+
+	// Counting what has already happened goes into debt, which takes longer
+	// to pay off.
+	addr_spend(&b, other)
+	addr_spend(&b, other)
+	addr_spend(&b, other)
+	testing.expect(t, !addr_allowed(&b, other))
+	bucket := b.by_addr[gate_addr(other)]
+	testing.expect(t, bucket.tokens < 0)
+
+	// Tokens come back with time.
+	bucket = b.by_addr[gate_addr(one)]
+	bucket.last = time.tick_add(bucket.last, -2 * time.Hour)
+	b.by_addr[gate_addr(one)] = bucket
+	testing.expect(t, addr_allowed(&b, one))
+	testing.expect(t, addr_take(&b, one))
+	testing.expect(t, addr_take(&b, one))
+	testing.expect(t, !addr_take(&b, one))
 }

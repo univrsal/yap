@@ -1739,18 +1739,30 @@ test_gateway_login_rule :: proc(t: ^testing.T) {
 		return ep
 	}
 	// Without a proxy, logging in is only allowed from this machine.
-	testing.expect(t, gateway.login_allowed(false, at("127.0.0.1:5000"), ""))
-	testing.expect(t, gateway.login_allowed(false, at("[::1]:5000"), ""))
-	testing.expect(t, !gateway.login_allowed(false, at("10.0.0.7:5000"), ""))
+	testing.expect(t, gateway.login_allowed(false, nil, at("127.0.0.1:5000"), ""))
+	testing.expect(t, gateway.login_allowed(false, nil, at("[::1]:5000"), ""))
+	testing.expect(t, !gateway.login_allowed(false, nil, at("10.0.0.7:5000"), ""))
 	// Without a proxy, a forwarded protocol that the client claims is not
 	// trusted.
-	testing.expect(t, !gateway.login_allowed(false, at("10.0.0.7:5000"), "https"))
-	// Behind a proxy, the protocol that the proxy reports is trusted regardless
-	// of where the request comes from.
-	testing.expect(t, gateway.login_allowed(true, at("10.0.0.7:5000"), "https"))
-	testing.expect(t, gateway.login_allowed(true, at("127.0.0.1:5000"), "HTTPS"))
-	testing.expect(t, !gateway.login_allowed(true, at("127.0.0.1:5000"), ""))
-	testing.expect(t, !gateway.login_allowed(true, at("127.0.0.1:5000"), "http"))
+	testing.expect(t, !gateway.login_allowed(false, nil, at("10.0.0.7:5000"), "https"))
+	// Behind a proxy, the protocol that the proxy reports is trusted if the
+	// request comes from where a proxy may be: this machine or a private
+	// network.
+	testing.expect(t, gateway.login_allowed(true, nil, at("10.0.0.7:5000"), "https"))
+	testing.expect(t, gateway.login_allowed(true, nil, at("172.18.0.1:5000"), "https"))
+	testing.expect(t, gateway.login_allowed(true, nil, at("192.168.1.2:5000"), "https"))
+	testing.expect(t, gateway.login_allowed(true, nil, at("[fd00::2]:5000"), "https"))
+	testing.expect(t, gateway.login_allowed(true, nil, at("127.0.0.1:5000"), "HTTPS"))
+	testing.expect(t, !gateway.login_allowed(true, nil, at("127.0.0.1:5000"), ""))
+	testing.expect(t, !gateway.login_allowed(true, nil, at("127.0.0.1:5000"), "http"))
+	// Not from anywhere else: the port may be reachable around the proxy.
+	testing.expect(t, !gateway.login_allowed(true, nil, at("203.0.113.5:5000"), "https"))
+	testing.expect(t, !gateway.login_allowed(true, nil, at("172.32.0.1:5000"), "https"))
+	testing.expect(t, !gateway.login_allowed(true, nil, at("[2001:db8::1]:5000"), "https"))
+	// With the proxy's address given, only that is believed.
+	proxy := at("203.0.113.5:443").address
+	testing.expect(t, gateway.login_allowed(true, proxy, at("203.0.113.5:5000"), "https"))
+	testing.expect(t, !gateway.login_allowed(true, proxy, at("10.0.0.7:5000"), "https"))
 }
 
 @(test)
@@ -1833,6 +1845,47 @@ test_gateway_limits :: proc(t: ^testing.T) {
 			testing.expect_value(t, calls[0].status, 403)
 			testing.expect_value(t, calls[1].status, 403)
 			testing.expect_value(t, calls[2].status, 200)
+		}
+	}
+
+	// Made-up tokens each have a bucket of their own, but each one makes the
+	// gateway connect to the server, which one address may only make it do
+	// so often. A token that is already connected isn't affected.
+	{
+		h: Harness
+		gt_open(t, &ts, &h)
+		defer gt_close(&ts, &h)
+		calls: [gateway.OPENS_PER_ADDRESS + 2]Call
+		calls[0] = {
+			method = "GET",
+			path   = "/api/v1/me",
+			token  = one,
+		}
+		for &call in calls[1:len(calls) - 1] {
+			made_up, _, made := proto.bot_token_make()
+			testing.expect(t, made)
+			call = {
+				method = "GET",
+				path   = "/api/v1/me",
+				token  = made_up,
+			}
+		}
+		calls[len(calls) - 1] = {
+			method = "GET",
+			path   = "/api/v1/me",
+			token  = one,
+		}
+		defer for call in calls[1:len(calls) - 1] {
+			delete(call.token)
+		}
+		defer calls_destroy(calls[:])
+		if gt_calls(t, &ts, &h, calls[:]) {
+			testing.expect_value(t, calls[0].status, 200)
+			for call in calls[1:len(calls) - 2] {
+				testing.expect(t, call.status != 429 && call.status != 200)
+			}
+			testing.expect_value(t, calls[len(calls) - 2].status, 429)
+			testing.expect_value(t, calls[len(calls) - 1].status, 200)
 		}
 	}
 }

@@ -148,3 +148,29 @@ test_handshake_gate_limits :: proc(t: ^testing.T) {
 	verdict, _ = gate_check(&g, init[:], remote, 0, MAX)
 	testing.expect_value(t, verdict, Gate_Verdict.Cookie)
 }
+
+// An address that keeps getting the server password wrong is ignored for a
+// while, and nobody else is.
+@(test)
+test_handshake_gate_password :: proc(t: ^testing.T) {
+	g: Handshake_Gate
+	defer gate_destroy(&g)
+	init: [proto.INIT_SIZE]u8
+	init[0] = u8(proto.Packet_Type.Handshake_Init)
+	guesser := net.Endpoint{net.IP4_Address{192, 0, 2, 1}, 5000}
+	other := net.Endpoint{net.IP4_Address{192, 0, 2, 2}, 5000}
+	for _ in 0 ..< PASSWORD_FAILURES - 1 {
+		gate_wrong_password(&g, guesser)
+	}
+	verdict, _ := gate_check(&g, init[:], guesser, 0, 1024)
+	testing.expect_value(t, verdict, Gate_Verdict.Accept)
+	gate_wrong_password(&g, guesser)
+	verdict, _ = gate_check(&g, init[:], guesser, 0, 1024)
+	testing.expect_value(t, verdict, Gate_Verdict.Drop)
+	// Another port of the same address doesn't help.
+	guesser.port += 1
+	verdict, _ = gate_check(&g, init[:], guesser, 0, 1024)
+	testing.expect_value(t, verdict, Gate_Verdict.Drop)
+	verdict, _ = gate_check(&g, init[:], other, 0, 1024)
+	testing.expect_value(t, verdict, Gate_Verdict.Accept)
+}

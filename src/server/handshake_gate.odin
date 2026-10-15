@@ -27,23 +27,33 @@ import "common:proto"
 //   - At most HALF_OPEN_PER_ADDRESS handshakes may be in progress from one
 //     address, unless it's this machine (the web relay's browsers all come
 //     from there).
+//   - An address that has got the server password wrong too often has its
+//     Inits ignored for a while (gate_wrong_password): PASSWORD_FAILURES at
+//     once, then one every PASSWORD_FAILURE_EVERY. This machine is no
+//     exception here, so guessing through the web relay is slowed down too,
+//     at the price of the relay's browsers waiting together while somebody
+//     guesses.
 //
 // The cookie is an HMAC of the address and port, under a secret that is
 // replaced every COOKIE_ROTATE. The secret before it is still accepted, so a
 // cookie lives between one and two of those.
 Handshake_Gate :: struct {
-	secrets:   [2][32]byte, // current and previous
-	rotated:   time.Tick,
+	secrets:        [2][32]byte, // current and previous
+	rotated:        time.Tick,
 	// How many handshakes are in progress, in total and per address.
-	half_open: int,
-	by_addr:   map[Gate_Addr]int,
+	half_open:      int,
+	by_addr:        map[Gate_Addr]int,
+	// Wrong server passwords by address.
+	password_fails: Addr_Buckets,
 	// When it last logged that it turned an Init away, so that a flood
 	// doesn't flood the log too.
-	warned:    time.Tick,
+	warned:         time.Tick,
 }
 
 COOKIE_ROTATE :: 2 * time.Minute
 HALF_OPEN_PER_ADDRESS :: 8
+PASSWORD_FAILURES :: 10
+PASSWORD_FAILURE_EVERY :: 30 * time.Second
 
 // How often the gate logs that it turns Inits away, at most.
 @(private = "file")
@@ -61,6 +71,15 @@ Gate_Verdict :: enum {
 gate_destroy :: proc(g: ^Handshake_Gate) {
 	delete(g.by_addr)
 	g.by_addr = nil
+	addr_buckets_destroy(&g.password_fails)
+}
+
+// gate_wrong_password counts a handshake from `from` that had the wrong
+// server password.
+gate_wrong_password :: proc(g: ^Handshake_Gate, from: net.Endpoint) {
+	g.password_fails.burst = PASSWORD_FAILURES
+	g.password_fails.every = PASSWORD_FAILURE_EVERY
+	addr_spend(&g.password_fails, from)
 }
 
 // gate_cookie_after returns how many half-open handshakes there may be
@@ -80,6 +99,12 @@ gate_check :: proc(
 	verdict: Gate_Verdict,
 	cookie: [proto.COOKIE_SIZE]byte,
 ) {
+	// Only an address that receives our answers can have had a password
+	// refused, so this can't be used to shut out somebody else's address.
+	if !addr_allowed(&g.password_fails, from) {
+		gate_warn(g, "an address got the server password wrong too often")
+		return .Drop, {}
+	}
 	if g.half_open >= gate_cookie_after(max_sessions) && !gate_cookie_valid(g, packet, from) {
 		return .Cookie, gate_cookie(g, from, 0)
 	}
@@ -155,7 +180,7 @@ gate_cookie_valid :: proc(g: ^Handshake_Gate, packet: []byte, from: net.Endpoint
 	return false
 }
 
-@(private = "file")
+// gate_addr returns the address of an endpoint, without the port, as bytes.
 gate_addr :: proc(from: net.Endpoint) -> (addr: Gate_Addr) {
 	switch a in from.address {
 	case net.IP4_Address:

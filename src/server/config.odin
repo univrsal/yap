@@ -3,6 +3,7 @@ package server
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
+import "core:net"
 import "core:os"
 import "core:reflect"
 import "core:strings"
@@ -27,11 +28,13 @@ import "common:proto"
 //		"relay": {
 //			"enabled": false,
 //			"port": 8080,
+//			"bind": "",
 //			"web_dir": "web/out"
 //		},
 //		"api": {
 //			"enabled": false,
 //			"behind_proxy": false,
+//			"trusted_proxy": "",
 //			"max_connections": 64,
 //			"rate": 10,
 //			"burst": 30
@@ -103,7 +106,10 @@ import "common:proto"
 // relay      Serve the web client over HTTP on `port` and relay browsers to
 //            this server over WebSockets (see relay.odin). `web_dir` is the
 //            folder containing the web build. If empty, it is web/out, or web
-//            in a release archive.
+//            in a release archive. `bind` is the address to listen on, e.g.
+//            127.0.0.1 when a reverse proxy on this machine is the only way
+//            in (which it should be: see api). If empty, it listens on all
+//            interfaces.
 // api        The bot API (see docs/bot-api and common/gateway): HTTP and JSON
 //            for programs. It is served on the relay's port under /api/,
 //            whether the relay is enabled or not (without the relay, the port
@@ -111,8 +117,12 @@ import "common:proto"
 //            anything but this machine should be put behind a reverse proxy
 //            that provides TLS. In that case set `behind_proxy`, which makes
 //            /login (which takes a password) only accepted when the proxy says
-//            the request came over HTTPS (X-Forwarded-Proto). Without it,
-//            /login is only accepted from this machine.
+//            the request came over HTTPS (X-Forwarded-Proto). The header is
+//            only believed from `trusted_proxy`, the proxy's IP address, or
+//            if that is empty, from this machine and private networks (where
+//            a proxy in front of a container is), since the port may also be
+//            reachable without the proxy. Without behind_proxy, /login is
+//            only accepted from this machine.
 //            `max_connections` is the number of tokens that may be in use at
 //            once. `rate` and `burst` are the number of requests per second a
 //            token may make and the number it may make at once (further
@@ -253,12 +263,14 @@ Attach_Config :: struct {
 Relay_Config :: struct {
 	enabled: bool,
 	port:    int,
+	bind:    string,
 	web_dir: string,
 }
 
 Api_Config :: struct {
 	enabled:         bool,
 	behind_proxy:    bool,
+	trusted_proxy:   string,
 	max_connections: int,
 	rate:            f64,
 	burst:           f64,
@@ -435,6 +447,10 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 			// This works because one uses TCP and the other UDP, but it is rarely intended.
 			log.warnf("%s: the relay and the server share port %d", path, cfg.port)
 		}
+		if relay.bind != "" && net.parse_address(relay.bind) == nil {
+			log.errorf("%s: the relay's bind %q is not an IP address", path, relay.bind)
+			return
+		}
 	}
 	if relay.web_dir == "" {
 		relay.web_dir = default_web_dir()
@@ -443,6 +459,9 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	switch {
 	case api.max_connections < 0 || api.rate < 0 || api.burst < 0:
 		log.errorf("%s: an api limit can't be negative", path)
+		return
+	case api.trusted_proxy != "" && net.parse_address(api.trusted_proxy) == nil:
+		log.errorf("%s: the api's trusted_proxy %q is not an IP address", path, api.trusted_proxy)
 		return
 	case api.rate > 0 && api.burst < 1:
 		log.errorf(

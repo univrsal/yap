@@ -55,6 +55,12 @@ UDP_POLL :: 200 * time.Millisecond
 @(private = "file")
 MAX_CONNECTIONS :: 256
 
+// At most this many of them from one address, so that one address can't
+// take them all. Behind a reverse proxy, all of them come from the proxy, so
+// this machine and private networks aren't limited (gateway.address_private).
+@(private = "file")
+MAX_CONNECTIONS_PER_ADDRESS :: 32
+
 // How long a connection may take to send a request's head, so that
 // connections that send nothing (or a byte at a time) don't stay forever.
 @(private = "file")
@@ -78,21 +84,23 @@ Web_File :: struct {
 
 @(private = "file")
 Relay :: struct {
-	listener: net.TCP_Socket,
-	server:   net.Endpoint, // the only destination that packets are relayed to
-	media:    net.Endpoint, // the server's media port, or port 0 if there is none
+	listener:      net.TCP_Socket,
+	server:        net.Endpoint, // the only destination that packets are relayed to
+	media:         net.Endpoint, // the server's media port, or port 0 if there is none
 	// Whether browsers are relayed and the web client is served. If false,
 	// only the API is served.
-	web:      bool,
+	web:           bool,
 	// Only these files of the web directory are served.
-	files:    [9]Web_File,
-	api:      ^gateway.Gateway, // nil if the API is disabled
-	// How many connections there are, which the threads count down when
-	// they end (see MAX_CONNECTIONS).
-	open:     int,
+	files:         [9]Web_File,
+	api:           ^gateway.Gateway, // nil if the API is disabled
+	// How many connections there are, in total and by address, which the
+	// threads count down when they end (see MAX_CONNECTIONS).
+	open:          int,
+	by_addr_mutex: sync.Mutex,
+	by_addr:       map[Gate_Addr]int,
 }
 
-// start_relay listens for browsers on `port` in a thread of its own and
+// start_relay listens for browsers on `port` (of `bind`) in a thread of its own and
 // relays them to the server on `server_port` of this machine. Media links
 // are relayed to `media_port` unless it is 0. If `web` is false, browsers
 // aren't relayed and only the API is served. `api` is the gateway that
@@ -100,13 +108,18 @@ Relay :: struct {
 // can't listen. After that it runs for as long as the process does.
 start_relay :: proc(
 	port: int,
+	bind: string, // "" for all interfaces
 	server_port: int,
 	media_port: int,
 	web_dir: string,
 	web := true,
 	api: ^gateway.Gateway = nil,
 ) -> bool {
-	listener, err := net.listen_tcp({net.IP4_Any, port})
+	address: net.Address = net.IP4_Any
+	if bind != "" {
+		address = net.parse_address(bind)
+	}
+	listener, err := net.listen_tcp({address, port})
 	if err != nil {
 		log.errorf("could not listen on port %d: %v", port, err)
 		return false
@@ -177,8 +190,7 @@ accept_browsers :: proc(r: ^Relay) {
 			log.warnf("accept failed: %v", accept_err)
 			continue
 		}
-		if sync.atomic_add(&r.open, 1) >= MAX_CONNECTIONS {
-			sync.atomic_sub(&r.open, 1)
+		if !relay_count(r, from) {
 			log.warnf(
 				"too many connections, closing the one from %s",
 				net.endpoint_to_string(from, context.temp_allocator),
@@ -200,8 +212,42 @@ accept_browsers :: proc(r: ^Relay) {
 			log.warn("could not start a thread for a connection")
 			net.close(sock)
 			free(c)
-			sync.atomic_sub(&r.open, 1)
+			relay_uncount(r, from)
 		}
+	}
+}
+
+// relay_count counts a new connection from `from`, unless there are too many
+// (MAX_CONNECTIONS, MAX_CONNECTIONS_PER_ADDRESS).
+@(private = "file")
+relay_count :: proc(r: ^Relay, from: net.Endpoint) -> bool {
+	sync.guard(&r.by_addr_mutex)
+	if r.open >= MAX_CONNECTIONS {
+		return false
+	}
+	addr := gate_addr(from)
+	if !gateway.address_private(from.address) {
+		if r.by_addr[addr] >= MAX_CONNECTIONS_PER_ADDRESS {
+			return false
+		}
+		r.by_addr[addr] += 1
+	}
+	r.open += 1
+	return true
+}
+
+@(private = "file")
+relay_uncount :: proc(r: ^Relay, from: net.Endpoint) {
+	sync.guard(&r.by_addr_mutex)
+	r.open -= 1
+	if gateway.address_private(from.address) {
+		return
+	}
+	addr := gate_addr(from)
+	if n := r.by_addr[addr]; n > 1 {
+		r.by_addr[addr] = n - 1
+	} else {
+		delete_key(&r.by_addr, addr)
 	}
 }
 
@@ -233,7 +279,8 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
-	defer sync.atomic_sub(&r.open, 1)
+	remote := c.remote // c is freed before this defer runs
+	defer relay_uncount(r, remote)
 	defer free(c)
 	defer net.close(c.sock)
 
@@ -286,6 +333,20 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 		key := http.header(&req, "Sec-WebSocket-Key")
 		if !strings.equal_fold(http.header(&req, "Upgrade"), "websocket") || key == "" {
 			http.respond(c.sock, "400 Bad Request", "text/plain", "expected a WebSocket upgrade\n")
+			return
+		}
+		// Only the web client this relay serves may connect, not a page of
+		// another site that a visitor happens to have open (which could
+		// otherwise use their browser to reach a relay inside their network).
+		// Browsers say which it is in Sec-Fetch-Site, which, unlike Host and
+		// Origin, a reverse proxy passes on unchanged.
+		if strings.equal_fold(http.header(&req, "Sec-Fetch-Site"), "cross-site") {
+			http.respond(
+				c.sock,
+				"403 Forbidden",
+				"text/plain",
+				"only the web client of this server may connect\n",
+			)
 			return
 		}
 		if media && r.media.port == 0 {

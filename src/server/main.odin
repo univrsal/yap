@@ -123,6 +123,7 @@ main :: proc() {
 	if (settings.relay.enabled || api != nil) &&
 	   !start_relay(
 			   settings.relay.port,
+			   settings.relay.bind,
 			   settings.port,
 			   media_port(settings),
 			   settings.relay.web_dir,
@@ -153,6 +154,7 @@ start_api :: proc(settings: Settings) -> (^gateway.Gateway, bool) {
 		rate            = settings.api.rate,
 		burst           = settings.api.burst,
 		behind_proxy    = settings.api.behind_proxy,
+		trusted_proxy   = net.parse_address(settings.api.trusted_proxy),
 	}
 	ecdh.private_key_public_bytes(&key, cfg.server_key[:])
 	return gateway.start(cfg), true

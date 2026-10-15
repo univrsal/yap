@@ -60,8 +60,10 @@ Config :: struct {
 	rate:            f64,
 	burst:           f64,
 	// Set when running behind a reverse proxy, whose X-Forwarded-Proto
-	// header is trusted (login_allowed).
+	// header is trusted (login_allowed). If the proxy's address is known,
+	// only requests from it are believed.
 	behind_proxy:    bool,
+	trusted_proxy:   net.Address, // nil: this machine and private networks
 }
 
 Gateway :: struct {
@@ -76,6 +78,9 @@ Gateway :: struct {
 	buckets:      map[[proto.KEY_SIZE]u8]Bucket,
 	// The fields below are only used by the gateway thread.
 	conns:        map[[proto.KEY_SIZE]u8]^Conn, // by the device's public key
+	// Connections opened to the server, by the address they were for
+	// (opens_take).
+	opens:        map[Address_Key]Bucket,
 	// The connection for requests that need no token. It isn't logged in to
 	// any account.
 	guest:        ^Conn,
@@ -122,6 +127,9 @@ Job :: struct {
 	// thread. It replies directly or later, from the answer to a request
 	// it makes (ask).
 	run:      proc(c: ^Conn, j: ^Job),
+	// Where the request came from (client_address), to limit the
+	// connections opened for it (opens_take).
+	remote:   net.Address,
 	// Used by .Login jobs.
 	username: string,
 	password: string,
@@ -188,6 +196,7 @@ stop :: proc(g: ^Gateway) {
 	thread.destroy(g.thread)
 	delete(g.jobs)
 	delete(g.conns)
+	delete(g.opens)
 	delete(g.buckets)
 	delete(g.cfg.password)
 	free(g)
@@ -411,6 +420,10 @@ new_conn :: proc(
 	c: ^Conn,
 	ok: bool,
 ) {
+	if r, limited := opens_take(g, j.remote); limited {
+		reply(j, r)
+		return
+	}
 	pub: [proto.KEY_SIZE]u8
 	ecdh.private_key_public_bytes(key, pub[:])
 	if old := g.conns[pub] or_else nil; old != nil {
