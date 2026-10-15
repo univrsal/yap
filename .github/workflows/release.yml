@@ -6,7 +6,7 @@ name: Release
 # in a draft release, to be edited and published by hand.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v2*"]
 
 permissions:
   contents: write
