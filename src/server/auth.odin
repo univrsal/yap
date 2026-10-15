@@ -22,11 +22,15 @@ import "common:proto"
 // the result and finishes what the request started. A connection can
 // only have one such request in progress at a time.
 //
-// Guessing passwords is slowed down in three ways. Hashing is slow, only
+// Guessing passwords is slowed down in four ways. Hashing is slow, only
 // a limited number of hashes can be waiting (HASH_QUEUE_MOST), and an
 // account that has had AUTH_FREE_FAILURES wrong passwords in a row
 // rejects further attempts for a while, with the wait doubling each time
-// up to AUTH_LOCK_MOST. A wrong username takes as long to be refused as
+// up to AUTH_LOCK_MOST. Attempts that are still being hashed count towards
+// AUTH_FREE_FAILURES already, so that many can't be sent at once to get
+// around it. And each address may only make LOGINS_PER_ADDRESS logins and
+// registrations at once, then one every LOGIN_EVERY, so that one address
+// can't keep the hashing queue full and everybody else out of it. A wrong username takes as long to be refused as
 // a wrong password, so it's not possible to find out from outside which
 // usernames exist.
 //
@@ -38,6 +42,8 @@ import "common:proto"
 AUTH_FREE_FAILURES :: 5
 AUTH_LOCK_FIRST :: time.Second
 AUTH_LOCK_MOST :: time.Minute
+LOGINS_PER_ADDRESS :: 10
+LOGIN_EVERY :: 6 * time.Second
 
 // The username of the first admin, and the length of generated passwords.
 FIRST_ADMIN :: "admin"
@@ -76,6 +82,8 @@ Auth :: struct {
 	// except in tests).
 	params:  int,
 	pending: map[u64]Pending, // by the job's id
+	// Logins and registrations by address (LOGINS_PER_ADDRESS).
+	logins:  Addr_Buckets,
 }
 
 auth_destroy :: proc(a: ^Auth) {
@@ -83,6 +91,7 @@ auth_destroy :: proc(a: ^Auth) {
 		pending_destroy(p)
 	}
 	delete(a.pending)
+	addr_buckets_destroy(&a.logins)
 	a^ = {}
 }
 
@@ -254,7 +263,7 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case u.account != nil:
 		respond(u, id, .Conflict) // already logged in
 		return
-	case u.auth_busy:
+	case u.auth_busy, !login_allowed(s, u):
 		respond(u, id, .Rate_Limited)
 		return
 	}
@@ -265,7 +274,9 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
 	username, clean := proto.username_clean(raw_username, &name_buf)
 	acc := account_find(&s.accounts, username) if clean else nil
-	if acc != nil && time.tick_diff(time.tick_now(), acc.locked_until) > 0 {
+	if acc != nil &&
+	   (time.tick_diff(time.tick_now(), acc.locked_until) > 0 ||
+			   acc.checking > 0 && acc.failures + acc.checking >= AUTH_FREE_FAILURES) {
 		log.infof(
 			"%s: too many wrong passwords for %s, rejecting further attempts for now",
 			conn_label(u),
@@ -293,6 +304,7 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		if secret, found := account_secret(&s.accounts, acc); found {
 			job.against = secret
 			p.account = acc.id
+			acc.checking += 1 // until auth_sync
 		}
 	}
 	device_buf: [proto.MAX_DEVICE_NAME]u8
@@ -492,6 +504,11 @@ auth_sync :: proc(s: ^Server) {
 		}
 		delete_key(&s.auth.pending, result.id)
 		defer pending_destroy(p)
+		if p.kind == .Login {
+			if acc := account_by_id(&s.accounts, p.account); acc != nil {
+				acc.checking = max(acc.checking - 1, 0)
+			}
+		}
 
 		// The requester may have disconnected in the meantime. In that
 		// case nobody is waiting for the answer and nothing is changed on
@@ -520,6 +537,22 @@ auth_sync :: proc(s: ^Server) {
 			account_delete_finish(s, u, p, result)
 		}
 	}
+}
+
+// login_allowed takes one of the logins (or registrations) the address of
+// `u` may make (LOGINS_PER_ADDRESS).
+login_allowed :: proc(s: ^Server, u: ^Conn) -> bool {
+	c := sending_session(s, u)
+	if c == nil {
+		return true // only in tests: a connection always has a session
+	}
+	s.auth.logins.burst = LOGINS_PER_ADDRESS
+	s.auth.logins.every = LOGIN_EVERY
+	if !addr_take(&s.auth.logins, c.endpoint) {
+		log.infof("%s: too many logins from its address, refused one", conn_label(u))
+		return false
+	}
+	return true
 }
 
 // wrong_password counts a wrong password against an account and makes
@@ -624,6 +657,10 @@ account_password_set_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Ha
 		return
 	case target == nil:
 		respond(u, p.request, .Not_Found)
+		return
+	// The target's roles may have changed while the password was hashed.
+	case !outranks(u.account, permissions(target)):
+		respond(u, p.request, .Denied)
 		return
 	case !account_set_password(&s.accounts, target, result.made, true):
 		respond(u, p.request, .Internal)

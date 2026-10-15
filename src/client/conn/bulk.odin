@@ -124,6 +124,11 @@ bulk_receive :: proc(c: ^Voice_Client) {
 handle_bulk_packet :: proc(c: ^Voice_Client, packet: []byte) {
 	b := &c.bulk
 	#partial switch proto.packet_type(packet) {
+	case .Handshake_Cookie:
+		if proto.initiator_read_cookie(&b.handshake, packet) {
+			b.handshake.last_sent = time.tick_now()
+			transport_send(&b.transport, proto.initiator_packet(&b.handshake))
+		}
 	case .Handshake_Resp:
 		server_key, result := proto.initiator_read_resp(&b.handshake, packet)
 		if result != .Ok {

@@ -175,3 +175,51 @@ test_dib_to_bmp :: proc(t: ^testing.T) {
 	_, err := dib_to_bmp(short[:])
 	testing.expect_value(t, err, Error.Decode_Failed)
 }
+
+@(test)
+test_scale_down :: proc(t: ^testing.T) {
+	// A picture that fits is kept as it is.
+	small := Image {
+		width  = 4,
+		height = 2,
+		pixels = make([]u8, 4 * 2 * 4),
+	}
+	same, scaled := scale_down(small, 4)
+	testing.expect(t, !scaled)
+	testing.expect_value(t, raw_data(same.pixels), raw_data(small.pixels))
+	delete(small.pixels)
+
+	// A wide one fits its width, keeping its proportions.
+	wide := Image {
+		width  = 1000,
+		height = 10,
+		pixels = make([]u8, 1000 * 10 * 4),
+	}
+	for &b in wide.pixels {
+		b = 200
+	}
+	got, did := scale_down(wide, 100)
+	defer delete(got.pixels)
+	testing.expect(t, did)
+	testing.expect_value(t, got.width, 100)
+	testing.expect_value(t, got.height, 1)
+	testing.expect_value(t, len(got.pixels), 100 * 4)
+	testing.expect_value(t, got.pixels[0], 200)
+	testing.expect_value(t, got.pixels[3], 200)
+
+	// Transparent pixels count for the alpha but not for the color, so a red
+	// pixel next to a transparent black one stays red, half transparent.
+	pair := Image {
+		width  = 2,
+		height = 1,
+		pixels = make([]u8, 2 * 4),
+	}
+	copy(pair.pixels, []u8{255, 0, 0, 255, 0, 0, 0, 0})
+	one, _ := scale_down(pair, 1)
+	defer delete(one.pixels)
+	testing.expect_value(t, one.width, 1)
+	testing.expect_value(t, one.height, 1)
+	testing.expect_value(t, one.pixels[0], 255)
+	testing.expect_value(t, one.pixels[1], 0)
+	testing.expect_value(t, one.pixels[3], 127)
+}

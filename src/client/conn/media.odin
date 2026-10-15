@@ -156,6 +156,11 @@ media_receive :: proc(c: ^Voice_Client) {
 handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
 	m := &c.media
 	#partial switch proto.packet_type(packet) {
+	case .Handshake_Cookie:
+		if proto.initiator_read_cookie(&m.handshake, packet) {
+			m.handshake.last_sent = time.tick_now()
+			transport_send(&m.transport, proto.initiator_packet(&m.handshake))
+		}
 	case .Handshake_Resp:
 		server_key, result := proto.initiator_read_resp(&m.handshake, packet)
 		if result != .Ok {

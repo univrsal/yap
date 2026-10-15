@@ -98,3 +98,19 @@ test_transfer_messages :: proc(t: ^testing.T) {
 	_, _, _, ack_ok := decode_transfer_ack(short[:])
 	testing.expect(t, !ack_ok)
 }
+
+// A peer chooses the size of the file it offers. Up to MAX_FILE_SIZE, its
+// chunks can all be counted, and the receiver's bitmap has a bit for each.
+@(test)
+test_transfer_max_size :: proc(t: ^testing.T) {
+	chunks := file_chunk_count(MAX_FILE_SIZE)
+	testing.expect(t, u64(chunks) * FILE_CHUNK_DATA >= MAX_FILE_SIZE)
+	r: Transfer_Receiver
+	transfer_receiver_init(&r, MAX_FILE_SIZE)
+	defer transfer_receiver_destroy(&r)
+	testing.expect_value(t, r.chunks, chunks)
+	testing.expect(t, transfer_wants(&r, 0, FILE_CHUNK_DATA))
+	start, end := file_chunk_range(MAX_FILE_SIZE, chunks - 1)
+	testing.expect(t, transfer_wants(&r, chunks - 1, int(end - start)))
+	testing.expect(t, !transfer_wants(&r, chunks, FILE_CHUNK_DATA))
+}

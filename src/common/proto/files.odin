@@ -46,6 +46,11 @@ import "core:unicode/utf8"
 
 MAX_FILE_NAME :: 200 // bytes of UTF-8
 
+// The largest file that can be offered or saved. The recipient keeps a bit
+// per chunk (Transfer_Receiver), which is 28 MiB for a file of this size,
+// so the sender, who chooses the size, can't make it allocate much more.
+MAX_FILE_SIZE :: u64(256) << 30
+
 FILE_ACCEPT_SIZE :: 1 + 8 + 4 + 4
 FILE_CHUNK_HEADER_SIZE :: 1 + 8 + 4
 FILE_CHUNK_DATA :: MAX_PAYLOAD_SIZE - FILE_CHUNK_HEADER_SIZE
@@ -282,5 +287,36 @@ sanitize_file_name :: proc(name: string, buf: ^[MAX_FILE_NAME]u8) -> string {
 		copy(buf[n:], utf8_buf[:w])
 		n += w
 	}
-	return strings.trim(string(buf[:n]), " .")
+	clean = strings.trim(string(buf[:n]), " .")
+	// On Windows, CON, NUL, COM1 and the like are devices, with any
+	// extension, so a file can't be saved under such a name.
+	base := clean
+	if dot := strings.index_byte(base, '.'); dot >= 0 {
+		base = base[:dot]
+	}
+	if !windows_device_name(strings.trim_right_space(base)) {
+		return clean
+	}
+	if len(clean) == MAX_FILE_NAME {
+		// No room for one more: the first letter becomes the _ instead.
+		buf[0] = '_'
+		copy(buf[1:], clean[1:])
+		return string(buf[:len(clean)])
+	}
+	copy(buf[1:], clean) // copy may overlap
+	buf[0] = '_'
+	return string(buf[:len(clean) + 1])
+}
+
+@(private = "file")
+windows_device_name :: proc(name: string) -> bool {
+	for device in ([]string{"CON", "PRN", "AUX", "NUL"}) {
+		if strings.equal_fold(name, device) {
+			return true
+		}
+	}
+	if len(name) == 4 && '1' <= name[3] && name[3] <= '9' {
+		return strings.equal_fold(name[:3], "COM") || strings.equal_fold(name[:3], "LPT")
+	}
+	return false
 }

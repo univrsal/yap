@@ -33,6 +33,13 @@ import "common:proto"
 // only for pictures that are drawn, and only while the window has the focus.
 
 MAX_IMAGE_TEXTURES :: 96
+// Pictures are kept no bigger than this on their longer side, which is
+// about as much as can be shown (clipboard.scale_down). Emoji sheets are
+// kept as they are, since their cells must stay where they are.
+MAX_SHOWN_SIDE :: 2560
+// And all textures together are kept to about this many bytes, apart from
+// those drawn in the current frame.
+MAX_TEXTURE_BYTES :: 512 * 1024 * 1024
 
 // The shortest time an animation's frame is shown, in milliseconds. Shorter
 // frames are merged with the next one (see ui_images_anim_native.odin), and moving
@@ -754,11 +761,24 @@ enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8) {
 // trim_textures frees the textures that haven't been drawn for the longest time.
 @(private = "file")
 trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
-	for len(im.textures) > MAX_IMAGE_TEXTURES {
+	for {
+		bytes := 0
+		for _, t in im.textures {
+			bytes += t.width * t.height * 4
+		}
+		if len(im.textures) <= MAX_IMAGE_TEXTURES && bytes <= MAX_TEXTURE_BYTES {
+			return
+		}
+		// Over the count, any texture may go; over the bytes, only those not
+		// drawn in this frame, so that what's on screen isn't decoded again
+		// and again.
+		over_count := len(im.textures) > MAX_IMAGE_TEXTURES
 		oldest_id: u64
 		oldest_frame := max(int)
 		for id, t in im.textures {
-			if t.state != .Decoding && t.frame < oldest_frame {
+			if t.state != .Decoding &&
+			   t.frame < oldest_frame &&
+			   (over_count || t.frame != im.frame) {
 				oldest_id, oldest_frame = id, t.frame
 			}
 		}
@@ -789,7 +809,6 @@ EMOJI_FRAMES_KEY :: u64(1) << 58
 // is_emoji_atlas is whether a picture's key is one of the server's
 // sheets of emoji cells. No smaller copies (mipmaps) are made of these,
 // because they would mix neighboring cells.
-@(private = "file")
 is_emoji_atlas :: proc(key: u64) -> bool {
 	return key & (EMOJI_SHEET_KEY | EMOJI_FRAMES_KEY) != 0 && key & AVATAR_KEY == 0
 }

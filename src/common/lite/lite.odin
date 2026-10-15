@@ -491,6 +491,12 @@ abandon_handshake :: proc(c: ^Client) {
 @(private)
 handle_packet :: proc(c: ^Client, packet: []u8) {
 	#partial switch proto.packet_type(packet) {
+	case .Handshake_Cookie:
+		// The server is busy: the Init goes again, with the cookie.
+		if proto.initiator_read_cookie(&c.handshake, packet) {
+			c.handshake.last_sent = time.tick_now()
+			net.send_udp(c.sock, proto.initiator_packet(&c.handshake), c.opt.server)
+		}
 	case .Handshake_Resp:
 		server_key, result := proto.initiator_read_resp(&c.handshake, packet)
 		if result != .Ok {

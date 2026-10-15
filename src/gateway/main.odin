@@ -39,6 +39,7 @@ Options :: struct {
 	rate:            f64 `usage:"maximum requests per second for each token (default 10, 0 for no limit)"`,
 	burst:           f64 `usage:"maximum number of requests a token may make in a burst (default 30)"`,
 	behind_proxy:    bool `usage:"set when running behind a TLS reverse proxy; its X-Forwarded-Proto header tells whether a request came over HTTPS"`,
+	trusted_proxy:   string `usage:"with -behind-proxy, the proxy's IP address: only its X-Forwarded-Proto is believed (default: this machine and private networks)"`,
 }
 
 main :: proc() {
@@ -68,6 +69,13 @@ main :: proc() {
 		rate            = opt.rate,
 		burst           = opt.burst,
 		behind_proxy    = opt.behind_proxy,
+	}
+	if opt.trusted_proxy != "" {
+		cfg.trusted_proxy = net.parse_address(opt.trusted_proxy)
+		if cfg.trusted_proxy == nil {
+			fmt.eprintln("-trusted-proxy must be an IP address")
+			os.exit(2)
+		}
 	}
 	server, server_ok := resolve(opt.server, proto.DEFAULT_PORT)
 	if !server_ok {

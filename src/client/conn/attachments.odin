@@ -522,6 +522,12 @@ put_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	case .Denied:
 		drop_post(c, p, "You don't have permission to send files here.")
 		return
+	case .Closed:
+		drop_post(c, p, "The server has no room for more files.")
+		return
+	case .Quota:
+		drop_post(c, p, "You have sent as many files as this server allows for today.")
+		return
 	case:
 		drop_post(c, p, "The server rejected the file.")
 		return
@@ -663,6 +669,10 @@ attach_save :: proc(c: ^Voice_Client, cmd: Attach_Save_Command) {
 	}
 	if f.blob == 0 {
 		notify(c, false, "That file is no longer available on the server.")
+		return
+	}
+	if f.size > proto.MAX_FILE_SIZE {
+		notify(c, false, "That file is too large to be saved.")
 		return
 	}
 	if sv != nil {

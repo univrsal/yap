@@ -18,17 +18,29 @@
 //
 // All integers are little-endian.
 //
-//	Handshake_Init    [type u8][sender_idx u32][noise msg1 + padding]
+//	Handshake_Init    [type u8][sender_idx u32][noise msg1 + padding]([cookie])
 //	Handshake_Resp    [type u8][sender_idx u32][receiver_idx u32][noise msg2]
 //	Handshake_Finish  [type u8][receiver_idx u32][noise msg3]
 //	Data              [type u8][receiver_idx u32][counter u64][ciphertext + tag]
+//	Handshake_Cookie  [type u8][receiver_idx u32][cookie]
+//
+// A server has to keep state for each Init it answers until the handshake
+// finishes or times out, and an Init's source address can be forged. So
+// while it has many handshakes in progress, a server answers an Init with
+// Handshake_Cookie instead: a MAC of the Init's source address, which it can
+// check again without having kept anything. The client sends the same Init
+// again with the cookie after it, which proves that it receives packets at
+// that address, and only such an Init gets a Resp then. Without load the
+// cookie isn't asked for, and the round trip isn't spent. As in WireGuard,
+// where this comes from.
 //
 // Each side picks a random 32-bit index for a session and the peer puts
 // it in every packet addressed to it, so sessions are looked up by index
 // rather than by IP:port (which can change under NAT).
 //
-// Handshake_Init is padded to be at least as large as Handshake_Resp so
-// the server can't be used to amplify spoofed-source UDP floods.
+// Handshake_Init is padded to be at least as large as Handshake_Resp (and
+// Handshake_Cookie) so the server can't be used to amplify spoofed-source
+// UDP floods.
 //
 // Data packets carry their nonce (`counter`) explicitly, because UDP
 // drops and reorders packets and Noise's implicit counter would desync.
@@ -64,6 +76,12 @@ RESP_SIZE :: RESP_HEADER_SIZE + MSG2_SIZE
 INIT_PADDING :: RESP_SIZE - INIT_HEADER_SIZE - KEY_SIZE
 INIT_SIZE :: INIT_HEADER_SIZE + KEY_SIZE + INIT_PADDING
 
+COOKIE_SIZE :: 16
+COOKIE_HEADER_SIZE :: 1 + 4
+COOKIE_PACKET_SIZE :: COOKIE_HEADER_SIZE + COOKIE_SIZE
+// An Init that carries the cookie the server asked for.
+INIT_COOKIE_SIZE :: INIT_SIZE + COOKIE_SIZE
+
 MAX_PAYLOAD_SIZE :: MAX_PACKET_SIZE - DATA_HEADER_SIZE - TAG_SIZE
 
 // Timers, loosely modeled on WireGuard's.
@@ -85,6 +103,7 @@ Packet_Type :: enum u8 {
 	Handshake_Resp   = 2,
 	Handshake_Finish = 3,
 	Data             = 4,
+	Handshake_Cookie = 5,
 }
 
 packet_type :: proc(packet: []byte) -> Packet_Type {
@@ -100,6 +119,8 @@ packet_type :: proc(packet: []byte) -> Packet_Type {
 		if len(packet) > FINISH_HEADER_SIZE {return t}
 	case .Data:
 		if len(packet) >= DATA_HEADER_SIZE + TAG_SIZE {return t}
+	case .Handshake_Cookie:
+		if len(packet) == COOKIE_PACKET_SIZE {return t}
 	case .Invalid:
 	}
 	return .Invalid

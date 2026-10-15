@@ -179,6 +179,7 @@ Status :: enum u8 {
 	Wrong_Password  = 9,
 	Closed          = 10,
 	Internal        = 11,
+	Quota           = 12, // the account has used its allowance, such as for uploads
 	// Never sent by a server. A client uses it for a request whose
 	// connection started over before the response arrived.
 	Reset           = 255,

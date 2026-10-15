@@ -70,6 +70,8 @@ Account :: struct {
 	// which further login attempts are rejected (auth.odin).
 	failures:       int,
 	locked_until:   time.Tick,
+	// How many logins to it are being hashed right now (auth.odin).
+	checking:       int,
 }
 
 Device :: struct {

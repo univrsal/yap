@@ -9,12 +9,16 @@ import "common:proto"
 
 // A trust-on-first-use store for server keys, similar to ssh's known_hosts. It
 // has one `<host:port> <hex public key>` entry per line, keyed by the address
-// exactly as the user typed it.
+// as the user typed it, but without regard to case (host names and IPv6
+// addresses don't have one).
 
 Trust :: enum {
 	Known, // the key matches the saved one
 	New, // this server has not been seen before
 	Mismatch, // the key differs from the saved one, which may mean impersonation
+	// The file is there but can't be read. Trusting the key as new would
+	// also mean writing a file with only this entry and losing the others.
+	Unreadable,
 }
 
 
@@ -30,13 +34,13 @@ check_server_key :: proc(
 	}
 	data, read_ok := common.store_read(path, context.temp_allocator)
 	if !read_ok {
-		return .New, {}
+		return .Unreadable, {}
 	}
 
 	text := string(data)
 	for line in strings.split_lines_iterator(&text) {
 		fields := strings.fields(line, context.temp_allocator)
-		if len(fields) != 2 || fields[0] != addr {
+		if len(fields) != 2 || !strings.equal_fold(fields[0], addr) {
 			continue
 		}
 		raw, ok := hex.decode(transmute([]byte)fields[1], context.temp_allocator)
@@ -59,7 +63,11 @@ remember_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bo
 	line := fmt.tprintf("%s %s\n", addr, string(hex.encode(key[:], context.temp_allocator)))
 	existing: string
 	if common.store_exists(path) {
-		existing, _ = common.store_read(path, context.temp_allocator)
+		read_ok: bool
+		existing, read_ok = common.store_read(path, context.temp_allocator)
+		if !read_ok {
+			return false // writing would lose the other entries
+		}
 	}
 	return common.store_write(path, strings.concatenate({existing, line}, context.temp_allocator))
 }
@@ -115,7 +123,7 @@ forget_server_key :: proc(path, addr: string) -> bool {
 	text := string(data)
 	for line in strings.split_lines_iterator(&text) {
 		fields := strings.fields(line, context.temp_allocator)
-		if len(fields) == 2 && fields[0] == addr {
+		if len(fields) == 2 && strings.equal_fold(fields[0], addr) {
 			continue
 		}
 		strings.write_string(&b, line)

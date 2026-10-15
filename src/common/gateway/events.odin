@@ -423,8 +423,9 @@ Typing_JSON :: struct {
 @(private)
 events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 	j := Job {
-		kind = .Call,
-		run  = events_attach,
+		kind   = .Call,
+		run    = events_attach,
+		remote = client_address(g, c, req),
 	}
 	token: string
 	auth := http.header(req, "Authorization")

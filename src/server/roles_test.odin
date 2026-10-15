@@ -2,6 +2,7 @@ package server
 
 import "core:os"
 import "core:testing"
+import "core:time"
 
 import "common:proto"
 
@@ -289,6 +290,31 @@ test_account_disable :: proc(t: ^testing.T) {
 		proto.encode_account_password_set(pw_buf[:], carol_acc.id, "another password"),
 	)
 	testing.expect_value(t, status, proto.Status.Denied)
+	// That is checked again once the password is hashed, in case the
+	// account was given more permissions in the meantime.
+	ts.requests += 1
+	pending := ts.requests
+	rpc_handle(
+		&ts.s,
+		alice,
+		proto.encode_request(
+			pending,
+			.Account_Password_Set,
+			proto.encode_account_password_set(pw_buf[:], bob_acc.id, "another password"),
+		),
+	)
+	bob_acc.perms = {.Manage_Accounts, .Purge}
+	client := ts.clients[alice]
+	for _ in 0 ..< 5000 {
+		auth_sync(&ts.s)
+		ts_pump(t, &ts, alice)
+		if pending in client.responses {
+			break
+		}
+		time.sleep(time.Millisecond)
+	}
+	testing.expect_value(t, client.responses[pending].status, proto.Status.Denied)
+	bob_acc.perms = {}
 
 	// A disabled account is logged out and can't log back in.
 	ts_events(t, &ts, bob)

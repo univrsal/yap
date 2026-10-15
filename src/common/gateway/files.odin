@@ -50,7 +50,10 @@ RING_SIZE :: proto.FILE_WINDOW * proto.FILE_CHUNK_DATA
 // Ring is the window of a streamed transfer, shared between an HTTP thread
 // and the gateway thread. `in_` is how much has been put in and `out` is how
 // much has been taken out. The bytes in between are in `buf`, at their offset
-// modulo RING_SIZE. Whichever side releases it last frees it.
+// modulo RING_SIZE. Whichever side releases it last frees it. An upload's
+// `buf` is only allocated once the server has accepted the upload
+// (ring_allocate), so that requests with made-up tokens can't make the
+// gateway hold a ring each while they wait.
 Ring :: struct {
 	mutex:  sync.Mutex,
 	cond:   sync.Cond,
@@ -63,13 +66,26 @@ Ring :: struct {
 }
 
 // ring_make makes a Ring for a file of `size` that is referenced `refs` times.
+// Without `allocate`, its buffer comes later, from ring_allocate.
 @(private)
-ring_make :: proc(size: u64, refs: int) -> ^Ring {
+ring_make :: proc(size: u64, refs: int, allocate := true) -> ^Ring {
 	r := new(Ring)
-	r.buf = make([]u8, RING_SIZE)
+	if allocate {
+		r.buf = make([]u8, RING_SIZE)
+	}
 	r.size = size
 	r.refs = refs
 	return r
+}
+
+// ring_allocate gives a Ring its buffer, which the side waiting to fill it
+// is told about. `r.mutex` must be held.
+@(private)
+ring_allocate :: proc(r: ^Ring) {
+	if r.buf == nil {
+		r.buf = make([]u8, RING_SIZE)
+		sync.cond_broadcast(&r.cond)
+	}
 }
 
 @(private)
@@ -588,8 +604,9 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 		return false
 	}
 	j := Job {
-		kind = .Call,
-		run  = upload_run,
+		kind   = .Call,
+		run    = upload_run,
+		remote = client_address(g, c, req),
 	}
 	if r, refused := take_token(g, &j, req); refused {
 		return refuse(c, req, r)
@@ -632,7 +649,7 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 		return false
 	}
 	j.params[0] = name
-	j.ring = ring_make(u64(req.content_length), 1)
+	j.ring = ring_make(u64(req.content_length), 1, allocate = false)
 	defer ring_release(j.ring)
 	submit_start(g, &j)
 
@@ -643,7 +660,7 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 		at, room: u64
 		{
 			sync.guard(&r.mutex)
-			for !r.failed && r.in_ < r.size && r.in_ - r.out >= RING_SIZE {
+			for !r.failed && r.in_ < r.size && (r.buf == nil || r.in_ - r.out >= RING_SIZE) {
 				sync.cond_wait(&r.cond, &r.mutex)
 			}
 			if r.failed || r.in_ == r.size {
@@ -699,6 +716,7 @@ upload_run :: proc(c: ^Conn, j: ^Job) {
 		u.last_heard = time.tick_now()
 		sync.guard(&j.ring.mutex)
 		j.ring.refs += 1
+		ring_allocate(j.ring)
 		proto.transfer_sender_init(&u.send, j.ring.size, u.last_heard)
 		append(&c.transfers.uploads, u)
 	}
@@ -725,8 +743,9 @@ downloads_serve :: proc(
 	keep_alive: bool,
 ) {
 	j := Job {
-		kind = .Call,
-		run  = download_run,
+		kind   = .Call,
+		run    = download_run,
+		remote = client_address(g, c, req),
 	}
 	if r, refused := take_token(g, &j, req); refused {
 		send(c, r, req.keep_alive)

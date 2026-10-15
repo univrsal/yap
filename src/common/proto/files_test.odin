@@ -1,6 +1,7 @@
 #+build !wasi
 package proto
 
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -73,6 +74,20 @@ test_file_names :: proc(t: ^testing.T) {
 	testing.expect_value(t, sanitize_file_name("../../etc/passwd.zip", &buf), "passwd.zip")
 	testing.expect_value(t, sanitize_file_name("C:\\Users\\me\\a<b>:c.png", &buf), "abc.png")
 	testing.expect_value(t, sanitize_file_name("..hidden.mkv", &buf), "hidden.mkv")
+	// Windows device names get a _ in front, with or without an extension.
+	testing.expect_value(t, sanitize_file_name("CON", &buf), "_CON")
+	testing.expect_value(t, sanitize_file_name("nul.zip", &buf), "_nul.zip")
+	testing.expect_value(t, sanitize_file_name("  ..com1.tar.gz", &buf), "_com1.tar.gz")
+	testing.expect_value(t, sanitize_file_name("Lpt9 .png", &buf), "_Lpt9 .png")
+	testing.expect_value(t, sanitize_file_name("console.png", &buf), "console.png")
+	testing.expect_value(t, sanitize_file_name("COM0.png", &buf), "COM0.png")
+	long := strings.concatenate(
+		{"AUX.", strings.repeat("x", MAX_FILE_NAME - 8, context.temp_allocator), ".zip"},
+		context.temp_allocator,
+	)
+	got := sanitize_file_name(long, &buf)
+	testing.expect_value(t, len(got), MAX_FILE_NAME)
+	testing.expect(t, strings.has_prefix(got, "_UX."))
 	testing.expect_value(t, sanitize_file_name("  ", &buf), "")
 
 	testing.expect(t, file_type_allowed("clip.MP4"))

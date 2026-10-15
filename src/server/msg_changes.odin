@@ -95,6 +95,10 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	kept, mentioned := mentions_resolve(s, u, conv, links_restrict(s, conv, text), m.id - 1)
+	if len(kept) > proto.MAX_CHAT_SIZE {
+		respond(u, id, .Too_Large) // see msg_post
+		return
+	}
 	if kept == m.text {
 		respond(u, id, .Ok)
 		return

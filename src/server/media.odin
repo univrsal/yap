@@ -113,6 +113,7 @@ Media :: struct {
 	max_rate:     int, // bytes per second, per sharer
 	max_burst:    int,
 	max_sessions: int,
+	gate:         Handshake_Gate, // which Inits may start a session
 	cache_age:    time.Duration, // how long fragments are kept for Nacks
 	password:     string, // the server's password
 	key:          ecdh.Private_Key, // a copy of the server's key for the thread
@@ -213,6 +214,7 @@ media_free :: proc(m: ^Media) {
 	delete(m.sessions)
 	delete(m.sharers)
 	delete(m.peers)
+	gate_destroy(&m.gate)
 }
 
 @(private = "file")
@@ -297,14 +299,20 @@ media_handle_packet :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 @(private = "file")
 media_init :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	sender_idx := proto.init_sender_index(packet)
+	// As in handle_init.
+	verdict, cookie := gate_check(&m.gate, packet, from, len(m.sessions), m.max_sessions)
+	if verdict == .Cookie {
+		buf: [proto.COOKIE_PACKET_SIZE]byte
+		net.send_udp(m.sock, proto.encode_cookie_packet(&buf, sender_idx, cookie), from)
+		return
+	}
 	for _, ms in m.sessions {
 		if !ms.keyed && ms.handshake.remote_idx == sender_idx && ms.endpoint == from {
 			net.send_udp(m.sock, ms.handshake.packet[:], from)
 			return
 		}
 	}
-	if len(m.sessions) >= m.max_sessions {
-		log.warnf("media: session table full, ignoring a handshake from %v", net.to_string(from))
+	if verdict != .Accept {
 		return
 	}
 	idx: proto.Session_Id
@@ -323,6 +331,7 @@ media_init :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	ms.endpoint = from
 	ms.started = time.tick_now()
 	m.sessions[idx] = ms
+	gate_opened(&m.gate, from)
 	net.send_udp(m.sock, resp, from)
 }
 
@@ -351,12 +360,14 @@ media_finish :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 		media_refuse(m, ms, from, .Version)
 		return
 	case m.password != "" && !password_matches(m.password, hello_password):
+		gate_wrong_password(&m.gate, from)
 		media_refuse(m, ms, from, .Wrong_Password)
 		return
 	case !known || peer.conn_id != conn_id:
 		media_refuse(m, ms, from, .No_Connection)
 		return
 	}
+	gate_closed(&m.gate, ms.endpoint)
 	ms.keyed = true
 	ms.endpoint = from
 	ms.last_recv = time.tick_now()
@@ -409,6 +420,9 @@ media_send :: proc(m: ^Media, ms: ^Media_Session, msg: []byte) {
 media_drop :: proc(m: ^Media, idx: proto.Session_Id) {
 	if ms := m.sessions[idx] or_else nil; ms != nil {
 		delete_key(&m.sessions, idx)
+		if !ms.keyed {
+			gate_closed(&m.gate, ms.endpoint)
+		}
 		free(ms)
 	}
 }
@@ -552,6 +566,12 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 	if !ok || sharer == 0 || sharer != ms.watching || time.tick_diff(now, ms.watch_until) <= 0 {
 		return
 	}
+	// A lease can be taken on anyone (media_watch), so the room is checked
+	// here as media_relay does: only viewers in the sharer's room get its
+	// fragments.
+	if !media_same_room(m, viewer, sharer) {
+		return
+	}
 	sh := m.sharers[sharer] or_else {}
 	if sh.cache == nil {
 		return
@@ -577,6 +597,21 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 		ms.resend_budget -= len(msg)
 		media_send(m, ms, msg)
 	}
+}
+
+// media_same_room tells whether a sharer is sharing in the viewer's room.
+@(private = "file")
+media_same_room :: proc(m: ^Media, viewer: Media_Peer, sharer: proto.User_Num) -> bool {
+	if viewer.room == 0 || viewer.num == sharer {
+		return false
+	}
+	// A user can be connected from more than one device.
+	for _, peer in m.peers {
+		if peer.num == sharer && peer.sharing && peer.room == viewer.room {
+			return true
+		}
+	}
+	return false
 }
 
 // media_report stores a viewer's report about the sharer it holds a lease on.

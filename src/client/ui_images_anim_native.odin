@@ -76,6 +76,13 @@ anim_start :: proc(w: ^Decode_Worker, job: Decode_Job) -> (result: Decode_Result
 	switch {
 	case webp.is_webp(job.jpeg) && webp.is_animation(job.jpeg):
 		src.data = job.jpeg
+		// libwebp allocates the canvas (twice) as it opens the animation, so
+		// its size is checked before that.
+		if w, h, sized := webp.size(job.jpeg); !sized || i64(w) * i64(h) > clipboard.MAX_PIXELS {
+			log.debugf("image %d: the animation is too big, or not one", job.id)
+			anim_source_close(&src)
+			return result, true
+		}
 		ok: bool
 		src.dec, src.info, ok = webp.anim_open(src.data)
 		if !ok || src.info.width <= 0 || src.info.height <= 0 {

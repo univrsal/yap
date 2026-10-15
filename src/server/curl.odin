@@ -1,5 +1,6 @@
 package server
 
+import "core:c"
 import "core:log"
 
 // This file contains the libcurl bindings the server needs for email (see
@@ -25,31 +26,48 @@ Curl_Code :: i32
 
 // The options that email.odin and push.odin set (the CURLOPT_* values from curl.h).
 Curl_Option :: enum i32 {
-	Timeout         = 13,
-	Post_Field_Size = 60,
-	Verbose         = 41,
-	No_Body         = 44,
-	Upload          = 46,
-	Connect_Timeout = 78,
-	No_Signal       = 99,
-	Use_Ssl         = 119,
-	Write_Data      = 10001,
-	Url             = 10002,
-	Read_Data       = 10009,
-	Error_Buffer    = 10010,
-	Post_Fields     = 10015,
-	Http_Header     = 10023,
-	Custom_Request  = 10036,
-	Username        = 10173,
-	Password        = 10174,
-	Mail_From       = 10186,
-	Mail_Rcpt       = 10187,
-	Write_Function  = 20011,
-	Read_Function   = 20012,
+	Timeout              = 13,
+	Post_Field_Size      = 60,
+	Verbose              = 41,
+	No_Body              = 44,
+	Upload               = 46,
+	Connect_Timeout      = 78,
+	No_Signal            = 99,
+	Use_Ssl              = 119,
+	Write_Data           = 10001,
+	Url                  = 10002,
+	Read_Data            = 10009,
+	Error_Buffer         = 10010,
+	Post_Fields          = 10015,
+	Http_Header          = 10023,
+	Custom_Request       = 10036,
+	Open_Socket_Data     = 10164,
+	Username             = 10173,
+	Password             = 10174,
+	Mail_From            = 10186,
+	Mail_Rcpt            = 10187,
+	Write_Function       = 20011,
+	Read_Function        = 20012,
+	Open_Socket_Function = 20163,
 }
 
 // curl_easy_getinfo's CURLINFO_RESPONSE_CODE: the HTTP status, as a long.
 CURLINFO_RESPONSE_CODE :: 0x200002
+
+// What CURLOPT_OPENSOCKETFUNCTION is given: curl.h's struct curl_sockaddr. `addr`
+// is the start of a struct sockaddr of `addrlen` bytes, which curl allocates
+// room for.
+Curl_Sockaddr :: struct {
+	family:   c.int,
+	socktype: c.int,
+	protocol: c.int,
+	addrlen:  c.uint,
+	addr:     [16]u8,
+}
+
+// The address family of IPv4, which is the same on every system. AF_INET6
+// differs, so it's defined in curl_system.odin and curl_windows.odin.
+AF_INET :: 2
 
 // The values of CURLOPT_USE_SSL.
 CURL_USESSL_NONE :: 0

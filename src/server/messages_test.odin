@@ -2,6 +2,7 @@ package server
 
 import "core:os"
 import "core:testing"
+import "core:time"
 
 import "common:proto"
 
@@ -405,6 +406,23 @@ test_blob_transfer :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, bob, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, string(bob.download.data), string(jpeg))
+
+	// A picture that the server has as an attachment has to be uploaded:
+	// that it's there isn't said to anyone who only knows its hash.
+	attached := test_jpeg(64, 64, 2)
+	_, put_ok := blob_put(&s.blobs, .File, attached, 64, 64)
+	testing.expect(t, put_ok)
+	secret := proto.Blob_Put {
+		kind   = .Avatar,
+		size   = len(attached),
+		hash   = blob_hash(attached),
+		width  = 64,
+		height = 64,
+	}
+	status, answer = ts_ask(t, &ts, bob, .Blob_Put, proto.encode_blob_put(&put_buf, secret))
+	testing.expect_value(t, status, proto.Status.Ok)
+	_, has, _, _ := proto.decode_blob_put_answer(answer)
+	testing.expect(t, !has)
 }
 
 @(test)
@@ -445,4 +463,76 @@ test_messages_kept :: proc(t: ^testing.T) {
 	status, again := post(t, &ts, alice, ts.s.convs.home.id, "remember me", 3)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, again, last)
+}
+
+@(test)
+test_request_limit :: proc(t: ^testing.T) {
+	// A connection may make REQUEST_BURST worth of requests at once, and
+	// the rest are refused until it has waited a little.
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	ts.s.requests_unlimited = false
+	ts_account(t, &ts, "alice", "alice's password")
+	alice := ts_connect(&ts)
+	status, _ := ts_login(t, &ts, alice, "alice", "alice's password")
+	testing.expect_value(t, status, proto.Status.Ok)
+
+	home := conv_by_name(&ts.s.convs, "Lobby").id
+	searches := int(alice.request_tokens) / int(request_cost(.Msg_Search))
+	buf: [proto.MSG_SEARCH_MAX_SIZE]u8
+	body := proto.encode_msg_search(&buf, {conv = home, limit = 10, query = "hello"})
+	for _ in 0 ..< searches {
+		status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
+		testing.expect_value(t, status, proto.Status.Ok)
+	}
+	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
+	testing.expect_value(t, status, proto.Status.Rate_Limited)
+	// A cheaper request may still fit.
+	alice.request_tokens = 1
+	alice.request_last = time.tick_now()
+	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
+	testing.expect_value(t, status, proto.Status.Rate_Limited)
+	status, _ = ts_ask(t, &ts, alice, .Server_Info)
+	testing.expect_value(t, status, proto.Status.Ok)
+
+	// After a while there are enough again.
+	alice.request_last = time.tick_add(time.tick_now(), -time.Second)
+	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
+	testing.expect_value(t, status, proto.Status.Ok)
+}
+
+@(test)
+test_state_coalesced :: proc(t: ^testing.T) {
+	// Changes that come closer together than STATE_EVERY go out in one
+	// snapshot, and the snapshot after them follows soon enough.
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	ts_account(t, &ts, "alice", "alice's password")
+	alice := ts_connect(&ts)
+	status, _ := ts_login(t, &ts, alice, "alice", "alice's password")
+	testing.expect_value(t, status, proto.Status.Ok)
+	// sync_state only sends to a connection with a session.
+	session := Client {
+		keyed = true,
+		conn  = alice,
+	}
+	s.sessions[1] = &session
+	defer delete(s.sessions)
+
+	sync_state(s)
+	testing.expect_value(t, alice.sent_version, s.version)
+	first := s.version
+	bump_version(s)
+	sync_state(s)
+	testing.expect_value(t, alice.sent_version, first)
+	bump_version(s)
+	sync_state(s)
+	testing.expect_value(t, alice.sent_version, first)
+
+	alice.last_state_sent = time.tick_add(time.tick_now(), -STATE_EVERY)
+	sync_state(s)
+	testing.expect_value(t, alice.sent_version, s.version)
 }

@@ -74,6 +74,29 @@ read_head :: proc(c: ^Conn) -> (head: string, ok: bool) {
 	}
 }
 
+// MAX_PRINTABLE is the most bytes of a string that printable keeps.
+MAX_PRINTABLE :: 200
+
+// printable returns `s` made safe to log: every byte that isn't printable
+// ASCII is written as \xNN, so a path from a request can't carry terminal
+// escapes, and it is cut to MAX_PRINTABLE bytes.
+printable :: proc(s: string, allocator := context.temp_allocator) -> string {
+	b := strings.builder_make(0, min(len(s), MAX_PRINTABLE) + 3, allocator)
+	for i in 0 ..< len(s) {
+		if i == MAX_PRINTABLE {
+			strings.write_string(&b, "...")
+			break
+		}
+		c := s[i]
+		if c >= 0x20 && c < 0x7f && c != '\\' {
+			strings.write_byte(&b, c)
+		} else {
+			fmt.sbprintf(&b, "\\x%02x", c)
+		}
+	}
+	return strings.to_string(b)
+}
+
 // parse_request parses a request head. It fails if the head has no valid
 // request line.
 parse_request :: proc(head: string) -> (req: Request, ok: bool) {
@@ -94,6 +117,7 @@ parse_request :: proc(head: string) -> (req: Request, ok: bool) {
 	version := parts[2] if len(parts) >= 3 else "HTTP/1.0"
 	req.keep_alive = version == "HTTP/1.1"
 	req.content_length = -1
+	seen_length := false
 	headers := make([dynamic]Header, 0, len(lines) - 1, context.temp_allocator)
 	for line in lines[1:] {
 		colon := strings.index_byte(line, ':')
@@ -107,10 +131,22 @@ parse_request :: proc(head: string) -> (req: Request, ok: bool) {
 		append(&headers, h)
 		switch {
 		case strings.equal_fold(h.name, "Content-Length"):
-			n, n_ok := strconv.parse_int(h.value, 10)
-			if !n_ok || n < 0 {
+			// Only digits, and not so many that the number could wrap:
+			// parse_int would also take a sign or "_" between digits. Two
+			// lengths that differ make the request ambiguous.
+			if len(h.value) == 0 || len(h.value) > 15 {
 				return
 			}
+			for d in transmute([]u8)h.value {
+				if d < '0' || d > '9' {
+					return
+				}
+			}
+			n, _ := strconv.parse_int(h.value, 10)
+			if seen_length && n != req.content_length {
+				return
+			}
+			seen_length = true
 			req.content_length = n
 		case strings.equal_fold(h.name, "Transfer-Encoding"):
 			req.chunked = !strings.equal_fold(h.value, "identity")

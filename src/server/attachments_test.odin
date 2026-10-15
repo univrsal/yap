@@ -80,9 +80,9 @@ put :: proc(
 	return
 }
 
-// send_file uploads `data` under `id`, sending the chunks in reverse
-// order with some of them repeated. It returns the blob the upload was
-// stored as, if it was stored.
+// send_file uploads `data` under `id`, sending the chunks of each window
+// (proto.FILE_WINDOW) in reverse order with some of them repeated. It returns
+// the blob the upload was stored as, if it was stored.
 @(private = "file")
 send_file :: proc(
 	t: ^testing.T,
@@ -91,16 +91,19 @@ send_file :: proc(
 	id: u64,
 	data: []u8,
 ) -> proto.Blob_Id {
-	chunks := proto.file_chunk_count(u64(len(data)))
+	chunks := i64(proto.file_chunk_count(u64(len(data))))
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 	// Send the chunks backwards, and every third one twice, to test
-	// out-of-order and duplicate chunks.
-	for i := i64(chunks) - 1; i >= 0; i -= 1 {
-		from, to := proto.file_chunk_range(u64(len(data)), u32(i))
-		msg := proto.encode_transfer_chunk(out[:], .Upload_Chunk, id, u32(i), data[from:to])
-		handle_upload_chunk(&ts.s, u, msg)
-		if i % 3 == 0 {
+	// out-of-order and duplicate chunks. Senders stay within FILE_WINDOW of
+	// the first missing chunk, so each window is sent backwards in turn.
+	for window := i64(0); window < chunks; window += proto.FILE_WINDOW {
+		for i := min(window + proto.FILE_WINDOW, chunks) - 1; i >= window; i -= 1 {
+			from, to := proto.file_chunk_range(u64(len(data)), u32(i))
+			msg := proto.encode_transfer_chunk(out[:], .Upload_Chunk, id, u32(i), data[from:to])
 			handle_upload_chunk(&ts.s, u, msg)
+			if i % 3 == 0 {
+				handle_upload_chunk(&ts.s, u, msg)
+			}
 		}
 	}
 	// The last ack reports the upload as complete.
@@ -239,6 +242,21 @@ test_attachments :: proc(t: ^testing.T) {
 	upload: u64
 	status, upload = put(t, &ts, alice, len(report), "../reports/report 2026.pdf")
 	testing.expect_value(t, status, proto.Status.Ok)
+	// A chunk further ahead than a sender may go is dropped (it would make
+	// the server read back and hash everything before it in one go).
+	{
+		out: [proto.MAX_PAYLOAD_SIZE]u8
+		from, to := proto.file_chunk_range(u64(len(report)), proto.FILE_WINDOW)
+		msg := proto.encode_transfer_chunk(
+			out[:],
+			.Upload_Chunk,
+			upload,
+			proto.FILE_WINDOW,
+			report[from:to],
+		)
+		handle_upload_chunk(&ts.s, alice, msg)
+		testing.expect_value(t, s.attach.uploads[upload].recv.received, 0)
+	}
 	blob := send_file(t, &ts, alice, upload, report)
 	testing.expect(t, blob != 0)
 	kept, read_ok := blob_read(&s.blobs, blob, context.temp_allocator)
@@ -317,6 +335,11 @@ test_attachments :: proc(t: ^testing.T) {
 	status, got = fetch(t, &ts, bob, tool_blob)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, string(got) == string(tool))
+	// Nor can anyone while the channel is archived.
+	gaming.flags += {.Archived}
+	status, _ = fetch(t, &ts, bob, tool_blob)
+	testing.expect_value(t, status, proto.Status.Not_Found)
+	gaming.flags -= {.Archived}
 
 	// After the message is deleted it has no files any more and nobody
 	// can fetch them. An hour later the report is removed, while the tool
@@ -395,6 +418,73 @@ test_attachments_conn_gone :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 }
 
+// Upload chunks that come faster than `rate_kb` (with some slack) are
+// dropped, and an account can't upload more than `daily_megabytes` in a
+// day, counting what its uploads in progress will still send.
+@(test)
+test_attachments_quota :: proc(t: ^testing.T) {
+	base, _ := os.temp_directory(context.temp_allocator)
+	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	defer remove_tree(dir)
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	attachments_open(s, {max_megabytes = 4, rate_kb = 1024, daily_megabytes = 3})
+	defer attachments_close(s)
+	attach_test_sent = record_sent
+	defer attach_test_sent = nil
+	defer sent_reset()
+
+	ts_account(t, &ts, "alice", "a password")
+	alice := logged_in(t, &ts, "alice")
+	MIB :: 1024 * 1024
+	data := test_file(2 * MIB, 4)
+	_, id := put(t, &ts, alice, len(data), "big.zip")
+	up := s.attach.uploads[id]
+	send_all :: proc(s: ^Server, u: ^Conn, id: u64, data: []u8) {
+		out: [proto.MAX_PAYLOAD_SIZE]u8
+		for i in 0 ..< proto.file_chunk_count(u64(len(data))) {
+			from, to := proto.file_chunk_range(u64(len(data)), i)
+			handle_upload_chunk(
+				s,
+				u,
+				proto.encode_transfer_chunk(out[:], .Upload_Chunk, id, i, data[from:to]),
+			)
+		}
+	}
+
+	// Sent all at once, only the burst (a second's worth) arrives.
+	send_all(s, alice, id, data)
+	testing.expectf(
+		t,
+		up.recv.done > MIB - proto.FILE_CHUNK_DATA && up.recv.done < MIB + 64 * 1024,
+		"%d bytes arrived",
+		up.recv.done,
+	)
+
+	// About 1 MiB has arrived and about 1 MiB is still to come, so 1.5 MiB
+	// more would go over 3 MiB, but 0.75 MiB wouldn't.
+	status, _ := put(t, &ts, alice, 3 * MIB / 2, "too much.zip")
+	testing.expect_value(t, status, proto.Status.Quota)
+	status, _ = put(t, &ts, alice, 3 * MIB / 4, "fits.zip")
+	testing.expect_value(t, status, proto.Status.Ok)
+
+	// A second later the rest arrives.
+	up.paced_at = time.tick_add(up.paced_at, -time.Second)
+	send_all(s, alice, id, data)
+	testing.expect(t, up.blob != 0)
+	status, _ = put(t, &ts, alice, MIB / 2, "too much.zip")
+	testing.expect_value(t, status, proto.Status.Quota)
+
+	// The next day the count starts over.
+	use := &s.attach.used[alice.account.id]
+	use.since = time.tick_add(use.since, -25 * time.Hour)
+	status, _ = put(t, &ts, alice, MIB / 2, "tomorrow.zip")
+	testing.expect_value(t, status, proto.Status.Ok)
+}
+
 // Retention removes the files of messages the same way it removes their
 // pictures. It removes the files of older messages (file_days, or a
 // purge of files) and the oldest files while pictures and files use too
@@ -409,7 +499,7 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	defer ts_close(&ts)
 	s := &ts.s
 	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
-	attachments_open(s, {max_megabytes = 8, rate_kb = 1024})
+	attachments_open(s, {max_megabytes = 8, rate_kb = 1024 * 1024})
 	defer attachments_close(s)
 	attach_test_sent = record_sent
 	defer attach_test_sent = nil
