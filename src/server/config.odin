@@ -92,7 +92,9 @@ import "common:proto"
 // max_sessions  The maximum number of sessions at once. This is about twice
 //            the number of clients that can be connected, because each client
 //            has two sessions (one for each of its links), and more while
-//            sessions are being rekeyed. If left out or 0, it is 512.
+//            sessions are being rekeyed. At most half of them can be
+//            handshakes in progress (see handshake_gate.odin). If left out
+//            or 0, it is 512.
 // log_level  The lowest level to log: debug, info, warn or error.
 // log_file   If set, the log is also appended to this file.
 // memory_log_minutes  How often to log a line about the server's memory usage

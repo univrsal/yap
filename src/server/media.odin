@@ -113,6 +113,7 @@ Media :: struct {
 	max_rate:     int, // bytes per second, per sharer
 	max_burst:    int,
 	max_sessions: int,
+	gate:         Handshake_Gate, // which Inits may start a session
 	cache_age:    time.Duration, // how long fragments are kept for Nacks
 	password:     string, // the server's password
 	key:          ecdh.Private_Key, // a copy of the server's key for the thread
@@ -213,6 +214,7 @@ media_free :: proc(m: ^Media) {
 	delete(m.sessions)
 	delete(m.sharers)
 	delete(m.peers)
+	gate_destroy(&m.gate)
 }
 
 @(private = "file")
@@ -297,14 +299,20 @@ media_handle_packet :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 @(private = "file")
 media_init :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	sender_idx := proto.init_sender_index(packet)
+	// As in handle_init.
+	verdict, cookie := gate_check(&m.gate, packet, from, len(m.sessions), m.max_sessions)
+	if verdict == .Cookie {
+		buf: [proto.COOKIE_PACKET_SIZE]byte
+		net.send_udp(m.sock, proto.encode_cookie_packet(&buf, sender_idx, cookie), from)
+		return
+	}
 	for _, ms in m.sessions {
 		if !ms.keyed && ms.handshake.remote_idx == sender_idx && ms.endpoint == from {
 			net.send_udp(m.sock, ms.handshake.packet[:], from)
 			return
 		}
 	}
-	if len(m.sessions) >= m.max_sessions {
-		log.warnf("media: session table full, ignoring a handshake from %v", net.to_string(from))
+	if verdict != .Accept {
 		return
 	}
 	idx: proto.Session_Id
@@ -323,6 +331,7 @@ media_init :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	ms.endpoint = from
 	ms.started = time.tick_now()
 	m.sessions[idx] = ms
+	gate_opened(&m.gate, from)
 	net.send_udp(m.sock, resp, from)
 }
 
@@ -357,6 +366,7 @@ media_finish :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 		media_refuse(m, ms, from, .No_Connection)
 		return
 	}
+	gate_closed(&m.gate, ms.endpoint)
 	ms.keyed = true
 	ms.endpoint = from
 	ms.last_recv = time.tick_now()
@@ -409,6 +419,9 @@ media_send :: proc(m: ^Media, ms: ^Media_Session, msg: []byte) {
 media_drop :: proc(m: ^Media, idx: proto.Session_Id) {
 	if ms := m.sessions[idx] or_else nil; ms != nil {
 		delete_key(&m.sessions, idx)
+		if !ms.keyed {
+			gate_closed(&m.gate, ms.endpoint)
+		}
 		free(ms)
 	}
 }

@@ -216,6 +216,49 @@ initiator_finish :: proc(
 	return initiator_packet(ini), true
 }
 
+// init_cookie returns the cookie that a Handshake_Init carries, if it has one.
+init_cookie :: proc(packet: []byte) -> (cookie: []byte, ok: bool) {
+	if len(packet) < INIT_COOKIE_SIZE {
+		return
+	}
+	return packet[INIT_SIZE:INIT_COOKIE_SIZE], true
+}
+
+// encode_cookie_packet makes the Handshake_Cookie that answers an Init from
+// `sender_idx`.
+encode_cookie_packet :: proc(
+	buf: ^[COOKIE_PACKET_SIZE]byte,
+	sender_idx: Session_Id,
+	cookie: [COOKIE_SIZE]byte,
+) -> []byte {
+	buf[0] = u8(Packet_Type.Handshake_Cookie)
+	endian.unchecked_put_u32le(buf[1:], u32(sender_idx))
+	cookie := cookie
+	copy(buf[COOKIE_HEADER_SIZE:], cookie[:])
+	return buf[:]
+}
+
+// initiator_read_cookie takes the cookie of a Handshake_Cookie into the
+// Init that the Initiator resends. It returns whether the Init has changed,
+// in which case the caller should send it again at once.
+@(require_results)
+initiator_read_cookie :: proc(ini: ^Initiator, packet: []byte) -> bool {
+	if ini.state != .Sent_Init || packet_type(packet) != .Handshake_Cookie {
+		return false
+	}
+	if Session_Id(endian.unchecked_get_u32le(packet[1:])) != ini.local_idx {
+		return false
+	}
+	cookie := packet[COOKIE_HEADER_SIZE:]
+	if ini.packet_len == INIT_COOKIE_SIZE &&
+	   string(ini.packet[INIT_SIZE:INIT_COOKIE_SIZE]) == string(cookie) {
+		return false // the same as before: the resend timer takes care of it
+	}
+	copy(ini.packet[INIT_SIZE:], cookie)
+	ini.packet_len = INIT_COOKIE_SIZE
+	return true
+}
+
 // responder_start processes a Handshake_Init on the server and returns
 // the Handshake_Resp packet, which the Responder also keeps.
 @(require_results)
@@ -236,10 +279,11 @@ responder_start :: proc(
 	if noise.handshake_init(&r.hs, false, prologue(), static_key, nil, PROTOCOL_NAME) != .Ok {
 		return
 	}
-	// The msg1 payload is only padding, so it is ignored.
+	// The msg1 payload is only padding, so it is ignored. A cookie after it
+	// isn't part of the Noise message.
 	msg, _, status := noise.handshake_responder_step(
 		&r.hs,
-		packet[INIT_HEADER_SIZE:],
+		packet[INIT_HEADER_SIZE:INIT_SIZE],
 		nil,
 		nil,
 		context.temp_allocator,

@@ -14,10 +14,10 @@ import "common:."
 import "common:proto"
 
 // The default maximum number of sessions, unless the config sets one
-// (max_sessions). It limits how much memory a flood of unauthenticated
-// Handshake_Init packets can use up, and with that also how many clients
-// can be connected: each client has two links (proto.Link), so roughly
-// half this many.
+// (max_sessions). It limits how much memory the sessions use, and with
+// that also how many clients can be connected: each client has two links
+// (proto.Link), so roughly half this many. Handshake_gate.odin keeps a flood
+// of unauthenticated Handshake_Init packets from taking them all.
 DEFAULT_MAX_SESSIONS :: 512
 
 // Client is a single session: a keyed connection from one client instance
@@ -123,6 +123,7 @@ Server :: struct {
 	password:       string, // empty: anyone may join
 	sessions:       map[proto.Session_Id]^Client, // by local_idx
 	max_sessions:   int,
+	gate:           Handshake_Gate, // which Inits may start a session
 	// The connections that are logged in, and those that aren't yet, keyed
 	// by their device's key (see Conn).
 	conns:          map[[proto.KEY_SIZE]byte]^Conn,
@@ -223,6 +224,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 	defer convs_destroy(&s.convs)
 	defer calls_destroy(&s)
+	defer gate_destroy(&s.gate)
 	db_commit(&s.db)
 	if !hash_worker_start(&s.hasher) {
 		log.error("could not start the thread that hashes passwords")
@@ -404,18 +406,24 @@ handle_packet :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 }
 
 handle_init :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
+	sender_idx := proto.init_sender_index(packet)
+	// This comes first so that a flood of Inits is turned away cheaply.
+	verdict, cookie := gate_check(&s.gate, packet, from, len(s.sessions), s.max_sessions)
+	if verdict == .Cookie {
+		buf: [proto.COOKIE_PACKET_SIZE]byte
+		net.send_udp(s.sock, proto.encode_cookie_packet(&buf, sender_idx, cookie), from)
+		return
+	}
+
 	// A retransmitted Init (because our Resp got lost) gets the same Resp
 	// again rather than starting a second handshake.
-	sender_idx := proto.init_sender_index(packet)
 	for _, c in s.sessions {
 		if !c.keyed && c.handshake.remote_idx == sender_idx && c.endpoint == from {
 			net.send_udp(s.sock, c.handshake.packet[:], from)
 			return
 		}
 	}
-
-	if len(s.sessions) >= s.max_sessions {
-		log.warnf("session table full, ignoring handshake from %v", net.to_string(from))
+	if verdict != .Accept {
 		return
 	}
 
@@ -436,7 +444,15 @@ handle_init :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	c.endpoint = from
 	c.started = time.tick_now()
 	s.sessions[idx] = c
+	gate_opened(&s.gate, from)
 	net.send_udp(s.sock, resp, from)
+}
+
+// session_keyed marks a session whose handshake has just finished.
+@(private = "file")
+session_keyed :: proc(s: ^Server, c: ^Client) {
+	gate_closed(&s.gate, c.endpoint)
+	c.keyed = true
 }
 
 handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
@@ -484,7 +500,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		return
 	}
 
-	c.keyed = true
+	session_keyed(s, c)
 	c.endpoint = from
 	c.last_recv = time.tick_now()
 
@@ -540,7 +556,7 @@ bind_bulk :: proc(s: ^Server, c: ^Client, u: ^Conn, conn_id: u64, from: net.Endp
 		refuse(s, c, from, .No_Connection)
 		return
 	}
-	c.keyed = true
+	session_keyed(s, c)
 	c.bulk = true
 	c.endpoint = from
 	c.last_recv = time.tick_now()
@@ -1083,6 +1099,9 @@ drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
 		return
 	}
 	delete_key(&s.sessions, idx)
+	if !c.keyed {
+		gate_closed(&s.gate, c.endpoint)
+	}
 
 	if u := c.conn; u != nil && !c.bulk {
 		u.sessions -= 1

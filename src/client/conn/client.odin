@@ -385,6 +385,13 @@ link_promote :: proc(l: ^Link) -> (first: bool) {
 // handle_server_packet returns false if the connection must be aborted.
 handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 	#partial switch proto.packet_type(packet) {
+	case .Handshake_Cookie:
+		// The server is busy and wants to know that we can be reached
+		// here: the Init goes again, with the cookie.
+		if proto.initiator_read_cookie(&c.handshake, packet) {
+			c.handshake.last_sent = time.tick_now()
+			transport_send(&c.transport, proto.initiator_packet(&c.handshake))
+		}
 	case .Handshake_Resp:
 		server_key, result := proto.initiator_read_resp(&c.handshake, packet)
 		if result != .Ok {

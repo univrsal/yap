@@ -249,3 +249,60 @@ test_replay_window_words :: proc(t: ^testing.T) {
 		testing.expect(t, replay_check(&w, 1499) == (w.max - 1499 < REPLAY_WINDOW_SIZE))
 	}
 }
+
+// A server that asks for a cookie gets the same Init again with the cookie
+// after it, and the handshake goes on as if there had been none.
+@(test)
+test_handshake_cookie :: proc(t: ^testing.T) {
+	client_key, server_key: ecdh.Private_Key
+	gen_key(t, &client_key)
+	gen_key(t, &server_key)
+	ini: Initiator
+	r: Responder
+	defer initiator_reset(&ini)
+	defer responder_reset(&r)
+
+	init_packet, _ := initiator_start(&ini, &client_key)
+	_, has_cookie := init_cookie(init_packet)
+	testing.expect(t, !has_cookie)
+
+	cookie := [COOKIE_SIZE]byte {
+		0  = 1,
+		15 = 2,
+	}
+	buf: [COOKIE_PACKET_SIZE]byte
+	reply := encode_cookie_packet(&buf, ini.local_idx, cookie)
+	testing.expect_value(t, packet_type(reply), Packet_Type.Handshake_Cookie)
+	// No amplification here either.
+	testing.expect(t, len(reply) <= len(init_packet))
+
+	// One for another handshake is ignored.
+	other: [COOKIE_PACKET_SIZE]byte
+	testing.expect(
+		t,
+		!initiator_read_cookie(&ini, encode_cookie_packet(&other, ini.local_idx + 1, cookie)),
+	)
+
+	testing.expect(t, initiator_read_cookie(&ini, reply))
+	// The same cookie again changes nothing.
+	testing.expect(t, !initiator_read_cookie(&ini, reply))
+	again := initiator_packet(&ini)
+	testing.expect_value(t, len(again), INIT_COOKIE_SIZE)
+	testing.expect_value(t, packet_type(again), Packet_Type.Handshake_Init)
+	got, found := init_cookie(again)
+	testing.expect(t, found)
+	testing.expect_value(t, string(got), string(cookie[:]))
+
+	resp, ok := responder_start(&r, &server_key, again, 7)
+	testing.expect(t, ok)
+	_, result := initiator_read_resp(&ini, resp)
+	testing.expect_value(t, result, Resp_Result.Ok)
+	client, server: Session
+	finish, finished := initiator_finish(&ini, &client)
+	testing.expect(t, finished)
+	_, ok = responder_finish(&r, finish, &server)
+	testing.expect(t, ok)
+
+	// Once the handshake has moved on, cookies are ignored.
+	testing.expect(t, !initiator_read_cookie(&ini, reply))
+}
