@@ -48,6 +48,7 @@ Icon :: enum {
 	Reply, // an arrow down and round to the right: reply in a thread
 	Edit, // a pencil: edit a message
 	Phone, // a telephone receiver: call someone
+	Hang_Up, // a receiver lying flat, ends down: decline a call
 	Mail, // a closed envelope: for direct messages
 	Screen_Off, // a monitor with a line through it: stop watching a screen
 	Fullscreen, // four corners pointing out: fill the screen
@@ -231,6 +232,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return pencil(p)
 	case .Phone:
 		return receiver(p)
+	case .Hang_Up:
+		return hung_up(p)
 	case .Mail:
 		return mail_letter(p)
 	case .Screen_Off:
@@ -340,6 +343,7 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Reply,
 	     .Edit,
 	     .Phone,
+	     .Hang_Up,
 	     .Mail,
 	     .Screen_Off,
 	     .Fullscreen,
@@ -374,6 +378,24 @@ receiver :: proc(p: Point) -> f32 {
 	return blend(d, mouth, BLEND)
 }
 
+/*
+The receiver put down: turned so its back bulges up and the earpiece
+and mouthpiece hang down at either end, as on a hang up button.
+*/
+@(private = "file")
+hung_up :: proc(p: Point) -> f32 {
+	// Each point is looked up where turning the receiver brought it
+	// from: 135 degrees back, which takes its bulge from the bottom
+	// right to the top. Lying flat it's wider than it was, so it's drawn
+	// a little smaller, and shallower, so a little lower to be in the
+	// middle.
+	C :: math.SQRT_TWO / 2
+	SIZE :: 0.9
+	CENTRE :: Point{0.5, 0.5}
+	d := (p - CENTRE - {0, 0.06}) / SIZE
+	return receiver(CENTRE + {-C * d.x - C * d.y, C * d.x - C * d.y}) * SIZE
+}
+
 // blend joins two shapes like nearer, but rounds off the corners where they
 // meet, so they run into each other.
 @(private = "file")
@@ -382,15 +404,29 @@ blend :: proc(a, b, k: f32) -> f32 {
 	return math.lerp(b, a, h) - k * h * (1 - h)
 }
 
+/*
+A closed envelope: its outline, the size of the monitor's, with the
+flap folded down from the top as a solid triangle, and from under its
+point the two folds out to the bottom corners.
+*/
 @(private = "file")
 mail_letter :: proc(p: Point) -> f32 {
 	STROKE :: 0.085
-	OFFSET :: 0.02
-	d := abs(rounded_box(p, {0.5, 0.5}, {0.45, 0.34}, 0.06)) - STROKE / 2
-	d = nearer(d, triangle(p, {0.05, 0.16}, {0.95, 0.16}, {0.50, 0.65}))
-	d = nearer(d, capsule(p, {0.5, 0.4}, {0.95 - OFFSET, 0.84 - OFFSET}, STROKE * .75))
-	d = nearer(d, capsule(p, {0.05 + OFFSET, 0.84 - OFFSET}, {0.5, 0.4}, STROKE * .75))
-	return d
+	CENTRE :: Point{0.5, 0.5}
+	HALF :: Point{0.39, 0.29}
+	ROUND :: 0.06
+	L, R :: CENTRE.x - HALF.x, CENTRE.x + HALF.x
+	T, B :: CENTRE.y - HALF.y, CENTRE.y + HALF.y
+	inside := rounded_box(p, CENTRE, HALF, ROUND)
+	d := abs(inside) - STROKE / 2
+	// The flap, kept inside the outline at its rounded corners.
+	flap := max(triangle(p, {L, T}, {R, T}, {CENTRE.x, 0.58}), inside)
+	d = nearer(d, flap)
+	// The folds, from just inside the bottom corners to under the flap.
+	FOLD :: STROKE * 0.75
+	IN :: ROUND / 2
+	d = nearer(d, capsule(p, {L + IN, B - IN}, {CENTRE.x, 0.44}, FOLD))
+	return nearer(d, capsule(p, {R - IN, B - IN}, {CENTRE.x, 0.44}, FOLD))
 }
 
 /*

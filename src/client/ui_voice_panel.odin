@@ -317,12 +317,12 @@ voice_panel :: proc(ui: ^UI) {
 		switch state {
 		case .Idle, .Elsewhere:
 		case .Ringing_In:
-			mu.layout_row(ctx, {-(90 + ctx.style.spacing), 90})
-			if .SUBMIT in stable_button(ctx, "call accept", "Accept", {.ALIGN_CENTER}) {
+			accept, decline := answer_buttons(ui, "call")
+			if accept {
 				leave_voice_elsewhere(ui)
 				command(cmds, conn.Call_Answer_Command{})
 			}
-			if .SUBMIT in stable_button(ctx, "call decline", "Decline", {.ALIGN_CENTER}) {
+			if decline {
 				command(cmds, conn.Call_Hangup_Command{})
 			}
 		case .Ringing_Out:
@@ -412,6 +412,23 @@ voice_panel :: proc(ui: ^UI) {
 }
 
 /*
+answer_buttons are a call ringing in's Accept and Decline, a row of
+their own, half each: a green receiver picked up and a red one put
+down. `id_name` tells this pair from another.
+*/
+@(private = "file")
+answer_buttons :: proc(ui: ^UI, id_name: string) -> (accept, decline: bool) {
+	ctx := &ui.ctx
+	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
+	mu.layout_row(ctx, {half, -1})
+	mu.push_id(ctx, id_name)
+	defer mu.pop_id(ctx)
+	accept = .SUBMIT in icon_button(ui, "accept", .Phone, "Accept", theme.connected)
+	decline = .SUBMIT in icon_button(ui, "decline", .Hang_Up, "Decline", theme.off)
+	return
+}
+
+/*
 voice_elsewhere_part is the panel's part for voice, or a call ringing,
 in a server that isn't shown: what and where, with the server's name;
 Show, which shows that server; and the way out, or for a call ringing
@@ -449,12 +466,13 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	switch e.state {
 	case .Idle, .Elsewhere:
 	case .Ringing_In:
-		if .SUBMIT in stable_button(ctx, "other accept", "Accept", {.ALIGN_CENTER}) {
+		accept, decline := answer_buttons(ui, "other")
+		if accept {
 			leave_voice_elsewhere(ui, e.ns)
 			conn.push_command(cmds, conn.Call_Answer_Command{})
 			ui.switch_to, ui.switching = e.ns, true
 		}
-		if .SUBMIT in stable_button(ctx, "other decline", "Decline", {.ALIGN_CENTER}) {
+		if decline {
 			conn.push_command(cmds, conn.Call_Hangup_Command{})
 		}
 	case .Ringing_Out, .Voice, .Call:
