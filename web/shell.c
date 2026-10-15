@@ -645,6 +645,19 @@ EM_JS(void, yap_avatar_pick, (int side, int size), {
 	Module.yapAvatar.pick(side, size);
 });
 
+/* Sound files of the user's own (web/sounds.js, src/client/ui_sounds_web.odin). */
+EM_JS(void, yap_sound_pick, (int kind), {
+	Module.yapSounds.pick(kind);
+});
+
+EM_JS(void, yap_sound_load, (const char *name), {
+	Module.yapSounds.load(UTF8ToString(name));
+});
+
+EM_JS(void, yap_sound_remove, (const char *name), {
+	Module.yapSounds.remove(UTF8ToString(name));
+});
+
 /* Files in DMs (web/files.js, src/client/files_io_web.odin). */
 EM_JS(void, yap_file_pick, (const char *accept, int multiple), {
 	Module.yapFiles.pick(UTF8ToString(accept), multiple);

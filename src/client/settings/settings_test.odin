@@ -4,6 +4,7 @@ package settings
 import "core:os"
 import "core:testing"
 
+import "client:audio"
 import "common:proto"
 
 @(test)
@@ -201,4 +202,50 @@ test_settings_from_before_accounts :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(s.joined_servers), 1)
 	testing.expect_value(t, s.joined_servers[0].address, "localhost:7777")
 	testing.expect_value(t, len(s.users), 1)
+}
+
+@(test)
+test_sound_names :: proc(t: ^testing.T) {
+	path := "yap-settings-sounds-test.json"
+	defer os.remove(path)
+
+	s := DEFAULT_SETTINGS
+	defer settings_destroy(&s)
+	testing.expect_value(t, sound_name(&s, .Ring), "base/ring")
+	testing.expect_value(t, sound_name(&s, .Message), "")
+	set_sound_name(&s, .Message, "skype/msg")
+	set_sound_name(&s, .Ring, "")
+	set_sound_name(&s, .Knock, "skype/knocking") // the default: not stored
+	set_sound_name(&s, .Mention, "custom:ding.wav")
+	testing.expect_value(t, len(s.sounds), 3)
+	settings_save(path, s)
+
+	loaded := settings_load(path)
+	defer settings_destroy(&loaded)
+	testing.expect_value(t, sound_name(&loaded, .Message), "skype/msg")
+	testing.expect_value(t, sound_name(&loaded, .Ring), "")
+	testing.expect_value(t, loaded.sounds["ring"], "none")
+	testing.expect_value(t, sound_name(&loaded, .Mention), "custom:ding.wav")
+	testing.expect(t, sound_in_use(&loaded, "custom:ding.wav"))
+	// A built-in sound that is gone is the default again.
+	set_sound_name(&loaded, .Ringback, "skype/no_such_sound")
+	testing.expect_value(t, sound_name(&loaded, .Ringback), "base/ringback")
+
+	// Presets: a pack leaves the events it has no sound for alone.
+	for preset in audio.SOUND_PRESETS {
+		if preset.label == "AIM" {
+			sound_preset_use(&loaded, preset)
+		}
+	}
+	testing.expect_value(t, sound_name(&loaded, .Join), "aim/join")
+	testing.expect_value(t, sound_name(&loaded, .Ring), "")
+	testing.expect_value(t, sound_name(&loaded, .Mention), "aim/mail")
+	testing.expect(t, !sound_in_use(&loaded, "custom:ding.wav"))
+	sound_preset_use(&loaded, audio.SOUND_PRESETS[1]) // Quiet
+	for kind in audio.Sound_Event {
+		testing.expect_value(t, sound_name(&loaded, kind), "")
+	}
+	sound_preset_use(&loaded, audio.SOUND_PRESETS[0]) // Default
+	testing.expect_value(t, len(loaded.sounds), 0)
+	testing.expect_value(t, sound_name(&loaded, .Ring), "base/ring")
 }

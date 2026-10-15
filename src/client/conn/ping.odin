@@ -90,6 +90,7 @@ ping_step :: proc(c: ^Voice_Client) {
 	// Publishing on every send also catches pings that have just
 	// timed out.
 	publish_connection(c)
+	trouble_step(c, connection_stats(p, time.tick_now()))
 }
 
 handle_pong :: proc(c: ^Voice_Client, pt: []byte) {

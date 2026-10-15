@@ -83,6 +83,10 @@ Voice_Client :: struct {
 	emoji:         Emoji_Client, // the server's own emoji (see emoji.odin)
 	profiles:      Profile_Client, // statuses, pictures and settings (see profiles.odin)
 	call:          Call_Client, // the call we're in (see calls.odin)
+	// Our voice is in a room or a call on another server (see loop_sounds).
+	voice_elsewhere: bool,
+	// The connection going bad while in voice (see sounds.odin).
+	trouble:       Trouble,
 	video:         Video_Client,
 	ping:          Ping_Tracker,
 	files:         File_Client, // files in DMs (see files.odin)
@@ -262,6 +266,7 @@ check_alive :: proc(c: ^Voice_Client) {
 connection_lost :: proc(c: ^Voice_Client, why: string) {
 	link_reset(&c.link)
 	c.lost = true
+	trouble_end(c)
 	c.retry_at = time.tick_add(time.tick_now(), RECONNECT_EVERY)
 	publish_status(c, .Failed, why)
 }

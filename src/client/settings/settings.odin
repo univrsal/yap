@@ -161,6 +161,11 @@ Settings :: struct {
 	// (ui_message_bar.odin). They are kept per server, because a server's
 	// own emoji (":name:") only exist there.
 	recent_reactions:        map[string][dynamic]string,
+	// The sound of each event (audio.Sound_Event), by the event's key in
+	// audio.SOUND_EVENTS: a built-in sound ("aim/msg"), "none", or a file of
+	// the user's own ("custom:<file>", kept in the config folder's "sounds"
+	// folder). Events that play their default sound aren't stored.
+	sounds:                  map[string]string,
 }
 
 User_Settings :: struct {
@@ -300,6 +305,11 @@ settings_destroy :: proc(s: ^Settings) {
 		delete(recent)
 	}
 	delete(s.recent_reactions)
+	for key, name in s.sounds {
+		delete(key)
+		delete(name)
+	}
+	delete(s.sounds)
 	s^ = {}
 }
 
@@ -600,4 +610,65 @@ chat_scale_factor :: proc(s: ^Settings) -> f32 {
 // user_gain returns the factor the mixer multiplies a user's audio with.
 user_gain :: proc(u: User_Settings) -> f32 {
 	return 0 if u.muted else u.volume
+}
+
+// sound_name returns the sound an event plays: the user's choice, or the
+// default. "" is no sound. A built-in sound that no longer exists (renamed
+// in its pack) is the default again.
+sound_name :: proc(s: ^Settings, kind: audio.Sound_Event) -> string {
+	if name, ok := s.sounds[audio.SOUND_EVENTS[kind].key]; ok {
+		switch {
+		case name == audio.NO_SOUND:
+			return ""
+		case strings.has_prefix(name, audio.CUSTOM_SOUND_PREFIX):
+			return name
+		case:
+			if _, known := audio.sound_data(name); known {
+				return name
+			}
+		}
+	}
+	return audio.DEFAULT_SOUNDS[kind]
+}
+
+// set_sound_name gives an event a sound ("" for none). Its default isn't
+// stored.
+set_sound_name :: proc(s: ^Settings, kind: audio.Sound_Event, name: string) {
+	key := audio.SOUND_EVENTS[kind].key
+	old_key, old_name := delete_key(&s.sounds, key)
+	delete(old_key)
+	delete(old_name)
+	if name == audio.DEFAULT_SOUNDS[kind] {
+		return
+	}
+	s.sounds[strings.clone(key)] = strings.clone(name if name != "" else audio.NO_SOUND)
+}
+
+// sound_preset_use applies a preset of the Sounds page (audio.SOUND_PRESETS).
+sound_preset_use :: proc(s: ^Settings, preset: audio.Sound_Preset) {
+	for kind in audio.Sound_Event {
+		if kind == .None {
+			continue
+		}
+		switch preset.kind {
+		case .Default:
+			set_sound_name(s, kind, audio.DEFAULT_SOUNDS[kind])
+		case .Quiet:
+			set_sound_name(s, kind, "")
+		case .Pack:
+			if name := preset.sounds[kind]; name != "" {
+				set_sound_name(s, kind, name)
+			}
+		}
+	}
+}
+
+// sound_in_use says whether any event plays the sound `name`.
+sound_in_use :: proc(s: ^Settings, name: string) -> bool {
+	for kind in audio.Sound_Event {
+		if kind != .None && sound_name(s, kind) == name {
+			return true
+		}
+	}
+	return false
 }

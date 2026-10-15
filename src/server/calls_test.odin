@@ -130,12 +130,20 @@ test_calls :: proc(t: ^testing.T) {
 	}
 	_, change, changed := call_events(t, &ts, alice)
 	testing.expect(t, changed && change.state == .Ringing)
-	// Calls to or from an account that is already in a call are rejected.
+	// Calls to or from an account that is already in a call are rejected,
+	// and the callee gets a missed call.
 	carol := logged_in(t, &ts, "carol")
 	status, _ = call_start(t, &ts, carol, bob_acc.id)
 	testing.expect_value(t, status, proto.Status.Conflict)
+	note, found = last_note(t, &ts, carol_acc.id, bob_acc.id)
+	testing.expect(
+		t,
+		found && note.system == u8(proto.Call_System.Missed) && note.sender == carol_acc.id,
+	)
 	status, _ = call_start(t, &ts, carol, alice_acc.id)
 	testing.expect_value(t, status, proto.Status.Conflict)
+	note, found = last_note(t, &ts, carol_acc.id, alice_acc.id)
+	testing.expect(t, found && note.system == u8(proto.Call_System.Missed))
 
 	// When it's answered on the phone, the phone and alice are in the
 	// call's room. The laptop stops ringing and can't answer as well.

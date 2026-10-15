@@ -4,8 +4,12 @@ samples to and from them. Built into a static library by build.sh /
 build.bat; the Odin bindings are in miniaudio.odin.
 */
 
-/* No file formats, generators, or the high-level engine/node graph. */
-#define MA_NO_DECODING
+/* No encoders, generators, or the high-level engine/node graph. Decoding
+   (WAV, FLAC and MP3) is for sound files of the user's own on a desktop
+   (yap_audio_decode); a browser decodes those itself. */
+#if defined(__EMSCRIPTEN__)
+    #define MA_NO_DECODING
+#endif
 #define MA_NO_ENCODING
 #define MA_NO_GENERATION
 #define MA_NO_RESOURCE_MANAGER
@@ -234,3 +238,27 @@ void yap_audio_stream_device_name(yap_audio_stream* s, char name[YAP_AUDIO_NAME_
         name[0] = '\0';
     }
 }
+
+#if !defined(__EMSCRIPTEN__)
+int yap_audio_decode(const void* data, size_t size, unsigned int sample_rate, unsigned int channels,
+                     float** samples, unsigned long long* frame_count)
+{
+    ma_decoder_config config = ma_decoder_config_init(ma_format_f32, channels, sample_rate);
+    void* out = NULL;
+    ma_uint64 frames = 0;
+    ma_result result = ma_decode_memory(data, size, &config, &frames, &out);
+    if (result != MA_SUCCESS) {
+        *samples = NULL;
+        *frame_count = 0;
+        return result;
+    }
+    *samples = (float*)out;
+    *frame_count = frames;
+    return MA_SUCCESS;
+}
+
+void yap_audio_decoded_free(float* samples)
+{
+    ma_free(samples, NULL);
+}
+#endif

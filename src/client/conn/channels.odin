@@ -313,6 +313,8 @@ Command :: union {
 	Reconnect_Command,
 	Quality_Command,
 	Notification_Volume_Command,
+	Sound_Command,
+	Voice_Elsewhere_Command,
 	App_Audio_Command,
 	Chat_Command,
 	Typing_Command,
@@ -647,14 +649,14 @@ process_commands :: proc(c: ^Voice_Client) {
 			list_channels(c)
 		case Mute_Command:
 			if v.feedback && v.muted != c.voice.muted {
-				audio.voice_feedback_play(&c.voice, v.muted)
+				audio.voice_feedback_play(&c.voice, .Muted if v.muted else .Unmuted)
 			}
 			c.voice.muted = v.muted
 			set_sound(c, .Muted, v.muted)
 			log.infof("voice %s", "muted" if v.muted else "unmuted")
 		case Deafen_Command:
 			if v.feedback && v.deafened != c.voice.deafened {
-				audio.voice_feedback_play(&c.voice, v.deafened)
+				audio.voice_feedback_play(&c.voice, .Deafened if v.deafened else .Undeafened)
 			}
 			c.voice.deafened = v.deafened
 			set_sound(c, .Deafened, v.deafened)
@@ -689,6 +691,13 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Notification_Volume_Command:
 			c.voice.notifications.volume = clamp(v.volume, 0, settings.MAX_USER_VOLUME)
 			log.infof("notification volume: %.0f%%", c.voice.notifications.volume * 100)
+		case Sound_Command:
+			sound_command_apply(c, &v)
+		case Voice_Elsewhere_Command:
+			if c.voice_elsewhere != v.busy {
+				c.voice_elsewhere = v.busy
+				loop_sounds(c)
+			}
 		case App_Audio_Command:
 			c.voice.app_volume = clamp(v.volume, 0, settings.MAX_USER_VOLUME)
 			c.voice.app_mute_with_mic = v.mute_with_mic

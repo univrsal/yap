@@ -51,6 +51,8 @@ files_exports=_web_file_picked,_web_file_dropped
 avatar_exports=_web_avatar_reading,_web_avatar_picked,_web_avatar_failed
 # What web/decode.js calls (src/client/ui_images_worker_web.odin).
 decode_exports=_web_image_decoded
+# What web/sounds.js calls (src/client/ui_sounds_web.odin).
+sounds_exports=_web_sound_picked,_web_sound_failed,_web_sound_loaded,_web_sound_missing
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
@@ -77,7 +79,7 @@ emcc "$out/yap.obj" \
 	-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3 \
 	-sALLOW_MEMORY_GROWTH \
 	-sSTACK_SIZE=4MB \
-	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$background_exports,$paste_exports,$files_exports,$avatar_exports,$decode_exports \
+	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$background_exports,$paste_exports,$files_exports,$avatar_exports,$decode_exports,$sounds_exports \
 	--js-library web/wasi.js \
 	--pre-js web/touch.js \
 	--pre-js web/background.js \
@@ -87,6 +89,7 @@ emcc "$out/yap.obj" \
 	--pre-js web/keys.js \
 	--pre-js web/images.js \
 	--pre-js web/decode.js \
+	--pre-js web/sounds.js \
 	--pre-js web/video.js \
 	--pre-js web/push.js \
 	--shell-file web/index.html \

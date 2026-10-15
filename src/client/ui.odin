@@ -87,6 +87,10 @@ Net_Session :: struct {
 	// DMs unread on this server. These count towards the inbox's icon rather
 	// than the server's (see servers_frame).
 	dm_unread:      int,
+	// Whether our voice is in a room or a call here, and whether it is on
+	// another server as the session was last told (see sounds_frame).
+	voice_busy:     bool,
+	voice_elsewhere: bool,
 	// When the server was last asked when the people in the inbox were
 	// last online, and how many of them were online then. If fewer are online
 	// now, someone just left and it is worth asking again (see ask_last_seen).
@@ -220,6 +224,9 @@ UI :: struct {
 	listen_back:         bool,
 	// The welcome and goodbye sounds (ui_app_sounds.odin).
 	app_sound:           App_Sound,
+	// The Sounds page (ui_sounds.odin), and the open dropdown (ui_dropdown.odin).
+	sounds:              Sounds_UI,
+	dropdown:            Dropdown_State,
 	// Whether the voice gate section, with the meter, was on screen in the last
 	// frame (see gate_settings). The microphone is only opened for it in that case.
 	meter_shown:         bool,
@@ -396,6 +403,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	// The settings page shows what went wrong.
 	audio.audio_init(&ui.audio)
 	app_audio_init(ui)
+	sounds_load(ui)
 	app_sound_play(ui, .Welcome)
 
 	glfw.SetErrorCallback(glfw_error_callback)
@@ -501,6 +509,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	}
 	monitor_update(ui)
 	app_sound_step(ui)
+	sounds_frame(ui)
 	session_capture_update(ui)
 	app_audio_frame(ui)
 	servers_frame(ui)
@@ -747,6 +756,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	tray_hide(ui)
 	monitor_stop(ui)
 	app_sound_stop(ui)
+	sounds_destroy(ui)
 	if ui.settings_dirty {
 		save_settings(ui)
 	}
@@ -1160,6 +1170,7 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
 	ns.client.voice.notifications.volume = settings.notification_gain(&ui.settings)
+	sounds_session_init(ui, ns)
 	conn.push_command(
 		&ns.client.commands,
 		conn.Quality_Command{settings.settings_quality(&ui.settings)},
@@ -1462,6 +1473,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	search_window(ui, w, h)
 	// After every timeline, the thread windows' timelines too.
 	message_bar(ui)
+	dropdown_popup(ui, w, h)
 	// Last, and in windows of their own, so they are over the popups too.
 	chip_preview_popup(ui, w, h)
 	icon_hint(ui, w, h)

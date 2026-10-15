@@ -5,100 +5,107 @@ import "core:encoding/endian"
 
 import "client:audio/opus"
 
-@(private = "file")
-JOIN_SOUND_DATA := #load("../assets/join.opus")
-
-@(private = "file")
-LEAVE_SOUND_DATA := #load("../assets/leave.opus")
-
-@(private = "file")
-MESSAGE_SOUND_DATA := #load("../assets/msg.opus")
-
-@(private = "file")
-WELCOME_SOUND_DATA := #load("../assets/welcome.opus")
-
-@(private = "file")
-GOODBYE_SOUND_DATA := #load("../assets/goodbye.opus")
-
-@(private = "file")
-MUTED_SOUND_DATA := #load("../assets/muted.opus")
-
-@(private = "file")
-UNMUTED_SOUND_DATA := #load("../assets/unmuted.opus")
-
-@(private = "file")
-MAIL_SOUND_DATA := #load("../assets/mail.opus")
-
-@(private = "file")
-DONE_SOUND_DATA := #load("../assets/done.opus")
-
-// Made by scripts/call_sounds.py.
-@(private = "file")
-RING_SOUND_DATA := #load("../assets/ring.opus")
-
-@(private = "file")
-RINGBACK_SOUND_DATA := #load("../assets/ringback.opus")
-
-// The sound that is played repeatedly while a call rings.
-Loop_Kind :: enum {
-	None,
-	Ring, // an incoming call
-	Ringback, // our own outgoing call
-}
-
+// notifications_init gives every event its default sound (DEFAULT_SOUNDS).
+// The UI then sets the user's choices (notifications_set).
 notifications_init :: proc(s: ^Notification_Sounds) {
 	s.volume = 1
-	s.join = decode_ogg_opus(JOIN_SOUND_DATA, "join")
-	s.leave = decode_ogg_opus(LEAVE_SOUND_DATA, "leave")
-	s.message = decode_ogg_opus(MESSAGE_SOUND_DATA, "message")
-	s.welcome = decode_ogg_opus(WELCOME_SOUND_DATA, "welcome")
-	s.goodbye = decode_ogg_opus(GOODBYE_SOUND_DATA, "goodbye")
-	s.muted = decode_ogg_opus(MUTED_SOUND_DATA, "muted")
-	s.unmuted = decode_ogg_opus(UNMUTED_SOUND_DATA, "unmuted")
-	s.mail = decode_ogg_opus(MAIL_SOUND_DATA, "mail")
-	s.done = decode_ogg_opus(DONE_SOUND_DATA, "done")
-	s.ring = decode_ogg_opus(RING_SOUND_DATA, "ring")
-	s.ringback = decode_ogg_opus(RINGBACK_SOUND_DATA, "ringback")
-
+	for name, kind in DEFAULT_SOUNDS {
+		s.clips[kind] = sound_acquire(name)
+	}
 }
 
 notifications_destroy :: proc(s: ^Notification_Sounds) {
-	delete(s.join)
-	delete(s.leave)
-	delete(s.message)
-	delete(s.welcome)
-	delete(s.goodbye)
-	delete(s.muted)
-	delete(s.unmuted)
-	delete(s.mail)
-	delete(s.done)
-	delete(s.ring)
-	delete(s.ringback)
+	for clip in s.clips {
+		sound_release(clip)
+	}
+	sound_release(s.preview)
 	s^ = {}
 }
 
-notification_play :: proc(s: ^Notification_Sounds, kind: Notification_Kind) {
-	clip: []f32
-	switch kind {
-	case .Join:
-		clip = s.join
-	case .Leave:
-		clip = s.leave
-	case .Message:
-		clip = s.message
-	case .Welcome:
-		clip = s.welcome
-	case .Goodbye:
-		clip = s.goodbye
-	case .Muted:
-		clip = s.muted
-	case .Unmuted:
-		clip = s.unmuted
-	case .Mail:
-		clip = s.mail
-	case .Done:
-		clip = s.done
+// notifications_set gives an event the sound of that name (see
+// sound_acquire); "" or "none" is no sound.
+notifications_set :: proc(s: ^Notification_Sounds, kind: Sound_Event, name: string) {
+	old := s.clips[kind]
+	if old != nil && old.name == name {
+		return
 	}
+	s.clips[kind] = sound_acquire(name)
+	if old != nil {
+		forget(s, old)
+		sound_release(old)
+	}
+	if kind == s.loop_event && kind != .None {
+		// The loop goes on with the new sound.
+		s.loop_event = .None
+		notification_loop(s, kind)
+	}
+}
+
+// forget stops playing a sound that is about to be let go of, unless another
+// event of ours still has it.
+@(private = "file")
+forget :: proc(s: ^Notification_Sounds, clip: ^Sound_Clip) {
+	if s.preview == clip {
+		return
+	}
+	for c in s.clips {
+		if c == clip {
+			return
+		}
+	}
+	same :: proc(a: []f32, clip: ^Sound_Clip) -> bool {
+		return len(a) > 0 && raw_data(a) >= raw_data(clip.samples) &&
+			raw_data(a) < raw_data(clip.samples[len(clip.samples):])
+	}
+	if same(s.active, clip) {
+		s.active, s.position = nil, 0
+	}
+	kept := 0
+	for i in 0 ..< s.queued_count {
+		if !same(s.queued[i], clip) {
+			s.queued[kept] = s.queued[i]
+			kept += 1
+		}
+	}
+	for i in kept ..< s.queued_count {
+		s.queued[i] = nil
+	}
+	s.queued_count = kept
+	if same(s.loop, clip) {
+		s.loop, s.loop_pos = nil, 0
+	}
+}
+
+notification_play :: proc(s: ^Notification_Sounds, kind: Sound_Event) {
+	if clip := s.clips[kind]; clip != nil {
+		queue(s, one_shot(clip))
+	}
+}
+
+// notification_preview plays the sound of that name once, ahead of anything
+// queued, to try it out.
+notification_preview :: proc(s: ^Notification_Sounds, name: string) {
+	old := s.preview
+	s.preview = sound_acquire(name)
+	if old != nil {
+		forget(s, old)
+		sound_release(old)
+	}
+	notifications_clear(s)
+	if s.preview != nil {
+		queue(s, one_shot(s.preview))
+	}
+}
+
+// one_shot is what plays of a sound that isn't looped: at most
+// ONE_SHOT_SECONDS of it.
+@(private = "file")
+one_shot :: proc(clip: ^Sound_Clip) -> []f32 {
+	return clip.samples[:min(len(clip.samples), ONE_SHOT_SECONDS * SAMPLE_RATE * CHANNELS)]
+}
+
+@(private = "file")
+queue :: proc(s: ^Notification_Sounds, clip: []f32) {
 	if len(clip) == 0 {
 		return
 	}
@@ -117,21 +124,17 @@ notification_play :: proc(s: ^Notification_Sounds, kind: Notification_Kind) {
 	}
 }
 
-// notification_loop starts playing a sound repeatedly, from its start
-// unless that sound is already looping. Passing .None stops the loop.
-notification_loop :: proc(s: ^Notification_Sounds, kind: Loop_Kind) {
-	clip: []f32
-	switch kind {
-	case .None:
-	case .Ring:
-		clip = s.ring
-	case .Ringback:
-		clip = s.ringback
-	}
-	if raw_data(clip) == raw_data(s.loop) {
+// notification_loop starts playing an event's sound repeatedly, from its
+// start unless that event is already looping. Passing .None stops the loop.
+notification_loop :: proc(s: ^Notification_Sounds, kind: Sound_Event) {
+	if kind == s.loop_event {
 		return
 	}
-	s.loop, s.loop_pos = clip, 0
+	s.loop_event = kind
+	s.loop, s.loop_pos = nil, 0
+	if clip := s.clips[kind]; clip != nil && kind != .None {
+		s.loop = clip.samples
+	}
 }
 
 notifications_mix :: proc(s: ^Notification_Sounds, mix: []f32) {
@@ -170,7 +173,6 @@ notifications_mix :: proc(s: ^Notification_Sounds, mix: []f32) {
 	}
 }
 
-@(private = "file")
 decode_ogg_opus :: proc(data: []u8, name: string) -> []f32 {
 	pcm := make([dynamic]f32)
 	err: opus.Error

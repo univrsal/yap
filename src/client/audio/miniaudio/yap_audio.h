@@ -69,6 +69,16 @@ unsigned int yap_audio_stream_channels(yap_audio_stream* s);
 /* Name of the device actually opened (useful when the default was asked for). */
 void yap_audio_stream_device_name(yap_audio_stream* s, char name[YAP_AUDIO_NAME_SIZE]);
 
+/* Decoding a whole WAV, FLAC or MP3 file in memory to interleaved f32 at
+   `sample_rate` with `channels`, resampled and remixed as needed. Not in a
+   web build. Free the samples with yap_audio_decoded_free. */
+#if !defined(__EMSCRIPTEN__)
+#include <stddef.h>
+int  yap_audio_decode(const void* data, size_t size, unsigned int sample_rate, unsigned int channels,
+                      float** samples, unsigned long long* frame_count);
+void yap_audio_decoded_free(float* samples);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

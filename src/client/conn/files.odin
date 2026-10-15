@@ -258,6 +258,7 @@ file_offer_received :: proc(c: ^Voice_Client, m: proto.Message) {
 		return
 	}
 	log.infof("[file] %s offers %q (%s)", account_display(c, t.peer), t.name, format_bytes(t.size))
+	audio.voice_notification_play(&c.voice, .File_Offered)
 	publish_file(c, t, force = true)
 }
 
