@@ -300,7 +300,9 @@ transfer_receiver_init :: proc(r: ^Transfer_Receiver, size: u64) {
 	r^ = {
 		size   = size,
 		chunks = chunks,
-		have   = make([]u64, (chunks + 63) / 64),
+		// In int: in u32 this wraps for the largest counts, which a peer can
+		// ask for with the size of a file it offers.
+		have   = make([]u64, (int(chunks) + 63) / 64),
 	}
 }
 

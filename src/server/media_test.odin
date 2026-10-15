@@ -215,6 +215,21 @@ test_media_link :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, media_link_quiet(&links[1]))
 
+	// Nor for a sharer in another room than the viewer's: a lease can be
+	// taken on anyone, so the room is what keeps a share private.
+	viewer.room = 2
+	bump_version(s)
+	media_sync(s)
+	media_link_send(
+		m,
+		&links[1],
+		proto.encode_nack(&nack_buf, sharer.num, {frame = 7, first = 0, missing = 1}),
+	)
+	testing.expect(t, media_link_quiet(&links[1]))
+	viewer.room = 1
+	bump_version(s)
+	media_sync(s)
+
 	// The viewer's report reaches the sharer as a summary covering one
 	// viewer. A report about somebody the viewer doesn't watch is dropped.
 	report_buf: [proto.REPORT_SIZE]u8

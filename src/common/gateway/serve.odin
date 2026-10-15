@@ -460,6 +460,8 @@ serve_connection :: proc(g: ^Gateway, c: ^http.Conn) {
 	defer free(c)
 	defer net.close(c.sock)
 
+	// Without it, a client that never sends a head would keep its thread.
+	idle_timeout(c, HTTP_IDLE)
 	head, ok := http.read_head(c)
 	if !ok {
 		return

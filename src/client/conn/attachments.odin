@@ -665,6 +665,10 @@ attach_save :: proc(c: ^Voice_Client, cmd: Attach_Save_Command) {
 		notify(c, false, "That file is no longer available on the server.")
 		return
 	}
+	if f.size > proto.MAX_FILE_SIZE {
+		notify(c, false, "That file is too large to be saved.")
+		return
+	}
 	if sv != nil {
 		if sv.state == .Asking || sv.state == .Receiving {
 			return // it is already on its way

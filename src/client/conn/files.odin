@@ -180,7 +180,7 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 		file_source_close(&src)
 		return
 	}
-	if size == 0 || u64(proto.file_chunk_count(size)) * proto.FILE_CHUNK_DATA < size {
+	if size == 0 || size > proto.MAX_FILE_SIZE {
 		log.warnf("file: %q is empty or too large to send", raw_name)
 		file_source_close(&src)
 		return
@@ -245,7 +245,10 @@ file_offer_received :: proc(c: ^Voice_Client, m: proto.Message) {
 		last_heard = time.tick_now(),
 	}
 	c.files.transfers[m.id] = t
-	if name == "" || !proto.file_type_allowed(name) || m.file_size == 0 {
+	if name == "" ||
+	   !proto.file_type_allowed(name) ||
+	   m.file_size == 0 ||
+	   m.file_size > proto.MAX_FILE_SIZE {
 		// This is not something we would save, so decline straight away.
 		log.warnf(
 			"file: refusing %q because it is not a type of file that can be sent",

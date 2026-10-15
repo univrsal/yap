@@ -46,6 +46,11 @@ import "core:unicode/utf8"
 
 MAX_FILE_NAME :: 200 // bytes of UTF-8
 
+// The largest file that can be offered or saved. The recipient keeps a bit
+// per chunk (Transfer_Receiver), which is 28 MiB for a file of this size,
+// so the sender, who chooses the size, can't make it allocate much more.
+MAX_FILE_SIZE :: u64(256) << 30
+
 FILE_ACCEPT_SIZE :: 1 + 8 + 4 + 4
 FILE_CHUNK_HEADER_SIZE :: 1 + 8 + 4
 FILE_CHUNK_DATA :: MAX_PAYLOAD_SIZE - FILE_CHUNK_HEADER_SIZE

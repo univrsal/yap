@@ -148,6 +148,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		m.file_size = p.file_size
 		if conv.kind != .DM ||
 		   m.file_size == 0 ||
+		   m.file_size > proto.MAX_FILE_SIZE ||
 		   m.file_name == "" ||
 		   !proto.file_type_allowed(m.file_name) {
 			respond(u, id, .Invalid)
@@ -191,6 +192,13 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			links_restrict(s, conv, m.text),
 			conv.last_msg,
 		)
+		// Rewriting links and mentions can make the text longer. Text over
+		// the limit wouldn't fit in the events and history pages that carry
+		// the message, so it would break them for everyone.
+		if len(m.text) > proto.MAX_CHAT_SIZE {
+			respond(u, id, .Too_Large)
+			return
+		}
 	}
 	first := conv.last_msg == 0
 	if !msg_store(s, conv, &m, p.nonce) || !mentions_store(s, conv, m.id, mentioned) {
@@ -327,6 +335,10 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	if .Has_Attachments in src.flags {
 		m.flags += {.Has_Attachments}
+	}
+	if len(m.text) > proto.MAX_CHAT_SIZE {
+		respond(u, id, .Too_Large) // see msg_post
+		return
 	}
 	first := conv.last_msg == 0
 	if !msg_store(s, conv, &m, f.nonce) {

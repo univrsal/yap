@@ -17,6 +17,11 @@ import "common:proto"
 // The maximum number of bytes that may be queued for one user. Can be
 // overridden for testing with e.g. -define:YAP_STREAM_QUEUE=50000
 STREAM_QUEUE_MAX :: #config(YAP_STREAM_QUEUE, 4 * 1024 * 1024)
+// The same for a connection that isn't logged in, which can only be sent
+// the server's info and icon and the answers about logging in. It's much
+// smaller so that connections without an account, which never acknowledge
+// what they're sent, can't make the server keep a lot of memory for them.
+STREAM_QUEUE_WAITING :: min(128 * 1024, STREAM_QUEUE_MAX)
 // The rate limit per user: bytes per second and the largest burst of bytes
 // that may be sent at once.
 STREAM_RATE :: 256 * 1024
@@ -33,7 +38,7 @@ Conn_Stream :: struct {
 }
 
 stream_init :: proc(st: ^Conn_Stream) {
-	st.max_queue = STREAM_QUEUE_MAX
+	st.max_queue = STREAM_QUEUE_WAITING // until conn_login
 	st.tokens = STREAM_BURST
 	st.last = time.tick_now()
 }

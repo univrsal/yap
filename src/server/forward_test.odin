@@ -159,6 +159,15 @@ test_forward :: proc(t: ^testing.T) {
 	)
 	m, _ = msg_by_id(s, plain)
 	testing.expect_value(t, m.text, "see (a message in a DM)")
+	// Many of them would make the text longer than a message can be, so
+	// such a message is refused.
+	many := strings.repeat(
+		strings.concatenate({link, " "}, context.temp_allocator),
+		proto.MAX_CHAT_SIZE / (len(link) + 1),
+		context.temp_allocator,
+	)
+	status, _ = post(t, &ts, bob, home, many, 107)
+	testing.expect_value(t, status, proto.Status.Too_Large)
 	// A link to a channel message can be posted anywhere.
 	channel_link := proto.link_token(home, pic.id)
 	_, kept = post(t, &ts, bob, dm, channel_link, 106)

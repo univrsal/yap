@@ -23,7 +23,8 @@ import "common:proto"
 // Besides the limit on hashing (one request per connection at a time and at
 // most HASH_QUEUE_MOST waiting), registrations are limited server-wide to
 // REGISTER_BURST at once and one every REGISTER_EVERY after that, so a
-// script can't fill the server with accounts. Open servers that want more
+// script can't fill the server with accounts, nor use the refusals to find
+// out which usernames and email addresses have accounts. Open servers that want more
 // control can require invite codes (see invites.odin).
 //
 // With verify_email the new account starts out Unverified and is deleted if
@@ -169,13 +170,16 @@ register :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		invite = strings.clone(clean, context.temp_allocator)
 	}
-	if reason, ok := register_checks(s, username, email, invite); !ok {
-		refuse_register(u, id, reason)
-		return
-	}
+	// The limit comes before the checks, since their answers say whether a
+	// username, an email address or an invite code is known to the server.
+	// Otherwise anyone could ask about as many as they like.
 	if !register_take(s) {
 		log.warnf("%s: too many registrations in a short time, refused one", conn_label(u))
 		respond(u, id, .Rate_Limited)
+		return
+	}
+	if reason, ok := register_checks(s, username, email, invite); !ok {
+		refuse_register(u, id, reason)
 		return
 	}
 

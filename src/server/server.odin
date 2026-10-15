@@ -45,7 +45,16 @@ Client :: struct {
 	// accepted for receiving (packets may still be in flight), but never
 	// used for sending.
 	superseded:    bool,
+	// When the Welcome was last sent again for a resent Handshake_Finish.
+	rewelcomed:    time.Tick,
 }
+
+// How often a keyed session answers a resent Handshake_Finish with another
+// Welcome at most. The Finish isn't checked again, so anyone who knows the
+// session's index could otherwise make the server send Welcomes as fast as
+// they send Finishes.
+@(private = "file")
+REWELCOME_EVERY :: 500 * time.Millisecond
 
 // Conn is a connection: one client, identified by its device's static key,
 // which lives for as long as it has a session. (Not to be confused with a
@@ -440,7 +449,11 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		// Our Welcome got lost and the client resent Finish. Welcome it
 		// again, at the address we know rather than the (unauthenticated)
 		// source of this packet.
-		send_welcome(s, c)
+		now := time.tick_now()
+		if c.rewelcomed == {} || time.tick_diff(c.rewelcomed, now) >= REWELCOME_EVERY {
+			c.rewelcomed = now
+			send_welcome(s, c)
+		}
 		return
 	}
 
@@ -565,6 +578,7 @@ conn_of :: proc(s: ^Server, key: [proto.KEY_SIZE]byte) -> ^Conn {
 // already checked that it is allowed to log in.
 conn_login :: proc(s: ^Server, u: ^Conn, acc: ^Account) {
 	u.account = acc
+	u.stream.max_queue = STREAM_QUEUE_MAX
 	append(&acc.conns, u)
 	if .Unverified in acc.flags {
 		log.infof("%s logged in, unverified", conn_label(u))
@@ -719,8 +733,16 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 
 	// The packet is authenticated, so it's safe to follow the client to a
-	// new address.
-	c.endpoint = from
+	// new address. Not before the client has logged in, though: the
+	// handshake can be made by anyone (who knows the server password), and
+	// packets with the source address of somebody else would make the
+	// server send its answers there.
+	if from != c.endpoint {
+		if c.conn.account == nil {
+			return
+		}
+		c.endpoint = from
+	}
 	c.last_recv = time.tick_now()
 
 	if !c.confirmed && !c.superseded {

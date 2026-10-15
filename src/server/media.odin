@@ -552,6 +552,12 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 	if !ok || sharer == 0 || sharer != ms.watching || time.tick_diff(now, ms.watch_until) <= 0 {
 		return
 	}
+	// A lease can be taken on anyone (media_watch), so the room is checked
+	// here as media_relay does: only viewers in the sharer's room get its
+	// fragments.
+	if !media_same_room(m, viewer, sharer) {
+		return
+	}
 	sh := m.sharers[sharer] or_else {}
 	if sh.cache == nil {
 		return
@@ -577,6 +583,21 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 		ms.resend_budget -= len(msg)
 		media_send(m, ms, msg)
 	}
+}
+
+// media_same_room tells whether a sharer is sharing in the viewer's room.
+@(private = "file")
+media_same_room :: proc(m: ^Media, viewer: Media_Peer, sharer: proto.User_Num) -> bool {
+	if viewer.room == 0 || viewer.num == sharer {
+		return false
+	}
+	// A user can be connected from more than one device.
+	for _, peer in m.peers {
+		if peer.num == sharer && peer.sharing && peer.room == viewer.room {
+			return true
+		}
+	}
+	return false
 }
 
 // media_report stores a viewer's report about the sharer it holds a lease on.

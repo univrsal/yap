@@ -48,6 +48,24 @@ DEFAULT_WEB_DIR :: "web/out"
 @(private = "file")
 UDP_POLL :: 200 * time.Millisecond
 
+// At most this many browsers and API clients are connected at once. Each
+// is a thread (a relayed browser two, and a UDP socket), so more are closed
+// right away rather than let a flood of connections use up the threads and
+// sockets of the process that is also the chat server.
+@(private = "file")
+MAX_CONNECTIONS :: 256
+
+// How long a connection may take to send a request's head, so that
+// connections that send nothing (or a byte at a time) don't stay forever.
+@(private = "file")
+HEAD_TIMEOUT :: 10 * time.Second
+
+// How long a relayed browser may send nothing before it's disconnected. The
+// client sends a keepalive every proto.KEEPALIVE_AFTER, but a browser may
+// slow down the timers of a tab in the background a lot.
+@(private = "file")
+WEBSOCKET_IDLE :: 5 * time.Minute
+
 // A file that a browser may ask for. The files are read once when the relay
 // starts, so after rebuilding the web client the server has to be restarted.
 @(private = "file")
@@ -69,6 +87,9 @@ Relay :: struct {
 	// Only these files of the web directory are served.
 	files:    [9]Web_File,
 	api:      ^gateway.Gateway, // nil if the API is disabled
+	// How many connections there are, which the threads count down when
+	// they end (see MAX_CONNECTIONS).
+	open:     int,
 }
 
 // start_relay listens for browsers on `port` in a thread of its own and
@@ -156,16 +177,31 @@ accept_browsers :: proc(r: ^Relay) {
 			log.warnf("accept failed: %v", accept_err)
 			continue
 		}
+		if sync.atomic_add(&r.open, 1) >= MAX_CONNECTIONS {
+			sync.atomic_sub(&r.open, 1)
+			log.warnf(
+				"too many connections, closing the one from %s",
+				net.endpoint_to_string(from, context.temp_allocator),
+			)
+			net.close(sock)
+			continue
+		}
 		c := new(http.Conn)
 		c.sock, c.remote = sock, from
 		log.debugf("connection from %s", net.endpoint_to_string(from, context.temp_allocator))
-		thread.create_and_start_with_poly_data2(
+		started := thread.create_and_start_with_poly_data2(
 			r,
 			c,
 			handle_connection,
 			init_context = context,
 			self_cleanup = true,
 		)
+		if started == nil {
+			log.warn("could not start a thread for a connection")
+			net.close(sock)
+			free(c)
+			sync.atomic_sub(&r.open, 1)
+		}
 	}
 }
 
@@ -197,9 +233,13 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
+	defer sync.atomic_sub(&r.open, 1)
 	defer free(c)
 	defer net.close(c.sock)
 
+	// gateway.serve sets timeouts of its own for the API.
+	net.set_option(c.sock, .Receive_Timeout, HEAD_TIMEOUT)
+	net.set_option(c.sock, .Send_Timeout, HEAD_TIMEOUT)
 	head, ok := http.read_head(c)
 	if !ok {
 		return
@@ -297,6 +337,7 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, m
 	if !http.send_all(c.sock, transmute([]u8)accept) {
 		return
 	}
+	net.set_option(c.sock, .Receive_Timeout, WEBSOCKET_IDLE)
 	log.infof(
 		"relaying a browser%s (which asked for %s)",
 		"'s media link" if media else "",
