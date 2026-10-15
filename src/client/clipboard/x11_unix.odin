@@ -7,17 +7,15 @@ import "core:dynlib"
 import "core:sys/posix"
 import "core:time"
 
-/*
-X11: we ask the owner of the CLIPBOARD selection to convert it into a
-property on a hidden window of our own, over a connection of our own
-(so nothing interferes with GLFW's). First the TARGETS it offers, then
-the image type we prefer. Large data comes in INCR mode: the owner
-writes it in chunks, each after we delete the previous one, and ends
-with an empty chunk.
-
-libX11 is loaded at runtime (GLFW has it loaded already when running on
-X11).
-*/
+// X11: we ask the owner of the CLIPBOARD selection to convert it into a
+// property on a hidden window of our own, over a connection of our own
+// (so nothing interferes with GLFW's). First the TARGETS it offers, then
+// the image type we prefer. Large data comes in INCR mode: the owner
+// writes it in chunks, each after we delete the previous one, and ends
+// with an empty chunk.
+//
+// libX11 is loaded at runtime (GLFW has it loaded already when running on
+// X11).
 
 @(private = "file")
 Display :: rawptr

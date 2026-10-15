@@ -6,22 +6,20 @@ import mu "vendor:microui"
 
 import "client:conn"
 
-/*
-Selecting text in the chat and the log with the mouse, and copying it
-with Ctrl+C.
-
-A panel's text comes in items - a log line, a chat message's header or
-its body - numbered in the order they're shown, by numbers that stay the
-same from frame to frame (the chat's and the log's running totals), and
-a place in the text is an item and a byte offset into it. The selection
-runs from where the button went down (anchor) to where the pointer is
-now (focus), in whichever order they come.
-
-Nothing is kept about where text was drawn: each frame, as the panel
-lays its lines out, select_line finds where the pointer is among them
-and paints the selected part, and select_item collects the selected
-text, so it's there for Ctrl+C without going back over the panel.
-*/
+// Selecting text in the chat and the log with the mouse, and copying it with
+// Ctrl+C.
+//
+// A panel's text is made up of items (a log line, a chat message's header or
+// its body). They are numbered in the order they are shown, with numbers that
+// stay the same from frame to frame (the chat's and the log's running totals).
+// A place in the text is an item plus a byte offset into it. The selection
+// runs from where the button went down (anchor) to where the pointer is now
+// (focus), in whichever order they are.
+//
+// Nothing is stored about where text was drawn. Each frame, while the panel
+// lays out its lines, select_line finds where the pointer is among them and
+// paints the selected part, and select_item collects the selected text. That
+// way the text is ready for Ctrl+C without going back over the panel.
 
 Select_Panel :: enum {
 	None,
@@ -38,24 +36,24 @@ Select_Panel :: enum {
 
 Text_Pos :: struct {
 	item:   i64,
-	offset: int, // bytes into the item's text
+	offset: int, // byte offset into the item's text
 }
 
 Selection :: struct {
-	panel:     Select_Panel, // where the selection is; None for no selection
+	panel:     Select_Panel, // the panel the selection is in; None for no selection
 	anchor:    Text_Pos,
 	focus:     Text_Pos,
 	dragging:  bool,
 
-	// This frame's, for the panel being drawn (select_begin to
+	// This frame's state for the panel being drawn (select_begin to
 	// select_end).
 	drawing:   Select_Panel,
 	pressed:   bool, // the button went down over the panel
 	hit:       Text_Pos, // the place under the pointer, so far
 	found:     bool, // `hit` is set
-	over_text: bool, // the pointer is on some text, or a text box: an I-beam cursor
-	text:      strings.Builder, // what's selected, for Ctrl+C
-	last_item: i64, // the item text was last added from
+	over_text: bool, // the pointer is on some text or a text box, so it shows an I-beam cursor
+	text:      strings.Builder, // the selected text, for Ctrl+C
+	last_item: i64, // the item that text was last added from
 }
 
 ui_select_destroy :: proc(ui: ^UI) {
@@ -79,11 +77,9 @@ select_begin :: proc(ui: ^UI, panel: Select_Panel) {
 	s.pressed = .LEFT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, body)
 }
 
-/*
-select_end finishes the panel's text, just before mu.end_panel: a press
-starts a new selection, a drag moves its end, and Ctrl+C copies it.
-Dragging past the top or bottom scrolls the panel along.
-*/
+// select_end finishes the panel's text, just before mu.end_panel. A press
+// starts a new selection, a drag moves its end, and Ctrl+C copies it. Dragging
+// past the top or bottom scrolls the panel along.
 select_end :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	s := &ui.select
@@ -115,7 +111,7 @@ select_end :: proc(ui: ^UI) {
 			cnt.scroll.y += max((y - body.y - body.h) / 2, 1)
 		}
 	}
-	// A focused text box has Ctrl+C for itself.
+	// A focused text box handles Ctrl+C itself.
 	if ctx.focus_id == 0 &&
 	   .C in ctx.key_pressed_bits &&
 	   .CTRL in ctx.key_down_bits &&
@@ -126,8 +122,8 @@ select_end :: proc(ui: ^UI) {
 	}
 }
 
-// select_item adds an item's selected text, if any, to what Ctrl+C
-// copies. Call it once per item, in order.
+// select_item adds an item's selected text, if any, to what Ctrl+C copies.
+// Call it once per item, in order.
 select_item :: proc(ui: ^UI, item: i64, text: string) {
 	s := &ui.select
 	lo, hi, ok := selected_range(s, item, len(text))
@@ -141,13 +137,10 @@ select_item :: proc(ui: ^UI, item: i64, text: string) {
 	s.last_item = item
 }
 
-/*
-select_line is one line of an item as it's drawn: text[start:end] at
-`pos`, in `font` (the style's if nil). It paints the selected part of
-it (so call it before drawing the text), and works out whether the
-pointer is on the line, or past it, for the place a press or a drag
-lands on.
-*/
+// select_line handles one line of an item as it is drawn: text[start:end] at
+// `pos`, in `font` (the style's if nil). It paints the selected part of the
+// line (so call it before drawing the text) and works out whether the pointer
+// is on the line or past it, which decides where a press or a drag lands.
 select_line :: proc(
 	ui: ^UI,
 	item: i64,
@@ -163,9 +156,9 @@ select_line :: proc(
 	h := ctx.text_height(font)
 	mouse := ctx.mouse_pos
 
-	// The line the pointer is on, or else the last line above it, is
-	// where it lands: at the end of that line if it's below it. Above
-	// every line, it lands at the start of the first.
+	// A press or drag lands on the line the pointer is on or, failing that,
+	// the last line above it, at the end of that line if the pointer is below
+	// it. Above every line it lands at the start of the first line.
 	if mouse.y >= pos.y {
 		if mouse.y < pos.y + h {
 			s.hit = {item, offset_at(ctx, font, text, start, end, mouse.x - pos.x, rich)}
@@ -192,17 +185,17 @@ select_line :: proc(
 	if a >= b {
 		return
 	}
-	// Both edges are measured from the start of the line. Widths come in
-	// whole pixels, rounded up, so the width of text[a:b] by itself can
-	// be a pixel off what the two edges are apart, and the far edge
-	// would shift about as the near one moved.
+	// Both edges are measured from the start of the line. Widths are whole
+	// pixels, rounded up, so the width of text[a:b] by itself can differ by a
+	// pixel from the distance between the two edges, and the far edge would
+	// shift around as the near one moved.
 	x0 := pos.x + span_width(ctx, font, text, start, a, rich)
 	x1 := pos.x + span_width(ctx, font, text, start, b, rich)
 	mu.draw_rect(ctx, {x0, pos.y, x1 - x0, h}, theme.selection)
 }
 
-// selected_range is the part of an item's text, `length` bytes long,
-// that's selected in the panel being drawn.
+// selected_range is the part of an item's text (`length` bytes long) that is
+// selected in the panel being drawn.
 @(private = "file")
 selected_range :: proc(s: ^Selection, item: i64, length: int) -> (lo, hi: int, ok: bool) {
 	if !has_selection(s, s.drawing) {
@@ -221,8 +214,8 @@ selected_range :: proc(s: ^Selection, item: i64, length: int) -> (lo, hi: int, o
 	return lo, hi, lo < hi
 }
 
-// span_width is how wide text[a:b] is drawn: in `font`, or for a
-// message's text (`rich`, ui_rich_text.odin) in its runs' faces.
+// span_width is how wide text[a:b] is drawn: in `font`, or in its runs' faces
+// for a message's text (`rich`, ui_rich_text.odin).
 span_width :: proc(
 	ctx: ^mu.Context,
 	font: mu.Font,
@@ -236,8 +229,8 @@ span_width :: proc(
 	return ctx.text_width(font, text[a:b])
 }
 
-// offset_at is the place in text[start:end] nearest `x` pixels from
-// where it starts, between two characters.
+// offset_at is the position in text[start:end] nearest to `x` pixels from its
+// start, between two characters.
 offset_at :: proc(
 	ctx: ^mu.Context,
 	font: mu.Font,
@@ -246,10 +239,10 @@ offset_at :: proc(
 	x: i32,
 	rich: ^Rich = nil,
 ) -> int {
-	// Each character's edges are where the text up to them ends, as
-	// select_line paints them. Adding up the characters' own widths
-	// instead would add up their rounding too, and land further left
-	// the longer the line.
+	// Each character's edges are where the text up to that character ends, as
+	// select_line paints them. Adding up the characters' own widths instead
+	// would also add up their rounding and end up further left the longer the
+	// line is.
 	left: i32
 	for ch, i in text[start:end] {
 		next := start + i + utf8.rune_size(ch)

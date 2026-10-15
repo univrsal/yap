@@ -24,82 +24,80 @@ import "client:settings"
 import "common:."
 import "common:proto"
 
-/*
-The windowed client: GLFW for the window and input, microui for widgets,
-Direct3D 11 on Windows, Metal on macOS and OpenGL 3.3 elsewhere to draw
-them (see render/render.odin).
-
-The UI owns the main thread (GLFW requires it). Each connection runs the
-same network loop as headless mode on its own thread; the two sides meet
-only in the View (network -> UI) and the command queue (UI -> network).
-*/
+// The windowed client: GLFW for the window and input, microui for widgets, and
+// Direct3D 11 on Windows, Metal on macOS or OpenGL 3.3 elsewhere to draw them
+// (see render/render.odin).
+//
+// The UI owns the main thread (GLFW requires it). Each connection runs the
+// same network loop as headless mode on its own thread. The two sides meet
+// only in the View (network -> UI) and the command queue (UI -> network).
 
 UI_Options :: struct {
 	key_path:      string,
 	known_servers: string,
-	server:        string, // prefilled, and connected to right away
+	server:        string, // prefilled in the connect form and connected to right away
 	password:      string, // for `server`
 	channel:       string, // joined on connect
 	logs:          ^conn.Log_Lines,
 	settings_path: string,
 }
 
-// The connection and the thread (or the frame loop) running it; see
+// The connection and the thread (or the frame loop) that runs it. See
 // net_native.odin and net_web.odin.
 Net_Session :: struct {
 	client:         ^conn.Voice_Client,
 	thread:         Net_Thread,
 	stop:           bool, // set atomically to end the network loop
-	// Without threads there is nobody to notice `stop`, so the frame
-	// loop notes here that the connection is done with (net_web.odin).
+	// Without threads nobody would notice `stop`, so the frame loop
+	// records here that the connection is finished (see net_web.odin).
 	stopped:        bool,
 
-	// Owned copies; the UI's buffers may change while the thread runs.
+	// Owned copies, because the UI's buffers may change while the thread runs.
 	key_path:       string,
 	server:         string,
 	password:       string,
 	known_servers:  string,
-	channel:        string, // to look at and talk in from the start, if any
-	look_at:        string, // or else the channel to look at
-	// What the connection says, for the UI (the client's View), and what
-	// the UI keeps of this server while another is shown (ui_servers.odin).
+	channel:        string, // the channel to show and talk in from the start, if any
+	look_at:        string, // otherwise the channel to only look at
+	// What the connection reports to the UI (the client's View), and what
+	// the UI keeps of this server while another one is shown (see ui_servers.odin).
 	view:           conn.View,
 	stash:          Server_UI,
-	// Which WebSockets are this session's in a web build: slot and
-	// slot + 1 (conn/transport_web.odin).
+	// Which WebSockets belong to this session in a web build: slot and
+	// slot + 1 (see conn/transport_web.odin).
 	slot:           i32,
-	// Whether it was last told whoever uses this is idle, and that the
-	// page is out of sight (ui_activity.odin).
+	// Whether the server was last told that the user is idle, and that the
+	// page is out of sight (see ui_activity.odin).
 	idle_told:      bool,
 	hidden_told:    bool,
-	// Web Push (ui_push_web.odin): whether the browser has been asked
-	// what it has for this server's key, and the key it was asked for.
+	// Web Push (see ui_push_web.odin): whether the browser has been asked
+	// about its subscription for this server's key, and the key it was asked for.
 	push_checked:   bool,
 	push_key:       [proto.PUSH_KEY_SIZE]u8,
-	// Being joined from the + page (ui_join.odin): off the rail, and
-	// not in the settings, until it's logged in.
+	// Set while the server is being joined from the + page (see ui_join.odin). It
+	// is kept off the rail and out of the settings until the login succeeds.
 	joining:        bool,
 	// Messages unread in its channels, and how many of them mention us,
-	// as of this frame: for the rail (servers_frame).
+	// as of this frame. Used by the rail (see servers_frame).
 	unread:         int,
 	mentions:       int,
-	// The call coming in there last told of on the desktop, so it's told
-	// once (session_notices).
+	// The incoming call that was last announced on the desktop, so that each
+	// call is only announced once (see session_notices).
 	call_announced: proto.Call_Id,
-	// DMs unread there, which count on the inbox's icon rather than the
-	// server's (servers_frame).
+	// DMs unread on this server. These count towards the inbox's icon rather
+	// than the server's (see servers_frame).
 	dm_unread:      int,
 	// When the server was last asked when the people in the inbox were
-	// last here, and how many of them were online then: fewer now means
-	// someone just left, and it's worth asking again (ask_last_seen).
+	// last online, and how many of them were online then. If fewer are online
+	// now, someone just left and it is worth asking again (see ask_last_seen).
 	seen_asked:     time.Tick,
 	seen_online:    int,
 
 	// Audio devices, opened and closed on the UI thread (which owns the
-	// miniaudio context); they feed the client's Voice rings.
+	// miniaudio context). They feed the client's Voice rings.
 	streams:        audio.Audio_Streams,
-	// The microphone is wanted, and has been opened, or tried to be
-	// (session_capture_update).
+	// Whether the microphone is wanted, and whether it has been opened or an
+	// attempt to open it was made (see session_capture_update).
 	capture_on:     bool,
 }
 
@@ -109,7 +107,7 @@ Extra_Key :: enum {
 	Tab,
 	Escape,
 	Newline, // Shift+Enter, or Enter on a phone's keyboard: a new line in a text area
-	// Markdown in a composer (composer_keys): Ctrl+B, Ctrl+I, Ctrl+U,
+	// Markdown shortcuts in a composer (see composer_keys): Ctrl+B, Ctrl+I, Ctrl+U,
 	// Ctrl+Shift+X, Ctrl+E.
 	Bold,
 	Italic,
@@ -130,7 +128,7 @@ Action :: enum {
 	Start, // connect to every joined server, on the first frame
 	Disconnect,
 	Reconnect, // the connect screen's "Reconnect"
-	Trust_Key, // the connect screen's "trust the new key" (ui_known_servers.odin)
+	Trust_Key, // the connect screen's "Trust the new key" (ui_known_servers.odin)
 }
 
 UI :: struct {
@@ -143,118 +141,118 @@ UI :: struct {
 	server_len:          int,
 	password_buf:        [proto.MAX_PASSWORD_SIZE]u8,
 	password_len:        int,
-	// The connect screen's card's height last frame (card_end).
+	// The height of the connect screen's card in the last frame (see card_end).
 	connect_card_h:      i32,
-	// What the shown server's connection says (its session's View), or
-	// with none, `no_view`, which says nothing is connected.
+	// What the shown server's connection reports (its session's View), or
+	// `no_view` when nothing is connected.
 	view:                ^conn.View,
 	no_view:             conn.View,
 	session:             ^Net_Session,
-	// Every connection, in the rail's order (ui_servers.odin); `session`
-	// is one of them, or nil with none. The one being joined from the +
-	// dialog is among them too, though not on the rail (ui_join.odin).
+	// Every connection, in the rail's order (see ui_servers.odin). `session`
+	// is one of them, or nil if there are none. The one being joined from the +
+	// dialog is included here too, although it is not on the rail (see ui_join.odin).
 	sessions:            [dynamic]^Net_Session,
 	join:                UI_Join,
 	rail:                UI_Rail, // its menu, and dragging (ui_servers.odin)
 	// Messages unread on every server, in channels and DMs that aren't
-	// muted: for the window's title and the tray (servers_frame).
+	// muted. Used for the window's title and the tray (see servers_frame).
 	unread:              int,
-	// Mentions unread on every server, muted channels too, and DMs: the
-	// same, which the title and the tray show before `unread`.
+	// Mentions unread on every server, including muted channels and DMs. The
+	// title and the tray show this before `unread`.
 	mentions:            int,
 	// DMs unread on every server, for the inbox's icon on the rail.
 	dm_unread:           int,
-	// The inbox (ui_buddies.odin): everyone in it on every server, as of
-	// this frame, and whose DM to open once the rail has switched to
-	// their server (switch_now).
+	// The inbox (see ui_buddies.odin): everyone in it, across all servers, as of
+	// this frame, and the DM to open once the rail has switched to
+	// that person's server (see switch_now).
 	inbox:               []Buddy_Entry,
 	inbox_open:          proto.Account_Id,
-	// Voice, or a call ringing, in a server that isn't shown, as of this
-	// frame (ui_voice_panel.odin).
+	// Voice, or a ringing call, in a server that isn't shown, as of this
+	// frame (see ui_voice_panel.odin).
 	voice_other:         Voice_Elsewhere,
-	// What the UI keeps of the shown server, which each session keeps
-	// while it isn't shown (Net_Session.stash; ui_servers.odin).
+	// What the UI keeps of the shown server. Each session keeps its own copy
+	// while it isn't shown (see Net_Session.stash and ui_servers.odin).
 	using srv:           Server_UI,
-	// The session in voice, as of this frame (session_capture_update).
+	// The session that is in voice, as of this frame (see session_capture_update).
 	voice_at:            ^Net_Session,
-	// The rail was clicked: which session to show after the frame. See
+	// The rail was clicked: the session to show after the frame. See
 	// switch_now.
 	switch_to:           ^Net_Session,
 	switching:           bool,
-	// Connecting/disconnecting waits on the network thread, which may be
-	// waiting on the View lock, so it happens after layout, not during.
+	// Connecting and disconnecting wait on the network thread, which may be
+	// waiting on the View lock, so they happen after the layout, not during it.
 	action:              Action,
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
-	// What the window's title says of unread messages: the mentions, -1
-	// for "(*)" (something unread but no mention), 0 for neither (see
+	// What the window's title shows about unread messages: the number of mentions,
+	// -1 for "(*)" (something unread but no mention) or 0 for neither (see
 	// title_key).
 	title_unread:        int,
 	settings_tab:        Settings_Tab, // which the settings page shows (ui_settings.odin)
-	// And the category picked in each of its tabs.
+	// The category selected in each of the settings tabs.
 	settings_client:     Client_Category,
 	settings_server:     Server_Category,
-	// In a narrow window: the categories are showing, rather than the
-	// one picked (settings_page).
+	// In a narrow window: the list of categories is showing instead of the
+	// selected one (see settings_page).
 	settings_list:       bool,
-	// Which palette is in use, and what the desktop said (theme.odin).
+	// Which palette is in use, and what the desktop reported (see theme.odin).
 	theme_state:         UI_Theme,
-	// For the chat's local timestamps, every server's; nil means UTC
-	// (ui_chat_time_native.odin).
+	// For the chat's local timestamps, for every server. nil means UTC
+	// (see ui_chat_time_native.odin).
 	chat_tz:             ^datetime.TZ_Region,
 	activity:            UI_Activity, // whether whoever uses this is idle (ui_activity.odin)
 	video:               UI_Video, // screen sharing (ui_video.odin)
 	app_audio:           UI_App_Audio, // sharing an application's audio (ui_app_audio_native.odin)
 	muted:               bool,
 	deafened:            bool,
-	// Mute as it was before deafening turned it on, so undeafening can
-	// put it back rather than always unmuting (see set_deafened).
+	// The mute state from before deafening turned it on, so that undeafening
+	// restores it instead of always unmuting (see set_deafened).
 	muted_before_deafen: bool,
 
-	// Whose message header is being drawn, and where their name is in it
-	// (byte range), so a click on the name opens their menu. 0: none.
+	// Whose message header is being drawn, and the byte range of their name in
+	// it, so that a click on the name opens their menu. 0: none.
 	header_sender:       proto.Account_Id,
 	header_name:         [2]int,
-	// Where in the header a bot's tag goes (byte offset, after its name,
-	// where the header leaves room for it: ui_bots.odin); 0 for none.
+	// Where a bot's tag goes in the header (a byte offset after its name, where the
+	// header leaves room for it, see ui_bots.odin). 0 for none.
 	header_bot:          int,
 	// The settings page's microphone monitor and level meter (ui_gate.odin).
 	monitor:             Mic_Monitor,
 	listen_back:         bool,
 	// The welcome and goodbye sounds (ui_app_sounds.odin).
 	app_sound:           App_Sound,
-	// The voice gate section, with the meter, was on screen last frame
-	// (gate_settings); the microphone is only opened for it then.
+	// Whether the voice gate section, with the meter, was on screen in the last
+	// frame (see gate_settings). The microphone is only opened for it in that case.
 	meter_shown:         bool,
 	meter_level:         f32,
 	meter_time:          time.Tick,
-	// Slider drags change the settings every frame; save at most once a
+	// Slider drags change the settings every frame, so save at most once a
 	// second, and on exit.
 	settings_dirty:      bool,
-	// People's pictures and servers' emoji kept on disk between
-	// sessions (ui_image_cache.odin), and the settings page's box for
-	// its folder.
+	// People's pictures and servers' emoji that are kept on disk between
+	// sessions (see ui_image_cache.odin), and the settings page's box for
+	// the folder.
 	image_cache:         conn.Image_Cache,
 	image_cache_dir_buf: [512]u8,
 	image_cache_dir_len: int,
-	// Where the memory goes: the settings' page, the line in the log
-	// (ui_memory.odin).
+	// Memory usage: the settings page and the line in the log
+	// (see ui_memory.odin).
 	memory:              UI_Memory,
-	// Keys microui has no name for, pressed since the last frame.
+	// Keys that microui has no name for, pressed since the last frame.
 	keys:                bit_set[Extra_Key],
-	// A message was picked to edit, or a mention completed: its composer
-	// takes the focus, with the cursor at `focus_composer_at` (-1: the
+	// A message was picked to be edited, or a mention was completed: its composer
+	// takes the focus, with the cursor at `focus_composer_at` (-1: at the
 	// end).
 	focus_composer:      bool,
 	focus_composer_at:   int,
 	focus_thread:        int, // which composer: Composer.thread
 	// People's pictures (ui_avatars.odin).
 	avatars:             UI_Avatars,
-	// The last frame was laid out narrow, when an open thread takes the
-	// conversation's place instead of floating (ui_threads.odin).
+	// Whether the last frame was laid out narrow. In that case an open thread takes
+	// the place of the conversation instead of floating over it (see ui_threads.odin).
 	narrow:              bool,
-	// The bar over the message under the pointer (ui_message_bar.odin),
-	// and whether this frame is a touch screen's tap (ui_touch_web.odin),
-	// which shows a message's bar there.
+	// The bar over the message under the pointer (see ui_message_bar.odin),
+	// and whether this frame is a tap on a touch screen (see ui_touch_web.odin),
+	// which shows the message's bar.
 	msg_bar:             UI_Message_Bar,
 	touch_tap:           bool,
 	settings_saved:      time.Tick,
@@ -263,48 +261,48 @@ UI :: struct {
 	known:               UI_Known_Servers, // saved server keys (ui_known_servers.odin)
 	hotkeys:             UI_Hotkeys, // global hotkeys (ui_hotkeys_native.odin)
 	install:             UI_Install, // installing for the user (ui_install_native.odin)
-	// The UI scale slider's own value, percent, live while it's being
-	// dragged; only copied into settings.ui_scale on release, since
-	// applying it while dragging resizes the very slider being dragged
+	// The UI scale slider's own value in percent, updated live while it is being
+	// dragged. It is only copied into settings.ui_scale on release, because
+	// applying it while dragging would resize the very slider being dragged
 	// (see ui_settings.odin).
 	ui_scale_draft:      f32,
-	chat_scale_draft:    f32, // the same, for the chat's text size
+	chat_scale_draft:    f32, // the same for the chat's text size
 	audio:               audio.Audio,
 
-	// Logical pixels per window coordinate, for mouse input. See
-	// window_metrics.
+	// Logical pixels per window coordinate, for mouse input (see
+	// window_metrics).
 	input_scale:         f32,
 	// The strip along the top where the window's buttons are drawn over
-	// the UI, with the title bar merged into it, in logical pixels: where
+	// the UI, merged with the title bar, in logical pixels: where
 	// the first row starts, how far in from the right it ends, and how
-	// tall the strip is. Zero where the title bar is the desktop's (see
+	// tall the strip is. Zero where the title bar belongs to the desktop (see
 	// ui_titlebar.odin).
 	titlebar_left:       i32,
 	titlebar_right:      i32,
 	titlebar_height:     i32,
-	// Where this frame's text boxes are, and whether one has the focus:
-	// for a phone's keyboard, in a web build (see ui_text_box.odin).
+	// Where this frame's text boxes are, and whether one has the focus,
+	// for a phone's keyboard in a web build (see ui_text_box.odin).
 	text_boxes:          [dynamic]Text_Box,
 	text_focused:        bool,
 	metrics:             Window_Metrics,
-	// The pointing hand shown over links and the I-beam over text that
-	// can be selected; created on first use, freed by glfw.Terminate.
+	// The pointing hand shown over links and the I-beam shown over text that
+	// can be selected. They are created on first use and freed by glfw.Terminate.
 	cursors:             [Cursor]glfw.CursorHandle,
 	cursor_shown:        Cursor,
 	// Text selected in the chat or the log (ui_select.odin).
 	select:              Selection,
-	// The image paste being read, if any (ui_paste.odin), and where the
+	// The image paste that is being read, if any (see ui_paste.odin), and where the
 	// next one goes.
 	paste:               ^Paste_Job,
 	paste_to:            Attach_Target,
 	// The file dialog, while it's open (ui_files_native.odin).
 	file_pick:           ^File_Pick_Job,
-	// The paperclip was pressed: after the frame, the dialog opens for
-	// files to go with `attach_to`'s next message (ui_attachments.odin).
+	// The paperclip was pressed: after the frame, the dialog opens to pick
+	// files for `attach_to`'s next message (see ui_attachments.odin).
 	attach_pick:         bool,
 	attach_to:           Attach_Target,
-	// Files dropped on the window since the last frame, to attach
-	// (ui_files_*.odin); owned.
+	// Files dropped on the window since the last frame, to be attached
+	// (see ui_files_*.odin). Owned.
 	dropped:             [dynamic]string,
 	// What the icon button under the pointer does, and where it is, for
 	// the hint drawn under it (see icon_button and icon_hint).
@@ -312,33 +310,33 @@ UI :: struct {
 	hint_of:             mu.Rect,
 	// The emoji the hint is about, drawn large above it (icon_hint).
 	hint_emoji:          Hint_Emoji,
-	// The picture chip under the pointer, shown over it
-	// (chip_preview_popup).
+	// The picture chip under the pointer, which is shown over it
+	// (see chip_preview_popup).
 	chip_preview:        Chip_Preview,
 	// Chat images: decoded pictures and their textures (ui_images.odin).
 	images:              UI_Images,
 	// The system tray icon, if it's switched on (ui_tray.odin).
 	tray:                Tray,
-	// The window is away in the tray, and nothing is drawn until it
-	// comes back. Quitting is the one thing that gets past it.
+	// The window is hidden in the tray and nothing is drawn until it
+	// comes back. Quitting is the only thing that works while it is hidden.
 	hidden:              bool,
 	quitting:            bool,
-	// The desktop has just minimized us (iconify_callback).
+	// The desktop has just minimized the window (see iconify_callback).
 	minimized:           bool,
-	// What size to come back at, remembered when the window goes away.
+	// The size to restore the window to, remembered when it is hidden.
 	window_size:         [2]i32,
-	// Where the swap doesn't wait for the display (see window_open), the
-	// shortest time between frames, and when the last one went out.
+	// Used where the buffer swap doesn't wait for the display (see window_open):
+	// the shortest time between frames, and when the last one was presented.
 	frame_pace:          time.Duration,
 	last_swap:           time.Tick,
-	// When the GPU device last had to be set up again (reset_gpu).
+	// When the GPU device was last set up again (see reset_gpu).
 	gpu_reset_at:        time.Tick,
-	// A frame is being drawn (draw_frame), which a refresh mustn't
-	// start another one in the middle of.
+	// A frame is being drawn (see draw_frame). A refresh mustn't
+	// start another one in the middle of it.
 	drawing:             bool,
-	// A frame is only drawn when there's something new to show (see
-	// frame_due): how many more to draw whatever happens, when the
-	// clock next changes something on screen (zero: nothing does), the
+	// A frame is only drawn when there is something new to show (see
+	// frame_due). This holds how many more frames to draw regardless, when the
+	// clock will next change something on screen (zero: nothing will), the
 	// hash of the last frame's draw commands, and how many log lines
 	// the log panel showed in it (-1: it wasn't on screen).
 	redraw_frames:       int,
@@ -347,18 +345,16 @@ UI :: struct {
 	log_drawn:           int,
 }
 
-// For GLFW's callbacks, which have no user data we can use cheaply, and
-// the page's touch input in a web build (ui_touch_web.odin).
+// For GLFW's callbacks, which have no user data we can use cheaply, and for
+// the page's touch input in a web build (see ui_touch_web.odin).
 g_ui: ^UI
 @(private = "file")
 g_logger: log.Logger
 
-/*
-run_ui drives the client from a loop of its own, which is what a desktop
-gives us. A web build has no loop to call its own - the browser hands
-out a frame at a time - so the work is split into starting up, one turn
-round the loop, and shutting down, and main_web.odin drives those.
-*/
+// run_ui drives the client from a loop of its own, which is what a desktop
+// provides. A web build has no loop of its own because the browser hands
+// out one frame at a time, so the work is split into starting up, one turn
+// of the loop and shutting down, and main_web.odin drives those.
 run_ui :: proc(opts: UI_Options) -> bool {
 	ui := new(UI)
 	defer free(ui)
@@ -396,8 +392,8 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui.chat_scale_draft = settings.chat_scale_factor(&ui.settings) * 100
 	image_cache_start(ui)
 
-	// Audio problems shouldn't keep the rest of the client from working;
-	// the settings page shows what went wrong.
+	// Audio problems shouldn't stop the rest of the client from working.
+	// The settings page shows what went wrong.
 	audio.audio_init(&ui.audio)
 	app_audio_init(ui)
 	app_sound_play(ui, .Welcome)
@@ -426,17 +422,17 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	return true
 }
 
-// ui_frame is one turn round the loop. It returns false when the client
+// ui_frame is one turn of the loop. It returns false when the client
 // is done and should shut down.
 ui_frame :: proc(ui: ^UI) -> bool {
 	if ui.quitting {
 		return false
 	}
 
-	// Closing the window puts the client in the tray instead of
-	// ending it, where there's a tray icon and that's what the
-	// settings ask for (see ui_tray.odin). Quit in the tray menu
-	// sets `quitting` instead, and there may be no window at all.
+	// Closing the window moves the client to the tray instead of
+	// ending it, if there is a tray icon and the settings ask for that
+	// (see ui_tray.odin). Quit in the tray menu sets `quitting` instead,
+	// and there may be no window at all.
 	if ui.window != nil && glfw.WindowShouldClose(ui.window) {
 		if !tray_takes_window(ui, ui.settings.close_to_tray) {
 			return false
@@ -445,13 +441,13 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		hide_to_tray(ui)
 	}
 
-	// Minimizing can go to the tray as well. Only some desktops say
-	// when it happens (see iconify_callback).
+	// Minimizing can also move the client to the tray. Only some desktops report
+	// when the window is minimized (see iconify_callback).
 	if ui.minimized {
 		ui.minimized = false
 		if tray_takes_window(ui, ui.settings.minimize_to_tray) {
-			// Out of the minimized state first, so the window comes
-			// back up as a window rather than minimized again.
+			// Leave the minimized state first, so the window comes back
+			// as a normal window instead of being minimized again.
 			glfw.RestoreWindow(ui.window)
 			hide_to_tray(ui)
 		}
@@ -480,16 +476,16 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	memory_frame(ui)
 
 	// Wake up for input, or often enough for the work below that isn't
-	// drawing; a frame is only drawn when there's something new to show
-	// (frame_due). Listen back without a connection is fed from this
-	// loop (monitor_update), so it needs to run at the display's rate.
+	// drawing. A frame is only drawn when there is something new to show
+	// (see frame_due). Listen back without a connection is fed from this
+	// loop (see monitor_update), so the loop needs to run at the display's rate.
 	// In a web build the browser has already decided when this frame
-	// happens, and there is nothing to wait for.
+	// happens, so there is nothing to wait for.
 	glfw.WaitEventsTimeout(1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30)
 
-	// Without threads there is nobody else to run the connection, so it
+	// Without threads nobody else can run the connection, so it
 	// gets its turn here, between frames (see net_thread).
-	// Touch comes in as a queue, one event per frame (ui_touch_web.odin).
+	// Touch input arrives as a queue, with one event handled per frame (see ui_touch_web.odin).
 	when platform.WEB {
 		net_step(ui)
 		touch_step(ui)
@@ -499,7 +495,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		save_settings(ui)
 	}
 
-	// Listen back is a settings-page test; don't leave it running.
+	// Listen back is only a test on the settings page, so don't leave it running.
 	if ui.page != .Settings {
 		set_listen_back(ui, false)
 	}
@@ -508,9 +504,9 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	session_capture_update(ui)
 	app_audio_frame(ui)
 	servers_frame(ui)
-	// Before the tray and the taskbar, so they show what a hotkey just
-	// did, and before giving up for a hidden window, since they work
-	// without one.
+	// Run before the tray and the taskbar update, so they show what a hotkey just
+	// did, and before returning early for a hidden window, since hotkeys work
+	// without a window.
 	hotkeys_frame(ui)
 	tray_update(ui)
 	thumbbar_update(ui)
@@ -518,13 +514,13 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	push_frame(ui)
 	if ui.hidden {
 		ui.meter_shown = false
-		return true // no window to draw in
+		return true // there is no window to draw in
 	}
 	if !frame_due(ui) {
 		return true
 	}
 	draw_frame(ui)
-	// A browser paces frames itself, and a page can't sleep.
+	// A browser paces frames itself and a page can't sleep.
 	when !platform.WEB {
 		if ui.frame_pace > 0 {
 			if left := ui.frame_pace - time.tick_since(ui.last_swap); left > 0 {
@@ -536,10 +532,8 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	return true
 }
 
-/*
-draw_frame lays the UI out and draws it: the second half of ui_frame,
-and all of what refresh_callback does while the window is being resized.
-*/
+// draw_frame lays out the UI and draws it. It is the second half of ui_frame
+// and everything that refresh_callback does while the window is being resized.
 @(private = "file")
 draw_frame :: proc(ui: ^UI) {
 	if ui.drawing {
@@ -571,29 +565,29 @@ draw_frame :: proc(ui: ^UI) {
 	ui.titlebar_left = i32(left * m.input_scale)
 	ui.titlebar_right = i32(right * m.input_scale)
 	ui.titlebar_height = i32(height * m.input_scale)
-	// Whatever asked for this frame has it; the layout asks again for
-	// what still needs more (see frame_due).
+	// Whatever asked for this frame has been served now. The layout asks again
+	// for whatever still needs more frames (see frame_due).
 	ui.redraw_frames = max(ui.redraw_frames - 1, 0)
 	ui.redraw_at = {}
 	ui.log_drawn = -1
-	// microui turns a press into focus for whatever `hover_id` names,
-	// without re-checking the pointer, and only a control itself clears
-	// its hover. If a hovered control vanishes (a screen change, a
-	// relabeled button), the stale id could fire on a click anywhere
-	// once the id reappears. Recomputing hover on every frame without a
-	// press keeps it tied to what's actually under the pointer.
+	// microui turns a press into focus for whatever `hover_id` names without
+	// checking the pointer again, and only a control itself clears its hover. If
+	// a hovered control disappears (because of a screen change or a relabeled
+	// button), the stale id could fire on a click anywhere once the id reappears.
+	// Recomputing the hover in every frame without a press keeps it tied to what
+	// is actually under the pointer.
 	if ui.ctx.mouse_pressed_bits == {} && ui.ctx.mouse_down_bits == {} {
 		ui.ctx.hover_id = 0
 	}
 	ui_images_frame(ui)
 	clear(&ui.text_boxes)
-	// The chat's text size, for measuring this frame and drawing it.
+	// The chat's text size, used for measuring and drawing this frame.
 	render.set_chat_zoom(&ui.renderer, settings.chat_scale_factor(&ui.settings))
 	activity_input(ui)
 	voice_elsewhere_update(ui)
 	theme_update(ui) // the palette for this frame (theme.odin)
 	mu.begin(&ui.ctx)
-	ui.meter_shown = false // until gate_settings draws it again
+	ui.meter_shown = false // until gate_settings draws it again (it sets this when it draws the meter)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
 	mu.end(&ui.ctx)
 	clock_redraws(ui)
@@ -618,63 +612,59 @@ draw_frame :: proc(ui: ^UI) {
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
 	ui.keys = {}
-	// The window's buttons stay as they'd be at 100%: only the display's
+	// The window's buttons keep their size at 100%. Only the display's
 	// density scales them, not the UI's zoom.
 	ui.renderer.control_scale = m.scale / settings.ui_scale_factor(&ui.settings)
 	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, theme.background)
 	render.gpu_present(&ui.renderer.gpu)
 }
 
-/*
-Drawing a frame lays out the whole UI, which costs the same whether
-anything has changed or not, so the loop only draws one when something
-asks for it:
+// Drawing a frame lays out the whole UI, which costs the same whether
+// anything has changed or not, so the loop only draws a frame when something
+// asks for one:
+//
+// - input, and the window changing size or needing its contents drawn again
+//   (ui_redraw, called from GLFW's callbacks);
+// - another thread changing something that is shown, such as the network side
+//   through the View (conn.view_write), decoded pictures, or a finished dialog
+//   or paste (ui_wake);
+// - the clock: anything that fades, counts or disappears after a while asks for
+//   a frame at the time it next changes, in every frame it is on screen
+//   (ui_redraw_at).
+//
+// A frame whose draw commands differ from the previous frame's is followed
+// by another one (see settle). Much of the layout only catches up a frame
+// later (scrolling to the end, a focus change, a menu opened by a click), and a
+// frame that changed nothing is the sign that this is done.
 
-- input, and the window changing size or needing its contents again
-  (ui_redraw, from GLFW's callbacks);
-- another thread changing something that's shown - the network side
-  through the View (conn.view_write), pictures decoded, a dialog or
-  paste done (ui_wake);
-- the clock: what fades, counts or comes down after a while asks for a
-  frame by when it next changes, every frame it's on screen
-  (ui_redraw_at).
-
-And a frame whose draw commands differ from the last one's is followed
-by another (settle): much of the layout only catches up a frame later
-(scrolling to the end, a focus moved, a menu opened by a click), and a
-frame that changed nothing is the sign that's done.
-*/
-
-// After input, at least this many frames: microui answers some of it
-// (a click) in the frame after the one that saw it.
+// After input, draw at least this many frames, because microui answers some
+// input (a click) in the frame after the one that saw it.
 @(private = "file")
 SETTLE_FRAMES :: 2
 
-// How often what moves smoothly (a fade, the level meter) is redrawn.
+// How often things that move smoothly (a fade, the level meter) are redrawn.
 ANIMATION_FRAME :: time.Second / 30
 
-// Set by ui_wake, from any thread.
+// Set by ui_wake, which can be called from any thread.
 @(private = "file")
 g_wake: bool
 
-/*
-ui_wake asks for a frame from any thread, for a change that no input
-says has happened: from the network side (View.wake), and threads done
-with their work. It wakes the loop, if it's waiting.
-*/
+// ui_wake asks for a frame from any thread, for a change that no input
+// event reports: from the network side (View.wake) and from threads that
+// have finished their work. It wakes the loop if it is waiting.
 ui_wake :: proc "c" () {
 	if !intrinsics.atomic_exchange(&g_wake, true) {
 		glfw.PostEmptyEvent()
 	}
 }
 
-// ui_redraw asks for frames now, from the UI's own thread.
+// ui_redraw asks for frames right now, from the UI's own thread.
 ui_redraw :: proc "contextless" (ui: ^UI) {
 	ui.redraw_frames = max(ui.redraw_frames, SETTLE_FRAMES)
 }
 
-// ui_redraw_at asks for a frame by `at`, for what changes by the clock
-// alone. The layout asks again every frame that still needs it.
+// ui_redraw_at asks for a frame by `at`, for things that change with the clock
+// alone. The layout asks again in every frame that still needs it.
 ui_redraw_at :: proc(ui: ^UI, at: time.Tick) {
 	if ui.redraw_at == {} || time.tick_diff(at, ui.redraw_at) > 0 {
 		ui.redraw_at = at
@@ -685,7 +675,7 @@ ui_redraw_in :: proc(ui: ^UI, after: time.Duration) {
 	ui_redraw_at(ui, time.tick_add(time.tick_now(), max(after, 0)))
 }
 
-// frame_due says whether the loop should draw a frame this turn.
+// frame_due says whether the loop should draw a frame in this turn.
 @(private = "file")
 frame_due :: proc(ui: ^UI) -> bool {
 	if intrinsics.atomic_exchange(&g_wake, false) {
@@ -697,12 +687,12 @@ frame_due :: proc(ui: ^UI) -> bool {
 	if ui.redraw_at != {} && time.tick_diff(ui.redraw_at, time.tick_now()) >= 0 {
 		return true
 	}
-	// A new size or scale; no callback for it is needed this way.
+	// A new size or scale. No callback is needed for this.
 	if window_metrics(ui.window, settings.ui_scale_factor(&ui.settings)) != ui.metrics {
 		return true
 	}
 	// Lines are logged from everywhere, far too often to wake for each
-	// one, so it's only while they're on screen that they're looked for.
+	// one, so they are only checked for while the log is on screen.
 	if ui.log_drawn >= 0 && ui.opts.logs != nil {
 		sync.guard(&ui.opts.logs.mutex)
 		return ui.opts.logs.total != ui.log_drawn
@@ -710,10 +700,10 @@ frame_due :: proc(ui: ^UI) -> bool {
 	return false
 }
 
-// clock_redraws asks for frames for what changes by the clock and is
-// shown in too many places to ask from each: who is speaking and who is
-// typing, which stop by themselves, the network side's notices, which
-// come down after a while, and times shown to the minute.
+// clock_redraws asks for frames for things that change with the clock and are
+// shown in too many places to ask from each of them: who is speaking and who is
+// typing (which stop by themselves), the network side's notices (which
+// disappear after a while), and times shown to the minute.
 @(private = "file")
 clock_redraws :: proc(ui: ^UI) {
 	{
@@ -729,15 +719,15 @@ clock_redraws :: proc(ui: ^UI) {
 			ui_redraw_at(ui, t)
 		}
 	}
-	// Message times, "Today", "last seen 5 minutes ago": all of them
+	// Message times, "Today" and "last seen 5 minutes ago" all
 	// change on the minute.
 	MINUTE :: i64(time.Minute)
 	into := time.time_to_unix_nano(time.now()) % MINUTE
 	ui_redraw_in(ui, time.Duration(MINUTE - into))
 }
 
-// settle asks for another frame when this one's draw commands differ
-// from the last one's.
+// settle asks for another frame when this frame's draw commands differ
+// from the previous frame's.
 @(private = "file")
 settle :: proc(ui: ^UI) {
 	list := &ui.ctx.command_list
@@ -749,7 +739,7 @@ settle :: proc(ui: ^UI) {
 	}
 }
 
-// ui_shutdown takes everything down in the order it went up.
+// ui_shutdown tears everything down in the reverse order of the startup.
 ui_shutdown :: proc(ui: ^UI) {
 	disconnect_all(ui)
 	delete(ui.sessions)
@@ -767,12 +757,12 @@ ui_shutdown :: proc(ui: ^UI) {
 	app_audio_destroy(ui)
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
-	// Whatever the paste thread is doing, it uses the clipboard, so it
-	// has to be done before that.
+	// The paste thread uses the clipboard, so it has to be
+	// finished before the clipboard is torn down.
 	paste_wait(ui)
 	file_pick_wait(ui)
-	// What the UI kept of each server went with its session
-	// (disconnect_all).
+	// What the UI kept for each server went away with its session
+	// (see disconnect_all).
 	for path in ui.dropped {
 		delete(path)
 	}
@@ -790,29 +780,25 @@ ui_shutdown :: proc(ui: ^UI) {
 	conn.view_destroy(ui.view)
 }
 
-/*
-The window and everything that lives on its GPU device (an OpenGL
-context, or a Direct3D 11 device on Windows). They come and go
-together, because hiding the client in the tray takes the window down
-altogether (see hide_to_tray): a Wayland surface that has been
-unmapped can't be brought back - the EGL buffers behind it are never
-released, and the next swap waits for them for ever.
-
-Nothing above the device survives in here: microui's state, the view,
-the connection and the tray icon all carry on across a window.
-*/
-/*
-set_swap_pace decides what keeps frames to the display's rate.
-
-Usually that's the swap: it waits for the display (vsync). On Wayland
-that wait is for the compositor's go-ahead, which it only gives a window
-it's showing - minimized, or on another virtual desktop, the swap would
-wait until the window is looked at again, and everything else on this
-thread with it: notifications, the tray icon, listen back. So there the swap
-doesn't wait, and the loop keeps to the monitor's refresh rate itself
-(frame_pace, at the end of ui_frame). Wayland never tears, so nothing is
-lost.
-*/
+// The window and everything that lives on its GPU device (an OpenGL
+// context, or a Direct3D 11 device on Windows). They come and go
+// together, because hiding the client in the tray destroys the window
+// entirely (see hide_to_tray). A Wayland surface that has been
+// unmapped can't be brought back: the EGL buffers behind it are never
+// released, and the next swap waits for them forever.
+//
+// Nothing above the device lives in here: microui's state, the view,
+// the connection and the tray icon all survive across windows.
+// set_swap_pace decides what keeps frames at the display's rate.
+//
+// Usually that is the buffer swap, which waits for the display (vsync). On
+// Wayland that wait is for the compositor's go-ahead, which it only gives to a
+// window it is showing. If the window is minimized or on another virtual
+// desktop, the swap would wait until the window is looked at again, and
+// everything else on this thread would wait with it: notifications, the tray
+// icon and listen back. So there the swap doesn't wait, and the loop keeps to
+// the monitor's refresh rate itself (see frame_pace, at the end of ui_frame).
+// Wayland never tears, so nothing is lost.
 @(private = "file")
 set_swap_pace :: proc(ui: ^UI) {
 	ui.frame_pace = 0
@@ -839,16 +825,16 @@ window_open :: proc(ui: ^UI) -> bool {
 	// the window for the monitor's scale so it isn't tiny on high DPI.
 	glfw.WindowHint(glfw.SCALE_TO_MONITOR, true)
 	when !platform.WEB {
-		// The name of the installed .desktop entry (settings/install_unix.odin),
-		// which is how Wayland finds the window's icon and how the
-		// desktop groups the window under the entry.
+		// The name of the installed .desktop entry (see settings/install_unix.odin).
+		// Wayland uses it to find the window's icon, and the desktop uses it
+		// to group the window under that entry.
 		glfw.WindowHintString(glfw.WAYLAND_APP_ID, "yap")
 		glfw.WindowHintString(glfw.X11_CLASS_NAME, "yap")
 		glfw.WindowHintString(glfw.X11_INSTANCE_NAME, "yap")
 	}
 	titlebar_window_hints(ui.settings.merge_title_bar)
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
-	ui.title_unread = 0 // what "Yap" says
+	ui.title_unread = 0 // what the window title shows
 	if ui.window == nil {
 		log.errorf("failed to create a window (%s is required)", render.GPU_REQUIREMENT)
 		return false
@@ -863,7 +849,7 @@ window_open :: proc(ui: ^UI) -> bool {
 		ui.window = nil
 		return false
 	}
-	// Before the title bar, whose window procedure goes in front of it.
+	// Before the title bar, whose window procedure goes in front of this one.
 	thumbbar_attach(ui.window)
 	titlebar_merge(ui.window, ui.settings.merge_title_bar)
 	set_swap_pace(ui)
@@ -886,7 +872,7 @@ window_open :: proc(ui: ^UI) -> bool {
 	when !platform.WEB {
 		glfw.SetDropCallback(ui.window, drop_callback)
 	}
-	// The cursor outlives the window, but which one the window shows
+	// The cursor outlives the window, but the cursor that the window shows
 	// doesn't (see set_cursor).
 	ui.cursor_shown = .Arrow
 	ui.metrics = {}
@@ -894,12 +880,10 @@ window_open :: proc(ui: ^UI) -> bool {
 	return true
 }
 
-/*
-reset_gpu makes everything on the GPU again for the same window, once
-the device has gone (a graphics driver update or reset). Should the new
-one not come up either, it's tried again a second later; nothing is
-drawn until then.
-*/
+// reset_gpu recreates everything on the GPU for the same window after the
+// device has been lost (for example by a graphics driver update or reset). If the
+// new device doesn't come up either, it is tried again a second later.
+// Nothing is drawn until then.
 @(private = "file")
 reset_gpu :: proc(ui: ^UI) {
 	if ui.gpu_reset_at != {} && time.tick_since(ui.gpu_reset_at) < time.Second {
@@ -921,10 +905,10 @@ window_close :: proc(ui: ^UI) {
 	if ui.window == nil {
 		return
 	}
-	// Come back the same size as we went away. Where window coordinates
+	// Come back at the same size as before. Where window coordinates
 	// are physical pixels (see window_metrics), CreateWindow scales the
-	// size it's given for the monitor (SCALE_TO_MONITOR), so it has to
-	// be given the size before that, or the window grows every time.
+	// size it is given for the monitor (SCALE_TO_MONITOR), so it has to
+	// be given the unscaled size, or the window grows every time.
 	if w, h := glfw.GetWindowSize(ui.window); w > 0 && h > 0 {
 		fb_w, _ := glfw.GetFramebufferSize(ui.window)
 		if f32(fb_w) / f32(w) <= 1.01 {
@@ -934,12 +918,12 @@ window_close :: proc(ui: ^UI) {
 		}
 		ui.window_size = {w, h}
 	}
-	// The video library lets go of what it made on the device while it's
-	// still there (an OpenGL context can only be cleaned up current).
+	// The video library releases what it created on the device while the device
+	// still exists (an OpenGL context can only be cleaned up while current).
 	ui_video_forget_texture(ui)
 	render.renderer_destroy(&ui.renderer)
-	// The pictures' textures belong to the device that's about to go;
-	// they are decoded again when they're next on screen.
+	// The pictures' textures belong to the device that is about to go away.
+	// They are decoded again when they are next on screen.
 	ui_images_forget_textures(ui)
 	ui_avatars_forget_textures(ui)
 	thumbbar_detach()
@@ -948,7 +932,7 @@ window_close :: proc(ui: ^UI) {
 }
 
 // clipboard_init sets up reading images from the clipboard. On Wayland it
-// needs GLFW's connection, since only the focused window may read.
+// needs GLFW's connection, because only the focused window may read.
 @(private = "file")
 clipboard_init :: proc() {
 	wayland: rawptr
@@ -961,10 +945,10 @@ clipboard_init :: proc() {
 }
 
 Cursor :: enum {
-	Arrow, // the window's own, which is no cursor of ours
+	Arrow, // the window's own cursor, not one of ours
 	Hand,
 	IBeam,
-	// Over the edges of a window we resize ourselves (window_edge).
+	// Over the edges of a window that we resize ourselves (see window_edge).
 	Resize_EW,
 	Resize_NS,
 	Resize_NWSE,
@@ -982,7 +966,7 @@ CURSOR_SHAPES := [Cursor]i32 {
 	.Resize_NESW = glfw.RESIZE_NESW_CURSOR,
 }
 
-// set_cursor switches the mouse cursor, if it isn't that one already.
+// set_cursor switches the mouse cursor, unless it is already that one.
 set_cursor :: proc(ui: ^UI, cursor: Cursor) {
 	if cursor == ui.cursor_shown {
 		return
@@ -1001,19 +985,17 @@ save_settings :: proc(ui: ^UI) {
 }
 
 Window_Metrics :: struct {
-	logical_w, logical_h: f32, // what the UI is laid out for
+	logical_w, logical_h: f32, // the size the UI is laid out for
 	fb_w, fb_h:           i32,
 	scale:                f32, // physical pixels per logical pixel
 	input_scale:          f32, // logical pixels per window coordinate
 }
 
-/*
-Platforms disagree on what window coordinates are. On Wayland and macOS
-they're logical and the framebuffer is bigger on high-DPI screens; on
-Windows and X11 they're physical pixels, and the monitor's scale is only
-known from the content scale. Either way we lay out in logical pixels
-and render at `scale`.
-*/
+// Platforms disagree on what window coordinates are. On Wayland and macOS
+// they are logical and the framebuffer is bigger on high-DPI screens. On
+// Windows and X11 they are physical pixels, and the monitor's scale is only
+// known from the content scale. Either way we lay out in logical pixels
+// and render at `scale`.
 @(private = "file")
 window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_Metrics) {
 	w, h := glfw.GetWindowSize(window)
@@ -1022,15 +1004,15 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 		return {logical_w = 1, logical_h = 1, scale = 1, input_scale = 1}
 	}
 
-	// A browser says what its ratio is (wglfw_web.odin); the framebuffer's
+	// A browser reports its ratio itself (see wglfw_web.odin). The framebuffer's
 	// whole pixels would only give an approximation that changes with the
 	// window's size, and with it the font's rasterization.
 	ratio := f32(m.fb_w) / f32(w)
 	if ratio > 1.01 && !platform.WEB {
 		// The framebuffer's whole pixels make the ratio wobble as the
-		// window is resized (1.5, then 1.4995), and everything snapped
-		// to physical pixels would shuffle by one, and the fonts be
-		// rasterized again, at every step. Scales are whole 120ths
+		// window is resized (1.5, then 1.4995). Then everything snapped
+		// to physical pixels would shift by one, and the fonts would be
+		// rasterized again at every step. Scales are whole 120ths
 		// (Wayland's fractional scaling), which the wobble never
 		// reaches.
 		m.scale = math.round(ratio * 120) / 120
@@ -1041,11 +1023,11 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 		m.logical_w, m.logical_h = f32(m.fb_w) / m.scale, f32(m.fb_h) / m.scale
 	}
 
-	// The UI's own zoom stacks with the display's DPI scale above:
-	// shrinking the logical canvas the layout runs in, while rendering it
-	// at a proportionally higher `scale`, makes every logical-pixel-sized
-	// widget cover more of the screen without the layout code (or the
-	// font/icon atlases, which already rebuild when `scale` changes)
+	// The UI's own zoom stacks with the display's DPI scale above.
+	// It shrinks the logical canvas the layout runs in while rendering it
+	// at a proportionally higher `scale`. That makes every widget sized in
+	// logical pixels cover more of the screen without the layout code (or the
+	// font and icon atlases, which already rebuild when `scale` changes)
 	// knowing the difference.
 	m.scale *= ui_scale
 	m.logical_w /= ui_scale
@@ -1054,12 +1036,10 @@ window_metrics :: proc(window: glfw.WindowHandle, ui_scale: f32) -> (m: Window_M
 	return
 }
 
-/*
-connect_joined connects to every joined server at start, in the rail's
-order, and shows the first; or, with a server given when the client was
-started, joins that one (if it isn't joined yet) and shows it, looking
-at the channel given with it.
-*/
+// connect_joined connects to every joined server at startup, in the rail's
+// order, and shows the first one. If a server was given when the client was
+// started, it instead joins that server (if it isn't joined yet), shows it and
+// looks at the channel given with it.
 @(private = "file")
 connect_joined :: proc(ui: ^UI) {
 	first := conn.with_default_port(ui.opts.server)
@@ -1079,31 +1059,27 @@ connect_joined :: proc(ui: ^UI) {
 	}
 }
 
-/*
-connect connects again to the server on the connect screen: a server on
-the rail that isn't connected, perhaps with another password now. The
-connection takes the old one's place.
-*/
+// connect connects again to the server on the connect screen, which is a
+// server on the rail that isn't connected, possibly with a different
+// password now. The new connection takes the old one's place.
 connect :: proc(ui: ^UI) {
 	server := conn.with_default_port(string(ui.server_buf[:ui.server_len]))
 	if server == "" {
 		return
 	}
-	// Show the port that was assumed; it's what gets saved, too.
+	// Show the port that was assumed, because that is also what gets saved.
 	ui.server_len = copy(ui.server_buf[:], server)
-	// Taken as typed: spaces may well be part of a password.
+	// Taken as typed, because spaces may well be part of a password.
 	password := string(ui.password_buf[:ui.password_len])
 	settings.join_server(&ui.settings, server, password)
 	save_settings(ui)
 	connect_to(ui, server, password)
 }
 
-/*
-connect_to connects to a server: a new session at the end of the rail,
-or, for a server that has one already (failed, say, or with a key just
-trusted), a new one in its place, which goes on with what the UI had of
-it. With `show`, it's shown.
-*/
+// connect_to connects to a server. This creates a new session at the end of the
+// rail. If a session for that server already exists (for example one that
+// failed, or one whose key was just trusted), a new one replaces it and
+// carries on with what the UI had kept for it. With `show`, the server is shown.
 connect_to :: proc(
 	ui: ^UI,
 	server, password: string,
@@ -1136,8 +1112,8 @@ connect_to :: proc(
 			show_session(ui, ns)
 		}
 	}
-	// The per-user volumes go once the server's key says which are
-	// this server's (apply_gains).
+	// The per-user volumes are applied once the server's key tells which
+	// ones belong to this server (see apply_gains).
 	if ns == ui.session {
 		ui.gains_for = {}
 	} else {
@@ -1147,7 +1123,7 @@ connect_to :: proc(
 	return ns
 }
 
-// session_new makes a session for `server`, ready to start, which joins
+// session_new creates a session for `server`, ready to start, which joins
 // `channel` if there is one.
 session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Session {
 	ns := new(Net_Session)
@@ -1156,12 +1132,12 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 	ns.password = strings.clone(password)
 	ns.known_servers = strings.clone(ui.opts.known_servers)
 	ns.channel = strings.clone(channel)
-	// Without one asked for, the channel that was on screen the last
-	// time is looked at again (and only looked at).
+	// If no channel was asked for, the channel that was on screen the last
+	// time is shown again (but not joined).
 	ns.look_at = strings.clone(settings.joined_channel(&ui.settings, server))
 	ns.slot = session_slot(ui)
-	// Its login form, should it need one, starts with the account last
-	// logged in to anywhere.
+	// Its login form, if it needs one, starts with the account that was last
+	// logged in to on any server.
 	ns.stash.account.username_len = copy(ns.stash.account.username_buf[:], ui.settings.username)
 	conn.view_init(&ns.view)
 	ns.view.wake = ui_wake
@@ -1173,13 +1149,13 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 	ns.client.blobs.disk = &ui.image_cache
 	if audio.voice_init(&ns.client.voice) {
 		// Devices may have come or gone since the list was made. The
-		// microphone waits until it's needed (session_capture_update).
+		// microphone waits until it is needed (see session_capture_update).
 		audio.audio_refresh(&ui.audio)
 		audio.open_playback(&ui.audio, &ns.streams, &ns.client.voice, ui.settings.output_device)
 	}
 	ns.client.voice.muted = ui.muted
 	ns.client.voice.deafened = ui.deafened
-	// Told to the others as soon as we're in a channel (drive_sound).
+	// Told to the others as soon as we're in a channel (see drive_sound).
 	ns.client.channels.sound = conn.sound_flags(ui.muted, ui.deafened)
 	ns.client.voice.denoise = ui.settings.noise_suppression
 	ns.client.voice.listen = ui.listen_back
@@ -1193,11 +1169,9 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 	return ns
 }
 
-/*
-session_slot is the first three WebSocket slots no session has, for a
-web build (conn/transport_web.odin): 0 to 2 for the first, 3 to 5 for
-the next. A desktop build has no use for it.
-*/
+// session_slot returns the first three consecutive WebSocket slots that no
+// session uses, for a web build (see conn/transport_web.odin): 0 to 2 for the
+// first session, 3 to 5 for the next. A desktop build has no use for it.
 @(private = "file")
 session_slot :: proc(ui: ^UI) -> i32 {
 	for slot := i32(0);; slot += 3 {
@@ -1211,11 +1185,10 @@ session_slot :: proc(ui: ^UI) -> i32 {
 	}
 }
 
-/*
-reconnect tries a server that isn't connected again, now. A connection
-still trying (conn.connection_lost) is told to; one that has stopped
-(refused, say) is started again in its place. Between frames.
-*/
+// reconnect tries a server that isn't connected again right now. A connection
+// that is still trying (see conn.connection_lost) is told to retry, and one
+// that has stopped (for example after being refused) is started again in its
+// place. Called between frames.
 reconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	if ns == nil || ns.joining {
 		return
@@ -1233,11 +1206,10 @@ reconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	connect_to(ui, ns.server, ns.password)
 }
 
-/*
-disconnect leaves a server: its session ends, it's no longer joined,
-and if it was the one shown, the one beside it in the rail is. One being
-joined from the + page is given up instead. Between frames.
-*/
+// disconnect leaves a server: its session ends and it is no longer joined.
+// If it was the one shown, the next one in the rail is shown instead. A server
+// that is being joined from the + page is given up instead. Called between
+// frames.
 disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	if ns == nil {
 		return
@@ -1262,11 +1234,9 @@ disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	session_free(ui, ns)
 }
 
-/*
-session_remove takes a session off the rail, with what the UI kept of
-it; if it was the one shown, the one after it is shown, or the one
-before, or none.
-*/
+// session_remove takes a session off the rail together with what the UI kept
+// for it. If it was the one shown, the one after it is shown, or else the
+// one before it, or none.
 session_remove :: proc(ui: ^UI, ns: ^Net_Session) {
 	index := -1
 	for other, i in ui.sessions {
@@ -1287,7 +1257,7 @@ session_remove :: proc(ui: ^UI, ns: ^Net_Session) {
 	}
 	server_ui_destroy(ui)
 	ui.session, ui.view = nil, &ui.no_view
-	// Not one being joined, which isn't on the rail.
+	// Not one that is being joined, which isn't on the rail.
 	next: ^Net_Session
 	for i := min(index, len(ui.sessions) - 1); i >= 0; i -= 1 {
 		if !ui.sessions[i].joining {
@@ -1298,10 +1268,10 @@ session_remove :: proc(ui: ^UI, ns: ^Net_Session) {
 	show_session(ui, next)
 }
 
-// session_free stops a session that's off the rail and frees it.
+// session_free stops a session that is off the rail and frees it.
 session_free :: proc(ui: ^UI, ns: ^Net_Session) {
 	app_audio_session_gone(ui, ns)
-	// Devices first, so nothing touches the rings once the voice goes away.
+	// Close the devices first, so nothing touches the rings after the voice goes away.
 	audio.close_streams(&ns.streams, &ns.client.voice)
 	sync.atomic_store(&ns.stop, true)
 	net_stop(ns)
@@ -1317,7 +1287,7 @@ session_free :: proc(ui: ^UI, ns: ^Net_Session) {
 	free(ns)
 }
 
-// disconnect_all ends every session, at once.
+// disconnect_all ends every session at once.
 disconnect_all :: proc(ui: ^UI) {
 	for len(ui.sessions) > 0 {
 		ns := ui.sessions[len(ui.sessions) - 1]
@@ -1326,15 +1296,15 @@ disconnect_all :: proc(ui: ^UI) {
 	}
 }
 
-// set_muted plays the muted/unmuted sound, unless it's part of a
-// deafen (`feedback` false), which plays its own.
+// set_muted plays the muted or unmuted sound, unless it is part of
+// deafening (`feedback` false), which plays its own sound.
 set_muted :: proc(ui: ^UI, muted: bool, feedback := true) {
 	if muted == ui.muted {
 		return
 	}
 	if !muted && ui.deafened {
-		// Heard by everyone while hearing nobody isn't somewhere anyone
-		// means to be, so unmuting undeafens too, and stays unmuted.
+		// Being heard by everyone while hearing nobody isn't somewhere anyone
+		// means to be, so unmuting also undeafens, and stays unmuted.
 		ui.muted_before_deafen = false
 		set_deafened(ui, false)
 		return
@@ -1349,10 +1319,10 @@ set_muted :: proc(ui: ^UI, muted: bool, feedback := true) {
 }
 
 // Deafen silences everyone else. Like mute, it lives on the UI so it
-// survives reconnecting, and is pushed to the network thread.
+// survives reconnecting, and it is pushed to the network thread.
 //
-// Deafening also mutes, since not being able to hear anyone while still
-// sending to them is a strange place to be in. It remembers what mute
+// Deafening also mutes, because not being able to hear anyone while still
+// sending to them is an odd state to be in. It remembers what mute
 // was set to beforehand, so undeafening restores that instead of always
 // unmuting.
 set_deafened :: proc(ui: ^UI, deafened: bool) {
@@ -1374,7 +1344,7 @@ set_deafened :: proc(ui: ^UI, deafened: bool) {
 	}
 }
 
-// reopen_audio switches the running connections to the devices now
+// reopen_audio switches the running connections to the devices that are now
 // selected in the settings.
 reopen_audio :: proc(ui: ^UI, input: bool) {
 	if m := &ui.monitor; m.active {
@@ -1389,7 +1359,7 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 			continue
 		}
 		if input {
-			// Not wanted is left closed (session_capture_update).
+			// A microphone that isn't wanted is left closed (see session_capture_update).
 			if ns.capture_on {
 				audio.open_capture(
 					&ui.audio,
@@ -1409,15 +1379,13 @@ reopen_audio :: proc(ui: ^UI, input: bool) {
 	}
 }
 
-/*
-session_capture_update runs every frame, before the layout and with no
-View locked: it notes which session is in voice (UI.voice_at; there's
-one at most), and keeps a connection's microphone open only while it's
-wanted, which is while it's in a voice room (a channel's voice or a
-call) or on its way into one, and for the one shown, or in voice, while
-the settings page tests it (mic_test_wanted; its meter and listen back
-come from the connection). Joining a server alone doesn't open it.
-*/
+// session_capture_update runs every frame, before the layout and with no
+// View locked. It records which session is in voice (see UI.voice_at; there is
+// at most one), and keeps a connection's microphone open only while it is
+// wanted: while it is in a voice room (a channel's voice or a call) or on its
+// way into one, and, for the shown session or the one in voice, while the
+// settings page tests it (see mic_test_wanted; its meter and listen back
+// come from the connection). Joining a server alone doesn't open the microphone.
 @(private = "file")
 session_capture_update :: proc(ui: ^UI) {
 	ui.voice_at = nil
@@ -1427,14 +1395,14 @@ session_capture_update :: proc(ui: ^UI) {
 			break
 		}
 	}
-	// Out of voice, what was shared has nobody to go to: the capture
-	// ends with it (or the OS keeps showing it, the yellow border and the
-	// menu bar's icon).
+	// When not in voice, what was shared has nobody to go to, so the capture
+	// ends with it (otherwise the OS keeps showing it with the yellow border and
+	// the menu bar icon).
 	if ui.voice_at == nil {
 		conn.video_share_stop()
 		app_audio_stop(ui)
 	}
-	// The screen, if it's being shared, goes to the voice too.
+	// The screen, if it is being shared, goes to the voice too.
 	for ns in ui.sessions {
 		sync.atomic_store(&ns.client.video.share_here, ns == ui.voice_at)
 	}
@@ -1462,7 +1430,7 @@ session_capture_update :: proc(ui: ^UI) {
 @(private = "file")
 layout :: proc(ui: ^UI, w, h: i32) {
 	ctx := &ui.ctx
-	// The server rail down the left (ui_servers.odin), and one window
+	// The server rail down the left (see ui_servers.odin), and one window
 	// that always fills the rest of the OS window.
 	rail := rail_width(ui)
 	server_rail(ui, h)
@@ -1470,7 +1438,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	if cnt := mu.get_container(ctx, "yap"); cnt != nil {
 		cnt.rect = {rail, 0, w - rail, h}
 		// Always under the windows that float over it (pins, threads,
-		// the picker...): microui raises a clicked window unless its
+		// the picker...). microui raises a clicked window unless its
 		// zindex is below 0, and sorts the lowest first.
 		cnt.zindex = -1
 	}
@@ -1480,9 +1448,9 @@ layout :: proc(ui: ^UI, w, h: i32) {
 		mu.end_window(ctx)
 	}
 	rail_divider_gap(ui, rail)
-	// An enlarged image floats above it all (ui_images.odin).
+	// An enlarged image floats above everything else (see ui_images.odin).
 	image_viewer(ui, w, h)
-	// A screen being watched, popped out of its tab (ui_video.odin).
+	// A screen that is being watched, popped out of its tab (see ui_video.odin).
 	screen_window(ui, w, h)
 	pins_window(ui, w, h)
 	thread_windows(ui, w, h)
@@ -1492,20 +1460,18 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	channels_window(ui, w, h)
 	forward_window(ui, w, h)
 	search_window(ui, w, h)
-	// After every timeline, the thread windows' too.
+	// After every timeline, the thread windows' timelines too.
 	message_bar(ui)
-	// Last, and in windows of their own, so they're over the popups too.
+	// Last, and in windows of their own, so they are over the popups too.
 	chip_preview_popup(ui, w, h)
 	icon_hint(ui, w, h)
 }
 
-/*
-rail_divider_gap hides the line between the rail and the main window
-(their two borders) along the strip of the merged macOS title bar, where
-the window's buttons are (ui_titlebar_darwin.odin). The borders belong to
-the windows, which can't draw outside themselves, so it's a window of its
-own, in the windows' colour, over them.
-*/
+// rail_divider_gap hides the line between the rail and the main window
+// (their two borders) along the strip of the merged macOS title bar, where
+// the window's buttons are (see ui_titlebar_darwin.odin). The borders belong
+// to the windows, which can't draw outside themselves, so this is a window of
+// its own, in the windows' color, drawn over them.
 @(private = "file")
 rail_divider_gap :: proc(ui: ^UI, rail: i32) {
 	if ui.titlebar_left <= 0 || ui.titlebar_height <= 0 {
@@ -1528,8 +1494,8 @@ rail_divider_gap :: proc(ui: ^UI, rail: i32) {
 
 @(private = "file")
 main_window :: proc(ui: ^UI) {
-	// Joining a server from the + (ui_join.odin), which is all there is
-	// with no server to show.
+	// Joining a server from the + page (see ui_join.odin), which is all there is
+	// when there is no server to show.
 	if ui.join.open || (ui.session != nil && ui.session.joining) {
 		join_page(ui)
 		return
@@ -1543,23 +1509,23 @@ main_window :: proc(ui: ^UI) {
 		return
 	}
 
-	// Every server's part of the inbox, each View locked in turn, before
-	// the shown one's is for the frame.
+	// Every server's part of the inbox, with each View locked in turn, before
+	// the shown server's part for the frame.
 	ui.inbox = inbox_list(ui) if ui.page == .Buddies else nil
 	v := ui.view
 	sync.guard(&v.mutex)
 	apply_gains(ui)
 	switch v.status {
 	case .Disconnected, .Failed:
-		// The buddy screen goes with the connection.
+		// The buddy screen goes away with the connection.
 		if ui.page == .Buddies {
 			ui.page = .Main
 		}
 		connect_screen(ui)
 	case .Connecting, .Connected:
-		// A server that doesn't know this device shows nothing until it's
-		// logged in (ui_account.odin), nor one whose password was chosen
-		// by somebody else until it has been replaced.
+		// A server that doesn't know this device shows nothing until the device is
+		// logged in (see ui_account.odin), and neither does a server whose password was
+		// chosen by somebody else, until it has been replaced.
 		switch {
 		case v.status == .Connected && v.login.state != .Done:
 			ui.page = .Main
@@ -1578,11 +1544,9 @@ main_window :: proc(ui: ^UI) {
 	}
 }
 
-/*
-connect_screen is a server on the rail that isn't connected, in a card:
-what went wrong, when it's tried again, the trust prompt if its key has
-changed, and trying it again now or leaving it.
-*/
+// connect_screen shows a server on the rail that isn't connected, in a card:
+// what went wrong, when it will be tried again, the trust prompt if its key has
+// changed, and buttons to try again now or to leave it.
 @(private = "file")
 connect_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -1606,7 +1570,7 @@ connect_screen :: proc(ui: ^UI) {
 		if v.retry_at == {} {
 			with_text_color(ctx, theme.dim, "Connecting...", mu.text)
 		} else {
-			// Counted down a second at a time.
+			// Counted down one second at a time.
 			left := time.tick_diff(time.tick_now(), v.retry_at)
 			secs := max(int(math.ceil(time.duration_seconds(left))), 1)
 			with_text_color(ctx, theme.dim, fmt.tprintf("Trying again in %ds.", secs), mu.text)
@@ -1620,7 +1584,7 @@ connect_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, {-1})
-	// With a changed key, trusting it is what connects again.
+	// With a changed key, trusting the new key is what connects again.
 	if !key_change && .SUBMIT in mu.button(ctx, "Reconnect") {
 		ui.action = .Reconnect
 	}
@@ -1629,8 +1593,8 @@ connect_screen :: proc(ui: ^UI) {
 	}
 }
 
-// Narrower than this (a phone, a window squeezed aside), the channels
-// go above the chat instead of beside it.
+// In a window narrower than this (a phone, or a window squeezed to the side),
+// the channels go above the chat instead of beside it.
 NARROW_LAYOUT :: 600
 
 @(private = "file")
@@ -1650,8 +1614,8 @@ session_screen :: proc(ui: ^UI) {
 
 	session_header(ui)
 
-	// Side by side where there's room; in a narrow window the list and
-	// the chat take turns (ui_channels.odin), over the voice panel.
+	// Side by side where there is room. In a narrow window the list and
+	// the chat take turns (see ui_channels.odin), over the voice panel.
 	if narrow {
 		mu.layout_row(ctx, {-1}, -(voice_panel_height(ui) + 1))
 		if ui.channels.show_list {
@@ -1672,14 +1636,12 @@ session_screen :: proc(ui: ^UI) {
 	share_menu(ui)
 }
 
-/*
-title_row is mu.layout_row for a screen's first row. With the title bar
-merged, that row shares the top of the window with the window's buttons
-(see ui_titlebar.odin), so it keeps clear of them: on macOS they're on
-the left, and it starts to the right of them; on Windows and X11 they're
-on the right, and the widths counted from the right-hand edge are counted
-from them instead.
-*/
+// title_row is mu.layout_row for a screen's first row. With the title bar
+// merged, that row shares the top of the window with the window's buttons
+// (see ui_titlebar.odin), so it keeps clear of them. On macOS the buttons are on
+// the left, so the row starts to the right of them. On Windows and X11 they are
+// on the right, so widths counted from the right-hand edge are counted
+// from the buttons instead.
 title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 	layout := mu.get_layout(&ui.ctx)
 	indent := layout.indent
@@ -1696,13 +1658,11 @@ title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 	layout.indent = indent
 }
 
-/*
-session_header is the row along the top while connected: the server
-shown, or the inbox. The session screen and the inbox share it. How the
-connection is doing and the settings are at the bottom of the rail
-(rail_bottom); mute, deafen and what's shared are in the voice panel
-(ui_voice_panel.odin).
-*/
+// session_header is the row along the top while connected, showing the server
+// or the inbox. The session screen and the inbox share it. The connection's
+// status and the settings are at the bottom of the rail
+// (see rail_bottom). Mute, deafen and what is shared are in the voice panel
+// (see ui_voice_panel.odin).
 session_header :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -1720,10 +1680,10 @@ session_header :: proc(ui: ^UI) {
 	}
 }
 
-// How tightly log lines are packed: exactly LINE_HEIGHT tall, rather
-// than the default control size's couple of pixels of unneeded slack,
-// and a tighter gap than the rest of the UI uses between rows - so more
-// of the log fits on screen at once.
+// How tightly log lines are packed: exactly LINE_HEIGHT tall, instead of the
+// couple of pixels of slack the default control size has, and with a tighter
+// gap between rows than the rest of the UI uses, so more of the log
+// fits on screen at once.
 @(private = "file")
 LOG_LINE_SPACING :: 1
 
@@ -1736,7 +1696,7 @@ log_panel :: proc(ui: ^UI) {
 	select_begin(ui, .Log)
 	total: int
 	{
-		// No logging in here: the log sink takes this same lock.
+		// No logging in here, because the log sink takes this same lock.
 		sync.guard(&logs.mutex)
 		total = logs.total
 		ui.log_drawn = total // for frame_due to look out for more
@@ -1746,8 +1706,8 @@ log_panel :: proc(ui: ^UI) {
 		defer ctx.style.spacing = saved_spacing
 
 		font := render.font_with_style(ctx.style.font, .Mono)
-		// A line longer than the panel makes every row as wide as it,
-		// which is what has microui add a horizontal scrollbar.
+		// A line longer than the panel makes every row as wide as that line,
+		// which is what makes microui add a horizontal scrollbar.
 		widest: i32
 		for line in logs.lines {
 			text := line.text[11:] if len(line.text) > 11 else line.text
@@ -1758,11 +1718,11 @@ log_panel :: proc(ui: ^UI) {
 			row_w = -1
 		}
 		// Lines are numbered by the running total, so a selection stays
-		// on the same ones as new lines come in (ui_select.odin).
+		// on the same lines as new lines come in (see ui_select.odin).
 		first := i64(logs.total - len(logs.lines))
 		for line, i in logs.lines {
 			mu.layout_row(ctx, {row_w}, render.LINE_HEIGHT)
-			// Drop the date; the time is enough on screen.
+			// Drop the date, because the time is enough on screen.
 			text := line.text[11:] if len(line.text) > 11 else line.text
 			color := ctx.style.colors[.TEXT]
 			switch {
@@ -1789,15 +1749,13 @@ log_panel :: proc(ui: ^UI) {
 // A button with nothing but an icon on it is this wide.
 ICON_BUTTON :: 30
 
-// stable_button is mu.button, except its id comes from `id_name` (under
-// the current id stack) rather than from the label, so the label can
+// stable_button is mu.button, except that its id comes from `id_name` (under
+// the current id stack) instead of from the label, so the label can
 // change from frame to frame without the button becoming a new control.
-/*
-icon_button is a button with an icon on it instead of a label, and the
-words it saves shown under it while the pointer is on it. Like
-stable_button its id comes from `id_name`, so a button that changes
-what it shows (mute to unmute) keeps the same one.
-*/
+// icon_button is a button with an icon on it instead of a label. While the
+// pointer is on it, a hint below it shows the words the icon saves. Like
+// stable_button, its id comes from `id_name`, so a button that changes
+// what it shows (mute to unmute) keeps the same id.
 icon_button :: proc(
 	ui: ^UI,
 	id_name: string,
@@ -1822,13 +1780,11 @@ icon_button :: proc(
 	return
 }
 
-/*
-menu_list_begin starts a list of `rows` rows (buttons or labels, each a
-row of its own laid out with {-1}) in a menu, `width` wide: as tall as
-they are, up to half the window, past which it scrolls instead of the
-menu growing off the window. It has no frame or padding of its own, so
-its rows line up with the menu's. End it with mu.end_panel.
-*/
+// menu_list_begin starts a list of `rows` rows in a menu, `width` wide. The rows
+// are buttons or labels, each on a row of its own, laid out with {-1}. The list
+// is as tall as its rows, up to half the window, beyond which it scrolls instead
+// of the menu growing off the window. It has no frame or padding of its own, so
+// its rows line up with the menu's. End it with mu.end_panel.
 menu_list_begin :: proc(ui: ^UI, name: string, width: i32, rows: int) {
 	ctx := &ui.ctx
 	row := ctx.style.size.y + 2 * ctx.style.padding
@@ -1841,26 +1797,24 @@ menu_list_begin :: proc(ui: ^UI, name: string, width: i32, rows: int) {
 	ctx.style.padding = padding
 }
 
-/*
-icon_hint draws what the icon button under the pointer does, just below
-it: or the tooltip of whatever else set `ui.hint`, which may run over
-several lines. microui paints each window and popup as a whole, in
-z-order, so the hint gets a frameless window of its own raised above
-the rest; drawn inside the main window, a popup (the user menu) would
-cover it.
-*/
+// icon_hint draws what the icon button under the pointer does, just below
+// it, or the tooltip of whatever else set `ui.hint`, which may run over
+// several lines. microui paints each window and popup as a whole, in
+// z-order, so the hint gets a frameless window of its own, raised above
+// the rest. If it were drawn inside the main window, a popup (the user menu)
+// would cover it.
 @(private = "file")
 HINT_WINDOW :: "hint"
 
-// The emoji a hint is about: one of the server's (its index), or else a
-// character, as a string; both empty for none.
+// The emoji a hint is about: one of the server's (by its index), or else a
+// character as a string. Both are empty for none.
 Hint_Emoji :: struct {
 	custom:  Maybe(int),
 	unicode: string, // temp
 }
 
-// hint_emoji_of has the hint show `emoji` large: a reaction's or
-// message's, ":name:" for the server's, else the characters. Call with
+// hint_emoji_of makes the hint show `emoji` large: a reaction's or
+// message's emoji, ":name:" for the server's, else the characters. Call with
 // the View locked.
 hint_emoji_of :: proc(ui: ^UI, emoji: string) {
 	if strings.has_prefix(emoji, ":") && strings.has_suffix(emoji, ":") && len(emoji) > 2 {
@@ -1912,8 +1866,8 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 	if big_h > 0 {
 		h += big_h + pad
 	}
-	// Under the button, pushed left if it would go off the side, and
-	// above it if there's no room below (the chat box's Send button).
+	// Under the button, moved left if it would go off the side, and
+	// above it if there is no room below (the chat box's Send button).
 	x := min(ui.hint_of.x, max(window_w - w, 0))
 	y := ui.hint_of.y + ui.hint_of.h + 2
 	if y + h > window_h {
@@ -1921,7 +1875,7 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	r := mu.Rect{x, y, w, h}
 	// The pointer is on the button, never on the hint, so the window
-	// doesn't take the hover away from what it describes.
+	// doesn't take the hover away from the thing it describes.
 	cnt := mu.get_container(ctx, HINT_WINDOW)
 	if cnt == nil {
 		return
@@ -2006,11 +1960,10 @@ stable_button :: proc(
 	return
 }
 
-/*
-list_row is a line of a list to pick from - a settings tab's categories,
-the channels - as text: boxed and bold while it's the one picked,
-highlighted under the mouse. Clicked with the left button, it submits.
-*/
+// list_row is a line of a list to pick from (such as a settings tab's
+// categories or the channels), shown as text. It is boxed and bold while it is
+// the selected one and highlighted under the mouse. Clicking it with the left
+// button submits it.
 list_row :: proc(
 	ctx: ^mu.Context,
 	id_name, label: string,
@@ -2062,7 +2015,7 @@ glfw_error_callback :: proc "c" (code: i32, description: cstring) {
 	log.errorf("GLFW: %s (0x%x)", description, code)
 }
 
-// GLFW input -> microui. Callbacks run on the main thread, inside
+// GLFW input -> microui. The callbacks run on the main thread, inside
 // glfw.WaitEventsTimeout.
 
 @(private = "file")
@@ -2070,14 +2023,12 @@ to_logical :: proc "contextless" (v: f64) -> i32 {
 	return i32(v * f64(g_ui.input_scale))
 }
 
-/*
-iconify_callback notes that the desktop has minimized us, for the loop
-to put the client in the tray if that's what the settings say.
-
-Not every desktop tells us. X11 does. Wayland has no message for it, so
-there the window simply minimizes and the setting does nothing; the
-settings page says as much when it would matter.
-*/
+// iconify_callback records that the desktop has minimized us, so the loop can
+// move the client to the tray if the settings say so.
+//
+// Not every desktop reports this. X11 does. Wayland has no message for it, so
+// there the window simply minimizes and the setting does nothing. The
+// settings page says as much when it would matter.
 @(private = "file")
 iconify_callback :: proc "c" (window: glfw.WindowHandle, iconified: i32) {
 	if iconified != 0 {
@@ -2086,22 +2037,20 @@ iconify_callback :: proc "c" (window: glfw.WindowHandle, iconified: i32) {
 	ui_redraw(g_ui)
 }
 
-// focus_callback draws a frame when the window gets or loses the focus:
-// animated pictures play only while it has it (anims_running).
+// focus_callback draws a frame when the window gains or loses the focus,
+// because animated pictures only play while it has the focus (see anims_running).
 @(private = "file")
 focus_callback :: proc "c" (window: glfw.WindowHandle, focused: i32) {
 	ui_redraw(g_ui)
 }
 
-/*
-refresh_callback is the window needing its contents again: uncovered,
-say, where nothing keeps them. That's a frame drawn at the next turn
-round the loop - except on Windows, where it draws one right away, since
-it also comes while the window is being resized: dragging its edge runs
-a loop of the system's own until the mouse is let go, and
-glfw.WaitEventsTimeout doesn't come back before then, so without this
-the window would stand still for as long as the drag lasts.
-*/
+// refresh_callback is called when the window needs its contents drawn again,
+// for example when it was uncovered and nothing kept them. A frame is then drawn
+// at the next turn of the loop, except on Windows, where one is drawn right
+// away. There it also comes while the window is being resized: dragging its edge
+// runs a loop of the system's own until the mouse is released, and
+// glfw.WaitEventsTimeout doesn't return before then, so without this
+// the window would stand still for as long as the drag lasts.
 @(private = "file")
 refresh_callback :: proc "c" (window: glfw.WindowHandle) {
 	context = platform.callback_context()
@@ -2114,13 +2063,11 @@ refresh_callback :: proc "c" (window: glfw.WindowHandle) {
 	}
 }
 
-/*
-resize_callback is macOS's way into the resize loop refresh_callback
-describes: AppKit never asks a view whose layer is ours (Metal's) to
-draw, so no refresh comes while the edge is dragged, but the window's
-size changes do. Each is drawn at once, in step with the window's new
-size (render.gpu_resizing), or the picture would lag behind its edge.
-*/
+// resize_callback is macOS's way into the resize loop that refresh_callback
+// describes. AppKit never asks a view whose layer is ours (Metal's) to
+// draw, so no refresh comes while the edge is dragged, but the window's
+// size changes do. Each one is drawn at once, in step with the window's new
+// size (see render.gpu_resizing), or the picture would lag behind its edge.
 when ODIN_OS == .Darwin {
 	@(private = "file")
 	resize_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
@@ -2143,12 +2090,10 @@ cursor_pos_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	mu.input_mouse_move(&g_ui.ctx, to_logical(x), to_logical(y))
 }
 
-/*
-cursor_enter_callback takes the pointer out of microui's sight when it
-leaves the window, so nothing stays hovered (an animated picture that
-plays while the pointer is on it, say) - unless a button is held, as
-something is being dragged, which goes on outside the window.
-*/
+// cursor_enter_callback takes the pointer out of microui's sight when it
+// leaves the window, so nothing stays hovered (for example an animated picture
+// that plays while the pointer is on it). The exception is while a button is
+// held, because something is being dragged, which carries on outside the window.
 @(private = "file")
 cursor_enter_callback :: proc "c" (window: glfw.WindowHandle, entered: i32) {
 	context = platform.callback_context()
@@ -2178,7 +2123,7 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	x, y := to_logical(wx), to_logical(wy)
 	log.debugf("ui: mouse %v %s at %d,%d", btn, action == glfw.PRESS ? "down" : "up", x, y)
 	// Hover was worked out at the last known pointer position. If the
-	// press is somewhere else (motion events were missed), it would click
+	// press is somewhere else (because motion events were missed), it would click
 	// whatever was under the old position, so drop the hover instead.
 	// The edges of a window without a frame resize it (X11 only, see
 	// ui_titlebar_x11.odin), and the strip where a title bar would be
@@ -2262,8 +2207,8 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	case glfw.KEY_DELETE:
 		k = .DELETE
 	case glfw.KEY_ESCAPE:
-		// Close the enlarged image, if one is open; and for the rest of
-		// the frame, a key like microui's (UI.keys).
+		// Close the enlarged image, if one is open. For the rest of
+		// the frame, treat it as a key like microui's (see UI.keys).
 		if action == glfw.PRESS {
 			g_ui.images.viewer = 0
 			g_ui.keys += {.Escape}
@@ -2283,8 +2228,8 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		return
 	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:
 		k = .RETURN
-		// Shift+Enter starts a line in a text area. The key's own
-		// modifiers say so, even when Shift is let go again before the
+		// Shift+Enter starts a new line in a text area. The key's own
+		// modifiers say so, even when Shift is released again before the
 		// frame (and with it microui's SHIFT).
 		if action != glfw.RELEASE && mods & glfw.MOD_SHIFT != 0 {
 			g_ui.keys += {.Newline}
@@ -2317,8 +2262,8 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 }
 
 set_clipboard :: proc(user_data: rawptr, text: string) -> bool {
-	// Emscripten's GLFW has no clipboard: a browser's comes from the page
-	// (ui_paste_web.odin).
+	// Emscripten's GLFW has no clipboard. In a browser it comes from the page
+	// (see ui_paste_web.odin).
 	when platform.WEB {
 		return web_copy_text(text)
 	} else {

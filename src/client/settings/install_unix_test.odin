@@ -20,8 +20,8 @@ test_desktop_escapes :: proc(t: ^testing.T) {
 	}
 }
 
-// test_install_self installs into a home directory of its own, and
-// uninstalls again.
+// test_install_self installs into a temporary home directory and uninstalls
+// again.
 @(test)
 test_install_self :: proc(t: ^testing.T) {
 	home, err := os.make_directory_temp("", "yap-install-*", context.temp_allocator)
@@ -81,7 +81,7 @@ test_install_self :: proc(t: ^testing.T) {
 	_, lerr := os.lstat(link, context.temp_allocator)
 	testing.expect(t, lerr != nil)
 
-	// A file of someone else's in the link's place is left alone.
+	// A file at the link's path that we didn't create is left alone.
 	testing.expect(t, os.write_entire_file(link, "not ours") == nil)
 	testing.expect_value(t, install_self(exe, ICON_PNG), "")
 	testing.expect_value(t, uninstall_self(), "")

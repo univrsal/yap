@@ -5,19 +5,17 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-The server's own emoji (src/common/proto/emoji.odin): their names, and
-the picture with all of them, which is fetched like a message's picture
-(blobs.odin) and kept however many of those there are. The server tells
-us of them when we log in, and again whenever its folder of them changes.
-Those that move come with a blob of their frames each (Emoji_Frames),
-fetched and kept the same way.
-*/
+// The server's custom emoji (src/common/proto/emoji.odin) consist of their names
+// and a sheet image containing all of them. The sheet is fetched like a message
+// picture (see blobs.odin) and is always kept, regardless of how many other
+// pictures are cached. The server sends the emoji when we log in, and again
+// whenever its emoji folder changes. Animated emoji each come with a blob of
+// their frames (Emoji_Frames), which is fetched and kept the same way.
 
 Emoji_Client :: struct {
-	blob:     proto.Blob_Id, // 0 for none
+	blob:     proto.Blob_Id, // 0 if there is none
 	cell:     int,
-	names:    [dynamic]string, // owned, in the sheet's order, which is by name
+	names:    [dynamic]string, // owned, in the sheet's order (sorted by name)
 	animated: [dynamic]proto.Emoji_Anim, // the ones that move
 }
 
@@ -38,8 +36,8 @@ emoji_clear :: proc(c: ^Voice_Client) {
 	c.emoji.blob = 0
 }
 
-// emoji_event takes an event about the server's emoji; false if `op`
-// isn't one.
+// emoji_event handles an event about the server's emoji. It returns false if
+// `op` is not an emoji event.
 emoji_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	if op != .Emoji_Sheet {
 		return false
@@ -65,19 +63,19 @@ emoji_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	return true
 }
 
-// custom_emoji_index is where the server's emoji `name` is in its sheet;
-// false if it hasn't got one by that name.
+// custom_emoji_index returns the position of the emoji `name` in the sheet. It
+// returns false if the server has no emoji with that name.
 custom_emoji_index :: proc(names: []string, name: string) -> (int, bool) {
 	return slice.binary_search(names, name)
 }
 
-// The server's emoji, as the UI sees them.
+// The server's emoji as seen by the UI.
 View_Emoji :: struct {
 	blob:     proto.Blob_Id,
 	cell:     int,
 	names:    [dynamic]string, // owned
 	animated: [dynamic]proto.Emoji_Anim, // the ones that move
-	revision: int, // bumped when they change
+	revision: int, // incremented whenever the emoji change
 }
 
 publish_emoji :: proc(c: ^Voice_Client) {
@@ -105,8 +103,9 @@ view_clear_emoji :: proc(v: ^View) {
 	v.emoji.blob = 0
 }
 
-// typed_text is what was typed as it's stored: mentions and emoji
-// written as their tokens and characters (mentions.odin).
+// typed_text converts the text the user typed into the form in which it is
+// stored, with mentions and emoji written as tokens and characters
+// (see mentions.odin).
 typed_text :: proc(c: ^Voice_Client, text: string) -> string {
 	return emoji_encode(mentions_encode(text, c.auth.accounts, dir_roles(c)), c.emoji.names[:])
 }

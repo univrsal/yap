@@ -2,34 +2,33 @@ package proto
 
 import "core:encoding/endian"
 
-/*
-Report is how a share's bitrate follows what its viewers get, on the
-media link. Each viewer says, once a second, how the share it watches
-reaches it:
-
-	client -> server  Report  [kind][sharer u32][loss u16][delay u16][kbit u32]
-
-and the server passes the worst of them on to the sharer, once a
-second, leaving out one that's far worse off than the rest (so one bad
-connection doesn't drag everyone down):
-
-	server -> sharer  Report  [kind][viewers u16][left out u16][loss u16][delay u16][kbit u32]
-
-The sharer's client lowers its bitrate while that says the network
-can't keep up, and raises it again, up to what it was set to, while it
-can (conn/video.odin).
-*/
+// Reports let a share's bitrate follow what its viewers actually receive, on
+// the media link. Once a second, each viewer reports how well the share it
+// watches reaches it:
+//
+//	client -> server  Report  [kind][sharer u32][loss u16][delay u16][kbit u32]
+//
+// and once a second the server passes the worst of them on to the sharer.
+// It leaves out a report that is far worse than the rest, so that one bad
+// connection doesn't drag everyone down:
+//
+//	server -> sharer  Report  [kind][viewers u16][left out u16][loss u16][delay u16][kbit u32]
+//
+// The sharer's client lowers its bitrate while the report says that the
+// network can't keep up, and raises it again, up to the configured bitrate,
+// as long as it can (conn/video.odin).
 REPORT_SIZE :: 1 + 4 + 2 + 2 + 4
 #assert(REPORT_SIZE == 1 + 2 + 2 + 2 + 2 + 4) // both ways
 
 Video_Report :: struct {
-	// Fragments missing before any were asked for again, in thousandths
-	// of those that came.
+	// Fragments that were missing before any were requested again, in
+	// thousandths of the fragments that arrived.
 	loss:     int,
-	// How much later than at their quickest frames have been arriving,
-	// in milliseconds: a queue building up somewhere on the way.
+	// How much later than their fastest arrival frames have been arriving,
+	// in milliseconds. A growing delay indicates a queue building up
+	// somewhere along the way.
 	delay_ms: int,
-	// What came in, in kbit/s.
+	// The received bitrate in kbit/s.
 	kbit:     int,
 }
 
@@ -56,8 +55,8 @@ decode_report_up :: proc(pt: []u8) -> (sharer: User_Num, r: Video_Report, ok: bo
 	return sharer, r, true
 }
 
-// The server's summary for a sharer: the worst of `viewers` reports,
-// less `left_out` of them.
+// The server's summary for a sharer: the worst of `viewers` reports, not
+// counting `left_out` of them.
 Video_Reports :: struct {
 	viewers:  int,
 	left_out: int,
@@ -91,13 +90,11 @@ decode_report_down :: proc(pt: []u8) -> (s: Video_Reports, ok: bool) {
 	return s, true
 }
 
-/*
-summarize_reports is what the server tells a sharer of its viewers'
-reports: the worst, but with the single worst left out when there are
-three or more and it's far behind the next (REPORT_OUTLIER_LOSS more
-loss, or REPORT_OUTLIER_DELAY more delay). Its owner sees for itself
-that it's losing frames; the rest keep their picture.
-*/
+// summarize_reports is what the server tells a sharer about its viewers'
+// reports: the worst one. If there are three or more reports and the single
+// worst is far behind the next one (REPORT_OUTLIER_LOSS more loss, or
+// REPORT_OUTLIER_DELAY more delay), it is left out. That viewer can see for
+// themselves that they are losing frames, and the others keep their picture.
 REPORT_OUTLIER_LOSS :: 50 // thousandths
 REPORT_OUTLIER_DELAY :: 200 // ms
 
@@ -106,7 +103,8 @@ summarize_reports :: proc(reports: []Video_Report) -> (s: Video_Reports) {
 	if len(reports) == 0 {
 		return
 	}
-	// The worst and the next worst, by loss and then delay.
+	// Find the worst and the second worst report, ordered by loss and then by
+	// delay.
 	worse :: proc(a, b: Video_Report) -> bool {
 		return a.loss > b.loss || (a.loss == b.loss && a.delay_ms > b.delay_ms)
 	}

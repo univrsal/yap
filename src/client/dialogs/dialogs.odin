@@ -1,10 +1,8 @@
-/*
-Native file dialogs (see yap_dialogs.c and tinydialogs.h, MIT or
-Unlicense). Build the library with build.sh / build.bat at the repo root.
-
-The dialogs block until they're closed. On Linux, the BSDs and Windows
-that's fine on a thread of its own; macOS wants them on the main thread.
-*/
+// Native file dialogs (see yap_dialogs.c and tinydialogs.h, MIT or
+// Unlicense). Build the library with build.sh / build.bat at the repo root.
+//
+// The dialogs block until they are closed. On Linux, the BSDs and Windows they
+// can run on a thread of their own; macOS requires them on the main thread.
 package dialogs
 
 import "core:strings"
@@ -41,7 +39,7 @@ Status :: enum i32 {
 	Failed,
 }
 
-// A choice in the dialog's file type list: "*.png;*.jpg" and so on.
+// An entry in the dialog's file type list, with patterns like "*.png;*.jpg".
 Filter :: struct {
 	label:    cstring,
 	patterns: cstring,
@@ -73,8 +71,9 @@ foreign lib {
 	td_open_files :: proc(options: ^Options, result: ^Path_List) -> Status ---
 }
 
-// open_file asks for one file to open. The path is in `allocator`; `err`
-// says what went wrong when the status is Unavailable or Failed.
+// open_file asks the user to pick one file to open. The path is allocated with
+// `allocator`. When the status is Unavailable or Failed, `err` says what went
+// wrong.
 open_file :: proc(
 	title: string,
 	filters: []Filter,
@@ -101,8 +100,8 @@ open_file :: proc(
 	return
 }
 
-// open_files asks for files to open, as many as are picked. The paths
-// and the slice are in `allocator`; `err` is as for open_file.
+// open_files asks the user to pick any number of files to open. The paths and
+// the slice are allocated with `allocator`. `err` works as for open_file.
 open_files :: proc(
 	title: string,
 	filters: []Filter,

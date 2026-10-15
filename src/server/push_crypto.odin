@@ -9,43 +9,39 @@ import "core:encoding/base64"
 import "core:encoding/hex"
 import "core:strings"
 
-/*
-The cryptography of Web Push (push.odin), all of it from core:crypto:
+// The cryptography for Web Push (push.odin), all of it implemented with core:crypto:
+//
+//   - A message is encrypted for the subscribed browser (RFC 8291, using RFC 8188's
+//     aes128gcm content coding): a fresh P-256 key is generated for each message and
+//     combined with the subscription's p256dh key via ECDH. The shared secret, mixed with
+//     the subscription's auth secret, yields the key and nonce for a single AES-128-GCM
+//     record.
+//   - The server identifies itself with VAPID (RFC 8292): a JWT signed with ES256 using
+//     the server's own P-256 key, which the browser was given when it subscribed. This way
+//     the push service only accepts messages for that subscription from this server.
 
-  - a message is encrypted for the browser that subscribed (RFC 8291,
-    in RFC 8188's aes128gcm content coding): a new P-256 key for each
-    message, agreed with the subscription's p256dh key, mixed with its
-    auth secret, makes the key and nonce for one AES-128-GCM record;
-  - the server says who it is with VAPID (RFC 8292): a JWT signed with
-    ES256 by the server's own P-256 key, which the browser was given
-    when it subscribed, so a push service takes messages for that
-    subscription only from this server.
-*/
-
-// An uncompressed P-256 point, as browsers give p256dh and as VAPID's
-// public key goes: 0x04, then x and y.
+// The size of an uncompressed P-256 point, the format browsers use for p256dh and that is
+// used for the VAPID public key: 0x04, followed by x and y.
 P256_PUBLIC_SIZE :: 65
-// A P-256 private key's scalar.
+// The size of a P-256 private key's scalar.
 P256_PRIVATE_SIZE :: 32
-// A subscription's auth secret.
+// The size of a subscription's auth secret.
 PUSH_AUTH_SIZE :: 16
-// What RFC 8188's header takes: the salt, the record size, the key id's
-// length, and the key id (the message's public key).
+// The size of RFC 8188's header: the salt, the record size, the key id length, and the
+// key id (the message's public key).
 PUSH_HEADER_SIZE :: PUSH_SALT_SIZE + 4 + 1 + P256_PUBLIC_SIZE
 PUSH_SALT_SIZE :: 16
-// The one record's size, as everyone uses: a message is one record.
+// The record size that every implementation uses. A message always fits in one record.
 PUSH_RECORD_SIZE :: 4096
 PUSH_TAG_SIZE :: 16
-// The most of a payload: push services take 4096 bytes of body at most,
-// less the header, the padding delimiter and the tag.
+// The largest payload: push services accept a body of at most 4096 bytes, minus the
+// header, the padding delimiter and the tag.
 PUSH_PAYLOAD_MOST :: 4096 - PUSH_HEADER_SIZE - 1 - PUSH_TAG_SIZE
 
-/*
-push_encrypt encrypts `plaintext` for a subscription (its p256dh key
-and auth secret), with a new key and salt; the body to POST, in
-`allocator`. False if the p256dh key isn't a point on P-256 or the
-plaintext is too long.
-*/
+// push_encrypt encrypts `plaintext` for a subscription (given its p256dh key and auth
+// secret) with a fresh key and salt, and returns the body to POST, allocated with
+// `allocator`. Returns false if the p256dh key isn't a point on P-256 or the plaintext is
+// too long.
 push_encrypt :: proc(
 	plaintext: []u8,
 	ua_public: []u8,
@@ -65,8 +61,8 @@ push_encrypt :: proc(
 	return push_encrypt_with(plaintext, ua_public, auth, &key, salt[:], allocator)
 }
 
-// push_encrypt_with is push_encrypt with the key and salt given, for
-// the tests to use RFC 8291's.
+// push_encrypt_with is push_encrypt with a caller-supplied key and salt, so the tests can
+// use the ones from RFC 8291's example.
 push_encrypt_with :: proc(
 	plaintext: []u8,
 	ua_public: []u8,
@@ -97,8 +93,8 @@ push_encrypt_with :: proc(
 	as_public: [P256_PUBLIC_SIZE]u8
 	ecdh.private_key_public_bytes(as_key, as_public[:])
 
-	// RFC 8291 section 3.4: the input keying material, from the shared
-	// secret, the auth secret and both public keys.
+	// RFC 8291 section 3.4: derive the input keying material from the shared secret, the
+	// auth secret and both public keys.
 	INFO :: "WebPush: info\x00"
 	key_info: [len(INFO) + 2 * P256_PUBLIC_SIZE]u8
 	copy(key_info[:], INFO)
@@ -108,8 +104,8 @@ push_encrypt_with :: proc(
 	hkdf.extract_and_expand(.SHA256, auth, shared[:], key_info[:], ikm[:])
 	defer crypto.zero_explicit(&ikm, size_of(ikm))
 
-	// RFC 8188 section 2.2 and 2.3: the content key and nonce, from the
-	// salt.
+	// RFC 8188 sections 2.2 and 2.3: derive the content encryption key and the nonce,
+	// using the salt.
 	prk: [32]u8
 	hkdf.extract(.SHA256, salt, ikm[:], prk[:])
 	defer crypto.zero_explicit(&prk, size_of(prk))
@@ -119,8 +115,8 @@ push_encrypt_with :: proc(
 	nonce: [12]u8
 	hkdf.expand(.SHA256, prk[:], transmute([]u8)string("Content-Encoding: nonce\x00"), nonce[:])
 
-	// The header, then the one record: the plaintext, the delimiter of
-	// the last record (2) and no padding, sealed, and its tag.
+	// Write the header, followed by the single record: the plaintext, the delimiter that
+	// marks the last record (2) and no padding, encrypted in place, followed by its tag.
 	padded := len(plaintext) + 1
 	body = make([]u8, PUSH_HEADER_SIZE + padded + PUSH_TAG_SIZE, allocator)
 	copy(body, salt)
@@ -150,17 +146,15 @@ put_u32_be :: proc(dst: []u8, v: u32) {
 	dst[3] = u8(v)
 }
 
-// VAPID's JWT header, {"typ":"JWT","alg":"ES256"}, already encoded.
+// The VAPID JWT header, {"typ":"JWT","alg":"ES256"}, already base64url-encoded.
 @(private = "file")
 VAPID_HEADER :: "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9"
 
-/*
-vapid_jwt is the token that says this server sent a message (RFC 8292):
-for the push service at `audience` (the endpoint's origin), until
-`expires` (seconds since 1970; push services take no more than a day),
-with `subject`, a mailto: or https: URL to reach whoever runs the
-server. In `allocator`.
-*/
+// vapid_jwt creates the token that proves a message was sent by this server (RFC 8292).
+// It is issued for the push service at `audience` (the endpoint's origin) and is valid
+// until `expires` (Unix seconds; push services accept no more than a day ahead). `subject`
+// is a mailto: or https: URL for contacting the server's operator. Allocated with
+// `allocator`.
 vapid_jwt :: proc(
 	key: ^ecdsa.Private_Key,
 	audience, subject: string,
@@ -177,7 +171,11 @@ vapid_jwt :: proc(
 	strings.write_string(&claims, "}")
 
 	input := strings.concatenate(
-		{VAPID_HEADER, ".", base64url(transmute([]u8)strings.to_string(claims), context.temp_allocator)},
+		{
+			VAPID_HEADER,
+			".",
+			base64url(transmute([]u8)strings.to_string(claims), context.temp_allocator),
+		},
 		context.temp_allocator,
 	)
 	sig: [2 * P256_PRIVATE_SIZE]u8
@@ -187,8 +185,7 @@ vapid_jwt :: proc(
 	return strings.concatenate({input, ".", base64url(sig[:], context.temp_allocator)}, allocator)
 }
 
-// vapid_key_generate makes a new VAPID key, in hex as the config keeps
-// it.
+// vapid_key_generate creates a new VAPID key, hex-encoded as it is stored in the config.
 vapid_key_generate :: proc(allocator := context.allocator) -> (encoded: string, ok: bool) {
 	key: ecdsa.Private_Key
 	if !ecdsa.private_key_generate(&key, .SECP256R1) {
@@ -201,24 +198,20 @@ vapid_key_generate :: proc(allocator := context.allocator) -> (encoded: string, 
 	return string(hex.encode(raw[:], allocator)), true
 }
 
-// vapid_key_parse sets `key` from its hex form.
+// vapid_key_parse sets `key` from its hex-encoded form.
 vapid_key_parse :: proc(encoded: string, key: ^ecdsa.Private_Key) -> bool {
 	raw, ok := hex.decode(transmute([]u8)strings.trim_space(encoded), context.temp_allocator)
-	return(
-		ok &&
-		len(raw) == P256_PRIVATE_SIZE &&
-		ecdsa.private_key_set_bytes(key, .SECP256R1, raw) \
-	)
+	return ok && len(raw) == P256_PRIVATE_SIZE && ecdsa.private_key_set_bytes(key, .SECP256R1, raw)
 }
 
-// base64url is `data` in base64url without padding, as JWTs and the
-// Web Push headers want.
+// base64url encodes `data` as base64url without padding, as required by JWTs and the Web
+// Push headers.
 base64url :: proc(data: []u8, allocator := context.allocator) -> string {
 	encoded := base64.encode(data, base64.ENC_URL_TABLE, allocator)
 	return strings.trim_right(encoded, "=")
 }
 
-// base64url_decode reads base64url, with or without its padding.
+// base64url_decode decodes base64url, with or without padding.
 base64url_decode :: proc(s: string, allocator := context.allocator) -> (data: []u8, ok: bool) {
 	padded := s
 	if len(s) % 4 != 0 {

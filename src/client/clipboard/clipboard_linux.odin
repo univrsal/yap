@@ -53,8 +53,8 @@ _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: stri
 	return nil, "", .Unavailable
 }
 
-// read_all reads `fd` to its end, giving up at `deadline` or past
-// MAX_DATA_SIZE. It closes `fd`.
+// read_all reads `fd` until its end. It gives up at `deadline` or when more
+// than MAX_DATA_SIZE bytes arrive. It closes `fd`.
 read_all :: proc(
 	fd: linux.Fd,
 	deadline: time.Tick,

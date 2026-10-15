@@ -9,46 +9,44 @@ import "common:."
 import "common:proto"
 import log "common:wlog"
 
-/*
-The media link (proto.Link.Media, server/media.odin): a third transport
-to the server, to a port of its own, for screen sharing from the desktop
-with the yap_video library. The server serves it on a thread of its
-own, so a shared screen's video never queues in its main loop, and our
-video goes nowhere near what's on the other links. Video shared on it
-only reaches viewers on it, so the browser has one too, through the
-relay (server/relay.odin).
-
-It's opened once we are logged in (auth state Done), the server has named its
-media port (Server_Info), and there's a library to share or watch with;
-like the bulk link, with a handshake of its own whose hello names the
-connection. All of screen sharing goes over it (video.odin): our video
-and Watch leases, and the video we watch and the keyframe requests for
-ours. Without it, there's none.
-*/
+// The media link (proto.Link.Media, server/media.odin) is a third transport to
+// the server, using a port of its own, for screen sharing from the desktop with
+// the yap_video library. The server serves it on a separate thread, so a shared
+// screen's video never queues in its main loop, and our video stays away from
+// the traffic on the other links. Video shared on this link only reaches
+// viewers that are on it too, so the browser has one as well, through the
+// relay (server/relay.odin).
+//
+// The link is opened once we are logged in (auth state Done), the server has
+// announced its media port (Server_Info), and there is a library available to
+// share or watch with. Like the bulk link, it performs a handshake of its own
+// whose hello names the connection. All of screen sharing goes over it (see
+// video.odin): our video and Watch leases, the video we watch, and the keyframe
+// requests for ours. Without the link, there is no screen sharing.
 
 Media_Link :: struct {
 	using link: Link,
-	port:       u16, // the server's media port, once it has said
+	port:       u16, // the server's media port, once it has announced it
 	retry_at:   time.Tick,
 	last_ping:  time.Tick,
-	refusals:   int, // in a row; it's given up on after MEDIA_GIVE_UP
+	refusals:   int, // consecutive refusals; the link is given up on after MEDIA_GIVE_UP
 }
 
-// How often the media link pings the server, to hear back from it.
+// How often the media link pings the server to check that it still answers.
 @(private = "file")
 MEDIA_PING :: 1 * time.Second
 @(private = "file")
 MEDIA_RETRY :: 2 * time.Second
-// Refusals after which the media link isn't tried again for this
-// connection: something's wrong that trying won't fix (a password the
-// main link got past but this doesn't, say).
+// The number of refusals after which the media link is not tried again for this
+// connection, because something is wrong that retrying won't fix (for example
+// a password that the main link accepted but this link doesn't).
 @(private = "file")
 MEDIA_GIVE_UP :: 5
-// The most packets taken off the media link in a turn of the loop.
+// The maximum number of packets read from the media link per loop iteration.
 @(private = "file")
 MEDIA_RECV_MAX :: 256
 
-// media_step opens the media link when it's time, and keeps it going.
+// media_step opens the media link when it is time to do so and keeps it running.
 media_step :: proc(c: ^Voice_Client) {
 	m := &c.media
 	port := c.rpc.server.media_port
@@ -59,14 +57,14 @@ media_step :: proc(c: ^Voice_Client) {
 		return
 	}
 	if m.transport.open && m.port != port {
-		// The server moved it (restarted with another config).
+		// The server moved its media port (for example it restarted with another config).
 		media_close(c)
 	}
 	if !m.transport.open {
 		if m.retry_at != {} && time.tick_diff(time.tick_now(), m.retry_at) > 0 {
 			return
 		}
-		// The relay knows the media port; the address is only for its log.
+		// The relay knows the media port, so the address is only used for its log.
 		addr := c.server_addr when platform.WEB else with_port(c.server_addr, port)
 		if !transport_open(&m.transport, addr, c.slot, bulk = true, media = true) {
 			m.retry_at = time.tick_add(time.tick_now(), MEDIA_RETRY)
@@ -83,8 +81,8 @@ media_step :: proc(c: ^Voice_Client) {
 	}
 }
 
-// with_port is `addr` (host:port, as with_default_port makes it) with
-// another port, in the temp allocator.
+// with_port returns `addr` (host:port, as made by with_default_port) with
+// another port, allocated in the temp allocator.
 @(private = "file")
 with_port :: proc(addr: string, port: u16) -> string {
 	host := addr
@@ -139,7 +137,7 @@ media_handshake :: proc(c: ^Voice_Client) {
 	}
 }
 
-// media_receive handles what has come over the media link.
+// media_receive handles packets that arrived over the media link.
 media_receive :: proc(c: ^Voice_Client) {
 	m := &c.media
 	if !m.transport.open {
@@ -191,7 +189,7 @@ handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
 				log.debugf("the media link was refused: %v", proto.decode_refused(pt))
 				if m.refusals == MEDIA_GIVE_UP {
 					log.warn(
-						"the server keeps refusing the media link, so there's no screen sharing",
+						"the server keeps refusing the media link, so screen sharing is unavailable",
 					)
 				}
 				media_retry_later(m)
@@ -223,7 +221,7 @@ handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
 				video_reports(c, s)
 			}
 		case .Welcome, .Pong:
-		// Answers to the handshake and the pings: that they came is all.
+		// Handshake and ping answers only matter because they arrived.
 		}
 	}
 }
@@ -234,11 +232,9 @@ media_retry_later :: proc(m: ^Media_Link) {
 	m.retry_at = time.tick_add(time.tick_now(), MEDIA_RETRY)
 }
 
-/*
-media_restart forgets the media link's sessions when the connection is
-a new one: the server dropped them with the old one. The transport
-stays open for the next handshake.
-*/
+// media_restart forgets the media link's sessions when the connection is a new
+// one, because the server dropped them together with the old connection. The
+// transport stays open for the next handshake.
 media_restart :: proc(c: ^Voice_Client) {
 	link_reset(&c.media.link)
 	c.media.retry_at = {}

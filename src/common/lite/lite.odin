@@ -10,92 +10,96 @@ import "core:time"
 
 import "common:proto"
 
-/*
-A headless client: one connection to a server without UI, audio or
-rendering, for programs - the bot API's gateway (docs/bot-api) and
-yap-stress. It does what a client has to for the server to take it for
-one: the handshake and its sessions, rekeys, the stream for requests and
-events, pings, logging in, and the snapshots acked. When the server
-starts a new connection for it (it restarted, or had given up on us) it
-starts over with it, and when the server goes quiet it handshakes again.
+// A headless client: a single connection to a server without UI, audio or
+// rendering, for use by programs such as the bot API's gateway
+// (docs/bot-api) and yap-stress. It does everything a client has to do for
+// the server to accept it as one: the handshake and its sessions, rekeys,
+// the stream for requests and events, pings, logging in and acknowledging
+// snapshots. When the server starts a new connection for it (because the
+// server restarted or had given up on the client), the client starts over
+// on that connection. When the server goes quiet, the client handshakes
+// again.
+//
+// It has no thread of its own. Its owner calls receive when the socket has
+// data (or simply often) and calls step every few milliseconds, all from one
+// thread, which any number of clients can share. Results are handed to the
+// owner's procedures (Handlers) on that thread, from inside those calls:
+//
+// - a request's answer, passed to the `done` it was given. This is the
+//   server's response, or Status.Reset if the connection started over,
+//   failed or was closed first. Each request accepted by `request` gets
+//   exactly one answer.
+// - the events, as they come off the stream: Sync_Begin..Sync_End after
+//   every login, which describes the current state (anything known about
+//   the connection before is void), followed by changes after that.
+// - who is online: each snapshot, once logged in and synced.
+// - any other message the server sends (voice, typing, transfers), passed
+//   on unchanged.
+// - the phase, whenever it changes. Failed is permanent and gives the
+//   reason.
+//
+// Bodies handed to the handlers are only valid during the call, and a
+// handler must not close the client it is called for.
+//
+// This only uses the main link (proto.Link). Without a bulk link, the
+// server sends heavy messages on the main link too.
 
-It has no thread of its own. Its owner calls receive when the socket has
-something (or just often) and step every few milliseconds, from one
-thread, which any number of clients can share. What happens is handed to
-the owner's procedures (Handlers) on that thread, from inside those
-calls:
-
-- a request's answer, to the `done` it was given: the server's response,
-  or Status.Reset if the connection started over first, failed or was
-  closed. Exactly one for each request that `request` took;
-- the events, as they come off the stream: Sync_Begin..Sync_End after
-  every login, which is how things are now (what was known of the
-  connection before is void), and changes after that;
-- who is here: each snapshot, once logged in and synced;
-- whatever else the server sends (voice, typing, transfers) as it is;
-- the phase, whenever it changes. Failed is for good, and says why.
-
-Bodies handed to them are only valid during the call, and a handler
-mustn't close the client it's called for.
-
-Only the main link (proto.Link): with no bulk link, the server sends
-heavy messages on it too.
-*/
-
-// Pacing the stream as the client does (client/conn/stream.odin).
+// Pacing of the stream, as the client does it (client/conn/stream.odin).
 STREAM_QUEUE_MAX :: 1024 * 1024
 STREAM_RATE :: 256 * 1024
 STREAM_BURST :: 32 * 1024
 STREAM_RESEND_MOST :: time.Second
-// Pings: what the round trip is, for the stream's resends, and what the
-// server answers, so a quiet server is noticed (proto.SERVER_SILENT).
+// Pings measure the round trip time (used for the stream's resends) and
+// make the server answer, so that a quiet server is noticed
+// (proto.SERVER_SILENT).
 PING_INTERVAL :: time.Second
-// Nothing from the server for this long, and we give up on it.
+// If nothing comes from the server for this long, we give up on it.
 CONNECTION_LOST :: 30 * time.Second
-// How long a login turned down for now (Rate_Limited, Internal) waits
-// to ask again.
+// How long to wait before retrying a login that was rejected for now
+// (Rate_Limited, Internal).
 LOGIN_RETRY :: time.Second
 
 Phase :: enum {
-	Connecting, // handshaking for a connection
-	Logging_In, // asked to, with the password, and waiting
-	Syncing, // logged in, and being told everything
-	// Told everything; changes come as events. A guest is Ready as soon
-	// as it's connected.
+	Connecting, // handshaking to establish a connection
+	Logging_In, // the login request is sent; waiting for the answer
+	Syncing, // logged in; the server is sending everything
+	// Everything has been sent; changes arrive as events. A guest is Ready
+	// as soon as it's connected.
 	Ready,
-	Failed, // for good: Client.failure says why
+	Failed, // permanent; Client.failure gives the reason
 }
 
 Failure :: enum {
 	None,
-	// The server won't have us (Client.refusal).
+	// The server refused the connection (see Client.refusal).
 	Refused,
-	// Its key isn't the one we were told to expect.
+	// The server's key isn't the one we were told to expect.
 	Wrong_Server_Key,
-	// The key isn't a device the server knows, and there's no password
-	// to log in with.
+	// The key isn't a device the server knows, and there's no password to
+	// log in with.
 	Not_Logged_In,
-	// The password login was turned down (Client.login_status).
+	// The password login was rejected (see Client.login_status).
 	Login_Failed,
-	// The device was logged out (Client.logout_reason): revoked, the
-	// password changed, the account disabled or deleted.
+	// The device was logged out (see Client.logout_reason), for example
+	// because it was revoked, the password changed or the account was
+	// disabled or deleted.
 	Logged_Out,
-	// Nothing came from the server for CONNECTION_LOST.
+	// Nothing was received from the server for CONNECTION_LOST.
 	Lost,
 }
 
-// What a request's `done` is told.
+// Answer is what a request's `done` is called with.
 Answer :: struct {
 	op:     proto.Request_Op,
 	status: proto.Status,
 	body:   []u8,
-	tag:    u64, // as given to request
+	tag:    u64, // the tag that was passed to request
 	took:   time.Duration,
 }
 
 Request_Done :: #type proc(c: ^Client, a: Answer)
 
-// What the owner hears; any may be nil.
+// Handlers are the owner's callbacks. Any of them may be nil.
 Handlers :: struct {
 	phase:   proc(c: ^Client, phase: Phase),
 	event:   proc(c: ^Client, op: proto.Event_Op, body: []u8),
@@ -105,28 +109,29 @@ Handlers :: struct {
 
 Options :: struct {
 	server:         net.Endpoint,
-	// The key the server must have; all zero for whichever it has.
+	// The key the server must have; all zeroes accepts any key.
 	server_key:     [proto.KEY_SIZE]u8,
-	password:       string, // the server's, if it has one
-	// What to log in with when our key isn't a device of an account yet;
-	// with no username, it has to be one already.
+	password:       string, // the server's password, if it has one
+	// The credentials to log in with when our key isn't a device of an
+	// account yet. Without a username, the key must already be one.
 	username:       string,
 	login_password: string,
-	device:         string, // what the device is called in the account's list
+	device:         string, // the device's name in the account's device list
 	agent:          string,
-	// How many times a login turned down for now (Rate_Limited,
-	// Internal) is asked again before giving up.
+	// How many times a login that was rejected for now (Rate_Limited,
+	// Internal) is retried before giving up.
 	login_retries:  int,
-	// Stay connected without logging in, for what may be asked before
-	// (Server_Info, Server_Icon, Register): with a key that's no device.
+	// Stay connected without logging in, which allows the requests that
+	// work before logging in (Server_Info, Server_Icon, Register), even
+	// with a key that isn't a device.
 	guest:          bool,
-	name:           string, // for the log
+	name:           string, // used in log messages
 	handlers:       Handlers,
-	user:           rawptr, // the owner's
+	user:           rawptr, // for the owner's own use
 }
 
 Client :: struct {
-	opt:           Options, // its strings owned
+	opt:           Options, // the strings in it are owned by the client
 	key:           ecdh.Private_Key,
 	public_key:    [proto.KEY_SIZE]u8,
 	sock:          net.UDP_Socket,
@@ -135,17 +140,17 @@ Client :: struct {
 	refusal:       proto.Refusal,
 	login_status:  proto.Status,
 	logout_reason: proto.Logout_Reason,
-	// Which connection this is (see the hello and Welcome in
-	// proto/names.odin): ours, the same in every handshake, and the
-	// server's for it.
+	// Identifies the connection (see the hello and Welcome in
+	// proto/names.odin): conn_id is ours and stays the same in every
+	// handshake, instance is the server's id for the connection.
 	conn_id:       u64,
 	instance:      u64,
 	has_instance:  bool,
-	// Given up on the connection, and handshaking for a new one under a
-	// new conn_id, until its Welcome.
+	// We gave up on the connection and are handshaking for a new one with a
+	// new conn_id, until its Welcome arrives.
 	restart:       bool,
 
-	// The sessions, as the client keeps them (client/conn/client.odin).
+	// The sessions, managed as the client does (client/conn/client.odin).
 	handshake:     proto.Initiator,
 	pending:       proto.Session,
 	current:       proto.Session,
@@ -155,23 +160,24 @@ Client :: struct {
 	has_previous:  bool,
 	last_sent:     time.Tick,
 	last_recv:     time.Tick,
-	login_at:      time.Tick, // when to ask to log in again; 0 for not
+	login_at:      time.Tick, // when to retry the login; 0 for never
 	login_tries:   int,
 	stream:        proto.Stream,
-	tokens:        f32, // bytes the stream may send right now
+	tokens:        f32, // how many bytes the stream may send right now
 	stream_last:   time.Tick,
 	last_id:       u32,
 	asked:         map[u32]Asked,
 	ping_id:       u32,
 	ping_sent:     time.Tick,
-	rtt:           time.Duration, // smoothed; 0 until a pong has come
-	// Snapshots: being put together, and the last one taken.
+	rtt:           time.Duration, // smoothed; 0 until the first pong
+	// Snapshots: the one being assembled and the version of the last one
+	// received.
 	assembler:     ^proto.State_Assembler,
 	state_version: u32,
 	has_state:     bool,
 }
 
-// A request waiting for its answer.
+// Asked is a request that is waiting for its answer.
 @(private)
 Asked :: struct {
 	op:   proto.Request_Op,
@@ -180,11 +186,9 @@ Asked :: struct {
 	sent: time.Tick,
 }
 
-/*
-open makes a client that connects with `key`, a device's private key
-(a bot's token is one: proto.bot_token_parse). It doesn't wait for the
-server: the handshake happens in step.
-*/
+// open creates a client that connects with `key`, a device's private key
+// (a bot's token is one: see proto.bot_token_parse). It doesn't wait for
+// the server; the handshake happens in step.
 open :: proc(c: ^Client, key: ^ecdh.Private_Key, opt: Options) -> bool {
 	family := net.family_from_address(opt.server.address)
 	sock, err := net.make_bound_udp_socket(net.IP6_Any if family == .IP6 else net.IP4_Any, 0)
@@ -193,7 +197,7 @@ open :: proc(c: ^Client, key: ^ecdh.Private_Key, opt: Options) -> bool {
 		return false
 	}
 	net.set_blocking(sock, false)
-	// Room for what a busy server sends between two looks.
+	// Leave room for what a busy server sends between two reads.
 	net.set_option(sock, .Receive_Buffer_Size, 1024 * 1024)
 	c^ = {
 		opt   = opt,
@@ -216,8 +220,9 @@ open :: proc(c: ^Client, key: ^ecdh.Private_Key, opt: Options) -> bool {
 	return true
 }
 
-// close says goodbye to the server and frees the client. Requests still
-// waiting are answered Reset. A client closed already is left be.
+// close says goodbye to the server and frees the client. Requests that are
+// still waiting are answered with Reset. Closing a client that is already
+// closed does nothing.
 close :: proc(c: ^Client) {
 	if c.assembler == nil {
 		return
@@ -240,7 +245,8 @@ close :: proc(c: ^Client) {
 	c^ = {}
 }
 
-// receive takes in what has come; it says whether anything had.
+// receive handles all packets that have arrived and returns whether there
+// were any.
 receive :: proc(c: ^Client) -> (got: bool) {
 	recv_buf: [proto.MAX_PACKET_SIZE]u8
 	for c.phase != .Failed {
@@ -254,7 +260,7 @@ receive :: proc(c: ^Client) -> (got: bool) {
 	return
 }
 
-// step does what's due: handshakes, the login, pings, the stream.
+// step does whatever is due: handshakes, the login, pings and the stream.
 step :: proc(c: ^Client, now: time.Tick) {
 	if c.phase == .Failed {
 		return
@@ -284,12 +290,10 @@ step :: proc(c: ^Client, now: time.Tick) {
 	}
 }
 
-/*
-request asks the server for `op`; `done`, if given, hears how it went.
-It's false when the request couldn't be sent - there's no connection
-yet, or a new one is on its way - and then `done` is never called;
-otherwise it's called once.
-*/
+// request sends the server a request for `op`. `done`, if given, is called
+// with the result. It returns false if the request couldn't be sent
+// (because there is no connection yet or a new one is being established),
+// in which case `done` is never called. Otherwise `done` is called once.
 request :: proc(
 	c: ^Client,
 	op: proto.Request_Op,
@@ -306,8 +310,9 @@ request :: proc(
 		return false
 	}
 	if !proto.stream_send(&c.stream, msg) {
-		// More is waiting than the server will ever catch up with: the
-		// connection is as good as gone. A new one starts it all over.
+		// More is queued than the server can ever catch up with, so the
+		// connection is as good as gone. Starting a new one resets
+		// everything.
 		log.warnf("%s: the stream is backed up, starting the connection over", c.opt.name)
 		restart(c)
 		return false
@@ -317,8 +322,8 @@ request :: proc(
 	return true
 }
 
-// send sends a datagram (typing, voice) on the connection: unreliable,
-// and only once there is one.
+// send sends an unreliable datagram (typing, voice) on the connection. It
+// does nothing until a connection exists.
 send :: proc(c: ^Client, pt: []u8) -> bool {
 	if !c.has_current {
 		return false
@@ -333,29 +338,25 @@ send :: proc(c: ^Client, pt: []u8) -> bool {
 	return err == nil
 }
 
-/*
-restart gives up on the connection as it is and handshakes for a new
-one, under a new conn_id, which the server takes as us having started
-over (proto/names.odin): requests waiting are answered Reset when it's
-there, and everything is told again.
-*/
+// restart gives up on the current connection and handshakes for a new one
+// with a new conn_id, which the server treats as the client starting over
+// (see proto/names.odin). Waiting requests are answered with Reset once the
+// new connection exists, and the server sends everything again.
 restart :: proc(c: ^Client) {
 	if c.restart || c.phase == .Failed {
 		return
 	}
 	crypto.rand_bytes(([^]byte)(&c.conn_id)[:size_of(c.conn_id)])
-	// One under way would still say the old conn_id.
+	// A handshake in progress would still use the old conn_id.
 	abandon_handshake(c)
 	c.restart = true
 	set_phase(c, .Connecting)
 }
 
-/*
-forget_login wipes the username and password given to log in with: once
-logged in, the key is a device, and enough on its own. Should the
-server stop knowing it, the client fails (Not_Logged_In) rather than
-log in again.
-*/
+// forget_login wipes the username and password that were given to log in
+// with. Once logged in, the key is a device and is enough on its own. If the
+// server stops knowing the device, the client fails (Not_Logged_In) instead
+// of logging in again.
 forget_login :: proc(c: ^Client) {
 	o := &c.opt
 	crypto.zero_explicit(raw_data(o.login_password), len(o.login_password))
@@ -364,8 +365,8 @@ forget_login :: proc(c: ^Client) {
 	o.login_password, o.username = "", ""
 }
 
-// ready says whether requests can be made and their answers are about
-// a logged in account told everything.
+// ready returns whether requests can be made and the answers concern a
+// logged-in account that has been sent everything.
 ready :: proc(c: ^Client) -> bool {
 	return c.phase == .Ready && !c.restart
 }
@@ -381,7 +382,7 @@ set_phase :: proc(c: ^Client, phase: Phase) {
 	}
 }
 
-// fail gives up for good, telling the server so.
+// fail gives up permanently and tells the server.
 @(private)
 fail :: proc(c: ^Client, why: Failure) {
 	if c.phase == .Failed {
@@ -393,12 +394,13 @@ fail :: proc(c: ^Client, why: Failure) {
 	set_phase(c, .Failed)
 }
 
-// leave says goodbye, if there's anyone to say it to, and forgets the
-// sessions.
+// leave says goodbye if there is a connection to say it on, and then
+// forgets the sessions.
 @(private)
 leave :: proc(c: ^Client) {
 	if c.has_current {
-		// Unreliable, so a few; the server times us out otherwise.
+		// The datagram is unreliable, so send it a few times. Otherwise the
+		// server only notices after a timeout.
 		bye := [1]u8{u8(proto.Message_Kind.Leave)}
 		for _ in 0 ..< 3 {
 			send(c, bye[:])
@@ -412,14 +414,14 @@ leave :: proc(c: ^Client) {
 	c.has_instance = false
 }
 
-// answer_all answers every request still waiting with `status`, in the
-// order they were asked: their connection is gone.
+// answer_all answers every request that is still waiting with `status`, in
+// the order they were sent, because their connection is gone.
 @(private)
 answer_all :: proc(c: ^Client, status: proto.Status) {
 	if len(c.asked) == 0 {
 		return
 	}
-	// From a copy: a `done` may well ask again.
+	// Iterate over a copy because a `done` may send new requests.
 	ids, _ := slice.map_keys(c.asked, context.temp_allocator)
 	slice.sort(ids)
 	waiting := make([]Asked, len(ids), context.temp_allocator)
@@ -434,12 +436,10 @@ answer_all :: proc(c: ^Client, status: proto.Status) {
 	}
 }
 
-/*
-drive_handshake starts one when there's no session, the one there is is
-due to be rekeyed, the server has gone quiet on it (it may have
-restarted, and know nothing of it), or we're starting over; and resends
-or starts over one that has stalled.
-*/
+// drive_handshake starts a handshake when there is no session, when the
+// current session is due for a rekey, when the server has gone quiet (it may
+// have restarted and know nothing about the session) or when we are starting
+// over. It also resends a stalled handshake or starts it over.
 @(private)
 drive_handshake :: proc(c: ^Client, now: time.Tick) {
 	if c.has_current && time.tick_diff(c.current.created, now) > proto.REJECT_AFTER {
@@ -470,8 +470,8 @@ drive_handshake :: proc(c: ^Client, now: time.Tick) {
 		ini.last_sent = now
 		net.send_udp(c.sock, packet, c.opt.server)
 	case .Sent_Init, .Sent_Finish:
-		// Resending as it was is fine: the server answers a repeated Init
-		// with the same Resp, and a repeated Finish with a Welcome.
+		// Resending unchanged is fine: the server answers a repeated Init
+		// with the same Resp and a repeated Finish with a Welcome.
 		if time.tick_diff(ini.last_sent, now) >= proto.HANDSHAKE_RETRY {
 			ini.last_sent = now
 			net.send_udp(c.sock, proto.initiator_packet(ini), c.opt.server)
@@ -533,8 +533,9 @@ handle_packet :: proc(c: ^Client, packet: []u8) {
 		c.last_recv = time.tick_now()
 		kind, kind_ok := proto.message_kind(pt)
 		if sess == &c.pending {
-			// The answer to our hello: the Welcome, or why we're not
-			// welcome. Nothing else counts until one of them comes.
+			// This is the answer to our hello: either the Welcome or the
+			// reason we aren't welcome. Nothing else counts until one of
+			// them arrives.
 			if kind_ok && kind == .Refused {
 				c.refusal = proto.decode_refused(pt)
 				log.warnf("%s: the server refused us: %v", c.opt.name, c.refusal)
@@ -599,12 +600,11 @@ handle_message :: proc(c: ^Client, kind: proto.Message_Kind, pt: []u8) {
 	}
 }
 
-/*
-handle_welcome: after a rekey it names the connection we have, and
-nothing changes. Any other is a new connection - our first, or the
-server restarted, gave up on us, or we started over - and what was on
-its way on the old one is lost.
-*/
+// handle_welcome handles the server's Welcome. After a rekey it names the
+// connection we already have, and nothing changes. Any other Welcome
+// announces a new connection (our first, or because the server restarted,
+// gave up on us or we started over), and whatever was in transit on the old
+// one is lost.
 @(private)
 handle_welcome :: proc(c: ^Client, pt: []u8) {
 	instance, logged_in := proto.decode_welcome(pt)
@@ -627,8 +627,8 @@ handle_welcome :: proc(c: ^Client, pt: []u8) {
 	c.has_state = false
 	c.assembler^ = {}
 	c.login_at, c.login_tries = {}, 0
-	// Before the phase changes: whoever is told of it may ask again, on
-	// this connection.
+	// This happens before the phase changes, because whoever is notified
+	// of the change may send new requests on this connection.
 	answer_all(c, .Reset)
 	switch {
 	case logged_in:
@@ -664,7 +664,7 @@ login_done :: proc(c: ^Client, a: Answer) {
 	case .Ok:
 		set_phase(c, .Syncing)
 	case .Reset:
-	// Lost with its connection; the next one logs in again.
+	// Lost along with its connection; the next connection logs in again.
 	case .Rate_Limited, .Internal:
 		if c.login_tries < c.opt.login_retries {
 			c.login_tries += 1
@@ -684,7 +684,7 @@ login_done :: proc(c: ^Client, a: Answer) {
 handle_app :: proc(c: ^Client, msg: []u8) {
 	kind, ok := proto.app_kind(msg)
 	if !ok {
-		return // from a server that knows more than we do
+		return // from a server that is newer than this client
 	}
 	#partial switch kind {
 	case .Response:
@@ -723,12 +723,10 @@ handle_app :: proc(c: ^Client, msg: []u8) {
 	}
 }
 
-/*
-handle_state takes a part of a snapshot, and once it has all of one,
-acks it and hands it on. Who is here only means something once we know
-who everyone is, so one that comes before that is left unacked, and
-comes again.
-*/
+// handle_state takes one part of a snapshot. Once all parts have arrived it
+// acks the snapshot and hands it on. The list of who is online only makes
+// sense once we know who everyone is, so a snapshot that arrives earlier is
+// left unacked and will be sent again.
 @(private)
 handle_state :: proc(c: ^Client, pt: []u8) {
 	if c.phase != .Ready {
@@ -736,7 +734,8 @@ handle_state :: proc(c: ^Client, pt: []u8) {
 	}
 	version := proto.state_message_version(pt)
 	if c.has_state && !proto.serial_newer(version, c.state_version) {
-		// Sent again: our ack got lost, or there was a rekey.
+		// The server sent it again because our ack got lost or there was a
+		// rekey.
 		if version == c.state_version {
 			ack_buf: [proto.STATE_ACK_SIZE]u8
 			send(c, proto.encode_state_ack(&ack_buf, version))
@@ -765,8 +764,9 @@ handle_state :: proc(c: ^Client, pt: []u8) {
 	}
 }
 
-// stream_step sends what the stream has to: an ack for what has come,
-// then frames, new and due again, as far as the pacing lets it.
+// stream_step sends what the stream needs to send: an ack for what has
+// arrived, then new frames and frames due for a resend, as far as the pacing
+// allows.
 @(private)
 stream_step :: proc(c: ^Client, now: time.Tick) {
 	if !c.has_instance || c.restart {
@@ -780,7 +780,7 @@ stream_step :: proc(c: ^Client, now: time.Tick) {
 	if ack, ok := proto.stream_ack(st, &ack_buf); ok {
 		send(c, ack)
 	}
-	// Twice the round trip, once the pings have measured one.
+	// Twice the round trip time, once the pings have measured it.
 	resend := proto.STREAM_RESEND
 	if c.rtt > 0 {
 		resend = clamp(2 * c.rtt, proto.STREAM_RESEND_MIN, STREAM_RESEND_MOST)

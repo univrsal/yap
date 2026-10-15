@@ -8,28 +8,26 @@ import "client:conn"
 import "client:platform"
 import "common:proto"
 
-/*
-A message's own menu, opened by right-clicking it in a timeline (a long
-press on a touch screen): copy its text, save its picture, forward it,
-copy a link to it. What's done to the message itself - reacting,
-replying, editing, pinning, deleting - is on the bar over it instead
-(ui_message_bar.odin), and the menu only asks whether to delete it when
-the bar's Delete is pressed without Shift.
-*/
+// A message's own menu, opened by right-clicking the message in a timeline (or
+// long-pressing it on a touch screen). It offers to copy the message's text,
+// save its picture, forward it and copy a link to it. Actions that change the
+// message itself (reacting, replying, editing, pinning, deleting) are on the
+// bar over the message instead (ui_message_bar.odin). The menu is only used to
+// ask for confirmation when the bar's Delete is pressed without Shift.
 
 UI_Message_Menu :: struct {
-	requested: bool, // open it this frame
+	requested: bool, // open the menu this frame
 	id:        proto.Msg_Id,
 	conv:      proto.Conv_Id,
 	sender:    proto.Account_Id,
 	kind:      proto.Msg_Kind,
 	flags:     proto.Msg_Flags,
-	root:      proto.Msg_Id, // a reply's thread
-	// The timeline it was opened in: 0 the conversation's, else a
-	// thread window's (UI_Timeline.slot).
+	root:      proto.Msg_Id, // the thread root, if the message is a reply
+	// The timeline the menu was opened in: 0 for the conversation's, otherwise
+	// a thread window's (UI_Timeline.slot).
 	slot:      int,
 	text:      string, // owned
-	// Delete was pressed on the bar: the menu only asks whether to.
+	// Delete was pressed on the bar: the menu only asks for confirmation.
 	confirm:   bool,
 }
 
@@ -38,8 +36,8 @@ MENU :: "message menu"
 @(private = "file")
 MENU_WIDTH :: 180
 
-// open_message_menu opens the menu for a message shown in a timeline,
-// or with `confirm_delete`, only the question whether to delete it.
+// open_message_menu opens the menu for a message shown in a timeline. With
+// `confirm_delete` it only shows the question whether to delete the message.
 // Call with the View locked.
 open_message_menu :: proc(ui: ^UI, m: conn.View_Message, slot: int, confirm_delete := false) {
 	mm := &ui.msg_menu
@@ -73,8 +71,8 @@ ui_message_menu_destroy :: proc(ui: ^UI) {
 	ui.msg_bar = {}
 }
 
-// may_pin_here is whether we may pin and unpin in the conversation
-// being looked at. Call with the View locked.
+// may_pin_here is whether we may pin and unpin messages in the conversation
+// that is currently shown. Call with the View locked.
 may_pin_here :: proc(v: ^conn.View) -> bool {
 	for dm in v.dms {
 		if dm.id == v.viewing {
@@ -84,10 +82,8 @@ may_pin_here :: proc(v: ^conn.View) -> bool {
 	return .Pin_Messages in v.permissions
 }
 
-/*
-message_menu shows the menu while it's open, and does what's picked.
-Call with the View locked, where user_menu is called.
-*/
+// message_menu shows the menu while it is open and handles the picked entry.
+// Call with the View locked, where user_menu is called.
 message_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -107,7 +103,7 @@ message_menu :: proc(ui: ^UI) {
 	}
 	defer mu.end_popup(ctx)
 
-	// Gone from under the menu (another conversation is shown now).
+	// The message is gone (another conversation is shown now).
 	if mm.conv != v.viewing || ui.session == nil {
 		mu.get_current_container(ctx).open = false
 		return
@@ -144,7 +140,7 @@ message_menu :: proc(ui: ^UI) {
 		set_clipboard(nil, shown)
 		close(ctx)
 	}
-	// A copy elsewhere, or a link to it (ui_forward.odin).
+	// A copy elsewhere, or a link to the message (ui_forward.odin).
 	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "forward", "Forward...") {
 		open_forward(ui, mm.id)
 		close(ctx)
@@ -155,7 +151,7 @@ message_menu :: proc(ui: ^UI) {
 	}
 }
 
-// start_editing loads one of our messages into a composer, to be edited
+// start_editing loads one of our messages into a composer to be edited
 // there.
 start_editing :: proc(ui: ^UI, id: proto.Msg_Id, text: string, c: Composer) {
 	c.len^ = copy(c.buf, conn.mentions_for_edit(text, ui.view.accounts, ui.view.roles[:]))
@@ -164,16 +160,16 @@ start_editing :: proc(ui: ^UI, id: proto.Msg_Id, text: string, c: Composer) {
 	focus_composer(ui, c, -1)
 }
 
-// focus_composer has a composer take the focus when it's next laid
-// out, with the cursor `at` (-1: the end).
+// focus_composer makes a composer take the focus the next time it is laid
+// out, with the cursor at `at` (-1: the end).
 focus_composer :: proc(ui: ^UI, c: Composer, at: int) {
 	ui.focus_composer = true
 	ui.focus_thread = c.thread
 	ui.focus_composer_at = at
 }
 
-// takes_focus is whether a composer is to take the focus now (and it's
-// taken).
+// takes_focus is whether a composer is to take the focus now (this also
+// clears the request).
 takes_focus :: proc(ui: ^UI, c: Composer) -> bool {
 	if !ui.focus_composer || ui.focus_thread != c.thread {
 		return false
@@ -182,9 +178,9 @@ takes_focus :: proc(ui: ^UI, c: Composer) -> bool {
 	return true
 }
 
-// newest_own_text is the newest message of ours that can be edited in
-// the conversation being looked at (or the thread), as far as its
-// window goes. Call with the View locked.
+// newest_own_text is the newest message of ours that can be edited in the
+// conversation being shown (or the thread), as far back as its loaded window
+// goes. Call with the View locked.
 newest_own_text :: proc(v: ^conn.View, key: conn.Timeline_Key) -> (conn.View_Message, bool) {
 	tl, ok := v.timelines[key]
 	if !ok {
@@ -198,16 +194,16 @@ newest_own_text :: proc(v: ^conn.View, key: conn.Timeline_Key) -> (conn.View_Mes
 	return {}, false
 }
 
-// A composer's text and what it's editing: the chat's or the buddy
-// screen's, or a thread window's.
+// A composer's text and the message it is editing: the chat's, the buddy
+// screen's or a thread window's.
 Composer :: struct {
 	buf:     []u8,
 	len:     ^int,
-	editing: ^proto.Msg_Id, // 0 for writing a new message
-	conv:    ^proto.Conv_Id, // where the message being edited is
-	thread:  int, // 0 for the page's, else the thread window's slot
-	files:   ^[dynamic]Picked_File, // what goes with it (ui_attachments.odin)
-	area:    ^Text_Area, // the box it's written in
+	editing: ^proto.Msg_Id, // 0 when writing a new message
+	conv:    ^proto.Conv_Id, // the conversation of the message being edited
+	thread:  int, // 0 for the page's composer, otherwise the thread window's slot
+	files:   ^[dynamic]Picked_File, // the files attached to it (ui_attachments.odin)
+	area:    ^Text_Area, // the text box it is written in
 }
 
 composer_of_page :: proc(ui: ^UI) -> Composer {
@@ -228,14 +224,11 @@ composer_of :: proc(ui: ^UI, thread: int) -> Composer {
 	return {t.buf[:], &t.len, &t.editing, &t.editing_conv, thread, &t.files, &t.area}
 }
 
-/*
-composer_keys is what a composer does with Up, Escape and Ctrl+V, before
-its text box is laid out: Up in an empty one starts editing our newest
-message, Escape stops editing (and empties it), and Ctrl+V may be a
-picture, to attach (ui_paste.odin). A message being
-edited in a conversation that isn't shown any more is let go. Call with
-the View locked.
-*/
+// composer_keys handles Up, Escape and Ctrl+V in a composer before its text
+// box is laid out. Up in an empty composer starts editing our newest message,
+// Escape stops editing (and empties the composer), and Ctrl+V may paste a
+// picture to attach (ui_paste.odin). A message that is being edited in a
+// conversation that is no longer shown is released. Call with the View locked.
 composer_keys :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -251,10 +244,10 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 		c.len^ = 0
 	}
 	composer_format(ui, c)
-	// Ctrl+V could be a picture: hold the text paste back and decide
-	// after the frame (paste_poll). A browser hands the picture over from
-	// its paste event instead (web/paste.js), so the key is left to the
-	// text box there. A message being edited takes no files, so it's text.
+	// Ctrl+V could be a picture: hold back the text paste and decide after
+	// the frame (paste_poll). In a browser the picture is handed over by its
+	// paste event instead (web/paste.js), so the key is left to the text box
+	// there. A message being edited takes no files, so it is always text.
 	if !platform.WEB &&
 	   c.editing^ == 0 &&
 	   .V in ctx.key_pressed_bits &&
@@ -271,17 +264,15 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 		}
 		if m, ok := newest_own_text(v, key); ok {
 			start_editing(ui, m.id, m.text, c)
-			ui.keys -= {.Up} // not for the text area as well
+			ui.keys -= {.Up} // so the text area doesn't handle it as well
 		}
 	}
 }
 
-/*
-composer_format does the markdown keys (Ctrl+B, Ctrl+I, Ctrl+U,
-Ctrl+Shift+X, Ctrl+E) in a composer with the focus: the markers go round
-the selection, or come off it (conn.markdown_toggle). Nothing happens if
-the text wouldn't fit.
-*/
+// composer_format handles the markdown keys (Ctrl+B, Ctrl+I, Ctrl+U,
+// Ctrl+Shift+X, Ctrl+E) in a composer with the focus: the markers are put
+// around the selection or removed from it (conn.markdown_toggle). Nothing
+// happens if the text would not fit.
 @(private = "file")
 composer_format :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
@@ -309,21 +300,21 @@ composer_format :: proc(ui: ^UI, c: Composer) {
 			continue
 		}
 		c.len^ = copy(c.buf, out)
-		// The caret stays at the end it was at.
+		// The caret stays at the end where it was.
 		s.selection = {hi, lo} if sel[0] >= sel[1] else {lo, hi}
 	}
 }
 
-// composer_send sends what's in a composer: an edit, or a new message
-// (for the DM with `dm_to`, if it's set; a thread window's in its
-// thread). False if there was nothing to send.
+// composer_send sends the contents of a composer as an edit or a new message
+// (for the DM with `dm_to` if it is set, and in the thread for a thread
+// window's composer). It returns false if there was nothing to send.
 composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool {
 	text := strings.trim_space(string(c.buf[:c.len^]))
 	has_files := c.files != nil && len(c.files) > 0 && c.editing^ == 0
 	if (text == "" && !has_files) || ui.session == nil {
 		return false
 	}
-	ui_redraw(ui) // for the box to shrink back to a line
+	ui_redraw(ui) // so the box shrinks back to a single line
 	c.area.preview = false
 	text = conn.emoji_encode(
 		conn.mentions_encode(text, ui.view.accounts, ui.view.roles[:]),
@@ -356,8 +347,8 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	return true
 }
 
-// composer_status is what the line over the conversation says about a
-// composer, if anything: that it's editing.
+// composer_status is what the line above the conversation says about a
+// composer, if anything: that a message is being edited.
 composer_status :: proc(c: Composer) -> string {
 	return "Editing a message: Enter saves it, Escape stops." if c.editing^ != 0 else ""
 }

@@ -1,10 +1,8 @@
 #+build wasi
-/*
-The web half of the font rasterizer: stb_truetype.c compiled by
-emscripten alongside the client (see web/build.sh), bound here as plain
-C symbols. The structs mirror stb_truetype.h exactly, since the C side
-reads and writes them.
-*/
+// The web half of the font rasterizer: stb_truetype.c is compiled by emscripten
+// alongside the client (see web/build.sh) and bound here as plain C symbols.
+// The structs mirror stb_truetype.h exactly, since the C side reads and writes
+// them.
 package wstbtt
 
 _buf :: struct {

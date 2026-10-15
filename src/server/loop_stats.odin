@@ -7,41 +7,40 @@ import "core:time"
 
 import "common:proto"
 
-/*
-How long the loop's turns take, and where the time goes.
+// Timing of the server loop's turns, and where the time goes.
+//
+// A turn consists of handling one packet (or none, if the wait times out),
+// followed by every sync pass and the commit (see run_server). Each of
+// these is a phase, and the turn's time is divided between the phases as it
+// progresses (see loop_mark). Reading the clock is cheap enough to do this
+// every time. CPU time is only read once at the start and once at the end
+// of a turn. Any wall time that wasn't CPU time was spent waiting, either
+// for the disk or for the system to give the CPU back. A busy machine (or
+// one that is also running clients, as in tests) does this now and then for
+// a few ms.
+//
+// A long turn affects voice: a packet that arrives during it waits in the
+// socket until the turn is over, and so do the packets behind it. A client
+// plays a speaker with 20 ms more audio queued than the frame being played,
+// or more if that speaker's packets arrive unevenly (see speaker_prefill in
+// client/audio/voice.odin). So a voice packet can be about VOICE_SLACK
+// late before anything is audible, minus whatever delay the network adds.
+// A turn longer than SLOW_TURN is logged as info, and one longer than
+// VOICE_SLACK is logged as a warning, because those can be heard as a gap
+// or as that speaker being played later for a while.
+//
+// Every LOOP_REPORT, the log summarizes the turns since the last report:
+// how many there were, how busy the loop was, how long they took, the
+// longest one, and which phases took the most time. The summary is logged
+// at info level if any turn was slow, and at debug level otherwise.
 
-A turn is one packet (or none, when the wait runs out) and then every
-sync pass and the commit (run_server). Each of those is a phase, and a
-turn's time is split between them as it goes (loop_mark): reading the
-clock is cheap enough to do that every time. How much of the turn the
-thread was on the CPU is read once, at each end of it: wall time it
-wasn't is time it was waiting, for the disk or for the system to give
-it back the CPU, which a busy machine (or one running clients too, when
-testing) does now and then for a few ms.
-
-What it costs voice: a packet that comes during a long turn waits in
-the socket until it's over, and so do the ones behind it. A client
-plays a speaker with 20 ms more queued than the frame being played, or
-more for one whose packets come unevenly (speaker_prefill in
-client/audio/voice.odin), so a voice packet can be about VOICE_SLACK
-late before anything is heard - less whatever the network adds. A turn
-longer than SLOW_TURN is logged as info, and one longer than VOICE_SLACK
-as a warning: those are the ones that can be heard, as a gap or as that
-speaker being played later for a while.
-
-Every LOOP_REPORT the log says how the turns went since the last time:
-how many, how busy the loop was, how long they took, the longest one,
-and which phases the time went to. At info if any were slow, else at
-debug.
-*/
-
-// A turn longer than this is logged, with where its time went.
+// Turns longer than this are logged together with where their time went.
 SLOW_TURN :: 5 * time.Millisecond
-// About how late a voice packet can come before a client runs out of
-// that speaker's audio (see above).
+// Roughly how late a voice packet can arrive before a client runs out of
+// audio for that speaker (see above).
 VOICE_SLACK :: 20 * time.Millisecond
-// How often the log sums up the turns: ten minutes, or for a test run
-// -define:YAP_LOOP_REPORT_SECONDS=10.
+// How often the turns are summarized in the log: every ten minutes, or
+// for a test run, e.g. -define:YAP_LOOP_REPORT_SECONDS=10.
 LOOP_REPORT :: #config(YAP_LOOP_REPORT_SECONDS, 600) * time.Second
 
 Loop_Phase :: enum u8 {
@@ -66,8 +65,9 @@ Loop_Phase :: enum u8 {
 	Commit,
 }
 
-// How turns are counted by how long they took: under each bound, the
-// last one being everything longer.
+// The bounds of the buckets that turns are counted in by duration. A turn
+// goes into the first bucket whose bound it is under, and the last bucket
+// holds everything longer.
 @(rodata)
 loop_buckets := [?]time.Duration {
 	100 * time.Microsecond,
@@ -82,9 +82,9 @@ loop_buckets := [?]time.Duration {
 }
 
 Loop_Stats :: struct {
-	// This turn.
+	// The current turn.
 	started:          time.Tick,
-	marked:           time.Tick, // where the last phase ended
+	marked:           time.Tick, // when the last phase ended
 	cpu_started:      time.Duration,
 	phases:           [Loop_Phase]time.Duration,
 
@@ -107,7 +107,7 @@ loop_stats_open :: proc(s: ^Server) {
 	s.loop.since = time.tick_now()
 }
 
-// loop_turn_begin starts timing a turn, once its packet (if any) is in.
+// loop_turn_begin starts timing a turn once its packet (if any) has arrived.
 loop_turn_begin :: proc(s: ^Server) {
 	l := &s.loop
 	l.started = time.tick_now()
@@ -116,7 +116,7 @@ loop_turn_begin :: proc(s: ^Server) {
 	l.cpu_started, _ = thread_cpu_time()
 }
 
-// loop_mark puts the time since the last mark down to `phase`.
+// loop_mark attributes the time since the last mark to `phase`.
 loop_mark :: proc(s: ^Server, phase: Loop_Phase) {
 	l := &s.loop
 	now := time.tick_now()
@@ -124,8 +124,8 @@ loop_mark :: proc(s: ^Server, phase: Loop_Phase) {
 	l.marked = now
 }
 
-// loop_turn_end counts the turn, says so if it was slow, and sums up the
-// turns when it's time to.
+// loop_turn_end counts the turn, logs it if it was slow, and logs a summary
+// of the turns when it is time for one.
 loop_turn_end :: proc(s: ^Server, packet: bool) {
 	l := &s.loop
 	took := time.tick_diff(l.started, l.marked)
@@ -164,14 +164,15 @@ loop_bucket :: proc(took: time.Duration) -> int {
 	return len(loop_buckets)
 }
 
-// loop_top_phases is the phases that took at least a tenth of `total`,
-// longest first; at least one.
+// loop_top_phases returns the phases that took at least a tenth of `total`,
+// longest first. It always returns at least one phase.
 loop_top_phases :: proc(phases: ^[Loop_Phase]time.Duration, total: time.Duration) -> []Loop_Phase {
 	order := make([dynamic]Loop_Phase, 0, len(Loop_Phase), context.temp_allocator)
 	for phase in Loop_Phase {
 		append(&order, phase)
 	}
-	// Longest first; a sort proc couldn't see `phases`.
+	// Sort longest first. This is done by hand because a sort proc couldn't
+	// see `phases`.
 	for i in 1 ..< len(order) {
 		for j := i; j > 0 && phases[order[j]] > phases[order[j - 1]]; j -= 1 {
 			order[j], order[j - 1] = order[j - 1], order[j]
@@ -184,7 +185,7 @@ loop_top_phases :: proc(phases: ^[Loop_Phase]time.Duration, total: time.Duration
 	return order[:n]
 }
 
-// loop_slow says what a slow turn was doing.
+// loop_slow logs what a slow turn was doing.
 @(private = "file")
 loop_slow :: proc(s: ^Server, took, cpu: time.Duration, has_cpu: bool) {
 	l := &s.loop
@@ -213,8 +214,8 @@ loop_slow :: proc(s: ^Server, took, cpu: time.Duration, has_cpu: bool) {
 	}
 }
 
-// loop_report sums up the turns since the last report, and starts
-// counting again.
+// loop_report logs a summary of the turns since the last report and then
+// starts counting again.
 @(private = "file")
 loop_report :: proc(s: ^Server) {
 	l := &s.loop
@@ -287,8 +288,8 @@ loop_report :: proc(s: ^Server) {
 	}
 }
 
-// loop_percentile is under which bucket's bound the given share of the
-// turns took, as text.
+// loop_percentile returns, as text, the bucket bound that the given share
+// of the turns took less time than.
 loop_percentile :: proc(l: ^Loop_Stats, share: f64) -> string {
 	want := int(f64(l.turns) * share + 0.5)
 	seen := 0

@@ -8,11 +8,9 @@ import glfw "client:wglfw"
 import log "common:wlog"
 import mu "vendor:microui"
 
-/*
-The renderer's OpenGL 3.3 backend (WebGL 2 in a browser), for everywhere
-but Windows and macOS. The context lives in the window, so it comes and goes with
-it (see window_open).
-*/
+// The renderer's OpenGL 3.3 backend (WebGL 2 in a browser), used everywhere
+// except Windows and macOS. The context lives in the window, so it is created
+// and destroyed together with the window (see window_open).
 
 Gpu :: struct {
 	program:  u32,
@@ -25,11 +23,9 @@ Gpu :: struct {
 	window:   glfw.WindowHandle,
 }
 
-/*
-WebGL 2 speaks GLSL ES 3.00, which as far as these shaders go is the
-same language as desktop GLSL 3.30 - it only wants its own version line
-and a default precision for floats.
-*/
+// WebGL 2 uses GLSL ES 3.00. For these shaders it is the same language as
+// desktop GLSL 3.30, except that it needs its own version line and a default
+// precision for floats.
 @(private = "file")
 SHADER_HEADER ::
 	"#version 300 es\nprecision highp float;\n" when platform.WEB else "#version 330 core\n"
@@ -56,8 +52,8 @@ FRAGMENT_SHADER ::
 	`in vec2 v_uv;
 in vec4 v_color;
 uniform sampler2D u_atlas;
-// The atlases keep coverage in their red channel; chat images are
-// ordinary colour textures.
+// The atlases store coverage in their red channel. Chat images are ordinary
+// color textures.
 uniform bool u_rgba;
 out vec4 frag;
 void main() {
@@ -72,8 +68,8 @@ gpu_window_hints :: proc() {
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
 	when platform.WEB {
-		// An opaque canvas (WebGL's alpha: false): the browser otherwise
-		// shows what's behind it wherever alpha falls short of 1.
+		// Use an opaque canvas (WebGL's alpha: false). Otherwise the browser
+		// shows what is behind it wherever alpha is below 1.
 		glfw.WindowHint(glfw.ALPHA_BITS, 0)
 	}
 }
@@ -123,21 +119,21 @@ gpu_destroy :: proc(g: ^Gpu) {
 	g^ = {}
 }
 
-// gpu_lost is whether the device has gone and has to be set up again
-// (renderer_reset). An OpenGL context doesn't say.
+// gpu_lost returns whether the device has been lost and has to be set up
+// again (renderer_reset). An OpenGL context does not report this.
 gpu_lost :: proc(g: ^Gpu) -> bool {
 	return false
 }
 
-// gpu_swap_interval says how many display refreshes a present waits
-// for: 1 for vsync, 0 not to wait (see set_swap_pace).
+// gpu_swap_interval sets how many display refreshes a present waits for:
+// 1 for vsync, 0 to not wait (see set_swap_pace).
 gpu_swap_interval :: proc(g: ^Gpu, interval: i32) {
 	glfw.SwapInterval(interval)
 }
 
-// gpu_begin starts a frame, cleared to `clear`, projecting view_w x
-// view_h logical pixels onto the fb_w x fb_h framebuffer. False when
-// there's nothing to draw into.
+// gpu_begin starts a frame cleared to `clear`, projecting view_w x view_h
+// logical pixels onto the fb_w x fb_h framebuffer. It returns false when
+// there is nothing to draw into.
 gpu_begin :: proc(g: ^Gpu, fb_w, fb_h: i32, view_w, view_h: f32, clear: mu.Color) -> bool {
 	g.fb_h = fb_h
 	gl.Viewport(0, 0, fb_w, fb_h)
@@ -146,10 +142,10 @@ gpu_begin :: proc(g: ^Gpu, fb_w, fb_h: i32, view_w, view_h: f32, clear: mu.Color
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 
 	gl.Enable(gl.BLEND)
-	// Colour blends over what's there; alpha stays at the clear's 1.
-	// Blending it too would leave anti-aliased edges (text, circles)
-	// partly see-through, and the browser shows the page behind the
-	// canvas through them.
+	// Color blends over what is already there, while alpha stays at the
+	// clear value of 1. Blending alpha too would leave anti-aliased edges
+	// (text, circles) partly see-through, and the browser would show the
+	// page behind the canvas through them.
 	gl.BlendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Enable(gl.SCISSOR_TEST)
 	gl.Scissor(0, 0, fb_w, fb_h)
@@ -170,7 +166,7 @@ gpu_present :: proc(g: ^Gpu) {
 	glfw.SwapBuffers(g.window)
 }
 
-// gpu_clip limits drawing to a rect of physical pixels, counted from
+// gpu_clip limits drawing to a rect of physical pixels, with the origin at
 // the top left.
 gpu_clip :: proc(g: ^Gpu, x, y, w, h: i32) {
 	gl.Scissor(x, g.fb_h - y - h, w, h)
@@ -184,12 +180,13 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 	gl.DrawElements(gl.TRIANGLES, i32(len(vertices) / 4 * 6), gl.UNSIGNED_SHORT, nil)
 }
 
-// gpu_texture_make makes a width x height texture from `pixels` (one
-// byte a pixel for .Alpha, four for .Rgba). Without pixels it's left
-// empty, for the page's video decoder to fill (conn/video_web.odin).
-// With `mipmaps`, an .Rgba one with pixels gets smaller copies of itself,
-// so it's still smooth drawn much smaller than it is (round pictures'
-// edges); not for atlases, whose cells would bleed into each other.
+// gpu_texture_make creates a width x height texture from `pixels` (one byte
+// per pixel for .Alpha, four for .Rgba). Without pixels the texture is left
+// empty for the page's video decoder to fill (conn/video_web.odin). With
+// `mipmaps`, an .Rgba texture with pixels gets smaller copies of itself so it
+// still looks smooth when drawn much smaller than its size (such as the edges
+// of round pictures). Do not use this for atlases, because their cells would
+// bleed into each other.
 gpu_texture_make :: proc(
 	g: ^Gpu,
 	kind: Texture_Kind,
@@ -231,8 +228,8 @@ gpu_texture_make :: proc(
 	}
 	filter: i32 = gl.NEAREST if kind == .Alpha else gl.LINEAR
 	min_filter := filter
-	// Only once there are pixels: a mipmap filter on a texture without
-	// its smaller copies samples black.
+	// Only do this once there are pixels, because a mipmap filter on a
+	// texture without its smaller copies samples black.
 	if mipmaps && kind == .Rgba && pixels != nil {
 		gl.GenerateMipmap(gl.TEXTURE_2D)
 		min_filter = gl.LINEAR_MIPMAP_LINEAR
@@ -248,8 +245,9 @@ gpu_texture_make :: proc(
 	return Gpu_Texture(tex)
 }
 
-// gpu_texture_update replaces all of an .Rgba texture without mipmaps,
-// `width` x `height`, with `pixels`: an animation's next frame.
+// gpu_texture_update replaces the whole contents of an .Rgba texture without
+// mipmaps with `pixels` (`width` x `height`), for example the next frame of
+// an animation.
 gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels: []u8) {
 	if tex == 0 || len(pixels) < int(width) * int(height) * 4 {
 		return
@@ -270,8 +268,8 @@ gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels
 	gl.BindTexture(gl.TEXTURE_2D, 0)
 }
 
-// gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture
-// that is `width` wide with `rows`.
+// gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture that
+// is `width` pixels wide with `rows`.
 gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, rows: []u8) {
 	gl.BindTexture(gl.TEXTURE_2D, u32(tex))
 	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
@@ -297,12 +295,10 @@ gpu_native :: proc(g: ^Gpu) -> Gpu_Native {
 	}
 }
 
-/*
-gpu_texture_wrap makes something drawable of a texture somebody else
-made in our context and keeps: `native` is its name. It stays theirs;
-gpu_texture_unwrap forgets it again (and gpu_texture_delete mustn't be
-used on it).
-*/
+// gpu_texture_wrap makes a texture that somebody else created in our context
+// drawable. `native` is the texture's name. The texture stays owned by its
+// creator, and gpu_texture_unwrap forgets it again.
+// gpu_texture_delete must not be used on it.
 gpu_texture_wrap :: proc(g: ^Gpu, native: uintptr) -> Gpu_Texture {
 	return Gpu_Texture(native)
 }
@@ -311,7 +307,7 @@ gpu_texture_unwrap :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 	tex^ = 0
 }
 
-// gpu_texture_delete deletes `tex`, if there is one, and makes it 0.
+// gpu_texture_delete deletes `tex`, if there is one, and sets it to 0.
 gpu_texture_delete :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 	if tex^ != 0 {
 		texture_forgotten(tex^)

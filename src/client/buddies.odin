@@ -9,32 +9,30 @@ import "client:conn"
 import "client:settings"
 import "common:proto"
 
-// The buddy screen's list: our account's buddies, kept by the server,
-// and everyone else we have a DM with (conn/buddies.odin), on every
-// server at once (inbox_list).
+// The buddy screen's list: the buddies kept by our account's server, plus
+// everyone else we have a DM with (see conn/buddies.odin), across all
+// servers at once (see inbox_list).
 
 // Buddy_Entry is someone in the buddy screen's list.
 Buddy_Entry :: struct {
 	account:   proto.Account_Id,
 	name:      string, // points into the View, or the temp allocator
-	status:    string, // theirs, as a list shows it (status_line); the same
+	status:    string, // their status text as shown in lists (see status_line)
 	online:    bool,
-	buddy:     bool, // or just someone we have a DM with
-	conv:      proto.Conv_Id, // our DM with them, 0 for none yet
-	unread:    int, // messages in it we haven't read
+	buddy:     bool, // false if just someone we have a DM with
+	conv:      proto.Conv_Id, // our DM with them, 0 if there is none yet
+	unread:    int, // unread messages in that DM
 	last_time: proto.Unix_Ms, // when the newest message in it was posted
-	// The server they're on, from inbox_list: an account is only someone
-	// on its own server, so the same person on two is two entries.
+	// The server they're on, from inbox_list. An account only exists on its own
+	// server, so the same person on two servers appears as two entries.
 	ns:        ^Net_Session,
 	server:    string, // its name, in the temp allocator
 }
 
-/*
-buddy_list is every buddy and everyone else we have a DM with, in the
-order buddy_before puts them. A DM that was taken off the list (hidden,
-in the settings) stays off until something new is said in it. The
-slice is in the temp allocator; call with the View locked.
-*/
+// buddy_list returns every buddy and everyone else we have a DM with, in the
+// order given by buddy_before. A DM that was hidden in the settings stays
+// off the list until something new is said in it. The slice is allocated in
+// the temp allocator. Call with the View locked.
 buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
 	list := make([dynamic]Buddy_Entry, 0, len(v.buddies) + len(v.dms), context.temp_allocator)
 	for b in v.buddies {
@@ -53,12 +51,11 @@ buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
 	return list[:]
 }
 
-/*
-buddy_before is the list's order: buddies, then everyone else we have
-a DM with; in each, the conversation with the newest message first,
-then those who are here, then by name. The newest message's time is
-what's compared across servers, whose message ids aren't.
-*/
+// buddy_before is the list order: buddies first, then everyone else we have
+// a DM with. Within each group, the conversation with the newest message
+// comes first, then people who are online, then by name. The time of the
+// newest message is compared across servers because message ids are not
+// comparable between servers.
 buddy_before :: proc(a, b: Buddy_Entry) -> bool {
 	if a.buddy != b.buddy {
 		return a.buddy
@@ -80,13 +77,11 @@ buddy_before :: proc(a, b: Buddy_Entry) -> bool {
 	return a.account < b.account
 }
 
-/*
-inbox_list is buddy_list for every server we're logged in to, in one
-list, in buddy_before's order. Each server's View is locked in turn, so
-call it with none locked; the slice and its strings are in the temp
-allocator. While it's at it, it has each server asked when those who
-aren't here were last (ask_last_seen).
-*/
+// inbox_list is buddy_list for every server we're logged in to, merged into
+// one list in buddy_before's order. Each server's View is locked in turn, so
+// call it with none locked. The slice and its strings are allocated in the
+// temp allocator. It also asks each server when the offline entries were
+// last seen (see ask_last_seen).
 inbox_list :: proc(ui: ^UI) -> []Buddy_Entry {
 	list := make([dynamic]Buddy_Entry, context.temp_allocator)
 	for ns in ui.sessions {
@@ -116,7 +111,7 @@ inbox_list :: proc(ui: ^UI) -> []Buddy_Entry {
 	return list[:]
 }
 
-// buddy_entry is what the list says about an account. Call with the
+// buddy_entry returns what the list shows for an account. Call with the
 // View locked.
 buddy_entry :: proc(v: ^conn.View, account: proto.Account_Id, buddy: bool) -> Buddy_Entry {
 	e := Buddy_Entry {
@@ -146,9 +141,8 @@ buddy_entry :: proc(v: ^conn.View, account: proto.Account_Id, buddy: bool) -> Bu
 	return e
 }
 
-// dm_unread is how many messages in DMs haven't been read, in all: in
-// those that aren't muted, nor taken off the list. Call with the View
-// locked.
+// dm_unread is the total number of unread messages in DMs, excluding DMs
+// that are muted or hidden from the list. Call with the View locked.
 dm_unread :: proc(s: ^settings.Settings, v: ^conn.View) -> (n: int) {
 	for dm in v.dms {
 		if dm.notify != .None && !settings.dm_hidden(s, v.server_key, dm.id, dm.last) {

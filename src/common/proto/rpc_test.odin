@@ -30,7 +30,7 @@ test_rpc_messages :: proc(t: ^testing.T) {
 	testing.expect_value(t, eop, Event_Op(0x1234))
 	testing.expect(t, slice.equal(ebody, body[:]))
 
-	// Too short to be what they say, or nothing we know.
+	// Too short to be what they claim to be, or a kind we don't know.
 	_, ok = app_kind(req[:REQUEST_HEADER_SIZE - 1])
 	testing.expect(t, !ok)
 	_, ok = app_kind([]u8{77, 0, 0, 0, 0, 0, 0})
@@ -38,7 +38,7 @@ test_rpc_messages :: proc(t: ^testing.T) {
 	_, ok = app_kind(nil)
 	testing.expect(t, !ok)
 
-	// A body as long as a stream message can carry, and one longer.
+	// A body as long as a stream message can carry, and a longer one.
 	most := make([]u8, MAX_BODY_SIZE + 1, context.temp_allocator)
 	testing.expect_value(
 		t,
@@ -66,7 +66,7 @@ test_server_info :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, info.name, "The Shed")
 
-	// Cut in the icon, before the digests.
+	// Cut off within the icon, before the digests.
 	_, ok = decode_server_info(body[:len(body) - 2])
 	testing.expect(t, !ok)
 	_, ok = decode_server_info(nil)
@@ -107,7 +107,7 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	testing.expect_value(t, info.video_kbit, 20000)
 	testing.expect(t, string(info.push_key) == string(push_key[:]))
 
-	// A push key is 65 bytes or nothing.
+	// A push key must be either exactly 65 bytes or empty.
 	_, ok = encode_server_info(buf[:], {push_key = push_key[:10]})
 	testing.expect(t, !ok)
 	bad := slice_clone_tmp(body)
@@ -115,14 +115,14 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	_, ok = decode_server_info(bad[:len(bad) - PUSH_KEY_SIZE + 10])
 	testing.expect(t, !ok)
 
-	// An older server ends at the video rate: no push.
+	// An older server's info ends after the video rate, so it has no push key.
 	body = body[:len(body) - 1 - PUSH_KEY_SIZE]
 	info, ok = decode_server_info(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, len(info.push_key), 0)
 	testing.expect_value(t, info.video_kbit, 20000)
 
-	// An older server ends at the digests: no media link.
+	// An older server ends at the digests, so it has no media link.
 	MEDIA :: 2 + 4
 	info, ok = decode_server_info(body[:len(body) - MEDIA])
 	testing.expect(t, ok)
@@ -130,13 +130,14 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	testing.expect_value(t, info.media_port, 0)
 	body = body[:len(body) - MEDIA]
 
-	// One older still ends at the icon: no digests.
+	// An even older one ends at the icon, so it has no digests.
 	info, ok = decode_server_info(body[:len(body) - 1])
 	testing.expect(t, ok)
 	testing.expect_value(t, info.icon, Blob_Id(42))
 	testing.expect(t, !info.digests)
 
-	// One older still ends at the email address: no description, no icon.
+	// An even older one ends at the email address, so it has no description
+	// and no icon.
 	old := body[:len(body) - 1 - 2 - len("For the band.") - 8]
 	info, ok = decode_server_info(old)
 	testing.expect(t, ok)

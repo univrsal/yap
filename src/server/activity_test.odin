@@ -7,7 +7,8 @@ import "common:proto"
 
 // Tests of activity (activity.odin), on the Test_Server of auth_test.odin.
 
-// seen_as is how `u` was last told `account` is, and whether it was told.
+// seen_as returns the activity `u` was last told `account` has, and
+// whether it was told anything at all.
 @(private = "file")
 seen_as :: proc(
 	t: ^testing.T,
@@ -65,12 +66,12 @@ test_activity :: proc(t: ^testing.T) {
 		ts_events(t, &ts, alice)
 		bob := logged_in(t, &ts, "bob")
 
-		// Coming is being online.
+		// An account that connects is online.
 		a, told := seen_as(t, &ts, alice, bob_id)
 		testing.expect(t, told)
 		testing.expect_value(t, a, proto.Activity.Online)
 
-		// Idle is away, and back is online again.
+		// An idle account is away, and it's online again once it's back.
 		ask_idle(t, &ts, bob, true)
 		a, told = seen_as(t, &ts, alice, bob_id)
 		testing.expect(t, told)
@@ -78,12 +79,12 @@ test_activity :: proc(t: ^testing.T) {
 		ask_idle(t, &ts, bob, false)
 		a, _ = seen_as(t, &ts, alice, bob_id)
 		testing.expect_value(t, a, proto.Activity.Online)
-		// Twice is once, and tells nobody.
+		// Repeating the same state changes nothing and doesn't notify anyone.
 		ask_idle(t, &ts, bob, false)
 		_, told = seen_as(t, &ts, alice, bob_id)
 		testing.expect(t, !told)
 
-		// Busy, chosen: what bob's own connection is told it chose.
+		// When bob chooses Busy, his own connection is told what he chose.
 		ts_events(t, &ts, bob)
 		ask_activity(t, &ts, bob, .Busy)
 		a, _ = seen_as(t, &ts, alice, bob_id)
@@ -101,8 +102,9 @@ test_activity :: proc(t: ^testing.T) {
 		testing.expect_value(t, status, proto.Status.Invalid)
 		_ = buf
 
-		// Appearing offline: so to alice, and not among who is here, but
-		// for bob himself, or while his voice is in a room she sees.
+		// An account appearing offline looks offline to alice and is left
+		// out of the list of who is here, unless alice is viewing it as bob
+		// himself or bob's voice is in a room she can see.
 		ask_activity(t, &ts, bob, .Offline)
 		a, _ = seen_as(t, &ts, alice, bob_id)
 		testing.expect_value(t, a, proto.Activity.Offline)
@@ -118,10 +120,10 @@ test_activity :: proc(t: ^testing.T) {
 			{num = bob.num, account = bob_id, room = proto.Room(s.convs.home.id)},
 		}
 		testing.expect_value(t, len(users_seen_by(s, in_room, hidden, alice.account.id)), 2)
-		// Not here, as far as when he was last here goes.
+		// Bob's last-seen time doesn't reveal that he is connected.
 		testing.expect(t, last_seen_by(s, alice.account, bob_id, 12345) != 12345)
 
-		// Gone, and offline anyway.
+		// After disconnecting, bob is offline whatever he chose.
 		ask_activity(t, &ts, bob, .Online)
 		a, _ = seen_as(t, &ts, alice, bob_id)
 		testing.expect_value(t, a, proto.Activity.Online)
@@ -131,7 +133,7 @@ test_activity :: proc(t: ^testing.T) {
 		testing.expect_value(t, a, proto.Activity.Offline)
 	}
 
-	// What bob chose is kept.
+	// The activity bob chose is stored.
 	ts: Test_Server
 	ts_open(t, &ts, path)
 	defer ts_close(&ts)

@@ -5,7 +5,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of editing, deleting and pinning, on the Test_Server of
+// Tests of editing, deleting and pinning messages, using the Test_Server from
 // auth_test.odin.
 
 edit_as :: proc(
@@ -55,8 +55,8 @@ pins_of :: proc(
 	return got
 }
 
-// changed is the last Msg_Changed a connection was sent about `id`
-// since the last look, and whether there was one.
+// changed returns the last Msg_Changed event about `id` that a connection was
+// sent since its events were last read, and whether there was one.
 @(private = "file")
 changed :: proc(
 	t: ^testing.T,
@@ -100,7 +100,7 @@ test_edit :: proc(t: ^testing.T) {
 		_, id = post(t, &ts, alice, home, "teh words", 1)
 		ts_events(t, &ts, bob)
 
-		// Only the author, only to something.
+		// Only the author can edit a message, and only to non-empty text.
 		testing.expect_value(t, edit_as(t, &ts, bob, id, "bob's words"), proto.Status.Denied)
 		testing.expect_value(t, edit_as(t, &ts, alice, id, " \t"), proto.Status.Invalid)
 		testing.expect_value(t, edit_as(t, &ts, alice, 999, "words"), proto.Status.Not_Found)
@@ -110,7 +110,8 @@ test_edit :: proc(t: ^testing.T) {
 		testing.expect_value(t, m.text, "the words")
 		testing.expect(t, m.edited > 0)
 
-		// Lines stay, on posts and edits.
+		// Line breaks are kept (though normalized) in both posts and
+		// edits.
 		lines: proto.Msg_Id
 		_, lines = post(t, &ts, alice, home, "first\r\n  second  \n\n\n\n\nthird\n", 2)
 		posted, found := msg_by_id(&ts.s, lines)
@@ -126,7 +127,7 @@ test_edit :: proc(t: ^testing.T) {
 		testing.expect_value(t, m.text, "first\nsecond\n third")
 	}
 
-	// Kept.
+	// The edit is persisted across a restart.
 	ts: Test_Server
 	ts_open(t, &ts, path)
 	defer ts_close(&ts)
@@ -154,30 +155,32 @@ test_delete :: proc(t: ^testing.T) {
 	alice := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
 
-	// A message's files going with it is in attachments_test.odin.
+	// Deleting a message's attached files along with it is tested in
+	// attachments_test.odin.
 	_, text := post(t, &ts, alice, home, "a secret", 2)
 	_, bobs := post(t, &ts, bob, home, "bob's", 3)
 	testing.expect_value(t, pin_as(t, &ts, admin, text, true), proto.Status.Ok)
 	ts_events(t, &ts, bob)
 
-	// Not somebody else's, unless one may.
+	// Users can't delete somebody else's messages unless they have the
+	// permission to.
 	testing.expect_value(t, delete_as(t, &ts, alice, bobs), proto.Status.Denied)
 	testing.expect_value(t, delete_as(t, &ts, admin, bobs), proto.Status.Ok)
 	testing.expect_value(t, delete_as(t, &ts, alice, text), proto.Status.Ok)
-	testing.expect_value(t, delete_as(t, &ts, alice, text), proto.Status.Ok) // again: nothing to do
+	testing.expect_value(t, delete_as(t, &ts, alice, text), proto.Status.Ok) // no-op: already deleted
 	m, told := changed(t, &ts, bob, text)
 	testing.expect(t, told)
 	testing.expect(t, .Deleted in m.flags && .Pinned not_in m.flags)
 	testing.expect_value(t, m.text, "")
 
-	// Nothing of them is left to read.
+	// Nothing of the deleted messages is left to read.
 	for id in ([]proto.Msg_Id{text, bobs}) {
 		got, _ := msg_by_id(s, id)
 		testing.expect(t, .Deleted in got.flags)
 		testing.expect_value(t, got.text, "")
 	}
 	testing.expect_value(t, len(pins_of(t, &ts, bob, home)), 0)
-	// Nor edited, nor pinned again.
+	// They can't be edited or pinned again.
 	testing.expect_value(t, edit_as(t, &ts, alice, text, "back"), proto.Status.Invalid)
 	testing.expect_value(t, pin_as(t, &ts, admin, text, true), proto.Status.Invalid)
 	// And they don't count as unread.
@@ -200,7 +203,7 @@ test_pins :: proc(t: ^testing.T) {
 	bob := logged_in(t, &ts, "bob")
 	carol := logged_in(t, &ts, "carol")
 
-	// In a channel, those who may.
+	// In a channel, only users with the permission to can pin messages.
 	_, first := post(t, &ts, alice, home, "first", 1)
 	testing.expect_value(t, pin_as(t, &ts, alice, first, true), proto.Status.Denied)
 	testing.expect_value(t, pin_as(t, &ts, admin, first, true), proto.Status.Ok)
@@ -208,7 +211,7 @@ test_pins :: proc(t: ^testing.T) {
 	testing.expect(t, told && .Pinned in m.flags)
 	testing.expect_value(t, pin_as(t, &ts, admin, first, true), proto.Status.Ok)
 
-	// In a DM, either of the two; nobody else even sees it.
+	// In a DM, either participant can. Nobody else can even see the DM.
 	buf: [4]u8
 	_, body := ts_ask(t, &ts, alice, .DM_Open, proto.encode_account_id(&buf, bob_acc.id))
 	dm, _ := proto.decode_conv_id(body)
@@ -220,7 +223,7 @@ test_pins :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Not_Found)
 	testing.expect_value(t, len(pins_of(t, &ts, alice, dm)), 1)
 
-	// Newest pin first, and no more than there may be.
+	// Pins are listed newest first, and there can be at most MAX_PINS.
 	for i in 0 ..< proto.MAX_PINS - 1 {
 		_, id := post(t, &ts, alice, home, "more", u64(10 + i))
 		testing.expect_value(t, pin_as(t, &ts, admin, id, true), proto.Status.Ok)

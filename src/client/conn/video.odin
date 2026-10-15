@@ -7,54 +7,52 @@ import "core:time"
 import "client:settings"
 import "common:proto"
 
-/*
-Screen sharing (see src/common/proto/video.odin), the part that's the same
-wherever the client runs. The capturing, encoding and decoding are the
-browser's (video_web.odin), or on the desktop the optional yap_video
-library's (video_native.odin), which only watches so far. Without it a
-desktop build never shares or watches, but still shows who is sharing.
+// Screen sharing (see src/common/proto/video.odin): the part that is the same
+// wherever the client runs. Capturing, encoding and decoding are done by the
+// browser (video_web.odin), or on the desktop by the optional yap_video library
+// (video_native.odin), which can only watch so far. Without it, a desktop build
+// never shares or watches, but still shows who is sharing.
+//
+// Everything goes over the media link (media.odin). Without it there is no
+// sharing or watching, and the View says so (video_link).
+//
+// Sharing: encoded frames are numbered and queued, and go out one fragment at a
+// time over the media link, paced to VIDEO_SEND_RATE and only while the socket
+// is not already backed up. Voice does not wait in this queue or on that
+// socket, so a keyframe going out does not hold it up. When the queue has
+// fallen too far behind, the frames that have not started yet are thrown away
+// and the encoder is asked for a keyframe, because whatever follows a lost
+// frame cannot be decoded anyway. Until that keyframe arrives, nothing else is
+// queued.
+//
+// Watching: a Watch lease on one sharer is renewed every WATCH_RESEND, and
+// sooner (asking for a keyframe) whenever the incoming frames cannot be
+// decoded. Incoming frames are assembled in a proto.Video_Window, which knows
+// what is missing. We ask the server for the missing fragments again (Nack),
+// and only what that does not bring is given up on.
+//
+// Adapting: once a second a viewer reports how well the share reaches it
+// (proto.Report: missing fragments, how much later than at their quickest the
+// frames arrive, and what came in). The server passes the worst report of a
+// sharer's viewers on to the sharer. The sharer lowers its bitrate while the
+// report says the network cannot keep up, and raises it again while it can,
+// never above the configured value (adapt_bitrate). The library only accepts a
+// new bitrate now and then, because each change costs a keyframe
+// (yv_share_set_bitrate).
 
-Everything goes over the media link (media.odin): without it there's
-no sharing or watching, and the View says so (video_link).
-
-Sharing: encoded frames are numbered and queued, and go out a fragment
-at a time over the media link, paced to VIDEO_SEND_RATE and only while
-its socket isn't already backed up. Voice doesn't wait in
-this queue or on that socket, so a keyframe going out doesn't hold it
-up. When the queue has fallen too far behind,
-the frames not yet started are thrown away and the encoder is asked for
-a keyframe, since what follows a lost frame can't be decoded anyway;
-until it comes, nothing else is queued.
-
-Watching: a Watch lease on one sharer, repeated every WATCH_RESEND,
-and sooner - asking for a keyframe - whenever the frames coming in
-can't be decoded. What comes in is put together in a proto.Video_Window,
-which says what's missing; we ask the server for it again (Nack), and
-only what that doesn't bring is given up on.
-
-Adapting: a viewer reports once a second how the
-share reaches it (proto.Report: fragments missing, how much later than
-at their quickest frames arrive, what came in), and the server passes
-the worst of a sharer's viewers on to it. The sharer holds its bitrate
-down while that says the network can't keep up, and lets it back up
-while it can, never over what it was set to (adapt_bitrate). The
-library takes a new bitrate up only now and then, as each costs a
-keyframe (yv_share_set_bitrate).
-*/
-
-// How fast video goes out, in bytes a second, and how much may go at
-// once. Over what the encoder is asked for (the browser's 2 Mbit/s), so
-// the queue drains after a keyframe. The desktop's share says what it
-// encodes at (video_share_kbit), and goes out at half as much again:
-// a keyframe goes out over several frames' time rather than in one
-// burst that router queues would drop the end of.
+// How fast video goes out, in bytes per second, and how many bytes may go out
+// at once. The rate is above what the encoder is asked for (the browser's 2
+// Mbit/s), so the queue drains after a keyframe. The desktop's share reports
+// its encoding bitrate (video_share_kbit) and goes out at half as much again,
+// so that a keyframe is spread over several frames instead of one burst whose
+// end router queues would drop.
 VIDEO_SEND_RATE :: 12_000_000 / 8
 VIDEO_SEND_BURST :: 16 * 1024
-// More than this still waiting to go out means we can't keep up.
+// More than this still waiting to go out means we cannot keep up.
 VIDEO_QUEUE_MAX :: VIDEO_SEND_RATE
-// Video only goes out while less than this is waiting on the socket, so
-// that the socket's buffer never holds much more than a burst. (Voice
-// doesn't wait in it: video has the media link to itself.)
+// Video only goes out while less than this is waiting on the socket, so that
+// the socket's buffer never holds much more than one burst. (Voice does not
+// wait in it: video has the media link to itself.)
 VIDEO_BACKLOG_MAX :: 16 * 1024
 
 Video_Client :: struct {
@@ -64,54 +62,55 @@ Video_Client :: struct {
 	queue:          [dynamic]Outgoing_Frame,
 	queued_bytes:   int,
 	sent:           int, // fragments of queue[0] already sent
-	awaiting_key:   bool, // frames were dropped; only a keyframe may follow
+	awaiting_key:   bool, // frames were dropped, so only a keyframe may follow
 	want_key:       bool, // the encoder should make the next frame a keyframe
-	budget:         int, // bytes that may go out now (VIDEO_SEND_RATE)
+	budget:         int, // bytes that may be sent now (VIDEO_SEND_RATE)
 	budget_at:      time.Tick,
 
 	// Watching.
-	watching:       proto.User_Num, // 0 for nobody
+	watching:       proto.User_Num, // 0: not watching anybody
 	last_watch:     time.Tick,
 	last_key_asked: time.Tick,
-	window:         ^proto.Video_Window, // while watching
+	window:         ^proto.Video_Window, // only set while watching
 
-	// This connection is the one whose voice the page's screen goes to
-	// (set by the UI, which has several; atomic). Only it shares.
+	// This connection is the one that the page's screen voice goes to (set by
+	// the UI, which has several; atomic). Only it shares.
 	share_here:     bool,
-	// Bytes sent and received since log_stats last looked, and the
-	// window's counts when it did.
+	// Bytes sent and received since log_stats last looked, and the window's
+	// counts at that time.
 	bytes_out:      int,
 	bytes_in:       int,
 	logged:         [3]int,
-	// The same for the View's figures (publish_video_stats), a second
-	// at a time.
+	// The same for the View's figures (publish_video_stats), one second at a
+	// time.
 	stats_at:       time.Tick,
 	stats_out:      int,
 	stats_in:       int,
 	stats_seen:     [3]int,
-	last_codec:     proto.Video_Codec, // of the last frame shown
-	stats_frags:    int, // fragments that came, for the Report's loss
+	last_codec:     proto.Video_Codec, // codec of the last frame shown
+	stats_frags:    int, // fragments that arrived, for the Report's loss
 
-	// For the Report's delay: how much later than the sharer's clock
-	// each frame's first fragment comes, its least over the last 10
-	// seconds (two halves), and how far over that this second.
+	// For the Report's delay: how much later than the sharer's clock each
+	// frame's first fragment arrives, its minimum over the last 10 seconds (in
+	// two halves), and how far above that minimum it was this second.
 	delay_min:      [2]i64,
 	delay_min_at:   time.Tick,
 	delay_sum:      i64,
 	delay_n:        int,
 
 	// Adapting our share to its viewers (adapt_bitrate).
-	target_kbit:    int, // 0: as set
+	target_kbit:    int, // 0: use the configured bitrate
 	cut_at:         time.Tick,
 	good_since:     time.Tick,
 	reports_at:     time.Tick,
-	reports:        proto.Video_Reports, // the last
+	reports:        proto.Video_Reports, // the latest reports
 }
 
-// Adapting the bitrate (adapt_bitrate): what says the network can't keep
-// up (in thousandths of fragments missing, and ms of queueing), what
-// says it can, how often to cut and how long it has to be good before
-// going up, and how far down it may go (a part of what it was set to).
+// Adapting the bitrate (adapt_bitrate): the thresholds that say the network
+// cannot keep up (in thousandths of fragments missing, and ms of queueing), the
+// thresholds that say it can, how often to cut, how long it has to be good
+// before going up, and how far down it may go (a fraction of the configured
+// bitrate).
 ADAPT_LOSS_BAD :: 20
 ADAPT_DELAY_BAD :: 150
 ADAPT_LOSS_GOOD :: 5
@@ -119,21 +118,19 @@ ADAPT_DELAY_GOOD :: 40
 ADAPT_CUT_EVERY :: 2 * time.Second
 ADAPT_GOOD_FOR :: 4 * time.Second
 ADAPT_FLOOR :: 8
-// With no reports for this long, nobody watches: back to as set.
+// With no reports for this long, nobody is watching: go back to the configured bitrate.
 ADAPT_QUIET :: 10 * time.Second
-// How long the least delay is over (twice this).
+// How long the minimum delay is measured over (twice this).
 DELAY_WINDOW :: 5 * time.Second
 
-/*
-Share_Preset is one of the sizes the desktop shares at, with the bitrate
-that suits it at 60 frames a second; Advanced settings can change the
-rate and bitrate (share_config). The server may take less (its
-video.max_kbit), which the share is held to.
-*/
+// Share_Preset is one of the sizes the desktop shares at, with the bitrate that
+// suits it at 60 frames per second. Advanced settings can change the frame rate
+// and bitrate (share_config). The server may allow less (its video.max_kbit),
+// and the share is held to that.
 Share_Preset :: struct {
 	name:  string, // what settings.share_preset stores
 	label: string,
-	max:   [2]i32, // the largest it's scaled to, keeping its shape; 0 for as it is
+	max:   [2]i32, // the largest it's scaled to, keeping its aspect ratio; 0 keeps the original size
 	kbit:  int,
 }
 
@@ -141,18 +138,18 @@ SHARE_PRESETS := [?]Share_Preset {
 	{"720p", "720p", {1280, 720}, 4000},
 	{"1080p", "1080p", {1920, 1080}, 8000},
 	{"1440p", "1440p", {2560, 1440}, 15000},
-	{"source", "As it is", {0, 0}, 20000},
+	{"source", "Original size", {0, 0}, 20000},
 }
 
-// The preset that settings with none (or one we don't know) get.
+// The preset used when the settings have none (or one we don't know).
 DEFAULT_SHARE_PRESET :: 1
 
-// The frame rates Advanced offers, and the bitrates (kbit/s).
+// The frame rates Advanced offers, and the bitrates (in kbit/s).
 SHARE_FPS_CHOICES :: [?]int{30, 60}
 SHARE_KBIT_MIN :: 500
 SHARE_KBIT_MAX :: 50_000
 
-// share_preset is the preset `s` picks.
+// share_preset is the preset that `s` selects.
 share_preset :: proc(s: ^settings.Settings) -> int {
 	for p, i in SHARE_PRESETS {
 		if p.name == s.share_preset {
@@ -162,19 +159,17 @@ share_preset :: proc(s: ^settings.Settings) -> int {
 	return DEFAULT_SHARE_PRESET
 }
 
-// How a share is set up (video_share_source).
+// How a share is set up (see video_share_source).
 Share_Config :: struct {
 	max:     [2]i32,
 	fps:     int,
 	kbit:    int,
-	encoder: string, // "" for the best that works
+	encoder: string, // "" picks the best encoder that works
 	cursor:  bool,
 }
 
-/*
-share_config is what `s` says to share at, held to `limit_kbit` (the
-server's limit for a sharer; 0 if it didn't say).
-*/
+// share_config is what `s` says to share at, held to `limit_kbit` (the server's
+// limit for a sharer; 0 if it did not say).
 share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> Share_Config {
 	p := SHARE_PRESETS[share_preset(s)]
 	cfg := Share_Config {
@@ -185,7 +180,7 @@ share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> Share_Config {
 		cursor  = s.share_cursor,
 	}
 	if s.share_kbit == 0 && cfg.fps < 60 {
-		// The preset's bitrate is for 60 frames a second.
+		// The preset's bitrate is for 60 frames per second.
 		cfg.kbit = cfg.kbit * cfg.fps / 60
 	}
 	if limit_kbit > 0 {
@@ -194,15 +189,15 @@ share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> Share_Config {
 	return cfg
 }
 
-// What the View shows of screen sharing, worked out once a second.
+// What the View shows of screen sharing, calculated once a second.
 Video_Stats :: struct {
 	kbit_in, kbit_out:     int,
-	// Over that second: fragments asked for again, frames that saved,
-	// and frames lost all the same.
+	// Over that second: fragments asked for again, frames that this saved,
+	// and frames that were lost anyway.
 	asked, saved, lost:    int,
-	codec:                 proto.Video_Codec, // of what we watch
-	// Sharing: what we're held to for our viewers (0 when not), what
-	// the share was set to, and how many report (and were left out).
+	codec:                 proto.Video_Codec, // codec of what we are watching
+	// Sharing: what we are held to for our viewers (0 when not sharing), what
+	// the share was set to, and how many viewers report (and were left out).
 	kbit_target, kbit_max: int,
 	viewers, left_out:     int,
 }
@@ -270,9 +265,9 @@ video_step :: proc(c: ^Voice_Client) {
 	publish_video_stats(c)
 }
 
-// publish_video_link tells the View whether there's a media link, which
-// sharing and watching need. (Only we write it, so it may be read
-// without the lock.)
+// publish_video_link tells the View whether there is a media link, which
+// sharing and watching need. (Only we write it, so it may be read without the
+// lock.)
 @(private = "file")
 publish_video_link :: proc(c: ^Voice_Client) {
 	up := c.media.has_current
@@ -283,8 +278,8 @@ publish_video_link :: proc(c: ^Voice_Client) {
 	c.view.video_link = up
 }
 
-// say_decodable tells the others what we can watch (User_Flag), which
-// the page only knows once it's asked the browser.
+// say_decodable tells the others what we can watch (User_Flag). The page only
+// knows this once it has asked the browser.
 @(private = "file")
 say_decodable :: proc(c: ^Voice_Client) {
 	codecs := video_decodable() if video_can_watch() else {}
@@ -297,11 +292,9 @@ say_decodable :: proc(c: ^Voice_Client) {
 	}
 }
 
-/*
-viewer_codecs is what everyone else in our voice room can decode, any
-of whom may watch: a share is encoded in one of those (the best that
-works, video_share_codecs). Anything goes while nobody else is there.
-*/
+// viewer_codecs is what everyone else in our voice room can decode, any of whom
+// may watch. A share is encoded in one of those codecs (the best that works,
+// video_share_codecs). Anything goes while nobody else is there.
 @(private)
 viewer_codecs :: proc(c: ^Voice_Client) -> proto.Video_Codecs {
 	ch := &c.channels
@@ -318,8 +311,8 @@ viewer_codecs :: proc(c: ^Voice_Client) -> proto.Video_Codecs {
 	return codecs
 }
 
-// publish_video_stats puts the figures in the View once a second while
-// sharing or watching, and clears them once after.
+// publish_video_stats puts the figures in the View once a second while sharing
+// or watching, and clears them once afterwards.
 @(private = "file")
 publish_video_stats :: proc(c: ^Voice_Client) {
 	v := &c.video
@@ -349,7 +342,7 @@ publish_video_stats :: proc(c: ^Voice_Client) {
 	s.codec = v.last_codec
 	if v.sharing {
 		if v.target_kbit > 0 && time.tick_diff(v.reports_at, now) > ADAPT_QUIET {
-			// Nobody's reported for a while: back to as set.
+			// Nobody has reported for a while: go back to the configured bitrate.
 			v.target_kbit = 0
 			video_share_adapt(video_share_max_kbit())
 		}
@@ -369,11 +362,9 @@ publish_video_stats :: proc(c: ^Voice_Client) {
 	}
 }
 
-/*
-video_queue_frame takes over an encoded frame and queues it, or drops
-it. Frames get their numbers here, so any dropped after this point show
-up at the far end as a gap and a request for a keyframe.
-*/
+// video_queue_frame takes over an encoded frame and queues it, or drops it.
+// Frames get their numbers here, so any frame dropped after this point shows up
+// at the far end as a gap and a request for a keyframe.
 video_queue_frame :: proc(
 	v: ^Video_Client,
 	data: []u8,
@@ -411,8 +402,8 @@ video_queue_frame :: proc(
 	v.queued_bytes += len(data)
 }
 
-// video_next_fragment returns the next fragment to go out, as a Video
-// message written to `out`, and moves past it.
+// video_next_fragment returns the next fragment to go out, as a Video message
+// written to `out`, and moves past it.
 video_next_fragment :: proc(v: ^Video_Client, out: []u8) -> (msg: []u8, ok: bool) {
 	if len(v.queue) == 0 {
 		return
@@ -450,7 +441,7 @@ video_clear_queue :: proc(v: ^Video_Client) {
 	v.queued_bytes, v.sent = 0, 0
 }
 
-// video_send sends what the pace and the socket allow.
+// video_send sends what the pacing and the socket allow.
 @(private = "file")
 video_send :: proc(c: ^Voice_Client) {
 	v := &c.video
@@ -470,7 +461,7 @@ video_send :: proc(c: ^Voice_Client) {
 	}
 	v.budget_at = now
 	if !c.media.has_current {
-		return // the queue falls behind, which asks for a keyframe
+		return // the queue is falling behind, which asks for a keyframe
 	}
 
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
@@ -487,21 +478,21 @@ video_send :: proc(c: ^Voice_Client) {
 	}
 }
 
-// video_keyframe_requested: a viewer asked the server for a keyframe.
+// video_keyframe_requested is called when a viewer asked the server for a keyframe.
 video_keyframe_requested :: proc(c: ^Voice_Client) {
 	if c.video.sharing {
 		c.video.want_key = true
 	}
 }
 
-// video_watch starts watching `user`, or stops watching with 0.
+// video_watch starts watching `user`, or stops watching when `user` is 0.
 video_watch :: proc(c: ^Voice_Client, user: proto.User_Num) {
 	v := &c.video
 	if user == v.watching {
 		return
 	}
 	if user == 0 {
-		// The lease would run out anyway; this just ends it sooner.
+		// The lease would run out anyway, but this ends it sooner.
 		buf: [proto.WATCH_SIZE]u8
 		send_watch(c, proto.encode_watch(&buf, 0, false))
 	} else {
@@ -517,12 +508,10 @@ video_watch :: proc(c: ^Voice_Client, user: proto.User_Num) {
 	publish_watching(c)
 }
 
-/*
-drive_watch renews the lease on whoever we're watching, asks again for
-what's gone missing, and asks for a keyframe while what
-arrives can't be decoded. Somebody who stops sharing or leaves the
-channel stops being watched.
-*/
+// drive_watch renews the lease on whoever we are watching, asks again for
+// whatever has gone missing, and asks for a keyframe while the incoming frames
+// cannot be decoded. Somebody who stops sharing or leaves the channel is no
+// longer watched.
 @(private = "file")
 drive_watch :: proc(c: ^Voice_Client) {
 	v := &c.video
@@ -541,7 +530,7 @@ drive_watch :: proc(c: ^Voice_Client) {
 		buf: [proto.NACK_SIZE]u8
 		link_send(&c.media.link, proto.encode_nack(&buf, v.watching, n))
 	}
-	// Giving up may have let what's behind it through.
+	// Giving up may have let the frames behind it through.
 	show_frames(c)
 	need_key := v.window.broken
 	due := time.tick_since(v.last_watch) >= proto.WATCH_RESEND
@@ -557,7 +546,7 @@ drive_watch :: proc(c: ^Voice_Client) {
 	v.last_watch = time.tick_now()
 }
 
-// send_watch sends a Watch, if there's a media link to send it on.
+// send_watch sends a Watch, if there is a media link to send it on.
 @(private = "file")
 send_watch :: proc(c: ^Voice_Client, msg: []u8) {
 	if c.media.has_current {
@@ -565,7 +554,7 @@ send_watch :: proc(c: ^Voice_Client, msg: []u8) {
 	}
 }
 
-// can_watch says whether `user` is sharing, in our voice room, and not us.
+// can_watch says whether `user` is sharing, is in our voice room, and is not us.
 can_watch :: proc(c: ^Voice_Client, user: proto.User_Num) -> bool {
 	ch := &c.channels
 	if !ch.have_state || user == ch.state.your_user {
@@ -596,8 +585,8 @@ handle_video :: proc(c: ^Voice_Client, pt: []u8) {
 	show_frames(c)
 }
 
-// send_report tells the server how the share we watch reaches us, this
-// past second.
+// send_report tells the server how well the share we watch has reached us
+// during the past second.
 @(private = "file")
 send_report :: proc(c: ^Voice_Client, s: Video_Stats) {
 	v := &c.video
@@ -612,12 +601,10 @@ send_report :: proc(c: ^Voice_Client, s: Video_Stats) {
 	link_send(&c.media.link, proto.encode_report_up(&buf, v.watching, r))
 }
 
-/*
-note_delay notes when a frame's first fragment came, against the
-sharer's clock (its `ts`). The clocks differ by some unknown amount, so
-it's only how this compares with the least of the last 10 seconds that
-says anything: a queue building up on the way.
-*/
+// note_delay records when a frame's first fragment arrived, relative to the
+// sharer's clock (its `ts`). The clocks differ by an unknown amount, so only
+// the comparison with the minimum of the last 10 seconds is meaningful: it
+// shows a queue building up on the way.
 @(private = "file")
 note_delay :: proc(v: ^Video_Client, ts: u32, now: time.Tick) {
 	ms := u32(now._nsec / i64(time.Millisecond))
@@ -633,7 +620,7 @@ note_delay :: proc(v: ^Video_Client, ts: u32, now: time.Tick) {
 	v.delay_n += 1
 }
 
-// video_reports: the server says how our share reaches its viewers.
+// video_reports is called when the server says how our share reaches its viewers.
 video_reports :: proc(c: ^Voice_Client, s: proto.Video_Reports) {
 	v := &c.video
 	if !v.sharing {
@@ -644,14 +631,12 @@ video_reports :: proc(c: ^Voice_Client, s: proto.Video_Reports) {
 	adapt_bitrate(v, s.worst, video_share_max_kbit(), v.reports_at)
 }
 
-/*
-adapt_bitrate moves the share's bitrate with its worst viewer's report:
-down by a quarter (to no less than what reaches them, if that's not
-much less) when it says the network can't keep up, at most every
-ADAPT_CUT_EVERY; up by a fifth of what it was set to after
-ADAPT_GOOD_FOR of good reports; never under an ADAPT_FLOOR-th of that,
-nor over it.
-*/
+// adapt_bitrate moves the share's bitrate according to its worst viewer's
+// report. It goes down by a quarter when the report says the network cannot
+// keep up (to no less than what reaches the viewer, unless that is much less),
+// at most every ADAPT_CUT_EVERY. It goes up by a fifth of the configured
+// bitrate after ADAPT_GOOD_FOR of good reports. It never goes below
+// 1/ADAPT_FLOOR of the configured bitrate, nor above it.
 adapt_bitrate :: proc(v: ^Video_Client, worst: proto.Video_Report, max_kbit: int, now: time.Tick) {
 	if max_kbit <= 0 {
 		return
@@ -663,8 +648,8 @@ adapt_bitrate :: proc(v: ^Video_Client, worst: proto.Video_Report, max_kbit: int
 	case worst.loss >= ADAPT_LOSS_BAD || worst.delay_ms >= ADAPT_DELAY_BAD:
 		v.good_since = {}
 		if v.cut_at == {} || time.tick_diff(v.cut_at, now) >= ADAPT_CUT_EVERY {
-			// What reaches them, unless that's only a still screen's
-			// trickle.
+			// What reaches them, unless that is only the trickle of a still
+			// screen.
 			base := min(target, max(worst.kbit, target / 2))
 			target = max(floor, base * 3 / 4)
 			v.cut_at = now
@@ -677,7 +662,7 @@ adapt_bitrate :: proc(v: ^Video_Client, worst: proto.Video_Report, max_kbit: int
 			v.good_since = now
 		}
 	case:
-		v.good_since = {} // in between: as it is
+		v.good_since = {} // in between: keep the current bitrate
 	}
 	if target != was {
 		log.infof(

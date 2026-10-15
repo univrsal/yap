@@ -9,63 +9,60 @@ import "common:http"
 import "common:lite"
 import "common:proto"
 
-/*
-Files (docs/bot-api, phase 7):
-
-	POST   /uploads?name=      the file as the body  ->  201 {id, name, size}
-	GET    /attachments/{id}   a message's file (its attachment's id)
-	GET    /blobs/{id}         a picture: an avatar, the emoji, the icon
-	PUT    /me/avatar          a JPEG as the body  ->  /me
-	DELETE /me/avatar          ->  /me
-
-An upload is posted with a message by naming it in `attachments`, for an
-hour after it's done (proto/attachments.odin).
-
-Uploads and attachments go between the gateway and the server as a
-client's do, in chunks (proto/transfer.odin), and stream: what an HTTP
-thread reads of an upload's body goes into a Ring the gateway sends
-from, and what the gateway gets of an attachment into a Ring the HTTP
-thread writes out from, each a transfer's window (FILE_WINDOW chunks)
-big, whatever the file's size. A download is only acked as far as the
-bot has taken it, so a slow bot slows the server down rather than
-filling the gateway. Pictures (blobs) are a megabyte at most, and come
-whole.
-
-A transfer that hears nothing from the server for TRANSFER_QUIET, or
-whose connection starts over, fails (503).
-*/
+// Files (docs/bot-api, phase 7):
+//
+//	POST   /uploads?name=      the file as the body  ->  201 {id, name, size}
+//	GET    /attachments/{id}   a message's file (its attachment's id)
+//	GET    /blobs/{id}         a picture: an avatar, the emoji, the icon
+//	PUT    /me/avatar          a JPEG as the body  ->  /me
+//	DELETE /me/avatar          ->  /me
+//
+// A finished upload can be attached to a message by naming it in
+// `attachments` within an hour (proto/attachments.odin).
+//
+// Uploads and attachments travel between the gateway and the server in
+// chunks, just like they do for a client (proto/transfer.odin), and they are
+// streamed. The part of an upload's body that an HTTP thread has read goes
+// into a Ring that the gateway sends from. The part of an attachment that the
+// gateway has received goes into a Ring that the HTTP thread writes out from.
+// Each Ring is one transfer window (FILE_WINDOW chunks) in size, regardless
+// of the file's size. A download is only acked as far as the bot has read it,
+// so a slow bot slows the server down instead of filling up the gateway's
+// memory. Pictures (blobs) are at most a megabyte and are held in memory as a
+// whole.
+//
+// A transfer fails (503) if the server is silent for TRANSFER_QUIET or if its
+// connection starts over.
 
 TRANSFER_QUIET :: 30 * time.Second
-// Uploads go as fast as the server says it takes them (its acks), and
-// at most this; pictures at the client's pace.
+// Uploads are sent as fast as the server accepts them (according to its
+// acks), but at most this fast. Pictures are sent at the client's pace.
 UPLOAD_MAX_RATE :: 16 * 1024 * 1024
 UPLOAD_BURST :: 256 * 1024
 BLOB_UPLOAD_RATE :: 256 * 1024
 BLOB_UPLOAD_BURST :: 32 * 1024
-// A picture whose upload the server has said nothing about for this long
-// is announced again, which says where it's got to.
+// If the server says nothing about a picture upload for this long, the
+// picture is announced again, which makes the server report its progress.
 BLOB_UPLOAD_QUIET :: 3 * time.Second
 BLOB_UPLOAD_TRIES :: 3
 RING_SIZE :: proto.FILE_WINDOW * proto.FILE_CHUNK_DATA
 
-/*
-Ring is the window of a transfer that streams, between an HTTP thread
-and the gateway thread: `in_` is how much has been put in, `out` how
-much has been taken out, and what's between them is in `buf`, at its
-offset modulo RING_SIZE. Freed by whichever lets go of it last.
-*/
+// Ring is the window of a streamed transfer, shared between an HTTP thread
+// and the gateway thread. `in_` is how much has been put in and `out` is how
+// much has been taken out. The bytes in between are in `buf`, at their offset
+// modulo RING_SIZE. Whichever side releases it last frees it.
 Ring :: struct {
 	mutex:  sync.Mutex,
 	cond:   sync.Cond,
 	buf:    []u8,
-	size:   u64, // the file's
+	size:   u64, // the file's size
 	in_:    u64,
 	out:    u64,
-	failed: bool, // either side has given up
+	failed: bool, // set when either side has given up
 	refs:   int,
 }
 
-// ring_make makes a Ring for a file of `size`, held by `refs`.
+// ring_make makes a Ring for a file of `size` that is referenced `refs` times.
 @(private)
 ring_make :: proc(size: u64, refs: int) -> ^Ring {
 	r := new(Ring)
@@ -96,26 +93,26 @@ ring_fail :: proc(r: ^Ring) {
 	sync.cond_broadcast(&r.cond)
 }
 
-// An upload of the bot's, on its way to the server.
+// An upload from the bot that is on its way to the server.
 @(private)
 Upload :: struct {
-	job:        ^Job, // until it's replied to
+	job:        ^Job, // nil once the job has been replied to
 	ring:       ^Ring,
-	id:         u64, // the server's
+	id:         u64, // assigned by the server
 	send:       proto.Transfer_Sender,
 	last_heard: time.Tick,
 }
 
-// An attachment on its way to the bot.
+// An attachment that is on its way to the bot.
 @(private)
 Download :: struct {
 	ring:       ^Ring,
-	id:         u64, // the server's
+	id:         u64, // assigned by the server
 	recv:       proto.Transfer_Receiver,
 	last_heard: time.Tick,
 }
 
-// A picture being fetched.
+// A picture that is being fetched.
 @(private)
 Blob_Fetch :: struct {
 	job:        ^Job,
@@ -126,12 +123,12 @@ Blob_Fetch :: struct {
 	started:    bool,
 }
 
-// An avatar on its way up.
+// An avatar that is being uploaded.
 @(private)
 Blob_Upload :: struct {
 	job:        ^Job,
 	put:        proto.Blob_Put,
-	handle:     u64, // 0 until the server wants it
+	handle:     u64, // 0 until the server asks for the data
 	send:       proto.Blob_Sender,
 	tokens:     f32,
 	last_pace:  time.Tick,
@@ -148,10 +145,9 @@ Transfers :: struct {
 	blob_uploads: [dynamic]^Blob_Upload,
 }
 
-/*
-files_reset fails every transfer of a connection: it's starting over,
-or going. What's in flight on the server's side is lost with it.
-*/
+// files_reset fails every transfer of a connection because the connection is
+// starting over or going away. Whatever is in flight on the server's side is
+// lost with it.
 @(private)
 files_reset :: proc(c: ^Conn) {
 	t := &c.transfers
@@ -206,7 +202,8 @@ download_free :: proc(d: ^Download) {
 	free(d)
 }
 
-// files_step moves the transfers along: a turn of the gateway thread.
+// files_step advances the transfers. It runs once per turn of the gateway
+// thread.
 @(private)
 files_step :: proc(c: ^Conn, now: time.Tick) {
 	if !lite.ready(&c.client) {
@@ -243,7 +240,7 @@ files_step :: proc(c: ^Conn, now: time.Tick) {
 	}
 }
 
-// files_message takes what the server sends of a transfer.
+// files_message handles a transfer message from the server.
 @(private)
 files_message :: proc(c: ^Conn, kind: proto.Message_Kind, pt: []u8) {
 	t := &c.transfers
@@ -292,7 +289,7 @@ files_message :: proc(c: ^Conn, kind: proto.Message_Kind, pt: []u8) {
 						error_reply(
 							502,
 							"bad_gateway",
-							fmt.tprintf("The server stopped the upload (%v).", reason),
+							fmt.tprintf("The server cancelled the upload (%v).", reason),
 						),
 					)
 				}
@@ -335,13 +332,13 @@ files_message :: proc(c: ^Conn, kind: proto.Message_Kind, pt: []u8) {
 					blob_upload_end(
 						c,
 						b,
-						error_reply(400, "invalid", "The server wouldn't take the picture."),
+						error_reply(400, "invalid", "The server rejected the picture."),
 					)
 					return
 				}
 				fallthrough
 			case complete:
-				// All there: announcing it again gets its id.
+				// The server has everything. Announcing the picture again returns its id.
 				proto.blob_sender_destroy(&b.send)
 				b.handle = 0
 				blob_put(c, b)
@@ -355,10 +352,8 @@ files_message :: proc(c: ^Conn, kind: proto.Message_Kind, pt: []u8) {
 	}
 }
 
-/*
-upload_turn sends what's come in of an upload and the pace allows; false
-once it's to go (done, or given up).
-*/
+// upload_turn sends as much of the received part of an upload as the pace
+// allows. It returns false once the upload is finished or has been given up.
 @(private)
 upload_turn :: proc(c: ^Conn, u: ^Upload, now: time.Tick) -> bool {
 	if u.job == nil {
@@ -371,15 +366,25 @@ upload_turn :: proc(c: ^Conn, u: ^Upload, now: time.Tick) -> bool {
 		avail, failed = u.ring.in_, u.ring.failed
 	}
 	if failed {
-		// The bot went before it was all there.
+		// The bot went away before the whole body arrived.
 		cancel_buf: [proto.TRANSFER_CANCEL_SIZE]u8
 		lite.send(&c.client, proto.encode_transfer_cancel(&cancel_buf, u.id, .Cancelled))
-		reply(u.job, error_reply(400, "invalid", "The body ended before its Content-Length."))
+		reply(
+			u.job,
+			error_reply(
+				400,
+				"invalid",
+				"The request body ended before the length given in Content-Length.",
+			),
+		)
 		u.job = nil
 		return false
 	}
 	if time.tick_diff(u.last_heard, now) > TRANSFER_QUIET {
-		reply(u.job, error_reply(503, "unavailable", "The server went quiet about the upload."))
+		reply(
+			u.job,
+			error_reply(503, "unavailable", "The server stopped responding during the upload."),
+		)
 		u.job = nil
 		return false
 	}
@@ -396,7 +401,7 @@ upload_turn :: proc(c: ^Conn, u: ^Upload, now: time.Tick) -> bool {
 		}
 		start, end := proto.file_chunk_range(u.ring.size, index)
 		if end > avail {
-			break // not read from the bot yet
+			break // the bot has not sent this part yet
 		}
 		at := start % RING_SIZE
 		data := u.ring.buf[at:at + (end - start)]
@@ -406,8 +411,8 @@ upload_turn :: proc(c: ^Conn, u: ^Upload, now: time.Tick) -> bool {
 	return true
 }
 
-// download_chunk keeps a chunk of an attachment, if there's room for it
-// before the bot has taken what's before.
+// download_chunk stores a chunk of an attachment if the Ring has room for it,
+// meaning the bot has already read the data that precedes it.
 @(private)
 download_chunk :: proc(d: ^Download, index: u32, data: []u8, now: time.Tick) {
 	d.last_heard = now
@@ -418,7 +423,7 @@ download_chunk :: proc(d: ^Download, index: u32, data: []u8, now: time.Tick) {
 	r := d.ring
 	sync.guard(&r.mutex)
 	if r.failed || end > r.out + RING_SIZE {
-		return // asked for again once there's room
+		return // the server sends it again once there is room
 	}
 	at := start % RING_SIZE
 	copy(r.buf[at:], data)
@@ -427,7 +432,8 @@ download_chunk :: proc(d: ^Download, index: u32, data: []u8, now: time.Tick) {
 	sync.cond_broadcast(&r.cond)
 }
 
-// download_turn acks what's come of an attachment; false once it's to go.
+// download_turn acks the received part of an attachment. It returns false
+// once the download is finished or has been given up.
 @(private)
 download_turn :: proc(c: ^Conn, d: ^Download, now: time.Tick) -> bool {
 	taken: u64
@@ -452,11 +458,9 @@ download_turn :: proc(c: ^Conn, d: ^Download, now: time.Tick) -> bool {
 	return true
 }
 
-/*
-download_ack says what's here of an attachment, but no further than
-what the bot has taken: the server sends at most a window past what's
-acked, which is what the Ring has room for.
-*/
+// download_ack reports how much of an attachment has arrived, but no further
+// than what the bot has read. The server sends at most one window past what
+// has been acked, which is the amount the Ring has room for.
 @(private)
 download_ack :: proc(c: ^Conn, d: ^Download, taken: u64, now: time.Tick) {
 	r := &d.recv
@@ -483,12 +487,12 @@ download_ack :: proc(c: ^Conn, d: ^Download, taken: u64, now: time.Tick) {
 	lite.send(&c.client, proto.encode_transfer_ack(out[:], .Download_Ack, ack, missing[:n]))
 }
 
-// fetch_turn asks again for what hasn't come of a picture; false once
-// it's done with.
+// fetch_turn asks again for the missing parts of a picture. It returns false
+// once the fetch is finished.
 @(private)
 fetch_turn :: proc(c: ^Conn, f: ^Blob_Fetch, now: time.Tick) -> bool {
 	if f.handle == 0 {
-		return true // still asking
+		return true // still waiting for the server to answer
 	}
 	if proto.blob_receiver_complete(&f.recv) {
 		out: [proto.MAX_PAYLOAD_SIZE]u8
@@ -505,7 +509,14 @@ fetch_turn :: proc(c: ^Conn, f: ^Blob_Fetch, now: time.Tick) -> bool {
 	}
 	last := f.last_chunk if f.started else f.asked
 	if time.tick_diff(last, now) > TRANSFER_QUIET {
-		reply(f.job, error_reply(503, "unavailable", "The server went quiet about the picture."))
+		reply(
+			f.job,
+			error_reply(
+				503,
+				"unavailable",
+				"The server stopped responding while the picture was being transferred.",
+			),
+		)
 		return false
 	}
 	if time.tick_diff(f.asked, now) >= proto.CONTROL_RESEND &&
@@ -520,8 +531,8 @@ fetch_turn :: proc(c: ^Conn, f: ^Blob_Fetch, now: time.Tick) -> bool {
 	return true
 }
 
-// blob_upload_turn sends an avatar's chunks at their pace, and asks
-// where it's got to when the server is quiet.
+// blob_upload_turn sends an avatar's chunks at the configured pace and asks
+// the server for its progress when the server has been quiet.
 @(private)
 blob_upload_turn :: proc(c: ^Conn, b: ^Blob_Upload, now: time.Tick) {
 	if b.handle == 0 {
@@ -546,7 +557,11 @@ blob_upload_turn :: proc(c: ^Conn, b: ^Blob_Upload, now: time.Tick) {
 			blob_upload_end(
 				c,
 				b,
-				error_reply(503, "unavailable", "The server went quiet about the picture."),
+				error_reply(
+					503,
+					"unavailable",
+					"The server stopped responding while the picture was being transferred.",
+				),
 			)
 			return
 		}
@@ -555,22 +570,19 @@ blob_upload_turn :: proc(c: ^Conn, b: ^Blob_Upload, now: time.Tick) {
 }
 
 Upload_JSON :: struct {
-	id:   string, // to name in a post's `attachments`
+	id:   string, // to be listed in the `attachments` of a message
 	name: string,
 	size: u64,
 }
 
-/*
-uploads_serve is POST /uploads?name=, on its HTTP thread: the body,
-Content-Length bytes of it, streamed to the server as it's read. Its
-answer is the upload, once the server has all of it. Whether the
-connection stays open for another request: only if the body was read
-to its end.
-*/
+// uploads_serve handles POST /uploads?name= on its HTTP thread. The body
+// (Content-Length bytes) is streamed to the server as it is read, and the
+// reply describes the upload once the server has all of it. The connection
+// only stays open for another request if the whole body was read.
 @(private)
 uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_alive: bool) {
 	if req.method != "POST" {
-		r := error_reply(405, "method_not_allowed", "An upload is POSTed.")
+		r := error_reply(405, "method_not_allowed", "Uploads must be sent with POST.")
 		r.allow = "POST"
 		send(c, r, false)
 		return false
@@ -588,7 +600,11 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 		return refuse(
 			c,
 			req,
-			error_reply(400, "invalid", "name is what the file is called: ?name=."),
+			error_reply(
+				400,
+				"invalid",
+				"The name query parameter is required and gives the name of the file: ?name=<file name>.",
+			),
 		)
 	case len(name) > proto.MAX_FILE_NAME:
 		return refuse(
@@ -597,13 +613,20 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 			error_reply(
 				400,
 				"invalid",
-				fmt.tprintf("name is at most %d bytes.", proto.MAX_FILE_NAME),
+				fmt.tprintf(
+					"The name query parameter can be at most %d bytes long.",
+					proto.MAX_FILE_NAME,
+				),
 			),
 		)
 	case req.chunked || req.content_length <= 0:
 		send(
 			c,
-			error_reply(411, "invalid", "An upload needs a Content-Length, and something in it."),
+			error_reply(
+				411,
+				"invalid",
+				"An upload needs a Content-Length header and a body that is not empty.",
+			),
 			false,
 		)
 		return false
@@ -613,7 +636,7 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 	defer ring_release(j.ring)
 	submit_start(g, &j)
 
-	// The body, into the ring as there's room.
+	// Read the body into the ring as room becomes available.
 	r := j.ring
 	whole := true
 	for {
@@ -643,11 +666,10 @@ uploads_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) -> (keep_a
 	return whole && req.keep_alive
 }
 
-/*
-refuse answers an upload turned down before its body was read: a small
-body is read and let go, so the connection can stay open for the next
-request; past MAX_BODY, it closes instead.
-*/
+// refuse replies to an upload that was rejected before its body was read.
+// A small body is read and discarded so the connection can stay open for the
+// next request. A body larger than MAX_BODY is not read, so the connection
+// closes instead.
 @(private)
 refuse :: proc(c: ^http.Conn, req: ^http.Request, r: Reply) -> (keep_alive: bool) {
 	keep_alive = req.keep_alive && !req.chunked && req.content_length <= MAX_BODY
@@ -659,7 +681,7 @@ refuse :: proc(c: ^http.Conn, req: ^http.Request, r: Reply) -> (keep_alive: bool
 	return keep_alive
 }
 
-// upload_run announces the upload, and sets it going once it's taken.
+// upload_run announces the upload and starts it once the server accepts it.
 @(private)
 upload_run :: proc(c: ^Conn, j: ^Job) {
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -689,11 +711,10 @@ upload_run :: proc(c: ^Conn, j: ^Job) {
 	)
 }
 
-/*
-downloads_serve is GET /attachments/{id}, on its HTTP thread: once the
-server says how big it is, its bytes, written out as they come. False:
-the connection closes after, as one cut short has to.
-*/
+// downloads_serve handles GET /attachments/{id} on its HTTP thread. Once the
+// server reports the size, the bytes are written out as they arrive. It
+// returns false if the connection has to close afterwards, which is the case
+// when the download was cut short.
 @(private)
 downloads_serve :: proc(
 	g: ^Gateway,
@@ -744,7 +765,7 @@ downloads_serve :: proc(
 				return req.keep_alive
 			}
 			if ring.failed {
-				return false // cut short: closing says so
+				return false // cut short: closing the connection signals this
 			}
 			at = ring.out % RING_SIZE
 			n = min(ring.in_ - ring.out, RING_SIZE - at)
@@ -759,7 +780,7 @@ downloads_serve :: proc(
 	}
 }
 
-// download_run asks for the attachment, and starts taking it in.
+// download_run requests the attachment and starts receiving it.
 @(private)
 download_run :: proc(c: ^Conn, j: ^Job) {
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -773,7 +794,7 @@ download_run :: proc(c: ^Conn, j: ^Job) {
 			return
 		}
 		d := new(Download)
-		d.ring, d.id = ring_make(size, 2), id // the Download's, and the HTTP thread's
+		d.ring, d.id = ring_make(size, 2), id // one reference for the Download, one for the HTTP thread
 		d.last_heard = time.tick_now()
 		proto.transfer_receiver_init(&d.recv, size)
 		append(&c.transfers.downloads, d)
@@ -785,8 +806,8 @@ download_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Attach_Get, proto.encode_attach_id(&buf, j.scratch[0]))
 }
 
-// GET /blobs/{id}: a picture (an avatar, the emoji, the server's icon),
-// whole, as what its first bytes say it is.
+// GET /blobs/{id}: a picture (an avatar, an emoji or the server's icon),
+// returned whole, with the content type determined from its first bytes.
 @(private)
 blob_run :: proc(c: ^Conn, j: ^Job) {
 	id, ok := param_id(j, 0)
@@ -814,11 +835,9 @@ blob_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Blob_Get, proto.encode_blob_id(&buf, proto.Blob_Id(id)))
 }
 
-/*
-PUT /me/avatar, a JPEG as the body (at most 64 KiB and 256 pixels a
-side, as a client makes them) -> /me. DELETE /me/avatar -> /me, without
-one.
-*/
+// PUT /me/avatar takes a JPEG as the body (at most 64 KiB and 256 pixels per
+// side, as a client creates them) and returns /me. DELETE /me/avatar removes
+// the avatar and returns /me.
 @(private)
 avatar_run :: proc(c: ^Conn, j: ^Job) {
 	data := j.body
@@ -828,7 +847,10 @@ avatar_run :: proc(c: ^Conn, j: ^Job) {
 			error_reply(
 				400,
 				"invalid",
-				fmt.tprintf("A picture is a JPEG of at most %d bytes.", proto.MAX_AVATAR_SIZE),
+				fmt.tprintf(
+					"The avatar must be a JPEG of at most %d bytes.",
+					proto.MAX_AVATAR_SIZE,
+				),
 			),
 		)
 		return
@@ -841,7 +863,7 @@ avatar_run :: proc(c: ^Conn, j: ^Job) {
 				400,
 				"invalid",
 				fmt.tprintf(
-					"A picture is a JPEG of at most %d pixels a side.",
+					"The avatar must be a JPEG of at most %d pixels per side.",
 					proto.MAX_AVATAR_SIDE,
 				),
 			),
@@ -870,8 +892,8 @@ avatar_delete_run :: proc(c: ^Conn, j: ^Job) {
 	set_avatar(c, j, 0)
 }
 
-// blob_put announces an avatar: the server has it already, or says what
-// to send it under.
+// blob_put announces an avatar. The server either already has it or tells us
+// which handle to send it under.
 @(private)
 blob_put :: proc(c: ^Conn, b: ^Blob_Upload) {
 	b.asking = true
@@ -899,7 +921,7 @@ blob_put :: proc(c: ^Conn, b: ^Blob_Upload) {
 			blob_upload_end(c, b, {})
 			set_avatar(c, j, blob)
 		case handle != b.handle:
-			// Start (or start over) sending it.
+			// Start sending it, or start over.
 			proto.blob_sender_destroy(&b.send)
 			now := time.tick_now()
 			b.handle = handle
@@ -913,8 +935,8 @@ blob_put :: proc(c: ^Conn, b: ^Blob_Upload) {
 	ask(c, b.job, .Blob_Put, proto.encode_blob_put(&buf, b.put))
 }
 
-// blob_upload_end lets an avatar's upload go, replying `r` unless it's
-// {} (the caller goes on with the Job).
+// blob_upload_end removes an avatar's upload and replies with `r`, unless `r`
+// is {} (then the caller continues with the Job).
 @(private)
 blob_upload_end :: proc(c: ^Conn, b: ^Blob_Upload, r: Reply) {
 	for x, i in c.transfers.blob_uploads {
@@ -942,10 +964,8 @@ set_avatar :: proc(c: ^Conn, j: ^Job, blob: proto.Blob_Id) {
 	)
 }
 
-/*
-jpeg_size is a JPEG's width and height, from its frame header; false if
-it isn't a JPEG.
-*/
+// jpeg_size returns a JPEG's width and height from its frame header. It
+// returns false if the data is not a JPEG.
 jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
 	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
 		return
@@ -958,13 +978,13 @@ jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
 		marker := data[i + 1]
 		switch {
 		case marker == 0xFF:
-			i += 1 // fill
+			i += 1 // fill byte
 			continue
 		case marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8):
-			i += 2 // no length
+			i += 2 // marker without a length
 			continue
 		case marker == 0xD9 || marker == 0xDA:
-			return // the end, or the image, with no frame header before
+			return // end of image or start of scan, with no frame header before it
 		}
 		length := int(data[i + 2]) << 8 | int(data[i + 3])
 		if length < 2 || i + 2 + length > len(data) {
@@ -984,7 +1004,7 @@ jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
 	return
 }
 
-// sniff is what a picture is, by its first bytes.
+// sniff returns the content type of a picture, based on its first bytes.
 @(private)
 sniff :: proc(data: []u8) -> string {
 	switch {

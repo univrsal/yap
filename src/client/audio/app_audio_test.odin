@@ -5,8 +5,8 @@ import "core:math"
 import "core:sync"
 import "core:testing"
 
-// A shared application is mixed in only while something's shared, once
-// it has buffered up, at its volume.
+// A shared application is mixed in only while something is shared, once it
+// has buffered up, and at its own volume.
 @(test)
 test_app_mix :: proc(t: ^testing.T) {
 	v: Voice
@@ -20,7 +20,7 @@ test_app_mix :: proc(t: ^testing.T) {
 	}
 	frame: [FRAME]f32
 
-	// Nothing shared: queued audio is dropped, the frame left alone.
+	// Nothing shared: queued audio is dropped and the frame is left untouched.
 	ring_write(&v.app, app[:])
 	testing.expect(t, !app_mix(&v, frame[:]))
 	testing.expect_value(t, ring_available(&v.app), 0)
@@ -51,8 +51,8 @@ test_app_mix :: proc(t: ^testing.T) {
 	testing.expect_value(t, frame[0], 1)
 }
 
-// A quiet application isn't sent (its noise would come through Opus's
-// DTX now and then), except for a while after it was last heard.
+// A quiet application isn't sent (its noise would occasionally get through
+// Opus's DTX), except for a short while after it was last heard.
 @(test)
 test_app_mix_silence :: proc(t: ^testing.T) {
 	v: Voice
@@ -117,8 +117,8 @@ test_app_mix_mono :: proc(t: ^testing.T) {
 	testing.expect_value(t, frame[1], 0.5)
 }
 
-// 44.1 kHz comes out at 48 kHz: as many frames as the time it covers,
-// and a tone at the same pitch.
+// 44.1 kHz input comes out at 48 kHz, with as many frames as the time it
+// covers and a tone of the same pitch.
 @(test)
 test_app_resample :: proc(t: ^testing.T) {
 	v: Voice

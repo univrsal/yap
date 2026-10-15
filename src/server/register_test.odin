@@ -5,7 +5,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of registering and invite codes, on the Test_Server of
+// Tests of registration and invite codes, using the Test_Server from
 // auth_test.odin.
 
 @(private = "file")
@@ -66,7 +66,7 @@ test_register :: proc(t: ^testing.T) {
 	ts_account(t, &ts, "taken", "a password")
 	PW :: "a good password"
 
-	// Closed, as servers are unless their config says.
+	// Registration is closed unless the server's config opens it.
 	r := reg(t, &ts, {username = "alice", password = PW})
 	testing.expect_value(t, r.status, proto.Status.Denied)
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Closed)
@@ -86,7 +86,8 @@ test_register :: proc(t: ^testing.T) {
 	r = reg(t, &ts, {username = "alice", password = PW, invite = "nope"})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Invite)
 
-	// In: logged in, in the home channel, not having to change anything.
+	// A successful registration logs the user in, adds them to the home
+	// channel, and doesn't require them to change anything.
 	r = reg(
 		t,
 		&ts,
@@ -102,7 +103,7 @@ test_register :: proc(t: ^testing.T) {
 	testing.expect_value(t, alice.email, "alice@example.org")
 	testing.expect(t, .Must_Change not_in alice.flags)
 	testing.expect(t, conv_is_member(ts.s.convs.home, alice.id))
-	// Its password is what it said.
+	// The account's password is the one given at registration.
 	status, _ := ts_login(t, &ts, ts_connect(&ts), "alice", PW)
 	testing.expect_value(t, status, proto.Status.Ok)
 
@@ -128,7 +129,7 @@ test_register :: proc(t: ^testing.T) {
 	r = reg(t, &ts, {username = "bob", password = PW})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Invite_Missing)
 
-	// Logged in already: no.
+	// A connection that is already logged in can't register.
 	u := ts_connect(&ts)
 	ts_login(t, &ts, u, "alice", PW)
 	buf: [proto.REGISTER_BODY_MAX]u8
@@ -141,7 +142,7 @@ test_register :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, got, proto.Status.Conflict)
 
-	// What the server tells clients.
+	// The registration flags the server reports to clients.
 	testing.expect_value(t, registration_flags(&ts.s), proto.Registration_Flags{.Open, .Invite})
 	ts.s.registration = {
 		require_invite = true,
@@ -185,7 +186,7 @@ test_invites :: proc(t: ^testing.T) {
 	ts_login(t, &ts, plain, "plain", "plain password")
 	PW :: "a good password"
 
-	// It takes Create_Invites.
+	// Creating invites requires Create_Invites, and valid limits.
 	status, code := invite_new(t, &ts, plain, 1)
 	testing.expect_value(t, status, proto.Status.Denied)
 	status, _ = invite_new(t, &ts, owner, proto.MAX_INVITE_USES + 1)
@@ -198,17 +199,18 @@ test_invites :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(code), proto.INVITE_CODE_SIZE)
 	code = clone_temp(code)
 
-	// Any case; then used up.
+	// Codes are case-insensitive. This one is used up after one use.
 	lower := to_lower_temp(code)
 	r := reg(t, &ts, {username = "first", password = PW, invite = lower})
 	testing.expect_value(t, r.status, proto.Status.Ok)
 	r = reg(t, &ts, {username = "second", password = PW, invite = code})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Invite)
 
-	// Who registered with which, for Manage_Accounts only.
+	// Only users with Manage_Accounts can see which code an account
+	// registered with.
 	id_buf: [4]u8
 	got, body := ts_ask(t, &ts, owner, .Invite_Of, proto.encode_account_id(&id_buf, r.account))
-	testing.expect_value(t, got, proto.Status.Not_Found) // "second" never was
+	testing.expect_value(t, got, proto.Status.Not_Found) // "second" was never registered
 	first := account_find(&ts.s.accounts, "first")
 	got, body = ts_ask(t, &ts, owner, .Invite_Of, proto.encode_account_id(&id_buf, first.id))
 	testing.expect_value(t, got, proto.Status.Ok)
@@ -219,7 +221,7 @@ test_invites :: proc(t: ^testing.T) {
 	got, _ = ts_ask(t, &ts, plain, .Invite_Of, proto.encode_account_id(&id_buf, first.id))
 	testing.expect_value(t, got, proto.Status.Denied)
 
-	// Expired: no good.
+	// An expired code can't be used.
 	status, code = invite_new(t, &ts, owner, 0, proto.Unix_Ms(unix_ms() + 100_000))
 	testing.expect_value(t, status, proto.Status.Ok)
 	code = clone_temp(code)
@@ -228,7 +230,8 @@ test_invites :: proc(t: ^testing.T) {
 	r = reg(t, &ts, {username = "third", password = PW, invite = code})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Invite)
 
-	// Revoked: by its maker or Manage_Accounts, not anybody.
+	// A code can only be revoked by its creator or someone with
+	// Manage_Accounts. A revoked code can't be used.
 	status, code = invite_new(t, &ts, owner, 0)
 	code = clone_temp(code)
 	cb: [1 + proto.INVITE_CODE_SIZE]u8
@@ -243,7 +246,8 @@ test_invites :: proc(t: ^testing.T) {
 	r = reg(t, &ts, {username = "sixth", password = PW, invite = code})
 	testing.expect_value(t, r.reason, proto.Register_Refusal.Invite)
 
-	// Listed: everybody's for Manage_Accounts, with their uses.
+	// Users with Manage_Accounts can list everybody's codes, along with how
+	// often they were used.
 	got, body = ts_ask(t, &ts, owner, .Invite_List)
 	testing.expect_value(t, got, proto.Status.Ok)
 	invites, list_ok := proto.decode_invites(body)
@@ -257,7 +261,7 @@ test_invites :: proc(t: ^testing.T) {
 	got, _ = ts_ask(t, &ts, plain, .Invite_List)
 	testing.expect_value(t, got, proto.Status.Denied)
 
-	// Not required, still counted.
+	// When invites aren't required, using one still counts as a use.
 	ts.s.registration = {
 		open = true,
 	}
@@ -268,7 +272,7 @@ test_invites :: proc(t: ^testing.T) {
 	inv, found := invite_get(&ts.s.db, code)
 	testing.expect(t, found && inv.uses == 1)
 
-	// A deleted account's codes go with it.
+	// Deleting an account revokes its codes.
 	testing.expect(t, account_erase(&ts.s, owner.account))
 	inv, found = invite_get(&ts.s.db, code)
 	testing.expect(t, found && inv.revoked)

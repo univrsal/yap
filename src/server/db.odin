@@ -7,64 +7,59 @@ import "core:time"
 
 import "sqlite"
 
-/*
-The server's database: one SQLite file (yap.db in the data directory),
-used only by the server's loop.
-
-That loop also relays voice, so nothing here may wait for the disk while
-somebody is talking:
-
-  - The database is in WAL mode with synchronous=NORMAL: a commit appends
-    to the write-ahead log and returns. If the server is killed nothing
-    is lost; if the machine loses power, the last moments can be.
-  - Writes made in one turn of the loop share one transaction, which
-    db_begin opens for the first of them and db_commit closes at the end
-    of the turn.
-  - Moving the log into the database file (a checkpoint) is what does
-    wait for the disk. SQLite would do it on some commit of its own
-    choosing; here it's done when the loop has had nothing to do
-    (db_idle), or when the log has grown past DB_LOG_MOST regardless.
-
-The file is opened for this process alone (locking_mode=EXCLUSIVE), so
-a second server started on the same data finds it busy and gives up
-rather than the two of them taking turns writing.
-
-Statements are prepared once, when the database is opened, and named by
-Stmt. Using one goes:
-
-	q := db_stmt(db, .Blob_By_Id)
-	db_bind_int(q, 1, id)
-	if row, ok := db_step(db, q); ok && row {
-		size := db_col_int(q, 0)
-	}
-
-and a write ends in db_run instead of db_step. The schema and how it
-changes from one version of the server to the next are in
-db_schema.odin.
-*/
+// The server's database is a single SQLite file (yap.db in the data directory)
+// that is only used by the server's main loop.
+//
+// That loop also relays voice, so nothing here may wait for the disk while
+// somebody is talking:
+//
+//   - The database is in WAL mode with synchronous=NORMAL, so a commit appends
+//     to the write-ahead log and returns immediately. Nothing is lost if the
+//     server is killed, but if the machine loses power the last moments can be.
+//   - All writes made in one turn of the loop share one transaction, which
+//     db_begin opens for the first of them and db_commit closes at the end of
+//     the turn.
+//   - Moving the log into the database file (a checkpoint) is what waits for
+//     the disk. SQLite would do it on some commit of its own choosing, but here
+//     it is done when the loop has had nothing to do (see db_idle), or when the
+//     log has grown past DB_LOG_MOST regardless.
+//
+// The file is opened exclusively for this process (locking_mode=EXCLUSIVE), so a
+// second server started on the same data finds it busy and gives up instead of
+// both servers taking turns writing.
+//
+// Statements are prepared once when the database is opened and are identified by
+// Stmt. Using one looks like this:
+//
+//	q := db_stmt(db, .Blob_By_Id)
+//	db_bind_int(q, 1, id)
+//	if row, ok := db_step(db, q); ok && row {
+//		size := db_col_int(q, 0)
+//	}
+//
+// A write ends with db_run instead of db_step. The schema and how it changes
+// between versions of the server are described in db_schema.odin.
 
 DB_FILE :: "yap.db"
-// An in-memory database, for tests.
+// The path of an in-memory database, used for tests.
 DB_MEMORY :: ":memory:"
 
-// A log that has been waiting this long is checkpointed the next time
-// the loop is idle.
+// A log that has been waiting this long is checkpointed the next time the loop
+// is idle.
 DB_CHECKPOINT_AFTER :: 30 * time.Second
-// And one longer than this (in pages, of 4 KB) is checkpointed at the
-// next commit, idle or not: left alone it would only get slower.
+// A log longer than this (in pages of 4 KB) is checkpointed at the next commit,
+// whether the loop is idle or not, because it would only get slower otherwise.
 DB_LOG_MOST :: 4096
 // A checkpoint that takes longer than this is logged as a warning.
 DB_CHECKPOINT_SLOW :: 50 * time.Millisecond
 
-/*
-The statements the server uses, each prepared once.
-
-messages_thread (like the other partial indexes) only covers rows with
-thread_root != 0, and SQLite won't use it for `thread_root = ?1` alone:
-it can't tell that a parameter isn't 0. So the queries by thread say
-`AND thread_root != 0` too; without it they read through every message
-below or above the anchor.
-*/
+// The statements the server uses, each prepared once.
+//
+// The messages_thread index (like the other partial indexes) only covers rows
+// with thread_root != 0, and SQLite won't use it for `thread_root = ?1` alone
+// because it can't tell that a parameter isn't 0. That is why the queries by
+// thread also say `AND thread_root != 0`. Without it, they would read through
+// every message below or above the anchor.
 Stmt :: enum {
 	Meta_Get,
 	Meta_Set,
@@ -253,7 +248,7 @@ STMT_SQL := [Stmt]string {
 	.Msg_Posted_In          = "SELECT 1 FROM messages WHERE conv = ?1 AND sender = ?2 LIMIT 1",
 	.Msg_By_Id              = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages m WHERE m.id = ?1",
 	.Msg_Edit               = "UPDATE messages SET text = ?2, edited = ?3 WHERE id = ?1",
-	// Deleted, and neither pinned nor carrying files any more.
+	// Marks the message as deleted, and as neither pinned nor having files.
 	.Msg_Delete             = "UPDATE messages SET flags = (flags | 1) & ~18, text = NULL, file_size = 0 WHERE id = ?1",
 	.Msg_Set_Flags          = "UPDATE messages SET flags = ?2 WHERE id = ?1",
 	.Pin_Add                = "INSERT OR IGNORE INTO pins (conv, message, by, time) VALUES (?1, ?2, ?3, ?4)",
@@ -307,9 +302,9 @@ STMT_SQL := [Stmt]string {
 	.Purge_Count_Conv       = "SELECT count(*) FROM messages WHERE conv = ?2 AND id < ?1",
 	.Pin_Clear              = "DELETE FROM pins WHERE conv = ?1 AND message = ?2",
 	.Msg_Remove             = "DELETE FROM messages WHERE id = ?1",
-	// What messages' pictures and files take.
+	// The space taken by the pictures and files of messages.
 	.Stored_Bytes           = "SELECT coalesce(sum(size), 0) FROM blobs WHERE kind = 4",
-	// Messages with files, and with pictures or files, and how big those are.
+	// The messages that have files, and how big those files are.
 	.Purge_Count_Files      = "SELECT count(DISTINCT a.msg) FROM attachments a WHERE a.blob IS NOT NULL AND a.msg < ?1",
 	.Purge_Count_Files_Conv = "SELECT count(DISTINCT a.msg) FROM attachments a JOIN messages m ON m.id = a.msg WHERE a.blob IS NOT NULL AND a.msg < ?1 AND m.conv = ?2",
 	.Purge_Files            = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0) FROM messages m WHERE m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
@@ -323,10 +318,10 @@ STMT_SQL := [Stmt]string {
 	.Attach_Blob_Convs      = "SELECT DISTINCT m.conv FROM attachments a JOIN messages m ON m.id = a.msg WHERE a.blob = ?1",
 	.Files_Index_Add        = "INSERT INTO files_fts (rowid, names) VALUES (?1, ?2)",
 	.Files_Index_Remove     = "DELETE FROM files_fts WHERE rowid = ?1",
-	// As Msg_Search, by the names of messages' files.
+	// Like Msg_Search, but searches the names of the files attached to messages.
 	.File_Search            = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE files_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
-	// What's left of a deleted account (account_erase): a name nobody can
-	// log in with, and nothing of its own.
+	// What is left of a deleted account (see account_erase): a name nobody can
+	// log in with, and nothing else.
 	.Account_Erase          = "UPDATE accounts SET username = ?2, display = ?3, flags = ?4, status = '', status_until = 0, avatar = NULL, activity = 0, email = '', verify_code = '', verify_expires = 0, pw_hash = zeroblob(32) WHERE id = ?1",
 	.Device_Erase           = "DELETE FROM devices WHERE account = ?1",
 	.Buddy_Erase            = "DELETE FROM buddies WHERE account = ?1 OR buddy = ?1",
@@ -334,14 +329,14 @@ STMT_SQL := [Stmt]string {
 	.Mention_Erase          = "DELETE FROM mentions WHERE account = ?1",
 	.Member_Erase           = "DELETE FROM members WHERE account = ?1",
 	.Invite_Erase           = "UPDATE invites SET revoked = 1 WHERE creator = ?1",
-	// Mailing accounts what they missed (digest.odin).
+	// Emailing accounts what they missed (see digest.odin).
 	.Account_Set_Digest     = "UPDATE accounts SET digest_upto = ?2 WHERE id = ?1",
 	.Msg_Newest             = "SELECT coalesce(max(id), 0) FROM messages",
-	// Account ?1's unread messages in DMs it hears from, after message ?2
-	// and posted after ?3, at most ?4 of them.
+	// The unread messages of account ?1 in the DMs it gets notifications from,
+	// after message ?2 and posted after ?3, at most ?4 of them.
 	.Digest_DMs             = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.kind = 1 AND x.notify != 2 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
-	// ... in every conversation it hears every message of, but archived
-	// channels.
+	// The same for every conversation where the account is notified of every
+	// message, except archived channels.
 	.Digest_Unread          = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM members x JOIN convs c ON c.id = x.conv JOIN messages m ON m.conv = x.conv AND m.id > max(x.read_id, ?2) WHERE x.account = ?1 AND c.flags & 4 = 0 AND x.notify = 0 AND m.sender != ?1 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 	.Digest_Mentions        = "SELECT m.id, m.conv, m.sender, m.time, m.text, m.flags FROM mentions y JOIN members x ON x.conv = y.conv AND x.account = y.account JOIN messages m ON m.id = y.message WHERE y.account = ?1 AND y.message > max(x.read_id, ?2) AND x.notify != 2 AND m.time > ?3 AND m.flags & 1 = 0 ORDER BY m.id LIMIT ?4",
 	// Web Push subscriptions (push_subs.odin).
@@ -355,25 +350,24 @@ STMT_SQL := [Stmt]string {
 DB :: struct {
 	conn:            ^sqlite.Connection,
 	stmts:           [Stmt]^sqlite.Stmt,
-	// A transaction is open: something was written this turn.
+	// Whether a transaction is open, meaning that something was written this
+	// turn.
 	in_tx:           bool,
-	// How long the log is, in pages, as of the last commit, and when it
-	// was last checkpointed.
+	// The length of the log in pages as of the last commit, and when it was
+	// last checkpointed.
 	log_pages:       int,
 	last_checkpoint: time.Tick,
 }
 
-// unix_ms is the time as the database keeps it: milliseconds since the
-// epoch.
+// unix_ms returns the current time in the form the database stores it, which is
+// milliseconds since the Unix epoch.
 unix_ms :: proc() -> i64 {
 	return time.time_to_unix_nano(time.now()) / 1_000_000
 }
 
-/*
-db_open opens the database at `path`, creating it if it isn't there, and
-brings its schema up to date. Whatever goes wrong is logged. `db` has to
-stay where it is until db_close.
-*/
+// db_open opens the database at `path`, creating it if it doesn't exist, and
+// brings its schema up to date. Any failure is logged. `db` must stay where it is
+// until db_close is called.
 @(require_results)
 db_open :: proc(db: ^DB, path: string) -> bool {
 	db^ = {}
@@ -385,8 +379,8 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 		return false
 	}
 
-	// Ours alone from the first time the file is touched, which is the
-	// next statement: that's where another server having it shows.
+	// The lock is taken the first time the file is touched, which is the next
+	// statement. That is where it shows if another server has the file open.
 	if !db_exec(db, "PRAGMA locking_mode = EXCLUSIVE") {
 		db_close(db)
 		return false
@@ -404,8 +398,8 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 	}
 
 	// Freed pages can only be handed back to the filesystem (when old
-	// messages are purged) if the file was laid out for it, and that has
-	// to be asked for before its first table.
+	// messages are purged) if the file was set up for it, and that has to be
+	// requested before the first table is created.
 	if version == 0 && !db_exec(db, "PRAGMA auto_vacuum = INCREMENTAL") {
 		db_close(db)
 		return false
@@ -435,8 +429,9 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 	return true
 }
 
-// db_plan is how SQLite would run one of the statements: the lines of
-// EXPLAIN QUERY PLAN, joined by " | ", in the temp allocator. For tests.
+// db_plan returns how SQLite would run one of the statements, as the lines of
+// EXPLAIN QUERY PLAN joined by " | ". The result is allocated with the temp
+// allocator. This is meant for tests.
 db_plan :: proc(db: ^DB, id: Stmt) -> string {
 	sql := strings.concatenate({"EXPLAIN QUERY PLAN ", STMT_SQL[id]}, context.temp_allocator)
 	q: ^sqlite.Stmt
@@ -455,7 +450,7 @@ db_plan :: proc(db: ^DB, id: Stmt) -> string {
 	return strings.join(lines[:], " | ", context.temp_allocator)
 }
 
-// db_close commits what's open and closes the database, which also
+// db_close commits any open transaction and closes the database, which also
 // checkpoints it.
 db_close :: proc(db: ^DB) {
 	if db.conn == nil {
@@ -472,7 +467,7 @@ db_close :: proc(db: ^DB) {
 	db^ = {}
 }
 
-// SQLite calls this after each commit, with how long the log is now.
+// SQLite calls this after each commit with the current length of the log.
 @(private = "file")
 log_grew :: proc "c" (
 	arg: rawptr,
@@ -484,7 +479,7 @@ log_grew :: proc "c" (
 	return sqlite.OK
 }
 
-// db_error is what SQLite says went wrong last.
+// db_error returns the message of the last error reported by SQLite.
 db_error :: proc(db: ^DB) -> string {
 	if db.conn == nil {
 		return "out of memory"
@@ -492,8 +487,8 @@ db_error :: proc(db: ^DB) -> string {
 	return string(sqlite.errmsg(db.conn))
 }
 
-// db_exec runs SQL that has no parameters and gives no rows: pragmas,
-// the schema. An error is logged.
+// db_exec runs SQL that has no parameters and returns no rows, such as pragmas
+// and the schema. Any error is logged.
 db_exec :: proc(db: ^DB, sql: string) -> bool {
 	csql := strings.clone_to_cstring(sql, context.temp_allocator)
 	if rc := sqlite.exec(db.conn, csql, nil, nil, nil); rc != sqlite.OK {
@@ -512,9 +507,9 @@ first_line :: proc(sql: string) -> string {
 	return s
 }
 
-// db_pragma_int reads a pragma (or any statement) that answers with one
-// number. It returns SQLite's result code, as db_open has to tell busy
-// from broken, and logs nothing.
+// db_pragma_int reads a pragma (or any statement) that answers with a single
+// number. It returns SQLite's result code because db_open has to tell a busy
+// database from a broken one. Nothing is logged.
 db_pragma_int :: proc(db: ^DB, sql: string) -> (value: i64, rc: c.int) {
 	s: ^sqlite.Stmt
 	rc = sqlite.prepare_v2(db.conn, raw_data(sql), c.int(len(sql)), &s, nil)
@@ -529,11 +524,9 @@ db_pragma_int :: proc(db: ^DB, sql: string) -> (value: i64, rc: c.int) {
 	return sqlite.column_int64(s, 0), sqlite.OK
 }
 
-/*
-db_begin opens this turn's transaction, if nothing has yet. Everything
-that writes calls it first (db_run does), and the loop closes it with
-db_commit.
-*/
+// db_begin opens this turn's transaction if it isn't open yet. Everything that
+// writes calls it first (db_run does), and the loop closes the transaction with
+// db_commit.
 db_begin :: proc(db: ^DB) {
 	if !db.in_tx && db_exec(db, "BEGIN") {
 		db.in_tx = true
@@ -547,8 +540,8 @@ db_commit :: proc(db: ^DB) {
 	}
 	db.in_tx = false
 	if !db_exec(db, "COMMIT") {
-		// It can't be left open: what the next turn writes would go the
-		// same way.
+		// The transaction can't be left open, because the writes of the next turn
+		// would fail the same way.
 		db_exec(db, "ROLLBACK")
 		return
 	}
@@ -557,20 +550,18 @@ db_commit :: proc(db: ^DB) {
 	}
 }
 
-// db_idle is the loop saying it has nothing to do: a good moment for
-// what waits for the disk.
+// db_idle is called when the loop has nothing to do, which is a good moment for
+// work that waits for the disk.
 db_idle :: proc(db: ^DB) {
 	if db.log_pages > 0 && time.tick_since(db.last_checkpoint) >= DB_CHECKPOINT_AFTER {
 		db_checkpoint(db)
 	}
 }
 
-/*
-db_checkpoint moves the log into the database file and empties it.
-`keep_file` leaves the log's file as long as it is, to be written over
-from the start, which saves the time truncating it takes: for when
-another checkpoint follows soon.
-*/
+// db_checkpoint moves the log into the database file and empties it. With
+// `keep_file`, the log's file keeps its size and is written over from the start,
+// which saves the time that truncating it takes. This is useful when another
+// checkpoint follows soon.
 db_checkpoint :: proc(db: ^DB, keep_file := false) {
 	started := time.tick_now()
 	pages := db.log_pages
@@ -583,17 +574,17 @@ db_checkpoint :: proc(db: ^DB, keep_file := false) {
 	took := time.tick_diff(started, db.last_checkpoint)
 	ms := time.duration_milliseconds(took)
 	if took > DB_CHECKPOINT_SLOW {
-		// Worth knowing about: this is the one thing here that holds the
-		// loop up for as long as the disk takes.
+		// This is worth a warning because it is the one operation here that holds
+		// up the loop for as long as the disk takes.
 		log.warnf("database: checkpointing %d pages took %.1f ms", pages, ms)
 	} else {
 		log.debugf("database: checkpointed %d pages in %.1f ms", pages, ms)
 	}
 }
 
-// db_open_reads is how many statements hold a read open: stepped to a
-// row and not reset since. Between turns of the loop it should be none,
-// or checkpoints can't finish ("database table is locked").
+// db_open_reads returns how many statements hold a read open, meaning they were
+// stepped to a row and not reset since. Between turns of the loop there should be
+// none, because otherwise checkpoints can't finish ("database table is locked").
 db_open_reads :: proc(db: ^DB) -> (n: int) {
 	for s in db.stmts {
 		if s != nil && sqlite.stmt_busy(s) != 0 {
@@ -603,7 +594,7 @@ db_open_reads :: proc(db: ^DB) -> (n: int) {
 	return
 }
 
-// db_stmt is a prepared statement, ready for its parameters.
+// db_stmt returns a prepared statement that is ready for its parameters.
 db_stmt :: proc(db: ^DB, id: Stmt) -> ^sqlite.Stmt {
 	s := db.stmts[id]
 	sqlite.reset(s)
@@ -618,7 +609,7 @@ db_bind_int :: proc(s: ^sqlite.Stmt, index: int, value: i64) {
 }
 
 db_bind_text :: proc(s: ^sqlite.Stmt, index: int, value: string) {
-	// An empty string has no address to give, and none would mean NULL.
+	// An empty string has no address, and passing no address would bind NULL.
 	empty: [1]u8
 	text := raw_data(value) if len(value) > 0 else raw_data(empty[:])
 	sqlite.bind_text(s, c.int(index), text, c.int(len(value)), sqlite.TRANSIENT)
@@ -634,11 +625,9 @@ db_bind_null :: proc(s: ^sqlite.Stmt, index: int) {
 	sqlite.bind_null(s, c.int(index))
 }
 
-/*
-db_step moves a query to its next row. `row` says there is one, whose
-columns the db_col procedures read; without one the query is finished.
-`ok` is false if it failed, which is logged.
-*/
+// db_step moves a query to its next row. `row` says whether there is one, whose
+// columns can be read with the db_col procedures. Without a row, the query is
+// finished. `ok` is false if the query failed, which is logged.
 @(require_results)
 db_step :: proc(db: ^DB, s: ^sqlite.Stmt) -> (row: bool, ok: bool) {
 	switch rc := sqlite.step(s); rc {
@@ -654,7 +643,7 @@ db_step :: proc(db: ^DB, s: ^sqlite.Stmt) -> (row: bool, ok: bool) {
 	}
 }
 
-// db_run runs a statement that writes, in this turn's transaction.
+// db_run runs a statement that writes, as part of this turn's transaction.
 @(require_results)
 db_run :: proc(db: ^DB, s: ^sqlite.Stmt) -> bool {
 	db_begin(db)
@@ -665,18 +654,18 @@ db_run :: proc(db: ^DB, s: ^sqlite.Stmt) -> bool {
 	return ok
 }
 
-// db_last_id is the id the last INSERT gave its row.
+// db_last_id returns the id that the last INSERT gave its row.
 db_last_id :: proc(db: ^DB) -> i64 {
 	return sqlite.last_insert_rowid(db.conn)
 }
 
-// db_changed is how many rows the last statement wrote or removed.
+// db_changed returns the number of rows that the last statement wrote or removed.
 db_changed :: proc(db: ^DB) -> int {
 	return int(sqlite.changes(db.conn))
 }
 
-// Columns are numbered from 0. Text and blobs are copied, since what
-// SQLite hands out is gone with the next step.
+// Columns are numbered from 0. Text and blobs are copied, because the memory that
+// SQLite hands out is invalidated by the next step.
 
 db_col_int :: proc(s: ^sqlite.Stmt, column: int) -> i64 {
 	return sqlite.column_int64(s, c.int(column))
@@ -706,8 +695,8 @@ db_col_blob :: proc(s: ^sqlite.Stmt, column: int, allocator := context.temp_allo
 	return out
 }
 
-// db_col_into copies a blob column into `out` and says whether it was
-// exactly that long: a hash, a key.
+// db_col_into copies a blob column into `out` and returns whether the blob was
+// exactly as long as `out`, as it is for a hash or a key.
 db_col_into :: proc(s: ^sqlite.Stmt, column: int, out: []u8) -> bool {
 	data := ([^]u8)(sqlite.column_blob(s, c.int(column)))
 	n := int(sqlite.column_bytes(s, c.int(column)))
@@ -718,7 +707,7 @@ db_col_into :: proc(s: ^sqlite.Stmt, column: int, out: []u8) -> bool {
 	return true
 }
 
-// db_meta reads one of the database's own notes about itself.
+// db_meta reads one of the database's own metadata values.
 db_meta :: proc(db: ^DB, key: string) -> (value: i64, found: bool) {
 	q := db_stmt(db, .Meta_Get)
 	db_bind_text(q, 1, key)
@@ -737,7 +726,8 @@ db_meta_set :: proc(db: ^DB, key: string, value: i64) -> bool {
 	return db_run(db, q)
 }
 
-// db_meta_text is db_meta for a note that's text, in the temp allocator.
+// db_meta_text is like db_meta for a text value. The result is allocated with the
+// temp allocator.
 db_meta_text :: proc(db: ^DB, key: string) -> (value: string, found: bool) {
 	q := db_stmt(db, .Meta_Get)
 	db_bind_text(q, 1, key)

@@ -11,185 +11,197 @@ import "core:time"
 import "common:."
 import "common:proto"
 
-/*
-The server's settings, all in one file (config.json by default), read
-once at startup:
-
-	{
-		"name": "",
-		"port": 7777,
-		"key": "<64 hex digits>",
-		"password": "",
-		"data_dir": "",
-		"max_sessions": 256,
-		"log_level": "info",
-		"log_file": "",
-		"memory_log_minutes": 60,
-		"relay": {
-			"enabled": false,
-			"port": 8080,
-			"web_dir": "web/out"
-		},
-		"api": {
-			"enabled": false,
-			"behind_proxy": false,
-			"max_connections": 64,
-			"rate": 10,
-			"burst": 30
-		},
-		"retention": {
-			"message_days": 0,
-			"file_days": 0,
-			"blob_megabytes": 0
-		},
-		"attachments": {
-			"max_megabytes": 100,
-			"rate_kb": 2048
-		},
-		"email": {
-			"address": "",
-			"imap": "imaps://mail.example.org",
-			"smtp": "smtps://mail.example.org",
-			"username": "",
-			"password": "",
-			"poll_seconds": 60,
-			"check_auth_results": true,
-			"trusted_auth_host": "",
-			"digest_minutes": 30
-		},
-		"registration": {
-			"open": false,
-			"require_email": false,
-			"verify_email": false,
-			"unverified_hours": 48,
-			"require_invite": false
-		},
-		"video": {
-			"enabled": true,
-			"port": 0,
-			"max_kbit": 20000,
-			"cache_ms": 500
-		},
-		"push": {
-			"enabled": true,
-			"vapid_key": "<64 hex digits>",
-			"subject": ""
-		}
-	}
-
-name       what clients show for this server, up to 64 bytes; empty for
-           none, and they show its address. Only what a new database
-           starts with: after that the owner changes it from a client,
-           with a description and a picture (server_info.odin).
-port       the UDP port to listen on.
-key        the server's private key. Keep it: clients remember the
-           public half and refuse to connect if it changes.
-password   what clients have to give to get in; empty for none.
-data_dir   where the server keeps what it stores: its database (yap.db,
-           see db.odin) and the blobs folder (blobs.odin). Empty for the
-           folder the config is in. It's created if it isn't there.
-max_sessions  how many sessions there may be at once, which is about
-           twice how many clients can be connected (each has two, one
-           for each of its links, and more while they rekey). Left out
-           or 0, it's 512.
-log_level  the lowest level to log: debug, info, warn or error.
-log_file   also append the log to this file; empty for none.
-memory_log_minutes  log a line about the server's memory this often
-           (memory.odin), to see a trend in a long log; 0 for never.
-           Left out, it's 60.
-relay      serve the web client over HTTP on `port` and relay browsers to
-           this server over WebSockets (relay.odin), with the web build
-           in `web_dir`; empty for web/out, or web in a release archive.
-api        the bot API (docs/bot-api, common/gateway): HTTP and JSON for
-           programs, on the relay's port under /api/, whether the relay
-           is enabled or not (without it, the port serves only the API).
-           Plain HTTP, like the relay: put a reverse proxy with TLS in
-           front of it for anything but this machine, and say so with
-           `behind_proxy`, which has /login (a password) only taken
-           when the proxy says it came over HTTPS (X-Forwarded-Proto);
-           without it, only from this machine. `max_connections`: how
-           many tokens may be in use at once. `rate` and `burst`: how
-           many requests a second a token may make, and how many at
-           once (429 past that); a rate of 0 for no limit. Left out,
-           they're 64, 10 and 30.
-retention  how long what's posted is kept (retention.odin); 0 for no
-           limit, which is what they start as. `message_days`: messages
-           older than this many days are removed. `file_days`: older
-           messages lose the files they carry, the text staying; ignored
-           unless shorter than message_days. `blob_megabytes`: when the
-           files in messages take more than this, the oldest lose theirs.
-           Pinned messages are kept whole whatever these say.
-attachments  files uploaded with messages (attachments.odin).
-           `max_megabytes`: how big one may be; 0 takes none. `rate_kb`:
-           how fast, in KB/s, the server takes and sends them, for each
-           connection, which leaves room for voice. Left out, they're
-           100 and 2048.
-email      the server's own email account (email.odin); with no
-           `address`, the server has no email. `imap` and `smtp` are the
-           mail servers' URLs: imaps:// and smtps:// for TLS from the
-           start, imap:// and smtp:// for STARTTLS (which only a server
-           on this machine may do without), with the port if it isn't
-           the usual one. No `smtp`: nothing is sent. `username` is the
-           address if left empty. The mailbox is read every
-           `poll_seconds` (at least 10; 60 if left out).
-           `trusted_auth_host` is the mail server whose
-           Authentication-Results headers are believed: the first word
-           of the one it adds to mail it receives. With
-           `check_auth_results` (true if left out) a mail that verifies
-           an address has to have one of those saying the mail is from
-           where its From says; false skips that, for a mail server
-           that adds none, at the cost that anyone could verify an
-           address that isn't theirs by writing it as the From (the
-           server warns). With `smtp`, accounts that ask for it in
-           their settings are mailed the messages, mentions and
-           direct messages they missed, once they've been away `digest_minutes` (at
-           least 5; 30 if left out), and at most that often after.
-           Email needs
-           libcurl, which Linux and macOS have to have installed (the
-           server runs without email if they don't); `yap-server email
-           test` tries it out.
-registration  whether people may make their own accounts (register.odin);
-           left out, they may not, and accounts are made by an admin.
-           `open`: anyone may register. `require_email`: with an email
-           address, which takes email (above). `verify_email`: the
-           address has to be shown to be theirs (also takes email; not
-           done yet). `unverified_hours`: how long an account may wait
-           for that (48 if left out). `require_invite`: with an invite
-           code, made by someone with Create_Invites; codes work, and
-           are kept with the account, whether required or not.
-video      screen sharing from desktop clients (media.odin): with
-           `enabled` (true if left out) it has a UDP port of its own,
-           `port` (0 for the one after the server's), and a thread of
-           its own; without, it goes through the main loop like a
-           browser's, which takes far less. `max_kbit`: how fast one
-           sharer's video may be, in kbit/s (20000 if left out); what's
-           over it is dropped. `cache_ms`: how long each sharer's video
-           is kept, to send again what viewers lost (500 if left out);
-           -1 keeps none. It costs about this much of a second of
-           `max_kbit` in memory a sharer, at most 2.5 MB.
-push       Web Push (push.odin): telling browsers that turned it on
-           about messages while nobody has the client open, through
-           their push services (Google's, Mozilla's, Apple's), which
-           takes libcurl and the server reaching them over HTTPS. On
-           unless `enabled` is false. `vapid_key` is the key it signs
-           with, made on the first run: keep it, since browsers
-           subscribed with its public half. `subject` is how the push
-           services may reach whoever runs the server, a mailto: or
-           https: URL; empty for mailto: the email address, or the
-           project's page without one.
-
-Fields left out keep the defaults above.
-
-Channels aren't configured here: a new database starts with a single
-Lobby, the home channel everyone is in (DEFAULT_CHANNEL_NAME), and the
-rest are made from a client.
-
-If the file doesn't exist it's written with the defaults and new keys.
-A file without a key or a vapid_key gets one written back into it.
-
-The file holds the key and the password, so it's written readable by its
-owner only.
-*/
+// The server's settings are all in one file (config.json by default), which is
+// read once at startup:
+//
+//	{
+//		"name": "",
+//		"port": 7777,
+//		"key": "<64 hex digits>",
+//		"password": "",
+//		"data_dir": "",
+//		"max_sessions": 256,
+//		"log_level": "info",
+//		"log_file": "",
+//		"memory_log_minutes": 60,
+//		"relay": {
+//			"enabled": false,
+//			"port": 8080,
+//			"web_dir": "web/out"
+//		},
+//		"api": {
+//			"enabled": false,
+//			"behind_proxy": false,
+//			"max_connections": 64,
+//			"rate": 10,
+//			"burst": 30
+//		},
+//		"retention": {
+//			"message_days": 0,
+//			"file_days": 0,
+//			"blob_megabytes": 0
+//		},
+//		"attachments": {
+//			"max_megabytes": 100,
+//			"rate_kb": 2048
+//		},
+//		"email": {
+//			"address": "",
+//			"imap": "imaps://mail.example.org",
+//			"smtp": "smtps://mail.example.org",
+//			"username": "",
+//			"password": "",
+//			"poll_seconds": 60,
+//			"check_auth_results": true,
+//			"trusted_auth_host": "",
+//			"digest_minutes": 30
+//		},
+//		"registration": {
+//			"open": false,
+//			"require_email": false,
+//			"verify_email": false,
+//			"unverified_hours": 48,
+//			"require_invite": false
+//		},
+//		"video": {
+//			"enabled": true,
+//			"port": 0,
+//			"max_kbit": 20000,
+//			"cache_ms": 500
+//		},
+//		"push": {
+//			"enabled": true,
+//			"vapid_key": "<64 hex digits>",
+//			"subject": ""
+//		}
+//
+// name       The name clients show for this server, up to 64 bytes. If empty,
+//            clients show the server's address instead. This only sets the
+//            initial name of a new database. Afterwards the owner changes it
+//            from a client, together with a description and a picture
+//            (see server_info.odin).
+// port       The UDP port to listen on.
+// key        The server's private key. Keep it safe: clients remember the
+//            public half and refuse to connect if it changes.
+// password   The password clients have to provide to connect. If empty, no
+//            password is required.
+// data_dir   Where the server stores its data: the database (yap.db, see
+//            db.odin) and the blobs folder (see blobs.odin). If empty, the
+//            folder containing the config is used. The directory is created
+//            if it doesn't exist.
+// max_sessions  The maximum number of sessions at once. This is about twice
+//            the number of clients that can be connected, because each client
+//            has two sessions (one for each of its links), and more while
+//            sessions are being rekeyed. If left out or 0, it is 512.
+// log_level  The lowest level to log: debug, info, warn or error.
+// log_file   If set, the log is also appended to this file.
+// memory_log_minutes  How often to log a line about the server's memory usage
+//            (see memory.odin), which helps to spot trends in a long log.
+//            0 disables it. If left out, it is 60.
+// relay      Serve the web client over HTTP on `port` and relay browsers to
+//            this server over WebSockets (see relay.odin). `web_dir` is the
+//            folder containing the web build. If empty, it is web/out, or web
+//            in a release archive.
+// api        The bot API (see docs/bot-api and common/gateway): HTTP and JSON
+//            for programs. It is served on the relay's port under /api/,
+//            whether the relay is enabled or not (without the relay, the port
+//            serves only the API). It uses plain HTTP, like the relay, so
+//            anything but this machine should be put behind a reverse proxy
+//            that provides TLS. In that case set `behind_proxy`, which makes
+//            /login (which takes a password) only accepted when the proxy says
+//            the request came over HTTPS (X-Forwarded-Proto). Without it,
+//            /login is only accepted from this machine.
+//            `max_connections` is the number of tokens that may be in use at
+//            once. `rate` and `burst` are the number of requests per second a
+//            token may make and the number it may make at once (further
+//            requests get a 429 response). A rate of 0 means no limit.
+//            If left out, they are 64, 10 and 30.
+// retention  How long posted content is kept (see retention.odin). 0 means no
+//            limit, which is the default.
+//            `message_days`: messages older than this many days are removed.
+//            `file_days`: files attached to older messages are removed, but
+//            the message text stays. It is ignored unless it is shorter than
+//            message_days.
+//            `blob_megabytes`: when the files in messages take up more space
+//            than this, the oldest ones are removed.
+//            Pinned messages are always kept in full, regardless of these.
+// attachments  Files uploaded with messages (see attachments.odin).
+//            `max_megabytes`: the maximum size of a single file. 0 disables
+//            attachments. `rate_kb`: the speed limit in KB/s per connection
+//            for sending and receiving files, which leaves bandwidth for
+//            voice. If left out, they are 100 and 2048.
+// email      The server's own email account (see email.odin). Without an
+//            `address`, the server has no email.
+//            `imap` and `smtp` are the URLs of the mail servers: use imaps://
+//            and smtps:// for TLS from the start, or imap:// and smtp:// for
+//            STARTTLS (which is only allowed without TLS for a server on this
+//            machine). Add the port if it isn't the usual one. Without `smtp`,
+//            no mail is sent. `username` defaults to the address if empty.
+//            The mailbox is read every `poll_seconds` (at least 10, and 60 if
+//            left out).
+//            `trusted_auth_host` is the mail server whose Authentication-Results
+//            headers are trusted, specifically the first word of the header it
+//            adds to the mail it receives. With `check_auth_results` (true if
+//            left out), a mail that verifies an address must have such a header
+//            confirming that it was sent from the address in its From header.
+//            Setting it to false skips that check, for mail servers that don't
+//            add the header. The downside is that anyone could verify an
+//            address that isn't theirs by using it as the From address (the
+//            server logs a warning).
+//            With `smtp`, accounts that enable it in their settings are sent
+//            the messages, mentions and direct messages they missed, once they
+//            have been away for `digest_minutes` (at least 5, and 30 if left
+//            out), and at most that often afterwards.
+//            Email needs libcurl, which has to be installed on Linux and macOS
+//            (the server runs without email if it is missing). `yap-server
+//            email test` tries it out.
+// registration  Whether people may create their own accounts (see
+//            register.odin). If left out, they may not, and an admin has to
+//            create accounts.
+//            `open`: anyone may register.
+//            `require_email`: registration requires an email address, which
+//            needs email to be configured (see above).
+//            `verify_email`: the email address has to be proven to belong to
+//            the user (also needs email; not implemented yet).
+//            `unverified_hours`: how long an account may wait for that
+//            (48 if left out).
+//            `require_invite`: registration requires an invite code, created
+//            by someone with the Create_Invites permission. Invite codes are
+//            also accepted and stored with the account when not required.
+// video      Screen sharing from desktop clients (see media.odin). With
+//            `enabled` (true if left out), video has its own UDP port and its
+//            own thread. `port` is that port (0 means the one after the
+//            server's). Without it, video goes through the main loop like a
+//            browser's, which takes far less. `max_kbit` is the maximum
+//            bitrate of one sharer's video in kbit/s (20000 if left out),
+//            and anything above it is dropped. `cache_ms` is how long each
+//            sharer's video is kept so that what viewers lost can be sent
+//            again (500 if left out). -1 keeps none. This costs about that
+//            fraction of a second of `max_kbit` in memory per sharer, at most
+//            2.5 MB.
+// push       Web Push (see push.odin): notifying browsers that enabled it about
+//            messages while the client isn't open, through their push
+//            services (Google's, Mozilla's, Apple's). This needs libcurl and
+//            the server must be able to reach those services over HTTPS.
+//            Enabled unless `enabled` is false. `vapid_key` is the key push
+//            notifications are signed with, created on the first run. Keep
+//            it, because browsers subscribed with its public half. `subject`
+//            is how the push services can contact whoever runs the server, as
+//            a mailto: or https: URL. If empty, it is a mailto: URL with the
+//            server's email address, or the project's page if there is none.
+//
+// Fields that are left out use the defaults listed above.
+//
+// Channels aren't configured here. A new database starts with a single channel
+// called Lobby (DEFAULT_CHANNEL_NAME), which is the home channel that everyone
+// is in. All other channels are created from a client.
+//
+// If the file doesn't exist, it is created with the default values and new
+// keys. A file without a key or a vapid_key gets a new one, which is written
+// back to it.
+//
+// The file contains the key and the password, so it is only readable by its
+// owner.
 
 DEFAULT_CONFIG_FILE :: "config.json"
 DEFAULT_RELAY_PORT :: 8080
@@ -260,7 +272,8 @@ Config_Bootstrap :: struct {
 	initial_admin_password: string,
 }
 
-// The parts of a Config the server runs on, checked and parsed.
+// Settings holds the validated and parsed parts of a Config that the server
+// runs on.
 Settings :: struct {
 	name:         string, // sanitized
 	port:         int,
@@ -283,10 +296,10 @@ Settings :: struct {
 	email:        Email_Config, // checked; address "" for none
 	registration: Registration_Config,
 	video:        Video_Config, // checked; port 0 for the one after `port`
-	push:         Push_Config, // subject filled in
+	push:         Push_Config, // subject filled in with a default if not set
 }
 
-// What push's subject is when neither it nor an email address is
+// The subject used for push when neither a push subject nor an email address is
 // configured.
 DEFAULT_PUSH_SUBJECT :: "https://github.com/univrsal/yap"
 
@@ -305,12 +318,10 @@ default_config :: proc() -> Config {
 	}
 }
 
-/*
-load_config reads the config at `path`, creating it first if it doesn't
-exist. Anything wrong with it is logged, and fails the load rather than
-being ignored: a server that silently ran without its password would be
-worse than one that doesn't start.
-*/
+// load_config reads the config at `path`, creating it first if it doesn't
+// exist. Any problem with the config is logged and makes the load fail instead
+// of being ignored, because a server that silently ran without its password
+// would be worse than one that doesn't start.
 load_config :: proc(
 	path: string,
 	bootstrap := Config_Bootstrap{},
@@ -344,18 +355,18 @@ load_config :: proc(
 		cfg.key = common.generate_private_key() or_return
 		save_config(path, cfg) or_return
 		settings.key = cfg.key
-		log.infof("%s had no key; generated a new one and saved it there", path)
+		log.infof("%s had no key, so a new one was generated and saved to it", path)
 	}
 	if cfg.push.vapid_key == "" {
 		cfg.push.vapid_key = vapid_key_generate() or_return
 		save_config(path, cfg) or_return
 		settings.push.vapid_key = cfg.push.vapid_key
-		log.infof("%s had no push vapid_key; generated a new one and saved it there", path)
+		log.infof("%s had no push vapid_key, so a new one was generated and saved to it", path)
 	}
 	return settings, true
 }
 
-// create_config gives a new config a new key, and writes it.
+// create_config generates a key for a new config and writes it to `path`.
 @(private = "file")
 create_config :: proc(path: string, cfg: ^Config) -> bool {
 	cfg.key = common.generate_private_key() or_return
@@ -419,7 +430,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 			return
 		}
 		if relay.port == cfg.port {
-			// Allowed (one's TCP, the other UDP), but rarely meant.
+			// This works because one uses TCP and the other UDP, but it is rarely intended.
 			log.warnf("%s: the relay and the server share port %d", path, cfg.port)
 		}
 	}
@@ -432,7 +443,10 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		log.errorf("%s: an api limit can't be negative", path)
 		return
 	case api.rate > 0 && api.burst < 1:
-		log.errorf("%s: api's burst has to be at least 1, for any request to get through", path)
+		log.errorf(
+			"%s: the api burst has to be at least 1, otherwise no request can get through",
+			path,
+		)
 		return
 	}
 	r := cfg.retention
@@ -441,7 +455,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		return
 	}
 	if r.message_days > 0 && r.file_days >= r.message_days {
-		log.warnf("%s: file_days isn't shorter than message_days, so it does nothing", path)
+		log.warnf("%s: file_days is not shorter than message_days, so it has no effect", path)
 	}
 	attach := cfg.attachments
 	if attach.max_megabytes < 0 || attach.rate_kb < 0 {
@@ -456,21 +470,21 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	registration := cfg.registration
 	if (registration.require_email || registration.verify_email) && email.address == "" {
 		log.errorf(
-			"%s: registration asks for an email address (require_email or verify_email), but the server has no email configured",
+			"%s: registration requires an email address (require_email or verify_email), but no email is configured for the server",
 			path,
 		)
 		return
 	}
 	if registration.verify_email && email.check_auth_results && email.trusted_auth_host == "" {
 		log.errorf(
-			"%s: verify_email needs email's trusted_auth_host: the mail server whose Authentication-Results say where a mail came from (or check_auth_results false, to go without)",
+			"%s: verify_email needs email.trusted_auth_host, the mail server whose Authentication-Results headers say where a mail came from (or set check_auth_results to false to skip this check)",
 			path,
 		)
 		return
 	}
 	if registration.verify_email && !email.check_auth_results {
 		log.warnf(
-			"%s: check_auth_results is off, so a mail that says it's from an address verifies it: anyone can verify an address that isn't theirs",
+			"%s: check_auth_results is off, so any mail that claims to be from an address verifies it, which means anyone can verify an address that isn't theirs",
 			path,
 		)
 	}
@@ -482,7 +496,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		registration.unverified_hours = DEFAULT_UNVERIFIED_HOURS
 	}
 	if !registration.open && (registration.require_email || registration.require_invite) {
-		log.warnf("%s: registration isn't open, so what it requires does nothing", path)
+		log.warnf("%s: registration isn't open, so its requirements have no effect", path)
 	}
 	video := cfg.video
 	switch {
@@ -490,16 +504,19 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		log.errorf("%s: invalid video port %d", path, video.port)
 		return
 	case video.port == 0 && video.enabled && cfg.port == 65535:
-		log.errorf("%s: video's port can't be the one after port 65535; give it one", path)
+		log.errorf(
+			"%s: video port can't default to the port after 65535; set video.port explicitly",
+			path,
+		)
 		return
 	case video.enabled && video.port == cfg.port:
-		log.errorf("%s: video can't have the server's own port %d", path, cfg.port)
+		log.errorf("%s: video can't use the same port as the server (%d)", path, cfg.port)
 		return
 	case video.max_kbit < 0:
-		log.errorf("%s: video's max_kbit can't be negative", path)
+		log.errorf("%s: video.max_kbit can't be negative", path)
 		return
 	case video.cache_ms < -1 || video.cache_ms > 5000:
-		log.errorf("%s: video's cache_ms has to be -1 (none) up to 5000", path)
+		log.errorf("%s: video.cache_ms has to be between -1 (none) and 5000", path)
 		return
 	}
 	if video.max_kbit == 0 {
@@ -514,13 +531,18 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 
 	push := cfg.push
 	if push.subject == "" {
-		push.subject = fmt.aprintf("mailto:%s", email.address) if email.address != "" else DEFAULT_PUSH_SUBJECT
-	} else if !strings.has_prefix(push.subject, "mailto:") && !strings.has_prefix(push.subject, "https://") {
-		log.errorf("%s: push's subject has to be a mailto: or https:// URL", path)
+		push.subject =
+			fmt.aprintf("mailto:%s", email.address) if email.address != "" else DEFAULT_PUSH_SUBJECT
+	} else if !strings.has_prefix(push.subject, "mailto:") &&
+	   !strings.has_prefix(push.subject, "https://") {
+		log.errorf("%s: push.subject must be a mailto: or https:// URL", path)
 		return
 	}
 	if strings.contains_any(push.subject, "\"\\\r\n ") {
-		log.errorf("%s: push's subject has a character it can't have", path)
+		log.errorf(
+			"%s: push.subject must not contain spaces, line breaks, quotes or backslashes",
+			path,
+		)
 		return
 	}
 
@@ -556,7 +578,8 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	return s, true
 }
 
-// check_email checks the email config; an empty address is no email.
+// check_email validates the email config. An empty address means that email is
+// not configured.
 @(private = "file")
 check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bool) {
 	e = cfg
@@ -566,39 +589,39 @@ check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bo
 	buf: [proto.MAX_EMAIL_SIZE]u8
 	address, address_ok := proto.email_clean(e.address, &buf)
 	if !address_ok {
-		log.errorf("%s: %q is no email address", path, e.address)
+		log.errorf("%s: %q is not a valid email address", path, e.address)
 		return
 	}
 	e.address = strings.clone(address)
 	if !strings.has_prefix(e.imap, "imaps://") && !strings.has_prefix(e.imap, "imap://") {
-		log.errorf("%s: email needs an imap URL, imaps://host or imap://host", path)
+		log.errorf("%s: email needs an imap URL like imaps://host or imap://host", path)
 		return
 	}
 	if e.smtp != "" &&
 	   !strings.has_prefix(e.smtp, "smtps://") &&
 	   !strings.has_prefix(e.smtp, "smtp://") {
-		log.errorf("%s: the smtp URL has to be smtps://host or smtp://host", path)
+		log.errorf("%s: the smtp URL has to look like smtps://host or smtp://host", path)
 		return
 	}
 	if e.poll_seconds == 0 {
 		e.poll_seconds = DEFAULT_POLL_SECONDS
 	}
 	if e.poll_seconds < MIN_POLL_SECONDS {
-		log.errorf("%s: email's poll_seconds has to be at least %d", path, MIN_POLL_SECONDS)
+		log.errorf("%s: email.poll_seconds has to be at least %d", path, MIN_POLL_SECONDS)
 		return
 	}
 	if e.digest_minutes == 0 {
 		e.digest_minutes = DEFAULT_DIGEST_MINUTES
 	}
 	if e.digest_minutes < MIN_DIGEST_MINUTES {
-		log.errorf("%s: email's digest_minutes has to be at least %d", path, MIN_DIGEST_MINUTES)
+		log.errorf("%s: email.digest_minutes has to be at least %d", path, MIN_DIGEST_MINUTES)
 		return
 	}
 	return e, true
 }
 
-// default_web_dir is where the web build is: web/out after web/build.sh,
-// or web in a release archive.
+// default_web_dir returns the folder containing the web build: web/out after
+// running web/build.sh, or web in a release archive.
 @(private = "file")
 default_web_dir :: proc() -> string {
 	if !os.exists(DEFAULT_WEB_DIR) && os.exists("web/index.html") {

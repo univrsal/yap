@@ -36,7 +36,7 @@ test_state_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, me != nil && me.account == max(Account_Id))
 	testing.expect(t, find_user(&got, 3) == nil)
 
-	// Nobody at all is a snapshot too.
+	// A snapshot with no users at all is still valid.
 	body, ok = encode_state({your_user = 1}, body_buf[:])
 	testing.expect(t, ok)
 	got, ok = decode_state(body, users_buf[:])
@@ -54,7 +54,8 @@ test_state_decode_rejects_garbage :: proc(t: ^testing.T) {
 	body, _ := encode_state(state, body_buf[:])
 
 	users_buf: [64]User_Info
-	// Truncated, trailing junk, and more users than there's room for.
+	// Truncated data, trailing junk, and more users than there is room for
+	// are all refused.
 	_, ok := decode_state(body[:len(body) - 1], users_buf[:])
 	testing.expect(t, !ok)
 	junk := make([]byte, len(body) + 1, context.temp_allocator)
@@ -99,7 +100,8 @@ test_state_chunking :: proc(t: ^testing.T) {
 	}
 
 	a := new(State_Assembler, context.temp_allocator)
-	// Out of order, with a duplicate; completes only on the last new chunk.
+	// Feed the chunks out of order and with a duplicate; the snapshot is only
+	// complete once the last missing chunk arrives.
 	order := make([dynamic]int, context.temp_allocator)
 	for i := count - 1; i >= 0; i -= 1 {
 		append(&order, i)
@@ -122,7 +124,7 @@ test_state_chunking :: proc(t: ^testing.T) {
 	_, _, complete := assembler_add(a, chunks[0], 9)
 	testing.expect(t, !complete)
 
-	// As many as a snapshot can hold still fit in one.
+	// The maximum number of users a snapshot can hold still fits.
 	most := make([]User_Info, MAX_STATE_USERS, context.temp_allocator)
 	_, ok = encode_state({users = most}, body_buf[:])
 	testing.expect(t, ok)
@@ -161,7 +163,7 @@ test_ack_encoding :: proc(t: ^testing.T) {
 	testing.expect(t, ok && kind == .State_Ack)
 	testing.expect_value(t, decode_state_ack(msg), 5)
 
-	// Join is retired: nothing that claims to be one is taken.
+	// Join is retired, so any message claiming to be one is rejected.
 	_, ok = message_kind([]u8{u8(Message_Kind.Join), 0, 0, 0, 0, 0, 0})
 	testing.expect(t, !ok)
 }
@@ -205,13 +207,13 @@ test_hello_and_welcome :: proc(t: ^testing.T) {
 	testing.expect_value(t, password, "hunter2")
 	testing.expect_value(t, link, Link.Bulk)
 
-	// The longest still fits.
+	// The longest password still fits.
 	long_password := "0123456789012345678901234567890123456789012345678901234567890123456789"
 	_, password, _, ok = decode_hello(encode_hello(&hb, 1, long_password))
 	testing.expect(t, ok)
 	testing.expect_value(t, password, long_password[:MAX_PASSWORD_SIZE])
 
-	_, _, _, ok = decode_hello(nil) // no hello at all: no conn_id
+	_, _, _, ok = decode_hello(nil) // empty hello, without a conn_id
 	testing.expect(t, !ok)
 	id :: [8]u8{1, 2, 3, 4, 5, 6, 7, 8}
 	hello :: proc(version: u8, rest: ..u8) -> []u8 {
@@ -226,9 +228,9 @@ test_hello_and_welcome :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	_, _, _, ok = decode_hello(hello(HELLO_VERSION + 1, 0, 0)) // unknown version
 	testing.expect(t, !ok)
-	_, _, _, ok = decode_hello(hello(5, 1, 'a', 0)) // version 5: with a name
+	_, _, _, ok = decode_hello(hello(5, 1, 'a', 0)) // version 5 included a name
 	testing.expect(t, !ok)
-	_, _, _, ok = decode_hello(hello(11, 1, 'a')) // version 11: no link
+	_, _, _, ok = decode_hello(hello(11, 1, 'a')) // version 11 had no link byte
 	testing.expect(t, !ok)
 	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 2, 0)) // the media link
 	testing.expect(t, ok)
@@ -259,7 +261,7 @@ test_hello_and_welcome :: proc(t: ^testing.T) {
 	testing.expect(t, kind_ok && kind == .Refused)
 	testing.expect_value(t, decode_refused(refused), Refusal.Wrong_Password)
 
-	// Set_Name is retired: nothing that claims to be one is taken.
+	// Set_Name is retired, so any message claiming to be one is rejected.
 	_, kind_ok = message_kind([]u8{u8(Message_Kind.Set_Name), 1, 'a'})
 	testing.expect(t, !kind_ok)
 }
@@ -274,8 +276,8 @@ test_sound_roundtrip :: proc(t: ^testing.T) {
 		testing.expect_value(t, kind, Message_Kind.Sound)
 		testing.expect_value(t, decode_sound(pt), flags)
 	}
-	// A flag a newer client knows about and this build doesn't survives
-	// the trip, rather than turning into something we do know.
+	// A flag that a newer client knows about but this build doesn't survives
+	// the round trip, instead of being turned into a known flag.
 	unknown := [SOUND_SIZE]byte{u8(Message_Kind.Sound), 0x80}
 	kept := decode_sound(unknown[:])
 	testing.expect(t, .Muted not_in kept && .Deafened not_in kept)

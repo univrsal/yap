@@ -4,12 +4,10 @@ package conn
 import log "common:wlog"
 import "core:strings"
 
-/*
-Reading a file being sent and writing one being received, in a browser
-(web/files.js): the picked file stays with the page, which reads it in
-blocks as the transfer asks for them, and a received file is collected
-by the page and offered as a download under its name once it's whole.
-*/
+// Reads a file that is being sent and writes a file that is being received, in a
+// browser (web/files.js). The picked file stays with the page, which reads it in
+// blocks as the transfer requests them. A received file is collected by the
+// page and offered as a download under its name once it is complete.
 
 @(default_calling_convention = "c")
 foreign _ {
@@ -44,8 +42,8 @@ file_source_open :: proc(
 	return {handle = cmd.web_file}, cmd.web_name, cmd.web_size, true
 }
 
-// file_source_read fills `buf` from `offset`, if the page has read that
-// far; if not, it's on its way and `ready` is false.
+// file_source_read fills `buf` starting at `offset` if the page has already read
+// that far. Otherwise the data is still being read and `ready` is false.
 file_source_read :: proc(src: ^File_Source, offset: u64, buf: []u8) -> (ready, ok: bool) {
 	n := yap_file_read(src.handle, f64(offset), raw_data(buf), i32(len(buf)))
 	switch n {
@@ -64,8 +62,8 @@ file_source_close :: proc(src: ^File_Source) {
 	}
 }
 
-// file_sink_create starts collecting a file; the browser picks where it
-// goes when it's done, so the "path" is its name.
+// file_sink_create starts collecting a file. The browser decides where the file
+// is saved once it is complete, so the "path" is just the file name.
 file_sink_create :: proc(
 	dir, name: string,
 	size: u64,
@@ -76,7 +74,7 @@ file_sink_create :: proc(
 ) {
 	handle := yap_sink_open(strings.clone_to_cstring(name, context.temp_allocator), f64(size))
 	if handle <= 0 {
-		log.error("file: the page couldn't start the download")
+		log.error("file: the page failed to start the download")
 		return
 	}
 	return {handle = handle}, strings.clone(name), true
@@ -99,7 +97,7 @@ file_sink_abort :: proc(sink: ^File_Sink) {
 	}
 }
 
-// web_file_close lets go of a picked file that isn't going anywhere.
+// web_file_close releases a picked file that will not be sent.
 web_file_close :: proc(handle: i32) {
 	if handle > 0 {
 		yap_file_close(handle)

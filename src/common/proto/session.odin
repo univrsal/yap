@@ -6,12 +6,10 @@ import "core:crypto/noise"
 import "core:encoding/endian"
 import "core:time"
 
-/*
-Session_Id is a session's index: the random number a peer puts in every
-packet addressed to it (see wire.odin). A type of its own so it can't be
-taken for a User_Num - a user may have several sessions, and a session's
-index says nothing about who it belongs to.
-*/
+// Session_Id is a session's index: the random number a peer puts in every
+// packet addressed to it (see wire.odin). It is a distinct type so that it
+// isn't confused with a User_Num: a user may have several sessions, and a
+// session's index says nothing about who it belongs to.
 Session_Id :: distinct u32
 
 // Session is an established, keyed connection to one peer.
@@ -28,7 +26,7 @@ Session :: struct {
 Initiator_State :: enum {
 	Idle,
 	Sent_Init, // waiting for Handshake_Resp
-	Sent_Finish, // keys derived; waiting for the server to confirm
+	Sent_Finish, // keys derived, waiting for the server to confirm
 }
 
 // Initiator is the client side of an in-progress handshake.
@@ -39,7 +37,8 @@ Initiator :: struct {
 	remote_idx: Session_Id,
 	started:    time.Tick,
 	last_sent:  time.Tick,
-	// The last handshake packet sent, kept to retransmit verbatim if lost.
+	// The last handshake packet that was sent, kept to retransmit it unchanged
+	// if it gets lost.
 	packet:     [MAX_PACKET_SIZE]byte,
 	packet_len: int,
 }
@@ -130,15 +129,15 @@ initiator_start :: proc(
 }
 
 Resp_Result :: enum {
-	Ignored, // not addressed to this handshake; keep waiting
-	Failed, // addressed to us but invalid; the Initiator has been reset
+	Ignored, // not addressed to this handshake, keep waiting
+	Failed, // addressed to us but invalid, the Initiator has been reset
 	Ok,
 }
 
 // initiator_read_resp processes a Handshake_Resp and returns the
 // server's static public key. The caller must decide whether to trust
-// that key before calling initiator_finish, which is the point where our
-// own identity gets sent.
+// that key before calling initiator_finish, because that is where our
+// own identity is sent.
 @(require_results)
 initiator_read_resp :: proc(
 	ini: ^Initiator,
@@ -174,8 +173,8 @@ initiator_read_resp :: proc(
 }
 
 // initiator_finish sends our static key (plus an optional encrypted
-// payload), derives the session keys into `sess`, and returns the
-// Handshake_Finish packet. The Initiator keeps the packet so it can be
+// payload), derives the session keys into `sess` and returns the
+// Handshake_Finish packet. The Initiator keeps the packet so that it can be
 // resent until the server confirms with its first Data packet.
 @(require_results)
 initiator_finish :: proc(
@@ -206,7 +205,8 @@ initiator_finish :: proc(
 	sess.remote_idx = ini.remote_idx
 	sess.created = time.tick_now()
 
-	// Keys are copied out; wipe the handshake secrets but keep the packet.
+	// The keys have been copied out, so wipe the handshake secrets but keep
+	// the packet.
 	noise.handshake_reset(&ini.hs)
 	ini.state = .Sent_Finish
 	ini.packet[0] = u8(Packet_Type.Handshake_Finish)
@@ -236,7 +236,7 @@ responder_start :: proc(
 	if noise.handshake_init(&r.hs, false, prologue(), static_key, nil, PROTOCOL_NAME) != .Ok {
 		return
 	}
-	// The msg1 payload is just padding, so it's ignored.
+	// The msg1 payload is only padding, so it is ignored.
 	msg, _, status := noise.handshake_responder_step(
 		&r.hs,
 		packet[INIT_HEADER_SIZE:],
@@ -260,8 +260,8 @@ responder_start :: proc(
 
 // responder_finish processes a Handshake_Finish. On success it fills in
 // `sess` (with the client's static key in peer_key) and returns the msg3
-// payload. The Responder is reset either way: Noise handshake state
-// can't be reused after a failed read.
+// payload. The Responder is reset either way, because the Noise handshake
+// state can't be reused after a failed read.
 @(require_results)
 responder_finish :: proc(
 	r: ^Responder,
@@ -312,8 +312,8 @@ seal :: proc(s: ^Session, plaintext: []byte, out: []byte) -> (packet: []byte, ok
 	endian.unchecked_put_u32le(out[1:], u32(s.remote_idx))
 	endian.unchecked_put_u64le(out[5:], s.send_n)
 
-	// Noise's own counter already tracks send_n; setting it explicitly
-	// keeps the nonce and the on-wire counter visibly identical.
+	// Noise's own counter already tracks send_n. Setting it explicitly makes
+	// it obvious that the nonce and the counter on the wire are identical.
 	if noise.cipherstates_set_n(&s.cs, true, s.send_n) != .Ok {
 		return
 	}
@@ -330,7 +330,7 @@ seal :: proc(s: ^Session, plaintext: []byte, out: []byte) -> (packet: []byte, ok
 }
 
 // open authenticates and decrypts a Data packet into `out`. Replayed,
-// too-old, or forged packets are rejected.
+// too old and forged packets are rejected.
 @(require_results)
 open :: proc(s: ^Session, packet: []byte, out: []byte) -> (plaintext: []byte, ok: bool) {
 	if packet_type(packet) != .Data {
@@ -355,21 +355,20 @@ open :: proc(s: ^Session, packet: []byte, out: []byte) -> (plaintext: []byte, ok
 		return
 	}
 
-	// Only mark the counter seen once the packet is proven authentic,
-	// otherwise forged packets could poison the window.
+	// Only mark the counter as seen once the packet is proven authentic,
+	// otherwise forged packets could corrupt the window.
 	replay_update(&s.replay, counter)
 	return pt, true
 }
 
-/*
-Replay_Window is a 1024-packet sliding window (RFC 6479 style). Voice at
-50 packets/s would do with far less, but a screen shared at 15 Mbit/s
-is some 1600 packets a second, and a burst of them reordered on the way
-mustn't be taken for replays: this is over half a second of it.
-*/
+// Replay_Window is a 1024-packet sliding window (RFC 6479 style). Voice at
+// 50 packets/s would need far less, but a screen shared at 15 Mbit/s is
+// roughly 1600 packets per second. A burst of those that arrives reordered
+// must not be mistaken for replays, and this window covers over half a
+// second of them.
 Replay_Window :: struct {
 	max:  u64, // highest counter accepted so far
-	bits: [REPLAY_WINDOW_SIZE / 64]u64, // bit i set => counter (max - i) was seen
+	bits: [REPLAY_WINDOW_SIZE / 64]u64, // if bit i is set, counter (max - i) was seen
 	init: bool,
 }
 
@@ -397,7 +396,7 @@ replay_update :: proc(w: ^Replay_Window, n: u64) {
 		if shift >= REPLAY_WINDOW_SIZE {
 			w.bits = {}
 		} else {
-			// Bit i moves to i + shift, a word at a time from the top.
+			// Bit i moves to i + shift, one word at a time starting from the top.
 			words, bits := int(shift / 64), shift % 64
 			for i := len(w.bits) - 1; i >= 0; i -= 1 {
 				v: u64

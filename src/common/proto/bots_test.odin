@@ -13,8 +13,8 @@ test_bot_token :: proc(t: ^testing.T) {
 	testing.expect(t, strings.has_prefix(token, BOT_TOKEN_PREFIX))
 	testing.expect(t, !strings.contains_any(token, "+/="))
 
-	// It's the key the public half was made from, spaces around it or
-	// not.
+	// The token parses back into the private key that the public key was
+	// derived from, with or without surrounding whitespace.
 	key: ecdh.Private_Key
 	defer ecdh.private_key_clear(&key)
 	for text in ([]string{token, strings.concatenate({"  ", token, "\n"}, context.temp_allocator)}) {
@@ -24,7 +24,7 @@ test_bot_token :: proc(t: ^testing.T) {
 		testing.expect(t, got == public)
 	}
 
-	// Two are never the same.
+	// Two generated tokens are never the same.
 	other, other_public, _ := bot_token_make(context.temp_allocator)
 	testing.expect(t, other != token && other_public != public)
 

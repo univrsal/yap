@@ -1,19 +1,18 @@
-/*
-Bindings for libopus (https://opus-codec.org), statically linked from the
-libraries in this directory:
-
-	libopus.a          Linux x86-64, prebuilt
-	opus.lib           Windows x86-64; not kept in the repo, build.bat builds it
-	libopus_macos.a    macOS; not kept in the repo, build.sh builds it
-	libopus_openbsd.a  OpenBSD; likewise
-
-Only the single-stream encoder/decoder API is bound, which is all a voice
-chat needs; the multistream, projection, repacketizer and DRED APIs are
-left out. Constants and signatures follow opus.h / opus_defines.h 1.6.
-
-The *_ctl procs are C varargs. The typed helpers (encoder_set, encoder_get,
-...) are safer: every request takes or returns an opus_int32.
-*/
+// Bindings for libopus (https://opus-codec.org), statically linked from the
+// libraries in this directory:
+//
+//	libopus.a          Linux x86-64, prebuilt
+//	opus.lib           Windows x86-64, not kept in the repo (build.bat builds it)
+//	libopus_macos.a    macOS, not kept in the repo (build.sh builds it)
+//	libopus_openbsd.a  OpenBSD, not kept in the repo either
+//
+// Only the single-stream encoder/decoder API is bound, which is all a voice
+// chat needs. The multistream, projection, repacketizer and DRED APIs are
+// left out. Constants and signatures follow opus.h / opus_defines.h 1.6.
+//
+// The *_ctl procs are C varargs. The typed helpers (encoder_set,
+// encoder_get, ...) are safer because every request takes or returns an
+// opus_int32.
 package opus
 
 import "core:c"
@@ -31,9 +30,9 @@ when ODIN_OS == .Windows {
 	@(private)
 	LIB :: "libopus_openbsd.a"
 } else when ODIN_OS == .WASI {
-	// A web build links no library from here: web/build.sh builds libopus
-	// for wasm and hands it to emscripten, and opus_foreign_web.odin
-	// declares what it provides.
+	// A web build doesn't link a library from here. web/build.sh builds
+	// libopus for wasm and hands it to emscripten, and
+	// opus_foreign_web.odin declares what it provides.
 	@(private)
 	LIB :: ""
 } else {
@@ -54,7 +53,7 @@ when ODIN_OS == .Windows || ODIN_OS == .Linux || ODIN_OS == .Darwin || ODIN_OS =
 Encoder :: struct {}
 Decoder :: struct {}
 
-// Return codes. Procs that return a count use negative values for these.
+// Return codes. Procs that return a count return these as negative values.
 Error :: enum c.int {
 	OK               = 0,
 	Bad_Arg          = -1,
@@ -98,14 +97,14 @@ FRAMESIZE_80_MS :: 5007
 FRAMESIZE_100_MS :: 5008
 FRAMESIZE_120_MS :: 5009
 
-// The largest packet Opus produces for one frame, per its documentation's
-// recommendation for max_data_bytes.
+// The largest packet Opus produces for one frame, which is the value its
+// documentation recommends for max_data_bytes.
 MAX_PACKET_SIZE :: 1275
 // The largest frame: 120 ms at 48 kHz, per channel.
 MAX_FRAME_SAMPLES :: 5760
 
-// ctl requests. SET requests take an i32; GET requests take a ^i32
-// (GET_FINAL_RANGE a ^u32).
+// ctl requests. SET requests take an i32 and GET requests take a ^i32
+// (Get_Final_Range takes a ^u32).
 Request :: enum c.int {
 	Set_Application              = 4000,
 	Get_Application              = 4001,
@@ -181,7 +180,8 @@ decoder_reset :: proc(st: ^Decoder) -> Error {
 	return decoder_ctl(st, .Reset_State)
 }
 
-// result_error turns a negative count returned by encode/decode into an Error.
+// result_error turns a negative count returned by encode or decode into an
+// Error.
 result_error :: proc(n: $T) -> Error {
 	return n < 0 ? Error(n) : .OK
 }

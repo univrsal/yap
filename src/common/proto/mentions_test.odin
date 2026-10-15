@@ -19,7 +19,7 @@ test_mention_tokens :: proc(t: ^testing.T) {
 		if !ok {
 			break
 		}
-		testing.expect(t, n < len(want), "a token too many")
+		testing.expect(t, n < len(want), "found more mention tokens than expected")
 		if n < len(want) {
 			testing.expect_value(t, m, want[n])
 		}

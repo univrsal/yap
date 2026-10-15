@@ -2,123 +2,123 @@ package proto
 
 import "core:encoding/endian"
 
-/*
-Messages: what is posted to a conversation (convs.odin), kept by the
-server for good, and read a page at a time. Everything here travels as
-requests and events (rpc.odin), except Typing, which is a datagram.
-
-	Msg_Post     [conv u32][nonce u64][thread_root u64][kind u8]
-	             text: [text str16][count u8][upload u64]... (attachments)
-	             file: [size u64][name str8]
-	             ->  [id u64][time u64]
-	Msg_History  [conv u32][thread_root u64][anchor u64][dir u8][limit u8]
-	             ->  [more u8][count u16] messages, oldest first
-	Blob_Put     [kind u8][size u32][sha256 32][width u16][height u16]
-	             ->  [blob u64][have u8][handle u64]
-	Blob_Get     [blob u64]  ->  [size u32][handle u64]
-	Msg_Edit     [id u64][text str16]
-	Msg_Delete   [id u64]
-	Msg_Pin      [id u64][on u8]
-	Pins_Get     [conv u32]  ->  [count u16] messages, the newest pin first
-	Msg_Forward  (forward.odin)
-	Msg_React    [id u64][emoji str8][on u8]
-	Reactors_Get [id u64][emoji str8]
-	             ->  [total u16][count u8][account u32]...: who reacted
-	             with that emoji, the earliest first, at most MAX_REACTORS
-	             of the `total`
-
-	Msg_New      a message, posted just now
-	Msg_Changed  a message as it is now: edited, deleted, pinned or unpinned
-	Reaction_Changed  [id u64][conv u32][emoji str8][count u16][account u32][on u8]:
-	             `account` added (`on`) or took back a reaction; `count` is how
-	             many have that one now
-
-	message   [id u64][conv u32][sender u32][time u64][kind u8][flags u8]
-	          [thread_root u64][edited u64]
-	          text:    [text str16]
-	                   if Has_Attachments: [count u8] per file:
-	                   [blob u64][size u64][name str8]
-	          file:    [size u64][name str8]
-	          system:  [what u8][arg u32]
-	          if Has_Thread: [reply_count u32][last_reply u64]
-	          if Forwarded: [sender u32][conv u32][time u64] (forward.odin)
-	          [reaction_count u8] per reaction: [emoji str8][count u16][me u8]
-
-	client -> server  Typing  [kind][conv u32][thread_root u64]
-	server -> client  Typing  [kind][conv u32][thread_root u64][account u32]
-
-A message's id is the server's, global and increasing, so "newer than"
-is one comparison. Its time is the server's clock, in milliseconds.
-
-Posting: the nonce is the poster's own, chosen at random for each
-message. A post repeated after the connection started over, with the
-same nonce, is answered with the id the message got the first time and
-isn't stored again.
-
-History: a page of messages next to `anchor`: `Before` it (older; an
-anchor of 0 means from the newest), `After` it, or `Around` it, the
-anchor itself included. At most MAX_HISTORY_LIMIT; fewer if they
-wouldn't fit in one stream message. `more` says whether the
-conversation has messages beyond the page: older ones (MORE_BEFORE),
-newer ones (MORE_AFTER).
-
-Pictures (people's own, the server's emoji: profiles.odin, emoji.odin)
-are blobs, stored once per content. The client announces one with
-Blob_Put: if the server has that content already
-(`have`), the answer is its id and nothing is sent; else the answer is
-the handle to send the chunks under (blob.odin), and the server says
-with Blob_Need when it has them all (BLOB_COMPLETE, then Blob_Put again
-gives the id) or can't take them (BLOB_FAILED: the hash or the
-picture's size wasn't what was announced). Blob_Get is the other way:
-the size and the handle the chunks will come under.
-
-Attachments: a text message may carry up to MAX_ATTACHMENTS files that
-were uploaded to the server (attachments.odin), and then has the
-Has_Attachments flag; its text may be empty then. A picture in a
-message is one of these (a pasted one too). Posting names the
-poster's uploads, and the server fills in each file's blob, name and
-size from them. They go when the message is deleted.
-
-Files: a message of kind File is an offer to send one, in a DM only; it
-says the file's name and size, and the file itself goes between the two
-clients when the offer is taken up (files.odin).
-
-Editing, deleting, pinning: a text message may be edited by its author,
-and then says when (`edited`); the old text isn't kept. A message may be
-deleted by its author, or by an account with Manage_Messages: it stays,
-with the Deleted flag, but its text and files are gone for good,
-and it's no longer pinned. Pinning marks a message Pinned, for either
-member of a DM and for those with Pin_Messages in a channel, at most
-MAX_PINS in a conversation (Too_Large past that). Each change goes to
-every connection of every member as Msg_Changed, the whole message as
-it now is.
-
-Reactions: a member reacts to a message with an emoji (emoji.odin): a
-Unicode one's character, or `:name:` of one of the server's own; at most
-MAX_REACTIONS different ones on a message, none on a deleted one. Each
-account counts once per emoji. A message's record carries them, in the
-order they were first given, with how many gave each and whether `me`
-did: the one who asked, in a history page or Pins_Get; nobody in an
-event (Msg_New, Msg_Changed), whose readers keep track of their own from
-Reaction_Changed.
-
-A thread root comes in a later phase; the record has room for it from
-the start, and it's zero until then.
-*/
+// Messages: what is posted to a conversation (convs.odin). The server keeps
+// them permanently, and they are read a page at a time. Everything here travels
+// as requests and events (rpc.odin), except Typing, which is a datagram.
+//
+// 	Msg_Post     [conv u32][nonce u64][thread_root u64][kind u8]
+// 	             text: [text str16][count u8][upload u64]... (attachments)
+// 	             file: [size u64][name str8]
+// 	             ->  [id u64][time u64]
+// 	Msg_History  [conv u32][thread_root u64][anchor u64][dir u8][limit u8]
+// 	             ->  [more u8][count u16] messages, oldest first
+// 	Blob_Put     [kind u8][size u32][sha256 32][width u16][height u16]
+// 	             ->  [blob u64][have u8][handle u64]
+// 	Blob_Get     [blob u64]  ->  [size u32][handle u64]
+// 	Msg_Edit     [id u64][text str16]
+// 	Msg_Delete   [id u64]
+// 	Msg_Pin      [id u64][on u8]
+// 	Pins_Get     [conv u32]  ->  [count u16] messages, the newest pin first
+// 	Msg_Forward  (forward.odin)
+// 	Msg_React    [id u64][emoji str8][on u8]
+// 	Reactors_Get [id u64][emoji str8]
+// 	             ->  [total u16][count u8][account u32]...: who reacted
+// 	             with that emoji, earliest first, at most MAX_REACTORS
+// 	             of the `total`
+//
+// 	Msg_New      a message that was just posted
+// 	Msg_Changed  a message in its current state after being edited, deleted, pinned or unpinned
+// 	Reaction_Changed  [id u64][conv u32][emoji str8][count u16][account u32][on u8]:
+// 	             `account` added (`on`) or withdrew a reaction; `count` is how
+// 	             many accounts have that reaction now
+//
+// 	message   [id u64][conv u32][sender u32][time u64][kind u8][flags u8]
+// 	          [thread_root u64][edited u64]
+// 	          text:    [text str16]
+// 	                   if Has_Attachments: [count u8] per file:
+// 	                   [blob u64][size u64][name str8]
+// 	          file:    [size u64][name str8]
+// 	          system:  [what u8][arg u32]
+// 	          if Has_Thread: [reply_count u32][last_reply u64]
+// 	          if Forwarded: [sender u32][conv u32][time u64] (forward.odin)
+// 	          [reaction_count u8] per reaction: [emoji str8][count u16][me u8]
+//
+// 	client -> server  Typing  [kind][conv u32][thread_root u64]
+// 	server -> client  Typing  [kind][conv u32][thread_root u64][account u32]
+//
+// A message's id is assigned by the server. It is global and increasing, so
+// "newer than" is a single comparison. Its time is the server's clock, in
+// milliseconds.
+//
+// Posting: the nonce is chosen by the poster at random for each message. If a
+// post is repeated with the same nonce after the connection started over, it is
+// answered with the id that the message got the first time and is not stored
+// again.
+//
+// History: a page of messages next to `anchor`. The page contains messages
+// `Before` the anchor (older ones, where an anchor of 0 means starting from the
+// newest), `After` it, or `Around` it, including the anchor itself. There are at
+// most MAX_HISTORY_LIMIT messages, or fewer if they wouldn't fit in one stream
+// message. `more` says whether the conversation has messages beyond the page:
+// older ones (MORE_BEFORE) and newer ones (MORE_AFTER).
+//
+// Pictures (people's own and the server's emoji: profiles.odin, emoji.odin) are
+// blobs that are stored once per content. The client announces a blob with
+// Blob_Put. If the server already has that content (`have`), the answer is its
+// id and nothing is sent. Otherwise the answer is the handle to send the chunks
+// under (blob.odin). The server then says with Blob_Need when it has received
+// all chunks (BLOB_COMPLETE, after which Blob_Put returns the id) or when it
+// can't accept them (BLOB_FAILED: the hash or the picture's size wasn't what
+// was announced). Blob_Get works the other way around: the answer contains the
+// size and the handle that the chunks will arrive under.
+//
+// Attachments: a text message may carry up to MAX_ATTACHMENTS files that were
+// uploaded to the server (attachments.odin). It then has the Has_Attachments
+// flag, and its text may be empty. A picture in a message is also an
+// attachment, including a pasted one. Posting names the poster's uploads, and
+// the server fills in each file's blob, name and size from them. The files are
+// removed when the message is deleted.
+//
+// Files: a message of kind File is an offer to send a file. It is only possible
+// in a DM. It states the file's name and size, and the file itself is
+// transferred between the two clients when the offer is accepted (files.odin).
+//
+// Editing, deleting, pinning: a text message may be edited by its author, and
+// then states when it was edited (`edited`). The old text is not kept. A message
+// may be deleted by its author or by an account with Manage_Messages. It stays,
+// with the Deleted flag, but its text and files are permanently removed and it
+// is no longer pinned. Pinning marks a message as Pinned. In a DM either member
+// may pin, and in a channel those with Pin_Messages may. A conversation may have
+// at most MAX_PINS pinned messages (beyond that the answer is Too_Large). Each
+// change is sent to every connection of every member as Msg_Changed, which
+// contains the whole message in its current state.
+//
+// Reactions: a member reacts to a message with an emoji (emoji.odin), which is
+// either a Unicode emoji's character or `:name:` for one of the server's own. A
+// message may have at most MAX_REACTIONS different emoji and none if it is
+// deleted. Each account counts once per emoji. A message's record carries the
+// reactions in the order in which they were first given, with the number of
+// accounts that gave each one and whether `me` did. `me` refers to the account
+// that asked for a history page or Pins_Get. In an event (Msg_New, Msg_Changed)
+// it is never set, and the readers of events keep track of their own reactions
+// from Reaction_Changed.
+//
+// A thread root is only used in a later phase. The record has room for it from
+// the start, and it is zero until then.
 
 MAX_CHAT_SIZE :: 2000 // bytes of UTF-8 in a message
 
-// Unix_Time is seconds since the epoch, the server's clock: what the
-// UI's clock shows a time to the minute in.
+// Unix_Time is the number of seconds since the epoch on the server's clock. It
+// is the unit that the UI's clock shows times in, to the minute.
 Unix_Time :: distinct u64
 
-// Unix_Ms is milliseconds since the epoch, the server's clock.
+// Unix_Ms is the number of milliseconds since the epoch on the server's clock.
 Unix_Ms :: distinct u64
 
 Msg_Id :: distinct u64
 Blob_Id :: distinct u64
 
-// 1 was a picture, which is an attachment now.
+// The value 1 used to be a picture, which is now an attachment.
 Msg_Kind :: enum u8 {
 	Text   = 0,
 	File   = 2,
@@ -134,25 +134,27 @@ Msg_Flag :: enum u8 {
 }
 Msg_Flags :: distinct bit_set[Msg_Flag;u8]
 
-// What a blob is, which decides how big it may be.
+// The kind of a blob, which decides how large it may be.
 Blob_Kind :: enum u8 {
 	Avatar       = 2, // somebody's profile picture
 	Emoji_Sheet  = 3, // the server's custom emoji, as one image
 	File         = 4, // a message's attachment (attachments.odin)
-	Emoji_Frames = 5, // the frames of one of them that moves (emoji.odin)
+	Emoji_Frames = 5, // the frames of one of the animated emoji (emoji.odin)
 }
 
-// The most files a message may carry.
+// The maximum number of files that a message may carry.
 MAX_ATTACHMENTS :: 10
 
-// A file a message carries. The name points into what it was read from.
+// A file that a message carries. The name points into the data that it was read
+// from.
 Attachment :: struct {
-	blob: Blob_Id, // 0 once it's been removed (retention)
+	blob: Blob_Id, // 0 once it has been removed (retention)
 	size: u64,
 	name: string,
 }
 
-// Message is one message. Strings point into what it was read from.
+// Message is one message. Its strings point into the data that it was read
+// from.
 Message :: struct {
 	id:               Msg_Id,
 	conv:             Conv_Id,
@@ -165,23 +167,23 @@ Message :: struct {
 	text:             string, // .Text
 	file_size:        u64, // .File
 	file_name:        string,
-	system:           u8, // .System: what happened
+	system:           u8, // .System: what kind of event happened
 	system_arg:       u32,
 	reply_count:      u32, // .Has_Thread
 	last_reply:       Msg_Id,
-	forward:          Forward_Info, // .Forwarded: where the original was
-	// .Has_Attachments: the files, the first `attachment_count`.
+	forward:          Forward_Info, // .Forwarded: where the original came from
+	// .Has_Attachments: the files, of which the first `attachment_count` are used.
 	attachment_count: int,
 	attachments:      [MAX_ATTACHMENTS]Attachment,
-	// The reactions, as they came, for when there are any.
+	// The encoded reactions as they were received, if there are any.
 	reaction_count:   int,
 	reactions:        []u8,
 }
 
-// What a message's files take at most.
+// The maximum size of a message's files.
 ATTACHMENTS_MAX_SIZE :: 1 + MAX_ATTACHMENTS * (8 + 8 + 1 + MAX_FILE_NAME)
 
-// A message takes at most this much.
+// The maximum size of a message.
 MESSAGE_MAX_SIZE ::
 	8 +
 	4 +
@@ -201,11 +203,12 @@ MESSAGE_MAX_SIZE ::
 
 MAX_HISTORY_LIMIT :: 50
 
-// The most messages a conversation can have pinned.
+// The maximum number of pinned messages in a conversation.
 MAX_PINS :: 50
 
-// The most different emoji a message can be reacted to with, and the
-// most bytes one of them takes (a server's own, written `:name:`).
+// The maximum number of different emoji that a message can have as reactions,
+// and the maximum number of bytes of one emoji (a server's own emoji, written
+// as `:name:`).
 MAX_REACTIONS :: 20
 MAX_REACTION_EMOJI :: 2 + MAX_EMOJI_NAME
 
@@ -215,7 +218,7 @@ History_Dir :: enum u8 {
 	Around = 2,
 }
 
-// A history page's `more`.
+// The bits of a history page's `more`.
 MORE_BEFORE :: 1 << 0
 MORE_AFTER :: 1 << 1
 
@@ -233,7 +236,7 @@ BLOB_GET_ANSWER_SIZE :: 4 + 8
 TYPING_UP_SIZE :: 1 + 4 + 8
 TYPING_DOWN_SIZE :: TYPING_UP_SIZE + 4
 
-// message_size is how many bytes `m` takes as a record.
+// message_size returns the number of bytes that `m` takes as a record.
 message_size :: proc(m: Message) -> int {
 	n := 8 + 4 + 4 + 8 + 1 + 1 + 8 + 8
 	switch m.kind {
@@ -343,7 +346,7 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 		m.system = get_u8(r)
 		m.system_arg = get_u32(r)
 	case:
-		return // a kind from a newer server: its layout isn't known
+		return // a kind from a newer server, whose layout isn't known
 	}
 	if .Has_Thread in m.flags {
 		m.reply_count = get_u32(r)
@@ -370,8 +373,8 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 	return m, true
 }
 
-// encode_message writes one message, as in Msg_New; nil if it doesn't
-// fit in `out`.
+// encode_message writes one message as it is sent in Msg_New. It returns nil if
+// the message doesn't fit in `out`.
 encode_message :: proc(out: []u8, m: Message) -> []u8 {
 	w := Writer {
 		buf = out,
@@ -380,7 +383,7 @@ encode_message :: proc(out: []u8, m: Message) -> []u8 {
 	return nil if w.overflow else out[:w.pos]
 }
 
-// decode_message reads one; its strings point into `body`.
+// decode_message reads a message. Its strings point into `body`.
 decode_message :: proc(body: []u8) -> (m: Message, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -389,16 +392,16 @@ decode_message :: proc(body: []u8) -> (m: Message, ok: bool) {
 	return m, r.pos == len(body)
 }
 
-// Msg_Post is what posting a message says.
+// Msg_Post is the content of a request to post a message.
 Msg_Post :: struct {
 	conv:             Conv_Id,
 	nonce:            u64,
 	thread_root:      Msg_Id,
 	kind:             Msg_Kind, // .Text or .File
-	text:             string, // .Text, and .File's name; raw until sanitized
+	text:             string, // .Text, and .File's name; raw until it is sanitized
 	file_size:        u64, // .File
-	// .Text: the uploads of its files (Attach_Put), the first
-	// `attachment_count`.
+	// .Text: the uploads of its files (Attach_Put), of which the first
+	// `attachment_count` are used.
 	attachment_count: int,
 	uploads:          [MAX_ATTACHMENTS]u64,
 }
@@ -506,9 +509,10 @@ decode_msg_history :: proc(body: []u8) -> (h: Msg_History, ok: bool) {
 	return h, h.limit > 0 && h.limit <= MAX_HISTORY_LIMIT
 }
 
-// encode_history_page writes a Msg_History response: `msgs`, oldest
-// first, or as many of them from the start as fit in `out`; `count` says
-// how many. Whoever cuts a page short says so in `more`.
+// encode_history_page writes a Msg_History response containing `msgs`, oldest
+// first. If they don't all fit in `out`, it writes as many as fit from the
+// start. `count` says how many it wrote. Whoever cuts a page short says so in
+// `more`.
 encode_history_page :: proc(out: []u8, more: u8, msgs: []Message) -> (body: []u8, count: int) {
 	w := Writer {
 		buf = out,
@@ -529,7 +533,7 @@ encode_history_page :: proc(out: []u8, more: u8, msgs: []Message) -> (body: []u8
 	return out[:w.pos], count
 }
 
-// decode_history_page reads one into `buf`.
+// decode_history_page reads a Msg_History response into `buf`.
 decode_history_page :: proc(body: []u8, buf: []Message) -> (more: u8, msgs: []Message, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -552,7 +556,7 @@ Blob_Put :: struct {
 	kind:          Blob_Kind,
 	size:          int,
 	hash:          [32]u8, // SHA-256
-	width, height: int, // a picture's
+	width, height: int, // the dimensions of a picture
 }
 
 encode_blob_put :: proc(out: ^[BLOB_PUT_SIZE]u8, p: Blob_Put) -> []u8 {
@@ -577,8 +581,9 @@ decode_blob_put :: proc(body: []u8) -> (p: Blob_Put, ok: bool) {
 	return p, true
 }
 
-// encode_blob_put_answer: the blob's id if the server has it (`have`),
-// else the handle its chunks go under.
+// encode_blob_put_answer writes the answer to Blob_Put. It contains the blob's
+// id if the server already has it (`have`), and otherwise the handle that its
+// chunks are sent under.
 encode_blob_put_answer :: proc(
 	out: ^[BLOB_PUT_ANSWER_SIZE]u8,
 	blob: Blob_Id,
@@ -668,7 +673,7 @@ encode_msg_edit :: proc(out: ^[MSG_EDIT_MAX_SIZE]u8, id: Msg_Id, text: string) -
 	return nil if w.overflow else out[:w.pos]
 }
 
-// decode_msg_edit's text is raw, to be sanitized.
+// decode_msg_edit's text is raw and has to be sanitized.
 decode_msg_edit :: proc(body: []u8) -> (id: Msg_Id, text: string, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -678,7 +683,7 @@ decode_msg_edit :: proc(body: []u8) -> (id: Msg_Id, text: string, ok: bool) {
 	return id, text, !r.overflow && r.pos == len(body) && len(text) <= MAX_CHAT_SIZE
 }
 
-// A body that is one message's id: Msg_Delete.
+// A body that consists of one message's id, such as Msg_Delete.
 encode_msg_id :: proc(out: ^[MSG_ID_SIZE]u8, id: Msg_Id) -> []u8 {
 	endian.unchecked_put_u64le(out[:], u64(id))
 	return out[:]
@@ -706,8 +711,8 @@ decode_msg_pin :: proc(body: []u8) -> (id: Msg_Id, on: bool, ok: bool) {
 	return id, body[8] != 0, id != 0
 }
 
-// encode_message_list writes a Pins_Get response: as many of `msgs` as
-// fit in `out`.
+// encode_message_list writes a Pins_Get response with as many of `msgs` as fit
+// in `out`.
 encode_message_list :: proc(out: []u8, msgs: []Message) -> []u8 {
 	w := Writer {
 		buf = out,
@@ -728,7 +733,8 @@ encode_message_list :: proc(out: []u8, msgs: []Message) -> []u8 {
 	return out[:w.pos]
 }
 
-// decode_message_list reads one into `buf`; the strings point into `body`.
+// decode_message_list reads a list of messages into `buf`. The strings point
+// into `body`.
 decode_message_list :: proc(body: []u8, buf: []Message) -> (msgs: []Message, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -746,7 +752,7 @@ decode_message_list :: proc(body: []u8, buf: []Message) -> (msgs: []Message, ok:
 	return buf[:count], true
 }
 
-// Reaction is one emoji a message has been reacted to with.
+// Reaction is one emoji that a message has been reacted to with.
 Reaction :: struct {
 	emoji: string,
 	count: int,
@@ -756,8 +762,8 @@ Reaction :: struct {
 MSG_REACT_MAX_SIZE :: 8 + 1 + MAX_REACTION_EMOJI + 1
 REACTION_CHANGED_MAX_SIZE :: 8 + 4 + 1 + MAX_REACTION_EMOJI + 2 + 4 + 1
 
-// set_reactions puts reactions in a message's record (at most
-// MAX_REACTIONS); what it writes is in the temp allocator.
+// set_reactions puts reactions in a message's record (at most MAX_REACTIONS).
+// What it writes is allocated with the temp allocator.
 set_reactions :: proc(m: ^Message, reactions: []Reaction) {
 	n := min(len(reactions), MAX_REACTIONS)
 	out := make([]u8, n * (1 + MAX_REACTION_EMOJI + 3), context.temp_allocator)
@@ -772,8 +778,8 @@ set_reactions :: proc(m: ^Message, reactions: []Reaction) {
 	m.reaction_count, m.reactions = n, out[:w.pos]
 }
 
-// reactions_of reads a message's reactions into `buf`; their emoji point
-// into the message.
+// reactions_of reads a message's reactions into `buf`. Their emoji point into
+// the message.
 reactions_of :: proc(m: Message, buf: []Reaction) -> []Reaction {
 	r := Reader {
 		buf = m.reactions,
@@ -805,7 +811,7 @@ encode_msg_react :: proc(
 	return nil if w.overflow else out[:w.pos]
 }
 
-// The most accounts a Reactors_Get answer names.
+// The maximum number of accounts that a Reactors_Get answer names.
 MAX_REACTORS :: 50
 REACTORS_GET_MAX_SIZE :: 8 + 1 + MAX_REACTION_EMOJI
 REACTORS_MAX_SIZE :: 2 + 1 + 4 * MAX_REACTORS
@@ -828,8 +834,8 @@ decode_reactors_get :: proc(body: []u8) -> (id: Msg_Id, emoji: string, ok: bool)
 	return id, emoji, !r.overflow && id != 0 && len(emoji) > 0 && len(emoji) <= MAX_REACTION_EMOJI
 }
 
-// encode_reactors writes a Reactors_Get answer: how many reacted, and
-// the first MAX_REACTORS of them.
+// encode_reactors writes a Reactors_Get answer. It contains the total number of
+// accounts that reacted and the first MAX_REACTORS of them.
 encode_reactors :: proc(out: ^[REACTORS_MAX_SIZE]u8, total: int, accounts: []Account_Id) -> []u8 {
 	w := Writer {
 		buf = out[:],
@@ -843,7 +849,7 @@ encode_reactors :: proc(out: ^[REACTORS_MAX_SIZE]u8, total: int, accounts: []Acc
 	return out[:w.pos]
 }
 
-// decode_reactors reads a Reactors_Get answer, the accounts into `buf`.
+// decode_reactors reads a Reactors_Get answer and puts the accounts into `buf`.
 decode_reactors :: proc(
 	body: []u8,
 	buf: ^[MAX_REACTORS]Account_Id,

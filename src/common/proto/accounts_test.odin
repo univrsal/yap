@@ -41,14 +41,14 @@ test_account_bodies :: proc(t: ^testing.T) {
 		testing.expect_value(t, agent, "yap")
 		_, _, _, _, ok = decode_auth_login(body[:len(body) - 1])
 		testing.expect(t, !ok)
-		// The longest of each still fits.
+		// The maximum length for every field still fits.
 		long := make([]u8, 255, context.temp_allocator)
 		testing.expect(
 			t,
 			encode_auth_login(buf[:], string(long), string(long), string(long), string(long)) !=
 			nil,
 		)
-		// And a string too long for its length byte doesn't.
+		// A string too long for its length byte doesn't.
 		longer := make([]u8, 256, context.temp_allocator)
 		testing.expect(t, encode_auth_login(buf[:], "a", string(longer), "") == nil)
 	}
@@ -88,7 +88,7 @@ test_account_bodies :: proc(t: ^testing.T) {
 		testing.expect(t, ok)
 		testing.expect_value(t, p.mask, PROFILE_DISPLAY)
 		testing.expect_value(t, p.display, "Alice A.")
-		// The others, without the name.
+		// The other fields, without the display name.
 		p, ok = decode_profile_set(
 			encode_profile_set(
 				buf[:],
@@ -108,7 +108,8 @@ test_account_bodies :: proc(t: ^testing.T) {
 		testing.expect_value(t, p.avatar, 9)
 		_, ok = decode_profile_set(buf[:3])
 		testing.expect(t, !ok)
-		// Nothing to change is fine; a field we don't know isn't.
+		// An empty mask (nothing to change) is accepted; an unknown field bit
+		// is not.
 		p, ok = decode_profile_set([]u8{0})
 		testing.expect(t, ok)
 		testing.expect_value(t, p.mask, 0)
@@ -184,7 +185,7 @@ test_account_record :: proc(t: ^testing.T) {
 	}
 	body := encode_account(buf[:], a)
 	testing.expect(t, body != nil)
-	// The longest account is what ACCOUNT_MAX_SIZE says it is.
+	// The largest possible account is exactly ACCOUNT_MAX_SIZE bytes.
 	testing.expect_value(t, len(body), ACCOUNT_MAX_SIZE)
 	got, ok := decode_account(body)
 	testing.expect(t, ok)
@@ -198,15 +199,16 @@ test_account_record :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(got.roles), MAX_ACCOUNT_ROLES)
 	testing.expect_value(t, got.roles[15], 17)
 
-	// Without its activity (an older server's), it's online.
+	// An account without the activity byte (sent by an older server) is
+	// treated as online.
 	got, ok = decode_account(body[:len(body) - 1])
 	testing.expect(t, ok)
 	testing.expect_value(t, got.activity, Activity.Online)
 	_, ok = decode_account(body[:len(body) - 2])
 	testing.expect(t, !ok)
 
-	// One from a later server, with a status, an avatar and roles, and
-	// more after them: what we know still reads.
+	// An account from a newer server, with a status, an avatar, roles and
+	// additional unknown fields after them: the known fields are still read.
 	later := make([dynamic]u8, context.temp_allocator)
 	append(&later, 7, 0, 0, 0, 0) // id, flags
 	append(&later, 1, 'x', 1, 'X') // username, display
@@ -253,12 +255,13 @@ test_roles :: proc(t: ^testing.T) {
 	testing.expect_value(t, role.flags, Role_Flags{.Mentionable})
 	_, ok = decode_role(body[:len(body) - 2])
 	testing.expect(t, !ok)
-	// As older clients send it: no flags; nor colour or position.
+	// Roles as older clients send them: without flags, or without colour,
+	// position and flags.
 	role, ok = decode_role(body[:len(body) - 1])
 	testing.expect(t, ok && role.position == 7 && role.flags == {})
 	role, ok = decode_role(body[:len(body) - 7])
 	testing.expect(t, ok && role.name == name && role.color == 0 && role.position == 0)
-	// A colour without the bit that says it's set is none.
+	// A colour without the ROLE_COLOR_SET bit is treated as no colour.
 	role, ok = decode_role(encode_role(buf[:], {id = 4, name = "x", color = 0x3366CC}))
 	testing.expect(t, ok && role.color == 0)
 
@@ -324,13 +327,14 @@ test_devices :: proc(t: ^testing.T) {
 	testing.expect_value(t, got[2].last_seen, 2002)
 	testing.expect_value(t, len(got[2].name), MAX_DEVICE_NAME)
 
-	// Room for two takes two.
+	// A buffer with room for two devices holds exactly two.
 	body = encode_devices(out[:2 + 2 * DEVICE_MAX_SIZE], devices[:])
 	got, ok = decode_devices(body, buf[:])
 	testing.expect(t, ok)
 	testing.expect_value(t, len(got), 2)
 
-	// None at all, more than the reader has room for, and one cut short.
+	// An empty list, more devices than the reader has room for, and a
+	// truncated list.
 	got, ok = decode_devices([]u8{0, 0}, buf[:])
 	testing.expect(t, ok)
 	testing.expect_value(t, len(got), 0)
@@ -342,7 +346,8 @@ test_devices :: proc(t: ^testing.T) {
 
 @(test)
 test_agent :: proc(t: ^testing.T) {
-	// A login says what the client is; one from before that did not.
+	// A login includes the client's agent string; logins from older clients
+	// without it are still read.
 	buf: [ACCOUNT_BODY_MAX]u8
 	body := encode_auth_login(buf[:], "alice", "pw", "laptop", "yap 1.2.0 on Linux")
 	_, _, device, agent, ok := decode_auth_login(body)
@@ -354,7 +359,8 @@ test_agent :: proc(t: ^testing.T) {
 	testing.expect_value(t, device, "laptop")
 	testing.expect_value(t, agent, "")
 
-	// A device list names it, and one from an older server still reads.
+	// A device list includes the agent, and a list from an older server
+	// without agents is still read.
 	devices: [2]Device
 	devices[0] = {
 		key = {1 = 1},
@@ -373,8 +379,9 @@ test_agent :: proc(t: ^testing.T) {
 	testing.expect_value(t, got[0].agent, "Firefox 128 on Windows")
 	testing.expect_value(t, got[1].agent, "")
 
-	// The records come first and as they were, so that a client from
-	// before agents, which reads no further, reads a list from now.
+	// The device records come first and are unchanged, so a client from
+	// before agents existed, which stops reading after them, can still read
+	// a current list.
 	records_end := len(list) - (1 + len(devices[0].agent)) - (1 + len(devices[1].agent))
 	got, got_ok = decode_devices(list[:records_end], got_buf[:])
 	testing.expect(t, got_ok)
@@ -416,7 +423,7 @@ test_settings :: proc(t: ^testing.T) {
 	testing.expect(t, v[0] == 1 && v[MAX_SETTING_VALUE - 1] == 2)
 	_, _, ok = decode_setting(body[:len(body) - 1])
 	testing.expect(t, !ok)
-	// Removing one: no value.
+	// Removing a setting is encoded as an empty value.
 	k, v, ok = decode_setting(encode_setting(buf[:], "ui/open", nil))
 	testing.expect(t, ok && k == "ui/open" && len(v) == 0)
 

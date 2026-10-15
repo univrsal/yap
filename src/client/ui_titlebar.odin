@@ -3,33 +3,31 @@ package client
 import "client:render"
 import mu "vendor:microui"
 
-/*
-What every platform's merged title bar shares (ui_titlebar_darwin.odin,
-ui_titlebar_windows.odin, ui_titlebar_x11.odin): the window's buttons,
-where the platform has none of its own, and the edges a window with no
-frame is resized by.
+// What every platform's merged title bar shares (ui_titlebar_darwin.odin,
+// ui_titlebar_windows.odin, ui_titlebar_x11.odin): the window's buttons, on
+// platforms that have none of their own, and the edges that a window without
+// a frame is resized by.
+//
+// Each platform has the same procedures:
+//
+//	titlebar_init           before GLFW starts: the platform to ask it for
+//	titlebar_window_hints   before each window is made
+//	titlebar_merge          merge the title bar into the UI, or put it back
+//	titlebar_area           the strip along the top that it took, if merged
+//	titlebar_press          a press on that strip
+//	titlebar_motion         the pointer moving, after such a press
+//	titlebar_buttons        draw the window's buttons, where it has to
+//	titlebar_resizable      whether window_edge applies
+//	titlebar_resize         a press on one of those edges
+//	titlebar_restart_note   what the setting can't change until a restart
 
-Each platform has the same procedures:
-
-	titlebar_init           before GLFW starts: the platform to ask it for
-	titlebar_window_hints   before each window is made
-	titlebar_merge          merge the title bar into the UI, or put it back
-	titlebar_area           the strip along the top it took, if merged
-	titlebar_press          a press on that strip
-	titlebar_motion         the pointer moving, after such a press
-	titlebar_buttons        draw the window's buttons, where it has to
-	titlebar_resizable      whether window_edge applies
-	titlebar_resize         a press on one of those edges
-	titlebar_restart_note   what the setting can't change until a restart
-*/
-
-// How wide each of the window's own buttons is, at 96 dpi: what Windows
-// 10 and 11 give their caption buttons.
+// How wide each of the window's own buttons is, at 96 dpi: the width that
+// Windows 10 and 11 give their caption buttons.
 TITLEBAR_BUTTON_WIDTH :: 46
 TITLEBAR_BUTTON_COUNT :: 3
 
 // How far in from the window's edge the pointer resizes it, in logical
-// pixels, where that's left to us (titlebar_resizable).
+// pixels, where that is left to us (titlebar_resizable).
 @(private = "file")
 EDGE_SIZE :: 4
 
@@ -91,12 +89,10 @@ window_edge :: proc(ui: ^UI, x, y: i32) -> Window_Edge {
 	return .None
 }
 
-/*
-window_buttons draws minimize, maximize (or restore) and close in the top
-right corner of the window, `w` wide, in the strip titlebar_area made room
-for, `gap` window coordinates short of its left end. It returns which was
-clicked: 0, 1 or 2, or -1 for none.
-*/
+// window_buttons draws minimize, maximize (or restore) and close in the top
+// right corner of the window, `w` wide, in the strip that titlebar_area made
+// room for, `gap` window coordinates short of its left end. It returns which
+// one was clicked: 0, 1 or 2, or -1 for none.
 window_buttons :: proc(ui: ^UI, w: i32, gap: f32, maximized: bool) -> int {
 	ctx := &ui.ctx
 	size := (ui.titlebar_right - i32(gap * ui.input_scale)) / TITLEBAR_BUTTON_COUNT
@@ -116,7 +112,7 @@ window_buttons :: proc(ui: ^UI, w: i32, gap: f32, maximized: bool) -> int {
 		mu.update_control(ctx, id, r)
 		color := ctx.style.colors[.TEXT]
 		if ctx.hover_id == id {
-			// Close goes red, as Windows' own does.
+			// Close turns red, as Windows' own does.
 			shade := mu.Color{232, 17, 35, 255} if i == 2 else ctx.style.colors[.BUTTON_HOVER]
 			mu.draw_rect(ctx, r, shade)
 			if i == 2 {

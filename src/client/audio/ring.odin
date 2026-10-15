@@ -2,16 +2,14 @@ package audio
 
 import "core:sync"
 
-/*
-Single-producer, single-consumer ring of samples, safe without locks
-between exactly one writing thread and one reading thread. It connects
-the audio device callbacks (which must never block) to the network
-thread: capture callback -> network thread, network thread -> playback
-callback.
-
-Positions are running totals of samples written/read; the capacity is a
-power of two so they can be masked into the buffer.
-*/
+// Ring is a single-producer, single-consumer ring buffer of samples. It is
+// safe to use without locks between exactly one writing thread and one
+// reading thread. It connects the audio device callbacks (which must never
+// block) to the network thread: capture callback -> network thread and
+// network thread -> playback callback.
+//
+// Positions are running totals of the samples written and read. The capacity
+// is a power of two so positions can be masked into the buffer.
 Ring :: struct {
 	buf:   []f32,
 	mask:  u64,
@@ -43,7 +41,7 @@ ring_available :: proc "contextless" (r: ^Ring) -> int {
 }
 
 // ring_write (producer) copies in as much of `samples` as fits and returns
-// how many were written; the rest is dropped.
+// how many were written. The rest is dropped.
 ring_write :: proc "contextless" (r: ^Ring, samples: []f32) -> int {
 	w := sync.atomic_load_explicit(&r.write, .Relaxed)
 	rd := sync.atomic_load_explicit(&r.read, .Acquire)
@@ -68,7 +66,8 @@ ring_read :: proc "contextless" (r: ^Ring, out: []f32) -> int {
 	return n
 }
 
-// ring_skip (consumer) discards up to n samples.
+// ring_skip (consumer) discards up to n samples and returns how many it
+// actually discarded.
 ring_skip :: proc "contextless" (r: ^Ring, n: int) -> int {
 	rd := sync.atomic_load_explicit(&r.read, .Relaxed)
 	w := sync.atomic_load_explicit(&r.write, .Acquire)

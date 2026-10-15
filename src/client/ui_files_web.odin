@@ -7,20 +7,18 @@ import "client:conn"
 import "client:platform"
 import "common:proto"
 
-/*
-Picking a file to send, in a browser: a file input the page opens
-(web/files.js), which keeps the file and tells the client its name and
-size (web_file_picked). It has to be opened from something the person
-just did, which the click on the button is. For files to attach to a
-message (ui_attachments.odin), several may be picked, of any kind, and
-each is told of in turn.
-*/
+// Picking a file to send, in a browser: a file input that the page opens
+// (see web/files.js). The page keeps the file and tells the client its name and
+// size (see web_file_picked). It has to be opened from something the person
+// just did, which the click on the button is. For files to attach to a
+// message (see ui_attachments.odin), several may be picked, of any kind, and
+// each is reported in turn.
 
 File_Pick_Job :: struct {}
 
 @(private = "file")
 g_pick_to: proto.Account_Id
-// The pick is of files to attach, for this composer.
+// The pick is for files to attach to this composer.
 @(private = "file")
 g_pick_attach: bool
 @(private = "file")
@@ -48,7 +46,7 @@ attach_pick_start :: proc(ui: ^UI, at: Attach_Target) {
 }
 file_pick_wait :: proc(ui: ^UI) {}
 
-// The page's picked file: offered to whoever the button was pressed for.
+// The page's picked file is offered to whoever the button was pressed for.
 @(export)
 web_file_picked :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64) {
 	context = platform.callback_context()
@@ -77,11 +75,11 @@ web_file_picked :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 }
 
 // attach_dropped: a browser's dropped files come from the page
-// (web_file_dropped), not as paths.
+// (see web_file_dropped), not as paths.
 attach_dropped :: proc(ui: ^UI) {}
 
-// A file dropped on the page: attached to the message being written
-// where it was dropped.
+// A file was dropped on the page. It is attached to the message that is being
+// written where it was dropped.
 @(export)
 web_file_dropped :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64) {
 	context = platform.callback_context()
@@ -99,11 +97,11 @@ web_file_dropped :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64
 }
 
 // picked_file_read reads a picked file into its `preview`, for its chip
-// (ui_attachments.odin), a block at a time as the page has them
-// (web/files.js): false until it's all here. If it can't be read, false
-// and preview_failed.
+// (see ui_attachments.odin), a block at a time as the page has them
+// (see web/files.js). It returns false until all of it is here. If it can't be
+// read, it returns false and sets preview_failed.
 picked_file_read :: proc(f: ^Picked_File) -> (done: bool) {
-	BLOCK :: 1 << 20 // the page's
+	BLOCK :: 1 << 20 // the page's block size
 	if f.preview == nil {
 		f.preview = make([]u8, int(f.size))
 	}
@@ -117,7 +115,7 @@ picked_file_read :: proc(f: ^Picked_File) -> (done: bool) {
 		)
 		switch got {
 		case -1:
-			return false // on its way
+			return false // still on its way
 		case i32(n):
 			f.preview_read += n
 		case:

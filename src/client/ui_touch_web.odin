@@ -6,25 +6,22 @@ import "core:unicode/utf8"
 import "client:platform"
 import mu "vendor:microui"
 
-/*
-Touch and the phone keyboard, as the page hands them over (see
-web/touch.js). GLFW's own touch support only makes a finger into a
-mouse that presses wherever it lands, which microui can't use: it
-decides what a press hits from what the pointer hovered in the frame
-before, and a finger has no hover. And a drag through the channel list
-would join every channel on the way.
-
-So the page tells taps, long presses (a right click), vertical drags
-(scrolling) and sideways drags (the sliders) apart, and they come here
-as a queue of plain pointer and key events that is fed to microui one
-per frame: the pointer moves
-to where the finger landed, two frames go by - one for microui to find
-the panel under the pointer, one for the control in it - then it
-presses, and lets go in the frame after. Typing from the phone's keyboard - which types into
-a hidden field of the page's, the only thing that brings the keyboard
-up - is queued the same way, since microui sees at most one backspace
-per frame.
-*/
+// Touch and the phone keyboard, as the page hands them over (see
+// web/touch.js). GLFW's own touch support only turns a finger into a mouse
+// that presses wherever it lands, which microui can't use: it decides what a
+// press hits from what the pointer hovered in the frame before, and a finger
+// has no hover. Also, a drag through the channel list would join every channel
+// on the way.
+//
+// So the page tells apart taps, long presses (a right click), vertical drags
+// (scrolling) and sideways drags (the sliders). They come here as a queue of
+// plain pointer and key events that is fed to microui one per frame. The
+// pointer moves to where the finger landed, two frames go by (one for microui
+// to find the panel under the pointer, one for the control in it), then it
+// presses, and releases in the frame after. Typing from the phone's keyboard,
+// which types into a hidden field of the page's (the only thing that brings
+// the keyboard up), is queued the same way, since microui sees at most one
+// backspace per frame.
 
 @(private = "file")
 Touch_Event_Kind :: enum {
@@ -32,16 +29,16 @@ Touch_Event_Kind :: enum {
 	Settle, // a frame with nothing new, for hover to catch up
 	Press,
 	Release,
-	Key, // down and up again
+	Key, // pressed and released again
 	Text,
-	Newline, // Enter, in a text area: a new line (Extra_Key.Newline)
+	Newline, // Enter in a text area: a new line (Extra_Key.Newline)
 }
 
 @(private = "file")
 Touch_Event :: struct {
 	kind:   Touch_Event_Kind,
-	x, y:   i32, // Move, in layout pixels
-	button: mu.Mouse, // Press and Release
+	x, y:   i32, // for Move, in layout pixels
+	button: mu.Mouse, // for Press and Release
 	key:    mu.Key,
 	text:   [4]u8, // one character, UTF-8
 	text_n: int,
@@ -50,16 +47,16 @@ Touch_Event :: struct {
 @(private = "file")
 g_touch: [dynamic]Touch_Event
 
-// The focused text box is a text area, where the keyboard's Enter starts
-// a new line rather than sending (touch_after_frame).
+// The focused text box is a text area, where the keyboard's Enter starts a new
+// line rather than sending (touch_after_frame).
 @(private = "file")
 g_multiline: bool
 
 @(default_calling_convention = "c")
 foreign _ {
-	// Takes the keyboard away: the page's hidden field loses the focus.
+	// Hides the keyboard: the page's hidden field loses the focus.
 	yap_keyboard_hide :: proc() ---
-	// Labels the keyboard's Enter key: a new line, or send.
+	// Labels the keyboard's Enter key: either a new line or send.
 	yap_keyboard_multiline :: proc(on: b32) ---
 }
 
@@ -70,7 +67,7 @@ touch_step :: proc(ui: ^UI) {
 		return
 	}
 	e := pop_front(&g_touch)
-	ui_redraw(ui) // and with more queued, the frames to take them
+	ui_redraw(ui) // and with more events queued, draw the frames to handle them
 	ctx := &ui.ctx
 	switch e.kind {
 	case .Move:
@@ -92,9 +89,9 @@ touch_step :: proc(ui: ^UI) {
 	}
 }
 
-// touch_after_frame puts the keyboard away once no text box has the
-// focus any more (a message sent and the page changed, say), and labels
-// its Enter key for the one that has.
+// touch_after_frame hides the keyboard once no text box has the focus any more
+// (for example when a message was sent and the page changed), and labels its
+// Enter key for the text box that has the focus.
 touch_after_frame :: proc(ui: ^UI) {
 	focused, multiline := false, false
 	for b in ui.text_boxes {
@@ -127,7 +124,7 @@ to_layout :: proc(x, y: f64) -> (i32, i32) {
 @(private = "file")
 queue_move :: proc(x, y: f64) {
 	lx, ly := to_layout(x, y)
-	// Moves in a row only need the last one.
+	// For moves in a row, only the last one is needed.
 	if n := len(g_touch); n > 0 && g_touch[n - 1].kind == .Move {
 		g_touch[n - 1].x, g_touch[n - 1].y = lx, ly
 		return
@@ -135,8 +132,8 @@ queue_move :: proc(x, y: f64) {
 	queue({kind = .Move, x = lx, y = ly})
 }
 
-// The finger has gone: the pointer goes somewhere nothing is, so no
-// hover - a button's hint, say - stays behind where it was.
+// The finger has gone: the pointer moves somewhere with nothing, so no hover
+// (a button's hint, for example) stays behind where it was.
 @(private = "file")
 queue_lift :: proc() {
 	queue({kind = .Move, x = -1000, y = -1000})
@@ -153,9 +150,9 @@ text_box_at :: proc(x, y: f64) -> bool {
 	return false
 }
 
-// A tap: a click where the finger was. On a text box, the caret goes to
-// the end (in a text area, of the line tapped), where the keyboard's
-// typing arrives.
+// A tap: a click where the finger was. On a text box, the caret goes to the
+// end (in a text area, of the line that was tapped), which is where the
+// keyboard's typing arrives.
 @(export)
 web_touch_tap :: proc "c" (x, y: f64) {
 	context = platform.callback_context()
@@ -187,8 +184,8 @@ web_touch_hold :: proc "c" (x, y: f64) {
 	queue_lift()
 }
 
-// Whether a tap here lands on a text box, so the page brings up the
-// keyboard while it's still handling the tap.
+// Whether a tap here lands on a text box, so that the page brings up the
+// keyboard while it is still handling the tap.
 @(export)
 web_text_box_at :: proc "c" (x, y: f64) -> b32 {
 	context = platform.callback_context()
@@ -226,17 +223,17 @@ web_touch_drag_end :: proc "c" () {
 	queue_lift()
 }
 
-// A vertical drag scrolls what's under the finger, by `dy` page pixels
-// (positive: the finger went up, towards what's further down).
+// A vertical drag scrolls what is under the finger by `dy` page pixels
+// (positive: the finger went up, towards what is further down).
 @(export)
 web_touch_scroll :: proc "c" (x, y, dy: f64) {
 	context = platform.callback_context()
 	if g_ui == nil {
 		return
 	}
-	// Scrolling goes to the container under the pointer, which is
-	// worked out in the layout this frame, so it can move right away -
-	// nothing is pressed.
+	// Scrolling goes to the container under the pointer, which is worked out
+	// in the layout this frame, so it can move right away, since nothing is
+	// pressed.
 	if len(g_touch) == 0 {
 		lx, ly := to_layout(x, y)
 		mu.input_mouse_move(&g_ui.ctx, lx, ly)
@@ -245,9 +242,9 @@ web_touch_scroll :: proc "c" (x, y, dy: f64) {
 	ui_wake()
 }
 
-// Typing from the phone's keyboard: one character, a backspace, Enter
-// (in a text area, a new line: there's no Shift for it, and the send
-// button sends).
+// Typing from the phone's keyboard: one character, a backspace, or Enter (in a
+// text area a new line, since there is no Shift for it, and the send button
+// sends).
 @(export)
 web_text_rune :: proc "c" (r: rune) {
 	context = platform.callback_context()

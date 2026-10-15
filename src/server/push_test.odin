@@ -9,8 +9,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of Web Push's cryptography (push_crypto.odin), with RFC 8291's
-// example.
+// Tests for the Web Push cryptography (push_crypto.odin), using the example from RFC 8291.
 
 @(test)
 test_push_encrypt_rfc8291 :: proc(t: ^testing.T) {
@@ -25,8 +24,7 @@ test_push_encrypt_rfc8291 :: proc(t: ^testing.T) {
 	)
 	salt, _ := base64url_decode("DGv6ra1nlYgDCS1FRnbzlw", context.temp_allocator)
 	auth, _ := base64url_decode("BTBZMqHH6r4Tts7J_aSIgg", context.temp_allocator)
-	want :=
-		"DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
+	want := "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
 
 	key: ecdh.Private_Key
 	testing.expect(t, ecdh.private_key_set_bytes(&key, .SECP256R1, as_private))
@@ -42,14 +40,14 @@ test_push_encrypt_rfc8291 :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, base64url(body, context.temp_allocator), want)
 
-	// A fresh key and salt each time.
+	// Every call uses a fresh key and salt.
 	a, a_ok := push_encrypt(transmute([]u8)plaintext, ua_public, auth, context.temp_allocator)
 	b, b_ok := push_encrypt(transmute([]u8)plaintext, ua_public, auth, context.temp_allocator)
 	testing.expect(t, a_ok && b_ok)
 	testing.expect_value(t, len(a), len(body))
 	testing.expect(t, string(a) != string(b))
 
-	// Not a point, or too much to send.
+	// An invalid p256dh point, or a payload that is too large.
 	bad := make([]u8, P256_PUBLIC_SIZE, context.temp_allocator)
 	bad[0] = 4
 	_, bad_ok := push_encrypt(transmute([]u8)plaintext, bad, auth, context.temp_allocator)
@@ -71,7 +69,13 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 	testing.expect(t, !vapid_key_parse("abcd", &key))
 	testing.expect(t, vapid_key_parse(encoded, &key))
 
-	jwt := vapid_jwt(&key, "https://push.example.net", "mailto:admin@example.org", 1700000000, context.temp_allocator)
+	jwt := vapid_jwt(
+		&key,
+		"https://push.example.net",
+		"mailto:admin@example.org",
+		1700000000,
+		context.temp_allocator,
+	)
 	parts := strings.split(jwt, ".", context.temp_allocator)
 	testing.expect_value(t, len(parts), 3)
 	header, _ := base64url_decode(parts[0], context.temp_allocator)
@@ -90,8 +94,8 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 	testing.expect(t, ecdsa.verify_raw(&pub, .SHA256, transmute([]u8)signed, sig))
 }
 
-// ts_push_on has a test server push, without a thread: what it would
-// send stays in s.push.jobs.
+// ts_push_on enables push on a test server without starting the push thread, so the jobs
+// it would send stay in s.push.jobs.
 ts_push_on :: proc(t: ^testing.T, ts: ^Test_Server) {
 	p := &ts.s.push
 	encoded, ok := vapid_key_generate(context.temp_allocator)
@@ -124,8 +128,14 @@ test_push_subscriptions :: proc(t: ^testing.T) {
 	status, _ := ts_login(t, &ts, phone, "alice", "a password", "phone")
 	testing.expect_value(t, status, proto.Status.Ok)
 
-	// A server that doesn't push says so, and gives no key.
-	status, _ = ts_ask(t, &ts, phone, .Push_Subscribe, subscribe_body("https://push.example.net/a", 1))
+	// A server without push rejects subscriptions and doesn't advertise a key.
+	status, _ = ts_ask(
+		t,
+		&ts,
+		phone,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.net/a", 1),
+	)
 	testing.expect_value(t, status, proto.Status.Closed)
 	body: []u8
 	status, body = ts_ask(t, &ts, phone, .Server_Info)
@@ -137,21 +147,45 @@ test_push_subscriptions :: proc(t: ^testing.T) {
 	info, _ = proto.decode_server_info(body)
 	testing.expect(t, string(info.push_key) == string(ts.s.push.public[:]))
 
-	// Only https:// endpoints.
-	status, _ = ts_ask(t, &ts, phone, .Push_Subscribe, subscribe_body("http://push.example.net/a", 1))
+	// Only https:// endpoints with a path are accepted.
+	status, _ = ts_ask(
+		t,
+		&ts,
+		phone,
+		.Push_Subscribe,
+		subscribe_body("http://push.example.net/a", 1),
+	)
 	testing.expect_value(t, status, proto.Status.Invalid)
-	status, _ = ts_ask(t, &ts, phone, .Push_Subscribe, subscribe_body("https://push.example.net", 1))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		phone,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.net", 1),
+	)
 	testing.expect_value(t, status, proto.Status.Invalid)
 
-	status, _ = ts_ask(t, &ts, phone, .Push_Subscribe, subscribe_body("https://push.example.net/a", 1))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		phone,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.net/a", 1),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	subs := push_subs_of(&ts.s, alice.id)
 	testing.expect_value(t, len(subs), 1)
 	testing.expect_value(t, subs[0].endpoint, "https://push.example.net/a")
 	testing.expect_value(t, subs[0].auth[0], 1)
 
-	// One for each device: a new one takes the old one's place.
-	status, _ = ts_ask(t, &ts, phone, .Push_Subscribe, subscribe_body("https://push.example.net/b", 2))
+	// Each device has one subscription: a new one replaces the old one.
+	status, _ = ts_ask(
+		t,
+		&ts,
+		phone,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.net/b", 2),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	subs = push_subs_of(&ts.s, alice.id)
 	testing.expect_value(t, len(subs), 1)
@@ -160,25 +194,37 @@ test_push_subscriptions :: proc(t: ^testing.T) {
 	laptop := ts_connect(&ts)
 	status, _ = ts_login(t, &ts, laptop, "alice", "a password", "laptop")
 	testing.expect_value(t, status, proto.Status.Ok)
-	status, _ = ts_ask(t, &ts, laptop, .Push_Subscribe, subscribe_body("https://push.example.org/c", 3))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		laptop,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.org/c", 3),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, len(push_subs_of(&ts.s, alice.id)), 2)
 
-	// Turning it off is this device's.
+	// Unsubscribing only removes this device's subscription.
 	status, _ = ts_ask(t, &ts, laptop, .Push_Unsubscribe)
 	testing.expect_value(t, status, proto.Status.Ok)
 	subs = push_subs_of(&ts.s, alice.id)
 	testing.expect_value(t, len(subs), 1)
 	testing.expect_value(t, subs[0].endpoint, "https://push.example.net/b")
 
-	// A push service saying it's gone forgets it.
+	// A subscription that the push service reports as gone is deleted.
 	ts.s.push.results = make([dynamic]Push_Result)
 	append(&ts.s.push.results, Push_Result{subs[0].id, .Gone})
 	push_sync(&ts.s)
 	testing.expect_value(t, len(push_subs_of(&ts.s, alice.id)), 0)
 
-	// Logging out takes the device's with it.
-	status, _ = ts_ask(t, &ts, phone, .Push_Subscribe, subscribe_body("https://push.example.net/d", 4))
+	// Logging out deletes the device's subscription.
+	status, _ = ts_ask(
+		t,
+		&ts,
+		phone,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.net/d", 4),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, len(push_subs_of(&ts.s, alice.id)), 1)
 	status, _ = ts_ask(t, &ts, phone, .Auth_Logout)
@@ -186,7 +232,7 @@ test_push_subscriptions :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(push_subs_of(&ts.s, alice.id)), 0)
 }
 
-// A push the loop asked for: its payload, read, and how it's to go.
+// A push queued by the server loop: its decoded payload, and its delivery options.
 @(private = "file")
 Sent_Push :: struct {
 	using payload: Push_Payload,
@@ -195,7 +241,7 @@ Sent_Push :: struct {
 	urgency:       Push_Urgency,
 }
 
-// pushes_sent takes what the loop asked to be pushed.
+// pushes_sent takes the pushes the server loop has queued and clears the queue.
 @(private = "file")
 pushes_sent :: proc(t: ^testing.T, ts: ^Test_Server) -> []Sent_Push {
 	p := &ts.s.push
@@ -204,7 +250,8 @@ pushes_sent :: proc(t: ^testing.T, ts: ^Test_Server) -> []Sent_Push {
 		json.unmarshal(job.payload, &out[i].payload, allocator = context.temp_allocator)
 		out[i].endpoint = strings.clone(job.endpoint, context.temp_allocator)
 		out[i].ttl, out[i].urgency = job.ttl, job.urgency
-		// Pushes for the same notification replace each other on the way.
+		// Pushes for the same notification share a topic, so they replace each other while
+		// waiting at the push service.
 		testing.expect_value(t, job.topic, out[i].tag)
 		delete(job.endpoint)
 		delete(job.topic)
@@ -230,7 +277,13 @@ test_push_messages :: proc(t: ^testing.T) {
 	alice := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
 	carol := logged_in(t, &ts, "carol")
-	status, _ := ts_ask(t, &ts, alice, .Push_Subscribe, subscribe_body("https://push.example.net/a", 1))
+	status, _ := ts_ask(
+		t,
+		&ts,
+		alice,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.net/a", 1),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	tok := proto.mention_token(alice_acc.id)
 
@@ -240,11 +293,11 @@ test_push_messages :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	dm, _ := proto.decode_conv_id(answer)
 
-	// Here: the desktop tells her, not a push.
+	// Alice is present: her desktop notifies her, so nothing is pushed.
 	post(t, &ts, bob, dm, "here?", 1)
 	testing.expect_value(t, len(pushes_sent(t, &ts)), 0)
 
-	// Out of sight (a hidden page): pushed, though she isn't away.
+	// Her page is hidden: the message is pushed, even though she isn't away.
 	idle: [1]u8
 	status, _ = ts_ask(t, &ts, alice, .Idle_Set, proto.encode_idle(&idle, false, hidden = true))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -252,7 +305,7 @@ test_push_messages :: proc(t: ^testing.T) {
 	post(t, &ts, bob, dm, "hidden?", 7)
 	testing.expect_value(t, len(pushes_sent(t, &ts)), 1)
 
-	// Idle: pushed.
+	// She is idle: the message is pushed.
 	status, _ = ts_ask(t, &ts, alice, .Idle_Set, proto.encode_idle(&idle, true))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, activity_of(alice_acc), proto.Activity.Away)
@@ -269,7 +322,7 @@ test_push_messages :: proc(t: ^testing.T) {
 		testing.expect_value(t, sent[0].body, "hi @alice, lunch?")
 	}
 
-	// Gone: mentions are pushed, the rest of a channel isn't.
+	// She is disconnected: mentions are pushed, other channel messages aren't.
 	ts_disconnect(&ts, alice)
 	post(t, &ts, carol, home.id, "chatter", 3)
 	testing.expect_value(t, len(pushes_sent(t, &ts)), 0)
@@ -281,7 +334,7 @@ test_push_messages :: proc(t: ^testing.T) {
 		testing.expect_value(t, sent[0].title, "carol mentioned you in #Lobby")
 		testing.expect_value(t, sent[0].body, "look, @alice")
 	}
-	// Not from a conversation that tells her nothing.
+	// Nothing is pushed for a conversation she muted.
 	notify: [proto.CONV_NOTIFY_SIZE]u8
 	again := logged_in(t, &ts, "alice")
 	status, _ = ts_ask(t, &ts, again, .Conv_Notify, proto.encode_conv_notify(&notify, dm, .None))
@@ -290,10 +343,14 @@ test_push_messages :: proc(t: ^testing.T) {
 	post(t, &ts, bob, dm, "muted", 5)
 	testing.expect_value(t, len(pushes_sent(t, &ts)), 0)
 
-	// Without the text, if she'd rather.
+	// The message text is left out if she chose to hide it.
 	again = logged_in(t, &ts, "alice")
 	setting: [proto.SETTING_MAX_SIZE]u8
-	body := proto.encode_setting(setting[:], proto.SETTING_PUSH_TEXT, transmute([]u8)string(proto.PUSH_TEXT_HIDDEN))
+	body := proto.encode_setting(
+		setting[:],
+		proto.SETTING_PUSH_TEXT,
+		transmute([]u8)string(proto.PUSH_TEXT_HIDDEN),
+	)
 	status, _ = ts_ask(t, &ts, again, .Setting_Set, body)
 	testing.expect_value(t, status, proto.Status.Ok)
 	ts_disconnect(&ts, again)
@@ -318,15 +375,27 @@ test_push_calls :: proc(t: ^testing.T) {
 	phone := logged_in(t, &ts, "alice")
 	laptop := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
-	status, _ := ts_ask(t, &ts, phone, .Push_Subscribe, subscribe_body("https://push.example.net/phone", 1))
+	status, _ := ts_ask(
+		t,
+		&ts,
+		phone,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.net/phone", 1),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
-	status, _ = ts_ask(t, &ts, laptop, .Push_Subscribe, subscribe_body("https://push.example.net/laptop", 2))
+	status, _ = ts_ask(
+		t,
+		&ts,
+		laptop,
+		.Push_Subscribe,
+		subscribe_body("https://push.example.net/laptop", 2),
+	)
 	testing.expect_value(t, status, proto.Status.Ok)
 	phone_key := phone.key
 	ts_disconnect(&ts, phone)
 	ts_disconnect(&ts, laptop)
 
-	// Nobody here, but pushed: it rings all the same.
+	// Alice has no connection, but has push subscriptions: the call rings anyway.
 	buf: [4]u8
 	body: []u8
 	status, body = ts_ask(t, &ts, bob, .Call_Start, proto.encode_account_id(&buf, alice_acc.id))
@@ -342,7 +411,7 @@ test_push_calls :: proc(t: ^testing.T) {
 		testing.expect_value(t, sent[0].tag, fmt.tprintf("call%d", call))
 	}
 
-	// The phone the push brought up is told it rings, and answers it.
+	// The phone that the push woke up is told the call is ringing, and answers it.
 	phone = ts_connect(&ts, phone_key)
 	testing.expect(t, phone.account == alice_acc)
 	rang := false
@@ -354,8 +423,8 @@ test_push_calls :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, len(pushes_sent(t, &ts)), 0)
 
-	// Over: the laptop is told quietly it was answered; the phone that
-	// answered isn't.
+	// The call ends: the laptop is silently told it was answered elsewhere; the phone that
+	// answered isn't told anything.
 	status, _ = ts_ask(t, &ts, bob, .Call_End, proto.encode_call_id(&buf, call))
 	testing.expect_value(t, status, proto.Status.Ok)
 	sent = pushes_sent(t, &ts)
@@ -366,7 +435,8 @@ test_push_calls :: proc(t: ^testing.T) {
 		testing.expect(t, sent[0].quiet && !sent[0].ring)
 	}
 
-	// Called while away and given up on: a missed call, in its place.
+	// A call while she's away that the caller gives up on: a missed call notification
+	// replaces the ringing one.
 	ts_disconnect(&ts, phone)
 	status, body = ts_ask(t, &ts, bob, .Call_Start, proto.encode_account_id(&buf, alice_acc.id))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -382,7 +452,8 @@ test_push_calls :: proc(t: ^testing.T) {
 		testing.expect_value(t, sent[0].urgency, Push_Urgency.Normal)
 	}
 
-	// Without push, nobody here is still a missed call at once.
+	// Without push subscriptions, calling someone who isn't connected is still
+	// immediately a missed call.
 	status, _ = ts_ask(t, &ts, bob, .Call_Start, proto.encode_account_id(&buf, carol_acc.id))
 	testing.expect_value(t, status, proto.Status.Closed)
 	testing.expect_value(t, len(pushes_sent(t, &ts)), 0)

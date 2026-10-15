@@ -11,20 +11,19 @@ import "core:time"
 import "common:proto"
 import "sqlite"
 
-/*
-`yap-server purge ...`: purging from the command line, with the server
-stopped (retention.odin has what's kept and what goes).
-
-	yap-server purge <what> <before> [files] [-y] [config.json]
-
-<what>     all, a channel's name, or a DM as alice+bob
-<before>   a day, 2026-09-01 (midnight UTC), or a number of days ago, 30d
-files      only the files messages carry go; the messages stay
-
-It says what it would remove and asks first, unless given -y. Then it
-removes it, the stored files nothing uses any more, and the free room
-in the database, and says how it went.
-*/
+// `yap-server purge ...` purges messages from the command line while the
+// server is stopped (see retention.odin for what is kept and what is removed).
+//
+//	yap-server purge <what> <before> [files] [-y] [config.json]
+//
+// <what>     all, a channel's name, or a DM written as alice+bob
+// <before>   a day such as 2026-09-01 (midnight UTC), or a number of days ago
+//            such as 30d
+// files      only the files attached to messages are removed; the messages stay
+//
+// It reports what it would remove and asks for confirmation unless -y is given.
+// Then it removes the messages, the stored files that are no longer used, and
+// the free space in the database, and reports the result.
 
 PURGE_USAGE :: `usage: yap-server purge <all|channel|alice+bob> <YYYY-MM-DD|<days>d> [files] [-y] [config.json]`
 
@@ -50,11 +49,17 @@ run_purge_command :: proc(args: []string) -> int {
 
 	before, date_ok := parse_before(when_text)
 	if !date_ok {
-		fmt.eprintfln("%q isn't a day (2026-09-01) or a number of days ago (30d)", when_text)
+		fmt.eprintfln(
+			"%q isn't a valid date (like 2026-09-01) or a number of days ago (like 30d)",
+			when_text,
+		)
 		return 2
 	}
 	if !os.exists(config) {
-		fmt.eprintfln("%s: no such config (run the server once, or name its config)", config)
+		fmt.eprintfln(
+			"%s: config file not found (start the server once to create it, or pass the path to its config)",
+			config,
+		)
 		return 2
 	}
 	settings, config_ok := load_config(config)
@@ -102,8 +107,8 @@ run_purge_command :: proc(args: []string) -> int {
 	retention_open(&r, &db, {})
 	defer retention_close(&r)
 	if r.asked {
-		// One the server was in the middle of, which comes first.
-		fmt.println("finishing a purge the server didn't get through first")
+		// The server was in the middle of a purge, which has to finish first.
+		fmt.println("first finishing a purge that the server did not complete")
 		retention_drain(&r, &bs)
 	}
 
@@ -130,14 +135,14 @@ run_purge_command :: proc(args: []string) -> int {
 	day := format_day(before)
 	if files {
 		fmt.printfln(
-			"the files of messages in %s from before %s: up to %d messages' (pinned messages keep theirs)",
+			"files attached to messages in %s from before %s: up to %d messages (pinned messages keep their files)",
 			place,
 			day,
 			with_files,
 		)
 	} else {
 		fmt.printfln(
-			"the messages in %s from before %s: up to %d, %d of them with files (pinned ones are kept, and so are threads with newer replies)",
+			"messages in %s from before %s: up to %d, %d of them with files (pinned messages and threads with newer replies are kept)",
 			place,
 			day,
 			count,
@@ -145,8 +150,8 @@ run_purge_command :: proc(args: []string) -> int {
 		)
 	}
 	if (with_files if files else count) == 0 {
-		fmt.println("nothing to purge there; tidying up what's unused")
-	} else if !yes && !confirm("remove them for good?") {
+		fmt.println("nothing to purge there; cleaning up unused files and database space")
+	} else if !yes && !confirm("remove them permanently?") {
 		fmt.println("nothing purged")
 		return 0
 	}
@@ -161,9 +166,9 @@ run_purge_command :: proc(args: []string) -> int {
 	db_close(&db)
 	opened = false
 	fmt.printfln(
-		"purged %d %s; removed %d stored file(s); the database went from %s to %s",
+		"purged %d %s; removed %d stored file(s); the database size went from %s to %s",
 		messages,
-		"messages' files" if files else "message(s)",
+		"message file(s)" if files else "message(s)",
 		blobs,
 		megabytes(size_before),
 		megabytes(db_files_size(settings.db_path)),
@@ -171,36 +176,36 @@ run_purge_command :: proc(args: []string) -> int {
 	return 0
 }
 
-// purge_target is the conversation the command line names: a channel,
-// or alice+bob for their DM.
+// purge_target returns the conversation named on the command line, which is
+// either a channel or a DM written as alice+bob.
 @(private = "file")
 purge_target :: proc(convs: ^Convs, a: ^Accounts, name: string) -> ^Conv {
 	if plus := strings.index_byte(name, '+'); plus > 0 {
 		x := account_find(a, name[:plus])
 		y := account_find(a, name[plus + 1:])
 		if x == nil || y == nil {
-			fmt.eprintfln(
-				"%s: there's no such account",
-				name[:plus] if x == nil else name[plus + 1:],
-			)
+			fmt.eprintfln("%s: no such account", name[:plus] if x == nil else name[plus + 1:])
 			return nil
 		}
 		pair := [2]proto.Account_Id{min(x.id, y.id), max(x.id, y.id)}
 		conv := convs.dms[pair] or_else nil
 		if conv == nil {
-			fmt.eprintfln("%s and %s have no DM", x.username, y.username)
+			fmt.eprintfln("%s and %s have no DM with each other", x.username, y.username)
 		}
 		return conv
 	}
 	conv := conv_by_name(convs, strings.trim_prefix(name, "#"))
 	if conv == nil {
-		fmt.eprintfln("there's no channel called %s (or all, or alice+bob for a DM)", name)
+		fmt.eprintfln(
+			"there is no channel called %s (use \"all\" for everything, or alice+bob for a DM)",
+			name,
+		)
 	}
 	return conv
 }
 
-// parse_before reads a day (2026-09-01, midnight UTC) or a number of days
-// ago (30d), as Unix milliseconds.
+// parse_before reads either a day (such as 2026-09-01, meaning midnight UTC) or
+// a number of days ago (such as 30d) and returns it as Unix milliseconds.
 @(private = "file")
 parse_before :: proc(text: string) -> (ms: i64, ok: bool) {
 	if strings.has_suffix(text, "d") {
@@ -229,7 +234,7 @@ format_day :: proc(ms: i64) -> string {
 	return fmt.tprintf("%04d-%02d-%02d %02d:%02d UTC", y, int(mon), d, h, m)
 }
 
-// confirm asks a yes or no question on the terminal; no unless yes.
+// confirm asks a yes/no question on the terminal. Anything but "y" or "yes" counts as no.
 @(private = "file")
 confirm :: proc(question: string) -> bool {
 	fmt.printf("%s [y/N] ", question)
@@ -243,8 +248,8 @@ confirm :: proc(question: string) -> bool {
 	return answer == "y" || answer == "yes"
 }
 
-// db_files_size is how much room the database takes: its file and its
-// log.
+// db_files_size returns the disk space used by the database file and its
+// write-ahead log.
 @(private = "file")
 db_files_size :: proc(path: string) -> i64 {
 	total: i64

@@ -4,8 +4,8 @@ import "core:testing"
 
 import "common:proto"
 
-// ts_bot_key is a token's public key for a test: any 32 bytes do, as
-// the test's connections never handshake.
+// ts_bot_key returns a token's public key for a test. Any 32 bytes work
+// because the test's connections never perform a handshake.
 @(private = "file")
 ts_bot_key :: proc(n: u8) -> (key: [proto.KEY_SIZE]u8) {
 	key[0], key[1] = 0xb0, n
@@ -29,7 +29,7 @@ test_bot_create :: proc(t: ^testing.T) {
 
 	buf: [proto.BOT_BODY_MAX]u8
 	key := ts_bot_key(1)
-	// Only for who manages accounts.
+	// Only accounts that can manage accounts may create bots.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -38,7 +38,7 @@ test_bot_create :: proc(t: ^testing.T) {
 		proto.encode_bot_create(buf[:], "weather", "Weather", key, ""),
 	)
 	testing.expect_value(t, status, proto.Status.Denied)
-	// Not without a key, nor with a name that's taken.
+	// Creating a bot fails without a key or with a name that's taken.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -72,14 +72,14 @@ test_bot_create :: proc(t: ^testing.T) {
 	testing.expect_value(t, bot.username, "weather")
 	testing.expect_value(t, bot.display, "The weather")
 	testing.expect_value(t, bot.flags, proto.Account_Flags{.Bot})
-	// Everyone is told of it, with its flag.
+	// Everyone is told about the new bot, including its flag.
 	e, told := has_event(ts_events(t, &ts, admin), .Account_Changed)
 	testing.expect(t, told)
 	record, decoded := proto.decode_account(e.body)
 	testing.expect(t, decoded)
 	testing.expect_value(t, record.flags, proto.Account_Flags{.Bot})
 
-	// The key is a device already: another bot can't have it.
+	// The key is already a device, so another bot can't use it.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -89,7 +89,7 @@ test_bot_create :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Conflict)
 
-	// Its token is all it takes to be logged in.
+	// The bot's token alone is enough to log it in.
 	conn := ts_connect(&ts, key)
 	testing.expect(t, conn.account == bot)
 	d := device_of(&ts.s.accounts, key)
@@ -124,14 +124,14 @@ test_bot_limits :: proc(t: ^testing.T) {
 	bot := ts_connect(&ts, ts_bot_key(1))
 	testing.expect(t, bot.account != nil && bot.account.id == id)
 
-	// No password gets anyone in, not even none.
+	// No password logs in as the bot, not even an empty one.
 	stranger := ts_connect(&ts)
 	for password in ([]string{"", "a password"}) {
 		status, _ = ts_login(t, &ts, stranger, "helper", password)
 		testing.expect_value(t, status, proto.Status.Wrong_Password)
 	}
-	// It has none to change, an admin can't give it one, and it can't
-	// prove it's deleting itself.
+	// A bot has no password to change, an admin can't set one, and the
+	// bot can't delete itself because it can't prove it knows a password.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -151,7 +151,8 @@ test_bot_limits :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, bot, .Account_Delete, proto.encode_account_delete(buf[:], id, ""))
 	testing.expect_value(t, status, proto.Status.Denied)
 
-	// No voice: not in a room, not in a call, either way round.
+	// Bots can't use voice. They can't join a room or take part in a call,
+	// either as caller or as callee.
 	room_buf: [4]u8
 	home := proto.Room(ts.s.convs.home.id)
 	status, _ = ts_ask(t, &ts, bot, .Voice_Join, proto.encode_room(&room_buf, home))
@@ -169,7 +170,7 @@ test_bot_limits :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, alice, .Call_Start, proto.encode_account_id(&id_buf, id))
 	testing.expect_value(t, status, proto.Status.Denied)
 
-	// Messages are as anyone's.
+	// Messaging works for bots like for any other account.
 	dm_buf: [4]u8
 	status, _ = ts_ask(t, &ts, alice, .DM_Open, proto.encode_account_id(&dm_buf, id))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -200,7 +201,7 @@ test_bot_tokens :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	id, _ := proto.decode_account_id(body)
 
-	// Another token, for another place it runs.
+	// Add another token for another place where the bot runs.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -217,7 +218,8 @@ test_bot_tokens :: proc(t: ^testing.T) {
 		proto.encode_bot_token_add(buf[:], id, ts_bot_key(2), "server"),
 	)
 	testing.expect_value(t, status, proto.Status.Ok)
-	// Not twice, and only for a bot.
+	// The same token can't be added twice, and tokens can only be added
+	// to a bot.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -240,7 +242,7 @@ test_bot_tokens :: proc(t: ^testing.T) {
 	testing.expect(t, first.account != nil && first.account.id == id)
 	testing.expect(t, second.account == first.account)
 
-	// The admin sees its tokens; nobody else does.
+	// The admin can see the bot's tokens, nobody else can.
 	id_buf: [4]u8
 	status, body = ts_ask(t, &ts, admin, .Device_List, proto.encode_account_id(&id_buf, id))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -263,7 +265,7 @@ test_bot_tokens :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Denied)
 	status, _ = ts_ask(t, &ts, alice, .Device_List, proto.encode_account_id(&id_buf, 999))
 	testing.expect_value(t, status, proto.Status.Not_Found)
-	// Asking for one's own by id is as asking without.
+	// Asking for one's own devices by id is the same as asking without an id.
 	status, body = ts_ask(
 		t,
 		&ts,
@@ -276,7 +278,7 @@ test_bot_tokens :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, len(devices), 1)
 
-	// Revoking one logs it out and leaves the other.
+	// Revoking one token logs that connection out and leaves the other.
 	revoke_buf: [proto.ACCOUNT_BODY_MAX]u8
 	status, _ = ts_ask(
 		t,

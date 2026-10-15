@@ -10,40 +10,38 @@ import "client:conn"
 import "client:settings"
 import "common:proto"
 
-/*
-The bar over a message, at its top right corner while the pointer is on
-it: react to it, reply in its thread, edit it, pin or unpin it, delete
-it. Each is offered only where it's allowed (the server checks again):
-
-	Recent   the emoji last reacted with on this server
-	         (settings.recent_reactions), lit if we have already, when
-	         clicking takes ours back; a server's own emoji it no longer
-	         has are left out
-	Reply    in the conversation's timeline (a thread's window has its
-	         composer already)
-	Edit     our own text messages
-	Pin      either of the two in a DM, Pin_Messages in a channel; not a
-	         reply in a thread
-	Delete   our own, or anyone's with Manage_Messages; asked first (the
-	         message menu asks, ui_message_menu.odin), unless Shift is
-	         held
-
-The timelines find the message under the pointer as they lay their
-messages out (message_bar_track), and the bar is drawn after them all,
-in a window of its own: so it's over the message, a thread window's
-too, and has the pointer to itself rather than sharing it with what's
-under it. The bar reaches up over the message above; while the pointer
-is on it, it stays with its own.
-
-A touch screen has no pointer to hover with: a tap on a message shows
-its bar, which stays until something else is tapped or one of its
-buttons is.
-*/
+// The bar over a message. It is shown at the message's top right corner while
+// the pointer is on the message, and offers to react to it, reply in its
+// thread, edit it, pin or unpin it and delete it. Each action is only offered
+// where it is allowed (the server checks again):
+//
+//   Recent   The emoji most recently reacted with on this server
+//            (settings.recent_reactions). An emoji is highlighted if we
+//            already reacted with it, and clicking it takes our reaction
+//            back. Custom emoji that the server no longer has are left out.
+//   Reply    In the conversation's timeline (a thread's window already has
+//            its composer).
+//   Edit     Our own text messages.
+//   Pin      Either participant in a DM, Pin_Messages in a channel. Replies in
+//            a thread cannot be pinned.
+//   Delete   Our own messages, or anyone's with Manage_Messages. The user is
+//            asked first (the message menu asks, see ui_message_menu.odin)
+//            unless Shift is held.
+//
+// The timelines find the message under the pointer while they lay out their
+// messages (message_bar_track). The bar is drawn after all of them in a window
+// of its own, so it is above the message (including in a thread window) and
+// receives the pointer instead of the content below it. The bar reaches up
+// over the message above, and stays with its own message while the pointer is
+// on the bar.
+//
+// A touch screen has no pointer to hover with. Tapping a message shows its bar,
+// which stays until something else or one of its buttons is tapped.
 
 // Which message the bar is for.
 Bar_Target :: struct {
 	conv: proto.Conv_Id,
-	slot: int, // its timeline: 0 the conversation's, else a thread window's
+	slot: int, // its timeline: 0 for the conversation's, otherwise a thread window's
 	id:   proto.Msg_Id,
 }
 
@@ -51,16 +49,16 @@ UI_Message_Bar :: struct {
 	// This frame's message, found while the timelines were laid out.
 	found:        bool,
 	target:       Bar_Target,
-	msg:          conn.View_Message, // the View's, good for this frame
+	msg:          conn.View_Message, // from the View, valid for this frame
 	block:        mu.Rect, // where the message is
-	clip:         mu.Rect, // what of its timeline is on screen
+	clip:         mu.Rect, // the part of its timeline that is on screen
 	host:         ^mu.Container, // the window its timeline is in
-	// Where the bar was last frame, if it was there.
+	// Where the bar was last frame, if it was shown.
 	shown:        bool,
 	shown_target: Bar_Target,
 	rect:         mu.Rect,
-	// The message tapped on a touch screen, whose bar stays; and whether
-	// this frame's tap (UI.touch_tap) landed on a message.
+	// The message tapped on a touch screen, whose bar stays visible, and
+	// whether this frame's tap (UI.touch_tap) landed on a message.
 	tapped:       Bar_Target,
 	tap_claimed:  bool,
 }
@@ -71,11 +69,10 @@ BAR_WINDOW :: "message bar"
 @(private = "file")
 BAR_INSET :: 6
 
-/*
-message_bar_track is told of each message a timeline lays out, in
-`block`, with the timeline's panel the current container; the one the
-pointer is on (or that was tapped) is the one the bar is for this frame.
-*/
+// message_bar_track is called for each message a timeline lays out, with its
+// rectangle in `block` and the timeline's panel as the current container. The
+// message that the pointer is on (or that was tapped) is the one the bar is
+// shown for in this frame.
 message_bar_track :: proc(
 	ui: ^UI,
 	conv: proto.Conv_Id,
@@ -95,14 +92,13 @@ message_bar_track :: proc(
 	case b.tapped != {}:
 		want = b.tapped == t
 	case b.shown && mu.rect_overlaps_vec2(b.rect, ctx.mouse_pos):
-		// On the bar, which the message under it doesn't see the pointer
-		// through.
+		// On the bar, whose message below doesn't see the pointer.
 		want = b.shown_target == t
 	case:
 		want = mu.mouse_over(ctx, block)
 	}
 	clip := mu.get_clip_rect(ctx)
-	// Laid out, but off the panel.
+	// Laid out, but outside the panel.
 	if !want || mu.intersect_rects(block, clip).h <= 0 {
 		return
 	}
@@ -118,11 +114,9 @@ message_bar_track :: proc(
 	}
 }
 
-/*
-message_bar draws the bar for the message message_bar_track found, and
-does what's pressed on it. Call with the View locked, after every
-timeline of the frame.
-*/
+// message_bar draws the bar for the message found by message_bar_track and
+// handles its buttons. Call with the View locked, after every timeline of the
+// frame.
 message_bar :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -131,7 +125,7 @@ message_bar :: proc(ui: ^UI) {
 		b.found, b.tap_claimed = false, false
 		ui.touch_tap = false
 	}
-	// A tap on neither a message nor the bar lets the tapped one go.
+	// A tap on neither a message nor the bar hides the tapped message's bar.
 	if ui.touch_tap &&
 	   !b.tap_claimed &&
 	   !(b.shown && mu.rect_overlaps_vec2(b.rect, ctx.mouse_pos)) &&
@@ -151,8 +145,8 @@ message_bar :: proc(ui: ^UI) {
 	recent := bar_recent_reactions(ui, m)
 	n := len(recent) + 1 + int(reply) + int(edit) + int(pin) + int(del)
 
-	// At the message's top right, half over the line above it, and kept
-	// on the part of its timeline that's on screen.
+	// At the message's top right, half over the line above, and kept on the
+	// part of its timeline that is on screen.
 	pad, spacing := ctx.style.padding, ctx.style.spacing
 	row_h := ctx.style.size.y + 2 * pad
 	w := i32(n) * ICON_BUTTON + i32(n - 1) * spacing + 2 * pad
@@ -168,8 +162,8 @@ message_bar :: proc(ui: ^UI) {
 		return
 	}
 	cnt.rect = r
-	// Over the window its message is in (which may have been raised
-	// since), but not over whatever has been opened over that.
+	// Over the window its message is in (which may have been raised since),
+	// but not over any window opened on top of that.
 	if b.host != nil && cnt.zindex <= b.host.zindex {
 		mu.bring_to_front(ctx, cnt)
 	}
@@ -232,12 +226,12 @@ message_bar :: proc(ui: ^UI) {
 // One of the bar's recent reactions.
 @(private = "file")
 Recent_Reaction :: struct {
-	emoji:  string, // as reacted with: ":name:" for the server's, else the characters
-	custom: Maybe(int), // the server's emoji's index
-	me:     bool, // we have already
+	emoji:  string, // as reacted with: ":name:" for a server's emoji, otherwise the characters
+	custom: Maybe(int), // the index of the server's emoji
+	me:     bool, // we have already reacted with it
 }
 
-// bar_recent_reactions are the recent reactions the bar offers for `m`.
+// bar_recent_reactions are the recent reactions that the bar offers for `m`.
 @(private = "file")
 bar_recent_reactions :: proc(ui: ^UI, m: conn.View_Message) -> []Recent_Reaction {
 	v := ui.view
@@ -264,8 +258,8 @@ bar_recent_reactions :: proc(ui: ^UI, m: conn.View_Message) -> []Recent_Reaction
 	return out[:]
 }
 
-// recent_reaction_button is a recent reaction's button: its emoji, on
-// the highlight if it's ours already, and its :name: under it.
+// recent_reaction_button is the button for a recent reaction: its emoji,
+// highlighted if we already reacted with it, and its :name: below it.
 @(private = "file")
 recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 	ctx := &ui.ctx
@@ -304,10 +298,9 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 	return ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id
 }
 
-/*
-send_reaction gives (`on`) or takes back our reaction to message `id`;
-one given is noted as recent on this server, for the bar to offer.
-*/
+// send_reaction adds (`on`) or removes our reaction to message `id`. A
+// reaction that is added is also recorded as recent on this server, for the
+// bar to offer.
 send_reaction :: proc(ui: ^UI, id: proto.Msg_Id, emoji: string, on: bool) {
 	if ui.session == nil {
 		return

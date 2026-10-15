@@ -7,13 +7,12 @@ import "core:time"
 import "client:audio"
 import "common:proto"
 
-/*
-Calls on our end (src/common/proto/calls.odin): the one call our account
-is in, if any, as the server tells it, and asking to start, answer and
-end it. While one rings in, the ring plays; while ours rings out, the
-ringback. Our connection is in the call if it started it or answered it;
-the account's others only show that there is one.
-*/
+// This file handles calls on our end (src/common/proto/calls.odin). It tracks
+// the one call our account is in (if any) as reported by the server, and
+// sends requests to start, answer and end it. The ring plays while a call
+// rings in, and the ringback plays while our call rings out. This connection
+// is part of the call if it started or answered it. The account's other
+// connections only show that a call exists.
 
 Call_Status :: enum {
 	None,
@@ -25,24 +24,24 @@ Call_Status :: enum {
 Call_Client :: struct {
 	id:     proto.Call_Id,
 	status: Call_Status,
-	peer:   proto.Account_Id, // whom it's with
-	// This connection started it, or answered it: it's the one in it.
+	peer:   proto.Account_Id, // the other participant
+	// True if this connection started or answered the call and is thus the one in it.
 	here:   bool,
-	asking: bool, // a Call_Start is out
-	since:  time.Tick, // when it started ringing, or was answered
+	asking: bool, // a Call_Start request is pending
+	since:  time.Tick, // when the call started ringing or was answered
 }
 
-// Call somebody; headless, by name.
+// Calls somebody, by name (headless).
 Call_Command :: struct {
 	account: proto.Account_Id,
 	name:    string, // owned by the command
 }
-// Answer the call ringing in, on this connection.
+// Answers the incoming call on this connection.
 Call_Answer_Command :: struct {}
-// Hang up, cancel, or decline: whichever the call is.
+// Hangs up, cancels or declines the call, depending on its state.
 Call_Hangup_Command :: struct {}
 
-// The call as the UI shows it.
+// The call as shown by the UI.
 View_Call :: struct {
 	id:     proto.Call_Id,
 	status: Call_Status,
@@ -59,7 +58,7 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 		log.warn("there's no such account")
 		return
 	case cc.status != .None || cc.asking:
-		notify(c, false, "You're in a call already.")
+		notify(c, false, "You are already in a call.")
 		return
 	}
 	cc.asking = true
@@ -74,7 +73,7 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 			#partial switch status {
 			case .Ok:
 				id, _ := proto.decode_call_id(body)
-				// Ours, from here: told of it as it changes (Call_Changed).
+				// The call is ours, and we are told about changes to it (Call_Changed).
 				if cc.id == 0 || cc.id == id {
 					cc.id = id
 					cc.here = true
@@ -86,7 +85,7 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 					c,
 					false,
 					fmt.tprintf(
-						"%s isn't here; they'll see a missed call.",
+						"%s is not online. They will see a missed call.",
 						account_display(c, proto.Account_Id(tag)),
 					),
 				)
@@ -94,11 +93,14 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 				notify(
 					c,
 					false,
-					fmt.tprintf("%s is in a call.", account_display(c, proto.Account_Id(tag))),
+					fmt.tprintf(
+						"%s is already in a call.",
+						account_display(c, proto.Account_Id(tag)),
+					),
 				)
 			case .Reset:
 			case:
-				notify(c, false, fmt.tprintf("The call couldn't be made (%v).", status))
+				notify(c, false, fmt.tprintf("The server failed to start the call (%v).", status))
 			}
 		},
 		u64(account),
@@ -119,7 +121,11 @@ call_answer :: proc(c: ^Voice_Client) {
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
 				c.call.here = false
-				notify(c, false, "That call was answered elsewhere, or is over.")
+				notify(
+					c,
+					false,
+					"The call was already answered on another device, or it has ended.",
+				)
 				publish_call(c)
 			}
 		},
@@ -136,7 +142,8 @@ call_hangup :: proc(c: ^Voice_Client) {
 	request(c, .Call_End, proto.encode_call_id(&buf, cc.id), nil)
 }
 
-// calls_event takes an event about calls; false if `op` isn't one.
+// calls_event handles an event about calls. It returns false if `op` is not a
+// call event.
 calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	cc := &c.call
 	#partial switch op {
@@ -212,16 +219,16 @@ calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	return true
 }
 
-// calls_restart: a new connection is in no call, whatever the server
-// had of the old one.
+// calls_restart resets the call state. A new connection is not in any call,
+// regardless of what the server knew about the old connection.
 calls_restart :: proc(c: ^Voice_Client) {
 	c.call = {}
 	call_sounds(c)
 	publish_call(c)
 }
 
-// call_sounds plays what the call's state calls for: the ring while one
-// rings in, the ringback while ours rings out, else nothing.
+// call_sounds plays the sound that fits the call's state: the ring while a call
+// rings in, the ringback while our call rings out, and nothing otherwise.
 @(private = "file")
 call_sounds :: proc(c: ^Voice_Client) {
 	loop: audio.Loop_Kind
@@ -253,24 +260,25 @@ publish_call :: proc(c: ^Voice_Client) {
 	}
 }
 
-/*
-system_text is what a system message says: for a call (proto.Call_System),
-from the caller (`sender`, called `name`; `mine` if that's us), whether it
-was missed, declined, or how long it was. In the temp allocator.
-*/
+// system_text returns the text of a call system message (proto.Call_System),
+// which says whether the call was missed, declined, or how long it lasted.
+// `name` is the caller's name and `mine` is true if we are the caller. The
+// result is allocated in the temp allocator.
 system_text :: proc(what: u8, arg: u32, name: string, mine: bool) -> string {
 	switch proto.Call_System(what) {
 	case .Missed:
-		return "Missed call (not answered)" if mine else fmt.tprintf("Missed call from %s", name)
+		return "Your call was not answered" if mine else fmt.tprintf("Missed call from %s", name)
 	case .Declined:
-		return "Call declined" if mine else fmt.tprintf("Call from %s, declined", name)
+		return(
+			"Your call was declined" if mine else fmt.tprintf("You declined a call from %s", name) \
+		)
 	case .Ended:
-		return fmt.tprintf("Call, %s", call_length(int(arg)))
+		return fmt.tprintf("Call lasted %s", call_length(int(arg)))
 	}
-	return "(something happened that this version can't say)"
+	return "(This version cannot display this message)"
 }
 
-// call_length is a call's length as it's read: 1:05, or 1:02:05.
+// call_length formats a call's duration as 1:05 or 1:02:05.
 call_length :: proc(seconds: int) -> string {
 	if seconds >= 3600 {
 		return fmt.tprintf("%d:%02d:%02d", seconds / 3600, seconds / 60 % 60, seconds % 60)

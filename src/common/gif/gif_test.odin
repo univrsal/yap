@@ -2,16 +2,16 @@ package gif
 
 import "core:testing"
 
-// 6x4: red for 50 ms, green for 100, blue for 0; for ever.
+// 6x4, three frames: red for 50 ms, green for 100 ms, blue for 0 ms; loops forever.
 @(private = "file")
 ANIM := #load("testdata/anim.gif")
-// 4x4, four frames; no NETSCAPE2.0 block (once).
+// 4x4, four frames; no NETSCAPE2.0 block, so it plays once.
 @(private = "file")
 ONCE := #load("testdata/anim_once.gif")
-// 4x4, two frames; looped 2 more times.
+// 4x4, two frames; repeats 2 more times after the first play.
 @(private = "file")
 LOOP2 := #load("testdata/anim_loop2.gif")
-// 9 frames of 1000x1000.
+// 9 frames of 1000x1000 pixels.
 @(private = "file")
 BIG := #load("testdata/anim_big.gif")
 @(private = "file")
@@ -32,7 +32,8 @@ test_info :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, i.frames, 1)
 
-	// Without its trailer it's still read; cut off inside a block it isn't.
+	// A file missing only its trailer is still read, but one that is cut off
+	// inside a block is rejected.
 	_, ok = info(ANIM[:len(ANIM) - 1])
 	testing.expect(t, ok)
 	_, ok = info(ANIM[:len(ANIM) - 6])

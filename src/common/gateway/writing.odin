@@ -10,30 +10,28 @@ import "core:time"
 import "common:lite"
 import "common:proto"
 
-/*
-Writing (docs/bot-api, phase 5): posting, editing, deleting, reacting,
-pinning, reading, typing, DMs, subscribing, the profile and activity.
+// Writing (docs/bot-api, phase 5): posting, editing, deleting, reacting,
+// pinning, reading, typing, DMs, subscribing, the profile and activity.
+//
+// Endpoints that create a message (posting and forwarding, status 201) reply
+// with the message as the server stores it. The gateway requests it after the
+// post, so the reply shows how the server processed the text (mentions,
+// links) and, for a repeated post, the original message. Endpoints that
+// change a message (edit, delete, pin, reactions) reply with 204. The changed
+// message is delivered as an event (phase 6) to whoever is listening.
+// Endpoints that reply from the model (the profile, activity, a DM,
+// subscribing) first wait for the events of the change (after_events).
+//
+// Bodies are JSON objects. A field that is left out stays unchanged, and null
+// means "none" where that makes sense.
 
-What answers with a message (posting, forwarding: 201) answers with it
-as the server keeps it, asked for once it's posted: what the server made
-of the text (mentions, links), and a repeated post's first message. What
-changes a message (edit, delete, pin, reactions) answers 204: the
-message as it is then comes as an event (phase 6), to whoever's
-listening. What answers from the model (the profile, activity, a DM,
-subscribing) waits for the events of the change first (after_events).
-
-Bodies are JSON objects; a field left out is left as it is, and null,
-where it means something, is "none".
-*/
-
-/*
-POST /convs/{id}/messages {content, thread, nonce} -> 201 the message.
-`content` as a person types it, markdown, @mentions and all; `thread`
-the thread's first message, to reply in it; `nonce` anything (a string
-or a number), the same for a post tried again, which then isn't posted
-twice; `attachments` the ids of uploads (files.odin) to go with it, which
-the text may then go without.
-*/
+// POST /convs/{id}/messages {content, thread, nonce} -> 201 the message.
+// `content` is the text as a person would type it, including markdown and
+// @mentions. `thread` is the first message of a thread, to reply in it.
+// `nonce` can be anything (a string or a number) and must be the same when a
+// post is retried, so that it isn't posted twice. `attachments` are the ids of
+// uploads (files.odin) to send along with it, in which case the text may be
+// empty.
 @(private)
 post_run :: proc(c: ^Conn, j: ^Job) {
 	conv, ok := param_id(j, 0)
@@ -63,7 +61,7 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 					400,
 					"invalid",
 					fmt.tprintf(
-						"attachments is a list of at most %d uploads.",
+						"attachments must be a list of at most %d uploads.",
 						proto.MAX_ATTACHMENTS,
 					),
 				),
@@ -76,7 +74,10 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 				return
 			}
 			if id == 0 {
-				reply(j, error_reply(400, "invalid", "An attachment is an upload's id."))
+				reply(
+					j,
+					error_reply(400, "invalid", "Each attachment must be the id of an upload."),
+				)
 				return
 			}
 			p.uploads[i] = id
@@ -89,7 +90,7 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 			error_reply(
 				400,
 				"invalid",
-				"content is the message's text (which files may go without).",
+				"content is required and contains the message's text, unless the message has attachments.",
 			),
 		)
 		return
@@ -100,7 +101,7 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 			error_reply(
 				400,
 				"invalid",
-				fmt.tprintf("content is at most %d bytes.", proto.MAX_CHAT_SIZE),
+				fmt.tprintf("content can be at most %d bytes long.", proto.MAX_CHAT_SIZE),
 			),
 		)
 		return
@@ -120,10 +121,9 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Msg_Post, proto.encode_msg_post(buf[:], p))
 }
 
-/*
-POST /messages/{id}/forward {conv, thread, nonce} -> 201 the copy: the
-message, one the account may read, copied to `conv` (proto/forward.odin).
-*/
+// POST /messages/{id}/forward {conv, thread, nonce} -> 201 the copy. The
+// message must be one that the account may read, and it is copied to `conv`
+// (proto/forward.odin).
 @(private)
 forward_run :: proc(c: ^Conn, j: ^Job) {
 	msg, ok := param_id(j, 0)
@@ -144,7 +144,14 @@ forward_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	if f.conv == 0 {
-		reply(j, error_reply(400, "invalid", "conv is where to forward it to."))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				"conv is required and is the conversation to forward the message to.",
+			),
+		)
 		return
 	}
 	if id, id_ok := field_id(j, obj, "thread"); id_ok {
@@ -162,11 +169,9 @@ forward_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Msg_Forward, proto.encode_msg_forward(&buf, f))
 }
 
-/*
-posted takes a post's (or forward's) answer, and asks for the message
-it made: by then, as the server tells of a message as it answers its
-post, the model has it too.
-*/
+// posted handles the answer to a post (or forward) and requests the message
+// that it created. The server announces a message before it answers the post,
+// so the model already has the message by then.
 @(private)
 posted :: proc(c: ^Conn, j: ^Job, a: lite.Answer) {
 	if a.status != .Ok {
@@ -188,7 +193,8 @@ posted :: proc(c: ^Conn, j: ^Job, a: lite.Answer) {
 				return
 			}
 		}
-		// Posted, but gone again already (deleted, purged): what's known.
+		// The message was posted but is already gone (deleted or purged), so
+		// reply with what is known.
 		m := proto.Message {
 			id     = id,
 			conv   = proto.Conv_Id(j.scratch[1]),
@@ -209,7 +215,8 @@ posted :: proc(c: ^Conn, j: ^Job, a: lite.Answer) {
 	ask(c, j, .Msg_History, proto.encode_msg_history(&buf, h))
 }
 
-// PATCH /messages/{id} {content} -> 204: the account's own text message.
+// PATCH /messages/{id} {content} -> 204 edits one of the account's own text
+// messages.
 @(private)
 edit_run :: proc(c: ^Conn, j: ^Job) {
 	msg, ok := param_id(j, 0)
@@ -226,7 +233,14 @@ edit_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	if got != .Value || text == "" {
-		reply(j, error_reply(400, "invalid", "content is the message's new text."))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				"content is required and contains the message's new text.",
+			),
+		)
 		return
 	}
 	if len(text) > proto.MAX_CHAT_SIZE {
@@ -235,7 +249,7 @@ edit_run :: proc(c: ^Conn, j: ^Job) {
 			error_reply(
 				400,
 				"invalid",
-				fmt.tprintf("content is at most %d bytes.", proto.MAX_CHAT_SIZE),
+				fmt.tprintf("content can be at most %d bytes long.", proto.MAX_CHAT_SIZE),
 			),
 		)
 		return
@@ -245,7 +259,8 @@ edit_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Msg_Edit, proto.encode_msg_edit(&buf, proto.Msg_Id(msg), text))
 }
 
-// DELETE /messages/{id} -> 204: one's own, or any with Manage_Messages.
+// DELETE /messages/{id} -> 204 deletes a message. The account can delete its
+// own messages, or any message with the Manage_Messages permission.
 @(private)
 delete_run :: proc(c: ^Conn, j: ^Job) {
 	msg, ok := param_id(j, 0)
@@ -281,8 +296,9 @@ pin :: proc(c: ^Conn, j: ^Job, on: bool) {
 	ask(c, j, .Msg_Pin, proto.encode_msg_pin(&buf, proto.Msg_Id(msg), on))
 }
 
-// PUT and DELETE /messages/{id}/reactions/{emoji} -> 204: the emoji
-// URL-encoded, or :name: of one of the server's own.
+// PUT and DELETE /messages/{id}/reactions/{emoji} -> 204 add or remove a
+// reaction. The emoji is the URL-encoded character, or :name: for one of the
+// server's own emoji.
 @(private)
 react_run :: proc(c: ^Conn, j: ^Job) {
 	react(c, j, true)
@@ -302,7 +318,7 @@ react :: proc(c: ^Conn, j: ^Job, on: bool) {
 	}
 	emoji := j.params[1]
 	if len(emoji) > proto.MAX_REACTION_EMOJI {
-		reply(j, error_reply(400, "invalid", "That's no emoji."))
+		reply(j, error_reply(400, "invalid", "The emoji is too long to be valid."))
 		return
 	}
 	j.answer = answered_empty
@@ -310,10 +326,8 @@ react :: proc(c: ^Conn, j: ^Job, on: bool) {
 	ask(c, j, .Msg_React, proto.encode_msg_react(&buf, proto.Msg_Id(msg), emoji, on))
 }
 
-/*
-POST /convs/{id}/read {message} -> 204: read up to and with `message`,
-or everything there is without one.
-*/
+// POST /convs/{id}/read {message} -> 204 marks the conversation as read up to
+// and including `message`, or everything in it if no message is given.
 @(private)
 read_run :: proc(c: ^Conn, j: ^Job) {
 	conv, ok := param_id(j, 0)
@@ -334,7 +348,14 @@ read_run :: proc(c: ^Conn, j: ^Job) {
 	if up_to == 0 {
 		known, in_it := c.model.convs[proto.Conv_Id(conv)]
 		if !in_it {
-			reply(j, error_reply(404, "not_found", "The account isn't in such a conversation."))
+			reply(
+				j,
+				error_reply(
+					404,
+					"not_found",
+					"The account is not in a conversation with this id.",
+				),
+			)
 			return
 		}
 		if known.last == 0 {
@@ -348,11 +369,9 @@ read_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Mark_Read, proto.encode_mark_read(&buf, proto.Conv_Id(conv), up_to))
 }
 
-/*
-POST /convs/{id}/typing {thread} -> 204: the others are told the account
-is typing, for a few seconds. Unreliable, as a client's is: send it
-again every few seconds while it lasts.
-*/
+// POST /convs/{id}/typing {thread} -> 204 tells the others that the account is
+// typing, for a few seconds. Like a client's typing notification it is
+// unreliable, so send it again every few seconds while typing continues.
 @(private)
 typing_run :: proc(c: ^Conn, j: ^Job) {
 	conv, ok := param_id(j, 0)
@@ -413,7 +432,8 @@ subscribe :: proc(c: ^Conn, j: ^Job, on: bool) {
 	ask(c, j, .Conv_Subscribe, proto.encode_conv_subscribe(&buf, proto.Conv_Id(conv), on))
 }
 
-// POST /dms {account} -> the DM with that account, made if need be.
+// POST /dms {account} -> the DM with that account, which is created if it
+// doesn't exist yet.
 @(private)
 dm_run :: proc(c: ^Conn, j: ^Job) {
 	obj, body_ok := body_object(j)
@@ -425,7 +445,14 @@ dm_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	if account == 0 {
-		reply(j, error_reply(400, "invalid", "account is whom to DM."))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				"account is required and is the id of the account to send a DM to.",
+			),
+		)
 		return
 	}
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -445,8 +472,8 @@ dm_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .DM_Open, proto.encode_account_id(&buf, proto.Account_Id(account)))
 }
 
-// reply_conv answers with the conversation j.scratch[0], as the model
-// has it.
+// reply_conv replies with the conversation j.scratch[0] as the model has
+// it.
 @(private)
 reply_conv :: proc(c: ^Conn, j: ^Job) {
 	conv, in_it := &c.model.convs[proto.Conv_Id(j.scratch[0])]
@@ -459,11 +486,9 @@ reply_conv :: proc(c: ^Conn, j: ^Job) {
 	reply(j, json_reply(200, conv_json(&c.model, &conv.conv)))
 }
 
-/*
-PATCH /me {display, status, status_until} -> the account as it is then.
-`status` null or "" clears it; `status_until` (ISO 8601, or null for
-never) is when it clears itself.
-*/
+// PATCH /me {display, status, status_until} -> the account after the change.
+// A `status` of null or "" clears the status. `status_until` (ISO 8601, or
+// null for never) is when the status clears itself.
 @(private)
 profile_run :: proc(c: ^Conn, j: ^Job) {
 	obj, body_ok := body_object(j)
@@ -491,19 +516,29 @@ profile_run :: proc(c: ^Conn, j: ^Job) {
 		p.mask |= proto.PROFILE_STATUS
 		p.status = status
 		if status_got == .Absent {
-			p.status = c.model.accounts[c.model.self].status // the one there is
+			p.status = c.model.accounts[c.model.self].status // keep the current status
 		}
 		if until_got == .Value {
 			t, consumed := time.rfc3339_to_time_utc(until)
 			if consumed == 0 {
-				reply(j, error_reply(400, "invalid", "status_until is a time in ISO 8601."))
+				reply(
+					j,
+					error_reply(400, "invalid", "status_until must be a time in ISO 8601 format."),
+				)
 				return
 			}
 			p.status_until = proto.Unix_Ms(max(time.to_unix_nanoseconds(t) / 1e6, 1))
 		}
 	}
 	if p.mask == 0 {
-		reply(j, error_reply(400, "invalid", "Nothing to change: display, status, status_until."))
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				"There is nothing to change. Send at least one of display, status or status_until.",
+			),
+		)
 		return
 	}
 	if _, has := obj["avatar"]; has {
@@ -512,7 +547,7 @@ profile_run :: proc(c: ^Conn, j: ^Job) {
 			error_reply(
 				400,
 				"invalid",
-				"A picture is set with PUT /me/avatar, and taken away with DELETE.",
+				"The avatar can't be changed here. Set it with PUT /me/avatar and remove it with DELETE /me/avatar.",
 			),
 		)
 		return
@@ -521,14 +556,14 @@ profile_run :: proc(c: ^Conn, j: ^Job) {
 	buf: [256 + proto.MAX_NAME_SIZE + proto.MAX_STATUS_SIZE]u8
 	body := proto.encode_profile_set(buf[:], p)
 	if body == nil {
-		reply(j, error_reply(400, "invalid", "That's too long."))
+		reply(j, error_reply(400, "invalid", "The display name or status is too long."))
 		return
 	}
 	ask(c, j, .Profile_Set, body)
 }
 
-// PUT /me/activity {activity} -> the account as it is then: online,
-// away, busy or offline (appear offline).
+// PUT /me/activity {activity} -> the account after the change. The activity
+// is online, away, busy or offline (appear offline).
 @(private)
 activity_run :: proc(c: ^Conn, j: ^Job) {
 	obj, body_ok := body_object(j)
@@ -547,7 +582,10 @@ activity_run :: proc(c: ^Conn, j: ^Job) {
 		}
 	}
 	if !known {
-		reply(j, error_reply(400, "invalid", "activity is online, away, busy or offline."))
+		reply(
+			j,
+			error_reply(400, "invalid", "activity must be one of online, away, busy or offline."),
+		)
 		return
 	}
 	j.answer = answered_me
@@ -555,7 +593,8 @@ activity_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Activity_Set, proto.encode_activity(&buf, activity))
 }
 
-// answered_me answers with the account once the change's events are in.
+// answered_me replies with the account once the events of the change have
+// arrived.
 @(private)
 answered_me :: proc(c: ^Conn, j: ^Job, a: lite.Answer) {
 	if a.status != .Ok {
@@ -567,13 +606,13 @@ answered_me :: proc(c: ^Conn, j: ^Job, a: lite.Answer) {
 	})
 }
 
-// answered_empty is an answer with nothing to say: 204, or the error.
+// answered_empty replies with 204, or with the error if the request failed.
 @(private)
 answered_empty :: proc(c: ^Conn, j: ^Job, a: lite.Answer) {
 	reply(j, status_reply(a.status))
 }
 
-// What a body's field was.
+// Whether a field of a body was absent, null or had a value.
 @(private)
 Field :: enum {
 	Absent,
@@ -581,11 +620,9 @@ Field :: enum {
 	Value,
 }
 
-/*
-body_object is the Job's body as a JSON object, in the temp allocator;
-an empty body is an empty object. If it isn't one, the Job is answered,
-and it's false.
-*/
+// body_object returns the Job's body as a JSON object, allocated with the
+// temp allocator. An empty body is an empty object. If the body isn't an
+// object, the Job is answered with an error and ok is false.
 @(private)
 body_object :: proc(j: ^Job) -> (obj: json.Object, ok: bool) {
 	if len(j.body) == 0 {
@@ -597,12 +634,12 @@ body_object :: proc(j: ^Job) -> (obj: json.Object, ok: bool) {
 			return o, true
 		}
 	}
-	reply(j, error_reply(400, "invalid", "The body is a JSON object."))
+	reply(j, error_reply(400, "invalid", "The request body must be a JSON object."))
 	return
 }
 
-// field_string is a string field; false (and the Job answered) if it's
-// something else.
+// field_string returns a string field. ok is false, and the Job has been
+// answered, if the field is something else.
 @(private)
 field_string :: proc(j: ^Job, obj: json.Object, key: string) -> (s: string, got: Field, ok: bool) {
 	v, there := obj[key]
@@ -616,12 +653,12 @@ field_string :: proc(j: ^Job, obj: json.Object, key: string) -> (s: string, got:
 		return x, .Value, true
 	case json.Integer, json.Float, json.Boolean, json.Array, json.Object:
 	}
-	reply(j, error_reply(400, "invalid", fmt.tprintf("%s is a string.", key)))
+	reply(j, error_reply(400, "invalid", fmt.tprintf("%s must be a string.", key)))
 	return
 }
 
-// field_id is an id field (a string, or a number), 0 if absent or null;
-// false (and the Job answered) if it isn't one.
+// field_id returns an id field (a string or a number), or 0 if it is absent
+// or null. ok is false, and the Job has been answered, if it isn't an id.
 @(private)
 field_id :: proc(j: ^Job, obj: json.Object, key: string) -> (id: u64, ok: bool) {
 	v, there := obj[key]
@@ -631,8 +668,8 @@ field_id :: proc(j: ^Job, obj: json.Object, key: string) -> (id: u64, ok: bool) 
 	return value_id(j, v, key)
 }
 
-// value_id is a JSON value as an id: as field_id, `what` saying what it
-// is if it isn't one.
+// value_id converts a JSON value to an id, like field_id does. `what` names
+// the value in the error message if it isn't an id.
 @(private)
 value_id :: proc(j: ^Job, v: json.Value, what: string) -> (id: u64, ok: bool) {
 	switch x in v {
@@ -652,15 +689,14 @@ value_id :: proc(j: ^Job, v: json.Value, what: string) -> (id: u64, ok: bool) {
 		}
 	case json.Boolean, json.Array, json.Object:
 	}
-	reply(j, error_reply(400, "invalid", fmt.tprintf("%s is an id.", what)))
+	reply(j, error_reply(400, "invalid", fmt.tprintf("%s must be an id.", what)))
 	return
 }
 
-/*
-field_nonce is a post's nonce: the protocol's u64 from whatever the bot
-gave (a string or a number), hashed, so the same one is the same post;
-without one, one at random.
-*/
+// field_nonce returns a post's nonce. It hashes whatever the bot gave (a
+// string or a number) into the protocol's u64, so the same input always
+// produces the same nonce and thus the same post. Without input, the nonce is
+// random.
 @(private)
 field_nonce :: proc(j: ^Job, obj: json.Object) -> (nonce: u64, ok: bool) {
 	v, there := obj["nonce"]
@@ -675,7 +711,7 @@ field_nonce :: proc(j: ^Job, obj: json.Object) -> (nonce: u64, ok: bool) {
 		case json.Float:
 			given = fmt.tprint(x)
 		case json.Boolean, json.Array, json.Object:
-			reply(j, error_reply(400, "invalid", "nonce is a string or a number."))
+			reply(j, error_reply(400, "invalid", "nonce must be a string or a number."))
 			return
 		}
 	}

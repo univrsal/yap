@@ -1,8 +1,9 @@
 package conn
 
-// A picture ready to post in the chat: compressed bytes and the size they
-// were scaled to (see image.odin, which makes these from files and
-// pastes). A profile or server picture is a JPEG; a paste is a WebP.
+// A picture that is ready to be posted in the chat, consisting of the compressed
+// bytes and the size the picture was scaled to (see image.odin, which creates
+// these from files and pastes). Profile and server pictures are JPEGs, and
+// pasted images are WebPs.
 Chat_Image :: struct {
 	jpeg:          []u8, // owned
 	width, height: int, // after scaling
@@ -13,8 +14,8 @@ chat_image_destroy :: proc(img: ^Chat_Image, allocator := context.allocator) {
 	img^ = {}
 }
 
-// fit_box shrinks (never grows) width and height to fit a rectangle,
-// keeping the shape of the image.
+// fit_box shrinks width and height to fit inside the given rectangle while
+// keeping the aspect ratio. It never enlarges them.
 fit_box :: proc(width, height, max_w, max_h: int) -> (w, h: int) {
 	if width <= 0 || height <= 0 {
 		return max_w, max_h

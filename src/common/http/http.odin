@@ -5,25 +5,23 @@ import "core:net"
 import "core:strconv"
 import "core:strings"
 
-/*
-Just enough of HTTP/1.1 for the relay (server/relay.odin) and the bot
-API's gateway (common/gateway), which share a port: a request's line and
-headers, a body by its Content-Length, keep-alive, and answers with a
-Content-Length. No chunked bodies, no TLS (a reverse proxy in front
-does that).
+// A minimal HTTP/1.1 implementation for the relay (server/relay.odin) and
+// the bot API's gateway (common/gateway), which share a port. It supports
+// reading a request's line and headers, reading a body by its
+// Content-Length, keep-alive and responses with a Content-Length. Chunked
+// bodies and TLS are not supported (a reverse proxy in front handles TLS).
+//
+// A connection is read through Conn's buffer. Whatever comes after the
+// headers (a body, the next request or WebSocket frames) is taken from that
+// buffer piece by piece.
 
-A connection is read through Conn's buffer, so what comes after the
-headers - a body, the next request, WebSocket frames - is taken off it
-piece by piece.
-*/
-
-// A request's line and headers have to fit in a Conn's buffer.
+// A request's line and headers must fit in a Conn's buffer.
 MAX_HEAD :: 8192
 
 // Conn reads a TCP socket through a buffer.
 Conn :: struct {
 	sock:   net.TCP_Socket,
-	remote: net.Endpoint, // who's at the other end, as accept said
+	remote: net.Endpoint, // the peer's address, as reported by accept
 	buf:    [MAX_HEAD]u8,
 	start:  int,
 	end:    int,
@@ -34,26 +32,24 @@ Header :: struct {
 	value: string,
 }
 
-// A request's head, in the temp allocator.
+// Request is a parsed request head, allocated with the temp allocator.
 Request :: struct {
 	method:         string,
 	path:           string, // without the query
 	query:          string, // after the '?', still encoded; "" for none
 	headers:        []Header,
-	// The body's size; -1 for none said.
+	// The body's size, or -1 if the request didn't give one.
 	content_length: int,
-	// Its body comes in chunks, which isn't supported here.
+	// Whether the body is sent in chunks, which isn't supported here.
 	chunked:        bool,
 	// Whether the client wants the connection kept for another request.
 	keep_alive:     bool,
 }
 
-/*
-read_head reads up to the end of the next request's headers and returns
-them, in the temp allocator. Whatever came in after them stays in the
-buffer for what follows. It fails when the peer goes, or the head
-doesn't fit in MAX_HEAD.
-*/
+// read_head reads up to the end of the next request's headers and returns
+// them, allocated with the temp allocator. Anything received after the
+// headers stays in the buffer for later reads. It fails if the peer
+// disconnects or the head doesn't fit in MAX_HEAD.
 read_head :: proc(c: ^Conn) -> (head: string, ok: bool) {
 	for {
 		if i := strings.index(string(c.buf[c.start:c.end]), "\r\n\r\n"); i >= 0 {
@@ -61,7 +57,7 @@ read_head :: proc(c: ^Conn) -> (head: string, ok: bool) {
 			c.start += i + 4
 			return head, true
 		}
-		// Room for more: what's left of the buffer goes to its front.
+		// Make room for more data by moving what's left in the buffer to its front.
 		if c.start > 0 {
 			copy(c.buf[:], c.buf[c.start:c.end])
 			c.end -= c.start
@@ -78,8 +74,8 @@ read_head :: proc(c: ^Conn) -> (head: string, ok: bool) {
 	}
 }
 
-// parse_request takes a head apart; it fails on one without a request
-// line.
+// parse_request parses a request head. It fails if the head has no valid
+// request line.
 parse_request :: proc(head: string) -> (req: Request, ok: bool) {
 	lines := strings.split_lines(head, context.temp_allocator)
 	if len(lines) == 0 {
@@ -130,7 +126,8 @@ parse_request :: proc(head: string) -> (req: Request, ok: bool) {
 	return req, true
 }
 
-// header is the value of a request's header `name`; "" if it has none.
+// header returns the value of the request's header `name`, or "" if the
+// request doesn't have it.
 header :: proc(req: ^Request, name: string) -> string {
 	for h in req.headers {
 		if strings.equal_fold(h.name, name) {
@@ -140,10 +137,9 @@ header :: proc(req: ^Request, name: string) -> string {
 	return ""
 }
 
-/*
-read_some reads what there is, up to len(out): what's buffered already,
-or else what one read of the socket brings. False if the peer has gone.
-*/
+// read_some reads up to len(out) bytes. It returns what is already buffered
+// or, if the buffer is empty, the result of a single socket read. ok is
+// false if the peer has disconnected.
 read_some :: proc(c: ^Conn, out: []u8) -> (n: int, ok: bool) {
 	if len(out) == 0 {
 		return 0, true
@@ -165,11 +161,10 @@ read_body :: proc(c: ^Conn, out: []u8) -> bool {
 	return read_exact(c, out)
 }
 
-/*
-respond sends an answer with its body whole. `extra` is more header
-lines, each ending in "\r\n". With `keep_alive` the connection stays
-open for another request; without, the client is told it closes.
-*/
+// respond sends a complete response with its body. `extra` holds additional
+// header lines, each ending in "\r\n". With `keep_alive` the connection
+// stays open for another request. Without it, the client is told that the
+// connection will be closed.
 respond :: proc(
 	sock: net.TCP_Socket,
 	status, content_type: string,
@@ -188,7 +183,8 @@ respond :: proc(
 	return send_all(sock, transmute([]u8)head) && send_all(sock, transmute([]u8)body)
 }
 
-// has_token says whether a comma separated header value has `token`.
+// has_token returns whether the comma-separated header value contains
+// `token`.
 @(private)
 has_token :: proc(value, token: string) -> bool {
 	rest := value
@@ -200,11 +196,9 @@ has_token :: proc(value, token: string) -> bool {
 	return false
 }
 
-/*
-query_value is the value of `name` in a query string ("a=1&b=two"),
-percent-decoded, with '+' as a space, in the temp allocator. `found` is
-false if it isn't there, or doesn't decode.
-*/
+// query_value returns the value of `name` in a query string ("a=1&b=two"),
+// percent-decoded and with '+' as a space, allocated with the temp
+// allocator. `found` is false if the name isn't there or can't be decoded.
 query_value :: proc(query, name: string) -> (value: string, found: bool) {
 	rest := query
 	for pair in strings.split_iterator(&rest, "&") {
@@ -217,10 +211,9 @@ query_value :: proc(query, name: string) -> (value: string, found: bool) {
 	return
 }
 
-/*
-percent_decode undoes %XX escapes (and with `plus`, '+' for a space), in
-the temp allocator; false for a broken escape.
-*/
+// percent_decode decodes %XX escapes (and, with `plus`, turns '+' into a
+// space), allocated with the temp allocator. ok is false for an invalid
+// escape.
 percent_decode :: proc(s: string, plus := false) -> (out: string, ok: bool) {
 	if strings.index_byte(s, '%') < 0 && (!plus || strings.index_byte(s, '+') < 0) {
 		return s, true

@@ -3,16 +3,14 @@ package hotkeys
 
 import win "core:sys/windows"
 
-/*
-On Windows GetAsyncKeyState says whether a key is down right now,
-whichever window has the focus. Its virtual keys follow the keyboard
-layout for letters and a few symbols, where the other platforms go by a
-key's position.
-
-It sees nothing while a program running as administrator has the focus
-(unless yap runs as administrator too), as with any other way of
-watching the keyboard from an ordinary program.
-*/
+// On Windows, GetAsyncKeyState tells whether a key is down right now,
+// regardless of which window has the focus. For letters and a few symbols,
+// its virtual keys follow the keyboard layout, whereas the other platforms
+// go by the key's physical position.
+//
+// It reports nothing while a program running as administrator has the focus
+// (unless yap runs as administrator too). This limitation applies to every
+// way of watching the keyboard from an ordinary program.
 
 @(private = "file")
 VK_CODES := [Key]i32 {
@@ -108,7 +106,7 @@ VK_CODES := [Key]i32 {
 	.Print_Screen  = win.VK_SNAPSHOT,
 }
 
-// Either side of each; there's no plain VK for the Windows key.
+// Both sides of each modifier. There is no generic VK for the Windows key.
 @(private = "file")
 MOD_CODES := [Mod][2]i32 {
 	.Ctrl  = {win.VK_CONTROL, win.VK_CONTROL},
@@ -127,8 +125,9 @@ backend_close :: proc(b: ^Backend) {}
 
 @(private = "file")
 down :: proc(vk: i32) -> bool {
-	// The high bit: down now. (The low one, "pressed since last asked",
-	// is shared with every other program asking, so it's no use.)
+	// The high bit means the key is down right now. The low bit ("pressed since
+	// the last call") is shared with every other program calling this
+	// function, so it is not useful here.
 	return u16(win.GetAsyncKeyState(vk)) & 0x8000 != 0
 }
 

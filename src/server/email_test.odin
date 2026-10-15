@@ -6,7 +6,7 @@ import "core:time"
 
 import "common:proto"
 
-// Tests of reading and writing mail (email.odin), without a mail server.
+// Tests of reading and writing mail (email.odin) that don't need a mail server.
 
 @(test)
 test_mail_parse :: proc(t: ^testing.T) {
@@ -36,7 +36,7 @@ test_mail_parse :: proc(t: ^testing.T) {
 		)
 	}
 
-	// Bare LF line ends, a bare address, nothing else.
+	// A header with bare LF line endings, a bare address and no other fields.
 	n := mail_parse(7, "From: bob@example.net\nSubject: plain\n")
 	defer mail_destroy(&n)
 	testing.expect_value(t, n.from, "bob@example.net")
@@ -44,7 +44,7 @@ test_mail_parse :: proc(t: ^testing.T) {
 	testing.expect_value(t, n.date, "")
 	testing.expect_value(t, len(n.auth_results), 0)
 
-	// No address to be had.
+	// No address can be extracted.
 	o := mail_parse(8, "From: Mailer Daemon\r\n\r\n")
 	defer mail_destroy(&o)
 	testing.expect_value(t, o.from, "")
@@ -59,7 +59,7 @@ test_decode_words :: proc(t: ^testing.T) {
 	}
 	check(t, "plain text", "plain text")
 	check(t, "=?utf-8?q?caf=C3=A9_au_lait?=", "café au lait")
-	check(t, "=?UTF-8?B?w6Q=?= =?UTF-8?B?w7Y=?=", "äö") // the space between goes
+	check(t, "=?UTF-8?B?w6Q=?= =?UTF-8?B?w7Y=?=", "äö") // the space between the two words is dropped
 	check(t, "Re: =?UTF-8?B?w6Q=?= and more", "Re: ä and more")
 	check(t, "=?UTF-8?X?abc?= stays", "=?UTF-8?X?abc?= stays")
 	check(t, "=?broken", "=?broken")
@@ -102,14 +102,14 @@ test_mail_compose :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(mail, "@example.org>\r\n"))
 	testing.expect(t, strings.has_suffix(mail, "\r\n\r\none\r\ntwo\r\n"))
 
-	// Not ASCII: encoded, and read back the same.
+	// A subject that is not ASCII is encoded and decodes back to the original.
 	subject := "Grüße aus der Ferne, mit einer Betreffzeile, die lang genug ist"
 	mail = mail_compose("yap@example.org", "bob@example.net", subject, "", when_)
 	start := strings.index(mail, "Subject: ") + len("Subject: ")
 	end := strings.index(mail, "\r\nMessage-ID")
 	encoded := mail[start:end]
 	testing.expect(t, strings.has_prefix(encoded, "=?UTF-8?B?"))
-	testing.expect(t, strings.contains(encoded, "\r\n ")) // more than one word
+	testing.expect(t, strings.contains(encoded, "\r\n ")) // the subject is split into more than one encoded word
 	unfolded, _ := strings.replace_all(encoded, "\r\n ", " ", context.temp_allocator)
 	decoded := decode_words(unfolded)
 	defer delete(decoded)

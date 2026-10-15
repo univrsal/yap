@@ -4,7 +4,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of threads, on the Test_Server of auth_test.odin.
+// Tests of threads, using the Test_Server from auth_test.odin.
 
 @(private = "file")
 reply :: proc(
@@ -70,8 +70,8 @@ page :: proc(
 	return
 }
 
-// root_told is the last Msg_Changed a connection was sent about `id`
-// since the last look.
+// root_told returns the last Msg_Changed event about `id` that a connection
+// was sent since its events were last read, and whether there was one.
 @(private = "file")
 root_told :: proc(
 	t: ^testing.T,
@@ -114,7 +114,7 @@ test_threads :: proc(t: ^testing.T) {
 	_, elsewhere := post(t, &ts, alice, gaming.id, "in gaming", 3)
 	ts_events(t, &ts, bob)
 
-	// A reply: the root is told it has one.
+	// After a reply, clients are told that the root now has a thread.
 	status, first := reply(t, &ts, bob, home, root, "an answer", 1)
 	testing.expect_value(t, status, proto.Status.Ok)
 	m, told := root_told(t, &ts, bob, root)
@@ -125,7 +125,7 @@ test_threads :: proc(t: ^testing.T) {
 	r, _ := msg_by_id(s, first)
 	testing.expect_value(t, r.thread_root, root)
 
-	// A reply to a reply is the root's.
+	// A reply to a reply belongs to the root's thread.
 	second: proto.Msg_Id
 	status, second = reply(t, &ts, alice, home, first, "another", 4)
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -135,14 +135,15 @@ test_threads :: proc(t: ^testing.T) {
 	testing.expect_value(t, m.reply_count, 2)
 	testing.expect_value(t, m.last_reply, second)
 
-	// Not to something in another conversation, or not there.
+	// Replies to messages in another conversation, or to messages that
+	// don't exist, are refused.
 	status, _ = reply(t, &ts, alice, home, elsewhere, "wrong place", 5)
 	testing.expect_value(t, status, proto.Status.Invalid)
 	status, _ = reply(t, &ts, alice, home, 999, "nowhere", 6)
 	testing.expect_value(t, status, proto.Status.Invalid)
 
-	// The conversation's history has the replies; the thread's only its
-	// own, oldest first like any page.
+	// The conversation's history includes the replies. A thread's history
+	// only has its own replies, oldest first like any page.
 	_, msgs := page(t, &ts, bob, home, 0)
 	ids := make([dynamic]proto.Msg_Id, context.temp_allocator)
 	for x in msgs {
@@ -160,7 +161,7 @@ test_threads :: proc(t: ^testing.T) {
 	_, msgs = page(t, &ts, bob, home, other)
 	testing.expect_value(t, len(msgs), 0)
 
-	// A thread is asked for by its root, in its conversation.
+	// A thread must be requested by its root, in the root's conversation.
 	status, _ = page(t, &ts, bob, home, first)
 	testing.expect_value(t, status, proto.Status.Not_Found)
 	status, _ = page(t, &ts, alice, gaming.id, root)
@@ -168,7 +169,7 @@ test_threads :: proc(t: ^testing.T) {
 	status, _ = page(t, &ts, alice, home, 999)
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
-	// Deleting a reply counts again.
+	// Deleting a reply updates the root's reply count.
 	ts_events(t, &ts, bob)
 	testing.expect_value(t, delete_as(t, &ts, alice, second), proto.Status.Ok)
 	m, told = root_told(t, &ts, bob, root)
@@ -183,12 +184,12 @@ test_threads :: proc(t: ^testing.T) {
 	// Its deleted replies are still in it, so it still has a thread.
 	testing.expect(t, .Has_Thread in m.flags)
 
-	// A deleted root takes no more replies.
+	// A deleted root can't receive any more replies.
 	testing.expect_value(t, delete_as(t, &ts, alice, root), proto.Status.Ok)
 	status, _ = reply(t, &ts, bob, home, root, "too late", 7)
 	testing.expect_value(t, status, proto.Status.Invalid)
 
-	// A reply isn't pinned, by whoever may pin.
+	// Replies can't be pinned, even by users who are allowed to pin.
 	ts_account(t, &ts, "admin", "a password", {.Owner})
 	admin := logged_in(t, &ts, "admin")
 	_, root2 := post(t, &ts, alice, home, "again", 8)

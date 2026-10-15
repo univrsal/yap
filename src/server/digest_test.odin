@@ -6,14 +6,14 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of mailing accounts what they missed (digest.odin), on the
-// Test_Server of auth_test.odin, with what's sent left in the email's
-// jobs.
+// Tests of emailing accounts what they missed (see digest.odin), using the
+// Test_Server from auth_test.odin. The mails that would be sent are left in the
+// email's jobs.
 
 @(private = "file")
 MINUTE :: i64(60 * 1000)
 
-// mails_sent takes the mails the loop has asked to be sent.
+// mails_sent takes the mails that the loop has asked to send.
 @(private = "file")
 mails_sent :: proc(ts: ^Test_Server) -> []Email_Job {
 	e := &ts.s.email
@@ -31,8 +31,9 @@ mails_sent :: proc(ts: ^Test_Server) -> []Email_Job {
 	return out
 }
 
-// away is when an account that has just left left, once that's in the
-// past: what's posted from then on is posted after it.
+// away waits until the moment an account that has just left is in the past and
+// returns that moment, so that anything posted from then on is posted after the
+// account left.
 @(private = "file")
 away :: proc(acc: ^Account) -> i64 {
 	for unix_ms() <= acc.last_seen {
@@ -54,8 +55,8 @@ test_digests :: proc(t: ^testing.T) {
 	ts_open(t, &ts)
 	defer ts_close(&ts)
 	s := &ts.s
-	// Email that's there without a thread: what it's asked to send waits
-	// in its jobs.
+	// Email that is enabled without a thread, so the mails it is asked to send
+	// wait in its jobs.
 	s.email.enabled = true
 	s.email.config = {
 		address        = "yap@example.org",
@@ -75,7 +76,8 @@ test_digests :: proc(t: ^testing.T) {
 	carol := logged_in(t, &ts, "carol")
 	tok := proto.mention_token(alice_acc.id)
 
-	// The server says it sends them, and takes only what it knows.
+	// The server says that it sends digests, and only accepts the values it
+	// knows.
 	info, ok := proto.decode_server_info(server_info_body(s))
 	testing.expect(t, ok && info.digests)
 	testing.expect_value(t, digest_set(t, &ts, alice, "sometimes"), proto.Status.Invalid)
@@ -88,22 +90,22 @@ test_digests :: proc(t: ^testing.T) {
 	status, answer := ts_ask(t, &ts, bob, .DM_Open, proto.encode_account_id(&ab, alice_acc.id))
 	testing.expect_value(t, status, proto.Status.Ok)
 	dm, _ := proto.decode_conv_id(answer)
-	// Before she leaves: seen, if not read.
+	// Before she leaves, the message counts as seen even if it isn't read.
 	post(t, &ts, bob, dm, "before", 1)
 
-	// Here, nothing is mailed.
+	// While the account is connected, nothing is mailed.
 	start := unix_ms()
 	digests_send(s, start + 120 * MINUTE)
 	testing.expect_value(t, len(mails_sent(&ts)), 0)
 
-	// Missed: every part, each message once.
+	// Missed: every part is included, and each message appears once.
 	ts_disconnect(&ts, alice)
 	left := away(alice_acc)
 	post(t, &ts, bob, dm, fmt.tprintf("hello %s\nhow are you?", tok), 2)
 	post(t, &ts, carol, home.id, fmt.tprintf("look, %s", tok), 3)
 	post(t, &ts, carol, home.id, "chatter", 4)
 
-	// Not away long enough yet.
+	// The account hasn't been away for long enough yet.
 	digests_send(s, left + 29 * MINUTE)
 	testing.expect_value(t, len(mails_sent(&ts)), 0)
 
@@ -133,7 +135,8 @@ test_digests :: proc(t: ^testing.T) {
 		testing.expect_value(t, strings.count(m.body, "look, @alice"), 1)
 	}
 
-	// Nothing new: nothing more. Something new: not before the wait.
+	// Nothing new means no further mail. Something new is only mailed after the
+	// wait.
 	digests_send(s, left + 40 * MINUTE)
 	testing.expect_value(t, len(mails_sent(&ts)), 0)
 	post(t, &ts, bob, dm, "still there?", 5)
@@ -154,8 +157,8 @@ test_digests :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, alice_acc.digest_upto != 0)
 
-	// Mentions: those, and direct messages, which count as them; not the
-	// rest of a channel.
+	// Mentions: only mentions and direct messages (which count as mentions), and
+	// not the rest of a channel.
 	alice = logged_in(t, &ts, "alice")
 	testing.expect_value(t, digest_set(t, &ts, alice, "mentions"), proto.Status.Ok)
 	ts_disconnect(&ts, alice)
@@ -180,9 +183,9 @@ test_digests :: proc(t: ^testing.T) {
 		testing.expect(t, !strings.contains(mails[0].body, "more chatter"), mails[0].body)
 	}
 
-	// Missed: what she'd have been told of. Everything where she hears
-	// of everything, the DM too; in a channel that tells her only of
-	// mentions, those.
+	// Missed: what she would have been notified about. That is everything in
+	// conversations that notify her of everything (including the DM), and only
+	// the mentions in a channel that notifies her only about mentions.
 	alice = logged_in(t, &ts, "alice")
 	testing.expect_value(t, digest_set(t, &ts, alice, "missed"), proto.Status.Ok)
 	nb: [proto.CONV_NOTIFY_SIZE]u8
@@ -216,7 +219,7 @@ test_digests :: proc(t: ^testing.T) {
 		testing.expect(t, !strings.contains(mails[0].body, "quiet chatter"), mails[0].body)
 	}
 
-	// With the channel muted: only the DM.
+	// With the channel muted, only the DM is included.
 	alice = logged_in(t, &ts, "alice")
 	testing.expect_value(t, digest_set(t, &ts, alice, "missed"), proto.Status.Ok)
 	status, _ = ts_ask(t, &ts, alice, .Conv_Notify, proto.encode_conv_notify(&nb, home.id, .None))
@@ -238,7 +241,7 @@ test_digests :: proc(t: ^testing.T) {
 		testing.expect(t, !strings.contains(mails[0].body, "muted,"), mails[0].body)
 	}
 
-	// None: nothing at all.
+	// None: nothing is sent at all.
 	alice = logged_in(t, &ts, "alice")
 	testing.expect_value(t, digest_set(t, &ts, alice, ""), proto.Status.Ok)
 	testing.expect_value(t, alice_acc.digest, proto.Email_Digest.None)

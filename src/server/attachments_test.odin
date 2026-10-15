@@ -9,7 +9,8 @@ import "common:proto"
 
 // Tests of attachments, on the Test_Server of auth_test.odin.
 
-// What the server sent each connection (attach_test_sent), oldest first.
+// The messages the server sent to each connection (attach_test_sent),
+// oldest first.
 @(thread_local, private = "file")
 sent: map[^Conn][dynamic][]u8
 
@@ -21,15 +22,16 @@ record_sent :: proc(u: ^Conn, msg: []u8) {
 	append(&sent[u], temp_copy(msg))
 }
 
-// sent_reset forgets what was sent, for the next test on this thread: the
-// lists are in this test's temp allocator, the map in its allocator.
+// sent_reset forgets what was sent, so that the next test on this thread
+// starts clean. The lists use this test's temp allocator and the map uses
+// the regular allocator.
 @(private = "file")
 sent_reset :: proc() {
 	delete(sent)
 	sent = nil
 }
 
-// taken is what was sent `u` since last asked.
+// taken returns what was sent to `u` since it was last called.
 @(private = "file")
 taken :: proc(u: ^Conn) -> [][]u8 {
 	list := sent[u] or_else nil
@@ -49,7 +51,7 @@ test_file :: proc(size: int, seed: u8) -> []u8 {
 	return data
 }
 
-// put announces an upload; its id, if it's taken.
+// put announces an upload and returns its id if the server accepts it.
 @(private = "file")
 put :: proc(
 	t: ^testing.T,
@@ -78,9 +80,9 @@ put :: proc(
 	return
 }
 
-// send_file uploads `data` under `id`: the chunks in the order of
-// `order` (indices; every chunk when it's nil), then whatever wasn't.
-// The blob it was kept as, if it was.
+// send_file uploads `data` under `id`, sending the chunks in reverse
+// order with some of them repeated. It returns the blob the upload was
+// stored as, if it was stored.
 @(private = "file")
 send_file :: proc(
 	t: ^testing.T,
@@ -91,7 +93,8 @@ send_file :: proc(
 ) -> proto.Blob_Id {
 	chunks := proto.file_chunk_count(u64(len(data)))
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	// Backwards and with every third one twice: out of order, and repeats.
+	// Send the chunks backwards, and every third one twice, to test
+	// out-of-order and duplicate chunks.
 	for i := i64(chunks) - 1; i >= 0; i -= 1 {
 		from, to := proto.file_chunk_range(u64(len(data)), u32(i))
 		msg := proto.encode_transfer_chunk(out[:], .Upload_Chunk, id, u32(i), data[from:to])
@@ -100,7 +103,7 @@ send_file :: proc(
 			handle_upload_chunk(&ts.s, u, msg)
 		}
 	}
-	// The last ack says it's complete.
+	// The last ack reports the upload as complete.
 	acks := taken(u)
 	testing.expect(t, len(acks) > 0)
 	if len(acks) > 0 {
@@ -141,7 +144,8 @@ post_files :: proc(
 	return
 }
 
-// fetch downloads a blob as `u`, acking as a client would; what came.
+// fetch downloads a blob as `u`, acknowledging chunks like a client
+// would, and returns the downloaded data.
 @(private = "file")
 fetch :: proc(
 	t: ^testing.T,
@@ -168,8 +172,9 @@ fetch :: proc(
 		time.sleep(time.Millisecond)
 		attachments_sync(&ts.s)
 		for msg in taken(u) {
-			// Kept uploads' acks come again a while (attachments_sync): a
-			// client's uploads take those.
+			// Acks for stored uploads are sent again for a while
+			// (attachments_sync), which belong to the client's uploads and
+			// are skipped here.
 			kind, _ := proto.message_kind(msg)
 			if kind == .Upload_Ack {
 				continue
@@ -221,7 +226,7 @@ test_attachments :: proc(t: ^testing.T) {
 	gaming := conv_by_name(&s.convs, "Gaming")
 	testing.expect(t, conv_member_add(&s.convs, gaming, alice.account.id))
 
-	// What isn't taken: nothing, no name, too big.
+	// Uploads are rejected if they are empty, have no name or are too big.
 	status, _ := put(t, &ts, alice, 0, "empty.txt")
 	testing.expect_value(t, status, proto.Status.Invalid)
 	status, _ = put(t, &ts, alice, 10, "")
@@ -229,7 +234,7 @@ test_attachments :: proc(t: ^testing.T) {
 	status, _ = put(t, &ts, alice, 4 * 1024 * 1024 + 1, "big.iso")
 	testing.expect_value(t, status, proto.Status.Too_Large)
 
-	// A file of a few thousand chunks, in any order: kept whole.
+	// A file of a few thousand chunks, sent in any order, is stored intact.
 	report := test_file(3000 * proto.FILE_CHUNK_DATA + 77, 1)
 	upload: u64
 	status, upload = put(t, &ts, alice, len(report), "../reports/report 2026.pdf")
@@ -242,12 +247,12 @@ test_attachments :: proc(t: ^testing.T) {
 	b, _ := blob_get(&s.blobs, blob)
 	testing.expect_value(t, b.kind, Blob_Kind.File)
 
-	// The same content from bob: kept once.
+	// The same content uploaded by bob is only stored once.
 	bobs: u64
 	_, bobs = put(t, &ts, bob, len(report), "copy.pdf")
 	testing.expect_value(t, send_file(t, &ts, bob, bobs, report), blob)
 
-	// A small one too, posted with it in Gaming.
+	// A small file is uploaded too, and both are posted together in Gaming.
 	tool := test_file(5000, 2)
 	tool_upload: u64
 	_, tool_upload = put(t, &ts, alice, len(tool), "setup.exe")
@@ -281,17 +286,18 @@ test_attachments :: proc(t: ^testing.T) {
 			proto.Attachment{tool_blob, u64(len(tool)), "setup.exe"},
 		)
 	}
-	// Read back as it was posted.
+	// The message is read back exactly as it was posted.
 	m, found := msg_by_id(s, id)
 	testing.expect(t, found)
 	testing.expect_value(t, m.attachment_count, 2)
 	testing.expect_value(t, m.attachments[1].name, "setup.exe")
-	// Repeated after a reconnect: the same message.
+	// Posting again after a reconnect returns the same message.
 	again: proto.Msg_Id
 	_, again = post_files(t, &ts, alice, gaming.id, "the files", 1, upload, tool_upload)
 	testing.expect_value(t, again, id)
 
-	// Files only, no text; but not bob's upload, nor one twice.
+	// A post may have only files and no text, but it can't use bob's
+	// upload or the same upload twice.
 	status, _ = post_files(t, &ts, alice, gaming.id, "", 2, tool_upload)
 	testing.expect_value(t, status, proto.Status.Ok)
 	status, _ = post_files(t, &ts, alice, gaming.id, "", 3, bobs)
@@ -299,7 +305,8 @@ test_attachments :: proc(t: ^testing.T) {
 	status, _ = post_files(t, &ts, alice, gaming.id, "", 4, upload, upload)
 	testing.expect_value(t, status, proto.Status.Invalid)
 
-	// Fetched by who may read it: not bob, until he's in Gaming.
+	// A file can only be fetched by accounts that may read the message.
+	// Bob can't until he joins Gaming.
 	status, _ = fetch(t, &ts, bob, blob)
 	testing.expect_value(t, status, proto.Status.Not_Found)
 	got: []u8
@@ -311,9 +318,9 @@ test_attachments :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, string(got) == string(tool))
 
-	// Deleted: the message has no files any more, and nobody can fetch
-	// them; an hour on, the report goes, the tool (in the other message)
-	// stays.
+	// After the message is deleted it has no files any more and nobody
+	// can fetch them. An hour later the report is removed, while the tool
+	// (which is also in the other message) stays.
 	id_buf: [proto.MSG_ID_SIZE]u8
 	status, _ = ts_ask(t, &ts, alice, .Msg_Delete, proto.encode_msg_id(&id_buf, id))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -333,14 +340,14 @@ test_attachments :: proc(t: ^testing.T) {
 	_, found = blob_get(&s.blobs, tool_blob)
 	testing.expect(t, found)
 
-	// A server that takes none says so.
+	// A server that doesn't accept uploads denies them.
 	s.attach.max_size = 0
 	status, _ = put(t, &ts, alice, 10, "a.txt")
 	testing.expect_value(t, status, proto.Status.Denied)
 }
 
-// An upload that's left unfinished goes with its connection, file and
-// all; one that's finished stays for a post.
+// An unfinished upload is removed with its connection, including its
+// file. A finished upload stays so it can still be posted.
 @(test)
 test_attachments_conn_gone :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
@@ -372,7 +379,7 @@ test_attachments_conn_gone :: proc(t: ^testing.T) {
 	part := s.attach.uploads[half].part
 	testing.expect(t, os.exists(part))
 
-	// More than MAX_ATTACH_TRANSFERS at once are refused.
+	// More than MAX_ATTACH_TRANSFERS at the same time are refused.
 	for _ in 1 ..< proto.MAX_ATTACH_TRANSFERS {
 		status, _ := put(t, &ts, alice, 10, "more.zip")
 		testing.expect_value(t, status, proto.Status.Ok)
@@ -388,9 +395,10 @@ test_attachments_conn_gone :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 }
 
-// Retention takes messages' files as it takes their pictures: those of
-// older messages (file_days, or a purge of files), and the oldest while
-// pictures and files take too much room. The messages keep the list.
+// Retention removes the files of messages the same way it removes their
+// pictures. It removes the files of older messages (file_days, or a
+// purge of files) and the oldest files while pictures and files use too
+// much space. The messages keep their list of files.
 @(test)
 test_attachments_retention :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
@@ -429,9 +437,10 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	second := posted(t, &ts, alice, home, test_file(5000, 2), "two.zip", 2)
 	ts_events(t, &ts, alice)
 
-	// A purge of files: the messages stay, listing theirs without them.
-	// (Of what's older than now, which the second isn't if it was posted
-	// this very millisecond.)
+	// A purge of files keeps the messages and their lists of files, but
+	// the files themselves are gone. The purge only affects files older
+	// than now, which the second one wouldn't be if it was posted in this
+	// very millisecond, so wait a moment first.
 	time.sleep(2 * time.Millisecond)
 	testing.expect(
 		t,
@@ -458,11 +467,12 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	status, _ := fetch(t, &ts, alice, m.attachments[0].blob)
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
-	// Too much room taken: the oldest go, until there's enough.
+	// When too much space is used, the oldest files are removed until
+	// there is enough space.
 	third := posted(t, &ts, alice, home, test_file(3 * 1024 * 1024, 3), "three.zip", 3)
 	fourth := posted(t, &ts, alice, home, test_file(1000, 4), "four.zip", 4)
 	r := &s.retention
-	r.config.blob_megabytes = 4 // 5 MB are stored: the two purged aren't collected yet
+	r.config.blob_megabytes = 4 // 5 MB are stored, because the two purged blobs aren't collected yet
 	append(&r.steps, Purge_Step{kind = .Size_Cap})
 	retention_drain(r, &s.blobs, s)
 	m, _ = msg_by_id(s, third)
@@ -471,8 +481,9 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	testing.expect(t, m.attachments[0].blob != 0)
 }
 
-// Search finds messages by their files' names as well as their words,
-// each once, newest first; a deleted one's files aren't found any more.
+// Search finds messages by the names of their files as well as by their
+// words. Each message is found once, newest first, and files of deleted
+// messages are no longer found.
 @(test)
 test_attachments_search :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)

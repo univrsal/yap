@@ -5,17 +5,15 @@ import glfw "client:wglfw"
 import NS "core:sys/darwin/Foundation"
 import vglfw "vendor:glfw"
 
-/*
-On macOS the window has no title bar of its own: the UI runs up to the
-top edge, and the close, minimize and zoom buttons sit on it, over the
-start of the first row (see title_row). Everywhere else the desktop's
-own title bar stays, or on X11 goes (ui_titlebar_x11.odin).
-
-What's left of the strip the title bar used to be still moves the
-window when dragged and zooms it when double-clicked, as a title bar
-would, wherever there's no control of ours under the pointer (see
-mouse_button_callback). In fullscreen there's no strip at all.
-*/
+// On macOS the window has no title bar of its own: the UI runs up to the top
+// edge, and the close, minimize and zoom buttons sit on it, over the start of
+// the first row (see title_row). On other platforms the desktop's own title bar
+// stays, or on X11 goes (ui_titlebar_x11.odin).
+//
+// What is left of the strip that the title bar used to be still moves the
+// window when dragged and zooms it when double-clicked, as a title bar would,
+// wherever there is no control of ours under the pointer (see
+// mouse_button_callback). In fullscreen there is no strip at all.
 
 // NSWindowButton's zoom button, the rightmost of the three.
 @(private = "file")
@@ -25,10 +23,10 @@ ZOOM_BUTTON :: 2
 @(private = "file")
 TITLEBAR_GAP :: 8
 
-// titlebar_merge lets the UI take the title bar's place, or gives it
-// back. Called once the window has its Metal layer, and when the setting
-// changes. The view changes size with it, and the next frame's drawable
-// with that (render/gpu_metal.odin).
+// titlebar_merge lets the UI take the title bar's place, or gives it back.
+// Called once the window has its Metal layer, and when the setting changes.
+// The view changes size with it, and the next frame's drawable changes with
+// that (render/gpu_metal.odin).
 titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	w := vglfw.GetCocoaWindow(window)
 	if w == nil {
@@ -48,13 +46,11 @@ titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	w->setTitleVisibility(.Hidden if merged else .Visible)
 }
 
-/*
-titlebar_area is the strip along the top that the title bar would have
-taken, in window coordinates: how far in from the left and from the right
-the window's own buttons reach (only the left here), and how tall the
-strip is. Zero in fullscreen, where the
-title bar only slides in over the UI when the pointer goes up there.
-*/
+// titlebar_area is the strip along the top that the title bar would have
+// taken, in window coordinates: how far in from the left and from the right
+// the window's own buttons reach (only the left here), and how tall the strip
+// is. It is zero in fullscreen, where the title bar only slides in over the UI
+// when the pointer goes up there.
 titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	w := vglfw.GetCocoaWindow(ui.window)
 	if w == nil ||
@@ -76,13 +72,11 @@ titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	return
 }
 
-/*
-titlebar_press does what a title bar does with the press being handled:
-move the window along with the pointer, or, on a double click, whatever
-the system settings say a double click on a title bar does. Called from
-the mouse button callback, while AppKit's event is still the current
-one; the drag runs until the button is let go.
-*/
+// titlebar_press does what a title bar does with the press being handled:
+// move the window along with the pointer or, on a double click, whatever the
+// system settings say a double click on a title bar does. Called from the
+// mouse button callback while AppKit's event is still the current one. The drag
+// runs until the button is released.
 titlebar_press :: proc(window: glfw.WindowHandle) {
 	w := vglfw.GetCocoaWindow(window)
 	event := NS.Application.sharedApplication()->currentEvent()

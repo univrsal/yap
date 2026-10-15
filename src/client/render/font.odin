@@ -6,41 +6,41 @@ import "core:math"
 import "core:slice"
 import "core:unicode/utf8"
 
-/*
-The UI font: Roboto (embedded with #load), rasterized with stb_truetype.
-Every character the font has is used: its Latin, Greek and Cyrillic
-letters and common punctuation and symbols. Emoji (proto/emoji.odin)
-are pictures, in colour, from a sheet of them (emoji_atlas.odin): each
-takes a fixed room in the line and is drawn from a texture of its own,
-not from a font's atlas. Anything else comes from Unifont (unifont.odin)
-if it has it, and draws as the replacement character if not.
-
-A font has faces, one per Font_Style: Roboto Regular, which is what the
-UI uses, and for messages Roboto Bold, Italic and Bold Italic, and
-JetBrains Mono for code. Each face has its own glyphs and atlas, and is
-only read and rasterized once text in it is measured or drawn, so the
-UI's font never builds more than Regular. All faces are set at Regular's
-em size and on its baseline, so styles mix in a line: the other files
-are a later Roboto (2.137) whose ascent and descent differ, which sizing
-by pixel height (as Regular is) would make about an eighth bigger. A
-character a face doesn't have comes from Regular, then from the
-fallbacks as above, which have no styles: they're drawn as they are.
-
-Layout happens in logical pixels, but glyphs are rasterized at the
-display's real density (`scale` physical pixels per logical pixel), so
-text is sharp on high-DPI screens. The atlases are rebuilt whenever the
-scale changes, e.g. when the window moves to another monitor.
-
-Glyph advances are taken from the unscaled font metrics, so text widths,
-and with them the whole layout, are the same at every scale.
-
-A font can be zoomed: the chat's text has a size of its own (its zoom),
-on top of the UI's scale. A zoomed font is the same font laid out in a
-space `zoom` times smaller and blown up again: its widths and line
-height are `zoom` times the plain font's, its atlases are rasterized at
-`scale * zoom`, and glyphs are snapped to physical pixels as usual, so
-it's as sharp as the rest.
-*/
+// The UI font is Roboto (embedded with #load), rasterized with stb_truetype.
+// Every character the font has is used, which includes its Latin, Greek and
+// Cyrillic letters and common punctuation and symbols. Emoji (proto/emoji.odin)
+// are color pictures from a sheet (emoji_atlas.odin). Each emoji takes a fixed
+// amount of space in the line and is drawn from a texture of its own instead
+// of from a font's atlas. Any other character comes from Unifont
+// (unifont.odin) if it has a glyph for it, and is drawn as the replacement
+// character otherwise.
+//
+// A font has faces, one per Font_Style: Roboto Regular, which the UI uses,
+// and, for messages, Roboto Bold, Italic and Bold Italic, plus JetBrains Mono
+// for code. Each face has its own glyphs and atlas and is only read and
+// rasterized once text in it is measured or drawn, so the UI's font never
+// builds more than Regular. All faces are set at Regular's em size and on its
+// baseline so that styles can be mixed in a line. The other files are from a
+// later Roboto (2.137) with a different ascent and descent, which would make
+// them about an eighth bigger if they were sized by pixel height like
+// Regular. A character that a face does not have comes from Regular, then
+// from the fallbacks described above, which have no styles and are drawn as
+// they are.
+//
+// Layout happens in logical pixels, but glyphs are rasterized at the
+// display's real density (`scale` physical pixels per logical pixel), so text
+// is sharp on high-DPI screens. The atlases are rebuilt whenever the scale
+// changes, for example when the window moves to another monitor.
+//
+// Glyph advances are taken from the unscaled font metrics, so text widths
+// and therefore the whole layout are the same at every scale.
+//
+// A font can be zoomed. The chat's text has a size of its own (its zoom) on
+// top of the UI's scale. A zoomed font is the same font laid out in a space
+// that is `zoom` times smaller and then blown up again. Its widths and line
+// height are `zoom` times those of the plain font, its atlases are rasterized
+// at `scale * zoom`, and glyphs are snapped to physical pixels as usual, so
+// it is as sharp as the rest.
 
 Font_Style :: enum u8 {
 	Regular,
@@ -61,17 +61,18 @@ FACE_DATA := [Font_Style][]u8 {
 FONT_SIZE :: 15 // logical pixels, Regular's ascent to descent
 LINE_HEIGHT :: 18 // logical pixels; microui's default, which its layout metrics assume
 
-// Shown for characters the font doesn't have: the first of these it does.
+// Characters shown in place of ones the font does not have. The first one
+// that the font has is used.
 FALLBACK_CHARS :: [?]rune{utf8.RUNE_ERROR, '?'}
 
-// One of a font's faces (Font_Style): a font file, its glyphs and their
-// atlas.
+// One face of a font (see Font_Style). It holds a font file, its glyphs and
+// their atlas.
 Face :: struct {
 	info:       stbtt.fontinfo,
-	tried:      bool, // read (face_get), whether or not that worked
+	tried:      bool, // whether reading was attempted (face_get), even if it failed
 	ok:         bool,
-	// The characters we have glyphs for, sorted; the arrays below are
-	// indexed the same way.
+	// The characters we have glyphs for, sorted. The arrays below use the
+	// same indices.
 	codepoints: []rune,
 	advance:    []f32, // logical pixels
 	glyphs:     []stbtt.packedchar, // for the current atlas
@@ -84,23 +85,23 @@ Face :: struct {
 	pixels:     []u8, // width * height, one alpha byte per texel
 	width:      i32,
 	height:     i32,
-	// A few fully opaque texels, for drawing solid rectangles.
+	// A few fully opaque texels for drawing solid rectangles.
 	white:      [2]f32,
 }
 
 Font :: struct {
 	faces:    [Font_Style]Face,
 	ok:       bool,
-	// The em size every face is set at, Regular's for FONT_SIZE (logical
-	// pixels).
+	// The em size every face is set at. This is Regular's em size for
+	// FONT_SIZE (in logical pixels).
 	em:       f32,
 	// Distance from the top of a LINE_HEIGHT line box to the baseline.
 	baseline: f32,
-	// How much bigger than FONT_SIZE this one is drawn: 1, or the
-	// chat's size (see above). Set before the atlases are built.
+	// How much bigger than FONT_SIZE this font is drawn. This is 1 or the
+	// chat's size (see above). It is set before the atlases are built.
 	zoom:     f32,
-	// The density the atlases are for (font_set_scale); a face whose
-	// atlas is for another is built again before it's drawn.
+	// The density the atlases are for (font_set_scale). A face whose atlas
+	// is for a different density is rebuilt before it is drawn.
 	scale:    f32,
 
 	// The fallback font, with an atlas of its own.
@@ -112,7 +113,8 @@ font_init :: proc(f: ^Font) -> bool {
 	if !stbtt.InitFont(&regular.info, raw_data(FACE_DATA[.Regular]), 0) {
 		return false
 	}
-	// Regular is sized by its pixel height; that's the em every face gets.
+	// Regular is sized by its pixel height, and that is the em size every
+	// face gets.
 	s := stbtt.ScaleForPixelHeight(&regular.info, FONT_SIZE)
 	f.em = s / stbtt.ScaleForMappingEmToPixels(&regular.info, 1)
 	if !face_init(f, .Regular) {
@@ -129,7 +131,8 @@ font_init :: proc(f: ^Font) -> bool {
 	return true
 }
 
-// face_init reads a face's file: the characters it has, and how wide.
+// face_init reads a face's file to find out which characters it has and how
+// wide they are.
 @(private = "file")
 face_init :: proc(f: ^Font, style: Font_Style) -> bool {
 	fc := &f.faces[style]
@@ -179,8 +182,8 @@ face_init :: proc(f: ^Font, style: Font_Style) -> bool {
 	return true
 }
 
-// face_get is one of the font's faces, read the first time it's asked
-// for; Regular if that one can't be.
+// face_get returns one of the font's faces, which is read the first time it
+// is requested. It returns Regular if the requested face cannot be read.
 face_get :: proc(f: ^Font, style: Font_Style) -> ^Face {
 	fc := &f.faces[style]
 	if !fc.tried {
@@ -189,7 +192,8 @@ face_get :: proc(f: ^Font, style: Font_Style) -> ^Face {
 	return fc if fc.ok else &f.faces[.Regular]
 }
 
-// font_line_height is how tall a line of this font is, in logical pixels.
+// font_line_height returns the height of a line of this font in logical
+// pixels.
 font_line_height :: proc(f: ^Font) -> i32 {
 	return i32(math.round(LINE_HEIGHT * f.zoom))
 }
@@ -202,21 +206,22 @@ font_destroy :: proc(f: ^Font) {
 		delete(fc.advance)
 		delete(fc.glyphs)
 	}
-	// Everything, so a font built again asks for new atlases rather
-	// than trusting the ones this scale used to have (see render).
+	// Reset everything, so that a font that is built again asks for new
+	// atlases instead of trusting the ones from the previous scale (see
+	// render).
 	f^ = {}
 }
 
-// font_set_scale says the font is now drawn at `scale` physical pixels per
-// logical pixel: each face's atlas is built again for it before it's next
+// font_set_scale sets the font to be drawn at `scale` physical pixels per
+// logical pixel. Each face's atlas is rebuilt for it before the face is next
 // drawn (font_build_atlas).
 font_set_scale :: proc(f: ^Font, scale: f32) {
 	f.scale = scale
 }
 
-// font_build_atlas rasterizes a face's glyphs for the font's scale, if its
-// atlas is for another (or it has none). It says whether there's a new one
-// to upload.
+// font_build_atlas rasterizes a face's glyphs for the font's scale if its
+// atlas is for a different scale or does not exist. It returns whether there
+// is a new atlas to upload.
 font_build_atlas :: proc(f: ^Font, style: Font_Style) -> bool {
 	fc := &f.faces[style]
 	if fc.scale == f.scale && fc.pixels != nil {
@@ -239,7 +244,7 @@ font_build_atlas :: proc(f: ^Font, style: Font_Style) -> bool {
 			return false
 		}
 		r := stbtt.pack_range {
-			// Negative: the em size, rather than the pixel height.
+			// A negative value means the em size instead of the pixel height.
 			font_size                   = -f.em * f.scale,
 			array_of_unicode_codepoints = raw_data(fc.codepoints),
 			num_chars                   = i32(len(fc.codepoints)),
@@ -265,19 +270,20 @@ font_build_atlas :: proc(f: ^Font, style: Font_Style) -> bool {
 	return false
 }
 
-// Which font a character is drawn from.
+// The kind of source a character's glyph is drawn from.
 @(private = "file")
 Glyph_Source :: enum {
 	Face, // the index is into the face's arrays
 	Unifont, // the index is the character itself
 	Emoji, // the index is its cell in the sheet (emoji_cell)
-	Placeholder, // one of the server's emoji, drawn over it by the UI: room, nothing drawn
+	Placeholder, // one of the server's emoji, drawn over it by the UI: takes space but draws nothing
 	None, // draws nothing and takes no room (is_ignorable)
 }
 
-// find_glyph finds a character's glyph, or the fallback's, for text in
-// `style`; `face` is the face it's from when it's from one. Invalid UTF-8
-// reaches here as utf8.RUNE_ERROR, so it shows as the fallback too.
+// find_glyph finds a character's glyph (or the fallback's) for text in
+// `style`. `face` is the face the glyph comes from, if it comes from one.
+// Invalid UTF-8 arrives here as utf8.RUNE_ERROR, so it is shown as the
+// fallback too.
 @(private = "file")
 find_glyph :: proc(
 	f: ^Font,
@@ -343,13 +349,13 @@ font_text_width_unzoomed :: proc(f: ^Font, text: string, style: Font_Style) -> f
 	return w
 }
 
-// How much room one of the server's emoji takes in a line, and how big
-// it's drawn (logical pixels).
+// How much space one of the server's emoji takes up in a line and how big it
+// is drawn (in logical pixels).
 CUSTOM_EMOJI_ADVANCE :: 19
 CUSTOM_EMOJI_SIZE :: 17
 
-// font_cache_glyphs puts the Unifont glyphs `text` needs in their atlas,
-// ahead of font_layout; the renderer uploads what changed in between.
+// font_cache_glyphs puts the Unifont glyphs that `text` needs into their
+// atlas before font_layout. The renderer uploads whatever changed in between.
 font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular) {
 	for r in text {
 		#partial switch _, source, _ := find_glyph(f, style, r); source {
@@ -359,8 +365,8 @@ font_cache_glyphs :: proc(f: ^Font, text: string, style := Font_Style.Regular) {
 	}
 }
 
-// font_faces_used is which faces drawing `text` in `style` takes glyphs
-// from, for the renderer to have their atlases ready.
+// font_faces_used returns the faces that glyphs are taken from when drawing
+// `text` in `style`, so the renderer can have their atlases ready.
 font_faces_used :: proc(f: ^Font, text: string, style: Font_Style) -> (used: bit_set[Font_Style]) {
 	for r in text {
 		if _, source, face := find_glyph(f, style, r); source == .Face {
@@ -374,8 +380,8 @@ Glyph_Quad :: struct {
 	x0, y0, x1, y1: f32, // logical pixels
 	u0, v0, u1, v1: f32,
 	unifont:        bool, // from the Unifont atlas rather than a face's
-	emoji:          bool, // from the emoji sheet, in colour: neither of those
-	face:           Font_Style, // which face's atlas, if not
+	emoji:          bool, // from the emoji sheet, in color; neither of the others
+	face:           Font_Style, // which face's atlas the glyph is from, if it is a face glyph
 }
 
 // font_layout calls `emit` for every visible glyph of `text` in `style`,
@@ -393,7 +399,8 @@ font_layout :: proc(
 		font_layout_unzoomed(f, text, style, x, y, data, emit)
 		return
 	}
-	// In the zoomed font's own space, and the glyphs blown up from it.
+	// Lay out in the zoomed font's own space, then blow the glyphs up from
+	// it.
 	Zoomed :: struct {
 		zoom: f32,
 		data: rawptr,
@@ -427,12 +434,13 @@ font_layout_unzoomed :: proc(
 ) {
 	s := f.scale
 	baseline := math.round((y + f.baseline) * s)
-	// The text starts on a physical pixel, and its glyphs are placed from
-	// there: rounded each from its own logical position, a glyph would
-	// move one pixel and its neighbour two as the text moves (at 1.5, as
-	// a window is resized), and the letters would shuffle.
+	// The text starts on a physical pixel and its glyphs are placed relative
+	// to that. If each glyph were rounded from its own logical position, a
+	// glyph would move one pixel and its neighbour two as the text moves (at
+	// a scale of 1.5, such as while a window is resized), and the letters
+	// would shuffle.
 	origin := math.round(x * s)
-	// From the start of the text, logical pixels.
+	// The offset from the start of the text, in logical pixels.
 	pen: f32
 	for r in text {
 		i, source, face := find_glyph(f, style, r)
@@ -465,8 +473,8 @@ font_layout_unzoomed :: proc(
 					},
 				)
 			} else {
-				// The atlas is full: this frame makes do with the
-				// fallback, in the room the glyph would have had.
+				// The atlas is full, so this frame uses the fallback in the
+				// space the glyph would have had.
 				emit_glyph(
 					f,
 					.Regular,
@@ -480,7 +488,7 @@ font_layout_unzoomed :: proc(
 			}
 			pen += f32(u.width[i])
 		case .Emoji:
-			// On whole physical pixels, as the text beside it is.
+			// Place it on whole physical pixels like the text next to it.
 			px := origin + math.round(pen * s) + math.round((EMOJI_ADVANCE - EMOJI_SIZE) / 2 * s)
 			py := math.round((y + (LINE_HEIGHT - EMOJI_SIZE) / 2) * s)
 			side := math.round(EMOJI_SIZE * s)
@@ -507,10 +515,10 @@ font_layout_unzoomed :: proc(
 	}
 }
 
-// emit_glyph emits one of a face's glyphs, `pen` logical pixels on from
-// `origin` (physical pixels, where the text starts), on
-// `baseline` (physical ones). Nothing, if the face has no atlas for this
-// scale (font_build_atlas).
+// emit_glyph emits one of a face's glyphs `pen` logical pixels from `origin`
+// (in physical pixels, where the text starts) on `baseline` (also in physical
+// pixels). It emits nothing if the face has no atlas for this scale
+// (font_build_atlas).
 @(private = "file")
 emit_glyph :: proc(
 	f: ^Font,

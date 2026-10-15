@@ -9,26 +9,24 @@ import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
-/*
-The voice gate's part of the settings page: an on/off toggle, a live
-microphone level meter, sliders for the two thresholds, and listen back
-(hear your processed microphone; see Voice.listen).
+// The voice gate's part of the settings page: an on/off toggle, a live
+// microphone level meter, sliders for the two thresholds, and listen back
+// (hearing your processed microphone, see Voice.listen).
+//
+// The meter's scale runs from MIN_LEVEL_DB to 0 dBFS, colored by what the
+// gate does at each level:
+//
+// 	red    below "close"      the gate closes (after GATE_HANGOVER)
+// 	amber  between the two    it stays as it is
+// 	green  above "open"       it opens
+//
+// While connected, the level comes from the network thread (the frames
+// that are actually being sent). Otherwise the settings page opens the microphone
+// itself (see Mic_Monitor) and runs the same processing, sending nothing.
+// Either way the microphone is only open for the meter while its section
+// is expanded, or while listen back is on (see mic_test_wanted).
 
-The meter's scale runs from MIN_LEVEL_DB to 0 dBFS, colored by what the
-gate does at each level:
-
-	red    below "close"      the gate closes (after GATE_HANGOVER)
-	amber  between the two    it stays as it is
-	green  above "open"       it opens
-
-While connected the level comes from the network thread (the frames
-actually being sent). Otherwise the settings page opens the microphone
-itself (Mic_Monitor) and runs the same processing, sending nothing.
-Either way the microphone is only open for the meter while its section
-is expanded, or while listen back is on (mic_test_wanted).
-*/
-
-// How fast the meter's bar falls; it rises instantly.
+// How fast the meter's bar falls. It rises instantly.
 @(private = "file")
 METER_DECAY_DB_PER_SEC :: 40
 // Without a new level for this long, show "no input".
@@ -53,9 +51,9 @@ mic_test_wanted :: proc(ui: ^UI) -> bool {
 	return ui.page == .Settings && (ui.meter_shown || ui.listen_back)
 }
 
-// monitor_update runs every frame: it keeps the microphone open while the
-// settings page uses it without a connection, and processes what it
-// captured.
+// monitor_update runs every frame. It keeps the microphone open while the
+// settings page uses it without a connection, and processes what the
+// microphone captured.
 monitor_update :: proc(ui: ^UI) {
 	m := &ui.monitor
 	want := mic_test_wanted(ui) && ui.session == nil && ui.audio.ctx != nil
@@ -70,7 +68,7 @@ monitor_update :: proc(ui: ^UI) {
 		return
 	}
 
-	// Listen back plays through the output device, opened only for it.
+	// Listen back plays through the output device, which is only opened for it.
 	m.voice.listen = ui.listen_back
 	if ui.listen_back && m.streams.playback == nil {
 		// The UI thread only gets here once per frame, so keep more queued
@@ -135,7 +133,7 @@ gate_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1}, METER_HEIGHT)
 	level_meter(ui)
 	current_width := (mu.layout_next(ctx).w - 70 - 90 - 20) / 2
-	// Too narrow for both on a line: one under the other.
+	// Too narrow for both on one line, so put one under the other.
 	if current_width >= GATE_SLIDER_MIN {
 		mu.layout_row(ctx, {70, current_width, 90, current_width})
 	} else {
@@ -164,12 +162,12 @@ gate_settings :: proc(ui: ^UI) {
 	}
 }
 
-// The thresholds' sliders are never narrower than this side by side.
+// The thresholds' sliders are never narrower than this when side by side.
 @(private = "file")
 GATE_SLIDER_MIN :: 110
 
 // set_listen_back turns listen back on or off, for the monitor (picked up
-// by monitor_update) and a running connection.
+// by monitor_update) and for a running connection.
 set_listen_back :: proc(ui: ^UI, on: bool) {
 	if ui.listen_back == on {
 		return
@@ -181,7 +179,7 @@ set_listen_back :: proc(ui: ^UI, on: bool) {
 
 @(private = "file")
 gate_changed :: proc(ui: ^UI) {
-	ui.settings_dirty = true // saved within a second; sliders change every frame
+	ui.settings_dirty = true // saved within a second, because sliders change every frame
 	command_all(ui, conn.gate_command(&ui.settings))
 }
 
@@ -209,8 +207,8 @@ level_meter :: proc(ui: ^UI) {
 		level, open = audio.MIN_LEVEL_DB, false
 	}
 
-	// Rise instantly, fall smoothly, so short peaks are readable. It
-	// moves for as long as it's on screen.
+	// Rise instantly and fall smoothly, so short peaks are readable. It
+	// moves for as long as it is on screen.
 	ui_redraw_in(ui, ANIMATION_FRAME)
 	now := time.tick_now()
 	dt := f32(time.duration_seconds(time.tick_diff(ui.meter_time, now)))
@@ -225,7 +223,7 @@ level_meter :: proc(ui: ^UI) {
 	between_color := mu.Color{120, 100, 40, 255}
 	open_color := mu.Color{45, 105, 55, 255}
 	if !s.voice_gate {
-		// The gate isn't doing anything; keep the scale but dim it.
+		// The gate isn't doing anything, so keep the scale but dim it.
 		closed_color, between_color, open_color = theme.track, theme.divider, theme.unlit
 	}
 	close_x, open_x := x_of(r, s.gate_close_db), x_of(r, s.gate_open_db)

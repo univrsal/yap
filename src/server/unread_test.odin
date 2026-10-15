@@ -5,10 +5,11 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of what accounts have read, on the Test_Server of auth_test.odin.
+// Tests of tracking what accounts have read, using the Test_Server from
+// auth_test.odin.
 
-// read_state is what the last Read_Changed a connection was sent says,
-// and whether it was sent one.
+// read_state returns the state from the last Read_Changed event a connection
+// was sent, and whether there was one.
 read_state :: proc(
 	t: ^testing.T,
 	ts: ^Test_Server,
@@ -63,7 +64,8 @@ test_unread :: proc(t: ^testing.T) {
 		testing.expect_value(t, conv_record(&s.convs, home, bob.account.id).unread, 0)
 		testing.expect_value(t, conv_record(&s.convs, home, bob.account.id).read, last)
 
-		// Reading on one device: every device of the account is told.
+		// When messages are read on one device, every device of the account
+		// is told.
 		ts_events(t, &ts, laptop)
 		ts_events(t, &ts, phone)
 		status, _ := ts_ask(t, &ts, laptop, .Mark_Read, mark_body(home.id, last - 1))
@@ -74,17 +76,18 @@ test_unread :: proc(t: ^testing.T) {
 			testing.expect_value(t, state.read, last - 1)
 			testing.expect_value(t, state.unread, 1)
 		}
-		// Back in time, or again, is nothing, and no news.
+		// Marking an older message, or the same one again, as read changes
+		// nothing, and nobody is told.
 		ts_ask(t, &ts, laptop, .Mark_Read, mark_body(home.id, 1))
 		ts_ask(t, &ts, laptop, .Mark_Read, mark_body(home.id, last - 1))
 		_, told := read_state(t, &ts, phone)
 		testing.expect(t, !told)
 		testing.expect_value(t, home.reads[laptop.account.id].read, last - 1)
-		// Past the end is as far as the end.
+		// Marking past the last message only marks up to the last message.
 		ts_ask(t, &ts, laptop, .Mark_Read, mark_body(home.id, last + 1000))
 		testing.expect_value(t, home.reads[laptop.account.id].read, last)
 
-		// Alice's own post reads everything before it.
+		// Alice's own post marks everything before it as read.
 		for i in 0 ..< 2 {
 			post(t, &ts, bob, home.id, "more news", u64(20 + i))
 		}
@@ -94,10 +97,10 @@ test_unread :: proc(t: ^testing.T) {
 		testing.expect(t, told2)
 		testing.expect_value(t, state.read, mine)
 		testing.expect_value(t, state.unread, 0)
-		// ... and is unread for bob, whose last post it came after.
+		// ... and is unread for bob, since it came after his last post.
 		testing.expect_value(t, conv_record(&s.convs, home, bob.account.id).unread, 1)
 
-		// Counting stops at the cap.
+		// The unread count stops at UNREAD_CAP.
 		for i in 0 ..< proto.UNREAD_CAP + 20 {
 			post(t, &ts, bob, home.id, "flood", u64(100 + i))
 		}
@@ -107,7 +110,8 @@ test_unread :: proc(t: ^testing.T) {
 			proto.UNREAD_CAP,
 		)
 
-		// Only a member reads, and subscribing starts with everything read.
+		// Only members can mark messages as read, and subscribing starts
+		// with everything marked as read.
 		gaming := conv_by_name(&s.convs, "Gaming")
 		testing.expect(t, conv_member_add(&s.convs, gaming, bob.account.id))
 		post(t, &ts, bob, gaming.id, "in gaming", 500)
@@ -126,7 +130,8 @@ test_unread :: proc(t: ^testing.T) {
 		testing.expect_value(t, record.read, gaming.last_msg)
 		testing.expect_value(t, record.unread, 0)
 
-		// How much a channel may interrupt: set, and told to every device.
+		// A channel's notification level can be set, and every device of
+		// the account is told.
 		ts_events(t, &ts, phone)
 		notify_buf: [proto.CONV_NOTIFY_SIZE]u8
 		status, _ = ts_ask(
@@ -145,7 +150,7 @@ test_unread :: proc(t: ^testing.T) {
 		db_commit(&ts.s.db)
 	}
 
-	// After a restart, the same.
+	// Everything is still the same after a restart.
 	ts: Test_Server
 	ts_open(t, &ts, path)
 	defer ts_close(&ts)

@@ -9,39 +9,40 @@ import "core:unicode"
 import "common:proto"
 import "sqlite"
 
-/*
-Searching messages (src/common/proto/search.odin), with SQLite's full
-text search: the index `messages_fts` (schema step 14) has the words of
-every text message, kept by triggers as messages are posted, edited,
-deleted and purged, and `files_fts` (step 16) the names of the files
-messages carry (attachments.odin). Both are read newest first, side by
-side, and a message is found once whichever way it matches.
+// Searching messages (see src/common/proto/search.odin) uses SQLite's full
+// text search. The index `messages_fts` (schema step 14) contains the words
+// of every text message and is kept up to date by triggers when messages
+// are posted, edited, deleted and purged. The index `files_fts` (schema
+// step 16) contains the names of the files that messages carry (see
+// attachments.odin). Both are read side by side, newest first, and a message
+// is only found once even if it matches in both ways.
+//
+// The text typed by the user is never passed to the query language of FTS5
+// as is. It is split into words, "phrases" and from:username, and then
+// assembled again with every word quoted. This way nothing that is typed
+// can be interpreted as an operator or cause a syntax error.
+//
+// Prefix searches (word*) are not supported. FTS5 merges the lists of all
+// words matching a prefix before it returns the first row. This happens in a
+// single step of the statement, where the progress handler can't interrupt
+// it, and for a common prefix in a big history it blocked the main loop for
+// tens of milliseconds (14 ms for jump* over a million messages). Whole
+// words and phrases are read lazily, newest first, and reading stops as soon
+// as enough results are found. A trailing * is dropped and the word is
+// searched for as a whole.
+//
+// A search runs in the server's main loop like everything else, so it is
+// cut short. SQLite's progress handler stops it after SEARCH_BUDGET and the
+// results found by then are the answer. `more` is set so that the client can
+// continue from the last result.
 
-What's typed is never handed to FTS5's own query language as it is: it's
-taken apart into words, "phrases" and from:username, and put together
-again with every word quoted, so nothing typed can be an operator or a
-syntax error.
-
-There are no prefix searches (word*): FTS5 merges the lists of every
-word a prefix matches before it gives the first row, inside one step of
-the statement where the progress handler can't stop it, and for a
-common prefix in a big history that held the loop for tens of
-milliseconds (14 ms for jump* over a million messages). Whole words and
-phrases are read lazily, newest first, and stop when they have enough.
-A trailing * is dropped: the word is looked for whole.
-
-A search runs in the server's loop like everything else, so it's cut
-short: SQLite's progress handler stops it after SEARCH_BUDGET, and what
-it found by then is the answer, with `more` set so the client can go on
-from the last.
-*/
-
-// Within a slow turn of the loop (SLOW_TURN), with room for the rest of it.
+// The time budget of a search, short enough to fit within a slow iteration
+// of the main loop (SLOW_TURN) while leaving room for the rest of it.
 SEARCH_BUDGET :: 4 * time.Millisecond
 
-// fts_query turns a search as typed into an FTS5 query (in the temp
-// allocator), and the username after from:, if there's one. `ok` is false
-// if there isn't a word to look for.
+// fts_query converts a search as typed by the user into an FTS5 query
+// (allocated with the temp allocator) and the username after from:, if there
+// is one. `ok` is false if there is no word to search for.
 fts_query :: proc(raw: string) -> (query: string, from: string, ok: bool) {
 	b := strings.builder_make(context.temp_allocator)
 	terms := 0
@@ -73,7 +74,7 @@ fts_query :: proc(raw: string) -> (query: string, from: string, ok: bool) {
 			break
 		}
 		if rest[0] == '"' {
-			// A phrase, to its closing quote or the end.
+			// A phrase, up to its closing quote or the end of the text.
 			end := strings.index_byte(rest[1:], '"')
 			phrase := rest[1:] if end < 0 else rest[1:][:end]
 			rest = "" if end < 0 else rest[end + 2:]
@@ -97,7 +98,7 @@ fts_query :: proc(raw: string) -> (query: string, from: string, ok: bool) {
 	return strings.to_string(b), from, terms > 0
 }
 
-// msg_search answers a Msg_Search: a page of what matches, newest first.
+// msg_search answers a Msg_Search with a page of the matching messages, newest first.
 msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	req, ok := proto.decode_msg_search(body)
 	if !ok {
@@ -119,7 +120,7 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	if from != "" {
 		acc := account_find(&s.accounts, strings.to_lower(from, context.temp_allocator))
 		if acc == nil {
-			// Nobody by that name wrote anything.
+			// There is no such account, so there are no results.
 			out: [8 + proto.HISTORY_HEADER_SIZE]u8
 			empty, _ := proto.encode_search_answer(out[:], 0, 0, nil)
 			respond(u, id, .Ok, empty)
@@ -130,26 +131,28 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	before := req.before if req.before != 0 else max(proto.Msg_Id)
 	me := u.account.id
 
-	// The words, and the files' names: two lists, each newest first.
+	// Two result lists, one for the message words and one for the file
+	// names, each sorted newest first.
 	qs := [2]^sqlite.Stmt{db_stmt(&s.db, .Msg_Search), db_stmt(&s.db, .File_Search)}
 	for q in qs {
 		db_bind_text(q, 1, query)
 		db_bind_int(q, 2, i64(min(before, proto.Msg_Id(max(i64)))))
 	}
-	// Each list's next message: its id, 0 once it's run out, -1 while
-	// it's to be stepped to.
+	// The next message of each list: its id, 0 once the list has run out,
+	// or -1 if the list still has to be advanced.
 	heads := [2]i64{-1, -1}
 
-	// Stopped once it has taken its share of the loop.
+	// Stop the search once it has used up its share of the main loop.
 	deadline := time.tick_add(time.tick_now(), SEARCH_BUDGET)
 	sqlite.progress_handler(s.db.conn, 1000, proc "c" (arg: rawptr) -> c.int {
 			return 1 if time.tick_diff(time.tick_now(), (^time.Tick)(arg)^) < 0 else 0
 		}, &deadline)
 	defer sqlite.progress_handler(s.db.conn, 0, nil, nil)
 
-	// Every match comes, newest first; those of the conversations asked
-	// about, by whom it was asked, are kept. Where it got to is the
-	// oldest it looked at, from where the next search goes on.
+	// All matches are visited newest first, and only those in the
+	// conversations the asker is searching (and may see) are kept. The
+	// oldest message looked at is where the search got to, and the next
+	// search continues from there.
 	found := make([dynamic]proto.Message, 0, req.limit, context.temp_allocator)
 	more: u8
 	searched_to := before
@@ -173,7 +176,8 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			rc = sqlite.DONE
 		}
 		if rc == sqlite.ROW {
-			// The newer of the two; a message that's in both is taken once.
+			// Take the newer of the two heads. A message that is in both
+			// lists is only taken once.
 			pick := 0 if heads[0] >= heads[1] else 1
 			if heads[0] == heads[1] {
 				heads[1] = -1
@@ -206,8 +210,8 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		switch rc {
 		case sqlite.DONE:
 		case sqlite.INTERRUPT:
-			// Out of time: what's found so far, and maybe more older than
-			// where it got to.
+			// Out of time. Return what was found so far. There may be more
+			// results older than where the search got to.
 			more = proto.MORE_BEFORE
 			log.debugf(
 				"%s's search stopped after %d, at message %d",
@@ -216,7 +220,7 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 				searched_to,
 			)
 		case:
-			// FTS5 says no to the query: nothing typed should get here.
+			// FTS5 rejected the query. This shouldn't happen for any typed text.
 			log.warnf("search for %q: %s", query, db_error(&s.db))
 			for q in qs {
 				sqlite.reset(q)
@@ -236,7 +240,7 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	out := make([]u8, proto.MAX_BODY_SIZE, context.temp_allocator)
 	page, fitted := proto.encode_search_answer(out, searched_to, more, found[:])
 	if fitted < len(found) {
-		// The rest didn't fit: the next search goes on from the last.
+		// Not all results fit, so the next search continues from the last one that did.
 		page, _ = proto.encode_search_answer(
 			out,
 			found[fitted - 1].id,

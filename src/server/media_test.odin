@@ -7,12 +7,11 @@ import "core:time"
 
 import "common:proto"
 
-/*
-Tests of the media link (media.odin): real handshakes over loopback UDP
-sockets, with the media thread's packet handling called directly - it
-joins a logged in connection, carries a sharer's video to whoever
-watches them in their room, and keyframe requests back.
-*/
+// Tests of the media link (media.odin). These do real handshakes over loopback
+// UDP sockets and call the media thread's packet handling directly. They check
+// that the media link attaches to a logged in connection, relays a sharer's
+// video to whoever watches them in their room, and relays keyframe requests
+// back to the sharer.
 
 @(private = "file")
 Media_Test_Link :: struct {
@@ -42,7 +41,7 @@ media_link_recv :: proc(t: ^testing.T, l: ^Media_Test_Link, out: []u8) -> []u8 {
 	return pt
 }
 
-// media_link_quiet says nothing more has come on the link.
+// media_link_quiet reports whether nothing more has arrived on the link.
 @(private = "file")
 media_link_quiet :: proc(l: ^Media_Test_Link) -> bool {
 	net.set_option(l.sock, .Receive_Timeout, 50 * time.Millisecond)
@@ -62,7 +61,8 @@ media_link_send :: proc(m: ^Media, l: ^Media_Test_Link, msg: []u8) {
 }
 
 // media_link_handshake runs a client's handshake on the media link and
-// returns the first of the three copies of the answer, the others read.
+// returns the first of the three copies of the server's answer, after
+// reading and discarding the other two.
 @(private = "file")
 media_link_handshake :: proc(
 	t: ^testing.T,
@@ -103,7 +103,8 @@ test_media_link :: proc(t: ^testing.T) {
 	s.max_sessions = 16
 	testing.expect(t, ecdh.private_key_generate(&s.key, .X25519))
 
-	// Two devices, logged in, in the same room; one sharing.
+	// Two logged in devices in the same room, one of which is sharing its
+	// screen.
 	keys: [2]ecdh.Private_Key
 	conns: [2]^Conn
 	names := [2]string{"sharer", "viewer"}
@@ -122,7 +123,7 @@ test_media_link :: proc(t: ^testing.T) {
 	sharer.flags += {.Sharing}
 	bump_version(s)
 
-	// The media thread's part, without the thread.
+	// Set up the media thread's state without starting the thread itself.
 	m := &s.media
 	sock, err := net.make_bound_udp_socket(net.IP4_Loopback, 0)
 	testing.expect_value(t, err, nil)
@@ -148,13 +149,15 @@ test_media_link :: proc(t: ^testing.T) {
 	}
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 
-	// A conn_id that isn't the connection's is refused.
+	// A handshake with a conn_id that doesn't match the connection's is
+	// refused.
 	pt := media_link_handshake(t, m, &links[0], &keys[0], 0x999, out[:])
 	testing.expect_value(t, proto.Message_Kind(pt[0]), proto.Message_Kind.Refused)
 	testing.expect_value(t, proto.decode_refused(pt), proto.Refusal.No_Connection)
 	testing.expect_value(t, len(m.sessions), 0)
 
-	// The right one is welcomed, with the connection's instance.
+	// One with the correct conn_id gets a Welcome with the connection's
+	// instance.
 	for i in 0 ..< 2 {
 		pt = media_link_handshake(t, m, &links[i], &keys[i], conns[i].conn_id, out[:])
 		testing.expect_value(t, proto.Message_Kind(pt[0]), proto.Message_Kind.Welcome)
@@ -163,14 +166,15 @@ test_media_link :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, len(m.sessions), 2)
 
-	// The viewer watches the sharer, asking for a keyframe, which the
-	// sharer is asked for on its media link.
+	// The viewer starts watching the sharer and asks for a keyframe. The
+	// request is passed on to the sharer on its media link.
 	watch_buf: [proto.WATCH_SIZE]u8
 	media_link_send(m, &links[1], proto.encode_watch(&watch_buf, sharer.num, true))
 	pt = media_link_recv(t, &links[0], out[:])
 	testing.expect_value(t, proto.Message_Kind(pt[0]), proto.Message_Kind.Keyframe)
 
-	// A fragment of the sharer's goes to the viewer, and not back.
+	// A video fragment from the sharer is relayed to the viewer, but not
+	// back to the sharer.
 	data := [?]u8{1, 2, 3, 4}
 	up_buf: [proto.MAX_PAYLOAD_SIZE]u8
 	up := proto.encode_video_up(
@@ -187,8 +191,8 @@ test_media_link :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f.data), len(data))
 	testing.expect(t, media_link_quiet(&links[0]))
 
-	// The viewer lost it after all: asked for again, it comes from the
-	// cache. What was never sent isn't.
+	// Pretend the viewer lost the fragment: when it asks for it again, it's
+	// resent from the cache. Fragments that were never sent are not.
 	nack_buf: [proto.NACK_SIZE]u8
 	media_link_send(
 		m,
@@ -203,7 +207,7 @@ test_media_link :: proc(t: ^testing.T) {
 	testing.expect_value(t, f.index, 0)
 	testing.expect(t, media_link_quiet(&links[1]))
 
-	// Only of whom it watches.
+	// Resends are only made for users the viewer is watching.
 	media_link_send(
 		m,
 		&links[1],
@@ -211,8 +215,8 @@ test_media_link :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, media_link_quiet(&links[1]))
 
-	// The viewer's report reaches the sharer as the summary of one; a
-	// report on somebody it doesn't watch is dropped.
+	// The viewer's report reaches the sharer as a summary covering one
+	// viewer. A report about somebody the viewer doesn't watch is dropped.
 	report_buf: [proto.REPORT_SIZE]u8
 	media_link_send(m, &links[1], proto.encode_report_up(&report_buf, viewer.num, {loss = 900}))
 	media_link_send(
@@ -232,14 +236,15 @@ test_media_link :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, media_link_quiet(&links[1]))
 
-	// Once they've stopped sharing, their video goes nowhere.
+	// Once the sharer has stopped sharing, their video isn't relayed to
+	// anyone.
 	sharer.flags -= {.Sharing}
 	bump_version(s)
 	media_sync(s)
 	media_link_send(m, &links[0], up)
 	testing.expect(t, media_link_quiet(&links[1]))
 
-	// Nor to someone in another room.
+	// It also isn't relayed to someone in another room.
 	sharer.flags += {.Sharing}
 	viewer.room = 2
 	bump_version(s)

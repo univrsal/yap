@@ -17,29 +17,29 @@ import "client:render"
 import "client:settings"
 import "common:proto"
 
-/*
-Profiles on screen: our status and picture, everyone else's in the lists,
-a conversation's members, and the settings our account keeps on the
-server.
-
-  - The status editor, a small window: the text, and when it clears
-    itself (30 minutes, an hour, four hours, the end of today, never).
-    It's opened from our own row in a list, or from the settings.
-  - The members window, opened by the people button in a conversation's
-    header: everyone in it with their picture and status, those here
-    first, the rest with when they were last here. Clicking one opens
-    the same menu as anywhere else; clicking ourselves, the status
-    editor.
-  - Our picture is set in the settings, from a file or (on a desktop)
-    the clipboard (ui_avatar_pick_native.odin, ui_avatar_pick_web.odin):
-    made square and small (avatar_prepare, web/avatar.js) and uploaded.
-  - Settings kept on the server (conn/profiles.odin): how loud each
-    person is, and which DMs are off the buddy list. settings.json keeps
-    a copy for each server, so they apply before the sync; what the
-    server says wins, and what only this device has (changed while
-    away, or from before there was a server copy) goes up after the
-    sync. One removed on the server afterwards is removed here too.
-*/
+// Profiles on screen: our status and picture, everyone else's in the lists,
+// a conversation's members, and the settings that our account keeps on the
+// server.
+//
+//   - The status editor is a small window with the status text and when the
+//     status clears itself (30 minutes, an hour, four hours, the end of today
+//     or never). It is opened from our own row in a list or from the
+//     settings.
+//   - The members window is opened by the people button in a conversation's
+//     header. It lists everyone in the conversation with their picture and
+//     status: those who are here first, the others with the time they were
+//     last here. Clicking a member opens the same menu as anywhere else, and
+//     clicking ourselves opens the status editor.
+//   - Our picture is set in the settings from a file or (on desktop) the
+//     clipboard (ui_avatar_pick_native.odin, ui_avatar_pick_web.odin). It is
+//     made square and small (avatar_prepare, web/avatar.js) and uploaded.
+//   - Settings kept on the server (conn/profiles.odin): how loud each person
+//     is and which DMs are hidden from the buddy list. settings.json keeps a
+//     copy for each server so that they apply before the sync. What the
+//     server says wins, and settings that only this device has (changed while
+//     offline, or from before there was a server copy) are sent to the server
+//     after the sync. A setting that is removed on the server afterwards is
+//     removed here too.
 
 UI_Profiles :: struct {
 	// The status editor.
@@ -48,27 +48,27 @@ UI_Profiles :: struct {
 	buf:            [proto.MAX_STATUS_SIZE]u8,
 	len:            int,
 	clear_after:    Clear_After,
-	days_buf:       [3]u8, // Clear_After.Days: how many
+	days_buf:       [3]u8, // Clear_After.Days: the number of days
 	days_len:       int,
-	// The members window, and the conversation it last asked about.
+	// The members window, and the conversation it last requested.
 	members_open:   bool,
 	members_placed: bool,
 	members_asked:  proto.Conv_Id,
-	members_seen:   int, // View_Members.count when last seen to (last seen asked)
-	// The server's settings as last applied: View.shared_count, and the
+	members_seen:   int, // View_Members.count when last seen (members_asked)
+	// The server's settings as last applied (View.shared_count) and the
 	// sync they came with (View.shared_syncs).
 	shared_seen:    int,
 	syncs_seen:     int,
-	// The keys the server had then: one of ours that's gone from it was
-	// removed (from another device); one it never had is ours to send.
+	// The keys the server had at that time: a key of ours that is gone from
+	// it was removed (from another device), and one it never had is ours to send.
 	shared_known:   map[string]bool,
-	// Choosing a picture (ui_avatar_pick_*.odin), and what for.
+	// Choosing a picture (ui_avatar_pick_*.odin), and what it is for.
 	pick:           ^Avatar_Pick,
 	pick_for:       Pick_For,
-	pick_notice:    string, // static
+	pick_notice:    string, // static string
 }
 
-// What a picture being chosen is for: ours, or the server's
+// What a chosen picture is for: ours or the server's
 // (ui_server_info.odin).
 Pick_For :: enum {
 	Avatar,
@@ -81,7 +81,7 @@ Clear_After :: enum {
 	Hour,
 	Four_Hours,
 	Today,
-	Days, // so many days from now (UI_Profiles.days_buf)
+	Days, // a number of days from now (UI_Profiles.days_buf)
 }
 
 @(private = "file")
@@ -94,7 +94,7 @@ CLEAR_AFTER_LABELS := [Clear_After]string {
 	.Days       = "Days",
 }
 
-// The most days a status can be set to last from the dialog.
+// The maximum number of days a status can be set to last in the dialog.
 @(private = "file")
 MAX_STATUS_DAYS :: 365
 @(private = "file")
@@ -119,7 +119,7 @@ known_clear :: proc(p: ^UI_Profiles) {
 	clear(&p.shared_known)
 }
 
-// open_status_editor opens the editor with our status as it is.
+// open_status_editor opens the editor with our current status.
 open_status_editor :: proc(ui: ^UI) {
 	p := &ui.profiles
 	v := ui.view
@@ -130,10 +130,8 @@ open_status_editor :: proc(ui: ^UI) {
 	p.editing, p.edit_placed = true, false
 }
 
-/*
-profile_windows draws the status editor and the members window while
-they're open, and applies the server's settings when they've changed.
-*/
+// profile_windows draws the status editor and the members window while they
+// are open, and applies the server's settings when they have changed.
 profile_windows :: proc(ui: ^UI, window_w, window_h: i32) {
 	v := ui.view
 	sync.guard(&v.mutex)
@@ -173,8 +171,8 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	defer mu.end_window(ctx)
 
-	// Online, away, busy or invisible: taken at once, apart from the
-	// status (ui_activity.odin).
+	// Online, away, busy or invisible: applied immediately, unlike the
+	// status text (ui_activity.odin).
 	choice_w := (STATUS_WINDOW_W - 2 * ctx.style.padding - 3 * ctx.style.spacing - 8) / 4
 	mu.layout_row(ctx, {choice_w, choice_w, choice_w, choice_w})
 	for a in proto.Activity {
@@ -182,7 +180,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 		if ui.view.my_activity == a {
 			ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
 		}
-		// The dot's colour, but for grey, which wouldn't read on a button.
+		// The dot's colour, except for grey, which wouldn't be visible on a button.
 		if a != .Offline {
 			ctx.style.colors[.TEXT] = ACTIVITY_COLORS[a]
 		}
@@ -199,8 +197,8 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 		ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT] = saved, saved_text
 	}
-	// A page only sees its own input unless the browser lets it ask
-	// about the rest (client:idle), which takes a click to ask for.
+	// A page only sees its own input unless the browser lets it ask about
+	// the rest (client:idle), which requires a click to request.
 	if idle.can_ask() {
 		mu.layout_row(ctx, {-1})
 		if .SUBMIT in
@@ -239,8 +237,8 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 		ctx.style.colors[.BUTTON] = saved
 	}
-	// How many days, and when that is, which is said for every choice
-	// but Never.
+	// How many days, and when that is. This is shown for every choice except
+	// Never.
 	until := status_until(ui, p.clear_after, status_days(p))
 	if p.clear_after == .Days {
 		mu.layout_row(ctx, {60, 50, -1})
@@ -281,16 +279,16 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
-// status_days is how many days the dialog's box says, 0 if it isn't a
-// number of them it takes.
+// status_days is the number of days entered in the dialog's box, or 0 if the
+// text is not a valid number.
 @(private = "file")
 status_days :: proc(p: ^UI_Profiles) -> int {
 	days, ok := strconv.parse_int(strings.trim_space(string(p.days_buf[:p.days_len])), 10)
 	return days if ok && days >= 1 && days <= MAX_STATUS_DAYS else 0
 }
 
-// until_text says when a time is, in local time: "at 14:30" today,
-// "on Sunday, 2026-10-04 at 14:30" another day.
+// until_text says when a time is, in local time: "at 14:30" if it is today,
+// "on Sunday, 2026-10-04 at 14:30" on another day.
 @(private = "file")
 until_text :: proc(ui: ^UI, at: proto.Unix_Ms) -> string {
 	dt, _ := time.time_to_datetime(time.unix(i64(at) / 1000, 0))
@@ -312,7 +310,7 @@ until_text :: proc(ui: ^UI, at: proto.Unix_Ms) -> string {
 	)
 }
 
-// status_until is when a status set now clears itself; 0 for never.
+// status_until is when a status that is set now clears itself (0: never).
 @(private = "file")
 status_until :: proc(ui: ^UI, c: Clear_After, days: int) -> proto.Unix_Ms {
 	now := time.now()
@@ -357,10 +355,8 @@ members_button :: proc(ui: ^UI) {
 	}
 }
 
-/*
-members_window lists the members of the conversation looked at: those
-here first, then the rest, each by name.
-*/
+// members_window lists the members of the conversation being looked at: those
+// who are here first, then the others, each by name.
 @(private = "file")
 members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	p := &ui.profiles
@@ -423,7 +419,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		bn := strings.to_lower(b.name, context.temp_allocator)
 		return an < bn if an != bn else a.account < b.account
 	})
-	// When those who aren't here were last, once per list.
+	// When those who aren't here were last here, once per list.
 	if p.members_seen != m.count {
 		p.members_seen = m.count
 		cmd: conn.Last_Seen_Command
@@ -464,11 +460,9 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
-/*
-person_row is a person in a list: their picture, their name (dimmed if
-they aren't here), and dimmed after it their status and `extra`. A flat
-control the width of the list; true when it's clicked.
-*/
+// person_row is a person in a list: their picture, their name (dimmed if they
+// aren't here) and, dimmed after it, their status and `extra`. It is a flat
+// control as wide as the list and returns true when clicked.
 person_row :: proc(
 	ui: ^UI,
 	account: proto.Account_Id,
@@ -479,7 +473,7 @@ person_row :: proc(
 	ctx := &ui.ctx
 	v := ui.view
 	if acc, known := ui.view.accounts[account]; !known || .Deleted in acc.flags {
-		return false // Deleted accounts aren't in lists.
+		return false // Deleted accounts aren't shown in lists.
 	}
 
 	size := ctx.text_height(ctx.style.font) + 4
@@ -496,7 +490,7 @@ person_row :: proc(
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
 	acc := v.accounts[account] or_else {}
-	// In the colour of their roles, if they have one; fainter when they
+	// In the colour of their roles, if they have one, and fainter when they
 	// aren't here.
 	color := ctx.style.colors[.TEXT] if online else theme.dim
 	if c, ok := name_color(v, account); ok {
@@ -506,11 +500,10 @@ person_row :: proc(
 	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {}
 }
 
-/*
-name_and_status draws a name in `r` (in bold with `bold`, for the one
-picked), a bot's with its tag (ui_bots.odin), and dimmed after it a
-status and whatever else there is to say, cut where the row ends.
-*/
+// name_and_status draws a name in `r` (in bold with `bold`, for the selected
+// one), followed by the bot tag for a bot (ui_bots.odin) and, dimmed after
+// that, the status and whatever else there is to say, cut off where the row
+// ends.
 name_and_status :: proc(
 	ctx: ^mu.Context,
 	r: mu.Rect,
@@ -542,12 +535,10 @@ name_and_status :: proc(
 	}
 }
 
-/*
-The account's own section of the settings: our picture and our status.
-Call with the View locked, inside the Account section.
-*/
-// How wide a picture's buttons beside it are wanted at least; narrower,
-// the label goes over the picture.
+// The account's own section of the settings: our picture and our status.
+// Call with the View locked, inside the Account section.
+// The minimum width wanted for the buttons beside a picture. If the space is
+// narrower, the label goes over the picture.
 PICTURE_BUTTONS_MIN :: 260
 
 profile_settings :: proc(ui: ^UI) {
@@ -560,7 +551,7 @@ profile_settings :: proc(ui: ^UI) {
 	field_row(ui, FORM_LABEL, "Picture", {size + 8, -1}, size, fill_min = PICTURE_BUTTONS_MIN)
 	cell := mu.layout_next(ctx)
 	avatar(ui, v.me, {cell.x, cell.y, size, size})
-	// The buttons, of the usual height, in the middle of the row.
+	// The buttons, with the usual height, in the middle of the row.
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 	mu.layout_row(
@@ -599,8 +590,8 @@ profile_settings :: proc(ui: ^UI) {
 	}
 }
 
-// status_settings is the settings' line for our status. Call with the
-// View locked, inside the Account section.
+// status_settings is the settings' line for our status. Call with the View
+// locked, inside the Account section.
 status_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -620,12 +611,10 @@ status_settings :: proc(ui: ^UI) {
 	with_text_color(ctx, theme.dim, text, label_proc)
 }
 
-/*
-Settings on the server. Each is kept as text:
-
-	user/<account>        volume=<0..3>,muted=<0|1>  (settings.User_Settings)
-	dm/hidden/<conv>      <message id>              (settings.hide_dm)
-*/
+// Settings on the server. Each is kept as text:
+//
+//	user/<account>        volume=<0..3>,muted=<0|1>  (settings.User_Settings)
+//	dm/hidden/<conv>      <message id>              (settings.hide_dm)
 
 @(private = "file")
 user_key :: proc(account: proto.Account_Id) -> string {
@@ -662,7 +651,7 @@ parse_user_value :: proc(s: string) -> (u: settings.User_Settings, ok: bool) {
 	return u, true
 }
 
-// shared_user_changed tells the server how we play somebody now.
+// shared_user_changed tells the server how we now play somebody's audio.
 shared_user_changed :: proc(ui: ^UI, account: proto.Account_Id, u: settings.User_Settings) {
 	if ui.session != nil {
 		conn.push_command(
@@ -675,8 +664,8 @@ shared_user_changed :: proc(ui: ^UI, account: proto.Account_Id, u: settings.User
 	}
 }
 
-// shared_hidden_changed tells the server a DM is off the buddy list up
-// to `last` (0: back on it).
+// shared_hidden_changed tells the server that a DM is hidden from the buddy
+// list up to message `last` (0: shown again).
 shared_hidden_changed :: proc(ui: ^UI, conv: proto.Conv_Id, last: proto.Msg_Id) {
 	if ui.session != nil {
 		value := fmt.tprint(u64(last)) if last != 0 else ""
@@ -690,10 +679,8 @@ shared_hidden_changed :: proc(ui: ^UI, conv: proto.Conv_Id, last: proto.Msg_Id) 
 	}
 }
 
-/*
-shared_apply brings settings.json's copy for this server in line with the
-server's, when that has changed. Call with the View locked.
-*/
+// shared_apply brings settings.json's copy for this server in line with the
+// server's when the server's has changed. Call with the View locked.
 @(private = "file")
 shared_apply :: proc(ui: ^UI) {
 	v := ui.view
@@ -744,7 +731,7 @@ shared_apply :: proc(ui: ^UI) {
 		}
 	}
 
-	// What only we have: up it goes after a sync, else it was removed.
+	// What only we have: it is sent to the server after a sync, otherwise it was removed.
 	users := make([dynamic]proto.Account_Id, context.temp_allocator)
 	for k in s.users {
 		if srv, id, ok := settings.parse_server_key(k); ok && srv == server {

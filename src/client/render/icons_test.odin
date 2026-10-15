@@ -6,17 +6,15 @@ import "core:os"
 import "core:testing"
 import mu "vendor:microui"
 
-/*
-The icons are drawn from shapes rather than loaded, so what comes out is
-worth checking: that each one is there, that it keeps to its own square,
-and that the ones which stand for opposite states don't look alike.
-
-To look at them, run the tests with YAP_ICON_DUMP set to a directory and
-open the PGMs it leaves there.
-*/
+// The icons are drawn from shapes instead of being loaded, so the result is
+// worth checking. These tests verify that each icon is present, that it stays
+// within its own square, and that icons for opposite states do not look alike.
+//
+// To look at the icons, run the tests with YAP_ICON_DUMP set to a directory
+// and open the PGM files that are written there.
 
 @(private = "file")
-// ink is how much of an icon's square is covered, 0 to 1.
+// ink returns how much of an icon's square is covered, from 0 to 1.
 ink :: proc(a: ^Icon_Atlas, icon: Icon) -> f32 {
 	sum: f32
 	for y in 0 ..< int(a.side) {
@@ -29,7 +27,7 @@ ink :: proc(a: ^Icon_Atlas, icon: Icon) -> f32 {
 }
 
 @(private = "file")
-// column reports the ink in one column of an icon's square.
+// column returns the ink in one column of an icon's square.
 column :: proc(a: ^Icon_Atlas, icon: Icon, x: int) -> int {
 	sum: int
 	for y in 0 ..< int(a.side) {
@@ -49,8 +47,8 @@ test_icons_are_drawn :: proc(t: ^testing.T) {
 
 		for icon in Icon {
 			covered := ink(&a, icon)
-			// Enough to see, not so much that it's a blob. The window's
-			// controls are a pixel's line, and a line is less.
+			// Enough to see but not so much that it is a blob. The window's
+			// controls are lines one pixel wide, which cover less.
 			least: f32 = 0.02 if icon >= .Minimize && icon <= .Close else 0.1
 			testing.expectf(
 				t,
@@ -60,7 +58,7 @@ test_icons_are_drawn :: proc(t: ^testing.T) {
 				scale,
 				covered * 100,
 			)
-			// Nothing may run into the icon beside it.
+			// Nothing may run into the neighboring icon.
 			testing.expectf(t, column(&a, icon, 0) == 0, "%v touches its left edge", icon)
 			testing.expectf(
 				t,
@@ -100,7 +98,7 @@ test_icons_tell_states_apart :: proc(t: ^testing.T) {
 		"leaving fullscreen looks like going fullscreen",
 	)
 	testing.expect(t, !same(&a, .Pop_Out, .Pop_In), "popping in looks like popping out")
-	// A line through an icon covers more of the square than the icon did.
+	// A line through an icon covers more of the square than the icon alone.
 	testing.expect(
 		t,
 		ink(&a, .Mic_Off) > ink(&a, .Mic),
@@ -110,7 +108,7 @@ test_icons_tell_states_apart :: proc(t: ^testing.T) {
 
 @(test)
 test_icon_ids_stay_in_their_range :: proc(t: ^testing.T) {
-	// Above microui's own icons, below the chat images' (ui_images.odin).
+	// Above microui's own icons and below the chat images (ui_images.odin).
 	for icon in Icon {
 		id := int(icon_id(icon))
 		testing.expectf(t, id > int(max(mu.Icon)), "%v collides with microui's icons", icon)
@@ -146,7 +144,7 @@ test_icon_rgba :: proc(t: ^testing.T) {
 
 	solid, clear: int
 	for i := 0; i < len(pixels); i += 4 {
-		// One flat colour throughout; only the transparency is shaped.
+		// One flat color throughout. Only the transparency is shaped.
 		testing.expect_value(t, pixels[i], green.r)
 		testing.expect_value(t, pixels[i + 1], green.g)
 		testing.expect_value(t, pixels[i + 2], green.b)
@@ -160,8 +158,8 @@ test_icon_rgba :: proc(t: ^testing.T) {
 	testing.expectf(t, solid > 50, "the icon is barely there (%d solid pixels)", solid)
 	testing.expectf(t, clear > 200, "the icon has no space around it (%d clear pixels)", clear)
 
-	// A different state has to come out looking different, or the tray
-	// would say the same thing whatever is going on.
+	// A different state has to look different. Otherwise the tray icon
+	// would look the same whatever is going on.
 	muted := icon_rgba(.Mic_Off, SIDE, green)
 	defer delete(muted)
 	same := true
@@ -180,8 +178,8 @@ test_dump_tray_icons_when_asked :: proc(t: ^testing.T) {
 	if dir == "" {
 		return
 	}
-	// The three the tray uses, in the colours it uses, as PPMs on a
-	// mid-grey panel so the transparency shows.
+	// The three icons that the tray uses, in the colors it uses, written as
+	// PPM files on a mid-gray panel so the transparency shows.
 	SIDE :: 32
 	states := [?]struct {
 		name:  string,
@@ -200,7 +198,7 @@ test_dump_tray_icons_when_asked :: proc(t: ^testing.T) {
 		for i := 0; i < len(pixels); i += 4 {
 			a := f32(pixels[i + 3]) / 255
 			for c in 0 ..< 3 {
-				// Over a mid grey, the way a panel would show it.
+				// Over a mid gray, as a panel would show it.
 				append(&out, u8(f32(pixels[i + c]) * a + 128 * (1 - a)))
 			}
 		}
@@ -209,9 +207,9 @@ test_dump_tray_icons_when_asked :: proc(t: ^testing.T) {
 	}
 }
 
-// The window's controls are lines a pixel or so thick, which only look
-// the same at every scale if they cover whole texels: none may be half
-// covered (but for the cross's diagonals, which can't help it).
+// The window's controls are lines about a pixel thick, which only look the
+// same at every scale if they cover whole texels. None may be half covered,
+// except for the cross's diagonals, which cannot avoid it.
 @(test)
 test_window_controls_are_sharp :: proc(t: ^testing.T) {
 	for scale in ([]f32{1, 1.25, 1.5, 1.75, 2, 3}) {

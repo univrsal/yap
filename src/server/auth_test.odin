@@ -6,19 +6,18 @@ import "core:time"
 
 import "common:proto"
 
-/*
-Tests of accounts and logging in. They run a Server without its socket:
-connections are made by hand, requests are given to rpc_handle as they
-would come off a connection's stream, and what the server queues on that
-stream in return is read off it the way a client would. The other
-tests of the server use the same (the ts_ procedures).
+// Tests of accounts and logging in. They run a Server without its socket.
+// Connections are created by hand, requests are passed to rpc_handle as
+// if they had come off a connection's stream, and whatever the server
+// queues on that stream in return is read back the way a client would
+// read it. The other server tests use the same helpers (the ts_
+// procedures).
+//
+// Passwords are hashed by the real hashing thread, using a parameter set
+// that makes hashing fast.
 
-Passwords are hashed by the real thread, with the parameter set that
-makes it quick.
-*/
-
-// A connection's other end: the stream a client would have, and what
-// has come out of it.
+// A connection's other end: the stream a client would have and what has
+// been received from it.
 Test_Client :: struct {
 	stream:    proto.Stream,
 	responses: map[u32]Test_Response,
@@ -68,14 +67,15 @@ ts_close :: proc(ts: ^Test_Server) {
 		free(u)
 	}
 	delete(ts.clients)
-	// What verify_test.odin put in the email's queues; there's no thread,
-	// nor a config of its own to free.
+	// Free what verify_test.odin put in the email queues. There is no
+	// email thread and no config of its own to free.
 	for &m in s.email.inbox {
 		mail_destroy(&m)
 	}
 	delete(s.email.inbox)
 	delete(s.email.jobs)
-	// What push_test.odin queued; there's no thread either.
+	// Frees the push jobs that push_test.odin queued; no push thread is running in tests
+	// either.
 	push_close(&s.push)
 	delete(s.conns)
 	delete(s.waiting)
@@ -88,8 +88,8 @@ ts_close :: proc(ts: ^Test_Server) {
 	db_close(&s.db)
 }
 
-// ts_account makes an account straight in the store, with a password
-// known to the test.
+// ts_account creates an account directly in the store with a password
+// that the test knows.
 ts_account :: proc(
 	t: ^testing.T,
 	ts: ^Test_Server,
@@ -105,9 +105,9 @@ ts_account :: proc(
 	return acc
 }
 
-// ts_connect is a device connecting: a new connection under `key`, or
-// under a key no other has. Like the real thing, a device the server
-// knows is logged in at once.
+// ts_connect simulates a device connecting. It creates a new connection
+// with `key`, or with a unique key if none is given. As in the real
+// server, a device the server already knows is logged in immediately.
 ts_connect :: proc(ts: ^Test_Server, key: [proto.KEY_SIZE]u8 = {}) -> ^Conn {
 	s := &ts.s
 	u := new(Conn)
@@ -126,15 +126,15 @@ ts_connect :: proc(ts: ^Test_Server, key: [proto.KEY_SIZE]u8 = {}) -> ^Conn {
 	return u
 }
 
-// ts_disconnect is a connection going away, as when its last session
-// does.
+// ts_disconnect simulates a connection going away, as happens when its
+// last session ends.
 ts_disconnect :: proc(ts: ^Test_Server, u: ^Conn) {
 	conn_logout(&ts.s, u)
 	delete_key(&ts.s.waiting, u.key)
 }
 
-// ts_pump moves what the server has queued for a connection to its
-// client end, and sorts what arrives into responses and events.
+// ts_pump moves everything the server has queued for a connection to
+// its client end and sorts what arrives into responses and events.
 ts_pump :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) {
 	client := ts.clients[u]
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
@@ -180,8 +180,8 @@ temp_copy :: proc(data: []u8) -> []u8 {
 	return out
 }
 
-// ts_ask makes a request as `u` and waits for its answer, which for
-// anything with a password in it comes from the hashing thread.
+// ts_ask sends a request as `u` and waits for the answer. For requests
+// that involve a password, the answer comes from the hashing thread.
 ts_ask :: proc(
 	t: ^testing.T,
 	ts: ^Test_Server,
@@ -200,8 +200,8 @@ ts_ask :: proc(
 		auth_sync(&ts.s)
 		ts_pump(t, ts, u)
 		if r, answered := client.responses[id]; answered {
-			// No query left holding a read open, which would keep
-			// checkpoints from finishing.
+			// No query may be left holding a read open, because that would
+			// prevent checkpoints from finishing.
 			testing.expectf(t, db_open_reads(&ts.s.db) == 0, "%v left a statement open", op)
 			return r.status, r.body
 		}
@@ -237,8 +237,8 @@ ts_login :: proc(
 	return
 }
 
-// ts_events takes the events a connection has been sent since the last
-// time.
+// ts_events returns the events sent to a connection since the last time
+// it was called.
 ts_events :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> []Test_Event {
 	ts_pump(t, ts, u)
 	client := ts.clients[u]
@@ -266,7 +266,7 @@ test_first_admin :: proc(t: ^testing.T) {
 	testing.expect(t, accounts_load(&a, &db))
 	defer accounts_destroy(&a)
 
-	// An empty server gets its owner, once.
+	// An empty server gets its owner account, but only once.
 	testing.expect(t, ensure_first_admin(&a, HASH_PARAMS_TEST))
 	testing.expect_value(t, len(a.by_id), 1)
 	admin := account_find(&a, FIRST_ADMIN)
@@ -275,8 +275,8 @@ test_first_admin :: proc(t: ^testing.T) {
 	testing.expect(t, ensure_first_admin(&a, HASH_PARAMS_TEST))
 	testing.expect_value(t, len(a.by_id), 1)
 
-	// The owner may do everything, and anybody else only what everyone
-	// may: attach files.
+	// The owner may do everything. Anybody else may only do what everyone
+	// may, which is attaching files.
 	for p in proto.Permission {
 		testing.expect(t, can(admin, p))
 	}
@@ -288,7 +288,8 @@ test_first_admin :: proc(t: ^testing.T) {
 		testing.expect_value(t, can(other, p), p == .Attach_Files)
 	}
 	testing.expect(t, !can(nil, .Manage_Accounts))
-	// What others are told of an account leaves out what's its own.
+	// What others are told about an account leaves out the flags that
+	// only concern the account itself.
 	testing.expect_value(t, account_record(admin).flags, proto.Account_Flags{.Owner})
 }
 
@@ -337,11 +338,12 @@ test_secrets :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect(t, secret_matches(&right, &secret))
 	testing.expect(t, !secret_matches(&wrong, &secret))
-	// The same password again gets another salt, and so another hash.
+	// Hashing the same password again uses another salt and therefore
+	// produces another hash.
 	again, _ := secret_make(&right, HASH_PARAMS_TEST)
 	testing.expect(t, again.salt != secret.salt)
 	testing.expect(t, again.hash != secret.hash)
-	// A parameter set that isn't known matches nothing.
+	// An unknown parameter set matches nothing.
 	secret.params = 99
 	testing.expect(t, !secret_matches(&right, &secret))
 	_, ok = secret_make(&right, 99)
@@ -350,7 +352,7 @@ test_secrets :: proc(t: ^testing.T) {
 
 @(test)
 test_hash_queue_bound :: proc(t: ^testing.T) {
-	// With no thread taking them, jobs stay where they are.
+	// Without a thread taking jobs from the queue, they stay in it.
 	w: Hash_Worker
 	defer delete(w.jobs)
 	job: Hash_Job
@@ -367,7 +369,7 @@ test_hash_queue_bound :: proc(t: ^testing.T) {
 
 @(test)
 test_accounts_kept :: proc(t: ^testing.T) {
-	// What's made is there when the database is opened again.
+	// What was created is still there when the database is opened again.
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
 	defer remove_tree(dir)
@@ -388,8 +390,9 @@ test_accounts_kept :: proc(t: ^testing.T) {
 		secret, _ := secret_make(&p, HASH_PARAMS_TEST)
 		acc := account_add(&a, "alice", "Alice A.", secret, {.Must_Change})
 		testing.expect(t, acc != nil)
-		// A username is taken whatever its case; account_add is given
-		// clean ones, and the database would refuse the other as well.
+		// A username is taken regardless of its case. account_add is only
+		// given cleaned usernames, and the database would reject a
+		// duplicate as well.
 		testing.expect(t, account_add(&a, "alice", "Another", secret, {}) == nil)
 		testing.expect(t, device_link(&a, key, acc, "laptop", "") != nil)
 		testing.expect(t, account_set_display(&a, acc, "Alice B."))
@@ -418,8 +421,8 @@ test_accounts_kept :: proc(t: ^testing.T) {
 
 @(test)
 test_schema_upgrade :: proc(t: ^testing.T) {
-	// A database from before accounts is brought up to date, with what
-	// it had left alone.
+	// A database from before accounts existed is upgraded to the current
+	// schema without losing the data it already had.
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
 	defer remove_tree(dir)
@@ -461,9 +464,9 @@ test_login :: proc(t: ^testing.T) {
 	alice := ts_account(t, &ts, "alice", "alice's password")
 	ts_account(t, &ts, "bob", "bob's password")
 
-	// A device the server hasn't seen can ask what it's talking to (and
-	// for its picture, server_info_test.odin), log in and register
-	// (register_test.odin), and that's all.
+	// A device the server hasn't seen can ask for the server's info (and
+	// its picture, see server_info_test.odin), log in and register (see
+	// register_test.odin). It can do nothing else.
 	u := ts_connect(&ts)
 	testing.expect(t, u.account == nil)
 	testing.expect(t, u.key in s.waiting && u.key not_in s.conns)
@@ -477,7 +480,7 @@ test_login :: proc(t: ^testing.T) {
 		testing.expectf(t, status == .Unauthenticated, "%v answered %v before login", op, status)
 	}
 
-	// Wrong in every way it can be.
+	// Every kind of invalid login is rejected.
 	flags: proto.Account_Flags
 	status, _ = ts_login(t, &ts, u, "alice", "not her password")
 	testing.expect_value(t, status, proto.Status.Wrong_Password)
@@ -492,7 +495,7 @@ test_login :: proc(t: ^testing.T) {
 	testing.expect(t, u.account == nil)
 	testing.expect_value(t, len(ts_events(t, &ts, u)), 0)
 
-	// And right, in whatever case the username was typed.
+	// A correct login works regardless of the case the username was typed in.
 	status, flags = ts_login(t, &ts, u, "Alice", "alice's password", "laptop")
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, flags, proto.Account_Flags{})
@@ -501,8 +504,9 @@ test_login :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(alice.conns), 1)
 	testing.expect_value(t, alice.failures, 0)
 
-	// It's told how things are: the roles, every account, the channels
-	// it's in (the home channel, for a start), then who it is.
+	// The connection is sent the current state: the roles, every
+	// account, the channels it's in (the home channel to start with) and
+	// finally who it is.
 	events := ts_events(t, &ts, u)
 	testing.expect_value(t, len(events), 8)
 	testing.expect_value(t, events[0].op, proto.Event_Op.Sync_Begin)
@@ -521,7 +525,7 @@ test_login :: proc(t: ^testing.T) {
 	testing.expect_value(t, home.name, "Lobby")
 	testing.expect_value(t, home.flags, proto.Conv_Flags{.Home})
 	testing.expect(t, home.member)
-	// No emoji of its own.
+	// There are no custom emoji.
 	testing.expect_value(t, events[5].op, proto.Event_Op.Emoji_Sheet)
 	sheet, sheet_ok := proto.decode_emoji_sheet(events[5].body)
 	testing.expect(t, sheet_ok && sheet.blob == 0 && len(sheet.names) == 0)
@@ -533,12 +537,12 @@ test_login :: proc(t: ^testing.T) {
 	testing.expect_value(t, self_flags, proto.Account_Flags{})
 	testing.expect_value(t, events[7].op, proto.Event_Op.Sync_End)
 
-	// Logged in, there's no logging in again.
+	// A connection that is logged in can't log in again.
 	status, _ = ts_login(t, &ts, u, "bob", "bob's password")
 	testing.expect_value(t, status, proto.Status.Conflict)
 
-	// The device is the account's now: when it connects again, its key
-	// is enough.
+	// The device now belongs to the account, so when it connects again
+	// its key is enough to log in.
 	key := u.key
 	ts_disconnect(&ts, u)
 	testing.expect_value(t, len(alice.conns), 0)
@@ -548,7 +552,8 @@ test_login :: proc(t: ^testing.T) {
 	_, synced := has_event(ts_events(t, &ts, again), .Sync_End)
 	testing.expect(t, synced)
 
-	// Until it logs out, which makes it a stranger again.
+	// This lasts until the device logs out, which makes it an unknown
+	// device again.
 	status, _ = ts_ask(t, &ts, again, .Auth_Logout)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, again.account == nil)
@@ -571,12 +576,14 @@ test_login_lock :: proc(t: ^testing.T) {
 		testing.expect_value(t, status, proto.Status.Wrong_Password)
 	}
 	testing.expect_value(t, alice.failures, AUTH_FREE_FAILURES)
-	// That was one too many: for a while not even the right one is taken.
+	// That was one attempt too many, so for a while even the correct
+	// password is rejected.
 	status, _ := ts_login(t, &ts, u, "alice", "alice's password")
 	testing.expect_value(t, status, proto.Status.Rate_Limited)
 	testing.expect(t, u.account == nil)
 
-	// Once the wait is over it is, and the count starts again.
+	// Once the wait is over the correct password is accepted again and
+	// the count starts again.
 	alice.locked_until = time.tick_now()
 	status, _ = ts_login(t, &ts, u, "alice", "alice's password")
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -603,7 +610,7 @@ test_account_create :: proc(t: ^testing.T) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	body: []u8
 
-	// Only who manages accounts makes them.
+	// Only accounts that can manage accounts may create them.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -613,7 +620,7 @@ test_account_create :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Denied)
 
-	// Nothing that couldn't be an account is made into one.
+	// Invalid usernames or passwords don't create an account.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -654,8 +661,8 @@ test_account_create :: proc(t: ^testing.T) {
 	testing.expect_value(t, bob.display, "Bob B.")
 	testing.expect_value(t, bob.flags, proto.Account_Flags{.Must_Change})
 
-	// Everyone hears of the new account; that its password has to be
-	// changed is nobody's business but its own.
+	// Everyone is told about the new account, except that its password
+	// has to be changed, which only concerns the account itself.
 	for u in ([]^Conn{admin, alice}) {
 		e, heard := has_event(ts_events(t, &ts, u), .Account_Changed)
 		testing.expect(t, heard)
@@ -665,7 +672,7 @@ test_account_create :: proc(t: ^testing.T) {
 		testing.expect_value(t, acc.flags, proto.Account_Flags{})
 	}
 
-	// With no name given, it's called by its username.
+	// If no display name is given, the username is used.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -676,8 +683,8 @@ test_account_create :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, account_find(&s.accounts, "carol").display, "carol")
 
-	// Bob logs in with the password he was given, is told to choose
-	// his own, and does.
+	// Bob logs in with the password he was given, is told to choose his
+	// own password and does so.
 	b := ts_connect(&ts)
 	flags: proto.Account_Flags
 	status, flags = ts_login(t, &ts, b, "bob", "first password")
@@ -715,7 +722,7 @@ test_account_create :: proc(t: ^testing.T) {
 	_, _, self_flags, _ := proto.decode_self(e.body)
 	testing.expect_value(t, self_flags, proto.Account_Flags{})
 
-	// The old one is no good any more.
+	// The old password no longer works.
 	ts_disconnect(&ts, b)
 	testing.expect(t, device_unlink(&s.accounts, b.key))
 	c := ts_connect(&ts)
@@ -732,8 +739,8 @@ test_device_agent :: proc(t: ^testing.T) {
 	defer ts_close(&ts)
 	ts_account(t, &ts, "alice", "alice's password")
 
-	// What the client says it is is kept, on one line and not too long;
-	// a client that says nothing gets "".
+	// The user agent the client reports is stored on a single line and
+	// truncated if too long. A client that reports nothing gets "".
 	laptop := ts_connect(&ts)
 	phone := ts_connect(&ts)
 	buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -779,7 +786,7 @@ test_device_agent :: proc(t: ^testing.T) {
 		}
 	}
 
-	// It's in the database too.
+	// It is stored in the database too.
 	reloaded: Accounts
 	testing.expect(t, accounts_load(&reloaded, &ts.s.db))
 	defer accounts_destroy(&reloaded)
@@ -795,7 +802,7 @@ test_devices :: proc(t: ^testing.T) {
 	ts_account(t, &ts, "alice", "alice's password")
 	ts_account(t, &ts, "bob", "bob's password")
 
-	// Two devices of one account, connected at once.
+	// Two devices of one account connected at the same time.
 	laptop := ts_connect(&ts)
 	phone := ts_connect(&ts)
 	bob := ts_connect(&ts)
@@ -829,15 +836,15 @@ test_devices :: proc(t: ^testing.T) {
 		}
 	}
 
-	// Somebody else's device isn't one's to revoke, and looks as if it
-	// weren't there.
+	// An account can't revoke somebody else's device, and the device
+	// appears not to exist.
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	status, _ = ts_ask(t, &ts, bob, .Device_Revoke, proto.encode_device_revoke(buf[:], phone.key))
 	testing.expect_value(t, status, proto.Status.Not_Found)
 	testing.expect(t, phone.account != nil)
 
-	// One's own is: it's logged out there and then, told why, and has
-	// to log in again.
+	// An account can revoke its own device. The device is logged out
+	// immediately, is told why and has to log in again.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -858,7 +865,7 @@ test_devices :: proc(t: ^testing.T) {
 	ts_disconnect(&ts, phone)
 	testing.expect(t, ts_connect(&ts, phone_key).account == nil)
 
-	// Changing the password can take the other devices with it.
+	// Changing the password can also log out the other devices.
 	tablet := ts_connect(&ts)
 	status, _ = ts_login(t, &ts, tablet, "alice", "alice's password", "tablet")
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -894,7 +901,8 @@ test_password_set_by_admin :: proc(t: ^testing.T) {
 	ts_events(t, &ts, a)
 
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	// Not for anyone to do, nor to the owner, nor to nobody.
+	// Setting a password is denied without permission, and unknown
+	// accounts and invalid passwords are rejected.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -921,8 +929,8 @@ test_password_set_by_admin :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Invalid)
 	testing.expect(t, a.account == alice)
 
-	// Alice forgot hers: the admin sets one, which logs her devices out
-	// and is only good until she has chosen her own.
+	// Alice forgot her password. The admin sets a new one, which logs
+	// out her devices and is only valid until she chooses her own.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -981,7 +989,8 @@ test_profile_set :: proc(t: ^testing.T) {
 	testing.expect_value(t, acc.display, "Alice the Great")
 	testing.expect_value(t, conn_name(a), "Alice the Great")
 
-	// A name of nothing isn't one, and the same name again is no news.
+	// An empty name is invalid, and setting the same name again doesn't
+	// notify anyone.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -1007,8 +1016,8 @@ test_profile_set :: proc(t: ^testing.T) {
 
 @(test)
 test_login_gone_before_answer :: proc(t: ^testing.T) {
-	// Whoever asked has gone by the time the password is hashed: nothing
-	// happens on their behalf.
+	// The requester has disconnected by the time the password is hashed,
+	// so nothing happens on their behalf.
 	ts: Test_Server
 	ts_open(t, &ts)
 	defer ts_close(&ts)
@@ -1026,7 +1035,7 @@ test_login_gone_before_answer :: proc(t: ^testing.T) {
 		),
 	)
 	testing.expect(t, u.auth_busy)
-	// A second while the first is under way has to wait its turn.
+	// A second request while the first is in progress is rate limited.
 	rpc_handle(
 		s,
 		u,

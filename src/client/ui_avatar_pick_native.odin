@@ -10,12 +10,10 @@ import "client:conn"
 import "client:dialogs"
 import "common:proto"
 
-/*
-Choosing our picture on a desktop: from an image file (the system's file
-dialog) or the clipboard, read and made into a picture (avatar_prepare)
-on a thread of its own, as a paste is (ui_paste.odin); on macOS the
-dialog has to be on the main thread, so there the frame waits for it.
-*/
+// Choosing our picture on a desktop: from an image file (using the system's file
+// dialog) or from the clipboard. The image is read and made into a picture
+// (see avatar_prepare) on a thread of its own, as a paste is (see ui_paste.odin).
+// On macOS the dialog has to be on the main thread, so there the frame waits for it.
 
 Avatar_Pick :: struct {
 	thread: ^thread.Thread,
@@ -24,7 +22,7 @@ Avatar_Pick :: struct {
 	use:    Pick_For,
 	image:  conn.Chat_Image,
 	ok:     bool,
-	why:    string, // static: what went wrong, for the settings to say
+	why:    string, // static: what went wrong, for the settings page to show
 }
 
 @(private = "file")
@@ -95,7 +93,7 @@ pick_work :: proc(job: ^Avatar_Pick) {
 	}
 }
 
-// avatar_pick_poll sends the picture once it's ready. Called on the UI
+// avatar_pick_poll sends the picture once it is ready. Called on the UI
 // thread, outside the View lock.
 avatar_pick_poll :: proc(ui: ^UI) {
 	job := ui.profiles.pick

@@ -43,8 +43,8 @@ test_blob_messages :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 }
 
-// A transfer where a third of the chunks go missing still completes:
-// the receiver keeps asking for what it hasn't got.
+// A transfer in which a third of the chunks are lost still completes,
+// because the receiver keeps requesting the chunks it is missing.
 @(test)
 test_blob_transfer_with_loss :: proc(t: ^testing.T) {
 	data := make([]u8, 200 * 1024, context.temp_allocator)
@@ -65,7 +65,7 @@ test_blob_transfer_with_loss :: proc(t: ^testing.T) {
 	packet: [MAX_PAYLOAD_SIZE]u8
 	need_buf: [BLOB_NEED_MAX_INDICES]u16
 	for round in 0 ..< 20 {
-		// Send whatever is queued, losing a third of it.
+		// Send all queued chunks, randomly dropping about a third of them.
 		for {
 			index, chunk, ok := blob_next_chunk(&sender)
 			if !ok {
@@ -82,7 +82,7 @@ test_blob_transfer_with_loss :: proc(t: ^testing.T) {
 		if blob_receiver_complete(&receiver) {
 			break
 		}
-		// Ask again for what's missing.
+		// Request the missing chunks again.
 		missing := blob_missing(&receiver, need_buf[:])
 		testing.expect(t, len(missing) > 0)
 		need, _ := encode_blob_need(packet[:], 1, false, missing)

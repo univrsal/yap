@@ -5,27 +5,25 @@ import "core:log"
 import "common:proto"
 import "sqlite"
 
-/*
-Web Push subscriptions (src/common/proto/push.odin): what browsers that
-turned push on gave the server, so push.odin can reach them.
+// Web Push subscriptions (src/common/proto/push.odin): the subscriptions that browsers
+// with push enabled sent to the server, so push.odin can reach them.
+//
+// They are only stored in the database (push_subs). Each one belongs to a device, and each
+// device has at most one: a new subscription replaces the previous one. The table's
+// foreign key deletes a subscription together with its device (on logout, revocation or
+// account deletion). Subscriptions that a push service reports as permanently gone are
+// deleted as well (push_sync).
 
-They're in the database only (push_subs), each a device's: one each, a
-new one taking the place of the last, and gone with the device (logging
-out, revoking it, deleting the account) by the table's foreign key.
-What a push service says is gone for good (push_sync) is forgotten.
-*/
-
-// A subscription, as push_subs_of gives them.
+// A subscription, as returned by push_subs_of.
 Push_Sub :: struct {
 	id:       i64,
 	endpoint: string,
 	p256dh:   [P256_PUBLIC_SIZE]u8,
 	auth:     [PUSH_AUTH_SIZE]u8,
-	device:   [proto.KEY_SIZE]u8, // whose it is
+	device:   [proto.KEY_SIZE]u8, // the key of the device it belongs to
 }
 
-// push_request handles a request about subscriptions; false if `op`
-// isn't one.
+// push_request handles a subscription request; returns false if `op` isn't one.
 push_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: []u8) -> bool {
 	#partial switch op {
 	case .Push_Subscribe:
@@ -65,7 +63,7 @@ push_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	db_bind_blob(q, 1, key[:])
 	db_bind_text(q, 2, sub.endpoint)
 	_ = db_run(&s.db, q)
-	log.debugf("%s turned push on, at %s", conn_label(u), push_origin(sub.endpoint))
+	log.debugf("%s enabled push, via %s", conn_label(u), push_origin(sub.endpoint))
 	respond(u, id, .Ok)
 }
 
@@ -78,11 +76,11 @@ push_unsubscribe :: proc(s: ^Server, u: ^Conn, id: u32) {
 		respond(u, id, .Internal)
 		return
 	}
-	log.debugf("%s turned push off", conn_label(u))
+	log.debugf("%s disabled push", conn_label(u))
 	respond(u, id, .Ok)
 }
 
-// push_subs_of is an account's subscriptions, in the temp allocator.
+// push_subs_of returns an account's subscriptions, in the temp allocator.
 push_subs_of :: proc(s: ^Server, account: proto.Account_Id) -> []Push_Sub {
 	subs := make([dynamic]Push_Sub, context.temp_allocator)
 	q := db_stmt(&s.db, .Push_Subs_Of)
@@ -106,8 +104,8 @@ push_subs_of :: proc(s: ^Server, account: proto.Account_Id) -> []Push_Sub {
 	return subs[:]
 }
 
-// push_sync takes in what came of the pushes sent: a subscription the
-// push service says is gone is forgotten.
+// push_sync processes the results of sent pushes: a subscription that the push service
+// reports as gone is deleted.
 push_sync :: proc(s: ^Server) {
 	for {
 		r := push_poll(&s.push) or_break
@@ -117,7 +115,7 @@ push_sync :: proc(s: ^Server) {
 		q := db_stmt(&s.db, .Push_Sub_Gone)
 		db_bind_int(q, 1, r.sub)
 		if db_run(&s.db, q) && db_changed(&s.db) > 0 {
-			log.debugf("push: subscription %d is gone, forgotten", r.sub)
+			log.debugf("push: subscription %d no longer exists and was deleted", r.sub)
 		}
 	}
 }

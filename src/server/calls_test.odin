@@ -36,8 +36,8 @@ call_ask :: proc(
 	return status
 }
 
-// call_events is what a connection was told of calls since the last
-// look: whether it rang, and the last change.
+// call_events returns what a connection was told about calls since the
+// last time it was checked: whether it rang and the last change.
 @(private = "file")
 call_events :: proc(
 	t: ^testing.T,
@@ -61,8 +61,8 @@ call_events :: proc(
 	return
 }
 
-// last_note is the newest message of the DM between two accounts: the
-// line a call left there.
+// last_note returns the newest message of the DM between two accounts,
+// which is the line a call left there.
 @(private = "file")
 last_note :: proc(
 	t: ^testing.T,
@@ -97,7 +97,7 @@ test_calls :: proc(t: ^testing.T) {
 	laptop := logged_in(t, &ts, "bob")
 	phone := logged_in(t, &ts, "bob")
 
-	// Nobody to ring: a missed call.
+	// The callee has no connection to ring, so it's a missed call.
 	status, _ := call_start(t, &ts, alice, carol_acc.id)
 	testing.expect_value(t, status, proto.Status.Closed)
 	note, found := last_note(t, &ts, alice_acc.id, carol_acc.id)
@@ -113,7 +113,8 @@ test_calls :: proc(t: ^testing.T) {
 	status, _ = call_start(t, &ts, alice, 999)
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
-	// It rings on every device of bob's, and the caller hears it does.
+	// The call rings on every device of bob's and the caller is told it
+	// is ringing.
 	call: proto.Call_Id
 	status, call = call_start(t, &ts, alice, bob_acc.id)
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -129,15 +130,15 @@ test_calls :: proc(t: ^testing.T) {
 	}
 	_, change, changed := call_events(t, &ts, alice)
 	testing.expect(t, changed && change.state == .Ringing)
-	// Busy, either of them.
+	// Calls to or from an account that is already in a call are rejected.
 	carol := logged_in(t, &ts, "carol")
 	status, _ = call_start(t, &ts, carol, bob_acc.id)
 	testing.expect_value(t, status, proto.Status.Conflict)
 	status, _ = call_start(t, &ts, carol, alice_acc.id)
 	testing.expect_value(t, status, proto.Status.Conflict)
 
-	// Answered on the phone: it and alice are in the call's room; the
-	// laptop stops ringing, and can't answer as well.
+	// When it's answered on the phone, the phone and alice are in the
+	// call's room. The laptop stops ringing and can't answer as well.
 	testing.expect_value(t, call_ask(t, &ts, carol, .Call_Accept, call), proto.Status.Not_Found)
 	testing.expect_value(t, call_ask(t, &ts, phone, .Call_Accept, call), proto.Status.Ok)
 	room := proto.call_room(call)
@@ -147,16 +148,17 @@ test_calls :: proc(t: ^testing.T) {
 	_, change, _ = call_events(t, &ts, laptop)
 	testing.expect_value(t, change.state, proto.Call_State.Active)
 	testing.expect_value(t, call_ask(t, &ts, laptop, .Call_Accept, call), proto.Status.Conflict)
-	// Who is in it is theirs alone to see.
+	// Only the two accounts in the call can see who is in it.
 	testing.expect(t, !room_hidden(s, room, alice_acc.id))
 	testing.expect(t, !room_hidden(s, room, bob_acc.id))
 	testing.expect(t, room_hidden(s, room, carol_acc.id))
-	// Nobody else can join it.
+	// Nobody else can join the call.
 	room_buf: [4]u8
 	status, _ = ts_ask(t, &ts, carol, .Voice_Join, proto.encode_room(&room_buf, room))
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
-	// Hung up after a minute: both out, and how long it was.
+	// After hanging up following a minute, both are out of the room and
+	// the call's duration is recorded.
 	age(&s.calls.by_id[call].answered, 65 * time.Second)
 	ts_events(t, &ts, alice)
 	testing.expect_value(t, call_ask(t, &ts, phone, .Call_End, call), proto.Status.Ok)
@@ -167,7 +169,8 @@ test_calls :: proc(t: ^testing.T) {
 	testing.expect(t, note.system == u8(proto.Call_System.Ended) && note.system_arg >= 65)
 	testing.expect_value(t, len(s.calls.by_id), 0)
 
-	// Cancelled while ringing: missed. Declined: declined.
+	// A call cancelled while ringing counts as missed. A declined call
+	// counts as declined.
 	_, call = call_start(t, &ts, alice, bob_acc.id)
 	testing.expect_value(t, call_ask(t, &ts, alice, .Call_End, call), proto.Status.Ok)
 	note, _ = last_note(t, &ts, alice_acc.id, bob_acc.id)
@@ -180,7 +183,7 @@ test_calls :: proc(t: ^testing.T) {
 	note, _ = last_note(t, &ts, alice_acc.id, bob_acc.id)
 	testing.expect_value(t, note.system, u8(proto.Call_System.Declined))
 
-	// Nobody answers in time: missed.
+	// A call that isn't answered in time counts as missed.
 	_, call = call_start(t, &ts, alice, bob_acc.id)
 	calls_sync(s)
 	testing.expect(t, call in s.calls.by_id, "ended before its time")
@@ -193,7 +196,7 @@ test_calls :: proc(t: ^testing.T) {
 	note, _ = last_note(t, &ts, alice_acc.id, bob_acc.id)
 	testing.expect_value(t, note.system, u8(proto.Call_System.Missed))
 
-	// Joining a channel's voice ends it.
+	// Joining a channel's voice room ends the call.
 	_, call = call_start(t, &ts, alice, bob_acc.id)
 	call_ask(t, &ts, laptop, .Call_Accept, call)
 	status, _ = ts_ask(
@@ -210,21 +213,21 @@ test_calls :: proc(t: ^testing.T) {
 	note, _ = last_note(t, &ts, alice_acc.id, bob_acc.id)
 	testing.expect_value(t, note.system, u8(proto.Call_System.Ended))
 
-	// Calling from a channel's room: the call takes the connection out
-	// of it once answered.
+	// When calling from a channel's room, the connection is moved out of
+	// that room once the call is answered.
 	_, call = call_start(t, &ts, laptop, alice_acc.id)
 	call_ask(t, &ts, alice, .Call_Accept, call)
 	testing.expect_value(t, laptop.room, proto.call_room(call))
 	call_ask(t, &ts, alice, .Call_End, call)
 
-	// The caller going while it rings: missed.
+	// If the caller disconnects while it rings, the call counts as missed.
 	_, call = call_start(t, &ts, alice, bob_acc.id)
 	ts_disconnect(&ts, alice)
 	testing.expect(t, call not_in s.calls.by_id)
 	note, _ = last_note(t, &ts, alice_acc.id, bob_acc.id)
 	testing.expect_value(t, note.system, u8(proto.Call_System.Missed))
 
-	// The line it leaves comes back with the history, as it was.
+	// The line a call leaves is returned unchanged with the history.
 	history_buf: [proto.MSG_HISTORY_SIZE]u8
 	conv := dm_find(&s.convs, alice_acc.id, bob_acc.id)
 	status2, body := ts_ask(
@@ -257,7 +260,7 @@ test_calls_crossed :: proc(t: ^testing.T) {
 	alice := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
 
-	// Both call at once: the second is the answer to the first.
+	// If both call each other at once, the second call answers the first.
 	status, call := call_start(t, &ts, alice, bob_acc.id)
 	testing.expect_value(t, status, proto.Status.Ok)
 	again: proto.Call_Id
@@ -267,7 +270,7 @@ test_calls_crossed :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.calls.by_id[call].state, proto.Call_State.Active)
 	testing.expect(t, alice.room == proto.call_room(call) && bob.room == proto.call_room(call))
 
-	// The one that answered going ends it.
+	// The call ends when the connection that answered disconnects.
 	ts_disconnect(&ts, bob)
 	testing.expect_value(t, len(s.calls.by_id), 0)
 	testing.expect_value(t, alice.room, 0)

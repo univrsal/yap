@@ -39,11 +39,11 @@ RING_SOUND_DATA := #load("../assets/ring.opus")
 @(private = "file")
 RINGBACK_SOUND_DATA := #load("../assets/ringback.opus")
 
-// What plays over and over, while a call rings.
+// The sound that is played repeatedly while a call rings.
 Loop_Kind :: enum {
 	None,
-	Ring, // a call coming in
-	Ringback, // ours, going out
+	Ring, // an incoming call
+	Ringback, // our own outgoing call
 }
 
 notifications_init :: proc(s: ^Notification_Sounds) {
@@ -111,13 +111,14 @@ notification_play :: proc(s: ^Notification_Sounds, kind: Notification_Kind) {
 		s.queued[s.queued_count] = clip
 		s.queued_count += 1
 	} else {
-		// Preserve earlier events, but keep the newest one during a burst.
+		// During a burst, keep the earlier events but replace the last one
+		// with the newest.
 		s.queued[len(s.queued) - 1] = clip
 	}
 }
 
-// notification_loop starts a sound playing over and over (from its
-// start, unless it's that one already), or with .None stops it.
+// notification_loop starts playing a sound repeatedly, from its start
+// unless that sound is already looping. Passing .None stops the loop.
 notification_loop :: proc(s: ^Notification_Sounds, kind: Loop_Kind) {
 	clip: []f32
 	switch kind {
@@ -225,8 +226,8 @@ decode_ogg_opus :: proc(data: []u8, name: string) -> []f32 {
 			}
 			switch packet_count {
 			case 0:
-				// Version 1, and mono or stereo: the decoder gives stereo
-				// either way.
+				// Accept version 1 with mono or stereo. The decoder outputs
+				// stereo either way.
 				if len(packet) < 19 ||
 				   string(packet[:8]) != "OpusHead" ||
 				   packet[8] != 1 ||
@@ -238,7 +239,7 @@ decode_ogg_opus :: proc(data: []u8, name: string) -> []f32 {
 				}
 				pre_skip = int(endian.unchecked_get_u16le(packet[10:]))
 			case 1:
-			// OpusTags has no audio data.
+			// OpusTags contains no audio data.
 			case:
 				frame: [opus.MAX_FRAME_SAMPLES * CHANNELS]f32
 				n := opus.decode_float(

@@ -9,53 +9,50 @@ import "core:unicode/utf8"
 import "common:proto"
 import "sqlite"
 
-/*
-Mailing accounts what they missed (proto.SETTING_EMAIL_DIGEST), as the
-account's own setting asks:
+// Emailing accounts what they missed (see proto.SETTING_EMAIL_DIGEST), as the
+// account's own setting asks:
+//
+//   - Mentions: the unread messages that mention the account, and its unread
+//     direct messages (which count as mentions), in every conversation that may
+//     notify it at all (not None).
+//   - Missed: those, plus every other unread message in the conversations
+//     (channels and DMs) that notify it about every message (Notify_Level.All).
+//     This is what would have been shown on its desktop, had it been there.
+//
+// A mail lists direct messages first, then mentions, then the rest of what came
+// in channels, with each message listed only once.
+//
+// This needs the server's email with SMTP (see email.odin), and an account with
+// an email address that isn't waiting to be verified (see verify.odin). Once a
+// minute, every account that wants mail and has had no connection for
+// digest_minutes is checked, unless no message has been posted since it was
+// last checked. Everything it hasn't read that was posted after it left and
+// after the last message it was mailed about goes into one mail.
+//
+// After a mail is sent, the next one comes no sooner than digest_minutes later,
+// and only covers what came after the newest message that existed when the last
+// mail was sent (Account.digest_upto, which is stored in the database so that a
+// restart doesn't send it again). If the account comes back and leaves again, it
+// starts over, because what came before it left was there to be seen.
 
-  - Mentions: the unread messages that mention it, and its unread
-    direct messages, which are as good as mentions, in every
-    conversation that may tell it anything (not None);
-  - Missed: those, and every other unread message in the
-    conversations, channels and DMs, that tell it of every message
-    (Notify_Level.All): what would have been put on its desktop, had
-    it been there.
-
-A mail lists them as direct messages, mentions, and the rest of what
-came in channels, each message once.
-
-It takes the server's email with SMTP (email.odin), and an account with
-an address that isn't waiting to be verified (verify.odin). Once a
-minute, every account that wants mail and has had no connection for
-digest_minutes is looked at, unless no message has been posted since it
-was looked at last; what it hasn't read, posted since it left and after
-what it was last mailed about, goes in one mail.
-
-After a mail, the next comes no sooner than digest_minutes later, and
-tells only of what came after the newest message there was when the
-last was sent (Account.digest_upto, kept in the database so a restart
-doesn't send it again). Coming back and going again starts over: what
-came before leaving was there to be seen.
-*/
-
-// How often accounts are looked at.
+// How often accounts are checked.
 DIGEST_EVERY :: time.Minute
-// The most messages each of the digest statements gives; the rest are
-// only said to be there.
+// The maximum number of messages that each of the digest statements returns.
+// Any further messages are only reported as existing.
 DIGEST_MOST :: 20
-// The most of a message's text a mail quotes, in bytes.
+// The maximum number of bytes of a message's text that a mail quotes.
 DIGEST_QUOTE_MOST :: 200
 
 Digest_State :: struct {
 	last_check: time.Tick,
 }
 
-// digest_on is whether this server mails anyone what they missed.
+// digest_on returns whether this server emails anyone what they missed.
 digest_on :: proc(s: ^Server) -> bool {
 	return s.email.enabled && s.email.config.smtp != ""
 }
 
-// digest_wait is digest_minutes, in milliseconds.
+// digest_wait returns digest_minutes in milliseconds.
 @(private = "file")
 digest_wait :: proc(s: ^Server) -> i64 {
 	minutes := s.email.config.digest_minutes
@@ -65,8 +62,8 @@ digest_wait :: proc(s: ^Server) -> i64 {
 	return i64(minutes) * 60 * 1000
 }
 
-// digest_sync mails whoever is due a digest. Called every turn of the
-// loop; looks once a minute.
+// digest_sync mails whoever is due a digest. It is called every turn of the loop
+// and only checks once a minute.
 digest_sync :: proc(s: ^Server) {
 	if !digest_on(s) ||
 	   s.digest.last_check != {} && time.tick_since(s.digest.last_check) < DIGEST_EVERY {
@@ -76,7 +73,7 @@ digest_sync :: proc(s: ^Server) {
 	digests_send(s, unix_ms())
 }
 
-// digests_send mails every account that's due one at `now`.
+// digests_send mails every account that is due a digest at `now`.
 digests_send :: proc(s: ^Server, now: i64) {
 	newest := proto.Msg_Id(0)
 	for _, acc in s.accounts.by_id {
@@ -87,13 +84,13 @@ digests_send :: proc(s: ^Server, now: i64) {
 			newest = msg_newest(s)
 		}
 		if acc.digest_checked >= newest {
-			continue // nothing new since it was looked at
+			continue // nothing new since the account was last checked
 		}
 		digest_account(s, acc, newest, now)
 	}
 }
 
-// digest_due is whether an account may be mailed now, if anything is
+// digest_due returns whether an account may be mailed now, if there is anything
 // waiting for it.
 @(private = "file")
 digest_due :: proc(s: ^Server, acc: ^Account, now: i64) -> bool {
@@ -109,7 +106,7 @@ digest_due :: proc(s: ^Server, acc: ^Account, now: i64) -> bool {
 	)
 }
 
-// msg_newest is the newest message there is, 0 for none.
+// msg_newest returns the id of the newest message, or 0 if there are none.
 @(private = "file")
 msg_newest :: proc(s: ^Server) -> proto.Msg_Id {
 	q := db_stmt(&s.db, .Msg_Newest)
@@ -119,14 +116,14 @@ msg_newest :: proc(s: ^Server) -> proto.Msg_Id {
 	return id
 }
 
-// Which part of a digest a message goes in.
+// Which part of a digest a message belongs in.
 Digest_Kind :: enum u8 {
 	Direct, // a direct message
 	Mention, // a message in a channel that mentions the account
 	Channel, // anything else in a channel
 }
 
-// Digest_Item is a message a digest tells of.
+// Digest_Item is a message that a digest reports.
 Digest_Item :: struct {
 	id:     proto.Msg_Id,
 	conv:   proto.Conv_Id,
@@ -137,11 +134,9 @@ Digest_Item :: struct {
 	kind:   Digest_Kind,
 }
 
-/*
-digest_account mails `acc` what it missed, if there's anything; `newest`
-is the newest message there is. What it found is its `digest_checked`
-from here on, whether there was anything or not.
-*/
+// digest_account mails `acc` what it missed, if there is anything. `newest` is
+// the newest message that exists. From here on, `digest_checked` is set to it
+// whether or not there was anything to send.
 @(private = "file")
 digest_account :: proc(s: ^Server, acc: ^Account, newest: proto.Msg_Id, now: i64) {
 	items := make([dynamic]Digest_Item, context.temp_allocator)
@@ -158,7 +153,7 @@ digest_account :: proc(s: ^Server, acc: ^Account, newest: proto.Msg_Id, now: i64
 	slice.sort_by(items[:], proc(a, b: Digest_Item) -> bool {return a.id < b.id})
 	subject, body := digest_compose(s, acc, items[:], more)
 	if !email_send(&s.email, acc.email, subject, body) {
-		return // tried again next time
+		return // it is tried again next time
 	}
 	q := db_stmt(&s.db, .Account_Set_Digest)
 	db_bind_int(q, 1, i64(acc.id))
@@ -169,12 +164,10 @@ digest_account :: proc(s: ^Server, acc: ^Account, newest: proto.Msg_Id, now: i64
 	acc.digest_sent = now
 }
 
-/*
-digest_query adds to `items` what one of the digest statements finds for
-`acc`, at most DIGEST_MOST of it, as `kind` - but what's in a DM is
-always Direct - and notes in `more` whether there was more. A message
-already there stays once, in the part that comes first.
-*/
+// digest_query adds to `items` what one of the digest statements finds for
+// `acc`, at most DIGEST_MOST of it, as `kind` (but anything in a DM is always
+// Direct). It notes in `more` whether there was more. A message that is already
+// in `items` stays there once, in the part that comes first.
 @(private = "file")
 digest_query :: proc(
 	s: ^Server,
@@ -223,10 +216,9 @@ digest_query :: proc(
 	sqlite.reset(q)
 }
 
-/*
-digest_compose writes a digest's subject and plain text body, in the
-temp allocator. `more` says which parts have more than they list.
-*/
+// digest_compose writes the subject and plain text body of a digest, allocated
+// with the temp allocator. `more` says which parts have more messages than they
+// list.
 digest_compose :: proc(
 	s: ^Server,
 	acc: ^Account,
@@ -315,24 +307,24 @@ digest_compose :: proc(
 	section(&b, s, "Direct messages", items, .Direct, more[.Direct])
 	section(&b, s, "Mentions", items, .Mention, more[.Mention])
 	section(&b, s, "In your channels", items, .Channel, more[.Channel])
-	strings.write_string(&b, "\nOpen yap to read and answer them.\n\n-- \n")
+	strings.write_string(&b, "\nOpen yap to read and reply to them.\n\n-- \n")
 	fmt.sbprintf(
 		&b,
-		"You get this mail because you asked %s for it. To stop it, set\nEmail digests to \"No emails\" in your account settings there.\n",
+		"You are receiving this mail because you asked %s to send it. To stop it, set\nEmail digests to \"No emails\" in your account settings there.\n",
 		server,
 	)
 	return subject, strings.to_string(b)
 }
 
-// Who wrote a message whose account is gone from memory, which shouldn't
-// happen: accounts are kept, deleted ones as tombstones.
+// The name used for the sender of a message whose account is no longer in
+// memory. This shouldn't happen, because accounts are kept and deleted ones
+// remain as tombstones.
 @(private = "file")
 DELETED_NAME_FALLBACK :: "Somebody"
 
-/*
-digest_quote is a message's text as a digest quotes it, in the temp
-allocator: mentions as names, on one line, cut at DIGEST_QUOTE_MOST.
-*/
+// digest_quote returns a message's text as a digest quotes it, allocated with
+// the temp allocator: mentions are replaced by names, the text is put on one
+// line, and it is cut off at DIGEST_QUOTE_MOST.
 digest_quote :: proc(s: ^Server, item: Digest_Item) -> string {
 	if item.text == "" {
 		return "(sent a file)" if item.files else "(no text)"
@@ -373,8 +365,8 @@ digest_quote :: proc(s: ^Server, item: Digest_Item) -> string {
 	return text
 }
 
-// digest_time is when a message was posted, as a digest says it: the
-// server doesn't know the reader's time zone, so in UTC.
+// digest_time returns the time a message was posted as a digest shows it. The
+// server doesn't know the reader's time zone, so it uses UTC.
 digest_time :: proc(ms: i64) -> string {
 	t := time.unix(ms / 1000, 0)
 	year, month, day := time.date(t)

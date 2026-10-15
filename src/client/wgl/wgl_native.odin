@@ -1,16 +1,13 @@
 #+build !wasi
-/*
-OpenGL, as the renderer uses it.
-
-A desktop build loads OpenGL 3.3 through vendor:OpenGL. A web build
-draws with WebGL 2 through emscripten, where the entry points are linked
-in like any other C library and there is nothing to load at all - and
-where vendor:OpenGL can't be used anyway, since it reaches for core:os,
-which wasm has none of.
-
-The client imports this package as `gl`, so the drawing code reads the
-same either way. Only what the renderer uses is here.
-*/
+// OpenGL, as used by the renderer.
+//
+// A desktop build loads OpenGL 3.3 through vendor:OpenGL. A web build draws
+// with WebGL 2 through emscripten, where the entry points are linked in like
+// any other C library and there is nothing to load at all. vendor:OpenGL can't
+// be used there anyway, since it depends on core:os, which wasm doesn't have.
+//
+// The client imports this package as `gl`, so the drawing code is the same on
+// both. Only what the renderer uses is declared here.
 package wgl
 
 import gl "vendor:OpenGL"
@@ -79,7 +76,7 @@ UNPACK_ALIGNMENT :: gl.UNPACK_ALIGNMENT
 UNSIGNED_BYTE :: gl.UNSIGNED_BYTE
 UNSIGNED_SHORT :: gl.UNSIGNED_SHORT
 
-// The desktop's function pointers have to be fetched once the context
-// is current; see wgl_web.odin for why the web build has nothing to do.
+// On a desktop, the function pointers have to be loaded once the context is
+// current; see wgl_web.odin for why the web build has nothing to load.
 load_up_to :: gl.load_up_to
 load_shaders_source :: gl.load_shaders_source

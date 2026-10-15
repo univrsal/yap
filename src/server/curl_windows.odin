@@ -3,8 +3,8 @@ package server
 
 import curl "vendor:curl"
 
-// curl_load_system takes libcurl from Odin's vendor directory, which is
-// linked in: Windows has no libcurl of its own.
+// curl_load_system uses the libcurl from Odin's vendor directory, which is
+// linked in statically because Windows has no system libcurl.
 curl_load_system :: proc(c: ^Curl, what: string) -> bool {
 	c.version = auto_cast curl.version
 	c.global_init = auto_cast curl.global_init

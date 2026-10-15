@@ -9,8 +9,8 @@ import "core:terminal/ansi"
 import "core:time/datetime"
 import "core:time/timezone"
 
-// Where a desktop's log lines go: the terminal, in colour if it is one,
-// and a file as well if one was asked for.
+// Log_Output holds where a desktop's log lines go: the terminal (in color if
+// it is one) and, if requested, a file as well.
 Log_Output :: struct {
 	color: bool,
 	file:  ^os.File,

@@ -11,8 +11,8 @@ test_emoji_glyphs :: proc(t: ^testing.T) {
 	testing.expect(t, font_init(&f))
 	defer font_destroy(&f)
 
-	// The sheet has every emoji the table has (scripts/emoji.py makes
-	// both), and no others, and in order, as the lookup needs.
+	// The sheet has every emoji that the table has (scripts/emoji.py
+	// creates both) and no others, in sorted order as the lookup requires.
 	testing.expect_value(t, len(EMOJI_CELLS), len(proto.EMOJI))
 	for e in proto.EMOJI {
 		_, ok := emoji_cell(e.r)
@@ -26,7 +26,8 @@ test_emoji_glyphs :: proc(t: ^testing.T) {
 	u0, v0, u1, v1 := emoji_uv(cell)
 	testing.expect(t, u0 >= 0 && v0 >= 0 && u1 <= 1 && v1 <= 1 && u1 > u0 && v1 > v0)
 
-	// They take room like a wide character; text stays as it was.
+	// They take up space like a wide character, and the text is
+	// otherwise unchanged.
 	testing.expect_value(t, font_text_width(&f, "😀"), EMOJI_ADVANCE)
 	testing.expect(
 		t,
@@ -34,7 +35,7 @@ test_emoji_glyphs :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, font_text_width(&f, ""), f32(CUSTOM_EMOJI_ADVANCE))
 
-	// One quad of the sheet, whole pixels, in the line's box.
+	// One quad of the sheet, on whole pixels, inside the line's box.
 	Quads :: struct {
 		n: int,
 		q: Glyph_Quad,

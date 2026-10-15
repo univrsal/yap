@@ -4,24 +4,23 @@ import "core:log"
 
 import "common:proto"
 
-/*
-Requests (src/common/proto/rpc.odin): what comes in on a user's stream,
-each answered once with respond, and the events that go out on it.
-*/
+// Requests are defined in src/common/proto/rpc.odin. They arrive on a user's
+// stream and each is answered exactly once with respond. Events are sent to
+// the user on the same stream.
 
 // rpc_handle takes one message off a user's stream.
 rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 	kind, ok := proto.app_kind(msg)
 	if !ok || kind != .Request {
-		// Clients only send requests. Anything else is from a build that
-		// knows more than this one, and is left alone.
+		// Clients only send requests. Anything else comes from a newer
+		// build that knows more message kinds than this one, so it is ignored.
 		log.debugf("%s sent something that isn't a request", conn_label(u))
 		return
 	}
 	id, op, request := proto.decode_request(msg)
-	// A connection that isn't logged in may ask what it's talking to,
-	// log in and register, and nothing else (as with what doesn't come
-	// over the stream: see handle_data).
+	// A connection that isn't logged in may only request server info,
+	// log in and register. Everything else is denied (traffic outside
+	// the stream is restricted the same way, see handle_data).
 	if u.account == nil &&
 	   op != .Server_Info &&
 	   op != .Server_Icon &&
@@ -30,8 +29,8 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 		respond(u, id, .Unauthenticated)
 		return
 	}
-	// One whose address isn't verified yet may fix it, leave or go, and
-	// nothing else (verify.odin).
+	// An account whose email address isn't verified yet may only change its
+	// address, log out or delete the account (see verify.odin).
 	if u.account != nil && .Unverified in u.account.flags {
 		#partial switch op {
 		case .Server_Info, .Server_Icon, .Email_Set, .Auth_Logout, .Account_Delete:
@@ -48,7 +47,7 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 			break
 		}
 		when proto.STREAM_FLOOD {
-			// Whatever came with the request goes back after the answer.
+			// The data that came with the request is sent back after the answer.
 			padded := make([]u8, len(body) + len(request), context.temp_allocator)
 			copy(padded, body)
 			copy(padded[len(body):], request)
@@ -75,7 +74,7 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 	}
 }
 
-// respond answers request `id` of a user.
+// respond sends the answer to request `id` of a user.
 respond :: proc(u: ^Conn, id: u32, status: proto.Status, body: []byte = nil) {
 	msg := proto.encode_response(id, status, body)
 	if msg == nil {
@@ -85,7 +84,7 @@ respond :: proc(u: ^Conn, id: u32, status: proto.Status, body: []byte = nil) {
 	stream_send(u, msg)
 }
 
-// send_event tells a user something happened.
+// send_event notifies a user that something happened.
 send_event :: proc(u: ^Conn, op: proto.Event_Op, body: []byte = nil) {
 	msg := proto.encode_event(op, body)
 	if msg == nil {

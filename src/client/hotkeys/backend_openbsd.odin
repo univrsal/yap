@@ -5,22 +5,20 @@ import "core:c"
 import "core:dynlib"
 import "core:os"
 
-/*
-On OpenBSD there are no evdev devices to read, so it's X11's
-XQueryKeymap: the X server's view of the keyboard, whatever has the
-focus.
+// OpenBSD has no evdev devices to read, so X11's XQueryKeymap is used. It
+// reports the X server's view of the keyboard, regardless of which window
+// has the focus.
+//
+// The keycodes differ from Linux's (OpenBSD's X uses the ws driver with the
+// older xfree86 keycode set). Instead of a table of keycodes, the XKB key
+// names of the keyboard are requested once. These name physical positions
+// on every keycode set (<AC01> is where A is on a US layout, <FK01> is F1),
+// which is exactly what a Key is.
+//
+// As on Linux, libX11 is loaded at runtime instead of being linked, and the
+// connection is our own, used only from the watcher's thread.
 
-Its keycodes aren't Linux's (OpenBSD's X uses the ws driver, with the
-older xfree86 set), so rather than a table of them, the keyboard's XKB
-key names are asked for once. Those name physical positions - <AC01> is
-where A is on a US layout, <FK01> is F1 - on every keycode set, which is
-just what a Key is.
-
-libX11 is loaded when it's needed rather than linked, as on Linux, and
-the connection is our own, used only from the watcher's thread.
-*/
-
-// The XKB name of each key's position (xkeyboard-config's keycodes).
+// The XKB name of each key's position (from xkeyboard-config's keycodes).
 @(private = "file")
 KEY_NAMES := [Key]string {
 	.None          = "",
@@ -130,8 +128,8 @@ XKB_KEY_NAMES_MASK :: 1 << 9
 @(private = "file")
 XKB_USE_CORE_KBD :: 0x0100
 
-// The parts of XkbDescRec and XkbNamesRec (X11/extensions/XKBstr.h)
-// that are read, laid out as they are up to there.
+// The parts of XkbDescRec and XkbNamesRec (X11/extensions/XKBstr.h) that
+// are read, with the same layout as the original up to the last field used.
 @(private = "file")
 Xkb_Desc :: struct {
 	dpy:          rawptr,
@@ -164,14 +162,14 @@ Backend :: struct {
 	display:      rawptr,
 	query_keymap: proc "c" (display: rawptr, keys: ^[32]u8) -> i32,
 	close:        proc "c" (display: rawptr) -> i32,
-	// The keycode at each position; 0 where the keyboard has none.
+	// The keycode at each position, or 0 where the keyboard has no such key.
 	key_codes:    [Key]u8,
 	mod_codes:    [Mod][2]u8,
 }
 
 backend_open :: proc(b: ^Backend) -> (Status, string) {
 	if !x11_open(b) {
-		return .Unavailable, "No X11 display."
+		return .Unavailable, "No X11 display available."
 	}
 	return .Ok, "Using X11."
 }
@@ -206,10 +204,10 @@ backend_poll :: proc(b: ^Backend, s: ^State, wanted: Keys) {
 	}
 }
 
-// Nothing comes and goes on X11 the way keyboards do on Linux.
+// Unlike keyboards on Linux, nothing appears or disappears on X11.
 backend_status :: proc(b: ^Backend) -> (Status, string, bool) {
 	if b.display == nil {
-		return .Unavailable, "No X11 display.", false
+		return .Unavailable, "No X11 display available.", false
 	}
 	return .Ok, "Using X11.", false
 }
@@ -219,8 +217,8 @@ x11_open :: proc(b: ^Backend) -> bool {
 	if os.get_env("DISPLAY", context.temp_allocator) == "" {
 		return false
 	}
-	// OpenBSD versions libX11 differently (libX11.so.19.0); its loader
-	// finds the newest for the bare name.
+	// OpenBSD uses a different versioning scheme for libX11 (libX11.so.19.0),
+	// but its loader finds the newest version for the bare name.
 	lib, ok := dynlib.load_library("libX11.so")
 	if !ok {
 		return false
@@ -245,8 +243,9 @@ x11_open :: proc(b: ^Backend) -> bool {
 	b.query_keymap = auto_cast query
 	b.close = auto_cast close_display
 
-	// Where each key is, from the keyboard's key names: a description
-	// of the core keyboard (for its range of keycodes), then its names.
+	// Find where each key is using the keyboard's key names: first get a
+	// description of the core keyboard (for its range of keycodes), then its
+	// names.
 	desc := (proc "c" (display: rawptr, which, device_spec: c.uint) -> ^Xkb_Desc)(get_map)(
 		display,
 		0,
@@ -284,8 +283,8 @@ x11_open :: proc(b: ^Backend) -> bool {
 	return true
 }
 
-// key_name is an XKB key name as a string: up to four characters,
-// padded with NULs when shorter.
+// key_name converts an XKB key name to a string. It has up to four
+// characters, padded with NULs if shorter.
 @(private = "file")
 key_name :: proc(name: ^[4]u8) -> string {
 	n := 0

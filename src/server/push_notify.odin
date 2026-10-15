@@ -5,47 +5,45 @@ import "core:fmt"
 
 import "common:proto"
 
-/*
-What's pushed (push.odin), and to whom: what a desktop client would put
-on the desktop (src/client/ui_notices.odin), for whoever isn't there to
-see it.
+// What gets pushed (push.odin), and to whom: the same things a desktop client would show
+// as a desktop notification (src/client/ui_notices.odin), for users who aren't around to
+// see them.
+//
+//   - A message in a DM is pushed to the other participant, and a message that mentions
+//     someone is pushed to each mentioned member, unless they muted the conversation
+//     (Notify_Level.None). Not every message in a channel set to notify about every
+//     message (Notify_Level.All, the default for channels) is pushed: the desktop client
+//     doesn't do that either, and a phone that buzzed for every message would soon have
+//     push turned off.
+//   - Pushes only go to accounts that are away: they have no connection, or all of their
+//     connections are idle or hidden (activity.odin; the web client reports when its page
+//     is hidden). Someone at their desktop gets the desktop notification instead.
+//   - A push is sent to every subscription of the account (push_subs.odin).
+//
+//   - A call (calls.odin) is pushed to a callee that is away: "Alice is calling you". Once
+//     the call is over, that notification is replaced by one for a missed call, or
+//     (silently, and not to the device that handled it) one saying it was answered or
+//     declined elsewhere. A push can't remove a notification (see misc/mobile, phase 3),
+//     but it can replace it with another one.
+//
+// A push carries JSON for the service worker (web/sw.js) to display:
+//
+//	{"kind": "dm" | "mention" | "call", "server": <its name>,
+//	 "conv": <id>, "msg": <id>, "title": "Alice messaged you",
+//	 "body": <the text>, "tag": <its notification>, "quiet": <no sound>,
+//	 "ring": <a call ringing>}
+//
+// The body is quoted the same way a digest quotes it (digest_quote), or empty for an
+// account that hides message text (proto.SETTING_PUSH_TEXT). Pushes for the same
+// conversation share a Topic, so a push service holding several of them for a phone
+// that's offline only keeps the newest, and the service worker merges them into one
+// notification (by its tag) with a count.
 
-  - A message in a DM, to the other one, and a message that mentions
-    somebody, to each mentioned member: unless the conversation tells
-    them nothing (Notify_Level.None). Not every message of a channel
-    that tells of every message (Notify_Level.All, which is what a
-    channel starts as): the desktop doesn't either, and a phone that
-    buzzed for each would soon have push turned off.
-  - Only to accounts that aren't here: no connection, or every one of
-    them idle or out of sight (activity.odin; the web client says its
-    page is hidden). Someone at the desktop has the desktop's notice.
-  - To each of the account's subscriptions (push_subs.odin).
-
-  - A call (calls.odin), to a callee that isn't here: "Alice is
-    calling you", and once it's over, in its place, a missed call, or
-    (quietly, and not to the device that did it) that it was answered
-    or declined elsewhere. A push can't take a notification down (see
-    misc/mobile, phase 3), but it can put another in its place.
-
-A push carries JSON for the service worker (web/sw.js) to show:
-
-	{"kind": "dm" | "mention" | "call", "server": <its name>,
-	 "conv": <id>, "msg": <id>, "title": "Alice messaged you",
-	 "body": <the text>, "tag": <its notification>, "quiet": <no sound>,
-	 "ring": <a call ringing>}
-
-The body is quoted as a digest quotes it (digest_quote), or empty for an
-account that hides it (proto.SETTING_PUSH_TEXT). Pushes for the same
-conversation share a Topic, so a push service holding several for a
-phone that's off keeps only the newest, and the worker gives them one
-notification (its tag) with a count.
-*/
-
-// How long a push service may keep a push for a phone that's off: what
-// was missed a day ago is better read in the client.
+// How long a push service may hold a push for a phone that's offline: anything missed a
+// day ago is better read in the client.
 PUSH_TTL :: 24 * 60 * 60
 
-// What a push carries, as JSON.
+// The JSON payload of a push.
 Push_Payload :: struct {
 	kind:   string,
 	server: string,
@@ -53,15 +51,15 @@ Push_Payload :: struct {
 	msg:    u64,
 	title:  string,
 	body:   string,
-	// The notification it is: a conversation's ("c<conv>"), or a
-	// call's; whether it replaces another without a sound; and whether
-	// it's a call ringing, which stays up until it's dealt with.
+	// The notification this push belongs to: a conversation's ("c<conv>") or a call's;
+	// whether it silently replaces an earlier one; and whether it's a ringing call, which
+	// stays visible until the user acts on it.
 	tag:    string,
 	quiet:  bool,
 	ring:   bool,
 }
 
-// What's pushed of a call.
+// The call events that get pushed.
 Push_Call :: enum {
 	Ringing,
 	Missed,
@@ -69,11 +67,9 @@ Push_Call :: enum {
 	Declined,
 }
 
-/*
-push_message pushes a new message in `conv` to whoever it's for and
-isn't here: the other one of a DM, and the members it mentions
-(`mentioned`, as mentions_resolve gave them).
-*/
+// push_message pushes a new message in `conv` to everyone it concerns who is away: the
+// other participant of a DM, or the members it mentions (`mentioned`, as returned by
+// mentions_resolve).
 push_message :: proc(s: ^Server, conv: ^Conv, m: proto.Message, mentioned: []proto.Account_Id) {
 	if !s.push.enabled || m.kind == .System || .Deleted in m.flags {
 		return
@@ -87,8 +83,8 @@ push_message :: proc(s: ^Server, conv: ^Conv, m: proto.Message, mentioned: []pro
 	}
 }
 
-// push_away is whether an account isn't here to see a notice: no
-// connection, or every one idle or out of sight.
+// push_away reports whether an account isn't around to see a notification: it has no
+// connection, or all of its connections are idle or hidden.
 push_away :: proc(acc: ^Account) -> bool {
 	for u in acc.conns {
 		if !u.idle && !u.hidden {
@@ -99,7 +95,13 @@ push_away :: proc(acc: ^Account) -> bool {
 }
 
 @(private = "file")
-push_member :: proc(s: ^Server, conv: ^Conv, m: proto.Message, who: proto.Account_Id, kind: string) {
+push_member :: proc(
+	s: ^Server,
+	conv: ^Conv,
+	m: proto.Message,
+	who: proto.Account_Id,
+	kind: string,
+) {
 	if who == m.sender || who == 0 {
 		return
 	}
@@ -118,17 +120,15 @@ push_member :: proc(s: ^Server, conv: ^Conv, m: proto.Message, who: proto.Accoun
 	push_to(s, who, payload, fmt.tprintf("c%d", conv.id), PUSH_TTL, .High)
 }
 
-// push_reaches is whether an account could be pushed something: the
-// server pushes, and it has turned push on somewhere.
+// push_reaches reports whether pushes can reach an account: the server supports push, and
+// the account has enabled it on at least one device.
 push_reaches :: proc(s: ^Server, acc: ^Account) -> bool {
 	return s.push.enabled && len(push_subs_of(s, acc.id)) > 0
 }
 
-/*
-push_call pushes a call to its callee: that it rings, if they aren't
-here; or what came of one that was pushed, to every device but
-`except`'s (which did it). Whether anything was pushed.
-*/
+// push_call pushes a call event to its callee: that the call is ringing, if they are away;
+// or how a call that was already pushed ended, to every device except `except` (the one
+// that handled it). Returns whether anything was pushed.
 push_call :: proc(s: ^Server, call: ^Call, what: Push_Call, except: ^Conn = nil) -> bool {
 	callee := account_by_id(&s.accounts, call.callee)
 	if !s.push.enabled || callee == nil || (what == .Ringing && !push_away(callee)) {
@@ -148,7 +148,7 @@ push_call :: proc(s: ^Server, call: ^Call, what: Push_Call, except: ^Conn = nil)
 	switch what {
 	case .Ringing:
 		p.title = fmt.tprintf("%s is calling you", name)
-		p.body = "Answer it in yap."
+		p.body = "Open yap to answer."
 		p.ring = true
 		ttl, urgency = proto.CALL_RING_SECONDS, .High
 	case .Missed:
@@ -159,7 +159,7 @@ push_call :: proc(s: ^Server, call: ^Call, what: Push_Call, except: ^Conn = nil)
 		p.quiet = true
 	case .Declined:
 		p.title = fmt.tprintf("Call from %s", name)
-		p.body = "Declined."
+		p.body = "You declined the call."
 		p.quiet = true
 	}
 	payload, err := json.marshal(p, allocator = context.temp_allocator)
@@ -173,8 +173,8 @@ push_call :: proc(s: ^Server, call: ^Call, what: Push_Call, except: ^Conn = nil)
 	return push_to(s, call.callee, payload, p.tag, ttl, urgency, skip) > 0
 }
 
-// push_to queues a payload for each of an account's subscriptions but
-// `skip`'s device; how many.
+// push_to queues a payload for each of an account's subscriptions, except the one of the
+// `skip` device, and returns how many were queued.
 @(private = "file")
 push_to :: proc(
 	s: ^Server,
@@ -210,7 +210,7 @@ push_to :: proc(
 	return
 }
 
-// push_payload is the JSON a push carries, in the temp allocator.
+// push_payload builds the JSON payload of a push, in the temp allocator.
 push_payload :: proc(
 	s: ^Server,
 	conv: ^Conv,
@@ -222,8 +222,7 @@ push_payload :: proc(
 	ok: bool,
 ) {
 	sender := account_by_id(&s.accounts, m.sender)
-	// Deleted accounts are kept, as tombstones; not having one shouldn't
-	// happen.
+	// Deleted accounts are kept as tombstones, so a missing sender shouldn't happen.
 	name := sender.display if sender != nil else "Somebody"
 	p := Push_Payload {
 		kind   = kind,
@@ -239,10 +238,7 @@ push_payload :: proc(
 	}
 	if !hide {
 		text := m.text if m.kind == .Text else m.file_name
-		p.body = digest_quote(
-			s,
-			{text = text, files = m.kind == .File || m.attachment_count > 0},
-		)
+		p.body = digest_quote(s, {text = text, files = m.kind == .File || m.attachment_count > 0})
 	}
 	data, err := json.marshal(p, allocator = context.temp_allocator)
 	if err != nil || len(data) > PUSH_PAYLOAD_MOST {

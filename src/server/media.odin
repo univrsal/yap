@@ -10,38 +10,40 @@ import "core:time"
 import "common:."
 import "common:proto"
 
-/*
-The media link (proto.Link.Media): screen sharing, all of it, on a UDP
-port and a thread of its own, so a shared screen's
-thousands of packets a second never pass through the main loop, and the
-main loop's turns never hold a frame up.
+// The media link (proto.Link.Media) carries all screen sharing. It uses a UDP
+// port and a thread of its own, so that the thousands of packets per second
+// of a shared screen never pass through the main loop, and so that the main
+// loop never delays a video frame.
+//
+// It also repairs packet loss. It keeps the last `cache_ms` (half a second)
+// of each sharer's fragments, exactly as they were sent out. A viewer that
+// finds fragments missing asks for them by number (see proto.Nack and
+// video_window.odin). This costs a round trip to the server but none of the
+// sharer's upload bandwidth.
+//
+// It also lets the bitrate of a share follow its viewers. Each viewer
+// reports how well the share reaches it (see proto.Report and
+// video_report.odin). Once a second each sharer is told the worst of its
+// viewers' reports (see media_reports), ignoring a viewer that is far
+// behind all the others.
+//
+// A client opens the media link once its connection is logged in, using the
+// port that Server_Info names. The handshake is the same as for the bulk
+// link: a hello with the connection's conn_id and link = Media, which the
+// thread accepts if the device has a logged in connection with that conn_id.
+// A browser connects through the relay (see relay.odin). The client sends
+// its own video and its Watch leases on it, and receives the video it
+// watches and the Keyframe requests for its own share. Without the media
+// link there is no screen sharing, and the main loop drops any video that
+// it receives.
+//
+// The thread only knows about the connections through a table that the main
+// loop publishes whenever its state version changes (see media_sync). The
+// table says who is who, in which room and whether they are sharing.
+// Everything else, i.e. the sessions, leases, budgets and keyframe requests
+// of the media link, belongs to the thread alone.
 
-It also repairs losses: it keeps the last `cache_ms` (half a second) of
-each sharer's fragments, as they went out, and a viewer that finds some
-missing asks for them by number (proto.Nack, video_window.odin), which
-costs a round trip to the server and nothing of the sharer's upload.
-
-And it lets a share's bitrate follow its viewers: each reports how the
-share reaches it (proto.Report, video_report.odin), and once a second
-each sharer is told the worst of its viewers' reports (media_reports),
-less one far behind the rest.
-
-A client opens it once its connection is logged in, to the port
-Server_Info names, with a handshake like the bulk link's: a hello with
-the connection's conn_id and link = Media, which the thread accepts if
-the device has a logged in connection of that conn_id. A browser's
-comes through the relay (relay.odin). It sends its video on it, and its
-Watch leases; it gets the video it watches on it, and the Keyframe
-requests for its own share. Without it there's no screen sharing: the
-main loop drops any video that comes its way.
-
-What the thread knows about the connections is a table the main loop
-publishes whenever its state version moves (media_sync): who is who,
-in which room, sharing or not. Everything else, the sessions, leases,
-budgets and keyframe requests of the media link, is the thread's own.
-*/
-
-// Who a connection is, as the media thread needs to know it.
+// Media_Peer describes a connection, with what the media thread needs to know about it.
 Media_Peer :: struct {
 	num:      proto.User_Num,
 	conn_id:  u64,
@@ -52,45 +54,44 @@ Media_Peer :: struct {
 
 Media_Session :: struct {
 	using session: proto.Session,
-	handshake:     proto.Responder, // in use until keyed
+	handshake:     proto.Responder, // only used until the session is keyed
 	keyed:         bool,
 	confirmed:     bool,
 	superseded:    bool,
 	endpoint:      net.Endpoint,
 	started:       time.Tick,
 	last_recv:     time.Tick,
-	num:           proto.User_Num, // whose, once keyed
-	// The lease on whom this session's connection watches.
+	num:           proto.User_Num, // who it belongs to, once keyed
+	// The lease on the sharer that this session's connection is watching.
 	watching:      proto.User_Num,
 	watch_until:   time.Tick,
-	// What it may have sent again (Nack), as for a sharer's budget.
+	// How much it may have resent (Nack), similar to a sharer's budget.
 	resend_budget: int,
 	resend_at:     time.Tick,
-	// Its last Report, on whom, and when.
+	// Its last Report, the sharer it is about and when it arrived.
 	report:        proto.Video_Report,
 	report_of:     proto.User_Num,
 	report_at:     time.Tick,
 }
 
-// A Report older than this isn't counted: its viewer went quiet.
+// A Report older than this isn't counted because its viewer went quiet.
 @(private = "file")
 REPORT_FRESH :: 3 * time.Second
 
-// A sharer's budget, keyframe requests and recent fragments on the
-// media link.
+// Media_Sharer holds the budget, keyframe requests and recent fragments of a
+// sharer on the media link.
 Media_Sharer :: struct {
 	budget:        int,
 	budget_at:     time.Tick,
 	last_key_sent: time.Tick,
-	cache:         ^Media_Cache, // made with the first fragment
+	cache:         ^Media_Cache, // created when the first fragment arrives
 }
 
-/*
-Media_Cache is a sharer's fragments as they went out (the Video message
-viewers get), in a ring of MEDIA_CACHE_SLOTS, found by frame and index.
-What's older than the cache's age is never sent again, though it may
-still be in the ring.
-*/
+// Media_Cache holds a sharer's fragments exactly as they were sent out (the
+// Video message that viewers get). They are stored in a ring of
+// MEDIA_CACHE_SLOTS and looked up by frame and index. Fragments that are
+// older than the cache age are never sent again, even if they are still in
+// the ring.
 MEDIA_CACHE_SLOTS :: 2048
 
 Media_Cached :: struct {
@@ -109,39 +110,39 @@ Media_Cache :: struct {
 Media :: struct {
 	enabled:      bool,
 	port:         int,
-	max_rate:     int, // bytes a second, per sharer
+	max_rate:     int, // bytes per second, per sharer
 	max_burst:    int,
 	max_sessions: int,
 	cache_age:    time.Duration, // how long fragments are kept for Nacks
-	password:     string, // the server's
-	key:          ecdh.Private_Key, // the server's, a copy for the thread
+	password:     string, // the server's password
+	key:          ecdh.Private_Key, // a copy of the server's key for the thread
 	sock:         net.UDP_Socket,
 	thread:       ^thread.Thread,
 	stop:         bool, // atomic
 
-	// The main loop's to write, the thread's to read, under `mutex`.
+	// Written by the main loop and read by the thread, guarded by `mutex`.
 	mutex:        sync.Mutex,
 	peers:        map[[proto.KEY_SIZE]byte]Media_Peer,
 
-	// The main loop's own: what it last published.
+	// Only used by the main loop: what it published last.
 	published:    u32,
 	published_at: time.Tick,
 
-	// The thread's own.
+	// Only used by the media thread.
 	sessions:     map[proto.Session_Id]^Media_Session,
 	sharers:      map[proto.User_Num]Media_Sharer,
 	housekept:    time.Tick,
 }
 
-// How often the main loop publishes even when its version hasn't
-// moved, and the thread looks for sessions to drop.
+// How often the main loop publishes even when its version hasn't changed,
+// and how often the thread looks for sessions to drop.
 @(private = "file")
 MEDIA_HOUSEKEEPING :: 1 * time.Second
-// How long the thread waits for a packet before it comes round anyway.
+// How long the thread waits for a packet before it continues with its loop anyway.
 @(private = "file")
 MEDIA_WAIT :: 100 * time.Millisecond
 
-// media_port is the media link's port as `settings` have it; 0 if it's off.
+// media_port returns the media link's port from `settings`, or 0 if the media link is disabled.
 media_port :: proc(settings: Settings) -> int {
 	cfg := settings.video
 	if !cfg.enabled {
@@ -150,16 +151,14 @@ media_port :: proc(settings: Settings) -> int {
 	return cfg.port if cfg.port != 0 else settings.port + 1
 }
 
-/*
-media_open opens the media link's port and starts its thread, if the
-config has it. Without it, or if the port can't be had, desktop clients
-share over their bulk links as before.
-*/
+// media_open opens the media link's port and starts its thread, if the
+// config enables it. If it is disabled or the port can't be opened, desktop
+// clients share their screens over their bulk links instead.
 media_open :: proc(s: ^Server, settings: Settings) {
 	m := &s.media
 	cfg := settings.video
 	if !cfg.enabled {
-		log.info("the media link is off, and with it screen sharing")
+		log.info("the media link is disabled, so screen sharing over it is unavailable")
 		return
 	}
 	m.port = media_port(settings)
@@ -172,7 +171,7 @@ media_open :: proc(s: ^Server, settings: Settings) {
 	sock, err := net.make_bound_udp_socket(net.IP4_Any, m.port)
 	if err != nil {
 		log.errorf(
-			"the media link can't have udp port %d (%v): there's no screen sharing",
+			"the media link can't use udp port %d (%v), so screen sharing over it is unavailable",
 			m.port,
 			err,
 		)
@@ -180,13 +179,13 @@ media_open :: proc(s: ^Server, settings: Settings) {
 	}
 	m.sock = sock
 	net.set_option(sock, .Receive_Timeout, MEDIA_WAIT)
-	// A keyframe arrives as hundreds of packets at once.
+	// A keyframe arrives as hundreds of packets at once, so the buffers must be large.
 	net.set_option(sock, .Receive_Buffer_Size, 8 * 1024 * 1024)
 	net.set_option(sock, .Send_Buffer_Size, 8 * 1024 * 1024)
 	m.enabled = true
 	media_publish(s)
 	m.thread = thread.create_and_start_with_poly_data(m, media_run, init_context = context)
-	log.infof("media link on udp :%d, %d kbit/s a sharer", m.port, cfg.max_kbit)
+	log.infof("media link on udp :%d, %d kbit/s per sharer", m.port, cfg.max_kbit)
 }
 
 media_close :: proc(s: ^Server) {
@@ -203,7 +202,7 @@ media_close :: proc(s: ^Server) {
 	m^ = {}
 }
 
-// media_free frees what the thread made.
+// media_free frees what the thread allocated.
 media_free :: proc(m: ^Media) {
 	for _, ms in m.sessions {
 		free(ms)
@@ -225,11 +224,9 @@ cache_free :: proc(sh: ^Media_Sharer) {
 	}
 }
 
-/*
-media_sync publishes the connections to the thread when anything
-clients see has changed (the state version), and every second anyway.
-A sync phase of the main loop.
-*/
+// media_sync publishes the connections to the thread when anything that
+// clients can see has changed (the state version), and every second
+// regardless. It is a sync phase of the main loop.
 media_sync :: proc(s: ^Server) {
 	m := &s.media
 	if !m.enabled {
@@ -246,8 +243,8 @@ media_publish :: proc(s: ^Server) {
 	m := &s.media
 	sync.guard(&m.mutex)
 	clear(&m.peers)
-	// Only connections that are logged in, and seen: the others may do
-	// nothing but log in.
+	// Only connections that are logged in and visible are published. The
+	// others may only log in.
 	for key, u in s.conns {
 		if u.account == nil || .Unverified in u.account.flags {
 			continue
@@ -264,7 +261,7 @@ media_publish :: proc(s: ^Server) {
 	m.published_at = time.tick_now()
 }
 
-// The thread.
+// media_run is the main procedure of the media thread.
 @(private = "file")
 media_run :: proc(m: ^Media) {
 	buf: [proto.MAX_PACKET_SIZE]byte
@@ -284,8 +281,8 @@ media_run :: proc(m: ^Media) {
 	}
 }
 
-// media_handle_packet handles one packet off the media port. With
-// `m.mutex` held.
+// media_handle_packet handles one packet received on the media port.
+// `m.mutex` must be held.
 media_handle_packet :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	#partial switch proto.packet_type(packet) {
 	case .Handshake_Init:
@@ -338,7 +335,7 @@ media_finish :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	}
 	peer, known := m.peers[ms.peer_key]
 	if ms.keyed {
-		// The Welcome got lost: again, to the address we know.
+		// The Welcome was lost, so send it again to the address we know.
 		media_welcome(m, ms, peer.instance)
 		return
 	}
@@ -373,7 +370,7 @@ media_finish :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	media_welcome(m, ms, peer.instance)
 }
 
-// How many copies of a Welcome or Refused go out: they're unreliable.
+// How many copies of a Welcome or Refused are sent, because they are sent unreliably.
 @(private = "file")
 MEDIA_COPIES :: 3
 
@@ -444,11 +441,11 @@ media_data :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	}
 	peer, known := m.peers[ms.peer_key]
 	if !known || peer.num != ms.num {
-		return // gone, or logged out; housekeeping drops it
+		return // the peer is gone or logged out, housekeeping drops the session
 	}
 	kind, kind_ok := proto.message_kind(pt)
 	if !kind_ok {
-		return // keepalive
+		return // a keepalive
 	}
 	#partial switch kind {
 	case .Video:
@@ -465,11 +462,9 @@ media_data :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	}
 }
 
-/*
-media_relay passes a fragment on to every media session watching its
-sharer in the sharer's room, re-encrypted for each. Video from somebody
-who isn't sharing, or is over their budget, goes nowhere.
-*/
+// media_relay forwards a fragment to every media session that is watching
+// its sharer in the sharer's room, encrypted separately for each. Video
+// from somebody who isn't sharing or who is over their budget is dropped.
 @(private = "file")
 media_relay :: proc(m: ^Media, from: ^Media_Session, peer: Media_Peer, pt: []byte) {
 	if _, ok := proto.decode_video_up(pt); !ok || !peer.sharing || peer.room == 0 {
@@ -501,7 +496,7 @@ media_relay :: proc(m: ^Media, from: ^Media_Session, peer: Media_Peer, pt: []byt
 	}
 }
 
-// media_sharer is what the thread keeps of a sharer, made if need be.
+// media_sharer returns what the thread keeps for a sharer, creating it if necessary.
 @(private = "file")
 media_sharer :: proc(m: ^Media, num: proto.User_Num) -> ^Media_Sharer {
 	sh := &m.sharers[num]
@@ -546,12 +541,10 @@ cache_get :: proc(m: ^Media, sh: ^Media_Sharer, frame: u32, index: int, now: tim
 	return slot.data[:slot.size]
 }
 
-/*
-media_nack sends a viewer what it asks for again of the frame of the
-sharer it's watching, from the cache, as far as its own budget (the
-sharer's rate) goes: a viewer can't make the server send more than the
-sharer could.
-*/
+// media_nack resends the fragments of a frame that a viewer asks for from
+// the sharer it is watching. They are taken from the cache, as far as the
+// viewer's own budget (the sharer's rate) allows, so that a viewer can't make
+// the server send more than the sharer could.
 @(private = "file")
 media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) {
 	sharer, n, ok := proto.decode_nack(pt)
@@ -586,7 +579,7 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 	}
 }
 
-// media_report keeps a viewer's report on the sharer it holds a lease on.
+// media_report stores a viewer's report about the sharer it holds a lease on.
 @(private = "file")
 media_report :: proc(m: ^Media, ms: ^Media_Session, pt: []u8) {
 	sharer, r, ok := proto.decode_report_up(pt)
@@ -597,11 +590,10 @@ media_report :: proc(m: ^Media, ms: ^Media_Session, pt: []u8) {
 	ms.report, ms.report_of, ms.report_at = r, sharer, now
 }
 
-/*
-media_reports tells each sharer on the media link how its viewers in
-its room are getting on: the worst of their fresh reports
-(proto.summarize_reports). Nothing goes to a sharer nobody reports on.
-*/
+// media_reports tells each sharer on the media link how well the stream
+// reaches its viewers in its room. It sends the worst of their recent
+// reports (see proto.summarize_reports). Sharers that have no reports
+// are sent nothing.
 media_reports :: proc(m: ^Media) {
 	now := time.tick_now()
 	for _, target in m.sessions {
@@ -650,11 +642,9 @@ media_spend :: proc(m: ^Media, num: proto.User_Num, n: int) -> bool {
 	return true
 }
 
-/*
-media_watch takes a viewer's lease, and passes a keyframe request on to
-the sharer if the sharer is on the media link, at most once every
-KEYFRAME_REQUEST_MIN.
-*/
+// media_watch records a viewer's lease and forwards a keyframe request to the
+// sharer if the sharer is on the media link, at most once every
+// KEYFRAME_REQUEST_MIN.
 @(private = "file")
 media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byte) {
 	sharer, need_key := proto.decode_watch(pt)
@@ -674,7 +664,7 @@ media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byt
 		}
 	}
 	if target == nil {
-		return // not sharing on the media link, so not sharing at all
+		return // the sharer isn't on the media link, so isn't sharing at all
 	}
 	peer, known := m.peers[target.peer_key]
 	if !known || !peer.sharing || peer.room != viewer.room {
@@ -691,11 +681,9 @@ media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byt
 	media_send(m, target, proto.encode_keyframe(&buf))
 }
 
-/*
-media_housekeeping drops sessions that are silent, too old, unfinished
-handshakes, and those whose connection has gone (or started over); and
-forgets the budgets of those who no longer share.
-*/
+// media_housekeeping drops sessions that are silent, too old, have an
+// unfinished handshake, or whose connection has gone or started over. It
+// also forgets the budgets of sharers that are no longer sharing.
 @(private = "file")
 media_housekeeping :: proc(m: ^Media) {
 	stale := make([dynamic]proto.Session_Id, context.temp_allocator)

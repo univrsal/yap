@@ -7,12 +7,10 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 
-/*
-Reading a file being sent and writing one being received, on a desktop:
-plain files. A received file is written to <name>.part and only takes
-its name once it's all there, so a half-received file never looks like
-a whole one.
-*/
+// Reads a file that is being sent and writes a file that is being received, on a
+// desktop, using plain files. A received file is written to <name>.part and
+// only gets its final name once it is complete, so a partially received file
+// never looks like a complete one.
 
 File_Source :: struct {
 	f: ^os.File,
@@ -23,8 +21,8 @@ File_Sink :: struct {
 	part: string, // owned
 }
 
-// file_source_open opens the file a Send_File_Command names. The name is
-// the file's own, in the temp allocator.
+// file_source_open opens the file named by a Send_File_Command. The returned
+// name is the file's own name, allocated in the temp allocator.
 file_source_open :: proc(
 	cmd: Send_File_Command,
 ) -> (
@@ -40,15 +38,15 @@ file_source_open :: proc(
 	}
 	n, size_err := os.file_size(f)
 	if size_err != nil || n < 0 {
-		log.errorf("file: could not tell how big %s is: %v", cmd.path, size_err)
+		log.errorf("file: could not determine the size of %s: %v", cmd.path, size_err)
 		os.close(f)
 		return
 	}
 	return {f = f}, strings.clone(os.base(cmd.path), context.temp_allocator), u64(n), true
 }
 
-// file_source_read fills `buf` from `offset`. A file on disk is always
-// ready.
+// file_source_read fills `buf` starting at `offset`. A file on disk is always
+// ready to be read.
 file_source_read :: proc(src: ^File_Source, offset: u64, buf: []u8) -> (ready, ok: bool) {
 	n, err := os.read_at(src.f, buf, i64(offset))
 	return true, err == nil && n == len(buf)
@@ -61,11 +59,9 @@ file_source_close :: proc(src: ^File_Source) {
 	}
 }
 
-/*
-file_sink_create starts a file called `name` in `dir` (the downloads
-folder if that's empty), or `name (1)`, `name (2)`... if that's taken. It
-returns where the file will end up.
-*/
+// file_sink_create starts a file called `name` in `dir` (the downloads folder if
+// `dir` is empty), or `name (1)`, `name (2)` and so on if that name is taken. It
+// returns the path where the file will end up.
 file_sink_create :: proc(
 	dir, name: string,
 	size: u64,
@@ -78,7 +74,7 @@ file_sink_create :: proc(
 	if dir == "" {
 		dir = platform.downloads_dir(context.temp_allocator)
 		if dir == "" {
-			log.error("file: could not work out where the downloads folder is")
+			log.error("file: could not determine the location of the downloads folder")
 			return
 		}
 	}
@@ -111,7 +107,7 @@ file_sink_create :: proc(
 		}
 		return {f = f, part = strings.clone(part)}, strings.clone(full), true
 	}
-	log.errorf("file: every name for %q in %s is taken", name, dir)
+	log.errorf("file: all candidate names for %q in %s are already taken", name, dir)
 	return
 }
 
@@ -120,7 +116,7 @@ file_sink_write :: proc(sink: ^File_Sink, offset: u64, data: []u8) -> bool {
 	return err == nil && n == len(data)
 }
 
-// file_sink_finish closes the file and gives it its name.
+// file_sink_finish closes the file and renames it to its final name.
 file_sink_finish :: proc(sink: ^File_Sink, path: string) -> bool {
 	os.close(sink.f)
 	sink.f = nil
@@ -132,12 +128,12 @@ file_sink_finish :: proc(sink: ^File_Sink, path: string) -> bool {
 		log.errorf("file: could not rename %s: %v", sink.part, err)
 		return false
 	}
-	// It came from someone else: the system asks before running it.
+	// The file came from someone else, so mark it so the system asks before running it.
 	mark_downloaded(path)
 	return true
 }
 
-// file_sink_abort throws away what was received.
+// file_sink_abort discards what was received.
 file_sink_abort :: proc(sink: ^File_Sink) {
 	if sink.f != nil {
 		os.close(sink.f)
@@ -150,5 +146,6 @@ file_sink_abort :: proc(sink: ^File_Sink) {
 	}
 }
 
-// web_file_close lets go of a browser's picked file; a desktop has none.
+// web_file_close releases a file picked in a browser. It does nothing on a
+// desktop, which has no such handles.
 web_file_close :: proc(handle: i32) {}

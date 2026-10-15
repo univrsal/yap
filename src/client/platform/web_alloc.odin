@@ -6,20 +6,18 @@ import "core:mem"
 
 import "common:memtrack"
 
-/*
-Memory in a web build.
-
-Emscripten's malloc owns the page's linear memory, growing it as it
-needs to. Odin's own wasm allocator would grow the same memory behind
-its back, and the two would end up handing out the same pages - so in a
-web build every allocation goes through malloc instead, and the context
-that says so is built once and handed to anything that runs outside the
-frame loop (GLFW's callbacks; see callback_context).
-
-Odin's temp allocator would draw on that same wasm allocator, so there
-is an arena here for it too, on top of malloc, emptied at the top of
-every frame like the desktop's.
-*/
+// Memory in a web build.
+//
+// Emscripten's malloc owns the page's linear memory and grows it as needed.
+// Odin's own wasm allocator would grow the same memory behind its back, and the
+// two would end up handing out the same pages. So in a web build every
+// allocation goes through malloc instead. The context that sets this up is built
+// once and handed to anything that runs outside the frame loop (GLFW's
+// callbacks; see callback_context).
+//
+// Odin's temp allocator would also draw on the wasm allocator, so there is an
+// arena for it here as well, on top of malloc, which is emptied at the start of
+// every frame like on the desktop.
 
 @(default_calling_convention = "c")
 foreign _ {
@@ -30,7 +28,7 @@ foreign _ {
 	aligned_alloc :: proc(alignment, size: uint) -> rawptr ---
 }
 
-// malloc hands out memory aligned for anything up to this.
+// malloc returns memory aligned to at least this many bytes.
 @(private = "file")
 MALLOC_ALIGNMENT :: 16
 
@@ -47,7 +45,7 @@ g_web_context: runtime.Context
 // the heap and an arena on top of it for temporaries.
 web_context_init :: proc "contextless" () -> runtime.Context {
 	context = runtime.default_context()
-	// Counted (common/memtrack), on top of malloc.
+	// Allocations are counted (common/memtrack), on top of malloc.
 	context.allocator = memtrack.init(malloc_allocator())
 	_ = runtime.arena_init(&g_temp_arena, TEMP_ARENA_SIZE, context.allocator)
 	context.temp_allocator = runtime.arena_allocator(&g_temp_arena)
@@ -61,8 +59,8 @@ web_context_set_logger :: proc "contextless" (logger: runtime.Logger) {
 	g_web_context.logger = logger
 }
 
-// callback_context is the context for code the browser calls on its
-// own - input callbacks - rather than through the frame loop.
+// callback_context returns the context for code that the browser calls directly
+// (input callbacks) rather than through the frame loop.
 callback_context :: proc "contextless" () -> runtime.Context {
 	return g_web_context
 }

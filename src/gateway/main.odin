@@ -13,33 +13,32 @@ import "common:gateway"
 import "common:http"
 import "common:proto"
 
-/*
-yap-gateway: the bot API (docs/bot-api) on its own, for any yap server,
-including one that doesn't enable it: a bot author runs it next to their
-bot. It's the same gateway yap-server runs with "api" enabled, to which
-the server is just more clients.
-
-It isn't part of build.sh:
-
-	odin build src/gateway -collection:common=src/common -out:bin/yap-gateway
-	bin/yap-gateway -server:chat.example.org:7777 -server-key:<64 hex digits>
-
-The server's key is in its log when it starts ("server public key");
-given, the gateway won't talk to a server without it. It listens on
-this machine only unless told otherwise: it's plain HTTP, and a token
-or a password going over it to anywhere else should go through a
-reverse proxy with TLS.
-*/
+// yap-gateway runs the bot API (docs/bot-api) as a standalone program. It
+// works with any yap server, even one that doesn't enable the API itself, so a
+// bot author can run it next to their bot. It is the same gateway that
+// yap-server runs when "api" is enabled, and the server sees it as just
+// another client.
+//
+// It isn't part of build.sh:
+//
+//	odin build src/gateway -collection:common=src/common -out:bin/yap-gateway
+//	bin/yap-gateway -server:chat.example.org:7777 -server-key:<64 hex digits>
+//
+// The server's key is printed in its log on startup ("server public key").
+// If a key is given, the gateway refuses to talk to a server that has a
+// different one. By default the gateway only listens on this machine. It
+// serves plain HTTP, so if a token or password has to travel to anywhere
+// else, it should go through a reverse proxy with TLS.
 
 Options :: struct {
 	server:          string `usage:"host:port of the yap server (default 127.0.0.1:7777)"`,
-	server_key:      string `usage:"the server's public key, 64 hex digits; without, whichever it has is taken"`,
+	server_key:      string `usage:"the server's public key as 64 hex digits (if omitted, any server key is accepted)"`,
 	password:        string `usage:"the server's password, if it has one"`,
-	listen:          string `usage:"where to serve the API (default 127.0.0.1:8080)"`,
-	max_connections: int `usage:"how many tokens may be in use at once (default 64)"`,
-	rate:            f64 `usage:"requests a second a token may make (default 10; 0 for no limit)"`,
-	burst:           f64 `usage:"how many of them at once (default 30)"`,
-	behind_proxy:    bool `usage:"it's behind a reverse proxy with TLS, whose X-Forwarded-Proto says what a request came over"`,
+	listen:          string `usage:"address to serve the API on (default 127.0.0.1:8080)"`,
+	max_connections: int `usage:"maximum number of tokens that may be in use at once (default 64)"`,
+	rate:            f64 `usage:"maximum requests per second for each token (default 10, 0 for no limit)"`,
+	burst:           f64 `usage:"maximum number of requests a token may make in a burst (default 30)"`,
+	behind_proxy:    bool `usage:"set when running behind a TLS reverse proxy; its X-Forwarded-Proto header tells whether a request came over HTTPS"`,
 }
 
 main :: proc() {
@@ -58,7 +57,9 @@ main :: proc() {
 	flags.parse_or_exit(&opt, os.args, .Odin)
 
 	if opt.rate < 0 || opt.burst < 0 || (opt.rate > 0 && opt.burst < 1) {
-		fmt.eprintln("-rate and -burst can't be negative, and -burst is at least 1 with a rate")
+		fmt.eprintln(
+			"-rate and -burst can't be negative, and -burst must be at least 1 when -rate is set",
+		)
 		os.exit(2)
 	}
 	cfg := gateway.Config {
@@ -76,12 +77,12 @@ main :: proc() {
 	if opt.server_key != "" {
 		key, key_ok := hex.decode(transmute([]u8)opt.server_key, context.temp_allocator)
 		if !key_ok || len(key) != proto.KEY_SIZE {
-			fmt.eprintln("-server-key is 64 hex digits: the server's public key")
+			fmt.eprintln("-server-key must be the server's public key as 64 hex digits")
 			os.exit(2)
 		}
 		copy(cfg.server_key[:], key)
 	} else {
-		log.warn("no -server-key: whichever key the server has is taken")
+		log.warn("no -server-key given, so any server key will be accepted")
 	}
 	listen, listen_ok := resolve(opt.listen, 8080)
 	if !listen_ok {
@@ -117,7 +118,8 @@ main :: proc() {
 	}
 }
 
-// resolve is host:port as an endpoint, `port` if it doesn't say.
+// resolve parses host:port into an endpoint, using `port` if the address
+// doesn't specify one.
 resolve :: proc(address: string, port: int) -> (ep: net.Endpoint, ok: bool) {
 	if parsed, parsed_ok := net.parse_endpoint(address); parsed_ok {
 		ep = parsed

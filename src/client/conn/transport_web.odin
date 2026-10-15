@@ -5,37 +5,35 @@ import log "common:wlog"
 import "core:strings"
 import "core:time"
 
-/*
-A WebSocket to the relay, which puts the packets back on a UDP socket
-at the far end (see src/server/relay.odin). One packet per message, so the protocol
-still sees datagram boundaries.
-
-The socket is opened by the page and the arriving messages are queued
-there; this side takes them one at a time, the same way the desktop
-client takes them off a UDP socket. Nothing is sent until the socket is
-open, which costs a round trip at the start of a connection - the
-handshake is resent until it gets through, so that sorts itself out.
-*/
+// A WebSocket to the relay, which puts the packets back on a UDP socket at the
+// far end (see src/server/relay.odin). Each packet is one message, so the
+// protocol still sees datagram boundaries.
+//
+// The socket is opened by the page and the arriving messages are queued there.
+// This side takes them one at a time, the same way the desktop client takes
+// them off a UDP socket. Nothing is sent until the socket is open, which costs
+// a round trip at the start of a connection. The handshake is resent until it
+// gets through, so this resolves itself.
 
 @(default_calling_convention = "c")
 foreign _ {
-	// Each takes the socket's slot: a connection's main link has the
-	// first of three (Voice_Client.slot), its bulk link (bulk.odin) the
-	// next and its media link (media.odin) the last.
+	// Each takes the socket's slot: a connection's main link has the first of
+	// three (Voice_Client.slot), its bulk link (bulk.odin) the next and its media
+	// link (media.odin) the last.
 	// Opens the socket, dropping whatever was open before in that slot.
 	// The address is a ws:// or wss:// URL.
 	yap_ws_open :: proc(slot: i32, url: cstring) -> i32 ---
 	yap_ws_close :: proc(slot: i32) ---
-	// 1 once the socket is open, 0 while it's connecting, -1 if it has
-	// failed or closed.
+	// 1 once the socket is open, 0 while it is connecting, -1 if it has failed
+	// or closed.
 	yap_ws_state :: proc(slot: i32) -> i32 ---
 	yap_ws_send :: proc(slot: i32, data: [^]u8, size: i32) -> i32 ---
-	// Copies the oldest queued message into buf and returns its size,
-	// or -1 if there is nothing waiting.
+	// Copies the oldest queued message into buf and returns its size, or -1 if
+	// nothing is waiting.
 	yap_ws_recv :: proc(slot: i32, buf: [^]u8, buf_size: i32) -> i32 ---
-	// Bytes handed to the socket that it hasn't sent yet.
+	// Bytes handed to the socket that it has not sent yet.
 	yap_ws_buffered :: proc(slot: i32) -> i32 ---
-	// How many messages have arrived and wait for yap_ws_recv.
+	// How many messages have arrived and are waiting for yap_ws_recv.
 	yap_ws_pending :: proc(slot: i32) -> i32 ---
 }
 
@@ -46,17 +44,15 @@ Transport :: struct {
 	retry_at: time.Tick,
 }
 
-// How long to wait before opening a socket that has died again.
+// How long to wait before opening a socket that has died.
 REVIVE_AFTER :: 2 * time.Second
 
-/*
-transport_open turns the address the user typed into a URL for the
-relay. A plain host:port becomes a WebSocket to the relay beside this
-page - ws://<page host>/yap/<host:port> - so the usual "localhost:7777"
-still works; anything that already looks like a URL is used as it is.
-The media link goes to the relay's /yap-media/ instead, which takes it
-to the server's media port.
-*/
+// transport_open turns the address the user typed into a URL for the relay. A
+// plain host:port becomes a WebSocket to the relay beside this page
+// (ws://<page host>/yap/<host:port>), so the usual "localhost:7777" still
+// works. Anything that already looks like a URL is used as it is. The media
+// link goes to the relay's /yap-media/ instead, which forwards it to the
+// server's media port.
 transport_open :: proc(
 	t: ^Transport,
 	server_addr: string,
@@ -104,14 +100,12 @@ transport_close :: proc(t: ^Transport) {
 	t.url = ""
 }
 
-/*
-transport_revive opens the socket again once it has died - the server
-went away, or the network did - which a UDP socket never needs: there the
-packets just stop arriving. Without it the page would sit behind a closed
-socket for good. It tries again every REVIVE_AFTER for as long as the
-connection lasts; once client_step has given up on that (CONNECTION_LOST),
-only when a new connection is tried.
-*/
+// transport_revive opens the socket again once it has died, for example because
+// the server or the network went away. A UDP socket never needs this, because
+// there the packets just stop arriving. Without it the page would be stuck
+// behind a closed socket for good. It tries again every REVIVE_AFTER for as long
+// as the connection lasts. Once client_step has given up on the connection
+// (CONNECTION_LOST), it only retries when a new connection is attempted.
 transport_revive :: proc(t: ^Transport) {
 	if !t.open || yap_ws_state(t.slot) != -1 {
 		return
@@ -125,8 +119,8 @@ transport_revive :: proc(t: ^Transport) {
 }
 
 transport_send :: proc(t: ^Transport, packet: []byte) -> bool {
-	// Anything sent before the socket is open is dropped; the protocol
-	// resends what matters (handshakes, joins, names, state acks).
+	// Anything sent before the socket is open is dropped. The protocol resends
+	// what matters (handshakes, joins, names, state acks).
 	if !t.open || yap_ws_state(t.slot) != 1 {
 		return false
 	}
@@ -144,8 +138,8 @@ transport_recv :: proc(t: ^Transport, buf: []byte) -> (packet: []byte, ok: bool)
 	return buf[:n], true
 }
 
-// transport_backlog is how much the socket still has to send, which is
-// how the video queue knows to hold back (see video.odin).
+// transport_backlog is how much the socket still has to send, which is how the
+// video queue knows to hold back (see video.odin).
 transport_backlog :: proc(t: ^Transport) -> int {
 	return int(yap_ws_buffered(t.slot)) if t.open else 0
 }
@@ -157,8 +151,8 @@ transport_pending :: proc(t: ^Transport) -> bool {
 
 @(private = "file", default_calling_convention = "c")
 foreign _ {
-	// ws:// or wss:// for the page this was served from, followed by
-	// its host - whatever the relay is reachable at.
+	// ws:// or wss:// for the page this was served from, followed by its host,
+	// which is wherever the relay is reachable.
 	yap_ws_origin :: proc(buf: [^]u8, buf_size: i32) -> i32 ---
 }
 

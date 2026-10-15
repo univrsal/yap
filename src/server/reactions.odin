@@ -6,23 +6,24 @@ import "core:strings"
 import "common:proto"
 import "sqlite"
 
-/*
-Reactions (src/common/proto/msgs.odin): an account's emoji on a message.
-Anyone who may read a message may react to it, with a Unicode emoji (its
-character, from the table in proto/emoji_table.odin) or one of the
-server's own (`:name:`, emoji.odin); once per emoji, and with at most
-proto.MAX_REACTIONS different ones on a message. A deleted message has
-none, and takes none.
+// Reactions (see src/common/proto/msgs.odin) are emojis that an account
+// adds to a message. Anyone who may read a message may react to it, either
+// with a Unicode emoji (from the table in proto/emoji_table.odin) or with
+// one of the server's custom emojis (`:name:`, see emoji.odin). An account
+// can use each emoji only once per message, and a message can have at most
+// proto.MAX_REACTIONS different emojis. A deleted message has no reactions
+// and can't get new ones.
+//
+// Each change is sent to every connection of every member of the
+// conversation as Reaction_Changed, including the new count for that emoji.
+// Every message read from the database carries its reactions, and the ones
+// made by the account that asked are marked as theirs. The list of accounts
+// that used a given emoji is only requested when a client wants to show it,
+// one emoji at a time (Reactors_Get).
 
-Each change goes to every connection of every member as
-Reaction_Changed, with how many have that emoji now. Every message read
-from the database carries its reactions, those of whoever asked marked
-as theirs. Who reacted is asked for one emoji at a time (Reactors_Get),
-when a client wants to show it.
-*/
-
-// attach_reactions puts a message's reactions in its record, those by
-// `asker` marked (none, for 0); in the temp allocator.
+// attach_reactions stores the reactions of a message in its record, using
+// the temp allocator. The reactions made by `asker` are marked as theirs
+// (use 0 for no asker).
 attach_reactions :: proc(s: ^Server, m: ^proto.Message, asker: proto.Account_Id) {
 	if .Deleted in m.flags {
 		return
@@ -54,8 +55,8 @@ attach_reactions :: proc(s: ^Server, m: ^proto.Message, asker: proto.Account_Id)
 	}
 }
 
-// reaction_allowed is whether `emoji` is one that can be reacted with
-// here: a Unicode emoji, or one of the server's own.
+// reaction_allowed returns whether `emoji` can be used as a reaction on this
+// server, i.e. it is either a Unicode emoji or one of the server's custom emojis.
 reaction_allowed :: proc(s: ^Server, emoji: string) -> bool {
 	if !proto.is_emoji(emoji) {
 		return false
@@ -66,8 +67,8 @@ reaction_allowed :: proc(s: ^Server, emoji: string) -> bool {
 	return true
 }
 
-// reactors_get answers with who reacted to a message with an emoji, for
-// whoever may read it, the earliest first.
+// reactors_get answers with the accounts that reacted to a message with an
+// emoji, earliest first. Anyone who may read the message may ask for this.
 reactors_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	msg_id, emoji, ok := proto.decode_reactors_get(body)
 	if !ok {
@@ -165,7 +166,7 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok)
 	after := count_of(s, .React_Count, m.id, emoji)
 	if after == before {
-		return // already so: nothing to tell
+		return // nothing changed, so there is nothing to announce
 	}
 	log.debugf(
 		"%s %s %s on message %d",

@@ -4,23 +4,21 @@ import log "common:wlog"
 
 import "client:audio/opus"
 
-/*
-Send quality presets. Each client picks its own; receivers decode whatever
-arrives (every Opus packet describes itself) and always play in stereo, so
-presets can be mixed freely in a channel.
-
-All presets use 20 ms frames, so they add no latency: Opus's delay comes
-from the frame size and a fixed lookahead, not from the bitrate or mode.
-Higher presets only cost bandwidth (upstream: one stream; downstream: one
-per speaker).
-
-	Voice  speech optimized (SILK), mono,    24 kbit/s
-	High   full band, speech and music,  mono,    64 kbit/s
-	Music  full band, speech and music,  stereo, 128 kbit/s
-
-Noise suppression (RNNoise) is trained on speech and removes music, so
-with the music-capable presets it's usually best off.
-*/
+// Send quality presets. Each client picks its own preset. Receivers decode
+// whatever arrives (every Opus packet describes itself) and always play in
+// stereo, so presets can be mixed freely in a channel.
+//
+// All presets use 20 ms frames, so they add no extra latency: Opus's delay
+// comes from the frame size and a fixed lookahead, not from the bitrate or
+// mode. Higher presets only cost more bandwidth (upstream: one stream,
+// downstream: one stream per speaker).
+//
+//	Voice  speech optimized (SILK), mono,    24 kbit/s
+//	High   full band, speech and music,  mono,    64 kbit/s
+//	Music  full band, speech and music,  stereo, 192 kbit/s
+//
+// Noise suppression (RNNoise) is trained on speech and removes music, so
+// it is usually best turned off with the presets that support music.
 
 Quality :: enum {
 	Voice,
@@ -29,7 +27,7 @@ Quality :: enum {
 }
 
 Quality_Preset :: struct {
-	name:        string, // as stored in settings.json and on the command line
+	name:        string, // as stored in settings.json and used on the command line
 	label:       string,
 	description: string,
 	channels:    i32,
@@ -82,8 +80,8 @@ parse_quality :: proc(name: string) -> (q: Quality, ok: bool) {
 	return .Voice, false
 }
 
-// encoder_setup (re)creates the Voice's encoder for a preset. Changing the
-// channel count or application needs a fresh encoder anyway.
+// encoder_setup (re)creates the Voice's encoder for a preset. A new encoder
+// is needed anyway whenever the channel count or application changes.
 encoder_setup :: proc(v: ^Voice, q: Quality) -> bool {
 	p := QUALITY_PRESETS[q]
 	err: opus.Error
@@ -96,9 +94,9 @@ encoder_setup :: proc(v: ^Voice, q: Quality) -> bool {
 	opus.encoder_set(enc, .Set_Signal, p.signal)
 	opus.encoder_set(enc, .Set_Complexity, p.complexity)
 	opus.encoder_set(enc, .Set_Max_Bandwidth, opus.BANDWIDTH_FULLBAND)
-	// A low-bitrate copy of each frame rides in the next packet, so a
-	// single lost packet can be recovered. (Opus only does this in its
-	// speech modes; music is covered by concealment.)
+	// A low-bitrate copy of each frame is included in the next packet, so a
+	// single lost packet can be recovered. Opus only does this in its
+	// speech modes; for music, lost packets are covered by concealment.
 	opus.encoder_set(enc, .Set_Inband_FEC, 1)
 	opus.encoder_set(enc, .Set_Packet_Loss_Perc, 10)
 	// Near-silent frames become 1-2 byte packets, which we don't send.

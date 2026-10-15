@@ -7,7 +7,7 @@ import "core:testing"
 test_find_links :: proc(t: ^testing.T) {
 	Case :: struct {
 		text:  string,
-		links: []string, // the URLs link_url gives
+		links: []string, // the URLs link_url returns
 	}
 	cases := []Case {
 		{"no links here", {}},

@@ -5,37 +5,38 @@ import "core:time"
 
 import "common:proto"
 
-/*
-Pictures on our end: fetching those that messages show, by the id of
-their blob (src/common/proto/msgs.odin asks for one, blob.odin moves the
-chunks). Uploading ours is the outbox's business (messages.odin).
+// This file fetches the pictures shown by messages on our end, using the id of
+// their blob (src/common/proto/msgs.odin requests a blob and blob.odin
+// transfers its chunks). Uploading our own pictures is handled by the outbox
+// (see messages.odin).
+//
+// Only one picture is fetched at a time, starting with the one that was
+// wanted last, since that is the message most likely to be on screen. A
+// picture is requested with Blob_Get, whose answer contains its size and the
+// handle under which its chunks arrive. Chunks that haven't arrived are
+// requested again with Blob_Need. If nothing arrives for a while, the whole
+// picture is requested again from the start, because the server may have
+// restarted the transfer.
+//
+// Pictures are kept in memory as the JPEG they arrived as, and the UI decodes
+// them (see ui_images.odin). Once BLOB_CACHE_BYTES is exceeded, the pictures
+// that were fetched first are dropped, and they are fetched again if they are
+// shown again.
+//
+// Pictures fetched with `keep` (people's pictures and the server's emoji) are
+// also stored on disk if the UI has given us a place to keep them (`disk`, see
+// image_cache.odin). Next time they are read from there instead of being
+// fetched. Reading from the cache can take a moment (in a browser), so the
+// picture is in the Loading state meanwhile, as if it were being fetched. It
+// is only fetched from the server if the cache turns out not to have it.
 
-One is fetched at a time, the one wanted last first: that's the message
-most likely on screen. It's asked for with Blob_Get, whose answer is
-its size and the handle its chunks come under; what hasn't arrived is
-asked for again with Blob_Need, and when nothing comes for a while the
-picture is asked for again from the start (the server may have started
-over).
-
-Pictures stay in memory as the JPEG they arrived as; the UI decodes
-them (ui_images.odin). Past BLOB_CACHE_BYTES the ones fetched first are
-dropped, and fetched again if they're shown again.
-
-Those fetched with `keep` (people's pictures and the server's emoji) are
-kept on disk as well, when the UI has given us somewhere to keep them
-(`disk`, image_cache.odin), and are taken from there next time instead
-of being fetched. Taking one from there may take a moment (in a
-browser), so it's Loading meanwhile, as if fetched, and only fetched
-after all if the cache can't give it after all.
-*/
-
-// How much of other people's pictures to keep.
+// The maximum number of bytes of other people's pictures to keep in memory.
 BLOB_CACHE_BYTES :: 16 * 1024 * 1024
-// A picture that's been silent this long is asked for again.
+// A picture that has received no data for this long is requested again.
 FETCH_QUIET :: 5 * time.Second
 
-// Image_Info is what's known of a picture: its blob, and once it's here
-// (or we sent it), its size in pixels and bytes.
+// Image_Info is what is known about a picture: its blob and, once it has
+// arrived (or we sent it), its size in pixels and bytes.
 Image_Info :: struct {
 	blob:          proto.Blob_Id,
 	width, height: u16, // pixels
@@ -46,7 +47,7 @@ Image_State :: enum {
 	Wanted, // queued to fetch
 	Loading,
 	Ready,
-	Gone, // the server doesn't have it (any more), or won't give it to us
+	Gone, // the server no longer has it, or won't give it to us
 }
 
 Blob_Fetch :: struct {
@@ -54,26 +55,26 @@ Blob_Fetch :: struct {
 	image:      Image_Info,
 	data:       []u8, // the JPEG, once Ready; owned
 	recv:       proto.Blob_Receiver,
-	handle:     u64, // 0 until the server has said
-	asking:     bool, // a Blob_Get is out
-	asked:      time.Tick, // when it was last asked for, one way or the other
+	handle:     u64, // 0 until the server has provided it
+	asking:     bool, // a Blob_Get request is pending
+	asked:      time.Tick, // when it was last requested, whether in full or only the missing chunks
 	last_chunk: time.Tick,
-	started:    bool, // chunks have begun to arrive
-	order:      int, // when it was fetched, to drop the oldest first
-	keep:       bool, // not to be dropped: the server's sheet of emoji
-	disk:       Cache_Request, // being taken from the image cache instead
+	started:    bool, // chunks have started to arrive
+	order:      int, // when it was fetched, used to drop the oldest first
+	keep:       bool, // must not be dropped (for example the server's emoji sheet)
+	disk:       Cache_Request, // is being read from the image cache instead
 }
 
 Blob_Client :: struct {
 	cache:  map[proto.Blob_Id]^Blob_Fetch,
-	queue:  [dynamic]proto.Blob_Id, // to fetch, the one wanted last first
-	active: proto.Blob_Id, // the one being fetched, 0 for none
-	bytes:  int, // what the ready ones take up
+	queue:  [dynamic]proto.Blob_Id, // pictures to fetch, with the one wanted last first
+	active: proto.Blob_Id, // the picture being fetched, 0 if there is none
+	bytes:  int, // the number of bytes the ready pictures take up
 	count:  int,
-	// The UI's: where pictures fetched with `keep` are kept between
-	// sessions; nil for nowhere.
+	// Owned by the UI: where pictures fetched with `keep` are stored between
+	// sessions. nil means they are not stored.
 	disk:   ^Image_Cache,
-	// The pictures being taken from there.
+	// The pictures that are being read from the cache.
 	loads:  [dynamic]proto.Blob_Id,
 }
 
@@ -101,9 +102,10 @@ fetch_release :: proc(c: ^Voice_Client, f: ^Blob_Fetch) {
 	proto.blob_receiver_destroy(&f.recv)
 }
 
-// blob_want makes sure we have, or will fetch, a picture; with
-// `keep`, one that stays however many others there are. A size of 0 is
-// one the server will tell us (somebody's picture).
+// blob_want makes sure we either have a picture or will fetch it. With `keep`,
+// the picture stays cached regardless of how many other pictures there are. A
+// size of 0 means the server will tell us the size (for example a person's
+// picture).
 blob_want :: proc(c: ^Voice_Client, image: Image_Info, keep := false) {
 	if image.blob == 0 || int(image.size) > proto.MAX_BLOB_SIZE {
 		return
@@ -111,13 +113,13 @@ blob_want :: proc(c: ^Voice_Client, image: Image_Info, keep := false) {
 	bc := &c.blobs
 	if f, seen := bc.cache[image.blob]; seen {
 		if keep && !f.keep && f.state == .Ready {
-			// Wanted to keep only now (a message's picture that's also
-			// somebody's, or our own new one).
+			// It is only now wanted to be kept (for example a message's picture
+			// that is also somebody's profile picture, or our own new one).
 			disk_store(c, image.blob, f.data)
 		}
 		f.keep ||= keep
 		if f.state == .Wanted {
-			// Wanted again: to the front.
+			// It is wanted again, so move it to the front of the queue.
 			for id, i in bc.queue {
 				if id == image.blob {
 					ordered_remove(&bc.queue, i)
@@ -145,9 +147,9 @@ blob_want :: proc(c: ^Voice_Client, image: Image_Info, keep := false) {
 	publish_blob(c, image.blob)
 }
 
-// disk_poll looks for the pictures being taken from the image cache:
-// one that's here is Ready, as if it had just been fetched, and one the
-// cache couldn't give is fetched after all.
+// disk_poll checks on the pictures that are being read from the image cache. A
+// picture that has arrived becomes Ready, as if it had just been fetched, and
+// one that the cache could not provide is fetched from the server after all.
 @(private = "file")
 disk_poll :: proc(c: ^Voice_Client) {
 	bc := &c.blobs
@@ -155,7 +157,7 @@ disk_poll :: proc(c: ^Voice_Client) {
 		id := bc.loads[i]
 		f := bc.cache[id] or_else nil
 		if f == nil || f.disk == 0 {
-			// Gone meanwhile (blob_have).
+			// It was removed in the meantime (see blob_have).
 			unordered_remove(&bc.loads, i)
 			continue
 		}
@@ -178,7 +180,7 @@ disk_poll :: proc(c: ^Voice_Client) {
 			trim_blobs(c)
 			continue
 		}
-		// Not there after all, or not what we were told it is.
+		// The cache doesn't have it after all, or it is not what we expected.
 		delete(data)
 		f.state = .Wanted
 		inject_at(&bc.queue, 0, id)
@@ -186,7 +188,7 @@ disk_poll :: proc(c: ^Voice_Client) {
 	}
 }
 
-// disk_store keeps a picture on disk for next time.
+// disk_store stores a picture on disk for next time.
 @(private = "file")
 disk_store :: proc(c: ^Voice_Client, id: proto.Blob_Id, data: []u8) {
 	if c.blobs.disk != nil && c.server_key != {} {
@@ -194,8 +196,8 @@ disk_store :: proc(c: ^Voice_Client, id: proto.Blob_Id, data: []u8) {
 	}
 }
 
-// blob_have is a picture of ours the server has just taken: nothing to
-// fetch. Takes `jpeg` over.
+// blob_have records a picture of ours that the server has just accepted, so
+// there is nothing to fetch. It takes ownership of `jpeg`.
 blob_have :: proc(c: ^Voice_Client, blob: proto.Blob_Id, jpeg: []u8, width, height: int) {
 	bc := &c.blobs
 	if f, seen := bc.cache[blob]; seen {
@@ -223,7 +225,7 @@ blob_have :: proc(c: ^Voice_Client, blob: proto.Blob_Id, jpeg: []u8, width, heig
 	trim_blobs(c)
 }
 
-// blobs_restart: the fetch under way is asked for again on the new
+// blobs_restart requests the fetch that is in progress again on the new
 // connection.
 blobs_restart :: proc(c: ^Voice_Client) {
 	bc := &c.blobs
@@ -237,7 +239,7 @@ blobs_restart :: proc(c: ^Voice_Client) {
 	bc.active = 0
 }
 
-// blobs_step drives the fetch of one picture at a time.
+// blobs_step drives the fetching of one picture at a time.
 blobs_step :: proc(c: ^Voice_Client) {
 	if len(c.blobs.loads) > 0 {
 		disk_poll(c)
@@ -273,17 +275,17 @@ blobs_step :: proc(c: ^Voice_Client) {
 	}
 	switch {
 	case f.asking:
-	// Waiting for the answer.
+	// Waiting for the server's answer.
 	case f.handle == 0 ||
 	     time.tick_since(f.asked) > FETCH_QUIET && time.tick_since(f.last_chunk) > FETCH_QUIET:
-		// Not asked for yet, or gone quiet: ask for it (again).
+		// Not requested yet, or no data has arrived for a while, so request it (again).
 		f.asking = true
 		f.asked = time.tick_now()
 		buf: [proto.BLOB_GET_SIZE]u8
 		request(c, .Blob_Get, proto.encode_blob_id(&buf, bc.active), get_done, u64(bc.active))
 	case time.tick_since(f.asked) >= proto.CONTROL_RESEND &&
 	     (!f.started || time.tick_since(f.last_chunk) >= proto.CONTROL_RESEND):
-		// Chunks have stopped coming: say which are missing.
+		// Chunks have stopped arriving, so tell the server which ones are missing.
 		f.asked = time.tick_now()
 		missing_buf: [proto.BLOB_NEED_MAX_INDICES]u16
 		missing := proto.blob_missing(&f.recv, missing_buf[:])
@@ -309,7 +311,7 @@ get_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 		   f.image.size == 0 &&
 		   size <= proto.MAX_AVATAR_SIZE &&
 		   proto.blob_receiver_init(&f.recv, size) {
-			// Its size, now we know it.
+			// Now we know its size.
 			f.image.size = u32(size)
 		}
 		if ok && size == f.recv.size {
@@ -318,9 +320,9 @@ get_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			}
 			return
 		}
-		log.warnf("picture %d isn't the size its message says", id)
+		log.warnf("picture %d does not have the size its message says", id)
 	case .Reset:
-		return // blobs_restart has put it back in the queue
+		return // blobs_restart has already put it back in the queue
 	case:
 		log.debugf("picture %d: %v", id, status)
 	}
@@ -344,7 +346,7 @@ handle_blob_chunk :: proc(c: ^Voice_Client, pt: []byte) {
 		return
 	}
 
-	// Tell the server it can let go, and keep the bytes.
+	// Tell the server it can release the blob, and keep the bytes.
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 	msg, _ := proto.encode_blob_need(out[:], handle, true, nil)
 	send_data(c, msg)
@@ -366,14 +368,14 @@ handle_blob_chunk :: proc(c: ^Voice_Client, pt: []byte) {
 	trim_blobs(c)
 }
 
-// handle_blob_need is the server saying which chunks of an upload of
-// ours it still wants (messages.odin).
+// handle_blob_need handles the server telling us which chunks of one of our
+// uploads it still needs (see messages.odin).
 handle_blob_need :: proc(c: ^Voice_Client, pt: []byte) {
 	upload_need(c, pt)
 }
 
-// trim_blobs drops the pictures fetched longest ago once there are too
-// many; they're fetched again if they're wanted later.
+// trim_blobs drops the pictures that were fetched longest ago once there are too
+// many. They are fetched again if they are wanted later.
 @(private = "file")
 trim_blobs :: proc(c: ^Voice_Client) {
 	bc := &c.blobs
@@ -396,16 +398,16 @@ trim_blobs :: proc(c: ^Voice_Client) {
 	}
 }
 
-// View_Image is a picture to show: what it looks like, how far
-// along it is, and the JPEG itself once it's here.
+// View_Image is a picture to show. It has the picture's info, how far along the
+// fetch is, and the JPEG itself once it has arrived.
 View_Image :: struct {
 	info:  Image_Info,
 	state: Image_State,
-	jpeg:  []u8, // owned; only when Ready
+	jpeg:  []u8, // owned; only set when Ready
 }
 
-// publish_blob mirrors a picture's state (and its bytes once they're
-// here) for the UI to draw; one we don't keep any more is taken away.
+// publish_blob copies a picture's state (and its bytes once they have arrived)
+// for the UI to draw. A picture we no longer keep is removed from the view.
 publish_blob :: proc(c: ^Voice_Client, id: proto.Blob_Id) {
 	v := c.view
 	if v == nil {

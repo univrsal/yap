@@ -8,24 +8,22 @@ import "client:conn"
 import glfw "client:wglfw"
 import "common:proto"
 
-/*
-Notices: being mentioned (conn/mentions.odin), a DM (unless it's being
-read: dm_open), and a call coming in (ui_calls.odin), shown as a desktop
-notification. That goes through the tray icon, which is how traycon
-reaches the desktop's notification service; a web build uses the
-browser's own. Without either, the window asks for attention, which is
-what a taskbar shows. They're told from every server, not only the one
-shown, and where there are several, which one's it is. In a web build
-with push on and the page out of sight, the server's push tells of
-mentions and DMs instead (ui_push_web.odin).
-*/
+// Notices are desktop notifications for being mentioned (conn/mentions.odin),
+// for a DM (unless it is being read: dm_open) and for an incoming call
+// (ui_calls.odin). They go through the tray icon, which is how traycon reaches
+// the desktop's notification service. A web build uses the browser's own
+// notifications. If neither is available, the window asks for attention
+// instead, which a taskbar shows. Notices are shown for every server, not only
+// the one that is shown, and when there are several servers the notice says
+// which one it came from. In a web build with push enabled and the page out of
+// sight, the server's push notifications report mentions and DMs instead
+// (see ui_push_web.odin).
 
-/*
-session_notices tells of what a server has for us since the last frame:
-mentions of us (in a conversation being read too, but not a muted one:
-conv_new_message), DMs, and a call coming in (once). With `named`, the
-server's name goes with it. Between frames, with no View locked.
-*/
+// session_notices shows notices for what a server has for us since the last
+// frame: mentions of us (also in a conversation that is being read, but not in
+// a muted one: conv_new_message), DMs, and an incoming call (only once). With
+// `named`, the server's name is included. Call between frames, with no View
+// locked.
 session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 	v := &ns.view
 	server, caller: string
@@ -71,12 +69,10 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 	}
 }
 
-/*
-dm_open is whether a DM is being read, so a message in it needn't be told
-on the desktop: it's the conversation drawn last frame, in the window,
-which has the focus. Wayland doesn't say which window has it, so there
-being open is enough.
-*/
+// dm_open is whether a DM is being read, so that a new message in it needs no
+// desktop notification. That is the case when it is the conversation drawn
+// last frame in a window that has the focus. Wayland doesn't say which window
+// has the focus, so having the DM open is enough there.
 @(private = "file")
 dm_open :: proc(ui: ^UI, ns: ^Net_Session, conv: proto.Conv_Id) -> bool {
 	st := &ui.timeline
@@ -86,7 +82,7 @@ dm_open :: proc(ui: ^UI, ns: ^Net_Session, conv: proto.Conv_Id) -> bool {
 	return on_wayland() || ALWAYS_FOCUSED || glfw.WindowFocused(ui.window)
 }
 
-// Notice_Target is where clicking a notification goes: the message that
+// Notice_Target is where clicking a notification leads: the message that
 // caused it, if there is one, on the server (session) it came from.
 Notice_Target :: struct {
 	ui:   ^UI,
@@ -95,8 +91,8 @@ Notice_Target :: struct {
 	msg:  proto.Msg_Id,
 }
 
-// notice_open goes to what a clicked notification was about, if that's
-// a message and its server is still there.
+// notice_open goes to what a clicked notification was about, if that is a
+// message and its server still exists.
 notice_open :: proc(ui: ^UI, target: Notice_Target) {
 	if target.msg == 0 {
 		return
@@ -112,8 +108,8 @@ notice_open :: proc(ui: ^UI, target: Notice_Target) {
 	}
 }
 
-// notice puts something on the desktop; without a way to, or with
-// `attention`, the window asks for it too.
+// notice shows something on the desktop. If there is no way to do that, or
+// with `attention`, the window asks for attention too.
 @(private = "file")
 notice :: proc(ui: ^UI, title, body: string, attention := false, target := Notice_Target{}) {
 	if (!tray_notify(ui, title, body, target) || attention) && ui.window != nil {

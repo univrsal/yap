@@ -3,12 +3,10 @@ package clipboard
 import "base:intrinsics"
 import NS "core:sys/darwin/Foundation"
 
-/*
-macOS: NSPasteboard. Browsers and most apps offer PNG; screenshots and
-Preview also offer TIFF, which stb_image can't read, so TIFF goes through
-NSBitmapImageRep to become PNG. (Odin's Foundation bindings leave
-NSPasteboard unimplemented, so the messages are sent here directly.)
-*/
+// macOS: NSPasteboard. Browsers and most apps offer PNG. Screenshots and
+// Preview also offer TIFF, which stb_image can't read, so TIFF is converted
+// to PNG with NSBitmapImageRep. (Odin's Foundation bindings don't implement
+// NSPasteboard, so the messages are sent directly here.)
 
 @(private = "file")
 msgSend :: intrinsics.objc_send
@@ -35,7 +33,8 @@ _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: stri
 	if pb == nil {
 		return nil, "", .Unavailable
 	}
-	// GIF and WebP first, as either may be an animation (MIME_TYPES).
+	// GIF and WebP come first because either may be an animation (see
+	// MIME_TYPES).
 	if d := msgSend(^NS.Data, pb, "dataForType:", NS.AT("com.compuserve.gif")); d != nil {
 		return copy_data(d, "image/gif", allocator)
 	}

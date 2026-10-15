@@ -9,62 +9,62 @@ import "core:time"
 import "client:audio"
 import "common:proto"
 
-/*
-The channels we're subscribed to and our DMs (src/common/proto/convs.odin),
-and the two things we do with channels, which have nothing to do with
-each other:
+// This file handles the channels we are subscribed to and our DMs
+// (src/common/proto/convs.odin), and the two unrelated things we do with
+// channels:
+//
+//   - Looking at one: its messages are the ones we are shown and fetch
+//     (see messages.odin).
+//   - Talking in one: our connection is in its voice room (Voice_Join). Which
+//     room we are in, like who else is in which room, comes back in the
+//     snapshot (see channels.odin).
+//
+// A DM (see buddies.odin) is looked at the same way, from the buddy screen.
+// Looking at a DM leaves the channel we were looking at, so we can go back to
+// it later.
+//
+// What we have read of each conversation belongs to the account, not to this
+// device. The server tells us at login and whenever another device reads. We
+// count the messages that arrive in between, and what is being read here is
+// marked as read (Mark_Read) as it is read, at most once a second for each
+// conversation.
+//
+// The server tells us about our channels when we log in and whenever they
+// change. A channel to look at or talk in can be requested by name before we
+// know of any channels (with the -channel option, or from what we were doing
+// before the connection restarted). The request is kept and acted on once the
+// server has told us which channels there are.
 
-  - looking at one: its messages are the ones we're shown, and fetched
-    (messages.odin);
-  - talking in one: our connection is in its voice room (Voice_Join).
-    Which room we're in, like who else is in which, comes back in the
-    snapshot (channels.odin).
-
-A DM (buddies.odin) is looked at the same way, from the buddy screen;
-looking at it leaves the channel we were looking at to go back to.
-
-And what we've read of each, which is the account's, not this device's:
-the server says at login and whenever another device reads, we count
-the messages that arrive in between, and what's being read here is
-marked read (Mark_Read) as it's read, at most once a second for each.
-
-The server tells us of our channels when we log in and as they change.
-A channel to look at or talk in can be asked for by name before we know
-of any (the -channel option, or what we were doing when the connection
-started over): it's kept, and acted on once the server has told us what
-there is.
-*/
-
-// A channel we're subscribed to, or a DM.
+// A channel we are subscribed to, or a DM.
 Conv_Info :: struct {
 	kind:      proto.Conv_Kind,
 	flags:     proto.Conv_Flags,
 	name:      string, // owned
 	topic:     string, // owned
-	// Its newest message, what we've read, and so what's unread.
+	// Its newest message, what we have read, and from those what is unread.
 	last:      proto.Msg_Id,
 	read:      proto.Msg_Id,
 	unread:    int, // at most proto.UNREAD_CAP
-	// When the newest message was posted, 0 for none: what DMs from
-	// every server are put in order by.
+	// When the newest message was posted, 0 if there is none. DMs from every
+	// server are sorted by this.
 	last_time: proto.Unix_Ms,
 	mentions:  int,
 	notify:    proto.Notify_Level,
-	// A DM's two accounts (dm_other); 0 for a channel.
+	// A DM's two accounts (see dm_other); 0 for a channel.
 	a, b:      proto.Account_Id,
-	position:  int, // a channel's place in the list
+	position:  int, // the position of a channel in the list
 }
 
-// A Mark_Read to send, once a second has passed since the last.
+// A Mark_Read to send, once a second has passed since the last one.
 Mark :: struct {
-	due:  proto.Msg_Id, // 0 for none
+	due:  proto.Msg_Id, // 0 if there is none
 	sent: time.Tick,
 }
 
-// How often what's read of one conversation is told to the server.
+// How often the server is told what has been read of one conversation.
 MARK_INTERVAL :: time.Second
 
-// A channel there is to subscribe to.
+// A channel that can be subscribed to.
 Browse_Entry :: struct {
 	id:    proto.Conv_Id,
 	name:  string, // owned
@@ -73,80 +73,80 @@ Browse_Entry :: struct {
 
 Conv_Client :: struct {
 	convs:         map[proto.Conv_Id]Conv_Info,
-	// The server has told us of all our channels (Sync_End).
+	// The server has told us about all our channels (Sync_End).
 	synced:        bool,
-	// The conversation whose messages we're shown, 0 for none; and the
-	// channel last looked at, to go back to from a DM.
+	// The conversation whose messages we are shown, 0 if there is none, and the
+	// channel that was looked at last, to go back to from a DM.
 	viewing:       proto.Conv_Id,
 	channel:       proto.Conv_Id,
-	// Channels to look at and to talk in once we know of them, by name
-	// (owned); and what was looked at before the connection started
-	// over, by id.
+	// Channels to look at and to talk in once we know about them, by name
+	// (owned), and what was looked at before the connection restarted, by id.
 	want_view:     string,
 	want_voice:    string,
 	want_view_id:  proto.Conv_Id,
 	want_channel:  proto.Conv_Id,
-	// The mail sound has played for DMs found waiting at login; once.
+	// Whether the mail sound has already played (only once) for DMs that were
+	// waiting at login.
 	mail_played:   bool,
-	// A Voice_Join is on its way.
+	// A Voice_Join request is on its way.
 	voice_pending: bool,
-	// The channels there were to subscribe to, the last time we asked,
-	// for what (owned), as many pages of it as were asked for; whether
-	// there are more; and which asking is the latest, whose answer is
-	// the one taken.
+	// The channels that could be subscribed to when we last asked, as many
+	// pages of them as were requested, the query they were requested with
+	// (owned), whether there are more, and which request is the latest. Only
+	// the answer to the latest request is used.
 	browse:        [dynamic]Browse_Entry,
 	browse_query:  string,
 	browse_more:   bool,
 	browse_asked:  u64,
-	// A channel to subscribe to by name (owned) that we didn't know of,
-	// being looked for (conv_subscribe_command).
+	// The name (owned) of a channel to subscribe to that we didn't know about
+	// and are looking for (see conv_subscribe_command).
 	finding:       string,
 	finding_on:    bool,
-	// The conversation being read: on screen, in a window that has the
-	// focus, at its newest message. What arrives there is read as it
-	// comes. 0 for none.
+	// The conversation being read, meaning it is on screen, in a window that has
+	// the focus, and scrolled to its newest message. What arrives there is read
+	// as it comes in. 0 if there is none.
 	reading:       proto.Conv_Id,
 	marks:         map[proto.Conv_Id]Mark,
 }
 
-// Look at a conversation: by id, or a channel by name if the id is 0;
-// with neither, nothing. With `back`, the channel last looked at (from
-// a DM).
+// Looks at a conversation, identified by id, or by channel name if the id is 0.
+// With neither, nothing is shown. With `back`, it goes back to the channel that
+// was looked at last (from a DM).
 View_Command :: struct {
 	conv: proto.Conv_Id,
 	name: string, // owned by the command
 	back: bool,
 }
-// Join a channel's voice room: by id, or by name if the id is 0. With
-// neither, leave the room we're in.
+// Joins a channel's voice room, identified by id, or by name if the id is 0.
+// With neither, it leaves the room we are in.
 Voice_Command :: struct {
 	conv: proto.Conv_Id,
 	name: string, // owned by the command
 }
-// Ask which channels there are to subscribe to: those whose name or
-// topic has `query` in it (all for ""); with `more`, the next page of
-// what was asked for last.
+// Asks which channels can be subscribed to, namely those whose name or topic
+// contains `query` (all channels for ""). With `more`, it requests the next page
+// of what was requested last.
 Browse_Command :: struct {
 	query: string, // owned by the command
 	more:  bool,
 }
 Subscribe_Command :: struct {
 	conv: proto.Conv_Id,
-	name: string, // owned by the command; for one in the last Browse
+	name: string, // owned by the command; for a channel from the last Browse
 	on:   bool,
 }
-// Make a channel (for who may).
+// Creates a channel (only for users with permission to do so).
 Create_Channel_Command :: struct {
 	name:    string, // owned by the command
 	topic:   string, // owned by the command
-	private: bool, // only for those added to it
+	private: bool, // only visible to those who were added to it
 }
 // The conversation being read, or 0 for none (see Conv_Client.reading).
 Reading_Command :: struct {
 	conv: proto.Conv_Id,
 }
-// How much a conversation may interrupt: by id, or by name if the id is
-// 0.
+// Sets how much a conversation may notify the user, identified by id, or by name
+// if the id is 0.
 Notify_Command :: struct {
 	conv:   proto.Conv_Id,
 	name:   string, // owned by the command
@@ -192,25 +192,23 @@ want :: proc(slot: ^string, name: string) {
 	slot^ = strings.clone(name)
 }
 
-// conv_start_in is where to begin once connected: the channel called
-// `name` is looked at, and its voice joined.
+// conv_start_in sets where to begin once connected: the channel called `name` is
+// looked at, and its voice room is joined.
 conv_start_in :: proc(c: ^Voice_Client, name: string) {
 	want(&c.convs.want_view, name)
 	want(&c.convs.want_voice, name)
 }
 
-// conv_start_viewing is conv_start_in without the voice: the channel
-// called `name` is the one looked at once connected.
+// conv_start_viewing is like conv_start_in, but without joining the voice room:
+// the channel called `name` is the one looked at once connected.
 conv_start_viewing :: proc(c: ^Voice_Client, name: string) {
 	want(&c.convs.want_view, name)
 }
 
-/*
-convs_restart forgets our channels, for a connection the server has made
-anew: it tells us of them again. What we were looking at and talking in
-is asked for again once it has, since a new connection starts out doing
-neither. With `forget`, we were logged out, and that's not to be.
-*/
+// convs_restart forgets our channels when the server has made a new connection
+// for us, because it tells us about them again. What we were looking at and
+// talking in is requested again once it has, since a new connection starts out
+// doing neither. With `forget`, we were logged out, and that is not wanted.
 convs_restart :: proc(c: ^Voice_Client, forget := false) {
 	cv := &c.convs
 	if forget {
@@ -233,8 +231,8 @@ convs_restart :: proc(c: ^Voice_Client, forget := false) {
 	cv.voice_pending = false
 }
 
-// conv_by_name is the channel of ours called `name`, whatever the case;
-// 0 if there's none.
+// conv_by_name returns the channel of ours called `name`, ignoring case, or 0 if
+// there is none.
 conv_by_name :: proc(c: ^Voice_Client, name: string) -> proto.Conv_Id {
 	for id, info in c.convs.convs {
 		if info.kind == .Channel && strings.equal_fold(info.name, name) {
@@ -244,7 +242,7 @@ conv_by_name :: proc(c: ^Voice_Client, name: string) -> proto.Conv_Id {
 	return 0
 }
 
-// home_conv is the channel everyone is in, or 0 before we know of it.
+// home_conv returns the channel everyone is in, or 0 before we know about it.
 home_conv :: proc(c: ^Voice_Client) -> proto.Conv_Id {
 	for id, info in c.convs.convs {
 		if .Home in info.flags {
@@ -254,8 +252,8 @@ home_conv :: proc(c: ^Voice_Client) -> proto.Conv_Id {
 	return 0
 }
 
-// room_name is what to call a voice room: its channel's name, if it's
-// one of ours. And for a conversation that's a DM, who it's with.
+// room_name returns what to call a voice room, which is the name of its channel
+// if it is one of ours. For a DM it is who the DM is with.
 room_name :: proc(c: ^Voice_Client, room: proto.Room) -> string {
 	if info, ok := c.convs.convs[proto.Conv_Id(room)]; ok {
 		if info.kind == .DM {
@@ -266,8 +264,8 @@ room_name :: proc(c: ^Voice_Client, room: proto.Room) -> string {
 	return fmt.tprintf("channel #%d", room)
 }
 
-// convs_begin and convs_synced are the server starting to tell us how
-// things are, and having told us (Sync_Begin, Sync_End).
+// convs_begin and convs_synced handle the server starting to tell us how things
+// are and having told us (Sync_Begin and Sync_End).
 convs_begin :: proc(c: ^Voice_Client) {
 	convs_clear(&c.convs)
 }
@@ -276,11 +274,11 @@ convs_synced :: proc(c: ^Voice_Client) {
 	cv := &c.convs
 	cv.synced = true
 
-	// What to look at: what was asked for, or else the home channel.
-	// (One that's gone, or was left on another device, is no loss.) And
-	// the channel to go back to, from a DM.
-	// The one looked at last on any of our devices comes first, when
-	// the client starts (profiles.odin).
+	// Decide what to look at: what was requested, or else the home channel.
+	// (A channel that is gone, or was left on another device, is no loss.) Also
+	// decide the channel to go back to from a DM. When the client starts, the
+	// conversation that was looked at last on any of our devices comes first
+	// (see profiles.odin).
 	view: proto.Conv_Id
 	if shared := shared_view(c); shared in cv.convs {
 		view = shared
@@ -301,7 +299,7 @@ convs_synced :: proc(c: ^Voice_Client) {
 	cv.want_view_id, cv.want_channel = 0, 0
 	conv_view(c, view)
 
-	// DMs that came while we were away are mail, announced once.
+	// DMs that arrived while we were away count as mail, which is announced once.
 	if !cv.mail_played && !quiet(c) {
 		for _, info in cv.convs {
 			if info.kind == .DM && info.unread > 0 && info.notify != .None {
@@ -316,15 +314,15 @@ convs_synced :: proc(c: ^Voice_Client) {
 		if room := conv_by_name(c, cv.want_voice); room != 0 {
 			voice_join(c, proto.Room(room))
 		} else {
-			log.warnf("there's no channel called %q among yours to talk in", cv.want_voice)
+			log.warnf("there is no channel called %q among yours to talk in", cv.want_voice)
 		}
 		want(&cv.want_voice, "")
 	}
 	publish_channels(c)
 }
 
-// conv_event takes an event about conversations or rooms; false if
-// `op` isn't one.
+// conv_event handles an event about conversations or rooms. It returns false if
+// `op` is not one.
 conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	cv := &c.convs
 	#partial switch op {
@@ -336,8 +334,7 @@ conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		_, info, added, _ := map_entry(&cv.convs, record.id)
 		delete(info.name)
 		delete(info.topic)
-		// What we've read here that the server may not have heard yet
-		// stays read.
+		// What we have read here that the server may not know yet stays read.
 		read, unread, mentions := record.read, record.unread, record.mentions
 		if !added && info.read > record.read {
 			read, unread, mentions = info.read, info.unread, info.mentions
@@ -376,7 +373,7 @@ conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		if cv.channel == id {
 			cv.channel = 0
 		}
-		// Its chat isn't ours to read any more; the home channel's is.
+		// Its chat is no longer ours to read, but the home channel's is.
 		if cv.viewing == id {
 			cv.viewing = 0
 			conv_view(c, home_conv(c))
@@ -388,7 +385,7 @@ conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		if !ok || !have {
 			break
 		}
-		// Not if we've read further here, and are about to say so.
+		// Ignore this if we have read further here and are about to tell the server.
 		if state.read < info.read || state.read < cv.marks[state.conv].due {
 			break
 		}
@@ -407,8 +404,8 @@ conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	return true
 }
 
-// conv_view makes `conv` the conversation whose messages we're shown;
-// 0 for none.
+// conv_view makes `conv` the conversation whose messages we are shown. 0 means
+// none.
 conv_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	cv := &c.convs
 	if conv == cv.viewing {
@@ -416,7 +413,7 @@ conv_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	}
 	info, known := cv.convs[conv]
 	if conv != 0 && !known {
-		log.warn("that's not one of your conversations")
+		log.warn("that is not one of your conversations")
 		return
 	}
 	cv.viewing = conv
@@ -432,7 +429,7 @@ conv_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	shared_viewed(c, conv)
 	messages_view(c, conv)
 	if c.view == nil {
-		// Headless: what's looked at is read, since it's all in the log.
+		// Headless: what is looked at counts as read, since it is all in the log.
 		conv_reading(c, conv)
 	}
 	publish_channels(c)
@@ -462,8 +459,8 @@ conv_view_command :: proc(c: ^Voice_Client, cmd: View_Command) {
 	conv_view(c, conv)
 }
 
-// voice_join puts us in a voice room, or with 0 takes us out of the one
-// we're in. The snapshot shows when it has happened.
+// voice_join puts us in a voice room, or with 0 takes us out of the room we are
+// in. The snapshot shows when it has happened.
 voice_join :: proc(c: ^Voice_Client, room: proto.Room) {
 	cv := &c.convs
 	if room == my_room(c) && !cv.voice_pending {
@@ -479,7 +476,7 @@ voice_join :: proc(c: ^Voice_Client, room: proto.Room) {
 			c.convs.voice_pending = false
 			if status != .Ok && status != .Reset {
 				log.warnf(
-					"couldn't join the voice of %q (%v)",
+					"failed to join the voice of %q (%v)",
 					room_name(c, proto.Room(tag)),
 					status,
 				)
@@ -509,12 +506,10 @@ voice_command :: proc(c: ^Voice_Client, cmd: Voice_Command) {
 	voice_join(c, proto.Room(conv))
 }
 
-/*
-conv_browse asks which channels there are to subscribe to that match
-`query`: the first page, or with `more`, the next page of the last
-query. The answer goes to the UI, and headless to the log; only the
-answer to the latest asking is taken.
-*/
+// conv_browse asks which channels can be subscribed to that match `query`. It
+// requests the first page, or with `more`, the next page of the last query. The
+// answer goes to the UI, or to the log when running headless. Only the answer to
+// the latest request is used.
 conv_browse :: proc(c: ^Voice_Client, query: string, more := false) {
 	cv := &c.convs
 	offset := 0
@@ -586,7 +581,7 @@ conv_browse :: proc(c: ^Voice_Client, query: string, more := false) {
 conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
 	conv := cmd.conv
 	if conv == 0 {
-		// One of ours to leave, or one we were told of to join.
+		// Either one of ours to leave, or one we were told about to join.
 		conv = conv_by_name(c, cmd.name)
 		for e in c.convs.browse {
 			if conv == 0 && strings.equal_fold(e.name, cmd.name) {
@@ -595,7 +590,7 @@ conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
 		}
 	}
 	if conv == 0 && cmd.on {
-		// One we haven't been shown: asked for by its name.
+		// A channel we haven't been shown, so request it by its name.
 		cv := &c.convs
 		delete(cv.finding)
 		cv.finding, cv.finding_on = strings.clone(cmd.name), cmd.on
@@ -643,13 +638,13 @@ conv_subscribe :: proc(c: ^Voice_Client, conv: proto.Conv_Id, on: bool) {
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Ok:
-				// What there is to subscribe to has changed with it.
+				// This changes which channels can be subscribed to.
 				conv_browse(c, c.convs.browse_query)
 			case .Denied:
-				log.warn("that channel can't be left: everyone is in it")
+				log.warn("that channel cannot be left because everyone is in it")
 			case .Reset:
 			case:
-				log.warnf("the server wouldn't do that (%v)", status)
+				log.warnf("the server failed to change the subscription (%v)", status)
 			}
 		},
 	)
@@ -670,34 +665,34 @@ conv_create :: proc(c: ^Voice_Client, name, topic: string, private := false) {
 			text: string
 			#partial switch status {
 			case .Ok:
-				text = "Channel made."
+				text = "Channel created."
 			case .Denied:
-				text = "You aren't allowed to make channels."
+				text = "You don't have permission to create channels."
 			case .Conflict:
-				text = "There's a channel with that name already."
+				text = "A channel with that name already exists."
 			case .Invalid:
-				text = "A channel needs a name."
+				text = "A channel must have a name."
 			case .Too_Large:
-				text = "There are as many channels as there can be."
+				text = "You've reached the maximum number of channels."
 			case .Reset:
 				return
 			case:
-				text = fmt.tprintf("The server couldn't do that (%v).", status)
+				text = fmt.tprintf("The server failed to create the channel (%v).", status)
 			}
 			notify(c, status == .Ok, text)
 		},
 	)
 }
 
-/*
-conv_new_message counts a message that was just posted (and wasn't here
-before) as unread, or not: our own read everything up to them, and one
-in the conversation being read is read. It says whether the message may
-interrupt, by its conversation's level, and whether it's a mention of
-us that's told on the desktop: not in a muted conversation (where it's
-still counted), but in the one being read too (which may be on a server
-that isn't shown, or in a window that's in the background).
-*/
+// conv_new_message counts a message that was just posted (and wasn't here
+// before) as unread or not. Our own messages mark everything up to them as
+// read, and a message in the conversation being read counts as read. It returns
+// whether the message may interrupt the user, according to its conversation's
+// notification level, and whether it is a mention of us that should be
+// announced on the desktop. That is not the case in a muted conversation (where
+// it is still counted), but it is the case in the conversation being read too
+// (which may be on a server that isn't shown, or in a window that is in the
+// background).
 conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: bool, mention: bool) {
 	cv := &c.convs
 	info, ok := &cv.convs[m.conv]
@@ -705,8 +700,8 @@ conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: boo
 		return false, false
 	}
 	info.last = max(info.last, m.id)
-	// Nothing unread changes below without it, but the order of the DMs
-	// does.
+	// This doesn't change anything about what is unread, but it does change
+	// the order of the DMs.
 	newer := m.time > info.last_time
 	info.last_time = max(info.last_time, m.time)
 	switch {
@@ -738,9 +733,9 @@ conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: boo
 	return
 }
 
-// mentions_me is whether a message mentions us, or a role of ours.
-// <@everyone> is only ever stored from someone allowed it, and a role's
-// only if it can be mentioned.
+// mentions_me reports whether a message mentions us or one of our roles.
+// <@everyone> is only ever stored if the sender was allowed to use it, and a
+// role mention is only stored if the role can be mentioned.
 @(private = "file")
 mentions_me :: proc(c: ^Voice_Client, m: proto.Message) -> bool {
 	if m.kind != .Text || .Deleted in m.flags {
@@ -749,8 +744,8 @@ mentions_me :: proc(c: ^Voice_Client, m: proto.Message) -> bool {
 	return proto.mentions_account(m.text, c.auth.me, c.auth.accounts[c.auth.me].roles)
 }
 
-// conv_reading is the UI saying which conversation is being read, if
-// any: what's in it is read.
+// conv_reading handles the UI saying which conversation is being read, if any.
+// What is in it counts as read.
 conv_reading :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	cv := &c.convs
 	cv.reading = conv
@@ -759,8 +754,8 @@ conv_reading :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	}
 }
 
-// mark_read reads a conversation up to `id`, here and now, and tells the
-// server when it may be told (convs_step).
+// mark_read marks a conversation as read up to `id` here and now, and tells the
+// server as soon as it is allowed to (see convs_step).
 @(private = "file")
 mark_read :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) {
 	cv := &c.convs
@@ -774,16 +769,16 @@ mark_read :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) {
 	publish_channels(c)
 }
 
-// convs_step sends what's been read, at most once every MARK_INTERVAL for
-// each conversation.
+// convs_step tells the server what has been read, at most once every
+// MARK_INTERVAL for each conversation.
 convs_step :: proc(c: ^Voice_Client) {
 	cv := &c.convs
 	if !cv.synced || !c.has_current || len(cv.marks) == 0 {
 		return
 	}
-	// Through a pointer from the map rather than `for conv, &m in`: with
-	// a u32 key, Odin (dev-2026-10) iterates a copy, so the mark was
-	// never taken off and went out again on every step.
+	// Access the mark through a pointer from the map instead of `for conv, &m
+	// in`. With a u32 key, Odin (dev-2026-10) iterates over a copy, so the mark
+	// was never cleared and was sent again on every step.
 	for conv in cv.marks {
 		m := &cv.marks[conv]
 		if m.due == 0 || (m.sent != {} && time.tick_since(m.sent) < MARK_INTERVAL) {
@@ -808,7 +803,7 @@ conv_notify :: proc(c: ^Voice_Client, cmd: Notify_Command) {
 		proto.encode_conv_notify(&buf, conv, cmd.notify),
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
-				log.warnf("the server wouldn't change that (%v)", status)
+				log.warnf("the server failed to change the notification level (%v)", status)
 			}
 		},
 	)
@@ -846,8 +841,9 @@ list_channels :: proc(c: ^Voice_Client) {
 	}
 }
 
-// convs_ordered is our channels in the order a list shows them: the
-// home channel, then as they were made. In the temp allocator.
+// convs_ordered returns our channels in the order a list shows them, which is
+// the home channel first and then in the order they were made. It is allocated
+// in the temp allocator.
 convs_ordered :: proc(c: ^Voice_Client) -> []proto.Conv_Id {
 	ids := make([dynamic]proto.Conv_Id, 0, len(c.convs.convs), context.temp_allocator)
 	for id, info in c.convs.convs {
@@ -855,8 +851,8 @@ convs_ordered :: proc(c: ^Voice_Client) -> []proto.Conv_Id {
 			append(&ids, id)
 		}
 	}
-	// The home channel first, then by place, then by id, as the server
-	// has them.
+	// The home channel comes first, then the channels sorted by position and
+	// then by id, the same way the server orders them.
 	context.user_ptr = c
 	slice.sort_by(ids[:], proc(x, y: proto.Conv_Id) -> bool {
 		c := (^Voice_Client)(context.user_ptr)
@@ -872,7 +868,8 @@ convs_ordered :: proc(c: ^Voice_Client) -> []proto.Conv_Id {
 	return ids[:]
 }
 
-// unread_count is how an unread count is shown: past the cap, "99+".
+// unread_count returns how an unread count is shown, which is "99+" past the
+// cap.
 unread_count :: proc(n: int) -> string {
 	return "99+" if n >= proto.UNREAD_CAP else fmt.tprintf("%d", n)
 }

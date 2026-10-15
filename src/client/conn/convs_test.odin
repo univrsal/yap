@@ -30,22 +30,22 @@ test_unread_counting :: proc(t: ^testing.T) {
 		notify = .None,
 	}
 
-	// Someone else's message is unread, and may interrupt; in a muted
-	// channel it's unread and may not.
+	// Someone else's message is unread and may notify the user. In a muted
+	// channel it is unread but must not notify.
 	testing.expect(t, interrupts(&c, {id = 11, conv = lobby, sender = 2}))
 	testing.expect(t, !interrupts(&c, {id = 12, conv = gaming, sender = 2}))
 	testing.expect_value(t, c.convs.convs[lobby].unread, 1)
 	testing.expect_value(t, c.convs.convs[gaming].unread, 1)
 
-	// Our own reads everything up to it.
+	// Our own message marks everything up to it as read.
 	testing.expect(t, interrupts(&c, {id = 13, conv = lobby, sender = 2}))
 	testing.expect_value(t, c.convs.convs[lobby].unread, 2)
 	testing.expect(t, !interrupts(&c, {id = 14, conv = lobby, sender = 1}))
 	testing.expect_value(t, c.convs.convs[lobby].unread, 0)
 	testing.expect_value(t, c.convs.convs[lobby].read, proto.Msg_Id(14))
 
-	// Reading a conversation reads what's there, and what comes; the
-	// server is to be told.
+	// Reading a conversation marks the current messages and the ones that arrive
+	// later as read, and the server has to be told.
 	conv_reading(&c, gaming)
 	testing.expect_value(t, c.convs.convs[gaming].unread, 0)
 	testing.expect_value(t, c.convs.marks[gaming].due, proto.Msg_Id(12))
@@ -56,8 +56,8 @@ test_unread_counting :: proc(t: ^testing.T) {
 	testing.expect(t, !interrupts(&c, {id = 16, conv = gaming, sender = 2}))
 	testing.expect_value(t, c.convs.convs[gaming].unread, 1)
 
-	// What the server says of an older read than ours is behind: kept
-	// out. A newer one (another device read further) is taken.
+	// A read position from the server that is older than ours is behind and is
+	// ignored. A newer one (another device read further) is taken.
 	buf: [proto.READ_CHANGED_SIZE]u8
 	conv_event(
 		&c,
@@ -71,7 +71,7 @@ test_unread_counting :: proc(t: ^testing.T) {
 	testing.expect_value(t, c.convs.convs[gaming].read, proto.Msg_Id(16))
 	testing.expect_value(t, c.convs.convs[gaming].unread, 0)
 
-	// Counting stops at the cap, and is shown as such.
+	// Counting stops at the cap, and the cap is shown as the count.
 	for i in 0 ..< 150 {
 		conv_new_message(&c, {id = proto.Msg_Id(100 + i), conv = lobby, sender = 2})
 	}
@@ -104,8 +104,8 @@ test_mention_counting :: proc(t: ^testing.T) {
 		notify = .None,
 	}
 
-	// "Mentions only": a plain message is counted and quiet; a mention
-	// is counted twice over, and isn't.
+	// "Mentions only": a plain message is counted but silent, while a mention
+	// is counted and is not silent.
 	i, mention := conv_new_message(&c, {id = 11, conv = lobby, sender = 2, text = "hello"})
 	testing.expect(t, !i && !mention)
 	i, mention = conv_new_message(&c, {id = 12, conv = lobby, sender = 2, text = "hey <@1>"})
@@ -118,8 +118,9 @@ test_mention_counting :: proc(t: ^testing.T) {
 	testing.expect(t, !mention, "somebody else's mention counted")
 	testing.expect_value(t, c.convs.convs[lobby].mentions, 2)
 
-	// Our own aren't, a muted one is counted and says nothing, and one
-	// being read is read, but still a mention.
+	// Our own messages aren't counted. A muted conversation counts messages
+	// but stays silent, and a conversation being read marks messages as read
+	// but a mention in it is still a mention.
 	_, mention = conv_new_message(&c, {id = 15, conv = gaming, sender = 1, text = "<@1>"})
 	testing.expect(t, !mention)
 	i, mention = conv_new_message(&c, {id = 16, conv = quiet, sender = 2, text = "<@1>"})
@@ -137,8 +138,8 @@ test_mention_counting :: proc(t: ^testing.T) {
 	testing.expect(t, !mention, "a muted one being read")
 }
 
-// Reading a conversation while messages keep coming tells the server
-// at most once every MARK_INTERVAL, and nothing more once it's told.
+// While a conversation is being read and messages keep arriving, the server is
+// told at most once every MARK_INTERVAL, and nothing more once it has been told.
 @(test)
 test_mark_read_paced :: proc(t: ^testing.T) {
 	c: Voice_Client
@@ -162,6 +163,6 @@ test_mark_read_paced :: proc(t: ^testing.T) {
 		convs_step(&c)
 	}
 	testing.expect_value(t, len(c.rpc.pending), 1)
-	// The rest waits for the next one.
+	// The rest waits for the next update.
 	testing.expect_value(t, c.convs.marks[dm].due, proto.Msg_Id(210))
 }

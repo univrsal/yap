@@ -3,15 +3,13 @@ package client
 
 import "core:time/datetime"
 
-/*
-A browser has no timezone database to read, and core:time/timezone
-reaches for files a page hasn't got. The page does know its own offset
-from UTC, though, which is all a chat timestamp needs.
-*/
+// A browser has no timezone database to read, and core:time/timezone
+// reaches for files that a page doesn't have. The page does know its own offset
+// from UTC, though, which is all a chat timestamp needs.
 
 @(default_calling_convention = "c")
 foreign _ {
-	// Minutes to add to UTC to get local time, from the page's clock.
+	// Minutes to add to UTC to get local time, taken from the page's clock.
 	yap_utc_offset_minutes :: proc() -> i32 ---
 }
 

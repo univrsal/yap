@@ -11,30 +11,29 @@ import "client:platform"
 import "client:render"
 import "common:proto"
 
-/*
-Attachments in the composers (src/client/conn/attachments.odin has the
-rest): the paperclip next to a composer opens the file dialog, for as
-many files as are picked (ui_files_*.odin), and they wait above the text
-box as chips until the message is sent. A chip clicked is taken off. A
-picture pasted into a composer (ui_paste*.odin) joins them the same way.
-The pointer on a picture's chip shows the picture above it
-(chip_preview_popup). Sending (composer_send) takes them along, even with no text.
+// Attachments in the composers (src/client/conn/attachments.odin has the
+// rest): the paperclip next to a composer opens the file dialog, for as
+// many files as are picked (see ui_files_*.odin). The files wait above the text
+// box as chips until the message is sent. Clicking a chip removes it. A
+// picture pasted into a composer (see ui_paste*.odin) joins them the same way.
+// Putting the pointer on a picture's chip shows the picture above it
+// (see chip_preview_popup). Sending (see composer_send) takes the files along,
+// even with no text.
+//
+// Each composer keeps its own files: the channel's, the DM page's and each
+// thread window's.
 
-Each composer keeps its own: the channel's, the DM page's and each
-thread window's.
-*/
-
-// Picked_File is a file waiting to go with a composer's next message.
+// Picked_File is a file that is waiting to go with a composer's next message.
 Picked_File :: struct {
 	path:           string, // owned; a desktop's
 	web_file:       i32, // a browser's (files_io_web.odin)
 	data:           []u8, // owned; a pasted picture's
 	name:           string, // owned
 	size:           u64,
-	// Its chip's preview, for a picture (chip_preview_bytes): the bytes
-	// read so far (owned; a pasted picture's are `data`), how many, its
-	// texture's key (0 until it's first shown), and whether it couldn't
-	// be read.
+	// The preview of its chip, for a picture (see chip_preview_bytes): the bytes
+	// read so far (owned; a pasted picture's bytes are in `data`), how many were
+	// read, the key of its texture (0 until it is first shown), and whether it
+	// couldn't be read.
 	preview:        []u8,
 	preview_read:   int,
 	preview_key:    u64,
@@ -57,14 +56,14 @@ picked_files_destroy :: proc(files: ^[dynamic]Picked_File) {
 	files^ = nil
 }
 
-// Where the paperclip was pressed, for the files the dialog gives: the
-// page's composer (0) or a thread window's, on the page it was.
+// Where the paperclip was pressed, for the files the dialog returns: the
+// page's composer (0) or a thread window's, on the page it was on.
 Attach_Target :: struct {
 	page:   Page,
 	thread: int,
 }
 
-// composer_files_of is where an Attach_Target's files go.
+// composer_files_of returns where an Attach_Target's files go.
 composer_files_of :: proc(ui: ^UI, at: Attach_Target) -> ^[dynamic]Picked_File {
 	if at.thread != 0 {
 		t := &ui.threads[at.thread - 1]
@@ -73,10 +72,10 @@ composer_files_of :: proc(ui: ^UI, at: Attach_Target) -> ^[dynamic]Picked_File {
 	return &ui.buddies.files if at.page == .Buddies else &ui.chat.files
 }
 
-// attach_add takes in what the dialog gave: each file that may go,
+// attach_add takes in what the dialog returned: each file that may be sent,
 // and a notice for those that may not. A file's `data` and `web_file`
-// are taken over (and let go of if it may not go); its path and name
-// are copied. Call without the View locked.
+// are taken over (and released if the file may not be sent), while its path
+// and name are copied. Call without the View locked.
 attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 	files := composer_files_of(ui, at)
 	max_size: u64
@@ -89,7 +88,7 @@ attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 		switch {
 		case files == nil:
 		case max_size == 0:
-			refused = "This server doesn't take files."
+			refused = "This server doesn't accept files."
 		case len(files) >= proto.MAX_ATTACHMENTS:
 			refused = "A message can carry at most 10 files."
 		case f.size == 0:
@@ -123,9 +122,9 @@ attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 	}
 }
 
-// pasted_image_name names a pasted picture after when it was pasted, in
-// the local zone, with the extension of what it was compressed to:
-// pasted-image-20261008-143012.webp. In the temp allocator.
+// pasted_image_name names a pasted picture after the time it was pasted, in
+// the local time zone, with the extension of the format it was compressed to:
+// pasted-image-20261008-143012.webp. Allocated in the temp allocator.
 pasted_image_name :: proc(ui: ^UI, ext := "webp") -> string {
 	utc, _ := time.time_to_datetime(time.now())
 	dt := chat_local_time(ui, utc)
@@ -141,8 +140,8 @@ pasted_image_name :: proc(ui: ^UI, ext := "webp") -> string {
 	)
 }
 
-// files_said is what a message of only files (a pasted picture, say)
-// says in a line about it: a reply's, a link's, a pin's.
+// files_said returns a short description of a message that only has files (for
+// example a pasted picture), for use in a reply, a link or a pin.
 files_said :: proc(files: []conn.Msg_File) -> string {
 	if len(files) == 1 {
 		return fmt.tprintf("the file %s", files[0].name)
@@ -151,8 +150,8 @@ files_said :: proc(files: []conn.Msg_File) -> string {
 }
 
 // drop_target is where files dropped on the window go: the thread
-// window they're dropped on (the topmost there), or the thread a narrow
-// window shows, else the page's composer.
+// window they are dropped on (the topmost one there), or the thread that a narrow
+// window shows, otherwise the page's composer.
 drop_target :: proc(ui: ^UI) -> Attach_Target {
 	if ui.narrow {
 		if slot := narrow_thread(ui); slot != 0 && ui.page == .Main {
@@ -171,8 +170,8 @@ drop_target :: proc(ui: ^UI) -> Attach_Target {
 	return at
 }
 
-// attach_button is the paperclip: after the frame, the dialog opens for
-// this composer. Not there if the server takes no files, or while a
+// attach_button is the paperclip. After the frame, the dialog opens for
+// this composer. It isn't shown if the server takes no files, or while a
 // message is being edited.
 attach_button :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
@@ -192,7 +191,7 @@ attach_button :: proc(ui: ^UI, c: Composer) {
 	}
 }
 
-// What a chip takes besides its name: the ×, the size and the gaps.
+// What a chip takes besides its name: the multiplication sign, the size and the gaps.
 @(private = "file")
 chip_label :: proc(ctx: ^mu.Context, f: Picked_File, name_width: i32) -> string {
 	return fmt.tprintf(
@@ -202,8 +201,8 @@ chip_label :: proc(ctx: ^mu.Context, f: Picked_File, name_width: i32) -> string 
 	)
 }
 
-// chip_rows lays a composer's chips out in rows `width` wide: each
-// row's widths, in the temp allocator.
+// chip_rows lays a composer's chips out in rows that are `width` wide. It returns
+// each row's widths, allocated in the temp allocator.
 @(private = "file")
 chip_rows :: proc(ui: ^UI, files: []Picked_File, width: i32) -> [][dynamic]i32 {
 	ctx := &ui.ctx
@@ -224,7 +223,7 @@ chip_rows :: proc(ui: ^UI, files: []Picked_File, width: i32) -> [][dynamic]i32 {
 }
 
 // composer_files_height is how much room a composer's chips take above
-// it, spacing included; 0 with none. `width` is the panel's.
+// it, including spacing, or 0 if there are none. `width` is the panel's width.
 composer_files_height :: proc(ui: ^UI, c: Composer, width: i32) -> i32 {
 	if c.files == nil || len(c.files) == 0 {
 		return 0
@@ -234,8 +233,8 @@ composer_files_height :: proc(ui: ^UI, c: Composer, width: i32) -> i32 {
 	return i32(len(rows)) * (control_height(ctx) + ctx.style.spacing)
 }
 
-// composer_files draws a composer's chips, in rows; one clicked is taken
-// off.
+// composer_files draws a composer's chips in rows. A chip that is clicked is
+// removed.
 composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 	if c.files == nil || len(c.files) == 0 {
 		return
@@ -251,7 +250,7 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 			label := chip_label(ctx, f^, width / 2)
 			id_name := fmt.tprintf("chip %d %d", c.thread, i)
 			if .SUBMIT in
-			   stable_button_hint(ui, id_name, label, fmt.tprintf("Take %s off", f.name)) {
+			   stable_button_hint(ui, id_name, label, fmt.tprintf("Remove %s", f.name)) {
 				remove = i
 			}
 			if ctx.hover_id == mu.get_id(ctx, id_name) {
@@ -274,18 +273,16 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 	}
 }
 
-/*
-A picture's chip with the pointer on it shows the picture over it, with
-its hint under it, in a frameless window of its own raised above the
-rest, as icon_hint does. The bytes are read the first time (a file
-picked on a desktop at once, a browser's as the page has them); the
-popup is drawn at the end of the frame from the decoded texture alone,
-so a chip taken off or sent meanwhile leaves nothing behind it to use.
-*/
+// When the pointer is on a picture's chip, the picture is shown over it, with
+// its hint under it, in a frameless window of its own raised above the
+// rest, as icon_hint does. The bytes are read the first time (at once for a file
+// picked on a desktop, and as the page has them for a browser's file). The
+// popup is drawn at the end of the frame from the decoded texture alone,
+// so a chip that is removed or sent meanwhile leaves nothing behind for it to use.
 
-// The keys chips' previews are decoded under, beside messages' pictures
+// The key that the chips' previews are decoded under, next to messages' pictures
 // (their blob's id), avatars (AVATAR_KEY) and the emoji sheet: this bit
-// and a count.
+// plus a count.
 @(private = "file")
 CHIP_PREVIEW_KEY :: u64(1) << 60
 @(private = "file")
@@ -299,16 +296,16 @@ CHIP_PREVIEW_W :: 320
 @(private = "file")
 CHIP_PREVIEW_H :: 240
 
-// The chip the pointer is on this frame, for chip_preview_popup.
+// The chip the pointer is on in this frame, for chip_preview_popup.
 Chip_Preview :: struct {
 	key:     u64, // 0 for none
 	of:      mu.Rect, // the chip
 	caption: string,
 }
 
-// chip_preview_bytes is a picture chip's bytes, once they're all read
-// (picked_file_read). Not ready while they're on their way (another
-// frame is asked for), or if they can't be read (preview_failed).
+// chip_preview_bytes returns a picture chip's bytes once they have all been
+// read (see picked_file_read). It is not ready while they are still being read
+// (another frame is requested), or if they can't be read (see preview_failed).
 @(private = "file")
 chip_preview_bytes :: proc(ui: ^UI, f: ^Picked_File) -> (data: []u8, ready: bool) {
 	if f.data != nil {
@@ -326,8 +323,8 @@ chip_preview_bytes :: proc(ui: ^UI, f: ^Picked_File) -> (data: []u8, ready: bool
 	return f.preview, true
 }
 
-// chip_hovered has a picture's chip show the picture, in place of its
-// hint, this frame. Call after the chip, which set the hint.
+// chip_hovered makes a picture's chip show the picture in this frame, in place
+// of its hint. Call it after the chip, which set the hint.
 @(private = "file")
 chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
 	if !conn.preview_wanted(f.name, f.size) {
@@ -353,7 +350,7 @@ chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
 }
 
 // chip_preview_popup draws the picture of the chip under the pointer
-// above it (below it if there's no room), with the chip's hint.
+// above it (or below it if there is no room), together with the chip's hint.
 chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 	p := ui.chip_preview
 	if p.key == 0 {
@@ -363,7 +360,7 @@ chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 	ctx := &ui.ctx
 	pad := ctx.style.padding
 	line_h := ctx.text_height(ctx.style.font)
-	// While it's being read or decoded, room for "loading picture...".
+	// While it is being read or decoded, leave room for "loading picture...".
 	pic_w, pic_h := i32(CHIP_PREVIEW_W), i32(CHIP_PREVIEW_H / 2)
 	if iw, ih, ok := image_size(ui, p.key); ok {
 		fw, fh := conn.fit_box(iw, ih, CHIP_PREVIEW_W, CHIP_PREVIEW_H)
@@ -377,7 +374,7 @@ chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 		y = min(p.of.y + p.of.h + 2, max(window_h - h, 0))
 	}
 	r := mu.Rect{x, y, w, h}
-	// Off the chip, so the pointer stays on it.
+	// Keep it off the chip, so the pointer stays on the chip.
 	cnt := mu.get_container(ctx, CHIP_PREVIEW_WINDOW)
 	if cnt == nil {
 		return
@@ -407,8 +404,8 @@ chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 	)
 }
 
-// composer_send_files sends what's in a composer with its files; true if
-// there were files to send.
+// composer_send_files sends what is in a composer together with its files.
+// It returns true if there were files to send.
 composer_send_files :: proc(ui: ^UI, c: Composer, text: string, dm_to: proto.Account_Id) -> bool {
 	if c.files == nil || len(c.files) == 0 || c.editing^ != 0 {
 		return false
@@ -423,8 +420,8 @@ composer_send_files :: proc(ui: ^UI, c: Composer, text: string, dm_to: proto.Acc
 			data     = f.data,
 		}
 	}
-	// The command has the browser's files and the pasted pictures now;
-	// they aren't let go of here.
+	// The command has the browser's files and the pasted pictures now,
+	// so they are not released here.
 	for &f in c.files {
 		f.web_file, f.data = 0, nil
 	}
@@ -445,15 +442,13 @@ composer_send_files :: proc(ui: ^UI, c: Composer, text: string, dm_to: proto.Acc
 	return true
 }
 
-/*
-A message's files in the timeline: a row for each, under its text, with
-an icon, the name (cut to fit), the size or how the save is going, and
-what can be done: Save, Cancel while it's being saved (with a bar under
-the row), Open folder once it's saved. One retention has removed says
-so, and has nothing to do.
-*/
+// A message's files in the timeline: a row for each file, under the text, with
+// an icon, the name (cut to fit), the size or the progress of the save, and
+// the possible actions: Save, Cancel while it is being saved (with a bar under
+// the row), and Open folder once it is saved. A file that retention has
+// removed says so and has nothing to do.
 
-// The bar under a file being saved.
+// The bar under a file that is being saved.
 @(private = "file")
 FILES_BAR :: 6
 @(private = "file")
@@ -474,14 +469,14 @@ saving :: proc(s: conn.View_Save) -> bool {
 // How tall a picture's preview is drawn, under its row.
 PREVIEW_HEIGHT :: 160
 
-// A picture a message carries is shown under its row, as large as fits
-// PREVIEW_HEIGHT.
+// A picture that a message carries is shown under its row, as large as
+// PREVIEW_HEIGHT allows.
 @(private = "file")
 previewed :: proc(f: conn.Msg_File) -> bool {
 	return f.blob != 0 && conn.preview_wanted(f.name, f.size)
 }
 
-// message_files_height is how far a message's files move the layout
+// message_files_height is how far a message's files push the layout
 // down. Call with the View locked.
 message_files_height :: proc(ui: ^UI, m: conn.View_Message) -> (h: i32) {
 	if .Deleted in m.flags {
@@ -500,8 +495,8 @@ message_files_height :: proc(ui: ^UI, m: conn.View_Message) -> (h: i32) {
 	return
 }
 
-// file_preview draws a picture's preview under its row, asking for it
-// the first time it's drawn (and again now and then until it's here).
+// file_preview draws a picture's preview under its row. It requests the preview
+// the first time it is drawn (and again now and then until it arrives).
 @(private = "file")
 file_preview :: proc(
 	ui: ^UI,
@@ -548,7 +543,7 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 	for f, i in m.files {
 		mu.push_id(ctx, uintptr(i))
 		defer mu.pop_id(ctx)
-		// The name takes what's left, and one more: microui's "the rest"
+		// The name takes what is left, and one more: microui's "the rest"
 		// is a pixel more than the rest, which would widen the panel.
 		mu.layout_row(
 			ctx,
@@ -657,7 +652,7 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 	}
 }
 
-// What kind of file a name says it is, by its extension.
+// What kind of file a name says it is, going by its extension.
 File_Kind :: enum {
 	Other,
 	Archive,
@@ -766,7 +761,7 @@ file_kind :: proc(name: string) -> File_Kind {
 	return .Other
 }
 
-// file_icon is the icon beside a file of that name.
+// file_icon is the icon beside a file with that name.
 @(private = "file")
 file_icon :: proc(name: string) -> render.Icon {
 	switch file_kind(name) {
@@ -788,16 +783,16 @@ file_icon :: proc(name: string) -> render.Icon {
 // The icon's cell at the start of a file's row.
 ICON_SIZE_CELL :: 20
 
-// os_dir is the folder a path is in, as far as a path's text says.
+// os_dir is the folder that a path is in, as far as the path's text says.
 @(private = "file")
 os_dir :: proc(path: string) -> string {
 	i := strings.last_index_any(path, "/\\")
 	return path[:i] if i > 0 else path
 }
 
-// pending_files draws the files of a message of ours on its way, with
-// how far each has got, and one Cancel for the message while its files
-// are going up.
+// pending_files draws the files of one of our messages that is on its way, with
+// how far each has got, and one Cancel button for the message while its files
+// are being uploaded.
 pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 	if len(p.files) == 0 {
 		return
@@ -857,7 +852,7 @@ attach_command :: proc(ui: ^UI, cmd: conn.Command) {
 	}
 }
 
-// control_height is how tall a control is with the row's height left
+// control_height is how tall a control is when the row's height is left
 // to microui: its size and padding.
 control_height :: proc(ctx: ^mu.Context) -> i32 {
 	return ctx.style.size.y + 2 * ctx.style.padding

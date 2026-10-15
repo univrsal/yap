@@ -6,25 +6,24 @@ import "core:time"
 
 import "client:clipboard"
 
-/*
-A browser build has no thread to decode pictures on, so the browser
-decodes them (web/decode.js), off the page's thread: each one queued is
-handed over at the start of the next frame (decode_queued, from
-ui_images_frame), and once it's done the page asks for another frame
-(web_image_decoded), whose decode_queued collects it. The browser reads
-WebP, which stb_image doesn't.
-
-An animation the browser can play (with WebCodecs' ImageDecoder) keeps
-its handle after its first frame: Next_Frame asks the page for the next
-on it, and Drop lets go of it. Elsewhere it's a still picture.
-
-Only a server's sheet of emoji, a QOI, which browsers don't read, is
-decoded here and now.
-*/
+// A browser build has no thread to decode pictures on, so the browser decodes
+// them (web/decode.js), off the page's thread. Each queued picture is handed
+// over at the start of the next frame (decode_queued, called from
+// ui_images_frame). Once it is decoded, the page asks for another frame
+// (web_image_decoded), whose decode_queued collects it. The browser can read
+// WebP, which stb_image can't.
+//
+// An animation that the browser can play (with WebCodecs' ImageDecoder) keeps
+// its handle after its first frame: Next_Frame asks the page for the next frame
+// on that handle, and Drop releases it. In other browsers it is shown as a
+// still picture.
+//
+// Only a server's emoji sheet, which is a QOI that browsers can't read, is
+// decoded here, synchronously.
 Decode_Worker :: struct {
-	// What the browser is decoding.
+	// The pictures the browser is decoding.
 	pending: [dynamic]Pending_Decode,
-	// The animations being played, by picture: their handles.
+	// The handles of the animations being played, by picture.
 	anims:   map[u64]Web_Anim,
 }
 
@@ -44,23 +43,24 @@ Web_Anim :: struct {
 
 @(default_calling_convention = "c")
 foreign _ {
-	// The bytes are copied, so they can be freed straight away. A handle
+	// The bytes are copied, so they can be freed right away. Returns a handle
 	// to poll, or 0.
 	yap_image_decode_start :: proc(data: [^]u8, len: i32, max_pixels: f64) -> i32 ---
-	// -1 while it's being decoded, -2 if it couldn't be (the handle is
-	// done with), 1 when it's there to take; 2 for an animation that has
-	// no more frames.
+	// Returns -1 while the picture is being decoded, -2 if it couldn't be
+	// decoded (the handle is released), 1 when it is ready to be taken, and 2
+	// for an animation that has no more frames.
 	yap_image_decode_poll :: proc(req: i32) -> i32 ---
 	yap_image_decode_width :: proc(req: i32) -> i32 ---
 	yap_image_decode_height :: proc(req: i32) -> i32 ---
-	// Copies the width * height * 4 bytes of RGBA out, and is done with
-	// the handle, unless it's an animation's.
+	// Copies out the width * height * 4 bytes of RGBA and releases the
+	// handle, unless it belongs to an animation.
 	yap_image_decode_take :: proc(req: i32, buf: [^]u8) ---
 	// 0 for a still picture, 1 for an animated WebP, 2 for a GIF.
 	yap_image_decode_kind :: proc(req: i32) -> i32 ---
-	// How long the frame taken is shown, in milliseconds.
+	// How long the frame that was taken is shown, in milliseconds.
 	yap_image_decode_shown :: proc(req: i32) -> i32 ---
-	// Starts on an animation's next frame, polled for as the first.
+	// Starts decoding an animation's next frame, which is polled for like the
+	// first one.
 	yap_image_decode_next :: proc(req: i32) -> i32 ---
 	yap_image_decode_close :: proc(req: i32) ---
 }
@@ -77,21 +77,22 @@ decode_worker_stop :: proc(ui: ^UI) {
 	w^ = {}
 }
 
-// No thread to wake: without threads, a semaphore can't be used at all
-// (Odin's futex panics on wasm without atomics). Only a frame, for
-// decode_queued to run in.
+// There is no thread to wake: without threads, a semaphore can't be used at all
+// (Odin's futex panics on wasm without atomics). Just request a frame, in which
+// decode_queued runs.
 decode_wake :: proc(im: ^UI_Images) {
 	ui_wake()
 }
 
-// The page has finished a picture, or the page's focus has changed: a
-// frame, to collect it in or carry on.
+// Called when the page has finished decoding a picture, or when the page's
+// focus has changed. It requests a frame, in which the picture is collected or
+// the animations carry on.
 @(export)
 web_image_decoded :: proc "c" () {
 	ui_wake()
 }
 
-// decode_queued hands what's waiting to the browser and collects what
+// decode_queued hands the queued pictures to the browser and collects the ones
 // it has finished.
 decode_queued :: proc(im: ^UI_Images) {
 	w := &im.worker
@@ -178,17 +179,17 @@ decode_queued :: proc(im: ^UI_Images) {
 			yap_image_decode_take(p.req, raw_data(result.image.pixels))
 			result.ok = width > 0 && height > 0
 			if result.anim && !p.frame {
-				anim_close(w, p.id, p.generation) // asked for again, after a Drop
+				anim_close(w, p.id, p.generation) // requested again after a Drop
 				w.anims[p.id] = {
 					req        = p.req,
 					generation = p.generation,
 				}
 			}
 		case 2:
-			// No more frames: a result without pixels says so.
+			// No more frames, which a result without pixels signals.
 			anim_close(w, p.id, p.generation)
 		case:
-			// The page is done with the handle.
+			// Decoding failed, and the page has released the handle.
 			if a, playing := w.anims[p.id]; playing && a.req == p.req {
 				delete_key(&w.anims, p.id)
 			}
@@ -198,8 +199,8 @@ decode_queued :: proc(im: ^UI_Images) {
 	}
 }
 
-// anim_close lets go of the animation playing as `id`, if it's the one
-// of `generation`.
+// anim_close releases the animation playing as `id`, if it is the one of
+// `generation`.
 @(private = "file")
 anim_close :: proc(w: ^Decode_Worker, id, generation: u64) {
 	if a, playing := w.anims[id]; playing && a.generation == generation {

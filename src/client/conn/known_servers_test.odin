@@ -27,7 +27,7 @@ test_known_servers :: proc(t: ^testing.T) {
 	testing.expect_value(t, trust, Trust.Mismatch)
 	testing.expect_value(t, saved, a)
 
-	// Trusting the new key replaces the old one and leaves the rest.
+	// Trusting the new key replaces the old one and leaves the other entries unchanged.
 	testing.expect(t, replace_server_key(path, "a:1", c))
 	trust, _ = check_server_key(path, "a:1", c)
 	testing.expect_value(t, trust, Trust.Known)
@@ -42,7 +42,7 @@ test_known_servers :: proc(t: ^testing.T) {
 		testing.expect_value(t, list[1].key, c)
 	}
 
-	// Forgotten, the next key is trusted as on a first connection.
+	// After the key was forgotten, the next key is trusted as on a first connection.
 	testing.expect(t, forget_server_key(path, "a:1"))
 	trust, _ = check_server_key(path, "a:1", a)
 	testing.expect_value(t, trust, Trust.New)

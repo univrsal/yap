@@ -8,17 +8,15 @@ import "client:conn"
 import "client:platform"
 import "client:settings"
 
-/*
-The settings' Screen sharing category, on the desktop: how we share
-(the size preset, and under Advanced the frame rate, bitrate, encoder and
-the pointer), and whether figures go under what we watch. A browser
-shares what its own picker says, so a web build has none of it.
-
-What the server takes from a sharer (its video.max_kbit) caps the
-bitrate, and is said here when it does. Changes apply from the next
-share. Without the yap_video add-on there's nothing to set, so this says
-where it goes instead.
-*/
+// The settings' Screen sharing category, on the desktop: how we share (the
+// size preset and, under Advanced, the frame rate, bitrate, encoder and
+// pointer), and whether statistics are shown under the stream we watch. A
+// browser shares what its own picker offers, so a web build has none of this.
+//
+// What the server accepts from a sharer (its video.max_kbit) caps the bitrate,
+// and this is said here when it does. Changes apply from the next share.
+// Without the yap_video add-on there is nothing to set, so this says where to
+// put the add-on instead.
 share_settings :: proc(ui: ^UI) {
 	when platform.WEB {
 		return
@@ -114,7 +112,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		}
 	}
 
-	// Taken when the slider is let go, like the UI scale's.
+	// Applied when the slider is released, like the UI scale.
 	top := f32(limit if limit > 0 else conn.SHARE_KBIT_MAX)
 	field_row(ui, 120, "Bitrate", {-120, 110})
 	id := mu.get_id(ctx, uintptr(&vid.kbit_draft))
@@ -166,8 +164,8 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		}
 	}
 	if cfg.encoder != "" && encoders != nil {
-		// The best that works keeps to what everyone in the room decodes
-		// (conn/video.odin); a chosen encoder is used regardless.
+		// The best encoder that works keeps to what everyone in the room can
+		// decode (conn/video.odin). A chosen encoder is used regardless.
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
 		with_text_color(ctx, theme.dim, "Viewers that can't decode it see nothing", wrap_text)

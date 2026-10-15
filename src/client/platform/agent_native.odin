@@ -4,8 +4,9 @@ package platform
 import "common:."
 import "core:fmt"
 
-// agent is what to tell the server this client is, for the account's
-// list of devices: "yap 1.2.0 on Linux (amd64)". In the temp allocator.
+// agent returns the description of this client that is sent to the server for
+// the account's list of devices, e.g. "yap 1.2.0 on Linux (amd64)". The string
+// is allocated in the temp allocator.
 agent :: proc() -> string {
 	os_name := "unknown OS"
 	when ODIN_OS == .Windows {

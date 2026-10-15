@@ -6,8 +6,9 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of verifying addresses by mail (verify.odin), on the Test_Server
-// of auth_test.odin, with mail handed to the server's queue directly.
+// Tests of verifying email addresses by mail (verify.odin), using the
+// Test_Server from auth_test.odin. Mail is put into the server's queue
+// directly.
 
 @(test)
 test_auth_passed :: proc(t: ^testing.T) {
@@ -48,7 +49,8 @@ test_auth_passed :: proc(t: ^testing.T) {
 	check(t, false, "a@b.com", "mx.example.org; spf=softfail smtp.mailfrom=b.com")
 	check(t, false, "a@b.com", "mx.example.org; none")
 	check(t, false, "a@b.com", "other.example; dmarc=pass header.from=b.com")
-	// What the sender wrote is under what the receiving server added.
+	// Headers below the topmost one may have been written by the sender,
+	// so a pass from the trusted host further down doesn't count.
 	check(
 		t,
 		false,
@@ -56,7 +58,7 @@ test_auth_passed :: proc(t: ^testing.T) {
 		"other.example; spf=fail smtp.mailfrom=b.com",
 		"mx.example.org; dmarc=pass header.from=b.com",
 	)
-	// A comment can't make a pass.
+	// A "pass" inside a comment doesn't count.
 	check(t, false, "a@b.com", "mx.example.org; dkim=none (dkim=pass header.d=b.com)")
 	check(t, false, "a@b.com")
 	testing.expect(
@@ -72,7 +74,7 @@ test_auth_passed :: proc(t: ^testing.T) {
 @(private = "file")
 GOOD_AUTH :: "mx.example.org; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=example.com"
 
-// mail_in queues a mail as the email thread would.
+// mail_in queues an incoming mail the same way the email thread would.
 @(private = "file")
 mail_in :: proc(ts: ^Test_Server, uid: u32, from, subject: string, auth := GOOD_AUTH) {
 	header := fmt.tprintf(
@@ -89,8 +91,8 @@ mail_in :: proc(ts: ^Test_Server, uid: u32, from, subject: string, auth := GOOD_
 	append(&e.inbox, mail_parse(uid, header))
 }
 
-// deletes_asked is how many mails the loop has asked to be deleted, and
-// forgets them.
+// deletes_asked returns how many mails the loop has asked to be deleted, and
+// clears those requests.
 @(private = "file")
 deletes_asked :: proc(ts: ^Test_Server) -> int {
 	e := &ts.s.email
@@ -107,8 +109,8 @@ verifying_server :: proc(t: ^testing.T, ts: ^Test_Server) {
 		verify_email     = true,
 		unverified_hours = 48,
 	}
-	// Email that's there without a thread: what it reads is put in its
-	// queue by hand, and what it's asked to do waits in its jobs.
+	// Email is enabled, but without its thread: incoming mail is put in its
+	// queue by hand, and the jobs it's given just wait in its job list.
 	ts.s.email.enabled = true
 	ts.s.email.config = {
 		address            = "yap@example.org",
@@ -142,7 +144,8 @@ test_verify :: proc(t: ^testing.T) {
 	if acc == nil {
 		return
 	}
-	// In, but unverified: out of sight, told what to do, and nothing else.
+	// The account is registered but unverified: it's hidden from everyone,
+	// told how to verify, and can't do anything else.
 	testing.expect(t, .Unverified in acc.flags)
 	testing.expect(t, u.key in s.waiting && u.key not_in s.conns)
 	testing.expect_value(t, len(acc.verify_code), proto.VERIFY_CODE_SIZE)
@@ -159,11 +162,11 @@ test_verify :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, u, .Server_Info)
 	testing.expect_value(t, status, proto.Status.Ok)
 
-	// What doesn't verify, and is deleted all the same.
+	// Mails that don't verify the account are still deleted.
 	subject := fmt.tprintf("verify %s", acc.verify_code)
 	mail_in(&ts, 1, "someone@example.com", subject) // not hers
 	mail_in(&ts, 2, "carol@example.com", "hello") // no code
-	mail_in(&ts, 3, "carol@example.com", subject, auth = "") // nothing says it's from there
+	mail_in(&ts, 3, "carol@example.com", subject, auth = "") // no proof it's from that address
 	mail_in(
 		&ts,
 		4,
@@ -182,7 +185,7 @@ test_verify :: proc(t: ^testing.T) {
 	testing.expect(t, .Unverified in acc.flags)
 	testing.expect_value(t, deletes_asked(&ts), 5)
 
-	// The right one, in any case.
+	// The correct mail verifies the account; the code is case-insensitive.
 	mail_in(&ts, 6, "carol@example.com", fmt.tprintf("Re: %s", to_lower(acc.verify_code)))
 	verify_sync(s)
 	testing.expect_value(t, deletes_asked(&ts), 1)
@@ -198,8 +201,8 @@ test_verify :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, u, .Conv_Browse)
 	testing.expect_value(t, status, proto.Status.Ok)
 
-	// A new address has to be verified again, but nobody is deleted for
-	// it; and the owner never has to.
+	// A new address has to be verified again, but the account isn't deleted
+	// if it isn't. The owner never has to verify.
 	eb: [1 + proto.MAX_EMAIL_SIZE]u8
 	status, _ = ts_ask(t, &ts, u, .Email_Set, proto.encode_email_set(eb[:], "carol@example.net"))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -207,7 +210,7 @@ test_verify :: proc(t: ^testing.T) {
 	testing.expect_value(t, acc.verify_expires, 0)
 	testing.expect(t, u.key in s.waiting && u.key not_in s.conns)
 	status, _ = ts_ask(t, &ts, u, .Email_Set, proto.encode_email_set(eb[:], ""))
-	testing.expect_value(t, status, proto.Status.Invalid) // this server wants one
+	testing.expect_value(t, status, proto.Status.Invalid) // this server requires an address
 
 	ts_account(t, &ts, "boss", "boss's password", {.Owner})
 	boss := ts_connect(&ts)
@@ -216,7 +219,8 @@ test_verify :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, .Unverified not_in boss.account.flags)
 
-	// Too old: deleted, a while after.
+	// A registration that wasn't verified in time is deleted (expiry is
+	// checked periodically).
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -233,11 +237,12 @@ test_verify :: proc(t: ^testing.T) {
 	s.verify.last_expiry = {}
 	verify_sync(s)
 	testing.expect(t, .Deleted in dave.flags)
-	testing.expect(t, .Deleted not_in acc.flags) // changed her address: kept
+	testing.expect(t, .Deleted not_in acc.flags) // kept, since she only changed her address
 	testing.expect(t, account_find(&s.accounts, "dave") == nil)
 
-	// Without the check, a mail with no Authentication-Results does;
-	// the From and the code still have to be right.
+	// Without check_auth_results, a mail without Authentication-Results
+	// verifies the account, but the From address and the code still have to
+	// be right.
 	s.email.config.check_auth_results = false
 	status, _ = ts_ask(
 		t,
@@ -259,7 +264,7 @@ test_verify :: proc(t: ^testing.T) {
 	testing.expect(t, .Unverified not_in erin.flags)
 	testing.expect_value(t, deletes_asked(&ts), 2)
 
-	// Without verify_email, mail is left alone.
+	// Without verify_email, incoming mail is left alone.
 	s.registration.verify_email = false
 	mail_in(&ts, 7, "carol@example.net", "anything")
 	verify_sync(s)

@@ -4,33 +4,31 @@ import stbi "client:wstbi"
 import log "common:wlog"
 import "core:math"
 
-/*
-The fallback font: GNU Unifont, for what Roboto hasn't got - Chinese,
-Japanese, Korean and most of the other scripts in the Basic Multilingual
-Plane. It's a bitmap font with a 16 pixel tall cell per character, 8
-pixels wide for most alphabets and 16 for CJK. It comes embedded as the
-chart the Unifont project publishes: all 65536 cells in a 256 x 256
-grid, below a header row and beside a header column. A cell doesn't say
-how wide its glyph is, so one with nothing in its right half is taken to
-be a narrow one.
-
-The chart is only decoded once some text needs it, since most never
-does, and only its bits are kept: 32 bytes a character.
-
-Glyphs are scaled nearest-neighbour, to keep their pixels square. That
-is exact at whole scales; at fractional ones some pixels come out a
-physical pixel wider than others. All of them wouldn't fit in a texture,
-so the ones text uses are copied into an atlas at the current scale as
-they first show up (unifont_cache).
-
-Nothing is shaped or reordered: Arabic, say, shows as its isolated
-letters, left to right.
-*/
+// The fallback font is GNU Unifont. It covers what Roboto lacks, such as
+// Chinese, Japanese, Korean and most other scripts in the Basic Multilingual
+// Plane. It is a bitmap font with a cell 16 pixels tall per character, which
+// is 8 pixels wide for most alphabets and 16 for CJK. The font is embedded as
+// the chart published by the Unifont project: all 65536 cells in a 256 x 256
+// grid, below a header row and next to a header column. A cell does not
+// store the width of its glyph, so a cell with nothing in its right half is
+// treated as narrow.
+//
+// The chart is only decoded once some text needs it, because most sessions
+// never do, and only its bits are kept (32 bytes per character).
+//
+// Glyphs are scaled with nearest-neighbour sampling to keep their pixels
+// square. This is exact at whole scales; at fractional scales some pixels end
+// up one physical pixel wider than others. Not all glyphs would fit in one
+// texture, so the glyphs that text uses are copied into an atlas at the
+// current scale the first time they appear (unifont_cache).
+//
+// Nothing is shaped or reordered. For example, Arabic is shown as its
+// isolated letters from left to right.
 
 @(private = "file")
 UNIFONT_PNG := #load("../assets/unifont-16.0.04.png")
 
-// Where the grid starts in the chart, past its headers.
+// The position where the grid starts in the chart, after its headers.
 @(private = "file")
 CHART_X :: 32
 @(private = "file")
@@ -40,8 +38,8 @@ UNIFONT_CHARS :: 0x10000
 UNIFONT_SIZE :: 16 // cell height, logical pixels at scale 1
 UNIFONT_ASCENT :: 14 // cell top to baseline
 
-// Slots per row of the atlas, which is sized to hold this many squared
-// (up to UNIFONT_MAX_ATLAS).
+// Slots per row of the atlas. The atlas is sized to hold this many slots
+// squared (up to UNIFONT_MAX_ATLAS).
 @(private = "file")
 UNIFONT_SLOTS_PER_ROW :: 32
 @(private = "file")
@@ -72,8 +70,8 @@ unifont_destroy :: proc(u: ^Unifont) {
 	u^ = {}
 }
 
-// unifont_width is how wide a character's glyph is, in logical pixels,
-// or 0 if Unifont hasn't got one.
+// unifont_width returns the width of a character's glyph in logical pixels,
+// or 0 if Unifont has no glyph for it.
 unifont_width :: proc(u: ^Unifont, r: rune) -> int {
 	if r < 0 || r >= UNIFONT_CHARS {
 		return 0
@@ -106,8 +104,8 @@ unifont_load :: proc(u: ^Unifont) {
 	u.rows = make([]u16, UNIFONT_CHARS * 16)
 	u.width = make([]u8, UNIFONT_CHARS)
 	for c in 0 ..< UNIFONT_CHARS {
-		// No glyph for control characters or surrogates, which the chart
-		// has boxes for.
+		// Control characters and surrogates get no glyph, even though the
+		// chart has boxes for them.
 		if c < 0x20 || (c >= 0x7f && c < 0xa0) || (c >= 0xd800 && c < 0xe000) {
 			continue
 		}
@@ -132,8 +130,8 @@ unifont_load :: proc(u: ^Unifont) {
 		case ink != 0:
 			u.width[c] = 8
 		case c == 0x3000:
-			// The ideographic space: blank, but as wide as the
-			// characters around it.
+			// The ideographic space is blank but as wide as the characters
+			// around it.
 			u.width[c] = 16
 		}
 	}
@@ -141,7 +139,7 @@ unifont_load :: proc(u: ^Unifont) {
 	u.loaded = true
 }
 
-// unifont_reset empties the atlas and makes the next one for `scale`.
+// unifont_reset empties the atlas and prepares a new one for `scale`.
 unifont_reset :: proc(u: ^Unifont, scale: f32) {
 	delete(u.pixels)
 	u.pixels = nil
@@ -157,15 +155,16 @@ unifont_reset :: proc(u: ^Unifont, scale: f32) {
 	u.dirty_y0, u.dirty_y1 = u.side, 0
 }
 
-// How many glyphs the atlas holds: all its slots but the last, which is
-// solid white, so rects can be drawn from this atlas too (unifont_white)
-// and a run of emoji between rects needn't switch textures.
+// The number of glyphs the atlas holds. That is all slots except the last,
+// which is solid white so that rects can be drawn from this atlas too
+// (unifont_white). This way a run of emoji between rects does not need to
+// switch textures.
 unifont_capacity :: proc(u: ^Unifont) -> i32 {
 	return u.per_row * u.per_row - 1
 }
 
-// unifont_pixels makes the atlas's pixels, with its white slot, if it
-// hasn't any yet.
+// unifont_pixels allocates the atlas's pixels, including its white slot, if
+// that has not happened yet.
 unifont_pixels :: proc(u: ^Unifont) {
 	if u.pixels != nil {
 		return
@@ -184,8 +183,8 @@ unifont_pixels :: proc(u: ^Unifont) {
 	u.dirty_y1 = max(u.dirty_y1, y0 + u.cell)
 }
 
-// unifont_white is a texel in the middle of the white slot, as texture
-// coordinates; not ok before the atlas has pixels.
+// unifont_white returns the texture coordinates of a texel in the middle of
+// the white slot. It is not ok before the atlas has pixels.
 unifont_white :: proc(u: ^Unifont) -> (uv: [2]f32, ok: bool) {
 	if u.pixels == nil {
 		return
@@ -196,14 +195,14 @@ unifont_white :: proc(u: ^Unifont) -> (uv: [2]f32, ok: bool) {
 	return {x / f32(u.side), y / f32(u.side)}, true
 }
 
-// A glyph's height in physical pixels at `scale`.
+// The height of a glyph in physical pixels at `scale`.
 unifont_glyph_height :: proc(scale: f32) -> i32 {
 	return max(1, i32(math.round(UNIFONT_SIZE * scale)))
 }
 
-// unifont_cache puts a character's glyph in the atlas, if it isn't
-// already, and says which slot it has. Once the atlas is full it fails,
-// and asks to be emptied before the next frame.
+// unifont_cache puts a character's glyph in the atlas, if it is not there
+// already, and returns its slot. Once the atlas is full this fails and the
+// atlas is flagged to be emptied before the next frame.
 unifont_cache :: proc(u: ^Unifont, r: rune) -> (slot: i32, ok: bool) {
 	if s, found := u.slots[r]; found {
 		return s, true
@@ -224,7 +223,7 @@ unifont_cache :: proc(u: ^Unifont, r: rune) -> (slot: i32, ok: bool) {
 	x0 := (slot % u.per_row) * u.cell
 	y0 := (slot / u.per_row) * u.cell
 	for y in 0 ..< h {
-		// The source pixel under this one's centre.
+		// The source pixel under the center of this one.
 		row := u.rows[int(r) * 16 + int(min((2 * y + 1) * 16 / (2 * h), 15))]
 		line := u.pixels[int(y0 + y) * int(u.side) + int(x0):]
 		for x in 0 ..< w {
@@ -240,16 +239,17 @@ unifont_cache :: proc(u: ^Unifont, r: rune) -> (slot: i32, ok: bool) {
 	return slot, true
 }
 
-// A glyph's width in physical pixels at the atlas's scale.
+// The width of a glyph in physical pixels at the atlas's scale.
 unifont_glyph_width :: proc(u: ^Unifont, r: rune) -> i32 {
 	h := unifont_glyph_height(u.scale)
 	return i32(math.round(f32(u.width[r]) * f32(h) / UNIFONT_SIZE))
 }
 
-// is_ignorable says whether a character is one that only steers how
-// others are shown (joiners, variation selectors, direction marks and
-// so on: Unicode's Default_Ignorable_Code_Point, in the BMP), which is
-// drawn as nothing at all. The Unifont chart has labelled boxes for them.
+// is_ignorable returns whether a character only affects how other characters
+// are shown (joiners, variation selectors, direction marks and so on; these
+// are the BMP characters with Unicode's Default_Ignorable_Code_Point
+// property). Such characters are drawn as nothing at all, although the
+// Unifont chart has labelled boxes for them.
 is_ignorable :: proc(r: rune) -> bool {
 	switch r {
 	case 0x00ad, 0x034f, 0x061c, 0x115f, 0x1160, 0x17b4, 0x17b5, 0x3164, 0xfeff, 0xffa0:

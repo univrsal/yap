@@ -10,37 +10,36 @@ import "core:time"
 import "common:proto"
 import "sqlite"
 
-/*
-Messages (src/common/proto/msgs.odin): posted to a conversation, kept in
-the database for good, and read back a page at a time.
+// Messages (see src/common/proto/msgs.odin) are posted to a conversation,
+// stored permanently in the database and read back one page at a time.
+//
+// Only the members of a conversation can post to it and read it. A posted
+// message is sent immediately as Msg_New to every connection of every
+// member, including the poster's own connections. The poster's other
+// devices need it too, and the connection that posted it matches it to what
+// it sent using the id in the answer. Messages are never replayed later. A
+// client that was away asks for what it missed (Msg_History).
+//
+// A post contains a nonce chosen by the poster. The database stores it. If
+// a post arrives again with the same nonce (because the client repeated it
+// after its connection started over), the answer is the message that was
+// already posted.
+//
+// A text message may carry files that were uploaded for it (see
+// attachments.odin). The post refers to them by their uploads. A picture in
+// a message is one of these files.
+// A file is offered in a DM by a message that contains its name and size.
+// The file itself is transferred between the two clients (see files.odin).
+//
+// The first message in a DM is how the other account learns about it. Its
+// connections are told about the conversation (Conv_Changed) just before
+// the message arrives.
 
-Only a conversation's members post to it and read it. A message that is
-posted goes, as Msg_New, to every connection of every member there and
-then, the poster's own included: its other devices want it too, and the
-one that posted matches it to what it sent by the id in the answer.
-Nothing is replayed later; a client that was away asks for what it
-missed (Msg_History).
-
-A post carries a nonce of the poster's. The database keeps it, and a
-post that comes again with the same one (the client repeated it after
-its connection started over) is answered with the message it already is.
-
-A text message may carry files that were uploaded for it
-(attachments.odin), which a post names by their uploads; a picture in a
-message is one of these.
-A file is offered in a DM by a message that names it and says how big
-it is; the file itself goes between the two clients (files.odin).
-
-The first message in a DM is when the other account hears of it: its
-connections are told of the conversation (Conv_Changed) just before
-the message comes.
-*/
-
-// Typing notices from one connection are passed on at most this often.
+// Typing notices from one connection are forwarded at most this often.
 TYPING_RELAY_INTERVAL :: 500 * time.Millisecond
 
-// message_request handles a request about messages or blobs; false if
-// `op` isn't one.
+// message_request handles a request about messages or blobs. Returns false
+// if `op` isn't one.
 message_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: []u8) -> bool {
 	#partial switch op {
 	case .Msg_Post:
@@ -79,8 +78,8 @@ message_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, bod
 	return true
 }
 
-// conv_of_member is the conversation `conv_id` if the connection's
-// account is a member, else why not.
+// conv_of_member returns the conversation `conv_id` if the connection's
+// account is a member of it. Otherwise it returns the status that explains why not.
 conv_of_member :: proc(s: ^Server, u: ^Conn, conv_id: proto.Conv_Id) -> (^Conv, proto.Status) {
 	conv := conv_by_id(&s.convs, conv_id)
 	if conv == nil || !conv_visible(conv, u.account.id) {
@@ -95,7 +94,7 @@ conv_of_member :: proc(s: ^Server, u: ^Conn, conv_id: proto.Conv_Id) -> (^Conv, 
 @(private = "file")
 msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	p, ok := proto.decode_msg_post(body)
-	// A nonce of 0 couldn't tell a repeat.
+	// A nonce of 0 can't be used to detect a repeated post.
 	if !ok || p.nonce == 0 {
 		respond(u, id, .Invalid)
 		return
@@ -109,8 +108,9 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	// A reply goes to a thread's root: a message of this conversation
-	// that isn't deleted. A reply to a reply goes to its root.
+	// A reply belongs to the thread of its root, which must be a message of
+	// this conversation that isn't deleted. A reply to a reply is added to
+	// the same thread, using the root of that reply.
 	root: proto.Message
 	if p.thread_root != 0 {
 		found: bool
@@ -126,7 +126,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	sender := u.account.id
 	posted: [proto.MSG_POSTED_SIZE]u8
 
-	// Posted already, and the answer lost with the connection.
+	// It was already posted, but the answer was lost together with the connection.
 	if prev, at, found := msg_by_nonce(&s.db, sender, p.nonce); found {
 		respond(u, id, .Ok, proto.encode_msg_posted(&posted, prev, at))
 		return
@@ -143,7 +143,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	mentioned: []proto.Account_Id
 	#partial switch p.kind {
 	case .File:
-		// Only between two people, and only what may be sent.
+		// Files can only be offered in a DM, and only allowed file types.
 		m.file_name = proto.sanitize_file_name(p.text, &name_buf)
 		m.file_size = p.file_size
 		if conv.kind != .DM ||
@@ -155,7 +155,8 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 	case .Text:
 		m.text = proto.sanitize_message(p.text, text_buf[:])
-		// The files it carries: uploads of the poster's, each once.
+		// The files that the message carries must be uploads of the poster,
+		// and each upload may only be used once.
 		for i in 0 ..< p.attachment_count {
 			up, kept := attach_upload_for(s, sender, p.uploads[i])
 			if !kept {
@@ -181,8 +182,8 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			respond(u, id, .Invalid)
 			return
 		}
-		// Before it's stored: whoever is subscribed by being mentioned
-		// hasn't read it.
+		// This happens before the message is stored. An account that gets
+		// subscribed by being mentioned hasn't read the message yet.
 		m.text, mentioned = mentions_resolve(
 			s,
 			u,
@@ -197,7 +198,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	respond(u, id, .Ok, proto.encode_msg_posted(&posted, m.id, m.time))
-	// Message content stays out of the log unless debugging.
+	// The message content is only logged when debugging.
 	place :=
 		conv.name if conv.kind == .Channel else fmt.tprintf("a DM with account %d", dm_other(conv, sender))
 	#partial switch m.kind {
@@ -214,9 +215,10 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		file_offered(s, u, conv, m)
 	}
 	if first && conv.kind == .DM {
-		// News to the other one, which is told of the conversation
-		// before the message in it. Told as it was before the message,
-		// which then counts as unread like any other.
+		// The conversation is new to the other account, so it is told about
+		// the conversation before the message arrives. It is told about the
+		// conversation as it was before the message, so that the message
+		// then counts as unread like any other.
 		other := dm_other(conv, sender)
 		last := conv.last_msg
 		conv.last_msg = 0
@@ -228,18 +230,17 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	if root.id != 0 {
 		thread_changed(s, conv, root.id)
 	}
-	// Whoever posts has read what came before.
+	// The poster has read everything that came before the message.
 	if conv_set_read(&s.convs, conv, sender, m.id) {
 		send_read(s, u.account, conv)
 	}
 }
 
-/*
-links_restrict keeps links to a DM's messages (proto/forward.odin) in
-that DM: anywhere else, only its two could follow one, so it's written
-as plain text. In the temp allocator, or `text` if there's nothing to
-change.
-*/
+// links_restrict keeps links to the messages of a DM (see proto/forward.odin)
+// inside that DM. Only the two members of the DM could follow such a link
+// anywhere else, so there it is replaced with plain text. The result is
+// allocated with the temp allocator, or is `text` itself if nothing had to
+// be changed.
 links_restrict :: proc(s: ^Server, conv: ^Conv, text: string) -> string {
 	out := text
 	at := 0
@@ -259,11 +260,10 @@ links_restrict :: proc(s: ^Server, conv: ^Conv, text: string) -> string {
 	}
 }
 
-/*
-msg_forward copies a message the account may read to a conversation it
-may post to (proto/forward.odin): its content, with where it came from.
-A forward repeated with the same nonce is answered as a post is.
-*/
+// msg_forward copies a message that the account may read to a conversation
+// that it may post to (see proto/forward.odin). The copy contains the
+// content of the original and where it came from. A forward that is
+// repeated with the same nonce is answered like a repeated post.
 @(private = "file")
 msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	f, ok := proto.decode_msg_forward(body)
@@ -290,7 +290,8 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	// Into a thread: its root has to be this conversation's, as a post's.
+	// When forwarding into a thread, its root must belong to this
+	// conversation, just like for a post.
 	root: proto.Message
 	if f.thread_root != 0 {
 		root, found = msg_by_id(s, f.thread_root)
@@ -307,7 +308,8 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Ok, proto.encode_msg_posted(&posted, prev, at))
 		return
 	}
-	// The original's author, where and when; a copy's are its original's.
+	// The original's author, conversation and time. If the message is itself
+	// a copy, the details of its original are used.
 	from := proto.Forward_Info{src.sender, src.conv, src.time}
 	if .Forwarded in src.flags {
 		from = src.forward
@@ -350,11 +352,9 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 }
 
-/*
-msg_store adds a message to the database, filling in its id and time,
-and makes it its conversation's last. `m` has its conversation, sender,
-kind and content.
-*/
+// msg_store adds a message to the database, filling in its id and time, and
+// makes it the last message of its conversation. `m` must already contain
+// the conversation, sender, kind and content.
 msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> bool {
 	m.time = proto.Unix_Ms(unix_ms())
 	q := db_stmt(&s.db, .Msg_Add)
@@ -368,8 +368,8 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	case .File:
 		db_bind_text(q, 5, m.file_name)
 	case .System:
-		// What happened, as a number; its argument where a file's size
-		// goes.
+		// What happened, as a number. Its argument is stored in the column
+		// that holds the size of a file.
 		db_bind_text(q, 5, fmt.tprint(m.system))
 	case:
 		db_bind_null(q, 5)
@@ -377,7 +377,7 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	if nonce != 0 {
 		db_bind_int(q, 6, i64(nonce))
 	} else {
-		db_bind_null(q, 6) // the server's own, which no client repeats
+		db_bind_null(q, 6) // messages from the server itself are never repeated by a client
 	}
 	db_bind_int(q, 7, i64(m.system_arg) if m.kind == .System else i64(m.file_size))
 	db_bind_int(q, 8, i64(m.thread_root))
@@ -400,7 +400,7 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	return true
 }
 
-// msg_by_nonce is the message `sender` posted with `nonce`, if there's one.
+// msg_by_nonce finds the message that `sender` posted with `nonce`, if there is one.
 @(private = "file")
 msg_by_nonce :: proc(
 	db: ^DB,
@@ -424,8 +424,9 @@ msg_by_nonce :: proc(
 	return id, at, true
 }
 
-// msg_deliver sends a message to every connection of every member of
-// its conversation: a new one, or (`op` Msg_Changed) one as it now is.
+// msg_deliver sends a message to every connection of every member of its
+// conversation. It is either a new message or, if `op` is Msg_Changed, a
+// message in its current state.
 msg_deliver :: proc(s: ^Server, conv: ^Conv, m: proto.Message, op := proto.Event_Op.Msg_New) {
 	buf: [proto.MESSAGE_MAX_SIZE]u8
 	body := proto.encode_message(buf[:], m)
@@ -444,10 +445,8 @@ msg_deliver :: proc(s: ^Server, conv: ^Conv, m: proto.Message, op := proto.Event
 	}
 }
 
-/*
-msg_history answers with a page of a conversation's messages, oldest
-first (see proto.History_Dir for which).
-*/
+// msg_history answers with a page of a conversation's messages, oldest
+// first. See proto.History_Dir for which page is returned.
 @(private = "file")
 msg_history :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	h, ok := proto.decode_msg_history(body)
@@ -460,7 +459,7 @@ msg_history :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, status)
 		return
 	}
-	// A thread's replies: its root has to be a message of this
+	// For the replies of a thread, the root must be a message of this
 	// conversation.
 	if h.thread_root != 0 {
 		if root, found := msg_by_id(s, h.thread_root);
@@ -487,38 +486,38 @@ msg_history :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok, page)
 }
 
-/*
-history_page reads up to `limit` messages of a conversation next to
-`anchor`, oldest first, and says whether there are more beyond them
-either way. It keeps to what fits in one answer, dropping from the far
-end from the anchor. The messages' strings are in the temp allocator.
-*/
+// history_page reads up to `limit` messages of a conversation next to
+// `anchor`, oldest first, and reports whether there are more messages beyond
+// them in either direction. The page is limited to what fits in one answer,
+// and messages are dropped from the end that is furthest from the anchor.
+// The strings of the messages are allocated with the temp allocator.
 history_page :: proc(
 	s: ^Server,
 	conv: proto.Conv_Id,
 	anchor: proto.Msg_Id,
 	dir: proto.History_Dir,
 	limit: int,
-	asker: proto.Account_Id, // whose own reactions are marked
-	thread_root: proto.Msg_Id = 0, // a thread's replies, rather than the whole conversation
+	asker: proto.Account_Id, // the account whose own reactions are marked
+	thread_root: proto.Msg_Id = 0, // read the replies of a thread instead of the whole conversation
 ) -> (
 	msgs: []proto.Message,
 	more: u8,
 	ok: bool,
 ) {
 	list := make([dynamic]proto.Message, 0, limit + 2, context.temp_allocator)
-	// The statements for one or the other, and what they're asked about.
+	// Use the statements for either a thread or the whole conversation.
 	thread := thread_root != 0
 	before := Stmt.Thread_Before if thread else .Msg_Before
 	after := Stmt.Thread_After if thread else .Msg_After
 	any_before := Stmt.Thread_Any_Before if thread else .Msg_Any_Before
 	any_after := Stmt.Thread_Any_After if thread else .Msg_Any_After
-	// For a thread, the statements ask by the root, in the place of the
+	// For a thread, the statements are given the root instead of the
 	// conversation.
 	scope := proto.Conv_Id(thread_root) if thread else conv
 	switch dir {
 	case .Before:
-		// Newest first, one more than asked for, to know if there are more.
+		// Read newest first, and one more than requested to find out whether
+		// there are more.
 		upto := i64(anchor) if anchor != 0 else max(i64)
 		msgs_read(s, before, scope, upto, limit + 1, &list) or_return
 		if len(list) > limit {
@@ -539,7 +538,7 @@ history_page :: proc(
 			more |= proto.MORE_BEFORE
 		}
 	case .Around:
-		// The anchor and the older half, then the newer half.
+		// First read the anchor and the older half, then the newer half.
 		older := (limit + 1) / 2
 		msgs_read(s, before, scope, i64(anchor) + 1, older + 1, &list) or_return
 		if len(list) > older {
@@ -564,14 +563,14 @@ history_page :: proc(
 		attach_reactions(s, &m, asker)
 		attach_files(s, &m)
 	}
-	// A page of long messages (with files and reactions) can be too big
-	// for one answer: what's furthest from the anchor goes.
+	// A page of long messages (with files and reactions) can be too big for
+	// one answer. In that case the messages furthest from the anchor are dropped.
 	msgs = list[:]
 	size := proto.HISTORY_HEADER_SIZE
 	for m in msgs {
 		size += proto.message_size(m)
 	}
-	// Around: where the anchor is in the page, to keep the page about it.
+	// For Around, find where the anchor is in the page so that the page stays centered on it.
 	at := len(msgs) / 2
 	for m, i in msgs {
 		if m.id == anchor {
@@ -594,7 +593,7 @@ history_page :: proc(
 	return msgs, more, true
 }
 
-// msgs_read appends up to `limit` messages from one of the history
+// msgs_read appends up to `limit` messages read with one of the history
 // statements.
 @(private = "file")
 msgs_read :: proc(
@@ -621,7 +620,7 @@ msgs_read :: proc(
 	}
 }
 
-// msg_any is whether one of the statements that look for a message
+// msg_any returns whether one of the statements that look for a message
 // before or after an id finds one.
 @(private = "file")
 msg_any :: proc(s: ^Server, stmt: Stmt, conv: proto.Conv_Id, id: proto.Msg_Id) -> bool {
@@ -636,8 +635,8 @@ msg_any :: proc(s: ^Server, stmt: Stmt, conv: proto.Conv_Id, id: proto.Msg_Id) -
 	return false
 }
 
-// handle_typing tells the other members of a conversation who are here
-// that someone is typing in it.
+// handle_typing tells the other members of a conversation that are
+// connected that someone is typing in it.
 handle_typing :: proc(s: ^Server, from: ^Conn, pt: []u8) {
 	now := time.tick_now()
 	if from.last_typing != {} && time.tick_diff(from.last_typing, now) < TYPING_RELAY_INTERVAL {
@@ -665,8 +664,8 @@ handle_typing :: proc(s: ^Server, from: ^Conn, pt: []u8) {
 	}
 }
 
-// msg_of_row is a message as one of the statements that read whole
-// messages has it; its strings are in the temp allocator.
+// msg_of_row converts the current row of one of the statements that read
+// whole messages to a message. Its strings are allocated with the temp allocator.
 msg_of_row :: proc(q: ^sqlite.Stmt) -> proto.Message {
 	m := proto.Message {
 		id          = proto.Msg_Id(db_col_int(q, 0)),

@@ -83,7 +83,7 @@ test_image_prepare :: proc(t: ^testing.T) {
 	testing.expect_value(t, w, 200)
 	testing.expect_value(t, h, 100)
 
-	// And it reads back as what was pasted.
+	// And it decodes back to an image of the pasted size.
 	back, err := clipboard.decode(img.jpeg)
 	defer clipboard.image_destroy(&back)
 	testing.expect_value(t, err, clipboard.Error.None)
@@ -127,8 +127,7 @@ test_webp_decode :: proc(t: ^testing.T) {
 
 @(test)
 test_image_scaled_to_4k :: proc(t: ^testing.T) {
-	// A smooth image compresses well, so it only loses what the 4K limit
-	// takes off.
+	// A smooth image compresses well, so it is only scaled down to the 4K limit.
 	src := gradient_image(5000, 400)
 	defer delete(src.pixels)
 	img, ok := image_prepare(src)
@@ -141,8 +140,8 @@ test_image_scaled_to_4k :: proc(t: ^testing.T) {
 
 @(test)
 test_image_scaled_to_fit_budget :: proc(t: ^testing.T) {
-	// Noise can't be compressed, so it has to shrink past 4K as well,
-	// keeping its shape.
+	// Noise can't be compressed well, so it has to shrink below 4K to fit the
+	// size budget, keeping its aspect ratio.
 	src := test_image(5000, 400)
 	defer delete(src.pixels)
 	img, ok := image_prepare(src)
@@ -195,8 +194,8 @@ test_image_rejects_bad_input :: proc(t: ^testing.T) {
 
 @(test)
 test_avatar_prepare :: proc(t: ^testing.T) {
-	// A wide photo: the middle square, scaled to the largest picture,
-	// within the budget even when it's noisy.
+	// A wide photo is cropped to its middle square and scaled to the maximum
+	// avatar size, staying within the size budget even when it's noisy.
 	src := test_image(1200, 600)
 	defer delete(src.pixels)
 	img, ok := avatar_prepare(src)
@@ -218,7 +217,7 @@ test_avatar_prepare :: proc(t: ^testing.T) {
 	defer conn.chat_image_destroy(&big)
 	testing.expect(t, big_ok && len(big.jpeg) <= 64 * 1024)
 
-	// A small tall one isn't grown, only cut square.
+	// A small, tall image isn't scaled up, only cropped to a square.
 	small := test_image(40, 80)
 	defer delete(small.pixels)
 	tiny, tiny_ok := avatar_prepare(small)
@@ -229,7 +228,7 @@ test_avatar_prepare :: proc(t: ^testing.T) {
 	_, bad := avatar_prepare({})
 	testing.expect(t, !bad)
 
-	// A server's picture: smaller, and fits in one response.
+	// A server icon is smaller and fits in a single response.
 	icon, icon_ok := avatar_prepare(
 		noisy,
 		max_side = proto.MAX_SERVER_ICON_SIDE,

@@ -2,20 +2,18 @@ package conn
 
 import "client:audio"
 
-/*
-The connection's end of the voice pipeline (audio/voice.odin): what the
-pipeline captures and encodes is sent here, and what arrives is handed
-to it in client_step.
-*/
+// The connection's end of the voice pipeline (audio/voice.odin): what the
+// pipeline captures and encodes is sent here, and what arrives is handed to it
+// in client_step.
 
-// voice_step sends captured audio, and keeps the output fed.
+// voice_step sends captured audio and keeps the output supplied.
 voice_step :: proc(c: ^Voice_Client) {
 	send_captured(c)
 	audio.voice_step(&c.voice)
 }
 
-// send_captured sends a frame for every 20 ms that's been captured, once
-// there's a session and a settled channel to send it to.
+// send_captured sends a frame for every 20 ms of captured audio, once there is
+// a session and a settled channel to send it to.
 @(private = "file")
 send_captured :: proc(c: ^Voice_Client) {
 	v := &c.voice

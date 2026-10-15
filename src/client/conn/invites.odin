@@ -6,41 +6,40 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-Invite codes (proto/register.odin): making them, listing and revoking
-them, and asking which one an account registered with. What comes back
-goes straight to the view; headless, it's logged.
-*/
+// Invite codes (proto/register.odin) can be created, listed and revoked, and
+// we can ask which code an account registered with. Results go straight to the
+// view, or to the log when running headless.
 
-// Make an invite code: good for `max_uses` registrations (0: any),
-// until `expires` (0: never).
+// Creates an invite code that can be used for `max_uses` registrations
+// (0 means unlimited) until `expires` (0 means it never expires).
 Invite_Create_Command :: struct {
 	max_uses: u16,
 	expires:  proto.Unix_Ms,
 }
-// List the invite codes: ours, or with Manage_Accounts everybody's.
+// Lists the invite codes. Users with Manage_Accounts see everybody's codes,
+// everyone else sees only their own.
 Invites_Command :: struct {}
 Invite_Revoke_Command :: struct {
 	code: string, // owned by the command
 }
-// Which code an account registered with (Manage_Accounts).
+// Asks which code an account registered with (requires Manage_Accounts).
 Invite_Of_Command :: struct {
 	account: proto.Account_Id,
 }
 
 View_Invites :: struct {
-	// As of the last time they were asked for, newest first; codes owned.
+	// The list as of the last request, newest first. The codes are owned.
 	list:       [dynamic]proto.Invite,
-	count:      int, // bumped each time the list arrives
-	// The code just made, to be shown (it's in the list too); owned.
+	count:      int, // incremented each time the list arrives
+	// The code that was just created, so it can be shown (it is in the list too). Owned.
 	made:       string,
 	made_count: int,
-	// Which code accounts registered with, as far as asked.
+	// The code each account registered with, for the accounts that were asked about.
 	of:         map[proto.Account_Id]View_Invite_Of,
 }
 
 View_Invite_Of :: struct {
-	code:    string, // owned; "" if none
+	code:    string, // owned; "" if there is none
 	creator: proto.Account_Id,
 }
 
@@ -73,7 +72,11 @@ invite_create :: proc(c: ^Voice_Client, cmd: Invite_Create_Command) {
 			#partial switch status {
 			case .Ok:
 			case .Too_Large:
-				notify(c, false, "You have as many invite codes as you may: revoke some first.")
+				notify(
+					c,
+					false,
+					"You've reached the maximum number of invite codes. Revoke some of them first.",
+				)
 				return
 			case:
 				notify(c, false, status_text(status))

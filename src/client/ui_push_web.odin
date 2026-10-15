@@ -11,7 +11,7 @@ import "common:proto"
 
 @(default_calling_convention = "c")
 foreign _ {
-	// Web Push (web/push.js, through web/shell.c).
+	// Web Push, implemented in web/push.js and exposed through web/shell.c.
 	yap_push_state :: proc(server: cstring) -> i32 ---
 	yap_push_check :: proc(server: cstring, key: [^]u8) ---
 	yap_push_enable :: proc(server: cstring, key: [^]u8) ---
@@ -24,24 +24,21 @@ foreign _ {
 	yap_set_badge :: proc(n: i32) ---
 }
 
-/*
-Web Push (misc/mobile): a server that pushes (View.server_push) can tell
-this browser about DMs and mentions while the page is closed or out of
-sight, through the browser's push service and a service worker
-(web/sw.js), once it's turned on in the account's settings. The browser
-does the subscribing (web/push.js); here the UI starts it, hands the
-subscription to the server (conn/push.odin), goes where a tapped
-notification says, and takes a conversation's notification down once
-it's read here.
+// Web Push (misc/mobile): once push is enabled in the account settings, a server that
+// supports it (View.server_push) can notify this browser about DMs and mentions while the
+// page is closed or in the background. This goes through the browser's push service and a
+// service worker (web/sw.js). The browser creates the subscription (web/push.js); the UI
+// code here starts that, passes the subscription to the server (conn/push.odin), opens the
+// conversation of a tapped notification, and removes a conversation's notification once
+// it has been read here.
+//
+// Whether push is enabled for a server is tracked by the browser alone; none of it is
+// stored in the client's settings.
+//
+// An installed web app also shows a badge on its icon with the number of unread DMs and
+// mentions across all servers (web/push.js).
 
-Whether it's on is the browser's to know, for each server: nothing of
-it is in the client's settings.
-
-An installed app also gets a number on its icon: unread DMs and
-mentions, from every server (web/push.js).
-*/
-
-// What web/push.js says of a server.
+// The push state that web/push.js reports for a server.
 Push_State :: enum i32 {
 	Unsupported,
 	Off,
@@ -49,11 +46,11 @@ Push_State :: enum i32 {
 	On,
 	Blocked,
 	Failed,
-	Home_Screen, // an iPhone's Safari tab: only the home screen's app can
+	Home_Screen, // a Safari tab on iOS: only an app added to the home screen can use push
 }
 
-// A tapped notification's conversation, until its server is there to
-// show it.
+// The conversation of a tapped notification, kept until its server is connected and
+// ready to show it.
 @(private = "file")
 pending_open: struct {
 	server: string, // owned
@@ -61,33 +58,30 @@ pending_open: struct {
 	msg:    proto.Msg_Id,
 }
 
-// What was last read here, so its notification is taken down once.
+// The conversation that was last read here, so that its notification is removed only once.
 @(private = "file")
 last_seen: struct {
 	ns:   ^Net_Session,
 	conv: proto.Conv_Id,
 }
 
-// page_hidden is whether the page is out of sight.
+// page_hidden reports whether the page is currently not visible.
 page_hidden :: proc() -> bool {
 	return bool(yap_page_hidden())
 }
 
-/*
-push_covers is whether a push tells of what a session would put on the
-desktop: push is on for it and the page is out of sight, so the server
-pushes, and a notice from the page too would say it twice.
-*/
+// push_covers reports whether a push notification already covers what the session would
+// show as a desktop notification: push is enabled for it and the page is hidden, so the
+// server sends a push, and a notification from the page as well would be a duplicate.
 push_covers :: proc(ns: ^Net_Session) -> bool {
 	return page_hidden() && Push_State(yap_push_state(server_cstring(ns))) == .On
 }
 
-/*
-push_frame does push's part of a frame: asks the browser what it has
-for each server that pushes, once logged in there; gives each server
-what the browser subscribed or dropped; shows what a tapped notification
-was about; and takes down the notification of what's being read.
-*/
+// push_frame does the per-frame push work: for each server that supports push and that
+// we're logged in to, it asks the browser for the current subscription state, and sends
+// the server any subscription the browser created or dropped. It also opens the
+// conversation of a tapped notification and removes the notification of the
+// conversation that is currently being read.
 push_frame :: proc(ui: ^UI) {
 	for ns in ui.sessions {
 		key, pushes := session_push_key(ns)
@@ -101,7 +95,13 @@ push_frame :: proc(ui: ^UI) {
 		}
 		endpoint: [proto.MAX_PUSH_ENDPOINT + 1]u8
 		sub: proto.Push_Subscription
-		if n := yap_push_take(server, &endpoint[0], i32(len(endpoint)), &sub.p256dh[0], &sub.auth[0]); n > 0 {
+		if n := yap_push_take(
+			server,
+			&endpoint[0],
+			i32(len(endpoint)),
+			&sub.p256dh[0],
+			&sub.auth[0],
+		); n > 0 {
 			sub.endpoint = strings.clone(string(endpoint[:n]))
 			conn.push_command(&ns.client.commands, conn.Push_Subscribe_Command{sub})
 		}
@@ -111,9 +111,9 @@ push_frame :: proc(ui: ^UI) {
 	}
 	push_open_step(ui)
 
-	// The icon's number: unread DMs and mentions (servers_frame counts
-	// them), once a server has said what we have unread. Before that it's
-	// what the service worker counted while the app was closed.
+	// The icon badge: the number of unread DMs and mentions (counted by servers_frame),
+	// once a server has reported our unread state. Until then, the badge keeps the count
+	// the service worker made while the app was closed.
 	for ns in ui.sessions {
 		if session_ready(ns) {
 			yap_set_badge(i32(ui.mentions))
@@ -121,10 +121,14 @@ push_frame :: proc(ui: ^UI) {
 		}
 	}
 
-	// Read here: the page is in sight and has the focus.
+	// A conversation counts as read here when the page is visible and has focus.
 	ns := ui.session
 	st := &ui.timeline
-	if ns == nil || page_hidden() || !glfw.WindowFocused(ui.window) || st.open == 0 || st.open_to != rawptr(ns) {
+	if ns == nil ||
+	   page_hidden() ||
+	   !glfw.WindowFocused(ui.window) ||
+	   st.open == 0 ||
+	   st.open_to != rawptr(ns) {
 		last_seen = {}
 	} else if last_seen.ns != ns || last_seen.conv != st.open {
 		last_seen = {ns, st.open}
@@ -132,8 +136,8 @@ push_frame :: proc(ui: ^UI) {
 	}
 }
 
-// push_open_step goes where a tapped notification asked, once its
-// server is there to show it.
+// push_open_step opens the message of a tapped notification, once the notification's
+// server is connected and ready to show it.
 @(private = "file")
 push_open_step :: proc(ui: ^UI) {
 	buf: [512]u8
@@ -151,7 +155,7 @@ push_open_step :: proc(ui: ^UI) {
 			continue
 		}
 		if !session_ready(ns) {
-			return // not yet
+			return // not ready yet, try again next frame
 		}
 		show_session(ui, ns)
 		sync.lock(&ui.view.mutex)
@@ -164,12 +168,10 @@ push_open_step :: proc(ui: ^UI) {
 	pending_open = {}
 }
 
-/*
-push_settings is the account settings' rows for push on this device, if
-the server pushes: on or off here (the browser's), and whether pushes
-say what a message says (an account setting, proto.SETTING_PUSH_TEXT).
-Call with the View locked.
-*/
+// push_settings draws the account settings rows for push on this device, if the server
+// supports push: whether push is enabled on this device (stored by the browser), and
+// whether pushes include the message text (an account setting, proto.SETTING_PUSH_TEXT).
+// Call with the View locked.
 push_settings :: proc(ui: ^UI, v: ^conn.View) {
 	ns := ui.session
 	if !v.server_push || !v.shared_synced || ns == nil {
@@ -193,15 +195,15 @@ push_settings :: proc(ui: ^UI, v: ^conn.View) {
 	hint: string
 	switch state {
 	case .Unsupported, .Off:
-		hint = "DMs and mentions, while yap is closed or out of sight."
+		hint = "Get notified about DMs and mentions while yap is closed or in the background."
 	case .Working:
-		hint = "A moment..."
+		hint = "Updating push notifications..."
 	case .On:
-		hint = "DMs and mentions come to this device while yap is closed or out of sight."
+		hint = "DMs and mentions are pushed to this device while yap is closed or in the background."
 	case .Blocked:
-		hint = "This browser blocks yap's notifications: allow them in its site settings."
+		hint = "This browser blocks notifications from yap. Allow them in the browser's site settings."
 	case .Failed:
-		hint = "That didn't work; the browser's console says why."
+		hint = "Enabling push notifications failed. The browser's console has the details."
 	case .Home_Screen:
 		hint = "On an iPhone or iPad, add yap to the home screen (Share, Add to Home Screen) and turn this on there."
 	}
@@ -210,14 +212,17 @@ push_settings :: proc(ui: ^UI, v: ^conn.View) {
 	with_text_color(ctx, theme.dim, hint, wrap_text)
 
 	hidden := (v.shared[proto.SETTING_PUSH_TEXT] or_else "") == proto.PUSH_TEXT_HIDDEN
-	field_row(ui, FORM_LABEL, "Pushes show", {210, 210})
-	if choice_button(ui, "push text shown", "The message", !hidden) && hidden {
+	field_row(ui, FORM_LABEL, "Pushes contain", {210, 210})
+	if choice_button(ui, "push text shown", "Message text", !hidden) && hidden {
 		conn.push_command(
 			&ns.client.commands,
-			conn.Setting_Command{key = strings.clone(proto.SETTING_PUSH_TEXT), value = strings.clone("")},
+			conn.Setting_Command {
+				key = strings.clone(proto.SETTING_PUSH_TEXT),
+				value = strings.clone(""),
+			},
 		)
 	}
-	if choice_button(ui, "push text hidden", "Only who wrote", hidden) && !hidden {
+	if choice_button(ui, "push text hidden", "Only the sender", hidden) && !hidden {
 		conn.push_command(
 			&ns.client.commands,
 			conn.Setting_Command {
@@ -228,7 +233,7 @@ push_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
-// session_ready is whether a session is logged in and has its settings.
+// session_ready reports whether a session is logged in and has received its settings.
 @(private = "file")
 session_ready :: proc(ns: ^Net_Session) -> bool {
 	v := &ns.view
@@ -236,7 +241,7 @@ session_ready :: proc(ns: ^Net_Session) -> bool {
 	return v.status == .Connected && v.shared_synced
 }
 
-// session_push_key is the server's VAPID key, if it pushes.
+// session_push_key returns the server's VAPID key, and whether the server supports push.
 @(private = "file")
 session_push_key :: proc(ns: ^Net_Session) -> (key: [proto.PUSH_KEY_SIZE]u8, pushes: bool) {
 	v := &ns.view

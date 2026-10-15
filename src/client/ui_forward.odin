@@ -10,20 +10,18 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-Forwarding and links (src/common/proto/forward.odin).
-
-Forward... in a message's menu opens a window of where it can go: our
-channels and our DMs, which a box narrows down by name; picking one
-sends the copy there. A copy shows in its header whom it's from and
-where (the timeline's header line).
-
-Copy link in the menu puts the message's link token on the clipboard,
-to paste into a message. A link shows as the message it points at,
-"↪ Ana: what she said", fetched by id the way a thread's root is; or
-"a message you can't see" when it isn't ours to read. Clicking one goes
-to the message: in this conversation, or in its channel or DM.
-*/
+// Forwarding and links (see src/common/proto/forward.odin).
+//
+// Forward... in a message's menu opens a window listing where the message can
+// go: our channels and our DMs, which can be narrowed down by name using a
+// box. Picking one sends the copy there. A copy shows in its header whom it
+// is from and where (see the timeline's header line).
+//
+// Copy link in the menu puts the message's link token on the clipboard,
+// to paste into a message. A link is shown as the message it points at,
+// "↪ Ana: what she said", which is fetched by id the way a thread's root is,
+// or as "a message you can't see" when we may not read it. Clicking one goes
+// to the message, in this conversation or in its own channel or DM.
 
 UI_Forward :: struct {
 	open:        bool,
@@ -31,11 +29,11 @@ UI_Forward :: struct {
 	msg:         proto.Msg_Id,
 	filter_buf:  [proto.MAX_CHANNEL_NAME_SIZE]u8,
 	filter_len:  int,
-	// Linked messages asked for, and when: asked again a while later if
-	// they haven't come (the network side lets them go with their
-	// conversation's window, and asking twice is one asking there).
+	// Linked messages that were asked for, and when. They are asked for again a
+	// while later if they haven't arrived (the network side drops them together with
+	// their conversation's window, and asking twice counts as one request there).
 	links_asked: map[proto.Msg_Id]time.Tick,
-	// A link clicked this frame, gone to after it.
+	// A link that was clicked in this frame, which is followed after the frame.
 	go_conv:     proto.Conv_Id,
 	go_id:       proto.Msg_Id,
 }
@@ -54,11 +52,9 @@ open_forward :: proc(ui: ^UI, id: proto.Msg_Id) {
 	f.open, f.placed, f.msg, f.filter_len = true, false, id, 0
 }
 
-/*
-forward_window is where a message is forwarded to: our channels, then
-our DMs, those whose name has what's typed in the box. Call with the
-View unlocked.
-*/
+// forward_window is where a message is forwarded to: our channels, then
+// our DMs, restricted to those whose name contains the text typed in the box.
+// Call with the View unlocked.
 forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	f := &ui.forward
 	if !f.open {
@@ -124,7 +120,7 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	for dm in v.dms {
 		name := "someone"
 		if acc, ok := v.accounts[dm.with]; ok {
-			// Not to be written to (ui_buddies.odin).
+			// Not to be written to (see ui_buddies.odin).
 			if .Deleted in acc.flags {
 				continue
 			}
@@ -136,11 +132,9 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
-/*
-go_to_message shows message `id` of conversation `conv`: the timeline
-goes to it once it's that conversation's, which it's switched to if it
-isn't. Call with the View locked.
-*/
+// go_to_message shows message `id` of conversation `conv`: the timeline
+// goes to it once that conversation is showing, and switches to that conversation
+// if it isn't. Call with the View locked.
 go_to_message :: proc(ui: ^UI, conv: proto.Conv_Id, id: proto.Msg_Id) {
 	v := ui.view
 	st := &ui.timeline
@@ -163,7 +157,7 @@ go_to_message :: proc(ui: ^UI, conv: proto.Conv_Id, id: proto.Msg_Id) {
 	}
 }
 
-// links_after_frame goes where a link clicked in the frame points.
+// links_after_frame goes to the message that a link clicked in the frame points to.
 links_after_frame :: proc(ui: ^UI) {
 	f := &ui.forward
 	if f.go_id == 0 {
@@ -174,7 +168,7 @@ links_after_frame :: proc(ui: ^UI) {
 	f.go_conv, f.go_id = 0, 0
 }
 
-// is_ours is whether a conversation is one of ours: we can read it.
+// is_ours is whether a conversation is one of ours, which means we can read it.
 @(private = "file")
 is_ours :: proc(v: ^conn.View, conv: proto.Conv_Id) -> bool {
 	for ch in v.channels {
@@ -190,7 +184,7 @@ is_ours :: proc(v: ^conn.View, conv: proto.Conv_Id) -> bool {
 	return false
 }
 
-// How long a linked message that hasn't come is waited for before it's
+// How long to wait for a linked message that hasn't arrived before it is
 // asked for again.
 @(private = "file")
 LINK_ASK_AGAIN :: 3 * time.Second
@@ -199,12 +193,10 @@ LINK_ASK_AGAIN :: 3 * time.Second
 @(private = "file")
 LINK_SNIPPET :: 60
 
-/*
-link_label is how a link shows (conn.text_display_links): the message
-it points at, by whom and its first words; or that it's on its way, or
-isn't ours to see. The message is asked for the first time it's wanted.
-`data` is the UI. Call with the View locked.
-*/
+// link_label is how a link is shown (see conn.text_display_links): the message
+// it points at, by whom and its first words, or a note that it is on its way, or
+// that we may not see it. The message is asked for the first time it is wanted.
+// `data` is the UI. Call with the View locked.
 link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 	ui := (^UI)(data)
 	v := ui.view
@@ -281,15 +273,15 @@ message_text :: proc(
 }
 
 // message_rich is a message's text as the timeline draws it: its markdown
-// and web links too (ui_rich_text.odin). Call with the View locked.
+// and web links too (see ui_rich_text.odin). Call with the View locked.
 message_rich :: proc(ui: ^UI, text: string) -> Rich {
 	shown, spans, emoji, links := message_text(ui, text)
 	return rich_make(shown, spans, emoji, links, true)
 }
 
-// forward_note is what a forwarded message's header says of where it
-// came from: whom, and where if that's one of ours. Call with the View
-// locked.
+// forward_note is what a forwarded message's header says about where it
+// came from: from whom, and where if that is one of our conversations. Call
+// with the View locked.
 forward_note :: proc(ui: ^UI, m: conn.View_Message) -> string {
 	if .Forwarded not_in m.flags {
 		return ""

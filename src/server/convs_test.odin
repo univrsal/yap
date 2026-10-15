@@ -6,11 +6,11 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of conversations and voice rooms, on the Test_Server of
+// Tests of conversations and voice rooms, using the Test_Server from
 // auth_test.odin.
 
-// logged_in is a new connection of an account with the password "a
-// password", logged in, with what it was told on logging in taken.
+// logged_in returns a new connection that is logged in to an account with the
+// password "a password". The events sent on logging in are consumed.
 logged_in :: proc(t: ^testing.T, ts: ^Test_Server, username: string) -> ^Conn {
 	u := ts_connect(ts)
 	status, _ := ts_login(t, ts, u, username, "a password")
@@ -56,7 +56,8 @@ test_convs_seeded_once :: proc(t: ^testing.T) {
 
 	gaming: proto.Conv_Id
 	{
-		// A new database takes the config's channels, the first as home.
+		// A new database takes the config's channels, with the first one as the
+		// home channel.
 		ts: Test_Server
 		ts_open(t, &ts, path)
 		defer ts_close(&ts)
@@ -71,19 +72,20 @@ test_convs_seeded_once :: proc(t: ^testing.T) {
 		testing.expect(t, conv_by_name(c, "nothing") == nil)
 		gaming = sorted[1].id
 
-		// An account is in the home channel, and in what it subscribes to.
+		// An account is a member of the home channel and of the channels it
+		// subscribes to.
 		alice := ts_account(t, &ts, "alice", "a password")
 		testing.expect(t, conv_is_member(c.home, alice.id))
 		testing.expect(t, !conv_is_member(sorted[1], alice.id))
 		testing.expect(t, conv_member_add(c, sorted[1], alice.id))
-		testing.expect(t, conv_member_add(c, sorted[1], alice.id)) // again is nothing
+		testing.expect(t, conv_member_add(c, sorted[1], alice.id)) // subscribing again changes nothing
 		testing.expect_value(t, len(sorted[1].members), 1)
 		testing.expect(t, !conv_member_remove(c, c.home, 999))
 		db_commit(&ts.s.db)
 	}
 
-	// Opened again, the channels are the database's: what the config
-	// says by then isn't looked at, and who was in what still is.
+	// When the database is opened again, the channels come from the database. The
+	// config's channels are ignored, and the memberships are restored.
 	db: DB
 	testing.expect(t, db_open(&db, path))
 	defer db_close(&db)
@@ -102,9 +104,9 @@ test_convs_seeded_once :: proc(t: ^testing.T) {
 
 @(test)
 test_home_for_accounts_without :: proc(t: ^testing.T) {
-	// An account made where there were no channels to be in (before
-	// there were any, or from the command line) is put in the home
-	// channel when the server next starts.
+	// An account that was created when there were no channels to join (before
+	// channels existed, or from the command line) is added to the home channel
+	// when the server next starts.
 	db: DB
 	testing.expect(t, db_open(&db, DB_MEMORY))
 	defer db_close(&db)
@@ -133,13 +135,13 @@ test_subscribe :: proc(t: ^testing.T) {
 	phone := logged_in(t, &ts, "alice")
 	gaming := conv_by_name(&s.convs, "Gaming")
 
-	// What there is to subscribe to: the channels one isn't in.
+	// The channels available to subscribe to are the ones the account isn't in.
 	found := browse(t, &ts, laptop)
 	testing.expect_value(t, len(found), 1)
 	testing.expect_value(t, found[0].id, gaming.id)
 	testing.expect(t, !found[0].member)
 
-	// Subscribing on one device shows on the other.
+	// Subscribing on one device shows up on the other.
 	status, _ := ts_ask(t, &ts, laptop, .Conv_Subscribe, subscribe_body(gaming.id, true))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, conv_is_member(gaming, laptop.account.id))
@@ -151,13 +153,13 @@ test_subscribe :: proc(t: ^testing.T) {
 		testing.expect(t, conv.member)
 	}
 	testing.expect_value(t, len(browse(t, &ts, laptop)), 0)
-	// Again changes nothing, and is no news.
+	// Subscribing again changes nothing and sends no event.
 	status, _ = ts_ask(t, &ts, laptop, .Conv_Subscribe, subscribe_body(gaming.id, true))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, len(ts_events(t, &ts, phone)), 0)
 	testing.expect_value(t, len(gaming.members), 1)
 
-	// A device that connects later is told of both its channels.
+	// A device that connects later is told about both of its channels.
 	tablet := ts_connect(&ts)
 	status, _ = ts_login(t, &ts, tablet, "alice", "a password")
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -172,7 +174,8 @@ test_subscribe :: proc(t: ^testing.T) {
 	testing.expect_value(t, names[0], "Lobby")
 	testing.expect_value(t, names[1], "Gaming")
 
-	// Reading a channel takes being in it; leaving it ends the reading.
+	// Reading a channel requires being a member, and leaving the channel ends
+	// the access.
 	status, _ = ts_ask(t, &ts, phone, .Msg_History, history_body(gaming.id))
 	testing.expect_value(t, status, proto.Status.Ok)
 	status, _ = ts_ask(t, &ts, laptop, .Conv_Subscribe, subscribe_body(gaming.id, false))
@@ -185,7 +188,7 @@ test_subscribe :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, phone, .Msg_History, history_body(gaming.id))
 	testing.expect_value(t, status, proto.Status.Denied)
 
-	// Nobody leaves the home channel, or joins one that isn't there.
+	// Nobody can leave the home channel or join a channel that doesn't exist.
 	status, _ = ts_ask(t, &ts, laptop, .Conv_Subscribe, subscribe_body(s.convs.home.id, false))
 	testing.expect_value(t, status, proto.Status.Denied)
 	testing.expect(t, conv_is_member(s.convs.home, laptop.account.id))
@@ -207,7 +210,8 @@ test_conv_create :: proc(t: ^testing.T) {
 	alice := logged_in(t, &ts, "alice")
 
 	buf: [proto.CONV_CREATE_MAX_SIZE]u8
-	// Only who may makes channels, and only ones that could be.
+	// Only accounts with permission can create channels, and only with valid
+	// names.
 	status, _ := ts_ask(
 		t,
 		&ts,
@@ -251,8 +255,8 @@ test_conv_create :: proc(t: ^testing.T) {
 	testing.expect_value(t, music.topic, "what we're listening to")
 	testing.expect_value(t, music.created_by, admin.account.id)
 
-	// Whoever made it is in it and told so; the others find it when
-	// they look for channels.
+	// The creator is a member of the channel and is told about it. Other accounts
+	// only find it when they browse for channels.
 	testing.expect(t, conv_is_member(music, admin.account.id))
 	_, told := has_event(ts_events(t, &ts, admin), .Conv_Changed)
 	testing.expect(t, told)
@@ -262,7 +266,7 @@ test_conv_create :: proc(t: ^testing.T) {
 	testing.expect_value(t, found[1].name, "Music")
 	testing.expect_value(t, found[1].topic, "what we're listening to")
 
-	// Who is in a channel can be asked about any channel one may see.
+	// The members can be requested for any channel the account may see.
 	accounts_buf: [8]proto.Account_Id
 	status, body = ts_ask(t, &ts, alice, .Conv_Members, conv_id_body(music.id))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -295,14 +299,14 @@ test_voice_rooms :: proc(t: ^testing.T) {
 	testing.expect_value(t, laptop.room, 0)
 	testing.expect_value(t, bob.room, 0)
 
-	// A room is joined by asking, and everyone gets to see who's in it.
+	// A room is joined by asking to join, and everyone gets to see who is in it.
 	version := s.version
 	status, _ := ts_ask(t, &ts, laptop, .Voice_Join, room_body(home))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, laptop.room, home)
 	testing.expect(t, s.version != version)
-	// A channel's room is open to whoever may see the channel,
-	// subscribed or not; looking at it isn't joining it.
+	// A channel's room is open to everyone who may see the channel, whether
+	// subscribed or not. Looking at a channel doesn't join its room.
 	status, _ = ts_ask(t, &ts, bob, .Voice_Join, room_body(gaming))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, bob.room, gaming)
@@ -310,8 +314,8 @@ test_voice_rooms :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Not_Found)
 	testing.expect_value(t, bob.room, gaming)
 
-	// An account talks from one device at a time: joining on the phone
-	// takes the laptop out, and tells it where its account went.
+	// An account can only be in a room from one device at a time. Joining on the
+	// phone removes the laptop from its room and tells it where its account went.
 	status, _ = ts_ask(t, &ts, phone, .Voice_Join, room_body(gaming))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, phone.room, gaming)
@@ -320,21 +324,21 @@ test_voice_rooms :: proc(t: ^testing.T) {
 	testing.expect(t, told)
 	moved, _ := proto.decode_room(e.body)
 	testing.expect_value(t, moved, gaming)
-	// Bob's is his own business.
+	// Bob's room is not affected.
 	testing.expect_value(t, bob.room, gaming)
 	_, told = has_event(ts_events(t, &ts, bob), .Voice_Moved)
 	testing.expect(t, !told)
 
-	// And leaving is joining nothing.
+	// Leaving a room means joining room 0.
 	status, _ = ts_ask(t, &ts, phone, .Voice_Join, room_body(0))
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, phone.room, 0)
-	// Logging out leaves the room too.
+	// Logging out also leaves the room.
 	conn_logout(s, bob)
 	testing.expect_value(t, bob.room, 0)
 }
 
-// browse_page asks for a page of channels to subscribe to.
+// browse_page requests a page of channels that can be subscribed to.
 @(private = "file")
 browse_page :: proc(
 	t: ^testing.T,
@@ -368,7 +372,8 @@ test_browse_search :: proc(t: ^testing.T) {
 	owner := ts_account(t, &ts, "owner", "a password", {.Owner})
 	ts_account(t, &ts, "alice", "a password")
 	alice := logged_in(t, &ts, "alice")
-	// Lobby and Gaming, and 130 more: every tenth about music.
+	// Besides Lobby and Gaming there are 130 more channels, and every tenth one
+	// has a topic about music.
 	for i in 0 ..< 130 {
 		topic := "all about music" if i % 10 == 0 else ""
 		testing.expect(
@@ -378,7 +383,8 @@ test_browse_search :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, conv_add(&s.convs, "Gamers Corner", "", {}, owner.id) != nil)
 
-	// All of them, a page at a time, and the last says there are no more.
+	// Request all of them one page at a time. The last page reports that there
+	// are no more.
 	seen := 0
 	for offset := 0;; offset += proto.BROWSE_PAGE {
 		status, more, convs := browse_page(
@@ -394,10 +400,10 @@ test_browse_search :: proc(t: ^testing.T) {
 		}
 		testing.expect_value(t, len(convs), proto.BROWSE_PAGE)
 	}
-	// Not Lobby, which alice is in.
+	// Lobby isn't listed because alice is already in it.
 	testing.expect_value(t, seen, 1 + 130 + 1)
 
-	// By name, ignoring case; by topic.
+	// Search by name (ignoring case) and by topic.
 	_, more, convs := browse_page(t, &ts, alice, {query = "GAM", limit = 10})
 	testing.expect(t, !more)
 	testing.expect_value(t, len(convs), 2) // Gaming, Gamers Corner
@@ -410,7 +416,7 @@ test_browse_search :: proc(t: ^testing.T) {
 	_, _, convs = browse_page(t, &ts, alice, {query = "nothing like it", limit = 10})
 	testing.expect_value(t, len(convs), 0)
 
-	// Too many asked for at once.
+	// Asking for too many at once is invalid.
 	req: [proto.CONV_BROWSE_MAX_SIZE]u8
 	body := proto.encode_conv_browse(&req, {limit = 1})
 	body[len(body) - 2] = proto.MAX_BROWSE_LIMIT + 1

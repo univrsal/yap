@@ -5,8 +5,9 @@ import "core:c"
 import "core:sys/darwin"
 import "core:sys/posix"
 
-// The resident size and footprint from proc_pid_rusage (the footprint is
-// what Activity Monitor calls Memory), the heap from malloc's zones.
+// The resident size and footprint come from proc_pid_rusage (the footprint
+// is what Activity Monitor shows as Memory), and the heap sizes come from
+// malloc's zones.
 
 foreign import libsystem "system:System"
 
@@ -20,7 +21,7 @@ Malloc_Statistics :: struct {
 
 @(private = "file", default_calling_convention = "c")
 foreign libsystem {
-	// nil: all the zones.
+	// A nil zone means all zones.
 	malloc_zone_statistics :: proc(zone: rawptr, stats: ^Malloc_Statistics) ---
 	malloc_zone_pressure_relief :: proc(zone: rawptr, goal: c.size_t) -> c.size_t ---
 }

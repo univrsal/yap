@@ -1,20 +1,18 @@
 #+build !wasi
-/*
-WebP pictures (https://developers.google.com/speed/webp): decoding them
-and compressing pasted images to them. libwebp is statically linked from
-libraries in this directory, none of them kept in the repo: build.sh
-(build.bat on Windows) fetches the release named in scripts/webp.version
-and builds it, for size but with its SIMD code, and compiles yap_webp.c,
-which is what's bound here.
-
-	libyap_webp.a / yap_webp.lib        yap_webp.c
-	libwebp.a     / libwebp.lib         libwebp
-	libwebpdemux.a / libwebpdemux.lib   its animation decoder
-	libsharpyuv.a / libsharpyuv.lib     what libwebp's encoder needs
-
-A web build has none of this: the browser decodes pictures (web/decode.js)
-and compresses pastes (web/paste.js).
-*/
+// WebP pictures (https://developers.google.com/speed/webp): decoding them
+// and compressing pasted images into them. libwebp is statically linked from
+// libraries in this directory, none of which are kept in the repo. build.sh
+// (build.bat on Windows) fetches the release named in scripts/webp.version
+// and builds it, optimized for size but with its SIMD code, and compiles
+// yap_webp.c, which is what is bound here.
+//
+//	libyap_webp.a / yap_webp.lib        yap_webp.c
+//	libwebp.a     / libwebp.lib         libwebp
+//	libwebpdemux.a / libwebpdemux.lib   libwebp's animation decoder
+//	libsharpyuv.a / libsharpyuv.lib     required by libwebp's encoder
+//
+// The web build doesn't use any of this: the browser decodes pictures
+// (web/decode.js) and compresses pastes (web/paste.js).
 package webp
 
 import "core:c"
@@ -53,8 +51,8 @@ when !#exists(SHIM) || !#exists(WEBP) || !#exists(DEMUX) || !#exists(SHARPYUV) {
 	)
 }
 
-// The shim first: it's what needs libwebpdemux, which needs libwebp,
-// which needs libsharpyuv.
+// The shim comes first because it depends on libwebpdemux, which depends on
+// libwebp, which depends on libsharpyuv.
 foreign import lib {SHIM, DEMUX, WEBP, SHARPYUV}
 
 @(default_calling_convention = "c", link_prefix = "yap_webp_", private)
@@ -77,13 +75,13 @@ foreign lib {
 	anim_close_c :: proc(dec: Anim) ---
 }
 
-// is_webp is whether `data` starts the way a WebP file does: a RIFF
-// container of WEBP.
+// is_webp returns whether `data` starts like a WebP file: a RIFF container
+// of type WEBP.
 is_webp :: proc(data: []u8) -> bool {
 	return len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP"
 }
 
-// size is a WebP picture's width and height, from its header.
+// size returns a WebP picture's width and height, read from its header.
 size :: proc(data: []u8) -> (width, height: int, ok: bool) {
 	w, h: c.int
 	if len(data) == 0 || info(raw_data(data), len(data), &w, &h) == 0 {
@@ -92,24 +90,23 @@ size :: proc(data: []u8) -> (width, height: int, ok: bool) {
 	return int(w), int(h), true
 }
 
-// is_animation is whether `data` is an animated WebP: false for a still
-// one, and for anything that isn't a WebP.
+// is_animation returns whether `data` is an animated WebP. It is false for
+// a still WebP and for anything that isn't a WebP.
 is_animation :: proc(data: []u8) -> bool {
 	return len(data) > 0 && animation_kind(raw_data(data), len(data)) == 1
 }
 
-/*
-An animation being decoded a frame at a time: anim_open, anim_next until
-it says there are no more, anim_reset to go round again, and anim_close.
-The bytes it was opened with must stay as they are until it's closed. A
-still picture opens too, as one frame.
-*/
+// Anim is an animation that is decoded one frame at a time: call anim_open,
+// then anim_next until it reports there are no more frames, anim_reset to
+// start over and anim_close when done. The bytes it was opened with must
+// stay unchanged until it is closed. A still picture can be opened too and
+// counts as a single frame.
 Anim :: distinct rawptr
 
 Anim_Info :: struct {
 	width, height: int, // the canvas, which every frame covers
 	frames:        int,
-	loops:         int, // how often it plays; 0 is for ever
+	loops:         int, // how often it plays; 0 means forever
 }
 
 anim_open :: proc(data: []u8) -> (dec: Anim, info: Anim_Info, ok: bool) {
@@ -126,15 +123,13 @@ anim_open :: proc(data: []u8) -> (dec: Anim, info: Anim_Info, ok: bool) {
 
 Anim_Next :: enum {
 	Frame, // `pixels` is the next frame
-	End, // there's no frame after the last
-	Broken, // the data is
+	End, // the last frame has already been returned
+	Broken, // the data is corrupt
 }
 
-/*
-anim_next decodes the next frame. `pixels` is the whole canvas, RGBA,
-the decoder's own and good until the next call, and `ends` is when the
-frame ends, in milliseconds from the start of the animation.
-*/
+// anim_next decodes the next frame. `pixels` is the whole canvas as RGBA,
+// owned by the decoder and valid until the next call. `ends` is the time
+// when the frame ends, in milliseconds from the start of the animation.
 anim_next :: proc(dec: Anim, info: Anim_Info) -> (pixels: []u8, ends: int, next: Anim_Next) {
 	p: [^]u8
 	ts: c.int
@@ -157,8 +152,9 @@ anim_close :: proc(dec: Anim) {
 	}
 }
 
-// decode_into decodes a WebP picture `width` pixels wide into `pixels`,
-// as RGBA rows top to bottom. False for an animation or broken data.
+// decode_into decodes a WebP picture that is `width` pixels wide into
+// `pixels` as RGBA rows from top to bottom. It returns false for an
+// animation or corrupt data.
 decode_into :: proc(data: []u8, pixels: []u8, width: int) -> bool {
 	if len(data) == 0 || len(pixels) == 0 {
 		return false
@@ -169,11 +165,9 @@ decode_into :: proc(data: []u8, pixels: []u8, width: int) -> bool {
 	)
 }
 
-/*
-encode compresses `rgb` (rows of width * 3 bytes) lossily at `quality`
-(0 to 100). `method` trades speed for size, from 0 (fastest) to 6
-(smallest); 4 is libwebp's default.
-*/
+// encode compresses `rgb` (rows of width * 3 bytes) lossily at `quality`
+// (0 to 100). `method` trades speed for size, from 0 (fastest) to 6
+// (smallest). 4 is libwebp's default.
 encode :: proc(
 	rgb: []u8,
 	width, height: int,
@@ -187,8 +181,9 @@ encode :: proc(
 	return encode_pixels(rgb, width, height, false, quality, method, allocator)
 }
 
-// encode_rgba is encode for `rgba` (rows of width * 4 bytes): the colour
-// lossily at `quality`, the alpha as it is.
+// encode_rgba is like encode but takes `rgba` (rows of width * 4 bytes). The
+// color is compressed lossily at `quality` and the alpha channel is kept
+// as it is.
 encode_rgba :: proc(
 	rgba: []u8,
 	width, height: int,

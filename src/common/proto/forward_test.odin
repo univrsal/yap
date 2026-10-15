@@ -15,12 +15,12 @@ test_links :: proc(t: ^testing.T) {
 	testing.expect_value(t, l.id, Msg_Id(2))
 	_, ok = next_link(text, l.end)
 	testing.expect(t, !ok)
-	// What only looks like one is text.
+	// Malformed links are treated as plain text.
 	for bad in ([]string{"<msg:>", "<msg:12>", "<msg:0:5>", "<msg:a:5>", "<msg:12:5", "<msg:1:0>"}) {
 		_, ok = next_link(bad, 0)
-		testing.expectf(t, !ok, "%q is a link", bad)
+		testing.expectf(t, !ok, "%q was parsed as a link", bad)
 	}
-	// Past a broken one to a whole one.
+	// A broken link is skipped and the valid one after it is found.
 	l, ok = next_link("<msg:x <msg:3:4>", 0)
 	testing.expect(t, ok && l.conv == 3 && l.id == 4)
 	testing.expect_value(t, link_token(12, 3456), "<msg:12:3456>")
@@ -52,5 +52,5 @@ test_forwarded_message :: proc(t: ^testing.T) {
 	testing.expect(t, f_ok)
 	testing.expect_value(t, f, Msg_Forward{conv = 2, nonce = 7, thread_root = 3, msg = 4})
 	_, f_ok = decode_msg_forward(encode_msg_forward(&fwd_buf, {conv = 2, msg = 4}))
-	testing.expect(t, !f_ok, "no nonce")
+	testing.expect(t, !f_ok, "a forward without a nonce was accepted")
 }

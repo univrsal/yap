@@ -9,13 +9,11 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
-/*
-Saving a chat image to the desktop's downloads folder, under a name of
-its own so nothing is ever overwritten.
-*/
+// Saving a chat image to the desktop's downloads folder, under a unique name so
+// that no existing file is ever overwritten.
 
 // save_to_downloads writes `data` as <downloads>/yap-<random>.<ext> and
-// returns where it put it.
+// returns the path of the saved file.
 save_to_downloads :: proc(
 	data: []u8,
 	ext: string,
@@ -53,7 +51,8 @@ downloads_dir :: proc(allocator := context.allocator) -> string {
 	when ODIN_OS == .Windows {
 		home = os.get_env("USERPROFILE", context.temp_allocator)
 	} else {
-		// Freedesktop keeps the (translated, or moved) folder here.
+		// On freedesktop systems the folder may be translated or moved; its actual
+		// location is stored here.
 		if dir := os.get_env("XDG_DOWNLOAD_DIR", context.temp_allocator); dir != "" {
 			return strings.clone(dir, allocator)
 		}

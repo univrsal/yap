@@ -7,47 +7,51 @@ import "core:time"
 import "common:proto"
 import "sqlite"
 
-/*
-Retention: removing what's old for good (src/common/proto/purge.odin).
-
-What the config says to keep no longer goes on its own, at startup and
-once an hour after: messages older than `message_days`, the files
-(attachments.odin) of those older than `file_days`, and the oldest files
-while they take more than `blob_megabytes`. Somebody with Permission.Purge can purge a
-conversation, or all of them, up to a time (Purge), and so can whoever
-runs the server, from the command line with it stopped (cli.odin). Each
-run, and each purge, then removes the stored files nothing uses any
-more and hands the room they took in the database back to the
-filesystem.
-
-	purge messages   the messages, with their reactions, mentions and
-	                 pins; not pinned ones, nor a thread's root while
-	                 any of its replies is kept
-	purge files      the messages stay, and so does each file in a
-	                 message's list, with blob NULL; not pinned ones
-	purge stored     files, the oldest messages' first, until enough
-	                 room is free (blob_megabytes)
-	collect          the blobs nothing points at (no message, no
-	                 account's picture, not the emoji sheet) that are
-	                 older than an hour, so one that's just been uploaded
-	                 for a message that isn't posted yet stays; the row
-	                 first, for good, and then the file
-	vacuum           the database's free pages, a few at a time
-
-All of this is done by the server's loop, which also relays voice, so
-it's done a little at a time: a few dozen rows, then another few dozen,
-for at most RETENTION_BUDGET a turn and with turns of other things in
-between. Nothing waits for it.
-
-Purges go by message ids, not times: a time is turned into the id of the
-first message posted at or after it (msg_boundary), ids going up with
-time. What a purge removes is then "below that id", which is what
-clients are told (Msgs_Purged) to drop.
-
-A purge somebody asked for is written down in the database's meta as it
-goes, so a server that's stopped in the middle carries on with it when
-it starts again. The hourly run needs no such note: it starts over.
-*/
+// Retention removes old data permanently (see src/common/proto/purge.odin).
+//
+// The limits from the config are applied automatically, at startup and once
+// an hour after that. Messages older than `message_days` are removed, the
+// files (see attachments.odin) of messages older than `file_days` are
+// removed, and the oldest files are removed while the stored files take up
+// more than `blob_megabytes`. An account with Permission.Purge can purge a
+// conversation, or all of them, up to a given time (Purge). So can whoever
+// runs the server, from the command line while the server is stopped (see
+// cli.odin). After each run and each purge, the stored files that nothing
+// uses any more are removed and the space they took in the database is
+// returned to the filesystem.
+//
+//	purge messages   Removes the messages together with their reactions,
+//	                 mentions and pins. Pinned messages are kept, and so is
+//	                 the root of a thread while any of its replies is kept.
+//	purge files      The messages stay, and so does each file in a message's
+//	                 file list, but with its blob set to NULL. Pinned
+//	                 messages are kept.
+//	purge stored     Removes files, starting with those of the oldest
+//	                 messages, until enough space is free (blob_megabytes).
+//	collect          Removes the blobs that nothing refers to (no message, no
+//	                 account's picture, not the emoji sheet) and that are
+//	                 older than an hour. The age limit keeps a blob that was
+//	                 just uploaded for a message that isn't posted yet. The
+//	                 database row is deleted and committed first, and then
+//	                 the file.
+//	vacuum           Returns the database's free pages to the filesystem, a
+//	                 few at a time.
+//
+// All of this is done by the server's main loop, which also relays voice
+// data. It is therefore done a little at a time: a few dozen rows, then
+// another few dozen, using at most RETENTION_BUDGET per loop iteration, with
+// other work in between. Nothing waits for it.
+//
+// Purges use message ids rather than times. A time is converted to the id
+// of the first message posted at or after it (see msg_boundary), which
+// works because ids increase with time. What a purge removes is then
+// everything "below that id", which is also what clients are told to drop
+// (Msgs_Purged).
+//
+// A purge that somebody asked for is recorded in the database's meta table
+// as it progresses, so that a server that is stopped in the middle of it
+// continues it when it starts again. The hourly run doesn't need this
+// because it simply starts over.
 
 Retention_Config :: struct {
 	message_days:   int,
@@ -55,34 +59,36 @@ Retention_Config :: struct {
 	blob_megabytes: int,
 }
 
-// How often what the config says is applied, and how long a turn of the
-// loop spends on it at most, with at least RETENTION_PAUSE between such
-// turns so that other things get done.
+// How often the limits from the config are applied, and the maximum time
+// that one loop iteration spends on retention. At least RETENTION_PAUSE
+// must pass between such iterations so that other work gets done.
 RETENTION_INTERVAL :: time.Hour
 RETENTION_BUDGET :: 2 * time.Millisecond
 RETENTION_PAUSE :: 2 * time.Millisecond
-// Rows looked at in one go.
+// The number of rows that are looked at at once.
 PURGE_CHUNK :: 64
-// A blob nothing uses is kept this long after it was stored.
+// A blob that nothing uses is kept for this long after it was stored.
 BLOB_GRACE_MS :: 60 * 60 * 1000
-// Free pages handed back in one go.
+// The number of free pages that are returned to the filesystem at once.
 VACUUM_PAGES :: "32"
-// What purging writes goes through the database's log like anything
-// else. Left to itself the log is moved into the database when it's
-// grown to DB_LOG_MOST, all at once, which takes tens of milliseconds.
-// Instead, retention's turn ends once the log is this long (pages, of 4
-// KB), and the next is spent moving it, which takes a few: about a
-// millisecond and 10 microseconds a page.
+// Whatever purging writes goes through the database's log like any other
+// write. If left alone, the log is moved into the database all at once when
+// it has grown to DB_LOG_MOST, which takes tens of milliseconds. Instead,
+// the retention work of a loop iteration ends once the log has this many
+// pages (of 4 KB), and the next iteration is spent moving it into the
+// database. This takes only a few milliseconds: about 1 ms plus 10
+// microseconds per page.
 RETENTION_LOG_PAGES :: 128
-// How long the server's socket waits for a packet while retention has
-// work: the loop comes round that often even with nobody there, rather
-// than ten times a second.
+// How long the server's socket waits for a packet while retention has work
+// to do. The loop continues this often even if nobody is connected, instead
+// of only ten times a second.
 RETENTION_WAIT :: 2 * time.Millisecond
 
 DAY_MS :: 24 * 60 * 60 * 1000
 
-// Where the database keeps the purge somebody asked for, while it goes
-// on, and the emoji sheet that's in use (emoji.odin), and its frames.
+// The meta keys that the database uses to store a purge that somebody asked
+// for while it is in progress, and the emoji sheet that is in use (see
+// emoji.odin) and its frames.
 @(private = "file")
 PURGE_META_WHAT :: "purge_what"
 @(private = "file")
@@ -92,34 +98,34 @@ PURGE_META_BELOW :: "purge_below"
 @(private = "file")
 PURGE_META_CURSOR :: "purge_cursor"
 EMOJI_SHEET_META :: "emoji_sheet"
-// And the frames of the emoji that move, one key each: this and the
-// blob's id (Blob_Scan keeps every blob named so).
+// The frames of the animated emojis, one key each: this prefix followed by
+// the blob's id (Blob_Scan keeps every blob named like this).
 EMOJI_FRAMES_META :: "emoji_frames_"
 
 Purge_Step_Kind :: enum u8 {
 	Messages,
 	Files,
-	Stored, // files, until `bytes` of them have gone
-	Size_Cap, // becomes Stored if they take too much room
+	Stored, // remove files until `bytes` of them have gone
+	Size_Cap, // becomes Stored if the files take too much space
 	Collect,
 	Vacuum,
 }
 
 Purge_Step :: struct {
 	kind:   Purge_Step_Kind,
-	conv:   proto.Conv_Id, // Messages, Files: 0 for every one
-	below:  proto.Msg_Id, // Messages, Files, Stored: what's below this id
-	cursor: i64, // the last message or blob looked at
-	// Stored: stop once this many bytes have gone (0: go on to `below`).
+	conv:   proto.Conv_Id, // Messages, Files: 0 for every conversation
+	below:  proto.Msg_Id, // Messages, Files, Stored: everything below this id is affected
+	cursor: i64, // the last message or blob that was looked at
+	// Stored: stop once this many bytes have been removed (0 means to go on up to `below`).
 	bytes:  i64,
-	// Somebody asked for it: it's written down until it's done, and
+	// Somebody asked for it. The purge is recorded until it is done, and
 	// what it did is the answer.
 	asked:  bool,
-	// Collect: the emoji sheet, which stays.
+	// Collect: the emoji sheet, which is kept.
 	keep:   Blob_Id,
-	// What it did: messages removed or stripped, or blobs removed; and
-	// the conversations that changed, and roots kept whose threads may
-	// have lost replies.
+	// The result: the number of messages removed or stripped of their
+	// files, or of blobs removed. Also the conversations that changed and the
+	// kept roots whose threads may have lost replies.
 	count:  int,
 	freed:  i64,
 	convs:  map[proto.Conv_Id]bool,
@@ -128,16 +134,17 @@ Purge_Step :: struct {
 
 Retention :: struct {
 	config:    Retention_Config,
-	// What's to be done, the first under way.
+	// The steps that are still to be done, the first being in progress.
 	steps:     [dynamic]Purge_Step,
-	// When the config was last applied; never yet if `ran` isn't set.
-	// And it's due again, as soon as what's queued is done.
+	// When the config was last applied. `ran` is false if that never
+	// happened yet. `due` is set when it needs to be applied again as soon
+	// as the queued steps are done.
 	last_run:  time.Tick,
 	ran:       bool,
 	due:       bool,
 	last_turn: time.Tick,
-	// A purge somebody asked for is under way, and who, to answer when
-	// it's done (if they're still there), with what it did so far.
+	// A purge that somebody asked for is in progress. The asker is answered
+	// when it is done (if it is still connected), with what the purge did.
 	asked:     bool,
 	asker:     Purge_Asker,
 	messages:  int,
@@ -151,10 +158,8 @@ Purge_Asker :: struct {
 	request:  u32,
 }
 
-/*
-retention_open sets retention up with the config's limits, and picks up
-a purge that was asked for and hasn't finished.
-*/
+// retention_open sets retention up with the limits from the config, and
+// resumes a purge that was asked for and hasn't finished.
 retention_open :: proc(r: ^Retention, db: ^DB, config: Retention_Config) {
 	r.config = config
 	below, found := db_meta(db, PURGE_META_BELOW)
@@ -177,14 +182,10 @@ retention_open :: proc(r: ^Retention, db: ^DB, config: Retention_Config) {
 	)
 	append(&r.steps, Purge_Step{kind = .Collect, asked = true}, Purge_Step{kind = .Vacuum})
 	r.asked = true
-	log.infof(
-		"carrying on with the purge of %s below message %d",
-		conv_label(proto.Conv_Id(conv)),
-		below,
-	)
+	log.infof("resuming the purge of %s below message %d", conv_label(proto.Conv_Id(conv)), below)
 }
 
-// step_kind is the step that purges `what`.
+// step_kind returns the kind of step that purges `what`.
 @(private = "file")
 step_kind :: proc(what: proto.Purge_What) -> Purge_Step_Kind {
 	switch what {
@@ -214,13 +215,12 @@ conv_label :: proc(conv: proto.Conv_Id) -> string {
 	return "every conversation" if conv == 0 else "a conversation"
 }
 
-/*
-msg_boundary is the id of the first message posted at or after `time`
-(Unix milliseconds), or one past the last if there's none: what was
-posted before `time` is what's below it. Found by halving, a message
-at a time, which counts on ids going up with time; a clock that went
-back now and then makes it off by about as much.
-*/
+// msg_boundary returns the id of the first message posted at or after `time`
+// (Unix milliseconds), or one past the last message if there is none. The
+// messages posted before `time` are therefore those below the returned id.
+// It is found by bisection, which relies on ids increasing with time. If
+// the clock went backwards now and then, the result is off by about as many
+// messages.
 msg_boundary :: proc(db: ^DB, time_ms: i64) -> proto.Msg_Id {
 	q := db_stmt(db, .Msg_Bounds)
 	lo, hi: i64
@@ -231,7 +231,7 @@ msg_boundary :: proc(db: ^DB, time_ms: i64) -> proto.Msg_Id {
 	if hi <= 1 {
 		return 1
 	}
-	// The first place whose next message isn't older than `time`.
+	// Look for the first position whose next message isn't older than `time`.
 	for lo < hi {
 		mid := lo + (hi - lo) / 2
 		q = db_stmt(db, .Msg_From)
@@ -255,13 +255,12 @@ msg_boundary :: proc(db: ^DB, time_ms: i64) -> proto.Msg_Id {
 	return proto.Msg_Id(lo)
 }
 
-/*
-retention_schedule queues what the config says, as of `now_ms`: the
-messages, then the files, the stored files that are left over, the
-files past the size limit and the stored files they leave, and the
-database's free pages. Collecting and vacuuming are done even with no
-limits set: they only take away what nothing uses.
-*/
+// retention_schedule queues the steps that the config asks for, as of
+// `now_ms`. These are the messages, then the files, then the stored files
+// that are left over, then the files over the size limit and the stored
+// files that are left from them, and finally the database's free pages.
+// Collecting and vacuuming are done even if no limits are set, because they
+// only remove what nothing uses.
 retention_schedule :: proc(r: ^Retention, db: ^DB, now_ms: i64) {
 	c := r.config
 	if c.message_days > 0 {
@@ -279,11 +278,9 @@ retention_schedule :: proc(r: ^Retention, db: ^DB, now_ms: i64) {
 	append(&r.steps, Purge_Step{kind = .Vacuum})
 }
 
-/*
-retention_ask queues a purge somebody asked for, ahead of what the
-config wants done, and writes it down; false if one is under way
-already.
-*/
+// retention_ask queues a purge that somebody asked for, ahead of the steps
+// that the config asks for, and records it. Returns false if a purge is
+// already in progress.
 retention_ask :: proc(r: ^Retention, db: ^DB, p: proto.Purge, now_ms: i64) -> bool {
 	if r.asked {
 		return false
@@ -299,7 +296,8 @@ retention_ask :: proc(r: ^Retention, db: ^DB, p: proto.Purge, now_ms: i64) -> bo
 	db_meta_set(db, PURGE_META_CONV, i64(p.conv))
 	db_meta_set(db, PURGE_META_CURSOR, 0)
 	db_meta_set(db, PURGE_META_BELOW, i64(step.below))
-	// After the step that's under way, which may be halfway.
+	// Insert it after the step that is in progress, which may be only
+	// partly done.
 	at := min(1, len(r.steps))
 	inject_at(
 		&r.steps,
@@ -313,11 +311,9 @@ retention_ask :: proc(r: ^Retention, db: ^DB, p: proto.Purge, now_ms: i64) -> bo
 	return true
 }
 
-/*
-retention_chunk does a little of the first step. When that finishes the
-step it's taken off the queue and returned, `finished`, for the caller
-to tell whoever needs telling and destroy.
-*/
+// retention_chunk does a little of the first step. When the step finishes it
+// is removed from the queue and returned (`finished`), so that the caller can
+// notify whoever needs to know and then destroy it.
 retention_chunk :: proc(
 	r: ^Retention,
 	bs: ^Blob_Store,
@@ -352,7 +348,7 @@ retention_chunk :: proc(
 			break
 		}
 		log.infof(
-			"files take %d MB, more than %d: the oldest go",
+			"files take %d MB, which is more than the limit of %d MB, so the oldest are removed",
 			total / (1024 * 1024),
 			r.config.blob_megabytes,
 		)
@@ -392,7 +388,7 @@ retention_chunk :: proc(
 	return done, true
 }
 
-// msg_bounds are the first and last messages' ids, 0 for none.
+// msg_bounds returns the ids of the first and last message, or 0 if there are no messages.
 @(private = "file")
 msg_bounds :: proc(db: ^DB) -> (first, last: proto.Msg_Id) {
 	q := db_stmt(db, .Msg_Bounds)
@@ -408,10 +404,10 @@ Scanned :: struct {
 	id:    proto.Msg_Id,
 	conv:  proto.Conv_Id,
 	flags: proto.Msg_Flags,
-	size:  i64, // its files'
+	size:  i64, // the total size of its files
 }
 
-// scan reads the next few messages a step goes through, past its cursor.
+// scan reads the next few messages that a step goes through, after its cursor.
 @(private = "file")
 scan :: proc(
 	db: ^DB,
@@ -446,7 +442,7 @@ scan :: proc(
 	return out[:n], true
 }
 
-// run_on runs a statement that writes, with ids for its parameters.
+// run_on runs a statement that writes, with ids as its parameters.
 @(private = "file")
 run_on :: proc(db: ^DB, stmt: Stmt, args: ..i64) -> bool {
 	q := db_stmt(db, stmt)
@@ -456,11 +452,10 @@ run_on :: proc(db: ^DB, stmt: Stmt, args: ..i64) -> bool {
 	return db_run(db, q)
 }
 
-/*
-purge_messages_chunk removes the next few messages below the step's
-boundary; true when there are none left to look at. A failure ends the
-step, logged: what's left stays, and the next run tries again.
-*/
+// purge_messages_chunk removes the next few messages below the step's
+// boundary. It returns true when there are no more messages to look at. A
+// failure is logged and ends the step. What is left stays and the next run
+// tries again.
 @(private = "file")
 purge_messages_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	buf: [PURGE_CHUNK]Scanned
@@ -483,7 +478,7 @@ purge_messages_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 				kept = row || !stepped
 			}
 			if kept {
-				// Some of its replies may go, which it counts.
+				// Some of its replies may be removed, which changes its reply count.
 				append(&step.roots, m.id)
 				continue
 			}
@@ -505,8 +500,8 @@ purge_messages_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	return len(rows) < PURGE_CHUNK
 }
 
-// purge_files_chunk takes the files out of the next few messages below
-// the step's boundary; true when it's done.
+// purge_files_chunk removes the files from the next few messages below the
+// step's boundary. It returns true when it is done.
 @(private = "file")
 purge_files_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	buf: [PURGE_CHUNK]Scanned
@@ -520,7 +515,7 @@ purge_files_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 			continue
 		}
 		if !run_on(db, .Attach_Strip, i64(m.id)) {
-			log.errorf("could not take the files out of message %d", m.id)
+			log.errorf("could not remove the files from message %d", m.id)
 			return true
 		}
 		step.count += 1
@@ -529,8 +524,8 @@ purge_files_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	return len(rows) < PURGE_CHUNK
 }
 
-// purge_stored_chunk takes files out of the oldest messages until enough
-// room is free; true when it's done.
+// purge_stored_chunk removes files from the oldest messages until enough
+// space is free. It returns true when it is done.
 @(private = "file")
 purge_stored_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	buf: [PURGE_CHUNK]Scanned
@@ -544,14 +539,14 @@ purge_stored_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 			continue
 		}
 		if !run_on(db, .Attach_Strip, i64(m.id)) {
-			log.errorf("could not take what's stored out of message %d", m.id)
+			log.errorf("could not remove the stored files from message %d", m.id)
 			return true
 		}
 		step.count += 1
 		step.freed += m.size
 		step.convs[m.conv] = true
 		if step.bytes > 0 && step.freed >= step.bytes {
-			// Enough: what's below this one is what went.
+			// Enough space is free. Everything below this message was purged.
 			step.below = m.id + 1
 			return true
 		}
@@ -559,13 +554,11 @@ purge_stored_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	return len(rows) < PURGE_CHUNK
 }
 
-/*
-collect_chunk removes the next few blobs nothing uses; true when it has
-looked at them all. The rows go first, committed, and then the files:
-were the server stopped in between, a file without a row would only
-take room, where a row without its file would be a blob that can't be
-read.
-*/
+// collect_chunk removes the next few blobs that nothing uses. It returns
+// true when it has looked at all of them. The rows are deleted and committed
+// first, and then the files are removed. If the server is stopped in
+// between, a file without a row only takes up space, whereas a row without
+// its file would be a blob that can't be read.
 @(private = "file")
 collect_chunk :: proc(bs: ^Blob_Store, step: ^Purge_Step, now_ms: i64) -> bool {
 	db := bs.db
@@ -615,19 +608,17 @@ collect_chunk :: proc(bs: ^Blob_Store, step: ^Purge_Step, now_ms: i64) -> bool {
 	return seen < PURGE_CHUNK
 }
 
-/*
-The server's side: the hourly run, the Purge request, and telling
-people.
-*/
+// The rest of this file is the server's side of retention: the hourly run,
+// the Purge request and notifying the clients.
 
-// retention_sync does what there is to do of retention this turn, if it
-// may: at most RETENTION_BUDGET of it.
+// retention_sync does the retention work for this loop iteration, if it is
+// allowed to, using at most RETENTION_BUDGET.
 retention_sync :: proc(s: ^Server) {
 	r := &s.retention
 	if !r.ran || time.tick_since(r.last_run) >= RETENTION_INTERVAL {
 		r.ran, r.last_run, r.due = true, time.tick_now(), true
 	}
-	// Not on top of what's still queued, such as the last run.
+	// Don't schedule it while steps are still queued, such as those of the last run.
 	if r.due && len(r.steps) == 0 {
 		r.due = false
 		retention_schedule(r, &s.db, unix_ms())
@@ -636,8 +627,9 @@ retention_sync :: proc(s: ^Server) {
 		return
 	}
 	if s.db.log_pages >= RETENTION_LOG_PAGES {
-		// This turn's share of the work. The log's file is cut back
-		// when the loop is next idle (db_idle).
+		// Moving the log into the database is this iteration's share of the
+		// work. The log's file is truncated when the loop is next idle (see
+		// db_idle).
 		db_checkpoint(&s.db, keep_file = true)
 		r.last_turn = time.tick_now()
 		return
@@ -649,7 +641,7 @@ retention_sync :: proc(s: ^Server) {
 			step_finished(s, &step)
 			step_destroy(&step)
 		}
-		// Committed now, to know how long the log has grown.
+		// Commit now to find out how far the log has grown.
 		db_commit(&s.db)
 		if s.db.log_pages >= RETENTION_LOG_PAGES {
 			break
@@ -658,14 +650,14 @@ retention_sync :: proc(s: ^Server) {
 	r.last_turn = time.tick_now()
 }
 
-// retention_busy is whether retention has work queued, for the loop to
-// come round more often meanwhile (RETENTION_WAIT).
+// retention_busy returns whether retention has work queued. While it does,
+// the main loop iterates more often (see RETENTION_WAIT).
 retention_busy :: proc(s: ^Server) -> bool {
 	return len(s.retention.steps) > 0
 }
 
-// retention_drain does everything that's queued, all at once: for tests,
-// and for the command line.
+// retention_drain does everything that is queued at once. It is used by the
+// tests and by the command line.
 retention_drain :: proc(
 	r: ^Retention,
 	bs: ^Blob_Store,
@@ -696,17 +688,17 @@ retention_drain :: proc(
 	return
 }
 
-/*
-step_finished tells whoever needs to know what a step did: the members
-of each conversation it purged, those whose unread counts it may have
-changed, and, once a purge somebody asked for is through, them.
-*/
+// step_finished notifies whoever needs to know what a step did. These are
+// the members of each conversation that it purged, those whose unread counts
+// it may have changed and, once a purge that somebody asked for is through,
+// the account that asked.
 @(private = "file")
 step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 	r := &s.retention
 	switch step.kind {
 	case .Messages, .Files, .Stored:
-		// What clients are told went: the files, for room.
+		// What the clients are told was removed. For the steps that free
+		// space, that is the files.
 		what, noun := proto.Purge_What.Messages, "messages"
 		if step.kind != .Messages {
 			what, noun = .Files, "messages' files"
@@ -742,12 +734,12 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 					)
 				}
 				if what == .Messages {
-					// What it hadn't read may have gone.
+					// Messages that it hadn't read yet may have been removed.
 					send_read(s, acc, conv)
 				}
 			}
 		}
-		// Roots that stay, with fewer replies.
+		// Roots that are kept but now have fewer replies.
 		for root in step.roots {
 			if m, found := msg_by_id(s, root); found {
 				if conv := conv_by_id(&s.convs, m.conv); conv != nil {
@@ -756,7 +748,7 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 			}
 		}
 		if what == .Messages {
-			// Offers of files whose messages went can't be taken up.
+			// Offered files whose messages were removed can no longer be accepted.
 			gone := make([dynamic]proto.Msg_Id, context.temp_allocator)
 			for id in s.file_offers {
 				if id < step.below {
@@ -774,7 +766,7 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 		}
 	case .Collect:
 		if step.count > 0 {
-			log.infof("removed %d stored file(s) nothing uses", step.count)
+			log.infof("removed %d stored file(s) that nothing uses", step.count)
 		}
 		if step.asked {
 			r.blobs += step.count
@@ -785,8 +777,8 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 	}
 }
 
-// purge_answer answers whoever asked for the purge that's just finished,
-// if they're still there.
+// purge_answer answers the account that asked for the purge that just
+// finished, if it is still connected.
 @(private = "file")
 purge_answer :: proc(s: ^Server) {
 	r := &s.retention
@@ -803,7 +795,7 @@ purge_answer :: proc(s: ^Server) {
 	respond(u, a.request, .Ok, proto.encode_purge_answer(&buf, r.messages, r.blobs))
 }
 
-// purge_request handles Purge: it's answered when the purge is done.
+// purge_request handles Purge. It is answered when the purge is done.
 purge_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	p, ok := proto.decode_purge(body)
 	if !ok {

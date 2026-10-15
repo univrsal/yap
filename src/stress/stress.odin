@@ -14,47 +14,45 @@ import "core:time"
 import "common:."
 import "common:proto"
 
-/*
-yap-stress: a busy server, made up. Bots (bot.odin, each a headless
-client: common/lite) connect over a few seconds, log in, and join the home channel's voice room; some of them
-talk, 50 frames a second each, the way a client does. Meanwhile they
-post messages, read history and search, at the rates asked for, from
-bots picked at random.
+// yap-stress simulates a busy server. Bots (bot.odin, each a headless
+// client from common/lite) connect over a few seconds, log in and join the
+// voice room of the home channel. Some of them talk, sending 50 frames per
+// second each, the way a client does. Meanwhile randomly picked bots post
+// messages, read history and search, at the rates given on the command line.
+//
+// Every few seconds it reports how that went as the clients see it: how
+// long the voice frames took to get from one bot through the server to
+// another (they share a clock, see bot.odin), how many went missing, and
+// how long requests took to be answered. A client starts to hear problems
+// at about the point where frames are later than VOICE_SLACK. The server's
+// own side is in its log (server/loop_stats.odin); build the server with
+// -define:YAP_LOOP_REPORT_SECONDS=10 to make it summarize that often.
+//
+// It isn't part of build.sh:
+//
+//	odin build src/stress -collection:common=src/common -o:speed -out:bin/yap-stress
+//	bin/yap-stress -bot-password:<password> -bots:100 -talkers:10 -posts:5
+//
+// The bots log in as bot1, bot2, and so on. Create them first, with the
+// server stopped:
+//
+//	yap-server account bots 50 <password> [config.json]
+//
+// Their device keys are kept (in -keys), so from the second run on they
+// log in through the handshake instead of with a password.
+//
+// Everything runs on one thread, which waits (using poll) until a bot's
+// socket has data or a millisecond has passed. The delays it measures
+// therefore include a little of its own overhead, and if the tool falls
+// behind, the report says so ("this tool's loop"). Measurements go into
+// histograms with HIST_STEP-sized buckets, which are cheap to summarize.
+//
+// It uses poll, so it only works on Linux, macOS and the BSDs.
 
-Every few seconds it says how that went, as the clients see it: how
-long the voice frames took to get from one bot through the server to
-another (they share a clock, see bot.odin), how many went missing, and
-how long requests took to be answered. Frames later than VOICE_SLACK
-are about where a client starts to hear it. The server's own side is in
-its log (server/loop_stats.odin): build it with
--define:YAP_LOOP_REPORT_SECONDS=10 to have it sum up as often.
-
-It isn't part of build.sh:
-
-	odin build src/stress -collection:common=src/common -o:speed -out:bin/yap-stress
-	bin/yap-stress -bot-password:<password> -bots:100 -talkers:10 -posts:5
-
-The bots log in as bot1, bot2...: make them first, with the server
-stopped,
-
-	yap-server account bots 50 <password> [config.json]
-
-Their device keys are kept (in -keys), so from the second run on they
-are logged in by the handshake rather than by a password.
-
-Everything runs on one thread, which waits (poll) until a bot's socket
-has something or a millisecond has gone by, so the delays it measures
-include a little of its own; and if it falls behind itself, the report
-says so ("this tool's loop"). Measurements go into histograms of
-HIST_STEP buckets, which cost nothing much to sum up.
-
-poll makes it a tool for Linux, macOS and the BSDs.
-*/
-
-// How long the loop waits for a packet, at most, in milliseconds.
+// The longest the loop waits for a packet, in milliseconds.
 POLL_WAIT :: 1
-// About how late a voice frame can be before a client runs out of that
-// speaker's audio (see server/loop_stats.odin).
+// Roughly how late a voice frame can be before a client runs out of audio
+// from that speaker (see server/loop_stats.odin).
 VOICE_SLACK :: 20 * time.Millisecond
 
 Options :: struct {
@@ -75,7 +73,7 @@ Options :: struct {
 	report:       int `usage:"seconds between reports (default 10)"`,
 }
 
-// Run is the whole test.
+// Run is the state of the whole test.
 Run :: struct {
 	opt:    Options,
 	server: net.Endpoint,
@@ -92,7 +90,7 @@ Stats :: struct {
 	ops:            map[proto.Request_Op]Op_Stats,
 	failed:         int, // bots that gave up
 	reconnects:     int,
-	loop_gap:       time.Duration, // this tool's own, the longest
+	loop_gap:       time.Duration, // the longest gap in this tool's own loop
 }
 
 Op_Stats :: struct {
@@ -100,8 +98,8 @@ Op_Stats :: struct {
 	failed: map[proto.Status]int,
 }
 
-// A histogram of durations, in buckets of HIST_STEP up to HIST_MOST, and
-// one for everything longer.
+// Hist is a histogram of durations, in buckets of HIST_STEP up to
+// HIST_MOST, plus one bucket for everything longer.
 HIST_STEP :: 100 * time.Microsecond
 HIST_MOST :: 2 * time.Second
 Hist :: struct {
@@ -124,7 +122,7 @@ hist_merge :: proc(into: ^Hist, h: ^Hist) {
 	into.longest = max(into.longest, h.longest)
 }
 
-// hist_over is how many took longer than `d`.
+// hist_over returns how many durations were longer than `d`.
 hist_over :: proc(h: ^Hist, d: time.Duration) -> (n: int) {
 	for count in h.counts[int(d / HIST_STEP) + 1:] {
 		n += count
@@ -132,8 +130,8 @@ hist_over :: proc(h: ^Hist, d: time.Duration) -> (n: int) {
 	return
 }
 
-// hist_at is the upper bound of the bucket the given share of them are
-// in or under.
+// hist_at returns the upper bound of the bucket that the given share of
+// the durations fall into or below.
 hist_at :: proc(h: ^Hist, share: f64) -> time.Duration {
 	want := max(1, int(f64(h.n) * share + 0.5))
 	seen := 0
@@ -146,8 +144,8 @@ hist_at :: proc(h: ^Hist, share: f64) -> time.Duration {
 	return h.longest
 }
 
-// spread says how a histogram's durations went: median, 99th percentile,
-// longest.
+// spread summarizes a histogram's durations as the median, the 99th
+// percentile and the longest.
 spread :: proc(h: ^Hist) -> string {
 	return fmt.tprintf(
 		"median %.1f ms, 99%% %.1f, longest %.1f",
@@ -157,7 +155,7 @@ spread :: proc(h: ^Hist) -> string {
 	)
 }
 
-// Words for the messages, so that searches find some.
+// Words for the messages, so that searches find something.
 WORDS :: [?]string {
 	"apple",
 	"banana",
@@ -213,7 +211,9 @@ main :: proc() {
 	flags.parse_or_exit(&r.opt, os.args, .Odin)
 	opt := &r.opt
 	if opt.bot_password == "" {
-		fmt.eprintln("-bot-password is needed: the one given to yap-server account bots")
+		fmt.eprintln(
+			"-bot-password is required: use the password given to yap-server account bots",
+		)
 		os.exit(2)
 	}
 	if opt.voice == 0 || opt.voice > opt.bots {
@@ -256,8 +256,8 @@ main :: proc() {
 		)
 		b.wants_voice = i < opt.voice
 		b.talker = i < opt.talkers
-		// Its socket once it has one (bot_step); poll passes over it
-		// until then.
+		// The bot's socket is set once it has one (see bot_step). Until then
+		// poll ignores this entry.
 		fds[i] = {
 			fd     = -1,
 			events = {.IN},
@@ -277,7 +277,7 @@ main :: proc() {
 	end := time.tick_add(start, time.Duration(opt.duration) * time.Second)
 	next_report := time.tick_add(start, time.Duration(opt.report) * time.Second)
 	last, reported := start, start
-	work: [3]f64 // what's owed of posts, history and searches
+	work: [3]f64 // the posts, history reads and searches that are due
 	for {
 		free_all(context.temp_allocator)
 		now := time.tick_now()
@@ -316,7 +316,7 @@ main :: proc() {
 		}
 		posix.poll(raw_data(fds), posix.nfds_t(len(fds)), POLL_WAIT)
 	}
-	// What's left since the last report, unless that was just now.
+	// Report what happened since the last report, unless that was just now.
 	if time.tick_since(reported) >= time.Second {
 		report(r, time.tick_since(start), false)
 	}
@@ -326,8 +326,8 @@ main :: proc() {
 	}
 }
 
-// any_ready is a bot picked at random from those that are logged in
-// and know the home channel; nil if none is yet.
+// any_ready returns a randomly picked bot from those that are logged in
+// and know the home channel, or nil if there is none yet.
 any_ready :: proc(r: ^Run) -> ^Bot {
 	for _ in 0 ..< 8 {
 		b := &r.bots[rand.int_max(len(r.bots))]
@@ -370,13 +370,13 @@ do_work :: proc(b: ^Bot, kind: int) {
 	}
 }
 
-// ready_after: a bot has logged in and been told everything, `took`
-// after it started.
+// ready_after records that a bot has logged in and received everything,
+// `took` after it started.
 ready_after :: proc(r: ^Run, took: time.Duration) {
 	hist_add(&r.stats.ready, took)
 }
 
-// answered: a request's answer has come.
+// answered records that the answer to a request has arrived.
 answered :: proc(r: ^Run, op: proto.Request_Op, status: proto.Status, took: time.Duration) {
 	o := &r.stats.ops[op]
 	if o == nil {
@@ -389,16 +389,15 @@ answered :: proc(r: ^Run, op: proto.Request_Op, status: proto.Status, took: time
 	}
 }
 
-// frame_heard: a voice frame has come, `took` after it was sent.
+// frame_heard records that a voice frame has arrived, `took` after it
+// was sent.
 frame_heard :: proc(r: ^Run, took: time.Duration) {
 	hist_add(&r.stats.frames, took)
 }
 
-/*
-report says how the last stretch went, and adds it to the total; with
-`final`, it's the total that's said, and the window is left alone (the
-caller has just reported it).
-*/
+// report prints how the last interval went and adds it to the total. With
+// `final`, it prints the total instead and leaves the interval's stats alone
+// (the caller has just reported them).
 report :: proc(r: ^Run, elapsed: time.Duration, final: bool) {
 	s := &r.stats
 	if final {

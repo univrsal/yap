@@ -1,31 +1,30 @@
 package proto
 
-/*
-Web Push (src/server/push.odin, misc/mobile): a browser that has turned
-push on gives the server its subscription, so the server can tell it
-about messages while the client isn't open.
+// Web Push (src/server/push.odin, misc/mobile): a browser that has enabled push sends its
+// subscription to the server, so the server can notify it about messages while the client
+// isn't open.
+//
+//	Push_Subscribe    request   [endpoint str16][p256dh 65][auth 16]
+//	                  response  (nothing)
+//	Push_Unsubscribe  request   (nothing)
+//	                  response  (nothing)
+//
+// A subscription consists of the endpoint URL at the browser's push service and the two
+// keys that PushSubscription provides: p256dh, an uncompressed P-256 point, and the auth
+// secret. The browser subscribes using the server's VAPID key (Server_Info's push_key); a
+// server that doesn't advertise a key doesn't support push and answers Push_Subscribe with
+// Closed.
+//
+// A subscription belongs to a device (identified by the connection's key). Each device has
+// at most one: a new subscription replaces the previous one, and it is deleted along with
+// the device when the device logs out or is revoked. Push_Unsubscribe deletes this
+// device's subscription.
 
-	Push_Subscribe    request   [endpoint str16][p256dh 65][auth 16]
-	                  response  (nothing)
-	Push_Unsubscribe  request   (nothing)
-	                  response  (nothing)
-
-A subscription is the endpoint URL at the browser's push service and
-its two keys, as PushSubscription gives them: p256dh, an uncompressed
-P-256 point, and the auth secret. The browser subscribes with the
-server's VAPID key, Server_Info's push_key; a server that gives none
-doesn't push, and answers Push_Subscribe Closed.
-
-A subscription is this device's (the connection's key): one each, a new
-one taking the place of the last, and gone with the device when it logs
-out or is revoked. Push_Unsubscribe forgets this device's.
-*/
-
-// What a P-256 public key (p256dh, and the VAPID key) takes, and an auth
+// The size of an uncompressed P-256 public key (p256dh and the VAPID key), and of an auth
 // secret.
 PUSH_KEY_SIZE :: 65
 PUSH_AUTH_SIZE :: 16
-// The longest endpoint URL taken. Push services' are well under 1 KB.
+// The longest accepted endpoint URL. Push services use URLs well under 1 KB.
 MAX_PUSH_ENDPOINT :: 2048
 
 Push_Subscription :: struct {
@@ -54,8 +53,8 @@ encode_push_subscribe :: proc(out: []u8, sub: Push_Subscription) -> (body: []u8,
 	return out[:w.pos], true
 }
 
-// decode_push_subscribe reads one; the endpoint points into `body`, and
-// is to be checked before it's used.
+// decode_push_subscribe decodes a Push_Subscribe request. The endpoint points into `body`
+// and must be validated before it is used.
 @(require_results)
 decode_push_subscribe :: proc(body: []u8) -> (sub: Push_Subscription, ok: bool) {
 	r := Reader {

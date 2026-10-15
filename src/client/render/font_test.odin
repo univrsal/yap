@@ -6,7 +6,7 @@ import mu "vendor:microui"
 
 @(test)
 test_font_handles :: proc(t: ^testing.T) {
-	// The handles that were there before styles keep their meaning.
+	// The handles that existed before styles were added keep their meaning.
 	testing.expect_value(t, font_handle(.UI, .Regular), mu.Font(nil))
 	testing.expect_value(t, font_handle(.Chat, .Regular), CHAT_FONT)
 	for style in Font_Style {
@@ -21,7 +21,7 @@ test_font_faces :: proc(t: ^testing.T) {
 	testing.expect(t, font_init(&f))
 	defer font_destroy(&f)
 
-	// Only Regular is read until another face is asked for.
+	// Only Regular is read until another face is requested.
 	for style in Font_Style {
 		testing.expect_value(t, f.faces[style].tried, style == .Regular)
 	}
@@ -31,16 +31,17 @@ test_font_faces :: proc(t: ^testing.T) {
 	italic := font_text_width(&f, text, .Italic)
 	testing.expect(t, f.faces[.Bold].ok && f.faces[.Italic].ok)
 	testing.expect(t, !f.faces[.Mono].tried)
-	// The same em: close to Regular, but not the same.
+	// The same em size: close to Regular but not identical.
 	testing.expect(t, bold > regular && bold < regular * 1.15)
 	testing.expect(t, italic != regular && italic > regular * 0.9 && italic < regular * 1.1)
 	testing.expect(t, font_text_width(&f, text, .Bold_Italic) > 0)
 
-	// Mono: every character as wide as the next.
+	// Mono: every character has the same width.
 	testing.expect_value(t, font_text_width(&f, "iii", .Mono), font_text_width(&f, "WWW", .Mono))
 	testing.expect(t, font_text_width(&f, "iii", .Mono) > font_text_width(&f, "iii"))
 
-	// Emoji and Unifont have no styles: as wide in any face.
+	// Emoji and Unifont have no styles, so they are equally wide in any
+	// face.
 	testing.expect_value(t, font_text_width(&f, "😀中", .Bold), font_text_width(&f, "😀中"))
 	used := font_faces_used(&f, "a😀中", .Bold)
 	testing.expect_value(t, used, bit_set[Font_Style]{.Bold})
@@ -68,26 +69,26 @@ test_font_face_atlas :: proc(t: ^testing.T) {
 
 	font_set_scale(&f, 2)
 	testing.expect(t, font_build_atlas(&f, .Regular))
-	// Bold has no atlas yet: nothing of it is drawn.
+	// Bold has no atlas yet, so nothing of it is drawn.
 	testing.expect_value(t, count(&f, "ab", .Bold).quads, 0)
 	testing.expect(t, font_build_atlas(&f, .Bold))
 	testing.expect(t, f.faces[.Bold].pixels != nil)
-	// Built once per scale.
+	// The atlas is built once per scale.
 	testing.expect(t, !font_build_atlas(&f, .Bold))
 	c := count(&f, "ab", .Bold)
 	testing.expect_value(t, c.quads, 2)
 	testing.expect_value(t, c.faces, bit_set[Font_Style]{.Bold})
-	// Another scale, another atlas.
+	// A different scale needs a different atlas.
 	font_set_scale(&f, 1.5)
 	testing.expect_value(t, count(&f, "ab", .Bold).quads, 0)
 	testing.expect(t, font_build_atlas(&f, .Bold))
 	testing.expect(t, f.faces[.Bold].scale == 1.5)
 }
 
-// Text moved by whole logical pixels moves as a block: its glyphs keep
-// their places relative to each other on the physical grid (at 1.5 they
-// used to round one way or the other each on its own, and letters
-// shuffled as a window was resized).
+// Text that is moved by whole logical pixels moves as a block: its glyphs keep
+// their positions relative to each other on the physical grid. (At a scale of
+// 1.5 they used to be rounded independently of each other, so letters
+// shuffled while a window was resized.)
 @(test)
 test_text_moves_as_a_block :: proc(t: ^testing.T) {
 	f: Font
@@ -118,8 +119,8 @@ test_text_moves_as_a_block :: proc(t: ^testing.T) {
 	}
 }
 
-// glyph_lefts is where each glyph of a line starts, laid out from `x`
-// (physical pixels).
+// glyph_lefts returns where each glyph of a line starts when it is laid out
+// from `x` (in physical pixels).
 @(private = "file")
 glyph_lefts :: proc(f: ^Font, x: f32) -> [dynamic]f32 {
 	Placed :: struct {

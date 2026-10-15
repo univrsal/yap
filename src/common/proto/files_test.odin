@@ -20,7 +20,7 @@ test_file_chunks :: proc(t: ^testing.T) {
 	testing.expect_value(t, index, 2)
 	testing.expect(t, string(got) == string(data[:]))
 
-	// A whole chunk fits in a datagram.
+	// A full chunk fits exactly into one datagram.
 	full: [FILE_CHUNK_DATA]u8
 	msg = encode_file_chunk(wire[:], 7, 0, full[:])
 	testing.expect_value(t, len(msg), MAX_PAYLOAD_SIZE)

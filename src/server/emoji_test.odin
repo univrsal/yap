@@ -11,8 +11,8 @@ import "core:testing"
 import "common:proto"
 import "common:webp"
 
-// test_png is a PNG of one colour, uncompressed: enough for the emoji to
-// read.
+// test_png returns an uncompressed PNG of a single color, which is enough for
+// the emoji code to read.
 @(private = "file")
 test_png :: proc(width, height: int, rgba: [4]u8) -> []u8 {
 	rgba := rgba
@@ -41,7 +41,7 @@ test_png :: proc(width, height: int, rgba: [4]u8) -> []u8 {
 			append(&raw, ..rgba[:])
 		}
 	}
-	// zlib, stored blocks.
+	// zlib stream with stored (uncompressed) blocks.
 	z := make([dynamic]u8, context.temp_allocator)
 	append(&z, 0x78, 0x01)
 	for at := 0; at < len(raw); at += 65535 {
@@ -67,7 +67,7 @@ test_emoji_sheet :: proc(t: ^testing.T) {
 		return p
 	}
 
-	// No folder: no emoji, and nothing wrong.
+	// Without a folder there are no emoji, and that is not an error.
 	none := build_sheet(path(dir, "emoji"))
 	testing.expect(t, none.ok)
 	testing.expect_value(t, len(none.names), 0)
@@ -104,8 +104,8 @@ test_emoji_sheet :: proc(t: ^testing.T) {
 		testing.expect_value(t, img.width, EMOJI_COLUMNS * EMOJI_STRIDE)
 		testing.expect_value(t, img.height, EMOJI_STRIDE)
 		px := bytes.buffer_to_bytes(&img.pixels)
-		// The second cell: party, 64 by 32, scaled to 32 by 16 and
-		// centred, red; transparent above and below.
+		// The second cell contains party, which is 64 by 32, scaled to 32 by 16
+		// and centered. It is red with transparent areas above and below.
 		at :: proc(px: []u8, x, y: int) -> [4]u8 {
 			i := (y * EMOJI_COLUMNS * EMOJI_STRIDE + x) * 4
 			return {px[i], px[i + 1], px[i + 2], px[i + 3]}
@@ -118,7 +118,7 @@ test_emoji_sheet :: proc(t: ^testing.T) {
 		testing.expect_value(t, at(px, EMOJI_STRIDE + 16, EMOJI_CELL)[3], 0)
 	}
 
-	// The same folder makes the same sheet.
+	// The same folder produces the same sheet.
 	again := build_sheet(emoji)
 	defer built_sheet_destroy(&again)
 	testing.expect(t, string(again.qoi) == string(sheet.qoi))
@@ -126,9 +126,10 @@ test_emoji_sheet :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(sheet.anims), 0)
 }
 
-// The emoji that move are kept as blobs, which purging leaves alone
-// (also without the server: it goes by the meta rows), and anyone may
-// fetch; when they're gone from the folder, so are their meta rows.
+// The frames of animated emoji are stored as blobs. Purging leaves them alone
+// (even when it runs without the server, since it goes by the meta rows) and
+// anyone may fetch them. Once the emoji are removed from the folder, their meta
+// rows are removed too.
 @(test)
 test_emoji_frames_kept :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
@@ -157,7 +158,7 @@ test_emoji_frames_kept :: proc(t: ^testing.T) {
 	kept, found := db_meta(&s.db, key)
 	testing.expect(t, found && Blob_Id(kept) == frames)
 
-	// Everything old enough to go, and one blob nothing uses.
+	// Everything that is old enough to be purged, plus one blob that nothing uses.
 	orphan, _ := blob_put(&s.blobs, .File, []u8{1, 2, 3})
 	for id in ([]Blob_Id{frames, s.emoji.blob, orphan}) {
 		q := db_stmt(&s.db, .Blob_Touch)
@@ -175,7 +176,8 @@ test_emoji_frames_kept :: proc(t: ^testing.T) {
 	_, found = blob_get(&s.blobs, orphan)
 	testing.expect(t, !found, "the unused blob stayed")
 
-	// Taken out of the folder: still, and its meta row gone.
+	// After it is removed from the folder, it is not animated anymore and its
+	// meta row is gone.
 	testing.expect(t, os.remove(spin) == nil)
 	still, _ := os.join_path({emoji, "spin.png"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(still, test_png(8, 8, {0, 0, 255, 255})) == nil)
@@ -187,8 +189,8 @@ test_emoji_frames_kept :: proc(t: ^testing.T) {
 	testing.expect(t, !found)
 }
 
-// 6x4: red for 50 ms, green for 100, then blue (half transparent in the
-// WebP), 5 ms in the WebP and 0 in the GIF.
+// 6x4 pixels: red for 50 ms, green for 100 ms, then blue (half transparent in
+// the WebP) for 5 ms in the WebP and 0 ms in the GIF.
 @(private = "file")
 ANIM_WEBP := #load("../common/webp/testdata/anim.webp")
 @(private = "file")
@@ -212,7 +214,7 @@ test_emoji_animated :: proc(t: ^testing.T) {
 	write(t, dir, "wave.webp", ANIM_WEBP)
 	write(t, dir, "calm.webp", STILL_WEBP)
 	write(t, dir, "many.gif", GIF_100)
-	// Two of the same name: the PNG is the one.
+	// If two files have the same name, the PNG is used.
 	write(t, dir, "twice.png", test_png(8, 8, {0, 0, 255, 255}))
 	write(t, dir, "twice.gif", ANIM_GIF)
 
@@ -227,7 +229,7 @@ test_emoji_animated :: proc(t: ^testing.T) {
 		testing.expect_value(t, sheet.names[3], "twice")
 		testing.expect_value(t, sheet.names[4], "wave")
 	}
-	// Those that move: many, spin and wave, in order of their cells.
+	// The animated emoji are many, spin and wave, in the order of their cells.
 	testing.expect_value(t, len(sheet.anims), 3)
 	if len(sheet.anims) != 3 {
 		return
@@ -236,7 +238,7 @@ test_emoji_animated :: proc(t: ^testing.T) {
 	testing.expect_value(t, sheet.anims[1].index, 2)
 	testing.expect_value(t, sheet.anims[2].index, 4)
 
-	// Their frames, timed as clients show them (0 and 5 ms are 100).
+	// Their frames, with the durations clients display (0 and 5 ms become 100 ms).
 	for a in sheet.anims[1:] {
 		f, ok := proto.decode_emoji_frames(a.data)
 		testing.expect(t, ok)
@@ -254,7 +256,7 @@ test_emoji_animated :: proc(t: ^testing.T) {
 		testing.expect_value(t, a.width, w)
 		testing.expect_value(t, a.height, h)
 		if read {
-			// The second frame, green, in the second cell.
+			// The second frame is green and is in the second cell.
 			px := make([]u8, w * h * 4, context.temp_allocator)
 			testing.expect(t, webp.decode_into(f.image, px, w))
 			i := (32 * w + EMOJI_STRIDE + 32) * 4
@@ -262,7 +264,7 @@ test_emoji_animated :: proc(t: ^testing.T) {
 		}
 	}
 
-	// A hundred frames come down to 64, at the same speed: 2 s in all.
+	// A hundred frames are thinned out to 64 while keeping the speed, 2 s in total.
 	f, ok := proto.decode_emoji_frames(sheet.anims[0].data)
 	testing.expect(t, ok)
 	testing.expect_value(t, len(f.durations), proto.MAX_EMOJI_FRAMES)
@@ -274,7 +276,7 @@ test_emoji_animated :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, total, 2000)
 
-	// The sheet's cells are the first frames: spin's is red.
+	// The cells in the sheet are the first frames. The one for spin is red.
 	img, err := qoi.load_from_bytes(sheet.qoi, {}, context.temp_allocator)
 	testing.expect(t, err == nil && img != nil)
 	if img != nil {

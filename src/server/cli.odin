@@ -10,36 +10,35 @@ import "core:time"
 
 import "common:proto"
 
-/*
-`yap-server account ...`: accounts from the command line, for whoever
-runs the server and has no client at hand, or can't get in with one any
-more (the owner's password is forgotten, say).
-
-	yap-server account list             [config.json]
-	yap-server account add <username>    [config.json]
-	yap-server account passwd <username> [config.json]
-	yap-server account owner <username>  [config.json]
-	yap-server account verify <username> [config.json]
-	yap-server account role <username> <role>    [config.json]
-	yap-server account unrole <username> <role>  [config.json]
-	yap-server account delete <username> [config.json]
-	yap-server account bots <count> <password> [config.json]
-	yap-server role list                [config.json]
-
-`add` and `passwd` make up a password and print it; like any password
-somebody else chose, it's only good for logging in and choosing one's
-own. `passwd` also logs the account's devices out. `owner` makes the
-account the server's owner, in place of whoever was. `verify` takes
-an account whose email address hasn't been verified (verify.odin) as if
-it had been. `role` and `unrole`
-give an account a role or take it away, and `role list` lists the roles
-and what they allow: for a server nobody can manage any more. `delete`
-deletes an account for good (account_delete.odin): what it wrote stays,
-under "Deleted user"; never the owner's.
-
-These work on the database directly, and it's one process's at a time:
-they can't run while the server does.
-*/
+// `yap-server account ...` manages accounts from the command line. It is meant
+// for whoever runs the server and has no client at hand, or can no longer log in
+// with one (for example because the owner forgot their password).
+//
+//	yap-server account list             [config.json]
+//	yap-server account add <username>    [config.json]
+//	yap-server account passwd <username> [config.json]
+//	yap-server account owner <username>  [config.json]
+//	yap-server account verify <username> [config.json]
+//	yap-server account role <username> <role>    [config.json]
+//	yap-server account unrole <username> <role>  [config.json]
+//	yap-server account delete <username> [config.json]
+//	yap-server account bots <count> <password> [config.json]
+//	yap-server role list                [config.json]
+//
+// `add` and `passwd` generate a password and print it. Like any password that
+// somebody else chose, it is only good for logging in and choosing a new one.
+// `passwd` also logs out all of the account's devices.
+// `owner` makes the account the server's owner, replacing the previous owner.
+// `verify` marks an account as verified even if its email address (see
+// verify.odin) hasn't been verified.
+// `role` and `unrole` give an account a role or take it away, and `role list`
+// lists the roles and what they allow. This helps on a server that nobody can
+// manage anymore.
+// `delete` permanently deletes an account (see account_delete.odin). Its
+// messages are kept and shown under "Deleted user". The owner can't be deleted.
+//
+// These commands work on the database directly, which only one process can use
+// at a time, so they can't run while the server is running.
 
 ACCOUNT_USAGE :: `usage: yap-server account list [config.json]
        yap-server account add <username> [config.json]
@@ -52,14 +51,13 @@ ACCOUNT_USAGE :: `usage: yap-server account list [config.json]
        yap-server account bots <count> <password> [config.json]
        yap-server role list [config.json]`
 
-/*
-account_bots is `account bots <count> <password>`: accounts bot1 to
-bot<count>, all with that password and nothing to change on first login,
-for the stress test (src/stress) to log in as. Those there already are
-left as they are, so it can be run again for more. The password is
-hashed once and the same hash, salt and all, kept for every one of them:
-they're for testing, not for people.
-*/
+// account_bots implements `account bots <count> <password>`. It creates the
+// accounts bot1 to bot<count>, all with the given password and no forced
+// password change on first login. They are meant for the stress test
+// (src/stress) to log in as. Accounts that already exist are left alone, so the
+// command can be run again to create more. The password is hashed only once and
+// the same hash (including its salt) is shared by all of them, since they are
+// meant for testing and not for real users.
 @(private = "file")
 account_bots :: proc(args: []string) -> int {
 	if len(args) < 2 || len(args) > 3 {
@@ -68,12 +66,12 @@ account_bots :: proc(args: []string) -> int {
 	}
 	count, count_ok := strconv.parse_int(args[0])
 	if !count_ok || count < 1 || count > 100_000 {
-		fmt.eprintfln("%q isn't a number of bots", args[0])
+		fmt.eprintfln("%q isn't a valid number of bots (1 to 100000)", args[0])
 		return 2
 	}
 	if !proto.account_password_ok(args[1]) {
 		fmt.eprintfln(
-			"a password is %d to %d bytes",
+			"the password must be %d to %d bytes long",
 			proto.MIN_ACCOUNT_PASSWORD,
 			proto.MAX_ACCOUNT_PASSWORD,
 		)
@@ -81,7 +79,10 @@ account_bots :: proc(args: []string) -> int {
 	}
 	config := args[2] if len(args) == 3 else DEFAULT_CONFIG_FILE
 	if !os.exists(config) {
-		fmt.eprintfln("%s: no such config (run the server once, or name its config)", config)
+		fmt.eprintfln(
+			"%s: config file not found (start the server once to create it, or pass the path to its config)",
+			config,
+		)
 		return 2
 	}
 	settings, config_ok := load_config(config)
@@ -118,7 +119,7 @@ account_bots :: proc(args: []string) -> int {
 		made += 1
 	}
 	db_commit(&db)
-	fmt.printfln("made %d bot accounts; %d were there already", made, count - made)
+	fmt.printfln("created %d bot accounts (%d already existed)", made, count - made)
 	return 0
 }
 
@@ -133,7 +134,8 @@ run_account_command :: proc(args: []string) -> int {
 	if command == "bots" {
 		return account_bots(args[1:])
 	}
-	// How many names it takes: a username, and for a role a role's.
+	// The number of names the command takes: a username, and for role commands
+	// also a role name.
 	names := 0
 	switch command {
 	case "list", "roles":
@@ -157,9 +159,12 @@ run_account_command :: proc(args: []string) -> int {
 		config = rest[len(rest) - 1]
 	}
 
-	// A server's first run writes its config; this isn't one.
+	// The server writes its config on the first run, so the CLI doesn't create one.
 	if !os.exists(config) {
-		fmt.eprintfln("%s: no such config (run the server once, or name its config)", config)
+		fmt.eprintfln(
+			"%s: config file not found (start the server once to create it, or pass the path to its config)",
+			config,
+		)
 		return 2
 	}
 	settings, config_ok := load_config(config)
@@ -190,7 +195,7 @@ run_account_command :: proc(args: []string) -> int {
 	username, clean := proto.username_clean(raw_name, &name_buf)
 	if !clean {
 		fmt.eprintfln(
-			"%q can't be a username: %d to %d of a-z 0-9 _ . -",
+			"%q isn't a valid username: it must be %d to %d characters of a-z 0-9 _ . -",
 			raw_name,
 			proto.MIN_USERNAME_SIZE,
 			proto.MAX_USERNAME_SIZE,
@@ -202,7 +207,7 @@ run_account_command :: proc(args: []string) -> int {
 	switch command {
 	case "add":
 		if acc != nil {
-			fmt.eprintfln("there is an account called %s already", username)
+			fmt.eprintfln("the account %s already exists", username)
 			return 1
 		}
 		text_buf: [GENERATED_PASSWORD_SIZE]u8
@@ -210,7 +215,7 @@ run_account_command :: proc(args: []string) -> int {
 		if !hashed {
 			return 1
 		}
-		// The first account of all is the server's owner.
+		// The first account created becomes the server's owner.
 		flags := proto.Account_Flags{.Must_Change}
 		if len(a.by_id) == 0 {
 			flags += {.Owner}
@@ -219,12 +224,12 @@ run_account_command :: proc(args: []string) -> int {
 			return 1
 		}
 		fmt.printfln(
-			"made the account %s%s",
+			"created the account %s%s",
 			username,
 			" (the server's owner)" if .Owner in flags else "",
 		)
 		fmt.printfln("password: %s", text)
-		fmt.println("it has to be changed on first login")
+		fmt.println("the password has to be changed on first login")
 
 	case "passwd":
 		if acc == nil {
@@ -233,7 +238,7 @@ run_account_command :: proc(args: []string) -> int {
 		}
 		if .Bot in acc.flags {
 			fmt.eprintfln(
-				"%s is a bot: it has tokens, not a password (made in the client)",
+				"%s is a bot, which uses tokens instead of a password (tokens are created in the client)",
 				username,
 			)
 			return 1
@@ -250,7 +255,10 @@ run_account_command :: proc(args: []string) -> int {
 			}
 		}
 		fmt.printfln("new password for %s: %s", username, text)
-		fmt.printfln("it has to be changed on first login; %d device(s) logged out", devices)
+		fmt.printfln(
+			"the password has to be changed on first login; logged out %d device(s)",
+			devices,
+		)
 
 	case "owner":
 		if acc == nil {
@@ -258,7 +266,7 @@ run_account_command :: proc(args: []string) -> int {
 			return 1
 		}
 		if .Bot in acc.flags {
-			fmt.eprintfln("%s is a bot, and a bot can't own the server", username)
+			fmt.eprintfln("%s is a bot, and bots can't own the server", username)
 			return 1
 		}
 		for _, other in a.by_id {
@@ -269,7 +277,7 @@ run_account_command :: proc(args: []string) -> int {
 		if !account_set_flags(&a, acc, acc.flags + {.Owner}) {
 			return 1
 		}
-		fmt.printfln("%s is the server's owner now", username)
+		fmt.printfln("%s is now the server's owner", username)
 
 	case "verify":
 		switch {
@@ -277,7 +285,7 @@ run_account_command :: proc(args: []string) -> int {
 			fmt.eprintfln("there is no account called %s", username)
 			return 1
 		case .Unverified not_in acc.flags:
-			fmt.printfln("%s has nothing to verify", username)
+			fmt.printfln("%s is already verified", username)
 			return 0
 		}
 		if !account_set_verify(&a, acc, acc.flags - {.Unverified}, "", 0) {
@@ -292,7 +300,7 @@ run_account_command :: proc(args: []string) -> int {
 			return 1
 		case .Owner in acc.flags:
 			fmt.eprintfln(
-				"%s is the server's owner; make another account the owner first",
+				"%s is the server's owner; make another account the owner before deleting it",
 				username,
 			)
 			return 1
@@ -301,7 +309,7 @@ run_account_command :: proc(args: []string) -> int {
 		}
 		db_commit(&db)
 		fmt.printfln(
-			"deleted the account %s; what it wrote is kept, under %q",
+			"deleted the account %s; its messages are kept and shown under %q",
 			username,
 			proto.DELETED_NAME,
 		)
@@ -314,10 +322,10 @@ run_account_command :: proc(args: []string) -> int {
 		r := role_by_name(&a, role_name)
 		switch {
 		case r == nil:
-			fmt.eprintfln("there is no role called %s (`yap-server role list`)", role_name)
+			fmt.eprintfln("there is no role called %s (see `yap-server role list`)", role_name)
 			return 1
 		case r.id == proto.EVERYONE_ROLE:
-			fmt.eprintln("everyone has that role, always")
+			fmt.eprintln("every account has that role, and it can't be changed")
 			return 1
 		}
 		roles := make([dynamic]proto.Role_Id, context.temp_allocator)
@@ -379,7 +387,7 @@ generated_secret :: proc(
 account_list :: proc(a: ^Accounts) {
 	if len(a.by_id) == 0 {
 		fmt.println(
-			"no accounts yet: the server makes one called admin when it starts, or use `account add`",
+			"no accounts yet: the server creates one called admin when it starts, or you can use `account add`",
 		)
 		return
 	}
@@ -392,7 +400,7 @@ account_list :: proc(a: ^Accounts) {
 		"last here",
 		"name",
 	)
-	// By id, which is the order they were made in.
+	// Sorted by id, which is the order the accounts were created in.
 	ids, _ := slice.map_keys(a.by_id, context.temp_allocator)
 	slice.sort(ids)
 	for id in ids {

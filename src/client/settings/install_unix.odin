@@ -4,17 +4,16 @@ package settings
 import "core:os"
 import "core:strings"
 
-/*
-Installing on Linux and the BSDs (see the client's ui_install_native.odin), as the
-freedesktop.org specs have it: a .desktop entry in
-$XDG_DATA_HOME/applications, which is what puts yap in the desktop's
-application menu, with the icon beside it under icons/, and a link to
-the binary in ~/.local/bin, which most distributions have on PATH.
-
-The entry is named yap.desktop and the window's app id / WM_CLASS is
-"yap" as well (window_open), which is how a Wayland desktop finds the
-window's icon and how either kind groups the window under the entry.
-*/
+// Installing on Linux and the BSDs (see the client's ui_install_native.odin)
+// follows the freedesktop.org specs. It creates a .desktop entry in
+// $XDG_DATA_HOME/applications, which puts yap in the desktop's application
+// menu, with the icon stored under icons/, and a link to the binary in
+// ~/.local/bin, which most distributions have on their PATH.
+//
+// The entry is named yap.desktop, and the window's app id / WM_CLASS is
+// "yap" as well (see window_open). This is how a Wayland desktop finds the
+// window's icon, and how both Wayland and X11 desktops group the window
+// under the entry.
 
 INSTALL_DESCRIPTION :: "Adds yap to your desktop's application menu, and a link to it in ~/.local/bin, pointing at this copy of yap; nothing is copied or moved. Uninstall removes them again."
 
@@ -23,7 +22,8 @@ Install_Paths :: struct {
 	desktop, icon, link: string,
 }
 
-// install_paths are the files it installs; all in the temp allocator.
+// install_paths returns the paths of the files it installs, allocated with
+// the temp allocator.
 @(private = "file")
 install_paths :: proc() -> (p: Install_Paths, ok: bool) {
 	data, err := os.user_data_dir(context.temp_allocator)
@@ -43,8 +43,8 @@ install_paths :: proc() -> (p: Install_Paths, ok: bool) {
 	return p, true
 }
 
-// install_query reads the binary the entry starts from its TryExec line,
-// which also makes the desktop hide the entry if that binary is gone.
+// install_query reads the binary that the entry starts from its TryExec line.
+// TryExec also makes the desktop hide the entry if that binary is gone.
 install_query :: proc(allocator := context.allocator) -> (target: string, installed: bool) {
 	p := install_paths() or_return
 	data, err := os.read_entire_file(p.desktop, context.temp_allocator)
@@ -66,7 +66,8 @@ install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 	if !ok {
 		return "Could not find your home directory."
 	}
-	// Whatever the entry pointed at before, so its link can go too.
+	// The binary the entry pointed to before, so that its link can be
+	// replaced as well.
 	old, _ := install_query(context.temp_allocator)
 
 	if !write_file_all(p.icon, icon_png) {
@@ -100,8 +101,9 @@ install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 		return strings.concatenate({"Could not write ", p.desktop}, context.temp_allocator)
 	}
 
-	// The link is a convenience: if something else already has the name
-	// (yap itself, run from there, or another install of it), it's kept.
+	// The link is only a convenience. If something else already uses that
+	// name (yap itself when run from there, or another install of it), it
+	// is left alone.
 	if p.link == exe {
 		return ""
 	}
@@ -115,7 +117,7 @@ install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 	os.make_directory_all(dir)
 	if os.symlink(exe, p.link) != nil {
 		return strings.concatenate(
-			{"Installed, but could not make the link ", p.link},
+			{"Installed, but could not create the link ", p.link},
 			context.temp_allocator,
 		)
 	}
@@ -139,8 +141,8 @@ uninstall_self :: proc() -> (err: string) {
 	return ""
 }
 
-// is_our_link says whether `link` is a symlink to either of the given
-// binaries, rather than a file or a link someone else put there.
+// is_our_link returns whether `link` is a symlink to one of the given
+// binaries, as opposed to a file or a link that someone else created.
 @(private = "file")
 is_our_link :: proc(link, a, b: string) -> bool {
 	fi, err := os.lstat(link, context.temp_allocator)
@@ -158,12 +160,10 @@ write_file_all :: proc(path: string, data: []u8) -> bool {
 	return os.write_entire_file(path, data) == nil
 }
 
-/*
-desktop_exec_arg quotes a path as one argument of an Exec line, which
-has its own quoting on top of the escapes every string value has
-(desktop_escape): inside double quotes, `"`, "`", `$` and `\` take a
-backslash, and `%` (a field code otherwise) is doubled.
-*/
+// desktop_exec_arg quotes a path as one argument of an Exec line. Exec has
+// its own quoting rules on top of the escapes that every string value has
+// (see desktop_escape): inside double quotes, `"`, "`", `$` and `\` need a
+// backslash, and `%` (which would otherwise start a field code) is doubled.
 desktop_exec_arg :: proc(path: string, allocator := context.temp_allocator) -> string {
 	b := strings.builder_make(allocator)
 	strings.write_byte(&b, '"')
@@ -196,7 +196,7 @@ desktop_escape :: proc(s: string, allocator := context.temp_allocator) -> string
 		case '\r':
 			strings.write_string(&b, `\r`)
 		case ' ':
-			// Only leading spaces would be lost.
+			// Only leading spaces would get lost.
 			strings.write_string(&b, `\s` if i == 0 else " ")
 		case:
 			strings.write_byte(&b, c)

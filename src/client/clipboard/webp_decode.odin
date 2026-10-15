@@ -5,9 +5,9 @@ import log "common:wlog"
 
 import "common:webp"
 
-// decode_webp is decode for a WebP picture, which stb_image can't read:
-// libwebp (common:webp) decodes it straight into the result. Only a still
-// picture; an animation is refused.
+// decode_webp is decode for a WebP picture, which stb_image can't read.
+// libwebp (common:webp) decodes it directly into the result. Only still
+// pictures are supported; animations are refused.
 @(private)
 decode_webp :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: Error) {
 	w, h, ok := webp.size(data)

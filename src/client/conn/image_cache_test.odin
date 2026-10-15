@@ -40,8 +40,8 @@ test_image_cache :: proc(t: ^testing.T) {
 	_, ok = image_cache_load(&ic, a, 8)
 	testing.expect(t, !ok)
 
-	// Asked for, it's there the first time it's looked for; one it
-	// hasn't got isn't asked for at all.
+	// A requested picture is available the first time it is looked up, and a picture
+	// the cache doesn't have cannot be requested at all.
 	testing.expect_value(t, image_cache_request(&ic, a, 8), Cache_Request(0))
 	req := image_cache_request(&ic, b, 7)
 	testing.expect(t, req != 0)
@@ -56,12 +56,12 @@ test_image_cache :: proc(t: ^testing.T) {
 	image_cache_cancel(&ic, req)
 	_, state = image_cache_poll(&ic, req)
 	testing.expect_value(t, state, Cache_Poll.Failed)
-	// a's 7 is used again, so b's is the oldest.
+	// a's 7 is used again, so b's 7 is now the oldest.
 	got, _ = image_cache_load(&ic, a, 7)
 	delete(got)
 
-	// Past the maximum the one used longest ago goes: b's, as a's was
-	// just loaded.
+	// When the maximum is exceeded, the picture used longest ago is removed. That is
+	// b's 7, because a's 7 was just loaded.
 	time.sleep(10 * time.Millisecond)
 	image_cache_store(&ic, a, 9, big[:500])
 	_, ok = image_cache_load(&ic, b, 7)
@@ -70,13 +70,13 @@ test_image_cache :: proc(t: ^testing.T) {
 	testing.expect_value(t, bytes, 800)
 	testing.expect_value(t, count, 2)
 
-	// Too big to keep at all.
+	// This picture is too big to be stored at all.
 	image_cache_store(&ic, a, 10, make([]u8, 2000, context.temp_allocator))
 	_, count = image_cache_usage(&ic)
 	testing.expect_value(t, count, 2)
 
-	// Opened again, it finds what it kept, and clears out a half-written
-	// file.
+	// When opened again, the cache finds what it stored and removes the
+	// incompletely written file.
 	part, _ := filepath.join({dir, settings.key_hex(a), "11.part"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(part, big[:10]) == nil)
 	image_cache_destroy(&ic)
@@ -91,13 +91,13 @@ test_image_cache :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(got), 500)
 	delete(got)
 
-	// A smaller maximum drops what's over it.
+	// A smaller maximum drops the pictures above it.
 	image_cache_set_max(&ic, 600)
 	bytes, count = image_cache_usage(&ic)
 	testing.expect_value(t, bytes, 500)
 	testing.expect_value(t, count, 1)
 
-	// Clearing deletes the pictures and nothing else.
+	// Clearing deletes the pictures and nothing else in the folder.
 	other, _ := filepath.join({dir, "keep-me"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(other, big[:1]) == nil)
 	image_cache_clear(&ic)

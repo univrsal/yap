@@ -7,65 +7,67 @@ import "core:time"
 import "common:proto"
 import "sqlite"
 
-/*
-Accounts and the devices logged in to them (src/common/proto/accounts.odin):
-what the database keeps of them, and the copy the server works from.
-
-There are few of them and nearly everything asks about them (whose
-connection is this, what is that account called), so they're all read
-into memory when the server starts, and every change is made in both
-places. The password's hash is the exception: it stays in the database
-and is fetched when somebody logs in.
-
-Nothing here decides who may do what, or takes a while: this is only
-where accounts and devices are kept. Logging in and the rest of what
-clients ask for is in auth.odin.
-*/
+// Accounts and the devices logged in to them (src/common/proto/accounts.odin).
+// This covers what the database stores about them and the in-memory copy
+// the server works from.
+//
+// There are few accounts and nearly everything needs to look them up
+// (for example to find out whose connection this is, or what an account
+// is called). They are therefore all read into memory when the server
+// starts, and every change is made both in memory and in the database.
+// The password hash is the exception: it stays in the database and is
+// only fetched when somebody logs in.
+//
+// Nothing here decides who may do what, and nothing here is slow. This
+// file only keeps track of accounts and devices. Logging in and the other
+// requests from clients are handled in auth.odin.
 
 Account :: struct {
 	id:             proto.Account_Id,
 	username:       string, // owned; lower case
 	display:        string, // owned
 	flags:          proto.Account_Flags,
-	// Its status (owned; "" for none) and when it ends (0: it doesn't),
-	// and its picture (profiles.odin).
+	// Its status text (owned; "" for none), when the status ends
+	// (0 if it never does) and its picture (profiles.odin).
 	status:         string,
 	status_until:   i64,
 	avatar:         proto.Blob_Id,
-	// Its email address (owned; "" for none), in lower case, which no
-	// other account has. Only it is told it.
+	// Its email address (owned; "" for none). It is lower case and no
+	// other account has the same one. Only the account itself is told it.
 	email:          string,
-	// While it's Unverified: the code a mail has to have (owned), and
-	// when it's deleted if none comes (0: never). verify.odin.
+	// While the account is Unverified: the code that must be sent back
+	// from the mail (owned) and when the account is deleted if it
+	// never is (0 for never). See verify.odin.
 	verify_code:    string,
 	verify_expires: i64,
-	// Which mails it wants about what it missed (its setting
-	// proto.SETTING_EMAIL_DIGEST), the newest message there was when it
-	// was last mailed, and when that was; and the newest there was when
-	// it was last looked at for one (digest.odin).
+	// Which digest mails about missed messages it wants (its setting
+	// proto.SETTING_EMAIL_DIGEST), the newest message at the time of the
+	// last mail and when that mail was sent, and the newest message at
+	// the time it was last checked for a digest (digest.odin).
 	digest:         proto.Email_Digest,
 	digest_upto:    proto.Msg_Id,
 	digest_sent:    i64,
 	digest_checked: proto.Msg_Id,
-	// Whether its pushes leave out what messages say (its setting
-	// proto.SETTING_PUSH_TEXT, push_notify.odin).
+	// Whether its push notifications leave out the text of messages (its
+	// setting proto.SETTING_PUSH_TEXT, see push_notify.odin).
 	push_hide:      bool,
-	// What it chose to be (online, away, busy or offline), and how
-	// everyone was last told it is (activity.odin).
+	// The activity it chose (online, away, busy or offline) and the
+	// activity everyone was last told it has (activity.odin).
 	chosen:         proto.Activity,
 	shown:          proto.Activity,
 	created:        i64, // Unix milliseconds
-	last_seen:      i64, // when its last connection left; 0 if never here
-	// Its connections right now, one per device that's here.
+	last_seen:      i64, // when its last connection left; 0 if it never connected
+	// Its current connections, one per connected device.
 	conns:          [dynamic]^Conn,
-	// The accounts it keeps in its buddy list (buddies.odin).
+	// The accounts in its buddy list (buddies.odin).
 	buddies:        [dynamic]proto.Account_Id,
-	// Its roles besides everyone's, and what they let it do, worked out
-	// again whenever a role or the list changes (roles.odin).
+	// Its roles (other than the one everyone has) and the permissions
+	// they grant, recalculated whenever a role or this list changes
+	// (roles.odin).
 	roles:          [dynamic]proto.Role_Id,
 	perms:          proto.Permissions,
-	// Wrong passwords in a row, and until when no more are taken
-	// (auth.odin).
+	// The number of wrong passwords entered in a row, and the time until
+	// which further login attempts are rejected (auth.odin).
 	failures:       int,
 	locked_until:   time.Tick,
 }
@@ -74,7 +76,7 @@ Device :: struct {
 	key:       [proto.KEY_SIZE]u8,
 	account:   proto.Account_Id,
 	name:      string, // owned
-	agent:     string, // owned; what the client said it is, "" if it didn't
+	agent:     string, // owned; the user agent the client reported, "" if none
 	created:   i64, // when it logged in
 	last_seen: i64, // when it last connected
 }
@@ -87,7 +89,7 @@ Accounts :: struct {
 	devices: map[[proto.KEY_SIZE]u8]^Device,
 }
 
-// accounts_load reads every account and device from the database.
+// accounts_load reads all accounts and devices from the database.
 @(require_results)
 accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 	a.db = db
@@ -119,7 +121,7 @@ accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 		acc.digest_upto = proto.Msg_Id(db_col_int(q, 13))
 		acc.digest, _ = proto.email_digest_parse(db_col_text(q, 14))
 		acc.push_hide = db_col_text(q, 15) == proto.PUSH_TEXT_HIDDEN
-		acc.shown = .Offline // nobody is here yet
+		acc.shown = .Offline // nobody is connected yet
 		a.by_id[acc.id] = acc
 		a.by_name[acc.username] = acc
 	}
@@ -135,7 +137,7 @@ accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 		}
 		d := new(Device)
 		if !db_col_into(q, 0, d.key[:]) {
-			log.warn("a device in the database has a key of the wrong size; skipping it")
+			log.warn("a device in the database has a key of the wrong size, skipping it")
 			free(d)
 			continue
 		}
@@ -188,8 +190,8 @@ accounts_destroy :: proc(a: ^Accounts) {
 	a^ = {}
 }
 
-// account_find is the account with this username (as username_clean
-// leaves one), or nil.
+// account_find returns the account with this username (as returned by
+// username_clean), or nil if there is none.
 account_find :: proc(a: ^Accounts, username: string) -> ^Account {
 	return a.by_name[username] or_else nil
 }
@@ -198,18 +200,17 @@ account_by_id :: proc(a: ^Accounts, id: proto.Account_Id) -> ^Account {
 	return a.by_id[id] or_else nil
 }
 
-// account_live is the account with this id if it's there and not
-// deleted: what can be messaged, called, added or given a role.
+// account_live returns the account with this id if it exists and isn't
+// deleted. Only such accounts can be messaged, called, added as a buddy
+// or given a role.
 account_live :: proc(a: ^Accounts, id: proto.Account_Id) -> ^Account {
 	acc := account_by_id(a, id)
 	return acc if acc != nil && .Deleted not_in acc.flags else nil
 }
 
-/*
-account_add makes an account. The username has to be a clean one
-(proto.username_clean) that isn't taken, and the display name sanitized
-and not empty; nil if the database won't have it.
-*/
+// account_add creates an account. The username must already be cleaned
+// (proto.username_clean) and not taken, and the display name must be
+// sanitized and not empty. It returns nil if the database rejects it.
 @(require_results)
 account_add :: proc(
 	a: ^Accounts,
@@ -239,14 +240,14 @@ account_add :: proc(
 	acc.display = strings.clone(display)
 	acc.flags = flags
 	acc.created = now
-	acc.shown = .Offline // not here yet (activity.odin)
+	acc.shown = .Offline // not connected yet (activity.odin)
 	a.by_id[acc.id] = acc
 	a.by_name[acc.username] = acc
 	account_perms_update(a, acc)
 	return acc
 }
 
-// account_secret fetches an account's password as it's stored.
+// account_secret fetches an account's stored password hash.
 @(require_results)
 account_secret :: proc(a: ^Accounts, acc: ^Account) -> (s: Secret, ok: bool) {
 	q := db_stmt(a.db, .Account_Secret)
@@ -257,15 +258,16 @@ account_secret :: proc(a: ^Accounts, acc: ^Account) -> (s: Secret, ok: bool) {
 	}
 	defer sqlite.reset(q)
 	if !db_col_into(q, 0, s.hash[:]) || !db_col_into(q, 1, s.salt[:]) {
-		log.errorf("the password of %s in the database isn't one", acc.username)
+		log.errorf("the stored password of %s in the database is malformed", acc.username)
 		return {}, false
 	}
 	s.params = int(db_col_int(q, 2))
 	return s, true
 }
 
-// account_set_password replaces an account's password. `must_change`
-// says an admin chose it, and its owner has to choose another.
+// account_set_password replaces an account's password. `must_change` is
+// set when an admin chose the password, so the account's owner has to
+// choose a new one.
 account_set_password :: proc(
 	a: ^Accounts,
 	acc: ^Account,
@@ -301,8 +303,8 @@ account_set_flags :: proc(a: ^Accounts, acc: ^Account, flags: proto.Account_Flag
 	return true
 }
 
-// account_set_display changes what an account is called; `display` is
-// sanitized and not empty.
+// account_set_display changes an account's display name. `display` must
+// be sanitized and not empty.
 account_set_display :: proc(a: ^Accounts, acc: ^Account, display: string) -> bool {
 	q := db_stmt(a.db, .Account_Set_Display)
 	db_bind_int(q, 1, i64(acc.id))
@@ -313,8 +315,8 @@ account_set_display :: proc(a: ^Accounts, acc: ^Account, display: string) -> boo
 	return true
 }
 
-// account_by_email is the account with this address (in lower case),
-// nil if none has it.
+// account_by_email returns the account with this (lower case) email
+// address, or nil if there is none.
 account_by_email :: proc(a: ^Accounts, email: string) -> ^Account {
 	if email == "" {
 		return nil
@@ -327,8 +329,9 @@ account_by_email :: proc(a: ^Accounts, email: string) -> ^Account {
 	return nil
 }
 
-// account_set_email sets an account's email address: clean, in lower
-// case, and no other account's (account_by_email); "" for none.
+// account_set_email sets an account's email address, or removes it if
+// it is "". The address must be cleaned, lower case and not used by
+// another account (see account_by_email).
 account_set_email :: proc(a: ^Accounts, acc: ^Account, email: string) -> bool {
 	q := db_stmt(a.db, .Account_Set_Email)
 	db_bind_int(q, 1, i64(acc.id))
@@ -339,8 +342,8 @@ account_set_email :: proc(a: ^Accounts, acc: ^Account, email: string) -> bool {
 	return true
 }
 
-// account_set_verify sets an account's flags and what verifying its
-// address takes (verify.odin).
+// account_set_verify sets an account's flags and the code and expiry
+// needed to verify its email address (verify.odin).
 account_set_verify :: proc(
 	a: ^Accounts,
 	acc: ^Account,
@@ -361,7 +364,7 @@ account_set_verify :: proc(
 	return true
 }
 
-// account_seen notes that an account was here just now.
+// account_seen records that an account was just seen.
 account_seen :: proc(a: ^Accounts, acc: ^Account) {
 	acc.last_seen = unix_ms()
 	q := db_stmt(a.db, .Account_Set_Seen)
@@ -370,17 +373,16 @@ account_seen :: proc(a: ^Accounts, acc: ^Account) {
 	_ = db_run(a.db, q)
 }
 
-// device_of is the device with this key, if it's logged in to an
+// device_of returns the device with this key if it is logged in to an
 // account.
 device_of :: proc(a: ^Accounts, key: [proto.KEY_SIZE]u8) -> ^Device {
 	return a.devices[key] or_else nil
 }
 
-/*
-device_link logs a device in to an account: from now on its key is
-enough. A device that was logged in to another account is taken from
-that one; one already in this account just gets its new name.
-*/
+// device_link logs a device in to an account, after which its key is
+// enough to authenticate. A device that was logged in to another account
+// is moved to this one, and a device that is already logged in to this
+// account just gets its new name.
 @(require_results)
 device_link :: proc(
 	a: ^Accounts,
@@ -414,7 +416,7 @@ device_link :: proc(
 	return d
 }
 
-// device_unlink logs a device out for good: it has to log in again.
+// device_unlink logs a device out permanently, so it has to log in again.
 device_unlink :: proc(a: ^Accounts, key: [proto.KEY_SIZE]u8) -> bool {
 	key := key
 	d := a.devices[key] or_else nil
@@ -431,7 +433,7 @@ device_unlink :: proc(a: ^Accounts, key: [proto.KEY_SIZE]u8) -> bool {
 	return true
 }
 
-// device_seen notes that a device connected just now.
+// device_seen records that a device just connected.
 device_seen :: proc(a: ^Accounts, d: ^Device) {
 	key := d.key
 	d.last_seen = unix_ms()
@@ -441,8 +443,8 @@ device_seen :: proc(a: ^Accounts, d: ^Device) {
 	_ = db_run(a.db, q)
 }
 
-// devices_of is an account's devices, oldest first, in the temp
-// allocator.
+// devices_of returns an account's devices, oldest first, allocated with
+// the temp allocator.
 devices_of :: proc(a: ^Accounts, acc: ^Account) -> []^Device {
 	list := make([dynamic]^Device, context.temp_allocator)
 	for _, d in a.devices {
@@ -469,10 +471,9 @@ key_less :: proc(a, b: [proto.KEY_SIZE]u8) -> bool {
 	return false
 }
 
-/*
-permissions is what an account may do: the owner everything, anyone
-else what its roles allow (worked out by roles.odin).
-*/
+// permissions returns what an account may do. The owner may do
+// everything, anyone else may do what their roles allow (calculated in
+// roles.odin).
 permissions :: proc(acc: ^Account) -> proto.Permissions {
 	if .Owner in acc.flags {
 		return ~proto.Permissions{}
@@ -480,14 +481,14 @@ permissions :: proc(acc: ^Account) -> proto.Permissions {
 	return acc.perms
 }
 
-// can is whether an account may do something that takes a permission.
-// Everything that does asks here.
+// can is whether an account has a permission. Anything that requires a
+// permission should check it here.
 can :: proc(acc: ^Account, permission: proto.Permission) -> bool {
 	return acc != nil && permission in permissions(acc)
 }
 
-// account_record is an account as everyone is told about it. Whether it
-// has to change its password is its own business (see Self).
+// account_record is an account as it is sent to everyone. Whether it has
+// to change its password is only sent to the account itself (see Self).
 account_record :: proc(acc: ^Account) -> proto.Account {
 	return {
 		id = acc.id,

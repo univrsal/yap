@@ -10,21 +10,19 @@ import "client:platform"
 import "client:render"
 import "common:proto"
 
-/*
-What a server says about itself, in the UI (conn/server_info.odin is the
-network's end of it): its picture on the rail and the login screen,
-where its name and description go too; and for its owner, the Server
-category of the settings' server tab, to change all three.
-
-The picture is decoded like somebody's (ui_avatars.odin), and rounded
-off the same way, under a key of its own made from the server's address
-and the picture's id: every server on the rail has one, and their ids
-are each server's own.
-*/
+// What a server says about itself, in the UI (conn/server_info.odin is the
+// network's end of it): its picture on the rail and the login screen, where
+// its name and description are shown too. For its owner there is also the
+// Server category of the settings' server tab, to change all three.
+//
+// The picture is decoded like a person's (ui_avatars.odin) and rounded the
+// same way, under a key of its own that is made from the server's address and
+// the picture's id. Every server on the rail has a picture, and the ids are
+// each server's own.
 
 UI_Server_Info :: struct {
 	// The settings' form: the session it was filled in for, the name and
-	// description as they're being edited, and whether Apply was pressed
+	// description as they are being edited, and whether Apply was pressed
 	// (the server's answer is shown then).
 	loaded_for: rawptr,
 	name_buf:   [proto.MAX_SERVER_NAME]u8,
@@ -35,21 +33,19 @@ UI_Server_Info :: struct {
 	asked:      bool,
 }
 
-// The keys servers' pictures are decoded under: with AVATAR_KEY, so
-// they're rounded off, and this bit, apart from people's.
+// The keys that servers' pictures are decoded under. They have AVATAR_KEY, so
+// they are rounded, plus this bit to keep them apart from people's.
 @(private = "file")
 SERVER_ICON_KEY :: u64(1) << 59
 
-// is_server_icon_key says whether a texture key is a server's picture,
-// which is known by the server's address rather than by its blob ids.
+// is_server_icon_key says whether a texture key is a server's picture, which
+// is identified by the server's address rather than by its blob ids.
 is_server_icon_key :: proc(key: u64) -> bool {
 	return key & (AVATAR_KEY | SERVER_ICON_KEY) == AVATAR_KEY | SERVER_ICON_KEY
 }
 
-/*
-server_icon is what draws a server's picture this frame, once it's here
-and decoded; `server` is its address. Call with `v` (its View) locked.
-*/
+// server_icon draws a server's picture this frame, once it is available and
+// decoded. `server` is its address. Call with `v` (its View) locked.
 server_icon :: proc(ui: ^UI, server: string, v: ^conn.View) -> (mu.Icon, bool) {
 	if v.server_icon == 0 || len(v.icon_jpeg) == 0 {
 		return {}, false
@@ -71,12 +67,10 @@ server_icon :: proc(ui: ^UI, server: string, v: ^conn.View) -> (mu.Icon, bool) {
 	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
 }
 
-/*
-picture_picked sends a picture that has been chosen and made ready
-(ui_avatar_pick_*.odin) where it was chosen for: as our picture, or as
-the server's, which keeps the server's name and description as they
-are. Takes the JPEG over.
-*/
+// picture_picked sends a picture that has been chosen and prepared
+// (ui_avatar_pick_*.odin) to what it was chosen for: our own picture, or the
+// server's picture (which keeps the server's name and description as they
+// are). It takes over the JPEG.
 picture_picked :: proc(ui: ^UI, use: Pick_For, image: conn.Chat_Image) {
 	image := image
 	if ui.session == nil {
@@ -101,12 +95,10 @@ picture_picked :: proc(ui: ^UI, use: Pick_For, image: conn.Chat_Image) {
 	}
 }
 
-/*
-server_info_settings is the settings' Server category, for the owner:
-the server's picture, name and description. The picture is set as soon
-as it's chosen, as our own is; the name and description with Apply.
-Call with the View locked.
-*/
+// server_info_settings is the settings' Server category, for the owner: the
+// server's picture, name and description. The picture is set as soon as it is
+// chosen, like our own, and the name and description with Apply. Call with
+// the View locked.
 server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	s := &ui.server_info
@@ -127,7 +119,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 		v,
 		{cell.x, cell.y, size, size},
 	)
-	// The buttons, of the usual height, in the middle of the row.
+	// The buttons, with the usual height, in the middle of the row.
 	mu.layout_begin_column(ctx)
 	mu.layout_row(
 		ctx,
@@ -176,7 +168,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
 	submitted := .SUBMIT in text_box(ui, s.name_buf[:], &s.name_len)
 
-	// What it's for, over several lines (Shift+Enter starts a new one).
+	// What it is for, over several lines (Shift+Enter starts a new line).
 	about := string(s.about_buf[:s.about_len])
 	font := ctx.style.font
 	field_row(
@@ -217,11 +209,9 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
-/*
-server_picture draws a server's picture in `r` (a square), or until it
-has one, its disc with its initials. `server` is its address. Call with
-`v` (its View) locked.
-*/
+// server_picture draws a server's picture in `r` (a square) or, until it has
+// one, its disc with its initials. `server` is its address. Call with `v` (its
+// View) locked.
 server_picture :: proc(ui: ^UI, server: string, v: ^conn.View, r: mu.Rect) {
 	ctx := &ui.ctx
 	if icon, ok := server_icon(ui, server, v); ok {

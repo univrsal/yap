@@ -5,16 +5,14 @@ import log "common:wlog"
 import "core:strings"
 import "core:time/datetime"
 
-/*
-In a browser the log goes to the page's console, which is where anyone
-debugging a web build will be looking anyway. Warnings and errors go
-through the console's own levels so they stand out and keep their stack
-traces; everything else is a plain line.
-
-There are no log files, and timestamps stay in UTC: working out the
-page's timezone would mean carrying the browser's offset in here for
-the sake of a prefix the console already stamps itself.
-*/
+// In a browser the log goes to the page's console, which is where anyone
+// debugging a web build will look anyway. Warnings and errors use the
+// console's own levels so they stand out and keep their stack traces.
+// Everything else is a plain line.
+//
+// There are no log files, and timestamps stay in UTC. Converting to the
+// page's timezone would require passing the browser's offset in here just
+// for a prefix that the console already adds itself.
 
 Log_Output :: struct {}
 

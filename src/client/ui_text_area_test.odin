@@ -4,7 +4,7 @@ package client
 import "core:testing"
 import mu "vendor:microui"
 
-// Every character is 8 pixels wide; lines are five characters.
+// Every character is 8 pixels wide, and lines are five characters long.
 @(private = "file")
 W :: 5 * 8
 

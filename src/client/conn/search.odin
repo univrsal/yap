@@ -6,15 +6,13 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-Searching messages (src/common/proto/search.odin): in the conversation
-being looked at, or in all of ours. The results go to the UI (View.search)
-newest first, a page at a time: More asks for the page older than the
-last one shown. Only the answer to the latest search is taken.
-*/
+// Searching messages (src/common/proto/search.odin), either in the conversation
+// being looked at or in all of our conversations. The results go to the UI
+// (View.search), newest first and one page at a time: More asks for the page
+// older than the last one shown. Only the answer to the latest search is used.
 
-// Search for `query`: in the conversation being looked at, or with
-// `all`, in every one of ours; with `more`, the next page of the last
+// Search for `query` in the conversation being looked at, or with `all` in
+// every one of our conversations. With `more`, fetch the next page of the last
 // search.
 Search_Command :: struct {
 	query: string, // owned by the command
@@ -22,30 +20,30 @@ Search_Command :: struct {
 	more:  bool,
 }
 
-// View_Found is a message a search found, and where.
+// View_Found is a message that a search found, and where it was found.
 View_Found :: struct {
 	conv: proto.Conv_Id,
 	msg:  View_Message,
 }
 
 View_Search :: struct {
-	query:   string, // owned; what the results are of
-	conv:    proto.Conv_Id, // 0: all of ours
+	query:   string, // owned; the query these results belong to
+	conv:    proto.Conv_Id, // 0: all of our conversations
 	found:   [dynamic]View_Found,
-	more:    bool, // there may be more, older
+	more:    bool, // there may be more (older) results
 	loading: bool,
-	error:   string, // static; why there's nothing, if there's a why
-	count:   int, // bumped whenever it changes
+	error:   string, // static; why there are no results, if there is a reason
+	count:   int, // incremented whenever it changes
 }
 
 Search_Client :: struct {
 	query: string, // owned; the latest search
 	conv:  proto.Conv_Id,
-	last:  proto.Msg_Id, // the oldest looked at so far
-	asked: u64, // which asking is the latest
+	last:  proto.Msg_Id, // the oldest message looked at so far
+	asked: u64, // identifies the latest search request
 }
 
-// How many a page asks for.
+// How many results a page asks for.
 SEARCH_PAGE :: 30
 
 search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
@@ -78,13 +76,13 @@ search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
 			#partial switch status {
 			case .Ok:
 			case .Invalid:
-				publish_search(c, nil, false, false, "Type a word to look for.", false)
+				publish_search(c, nil, false, false, "Enter a search term.", false)
 				return
 			case .Reset:
 				publish_search(c, nil, false, false, "", false)
 				return
 			case:
-				publish_search(c, nil, false, false, "The server wouldn't search there.", false)
+				publish_search(c, nil, false, false, "The server failed to run the search.", false)
 				return
 			}
 			buf: [proto.MAX_SEARCH_LIMIT + 1]proto.Message
@@ -92,7 +90,7 @@ search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
 			if !ok {
 				return
 			}
-			// Where the next page goes on from.
+			// Where the next page continues from.
 			sc.last = searched_to
 			if c.view == nil {
 				if len(found) == 0 && sc.last == 0 {
@@ -122,11 +120,9 @@ search_destroy :: proc(c: ^Voice_Client) {
 	c.search = {}
 }
 
-/*
-publish_search tells the UI how the latest search is going: `found` added
-to what's shown (after clearing it, with `fresh`), whether there may be
-more, whether it's still being looked for, and what went wrong.
-*/
+// publish_search tells the UI how the latest search is going: `found` is added
+// to what is shown (after clearing it, with `fresh`), whether there may be
+// more results, whether the search is still running, and what went wrong.
 @(private = "file")
 publish_search :: proc(
 	c: ^Voice_Client,

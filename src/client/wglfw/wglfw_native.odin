@@ -1,16 +1,14 @@
 #+build !wasi
-/*
-The window and input, as the client uses it.
-
-A desktop build is GLFW itself. A web build is the GLFW that emscripten
-puts in front of a canvas, which is linked in like any other C library
-rather than imported as a module - so vendor:glfw can't be used there,
-and the same entry points are declared by hand instead (see
-wglfw_web.odin).
-
-The client imports this package under the name `glfw`, so the calls
-themselves read the same either way. Only what the client uses is here.
-*/
+// The window and input, as used by the client.
+//
+// A desktop build uses GLFW itself. A web build uses the GLFW implementation
+// that emscripten provides on top of a canvas, which is linked in like any
+// other C library rather than imported as a module. vendor:glfw can't be used
+// there, so the same entry points are declared by hand instead (see
+// wglfw_web.odin).
+//
+// The client imports this package under the name `glfw`, so the calls are the
+// same on both. Only what the client uses is declared here.
 package wglfw
 
 import glfw "vendor:glfw"
@@ -122,18 +120,18 @@ KEY_RIGHT_SHIFT :: glfw.KEY_RIGHT_SHIFT
 KEY_V :: glfw.KEY_V
 KEY_X :: glfw.KEY_X
 
-// WindowFocused is whether the window has the keyboard's focus.
+// WindowFocused reports whether the window has the keyboard focus.
 WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {
 	return glfw.GetWindowAttrib(window, glfw.FOCUSED) != 0
 }
 
-// WindowIconified is whether the window is minimized.
+// WindowIconified reports whether the window is minimized.
 WindowIconified :: proc "contextless" (window: WindowHandle) -> bool {
 	return glfw.GetWindowAttrib(window, glfw.ICONIFIED) != 0
 }
 
-// Wayland only, and only on a desktop: the clipboard needs GLFW's own
-// connection to read anything (see clipboard_init).
+// Wayland only (nil elsewhere): GLFW's Wayland connection, which the clipboard
+// needs in order to read anything (see clipboard_init).
 GetWaylandDisplay :: proc "contextless" () -> rawptr {
 	when ODIN_OS == .Linux {
 		return glfw.GetWaylandDisplay()
@@ -142,8 +140,8 @@ GetWaylandDisplay :: proc "contextless" () -> rawptr {
 	}
 }
 
-// X11 only, and only on Linux: GLFW's connection, for asking how long
-// since the last input (client:idle).
+// X11 on Linux only (nil elsewhere): GLFW's X11 connection, used to ask how
+// long ago the last input was (client:idle).
 GetX11Display :: proc "contextless" () -> rawptr {
 	when ODIN_OS == .Linux {
 		return glfw.GetX11Display()
@@ -152,13 +150,15 @@ GetX11Display :: proc "contextless" () -> rawptr {
 	}
 }
 
-// Windows only: the window, for Direct3D to draw into (render/gpu_d3d11.odin).
+// Windows only: the native window, for Direct3D to draw into
+// (render/gpu_d3d11.odin).
 when ODIN_OS == .Windows {
 	GetWin32Window :: glfw.GetWin32Window
 }
 
 // macOS only: the window's view, for Metal to draw into (render/gpu_metal.odin),
-// and its size changing, which is when it's drawn while being resized.
+// and the framebuffer size callback, which is used to redraw the window while
+// it is being resized.
 when ODIN_OS == .Darwin {
 	GetCocoaView :: glfw.GetCocoaView
 	SetFramebufferSizeCallback :: glfw.SetFramebufferSizeCallback

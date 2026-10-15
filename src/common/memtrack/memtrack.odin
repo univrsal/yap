@@ -6,44 +6,45 @@ import "core:slice"
 import "core:strings"
 import "core:sync"
 
-/*
-Where the memory goes.
-
-The allocator here sits on top of the heap and keeps a note of every
-allocation that's still live, grouped by the line of code that made it
-(the allocator is told that line anyway: #caller_location). The process
-installs it as context.allocator before anything else, so everything in
-Odin that allocates from the heap through the context is counted, on
-every thread that's handed that context.
-
-What it can't see is memory that doesn't go through it: C libraries'
-own malloc (stb_image's decoded pictures, SQLite, libwebp, miniaudio,
-the GPU driver), thread stacks, the program's code - and core:os's
-scratch space, two arenas a thread that it takes from the heap itself
-(4 MB each, once a thread has used it, though little of that is ever
-touched, so it's in "heap in use" more than in RAM). And the heap
-itself keeps memory that has been freed, for the next allocation,
-rather than giving it back to the OS straight away. So a report sets
-what's counted here beside what the OS and malloc say (process_*.odin):
-
-	resident       what the OS has given the process, all of it
-	heap in use    what malloc has handed out and not had back
-	  counted      of that, what went through this allocator
-	heap free      freed, but kept by malloc rather than given back
-
-The notes are kept apart from the allocations, in maps keyed by
-address, rather than in a header in front of each one: memory this
-allocator didn't hand out (another thread's own context, a C library)
-may be freed through it, and the other way round, and that's harmless -
-it's just not counted.
-
--define:YAP_MEMTRACK=false leaves it out; the reports then have only
-the process's numbers.
-*/
+// Tracks where the memory goes.
+//
+// The allocator here sits on top of the heap and keeps a record of every
+// allocation that is still live, grouped by the line of code that made it
+// (the allocator is told that line anyway through #caller_location). The
+// process installs it as context.allocator before anything else, so every
+// heap allocation made through the context is counted, on every thread that
+// is handed that context.
+//
+// It can't see memory that doesn't go through it: the malloc of C libraries
+// (stb_image's decoded pictures, SQLite, libwebp, miniaudio, the GPU
+// driver), thread stacks and the program's code. It also doesn't see
+// core:os's scratch space, which is two arenas per thread that core:os takes
+// from the heap itself (4 MB each once a thread has used it, although little
+// of that is ever touched, so it shows up in "heap in use" more than in
+// RAM). The heap also keeps freed memory around for the next allocation
+// instead of returning it to the OS right away. A report therefore compares
+// what is counted here with what the OS and malloc report (see
+// process_*.odin):
+//
+//	resident       all memory the OS has given the process
+//	heap in use    memory malloc has handed out and not got back
+//	  counted      the part of that which went through this allocator
+//	heap free      memory that was freed but is kept by malloc instead of
+//	               being returned to the OS
+//
+// The records are kept apart from the allocations, in maps keyed by
+// address, instead of in a header in front of each allocation. Memory that
+// this allocator didn't hand out (from another thread's own context or a C
+// library) may be freed through it, and the other way round. That is
+// harmless; such memory is just not counted.
+//
+// Building with -define:YAP_MEMTRACK=false leaves the tracking out. The
+// reports then contain only the process's numbers.
 
 ENABLED :: #config(YAP_MEMTRACK, true)
 
-// A line of code that allocates, and what of it is live.
+// Site is a line of code that allocates, and how much of its memory is
+// still live.
 Site :: struct {
 	loc:    runtime.Source_Code_Location,
 	live:   int, // bytes
@@ -58,7 +59,7 @@ Totals :: struct {
 	peak:        int, // most bytes live at once
 	allocs:      u64, // allocations ever made
 	alloc_bytes: u64, // and their bytes
-	overhead:    int, // the notes themselves, roughly
+	overhead:    int, // the tracking records themselves, roughly
 	sites:       int, // lines of code that have allocated
 }
 
@@ -68,8 +69,8 @@ Entry :: struct {
 	site: u32,
 }
 
-// File_path's literal is the same string for every location in a file,
-// so its address stands in for it.
+// The file_path literal is the same string for every location in a file,
+// so its address is used to identify the file.
 @(private)
 Site_Key :: struct {
 	file:   rawptr,
@@ -90,20 +91,19 @@ Tracker :: struct {
 @(private)
 g_tracker: Tracker
 
-// Where the temp allocators' blocks are counted: the line that happened
-// to need a new block would say little.
+// The site that the temp allocators' blocks are counted under. The line
+// that happened to need a new block would say little.
 @(private)
 TEMP_SITE := runtime.Source_Code_Location {
 	file_path = "temp allocator",
 	procedure = "arena blocks",
 }
 
-/*
-init starts counting, on top of `backing`, and returns the allocator to
-put in the context: as early as possible, as what was allocated before
-isn't counted. It also counts the calling thread's temp allocator's
-blocks (thread_init). Without YAP_MEMTRACK it returns `backing`.
-*/
+// init starts counting on top of `backing` and returns the allocator to put
+// in the context. Call it as early as possible, because anything allocated
+// before isn't counted. It also counts the blocks of the calling thread's
+// temp allocator (see thread_init). Without YAP_MEMTRACK it returns
+// `backing`.
 init :: proc(backing := context.allocator) -> runtime.Allocator {
 	when !ENABLED {
 		return backing
@@ -118,8 +118,8 @@ init :: proc(backing := context.allocator) -> runtime.Allocator {
 	}
 }
 
-// allocator is the counting allocator, once init has run; until then,
-// and without YAP_MEMTRACK, the context's.
+// allocator returns the counting allocator once init has run. Until then,
+// and without YAP_MEMTRACK, it returns the context's allocator.
 allocator :: proc() -> runtime.Allocator {
 	when ENABLED {
 		if g_tracker.backing.procedure != nil {
@@ -129,12 +129,10 @@ allocator :: proc() -> runtime.Allocator {
 	return context.allocator
 }
 
-/*
-thread_init has the calling thread's temp allocator take its blocks
-from the counting allocator, if it hasn't taken one yet: the temp
-allocator keeps its first block for good, and it's as big as the first
-thing asked of it, so it's worth seeing.
-*/
+// thread_init makes the calling thread's temp allocator take its blocks
+// from the counting allocator, if it hasn't taken a block yet. The temp
+// allocator keeps its first block forever, and that block is as big as the
+// first thing asked of it, so it is worth tracking.
 thread_init :: proc() {
 	when ENABLED && !runtime.NO_DEFAULT_TEMP_ALLOCATOR {
 		if g_tracker.backing.procedure == nil {
@@ -175,8 +173,8 @@ tracker_proc :: proc(
 		}
 
 	case .Free:
-		// Forgotten before it's freed: once it is, another thread may be
-		// handed the same address.
+		// The record is removed before the memory is freed, because once it
+		// is freed another thread may be handed the same address.
 		if old_memory != nil {
 			sync.guard(&t.mutex)
 			note_free(t, old_memory)
@@ -205,7 +203,7 @@ tracker_proc :: proc(
 		sync.guard(&t.mutex)
 		switch {
 		case err != nil:
-			// Still where it was.
+			// The allocation is still where it was.
 			if had {
 				restore(t, old_memory, old_entry)
 			}
@@ -236,8 +234,8 @@ note_alloc :: proc(t: ^Tracker, p: rawptr, size: int, loc: runtime.Source_Code_L
 		append(&t.sites, Site{loc = loc})
 		t.site_index[key] = index
 	}
-	// An address already noted was freed behind this allocator's back
-	// (by a context that doesn't count); it's no longer that.
+	// An address that is already recorded was freed behind this allocator's
+	// back (by a context that doesn't count), so the old record is stale.
 	if old, was := t.live[p]; was {
 		forget(t, old)
 	}
@@ -282,7 +280,7 @@ forget :: proc(t: ^Tracker, e: Entry) {
 	t.totals.count -= 1
 }
 
-// totals is what's counted, overall.
+// totals returns the overall counts.
 totals :: proc() -> Totals {
 	when !ENABLED {
 		return {}
@@ -299,13 +297,14 @@ totals :: proc() -> Totals {
 	}
 }
 
-// sites is every line of code that has allocated, in `allocator`,
-// those with the most live first.
+// sites returns every line of code that has allocated, allocated with
+// `allocator` and sorted with the most live memory first.
 sites :: proc(allocator := context.temp_allocator) -> []Site {
 	when !ENABLED {
 		return nil
 	} else {
-		// Made outside the lock: `allocator` may be one that counts.
+		// Allocated outside the lock because `allocator` may be one that
+		// counts.
 		t := &g_tracker
 		out: []Site
 		for {
@@ -328,16 +327,16 @@ sites :: proc(allocator := context.temp_allocator) -> []Site {
 	}
 }
 
-// What's live, by the file whose code allocated it.
+// File_Stat is the live memory grouped by the file whose code allocated it.
 File_Stat :: struct {
 	file:  string, // short_path
 	live:  int,
 	count: int,
-	peak:  int, // the sum of its lines' peaks: an upper bound
+	peak:  int, // the sum of its lines' peaks, which is an upper bound
 }
 
-// by_file sums `sites` by file, in `allocator`, those with the most
-// live first.
+// by_file sums `sites` by file, allocated with `allocator` and sorted with
+// the most live memory first.
 by_file :: proc(sites: []Site, allocator := context.temp_allocator) -> []File_Stat {
 	index := make(map[string]int, allocator = context.temp_allocator)
 	out := make([dynamic]File_Stat, allocator)
@@ -360,18 +359,16 @@ by_file :: proc(sites: []Site, allocator := context.temp_allocator) -> []File_St
 	return out[:]
 }
 
-/*
-short_path is a source file's path from where it starts to say
-something: src/client/conn/messages.odin is conn/messages.odin, and
-Odin's own core/strings/builder.odin stays that.
-*/
+// short_path shortens a source file's path to the meaningful part:
+// src/client/conn/messages.odin becomes conn/messages.odin, and Odin's own
+// core/strings/builder.odin stays as it is.
 short_path :: proc(path: string) -> string {
 	p := path
 	for sep in ([]string{"/src/", "\\src\\"}) {
 		if i := strings.last_index(p, sep); i >= 0 {
 			p = p[i + len(sep):]
-			// Our own packages: client/, server/, common/ - the second
-			// part is what tells them apart.
+			// In our own packages (client/, server/, common/) the second
+			// path component is what tells the files apart.
 			for top in ([]string{"client", "server", "common"}) {
 				if len(p) > len(top) && strings.has_prefix(p, top) {
 					rest := p[len(top) + 1:]
@@ -389,7 +386,7 @@ short_path :: proc(path: string) -> string {
 	return p
 }
 
-// bytes_string is n bytes for people: 512 B, 3.4 KB, 12.0 MB.
+// bytes_string formats n bytes for people: 512 B, 3.4 KB, 12.0 MB.
 bytes_string :: proc(n: int, allocator := context.temp_allocator) -> string {
 	f := f64(n)
 	switch {

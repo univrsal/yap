@@ -9,22 +9,20 @@ import "common:."
 import "common:lite"
 import "common:proto"
 
-/*
-A bot is one connection to the server (common/lite), which looks like a
-client to it, and voice, which lite leaves to its owner. It logs in as
-bot<n> with the password given the first time, and by its device's key
-from then on.
+// A bot is one connection to the server (common/lite), which looks like a
+// client to the server, plus voice, which lite leaves to its owner. It logs
+// in as bot<n> with the password it was given the first time, and with its
+// device's key from then on.
+//
+// Its voice frames aren't Opus, since the server never looks inside them.
+// They contain the time they were sent and are padded to the size of an
+// Opus frame. All bots run in this one process on one clock, so a frame
+// that arrives shows how long the server took to pass it on.
 
-Its voice frames aren't Opus, which the server never looks into: they
-carry when they were sent and are padded to the size of one. Every bot
-runs in this one process, on one clock, so a frame that arrives says how
-long the server took to pass it on.
-*/
-
-// How many times a login turned down for now (too many at once for the
-// server's hashing) is asked again.
+// How many times a login that was rejected for now (too many at once for
+// the server's password hashing) is retried.
 LOGIN_RETRIES :: 100
-// What a voice frame carries before its padding: when it was sent.
+// What a voice frame contains before its padding: the time it was sent.
 FRAME_STAMP_SIZE :: 8
 FRAME_TIME :: 20 * time.Millisecond
 
@@ -33,9 +31,9 @@ Bot :: struct {
 	name:        string,
 	key_path:    string,
 	client:      lite.Client,
-	opened:      bool, // the client is, once it's the bot's turn
-	connect_at:  time.Tick, // when it may start
-	started:     time.Tick, // when it did
+	opened:      bool, // whether the client is open; it opens when it's the bot's turn
+	connect_at:  time.Tick, // when it may start connecting
+	started:     time.Tick, // when it actually started
 	been_ready:  bool,
 	home:        proto.Conv_Id, // the channel everyone is in
 	wants_voice: bool,
@@ -44,7 +42,7 @@ Bot :: struct {
 	join_asked:  bool,
 	seq:         u32,
 	next_frame:  time.Tick,
-	// The last sequence number heard from each speaker, for the gaps.
+	// The last sequence number heard from each speaker, to detect gaps.
 	heard:       map[proto.User_Num]u32,
 }
 
@@ -62,14 +60,14 @@ bot_close :: proc(b: ^Bot) {
 	delete(b.heard)
 }
 
-// bot_ready says whether the bot can be given work: logged in, and
-// knowing the home channel.
+// bot_ready returns whether the bot can be given work, which requires it to
+// be logged in and to know the home channel.
 bot_ready :: proc(b: ^Bot) -> bool {
 	return b.opened && lite.ready(&b.client) && b.home != 0
 }
 
-// bot_step does what's due: connecting when it's the bot's turn, the
-// connection, the voice room, its voice.
+// bot_step does whatever is due: connecting when it's the bot's turn,
+// running the connection, joining the voice room and sending voice.
 bot_step :: proc(b: ^Bot, now: time.Tick) {
 	if !b.opened {
 		if time.tick_diff(b.connect_at, now) < 0 || !bot_open(b) {
@@ -96,14 +94,14 @@ bot_step :: proc(b: ^Bot, now: time.Tick) {
 	}
 }
 
-// bot_receive takes in whatever has come.
+// bot_receive handles whatever packets have arrived.
 bot_receive :: proc(b: ^Bot) {
 	if b.opened {
 		lite.receive(&b.client)
 	}
 }
 
-// bot_ask makes a request, whose answer goes into the stats.
+// bot_ask sends a request and records its answer in the stats.
 bot_ask :: proc(b: ^Bot, op: proto.Request_Op, body: []u8) {
 	if !lite.request(&b.client, op, body, bot_answered) {
 		log.warnf("%s: %v not sent", b.name, op)
@@ -144,7 +142,8 @@ bot_phase :: proc(c: ^lite.Client, phase: lite.Phase) {
 	b := (^Bot)(c.opt.user)
 	#partial switch phase {
 	case .Syncing:
-		// A new connection (or our first): nothing of the old one holds.
+		// This is a new connection (or our first), so nothing from the old
+		// one applies any more.
 		if b.been_ready {
 			b.run.stats.reconnects += 1
 		}
@@ -204,7 +203,7 @@ bot_message :: proc(c: ^lite.Client, kind: proto.Message_Kind, pt: []u8) {
 bot_answered :: proc(c: ^lite.Client, a: lite.Answer) {
 	b := (^Bot)(c.opt.user)
 	if a.status == .Reset {
-		return // lost with its connection, not answered
+		return // lost together with its connection, not actually answered
 	}
 	answered(b.run, a.op, a.status, a.took)
 	if a.op != .Voice_Join {
@@ -218,7 +217,7 @@ bot_answered :: proc(c: ^lite.Client, a: lite.Answer) {
 	}
 }
 
-// send_voice sends the frames due by now, 20 ms apart.
+// send_voice sends the frames that are due by now, 20 ms apart.
 @(private = "file")
 send_voice :: proc(b: ^Bot, now: time.Tick) {
 	size := clamp(b.run.opt.frame, FRAME_STAMP_SIZE, 1000)

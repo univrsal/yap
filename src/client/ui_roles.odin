@@ -8,53 +8,51 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-Roles, in the settings' server tab, for whoever has Manage_Roles (conn/roles.odin): the
-roles on the left, with a box to make one under them, and the role
-picked on the right - its name, its colour, its place in the list,
-whether it can be mentioned, what it allows, and who has it, with
-people to give it to.
-
-A name is shown in the colour of the highest of its account's roles
-that has one (name_color): in the chat, the members list, the user
-menu. The order is only for that.
-
-A role that allows more than we may is above us: it's shown, but
-neither changed nor given nor taken. A permission we don't have
-ourselves can't be ticked. The server checks all of it again.
-*/
+// Roles are managed in the settings' server tab by users who have
+// Manage_Roles (conn/roles.odin). The roles are listed on the left, with a
+// box below to create one. The role that is picked is shown on the right: its
+// name, colour, position in the list, whether it can be mentioned, what it
+// allows, and who has it, with a list of people to give it to.
+//
+// A name is shown in the colour of the highest of its account's roles that has
+// a colour (name_color): in the chat, the members list and the user menu. The
+// order of the roles only matters for that.
+//
+// A role that allows more than we may is above us. It is shown, but it can't
+// be changed, given or taken. A permission that we don't have ourselves can't
+// be ticked. The server checks all of this again.
 
 UI_Roles :: struct {
-	// The role picked (0: none), and as it's being edited: loaded again
-	// whenever another is picked or the server says it changed.
+	// The picked role (0: none) as it is being edited. It is loaded again
+	// whenever another role is picked or the server says it changed.
 	role:        proto.Role_Id,
 	loaded:      proto.Role_Id,
-	seen:        proto.Role, // name owned
+	seen:        proto.Role, // the name is owned
 	name_buf:    [proto.MAX_ROLE_NAME]u8,
 	name_len:    int,
 	perms:       proto.Permissions,
 	color:       u32,
 	flags:       proto.Role_Flags,
-	// Delete was pressed once; the list of people to give it to is open.
+	// Delete was pressed once, and the list of people to give the role to is open.
 	confirm:     bool,
 	adding:      bool,
 	new_buf:     [proto.MAX_ROLE_NAME]u8,
 	new_len:     int,
-	// What the server said by the time the category was picked isn't
-	// about anything asked in it (conn.View_Notice.count).
+	// A notice that the server sent before the category was picked isn't
+	// about anything requested in it (conn.View_Notice.count).
 	notice_seen: int,
 }
 
 @(private = "file")
 LIST_WIDTH :: 170
-// Narrower than this beside the list, the role picked has the page to
-// itself (roles_settings).
+// When the space beside the list is narrower than this, the picked role gets
+// the whole page (roles_settings).
 @(private = "file")
 EDITOR_MIN :: 300
 @(private = "file")
 SWATCH :: 20
 
-// The colours a role can have, readable on the dark background.
+// The colours a role can have, which are readable on the dark background.
 ROLE_PALETTE := [?]u32 {
 	0xE05555,
 	0xE08A3C,
@@ -75,11 +73,9 @@ role_rgb :: proc(color: u32) -> mu.Color {
 	return {u8(color >> 16), u8(color >> 8), u8(color), 255}
 }
 
-/*
-name_color is the colour an account's name is shown in: that of the
-highest of its roles that has one (View.roles is in order). Call with
-the View locked.
-*/
+// name_color is the colour an account's name is shown in: the colour of the
+// highest of its roles that has one (View.roles is in order). Call with the
+// View locked.
 name_color :: proc(v: ^conn.View, account: proto.Account_Id) -> (mu.Color, bool) {
 	acc, known := v.accounts[account]
 	if !known || len(acc.roles) == 0 {
@@ -93,8 +89,8 @@ name_color :: proc(v: ^conn.View, account: proto.Account_Id) -> (mu.Color, bool)
 	return {}, false
 }
 
-// author_color is what a message's header is shown in: its author's
-// role colour, or ours or anyone's. Call with the View locked.
+// author_color is the colour a message's header is shown in: its author's role
+// colour, whether the author is us or someone else. Call with the View locked.
 author_color :: proc(v: ^conn.View, sender: proto.Account_Id) -> mu.Color {
 	if c, ok := name_color(v, sender); ok {
 		return c
@@ -109,11 +105,9 @@ Chip :: struct {
 	w:     i32,
 }
 
-/*
-role_chips draws an account's roles, each a small chip with its colour's
-dot and its name, as many to a row as fit `width` and in the roles'
-order. Call with the View locked.
-*/
+// role_chips draws an account's roles as small chips, each with a dot in the
+// role's colour and its name, as many per row as fit `width`, in the roles'
+// order. Call with the View locked.
 role_chips :: proc(ui: ^UI, roles: []proto.Role_Id, width: i32) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -168,7 +162,7 @@ chips_row :: proc(ui: ^UI, line: ^[dynamic]Chip, dot: i32) {
 	clear(line)
 }
 
-// What each permission allows, as the settings say it.
+// What each permission allows, as worded in the settings.
 PERMISSION_TEXT := [proto.Permission]string {
 	.Create_Channels  = "Make channels",
 	.Manage_Channels  = "Change and delete channels",
@@ -195,10 +189,8 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 	}
 }
 
-/*
-roles_settings is the Roles category of the settings' server tab
-(server_settings), for who has Manage_Roles. Call with the View locked.
-*/
+// roles_settings is the Roles category of the settings' server tab
+// (server_settings), for users who have Manage_Roles. Call with the View locked.
 roles_settings :: proc(ui: ^UI) {
 	r := &ui.roles
 	ctx := &ui.ctx
@@ -210,13 +202,13 @@ roles_settings :: proc(ui: ^UI) {
 		r.notice_seen = v.notice.count
 	}
 
-	// A role that's gone takes the right-hand side with it.
+	// A role that is gone takes the right-hand side with it.
 	if r.role != 0 && role_of(v, r.role) == nil {
 		r.role = 0
 	}
 
-	// Narrow, the list and the role picked take turns, as the settings'
-	// categories do: the role under its name and a way back to the list.
+	// When narrow, the list and the picked role take turns, as the settings'
+	// categories do: the role is shown under its name with a way back to the list.
 	if row_room(ctx) < LIST_WIDTH + EDITOR_MIN {
 		role := role_of(v, r.role)
 		if role == nil {
@@ -264,7 +256,7 @@ role_of :: proc(v: ^conn.View, id: proto.Role_Id) -> ^conn.View_Role {
 	return nil
 }
 
-// role_list is the left-hand side: every role, and making one.
+// role_list is the left-hand side: every role, and creating a new one.
 @(private = "file")
 role_list :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -337,8 +329,8 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		}
 	}
 	everyone := role.id == proto.EVERYONE_ROLE
-	// A role that can do more than we can is above us: shown, not
-	// changed, given or taken.
+	// A role that can do more than we can is above us: it is shown, but can't
+	// be changed, given or taken.
 	above := !(role.perms <= mine)
 	editable := !above
 
@@ -349,13 +341,13 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	} else {
 		text_box(ui, r.name_buf[:], &r.name_len)
 	}
-	// Its colour, and its place, which decide the colour of names.
+	// Its colour and its position, which decide the colour of names.
 	if !everyone {
 		color_picker(ui, editable)
 		if editable {
 			move_buttons(ui, role.id)
 		}
-		// Whether `@name` pings whoever has it.
+		// Whether `@name` notifies whoever has the role.
 		mentionable := .Mentionable in r.flags
 		mu.layout_row(ctx, {-1})
 		if editable {
@@ -457,8 +449,8 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	role_members(ui, role, editable)
 }
 
-// color_picker is the row of colours a role can have, and none; the one
-// it's to have outlined. Saved with the rest.
+// color_picker is the row of colours a role can have, plus none, with the
+// current one outlined. It is saved with the rest.
 @(private = "file")
 color_picker :: proc(ui: ^UI, editable: bool) {
 	ctx := &ui.ctx
@@ -495,7 +487,7 @@ color_picker :: proc(ui: ^UI, editable: bool) {
 	}
 }
 
-// move_buttons move a role up or down the list, at once.
+// move_buttons move a role up or down the list immediately.
 @(private = "file")
 move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 	ctx := &ui.ctx
@@ -537,8 +529,8 @@ move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 	command(ui, cmd)
 }
 
-// role_members is who has a role, with taking it from them and giving
-// it to others when it's ours to give.
+// role_members is who has a role, with buttons to take it from them and to
+// give it to others when we may give it.
 @(private = "file")
 role_members :: proc(ui: ^UI, role: conn.View_Role, editable: bool) {
 	ctx := &ui.ctx
@@ -606,7 +598,7 @@ role_members :: proc(ui: ^UI, role: conn.View_Role, editable: bool) {
 	}
 }
 
-// give gives an account a role, or takes it, keeping the others it has.
+// give gives an account a role or takes it away, keeping the others it has.
 @(private = "file")
 give :: proc(
 	ui: ^UI,
@@ -631,8 +623,8 @@ give :: proc(
 	command(ui, cmd)
 }
 
-// roles_notice is what the server last said about something asked in
-// the window: a refusal, say.
+// roles_notice is what the server last said about something requested in the
+// window, such as a refusal.
 @(private = "file")
 roles_notice :: proc(ui: ^UI) {
 	ctx := &ui.ctx

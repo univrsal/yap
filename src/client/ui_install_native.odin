@@ -8,32 +8,30 @@ import "core:os"
 import "core:strings"
 import mu "vendor:microui"
 
-/*
-Installing yap for the current user, from the settings page: whatever
-the desktop needs to list it with the other programs, pointing at the
-binary that's running, so a downloaded yap can be started like any
-other program without moving it anywhere. Uninstalling removes it again
-and leaves the binary alone.
-
-What that is depends on the platform (settings/install_<os>.odin):
-
-- Linux and the BSDs: a .desktop entry and its icon under
-  $XDG_DATA_HOME (~/.local/share), and a link in ~/.local/bin.
-- macOS: ~/Applications/Yap.app, a bundle whose executable is a link.
-- Windows: a Start menu shortcut.
-
-Each platform provides:
-
-	INSTALL_DESCRIPTION :: string
-	install_query :: proc(allocator) -> (target: string, installed: bool)
-	install_self :: proc(exe: string, icon_png: []u8) -> (err: string)
-	uninstall_self :: proc() -> (err: string)
-
-install_query says which binary the installed entry starts (empty if it
-can't tell), so a yap run from somewhere else can point it at itself.
-icon_png is the icon to install with it, where the entry has one of its
-own (Linux, the BSDs and macOS).
-*/
+// Installs yap for the current user from the settings page. This creates
+// whatever the desktop needs to list yap among the other programs, pointing at
+// the binary that is running, so a downloaded yap can be started like any other
+// program without moving it anywhere. Uninstalling removes this again and
+// leaves the binary alone.
+//
+// What gets installed depends on the platform (settings/install_<os>.odin):
+//
+// - Linux and the BSDs: a .desktop entry and its icon under
+//   $XDG_DATA_HOME (~/.local/share), and a link in ~/.local/bin.
+// - macOS: ~/Applications/Yap.app, a bundle whose executable is a link.
+// - Windows: a Start menu shortcut.
+//
+// Each platform provides:
+//
+//	INSTALL_DESCRIPTION :: string
+//	install_query :: proc(allocator) -> (target: string, installed: bool)
+//	install_self :: proc(exe: string, icon_png: []u8) -> (err: string)
+//	uninstall_self :: proc() -> (err: string)
+//
+// install_query returns the binary that the installed entry starts (empty if
+// it can't tell), so that a yap run from somewhere else can point the entry at
+// itself. icon_png is the icon to install along with it, on platforms where
+// the entry has its own icon (Linux, the BSDs and macOS).
 
 UI_Install :: struct {
 	// Read when the settings page is opened (open_settings) and after
@@ -71,7 +69,7 @@ install_do :: proc(ui: ^UI, install: bool) {
 	err: string
 	if install {
 		if st.exe == "" {
-			err = "Could not find out where this program is."
+			err = "Could not determine the location of this program's executable."
 		} else {
 			err = settings.install_self(st.exe, ICON_PNG)
 		}
@@ -87,7 +85,7 @@ install_do :: proc(ui: ^UI, install: bool) {
 	st.loaded = false
 }
 
-// install_settings is the settings page's section for it.
+// install_settings draws the installation section of the settings page.
 install_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	st := &ui.install
@@ -98,7 +96,7 @@ install_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	wrap_text(ctx, settings.INSTALL_DESCRIPTION)
 
-	// Windows paths don't care about case.
+	// Windows paths are case-insensitive.
 	same := strings.equal_fold(st.target, st.exe) if ODIN_OS == .Windows else st.target == st.exe
 	elsewhere := st.installed && st.target != "" && st.exe != "" && !same
 	mu.layout_row(ctx, {-(2 * (110 + ctx.style.spacing)), 109, 109})
@@ -109,7 +107,7 @@ install_settings :: proc(ui: ^UI) {
 		with_text_color(
 			ctx,
 			theme.warning,
-			fmt.tprintf("  Installed, but starts %s", st.target),
+			fmt.tprintf("  Installed, but points to %s", st.target),
 			label_proc,
 		)
 	case:
@@ -124,7 +122,7 @@ install_settings :: proc(ui: ^UI) {
 			install_do(ui, true)
 		}
 	} else {
-		// Keeps the Uninstall button in the same place either way.
+		// An empty cell keeps the Uninstall button in the same place.
 		mu.label(ctx, "")
 	}
 	if st.installed {

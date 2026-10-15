@@ -3,7 +3,7 @@ package server
 import "core:testing"
 import "core:time"
 
-// Tests of the loop's timing (loop_stats.odin).
+// Tests of the loop timing (loop_stats.odin).
 
 @(test)
 test_loop_bucket :: proc(t: ^testing.T) {
@@ -37,7 +37,7 @@ test_loop_top_phases :: proc(t: ^testing.T) {
 	testing.expect_value(t, top[0], Loop_Phase.Packet)
 	testing.expect_value(t, top[1], Loop_Phase.Commit)
 
-	// A turn with nothing to it still has a phase to name.
+	// Even a turn that did nothing has a phase to name.
 	none: [Loop_Phase]time.Duration
 	testing.expect_value(t, len(loop_top_phases(&none, 0)), 1)
 }

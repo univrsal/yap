@@ -6,29 +6,31 @@ import "core:slice"
 import "common:proto"
 import "sqlite"
 
-/*
-Changing messages after they're posted (src/common/proto/msgs.odin):
-editing, deleting and pinning, and the pins of a conversation.
+// Changing messages after they have been posted (see
+// src/common/proto/msgs.odin): editing, deleting and pinning, and listing
+// the pins of a conversation.
+//
+//	Edit    Only the author, only text messages, and not deleted ones.
+//	Delete  The author or an account with Manage_Messages. Deleting twice is
+//	        not an error.
+//	Pin     Either member of a DM, or an account with Pin_Messages in a
+//	        channel. A conversation can have at most proto.MAX_PINS pins.
+//
+// All of these are only available to members of the message's conversation.
+// Anyone else gets the answer that the message doesn't exist (Not_Found),
+// the same as for a conversation they can't see. Each change is sent to
+// every connection of every member as Msg_Changed, containing the message
+// as it is now.
+//
+// A deleted message keeps its row so that ids, read markers and threads
+// stay valid, but its text, picture and file are removed. Nothing can be
+// fetched through it any more (blob_visible only looks at the messages that
+// reference a picture). It is also unpinned, and a file it offered can no
+// longer be accepted.
 
-	Edit    the author, a text message, not deleted
-	Delete  the author, or Manage_Messages; idempotent
-	Pin     either member of a DM; Pin_Messages in a channel; at most
-	        proto.MAX_PINS in a conversation
-
-All of them are for members of the message's conversation; one that
-isn't is told the message isn't there (Not_Found), as for a
-conversation it can't see. Each change goes to every connection of every
-member as Msg_Changed, the message as it now is.
-
-A deleted message keeps its row, so ids, read markers and (later)
-threads hold, but its text, picture and file are gone from it: nothing
-can fetch them through it any more (blob_visible goes by the messages
-that name a picture). It's unpinned, and a file it offered can't be
-taken up.
-*/
-
-// msg_of_member is message `id` if the connection's account is a member
-// of its conversation, with the conversation; else why not.
+// msg_of_member returns message `id` and its conversation if the
+// connection's account is a member of that conversation. Otherwise it
+// returns the status that explains why not.
 @(private = "file")
 msg_of_member :: proc(
 	s: ^Server,
@@ -51,7 +53,7 @@ msg_of_member :: proc(
 	return m, conv, .Ok
 }
 
-// msg_by_id reads one message; its strings are in the temp allocator.
+// msg_by_id reads one message. Its strings are allocated with the temp allocator.
 msg_by_id :: proc(s: ^Server, id: proto.Msg_Id) -> (m: proto.Message, found: bool) {
 	q := db_stmt(&s.db, .Msg_By_Id)
 	db_bind_int(q, 1, i64(id))
@@ -81,7 +83,8 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	case m.kind != .Text || .Deleted in m.flags || .Forwarded in m.flags:
-		// Nor a copy of somebody else's words (proto/forward.odin).
+		// Forwarded messages can't be edited either, since they are copies of
+		// somebody else's words (see proto/forward.odin).
 		respond(u, id, .Invalid)
 		return
 	}
@@ -110,7 +113,8 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok)
 	log.debugf("%s edited message %d", conn_label(u), m.id)
 	msg_deliver(s, conv, m, .Msg_Changed)
-	// Those it stopped or started mentioning count it differently now.
+	// Accounts that the edit started or stopped mentioning now have a
+	// different mention count.
 	changed := make([dynamic]proto.Account_Id, context.temp_allocator)
 	for a in before {
 		if !slice.contains(mentioned, a) {
@@ -173,7 +177,7 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	respond(u, id, .Ok)
 	log.debugf("%s deleted message %d", conn_label(u), m.id)
-	// As it now is: nothing left of it but that it was there.
+	// Only the fact that the message existed is kept. Everything else is removed.
 	m.flags = m.flags + {.Deleted} - {.Pinned, .Has_Attachments}
 	m.text, m.file_name, m.file_size = "", "", 0
 	m.attachment_count = 0
@@ -185,8 +189,8 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 }
 
-// may_pin is whether an account may pin and unpin in a conversation it's
-// a member of.
+// may_pin returns whether an account may pin and unpin messages in a
+// conversation it is a member of.
 may_pin :: proc(acc: ^Account, conv: ^Conv) -> bool {
 	return conv.kind == .DM || can(acc, .Pin_Messages)
 }
@@ -206,7 +210,8 @@ msg_pin :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	case .Deleted in m.flags || m.thread_root != 0:
-		// Nor a reply in a thread: what's pinned is the conversation's.
+		// Replies in a thread can't be pinned because pins belong to the
+		// conversation as a whole.
 		respond(u, id, .Invalid)
 		return
 	case on == (.Pinned in m.flags):
@@ -257,8 +262,8 @@ msg_pin :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	msg_deliver(s, conv, m, .Msg_Changed)
 }
 
-// pins_get answers with a conversation's pinned messages, the newest pin
-// first.
+// pins_get answers with the pinned messages of a conversation, with the
+// most recent pin first.
 pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	conv_id, ok := proto.decode_conv_id(body)
 	if !ok {
@@ -297,11 +302,10 @@ pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok, proto.encode_message_list(out, list[:]))
 }
 
-/*
-thread_changed counts a thread's root's replies again (posting one,
-deleting one) and tells everyone the root as it now is: its reply count,
-its last reply, and whether it has a thread at all.
-*/
+// thread_changed recounts the replies of a thread's root message (after a
+// reply was posted or deleted) and sends the updated root message to
+// everyone. This includes its reply count, its last reply and whether it
+// still has a thread at all.
 thread_changed :: proc(s: ^Server, conv: ^Conv, root: proto.Msg_Id) {
 	q := db_stmt(&s.db, .Thread_Recount)
 	db_bind_int(q, 1, i64(root))

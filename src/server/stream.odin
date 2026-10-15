@@ -5,30 +5,30 @@ import "core:time"
 
 import "common:proto"
 
-/*
-Each user's reliable stream (src/common/proto/stream.odin): requests come
-in on it and are answered on it (rpc.odin), and events go out on it.
+// Each user has a reliable stream (see src/common/proto/stream.odin).
+// Requests arrive on it and are answered on it (see rpc.odin), and events
+// are sent on it.
+//
+// The stream is rate limited per user, like image transfers are, so that a
+// long answer can't crowd out voice data. If a user's queue grows over its
+// limit, the user isn't reading what is sent to them. Such a user is
+// dropped and has to start over with a new connection once it notices.
 
-It's paced per user, like images are, so that a long answer can't crowd
-out voice. A user whose queue is over its limit isn't reading what it's
-sent; it's dropped, and starts over with a new connection when it
-notices.
-*/
-
-// What may be waiting to go out to one user. Override for testing with
-// e.g. -define:YAP_STREAM_QUEUE=50000
+// The maximum number of bytes that may be queued for one user. Can be
+// overridden for testing with e.g. -define:YAP_STREAM_QUEUE=50000
 STREAM_QUEUE_MAX :: #config(YAP_STREAM_QUEUE, 4 * 1024 * 1024)
-// Per user, bytes per second and bytes that may go out at once.
+// The rate limit per user: bytes per second and the largest burst of bytes
+// that may be sent at once.
 STREAM_RATE :: 256 * 1024
 STREAM_BURST :: 32 * 1024
 
-// Conn_Stream is a user's stream and what paces it.
+// Conn_Stream is a user's stream together with its rate limiting state.
 Conn_Stream :: struct {
 	using stream: proto.Stream,
 	tokens:       f32, // bytes this user may be sent right now
 	last:         time.Tick,
-	// The stream can't go on: the client broke its rules, or fell too
-	// far behind. stream_sync drops the user.
+	// The stream can't continue because the client broke the protocol
+	// rules or fell too far behind. stream_sync drops the user.
 	broken:       bool,
 }
 
@@ -57,7 +57,7 @@ handle_stream :: proc(s: ^Server, u: ^Conn, pt: []byte) {
 	}
 }
 
-// stream_send queues a message for a user; it goes out in stream_sync.
+// stream_send queues a message for a user. It is sent by stream_sync.
 stream_send :: proc(u: ^Conn, msg: []byte) {
 	st := &u.stream
 	if st.broken {
@@ -74,14 +74,14 @@ stream_send :: proc(u: ^Conn, msg: []byte) {
 	}
 }
 
-// stream_sync sends what each user's stream has to send: what has
-// arrived acknowledged, then frames, new and due again, as far as the
-// user's allowance goes.
+// stream_sync sends the pending data of each user's stream: first the
+// acknowledgement for what has been received, then new frames and frames
+// that need to be resent, as far as the user's rate limit allows.
 stream_sync :: proc(s: ^Server) {
 	now := time.tick_now()
 	broken := make([dynamic]^Conn, context.temp_allocator)
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	// Those that aren't logged in have a stream too: it's how they log in.
+	// Connections that aren't logged in have a stream too, since they use it to log in.
 	for conns in ([2]map[[proto.KEY_SIZE]byte]^Conn{s.conns, s.waiting}) {
 		for _, u in conns {
 			st := &u.stream

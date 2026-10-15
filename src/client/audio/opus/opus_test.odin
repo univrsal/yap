@@ -48,8 +48,8 @@ test_ctl_roundtrip :: proc(t: ^testing.T) {
 	enc := make_encoder(t)
 	defer encoder_destroy(enc)
 
-	// Setting and reading back checks both the request codes and that the
-	// varargs are passed the way libopus reads them.
+	// Setting a value and reading it back checks both the request codes and that
+	// the varargs are passed the way libopus expects them.
 	settings := [?]struct {
 		set, get: Request,
 		value:    i32,

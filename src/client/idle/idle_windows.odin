@@ -9,7 +9,7 @@ foreign import kernel32 "system:kernel32.lib"
 @(private = "file")
 LASTINPUTINFO :: struct {
 	cbSize: u32,
-	dwTime: u32, // GetTickCount when the last input came
+	dwTime: u32, // GetTickCount at the time of the last input
 }
 
 @(private = "file", default_calling_convention = "system")
@@ -37,7 +37,8 @@ check :: proc() -> (idle: bool, known: bool) {
 	if !GetLastInputInfo(&info) {
 		return false, false
 	}
-	// Both wrap after 49.7 days, together.
+	// Both counters wrap around after 49.7 days, so the unsigned difference
+	// stays correct.
 	return GetTickCount() - info.dwTime >= threshold_ms, true
 }
 

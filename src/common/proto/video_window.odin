@@ -3,53 +3,52 @@ package proto
 import "core:encoding/endian"
 import "core:time"
 
-/*
-Video_Window puts one sharer's frames back together for the decoder, and
-says which fragments to ask the server for again (Nack).
-
-It collects up to VIDEO_WINDOW frames at once, so a fragment lost or
-late in one frame doesn't stop the next from being collected, and hands
-them out complete and in order (video_window_pop). A frame with
-something missing is asked for again: once after REORDER_WAIT (a gap
-younger than that is as likely reordering as loss), once more after
-NACK_RETRY if that didn't bring it, and given up on after another
-NACK_RETRY. What's missing is whatever lies before the newest fragment
-of the frame seen so far, or the rest of the frame once a newer frame
-has come or nothing has for TAIL_WAIT; of a frame of which nothing came
-at all (its number skipped), everything.
-
-A frame given up on, or pushed out of the window by newer ones, means
-what follows would decode wrong, so from then on `broken` is set and
-only a keyframe gets through, as with the server's keyframe requests.
-It starts out broken, as there's nothing to decode against yet.
-
-Without a server that answers Nacks (the main loop doesn't; only the
-media link does, server/media.odin) a loss is given up on once it's
-REORDER_WAIT old: waiting longer would only hold the keyframe request
-up.
-
-It's large (VIDEO_WINDOW frames' bookkeeping), so allocate it.
-*/
+// Video_Window reassembles one sharer's frames for the decoder and decides
+// which fragments to request from the server again (Nack).
+//
+// It collects up to VIDEO_WINDOW frames at once, so a fragment that is lost
+// or late in one frame doesn't stop the next frame from being collected. It
+// hands out complete frames in order (video_window_pop). A frame with missing
+// fragments is requested again: once after REORDER_WAIT (a gap younger than
+// that is as likely to be reordering as loss), once more after NACK_RETRY if
+// that didn't help, and it is given up on after another NACK_RETRY.
+// The missing fragments are those before the newest fragment seen so far in
+// the frame, or the rest of the frame once a newer frame has arrived or
+// nothing has arrived for TAIL_WAIT. For a frame of which nothing arrived at
+// all (its number was skipped), everything is missing.
+//
+// When a frame is given up on or pushed out of the window by newer ones,
+// the frames that follow would decode incorrectly. From then on `broken` is
+// set and only a keyframe gets through, like with the server's keyframe
+// requests. It starts out broken because there is nothing to decode against
+// yet.
+//
+// Without a server that answers Nacks (the main loop doesn't, only the media
+// link does, see server/media.odin), a loss is given up on once it is
+// REORDER_WAIT old, because waiting longer would only delay the keyframe
+// request.
+//
+// It is large (it holds the bookkeeping of VIDEO_WINDOW frames), so allocate
+// it instead of keeping it on the stack.
 
 VIDEO_WINDOW :: 8
 REORDER_WAIT :: 10 * time.Millisecond
 NACK_RETRY :: 80 * time.Millisecond
 TAIL_WAIT :: 20 * time.Millisecond
-// Fragments a Nack can name.
+// The number of fragments a Nack can name.
 NACK_SPAN :: 64
-// Nacks a frame may send in one round: enough for the biggest frame.
+// The maximum number of Nacks a frame may send in one round, which is enough
+// for the biggest frame.
 @(private = "file")
 MAX_NACKS_A_ROUND :: (MAX_VIDEO_FRAGMENTS + NACK_SPAN - 1) / NACK_SPAN
 
-/*
-Nack asks the server, over the media link, for fragments of a frame it
-passed on to us again:
-
-	client -> server  Nack  [kind][sharer u32][frame u32][first u16][missing u64]
-
-bit i of `missing` is fragment first + i. The server sends what of them
-it still has (it keeps half a second's worth) as Video, as before.
-*/
+// Nack asks the server, over the media link, to send us fragments of a frame
+// that it already passed on to us before:
+//
+//	client -> server  Nack  [kind][sharer u32][frame u32][first u16][missing u64]
+//
+// Bit i of `missing` is fragment first + i. The server sends those that it
+// still has (it keeps half a second's worth) as Video, like before.
 NACK_SIZE :: 1 + 4 + 4 + 2 + 8
 
 Video_Nack :: struct {
@@ -88,15 +87,15 @@ Window_Slot :: struct {
 	ts:       u32,
 	key:      bool,
 	codec:    Video_Codec,
-	count:    int, // 0 while none of it has come
+	count:    int, // 0 while no fragment has arrived
 	received: int,
 	size:     int,
-	newest:   int, // the highest index come so far, -1 for none
+	newest:   int, // the highest index that has arrived so far, -1 for none
 	have:     [MAX_VIDEO_FRAGMENTS]bool,
 	buf:      [dynamic]u8,
-	last_at:  time.Tick, // its last fragment
-	gap_at:   time.Tick, // when it was first seen to lack something
-	rounds:   int, // Nack rounds sent
+	last_at:  time.Tick, // when its last fragment arrived
+	gap_at:   time.Tick, // when it was first seen to be missing something
+	rounds:   int, // the number of Nack rounds sent
 	nack_at:  time.Tick,
 	gave_up:  bool,
 }
@@ -104,13 +103,13 @@ Window_Slot :: struct {
 Video_Window :: struct {
 	slots:     [VIDEO_WINDOW]Window_Slot,
 	started:   bool,
-	next:      u32, // the frame to hand out next
+	next:      u32, // the next frame to hand out
 	newest:    u32, // the newest frame seen
 	broken:    bool,
 	// For the log.
-	nacked:    int, // fragments asked for again
-	recovered: int, // frames that came whole after being asked for
-	given_up:  int, // frames given up on
+	nacked:    int, // fragments that were requested again
+	recovered: int, // frames that arrived complete after being requested
+	given_up:  int, // frames that were given up on
 }
 
 video_window_reset :: proc(w: ^Video_Window) {
@@ -135,7 +134,8 @@ clear_slot :: proc(s: ^Window_Slot) {
 	s.newest = -1
 }
 
-// slot_of is frame `frame`'s slot, readied for it if it held another.
+// slot_of returns the slot of frame `frame`, and prepares it if it held
+// another frame.
 @(private = "file")
 slot_of :: proc(w: ^Video_Window, frame: u32) -> ^Window_Slot {
 	s := &w.slots[frame % VIDEO_WINDOW]
@@ -151,19 +151,17 @@ complete :: proc(s: ^Window_Slot) -> bool {
 	return s.count > 0 && s.received == s.count
 }
 
-/*
-video_window_add feeds in a fragment that came at `now`. What it
-completes comes out of video_window_pop, in order.
-*/
+// video_window_add feeds in a fragment that arrived at `now`. Frames that it
+// completes are returned in order by video_window_pop.
 video_window_add :: proc(w: ^Video_Window, f: Video_Fragment, now: time.Tick) {
 	if !w.started {
 		w.started, w.next, w.newest = true, f.frame, f.frame
 	}
 	if serial_newer(w.next, f.frame) {
-		return // older than what's been handed out
+		return // older than what has already been handed out
 	}
 	if f.frame - w.next >= VIDEO_WINDOW {
-		// Too far ahead: what's before the window now won't be finished.
+		// Too far ahead: the frames before the window can't be completed anymore.
 		start := f.frame - VIDEO_WINDOW + 1
 		for fr := w.next; fr != start; fr += 1 {
 			s := &w.slots[fr % VIDEO_WINDOW]
@@ -177,8 +175,8 @@ video_window_add :: proc(w: ^Video_Window, f: Video_Fragment, now: time.Tick) {
 	if serial_newer(f.frame, w.newest) {
 		w.newest = f.frame
 	}
-	// Every frame up to this one has a slot, so a skipped number is
-	// missed (video_window_nacks).
+	// Every frame up to this one gets a slot, so that a skipped frame number is
+	// noticed as missing (video_window_nacks).
 	for fr := w.next; fr != f.frame; fr += 1 {
 		slot_of(w, fr)
 	}
@@ -189,7 +187,7 @@ video_window_add :: proc(w: ^Video_Window, f: Video_Fragment, now: time.Tick) {
 	if s.count == 0 {
 		s.count, s.key, s.ts, s.codec = f.count, f.key, f.ts, f.codec
 	} else if f.count != s.count || f.key != s.key {
-		return // doesn't belong with the others
+		return // doesn't belong with the other fragments
 	}
 	if s.have[f.index] {
 		return
@@ -211,18 +209,16 @@ video_window_add :: proc(w: ^Video_Window, f: Video_Fragment, now: time.Tick) {
 	}
 }
 
-/*
-video_window_pop hands out the next frame that can be decoded, if
-there is one: complete, in order, and while broken only a keyframe.
-Its data is valid until the next video_window_add.
-*/
+// video_window_pop hands out the next frame that can be decoded, if there is
+// one. It has to be complete and in order, and while the window is broken it
+// has to be a keyframe. Its data is valid until the next video_window_add.
 @(require_results)
 video_window_pop :: proc(w: ^Video_Window) -> (frame: Video_Frame, ok: bool) {
 	if !w.started {
 		return
 	}
 	if w.broken {
-		// Straight to the first complete keyframe, if one is here:
+		// Skip ahead to the first complete keyframe, if there is one, because
 		// nothing before it can be decoded anyway.
 		for fr := w.next; fr != w.newest + 1; fr += 1 {
 			s := &w.slots[fr % VIDEO_WINDOW]
@@ -248,8 +244,8 @@ video_window_pop :: proc(w: ^Video_Window) -> (frame: Video_Frame, ok: bool) {
 				continue
 			}
 			w.broken = false
-			// The slot is free from here on, but its buffer stays as it
-			// is until the slot is taken again.
+			// The slot is free from here on, but its buffer is left untouched
+			// until the slot is used again.
 			s.used = false
 			return {
 					frame = s.frame,
@@ -270,12 +266,10 @@ video_window_pop :: proc(w: ^Video_Window) -> (frame: Video_Frame, ok: bool) {
 	return
 }
 
-/*
-video_window_nacks is what to ask for again at `now`, in the temp
-allocator; it also gives up on frames that asking didn't bring. With
-`asking` false nothing is asked for, and what would have been is given
-up on at once.
-*/
+// video_window_nacks returns what to request again at `now`, allocated with
+// the temp allocator. It also gives up on frames that the requests didn't
+// recover. With `asking` false nothing is requested, and whatever would have
+// been is given up on immediately.
 video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []Video_Nack {
 	out := make([dynamic]Video_Nack, context.temp_allocator)
 	if !w.started {
@@ -286,11 +280,11 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 		if !s.used || s.frame != fr || s.gave_up || complete(s) {
 			continue
 		}
-		// How far it can be told to be missing.
+		// How far into the frame fragments can be considered missing.
 		limit: int
 		switch {
 		case s.count == 0:
-			limit = NACK_SPAN // of all we know, the start of it
+			limit = NACK_SPAN // as far as we know, only the start of it
 		case fr != w.newest || time.tick_diff(s.last_at, now) >= TAIL_WAIT:
 			limit = s.count
 		case:

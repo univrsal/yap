@@ -7,26 +7,27 @@ import "core:time"
 
 import "common:proto"
 
-/*
-Registering: people making their own accounts, when the config's
-"registration" lets them (config.odin; proto/register.odin has the
-wire). Otherwise accounts are made by an admin (Account_Create).
-
-A Register is checked, its password hashed on the hashing thread as for
-an admin's Account_Create (auth.odin), and checked again when that's
-done - somebody may have taken the name, the address or the invite's
-last use meanwhile - before the account is made, with the address and
-the invite it came with, and the asking device logged in to it.
-
-Besides the hashing (one request a connection at a time, HASH_QUEUE_MOST
-waiting), registrations are limited server-wide to REGISTER_BURST at
-once and one every REGISTER_EVERY after that, so a script can't fill
-the server with accounts. Open servers that want more of a say use
-invite codes (invites.odin).
-
-With verify_email the new account starts Unverified, and is deleted if
-its address isn't verified in unverified_hours (verify.odin).
-*/
+// Registration lets people create their own accounts, if the "registration"
+// setting in the config allows it (see config.odin, and proto/register.odin
+// for the wire format). Otherwise accounts can only be created by an admin
+// (Account_Create).
+//
+// A Register request is validated first. Then its password is hashed on the
+// hashing thread, like for Account_Create by an admin (see auth.odin).
+// When the hashing is done the request is validated again, because in the
+// meantime somebody may have taken the name or the email address, or the
+// last use of the invite. Only then the account is created, with the email
+// address and invite from the request, and the requesting device is logged
+// in to it.
+//
+// Besides the limit on hashing (one request per connection at a time and at
+// most HASH_QUEUE_MOST waiting), registrations are limited server-wide to
+// REGISTER_BURST at once and one every REGISTER_EVERY after that, so a
+// script can't fill the server with accounts. Open servers that want more
+// control can require invite codes (see invites.odin).
+//
+// With verify_email the new account starts out Unverified and is deleted if
+// its email address isn't verified within unverified_hours (see verify.odin).
 
 REGISTER_BURST :: 10
 REGISTER_EVERY :: 10 * time.Second
@@ -36,7 +37,7 @@ Register_Rate :: struct {
 	last:   time.Tick,
 }
 
-// registration_flags is what Server_Info says about registering.
+// registration_flags returns the registration settings that are reported in Server_Info.
 registration_flags :: proc(s: ^Server) -> (flags: proto.Registration_Flags) {
 	r := s.registration
 	if !r.open {
@@ -65,8 +66,8 @@ refuse_register :: proc(u: ^Conn, id: u32, reason: proto.Register_Refusal) {
 	respond(u, id, status, body[:])
 }
 
-// register_take spends one of the registrations the rate allows; false
-// if there's none to spend.
+// register_take uses up one of the registrations that the rate limit allows.
+// It returns false if none are left.
 @(private = "file")
 register_take :: proc(s: ^Server) -> bool {
 	r := &s.register_rate
@@ -88,11 +89,10 @@ register_take :: proc(s: ^Server) -> bool {
 	return true
 }
 
-/*
-register_checks is what a registration has to pass, both when it's asked
-and once its password is hashed: `username` and `email` are clean, and
-`invite` is clean or "". Ok if it may go ahead.
-*/
+// register_checks validates a registration, both when it is requested and
+// again after its password has been hashed. `username` and `email` must
+// already be cleaned, and `invite` must be cleaned or empty. It returns ok
+// if the registration may go ahead.
 @(private = "file")
 register_checks :: proc(
 	s: ^Server,
@@ -130,7 +130,7 @@ register :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	case u.account != nil:
-		respond(u, id, .Conflict) // logged in already
+		respond(u, id, .Conflict) // the connection is already logged in
 		return
 	case u.auth_busy:
 		respond(u, id, .Rate_Limited)
@@ -174,7 +174,7 @@ register :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	if !register_take(s) {
-		log.warnf("%s: registrations are coming too fast, refused one", conn_label(u))
+		log.warnf("%s: too many registrations in a short time, refused one", conn_label(u))
 		respond(u, id, .Rate_Limited)
 		return
 	}
@@ -209,8 +209,8 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 		respond(u, p.request, .Conflict)
 		return
 	}
-	// What the name, the address or the invite were then, they may not be
-	// now.
+	// The username, email address or invite may have been taken or used up
+	// while the password was being hashed, so check them again.
 	if reason, ok := register_checks(s, p.username, p.email, p.invite); !ok {
 		refuse_register(u, p.request, reason)
 		return
@@ -226,8 +226,8 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 		respond(u, p.request, .Internal)
 		return
 	}
-	// Verifying the address comes first, if it has to be: until it's
-	// done the account is out of sight (verify.odin).
+	// If the email address has to be verified, that comes first. Until it
+	// is verified the account is hidden from everyone else (see verify.odin).
 	if verify_on(s) {
 		hours := i64(s.registration.unverified_hours)
 		if !account_unverify(s, acc, unix_ms() + hours * 60 * 60 * 1000) {
@@ -249,8 +249,9 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 	} else {
 		log.infof("%s registered the account %s", conn_label(u), acc.username)
 	}
-	// Everyone else hears of it, once it's verified if it has to be; the
-	// device itself is told everything as it logs in.
+	// Everyone else is told about the new account, but only once it is
+	// verified if verification is required. The registering device is told
+	// everything when it logs in.
 	if .Unverified not_in acc.flags {
 		account_changed(s, acc)
 	}
@@ -259,7 +260,7 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 	conn_login(s, u, acc)
 }
 
-// invite_code_new is a new random invite code.
+// invite_code_new generates a new random invite code.
 invite_code_new :: proc(out: ^[proto.INVITE_CODE_SIZE]u8) -> string {
 	alphabet := proto.INVITE_ALPHABET
 	for &ch in out {
@@ -268,13 +269,13 @@ invite_code_new :: proc(out: ^[proto.INVITE_CODE_SIZE]u8) -> string {
 	return string(out[:])
 }
 
-// random_below is a random number from 0 up to `n` (at most 256), each
-// as likely as the others.
+// random_below returns a random number from 0 up to but not including `n`
+// (at most 256), with every value equally likely.
 random_below :: proc(n: int) -> int {
 	for {
 		r: [1]u8
 		crypto.rand_bytes(r[:])
-		// Without the few values that would make some likelier.
+		// Reject the few top values that would make some results more likely.
 		if int(r[0]) < 256 - 256 % n {
 			return int(r[0]) % n
 		}

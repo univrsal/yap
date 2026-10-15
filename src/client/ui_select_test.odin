@@ -6,7 +6,7 @@ import "core:strings"
 import "core:testing"
 import mu "vendor:microui"
 
-// Every character is 8 pixels wide and lines are 16 tall.
+// Every character is 8 pixels wide and lines are 16 pixels tall.
 @(private = "file")
 CHAR_W :: 8
 
@@ -99,7 +99,7 @@ test_select_across_lines :: proc(t: ^testing.T) {
 	defer select_test_destroy(&st)
 	frame(&st)
 
-	// Backwards, from the third line into the first: the same text.
+	// Backwards, from the third line into the first: the same text is selected.
 	drag(&st, 2, 3, 0, 6)
 	testing.expect_value(t, strings.to_string(st.ui.select.text), "world\nsecond line\nthi")
 }
@@ -111,7 +111,7 @@ test_select_past_the_end :: proc(t: ^testing.T) {
 	defer select_test_destroy(&st)
 	frame(&st)
 
-	// Right of the text takes the rest of the line.
+	// Right of the text selects the rest of the line.
 	drag(&st, 0, 2, 0, 30)
 	testing.expect_value(t, strings.to_string(st.ui.select.text), "ort")
 }
@@ -140,7 +140,7 @@ fractional_width :: proc(font: mu.Font, s: string) -> i32 {
 	return i32(math.ceil(f32(len(s)) * FRACTIONAL_W))
 }
 
-// selection_rect is the rect last frame painted the selection with.
+// selection_rect is the rect that the selection was painted with in the last frame.
 @(private = "file")
 selection_rect :: proc(t: ^Select_Test) -> (rect: mu.Rect, ok: bool) {
 	cmd: ^mu.Command
@@ -152,8 +152,8 @@ selection_rect :: proc(t: ^Select_Test) -> (rect: mu.Rect, ok: bool) {
 	return
 }
 
-// Dragging to the left from where the button went down leaves the
-// selection's right edge where it is, whatever the widths round to.
+// Dragging to the left from where the button went down leaves the selection's
+// right edge where it is, whatever the widths round to.
 @(test)
 test_selection_edge_stays_put :: proc(t: ^testing.T) {
 	st: Select_Test
@@ -192,7 +192,7 @@ test_selection_edge_stays_put :: proc(t: ^testing.T) {
 	}
 }
 
-// The pointer picks the character it's on at the far end of a long line
+// The pointer picks the character that it is on at the far end of a long line
 // as well as at the start.
 @(test)
 test_select_far_along_a_line :: proc(t: ^testing.T) {

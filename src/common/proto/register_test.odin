@@ -57,7 +57,7 @@ test_register_codecs :: proc(t: ^testing.T) {
 		testing.expect_value(t, got[0], invites[0])
 		testing.expect_value(t, got[1], invites[1])
 	}
-	// What doesn't fit is left out.
+	// Invites that don't fit into the buffer are left out.
 	small: [2 + INVITE_MAX_SIZE]u8
 	got, list_ok = decode_invites(encode_invites(small[:], invites))
 	testing.expect(t, list_ok && len(got) == 1)

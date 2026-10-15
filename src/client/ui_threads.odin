@@ -7,41 +7,40 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-Threads, each in a window of its own beside the conversation: the
-thread's root at the top, its replies under it in a timeline of their own
-(ui_timeline.odin), and a composer that posts replies. Each window has
-its own scroll position, composer, typing line and text to select, by
-its slot in ui.threads: its timeline's panel, its composer's text box
-and its window are told apart by the slot.
-
-At most conn.MAX_THREADS are open; opening another closes the one opened
-longest ago. They're the conversation's on screen: looking at another
-closes them. A window keeps its place while it's open.
-
-In a narrow window there's no room beside the conversation: the thread
-opened last takes the conversation's place, with a button back to it
-(which closes the thread).
-
-The network side keeps each open thread's replies up to date
-(conn.Thread_Command).
-*/
+// Threads are shown each in a window of their own beside the conversation:
+// the thread's root at the top, its replies under it in a timeline of their
+// own (ui_timeline.odin), and a composer for posting replies. Each window has
+// its own scroll position, composer, typing line and text selection, which are
+// kept per slot in ui.threads. A thread's timeline panel, composer text box
+// and window are told apart by the slot.
+//
+// At most conn.MAX_THREADS threads are open. Opening another closes the one
+// that was opened longest ago. Threads belong to the conversation that is on
+// screen, so looking at another conversation closes them. A window keeps its
+// position while it is open.
+//
+// In a narrow window there is no room beside the conversation. The thread that
+// was opened last takes the conversation's place, with a button to go back to
+// the conversation (which closes the thread).
+//
+// The network side keeps the replies of each open thread up to date
+// (conn.Thread_Command).
 
 UI_Thread :: struct {
 	key:          conn.Timeline_Key, // {} for a free slot
 	timeline:     UI_Timeline,
 	buf:          [proto.MAX_CHAT_SIZE]u8,
 	len:          int,
-	area:         Text_Area, // the box it's written in
-	// The reply of ours being edited in it, and where (Composer).
+	area:         Text_Area, // the box it is written in
+	// The reply of ours being edited in it, and its conversation (Composer).
 	editing:      proto.Msg_Id,
 	editing_conv: proto.Conv_Id,
 	opened:       u64, // when it was opened, by ui.threads_opened
-	placed:       bool, // its window's place has been set since it opened
-	readonly:     bool, // the thread is read-only (it is part of a DM whose other side is deleted)
-	// Files to go with the next reply (ui_attachments.odin).
+	placed:       bool, // whether its window's position has been set since it was opened
+	readonly:     bool, // the thread is read-only (it is part of a DM whose other participant is deleted)
+	// Files to send with the next reply (ui_attachments.odin).
 	files:        [dynamic]Picked_File,
-	// Where its window was last frame, and how far up: what's dropped
+	// Where its window was in the last frame, and how far up: what is dropped
 	// there is for it (drop_target).
 	rect:         mu.Rect,
 	zindex:       i32,
@@ -56,11 +55,9 @@ ui_threads_destroy :: proc(ui: ^UI) {
 	}
 }
 
-/*
-open_thread opens a thread's window, or brings it to the front if it's
-open; either way its composer takes the focus. Call with the View
-locked.
-*/
+// open_thread opens a thread's window, or brings it to the front if it is
+// already open. Either way its composer takes the focus. Call with the View
+// locked.
 open_thread :: proc(ui: ^UI, key: conn.Timeline_Key, readonly := false) {
 	if key.conv == 0 || key.root == 0 || ui.session == nil {
 		return
@@ -72,7 +69,7 @@ open_thread :: proc(ui: ^UI, key: conn.Timeline_Key, readonly := false) {
 		}
 	}
 	if slot == 0 {
-		// A free slot, or the one opened longest ago.
+		// A free slot, or the one that was opened longest ago.
 		for t, i in ui.threads {
 			if t.key == {} {
 				slot = i + 1
@@ -99,7 +96,7 @@ open_thread :: proc(ui: ^UI, key: conn.Timeline_Key, readonly := false) {
 	focus_composer(ui, composer_of(ui, slot), -1)
 }
 
-// close_thread closes the thread in a slot, if there's one.
+// close_thread closes the thread in a slot, if there is one.
 close_thread :: proc(ui: ^UI, slot: int) {
 	t := &ui.threads[slot - 1]
 	if t.key == {} {
@@ -119,8 +116,8 @@ close_thread :: proc(ui: ^UI, slot: int) {
 	}
 }
 
-// narrow_thread is the slot of the thread shown in a narrow window: the
-// one opened last; 0 if none is open.
+// narrow_thread is the slot of the thread shown in a narrow window, which is
+// the one opened last, or 0 if none is open.
 narrow_thread :: proc(ui: ^UI) -> int {
 	slot := 0
 	for t, i in ui.threads {
@@ -131,11 +128,9 @@ narrow_thread :: proc(ui: ^UI) -> int {
 	return slot
 }
 
-/*
-thread_windows draws the open threads' windows, over the main one; in a
-narrow window side_panel shows one in the conversation's place instead.
-Threads not of the conversation on screen are closed.
-*/
+// thread_windows draws the open threads' windows over the main one. In a
+// narrow window, side_panel shows one in the conversation's place instead.
+// Threads that don't belong to the conversation on screen are closed.
 thread_windows :: proc(ui: ^UI, window_w, window_h: i32) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -186,12 +181,10 @@ thread_windows :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
-/*
-thread_panel lays out a thread: a line saying who's typing in it (or
-that a reply is being edited), its timeline, and its composer. `back`
-puts a button before the line that goes back to the conversation (the
-narrow layout). Call with the View locked.
-*/
+// thread_panel lays out a thread: a line saying who is typing in it (or that a
+// reply is being edited), its timeline, and its composer. `back` adds a
+// button before the line that goes back to the conversation (in the narrow
+// layout). Call with the View locked.
 thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -271,7 +264,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	if !send {
 		return
 	}
-	// Enter takes the focus away from the box; keep typing instead.
+	// Enter takes the focus away from the box, so give it back to keep typing.
 	mu.set_focus(ctx, box)
 	composer_send(ui, composer)
 }

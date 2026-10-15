@@ -8,51 +8,49 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-What people say about themselves, and what we keep on the server for
-ourselves (src/common/proto/accounts.odin, settings.odin):
+// What people say about themselves, and what we keep on the server for
+// ourselves (src/common/proto/accounts.odin, settings.odin):
+//
+//   - Our status: a line of text, and when it expires on its own (the server
+//     clears it). Everyone's status comes with their account (auth.odin).
+//   - Our picture: a JPEG that the UI has made square and small. It is uploaded
+//     as a blob of kind Avatar through the outbox (messages.odin) and then set
+//     with Profile_Set. Other people's pictures are fetched like a message's
+//     picture (blobs.odin) when the UI first shows them.
+//   - Our account's settings: stored by the server as text, by key. The login
+//     sync brings all of them, and a change from another of our devices comes
+//     as Setting_Changed. The UI decides what they mean and keeps a copy of its
+//     own, so the settings apply before the sync. What we change goes to the
+//     server and to the View immediately.
+//   - A conversation's members, for the UI's members panel.
+//
+// The setting `ui/view` is the conversation that was looked at last, on any of
+// our devices: a fresh start on any device opens it.
 
-  - Our status: a line of text, and when it ends by itself (the server
-    clears it). Everyone's comes with their account (auth.odin).
-  - Our picture: a JPEG the UI has made square and small, uploaded as a
-    blob of kind Avatar through the outbox (messages.odin) and then set
-    with Profile_Set. Other people's are fetched like a message's
-    picture (blobs.odin), when the UI first shows them.
-  - Our account's settings: kept by key, as text, by the server. The
-    login sync brings them all; a change from another of our devices
-    comes as Setting_Changed. The UI decides what they mean and keeps a
-    copy of its own, so they apply before the sync. What we change goes
-    to the server, and to the View at once.
-  - A conversation's members, for the UI's members panel.
-
-The setting `ui/view` is the conversation last looked at, on whichever
-device: a fresh start on any of them opens it.
-*/
-
-// The setting that says which conversation was looked at last.
+// The setting that stores which conversation was looked at last.
 SETTING_VIEW :: "ui/view"
 
 Profile_Client :: struct {
-	// The account's settings as the server has them; keys and values
+	// The account's settings as the server has them. Keys and values are
 	// owned.
 	shared:       map[string]string,
-	// The sync has brought them all (Sync_End).
+	// The sync has brought all of them (Sync_End).
 	synced:       bool,
-	// `ui/view` has been acted on, once for this client.
+	// `ui/view` has been applied, once for this client.
 	view_applied: bool,
-	// How many syncs have brought them.
+	// How many syncs have brought the settings.
 	syncs:        int,
-	// The conversation whose members were asked for last.
+	// The conversation whose members were requested last.
 	members_conv: proto.Conv_Id,
 }
 
-// Set our status: `text` ("" for none), ending at `until` (0: never).
+// Set our status: `text` ("" for none), expiring at `until` (0: never).
 Status_Command :: struct {
 	text:  string, // owned by the command
 	until: proto.Unix_Ms,
 }
-// Set our picture, a JPEG the UI has made (taken over), or with `remove`,
-// have none.
+// Set our picture to a JPEG that the UI has made (the command takes ownership
+// of it), or with `remove`, remove it.
 Avatar_Command :: struct {
 	image:  Chat_Image,
 	remove: bool,
@@ -61,7 +59,7 @@ Avatar_Command :: struct {
 Avatar_Want_Command :: struct {
 	blob: proto.Blob_Id,
 }
-// Change one of the account's settings; an empty value removes it.
+// Change one of the account's settings. An empty value removes it.
 Setting_Command :: struct {
 	key:   string, // owned by the command
 	value: string, // owned by the command
@@ -86,14 +84,14 @@ shared_clear :: proc(c: ^Voice_Client) {
 	clear(&c.profiles.shared)
 }
 
-// shared_begin: the sync starts, and brings every setting there is.
+// shared_begin is called when the sync starts, which brings every setting.
 shared_begin :: proc(c: ^Voice_Client) {
 	shared_clear(c)
 	c.profiles.synced = false
 	publish_shared(c)
 }
 
-// shared_end: the sync is over, and what we have is all there is.
+// shared_end is called when the sync is over, so we now have every setting.
 shared_end :: proc(c: ^Voice_Client) {
 	c.profiles.synced = true
 	c.profiles.syncs += 1
@@ -103,8 +101,8 @@ shared_end :: proc(c: ^Voice_Client) {
 	}
 }
 
-// shared_view is the conversation looked at last on any of our devices,
-// once for a client: where a fresh start opens (convs_synced).
+// shared_view is the conversation that was looked at last on any of our
+// devices. It is applied once per client, and a fresh start opens it (convs_synced).
 shared_view :: proc(c: ^Voice_Client) -> proto.Conv_Id {
 	p := &c.profiles
 	if p.view_applied {
@@ -115,7 +113,7 @@ shared_view :: proc(c: ^Voice_Client) -> proto.Conv_Id {
 	return proto.Conv_Id(id) if ok else 0
 }
 
-// shared_viewed notes the conversation looked at, for our other devices.
+// shared_viewed records the conversation being looked at, for our other devices.
 shared_viewed :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	if !c.profiles.synced || conv == 0 {
 		return
@@ -123,7 +121,7 @@ shared_viewed :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	setting_put(c, SETTING_VIEW, fmt.tprint(u32(conv)))
 }
 
-// profiles_event takes an event about settings; false if `op` isn't one.
+// profiles_event handles an event about settings. Returns false if `op` is not one.
 profiles_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	if op != .Setting_Changed {
 		return false
@@ -153,8 +151,8 @@ shared_store :: proc(c: ^Voice_Client, key, value: string) {
 	publish_shared(c)
 }
 
-// setting_put changes one of the account's settings, here and on the
-// server; no request if it's that already.
+// setting_put changes one of the account's settings, here and on the server.
+// No request is sent if the setting already has that value.
 setting_put :: proc(c: ^Voice_Client, key, value: string) {
 	if !proto.setting_key_ok(key) || len(value) > proto.MAX_SETTING_VALUE {
 		return
@@ -193,7 +191,7 @@ status_set :: proc(c: ^Voice_Client, raw: string, until: proto.Unix_Ms) {
 }
 
 // avatar_set puts our new picture in the outbox, to be uploaded and then
-// set (drive_outbox); it takes over the JPEG. With `remove` we have none.
+// set (drive_outbox). It takes over the JPEG. With `remove` we have none.
 avatar_set :: proc(c: ^Voice_Client, image: Chat_Image, remove: bool) {
 	if remove {
 		buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -230,8 +228,8 @@ avatar_set :: proc(c: ^Voice_Client, image: Chat_Image, remove: bool) {
 	publish_outbox(c)
 }
 
-// avatar_post sets the picture that's just been uploaded (the outbox's
-// last step for one).
+// avatar_post sets the picture that was just uploaded (the last step of the
+// outbox entry for one).
 avatar_post :: proc(c: ^Voice_Client, p: ^Pending) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	request(
@@ -249,11 +247,11 @@ avatar_post :: proc(c: ^Voice_Client, p: ^Pending) {
 			case .Reset:
 				return // set again on the new connection
 			case .Not_Found:
-				// The picture has gone from the server; send it again.
+				// The picture has disappeared from the server, so send it again.
 				p.blob, p.state = 0, .Put
 				return
 			case:
-				outbox_give_up(c, "Your picture wasn't set: the server wouldn't take it.")
+				outbox_give_up(c, "The server rejected your new picture.")
 				return
 			}
 			blob_have(c, p.blob, p.jpeg, p.put.width, p.put.height)
@@ -276,8 +274,8 @@ profile_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u6
 	}
 }
 
-// members_fetch asks for a conversation's members, for the UI's panel
-// (and headless, the log).
+// members_fetch asks for a conversation's members, for the UI's panel (or for
+// the log when headless).
 members_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	if conv == 0 {
 		return
@@ -322,16 +320,14 @@ members_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	)
 }
 
-/*
-What the UI is shown.
-*/
+// What the UI is shown.
 
 // A conversation's members, as the members panel shows them.
 View_Members :: struct {
 	conv:     proto.Conv_Id,
 	accounts: [dynamic]proto.Account_Id,
 	loading:  bool,
-	count:    int, // bumped whenever they arrive
+	count:    int, // incremented whenever they arrive
 }
 
 @(private = "file")

@@ -4,17 +4,14 @@ import "client:platform"
 import "client:render"
 import mu "vendor:microui"
 
-/*
-Every text box goes through text_box, which is mu.textbox plus a note
-of where it was laid out.
-
-A phone shows its keyboard only when one of the page's own text fields
-has the focus, and only if that happens while the tap is still being
-handled - the page can't wait a frame to see whether the tap landed on
-a text box. So each frame notes where its text boxes are, and the page
-asks about the tap there and then (see ui_touch_web.odin). A desktop
-build notes nothing.
-*/
+// Every text box goes through text_box, which is mu.textbox plus a note of
+// where it was laid out.
+//
+// A phone shows its keyboard only when one of the page's own text fields has
+// the focus, and only if that happens while the tap is still being handled.
+// The page can't wait a frame to see whether the tap landed on a text box. So
+// each frame notes where its text boxes are, and the page asks about the tap
+// there and then (see ui_touch_web.odin). A desktop build notes nothing.
 
 Text_Box :: struct {
 	id:        mu.Id,
@@ -33,21 +30,19 @@ text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.R
 	}
 	res := mu.textbox_raw(ctx, buf, textlen, id, r, opt)
 	if ctx.hover_id == id {
-		ui.select.over_text = true // an I-beam over it (draw_frame)
+		ui.select.over_text = true // shows an I-beam over it (draw_frame)
 	}
 	return res
 }
 
-/*
-password_box is a text box that shows an asterisk for every byte of its
-text, and won't copy or cut it.
-
-microui's text box has no such option, so it's masked around it: while
-the box runs, text is measured as asterisks (which is where the cursor,
-the selection and clicks land), and afterwards the text it drew is
-overwritten with asterisks in microui's command list, before anything
-renders it.
-*/
+// password_box is a text box that shows an asterisk for every byte of its
+// text, and won't copy or cut it.
+//
+// microui's text box has no such option, so the masking is done around it.
+// While the box runs, the text is measured as asterisks (which is what the
+// cursor, the selection and clicks are based on), and afterwards the text that
+// it drew is overwritten with asterisks in microui's command list, before
+// anything renders it.
 password_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.Result_Set {
 	ctx := &ui.ctx
 	if ctx.focus_id == mu.get_id(ctx, uintptr(&buf[0])) {
@@ -74,8 +69,8 @@ password_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> 
 	return res
 }
 
-// focus_at gives the text box `id` the focus, with the cursor `at` bytes
-// into its text: where typing goes on from text put in it.
+// focus_at gives the text box `id` the focus, with the cursor `at` bytes into
+// its text, so typing continues from text that was put in it.
 focus_at :: proc(ctx: ^mu.Context, id: mu.Id, at: int) {
 	mu.set_focus(ctx, id)
 	ctx.textbox_state.id = u64(id)

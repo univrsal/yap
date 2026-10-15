@@ -14,7 +14,7 @@ test_emoji_table :: proc(t: ^testing.T) {
 	testing.expect(t, found && r == 0x1F44D)
 	_, found = emoji_by_shortcode("no_such_thing")
 	testing.expect(t, !found)
-	// The lookup table is in order, and every emoji is in it once.
+	// The lookup table is sorted, and contains every emoji exactly once.
 	testing.expect_value(t, len(EMOJI_BY_RUNE), len(EMOJI))
 	for e, n in EMOJI_BY_RUNE[1:] {
 		testing.expect(t, EMOJI_BY_RUNE[n].r < e.r)
@@ -62,14 +62,16 @@ test_emoji_sheet_animated :: proc(t: ^testing.T) {
 		testing.expect_value(t, sheet.animated[0], animated[0])
 	}
 
-	// A sheet from a server from before: no list, nothing moves.
+	// A sheet from an older server has no animated list, so none of its
+	// emoji are animated.
 	plain := encode_emoji_sheet(buf[:], {blob = 7, size = 900, cell = 64, names = names})
 	old, old_ok := decode_emoji_sheet(plain[:len(plain) - 2])
 	testing.expect(t, old_ok)
 	testing.expect_value(t, len(old.names), 3)
 	testing.expect_value(t, len(old.animated), 0)
 
-	// An index past the names, or a list cut short, isn't a sheet.
+	// An animated index past the end of the names, or a truncated list, is
+	// rejected.
 	bad := encode_emoji_sheet(
 		buf[:],
 		{blob = 7, size = 900, cell = 64, names = names, animated = {{index = 3, blob = 9}}},
@@ -95,7 +97,7 @@ test_emoji_frames :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, string(f.image), string(image))
 
-	_, read = decode_emoji_frames(data[:4 + 1 + 1 + 6]) // no picture
+	_, read = decode_emoji_frames(data[:4 + 1 + 1 + 6]) // missing image data
 	testing.expect(t, !read)
 	data[0] = 'X'
 	_, read = decode_emoji_frames(data)

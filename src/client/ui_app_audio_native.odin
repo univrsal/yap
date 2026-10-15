@@ -12,24 +12,22 @@ import "client:audio/aac"
 import "client:conn"
 import "client:settings"
 
-/*
-Sharing an application's audio with the channel, next to the
-microphone (native clients; see audio/aac/aac.odin for which systems
-can).
-
-The header's button opens a menu of the applications playing audio;
-picking one captures it (on tinyaac's thread) into the Voice's app ring,
-converted to 48 kHz stereo on the way (audio/app_audio_native.odin). The
-network thread mixes it into every frame it sends, after noise
-suppression and the voice gate, which only ever see the microphone (see
-capture_frame in audio/voice.odin). Muting the microphone mutes the
-application as well, unless the settings say otherwise
-(mute_app_audio_with_mic); then it keeps being heard until the share is
-stopped.
-
-Like the audio devices, the capture belongs to the UI thread and to one
-connection: disconnecting stops it.
-*/
+// Sharing an application's audio with the channel, next to the
+// microphone (native clients; see audio/aac/aac.odin for which systems
+// support it).
+//
+// The header's button opens a menu of the applications that are playing audio.
+// Picking one captures it (on tinyaac's thread) into the Voice's app ring,
+// converted to 48 kHz stereo on the way (see audio/app_audio_native.odin). The
+// network thread mixes it into every frame it sends, after noise
+// suppression and the voice gate, which only ever see the microphone (see
+// capture_frame in audio/voice.odin). Muting the microphone also mutes the
+// application, unless the settings say otherwise
+// (mute_app_audio_with_mic). In that case it keeps being heard until the share
+// is stopped.
+//
+// Like the audio devices, the capture belongs to the UI thread and to one
+// connection: disconnecting stops it.
 
 @(private = "file")
 MENU_NAME :: "app audio"
@@ -53,7 +51,7 @@ app_audio_init :: proc(ui: ^UI) {
 	if aac.init() != .Ok {
 		why := string(aac.last_error())
 		if why == "" {
-			why = "libpipewire-0.3 could not be loaded" // the one failure with nothing to say
+			why = "libpipewire-0.3 could not be loaded" // the one failure that has nothing more to say
 		}
 		log.infof("app audio: unavailable: %s", why)
 		return
@@ -112,7 +110,7 @@ app_audio_stop :: proc(ui: ^UI) {
 	a.name = ""
 }
 
-// app_audio_button opens the menu. Green while something is shared.
+// app_audio_button opens the menu. It is green while something is shared.
 app_audio_button :: proc(ui: ^UI) {
 	a := &ui.app_audio
 	hint := "Share an application's audio"
@@ -128,8 +126,8 @@ app_audio_button :: proc(ui: ^UI) {
 	}
 }
 
-// app_audio_menu shows the menu while it's open: what's shared, how
-// loud, and the applications to pick from.
+// app_audio_menu shows the menu while it is open: what is shared, how
+// loud it is, and the applications to pick from.
 app_audio_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.app_audio
@@ -166,7 +164,7 @@ app_audio_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {MENU_WIDTH})
 	with_text_color(ctx, theme.dim, "Share the audio of:", label_proc)
-	// Not ourselves: everyone would hear themselves back.
+	// Not ourselves, because everyone would hear themselves back.
 	me := u32(os.get_pid())
 	count := 0
 	if a.list != nil {
@@ -208,12 +206,10 @@ app_audio_menu :: proc(ui: ^UI) {
 	}
 }
 
-/*
-app_label is what the menu calls an application: its name, and after it
-what it says it plays, where that tells two of them apart - mpv's title
-("mpv: Some Show S01E02", from "Some Show S01E02 - mpv"), not a browser's
-"Playback". In the temp allocator.
-*/
+// app_label is what the menu calls an application: its name and, after it,
+// what it says it is playing, where that tells two applications apart. For example
+// mpv's title ("mpv: Some Show S01E02", from "Some Show S01E02 - mpv"), but
+// not a browser's "Playback". Allocated in the temp allocator.
 @(private = "file")
 app_label :: proc(app: ^aac.App_Info) -> string {
 	name := string(app.display_name)
@@ -222,13 +218,16 @@ app_label :: proc(app: ^aac.App_Info) -> string {
 	for sep in ([]string{" - ", " — ", " | "}) {
 		tail := len(sep) + len(name)
 		if len(media) > tail &&
-		   strings.equal_fold(media[len(media) - tail:], strings.concatenate({sep, name}, context.temp_allocator)) {
+		   strings.equal_fold(
+			   media[len(media) - tail:],
+			   strings.concatenate({sep, name}, context.temp_allocator),
+		   ) {
 			media = strings.trim_space(media[:len(media) - tail])
 			break
 		}
 	}
-	// What a stream is called when the application names it nothing in
-	// particular (Chromium, Firefox), or just its own name.
+	// What a stream is called when the application doesn't give it a
+	// meaningful name (Chromium, Firefox), or just the application's own name.
 	for g in ([]string{"", "playback", "audiostream", "audio stream", "audio", "output", name}) {
 		if strings.equal_fold(media, g) {
 			return name
@@ -237,7 +236,7 @@ app_label :: proc(app: ^aac.App_Info) -> string {
 	return strings.concatenate({name, ": ", media}, context.temp_allocator)
 }
 
-// app_audio_refresh lists the applications playing audio now.
+// app_audio_refresh lists the applications that are playing audio now.
 @(private = "file")
 app_audio_refresh :: proc(ui: ^UI) {
 	a := &ui.app_audio
@@ -251,7 +250,7 @@ app_audio_refresh :: proc(ui: ^UI) {
 	}
 }
 
-// app_audio_start shares the menu list's application `index` (called
+// app_audio_start shares the application at `index` in the menu list (called
 // `name`) with the connection, instead of whatever was shared before.
 @(private = "file")
 app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
@@ -259,7 +258,7 @@ app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
 	app_audio_stop(ui)
 	delete(a.error)
 	a.error = ""
-	// Into the voice it goes with: the server it's in, wherever that is.
+	// Share it into the voice it goes with: the server it is in, wherever that is.
 	ns := sound_session(ui)
 	if ns == nil || !ns.client.voice.ready || a.list == nil {
 		return
@@ -269,10 +268,10 @@ app_audio_start :: proc(ui: ^UI, index: uint, name: string) {
 		log.errorf("app audio: could not share %s: %s", name, why)
 		if st == .Permission_Denied {
 			a.error = strings.clone(
-				"Not allowed to capture its audio; see the system's privacy settings.",
+				"Not allowed to capture its audio. Check the system's privacy settings.",
 			)
 		} else {
-			a.error = strings.concatenate({"Could not share it: ", why})
+			a.error = strings.concatenate({"Could not share the audio: ", why})
 		}
 		return
 	}

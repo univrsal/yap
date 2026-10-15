@@ -5,15 +5,15 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-Calls on screen (conn/calls.odin). The call itself is in the voice
-panel (ui_voice_panel.odin): ringing in with Accept and Decline, ringing
-out with Cancel, and once on, whom it's with, how long, and the buttons.
-A call coming in also says so on the desktop, and asks for the window's
-attention. A call is started from a DM's header or somebody's menu.
-*/
+// Calls on screen (see conn/calls.odin). The call itself is in the voice
+// panel (see ui_voice_panel.odin): an incoming call rings with Accept and
+// Decline buttons, an outgoing call rings with a Cancel button, and once the
+// call is on, the panel shows who it is with, how long it has lasted, and the
+// call's buttons. An incoming call is also announced on the desktop, and asks
+// for the window's attention. A call is started from a DM's header or from
+// somebody's menu.
 
-// call_peer_name is who a call is with. Call with the View locked.
+// call_peer_name returns who a call is with. Call with the View locked.
 call_peer_name :: proc(v: ^conn.View) -> string {
 	if acc, ok := v.accounts[v.call.peer]; ok {
 		return acc.display
@@ -21,9 +21,9 @@ call_peer_name :: proc(v: ^conn.View) -> string {
 	return "someone"
 }
 
-// may_call is whether we could call an account now: it's somebody else,
-// here, not a bot (which has no voice), and we aren't in a call. Call
-// with the View locked.
+// may_call returns whether we could call an account now: it has to be somebody
+// else, who is online and not a bot (which has no voice), and we must not be in
+// a call. Call with the View locked.
 may_call :: proc(v: ^conn.View, account: proto.Account_Id) -> bool {
 	if account == v.me || account == 0 || v.call.status != .None || is_bot(v, account) {
 		return false

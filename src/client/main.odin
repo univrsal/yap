@@ -36,7 +36,7 @@ Options :: struct {
 }
 
 main :: proc() {
-	// Before anything allocates, so that it's all counted (ui_memory.odin).
+	// This must run before anything allocates so that every allocation is counted (see ui_memory.odin).
 	context.allocator = memtrack.init()
 
 	opt := Options {
@@ -44,7 +44,7 @@ main :: proc() {
 	}
 	flags.parse_or_exit(&opt, os.args, .Odin)
 
-	// In the UI, log lines also go to the log panel.
+	// In the UI, log lines are also shown in the log panel.
 	logs: conn.Log_Lines
 	sink: common.Log_Sink
 	if !opt.headless {

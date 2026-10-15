@@ -7,10 +7,11 @@ import "core:testing"
 import "common:proto"
 import "sqlite"
 
-// Tests of purging (retention.odin), on the Test_Server of auth_test.odin.
+// Tests of purging (retention.odin), using the Test_Server from
+// auth_test.odin.
 
-// age sets when messages were posted: `days` ago, for ids from `first`
-// to `last`.
+// age_messages backdates the messages with ids from `first` to `last` so
+// that they were posted `days` ago.
 @(private = "file")
 age_messages :: proc(t: ^testing.T, ts: ^Test_Server, first, last: proto.Msg_Id, days: int) {
 	at := unix_ms() - i64(days) * DAY_MS
@@ -75,7 +76,8 @@ pin :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id, on := t
 	testing.expect_value(t, status, proto.Status.Ok)
 }
 
-// purge asks for a purge and lets it run to the end; its answer.
+// purge requests a purge, lets it run to completion and returns the
+// server's answer.
 @(private = "file")
 purge :: proc(
 	t: ^testing.T,
@@ -104,7 +106,8 @@ purge :: proc(
 	return r.status, messages, blobs
 }
 
-// purged is the Msgs_Purged a connection was told of last.
+// purged returns the last Msgs_Purged event a connection was sent, and
+// whether there was one.
 @(private = "file")
 purged :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> (p: proto.Msgs_Purged, told: bool) {
 	for e in ts_events(t, ts, u) {
@@ -133,7 +136,7 @@ test_msg_boundary :: proc(t: ^testing.T) {
 	for &id, i in ids {
 		_, id = post(t, &ts, alice, home, "words", u64(i + 1))
 	}
-	// 10 days old to 1 day old, a day apart.
+	// Ages from 10 days old to 1 day old, one day apart.
 	for id, i in ids {
 		age_messages(t, &ts, id, id, 10 - i)
 	}
@@ -143,7 +146,7 @@ test_msg_boundary :: proc(t: ^testing.T) {
 	testing.expect_value(t, msg_boundary(db, now - 10 * DAY_MS + 1), ids[1])
 	testing.expect_value(t, msg_boundary(db, now - 5 * DAY_MS - 1000), ids[5])
 	testing.expect_value(t, msg_boundary(db, now), ids[9] + 1)
-	// With gaps where messages were.
+	// Create a gap by deleting some messages.
 	testing.expect(
 		t,
 		db_exec(
@@ -151,7 +154,8 @@ test_msg_boundary :: proc(t: ^testing.T) {
 			fmt.tprintf("DELETE FROM messages WHERE id IN (%d, %d, %d)", ids[4], ids[5], ids[6]),
 		),
 	)
-	// Anywhere in the gap will do: what's below is the same.
+	// A boundary anywhere in the gap is fine, since the same messages are
+	// below it either way.
 	for before in ([]i64{now - 5 * DAY_MS - 1000, now - 7 * DAY_MS + 1000}) {
 		b := msg_boundary(db, before)
 		testing.expectf(t, b > ids[3] && b <= ids[7], "%d isn't in the gap", b)
@@ -194,8 +198,8 @@ test_purge_messages :: proc(t: ^testing.T) {
 	}
 	old := say(t, &ts, alice, home, &nonce)
 	pinned := say(t, &ts, alice, home, &nonce)
-	root := say(t, &ts, alice, home, &nonce) // a reply that's kept keeps it
-	gone_root := say(t, &ts, alice, home, &nonce) // its replies all go
+	root := say(t, &ts, alice, home, &nonce) // kept while one of its replies is
+	gone_root := say(t, &ts, alice, home, &nonce) // all of its replies are purged
 	old_reply := reply(t, &ts, bob, home, root, "an old reply", 100)
 	gone_reply := reply(t, &ts, bob, home, gone_root, "another", 101)
 	elsewhere := say(t, &ts, alice, gaming.id, &nonce)
@@ -215,7 +219,7 @@ test_purge_messages :: proc(t: ^testing.T) {
 	testing.expect(t, count_of(t, &ts, "SELECT count(*) FROM mentions") > 0)
 	ts_events(t, &ts, bob)
 
-	// Not for everyone.
+	// Not everyone is allowed to purge, and the channel must exist.
 	status, _, _ := purge(
 		t,
 		&ts,
@@ -226,7 +230,7 @@ test_purge_messages :: proc(t: ^testing.T) {
 	status, _, _ = purge(t, &ts, admin, {conv = 999, before = proto.Unix_Ms(unix_ms())})
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
-	// What's older than a week in the home channel.
+	// Purge everything older than a week in the home channel.
 	messages: int
 	status, messages, _ = purge(
 		t,
@@ -240,9 +244,10 @@ test_purge_messages :: proc(t: ^testing.T) {
 		testing.expectf(t, !exists(&ts, id), "message %d is still there", id)
 	}
 	for id in ([]proto.Msg_Id{pinned, root, new_reply, recent, elsewhere}) {
-		testing.expectf(t, exists(&ts, id), "message %d went", id)
+		testing.expectf(t, exists(&ts, id), "message %d was purged", id)
 	}
-	// With what hung off them, and nothing left in their place.
+	// Their reactions and mentions are purged along with them, and nothing
+	// is left in their place.
 	testing.expect_value(
 		t,
 		count_of(t, &ts, fmt.tprintf("SELECT count(*) FROM reactions WHERE message = %d", old)),
@@ -253,12 +258,13 @@ test_purge_messages :: proc(t: ^testing.T) {
 		count_of(t, &ts, fmt.tprintf("SELECT count(*) FROM mentions WHERE message = %d", old)),
 		0,
 	)
-	// The root that stays counts the reply it has left.
+	// The remaining thread root only counts the reply it has left.
 	m, _ := msg_by_id(s, root)
 	testing.expect_value(t, m.reply_count, 1)
 	testing.expect(t, .Has_Thread in m.flags)
 
-	// Bob is told; and it can't be fetched.
+	// Bob is told about the purge, and the purged messages can't be
+	// fetched anymore.
 	p, told := purged(t, &ts, bob)
 	testing.expect(t, told)
 	testing.expect_value(
@@ -271,14 +277,14 @@ test_purge_messages :: proc(t: ^testing.T) {
 		testing.expect(t, msg.id != old && msg.id != old_reply)
 	}
 
-	// The reply goes; then the root has nothing keeping it.
+	// Once the reply is purged, nothing keeps the root anymore.
 	age_messages(t, &ts, new_reply, new_reply, 30)
 	status, messages, _ = purge(t, &ts, admin, {before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)})
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, messages, 3) // root, new_reply, elsewhere
 	testing.expect(t, !exists(&ts, root) && !exists(&ts, elsewhere))
 	testing.expect(t, exists(&ts, pinned) && exists(&ts, recent))
-	// Unpinned, it goes too.
+	// Once unpinned, the pinned message is purged too.
 	pin(t, &ts, admin, pinned, false)
 	status, messages, _ = purge(t, &ts, admin, {before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)})
 	testing.expect_value(t, messages, 1)
@@ -318,8 +324,8 @@ test_retention_config :: proc(t: ^testing.T) {
 	ts_account(t, &ts, "alice", "a password")
 	alice := logged_in(t, &ts, "alice")
 
-	// A text every ten days; the oldest is 50 days old. What a size
-	// limit and file_days do is in attachments_test.odin.
+	// One text message every ten days, the oldest being 50 days old. The
+	// size limit and file_days are tested in attachments_test.odin.
 	texts: [5]proto.Msg_Id
 	for i in 0 ..< 5 {
 		_, texts[i] = post(t, &ts, alice, home, "a day's words", u64(i + 1))
@@ -327,7 +333,7 @@ test_retention_config :: proc(t: ^testing.T) {
 	}
 	r := &s.retention
 
-	// Messages a month old go.
+	// Messages older than a month are deleted.
 	r.config = {
 		message_days = 31,
 	}
@@ -336,7 +342,7 @@ test_retention_config :: proc(t: ^testing.T) {
 	testing.expect(t, !exists(&ts, texts[0]) && !exists(&ts, texts[1]))
 	testing.expect(t, exists(&ts, texts[2]) && exists(&ts, texts[4]))
 
-	// No limits: nothing goes.
+	// Without any limits, nothing is deleted.
 	r.config = {}
 	before := count_of(t, &ts, "SELECT count(*) FROM messages")
 	retention_schedule(r, &s.db, unix_ms())
@@ -366,7 +372,8 @@ test_purge_resumes :: proc(t: ^testing.T) {
 			_, last = post(t, &ts, admin, s.convs.home.id, "old words", u64(i + 1))
 		}
 		age_messages(t, &ts, 1, last, 30)
-		// Asked for, and part done when the server stops.
+		// Request a purge (a second request while one is pending is
+		// refused), and stop the server while it's only partly done.
 		testing.expect(
 			t,
 			retention_ask(&s.retention, &s.db, {before = proto.Unix_Ms(unix_ms())}, unix_ms()),
@@ -385,7 +392,7 @@ test_purge_resumes :: proc(t: ^testing.T) {
 		)
 	}
 
-	// Started again, it carries on.
+	// When the server starts again, the purge resumes.
 	ts: Test_Server
 	ts_open(t, &ts, path)
 	defer ts_close(&ts)
@@ -397,7 +404,7 @@ test_purge_resumes :: proc(t: ^testing.T) {
 	testing.expect_value(t, messages, COUNT - PURGE_CHUNK)
 	testing.expect_value(t, count_of(t, &ts, "SELECT count(*) FROM messages"), 0)
 	testing.expect(t, !s.retention.asked)
-	// And is done with: not again the next time.
+	// Once finished, it doesn't run again on the next start.
 	retention_close(&s.retention)
 	retention_open(&s.retention, &s.db, {})
 	testing.expect(t, !s.retention.asked)

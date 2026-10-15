@@ -5,7 +5,8 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of searching (search.odin), on the Test_Server of auth_test.odin.
+// Tests of searching (search.odin), using the Test_Server from
+// auth_test.odin.
 
 @(private = "file")
 search :: proc(
@@ -93,12 +94,13 @@ test_search :: proc(t: ^testing.T) {
 	_, mixed := post(t, &ts, alice, home, "morning is good", 4)
 	_, secret := post(t, &ts, alice, gaming.id, "the secret cafe plan", 5)
 
-	// Words, whatever their case and accents; in the channel asked about.
+	// Words match regardless of case and accents, and only in the channel
+	// that was searched.
 	status, ids, _, _ := search(t, &ts, bob, home, "CAFE")
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, len(ids) == 1 && ids[0] == coffee)
-	// Whole words only (no prefixes); a phrase, the words in a row;
-	// every word.
+	// Only whole words match (no prefixes). A quoted phrase matches the
+	// words in that order, and unquoted words must all be present.
 	_, ids, _, _ = search(t, &ts, bob, home, "walk*")
 	testing.expect_value(t, len(ids), 0)
 	_, ids, _, _ = search(t, &ts, bob, home, "walking")
@@ -107,16 +109,17 @@ test_search :: proc(t: ^testing.T) {
 	testing.expect(t, len(ids) == 1 && ids[0] == morning)
 	_, ids, _, _ = search(t, &ts, bob, home, "morning good")
 	testing.expect_value(t, len(ids), 2)
-	// Newest first.
+	// Results are sorted newest first.
 	testing.expect(t, len(ids) == 2 && ids[0] == mixed && ids[1] == morning)
-	// From someone.
+	// from: limits results to messages from one user.
 	_, ids, _, _ = search(t, &ts, bob, home, "morning from:alice")
 	testing.expect(t, len(ids) == 1 && ids[0] == mixed)
 	_, ids, _, _ = search(t, &ts, bob, home, "morning from:nobody")
 	testing.expect_value(t, len(ids), 0)
 
-	// Everywhere one is: alice finds Gaming's too, bob doesn't, and bob
-	// can't search Gaming at all.
+	// Searching everywhere covers all channels the user is a member of:
+	// alice also finds messages in Gaming, bob doesn't, and bob can't search
+	// Gaming at all.
 	_, ids, _, _ = search(t, &ts, alice, 0, "cafe")
 	testing.expect_value(t, len(ids), 2)
 	testing.expect(t, len(ids) == 2 && ids[0] == secret)
@@ -125,11 +128,12 @@ test_search :: proc(t: ^testing.T) {
 	status, _, _, _ = search(t, &ts, bob, gaming.id, "cafe")
 	testing.expect(t, status != .Ok)
 
-	// Nothing to look for.
+	// A query without any words is refused.
 	status, _, _, _ = search(t, &ts, bob, home, "!!!")
 	testing.expect_value(t, status, proto.Status.Invalid)
 
-	// A page at a time, older than the last.
+	// Results are paged: each page continues with messages older than the
+	// previous page.
 	more: bool
 	to: proto.Msg_Id
 	_, ids, more, to = search(t, &ts, bob, home, "morning", limit = 1)
@@ -137,7 +141,8 @@ test_search :: proc(t: ^testing.T) {
 	_, ids, more, _ = search(t, &ts, bob, home, "morning", before = to, limit = 1)
 	testing.expect(t, !more && len(ids) == 1 && ids[0] == morning)
 
-	// Edited: found by what it says now. Deleted: not found.
+	// Edited messages are found by their new text, and deleted messages
+	// aren't found at all.
 	testing.expect_value(t, edit_as(t, &ts, bob, walking, "I was running"), proto.Status.Ok)
 	_, ids, _, _ = search(t, &ts, bob, home, "walking")
 	testing.expect_value(t, len(ids), 0)
@@ -147,7 +152,7 @@ test_search :: proc(t: ^testing.T) {
 	_, ids, _, _ = search(t, &ts, bob, home, "morning")
 	testing.expect(t, len(ids) == 1 && ids[0] == morning)
 
-	// Purged: gone from the index too.
+	// Purged messages are removed from the search index too.
 	testing.expect(t, db_exec(&s.db, "UPDATE messages SET time = 1"))
 	buf: [proto.PURGE_SIZE]u8
 	ts.requests += 1

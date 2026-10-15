@@ -6,7 +6,7 @@ import "common:memtrack"
 import "core:sync"
 import "core:thread"
 
-// The network loop runs on a thread of its own, so a slow frame never
+// The network loop runs on its own thread, so a slow frame never
 // holds up the voice and a slow network never holds up the window.
 Net_Thread :: ^thread.Thread
 

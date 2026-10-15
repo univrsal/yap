@@ -5,8 +5,8 @@ import "core:slice"
 import "core:testing"
 import "core:time"
 
-// 6x4: red for 50 ms, green for 100, half-transparent blue for 5 (shown
-// for 100, as browsers do); for ever.
+// 6x4: red for 50 ms, green for 100, half-transparent blue for 5 (shown for
+// 100, as browsers do); loops forever.
 @(private = "file")
 ANIM := #load("../common/webp/testdata/anim.webp")
 // 4x4: red, green, blue, yellow, 20 ms each; played once.
@@ -51,7 +51,7 @@ test_anim_plays :: proc(t: ^testing.T) {
 	testing.expect_value(t, first_pixel(first), [4]u8{255, 0, 0, 255})
 	testing.expect_value(t, len(w.anims), 1)
 
-	// Round and round: green, blue, then red again.
+	// It loops: green, blue, then red again.
 	want := [?]struct {
 		rgba:  [4]u8,
 		shown: time.Duration,
@@ -69,7 +69,7 @@ test_anim_plays :: proc(t: ^testing.T) {
 		testing.expect_value(t, r.shown, f.shown)
 	}
 
-	// Another generation's (another server's) is let alone.
+	// Dropping it for another generation (i.e. another server) leaves it alone.
 	anim_drop(&w, 7, 2)
 	testing.expect_value(t, len(w.anims), 1)
 	stale := anim_next_frame(&w, 7, 2)
@@ -85,8 +85,8 @@ test_anim_merges_and_ends :: proc(t: ^testing.T) {
 	w: Decode_Worker
 	defer anims_destroy(&w)
 
-	// 20 ms frames are shown two at a time, for 40: never more than 30
-	// frames a second, at the animation's own speed.
+	// 20 ms frames are merged in pairs and shown for 40 ms: never more than 30
+	// frames per second, while keeping the animation's own speed.
 	first, _ := anim_start(&w, job_of(ANIM_ONCE, 3))
 	defer clipboard_image_free(&first)
 	testing.expect_value(t, first.shown, 40 * time.Millisecond)
@@ -97,7 +97,7 @@ test_anim_merges_and_ends :: proc(t: ^testing.T) {
 	testing.expect_value(t, second.shown, 40 * time.Millisecond)
 	testing.expect_value(t, first_pixel(second), [4]u8{255, 255, 0, 255})
 
-	// Played once: no more, and the decoder is let go of.
+	// Played once: there are no more frames, and the decoder is released.
 	end := anim_next_frame(&w, 3, 1)
 	testing.expect(t, end.frame && !end.ok && end.image.pixels == nil)
 	testing.expect_value(t, len(w.anims), 0)
@@ -109,7 +109,7 @@ test_anim_not_for_stills :: proc(t: ^testing.T) {
 	defer anims_destroy(&w)
 	job := job_of(STILL, 1)
 	_, is_anim := anim_start(&w, job)
-	testing.expect(t, !is_anim) // the caller decodes it, with the bytes still its own
+	testing.expect(t, !is_anim) // the caller decodes it and still owns the bytes
 	delete(job.jpeg)
 	bad := job_of([]u8{'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'}, 2)
 	_, is_anim = anim_start(&w, bad)
@@ -118,7 +118,7 @@ test_anim_not_for_stills :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(w.anims), 0)
 }
 
-// 6x4: red for 50 ms, green for 100, blue for 0 (shown for 100); for ever.
+// 6x4: red for 50 ms, green for 100, blue for 0 (shown for 100); loops forever.
 @(private = "file")
 GIF := #load("../common/gif/testdata/anim.gif")
 // 4x4: red, green, blue, yellow, 20 ms each; no NETSCAPE2.0 block (once).
@@ -166,7 +166,7 @@ test_gif_merges_and_loops :: proc(t: ^testing.T) {
 	w: Decode_Worker
 	defer anims_destroy(&w)
 
-	// 20 ms frames two at a time; played once.
+	// 20 ms frames merged in pairs; played once.
 	first, _ := anim_start(&w, job_of(GIF_ONCE, 1))
 	defer clipboard_image_free(&first)
 	testing.expect_value(t, first.shown, 40 * time.Millisecond)
@@ -194,8 +194,8 @@ test_gif_merges_and_loops :: proc(t: ^testing.T) {
 test_gif_stills :: proc(t: ^testing.T) {
 	w: Decode_Worker
 	defer anims_destroy(&w)
-	// Too big to play, and a single frame: both left to the still decoder,
-	// with the bytes still the caller's.
+	// Too big to play, and a single frame: both are left to the still-image
+	// decoder, and the caller still owns the bytes.
 	for data in ([][]u8{GIF_BIG, GIF_STILL}) {
 		job := job_of(data, 1)
 		_, is_anim := anim_start(&w, job)
@@ -207,15 +207,15 @@ test_gif_stills :: proc(t: ^testing.T) {
 
 @(test)
 test_paste_animation_ext :: proc(t: ^testing.T) {
-	// What a paste keeps as it is: animations, of either kind, however
-	// big (the server's limit is the paste's to check).
+	// A paste keeps animations of either kind as they are, however big (checking
+	// the server's size limit is up to the paste code).
 	ext, ok := animation_ext(ANIM)
 	testing.expect(t, ok && ext == "webp")
 	ext, ok = animation_ext(GIF)
 	testing.expect(t, ok && ext == "gif")
 	ext, ok = animation_ext(GIF_BIG)
 	testing.expect(t, ok && ext == "gif")
-	// Still ones are compressed like any picture.
+	// Still images are compressed like any other picture.
 	for data in ([][]u8{STILL, GIF_STILL, nil, {1, 2, 3}}) {
 		_, ok = animation_ext(data)
 		testing.expect(t, !ok)

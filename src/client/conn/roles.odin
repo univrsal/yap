@@ -7,14 +7,13 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-Roles and managing the server (src/common/proto/roles.odin, convs.odin):
-the roles there are, as the server tells them, and asking to change
-them, who has them, whether an account may log in, and the channels.
-
-What we may do is in Self (permissions, auth.odin); the UI offers only
-that, and the server checks again.
-*/
+// Roles and managing the server (src/common/proto/roles.odin, convs.odin):
+// the roles as the server reports them, and requests to change them, to change
+// who has them, to allow or block an account from logging in, and to manage
+// channels.
+//
+// What we may do is stored in Self (permissions, auth.odin). The UI offers only
+// those actions, and the server checks the permissions again.
 
 Dir_Role :: struct {
 	name:     string, // owned
@@ -24,8 +23,8 @@ Dir_Role :: struct {
 	flags:    proto.Role_Flags,
 }
 
-// The roles in View.roles are in the server's order, top first, with
-// everyone's last.
+// The roles in View.roles are in the server's order, top first, with the
+// everyone role last.
 View_Role :: struct {
 	id:    proto.Role_Id,
 	name:  string, // owned
@@ -34,8 +33,8 @@ View_Role :: struct {
 	flags: proto.Role_Flags,
 }
 
-// Make a role (id 0) or change one; headless, `by_name` changes the
-// one called `name`, and keeps its colour and flags.
+// Make a role (id 0) or change one. Headless, `by_name` changes the role
+// called `name` and keeps its color and flags.
 Role_Set_Command :: struct {
 	id:      proto.Role_Id,
 	name:    string, // owned by the command
@@ -44,17 +43,17 @@ Role_Set_Command :: struct {
 	flags:   proto.Role_Flags,
 	by_name: bool,
 }
-// Put the roles in this order, top first: every role but everyone's.
+// Put the roles in this order, top first, leaving out the everyone role.
 Role_Order_Command :: struct {
 	roles: [proto.MAX_ROLES]proto.Role_Id,
 	count: int,
 }
-// Delete a role; headless, by name.
+// Delete a role (headless: by name).
 Role_Delete_Command :: struct {
 	id:   proto.Role_Id,
 	name: string, // owned by the command
 }
-// An account's roles besides everyone's; headless, by name (`name`, and
+// An account's roles besides the everyone role. Headless, by name (`name`, and
 // the roles' names in `role_names`, comma separated).
 Account_Roles_Command :: struct {
 	account:    proto.Account_Id,
@@ -68,15 +67,15 @@ Account_Disable_Command :: struct {
 	name:    string, // owned by the command; headless
 	on:      bool,
 }
-// Delete an account: ours, with our password, or somebody else's, for
-// who may; headless, by name.
+// Delete an account: our own (with our password), or somebody else's if we are
+// allowed to. Headless, by name.
 Account_Delete_Command :: struct {
 	account:  proto.Account_Id,
 	name:     string, // owned by the command; headless
 	own:      bool, // ours, whatever `account` says
 	password: string, // owned by the command; for our own
 }
-// Change a channel (0: the one we're looking at): what the mask names.
+// Change a channel (0: the one we're looking at) as selected by the mask.
 Conv_Update_Command :: struct {
 	conv:     proto.Conv_Id,
 	mask:     u8,
@@ -87,8 +86,8 @@ Conv_Update_Command :: struct {
 Conv_Delete_Command :: struct {
 	conv: proto.Conv_Id,
 }
-// Add somebody to a channel (0: the one we're looking at), or take them
-// out of a private one; headless, by name.
+// Add somebody to a channel (0: the one we're looking at), or remove them from
+// a private one. Headless, by name.
 Conv_Member_Command :: struct {
 	conv:    proto.Conv_Id,
 	account: proto.Account_Id,
@@ -177,7 +176,7 @@ role_set :: proc(c: ^Voice_Client, cmd: Role_Set_Command) {
 		{id = id, perms = cmd.perms, name = cmd.name, color = color, flags = flags},
 	)
 	if body == nil {
-		notify(c, false, "That name is too long for a role.")
+		notify(c, false, "The role name is too long.")
 		return
 	}
 	request(c, .Role_Set, body, manage_done)
@@ -253,7 +252,7 @@ account_delete :: proc(c: ^Voice_Client, cmd: Account_Delete_Command) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	body := proto.encode_account_delete(buf[:], account, cmd.password)
 	if body == nil {
-		notify(c, false, "That password is too long.")
+		notify(c, false, "The password is too long.")
 		return
 	}
 	request(
@@ -263,9 +262,9 @@ account_delete :: proc(c: ^Voice_Client, cmd: Account_Delete_Command) {
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Wrong_Password:
-				notify(c, false, "Wrong password: the account wasn't deleted.")
+				notify(c, false, "Wrong password. The account was not deleted.")
 			case .Rate_Limited:
-				notify(c, false, "Too many attempts. Wait a little and try again.")
+				notify(c, false, "Too many attempts. Wait a moment and try again.")
 			case:
 				manage_done(c, status, body, tag)
 			}
@@ -287,7 +286,7 @@ conv_update :: proc(c: ^Voice_Client, cmd: Conv_Update_Command) {
 		},
 	)
 	if body == nil {
-		notify(c, false, "That name or topic is too long.")
+		notify(c, false, "The channel name or topic is too long.")
 		return
 	}
 	request(c, .Conv_Update, body, manage_done)
@@ -317,7 +316,7 @@ conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
 		proto.encode_conv_member_set(&buf, conv, account, cmd.on),
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			manage_done(c, status, body, tag)
-			// The members shown are fetched again.
+			// Fetch the members shown again.
 			if status == .Ok && c.profiles.members_conv != 0 {
 				members_fetch(c, c.profiles.members_conv)
 			}
@@ -325,8 +324,8 @@ conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
 	)
 }
 
-// manage_done says what went wrong with a change to the server's roles,
-// accounts or channels; what went right shows by itself.
+// manage_done reports what went wrong with a change to the server's roles,
+// accounts or channels. Successful changes need no message.
 @(private = "file")
 manage_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	#partial switch status {
@@ -335,17 +334,17 @@ manage_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64
 			log.info("[manage] done")
 		}
 	case .Denied:
-		notify(c, false, "You aren't allowed to do that.")
+		notify(c, false, "You don't have permission to do that.")
 	case .Conflict:
-		notify(c, false, "That name is taken.")
+		notify(c, false, "That name is already taken.")
 	case .Not_Found:
-		notify(c, false, "That isn't there any more.")
+		notify(c, false, "That role, account or channel no longer exists.")
 	case .Too_Large:
-		notify(c, false, "There are as many of those as there can be.")
+		notify(c, false, "The server has reached the maximum number of roles or channels.")
 	case .Invalid:
-		notify(c, false, "That can't be done.")
+		notify(c, false, "The server rejected the change as invalid.")
 	case:
-		notify(c, false, fmt.tprintf("The server couldn't do that (%v).", status))
+		notify(c, false, fmt.tprintf("The server failed to apply the change (%v).", status))
 	}
 }
 
@@ -355,8 +354,8 @@ publish_roles :: proc(c: ^Voice_Client) {
 		return
 	}
 	ids, _ := slice.map_keys(c.auth.roles, context.temp_allocator)
-	// As the server lists them (roles.odin there): by position, then as
-	// they were made, everyone's last.
+	// As the server lists them (roles.odin there): by position, then in the
+	// order they were created, with the everyone role last.
 	context.user_ptr = &c.auth.roles
 	slice.sort_by(ids, proc(x, y: proto.Role_Id) -> bool {
 		roles := (^map[proto.Role_Id]Dir_Role)(context.user_ptr)
@@ -375,9 +374,9 @@ publish_roles :: proc(c: ^Voice_Client) {
 	}
 }
 
-// dir_roles is the roles as mentions take them (mentions.odin), from
-// what we know of them rather than the View's: in the temp allocator,
-// their names not copied.
+// dir_roles returns the roles in the form mentions expect (mentions.odin),
+// built from what we know about them rather than from the View. It is allocated
+// in the temp allocator and the names are not copied.
 dir_roles :: proc(c: ^Voice_Client) -> []View_Role {
 	list := make([dynamic]View_Role, 0, len(c.auth.roles), context.temp_allocator)
 	for id, r in c.auth.roles {

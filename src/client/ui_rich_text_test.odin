@@ -9,8 +9,8 @@ import mu "vendor:microui"
 import "client:conn"
 import "client:render"
 
-// Characters are 8 pixels wide in Regular, 10 in Bold, 9 in Mono (and 8
-// in the italics); lines are 16 tall.
+// Characters are 8 pixels wide in Regular, 10 in Bold, 9 in Mono (and 8 in the
+// italics). Lines are 16 pixels tall.
 @(private = "file")
 rich_test_ctx :: proc() -> ^mu.Context {
 	ctx := new(mu.Context)
@@ -84,8 +84,8 @@ test_rich_layout :: proc(t: ^testing.T) {
 	testing.expect_value(t, r.text[vls[1].start:vls[1].end], "fghij")
 	testing.expect_value(t, r.text[vls[2].start:vls[2].end], " klm")
 
-	// However narrow, every line takes something, and all but the spaces
-	// it breaks at gets laid out.
+	// However narrow the width is, every line takes at least one character,
+	// and everything except the spaces it breaks at gets laid out.
 	r = rich_make("**x** `y` _z_\n> - w", nil, nil, nil, false)
 	total := 0
 	for vl in rich_layout(ctx, &r, 1) {
@@ -101,8 +101,8 @@ test_rich_layout :: proc(t: ^testing.T) {
 
 @(test)
 test_rich_spans :: proc(t: ^testing.T) {
-	// Mentions, emoji and links to messages move with the text; a web
-	// address a [text](url) takes goes, others stay.
+	// Mentions, emoji and links to messages move with the text. A web
+	// address that a [text](url) takes goes away, while others stay.
 	shown := "**@Ann**  [site](https://a.org) https://b.org"
 	ann := strings.index(shown, "@Ann")
 	icon := strings.index(shown, "")

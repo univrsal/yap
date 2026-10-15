@@ -1,11 +1,9 @@
 #+build wasi
-/*
-The C declarations for a web build: the same as opus_foreign.odin, generated from
-it by web/gen_foreign.py. On wasm Odin names a named foreign import's
-procs after the import ("system:c..name"), which no C object defines;
-the unnamed form, `foreign _`, keeps the plain C names that emscripten
-links against.
-*/
+// The C declarations for a web build. They are the same as in
+// opus_foreign.odin and are generated from it by web/gen_foreign.py.
+// On wasm, Odin names the procs of a named foreign import after the import
+// ("system:c..name"), which no C object defines. The unnamed form,
+// `foreign _`, keeps the plain C names that emscripten links against.
 package opus
 
 import "core:c"
@@ -22,8 +20,8 @@ foreign _ {
 	encoder_ctl :: proc(st: ^Encoder, request: Request, #c_vararg args: ..any) -> Error ---
 
 	// frame_size is per channel and must be 2.5, 5, 10, 20, 40, 60, 80, 100
-	// or 120 ms at the encoder's rate. Returns the packet length in bytes,
-	// or a negative Error.
+	// or 120 ms at the encoder's sample rate. Returns the packet length in
+	// bytes, or a negative Error.
 	encode :: proc(st: ^Encoder, pcm: [^]i16, frame_size: c.int, data: [^]u8, max_data_bytes: i32) -> i32 ---
 	encode_float :: proc(st: ^Encoder, pcm: [^]f32, frame_size: c.int, data: [^]u8, max_data_bytes: i32) -> i32 ---
 
@@ -33,9 +31,10 @@ foreign _ {
 	decoder_destroy :: proc(st: ^Decoder) ---
 	decoder_ctl :: proc(st: ^Decoder, request: Request, #c_vararg args: ..any) -> Error ---
 
-	// data = nil (len 0) asks for packet loss concealment. decode_fec = 1
+	// data = nil (with len 0) requests packet loss concealment. decode_fec = 1
 	// recovers the *previous* frame from this packet's in-band FEC.
-	// Returns the number of samples per channel decoded, or a negative Error.
+	// Returns the number of samples per channel that were decoded, or a
+	// negative Error.
 	decode :: proc(st: ^Decoder, data: [^]u8, len: i32, pcm: [^]i16, frame_size: c.int, decode_fec: c.int) -> c.int ---
 	decode_float :: proc(st: ^Decoder, data: [^]u8, len: i32, pcm: [^]f32, frame_size: c.int, decode_fec: c.int) -> c.int ---
 	decoder_get_nb_samples :: proc(dec: ^Decoder, packet: [^]u8, len: i32) -> c.int ---

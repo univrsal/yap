@@ -4,8 +4,8 @@ package proto
 import "core:testing"
 import "core:time"
 
-// A file goes from a sender to a receiver through a link that loses
-// every fifth chunk and every third ack, and arrives whole.
+// A file is sent from a sender to a receiver through a link that loses every
+// fifth chunk and every third ack, and still arrives complete.
 @(test)
 test_transfer_lossy :: proc(t: ^testing.T) {
 	size := u64(2500 * FILE_CHUNK_DATA + 123) // more than two windows
@@ -68,7 +68,7 @@ test_transfer_lossy :: proc(t: ^testing.T) {
 	testing.expect(t, transfer_complete(&r))
 	testing.expect_value(t, transfer_sender_done(&s), size)
 	testing.expect(t, string(got) == string(file))
-	// Lost chunks were sent again, but not everything twice over.
+	// Lost chunks were sent again, but not everything was sent twice.
 	testing.expect(t, sent < int(s.chunks) * 2)
 }
 
@@ -82,7 +82,8 @@ test_transfer_messages :: proc(t: ^testing.T) {
 	testing.expect_value(t, id, 1 << 40)
 	testing.expect_value(t, reason, File_Cancel_Reason.Cancelled)
 
-	// A chunk the receiver can't use: past the end, too short, a repeat.
+	// Chunks the receiver can't use: one past the end, a too short one and a
+	// repeat.
 	r: Transfer_Receiver
 	transfer_receiver_init(&r, u64(FILE_CHUNK_DATA + 10))
 	defer transfer_receiver_destroy(&r)

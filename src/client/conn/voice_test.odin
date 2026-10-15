@@ -5,7 +5,7 @@ import "core:testing"
 
 import "client:audio"
 
-// A deafen from the UI mutes as well, and plays one sound, not two.
+// A deafen from the UI also mutes, and plays one sound instead of two.
 @(test)
 test_deafen_plays_once :: proc(t: ^testing.T) {
 	c: Voice_Client
@@ -27,7 +27,7 @@ test_deafen_plays_once :: proc(t: ^testing.T) {
 	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.unmuted))
 	testing.expect_value(t, sounds.queued_count, 0)
 
-	// Mute on its own, and a repeat of what's already so, which is quiet.
+	// Mute on its own, and a repeat of what is already the case, which is silent.
 	audio.notifications_clear(sounds)
 	push_command(&c.commands, Mute_Command{muted = true, feedback = true})
 	push_command(&c.commands, Mute_Command{muted = true, feedback = true})
@@ -61,7 +61,7 @@ test_display_names :: proc(t: ^testing.T) {
 	ch.users_buf[4] = {
 		num     = 5,
 		account = 99,
-	} // one we weren't told of
+	} // an account we were not told about
 	ch.state.users = ch.users_buf[:5]
 	ch.have_state = true
 	c.auth.accounts[10] = {
@@ -76,7 +76,7 @@ test_display_names :: proc(t: ^testing.T) {
 		username = "robert",
 		display  = "bob",
 	}
-	// Here, but not connected: doesn't make anyone's name ambiguous.
+	// Here, but not connected: does not make anyone's name ambiguous.
 	c.auth.accounts[13] = {
 		username = "alice2",
 		display  = "alice",

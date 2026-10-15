@@ -4,7 +4,7 @@ package proto
 import "core:testing"
 import "core:time"
 
-// A frame of `size` bytes, each byte saying where it is.
+// A frame of `size` bytes, where each byte encodes its own position.
 @(private = "file")
 make_frame :: proc(size: int) -> []u8 {
 	data := make([]u8, size, context.temp_allocator)
@@ -14,8 +14,8 @@ make_frame :: proc(size: int) -> []u8 {
 	return data
 }
 
-// The fragments of frame `num`, encoded as the server sends them and
-// decoded again.
+// The fragments of frame `num`, encoded the way the server sends them and
+// then decoded again.
 @(private = "file")
 fragments :: proc(num: u32, key: bool, data: []u8) -> []Video_Fragment {
 	count := video_fragment_count(len(data))
@@ -42,8 +42,8 @@ fragments :: proc(num: u32, key: bool, data: []u8) -> []Video_Fragment {
 	return out
 }
 
-// feed gives a window every fragment at `now` and returns the last
-// frame that came out.
+// feed gives a window every fragment at `now` and returns the last frame
+// that came out of it.
 @(private = "file")
 feed :: proc(
 	w: ^Video_Window,
@@ -188,7 +188,7 @@ test_window_out_of_order :: proc(t: ^testing.T) {
 	_, ok := feed(w, fragments(1, true, make_frame(100)))
 	testing.expect(t, ok)
 
-	// Frame 3 comes before the end of frame 2: both come out, in order.
+	// Frame 3 arrives before the end of frame 2: both come out, in order.
 	two := make_frame(3 * VIDEO_FRAGMENT_SIZE)
 	three := make_frame(50)
 	f2 := fragments(2, false, two)
@@ -246,7 +246,7 @@ test_window_nacks_and_recovers :: proc(t: ^testing.T) {
 	_, ok = feed(w, fragments(3, false, make_frame(10)), now)
 	testing.expect(t, !ok)
 
-	// Not yet: it may be reordering.
+	// Not yet, because it may only be reordered.
 	testing.expect_value(t, len(video_window_nacks(w, later(now, 1), true)), 0)
 	nacks := video_window_nacks(w, later(now, 15), true)
 	testing.expect_value(t, len(nacks), 1)
@@ -255,10 +255,11 @@ test_window_nacks_and_recovers :: proc(t: ^testing.T) {
 		testing.expect_value(t, nacks[0].first, 1)
 		testing.expect_value(t, nacks[0].missing, 0b101)
 	}
-	// Asked once; not again until NACK_RETRY.
+	// Requested once, and not again until NACK_RETRY has passed.
 	testing.expect_value(t, len(video_window_nacks(w, later(now, 30), true)), 0)
 
-	// What was asked for comes: both frames out, nothing broken.
+	// The requested fragments arrive: both frames come out and nothing is
+	// broken.
 	video_window_add(w, f2[1], later(now, 40))
 	video_window_add(w, f2[3], later(now, 40))
 	frame: Video_Frame
@@ -282,8 +283,9 @@ test_window_gives_up :: proc(t: ^testing.T) {
 	_, ok := feed(w, fragments(1, true, make_frame(100)), now)
 	testing.expect(t, ok)
 
-	// Frame 2's last fragment never comes, nor anything after: once
-	// TAIL_WAIT has passed it's missed, asked for twice, then given up.
+	// Frame 2's last fragment never arrives, and neither does anything after
+	// it. Once TAIL_WAIT has passed it counts as missing, is requested twice
+	// and is then given up on.
 	f2 := fragments(2, false, make_frame(2 * VIDEO_FRAGMENT_SIZE))
 	video_window_add(w, f2[0], now)
 	testing.expect_value(t, len(video_window_nacks(w, later(now, 5), true)), 0)
@@ -320,7 +322,7 @@ test_window_skipped_frame :: proc(t: ^testing.T) {
 	_, ok := feed(w, fragments(1, true, make_frame(100)), now)
 	testing.expect(t, ok)
 
-	// Frame 2 doesn't come at all: it's asked for from its start.
+	// Frame 2 doesn't arrive at all, so it is requested from its start.
 	_, ok = feed(w, fragments(3, false, make_frame(10)), now)
 	testing.expect(t, !ok)
 	testing.expect_value(t, len(video_window_nacks(w, later(now, 1), true)), 0)
@@ -330,12 +332,12 @@ test_window_skipped_frame :: proc(t: ^testing.T) {
 		testing.expect_value(t, nacks[0].frame, 2)
 		testing.expect_value(t, nacks[0].first, 0)
 	}
-	// It comes after all.
+	// It arrives after all.
 	_, ok = feed(w, fragments(2, false, make_frame(30)), later(now, 30))
 	testing.expect(t, ok)
 	testing.expect(t, !w.broken)
 
-	// Without anyone to ask, it's given up on once it's surely lost.
+	// Without anyone to ask, it is given up on once it is surely lost.
 	_, ok = feed(w, fragments(5, false, make_frame(10)), later(now, 40))
 	testing.expect(t, !ok)
 	testing.expect_value(t, len(video_window_nacks(w, later(now, 41), false)), 0)
@@ -347,7 +349,7 @@ test_window_skipped_frame :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 	testing.expect(t, w.broken)
 
-	// So far ahead that frames fall out of the window: broken as well.
+	// So far ahead that frames fall out of the window, which also breaks it.
 	video_window_reset(w)
 	_, ok = feed(w, fragments(10, true, make_frame(10)), now)
 	testing.expect(t, ok)
@@ -381,7 +383,7 @@ test_video_report :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, sharer, 7)
 	testing.expect_value(t, r, Video_Report{loss = 12, delay_ms = 40, kbit = 6000})
-	// Out of range: held to what fits.
+	// Out of range values are clamped to what fits.
 	_, r, _ = decode_report_up(encode_report_up(&buf, 7, {loss = 5000, delay_ms = -3}))
 	testing.expect_value(t, r.loss, 1000)
 	testing.expect_value(t, r.delay_ms, 0)
@@ -402,7 +404,8 @@ test_video_report :: proc(t: ^testing.T) {
 test_summarize_reports :: proc(t: ^testing.T) {
 	testing.expect_value(t, summarize_reports(nil), Video_Reports{})
 
-	// Two: the worst of each, whoever it's from.
+	// With two reports, the worst value of each field is used, regardless of
+	// which report it comes from.
 	two := []Video_Report {
 		{loss = 10, delay_ms = 80, kbit = 6000},
 		{loss = 30, delay_ms = 20, kbit = 7000},
@@ -414,7 +417,7 @@ test_summarize_reports :: proc(t: ^testing.T) {
 		Video_Reports{viewers = 2, worst = {loss = 30, delay_ms = 80, kbit = 6000}},
 	)
 
-	// One of three far behind the others: left out.
+	// One of three is far behind the others, so it is left out.
 	three := []Video_Report {
 		{loss = 5, delay_ms = 10, kbit = 6000},
 		{loss = 200, delay_ms = 400, kbit = 900},
@@ -427,7 +430,7 @@ test_summarize_reports :: proc(t: ^testing.T) {
 		Video_Reports{viewers = 3, left_out = 1, worst = {loss = 8, delay_ms = 30, kbit = 5800}},
 	)
 
-	// Not far behind: counted.
+	// Not far behind, so it is counted.
 	close := []Video_Report {
 		{loss = 5, delay_ms = 10, kbit = 6000},
 		{loss = 40, delay_ms = 50, kbit = 5000},

@@ -2,8 +2,8 @@ package clipboard
 
 import log "common:wlog"
 
-// OpenBSD's desktops are X11, so that's the only backend here; the
-// Wayland display init is given is always nil.
+// OpenBSD's desktops use X11, so that is the only backend here. The Wayland
+// display passed to init is always nil.
 
 @(private = "file")
 have_x11: bool

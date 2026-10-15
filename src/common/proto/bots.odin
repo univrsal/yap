@@ -4,37 +4,35 @@ import "core:crypto/ecdh"
 import "core:encoding/base64"
 import "core:strings"
 
-/*
-Bot accounts: accounts for programs (docs/bot-api). A bot is an account
-with the Bot flag (accounts.odin), made by an admin (Manage_Accounts),
-and it does what its roles let it, as anyone does.
-
-It has no password: it can't log in with Auth_Login, change one or be
-given one. It gets in by its tokens, each a device of its own: the
-admin's client makes the device's key, sends the server only the public
-half and shows the private half once, as the token. The server never
-sees a token, and a token's device is listed (Device_List with the bot's
-account) and logged out (Device_Revoke) as any device is.
-
-	Bot_Create     [username str8][display str8][key 32][device str8]
-	           ->  [account u32]
-	Bot_Token_Add  [account u32][key 32][device str8]
-
-`key` is the token's public key, `device` what its device is called in
-the bot's list. A key that is a device already is Conflict, as is a
-username that's taken.
-
-A bot can't be in a voice room or a call (Denied); everything else is
-as for anyone.
-
-A token is "yap_" and its private key in base64url, without padding.
-*/
+// Bot accounts: accounts for programs (docs/bot-api). A bot is an account with
+// the Bot flag (accounts.odin) that is created by an admin (Manage_Accounts).
+// Like any account, it can do whatever its roles allow.
+//
+// It has no password, so it can't log in with Auth_Login and can't change or be
+// given a password. It logs in with tokens instead, and each token is a device
+// of its own. The admin's client generates the device's key, sends only the
+// public half to the server and shows the private half once, as the token.
+// The server never sees a token. A token's device is listed (Device_List with
+// the bot's account) and logged out (Device_Revoke) like any other device.
+//
+// 	Bot_Create     [username str8][display str8][key 32][device str8]
+// 	           ->  [account u32]
+// 	Bot_Token_Add  [account u32][key 32][device str8]
+//
+// `key` is the token's public key and `device` is the name of its device in
+// the bot's list. The answer is Conflict if the key already belongs to a
+// device or if the username is taken.
+//
+// A bot can't join a voice room or a call (Denied). Everything else works as
+// for any other account.
+//
+// A token is "yap_" followed by its private key in base64url without padding.
 
 BOT_TOKEN_PREFIX :: "yap_"
-// The prefix and 32 bytes in unpadded base64.
+// The prefix followed by 32 bytes in unpadded base64.
 BOT_TOKEN_SIZE :: len(BOT_TOKEN_PREFIX) + 43
 
-// What a token's device is called when the admin doesn't say.
+// The name of a token's device if the admin doesn't give one.
 BOT_DEVICE_NAME :: "token"
 
 BOT_BODY_MAX ::
@@ -108,11 +106,9 @@ decode_bot_token_add :: proc(
 	return account, key, device, !r.overflow
 }
 
-/*
-bot_token_make makes a new token: a private key, as the token to show
-(in `allocator`), and its public half, for the server. False if no key
-could be made.
-*/
+// bot_token_make makes a new token. It returns the private key as the token
+// to show to the admin (allocated with `allocator`) and the public key to send
+// to the server. It returns false if no key could be generated.
 bot_token_make :: proc(
 	allocator := context.allocator,
 ) -> (
@@ -140,10 +136,8 @@ bot_token_make :: proc(
 	return strings.concatenate({BOT_TOKEN_PREFIX, text_s}, allocator), public, true
 }
 
-/*
-bot_token_parse sets `key` from a token (surrounding whitespace
-ignored); false if it isn't one.
-*/
+// bot_token_parse sets `key` from a token, ignoring surrounding whitespace.
+// It returns false if `raw` is not a valid token.
 bot_token_parse :: proc(raw: string, key: ^ecdh.Private_Key) -> bool {
 	token := strings.trim_space(raw)
 	if len(token) != BOT_TOKEN_SIZE || !strings.has_prefix(token, BOT_TOKEN_PREFIX) {

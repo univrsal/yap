@@ -5,7 +5,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of messages and blobs, on the Test_Server of auth_test.odin.
+// Tests of messages and blobs, using the Test_Server from auth_test.odin.
 
 history_body :: proc(
 	conv: proto.Conv_Id,
@@ -17,7 +17,7 @@ history_body :: proc(
 	return proto.encode_msg_history(buf, {conv = conv, anchor = anchor, dir = dir, limit = limit})
 }
 
-// post posts a text message as `u`; its id if it was posted.
+// post posts a text message as `u` and returns its id if it was posted.
 post :: proc(
 	t: ^testing.T,
 	ts: ^Test_Server,
@@ -41,7 +41,8 @@ post :: proc(
 	return
 }
 
-// history reads a page; the messages are in the temp allocator.
+// history reads a page of history. The messages are allocated with the temp
+// allocator.
 @(private = "file")
 history :: proc(
 	t: ^testing.T,
@@ -95,8 +96,8 @@ test_post_and_read :: proc(t: ^testing.T) {
 	testing.expect(t, conv_member_add(&s.convs, gaming, laptop.account.id))
 	testing.expect(t, conv_member_add(&s.convs, gaming, bob.account.id))
 
-	// Posted, it goes to every connection of every member, the poster's
-	// own included, and to nobody else.
+	// A posted message is sent to every connection of every member,
+	// including the poster's own, and to nobody else.
 	status, id := post(t, &ts, laptop, gaming.id, "  hello\tthere ", 1)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, id != 0)
@@ -111,15 +112,15 @@ test_post_and_read :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, len(new_messages(t, &ts, carol)), 0)
 
-	// And it's there to read.
+	// It can also be read from the history.
 	msgs, more := history(t, &ts, bob, gaming.id)
 	testing.expect_value(t, len(msgs), 1)
 	testing.expect_value(t, msgs[0].id, id)
 	testing.expect_value(t, msgs[0].text, "hello there")
 	testing.expect_value(t, more, 0)
 
-	// Only by members: carol isn't in Gaming, and nobody is in a channel
-	// that isn't there.
+	// Only members can read and post: carol isn't in Gaming, and nobody is
+	// a member of a channel that doesn't exist.
 	status, _ = ts_ask(t, &ts, carol, .Msg_History, history_body(gaming.id))
 	testing.expect_value(t, status, proto.Status.Denied)
 	status, _ = post(t, &ts, carol, gaming.id, "let me in", 2)
@@ -130,8 +131,9 @@ test_post_and_read :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, len(new_messages(t, &ts, bob)), 1) // bob is in home
 
-	// The same post again (its answer lost with the connection) is the
-	// same message, stored and delivered once.
+	// Repeating the same post (e.g. because the answer was lost along with
+	// the connection) yields the same message, stored and delivered only
+	// once.
 	again, other: proto.Msg_Id
 	status, again = post(t, &ts, phone, gaming.id, "hello there", 1)
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -139,12 +141,13 @@ test_post_and_read :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(new_messages(t, &ts, bob)), 0)
 	msgs, _ = history(t, &ts, bob, gaming.id)
 	testing.expect_value(t, len(msgs), 1)
-	// The nonce is the poster's: bob's 1 is another message.
+	// Nonces are per poster, so bob's nonce 1 is a different message.
 	status, other = post(t, &ts, bob, gaming.id, "me too", 1)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, other > id)
 
-	// Nothing to post, no nonce, or a thread with no root is refused.
+	// Empty text, a missing nonce, or a thread root that doesn't exist is
+	// refused.
 	status, _ = post(t, &ts, bob, gaming.id, " \t ", 4)
 	testing.expect_value(t, status, proto.Status.Invalid)
 	status, _ = post(t, &ts, bob, gaming.id, "no nonce", 0)
@@ -177,7 +180,8 @@ test_history_pages :: proc(t: ^testing.T) {
 	gaming := conv_by_name(&s.convs, "Gaming")
 	testing.expect(t, conv_member_add(&s.convs, gaming, alice.account.id))
 
-	// 120 in home, with others in Gaming between them that mustn't show.
+	// 120 messages in home, interleaved with messages in Gaming that must
+	// not show up.
 	N :: 120
 	ids: [N]proto.Msg_Id
 	for i in 0 ..< N {
@@ -190,7 +194,8 @@ test_history_pages :: proc(t: ^testing.T) {
 	}
 	ts_events(t, &ts, alice)
 
-	// From the newest back, a page at a time, to the first.
+	// Page backwards from the newest message to the first, one page at a
+	// time.
 	seen := make([dynamic]proto.Msg_Id, context.temp_allocator)
 	anchor: proto.Msg_Id
 	for pages := 0;; pages += 1 {
@@ -213,7 +218,7 @@ test_history_pages :: proc(t: ^testing.T) {
 		testing.expect_value(t, id, ids[N - 1 - i])
 	}
 
-	// And forward from the start.
+	// Page forwards from the start.
 	msgs, more := history(t, &ts, alice, home, 0, .After)
 	testing.expect_value(t, len(msgs), proto.MAX_HISTORY_LIMIT)
 	testing.expect_value(t, msgs[0].id, ids[0])
@@ -224,25 +229,28 @@ test_history_pages :: proc(t: ^testing.T) {
 	testing.expect_value(t, msgs[19].id, ids[119])
 	testing.expect_value(t, more, proto.MORE_BEFORE)
 
-	// Around one: it, the older half and the newer half.
+	// A page around a message contains the message itself, with half the
+	// page older and half newer.
 	msgs, more = history(t, &ts, alice, home, ids[60], .Around, 20)
 	testing.expect_value(t, len(msgs), 20)
 	testing.expect_value(t, msgs[0].id, ids[51])
 	testing.expect_value(t, msgs[9].id, ids[60])
 	testing.expect_value(t, msgs[19].id, ids[70])
 	testing.expect_value(t, more, proto.MORE_BEFORE | proto.MORE_AFTER)
-	// Near the start there's less before it, and more after.
+	// Near the start there are fewer messages before it, so more come
+	// after.
 	msgs, more = history(t, &ts, alice, home, ids[2], .Around, 20)
 	testing.expect_value(t, msgs[0].id, ids[0])
 	testing.expect_value(t, msgs[2].id, ids[2])
 	testing.expect_value(t, len(msgs), 20)
 	testing.expect_value(t, more, proto.MORE_AFTER)
-	// At the end, the newest and nothing after.
+	// At the end, the page ends with the newest message and there's
+	// nothing after it.
 	msgs, more = history(t, &ts, alice, home, ids[N - 1], .Around, 20)
 	testing.expect_value(t, msgs[len(msgs) - 1].id, ids[N - 1])
 	testing.expect_value(t, more, proto.MORE_BEFORE)
 
-	// An empty channel is an empty page.
+	// An empty channel returns an empty page.
 	music := conv_add(&s.convs, "Music", "", {}, 0)
 	testing.expect(t, conv_member_add(&s.convs, music, alice.account.id))
 	msgs, more = history(t, &ts, alice, music.id)
@@ -250,12 +258,12 @@ test_history_pages :: proc(t: ^testing.T) {
 	testing.expect_value(t, more, 0)
 }
 
-// test_jpeg is the start of a JPEG of the given size: enough for its
-// header to be read.
+// test_jpeg returns the start of a JPEG with the given dimensions, which is
+// enough for its header to be read.
 test_jpeg :: proc(width, height: int, filler: u8) -> []u8 {
 	data := make([dynamic]u8, context.temp_allocator)
 	append(&data, 0xFF, 0xD8)
-	// An application segment first, as real ones have.
+	// Start with an application segment, like real JPEGs do.
 	append(&data, 0xFF, 0xE0, 0x00, 0x04, filler, filler)
 	append(&data, 0xFF, 0xC0, 0x00, 0x11, 0x08)
 	append(&data, u8(height >> 8), u8(height), u8(width >> 8), u8(width))
@@ -279,8 +287,8 @@ test_jpeg_size :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 }
 
-// upload sends all of `data` as the connection's upload, the way the
-// chunks would come.
+// upload sends all of `data` as the connection's upload, chunk by chunk like
+// a real client would.
 upload :: proc(
 	t: ^testing.T,
 	ts: ^Test_Server,
@@ -309,7 +317,7 @@ upload :: proc(
 	if !stored {
 		return 0, false
 	}
-	// Asked again, it's there.
+	// When asked again, the server already has it.
 	status, answer = ts_ask(t, ts, u, .Blob_Put, proto.encode_blob_put(&put_buf, put))
 	testing.expect_value(t, status, proto.Status.Ok)
 	got, has, _, ok = proto.decode_blob_put_answer(answer)
@@ -317,8 +325,8 @@ upload :: proc(
 	return got, true
 }
 
-// Blob transfer, both ways, with a profile picture: the one kind that's
-// uploaded with Blob_Put.
+// Tests blob transfers in both directions, using a profile picture, which is
+// the only kind that's uploaded with Blob_Put.
 @(test)
 test_blob_transfer :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
@@ -342,7 +350,8 @@ test_blob_transfer :: proc(t: ^testing.T) {
 		width  = 200,
 		height = 150,
 	}
-	// Not what was announced: another hash, or another size of picture.
+	// Uploads that don't match what was announced (a different hash or
+	// different picture dimensions) are not stored.
 	wrong := put
 	wrong.hash[0] ~= 1
 	_, stored := upload(t, &ts, alice, jpeg, wrong)
@@ -352,7 +361,8 @@ test_blob_transfer :: proc(t: ^testing.T) {
 	wrong.width = 201
 	_, stored = upload(t, &ts, alice, jpeg, wrong)
 	testing.expect(t, !stored)
-	// Not a picture at all, too big, or of a kind not uploaded.
+	// Uploads that are too big, or of a kind that isn't uploaded this way,
+	// are refused.
 	put_buf: [proto.BLOB_PUT_SIZE]u8
 	bad := put
 	bad.size = proto.MAX_AVATAR_SIZE + 1
@@ -363,17 +373,18 @@ test_blob_transfer :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, alice, .Blob_Put, proto.encode_blob_put(&put_buf, bad))
 	testing.expect_value(t, status, proto.Status.Invalid)
 
-	// What it said it is: kept, once.
+	// An upload that matches its announcement is stored, only once.
 	blob, ok := upload(t, &ts, alice, jpeg, put)
 	testing.expect(t, ok)
 	again, _ := upload(t, &ts, bob, jpeg, put)
 	testing.expect_value(t, again, blob)
 
-	// Nobody's picture yet: nobody fetches it, not even who sent it.
+	// While it isn't anyone's profile picture yet, nobody can fetch it, not
+	// even the uploader.
 	id_buf: [proto.BLOB_GET_SIZE]u8
 	status, _ = ts_ask(t, &ts, alice, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
 	testing.expect_value(t, status, proto.Status.Not_Found)
-	// Once it's alice's, everyone may.
+	// Once it's alice's profile picture, everyone can.
 	profile_buf: [proto.ACCOUNT_BODY_MAX]u8
 	status, _ = ts_ask(
 		t,
@@ -416,12 +427,13 @@ test_messages_kept :: proc(t: ^testing.T) {
 		db_commit(&ts.s.db)
 	}
 
-	// After a restart: the messages, and which was the last.
+	// After a restart, the messages are still there, and so is the id of
+	// the last one.
 	ts: Test_Server
 	ts_open(t, &ts, path)
 	defer ts_close(&ts)
 	testing.expect_value(t, ts.s.convs.home.last_msg, last)
-	// The same device as before, which the server knows.
+	// Connect with the same device as before, which the server remembers.
 	alice := ts_connect(&ts)
 	testing.expect(t, alice.account != nil)
 	ts_events(t, &ts, alice)

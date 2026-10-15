@@ -8,7 +8,7 @@ import mu "vendor:microui"
 import "common:proto"
 
 // The preview fits the box the text area was sized to: it never needs a
-// scrollbar the text area didn't (it used to have one for a single line).
+// scrollbar when the text area doesn't (it used to show one for a single line).
 @(test)
 test_composer_preview_fits :: proc(t: ^testing.T) {
 	for text in ([]string{"one line", "one\ntwo", "one\ntwo\nthree", "a longer line that wraps round"}) {
@@ -47,7 +47,8 @@ test_composer_preview_fits :: proc(t: ^testing.T) {
 			}
 			mu.end(ctx)
 		}
-		// Written first, so the text area knows its width; then previewed.
+		// Render in edit mode first so the text area knows its width, then switch
+		// to the preview.
 		for _ in 0 ..< 2 {
 			frame(ui, c, &body, &rect)
 		}

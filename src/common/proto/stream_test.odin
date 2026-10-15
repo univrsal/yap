@@ -4,8 +4,8 @@ package proto
 import "core:testing"
 import "core:time"
 
-// A pseudo-random number generator of the test's own, so a failure
-// happens again the next time it's run.
+// The test's own pseudo-random number generator, so that a failure is
+// reproduced the next time the test runs.
 @(private = "file")
 Rng :: distinct u64
 
@@ -15,8 +15,8 @@ rng_next :: proc(r: ^Rng, n: int) -> int {
 	return int((u64(r^) >> 33) % u64(n))
 }
 
-// One direction of a connection that loses, repeats and reorders what
-// it carries. Packets are in the temp allocator.
+// One direction of a connection that loses, repeats and reorders the packets
+// it carries. Packets are allocated with the temp allocator.
 @(private = "file")
 Link :: struct {
 	packets: [dynamic][]u8,
@@ -39,7 +39,7 @@ link_put :: proc(l: ^Link, r: ^Rng, msg: []u8) {
 	}
 }
 
-// link_deliver hands everything in the link to `to`, in any order.
+// link_deliver hands everything in the link to `to`, in arbitrary order.
 @(private = "file")
 link_deliver :: proc(t: ^testing.T, l: ^Link, r: ^Rng, to: ^Stream) {
 	for len(l.packets) > 0 {
@@ -59,8 +59,8 @@ link_deliver :: proc(t: ^testing.T, l: ^Link, r: ^Rng, to: ^Stream) {
 	}
 }
 
-// test_message is message `i` of a run: its size and its bytes both
-// follow from the number, so the receiver can tell what it should be.
+// test_message is message `i` of a run. Its size and its bytes are both
+// derived from the number, so the receiver can tell what it should contain.
 @(private = "file")
 test_message :: proc(i: int, sizes: []int) -> []u8 {
 	m := make([]u8, sizes[i % len(sizes)], context.temp_allocator)
@@ -83,8 +83,8 @@ same :: proc(a, b: []u8) -> bool {
 	return true
 }
 
-// run_pair sends `count` messages each way through links like that and
-// expects every one to arrive once, in order.
+// run_pair sends `count` messages in each direction through links like that
+// and expects every message to arrive exactly once, in order.
 @(private = "file")
 run_pair :: proc(t: ^testing.T, loss, repeats: int, count: int, sizes: []int, seed: Rng) {
 	a, b: Stream
@@ -100,7 +100,7 @@ run_pair :: proc(t: ^testing.T, loss, repeats: int, count: int, sizes: []int, se
 	r := seed
 
 	ends := [2]^Stream{&a, &b}
-	links := [2]^Link{&ab, &ba} // what each end sends into
+	links := [2]^Link{&ab, &ba} // the link each end sends into
 	queued, got: [2]int
 	now := time.tick_now()
 	buf: [MAX_PAYLOAD_SIZE]u8
@@ -143,8 +143,8 @@ run_pair :: proc(t: ^testing.T, loss, repeats: int, count: int, sizes: []int, se
 	testing.expect_value(t, got[0], count)
 	testing.expect_value(t, got[1], count)
 
-	// The last acknowledgements may have been lost; a few quiet rounds
-	// of resending settle it.
+	// The last acknowledgements may have been lost. A few quiet rounds of
+	// resending resolve that.
 	for step := 0; step < 2000 && !(stream_idle(&a) && stream_idle(&b)); step += 1 {
 		now = time.tick_add(now, 20 * time.Millisecond)
 		for s, e in ends {
@@ -176,8 +176,9 @@ test_stream_clean :: proc(t: ^testing.T) {
 
 @(test)
 test_stream_lossy :: proc(t: ^testing.T) {
-	// Lost, repeated and out of order, with messages of one byte, of
-	// exactly a frame, of a byte more, and of many frames.
+	// Packets are lost, repeated and reordered, with messages of one byte,
+	// of exactly one frame, of one byte more than a frame, and of many
+	// frames.
 	sizes := []int{1, 40, STREAM_FRAME_DATA, STREAM_FRAME_DATA + 1, 5000, 300}
 	for seed in 1 ..= 5 {
 		run_pair(t, 30, 20, 300, sizes, Rng(seed))
@@ -210,7 +211,8 @@ test_stream_window :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, sent, STREAM_WINDOW)
 
-	// Nothing is resent before its time, and all of it once it's up.
+	// Nothing is resent before its time is up, and everything is resent once
+	// it is.
 	_, early := stream_next_frame(&s, time.tick_add(now, STREAM_RESEND / 2), STREAM_RESEND, buf[:])
 	testing.expect(t, !early)
 	later := time.tick_add(now, STREAM_RESEND)
@@ -258,8 +260,8 @@ test_stream_skipped :: proc(t: ^testing.T) {
 		testing.expect(t, ok)
 	}
 
-	// Frames 1 and 3 arrived, 0 and 2 didn't: those two go again at
-	// once, and only those.
+	// Frames 1 and 3 arrived but 0 and 2 didn't: those two are resent
+	// immediately, and only those.
 	ack_buf: [STREAM_ACK_SIZE]u8
 	stream_acked(&s, encode_stream_ack(&ack_buf, 0, 0b101))
 	for want in ([]u32{0, 2}) {
@@ -271,7 +273,7 @@ test_stream_skipped :: proc(t: ^testing.T) {
 	_, more := stream_next_frame(&s, now, STREAM_RESEND, buf[:])
 	testing.expect(t, !more)
 
-	// The same news again doesn't hurry them a second time.
+	// Receiving the same ack again doesn't trigger another early resend.
 	stream_acked(&s, encode_stream_ack(&ack_buf, 0, 0b101))
 	_, more = stream_next_frame(&s, now, STREAM_RESEND, buf[:])
 	testing.expect(t, !more)
@@ -307,7 +309,8 @@ test_stream_limits :: proc(t: ^testing.T) {
 
 @(test)
 test_stream_too_large :: proc(t: ^testing.T) {
-	// A message that never ends: refused once it's longer than any may be.
+	// A message that never ends is refused once it is longer than the
+	// maximum message size.
 	s: Stream
 	defer stream_destroy(&s)
 	data: [STREAM_FRAME_DATA]u8
@@ -332,7 +335,7 @@ test_stream_messages :: proc(t: ^testing.T) {
 	testing.expect_value(t, seq, 0xdeadbeef)
 	testing.expect(t, more)
 	testing.expect(t, same(got, data[:]))
-	// A frame with nothing in it isn't one.
+	// A frame without any content is not a valid frame.
 	_, ok = message_kind(msg[:STREAM_HEADER_SIZE])
 	testing.expect(t, !ok)
 

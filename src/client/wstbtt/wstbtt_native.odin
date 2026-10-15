@@ -1,16 +1,14 @@
 #+build !wasi
-/*
-The font rasterizer, as render/font.odin uses it.
-
-A desktop build is vendor:stb/truetype as it is. vendor:stb supports
-wasm too, but through its own libc shim, which wants threads the web
-build doesn't have; under emscripten there is a real C library anyway,
-so the web build compiles stb_truetype.c itself and binds the handful
-of calls the font needs (see wstbtt_web.odin).
-
-The client imports this package as `stbtt`, so the font code reads the
-same either way.
-*/
+// The font rasterizer, as used by render/font.odin.
+//
+// A desktop build uses vendor:stb/truetype unchanged. vendor:stb supports wasm
+// too, but through its own libc shim, which needs threads that the web build
+// doesn't have. Under emscripten there is a real C library anyway, so the web
+// build compiles stb_truetype.c itself and binds the handful of calls that the
+// font code needs (see wstbtt_web.odin).
+//
+// The client imports this package as `stbtt`, so the font code is the same on
+// both.
 package wstbtt
 
 import stbtt "vendor:stb/truetype"

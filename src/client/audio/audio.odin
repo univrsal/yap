@@ -5,20 +5,20 @@ import "core:strings"
 
 import ma "client:audio/miniaudio"
 
-/*
-Audio device discovery, through our trimmed-down miniaudio (see
-miniaudio/yap_audio.c). It picks the platform's backend itself: WASAPI on
-Windows; PulseAudio (which PipeWire provides) or ALSA on Linux, loaded at
-runtime, so there's nothing extra to link or ship; Web Audio in a
-browser, which offers one default input and one default output.
-
-The context lives for the whole run: devices are opened through it, and
-device ids are only meaningful to the context that listed them.
-*/
+// Audio device discovery through our trimmed-down miniaudio (see
+// miniaudio/yap_audio.c). It picks the platform's backend itself:
+//   - WASAPI on Windows
+//   - PulseAudio (which PipeWire provides) or ALSA on Linux, loaded at
+//     runtime so nothing extra has to be linked or shipped
+//   - Web Audio in a browser, which offers one default input and one
+//     default output
+//
+// The context lives for the whole run. Devices are opened through it, and
+// device ids are only meaningful to the context that listed them.
 
 Audio_Device :: struct {
 	name:       string, // owned
-	is_default: bool, // the system's current default
+	is_default: bool, // whether this is the system's current default
 	id:         ma.Device_Id,
 }
 
@@ -72,8 +72,8 @@ audio_refresh :: proc(a: ^Audio) -> bool {
 	return true
 }
 
-// find_device returns the device called `name`, or nil if there's none
-// (or `name` is "", meaning the system default).
+// find_device returns the device called `name`, or nil if there is none
+// or `name` is "" (which means the system default).
 find_device :: proc(devices: []Audio_Device, name: string) -> ^Audio_Device {
 	if name == "" {
 		return nil

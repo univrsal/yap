@@ -8,21 +8,18 @@ import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-/*
-Pasting a picture into the chat. A page can only read the clipboard
-inside the paste event the user caused, so the page does the whole job
-there (web/paste.js): it decodes the picture, scales it to fit
-MAX_IMAGE_SIDE and compresses it to a WebP within MAX_IMAGE_BYTES -
-what image.odin does for a desktop - and keeps the result as a file
-(web/files.js), which web_file_pasted attaches to the message being
-written, as a desktop's paste is. Nothing is read from here, so the
-calls below are empty.
-
-Text comes the same way. Emscripten's GLFW has no clipboard, so the page
-hands over the text of every paste event (web_paste_text) before the
-frame that sees the Ctrl+V, and that is what the text box pastes.
-Copying goes to the browser's clipboard directly (web_copy_text).
-*/
+// Pasting a picture into the chat. A web page can only read the clipboard
+// inside the paste event that the user caused, so the page does the whole job
+// there (web/paste.js). It decodes the picture, scales it to fit
+// MAX_IMAGE_SIDE and compresses it to a WebP within MAX_IMAGE_BYTES (what
+// image.odin does on desktop) and keeps the result as a file (web/files.js).
+// web_file_pasted then attaches that file to the message being written, as a
+// desktop paste does. Nothing is read from here, so the calls below are empty.
+//
+// Text arrives the same way. Emscripten's GLFW has no clipboard, so the page
+// hands over the text of every paste event (web_paste_text) before the frame
+// that sees the Ctrl+V, and that is the text the text box pastes. Copying goes
+// to the browser's clipboard directly (web_copy_text).
 
 Paste_Job :: struct {}
 
@@ -36,7 +33,7 @@ foreign _ {
 	yap_copy_text :: proc(text: cstring) -> i32 ---
 }
 
-// The text of the page's latest paste event; empty if it had none.
+// The text of the page's latest paste event, or empty if it had none.
 @(private = "file")
 g_pasted_text: string
 
@@ -44,8 +41,8 @@ web_pasted_text :: proc() -> string {
 	return g_pasted_text
 }
 
-// The page's paste event, text and all. Every paste replaces the last
-// one's, so pasting a picture doesn't also paste old text.
+// The page's paste event, including its text. Every paste replaces the
+// previous one's text, so pasting a picture doesn't also paste old text.
 @(export)
 web_paste_text :: proc "c" (data: [^]u8, size: i32) {
 	context = platform.callback_context()
@@ -58,11 +55,11 @@ web_copy_text :: proc(text: string) -> bool {
 	return yap_copy_text(strings.clone_to_cstring(text, context.temp_allocator)) != 0
 }
 
-// The page's finished picture, kept by the page under `handle` like a
-// picked file: attached in the composer with the focus, else the page's.
-// Its name says what it was compressed to: a WebP, or a JPEG where the
-// browser can't write WebP; or, named pasted-animation, an animated GIF
-// or WebP as it was.
+// The page's finished picture, which the page keeps under `handle` like a
+// picked file. It is attached in the composer that has the focus, otherwise
+// the page's. Its name says what it was compressed to: a WebP, or a JPEG where
+// the browser can't write WebP. An animated GIF or WebP that was kept unchanged
+// is named pasted-animation.
 @(export)
 web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64) {
 	context = platform.callback_context()
@@ -98,8 +95,8 @@ web_file_pasted :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 	ui_redraw(g_ui)
 }
 
-// How big a file the server shown takes (0: none), for the page to say
-// whether a pasted animation goes as it is.
+// How big a file the current server accepts (0: none), so that the page can
+// decide whether a pasted animation is kept unchanged.
 @(export)
 web_max_attachment :: proc "c" () -> f64 {
 	context = platform.callback_context()
@@ -110,7 +107,7 @@ web_max_attachment :: proc "c" () -> f64 {
 	return f64(g_ui.view.max_attachment)
 }
 
-// The page could not make a picture of what was pasted.
+// The page could not make a picture from what was pasted.
 @(export)
 web_paste_failed :: proc "c" () {
 	context = platform.callback_context()

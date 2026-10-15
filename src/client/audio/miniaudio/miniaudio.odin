@@ -1,8 +1,6 @@
-/*
-Bindings for yap_audio.h: a small C API over a trimmed-down miniaudio
-(v0.11.25, compiled by yap_audio.c with only device I/O and the backends
-we use). Build the library with build.sh / build.bat at the repo root.
-*/
+// Bindings for yap_audio.h, a small C API over a trimmed-down miniaudio
+// (v0.11.25). yap_audio.c compiles it with only device I/O and the backends
+// we use. Build the library with build.sh / build.bat at the repo root.
 package miniaudio
 
 import "core:c"
@@ -15,7 +13,7 @@ when ODIN_OS == .Windows {
 	LIB :: "libyap_audio.a"
 }
 
-// A web build links no library from here: emscripten compiles
+// A web build doesn't link a library from here. Emscripten compiles
 // yap_audio.c itself (see web/build.sh).
 when ODIN_OS != .WASI {
 	when !#exists(LIB) {
@@ -47,7 +45,7 @@ Direction :: enum c.int {
 Result :: distinct c.int
 SUCCESS :: Result(0)
 
-// Runs on miniaudio's audio thread, once per period. For capture, `samples`
-// holds `frame_count` recorded frames; for playback, fill it (it starts
-// zeroed). Interleaved f32. Must not block.
+// Runs on miniaudio's audio thread once per period. For capture, `samples`
+// holds `frame_count` recorded frames. For playback, fill it (it starts out
+// zeroed). Samples are interleaved f32. Must not block.
 Callback :: #type proc "c" (user: rawptr, samples: [^]f32, frame_count: c.uint)

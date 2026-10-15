@@ -4,11 +4,9 @@ package memtrack
 import "base:intrinsics"
 import "core:c"
 
-/*
-A page's memory is the wasm linear memory, which only grows; inside it
-is emscripten's malloc (dlmalloc), which says what of it is in use
-(web/shell.c asks it).
-*/
+// A page's memory is the wasm linear memory, which only grows. Inside it
+// is emscripten's malloc (dlmalloc), which knows how much of it is in use
+// (web/shell.c queries it).
 
 @(private = "file", default_calling_convention = "c")
 foreign _ {
@@ -30,7 +28,8 @@ _process :: proc() -> (p: Process) {
 
 @(private)
 _release_free :: proc() -> bool {
-	// The memory stays the page's; this only tidies dlmalloc's top.
+	// The memory stays with the page; this only trims the top of dlmalloc's
+	// heap.
 	malloc_trim(0)
 	return true
 }

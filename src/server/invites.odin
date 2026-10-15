@@ -6,20 +6,21 @@ import "core:strings"
 import "common:proto"
 import "sqlite"
 
-/*
-Invite codes (proto/register.odin): made by whoever has Create_Invites,
-good for some number of registrations (or any), until some time (or
-none), or until revoked. They stay in the database once used up, so who
-made a code and who registered with it are both known (invite_uses),
-and with Manage_Accounts can be asked (Invite_Of).
+// Invite codes (see proto/register.odin) can be created by anyone with
+// Create_Invites. A code is valid for a limited number of registrations
+// (or unlimited), until an expiry time (or forever), or until it is revoked.
+// Codes stay in the database once they are used up, so both the creator
+// and the accounts that registered with a code are known (invite_uses).
+// Anyone with Manage_Accounts can look up the code an account used
+// (Invite_Of).
+//
+// When an account is deleted, its codes are revoked too (Invite_Erase).
 
-A deleted account's codes are revoked with it (Invite_Erase).
-*/
-
-// How many usable codes one account may have at once.
+// The maximum number of usable codes one account may have at once.
 INVITES_LIVE_MOST :: 50
 
-// invite_get reads an invite; the code is in the temp allocator.
+// invite_get reads an invite. The returned code is allocated with the
+// temp allocator.
 invite_get :: proc(db: ^DB, code: string) -> (inv: proto.Invite, found: bool) {
 	q := db_stmt(db, .Invite_Get)
 	db_bind_text(q, 1, code)
@@ -27,7 +28,8 @@ invite_get :: proc(db: ^DB, code: string) -> (inv: proto.Invite, found: bool) {
 	if !ok || !row {
 		return
 	}
-	// One row: done with it, or it holds a read open (db_step).
+	// There is only one row, so reset the statement now. Otherwise it would
+	// keep a read open (see db_step).
 	defer sqlite.reset(q)
 	return invite_row(q), true
 }
@@ -45,7 +47,8 @@ invite_row :: proc(q: ^sqlite.Stmt) -> proto.Invite {
 	}
 }
 
-// invite_use counts a registration against a code, and keeps who it was.
+// invite_use counts a registration against a code and records which
+// account used it.
 invite_use :: proc(db: ^DB, code: string, account: proto.Account_Id) -> bool {
 	q := db_stmt(db, .Invite_Use)
 	db_bind_text(q, 1, code)
@@ -111,7 +114,8 @@ invite_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok, proto.encode_invite_code(&out, code))
 }
 
-// invite_list lists one's own codes, or with Manage_Accounts everybody's.
+// invite_list lists the caller's own codes, or everybody's codes for
+// callers with Manage_Accounts.
 invite_list :: proc(s: ^Server, u: ^Conn, id: u32) {
 	all := can(u.account, .Manage_Accounts)
 	if !all && !can(u.account, .Create_Invites) {
@@ -166,8 +170,8 @@ invite_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok)
 }
 
-// invite_of is the code an account registered with, for whoever
-// manages accounts.
+// invite_of looks up the code an account registered with. It is only
+// available to callers with Manage_Accounts.
 invite_of :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	account, ok := proto.decode_account_id(body)
 	switch {

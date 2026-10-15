@@ -10,39 +10,39 @@ import "client:audio/rnn"
 import "client:platform"
 import "common:proto"
 
-/*
-The voice pipeline. Everything here runs on the network thread; the audio
-devices only touch the two rings (see voice_io.odin):
-
-	microphone -> capture ring -> [encode] -> Voice packet -> server
-	shared application -> app ring -^
-	server -> Voice packet -> [decode, per speaker] -> jitter queue
-	       -> [mix] -> playback ring -> speakers
-
-Audio is 48 kHz, sent as 20 ms Opus frames in mono or stereo depending on
-the quality preset (quality.odin). Internally everything is stereo: the
-microphone is captured in stereo (a mono microphone arrives as L = R) and
-downmixed for mono presets; decoders, queues, the mixer and the output are
-stereo, and mono speakers play centered. All buffers hold interleaved
-samples. Mixing is paced by the playback ring's fill level, so it follows
-the output device's clock.
-
-Captured frames go through noise suppression (RNNoise, optional) and the
-voice gate (optional, see gate.odin) before encoding. The audio of an
-application being shared (app_audio_native.odin) goes around both: it's
-mixed in after them, so the gate neither hears it nor holds it back.
-Muting the microphone mutes it too, unless app_mute_with_mic is off.
-
-Loss handling: packets carry a per-sender sequence number that advances
-every 20 ms whether or not anything was sent. A short gap is lost packets:
-the last one is recovered from the next packet's in-band FEC when present
-and the rest are concealed (PLC). A long gap is the speaker pausing (DTX
-silence, or mute) and starts a fresh talkspurt.
-
-Jitter: each speaker is buffered before it plays, 40 ms or as much more
-as its packets' arrival has shown it needs (track_arrival) - a browser
-sends its frames in bursts, so its speakers get more.
-*/
+// The voice pipeline. Everything here runs on the network thread. The audio
+// devices only touch the two rings (see voice_io.odin):
+//
+//	microphone -> capture ring -> [encode] -> Voice packet -> server
+//	shared application -> app ring -^
+//	server -> Voice packet -> [decode, per speaker] -> jitter queue
+//	       -> [mix] -> playback ring -> speakers
+//
+// Audio is 48 kHz, sent as 20 ms Opus frames in mono or stereo depending on
+// the quality preset (quality.odin). Internally everything is stereo: the
+// microphone is captured in stereo (a mono microphone arrives as L = R) and
+// downmixed for mono presets. Decoders, queues, the mixer and the output are
+// all stereo, and mono speakers play the sound centered. All buffers hold
+// interleaved samples. Mixing is paced by the playback ring's fill level, so
+// it follows the output device's clock.
+//
+// Captured frames go through noise suppression (RNNoise, optional) and the
+// voice gate (optional, see gate.odin) before encoding. The audio of an
+// application being shared (app_audio_native.odin) bypasses both: it's mixed
+// in after them, so the gate neither hears it nor holds it back. Muting the
+// microphone mutes the shared application too, unless app_mute_with_mic is
+// off.
+//
+// Loss handling: packets carry a per-sender sequence number that advances
+// every 20 ms whether or not anything was sent. A short gap means lost
+// packets: the last lost one is recovered from the next packet's in-band FEC
+// when present, and the rest are concealed (PLC). A long gap means the
+// speaker paused (DTX silence or mute) and starts a fresh talkspurt.
+//
+// Jitter: each speaker is buffered before it plays, for 40 ms or for as much
+// longer as the arrival of its packets has shown to be necessary
+// (track_arrival). A browser sends its frames in bursts, so its speakers
+// get a longer buffer.
 
 SAMPLE_RATE :: 48000
 CHANNELS :: 2 // of every device and buffer
@@ -50,10 +50,10 @@ FRAME_SAMPLES :: 960 // 20 ms, per channel
 FRAME :: FRAME_SAMPLES * CHANNELS // one 20 ms frame, interleaved
 
 // Keep ~30 ms queued for the output device. A browser only gets to mix
-// once per animation frame (~17 ms, see net_web.odin), so it keeps 60.
+// once per animation frame (~17 ms, see net_web.odin), so it keeps 60 ms.
 OUTPUT_TARGET :: FRAME * 3 when platform.WEB else FRAME * 3 / 2
-// A speaker starts playing once 40 ms are queued (absorbs network jitter),
-// or more for a speaker whose packets come unevenly (speaker_prefill)...
+// A speaker starts playing once 40 ms are queued (to absorb network jitter),
+// or more for a speaker whose packets arrive unevenly (speaker_prefill)...
 JITTER_PREFILL :: 2 * FRAME
 MAX_PREFILL :: 6 * FRAME
 // ...and is trimmed back to that if the queue ever exceeds 200 ms.
@@ -62,10 +62,12 @@ JITTER_MAX :: 10 * FRAME
 MAX_CONCEAL :: 5
 // Drop a speaker's decoder after this long without packets.
 SPEAKER_TIMEOUT :: 10 * time.Second
-// If the network thread falls behind, don't send a backlog of old audio.
+// If the network thread falls behind, the backlog of old audio is dropped
+// instead of being sent.
 MAX_CAPTURE_BACKLOG :: 5 * FRAME
-// A microphone that's open but has sent nothing for this long no longer sets the pace of
-// what's sent; a shared application does instead (see capture_begin).
+// A microphone that is open but hasn't delivered any audio for this long no
+// longer sets the pace of what's sent. A shared application does instead
+// (see capture_begin).
 MIC_STALL :: 200 * time.Millisecond
 // A shared application's audio starts being mixed in once 60 ms are
 // queued (it arrives in chunks of up to ~40 ms, the PipeWire quantum), and
@@ -74,10 +76,10 @@ MIC_STALL :: 200 * time.Millisecond
 APP_PREFILL :: 3 * FRAME
 APP_MAX :: 8 * FRAME
 // A shared application counts as silent below this level (dBFS, after
-// its volume), and stops being sent once it has been for APP_HANGOVER
-// frames (500 ms), so pauses and quiet endings aren't cut short. Opus's
-// own DTX lets the low noise of a quiet application through often
-// enough to make the speaking indicator flicker.
+// applying its volume). It stops being sent once it has been silent for
+// APP_HANGOVER frames (500 ms), so pauses and quiet endings aren't cut
+// short. Relying on Opus's own DTX instead would often let the low noise of
+// a quiet application through, which makes the speaking indicator flicker.
 APP_SILENCE_DB :: -70
 APP_HANGOVER :: 25
 
@@ -218,8 +220,8 @@ voice_destroy :: proc(v: ^Voice) {
 	notifications_destroy(&v.notifications)
 }
 
-// voice_step keeps the output fed. Sending what's been captured is the
-// connection's to drive (capture_begin, capture_frame).
+// voice_step keeps the output fed. Sending the captured audio is left to the
+// connection (see capture_begin and capture_frame).
 voice_step :: proc(v: ^Voice) {
 	if sync.atomic_load(&v.output) {
 		mix_output(v)
@@ -230,13 +232,11 @@ voice_step :: proc(v: ^Voice) {
 // The most capture_frame writes: a Voice message holding one Opus packet.
 VOICE_MESSAGE_MAX :: proto.VOICE_UP_HEADER_SIZE + opus.MAX_PACKET_SIZE
 
-/*
-capture_begin starts a pass over the captured audio: capture_frame then
-takes it 20 ms at a time. It says whether the microphone sets the pace;
-without one, or with one that sends nothing (MIC_STALL), a shared
-application does, and the frames it's mixed into are silent. `ok` is
-false when there's nothing to take frames from.
-*/
+// capture_begin starts a pass over the captured audio, which capture_frame
+// then takes 20 ms at a time. `mic` says whether the microphone sets the
+// pace. Without a microphone, or with one that delivers nothing (MIC_STALL),
+// a shared application sets the pace instead, and the frames it is mixed
+// into are silent. `ok` is false when there is nothing to take frames from.
 capture_begin :: proc(v: ^Voice) -> (mic: bool, ok: bool) {
 	mic = sync.atomic_load(&v.input)
 	if !mic && !sync.atomic_load(&v.app_input) {
@@ -255,14 +255,13 @@ capture_begin :: proc(v: ^Voice) -> (mic: bool, ok: bool) {
 	return mic, true
 }
 
-/*
-capture_frame takes the next 20 ms of microphone audio, with a shared
-application's mixed in, and encodes it into `buf` (VOICE_MESSAGE_MAX) as
-a Voice message. `ok` is false once there's no whole frame left. `msg`
-is empty for a frame that isn't to be sent: muted or gated, silent, or
-`sending` false (no session, or no settled channel to send it to).
-`level_db` is the microphone's level, for the meter.
-*/
+// capture_frame takes the next 20 ms of microphone audio, mixes in the audio
+// of a shared application, and encodes the result into `buf`
+// (VOICE_MESSAGE_MAX) as a Voice message. `ok` is false once there is no
+// whole frame left. `msg` is empty for a frame that must not be sent: it is
+// muted, gated or silent, or `sending` is false (there is no session, or no
+// settled channel to send it to). `level_db` is the microphone's level, for
+// the meter.
 capture_frame :: proc(
 	v: ^Voice,
 	mic, sending: bool,
@@ -282,18 +281,19 @@ capture_frame :: proc(
 		return
 	}
 	ok = true
-	// The sequence number tracks time, so it advances even for frames
-	// that aren't sent; receivers read long gaps as pauses.
+	// The sequence number tracks time, so it advances even for frames that
+	// aren't sent. Receivers interpret long gaps as pauses.
 	seq := v.send_seq
 	v.send_seq += 1
 	v.captured += 1
 	pass: bool
 	level_db, pass = mic_process(v, frame[:])
 	listen_feed(v, frame[:], pass)
-	// Muted or gated, the microphone's part of the frame is silence,
-	// and only the application's goes out - unless muting mutes the
-	// application as well. It's still taken from its ring either way,
-	// so unmuting carries on from where it's playing now.
+	// When muted or gated, the microphone's part of the frame is silence
+	// and only the application's audio goes out, unless muting is set to
+	// mute the application as well. The application's audio is still taken
+	// from its ring either way, so unmuting carries on from where it is
+	// playing now.
 	mic_on := pass && !v.muted
 	if !mic_on {
 		frame = {}
@@ -391,27 +391,26 @@ voice_receive :: proc(v: ^Voice, speaker: proto.User_Num, seq: u32, packet: []u8
 	sp.next_seq = seq + 1
 }
 
-/*
-track_arrival measures how unevenly a speaker's packets arrive. Sequence
-numbers advance every FRAME_SAMPLES of the sender's audio, sent or not,
-so each packet has a time it would arrive if it came as early as the
-earliest have: arrival_base plus 20 ms per frame since base_seq. How far
-behind that it actually comes is its lateness, and the prefill has to
-cover the worst of it (speaker_prefill).
-
-Network jitter makes a few ms of it. A sender whose audio arrives in
-chunks makes more: a browser's microphone delivers 43 ms at a time
-(voice_io.odin), so its frames go out two or three at once, and a 40 ms
-prefill would run dry at the start of a sentence about half the time.
-*/
+// track_arrival measures how unevenly a speaker's packets arrive. Sequence
+// numbers advance every FRAME_SAMPLES of the sender's audio, whether it was
+// sent or not. So each packet has a time at which it would arrive if it came
+// as early as the earliest packets did: arrival_base plus 20 ms per frame
+// since base_seq. How far behind that time it actually arrives is its
+// lateness, and the prefill has to cover the worst of it (speaker_prefill).
+//
+// Network jitter causes a few ms of lateness. A sender whose audio arrives
+// in chunks causes more: a browser's microphone delivers 43 ms at a time
+// (voice_io.odin), so its frames go out two or three at once, and a 40 ms
+// prefill would run dry at the start of a sentence about half the time.
 @(private = "file")
 track_arrival :: proc(sp: ^Speaker, seq: u32, now: time.Tick) {
-	// Forgets a maximum over ~700 packets (about 14 s of speech).
+	// The maximum is forgotten over ~700 packets (about 14 s of speech).
 	DECAY :: 0.999
-	// The base creeps later by this much per packet (1 ms/s), so that a
-	// sender whose clock runs a little slow doesn't look ever later.
+	// The base moves later by this much per packet (1 ms/s), so that a
+	// sender whose clock runs slightly slow doesn't look later and later.
 	LEAK :: 20 * time.Microsecond
-	// Later than this is a jump in the sequence (a restart), not jitter.
+	// Anything later than this is a jump in the sequence (e.g. a restart),
+	// not jitter.
 	DISCONTINUITY :: time.Second
 	FRAME_TIME :: time.Duration(FRAME_SAMPLES) * time.Second / SAMPLE_RATE
 
@@ -428,21 +427,22 @@ track_arrival :: proc(sp: ^Speaker, seq: u32, now: time.Tick) {
 			return
 		}
 	}
-	// The first packet, or one earlier than the line: it's the new line.
+	// This is the first packet, or one earlier than the line, so it becomes
+	// the new line.
 	sp.arrival_base = now
 	sp.base_seq = seq
 }
 
-// speaker_prefill is how much of a speaker to queue before playing it:
-// a frame (the one being played) plus the worst lateness lately seen, so
-// that later packets still come before they're needed.
+// speaker_prefill is how much of a speaker to queue before playing it: a
+// frame (the one being played) plus the worst recent lateness, so that later
+// packets still arrive before they're needed.
 speaker_prefill :: proc(sp: ^Speaker) -> int {
 	late := int(time.duration_seconds(sp.lateness) * SAMPLE_RATE) * CHANNELS
 	return clamp(FRAME + late, JITTER_PREFILL, MAX_PREFILL)
 }
 
-// decode_into decodes a packet (nil: conceal a lost frame; fec: recover the
-// previous frame from this packet) and queues the samples.
+// decode_into decodes a packet and queues the samples. A nil packet conceals
+// a lost frame, and `fec` recovers the previous frame from this packet.
 @(private = "file")
 decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
 	pcm: [opus.MAX_FRAME_SAMPLES * CHANNELS]f32
@@ -465,14 +465,12 @@ decode_into :: proc(sp: ^Speaker, packet: []u8, fec: i32) {
 	ring_write(&sp.queue, pcm[:n * CHANNELS])
 }
 
-/*
-app_mix adds a frame of the shared application's audio to `frame` (which
-mic_process has left as it will be sent), and says whether there was
-any worth sending: it isn't once the application has been silent for a
-while (APP_SILENCE_DB). It's buffered and drift-corrected like a
-speaker, since the application plays on its own clock. Everything
-queued is dropped while nothing is shared, so a share starts fresh.
-*/
+// app_mix adds a frame of the shared application's audio to `frame` (which
+// mic_process has left as it will be sent) and returns whether there was
+// anything worth sending. There isn't once the application has been silent
+// for a while (APP_SILENCE_DB). The audio is buffered and drift-corrected
+// like a speaker's, since the application plays on its own clock. Everything
+// queued is dropped while nothing is shared, so a share starts fresh.
 app_mix :: proc(v: ^Voice, frame: []f32) -> bool {
 	queued := ring_available(&v.app)
 	if !sync.atomic_load(&v.app_input) {
@@ -485,7 +483,7 @@ app_mix :: proc(v: ^Voice, frame: []f32) -> bool {
 			return false
 		}
 		v.app_playing = true
-		v.app_quiet = APP_HANGOVER // silent until it's heard to be otherwise
+		v.app_quiet = APP_HANGOVER // treated as silent until it's heard to be otherwise
 	}
 	if queued > APP_MAX {
 		ring_skip(&v.app, queued - APP_PREFILL)
@@ -495,8 +493,9 @@ app_mix :: proc(v: ^Voice, frame: []f32) -> bool {
 	if got < len(frame) {
 		v.app_playing = false // ran dry: buffer up again before resuming
 	}
-	// What goes into the frame: at its volume, and for mono presets
-	// (which send the left channel) both sides averaged into each.
+	// What goes into the frame is the application's audio at its volume. For
+	// mono presets (which send the left channel) both sides are averaged
+	// into each channel.
 	gain := v.app_volume
 	if QUALITY_PRESETS[v.quality].channels == 1 {
 		for i := 0; i < got; i += CHANNELS {

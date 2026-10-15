@@ -7,17 +7,15 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-/*
-Fake audio for headless testing: one thread writes a sine tone, or a
-looped recording, into the capture ring in real time (like a microphone
-would), another drains the
-playback ring in real time (like speakers would) and logs what it heard
-each second: loudness, and the dominant frequency from zero crossings.
-*/
+// Fake audio for headless testing. One thread writes a sine tone, or a
+// looped recording, into the capture ring in real time (like a microphone
+// would). Another thread drains the playback ring in real time (like
+// speakers would) and logs what it heard each second: the loudness and the
+// dominant frequency, estimated from zero crossings.
 Fake_Audio :: struct {
 	voice:   ^Voice,
 	tone_hz: f32,
-	input:   []f32, // if set, looped instead of the tone
+	input:   []f32, // if set, this is looped instead of the tone
 	stop:    bool, // atomic
 	source:  ^thread.Thread,
 	sink:    ^thread.Thread,
@@ -48,7 +46,7 @@ fake_audio_stop :: proc(f: ^Fake_Audio) {
 	sync.atomic_store(&f.voice.output, false)
 }
 
-// Runs `tick` every DEVICE_PERIOD_MS, on a fixed schedule like a device.
+// Runs `tick` every DEVICE_PERIOD_MS on a fixed schedule, like a device.
 @(private = "file")
 run_periodic :: proc(f: ^Fake_Audio, tick: proc(f: ^Fake_Audio, samples: []f32, n: int)) {
 	PERIOD :: SAMPLE_RATE * DEVICE_PERIOD_MS / 1000
@@ -70,7 +68,7 @@ fake_source :: proc(f: ^Fake_Audio) {
 	run_periodic(
 		f,
 		proc(f: ^Fake_Audio, buf: []f32, n: int) {
-			// The tone and input files are mono: the same on both channels.
+			// The tone and input files are mono, so both channels get the same samples.
 			frames := len(buf) / CHANNELS
 			for i in 0 ..< frames {
 				pos := n * frames + i
