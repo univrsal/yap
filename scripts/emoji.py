@@ -54,7 +54,7 @@ CELL = 64
 COLUMNS = 32
 ROWS = 32
 PADDING = 2
-WEBP_QUALITY = 80
+WEBP_QUALITY = 96
 
 # gemoji's categories, as the table's enum names them, in picker order.
 CATEGORIES = {
