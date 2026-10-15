@@ -48,6 +48,7 @@ ts_open :: proc(t: ^testing.T, ts: ^Test_Server, db_path := DB_MEMORY) {
 	s := &ts.s
 	s.version = 1
 	s.auth.params = HASH_PARAMS_TEST
+	s.requests_unlimited = true // test_request_limit turns it on
 	testing.expect(t, db_open(&s.db, db_path))
 	testing.expect(t, accounts_load(&s.accounts, &s.db))
 	testing.expect(t, convs_load(&s.convs, &s.db, TEST_CHANNELS, &s.accounts))

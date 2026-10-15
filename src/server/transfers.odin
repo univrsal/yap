@@ -79,9 +79,15 @@ blob_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	answer: [proto.BLOB_PUT_ANSWER_SIZE]u8
+	// Only a picture that is already stored as one is taken without being
+	// uploaded. Otherwise anybody who knows a file's hash could find out
+	// whether somebody has attached it somewhere. (Uploading it ends up with
+	// the same blob, which is fine: whoever uploads it has it.)
 	if blob, found := blob_find(&s.blobs, p.hash); found {
-		respond(u, id, .Ok, proto.encode_blob_put_answer(&answer, blob, true, 0))
-		return
+		if b, known := blob_get(&s.blobs, blob); known && b.kind == .Avatar {
+			respond(u, id, .Ok, proto.encode_blob_put_answer(&answer, blob, true, 0))
+			return
+		}
 	}
 
 	up := &u.upload

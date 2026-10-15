@@ -1,12 +1,58 @@
 package server
 
 import "core:log"
+import "core:time"
 
 import "common:proto"
 
 // Requests are defined in src/common/proto/rpc.odin. They arrive on a user's
 // stream and each is answered exactly once with respond. Events are sent to
 // the user on the same stream.
+
+// Each connection may make REQUEST_BURST worth of requests at once, then
+// REQUEST_RATE worth a second (request_cost says what a request is worth).
+// Requests beyond that are answered with Rate_Limited without being handled.
+// The server handles every request in its one loop, which also relays
+// everybody's voice, so one client mustn't be able to keep it busy: a search
+// can take up to SEARCH_BUDGET, and all of a stream's window can arrive at
+// once.
+REQUEST_BURST :: 200
+REQUEST_RATE :: 40
+
+// request_cost says how much of a connection's requests (REQUEST_BURST) a
+// request uses up.
+request_cost :: proc(op: proto.Request_Op) -> f32 {
+	#partial switch op {
+	case .Msg_Search:
+		return 10 // up to SEARCH_BUDGET of the loop's time
+	case .Server_Icon:
+		return 4 // up to MAX_SERVER_ICON_SIZE to send
+	case .Msg_Post, .Msg_Forward:
+		return 3 // stored, sent to every member, maybe pushed
+	case .Msg_History:
+		return 2
+	}
+	return 1
+}
+
+// request_take takes what a request costs from the connection's requests,
+// if there's enough left.
+request_take :: proc(u: ^Conn, op: proto.Request_Op) -> bool {
+	now := time.tick_now()
+	if u.request_last == {} {
+		u.request_tokens = REQUEST_BURST
+	} else {
+		elapsed := f32(time.duration_seconds(time.tick_diff(u.request_last, now)))
+		u.request_tokens = min(u.request_tokens + elapsed * REQUEST_RATE, REQUEST_BURST)
+	}
+	u.request_last = now
+	cost := request_cost(op)
+	if u.request_tokens < cost {
+		return false
+	}
+	u.request_tokens -= cost
+	return true
+}
 
 // rpc_handle takes one message off a user's stream.
 rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
@@ -18,6 +64,15 @@ rpc_handle :: proc(s: ^Server, u: ^Conn, msg: []byte) {
 		return
 	}
 	id, op, request := proto.decode_request(msg)
+	if !s.requests_unlimited && !request_take(u, op) {
+		if !u.request_warned {
+			log.warnf("%s makes too many requests, refusing some", conn_label(u))
+			u.request_warned = true
+		}
+		respond(u, id, .Rate_Limited)
+		return
+	}
+	u.request_warned = false
 	// A connection that isn't logged in may only request server info,
 	// log in and register. Everything else is denied (traffic outside
 	// the stream is restricted the same way, see handle_data).

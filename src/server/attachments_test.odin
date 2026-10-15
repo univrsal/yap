@@ -80,9 +80,9 @@ put :: proc(
 	return
 }
 
-// send_file uploads `data` under `id`, sending the chunks in reverse
-// order with some of them repeated. It returns the blob the upload was
-// stored as, if it was stored.
+// send_file uploads `data` under `id`, sending the chunks of each window
+// (proto.FILE_WINDOW) in reverse order with some of them repeated. It returns
+// the blob the upload was stored as, if it was stored.
 @(private = "file")
 send_file :: proc(
 	t: ^testing.T,
@@ -91,16 +91,19 @@ send_file :: proc(
 	id: u64,
 	data: []u8,
 ) -> proto.Blob_Id {
-	chunks := proto.file_chunk_count(u64(len(data)))
+	chunks := i64(proto.file_chunk_count(u64(len(data))))
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 	// Send the chunks backwards, and every third one twice, to test
-	// out-of-order and duplicate chunks.
-	for i := i64(chunks) - 1; i >= 0; i -= 1 {
-		from, to := proto.file_chunk_range(u64(len(data)), u32(i))
-		msg := proto.encode_transfer_chunk(out[:], .Upload_Chunk, id, u32(i), data[from:to])
-		handle_upload_chunk(&ts.s, u, msg)
-		if i % 3 == 0 {
+	// out-of-order and duplicate chunks. Senders stay within FILE_WINDOW of
+	// the first missing chunk, so each window is sent backwards in turn.
+	for window := i64(0); window < chunks; window += proto.FILE_WINDOW {
+		for i := min(window + proto.FILE_WINDOW, chunks) - 1; i >= window; i -= 1 {
+			from, to := proto.file_chunk_range(u64(len(data)), u32(i))
+			msg := proto.encode_transfer_chunk(out[:], .Upload_Chunk, id, u32(i), data[from:to])
 			handle_upload_chunk(&ts.s, u, msg)
+			if i % 3 == 0 {
+				handle_upload_chunk(&ts.s, u, msg)
+			}
 		}
 	}
 	// The last ack reports the upload as complete.
@@ -239,6 +242,21 @@ test_attachments :: proc(t: ^testing.T) {
 	upload: u64
 	status, upload = put(t, &ts, alice, len(report), "../reports/report 2026.pdf")
 	testing.expect_value(t, status, proto.Status.Ok)
+	// A chunk further ahead than a sender may go is dropped (it would make
+	// the server read back and hash everything before it in one go).
+	{
+		out: [proto.MAX_PAYLOAD_SIZE]u8
+		from, to := proto.file_chunk_range(u64(len(report)), proto.FILE_WINDOW)
+		msg := proto.encode_transfer_chunk(
+			out[:],
+			.Upload_Chunk,
+			upload,
+			proto.FILE_WINDOW,
+			report[from:to],
+		)
+		handle_upload_chunk(&ts.s, alice, msg)
+		testing.expect_value(t, s.attach.uploads[upload].recv.received, 0)
+	}
 	blob := send_file(t, &ts, alice, upload, report)
 	testing.expect(t, blob != 0)
 	kept, read_ok := blob_read(&s.blobs, blob, context.temp_allocator)
@@ -317,6 +335,11 @@ test_attachments :: proc(t: ^testing.T) {
 	status, got = fetch(t, &ts, bob, tool_blob)
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect(t, string(got) == string(tool))
+	// Nor can anyone while the channel is archived.
+	gaming.flags += {.Archived}
+	status, _ = fetch(t, &ts, bob, tool_blob)
+	testing.expect_value(t, status, proto.Status.Not_Found)
+	gaming.flags -= {.Archived}
 
 	// After the message is deleted it has no files any more and nobody
 	// can fetch them. An hour later the report is removed, while the tool

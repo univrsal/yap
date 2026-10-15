@@ -100,6 +100,10 @@ Conn :: struct {
 	sent_version:    u32,
 	last_state_sent: time.Tick,
 	last_typing:     time.Tick, // see handle_typing
+	// How many requests it may still make (request_take in rpc.odin).
+	request_tokens:  f32,
+	request_last:    time.Tick,
+	request_warned:  bool, // that it's over the limit, until it's not
 	upload:          Upload, // a blob on its way in (transfers.odin)
 	download:        Download, // a blob on its way out
 	stream:          Conn_Stream, // requests and events (stream.odin, rpc.odin)
@@ -108,74 +112,77 @@ Conn :: struct {
 Server :: struct {
 	// When statuses were last checked for ones that have expired
 	// (profiles.odin).
-	status_checked: time.Tick,
+	status_checked:     time.Tick,
 	// When memory usage was last logged (memory.odin).
-	memory_log:     Memory_Log,
+	memory_log:         Memory_Log,
 	// The ongoing calls (calls.odin).
-	calls:          Calls,
-	sock:           net.UDP_Socket,
-	key:            ecdh.Private_Key,
+	calls:              Calls,
+	sock:               net.UDP_Socket,
+	key:                ecdh.Private_Key,
 	// What clients display for this server: its name (may be empty), its
 	// description, and its icon (server_info.odin). Owned.
-	name:           string,
-	description:    string,
-	icon:           proto.Blob_Id,
-	password:       string, // empty: anyone may join
-	sessions:       map[proto.Session_Id]^Client, // by local_idx
-	max_sessions:   int,
-	gate:           Handshake_Gate, // which Inits may start a session
+	name:               string,
+	description:        string,
+	icon:               proto.Blob_Id,
+	password:           string, // empty: anyone may join
+	sessions:           map[proto.Session_Id]^Client, // by local_idx
+	max_sessions:       int,
+	// Only for tests, which make requests much faster than any client
+	// (request_take).
+	requests_unlimited: bool,
+	gate:               Handshake_Gate, // which Inits may start a session
 	// The connections that are logged in, and those that aren't yet, keyed
 	// by their device's key (see Conn).
-	conns:          map[[proto.KEY_SIZE]byte]^Conn,
-	waiting:        map[[proto.KEY_SIZE]byte]^Conn,
+	conns:              map[[proto.KEY_SIZE]byte]^Conn,
+	waiting:            map[[proto.KEY_SIZE]byte]^Conn,
 	// Accounts and their devices (accounts.odin), and logging in to them
 	// (auth.odin), which uses a separate thread to hash passwords
 	// (hash_worker.odin).
-	accounts:       Accounts,
-	auth:           Auth,
-	hasher:         Hash_Worker,
+	accounts:           Accounts,
+	auth:               Auth,
+	hasher:             Hash_Worker,
 	// The channels and their members (convs.odin). Their messages are
 	// stored in the database (messages.odin).
-	convs:          Convs,
+	convs:              Convs,
 	// Incremented on every change that clients should be told about. Never
 	// 0, which means "nothing acked yet".
-	version:        u32,
+	version:            u32,
 	// The last user number handed out; numbers are never reused.
-	last_num:       proto.User_Num,
+	last_num:           proto.User_Num,
 	// Files offered in DMs, keyed by the message that offers them, and the
 	// transfers being relayed, keyed the same way (files.odin).
-	file_offers:    map[proto.Msg_Id]File_Offer,
-	file_routes:    map[proto.Msg_Id]^File_Route,
+	file_offers:        map[proto.Msg_Id]File_Offer,
+	file_routes:        map[proto.Msg_Id]^File_Route,
 	// The server's persistent storage: its database (db.odin) and the
 	// files that belong to it (blobs.odin).
-	db:             DB,
-	blobs:          Blob_Store,
+	db:                 DB,
+	blobs:              Blob_Store,
 	// Files uploaded with messages, including uploads and downloads in
 	// progress (attachments.odin).
-	attach:         Attachments,
+	attach:             Attachments,
 	// The server's custom emoji (emoji.odin).
-	emoji:          Custom_Emoji,
+	emoji:              Custom_Emoji,
 	// Deleting old data (retention.odin).
-	retention:      Retention,
+	retention:          Retention,
 	// The message kind the loop is currently handling, and how long its
 	// iterations take (loop_stats.odin).
-	handling:       proto.Message_Kind,
-	loop:           Loop_Stats,
+	handling:           proto.Message_Kind,
+	loop:               Loop_Stats,
 	// The server's own email account, if it has one (email.odin).
-	email:          Email,
+	email:              Email,
 	// Who is allowed to register, and how quickly registrations are
 	// accepted (register.odin).
-	registration:   Registration_Config,
-	register_rate:  Register_Rate,
+	registration:       Registration_Config,
+	register_rate:      Register_Rate,
 	// Deleting registrations whose email addresses weren't verified
 	// (verify.odin).
-	verify:         Verify_State,
+	verify:             Verify_State,
 	// Emailing accounts a digest of what they missed (digest.odin).
-	digest:         Digest_State,
+	digest:             Digest_State,
 	// Sends notifications to browsers through their push services (push.odin).
-	push:           Push,
+	push:               Push,
 	// Screen sharing's own port and thread (media.odin).
-	media:          Media,
+	media:              Media,
 }
 
 // How long the loop waits for a packet before it runs an iteration anyway.
@@ -900,15 +907,24 @@ bump_version :: proc(s: ^Server) {
 	}
 }
 
+// How often a connection is sent a snapshot at most. Every change of
+// anyone's sound flags, voice room or activity makes a new one, which goes to
+// everyone, so without this a client that toggles its flags as fast as it
+// can send packets would make the server send that many snapshots to each
+// connection. Changes that come closer together than this go out together.
+STATE_EVERY :: 50 * time.Millisecond
+
 // sync_state sends the current snapshot to every user who hasn't acked
-// it: immediately after a change, then every CONTROL_RESEND until acked.
+// it: soon after a change (at most every STATE_EVERY), then every
+// CONTROL_RESEND until acked.
 sync_state :: proc(s: ^Server) {
 	now := time.tick_now()
 	needs_state :: proc(s: ^Server, u: ^Conn, now: time.Tick) -> bool {
+		since := time.tick_diff(u.last_state_sent, now)
 		return(
 			u.acked_version != s.version &&
-			(u.sent_version != s.version ||
-					time.tick_diff(u.last_state_sent, now) >= proto.CONTROL_RESEND) \
+			(u.sent_version != s.version && since >= STATE_EVERY ||
+					since >= proto.CONTROL_RESEND) \
 		)
 	}
 

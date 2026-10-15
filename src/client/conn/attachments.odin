@@ -522,6 +522,9 @@ put_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	case .Denied:
 		drop_post(c, p, "You don't have permission to send files here.")
 		return
+	case .Closed:
+		drop_post(c, p, "The server has no room for more files.")
+		return
 	case:
 		drop_post(c, p, "The server rejected the file.")
 		return

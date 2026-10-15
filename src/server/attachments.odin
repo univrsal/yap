@@ -50,6 +50,10 @@ ATTACH_BURST :: 32 * 1024
 ATTACH_TURN_BYTES :: 64 * 1024
 // How long the loop waits for a packet while downloads are in progress.
 ATTACH_WAIT :: 2 * time.Millisecond
+// Uploads are refused when they would leave less than this much free space
+// on the disk of the blobs (counting the uploads in progress as written), so
+// that uploads can't fill the disk the database needs. Answered with Closed.
+ATTACH_FREE_FLOOR :: 512 * 1024 * 1024
 
 Attachments :: struct {
 	max_size:  u64, // bytes; 0 accepts no uploads
@@ -167,13 +171,28 @@ attach_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	busy := 0
+	coming: u64 // what the uploads in progress will still write
 	for _, up in s.attach.uploads {
 		if up.conn == u {
 			busy += 1
 		}
+		if up.blob == 0 {
+			coming += up.size - up.recv.done
+		}
 	}
 	if busy >= proto.MAX_ATTACH_TRANSFERS {
 		respond(u, id, .Rate_Limited)
+		return
+	}
+	if free, known := disk_free(blob_incoming_dir(&s.blobs));
+	   known && free < coming + p.size + ATTACH_FREE_FLOOR {
+		log.warnf(
+			"%s: refused an upload of %d bytes, %d bytes of disk are left",
+			conn_label(u),
+			p.size,
+			free,
+		)
+		respond(u, id, .Closed)
 		return
 	}
 
@@ -222,6 +241,12 @@ handle_upload_chunk :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 	}
 	if up.conn != u || !proto.transfer_wants(&up.recv, index, len(data)) {
 		return // a duplicate chunk, or one from a connection that's gone
+	}
+	if index >= up.recv.base + proto.FILE_WINDOW {
+		// Senders stay within FILE_WINDOW of the first missing chunk. Beyond
+		// it, filling the gap would mean reading back and hashing up to the
+		// whole file in one go below, which would hold up the loop.
+		return
 	}
 	start, _ := proto.file_chunk_range(up.size, index)
 	if n, err := os.write_at(up.file, data, i64(start)); err != nil || n != len(data) {
@@ -373,7 +398,9 @@ attachment_visible :: proc(s: ^Server, account: proto.Account_Id, blob: Blob_Id)
 			return false
 		}
 		conv := conv_by_id(&s.convs, proto.Conv_Id(db_col_int(q, 0)))
-		if conv != nil && conv_is_member(conv, account) {
+		// An archived channel's messages can't be read any more, and nor can
+		// its files.
+		if conv != nil && .Archived not_in conv.flags && conv_is_member(conv, account) {
 			sqlite.reset(q)
 			return true
 		}
