@@ -8,37 +8,37 @@ import "core:time"
 
 import "common:proto"
 
-/*
-What the gateway keeps of each connection (docs/bot-api, "What the
-gateway keeps"): the protocol tells a client everything when it logs in
-and then only what changes, and has no request for most of it, so GETs
-are answered from here. Rebuilt from every Sync_Begin..Sync_End.
-
-Who the connection is (Self), the roles, the accounts, the conversations
-its account is in with what it has read of each, and who is online
-(the snapshots). A conversation's newest message and what's unread
-follow the messages as they come, as a client counts them; mentions
-since the last Read_Changed aren't counted (that takes knowing who a
-mention is of, which the server says when it says what's read).
-*/
+// This is what the gateway keeps for each connection (docs/bot-api, "What the
+// gateway keeps"). The protocol sends a client everything when it logs in and
+// afterwards only what changes, and it has no request for most of that data,
+// so GET requests are answered from this model. It is rebuilt on every
+// Sync_Begin..Sync_End.
+//
+// The model holds who the connection is (Self), the roles, the accounts, the
+// conversations the account is in together with what it has read of each, and
+// who is online (the snapshots). A conversation's newest message and its
+// unread count follow the incoming messages, counted the way a client counts
+// them. Mentions since the last Read_Changed are not counted, because that
+// requires knowing who a mention is for, which the server only says when it
+// reports what has been read.
 
 Model :: struct {
-	self:         proto.Account_Id, // 0 until Self
+	self:         proto.Account_Id, // 0 until Self arrives
 	permissions:  proto.Permissions,
 	flags:        proto.Account_Flags,
 	roles:        map[proto.Role_Id]Role_Record,
 	accounts:     map[proto.Account_Id]Account_Record,
 	convs:        map[proto.Conv_Id]Conv_Record,
-	// How many connections each account has here (not those who appear
-	// offline, whom the server leaves out).
+	// How many connections each account has here. Accounts that appear
+	// offline are not included because the server leaves them out.
 	online:       map[proto.Account_Id]int,
-	// What the server says about itself, asked once and then kept up
-	// with Server_Info events; its strings owned.
+	// What the server reports about itself. It is requested once and then
+	// kept up to date with Server_Info events. Its strings are owned.
 	server:       proto.Server_Info,
 	server_known: bool,
 }
 
-// Records as the model keeps them: their strings (and roles) owned.
+// The records as the model stores them. They own their strings (and roles).
 Account_Record :: struct {
 	using account: proto.Account,
 }
@@ -61,8 +61,8 @@ model_destroy :: proc(m: ^Model) {
 	m^ = {}
 }
 
-// model_clear forgets what a sync tells again; who is online comes with
-// the snapshots, which go on.
+// model_clear forgets everything that a sync sends again. Who is online is
+// delivered by the snapshots, which continue to arrive, so it is kept.
 @(private)
 model_clear :: proc(m: ^Model) {
 	for _, &a in m.accounts {
@@ -82,7 +82,7 @@ model_clear :: proc(m: ^Model) {
 model_event :: proc(m: ^Model, op: proto.Event_Op, body: []u8) {
 	#partial switch op {
 	case .Sync_Begin:
-		// How things are comes next, all of it.
+		// The complete current state follows.
 		model_clear(m)
 	case .Self:
 		if id, permissions, flags, ok := proto.decode_self(body); ok {
@@ -112,7 +112,7 @@ model_event :: proc(m: ^Model, op: proto.Event_Op, body: []u8) {
 		r.name = strings.clone(r.name)
 		m.roles[r.id] = {r}
 	case .Role_Removed:
-		id, ok := proto.decode_conv_id(body) // a u32, as a conversation's is
+		id, ok := proto.decode_conv_id(body) // a u32, like a conversation's id
 		if !ok {
 			return
 		}
@@ -162,7 +162,7 @@ model_event :: proc(m: ^Model, op: proto.Event_Op, body: []u8) {
 		c.last, c.last_time = msg.id, msg.time
 		switch {
 		case msg.sender == m.self:
-			// Posting reads everything up to the post.
+			// Posting a message marks everything up to it as read.
 			c.read, c.unread, c.mentions = msg.id, 0, 0
 		case msg.id > c.read:
 			c.unread = min(c.unread + 1, proto.UNREAD_CAP)
@@ -170,7 +170,7 @@ model_event :: proc(m: ^Model, op: proto.Event_Op, body: []u8) {
 	}
 }
 
-// model_server takes what the server says about itself.
+// model_server stores what the server reports about itself.
 model_server :: proc(m: ^Model, body: []u8) {
 	info, ok := proto.decode_server_info(body)
 	if !ok {
@@ -193,7 +193,7 @@ server_free :: proc(s: ^proto.Server_Info) {
 	s^ = {}
 }
 
-// model_state takes a snapshot of who is here.
+// model_state stores a snapshot of who is online.
 model_state :: proc(m: ^Model, state: proto.Presence) {
 	clear(&m.online)
 	for u in state.users {
@@ -215,7 +215,7 @@ conv_free :: proc(c: ^Conv_Record) {
 	delete(c.topic)
 }
 
-// account_name is a connection's account, for the log.
+// account_name returns the account of a connection, for the log.
 account_name :: proc(c: ^Conn) -> string {
 	if a, ok := c.model.accounts[c.model.self]; ok {
 		return a.username
@@ -223,11 +223,9 @@ account_name :: proc(c: ^Conn) -> string {
 	return fmt.tprintf("account %d", c.model.self)
 }
 
-/*
-JSON (docs/bot-api, "Messages as JSON"): ids as strings, times as ISO
-8601 in UTC, absent things as null, Discord's names where the thing is
-the same. What's made here is in the temp allocator.
-*/
+// JSON (docs/bot-api, "Messages as JSON"): ids are strings, times are ISO 8601
+// in UTC, absent values are null, and Discord's names are used where the thing
+// is the same. Everything created here is allocated with the temp allocator.
 
 Account_JSON :: struct {
 	id:           string,
@@ -238,12 +236,12 @@ Account_JSON :: struct {
 	status:       Maybe(string),
 	status_until: Maybe(string),
 	avatar:       Maybe(string), // a blob id
-	activity:     string, // online, away, busy, offline: as they set it
-	online:       bool, // connected now, and not appearing offline
+	activity:     string, // online, away, busy or offline, as the account set it
+	online:       bool, // connected now and not appearing offline
 	roles:        []string,
 }
 
-// What /me says: the account, and what it may do.
+// What /me returns: the account and what it is allowed to do.
 Me_JSON :: struct {
 	id:           string,
 	username:     string,
@@ -255,17 +253,17 @@ Me_JSON :: struct {
 	avatar:       Maybe(string),
 	activity:     string,
 	roles:        []string,
-	permissions:  []string, // beyond everyone's: manage_messages, ...
+	permissions:  []string, // beyond those of everyone, e.g. manage_messages
 }
 
 Role_JSON :: struct {
 	id:          string,
 	name:        string,
 	color:       Maybe(string), // "#rrggbb"
-	position:    int, // lower is higher up
+	position:    int, // a lower value is listed higher up
 	permissions: []string,
 	mentionable: bool,
-	everyone:    bool, // the role every account has
+	everyone:    bool, // the role that every account has
 }
 
 Conv_JSON :: struct {
@@ -273,7 +271,7 @@ Conv_JSON :: struct {
 	kind:                   string, // channel, dm
 	name:                   string,
 	topic:                  string,
-	home:                   bool, // the channel everyone is in
+	home:                   bool, // the channel that everyone is in
 	private:                bool,
 	position:               int,
 	// A DM's other account.
@@ -281,7 +279,7 @@ Conv_JSON :: struct {
 	member:                 bool,
 	last_message_id:        Maybe(string),
 	last_message_timestamp: Maybe(string),
-	// What the account has read, as a member.
+	// What the account has read, if it is a member.
 	last_read_id:           Maybe(string),
 	unread:                 int,
 	mentions:               int,
@@ -296,13 +294,13 @@ Author_JSON :: struct {
 }
 
 Attachment_JSON :: struct {
-	id:   Maybe(string), // the file's blob; null once it's been removed
+	id:   Maybe(string), // the file's blob id, null once it has been removed
 	name: string,
 	size: u64,
 }
 
 Reaction_JSON :: struct {
-	emoji: string, // the character, or :name: of the server's own
+	emoji: string, // the character, or :name: for one of the server's own emoji
 	count: int,
 	me:    bool,
 }
@@ -336,15 +334,15 @@ Message_JSON :: struct {
 	edited_timestamp: Maybe(string),
 	kind:             string, // text, file, system
 	content:          string,
-	thread:           Maybe(string), // the thread's first message, if it's in one
+	thread:           Maybe(string), // the first message of the thread, if it is in one
 	attachments:      []Attachment_JSON,
 	reactions:        []Reaction_JSON,
 	pinned:           bool,
 	deleted:          bool,
 	forwarded:        Maybe(Forwarded_JSON),
-	replies:          Maybe(Replies_JSON), // a thread's first message's
+	replies:          Maybe(Replies_JSON), // set on the first message of a thread
 	file:             Maybe(File_JSON), // a file offered in a DM
-	system:           Maybe(System_JSON), // what happened (a call)
+	system:           Maybe(System_JSON), // what happened, e.g. a call
 }
 
 Server_JSON :: struct {
@@ -352,11 +350,11 @@ Server_JSON :: struct {
 	version:        string,
 	description:    string,
 	icon:           Maybe(string), // a blob id
-	max_attachment: u64, // bytes; 0 for no attachments
+	max_attachment: u64, // in bytes, 0 if attachments are not allowed
 	registration:   struct {
 		open:   bool,
-		email:  bool, // takes an email address
-		invite: bool, // takes an invite code
+		email:  bool, // asks for an email address
+		invite: bool, // asks for an invite code
 	},
 }
 
@@ -387,7 +385,7 @@ account_json :: proc(m: ^Model, a: ^proto.Account) -> Account_JSON {
 	return j
 }
 
-// accounts_json is every account, by id.
+// accounts_json returns every account, sorted by id.
 accounts_json :: proc(m: ^Model) -> []Account_JSON {
 	ids, _ := slice.map_keys(m.accounts, context.temp_allocator)
 	slice.sort(ids)
@@ -438,8 +436,8 @@ role_json :: proc(r: ^proto.Role) -> Role_JSON {
 	return j
 }
 
-// roles_json is every role, top first: by position, then id, everyone's
-// last.
+// roles_json returns every role, top first: sorted by position, then by id,
+// with the everyone role last.
 roles_json :: proc(m: ^Model) -> []Role_JSON {
 	roles := make([]^proto.Role, len(m.roles), context.temp_allocator)
 	n := 0
@@ -492,11 +490,9 @@ conv_json :: proc(m: ^Model, c: ^proto.Conv) -> Conv_JSON {
 	return j
 }
 
-/*
-convs_json is the conversations the account is in, as a client lists
-them: the channels by position (then id), then the DMs, the most
-recently written to first.
-*/
+// convs_json returns the conversations the account is in, ordered like a
+// client lists them: the channels by position (then id), followed by the DMs,
+// with the most recently active first.
 convs_json :: proc(m: ^Model) -> []Conv_JSON {
 	convs := make([]^proto.Conv, len(m.convs), context.temp_allocator)
 	n := 0
@@ -615,13 +611,13 @@ server_json :: proc(info: ^proto.Server_Info) -> Server_JSON {
 	return s
 }
 
-// id_string is an id as JSON has it: a string, as u64s don't survive
-// JavaScript's numbers.
+// id_string returns an id as a JSON string, because a u64 doesn't survive
+// being a JavaScript number.
 id_string :: proc(id: $T) -> string {
 	return fmt.tprintf("%d", u64(id))
 }
 
-// iso_time is Unix milliseconds as ISO 8601, in UTC.
+// iso_time formats Unix milliseconds as ISO 8601 in UTC.
 iso_time :: proc(ms: proto.Unix_Ms) -> string {
 	t := time.unix(i64(ms / 1000), i64(ms % 1000) * 1_000_000)
 	y, mon, d := time.date(t)
@@ -629,7 +625,7 @@ iso_time :: proc(ms: proto.Unix_Ms) -> string {
 	return fmt.tprintf("%04d-%02d-%02dT%02d:%02d:%02d.%03dZ", y, int(mon), d, h, mi, s, ms % 1000)
 }
 
-// enum_name is an enum value's name as JSON has it: in lower case.
+// enum_name returns an enum value's name in lower case, as used in JSON.
 enum_name :: proc(v: $T) -> string {
 	return strings.to_lower(reflect.enum_string(v), context.temp_allocator)
 }

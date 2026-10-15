@@ -5,18 +5,16 @@ import "client:conn"
 import "core:sync"
 import "core:time"
 
-/*
-A browser build has no threads, so the network loop doesn't get one: it
-is stepped from the frame loop instead (see ui_frame), a few turns at a
-time so a frame's worth of packets is handled without the loop running
-away with the frame.
-*/
+// A browser build has no threads, so the network loop doesn't get one. It
+// is stepped from the frame loop instead (see ui_frame), a few turns at a
+// time, so a frame's worth of packets is handled without the loop taking
+// over the frame.
 Net_Thread :: struct {}
 
 // Each turn of the network loop handles at most one packet. A frame
 // takes at least NET_STEPS_PER_FRAME turns, which keeps up with any
-// amount of voice, and then more while packets are waiting - a
-// keyframe of shared screen is a hundred or more at once - for up to
+// amount of voice, and then more turns while packets are waiting (a
+// keyframe of a shared screen is a hundred or more packets at once), up to
 // NET_FRAME_BUDGET.
 NET_STEPS_PER_FRAME :: 8
 NET_FRAME_BUDGET :: 4 * time.Millisecond
@@ -41,8 +39,8 @@ net_stop :: proc(ns: ^Net_Session) {
 	}
 }
 
-// net_step gives every connection its turn between frames: the frame's
-// network budget goes round them, the shown one first.
+// net_step gives every connection a turn between frames. The frame's
+// network budget is shared among them, starting with the one being shown.
 net_step :: proc(ui: ^UI) {
 	start := time.tick_now()
 	if ui.session != nil {

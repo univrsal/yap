@@ -9,50 +9,48 @@ import "client:conn"
 import "client:settings"
 import "common:proto"
 
-/*
-The inbox, or buddy screen (buddies.odin): on the left, the buddies and
-anyone else we have a DM with, on every server we're logged in to, in
-two sections; on the right, the DM with whoever's picked, drawn by the
-same timeline as a channel's (ui_timeline.odin). It's opened and closed
-by the inbox's icon at the top of the rail (ui_servers.odin).
-
-A DM is on one server, so picking one on another server shows that
-server (switch_now), behind the inbox: what's open is always the shown
-server's, as everything else about the conversation is.
-
-The network side looks at one conversation at a time: while this screen
-shows a DM, that's the one, and going back to the channels goes back to
-the channel that was being looked at (keep_viewing).
-*/
+// The inbox, or buddy screen (see buddies.odin): on the left, the buddies and
+// anyone else we have a DM with, on every server we're logged in to, in
+// two sections. On the right, the DM with whoever is picked, drawn by the
+// same timeline as a channel's (see ui_timeline.odin). It is opened and closed
+// by the inbox's icon at the top of the rail (see ui_servers.odin).
+//
+// A DM is on one server, so picking one on another server shows that
+// server (see switch_now) behind the inbox. What is open is always the shown
+// server's, as everything else about the conversation is.
+//
+// The network side looks at one conversation at a time. While this screen
+// shows a DM, that is the conversation it looks at, and going back to the
+// channels goes back to the channel that was being looked at (see keep_viewing).
 
 UI_Buddies :: struct {
-	// Whose DM is open; 0 for nobody.
+	// Whose DM is open, 0 for nobody.
 	selected:     proto.Account_Id,
-	// What's being written to them.
+	// What is being written to them.
 	buf:          [proto.MAX_CHAT_SIZE]u8,
 	len:          int,
-	area:         Text_Area, // the box it's written in
-	// Something to tell about the conversation, and since when.
+	area:         Text_Area, // the box it is written in
+	// Something to tell the user about the conversation, and since when.
 	notice:       string,
 	notice_at:    time.Tick,
-	// The file button was pressed: after the frame, the dialog opens for
-	// a file to offer `pick_to` (ui_files_*.odin).
+	// The file button was pressed. After the frame, the dialog opens to pick
+	// a file to offer to `pick_to` (see ui_files_*.odin).
 	pick:         bool,
 	pick_to:      proto.Account_Id,
-	// Files to go with the next message (ui_attachments.odin).
+	// Files to go with the next message (see ui_attachments.odin).
 	files:        [dynamic]Picked_File,
-	// The message of ours being edited, 0 for none, and its conversation
-	// (ui_message_menu.odin).
+	// The message of ours that is being edited (0 for none) and its conversation
+	// (see ui_message_menu.odin).
 	editing:      proto.Msg_Id,
 	editing_conv: proto.Conv_Id,
 	// The conversation the network side was last asked to look at, and
-	// when (keep_viewing).
+	// when (see keep_viewing).
 	view_asked:   proto.Conv_Id,
 	view_back:    bool,
 	view_at:      time.Tick,
 }
 
-// How often the inbox asks when those who aren't here were last.
+// How often the inbox asks when the people who aren't online were last seen.
 @(private = "file")
 LAST_SEEN_REFRESH :: 30 * time.Second
 
@@ -74,9 +72,9 @@ toggle_inbox :: proc(ui: ^UI) {
 	}
 	ui.page = .Buddies
 	for ns in ui.sessions {
-		ns.seen_asked = {} // ask afresh when it opens
+		ns.seen_asked = {} // ask again when it opens
 	}
-	// In a narrow window it opens on the list (buddies_screen).
+	// In a narrow window it opens on the list (see buddies_screen).
 	if ui.narrow {
 		ui.buddies.selected = 0
 	}
@@ -93,7 +91,7 @@ open_conversation :: proc(ui: ^UI, account: proto.Account_Id) {
 }
 
 // open_entry opens the DM with someone in the inbox: straight away on
-// the shown server, or once theirs is shown (switch_now).
+// the shown server, or once their server is shown (see switch_now).
 @(private = "file")
 open_entry :: proc(ui: ^UI, e: Buddy_Entry) {
 	if e.ns == ui.session {
@@ -104,11 +102,9 @@ open_entry :: proc(ui: ^UI, e: Buddy_Entry) {
 	ui.inbox_open = e.account
 }
 
-/*
-keep_viewing has the network side look at `conv` (with `back`, the
-channel it was looking at before a DM), if it isn't: once, and again
-only if that doesn't come about. Call with the View locked.
-*/
+// keep_viewing makes the network side look at `conv` (with `back`, the
+// channel it was looking at before the DM), if it isn't already. It asks once,
+// and asks again only if that has no effect. Call with the View locked.
 keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 	v := ui.view
 	b := &ui.buddies
@@ -121,7 +117,7 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 		return
 	}
 	if b.view_asked == want && b.view_back == back && time.tick_since(b.view_at) < VIEW_RETRY {
-		ui_redraw_at(ui, time.tick_add(b.view_at, VIEW_RETRY)) // to ask again
+		ui_redraw_at(ui, time.tick_add(b.view_at, VIEW_RETRY)) // so that it asks again
 		return
 	}
 	b.view_asked, b.view_back, b.view_at = want, back, time.tick_now()
@@ -129,13 +125,13 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 	conn.push_command(&ui.session.client.commands, conn.View_Command{conv = conv, back = back})
 }
 
-// back_from_dms is the session screen making sure what it shows is a
-// channel's: coming back from the buddy screen, or having been sent
+// back_from_dms is the session screen making sure that what it shows is a
+// channel's: after coming back from the buddy screen, or after having been sent
 // there by something else. Call with the View locked.
 back_from_dms :: proc(ui: ^UI) {
 	v := ui.view
 	if v.viewing == 0 && v.channel == 0 {
-		return // not told of any yet
+		return // none reported yet
 	}
 	if v.viewing == 0 || viewed_channel(v) == nil {
 		keep_viewing(ui, 0, back = true)
@@ -143,8 +139,8 @@ back_from_dms :: proc(ui: ^UI) {
 }
 
 // buddies_screen lays the screen out, like session_screen: side by
-// side, or in a narrow window the list and the conversation picked
-// taking turns, the conversation with a way back to the list. Call with
+// side or, in a narrow window, with the list and the picked conversation
+// taking turns, and the conversation having a way back to the list. Call with
 // the View locked.
 buddies_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -153,7 +149,7 @@ buddies_screen :: proc(ui: ^UI) {
 	ui.narrow = narrow
 
 	// Watching somebody's screen (from a call's row in the voice panel)
-	// works here as beside a channel: a Screen tab, and fullscreen.
+	// works here as beside a channel: with a Screen tab, and fullscreen.
 	screen_tab_follow(ui)
 	if ui.view.watching != 0 && conn.video_is_fullscreen() {
 		fullscreen_screen(ui)
@@ -163,8 +159,8 @@ buddies_screen :: proc(ui: ^UI) {
 	session_header(ui)
 
 	list := ui.inbox
-	// Somebody who's left the list (taken off it, or no buddy any more
-	// and no DM) takes the conversation along.
+	// Somebody who has left the list (removed from it, or no longer a buddy
+	// and with no DM) takes the conversation along.
 	entry: Buddy_Entry
 	found := false
 	for e in list {
@@ -183,8 +179,8 @@ buddies_screen :: proc(ui: ^UI) {
 	}
 	keep_viewing(ui, entry.conv if found else 0)
 
-	// The list over the voice panel, beside the conversation; in a narrow
-	// window, the list over the panel or the conversation over it.
+	// The list over the voice panel, beside the conversation. In a narrow
+	// window, either the list over the panel or the conversation over it.
 	panel_h := voice_panel_height(ui)
 	switch {
 	case narrow && !found:
@@ -210,12 +206,10 @@ buddies_screen :: proc(ui: ^UI) {
 	share_menu(ui)
 }
 
-/*
-conversation_or_screen is the conversation, or while we're watching
-somebody's screen, that and the screen as tabs, like a channel's chat
-(side_panel, ui_chat.odin). With `narrow`, the line at the top starts
-with the way back to the list.
-*/
+// conversation_or_screen shows the conversation or, while we are watching
+// somebody's screen, the conversation and the screen as tabs, like a channel's
+// chat (see side_panel in ui_chat.odin). With `narrow`, the line at the top starts
+// with the way back to the list.
 @(private = "file")
 conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow: bool) {
 	if !screen_docked(ui) {
@@ -248,7 +242,7 @@ conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow:
 }
 
 // back_to_list is the narrow window's way from a conversation back to
-// the list, which none is picked in then.
+// the list, in which no conversation is picked then.
 @(private = "file")
 back_to_list :: proc(ui: ^UI) {
 	if .SUBMIT in stable_button_hint(ui, "to inbox list", "<", "Conversations", {.ALIGN_CENTER}) {
@@ -268,12 +262,12 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 		with_text_color(
 			ctx,
 			theme.dim,
-			"No buddies yet. Click someone in the channel list and add them from the menu.",
+			"You have no buddies yet. Click someone in the channel list and add them from the menu.",
 			text_proc,
 		)
 		return
 	}
-	// The buddies first, then everyone else (buddy_before).
+	// The buddies first, then everyone else (see buddy_before).
 	others := len(list)
 	for b, i in list {
 		if !b.buddy {
@@ -284,7 +278,7 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 	section_label(ui, "Buddies")
 	if others == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "None yet: add someone from their menu.", label_proc)
+		with_text_color(ctx, theme.dim, "None yet. Add someone from their menu.", label_proc)
 	}
 	for b in list[:others] {
 		buddy_row(ui, b)
@@ -297,19 +291,17 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 	}
 }
 
-// section_label heads one of the list's sections.
+// section_label is the heading of one of the list's sections.
 @(private = "file")
 section_label :: proc(ui: ^UI, text: string) {
 	mu.layout_row(&ui.ctx, {-1})
 	with_text_color(&ui.ctx, theme.dim, text, label_proc)
 }
 
-/*
-buddy_row is one buddy in the list: a flat, full-width control like the
-channel list's rows, ending in their server's tag when there's more
-than one. A left click opens their conversation, a right click (on the
-shown server) the same menu as clicking them in a channel.
-*/
+// buddy_row is one buddy in the list: a flat, full-width control like the
+// channel list's rows, ending in the tag of their server when there is more
+// than one. A left click opens their conversation, and a right click (on the
+// shown server) opens the same menu as clicking them in a channel.
 @(private = "file")
 buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	ctx := &ui.ctx
@@ -367,9 +359,9 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	}
 }
 
-// conversation is the right-hand side: who it's with, the messages,
+// conversation is the right-hand side: who it is with, the messages,
 // and the box to write in. With `back`, the line with their name starts
-// with the way back to the list (back_to_list).
+// with the way back to the list (see back_to_list).
 @(private = "file")
 conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	ctx := &ui.ctx
@@ -380,13 +372,13 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	if !found {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Pick a buddy to talk to them.", label_proc)
+		with_text_color(ctx, theme.dim, "Pick a buddy to start talking.", label_proc)
 		return
 	}
 	account := entry.account
 
-	// Their name, and the button that takes a DM off the list (somebody
-	// who isn't a buddy, where there's something to take off).
+	// Their name, and the button that removes a DM from the list (for somebody
+	// who isn't a buddy, where there is something to remove).
 	can_hide := entry.conv != 0 && !entry.buddy
 	// The name, then its buttons: up to four.
 	icons := 1 if entry.conv == 0 else 4 if can_hide else 3
@@ -408,7 +400,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	deleted := .Deleted in (v.accounts[account] or_else {}).flags
 	title := entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name)
 	if rail_count(ui) > 1 {
-		// Which of the inbox's servers it's on.
+		// Which of the inbox's servers it is on.
 		title = fmt.tprintf(
 			"%s  ·  %s",
 			title,
@@ -416,7 +408,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		)
 	}
 	mu.label(ctx, title)
-	// Calling them, while they're here and we're in no call.
+	// Calling them, while they are online and we are in no call.
 	if !deleted && may_call(v, account) {
 		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
 			call_account(ui, account)
@@ -434,7 +426,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 			   ui,
 			   "dm hide",
 			   .Trash,
-			   "Take this conversation off the list until something new is said in it",
+			   "Remove this conversation from the list until something new is said in it",
 			   theme.off,
 		   ) {
 		last: proto.Msg_Id
@@ -452,12 +444,12 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	}
 	mu.layout_row(ctx, {-1})
 	if deleted {
-		// What's there can be read, and nothing more said (the server
+		// What is there can be read, but nothing more can be said (the server
 		// refuses it too).
 		with_text_color(
 			ctx,
 			theme.dim,
-			"Their account was deleted: this conversation can be read, but not written to.",
+			"Their account was deleted. You can still read this conversation, but not write to it.",
 			label_proc,
 		)
 		mu.layout_row(ctx, {-1}, -1)
@@ -539,13 +531,13 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	if !send {
 		return
 	}
-	// Enter takes the focus away from the box; keep typing instead.
+	// Enter takes the focus away from the box, so keep typing instead.
 	mu.set_focus(ctx, box)
 	composer_send(ui, composer, account)
 }
 
-// no_conversation_yet stands in for the timeline where there's no DM
-// yet (or it's on its way): what we've written to them, going out.
+// no_conversation_yet stands in for the timeline where there is no DM
+// yet (or it is on its way): what we have written to them, going out.
 @(private = "file")
 no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 	ctx := &ui.ctx
@@ -567,12 +559,10 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 	with_text_color(ctx, theme.dim, text, label_proc)
 }
 
-/*
-ask_last_seen asks a server when those in its part of the inbox who
-aren't here were last: when the inbox opens, every LAST_SEEN_REFRESH,
-and as soon as someone in it leaves. Each server is asked about its own
-accounts. Call with its View locked.
-*/
+// ask_last_seen asks a server when those in its part of the inbox who
+// aren't online were last seen: when the inbox opens, every LAST_SEEN_REFRESH,
+// and as soon as someone in it leaves. Each server is asked about its own
+// accounts. Call with its View locked.
 ask_last_seen :: proc(ui: ^UI, ns: ^Net_Session, list: []Buddy_Entry) {
 	cmd: conn.Last_Seen_Command
 	online := 0
@@ -599,18 +589,18 @@ ask_last_seen :: proc(ui: ^UI, ns: ^Net_Session, list: []Buddy_Entry) {
 }
 
 // last_seen_text is what the conversation's header says about someone
-// who isn't here: how long ago they were, as far as the server says.
+// who isn't online: how long ago they were last seen, as far as the server says.
 last_seen_text :: proc(ui: ^UI, account: proto.Account_Id) -> string {
 	seen, known := ui.view.last_seen[account]
 	if !known || seen == proto.LAST_SEEN_HIDDEN || seen == 0 {
-		// The server only says to people who've written to each other.
+		// The server only tells people who have written to each other.
 		return ""
 	}
 	return fmt.tprintf("last seen %s", ago_text(ui, i64(seen)))
 }
 
-// ago_text is how long ago a time (Unix milliseconds) was: "just now",
-// "3 hours ago", or its date once it's more than a week.
+// ago_text is how long ago a time (in Unix milliseconds) was: "just now",
+// "3 hours ago", or its date once it is more than a week ago.
 ago_text :: proc(ui: ^UI, ms: i64) -> string {
 	ago := (time.time_to_unix_nano(time.now()) / 1_000_000 - ms) / 1000
 	plural :: proc(n: i64) -> string {

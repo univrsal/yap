@@ -4,7 +4,7 @@ package server
 import "core:dynlib"
 import "core:log"
 
-// Where the system's libcurl may be, most likely first.
+// The possible locations of the system's libcurl, with the most likely first.
 @(private = "file")
 CURL_LIBRARIES :: [?]string {
 	"libcurl.so.4",
@@ -14,12 +14,12 @@ CURL_LIBRARIES :: [?]string {
 	"libcurl.dylib",
 }
 
-// How many procedures there are in Curl.
+// The number of procedures in the Curl table.
 @(private = "file")
-CURL_PROCS :: 10
+CURL_PROCS :: 11
 
 // curl_load_system loads the system's libcurl into the table.
-curl_load_system :: proc(c: ^Curl) -> bool {
+curl_load_system :: proc(c: ^Curl, what: string) -> bool {
 	for path in CURL_LIBRARIES {
 		count, ok := dynlib.initialize_symbols(c, path, "curl_")
 		if !ok {
@@ -27,8 +27,9 @@ curl_load_system :: proc(c: ^Curl) -> bool {
 		}
 		if count != CURL_PROCS {
 			log.errorf(
-				"%s lacks some of what email needs (%d of %d found)",
+				"%s is missing procedures that %s needs (%d of %d found)",
 				path,
+				what,
 				count,
 				CURL_PROCS,
 			)
@@ -36,6 +37,9 @@ curl_load_system :: proc(c: ^Curl) -> bool {
 		}
 		return true
 	}
-	log.error("libcurl isn't installed, so there's no email: install libcurl (curl) for it")
+	log.errorf(
+		"libcurl isn't installed, so %s is unavailable (install libcurl to enable it)",
+		what,
+	)
 	return false
 }

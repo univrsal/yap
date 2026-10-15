@@ -1,17 +1,17 @@
-/*
-Per-application audio capture (see yap_aac.c and tinyaac.h, public
-domain or MIT). Build the library with build.sh / build.bat at the repo
-root.
-
-List the applications playing audio, pick one, and its audio comes back
-through a callback, as interleaved float32 at whatever rate and channel
-count the application plays at. The callbacks run on a thread of
-tinyaac's own, one at a time; capture_stop waits for the last one.
-
-It's PipeWire on Linux (loaded at runtime, so init just fails without
-it), WASAPI process loopback on Windows 10 build 19041 and later, and a
-Core Audio process tap on macOS 14.2 and later. Elsewhere init fails.
-*/
+// Per-application audio capture (see yap_aac.c and tinyaac.h, public
+// domain or MIT). Build the library with build.sh / build.bat at the repo
+// root.
+//
+// You list the applications that are playing audio and pick one. Its audio
+// is then delivered through a callback as interleaved float32 samples, at
+// whatever sample rate and channel count the application plays at. The
+// callbacks run one at a time on a thread owned by tinyaac, and
+// capture_stop waits for the last one to finish.
+//
+// The backends are PipeWire on Linux (loaded at runtime, so init simply
+// fails if it's missing), WASAPI process loopback on Windows 10 build 19041
+// and later, and a Core Audio process tap on macOS 14.2 and later. On other
+// platforms init fails.
 package aac
 
 when ODIN_OS == .Windows {
@@ -31,14 +31,14 @@ when !#exists(LIB) {
 }
 
 when ODIN_OS == .Windows {
-	// uuid.lib for IID_IUnknown; the audio GUIDs are in yap_aac.c.
+	// uuid.lib provides IID_IUnknown. The audio GUIDs are in yap_aac.c.
 	foreign import lib {LIB, "system:ole32.lib", "system:user32.lib", "system:uuid.lib"}
 } else when ODIN_OS == .Darwin {
-	// AppKit for the applications' names (NSRunningApplication).
+	// AppKit provides the applications' names (NSRunningApplication).
 	foreign import lib {LIB, "system:Foundation.framework", "system:AppKit.framework", "system:CoreAudio.framework"}
 } else when ODIN_OS == .Linux {
-	// libpipewire-0.3 is dlopen'd at runtime (yap_aac.c) rather than
-	// linked, so yap-client still starts without PipeWire.
+	// libpipewire-0.3 is loaded with dlopen at runtime (yap_aac.c) instead
+	// of being linked, so yap-client still starts without PipeWire.
 	foreign import lib {LIB, "system:dl"}
 } else {
 	foreign import lib {LIB}
@@ -70,9 +70,10 @@ App_Info :: struct {
 	// Owned by the list, and valid until it's destroyed.
 	display_name: cstring,
 	identifier:   cstring,
-	process_id:   u32, // 0 where the backend doesn't say
-	// What it calls what it plays (PipeWire's media.name, e.g. mpv's
-	// title), nil where the backend doesn't say. Owned by the list.
+	process_id:   u32, // 0 where the backend doesn't provide it
+	// The name the application gives to what it is playing (PipeWire's
+	// media.name, e.g. mpv's title), or nil where the backend doesn't
+	// provide it. Owned by the list.
 	media_name:   cstring,
 }
 
@@ -90,8 +91,8 @@ Event_Proc :: #type proc "c" (event: Event, status: Status, message: cstring, us
 
 @(default_calling_convention = "c")
 foreign lib {
-	// tinyaac_init, once libpipewire is loaded on Linux. Reference
-	// counted: pair each success with shutdown.
+	// Wraps tinyaac_init, after loading libpipewire on Linux. It is
+	// reference counted: pair each successful call with shutdown.
 	@(link_name = "yap_aac_init")
 	init :: proc() -> Status ---
 }
@@ -99,21 +100,22 @@ foreign lib {
 @(default_calling_convention = "c", link_prefix = "tinyaac_")
 foreign lib {
 	shutdown :: proc() ---
-	// Why the last call failed, in words; never nil.
+	// A description of why the last call failed. Never nil.
 	last_error :: proc() -> cstring ---
 
-	// A snapshot of the applications playing audio right now (on Windows,
-	// every application with a window).
+	// A snapshot of the applications that are playing audio right now (on
+	// Windows, every application with a window).
 	app_list_create :: proc(out_list: ^^App_List) -> Status ---
 	app_list_count :: proc(list: ^App_List) -> uint ---
 	app_list_get :: proc(list: ^App_List, index: uint) -> ^App_Info ---
 	app_list_destroy :: proc(list: ^App_List) ---
 
-	// The capture keeps what it needs of the list, which may go after.
+	// The capture keeps whatever it needs from the list, so the list may be
+	// destroyed afterwards.
 	capture_create :: proc(list: ^App_List, index: uint, out_capture: ^^Capture) -> Status ---
 	capture_set_callbacks :: proc(capture: ^Capture, on_audio: Audio_Proc, on_event: Event_Proc, user_data: rawptr) -> Status ---
 	capture_start :: proc(capture: ^Capture) -> Status ---
-	// Returns once no callback is running any more.
+	// Returns once no callback is running anymore.
 	capture_stop :: proc(capture: ^Capture) -> Status ---
 	capture_destroy :: proc(capture: ^Capture) ---
 }

@@ -18,8 +18,8 @@ foreign lib {
 	yap_idle_close :: proc() ---
 }
 
-// open starts watching for `after` without input, on whichever of the
-// window's displays GLFW has (the other is nil).
+// open starts watching for a period of `after` without input, on whichever of
+// the two displays GLFW uses for the window (the other one is nil).
 open :: proc(after: time.Duration, wayland_display, x11_display: rawptr) -> Source {
 	ms := u32(clamp(time.duration_milliseconds(after), 0, f64(max(u32))))
 	switch yap_idle_open(wayland_display, x11_display, ms) {

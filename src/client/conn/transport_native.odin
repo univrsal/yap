@@ -5,17 +5,16 @@ import log "common:wlog"
 import "core:net"
 import "core:time"
 
-// A UDP socket, which is what the protocol was written for.
+// A UDP socket, which is what the protocol was designed for.
 Transport :: struct {
 	sock:   net.UDP_Socket,
 	server: net.Endpoint,
 	open:   bool,
 }
 
-// transport_open opens a socket to the server. The main link's waits a
-// little for a packet, which paces the loop; the bulk link's never waits.
-// `media` only matters to the web build: here the media link's address
-// already has its port.
+// transport_open opens a socket to the server. The main link waits a little for
+// a packet, which paces the loop, while the bulk link never waits. `media` only
+// matters to the web build: here the media link's address already has its port.
 transport_open :: proc(
 	t: ^Transport,
 	server_addr: string,
@@ -39,12 +38,12 @@ transport_open :: proc(
 	t.open = true
 	if bulk {
 		net.set_blocking(sock, false)
-		// Room for a shared screen's keyframe, which arrives in hundreds
+		// Room for the keyframe of a shared screen, which arrives in hundreds
 		// of packets between two turns of the loop.
 		net.set_option(sock, .Receive_Buffer_Size, 2 * 1024 * 1024)
 		net.set_option(sock, .Send_Buffer_Size, 1024 * 1024)
 	} else {
-		// Short timeout so the loop can also pace outgoing frames.
+		// Short timeout so that the loop can also pace outgoing frames.
 		net.set_option(sock, .Receive_Timeout, 2 * time.Millisecond)
 	}
 	return true
@@ -69,12 +68,12 @@ transport_send :: proc(t: ^Transport, packet: []byte) -> bool {
 	return true
 }
 
-// transport_revive has nothing to do for a UDP socket, which doesn't
-// die with the server.
+// transport_revive has nothing to do for a UDP socket, which does not die when
+// the server goes away.
 transport_revive :: proc(t: ^Transport) {}
 
-// transport_backlog is how much is waiting to go out. A UDP socket
-// sends or drops at once, so nothing ever waits.
+// transport_backlog is how much is waiting to go out. A UDP socket sends or
+// drops packets immediately, so nothing ever waits.
 transport_backlog :: proc(t: ^Transport) -> int {
 	return 0
 }
@@ -86,7 +85,7 @@ transport_recv :: proc(t: ^Transport, buf: []byte) -> (packet: []byte, ok: bool)
 	n, from, err := net.recv_udp(t.sock, buf)
 	#partial switch err {
 	case .None:
-		// Anything from somewhere else is not this conversation.
+		// Anything from another address does not belong to this connection.
 		if from != t.server {
 			return nil, false
 		}

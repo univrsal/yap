@@ -8,10 +8,10 @@ import "core:thread"
 
 import "client:clipboard"
 
-// Pictures are decoded on a thread of their own, so a big one doesn't
-// hold up a frame. The queue and the results are the only things the
-// two sides share (see UI_Images); the animations being played
-// (ui_images_anim_native.odin) are the thread's alone.
+// Pictures are decoded on a thread of their own, so that a big one doesn't hold
+// up a frame. The queue and the results are the only things that the UI and the
+// thread share (see UI_Images); the animations being played
+// (ui_images_anim_native.odin) belong to the thread alone.
 Decode_Worker :: struct {
 	thread: ^thread.Thread,
 	anims:  map[u64]Anim_Source,
@@ -72,8 +72,9 @@ decode_worker :: proc(im: ^UI_Images) {
 				sync.guard(&im.mutex)
 				append(&im.results, result)
 			}
-			// To take it (ui_images_frame); an animation's next frame is
-			// taken when it's due instead (anim_drawn).
+			// Wake the UI so it picks up the result (ui_images_frame). An
+			// animation's next frame is picked up when it is due instead
+			// (anim_drawn).
 			if !result.frame {
 				ui_wake()
 			}
@@ -81,8 +82,8 @@ decode_worker :: proc(im: ^UI_Images) {
 	}
 }
 
-// decode_job decodes a picture, or the first frame of an animation, which
-// is then kept to be played. Takes the job's bytes over.
+// decode_job decodes a picture, or the first frame of an animation, which is
+// then kept to be played. It takes ownership of the job's bytes.
 @(private = "file")
 decode_job :: proc(w: ^Decode_Worker, job: Decode_Job) -> Decode_Result {
 	if result, is_anim := anim_start(w, job); is_anim {

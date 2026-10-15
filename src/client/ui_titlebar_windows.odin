@@ -16,28 +16,25 @@ foreign user32 {
 	GetDoubleClickTime :: proc() -> win.UINT ---
 }
 
-/*
-On Windows the window has no title bar of its own either: the UI runs up
-to the top edge, with minimize, maximize and close buttons of its own on
-the end of the first row (see title_row). The frame is still the
-system's, so resizing, snapping and the window menu behave as ever; only
-its client area has grown to cover the title bar, and DWM draws nothing
-in it.
-
-What's left of the strip the title bar used to be still moves the window
-when dragged and maximizes it when double-clicked, wherever there's no
-control of ours under the pointer (see mouse_button_callback).
-*/
+// On Windows the window has no title bar of its own either: the UI runs up to
+// the top edge, with minimize, maximize and close buttons of its own at the end
+// of the first row (see title_row). The frame is still the system's, so
+// resizing, snapping and the window menu behave as usual. Only its client area
+// has grown to cover the title bar, and DWM draws nothing in it.
+//
+// What is left of the strip that the title bar used to be still moves the
+// window when dragged and maximizes it when double-clicked, wherever there is
+// no control of ours under the pointer (see mouse_button_callback).
 
 // Room left between the first row and the buttons, in pixels.
 @(private = "file")
 TITLEBAR_GAP :: 8
 
-// The window procedure GLFW installed, which ours hands on to.
+// The window procedure that GLFW installed, which ours passes messages on to.
 @(private = "file")
 glfw_proc: win.WNDPROC
 
-// When the last press on the strip was, to tell a double click.
+// When the last press on the strip happened, to tell a double click.
 @(private = "file")
 last_press: win.DWORD
 
@@ -63,7 +60,7 @@ title_proc :: proc "system" (
 		if wparam == 0 {
 			break
 		}
-		// The client area is the whole window. Maximized, the window
+		// The client area is the whole window. When maximized, the window
 		// overhangs the screen by the frame, which stays off it.
 		if win.IsZoomed(hwnd) {
 			params := cast(^win.NCCALCSIZE_PARAMS)uintptr(lparam)
@@ -79,8 +76,8 @@ title_proc :: proc "system" (
 		if hit != win.HTCLIENT || win.IsZoomed(hwnd) {
 			return hit
 		}
-		// With no frame left outside the client area, the sizing
-		// borders are the outer edge of it.
+		// With no frame left outside the client area, the sizing borders are
+		// the outer edge of it.
 		rect: win.RECT
 		win.GetWindowRect(hwnd, &rect)
 		x := i32(i16(lparam & 0xFFFF))
@@ -113,10 +110,10 @@ title_proc :: proc "system" (
 	return win.CallWindowProcW(glfw_proc, hwnd, msg, wparam, lparam)
 }
 
-// titlebar_merge lets the UI take the title bar's place, or gives it
-// back. Called once each window has its rendering set up (hiding to the
-// tray takes the window down, and the one that comes back is a new one),
-// and when the setting changes.
+// titlebar_merge lets the UI take the title bar's place, or gives it back.
+// Called once each window has its rendering set up (hiding to the tray takes
+// the window down, and the one that comes back is a new one), and when the
+// setting changes.
 titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	hwnd := win.HWND(glfw.GetWin32Window(window))
 	if hwnd == nil || merged == is_merged(hwnd) {
@@ -152,19 +149,17 @@ our_proc :: proc() -> win.LONG_PTR {
 	return win.LONG_PTR(uintptr(rawptr(title_proc)))
 }
 
-// is_merged reports whether the window has our window procedure, which
-// does the merging.
+// is_merged reports whether the window has our window procedure, which does
+// the merging.
 @(private = "file")
 is_merged :: proc(hwnd: win.HWND) -> bool {
 	return win.GetWindowLongPtrW(hwnd, win.GWLP_WNDPROC) == our_proc()
 }
 
-/*
-titlebar_area is the strip along the top that the title bar would have
-taken, in window coordinates: how far in from the left and from the right
-the window's own buttons reach (only the right here), and how tall the
-strip is. Zero in fullscreen, where there's no title bar.
-*/
+// titlebar_area is the strip along the top that the title bar would have
+// taken, in window coordinates: how far in from the left and from the right
+// the window's own buttons reach (only the right here), and how tall the strip
+// is. It is zero in fullscreen, where there is no title bar.
 titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	hwnd := win.HWND(glfw.GetWin32Window(ui.window))
 	if hwnd == nil || !is_merged(hwnd) {
@@ -179,11 +174,9 @@ titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	return
 }
 
-/*
-titlebar_buttons draws the window's buttons in the top right corner of
-the window, `w` wide, in the strip titlebar_area made room for, and does
-what they say when pressed.
-*/
+// titlebar_buttons draws the window's buttons in the top right corner of the
+// window, `w` wide, in the strip that titlebar_area made room for, and does
+// what they say when pressed.
 titlebar_buttons :: proc(ui: ^UI, w: i32) {
 	if ui.titlebar_right == 0 {
 		return
@@ -200,12 +193,10 @@ titlebar_buttons :: proc(ui: ^UI, w: i32) {
 	}
 }
 
-/*
-titlebar_press does what a title bar does with the press being handled:
-move the window along with the pointer, or maximize or restore it on a
-double click. Called from the mouse button callback; the drag runs until
-the button is let go.
-*/
+// titlebar_press does what a title bar does with the press being handled:
+// move the window along with the pointer, or maximize or restore it on a
+// double click. Called from the mouse button callback. The drag runs until the
+// button is released.
 titlebar_press :: proc(window: glfw.WindowHandle) {
 	hwnd := win.HWND(glfw.GetWin32Window(window))
 	if hwnd == nil {
@@ -229,7 +220,7 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 	)
 }
 
-// The frame stays the system's, sizing borders and all (title_proc).
+// The frame stays the system's, sizing borders and all (see title_proc).
 titlebar_init :: proc(merged: bool) {}
 
 titlebar_window_hints :: proc(merged: bool) {}

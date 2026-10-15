@@ -12,46 +12,45 @@ import "client:conn"
 import "common:proto"
 import "common:webp"
 
-/*
-Turning a pasted image (RGBA, see clipboard) into something worth
-sending: scaled to at most 4K on its longest side, and WebP compressed
-to fit a size budget. A screenshot comes out at well under half the size
-JPEG needs for the same quality, so most fit at full size. (Profile and
-server pictures are still JPEGs, which the server checks they are; see
-avatar_prepare.)
+// Turning a pasted image (RGBA, see clipboard) into something worth sending:
+// it is scaled to at most 4K on its longest side and compressed with WebP to
+// fit a size budget. A screenshot comes out at well under half the size that
+// JPEG needs for the same quality, so most fit at full size. (Profile and
+// server pictures are still JPEGs, which the server checks for; see
+// avatar_prepare.)
+//
+// Transparent parts are put on white, the way a screenshot of a web page would
+// look, so dark text on a transparent background stays readable on a dark
+// theme.
+//
+// Quality is lowered before the image is made smaller, because a slightly
+// softer screenshot is more readable than a sharp half-size one. Only when the
+// low quality still doesn't fit is the image shrunk, and then by how much the
+// last attempt missed the budget, rather than in fixed steps, so as little
+// resolution as possible is given up.
+//
+// A screenshot usually fits on the first try. The later rounds are for photos
+// and noisy images, which compress far worse.
 
-Transparent parts are put on white, the way a screenshot of a page would
-look, so dark text on nothing stays readable on a dark theme.
-
-Quality is lowered before the image is made smaller: a slightly softer
-screenshot is more readable than a sharp half-size one. Only when the
-low quality still doesn't fit does it shrink, and then by how much the
-last attempt missed the budget by, rather than in fixed steps, so as
-little resolution as possible is given up.
-
-A screenshot usually fits on the first try; the rounds after it are for
-photos and noisy images, which compress far worse.
-*/
-
-// The longest side an image keeps; bigger images are scaled down.
+// The longest side an image keeps. Bigger images are scaled down.
 MAX_IMAGE_SIDE :: 3840
-// What a pasted image may take up, compressed: a screenshot uploads in
-// a moment, and its preview is fetched as quickly.
+// The maximum compressed size of a pasted image. At this size a screenshot
+// uploads quickly and its preview loads quickly too.
 MAX_IMAGE_BYTES :: 256 * 1024
-// WebP quality for the first try, for the second (same size), and for
-// the tries after that (which shrink the image instead). 80 is a little
-// sharper than the JPEG at 85 this used to make, at half the size.
+// WebP quality for the first try, for the second try (same size) and for the
+// later tries (which shrink the image instead). 80 is a little sharper than
+// the JPEG at 85 that was used before, at half the size.
 QUALITY_FIRST :: 80
 QUALITY_SECOND :: 60
 QUALITY_SCALED :: 70
-// libwebp's trade of speed for size, 0 to 6: 2 compresses twice as fast
-// as its default of 4, for files about 4% bigger.
+// libwebp's trade-off between speed and size, from 0 to 6. 2 compresses twice
+// as fast as the default of 4, at the cost of files that are about 4% bigger.
 WEBP_METHOD :: 2
-// How often to shrink and try again before giving up.
+// The maximum number of times to shrink the image and try again before giving up.
 MAX_SCALE_ROUNDS :: 4
 
 
-// image_prepare scales and compresses a pasted image, to attach.
+// image_prepare scales and compresses a pasted image so it can be attached.
 image_prepare :: proc(
 	src: clipboard.Image,
 	allocator := context.allocator,
@@ -62,9 +61,9 @@ image_prepare :: proc(
 	if src.width <= 0 || src.height <= 0 || len(src.pixels) < src.width * src.height * 4 {
 		return {}, false
 	}
-	// On white (see above). These buffers are large (24 MB for a 4K
-	// image), so they aren't left for the temporary allocator to hold on
-	// to.
+	// Flatten onto white (see above). These buffers are large (24 MB for a 4K
+	// image), so they are freed explicitly instead of being left to the
+	// temporary allocator.
 	rgb := make([]u8, src.width * src.height * 3)
 	defer delete(rgb)
 	flatten(src, rgb)
@@ -117,17 +116,17 @@ image_prepare :: proc(
 		delete(data, allocator)
 
 		if round == 0 {
-			quality = QUALITY_SECOND // same size, cheaper bits first
+			quality = QUALITY_SECOND // same size, lower quality first
 			continue
 		}
 		if w <= 64 || h <= 64 || round > MAX_SCALE_ROUNDS {
-			// It should never come to this: even a 64x64 picture is tiny.
+			// It should never come to this, because even a 64x64 picture is tiny.
 			log.error("could not compress the image small enough")
 			return {}, false
 		}
-		// A picture's size roughly follows its pixel count, so scale by the
-		// square root of how far over budget it was, and a little more so
-		// the next try lands inside rather than just on the line.
+		// A picture's size roughly follows its pixel count, so scale by the square
+		// root of how far over budget it was. The factor is slightly smaller than that
+		// so the next try lands inside the budget instead of just on the limit.
 		quality = QUALITY_SCALED
 		factor := clamp(0.95 * math.sqrt(f64(MAX_IMAGE_BYTES) / f64(over)), 0.25, 0.9)
 		w, h = max(int(f64(w) * factor), 1), max(int(f64(h) * factor), 1)
@@ -136,7 +135,7 @@ image_prepare :: proc(
 }
 
 
-// fit shrinks (never grows) width and height to fit a square of `side`.
+// fit shrinks width and height (never grows them) to fit in a square of `side`.
 fit :: proc(width, height, side: int) -> (w, h: int) {
 	if width <= side && height <= side {
 		return width, height
@@ -147,7 +146,7 @@ fit :: proc(width, height, side: int) -> (w, h: int) {
 	return max(width * side / height, 1), side
 }
 
-// flatten drops the alpha channel, putting the image on white.
+// flatten drops the alpha channel by compositing the image onto white.
 @(private = "file")
 flatten :: proc(src: clipboard.Image, rgb: []u8) {
 	for i in 0 ..< src.width * src.height {
@@ -194,13 +193,11 @@ encode_jpeg :: proc(
 	return writer.buf[:], true
 }
 
-/*
-avatar_prepare makes a profile picture of an image: the largest square
-from its centre, scaled down to at most `max_side`, and compressed to
-fit `max_size` (quality is lowered till it does; a picture that small
-always does at some quality). A server's picture is made the same way,
-smaller (proto.MAX_SERVER_ICON_SIDE).
-*/
+// avatar_prepare makes a profile picture from an image: the largest centered
+// square, scaled down to at most `max_side` and compressed to fit `max_size`.
+// The quality is lowered until it fits (a picture that small always fits at
+// some quality). A server's picture is made the same way but smaller
+// (see proto.MAX_SERVER_ICON_SIDE).
 avatar_prepare :: proc(
 	src: clipboard.Image,
 	allocator := context.allocator,
@@ -263,8 +260,8 @@ avatar_prepare :: proc(
 	return {}, false
 }
 
-// avatar_load makes a profile picture of an image file, as
-// avatar_prepare does.
+// avatar_load makes a profile picture from an image file, in the same way as
+// avatar_prepare.
 avatar_load :: proc(
 	path: string,
 	allocator := context.allocator,

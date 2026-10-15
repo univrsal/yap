@@ -14,39 +14,37 @@ import "client:render"
 import glfw "client:wglfw"
 import "common:proto"
 
-/*
-The right-hand side of the session screen: the channel's text chat, or
-the log (opened from the header, ui.odin), or while watching somebody's
-screen, that and the chat as tabs.
-*/
+// The right-hand side of the session screen: the channel's text chat, or
+// the log (opened from the header, see ui.odin) or, while watching somebody's
+// screen, that screen and the chat as tabs.
 
 Side_Tab :: enum {
 	Chat,
 	Log,
-	Screen, // while watching somebody's (ui_video.odin)
+	Screen, // while watching somebody's screen (see ui_video.odin)
 }
 
 UI_Chat :: struct {
 	tab:          Side_Tab,
 	buf:          [proto.MAX_CHAT_SIZE]u8,
 	len:          int,
-	area:         Text_Area, // the box it's written in
+	area:         Text_Area, // the box it is written in
 
 	// The link under the mouse (as its first byte's address), found while
-	// drawing a frame and used for the next, since a link wrapped over
+	// drawing a frame and used for the next one, because a link that wraps over
 	// several lines is drawn in pieces. 0 if none.
 	hover:        uintptr,
-	hovering:     bool, // this frame; the cursor becomes a hand
-	open:         string, // clicked link to open after the frame; owned
-	// Ctrl+V was pressed in a composer (ui.paste_to): after the frame,
-	// the paste thread looks for an image on the clipboard, to attach,
-	// else its text is pasted (see ui_paste.odin).
+	hovering:     bool, // set in this frame; the cursor becomes a hand
+	open:         string, // the clicked link to open after the frame; owned
+	// Ctrl+V was pressed in a composer (see ui.paste_to). After the frame,
+	// the paste thread looks for an image on the clipboard to attach. If there is
+	// none, the clipboard's text is pasted instead (see ui_paste.odin).
 	paste:        bool,
-	// The message of ours being edited in the chat box, 0 for none, and
-	// its conversation (ui_message_menu.odin).
+	// The message of ours that is being edited in the chat box (0 for none),
+	// and its conversation (see ui_message_menu.odin).
 	editing:      proto.Msg_Id,
 	editing_conv: proto.Conv_Id,
-	// Files to go with the next message (ui_attachments.odin).
+	// Files to go with the next message (see ui_attachments.odin).
 	files:        [dynamic]Picked_File,
 }
 
@@ -54,14 +52,14 @@ ui_chat_init :: proc(ui: ^UI) {
 	chat_load_timezone(ui)
 }
 
-// ui_chat_destroy frees what the chat keeps that isn't one server's;
-// that is server_ui_destroy's (ui_servers.odin).
+// ui_chat_destroy frees what the chat keeps that doesn't belong to one server.
+// What does belong to a server is freed by server_ui_destroy (see ui_servers.odin).
 ui_chat_destroy :: proc(ui: ^UI) {
 	chat_unload_timezone(ui)
 }
 
 // ui_chat_after_frame acts on what the frame's layout found: the mouse
-// cursor over links, and a clicked link (opened outside the View lock).
+// cursor over links, and a clicked link (which is opened outside the View lock).
 ui_chat_after_frame :: proc(ui: ^UI) {
 	if !ui.chat.hovering {
 		ui.chat.hover = 0
@@ -92,8 +90,8 @@ ui_chat_after_frame :: proc(ui: ^UI) {
 	file_pick_poll(ui)
 	avatar_pick_poll(ui)
 
-	// What's read, for the network; what's unread, every server's, is
-	// counted for the window's title and the tray (servers_frame).
+	// What is read, for the network. What is unread, across all servers, is
+	// counted for the window's title and the tray (see servers_frame).
 	focused := ui.window != nil && !ui.hidden && (ALWAYS_FOCUSED || glfw.WindowFocused(ui.window))
 	timeline_reading(ui, focused)
 }
@@ -112,8 +110,8 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	if ui.chat.tab == .Chat {
 		v.unread = 0
 	}
-	// Tabs only while there's a screen to watch beside the chat; the
-	// status line has the row to itself otherwise.
+	// Show tabs only while there is a screen to watch beside the chat. Otherwise
+	// the status line has the row to itself.
 	if screen_docked(ui) {
 		mu.layout_row(ctx, {90, 90, -1})
 		chat_label := "Chat" if v.unread == 0 else fmt.tprintf("Chat (%d)", v.unread)
@@ -147,14 +145,14 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	switch ui.chat.tab {
 	case .Chat:
 		// In a narrow window an open thread takes the conversation's
-		// place (ui_threads.odin).
+		// place (see ui_threads.odin).
 		if narrow {
 			if slot := narrow_thread(ui); slot != 0 {
 				thread_panel(ui, slot, true)
 				break
 			}
 		}
-		// Leave room for the input row below, and the files above it.
+		// Leave room for the input row below, and for the files above it.
 		input_h := composer_height(ui, composer_of(ui, 0))
 		width := panel_width(ctx)
 		files_h := composer_files_height(ui, composer_of(ui, 0), width)
@@ -175,19 +173,17 @@ panel_width :: proc(ctx: ^mu.Context) -> i32 {
 	return mu.get_current_container(ctx).body.w - 2 * ctx.style.padding
 }
 
-// composer_height is how tall the box a composer's message is written in
-// is: a line or more of the chat's text (ui_text_area.odin).
+// composer_height is how tall the box that a composer's message is written in
+// is: a line or more of the chat's text (see ui_text_area.odin).
 composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
 	return text_area_height(&ui.ctx, render.CHAT_FONT, string(c.buf[:c.len^]), c.area)
 }
 
-/*
-composer_row lays out the row a composer's box is in, `height` tall,
-with `buttons` icon buttons beside it: the box, then a column for the
-buttons, which stay a line's height at the foot of the box however tall
-it grows. Lay the box out, then the buttons, then end the column with
-mu.layout_end_column.
-*/
+// composer_row lays out the row that a composer's box is in, `height` tall,
+// with `buttons` icon buttons beside it: the box, then a column for the
+// buttons, which stay one line high at the foot of the box however tall
+// it grows. Lay out the box, then the buttons, then end the column with
+// mu.layout_end_column.
 composer_row :: proc(ui: ^UI, height: i32, buttons: int) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-(i32(buttons) * (ICON_BUTTON + 4) + 2), -1}, height)
@@ -210,12 +206,10 @@ composer_buttons :: proc(ui: ^UI, height: i32, buttons: int) {
 	mu.layout_row(ctx, widths[:buttons], single)
 }
 
-/*
-composer_box lays out the box a composer's message is written in: its
-text area, or with the preview on (preview_button), the message as it
-will look. It has the composer take the focus when it's to (which ends
-the preview), and says what the text area did and the box's id.
-*/
+// composer_box lays out the box that a composer's message is written in: its
+// text area or, with the preview on (see preview_button), the message as it
+// will look. It gives the composer the focus when it should have it (which ends
+// the preview), and returns what the text area did and the box's id.
 composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id) {
 	ctx := &ui.ctx
 	box = mu.get_id(ctx, uintptr(&c.buf[0]))
@@ -233,7 +227,7 @@ composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id) {
 }
 
 // preview_button is the eye beside a composer's box, which shows the
-// message as it will look in its place, and back (D8).
+// message as it will look in the box's place, and switches back (D8).
 preview_button :: proc(ui: ^UI, c: Composer) {
 	if .SUBMIT in
 	   icon_button(ui, "preview", .Eye, "Back to writing" if c.area.preview else "Preview") {
@@ -244,12 +238,10 @@ preview_button :: proc(ui: ^UI, c: Composer) {
 	}
 }
 
-/*
-chat_preview shows what's in a composer as it will look sent, in its
-box's place: what's typed made into what's stored (mentions, emoji), and
-shown as the timeline shows it, in a panel that scrolls. Call with the
-View locked.
-*/
+// chat_preview shows what is in a composer as it will look when sent, in the
+// box's place: what is typed is turned into what is stored (mentions, emoji)
+// and shown as the timeline shows it, in a panel that scrolls. Call with the
+// View locked.
 @(private = "file")
 chat_preview :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
@@ -272,8 +264,8 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 		)
 	}
 	// Inset as the text area's text is: its padding at the sides, but only
-	// what's left of a line in a single line's box above and below. With
-	// the panel's whole padding all round, the box the text area was
+	// what is left of a line in a single line's box above and below. With
+	// the panel's whole padding all around, the box that the text area was
 	// sized to wouldn't hold it, and the preview would scroll.
 	padding := ctx.style.padding
 	lh := ctx.text_height(ctx.style.font)
@@ -294,7 +286,7 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	rich_text(ui, &text, color, 0)
 }
 
-// chat_text_area is text_area in the chat's font: the box a composer's
+// chat_text_area is text_area in the chat's font: the box that a composer's
 // message is written in.
 chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 	ctx := &ui.ctx
@@ -304,13 +296,13 @@ chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 	return text_area(ui, c.buf, c.len, c.area)
 }
 
-// tab_button is a stable_button drawn pressed while its tab is shown.
+// tab_button is a stable_button that is drawn pressed while its tab is shown.
 tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu.Result_Set {
 	if !active {
 		return stable_button(ctx, id_name, label)
 	}
-	// Lighter, and its label bold and in the colour of a header button
-	// that's open, so which tab is shown reads at a glance.
+	// Lighter, and with its label bold and in the color of an open header
+	// button, so that the shown tab can be recognized at a glance.
 	saved, saved_text := ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT]
 	saved_font := ctx.style.font
 	ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
@@ -346,17 +338,17 @@ chat_input :: proc(ui: ^UI) {
 	if !send {
 		return
 	}
-	// Enter takes the focus away from the box; keep typing instead.
+	// Enter takes the focus away from the box, so keep typing instead.
 	mu.set_focus(ctx, box)
 	composer_send(ui, composer)
 }
 
-// How long a notice (conn.notify) shows in the line over a conversation.
+// How long a notice (see conn.notify) shows in the line over a conversation.
 @(private = "file")
 NOTICE_SHOW :: 5 * time.Second
 
 // fresh_notice is the notice the network side gave last, if it was
-// lately. Call with the View locked.
+// recent. Call with the View locked.
 fresh_notice :: proc(v: ^conn.View) -> (text: string, ok: bool, fresh: bool) {
 	if v.notice.text == "" || v.notice.at == {} || time.tick_since(v.notice.at) > NOTICE_SHOW {
 		return
@@ -364,8 +356,8 @@ fresh_notice :: proc(v: ^conn.View) -> (text: string, ok: bool, fresh: bool) {
 	return v.notice.text, v.notice.ok, true
 }
 
-// notice_until is when the notice the network side gave last comes
-// down; zero if it isn't up. Call with the View locked.
+// notice_until is when the notice that the network side gave last
+// disappears, or zero if it isn't showing. Call with the View locked.
 notice_until :: proc(v: ^conn.View) -> time.Tick {
 	if _, _, fresh := fresh_notice(v); !fresh {
 		return {}
@@ -374,7 +366,7 @@ notice_until :: proc(v: ^conn.View) -> time.Tick {
 }
 
 // typing_text says who is typing in the conversation we're looking at
-// (or with `root`, in that thread of it), or "". For the conversation,
+// (or, with `root`, in that thread of it), or returns "". For the conversation,
 // with nobody typing in it, it says who is typing in its threads.
 typing_text :: proc(v: ^conn.View, root: proto.Msg_Id = 0) -> string {
 	names := make([dynamic]string, context.temp_allocator)
@@ -406,9 +398,9 @@ typing_text :: proc(v: ^conn.View, root: proto.Msg_Id = 0) -> string {
 	}
 }
 
-// chat_time formats a message's time in the local zone: the time of day
-// for today's messages, with the date for older ones. The buddy screen
-// uses it too, for when someone was last here.
+// chat_time formats a message's time in the local time zone: the time of day
+// for today's messages, and the date as well for older ones. The buddy screen
+// uses it too, for when someone was last online.
 chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 	local :: proc(ui: ^UI, t: time.Time) -> datetime.DateTime {
 		dt, _ := time.time_to_datetime(t)
@@ -422,25 +414,25 @@ chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 	return fmt.tprintf("%d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute)
 }
 
-// chat_same_minute says whether two messages read as part of the same
+// chat_same_minute says whether two messages are shown as part of the same
 // block: close enough in time that showing both their headers would
 // just repeat the same sender and (usually) the same minute.
 chat_same_minute :: proc(a, b: proto.Unix_Time) -> bool {
 	return a / 60 == b / 60
 }
 
-// How much closer together a merged message sits, against the usual gap
+// How much closer together a merged message sits, compared with the usual gap
 // between two separate ones (ctx.style.spacing).
 MERGED_GAP :: 1
 
 // chat_block_height is how far chat_message or file_message moves the
-// layout down, `body` being the height of what's under the header (the
-// text's lines). The timeline works out where messages
-// are with it, without laying them out; it has to agree with those two.
+// layout down, `body` being the height of what is under the header (the
+// text's lines). The timeline uses it to work out where messages
+// are without laying them out, so it has to agree with those two.
 chat_block_height :: proc(ctx: ^mu.Context, merged: bool, body: i32, tight := false) -> i32 {
 	line := ctx.text_height(ctx.style.font)
 	h := (MERGED_GAP if merged || tight else ctx.style.spacing) + (0 if merged else line) + body
-	// The one-pixel row the block's column starts on, and its spacing.
+	// The one-pixel row that the block's column starts on, and its spacing.
 	return max(h, 1 + ctx.style.spacing)
 }
 
@@ -457,13 +449,11 @@ wrapped_lines :: proc(ctx: ^mu.Context, text: string, width: i32) -> (n: i32) {
 	return
 }
 
-/*
-file_message draws a file offer in a conversation: the header, the file's
-name and size, how it's going (with a bar while it's under way, and room
-for one otherwise), and the buttons that fit: Accept and Decline for one
-offered to us, Cancel while it isn't over. file_block_height has to agree
-with it.
-*/
+// file_message draws a file offer in a conversation: the header, the file's
+// name and size, how it is going (with a bar while it is under way, and room
+// for one otherwise), and the buttons that fit: Accept and Decline for a file
+// offered to us, and Cancel while the transfer isn't over. file_block_height has
+// to agree with it.
 file_message :: proc(
 	ui: ^UI,
 	header: string,
@@ -471,7 +461,7 @@ file_message :: proc(
 	id: proto.Msg_Id,
 	f: conn.View_File,
 	merged: bool,
-	item: i64, // the header's; the file's name and state are the next two
+	item: i64, // the header's. The file's name and state are the next two
 	tight := false, // as in chat_message
 ) {
 	ctx := &ui.ctx
@@ -492,7 +482,7 @@ file_message :: proc(
 	}
 	wrapped_text(ui, file_title(f), ctx.style.colors[.TEXT], item + 1)
 
-	// The bar, below the name, while it's under way; its room either way.
+	// The bar, below the name, while it is under way. Its room is reserved either way.
 	mu.layout_row(ctx, {-1}, FILE_BAR_GAP)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, {-1}, FILE_BAR)
@@ -590,7 +580,7 @@ file_block_height :: proc(
 	return chat_block_height(ctx, merged, body, tight)
 }
 
-// file_status says how a transfer is going, and in what colour.
+// file_status says how a transfer is going, and in what color.
 @(private = "file")
 file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 	switch f.state {
@@ -643,10 +633,10 @@ file_status :: proc(f: conn.View_File) -> (string, mu.Color) {
 }
 
 // chat_message draws the gap before this message, a header line unless
-// `merged` (in which case it's part of the previous message's block and
-// sits right under it instead), and the text under it (ui_rich_text.odin),
+// `merged` (in which case it is part of the previous message's block and
+// sits right under it instead), and the text under it (see ui_rich_text.odin),
 // with the lines packed tightly. `tight` is a header with the gap of a
-// merged one: under a reply's line.
+// merged one, used under a reply's line.
 chat_message :: proc(
 	ui: ^UI,
 	header: string,
@@ -654,14 +644,14 @@ chat_message :: proc(
 	text: ^Rich,
 	color: mu.Color,
 	merged: bool,
-	item: i64, // the header's; the text is the next one
+	item: i64, // the header's. The text is the next one
 	tight := false,
 ) {
 	ctx := &ui.ctx
 	font := ctx.style.font
 	// 1, not 0: a height of 0 tells layout_row to fall back to the
 	// default control size, which (plus the parent's own row spacing)
-	// would set a floor under how short this block can be - taller than
+	// would set a lower limit on how short this block can be, taller than
 	// a merged one-liner is supposed to end up.
 	mu.layout_row(ctx, {-1}, 1)
 	mu.layout_begin_column(ctx)
@@ -698,7 +688,7 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 		x := r.x + ctx.text_width(font, header[:lo])
 		hit := mu.Rect{x, r.y, ctx.text_width(font, header[lo:hi]), r.h}
 		if mu.mouse_over(ctx, hit) {
-			ui.chat.hovering = true // a hand, as over a link
+			ui.chat.hovering = true // show a hand, as over a link
 			if clicked_not_dragged(ui) {
 				open_user_menu(ui, 0, ui.header_sender)
 			}
@@ -706,9 +696,9 @@ selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 	}
 }
 
-// clicked_not_dragged is whether the left button was released in this
+// clicked_not_dragged returns whether the left button was released in this
 // panel's text without a press that selected something, as for a link
-// (ui_rich_text.odin).
+// (see ui_rich_text.odin).
 clicked_not_dragged :: proc(ui: ^UI) -> bool {
 	return(
 		.LEFT in ui.ctx.mouse_released_bits &&
@@ -718,11 +708,11 @@ clicked_not_dragged :: proc(ui: ^UI) -> bool {
 	)
 }
 
-// wrapped_text is mu.text, except it also breaks words too long for a
+// wrapped_text is mu.text, except that it also breaks words that are too long for a
 // line, wraps the last word of a paragraph (which mu.text doesn't) and
 // breaks lines at newlines. It continues the current row layout. The
-// text can be selected as `item`. For plain text (a file's name); a
-// message's is rich_text.
+// text can be selected as `item`. It is meant for plain text (a file's name).
+// A message's text uses rich_text instead.
 @(private = "file")
 wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, item: i64) {
 	ctx := &ui.ctx
@@ -741,22 +731,22 @@ wrapped_text :: proc(ui: ^UI, text: string, color: mu.Color, item: i64) {
 
 // custom_emoji_size is how big one of the server's emoji is drawn and
 // how much room it has, in the current font: bigger in the chat when
-// its text is (render.CHAT_FONT).
+// its text is (see render.CHAT_FONT).
 custom_emoji_size :: proc(ctx: ^mu.Context) -> (size, advance: i32) {
 	zoom := f32(ctx.text_height(ctx.style.font)) / render.LINE_HEIGHT
 	return i32(render.CUSTOM_EMOJI_SIZE * zoom), i32(render.CUSTOM_EMOJI_ADVANCE * zoom)
 }
 
-// wrap_line is the first line of `text` wrapped at `width`, as the chat
+// wrap_line returns the first line of `text` wrapped at `width`, as the chat
 // wraps it: text[:end] is drawn, and the next line starts at `next`
-// (past the newline or the spaces it broke at).
+// (after the newline or the spaces it broke at).
 wrap_line :: proc(ctx: ^mu.Context, font: mu.Font, text: string, width: i32) -> (end, next: int) {
 	end = line_end(ctx, font, text, width)
 	return end, len(text) - len(next_line(text, end))
 }
 
 // line_end is how much of `text` fits in `width`: up to the first
-// newline if that fits, else up to the last space that fits, or as many
+// newline if that fits, otherwise up to the last space that fits, or as many
 // characters as fit if the first word doesn't (but always at least one
 // character, unless the line is empty).
 @(private = "file")
@@ -781,8 +771,8 @@ line_end :: proc(ctx: ^mu.Context, font: mu.Font, text: string, width: i32) -> i
 	return len(text)
 }
 
-// next_line is what's left of `text` after a line of it that ended at
-// `end` (line_end): past the newline that ended it, or past the spaces it
+// next_line is what is left of `text` after a line of it that ended at
+// `end` (see line_end): after the newline that ended it, or after the spaces it
 // was wrapped at (and a newline right after them, which the wrap has
 // already broken the line for). The next line's indentation stays.
 @(private = "file")

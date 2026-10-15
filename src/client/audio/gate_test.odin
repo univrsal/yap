@@ -28,7 +28,8 @@ test_gate_hysteresis :: proc(t: ^testing.T) {
 	testing.expect(t, !gate_update(&g, -70, step(&now, 200)))
 	testing.expect(t, !gate_update(&g, -45, step(&now, 20))) // between again: stays closed
 
-	// Disabled: everything is sent, but the state is still tracked for the meter.
+	// Disabled: everything is sent, but the state is still tracked for the
+	// meter.
 	g.enabled = false
 	testing.expect(t, gate_update(&g, -70, step(&now, 20)))
 	testing.expect(t, !g.open)

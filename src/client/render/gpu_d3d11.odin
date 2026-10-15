@@ -8,16 +8,14 @@ import "vendor:directx/d3d11"
 import "vendor:directx/dxgi"
 import mu "vendor:microui"
 
-/*
-The renderer's Direct3D 11 backend, for Windows. It does what the OpenGL
-one does (gpu_gl.odin), but costs far less: an OpenGL context brings
-the whole of the graphics driver's OpenGL implementation into the
-process, about 100 MB of it with AMD's, where Direct3D is part of
-Windows and costs a tenth of that.
-
-The device, like an OpenGL context, is made for one window and goes with
-it (see window_open).
-*/
+// The renderer's Direct3D 11 backend, used on Windows. It does the same as
+// the OpenGL backend (gpu_gl.odin) but uses much less memory. An OpenGL
+// context loads the graphics driver's whole OpenGL implementation into the
+// process, which is about 100 MB with AMD's driver, whereas Direct3D is part
+// of Windows and costs about a tenth of that.
+//
+// Like an OpenGL context, the device is created for one window and is
+// destroyed together with it (see window_open).
 
 Gpu :: struct {
 	device:        ^d3d11.IDevice,
@@ -47,17 +45,16 @@ D3D_Texture :: struct {
 	borrowed: bool, // somebody else's view (gpu_texture_wrap); not ours to release
 }
 
-// The vertex shader's constant buffer, padded to the 16 bytes one takes.
+// The vertex shader's constant buffer, padded to a multiple of 16 bytes.
 @(private = "file")
 Constants :: struct {
 	screen: [2]f32,
 	_:      [2]f32,
 }
 
-/*
-The same shaders as the OpenGL backend's, in HLSL. The two kinds of
-texture get a pixel shader each instead of a uniform to tell them apart.
-*/
+// The same shaders as in the OpenGL backend, written in HLSL. The two kinds of
+// texture each get their own pixel shader instead of a uniform to tell them
+// apart.
 @(private = "file")
 SHADERS :: `cbuffer Constants : register(b0) {
 	float2 u_screen;
@@ -81,19 +78,19 @@ Pixel vs(Vertex v) {
 }
 Texture2D u_atlas : register(t0);
 SamplerState u_sampler : register(s0);
-// The atlases keep coverage in their red channel.
+// The atlases store coverage in their red channel.
 float4 ps_alpha(Pixel p) : SV_Target {
 	return float4(p.color.rgb, p.color.a * u_atlas.Sample(u_sampler, p.uv).r);
 }
-// Chat images are ordinary colour textures.
+// Chat images are ordinary color textures.
 float4 ps_rgba(Pixel p) : SV_Target {
 	float4 t = u_atlas.Sample(u_sampler, p.uv);
 	return float4(t.rgb * p.color.rgb, t.a * p.color.a);
 }
 `
 
-// gpu_window_hints asks GLFW for a bare window: Direct3D brings its own
-// swap chain.
+// gpu_window_hints asks GLFW for a bare window, because Direct3D brings its
+// own swap chain.
 gpu_window_hints :: proc() {
 	glfw.WindowHint(glfw.CLIENT_API, glfw.NO_API)
 }
@@ -106,11 +103,10 @@ gpu_init :: proc(g: ^Gpu, window: glfw.WindowHandle) -> (ok: bool) {
 	}
 	g.interval = 1
 
-	/*
-	Direct3D 10's hardware (feature level 10_0) has everything this
-	needs. Without it (a virtual machine, say) Windows' own software
-	renderer, WARP, still does, and a UI this simple barely notices.
-	*/
+	// Direct3D 10 hardware (feature level 10_0) has everything this needs.
+	// Without it (in a virtual machine, for example) Windows' own software
+	// renderer, WARP, also does, and a UI this simple barely notices the
+	// difference.
 	levels := [?]d3d11.FEATURE_LEVEL{._11_0, ._10_1, ._10_0}
 	hr := d3d11.CreateDevice(
 		nil,
@@ -149,7 +145,7 @@ gpu_init :: proc(g: ^Gpu, window: glfw.WindowHandle) -> (ok: bool) {
 	return true
 }
 
-// make_swap_chain makes the window's swap chain, from the factory the
+// make_swap_chain creates the window's swap chain from the factory that the
 // device came from.
 @(private = "file")
 make_swap_chain :: proc(g: ^Gpu, hwnd: win32.HWND) -> bool {
@@ -177,8 +173,8 @@ make_swap_chain :: proc(g: ^Gpu, hwnd: win32.HWND) -> bool {
 		SampleDesc = {Count = 1},
 		BufferUsage = {.RENDER_TARGET_OUTPUT},
 		BufferCount = 2,
-		// While the window is being resized, and the back buffer isn't
-		// yet, the last frame stays where it was rather than stretching.
+		// While the window is being resized and the back buffer is not yet,
+		// the last frame stays where it was instead of being stretched.
 		Scaling = .NONE,
 		SwapEffect = .FLIP_DISCARD,
 	}
@@ -187,18 +183,18 @@ make_swap_chain :: proc(g: ^Gpu, hwnd: win32.HWND) -> bool {
 		log.errorf("gpu: no swap chain (0x%8x)", u32(hr))
 		return false
 	}
-	// Alt+Enter would have DXGI make the window exclusive fullscreen.
+	// Without this, Alt+Enter would make DXGI switch the window to exclusive
+	// fullscreen.
 	factory->MakeWindowAssociation(hwnd, {.NO_ALT_ENTER})
 	return true
 }
 
-/*
-make_pipeline compiles the shaders and sets up everything they draw
-with. The compiler is only loaded for as long as that takes: it's a few
-megabytes that nothing else wants, and every Windows since 8.1 has it.
-What it compiles comes back in blobs whose code is the compiler's, so it
-stays loaded until the last of them is released (defers run backwards).
-*/
+// make_pipeline compiles the shaders and sets up everything they draw with.
+// The compiler is only loaded for as long as that takes, because it takes a
+// few megabytes that nothing else needs, and every Windows version since 8.1
+// has it. The compiled results come back in blobs whose code belongs to the
+// compiler, so it stays loaded until the last of them is released (defers run
+// in reverse order).
 @(private = "file")
 make_pipeline :: proc(g: ^Gpu) -> bool {
 	compiler := win32.LoadLibraryW(win32.L("d3dcompiler_47.dll"))
@@ -302,8 +298,8 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 	}
 	check(g.device->CreateBuffer(&constants_desc, nil, &g.constants), "constant buffer") or_return
 
-	// Glyphs are drawn 1:1 with physical pixels, so no filtering is
-	// wanted; images are usually drawn smaller than they are.
+	// Glyphs are drawn 1:1 with physical pixels, so no filtering is wanted.
+	// Images are usually drawn smaller than their original size.
 	for filter, kind in ([Texture_Kind]d3d11.FILTER{.Alpha = .MIN_MAG_MIP_POINT, .Rgba = .MIN_MAG_MIP_LINEAR}) {
 		sampler_desc := d3d11.SAMPLER_DESC {
 			Filter         = filter,
@@ -343,7 +339,7 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 	return true
 }
 
-// D3DCompile, from d3dcompiler_47.dll.
+// The signature of D3DCompile from d3dcompiler_47.dll.
 @(private = "file")
 Compile :: #type proc "system" (
 	src: rawptr,
@@ -418,25 +414,26 @@ gpu_destroy :: proc(g: ^Gpu) {
 	g^ = {}
 }
 
-// gpu_lost is whether the device has gone and has to be set up again
-// (renderer_reset): the driver was updated or reset, or setting it up
-// again didn't work either.
+// gpu_lost returns whether the device has been lost and has to be set up
+// again (renderer_reset). This happens when the driver was updated or reset,
+// or when setting the device up again failed.
 gpu_lost :: proc(g: ^Gpu) -> bool {
 	return g.lost || g.device == nil
 }
 
-// gpu_swap_interval says how many display refreshes a present waits
-// for: 1 for vsync, 0 not to wait (see set_swap_pace).
+// gpu_swap_interval sets how many display refreshes a present waits for:
+// 1 for vsync, 0 to not wait (see set_swap_pace).
 gpu_swap_interval :: proc(g: ^Gpu, interval: i32) {
 	g.interval = u32(interval)
 }
 
-// gpu_begin starts a frame, cleared to `clear`, projecting view_w x
-// view_h logical pixels onto the fb_w x fb_h framebuffer. False when
-// there's nothing to draw into.
+// gpu_begin starts a frame cleared to `clear`, projecting view_w x view_h
+// logical pixels onto the fb_w x fb_h framebuffer. It returns false when
+// there is nothing to draw into.
 gpu_begin :: proc(g: ^Gpu, fb_w, fb_h: i32, view_w, view_h: f32, clear: mu.Color) -> bool {
 	g.drawn = false
-	// Minimized, the window has no size, and nor can a back buffer.
+	// A minimized window has no size, so it cannot have a back buffer
+	// either.
 	if gpu_lost(g) || fb_w <= 0 || fb_h <= 0 {
 		return false
 	}
@@ -477,11 +474,11 @@ gpu_begin :: proc(g: ^Gpu, fb_w, fb_h: i32, view_w, view_h: f32, clear: mu.Color
 	return true
 }
 
-// resize makes the back buffer fb_w x fb_h, which it has to be for
-// drawing to land 1:1 on the window's pixels.
+// resize makes the back buffer fb_w x fb_h, which is required for drawing to
+// land 1:1 on the window's pixels.
 @(private = "file")
 resize :: proc(g: ^Gpu, fb_w, fb_h: i32) -> bool {
-	// Nothing may hold on to the old back buffer while it's resized.
+	// Nothing may hold on to the old back buffer while it is resized.
 	g.ctx->OMSetRenderTargets(0, nil, nil)
 	release(&g.target)
 	if hr := g.swap_chain->ResizeBuffers(0, u32(fb_w), u32(fb_h), .UNKNOWN, {}); failed(hr) {
@@ -508,14 +505,14 @@ gpu_present :: proc(g: ^Gpu) {
 	if !g.drawn {
 		return
 	}
-	// Occluded (DXGI_STATUS_OCCLUDED) isn't a failure: the window is
-	// just out of sight.
+	// Occluded (DXGI_STATUS_OCCLUDED) is not a failure. It only means the
+	// window is out of sight.
 	if hr := g.swap_chain->Present(g.interval, {}); failed(hr) {
 		device_error(g, "presenting", hr)
 	}
 }
 
-// gpu_clip limits drawing to a rect of physical pixels, counted from
+// gpu_clip limits drawing to a rect of physical pixels, with the origin at
 // the top left.
 gpu_clip :: proc(g: ^Gpu, x, y, w, h: i32) {
 	rect := d3d11.RECT{x, y, x + w, y + h}
@@ -541,13 +538,12 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 	g.ctx->DrawIndexed(u32(len(vertices) / 4 * 6), 0, 0)
 }
 
-/*
-gpu_texture_make makes a width x height texture from `pixels` (one byte
-a pixel for .Alpha, four for .Rgba). A texture without pixels is none at
-all: only the page's video decoder fills one of those (conn/video_web.odin),
-and there's no page here (the desktop's video comes from gpu_texture_wrap). With `mipmaps`, an .Rgba one gets smaller
-copies of itself (see gpu_gl.odin).
-*/
+// gpu_texture_make creates a width x height texture from `pixels` (one byte
+// per pixel for .Alpha, four for .Rgba). A texture without pixels is not
+// supported here, because only the page's video decoder fills such textures
+// (conn/video_web.odin), and there is no page on the desktop (its video comes
+// from gpu_texture_wrap). With `mipmaps`, an .Rgba texture gets smaller copies
+// of itself (see gpu_gl.odin).
 gpu_texture_make :: proc(
 	g: ^Gpu,
 	kind: Texture_Kind,
@@ -576,8 +572,8 @@ gpu_texture_make :: proc(
 	initial := &data
 	generate := mipmaps && kind == .Rgba
 	if generate {
-		// The whole chain, made by the GPU from the first level, which
-		// is filled in once there's a texture to fill.
+		// The whole chain is generated by the GPU from the first level,
+		// which is filled in once there is a texture to fill.
 		desc.MipLevels = 0
 		desc.BindFlags += {.RENDER_TARGET}
 		desc.MiscFlags = {.GENERATE_MIPS}
@@ -603,8 +599,9 @@ gpu_texture_make :: proc(
 	return Gpu_Texture(uintptr(t))
 }
 
-// gpu_texture_update replaces all of an .Rgba texture without mipmaps,
-// `width` x `height`, with `pixels`: an animation's next frame.
+// gpu_texture_update replaces the whole contents of an .Rgba texture without
+// mipmaps with `pixels` (`width` x `height`), for example the next frame of
+// an animation.
 gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels: []u8) {
 	t := (^D3D_Texture)(tex)
 	if t == nil || len(pixels) < int(width) * int(height) * 4 {
@@ -613,8 +610,8 @@ gpu_texture_update :: proc(g: ^Gpu, tex: Gpu_Texture, width, height: i32, pixels
 	g.ctx->UpdateSubresource(t.texture, 0, nil, raw_data(pixels), u32(width) * 4, 0)
 }
 
-// gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture
-// that is `width` wide with `rows`.
+// gpu_texture_update_rows replaces rows y0 up to y1 of an .Alpha texture that
+// is `width` pixels wide with `rows`.
 gpu_texture_update_rows :: proc(g: ^Gpu, tex: Gpu_Texture, width, y0, y1: i32, rows: []u8) {
 	t := (^D3D_Texture)(tex)
 	if t == nil {
@@ -635,11 +632,9 @@ gpu_native :: proc(g: ^Gpu) -> Gpu_Native {
 	return {d3d11_device = g.device}
 }
 
-/*
-gpu_texture_wrap makes something drawable of a texture somebody else
-made on our device and keeps: `native` is its ID3D11ShaderResourceView.
-It stays theirs; gpu_texture_unwrap forgets it again.
-*/
+// gpu_texture_wrap makes a texture that somebody else created on our device
+// drawable. `native` is its ID3D11ShaderResourceView. The texture stays owned
+// by its creator, and gpu_texture_unwrap forgets it again.
 gpu_texture_wrap :: proc(g: ^Gpu, native: uintptr) -> Gpu_Texture {
 	if native == 0 {
 		return 0
@@ -657,7 +652,7 @@ gpu_texture_unwrap :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 	tex^ = 0
 }
 
-// gpu_texture_delete deletes `tex`, if there is one, and makes it 0.
+// gpu_texture_delete deletes `tex`, if there is one, and sets it to 0.
 gpu_texture_delete :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 	if t := (^D3D_Texture)(tex^); t != nil && t.borrowed {
 		gpu_texture_unwrap(g, tex)
@@ -670,8 +665,8 @@ gpu_texture_delete :: proc(g: ^Gpu, tex: ^Gpu_Texture) {
 	tex^ = 0
 }
 
-// device_error says what went wrong. Losing the device (the driver was
-// updated or reset) is only said once, and ui_frame sets it up again.
+// device_error logs what went wrong. Losing the device (because the driver
+// was updated or reset) is only logged once, and ui_frame sets it up again.
 @(private = "file")
 device_error :: proc(g: ^Gpu, doing: string, hr: win32.HRESULT) {
 	if hr == dxgi.ERROR_DEVICE_REMOVED || hr == dxgi.ERROR_DEVICE_RESET {
@@ -704,7 +699,7 @@ succeeded :: #force_inline proc "contextless" (hr: win32.HRESULT) -> bool {
 	return hr >= 0
 }
 
-// release releases a COM object, if there is one, and forgets it.
+// release releases a COM object, if there is one, and clears the pointer.
 @(private = "file")
 release :: proc(p: ^^$T) {
 	if p^ != nil {

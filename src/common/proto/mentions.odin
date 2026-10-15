@@ -4,38 +4,37 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 
-/*
-Mentions: a message's text names accounts with tokens,
-
-	<@17>         account 17
-	<@&5>         whoever has role 5, of the conversation's members
-	<@everyone>   every member of the conversation
-
-which survive an account changing what it's called, and which the
-server reads without knowing any names. Clients write them when a
-message is sent (`@username` as typed becomes the account's token) and
-show them as `@display name`. Anything else that looks a little like
-one is just text.
-
-The server records who a message mentions (and so who it counts as a
-mention for), as long as they may read it. `<@everyone>` needs the
-Mention_Everyone permission: from anyone else the server stores it as
-the plain text `@everyone`, so it reads the same and mentions nobody.
-A role's token is the same unless the role is Mentionable (roles.odin):
-it's stored as `@name`. A role's mention subscribes nobody to anything.
-*/
+// Mentions: a message's text refers to accounts with tokens,
+//
+// 	<@17>         account 17
+// 	<@&5>         everyone with role 5 among the conversation's members
+// 	<@everyone>   every member of the conversation
+//
+// These tokens stay valid when an account changes its name, and the server can
+// read them without knowing any names. Clients write them when a message is
+// sent (an `@username` that was typed becomes the account's token) and display
+// them as `@display name`. Anything else that merely resembles a token is just
+// text.
+//
+// The server records who a message mentions (and so for whom it counts as a
+// mention), as long as they may read it. `<@everyone>` requires the
+// Mention_Everyone permission. If anyone else uses it, the server stores it as
+// the plain text `@everyone`, which reads the same but mentions nobody. A
+// role's token is treated the same way unless the role is Mentionable
+// (roles.odin), in which case it is stored as `@name`. Mentioning a role
+// doesn't subscribe anybody to anything.
 
 MENTION_EVERYONE :: "everyone"
 
 Mention :: struct {
 	start, end: int, // the token's bytes in the text
 	account:    Account_Id, // 0 for everyone or a role
-	role:       Role_Id, // 0 unless it's a role's
+	role:       Role_Id, // 0 unless it's a role mention
 	everyone:   bool,
 }
 
-// next_mention finds the first token in text[from:]; ok is false if
-// there's none.
+// next_mention finds the first token in text[from:]. ok is false if there is
+// none.
 next_mention :: proc(text: string, from: int) -> (m: Mention, ok: bool) {
 	at := from
 	for at < len(text) {
@@ -78,8 +77,8 @@ all_digits :: proc(s: string) -> bool {
 	return true
 }
 
-// mention_token writes the token for an account (0: everyone), in the
-// temp allocator.
+// mention_token writes the token for an account (0 means everyone), allocated
+// with the temp allocator.
 mention_token :: proc(account: Account_Id) -> string {
 	if account == 0 {
 		return "<@" + MENTION_EVERYONE + ">"
@@ -91,7 +90,8 @@ mention_token :: proc(account: Account_Id) -> string {
 	)
 }
 
-// role_mention_token writes the token for a role, in the temp allocator.
+// role_mention_token writes the token for a role, allocated with the temp
+// allocator.
 role_mention_token :: proc(role: Role_Id) -> string {
 	buf := make([]u8, 16, context.temp_allocator)
 	return strings.concatenate(
@@ -100,8 +100,9 @@ role_mention_token :: proc(role: Role_Id) -> string {
 	)
 }
 
-// mentions_account is whether `text` mentions `account`: by its token,
-// one of its `roles`', or (if `everyone` counts) <@everyone>.
+// mentions_account reports whether `text` mentions `account`, either by its
+// token, by the token of one of its `roles`, or by <@everyone> (if `everyone`
+// counts).
 mentions_account :: proc(
 	text: string,
 	account: Account_Id,

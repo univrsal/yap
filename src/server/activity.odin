@@ -4,24 +4,24 @@ import "core:log"
 
 import "common:proto"
 
-/*
-Activity (src/common/proto/activity.odin): online, away, busy or
-offline, as everyone sees it, worked out from what the account chose
-(kept in the database, so it's the same on every device and after a
-restart) and whether its connections' users are idle:
+// Activity (src/common/proto/activity.odin): online, away, busy or
+// offline, as everyone sees it. It is derived from the activity the
+// account chose (stored in the database, so it is the same on every
+// device and after a restart) and whether the users of its connections
+// are idle:
+//
+//	no connection, or chose Offline   Offline
+//	chose Busy, or Away               the chosen activity
+//	chose Online                      Away if every connection is idle,
+//	                                  else Online
+//
+// The activity is part of the account's record, so a change is sent to
+// everyone as Account_Changed (see activity_check). An account that chose
+// to appear offline is also left out of the list of who is here for
+// everyone but itself, unless it is in a voice room they can see
+// (see sync_state).
 
-	no connection, or chose Offline   Offline
-	chose Busy, or Away               that
-	chose Online                      Away if every connection is idle,
-	                                  else Online
-
-It's in the account's record, so a change goes to everyone as
-Account_Changed (activity_check). An account that chose to appear
-offline is also left out of who is here for everyone but itself, while
-its voice isn't in a room they can see (sync_state).
-*/
-
-// activity_of is how everyone sees an account.
+// activity_of returns the activity everyone sees for an account.
 activity_of :: proc(acc: ^Account) -> proto.Activity {
 	if len(acc.conns) == 0 || acc.chosen == .Offline {
 		return .Offline
@@ -37,13 +37,15 @@ activity_of :: proc(acc: ^Account) -> proto.Activity {
 	return .Away
 }
 
-// appears_offline is whether an account is hidden from who is here.
+// appears_offline is whether an account is hidden from the list of who
+// is here.
 appears_offline :: proc(acc: ^Account) -> bool {
 	return acc.chosen == .Offline
 }
 
-// activity_check tells everyone when how an account is seen has changed:
-// after it comes or goes, chooses, or its users go idle or come back.
+// activity_check tells everyone when the activity shown for an account
+// has changed, for example after it connects or disconnects, chooses a
+// different activity or when its users go idle or come back.
 activity_check :: proc(s: ^Server, acc: ^Account) {
 	now := activity_of(acc)
 	if now == acc.shown {
@@ -71,8 +73,8 @@ activity_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		was_hidden := appears_offline(acc)
 		acc.chosen = chosen
 		log.debugf("%s is %v now", conn_label(u), chosen)
-		// Its own connections are told what it chose (Self), and it may
-		// show or hide in who is here.
+		// The account's own connections are told what it chose (Self),
+		// and it may appear or disappear in the list of who is here.
 		if was_hidden != appears_offline(acc) {
 			bump_version(s)
 		}
@@ -83,7 +85,7 @@ activity_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 }
 
 idle_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
-	idle, ok := proto.decode_idle(body)
+	idle, hidden, ok := proto.decode_idle(body)
 	if !ok {
 		respond(u, id, .Invalid)
 		return
@@ -92,6 +94,7 @@ idle_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		log.debugf("%s is %s", conn_label(u), "idle" if idle else "back")
 	}
 	u.idle = idle
+	u.hidden = hidden
 	respond(u, id, .Ok)
 	activity_check(s, u.account)
 }

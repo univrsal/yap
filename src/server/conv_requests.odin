@@ -5,26 +5,26 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-What clients ask about conversations and voice rooms
-(src/common/proto/convs.odin), and what they're told.
+// This file handles what clients ask about conversations and voice rooms (see
+// src/common/proto/convs.odin) and what they are told about them.
+//
+// A connection is told about the conversations its account is a member of when
+// it logs in (see directory.odin), and about each later change to them. For
+// example, a channel subscribed to on one device appears on the account's other
+// devices as well.
+//
+// A connection's voice room belongs to that connection alone, and it has none
+// until it joins one. An account can be in a room on only one connection at a
+// time: joining on a second connection removes the first one from its room and
+// tells it.
+//
+// A DM is opened with DM_Open, which creates it the first time. The account that
+// opened it is told about it immediately, while the other account is told when
+// the first message is posted (see messages.odin). This way a DM that was opened
+// but left empty doesn't show up on the other side.
 
-A connection is told of the conversations its account is a member of
-when it logs in (directory.odin), and of each change to that after: a
-channel subscribed to on one device appears on the account's others.
-
-A connection's voice room is its own, and none until it joins one. An
-account is in a room on one connection at a time: joining on a second
-takes the first out, and tells it.
-
-A DM is opened with DM_Open, which makes it the first time. The account
-that opened it is told of it then; the other one when the first message
-is posted (messages.odin), so a DM opened and left empty doesn't show
-on its side.
-*/
-
-// conv_request handles a request about conversations or rooms; false if
-// `op` isn't one.
+// conv_request handles a request about conversations or rooms. It returns false
+// if `op` isn't one.
 conv_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: []u8) -> bool {
 	#partial switch op {
 	case .Conv_Create:
@@ -55,8 +55,7 @@ conv_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 	return true
 }
 
-// send_conv tells a connection about a conversation, as its account
-// sees it.
+// send_conv tells a connection about a conversation as its account sees it.
 send_conv :: proc(s: ^Server, u: ^Conn, conv: ^Conv) {
 	buf: [proto.CONV_MAX_SIZE]u8
 	send_event(
@@ -66,7 +65,7 @@ send_conv :: proc(s: ^Server, u: ^Conn, conv: ^Conv) {
 	)
 }
 
-// send_read tells every connection of an account what it has read of a
+// send_read tells every connection of an account how far it has read in a
 // conversation.
 send_read :: proc(s: ^Server, acc: ^Account, conv: ^Conv) {
 	buf: [proto.READ_CHANGED_SIZE]u8
@@ -76,8 +75,8 @@ send_read :: proc(s: ^Server, acc: ^Account, conv: ^Conv) {
 	}
 }
 
-// send_convs tells a connection of every conversation its account is
-// told of (conv_shown), in the order a list shows them.
+// send_convs tells a connection about every conversation its account is told
+// about (see conv_shown), in the order they appear in a list.
 send_convs :: proc(s: ^Server, u: ^Conn) {
 	for conv in convs_sorted(&s.convs) {
 		if conv_shown(conv, u.account.id) {
@@ -86,8 +85,7 @@ send_convs :: proc(s: ^Server, u: ^Conn) {
 	}
 }
 
-// send_conv_to_account tells every connection of an account about a
-// conversation.
+// send_conv_to_account tells every connection of an account about a conversation.
 send_conv_to_account :: proc(s: ^Server, account: proto.Account_Id, conv: ^Conv) {
 	if acc := account_by_id(&s.accounts, account); acc != nil {
 		for u in acc.conns {
@@ -96,12 +94,10 @@ send_conv_to_account :: proc(s: ^Server, account: proto.Account_Id, conv: ^Conv)
 	}
 }
 
-/*
-dm_open answers with the DM between the connection's account and
-another, making it if there's none: anyone may message anyone. The
-account's connections are told of it before the answer comes, so it's
-known by the time the answer is.
-*/
+// dm_open answers with the DM between the connection's account and another
+// account, creating it if it doesn't exist yet, since anyone may message anyone.
+// The account's connections are told about the DM before the answer is sent, so
+// they already know about it by the time the answer arrives.
 @(private = "file")
 dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	other, ok := proto.decode_account_id(body)
@@ -123,8 +119,8 @@ dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		log.debugf("%s opened a DM with account %d", conn_label(u), other)
 	}
-	// A DM the other opened, and nothing's been said in yet, is new
-	// to us, as one we've just made is.
+	// A DM that the other account opened and that has no messages yet is
+	// new to this account, just like a DM that was created right now.
 	send_conv_to_account(s, me, conv)
 	buf: [4]u8
 	respond(u, id, .Ok, proto.encode_conv_id(&buf, conv.id))
@@ -151,18 +147,23 @@ conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Too_Large)
 		return
 	}
-	// After the ones there are.
+	// Place the new channel after all existing ones.
 	position := 0
 	for _, other in s.convs.by_id {
 		position = max(position, other.position + 1)
 	}
 	conv := conv_add(&s.convs, name, topic, {.Private} if private else {}, u.account.id, position)
-	// Whoever makes a channel is in it.
+	// The creator of a channel is always a member of it.
 	if conv == nil || !conv_member_add(&s.convs, conv, u.account.id) {
 		respond(u, id, .Internal)
 		return
 	}
-	log.infof("%s made the %schannel %q", conn_label(u), "private " if private else "", conv.name)
+	log.infof(
+		"%s created the %schannel %q",
+		conn_label(u),
+		"private " if private else "",
+		conv.name,
+	)
 	buf: [4]u8
 	respond(u, id, .Ok, proto.encode_conv_id(&buf, conv.id))
 	for other in u.account.conns {
@@ -170,15 +171,11 @@ conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 }
 
-// The channels an account could subscribe to: those it may see and
-// isn't in.
 @(private = "file")
-/*
-conv_browse answers with a page of the channels the connection's account
-could subscribe to: those it isn't in, and can see, whose name or topic
-has the query in it, ignoring case. The channels are in memory, so
-it's a loop over them, however many pages back.
-*/
+// conv_browse answers with a page of the channels that the connection's account
+// could subscribe to. These are the channels it isn't in but can see, and whose
+// name or topic contains the query (ignoring case). The channels are kept in
+// memory, so this loops over all of them, however far into the list the page is.
 conv_browse :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	b, ok := proto.decode_conv_browse(body)
 	if !ok {
@@ -274,11 +271,9 @@ conv_members :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok, proto.encode_conv_members(out, conv.members[:]))
 }
 
-/*
-voice_join puts a connection in a channel's voice room, or with room 0
-takes it out of the one it's in. Anyone who may see the channel may be
-in its room, subscribed or not.
-*/
+// voice_join puts a connection in a channel's voice room, or takes it out of its
+// current room if the room is 0. Anyone who may see the channel may be in its
+// room, whether or not they are subscribed to the channel.
 @(private = "file")
 voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	room, ok := proto.decode_room(body)
@@ -287,7 +282,7 @@ voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	if room != 0 {
-		// A bot has no voice (proto/bots.odin).
+		// Bots can't use voice (see proto/bots.odin).
 		if .Bot in u.account.flags {
 			respond(u, id, .Denied)
 			return
@@ -297,8 +292,9 @@ voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			respond(u, id, .Not_Found)
 			return
 		}
-		// One connection of an account talks at a time: another that was
-		// in a room is out of it now, and told where its account went.
+		// Only one connection of an account can be in a room at a time, so
+		// any other connection that was in a room is removed from it and
+		// told which room its account moved to.
 		for other in u.account.conns {
 			if other != u && other.room != 0 {
 				conn_set_room(s, other, 0)
@@ -311,12 +307,13 @@ voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok)
 }
 
-// conn_set_room moves a connection's voice, and lets everyone see it.
+// conn_set_room moves a connection to a voice room and makes the change visible
+// to everyone.
 conn_set_room :: proc(s: ^Server, u: ^Conn, room: proto.Room) {
 	if u.room == room {
 		return
 	}
-	// Out of a call's room, the call is over (calls.odin).
+	// Leaving a call's room ends the call (see calls.odin).
 	calls_room_left(s, u, room)
 	if proto.room_call(room) != 0 {
 		log.infof("%s is in call %d", conn_label(u), proto.room_call(room))
@@ -329,8 +326,8 @@ conn_set_room :: proc(s: ^Server, u: ^Conn, room: proto.Room) {
 	bump_version(s)
 }
 
-// The conversation `conv_id` if the connection's account is a member,
-// else why not.
+// member_conv returns the conversation `conv_id` if the connection's account is a
+// member of it, and otherwise the status explaining why not.
 @(private = "file")
 member_conv :: proc(s: ^Server, u: ^Conn, conv_id: proto.Conv_Id) -> (^Conv, proto.Status) {
 	conv := conv_by_id(&s.convs, conv_id)
@@ -343,11 +340,9 @@ member_conv :: proc(s: ^Server, u: ^Conn, conv_id: proto.Conv_Id) -> (^Conv, pro
 	return conv, .Ok
 }
 
-/*
-mark_read is the account having read a conversation up to a message.
-What's read only moves forward, and every connection of the account is
-told, so the others stop showing it as unread.
-*/
+// mark_read records that the account has read a conversation up to a message.
+// The read position only ever moves forward. Every connection of the account is
+// told about it so that the others stop showing the conversation as unread.
 @(private = "file")
 mark_read :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	conv_id, msg, ok := proto.decode_mark_read(body)
@@ -366,7 +361,7 @@ mark_read :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 }
 
-// conv_notify sets how much a conversation may interrupt the account.
+// conv_notify sets how much notification a conversation may cause for the account.
 @(private = "file")
 conv_notify :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	conv_id, notify, ok := proto.decode_conv_notify(body)
@@ -389,17 +384,15 @@ conv_notify :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 }
 
-/*
-Managing channels (phase 13): renaming one, its topic and place in the
-lists (Manage_Channels); archiving one, which is as good as deleting it
-(the same); and adding somebody to one, which is as if they had
-subscribed (Invite, and being in it), or taking somebody out of a
-private one (Manage_Channels).
-
-A private channel's voice room is its members' only: whoever is taken
-out of it, or leaves it, is taken out of its room too; and nobody else
-is told who is in it (sync_state).
-*/
+// Managing channels (phase 13): renaming a channel and changing its topic and
+// its position in the lists (Manage_Channels), archiving a channel, which is as
+// good as deleting it (also Manage_Channels), adding somebody to a channel, which
+// is as if they had subscribed (requires Invite and being in it), and removing
+// somebody from a private channel (Manage_Channels).
+//
+// The voice room of a private channel is only for its members. Whoever is
+// removed from the channel or leaves it is removed from its room as well, and
+// nobody else is told who is in the room (see sync_state).
 
 @(private = "file")
 conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
@@ -506,17 +499,20 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Not_Found)
 		return
 	case !on && (.Private not_in conv.flags || .Home in conv.flags):
-		// Out of a public channel isn't a thing: they'd subscribe again.
+		// Removing someone from a public channel makes no sense, since they
+		// could just subscribe again.
 		respond(u, id, .Invalid)
 		return
 	case !on && target != u.account && !outranks(u.account, permissions(target)):
-		// Nor out of a private one for someone who may do more.
+		// Someone can't remove a member from a private channel if that member
+		// has more permissions.
 		respond(u, id, .Denied)
 		return
 	}
 	if on {
 		if !conv_is_member(conv, account) {
-			// What's there is read: it's no news to someone just come.
+			// Everything already in the channel counts as read for a newly added
+			// member.
 			if !conv_member_add(&s.convs, conv, account) {
 				respond(u, id, .Internal)
 				return
@@ -524,7 +520,7 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			log.infof("%s added %s to %q", conn_label(u), target.username, conv.name)
 			send_conv_to_account(s, account, conv)
 			if .Private in conv.flags {
-				bump_version(s) // who is in its room is theirs to see now
+				bump_version(s) // the new member can now see who is in the room
 			}
 		}
 		respond(u, id, .Ok)
@@ -541,9 +537,9 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok)
 }
 
-// member_gone tells an account's connections that a conversation isn't
-// theirs any more, and takes them out of its room if they may not be in
-// it now.
+// member_gone tells an account's connections that they are no longer part of a
+// conversation, and removes them from its voice room if they may no longer be
+// in it.
 member_gone :: proc(s: ^Server, conv: ^Conv, account: proto.Account_Id) {
 	buf: [4]u8
 	gone := proto.encode_conv_id(&buf, conv.id)
@@ -555,8 +551,8 @@ member_gone :: proc(s: ^Server, conv: ^Conv, account: proto.Account_Id) {
 	room_check(s, conv)
 }
 
-// room_check takes whoever may not see a channel any more out of its
-// voice room, and tells them, as Voice_Moved to no room.
+// room_check removes everyone who may no longer see a channel from its voice
+// room and tells them with a Voice_Moved event to no room.
 room_check :: proc(s: ^Server, conv: ^Conv) {
 	changed := .Private in conv.flags
 	for _, other in s.conns {
@@ -575,8 +571,8 @@ room_check :: proc(s: ^Server, conv: ^Conv) {
 	}
 }
 
-// room_hidden is whether who is in a room is not for an account to know:
-// a private channel's it isn't in.
+// room_hidden returns whether an account isn't allowed to know who is in a room.
+// This is the case for the room of a private channel the account isn't in.
 room_hidden :: proc(s: ^Server, room: proto.Room, account: proto.Account_Id) -> bool {
 	if room == 0 {
 		return false

@@ -1,57 +1,58 @@
 package proto
 
-/*
-Roles: what an account may do beyond what everyone may (Permission,
-accounts.odin) comes from its roles, the union of theirs.
-
-Every account has the role `everyone` (EVERYONE_ROLE), whose permissions
-are what a plain member may do. The owner (Account_Flag.Owner, one
-account) may do everything whatever its roles. Other roles are made by
-whoever has Manage_Roles, who can't give a role a permission they don't
-have themselves, nor change, delete, give or take a role that has one.
-
-	Role_Set           a role  ->  [id u32]
-	                   id 0 makes a role; else changes that one (its
-	                   position is Role_Order's to change, and ignored)
-	Role_Order         [count u8][role u32]...: the order of every role
-	                   but everyone's, top first
-	Role_Delete        [id u32]
-	Account_Roles_Set  [account u32][count u8][role u32]...  the account's
-	                   roles besides `everyone`
-	Account_Disable    [account u32][on u8]: it can't log in, and its
-	                   devices are logged out; never the owner
-
-	Role_Changed       a role, new or changed
-	Role_Removed       [id u32]
-
-	role     [id u32][perms u64][name str8][color u32][position u16]
-	         [flags u8]
-
-A role's colour is 0xRRGGBB with ROLE_COLOR_SET, or 0 for none; a name
-is shown in the colour of the highest of its account's roles that has
-one. That's all the order is for: which role is above another for
-handling them goes by what they allow, never by where they are.
-Everyone's role is under the others and has no colour. A role from an
-older client, without the last three, has none of them (an even older
-one without the last two).
-
-A role that's Mentionable can be mentioned (mentions.odin): `@name`
-pings whoever has it, among the members of where it's said. Everyone's
-role never is; `@everyone` is for that.
-
-Roles are told in the login sync before the accounts (whose records name
-their roles), and as they change after; Self again when a connection's
-own permissions change.
-*/
+// An account's permissions (Permission, accounts.odin) beyond those that
+// everyone has come from its roles: they are the union of the permissions of
+// all its roles.
+//
+// Every account has the role `everyone` (EVERYONE_ROLE), whose permissions
+// are what a plain member may do. The owner (Account_Flag.Owner, exactly one
+// account) may do everything regardless of its roles. Other roles are created
+// by whoever has Manage_Roles. Such a user can't give a role a permission
+// they don't have themselves, and can't change, delete, assign or remove a
+// role that has a permission they lack.
+//
+//	Role_Set           a role  ->  [id u32]
+//	                   id 0 creates a role, any other id changes that role
+//	                   (its position is ignored, only Role_Order changes it)
+//	Role_Order         [count u8][role u32]...  the order of every role
+//	                   except everyone's, top first
+//	Role_Delete        [id u32]
+//	Account_Roles_Set  [account u32][count u8][role u32]...  the account's
+//	                   roles besides `everyone`
+//	Account_Disable    [account u32][on u8]  a disabled account can't log
+//	                   in and its devices are logged out (never the owner)
+//
+//	Role_Changed       a role, new or changed
+//	Role_Removed       [id u32]
+//
+//	role     [id u32][perms u64][name str8][color u32][position u16]
+//	         [flags u8]
+//
+// A role's colour is 0xRRGGBB combined with ROLE_COLOR_SET, or 0 for none.
+// A name is shown in the colour of the highest of its account's roles that
+// has one. That is all the order is used for: whether one role may manage
+// another depends on the permissions they grant, never on their positions.
+// The everyone role is below all others and has no colour. A role from an
+// older client that lacks the last three fields has none of them (an even
+// older one that lacks the last two has none of those).
+//
+// A Mentionable role can be mentioned (mentions.odin): `@name` notifies
+// everyone who has the role among the members of the conversation where it
+// is used. The everyone role is never mentionable, `@everyone` exists for
+// that.
+//
+// Roles are sent in the login sync before the accounts (whose records
+// reference their roles) and again whenever they change. Self is sent again
+// when a connection's own permissions change.
 
 Role_Id :: distinct u32
 
-// The role every account has; made with the database.
+// The role every account has. It is created together with the database.
 EVERYONE_ROLE :: Role_Id(1)
 
 MIN_ROLE_NAME :: 1
 MAX_ROLE_NAME :: 32
-// How many roles a server may have, and an account.
+// The maximum number of roles a server may have and of roles per account.
 MAX_ROLES :: 64
 MAX_ACCOUNT_ROLES :: 16
 
@@ -125,7 +126,7 @@ encode_role_order :: proc(out: []u8, roles: []Role_Id) -> []u8 {
 	return nil if w.overflow || len(roles) > MAX_ROLES else out[:w.pos]
 }
 
-// decode_role_order reads one; the roles are in `buf`.
+// decode_role_order reads a Role_Order body. The roles are written to `buf`.
 decode_role_order :: proc(body: []u8, buf: []Role_Id) -> (roles: []Role_Id, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -154,7 +155,8 @@ encode_account_roles :: proc(out: []u8, account: Account_Id, roles: []Role_Id) -
 	return nil if w.overflow || len(roles) > 255 else out[:w.pos]
 }
 
-// decode_account_roles reads one; the roles are in `buf`.
+// decode_account_roles reads an Account_Roles_Set body. The roles are written
+// to `buf`.
 decode_account_roles :: proc(
 	body: []u8,
 	buf: []Role_Id,
@@ -201,7 +203,7 @@ decode_account_disable :: proc(body: []u8) -> (account: Account_Id, on: bool, ok
 	return account, on, !r.overflow
 }
 
-// role_name_ok is whether `name` (sanitized) may be a role's.
+// role_name_ok says whether `name` (already sanitized) is a valid role name.
 role_name_ok :: proc(name: string) -> bool {
 	return len(name) >= MIN_ROLE_NAME && len(name) <= MAX_ROLE_NAME
 }

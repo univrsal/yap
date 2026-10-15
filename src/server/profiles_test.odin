@@ -6,8 +6,8 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of statuses, pictures and settings, on the Test_Server of
-// auth_test.odin.
+// Tests of statuses, profile pictures and settings, using the Test_Server
+// from auth_test.odin.
 
 @(private = "file")
 profile :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, p: proto.Profile_Set) -> proto.Status {
@@ -16,8 +16,8 @@ profile :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, p: proto.Profile_Set)
 	return status
 }
 
-// told is the last Account_Changed a connection was sent about `id`
-// since the last look.
+// told returns the last Account_Changed event about `id` that a connection
+// was sent since its events were last read, and whether there was one.
 @(private = "file")
 told :: proc(
 	t: ^testing.T,
@@ -60,7 +60,8 @@ test_status :: proc(t: ^testing.T) {
 		a := logged_in(t, &ts, "alice")
 		b := logged_in(t, &ts, "bob")
 
-		// Sanitized, cut to its size, and told to everyone.
+		// A status is sanitized, truncated to the maximum size, and sent to
+		// everyone.
 		long := "  in a meeting\tuntil three, then lunch, then probably another meeting after that one  "
 		testing.expect_value(
 			t,
@@ -81,16 +82,17 @@ test_status :: proc(t: ^testing.T) {
 		testing.expect(t, len(acc.status) <= proto.MAX_STATUS_SIZE)
 		testing.expect_value(t, acc.status[:13], "in a meeting ")
 		testing.expect_value(t, acc.status_until, proto.Unix_Ms(now + 30 * 60 * 1000))
-		// The name stays as it was.
+		// The display name is unchanged.
 		testing.expect_value(t, acc.display, "alice")
 
-		// Not before its time.
+		// The status doesn't expire before its end time.
 		statuses_expire(&ts.s, now + 29 * 60 * 1000)
 		_, heard = told(t, &ts, b, alice.id)
 		testing.expect(t, !heard)
 		testing.expect(t, alice.status != "")
 
-		// One that doesn't end, for bob; and alice's again, ending sooner.
+		// Give bob a status that never expires, and alice a new one that
+		// expires sooner.
 		bob := account_find(&ts.s.accounts, "bob")
 		testing.expect_value(
 			t,
@@ -115,13 +117,14 @@ test_status :: proc(t: ^testing.T) {
 		ts_events(t, &ts, b)
 	}
 
-	// Its time passes while the server is down: cleared once it's up.
+	// If a status expires while the server is down, it's cleared once the
+	// server is back up.
 	ts: Test_Server
 	ts_open(t, &ts, path)
 	defer ts_close(&ts)
 	alice := account_by_id(&ts.s.accounts, alice_id)
 	testing.expect_value(t, alice.status, "brb")
-	// The devices from before, logged in by their keys.
+	// The devices from before are logged in automatically by their keys.
 	a := ts_connect(&ts)
 	b := ts_connect(&ts)
 	testing.expect(t, a.account != nil && a.account.username == "alice")
@@ -135,7 +138,7 @@ test_status :: proc(t: ^testing.T) {
 	testing.expect_value(t, alice.status, "")
 	testing.expect_value(t, account_find(&ts.s.accounts, "bob").status, "here")
 
-	// No status, no end.
+	// An empty status has no end time.
 	testing.expect_value(
 		t,
 		profile(t, &ts, a, {mask = proto.PROFILE_STATUS, status = " ", status_until = 5}),
@@ -170,7 +173,8 @@ test_avatar :: proc(t: ^testing.T) {
 	blob, stored := upload(t, &ts, a, jpeg, put)
 	testing.expect(t, stored)
 
-	// Nobody may fetch it until it's somebody's picture; then anyone may.
+	// Nobody can fetch the picture until it's somebody's profile picture;
+	// after that, anyone can.
 	id_buf: [proto.BLOB_GET_SIZE]u8
 	status, _ := ts_ask(t, &ts, b, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
 	testing.expect_value(t, status, proto.Status.Not_Found)
@@ -185,7 +189,8 @@ test_avatar :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, b, .Blob_Get, proto.encode_blob_id(&id_buf, blob))
 	testing.expect_value(t, status, proto.Status.Ok)
 
-	// Too big to announce, not there, or not a picture.
+	// Refused: pictures announced as too big, blobs that don't exist, and
+	// blobs that aren't avatars.
 	big := put
 	big.width, big.height = 512, 512
 	put_buf: [proto.BLOB_PUT_SIZE]u8
@@ -207,14 +212,16 @@ test_avatar :: proc(t: ^testing.T) {
 			proto.Status.Invalid,
 		)
 	}
-	// A message's file, a picture or not, isn't a profile picture.
+	// A file attached to a message can't be used as a profile picture, even
+	// if it is a picture.
 	pic, _ := blob_put(&s.blobs, .File, test_jpeg(64, 64, 4), 64, 64)
 	testing.expect_value(
 		t,
 		profile(t, &ts, a, {mask = proto.PROFILE_AVATAR, avatar = pic}),
 		proto.Status.Invalid,
 	)
-	// A refused request changes nothing, not even what came with it.
+	// A refused request changes nothing, including the other (valid) fields
+	// sent along with it.
 	testing.expect_value(
 		t,
 		profile(
@@ -228,7 +235,7 @@ test_avatar :: proc(t: ^testing.T) {
 	testing.expect_value(t, alice.status, "")
 	testing.expect_value(t, alice.avatar, blob)
 
-	// Taken away.
+	// Removing the profile picture makes it unavailable again.
 	ts_events(t, &ts, b)
 	testing.expect_value(
 		t,
@@ -266,7 +273,8 @@ test_settings :: proc(t: ^testing.T) {
 	phone := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
 
-	// To the account's other connections, and nobody else's.
+	// A changed setting is sent to the account's other connections, and to
+	// nobody else.
 	testing.expect_value(t, setting(t, &ts, laptop, "user/2", {1, 2, 3}), proto.Status.Ok)
 	e, heard := has_event(ts_events(t, &ts, phone), .Setting_Changed)
 	testing.expect(t, heard)
@@ -277,7 +285,7 @@ test_settings :: proc(t: ^testing.T) {
 	_, heard = has_event(ts_events(t, &ts, bob), .Setting_Changed)
 	testing.expect(t, !heard)
 
-	// Keys and values within bounds.
+	// Keys must be valid and values must fit within the size limit.
 	testing.expect_value(t, setting(t, &ts, laptop, "User/2", {1}), proto.Status.Invalid)
 	testing.expect_value(t, setting(t, &ts, laptop, "", {1}), proto.Status.Invalid)
 	testing.expect_value(
@@ -303,7 +311,8 @@ test_settings :: proc(t: ^testing.T) {
 		proto.Status.Ok,
 	)
 
-	// At most MAX_SETTINGS; one that's there may still change.
+	// There can be at most MAX_SETTINGS settings, but existing ones can
+	// still be changed.
 	key_buf: [16]u8
 	for i in 2 ..< proto.MAX_SETTINGS {
 		k := fmt_key(key_buf[:], i)
@@ -311,7 +320,7 @@ test_settings :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, setting(t, &ts, laptop, "one/more", {1}), proto.Status.Too_Large)
 	testing.expect_value(t, setting(t, &ts, laptop, "user/2", {4}), proto.Status.Ok)
-	// Removing one makes room, and is told.
+	// Removing a setting makes room, and the other connections are told.
 	ts_events(t, &ts, phone)
 	testing.expect_value(t, setting(t, &ts, laptop, "big", nil), proto.Status.Ok)
 	e, heard = has_event(ts_events(t, &ts, phone), .Setting_Changed)
@@ -319,7 +328,7 @@ test_settings :: proc(t: ^testing.T) {
 	testing.expect(t, heard && key == "big" && len(value) == 0)
 	testing.expect_value(t, setting(t, &ts, laptop, "one/more", {1}), proto.Status.Ok)
 
-	// A device that logs in later is told them all.
+	// A device that logs in later is sent all of them.
 	later := ts_connect(&ts)
 	status, _ := ts_login(t, &ts, later, "alice", "a password")
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -334,7 +343,7 @@ test_settings :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect_value(t, count, proto.MAX_SETTINGS)
-	// Bob has none.
+	// Bob has no settings.
 	b2 := ts_connect(&ts)
 	ts_login(t, &ts, b2, "bob", "a password")
 	_, heard = has_event(ts_events(t, &ts, b2), .Setting_Changed)
@@ -383,7 +392,8 @@ test_email_set :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, set(t, &ts, alice, " Alice@Example.COM"), proto.Status.Ok)
 	testing.expect_value(t, alice.account.email, "alice@example.com")
-	// Told to itself, in a Self; nobody else hears of it.
+	// The new address is sent to the account itself in a Self event;
+	// nobody else is told about it.
 	self, told_self := has_event(ts_events(t, &ts, alice), .Self)
 	testing.expect(t, told_self)
 	testing.expect_value(t, proto.self_email(self.body), "alice@example.com")
@@ -394,7 +404,8 @@ test_email_set :: proc(t: ^testing.T) {
 	testing.expect_value(t, set(t, &ts, bob, "not an address"), proto.Status.Invalid)
 	testing.expect_value(t, bob.account.email, "")
 
-	// Kept, and given up.
+	// The address is saved to the database. Once alice removes it, bob can
+	// use it.
 	db_email :: proc(ts: ^Test_Server, acc: ^Account) -> string {
 		a: Accounts
 		_ = accounts_load(&a, &ts.s.db)
@@ -406,7 +417,7 @@ test_email_set :: proc(t: ^testing.T) {
 	testing.expect_value(t, set(t, &ts, bob, "alice@example.com"), proto.Status.Ok)
 	testing.expect_value(t, db_email(&ts, bob.account), "alice@example.com")
 
-	// A deleted account has none.
+	// A deleted account has no email address.
 	acc := bob.account
 	testing.expect(t, account_erase(&ts.s, acc))
 	testing.expect_value(t, acc.email, "")

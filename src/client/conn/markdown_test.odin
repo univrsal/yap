@@ -4,8 +4,9 @@ package conn
 import "core:strings"
 import "core:testing"
 
-// md_show writes a Rich_Text's text with its styled runs as
-// [letters:text]: B bold, I italic, U underline, S strike, C code.
+// md_show writes a Rich_Text's text with its styled runs as [letters:text],
+// where the letters are B for bold, I for italic, U for underline, S for strike
+// and C for code.
 @(private = "file")
 md_show :: proc(rt: Rich_Text) -> string {
 	b := strings.builder_make(context.temp_allocator)
@@ -34,7 +35,7 @@ md_show :: proc(rt: Rich_Text) -> string {
 	return strings.to_string(b)
 }
 
-// md_atoms is an atom for each of `parts` where it first is in `text`.
+// md_atoms returns an atom for each of `parts`, at its first occurrence in `text`.
 @(private = "file")
 md_atoms :: proc(text: string, parts: ..string) -> []Md_Atom {
 	atoms := make([]Md_Atom, len(parts), context.temp_allocator)
@@ -75,11 +76,11 @@ test_markdown_inline :: proc(t: ^testing.T) {
 		// Escapes.
 		{"\\*not\\* \\\\", "*not* \\"},
 		{"\\a stays", "\\a stays"},
-		// Code spans: a run closes with a run as long; nothing inside counts.
+		// Code spans: a run of backticks is closed by a run of the same length, and nothing inside counts as markup.
 		{"``a`b``", "[C:a`b]"},
 		{"**`x`**", "[BC:x]"},
 		{"```x```", "[C:x]"},
-		// Styles don't go past a line's end.
+		// Styles don't continue past the end of a line.
 		{"**a\nb**", "**a\nb**"},
 		{"line one\n*two*", "line one\n[I:two]"},
 	}
@@ -117,8 +118,8 @@ test_markdown_blocks :: proc(t: ^testing.T) {
 		)
 	}
 
-	// A code block: the fences go, a language word with them; nothing
-	// inside is markup, indentation stays.
+	// A code block: the fences are removed, together with the language word.
+	// Nothing inside is markup, and the indentation stays.
 	rt = markdown_parse("before\n```odin\nlet *x* = 1\n    **y**\n```\nafter *z*", nil)
 	testing.expect_value(t, md_show(rt), "before\n[C:let *x* = 1\n    **y**]\nafter [I:z]")
 	testing.expect_value(t, len(rt.lines), 4)
@@ -126,13 +127,13 @@ test_markdown_blocks :: proc(t: ^testing.T) {
 	testing.expect_value(t, rt.lines[2].kind, Md_Line_Kind.Code)
 	testing.expect_value(t, rt.text[rt.lines[2].start:rt.lines[2].end], "    **y**")
 	testing.expect_value(t, rt.lines[3].kind, Md_Line_Kind.Plain)
-	// A fence that's never closed runs to the end; more than a word after
-	// the fence is the first line.
+	// A fence that is never closed runs to the end. More than a single word after
+	// the fence is the block's first line.
 	rt = markdown_parse("```some code\nmore *x*", nil)
 	testing.expect_value(t, md_show(rt), "[C:some code\nmore *x*]")
 	testing.expect(t, rt.lines[0].kind == .Code && rt.lines[1].kind == .Code)
 
-	// Runs cover the text; lines don't overlap.
+	// The runs cover the text, and the lines don't overlap.
 	rt = markdown_parse("- **a** b\n> `c`\n```\nd\n```", nil)
 	at := 0
 	for r in rt.runs {
@@ -146,7 +147,7 @@ test_markdown_blocks :: proc(t: ^testing.T) {
 
 @(test)
 test_markdown_atoms :: proc(t: ^testing.T) {
-	// Atoms are never looked into, and move with the text.
+	// Atoms are never looked into, and they move together with the text.
 	text := "hi @foo_bar_baz *x* https://x.org/a_b_c _i_"
 	rt := markdown_parse(text, md_atoms(text, "@foo_bar_baz", "https://x.org/a_b_c"))
 	testing.expect_value(t, md_show(rt), "hi @foo_bar_baz [I:x] https://x.org/a_b_c [I:i]")
@@ -162,12 +163,12 @@ test_markdown_atoms :: proc(t: ^testing.T) {
 	testing.expect_value(t, rt.atoms[0], Md_Atom{0, 5, false})
 	testing.expect_value(t, rt.text[rt.atoms[1].start:rt.atoms[1].end], "@Other_one")
 
-	// A marker character inside an atom closes nothing.
+	// A marker character inside an atom does not close anything.
 	text = "*a @x*y b"
 	rt = markdown_parse(text, md_atoms(text, "@x*y"))
 	testing.expect_value(t, md_show(rt), "*a @x*y b")
 
-	// Inside code, atoms stay (and move).
+	// Inside code, atoms stay intact (and move with the text).
 	text = "`@who` - ```\nhttps://x.org\n```"
 	rt = markdown_parse(text, md_atoms(text, "@who", "https://x.org"))
 	testing.expect_value(t, rt.text[rt.atoms[0].start:rt.atoms[0].end], "@who")
@@ -182,7 +183,7 @@ test_markdown_links :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(rt.links), 1)
 	testing.expect_value(t, rt.text[rt.links[0].start:rt.links[0].end], "the site")
 	testing.expect_value(t, rt.links[0].url, "https://x.org/a_b")
-	// The address went with the markup.
+	// The address was removed together with the markup.
 	testing.expect_value(t, rt.atoms[0].start, -1)
 
 	text = "[a](www.x.org) [b](https://y.org)"
@@ -192,7 +193,7 @@ test_markdown_links :: proc(t: ^testing.T) {
 	testing.expect_value(t, rt.links[0].url, "https://www.x.org")
 	testing.expect_value(t, rt.links[1], Md_Link{2, 3, "https://y.org"})
 
-	// Not links: no web address, nothing to show, a space, a mention.
+	// Not links: no web address, no text to show, a space before the address, and a mention.
 	for not_link in ([?]string{"[a](b)", "[](https://x.org)", "[a] (https://x.org)", "[a](@x)"}) {
 		atoms: []Md_Atom
 		if strings.contains(not_link, "https") {
@@ -203,7 +204,7 @@ test_markdown_links :: proc(t: ^testing.T) {
 		rt = markdown_parse(not_link, atoms)
 		testing.expectf(t, len(rt.links) == 0 && rt.text == not_link, "%q: %v", not_link, rt)
 	}
-	// Styles don't pair across a link's edge.
+	// Styles don't pair across the boundary of a link.
 	text = "*a [b* c](https://x.org)"
 	rt = markdown_parse(text, md_atoms(text, "https://x.org"))
 	testing.expect_value(t, md_show(rt), "*a b* c")
@@ -231,22 +232,22 @@ test_markdown_toggle :: proc(t: ^testing.T) {
 		sel:    [2]int,
 	}
 	cases := [?]Case {
-		// Wrapped, and unwrapped again from outside or inside.
+		// The marker is added around the selection, and removed again whether the selection is inside or outside of it.
 		{"say hi now", 4, 6, "**", "say **hi** now", {6, 8}},
 		{"say **hi** now", 6, 8, "**", "say hi now", {4, 6}},
 		{"say **hi** now", 4, 10, "**", "say hi now", {4, 6}},
-		// Nothing selected: a pair, with the caret between.
+		// Nothing selected: a pair of markers is inserted with the caret between them.
 		{"ab", 1, 1, "`", "a``b", {2, 2}},
 		{"", 0, 0, "~~", "~~~~", {2, 2}},
-		// Italic and bold go on and off apart.
+		// Italic and bold can be switched on and off separately.
 		{"**x**", 2, 3, "*", "***x***", {3, 4}},
 		{"***x***", 3, 4, "*", "**x**", {2, 3}},
 		{"***x***", 3, 4, "**", "*x*", {1, 2}},
 		{"*x*", 1, 2, "**", "***x***", {3, 4}},
-		// Underline isn't italic.
+		// Underline is not italic.
 		{"_x_", 1, 2, "__", "___x___", {3, 4}},
 		{"__x__", 2, 3, "__", "x", {0, 1}},
-		// Markers alone aren't taken for a wrapped selection.
+		// A selection consisting only of markers is not treated as already wrapped.
 		{"****", 0, 4, "**", "********", {2, 6}},
 	}
 	for c in cases {
@@ -266,8 +267,8 @@ test_markdown_toggle :: proc(t: ^testing.T) {
 	}
 }
 
-// Any text parses: random strings of markup and atoms, checked for what
-// every result has to be.
+// Any text can be parsed. This test parses random strings of markup and atoms
+// and checks the properties that every result must have.
 @(test)
 test_markdown_random :: proc(t: ^testing.T) {
 	pieces := [?]string {

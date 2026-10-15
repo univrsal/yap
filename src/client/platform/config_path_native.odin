@@ -3,9 +3,9 @@ package platform
 
 import "core:os"
 
-// default_config_path returns <config dir>/yap/<name>, or "" if there's
-// no config dir. The result lives for the whole run, so it must not come˙˙¸¸
-// from the temp allocator: the client loop frees that every iteration.
+// default_config_path returns <config dir>/yap/<name>, or "" if there is no
+// config dir. The result is kept for the whole run, so it must not be allocated
+// in the temp allocator, which the client loop frees every iteration.
 default_config_path :: proc(name: string, allocator := context.allocator) -> string {
 	dir, err := os.user_config_dir(context.temp_allocator)
 	if err != nil {
@@ -19,7 +19,8 @@ default_config_path :: proc(name: string, allocator := context.allocator) -> str
 	return path
 }
 
-// store_sibling is the path `name` in the directory `path` is in.
+// store_sibling returns the path of the file `name` in the same directory as
+// `path`.
 store_sibling :: proc(path, name: string, allocator := context.allocator) -> string {
 	joined, _ := os.join_path({os.dir(path), name}, allocator)
 	return joined

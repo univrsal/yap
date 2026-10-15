@@ -5,18 +5,16 @@ import "core:encoding/base64"
 import "core:encoding/endian"
 import "core:net"
 
-/*
-Just enough of WebSockets (RFC 6455) for the relay (server/relay.odin):
-the opening handshake, and frames in both directions. The web client
-only ever sends one packet per message, each well under a kilobyte and
-a half, so fragmented messages aren't expected and aren't accepted.
-*/
+// A minimal WebSocket (RFC 6455) implementation for the relay
+// (server/relay.odin): the opening handshake and frames in both directions.
+// The web client only ever sends one packet per message, each well under
+// 1.5 kilobytes, so fragmented messages are neither expected nor accepted.
 
 @(private = "file")
 ACCEPT_GUID :: "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-// Nothing the client sends is anywhere near this; a frame that claims
-// more is not one of ours.
+// Nothing the client sends is anywhere near this size, so a frame that
+// claims to be larger is not one of ours.
 MAX_FRAME :: 64 * 1024
 
 Opcode :: enum u8 {
@@ -28,8 +26,8 @@ Opcode :: enum u8 {
 	Pong         = 0xA,
 }
 
-// accept_key answers a client's Sec-WebSocket-Key, which is how it
-// knows the server understood the upgrade.
+// accept_key computes the response to a client's Sec-WebSocket-Key, which
+// tells the client that the server understood the upgrade.
 accept_key :: proc(key: string, allocator := context.temp_allocator) -> string {
 	ctx: sha1.Context
 	sha1.init(&ctx)
@@ -40,7 +38,8 @@ accept_key :: proc(key: string, allocator := context.temp_allocator) -> string {
 	return base64.encode(digest[:], allocator = allocator)
 }
 
-// read_exact fills `out` completely, or reports that the peer went away.
+// read_exact fills `out` completely. It returns false if the peer
+// disconnected first.
 read_exact :: proc(c: ^Conn, out: []u8) -> bool {
 	done := 0
 	for done < len(out) {
@@ -58,12 +57,10 @@ read_exact :: proc(c: ^Conn, out: []u8) -> bool {
 	return true
 }
 
-/*
-read_frame reads one frame into `payload`, unmasked. Frames from a
-browser are always masked; one that isn't, or that is bigger than
-MAX_FRAME, ends the connection. A client reading a server's frames,
-which never are, says so with `from_server`.
-*/
+// read_frame reads one frame into `payload` and unmasks it. Frames from a
+// browser are always masked, so a frame that isn't masked, or that is
+// bigger than MAX_FRAME, ends the connection. A client reading a server's
+// frames (which are never masked) passes `from_server`.
 read_frame :: proc(
 	c: ^Conn,
 	payload: []u8,
@@ -106,11 +103,9 @@ read_frame :: proc(
 	return op, n, true
 }
 
-/*
-write_frame sends one frame: unmasked, as a server's always are, or
-masked with `mask`, as a client's always are (and then `payload` is
-masked where it is).
-*/
+// write_frame sends one frame. Server frames are always unmasked, while
+// client frames are always masked with `mask` (in which case `payload` is
+// masked in place).
 write_frame :: proc(
 	sock: net.TCP_Socket,
 	op: Opcode,

@@ -7,24 +7,23 @@ import "core:strconv"
 import "core:strings"
 import "core:sys/posix"
 
-/*
-Resident sizes from /proc/self/status, and the heap from glibc's
-mallinfo2, summed over all its arenas (each thread that allocates may
-get an arena of its own, and what's freed in one stays there). It's
-looked up rather than linked, as musl has neither it nor malloc_trim.
-*/
+// Resident sizes come from /proc/self/status, and the heap sizes come from
+// glibc's mallinfo2, summed over all its arenas (each thread that allocates
+// may get an arena of its own, and memory freed in one stays there).
+// mallinfo2 is looked up at runtime instead of linked, because musl has
+// neither it nor malloc_trim.
 
 @(private = "file")
 Mallinfo2 :: struct {
-	arena:    c.size_t, // from the OS with brk, and the threads' arenas
+	arena:    c.size_t, // memory from the OS via brk, plus the threads' arenas
 	ordblks:  c.size_t,
 	smblks:   c.size_t,
 	hblks:    c.size_t,
-	hblkhd:   c.size_t, // in mmapped chunks: the big allocations
+	hblkhd:   c.size_t, // in mmapped chunks (the big allocations)
 	usmblks:  c.size_t,
 	fsmblks:  c.size_t,
-	uordblks: c.size_t, // in use, of arena
-	fordblks: c.size_t, // free, of arena
+	uordblks: c.size_t, // the part of arena that is in use
+	fordblks: c.size_t, // the part of arena that is free
 	keepcost: c.size_t,
 }
 

@@ -7,27 +7,27 @@ import "core:os"
 import "core:sys/linux"
 import "core:time"
 
-/*
-On Linux the keyboards themselves say which of their keys are down:
-every /dev/input/event* device that has letter keys is opened, and each
-turn their key state is read with EVIOCGKEY. Nothing is grabbed, and no
-events are read, so they all still go wherever they were going. This is
-below any display server, so it works the same on Wayland and X11 - but
-the devices usually belong to the "input" group, and only its members
-(and root) may read them.
-
-Without them, on X11, XQueryKeymap does the same for the X server's view
-of the keyboard. Under Wayland that's XWayland's view, which only has
-keys while an X11 window has the focus, so it's reported as Limited.
-
-Keyboards come and go (a USB or Bluetooth one), so the devices are
-looked for again every RESCAN_INTERVAL, and one that stops answering is
-closed.
-*/
+// On Linux, the keyboards themselves report which of their keys are down.
+// Every /dev/input/event* device that has letter keys is opened, and on each
+// poll their key state is read with EVIOCGKEY. Nothing is grabbed and no
+// events are read, so key presses still reach their normal destination.
+// This works below the display server, so it behaves the same on Wayland
+// and X11. However, the devices usually belong to the "input" group, and
+// only its members (and root) may read them.
+//
+// If they can't be read, X11's XQueryKeymap provides the same information
+// from the X server's view of the keyboard. Under Wayland that is
+// XWayland's view, which only contains keys while an X11 window has the
+// focus, so it is reported as Limited.
+//
+// Keyboards can come and go (USB or Bluetooth ones, for example), so the
+// devices are scanned again every RESCAN_INTERVAL, and a device that stops
+// answering is closed.
 
 @(private = "file")
 RESCAN_INTERVAL :: 3 * time.Second
-// /dev/input/event0 up to this; there are a few dozen on a busy system.
+// The number of /dev/input/event* devices to try, starting at event0. Even a
+// busy system only has a few dozen.
 @(private = "file")
 MAX_EVENT_DEVICES :: 64
 
@@ -46,9 +46,9 @@ eviocg :: proc(nr: u32, size: u32) -> u32 {
 }
 
 @(private = "file")
-EVIOCGKEY :: 0x18 // the keys down now
+EVIOCGKEY :: 0x18 // the keys that are down right now
 @(private = "file")
-EVIOCGBIT :: 0x20 // + event type: which codes of that type the device has
+EVIOCGBIT :: 0x20 // plus an event type: which codes of that type the device has
 
 @(private = "file")
 KEY_CODES := [Key]u16 {
@@ -153,7 +153,7 @@ MOD_CODES := [Mod][2]u16 {
 	.Super = {125, 126},
 }
 
-// What a keyboard is taken to be: something with these keys.
+// A device counts as a keyboard if it has all of these keys.
 @(private = "file")
 KEYBOARD_KEYS :: [?]u16{30, 44, 57} // A, Z, Space
 
@@ -182,7 +182,7 @@ Backend :: struct {
 	mode:      Mode,
 	keyboards: [dynamic]Keyboard,
 	last_scan: time.Tick,
-	denied:    bool, // an event device couldn't be opened for want of permission
+	denied:    bool, // an event device couldn't be opened due to missing permission
 	x11:       X11,
 	// What backend_status last said.
 	status:    Status,
@@ -223,7 +223,7 @@ backend_poll :: proc(b: ^Backend, s: ^State, wanted: Keys) {
 			k := b.keyboards[i]
 			bits: Key_Bits
 			if int(linux.ioctl(k.fd, eviocg(EVIOCGKEY, KEY_BYTES), uintptr(&bits))) < 0 {
-				// Unplugged, most likely.
+				// Most likely unplugged.
 				linux.close(k.fd)
 				unordered_remove(&b.keyboards, i)
 				continue
@@ -251,8 +251,8 @@ backend_poll :: proc(b: ^Backend, s: ^State, wanted: Keys) {
 	}
 }
 
-// backend_status says what's changed since it last did (a keyboard
-// plugged in, say).
+// backend_status reports whether the status changed since the last call
+// (for example because a keyboard was plugged in).
 backend_status :: proc(b: ^Backend) -> (st: Status, message: string, changed: bool) {
 	st, message = describe(b)
 	changed = st != b.status || message != b.message
@@ -265,25 +265,26 @@ describe :: proc(b: ^Backend) -> (Status, string) {
 	switch b.mode {
 	case .Evdev:
 		if len(b.keyboards) == 0 {
-			return .Limited, "No keyboard found (plug one in, or check /dev/input)."
+			return .Limited,
+				"No keyboard found. Plug one in or check the permissions of /dev/input."
 		}
 		return .Ok, "Reading the keyboards directly (evdev)."
 	case .X11:
 		if os.get_env("WAYLAND_DISPLAY", context.temp_allocator) != "" {
 			return .Limited,
-				"Only while an X11 window has the focus: for Wayland, add yourself to the \"input\" group and log in again."
+				"Only works while an X11 window has the focus. For Wayland support, add your user to the \"input\" group and log in again."
 		}
 		return .Ok, "Using X11."
 	case .None:
 	}
 	if b.denied {
 		return .Unavailable,
-			"Can't read the keyboards: add yourself to the \"input\" group and log in again."
+			"Cannot read the keyboards. Add your user to the \"input\" group and log in again."
 	}
 	return .Unavailable, "No keyboard found in /dev/input, and no X11 display."
 }
 
-// scan opens every keyboard not already open.
+// scan opens every keyboard that isn't open yet.
 @(private = "file")
 scan :: proc(b: ^Backend) {
 	b.last_scan = time.tick_now()
@@ -331,12 +332,10 @@ is_keyboard :: proc(fd: linux.Fd) -> bool {
 	return true
 }
 
-/*
-X11, loaded when it's needed rather than linked, so the client doesn't
-need libX11 to start. It gets a display connection of its own, used only
-from the watcher's thread. X11 keycodes are evdev's plus 8, with the
-evdev driver every X server has used for years.
-*/
+// X11 is loaded at runtime instead of being linked, so the client doesn't
+// need libX11 to start. It uses a display connection of its own, which is
+// only used from the watcher's thread. X11 keycodes are the evdev codes
+// plus 8, as the evdev driver has been used by every X server for years.
 @(private = "file")
 X11 :: struct {
 	lib:          dynlib.Library,
@@ -386,7 +385,8 @@ x11_close :: proc(x: ^X11) {
 	x^ = {}
 }
 
-// x11_query puts the X server's keys, as evdev codes, in `down`.
+// x11_query stores the keys that are down on the X server in `down`, as
+// evdev codes.
 @(private = "file")
 x11_query :: proc(x: ^X11, down: ^Key_Bits) -> bool {
 	keymap: [32]u8

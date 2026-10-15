@@ -11,47 +11,48 @@ import "core:time"
 import "common:proto"
 import "sqlite"
 
-/*
-Attachments (src/common/proto/attachments.odin): files uploaded with a
-message and kept with it, in channels and DMs.
-
-An upload is written as it comes to blobs/incoming/<id> (blobs.odin),
-each chunk where it goes. The file is hashed as it grows: whenever the
-part that's there from the start gets longer, that much more is hashed,
-from the chunk that just came or, for chunks that came early, from the
-file. So nothing big is done at once, which would hold up voice. Once
-it's whole it's kept as a blob of kind File (a rename, or nothing if
-the store has that content already), and the ack says complete. The
-upload stays known to its account for ATTACH_KEEP, for a post to name
-it (Msg_Post, messages.odin).
-
-A download reads from the blob's file, a chunk at a time, as the window
-and the pace allow. The server takes and sends at most the config's
-`rate_kb` per connection, its downloads sharing that. Each read is a
-system call and each chunk is sealed and sent, so a turn of the loop
-sends at most ATTACH_TURN_BYTES of them, and while downloads are going
-the loop comes round every ATTACH_WAIT (server.odin) rather than when
-the next packet comes: little and often, with voice in between.
-
-A transfer that hears nothing for ATTACH_IDLE is dropped, and an
-unfinished one goes with its connection. A kept file nothing points at
-goes at retention's next collect.
-*/
+// Attachments (src/common/proto/attachments.odin): files uploaded with a
+// message and stored with it, in channels and DMs.
+//
+// An upload is written to blobs/incoming/<id> (blobs.odin) chunk by
+// chunk, each chunk at its position in the file. The file is hashed as
+// it grows: whenever the contiguous part from the start of the file gets
+// longer, the new part is hashed. This uses the chunk that just arrived
+// or, for chunks that arrived earlier, reads them back from the file.
+// That way nothing big is done at once, which would delay voice. Once the
+// upload is complete it's stored as a blob of kind File (by renaming the
+// file, or by discarding it if the store already has that content) and
+// the ack reports it as complete. The upload remains known to its account
+// for ATTACH_KEEP so that a post can refer to it (Msg_Post, messages.odin).
+//
+// A download reads from the blob's file one chunk at a time, as the
+// window and the pace allow. The server receives and sends at most the
+// config's `rate_kb` per connection, which is shared between that
+// connection's downloads. Each read is a system call and each chunk is
+// sealed and sent, so a turn of the loop sends at most ATTACH_TURN_BYTES
+// of chunks. While downloads are going, the loop wakes up every
+// ATTACH_WAIT (server.odin) instead of waiting for the next packet. This
+// sends little and often, leaving room for voice in between.
+//
+// A transfer that hears nothing for ATTACH_IDLE is dropped, and an
+// unfinished one is dropped with its connection. A stored file that
+// nothing refers to is removed by retention's next collection.
 
 // A transfer that hears nothing from its client for this long is
 // dropped.
 ATTACH_IDLE :: time.Minute
-// How long a finished upload may be named in a post.
+// How long a finished upload may be referred to in a post.
 ATTACH_KEEP :: time.Hour
-// What one download may send in a turn of the loop, and what all of them
-// may together: about half a millisecond of reading, sealing and sending.
+// The most one download may send in a turn of the loop, and the most all
+// downloads may send together. This is about half a millisecond of
+// reading, sealing and sending.
 ATTACH_BURST :: 32 * 1024
 ATTACH_TURN_BYTES :: 64 * 1024
-// How long the loop waits for a packet while downloads are going.
+// How long the loop waits for a packet while downloads are in progress.
 ATTACH_WAIT :: 2 * time.Millisecond
 
 Attachments :: struct {
-	max_size:  u64, // bytes; 0 takes none
+	max_size:  u64, // bytes; 0 accepts no uploads
 	rate:      f32, // bytes per second, per connection
 	uploads:   map[u64]^Attach_Upload,
 	downloads: map[u64]^Attach_Download,
@@ -59,17 +60,17 @@ Attachments :: struct {
 
 Attach_Upload :: struct {
 	id:        u64,
-	conn:      ^Conn, // nil once it's kept, or its connection went
+	conn:      ^Conn, // nil once it's stored or its connection went away
 	account:   proto.Account_Id,
 	name:      string, // owned; sanitized
 	size:      u64,
 	recv:      proto.Transfer_Receiver,
-	file:      ^os.File, // the part file, while it's coming
+	file:      ^os.File, // the partial file, while the upload is in progress
 	part:      string, // owned
 	hasher:    hash.Context,
-	hashed:    u32, // chunks hashed, all from the start
+	hashed:    u32, // number of chunks hashed, always counted from the start
 	last_data: time.Tick,
-	blob:      Blob_Id, // once it's kept
+	blob:      Blob_Id, // once it's stored
 	kept_at:   time.Tick,
 }
 
@@ -120,12 +121,12 @@ download_free :: proc(down: ^Attach_Download) {
 	free(down)
 }
 
-// attach_test_sent, when set (by tests, which have no sessions), takes
-// what would be sent to a connection.
+// attach_test_sent, when set (by tests, which have no sessions),
+// receives whatever would have been sent to a connection.
 @(thread_local)
 attach_test_sent: proc(u: ^Conn, msg: []u8)
 
-// can_send is whether there's a way to send `u` datagrams now.
+// can_send is whether datagrams can currently be sent to `u`.
 @(private = "file")
 can_send :: proc(s: ^Server, u: ^Conn) -> bool {
 	return u != nil && (attach_test_sent != nil || sending_session(s, u) != nil)
@@ -140,8 +141,8 @@ attach_send :: proc(s: ^Server, u: ^Conn, msg: []u8) {
 	}
 }
 
-// new_transfer_id is a transfer's id: random, so one can't be guessed or
-// taken for another's, and never 0.
+// new_transfer_id returns a new transfer id. It is random so that it
+// can't be guessed or confused with another transfer's id, and is never 0.
 @(private = "file")
 new_transfer_id :: proc(s: ^Server) -> (id: u64) {
 	for id == 0 || (id in s.attach.uploads) || (id in s.attach.downloads) {
@@ -213,14 +214,14 @@ handle_upload_chunk :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 		return
 	}
 	if up.blob != 0 {
-		// Kept already: it may not have heard.
+		// Already stored, but the client may not have received the ack.
 		if time.tick_since(up.recv.last_ack) >= proto.TRANSFER_ACK_INTERVAL {
 			send_upload_ack(s, u, up, time.tick_now())
 		}
 		return
 	}
 	if up.conn != u || !proto.transfer_wants(&up.recv, index, len(data)) {
-		return // a repeat, or one from a connection that's gone
+		return // a duplicate chunk, or one from a connection that's gone
 	}
 	start, _ := proto.file_chunk_range(up.size, index)
 	if n, err := os.write_at(up.file, data, i64(start)); err != nil || n != len(data) {
@@ -232,7 +233,7 @@ handle_upload_chunk :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 	proto.transfer_got(&up.recv, index, len(data))
 	up.last_data = time.tick_now()
 
-	// Hash what's there from the start and wasn't yet.
+	// Hash the chunks from the start of the file that haven't been hashed yet.
 	for up.hashed < up.recv.base {
 		if up.hashed == index {
 			hash.update(&up.hasher, data)
@@ -255,7 +256,7 @@ handle_upload_chunk :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 	}
 }
 
-// upload_keep keeps an upload that's all there as a blob, and says so.
+// upload_keep stores a completed upload as a blob and acknowledges it.
 @(private = "file")
 upload_keep :: proc(s: ^Server, u: ^Conn, up: ^Attach_Upload) {
 	sum: [BLOB_HASH_SIZE]u8
@@ -295,8 +296,8 @@ send_cancel :: proc(s: ^Server, u: ^Conn, id: u64, reason: proto.File_Cancel_Rea
 	attach_send(s, u, proto.encode_transfer_cancel(&buf, id, reason))
 }
 
-// attach_upload_for is the upload `id` of `account`'s, once it's kept,
-// for a post to name.
+// attach_upload_for returns the upload `id` of `account` once it's
+// stored, so that a post can refer to it.
 attach_upload_for :: proc(
 	s: ^Server,
 	account: proto.Account_Id,
@@ -330,7 +331,7 @@ attach_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			continue
 		}
 		if down.blob == b.id {
-			// Asked again: it's on its way.
+			// Requested again, but it's already being sent.
 			respond(u, id, .Ok, proto.encode_attach_get_answer(&answer, u64(b.size), down.id))
 			return
 		}
@@ -361,8 +362,8 @@ attach_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok, proto.encode_attach_get_answer(&answer, u64(b.size), down.id))
 }
 
-// attachment_visible is whether an account may fetch a file: a message
-// it may read has it.
+// attachment_visible is whether an account may fetch a file, which is the
+// case if it may read a message that has the file attached.
 attachment_visible :: proc(s: ^Server, account: proto.Account_Id, blob: Blob_Id) -> bool {
 	q := db_stmt(&s.db, .Attach_Blob_Convs)
 	db_bind_int(q, 1, i64(blob))
@@ -403,8 +404,8 @@ download_drop :: proc(s: ^Server, down: ^Attach_Download) {
 	download_free(down)
 }
 
-// handle_transfer_cancel: the client stops an upload or a download of
-// its own.
+// handle_transfer_cancel handles a client cancelling one of its own
+// uploads or downloads.
 handle_transfer_cancel :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 	id, _ := proto.decode_transfer_cancel(pt)
 	if up := s.attach.uploads[id] or_else nil; up != nil && up.conn == u {
@@ -414,14 +415,15 @@ handle_transfer_cancel :: proc(s: ^Server, u: ^Conn, pt: []u8) {
 	}
 }
 
-// attachments_sync keeps transfers moving: acks to uploaders, chunks to
-// downloaders, and drops what has gone quiet or is too old to post.
+// attachments_sync keeps transfers moving. It sends acks to uploaders and
+// chunks to downloaders, and drops transfers that have gone quiet or
+// uploads that are too old to be posted.
 attachments_sync :: proc(s: ^Server) {
 	now := time.tick_now()
 	drop := make([dynamic]u64, context.temp_allocator)
 	for id, up in s.attach.uploads {
 		if up.blob != 0 {
-			// Kept: say so a few times, then wait for a post.
+			// Stored: acknowledge it a few times, then wait for a post.
 			if time.tick_diff(up.kept_at, now) > ATTACH_KEEP {
 				append(&drop, id)
 			} else if up.recv.complete_acks < proto.TRANSFER_COMPLETE_ACKS &&
@@ -464,9 +466,10 @@ attachments_sync :: proc(s: ^Server) {
 	}
 }
 
-// upload_conn is where a kept upload's acks go. The connection that sent
-// it isn't remembered once it's kept, so any of its account's: only
-// the one that uploaded it knows the id.
+// upload_conn returns the connection a stored upload's acks are sent to.
+// The connection that sent the upload isn't remembered once it's stored,
+// so any connection of the account is used. Only the connection that
+// uploaded the file knows the id, so the others ignore the ack.
 @(private = "file")
 upload_conn :: proc(s: ^Server, up: ^Attach_Upload) -> ^Conn {
 	acc := s.accounts.by_id[up.account] or_else nil
@@ -481,18 +484,18 @@ upload_conn :: proc(s: ^Server, up: ^Attach_Upload) -> ^Conn {
 	return nil
 }
 
-// attachments_busy is whether downloads are going, which the loop comes
-// round for often (ATTACH_WAIT).
+// attachments_busy is whether downloads are in progress, in which case
+// the loop wakes up often (ATTACH_WAIT).
 attachments_busy :: proc(s: ^Server) -> bool {
 	return len(s.attach.downloads) > 0
 }
 
-// send_download sends what the pace allows of a download, and what's
-// left of this turn's `budget`; true if it can't go on (its file can't
-// be read).
+// send_download sends as much of a download as the pace and what is left
+// of this turn's `budget` allow. It returns true if the download can't
+// continue because its file can't be read.
 @(private = "file")
 send_download :: proc(s: ^Server, down: ^Attach_Download, now: time.Tick, budget: ^int) -> bool {
-	// The connection's downloads share its rate.
+	// A connection's downloads share its rate.
 	sharing := 0
 	for _, other in s.attach.downloads {
 		if other.conn == down.conn {
@@ -529,8 +532,9 @@ send_download :: proc(s: ^Server, down: ^Attach_Download, now: time.Tick, budget
 	return false
 }
 
-// attachments_conn_gone ends a leaving connection's transfers; what it
-// had finished uploading stays, for its account's posts.
+// attachments_conn_gone ends the transfers of a disconnecting connection.
+// Uploads it had already completed are kept so its account can still
+// post them.
 attachments_conn_gone :: proc(s: ^Server, u: ^Conn) {
 	drop := make([dynamic]u64, context.temp_allocator)
 	for id, up in s.attach.uploads {
@@ -552,7 +556,7 @@ attachments_conn_gone :: proc(s: ^Server, u: ^Conn) {
 	}
 }
 
-// attach_files puts a message's files in its record.
+// attach_files fills in a message's attached files in its record.
 attach_files :: proc(s: ^Server, m: ^proto.Message) {
 	if .Has_Attachments not_in m.flags {
 		return
@@ -574,14 +578,14 @@ attach_files :: proc(s: ^Server, m: ^proto.Message) {
 	}
 	sqlite.reset(q)
 	if m.attachment_count == 0 {
-		// Nothing there after all: a record can't say it has files and
-		// list none.
+		// There were no files after all, and a record can't claim to have
+		// files without listing any.
 		m.flags -= {.Has_Attachments}
 	}
 }
 
-// attachments_store writes a new message's files, in their order, and
-// their names where search finds them.
+// attachments_store stores a new message's files in order, along with
+// their names in the search index.
 attachments_store :: proc(s: ^Server, m: proto.Message) -> bool {
 	if m.attachment_count == 0 {
 		return true

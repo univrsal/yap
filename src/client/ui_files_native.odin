@@ -15,13 +15,11 @@ import "client:platform"
 import glfw "client:wglfw"
 import "common:proto"
 
-/*
-Picking a file to send, on a desktop: the system's file dialog
-(dialogs/). It blocks until it's closed, so it runs on a thread of its
-own and the window keeps drawing meanwhile; on macOS it has to be the
-main thread, so there the frame waits for it instead, as for any modal
-dialog there.
-*/
+// Picking a file to send, on a desktop: this uses the system's file dialog
+// (see dialogs/). It blocks until it is closed, so it runs on a thread of its
+// own and the window keeps drawing meanwhile. On macOS it has to be the
+// main thread, so there the frame waits for it instead, as for any modal
+// dialog there.
 
 File_Pick_Job :: struct {
 	thread: ^thread.Thread,
@@ -30,7 +28,7 @@ File_Pick_Job :: struct {
 	path:   string,
 	status: dialogs.Status,
 	err:    string,
-	// Files to attach (ui_attachments.odin) rather than one to offer:
+	// Files to attach (see ui_attachments.odin) rather than one to offer:
 	// as many as are picked, of any kind, for `at`.
 	attach: bool,
 	at:     Attach_Target,
@@ -57,12 +55,12 @@ file_filters :: proc() -> []dialogs.Filter {
 	return filters[:]
 }
 
-// file_pick_start opens the file dialog, for a file to offer `to`.
+// file_pick_start opens the file dialog, to pick a file to offer to `to`.
 file_pick_start :: proc(ui: ^UI, to: proto.Account_Id) {
 	pick_start(ui, {to = to})
 }
 
-// attach_pick_start opens the file dialog, for files to attach.
+// attach_pick_start opens the file dialog, to pick files to attach.
 attach_pick_start :: proc(ui: ^UI, at: Attach_Target) {
 	pick_start(ui, {attach = true, at = at})
 }
@@ -70,7 +68,7 @@ attach_pick_start :: proc(ui: ^UI, at: Attach_Target) {
 @(private = "file")
 pick_start :: proc(ui: ^UI, what: File_Pick_Job) {
 	if ui.file_pick != nil {
-		return // one's open already
+		return // one is already open
 	}
 	job := new(File_Pick_Job)
 	job^ = what
@@ -97,7 +95,7 @@ pick_work :: proc(job: ^File_Pick_Job) {
 		job.path, job.status, job.err = dialogs.open_file("Send a file", file_filters())
 	}
 	sync.atomic_store(&job.done, true)
-	// The UI may be waiting for input; let it pick the result up now.
+	// The UI may be waiting for input, so let it pick up the result now.
 	ui_wake()
 }
 
@@ -123,7 +121,7 @@ file_pick_poll :: proc(ui: ^UI) {
 				&ui.session.client.commands,
 				conn.Send_File_Command{to = job.to, path = job.path},
 			)
-			job.path = "" // the command has it now
+			job.path = "" // the command owns it now
 		}
 	case .Cancelled:
 	case .Unavailable, .Failed, .Invalid_Argument:
@@ -168,8 +166,8 @@ attach_picked :: proc(ui: ^UI, job: ^File_Pick_Job) {
 	attach_paths(ui, job.at, job.paths)
 }
 
-// drop_callback is files dropped on the window: they're attached after
-// the frame, to the composer they were dropped by (attach_dropped).
+// drop_callback is called when files are dropped on the window. They are
+// attached after the frame, to the composer they were dropped on (see attach_dropped).
 drop_callback :: proc "c" (window: glfw.WindowHandle, count: c.int, paths: [^]cstring) {
 	context = platform.callback_context()
 	for i in 0 ..< int(count) {
@@ -189,8 +187,8 @@ attach_dropped :: proc(ui: ^UI) {
 	clear(&ui.dropped)
 }
 
-// attach_paths attaches files by their paths: each one's name and size,
-// as they are now; folders and what isn't there are left out.
+// attach_paths attaches files by their paths, with each one's name and size
+// as they are now. Folders and files that don't exist are left out.
 @(private = "file")
 attach_paths :: proc(ui: ^UI, at: Attach_Target, paths: []string) {
 	picked := make([dynamic]Picked_File, context.temp_allocator)
@@ -209,8 +207,8 @@ attach_paths :: proc(ui: ^UI, at: Attach_Target, paths: []string) {
 }
 
 // picked_file_read reads a picked file into its `preview`, for its chip
-// (ui_attachments.odin): all of it, now; it's no bigger than
-// conn.PREVIEW_MAX. False, and preview_failed, if it can't be read.
+// (see ui_attachments.odin): all of it, right now, because it is no bigger than
+// conn.PREVIEW_MAX. It returns false, and sets preview_failed, if it can't be read.
 picked_file_read :: proc(f: ^Picked_File) -> (done: bool) {
 	if f.preview != nil {
 		return true

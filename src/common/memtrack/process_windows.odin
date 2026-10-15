@@ -3,11 +3,9 @@ package memtrack
 
 import win "core:sys/windows"
 
-/*
-The working set and private bytes, as Task Manager shows them. Odin's
-heap is the process heap (HeapAlloc), which can't be asked cheaply how
-much of it is in use.
-*/
+// The working set and private bytes, as Task Manager shows them. Odin's
+// heap is the process heap (HeapAlloc), and there is no cheap way to ask
+// how much of it is in use.
 
 foreign import kernel32 "system:Kernel32.lib"
 

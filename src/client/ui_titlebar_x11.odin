@@ -9,41 +9,39 @@ import "core:os"
 import "core:time"
 import vglfw "vendor:glfw"
 
-/*
-On X11 the merged title bar is a window without decorations: the UI runs
-up to the top edge, with minimize, maximize and close buttons of its own
-on the end of the first row (see title_row), as on Windows.
-
-With no frame, the window manager no longer moves or resizes the window
-by itself, so we ask it to, as GTK and Qt do for theirs: a press on the
-strip where the title bar was, or on the window's outer few pixels,
-followed by the pointer moving a little with the button held, hands the
-pointer to the window manager with _NET_WM_MOVERESIZE, which then runs
-the drag until the button is let go - with its own snapping, edge tiling
-and all. Not on the press itself: a window manager that gets the request
-once the button is already up (a quick click) takes the next click as
-the end of the drag, and a double click would never reach us.
-
-Wayland has the same request (xdg_toplevel.move and .resize), but GLFW
-keeps the objects it needs to itself, so a window can't make it there.
-With the setting on, a Wayland session gets the client as an X11 window
-through XWayland instead (titlebar_init), which only takes effect when
-GLFW starts: switching between the two needs a restart.
-
-libX11 is loaded at runtime, as for the clipboard; it's GLFW's own
-connection that the request goes through.
-*/
+// On X11 the merged title bar is a window without decorations: the UI runs up
+// to the top edge, with minimize, maximize and close buttons of its own at the
+// end of the first row (see title_row), as on Windows.
+//
+// With no frame, the window manager no longer moves or resizes the window by
+// itself, so we ask it to, as GTK and Qt do for theirs. A press on the strip
+// where the title bar was, or on the window's outer few pixels, followed by the
+// pointer moving a little with the button held, hands the pointer over to the
+// window manager with _NET_WM_MOVERESIZE. The window manager then runs the drag
+// until the button is released, with its own snapping, edge tiling and so on.
+// The request is not sent on the press itself: a window manager that receives
+// the request after the button is already up (a quick click) would treat the
+// next click as the end of the drag, and a double click would never reach us.
+//
+// Wayland has the same request (xdg_toplevel.move and .resize), but GLFW keeps
+// the objects it needs to itself, so a window can't send it there. With the
+// setting on, a Wayland session gets the client as an X11 window through
+// XWayland instead (titlebar_init). This only takes effect when GLFW starts, so
+// switching between the two needs a restart.
+//
+// libX11 is loaded at runtime, as for the clipboard. The request goes through
+// GLFW's own connection.
 
 // Room left between the first row and the buttons, in logical pixels.
 @(private = "file")
 TITLEBAR_GAP :: 8
 
-// Two presses on the strip this close together maximize or restore.
+// Two presses on the strip this close together maximize or restore the window.
 @(private = "file")
 DOUBLE_CLICK :: 400 * time.Millisecond
 
-// How far the pointer moves with the button held before it's a drag, in
-// pixels at 96 dpi.
+// How far the pointer moves with the button held before it counts as a drag,
+// in pixels at 96 dpi.
 @(private = "file")
 DRAG_DISTANCE :: 4
 
@@ -93,21 +91,19 @@ x11: struct {
 	sym:        Symbols,
 	tried:      bool,
 	loaded:     bool,
-	// The client was started on X11 rather than Wayland for the setting.
+	// Whether the client was started on X11 rather than Wayland because of the setting.
 	xwayland:   bool,
 	last_press: time.Tick,
-	// A press on the strip or an edge that becomes a move or resize
-	// once the pointer moves (titlebar_motion): which, and where.
+	// A press on the strip or an edge that becomes a move or resize once the
+	// pointer moves (titlebar_motion): which direction, and where.
 	pending:    bool,
 	direction:  c.long,
 	pressed_at: [2]f64,
 }
 
-/*
-titlebar_init asks GLFW for X11 rather than Wayland when the title bar
-is to be merged (see above), where there's an X server to ask: under
-XWayland, DISPLAY is set alongside WAYLAND_DISPLAY.
-*/
+// titlebar_init asks GLFW for X11 rather than Wayland when the title bar is to
+// be merged (see above), where there is an X server to ask: under XWayland,
+// DISPLAY is set alongside WAYLAND_DISPLAY.
 titlebar_init :: proc(merged: bool) {
 	if !merged {
 		return
@@ -121,14 +117,14 @@ titlebar_init :: proc(merged: bool) {
 	log.debug("ui: X11 rather than Wayland, for the merged title bar")
 }
 
-// titlebar_window_hints makes the window without decorations to begin
-// with, rather than taking them away once it's up.
+// titlebar_window_hints makes the window without decorations from the start,
+// rather than removing them once it is up.
 titlebar_window_hints :: proc(merged: bool) {
 	glfw.WindowHint(vglfw.DECORATED, !(merged && on_x11()))
 }
 
-// titlebar_merge lets the UI take the title bar's place, or gives it
-// back. Only on X11; on Wayland it takes a restart (titlebar_init).
+// titlebar_merge lets the UI take the title bar's place, or gives it back.
+// Only on X11. On Wayland it takes a restart (titlebar_init).
 titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	if window == nil || !on_x11() {
 		return
@@ -139,17 +135,16 @@ titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	vglfw.SetWindowAttrib(window, vglfw.DECORATED, 0 if merged else 1)
 }
 
-/*
-titlebar_area is the strip along the top that the title bar would have
-taken, in window coordinates: how far in from the left and from the right
-the window's own buttons reach (only the right here), and how tall the
-strip is. Zero where it's the window manager's, or in fullscreen.
-
-There's no system title bar to match here, so it's sized in the UI's own
-pixels, as the first row is, and scales with it: down to where the first
-row ends, so the buttons keep the same spacing from the second row as
-the rows keep from each other.
-*/
+// titlebar_area is the strip along the top that the title bar would have
+// taken, in window coordinates: how far in from the left and from the right
+// the window's own buttons reach (only the right here), and how tall the strip
+// is. It is zero where the window manager draws the title bar, or in
+// fullscreen.
+//
+// There is no system title bar to match here, so it is sized in the UI's own
+// pixels, as the first row is, and scales with it. It reaches down to where the
+// first row ends, so that the buttons keep the same spacing from the second row
+// as the rows keep from each other.
 titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	if !merged(ui.window) || ui.input_scale <= 0 {
 		return
@@ -161,11 +156,9 @@ titlebar_area :: proc(ui: ^UI) -> (left, right, height: f32) {
 	return
 }
 
-/*
-titlebar_buttons draws the window's buttons in the top right corner of
-the window, `w` wide, in the strip titlebar_area made room for, and does
-what they say when pressed.
-*/
+// titlebar_buttons draws the window's buttons in the top right corner of the
+// window, `w` wide, in the strip that titlebar_area made room for, and does
+// what they say when pressed.
 titlebar_buttons :: proc(ui: ^UI, w: i32) {
 	if ui.titlebar_right == 0 {
 		return
@@ -181,18 +174,16 @@ titlebar_buttons :: proc(ui: ^UI, w: i32) {
 			vglfw.MaximizeWindow(ui.window)
 		}
 	case 2:
-		// As the window manager's close button would: the client
-		// decides what closing does (ui_frame).
+		// As the window manager's close button would: the client decides what
+		// closing does (ui_frame).
 		glfw.SetWindowShouldClose(ui.window, true)
 	}
 }
 
-/*
-titlebar_press does what a title bar does with the press being handled:
-move the window along with the pointer, once it moves (titlebar_motion),
-or maximize or restore it on a double click. Called from the mouse button
-callback; the drag runs until the button is let go.
-*/
+// titlebar_press does what a title bar does with the press being handled:
+// move the window along with the pointer once it moves (titlebar_motion), or
+// maximize or restore it on a double click. Called from the mouse button
+// callback. The drag runs until the button is released.
 titlebar_press :: proc(window: glfw.WindowHandle) {
 	if x11.last_press != {} && time.tick_since(x11.last_press) < DOUBLE_CLICK {
 		x11.last_press = {}
@@ -208,11 +199,9 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 	start_drag(window, MOVERESIZE_MOVE)
 }
 
-/*
-titlebar_motion hands a press on the strip or an edge over to the window
-manager once the pointer has moved far enough with the button held.
-Called from the cursor position callback.
-*/
+// titlebar_motion hands a press on the strip or an edge over to the window
+// manager once the pointer has moved far enough with the button held. Called
+// from the cursor position callback.
 titlebar_motion :: proc(window: glfw.WindowHandle) {
 	if !x11.pending {
 		return
@@ -231,16 +220,16 @@ titlebar_motion :: proc(window: glfw.WindowHandle) {
 	move_resize(window, x11.direction)
 }
 
-// titlebar_resizable reports whether window_edge resizes the window: it
-// has no frame to be resized by, and isn't maximized or fullscreen.
+// titlebar_resizable reports whether window_edge resizes the window: it has no
+// frame to be resized by, and isn't maximized or fullscreen.
 titlebar_resizable :: proc(window: glfw.WindowHandle) -> bool {
 	return merged(window) && vglfw.GetWindowAttrib(window, vglfw.MAXIMIZED) == 0
 }
 
 // titlebar_resize resizes the window by `edge` while the button is held.
 titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {
-	// _NET_WM_MOVERESIZE numbers the edges clockwise from the top left,
-	// as Window_Edge does from 1.
+	// _NET_WM_MOVERESIZE numbers the edges clockwise from the top left, as
+	// Window_Edge does from 1.
 	if edge != .None {
 		start_drag(window, c.long(edge) - 1)
 	}
@@ -249,8 +238,8 @@ titlebar_resize :: proc(window: glfw.WindowHandle, edge: Window_Edge) {
 @(private = "file")
 XWAYLAND_NOTE :: "On Wayland this needs XWayland, which this window will use from the next start."
 
-// titlebar_restart_note says what the setting won't change until the
-// client is started again, if anything.
+// titlebar_restart_note says what the setting won't change until the client is
+// started again, if anything.
 titlebar_restart_note :: proc(merged: bool) -> string {
 	switch {
 	case merged && on_wayland():
@@ -266,8 +255,8 @@ on_x11 :: proc() -> bool {
 	return glfw.GetPlatform() == glfw.PLATFORM_X11
 }
 
-// merged reports whether `window` is one titlebar_merge took the
-// decorations off, and isn't fullscreen.
+// merged reports whether `window` is one that titlebar_merge removed the
+// decorations from, and isn't fullscreen.
 @(private = "file")
 merged :: proc(window: glfw.WindowHandle) -> bool {
 	return(
@@ -278,8 +267,8 @@ merged :: proc(window: glfw.WindowHandle) -> bool {
 	)
 }
 
-// start_drag notes a press that moves (MOVERESIZE_MOVE) or resizes the
-// window, for titlebar_motion.
+// start_drag notes a press that moves (MOVERESIZE_MOVE) or resizes the window,
+// for titlebar_motion.
 @(private = "file")
 start_drag :: proc(window: glfw.WindowHandle, direction: c.long) {
 	x, y := glfw.GetCursorPos(window)
@@ -312,14 +301,12 @@ load_x11 :: proc() -> bool {
 	return true
 }
 
-/*
-move_resize hands the pointer to the window manager to move the window
-(MOVERESIZE_MOVE) or resize it by an edge (0 to 7, clockwise from the top
-left), until the left button is let go. The press that started it has
-the pointer grabbed for us, so that grab is let go first. The window
-manager is told where the press was rather than where the pointer is
-now, so the window keeps to the pointer as it was when pressed.
-*/
+// move_resize hands the pointer to the window manager to move the window
+// (MOVERESIZE_MOVE) or resize it by an edge (0 to 7, clockwise from the top
+// left) until the left button is released. The press that started it has the
+// pointer grabbed for us, so that grab is released first. The window manager
+// is told where the press was rather than where the pointer is now, so the
+// window keeps to the pointer as it was when pressed.
 @(private = "file")
 move_resize :: proc(window: glfw.WindowHandle, direction: c.long) {
 	display := rawptr(vglfw.GetX11Display())
@@ -336,8 +323,8 @@ move_resize :: proc(window: glfw.WindowHandle, direction: c.long) {
 		window       = c.ulong(vglfw.GetX11Window(window)),
 		message_type = s.XInternAtom(display, "_NET_WM_MOVERESIZE", false),
 		format       = 32,
-		// Where the pointer is on the screen, which way, with which
-		// button (the left), and that it's an application asking.
+		// Where the pointer is on the screen, which direction, with which
+		// button (the left), and that an application is asking.
 		data         = {c.long(wx) + c.long(px), c.long(wy) + c.long(py), direction, 1, 1},
 	}
 	s.XUngrabPointer(display, 0)

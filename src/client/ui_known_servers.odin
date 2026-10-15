@@ -10,27 +10,25 @@ import "client:conn"
 import "client:platform"
 import "common:proto"
 
-/*
-Server keys from the UI, rather than by editing known_servers (or, in a
-browser, the page's local storage) by hand: the connect screen offers
-to trust a server's new key when it has changed, and the settings page
-lists the saved keys, each of which can be forgotten.
-
-A changed key is either harmless (the server was set up again, or its
-key file replaced) or someone in the middle pretending to be the server,
-and the two look exactly the same from here. So neither place makes it
-a one-click habit without saying so: the connect screen explains what a
-change can mean and how to check it with whoever runs the server.
-*/
+// Managing server keys from the UI, instead of editing known_servers (or, in a
+// browser, the page's local storage) by hand: the connect screen offers to
+// trust a server's new key when it has changed, and the settings page lists the
+// saved keys, each of which can be forgotten.
+//
+// A changed key is either harmless (the server was set up again, or its key
+// file was replaced) or a sign of someone in the middle pretending to be the
+// server, and the two look exactly the same from here. So neither place lets
+// trusting a new key become a thoughtless click: the connect screen explains
+// what a change can mean and how to verify it with whoever runs the server.
 
 UI_Known_Servers :: struct {
-	// The settings page's copy of the file, read when the page is
-	// opened (open_settings) and after a change, not every frame.
+	// The settings page's copy of the file, read when the page is opened
+	// (open_settings) and after a change, rather than every frame.
 	list:   []conn.Known_Server,
 	loaded: bool,
 }
 
-// open_settings shows the settings page, with the saved keys read afresh.
+// open_settings shows the settings page, and has the saved keys read again.
 open_settings :: proc(ui: ^UI) {
 	ui.page = .Settings
 	ui.settings_list = true
@@ -49,7 +47,8 @@ known_servers_destroy :: proc(ui: ^UI) {
 	ui.known = {}
 }
 
-// key_lines is a key in hex, four lines of two groups of eight.
+// key_lines formats a key in hex as four lines, each with two groups of eight
+// digits.
 @(private = "file")
 key_lines :: proc(key: [proto.KEY_SIZE]u8) -> [4]string {
 	full := conn.key_hex(key)
@@ -69,16 +68,14 @@ text_proc :: proc(ctx: ^mu.Context, text: string) {
 	mu.text(ctx, text)
 }
 
-/*
-key_change_panel is drawn in the connect screen's card (or the join page's),
-under the error, when the last connection failed because the server's
-key has changed. Called with the View locked.
-*/
+// key_change_panel is drawn in the connect screen's card (or the join page's),
+// below the error, when the last connection failed because the server's key has
+// changed. Called with the View locked.
 key_change_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	kc := &ui.view.key_change
 
-	// The two side by side, each over its four lines.
+	// The two keys side by side, each as a heading over its four lines.
 	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, -1})
 	with_text_color(ctx, theme.dim, "Saved key", label_proc)
@@ -107,9 +104,9 @@ key_change_panel :: proc(ui: ^UI) {
 	}
 }
 
-// trust_new_key saves the key the server showed last time in place of
-// the old one, then connects to it again. Runs between frames, like
-// connect, with the View unlocked.
+// trust_new_key replaces the saved key with the one the server presented last
+// time, then connects to the server again. Runs between frames, like connect,
+// with the View unlocked.
 trust_new_key :: proc(ui: ^UI) {
 	v := ui.view
 	server: string
@@ -131,7 +128,7 @@ trust_new_key :: proc(ui: ^UI) {
 	}
 	log.infof("trusting the new key of %s: %s", server, conn.key_hex(key))
 	ui.known.loaded = false
-	// From the join page, which goes on joining it (ui_join.odin).
+	// When trusted from the join page, continue joining (ui_join.odin).
 	if ns := ui.session; ns != nil && ns.joining {
 		join_connect(ui, server, strings.clone(ns.password, context.temp_allocator))
 		return
@@ -140,8 +137,8 @@ trust_new_key :: proc(ui: ^UI) {
 	connect(ui)
 }
 
-// trusted_servers_settings is the settings page's list of saved server
-// keys, each with a button to forget it.
+// trusted_servers_settings draws the settings page's list of saved server keys,
+// each with a button to forget it.
 trusted_servers_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	k := &ui.known
@@ -154,7 +151,7 @@ trusted_servers_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	mu.text(
 		ctx,
-		"The key each server showed the first time you connected to it. If a server's key changes, yap won't connect to it until you trust the new one. Forgetting a key makes the next connection trust whatever key the server shows, so only forget one when you know why it changed.",
+		"The key each server presented the first time you connected to it. If a server's key changes, yap won't connect to it until you trust the new one. Forgetting a key makes the next connection trust whatever key the server shows, so only forget one when you know why it changed.",
 	)
 
 	mu.layout_row(ctx, {-1})
@@ -175,7 +172,7 @@ trusted_servers_settings :: proc(ui: ^UI) {
 			forget = i
 		}
 	}
-	// Not while going through the list, which this replaces.
+	// Done after the loop, because forgetting a key replaces the list.
 	if forget >= 0 {
 		addr := k.list[forget].addr
 		if conn.forget_server_key(ui.opts.known_servers, addr) {

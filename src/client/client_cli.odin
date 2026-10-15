@@ -10,13 +10,14 @@ import "core:slice"
 import "core:strings"
 
 
-// run_headless is the command-line client: commands come from stdin.
+// run_headless is the command-line client, which reads commands from stdin.
 // With tone_hz > 0 it "talks" by sending that tone and logs what it hears
-// (see Fake_Audio), which exercises the whole voice path without devices.
-// input_file (raw 48 kHz mono f32) is looped as the microphone instead.
+// (see Fake_Audio), which exercises the whole voice path without audio devices.
+// If input_file is set (raw 48 kHz mono f32), it is looped as the microphone
+// instead.
 run_headless :: proc(
 	key_path, server_addr, known_servers, initial_channel, password: string,
-	user, user_password, device: string, // what to log in with, if the server asks
+	user, user_password, device: string, // credentials to log in with, if the server asks
 	tone_hz: f32,
 	input_file: string,
 	download_dir: string,
@@ -25,7 +26,7 @@ run_headless :: proc(
 	gate: bool,
 	quality: audio.Quality,
 ) -> bool {
-	// Heap-allocated: the channel state buffers make it fairly large.
+	// Heap-allocated because the channel state buffers make it fairly large.
 	c := new(conn.Voice_Client)
 	defer free(c)
 	if !audio.voice_init(&c.voice) {

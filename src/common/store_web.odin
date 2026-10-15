@@ -4,14 +4,13 @@ package common
 import log "common:wlog"
 import "core:strings"
 
-/*
-In a browser the same named blobs live in the page's local storage,
-which is per site and survives a reload. It can be switched off or
-full, so a write that doesn't take is reported rather than assumed.
-
-The few lines of JavaScript behind these sit with the rest of the
-page's glue (see web/shell.c).
-*/
+// In a browser the same named blobs live in the page's local storage,
+// which is kept per site and survives a reload. Local storage can be
+// disabled or full, so a failed write is reported instead of assumed to
+// have succeeded.
+//
+// The JavaScript behind these procs lives with the rest of the page's glue
+// code (see web/shell.c).
 
 @(default_calling_convention = "c")
 foreign _ {
@@ -34,8 +33,8 @@ store_read :: proc(name: string, allocator := context.allocator) -> (text: strin
 	return strings.clone(string(buf[:n]), allocator), true
 }
 
-// Everything a page stores is as private as the page itself, so there
-// is nothing for `private` to do here.
+// Everything a page stores is as private as the page itself, so `private`
+// has no effect here.
 store_write :: proc(name: string, text: string, private := false) -> bool {
 	if yap_store_write(temp_cstring(name), raw_data(text), i32(len(text))) == 0 {
 		log.errorf("failed to store %s (is local storage full or switched off?)", name)
@@ -44,7 +43,7 @@ store_write :: proc(name: string, text: string, private := false) -> bool {
 	return true
 }
 
-// store_remove deletes `name`; one that isn't there is already gone.
+// store_remove deletes `name`. A blob that doesn't exist counts as removed.
 store_remove :: proc(name: string) -> bool {
 	if yap_store_remove(temp_cstring(name)) == 0 {
 		log.errorf("failed to remove %s from local storage", name)

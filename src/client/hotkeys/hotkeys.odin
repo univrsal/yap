@@ -6,31 +6,29 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-/*
-Global hotkeys: key combinations that work whichever window has the
-focus, or with ours minimized or hidden in the tray.
-
-There's no hook here, in the sense of something the system calls on
-every key: each platform can say which keys are down right now, and a
-thread asks every POLL_INTERVAL (see the backend_*.odin files). A bind
-fires when its key goes down while exactly its modifiers are held, so
-Ctrl+M doesn't also fire for Ctrl+Shift+M. Keys still reach whatever has
-the focus; nothing is taken away from other programs.
-
-	Windows   GetAsyncKeyState
-	Linux     the keyboards' own state, from /dev/input/event* (evdev),
-	          which works under Wayland as well as X11 but needs read
-	          access to those devices (the "input" group); failing that,
-	          X11's XQueryKeymap
-	OpenBSD   X11's XQueryKeymap
-	macOS    CGEventSourceKeyState, which may need the Input Monitoring
-	          permission
-
-Only the keys on an ordinary keyboard are known (Key), and Ctrl, Shift,
-Alt and Super as modifiers, either side. Keys are physical positions,
-named as on a US layout, except on Windows, where letters follow the
-layout in use.
-*/
+// Global hotkeys are key combinations that work no matter which window has
+// the focus, even when our window is minimized or hidden in the tray.
+//
+// This does not install a hook that the system calls on every key press.
+// Instead, each platform can tell which keys are currently down, and a
+// thread asks for that every POLL_INTERVAL (see the backend_*.odin files).
+// A bind fires when its key goes down while exactly its modifiers are
+// held, so Ctrl+M doesn't also fire for Ctrl+Shift+M. Key presses still
+// reach the focused window, so other programs are not affected.
+//
+//	Windows   GetAsyncKeyState
+//	Linux     the keyboards' own state, from /dev/input/event* (evdev),
+//	          which works under Wayland as well as X11 but needs read
+//	          access to those devices (the "input" group). If that isn't
+//	          possible, X11's XQueryKeymap is used instead.
+//	OpenBSD   X11's XQueryKeymap
+//	macOS    CGEventSourceKeyState, which may need the Input Monitoring
+//	          permission
+//
+// Only the keys of an ordinary keyboard (Key) are supported, with Ctrl,
+// Shift, Alt and Super (on either side) as modifiers. Keys are physical
+// positions, named as on a US layout, except on Windows, where letters
+// follow the active keyboard layout.
 
 Key :: enum u8 {
 	None,
@@ -136,20 +134,20 @@ Mod :: enum u8 {
 
 Mods :: distinct bit_set[Mod;u8]
 
-// A key with the modifiers that have to be held with it. `key` .None is
-// no hotkey at all.
+// A key together with the modifiers that have to be held with it.
+// A `key` of .None means there is no hotkey.
 Hotkey :: struct {
 	key:  Key,
 	mods: Mods,
 }
 
-// What a backend reports: the keys and modifiers down right now.
+// What a backend reports: the keys and modifiers that are down right now.
 State :: struct {
 	keys: Keys,
 	mods: Mods,
 }
 
-// How a bind is written, in settings and on screen.
+// How a bind is written in the settings and shown on screen.
 KEY_NAMES := [Key]string {
 	.None          = "",
 	.A             = "A",
@@ -243,7 +241,8 @@ KEY_NAMES := [Key]string {
 	.Print_Screen  = "PrintScreen",
 }
 
-// Modifiers are written in this order, whatever order they were typed in.
+// Modifiers are always written in this order, no matter in which order they
+// were typed.
 MOD_NAMES := [Mod]string {
 	.Ctrl  = "Ctrl",
 	.Shift = "Shift",
@@ -251,7 +250,7 @@ MOD_NAMES := [Mod]string {
 	.Super = "Super",
 }
 
-// Other names a modifier is known by, for reading a bind.
+// Alternative names for the modifiers that are accepted when reading a bind.
 @(private = "file")
 Mod_Alias :: struct {
 	name: string,
@@ -284,11 +283,9 @@ format :: proc(h: Hotkey, allocator := context.allocator) -> string {
 	return strings.to_string(b)
 }
 
-/*
-parse reads what format writes, ignoring case and spaces, and taking
-Control, Option, Win, Cmd, Command and Meta for the modifiers as well.
-"" is no hotkey, and fine; anything else must end in exactly one key.
-*/
+// parse reads what format writes. It ignores case and spaces and also accepts
+// Control, Option, Win, Cmd, Command and Meta as modifier names.
+// "" is valid and means no hotkey; anything else must end in exactly one key.
 parse :: proc(s: string) -> (h: Hotkey, ok: bool) {
 	rest := strings.trim_space(s)
 	if rest == "" {
@@ -331,8 +328,8 @@ mod_named :: proc(word: string) -> (Mod, bool) {
 	return {}, false
 }
 
-// How often the keys are looked at. Much less and a quick tap could be
-// missed entirely; much more is wasted.
+// How often the keys are checked. A longer interval could miss a quick tap
+// entirely, and a shorter one would just waste CPU time.
 POLL_INTERVAL :: 10 * time.Millisecond
 
 MAX_BINDS :: 8
@@ -340,27 +337,26 @@ MAX_BINDS :: 8
 Status :: enum {
 	Starting,
 	Ok, // working
-	Limited, // working, but not everywhere; see the message
-	Unavailable, // not working; see the message
+	Limited, // working, but not everywhere (see the message)
+	Unavailable, // not working (see the message)
 }
 
-/*
-Watcher is the thread that looks at the keys, and what it shares with
-whoever asked for the hotkeys. Everything but `thread` is behind `mutex`.
-*/
+// Watcher is the thread that checks the keys, together with the state it
+// shares with whoever asked for the hotkeys. Everything but `thread` is
+// protected by `mutex`.
 Watcher :: struct {
 	mutex:     sync.Mutex,
 	binds:     [MAX_BINDS]Hotkey,
-	fired:     u32, // a bit per bind, since take_fired
-	// Capturing: the next key to go down is taken as a new hotkey instead
-	// of firing anything.
+	fired:     u32, // a bit per bind that fired since the last take_fired
+	// While capturing, the next key to go down is taken as a new hotkey
+	// instead of firing anything.
 	capturing: bool,
 	captured:  Maybe(Hotkey),
 	status:    Status,
-	message:   string, // says why, for Limited and Unavailable; static
+	message:   string, // explains why, for Limited and Unavailable; static
 	stop:      bool,
-	// Called from the watcher's thread when something is waiting to be
-	// taken, to wake whoever takes it (glfw.PostEmptyEvent).
+	// Called from the watcher's thread when something is waiting to be taken,
+	// to wake whoever takes it (glfw.PostEmptyEvent).
 	wake:      proc "c" (),
 	prev:      State,
 	thread:    ^thread.Thread,
@@ -388,16 +384,16 @@ set_bind :: proc(w: ^Watcher, index: int, h: Hotkey) {
 	w.binds[index] = h
 }
 
-// take_fired returns the binds that have fired since the last call, a
-// bit each, and forgets them.
+// take_fired returns the binds that have fired since the last call (one bit
+// per bind) and clears them.
 take_fired :: proc(w: ^Watcher) -> (fired: u32) {
 	sync.guard(&w.mutex)
 	fired, w.fired = w.fired, 0
 	return
 }
 
-// capture makes the next key pressed (with its modifiers) the result of
-// take_captured, rather than firing anything, until cancelled.
+// capture makes the next key that is pressed (with its modifiers) the result
+// of take_captured instead of firing a bind, until it is turned off.
 capture :: proc(w: ^Watcher, on: bool) {
 	sync.guard(&w.mutex)
 	w.capturing, w.captured = on, nil
@@ -462,7 +458,7 @@ run :: proc(w: ^Watcher) {
 	}
 }
 
-// wanted_keys is what a backend needs to look at: the bound keys, or
+// wanted_keys returns the keys a backend needs to check: the bound keys, or
 // every key while capturing. Call with the mutex held.
 @(private = "file")
 wanted_keys :: proc(w: ^Watcher) -> (keys: Keys) {
@@ -477,12 +473,10 @@ wanted_keys :: proc(w: ^Watcher) -> (keys: Keys) {
 	return
 }
 
-/*
-step takes in the keys as they are now: a bind whose key has just gone
-down, with exactly its modifiers held, fires, or while capturing, the
-key that went down is what's captured. It returns whether there's
-anything to take. Call with the mutex held.
-*/
+// step processes the current key state. A bind fires when its key has just
+// gone down while exactly its modifiers are held. While capturing, the key
+// that went down is captured instead. It returns whether there is anything
+// to take. Call with the mutex held.
 step :: proc(w: ^Watcher, cur: State) -> (woke: bool) {
 	pressed := cur.keys - w.prev.keys
 	w.prev = cur

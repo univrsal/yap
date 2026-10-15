@@ -1,15 +1,14 @@
 package conn
 
-/*
-What the image cache's two homes have in common: on a desktop a folder
-(image_cache_native.odin), in a browser IndexedDB (image_cache_web.odin,
-web/images.js). A browser only reads IndexedDB asynchronously, so a
-picture is asked for (image_cache_request) and then looked for every
-turn of the network loop (image_cache_poll) until it's here; on a
-desktop it's here the first time it's looked for.
-*/
+// This file has what the two image cache implementations have in common. On a
+// desktop the cache is a folder (image_cache_native.odin), and in a browser it
+// is IndexedDB (image_cache_web.odin, web/images.js). A browser can only read
+// IndexedDB asynchronously, so a picture is first requested
+// (image_cache_request) and then polled on every turn of the network loop
+// (image_cache_poll) until it is available. On a desktop it is available the
+// first time it is looked up.
 
-// A picture asked for from the cache; 0 for none.
+// A picture requested from the cache. 0 means no request.
 Cache_Request :: distinct int
 
 Cache_Poll :: enum {

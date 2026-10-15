@@ -3,28 +3,24 @@ package memtrack
 import "core:fmt"
 import "core:strings"
 
-/*
-A report is text, so that the server's can be sent to a client as it
-is: a line starting with "# " is a heading, any other is three columns
-split by tabs - an amount, a detail, and what it's about. The client
-shows it in columns (ui_memory.odin), and log_text lines it up for a
-log.
-*/
+// A report is plain text, so that the server's can be sent to a client
+// unchanged. A line starting with "# " is a heading. Any other line has
+// three tab-separated columns: an amount, a detail and a description. The
+// client shows it in columns (ui_memory.odin), and log_text aligns the
+// columns for a log.
 
-// Something counted elsewhere, for a report's "Elsewhere": SQLite's
-// own memory, the GPU's textures.
+// Extra is memory that is counted elsewhere, for a report's "Elsewhere"
+// section, such as SQLite's own memory or the GPU's textures.
 Extra :: struct {
 	name:   string,
 	bytes:  int,
 	detail: string,
 }
 
-/*
-report is what the process has and where it's gone, in `allocator`:
-the process's numbers, then `extras`, then what's counted, by file
-(the `files` with the most) and by line of code (the `lines` with the
-most).
-*/
+// report describes the process's memory and where it went, allocated with
+// `allocator`: the process's numbers, then `extras`, then the counted
+// allocations by file (the top `files` files) and by line of code (the top
+// `lines` lines).
 report :: proc(
 	extras: []Extra = nil,
 	files := 25,
@@ -114,10 +110,8 @@ report :: proc(
 	return strings.to_string(b)
 }
 
-/*
-summary is a report in a line, for logging every so often: enough to
-see a trend in a long log, and the files that hold the most.
-*/
+// summary is a one-line report for logging periodically. It is enough to
+// see a trend in a long log and shows the files that hold the most memory.
 summary :: proc(extras: []Extra = nil, allocator := context.allocator) -> string {
 	context.allocator = context.temp_allocator
 	b := strings.builder_make(allocator)
@@ -169,7 +163,7 @@ summary :: proc(extras: []Extra = nil, allocator := context.allocator) -> string
 	return strings.to_string(b)
 }
 
-// log_text is a report with its columns lined up, for a log.
+// log_text formats a report with aligned columns, for a log.
 log_text :: proc(report: string, allocator := context.allocator) -> string {
 	b := strings.builder_make(allocator)
 	rest := report
@@ -185,7 +179,8 @@ log_text :: proc(report: string, allocator := context.allocator) -> string {
 	return strings.to_string(b)
 }
 
-// site_string is where a line of code is: conn/messages.odin:120 (decode_message).
+// site_string describes the location of a line of code, such as
+// conn/messages.odin:120 (decode_message).
 site_string :: proc(s: Site, allocator := context.temp_allocator) -> string {
 	if s.loc.line == 0 {
 		return fmt.aprintf("%s (%s)", s.loc.file_path, s.loc.procedure, allocator = allocator)
@@ -204,7 +199,8 @@ heading :: proc(b: ^strings.Builder, text: string) {
 	fmt.sbprintf(b, "# %s\n", text)
 }
 
-// The detail and what it's about mustn't break the columns.
+// row writes one report row. Tabs and newlines in the detail and the
+// description are replaced so they can't break the columns.
 @(private = "file")
 row :: proc(b: ^strings.Builder, bytes: int, detail, about: string) {
 	clean :: proc(s: string) -> string {

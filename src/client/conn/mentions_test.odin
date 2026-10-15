@@ -23,8 +23,9 @@ test_mentions_transform :: proc(t: ^testing.T) {
 		display  = "Other Bob",
 	}
 
-	// Typed to stored: at word starts, the longest username, a full stop
-	// left alone, emails left alone.
+	// Typed to stored: mentions are recognized at the start of a word, the longest
+	// username wins, a trailing full stop is left alone, and email addresses are
+	// left alone.
 	testing.expect_value(t, mentions_encode("@alice hi", accounts, nil), "<@17> hi")
 	testing.expect_value(t, mentions_encode("hi @Alice.", accounts, nil), "hi <@17>.")
 	testing.expect_value(t, mentions_encode("@bob.b and @bob.", accounts, nil), "<@5> and <@4>.")
@@ -41,7 +42,7 @@ test_mentions_transform :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, mentions_encode("no mentions", accounts, nil), "no mentions")
 
-	// And back, for editing.
+	// And back again, for editing.
 	testing.expect_value(
 		t,
 		mentions_for_edit("<@17>, <@5><@4> <@everyone> <@99> <@x>", accounts, nil),
@@ -54,7 +55,7 @@ test_mentions_transform :: proc(t: ^testing.T) {
 		round,
 	)
 
-	// Shown: names as they are now, a span each.
+	// Shown: current names, with one span for each mention.
 	shown, spans := mentions_display("<@17>hi <@99> <@4><@everyone> <@x>", accounts, nil, 4)
 	testing.expect_value(t, shown, "@Alice A.hi @unknown @Bob@everyone <@x>")
 	testing.expect_value(t, len(spans), 4)
@@ -90,16 +91,16 @@ test_role_mentions_transform :: proc(t: ^testing.T) {
 		{id = 8, name = "quiet"},
 	}
 
-	// Typed to stored: the name with its spaces, whatever its case; the
-	// longest; not inside a word; only one that can be mentioned; an
-	// account's username over a role's name the same.
+	// Typed to stored: the role name with its spaces in any case, the longest
+	// match wins, no match inside a word, only mentionable roles match, and an
+	// account's username wins over an identical role name.
 	testing.expect_value(t, mentions_encode("@team leads, look", accounts, roles), "<@&5>, look")
 	testing.expect_value(t, mentions_encode("@Team leader", accounts, roles), "<@&6> leader")
 	testing.expect_value(t, mentions_encode("@Teamwork @Team", accounts, roles), "@Teamwork <@&6>")
 	testing.expect_value(t, mentions_encode("@quiet @dev", accounts, roles), "@quiet <@4>")
 	testing.expect_value(t, mentions_encode("@everyone", accounts, roles), "<@everyone>")
 
-	// And back: a role whose name is a username stays its token.
+	// And back: a role whose name is also a username stays a token.
 	testing.expect_value(
 		t,
 		mentions_for_edit("<@&5> <@&7> <@&99>", accounts, roles),
@@ -112,7 +113,7 @@ test_role_mentions_transform :: proc(t: ^testing.T) {
 		round,
 	)
 
-	// Shown: its name, and the reader's if the reader has it.
+	// Shown: the role's name, and a mention of the reader if the reader has the role.
 	shown, spans := mentions_display("<@&5> <@&6> <@&99>", accounts, roles, 17)
 	testing.expect_value(t, shown, "@Team Leads @Team @unknown role")
 	testing.expect_value(t, len(spans), 3)
@@ -125,8 +126,8 @@ test_role_mentions_transform :: proc(t: ^testing.T) {
 @(test)
 test_emoji_transform :: proc(t: ^testing.T) {
 	custom := []string{"party", "smile"}
-	// Shortcodes become characters, but not the server's own names, nor
-	// what isn't a shortcode.
+	// Shortcodes become characters, but the server's own emoji names and text
+	// that isn't a shortcode stay unchanged.
 	testing.expect_value(t, emoji_encode("hi :+1: :grinning:", custom), "hi 👍 😀")
 	testing.expect_value(
 		t,
@@ -135,7 +136,8 @@ test_emoji_transform :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, emoji_encode("::grinning:", custom), ":😀")
 
-	// Shown: the server's own as placeholders, with which they are.
+	// Shown: the server's own emoji become placeholders, and the spans say which
+	// emoji each one is.
 	accounts: map[proto.Account_Id]Dir_Account
 	defer delete(accounts)
 	shown, _, icons := text_display(":party::smile: x :nope: <@1>", accounts, nil, 0, custom)

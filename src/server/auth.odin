@@ -7,39 +7,39 @@ import "core:time"
 
 import "common:proto"
 
-/*
-Logging in, and the rest of what clients ask about accounts
-(src/common/proto/accounts.odin).
+// Logging in and the other requests from clients that are about accounts
+// (src/common/proto/accounts.odin).
+//
+// A connection from an unknown device can only ask to log in. After a
+// successful login with the right username and password, the device's key
+// is stored with the account (accounts.odin). From then on the handshake
+// logs the device in by itself with auth_known_device, which is called
+// for every new connection.
+//
+// Anything that involves a password takes two turns. The request hands
+// the password to the hashing thread (hash_worker.odin) and records what
+// it was for in `pending`. When the thread is done, auth_sync picks up
+// the result and finishes what the request started. A connection can
+// only have one such request in progress at a time.
+//
+// Guessing passwords is slowed down in three ways. Hashing is slow, only
+// a limited number of hashes can be waiting (HASH_QUEUE_MOST), and an
+// account that has had AUTH_FREE_FAILURES wrong passwords in a row
+// rejects further attempts for a while, with the wait doubling each time
+// up to AUTH_LOCK_MOST. A wrong username takes as long to be refused as
+// a wrong password, so it's not possible to find out from outside which
+// usernames exist.
+//
+// The question of who may do what is answered in one place: can, in
+// accounts.odin.
 
-A device that isn't known has a connection that can do nothing but ask
-to log in. With the right username and password its key is kept with
-the account (accounts.odin), and from then on the handshake logs it in:
-auth_known_device, called for every new connection.
-
-Anything that involves a password takes two turns. The request hands the
-password to the hashing thread (hash_worker.odin) and leaves a note of
-what it was for in `pending`; when the thread is done, auth_sync picks
-the result up and finishes what the request started. A connection has
-one such request under way at a time.
-
-Guessing at passwords is slowed down three ways: the hashing is slow,
-only so many hashes can be waiting (HASH_QUEUE_MOST), and an account
-that's been given AUTH_FREE_FAILURES wrong passwords in a row takes no
-more for a while, twice as long each time up to AUTH_LOCK_MOST.
-A wrong username takes as long to refuse as a wrong password, so that
-which usernames exist can't be told from outside.
-
-Who may do what is one question asked in one place: can, in
-accounts.odin.
-*/
-
-// Wrong passwords in a row an account takes before it starts making
-// whoever is guessing wait, and how long.
+// The number of wrong passwords in a row an account accepts before it
+// starts making whoever is guessing wait, and how long they wait.
 AUTH_FREE_FAILURES :: 5
 AUTH_LOCK_FIRST :: time.Second
 AUTH_LOCK_MOST :: time.Minute
 
-// What the first admin is called, and how long generated passwords are.
+// The username of the first admin, and the length of generated passwords.
 FIRST_ADMIN :: "admin"
 GENERATED_PASSWORD_SIZE :: 16
 
@@ -52,20 +52,20 @@ Pending_Kind :: enum {
 	Account_Delete,
 }
 
-// What a job with the hashing thread is for.
+// Pending describes what a job for the hashing thread is for.
 Pending :: struct {
 	kind:          Pending_Kind,
 	// Who asked: the connection, if it's still the same one by then.
 	key:           [proto.KEY_SIZE]u8,
 	instance:      u64,
 	request:       u32,
-	// Whose password it's about; 0 for a login with a username there
-	// isn't an account for.
+	// Whose password it's about, or 0 for a login with a username that
+	// doesn't belong to any account.
 	account:       proto.Account_Id,
 	username:      string, // Account_Create; owned
 	display:       string, // Account_Create; owned
-	device:        string, // Login, Register: what the device calls itself; owned
-	agent:         string, // Login, Register: what the client says it is; owned
+	device:        string, // Login, Register: the device's name; owned
+	agent:         string, // Login, Register: the client's user agent; owned
 	email:         string, // Register; owned
 	invite:        string, // Register; owned
 	revoke_others: bool, // Password_Change
@@ -73,7 +73,7 @@ Pending :: struct {
 
 Auth :: struct {
 	// The parameter set new passwords are hashed with (HASH_PARAMS_NOW,
-	// but for tests).
+	// except in tests).
 	params:  int,
 	pending: map[u64]Pending, // by the job's id
 }
@@ -95,16 +95,17 @@ pending_destroy :: proc(p: Pending) {
 	delete(p.invite)
 }
 
-// generated_password is a random password of letters and digits that
-// can't be taken for one another when read off a screen.
+// generated_password returns a random password of letters and digits,
+// leaving out characters that are easily mistaken for each other when
+// read off a screen.
 generated_password :: proc(out: ^[GENERATED_PASSWORD_SIZE]u8) -> string {
 	alphabet := "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	for &ch in out {
 		for {
 			r: [1]u8
 			crypto.rand_bytes(r[:])
-			// Without the few values that would make some letters
-			// likelier than others.
+			// Reject the few values that would make some characters more
+			// likely than others.
 			if int(r[0]) < 256 - 256 % len(alphabet) {
 				ch = alphabet[int(r[0]) % len(alphabet)]
 				break
@@ -114,12 +115,11 @@ generated_password :: proc(out: ^[GENERATED_PASSWORD_SIZE]u8) -> string {
 	return string(out[:])
 }
 
-/*
-ensure_first_admin makes the account a new server is set up with: if
-there are no accounts at all, one called FIRST_ADMIN that owns the
-server, with a password made up here and written to the log this once.
-Whoever runs the server logs in with it and makes the others.
-*/
+// ensure_first_admin creates the account a new server starts with. If
+// there are no accounts at all, it creates one named FIRST_ADMIN that
+// owns the server. Its password is generated here and written to the log
+// once. Whoever runs the server logs in with it and creates the other
+// accounts.
 @(require_results)
 ensure_first_admin :: proc(
 	a: ^Accounts,
@@ -131,7 +131,7 @@ ensure_first_admin :: proc(
 	}
 	if initial_password != "" {
 		if !proto.account_password_ok(initial_password) {
-			log.error("the initial admin password isn't a valid length")
+			log.error("the initial admin password has an invalid length")
 			return false
 		}
 		password := password_of(initial_password)
@@ -164,10 +164,8 @@ ensure_first_admin :: proc(
 	return true
 }
 
-/*
-auth_known_device logs a new connection in if its device has logged in
-before: the handshake has proved it holds the key.
-*/
+// auth_known_device logs a new connection in if its device has logged in
+// before. The handshake has already proved that the device holds the key.
 auth_known_device :: proc(s: ^Server, u: ^Conn) {
 	d := device_of(&s.accounts, u.key)
 	if d == nil {
@@ -181,8 +179,8 @@ auth_known_device :: proc(s: ^Server, u: ^Conn) {
 	conn_login(s, u, acc)
 }
 
-// auth_request handles a request about accounts; false if `op` isn't
-// one.
+// auth_request handles a request about accounts. It returns false if
+// `op` isn't one.
 auth_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: []u8) -> bool {
 	#partial switch op {
 	case .Auth_Login:
@@ -229,8 +227,8 @@ auth_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 	return true
 }
 
-// submit hands a job to the hashing thread for a request, which is
-// answered Rate_Limited if the thread has too much to do already.
+// submit hands a job for a request to the hashing thread. The request is
+// answered with Rate_Limited if the thread already has too much to do.
 submit :: proc(s: ^Server, u: ^Conn, id: u32, job: ^Hash_Job, p: Pending) {
 	p := p
 	defer crypto.zero_explicit(job, size_of(job^))
@@ -254,22 +252,22 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	case u.account != nil:
-		respond(u, id, .Conflict) // logged in already
+		respond(u, id, .Conflict) // already logged in
 		return
 	case u.auth_busy:
 		respond(u, id, .Rate_Limited)
 		return
 	}
 
-	// A username or password that couldn't be anybody's is checked all
-	// the same, against nothing, and refused like a wrong password: how
-	// long the answer takes then says nothing about what exists.
+	// A username or password that can't belong to any account is still
+	// checked, against nothing, and refused like a wrong password. That
+	// way the time the answer takes doesn't reveal what exists.
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
 	username, clean := proto.username_clean(raw_username, &name_buf)
 	acc := account_find(&s.accounts, username) if clean else nil
 	if acc != nil && time.tick_diff(time.tick_now(), acc.locked_until) > 0 {
 		log.infof(
-			"%s: too many wrong passwords for %s, not taking more yet",
+			"%s: too many wrong passwords for %s, rejecting further attempts for now",
 			conn_label(u),
 			acc.username,
 		)
@@ -287,8 +285,8 @@ login :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	p := Pending {
 		kind = .Login,
 	}
-	// A bot has no password, so it's checked against nothing too, and
-	// refused as if it were wrong (bots.odin).
+	// A bot has no password, so a login for it is also checked against
+	// nothing and refused as if the password were wrong (bots.odin).
 	if acc != nil && .Bot in acc.flags {
 		log.infof("%s tried a password for the bot %s", conn_label(u), acc.username)
 	} else if acc != nil && len(password) <= proto.MAX_ACCOUNT_PASSWORD {
@@ -310,7 +308,7 @@ password_change :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	old, new, revoke_others, ok := proto.decode_password_change(body)
 	switch {
 	case .Bot in u.account.flags:
-		// It has none to change (bots.odin).
+		// A bot has no password to change (bots.odin).
 		respond(u, id, .Denied)
 		return
 	case !ok || !proto.account_password_ok(new):
@@ -398,15 +396,17 @@ account_password_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Not_Found)
 		return
 	case .Bot in target.flags:
-		// A bot gets in by its tokens, never a password (bots.odin).
+		// A bot logs in with its tokens and never with a password
+		// (bots.odin).
 		respond(u, id, .Invalid)
 		return
 	case .Owner in target.flags && target != u.account:
-		// The owner's password is the owner's to change.
+		// Only the owner may change the owner's password.
 		respond(u, id, .Denied)
 		return
 	case !outranks(u.account, permissions(target)):
-		// Nor anyone's who may do more than the asker (roles.odin).
+		// An account can't change the password of anyone who may do more
+		// than it may itself (roles.odin).
 		respond(u, id, .Denied)
 		return
 	case u.auth_busy:
@@ -421,11 +421,10 @@ account_password_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	submit(s, u, id, &job, {kind = .Account_Password_Set, account = target.id})
 }
 
-/*
-account_delete deletes an account (account_delete.odin): the asker's
-own, once its password has been checked, or, for whoever has
-Manage_Accounts, one that may do less than they may. Never the owner.
-*/
+// account_delete deletes an account (account_delete.odin). An account
+// can delete itself once its password has been checked. An account with
+// Manage_Accounts can delete accounts that may do less than it may. The
+// owner can never be deleted.
 @(private = "file")
 account_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	target_id, password, ok := proto.decode_account_delete(body)
@@ -441,7 +440,8 @@ account_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	case target == u.account && .Bot in target.flags:
-		// No password to prove it's its own: an admin deletes a bot.
+		// A bot has no password to prove the request is its own. An admin
+		// has to delete it.
 		respond(u, id, .Denied)
 		return
 	case target == u.account:
@@ -478,8 +478,8 @@ account_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok)
 }
 
-// auth_sync finishes the requests whose passwords the hashing thread
-// is done with.
+// auth_sync finishes the requests whose passwords the hashing thread has
+// finished hashing.
 auth_sync :: proc(s: ^Server) {
 	for {
 		result, any := hash_poll(&s.hasher)
@@ -493,8 +493,9 @@ auth_sync :: proc(s: ^Server) {
 		delete_key(&s.auth.pending, result.id)
 		defer pending_destroy(p)
 
-		// Whoever asked may have gone meanwhile, and then nobody is
-		// waiting for the answer; nothing is changed on their behalf.
+		// The requester may have disconnected in the meantime. In that
+		// case nobody is waiting for the answer and nothing is changed on
+		// their behalf.
 		u := conn_of(s, p.key)
 		if u == nil || u.instance != p.instance {
 			continue
@@ -521,8 +522,8 @@ auth_sync :: proc(s: ^Server) {
 	}
 }
 
-// wrong_password counts one against an account, and makes whoever is
-// guessing wait once there have been too many.
+// wrong_password counts a wrong password against an account and makes
+// whoever is guessing wait once there have been too many.
 @(private = "file")
 wrong_password :: proc(acc: ^Account) {
 	acc.failures += 1
@@ -551,7 +552,7 @@ login_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 				acc.failures,
 			)
 		} else {
-			log.infof("%s: tried to log in to an account there isn't", conn_label(u))
+			log.infof("%s: tried to log in to an account that doesn't exist", conn_label(u))
 		}
 		respond(u, p.request, .Wrong_Password)
 		return
@@ -603,7 +604,7 @@ account_create_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Res
 		return
 	}
 	acc := account_add(&s.accounts, p.username, p.display, result.made, {.Must_Change})
-	// Everyone is in the home channel.
+	// Everyone is a member of the home channel.
 	if acc == nil || !conv_member_add(&s.convs, s.convs.home, acc.id) {
 		respond(u, p.request, .Internal)
 		return
@@ -629,7 +630,8 @@ account_password_set_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Ha
 		return
 	}
 	log.infof("%s set a new password for %s", conn_label(u), target.username)
-	// Whoever had the old one is out, except the one doing this.
+	// Log out everyone who knew the old password, except the connection
+	// making this change.
 	revoke_devices(s, target, .Password_Changed, u.key)
 	respond(u, p.request, .Ok)
 	account_changed(s, target)
@@ -655,15 +657,14 @@ account_delete_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Res
 		respond(u, p.request, .Internal)
 		return
 	}
-	// Logged out by now, but still connected: the answer gets there.
+	// The connection is logged out by now but still connected, so the
+	// answer still reaches it.
 	respond(u, p.request, .Ok)
 }
 
-/*
-revoke_devices logs every device of an account out for good, except the
-one with the key `keep`: those that are connected are told why, and all
-of them have to log in again.
-*/
+// revoke_devices permanently logs out every device of an account except
+// the one with the key `keep`. The connected ones are told why, and all
+// of them have to log in again.
 @(private = "file")
 revoke_devices :: proc(
 	s: ^Server,
@@ -683,8 +684,9 @@ revoke_devices :: proc(
 	}
 }
 
-// device_list answers with an account's devices: the asker's own, or
-// with an account in the body, another's for an admin (a bot's tokens).
+// device_list responds with an account's devices. By default these are
+// the requester's own. If the body contains an account, an admin gets
+// that account's devices instead (for example a bot's tokens).
 @(private = "file")
 device_list :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	target := u.account
@@ -734,8 +736,9 @@ device_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	d := device_of(&s.accounts, key)
-	// One's own devices, or anybody's for who manages accounts and may
-	// do all its account may.
+	// An account may revoke its own devices. An account that manages
+	// accounts may also revoke the devices of accounts that may do no
+	// more than it may.
 	if d == nil || (d.account != u.account.id && !can(u.account, .Manage_Accounts)) {
 		respond(u, id, .Not_Found)
 		return
@@ -749,8 +752,8 @@ device_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	device_unlink(&s.accounts, key)
 	respond(u, id, .Ok)
 	if other := s.conns[key] or_else nil; other != nil {
-		// Its own, and it's a logout like any other; somebody else's is
-		// told.
+		// Revoking one's own device is a logout like any other.
+		// Somebody else's device is told it was revoked.
 		conn_logout(s, other, {} if other == u else proto.Logout_Reason.Revoked)
 	}
 }

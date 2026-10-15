@@ -1,11 +1,10 @@
-/*
-RNNoise noise suppression (see yap_rnn.c; the sources in ref/ are the
-RNNoise that OBS Studio's noise filter uses, BSD-3-Clause, deps/thirdparty/rnnoise/COPYING).
-Build the library with build.sh / build.bat at the repo root.
-
-Use Denoiser rather than the raw procs: it takes our float samples in
-[-1, 1] and any multiple of 10 ms.
-*/
+// RNNoise noise suppression (see yap_rnn.c). The sources in ref/ are the
+// RNNoise that OBS Studio's noise filter uses (BSD-3-Clause, see
+// deps/thirdparty/rnnoise/COPYING). Build the library with build.sh /
+// build.bat at the repo root.
+//
+// Use Denoiser instead of the raw procs. It takes our float samples in
+// [-1, 1], in any multiple of 10 ms.
 package rnn
 
 import "core:sync"
@@ -58,7 +57,7 @@ denoiser_destroy :: proc(d: ^Denoiser) {
 
 // denoise removes noise from 48 kHz mono samples in place. len(samples)
 // must be a multiple of FRAME_SIZE. Returns the highest voice probability
-// among its 10 ms frames.
+// found among the 10 ms frames.
 denoise :: proc(d: ^Denoiser, samples: []f32) -> (voice: f32) {
 	assert(len(samples) % FRAME_SIZE == 0, "denoise needs whole 10 ms frames")
 	input, output: [FRAME_SIZE]f32

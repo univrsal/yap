@@ -150,7 +150,8 @@ test_deafen_suppresses_notifications :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.notifications.queued_count, 0)
 }
 
-// Deafening drops what's playing, but not the sound saying we deafened.
+// Deafening drops what is playing, but not the sound confirming that we
+// deafened.
 @(test)
 test_deafen_keeps_feedback :: proc(t: ^testing.T) {
 	v: Voice

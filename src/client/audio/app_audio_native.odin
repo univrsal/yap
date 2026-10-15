@@ -6,36 +6,34 @@ import "core:sync"
 
 import "client:audio/aac"
 
-/*
-Capturing an application's audio into a Voice's app ring (native
-clients; see aac/aac.odin for which systems can), converted to 48 kHz
-stereo on the way. The network thread mixes it into every frame it
-sends (app_mix in voice.odin). What's shared, and when, is the UI's to
-say: see the client's ui_app_audio_native.odin.
-*/
+// Captures an application's audio into a Voice's app ring (native clients
+// only, see aac/aac.odin for the supported systems) and converts it to
+// 48 kHz stereo on the way. The network thread mixes it into every frame it
+// sends (app_mix in voice.odin). What is shared and when is decided by the
+// UI, see the client's ui_app_audio_native.odin.
 
-// One application being captured into a Voice's app ring. Its address
-// is what tinyaac's callbacks get.
+// One application being captured into a Voice's app ring. Its address is
+// passed to tinyaac's callbacks as the user data.
 App_Share :: struct {
 	capture: ^aac.Capture,
 	voice:   ^Voice,
-	// Resampling to SAMPLE_RATE (resample_write): the application's rate,
-	// where the next output frame falls in the next input chunk (-1 is
-	// `prev`), and the chunk before's last frame.
+	// Resampling state for resample_write: the application's sample rate,
+	// the position of the next output frame within the next input chunk
+	// (-1 refers to `prev`), and the last frame of the previous chunk.
 	rate:    u32,
 	pos:     f64,
 	prev:    [CHANNELS]f32,
-	// Set by tinyaac's thread when the application has gone or the
-	// capture failed, with why; the UI stops the share (app_share_ended).
+	// Set by tinyaac's thread when the application has exited or the
+	// capture failed, along with the reason. The UI then stops the share
+	// (see app_share_ended).
 	ended:   bool, // atomic
 	why:     [128]u8,
 }
 
-/*
-app_share_start captures the application `index` of `list` into v's app
-ring. The ring isn't read until v.app_input is set, which is left to the
-caller. If it fails, `why` says so in words (temporary).
-*/
+// app_share_start captures the application at `index` of `list` into v's
+// app ring. The ring isn't read until v.app_input is set, which is left to
+// the caller. If it fails, `why` describes the reason (allocated with the
+// temp allocator).
 app_share_start :: proc(
 	v: ^Voice,
 	list: ^aac.App_List,
@@ -73,14 +71,14 @@ app_share_stop :: proc(s: ^App_Share) {
 	free(s)
 }
 
-// app_share_ended is whether the application has gone or the capture
-// failed; s.why says which.
+// app_share_ended returns whether the application has exited or the capture
+// failed. s.why says which.
 app_share_ended :: proc(s: ^App_Share) -> bool {
 	return sync.atomic_load(&s.ended)
 }
 
-// Runs on tinyaac's thread. Like the device callbacks, it only moves
-// samples into the ring, which drops what doesn't fit.
+// Runs on tinyaac's thread. Like the device callbacks, it only moves samples
+// into the ring, which drops whatever doesn't fit.
 @(private = "file")
 app_audio_callback :: proc "c" (frame: ^aac.Audio_Frame, user: rawptr) {
 	s := (^App_Share)(user)
@@ -124,12 +122,10 @@ app_event_callback :: proc "c" (
 	}
 }
 
-/*
-resample_write converts stereo audio at s.rate to SAMPLE_RATE and writes
-it to the ring, interpolating linearly between neighbouring frames. That
-aliases a little, which is lost in Opus at the rates we send; most
-applications play at 48 kHz anyway and skip this altogether.
-*/
+// resample_write converts stereo audio at s.rate to SAMPLE_RATE and writes
+// it to the ring, interpolating linearly between neighboring frames. This
+// causes a little aliasing, which is lost in Opus at the rates we send. Most
+// applications play at 48 kHz anyway and skip this step altogether.
 resample_write :: proc "contextless" (s: ^App_Share, input: []f32) {
 	frames := len(input) / CHANNELS
 	if frames == 0 {
@@ -139,7 +135,7 @@ resample_write :: proc "contextless" (s: ^App_Share, input: []f32) {
 	out: [512 * CHANNELS]f32
 	n := 0
 	for s.pos < f64(frames - 1) {
-		// pos >= -1, so this is its floor.
+		// pos >= -1, so this computes its floor.
 		i := int(s.pos + 1) - 1
 		frac := f32(s.pos - f64(i))
 		for c in 0 ..< CHANNELS {

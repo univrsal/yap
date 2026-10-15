@@ -2,42 +2,41 @@ package proto
 
 import "core:encoding/endian"
 
-/*
-Attachments: files uploaded to the server with a message, in a channel
-or a DM, and kept there until the message is deleted (msgs.odin says how
-a message carries them). Unlike a DM's file (files.odin), which goes
-from one client to the other and is never kept, an attachment is
-uploaded once and fetched by any member, any time.
+// Attachments: files that are uploaded to the server together with a message
+// in a channel or a DM. They are kept until the message is deleted (msgs.odin
+// describes how a message carries them). A file sent in a DM (files.odin) goes
+// directly from one client to the other and is never stored. An attachment is
+// uploaded once instead and can be fetched by any member at any time.
+//
+// 	Attach_Put  [size u64][name str8]  ->  [upload u64]
+// 	Attach_Get  [blob u64]             ->  [size u64][download u64]
+//
+// 	client -> server  Upload_Chunk, Download_Ack   (transfer.odin)
+// 	server -> client  Upload_Ack, Download_Chunk
+// 	either way        Transfer_Cancel [kind][id u64][reason u8]
+//
+// Uploading: Attach_Put states the size and name of the file. The answer is
+// the upload's id, which the chunks are sent under (Upload_Chunk) and which the
+// server's acks refer to (Upload_Ack). Once the server has received and stored
+// the whole file, its ack says complete. The message is then posted with a
+// reference to the upload (Msg_Post), and takes the file's name and size from
+// it. The account that made an upload may reference it for an hour after it is
+// complete. A file that is uploaded twice is only stored once.
+//
+// Fetching: Attach_Get is sent by a member of a conversation that has a message
+// with the file. It is answered with the file's size and the download's id. The
+// server then sends the chunks (Download_Chunk) and the client acknowledges them
+// (Download_Ack).
+//
+// Either side can stop a transfer with Transfer_Cancel. A transfer that hears
+// nothing for ATTACH_IDLE is dropped. Each connection may have at most
+// MAX_ATTACH_TRANSFERS uploads and as many downloads at once (beyond that the
+// answer is Rate_Limited). The server states the maximum file size in
+// Server_Info (`max_attachment`, which is 0 if it accepts no attachments).
+// Attach_Put for a larger file is answered with Too_Large. Attaching files
+// requires the Attach_Files permission.
 
-	Attach_Put  [size u64][name str8]  ->  [upload u64]
-	Attach_Get  [blob u64]             ->  [size u64][download u64]
-
-	client -> server  Upload_Chunk, Download_Ack   (transfer.odin)
-	server -> client  Upload_Ack, Download_Chunk
-	either way        Transfer_Cancel [kind][id u64][reason u8]
-
-Uploading: Attach_Put says how big the file is and what it's called,
-and is answered with the upload's id, which its chunks go under
-(Upload_Chunk) and the server's acks come under (Upload_Ack). Once the
-server has all of it, and has kept it, its ack says complete; the
-message is then posted naming the upload (Msg_Post), and gets the file's
-name and size from it. An upload may be named by the account that made
-it, for an hour after it's complete; a file uploaded twice is kept once.
-
-Fetching: Attach_Get, by a member of a conversation with a message that
-has the file, is answered with its size and the download's id, whose
-chunks the server sends (Download_Chunk) and the client acks
-(Download_Ack).
-
-Either side stops a transfer with Transfer_Cancel; a transfer that
-hears nothing for ATTACH_IDLE is dropped. Each connection has at most
-MAX_ATTACH_TRANSFERS uploads and as many downloads at once (Rate_Limited
-past that). The server says how big a file may be in Server_Info
-(`max_attachment`, 0 when it takes none); past that Attach_Put is
-Too_Large. Attaching takes the Attach_Files permission.
-*/
-
-// At most this many uploads, and this many downloads, per connection.
+// The maximum number of uploads, and also of downloads, per connection.
 MAX_ATTACH_TRANSFERS :: 4
 
 ATTACH_PUT_MAX_SIZE :: 8 + 1 + MAX_FILE_NAME
@@ -47,7 +46,7 @@ ATTACH_GET_ANSWER_SIZE :: 8 + 8
 
 Attach_Put :: struct {
 	size: u64,
-	name: string, // raw until sanitized
+	name: string, // raw until it is sanitized
 }
 
 encode_attach_put :: proc(out: []u8, p: Attach_Put) -> []u8 {

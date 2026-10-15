@@ -16,49 +16,48 @@ import "core:unicode/utf8"
 import "common:memtrack"
 import "common:proto"
 
-/*
-The server's own email account (config.json's "email", see config.odin):
-it reads what's sent to it over IMAP, and sends over SMTP, both through
-libcurl (curl.odin). What it reads verifies accounts' addresses
-(verify.odin); what it sends tells accounts what they missed while they
-were away (digest.odin), and password resets will.
-
-Mail is slow and may hang, so it's all on a thread of its own, which
-the loop talks to through two queues, like the password hasher's
-(hash_worker.odin):
-
-- every poll_seconds, and whenever asked, the thread asks the INBOX for
-  the mails it hasn't seen (UID SEARCH UNSEEN), fetches each one's
-  header - which marks it seen - and queues it for the loop as a Mail:
-  who it's from, its subject, its date and its Authentication-Results.
-  The loop takes them with email_poll;
-- the loop queues what it wants done: a mail to send (email_send), or a
-  mail it's done with to delete (email_delete).
-
-The loop never waits for any of it. A mail server that can't be reached
-is logged when it starts failing and when it's back, and tried again at
-the next poll.
-
-The addresses in the config are URLs: imaps:// and smtps:// connect with
-TLS; imap:// and smtp:// are upgraded with STARTTLS, which a server that
-isn't this machine must offer - the password never goes out in the
-clear - while one on this machine (localhost, 127.x) may do without.
-*/
+// The server's own email account (config.json's "email", see config.odin).
+// It reads incoming mail over IMAP and sends mail over SMTP, both through
+// libcurl (curl.odin). Incoming mail is used to verify the email addresses of
+// accounts (verify.odin). Outgoing mail tells accounts what they missed while
+// they were away (digest.odin) and will also be used for password resets.
+//
+// Mail is slow and can hang, so all of it runs on a thread of its own. The
+// main loop talks to that thread through two queues, like it does with the
+// password hasher (hash_worker.odin):
+//
+// - Every poll_seconds, and whenever it is asked to, the thread searches the
+//   INBOX for mails that haven't been seen yet (UID SEARCH UNSEEN). It fetches
+//   the header of each one, which marks it as seen, and queues it for the
+//   main loop as a Mail containing the sender, subject, date and
+//   Authentication-Results. The main loop takes them with email_poll.
+// - The main loop queues the work that should be done: sending a mail
+//   (email_send) or deleting a mail it has finished with (email_delete).
+//
+// The main loop never waits for any of this. If the mail server can't be
+// reached, this is logged when it starts failing and when it works again, and
+// the connection is retried at the next poll.
+//
+// The addresses in the config are URLs. imaps:// and smtps:// connect with TLS.
+// imap:// and smtp:// are upgraded with STARTTLS, which a remote server must
+// offer so that the password is never sent in the clear. A server on this
+// machine (localhost, 127.x) may do without it.
 
 Email_Config :: struct {
-	address:            string, // the server's address; empty: no email
+	address:            string, // the server's address, empty if email is disabled
 	imap:               string, // imaps://host[:port]
-	smtp:               string, // smtps://host[:port]; empty: no sending
-	username:           string, // empty: the address
+	smtp:               string, // smtps://host[:port], empty if sending is disabled
+	username:           string, // defaults to the address if empty
 	password:           string,
 	poll_seconds:       int,
-	// Whether a verifying mail has to be shown to come from where its
-	// From says, by trusted_auth_host's Authentication-Results header
-	// (verify.odin); other hosts' are anybody's say-so.
+	// Whether a verification mail must be proven to come from the address in
+	// its From header. The proof is the Authentication-Results header added by
+	// trusted_auth_host (verify.odin), since the headers of other hosts can't
+	// be trusted.
 	check_auth_results: bool,
 	trusted_auth_host:  string,
-	// How long an account has to be away before it's mailed what it
-	// missed, and how long between two such mails (digest.odin).
+	// How long an account has to be away before it is mailed what it
+	// missed, and the minimum time between two such mails (digest.odin).
 	digest_minutes:     int,
 }
 
@@ -67,31 +66,32 @@ MIN_POLL_SECONDS :: 10
 DEFAULT_DIGEST_MINUTES :: 30
 MIN_DIGEST_MINUTES :: 5
 
-// A poll fetches at most this many mails; the rest wait for the next.
+// A poll fetches at most this many mails. The rest wait for the next poll.
 @(private = "file")
 POLL_MAILS_MOST :: 50
-// Mails the loop hasn't taken yet. With this many, polls wait.
+// The maximum number of mails the main loop hasn't taken yet. Polling pauses
+// while the inbox queue is this full.
 @(private = "file")
 INBOX_MOST :: 256
-// What may wait to be sent or deleted.
+// The maximum number of jobs waiting to be sent or deleted.
 @(private = "file")
 JOBS_MOST :: 64
-// The most of a mail's header that's read; the rest is dropped.
+// The maximum number of bytes read from a mail's header. The rest is dropped.
 @(private = "file")
 HEADER_MOST :: 64 * 1024
-// Seconds libcurl gets to connect, and for a whole exchange.
+// The time in seconds libcurl gets to connect and to complete a whole exchange.
 @(private = "file")
 CONNECT_TIMEOUT :: 15
 @(private = "file")
 EXCHANGE_TIMEOUT :: 60
 
-// Mail is a mail that has come in, as the loop is given it. Its strings
-// are its own (mail_destroy).
+// Mail is a mail that has come in, as it is handed to the main loop. It owns
+// its strings (see mail_destroy).
 Mail :: struct {
-	uid:          u32, // its IMAP UID, for email_delete
-	from:         string, // the address alone, in lower case; "" if none could be read
+	uid:          u32, // its IMAP UID, used by email_delete
+	from:         string, // only the address, in lower case, or "" if none could be read
 	subject:      string, // decoded (RFC 2047)
-	date:         string, // as it was written
+	date:         string, // as written in the header
 	auth_results: []string, // the Authentication-Results headers, unfolded
 }
 
@@ -106,9 +106,9 @@ mail_destroy :: proc(m: ^Mail) {
 	m^ = {}
 }
 
-// Email_Job is what the loop has asked of the email thread.
+// Email_Job is a job the main loop has queued for the email thread.
 Email_Job :: struct {
-	delete:  bool, // delete mail `uid`; otherwise send
+	delete:  bool, // delete mail `uid` instead of sending
 	uid:     u32,
 	to:      string,
 	subject: string,
@@ -116,35 +116,33 @@ Email_Job :: struct {
 }
 
 Email :: struct {
-	enabled:      bool, // configured, and libcurl is there
+	enabled:      bool, // configured and libcurl is available
 	config:       Email_Config,
 	curl:         Curl,
 	thread:       ^thread.Thread,
 	mutex:        sync.Mutex,
 	wake:         sync.Cond,
 	stop:         bool,
-	poll:         bool, // poll now rather than when it's due
+	poll:         bool, // poll now instead of when it is due
 	jobs:         [dynamic]Email_Job,
 	inbox:        [dynamic]Mail,
-	// The thread's: its handle for IMAP, kept so the connection is too,
-	// and whether the last try at each failed, so a failure is logged
-	// once rather than every poll.
+	// Owned by the email thread: its IMAP handle, which is kept so the
+	// connection can be reused, and whether the last attempt of each protocol
+	// failed so that a failure is only logged once instead of at every poll.
 	imap:         Curl_Handle,
 	imap_failing: bool,
 	smtp_failing: bool,
 }
 
-/*
-email_open starts the email thread, if the config has an address and
-libcurl is to be had. Without either, the server runs without email:
-email_send and email_delete do nothing and email_poll has nothing.
-*/
+// email_open starts the email thread if the config has an address and
+// libcurl is available. Without either, the server runs without email:
+// email_send and email_delete do nothing and email_poll never returns a mail.
 email_open :: proc(e: ^Email, config: Email_Config) {
 	if config.address == "" {
 		return
 	}
 	if !curl_load(&e.curl) {
-		log.warn("email is off")
+		log.warn("email is disabled because libcurl could not be loaded")
 		return
 	}
 	e.config = email_config_clone(config)
@@ -179,11 +177,9 @@ email_close :: proc(e: ^Email) {
 	e^ = {}
 }
 
-/*
-email_send queues a mail to `to`, from the server's address. False if
-there's no sending (no email, or no SMTP), the address or subject can't
-be, or too much is waiting already.
-*/
+// email_send queues a mail to `to`, sent from the server's address. It returns
+// false if sending is disabled (no email or no SMTP), the address or subject
+// is invalid, or too many jobs are already waiting.
 email_send :: proc(e: ^Email, to, subject, body: string) -> bool {
 	if !e.enabled || e.config.smtp == "" {
 		return false
@@ -203,14 +199,14 @@ email_send :: proc(e: ^Email, to, subject, body: string) -> bool {
 	)
 }
 
-// email_delete has a mail that came in (Mail.uid) deleted from the
-// mailbox.
+// email_delete queues the deletion of a mail that came in (see Mail.uid) from
+// the mailbox.
 email_delete :: proc(e: ^Email, uid: u32) -> bool {
 	return e.enabled && email_queue(e, {delete = true, uid = uid})
 }
 
-// email_check_now has the mailbox looked at now rather than at the next
-// poll.
+// email_check_now polls the mailbox right away instead of at the next
+// scheduled poll.
 email_check_now :: proc(e: ^Email) {
 	if !e.enabled {
 		return
@@ -220,8 +216,8 @@ email_check_now :: proc(e: ^Email) {
 	sync.cond_signal(&e.wake)
 }
 
-// email_poll takes the oldest mail that has come in, if there is one;
-// the caller owns it (mail_destroy).
+// email_poll takes the oldest mail that has come in, if there is one.
+// The caller owns it and must free it with mail_destroy.
 @(require_results)
 email_poll :: proc(e: ^Email) -> (m: Mail, ok: bool) {
 	if !e.enabled {
@@ -278,8 +274,8 @@ email_config_destroy :: proc(c: ^Email_Config) {
 	delete(c.trusted_auth_host)
 }
 
-// email_run is the email thread: jobs as they come, and the mailbox
-// every poll_seconds.
+// email_run is the email thread. It handles jobs as they arrive and polls the
+// mailbox every poll_seconds.
 @(private = "file")
 email_run :: proc(e: ^Email) {
 	memtrack.thread_init()
@@ -330,7 +326,7 @@ email_run :: proc(e: ^Email) {
 	}
 }
 
-// imap_poll queues for the loop the mails it hasn't seen yet.
+// imap_poll queues all unseen mails for the main loop.
 @(private = "file")
 imap_poll :: proc(e: ^Email) {
 	box := fmt.tprintf("%s/INBOX", url_base(e.config.imap))
@@ -380,11 +376,9 @@ smtp_send :: proc(e: ^Email, to, subject, body: string) {
 	}
 }
 
-/*
-email_report logs how a try at the mail server went, `imap` or SMTP's:
-a failure when it's the first in a row, and that it works again after
-one. It says whether this one worked.
-*/
+// email_report logs the outcome of a request to the mail server (IMAP if
+// `imap` is set, otherwise SMTP). It logs the first failure in a row and when
+// the server works again afterwards. It returns whether the request worked.
 @(private = "file")
 email_report :: proc(e: ^Email, imap: bool, err: string) -> bool {
 	failing := &e.imap_failing if imap else &e.smtp_failing
@@ -408,7 +402,7 @@ email_report :: proc(e: ^Email, imap: bool, err: string) -> bool {
 @(private = "file")
 Curl_Sink :: struct {
 	ctx:  runtime.Context,
-	data: ^[dynamic]u8, // nil: thrown away
+	data: ^[dynamic]u8, // if nil, the data is discarded
 }
 
 @(private = "file")
@@ -436,13 +430,12 @@ curl_read :: proc "c" (data: [^]u8, size, count: uint, user: rawptr) -> uint {
 	return uint(n)
 }
 
-/*
-curl_request does one exchange with a mail server, on `h` (which keeps
-its connection for the next) or with no handle given on one of its own:
-for IMAP the URL's mailbox and message and `custom` command, with
-what comes back into `out`; for SMTP, `upload` from `mail_from` to
-`mail_to`. It returns what went wrong, "" if nothing did.
-*/
+// curl_request performs one exchange with a mail server. It uses the handle
+// `h`, which keeps its connection for the next request, or a temporary handle
+// if none is given. For IMAP it requests the URL's mailbox and message, runs
+// the `custom` command and stores the response in `out`. For SMTP it uploads
+// `upload` from `mail_from` to `mail_to`. It returns the error message, or ""
+// if the exchange succeeded.
 curl_request :: proc(
 	e: ^Email,
 	h: Curl_Handle,
@@ -459,7 +452,7 @@ curl_request :: proc(
 	if h == nil {
 		h = c.easy_init()
 		if h == nil {
-			return "libcurl could not make a handle"
+			return "libcurl could not create a handle"
 		}
 	} else {
 		c.easy_reset(h)
@@ -513,16 +506,14 @@ curl_request :: proc(
 	return ""
 }
 
-// url_base is a server's URL without a trailing slash.
+// url_base returns a server's URL without a trailing slash.
 url_base :: proc(url: string) -> string {
 	return strings.trim_right(url, "/")
 }
 
-/*
-tls_wanted is CURLOPT_USE_SSL for a URL: TLS from the start for imaps://
-and smtps://, and otherwise STARTTLS, which only a server on this
-machine may go without.
-*/
+// tls_wanted returns the CURLOPT_USE_SSL value for a URL. It requires TLS from
+// the start for imaps:// and smtps:// and STARTTLS otherwise. Only a server
+// on this machine may go without STARTTLS.
 @(private = "file")
 tls_wanted :: proc(url: string) -> int {
 	rest := url[strings.index(url, "://") + 3:] if strings.contains(url, "://") else url
@@ -540,8 +531,8 @@ tls_wanted :: proc(url: string) -> int {
 
 // ---- reading mail ----
 
-// imap_search_uids reads the UIDs out of a SEARCH response
-// ("* SEARCH 4 7 9"), into the temp allocator.
+// imap_search_uids reads the UIDs from a SEARCH response ("* SEARCH 4 7 9")
+// and returns them in a slice allocated with the temp allocator.
 imap_search_uids :: proc(response: string) -> []u32 {
 	uids := make([dynamic]u32, context.temp_allocator)
 	response := response
@@ -559,17 +550,16 @@ imap_search_uids :: proc(response: string) -> []u32 {
 	return uids[:]
 }
 
-/*
-mail_parse reads what's wanted out of a mail's header: its lines,
-unfolded, up to the first empty one. What it returns is its own.
-*/
+// mail_parse extracts the relevant fields from a mail's header, which is read
+// up to the first empty line, with folded lines joined. The returned Mail owns
+// its strings.
 mail_parse :: proc(uid: u32, header: string) -> Mail {
 	m := Mail {
 		uid = uid,
 	}
 	results := make([dynamic]string)
-	// Unfolded, a header at a time: a line starting with a space or a
-	// tab carries on the one before.
+	// Unfold the headers: a line that starts with a space or a tab continues
+	// the previous line.
 	fields := make([dynamic]string, context.temp_allocator)
 	rest := header
 	for raw in strings.split_lines_iterator(&rest) {
@@ -618,10 +608,9 @@ mail_parse :: proc(uid: u32, header: string) -> Mail {
 	return m
 }
 
-/*
-address_of is the address in a From: the one in <angle brackets>, or
-the whole of it; in lower case, and "" if that's no address. Its own.
-*/
+// address_of returns the address from a From header, which is either the part
+// in <angle brackets> or the whole value. The result is in lower case, or ""
+// if the value isn't a valid address. The caller owns the returned string.
 address_of :: proc(from: string) -> string {
 	raw := from
 	if open := strings.last_index_byte(from, '<'); open >= 0 {
@@ -634,17 +623,16 @@ address_of :: proc(from: string) -> string {
 	return strings.clone(address if ok else "")
 }
 
-/*
-decode_words decodes a header's RFC 2047 encoded words
-("=?UTF-8?B?...?=", "=?UTF-8?Q?...?="), dropping the space between two
-of them as the RFC says. The charset is taken to be UTF-8 or ASCII,
-which is what anything sends now; bytes that aren't UTF-8 are kept as
-they are. Anything that isn't an encoded word is copied. Its own.
-*/
+// decode_words decodes the RFC 2047 encoded words in a header value
+// ("=?UTF-8?B?...?=", "=?UTF-8?Q?...?="). As the RFC specifies, whitespace
+// between two encoded words is dropped. The charset is assumed to be UTF-8 or
+// ASCII, which is what practically all mail uses today. Bytes that aren't
+// valid UTF-8 are kept as they are, and text outside of encoded words is
+// copied unchanged. The caller owns the returned string.
 decode_words :: proc(value: string) -> string {
 	b := strings.builder_make()
 	rest := value
-	after_word := false // what was written last was an encoded word
+	after_word := false // whether the last thing written was an encoded word
 	for len(rest) > 0 {
 		start := strings.index(rest, "=?")
 		if start < 0 {
@@ -658,7 +646,7 @@ decode_words :: proc(value: string) -> string {
 			after_word = false
 			continue
 		}
-		// White space between two encoded words goes.
+		// Drop whitespace between two encoded words.
 		before := rest[:start]
 		if !after_word || strings.trim_space(before) != "" {
 			strings.write_string(&b, before)
@@ -670,8 +658,8 @@ decode_words :: proc(value: string) -> string {
 	return strings.to_string(b)
 }
 
-// decode_word decodes the encoded word `s` starts with, into the temp
-// allocator, and says how many bytes of `s` it was.
+// decode_word decodes the encoded word at the start of `s` using the temp
+// allocator and returns how many bytes of `s` it used.
 @(private = "file")
 decode_word :: proc(s: string) -> (decoded: string, used: int, ok: bool) {
 	// =?charset?enc?text?=
@@ -725,11 +713,9 @@ decode_word :: proc(s: string) -> (decoded: string, used: int, ok: bool) {
 
 // ---- writing mail ----
 
-/*
-mail_compose writes a plain text mail from `from` to `to`, with CRLF
-line ends as SMTP wants; a subject that isn't ASCII is encoded
-(RFC 2047). Into the temp allocator.
-*/
+// mail_compose writes a plain text mail from `from` to `to` using CRLF line
+// endings as SMTP requires. A subject that isn't ASCII is encoded as described
+// in RFC 2047. The result is allocated with the temp allocator.
 mail_compose :: proc(from, to, subject, body: string, now: time.Time) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	id: [16]u8
@@ -751,8 +737,9 @@ mail_compose :: proc(from, to, subject, body: string, now: time.Time) -> string 
 	return strings.to_string(b)
 }
 
-// encode_subject is a subject as a header may carry it: as it is if
-// it's ASCII, else as encoded words of at most 45 bytes each.
+// encode_subject returns the subject in a form that a header can carry. ASCII
+// subjects are returned unchanged, others are split into encoded words of at
+// most 45 bytes each.
 @(private = "file")
 encode_subject :: proc(subject: string) -> string {
 	ascii := true
@@ -768,7 +755,7 @@ encode_subject :: proc(subject: string) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	rest := subject
 	for len(rest) > 0 {
-		// Whole characters only.
+		// Only split between whole characters.
 		n := min(45, len(rest))
 		for n < len(rest) && !utf8.rune_start(rest[n]) {
 			n -= 1
@@ -783,7 +770,7 @@ encode_subject :: proc(subject: string) -> string {
 	return strings.to_string(b)
 }
 
-// rfc5322_date is a time as a Date header has it, in UTC.
+// rfc5322_date formats a time (in UTC) as it is written in a Date header.
 rfc5322_date :: proc(t: time.Time) -> string {
 	DAYS :: [7]string{"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"}
 	MONTHS :: [12]string {

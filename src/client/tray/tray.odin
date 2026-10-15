@@ -1,15 +1,13 @@
-/*
-Tray icons (see yap_tray.c and traycon.h, BSD-3-Clause). Build the
-library with build.sh / build.bat at the repo root.
-
-One icon, drawn from RGBA pixels, with an optional right-click menu.
-The callbacks come back from step, on the thread that calls it, so the
-client can treat them as part of its own loop (see ui_tray.odin).
-
-On Linux the icon goes to the desktop's StatusNotifierItem service over
-D-Bus, or to an XEmbed tray on X11; create returns nil where there's
-neither, which is not an error worth stopping for.
-*/
+// Tray icons (see yap_tray.c and traycon.h, BSD-3-Clause). Build the library
+// with build.sh / build.bat at the repo root.
+//
+// There is one icon, drawn from RGBA pixels, with an optional right-click menu.
+// The callbacks are called from step, on the thread that calls it, so the
+// client can treat them as part of its own loop (see ui_tray.odin).
+//
+// On Linux the icon goes to the desktop's StatusNotifierItem service over
+// D-Bus, or to an XEmbed tray on X11. create returns nil if neither is
+// available, which is not an error worth stopping for.
 package tray
 
 when ODIN_OS == .Windows {
@@ -42,8 +40,8 @@ when ODIN_OS == .Windows {
 
 Tray :: struct {}
 
-// Which desktop service to put the icon in; Auto tries D-Bus first and
-// falls back to an X11 tray. Linux only, and set before create.
+// Which desktop service to put the icon in. Auto tries D-Bus first and falls
+// back to an X11 tray. Linux only; set it before calling create.
 Backend :: enum i32 {
 	Auto = 0,
 	Sni  = 1,
@@ -53,7 +51,7 @@ Backend :: enum i32 {
 // A line in the right-click menu. A nil label draws a separator.
 Menu_Item :: struct {
 	label: cstring,
-	id:    i32, // ours; handed back to the menu callback
+	id:    i32, // chosen by us; passed back to the menu callback
 	flags: Menu_Flags,
 }
 
@@ -64,7 +62,7 @@ Menu_Flag :: enum i32 {
 Menu_Flags :: distinct bit_set[Menu_Flag;i32]
 
 Notification_Action :: struct {
-	id:    cstring, // ours; handed back to the notification callback
+	id:    cstring, // chosen by us; passed back to the notification callback
 	label: cstring, // button text displayed to the user
 }
 
@@ -76,20 +74,20 @@ Notification_Proc :: #type proc "c" (tray: ^Tray, action_id: cstring, userdata: 
 
 @(default_calling_convention = "c", link_prefix = "traycon_")
 foreign lib {
-	// nil if the desktop has nowhere to put an icon. The pixels are
-	// width * height RGBA bytes, top-left first, and are copied.
+	// Returns nil if the desktop has nowhere to put an icon. The pixels are
+	// width * height RGBA values, starting at the top left, and are copied.
 	create :: proc(rgba: [^]u8, width, height: i32, cb: Click_Proc, userdata: rawptr) -> ^Tray ---
 	// 0 on success, -1 on failure.
 	update_icon :: proc(tray: ^Tray, rgba: [^]u8, width, height: i32) -> i32 ---
-	// Handles whatever the desktop has sent, without blocking, and calls
-	// back into us. 0 normally, -1 once the icon is gone for good.
+	// Handles whatever the desktop has sent without blocking, and calls the
+	// callbacks. Returns 0 normally, or -1 once the icon is gone for good.
 	step :: proc(tray: ^Tray) -> i32 ---
 	destroy :: proc(tray: ^Tray) ---
 	set_visible :: proc(tray: ^Tray, visible: b32) -> i32 ---
 	// The items are copied; count 0 removes the menu.
 	set_menu :: proc(tray: ^Tray, items: [^]Menu_Item, count: i32, cb: Menu_Proc, userdata: rawptr) -> i32 ---
 	set_preferred_backend :: proc(backend: Backend) ---
-	// A desktop notification (on Linux org.freedesktop.Notifications);
-	// body and actions may be nil. 0 on success.
+	// Shows a desktop notification (on Linux via org.freedesktop.Notifications).
+	// body and actions may be nil. Returns 0 on success.
 	notify :: proc(tray: ^Tray, title, body: cstring, actions: [^]Notification_Action, count: i32, cb: Notification_Proc, userdata: rawptr) -> i32 ---
 }

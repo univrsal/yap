@@ -7,24 +7,24 @@ import "core:strings"
 import "common:proto"
 import "sqlite"
 
-/*
-Conversations (src/common/proto/convs.odin): the channels there are and
-who is a member of each, as the database keeps them and as the server
-works from them. Like the accounts they're few, and all read into
-memory when the server starts.
-
-Channels used to be a list in the config. That list is still read, once:
-a database that has no channels yet gets the config's, the first of them
-as the home channel, which every account is a member of. After that the
-channels are the database's, and made by whoever may (conv_requests.odin).
-
-A direct message is a conversation too, of two accounts, `a` < `b`, both
-members for good. There's at most one for each pair (dm_find), made
-the first time either of them opens it (dm_add).
-
-This is only where they're kept; what clients ask about them is in
-conv_requests.odin.
-*/
+// Conversations (see src/common/proto/convs.odin): the channels that exist and
+// who is a member of each, as the database stores them and as the server works
+// with them. Like accounts, they are few, so they are all read into memory when
+// the server starts.
+//
+// Channels used to be a list in the config. That list is still read, but only
+// once: a database that has no channels yet gets the config's channels, with
+// the first one as the home channel, which every account is a member of. After
+// that, the channels belong to the database and are created by whoever is
+// allowed to (see conv_requests.odin).
+//
+// A direct message is also a conversation, between two accounts `a` and `b`
+// with a < b, who both stay members permanently. There is at most one for each
+// pair (see dm_find), and it is created the first time either of them opens it
+// (see dm_add).
+//
+// This file only keeps track of conversations. What clients ask about them is
+// handled in conv_requests.odin.
 
 Conv :: struct {
 	id:         proto.Conv_Id,
@@ -32,26 +32,27 @@ Conv :: struct {
 	flags:      proto.Conv_Flags,
 	name:       string, // owned
 	topic:      string, // owned
-	position:   int, // where it goes in a list, before its id
+	position:   int, // where it goes in a list, ahead of its id
 	created:    i64, // Unix milliseconds
-	created_by: proto.Account_Id, // 0 for one that came from the config
-	last_msg:   proto.Msg_Id, // the newest message, 0 for none (messages.odin)
+	created_by: proto.Account_Id, // 0 for a channel that came from the config
+	last_msg:   proto.Msg_Id, // the newest message, or 0 for none (see messages.odin)
 	last_time:  proto.Unix_Ms, // when it was posted
-	// A DM's two accounts, the lower first; 0 for a channel. And whether
-	// each has posted there yet, and whether the database has been asked
-	// (dm_posted); posting keeps it up to date after that.
+	// A DM's two accounts, the lower id first, and 0 for a channel. Also
+	// whether each has posted there yet and whether the database has been
+	// asked about it (see dm_posted). Posting keeps it up to date after that.
 	a, b:       proto.Account_Id,
 	posted:     [2]bool,
 	checked:    [2]bool,
-	// The accounts that are members: for a channel, its subscribers. And
-	// what each has read of it and wants to hear of it.
+	// The accounts that are members, which for a channel are its
+	// subscribers, and what each of them has read and wants to be notified
+	// about.
 	members:    [dynamic]proto.Account_Id,
 	reads:      map[proto.Account_Id]Membership,
 }
 
-// Membership is what a member has of a conversation of its own.
+// Membership is the state that each member has for a conversation.
 Membership :: struct {
-	read:   proto.Msg_Id, // the newest message it has read
+	read:   proto.Msg_Id, // the newest message the member has read
 	notify: proto.Notify_Level,
 }
 
@@ -59,17 +60,15 @@ Convs :: struct {
 	db:    ^DB,
 	by_id: map[proto.Conv_Id]^Conv,
 	home:  ^Conv,
-	// The DMs, by their two accounts, the lower first.
+	// The DMs, keyed by their two accounts with the lower id first.
 	dms:   map[[2]proto.Account_Id]^Conv,
 }
 
-/*
-convs_load reads the conversations and their members from the database.
-A database without channels gets `seed` (the server passes just the
-DEFAULT_CHANNEL_NAME one); and every account
-that isn't in the home channel is put there, which is how accounts made
-before there were channels, or from the command line, come to be in it.
-*/
+// convs_load reads the conversations and their members from the database.
+// A database without channels gets the channels named in `seed` (the server
+// passes only the one called DEFAULT_CHANNEL_NAME). Every account that isn't in
+// the home channel is added to it, which is how accounts created before
+// channels existed, or from the command line, end up in it.
 @(require_results)
 convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> bool {
 	c.db = db
@@ -132,7 +131,7 @@ convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> b
 				return false
 			}
 		}
-		log.infof("took %d channels", len(seed))
+		log.infof("took %d channels from the config", len(seed))
 	}
 	if c.home == nil {
 		log.error("the database has channels, but none of them is the home channel")
@@ -159,10 +158,9 @@ convs_destroy :: proc(c: ^Convs) {
 	c^ = {}
 }
 
-/*
-conv_add makes a channel. The name has to be sanitized, not empty and
-not another channel's (conv_by_name); nil if the database won't have it.
-*/
+// conv_add creates a channel. The name has to be sanitized, not empty, and not
+// the name of another channel (see conv_by_name). It returns nil if the database
+// refuses it.
 @(require_results)
 conv_add :: proc(
 	c: ^Convs,
@@ -203,17 +201,15 @@ conv_add :: proc(
 	return conv
 }
 
-// dm_find is the DM between two accounts, in either order; nil if they
-// have none.
+// dm_find returns the DM between two accounts, given in either order, or nil if
+// they have none.
 dm_find :: proc(c: ^Convs, x, y: proto.Account_Id) -> ^Conv {
 	return c.dms[{min(x, y), max(x, y)}] or_else nil
 }
 
-/*
-dm_add makes the DM between two accounts, opened by `by`, with both of
-them members; nil if the database won't have it. There mustn't be one
-already (dm_find).
-*/
+// dm_add creates the DM between two accounts, opened by `by`, with both of them
+// as members. It returns nil if the database refuses it. There must not be a DM
+// between them already (see dm_find).
 @(require_results)
 dm_add :: proc(c: ^Convs, x, y: proto.Account_Id, by: proto.Account_Id) -> ^Conv {
 	a, b := min(x, y), max(x, y)
@@ -240,18 +236,17 @@ dm_add :: proc(c: ^Convs, x, y: proto.Account_Id, by: proto.Account_Id) -> ^Conv
 	return conv
 }
 
-// dm_other is the account a DM is with, for one of its two.
+// dm_other returns the other account of a DM, given one of its two accounts.
 dm_other :: proc(conv: ^Conv, account: proto.Account_Id) -> proto.Account_Id {
 	return conv.b if account == conv.a else conv.a
 }
 
-/*
-dm_posted is whether `account`, one of a DM's two, has posted in it.
-The database is asked once: the query reads the DM's messages until it
-finds one of theirs, all of them if there's none, so the answer is kept
-either way, and msg_store sets it when they post. One that has posted
-stays so, even once a purge has taken their messages.
-*/
+// dm_posted returns whether `account`, one of a DM's two accounts, has posted in
+// it. The database is only asked once: the query reads the DM's messages until
+// it finds one from that account (or all of them if there is none), so the
+// answer is cached either way, and msg_store updates it when the account posts.
+// Once an account has posted, it stays that way even after a purge has removed
+// its messages.
 dm_posted :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> bool {
 	side := 0 if account == conv.a else 1
 	if conv.posted[side] || conv.checked[side] || conv.last_msg == 0 {
@@ -269,9 +264,9 @@ dm_posted :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> bool {
 	return conv.posted[side]
 }
 
-// conv_shown is whether an account is told of a conversation it's a
-// member of: always for a channel; for a DM, once there's a message in
-// it, or if it's the one that opened it.
+// conv_shown returns whether an account is told about a conversation it is a
+// member of. This is always the case for a channel. For a DM it is the case once
+// the DM has a message, or if the account is the one that opened it.
 conv_shown :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
 	if .Archived in conv.flags || !conv_is_member(conv, account) {
 		return false
@@ -283,8 +278,8 @@ conv_by_id :: proc(c: ^Convs, id: proto.Conv_Id) -> ^Conv {
 	return c.by_id[id] or_else nil
 }
 
-// conv_by_name is the channel called `name`, whatever the case; nil if
-// there's none (an archived one's name is free).
+// conv_by_name returns the channel called `name`, ignoring case, or nil if there
+// is none. The name of an archived channel is free to use again.
 conv_by_name :: proc(c: ^Convs, name: string) -> ^Conv {
 	for _, conv in c.by_id {
 		if conv.kind == .Channel &&
@@ -296,7 +291,7 @@ conv_by_name :: proc(c: ^Convs, name: string) -> ^Conv {
 	return nil
 }
 
-// channel_count is how many channels there are.
+// channel_count returns the number of channels that aren't archived.
 channel_count :: proc(c: ^Convs) -> (n: int) {
 	for _, conv in c.by_id {
 		if conv.kind == .Channel && .Archived not_in conv.flags {
@@ -310,8 +305,9 @@ conv_is_member :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
 	return slice.contains(conv.members[:], account)
 }
 
-// conv_visible is whether an account may know a conversation is there:
-// it's a member, or it's a channel anyone may subscribe to.
+// conv_visible returns whether an account may know that a conversation exists,
+// which is the case if it is a member or if it is a channel anyone may subscribe
+// to.
 conv_visible :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
 	if .Archived in conv.flags {
 		return false
@@ -319,10 +315,10 @@ conv_visible :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
 	return conv_is_member(conv, account) || (conv.kind == .Channel && .Private not_in conv.flags)
 }
 
-// conv_member_add makes an account a member; one that is already stays
-// one. A new member has read what's there already, up to `read_upto` at
-// most: it isn't news to someone who has only just come. False only if
-// the database failed.
+// conv_member_add makes an account a member, and does nothing if it already is
+// one. A new member counts as having read everything that is already there, up
+// to `read_upto` at most, because it isn't news to someone who has only just
+// joined. It returns false only if the database failed.
 conv_member_add :: proc(
 	c: ^Convs,
 	conv: ^Conv,
@@ -346,11 +342,9 @@ conv_member_add :: proc(
 	return true
 }
 
-/*
-conv_set_read moves what a member has read up to `id`, which can't be
-past the conversation's last message. It only moves forward: true if it
-did.
-*/
+// conv_set_read moves a member's read position up to `id`, which can't be past
+// the conversation's last message. It only ever moves forward, and returns true
+// if it did.
 conv_set_read :: proc(
 	c: ^Convs,
 	conv: ^Conv,
@@ -371,7 +365,8 @@ conv_set_read :: proc(
 	return true
 }
 
-// conv_set_notify sets how much a conversation may interrupt a member.
+// conv_set_notify sets how much notification a conversation may cause for a
+// member.
 conv_set_notify :: proc(
 	c: ^Convs,
 	conv: ^Conv,
@@ -391,10 +386,10 @@ conv_set_notify :: proc(
 	return true
 }
 
-// conv_unread is how many messages of a conversation after `read` aren't
-// `account`'s, up to proto.UNREAD_CAP: the database stops counting
-// there, so a conversation not looked at for a year costs no more than
-// one read yesterday.
+// conv_unread returns the number of messages in a conversation after `read` that
+// aren't from `account`, up to proto.UNREAD_CAP. The database stops counting
+// there, so a conversation that wasn't opened for a year costs no more than one
+// that was read yesterday.
 conv_unread :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, read: proto.Msg_Id) -> int {
 	if read >= conv.last_msg {
 		return 0
@@ -412,7 +407,8 @@ conv_unread :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, read: pro
 	return n
 }
 
-// conv_read_state is where a member stands with a conversation.
+// conv_read_state returns how far a member has read a conversation and how many
+// unread messages and mentions it has.
 conv_read_state :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> proto.Read_State {
 	m := conv.reads[account]
 	return {
@@ -423,8 +419,8 @@ conv_read_state :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> pr
 	}
 }
 
-// conv_mentions is how many messages after `read` mention `account`, up
-// to proto.UNREAD_CAP.
+// conv_mentions returns the number of messages after `read` that mention
+// `account`, up to proto.UNREAD_CAP.
 conv_mentions :: proc(
 	c: ^Convs,
 	conv: ^Conv,
@@ -447,8 +443,8 @@ conv_mentions :: proc(
 	return n
 }
 
-// conv_member_remove takes an account out. False if it wasn't in, or
-// the database failed.
+// conv_member_remove removes an account from a conversation. It returns false if
+// the account wasn't a member or the database failed.
 conv_member_remove :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> bool {
 	i, found := slice.linear_search(conv.members[:], account)
 	if !found {
@@ -463,9 +459,9 @@ conv_member_remove :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) ->
 	return true
 }
 
-// convs_sorted is every conversation in the order a list shows them:
-// the home channel, then by position, then as they were made. In the
-// temp allocator.
+// convs_sorted returns every conversation in the order a list shows them: the
+// home channel first, then by position, then by creation order. The result is
+// allocated with the temp allocator.
 convs_sorted :: proc(c: ^Convs) -> []^Conv {
 	list := make([dynamic]^Conv, 0, len(c.by_id), context.temp_allocator)
 	for _, conv in c.by_id {
@@ -483,8 +479,8 @@ convs_sorted :: proc(c: ^Convs) -> []^Conv {
 	return list[:]
 }
 
-// conv_record is a conversation as an account is told about it: with,
-// for a member, what it has read there.
+// conv_record returns a conversation as an account is told about it, which for
+// a member includes how far it has read.
 conv_record :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> proto.Conv {
 	record := proto.Conv {
 		id       = conv.id,
@@ -510,8 +506,8 @@ conv_record :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> proto.
 	return record
 }
 
-// conv_update changes a channel's name (sanitized, not empty, not
-// another's), topic and place in the lists.
+// conv_update changes a channel's name (which must be sanitized, not empty and
+// not the name of another channel), topic and position in the lists.
 conv_update :: proc(c: ^Convs, conv: ^Conv, name, topic: string, position: int) -> bool {
 	q := db_stmt(c.db, .Conv_Update)
 	db_bind_int(q, 1, i64(conv.id))

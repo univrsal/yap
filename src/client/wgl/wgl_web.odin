@@ -1,10 +1,8 @@
 #+build wasi
-/*
-The web half of the drawing layer: WebGL 2 through emscripten, whose
-entry points are ordinary C symbols. The renderer only asks for a small
-corner of OpenGL, and all of it exists in WebGL 2 - the one thing
-missing is vendor:OpenGL's shader helper, which is written out here.
-*/
+// The web half of the drawing layer: WebGL 2 through emscripten, whose entry
+// points are ordinary C symbols. The renderer only uses a small subset of
+// OpenGL, and all of it exists in WebGL 2. The one thing missing is
+// vendor:OpenGL's shader helper, which is reimplemented here.
 package wgl
 
 @(default_calling_convention = "c", link_prefix = "gl")
@@ -96,16 +94,14 @@ COMPILE_STATUS :: 0x8B81
 @(private)
 LINK_STATUS :: 0x8B82
 
-// WebGL is there as soon as the canvas has a context, so there is
-// nothing to load.
+// WebGL is available as soon as the canvas has a context, so there is nothing
+// to load.
 load_up_to :: proc(major, minor: int, set_proc_address: proc(p: rawptr, name: cstring)) {}
 
-/*
-load_shaders_source compiles and links one shader pair, the way
-vendor:OpenGL's helper of the same name does. Whatever the driver has
-to say about a shader that won't compile is printed, since in a browser
-that message is the only way to find out.
-*/
+// load_shaders_source compiles and links a vertex and fragment shader pair, like
+// vendor:OpenGL's helper of the same name. The driver's error log for a shader
+// that fails to compile or link is printed, since in a browser that is the only
+// way to find out what went wrong.
 load_shaders_source :: proc(vertex, fragment: string) -> (program: u32, ok: bool) {
 	vs := compile(VERTEX_SHADER, vertex) or_return
 	defer DeleteShader(vs)

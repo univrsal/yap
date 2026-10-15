@@ -6,8 +6,8 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of forwarding and links (proto/forward.odin), on the Test_Server
-// of auth_test.odin.
+// Tests of forwarding and links (proto/forward.odin), using the Test_Server
+// from auth_test.odin.
 
 @(private = "file")
 forward :: proc(
@@ -72,13 +72,13 @@ test_forward :: proc(t: ^testing.T) {
 	carol := logged_in(t, &ts, "carol")
 	testing.expect(t, conv_member_add(&s.convs, gaming, alice_acc.id))
 
-	// Only what one may read.
+	// Only messages that the user is allowed to read can be forwarded.
 	_, secret := post(t, &ts, alice, gaming.id, "only in Gaming", 1)
 	status, _ := forward(t, &ts, bob, home, secret, 100)
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
-	// From the channel to a DM, with where it came from; mentions in it
-	// mention nobody again.
+	// Forwarding from the channel to a DM records where the message came from.
+	// Mentions in the message don't mention anyone again.
 	_, said := post(t, &ts, alice, home, "hello <@3>", 2)
 	dm := open_dm(t, &ts, bob, carol_acc.id)
 	copy_id: proto.Msg_Id
@@ -93,22 +93,22 @@ test_forward :: proc(t: ^testing.T) {
 	testing.expect(t, .Forwarded in m.flags)
 	testing.expect_value(t, m.forward, proto.Forward_Info{alice_acc.id, home, original.time})
 	testing.expect_value(t, len(mentioned_in(s, copy_id)), 0)
-	// The same nonce again is the same copy.
+	// Reusing the same nonce returns the same copy.
 	again: proto.Msg_Id
 	status, again = forward(t, &ts, bob, dm, said, 101)
 	testing.expect_value(t, again, copy_id)
 
-	// A copy of a copy names the first.
+	// A copy of a copy refers to the original message.
 	status, copy_id = forward(t, &ts, carol, home, copy_id, 300)
 	testing.expect_value(t, status, proto.Status.Ok)
 	m, _ = msg_by_id(s, copy_id)
 	testing.expect_value(t, m.forward.sender, alice_acc.id)
 	testing.expect_value(t, m.forward.conv, home)
 
-	// A copy isn't anybody's to edit.
+	// Nobody can edit a copy.
 	testing.expect_value(t, edit_as(t, &ts, carol, copy_id, "changed"), proto.Status.Invalid)
 
-	// A message's files (a pasted picture, say) are the same blobs.
+	// The files of a message (e.g. a pasted picture) are shared as the same blobs.
 	blob, _ := blob_put(&s.blobs, .File, test_jpeg(32, 32, 1), 32, 32)
 	pic := proto.Message {
 		conv             = home,
@@ -131,12 +131,12 @@ test_forward :: proc(t: ^testing.T) {
 	testing.expect_value(t, m.attachments[0].blob, blob)
 	testing.expect_value(t, m.attachments[0].name, "pasted-image.jpg")
 
-	// Not a deleted one.
+	// A deleted message can't be forwarded.
 	testing.expect_value(t, delete_as(t, &ts, alice, said), proto.Status.Ok)
 	status, _ = forward(t, &ts, bob, dm, said, 103)
 	testing.expect_value(t, status, proto.Status.Invalid)
 
-	// A link to a DM's message stays in that DM, and only there.
+	// A link to a DM message only works inside that DM.
 	_, in_dm := post(t, &ts, bob, dm, "between us", 104)
 	link := proto.link_token(dm, in_dm)
 	_, kept := post(
@@ -159,7 +159,7 @@ test_forward :: proc(t: ^testing.T) {
 	)
 	m, _ = msg_by_id(s, plain)
 	testing.expect_value(t, m.text, "see (a message in a DM)")
-	// A channel's can go anywhere.
+	// A link to a channel message can be posted anywhere.
 	channel_link := proto.link_token(home, pic.id)
 	_, kept = post(t, &ts, bob, dm, channel_link, 106)
 	m, _ = msg_by_id(s, kept)

@@ -3,23 +3,23 @@ package clipboard
 import log "common:wlog"
 import "core:encoding/endian"
 
-/*
-Reading images from the system clipboard, which GLFW can't do (it only
-knows text).
-
-	Linux    Wayland (on GLFW's connection) or X11 (a connection of our
-	         own); both libraries are loaded at runtime, like GLFW does,
-	         so neither is a link dependency.
-	OpenBSD  X11, the same way.
-	Windows  the registered "PNG" format, else CF_DIBV5 / CF_DIB.
-	macOS    NSPasteboard: PNG, JPEG, or TIFF (converted to PNG).
-
-Whatever the source format, the result is decoded with stb_image (or
-libwebp, for WebP) into 8-bit RGBA. Call everything from the thread that runs the window (on
-Wayland, GLFW's event loop feeds our clipboard events).
-
-Based on how copycat (clipboard/copycat-main) talks to each platform.
-*/
+// Reading images from the system clipboard, which GLFW can't do (it only
+// supports text).
+//
+//	Linux    Wayland (on GLFW's connection) or X11 (a connection of our
+//	         own). Both libraries are loaded at runtime, as GLFW does, so
+//	         neither is a link dependency.
+//	OpenBSD  X11, loaded the same way.
+//	Windows  the registered "PNG" format, otherwise CF_DIBV5 / CF_DIB.
+//	macOS    NSPasteboard: PNG, JPEG, or TIFF (converted to PNG).
+//
+// Whatever the source format, the result is decoded with stb_image (or
+// libwebp for WebP) into 8-bit RGBA. Everything has to be called from the
+// thread that runs the window (on Wayland, GLFW's event loop feeds our
+// clipboard events).
+//
+// This is based on how copycat (clipboard/copycat-main) talks to each
+// platform.
 
 Image :: struct {
 	width, height: int,
@@ -28,25 +28,26 @@ Image :: struct {
 
 Error :: enum {
 	None,
-	No_Image, // the clipboard is empty or holds no image we can read
-	Unavailable, // no clipboard access (no display server, clipboard locked, ...)
-	Timeout, // the owning application didn't hand the data over in time
+	No_Image, // the clipboard is empty or contains no image we can read
+	Unavailable, // no clipboard access (no display server, clipboard locked, etc.)
+	Timeout, // the application owning the clipboard didn't provide the data in time
 	Too_Large,
 	Decode_Failed,
 }
 
-// Clipboard data bigger than this isn't read at all.
+// Clipboard data larger than this is not read.
 MAX_DATA_SIZE :: 64 * 1024 * 1024
-// Images with more pixels than this (8K UHD) aren't decoded. Callers
-// scale down whatever they decode to what they actually need.
+// Images with more pixels than this (8K UHD) are not decoded. Callers scale
+// down whatever they decode to the size they actually need.
 MAX_PIXELS :: 7680 * 4320
-// How long the owner of the clipboard gets to hand over the data.
+// How long the owner of the clipboard has to provide the data.
 READ_TIMEOUT_MS :: 2000
 
-// Image formats, most preferred first, as MIME types. Linux offers these
-// directly; the other platforms map them to their own names. GIF and
-// WebP come first: either may be an animation, which a pasted picture
-// keeps (ui_paste.odin), and a still one is as good as the PNG of it.
+// Supported image formats as MIME types, most preferred first. Linux uses
+// these directly, while the other platforms map them to their own names.
+// GIF and WebP come first because either may be an animation, which a pasted
+// picture keeps (see ui_paste.odin), and a still one is as good as the PNG
+// version of it.
 MIME_TYPES :: [?]string {
 	"image/gif",
 	"image/webp",
@@ -56,9 +57,10 @@ MIME_TYPES :: [?]string {
 	"image/x-bmp",
 }
 
-// init prepares clipboard access. On Linux pass GLFW's Wayland display
-// (glfw.GetWaylandDisplay) when GLFW runs on Wayland, and nil for X11.
-// Elsewhere it's ignored. Returns whether reading can work at all.
+// init prepares clipboard access. On Linux, pass GLFW's Wayland display
+// (glfw.GetWaylandDisplay) when GLFW runs on Wayland, and nil for X11. On
+// other platforms the argument is ignored. It returns whether reading the
+// clipboard can work at all.
 init :: proc(wayland_display: rawptr) -> bool {
 	return _init(wayland_display)
 }
@@ -67,8 +69,8 @@ destroy :: proc() {
 	_destroy()
 }
 
-// read_image returns the image on the clipboard, decoded. Delete its
-// pixels with image_destroy.
+// read_image returns the decoded image on the clipboard. Free its pixels
+// with image_destroy.
 read_image :: proc(allocator := context.allocator) -> (img: Image, err: Error) {
 	data, read_err := read_encoded(context.allocator)
 	if read_err != .None {
@@ -78,8 +80,9 @@ read_image :: proc(allocator := context.allocator) -> (img: Image, err: Error) {
 	return decode(data, allocator)
 }
 
-// read_encoded returns the image on the clipboard as it's there (PNG,
-// GIF, ...: decode reads them all), owned.
+// read_encoded returns the image on the clipboard in its original encoded
+// format (PNG, GIF, etc., all of which decode can read). The caller owns the
+// result.
 read_encoded :: proc(allocator := context.allocator) -> (data: []u8, err: Error) {
 	mime: string
 	data, mime, err = _read_encoded(allocator)
@@ -94,7 +97,7 @@ image_destroy :: proc(img: ^Image, allocator := context.allocator) {
 	img^ = {}
 }
 
-// pick_mime returns the most preferred image type among `offered`.
+// pick_mime returns the most preferred image type from `offered`.
 pick_mime :: proc(offered: []string) -> (mime: string, ok: bool) {
 	for want in MIME_TYPES {
 		for have in offered {
@@ -113,8 +116,9 @@ BI_BITFIELDS :: 3
 BI_ALPHABITFIELDS :: 6
 
 // dib_to_bmp turns a Windows DIB (a BMP file without its 14-byte file
-// header) into a BMP file for stb_image. The header's pixel offset
-// depends on the header size, color masks and palette before the pixels.
+// header) into a BMP file that stb_image can read. The pixel offset in the
+// header depends on the header size, color masks and palette that come
+// before the pixels.
 dib_to_bmp :: proc(dib: []u8, allocator := context.allocator) -> (bmp: []u8, err: Error) {
 	if len(dib) < 40 {
 		return nil, .Decode_Failed
@@ -129,7 +133,7 @@ dib_to_bmp :: proc(dib: []u8, allocator := context.allocator) -> (bmp: []u8, err
 
 	masks := 0
 	if header_size == 40 {
-		// Only the original header keeps the masks after itself.
+		// Only the original header stores the masks directly after itself.
 		switch compression {
 		case BI_BITFIELDS:
 			masks = 12

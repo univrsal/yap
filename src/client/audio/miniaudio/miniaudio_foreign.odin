@@ -8,10 +8,10 @@ when ODIN_OS == .Windows {
 } else when ODIN_OS == .Darwin {
 	foreign import lib {LIB, "system:CoreFoundation.framework", "system:CoreAudio.framework", "system:AudioToolbox.framework"}
 } else when ODIN_OS == .Linux {
-	// Audio backends are loaded at runtime (dlopen); only libc bits are linked.
+	// Audio backends are loaded at runtime (dlopen), so only libc is linked.
 	foreign import lib {LIB, "system:dl", "system:pthread", "system:m"}
 } else {
-	// Likewise, but BSDs fold dlopen/dlsym into libc.
+	// Same as above, but on BSD dlopen/dlsym are part of libc.
 	foreign import lib {LIB, "system:pthread", "system:m"}
 }
 
@@ -30,7 +30,8 @@ foreign lib {
 	stream_start :: proc(s: ^Stream) -> Result ---
 	stream_stop :: proc(s: ^Stream) -> Result ---
 	stream_close :: proc(s: ^Stream) ---
-	// What the stream delivers/expects: as asked, or the native count if 0 was asked.
+	// The channel count the stream delivers or expects: the requested one, or
+	// the device's native count if 0 was requested.
 	stream_channels :: proc(s: ^Stream) -> c.uint ---
 	stream_device_name :: proc(s: ^Stream, name: ^[NAME_SIZE]u8) ---
 }

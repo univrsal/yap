@@ -59,9 +59,14 @@ jobs:
             --env YAP_RELAY_PORT=18080 \
             --env YAP_INITIAL_ADMIN_PASSWORD \
             yap:ci
-          trap 'docker rm --force yap-smoke; docker volume rm yap-smoke-data' EXIT
+          trap 'status=$?; [ $status -ne 0 ] && docker logs yap-smoke; docker rm --force yap-smoke; docker volume rm yap-smoke-data; exit $status' EXIT
+          # The config is written before the server is done starting, so wait for both.
           for _ in $(seq 1 10); do
             docker exec yap-smoke test -f /data/config.json && break
+            sleep 1
+          done
+          for _ in $(seq 1 10); do
+            docker logs yap-smoke 2>&1 | grep -qF 'listening on udp :7777' && break
             sleep 1
           done
           test "$(docker inspect --format '{{.State.Running}}' yap-smoke)" = true

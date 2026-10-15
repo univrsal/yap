@@ -11,7 +11,8 @@ counts_by_line :: proc(t: ^testing.T) {
 		return
 	}
 	a := init(runtime.heap_allocator())
-	// The temp allocator's first block is counted too, once it's made.
+	// The temp allocator's first block is counted too once it is allocated, so
+	// make sure that happens before taking the baseline.
 	_ = sites()
 	before := totals()
 
@@ -21,12 +22,13 @@ counts_by_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, after.live - before.live, 1100)
 	testing.expect_value(t, after.count - before.count, 2)
 
-	// A resize moves what's counted to its new size.
+	// Resizing an allocation updates its counted size to the new size.
 	grown := make([dynamic]u8, 0, 10, a)
 	resize(&grown, 5000)
 	testing.expect_value(t, totals().live - before.live, 1100 + cap(grown))
 
-	// Freed is no longer live, and freeing what wasn't counted is harmless.
+	// Freed memory is no longer counted as live, and freeing an allocation that
+	// was never tracked is harmless.
 	delete(big, a)
 	delete(grown)
 	stray := make([]u8, 64, runtime.heap_allocator())

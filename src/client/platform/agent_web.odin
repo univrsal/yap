@@ -5,13 +5,13 @@ import "core:strings"
 
 @(default_calling_convention = "c")
 foreign _ {
-	// The browser and system as the page sees them, "Firefox 128 on
-	// Windows" (see web/shell.c); the length written, 0 if unknown.
+	// Writes the browser and system as the page sees them, e.g. "Firefox 128 on
+	// Windows" (see web/shell.c). Returns the length written, or 0 if unknown.
 	yap_agent :: proc(buf: [^]u8, buf_size: i32) -> i32 ---
 }
 
-// agent is what to tell the server this client is, for the account's
-// list of devices. In the temp allocator.
+// agent returns the description of this client that is sent to the server for
+// the account's list of devices. The string is allocated in the temp allocator.
 agent :: proc() -> string {
 	buf: [64]u8
 	n := int(yap_agent(raw_data(buf[:]), i32(len(buf))))

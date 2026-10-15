@@ -11,42 +11,41 @@ import "client:conn"
 import "common:gif"
 import "common:webp"
 
-/*
-A pasted image is attached to the message being written in the composer
-it was pasted in (ui.paste_to), as a WebP named for when it was pasted
-(pasted_image_name), and goes with that message like any other file. An
-animated GIF or WebP is attached as it is, if the server takes a file
-that big; otherwise it's made a WebP of its first frame like any other.
-
-Pasting an image runs on a thread of its own: the program that owns the
-clipboard may take a moment to hand the data over, and a large image
-then takes a while to scale and compress (about a second for a 4K
-screenshot). The UI keeps drawing meanwhile.
-
-Only one paste runs at a time. The clipboard is read on this thread
-(Wayland events for our data device are queued by GLFW's loop and
-handled here; the X11 connection is ours alone), while the window, the
-microui state and the View stay with the UI thread.
-*/
+// A pasted image is attached to the message being written in the composer it
+// was pasted in (ui.paste_to). It is attached as a WebP named after the time
+// it was pasted (pasted_image_name) and is sent with that message like any
+// other file. An animated GIF or WebP is attached unchanged if the server
+// accepts a file that big, otherwise a WebP of its first frame is made like
+// for any other image.
+//
+// Pasting an image runs on a thread of its own: the program that owns the
+// clipboard may take a moment to hand the data over, and a large image then
+// takes a while to scale and compress (about a second for a 4K screenshot).
+// The UI keeps drawing in the meantime.
+//
+// Only one paste runs at a time. The clipboard is read on this thread (Wayland
+// events for our data device are queued by GLFW's loop and handled here, and
+// the X11 connection is ours alone), while the window, the microui state and
+// the View stay with the UI thread.
 
 Paste_Job :: struct {
 	thread:             ^thread.Thread,
-	done:               bool, // atomic: set by the thread, read by the UI
+	done:               bool, // atomic: set by the thread, read by the UI thread
 	err:                clipboard.Error,
 	image:              conn.Chat_Image,
 	ok:                 bool, // the image was scaled and compressed
-	target:             Attach_Target, // where it goes
-	source_w, source_h: int, // before scaling, for the log
-	// An animated GIF or WebP that fits max_size (what the server takes)
-	// is attached as it is (owned), and `ext` says which it is; anything
+	target:             Attach_Target, // where the image is attached
+	source_w, source_h: int, // size before scaling, for the log
+	// An animated GIF or WebP that fits max_size (what the server accepts)
+	// is attached unchanged (owned) and `ext` says which one it is. Anything
 	// else is decoded and compressed into `image`.
 	max_size:           u64,
 	animated:           []u8,
 	ext:                string,
 }
 
-// paste_start reads the clipboard in the background, unless a paste is
-// already running.
+// paste_start reads the clipboard in the background, unless a paste is already
+// running.
 paste_start :: proc(ui: ^UI) {
 	if ui.paste != nil {
 		log.debug("ui: the last paste is still being read")
@@ -71,7 +70,7 @@ paste_start :: proc(ui: ^UI) {
 paste_work :: proc(job: ^Paste_Job) {
 	defer {
 		sync.atomic_store(&job.done, true)
-		// The UI may be waiting for input; let it pick the result up now.
+		// The UI may be waiting for input, so make it pick up the result now.
 		ui_wake()
 	}
 	data, err := clipboard.read_encoded()
@@ -93,8 +92,8 @@ paste_work :: proc(job: ^Paste_Job) {
 	}
 }
 
-// animation_ext is "gif" or "webp" for an animation in either, which a
-// paste keeps as it is: compressing it would leave its first frame.
+// animation_ext is "gif" or "webp" for an animation in either format, which a
+// paste keeps unchanged because compressing it would leave only its first frame.
 animation_ext :: proc(data: []u8) -> (ext: string, ok: bool) {
 	if webp.is_webp(data) && webp.is_animation(data) {
 		return "webp", true
@@ -105,8 +104,8 @@ animation_ext :: proc(data: []u8) -> (ext: string, ok: bool) {
 	return
 }
 
-// paste_poll finishes a paste once its thread is done. It's called on
-// the UI thread, outside the View lock.
+// paste_poll finishes a paste once its thread is done. It is called on the UI
+// thread, outside the View lock.
 paste_poll :: proc(ui: ^UI) {
 	job := ui.paste
 	if job == nil || !sync.atomic_load(&job.done) {
@@ -129,7 +128,7 @@ paste_poll :: proc(ui: ^UI) {
 				"GIF" if job.ext == "gif" else "WebP",
 				len(job.animated) / 1024,
 			)
-			// The composer takes the bytes over.
+			// The composer takes over the bytes.
 			picked := Picked_File {
 				data = job.animated,
 				name = pasted_image_name(ui, job.ext),
@@ -160,7 +159,7 @@ paste_poll :: proc(ui: ^UI) {
 				len(job.image.jpeg) / 1024,
 			)
 		}
-		// The composer takes the WebP over, so it isn't freed here.
+		// The composer takes over the WebP, so it isn't freed here.
 		picked := Picked_File {
 			data = job.image.jpeg,
 			name = pasted_image_name(ui),
@@ -183,16 +182,16 @@ paste_poll :: proc(ui: ^UI) {
 		log.warn("the program holding the clipboard didn't hand it over")
 	case .No_Image, .Unavailable:
 	}
-	// No image: the chat box takes the clipboard's text as if it had been
-	// typed, on the next frame.
+	// No image: the chat box takes the clipboard's text on the next frame, as
+	// if it had been typed.
 	if text, ok := ui.ctx.textbox_state.get_clipboard(ui.ctx.textbox_state.clipboard_user_data);
 	   ok {
 		mu.input_text(&ui.ctx, text)
 	}
 }
 
-// paste_wait lets a running paste finish and throws its result away, so
-// nothing is still using the clipboard when it's shut down.
+// paste_wait lets a running paste finish and discards its result, so that
+// nothing is still using the clipboard when it is shut down.
 paste_wait :: proc(ui: ^UI) {
 	job := ui.paste
 	if job == nil {

@@ -8,17 +8,15 @@ import "common:proto"
 
 _ :: time // only used when proto.STREAM_FLOOD
 
-/*
-Requests to the server and what comes back (src/common/proto/rpc.odin).
+// Requests to the server and what comes back (src/common/proto/rpc.odin).
+//
+// request sends a request and remembers who wants the answer. Each request gets
+// exactly one answer: either the server's response, or Status.Reset if the
+// connection started over first. Either way `done` is called on the network
+// thread, and the response's body is only valid during that call.
 
-request sends one and remembers who wants the answer. Each gets exactly
-one: the server's response, or Status.Reset if the connection started
-over first. Either way `done` is called on the network thread, with the
-response's body only valid during the call.
-*/
-
-// What a request's answer is handed to. `tag` is whatever was given to
-// request, for telling one request from another of the same kind.
+// Request_Done receives a request's answer. `tag` is whatever was passed to
+// request, which tells apart requests of the same kind.
 Request_Done :: #type proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 
 @(private = "file")
@@ -31,7 +29,7 @@ Request_Pending :: struct {
 Rpc_Client :: struct {
 	last_id: u32,
 	pending: map[u32]Request_Pending,
-	// What the server says about itself, once it has (Server_Info).
+	// What the server says about itself, once it has told us (Server_Info).
 	server:  Server_Details,
 }
 
@@ -39,17 +37,20 @@ Server_Details :: struct {
 	known:          bool,
 	name:           string, // owned; may be empty
 	version:        string, // owned
-	// How big a file attached to a message may be; 0 if it takes none.
+	// How big a file attached to a message may be; 0 if attachments are not accepted.
 	max_attachment: u64,
 	registration:   proto.Registration_Flags,
 	email:          string, // where verifying mail goes; owned
 	digests:        bool, // it mails what was missed (proto.SETTING_EMAIL_DIGEST)
-	// Its media link's port, 0 for none (media.odin), and how fast a
-	// sharer's video may be, in kbit/s, 0 if it didn't say.
+	// Its VAPID key, if it supports push notifications (see push.odin).
+	push:           bool,
+	push_key:       [proto.PUSH_KEY_SIZE]u8,
+	// The port of its media link (0 for none, see media.odin), and the maximum
+	// video bitrate of a sharer in kbit/s (0 if the server did not say).
 	media_port:     u16,
 	video_kbit:     u32,
-	// What it's for (owned), and its picture: the id it goes by, and its
-	// JPEG once fetched (owned; nil until then). See server_info.odin.
+	// What the server is for (owned), and its picture: the id it goes by, and
+	// its JPEG once fetched (owned, nil until then). See server_info.odin.
 	description:    string,
 	icon:           proto.Blob_Id,
 	icon_jpeg:      []u8,
@@ -65,7 +66,7 @@ rpc_destroy :: proc(c: ^Voice_Client) {
 	c.rpc = {}
 }
 
-// request asks the server for `op`. `done` hears how it went.
+// request asks the server for `op`. `done` is called with the outcome.
 request :: proc(
 	c: ^Voice_Client,
 	op: proto.Request_Op,
@@ -89,15 +90,15 @@ request :: proc(
 	stream_send(c, msg)
 }
 
-// rpc_restart gives up on every request still waiting: the connection
-// they were sent on is gone.
+// rpc_restart gives up on every request that is still waiting, because the
+// connection they were sent on is gone.
 rpc_restart :: proc(c: ^Voice_Client) {
 	r := &c.rpc
 	if len(r.pending) == 0 {
 		return
 	}
-	// In the order they were asked, and from a copy: a `done` may well
-	// ask again.
+	// In the order they were asked, and from a copy, because a `done` may
+	// issue another request.
 	ids, _ := slice.map_keys(r.pending, context.temp_allocator)
 	slice.sort(ids)
 	waiting := make([]Request_Pending, len(ids), context.temp_allocator)
@@ -113,7 +114,7 @@ rpc_restart :: proc(c: ^Voice_Client) {
 	}
 }
 
-// rpc_handle takes one message off the stream.
+// rpc_handle processes one message from the stream.
 rpc_handle :: proc(c: ^Voice_Client, msg: []u8) {
 	kind, ok := proto.app_kind(msg)
 	if !ok {
@@ -134,7 +135,7 @@ rpc_handle :: proc(c: ^Voice_Client, msg: []u8) {
 			p.done(c, status, body, p.tag)
 		}
 	case .Event:
-		// One we don't know is from a newer server, and left alone.
+		// An unknown event comes from a newer server and is ignored.
 		op, body := proto.decode_event(msg)
 		if !auth_event(c, op, body) &&
 		   !server_info_event(c, op, body) &&
@@ -147,19 +148,19 @@ rpc_handle :: proc(c: ^Voice_Client, msg: []u8) {
 			log.debugf("ignoring event %d", u16(op))
 		}
 	case .Request:
-	// Servers don't ask.
+	// Servers don't send requests.
 	}
 }
 
-// server_info_ask asks the server what it calls itself; the answer
+// server_info_ask asks the server for its name and description. The answer
 // ends up in the View.
 server_info_ask :: proc(c: ^Voice_Client) {
 	c.rpc.server.known = false
 	request(c, .Server_Info, nil, server_info_done)
 }
 
-// rpc_step is the requests' turn in the network loop. They need none,
-// except when testing (see proto.STREAM_FLOOD).
+// rpc_step is the requests' turn in the network loop. They need none, except
+// when testing (see proto.STREAM_FLOOD).
 rpc_step :: proc(c: ^Voice_Client) {
 	when proto.STREAM_FLOOD {
 		@(static) last: time.Tick
@@ -175,7 +176,7 @@ rpc_step :: proc(c: ^Voice_Client) {
 @(private = "file")
 server_info_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	if status != .Ok {
-		return // Reset: it's asked again on the new connection
+		return // Reset: it is asked again on the new connection
 	}
 	if !server_info_take(c, body) {
 		return

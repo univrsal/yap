@@ -1,19 +1,17 @@
 #+build darwin
 package hotkeys
 
-/*
-On macOS CGEventSourceKeyState says whether a key is down, by its
-virtual keycode, which names a position on the keyboard (kVK_ANSI_A is
-where A is on a US layout).
-
-Since 10.15, watching the keyboard while another program has the focus
-needs the Input Monitoring permission. CGRequestListenEventAccess asks
-for it (once; macOS remembers the answer), and until it's given the keys
-simply never read as down, which the status says.
-
-Apple keyboards have no Pause, Scroll Lock, Print Screen or F21-F24;
-those are never down here.
-*/
+// On macOS, CGEventSourceKeyState tells whether a key is down, given its
+// virtual keycode. Keycodes name a position on the keyboard (kVK_ANSI_A is
+// where A is on a US layout).
+//
+// Since macOS 10.15, watching the keyboard while another program has the
+// focus requires the Input Monitoring permission. CGRequestListenEventAccess
+// asks for it (only once, as macOS remembers the answer). Until it is
+// granted, keys are never reported as down, and the status says so.
+//
+// Apple keyboards have no Pause, Scroll Lock, Print Screen or F21-F24, so
+// those keys are never reported as down.
 
 foreign import cg "system:CoreGraphics.framework"
 
@@ -30,7 +28,7 @@ foreign cg {
 	CGRequestListenEventAccess :: proc() -> b8 ---
 }
 
-// No such key on a Mac.
+// The key doesn't exist on a Mac keyboard.
 @(private = "file")
 NONE :: 0xFFFF
 
@@ -143,7 +141,7 @@ Backend :: struct {
 backend_open :: proc(b: ^Backend) -> (Status, string) {
 	b.allowed = bool(CGPreflightListenEventAccess())
 	if !b.allowed {
-		// Shows macOS's own prompt, the first time.
+		// Shows the macOS permission prompt the first time.
 		CGRequestListenEventAccess()
 	}
 	return describe(b)
@@ -169,7 +167,7 @@ backend_poll :: proc(b: ^Backend, s: ^State, wanted: Keys) {
 	}
 }
 
-// backend_status notices the permission being given while we run.
+// backend_status notices when the permission is granted while we are running.
 backend_status :: proc(b: ^Backend) -> (st: Status, message: string, changed: bool) {
 	if b.allowed {
 		return .Ok, "", false

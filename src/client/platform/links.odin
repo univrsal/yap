@@ -4,10 +4,8 @@ import log "common:wlog"
 import "core:strings"
 import "core:unicode"
 
-/*
-Links in chat messages: http(s):// URLs and bare www. addresses. The text
-shown is always the URL itself, so what you click is what opens.
-*/
+// Links in chat messages: http(s):// URLs and bare www. addresses. The text
+// shown is always the URL itself, so what you click is what opens.
 
 Link :: struct {
 	start, end: int, // byte range in the text
@@ -21,7 +19,7 @@ find_links :: proc(text: string, allocator := context.temp_allocator) -> []Link 
 	links := make([dynamic]Link, allocator)
 	i := 0
 	outer: for i < len(text) {
-		// Only at the start of a word, so "xhttp://" isn't a link.
+		// Links only start at the beginning of a word, so "xhttp://" isn't a link.
 		if i > 0 && is_word_byte(text[i - 1]) {
 			i += 1
 			continue
@@ -43,7 +41,8 @@ find_links :: proc(text: string, allocator := context.temp_allocator) -> []Link 
 	return links[:]
 }
 
-// link_url is the address to open for a link.
+// link_url returns the address to open for a link (bare www. links get
+// https:// in front).
 link_url :: proc(text: string, l: Link, allocator := context.temp_allocator) -> string {
 	s := text[l.start:l.end]
 	if len(s) >= 4 && strings.equal_fold(s[:4], "www.") {
@@ -52,9 +51,9 @@ link_url :: proc(text: string, l: Link, allocator := context.temp_allocator) -> 
 	return strings.clone(s, allocator)
 }
 
-// link_end finds where a link starting at `start` ends: at whitespace or
-// a character that can't be in a URL, minus trailing punctuation that is
-// more likely the sentence's ("see https://example.com.") and closing
+// link_end finds where a link starting at `start` ends: at whitespace or a
+// character that can't be in a URL, excluding trailing punctuation that more
+// likely belongs to the sentence ("see https://example.com.") and closing
 // brackets without a matching opening one ("(https://example.com)").
 @(private = "file")
 link_end :: proc(text: string, start: int) -> int {
@@ -119,8 +118,9 @@ open_url :: proc(url: string) {
 	}
 }
 
-// Files that run when the desktop "opens" them. A saved attachment came
-// from someone else, so these are never handed to the opener.
+// Extensions of files that run as programs when the desktop "opens" them. A
+// saved attachment came from someone else, so these are never handed to the
+// opener.
 @(rodata, private = "file")
 RUNNABLE_EXTENSIONS := [?]string {
 	"exe",
@@ -192,12 +192,10 @@ open_folder :: proc(path: string) {
 	}
 }
 
-/*
-open_mailto opens the mail program on a new mail to `to` with `subject`.
-Only what an address and a code are made of is taken - letters, digits
-and . _ + - @ - so nothing but those two can end up in the link, and
-nothing needs escaping.
-*/
+// open_mailto opens the mail program with a new mail to `to` with the subject
+// `subject`. Both may only contain the characters an address or a code is made
+// of (letters, digits and . _ + -, plus @ in the address), so nothing else can
+// end up in the link and nothing needs escaping.
 open_mailto :: proc(to, subject: string) {
 	plain :: proc(s: string, at_ok: bool) -> bool {
 		if s == "" {

@@ -8,15 +8,13 @@ import mu "vendor:microui"
 import "client:hotkeys"
 import "client:settings"
 
-/*
-Global hotkeys for mute and deafen (see the hotkeys package), and their
-section of the settings page, where a hotkey is set by pressing it.
-
-The keyboard is only watched while there's a hotkey to watch for (or one
-being set): nobody who doesn't use them has yap looking at every key,
-or reading /dev/input on Linux. The watcher wakes the UI when a hotkey
-fires, so it's acted on at once even with the window hidden in the tray.
-*/
+// Global hotkeys for mute and deafen (see the hotkeys package), and their
+// section of the settings page, where a hotkey is set by pressing it.
+//
+// The keyboard is only watched while there is a hotkey to watch for (or one
+// is being set), so nobody who doesn't use them has yap looking at every key
+// or reading /dev/input on Linux. The watcher wakes the UI when a hotkey
+// fires, so it is acted on at once even with the window hidden in the tray.
 
 Hotkey_Action :: enum {
 	Mute,
@@ -54,11 +52,9 @@ bound :: proc(ui: ^UI, action: Hotkey_Action) -> hotkeys.Hotkey {
 	return h
 }
 
-/*
-hotkeys_frame acts on the hotkeys pressed since the last frame, takes a
-hotkey being set, and starts or stops watching the keyboard as there
-are hotkeys to watch for. Call it every frame, window or no window.
-*/
+// hotkeys_frame acts on the hotkeys pressed since the last frame, takes a
+// hotkey that is being set, and starts or stops watching the keyboard depending on
+// whether there are hotkeys to watch for. Call it every frame, window or no window.
 hotkeys_frame :: proc(ui: ^UI) {
 	hk := &ui.hotkeys
 	w := &hk.watcher
@@ -105,14 +101,14 @@ hotkeys_stop :: proc(ui: ^UI) {
 	hk := &ui.hotkeys
 	if hk.running {
 		hotkeys.stop(&hk.watcher)
-		// A fresh one next time, without what the last one saw.
+		// Use a fresh watcher next time, without what the last one saw.
 		hk.watcher = {}
 		hk.running = false
 	}
 }
 
-// set_hotkey binds `h` to `action`, taking it from the other action if
-// it had it, and saves it.
+// set_hotkey binds `h` to `action`, taking it away from the other action if
+// that one had it, and saves it.
 @(private = "file")
 set_hotkey :: proc(ui: ^UI, action: Hotkey_Action, h: hotkeys.Hotkey) {
 	text := hotkeys.format(h, context.temp_allocator)
@@ -128,7 +124,7 @@ set_hotkey :: proc(ui: ^UI, action: Hotkey_Action, h: hotkeys.Hotkey) {
 	log.infof("%s hotkey: %s", HOTKEY_LABELS[action], text if text != "" else "none")
 }
 
-// hotkey_settings is the settings page's section for them.
+// hotkey_settings is the settings page's section for hotkeys.
 hotkey_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	hk := &ui.hotkeys
@@ -155,7 +151,7 @@ hotkey_settings :: proc(ui: ^UI) {
 			} else {
 				hk.capturing = action
 				// Picked up by the watcher, which hotkeys_frame starts for
-				// it if need be; setting the flag before it runs is fine.
+				// it if needed. Setting the flag before it runs is fine.
 				hotkeys.capture(&hk.watcher, true)
 			}
 		}

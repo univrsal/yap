@@ -4,17 +4,15 @@ import "core:encoding/endian"
 import "core:os"
 import "core:strings"
 
-/*
-Installing on macOS (see the client's ui_install_native.odin): a bundle,
-~/Applications/Yap.app, which Finder, Launchpad and Spotlight list with
-the other apps. Its executable is a link to the binary rather than a
-copy, and its icon is assets/icon.png wrapped as an .icns.
-
-Started from the bundle, macOS asks for the microphone on the app's
-behalf (NSMicrophoneUsageDescription) instead of on the terminal's, and
-likewise for other applications' audio (NSAudioCaptureUsageDescription,
-see ui_app_audio_native.odin).
-*/
+// Installing on macOS (see the client's ui_install_native.odin) creates a
+// bundle, ~/Applications/Yap.app, which Finder, Launchpad and Spotlight list
+// together with the other apps. Its executable is a link to the binary
+// instead of a copy, and its icon is assets/icon.png wrapped as an .icns.
+//
+// When started from the bundle, macOS asks for microphone access on behalf
+// of the app (NSMicrophoneUsageDescription) instead of the terminal, and
+// likewise for the audio of other applications
+// (NSAudioCaptureUsageDescription, see ui_app_audio_native.odin).
 
 INSTALL_DESCRIPTION :: "Adds Yap.app to the Applications folder in your home folder, so it can be started from Finder, Launchpad or Spotlight. The app starts this copy of yap; nothing is copied or moved. Uninstall removes it again."
 
@@ -50,7 +48,8 @@ Install_Paths :: struct {
 	bundle, contents, macos, resources, exe, plist, icon: string,
 }
 
-// install_paths are the bundle's files; all in the temp allocator.
+// install_paths returns the paths of the bundle's files, allocated with the
+// temp allocator.
 @(private = "file")
 install_paths :: proc() -> (p: Install_Paths, ok: bool) {
 	home, err := os.user_home_dir(context.temp_allocator)
@@ -100,8 +99,8 @@ install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 	return ""
 }
 
-// uninstall_self removes the files it put there, one by one, so
-// anything else that ended up in the bundle keeps it from going.
+// uninstall_self removes the files it installed one by one. If anything else
+// ended up in the bundle, the bundle itself is not removed.
 uninstall_self :: proc() -> (err: string) {
 	p, ok := install_paths()
 	if !ok {
@@ -116,11 +115,10 @@ uninstall_self :: proc() -> (err: string) {
 	return ""
 }
 
-/*
-icns_from_png wraps a 128x128 PNG as an .icns: the "icns" header and one
-"ic07" (128x128) entry, which may hold a PNG as it is. Each has its
-length, header included, as a big-endian u32.
-*/
+// icns_from_png wraps a 128x128 PNG as an .icns file. It consists of the
+// "icns" header and one "ic07" (128x128) entry, which may contain a PNG as
+// it is. Each of them stores its length, including the header, as a
+// big-endian u32.
 @(private = "file")
 icns_from_png :: proc(png: []u8) -> []u8 {
 	out := make([]u8, 16 + len(png), context.temp_allocator)

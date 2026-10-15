@@ -7,30 +7,31 @@ import "core:time"
 import "common:proto"
 import "sqlite"
 
-/*
-What a person says about themselves (src/common/proto/accounts.odin):
-their display name, a status that may end by itself, and a picture; and
-the settings their clients keep here (src/common/proto/settings.odin).
+// Profiles are what a person says about themselves (see
+// src/common/proto/accounts.odin): a display name, a status that can expire
+// automatically and a picture. This file also handles the settings that a
+// person's clients store on the server (see src/common/proto/settings.odin).
+//
+// A status that expires is cleared by the main loop (profiles_sync) within a
+// second of its end time. This includes statuses that expired while the
+// server was down.
+//
+// A picture is a blob of kind Avatar. It is uploaded first, like a message
+// attachment (see transfers.odin), and must be a JPEG with at most
+// MAX_AVATAR_SIDE pixels per side. Anyone who is logged in may fetch a blob
+// that is somebody's picture.
+//
+// Settings are stored by key and the server doesn't look at their values.
+// The only exception is proto.SETTING_EMAIL_DIGEST, which must be one of the
+// valid digest values and of which the server keeps a copy in the account
+// (see digest.odin).
 
-A status that ends is cleared by the loop (profiles_sync) within a
-second of its time, also one that ended while the server was down.
-
-A picture is a blob, uploaded first like a message's (transfers.odin) as
-kind Avatar: a JPEG at most MAX_AVATAR_SIDE pixels a side. Anyone
-logged in may fetch a blob that is someone's picture.
-
-Settings are kept as they come, by key, and not looked inside; but for
-proto.SETTING_EMAIL_DIGEST, which has to be one of its values, and which
-the server keeps a copy of in the account (digest.odin).
-*/
-
-// How often statuses are looked at for ones that have ended.
+// How often the statuses are checked for ones that have expired.
 STATUS_CHECK :: time.Second
 
-/*
-email_set sets the asking account's email address (Email_Set): one that
-could be one (proto.email_clean) and no other account's, or none.
-*/
+// email_set sets the email address of the requesting account (Email_Set).
+// The address must be a valid email address (see proto.email_clean) that
+// no other account uses. An empty address removes the email address.
 email_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	raw, ok := proto.decode_email_set(body)
 	if !ok {
@@ -40,7 +41,7 @@ email_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	acc := u.account
 	r := s.registration
 	if raw == "" && (r.require_email || r.verify_email) && .Owner not_in acc.flags {
-		respond(u, id, .Invalid) // this server wants one
+		respond(u, id, .Invalid) // this server requires an email address
 		return
 	}
 	email := ""
@@ -66,8 +67,8 @@ email_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	log.infof("%s %s their email address", conn_label(u), "changed" if email != "" else "removed")
-	// A new address has to be verified, as a registration's does; but
-	// the owner is never locked out (verify.odin).
+	// A new address has to be verified, just like the address given when
+	// registering. The owner is never locked out for that (see verify.odin).
 	if email != "" && verify_on(s) && .Owner not_in acc.flags {
 		by := acc.verify_expires if .Unverified in acc.flags else 0
 		if !account_unverify(s, acc, by) {
@@ -75,7 +76,7 @@ email_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			return
 		}
 	}
-	// Only its own connections know it.
+	// Only the account's own connections are told about the new address.
 	for c in acc.conns {
 		send_self(c)
 	}
@@ -89,7 +90,8 @@ profile_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	acc := u.account
-	// Checked first, so a request is done entirely or not at all.
+	// Everything is validated first so that a request is either applied
+	// entirely or not at all.
 	name_buf: [proto.MAX_NAME_SIZE]u8
 	display := proto.sanitize_name(p.display, &name_buf)
 	status_buf: [proto.MAX_STATUS_SIZE]u8
@@ -137,8 +139,8 @@ profile_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok)
 }
 
-// avatar_ok is whether a blob may be somebody's picture: a stored JPEG,
-// small enough.
+// avatar_ok checks whether a blob can be used as somebody's picture, i.e.
+// it is a stored JPEG that is small enough.
 @(private = "file")
 avatar_ok :: proc(s: ^Server, blob: proto.Blob_Id) -> proto.Status {
 	b, found := blob_get(&s.blobs, blob)
@@ -155,7 +157,7 @@ avatar_ok :: proc(s: ^Server, blob: proto.Blob_Id) -> proto.Status {
 	return .Ok
 }
 
-// is_avatar is whether a blob is somebody's picture, which anyone may
+// is_avatar returns whether a blob is somebody's picture, which anyone may
 // fetch.
 is_avatar :: proc(s: ^Server, blob: proto.Blob_Id) -> bool {
 	for _, acc in s.accounts.by_id {
@@ -191,8 +193,9 @@ account_set_avatar :: proc(a: ^Accounts, acc: ^Account, avatar: proto.Blob_Id) -
 	return true
 }
 
-// profiles_sync clears the statuses whose time has come, and tells
-// everyone. Called every turn of the loop; looks once a second.
+// profiles_sync clears the statuses that have expired and notifies everyone.
+// It is called on every iteration of the main loop but only checks once a
+// second.
 profiles_sync :: proc(s: ^Server) {
 	if s.status_checked != {} && time.tick_since(s.status_checked) < STATUS_CHECK {
 		return
@@ -201,7 +204,7 @@ profiles_sync :: proc(s: ^Server) {
 	statuses_expire(s, unix_ms())
 }
 
-// statuses_expire clears the statuses that have ended by `now`.
+// statuses_expire clears the statuses that have expired by `now`.
 statuses_expire :: proc(s: ^Server, now: i64) {
 	for _, acc in s.accounts.by_id {
 		if acc.status_until == 0 || acc.status_until > now {
@@ -224,7 +227,7 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	acc := u.account
-	// The one the server reads (digest.odin).
+	// This is the only setting the server reads itself (see digest.odin).
 	digest: proto.Email_Digest
 	if key == proto.SETTING_EMAIL_DIGEST {
 		digest, ok = proto.email_digest_parse(string(value))
@@ -255,11 +258,14 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			return
 		}
 	}
-	if key == proto.SETTING_EMAIL_DIGEST {
+	switch key {
+	case proto.SETTING_EMAIL_DIGEST:
 		acc.digest = digest
+	case proto.SETTING_PUSH_TEXT:
+		acc.push_hide = string(value) == proto.PUSH_TEXT_HIDDEN
 	}
 	respond(u, id, .Ok)
-	// The account's other connections.
+	// Notify the account's other connections.
 	buf: [proto.SETTING_MAX_SIZE]u8
 	event := proto.encode_setting(buf[:], key, value)
 	for other in acc.conns {
@@ -289,8 +295,8 @@ setting_count :: proc(s: ^Server, acc: ^Account) -> int {
 	return n
 }
 
-// send_settings tells a connection that just logged in its account's
-// settings (directory_sync).
+// send_settings sends the settings of the account to a connection that
+// just logged in (see directory_sync).
 send_settings :: proc(s: ^Server, u: ^Conn) {
 	q := db_stmt(&s.db, .Setting_All)
 	db_bind_int(q, 1, i64(u.account.id))

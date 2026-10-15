@@ -6,16 +6,15 @@ import "core:slice"
 import "core:strings"
 import "core:testing"
 
-/*
-Tests of the database and the blob store. Most run on a database in
-memory; the ones about what's on disk get a folder of their own under
-the system's temporary one.
+// Tests of the database and the blob store. Most run on an in-memory database.
+// The ones that are about what is stored on disk get a folder of their own under
+// the system's temporary folder.
+//
+// The test runner counts an error in the log as a failure, so where a test makes
+// something fail on purpose, it does so with the log switched off.
 
-The test runner counts an error in the log as a failure, so where a test
-makes something fail on purpose, it does so with the log switched off.
-*/
-
-// A folder for one test, removed when the test is over.
+// test_dir returns a new folder for one test, which the test has to remove when
+// it is over.
 @(private = "file")
 test_dir :: proc(t: ^testing.T) -> string {
 	base, _ := os.temp_directory(context.temp_allocator)
@@ -65,14 +64,15 @@ test_db_transaction :: proc(t: ^testing.T) {
 	testing.expect(t, db_open(&db, DB_MEMORY))
 	defer db_close(&db)
 
-	// A turn's writes are one transaction, open until it's committed.
+	// The writes of a turn form one transaction, which stays open until it is
+	// committed.
 	testing.expect(t, !db.in_tx)
 	testing.expect(t, db_meta_set(&db, "a", 1))
 	testing.expect(t, db.in_tx)
 	testing.expect(t, db_meta_set(&db, "b", 2))
 	db_commit(&db)
 	testing.expect(t, !db.in_tx)
-	// Committing with nothing open is nothing.
+	// Committing when no transaction is open does nothing.
 	db_commit(&db)
 
 	b, found := db_meta(&db, "b")
@@ -91,7 +91,8 @@ test_db_file :: proc(t: ^testing.T) {
 		db: DB
 		testing.expect(t, db_open(&db, path))
 		defer db_close(&db)
-		// Laid out so that purging can give room back, and logging ahead.
+		// The file is set up so that purging can give space back, and for
+		// write-ahead logging.
 		testing.expect_value(t, pragma(t, &db, "PRAGMA auto_vacuum"), 2)
 		testing.expect_value(t, pragma(t, &db, "PRAGMA synchronous"), 1)
 		testing.expect_value(t, pragma(t, &db, "PRAGMA wal_autocheckpoint"), 0)
@@ -100,7 +101,7 @@ test_db_file :: proc(t: ^testing.T) {
 		db_commit(&db)
 		testing.expect(t, db.log_pages > 0)
 
-		// Somebody else wanting the same file is told it's taken.
+		// Another process that wants the same file is told that it is in use.
 		{
 			context.logger = log.nil_logger()
 			other: DB
@@ -114,7 +115,8 @@ test_db_file :: proc(t: ^testing.T) {
 		testing.expect_value(t, wal.size, 0)
 	}
 
-	// Opened again, it's the same database: nothing is made a second time.
+	// When opened again it is the same database, and nothing is created a second
+	// time.
 	{
 		db: DB
 		testing.expect(t, db_open(&db, path))
@@ -130,8 +132,8 @@ test_db_file :: proc(t: ^testing.T) {
 
 @(test)
 test_db_uncommitted :: proc(t: ^testing.T) {
-	// What was committed survives the server going without closing the
-	// database; what wasn't doesn't.
+	// What was committed survives if the server stops without closing the
+	// database, and what wasn't committed is lost.
 	dir := test_dir(t)
 	defer remove_tree(dir)
 	path := file_in(dir, DB_FILE)
@@ -141,8 +143,8 @@ test_db_uncommitted :: proc(t: ^testing.T) {
 		testing.expect(t, db_meta_set(&db, "committed", 1))
 		db_commit(&db)
 		testing.expect(t, db_meta_set(&db, "open", 1))
-		// As close to being killed as a test gets: the connection is
-		// closed without a commit.
+		// This is as close to the server being killed as a test can get: the
+		// connection is closed without a commit.
 		testing.expect(t, db_exec(&db, "ROLLBACK"))
 		db.in_tx = false
 		db_close(&db)
@@ -232,7 +234,7 @@ test_blob_put_and_read :: proc(t: ^testing.T) {
 	testing.expect_value(t, b.hash, blob_hash(data))
 	testing.expect(t, b.created > 0)
 
-	// The file is where its hash says, and nothing else is left lying
+	// The file is at the path its hash determines, and no other files are left
 	// next to it.
 	path := blob_path(bs, b.hash)
 	testing.expect(t, os.exists(path))
@@ -262,14 +264,15 @@ test_blob_same_content_once :: proc(t: ^testing.T) {
 	b, ok_b := blob_put(bs, .Avatar, one)
 	c, ok_c := blob_put(bs, .File, two)
 	testing.expect(t, ok_a && ok_b && ok_c)
-	// The same content is the same blob, kept as it first came.
+	// The same content is stored as the same blob, with the kind it was first
+	// stored with.
 	testing.expect_value(t, b, a)
 	testing.expect(t, c != a)
 	first, _ := blob_get(bs, a)
 	testing.expect_value(t, first.kind, Blob_Kind.File)
 	testing.expect_value(t, pragma(t, &ts.db, "SELECT count(*) FROM blobs"), 2)
 
-	// Even nothing at all can be kept.
+	// Even empty content can be stored.
 	empty, ok_empty := blob_put(bs, .File, nil)
 	testing.expect(t, ok_empty)
 	content, read := blob_read(bs, empty, context.temp_allocator)
@@ -297,12 +300,13 @@ test_blob_delete :: proc(t: ^testing.T) {
 	testing.expect(t, !found)
 	_, found = blob_find(bs, b.hash)
 	testing.expect(t, !found)
-	// Gone is gone: there's nothing to delete or read a second time.
+	// Once deleted, there is nothing left to delete or read a second time.
 	testing.expect(t, !blob_delete(bs, id))
 	_, read := blob_read(bs, id, context.temp_allocator)
 	testing.expect(t, !read)
 
-	// Put again it's a new blob: an id is never given out twice.
+	// Storing the same data again creates a new blob, because an id is never
+	// reused.
 	again, ok_again := blob_put(bs, .File, data)
 	testing.expect(t, ok_again)
 	testing.expect(t, again > id)
@@ -321,7 +325,8 @@ test_blob_file_damaged :: proc(t: ^testing.T) {
 	path := blob_path(bs, b.hash)
 
 	context.logger = log.nil_logger()
-	// Cut short, and then gone altogether: either way it isn't handed out.
+	// The file is truncated and then removed altogether. Either way it must not
+	// be returned.
 	testing.expect(t, os.write_entire_file(path, []u8{1, 2}) == nil)
 	_, read := blob_read(bs, id, context.temp_allocator)
 	testing.expect(t, !read)
@@ -330,14 +335,12 @@ test_blob_file_damaged :: proc(t: ^testing.T) {
 	testing.expect(t, !read)
 }
 
-/*
-Every statement the server prepares, as SQLite would run it: none may
-read through the tables that grow with the history, and the thread
-queries have to go by messages_thread (a plan that walks messages by id
-from the anchor doesn't say SCAN, but is as slow). With the partial
-indexes, a query that leaves out the condition they're made with (see
-Stmt) quietly loses them.
-*/
+// Checks every statement the server prepares, as SQLite would run it. None may
+// read through the tables that grow with the history, and the thread queries
+// have to use messages_thread (a plan that walks messages by id from the anchor
+// doesn't say SCAN, but is just as slow). The partial indexes are only used by
+// queries that include the condition the indexes were created with (see Stmt),
+// so a query that leaves it out silently stops using them.
 @(test)
 test_query_plans :: proc(t: ^testing.T) {
 	db: DB

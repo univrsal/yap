@@ -2,34 +2,32 @@ package proto
 
 import "core:encoding/endian"
 
-/*
-Blob transfer: moving a few hundred kilobytes (a profile picture) through the
-same encrypted Data packets as everything else, in both directions.
-
-	sender -> receiver  Blob_Chunk [kind][handle u64][index u16][data]
-	receiver -> sender  Blob_Need  [kind][handle u64][flags u8][count u16][index u16]...
-
-The receiver always knows the size in advance, and with it how many
-chunks to expect: an upload is announced with Blob_Put, and a download
-asked for with Blob_Get, whose answer has the size (see msgs.odin). A
-`handle` identifies the transfer; the server hands one out for each.
-
-The sender pushes chunks at its own pace. The receiver asks for what
-hasn't arrived with Blob_Need, and repeats it until the gaps are filled;
-when everything is there it sends Blob_Need with the complete flag,
-which is also the sender's cue to let the transfer go. The server
-receiving an upload that turns out not to be what was announced says
-so with the failed flag instead. Blob_Need is
-unreliable like everything else, so both sides repeat themselves until
-the other's answer shows it got through.
-*/
+// Blob transfer: moves a few hundred kilobytes (such as a profile picture) in
+// both directions through the same encrypted Data packets as everything else.
+//
+// 	sender -> receiver  Blob_Chunk [kind][handle u64][index u16][data]
+// 	receiver -> sender  Blob_Need  [kind][handle u64][flags u8][count u16][index u16]...
+//
+// The receiver always knows the size in advance, and therefore how many chunks
+// to expect. An upload is announced with Blob_Put, and a download is requested
+// with Blob_Get, whose answer contains the size (see msgs.odin). A `handle`
+// identifies the transfer, and the server hands one out for each transfer.
+//
+// The sender pushes chunks at its own pace. The receiver requests the chunks
+// that haven't arrived with Blob_Need and repeats the request until all gaps
+// are filled. When everything has arrived it sends Blob_Need with the complete
+// flag, which also tells the sender that it can drop the transfer. If the
+// server receives an upload that turns out not to be what was announced, it
+// answers with the failed flag instead. Blob_Need is unreliable like
+// everything else, so both sides repeat their messages until the other side's
+// answer shows that they got through.
 
 BLOB_CHUNK_HEADER_SIZE :: 1 + 8 + 2
 BLOB_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - BLOB_CHUNK_HEADER_SIZE
 BLOB_NEED_HEADER_SIZE :: 1 + 8 + 1 + 2
 BLOB_NEED_MAX_INDICES :: (MAX_PAYLOAD_SIZE - BLOB_NEED_HEADER_SIZE) / 2
-// The most we ever transfer: a server's sheet of custom emoji at its
-// biggest (emoji.odin).
+// The largest blob that is ever transferred. It is large enough for a server's
+// sheet of custom emoji at its maximum size (emoji.odin).
 MAX_BLOB_SIZE :: 1024 * 1024
 MAX_BLOB_CHUNKS :: (MAX_BLOB_SIZE + BLOB_CHUNK_SIZE - 1) / BLOB_CHUNK_SIZE
 
@@ -41,7 +39,7 @@ blob_chunk_count :: proc(size: int) -> int {
 	return (size + BLOB_CHUNK_SIZE - 1) / BLOB_CHUNK_SIZE
 }
 
-// blob_chunk_range is the part of a blob that chunk `index` carries.
+// blob_chunk_range returns the part of a blob that chunk `index` carries.
 blob_chunk_range :: proc(size, index: int) -> (start, end: int) {
 	start = index * BLOB_CHUNK_SIZE
 	return start, min(start + BLOB_CHUNK_SIZE, size)
@@ -61,8 +59,8 @@ decode_blob_chunk :: proc(pt: []u8) -> (handle: u64, index: int, data: []u8) {
 		pt[BLOB_CHUNK_HEADER_SIZE:]
 }
 
-// encode_blob_need writes as many of `indices` as fit, and returns the
-// message and how many it took.
+// encode_blob_need writes as many of `indices` as fit and returns the message
+// together with the number of indices that it contains.
 encode_blob_need :: proc(
 	out: []u8,
 	handle: u64,
@@ -84,8 +82,8 @@ encode_blob_need :: proc(
 	return out[:BLOB_NEED_HEADER_SIZE + count * 2], count
 }
 
-// decode_blob_need returns the indices as the raw bytes they are in the
-// packet; read them with blob_need_index.
+// decode_blob_need returns the indices as the raw bytes of the packet. Use
+// blob_need_index to read them.
 @(require_results)
 decode_blob_need :: proc(
 	pt: []u8,
@@ -108,8 +106,8 @@ decode_blob_need :: proc(
 	return handle, complete, count, pt[BLOB_NEED_HEADER_SIZE:], true
 }
 
-// blob_need_failed is whether a Blob_Need (one that decodes) says the
-// upload was refused.
+// blob_need_failed reports whether a Blob_Need (that decodes successfully)
+// says that the upload was refused.
 blob_need_failed :: proc(pt: []u8) -> bool {
 	return len(pt) >= BLOB_NEED_HEADER_SIZE && pt[9] & BLOB_FAILED != 0
 }
@@ -118,9 +116,7 @@ blob_need_index :: proc(indices: []u8, i: int) -> int {
 	return int(endian.unchecked_get_u16le(indices[i * 2:]))
 }
 
-/*
-Blob_Receiver collects the chunks of one transfer.
-*/
+// Blob_Receiver collects the chunks of one transfer.
 Blob_Receiver :: struct {
 	size:     int,
 	data:     []u8, // owned
@@ -147,7 +143,7 @@ blob_receiver_destroy :: proc(r: ^Blob_Receiver, allocator := context.allocator)
 	r^ = {}
 }
 
-// blob_receive stores one chunk, ignoring repeats and nonsense.
+// blob_receive stores one chunk and ignores duplicates and invalid chunks.
 blob_receive :: proc(r: ^Blob_Receiver, index: int, data: []u8) {
 	if index < 0 || index >= len(r.have) || r.have[index] {
 		return
@@ -165,8 +161,8 @@ blob_receiver_complete :: proc(r: ^Blob_Receiver) -> bool {
 	return r.size > 0 && r.received == len(r.have)
 }
 
-// blob_missing fills `out` with chunks that haven't arrived, continuing
-// from where the last call stopped so repeated calls cover everything.
+// blob_missing fills `out` with the chunks that haven't arrived. It continues
+// where the last call stopped, so repeated calls cover all missing chunks.
 blob_missing :: proc(r: ^Blob_Receiver, out: []u16) -> []u16 {
 	n := 0
 	for i in 0 ..< len(r.have) {
@@ -185,9 +181,8 @@ blob_missing :: proc(r: ^Blob_Receiver, out: []u16) -> []u16 {
 	return out[:n]
 }
 
-/*
-Blob_Sender walks a blob's chunks once, then whatever is asked for again.
-*/
+// Blob_Sender sends each chunk of a blob once and afterwards any chunks that
+// are requested again.
 Blob_Sender :: struct {
 	data:   []u8, // borrowed
 	next:   int, // next chunk of the first pass
@@ -199,7 +194,7 @@ blob_sender_destroy :: proc(s: ^Blob_Sender) {
 	s^ = {}
 }
 
-// blob_sender_needs queues chunks the receiver asked for again.
+// blob_sender_needs queues a chunk that the receiver requested again.
 blob_sender_needs :: proc(s: ^Blob_Sender, index: int) {
 	if index < 0 || index >= blob_chunk_count(len(s.data)) {
 		return
@@ -212,8 +207,8 @@ blob_sender_needs :: proc(s: ^Blob_Sender, index: int) {
 	append(&s.resend, index)
 }
 
-// blob_next_chunk is the next chunk to send: one that was asked for
-// again, else the next one never sent.
+// blob_next_chunk returns the next chunk to send. That is a chunk that was
+// requested again, or otherwise the next one that was never sent.
 blob_next_chunk :: proc(s: ^Blob_Sender) -> (index: int, data: []u8, ok: bool) {
 	switch {
 	case len(s.resend) > 0:
@@ -229,7 +224,7 @@ blob_next_chunk :: proc(s: ^Blob_Sender) -> (index: int, data: []u8, ok: bool) {
 	return index, s.data[start:end], true
 }
 
-// blob_sender_idle is true when nothing is waiting to go out.
+// blob_sender_idle returns true when no chunk is waiting to be sent.
 blob_sender_idle :: proc(s: ^Blob_Sender) -> bool {
 	return len(s.resend) == 0 && s.next >= blob_chunk_count(len(s.data))
 }

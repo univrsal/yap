@@ -8,72 +8,70 @@ import "core:thread"
 import "common:memtrack"
 import "common:proto"
 
-/*
-Passwords, and the thread that hashes them.
-
-An account's password is kept as its Argon2id hash with a salt of its
-own. Argon2id is slow and hungry on purpose (tens of milliseconds and as
-many megabytes), so that guessing at passwords is too; and for the same
-reason it can't be done on the server's loop, which relays voice.
-
-So the loop hands each password to a thread of its own as a job
-(hash_submit), carries on, and looks for finished jobs each turn
-(hash_poll). A job can check a password against what's stored, make the
-hash of a new one, or both in that order (a password change: the new one
-is only hashed if the old one was right).
-
-There is one thread, so one password is hashed at a time, and only
-HASH_QUEUE_MOST may be waiting. That's also what bounds how much work
-somebody trying passwords can make the server do.
-
-Which parameters a hash was made with is kept next to it, as an index
-into HASH_PARAMS, so they can be raised later without old passwords
-becoming unreadable.
-*/
+// Passwords and the thread that hashes them.
+//
+// An account's password is stored as an Argon2id hash with its own salt.
+// Argon2id is deliberately slow and memory-hungry (tens of milliseconds and
+// tens of megabytes per hash), which makes guessing passwords expensive.
+// For the same reason, hashing can't run on the server's loop, which
+// relays voice.
+//
+// Instead, the loop hands each password to a dedicated thread as a job
+// (hash_submit), carries on, and collects finished jobs on each turn
+// (hash_poll). A job can check a password against the stored one, hash a
+// new password, or do both in that order. The latter is used for password
+// changes, where the new password is only hashed if the old one was correct.
+//
+// A single thread hashes one password at a time, and at most
+// HASH_QUEUE_MOST jobs may be waiting. This also limits how much work
+// someone guessing passwords can make the server do.
+//
+// The parameter set a hash was made with is stored next to it as an index
+// into HASH_PARAMS, so the parameters can be raised later without making
+// old passwords unreadable.
 
 HASH_SIZE :: 32
 SALT_SIZE :: argon2id.RECOMMENDED_SALT_SIZE
 
-/*
-The parameter sets, by the number that's stored with a hash. They're
-never changed or removed, only added to.
-  0  next to nothing: for tests, which would otherwise take seconds
-  1  what OWASP recommends: 19 MiB, 2 passes
-*/
+// The parameter sets, indexed by the number that is stored with a hash.
+// They must never be changed or removed, only added to.
+//   0  minimal cost, for tests which would otherwise take seconds
+//   1  the OWASP recommendation: 19 MiB, 2 passes
 @(private = "file", rodata)
 HASH_PARAMS := [?]argon2id.Parameters {
 	0 = {memory_size = 8, passes = 1, parallelism = 1},
 	1 = {memory_size = 19 * 1024, passes = 2, parallelism = 1},
 }
-// The set new hashes are made with.
+// The parameter set used for new hashes.
 HASH_PARAMS_NOW :: 1
 HASH_PARAMS_TEST :: 0
 
-// How many jobs may be waiting for the thread.
+// The maximum number of jobs that may be waiting for the thread.
 HASH_QUEUE_MOST :: 16
 
-// Secret is a password as it's stored.
+// Secret is a password in the form in which it is stored.
 Secret :: struct {
 	hash:   [HASH_SIZE]u8,
 	salt:   [SALT_SIZE]u8,
 	params: int,
 }
 
-// A password on its way to being hashed: by value, so the job owns it.
+// Password is a password waiting to be hashed. It is held by value so that
+// the job owns it.
 Password :: struct {
 	bytes: [proto.MAX_ACCOUNT_PASSWORD]u8,
 	len:   int,
 }
 
-// password_of copies a password that is no longer than one may be
-// (proto.account_password_ok).
+// password_of copies a password into a Password. The password must not be
+// longer than allowed (see proto.account_password_ok).
 password_of :: proc(text: string) -> (p: Password) {
 	p.len = copy(p.bytes[:], text)
 	return
 }
 
-// password_hash is the hash of a password with a salt, which takes a
-// while. False for a parameter set this build doesn't know.
+// password_hash hashes a password with the given salt. This takes a while.
+// It returns false if this build doesn't know the parameter set.
 @(require_results)
 password_hash :: proc(
 	p: ^Password,
@@ -94,8 +92,8 @@ password_hash :: proc(
 	return hash, true
 }
 
-// secret_make is a new password as it's to be stored, under a fresh
-// salt. It takes a while.
+// secret_make hashes a new password with a fresh salt, producing the value
+// to store. This takes a while.
 @(require_results)
 secret_make :: proc(p: ^Password, params: int) -> (s: Secret, ok: bool) {
 	crypto.rand_bytes(s.salt[:])
@@ -104,21 +102,21 @@ secret_make :: proc(p: ^Password, params: int) -> (s: Secret, ok: bool) {
 	return s, true
 }
 
-// secret_matches is whether a password is the one stored. It takes a
-// while, and as long for a wrong one as for the right one.
+// secret_matches reports whether a password matches the stored one. This
+// takes a while, and just as long for a wrong password as for a right one.
 secret_matches :: proc(p: ^Password, s: ^Secret) -> bool {
 	hash, ok := password_hash(p, s.salt, s.params)
 	return ok && crypto.compare_constant_time(hash[:], s.hash[:]) == 1
 }
 
 Hash_Job :: struct {
-	id:      u64, // given by hash_submit
+	id:      u64, // assigned by hash_submit
 	// Check this password against this secret...
 	check:   bool,
 	given:   Password,
 	against: Secret,
-	// ... and, if it's right or there was nothing to check, make this
-	// one's.
+	// ... and, if it matched or there was nothing to check, hash this
+	// one.
 	create:  bool,
 	wanted:  Password,
 	params:  int,
@@ -126,8 +124,8 @@ Hash_Job :: struct {
 
 Hash_Result :: struct {
 	id:      u64,
-	matched: bool, // the checked password was right (true if none was)
-	made:    Secret, // if one was to be made, and `matched`
+	matched: bool, // the checked password was correct (true if none was checked)
+	made:    Secret, // set if a password was to be hashed and `matched` is true
 	ok:      bool, // false if the hashing itself failed
 }
 
@@ -146,8 +144,8 @@ hash_worker_start :: proc(w: ^Hash_Worker) -> bool {
 	return w.thread != nil
 }
 
-// hash_worker_stop ends the thread, after the job it's on, and drops
-// what was waiting.
+// hash_worker_stop stops the thread after its current job and discards
+// the jobs that are still waiting.
 hash_worker_stop :: proc(w: ^Hash_Worker) {
 	if w.thread == nil {
 		return
@@ -165,7 +163,7 @@ hash_worker_stop :: proc(w: ^Hash_Worker) {
 }
 
 // hash_submit queues a job and returns the id its result will carry.
-// False if too many are waiting already.
+// It returns false if too many jobs are already waiting.
 @(require_results)
 hash_submit :: proc(w: ^Hash_Worker, job: ^Hash_Job) -> (id: u64, ok: bool) {
 	sync.guard(&w.mutex)
@@ -179,7 +177,7 @@ hash_submit :: proc(w: ^Hash_Worker, job: ^Hash_Job) -> (id: u64, ok: bool) {
 	return job.id, true
 }
 
-// hash_poll takes a finished job's result, if there is one.
+// hash_poll takes the result of a finished job, if there is one.
 @(require_results)
 hash_poll :: proc(w: ^Hash_Worker) -> (result: Hash_Result, ok: bool) {
 	sync.guard(&w.mutex)
@@ -220,7 +218,7 @@ hash_worker_run :: proc(w: ^Hash_Worker) {
 		if job.create && result.matched {
 			result.made, result.ok = secret_make(&job.wanted, job.params)
 		}
-		// The passwords have done their part.
+		// Wipe the passwords now that they are no longer needed.
 		crypto.zero_explicit(&job, size_of(job))
 
 		sync.guard(&w.mutex)

@@ -9,44 +9,44 @@ import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-/*
-Joining a server from the rail's + (docs/next, item 9b), picked by
-itself with no server to show: the main window asks for its address and
-password, and connects. The session it makes is among UI.sessions from
-then on (its network turns, mute, idle... go to it as to every other),
-and shown, but marked `joining`: off the rail, with the join page in the
-main window, and not in the settings.
-
-What happens next is the server's to say, and the page shows it in
-place: a server that knows this device logs it in by itself, and it's
-joined - on the rail, in the settings, the page gone. One that doesn't
-asks for the login screen (with Register where the server allows it);
-one whose key has changed, the trust prompt; a failed connection, the
-form again with what went wrong.
-
-Giving up (Cancel while connecting, a click elsewhere on the rail, the
-settings) ends the session and shows again what was shown before.
-*/
+// Joining a server from the rail's + button (docs/next, item 9b), which is also
+// picked automatically when there is no server to show: the main window asks
+// for the server's address and password, and connects. From then on the new
+// session is in UI.sessions (its network turns, mute, idle etc. are handled
+// like those of every other session) and is shown, but it is marked `joining`:
+// it is left off the rail and out of the settings, and the main window shows
+// the join page.
+//
+// What happens next depends on the server, and the page shows it in place. A
+// server that knows this device logs it in automatically, and the server is
+// joined: it appears on the rail and in the settings, and the page goes away.
+// A server that doesn't know the device brings up the login screen (with
+// Register where the server allows it). A server whose key has changed brings
+// up the trust prompt, and a failed connection shows the form again with what
+// went wrong.
+//
+// Giving up (Cancel while connecting, a click elsewhere on the rail, or opening
+// the settings) ends the session and shows whatever was shown before.
 
 UI_Join :: struct {
-	open:         bool, // the + is picked
-	card_h:       i32, // the card's height last frame (card_end)
+	open:         bool, // the + button is selected
+	card_h:       i32, // the card's height in the last frame (card_end)
 	server_buf:   [256]u8,
 	server_len:   int,
 	password_buf: [proto.MAX_PASSWORD_SIZE]u8,
 	password_len: int,
-	// The session being joined, the one shown till it's logged in; and
-	// the one shown before, to go back to.
+	// The session being joined, which is shown until it is logged in, and
+	// the session shown before, to go back to.
 	ns:           ^Net_Session,
 	back:         ^Net_Session,
-	// Asked for on the page, done after the frame (join_frame):
-	// connecting waits on the network thread, which may be waiting on
-	// the View lock.
+	// Requested on the page, but done after the frame (join_frame), because
+	// connecting waits on the network thread, which may be waiting on the
+	// View lock.
 	connect:      bool,
 	close:        bool,
 }
 
-// join_open opens the + page, empty.
+// join_open opens the + page with an empty form.
 join_open :: proc(ui: ^UI) {
 	if ui.join.open {
 		return
@@ -56,18 +56,16 @@ join_open :: proc(ui: ^UI) {
 	}
 }
 
-/*
-join_frame does what the page asked for in the last frame, and once
-the session it's joining is logged in, puts it on the rail and in the
-settings. Between frames, with no View locked.
-*/
+// join_frame does what the page requested in the last frame, and once the
+// session being joined is logged in, puts it on the rail and in the settings.
+// Call between frames, with no View locked.
 join_frame :: proc(ui: ^UI) {
 	j := &ui.join
 	if j.close {
 		join_close(ui)
 	}
-	// With no server to show, there's nothing but joining one: started
-	// up on none yet, or the last one left or given up.
+	// With no server to show, the only thing left is to join one: either we
+	// started without any server, or the last one was left or given up.
 	if ui.session == nil && ui.page != .Settings && !j.open {
 		join_open(ui)
 		ui_redraw(ui)
@@ -100,12 +98,10 @@ join_frame :: proc(ui: ^UI) {
 	ui_redraw(ui)
 }
 
-/*
-join_connect connects the page to `server`: a new session, shown, or
-one in place of the page's last (failed, or with its key just
-trusted). A server joined already is shown instead, and the page
-closed.
-*/
+// join_connect connects the page to `server`. It creates and shows a new
+// session, which replaces the page's previous session if there is one (because
+// it failed, or its key was just trusted). If the server has already been
+// joined, that session is shown instead and the page is closed.
 join_connect :: proc(ui: ^UI, typed, password: string) {
 	server := conn.with_default_port(typed)
 	if server == "" {
@@ -142,8 +138,8 @@ join_connect :: proc(ui: ^UI, typed, password: string) {
 	net_start(ns)
 }
 
-// join_close closes the page, giving up the session it was joining,
-// if any, and showing again the one shown before it. Between frames.
+// join_close closes the page, giving up the session it was joining, if any, and
+// shows the session that was shown before. Call between frames.
 join_close :: proc(ui: ^UI) {
 	j := ui.join
 	ui.join = {}
@@ -151,7 +147,7 @@ join_close :: proc(ui: ^UI) {
 	if ns == nil {
 		return
 	}
-	log.infof("ui: not joining %s", ns.server)
+	log.infof("ui: gave up joining %s", ns.server)
 	session_remove(ui, ns)
 	for other in ui.sessions {
 		if other == j.back {
@@ -161,11 +157,10 @@ join_close :: proc(ui: ^UI) {
 	session_free(ui, ns)
 }
 
-/*
-join_page is the main window while a server is joined, from the + or
-with none to show: the address and password, then the connection, then
-the server's login; or the form again, with what went wrong.
-*/
+// join_page draws the main window while a server is being joined, from the +
+// button or because there is no server to show. It shows the address and
+// password form, then the connection progress, then the server's login, or the
+// form again with what went wrong.
 join_page :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	j := &ui.join
@@ -196,12 +191,10 @@ join_page :: proc(ui: ^UI) {
 	}
 }
 
-/*
-join_card is the page's address and password in a card, as the login
-screen's, with what went wrong the last time if anything did, and the
-trust prompt for a server whose key has changed. `v` is the failed
-session's View, locked, or nil.
-*/
+// join_card draws the page's address and password form in a card like the
+// login screen's, with the error from the last attempt if there was one, and
+// the trust prompt for a server whose key has changed. `v` is the failed
+// session's View (locked), or nil.
 @(private = "file")
 join_card :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx

@@ -2,19 +2,17 @@ package proto
 
 import "core:encoding/endian"
 
-/*
-Ping and Pong measure the connection, for the client to show how well
-it's doing (see client/ping.odin).
-
-	client -> server  Ping  [kind][id u32]
-	server -> client  Pong  [kind][id u32]
-
-The server answers every Ping with a Pong carrying the same id, on the
-session the Ping came on. Both are unreliable and sent once: a ping
-that gets no answer is exactly what's being counted. A server that
-doesn't know Ping ignores it, and the client shows that it has nothing
-to go on.
-*/
+// Ping and Pong measure the connection quality so that the client can show
+// it (see client/ping.odin).
+//
+//	client -> server  Ping  [kind][id u32]
+//	server -> client  Pong  [kind][id u32]
+//
+// The server answers every Ping with a Pong that carries the same id, on the
+// session the Ping arrived on. Both are unreliable and sent only once,
+// because a ping that gets no answer is exactly what is being counted. A
+// server that doesn't know Ping ignores it, and the client then shows that
+// no measurement is available.
 
 PING_SIZE :: 1 + 4
 

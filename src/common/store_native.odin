@@ -4,8 +4,8 @@ package common
 import log "common:wlog"
 import "core:os"
 
-// On a desktop the name is a path and these are plain files. A private
-// one (the key) is written readable by its owner only.
+// On a desktop the name is a path and the stored blobs are plain files.
+// Private ones (the key) are readable by their owner only.
 
 store_exists :: proc(name: string) -> bool {
 	return os.exists(name)
@@ -25,7 +25,7 @@ store_write :: proc(name: string, text: string, private := false) -> bool {
 	if !private {
 		perms += {.Read_Group, .Read_Other}
 	}
-	// Some live in a directory of their own (the client's DM history).
+	// Some blobs live in a directory of their own (the client's DM history).
 	if dir := os.dir(name); dir != "" && !os.exists(dir) {
 		if err := os.make_directory_all(dir); err != nil {
 			log.errorf("failed to create %s: %v", dir, err)
@@ -39,7 +39,7 @@ store_write :: proc(name: string, text: string, private := false) -> bool {
 	return true
 }
 
-// store_remove deletes `name`; one that isn't there is already gone.
+// store_remove deletes `name`. A blob that doesn't exist counts as removed.
 store_remove :: proc(name: string) -> bool {
 	if !os.exists(name) {
 		return true

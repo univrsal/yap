@@ -8,33 +8,31 @@ import mu "vendor:microui"
 
 import "client:render"
 
-/*
-Mute and deafen buttons under the window's thumbnail, in the preview the
-taskbar shows when the pointer rests on the window's button (Windows'
-"thumbnail toolbar"). They say the same as the buttons in the voice
-panel, and are there in or out of voice: mute and deafen carry over to
-the next call.
-
-The taskbar tells the window about a press with WM_COMMAND, which GLFW
-has no use for, so the window gets a window procedure of ours that
-writes the press down and hands everything else on; the loop acts on it
-in thumbbar_update, as the tray does with its clicks. Ours goes on first,
-before titlebar_merge puts its own in front of it, so the title bar can
-come and go without taking ours with it.
-
-They can only be added once the taskbar has a button for the window,
-which it says with a "TaskbarButtonCreated" message. That one comes
-while GLFW is still showing the window, before ours is in place to see
-it, so the first try doesn't wait for it; it comes again whenever
-Explorer restarts, which loses them.
-*/
+// Mute and deafen buttons under the window's thumbnail, in the preview that
+// the taskbar shows when the pointer rests on the window's button (Windows'
+// "thumbnail toolbar"). They do the same as the buttons in the voice panel,
+// and are there whether or not we are in voice: mute and deafen carry over to
+// the next call.
+//
+// The taskbar tells the window about a press with WM_COMMAND, which GLFW has no
+// use for. So the window gets a window procedure of ours that records the
+// press and passes everything else on, and the loop acts on it in
+// thumbbar_update, as the tray does with its clicks. Ours is installed first,
+// before titlebar_merge puts its own in front of it, so that the title bar can
+// come and go without taking ours with it.
+//
+// The buttons can only be added once the taskbar has a button for the window,
+// which it announces with a "TaskbarButtonCreated" message. That message
+// arrives while GLFW is still showing the window, before our procedure is in
+// place to see it, so the first attempt doesn't wait for it. It arrives again
+// whenever Explorer restarts, which loses the buttons.
 
 @(private = "file")
 THUMB_MUTE :: 0
 @(private = "file")
 THUMB_DEAFEN :: 1
 
-// What the taskbar puts in WM_COMMAND's high word for a press.
+// What the taskbar puts in the high word of WM_COMMAND for a press.
 @(private = "file")
 THBN_CLICKED :: 0x1800
 
@@ -45,7 +43,7 @@ THUMB_ON :: mu.Color{140, 148, 160, 255}
 @(private = "file")
 THUMB_OFF :: mu.Color{225, 80, 80, 255}
 
-// What the buttons are showing, so they're only sent when it changes.
+// What the buttons are showing, so they are only updated when it changes.
 @(private = "file")
 Thumb_Look :: struct {
 	muted:    bool,
@@ -55,9 +53,9 @@ Thumb_Look :: struct {
 @(private = "file")
 Thumbbar :: struct {
 	taskbar:   ^win.ITaskbarList3,
-	// The "TaskbarButtonCreated" message's number.
+	// The number of the "TaskbarButtonCreated" message.
 	created:   win.UINT,
-	// The window the buttons are on, and the procedure ours hands on to.
+	// The window the buttons are on, and the procedure that ours passes messages on to.
 	hwnd:      win.HWND,
 	next_proc: win.WNDPROC,
 	// One of each picture, at the window's small icon size.
@@ -65,9 +63,9 @@ Thumbbar :: struct {
 	mic_off:   win.HICON,
 	sound:     win.HICON,
 	sound_off: win.HICON,
-	// The buttons are on the window's taskbar button.
+	// Whether the buttons are on the window's taskbar button.
 	added:     bool,
-	// Adding them failed; wait for a new taskbar button to try again.
+	// Adding them failed. Wait for a new taskbar button to try again.
 	waiting:   bool,
 	look:      Thumb_Look,
 	// Presses since the last frame.
@@ -75,7 +73,7 @@ Thumbbar :: struct {
 	deafen:    bool,
 }
 
-// Only the one window, and the window procedure has nowhere else to look.
+// There is only one window, and the window procedure has nowhere else to look.
 @(private = "file")
 thumbs: Thumbbar
 
@@ -88,7 +86,7 @@ thumb_proc :: proc "system" (
 ) -> win.LRESULT {
 	switch {
 	case msg == thumbs.created && msg != 0:
-		// A new taskbar button, with none of ours on it yet.
+		// A new taskbar button, which doesn't have any of our buttons yet.
 		thumbs.added, thumbs.waiting = false, false
 	case msg == win.WM_COMMAND && win.HIWORD(wparam) == THBN_CLICKED:
 		switch win.LOWORD(wparam) {
@@ -102,11 +100,9 @@ thumb_proc :: proc "system" (
 	return win.CallWindowProcW(thumbs.next_proc, hwnd, msg, wparam, lparam)
 }
 
-/*
-thumbbar_attach puts the buttons on a new window, or tries to: a desktop
-without a taskbar to put them on goes without, and says so in the log.
-Called from window_open, before titlebar_merge.
-*/
+// thumbbar_attach puts the buttons on a new window, or tries to. A desktop
+// without a taskbar to put them on goes without them and says so in the log.
+// Called from window_open, before titlebar_merge.
 thumbbar_attach :: proc(window: glfw.WindowHandle) {
 	t := &thumbs
 	hwnd := win.HWND(glfw.GetWin32Window(window))
@@ -114,7 +110,7 @@ thumbbar_attach :: proc(window: glfw.WindowHandle) {
 		return
 	}
 	if t.taskbar == nil {
-		// Already set up on this thread is as good.
+		// Already set up on this thread is just as good.
 		win.CoInitializeEx(nil, .APARTMENTTHREADED)
 		hr := win.CoCreateInstance(
 			win.CLSID_TaskbarList,
@@ -152,7 +148,7 @@ thumbbar_attach :: proc(window: glfw.WindowHandle) {
 	t.added, t.waiting = false, false
 }
 
-// thumbbar_detach lets go of the window, which is about to be destroyed.
+// thumbbar_detach releases the window, which is about to be destroyed.
 thumbbar_detach :: proc() {
 	t := &thumbs
 	for icon in ([?]win.HICON{t.mic, t.mic_off, t.sound, t.sound_off}) {
@@ -166,8 +162,8 @@ thumbbar_detach :: proc() {
 	t.mute, t.deafen = false, false
 }
 
-// thumbbar_update does what the buttons were pressed for, and keeps them
-// showing what's what. Called once a frame.
+// thumbbar_update acts on the button presses and keeps the buttons showing
+// the current state. Called once a frame.
 thumbbar_update :: proc(ui: ^UI) {
 	t := &thumbs
 	if t.mute {
@@ -195,7 +191,7 @@ thumbbar_update :: proc(ui: ^UI) {
 		t.added = win.SUCCEEDED(hr)
 		t.waiting = !t.added
 		if t.waiting {
-			// Most likely too soon: TaskbarButtonCreated will come.
+			// Most likely too soon: TaskbarButtonCreated will arrive.
 			log.debugf("taskbar: no buttons yet (0x%x)", u32(hr))
 		}
 	case t.added && look != t.look:
@@ -238,8 +234,8 @@ thumb_buttons :: proc(look: Thumb_Look) -> (buttons: [2]win.THUMBBUTTON) {
 	return
 }
 
-// thumb_icon draws `icon` `side` pixels square as an icon for a button.
-// nil if Windows won't make one, which leaves the button blank.
+// thumb_icon draws `icon` `side` pixels square as an icon for a button. It is
+// nil if Windows can't create one, which leaves the button blank.
 @(private = "file")
 thumb_icon :: proc(icon: render.Icon, color: mu.Color, side: int) -> win.HICON {
 	pixels := render.icon_rgba(icon, side, color, context.temp_allocator)
@@ -248,8 +244,8 @@ thumb_icon :: proc(icon: render.Icon, color: mu.Color, side: int) -> win.HICON {
 		pixels[i], pixels[i + 2] = pixels[i + 2], pixels[i]
 	}
 	colour := win.CreateBitmap(i32(side), i32(side), 1, 32, raw_data(pixels))
-	// With an alpha channel the mask goes unused, but there has to be
-	// one: a bit a pixel, rows padded to two bytes.
+	// With an alpha channel the mask goes unused, but one is still required:
+	// one bit per pixel, with rows padded to two bytes.
 	mask_bits := make([]u8, (side + 15) / 16 * 2 * side, context.temp_allocator)
 	mask := win.CreateBitmap(i32(side), i32(side), 1, 1, raw_data(mask_bits))
 	defer win.DeleteObject(win.HGDIOBJ(colour))

@@ -3,7 +3,7 @@ package memtrack
 
 import "core:sys/posix"
 
-// Only the peak, which getrusage has everywhere.
+// Only the peak is available, which getrusage provides everywhere.
 
 @(private)
 _process :: proc() -> (p: Process) {

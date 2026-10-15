@@ -6,44 +6,44 @@ import "core:unicode/utf8"
 
 import "client:platform"
 
-/*
-A message's text as written: several lines, and markdown. The timeline
-shows the lines as they are and the markdown as styles; where a message
-is shown in one line - a reply's line, a link to it, pins, search
-results, notifications - markdown_plain takes the markers out and
-one_line runs the lines together.
+// A message's text as written, which can have several lines and markdown. The
+// timeline shows the lines as they are and the markdown as styles. Where a
+// message is shown on a single line (the line of a reply, a link to it, pins,
+// search results, notifications), markdown_plain removes the markers and
+// one_line joins the lines.
+//
+// The markdown is a chat flavour that is close to Discord's:
+//
+//   **bold**  *italic*  _italic_  __underline__  ~~strike~~  `code`
+//   ```                 a code block, up to the closing fence or the end
+//   > quote             (> > nests)
+//   - item, * item      a bullet, shown as a bullet character
+//   1. item             a numbered item, as written
+//   [text](url)         a link that shows `text` and goes to a web address
+//   \*                  a marker that is just the character
+//
+// markdown_parse works on a message as it is shown (see text_display_links), so
+// mentions, the server's emoji and links to messages are already replaced by
+// names and placeholders. They are passed in as atoms, together with the web
+// addresses found in the text, and are never looked into. That way
+// `@foo_bar_baz` and `https://x.org/a_b_c` stay as they are. Each atom ends up
+// at its new position in the text without the markers, or at -1 if it was
+// removed (the address of a [text](url) link).
+//
+// To keep ordinary text from accidentally turning into markup, these rules
+// apply:
+//   - A marker opens only before something that isn't a space and closes only
+//     after something that isn't a space: `a * b` is plain text.
+//   - `_` doesn't open or close inside a word (`snake_case_name`), and `*`
+//     doesn't between two digits (`2*3*4`).
+//   - A marker that isn't closed on its line is just the character.
+//   - Blocks are handled line by line, and styles don't continue past the end
+//     of a line.
+//   - Nothing in code (a span or a block) is markup.
 
-The markdown is a chat flavour, close to Discord's:
-
-	**bold**  *italic*  _italic_  __underline__  ~~strike~~  `code`
-	```                 a code block, to the closing fence or the end
-	> quote             (> > nests)
-	- item, * item      a bullet, shown as •
-	1. item             a numbered item, as written
-	[text](url)         a link showing `text`, to a web address
-	\*                  a marker that's just the character
-
-markdown_parse works on a message as it's shown (text_display_links), so
-mentions, the server's emoji and links to messages are already there as
-names and placeholders; they come in as atoms, with the web addresses
-found in the text, and are never looked into, so `@foo_bar_baz` and
-`https://x.org/a_b_c` stay as they are. Each comes out where it went in
-the text without the markers, or at -1 if it went (the address of a
-[text](url) link).
-
-What's markup and what isn't, to keep ordinary text from turning into
-it by accident:
-- A marker opens only before something that isn't a space and closes
-  only after one: `a * b` is plain.
-- `_` doesn't open or close inside a word (`snake_case_name`), and `*`
-  doesn't between two digits (`2*3*4`).
-- A marker that isn't closed on its line is just the character.
-- Blocks are line by line; styles don't go on past the end of a line.
-- In code - a span or a block - nothing is markup.
-*/
-
-// one_line is `text` with its newlines as spaces, the same length, so
-// spans into `text` still fit it. Allocated in `allocator` if it has any.
+// one_line returns `text` with its newlines replaced by spaces. The result has
+// the same length, so spans into `text` still fit it. It is only allocated (with
+// `allocator`) if the text has any newlines.
 one_line :: proc(text: string, allocator := context.temp_allocator) -> string {
 	if strings.index_byte(text, '\n') < 0 {
 		return text
@@ -57,12 +57,12 @@ Md_Style :: enum u8 {
 	Italic,
 	Underline,
 	Strike,
-	Code, // in the mono face; on a background, unless the line is a code block's
+	Code, // monospace font with a background, unless the line is part of a code block
 }
 Md_Styles :: bit_set[Md_Style;u8]
 
-// A stretch of the text in one set of styles. A Rich_Text's runs cover
-// its text, in order.
+// A stretch of the text that has one set of styles. The runs of a Rich_Text
+// cover its text in order.
 Md_Run :: struct {
 	start, end: int,
 	styles:     Md_Styles,
@@ -71,46 +71,44 @@ Md_Run :: struct {
 Md_Line_Kind :: enum u8 {
 	Plain,
 	Code, // a line of a code block
-	Bullet, // a list item; its text starts with its indent and "• "
-	Number, // a numbered one; starts with its indent and "1. "
+	Bullet, // a list item whose text starts with its indent and "• "
+	Number, // a numbered list item whose text starts with its indent and "1. "
 }
 
-// One line of the text, as the message has it (wrapping is the
-// renderer's business).
+// One line of the text as it is in the message. Wrapping is left to the
+// renderer.
 Md_Line :: struct {
 	start, end: int, // the line's text, without its newline
 	kind:       Md_Line_Kind,
-	quote:      int, // how many quotes deep it is; 0 for none
-	marker:     int, // a list item's indent and marker, in bytes from `start`: where wrapped lines hang from
+	quote:      int, // how many levels deep the quote is; 0 if it isn't quoted
+	marker:     int, // the length in bytes of a list item's indent and marker, counted from `start`; wrapped lines are indented to this position
 }
 
-// A [text](url) link: where its text is, and where it goes.
+// A [text](url) link: the position of its text and the address it goes to.
 Md_Link :: struct {
 	start, end: int,
 	url:        string,
 }
 
-// Something in the text the parser doesn't look into: a mention, one of
-// the server's emoji, a link to a message, a web address (`url`, which
-// is what a [text](url) link may point at).
+// Something in the text that the parser doesn't look into: a mention, one of
+// the server's emoji, a link to a message, or a web address (`url`, which is
+// what a [text](url) link may point at).
 Md_Atom :: struct {
 	start, end: int,
 	url:        bool,
 }
 
 Rich_Text :: struct {
-	text:  string, // what's drawn: the markers gone
+	text:  string, // the text that is drawn, without the markers
 	runs:  []Md_Run,
 	lines: []Md_Line,
 	links: []Md_Link,
-	atoms: []Md_Atom, // the ones given, where they are in `text`; -1 for gone
+	atoms: []Md_Atom, // the atoms that were passed in, at their positions in `text`; -1 if the atom was removed
 }
 
-/*
-markdown_parse is `shown` with its markdown worked out. `atoms` are
-byte ranges of it that aren't to be looked into (see above), in any
-order but not overlapping. All in `allocator`.
-*/
+// markdown_parse returns `shown` with its markdown worked out. `atoms` are byte
+// ranges of `shown` that must not be looked into (see above). They can be in
+// any order but must not overlap. Everything is allocated with `allocator`.
 markdown_parse :: proc(
 	shown: string,
 	atoms: []Md_Atom,
@@ -135,7 +133,7 @@ markdown_parse :: proc(
 
 	in_fence := false
 	rest := shown
-	ls := 0 // where the line is in `shown`
+	ls := 0 // the position of the line in `shown`
 	for line in strings.split_lines_iterator(&rest) {
 		start := ls
 		ls += len(line) + 1
@@ -151,9 +149,9 @@ markdown_parse :: proc(
 			append(&lines, Md_Line{start = l, end = out_len(&o), kind = .Code})
 			continue
 		}
-		// A fence opens a block, unless it closes again on the line
-		// (```x```), which is a code span. After it, a word is the
-		// block's language; more than that is its first line.
+		// A fence opens a block, unless it is closed again on the same line
+		// (```x```), in which case it is a code span. A single word after the
+		// fence is the block's language, and anything longer is its first line.
 		if fence && !strings.contains(trimmed[3:], "```") {
 			in_fence = true
 			after := strings.trim_left_space(trimmed[3:])
@@ -181,7 +179,7 @@ markdown_parse :: proc(
 			}
 			ml.quote += 1
 		}
-		// A list item: its indent, then "- ", "* " or "1. ".
+		// A list item consists of its indent, followed by "- ", "* " or "1. ".
 		indent := body
 		for indent < end && shown[indent] == ' ' {
 			indent += 1
@@ -227,11 +225,10 @@ markdown_parse :: proc(
 	return {text, o.runs[:], lines[:], o.links[:], moved}
 }
 
-/*
-markdown_plain is a message as shown (mentions_display, text_display)
-in one line, with its markdown taken out: for the places a message is
-summed up in a line. In the temp allocator.
-*/
+// markdown_plain returns a message as shown (see mentions_display and
+// text_display) on a single line with its markdown removed. It is meant for
+// places where a message is summarized in one line. The result is allocated in
+// the temp allocator.
 markdown_plain :: proc(shown: string) -> string {
 	if !strings.contains_any(shown, "*_~`>[\\-0123456789") {
 		return one_line(shown)
@@ -244,17 +241,15 @@ markdown_plain :: proc(shown: string) -> string {
 	return one_line(markdown_parse(shown, atoms).text)
 }
 
-/*
-markdown_toggle puts `marker` (`**`, `*`, `__`, `~~`, a backtick) round
-text[lo:hi], what's selected in a composer, or takes it away if it's
-there: just outside the selection, or at both ends of it. With nothing
-selected it puts a pair in, for typing between. It says where the
-selection is afterwards. In the temp allocator.
-
-For `*`, which is both italic and half of bold, a run of them counts as
-italic when it's odd (`*`, `***`) and bold when it's two or more, so
-italic and bold go on and off separately.
-*/
+// markdown_toggle puts `marker` (`**`, `*`, `__`, `~~` or a backtick) around
+// text[lo:hi], the selection in a composer, or removes it if it is already
+// there, either just outside the selection or at both ends of it. With nothing
+// selected it inserts a pair so the user can type between them. It returns where
+// the selection is afterwards. The result is allocated in the temp allocator.
+//
+// `*` is both italic and half of bold. A run of them counts as italic when its
+// length is odd (`*`, `***`) and as bold when it is two or more, so italic and
+// bold can be switched on and off separately.
 markdown_toggle :: proc(
 	text: string,
 	lo, hi: int,
@@ -303,11 +298,11 @@ markdown_toggle :: proc(
 	return out, lo + m, hi + m
 }
 
-// What's been written so far, and where it came from.
+// The output written so far, and where it came from.
 @(private = "file")
 Out :: struct {
 	b:     strings.Builder,
-	// Stretches copied from the source as they are: where atoms went.
+	// Stretches copied unchanged from the source, which is where atoms ended up.
 	segs:  [dynamic]Seg,
 	runs:  [dynamic]Md_Run,
 	links: [dynamic]Md_Link,
@@ -323,9 +318,9 @@ out_len :: proc(o: ^Out) -> int {
 	return strings.builder_len(o.b)
 }
 
-// line_begin starts a line: after a newline, unless it's the first. The
-// newline between two lines of a code block is code too, so a block is a
-// run.
+// line_begin starts a line, which means writing a newline unless it is the
+// first line. The newline between two lines of a code block is code too, so a
+// code block forms one continuous run.
 @(private = "file")
 line_begin :: proc(o: ^Out, lines: []Md_Line, code := false) -> int {
 	if len(lines) > 0 {
@@ -334,7 +329,7 @@ line_begin :: proc(o: ^Out, lines: []Md_Line, code := false) -> int {
 	return out_len(o)
 }
 
-// out_copy writes src[start:end] as it is, in `styles`.
+// out_copy writes src[start:end] unchanged, in `styles`.
 @(private = "file")
 out_copy :: proc(o: ^Out, src: string, start, end: int, styles: Md_Styles) {
 	if end <= start {
@@ -353,7 +348,7 @@ out_copy :: proc(o: ^Out, src: string, start, end: int, styles: Md_Styles) {
 	out_run(o, at, out_len(o), styles)
 }
 
-// out_put writes text that isn't the source's (a bullet, a newline).
+// out_put writes text that isn't from the source (a bullet or a newline).
 @(private = "file")
 out_put :: proc(o: ^Out, s: string, styles: Md_Styles) {
 	at := out_len(o)
@@ -377,16 +372,16 @@ out_run :: proc(o: ^Out, start, end: int, styles: Md_Styles) {
 Parser :: struct {
 	src:   string,
 	atoms: []Md_Atom,
-	at:    map[int]int, // atoms by where they start
+	at:    map[int]int, // atoms by their start position
 	out:   ^Out,
 }
 
 @(private = "file")
 Tok_Kind :: enum u8 {
-	Text, // copied as it is
-	Code, // a code span's content
-	Delim, // a run of * _ or ~, as much of it as isn't used up
-	Link_Open, // where a [text](url) link's text starts and ends
+	Text, // copied unchanged
+	Code, // the content of a code span
+	Delim, // a run of * _ or ~, minus the part that has been used up
+	Link_Open, // the start and end of a [text](url) link's text
 	Link_Close,
 }
 
@@ -395,12 +390,12 @@ Tok :: struct {
 	kind:                  Tok_Kind,
 	start, end:            int, // in the source
 	styles:                Md_Styles,
-	// Delim: its character, whether it may open or close, and how much of
-	// it closing (from the left) and opening (from the right) used up.
+	// Delim: its character, whether it can open or close, and how much of the
+	// run was used up by closing (from the left) and by opening (from the right).
 	ch:                    u8,
 	can_open, can_close:   bool,
 	used_left, used_right: int,
-	url:                   string, // Link_Close: where it goes
+	url:                   string, // Link_Close: the address the link goes to
 }
 
 @(private = "file")
@@ -408,7 +403,7 @@ tok_count :: proc(t: Tok) -> int {
 	return t.end - t.start - t.used_left - t.used_right
 }
 
-// inline writes src[start:end], one line's text, with its styles.
+// inline writes src[start:end], the text of one line, with its styles.
 @(private = "file")
 inline :: proc(p: ^Parser, start, end: int) {
 	src := p.src
@@ -420,7 +415,7 @@ inline :: proc(p: ^Parser, start, end: int) {
 		}
 		append(toks, Tok{kind = .Text, start = start, end = end})
 	}
-	// While in a link's text: where its ] is, and where the link ends.
+	// While inside a link's text: the position of its ] and the end of the link.
 	link_close, link_end := -1, -1
 	link_url := ""
 
@@ -530,13 +525,11 @@ inline :: proc(p: ^Parser, start, end: int) {
 	}
 }
 
-/*
-pair_delims matches closing runs of * _ ~ with the nearest opening run
-of the same character before them, as CommonMark does (simplified): two
-of each where both runs have two (bold, underline, strike), else one
-(italic; strike takes two). What's between a pair gets its style, and
-the runs between that are left open stay as they are.
-*/
+// pair_delims matches each closing run of * _ ~ with the nearest opening run of
+// the same character before it, like CommonMark does (simplified). Two
+// characters are used from each run if both runs have two (bold, underline,
+// strike), otherwise one (italic; strike takes two). The text between a pair
+// gets its style, and runs in between that were left open stay unchanged.
 @(private = "file")
 pair_delims :: proc(toks: []Tok) {
 	for c in 0 ..< len(toks) {
@@ -548,7 +541,7 @@ pair_delims :: proc(toks: []Tok) {
 			search: for k := c - 1; k >= 0; k -= 1 {
 				#partial switch toks[k].kind {
 				case .Link_Open, .Link_Close:
-					break search // pairs don't cross a link's edges
+					break search // pairs must not cross the boundaries of a link
 				case .Delim:
 					if toks[k].ch == toks[c].ch && toks[k].can_open && tok_count(toks[k]) > 0 {
 						o = k
@@ -576,7 +569,7 @@ pair_delims :: proc(toks: []Tok) {
 			}
 			for k in o + 1 ..< c {
 				toks[k].styles += {style}
-				// What was left open in there stays as it is.
+				// Markers that were left open in there stay unchanged.
 				if toks[k].kind == .Delim {
 					toks[k].can_open = false
 				}
@@ -587,14 +580,14 @@ pair_delims :: proc(toks: []Tok) {
 	}
 }
 
-// return_to_text gives up on an opener that can't be closed by `c` (a
-// single ~), so the search goes on past it.
+// return_to_text gives up on an opener that can't be closed by `c` (a single
+// ~), so the search continues past it.
 @(private = "file")
 return_to_text :: proc(toks: []Tok, o, c: int) {
 	toks[o].can_open = false
 }
 
-// run_length is how many of the character at `i` there are in a row.
+// run_length returns how many times the character at `i` is repeated in a row.
 @(private = "file")
 run_length :: proc(src: string, i, end: int) -> int {
 	n := 1
@@ -604,8 +597,9 @@ run_length :: proc(src: string, i, end: int) -> int {
 	return n
 }
 
-// find_backticks finds a run of exactly `n` backticks from `from` on,
-// outside atoms: where a code span closes. -1 if there's none.
+// find_backticks finds a run of exactly `n` backticks starting at `from`,
+// outside of atoms. That is where a code span closes. It returns -1 if there is
+// none.
 @(private = "file")
 find_backticks :: proc(p: ^Parser, from, end: int, n: int) -> int {
 	j := from
@@ -627,11 +621,9 @@ find_backticks :: proc(p: ^Parser, from, end: int, n: int) -> int {
 	return -1
 }
 
-/*
-find_link sees whether a [text](url) link starts at `i`: some text, then
-`](`, a web address the text has as an atom, and `)`. It says where the
-`]` is, where the link ends, and the address.
-*/
+// find_link checks whether a [text](url) link starts at `i`. A link consists of
+// some text, then `](`, a web address that is an atom, and `)`. It returns the
+// position of the `]`, where the link ends, and the address.
 @(private = "file")
 find_link :: proc(p: ^Parser, i, end: int) -> (close, link_end: int, url: string, ok: bool) {
 	j := i + 1

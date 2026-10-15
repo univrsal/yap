@@ -1,8 +1,6 @@
 #+build wasi
-/*
-The web half of the image decoder: stb_image.c compiled by emscripten
-alongside the client (see web/build.sh), bound here as plain C symbols.
-*/
+// The web half of the image decoder: stb_image.c is compiled by emscripten
+// alongside the client (see web/build.sh) and bound here as plain C symbols.
 package wstbi
 
 import "core:c"

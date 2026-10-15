@@ -7,8 +7,9 @@ import "core:testing"
 import "client:settings"
 import "common:."
 
-// Muting mutes a shared application too unless it's switched off: on by
-// default, also for settings from before there was such a setting.
+// Muting the microphone also mutes a shared application unless that option
+// is switched off. It is on by default, including for settings files that
+// were saved before the option existed.
 @(test)
 test_app_mute_setting :: proc(t: ^testing.T) {
 	path := "yap-app-mute-test.json"

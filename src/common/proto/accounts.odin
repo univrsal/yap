@@ -1,121 +1,122 @@
 package proto
 
-/*
-Accounts: who somebody is on a server, whichever of their devices they
-come from.
-
-An account has a username, which is unique, in lower case and what one
-logs in with, and a display name, which is what others see and can be
-anything a name could always be (see names.odin). Nobody makes their own:
-an admin does, with a first password the person then changes.
-
-A device is a client with its static key. It logs in once, with the
-account's username and password, and from then on its key is enough:
-the server remembers which account it belongs to.
-
-Everything here travels as requests and events (rpc.odin):
-
-	Auth_Login            [username str8][password str8][device name str8]
-                          [agent str8]: what the client is, see MAX_AGENT
-	                  ->  [account u32][flags u8]
-	Auth_Logout           (nothing): this device forgets the account
-	Password_Change       [old str8][new str8][revoke others u8]
-	Device_List           (nothing), or [account u32] for another's
-	                  ->  [count u16] devices...
-	Device_Revoke         [key 32]
-	Profile_Set           [mask u8] then, for each bit set, its field:
-	                        bit 0  [display str8]
-	                        bit 1  [status str8][status until u64]
-	                        bit 2  [avatar u64]
-	Setting_Set           [key str8][value bytes16] (settings.odin)
-	Account_Create        [username str8][password str8][display str8]
-	                  ->  [account u32]
-	Account_Password_Set  [account u32][password str8]
-	Account_Delete        [account u32][password str8]
-	Email_Set             [email str8]: the account's own address, ""
-	                      for none
-
-	Sync_Begin, Sync_End  (nothing): around everything a connection is told
-	                      when it logs in
-	Self                  [account u32][permissions u64][flags u8][activity u8]
-	                      [email str8][verify code str8][verify by u64]
-	Account_Changed       an account, new or changed
-	Setting_Changed       [key str8][value bytes16]: one of the account's
-	                      settings (settings.odin)
-	Logged_Out            [reason u8]: this device isn't logged in any more
-
-	account  [id u32][flags u8][username str8][display str8]
-	         [status str8][status until u64][avatar u64][role count u8][role u32]...
-	         [activity u8] (activity.odin)
-	device   [key 32][name str8][created u64][last seen u64][flags u8]
-	         (Device_List then adds each one's [agent str8], after the last)
-
-Device_List with an account is an admin's (Manage_Accounts, and may do
-all that account may), for a bot's tokens (bots.odin); without one it's
-the asker's own devices.
-
-Account_Create and Account_Password_Set are an admin's (Manage_Accounts). A password an
-admin sets, a new account's or one to replace a forgotten one, is only
-good for getting in: Must_Change is set on the account, and the client
-asks for a new one first thing.
-
-An account's status is a line of text (sanitized, at most
-MAX_STATUS_SIZE bytes) and when it ends by itself (0: it doesn't); the
-server clears it then. Its avatar is a blob of kind Avatar (a JPEG at
-most MAX_AVATAR_SIDE pixels a side and MAX_AVATAR_SIZE bytes), 0 for
-none, which anyone logged in may fetch. Its roles are for later, and
-empty for now.
-
-Account_Delete deletes an account: its own, with its password, or
-another's by whoever has Manage_Accounts and may do more than it; never
-the owner. What's left is a tombstone, so that what it wrote still has
-an author: the Deleted flag, the display name DELETED_NAME, a username
-nobody can log in with, and nothing else - no devices, roles,
-memberships, buddies, settings, status or picture. Its messages and
-reactions stay. A DM with it can be read but not written to.
-
-An account's email address is its own business: only its connections
-are told it (Self), and only it sets it (Email_Set), as email_clean
-has it, no other account's (Conflict if it is). It's for mail from the
-server (src/server/email.odin).
-
-Times are Unix milliseconds.
-*/
+// Accounts: who somebody is on a server, regardless of which device they
+// connect from.
+//
+// An account has a username and a display name. The username is unique, in
+// lower case, and is what the person logs in with. The display name is what
+// others see and may be any valid name (see names.odin). Nobody creates their
+// own account: an admin does, with a first password that the person then
+// changes.
+//
+// A device is a client with its static key. It logs in once with the
+// account's username and password. From then on its key is enough, because
+// the server remembers which account the key belongs to.
+//
+// Everything here travels as requests and events (rpc.odin):
+//
+// 	Auth_Login            [username str8][password str8][device name str8]
+//                           [agent str8]: a description of the client, see MAX_AGENT
+// 	                  ->  [account u32][flags u8]
+// 	Auth_Logout           (nothing): this device is no longer logged in
+// 	Password_Change       [old str8][new str8][revoke others u8]
+// 	Device_List           (nothing), or [account u32] for another account's
+// 	                  ->  [count u16] devices...
+// 	Device_Revoke         [key 32]
+// 	Profile_Set           [mask u8] then, for each bit set, its field:
+// 	                        bit 0  [display str8]
+// 	                        bit 1  [status str8][status until u64]
+// 	                        bit 2  [avatar u64]
+// 	Setting_Set           [key str8][value bytes16] (settings.odin)
+// 	Account_Create        [username str8][password str8][display str8]
+// 	                  ->  [account u32]
+// 	Account_Password_Set  [account u32][password str8]
+// 	Account_Delete        [account u32][password str8]
+// 	Email_Set             [email str8]: the account's own address, or ""
+// 	                      for none
+//
+// 	Sync_Begin, Sync_End  (nothing): sent around everything that a connection
+// 	                      is told when it logs in
+// 	Self                  [account u32][permissions u64][flags u8][activity u8]
+// 	                      [email str8][verify code str8][verify by u64]
+// 	Account_Changed       an account that is new or has changed
+// 	Setting_Changed       [key str8][value bytes16]: one of the account's
+// 	                      settings (settings.odin)
+// 	Logged_Out            [reason u8]: this device is no longer logged in
+//
+// 	account  [id u32][flags u8][username str8][display str8]
+// 	         [status str8][status until u64][avatar u64][role count u8][role u32]...
+// 	         [activity u8] (activity.odin)
+// 	device   [key 32][name str8][created u64][last seen u64][flags u8]
+// 	         (Device_List then adds each one's [agent str8], after the last)
+//
+// Device_List with an account is an admin request (Manage_Accounts, and the
+// admin may do everything that account may do). It is used to list a bot's
+// tokens (bots.odin). Without an account it lists the asker's own devices.
+//
+// Account_Create and Account_Password_Set are admin requests (Manage_Accounts).
+// A password set by an admin, either for a new account or to replace a
+// forgotten one, is only good for logging in once: Must_Change is set on the
+// account, and the client asks for a new password right away.
+//
+// An account's status is a line of text (sanitized, at most MAX_STATUS_SIZE
+// bytes) together with the time at which it ends by itself (0 means it never
+// does). The server clears the status at that time. The avatar is a blob of
+// kind Avatar (a JPEG of at most MAX_AVATAR_SIDE pixels per side and
+// MAX_AVATAR_SIZE bytes), or 0 for none. Anyone who is logged in may fetch it.
+// Roles are reserved for later use and are empty for now.
+//
+// Account_Delete deletes an account. A person may delete their own account
+// with their password. Someone with Manage_Accounts may delete another
+// account if they may do more than it. The owner can never be deleted.
+// What remains is a tombstone, so that the messages the account wrote still
+// have an author. It has the Deleted flag, the display name DELETED_NAME and
+// a username that nobody can log in with. Everything else is removed: devices,
+// roles, memberships, buddies, settings, status and picture. Its messages and
+// reactions stay. A DM with it can still be read but not written to.
+//
+// An account's email address is private to it. Only its own connections are
+// told the address (Self), and only the account itself can set it
+// (Email_Set), in the form that email_clean produces. The address must not
+// belong to another account (otherwise the answer is Conflict). It is used
+// for mail sent by the server (src/server/email.odin).
+//
+// Times are Unix milliseconds.
 
 Account_Id :: distinct u32
 
 MIN_USERNAME_SIZE :: 2
 MAX_USERNAME_SIZE :: 32
-// An account's password, in bytes; not the server's (MAX_PASSWORD_SIZE).
+// The length of an account's password in bytes. The server's own password
+// is limited by MAX_PASSWORD_SIZE instead.
 MIN_ACCOUNT_PASSWORD :: 8
 MAX_ACCOUNT_PASSWORD :: 128
 MAX_DEVICE_NAME :: 32
-// What a client says it is when it logs in, for the account's list of
-// devices: "yap 1.2.0 on Linux", "Firefox 128 on Windows". Only for
-// people to read. Left off by older clients, and then "".
+// A description of the client that is sent at login and shown in the
+// account's list of devices, such as "yap 1.2.0 on Linux" or
+// "Firefox 128 on Windows". It is only meant to be read by people. Older
+// clients leave it out, in which case it is "".
 MAX_AGENT :: 64
 
 Account_Flag :: enum u8 {
-	Owner, // the first admin: may do everything, and can't be made less
+	Owner, // the first admin: may do everything and can't be demoted
 	Disabled, // can't log in
-	Must_Change, // the password was set by an admin, and has to be changed
-	Deleted, // a tombstone: what's left of an account that was deleted
-	// Its email address has yet to be shown to be its own (verify.odin):
-	// it can do nothing else until it is.
+	Must_Change, // the password was set by an admin and has to be changed
+	Deleted, // a tombstone: what remains of a deleted account
+	// Its email address has not been verified yet (verify.odin).
+	// Until it is, the account can do nothing else.
 	Unverified,
-	// A program's, not a person's (bots.odin): made by an admin, logged
-	// in only by its tokens, never with a password.
+	// A program's account, not a person's (bots.odin). It is created by an
+	// admin and logs in only with its tokens, never with a password.
 	Bot,
 }
 
-// What a deleted account is called.
+// The display name of a deleted account.
 DELETED_NAME :: "Deleted user"
 Account_Flags :: distinct bit_set[Account_Flag;u8]
 
-/*
-What an account may do beyond what everyone may. The numbers are kept in
-databases, so they're never changed or reused.
-*/
+// What an account may do beyond what everyone may do. The numbers are stored
+// in databases, so they must never be changed or reused.
 Permission :: enum u8 {
 	Create_Channels  = 0,
 	Manage_Channels  = 1,
@@ -126,7 +127,7 @@ Permission :: enum u8 {
 	Manage_Accounts  = 6,
 	Mention_Everyone = 7,
 	Purge            = 8,
-	Attach_Files     = 9, // attachments.odin; everyone has it unless taken away
+	Attach_Files     = 9, // attachments.odin; everyone has it unless it is revoked
 	Create_Invites   = 10, // register.odin
 }
 Permissions :: distinct bit_set[Permission;u64]
@@ -135,11 +136,11 @@ Account :: struct {
 	id:           Account_Id,
 	flags:        Account_Flags,
 	username:     string,
-	display:      string, // sanitized; never empty
-	status:       string, // sanitized; "" for none
-	status_until: Unix_Ms, // when the status ends; 0 for never
+	display:      string, // sanitized and never empty
+	status:       string, // sanitized, or "" for none
+	status_until: Unix_Ms, // when the status ends, or 0 for never
 	avatar:       Blob_Id, // 0 for none
-	roles:        []Role_Id, // besides everyone's (roles.odin); decoded into the temp allocator
+	roles:        []Role_Id, // besides the everyone role (roles.odin); decoded into the temp allocator
 	activity:     Activity, // as everyone sees it (activity.odin)
 }
 
@@ -148,7 +149,7 @@ MAX_AVATAR_SIDE :: 256
 MAX_AVATAR_SIZE :: 64 * 1024
 
 Device_Flag :: enum u8 {
-	Current, // the one asking
+	Current, // the device that sent the request
 	Online, // connected right now
 }
 Device_Flags :: distinct bit_set[Device_Flag;u8]
@@ -162,21 +163,21 @@ Device :: struct {
 	agent:     string,
 }
 
-// Why a device was logged out by the server.
+// The reason why the server logged a device out.
 Logout_Reason :: enum u8 {
-	Revoked          = 1, // from another of the account's devices, or by an admin
+	Revoked          = 1, // revoked from another of the account's devices or by an admin
 	Password_Changed = 2,
-	Disabled         = 3, // the account was
-	Deleted          = 4, // the account was
+	Disabled         = 3, // the account was disabled
+	Deleted          = 4, // the account was deleted
 }
 
-// Profile_Set's mask.
+// The bits of Profile_Set's mask.
 PROFILE_DISPLAY :: 1 << 0
 PROFILE_STATUS :: 1 << 1
 PROFILE_AVATAR :: 1 << 2
 PROFILE_ALL :: PROFILE_DISPLAY | PROFILE_STATUS | PROFILE_AVATAR
 
-// What a Profile_Set changes: the fields `mask` names.
+// A Profile_Set changes the fields that `mask` names.
 Profile_Set :: struct {
 	mask:         u8,
 	display:      string,
@@ -185,12 +186,11 @@ Profile_Set :: struct {
 	avatar:       Blob_Id,
 }
 
-/*
-username_clean is `raw` as a username: in lower case, and only if it
-could be one, MIN_USERNAME_SIZE to MAX_USERNAME_SIZE of a-z 0-9 _ . -
-Both ends run what's typed through it, so "Alice" logs in as "alice".
-The result points into `buf`.
-*/
+// username_clean converts `raw` to a username by making it lower case. It
+// fails if the result could not be a username, which has to consist of
+// MIN_USERNAME_SIZE to MAX_USERNAME_SIZE characters out of a-z 0-9 _ . -
+// Client and server both run the typed name through it, so "Alice" logs in as
+// "alice". The result points into `buf`.
 username_clean :: proc(raw: string, buf: ^[MAX_USERNAME_SIZE]u8) -> (name: string, ok: bool) {
 	if len(raw) < MIN_USERNAME_SIZE || len(raw) > MAX_USERNAME_SIZE {
 		return
@@ -209,16 +209,15 @@ username_clean :: proc(raw: string, buf: ^[MAX_USERNAME_SIZE]u8) -> (name: strin
 	return string(buf[:len(raw)]), true
 }
 
-// The longest an email address may be (RFC 5321's path limit).
+// The maximum length of an email address (the path limit of RFC 5321).
 MAX_EMAIL_SIZE :: 254
 
-/*
-email_clean is `raw` as an email address, without the spaces around it
-and in lower case, if it could be one: a local part and a domain with a
-dot in it, around one @, and nothing that would need quoting. It's no
-more than a check for typos; whether the address is real only mail can
-tell. The result points into `buf`.
-*/
+// email_clean converts `raw` to an email address by removing the spaces
+// around it and making it lower case. It fails if the result could not be an
+// address, which needs a local part and a domain that contains a dot, around
+// exactly one @, and nothing that would need quoting. This only catches
+// typos. Whether the address actually exists can only be found out by sending
+// mail to it. The result points into `buf`.
 email_clean :: proc(raw: string, buf: ^[MAX_EMAIL_SIZE]u8) -> (address: string, ok: bool) {
 	raw := raw
 	for len(raw) > 0 && (raw[0] == ' ' || raw[0] == '\t') {
@@ -262,14 +261,15 @@ email_clean :: proc(raw: string, buf: ^[MAX_EMAIL_SIZE]u8) -> (address: string, 
 	return string(buf[:len(raw)]), true
 }
 
-// account_password_ok is whether a password is one an account may have.
+// account_password_ok reports whether a password has an acceptable length for an account.
 account_password_ok :: proc(password: string) -> bool {
 	return len(password) >= MIN_ACCOUNT_PASSWORD && len(password) <= MAX_ACCOUNT_PASSWORD
 }
 
 // The encoders below write a body into `out` and return it, or nil if it
-// doesn't fit; bodies are small, and ACCOUNT_BODY_MAX holds any of the
-// requests'. The decoders' strings point into the body they read.
+// doesn't fit. Bodies are small, and ACCOUNT_BODY_MAX is large enough for any
+// of the requests. The strings that the decoders return point into the body
+// they read.
 
 ACCOUNT_BODY_MAX :: 4 + 4 * (1 + 255) + 8
 
@@ -278,8 +278,8 @@ written :: proc(w: ^Writer) -> []u8 {
 	return nil if w.overflow else w.buf[:w.pos]
 }
 
-// get_str8_opt is get_str8 for a trailing field that older peers leave
-// off: "" if the body has ended.
+// get_str8_opt is get_str8 for a trailing field that older peers leave out.
+// It returns "" if the body has already ended.
 @(private = "file")
 get_str8_opt :: proc(r: ^Reader) -> string {
 	if r.pos >= len(r.buf) {
@@ -377,7 +377,7 @@ decode_device_revoke :: proc(body: []u8) -> (key: [KEY_SIZE]u8, ok: bool) {
 	return key, !r.overflow
 }
 
-// encode_profile_set writes a Profile_Set: the fields its mask names.
+// encode_profile_set writes a Profile_Set with the fields that its mask names.
 encode_profile_set :: proc(out: []u8, p: Profile_Set) -> []u8 {
 	w := Writer {
 		buf = out,
@@ -396,9 +396,9 @@ encode_profile_set :: proc(out: []u8, p: Profile_Set) -> []u8 {
 	return written(&w)
 }
 
-// decode_profile_set reads a Profile_Set; its mask says which of the
-// fields it carries. Bits this build doesn't know make it invalid, since
-// their fields can't be skipped.
+// decode_profile_set reads a Profile_Set. Its mask says which fields it
+// carries. Bits that this build doesn't know make it invalid, because their
+// fields can't be skipped.
 decode_profile_set :: proc(body: []u8) -> (p: Profile_Set, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -440,7 +440,7 @@ decode_account_create :: proc(body: []u8) -> (username, password, display: strin
 	return username, password, display, !r.overflow
 }
 
-// An Account_Create response, or any other body that is one account's id.
+// An Account_Create response, or any other body that consists of a single account id.
 encode_account_id :: proc(out: ^[4]u8, account: Account_Id) -> []u8 {
 	w := Writer {
 		buf = out[:],
@@ -481,8 +481,9 @@ decode_account_password_set :: proc(
 	return account, password, !r.overflow
 }
 
-// Account_Delete's body is Account_Password_Set's: the account, and the
-// password when it's the asker's own ("" otherwise).
+// Account_Delete's body is the same as Account_Password_Set's: the account and
+// the password, which is only needed when the asker deletes their own account
+// (otherwise it is "").
 encode_account_delete :: encode_account_password_set
 decode_account_delete :: decode_account_password_set
 
@@ -498,7 +499,7 @@ ACCOUNT_MAX_SIZE ::
 	4 * MAX_ACCOUNT_ROLES +
 	1
 
-// encode_account writes an account as it's told to clients.
+// encode_account writes an account in the form that clients receive it.
 encode_account :: proc(out: []u8, a: Account) -> []u8 {
 	w := Writer {
 		buf = out,
@@ -518,8 +519,8 @@ encode_account :: proc(out: []u8, a: Account) -> []u8 {
 	return written(&w)
 }
 
-// decode_account reads one; its strings point into `body`, its roles are
-// in the temp allocator.
+// decode_account reads an account. Its strings point into `body` and its roles
+// are allocated with the temp allocator.
 decode_account :: proc(body: []u8) -> (a: Account, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -542,15 +543,16 @@ decode_account :: proc(body: []u8) -> (a: Account, ok: bool) {
 	if r.overflow || a.id == 0 {
 		return {}, false
 	}
-	// Online if it isn't there, or isn't one we know.
+	// The activity is Online if it is missing or not one that we know.
 	if r.pos < len(body) && body[r.pos] <= u8(max(Activity)) {
 		a.activity = Activity(body[r.pos])
 	}
 	return a, true
 }
 
-// Self's fields before the email, and the most it can be with it and
-// what verifying it takes (verify.odin).
+// SELF_FIXED_SIZE is the size of Self's fields before the email. SELF_SIZE is
+// the maximum size of Self including the email and the data needed to verify
+// it (verify.odin).
 SELF_FIXED_SIZE :: 4 + 8 + 1 + 1
 SELF_SIZE :: SELF_FIXED_SIZE + 1 + MAX_EMAIL_SIZE + 1 + VERIFY_CODE_SIZE + 8
 
@@ -577,11 +579,10 @@ encode_self :: proc(
 	return written(&w)
 }
 
-/*
-self_verify is what verifying the account's address takes, in a Self of
-an Unverified account: the code a mail's subject has to have, and when
-the account is deleted if none comes (0: it isn't).
-*/
+// self_verify returns what is needed to verify the account's address, from the
+// Self of an Unverified account. That is the code that the subject of the
+// verification mail has to contain, and the time at which the account is
+// deleted if no mail arrives (0 means it is never deleted).
 self_verify :: proc(body: []u8) -> (code: string, by: Unix_Ms) {
 	if len(body) <= SELF_FIXED_SIZE {
 		return
@@ -598,7 +599,7 @@ self_verify :: proc(body: []u8) -> (code: string, by: Unix_Ms) {
 	return
 }
 
-// self_email is the account's email address in a Self; "" for none.
+// self_email returns the account's email address from a Self, or "" for none.
 self_email :: proc(body: []u8) -> string {
 	if len(body) <= SELF_FIXED_SIZE {
 		return ""
@@ -645,13 +646,11 @@ decode_self :: proc(
 
 DEVICE_MAX_SIZE :: KEY_SIZE + (1 + MAX_DEVICE_NAME) + 8 + 8 + 1 + (1 + MAX_AGENT)
 
-/*
-encode_devices writes a Device_List response: as many of `devices` as
-fit in `out`. The records are as they always were, and after them come
-the devices' agents, one str8 each in the same order. A client from
-before agents reads the records and leaves the rest unread; one from
-after them reads a list without any as all "".
-*/
+// encode_devices writes a Device_List response with as many of `devices` as
+// fit in `out`. The device records have the same layout as before agents
+// existed, and the agents follow after them as one str8 per device in the same
+// order. A client that predates agents reads the records and ignores the rest.
+// A newer client that reads a list without agents treats all of them as "".
 encode_devices :: proc(out: []u8, devices: []Device) -> []u8 {
 	w := Writer {
 		buf = out,
@@ -659,7 +658,8 @@ encode_devices :: proc(out: []u8, devices: []Device) -> []u8 {
 	put_u16(&w, 0)
 	count := 0
 	for d in devices {
-		// Room for this one and for every agent that follows the records.
+		// Make sure there is room for this device and for all the agents that
+		// follow the records.
 		if w.pos + DEVICE_MAX_SIZE + count * (1 + MAX_AGENT) > len(out) || count == int(max(u16)) {
 			break
 		}
@@ -681,7 +681,7 @@ encode_devices :: proc(out: []u8, devices: []Device) -> []u8 {
 	return out[:w.pos]
 }
 
-// decode_devices reads one into `devices_buf`.
+// decode_devices reads a Device_List response into `devices_buf`.
 decode_devices :: proc(body: []u8, devices_buf: []Device) -> (devices: []Device, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -698,7 +698,7 @@ decode_devices :: proc(body: []u8, devices_buf: []Device) -> (devices: []Device,
 		d.flags = transmute(Device_Flags)get_u8(&r)
 		d.agent = ""
 	}
-	// From a server that has them, the agents follow.
+	// If the server sends agents, they follow the records.
 	if r.pos < len(r.buf) {
 		for &d in devices_buf[:count] {
 			d.agent = get_str8(&r)

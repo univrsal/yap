@@ -1,7 +1,7 @@
 #+build !wasi
 package idle
 
-// Nothing to ask for on a desktop (see idle_web.odin).
+// On a desktop there is no permission to ask for (see idle_web.odin).
 can_ask :: proc() -> bool {
 	return false
 }

@@ -57,7 +57,7 @@ test_message_record :: proc(t: ^testing.T) {
 		testing.expect(t, got.attachment_count == m.attachment_count)
 		testing.expect(t, got.attachments[0].blob == m.attachments[0].blob)
 		testing.expect(t, got.attachments[0].name == m.attachments[0].name)
-		// Cut short, or with something left over, it doesn't read.
+		// A truncated message, or one with trailing bytes, is rejected.
 		_, ok = decode_message(body[:len(body) - 1])
 		testing.expect(t, !ok)
 		padded := buf[:len(body) + 1]
@@ -65,7 +65,8 @@ test_message_record :: proc(t: ^testing.T) {
 		testing.expect(t, !ok)
 	}
 
-	// Reactions are carried along as they came, for whoever knows them.
+	// Reactions are passed through unchanged, so that whoever understands
+	// them can decode them.
 	with := make([dynamic]u8, context.temp_allocator)
 	buf: [MESSAGE_MAX_SIZE]u8
 	body := encode_message(buf[:], msgs[0])
@@ -76,7 +77,8 @@ test_message_record :: proc(t: ^testing.T) {
 	testing.expect_value(t, got.reaction_count, 1)
 	testing.expect_value(t, len(got.reactions), 6)
 
-	// Too long a text, a kind from a newer server, and id 0 are refused.
+	// A text that is too long, an unknown kind from a newer server, and id 0
+	// are all refused.
 	bad := msgs[0]
 	bad.text = strings.repeat("x", MAX_CHAT_SIZE + 1, context.temp_allocator)
 	big: [2 * MESSAGE_MAX_SIZE]u8
@@ -104,8 +106,8 @@ test_history_page :: proc(t: ^testing.T) {
 			text   = long,
 		}
 	}
-	// A page of the longest messages is as many as fit in one stream
-	// message (the server cuts pages to fit, history_page).
+	// A page of maximum-length messages holds as many as fit into one stream
+	// message (the server trims pages to fit, see history_page).
 	out := make([]u8, MAX_BODY_SIZE, context.temp_allocator)
 	body, count := encode_history_page(out, MORE_BEFORE, msgs)
 	fit := min(MAX_HISTORY_LIMIT, (MAX_BODY_SIZE - HISTORY_HEADER_SIZE) / message_size(msgs[0]))
@@ -118,7 +120,8 @@ test_history_page :: proc(t: ^testing.T) {
 	testing.expect_value(t, got[fit - 1].id, Msg_Id(100 + fit - 1))
 	testing.expect_value(t, got[fit - 1].text, long)
 
-	// Where they don't all fit, as many as do, from the first.
+	// If they don't all fit, as many as possible are encoded, starting with
+	// the first.
 	small := make(
 		[]u8,
 		3 * message_size(msgs[0]) + HISTORY_HEADER_SIZE + 10,
@@ -129,15 +132,15 @@ test_history_page :: proc(t: ^testing.T) {
 	more, got, ok = decode_history_page(body, buf[:])
 	testing.expect(t, ok && len(got) == 3 && got[0].id == 100)
 
-	// More than there's room for on this side is refused.
+	// A page with more messages than the receiving buffer can hold is refused.
 	_, _, ok = decode_history_page(body, buf[:2])
 	testing.expect(t, !ok)
-	// So is an empty body, and one cut short.
+	// So is an empty body, and a truncated one.
 	_, _, ok = decode_history_page(nil, buf[:])
 	testing.expect(t, !ok)
 	_, _, ok = decode_history_page(body[:len(body) - 1], buf[:])
 	testing.expect(t, !ok)
-	// An empty page is one.
+	// An empty page is still valid.
 	body, count = encode_history_page(out, MORE_AFTER, nil)
 	more, got, ok = decode_history_page(body, buf[:])
 	testing.expect(t, ok && len(got) == 0 && more == MORE_AFTER)
@@ -159,9 +162,10 @@ test_msg_bodies :: proc(t: ^testing.T) {
 	testing.expect(t, ok && p.kind == .File && p.file_size == 42 && p.thread_root == 8)
 	_, ok = decode_msg_post(body[:len(body) - 1])
 	testing.expect(t, !ok)
-	// Only text and file offers are posted like this.
+	// Only text messages and file offers can be posted this way.
 	testing.expect(t, encode_msg_post(post_buf[:], {conv = 3, kind = .System}) == nil)
-	// Nor is a picture any more (kind 1): it's an attachment.
+	// Pictures (kind 1) can no longer be posted directly; they are sent as
+	// attachments instead.
 	body = encode_msg_post(post_buf[:], {conv = 3, kind = .Text, text = "hi"})
 	body[20] = 1
 	_, ok = decode_msg_post(body)
@@ -253,7 +257,7 @@ test_typing :: proc(t: ^testing.T) {
 	conv2, root2, account := decode_typing_down(down)
 	testing.expect(t, conv2 == 4 && root2 == 8 && account == 17)
 
-	// The old sizes are gone.
+	// Messages with the old sizes are rejected.
 	_, ok = message_kind(up[:1])
 	testing.expect(t, !ok)
 	_, ok = message_kind(down[:5])
@@ -302,7 +306,7 @@ test_sanitize_message :: proc(t: ^testing.T) {
 	long := strings.repeat("é", MAX_CHAT_SIZE, context.temp_allocator)
 	got := sanitize_message(long, buf[:])
 	testing.expect_value(t, len(got), MAX_CHAT_SIZE)
-	// A line that doesn't fit isn't started.
+	// A line that doesn't fit is left out entirely rather than cut off.
 	small: [4]u8
 	testing.expect_value(t, sanitize_message("abc\nd", small[:]), "abc")
 }
@@ -315,13 +319,13 @@ test_edit_delete_pin_bodies :: proc(t: ^testing.T) {
 	testing.expect_value(t, id, Msg_Id(42))
 	testing.expect_value(t, text, "better words")
 	_, _, ok = decode_msg_edit(edit_buf[:5])
-	testing.expect(t, !ok, "a cut-off edit")
+	testing.expect(t, !ok, "a truncated edit was accepted")
 
 	id_buf: [MSG_ID_SIZE]u8
 	id, ok = decode_msg_id(encode_msg_id(&id_buf, 7))
 	testing.expect(t, ok && id == 7)
 	_, ok = decode_msg_id(encode_msg_id(&id_buf, 0))
-	testing.expect(t, !ok, "message 0")
+	testing.expect(t, !ok, "message id 0 was accepted")
 
 	pin_buf: [MSG_PIN_SIZE]u8
 	on: bool
@@ -365,7 +369,7 @@ test_reactions :: proc(t: ^testing.T) {
 		testing.expect_value(t, rs[1], Reaction{":party:", 1, false})
 	}
 
-	// The most a message can carry fits in a record.
+	// The maximum number of reactions a message can have fits in a record.
 	many: [MAX_REACTIONS]Reaction
 	for &r in many {
 		r = {":abcdefghijklmnopqrstuvwxyz012345:", 999, true}
@@ -395,7 +399,8 @@ test_reactors_roundtrip :: proc(t: ^testing.T) {
 	_, _, ok = decode_reactors_get(encode_reactors_get(&get_buf, 0, ":party:"))
 	testing.expect(t, !ok)
 
-	// More accounts than an answer holds: the first MAX_REACTORS.
+	// With more accounts than an answer can hold, only the first MAX_REACTORS
+	// are included.
 	many: [MAX_REACTORS + 3]Account_Id
 	for &a, i in many {
 		a = Account_Id(i + 1)
@@ -453,7 +458,8 @@ test_attachments_record :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, encode_message(buf[:], m) != nil)
 
-	// The flag without files, or with too many, isn't a message.
+	// The attachment flag without any files, or with too many files, is
+	// rejected.
 	m.attachment_count = 0
 	testing.expect(t, encode_message(buf[:], m) == nil)
 	m.attachment_count = 1
@@ -462,7 +468,7 @@ test_attachments_record :: proc(t: ^testing.T) {
 	_, ok = decode_message(body)
 	testing.expect(t, !ok)
 
-	// Posting names the uploads.
+	// A post references the uploaded blobs.
 	post_buf: [MSG_POST_MAX_SIZE]u8
 	p := Msg_Post {
 		conv             = 3,

@@ -1,94 +1,94 @@
 package proto
 
-/*
-Conversations: what messages are posted to: channels, and direct
-messages between two accounts.
-
-An account is a member of the conversations it takes part in. For a
-channel that's a subscription: the account's channel list is the
-channels it has subscribed to, plus the server's home channel, which
-everyone is in and nobody can leave.
-
-Looking at a channel and talking in it are separate things. A channel
-has a voice room, which a connection joins and leaves on its own
-(Voice_Join); which room each connection is in is part of the snapshot
-(messages.odin), and a connection starts out in none. A Room is 0 for
-none or the channel's id; the top bit is kept for rooms that aren't a
-channel's.
-
-Everything here travels as requests and events (rpc.odin):
-
-	Conv_Create     [name str8][topic str8][private u8]  ->  [conv u32]
-	Conv_Update     [conv u32][mask u8][name str8][topic str8][position u32]
-	                change what the mask names (CONV_UPDATE_*)
-	Conv_Delete     [conv u32]   archive a channel: gone from every list
-	Conv_Member_Set [conv u32][account u32][on u8]   add someone to a
-	                channel (as if they'd subscribed), or take them out of
-	                a private one
-	Conv_Browse     [query str8][offset u16][limit u16]
-	                ->  [more u8][count u16] conversations: the channels
-	                there are to subscribe to whose name or topic has the
-	                query in it (ignoring case; "" for all), in the order
-	                a list shows them, `limit` of them (at most
-	                MAX_BROWSE_LIMIT) from the `offset`th; `more` says
-	                there are more after them. An empty body is the first
-	                BROWSE_PAGE of all of them.
-	Conv_Subscribe  [conv u32][on u8]
-	Conv_Members    [conv u32]  ->  [count u16][account u32]...
-	Voice_Join      [room u32]   0 leaves the room we're in
-	Mark_Read       [conv u32][id u64]   read up to and with message `id`
-	Conv_Notify     [conv u32][notify u8]
-	DM_Open         [account u32]  ->  [conv u32]
-
-	Conv_Changed    a conversation we're a member of, new or changed
-	Conv_Removed    [conv u32]: we aren't a member of it any more
-	Voice_Moved     [room u32]: another of our account's connections
-	                joined a room, which took this one out of its own
-	Read_Changed    [conv u32][read u64][unread u16][mentions u16]: what
-	                our account has read there, and so what it hasn't
-
-	conversation  [id u32][kind u8][flags u8][name str8][topic str8]
-	              [a u32][b u32][last message u64][member u8]
-	              [read u64][unread u16][mentions u16][notify u8]
-	              [position u32][last time u64]
-
-A private channel (flag Private) is only for those added to it: nobody
-else is told of it, can find it or join its room. An archived one
-(Archived, by Conv_Delete) is nobody's any more.
-
-When a connection logs in it's told of every conversation its account
-is a member of, between Sync_Begin and Sync_End (accounts.odin).
-
-A conversation's last message is the id of the newest message posted
-to it (msgs.odin), 0 for none, and `last time` when it was posted, in
-Unix milliseconds (0 for none): what a list of DMs from many servers is
-put in order by, as ids from different servers can't be compared.
-
-A direct message (DM) is a conversation of two accounts, `a` and `b`
-(a < b), both members for good; for a channel they're 0. There's one
-for each pair: DM_Open finds it, or makes it, and answers with its id.
-Anyone may message anyone. The account that opens it is told of it
-(Conv_Changed) straight away; the other only once a message is posted
-there, so a conversation opened and left empty doesn't show on its
-side. Everything about messages, reading and typing works on a DM as
-on a channel; it has no voice room, and isn't subscribed to.
-
-What an account has read is per conversation, and the same on all its
-devices: the newest message it has read (`read`), and from that how
-many messages since are someone else's (`unread`, at most UNREAD_CAP)
-and how many of those mention it (`mentions`, from when there are
-mentions). `read` only moves forward. Posting reads everything up to
-the post, and subscribing everything there is. Mark_Read moves it on,
-and the account's connections are told with Read_Changed; a new
-message only arrives as itself (Msg_New), which each client counts.
-
-`notify` is how much a conversation may interrupt: every message,
-mentions only, or nothing.
-*/
+// Conversations: the things that messages are posted to. These are channels
+// and direct messages between two accounts.
+//
+// An account is a member of the conversations it takes part in. For a channel,
+// membership is a subscription: the account's channel list consists of the
+// channels it has subscribed to plus the server's home channel, which
+// everyone is in and nobody can leave.
+//
+// Reading a channel and talking in its voice room are separate things. A
+// channel has a voice room, which a connection joins and leaves independently
+// (Voice_Join). The snapshot says which room each connection is in
+// (messages.odin), and a connection starts out in no room. A Room is 0 for
+// none or the channel's id. The top bit is reserved for rooms that don't
+// belong to a channel.
+//
+// Everything here travels as requests and events (rpc.odin):
+//
+// 	Conv_Create     [name str8][topic str8][private u8]  ->  [conv u32]
+// 	Conv_Update     [conv u32][mask u8][name str8][topic str8][position u32]
+// 	                changes the fields that the mask names (CONV_UPDATE_*)
+// 	Conv_Delete     [conv u32]   archive a channel, which removes it from every list
+// 	Conv_Member_Set [conv u32][account u32][on u8]   add someone to a
+// 	                channel (as if they had subscribed), or remove them from
+// 	                a private one
+// 	Conv_Browse     [query str8][offset u16][limit u16]
+// 	                ->  [more u8][count u16] conversations: the channels
+// 	                that can be subscribed to and whose name or topic
+// 	                contains the query (ignoring case; "" matches all), in
+// 	                the order that a list shows them. The answer has `limit`
+// 	                of them (at most MAX_BROWSE_LIMIT), starting at the
+// 	                `offset`th. `more` says whether there are more after
+// 	                them. An empty body asks for the first BROWSE_PAGE of
+// 	                all channels.
+// 	Conv_Subscribe  [conv u32][on u8]
+// 	Conv_Members    [conv u32]  ->  [count u16][account u32]...
+// 	Voice_Join      [room u32]   0 leaves the room we're in
+// 	Mark_Read       [conv u32][id u64]   everything up to and including message `id` is read
+// 	Conv_Notify     [conv u32][notify u8]
+// 	DM_Open         [account u32]  ->  [conv u32]
+//
+// 	Conv_Changed    a conversation we're a member of that is new or has changed
+// 	Conv_Removed    [conv u32]: we are no longer a member of it
+// 	Voice_Moved     [room u32]: another of our account's connections
+// 	                joined a room, which removed this connection from its room
+// 	Read_Changed    [conv u32][read u64][unread u16][mentions u16]: what
+// 	                our account has read there, and therefore what it hasn't
+//
+// 	conversation  [id u32][kind u8][flags u8][name str8][topic str8]
+// 	              [a u32][b u32][last message u64][member u8]
+// 	              [read u64][unread u16][mentions u16][notify u8]
+// 	              [position u32][last time u64]
+//
+// A private channel (flag Private) is only for those who were added to it.
+// Nobody else is told about it, can find it or can join its room. An archived
+// channel (Archived, set by Conv_Delete) no longer belongs to anyone.
+//
+// When a connection logs in, it is told about every conversation that its
+// account is a member of, between Sync_Begin and Sync_End (accounts.odin).
+//
+// A conversation's last message is the id of the newest message posted to it
+// (msgs.odin), or 0 for none. `last time` is the time at which that message
+// was posted, in Unix milliseconds (0 for none). It is used to order a list of
+// DMs from many servers, because ids from different servers can't be compared.
+//
+// A direct message (DM) is a conversation between two accounts, `a` and `b`
+// (a < b), who both remain members permanently. For a channel they are 0.
+// There is one DM for each pair of accounts: DM_Open finds it or creates it and
+// answers with its id. Anyone may message anyone. The account that opens the DM
+// is told about it (Conv_Changed) immediately. The other account is only told
+// once a message is posted there, so a conversation that was opened and left
+// empty doesn't show up on its side. Messages, reading and typing work in a DM
+// like in a channel. A DM has no voice room and cannot be subscribed to.
+//
+// What an account has read is tracked per conversation and is the same on all
+// its devices. It consists of the newest message it has read (`read`), the
+// number of messages since then that are from someone else (`unread`, at most
+// UNREAD_CAP) and how many of those mention it (`mentions`, counted from the
+// first mention). `read` only moves forward. Posting a message marks
+// everything up to that message as read, and subscribing marks everything as
+// read. Mark_Read moves it forward, and the account's connections are told
+// with Read_Changed. A new message only arrives as itself (Msg_New), and each
+// client counts it.
+//
+// `notify` says how much a conversation may interrupt: for every message, for
+// mentions only, or never.
 
 Conv_Id :: distinct u32
 
-// Where voice goes: 0 for nowhere, or a channel's Conv_Id.
+// The room that voice goes to: 0 for none, or a channel's Conv_Id.
 Room :: distinct u32
 
 Conv_Kind :: enum u8 {
@@ -97,15 +97,15 @@ Conv_Kind :: enum u8 {
 }
 
 Conv_Flag :: enum u8 {
-	Home, // the channel everyone is in
-	Private, // only for those added to it
-	Archived, // deleted, as far as anyone can tell
+	Home, // the channel that everyone is in
+	Private, // only for those who were added to it
+	Archived, // deleted as far as anyone can tell
 }
 Conv_Flags :: distinct bit_set[Conv_Flag;u8]
 
 MAX_TOPIC_SIZE :: 128 // bytes of UTF-8
 
-// Unread counts stop here; a client shows more as "99+".
+// Unread counts stop at this value. A client shows larger counts as "99+".
 UNREAD_CAP :: 100
 
 Notify_Level :: enum u8 {
@@ -118,20 +118,20 @@ Conv :: struct {
 	id:        Conv_Id,
 	kind:      Conv_Kind,
 	flags:     Conv_Flags,
-	name:      string, // sanitized; never empty for a channel
+	name:      string, // sanitized and never empty for a channel
 	topic:     string,
-	member:    bool, // whether whoever is told this is one
-	last:      Msg_Id, // the newest message, 0 for none
-	// Of whoever is told this, as a member:
-	read:      Msg_Id, // what it has read up to
-	unread:    int, // messages since that aren't its own, at most UNREAD_CAP
+	member:    bool, // whether the receiver of this is a member
+	last:      Msg_Id, // the newest message, or 0 for none
+	// The following belong to the receiver of this, as a member:
+	read:      Msg_Id, // the newest message that it has read
+	unread:    int, // messages since then that aren't its own, at most UNREAD_CAP
 	mentions:  int, // ... that mention it
 	notify:    Notify_Level,
-	// A DM's two accounts, the lower first; 0 for a channel.
+	// A DM's two accounts with the lower id first, or 0 for a channel.
 	a, b:      Account_Id,
-	// Where a channel goes in a list: by position, then by id.
+	// A channel's place in a list: ordered by position, then by id.
 	position:  int,
-	// When the newest message was posted, 0 for none.
+	// The time at which the newest message was posted, or 0 for none.
 	last_time: Unix_Ms,
 }
 
@@ -187,15 +187,15 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 	c.mentions = int(get_u16(r))
 	c.notify = Notify_Level(get_u8(r))
 	if c.notify > max(Notify_Level) {
-		c.notify = .All // a level from a newer server
+		c.notify = .All // a level that is only known to a newer server
 	}
 	c.position = int(get_u32(r))
 	c.last_time = Unix_Ms(get_u64(r))
 	return
 }
 
-// encode_conv writes one conversation, as in Conv_Changed; nil if it
-// doesn't fit in `out` (CONV_MAX_SIZE holds any).
+// encode_conv writes one conversation as it is sent in Conv_Changed. It returns
+// nil if it doesn't fit in `out` (CONV_MAX_SIZE is enough for any conversation).
 encode_conv :: proc(out: []u8, c: Conv) -> []u8 {
 	w := Writer {
 		buf = out,
@@ -204,7 +204,7 @@ encode_conv :: proc(out: []u8, c: Conv) -> []u8 {
 	return nil if w.overflow else out[:w.pos]
 }
 
-// decode_conv reads one; its strings point into `body`.
+// decode_conv reads a conversation. Its strings point into `body`.
 decode_conv :: proc(body: []u8) -> (c: Conv, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -216,7 +216,7 @@ decode_conv :: proc(body: []u8) -> (c: Conv, ok: bool) {
 	return c, true
 }
 
-// What Conv_Browse answers with at a time.
+// The number of conversations that Conv_Browse answers with at a time.
 BROWSE_PAGE :: 50
 MAX_BROWSE_LIMIT :: 100
 MAX_BROWSE_QUERY :: MAX_CHANNEL_NAME_SIZE
@@ -238,8 +238,8 @@ encode_conv_browse :: proc(out: ^[CONV_BROWSE_MAX_SIZE]u8, b: Browse) -> []u8 {
 	return out[:w.pos]
 }
 
-// decode_conv_browse reads a Conv_Browse request; an empty one is the
-// first page of everything.
+// decode_conv_browse reads a Conv_Browse request. An empty one asks for the
+// first page of all channels.
 decode_conv_browse :: proc(body: []u8) -> (b: Browse, ok: bool) {
 	if len(body) == 0 {
 		return {limit = BROWSE_PAGE}, true
@@ -259,9 +259,9 @@ decode_conv_browse :: proc(body: []u8) -> (b: Browse, ok: bool) {
 	return b, true
 }
 
-// encode_browse_page writes a Conv_Browse response: whether there are
-// more, and as many of `convs` as fit in `out` (and if not all of them
-// do, there are more).
+// encode_browse_page writes a Conv_Browse response. It consists of whether
+// there are more conversations and as many of `convs` as fit in `out`. If not
+// all of them fit, there are more.
 encode_browse_page :: proc(out: []u8, more: bool, convs: []Conv) -> []u8 {
 	if len(out) < 1 {
 		return nil
@@ -290,7 +290,7 @@ decode_browse_page :: proc(
 	return body[0] != 0, convs, ok
 }
 
-// encode_conv_list writes a list of conversations: as many of `convs` as
+// encode_conv_list writes a list of conversations with as many of `convs` as
 // fit in `out`.
 encode_conv_list :: proc(out: []u8, convs: []Conv) -> []u8 {
 	w := Writer {
@@ -312,7 +312,7 @@ encode_conv_list :: proc(out: []u8, convs: []Conv) -> []u8 {
 	return out[:w.pos]
 }
 
-// decode_conv_list reads one into `convs_buf`.
+// decode_conv_list reads a list of conversations into `convs_buf`.
 decode_conv_list :: proc(body: []u8, convs_buf: []Conv) -> (convs: []Conv, ok: bool) {
 	r := Reader {
 		buf = body,
@@ -352,8 +352,8 @@ decode_conv_create :: proc(body: []u8) -> (name, topic: string, private: bool, o
 	return name, topic, private, !r.overflow
 }
 
-// A body that is one conversation's id: Conv_Members,
-// Conv_Removed, the response to Conv_Create.
+// A body that consists of one conversation's id, such as Conv_Members,
+// Conv_Removed and the response to Conv_Create.
 encode_conv_id :: proc(out: ^[4]u8, conv: Conv_Id) -> []u8 {
 	w := Writer {
 		buf = out[:],
@@ -370,7 +370,7 @@ decode_conv_id :: proc(body: []u8) -> (conv: Conv_Id, ok: bool) {
 	return conv, !r.overflow
 }
 
-// A body that is a room: Voice_Join, Voice_Moved.
+// A body that consists of a room, such as Voice_Join and Voice_Moved.
 encode_room :: proc(out: ^[4]u8, room: Room) -> []u8 {
 	w := Writer {
 		buf = out[:],
@@ -407,7 +407,7 @@ decode_conv_subscribe :: proc(body: []u8) -> (conv: Conv_Id, on: bool, ok: bool)
 	return conv, on, !r.overflow
 }
 
-// encode_conv_members writes a Conv_Members response: as many of
+// encode_conv_members writes a Conv_Members response with as many of
 // `accounts` as fit in `out`.
 encode_conv_members :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
 	w := Writer {
@@ -528,7 +528,7 @@ decode_read_changed :: proc(body: []u8) -> (s: Read_State, ok: bool) {
 	return s, true
 }
 
-// Conv_Update's mask.
+// The bits of Conv_Update's mask.
 CONV_UPDATE_NAME :: 1 << 0
 CONV_UPDATE_TOPIC :: 1 << 1
 CONV_UPDATE_POSITION :: 1 << 2

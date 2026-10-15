@@ -13,29 +13,27 @@ import "sqlite"
 
 _ :: time // only used when DB_EXERCISE
 
-/*
-The blob store: files the server keeps for good, such as the files
-messages carry. Each is a file in the data directory's blobs/ folder, named by the
-SHA-256 of its content, with a row in the database's `blobs` table
-saying what it is:
-
-	blobs/ab/abcdef0123...   the first two digits are a folder, so no
-	                         folder ends up with every file in it
-	blobs/incoming/<id>      an attachment on its way in, emptied when
-	                         the server starts
-
-Being named by its content, the same picture posted twice is kept once,
-and a file never changes once it's there: it can be copied for a backup
-while the server runs.
-
-A file is written under another name and renamed into place, so one
-that's there is whole. Like the database's commits, writing one doesn't
-wait for the disk.
-
-What refers to a blob (a message, a profile) does so by its id. Nothing
-here counts those references; finding the blobs nothing points at any
-more is for whoever purges.
-*/
+// The blob store: files the server keeps permanently, such as the files
+// attached to messages. Each blob is a file in the blobs/ folder of the
+// data directory. It is named after the SHA-256 hash of its content and
+// has a row in the database's `blobs` table that describes it:
+//
+//	blobs/ab/abcdef0123...   the first two hex digits are a folder, so no
+//	                         single folder ends up holding every file
+//	blobs/incoming/<id>      an attachment that is still being uploaded,
+//	                         emptied when the server starts
+//
+// Because a blob is named after its content, the same picture posted
+// twice is only stored once. A blob file never changes after it is
+// written, so it can be copied for a backup while the server is running.
+//
+// A file is first written under a temporary name and then renamed into
+// place, so a file under a blob's name is always complete. Like the
+// database's commits, writing a file doesn't wait for the disk.
+//
+// Things that use a blob (a message, a profile) refer to it by its id.
+// The store doesn't count these references. Finding blobs that nothing
+// refers to any more is left to the code that purges unused blobs.
 
 BLOBS_DIR :: "blobs"
 BLOB_HASH_SIZE :: 32
@@ -43,7 +41,8 @@ BLOB_HASH_SIZE :: 32
 // Blob_Id is a blob's row in the database. 0 is never one.
 Blob_Id :: proto.Blob_Id
 
-// What a blob is, which decides how big it may be and who may fetch it.
+// Blob_Kind is what a blob is used for. It decides how big the blob may be
+// and who may fetch it.
 Blob_Kind :: proto.Blob_Kind
 
 Blob :: struct {
@@ -60,8 +59,8 @@ Blob_Store :: struct {
 	dir: string, // owned
 }
 
-// blob_store_open sets the store up over `db`, with its files in `dir`,
-// which is created if it isn't there.
+// blob_store_open sets up the store on `db` with its files in `dir`,
+// which is created if it doesn't exist.
 @(require_results)
 blob_store_open :: proc(bs: ^Blob_Store, db: ^DB, dir: string) -> bool {
 	if err := os.make_directory_all(dir); err != nil && !os.is_directory(dir) {
@@ -70,7 +69,7 @@ blob_store_open :: proc(bs: ^Blob_Store, db: ^DB, dir: string) -> bool {
 	}
 	bs.db = db
 	bs.dir = strings.clone(dir)
-	// What was on its way in when the server stopped isn't coming.
+	// Uploads that were in progress when the server stopped can't be resumed.
 	incoming := blob_incoming_dir(bs)
 	remove_tree(incoming)
 	if err := os.make_directory_all(incoming); err != nil && !os.is_directory(incoming) {
@@ -80,28 +79,27 @@ blob_store_open :: proc(bs: ^Blob_Store, db: ^DB, dir: string) -> bool {
 	return true
 }
 
-// blob_incoming_dir is where files being uploaded are written until
-// they're whole (attachments.odin): beside the blobs, so that keeping
-// one is a rename.
+// blob_incoming_dir is where uploaded files are written until they are
+// complete (attachments.odin). It is next to the blobs so that storing a
+// finished upload is just a rename.
 blob_incoming_dir :: proc(bs: ^Blob_Store, allocator := context.temp_allocator) -> string {
 	path, _ := os.join_path({bs.dir, "incoming"}, allocator)
 	return path
 }
 
-/*
-remove_tree removes `path` and, if it's a folder, everything in it. It's
-os.remove_all done by hand: on Windows that goes through
-SHFileOperationW, which loads the shell and raises exceptions of its own
-on the way (RPC_S_SERVER_UNAVAILABLE where a service it asks is off).
-They're handled, but the test runner's exception handler takes any of
-them for a crash and stops the test, and then waits for it forever.
-*/
+// remove_tree removes `path` and, if it's a folder, everything in it. It
+// is os.remove_all done by hand. On Windows os.remove_all uses
+// SHFileOperationW, which loads the shell and raises exceptions of its
+// own (for example RPC_S_SERVER_UNAVAILABLE when a service it needs is
+// off). Those exceptions are handled, but the test runner's exception
+// handler treats any of them as a crash and stops the test, and then
+// waits for it forever.
 remove_tree :: proc(path: string) {
 	if os.remove(path) == nil {
 		return
 	}
-	// Not empty, or not there. A link to a folder was removed above, so
-	// what's listed here is a folder's own.
+	// The path is either not empty or doesn't exist. A link to a folder
+	// was already removed above, so this only lists real folders.
 	entries, err := os.read_all_directory_by_path(path, context.temp_allocator)
 	if err != nil {
 		return
@@ -126,7 +124,7 @@ blob_hash :: proc(data: []u8) -> (sum: [BLOB_HASH_SIZE]u8) {
 	return
 }
 
-// blob_path is where the blob with this hash is kept.
+// blob_path returns where the blob with this hash is stored.
 blob_path :: proc(
 	bs: ^Blob_Store,
 	sum: [BLOB_HASH_SIZE]u8,
@@ -138,7 +136,7 @@ blob_path :: proc(
 	return path
 }
 
-// blob_find is the blob with this content's hash, if the store has it.
+// blob_find returns the blob with this content hash, if the store has it.
 blob_find :: proc(bs: ^Blob_Store, sum: [BLOB_HASH_SIZE]u8) -> (id: Blob_Id, found: bool) {
 	sum := sum
 	q := db_stmt(bs.db, .Blob_By_Hash)
@@ -151,11 +149,9 @@ blob_find :: proc(bs: ^Blob_Store, sum: [BLOB_HASH_SIZE]u8) -> (id: Blob_Id, fou
 	return
 }
 
-/*
-blob_put keeps `data` and returns its id. Content the store already has
-isn't written again: the id is the one it got the first time, whatever
-it was kept as then.
-*/
+// blob_put stores `data` and returns its id. Content that the store
+// already has isn't written again. Instead the id from the first time is
+// returned, regardless of the kind it was stored as then.
 @(require_results)
 blob_put :: proc(
 	bs: ^Blob_Store,
@@ -194,12 +190,11 @@ blob_put :: proc(
 	return Blob_Id(db_last_id(bs.db)), true
 }
 
-/*
-blob_adopt keeps the file at `part`, whose content hashes to `sum`, as a
-blob: renamed into the store, or, if the store has that content already,
-deleted, and the id is the one it has. Either way the blob counts as new
-for an hour, so a collect doesn't take it before it's used.
-*/
+// blob_adopt stores the file at `part`, whose content hashes to `sum`, as
+// a blob. The file is renamed into the store or, if the store already has
+// that content, deleted and the existing blob's id is returned. Either
+// way the blob counts as new for an hour, so the garbage collection
+// doesn't remove it before it is used.
 @(require_results)
 blob_adopt :: proc(
 	bs: ^Blob_Store,
@@ -243,8 +238,9 @@ blob_adopt :: proc(
 	return Blob_Id(db_last_id(bs.db)), true
 }
 
-// write_blob_file writes a blob's file: under a name of its own first,
-// then renamed, so that a file with a blob's name is always a whole one.
+// write_blob_file writes a blob's file. It is first written under a
+// temporary name and then renamed, so a file with a blob's name is always
+// complete.
 @(private = "file")
 write_blob_file :: proc(bs: ^Blob_Store, path: string, data: []u8) -> bool {
 	dir := os.dir(path)
@@ -271,14 +267,12 @@ write_blob_file :: proc(bs: ^Blob_Store, path: string, data: []u8) -> bool {
 	return true
 }
 
-/*
-Testing aid: built with -define:YAP_DB_EXERCISE=true, the server writes
-to its database and blob store all the time, which nothing else does
-yet: ten times a second a new blob of 64 KB and a note in `meta`, and
-every so often the oldest blobs are deleted again. Run with people
-talking, the log then says what that costs the loop (see SLOW_TURN
-in loop_stats.odin).
-*/
+// Testing aid: when built with -define:YAP_DB_EXERCISE=true, the server
+// continuously writes to its database and blob store, which nothing else
+// does yet. Ten times a second it stores a new 64 KB blob and a note in
+// `meta`, and every so often the oldest blobs are deleted again. When
+// run while people are chatting, the log shows what this costs the loop
+// (see SLOW_TURN in loop_stats.odin).
 DB_EXERCISE :: #config(YAP_DB_EXERCISE, false)
 
 when DB_EXERCISE {
@@ -310,7 +304,7 @@ when DB_EXERCISE {
 	db_exercise :: proc(s: ^Server) {}
 }
 
-// blob_get is what the store knows about a blob.
+// blob_get returns the store's information about a blob.
 blob_get :: proc(bs: ^Blob_Store, id: Blob_Id) -> (b: Blob, found: bool) {
 	q := db_stmt(bs.db, .Blob_By_Id)
 	db_bind_int(q, 1, i64(id))
@@ -332,9 +326,9 @@ blob_get :: proc(bs: ^Blob_Store, id: Blob_Id) -> (b: Blob, found: bool) {
 	return b, true
 }
 
-// blob_read is a blob's content, allocated with `allocator`. A file
-// that's missing or not the size the database says is an error, and
-// logged.
+// blob_read returns a blob's content, allocated with `allocator`. A file
+// that is missing or doesn't have the size recorded in the database is
+// an error and is logged.
 @(require_results)
 blob_read :: proc(
 	bs: ^Blob_Store,
@@ -359,21 +353,21 @@ blob_read :: proc(
 	return content, true
 }
 
-// blob_delete forgets a blob and removes its file. It's for the caller
-// to know that nothing refers to it any more.
+// blob_delete removes a blob's database row and its file. The caller
+// must make sure that nothing refers to the blob any more.
 blob_delete :: proc(bs: ^Blob_Store, id: Blob_Id) -> bool {
 	b := blob_get(bs, id) or_return
 	q := db_stmt(bs.db, .Blob_Delete)
 	db_bind_int(q, 1, i64(id))
 	db_run(bs.db, q) or_return
-	// The row first, for good, and then the file: were the server to
-	// stop in between, a file without a row is only wasted room, where a
-	// row without its file would be a blob that can't be read.
+	// Commit the row deletion first and remove the file afterwards. If the
+	// server stops in between, a file without a row only wastes space,
+	// whereas a row without its file would be a blob that can't be read.
 	db_commit(bs.db)
 	path := blob_path(bs, b.hash)
 	if err := os.remove(path); err != nil && os.exists(path) {
-		// The row is gone, so nothing points at the file; it only takes
-		// up room.
+		// The row is gone, so nothing points at the file. It only wastes
+		// space.
 		log.warnf("could not remove %s: %v", path, err)
 	}
 	return true

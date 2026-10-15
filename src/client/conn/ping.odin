@@ -4,36 +4,33 @@ import "core:time"
 
 import "common:proto"
 
-/*
-How good the connection to the server is, for the indicator next to the
-server's name: the client pings the server every PING_INTERVAL (see
-proto/ping.odin) and keeps the last PING_WINDOW of them. From those come
-the round trip times and the share that never got an answer.
-
-A ping counts as lost once it has gone PING_TIMEOUT without a pong; a
-pong that turns up later than that is too late to be any use for voice
-anyway. Pings younger than that are still out and aren't counted either
-way.
-
-The bars go by the worse of latency and loss (connection_quality).
-Loss is judged over the whole window, so a hiccup doesn't turn the bars
-yellow, but several pings in a row going unanswered (a few seconds of
-silence) does: that's the connection going, not noise. Past that,
-client_step gives up on the connection and tries for a new one every so
-often (CONNECTION_LOST).
-*/
+// How good the connection to the server is, shown in the indicator next to the
+// server's name. The client pings the server every PING_INTERVAL (see
+// proto/ping.odin) and keeps the last PING_WINDOW pings. From those it derives
+// the round trip times and the share of pings that never got an answer.
+//
+// A ping counts as lost once PING_TIMEOUT has passed without a pong. A pong
+// that arrives later than that is too late to be useful for voice anyway.
+// Pings younger than that are still outstanding and are not counted either way.
+//
+// The bars show the worse of latency and loss (see connection_quality). Loss is
+// judged over the whole window, so a short hiccup does not turn the bars
+// yellow. Several unanswered pings in a row (a few seconds of silence) do,
+// because that means the connection is going down rather than just noisy.
+// After that, client_step gives up on the connection and periodically tries to
+// establish a new one (CONNECTION_LOST).
 
 PING_INTERVAL :: 500 * time.Millisecond
 PING_WINDOW :: 60 // 30 seconds' worth
 PING_TIMEOUT :: 3 * time.Second
 
-// Where the bars change colour.
+// The thresholds at which the bars change colour.
 GOOD_RTT :: 150 * time.Millisecond
 FAIR_RTT :: 400 * time.Millisecond
 GOOD_LOSS :: 5 // percent
 FAIR_LOSS :: 20
-// This many unanswered pings in a row is a poor connection, whatever
-// the rest of the window says.
+// This many unanswered pings in a row mean a poor connection, regardless of
+// what the rest of the window says.
 LOST_IN_A_ROW :: 6
 
 Ping_Record :: struct {
@@ -47,18 +44,18 @@ Ping_Tracker :: struct {
 	next_id:   u32,
 	last_sent: time.Tick,
 	count:     int, // how many of `records` are in use
-	// By id modulo PING_WINDOW, so a pong finds its ping directly.
+	// Indexed by id modulo PING_WINDOW so that a pong can find its ping directly.
 	records:   [PING_WINDOW]Ping_Record,
 }
 
 Connection_Quality :: enum {
-	Unknown, // no answers yet: just connected, or a server without Ping
+	Unknown, // no answers yet: just connected, or the server does not support Ping
 	Poor,
 	Fair,
 	Good,
 }
 
-// Connection_Stats sums up the window, for the UI.
+// Connection_Stats summarizes the window for the UI.
 Connection_Stats :: struct {
 	quality:  Connection_Quality,
 	sent:     int, // pings old enough to judge
@@ -68,12 +65,12 @@ Connection_Stats :: struct {
 	avg_rtt:  time.Duration,
 	min_rtt:  time.Duration,
 	max_rtt:  time.Duration,
-	// Mean difference between consecutive round trips, like RFC 3550's
-	// jitter, but unsmoothed over the window.
+	// Mean difference between consecutive round trips, like the jitter in
+	// RFC 3550 but without smoothing over the window.
 	jitter:   time.Duration,
 }
 
-// ping_step sends the next ping when it's due.
+// ping_step sends the next ping when it is due.
 ping_step :: proc(c: ^Voice_Client) {
 	p := &c.ping
 	if p.count > 0 && time.tick_since(p.last_sent) < PING_INTERVAL {
@@ -90,8 +87,8 @@ ping_step :: proc(c: ^Voice_Client) {
 
 	buf: [proto.PING_SIZE]byte
 	send_data(c, proto.encode_ping(&buf, .Ping, id))
-	// Publishing on every send also catches pings that have just run
-	// out of time.
+	// Publishing on every send also catches pings that have just
+	// timed out.
 	publish_connection(c)
 }
 
@@ -100,7 +97,7 @@ handle_pong :: proc(c: ^Voice_Client, pt: []byte) {
 	id := proto.decode_ping(pt)
 	r := &p.records[id % PING_WINDOW]
 	if r.id != id || r.answered || p.count == 0 {
-		return // not one we're waiting for, or a duplicate
+		return // not a ping we are waiting for, or a duplicate
 	}
 	rtt := time.tick_since(r.sent)
 	if rtt > PING_TIMEOUT {
@@ -119,13 +116,13 @@ connection_stats :: proc(p: ^Ping_Tracker, now: time.Tick) -> (s: Connection_Sta
 	have_prev := false
 	counting_run := true
 
-	// Newest first: the run of losses counts back from the latest ping,
-	// and the jitter compares each round trip with the one before.
+	// Newest first: the run of losses is counted back from the latest ping,
+	// and the jitter compares each round trip with the one before it.
 	for i in 0 ..< p.count {
 		id := p.next_id - 1 - u32(i)
 		r := &p.records[id % PING_WINDOW]
 		if !r.answered && time.tick_diff(r.sent, now) < PING_TIMEOUT {
-			continue // still out
+			continue // still outstanding
 		}
 		s.sent += 1
 		if !r.answered {
@@ -150,7 +147,7 @@ connection_stats :: proc(p: ^Ping_Tracker, now: time.Tick) -> (s: Connection_Sta
 		prev_rtt, have_prev = r.rtt, true
 	}
 	if answered == 0 {
-		return // Unknown, with nothing to go on
+		return // Unknown, nothing to go on
 	}
 	s.avg_rtt = rtt_sum / time.Duration(answered)
 	if diffs > 0 {
@@ -173,8 +170,8 @@ connection_quality :: proc(s: Connection_Stats) -> Connection_Quality {
 	return .Poor
 }
 
-// connection_loss is the share of judged pings that got no answer, in
-// percent.
+// connection_loss is the share of judged pings that got no answer, as a
+// percentage.
 connection_loss :: proc(s: Connection_Stats) -> f32 {
 	if s.sent == 0 {
 		return 0

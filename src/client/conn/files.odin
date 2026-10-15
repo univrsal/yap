@@ -9,79 +9,79 @@ import "client:audio"
 import "client:settings"
 import "common:proto"
 
-/*
-Sending files in DMs (see src/common/proto/files.odin for the protocol).
+// Sending files in DMs (see src/common/proto/files.odin for the protocol).
+//
+// A file is offered in a DM as a message (see messages.odin), which appears in
+// the conversation on both sides. The transfer is identified by that message's
+// id once the message has one, and by its post's nonce until then. Only an
+// offer made during this run of the client can go ahead, and only on the
+// device it was made on, because the file behind it stays open there until the
+// transfer ends. An offer is answered on the device it arrives at, as long as
+// it is online (Msg_New). An offer found in the history, either because it was
+// made earlier or because it was answered on another device, is only shown with
+// what is known about it, which is not much because the server keeps no record
+// of transfers.
+//
+// Sending paces the chunks to the lower of our upload limit and the recipient's
+// download limit (both from the settings), and to at most FILE_MAX_RATE.
+// Receiving writes each chunk to its place as it arrives (see files_io_*.odin),
+// into the downloads folder under the name the sender gave the file. The
+// window, acks and resends are handled by proto/transfer.odin, as for
+// attachments.
 
-A file is offered in a DM, as a message (messages.odin), which shows up
-in the conversation on both sides. The transfer is known by that
-message's id once it has one, and by its post's nonce until then. Only
-an offer from this run of the client can go ahead, and only from the
-device it was made on: the file behind it is open there until the
-transfer ends. An offer is answered on the device it arrives at while
-it's here (Msg_New); one found in the history, made earlier or answered
-on another device, is shown as what's known of it (nothing much: the
-server keeps no record of transfers).
-
-Sending paces chunks to the lower of our upload limit and the
-recipient's download limit (the settings), and at most FILE_MAX_RATE.
-Receiving writes each chunk where it goes as it comes (files_io_*.odin),
-into the downloads folder under the name the sender gave it. The window,
-acks and resends are proto/transfer.odin's, as for attachments.
-*/
-
-// Even with no limit set, a transfer doesn't go faster than this, so it
-// leaves room for voice.
+// Even when no limit is set, a transfer does not go faster than this, so that
+// there is always room left for voice.
 FILE_MAX_RATE :: 16 * 1024 * 1024
 FILE_BURST :: 256 * 1024
-// Giving up on a transfer that hears nothing from the other side.
+// A transfer is given up when nothing is heard from the other side for this long.
 FILE_TIMEOUT :: 30 * time.Second
-// How often progress is shown.
+// How often the progress is published to the UI.
 FILE_PUBLISH_INTERVAL :: 200 * time.Millisecond
 
 File_State :: enum u8 {
-	Unknown      = 0, // in the history: we can't tell what became of it
-	Posting      = 1, // ours, the offer on its way to the server
-	Offered      = 2, // ours, waiting for them to say yes
-	Incoming     = 3, // theirs, waiting for us to say yes
-	Starting     = 4, // accepted, nothing sent yet
+	Unknown      = 0, // found in the history, so we cannot tell what became of it
+	Posting      = 1, // ours, with the offer still on its way to the server
+	Offered      = 2, // ours, waiting for them to accept
+	Incoming     = 3, // theirs, waiting for us to accept
+	Starting     = 4, // accepted, but nothing has been sent yet
 	Transferring = 5,
 	Done         = 6,
 	Declined     = 7,
 	Cancelled    = 8,
-	Failed       = 9, // couldn't be read or written, or went quiet
-	Interrupted  = 10, // the other side left
-	Expired      = 11, // the offer isn't there to be taken up any more
-	Elsewhere    = 12, // answered on another of our devices
+	Failed       = 9, // the file could not be read or written, or the other side went quiet
+	Interrupted  = 10, // the other side went offline
+	Expired      = 11, // the offer is no longer available
+	Elsewhere    = 12, // answered on another of our own devices
 }
 
-// file_state_over is whether a transfer has ended, one way or another.
+// file_state_over reports whether a transfer has ended, whatever the outcome.
 file_state_over :: proc(s: File_State) -> bool {
 	return s >= .Done
 }
 
 File_Client :: struct {
 	transfers:      map[proto.Msg_Id]^File_Transfer,
-	// Offers of ours on their way to the server, by their post's nonce.
+	// Our offers that are still on their way to the server, by their post's nonce.
 	posting:        map[u64]^File_Transfer,
-	// Bytes per second; 0 for no limit (settings: Transfer_Limits_Command).
+	// Bytes per second; 0 means no limit (see Transfer_Limits_Command in the settings).
 	upload_limit:   u32,
 	download_limit: u32,
-	// Where received files go; empty for the downloads folder.
+	// Where received files are saved; empty means the downloads folder.
 	download_dir:   string,
 }
 
 File_Transfer :: struct {
-	id:           proto.Msg_Id, // the offer's; 0 while it's being posted
+	id:           proto.Msg_Id, // the id of the offer's message; 0 while it is being posted
 	peer:         proto.Account_Id,
 	outgoing:     bool,
 	name:         string, // owned
 	size:         u64,
 	chunks:       u32,
 	state:        File_State,
-	done:         u64, // bytes through
-	last_heard:   time.Tick, // anything from the other side
+	done:         u64, // bytes transferred so far
+	last_heard:   time.Tick, // when anything was last heard from the other side
 	last_publish: time.Tick,
-	rate:         f32, // bytes per second, lately
+	rate:         f32, // recent speed in bytes per second
 	rate_at:      time.Tick,
 	rate_done:    u64,
 
@@ -91,15 +91,16 @@ File_Transfer :: struct {
 
 	// Receiving.
 	sink:         File_Sink,
-	path:         string, // where it's being saved; owned
+	path:         string, // the path the file is being saved to; owned
 	recv:         proto.Transfer_Receiver,
 }
 
-// Send_File_Command offers `to` a file: at `path` on a desktop, or the
-// page's picked file `web_file` in a browser (files_io_web.odin).
+// Send_File_Command offers a file to `to`. On a desktop the file is at `path`,
+// and in a browser it is the page's picked file `web_file` (see
+// files_io_web.odin).
 Send_File_Command :: struct {
 	to:       proto.Account_Id,
-	name:     string, // owned: `to`'s name, when `to` is 0 (headless)
+	name:     string, // owned: the name of the recipient, used when `to` is 0 (headless)
 	path:     string, // owned
 	web_file: i32,
 	web_name: string, // owned
@@ -117,13 +118,14 @@ File_Action_Command :: struct {
 	action: File_Action,
 }
 
-// Transfer_Limits_Command sets the settings' limits, in bytes per second.
+// Transfer_Limits_Command sets the transfer limits from the settings, in bytes
+// per second.
 Transfer_Limits_Command :: struct {
 	upload, download: u32,
 }
 
-// transfer_limits_command is the transfer limits as configured in `s`,
-// in bytes per second.
+// transfer_limits_command returns the transfer limits configured in `s`, in
+// bytes per second.
 transfer_limits_command :: proc(s: ^settings.Settings) -> Transfer_Limits_Command {
 	to_bytes :: proc(mb: f32) -> u32 {
 		return u32(clamp(mb, 0, settings.MAX_TRANSFER_LIMIT) * 1024 * 1024)
@@ -145,13 +147,12 @@ files_destroy :: proc(c: ^Voice_Client) {
 	delete(c.files.download_dir)
 }
 
-/*
-Offering.
-*/
+// Offering.
 
-// send_file offers a file. The file is opened now and stays open until
-// the transfer ends. Files only go to someone who's here: the file is
-// on this device, and they'd have to come and take it before it went.
+// send_file offers a file. The file is opened now and stays open until the
+// transfer ends. Files can only be sent to someone who is online, because the
+// file is on this device and the recipient has to be there to accept it
+// before it can be sent.
 send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 	to := cmd.to if cmd.to != 0 else account_named(c, cmd.name)
 	if to == 0 || to == c.auth.me {
@@ -160,7 +161,7 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 	}
 	if !is_online(c, to) {
 		log.warnf(
-			"file: %s isn't here, and files only go to someone who is",
+			"file: %s is not online, and files can only be sent to someone who is",
 			account_display(c, to),
 		)
 		return
@@ -173,7 +174,7 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 	name := proto.sanitize_file_name(raw_name, &name_buf)
 	if !proto.file_type_allowed(name) {
 		log.warnf(
-			"file: %q isn't a kind of file that can be sent (archives, pictures and videos)",
+			"file: %q is not a type of file that can be sent (only archives, pictures and videos)",
 			raw_name,
 		)
 		file_source_close(&src)
@@ -200,8 +201,8 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 	log.infof("[file] offering %s %q (%s)", account_display(c, to), name, format_bytes(size))
 }
 
-// file_posted is the offer with `nonce` posted, as message `id`: from
-// here on the transfer goes by that.
+// file_posted handles the offer with `nonce` having been posted as message
+// `id`. From here on the transfer is identified by that id.
 file_posted :: proc(c: ^Voice_Client, nonce: u64, id: proto.Msg_Id) {
 	t, ok := c.files.posting[nonce]
 	if !ok {
@@ -214,8 +215,8 @@ file_posted :: proc(c: ^Voice_Client, nonce: u64, id: proto.Msg_Id) {
 	publish_file(c, t, force = true)
 }
 
-// file_post_failed is the offer with `nonce` not posted: there's nothing
-// to send it for.
+// file_post_failed handles the offer with `nonce` failing to be posted. There
+// is then nothing to send the file for.
 file_post_failed :: proc(c: ^Voice_Client, nonce: u64) {
 	t, ok := c.files.posting[nonce]
 	if !ok {
@@ -226,7 +227,7 @@ file_post_failed :: proc(c: ^Voice_Client, nonce: u64) {
 	transfer_free(t)
 }
 
-// file_offer_received takes in an offer that has just been posted to us.
+// file_offer_received handles an offer that has just been posted to us.
 file_offer_received :: proc(c: ^Voice_Client, m: proto.Message) {
 	if m.id in c.files.transfers {
 		return
@@ -245,8 +246,11 @@ file_offer_received :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 	c.files.transfers[m.id] = t
 	if name == "" || !proto.file_type_allowed(name) || m.file_size == 0 {
-		// Nothing we'd save: say no straight away.
-		log.warnf("file: refusing %q, not a kind of file that can be sent", m.file_name)
+		// This is not something we would save, so decline straight away.
+		log.warnf(
+			"file: refusing %q because it is not a type of file that can be sent",
+			m.file_name,
+		)
 		end_transfer(c, t, .Declined, .Declined)
 		return
 	}
@@ -254,8 +258,8 @@ file_offer_received :: proc(c: ^Voice_Client, m: proto.Message) {
 	publish_file(c, t, force = true)
 }
 
-// file_offer_deleted is an offer whose message was deleted: one that
-// hasn't been taken up can't be any more.
+// file_offer_deleted handles an offer whose message was deleted. An offer that
+// has not been accepted yet can no longer be accepted.
 file_offer_deleted :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 	t := c.files.transfers[id] or_else nil
 	if t != nil && (t.state == .Incoming || t.state == .Offered) {
@@ -263,8 +267,8 @@ file_offer_deleted :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 	}
 }
 
-// file_action is the person's answer to an offer, or stopping a
-// transfer. An id of 0 means every one it applies to (headless mode).
+// file_action handles the user's answer to an offer, or stopping a transfer. An
+// id of 0 means all transfers the action applies to (headless mode).
 file_action :: proc(c: ^Voice_Client, id: proto.Msg_Id, action: File_Action) {
 	if id == 0 {
 		ids := make([dynamic]proto.Msg_Id, context.temp_allocator)
@@ -307,9 +311,7 @@ file_action :: proc(c: ^Voice_Client, id: proto.Msg_Id, action: File_Action) {
 	}
 }
 
-/*
-Running transfers: files_step, from the client's loop.
-*/
+// files_step runs the transfers. It is called from the client's loop.
 files_step :: proc(c: ^Voice_Client) {
 	if !c.has_current {
 		return
@@ -317,8 +319,8 @@ files_step :: proc(c: ^Voice_Client) {
 	now := time.tick_now()
 	for _, t in c.files.transfers {
 		if file_state_over(t.state) {
-			// The recipient repeats that it's complete, in case the
-			// first didn't get there.
+			// The recipient repeats that the file is complete, in case the first
+			// message did not arrive.
 			if !t.outgoing &&
 			   t.state == .Done &&
 			   t.recv.complete_acks < proto.TRANSFER_COMPLETE_ACKS &&
@@ -329,7 +331,7 @@ files_step :: proc(c: ^Voice_Client) {
 		}
 		if t.state == .Starting || t.state == .Transferring {
 			if !is_online(c, t.peer) {
-				log.infof("[file] %q: the other side left", t.name)
+				log.infof("[file] %q: the other side went offline", t.name)
 				end_transfer(c, t, .Interrupted)
 				continue
 			}
@@ -346,7 +348,7 @@ files_step :: proc(c: ^Voice_Client) {
 		} else {
 			#partial switch t.state {
 			case .Starting:
-				// Until chunks come, ask for them.
+				// Until chunks arrive, keep asking for them.
 				if t.recv.last_ack == {} ||
 				   time.tick_diff(t.recv.last_ack, now) >= proto.CONTROL_RESEND {
 					t.recv.last_ack = now
@@ -369,8 +371,8 @@ files_step :: proc(c: ^Voice_Client) {
 	}
 }
 
-// send_chunks sends what the pace allows (transfer.odin): chunks asked
-// for again first, then new ones within the window.
+// send_chunks sends as much as the pace allows (see transfer.odin): first the
+// chunks that were requested again, then new ones within the window.
 @(private = "file")
 send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 	rate := transfer_rate(c.files.upload_limit, t.send.peer_rate)
@@ -389,7 +391,7 @@ send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 			return
 		}
 		if !ready {
-			return // a browser is still reading it; next time
+			return // a browser is still reading it, so try again next time
 		}
 		out: [proto.MAX_PAYLOAD_SIZE]u8
 		send_data(
@@ -400,8 +402,8 @@ send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 	}
 }
 
-// transfer_rate is how fast to send: our limit and the receiver's, and
-// at most FILE_MAX_RATE.
+// transfer_rate returns how fast to send, which is the lowest of our limit, the
+// receiver's limit and FILE_MAX_RATE.
 transfer_rate :: proc(ours, theirs: u32) -> f32 {
 	rate := f32(FILE_MAX_RATE)
 	if ours > 0 {
@@ -417,14 +419,14 @@ handle_file_accept :: proc(c: ^Voice_Client, pt: []u8) {
 	id, from, rate := proto.decode_file_accept(pt)
 	t := c.files.transfers[id] or_else nil
 	if t == nil || !t.outgoing || t.peer != from {
-		// An offer from before a restart: nothing to send it from.
+		// This is an offer from before a restart, so there is nothing to send.
 		send_file_cancel(c, id, from, .Expired)
 		return
 	}
 	t.send.peer_rate = rate
 	t.last_heard = time.tick_now()
 	if t.state != .Offered {
-		return // a repeat
+		return // a repeated message
 	}
 	t.state = .Transferring
 	proto.transfer_sender_init(&t.send, t.size, t.last_heard)
@@ -465,7 +467,7 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 	}
 	t.last_heard = now
 	if !proto.transfer_wants(&t.recv, index, len(data)) {
-		return // a repeat, or broken; it'll be asked for again
+		return // a repeated or broken chunk, which will be requested again
 	}
 	start, _ := proto.file_chunk_range(t.size, index)
 	if !file_sink_write(&t.sink, start, data) {
@@ -488,8 +490,8 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 	}
 }
 
-// send_file_ack says what we have, and what's missing up to the highest
-// chunk that came.
+// send_file_ack tells the sender what we have and what is missing up to the
+// highest chunk that has arrived.
 @(private = "file")
 send_file_ack :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 	out: [proto.MAX_PAYLOAD_SIZE]u8
@@ -531,11 +533,9 @@ handle_file_cancel :: proc(c: ^Voice_Client, pt: []u8) {
 	end_transfer(c, t, state)
 }
 
-/*
-end_transfer finishes a transfer in `state`, telling the other side why
-if `tell` is set. The file behind it is closed; one being
-received is kept if it's Done, else thrown away.
-*/
+// end_transfer finishes a transfer in `state`, telling the other side why if
+// `tell` is set. The file behind the transfer is closed. A file being received
+// is kept if the transfer is Done, and otherwise thrown away.
 @(private = "file")
 end_transfer :: proc(
 	c: ^Voice_Client,
@@ -580,7 +580,7 @@ send_file_cancel :: proc(
 	send_data(c, proto.encode_file_cancel(&buf, id, to, reason))
 }
 
-// update_rate keeps a smoothed figure of how fast it's going.
+// update_rate keeps a smoothed figure of the current transfer speed.
 @(private = "file")
 update_rate :: proc(t: ^File_Transfer, now: time.Tick) {
 	if t.state != .Transferring {
@@ -595,7 +595,8 @@ update_rate :: proc(t: ^File_Transfer, now: time.Tick) {
 	t.rate_at, t.rate_done = now, t.done
 }
 
-// format_bytes writes a size the way people read it (temp allocator).
+// format_bytes writes a size in a human-readable form. The result is allocated
+// in the temp allocator.
 format_bytes :: proc(n: u64) -> string {
 	switch {
 	case n >= 1 << 30:

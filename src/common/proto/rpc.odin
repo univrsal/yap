@@ -2,47 +2,47 @@ package proto
 
 import "core:encoding/endian"
 
-/*
-What travels on the reliable stream (stream.odin): requests from the
-client, each answered by one response, and events from the server. The
-first byte of a stream message says which it is.
-
-	client -> server  Request   [1][id u32][op u16][body]
-	server -> client  Response  [2][id u32][status u8][body]
-	server -> client  Event     [3][op u16][body]
-
-`id` counts up from 1 for each connection, and the response to a request
-carries its id. Responses can come in another order than the requests
-went: some take the server longer than others.
-
-The stream delivers each message once, so none of this is resent or
-checked for duplicates. When a connection starts over (see Welcome in
-names.odin) the requests still waiting for their responses are lost with
-it, and the client gives up on them with Status.Reset.
-
-A server answers a request whose op it doesn't know with Unknown_Op, and
-a client ignores an event whose op it doesn't know, so either end can be
-a little older than the other.
-
-A body's layout goes by its op:
-
-	Server_Info      request   (nothing)
-	                 response  [name str8][version str8][max_attachment u64]
-	                           [registration u8] (register.odin)[email str8]
-	                           [description str16][icon u64][digests u8]
-	                           [media_port u16][video_kbit u32]
-	Server_Icon      request   [icon u64]
-	                 response  [the icon's JPEG]
-	Server_Info_Set  request   [name str8][description str16][icon u64]
-	                 response  (nothing)
-	Server_Info      event     as Server_Info's response, when it changes
-	Server_Memory    request   (nothing; the owner only)
-	                 response  [a memory report, as text] (common/memtrack/report.odin)
-
-where str8 is [len u8][bytes] and str16 [len u16][bytes]; the rest are in accounts.odin,
-buddies.odin, convs.odin and msgs.odin. A body may grow at its end: a decoder
-ignores what follows the fields it knows.
-*/
+// This is what travels on the reliable stream (stream.odin): requests from
+// the client, each answered by exactly one response, and events from the
+// server. The first byte of a stream message says which of them it is.
+//
+//	client -> server  Request   [1][id u32][op u16][body]
+//	server -> client  Response  [2][id u32][status u8][body]
+//	server -> client  Event     [3][op u16][body]
+//
+// `id` counts up from 1 for each connection, and a response carries the id
+// of its request. Responses can arrive in a different order than the
+// requests were sent, because some requests take the server longer than
+// others.
+//
+// The stream delivers each message exactly once, so nothing here is resent
+// or checked for duplicates. When a connection starts over (see Welcome in
+// names.odin), the requests that are still waiting for a response are lost
+// with it, and the client gives up on them with Status.Reset.
+//
+// A server answers a request with an op it doesn't know with Unknown_Op, and
+// a client ignores an event with an op it doesn't know, so either side can
+// be somewhat older than the other.
+//
+// The layout of a body depends on its op:
+//
+//	Server_Info      request   (nothing)
+//	                 response  [name str8][version str8][max_attachment u64]
+//	                           [registration u8] (register.odin)[email str8]
+//	                           [description str16][icon u64][digests u8]
+//	                           [media_port u16][video_kbit u32][push_key str8]
+//	Server_Icon      request   [icon u64]
+//	                 response  [the icon's JPEG]
+//	Server_Info_Set  request   [name str8][description str16][icon u64]
+//	                 response  (nothing)
+//	Server_Info      event     as Server_Info's response, when it changes
+//	Server_Memory    request   (nothing; the owner only)
+//	                 response  [a memory report, as text] (common/memtrack/report.odin)
+//
+// where str8 is [len u8][bytes] and str16 is [len u16][bytes]. The remaining
+// ops are described in accounts.odin, buddies.odin, convs.odin, msgs.odin and
+// push.odin. A body may grow at its end: a decoder ignores whatever follows
+// the fields it knows.
 
 App_Kind :: enum u8 {
 	Request  = 1,
@@ -52,11 +52,11 @@ App_Kind :: enum u8 {
 
 Request_Op :: enum u16 {
 	Server_Info          = 0x0001,
-	// The server's picture, which may be asked for before logging in,
-	// and changing what Server_Info says (the owner only).
+	// The server's icon, which can be requested before logging in, and
+	// changing what Server_Info says (the owner only).
 	Server_Icon          = 0x0002,
 	Server_Info_Set      = 0x0003,
-	// Where the server's memory goes (the owner only).
+	// The server's memory usage report (the owner only).
 	Server_Memory        = 0x0004,
 	// Accounts and devices, see accounts.odin.
 	Auth_Login           = 0x0010,
@@ -68,7 +68,7 @@ Request_Op :: enum u16 {
 	Account_Password_Set = 0x0016,
 	Account_Delete       = 0x0017,
 	Email_Set            = 0x0018,
-	// Registering, and invite codes, see register.odin.
+	// Registering and invite codes, see register.odin.
 	Register             = 0x0019,
 	Invite_Create        = 0x001A,
 	Invite_List          = 0x001B,
@@ -79,12 +79,15 @@ Request_Op :: enum u16 {
 	Bot_Token_Add        = 0x001F,
 	Profile_Set          = 0x0020,
 	Setting_Set          = 0x0021,
-	// Buddies and when people were last here, see buddies.odin.
+	// Buddies and when people were last online, see buddies.odin.
 	Buddy_Set            = 0x0022,
 	Last_Seen            = 0x0023,
 	// Online, away, busy or offline, see activity.odin.
 	Activity_Set         = 0x0024,
 	Idle_Set             = 0x0025,
+	// Web Push subscriptions, see push.odin.
+	Push_Subscribe       = 0x0026,
+	Push_Unsubscribe     = 0x0027,
 	// Conversations and voice rooms, see convs.odin.
 	Conv_Create          = 0x0030,
 	Conv_Update          = 0x0031,
@@ -129,13 +132,14 @@ Request_Op :: enum u16 {
 }
 
 Event_Op :: enum u16 {
-	// Around what a connection is told when it logs in: everything
-	// between them is how things are, not news.
+	// These two mark the start and end of what a connection is told when it
+	// logs in. Everything between them describes the current state and is not
+	// news.
 	Sync_Begin       = 0x0001,
 	Sync_End         = 0x0002,
 	// See accounts.odin.
 	Self             = 0x0003,
-	// What the server says about itself changed (Server_Info_Set).
+	// What the server says about itself has changed (Server_Info_Set).
 	Server_Info      = 0x0004,
 	Account_Changed  = 0x0010,
 	Role_Changed     = 0x0011,
@@ -165,41 +169,39 @@ Event_Op :: enum u16 {
 Status :: enum u8 {
 	Ok              = 0,
 	Unknown_Op      = 1,
-	Invalid         = 2, // malformed, or a value out of range
+	Invalid         = 2, // malformed or a value is out of range
 	Unauthenticated = 3, // not logged in
-	Denied          = 4, // lacks the permission
+	Denied          = 4, // the permission is missing
 	Not_Found       = 5,
-	Conflict        = 6, // name taken, already exists
+	Conflict        = 6, // the name is taken or the thing already exists
 	Too_Large       = 7,
 	Rate_Limited    = 8,
 	Wrong_Password  = 9,
 	Closed          = 10,
 	Internal        = 11,
-	// Never sent: what a client makes of a request whose connection
-	// started over before the response came.
+	// Never sent by a server. A client uses it for a request whose
+	// connection started over before the response arrived.
 	Reset           = 255,
 }
 
 REQUEST_HEADER_SIZE :: 1 + 4 + 2
 RESPONSE_HEADER_SIZE :: 1 + 4 + 1
 EVENT_HEADER_SIZE :: 1 + 2
-// The most a body can be, whichever of them it's in.
+// The maximum size of a body, for requests, responses and events alike.
 MAX_BODY_SIZE :: STREAM_MAX_MESSAGE - REQUEST_HEADER_SIZE
 
-/*
-Testing aid: built with -define:YAP_STREAM_FLOOD=true, a client sends a
-Server_Info request with STREAM_FLOOD_SIZE bytes of body every couple of
-seconds, and a server built the same way sends them back after its
-answer (where a decoder ignores them). That puts large messages on the
-stream in both directions, to see what it does to voice.
-*/
+// Testing aid: when built with -define:YAP_STREAM_FLOOD=true, a client sends
+// a Server_Info request with STREAM_FLOOD_SIZE bytes of body every couple of
+// seconds, and a server built the same way sends that many bytes back after
+// its answer (where a decoder ignores them). This puts large messages on the
+// stream in both directions to test how that affects voice.
 STREAM_FLOOD :: #config(YAP_STREAM_FLOOD, false)
 STREAM_FLOOD_SIZE :: 60_000
 
-// What a server calls itself, in bytes of UTF-8.
+// The maximum length of a server's name in bytes of UTF-8.
 MAX_SERVER_NAME :: 64
 
-// app_kind is which of the three a stream message is.
+// app_kind returns which of the three kinds a stream message is.
 app_kind :: proc(msg: []u8) -> (kind: App_Kind, ok: bool) {
 	if len(msg) == 0 {
 		return
@@ -216,8 +218,8 @@ app_kind :: proc(msg: []u8) -> (kind: App_Kind, ok: bool) {
 	return
 }
 
-// encode_request returns a Request as a new slice; nil if the body is
-// longer than one may be.
+// encode_request returns a Request as a new slice, or nil if the body is
+// too long.
 encode_request :: proc(
 	id: u32,
 	op: Request_Op,
@@ -235,8 +237,8 @@ encode_request :: proc(
 	return out
 }
 
-// decode_request reads a Request (see app_kind); the body points into
-// `msg`. The op may be one this build has no name for.
+// decode_request reads a Request (see app_kind). The body points into
+// `msg`. The op may be one that this build doesn't know.
 decode_request :: proc(msg: []u8) -> (id: u32, op: Request_Op, body: []u8) {
 	return endian.unchecked_get_u32le(msg[1:]),
 		Request_Op(endian.unchecked_get_u16le(msg[5:])),
@@ -282,18 +284,20 @@ decode_event :: proc(msg: []u8) -> (op: Event_Op, body: []u8) {
 // Server_Info is what a server says about itself.
 Server_Info :: struct {
 	name:           string, // may be empty
-	version:        string, // of yap-server, as its log says when it starts
-	max_attachment: u64, // bytes a file attached to a message may have; 0 for no attachments
-	registration:   Registration_Flags, // what registering takes, if it's open
-	email:          string, // the server's own address, "" for none (verify.odin)
-	description:    string, // what it says it's for; may be empty
-	icon:           Blob_Id, // its picture (Server_Icon), 0 for none
-	digests:        bool, // it mails what was missed to who wants it (SETTING_EMAIL_DIGEST)
-	// The port of its media link (Link.Media, server/media.odin), 0 for
-	// none: screen sharing then goes over the bulk link.
+	version:        string, // the yap-server version, as it is logged on startup
+	max_attachment: u64, // maximum size in bytes of a file attached to a message, 0 for no attachments
+	registration:   Registration_Flags, // what registering requires, if it's open
+	email:          string, // the server's own email address, "" for none (verify.odin)
+	description:    string, // what the server says it is for, may be empty
+	icon:           Blob_Id, // the server's icon (Server_Icon), 0 for none
+	digests:        bool, // the server emails missed messages to users who want them (SETTING_EMAIL_DIGEST)
+	// The port of the server's media link (Link.Media, server/media.odin),
+	// 0 for none. Screen sharing then goes over the bulk link.
 	media_port:     u16,
-	// How fast one sharer's video may be, in kbit/s; 0 if it didn't say.
+	// The maximum video bitrate of one sharer in kbit/s, 0 if the server didn't say.
 	video_kbit:     u32,
+	// The server's VAPID public key (push.odin), empty if it doesn't support push.
+	push_key:       []u8,
 }
 
 SERVER_INFO_MAX_SIZE ::
@@ -310,17 +314,19 @@ SERVER_INFO_MAX_SIZE ::
 	8 +
 	1 +
 	2 +
-	4
+	4 +
+	1 +
+	PUSH_KEY_SIZE
 
-// What a server says it's for, in bytes of UTF-8.
+// The maximum length of a server's description in bytes of UTF-8.
 MAX_SERVER_DESCRIPTION :: 512
 
-// A server's picture: a square JPEG, made as a profile picture is
-// (Blob_Kind.Avatar) but smaller, so it fits in one response.
+// A server's icon is a square JPEG, created like a profile picture
+// (Blob_Kind.Avatar) but smaller, so that it fits in one response.
 MAX_SERVER_ICON_SIDE :: 128
 MAX_SERVER_ICON_SIZE :: 32 * 1024
 
-// Server_Info_Set: what the server is to say about itself.
+// Server_Info_Set is what the server should say about itself.
 Server_Info_Set :: struct {
 	name:        string,
 	description: string,
@@ -346,8 +352,8 @@ encode_server_info_set :: proc(out: []u8, set: Server_Info_Set) -> (body: []u8, 
 	return out[:w.pos], true
 }
 
-// decode_server_info_set reads one; the strings point into `body`, and
-// are raw until sanitized.
+// decode_server_info_set reads a Server_Info_Set body. The strings point into
+// `body` and are unsanitized.
 @(require_results)
 decode_server_info_set :: proc(body: []u8) -> (set: Server_Info_Set, ok: bool) {
 	r := Reader {
@@ -367,7 +373,9 @@ decode_server_info_set :: proc(body: []u8) -> (set: Server_Info_Set, ok: bool) {
 // encode_server_info writes a Server_Info response's body.
 @(require_results)
 encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: bool) {
-	if len(info.name) > MAX_SERVER_NAME || len(info.description) > MAX_SERVER_DESCRIPTION {
+	if len(info.name) > MAX_SERVER_NAME ||
+	   len(info.description) > MAX_SERVER_DESCRIPTION ||
+	   (len(info.push_key) != 0 && len(info.push_key) != PUSH_KEY_SIZE) {
 		return
 	}
 	w := Writer {
@@ -383,14 +391,17 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	put_u8(&w, 1 if info.digests else 0)
 	put_u16(&w, info.media_port)
 	put_u32(&w, info.video_kbit)
+	put_u8(&w, u8(len(info.push_key)))
+	put_bytes(&w, info.push_key)
 	if w.overflow {
 		return
 	}
 	return out[:w.pos], true
 }
 
-// decode_server_info reads one; the strings point into `body`, and
-// are as the server sent them: sanitize before showing them.
+// decode_server_info reads a Server_Info body. The strings point into `body`
+// and are exactly as the server sent them, so sanitize them before showing
+// them.
 @(require_results)
 decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	r := Reader {
@@ -401,7 +412,7 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	info.max_attachment = get_u64(&r)
 	info.registration = transmute(Registration_Flags)get_u8(&r)
 	info.email = get_str8(&r)
-	// A server older than these doesn't send them.
+	// A server older than these fields doesn't send them.
 	if !r.overflow && r.pos < len(r.buf) {
 		info.description = get_str16(&r)
 		info.icon = Blob_Id(get_u64(&r))
@@ -413,7 +424,11 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 		info.media_port = get_u16(&r)
 		info.video_kbit = get_u32(&r)
 	}
+	if !r.overflow && r.pos < len(r.buf) {
+		info.push_key = get_bytes(&r, int(get_u8(&r)))
+	}
 	if r.overflow ||
+	   (len(info.push_key) != 0 && len(info.push_key) != PUSH_KEY_SIZE) ||
 	   len(info.name) > MAX_SERVER_NAME ||
 	   len(info.description) > MAX_SERVER_DESCRIPTION {
 		return {}, false

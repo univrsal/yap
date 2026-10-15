@@ -6,28 +6,26 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-Bot accounts (src/common/proto/bots.odin), for who manages accounts:
-making one, and more tokens for one. A token is made here, and only its
-public half goes to the server; the token itself is handed to the UI
-once (View.bot_token) to be copied, and forgotten when it's done with.
-A bot's tokens are listed and revoked as devices are (auth.odin), with
-the bot's account.
-*/
+// Bot accounts (src/common/proto/bots.odin) can be managed by users who manage
+// accounts: they can create a bot and create more tokens for it. A token is
+// generated here and only its public half is sent to the server. The token itself
+// is handed to the UI once (View.bot_token) so it can be copied, and is
+// forgotten afterwards. A bot's tokens are listed and revoked like devices
+// (see auth.odin), together with the bot's account.
 
-// Make a bot, and a first token for it.
+// Creates a bot and a first token for it.
 Bot_Create_Command :: struct {
 	username: string, // owned by the command
 	display:  string, // owned by the command
 }
-// Make another token for a bot.
+// Creates another token for a bot.
 Bot_Token_Command :: struct {
 	account: proto.Account_Id,
 }
-// The token shown has been copied, or wasn't wanted: forget it.
+// The shown token has been copied or is no longer needed, so forget it.
 Bot_Token_Forget_Command :: struct {}
 
-// What the device a token is made for is called in the bot's list.
+// The device name shown in the bot's device list for a token.
 BOT_TOKEN_DEVICE :: "API token"
 
 auth_bot_create :: proc(c: ^Voice_Client, cmd: Bot_Create_Command) {
@@ -38,7 +36,7 @@ auth_bot_create :: proc(c: ^Voice_Client, cmd: Bot_Create_Command) {
 			c,
 			false,
 			fmt.tprintf(
-				"A username is %d to %d of a-z, 0-9, _ . and -",
+				"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
 				proto.MIN_USERNAME_SIZE,
 				proto.MAX_USERNAME_SIZE,
 			),
@@ -62,7 +60,7 @@ auth_bot_create :: proc(c: ^Voice_Client, cmd: Bot_Create_Command) {
 				return
 			}
 			publish_bot_token(c, account)
-			notify(c, true, "Bot made. Copy its token: it isn't shown again.")
+			notify(c, true, "Bot created. Copy its token now, because it will not be shown again.")
 		},
 	)
 }
@@ -84,7 +82,7 @@ auth_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
 				return
 			}
 			publish_bot_token(c, proto.Account_Id(tag))
-			notify(c, true, "Token made. Copy it: it isn't shown again.")
+			notify(c, true, "Token created. Copy it now, because it will not be shown again.")
 			auth_devices(c, proto.Account_Id(tag))
 		},
 		u64(account),
@@ -99,28 +97,28 @@ auth_bot_token_forget :: proc(c: ^Voice_Client) {
 	}
 }
 
-// new_token makes a token, kept until the server has taken its public
-// half; one at a time, so another replaces it.
+// new_token creates a token and keeps it until the server has accepted its
+// public half. Only one token is kept at a time, so a new one replaces the old.
 @(private = "file")
 new_token :: proc(c: ^Voice_Client) -> (public: [proto.KEY_SIZE]u8, ok: bool) {
 	bot_token_wipe(c)
 	c.auth.bot_token, public, ok = proto.bot_token_make()
 	if !ok {
-		notify(c, false, "No token could be made.")
+		notify(c, false, "Failed to generate a token.")
 	}
 	return
 }
 
-// bot_token_wipe forgets a token on its way to the server.
+// bot_token_wipe forgets a token that is waiting for the server's answer.
 bot_token_wipe :: proc(c: ^Voice_Client) {
 	wipe_string(c.auth.bot_token)
 	delete(c.auth.bot_token)
 	c.auth.bot_token = ""
 }
 
-// publish_bot_token hands the token the server just took to the UI, to
-// be shown once; without a UI it goes to the log, which is where the
-// command line client shows things.
+// publish_bot_token hands the token the server just accepted to the UI so it
+// can be shown once. Without a UI it is written to the log, which is where the
+// command line client shows output.
 @(private = "file")
 publish_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
 	defer bot_token_wipe(c)
@@ -136,7 +134,7 @@ publish_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
 	v.bot_token_count += 1
 }
 
-// publish_other_devices hands the UI another account's devices.
+// publish_other_devices hands the devices of another account to the UI.
 publish_other_devices :: proc(
 	c: ^Voice_Client,
 	account: proto.Account_Id,
@@ -181,8 +179,8 @@ view_forget_bot_token :: proc(v: ^View) {
 	v.bot_token, v.bot_token_account = "", 0
 }
 
-// wipe_string zeroes what a string we own holds, so a secret isn't left
-// lying in freed memory.
+// wipe_string overwrites the contents of a string we own with zeros so a
+// secret is not left behind in freed memory.
 @(private = "file")
 wipe_string :: proc(s: string) {
 	raw := transmute([]u8)s

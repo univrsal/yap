@@ -13,37 +13,36 @@ import "core:time"
 import "common:http"
 import "common:proto"
 
-/*
-Events (docs/bot-api, "Events: the WebSocket"): GET /api/v1/events
-upgrades to a WebSocket, which is told, as text frames, one JSON object
-each,
-
-	{"t": "MESSAGE_CREATE", "s": 118, "d": {...}}
-
-first READY (everything the model has), then every event as it comes,
-each numbered (`s`) one after the other.
-
-Once a token has had an event socket, its connection keeps the last
-EVENT_LOG events, so a bot whose socket dropped can come back with
-`?resume=<the last s it had>` and be told what it missed, as long as the
-connection is still there (it's kept for Config.idle after its socket
-goes); if it can't be, it's told INVALID_SESSION and then READY. (The
-plan had resume as a first frame; in the URL the gateway knows at once
-whether to resume, with nothing to wait for.)
-
-One socket per token: a new one closes the one before (4000). The
-socket closes with 4001 when the token stops working (after
-LOGGED_OUT), 4002 when the server can't be reached, 1001 when the API
-stops. A connection that starts over with the server (it restarted) is
-told everything again, as READY, in the stream.
-
-The bot sends nothing; WebSocket pings, from either end, keep it open
-(the gateway pings every PING_EVERY).
-
-Threads: the HTTP thread the socket came on reads it (pings, close);
-a writer thread of its own sends what's in its Feed, which the gateway
-thread fills.
-*/
+// Events (docs/bot-api, "Events: the WebSocket"): GET /api/v1/events
+// upgrades to a WebSocket over which the gateway sends text frames, each
+// containing one JSON object:
+//
+//	{"t": "MESSAGE_CREATE", "s": 118, "d": {...}}
+//
+// The first frame is READY (everything the model has). After that every
+// event is sent as it happens, numbered consecutively in `s`.
+//
+// Once a token has had an event socket, its connection keeps the last
+// EVENT_LOG events. A bot whose socket dropped can reconnect with
+// `?resume=<the last s it received>` and receive the events it missed, as
+// long as the connection still exists (it is kept for Config.idle after
+// its socket goes away). If resuming is not possible, the bot receives
+// INVALID_SESSION followed by READY. (The plan was to send resume as a
+// first frame, but with a URL parameter the gateway knows right away
+// whether to resume and has nothing to wait for.)
+//
+// There is one socket per token: a new socket closes the previous one
+// (code 4000). The socket closes with 4001 when the token stops working
+// (after LOGGED_OUT), 4002 when the server can't be reached and 1001 when
+// the API shuts down. If the server restarts and the connection starts
+// over, the bot is sent everything again as READY, in the same stream.
+//
+// The bot sends nothing. WebSocket pings from either side keep the socket
+// open (the gateway pings every PING_EVERY).
+//
+// Threads: the HTTP thread the socket arrived on reads from it (pings,
+// close). A separate writer thread sends what is in the socket's Feed,
+// which the gateway thread fills.
 
 EVENT_LOG :: 500
 PING_EVERY :: 30 * time.Second
@@ -54,25 +53,23 @@ CLOSE_REPLACED :: 4000
 CLOSE_LOGGED_OUT :: 4001
 CLOSE_SERVER :: 4002
 
-/*
-Feed is an event socket's queue: the gateway thread puts frames in and
-closes it, the socket's writer takes them out, and either says when its
-side has gone. It's freed by whichever lets go of it last.
-*/
+// Feed is an event socket's queue. The gateway thread puts frames in and
+// closes it, the socket's writer takes them out, and each side reports when
+// it has gone away. Whichever side releases it last frees it.
 Feed :: struct {
 	mutex:        sync.Mutex,
 	cond:         sync.Cond,
 	frames:       [dynamic]string, // owned
-	closing:      bool, // the gateway's: say close_code and go
+	closing:      bool, // set by the gateway: send close_code and stop
 	close_code:   u16,
 	close_reason: string, // a constant
-	gone:         bool, // the socket's: it has gone
+	gone:         bool, // set by the socket: it has gone away
 	refs:         int,
 	// The socket's two threads both write to it.
 	write_mutex:  sync.Mutex,
 }
 
-// A logged event: its number, and the frame it was.
+// A logged event: its sequence number and the frame that was sent.
 @(private)
 Logged :: struct {
 	s:     u64,
@@ -121,11 +118,9 @@ feed_release :: proc(f: ^Feed) {
 	}
 }
 
-/*
-emit numbers an event and logs it, and sends it to the socket if there's
-one; only once the token has had a socket (nobody would hear it), and
-not while a sync is telling how things are (that's READY's).
-*/
+// emit numbers an event, logs it and sends it to the socket if there is one.
+// It does nothing until the token has had a socket (nobody would hear it) and
+// while a sync is in progress (READY covers that state).
 @(private)
 emit :: proc(c: ^Conn, t: string, d: any) {
 	if !c.logging || c.client.phase != .Ready {
@@ -143,7 +138,7 @@ emit :: proc(c: ^Conn, t: string, d: any) {
 	append(&c.log, Logged{c.seq, strings.clone(frame)})
 }
 
-// event_frame is an event as the socket says it, in the temp allocator.
+// event_frame builds the text frame for an event, in the temp allocator.
 @(private)
 event_frame :: proc(t: string, s: u64, d: any) -> string {
 	data, err := json.marshal(d, allocator = context.temp_allocator)
@@ -163,7 +158,7 @@ Ready_JSON :: struct {
 	roles:    []Role_JSON,
 	accounts: []Account_JSON,
 	convs:    []Conv_JSON,
-	online:   []string, // accounts
+	online:   []string, // ids of the accounts that are online
 }
 
 @(private)
@@ -187,15 +182,13 @@ ready_json :: proc(c: ^Conn) -> Ready_JSON {
 	return r
 }
 
-/*
-events_attach is an event socket's Job, on the gateway thread: the
-socket's Feed, with READY or what's missed in it already. j.scratch is
-[resume s, whether to resume].
-*/
+// events_attach is the Job that sets up an event socket, run on the gateway
+// thread. It creates the socket's Feed and fills it with READY or with the
+// events that were missed. j.scratch is [resume s, whether to resume].
 @(private)
 events_attach :: proc(c: ^Conn, j: ^Job) {
 	f := new(Feed)
-	f.refs = 2 // the connection's, and the socket's
+	f.refs = 2 // one for the connection, one for the socket
 	if c.feed != nil {
 		feed_close(c.feed, CLOSE_REPLACED, "another socket took over")
 		feed_release(c.feed)
@@ -223,10 +216,8 @@ events_attach :: proc(c: ^Conn, j: ^Job) {
 	reply(j, {status = 101})
 }
 
-/*
-events_event turns what the server says into events, the model having
-taken it in already.
-*/
+// events_event turns a message from the server into events. The model has
+// already applied it.
 @(private)
 events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 	if !c.logging {
@@ -329,8 +320,8 @@ events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 		}
 	case .Logged_Out:
 		reason := proto.Logout_Reason(body[0]) if len(body) > 0 else proto.Logout_Reason{}
-		// Its connection is failing as this is said: the phase isn't
-		// Ready by then.
+		// The connection is failing at this point, so the phase is
+		// no longer Ready and emit would drop the event.
 		c.seq += 1
 		frame := event_frame("LOGGED_OUT", c.seq, struct {
 			reason: string,
@@ -341,8 +332,8 @@ events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 	}
 }
 
-// events_presence tells who came and went: the accounts whose being
-// online a snapshot changed.
+// events_presence emits an update for each account whose online state
+// differs between the snapshot before and the current one.
 @(private)
 events_presence :: proc(c: ^Conn, before: map[proto.Account_Id]int) {
 	m := &c.model
@@ -363,7 +354,8 @@ events_presence :: proc(c: ^Conn, before: map[proto.Account_Id]int) {
 	}
 }
 
-// events_typing tells of someone typing (a datagram, not an event).
+// events_typing emits TYPING_START for a typing datagram (which is not an
+// event from the server).
 @(private)
 events_typing :: proc(c: ^Conn, pt: []u8) {
 	if !c.logging || len(pt) != proto.TYPING_DOWN_SIZE {
@@ -396,14 +388,14 @@ Reaction_Event_JSON :: struct {
 	message_id: string,
 	conv_id:    string,
 	emoji:      string,
-	count:      int, // how many have it now
-	account:    Author_JSON, // who gave or took it back
+	count:      int, // how many reactions of this emoji there are now
+	account:    Author_JSON, // who added or removed the reaction
 }
 
 Purged_JSON :: struct {
 	conv_id:   string,
-	before_id: string, // the messages older than this
-	what:      string, // messages, or files (their files only)
+	before_id: string, // the messages older than this were purged
+	what:      string, // messages, or files (only the files were purged)
 }
 
 Read_JSON :: struct {
@@ -424,11 +416,10 @@ Typing_JSON :: struct {
 	account: Author_JSON,
 }
 
-/*
-events_serve is an event socket, on its HTTP thread: what token, and
-whether to resume, then the upgrade, and then reading it until it goes
-while a writer thread sends what the gateway puts in its Feed.
-*/
+// events_serve handles an event socket on its HTTP thread. It reads the token
+// and whether to resume, performs the upgrade and then reads from the socket
+// until it closes, while a writer thread sends what the gateway puts in its
+// Feed.
 @(private)
 events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 	j := Job {
@@ -451,7 +442,7 @@ events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 			error_reply(
 				401,
 				"unauthenticated",
-				"A token is needed: Authorization: Bot <token>, or ?token=.",
+				"A token is required: send Authorization: Bot <token> or add ?token=<token>.",
 			),
 			false,
 		)
@@ -466,7 +457,11 @@ events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 	if !strings.equal_fold(http.header(req, "Upgrade"), "websocket") || key == "" {
 		send(
 			c,
-			error_reply(400, "invalid", "This is a WebSocket: GET it with Upgrade: websocket."),
+			error_reply(
+				400,
+				"invalid",
+				"This endpoint is a WebSocket: send a GET request with the header Upgrade: websocket.",
+			),
 			false,
 		)
 		return
@@ -474,7 +469,15 @@ events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 	if resume, given := http.query_value(req.query, "resume"); given {
 		s, ok := parse_u64(resume)
 		if !ok {
-			send(c, error_reply(400, "invalid", "resume is the last s the socket had."), false)
+			send(
+				c,
+				error_reply(
+					400,
+					"invalid",
+					"resume must be the last s value the socket received.",
+				),
+				false,
+			)
 			return
 		}
 		j.scratch = {s, 1, 0}
@@ -498,7 +501,7 @@ events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 		feed_set_gone(f)
 		return
 	}
-	// A live client answers the pings; one that doesn't is gone.
+	// A live client answers pings, so one that stays silent has gone away.
 	idle_timeout(c, EVENTS_IDLE)
 	writer := thread.create_and_start_with_poly_data2(
 		f,
@@ -523,7 +526,7 @@ events_serve :: proc(g: ^Gateway, c: ^http.Conn, req: ^http.Request) {
 			}
 			break loop
 		case .Text, .Binary, .Pong:
-		// Nothing the bot says is listened to.
+		// Anything the bot sends is ignored.
 		case:
 			break loop
 		}
@@ -540,11 +543,9 @@ feed_set_gone :: proc(f: ^Feed) {
 	sync.cond_signal(&f.cond)
 }
 
-/*
-feed_writer sends what's put in the Feed, a ping when there's been
-nothing for PING_EVERY, and the close when the gateway closes it, after
-which it shuts the socket so the reader stops too.
-*/
+// feed_writer sends the frames put in the Feed, a ping after PING_EVERY
+// without any frames, and the close frame when the gateway closes the Feed.
+// After the close it shuts down the socket so the reader stops too.
 @(private)
 feed_writer :: proc(f: ^Feed, sock: net.TCP_Socket) {
 	frames: [dynamic]string

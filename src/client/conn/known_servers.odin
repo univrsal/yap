@@ -7,16 +7,14 @@ import "core:strings"
 import "common:."
 import "common:proto"
 
-/*
-Trust-on-first-use store for server keys, like ssh's known_hosts: one
-`<host:port> <hex public key>` per line. Entries are keyed by the
-address exactly as the user typed it.
-*/
+// A trust-on-first-use store for server keys, similar to ssh's known_hosts. It
+// has one `<host:port> <hex public key>` entry per line, keyed by the address
+// exactly as the user typed it.
 
 Trust :: enum {
-	Known, // matches the saved key
-	New, // never seen this server before
-	Mismatch, // saved key differs: possible impersonation
+	Known, // the key matches the saved one
+	New, // this server has not been seen before
+	Mismatch, // the key differs from the saved one, which may mean impersonation
 }
 
 
@@ -28,7 +26,7 @@ check_server_key :: proc(
 	saved: [proto.KEY_SIZE]byte,
 ) {
 	if !common.store_exists(path) {
-		return .New, {} // no known servers yet
+		return .New, {} // there are no known servers yet
 	}
 	data, read_ok := common.store_read(path, context.temp_allocator)
 	if !read_ok {
@@ -51,12 +49,11 @@ check_server_key :: proc(
 	return .New, {}
 }
 
-/*
-The file is a line per server, so a new one goes on by reading what's
-there and writing it back with the line added. It's a handful of lines
-either way, and this works the same on a browser's local storage as it
-does on a file (see src/common/store.odin).
-*/
+// remember_server_key saves the key for `addr`. The file has one line per
+// server, so a new entry is added by reading the existing content and writing
+// it back with the new line appended. The file is only a few lines long, and
+// this approach works the same for a browser's local storage as for a file
+// (see src/common/store.odin).
 remember_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bool {
 	key := key
 	line := fmt.tprintf("%s %s\n", addr, string(hex.encode(key[:], context.temp_allocator)))
@@ -67,14 +64,14 @@ remember_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bo
 	return common.store_write(path, strings.concatenate({existing, line}, context.temp_allocator))
 }
 
-// A line of the file, for the settings page's list of trusted servers.
+// A line of the file, used for the list of trusted servers on the settings page.
 Known_Server :: struct {
 	addr: string,
 	key:  [proto.KEY_SIZE]byte,
 }
 
-// list_known_servers reads every well-formed line, in the file's order.
-// Everything it returns is in `allocator`.
+// list_known_servers reads every well-formed line in the file's order.
+// Everything it returns is allocated with `allocator`.
 list_known_servers :: proc(path: string, allocator := context.allocator) -> []Known_Server {
 	if !common.store_exists(path) {
 		return nil
@@ -103,11 +100,9 @@ list_known_servers :: proc(path: string, allocator := context.allocator) -> []Kn
 	return list[:]
 }
 
-/*
-forget_server_key drops the saved key of `addr`, so the next connection
-trusts whatever key it's shown, as if it were the first. Every other
-line is kept as it was, comments and all.
-*/
+// forget_server_key removes the saved key of `addr`, so the next connection
+// trusts whatever key the server presents, as if it were the first connection.
+// All other lines are kept unchanged, including comments.
 forget_server_key :: proc(path, addr: string) -> bool {
 	if !common.store_exists(path) {
 		return true
@@ -129,14 +124,14 @@ forget_server_key :: proc(path, addr: string) -> bool {
 	return common.store_write(path, strings.to_string(b))
 }
 
-// replace_server_key trusts `key` for `addr` in place of the one saved,
-// for when the user has decided a changed key is expected.
+// replace_server_key trusts `key` for `addr` instead of the saved key. It is
+// used when the user has decided that a changed key is expected.
 replace_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bool {
 	return forget_server_key(path, addr) && remember_server_key(path, addr, key)
 }
 
-// key_hex is a whole public key, for comparing with the one the server
-// logs when it starts ("server public key: ...").
+// key_hex returns the whole public key as hex, so it can be compared with the
+// key the server logs when it starts ("server public key: ...").
 key_hex :: proc(key: [proto.KEY_SIZE]byte) -> string {
 	key := key
 	return string(hex.encode(key[:], context.temp_allocator))

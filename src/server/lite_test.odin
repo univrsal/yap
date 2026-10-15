@@ -8,22 +8,20 @@ import "core:time"
 import "common:lite"
 import "common:proto"
 
-/*
-Tests of the headless client (common/lite) against a real server: its
-packet handling and the syncs that answer, on a loopback socket, turn
-and turn about with the clients on this one thread. The accounts and
-the admin who makes bots are the other tests' (ts_ procedures), which
-need no socket.
-*/
+// Tests of the headless client (common/lite) against a real server: its
+// packet handling and the syncs that answer it, over a loopback socket, with
+// the server and the clients taking turns on this one thread. The accounts
+// and the admin who creates bots are set up by the other tests (ts_
+// procedures), which need no socket.
 
-// What a client was told, through its handlers.
+// Heard records what a client was told through its handlers.
 @(private = "file")
 Heard :: struct {
 	phases:  [dynamic]lite.Phase,
 	events:  [dynamic]proto.Event_Op,
 	answers: [dynamic]lite.Answer, // without their bodies
 	states:  int,
-	// Who the last snapshot said was here.
+	// Who the last snapshot said was present.
 	here:    [dynamic]proto.Account_Id,
 }
 
@@ -58,7 +56,7 @@ answered :: proc(c: ^lite.Client, a: lite.Answer) {
 	append(&(^Heard)(c.opt.user).answers, lite.Answer{op = a.op, status = a.status, tag = a.tag})
 }
 
-// lt_open is ts_open with the server's socket and key, for handshakes.
+// lt_open is ts_open with the server's socket and key, which handshakes need.
 lt_open :: proc(t: ^testing.T, ts: ^Test_Server) {
 	ts_open(t, ts)
 	s := &ts.s
@@ -70,7 +68,7 @@ lt_open :: proc(t: ^testing.T, ts: ^Test_Server) {
 	s.sock = sock
 }
 
-// lt_close drops what sessions are left, then closes as ts_close does.
+// lt_close drops any remaining sessions, then closes as ts_close does.
 lt_close :: proc(ts: ^Test_Server) {
 	s := &ts.s
 	for len(s.sessions) > 0 {
@@ -97,8 +95,8 @@ lt_options :: proc(ts: ^Test_Server, h: ^Heard) -> lite.Options {
 	return opt
 }
 
-// lt_turn is a turn of each: the clients take in what has come and send
-// what's due, and the server does as its loop does.
+// lt_turn runs one turn of each side: the clients process what has arrived
+// and send what is due, and the server does what its loop does.
 lt_turn :: proc(ts: ^Test_Server, clients: ..^lite.Client) {
 	free_all(context.temp_allocator)
 	now := time.tick_now()
@@ -124,8 +122,8 @@ lt_turn :: proc(ts: ^Test_Server, clients: ..^lite.Client) {
 	time.sleep(200 * time.Microsecond)
 }
 
-// lt_until takes turns until the client is in `phase`, or it's clear it
-// won't be.
+// lt_until takes turns until the client is in `phase`, or until it is clear
+// that it never will be.
 @(private = "file")
 lt_until :: proc(t: ^testing.T, ts: ^Test_Server, c: ^lite.Client, phase: lite.Phase) -> bool {
 	for _ in 0 ..< 5000 {
@@ -138,7 +136,8 @@ lt_until :: proc(t: ^testing.T, ts: ^Test_Server, c: ^lite.Client, phase: lite.P
 	return false
 }
 
-// lt_settle takes turns for a while, for what's on its way to arrive.
+// lt_settle takes turns for a while so that anything still in transit can
+// arrive.
 lt_settle :: proc(ts: ^Test_Server, clients: ..^lite.Client) {
 	for _ in 0 ..< 100 {
 		lt_turn(ts, ..clients)
@@ -155,7 +154,7 @@ has_op :: proc(ops: []proto.Event_Op, op: proto.Event_Op) -> bool {
 	return false
 }
 
-// lt_bot makes a bot with the admin `admin`, and returns its token.
+// lt_bot creates a bot using the admin `admin` and returns its token.
 lt_bot :: proc(
 	t: ^testing.T,
 	ts: ^Test_Server,
@@ -198,11 +197,11 @@ test_lite_token :: proc(t: ^testing.T) {
 	testing.expect(t, lite.open(&c, &key, lt_options(&ts, &h)))
 	defer lite.close(&c)
 	testing.expect_value(t, c.phase, lite.Phase.Connecting)
-	// No requests before there's a connection to send them on.
+	// No requests are sent before there is a connection to send them on.
 	testing.expect(t, !lite.request(&c, .Server_Info, nil, answered))
 
-	// The token is all it takes: logged in by the handshake, then told
-	// everything.
+	// The token is all that is needed: the handshake logs the client in, and
+	// it is then told everything.
 	if !lt_until(t, &ts, &c, .Ready) {
 		return
 	}
@@ -216,7 +215,8 @@ test_lite_token :: proc(t: ^testing.T) {
 	u := conn_of(&ts.s, c.public_key)
 	testing.expect(t, u != nil && u.account != nil && u.account.id == id)
 
-	// Who is here comes once it's synced, and stops coming once acked.
+	// Who is present is sent once it's synced, and stops being sent once it
+	// is acknowledged.
 	lt_settle(&ts, &c)
 	testing.expect(t, h.states >= 1)
 	found := false
@@ -228,7 +228,8 @@ test_lite_token :: proc(t: ^testing.T) {
 		testing.expect_value(t, u.acked_version, ts.s.version)
 	}
 
-	// It posts as anyone does, and hears of it as anyone does.
+	// It posts like any other client and hears about posts like any other
+	// client.
 	clear(&h.events)
 	buf: [proto.MAX_CHAT_SIZE + 64]u8
 	body := proto.encode_msg_post(
@@ -245,7 +246,8 @@ test_lite_token :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, has_op(h.events[:], .Msg_New))
 
-	// Going says so: the server lets the connection go at once.
+	// A client that leaves says so, and the server drops the connection at
+	// once.
 	pub := c.public_key
 	lite.close(&c)
 	lt_settle(&ts)
@@ -261,7 +263,7 @@ test_lite_password :: proc(t: ^testing.T) {
 	key: ecdh.Private_Key
 	testing.expect(t, ecdh.private_key_generate(&key, .X25519))
 
-	// A wrong password is the end of it.
+	// A wrong password ends the attempt.
 	{
 		h: Heard
 		defer heard_destroy(&h)
@@ -277,7 +279,7 @@ test_lite_password :: proc(t: ^testing.T) {
 		testing.expect_value(t, h.phases[0], lite.Phase.Logging_In)
 	}
 
-	// The right one logs in, and makes the key a device of hers.
+	// The right password logs in and registers the key as one of her devices.
 	{
 		h: Heard
 		defer heard_destroy(&h)
@@ -299,7 +301,7 @@ test_lite_password :: proc(t: ^testing.T) {
 	}
 	lt_settle(&ts)
 
-	// From then on the key is enough.
+	// From then on the key alone is enough.
 	h: Heard
 	defer heard_destroy(&h)
 	c: lite.Client
@@ -319,7 +321,7 @@ test_lite_refused :: proc(t: ^testing.T) {
 	key: ecdh.Private_Key
 	testing.expect(t, ecdh.private_key_generate(&key, .X25519))
 
-	// A key that's no device, and nothing to log in with.
+	// A key that isn't a registered device, with no other way to log in.
 	{
 		h: Heard
 		defer heard_destroy(&h)
@@ -333,7 +335,7 @@ test_lite_refused :: proc(t: ^testing.T) {
 		testing.expect(t, conn_of(&ts.s, c.public_key) == nil)
 	}
 
-	// A server that isn't the one expected.
+	// A server that isn't the expected one.
 	{
 		h: Heard
 		defer heard_destroy(&h)
@@ -346,7 +348,7 @@ test_lite_refused :: proc(t: ^testing.T) {
 		testing.expect_value(t, c.failure, lite.Failure.Wrong_Server_Key)
 	}
 
-	// A server with a password, without it.
+	// A server that requires a password, connecting without one.
 	ts.s.password = "the server's password"
 	defer ts.s.password = ""
 	{
@@ -359,7 +361,7 @@ test_lite_refused :: proc(t: ^testing.T) {
 		testing.expect_value(t, c.failure, lite.Failure.Refused)
 		testing.expect_value(t, c.refusal, proto.Refusal.Wrong_Password)
 	}
-	// And with it.
+	// And connecting with the password.
 	ts_account(t, &ts, "alice", "alice's password")
 	h: Heard
 	defer heard_destroy(&h)
@@ -394,8 +396,8 @@ test_lite_restart :: proc(t: ^testing.T) {
 	}
 	first := c.instance
 
-	// Starting over: what was asked and not answered is lost with the
-	// old connection, and the new one is told everything again.
+	// Starting over: requests that were not answered are lost with the old
+	// connection, and the new connection is told everything again.
 	clear(&h.phases)
 	clear(&h.events)
 	testing.expect(t, lite.request(&c, .Server_Info, nil, answered))
@@ -413,14 +415,14 @@ test_lite_restart :: proc(t: ^testing.T) {
 	testing.expect_value(t, h.phases[1], lite.Phase.Syncing)
 	testing.expect(t, len(h.events) > 0 && h.events[0] == .Sync_Begin)
 
-	// And asking works again.
+	// Requests work again.
 	testing.expect(t, lite.request(&c, .Server_Info, nil, answered))
 	lt_settle(&ts, &c)
 	testing.expect_value(t, len(h.answers), 2)
 	if len(h.answers) == 2 {
 		testing.expect_value(t, h.answers[1].status, proto.Status.Ok)
 	}
-	testing.expect_value(t, len(ts.s.conns), 2) // the admin's, and this
+	testing.expect_value(t, len(ts.s.conns), 2) // the admin's and this one's
 }
 
 @(test)
@@ -444,7 +446,8 @@ test_lite_logged_out :: proc(t: ^testing.T) {
 		return
 	}
 
-	// The admin revokes its token: it's out, for good, and goes.
+	// The admin revokes its token, so the client is out for good and
+	// disconnects.
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	status, _ = ts_ask(
 		t,
@@ -460,6 +463,6 @@ test_lite_logged_out :: proc(t: ^testing.T) {
 	testing.expect(t, has_op(h.events[:], .Logged_Out))
 	lt_settle(&ts)
 	testing.expect(t, conn_of(&ts.s, c.public_key) == nil)
-	// Nothing more is asked of a client that's failed.
+	// A client that has failed makes no more requests.
 	testing.expect(t, !lite.request(&c, .Server_Info, nil, answered))
 }

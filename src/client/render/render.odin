@@ -4,21 +4,18 @@ import glfw "client:wglfw"
 import "core:math"
 import mu "vendor:microui"
 
-/*
-Draws microui's command list. Rects and text are quads from the font
-atlas (font.odin), rasterized at the display's density so they stay
-sharp on high-DPI screens; microui's own icons come from its built-in
-atlas. Quads are batched and flushed whenever the clip rect or the
-texture changes.
-
-What the quads are drawn with is the GPU backend's business: Direct3D 11
-on Windows (gpu_d3d11.odin), Metal on macOS (gpu_metal.odin), OpenGL
-everywhere else (gpu_gl.odin). All give the same procs, gpu_*, over the
-same vertices.
-
-Everything is laid out in logical pixels; `scale` is physical pixels per
-logical pixel.
-*/
+// Draws microui's command list. Rects and text are quads from the font atlas
+// (font.odin), which is rasterized at the display's density so they stay sharp
+// on high-DPI screens. microui's own icons come from its built-in atlas. Quads
+// are batched and flushed whenever the clip rect or the texture changes.
+//
+// How the quads are drawn is up to the GPU backend: Direct3D 11 on Windows
+// (gpu_d3d11.odin), Metal on macOS (gpu_metal.odin) and OpenGL everywhere else
+// (gpu_gl.odin). All of them provide the same gpu_* procs over the same
+// vertices.
+//
+// Everything is laid out in logical pixels, and `scale` is the number of
+// physical pixels per logical pixel.
 
 MAX_QUADS :: 4096
 
@@ -28,18 +25,15 @@ Vertex :: struct {
 	color: [4]u8,
 }
 
-/*
-A texture, as the backend knows it: an OpenGL texture name, or a pointer
-to the backend's own record of one. 0 is none.
-*/
+// A texture as the backend knows it: an OpenGL texture name or a pointer to
+// the backend's own record of a texture. 0 means no texture.
 Gpu_Texture :: distinct uintptr
 
-/*
-The device underneath, for a library that makes textures we draw
-(yap_video, see conn/video_native.odin): Direct3D 11's ID3D11Device,
-Metal's MTLDevice and the MTLCommandQueue the frames go through, or for
-OpenGL glfwGetProcAddress, to find the current context's functions.
-*/
+// The underlying device, for a library that creates textures that we draw
+// (yap_video, see conn/video_native.odin). This is Direct3D 11's
+// ID3D11Device, Metal's MTLDevice together with the MTLCommandQueue that the
+// frames go through, or, for OpenGL, glfwGetProcAddress to look up the
+// current context's functions.
 Gpu_Native :: struct {
 	d3d11_device: rawptr,
 	gl_get_proc:  rawptr,
@@ -47,40 +41,38 @@ Gpu_Native :: struct {
 	metal_queue:  rawptr,
 }
 
-// What a texture holds, which decides how it's drawn.
+// What a texture holds, which determines how it is drawn.
 Texture_Kind :: enum {
-	// Coverage for text and icons, one byte a pixel, drawn in the
-	// quad's colour and 1:1 with physical pixels, so without filtering.
+	// Coverage for text and icons, one byte per pixel. It is drawn in the
+	// quad's color and 1:1 with physical pixels, so without filtering.
 	Alpha,
-	// A picture, RGBA, usually drawn smaller than it is, so filtered.
+	// A picture in RGBA, usually drawn smaller than its original size, so
+	// it is filtered.
 	Rgba,
 }
 
-// Icon ids from here on mean "the picture at this index of the frame's
-// draw list" (Renderer.images), which microui's own icons never reach.
+// Icon ids from here on mean "the picture at this index of the frame's draw
+// list" (Renderer.images). microui's own icons never reach this range.
 IMAGE_ICON_BASE :: 1000
 
-// An icon command with this id is a border round its rect (draw_border).
+// An icon command with this id is a border around its rect (draw_border).
 BORDER_ICON :: mu.Icon(UI_ICON_BASE - 1)
-// And this, what's inside that border, filled (draw_frame).
+// An icon command with this id is the filled area inside that border
+// (draw_frame).
 INSIDE_BORDER_ICON :: mu.Icon(UI_ICON_BASE - 2)
 
-/*
-draw_border draws a one pixel border inside `rect`, as mu.draw_box
-does, but as one command, so the renderer can snap it as a whole
-(push_border).
-*/
+// draw_border draws a one pixel border inside `rect` like mu.draw_box does,
+// but as a single command so the renderer can snap it as a whole
+// (push_border).
 draw_border :: proc(ctx: ^mu.Context, rect: mu.Rect, color: mu.Color) {
 	mu.draw_icon(ctx, BORDER_ICON, rect, color)
 }
 
-/*
-draw_frame is microui's default_draw_frame, with its border drawn by
-draw_border. Set it as the context's draw_frame. With a border, the
-fill is snapped from the same box as the border and fills just what's
-inside it: snapped on its own, it could leave a pixel's gap inside the
-border on some sides and not others.
-*/
+// draw_frame is microui's default_draw_frame, with its border drawn by
+// draw_border. Set it as the context's draw_frame. With a border, the fill is
+// snapped from the same box as the border and fills exactly the area inside
+// it. If the fill were snapped on its own, it could leave a one pixel gap
+// inside the border on some sides but not on others.
 draw_frame :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Type) {
 	bordered :=
 		colorid != .SCROLL_BASE &&
@@ -100,52 +92,52 @@ draw_frame :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Type) {
 
 Image_Draw :: struct {
 	texture: Gpu_Texture,
-	// The part of the texture to draw (u0, v0, u1, v1); all of it if zero.
+	// The part of the texture to draw (u0, v0, u1, v1), or all of it if
+	// zero.
 	uv:      [4]f32,
-	// Drawn this many line thicknesses (push_border's) in from its rect
-	// on every side, once that's snapped: a dot inside a ring of the same
-	// rect stays in its middle at any scale.
+	// The image is drawn this many line thicknesses (push_border's) in from
+	// its rect on every side, once that is snapped. This keeps a dot inside
+	// a ring with the same rect in the middle at any scale.
 	inset:   i32,
 }
 
-/*
-The fonts: the UI's, and the chat's, which is the same font zoomed to
-the chat's size (font.odin). microui names a font by an opaque handle,
-which says which of the two and which face (Font_Style): nil is the
-UI's in Regular (microui's default), CHAT_FONT the chat's, and
-chat_font any face of the chat's.
-*/
+// The fonts are the UI's and the chat's, which is the same font zoomed to the
+// chat's size (font.odin). microui refers to a font by an opaque handle that
+// identifies which of the two fonts and which face (Font_Style) is meant. nil
+// is the UI's font in Regular (microui's default), CHAT_FONT is the chat's
+// font, and chat_font gives any face of the chat's font.
 Font_Kind :: enum {
 	UI,
 	Chat,
-	// The UI's, blown up PREVIEW_ZOOM times: an emoji to look at closely
-	// (a hover's preview). Its atlases are only made once it's drawn with.
+	// The UI's font blown up PREVIEW_ZOOM times, for looking at an emoji
+	// closely (a hover preview). Its atlases are only created once it is
+	// drawn with.
 	Preview,
 }
 
 PREVIEW_ZOOM :: 3
 
-// PREVIEW_FONT is the large font's handle.
+// PREVIEW_FONT is the handle of the large font.
 PREVIEW_FONT :: mu.Font(uintptr(Font_Kind.Preview))
 
 CHAT_FONT :: mu.Font(uintptr(1))
 
-// font_handle is the handle for `kind`'s font in `style`.
+// font_handle returns the handle for the font of `kind` in `style`.
 font_handle :: proc(kind: Font_Kind, style: Font_Style) -> mu.Font {
 	return mu.Font(uintptr(kind) | uintptr(style) << 4)
 }
 
-// chat_font is the handle for the chat's font in `style`.
+// chat_font returns the handle for the chat's font in `style`.
 chat_font :: proc(style: Font_Style) -> mu.Font {
 	return font_handle(.Chat, style)
 }
 
-// font_with_style is `font` (the UI's or the chat's) in another face.
+// font_with_style returns `font` (the UI's or the chat's) in another face.
 font_with_style :: proc(font: mu.Font, style: Font_Style) -> mu.Font {
 	return mu.Font(uintptr(font) & 0xf | uintptr(style) << 4)
 }
 
-// font_style is the face a handle names.
+// font_style returns the face that a handle refers to.
 font_style :: proc(font: mu.Font) -> Font_Style {
 	return Font_Style((uintptr(font) >> 4) % len(Font_Style))
 }
@@ -154,7 +146,7 @@ Font_Slot :: struct {
 	font:            Font,
 	textures:        [Font_Style]Gpu_Texture, // the faces' atlases; 0 until drawn
 	unifont_texture: Gpu_Texture, // the fallback font's atlas; 0 until it has glyphs
-	// The zoom wanted (font_set_zoom); the font takes it with its next
+	// The requested zoom (font_set_zoom). The font applies it with its next
 	// atlas.
 	zoom:            f32,
 }
@@ -163,34 +155,37 @@ Renderer :: struct {
 	gpu:              Gpu,
 	fonts:            [Font_Kind]Font_Slot,
 	icon_texture:     Gpu_Texture, // microui's own icons
-	icons:            Icon_Atlas, // ours (icons.odin)
+	icons:            Icon_Atlas, // our own icons (icons.odin)
 	icons_texture:    Gpu_Texture,
-	// The window's own controls (Minimize..Close) are drawn at the
-	// display's density alone, not the UI's zoom on top: their own atlas,
-	// for `control_scale` physical pixels per logical pixel, which the
-	// client sets before each frame (0: the same as `scale`).
+	// The window's own controls (Minimize..Close) are drawn at the display's
+	// density alone, without the UI's zoom on top. They have their own atlas
+	// for `control_scale` physical pixels per logical pixel, which the client
+	// sets before each frame (0 means the same as `scale`).
 	control_scale:    f32,
 	controls:         Icon_Atlas,
 	controls_texture: Gpu_Texture,
-	emoji_texture:    Gpu_Texture, // the emoji sheet (emoji_atlas.odin); 0 until it's decoded
-	bound:            Gpu_Texture, // texture the pending quads use
-	rgba:             bool, // the bound texture is a picture, not the atlas
-	images:           ^[dynamic]Image_Draw, // this frame's pictures; the UI's to fill
+	emoji_texture:    Gpu_Texture, // the emoji sheet (emoji_atlas.odin); 0 until it is decoded
+	bound:            Gpu_Texture, // the texture used by the pending quads
+	rgba:             bool, // the bound texture is a picture, not an atlas
+	images:           ^[dynamic]Image_Draw, // this frame's pictures, filled in by the UI
 	vertices:         [MAX_QUADS * 4]Vertex,
 	quads:            int,
 	scale:            f32,
-	// The root container being drawn: its position (logical), which its
-	// commands are taken relative to, and where that position snaps to
-	// (physical, whole), which push_quad puts them back at (origin_at).
+	// The root container being drawn. `origin` is its position (logical),
+	// which its commands are relative to, and `snapped` is the whole
+	// physical position that it snaps to, which push_quad adds back
+	// (origin_at).
 	origin:           [2]i32,
 	snapped:          [2]f32,
 }
 
-// The fonts microui measures text with (its callbacks take no user data).
+// The fonts that microui measures text with (its callbacks take no user
+// data).
 @(private = "file")
 g_fonts: ^[Font_Kind]Font_Slot
 
-// slot_of is the font microui's handle names (font_style its face).
+// slot_of returns the font that a microui handle refers to (font_style
+// returns its face).
 @(private = "file")
 slot_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font_Slot {
 	switch uintptr(font) & 0xf {
@@ -202,11 +197,9 @@ slot_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font_Slot {
 	return &fonts[.UI]
 }
 
-/*
-set_chat_zoom sets how much bigger than the UI's text the chat's is (1
-is the same). Measuring takes it at once; the glyphs are rasterized
-again for it at the next frame.
-*/
+// set_chat_zoom sets how much bigger the chat's text is than the UI's text
+// (1 means the same size). Text measuring uses it immediately, and the glyphs
+// are rasterized again for it in the next frame.
 set_chat_zoom :: proc(r: ^Renderer, zoom: f32) {
 	slot := &r.fonts[.Chat]
 	if zoom == slot.zoom {
@@ -214,12 +207,13 @@ set_chat_zoom :: proc(r: ^Renderer, zoom: f32) {
 	}
 	slot.zoom = zoom
 	slot.font.zoom = zoom
-	// Built again, at the new size, by the next frame.
+	// The next frame rebuilds them at the new size.
 	slot.font.scale, slot.font.uni.scale = 0, 0
 }
 
-// quad_indices is the index buffer's contents: two triangles per quad,
-// the same pattern every time. In the temp allocator.
+// quad_indices returns the contents of the index buffer: two triangles per
+// quad, with the same pattern every time. It is allocated in the temp
+// allocator.
 quad_indices :: proc() -> ^[MAX_QUADS * 6]u16 {
 	indices := new([MAX_QUADS * 6]u16, context.temp_allocator)
 	for q in 0 ..< MAX_QUADS {
@@ -229,7 +223,7 @@ quad_indices :: proc() -> ^[MAX_QUADS * 6]u16 {
 	return indices
 }
 
-// renderer_init sets up drawing into `window`, which was made with
+// renderer_init sets up drawing into `window`, which was created with
 // gpu_window_hints.
 renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	for &slot in r.fonts {
@@ -276,17 +270,15 @@ renderer_destroy :: proc(r: ^Renderer) {
 	for &slot in r.fonts {
 		font_destroy(&slot.font)
 	}
-	// Nothing in here outlives the device it was made on: the window can
-	// be taken down and built again (window_close), and a texture left
-	// lying about would then belong to somebody else.
+	// Nothing in here may outlive the device it was created on. The window
+	// can be closed and created again (window_close), and a texture that was
+	// left behind would then belong to somebody else.
 	r^ = {}
 }
 
-/*
-renderer_reset makes what's on the GPU again for the same window, after
-the device was lost (gpu_lost). The atlases are rebuilt, and uploaded
-with them, when the next frame finds them missing.
-*/
+// renderer_reset recreates everything on the GPU for the same window after
+// the device was lost (gpu_lost). The atlases are rebuilt and uploaded when
+// the next frame finds them missing.
 renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	for &slot in r.fonts {
 		for &t in slot.textures {
@@ -298,8 +290,8 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	gpu_texture_delete(&r.gpu, &r.icon_texture)
 	gpu_texture_delete(&r.gpu, &r.icons_texture)
 	gpu_texture_delete(&r.gpu, &r.controls_texture)
-	// The sheet's pixels aren't kept: the client decodes it again (it
-	// sees the texture is missing, ui_images_frame).
+	// The sheet's pixels are not kept. The client decodes it again when it
+	// sees that the texture is missing (ui_images_frame).
 	gpu_texture_delete(&r.gpu, &r.emoji_texture)
 	gpu_destroy(&r.gpu)
 	r.icons.scale, r.controls.scale = 0, 0
@@ -326,27 +318,28 @@ ui_text_height :: proc(font: mu.Font) -> i32 {
 }
 
 // render draws one frame of microui output into an fb_w x fb_h
-// framebuffer; `scale` is physical pixels per logical pixel (the display's
-// density).
+// framebuffer. `scale` is the number of physical pixels per logical pixel
+// (the display's density).
 render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clear: mu.Color) {
-	// Everything is snapped to physical pixels as round(v * scale) /
-	// scale, which only lands on them if the projection maps a logical
-	// pixel to exactly `scale` physical ones, on both axes. The layout's
-	// logical size (window_metrics) needn't be quite fb / scale (the framebuffer
-	// comes in whole pixels, and a width ratio needn't match the
-	// height's), and projecting that instead stretches everything by a
-	// fraction of a pixel, which depends on the window's size: at 1.5,
-	// a glyph's stem would move into the next pixel column as the window
-	// is resized. So project fb / scale, which differs from the layout
-	// by less than a logical pixel at the right and bottom edges.
+	// Everything is snapped to physical pixels as round(v * scale) / scale,
+	// which only lands on physical pixels if the projection maps a logical
+	// pixel to exactly `scale` physical pixels on both axes. The layout's
+	// logical size (window_metrics) is not necessarily exactly fb / scale,
+	// because the framebuffer size is a whole number of pixels and the width
+	// ratio does not have to match the height ratio. Projecting the layout
+	// size instead would stretch everything by a fraction of a pixel that
+	// depends on the window's size. At a scale of 1.5, for example, a
+	// glyph's stem would move into the next pixel column as the window is
+	// resized. So this projects fb / scale, which differs from the layout
+	// size by less than a logical pixel at the right and bottom edges.
 	view_w, view_h := f32(fb_w) / scale, f32(fb_h) / scale
 	r.scale = scale
 	if !gpu_begin(&r.gpu, fb_w, fb_h, view_w, view_h, clear) {
-		return // minimized, or the device is gone
+		return // minimized, or the device is lost
 	}
 
 	for kind in Font_Kind {
-		// The preview font waits till it's drawn with (Command_Text).
+		// The preview font waits until it is drawn with (Command_Text).
 		if kind != .Preview {
 			slot_prepare(r, &r.fonts[kind], scale)
 		}
@@ -380,8 +373,9 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	r.bound, r.rgba = 0, false
 	r.origin, r.snapped = {}, {}
 
-	// Where each root container's commands start (after its head jump,
-	// which next_command follows past), to know when one begins.
+	// Where each root container's commands start (after its head jump, which
+	// next_command follows), so we can tell when a new root container
+	// begins.
 	Root :: struct {
 		first: uintptr,
 		pos:   [2]i32,
@@ -428,8 +422,8 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				proc(data: rawptr, q: Glyph_Quad) {
 					e := (^Emit)(data)
 					if q.emoji {
-						// Its own colours, in the text's opacity; nothing
-						// till the sheet is decoded.
+						// The emoji keeps its own colors but takes the text's
+						// opacity. Nothing is drawn until the sheet is decoded.
 						if e.r.emoji_texture != 0 {
 							use_texture(e.r, e.r.emoji_texture, rgba = true)
 							push_quad(
@@ -499,59 +493,57 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	gpu_end(&r.gpu)
 }
 
-/*
-origin_at starts drawing a root container (a window, a popup) at `pos`.
-What's in it is snapped to physical pixels relative to where `pos`
-snaps, not each from its own place on the screen: at a fractional
-scale those round differently as the window moves (at 1.5, 1 logical
-pixel in from x = 10 is 1 physical pixel past its border's rounded
-edge, from x = 11 it's 2), so its title bar would come away from its
-border, or a letter shift in its box, in some places and not others.
-This way the whole window moves by whole pixels as one.
-*/
+// origin_at starts drawing a root container (a window or a popup) at `pos`.
+// Everything in the container is snapped to physical pixels relative to where
+// `pos` snaps, instead of each item being snapped from its own place on the
+// screen. At a fractional scale those would round differently as the window
+// moves (at a scale of 1.5, a point 1 logical pixel in from x = 10 is 1
+// physical pixel past its border's rounded edge, while from x = 11 it is 2),
+// so the title bar could come away from the border or a letter could shift in
+// its box in some positions but not in others. This way the whole window
+// moves by whole pixels as one.
 @(private = "file")
 origin_at :: proc(r: ^Renderer, pos: [2]i32) {
 	r.origin = pos
 	r.snapped = {math.round(f32(pos.x) * r.scale), math.round(f32(pos.y) * r.scale)}
 }
 
-// local is a rect relative to the root container being drawn (origin_at).
+// local converts a rect to be relative to the root container being drawn
+// (origin_at).
 @(private = "file")
 local :: proc(r: ^Renderer, rect: mu.Rect) -> mu.Rect {
 	return {rect.x - r.origin.x, rect.y - r.origin.y, rect.w, rect.h}
 }
 
-// slot_prepare has a font's atlases at the display's density: a zoomed
-// font's are at its own (font.odin).
+// slot_prepare makes sure a font's atlases are at the display's density. A
+// zoomed font's atlases are at its own density (font.odin).
 @(private = "file")
 slot_prepare :: proc(r: ^Renderer, slot: ^Font_Slot, scale: f32) {
-	// Regular's is always there (rects are drawn from it); the other
-	// faces' are built when text in them is first drawn.
+	// Regular's atlas is always present because rects are drawn from it.
+	// The other faces' atlases are built when text in them is first drawn.
 	at := scale * slot.font.zoom
 	if at != slot.font.scale {
 		font_set_scale(&slot.font, at)
 	}
 	face_ready(r, slot, .Regular)
-	// The fallback font's atlas fills up as text needs glyphs; it starts
-	// empty at a new scale, and again once it has run out of room.
+	// The fallback font's atlas fills up as text needs glyphs. It starts
+	// empty at a new scale and is emptied again once it runs out of room.
 	if at != slot.font.uni.scale || slot.font.uni.full {
 		unifont_reset(&slot.font.uni, at)
 		gpu_texture_delete(&r.gpu, &slot.unifont_texture)
 	}
 }
 
-/*
-snap_span is where a rect's edges go along one axis, in logical pixels
-on physical pixel boundaries, so borders stay crisp at fractional scales.
-Each edge rounds on its own, which keeps neighbouring rects meeting
-without gaps; but it would also make a line one logical pixel thick one
-physical pixel thick in one place and two in the next, as the position
-moves across the rounding (at 1.5, x = 10 and x = 11 are 15 and 16.5).
-So a thin rect - an underline, a caret, a separator - takes the same
-thickness wherever it is, rounded down, and only its start snaps. That
-would open gaps where lines meet, so boxes' borders aren't drawn as
-lines but as a whole (push_border).
-*/
+// snap_span returns where a rect's edges go along one axis, in logical pixels
+// on physical pixel boundaries, so borders stay crisp at fractional scales.
+// Each edge is rounded on its own, which keeps neighboring rects meeting
+// without gaps. However, it would also make a line that is one logical pixel
+// thick one physical pixel thick in one place and two in the next, as the
+// position moves across the rounding (at a scale of 1.5, x = 10 and x = 11
+// are 15 and 16.5). So a thin rect (an underline, a caret or a separator)
+// gets the same thickness everywhere, rounded down, and only its start is
+// snapped. That would open gaps where lines meet, so the borders of boxes are
+// not drawn as separate lines but as a whole (push_border).
 @(private)
 snap_span :: proc(start, size: i32, s: f32) -> (a, b: f32) {
 	first := math.round(f32(start) * s)
@@ -566,8 +558,8 @@ snap_span :: proc(start, size: i32, s: f32) -> (a, b: f32) {
 @(private)
 THIN_RECT :: 2
 
-// own_icon is our icon to draw in place of one of microui's, whose
-// pictures are bitmaps for one density.
+// own_icon returns our icon to draw in place of one of microui's, whose
+// pictures are bitmaps for a single density.
 @(private = "file")
 own_icon :: proc(id: mu.Icon) -> (Icon, bool) {
 	#partial switch id {
@@ -583,21 +575,19 @@ own_icon :: proc(id: mu.Icon) -> (Icon, bool) {
 	return {}, false
 }
 
-// line_thickness is how many physical pixels a logical pixel's line is:
-// the whole ones it comes to, rounded down.
+// line_thickness returns how many physical pixels thick a line that is one
+// logical pixel thick is, rounded down to a whole number.
 @(private = "file")
 line_thickness :: proc(s: f32) -> f32 {
 	return max(1, math.floor(s + 0.001))
 }
 
-/*
-push_border draws a border inside `rect`: its edges snapped to physical
-pixels as a rect's are, and its sides one thickness all round, the
-whole pixels a logical one comes to (rounded down). Drawn as four lines
-each would snap on its own (microui's draw_box), and the sides could
-come apart at the corners or vary in thickness. Or, `inside`, it fills
-what that border goes round.
-*/
+// push_border draws a border inside `rect`. Its edges are snapped to physical
+// pixels like a rect's are, and all its sides have the same thickness, which
+// is the whole number of pixels that a logical pixel comes to (rounded down).
+// If it were drawn as four lines that each snap on their own (like microui's
+// draw_box), the sides could come apart at the corners or vary in thickness.
+// With `inside` set, it instead fills the area that the border surrounds.
 @(private = "file")
 push_border :: proc(r: ^Renderer, rect: mu.Rect, color: mu.Color, inside := false) {
 	if rect.w <= 0 || rect.h <= 0 {
@@ -619,7 +609,8 @@ push_border :: proc(r: ^Renderer, rect: mu.Rect, color: mu.Color, inside := fals
 	push_quad(r, [4]f32{x1 - t, y0 + t, x1, y1 - t} / s, uv, color)
 }
 
-// face_ready has a face's atlas built for the font's scale and on the GPU.
+// face_ready makes sure a face's atlas is built for the font's scale and
+// uploaded to the GPU.
 @(private = "file")
 face_ready :: proc(r: ^Renderer, slot: ^Font_Slot, face: Font_Style) {
 	fc := &slot.font.faces[face]
@@ -629,12 +620,10 @@ face_ready :: proc(r: ^Renderer, slot: ^Font_Slot, face: Font_Style) {
 	}
 }
 
-/*
-upload_unifont sends the rows of the fallback font's atlas that have
-changed to its texture, making the texture the first time. Glyphs only
-ever go into empty slots, so quads already waiting to be drawn still
-find theirs.
-*/
+// upload_unifont uploads the rows of the fallback font's atlas that have
+// changed to its texture, and creates the texture the first time. Glyphs are
+// only ever added to empty slots, so quads that are already waiting to be
+// drawn still find their glyphs.
 @(private = "file")
 upload_unifont :: proc(r: ^Renderer, slot: ^Font_Slot) {
 	u := &slot.font.uni
@@ -650,13 +639,12 @@ upload_unifont :: proc(r: ^Renderer, slot: ^Font_Slot) {
 	u.dirty_y0, u.dirty_y1 = u.side, 0
 }
 
-/*
-rect_white is where a rect's white texel is: in whichever font atlas is
-bound, as they all have one, so rects between glyphs (the frame of each
-button in the emoji picker, around its emoji) don't each switch textures
-and cost a draw call; else in the UI font's, which it binds. The
-emoji sheet has one too, which is what a run of emoji uses.
-*/
+// rect_white returns the position of the white texel to use for a rect. It
+// is in whichever font atlas is currently bound, because they all have one, so
+// that rects between glyphs (such as the frame of each button around its emoji
+// in the emoji picker) do not each switch textures and cost a draw call.
+// Otherwise it is in the UI font's atlas, which gets bound. The emoji sheet
+// has a white texel too, which a run of emoji uses.
 @(private = "file")
 rect_white :: proc(r: ^Renderer) -> [2]f32 {
 	if r.bound != 0 && r.rgba && r.bound == r.emoji_texture {
@@ -689,8 +677,8 @@ use_texture :: proc(r: ^Renderer, tex: Gpu_Texture, rgba := false) {
 	}
 }
 
-// draw_image draws one of this frame's chat images, which come as icon
-// commands so microui clips and layers them like anything else.
+// draw_image draws one of this frame's chat images. They arrive as icon
+// commands so that microui clips and layers them like everything else.
 @(private = "file")
 draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 	if r.images == nil || index >= len(r.images) {
@@ -702,9 +690,10 @@ draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 	if uv == {} {
 		uv = {0, 0, 1, 1}
 	}
-	// On whole physical pixels, and as many of them wherever it is: else
-	// a picture between pixels is smudged across them, differently as it
-	// moves (a dot beside a name, as the window is resized).
+	// Place the image on whole physical pixels and give it the same number
+	// of pixels wherever it is. Otherwise a picture that falls between
+	// pixels is smudged across them, and differently so as it moves (for
+	// example a dot beside a name while the window is resized).
 	s := r.scale
 	x0, y0 := math.round(f32(rect.x) * s), math.round(f32(rect.y) * s)
 	x1, y1 := x0 + math.round(f32(rect.w) * s), y0 + math.round(f32(rect.h) * s)
@@ -718,11 +707,9 @@ draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 	push_quad(r, [4]f32{x0, y0, x1, y1} / s, {uv[0], uv[1], uv[2], uv[3]}, color)
 }
 
-/*
-draw_ui_icon draws one of our own icons (icons.odin), centred in the
-space the layout gave it. It's drawn at the size it was rasterized for,
-snapped to physical pixels, so it stays as crisp as the text beside it.
-*/
+// draw_ui_icon draws one of our own icons (icons.odin), centered in the space
+// that the layout gave it. It is drawn at the size it was rasterized for and
+// snapped to physical pixels, so it stays as crisp as the text next to it.
 @(private = "file")
 draw_ui_icon :: proc(r: ^Renderer, icon: Icon, rect: mu.Rect, color: mu.Color) {
 	if r.icons.side == 0 || int(icon) >= len(Icon) {
@@ -752,7 +739,8 @@ push_quad :: proc(r: ^Renderer, dst, uv: [4]f32, color: mu.Color) {
 		flush(r)
 	}
 	c := [4]u8{color.r, color.g, color.b, color.a}
-	// Back from the root container's own to the screen (origin_at).
+	// Convert from the root container's coordinates back to the screen
+	// (origin_at).
 	o := r.snapped / r.scale
 	p := dst + {o.x, o.y, o.x, o.y}
 	v := r.vertices[r.quads * 4:]

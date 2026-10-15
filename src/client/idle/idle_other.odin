@@ -3,8 +3,8 @@ package idle
 
 import "core:time"
 
-// GLFW's X11 connection isn't reachable from here on the BSDs, so the
-// client goes by its own window's input alone.
+// GLFW's X11 connection isn't reachable from here on the BSDs, so the client
+// relies on input in its own window alone.
 
 open :: proc(after: time.Duration, wayland_display, x11_display: rawptr) -> Source {
 	return .None

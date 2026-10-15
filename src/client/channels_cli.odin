@@ -15,103 +15,102 @@ import "core:strings"
 import "core:thread"
 import "core:time"
 
-/*
-Headless mode reads commands from stdin on a separate thread, so the
-network loop never blocks on input.
-
-	/channels        list your channels, what's unread in them, and who is
-	                 talking in them (the channel being looked at is read)
-	/notify <channel> all|mentions|none   how much a channel may interrupt
-	/view <channel>  look at a channel: its chat is the one shown, and
-	                 where /say goes
-	/join <channel>  join a channel's voice room
-	/leave           leave the voice room
-	/browse [text]   list the channels there are to subscribe to (with
-	                 that in their name or topic); /browse more lists
-	                 the next page
-	/subscribe <channel>, /unsubscribe <channel>
-	/create <channel> [topic]   make a channel (for who may)
-	/name <name>     change what your account is called
-	/email [address] set your account's email address (none: remove it)
-	/digest none|missed|mentions   what the server mails you that you missed
-	/login <username> <password>   log in, if the server asks for it
-	/register <username> <password> [email] [invite]   make an account,
-	                 where the server lets you, and log in to it
-	/invite [uses] [days]   make an invite code (uses 0: any; days 0:
-	                 no end), for who may
-	/invites         list the invite codes; /uninvite <code> revokes one
-	/memory          log where this client's memory goes (common/memtrack)
-	/server-memory   and the server's (its owner only)
-	/logout          log this device out
-	/passwd <old> <new>   change your password
-	/devices         list your account's devices
-	/revoke <key>    log one of them out (64 hex digits, as /devices shows)
-	/adduser <username> <password> [name]   make an account (admins)
-	/setpass <username> <password>          give one a new password (admins)
-	/addbot <username> [name]   make a bot; its token goes to the log, once (admins)
-	/bottoken <account>         another token for a bot, by its account's id (admins)
-	/tokens <account>           a bot's tokens, by its account's id (admins)
-	/mute, /unmute   stop or resume sending voice
-	/deafen, /undeafen  stop or resume playing everyone else
-	/listen, /unlisten  hear your own processed voice (listen back)
-	/say <text>      post to the conversation being looked at (@username
-	                 mentions someone), with the files attached, if any;
-	                 in a message's text (/say, /reply, /edit, /dm), \n
-	                 starts a new line
-	/attach <file>   attach a file to the next /say (up to 10);
-	                 /unattach drops them
-	/save <id> <n>   save file n of a message to the downloads folder
-	/older, /newer   fetch the page of its messages before (or after) those
-	                 fetched so far
-	/edit <id> <text>  change a message of yours (ids are in the log: #id)
-	/delete <id>     delete a message (yours, or anyone's if you may)
-	/pin <id>, /unpin <id>  pin or unpin a message
-	/pins            list the pinned messages of the conversation
-	/jump <id>       fetch the page around a message
-	/react <id> <emoji>, /unreact <id> <emoji>   react to a message with an
-	                 emoji (a character, :shortcode: or :name:), or take it back
-	/thread <id>, /unthread <id>  open a message's thread (its replies are
-	                 fetched, and shown as they come), or close it
-	/reply <id> <text>  reply in a message's thread (to a reply: its root's)
-	/status [minutes] [text]  set your status, ending after that many
-	                 minutes (0 or none: it doesn't); /status alone clears it
-	/avatar <file>   make your picture of an image file; /noavatar removes it
-	/set <key> <value>, /unset <key>  change one of your account's settings
-	/members         list the members of the conversation being looked at
-	/roles           list the server's roles and who has them
-	/mkrole <name> [perm,...], /setrole <name> [perm,...], /delrole <name>
-	                 make, change or delete a role (perms by name, e.g.
-	                 Invite,Pin_Messages)
-	/assign <name> [role,...]  give someone exactly these roles
-	/disable <name>, /enable <name>  stop someone logging in, or let them
-	/deluser <name>  delete someone's account; /deleteme <password> our own
-	/private <name>  make a private channel
-	/rename <name>, /topic <text>, /move <position>, /archive   change or
-	                 delete the channel being looked at
-	/invite <name>, /kick <name>  add someone to the channel being looked
-	                 at, or take them out of a private one
-	/call <name>     call someone; /answer a call ringing in; /hangup ends
-	                 (or cancels, or declines) the call
-	/activity online|away|busy|offline   what to be, on all your devices
-	/forward <id> <channel>   forward a message to one of your channels
-	/search [all] <words>     search the conversation looked at (or all
-	                 of yours); /search more for the next page
-	/purge here|all <days> [files]   remove for good the messages (or
-	                 only their files) older than that many days, of the
-	                 conversation being looked at or of all (for who may)
-	/typing [id]     tell the conversation (or the thread) you're typing
-	/dm <name> [text]       look at the DMs with someone (their username or
-	                        name), writing to them first if there's text;
-	                        /say, /older and /newer go there then,
-	                        until /view
-	/buddies                list your buddies and your DMs
-	/buddy <name>, /unbuddy <name>   add or remove a buddy
-	/file <name> <file>     offer a file in a DM (archives, pictures and
-	                        videos; they have to be here)
-	/accept, /decline       answer every file offer waiting for an answer
-	/cancel                 stop every file transfer
-	/seen <name>            ask when someone was last on the server
-*/
+// Headless mode reads commands from stdin on a separate thread, so the
+// network loop never blocks on input.
+//
+//	/channels        list your channels, what is unread in them and who is
+//	                 talking in them (the channel being looked at counts as read)
+//	/notify <channel> all|mentions|none   how much a channel may interrupt you
+//	/view <channel>  look at a channel: its chat is the one shown and the
+//	                 one that /say posts to
+//	/join <channel>  join a channel's voice room
+//	/leave           leave the voice room
+//	/browse [text]   list the channels you can subscribe to (optionally only
+//	                 those with that text in their name or topic);
+//	                 /browse more lists the next page
+//	/subscribe <channel>, /unsubscribe <channel>
+//	/create <channel> [topic]   create a channel (if you have permission)
+//	/name <name>     change your account's display name
+//	/email [address] set your account's email address (without an address: remove it)
+//	/digest none|missed|mentions   what the server emails you about what you missed
+//	/login <username> <password>   log in, if the server asks for it
+//	/register <username> <password> [email] [invite]   create an account, if
+//	                 the server allows it, and log in to it
+//	/invite [uses] [days]   create an invite code (uses 0: unlimited uses; days 0:
+//	                 never expires), if you have permission
+//	/invites         list the invite codes; /uninvite <code> revokes one
+//	/memory          log where this client's memory goes (see common/memtrack)
+//	/server-memory   the same for the server (server owner only)
+//	/logout          log this device out
+//	/passwd <old> <new>   change your password
+//	/devices         list your account's devices
+//	/revoke <key>    log out one of those devices (the 64 hex digits shown by /devices)
+//	/adduser <username> <password> [name]   create an account (admins)
+//	/setpass <username> <password>          set a new password for an account (admins)
+//	/addbot <username> [name]   create a bot; its token is logged once (admins)
+//	/bottoken <account>         create another token for a bot, given its account id (admins)
+//	/tokens <account>           list a bot's tokens, given its account id (admins)
+//	/mute, /unmute   stop or resume sending voice
+//	/deafen, /undeafen  stop or resume playing everyone else's voice
+//	/listen, /unlisten  hear your own processed voice (listen back)
+//	/say <text>      post to the conversation being looked at (@username
+//	                 mentions someone), with the attached files, if any;
+//	                 in a message's text (/say, /reply, /edit, /dm), \n
+//	                 starts a new line
+//	/attach <file>   attach a file to the next /say (up to 10);
+//	                 /unattach removes them again
+//	/save <id> <n>   save file n of a message to the downloads folder
+//	/older, /newer   fetch the page of messages before (or after) those
+//	                 fetched so far
+//	/edit <id> <text>  change one of your messages (ids are shown in the log as #id)
+//	/delete <id>     delete a message (yours, or anyone's if you have permission)
+//	/pin <id>, /unpin <id>  pin or unpin a message
+//	/pins            list the pinned messages of the conversation
+//	/jump <id>       fetch the page of messages around a message
+//	/react <id> <emoji>, /unreact <id> <emoji>   add or remove a reaction to a
+//	                 message (the emoji can be a character, :shortcode: or :name:)
+//	/thread <id>, /unthread <id>  open a message's thread (its replies are
+//	                 fetched and shown as they arrive) or close it
+//	/reply <id> <text>  reply in a message's thread (when replying to a reply,
+//	                 the reply goes to the thread of its root message)
+//	/status [minutes] [text]  set your status, which expires after that many
+//	                 minutes (0 or none: never); /status alone clears it
+//	/avatar <file>   use an image file as your profile picture; /noavatar removes it
+//	/set <key> <value>, /unset <key>  change one of your account's settings
+//	/members         list the members of the conversation being looked at
+//	/roles           list the server's roles and who has them
+//	/mkrole <name> [perm,...], /setrole <name> [perm,...], /delrole <name>
+//	                 create, change or delete a role (permissions by name, e.g.
+//	                 Invite,Pin_Messages)
+//	/assign <name> [role,...]  give someone exactly these roles
+//	/disable <name>, /enable <name>  prevent someone from logging in, or allow it again
+//	/deluser <name>  delete someone's account; /deleteme <password> deletes your own
+//	/private <name>  create a private channel
+//	/rename <name>, /topic <text>, /move <position>, /archive   change or
+//	                 archive the channel being looked at
+//	/invite <name>, /kick <name>  add someone to the channel being looked
+//	                 at, or remove them from a private one
+//	/call <name>     call someone; /answer accepts an incoming call; /hangup ends
+//	                 the call (or cancels or declines it)
+//	/activity online|away|busy|offline   set your activity on all your devices
+//	/forward <id> <channel>   forward a message to one of your channels
+//	/search [all] <words>     search the conversation being looked at (or all
+//	                 of your conversations); /search more shows the next page
+//	/purge here|all <days> [files]   permanently remove the messages (or
+//	                 only their files) older than that many days, in the
+//	                 conversation being looked at or in all of them (if you have permission)
+//	/typing [id]     tell the conversation (or the thread) that you are typing
+//	/dm <name> [text]       look at the DMs with someone (by username or
+//	                        display name) and write to them first if there is text;
+//	                        /say, /older and /newer then apply to that DM
+//	                        until you use /view
+//	/buddies                list your buddies and your DMs
+//	/buddy <name>, /unbuddy <name>   add or remove a buddy
+//	/file <name> <file>     offer a file in a DM (archives, pictures and
+//	                        videos; the other person has to be online)
+//	/accept, /decline       answer every file offer that is waiting for an answer
+//	/cancel                 stop every file transfer
+//	/seen <name>            ask when someone was last on the server
 start_command_reader :: proc(q: ^conn.Command_Queue) {
 	thread.create_and_start_with_poly_data(
 		q,
@@ -126,7 +125,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 	sc: bufio.Scanner
 	bufio.scanner_init(&sc, os.to_reader(os.stdin))
 	defer bufio.scanner_destroy(&sc)
-	// Files for the next /say; owned.
+	// Files attached for the next /say. Owned by this procedure.
 	attached: [dynamic]string
 	defer {
 		for path in attached {
@@ -547,7 +546,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				},
 			)
 		case line == "/accept" || line == "/decline" || line == "/cancel":
-			// Answered on the network loop, which has the offers: an id
+			// The network loop answers this because it has the offers. An id
 			// of 0 means all of them.
 			action := conn.File_Action.Accept
 			switch line {
@@ -729,16 +728,16 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 	}
 }
 
-// typed_lines is a message's text as typed on one line, with each `\n`
-// in it as a newline; a copy.
+// typed_lines returns a copy of a message's text with each literal `\n`
+// replaced by a newline, so the message can be typed on one line.
 @(private = "file")
 typed_lines :: proc(text: string) -> string {
 	out, allocated := strings.replace_all(text, "\\n", "\n")
 	return out if allocated else strings.clone(text)
 }
 
-// parse_perms is permissions by name, comma separated, as /mkrole takes
-// them; names that aren't one are warned of and left out.
+// parse_perms parses a comma-separated list of permission names, as taken by
+// /mkrole. Unknown names are logged as warnings and left out.
 @(private = "file")
 parse_perms :: proc(text: string) -> (perms: proto.Permissions) {
 	rest := text
@@ -753,7 +752,7 @@ parse_perms :: proc(text: string) -> (perms: proto.Permissions) {
 				continue outer
 			}
 		}
-		log.warnf("there's no permission called %q", name)
+		log.warnf("there is no permission called %q", name)
 	}
 	return
 }

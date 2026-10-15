@@ -3,9 +3,9 @@ package server
 
 import "core:time"
 
-// thread_cpu_time is how long the calling thread has been on the CPU.
-// Not on Windows: GetThreadTimes counts in clock ticks of ~15.6 ms,
-// longer than the turns it would be measuring.
+// thread_cpu_time returns how much CPU time the calling thread has used.
+// This is not supported on Windows because GetThreadTimes counts in clock
+// ticks of about 15.6 ms, which is longer than the turns being measured.
 thread_cpu_time :: proc() -> (t: time.Duration, ok: bool) {
 	return
 }

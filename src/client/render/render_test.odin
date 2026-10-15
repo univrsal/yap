@@ -4,8 +4,9 @@ package render
 import "core:math"
 import "core:testing"
 
-// A line one logical pixel thick has to be as thick wherever it falls,
-// whatever the scale: it used to be one physical pixel here and two there.
+// A line that is one logical pixel thick has to have the same thickness
+// wherever it falls, at any scale. It used to be one physical pixel thick in
+// one place and two in another.
 @(test)
 test_thin_lines_keep_their_thickness :: proc(t: ^testing.T) {
 	for scale in ([]f32{1, 1.25, 1.5, 1.75, 2, 2.5, 3}) {
@@ -22,13 +23,13 @@ test_thin_lines_keep_their_thickness :: proc(t: ^testing.T) {
 				got,
 				want,
 			)
-			// And on a physical pixel.
+			// And it has to start on a physical pixel.
 			testing.expect_value(t, a * scale, math.round(a * scale))
 		}
 	}
 }
 
-// Bigger rects still meet their neighbours edge to edge.
+// Bigger rects still meet their neighbors edge to edge.
 @(test)
 test_rects_tile :: proc(t: ^testing.T) {
 	for scale in ([]f32{1.25, 1.5, 2}) {

@@ -11,23 +11,21 @@ import "client:conn"
 import "client:render"
 import "common:proto"
 
-/*
-People's pictures, drawn round: a picture is decoded like a message's
-(ui_images.odin) under a key of its own, and its corners made
-transparent before it becomes a texture (round_off). Somebody without one
-gets a disc in a colour of their own (from their account's id) with the
-first letter of their name.
-
-A picture is fetched the first time it's to be drawn (conn's
-Avatar_Want_Command), once per session.
-*/
+// People's pictures, drawn round: a picture is decoded like a message's
+// (see ui_images.odin) under a key of its own, and its corners are made
+// transparent before it becomes a texture (see round_off). Somebody without a
+// picture gets a disc in a color of their own (derived from their account's id)
+// with the first letter of their name.
+//
+// A picture is fetched the first time it is to be drawn (see conn's
+// Avatar_Want_Command), once per session.
 
 // The key a picture is decoded and kept under: its blob's id with this
-// bit set, apart from the same blob shown as a message's picture.
+// bit set, to keep it apart from the same blob shown as a message's picture.
 AVATAR_KEY :: u64(1) << 61
 
-// How big the disc's own texture is, in pixels; it's scaled to the size
-// drawn.
+// How big the disc's own texture is, in pixels. It is scaled to the size
+// that is drawn.
 @(private = "file")
 DISC_SIDE :: 128
 
@@ -36,7 +34,7 @@ UI_Avatars :: struct {
 	have:      bool,
 	ring:      render.Gpu_Texture, // a white ring, the same
 	have_ring: bool,
-	// The pictures asked for, and for which session.
+	// The pictures that were asked for, and for which session.
 	asked:     map[proto.Blob_Id]bool,
 	session:   rawptr,
 }
@@ -46,7 +44,7 @@ ui_avatars_destroy :: proc(ui: ^UI) {
 	ui.avatars = {}
 }
 
-// ui_avatars_forget_textures: the GPU device is going (as for images).
+// ui_avatars_forget_textures is called when the GPU device is going away (as for images).
 ui_avatars_forget_textures :: proc(ui: ^UI) {
 	ui.avatars.have = false
 	ui.avatars.disc = {}
@@ -54,14 +52,12 @@ ui_avatars_forget_textures :: proc(ui: ^UI) {
 	ui.avatars.ring = {}
 }
 
-/*
-avatar draws an account's picture in `r` (a square). Call with the View
-locked.
-*/
+// avatar draws an account's picture in `r` (a square). Call with the View
+// locked.
 avatar :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	picture(ui, account, r)
-	// Online, away, busy or offline (ui_activity.odin); a deleted account
-	// is none of them.
+	// Online, away, busy or offline (see ui_activity.odin). A deleted account
+	// has none of them.
 	if acc, known := ui.view.accounts[account]; !known || .Deleted not_in acc.flags {
 		activity_dot(ui, account, r)
 	}
@@ -79,23 +75,21 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 			return
 		}
 	}
-	// A disc and a letter; a plain grey disc for a deleted account.
+	// A disc and a letter, or a plain grey disc for a deleted account.
 	deleted := known && .Deleted in acc.flags
 	color := theme.deleted_disc if deleted else avatar_color(account)
 	disc_letter(ui, r, color, acc.display if known && !deleted else "")
 }
 
-/*
-letter_disc draws an account's disc and letter, from its name, without
-looking it up in the View: for one on a server that isn't shown, whose
-picture isn't to be had.
-*/
+// letter_disc draws an account's disc and letter from its name, without
+// looking the account up in the View. It is for accounts on a server that isn't
+// shown, whose picture isn't available.
 letter_disc :: proc(ui: ^UI, account: proto.Account_Id, name: string, r: mu.Rect) {
 	disc_letter(ui, r, avatar_color(account), name)
 }
 
 // disc_letter draws a disc of `color` in `r`, with the first letter of
-// `name` on it if there's room.
+// `name` on it if there is room.
 @(private = "file")
 disc_letter :: proc(ui: ^UI, r: mu.Rect, color: mu.Color, name: string) {
 	ctx := &ui.ctx
@@ -105,7 +99,7 @@ disc_letter :: proc(ui: ^UI, r: mu.Rect, color: mu.Color, name: string) {
 		mu.draw_rect(ctx, r, color)
 	}
 	font := ctx.style.font
-	// Smaller than a line of text, a letter wouldn't fit.
+	// In a size smaller than a line of text, a letter wouldn't fit.
 	if name == "" || r.h < ctx.text_height(font) {
 		return
 	}
@@ -124,10 +118,10 @@ disc_letter :: proc(ui: ^UI, r: mu.Rect, color: mu.Color, name: string) {
 	)
 }
 
-// avatar_color is an account's own colour: a hue from its id, not too
-// bright for white on it.
+// avatar_color is an account's own color: a hue derived from its id, not too
+// bright for white text on it.
 avatar_color :: proc(account: proto.Account_Id) -> mu.Color {
-	// Spread neighbouring ids around the circle (the golden angle).
+	// Spread neighboring ids around the circle (the golden angle).
 	hue := math.mod(f32(account) * 137.508, 360)
 	s, l: f32 = 0.45, 0.42
 	c := (1 - abs(2 * l - 1)) * s
@@ -151,8 +145,8 @@ avatar_color :: proc(account: proto.Account_Id) -> mu.Color {
 	return {u8((rgb[0] + m) * 255), u8((rgb[1] + m) * 255), u8((rgb[2] + m) * 255), 255}
 }
 
-// avatar_icon is what draws a picture this frame, once it's here and
-// decoded; it's asked for the first time it's wanted.
+// avatar_icon is what draws a picture in this frame, once it has arrived and is
+// decoded. It is requested the first time it is wanted.
 @(private = "file")
 avatar_icon :: proc(ui: ^UI, blob: proto.Blob_Id) -> (mu.Icon, bool) {
 	v := ui.view
@@ -189,7 +183,7 @@ avatar_icon :: proc(ui: ^UI, blob: proto.Blob_Id) -> (mu.Icon, bool) {
 	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
 }
 
-// disc_icon is what draws the white disc this frame, tinted.
+// disc_icon is what draws the white disc in this frame, tinted.
 @(private = "file")
 disc_icon :: proc(ui: ^UI, inset: i32 = 0) -> (mu.Icon, bool) {
 	a := &ui.avatars
@@ -219,8 +213,8 @@ disc_icon :: proc(ui: ^UI, inset: i32 = 0) -> (mu.Icon, bool) {
 	return mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), true
 }
 
-// How wide the ring round a picture is (avatar_ringed), in logical
-// pixels, and the gap between it and the picture.
+// How wide the ring around a picture is (see avatar_ringed), in logical
+// pixels, and the gap between the ring and the picture.
 @(private = "file")
 RING_WIDTH :: 2
 @(private = "file")
@@ -228,13 +222,11 @@ RING_GAP :: 1
 // What a ring takes on each side of a picture.
 RING_SPACE :: RING_WIDTH + RING_GAP
 
-/*
-avatar_ringed draws an account's picture in `slot` (a square) with room
-for a ring round it, and with `ring`, the ring, of `color`: who is
-talking. The picture is drawn inset by the ring's width and gap whether
-the ring is there or not, so nothing moves when it comes and goes, and
-the ring stays inside the slot, clear of what's next to it.
-*/
+// avatar_ringed draws an account's picture in `slot` (a square) with room
+// for a ring around it, and with `ring`, a ring of `color` that shows who is
+// talking. The picture is drawn inset by the ring's width and gap whether
+// the ring is there or not, so nothing moves when it appears and disappears,
+// and the ring stays inside the slot, clear of what is next to it.
 avatar_ringed :: proc(
 	ui: ^UI,
 	account: proto.Account_Id,
@@ -248,8 +240,8 @@ avatar_ringed :: proc(
 	inset := i32(RING_SPACE)
 	if ring {
 		if !a.have_ring {
-			// The ring's width as a share of the texture, for a slot round a
-			// picture a little taller than a line (as the voice panel's); it
+			// The ring's width as a share of the texture, for a slot around a
+			// picture that is a little taller than a line (such as the voice panel's). It
 			// scales with the slot.
 			pixels := make([]u8, DISC_SIDE * DISC_SIDE * 4, context.temp_allocator)
 			side := f32(DISC_SIDE)
@@ -282,8 +274,8 @@ avatar_ringed :: proc(
 	avatar(ui, account, {slot.x + inset, slot.y + inset, slot.w - 2 * inset, slot.h - 2 * inset})
 }
 
-// disc draws a round dot of `color` in `r`; `inset` lines in from it, as
-// a dot in a ring drawn in the same `r` (render.Image_Draw).
+// disc draws a round dot of `color` in `r`, inset by `inset`. This is for a
+// dot in a ring drawn in the same `r` (see render.Image_Draw).
 disc :: proc(ui: ^UI, r: mu.Rect, color: mu.Color, inset: i32 = 0) {
 	if icon, ok := disc_icon(ui, inset); ok {
 		mu.draw_icon(&ui.ctx, icon, r, color)
@@ -292,8 +284,8 @@ disc :: proc(ui: ^UI, r: mu.Rect, color: mu.Color, inset: i32 = 0) {
 	}
 }
 
-// round_off makes what's outside the circle that fits an image
-// transparent, with a pixel of soft edge.
+// round_off makes everything outside the circle that fits the image
+// transparent, with a one-pixel soft edge.
 round_off :: proc(img: ^clipboard.Image) {
 	w, h := f32(img.width), f32(img.height)
 	cx, cy, radius := w / 2, h / 2, min(w, h) / 2
@@ -311,7 +303,7 @@ round_off :: proc(img: ^clipboard.Image) {
 }
 
 // status_line is how an account's status reads in a list: dimmed, after
-// its name. "" for none.
+// its name. It is "" for none.
 status_line :: proc(acc: conn.View_Account) -> string {
 	return strings.trim_space(acc.status)
 }

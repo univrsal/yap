@@ -42,7 +42,7 @@ fi
 # What web/touch.js calls (src/client/ui_touch_web.odin).
 touch_exports=_web_touch_tap,_web_touch_hold,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_text_rune,_web_text_backspace,_web_text_enter
 # What web/background.js calls (src/client/main_web.odin).
-background_exports=_web_tick
+background_exports=_web_tick,_web_visibility
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
 paste_exports=_web_file_pasted,_web_paste_failed,_web_paste_text,_web_max_attachment,_malloc,_free
 # What web/files.js calls (src/client/ui_files_web.odin).
@@ -88,12 +88,13 @@ emcc "$out/yap.obj" \
 	--pre-js web/images.js \
 	--pre-js web/decode.js \
 	--pre-js web/video.js \
+	--pre-js web/push.js \
 	--shell-file web/index.html \
 	-o "$out/index.html"
 
 # The tab's icon, the same one the desktop programs have.
 cp src/client/assets/icon.ico "$out/favicon.ico"
 # The manifest and icons for installing it as an app (index.html).
-cp web/manifest.webmanifest web/icon-192.png web/icon-512.png web/apple-touch-icon.png "$out/"
+cp web/manifest.webmanifest web/sw.js web/icon-192.png web/icon-512.png web/apple-touch-icon.png "$out/"
 
 echo "built $out/index.html"

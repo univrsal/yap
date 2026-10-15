@@ -7,36 +7,34 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-Deleting an account (Account_Delete, src/common/proto/accounts.odin).
+// Deleting an account (Account_Delete, src/common/proto/accounts.odin).
+//
+// The account's row is kept as a tombstone so that everything it wrote
+// still has an author. The row is flagged Deleted and named DELETED_NAME.
+// Its username becomes `deleted#<id>`, which nobody can log in with
+// because '#' is never part of a username. Its password is removed, and
+// so is everything else that belonged only to it: its devices, roles,
+// memberships (including what it had read), buddies (both its own list
+// and its place in everyone else's), settings and pending mentions.
+// Its messages, reactions and pins stay. The other side of a DM with it
+// can still read the conversation but can't write to it (see dm_closed).
+//
+// The blob of its picture is left for retention's garbage collection
+// (retention.odin), which removes unused blobs within the hour. The blob
+// isn't removed here because the same picture can belong to another
+// account too.
+//
+// The request is in auth.odin and requires the account's own password
+// when an account deletes itself. The command line's `account delete`
+// is in cli.odin.
 
-The account's row stays, as a tombstone, so that everything it wrote
-still has an author: flagged Deleted, called DELETED_NAME, with a
-username nobody can log in with (`deleted#<id>`: '#' is never in a
-username), its password gone, and nothing else of its own. Its devices,
-roles, memberships (with what it had read), buddies (its own, and its
-place in everyone else's), settings and the mentions waiting for it go
-with it. Its messages, reactions and pins stay; a DM with it can still
-be read by the other side, but not written to (dm_closed).
-
-Its picture's blob is left to retention's collection (retention.odin),
-which removes blobs nothing uses within the hour: the same picture can
-be somebody else's too.
-
-The request, which takes the account's own password when it's deleting
-itself, is in auth.odin; the command line's `account delete` is in
-cli.odin.
-*/
-
-// deleted_username is what a deleted account's username becomes.
+// deleted_username is the username a deleted account is given.
 deleted_username :: proc(id: proto.Account_Id, allocator := context.temp_allocator) -> string {
 	return fmt.aprintf("deleted#%d", id, allocator = allocator)
 }
 
-/*
-account_erase_rows is the database's part of deleting an account: all of
-it or, if anything fails, none of it.
-*/
+// account_erase_rows is the database part of deleting an account.
+// Either all of the rows are changed or, if anything fails, none are.
 @(require_results)
 account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 	db_begin(db)
@@ -64,12 +62,11 @@ account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 	return true
 }
 
-/*
-account_erase deletes an account on a running server: its connections
-are logged out (told why), the database's rows go, and the server's
-own copy is made to match; then everyone is told what's left of it.
-The caller has made sure it may be deleted.
-*/
+// account_erase deletes an account on a running server. It removes the
+// rows from the database, logs out the account's connections (telling
+// them why), updates the server's in-memory copy to match and finally
+// tells everyone about what is left of the account.
+// The caller must already have checked that the account may be deleted.
 @(require_results)
 account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 	a := &s.accounts
@@ -78,7 +75,7 @@ account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 	}
 	username := strings.clone(acc.username, context.temp_allocator)
 
-	// Whatever its connections were in the middle of ends.
+	// Anything the connections were in the middle of ends here.
 	conns := slice.clone(acc.conns[:], context.temp_allocator)
 	for u in conns {
 		conn_logout(s, u, .Deleted)
@@ -97,7 +94,7 @@ account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 			room_check(s, conv)
 		}
 	}
-	// Out of everyone's buddy list, and they're told.
+	// Remove it from everyone's buddy list and tell them.
 	buf: [proto.BUDDY_SET_SIZE]u8
 	gone := proto.encode_buddy(&buf, acc.id, false)
 	for _, other in a.by_id {
@@ -133,7 +130,7 @@ account_erase :: proc(s: ^Server, acc: ^Account) -> bool {
 }
 
 // dm_closed is whether a conversation is a DM with an account that has
-// been deleted: what's there can be read, but nothing more said.
+// been deleted. Such a conversation can still be read but not written to.
 dm_closed :: proc(s: ^Server, conv: ^Conv) -> bool {
 	if conv.kind != .DM {
 		return false

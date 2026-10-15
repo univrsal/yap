@@ -14,55 +14,53 @@ import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-/*
-Many servers at once (docs/next, item 9): every server joined is
-connected, each its own Net_Session with its own View and network loop,
-and one of them is shown. UI.session is that one, UI.view its View.
-
-What the UI keeps of a server - the channel list, the timeline and its
-scroll, open threads, drafts, the forms of the login and the settings,
-search, calls... - is a Server_UI. The UI has the shown server's
-embedded (`using srv`, so it reads ui.channels as ever); every other
-session keeps its own in Net_Session.stash, and switching swaps them,
-so a server comes back as it was left.
-
-What isn't one server's stays on the UI: the window, the settings,
-audio devices' list, mute and deafen, the chat pictures' decoder (whose
-textures are dropped on switching, as they're known by the server's
-blob ids), and the log.
-*/
+// Many servers at once (docs/next, item 9): every server that was joined is
+// connected, each with its own Net_Session with its own View and network loop,
+// and one of them is shown. UI.session is that one, and UI.view is its View.
+//
+// What the UI keeps of a server (the channel list, the timeline and its
+// scroll position, open threads, drafts, the login and settings forms, search,
+// calls, etc.) is a Server_UI. The UI embeds the shown server's Server_UI
+// (`using srv`, so it still reads ui.channels as before). Every other session
+// keeps its own in Net_Session.stash, and switching swaps them, so a server
+// comes back as it was left.
+//
+// What doesn't belong to one server stays on the UI: the window, the settings,
+// the list of audio devices, mute and deafen, the decoder for chat pictures
+// (whose textures are dropped on switching, as they are known by the server's
+// blob ids), and the log.
 
 Server_UI :: struct {
 	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
-	// What our account is called, as it's being edited in the settings.
+	// What our account is called, as it is being edited in the settings.
 	name_buf:       [2 * proto.MAX_NAME_SIZE]u8,
 	name_len:       int,
-	account:        UI_Account, // logging in, and the account's settings (ui_account.odin)
+	account:        UI_Account, // the login and the account's settings (ui_account.odin)
 	invites:        UI_Invites, // invite codes in the settings (ui_invites.odin)
-	// When the code accounts registered with was last asked for
+	// When the code that accounts registered with was last requested
 	// (invited_by_line).
 	invites_asked:  map[proto.Account_Id]time.Tick,
 	channels:       UI_Channels, // the channel list and the Channels window (ui_channels.odin)
 	timeline:       UI_Timeline, // the messages on screen (ui_timeline.odin)
 	chat:           UI_Chat, // the chat tab (ui_chat.odin)
-	reactors_asked: Reactors_Asked, // who reacted, last asked for (ui_timeline.odin)
+	reactors_asked: Reactors_Asked, // who reacted, as last requested (ui_timeline.odin)
 	forward:        UI_Forward, // forwarding, and links to messages (ui_forward.odin)
 	search:         UI_Search, // searching messages (ui_search.odin)
-	// The user whose menu is open, and its volume slider's value (the
-	// slider needs a stable address). See user_menu.
-	menu_user:      proto.User_Num, // the connection clicked, if one was
+	// The user whose menu is open, and its volume slider's value (the slider
+	// needs a stable address). See user_menu.
+	menu_user:      proto.User_Num, // the connection that was clicked, if one was
 	menu_account:   proto.Account_Id,
 	menu_volume:    mu.Real,
 	menu_requested: bool,
 	// The buddy screen (ui_buddies.odin).
 	buddies:        UI_Buddies,
-	// The thread windows (ui_threads.odin), by slot, and how many
-	// threads have been opened, for which was opened first.
+	// The thread windows (ui_threads.odin) by slot, and how many threads
+	// have been opened, to tell which was opened first.
 	threads:        [conn.MAX_THREADS]UI_Thread,
 	threads_opened: u64,
 	// Statuses, members and settings on the server (ui_profiles.odin).
 	profiles:       UI_Profiles,
-	// Managing the server, for who may (ui_manage.odin), and the voice
+	// Managing the server for users who may (ui_manage.odin), and the voice
 	// panel (ui_voice_panel.odin).
 	manage:         UI_Manage,
 	roles:          UI_Roles, // the settings' Roles (ui_roles.odin)
@@ -79,21 +77,21 @@ Server_UI :: struct {
 	// The server whose per-user volumes the session has been given
 	// (apply_gains).
 	gains_for:      [proto.KEY_SIZE]u8,
-	// Pictures messages carry, asked for to be shown, and when.
+	// The pictures that messages carry, which were requested to be shown, and when.
 	previews_asked: map[proto.Blob_Id]time.Tick,
 }
 
-// in_voice is whether a session is in a voice room or a call, or on its
-// way into one.
+// in_voice is whether a session is in a voice room or a call, or on its way
+// into one.
 in_voice :: proc(ns: ^Net_Session) -> bool {
 	v := &ns.view
 	sync.guard(&v.mutex)
 	return v.my_room != 0 || v.voice_pending || v.call.status != .None
 }
 
-// sound_session is whose sounds go with what we do (mute, deafen): the
-// session in voice, or with none the one shown. As of this frame, so it
-// takes no View's lock.
+// sound_session is the session that sounds go with when we do something
+// (mute, deafen): the session in voice or, if none is, the one shown. It is as
+// of this frame, so it takes no View's lock.
 sound_session :: proc(ui: ^UI) -> ^Net_Session {
 	if ui.voice_at != nil {
 		return ui.voice_at
@@ -101,12 +99,10 @@ sound_session :: proc(ui: ^UI) -> ^Net_Session {
 	return ui.session
 }
 
-/*
-leave_voice_elsewhere is a server's voice about to be joined (a
-channel's, or a call; `here` is that server, the one shown if nil):
-there's one microphone, so voice is in one server at a time, and
-wherever else it is, it's left.
-*/
+// leave_voice_elsewhere is called when a server's voice is about to be joined
+// (a channel's or a call; `here` is that server, or the shown one if nil).
+// There is only one microphone, so voice is in one server at a time, and it is
+// left wherever else it is.
 leave_voice_elsewhere :: proc(ui: ^UI, here: ^Net_Session = nil) {
 	here := here if here != nil else ui.session
 	for ns in ui.sessions {
@@ -127,21 +123,17 @@ leave_voice_elsewhere :: proc(ui: ^UI, here: ^Net_Session = nil) {
 	}
 }
 
-/*
-command_all gives a command to every session: one about this client
-rather than a server (a setting, mute, deafen), which holds nothing
-that would be freed with it.
-*/
+// command_all gives a command to every session. It is meant for commands about
+// this client rather than a server (a setting, mute, deafen), which hold
+// nothing that would be freed with them.
 command_all :: proc(ui: ^UI, cmd: conn.Command) {
 	for ns in ui.sessions {
 		conn.push_command(&ns.client.commands, cmd)
 	}
 }
 
-/*
-server_ui_destroy frees what the UI's Server_UI holds; a stash's is freed
-by swapping it in first (stash_destroy).
-*/
+// server_ui_destroy frees what the UI's Server_UI holds. A stash's is freed by
+// swapping it in first (stash_destroy).
 server_ui_destroy :: proc(ui: ^UI) {
 	avatar_pick_wait(ui)
 	timeline_destroy(&ui.timeline)
@@ -175,20 +167,18 @@ stash_destroy :: proc(ui: ^UI, ns: ^Net_Session) {
 	ns.stash = {}
 }
 
-/*
-show_session shows another session (nil: none), keeping what the UI
-had of the one shown till now in its stash. What the shown server was
-watching of somebody's screen stops: there's one picture to show it in,
-the Screen tab - unless it's popped out into its own window, which
-stays (screen_window, ui_video.odin).
-*/
+// show_session shows another session (nil: none) and keeps what the UI had of
+// the previously shown one in its stash. Whatever the shown server was
+// watching of somebody's screen stops, because there is only one place to
+// show it, the Screen tab, unless it is popped out into its own window, which
+// stays (screen_window, ui_video.odin).
 show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 	if ns == ui.session {
 		return
 	}
 	if old := ui.session; old != nil {
-		// Nothing there is being read or watched while it isn't shown;
-		// shown again, it's told what is.
+		// Nothing there is being read or watched while it isn't shown, and
+		// when it is shown again it is told what to do.
 		if !ui.video.popped || old != ui.voice_at {
 			conn.push_command(&old.client.commands, conn.Watch_Command{user = 0})
 		}
@@ -202,8 +192,8 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 		ui.srv = ns.stash
 		ns.stash = {}
 		ui.view = &ns.view
-		// What the connect screen says, should it be shown for this one
-		// (it failed): connecting again is one click.
+		// What the connect screen says, should it be shown for this session
+		// (because it failed): connecting again takes one click.
 		ui.server_len = copy(ui.server_buf[:], ns.server)
 		ui.password_len = copy(ui.password_buf[:], ns.password)
 	} else {
@@ -211,19 +201,17 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 	}
 	ui_images_switch(ui)
 	ui.select.panel, ui.select.dragging = .None, false
-	ui.msg_bar = {} // its messages are the old server's
+	ui.msg_bar = {} // its messages belong to the previous server
 	ui.focus_composer = false
 	ui.page = .Main
 	ui.redraw_frames = max(ui.redraw_frames, 2)
 	ui.redraw_at = time.tick_now()
 }
 
-/*
-servers_frame counts what's unread on every server: in its channels for
-its icon on the rail, in its DMs for the inbox's, and all of it together
-for the window's title and the tray; and tells the desktop what each
-has for us (session_notices). Between frames, with no View locked.
-*/
+// servers_frame counts what is unread on every server: in its channels for its
+// icon on the rail, in its DMs for the inbox's, and all of it together for the
+// window's title and the tray. It also tells the desktop what each server has
+// for us (session_notices). Call between frames, with no View locked.
 servers_frame :: proc(ui: ^UI) {
 	named := rail_count(ui) > 1
 	total, mentions, dms := 0, 0, 0
@@ -266,11 +254,9 @@ servers_frame :: proc(ui: ^UI) {
 	}
 }
 
-/*
-title_key is what the window's title says: the number of mentions when
-there are any, -1 for "(*)" when only other messages are unread, 0 when
-nothing is.
-*/
+// title_key is what the window's title says: the number of mentions when there
+// are any, -1 for "(*)" when only other messages are unread, and 0 when
+// nothing is unread.
 title_key :: proc(unread, mentions: int) -> int {
 	if mentions > 0 {
 		return mentions
@@ -288,8 +274,8 @@ rail_count :: proc(ui: ^UI) -> (n: int) {
 	return
 }
 
-// on_rail is whether `ns` is still one of the rail's (it may have been
-// left since it was noted).
+// on_rail is whether `ns` is still on the rail (it may have been left since it
+// was noted).
 on_rail :: proc(ui: ^UI, ns: ^Net_Session) -> bool {
 	for other in ui.sessions {
 		if other == ns {
@@ -299,36 +285,34 @@ on_rail :: proc(ui: ^UI, ns: ^Net_Session) -> bool {
 	return false
 }
 
-/*
-The server rail: down the left edge, one round icon per session in the
-order joined, with the server's initials on its colour; the one shown
-has a bar beside it, one connecting is dimmed and one that failed is
-grey with red letters (a server's own colour may be red). A server with
-something unread has a short bar beside it, and one with mentions or
-DMs for us their count in red.
-
-Clicking one shows it; dragging it moves it (the joined servers in the
-settings follow the rail's order); right-clicking it (a long press on a
-touch screen) opens its menu: its settings, logging out of it, leaving
-it, and leaving it and forgetting its key. + opens the page that joins
-another (ui_join.odin), which has its session to itself until it's
-logged in.
-*/
+// The server rail runs down the left edge, with one round icon per session in
+// the order joined, showing the server's initials on its colour. The shown
+// server's icon has a bar beside it, a server that is connecting is dimmed,
+// and one that failed is grey with red letters (a server's own colour may be
+// red). A server with something unread has a short bar beside it, and one with
+// mentions or DMs for us shows their count in red.
+//
+// Clicking an icon shows that server, and dragging it moves it (the joined
+// servers in the settings follow the rail's order). Right-clicking it (or a
+// long press on a touch screen) opens its menu: its settings, logging out of
+// it, leaving it, and leaving it and forgetting its key. The + icon opens the
+// page for joining another server (ui_join.odin), which has its session to
+// itself until it is logged in.
 
 UI_Rail :: struct {
-	// The icon whose menu is open, and what the menu is asking to be
-	// sure of.
+	// The icon whose menu is open, and what the menu is asking to
+	// confirm.
 	menu_ns:        ^Net_Session,
 	menu_requested: bool,
 	confirm:        Rail_Confirm,
-	// Picked in the menu, done after the frame (rail_frame, switch_now):
-	// leaving a server, perhaps forgetting its key too; its settings,
-	// once it's shown.
+	// What was picked in the menu, done after the frame (rail_frame,
+	// switch_now): leaving a server, perhaps forgetting its key too, or its
+	// settings once it is shown.
 	leave:          ^Net_Session,
 	forget_key:     bool,
 	settings:       bool,
-	// The icon pressed, and where; it's dragged once the pointer has gone
-	// far enough.
+	// The icon that was pressed, and where. It is dragged once the pointer
+	// has moved far enough.
 	drag:           ^Net_Session,
 	drag_y:         i32,
 	dragging:       bool,
@@ -337,7 +321,7 @@ UI_Rail :: struct {
 Rail_Confirm :: enum {
 	None,
 	Leave,
-	Forget, // and its key
+	Forget, // and forget its key
 }
 
 RAIL_WIDTH :: 56
@@ -351,11 +335,11 @@ RAIL_WINDOW :: "rail"
 RAIL_MENU :: "server menu"
 @(private = "file")
 RAIL_MENU_WIDTH :: 220
-// How far an icon goes with the pointer before it's being dragged.
+// How far an icon moves with the pointer before it counts as being dragged.
 @(private = "file")
 DRAG_START :: 6
 
-// rail_width is how much of the window's left the rail takes.
+// rail_width is how much of the window's left side the rail takes.
 rail_width :: proc(ui: ^UI) -> i32 {
 	return RAIL_WIDTH
 }
@@ -372,8 +356,8 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
-	// With the title bar merged on macOS, the window's buttons sit over
-	// the rail's top left (see ui_titlebar_darwin.odin): start below them.
+	// With the title bar merged on macOS, the window's buttons sit over the
+	// rail's top left (see ui_titlebar_darwin.odin), so start below them.
 	if ui.titlebar_left > 0 && ui.titlebar_height > 0 {
 		mu.layout_row(ctx, {-1}, ui.titlebar_height)
 		mu.layout_next(ctx)
@@ -388,7 +372,7 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 		label, initials: string
 		status: conn.Status
-		// Its picture, if it has one and it's here (ui_server_info.odin).
+		// Its picture, if it has one and it is loaded (ui_server_info.odin).
 		picture: Maybe(mu.Icon)
 		{
 			v := &ns.view
@@ -449,17 +433,15 @@ server_rail :: proc(ui: ^UI, h: i32) {
 	rail_bottom(ui, h)
 }
 
-// The ids of the rail's icons that aren't a server's (rail_icon).
+// The ids of the rail's icons that aren't a server's (see rail_icon).
 @(private = "file")
 RAIL_PLUS :: 1
 @(private = "file")
 RAIL_INBOX :: 2
 
-/*
-inbox_icon is the rail's first icon: the inbox, the DMs of every server
-(ui_buddies.odin), with how many of them are unread on it, as a server's
-mentions are on its own.
-*/
+// inbox_icon is the rail's first icon: the inbox with the DMs of every server
+// (ui_buddies.odin). It shows how many of them are unread, as a server's
+// icon shows its mentions.
 @(private = "file")
 inbox_icon :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -484,19 +466,17 @@ inbox_icon :: proc(ui: ^UI) {
 		theme.unlit,
 	)
 	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
-		// Logged in nowhere, there's nothing to show in it.
+		// Logged in nowhere, so there is nothing to show in it.
 		if ui.session != nil && !ui.session.joining && !ui.join.open {
 			toggle_inbox(ui)
 		}
 	}
 }
 
-/*
-rail_bottom is the bottom of the rail: how the shown server's connection
-is doing (ui_connection.odin), and the settings, opened and closed by the
-same button. Neither is one
-conversation's, nor scrolls away with the rail's servers.
-*/
+// rail_bottom is the bottom of the rail: it shows how the shown server's
+// connection is doing (ui_connection.odin) and has the settings button, which
+// opens and closes the settings. Neither belongs to one conversation, and
+// neither scrolls away with the rail's servers.
 @(private = "file")
 rail_bottom :: proc(ui: ^UI, h: i32) {
 	ctx := &ui.ctx
@@ -516,7 +496,7 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
 		switch {
 		case ui.join.open || ui.join.ns != nil:
-			// Joining a server is given up for them (ui_join.odin).
+			// Joining a server is abandoned for them (ui_join.odin).
 			ui.join.close = true
 			open_settings(ui)
 		case ui.page == .Settings:
@@ -527,11 +507,9 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 	}
 }
 
-/*
-server_tag draws a server's initials (from its `name`) on its colour (from
-its `address`) at the right end of `r`, as a row in the inbox ends; it
-says how much of the row it took.
-*/
+// server_tag draws a server's initials (from its `name`) on its colour (from
+// its `address`) at the right end of `r`, as a row in the inbox ends. It
+// returns how much of the row it took.
 server_tag :: proc(ui: ^UI, r: mu.Rect, name, address: string) -> i32 {
 	ctx := &ui.ctx
 	font := ctx.style.font
@@ -549,12 +527,11 @@ dimmed :: proc(c: mu.Color) -> mu.Color {
 	return {c.r / 2, c.g / 2, c.b / 2, c.a}
 }
 
-/*
-rail_drag follows an icon being dragged: while the button is down, a
-line where it would go; let go, it goes there, and the joined servers
-in the settings are put in the rail's new order. `order` is the rail's
-servers, `middles` the middle of each one's row.
-*/
+// rail_drag follows an icon being dragged: while the button is down, a line
+// shows where the icon would go. When the button is released, the icon moves
+// there, and the joined servers in the settings are put in the rail's new
+// order. `order` is the rail's servers and `middles` the middle of each one's
+// row.
 @(private = "file")
 rail_drag :: proc(ui: ^UI, order: []^Net_Session, middles: []i32) {
 	ctx := &ui.ctx
@@ -576,7 +553,7 @@ rail_drag :: proc(ui: ^UI, order: []^Net_Session, middles: []i32) {
 	if !rl.dragging && abs(y - rl.drag_y) >= DRAG_START {
 		rl.dragging = true
 	}
-	// Where it would go: before the first whose middle is below the
+	// Where it would go: before the first server whose middle is below the
 	// pointer.
 	to := 0
 	for m in middles {
@@ -593,7 +570,7 @@ rail_drag :: proc(ui: ^UI, order: []^Net_Session, middles: []i32) {
 		}
 		return
 	}
-	// Let go.
+	// Released.
 	dragging := rl.dragging
 	rl.drag, rl.dragging = nil, false
 	if !dragging || to == from || to == from + 1 {
@@ -611,7 +588,7 @@ rail_drag :: proc(ui: ^UI, order: []^Net_Session, middles: []i32) {
 	for other, i in moved {
 		addresses[i] = other.server
 	}
-	// One being joined isn't on the rail; it stays after those that are.
+	// A server that is being joined isn't on the rail. It stays after those that are.
 	for other in ui.sessions {
 		if other.joining {
 			append(&moved, other)
@@ -623,9 +600,9 @@ rail_drag :: proc(ui: ^UI, order: []^Net_Session, middles: []i32) {
 	log.infof("ui: moved %s on the rail", ns.server)
 }
 
-// mentions_badge is how many mentions and DMs a server has for us: a
-// red pill on the bottom right of its icon in the row `r`, cut into the
-// icon by a ring of the rail's own colour.
+// mentions_badge draws how many mentions and DMs a server has for us as a red
+// pill at the bottom right of its icon in the row `r`, cut into the icon by a
+// ring in the rail's own colour.
 @(private = "file")
 mentions_badge :: proc(ui: ^UI, r: mu.Rect, count: int) {
 	ctx := &ui.ctx
@@ -634,7 +611,7 @@ mentions_badge :: proc(ui: ^UI, r: mu.Rect, count: int) {
 	h := ctx.text_height(font)
 	tw := ctx.text_width(font, text)
 	w := max(h, tw + 6)
-	// Its bottom right a little past the icon's, on the icon's edge.
+	// Its bottom right is a little past the icon's, on the icon's edge.
 	icon_right := r.x + (r.w + RAIL_ICON) / 2
 	icon_bottom := r.y + 3 + RAIL_ICON
 	b := mu.Rect{icon_right + 2 - w, icon_bottom + 2 - h, w, h}
@@ -643,8 +620,7 @@ mentions_badge :: proc(ui: ^UI, r: mu.Rect, count: int) {
 	mu.draw_text(ctx, font, text, {b.x + (w - tw) / 2, b.y}, {255, 255, 255, 255})
 }
 
-// pill fills `r` with its ends rounded: a disc if it's as wide as it's
-// tall.
+// pill fills `r` with rounded ends: a disc if it is as wide as it is tall.
 @(private = "file")
 pill :: proc(ui: ^UI, r: mu.Rect, color: mu.Color) {
 	if r.w <= r.h {
@@ -656,11 +632,10 @@ pill :: proc(ui: ^UI, r: mu.Rect, color: mu.Color) {
 	mu.draw_rect(&ui.ctx, {r.x + r.h / 2, r.y, r.w - r.h, r.h}, color)
 }
 
-/*
-rail_menu is a server's menu, opened by right-clicking its icon. Leaving
-asks first: it forgets the server's password, and with its key, the
-next connection trusts whatever key it shows. Drawn after the rail.
-*/
+// rail_menu is a server's menu, opened by right-clicking its icon. Leaving
+// asks for confirmation first: it forgets the server's password, and when the
+// key is forgotten too, the next connection trusts whatever key the server
+// shows. It is drawn after the rail.
 rail_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	rl := &ui.rail
@@ -683,7 +658,7 @@ rail_menu :: proc(ui: ^UI) {
 		mu.get_current_container(ctx).open = false
 	}
 	ns := rl.menu_ns
-	// Gone from the rail under the menu.
+	// The server is gone from the rail under the menu.
 	if !on_rail(ui, ns) {
 		close(ctx)
 		return
@@ -738,8 +713,8 @@ rail_menu :: proc(ui: ^UI) {
 	}
 }
 
-// rail_frame does what the rail's menu asked for in the last frame.
-// Between frames.
+// rail_frame does what the rail's menu asked for in the last frame. Call
+// between frames.
 rail_frame :: proc(ui: ^UI) {
 	rl := &ui.rail
 	ns := rl.leave
@@ -759,13 +734,11 @@ rail_frame :: proc(ui: ^UI) {
 	}
 }
 
-/*
-switch_now acts on a click on the rail, after the frame that had it: a
-server's icon shows its channels, even the shown one's from the inbox.
-Or on one in the inbox (ui_buddies.odin) of a DM on another server,
-which is shown behind the inbox with the DM open. Joining a server is
-given up for it.
-*/
+// switch_now acts on a click on the rail after the frame that had it: a
+// server's icon shows its channels (even the shown server's, when coming from
+// the inbox). It also acts on a click on a DM of another server in the inbox
+// (ui_buddies.odin), which is shown behind the inbox with the DM open. Joining
+// a server is abandoned for it.
 switch_now :: proc(ui: ^UI) {
 	if !ui.switching {
 		return
@@ -779,8 +752,8 @@ switch_now :: proc(ui: ^UI) {
 	for ns in ui.sessions {
 		if ns == ui.switch_to {
 			show_session(ui, ns)
-			// Away from the inbox or the settings, even for the one
-			// that's shown already.
+			// Leave the inbox or the settings, even for the server that is
+			// already shown.
 			if dm != 0 {
 				open_conversation(ui, dm)
 			} else {
@@ -794,10 +767,10 @@ switch_now :: proc(ui: ^UI) {
 	}
 }
 
-// rail_icon draws one of the rail's icons, and says where its row is and
-// its control's id. `key` tells it from the others: its session's
-// pointer, or RAIL_PLUS or RAIL_INBOX. With a `picture`, that's drawn
-// instead of the disc and its text, as dim as the text would be.
+// rail_icon draws one of the rail's icons and reports where its row is and its
+// control's id. `key` tells it apart from the others: its session's pointer,
+// or RAIL_PLUS or RAIL_INBOX. With a `picture`, that is drawn instead of the
+// disc and its text, as dim as the text would be.
 @(private = "file")
 rail_icon :: proc(
 	ui: ^UI,
@@ -844,9 +817,9 @@ rail_icon :: proc(
 	return
 }
 
-// server_initials is what a server's icon says: the first letters of
-// the first two words of its name (or address), or the first two
-// letters of its only word.
+// server_initials is what a server's icon shows: the first letters of the
+// first two words of its name (or address), or the first two letters of its
+// only word.
 server_initials :: proc(name: string) -> string {
 	words := make([dynamic]string, context.temp_allocator)
 	start := -1
@@ -883,8 +856,8 @@ server_initials :: proc(name: string) -> string {
 	return utf8.runes_to_string(letters[:], context.temp_allocator)
 }
 
-// server_color is a server's own colour, from its address, as people's
-// are from their ids (avatar_color).
+// server_color is a server's own colour, derived from its address like
+// people's are from their ids (avatar_color).
 server_color :: proc(server: string) -> mu.Color {
 	h: u32 = 2166136261
 	for i in 0 ..< len(server) {

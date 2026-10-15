@@ -10,12 +10,10 @@ import "client:audio"
 import "client:settings"
 import "common:proto"
 
-/*
-Channel_Client is the client's copy of who is here: the snapshot
-(src/common/proto/messages.odin) of every connection that's logged in,
-whose it is, and which voice room it's in. The channels themselves, and
-which of them we look at and talk in, are in convs.odin.
-*/
+// Channel_Client is the client's copy of who is here: the snapshot
+// (src/common/proto/messages.odin) of every logged-in connection, who each one
+// belongs to, and which voice room it is in. The channels themselves, and which
+// of them we look at and talk in, are in convs.odin.
 Channel_Client :: struct {
 	assembler:       proto.State_Assembler,
 
@@ -25,18 +23,18 @@ Channel_Client :: struct {
 	applied_version: u32,
 	users_buf:       [proto.MAX_STATE_USERS]proto.User_Info,
 
-	// What we've switched off for ourselves, for the others to see. Sent
-	// with Sound until a snapshot shows the server has it.
+	// What we have switched off for ourselves, which others can see. It is
+	// sent with Sound until a snapshot shows that the server has it.
 	sound:           proto.User_Flags,
 	last_sound_sent: time.Tick,
 }
 
-// my_num is the server's number for us, or 0 before the first snapshot.
+// my_num returns the server's number for us, or 0 before the first snapshot.
 my_num :: proc(c: ^Voice_Client) -> proto.User_Num {
 	return c.channels.state.your_user if c.channels.have_state else 0
 }
 
-// my_room is the voice room the server has us in, or 0 for none.
+// my_room returns the voice room the server has us in, or 0 if we are in none.
 my_room :: proc(c: ^Voice_Client) -> proto.Room {
 	ch := &c.channels
 	if !ch.have_state {
@@ -46,8 +44,8 @@ my_room :: proc(c: ^Voice_Client) -> proto.Room {
 	return me.room if me != nil else 0
 }
 
-// room_members is who is in a voice room, in the temp allocator; nobody
-// is in room 0.
+// room_members returns who is in a voice room, allocated in the temp allocator.
+// Nobody is in room 0.
 room_members :: proc(c: ^Voice_Client, room: proto.Room) -> []proto.User_Num {
 	members := make([dynamic]proto.User_Num, context.temp_allocator)
 	if room != 0 && c.channels.have_state {
@@ -61,11 +59,9 @@ room_members :: proc(c: ^Voice_Client, room: proto.Room) -> []proto.User_Num {
 	return members[:]
 }
 
-/*
-channels_restart forgets who is here, for a connection the server has
-made anew (see handle_welcome) or logged out: its snapshots count from
-the start again.
-*/
+// channels_restart forgets who is here. It is used when the server has made a
+// new connection for us (see handle_welcome) or logged us out, because the
+// snapshot versions then count from the start again.
 channels_restart :: proc(c: ^Voice_Client) {
 	ch := &c.channels
 	ch.have_state = false
@@ -75,7 +71,8 @@ channels_restart :: proc(c: ^Voice_Client) {
 	ch.last_sound_sent = {}
 }
 
-// sound_flags is what a client muted or deafened like this publishes.
+// sound_flags returns the flags a client publishes when it is muted or deafened
+// as given.
 sound_flags :: proc(muted, deafened: bool) -> (flags: proto.User_Flags) {
 	if muted {
 		flags += {.Muted}
@@ -86,11 +83,9 @@ sound_flags :: proc(muted, deafened: bool) -> (flags: proto.User_Flags) {
 	return
 }
 
-/*
-set_sound tells the others what we've switched off for ourselves. Muting
-somebody else for our own ears is nobody's business but ours and never
-goes out; this is only ever about our own microphone and speakers.
-*/
+// set_sound tells the others what we have switched off for ourselves. Muting
+// somebody else for our own ears is nobody's business but ours and is never
+// sent. This is only about our own microphone and speakers.
 set_sound :: proc(c: ^Voice_Client, flag: proto.User_Flag, on: bool) {
 	if on {
 		c.channels.sound += {flag}
@@ -100,8 +95,8 @@ set_sound :: proc(c: ^Voice_Client, flag: proto.User_Flag, on: bool) {
 	c.channels.last_sound_sent = {}
 }
 
-// drive_sound resends Sound while the server shows different flags.
-// It's idempotent, so repeats and reordering are harmless.
+// drive_sound resends Sound while the server shows different flags. Sending it
+// is idempotent, so repeats and reordering are harmless.
 drive_sound :: proc(c: ^Voice_Client) {
 	ch := &c.channels
 	if !ch.have_state ||
@@ -121,16 +116,16 @@ drive_sound :: proc(c: ^Voice_Client) {
 
 handle_state_message :: proc(c: ^Voice_Client, pt: []byte) {
 	ch := &c.channels
-	// Who is here only means something once we know who everyone is,
-	// which the server says first (auth.odin). A snapshot that gets here
-	// before that is left unacknowledged, and so comes again.
+	// Who is here only means something once we know who everyone is, which the
+	// server tells us first (see auth.odin). A snapshot that arrives before that
+	// is left unacknowledged, so the server sends it again.
 	if c.auth.state != .Done {
 		return
 	}
 	version := proto.state_message_version(pt)
 	if ch.have_state && !proto.serial_newer(version, ch.applied_version) {
-		// The server resends what we already have when our ack got lost,
-		// or after a rekey. Ack again so it stops.
+		// The server resends what we already have when our ack was lost or after a
+		// rekey. Acknowledge it again so the server stops.
 		if version == ch.applied_version {
 			send_state_ack(c, version)
 		}
@@ -150,8 +145,8 @@ handle_state_message :: proc(c: ^Voice_Client, pt: []byte) {
 apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 	ch := &c.channels
 
-	// Validate into scratch space first, so a bad snapshot can't clobber
-	// the one we have.
+	// Validate into scratch space first, so that an invalid snapshot cannot
+	// overwrite the one we have.
 	scratch_users := make([]proto.User_Info, len(ch.users_buf), context.temp_allocator)
 	if _, ok := proto.decode_state(body, scratch_users); !ok {
 		log.warnf("ignoring invalid snapshot v%d from the server", version)
@@ -168,20 +163,21 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 	send_state_ack(c, version)
 	log.debugf("applied snapshot v%d", version)
 
-	// The mixer looks up per-user gains by account.
+	// The mixer looks up the gain of each user by account.
 	clear(&c.voice.user_accounts)
 	for &u in ch.state.users {
 		c.voice.user_accounts[u.num] = u.account
 	}
 
-	// The sounds and the log are about the room our voice is in: who
-	// came into it and who left, ourselves included.
+	// The sounds and the log are about the room our voice is in, meaning who
+	// joined it and who left, including ourselves.
 	room := my_room(c)
 	members := room_members(c, room)
 	switch {
 	case room != old_room:
 		if room != 0 {
-			// One arrival, ours: not one for everybody who was there.
+			// Play only one arrival sound, for ourselves, and not one for everybody who
+			// was already there.
 			audio.voice_notification_play(&c.voice, .Join)
 			log.infof("in the voice of %q with %s", room_name(c, room), members_string(c, members))
 		} else if had_state {
@@ -204,11 +200,9 @@ apply_state :: proc(c: ^Voice_Client, version: u32, body: []byte) {
 	publish_channels(c)
 }
 
-/*
-in_room is whether our voice is going anywhere: we're in a room, and not
-in the middle of changing it. Voice is neither sent nor played
-otherwise.
-*/
+// in_room reports whether our voice is going anywhere, which is when we are in
+// a room and not in the middle of changing it. Otherwise voice is neither sent
+// nor played.
 in_room :: proc(c: ^Voice_Client) -> bool {
 	return my_room(c) != 0 && !c.convs.voice_pending
 }
@@ -231,8 +225,8 @@ members_string :: proc(c: ^Voice_Client, members: []proto.User_Num) -> string {
 		if m == my_num(c) {
 			strings.write_string(&b, " (you)")
 		}
-		// What they've switched off for themselves. Anyone we've muted
-		// for our own ears is our business and isn't shown here.
+		// What they have switched off for themselves. Anyone we muted for our own
+		// ears is our business only and isn't shown here.
 		if u := proto.find_user(&c.channels.state, m); u != nil {
 			switch {
 			case .Deafened in u.flags:
@@ -248,20 +242,18 @@ members_string :: proc(c: ^Voice_Client, members: []proto.User_Num) -> string {
 	return strings.to_string(b)
 }
 
-/*
-Commands for the network loop, from the UI or (headless) from stdin.
-The queue is the only part of a Voice_Client other threads may touch.
-*/
+// Commands for the network loop, sent from the UI or (headless) from stdin.
+// The queue is the only part of a Voice_Client that other threads may touch.
 List_Command :: struct {}
-// With `feedback`, the muted/unmuted sound plays for it. Deafening
-// mutes as well (see set_deafened), and only the deafen plays its sound,
-// so the two don't play one after the other.
+// With `feedback`, the muted/unmuted sound is played. Deafening mutes as well
+// (see set_deafened), and only the deafen sound is played, so the two sounds
+// don't play one after the other.
 Mute_Command :: struct {
 	muted:    bool,
 	feedback: bool,
 }
-// Deafen: stop playing anyone else's voice. Local only; the server and
-// the other clients don't know about it.
+// Deafen: stop playing anyone else's voice. This is local only, and the server
+// and the other clients don't know about it.
 Deafen_Command :: struct {
 	deafened: bool,
 	feedback: bool,
@@ -269,7 +261,7 @@ Deafen_Command :: struct {
 Noise_Command :: struct {
 	enabled: bool,
 }
-// How loud to play an account's connections: 1 is unchanged, 0 is
+// How loud to play an account's connections. 1 means unchanged and 0 means
 // muted.
 Gain_Command :: struct {
 	account: proto.Account_Id,
@@ -278,8 +270,8 @@ Gain_Command :: struct {
 Listen_Command :: struct {
 	on: bool,
 }
-// Try a server that has gone again now, rather than when it's next
-// tried (connection_lost).
+// Try a server that has become unreachable again right now, instead of waiting
+// for the next scheduled attempt (see connection_lost).
 Reconnect_Command :: struct {}
 Quality_Command :: struct {
 	quality: audio.Quality,
@@ -291,21 +283,21 @@ Gate_Command :: struct {
 Notification_Volume_Command :: struct {
 	volume: f32,
 }
-// How to send a shared application (ui_app_audio_native.odin): how loud,
-// and whether muting the microphone mutes it too.
+// How to send a shared application's audio (see ui_app_audio_native.odin): how
+// loud it is, and whether muting the microphone mutes it too.
 App_Audio_Command :: struct {
 	volume:        f32,
 	mute_with_mic: bool,
 }
 
-// gate_command is the voice gate as configured in `s`.
+// gate_command returns the voice gate as configured in `s`.
 gate_command :: proc(s: ^settings.Settings) -> Gate_Command {
 	open := clamp(s.gate_open_db, audio.MIN_LEVEL_DB, 0)
 	return {s.voice_gate, open, clamp(s.gate_close_db, audio.MIN_LEVEL_DB, open)}
 }
 
-// app_audio_command is how a shared application is sent, as configured
-// in `s`.
+// app_audio_command returns how a shared application's audio is sent, as
+// configured in `s`.
 app_audio_command :: proc(s: ^settings.Settings) -> App_Audio_Command {
 	return {volume = settings.app_audio_gain(s), mute_with_mic = s.mute_app_audio_with_mic}
 }
@@ -404,9 +396,12 @@ Command :: union {
 	Call_Hangup_Command,
 	// Purging, see purge.odin.
 	Purge_Command,
-	// Online, away, busy or offline, see activity.odin.
+	// Online, away, busy or offline (see activity.odin).
 	Activity_Command,
 	Idle_Command,
+	// Web Push, see push.odin.
+	Push_Subscribe_Command,
+	Push_Unsubscribe_Command,
 }
 
 Command_Queue :: struct {
@@ -459,6 +454,8 @@ command_destroy :: proc(cmd: Command) {
 	case Setting_Command:
 		delete(v.key)
 		delete(v.value)
+	case Push_Subscribe_Command:
+		delete(v.sub.endpoint)
 	case Role_Set_Command:
 		delete(v.name)
 	case Role_Delete_Command:
@@ -595,13 +592,13 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Status_Command:
 			status_set(c, v.text, v.until)
 		case Avatar_Command:
-			// The client takes the JPEG over, so it isn't freed twice.
+			// The client takes over the JPEG, so it must not be freed twice.
 			avatar_set(c, v.image, v.remove)
 			v.image = {}
 		case Avatar_Want_Command:
 			blob_want(c, {blob = v.blob}, keep = true)
 		case Server_Info_Command:
-			// The client takes the strings and the JPEG over.
+			// The client takes over the strings and the JPEG.
 			server_info_set(c, v)
 			v.name, v.description, v.image = "", "", {}
 		case Server_Memory_Command:
@@ -639,7 +636,11 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Activity_Command:
 			activity_set(c, v.activity)
 		case Idle_Command:
-			idle_set(c, v.idle)
+			idle_set(c, v.idle, v.hidden)
+		case Push_Subscribe_Command:
+			push_subscribe(c, v.sub)
+		case Push_Unsubscribe_Command:
+			push_unsubscribe(c)
 		case Members_Command:
 			members_fetch(c, v.conv if v.conv != 0 else c.convs.viewing)
 		case List_Command:

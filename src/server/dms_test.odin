@@ -5,8 +5,8 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of direct messages, buddies and when people were last here, on
-// the Test_Server of auth_test.odin.
+// Tests of direct messages, buddies and last-seen times, using the Test_Server
+// from auth_test.odin.
 
 // dm_open opens the DM with `other` as `u`.
 @(private = "file")
@@ -30,9 +30,9 @@ dm_open_as :: proc(
 	return
 }
 
-// told_of is the conversation `conv` as a connection's events since the
-// last time say it is, and whether they did, and whether a Msg_New came
-// after it.
+// told_of returns the conversation `conv` as described by a connection's events
+// since the last call, whether the events mentioned it at all, and whether a
+// Msg_New event came after it.
 @(private = "file")
 told_of :: proc(
 	t: ^testing.T,
@@ -97,7 +97,7 @@ test_dm_open :: proc(t: ^testing.T) {
 	alice_phone := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
 
-	// Opened twice, and from both sides: one conversation.
+	// Opening the DM twice, including from the other side, yields one conversation.
 	status, conv := dm_open_as(t, &ts, alice, bob_acc.id)
 	testing.expect_value(t, status, proto.Status.Ok)
 	record, told, _ := told_of(t, &ts, alice, conv)
@@ -110,14 +110,14 @@ test_dm_open :: proc(t: ^testing.T) {
 	testing.expect(t, told, "the opener's other device isn't told of it")
 	_, again := dm_open_as(t, &ts, alice, bob_acc.id)
 	testing.expect_value(t, again, conv)
-	// Nothing said yet: nothing for bob to see.
+	// Nothing has been sent yet, so bob doesn't see the conversation.
 	_, told, _ = told_of(t, &ts, bob, conv)
 	testing.expect(t, !told, "bob was told of an empty DM")
 	_, from_bob := dm_open_as(t, &ts, bob, alice_acc.id)
 	testing.expect_value(t, from_bob, conv)
 	testing.expect_value(t, len(s.convs.dms), 1)
 
-	// Not with oneself, nor with nobody.
+	// A DM with oneself or with a nonexistent account is rejected.
 	status, _ = dm_open_as(t, &ts, alice, alice_acc.id)
 	testing.expect_value(t, status, proto.Status.Invalid)
 	status, _ = dm_open_as(t, &ts, alice, 999)
@@ -147,15 +147,15 @@ test_dm_messages :: proc(t: ^testing.T) {
 		_, conv = dm_open_as(t, &ts, bob, alice_acc.id)
 		ts_events(t, &ts, alice)
 
-		// The first message is when alice hears of it: the conversation,
-		// then the message, which is unread.
+		// Alice hears of the DM with its first message: first the conversation,
+		// then the unread message.
 		status, first := post(t, &ts, bob, conv, "hello", 1)
 		testing.expect_value(t, status, proto.Status.Ok)
 		record, told, message_after := told_of(t, &ts, alice, conv)
 		testing.expect(t, told, "alice wasn't told of the DM with its first message")
 		testing.expect(t, message_after, "the message didn't come after the conversation")
 		testing.expect_value(t, record.unread, 0)
-		testing.expect_value(t, record.last_time, 0) // as it was before the message
+		testing.expect_value(t, record.last_time, 0) // still the value from before the message
 		testing.expect_value(
 			t,
 			conv_record(&ts.s.convs, ts.s.convs.by_id[conv], alice_acc.id).unread,
@@ -165,8 +165,8 @@ test_dm_messages :: proc(t: ^testing.T) {
 		testing.expect_value(t, status, proto.Status.Ok)
 		_, told, _ = told_of(t, &ts, alice, conv)
 		testing.expect(t, !told, "told of the DM again")
-		// When the newest was posted, for putting DMs from many servers
-		// in order.
+		// The time of the newest message, which is used to sort DMs from
+		// many servers.
 		last_time = ts.s.convs.by_id[conv].last_time
 		testing.expect(t, last_time != 0, "no time for the last message")
 		testing.expect_value(
@@ -175,7 +175,7 @@ test_dm_messages :: proc(t: ^testing.T) {
 			last_time,
 		)
 
-		// Nobody else may read or write it, or know it's there.
+		// Nobody else can read it, write to it or even know that it exists.
 		status, _ = post(t, &ts, carol, conv, "me too", 3)
 		testing.expect_value(t, status, proto.Status.Not_Found)
 		status, _ = ts_ask(t, &ts, carol, .Msg_History, history_body(conv))
@@ -186,7 +186,7 @@ test_dm_messages :: proc(t: ^testing.T) {
 		member_buf: [4]u8
 		status, _ = ts_ask(t, &ts, carol, .Conv_Members, proto.encode_conv_id(&member_buf, conv))
 		testing.expect_value(t, status, proto.Status.Not_Found)
-		// Nor is it a channel.
+		// It can't be subscribed to like a channel either.
 		sub_buf: [proto.CONV_SUBSCRIBE_SIZE]u8
 		status, _ = ts_ask(
 			t,
@@ -210,14 +210,14 @@ test_dm_messages :: proc(t: ^testing.T) {
 		}
 	}
 
-	// After a restart, both of them are told of it when they log in, and
-	// it's still theirs alone.
+	// After a restart, both participants are told about the DM when they log
+	// in, and it is still private to them.
 	ts: Test_Server
 	ts_open(t, &ts, path)
 	defer ts_close(&ts)
 	testing.expect_value(t, len(ts.s.convs.dms), 1)
-	// The devices are known, and logged in as they connect, in the
-	// order they first did.
+	// The devices connect and are logged in automatically, in the order they
+	// first connected.
 	for name in ([]string{"alice", "bob"}) {
 		u := ts_connect(&ts)
 		testing.expect(t, u.account != nil && u.account.username == name)
@@ -253,13 +253,13 @@ test_last_seen :: proc(t: ^testing.T) {
 	bob := logged_in(t, &ts, "bob")
 	carol := logged_in(t, &ts, "carol")
 
-	// Here: anyone may know.
+	// The account is online, so anyone may know when it was last seen.
 	here := last_seen_of(t, &ts, carol, alice_acc.id)
 	testing.expect(t, here > 0 && here != proto.LAST_SEEN_HIDDEN)
-	// Never here: nobody has exchanged messages with them either.
+	// The account was never online and has no shared messages with anyone.
 	dave := ts_account(t, &ts, "dave", "a password")
 	testing.expect_value(t, last_seen_of(t, &ts, alice, dave.id), proto.LAST_SEEN_HIDDEN)
-	// No such account.
+	// The account doesn't exist.
 	testing.expect_value(t, last_seen_of(t, &ts, alice, 999), proto.Unix_Ms(0))
 
 	_, conv := dm_open_as(t, &ts, bob, alice_acc.id)
@@ -268,16 +268,16 @@ test_last_seen :: proc(t: ^testing.T) {
 	left := proto.Unix_Ms(alice_acc.last_seen)
 	testing.expect(t, left > 0)
 
-	// Only bob has written: alice's last time isn't his to know yet.
+	// Only bob has written so far, so he can't know when alice was last seen yet.
 	testing.expect_value(t, last_seen_of(t, &ts, bob, alice_acc.id), proto.LAST_SEEN_HIDDEN)
 	alice = logged_in(t, &ts, "alice")
 	post(t, &ts, alice, conv, "yes", 2)
 	ts_disconnect(&ts, alice)
 	left = proto.Unix_Ms(alice_acc.last_seen)
 	testing.expect_value(t, last_seen_of(t, &ts, bob, alice_acc.id), left)
-	// And it never was carol's.
+	// Carol never exchanged messages with alice, so she can't know it either.
 	testing.expect_value(t, last_seen_of(t, &ts, carol, alice_acc.id), proto.LAST_SEEN_HIDDEN)
-	// Nor bob's to carol.
+	// The same goes for bob's last-seen time and carol.
 	ts_disconnect(&ts, bob)
 	testing.expect_value(t, last_seen_of(t, &ts, carol, bob_acc.id), proto.LAST_SEEN_HIDDEN)
 
@@ -320,7 +320,7 @@ test_buddies :: proc(t: ^testing.T) {
 		phone := logged_in(t, &ts, "alice")
 		bob := logged_in(t, &ts, "bob")
 
-		// Every device of the account hears; bob doesn't.
+		// Every device of the account is notified, but bob isn't.
 		status, _ := ts_ask(t, &ts, laptop, .Buddy_Set, buddy_body(bob_id, true))
 		testing.expect_value(t, status, proto.Status.Ok)
 		ts_ask(t, &ts, laptop, .Buddy_Set, buddy_body(carol_id, true))
@@ -334,7 +334,7 @@ test_buddies :: proc(t: ^testing.T) {
 			}
 		}
 		testing.expect_value(t, len(buddy_events(t, &ts, bob)), 0)
-		// Again changes nothing, and tells nobody.
+		// Setting the same value again changes nothing and notifies nobody.
 		status, _ = ts_ask(t, &ts, laptop, .Buddy_Set, buddy_body(bob_id, true))
 		testing.expect_value(t, status, proto.Status.Ok)
 		testing.expect_value(t, len(buddy_events(t, &ts, phone)), 0)
@@ -346,7 +346,7 @@ test_buddies :: proc(t: ^testing.T) {
 		testing.expect_value(t, status, proto.Status.Not_Found)
 	}
 
-	// Kept: a device logging in after a restart is told.
+	// The buddies are persisted, so a device that logs in after a restart is told.
 	ts: Test_Server
 	ts_open(t, &ts, path)
 	defer ts_close(&ts)
@@ -399,7 +399,7 @@ test_file_offers :: proc(t: ^testing.T) {
 		return
 	}
 
-	// Only what may be sent, only in a DM.
+	// Only allowed files can be offered, and only in a DM.
 	status, _ := offer(t, &ts, alice, conv, "setup.exe", 100, 1)
 	testing.expect_value(t, status, proto.Status.Invalid)
 	status, _ = offer(t, &ts, alice, conv, "clip.mp4", 0, 2)
@@ -429,7 +429,7 @@ test_file_offers :: proc(t: ^testing.T) {
 		testing.expect_value(t, page[0].file_size, u64(12345))
 	}
 
-	// Only bob's devices may take it up; it's on alice's.
+	// Only bob's devices can accept the offer because the file is on alice's.
 	o, ok := file_offer_for(s, bob, id)
 	testing.expect(t, ok)
 	testing.expect_value(t, o.sender, alice.key)
@@ -441,7 +441,7 @@ test_file_offers :: proc(t: ^testing.T) {
 	_, ok = file_offer_for(s, alice, id)
 	testing.expect(t, !ok, "the sender could accept its own offer")
 
-	// The file goes with the device it's on.
+	// The offer is withdrawn when the device holding the file disconnects.
 	ts_disconnect(&ts, alice)
 	_, ok = file_offer_for(s, bob, id)
 	testing.expect(t, !ok, "an offer outlived its sender")

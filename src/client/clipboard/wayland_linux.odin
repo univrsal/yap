@@ -7,28 +7,26 @@ import "core:strings"
 import "core:sys/linux"
 import "core:time"
 
-/*
-Wayland: the clipboard (the "selection") reaches clients through a
-wl_data_device, and only while they have keyboard focus, so we use GLFW's
-own connection, whose window is the one focused. Our wl_data_device lives
-next to GLFW's, on an event queue of our own: GLFW's event loop reads our
-events off the socket and queues them, and we handle them when asked for
-an image. The compositor tells every data device about the selection
-when the window gains focus and when the selection changes; each offer
-lists its MIME types first.
-
-To read, we ask the offer to write one of its types into a pipe
-(wl_data_offer.receive) and read the other end until the source closes it.
-
-libwayland-client is loaded at runtime (GLFW has it loaded already when
-running on Wayland). Requests go through wl_proxy_marshal_array_flags,
-which is what the inline helpers in wayland-client-protocol.h call.
-
-Tested on KWin. GLFW has a data device of its own (for text), so the
-compositor makes two offers for the same clipboard; weston serves only
-the newest one it made, which is GLFW's, and then hands us nothing. We
-report that as "no image", so pasting text still works there.
-*/
+// Wayland: the clipboard (the "selection") reaches clients through a
+// wl_data_device, and only while they have keyboard focus, so we use GLFW's
+// own connection, whose window is the one focused. Our wl_data_device lives
+// next to GLFW's, on an event queue of our own: GLFW's event loop reads our
+// events off the socket and queues them, and we handle them when asked for
+// an image. The compositor tells every data device about the selection
+// when the window gains focus and when the selection changes; each offer
+// lists its MIME types first.
+//
+// To read, we ask the offer to write one of its types into a pipe
+// (wl_data_offer.receive) and read the other end until the source closes it.
+//
+// libwayland-client is loaded at runtime (GLFW has it loaded already when
+// running on Wayland). Requests go through wl_proxy_marshal_array_flags,
+// which is what the inline helpers in wayland-client-protocol.h call.
+//
+// Tested on KWin. GLFW has a data device of its own (for text), so the
+// compositor makes two offers for the same clipboard; weston serves only
+// the newest one it made, which is GLFW's, and then hands us nothing. We
+// report that as "no image", so pasting text still works there.
 
 @(private = "file")
 Argument :: struct #raw_union {

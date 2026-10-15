@@ -1,34 +1,33 @@
 package proto
 
-/*
-Buddies, and when people were last here: what the buddy screen is made
-of, next to an account's direct messages (DM conversations, convs.odin).
+// Buddies, and when people were last here: the data that the buddy screen
+// shows next to an account's direct messages (DM conversations, convs.odin).
+//
+// 	Buddy_Set       [account u32][on u8]
+// 	Last_Seen       [count u16][account u32]...
+// 	            ->  [count u16]([account u32][time u64])...
+//
+// 	Buddy_Changed   [account u32][on u8]: one of our buddies was added or removed
+//
+// An account's buddies are private to it. They are the people it keeps in its
+// list, regardless of whether they are online. Adding someone doesn't ask or
+// notify them. The server stores the list, so it is the same on every device.
+// Each of the account's connections is told about every buddy when it logs in
+// (Buddy_Changed, between Sync_Begin and Sync_End), and about every change
+// afterwards.
+//
+// Last_Seen asks when accounts were last online, in Unix milliseconds. For an
+// account that is online right now, this is the current time (anyone can see
+// that anyway in the snapshot). For an account that is offline, the time is
+// only revealed to people who have exchanged messages with it, which means
+// that both have posted in the DM between them. For anyone else the answer is
+// LAST_SEEN_HIDDEN, and for an account that doesn't exist it is 0.
 
-	Buddy_Set       [account u32][on u8]
-	Last_Seen       [count u16][account u32]...
-	            ->  [count u16]([account u32][time u64])...
-
-	Buddy_Changed   [account u32][on u8]: one of ours, added or taken off
-
-An account's buddies are its own business: the people it keeps in its
-list, whether they're here or not. Adding someone doesn't ask them or
-tell them. The server keeps the list, so it's the same on every device:
-each of the account's connections is told of every buddy when it logs
-in (Buddy_Changed, between Sync_Begin and Sync_End), and of every change
-after.
-
-Last_Seen asks when accounts were last here, in Unix milliseconds: now
-for one that's here (anyone can see that anyway, in the snapshot), and
-otherwise only to people who have exchanged messages with it, both
-having posted in the DM between them. For anyone else it's
-LAST_SEEN_HIDDEN, and 0 for an account there isn't.
-*/
-
-// The answer about someone whose last time here isn't shared with the
-// one asking.
+// The answer for an account whose last time online is not shared with the
+// asker.
 LAST_SEEN_HIDDEN :: max(Unix_Ms)
 
-// How many accounts one Last_Seen asks about.
+// The maximum number of accounts that one Last_Seen can ask about.
 MAX_LAST_SEEN :: 256
 
 BUDDY_SET_SIZE :: 4 + 1
@@ -53,8 +52,8 @@ decode_buddy :: proc(body: []u8) -> (account: Account_Id, on: bool, ok: bool) {
 	return account, on, !r.overflow && account != 0
 }
 
-// encode_last_seen_ask writes a Last_Seen request: as many of `accounts`
-// as one may ask about.
+// encode_last_seen_ask writes a Last_Seen request for as many of `accounts` as
+// one request may ask about.
 encode_last_seen_ask :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
 	w := Writer {
 		buf = out,
@@ -86,7 +85,7 @@ decode_last_seen_ask :: proc(body: []u8, buf: []Account_Id) -> (accounts: []Acco
 
 Last_Seen_Entry :: struct {
 	account: Account_Id,
-	time:    Unix_Ms, // or 0, or LAST_SEEN_HIDDEN
+	time:    Unix_Ms, // or 0 if the account doesn't exist, or LAST_SEEN_HIDDEN
 }
 
 // encode_last_seen_answer writes a Last_Seen response.

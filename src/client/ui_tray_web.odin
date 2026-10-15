@@ -9,12 +9,10 @@ foreign _ {
 	yap_notify :: proc(title, body: cstring) -> b32 ---
 }
 
-/*
-A page has no system tray to put an icon in, and its window is a tab:
-closing it closes the page. So in a web build there is no tray, the
-window is never hidden, and the settings that decide what closing and
-minimizing do aren't shown (see ui_settings.odin).
-*/
+// A page has no system tray to put an icon in, and its window is a tab:
+// closing it closes the page. So in a web build there is no tray, the window
+// is never hidden, and the settings that decide what closing and minimizing do
+// aren't shown (see ui_settings.odin).
 
 Tray :: struct {}
 
@@ -25,9 +23,9 @@ hide_to_tray :: proc(ui: ^UI) {}
 show_from_tray :: proc(ui: ^UI) {}
 on_wayland :: proc() -> bool {return false}
 
-// tray_notify is a browser notification here: there's no tray, but the
-// browser has its own, once the user has allowed it (see web/shell.c).
-// Clicking it only brings the tab up; it doesn't go to `target`.
+// tray_notify is a browser notification here: there is no tray, but the
+// browser has its own notifications, once the user has allowed them (see
+// web/shell.c). Clicking one only brings the tab up. It doesn't go to `target`.
 tray_notify :: proc(ui: ^UI, title, body: string, target := Notice_Target{}) -> bool {
 	return bool(
 		yap_notify(

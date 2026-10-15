@@ -10,31 +10,29 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-Managing the server, for those who may (conn/roles.odin). Everything is
-offered only to whoever has the permission it takes; the server checks
-again.
-
-  - A channel's settings, in the Channels window: its name, topic and
-    place in the list, and deleting it (Manage_Channels); and for a
-    private one, taking people out of it.
-  - Adding people to a channel, in the members window (Invite, and being
-    in it).
-  - The roles, in their own window (ui_roles.odin).
-  - Accounts, in the settings: their roles (Manage_Roles), and disabling
-    or deleting them (Manage_Accounts).
-  - Purging, in the settings (Purge): a conversation's messages, or
-    every one's, or only their pictures, from before so many days ago,
-    once it's been confirmed.
-*/
+// Server management for users who have the required permissions
+// (see conn/roles.odin). Every control is only shown to users who have the
+// permission it needs, and the server checks the permission again.
+//
+//   - A channel's settings in the Channels window: its name, topic and
+//     position in the list, and deleting it (Manage_Channels). For a private
+//     channel, also removing members.
+//   - Adding people to a channel in the members window (needs Invite and
+//     membership of the channel).
+//   - The roles, in their own window (ui_roles.odin).
+//   - Accounts in the settings: their roles (Manage_Roles) and disabling or
+//     deleting them (Manage_Accounts).
+//   - Purging in the settings (Purge): the messages of one conversation or of
+//     all of them, or only their pictures, older than a given number of days.
+//     This needs a confirmation.
 
 UI_Manage :: struct {
-	// The channel whose settings are open in the Channels window, and
-	// its name and topic as they're being edited.
+	// The channel whose settings are open in the Channels window, plus its
+	// name and topic as they are currently being edited.
 	conv:           proto.Conv_Id,
 	loaded:         proto.Conv_Id,
-	// What the server said they were when they were loaded: loaded again
-	// when that changes.
+	// The name and topic the server had when they were loaded. They are
+	// loaded again when these change.
 	loaded_name:    string, // owned
 	loaded_topic:   string, // owned
 	name_buf:       [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
@@ -43,15 +41,15 @@ UI_Manage :: struct {
 	topic_len:      int,
 	confirm:        bool, // Delete was pressed once
 	private:        bool, // making a private channel
-	// The members window's list of people to add, open.
+	// Whether the members window's list of people to add is open.
 	adding:         bool,
-	// The account whose roles are being chosen (0: none), and which.
+	// The account whose roles are being edited (0: none), and its chosen roles.
 	account:        proto.Account_Id,
 	account_roles:  [dynamic]proto.Role_Id,
 	// The account Delete... was pressed for (0: none).
 	delete_account: proto.Account_Id,
-	// The purge being set up: which conversation (0: all), how many days
-	// back, only pictures, and Purge pressed once.
+	// The purge being set up: the conversation (0: all), how many days back,
+	// whether only pictures are purged, and whether Purge was pressed once.
 	purge_conv:     proto.Conv_Id,
 	purge_days_buf: [6]u8,
 	purge_days_len: int,
@@ -74,11 +72,9 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 	}
 }
 
-/*
-channel_settings is the Channels window's part for the channel picked
-with Manage: its name, topic and place, deleting it, and for a private
-one, taking people out. Call with the View locked.
-*/
+// channel_settings is the Channels window's section for the channel picked
+// with Manage: its name, topic and position, deleting it and, for a private
+// channel, removing members. Call with the View locked.
 channel_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -156,8 +152,8 @@ channel_settings :: proc(ui: ^UI) {
 		)
 	}
 	if up || down {
-		// Every channel of ours numbered again in its new order (the home
-		// channel stays first whatever its number).
+		// Renumber all our channels in the new order (the home channel
+		// stays first regardless of its number).
 		order := make([dynamic]proto.Conv_Id, 0, len(v.channels), context.temp_allocator)
 		for c in v.channels {
 			append(&order, c.id)
@@ -180,7 +176,7 @@ channel_settings :: proc(ui: ^UI) {
 		}
 	}
 
-	// Who is in a private one, and taking them out.
+	// The members of a private channel, and removing them.
 	if !ch.private {
 		return
 	}
@@ -204,11 +200,9 @@ channel_settings :: proc(ui: ^UI) {
 	}
 }
 
-/*
-add_people is the members window's list of those who could be added to
-the conversation, for whoever may: everyone who isn't in it yet. Call
-with the View locked.
-*/
+// add_people is the members window's list of accounts that could be added to
+// the conversation: everyone who isn't a member yet. Only shown to users who
+// may add people. Call with the View locked.
 add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -247,8 +241,8 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	}
 }
 
-// below_us is whether an account may do no more than we may, so that we
-// may manage it: what its roles allow is all ours too.
+// below_us is whether we may manage an account: it may not have any
+// permission that we don't have ourselves.
 below_us :: proc(v: ^conn.View, acc: conn.View_Account) -> bool {
 	if .Owner in acc.flags {
 		return false
@@ -272,12 +266,10 @@ is_channel :: proc(v: ^conn.View, conv: proto.Conv_Id) -> bool {
 	return false
 }
 
-/*
-account_manage is what the accounts list offers for one account, beside
-its password: choosing its roles (Manage_Roles), and disabling or
-deleting it (Manage_Accounts). Call with the View locked, in a row with
-three cells for it.
-*/
+// account_manage is what the accounts list offers for one account, next to
+// its password: choosing its roles (Manage_Roles) and disabling or deleting
+// it (Manage_Accounts). Call with the View locked, in a row with three cells
+// for it.
 account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -311,8 +303,8 @@ account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	}
 }
 
-// account_delete_confirm asks whether the account picked with Delete...
-// is to be deleted. Call with the View locked, after its row.
+// account_delete_confirm asks for confirmation to delete the account picked
+// with Delete... Call with the View locked, after its row.
 account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	ctx := &ui.ctx
 	m := &ui.manage
@@ -342,8 +334,8 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 	}
 }
 
-// account_roles_editor is the roles of the account picked with Roles...,
-// to tick and save. Call with the View locked, after its row.
+// account_roles_editor lets the user tick and save the roles of the account
+// picked with Roles... Call with the View locked, after its row.
 account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -398,12 +390,11 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 	}
 }
 
-/*
-purge_settings is the settings' part for purging, for whoever has
-Purge: which conversation (stepped through with the arrows), how old,
-messages or only pictures. Nothing goes before a second press, which
-says what will. Call with the View locked.
-*/
+// purge_settings is the settings' section for purging, for users who have
+// Purge. It lets them pick a conversation (stepped through with the arrows),
+// the age, and whether to purge messages or only pictures. Nothing is purged
+// before a second press, which says what will be removed. Call with the View
+// locked.
 purge_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -412,7 +403,7 @@ purge_settings :: proc(ui: ^UI) {
 		m.purge_days_len = copy(m.purge_days_buf[:], "90")
 	}
 
-	// What there is to pick from: all, our channels, our DMs.
+	// What can be picked: all conversations, our channels or our DMs.
 	choices := make([dynamic]proto.Conv_Id, context.temp_allocator)
 	append(&choices, 0)
 	for ch in v.channels {

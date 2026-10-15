@@ -10,53 +10,49 @@ import "client:conn"
 import "client:render"
 import "common:proto"
 
-/*
-The voice panel, at the foot of the channel list and the buddy list (in
-a narrow window, across the foot of the screen):
+// The voice panel is at the foot of the channel list and the buddy list (in a
+// narrow window, across the foot of the screen):
+//
+//	Voice connected            (or: In a call, Calling..., Incoming call)
+//	# Lobby  12:34             (or whom the call is with)
+//	[music] [share]  [ Leave ] (Hang up; Accept Decline; Cancel)
+//	---------------------------------------------------
+//	(pic) alice  in a meeting               [mic] [speaker]
+//
+// The top part is only shown while our voice is somewhere (a channel's room, or
+// a call on this device) or a call is ringing. The bottom part is always shown:
+// who we are, with our status (clicking it sets it), and mute and deafen.
+//
+// Voice is in one server at a time, and it stays there when another server is
+// shown. Then the panel has an extra part above the rest for it, which shows
+// where it is with the server's name, a button that shows that server, and the
+// way out. It does the same for a call that is ringing in another server:
+//
+//	Voice connected on Bravo
+//	# Lobby  12:34
+//	[ Show ]  [ Leave ]
 
-	Voice connected            (or: In a call, Calling..., Incoming call)
-	# Lobby  12:34             (or whom the call is with)
-	[music] [share]  [ Leave ] (Hang up; Accept Decline; Cancel)
-	---------------------------------------------------
-	(pic) alice  in a meeting               [mic] [speaker]
-
-The top part only while our voice is somewhere (a channel's room, or a
-call on this device) or a call rings; the bottom always: who we are,
-with our status (clicking it sets it), and mute and deafen.
-
-Voice is in one server at a time, and it stays there when another is
-shown. Then, over the rest, the panel has a part for it - where it is,
-with the server's name, a button that shows that server, and the way
-out - and the same for a call ringing in another server:
-
-	Voice connected on Bravo
-	# Lobby  12:34
-	[ Show ]  [ Leave ]
-*/
-
-/*
-Voice_Elsewhere is our voice, or a call ringing, in a server that isn't
-shown, as of this frame. It's worked out before the layout
-(voice_elsewhere_update), with that server's View locked in turn, so
-that the panel's height and what it draws agree without it.
-*/
+// Voice_Elsewhere is our voice, or a call that is ringing, in a server that
+// isn't shown, as of this frame. It is worked out before the layout
+// (voice_elsewhere_update), with that server's View locked in turn, so that the
+// panel's height and what it draws agree without needing that lock.
 Voice_Elsewhere :: struct {
 	ns:     ^Net_Session, // nil: nothing elsewhere
 	state:  Panel_State,
-	// In the temp allocator.
+	// These strings are in the temp allocator.
 	server: string,
 	where_: string,
 	since:  time.Tick,
 }
 
 UI_Voice_Panel :: struct {
-	// Where our voice was last frame, and since when: for how long.
+	// Where our voice was in the last frame, and since when, to work out for how long.
 	room:  proto.Room,
 	since: time.Tick,
 }
 
 Panel_State :: enum {
-	Idle, // nowhere: only the bottom part
+	Idle, // nowhere: only the bottom part is shown
 	Voice, // in a channel's room
 	Call, // in a call, on this device
 	Ringing_In,
@@ -81,13 +77,11 @@ panel_state :: proc(v: ^conn.View) -> Panel_State {
 	return .Idle
 }
 
-/*
-call_peer_row is the line of a call about whom it's with: their
-picture, ringed while they're heard; their name; the mic or speaker
-crossed out if they're muted or deafened; while they share their
-screen, a button for watching it (there's no row of theirs in a
-channel's list to click); and how long it has lasted.
-*/
+// call_peer_row is the line of a call about whom it is with: their picture,
+// ringed while they are heard, their name, the mic or speaker crossed out if
+// they are muted or deafened, a button for watching their screen while they
+// share it (they have no row in a channel's list to click), and how long the
+// call has lasted.
 @(private = "file")
 call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	ctx := &ui.ctx
@@ -122,7 +116,7 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	talking := num != 0 && conn.is_speaking(v, num) && !peer.muted
 	avatar_ringed(ui, v.call.peer, {cell.x, cell.y + (cell.h - slot) / 2, slot, slot}, talking)
 	mu.label(ctx, call_peer_name(v))
-	// Only what's worth saying: muted or deafened, not "can be heard".
+	// Only what is worth saying: muted or deafened, not "can be heard".
 	if num != 0 && (peer.muted || peer.deafened) {
 		status_icon(ctx, icon, icon_color)
 		if ctx.hover_root == mu.get_current_container(ctx) && mu.mouse_over(ctx, ctx.last_rect) {
@@ -148,14 +142,12 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	with_text_color(ctx, theme.dim, length, label_proc)
 }
 
-/*
-A picture in the panel, with the room its ring takes round it
-(avatar_ringed): the picture a little taller than a line of text, so
-its initial fits, and the slot that much more. The rows with a picture
-are as tall as the slot, which is taller than other rows (picture_extra),
-so the ring stays clear of the rows above and below; and a gap after it
-before the name.
-*/
+// A picture in the panel, with the room that its ring takes around it
+// (avatar_ringed): the picture is a little taller than a line of text so that
+// its initial fits, and the slot is that much larger. The rows with a picture
+// are as tall as the slot, which is taller than other rows (picture_extra), so
+// the ring stays clear of the rows above and below, and there is a gap after it
+// before the name.
 @(private = "file")
 picture_slot :: proc(ctx: ^mu.Context) -> i32 {
 	return ctx.text_height(ctx.style.font) + 6 + 2 * RING_SPACE
@@ -172,11 +164,9 @@ row_height :: proc(ctx: ^mu.Context) -> i32 {
 	return ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing
 }
 
-/*
-voice_elsewhere_update notes whether our voice, or a call ringing, is in
-a server other than the one shown (UI.voice_other). Before the layout,
-with no View locked.
-*/
+// voice_elsewhere_update records whether our voice, or a call that is ringing,
+// is in a server other than the one shown (UI.voice_other). Call before the
+// layout, with no View locked.
 voice_elsewhere_update :: proc(ui: ^UI) {
 	ui.voice_other = {}
 	for ns in ui.sessions {
@@ -201,8 +191,8 @@ voice_elsewhere_update :: proc(ui: ^UI) {
 		case .Idle, .Elsewhere:
 		case .Voice:
 			e.where_ = fmt.tprintf("# %s", voice_room_name(v))
-			// How long, as the panel there counts it (its stash's, which
-			// the UI thread keeps).
+			// How long, as the panel there counts it (its stash's, which the
+			// UI thread keeps).
 			p := &ns.stash.voice_panel
 			if room := proto.Room(v.my_room); p.room != room {
 				p.room, p.since = room, time.tick_now()
@@ -219,7 +209,7 @@ voice_elsewhere_update :: proc(ui: ^UI) {
 	}
 }
 
-// voice_panel_height is how tall the panel is this frame. Call with the
+// voice_panel_height is how tall the panel is in this frame. Call with the
 // View locked.
 voice_panel_height :: proc(ui: ^UI) -> i32 {
 	ctx := &ui.ctx
@@ -242,17 +232,15 @@ voice_panel_height :: proc(ui: ^UI) -> i32 {
 	return rows * row_height(ctx) + pictures * picture_extra(ctx) + 2 * ctx.style.padding
 }
 
-/*
-voice_panel draws the panel in the current layout cell (a column's next
-row, as tall as voice_panel_height). Call with the View locked.
-*/
+// voice_panel draws the panel in the current layout cell (a column's next row,
+// as tall as voice_panel_height). Call with the View locked.
 voice_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	p := &ui.voice_panel
 	state := panel_state(v)
 
-	// How long we've been where we are.
+	// How long we have been where we are.
 	room :=
 		proto.Room(v.my_room) if state == .Voice else (proto.call_room(v.call.id) if state == .Call else 0)
 	if room != p.room {
@@ -333,7 +321,7 @@ voice_panel :: proc(ui: ^UI) {
 		case .Voice, .Call:
 			// What may be shared there, then the way out.
 			widths := make([dynamic]i32, context.temp_allocator)
-			// Once started, it can always be stopped.
+			// Once started, sharing can always be stopped.
 			can_share :=
 				conn.video_can_share() && (ui.view.video_link || conn.video_share_state() != .Off)
 			can_music := app_audio_available(ui)
@@ -411,11 +399,9 @@ voice_panel :: proc(ui: ^UI) {
 	}
 }
 
-/*
-answer_buttons are a call ringing in's Accept and Decline, a row of
-their own, half each: a green receiver picked up and a red one put
-down. `id_name` tells this pair from another.
-*/
+// answer_buttons are the Accept and Decline buttons for a call that is ringing,
+// in a row of their own, half each: a green receiver picked up and a red one
+// put down. `id_name` tells this pair from another.
 @(private = "file")
 answer_buttons :: proc(ui: ^UI, id_name: string) -> (accept, decline: bool) {
 	ctx := &ui.ctx
@@ -428,12 +414,10 @@ answer_buttons :: proc(ui: ^UI, id_name: string) -> (accept, decline: bool) {
 	return
 }
 
-/*
-voice_elsewhere_part is the panel's part for voice, or a call ringing,
-in a server that isn't shown: what and where, with the server's name;
-Show, which shows that server; and the way out, or for a call ringing
-in, Accept (which shows it too) and Decline.
-*/
+// voice_elsewhere_part is the panel's part for voice, or a call that is
+// ringing, in a server that isn't shown: what and where, with the server's
+// name, Show (which shows that server), and the way out or, for a call ringing
+// in, Accept (which shows the server too) and Decline.
 @(private = "file")
 voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	ctx := &ui.ctx
@@ -495,8 +479,8 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	}
 }
 
-// call_length_shown is how long it's been since `since`, as a call's
-// length, with a frame asked for when the next second ticks over.
+// call_length_shown is how long it has been since `since`, as a call's length,
+// requesting a frame for when the next second ticks over.
 @(private = "file")
 call_length_shown :: proc(ui: ^UI, since: time.Tick) -> string {
 	d := time.tick_since(since)

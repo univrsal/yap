@@ -9,91 +9,91 @@ import "core:time"
 import "client:platform"
 import "common:proto"
 
-/*
-Our account on the server (src/common/proto/accounts.odin): logging in,
-the accounts the server tells us about, and what we can ask it to do
-with them.
-
-A connection starts out not logged in, unless the server knows this
-device, which the Welcome says. Until it is, the server takes nothing
-from us but a login, so everything else waits: no snapshots come, and
-what we send is dropped.
-
-Once logged in, the server sends the directory: every account, and then
-Self, which says which of them we are and what we may do. That's also
-what finishes a login here (Login_State.Done).
-
-Names come from the directory now: a connection in the snapshot says
-which account it is, and the account says what it's called
-(display_name).
-*/
+// Our account on the server (src/common/proto/accounts.odin): logging in, the
+// accounts the server tells us about, and what we can ask it to do with them.
+//
+// A connection starts out not logged in, unless the server already knows this
+// device, which the Welcome message tells us. Until we are logged in, the server
+// accepts nothing from us except a login, so everything else waits. No
+// snapshots arrive, and anything we send is dropped.
+//
+// Once we are logged in, the server sends the directory: every account,
+// followed by Self, which says which of the accounts is ours and what we are
+// allowed to do. Self is also what finishes a login here (Login_State.Done).
+//
+// Names come from the directory: a connection in the snapshot says which
+// account it belongs to, and the account has the name (see display_name).
 
 Login_State :: enum {
-	Unknown, // not connected far enough to know
-	Needed, // the server doesn't know this device: log in
-	Working, // asked, or logged in and waiting to be told who we are
+	Unknown, // not connected far enough to know yet
+	Needed, // the server doesn't know this device, so a login is needed
+	Working, // a login was requested, or we are logged in and waiting to be told who we are
 	Done,
 }
 
-// An account, as the server told us about it.
+// An account as the server told us about it.
 Dir_Account :: struct {
 	username:     string, // owned
 	display:      string, // owned
 	flags:        proto.Account_Flags,
-	status:       string, // owned; "" for none (profiles.odin)
+	status:       string, // owned; "" if there is none (see profiles.odin)
 	status_until: proto.Unix_Ms,
 	avatar:       proto.Blob_Id,
-	roles:        []proto.Role_Id, // owned; besides everyone's (roles.odin)
-	activity:     proto.Activity, // as everyone sees it (activity.odin)
+	roles:        []proto.Role_Id, // owned; excluding the everyone role (see roles.odin)
+	activity:     proto.Activity, // as everyone sees it (see activity.odin)
 }
 
 Auth_Client :: struct {
 	state:       Login_State,
-	error:       string, // why we aren't logged in, if there's a why; owned
+	error:       string, // the reason why we are not logged in, if there is one; owned
 	me:          proto.Account_Id,
 	permissions: proto.Permissions,
-	flags:       proto.Account_Flags, // ours, as in Self
-	// What we chose to be, as in Self; and whether our user is idle, as
-	// last told the server (activity.odin).
+	flags:       proto.Account_Flags, // ours, as reported in Self
+	// The activity we chose, as reported in Self, and whether our user is idle
+	// and the client is out of sight, as last reported to the server (see
+	// activity.odin).
 	chosen:      proto.Activity,
 	idle:        bool,
-	email:       string, // ours, as in Self; owned
-	// While our address isn't verified: the code a mail to the server
-	// has to have (owned), and when the account goes without one.
+	hidden:      bool,
+	email:       string, // ours, as reported in Self; owned
+	// While our email address is not verified: the code that a mail to the
+	// server has to contain (owned), and when the account is removed if it
+	// wasn't verified.
 	verify_code: string,
 	verify_by:   proto.Unix_Ms,
 	accounts:    map[proto.Account_Id]Dir_Account,
-	roles:       map[proto.Role_Id]Dir_Role, // roles.odin
-	// What to log in with as soon as the server wants it: given when
-	// the client was started, or the last that worked. Owned.
+	roles:       map[proto.Role_Id]Dir_Role, // see roles.odin
+	// What to log in with as soon as the server asks for it. These are given
+	// when the client is started, or are the last ones that worked. Owned.
 	username:    string,
 	password:    string,
 	device:      string,
-	// Our account's devices, as of the last time we asked.
+	// Our account's devices as of the last time we asked.
 	devices:     [dynamic]Dir_Device,
-	// A bot's token on its way to the server (bots.odin); owned.
+	// A bot's token that is on its way to the server (see bots.odin); owned.
 	bot_token:   string,
 }
 
 Dir_Device :: struct {
 	key:       [proto.KEY_SIZE]u8,
 	name:      string, // owned
-	agent:     string, // owned; "" if not told
+	agent:     string, // owned; "" if the server didn't tell us
 	created:   u64,
 	last_seen: u64,
 	flags:     proto.Device_Flags,
 }
 
-// What the UI sees of all this.
+// What the UI sees of the login.
 View_Login :: struct {
 	state:       Login_State,
 	error:       string, // owned
 	must_change: bool, // logged in, but the password has to be changed first
 	username:    string, // ours, once logged in; owned
-	email:       string, // ours, "" for none; owned
-	// Our address has yet to be verified (proto/verify.odin): nothing
-	// else until it is. The code its mail needs (owned), and when the
-	// account is deleted without it (0: it isn't).
+	email:       string, // ours, "" if there is none; owned
+	// Our email address has not been verified yet (see proto/verify.odin), and
+	// nothing else works until it is. The code that the mail has to contain
+	// (owned), and when the account is deleted if it isn't verified (0 means
+	// it isn't deleted).
 	unverified:  bool,
 	verify_code: string,
 	verify_by:   proto.Unix_Ms,
@@ -103,30 +103,30 @@ View_Account :: struct {
 	username:     string, // owned
 	display:      string, // owned
 	flags:        proto.Account_Flags,
-	status:       string, // owned; "" for none
+	status:       string, // owned; "" if there is none
 	status_until: proto.Unix_Ms,
-	avatar:       proto.Blob_Id, // 0 for none
-	roles:        []proto.Role_Id, // owned; besides everyone's
+	avatar:       proto.Blob_Id, // 0 if there is none
+	roles:        []proto.Role_Id, // owned; excluding the everyone role
 	activity:     proto.Activity, // as everyone sees it
 }
 
-// What came of the last thing asked about accounts, for the UI to show.
+// The result of the last request about accounts, for the UI to show.
 View_Notice :: struct {
 	text:  string, // owned
 	ok:    bool,
-	count: int, // bumped with each, so the UI can tell a new one
-	at:    time.Tick, // when it came
+	count: int, // incremented with each notice, so the UI can tell when there is a new one
+	at:    time.Tick, // when the notice arrived
 }
 
-// Log in with a username and password; `device` is what to call this
-// device in the account's list.
+// Logs in with a username and password. `device` is the name this device gets
+// in the account's device list.
 Login_Command :: struct {
 	username: string, // owned by the command
 	password: string, // owned by the command
 	device:   string, // owned by the command
 }
-// Make an account (when the server takes registrations) and log in to
-// it, as Login_Command; email and invite are "" for none.
+// Creates an account (if the server accepts registrations) and logs in to it,
+// like Login_Command. `email` and `invite` are "" if there is none.
 Register_Command :: struct {
 	username: string, // owned by the command
 	password: string, // owned by the command
@@ -134,37 +134,38 @@ Register_Command :: struct {
 	email:    string, // owned by the command
 	invite:   string, // owned by the command
 }
-// Log this device out: it has to log in again.
+// Logs this device out, so it has to log in again.
 Logout_Command :: struct {}
 Password_Command :: struct {
 	old:           string, // owned by the command
 	new:           string, // owned by the command
 	revoke_others: bool,
 }
-// Change what our account is called.
+// Changes the display name of our account.
 Display_Command :: struct {
 	name: string, // owned by the command
 }
-// Change our account's email address; "" for none.
+// Changes our account's email address; "" removes it.
 Email_Command :: struct {
 	email: string, // owned by the command
 }
-// Ask for our account's devices, or with an account another's (for
-// who may: a bot's tokens, bots.odin).
+// Requests our account's devices, or those of another account if one is given.
+// This is only for users with permission to do so, for example to list a bot's
+// tokens (see bots.odin).
 Devices_Command :: struct {
 	account: proto.Account_Id,
 }
 Revoke_Command :: struct {
 	key: [proto.KEY_SIZE]u8,
 }
-// Make an account (for who may).
+// Creates an account (only for users with permission to do so).
 Account_Create_Command :: struct {
 	username: string, // owned by the command
 	password: string, // owned by the command
 	display:  string, // owned by the command
 }
-// Give an account a new password (for who may). By id, or by username
-// if the id is 0.
+// Gives an account a new password (only for users with permission to do so).
+// The account is identified by id, or by username if the id is 0.
 Account_Password_Command :: struct {
 	account:  proto.Account_Id,
 	username: string, // owned by the command
@@ -212,7 +213,7 @@ devices_clear :: proc(a: ^Auth_Client) {
 @(private = "file")
 forget_password :: proc(a: ^Auth_Client) {
 	if a.password != "" {
-		// Not left lying in freed memory.
+		// Don't leave the password behind in freed memory.
 		raw := transmute([]u8)a.password
 		for &b in raw {
 			b = 0
@@ -222,14 +223,14 @@ forget_password :: proc(a: ^Auth_Client) {
 	a.password = ""
 }
 
-// auth_credentials says what to log in with when the server asks for
-// it, before the connection is opened.
+// auth_credentials sets what to log in with when the server asks for it. It is
+// called before the connection is opened.
 auth_credentials :: proc(c: ^Voice_Client, username, password, device: string) {
 	a := &c.auth
 	delete(a.username)
 	forget_password(a)
 	delete(a.device)
-	// As the server will take it, where it can be one at all.
+	// Normalize it the way the server expects it, if it can be a valid username at all.
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
 	if clean, ok := proto.username_clean(username, &name_buf); ok {
 		a.username = strings.clone(clean)
@@ -249,12 +250,11 @@ set_state :: proc(c: ^Voice_Client, state: Login_State, error := "") {
 	publish_login(c)
 }
 
-/*
-auth_restart is a new connection's start (handle_welcome): what we knew
-of the accounts went with the old one. If the server knows this device
-it has logged us in, and the directory is on its way; if not, we log in
-with what we were given, or wait to be given something.
-*/
+// auth_restart is called at the start of a new connection (see handle_welcome),
+// because what we knew about the accounts is gone together with the old
+// connection. If the server knows this device, it has logged us in and the
+// directory is on its way. Otherwise we log in with the credentials we were
+// given, or wait to be given some.
 auth_restart :: proc(c: ^Voice_Client, logged_in: bool) {
 	a := &c.auth
 	accounts_clear(a)
@@ -272,11 +272,9 @@ auth_restart :: proc(c: ^Voice_Client, logged_in: bool) {
 	}
 }
 
-/*
-auth_register makes an account and logs in to it. What it was made with
-is kept like a login's, so that if the connection starts over before the
-answer comes, the new one logs in to it.
-*/
+// auth_register creates an account and logs in to it. The credentials it was
+// created with are kept like those of a login, so that if the connection
+// restarts before the answer arrives, the new connection logs in with them.
 auth_register :: proc(c: ^Voice_Client, cmd: Register_Command) {
 	if c.auth.state != .Needed {
 		return
@@ -297,7 +295,7 @@ auth_register :: proc(c: ^Voice_Client, cmd: Register_Command) {
 	)
 	if body == nil {
 		forget_password(a)
-		set_state(c, .Needed, "Some field is too long.")
+		set_state(c, .Needed, "One of the fields is too long.")
 		return
 	}
 	set_state(c, .Working)
@@ -316,14 +314,18 @@ register_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u
 		return
 	case .Rate_Limited:
 		forget_password(a)
-		set_state(c, .Needed, "Too many registrations at once. Wait a little and try again.")
+		set_state(c, .Needed, "Too many registration attempts. Wait a moment and try again.")
 		return
 	}
 	forget_password(a)
 	reason, known := proto.decode_register_refusal(body)
 	if !known {
 		log.warnf("%s: registering failed: %v", c.server_addr, status)
-		set_state(c, .Needed, fmt.tprintf("The server couldn't register you (%v).", status))
+		set_state(
+			c,
+			.Needed,
+			fmt.tprintf("The server failed to register your account (%v).", status),
+		)
 		return
 	}
 	set_state(c, .Needed, register_refusal_text(reason))
@@ -332,31 +334,31 @@ register_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u
 register_refusal_text :: proc(reason: proto.Register_Refusal) -> string {
 	switch reason {
 	case .Closed:
-		return "This server doesn't take registrations."
+		return "This server does not accept registrations."
 	case .Username:
 		return fmt.tprintf(
-			"A username is %d to %d of a-z 0-9 _ . -",
+			"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
 			proto.MIN_USERNAME_SIZE,
 			proto.MAX_USERNAME_SIZE,
 		)
 	case .Username_Taken:
-		return "That username is taken."
+		return "That username is already taken."
 	case .Password:
 		return fmt.tprintf(
-			"A password is %d to %d characters.",
+			"A password must be %d to %d characters long.",
 			proto.MIN_ACCOUNT_PASSWORD,
 			proto.MAX_ACCOUNT_PASSWORD,
 		)
 	case .Email_Missing:
-		return "This server asks for an email address."
+		return "This server requires an email address."
 	case .Email:
-		return "That's not a valid email address."
+		return "That is not a valid email address."
 	case .Email_Taken:
-		return "Another account has that email address."
+		return "Another account already uses that email address."
 	case .Invite_Missing:
-		return "This server asks for an invite code."
+		return "This server requires an invite code."
 	case .Invite:
-		return "That invite code isn't good: unknown, used up, expired or revoked."
+		return "That invite code is invalid. It is unknown, used up, expired or revoked."
 	}
 	return ""
 }
@@ -377,7 +379,7 @@ login_send :: proc(c: ^Voice_Client) {
 	body := proto.encode_auth_login(buf[:], a.username, a.password, a.device, platform.agent())
 	if body == nil {
 		forget_password(a)
-		set_state(c, .Needed, "That username or password is too long.")
+		set_state(c, .Needed, "The username or password is too long.")
 		return
 	}
 	set_state(c, .Working)
@@ -389,32 +391,32 @@ login_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	a := &c.auth
 	#partial switch status {
 	case .Ok:
-		// Self, which the server sends next, says the rest. The password
-		// has done its part: from here on the device's key is enough.
+		// Self, which the server sends next, tells us the rest. The password has
+		// done its part, and from here on the device's key is enough.
 		log.infof("logged in to %s as %s", c.server_addr, a.username)
 		forget_password(a)
 	case .Reset:
-	// The connection started over; auth_restart takes it from there.
+	// The connection restarted, and auth_restart takes it from there.
 	case .Wrong_Password:
 		log.warnf("%s: wrong username or password", c.server_addr)
 		forget_password(a)
 		set_state(c, .Needed, "Wrong username or password.")
 	case .Rate_Limited:
 		forget_password(a)
-		set_state(c, .Needed, "Too many attempts. Wait a little and try again.")
+		set_state(c, .Needed, "Too many login attempts. Wait a moment and try again.")
 	case .Denied:
 		forget_password(a)
-		set_state(c, .Needed, "That account is disabled.")
+		set_state(c, .Needed, "This account is disabled.")
 	case:
 		log.warnf("%s: login failed: %v", c.server_addr, status)
 		forget_password(a)
-		set_state(c, .Needed, fmt.tprintf("The server couldn't log you in (%v).", status))
+		set_state(c, .Needed, fmt.tprintf("The server failed to log you in (%v).", status))
 	}
 }
 
-// auth_logged_out puts us back to where a login is needed, as the
-// server has: there's no channel we're in any more, and nothing to show
-// of the server but the login.
+// auth_logged_out puts us back into the state where a login is needed, as it is
+// on the server. We are in no channel anymore, and there is nothing to show of
+// the server except the login.
 @(private = "file")
 auth_logged_out :: proc(c: ^Voice_Client, why: string) {
 	a := &c.auth
@@ -448,7 +450,8 @@ auth_logout :: proc(c: ^Voice_Client) {
 	)
 }
 
-// auth_event takes an event about accounts; false if `op` isn't one.
+// auth_event handles an event about accounts. It returns false if `op` is not
+// an account event.
 auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	a := &c.auth
 	#partial switch op {
@@ -461,7 +464,7 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	case .Account_Changed:
 		record, ok := proto.decode_account(body)
 		if !ok {
-			log.warn("the server sent an account we can't read")
+			log.warn("the server sent an account that could not be decoded")
 			break
 		}
 		_, acc, _, _ := map_entry(&a.accounts, record.id)
@@ -481,7 +484,7 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 			activity     = record.activity,
 		}
 		if c.view == nil && a.state == .Done && was_status != record.status {
-			// Headless: statuses, as they change.
+			// Headless: log the statuses as they change.
 			if record.status == "" {
 				log.infof("[status] %s has no status", record.display)
 			} else {
@@ -516,13 +519,13 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		}
 		if a.state != .Done {
 			set_state(c, .Done)
-			// A new connection starts out not idle.
-			if a.idle {
-				idle_set(c, true)
+			// A new connection starts out as not idle.
+			if a.idle || a.hidden {
+				idle_set(c, a.idle, a.hidden)
 			}
 			if .Must_Change in flags && c.view == nil {
-				// The UI asks for a new one; headless, it's up to whoever
-				// is typing.
+				// The UI asks for a new password. When headless, it is up to
+				// whoever is typing.
 				log.warn(
 					"the password was set by an admin and has to be changed (/passwd <old> <new>)",
 				)
@@ -538,16 +541,16 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		convs_synced(c)
 	case .Logged_Out:
 		reason := proto.Logout_Reason(body[0]) if len(body) > 0 else proto.Logout_Reason{}
-		why := "You were logged out."
+		why := "You have been logged out."
 		#partial switch reason {
 		case .Revoked:
-			why = "This device was logged out from another one."
+			why = "This device was logged out from another device."
 		case .Password_Changed:
-			why = "The account's password was changed. Log in again."
+			why = "The account's password was changed. Please log in again."
 		case .Disabled:
-			why = "The account was disabled."
+			why = "The account has been disabled."
 		case .Deleted:
-			why = "The account was deleted."
+			why = "The account has been deleted."
 		}
 		log.warnf("%s: %s", c.server_addr, why)
 		auth_logged_out(c, why)
@@ -557,8 +560,8 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	return true
 }
 
-// account_display is what an account is called, or "" if we haven't
-// been told of it.
+// account_display returns the display name of an account, or "" if the server
+// has not told us about it.
 account_display :: proc(c: ^Voice_Client, id: proto.Account_Id) -> string {
 	if acc, ok := c.auth.accounts[id]; ok {
 		return acc.display
@@ -566,7 +569,8 @@ account_display :: proc(c: ^Voice_Client, id: proto.Account_Id) -> string {
 	return ""
 }
 
-// account_by_username is the account with this username, or 0.
+// account_by_username returns the account with this username, or 0 if there is
+// none.
 account_by_username :: proc(c: ^Voice_Client, username: string) -> proto.Account_Id {
 	buf: [proto.MAX_USERNAME_SIZE]u8
 	clean, ok := proto.username_clean(username, &buf)
@@ -584,26 +588,26 @@ account_by_username :: proc(c: ^Voice_Client, username: string) -> proto.Account
 status_text :: proc(status: proto.Status) -> string {
 	#partial switch status {
 	case .Denied:
-		return "You aren't allowed to do that."
+		return "You don't have permission to do that."
 	case .Wrong_Password:
-		return "That's not the current password."
+		return "The current password is incorrect."
 	case .Invalid:
-		return "The server wouldn't take that."
+		return "The server rejected the request because it contains invalid data."
 	case .Conflict:
-		return "That username is taken."
+		return "That username is already taken."
 	case .Not_Found:
-		return "There's no such account."
+		return "That account does not exist."
 	case .Rate_Limited:
-		return "Too much at once. Wait a little and try again."
+		return "Too many requests. Wait a moment and try again."
 	case .Reset:
 		return "The connection was lost before the server answered."
 	case .Unauthenticated:
-		return "You aren't logged in."
+		return "You are not logged in."
 	}
-	return fmt.tprintf("The server couldn't do that (%v).", status)
+	return fmt.tprintf("The server failed to complete the request (%v).", status)
 }
 
-// notify tells the UI (and the log) what came of something asked.
+// notify tells the UI (and the log) the result of a request.
 notify :: proc(c: ^Voice_Client, ok: bool, text: string) {
 	if ok {
 		log.info(text)
@@ -615,8 +619,8 @@ notify :: proc(c: ^Voice_Client, ok: bool, text: string) {
 	}
 }
 
-// view_notice puts a notice up for the UI, as notify does; the UI's own
-// (a file it won't attach) come this way too.
+// view_notice puts up a notice for the UI, like notify does. The UI's own
+// notices (for example a file it refuses to attach) also come this way.
 view_notice :: proc(v: ^View, ok: bool, text: string) {
 	view_write(v)
 	delete(v.notice.text)
@@ -632,7 +636,7 @@ auth_password :: proc(c: ^Voice_Client, cmd: Password_Command) {
 			c,
 			false,
 			fmt.tprintf(
-				"A password has to be %d to %d characters.",
+				"A password must be %d to %d characters long.",
 				proto.MIN_ACCOUNT_PASSWORD,
 				proto.MAX_ACCOUNT_PASSWORD,
 			),
@@ -646,8 +650,8 @@ auth_password :: proc(c: ^Voice_Client, cmd: Password_Command) {
 		.Password_Change,
 		body,
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-			// What we'd log in with on a new connection is no good any more;
-			// but this device stays logged in, so it isn't needed either.
+			// What we would log in with on a new connection is no longer valid, but
+			// this device stays logged in, so it isn't needed anyway.
 			forget_password(&c.auth)
 			if status == .Ok {
 				notify(c, true, "Password changed.")
@@ -662,7 +666,7 @@ auth_display :: proc(c: ^Voice_Client, name: string) {
 	name_buf: [proto.MAX_NAME_SIZE]u8
 	clean := proto.sanitize_name(name, &name_buf)
 	if clean == "" {
-		notify(c, false, "A name can't be empty.")
+		notify(c, false, "The name cannot be empty.")
 		return
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -685,7 +689,7 @@ auth_email :: proc(c: ^Voice_Client, raw: string) {
 		ok: bool
 		email, ok = proto.email_clean(raw, &buf)
 		if !ok {
-			notify(c, false, "That's no email address.")
+			notify(c, false, "That is not a valid email address.")
 			return
 		}
 		email = strings.clone(email, context.temp_allocator)
@@ -700,9 +704,9 @@ auth_email :: proc(c: ^Voice_Client, raw: string) {
 			case .Ok:
 				notify(c, true, "Email address saved.")
 			case .Conflict:
-				notify(c, false, "Another account has that email address.")
+				notify(c, false, "Another account already uses that email address.")
 			case .Invalid:
-				notify(c, false, "That's not a valid email address.")
+				notify(c, false, "That is not a valid email address.")
 			case:
 				notify(c, false, status_text(status))
 			}
@@ -764,7 +768,7 @@ auth_devices :: proc(c: ^Voice_Client, account: proto.Account_Id = 0) {
 
 auth_revoke :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
-	// Whose list it's from, to ask for that one again after.
+	// Whose list it is from, so that list can be requested again afterwards.
 	whose := proto.Account_Id(0)
 	if v := c.view; v != nil {
 		view_write(v)
@@ -801,7 +805,7 @@ auth_account_create :: proc(c: ^Voice_Client, cmd: Account_Create_Command) {
 			c,
 			false,
 			fmt.tprintf(
-				"A username is %d to %d of a-z, 0-9, _ . and -",
+				"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
 				proto.MIN_USERNAME_SIZE,
 				proto.MAX_USERNAME_SIZE,
 			),
@@ -812,7 +816,7 @@ auth_account_create :: proc(c: ^Voice_Client, cmd: Account_Create_Command) {
 			c,
 			false,
 			fmt.tprintf(
-				"A password has to be %d to %d characters.",
+				"A password must be %d to %d characters long.",
 				proto.MIN_ACCOUNT_PASSWORD,
 				proto.MAX_ACCOUNT_PASSWORD,
 			),
@@ -827,7 +831,7 @@ auth_account_create :: proc(c: ^Voice_Client, cmd: Account_Create_Command) {
 		body,
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			if status == .Ok {
-				notify(c, true, "Account made. Its password has to be changed on first login.")
+				notify(c, true, "Account created. Its password has to be changed on first login.")
 			} else {
 				notify(c, false, status_text(status))
 			}
@@ -842,14 +846,14 @@ auth_account_password :: proc(c: ^Voice_Client, cmd: Account_Password_Command) {
 	}
 	switch {
 	case account == 0:
-		notify(c, false, "There's no such account.")
+		notify(c, false, "That account does not exist.")
 		return
 	case !proto.account_password_ok(cmd.password):
 		notify(
 			c,
 			false,
 			fmt.tprintf(
-				"A password has to be %d to %d characters.",
+				"A password must be %d to %d characters long.",
 				proto.MIN_ACCOUNT_PASSWORD,
 				proto.MAX_ACCOUNT_PASSWORD,
 			),
@@ -867,7 +871,7 @@ auth_account_password :: proc(c: ^Voice_Client, cmd: Account_Password_Command) {
 				notify(
 					c,
 					true,
-					"Password set. Their devices were logged out, and it has to be changed on first login.",
+					"Password set. Their devices were logged out, and the password has to be changed on first login.",
 				)
 			} else {
 				notify(c, false, status_text(status))
@@ -904,8 +908,8 @@ publish_login :: proc(c: ^Voice_Client) {
 	v.my_activity = a.chosen
 }
 
-// publish_directory hands the UI the accounts as we know them now, and
-// the names that go with the connections, which come from them.
+// publish_directory hands the UI the accounts as we know them now, and the names
+// that go with the connections, which come from the accounts.
 publish_directory :: proc(c: ^Voice_Client) {
 	if v := c.view; v != nil {
 		a := &c.auth

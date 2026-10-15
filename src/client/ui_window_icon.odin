@@ -5,17 +5,15 @@ import glfw "client:wglfw"
 import stbi "client:wstbi"
 import log "common:wlog"
 
-/*
-The window's icon, for the title bar and the taskbar, from
-assets/icon.png. Only Windows and X11 take one from the program: on
-macOS a window has no icon of its own (the Dock shows the app's), and on
-Wayland the desktop finds it through the app's .desktop entry - GLFW
-reports both as errors, so they're left alone. A web build has the
-page's favicon instead (web/build.sh).
-
-On Windows the .exe carries icon.ico as well (see build.bat), which
-Explorer shows and GLFW uses until this replaces it.
-*/
+// The window's icon, for the title bar and the taskbar, comes from
+// assets/icon.png. Only Windows and X11 take one from the program. On macOS a
+// window has no icon of its own (the Dock shows the app's), and on Wayland the
+// desktop finds it through the app's .desktop entry. GLFW reports both as
+// errors, so they are left alone. A web build uses the page's favicon instead
+// (web/build.sh).
+//
+// On Windows the .exe also carries icon.ico (see build.bat), which Explorer
+// shows and GLFW uses until this replaces it.
 
 // Also what install_self installs as the icon on Linux and macOS.
 ICON_PNG :: #load("assets/icon.png")
@@ -35,16 +33,14 @@ set_window_icon :: proc(window: glfw.WindowHandle) {
 		return
 	}
 	defer stbi.image_free(pixels)
-	// GLFW copies the pixels, so they needn't outlive the call.
+	// GLFW copies the pixels, so they don't need to outlive the call.
 	glfw.SetWindowIcon(window, {{width = w, height = h, pixels = pixels}})
 }
 
-/*
-window_icon_rgba is the window's icon at `side` pixels square, RGBA, for
-the tray (ui_tray.odin): each pixel the average of the ones it covers,
-weighted by how opaque they are, so the edges don't go dark. nil if
-icon.png won't decode. The caller owns the result.
-*/
+// window_icon_rgba is the window's icon at `side` pixels square, RGBA, for the
+// tray (ui_tray.odin). Each pixel is the average of the ones it covers,
+// weighted by how opaque they are, so that the edges don't go dark. It is nil
+// if icon.png can't be decoded. The caller owns the result.
 window_icon_rgba :: proc(side: int, allocator := context.allocator) -> []u8 {
 	png := ICON_PNG
 	w, h, comp: i32

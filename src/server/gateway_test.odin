@@ -17,29 +17,29 @@ import "common:http"
 import "common:lite"
 import "common:proto"
 
-/*
-Tests of the bot API's gateway (common/gateway), HTTP to the gateway to
-the server and back, in one process: the server's packet handling and
-syncs on a loopback socket (lite_test.odin's lt_ procedures), turned on
-the test's thread; the gateway on its own; its HTTP side behind a
-listener of the test's; and a bot's requests from another thread, which
-waits on each answer while the test's thread keeps the server going.
-*/
+// Tests of the bot API's gateway (common/gateway). They cover the whole path
+// from HTTP to the gateway, to the server and back, all in one process:
+// - The server's packet handling and syncs run on a loopback socket (the lt_
+//   procedures from lite_test.odin) and are driven by the test's thread.
+// - The gateway runs on its own threads, and its HTTP side sits behind a
+//   listener that is owned by the test.
+// - A bot's requests are made from another thread, which waits for each answer
+//   while the test's thread keeps the server running.
 
-// One HTTP request a test makes, and what came back.
+// Call is an HTTP request that a test makes, together with the response.
 @(private = "file")
 Call :: struct {
 	method: string,
 	path:   string,
-	token:  string, // "" for none
+	token:  string, // "" for no token
 	body:   string,
 	header: string, // more header lines, each ending in CRLF
-	// The answer.
+	// The response.
 	status: int,
 	reply:  string, // owned
 	allow:  string, // owned
-	type:   string, // owned: the Content-Type
-	retry:  int, // Retry-After
+	type:   string, // owned, the Content-Type header
+	retry:  int, // the Retry-After header
 }
 
 @(private = "file")
@@ -49,15 +49,15 @@ Harness :: struct {
 	port:     int,
 	accepter: ^thread.Thread,
 	stopping: bool, // atomic
-	// The HTTP threads, joined before the test ends: one still freeing
-	// itself as the test's allocator is reset would corrupt it.
+	// The HTTP threads are joined before the test ends. A thread that is still
+	// freeing memory when the test's allocator is reset would corrupt it.
 	mutex:    sync.Mutex,
 	threads:  [dynamic]^thread.Thread,
-	serving:  int, // atomic: HTTP threads still going
+	serving:  int, // atomic, the number of HTTP threads that are still running
 }
 
-// gt_open starts a gateway for the test's server, and a listener for
-// its HTTP side.
+// gt_open starts a gateway for the test's server and a listener for its
+// HTTP side.
 @(private = "file")
 gt_open :: proc(
 	t: ^testing.T,
@@ -79,11 +79,9 @@ gt_open :: proc(
 	h.accepter = thread.create_and_start_with_poly_data(h, gt_accept, init_context = context)
 }
 
-/*
-gt_settle keeps the server going for a while, by the clock: long enough
-for what it sends to have reached the gateway's thread, which looks
-every millisecond, or every 15 or so on Windows.
-*/
+// gt_settle keeps the server running for a fixed amount of time. This is long
+// enough for what the server sends to reach the gateway's thread, which checks
+// every millisecond (or about every 15 ms on Windows).
 @(private = "file")
 gt_settle :: proc(ts: ^Test_Server) {
 	start := time.tick_now()
@@ -92,13 +90,14 @@ gt_settle :: proc(ts: ^Test_Server) {
 	}
 }
 
-// gt_close stops what gt_open started, once the HTTP threads are done.
+// gt_close stops everything that gt_open started, after the HTTP threads are
+// done.
 @(private = "file")
 gt_close :: proc(ts: ^Test_Server, h: ^Harness) {
 	sync.atomic_store(&h.stopping, true)
-	// Closing the listener doesn't wake an accept() blocked on another
-	// thread on Linux, so the accepter is woken by a connection, which it
-	// sees is too late and drops.
+	// On Linux, closing the listener doesn't wake up an accept() that is
+	// blocked on another thread. Instead the accepter is woken by a new
+	// connection, which it recognizes as too late and drops.
 	if wake, err := net.dial_tcp(net.Endpoint{net.IP4_Loopback, h.port}); err == nil {
 		net.close(wake)
 	}
@@ -117,7 +116,7 @@ gt_close :: proc(ts: ^Test_Server, h: ^Harness) {
 	}
 	delete(h.threads)
 	gateway.stop(h.g)
-	// What the connections said as they went.
+	// Handle whatever the connections sent while they were closing.
 	lt_settle(ts)
 }
 
@@ -144,19 +143,19 @@ gt_accept :: proc(h: ^Harness) {
 	}
 }
 
-// A run of calls, made in order on one connection by another thread.
+// Script is a sequence of calls that another thread makes in order on one
+// connection.
 @(private = "file")
 Script :: struct {
 	port:  int,
 	calls: []Call,
 	done:  bool, // atomic
-	ok:    bool, // every call got an answer
+	ok:    bool, // whether every call got a response
 }
 
-/*
-gt_calls makes `calls` in order, on one kept-alive connection, while the
-server is kept going here. It's false if one of them got no answer.
-*/
+// gt_calls makes `calls` in order on one keep-alive connection while this
+// thread keeps the server running. It returns false if one of the calls got no
+// response.
 @(private = "file")
 gt_calls :: proc(t: ^testing.T, ts: ^Test_Server, h: ^Harness, calls: []Call) -> bool {
 	sc := Script {
@@ -201,7 +200,7 @@ gt_script :: proc(sc: ^Script) {
 		if !ok {
 			return
 		}
-		// "HTTP/1.1 200 OK", then the headers.
+		// The status line ("HTTP/1.1 200 OK") followed by the headers.
 		lines := strings.split_lines(head, context.temp_allocator)
 		fields := strings.fields(lines[0], context.temp_allocator)
 		call.status, _ = strconv.parse_int(fields[1])
@@ -238,7 +237,7 @@ calls_destroy :: proc(calls: []Call) {
 	}
 }
 
-// error_of is what an error reply calls its error.
+// error_of returns the error code from an error response.
 @(private = "file")
 error_of :: proc(reply: string) -> string {
 	e: gateway.Error_JSON
@@ -248,8 +247,9 @@ error_of :: proc(reply: string) -> string {
 	return e.error
 }
 
-// gt_token is a bot's token (owned; the test's temp allocations go with
-// every turn of the server): its account made by `admin`.
+// gt_token returns the token of a bot whose account was created by `admin`.
+// The token is owned by the caller because the temp allocations of the test
+// are freed on every turn of the server.
 @(private = "file")
 gt_token :: proc(
 	t: ^testing.T,
@@ -314,7 +314,7 @@ test_gateway_token :: proc(t: ^testing.T) {
 		return
 	}
 
-	// The token is all it takes.
+	// The token alone is enough to authenticate.
 	testing.expect_value(t, calls[0].status, 200)
 	me: gateway.Me_JSON
 	testing.expect_value(
@@ -332,11 +332,11 @@ test_gateway_token :: proc(t: ^testing.T) {
 	testing.expect(t, me.bot)
 	testing.expect(t, !me.owner)
 	testing.expect_value(t, me.activity, "online")
-	// The second on the connection there is already.
+	// The second request reuses the existing connection.
 	testing.expect_value(t, calls[1].status, 200)
 	testing.expect_value(t, calls[1].reply, calls[0].reply)
 
-	// What the server says of itself, to anyone.
+	// The server information is available to anyone.
 	testing.expect_value(t, calls[2].status, 200)
 	info: gateway.Server_JSON
 	testing.expect_value(
@@ -346,12 +346,12 @@ test_gateway_token :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, !info.registration.open)
 
-	// No token, not a token, a token that's nobody's.
+	// A missing token, a malformed token and a token that belongs to nobody.
 	for i in 3 ..= 5 {
 		testing.expect_value(t, calls[i].status, 401)
 		testing.expect_value(t, error_of(calls[i].reply), "unauthenticated")
 	}
-	// Nothing there, or not like that.
+	// A path that doesn't exist and one that doesn't allow the method.
 	testing.expect_value(t, calls[6].status, 404)
 	testing.expect_value(t, error_of(calls[6].reply), "not_found")
 	testing.expect_value(t, calls[7].status, 404)
@@ -359,7 +359,7 @@ test_gateway_token :: proc(t: ^testing.T) {
 	testing.expect_value(t, calls[8].allow, "GET, PATCH")
 	testing.expect_value(t, calls[9].status, 405)
 
-	// Logging out: the token stops working.
+	// After logging out, the token stops working.
 	out := []Call {
 		{method = "POST", path = "/api/v1/logout", token = token},
 		{method = "GET", path = "/api/v1/me", token = token},
@@ -393,7 +393,7 @@ test_gateway_login :: proc(t: ^testing.T) {
 		},
 		{method = "POST", path = "/api/v1/login", body = `{"username": "alice"}`},
 		{method = "POST", path = "/api/v1/login", body = `not json`},
-		// A bot has no password to log in with.
+		// A bot has no password, so it can't log in with one.
 		{
 			method = "POST",
 			path = "/api/v1/login",
@@ -427,7 +427,8 @@ test_gateway_login :: proc(t: ^testing.T) {
 	}
 	alice_token := strings.clone(got.token)
 	defer delete(alice_token)
-	// The token is a device of hers, named as asked, saying what it is.
+	// The token is a device of her account with the requested name and the
+	// gateway agent.
 	pub: [proto.KEY_SIZE]u8
 	ecdh.private_key_public_bytes(&key, pub[:])
 	d := device_of(&ts.s.accounts, pub)
@@ -437,7 +438,7 @@ test_gateway_login :: proc(t: ^testing.T) {
 		testing.expect_value(t, d.agent, gateway.AGENT)
 	}
 
-	// It works as any token does.
+	// It works like any other token.
 	me_calls := []Call{{method = "GET", path = "/api/v1/me", token = alice_token}}
 	defer calls_destroy(me_calls)
 	if gt_calls(t, &ts, &h, me_calls) {
@@ -467,8 +468,8 @@ test_gateway_revoked :: proc(t: ^testing.T) {
 	gt_calls(t, &ts, &h, first)
 	testing.expect_value(t, first[0].status, 200)
 
-	// Revoked from the bot's tokens: the gateway hears it's logged out,
-	// and the token is no good after.
+	// After the token is revoked, the gateway is notified that it was logged out
+	// and the token stops working.
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	status, _ := ts_ask(t, &ts, admin, .Device_Revoke, proto.encode_device_revoke(buf[:], pub))
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -502,8 +503,8 @@ test_gateway_idle :: proc(t: ^testing.T) {
 	testing.expect_value(t, calls[0].status, 200)
 	testing.expect(t, conn_of(&ts.s, pub) != nil)
 
-	// Unused for long enough, the connection goes; the next request
-	// makes another.
+	// An unused connection is closed after a while, and the next request opens
+	// a new one.
 	start := time.tick_now()
 	for conn_of(&ts.s, pub) != nil && time.tick_since(start) < 5 * time.Second {
 		lt_turn(&ts)
@@ -515,7 +516,7 @@ test_gateway_idle :: proc(t: ^testing.T) {
 	testing.expect_value(t, again[0].status, 200)
 }
 
-// What the reading test looks at in the JSON it gets back.
+// The fields of the JSON response that the reading test checks.
 @(private = "file")
 Seen_Account :: struct {
 	id:       string,
@@ -562,7 +563,7 @@ Seen_Role :: struct {
 	everyone:    bool,
 }
 
-// gt_unmarshal reads a reply into `v`, in the temp allocator.
+// gt_unmarshal parses a response into `v` using the temp allocator.
 @(private = "file")
 gt_unmarshal :: proc(t: ^testing.T, call: Call, v: ^$T) -> bool {
 	err := json.unmarshal(transmute([]u8)call.reply, v, allocator = context.temp_allocator)
@@ -577,7 +578,7 @@ gt_unmarshal :: proc(t: ^testing.T, call: Call, v: ^$T) -> bool {
 	)
 }
 
-// gt_post posts `text` to `conv` as `u`, and is the message's id.
+// gt_post posts `text` to `conv` as `u` and returns the message's id.
 @(private = "file")
 gt_post :: proc(
 	t: ^testing.T,
@@ -601,7 +602,7 @@ gt_post :: proc(
 	return id
 }
 
-// gt_expect_ids checks a page of history is those messages.
+// gt_expect_ids checks that a page of history contains exactly those messages.
 @(private = "file")
 gt_expect_ids :: proc(t: ^testing.T, call: Call, ids: ..proto.Msg_Id) {
 	page: []Seen_Message
@@ -630,8 +631,8 @@ test_gateway_reading :: proc(t: ^testing.T) {
 	home := ts.s.convs.home.id
 	conv_member_add(&ts.s.convs, ts.s.convs.home, bot)
 
-	// Things to read: three messages, one pinned and one reacted to, a
-	// role, and a DM from alice.
+	// Create things to read: three messages (one pinned and one with a
+	// reaction), a role and a DM from alice.
 	first := gt_post(t, &ts, admin, home, "hello world")
 	second := gt_post(t, &ts, admin, home, "an apple a day")
 	third := gt_post(t, &ts, admin, home, "the third")
@@ -674,13 +675,14 @@ test_gateway_reading :: proc(t: ^testing.T) {
 	h: Harness
 	gt_open(t, &ts, &h)
 	defer gt_close(&ts, &h)
-	// Logged in, and a snapshot of who is here taken.
+	// Log in so that a snapshot of who is online is taken.
 	warm := []Call{{method = "GET", path = "/api/v1/me", token = token}}
 	defer calls_destroy(warm)
 	gt_calls(t, &ts, &h, warm)
 	gt_settle(&ts)
 
-	// The paths, owned: every turn of the server frees the temp allocator.
+	// The paths are owned because every turn of the server frees the temp
+	// allocator.
 	paths := [?]string {
 		"/api/v1/accounts",
 		fmt.aprintf("/api/v1/accounts/%d", admin.account.id),
@@ -730,7 +732,7 @@ test_gateway_reading :: proc(t: ^testing.T) {
 		testing.expectf(t, c.status == want, "%s: %d, not %d: %s", c.path, c.status, want, c.reply)
 	}
 
-	// Everyone, who is online, and one of them.
+	// All accounts, the online ones and a single account.
 	accounts: []Seen_Account
 	if gt_unmarshal(t, calls[0], &accounts) {
 		names := make([dynamic]string, context.temp_allocator)
@@ -749,7 +751,7 @@ test_gateway_reading :: proc(t: ^testing.T) {
 		testing.expect_value(t, one.username, "admin")
 	}
 
-	// The roles, everyone's last.
+	// The roles, with the role of everyone last.
 	roles: []Seen_Role
 	if gt_unmarshal(t, calls[4], &roles) && testing.expect_value(t, len(roles), 2) {
 		testing.expect_value(t, roles[0].name, "Helpers")
@@ -762,7 +764,7 @@ test_gateway_reading :: proc(t: ^testing.T) {
 		testing.expect(t, roles[1].everyone)
 	}
 
-	// The home channel and the DM, with what is unread.
+	// The home channel and the DM, with their unread counts.
 	convs: []Seen_Conv
 	if gt_unmarshal(t, calls[5], &convs) && testing.expect_value(t, len(convs), 2) {
 		testing.expect(t, convs[0].home)
@@ -774,7 +776,7 @@ test_gateway_reading :: proc(t: ^testing.T) {
 		testing.expect_value(t, convs[1].unread, 1)
 	}
 
-	// History, oldest first, and pages of it.
+	// History from oldest to newest, and its pages.
 	msgs: []Seen_Message
 	if gt_unmarshal(t, calls[6], &msgs) && testing.expect_value(t, len(msgs), 3) {
 		testing.expect_value(t, msgs[0].content, "hello world")
@@ -788,7 +790,7 @@ test_gateway_reading :: proc(t: ^testing.T) {
 	gt_expect_ids(t, calls[9], second, third)
 	gt_expect_ids(t, calls[11], second)
 
-	// Search, browsing, members, reactors.
+	// Search, browsing, members and reactors.
 	found: struct {
 		messages: []Seen_Message,
 		more:     bool,
@@ -828,7 +830,7 @@ test_gateway_reading :: proc(t: ^testing.T) {
 		testing.expect_value(t, dm_seen.recipient, fmt.tprint(alice.id))
 	}
 
-	// What comes after is followed: a new message is the newest, and
+	// Later changes are picked up: a new message is the newest and is
 	// unread.
 	fourth := gt_post(t, &ts, admin, home, "one more")
 	gt_settle(&ts)
@@ -873,8 +875,9 @@ Seen_Post :: struct {
 	},
 }
 
-// gt_run makes calls, each a method, a path and a body, with the token,
-// and checks what each answered; the replies are in the temp allocator.
+// gt_run makes calls, each consisting of a method, a path and a body, with the
+// token and checks the response of each. The responses are allocated with the
+// temp allocator.
 @(private = "file")
 gt_run :: proc(t: ^testing.T, ts: ^Test_Server, h: ^Harness, token: string, steps: []struct {
 		method, path, body: string,
@@ -934,7 +937,8 @@ test_gateway_writing :: proc(t: ^testing.T) {
 	gt_open(t, &ts, &h)
 	defer gt_close(&ts, &h)
 
-	// The paths, kept: every turn of the server frees the temp allocator.
+	// The paths are kept because every turn of the server frees the temp
+	// allocator.
 	owned := make([dynamic]string)
 	defer {
 		for p in owned {
@@ -949,7 +953,8 @@ test_gateway_writing :: proc(t: ^testing.T) {
 	}
 	home_messages := at(&owned, "/api/v1/convs/%d/messages", home)
 
-	// Posting, the same post again, and what isn't a post.
+	// Posting, posting the same message again and requests that are not valid
+	// posts.
 	r := gt_run(
 	t,
 	&ts,
@@ -961,7 +966,7 @@ test_gateway_writing :: proc(t: ^testing.T) {
 		{"POST", home_messages, `{}`, 400},
 		{"POST", home_messages, `{"content": 5}`, 400},
 		{"POST", home_messages, `not json`, 400},
-		{"POST", home_messages, `{"content": "x", "attachments": ["1"]}`, 404}, // no such upload
+		{"POST", home_messages, `{"content": "x", "attachments": ["1"]}`, 404}, // the upload doesn't exist
 	},
 	)
 	if r == nil {
@@ -983,8 +988,8 @@ test_gateway_writing :: proc(t: ^testing.T) {
 	msg := strings.clone(post.id)
 	defer delete(msg)
 
-	// Changing it: edit, react, pin (which a member may not do in a
-	// channel), then see it.
+	// Changing the message: edit, react and pin (which a regular member can't
+	// do in a channel), then read it back.
 	message := at(&owned, "/api/v1/messages/%s", msg)
 	reaction := at(&owned, "/api/v1/messages/%s/reactions/%%F0%%9F%%91%%8D", msg)
 	r = gt_run(
@@ -1010,7 +1015,7 @@ test_gateway_writing :: proc(t: ^testing.T) {
 		testing.expect(t, len(page[0].reactions) == 1 && page[0].reactions[0].me)
 	}
 
-	// A DM, a post in it, and a pin there, which either of its two may.
+	// A DM, a post in it and a pin there, which either participant may do.
 	r = gt_run(
 		t,
 		&ts,
@@ -1075,7 +1080,7 @@ test_gateway_writing :: proc(t: ^testing.T) {
 		testing.expect_value(t, len(page[0].reactions), 0)
 	}
 
-	// Reading: someone else posts, and the bot reads it all.
+	// Reading: someone else posts and the bot reads everything.
 	gt_post(t, &ts, admin, home, "something to read")
 	gt_settle(&ts)
 	r = gt_run(
@@ -1099,7 +1104,7 @@ test_gateway_writing :: proc(t: ^testing.T) {
 		testing.expect_value(t, after.unread, 0)
 	}
 
-	// Subscribing, the profile, the activity.
+	// Subscribing, the profile and the activity.
 	subscription := at(&owned, "/api/v1/convs/%d/subscription", gaming)
 	r = gt_run(
 		t,
@@ -1134,22 +1139,20 @@ test_gateway_writing :: proc(t: ^testing.T) {
 	}
 }
 
-/*
-A bot's event socket, for the tests: a thread of its own connects,
-upgrades and keeps what it's sent, while the test's thread keeps the
-server going.
-*/
+// Ws is a bot's event socket for the tests. A thread of its own connects,
+// upgrades the connection and stores everything it receives, while the test's
+// thread keeps the server running.
 @(private = "file")
 Ws :: struct {
 	port:       int,
 	path:       string, // owned
-	token:      string, // for Authorization; "" for none
+	token:      string, // for the Authorization header, "" for none
 	sock:       net.TCP_Socket,
 	reader:     ^thread.Thread,
 	mutex:      sync.Mutex,
-	status:     int, // the upgrade's answer, once it's come
-	frames:     [dynamic]string, // owned
-	close_code: int, // the close the gateway sent, if it did
+	status:     int, // the response to the upgrade, once it has arrived
+	frames:     [dynamic]string, // owned, the frames received so far
+	close_code: int, // the close code the gateway sent, if any
 	done:       bool,
 }
 
@@ -1244,8 +1247,8 @@ ws_run :: proc(w: ^Ws) {
 	}
 }
 
-// ws_wait keeps the server (and `clients`) going until the socket has n
-// frames, or has closed; it says whether it has them.
+// ws_wait keeps the server (and `clients`) running until the socket has n
+// frames or has closed. It returns whether the socket has n frames.
 @(private = "file")
 ws_wait :: proc(ts: ^Test_Server, w: ^Ws, n: int, clients: ..^lite.Client) -> bool {
 	start := time.tick_now()
@@ -1261,7 +1264,7 @@ ws_wait :: proc(ts: ^Test_Server, w: ^Ws, n: int, clients: ..^lite.Client) -> bo
 	return false
 }
 
-// ws_event reads frame i into `v` ({t, s, d}).
+// ws_event parses frame i into `v` ({t, s, d}).
 @(private = "file")
 ws_event :: proc(t: ^testing.T, w: ^Ws, i: int, v: ^$T) -> bool {
 	sync.guard(&w.mutex)
@@ -1272,10 +1275,9 @@ ws_event :: proc(t: ^testing.T, w: ^Ws, i: int, v: ^$T) -> bool {
 	return testing.expectf(t, err == nil, "%v in %s", err, w.frames[i])
 }
 
-/*
-ws_find is the first frame of kind `t` (from frame `from` on), and with
-`account` in it if that's given; -1 if there's none.
-*/
+// ws_find returns the index of the first frame of kind `t`, starting at frame
+// `from`. If `account` is given, the frame must also contain it. It returns -1
+// if there is no such frame.
 @(private = "file")
 ws_find :: proc(t: ^testing.T, w: ^Ws, kind: string, from := 1, account := "") -> int {
 	sync.guard(&w.mutex)
@@ -1293,8 +1295,8 @@ ws_find :: proc(t: ^testing.T, w: ^Ws, kind: string, from := 1, account := "") -
 	return -1
 }
 
-// ws_wait_for keeps things going until the socket has a frame of kind
-// `t` (about `account`, if that's given).
+// ws_wait_for keeps everything running until the socket has a frame of kind
+// `t` (about `account`, if that is given).
 @(private = "file")
 ws_wait_for :: proc(
 	t: ^testing.T,
@@ -1324,7 +1326,7 @@ ws_wait_for :: proc(
 	testing.expectf(t, false, "no %s came", kind)
 }
 
-// ws_kind is what frame i is (its t).
+// ws_kind returns the kind of frame i (its t).
 @(private = "file")
 ws_kind :: proc(t: ^testing.T, w: ^Ws, i: int) -> string {
 	e: struct {
@@ -1334,8 +1336,8 @@ ws_kind :: proc(t: ^testing.T, w: ^Ws, i: int) -> string {
 	return e.t
 }
 
-// ws_close says goodbye, if it's still open, and waits for the gateway
-// to let it go.
+// ws_close sends a close frame if the socket is still open and waits for the
+// gateway to close the connection.
 @(private = "file")
 ws_close :: proc(ts: ^Test_Server, w: ^Ws) {
 	if !w.done {
@@ -1419,12 +1421,12 @@ test_gateway_events :: proc(t: ^testing.T) {
 	gt_open(t, &ts, &h)
 	defer gt_close(&ts, &h)
 
-	// No token, no socket.
+	// Without a token the socket is refused.
 	nobody := ws_open(t, &ts, &h, "/api/v1/events")
 	testing.expect_value(t, ws_status(nobody), 401)
 	ws_close(&ts, nobody)
 
-	// READY first: everything the model has.
+	// READY comes first and contains the whole model.
 	w := ws_open(t, &ts, &h, "/api/v1/events", token)
 	if !testing.expect_value(t, ws_status(w), 101) || !ws_wait(&ts, w, 1) {
 		ws_close(&ts, w)
@@ -1438,7 +1440,8 @@ test_gateway_events :: proc(t: ^testing.T) {
 		testing.expect(t, len(ready.d.convs) == 1 && ready.d.convs[0].home)
 	}
 
-	// Alice comes, types, and the admin posts, reacts, edits, deletes.
+	// Alice comes online and types, and the admin posts, reacts, edits and
+	// deletes.
 	server, _ := net.bound_endpoint(ts.s.sock)
 	opt := lite.Options {
 		server         = server,
@@ -1458,7 +1461,7 @@ test_gateway_events :: proc(t: ^testing.T) {
 		}
 		lt_turn(&ts, &alice_client)
 	}
-	// She's online, and typing.
+	// She is online and typing.
 	alice_id := fmt.aprint(alice.id)
 	defer delete(alice_id)
 	ws_wait_for(t, &ts, w, "PRESENCE_UPDATE", alice_id, &alice_client)
@@ -1483,7 +1486,7 @@ test_gateway_events :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	ws_wait_for(t, &ts, w, "MESSAGE_DELETE", "", &alice_client)
 
-	// Every event numbered, one after the other from READY's.
+	// Every event is numbered, counting up from the number of READY.
 	{
 		sync.guard(&w.mutex)
 		for f, i in w.frames {
@@ -1529,7 +1532,7 @@ test_gateway_events :: proc(t: ^testing.T) {
 		ws_find(t, w, "MESSAGE_UPDATE") < ws_find(t, w, "MESSAGE_DELETE"),
 	)
 
-	// What the bot does itself is told it too: reading.
+	// The bot is also notified of its own actions, like reading a conversation.
 	read := []Call{{method = "POST", path = "/api/v1/convs/1/read", token = token}}
 	defer calls_destroy(read)
 	gt_calls(t, &ts, &h, read)
@@ -1546,7 +1549,8 @@ test_gateway_events :: proc(t: ^testing.T) {
 	}
 	ws_close(&ts, w)
 
-	// Gone and back: what came meanwhile, and nothing else.
+	// After disconnecting and reconnecting, the bot receives what happened in
+	// the meantime and nothing else.
 	gt_post(t, &ts, admin, home, "while away")
 	gt_settle(&ts)
 	back := ws_open(t, &ts, &h, fmt.tprintf("/api/v1/events?resume=%d", last.s), token)
@@ -1559,8 +1563,9 @@ test_gateway_events :: proc(t: ^testing.T) {
 		}
 	}
 
-	// From too far, or with the token in the URL: told so, then READY.
-	// The new socket takes over from the one before.
+	// Resuming from too far back, or with the token in the URL, results in an
+	// INVALID_SESSION followed by READY. The new socket takes over from the
+	// previous one.
 	again := ws_open(t, &ts, &h, fmt.tprintf("/api/v1/events?token=%s&resume=999999", token))
 	if testing.expect_value(t, ws_status(again), 101) && ws_wait(&ts, again, 2) {
 		testing.expect_value(t, ws_kind(t, again, 0), "INVALID_SESSION")
@@ -1570,7 +1575,7 @@ test_gateway_events :: proc(t: ^testing.T) {
 	testing.expect_value(t, back.close_code, 4000)
 	ws_close(&ts, back)
 
-	// Its token revoked: told so, and closed.
+	// After its token is revoked, the bot is notified and the socket is closed.
 	revoke_buf: [proto.ACCOUNT_BODY_MAX]u8
 	status, _ = ts_ask(
 		t,
@@ -1624,7 +1629,8 @@ test_gateway_files :: proc(t: ^testing.T) {
 	gt_open(t, &ts, &h)
 	defer gt_close(&ts, &h)
 
-	// A file three windows long, so it has to stream; and a picture.
+	// A file that is three windows long so that it has to be streamed, and a
+	// picture.
 	file := make([]u8, 3 * proto.FILE_WINDOW * proto.FILE_CHUNK_DATA + 77)
 	defer delete(file)
 	for &b, i in file {
@@ -1676,8 +1682,8 @@ test_gateway_files :: proc(t: ^testing.T) {
 	avatar_path := fmt.aprintf("/api/v1/blobs/%s", me.avatar)
 	defer delete(avatar_path)
 
-	// Posted with a message: the file, as the server keeps it, fetched
-	// back whole; and the picture.
+	// Posted with a message: the file is fetched back whole as the server
+	// stores it, and so is the picture.
 	posting := []Call {
 		{method = "POST", path = home_messages, token = token, body = post_body},
 		{method = "GET", path = avatar_path, token = token},
@@ -1732,13 +1738,15 @@ test_gateway_login_rule :: proc(t: ^testing.T) {
 		ep, _ := net.parse_endpoint(address)
 		return ep
 	}
-	// On its own: only from this machine.
+	// Without a proxy, logging in is only allowed from this machine.
 	testing.expect(t, gateway.login_allowed(false, at("127.0.0.1:5000"), ""))
 	testing.expect(t, gateway.login_allowed(false, at("[::1]:5000"), ""))
 	testing.expect(t, !gateway.login_allowed(false, at("10.0.0.7:5000"), ""))
-	// What a client says isn't believed without a proxy to say it.
+	// Without a proxy, a forwarded protocol that the client claims is not
+	// trusted.
 	testing.expect(t, !gateway.login_allowed(false, at("10.0.0.7:5000"), "https"))
-	// Behind a proxy: what the proxy says, wherever it is.
+	// Behind a proxy, the protocol that the proxy reports is trusted regardless
+	// of where the request comes from.
 	testing.expect(t, gateway.login_allowed(true, at("10.0.0.7:5000"), "https"))
 	testing.expect(t, gateway.login_allowed(true, at("127.0.0.1:5000"), "HTTPS"))
 	testing.expect(t, !gateway.login_allowed(true, at("127.0.0.1:5000"), ""))
@@ -1757,8 +1765,8 @@ test_gateway_limits :: proc(t: ^testing.T) {
 	two, _ := gt_token(t, &ts, admin, "two")
 	defer delete(two)
 
-	// A token's bucket: two at once, then one every two seconds; another
-	// token has a bucket of its own.
+	// Each token has its own rate limit bucket: two requests at once, then one
+	// every two seconds.
 	{
 		h: Harness
 		gt_open(t, &ts, &h, settings = {rate = 0.5, burst = 2})
@@ -1780,7 +1788,8 @@ test_gateway_limits :: proc(t: ^testing.T) {
 		}
 	}
 
-	// As many tokens as it takes, and no more.
+	// The connection limit allows as many connections as configured and no
+	// more.
 	{
 		h: Harness
 		gt_open(t, &ts, &h, settings = {max_connections = 1})
@@ -1798,7 +1807,7 @@ test_gateway_limits :: proc(t: ^testing.T) {
 		}
 	}
 
-	// Behind a proxy, a password only over what it says is HTTPS.
+	// Behind a proxy, a password is only accepted if the proxy reports HTTPS.
 	{
 		h: Harness
 		gt_open(t, &ts, &h, settings = {behind_proxy = true})

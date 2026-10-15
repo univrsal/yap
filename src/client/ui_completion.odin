@@ -9,53 +9,56 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-Completing a mention or an emoji in a composer. While the word the cursor
-is at the end of starts with `@` (at the start of a word), a list over the
-composer shows the accounts it could be: by username or display name,
-those here first, at most COMPLETION_MAX. Choosing completes the word to
-`@username ` (conn/mentions.odin turns it into a token when the message
-is sent). Under them are the roles that can be mentioned whose names
-start so, at most ROLE_COMPLETION_MAX, each in its colour and marked as
-a role, so one called what an account is called is told apart from it.
-A role's name may have spaces in it, so the list stays open past them
-while what's after the `@` is the start of one. Choosing one completes
-to `@role name `, or to its token if `@role name` would be the account's
-(conn/mentions.odin). A word of at least two more characters after a `:`
-lists the emoji whose shortcode starts so, the server's own first; choosing puts
-the emoji in its place (a Unicode one as its character, the server's as
-its `:name:`). Up and Down move in the list, Tab or Enter choose, Escape
-closes it until the word changes; or a click.
-
-The keys are taken before the text box sees them (completion_keys),
-from what was worked out last frame; what's typed is worked out again
-after the box has had it (completion_update), and the list is drawn
-over everything else (completion_window).
-
-*/
+// Completing a mention or an emoji in a composer.
+//
+// Mentions: while the word that ends at the cursor starts with `@` (at the
+// start of a word), a list over the composer shows the accounts that it could
+// refer to, matched by username or display name, with accounts that are online
+// first, at most COMPLETION_MAX. Choosing one completes the word to
+// `@username ` (conn/mentions.odin turns it into a token when the message
+// is sent). Under them are the roles that can be mentioned and whose names
+// start with the typed text, at most ROLE_COMPLETION_MAX. Each is shown in its
+// color and marked as a role, so that a role with the same name as an account
+// can be told apart from it. A role's name may contain spaces, so the list stays
+// open past them while what follows the `@` is the start of a role name. Choosing
+// a role completes to `@role name `, or to its token if `@role name` would be
+// an account's name (see conn/mentions.odin).
+//
+// Emoji: a word of at least two more characters after a `:` lists the emoji
+// whose shortcode starts with that text, with the server's own first. Choosing
+// one puts the emoji in its place (a Unicode emoji as its character, a server's
+// emoji as its `:name:`).
+//
+// Up and Down move in the list, Tab or Enter choose, and Escape closes the list
+// until the word changes. Clicking an item also chooses it.
+//
+// The keys are taken before the text box sees them (see completion_keys),
+// using what was worked out in the last frame. What is typed is worked out again
+// after the box has handled it (see completion_update), and the list is drawn
+// over everything else (see completion_window).
 
 COMPLETION_MAX :: 6
 ROLE_COMPLETION_MAX :: 3
 
 Completion_Item :: struct {
-	insert: string, // what the word becomes; owned (the list is used the frame after it's made)
+	insert: string, // what the word becomes; owned (the list is used in the frame after it is made)
 	label:  string, // what the list shows; owned
-	// For sorting mentions: the username, and whether the account is here.
+	// For sorting mentions: the username, and whether the account is online.
 	key:    string,
 	here:   bool,
-	color:  u32, // a role's, to show it in; 0 for the usual
+	color:  u32, // a role's color, to show it in; 0 for the usual
 }
 
 UI_Completion :: struct {
 	active:    bool,
-	box:       mu.Id, // the composer's text box it's for
-	thread:    int, // ... and which composer that is (Composer.thread)
-	start:     int, // where the `@word` is in its text, and where it ends:
+	box:       mu.Id, // the composer's text box that it is for
+	thread:    int, // ... and which composer that is (see Composer.thread)
+	start:     int, // where the `@word` starts in its text, and where it ends:
 	end:       int, // the cursor
 	items:     [dynamic]Completion_Item,
 	selected:  int,
-	anchor:    mu.Rect, // the text box, to put the list over
-	// The word Escape closed it for, until it isn't that any more.
+	anchor:    mu.Rect, // the text box, which the list is put over
+	// The word that Escape closed the list for, until the word changes.
 	dismissed: string, // owned
 }
 
@@ -66,10 +69,8 @@ ui_completion_destroy :: proc(ui: ^UI) {
 	ui.completion = {}
 }
 
-/*
-completion_keys takes the list's keys before the composer's text box
-sees them, and does what they say. Call before laying the box out.
-*/
+// completion_keys takes the list's keys before the composer's text box
+// sees them, and does what they say. Call before laying out the box.
 completion_keys :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
 	cm := &ui.completion
@@ -80,7 +81,7 @@ completion_keys :: proc(ui: ^UI, c: Composer) {
 	n := len(cm.items)
 	switch {
 	case .Escape in ui.keys:
-		ui.keys -= {.Escape} // not for the composer as well
+		ui.keys -= {.Escape} // not for the composer too
 		delete(cm.dismissed)
 		cm.dismissed = strings.clone(string(c.buf[cm.start:cm.end]))
 		cm.active = false
@@ -107,7 +108,7 @@ completion_choose :: proc(ui: ^UI, c: Composer, i: int) {
 	insert := cm.items[i].insert
 	rest := strings.clone(string(c.buf[cm.end:c.len^]), context.temp_allocator)
 	if cm.start + len(insert) + len(rest) > len(c.buf) {
-		return // no room
+		return // there is no room
 	}
 	n := copy(c.buf[cm.start:], insert)
 	n += copy(c.buf[cm.start + n:], rest)
@@ -116,11 +117,9 @@ completion_choose :: proc(ui: ^UI, c: Composer, i: int) {
 	cm.active = false
 }
 
-/*
-completion_update works out the list from what the box now has: whether
-the cursor is at the end of an `@word`, and who that could be. Call
-after laying the box out, with the View locked.
-*/
+// completion_update works out the list from what the box now contains: whether
+// the cursor is at the end of an `@word`, and which accounts that could be. Call
+// after laying out the box, with the View locked.
 completion_update :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -145,7 +144,7 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 		start -= 1
 	}
 	trigger: u8 = text[start - 1] if start > 0 else 0
-	// Past a space, only a role's name.
+	// Past a space, only a role's name can match.
 	spaced := false
 	if (trigger != '@' && trigger != ':') ||
 	   (start > 1 && !strings.is_space(rune(text[start - 2]))) ||
@@ -195,7 +194,7 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 			append(&cm.items, item)
 		}
 	}
-	// Those who are here first, then by username.
+	// Accounts that are online first, then by username.
 	slice.sort_by(cm.items[:], proc(a, b: Completion_Item) -> bool {
 		if a.here != b.here {
 			return a.here
@@ -223,11 +222,10 @@ completion_update :: proc(ui: ^UI, c: Composer) {
 	cm.selected = clamp(cm.selected, 0, max(len(cm.items) - 1, 0))
 }
 
-/*
-role_word_start is where the `@` is that a role's name the cursor is in
-starts after, when there's a space in what's been typed of it; -1 if the
-cursor isn't in one. Call with the View locked.
-*/
+// role_word_start returns the position after the `@` where a role's name
+// starts, when the cursor is in what has been typed of a role's name that
+// contains a space. It returns -1 if the cursor isn't in one. Call with the
+// View locked.
 @(private = "file")
 role_word_start :: proc(v: ^conn.View, text: string, cursor: int) -> int {
 	for at := cursor - 1; at >= 0 && cursor - at <= proto.MAX_ROLE_NAME + 1; at -= 1 {
@@ -236,7 +234,7 @@ role_word_start :: proc(v: ^conn.View, text: string, cursor: int) -> int {
 		}
 		typed := text[at + 1:cursor]
 		if strings.index_byte(typed, ' ') < 0 {
-			return -1 // a word, which the usual list is for
+			return -1 // that is a single word, which the usual list handles
 		}
 		for r in v.roles {
 			if conn.role_mentionable(r) &&
@@ -250,7 +248,7 @@ role_word_start :: proc(v: ^conn.View, text: string, cursor: int) -> int {
 	return -1
 }
 
-// role_items lists the roles that can be mentioned whose name starts
+// role_items lists the roles that can be mentioned and whose name starts
 // with `prefix` (in lower case), in the roles' order. Call with the View
 // locked.
 @(private = "file")
@@ -285,7 +283,7 @@ role_items :: proc(ui: ^UI, prefix: string) {
 }
 
 // emoji_items lists the emoji whose name starts with `prefix`: the
-// server's own, then Unicode's by any of their shortcodes.
+// server's own first, then Unicode's, matched by any of their shortcodes.
 @(private = "file")
 emoji_items :: proc(ui: ^UI, prefix: string) {
 	cm := &ui.completion
@@ -313,7 +311,7 @@ emoji_items :: proc(ui: ^UI, prefix: string) {
 	}
 }
 
-// items_clear empties the list, and lets go of its strings.
+// items_clear empties the list and frees its strings.
 @(private = "file")
 items_clear :: proc(cm: ^UI_Completion) {
 	for item in cm.items {
@@ -324,7 +322,7 @@ items_clear :: proc(cm: ^UI_Completion) {
 }
 
 // word_char is whether a byte may be in the word being completed: a
-// username's, or an emoji's name (which may have `+`, as `+1` does).
+// username's, or an emoji's name (which may contain `+`, as `+1` does).
 @(private = "file")
 word_char :: proc(ch: u8) -> bool {
 	switch ch {
@@ -337,8 +335,8 @@ word_char :: proc(ch: u8) -> bool {
 @(private = "file")
 COMPLETION_WINDOW :: "completion"
 
-// completion_window draws the list over the composer it's for, if it's
-// open. A click on one chooses it.
+// completion_window draws the list over the composer it is for, if it is
+// open. Clicking an item chooses it.
 completion_window :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	cm := &ui.completion

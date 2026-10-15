@@ -7,24 +7,23 @@ import "common:http"
 import "common:lite"
 import "common:proto"
 
-/*
-Reading (docs/bot-api, phase 4): what the model has, answered from it,
-and history, pins, search, members, browsing and reactors, asked of the
-server. Lists are JSON arrays; where there's more to say about a page
-than its items (search, browse, reactors), an object.
+// Reading (docs/bot-api, phase 4): some requests are answered from the model,
+// while history, pins, search, members, browsing and reactors are requested
+// from the server. Lists are returned as JSON arrays, except where a page
+// carries more information than its items (search, browse, reactors), in
+// which case an object is returned.
+//
+// History comes oldest first, as in the protocol. A page may be shorter than
+// requested when its messages wouldn't fit in one stream message, so there is
+// nothing more in that direction only once a page is empty.
 
-History comes oldest first, as the protocol has it, and a page may be
-shorter than asked for when its messages wouldn't fit in one stream
-message; there's nothing more that way only once a page is empty.
-*/
-
-// GET /accounts: every account on the server, by id.
+// GET /accounts returns every account on the server, sorted by id.
 @(private)
 accounts_run :: proc(c: ^Conn, j: ^Job) {
 	reply(j, json_reply(200, accounts_json(&c.model)))
 }
 
-// GET /accounts/{id}
+// GET /accounts/{id} returns one account.
 @(private)
 account_run :: proc(c: ^Conn, j: ^Job) {
 	id, ok := param_id(j, 0)
@@ -34,25 +33,25 @@ account_run :: proc(c: ^Conn, j: ^Job) {
 	}
 	a, found := &c.model.accounts[proto.Account_Id(id)]
 	if !found {
-		reply(j, error_reply(404, "not_found", "There's no such account."))
+		reply(j, error_reply(404, "not_found", "There is no account with this id."))
 		return
 	}
 	reply(j, json_reply(200, account_json(&c.model, &a.account)))
 }
 
-// GET /roles: every role, top first, everyone's last.
+// GET /roles returns every role, top first, with the everyone role last.
 @(private)
 roles_run :: proc(c: ^Conn, j: ^Job) {
 	reply(j, json_reply(200, roles_json(&c.model)))
 }
 
-// GET /convs: the conversations the account is in.
+// GET /convs returns the conversations the account is in.
 @(private)
 convs_run :: proc(c: ^Conn, j: ^Job) {
 	reply(j, json_reply(200, convs_json(&c.model)))
 }
 
-// GET /convs/{id}: one of them.
+// GET /convs/{id} returns one of those conversations.
 @(private)
 conv_run :: proc(c: ^Conn, j: ^Job) {
 	id, ok := param_id(j, 0)
@@ -62,7 +61,10 @@ conv_run :: proc(c: ^Conn, j: ^Job) {
 	}
 	conv, found := &c.model.convs[proto.Conv_Id(id)]
 	if !found {
-		reply(j, error_reply(404, "not_found", "The account isn't in such a conversation."))
+		reply(
+			j,
+			error_reply(404, "not_found", "The account is not in a conversation with this id."),
+		)
 		return
 	}
 	reply(j, json_reply(200, conv_json(&c.model, &conv.conv)))
@@ -70,10 +72,11 @@ conv_run :: proc(c: ^Conn, j: ^Job) {
 
 Browse_JSON :: struct {
 	convs: []Conv_JSON,
-	more:  bool, // there are more after these: ask with offset
+	more:  bool, // there are more results after these, request them with offset
 }
 
-// GET /convs/browse?q=&offset=&limit=: the channels there are to join.
+// GET /convs/browse?q=&offset=&limit= returns the channels that can be
+// joined.
 @(private)
 browse_run :: proc(c: ^Conn, j: ^Job) {
 	b := proto.Browse {
@@ -87,19 +90,23 @@ browse_run :: proc(c: ^Conn, j: ^Job) {
 			error_reply(
 				400,
 				"invalid",
-				fmt.tprintf("q is at most %d bytes.", proto.MAX_BROWSE_QUERY),
+				fmt.tprintf("q can be at most %d bytes long.", proto.MAX_BROWSE_QUERY),
 			),
 		)
 		return
 	}
 	if b.offset, ok = query_int(j, "offset", 0, 0, int(max(u16))); !ok {
-		reply(j, error_reply(400, "invalid", "offset is a number from 0."))
+		reply(j, error_reply(400, "invalid", "offset must be a number that is 0 or greater."))
 		return
 	}
 	if b.limit, ok = query_int(j, "limit", proto.BROWSE_PAGE, 1, proto.MAX_BROWSE_LIMIT); !ok {
 		reply(
 			j,
-			error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_BROWSE_LIMIT)),
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("limit must be between 1 and %d.", proto.MAX_BROWSE_LIMIT),
+			),
 		)
 		return
 	}
@@ -127,7 +134,8 @@ browse_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Conv_Browse, proto.encode_conv_browse(&body_buf, b))
 }
 
-// GET /convs/{id}/members: its members, as accounts.
+// GET /convs/{id}/members returns the members of the conversation as
+// accounts.
 @(private)
 members_run :: proc(c: ^Conn, j: ^Job) {
 	id, ok := param_id(j, 0)
@@ -152,12 +160,12 @@ members_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Conv_Members, proto.encode_conv_id(&body_buf, proto.Conv_Id(id)))
 }
 
-/*
-GET /convs/{id}/messages?before=&after=&around=&limit=&thread=: a page
-of history, oldest first. One of before, after or around (a message's
-id, which around includes); none is the newest. `thread` is a thread's
-first message, for its replies. `limit` is 1 to 50 (50).
-*/
+// GET /convs/{id}/messages?before=&after=&around=&limit=&thread= returns a
+// page of history, oldest first. At most one of before, after or around may
+// be given, each as a message id (around includes that message). Without any
+// of them the newest messages are returned. `thread` is the first message of
+// a thread, which makes the page contain that thread's replies. `limit` is
+// 1 to 50 and defaults to 50.
 @(private)
 history_run :: proc(c: ^Conn, j: ^Job) {
 	conv, ok := param_id(j, 0)
@@ -185,7 +193,7 @@ history_run :: proc(c: ^Conn, j: ^Job) {
 		anchors += 1
 	}
 	if anchors > 1 {
-		reply(j, error_reply(400, "invalid", "One of before, after or around, not more."))
+		reply(j, error_reply(400, "invalid", "Only one of before, after or around may be given."))
 		return
 	}
 	if thread, given := query_param(j, "thread"); given {
@@ -200,7 +208,11 @@ history_run :: proc(c: ^Conn, j: ^Job) {
 	   !ok {
 		reply(
 			j,
-			error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_HISTORY_LIMIT)),
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("limit must be between 1 and %d.", proto.MAX_HISTORY_LIMIT),
+			),
 		)
 		return
 	}
@@ -221,7 +233,8 @@ history_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Msg_History, proto.encode_msg_history(&body_buf, h))
 }
 
-// GET /convs/{id}/pins: its pinned messages, the newest pin first.
+// GET /convs/{id}/pins returns the pinned messages of the conversation, with
+// the most recent pin first.
 @(private)
 pins_run :: proc(c: ^Conn, j: ^Job) {
 	conv, ok := param_id(j, 0)
@@ -248,22 +261,23 @@ pins_run :: proc(c: ^Conn, j: ^Job) {
 
 Search_JSON :: struct {
 	messages:    []Message_JSON, // newest first
-	// The oldest message looked at, to ask again `before`, if `more`.
+	// The oldest message that was searched. If `more` is set, pass it as
+	// `before` to continue the search.
 	searched_to: Maybe(string),
 	more:        bool,
 }
 
-/*
-GET /search?q=&conv=&before=&limit=: text messages with every word of
-`q` in them (as the client's search: "a phrase", from:username), in one
-conversation or all the account's, older than `before`, newest first.
-*/
+// GET /search?q=&conv=&before=&limit= returns text messages that contain every
+// word of `q`, using the same syntax as the client's search ("a phrase",
+// from:username). It searches one conversation or all of the account's
+// conversations, only considers messages older than `before` and returns the
+// newest first.
 @(private)
 search_run :: proc(c: ^Conn, j: ^Job) {
 	s := proto.Msg_Search{}
 	given: bool
 	if s.query, given = query_param(j, "q"); !given || s.query == "" {
-		reply(j, error_reply(400, "invalid", "q is what to search for."))
+		reply(j, error_reply(400, "invalid", "q is required and contains the text to search for."))
 		return
 	}
 	if len(s.query) > proto.MAX_SEARCH_QUERY {
@@ -272,7 +286,7 @@ search_run :: proc(c: ^Conn, j: ^Job) {
 			error_reply(
 				400,
 				"invalid",
-				fmt.tprintf("q is at most %d bytes.", proto.MAX_SEARCH_QUERY),
+				fmt.tprintf("q can be at most %d bytes long.", proto.MAX_SEARCH_QUERY),
 			),
 		)
 		return
@@ -297,7 +311,11 @@ search_run :: proc(c: ^Conn, j: ^Job) {
 	if s.limit, ok = query_int(j, "limit", 25, 1, proto.MAX_SEARCH_LIMIT); !ok {
 		reply(
 			j,
-			error_reply(400, "invalid", fmt.tprintf("limit is 1 to %d.", proto.MAX_SEARCH_LIMIT)),
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf("limit must be between 1 and %d.", proto.MAX_SEARCH_LIMIT),
+			),
 		)
 		return
 	}
@@ -326,13 +344,14 @@ search_run :: proc(c: ^Conn, j: ^Job) {
 }
 
 Reactors_JSON :: struct {
-	total:    int, // how many reacted with it
-	// The first of them (at most 50), the earliest first.
+	total:    int, // how many accounts reacted with it
+	// The first accounts that reacted (at most 50), earliest first.
 	accounts: []Account_JSON,
 }
 
-// GET /messages/{id}/reactions/{emoji}: who reacted with it. The emoji is
-// the character, URL-encoded, or :name: of one of the server's own.
+// GET /messages/{id}/reactions/{emoji} returns who reacted with the emoji. The
+// emoji is the URL-encoded character, or :name: for one of the server's own
+// emoji.
 @(private)
 reactors_run :: proc(c: ^Conn, j: ^Job) {
 	id, ok := param_id(j, 0)
@@ -342,7 +361,7 @@ reactors_run :: proc(c: ^Conn, j: ^Job) {
 	}
 	emoji := j.params[1]
 	if len(emoji) > proto.MAX_REACTION_EMOJI {
-		reply(j, error_reply(400, "invalid", "That's no emoji."))
+		reply(j, error_reply(400, "invalid", "The emoji is too long to be valid."))
 		return
 	}
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -362,8 +381,8 @@ reactors_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Reactors_Get, proto.encode_reactors_get(&body_buf, proto.Msg_Id(id), emoji))
 }
 
-// some_accounts_json is those accounts, as the model has them; one it
-// doesn't know has only its id.
+// some_accounts_json returns the given accounts as the model has them. An
+// account that the model doesn't know only has its id.
 @(private)
 some_accounts_json :: proc(m: ^Model, ids: []proto.Account_Id) -> []Account_JSON {
 	out := make([]Account_JSON, len(ids), context.temp_allocator)
@@ -379,7 +398,7 @@ some_accounts_json :: proc(m: ^Model, ids: []proto.Account_Id) -> []Account_JSON
 	return out
 }
 
-// param_id is the job's nth path parameter as an id.
+// param_id returns the job's nth path parameter as an id.
 @(private)
 param_id :: proc(j: ^Job, n: int) -> (id: u64, ok: bool) {
 	id, ok = strconv.parse_u64(j.params[n], 10)
@@ -388,17 +407,19 @@ param_id :: proc(j: ^Job, n: int) -> (id: u64, ok: bool) {
 
 @(private)
 bad_id :: proc(s: string) -> Reply {
-	return error_reply(400, "invalid", fmt.tprintf("%q isn't an id.", s))
+	return error_reply(400, "invalid", fmt.tprintf("%q is not a valid id.", s))
 }
 
-// query_param is a query parameter of the job's request, decoded.
+// query_param returns the decoded value of a query parameter of the job's
+// request.
 @(private)
 query_param :: proc(j: ^Job, name: string) -> (string, bool) {
 	return http.query_value(j.query, name)
 }
 
-// query_int is a number from the query, `default` if it isn't there;
-// false if it's there and not one from `least` to `most`.
+// query_int returns a number from the query, or `default` if the parameter
+// isn't there. ok is false if the parameter is there but isn't a number from
+// `least` to `most`.
 @(private)
 query_int :: proc(j: ^Job, name: string, default, least, most: int) -> (n: int, ok: bool) {
 	value, given := query_param(j, name)

@@ -8,48 +8,48 @@ import "core:time"
 import "client:audio"
 import "common:proto"
 
-/*
-Attachments on our end (src/common/proto/attachments.odin): files sent
-with a message, uploaded to the server and kept there, and saved from
-there by whoever reads the message.
+// Attachments on our end (src/common/proto/attachments.odin) are files sent with
+// a message. They are uploaded to the server and kept there, and are saved from
+// there by whoever reads the message.
+//
+// Sending: a message with files waits here while its files are uploaded, one
+// file at a time (Attach_Put, followed by the chunks, see transfer.odin). Once
+// all files are on the server, the message goes into the outbox and names the
+// uploads. This way it doesn't hold up messages written in the meantime, which
+// may even get there first (decision 4). The files stay open until the message
+// is posted. If the post finds that the uploads are gone (because the server
+// restarted or an hour went by), the files are uploaded again. A connection
+// that restarts loses the uploads that were in progress, and they start again,
+// but finished uploads stay because the server keeps them for the account.
+//
+// The files of our own message come back in its Msg_New, together with the
+// blobs they were stored as. The answer to the post only has its id.
+//
+// Previews: a picture that a message carries and that is not too big
+// (PREVIEW_MAX) is fetched the same way when the UI shows it
+// (Attach_Preview_Command), into memory instead of a file. It is then handed to
+// the pictures that messages show (blob_have), which the UI decodes and draws
+// like those.
+//
+// Saving: a file is fetched (Attach_Get) and written to its destination as it
+// arrives. It goes into the downloads folder under the name it was sent with
+// (or `name (1)` and so on if that is taken), like a DM's file (see
+// files_io_*.odin). A save that was cut off by the connection restarting
+// continues from where it got to.
 
-Sending: a message with files waits here while they're uploaded, one
-file at a time (Attach_Put, then its chunks, transfer.odin), and goes
-into the outbox once they're all on the server, naming the uploads. So
-it doesn't hold up what's written meanwhile, which may get there first
-(decision 4). The files stay open until the message is posted: if the
-post finds the uploads gone (the server started over, or an hour went
-by), they're uploaded again. A connection that starts over loses what
-was on its way, which starts again; what was finished stays, as the
-server keeps it for the account.
-
-Our own message's files come back in its Msg_New, with the blobs they
-were kept as; the post's answer only has its id.
-
-Previews: a picture a message carries, not too big (PREVIEW_MAX), is
-fetched the same way when the UI shows it (Attach_Preview_Command), into
-memory rather than a file, and handed to the pictures messages show
-(blob_have), which the UI decodes and draws as it does those.
-
-Saving: a file is fetched (Attach_Get) and written where it goes as it
-comes, into the downloads folder under the name it was sent with (or
-`name (1)`... if that's taken), as a DM's file is (files_io_*.odin). One
-cut off by the connection starting over carries on from where it got
-to.
-*/
-
-// At most this many tries at uploading a file before the message is
-// given up.
+// The maximum number of attempts to upload a file before the message is given
+// up.
 ATTACH_TRIES :: 3
-// The biggest picture a message carries that's fetched to be shown.
+// The biggest picture a message can carry that is still fetched to be shown.
 PREVIEW_MAX :: 8 * 1024 * 1024
-// A get_answer's tag for a preview: its blob's id with this bit set.
+// The tag of a get_answer for a preview, which is the blob's id with this bit
+// set.
 @(private = "file")
 PREVIEW_TAG :: u64(1) << 63
 
-// Attach_File is a file to attach: at `path` on a desktop, or the
-// page's picked file `web_file` in a browser (files_io_web.odin), or a
-// pasted picture's bytes in `data`, named `web_name`.
+// Attach_File is a file to attach. On a desktop it is the file at `path`, in a
+// browser it is the page's picked file `web_file` (see files_io_web.odin), and
+// for a pasted picture the bytes are in `data` and the name is `web_name`.
 Attach_File :: struct {
 	path:     string, // owned
 	web_file: i32,
@@ -58,24 +58,23 @@ Attach_File :: struct {
 	data:     []u8, // owned
 }
 
-// Attach_Send_Command sends a message with files, where chat_send
-// would; its text may be empty.
+// Attach_Send_Command sends a message with files, in the places where chat_send
+// would send a message. The text may be empty.
 Attach_Send_Command :: struct {
 	text:   string, // owned
 	dm_to:  proto.Account_Id,
 	thread: Timeline_Key,
 	files:  []Attach_File, // owned
-	typed:  bool, // headless: `@username` as typed (Chat_Command)
+	typed:  bool, // headless: `@username` as typed (see Chat_Command)
 }
 
-// Attach_Cancel_Command drops a message whose files are still on their
-// way.
+// Attach_Cancel_Command drops a message whose files are still being sent.
 Attach_Cancel_Command :: struct {
 	nonce: u64,
 }
 
-// Attach_Save_Command saves file `index` of message `msg` in `conv` (0:
-// the one we're looking at), or with `cancel` stops saving it.
+// Attach_Save_Command saves file `index` of message `msg` in `conv` (0 means the
+// conversation we are looking at), or stops saving it if `cancel` is set.
 Attach_Save_Command :: struct {
 	conv:   proto.Conv_Id,
 	msg:    proto.Msg_Id,
@@ -83,8 +82,8 @@ Attach_Save_Command :: struct {
 	cancel: bool,
 }
 
-// Attach_Preview_Command fetches file `index` of message `msg` in `conv`
-// to show it: a picture (preview_wanted).
+// Attach_Preview_Command fetches file `index` of message `msg` in `conv` so it
+// can be shown, which is only done for pictures (see preview_wanted).
 Attach_Preview_Command :: struct {
 	conv:  proto.Conv_Id,
 	msg:   proto.Msg_Id,
@@ -103,58 +102,58 @@ attach_command_destroy :: proc(cmd: ^Attach_Send_Command) {
 }
 
 Upload_State :: enum u8 {
-	Waiting, // to be announced
-	Putting, // Attach_Put is out
+	Waiting, // not yet announced to the server
+	Putting, // an Attach_Put request is pending
 	Sending,
-	Done, // on the server
+	Done, // uploaded to the server
 }
 
 Attach_Upload :: struct {
 	name:       string, // owned
 	size:       u64,
 	src:        File_Source,
-	memory:     []u8, // owned: a pasted picture, read from here, not src
+	memory:     []u8, // owned: the bytes of a pasted picture, which are read from here instead of src
 	state:      Upload_State,
-	id:         u64, // the server's, once it's said
+	id:         u64, // the server's id, once it has announced it
 	send:       proto.Transfer_Sender,
 	last_heard: time.Tick,
 	tries:      int,
 }
 
-// Attach_Post is a message with files, until it's posted.
+// Attach_Post is a message with files, until it is posted.
 Attach_Post :: struct {
 	nonce:  u64,
 	conv:   proto.Conv_Id,
 	root:   proto.Msg_Id,
 	dm_to:  proto.Account_Id,
-	first:  Post_State, // where its post starts (Open, for a DM to open)
+	first:  Post_State, // the state its post starts in (Open for a DM that has to be opened)
 	text:   string, // owned
 	files:  []Attach_Upload, // owned
-	queued: bool, // in the outbox: every file is on the server
+	queued: bool, // in the outbox, which happens once every file is on the server
 }
 
 Save_State :: enum u8 {
-	Asking, // Attach_Get is out
+	Asking, // an Attach_Get request is pending
 	Receiving,
 	Done,
 	Failed,
 	Cancelled,
 }
 
-// Attach_Save is a file being saved, by its blob.
+// Attach_Save is a file that is being saved, identified by its blob.
 Attach_Save :: struct {
 	blob:         proto.Blob_Id,
 	name:         string, // owned
 	size:         u64,
 	state:        Save_State,
 	asking:       bool,
-	id:           u64, // the server's download, once it's said
+	id:           u64, // the server's id of the download, once it has announced it
 	recv:         proto.Transfer_Receiver,
 	sink:         File_Sink,
-	path:         string, // owned: where it goes
+	path:         string, // owned: where the file is saved
 	last_heard:   time.Tick,
 	last_publish: time.Tick,
-	// A preview: into `data` (owned), rather than a file.
+	// A preview is received into `data` (owned) instead of a file.
 	memory:       bool,
 	data:         []u8,
 }
@@ -162,7 +161,7 @@ Attach_Save :: struct {
 Attach_Client :: struct {
 	posts:        [dynamic]^Attach_Post,
 	saves:        map[proto.Blob_Id]^Attach_Save,
-	// Pictures being fetched to be shown, by their blobs.
+	// Pictures that are being fetched to be shown, by their blobs.
 	previews:     map[proto.Blob_Id]^Attach_Save,
 	last_publish: time.Tick,
 }
@@ -208,20 +207,18 @@ save_free :: proc(sv: ^Attach_Save) {
 	free(sv)
 }
 
-/*
-Sending.
-*/
+// Sending.
 
-// attach_send takes a message with files in: they're opened now, and
-// stay open until it's posted.
+// attach_send takes in a message with files. The files are opened now and stay
+// open until the message is posted.
 attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 	max_size := c.rpc.server.max_attachment
 	if len(cmd.files) == 0 || len(cmd.files) > proto.MAX_ATTACHMENTS {
-		notify(c, false, "A message can carry at most 10 files.")
+		notify(c, false, "A message can have at most 10 files attached.")
 		return
 	}
 	if max_size == 0 {
-		notify(c, false, "This server doesn't take files.")
+		notify(c, false, "This server does not accept file attachments.")
 		return
 	}
 	conv, first, ok := post_target(c, cmd.dm_to)
@@ -269,13 +266,13 @@ attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 		why := ""
 		switch {
 		case !opened:
-			why = "A file couldn't be read, so the message wasn't sent."
+			why = "A file could not be read, so the message was not sent."
 		case size == 0:
-			why = "An empty file can't be sent."
+			why = "Empty files cannot be sent."
 		case size > max_size:
-			why = "A file is bigger than this server takes."
+			why = "A file is larger than the maximum size this server allows."
 		case name == "":
-			why = "A file has has a name that can't be sent."
+			why = "A file has a name that cannot be used."
 		}
 		if why != "" {
 			if opened {
@@ -300,7 +297,8 @@ attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 	publish_outbox(c)
 }
 
-// attachments_step moves uploads and saves along, from the client's loop.
+// attachments_step advances the uploads and saves. It is called from the client's
+// loop.
 attachments_step :: proc(c: ^Voice_Client) {
 	if !c.has_current || !c.convs.synced {
 		return
@@ -320,8 +318,8 @@ attachments_step :: proc(c: ^Voice_Client) {
 	}
 }
 
-// upload_turn drives the one file being uploaded, or starts the next;
-// and queues a message whose files are all there.
+// upload_turn drives the one file that is being uploaded or starts the next one,
+// and queues a message once all its files are uploaded.
 @(private = "file")
 upload_turn :: proc(c: ^Voice_Client, now: time.Tick) {
 	for i := 0; i < len(c.attach.posts); {
@@ -361,21 +359,21 @@ upload_turn :: proc(c: ^Voice_Client, now: time.Tick) {
 			if time.tick_diff(active.last_heard, now) > FILE_TIMEOUT {
 				log.warnf("[file] the server went quiet about %q", active.name)
 				if !upload_again(c, p, active) {
-					continue // given up; `i` is the next one now
+					continue // the message was given up, so `i` already refers to the next one
 				}
 			} else if !send_upload(c, active, now) {
-				drop_post(c, p, "A file couldn't be read, so the message wasn't sent.")
+				drop_post(c, p, "A file could not be read, so the message was not sent.")
 				continue
 			}
 		case .Done:
 		}
-		// One file at a time, of all the messages.
+		// Only one file is uploaded at a time, across all messages.
 		return
 	}
 }
 
-// send_upload sends what the pace allows of a file; false if it can't be
-// read.
+// send_upload sends as much of a file as the pace allows. It returns false if
+// the file cannot be read.
 @(private = "file")
 send_upload :: proc(c: ^Voice_Client, f: ^Attach_Upload, now: time.Tick) -> bool {
 	rate := transfer_rate(c.files.upload_limit, f.send.peer_rate)
@@ -399,7 +397,7 @@ send_upload :: proc(c: ^Voice_Client, f: ^Attach_Upload, now: time.Tick) -> bool
 			return false
 		}
 		if !ready {
-			return true // a browser is still reading it; next time
+			return true // a browser is still reading it, so try again next time
 		}
 		send_data(
 			c,
@@ -409,13 +407,13 @@ send_upload :: proc(c: ^Voice_Client, f: ^Attach_Upload, now: time.Tick) -> bool
 	}
 }
 
-// upload_again starts a file over, unless it's been tried too often;
+// upload_again starts a file over, unless it has been tried too often. It returns
 // false if the message was given up.
 @(private = "file")
 upload_again :: proc(c: ^Voice_Client, p: ^Attach_Post, f: ^Attach_Upload) -> bool {
 	f.tries += 1
 	if f.tries >= ATTACH_TRIES {
-		drop_post(c, p, "A file couldn't be sent: the server wouldn't take it.")
+		drop_post(c, p, "A file could not be sent because the server rejected it.")
 		return false
 	}
 	proto.transfer_sender_destroy(&f.send)
@@ -434,7 +432,7 @@ attach_post_of :: proc(c: ^Voice_Client, nonce: u64) -> (^Attach_Post, int) {
 	return nil, -1
 }
 
-// drop_post gives up a message with files, and says why.
+// drop_post gives up a message with files and tells the user why.
 @(private = "file")
 drop_post :: proc(c: ^Voice_Client, p: ^Attach_Post, why: string) {
 	if why != "" {
@@ -453,8 +451,8 @@ drop_post :: proc(c: ^Voice_Client, p: ^Attach_Post, why: string) {
 	publish_outbox(c)
 }
 
-// attach_cancel drops a message whose files are on their way, or
-// waiting in the outbox to be posted.
+// attach_cancel drops a message whose files are still being sent or are waiting
+// in the outbox to be posted.
 attach_cancel :: proc(c: ^Voice_Client, nonce: u64) {
 	p, _ := attach_post_of(c, nonce)
 	if p == nil {
@@ -462,7 +460,8 @@ attach_cancel :: proc(c: ^Voice_Client, nonce: u64) {
 	}
 	if p.queued {
 		for &pending, i in c.msgs.outbox {
-			// Not the head while it's being posted: that's too late.
+			// The head of the outbox cannot be dropped while it is being posted, because
+			// that is too late.
 			if pending.attach == p && (i > 0 || !pending.asking) {
 				pending_destroy(&pending)
 				ordered_remove(&c.msgs.outbox, i)
@@ -512,19 +511,19 @@ put_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	#partial switch status {
 	case .Ok:
 	case .Reset:
-		f.state = .Waiting // announced again on the new connection
+		f.state = .Waiting // it is announced again on the new connection
 		return
 	case .Rate_Limited:
 		f.state = .Waiting
 		return
 	case .Too_Large:
-		drop_post(c, p, "A file is bigger than this server takes.")
+		drop_post(c, p, "A file is larger than the maximum size this server allows.")
 		return
 	case .Denied:
-		drop_post(c, p, "You may not send files here.")
+		drop_post(c, p, "You don't have permission to send files here.")
 		return
 	case:
-		drop_post(c, p, "The server won't take that file.")
+		drop_post(c, p, "The server rejected the file.")
 		return
 	}
 	id, ok := proto.decode_attach_id(body)
@@ -538,7 +537,7 @@ put_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	log.debugf("[file] uploading %q (%s)", f.name, format_bytes(f.size))
 }
 
-// upload_of is the file being uploaded as `id`, and its message.
+// upload_of returns the file that is being uploaded as `id`, and its message.
 @(private = "file")
 upload_of :: proc(c: ^Voice_Client, id: u64) -> (^Attach_Post, ^Attach_Upload) {
 	for p in c.attach.posts {
@@ -570,12 +569,12 @@ handle_upload_ack :: proc(c: ^Voice_Client, pt: []u8) {
 	_ = p
 }
 
-// handle_transfer_cancel is the server stopping an upload or a download.
+// handle_transfer_cancel handles the server stopping an upload or a download.
 handle_transfer_cancel :: proc(c: ^Voice_Client, pt: []u8) {
 	id, reason := proto.decode_transfer_cancel(pt)
 	if p, f := upload_of(c, id); f != nil && f.state == .Sending {
 		if reason == .Failed {
-			drop_post(c, p, "The server couldn't keep a file, so the message wasn't sent.")
+			drop_post(c, p, "The server failed to store a file, so the message was not sent.")
 		} else {
 			upload_again(c, p, f)
 		}
@@ -586,7 +585,7 @@ handle_transfer_cancel :: proc(c: ^Voice_Client, pt: []u8) {
 			if reason == .Failed {
 				save_end(c, sv, .Failed)
 			} else {
-				// Asked for again; what's here stays.
+				// The file is requested again, and what has arrived so far is kept.
 				sv.asking, sv.id = false, 0
 				sv.state = .Asking
 			}
@@ -595,8 +594,7 @@ handle_transfer_cancel :: proc(c: ^Voice_Client, pt: []u8) {
 	}
 }
 
-// queue_post puts a message whose files are all on the server in the
-// outbox.
+// queue_post puts a message whose files are all on the server into the outbox.
 @(private = "file")
 queue_post :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 	p.queued = true
@@ -614,8 +612,9 @@ queue_post :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 	publish_outbox(c)
 }
 
-// attach_posted is a message with files posted: what's left of it here
-// goes. Its message comes in its Msg_New, with the files' blobs.
+// attach_posted handles a message with files having been posted, so whatever is
+// left of it here is removed. The message itself arrives in its Msg_New, together
+// with the files' blobs.
 attach_posted :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 	_, i := attach_post_of(c, p.nonce)
 	if i >= 0 {
@@ -624,13 +623,13 @@ attach_posted :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 	attach_post_free(p)
 }
 
-// attach_post_failed: the outbox has given a message with files up.
+// attach_post_failed handles the outbox giving up on a message with files.
 attach_post_failed :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 	drop_post(c, p, "")
 }
 
-// attach_upload_again is a post that found its uploads gone: they're
-// uploaded again, and it's queued again after.
+// attach_upload_again handles a post that found its uploads gone. The files are
+// uploaded again, and the message is queued again afterwards.
 attach_upload_again :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 	p.queued = false
 	for &f in p.files {
@@ -638,14 +637,12 @@ attach_upload_again :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 		f.send = {}
 		f.state, f.id = .Waiting, 0
 	}
-	log.info("[file] the server doesn't have the files any more: sending them again")
+	log.info("[file] the server no longer has the files, so they are being sent again")
 }
 
-/*
-Saving.
-*/
+// Saving.
 
-// attach_save starts saving a file a message carries, or stops it.
+// attach_save starts saving a file that a message carries, or stops it.
 attach_save :: proc(c: ^Voice_Client, cmd: Attach_Save_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	m, found := msg_find(c, conv, cmd.msg)
@@ -665,20 +662,24 @@ attach_save :: proc(c: ^Voice_Client, cmd: Attach_Save_Command) {
 		return
 	}
 	if f.blob == 0 {
-		notify(c, false, "That file isn't on the server any more.")
+		notify(c, false, "That file is no longer available on the server.")
 		return
 	}
 	if sv != nil {
 		if sv.state == .Asking || sv.state == .Receiving {
-			return // on its way
+			return // it is already on its way
 		}
-		// Again: anew.
+		// Saving it again, so start anew.
 		delete_key(&c.attach.saves, f.blob)
 		save_free(sv)
 	}
 	sink, path, ok := file_sink_create(c.files.download_dir, f.name, f.size)
 	if !ok {
-		notify(c, false, "The file couldn't be saved: the downloads folder isn't writable.")
+		notify(
+			c,
+			false,
+			"The file could not be saved because the downloads folder is not writable.",
+		)
 		return
 	}
 	sv = new(Attach_Save)
@@ -715,7 +716,7 @@ save_turn :: proc(c: ^Voice_Client, sv: ^Attach_Save, now: time.Tick) {
 			send_save_ack(c, sv, now)
 		}
 	case .Done:
-		// Said a few times, in case the first didn't get there.
+		// This is repeated a few times, in case the first ack did not arrive.
 		if sv.recv.complete_acks < proto.TRANSFER_COMPLETE_ACKS &&
 		   time.tick_diff(sv.recv.last_ack, now) >= proto.TRANSFER_ACK_INTERVAL * 3 {
 			send_save_ack(c, sv, now)
@@ -751,10 +752,10 @@ get_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	#partial switch status {
 	case .Ok:
 	case .Reset, .Rate_Limited:
-		return // asked again
+		return // it is requested again
 	case .Not_Found:
 		if !sv.memory {
-			notify(c, false, "That file isn't on the server any more.")
+			notify(c, false, "That file is no longer available on the server.")
 		}
 		save_end(c, sv, .Failed)
 		return
@@ -764,7 +765,7 @@ get_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	}
 	size, id, ok := proto.decode_attach_get_answer(body)
 	if !ok || size != sv.size {
-		log.warnf("[file] %q isn't the size its message says", sv.name)
+		log.warnf("[file] %q does not have the size its message says", sv.name)
 		save_end(c, sv, .Failed)
 		return
 	}
@@ -777,8 +778,8 @@ get_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 			format_bytes(sv.size),
 		)
 	}
-	// What's here already (from before the connection started over) is
-	// said straight away, so it isn't sent again.
+	// Immediately acknowledge what is already here (from before the connection
+	// restarted), so that it is not sent again.
 	send_save_ack(c, sv, sv.last_heard)
 	publish_saves(c)
 }
@@ -811,7 +812,7 @@ handle_download_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 	}
 	proto.transfer_got(&sv.recv, index, len(data))
 	if proto.transfer_complete(&sv.recv) && sv.memory {
-		// A picture to show: the pictures messages show have it now.
+		// This is a picture to show. It now goes to the pictures that messages show.
 		sv.state = .Done
 		send_save_ack(c, sv, now)
 		blob_have(c, sv.blob, sv.data, 0, 0)
@@ -841,9 +842,9 @@ save_end :: proc(c: ^Voice_Client, sv: ^Attach_Save, state: Save_State) {
 	publish_saves(c)
 }
 
-// attachments_restart is a connection the server has made anew: what
-// was on its way starts again (an upload from the start, a save from
-// where it got to); with `forget`, we were logged out, and it all goes.
+// attachments_restart handles the server having made a new connection. What was
+// in progress starts again (an upload from the start, a save from where it got
+// to). With `forget`, we were logged out and everything is discarded.
 attachments_restart :: proc(c: ^Voice_Client, forget: bool) {
 	if forget {
 		for p in c.attach.posts {
@@ -877,8 +878,8 @@ attachments_restart :: proc(c: ^Voice_Client, forget: bool) {
 	}
 }
 
-// all_saves is every file being fetched, to save or to show; in the temp
-// allocator.
+// all_saves returns every file that is being fetched, either to be saved or to
+// be shown. It is allocated in the temp allocator.
 @(private = "file")
 all_saves :: proc(c: ^Voice_Client) -> map[proto.Blob_Id]^Attach_Save {
 	all := make(
@@ -889,16 +890,17 @@ all_saves :: proc(c: ^Voice_Client) -> map[proto.Blob_Id]^Attach_Save {
 	for blob, sv in c.attach.saves {
 		all[blob] = sv
 	}
-	// A preview's blob may be being saved too; told apart by their ids,
-	// so the key here only has to be unique.
+	// A preview's blob may be being saved too. They are told apart by their
+	// ids, so the key here only has to be unique.
 	for blob, sv in c.attach.previews {
 		all[proto.Blob_Id(u64(blob) | PREVIEW_TAG)] = sv
 	}
 	return all
 }
 
-// preview_wanted is whether a file of that name and size is shown: a
-// picture that can be decoded, not too big to fetch for it.
+// preview_wanted reports whether a file with that name and size is shown as a
+// preview, which is the case for a picture that can be decoded and is not too
+// big to fetch.
 preview_wanted :: proc(name: string, size: u64) -> bool {
 	if size == 0 || size > PREVIEW_MAX {
 		return false
@@ -916,8 +918,8 @@ preview_wanted :: proc(name: string, size: u64) -> bool {
 	return false
 }
 
-// attach_preview fetches a picture a message carries, to show it, unless
-// it's here or on its way.
+// attach_preview fetches a picture that a message carries so it can be shown,
+// unless it is already here or on its way.
 attach_preview :: proc(c: ^Voice_Client, cmd: Attach_Preview_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	m, found := msg_find(c, conv, cmd.msg)
@@ -929,14 +931,14 @@ attach_preview :: proc(c: ^Voice_Client, cmd: Attach_Preview_Command) {
 		return
 	}
 	if fetch := c.blobs.cache[f.blob] or_else nil; fetch != nil && fetch.state == .Ready {
-		publish_blob(c, f.blob) // here already
+		publish_blob(c, f.blob) // it is already here
 		return
 	}
 	if sv := c.attach.previews[f.blob] or_else nil; sv != nil {
 		if sv.state == .Asking || sv.state == .Receiving || sv.state == .Failed {
-			return // on its way, or not to be had
+			return // it is already on its way, or it is not available
 		}
-		// Fetched before, and dropped from memory since: again.
+		// It was fetched before and dropped from memory since, so fetch it again.
 		delete_key(&c.attach.previews, f.blob)
 		save_free(sv)
 	}
@@ -953,15 +955,13 @@ attach_preview :: proc(c: ^Voice_Client, cmd: Attach_Preview_Command) {
 	c.attach.previews[f.blob] = sv
 }
 
-/*
-What the UI is shown: the files of a message on its way (View_Pending,
-publish_outbox), and the files being saved.
-*/
+// What the UI is shown: the files of a message that is being sent
+// (View_Pending, see publish_outbox), and the files that are being saved.
 
 View_Pending_File :: struct {
 	name: string, // owned
 	size: u64,
-	done: u64, // bytes on the server
+	done: u64, // bytes uploaded to the server
 }
 
 View_Save :: struct {
@@ -971,7 +971,7 @@ View_Save :: struct {
 	path:  string, // owned
 }
 
-// pending_files is what the UI is shown of a message's files.
+// pending_files returns what the UI is shown of a message's files.
 pending_files :: proc(p: ^Attach_Post) -> []View_Pending_File {
 	out := make([]View_Pending_File, len(p.files))
 	for &f, i in p.files {

@@ -8,31 +8,29 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-Searching messages (src/common/proto/search.odin): a floating window,
-opened by the magnifier in the conversation's header, with a box to
-type in, whether to look in every conversation of ours rather than this
-one, and what was found, newest first, each with Go to (which goes
-there as a link does, ui_forward.odin) and More at the end for older
-ones.
-
-Words match whole words, whatever their case and accents; "a phrase"
-the words in a row, from:username one person's.
-*/
+// Searching messages (src/common/proto/search.odin) happens in a floating
+// window opened by the magnifier in the conversation's header. It has a box to
+// type in, a checkbox to look in all of our conversations instead of only this
+// one, and the results, newest first. Each result has Go to (which jumps there
+// like a link does, see ui_forward.odin), and More at the end loads older
+// results.
+//
+// Words match whole words regardless of case and accents. "a phrase" matches
+// the words in a row, and from:username matches one person's messages.
 
 UI_Search :: struct {
 	open:      bool,
 	placed:    bool,
 	query_buf: [proto.MAX_SEARCH_QUERY]u8,
 	query_len: int,
-	all:       bool, // in every conversation of ours
+	all:       bool, // search in all of our conversations
 }
 
 @(private = "file")
 SEARCH_WINDOW :: "Search"
 
-// search_button is the header's magnifier, which opens and closes the
-// window. Call with the View locked.
+// search_button is the header's magnifier, which opens and closes the window.
+// Call with the View locked.
 search_button :: proc(ui: ^UI) {
 	s := &ui.search
 	if .SUBMIT in
@@ -107,7 +105,8 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		with_text_color(ctx, theme.dim, fmt.tprintf("Nothing has %q.", found.query), label_proc)
 		return
 	case len(found.found) == 0:
-		// Stopped for time before finding any: older messages are left.
+		// The search stopped because of its time limit before finding any
+		// result, so older messages are left.
 		with_text_color(ctx, theme.dim, "Nothing yet in the newest messages.", label_proc)
 	}
 	for f, i in found.found {
@@ -137,7 +136,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		if text != "" {
 			mu.text(ctx, conn.markdown_plain(text))
 		}
-		// Its files, which may be what it was found by.
+		// Its files, which may be what the message was found by.
 		if len(m.files) > 0 {
 			names := make([]string, len(m.files), context.temp_allocator)
 			for f, j in m.files {
@@ -173,8 +172,8 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
-// conversation_name is how a list names a conversation of ours: #name,
-// or the DM's other's name. Call with the View locked.
+// conversation_name is how a list names one of our conversations: #name, or
+// the other person's name for a DM. Call with the View locked.
 conversation_name :: proc(v: ^conn.View, conv: proto.Conv_Id) -> string {
 	for ch in v.channels {
 		if ch.id == conv {

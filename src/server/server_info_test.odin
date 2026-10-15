@@ -6,8 +6,8 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of what the server says about itself (server_info.odin), on the
-// Test_Server of auth_test.odin.
+// Tests of the server's own name, description and icon (server_info.odin),
+// using the Test_Server from auth_test.odin.
 
 @(private = "file")
 info_set :: proc(
@@ -68,7 +68,7 @@ test_server_info_set :: proc(t: ^testing.T) {
 		icon, stored = blob_put(&s.blobs, .Avatar, jpeg, 64, 64)
 		testing.expect(t, stored)
 
-		// The owner's to change, and nobody else's.
+		// Only the owner can change the server info.
 		set := proto.Server_Info_Set {
 			name        = "  The\tShed ",
 			description = "For the band.\n\nRehearsals on Tuesdays.",
@@ -81,7 +81,7 @@ test_server_info_set :: proc(t: ^testing.T) {
 		testing.expect_value(t, s.description, "For the band.\n\nRehearsals on Tuesdays.")
 		testing.expect_value(t, s.icon, icon)
 
-		// Everyone logged in is told.
+		// Everyone who is logged in is told about the change.
 		heard := false
 		for e in ts_events(t, &ts, b) {
 			if e.op != .Server_Info {
@@ -95,8 +95,8 @@ test_server_info_set :: proc(t: ^testing.T) {
 		}
 		testing.expect(t, heard)
 
-		// Asked before logging in: what it says, and its picture, but no
-		// other blob.
+		// Before logging in, a client can fetch the server info and its
+		// icon, but no other blob.
 		status, body := ts_ask(t, &ts, stranger, .Server_Info)
 		testing.expect_value(t, status, proto.Status.Ok)
 		info, ok := proto.decode_server_info(body)
@@ -112,7 +112,7 @@ test_server_info_set :: proc(t: ^testing.T) {
 		status, _ = icon_of(t, &ts, stranger, 0)
 		testing.expect_value(t, status, proto.Status.Invalid)
 
-		// Only a small square picture will do.
+		// The icon must be a small, square picture.
 		big, _ := blob_put(&s.blobs, .Avatar, test_jpeg(200, 200, 6), 200, 200)
 		wide, _ := blob_put(&s.blobs, .Avatar, test_jpeg(64, 32, 7), 64, 32)
 		file, _ := blob_put(&s.blobs, .File, test_jpeg(48, 48, 8), 48, 48)
@@ -123,7 +123,8 @@ test_server_info_set :: proc(t: ^testing.T) {
 		testing.expect_value(t, s.icon, icon)
 	}
 
-	// Kept: the config's name no longer counts.
+	// The info persists across a restart, and the name from the config no
+	// longer applies.
 	{
 		ts: Test_Server
 		ts_open(t, &ts, path)

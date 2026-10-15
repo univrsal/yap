@@ -15,71 +15,68 @@ import "common:gateway"
 import "common:http"
 import "common:proto"
 
-/*
-The relay, run alongside the server when the config enables it (see
-config.odin): it lets the web client reach this server.
-
-A browser can't send UDP, so the web client sends its packets over a
-WebSocket instead, and the relay puts them back on UDP - one UDP socket
-per WebSocket, so the server sees each browser as a client of its own.
-It also serves the web build itself, so one address is all a browser
-needs:
-
-	"relay": { "enabled": true, "port": 8080 }   in config.json
-	open http://localhost:8080/?server=localhost:7777
-
-A browser's media link (client/conn/media.odin), for the video it
-watches, comes the same way under /yap-media/ and goes to the server's
-media port instead.
-
-The relay can't read what it carries: the session is end-to-end between
-the web client and the server, and the relay only ever sees sealed
-packets. It only relays to this server, whatever address the page names,
-so it can't be turned into a way to send UDP anywhere.
-
-The bot API (common/gateway, docs/bot-api) is on the same port, under
-/api/: one port, one proxy rule and one certificate for both. With the
-API enabled and the relay not, the port serves the API and nothing else.
-*/
+// The relay runs alongside the server if the config enables it (see
+// config.odin). It lets the web client reach this server.
+//
+// A browser can't send UDP, so the web client sends its packets over a
+// WebSocket instead. The relay converts them back to UDP, using one UDP
+// socket per WebSocket, so the server sees each browser as a separate
+// client. The relay also serves the web build itself, so a browser only
+// needs a single address:
+//
+//	"relay": { "enabled": true, "port": 8080 }   in config.json
+//	open http://localhost:8080/?server=localhost:7777
+//
+// The media link of a browser (see client/conn/media.odin), which is used
+// for the video it watches, works the same way under /yap-media/ but is
+// forwarded to the server's media port instead.
+//
+// The relay can't read what it carries. The session is encrypted end to end
+// between the web client and the server, so the relay only sees sealed
+// packets. It only relays to this server, regardless of which address the
+// page asks for, so it can't be abused to send UDP packets anywhere else.
+//
+// The bot API (see common/gateway and docs/bot-api) is served on the same
+// port under /api/, so that one port, one proxy rule and one certificate
+// are enough for both. If the API is enabled but the relay is not, the port
+// serves the API and nothing else.
 
 DEFAULT_WEB_DIR :: "web/out"
 
 // How long a UDP read waits before checking whether the WebSocket side
-// has gone; also bounds how long a closed connection lingers.
+// has gone. This also limits how long a closed connection lingers.
 @(private = "file")
 UDP_POLL :: 200 * time.Millisecond
 
-// A file a browser may ask for. They're read once, when the relay
-// starts, so rebuilding the web client means restarting the server.
+// A file that a browser may ask for. The files are read once when the relay
+// starts, so after rebuilding the web client the server has to be restarted.
 @(private = "file")
 Web_File :: struct {
 	name:         string,
 	content_type: string,
 	data:         []u8,
-	loaded:       bool, // false if it couldn't be read
+	loaded:       bool, // false if the file couldn't be read
 }
 
 @(private = "file")
 Relay :: struct {
 	listener: net.TCP_Socket,
-	server:   net.Endpoint, // the only places anything is relayed to
-	media:    net.Endpoint, // the media port's; port 0 if there's none
-	// Whether browsers are relayed and the web client served; without,
-	// it's only the API.
+	server:   net.Endpoint, // the only destination that packets are relayed to
+	media:    net.Endpoint, // the server's media port, or port 0 if there is none
+	// Whether browsers are relayed and the web client is served. If false,
+	// only the API is served.
 	web:      bool,
-	// Nothing else in the web directory is served.
-	files:    [8]Web_File,
-	api:      ^gateway.Gateway, // nil without the API
+	// Only these files of the web directory are served.
+	files:    [9]Web_File,
+	api:      ^gateway.Gateway, // nil if the API is disabled
 }
 
-/*
-start_relay listens for browsers on `port` and relays them to the server
-on `server_port` of this machine (and their media links to `media_port`,
-if it's not 0), on a thread of its own; with `web`
-false it doesn't, and only answers the API. `api` is the gateway to hand
-/api/ to, if there's one. It fails only if it can't listen; after that
-it runs for as long as the process does.
-*/
+// start_relay listens for browsers on `port` in a thread of its own and
+// relays them to the server on `server_port` of this machine. Media links
+// are relayed to `media_port` unless it is 0. If `web` is false, browsers
+// aren't relayed and only the API is served. `api` is the gateway that
+// requests under /api/ are handed to, if there is one. It only fails if it
+// can't listen. After that it runs for as long as the process does.
 start_relay :: proc(
 	port: int,
 	server_port: int,
@@ -105,11 +102,13 @@ start_relay :: proc(
 		{name = "index.js", content_type = "text/javascript; charset=utf-8"},
 		{name = "index.wasm", content_type = "application/wasm"},
 		{name = "favicon.ico", content_type = "image/x-icon"},
-		// What installing it as an app needs (index.html).
+		// The files needed to install the web client as an app (see index.html).
 		{name = "manifest.webmanifest", content_type = "application/manifest+json"},
 		{name = "icon-192.png", content_type = "image/png"},
 		{name = "icon-512.png", content_type = "image/png"},
 		{name = "apple-touch-icon.png", content_type = "image/png"},
+		// The service worker that displays push notifications (push.odin, web/sw.js).
+		{name = "sw.js", content_type = "text/javascript; charset=utf-8"},
 	}
 	for &f in r.files {
 		if !web {
@@ -119,7 +118,7 @@ start_relay :: proc(
 		data, read_err := os.read_entire_file(full, context.allocator)
 		if read_err != nil {
 			log.errorf(
-				"could not read %s: %v (built the web client? see web/build.sh)",
+				"could not read %s: %v (has the web client been built? see web/build.sh)",
 				full,
 				read_err,
 			)
@@ -170,22 +169,23 @@ accept_browsers :: proc(r: ^Relay) {
 	}
 }
 
-// A connection thread's temp allocations are a request's headers and a
-// few strings, so it starts small rather than with the default 4 MiB.
+// The temp allocations of a connection thread are only the headers of a
+// request and a few strings, so its temp allocator starts small instead of
+// with the default 4 MiB.
 @(private = "file")
 CONNECTION_TEMP :: 16 * 1024
 
-/*
-Each connection thread brings its own temp allocator, freed as it ends:
-
-	temp: runtime.Arena
-	context.temp_allocator = connection_temp_allocator(&temp)
-	defer runtime.arena_destroy(&temp)
-
-The default one would be a 4 MiB block per thread, zeroed and so all
-resident, which core:thread doesn't free for a thread started with an
-init_context, and which malloc keeps around even once it's freed.
-*/
+// Each connection thread uses its own temp allocator, which is freed when
+// the thread ends:
+//
+//	temp: runtime.Arena
+//	context.temp_allocator = connection_temp_allocator(&temp)
+//	defer runtime.arena_destroy(&temp)
+//
+// The default temp allocator would use a 4 MiB block per thread. That block
+// is zeroed and therefore fully resident in memory. core:thread doesn't
+// free it for a thread that was started with an init_context, and malloc
+// keeps the memory around even after it is freed.
 @(private = "file")
 connection_temp_allocator :: proc(temp: ^runtime.Arena) -> runtime.Allocator {
 	_ = runtime.arena_init(temp, CONNECTION_TEMP, context.allocator)
@@ -204,22 +204,32 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	if !ok {
 		return
 	}
-	// The address may carry the page's query (?server=...), which
-	// parse_request keeps apart from the path.
+	// The address may contain the query of the page (?server=...), which
+	// parse_request keeps separate from the path.
 	req, parsed := http.parse_request(head)
 	if !parsed {
 		return
 	}
 	if strings.has_prefix(req.path, gateway.API_PREFIX) {
 		if r.api == nil {
-			http.respond(c.sock, "404 Not Found", "text/plain", "this server has no API\n")
+			http.respond(
+				c.sock,
+				"404 Not Found",
+				"text/plain",
+				"the API is not enabled on this server\n",
+			)
 			return
 		}
 		gateway.serve(r.api, c, req)
 		return
 	}
 	if !r.web {
-		http.respond(c.sock, "404 Not Found", "text/plain", "only the API is here\n")
+		http.respond(
+			c.sock,
+			"404 Not Found",
+			"text/plain",
+			"this server only provides the API, not the web client\n",
+		)
 		return
 	}
 	if req.method != "GET" {
@@ -239,7 +249,12 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 			return
 		}
 		if media && r.media.port == 0 {
-			http.respond(c.sock, "404 Not Found", "text/plain", "the media link is off\n")
+			http.respond(
+				c.sock,
+				"404 Not Found",
+				"text/plain",
+				"the media link is not enabled on this server\n",
+			)
 			return
 		}
 		target := req.path[len("/yap-media/" if media else "/yap/"):]
@@ -249,14 +264,13 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	serve_file(r, c.sock, req.path)
 }
 
-/*
-relay_websocket carries packets between one browser and the server
-until either end goes: WebSocket messages out as UDP datagrams, UDP
-datagrams back as WebSocket messages, one to one. `target` is the
-address the page was given for the server; it's only for the log, as
-the relay goes to its own server whatever the page asked for. A `media`
-link goes to the server's media port.
-*/
+// relay_websocket carries packets between one browser and the server until
+// either side disconnects. WebSocket messages are sent on as UDP datagrams
+// and UDP datagrams come back as WebSocket messages, one to one. `target`
+// is the server address that the page was given. It is only used for the
+// log, because the relay always connects to its own server regardless of
+// what the page asked for. A `media` link is connected to the server's
+// media port.
 @(private = "file")
 relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, media: bool) {
 	server := r.media if media else r.server
@@ -317,7 +331,7 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, m
 			http.write_frame(c.sock, .Close, nil)
 			break loop
 		case .Text, .Pong:
-		// Nothing the client sends; ignored.
+		// The client never sends these, so they are ignored.
 		case:
 			break loop
 		}
@@ -326,21 +340,21 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, m
 	thread.join(back)
 	thread.destroy(back)
 	log.infof("a browser%s left (which asked for %s)", "'s media link" if media else "", target)
-	// Before the socket closes: what the server sends it from now on
-	// would only come back as ICMP "port unreachable". (A media link's
-	// session just times out: the main loop doesn't know it.)
+	// This must happen before the socket closes. Anything the server sends
+	// to it from now on would only come back as an ICMP "port unreachable".
+	// (The session of a media link just times out, because the main loop
+	// doesn't know about it.)
 	if bound, bound_err := net.bound_endpoint(udp); bound_err == nil && !media {
 		browser_left(bound.port)
 	}
 }
 
-/*
-Browsers that have gone, for the server to drop their sessions at once
-(drop_departed_browsers) rather than when they time out: the web client
-can't send Leave as the tab closes, but the relay sees its WebSocket go.
-It's the relay's own UDP port that's left, which the server knows the
-browser by. Shared by the relay's threads and the server's loop.
-*/
+// Departed describes a browser that has gone. The server drops the sessions
+// of such browsers immediately (see drop_departed_browsers) instead of
+// waiting for them to time out. The web client can't send Leave when its
+// tab closes, but the relay sees the WebSocket close. The port is the
+// relay's own UDP port for that browser, which is how the server knows the
+// browser. This is shared by the relay's threads and the server's loop.
 @(private = "file")
 Departed :: struct {
 	port: int,
@@ -358,11 +372,10 @@ browser_left :: proc(port: int) {
 	append(&departed, Departed{port, time.tick_now()})
 }
 
-/*
-drop_departed_browsers drops the sessions of browsers that have left the
-relay. Only those not heard from since: should the port be taken by the
-next browser already, its session is left be.
-*/
+// drop_departed_browsers drops the sessions of browsers that have left the
+// relay. Only sessions that haven't been heard from since the browser left
+// are dropped, so if the port has already been taken by the next browser,
+// its session is left alone.
 drop_departed_browsers :: proc(s: ^Server) {
 	gone: []Departed
 	{
@@ -387,8 +400,9 @@ drop_departed_browsers :: proc(s: ^Server) {
 	}
 }
 
-// The two directions share the WebSocket, whose frames mustn't
-// interleave, and a flag to stop on.
+// Link is shared by both directions of a relay. They use the same
+// WebSocket, whose frames must not be interleaved, and a flag that tells
+// both to stop.
 @(private = "file")
 Link :: struct {
 	ws:          net.TCP_Socket,
@@ -400,7 +414,8 @@ Link :: struct {
 
 @(private = "file")
 server_to_browser :: proc(link: ^Link) {
-	// Not the one it was started with, which is the other direction's.
+	// This thread needs its own temp allocator. The one it was started with
+	// belongs to the other direction.
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
@@ -414,7 +429,7 @@ server_to_browser :: proc(link: ^Link) {
 			}
 			break
 		}
-		// Only the server's replies go back; anything else is noise.
+		// Only replies from the server are forwarded. Anything else is ignored.
 		if from != link.server {
 			continue
 		}
@@ -437,7 +452,12 @@ serve_file :: proc(r: ^Relay, sock: net.TCP_Socket, path: string) {
 			continue
 		}
 		if !f.loaded {
-			http.respond(sock, "404 Not Found", "text/plain", "the web client hasn't been built\n")
+			http.respond(
+				sock,
+				"404 Not Found",
+				"text/plain",
+				"the web client has not been built\n",
+			)
 			return
 		}
 		http.respond(sock, "200 OK", f.content_type, string(f.data))

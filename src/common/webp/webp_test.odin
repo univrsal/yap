@@ -3,11 +3,11 @@ package webp
 
 import "core:testing"
 
-// Three frames of 6x4: red for 50 ms, green for 100, half-transparent
-// blue for 5; lossless, played for ever.
+// Three frames of 6x4: red for 50 ms, green for 100 ms, half-transparent
+// blue for 5 ms; lossless and looping forever.
 @(private = "file")
 ANIM := #load("testdata/anim.webp")
-// One still frame of 6x4.
+// A single still 6x4 image.
 @(private = "file")
 STILL := #load("testdata/still.webp")
 
@@ -30,7 +30,7 @@ test_anim_frames :: proc(t: ^testing.T) {
 		rgba: [4]u8,
 		ends: int,
 	}{{{255, 0, 0, 255}, 50}, {{0, 255, 0, 255}, 150}, {{0, 0, 255, 128}, 155}}
-	// Twice through: the second time after a reset.
+	// Play the animation twice, resetting the decoder in between.
 	for round in 0 ..< 2 {
 		for w in want {
 			pixels, ends, next := anim_next(dec, info)
@@ -55,7 +55,8 @@ test_anim_frames :: proc(t: ^testing.T) {
 
 @(test)
 test_encode_rgba :: proc(t: ^testing.T) {
-	// Half transparent and half not: the alpha comes back as it was.
+	// Half of the pixels are transparent and half opaque; the alpha channel
+	// must survive the round trip unchanged.
 	pixels: [8 * 8 * 4]u8
 	for i in 0 ..< 64 {
 		pixels[i * 4 + 0] = 200
@@ -72,14 +73,14 @@ test_encode_rgba :: proc(t: ^testing.T) {
 
 @(test)
 test_anim_still :: proc(t: ^testing.T) {
-	// A still picture opens as an animation of one frame.
+	// A still image opens as an animation with a single frame.
 	dec, info, ok := anim_open(STILL)
 	testing.expect(t, ok)
 	testing.expect_value(t, info.frames, 1)
 	anim_close(dec)
 	_, _, ok = anim_open([]u8{'R', 'I', 'F', 'F'})
 	testing.expect(t, !ok)
-	// A still WebP still decodes as one; an animation doesn't.
+	// decode_into decodes a still WebP, but refuses an animated one.
 	pixels: [6 * 4 * 4]u8
 	testing.expect(t, decode_into(STILL, pixels[:], 6))
 	testing.expect_value(

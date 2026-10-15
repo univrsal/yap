@@ -6,54 +6,55 @@ import "core:time"
 
 import "common:proto"
 
-/*
-Blobs on their way in and out (src/common/proto/msgs.odin says how
-they're asked for, src/common/proto/blob.odin how the chunks move).
+// Blobs are uploaded to and downloaded from the server in chunks. How blobs
+// are requested is described in src/common/proto/msgs.odin and how the
+// chunks are transferred in src/common/proto/blob.odin.
+//
+// A client announces a picture with Blob_Put, which contains its kind (a
+// message's Image or an Avatar, see profiles.odin), size, hash and
+// dimensions. If the blob store already has that content, the answer
+// contains the blob's id and nothing is uploaded. Otherwise the client
+// gets a handle and sends the chunks under it. Once all chunks have
+// arrived, the content is checked against what was announced (the hash and,
+// for a picture, the size given by its JPEG header) and then stored (see
+// blobs.odin). The client then sends Blob_Put again, which is answered with
+// the blob's id.
+//
+// Blob_Get sends a blob to anyone who may see it (see blob_visible), under
+// a handle of its own.
+//
+// Each connection can have one upload and one download at a time. They are
+// rate limited so that a picture can't crowd out voice data.
 
-A client announces a picture with Blob_Put: its kind (a message's
-Image, or an Avatar: profiles.odin), size, hash and dimensions. Content the store has already is answered with its id and
-isn't sent again. Anything else gets a handle, and the chunks come
-under it; once they're all there the content is checked against what
-was announced (the hash, and for a picture the size its JPEG header
-gives) and kept (blobs.odin). The client then asks Blob_Put again,
-which answers with the id.
-
-Blob_Get sends a blob to whoever may see it (blob_visible), under a
-handle of its own.
-
-Each connection has one upload and one download at a time, paced so a
-picture can't crowd out voice.
-*/
-
-// Per connection, in each direction.
+// The rate limits per connection, in each direction.
 TRANSFER_RATE :: 256 * 1024 // bytes per second
 TRANSFER_BURST :: 32 * 1024 // bytes that may go out at once
-// An upload that goes quiet for this long is dropped.
+// An upload that doesn't receive any data for this long is dropped.
 UPLOAD_TIMEOUT :: 15 * time.Second
 
-// Upload is a blob on its way in from one connection.
+// Upload is a blob that is being received from one connection.
 Upload :: struct {
 	active:    bool,
 	handle:    u64,
-	put:       proto.Blob_Put, // what it was announced as
+	put:       proto.Blob_Put, // the announcement the upload started with
 	recv:      proto.Blob_Receiver,
 	last_need: time.Tick,
 	last_data: time.Tick,
 }
 
-// Download is a blob on its way out to one connection.
+// Download is a blob that is being sent to one connection.
 Download :: struct {
 	active: bool,
 	blob:   Blob_Id,
-	handle: u64, // what its chunks go under
+	handle: u64, // the handle that the chunks are sent under
 	data:   []u8, // owned
 	send:   proto.Blob_Sender,
-	tokens: f32, // bytes this connection may be sent right now
+	tokens: f32, // bytes that may be sent to this connection right now
 	last:   time.Tick,
 }
 
-// new_handle is a transfer's handle: random, so it can't be taken for
-// another's, and never 0.
+// new_handle generates the handle of a transfer. It is random so that it
+// can't be mistaken for the handle of another transfer, and never 0.
 @(private = "file")
 new_handle :: proc() -> (handle: u64) {
 	for handle == 0 {
@@ -65,7 +66,7 @@ new_handle :: proc() -> (handle: u64) {
 blob_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	p, ok := proto.decode_blob_put(body)
 	switch {
-	// Profile pictures are all that's uploaded this way; files go with
+	// Only profile pictures are uploaded this way. Files are handled in
 	// attachments.odin.
 	case !ok || p.kind != .Avatar || p.width == 0 || p.height == 0:
 		respond(u, id, .Invalid)
@@ -84,7 +85,8 @@ blob_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 
 	up := &u.upload
-	// Asked again for the one on its way: the same handle.
+	// If the client asks again for the upload that is already in progress,
+	// it gets the same handle.
 	if !up.active || up.put != p {
 		upload_end(u)
 		if !proto.blob_receiver_init(&up.recv, p.size) {
@@ -127,11 +129,9 @@ handle_blob_chunk :: proc(s: ^Server, c: ^Client, pt: []byte) {
 	}
 }
 
-/*
-upload_chunk takes one chunk of a connection's upload. Once they're all
-there (`done`) the content is checked against what was announced and,
-if it's that, stored; the upload is over either way.
-*/
+// upload_chunk handles one chunk of a connection's upload. Once all chunks
+// have arrived (`done`), the content is checked against the announcement
+// and stored if it matches. The upload is over either way.
 upload_chunk :: proc(s: ^Server, u: ^Conn, index: int, data: []u8) -> (done, stored: bool) {
 	up := &u.upload
 	proto.blob_receive(&up.recv, index, data)
@@ -140,13 +140,13 @@ upload_chunk :: proc(s: ^Server, u: ^Conn, index: int, data: []u8) -> (done, sto
 		return false, false
 	}
 
-	// All there: is it what it said it would be?
+	// All chunks have arrived. Check that the content is what was announced.
 	content := up.recv.data
 	put := up.put
 	width, height, is_jpeg := jpeg_size(content)
 	switch {
 	case blob_hash(content) != put.hash:
-		log.warnf("%s uploaded a picture that isn't what it announced", conn_label(u))
+		log.warnf("%s uploaded a picture that doesn't match its announced hash", conn_label(u))
 	case !is_jpeg || width != put.width || height != put.height:
 		log.warnf(
 			"%s uploaded a picture that isn't a %dx%d JPEG",
@@ -184,7 +184,7 @@ blob_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	down := &u.download
 	answer: [proto.BLOB_GET_ANSWER_SIZE]u8
 	if down.active && down.blob == blob {
-		// Asked again: it's on its way.
+		// The client asked again for a download that is already in progress.
 		respond(u, id, .Ok, proto.encode_blob_get_answer(&answer, b.size, down.handle))
 		return
 	}
@@ -206,7 +206,7 @@ blob_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok, proto.encode_blob_get_answer(&answer, len(data), down.handle))
 }
 
-// download_end lets a download go, and what it was sending.
+// download_end ends a download and frees the data that it was sending.
 download_end :: proc(down: ^Download) {
 	proto.blob_sender_destroy(&down.send)
 	delete(down.data)
@@ -231,8 +231,9 @@ handle_blob_need :: proc(s: ^Server, u: ^Conn, pt: []byte) {
 	}
 }
 
-// transfers_sync keeps transfers moving: chunks out to whoever is waiting
-// for one, and reminders to whoever is uploading.
+// transfers_sync keeps transfers moving by sending chunks to every
+// connection that is downloading and reminders to every connection that is
+// uploading.
 transfers_sync :: proc(s: ^Server) {
 	now := time.tick_now()
 	for _, u in s.conns {
@@ -252,9 +253,9 @@ transfers_sync :: proc(s: ^Server) {
 	}
 }
 
-// send_blob_need tells a client which chunks of its upload are missing,
-// once they've stopped coming: whatever is still on its way would
-// otherwise be asked for again and sent twice.
+// send_blob_need tells a client which chunks of its upload are missing, but
+// only once chunks have stopped arriving. Otherwise chunks that are still
+// on their way would be requested again and sent twice.
 send_blob_need :: proc(s: ^Server, c: ^Client, up: ^Upload) {
 	if time.tick_since(up.last_data) < proto.CONTROL_RESEND ||
 	   time.tick_since(up.last_need) < proto.CONTROL_RESEND {
@@ -268,8 +269,8 @@ send_blob_need :: proc(s: ^Server, c: ^Client, up: ^Upload) {
 	send_message(s, c, msg)
 }
 
-// send_chunks pushes as much of a download as the connection's allowance
-// covers.
+// send_chunks sends as much of a download as the connection's rate limit
+// allows.
 send_chunks :: proc(s: ^Server, c: ^Client, down: ^Download, now: time.Tick) {
 	if !down.active {
 		return
@@ -289,16 +290,15 @@ send_chunks :: proc(s: ^Server, c: ^Client, down: ^Download, now: time.Tick) {
 	}
 }
 
-// drop_conn_transfers ends whatever a leaving connection was transferring.
+// drop_conn_transfers ends the uploads and downloads of a connection that is leaving.
 drop_conn_transfers :: proc(u: ^Conn) {
 	upload_end(u)
 	download_end(&u.download)
 }
 
-/*
-jpeg_size is the width and height a JPEG's header gives, from its first
-start-of-frame segment; false if `data` isn't a JPEG that has one.
-*/
+// jpeg_size returns the width and height from the first start-of-frame
+// segment of a JPEG's header. `ok` is false if `data` isn't a JPEG that has
+// one.
 jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
 	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
 		return
@@ -317,15 +317,16 @@ jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
 			at += 2 // no length
 			continue
 		case 0xD9, 0xDA:
-			return // the end, or the image data, before any frame
+			return // end of image or start of image data before any frame
 		}
 		length := int(data[at + 2]) << 8 | int(data[at + 3])
 		if length < 2 || at + 2 + length > len(data) {
 			return
 		}
 		switch marker {
-		// Start of frame, of every kind but the ones that aren't (C4 is a
-		// Huffman table, C8 reserved, CC arithmetic coding conditioning).
+		// All start-of-frame markers, i.e. excluding the markers in this range
+		// that aren't (C4 is a Huffman table, C8 is reserved and CC is the
+		// arithmetic coding conditioning).
 		case 0xC0 ..= 0xC3, 0xC5 ..= 0xC7, 0xC9 ..= 0xCB, 0xCD ..= 0xCF:
 			if length < 7 {
 				return

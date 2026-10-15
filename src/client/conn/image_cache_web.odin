@@ -6,14 +6,12 @@ import "core:strings"
 import "client:settings"
 import "common:proto"
 
-/*
-The image cache in a browser (web/images.js): pictures are kept in the
-site's IndexedDB under the same names a desktop gives their files
-(settings.server_key). The page keeps a list of what's there, so how
-much there is, dropping the ones used longest ago and clearing it are
-answered at once; reading a picture takes a moment (image_cache.odin).
-There's no folder to choose.
-*/
+// The image cache in a browser (web/images.js). Pictures are stored in the
+// site's IndexedDB under the same names that a desktop uses for its files
+// (settings.server_key). The page keeps a list of what is stored, so the total
+// size, dropping the pictures used longest ago, and clearing the cache are all
+// answered immediately. Reading a picture takes a moment (see
+// image_cache.odin). There is no folder to choose.
 
 @(default_calling_convention = "c")
 foreign _ {
@@ -35,8 +33,8 @@ default_image_cache_dir :: proc(allocator := context.allocator) -> string {
 	return ""
 }
 
-// image_cache_open: the page opens its database when it loads, and
-// whatever the folder is, there's only the one.
+// image_cache_open does not use `dir`. The page opens its database when it
+// loads, and there is only ever that one.
 image_cache_open :: proc(ic: ^Image_Cache, dir: string, max_bytes: int) -> bool {
 	return yap_image_cache_open(f64(max(max_bytes, 0))) != 0
 }

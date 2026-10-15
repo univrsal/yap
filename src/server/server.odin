@@ -13,70 +13,75 @@ import "core:time"
 import "common:."
 import "common:proto"
 
-// How many sessions there may be unless the config says otherwise
-// (max_sessions). It bounds the memory unauthenticated Handshake_Init
-// floods can take up, and with it how many clients can be connected:
-// each has two links (proto.Link), so about half this many.
+// The default maximum number of sessions, unless the config sets one
+// (max_sessions). It limits how much memory a flood of unauthenticated
+// Handshake_Init packets can use up, and with that also how many clients
+// can be connected: each client has two links (proto.Link), so roughly
+// half this many.
 DEFAULT_MAX_SESSIONS :: 512
 
-// Client is one session: a keyed connection from one client instance,
-// on one of its links (proto.Link). A connection has one of each, and
-// more briefly while rekeying.
+// Client is a single session: a keyed connection from one client instance
+// on one of its links (proto.Link). A connection normally has one session
+// per link, and briefly more while rekeying.
 Client :: struct {
 	using session: proto.Session,
 	handshake:     proto.Responder, // in use until keyed
 	conn:          ^Conn, // set once keyed
-	// The connection's bulk link (proto.Link): heavy messages to the
-	// client go out on it (send_message). Only the main link's sessions
-	// keep a connection.
+	// Whether this session is the connection's bulk link (proto.Link).
+	// Heavy messages to the client are sent on it (see send_message).
+	// Only the main link's sessions count towards keeping a connection
+	// alive.
 	bulk:          bool,
 	endpoint:      net.Endpoint,
 	started:       time.Tick, // when the Handshake_Init arrived
 	last_recv:     time.Tick,
 
-	// Handshake_Finish verified: the client proved it holds its key.
+	// Handshake_Finish was verified: the client proved it holds its key.
 	keyed:         bool,
 	// The client has sent Data on this session, so it has switched over
-	// and any older sessions with the same key can go.
+	// to it and any older sessions with the same key can be dropped.
 	confirmed:     bool,
-	// A newer session with the same client key exists. Still accepted
-	// for receiving (packets in flight), never used for sending.
+	// A newer session with the same client key exists. This one is still
+	// accepted for receiving (packets may still be in flight), but never
+	// used for sending.
 	superseded:    bool,
 }
 
-/*
-Conn is a connection: one client, known by its device's static key, for
-as long as it has a session. (Not to be confused with a Client, which is
-one of those sessions.) Channel membership lives here rather than on the
-session so it survives rekeys.
-
-A connection starts out not logged in, in Server.waiting, where it can
-do nothing but log in (auth.odin). Once it is, it has an account and is
-in Server.conns, which is where everything else looks: whatever goes
-through the connections there only ever meets ones that are logged in.
-*/
+// Conn is a connection: one client, identified by its device's static key,
+// which lives for as long as it has a session. (Not to be confused with a
+// Client, which is one of those sessions.) Channel membership is stored here
+// rather than on the session so that it survives rekeys.
+//
+// A connection starts out logged out, in Server.waiting, where the only thing
+// it can do is log in (auth.odin). Once it has logged in, it has an account and
+// moves to Server.conns, which is where everything else looks. That way any
+// code iterating over the connections there only ever sees logged in ones.
 Conn :: struct {
 	key:             [proto.KEY_SIZE]byte,
 	num:             proto.User_Num, // how clients refer to this connection
-	// Whose it is; nil until it's logged in.
+	// The account this connection is logged in to; nil until it logs in.
 	account:         ^Account,
-	// Its user hasn't done anything for a while, as its client says
-	// (activity.odin).
+	// The user hasn't done anything for a while, as reported by their
+	// client (activity.odin). `hidden` means the client is out of sight (a
+	// hidden web page), which doesn't make the user away, but makes the
+	// server send them push notifications (push_notify.odin).
 	idle:            bool,
-	// A request of its that needs a password hashed is with the hashing
-	// thread (auth.odin): one at a time.
+	hidden:          bool,
+	// One of this connection's requests that needs a password hashed is
+	// currently with the hashing thread (auth.odin). Only one is allowed at
+	// a time.
 	auth_busy:       bool,
-	// Which of the client's connections this is, and which of ours: see
-	// the hello and Welcome in proto/names.odin. A handshake with the same
-	// conn_id is a rekey; with another, the client has started over.
+	// Identify the client's connection and our side of it: see the hello and
+	// Welcome in proto/names.odin. A handshake with the same conn_id is a
+	// rekey; one with a different conn_id means the client has started over.
 	conn_id:         u64,
 	instance:        u64,
 	id:              u32, // common.key_id(key), for logs
-	// What they've switched off for themselves and whether they're
-	// sharing their screen, to pass on to the others (see
+	// Whether the user has muted or deafened themselves and whether they're
+	// sharing their screen, which is passed on to the other users (see
 	// proto.User_Flags). Only screen sharing (video.odin) acts on it.
 	flags:           proto.User_Flags,
-	// The voice room it's in, 0 for none (conv_requests.odin).
+	// The voice room the connection is in, 0 for none (conv_requests.odin).
 	room:            proto.Room,
 	sessions:        int, // keyed sessions of the main link pointing here
 
@@ -92,75 +97,78 @@ Conn :: struct {
 }
 
 Server :: struct {
-	// When statuses were last looked at for ones that have ended
+	// When statuses were last checked for ones that have expired
 	// (profiles.odin).
 	status_checked: time.Tick,
-	// When the memory was last logged (memory.odin).
+	// When memory usage was last logged (memory.odin).
 	memory_log:     Memory_Log,
-	// The calls going on (calls.odin).
+	// The ongoing calls (calls.odin).
 	calls:          Calls,
 	sock:           net.UDP_Socket,
 	key:            ecdh.Private_Key,
-	// What clients show for this server: its name (may be empty), what
-	// it's for, and its picture (server_info.odin). Owned.
+	// What clients display for this server: its name (may be empty), its
+	// description, and its icon (server_info.odin). Owned.
 	name:           string,
 	description:    string,
 	icon:           proto.Blob_Id,
 	password:       string, // empty: anyone may join
 	sessions:       map[proto.Session_Id]^Client, // by local_idx
 	max_sessions:   int,
-	// The connections that are logged in, and those that aren't yet, by
-	// their device's key (see Conn).
+	// The connections that are logged in, and those that aren't yet, keyed
+	// by their device's key (see Conn).
 	conns:          map[[proto.KEY_SIZE]byte]^Conn,
 	waiting:        map[[proto.KEY_SIZE]byte]^Conn,
 	// Accounts and their devices (accounts.odin), and logging in to them
-	// (auth.odin), which has a thread hash the passwords (hash_worker.odin).
+	// (auth.odin), which uses a separate thread to hash passwords
+	// (hash_worker.odin).
 	accounts:       Accounts,
 	auth:           Auth,
 	hasher:         Hash_Worker,
-	// The channels and who is in each (convs.odin); their messages are in
-	// the database (messages.odin).
+	// The channels and their members (convs.odin). Their messages are
+	// stored in the database (messages.odin).
 	convs:          Convs,
-	// Bumped on every change clients should hear about. Never 0, which
-	// means "nothing acked yet".
+	// Incremented on every change that clients should be told about. Never
+	// 0, which means "nothing acked yet".
 	version:        u32,
 	// The last user number handed out; numbers are never reused.
 	last_num:       proto.User_Num,
-	// Files offered in DMs, by the message that offers them, and the
-	// transfers being relayed, by the same (files.odin).
+	// Files offered in DMs, keyed by the message that offers them, and the
+	// transfers being relayed, keyed the same way (files.odin).
 	file_offers:    map[proto.Msg_Id]File_Offer,
 	file_routes:    map[proto.Msg_Id]^File_Route,
-	// What the server keeps for good: its database (db.odin) and the
-	// files that go with it (blobs.odin).
+	// The server's persistent storage: its database (db.odin) and the
+	// files that belong to it (blobs.odin).
 	db:             DB,
 	blobs:          Blob_Store,
-	// Files uploaded with messages, and on their way in and out
-	// (attachments.odin).
+	// Files uploaded with messages, including uploads and downloads in
+	// progress (attachments.odin).
 	attach:         Attachments,
-	// The server's own emoji (emoji.odin).
+	// The server's custom emoji (emoji.odin).
 	emoji:          Custom_Emoji,
-	// Removing what's old (retention.odin).
+	// Deleting old data (retention.odin).
 	retention:      Retention,
-	// What the loop is handling this time round, and how long its turns
-	// take (loop_stats.odin).
+	// The message kind the loop is currently handling, and how long its
+	// iterations take (loop_stats.odin).
 	handling:       proto.Message_Kind,
 	loop:           Loop_Stats,
 	// The server's own email account, if it has one (email.odin).
 	email:          Email,
-	// Who may register, and how fast registrations are taken
-	// (register.odin).
+	// Who is allowed to register, and how quickly registrations are
+	// accepted (register.odin).
 	registration:   Registration_Config,
 	register_rate:  Register_Rate,
-	// Deleting registrations whose addresses weren't verified
+	// Deleting registrations whose email addresses weren't verified
 	// (verify.odin).
 	verify:         Verify_State,
-	// Mailing accounts what they missed (digest.odin).
+	// Emailing accounts a digest of what they missed (digest.odin).
 	digest:         Digest_State,
+	// Sends notifications to browsers through their push services (push.odin).
+	push:           Push,
 	// Screen sharing's own port and thread (media.odin).
 	media:          Media,
 }
 
-// How long the loop waits for a packet before it comes round anyway.
+// How long the loop waits for a packet before it runs an iteration anyway.
 IDLE_WAIT :: 100 * time.Millisecond
 
 run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
@@ -200,7 +208,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	if !ensure_first_admin(&s.accounts, initial_password = initial_admin_password) {
 		return false
 	}
-	// The config's channels are only what a new database starts with.
+	// The default channels are only created when the database is new.
 	if !convs_load(&s.convs, &s.db, []string{DEFAULT_CHANNEL_NAME}, &s.accounts) {
 		return false
 	}
@@ -215,11 +223,13 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	defer auth_destroy(&s.auth)
 	email_open(&s.email, settings.email)
 	defer email_close(&s.email)
+	push_open(&s.push, settings.push)
+	defer push_close(&s.push)
 	memory_log_open(&s, settings.memory_log)
 	loop_stats_open(&s)
 	if s.registration.verify_email && !s.email.enabled {
 		log.warn(
-			"registration asks for addresses to be verified, but there's no email, so they aren't",
+			"registration requires email verification, but no email is configured, so it is skipped",
 		)
 	}
 
@@ -231,13 +241,14 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 	defer net.close(sock)
 	s.sock = sock
-	// Room for what arrives while a turn is busy: a shared screen's
-	// keyframe comes in hundreds of packets.
+	// Leave room for packets that arrive while an iteration is busy: a
+	// shared screen's keyframe can arrive as hundreds of packets.
 	net.set_option(sock, .Receive_Buffer_Size, 4 * 1024 * 1024)
 	net.set_option(sock, .Send_Buffer_Size, 4 * 1024 * 1024)
-	// Wake up periodically even when idle so stale sessions get reaped
-	// and unacked state gets resent; and more often while old messages
-	// are being purged, a little at a time (retention.odin).
+	// Wake up periodically even when idle so that stale sessions get reaped
+	// and unacked state gets resent. Wake up more often while old messages
+	// are being purged, since that happens a little at a time
+	// (retention.odin).
 	wait := IDLE_WAIT
 	net.set_option(sock, .Receive_Timeout, wait)
 
@@ -249,16 +260,17 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		log.info("clients need the password to join")
 	}
 
-	// What every turn does after its packet, in this order.
+	// The work every loop iteration does after handling its packet, in this
+	// order.
 	syncs := [?]struct {
 		phase: Loop_Phase,
 		run:   proc(s: ^Server),
 	} {
 		{.Reap, reap_sessions},
 		{.Auth, auth_sync},
-		// Before the snapshots: a connection that has just logged in is
-		// told who everyone is (on its stream) before it's told who is
-		// here.
+		// This runs before the state snapshots, so that a connection that
+		// has just logged in learns who everyone is (on its stream) before
+		// it learns who is online.
 		{.Stream, stream_sync},
 		{.State, sync_state},
 		{.Transfers, transfers_sync},
@@ -270,6 +282,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		{.Retention, retention_sync},
 		{.Verify, verify_sync},
 		{.Digest, digest_sync},
+		{.Push, push_sync},
 		{.Media, media_sync},
 		{.Exercise, db_exercise},
 		{.Memory, memory_sync},
@@ -280,11 +293,12 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		free_all(context.temp_allocator)
 
 		n, from, recv_err := net.recv_udp(sock, recv_buf[:])
-		// From here on, not from before the wait for a packet.
+		// Start timing the iteration here, so the wait for a packet isn't
+		// counted.
 		loop_turn_begin(&s)
 		s.handling = {}
-		// Nothing arrived for as long as the socket waits: nobody is
-		// talking, and what's slow can be done without anyone hearing it.
+		// Nothing arrived during the socket's whole wait time: nobody is
+		// talking, so slow work can be done without anyone noticing.
 		idle := false
 		#partial switch recv_err {
 		case .None:
@@ -294,10 +308,10 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 		case .Timeout, .Would_Block:
 			idle = true
 		case .Connection_Refused:
-			// ICMP "port unreachable" for something sent earlier, to
-			// someone who has gone without a Leave (and on Windows,
-			// WSAECONNRESET for the same). It doesn't say who: their
-			// session times out as usual.
+			// An ICMP "port unreachable" for something we sent earlier to a
+			// client that went away without sending a Leave (on Windows this
+			// shows up as WSAECONNRESET). It doesn't tell us which client it
+			// was, so their session just times out as usual.
 			log.debug("recv: a client's port is closed")
 		case:
 			log.errorf("recv error: %v", recv_err)
@@ -308,7 +322,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 			sync.run(&s)
 			loop_mark(&s, sync.phase)
 		}
-		// What this turn wrote, in one go.
+		// Commit everything this iteration wrote in one go.
 		db_commit(&s.db)
 		loop_mark(&s, .Commit)
 		loop_turn_end(&s, packet = recv_err == .None)
@@ -324,14 +338,16 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 }
 
-/*
-users_seen_by is who is here as `viewer`'s account is shown it: in a
-private channel's room only to its members, and anyone else sees those in
-it in no room (room_hidden); and without those who appear offline
-(`hidden`, by index; activity.odin) but for the viewer's own account, or
-while their voice is in a room the viewer can see. `users` is returned
-as it is when nothing differs, else a copy in the temp allocator.
-*/
+// users_seen_by returns the list of online users as `viewer`'s account should
+// see it:
+// - Users in a private channel's voice room are only shown in that room to its
+//   members. Everyone else sees them in no room (room_hidden).
+// - Users who appear offline (`hidden`, by index; activity.odin) are left out,
+//   unless they are the viewer's own account or they're in a voice room the
+//   viewer can see.
+//
+// `users` is returned unchanged when nothing differs, otherwise a copy
+// allocated with the temp allocator.
 users_seen_by :: proc(
 	s: ^Server,
 	users: []proto.User_Info,
@@ -374,12 +390,13 @@ handle_packet :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	case .Data:
 		handle_data(s, packet, from)
 	}
-	// Anything else is silently dropped: never answer what we can't authenticate.
+	// Anything else is silently dropped: never respond to packets we can't
+	// authenticate.
 }
 
 handle_init :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
-	// A retransmitted Init (our Resp got lost) gets the same Resp again
-	// rather than a second handshake.
+	// A retransmitted Init (because our Resp got lost) gets the same Resp
+	// again rather than starting a second handshake.
 	sender_idx := proto.init_sender_index(packet)
 	for _, c in s.sessions {
 		if !c.keyed && c.handshake.remote_idx == sender_idx && c.endpoint == from {
@@ -427,16 +444,17 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		return
 	}
 
-	// On failure the handshake state is spent, so the session goes too.
-	// The client will time out and start a fresh handshake.
+	// On failure the handshake state is used up, so the session is dropped
+	// too. The client will time out and start a fresh handshake.
 	payload, ok := proto.responder_finish(&c.handshake, packet, &c.session)
 	if !ok {
 		log.debugf("invalid handshake finish from %v", net.to_string(from))
 		drop_session(s, idx)
 		return
 	}
-	// The msg3 payload is the client's hello: which of its connections
-	// this is, which of the connection's links, and the server's password.
+	// The msg3 payload is the client's hello: which of its connections this
+	// is, which of the connection's links this session is for, and the
+	// server password.
 	conn_id, hello_password, link, hello_ok := proto.decode_hello(payload)
 	switch {
 	case !hello_ok:
@@ -458,9 +476,9 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	c.last_recv = time.tick_now()
 
 	if u != nil && u.conn_id != conn_id {
-		// Not a rekey: the client has started over, and knows nothing of
-		// what this connection was. It goes, as if they had left, and
-		// they get a new one.
+		// This is not a rekey: the client has started over and knows
+		// nothing about the old connection. Drop it as if the client had
+		// left, and give them a new one.
 		log.infof("%s started over", conn_label(u))
 		drop_conn(s, u)
 		u = nil
@@ -488,23 +506,21 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	u.sessions += 1
 	c.conn = u
 
-	// A device that has logged in before is logged in by its key: that
-	// it holds it is what the handshake just proved.
+	// A device that has logged in before is logged in automatically by its
+	// key, since the handshake just proved that it holds that key.
 	if fresh {
 		auth_known_device(s, u)
 	}
-	// After the Welcome, which a client waits for on a new session: what
-	// logging in has queued for it goes out later in this turn.
+	// The client waits for the Welcome on a new session. Anything that
+	// logging in queued for it is sent after this, later in this iteration.
 	send_welcome(s, c)
 }
 
-/*
-bind_bulk makes a session that has just finished its handshake the
-bulk link of the device's connection `u` (proto.Link), if the hello
-names it. Otherwise there's nothing to bind it to - the connection has
-gone, or the main link's handshake hasn't got this far - and the client
-is told so, to try again later.
-*/
+// bind_bulk makes a session that has just finished its handshake the bulk
+// link (proto.Link) of the device's connection `u`, if the hello refers to
+// that connection. Otherwise there's nothing to bind it to (the connection is
+// gone, or the main link's handshake hasn't got this far yet), so the client
+// is refused and told to try again later.
 @(private = "file")
 bind_bulk :: proc(s: ^Server, c: ^Client, u: ^Conn, conn_id: u64, from: net.Endpoint) {
 	if u == nil || u.conn_id != conn_id {
@@ -521,8 +537,9 @@ bind_bulk :: proc(s: ^Server, c: ^Client, u: ^Conn, conn_id: u64, from: net.Endp
 	send_welcome(s, c)
 }
 
-// supersede marks the older sessions of a new session's link as
-// superseded: still there for what's in flight, never sent on.
+// supersede marks the older sessions on the same link as a new session as
+// superseded: they're kept to receive packets still in flight, but never
+// used for sending.
 @(private = "file")
 supersede :: proc(s: ^Server, c: ^Client) {
 	for _, other in s.sessions {
@@ -532,8 +549,8 @@ supersede :: proc(s: ^Server, c: ^Client) {
 	}
 }
 
-// conn_of is the connection from the device with this key, logged in
-// or not; nil if it has none.
+// conn_of returns the connection from the device with this key, whether it
+// is logged in or not, or nil if there is none.
 conn_of :: proc(s: ^Server, key: [proto.KEY_SIZE]byte) -> ^Conn {
 	if u := s.conns[key] or_else nil; u != nil {
 		return u
@@ -541,13 +558,11 @@ conn_of :: proc(s: ^Server, key: [proto.KEY_SIZE]byte) -> ^Conn {
 	return s.waiting[key] or_else nil
 }
 
-/*
-conn_login makes a connection its account's: from here on it's one of
-the connections everyone sees - unless its account is Unverified
-(verify.odin), when it stays out of sight, in Server.waiting, and is
-told nothing but who it is until it's verified. The caller has made
-sure it may log in.
-*/
+// conn_login logs a connection in to an account. From then on it's one of
+// the connections everyone can see, unless its account is Unverified
+// (verify.odin). In that case it stays hidden in Server.waiting, and is told
+// nothing except its own account details until it's verified. The caller has
+// already checked that it is allowed to log in.
 conn_login :: proc(s: ^Server, u: ^Conn, acc: ^Account) {
 	u.account = acc
 	append(&acc.conns, u)
@@ -561,29 +576,29 @@ conn_login :: proc(s: ^Server, u: ^Conn, acc: ^Account) {
 	conn_seen(s, u)
 }
 
-// conn_seen puts a logged in connection where everyone sees it, and
-// tells it everything a login is told.
+// conn_seen makes a logged in connection visible to everyone, and sends it
+// everything a newly logged in connection needs to know.
 conn_seen :: proc(s: ^Server, u: ^Conn) {
 	acc := u.account
 	delete_key(&s.waiting, u.key)
 	s.conns[u.key] = u
 	bump_version(s)
 	log.infof("%s logged in", conn_label(u))
-	// Here now, which its own sync already says; everyone else is told.
+	// The account is online now. Its own sync already says so, so only
+	// everyone else needs to be told.
 	now := activity_of(acc)
 	changed := now != acc.shown
 	acc.shown = now
 	directory_sync(s, u)
+	calls_conn_seen(s, u)
 	if changed {
 		account_told(s, acc, except = u)
 	}
 }
 
-/*
-conn_unseen takes a connection out of everyone's sight, still logged in,
-because its account has become Unverified (verify.odin): whatever it was
-in the middle of ends, as if it had left.
-*/
+// conn_unseen hides a connection from everyone while keeping it logged in,
+// because its account has become Unverified (verify.odin). Whatever it was in
+// the middle of is ended, as if it had left.
 conn_unseen :: proc(s: ^Server, u: ^Conn) {
 	calls_conn_gone(s, u)
 	drop_conn_transfers(u)
@@ -596,11 +611,9 @@ conn_unseen :: proc(s: ^Server, u: ^Conn) {
 	u.last_typing = {}
 }
 
-/*
-conn_left is a connection ceasing to be its account's, because it went
-or was logged out: whatever it was in the middle of ends, and everyone
-else sees it go.
-*/
+// conn_left detaches a connection from its account, because it disconnected
+// or was logged out. Whatever it was in the middle of is ended, and everyone
+// else sees it leave.
 @(private = "file")
 conn_left :: proc(s: ^Server, u: ^Conn) {
 	log.infof("%s left", conn_label(u))
@@ -608,7 +621,8 @@ conn_left :: proc(s: ^Server, u: ^Conn) {
 	drop_conn_transfers(u)
 	attachments_conn_gone(s, u)
 	delete_key(&s.conns, u.key)
-	// After it's gone from `conns`, so only the other side hears about it.
+	// This must happen after it's removed from `conns`, so that only the
+	// other side of a transfer is told about it.
 	drop_conn_files(s, u)
 	acc := u.account
 	for other, i in acc.conns {
@@ -622,21 +636,20 @@ conn_left :: proc(s: ^Server, u: ^Conn) {
 	}
 	u.account = nil
 	u.idle = false
+	u.hidden = false
 	activity_check(s, acc)
 	bump_version(s)
 }
 
-/*
-conn_logout takes a connection's account from it without ending the
-connection: it's back to where it can only log in. With a `reason` it
-wasn't the client's own doing, and it's told why.
-*/
+// conn_logout logs a connection out of its account without closing the
+// connection, so it's back to only being able to log in. A `reason` means the
+// logout wasn't requested by the client, and the client is told why.
 conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
 	if u.account == nil {
 		return
 	}
 	conn_left(s, u)
-	// As new, for whoever logs in on it next.
+	// Reset it to a fresh state for whoever logs in on it next.
 	u.room, u.flags = 0, {}
 	u.acked_version, u.sent_version = 0, 0
 	u.last_typing = {}
@@ -647,7 +660,8 @@ conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
 	}
 }
 
-// How many copies of a Welcome go out; it's unreliable, like Refused.
+// How many copies of a Welcome are sent, since it's sent unreliably (like
+// Refused).
 @(private = "file")
 WELCOME_COPIES :: 3
 
@@ -662,15 +676,14 @@ send_welcome :: proc(s: ^Server, c: ^Client) {
 	}
 }
 
-// How many copies of Refused go out; it's unreliable, like Leave.
+// How many copies of Refused are sent, since it's sent unreliably (like
+// Leave).
 @(private = "file")
 REFUSED_COPIES :: 3
 
-/*
-refuse tells a client that just finished its handshake why it can't
-join, on the session that handshake made, and forgets the session. The
-client never gets a connection: nobody else ever hears of it.
-*/
+// refuse tells a client that just finished its handshake why it can't join,
+// using the session created by that handshake, and then drops the session.
+// The client never gets a connection, so nobody else ever hears about it.
 @(private = "file")
 refuse :: proc(s: ^Server, c: ^Client, from: net.Endpoint, reason: proto.Refusal) {
 	log.infof("refused %08x from %v: %v", common.key_id(c.peer_key), net.to_string(from), reason)
@@ -685,8 +698,8 @@ refuse :: proc(s: ^Server, c: ^Client, from: net.Endpoint, reason: proto.Refusal
 	drop_session(s, c.local_idx)
 }
 
-// password_matches compares hashes of the two, so how long it takes
-// says nothing about the password, not even its length.
+// password_matches compares the hashes of both passwords, so the time it
+// takes reveals nothing about the password, not even its length.
 password_matches :: proc(want, got: string) -> bool {
 	a := hash.hash_string(.SHA256, want, context.temp_allocator)
 	b := hash.hash_string(.SHA256, got, context.temp_allocator)
@@ -705,7 +718,8 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		return
 	}
 
-	// Authenticated, so it's safe to follow the client to a new address.
+	// The packet is authenticated, so it's safe to follow the client to a
+	// new address.
 	c.endpoint = from
 	c.last_recv = time.tick_now()
 
@@ -720,9 +734,9 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 	s.handling = kind
 	if c.conn.account == nil || .Unverified in c.conn.account.flags {
-		// Not logged in: nothing but what it takes to stay connected and
-		// to log in, which goes over the stream (rpc.odin has the same
-		// gate for what's asked there).
+		// Not logged in: only allow what's needed to stay connected and to
+		// log in, which happens over the stream (rpc.odin applies the same
+		// check to requests sent there).
 		#partial switch kind {
 		case .Ping, .Leave, .Stream, .Stream_Ack:
 		case:
@@ -755,8 +769,8 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 			handle_typing(s, c.conn, pt)
 		}
 	case .Ping:
-		// Back on the session it came on, so the client times the path
-		// it measured.
+		// Reply on the session the ping came in on, so the client measures
+		// the round trip of the same path.
 		pong_buf: [proto.PING_SIZE]byte
 		pong := proto.encode_ping(&pong_buf, .Pong, proto.decode_ping(pt))
 		pkt_buf: [proto.MAX_PACKET_SIZE]byte
@@ -780,7 +794,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	case .State, .Refused, .Keyframe, .Pong, .Welcome, .Upload_Ack, .Download_Chunk:
 	// Server-to-client only.
 	case .Video, .Watch, .Nack, .Report:
-	// Screen sharing is the media link's alone (media.odin).
+	// Screen sharing only uses the media link (media.odin).
 	case .Set_Name,
 	     .Join,
 	     .Chat_Send,
@@ -801,7 +815,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	     .DM_Image_Gone,
 	     .Last_Seen_Get,
 	     .Last_Seen:
-	// Retired.
+	// No longer used.
 	case .Stream:
 		handle_stream(s, c.conn, pt)
 	case .Stream_Ack:
@@ -809,11 +823,9 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	}
 }
 
-/*
-send_message sends a message on a session of `c`'s connection: a heavy
-one (proto.HEAVY_KINDS) on its bulk link if it has one, anything else
-on `c`.
-*/
+// send_message sends a message on a session of `c`'s connection. Heavy
+// messages (proto.HEAVY_KINDS) go out on the connection's bulk link if it has
+// one; everything else is sent on `c`.
 send_message :: proc(s: ^Server, c: ^Client, msg: []byte) {
 	c := c
 	if proto.is_heavy(msg) && !c.bulk && c.conn != nil {
@@ -827,14 +839,14 @@ send_message :: proc(s: ^Server, c: ^Client, msg: []byte) {
 	}
 }
 
-// conn_name is what a connection's account is called; "" for one
-// that isn't logged in.
+// conn_name returns the display name of a connection's account, or "" if
+// the connection isn't logged in.
 conn_name :: proc(u: ^Conn) -> string {
 	return u.account.display if u.account != nil else ""
 }
 
-// conn_label is how logs refer to a connection: its account, if it has
-// one, and its device's key id.
+// conn_label returns how logs refer to a connection: its account's username,
+// if it has one, and its device's key id.
 conn_label :: proc(u: ^Conn) -> string {
 	if u.account == nil {
 		return fmt.tprintf("%08x", u.id)
@@ -872,9 +884,10 @@ sync_state :: proc(s: ^Server) {
 		return
 	}
 
-	// Who is here, and in which room, is the same for everyone; but for
-	// those who appear offline (activity.odin), whom only their own
-	// account sees, or anyone who can see the room their voice is in.
+	// The list of online users and their rooms is the same for everyone,
+	// except for users who appear offline (activity.odin). Those are only
+	// visible to their own account, or to anyone who can see the voice room
+	// they're in.
 	users := make([]proto.User_Info, len(s.conns), context.temp_allocator)
 	hidden := make([]bool, len(s.conns), context.temp_allocator)
 	next_user := 0
@@ -898,8 +911,9 @@ sync_state :: proc(s: ^Server) {
 		if c == nil {
 			continue
 		}
-		// A private channel's room is only shown to its members: anyone
-		// else sees those in it in no room (room_hidden).
+		// A private channel's voice room is only shown to its members.
+		// Everyone else sees the users in it as being in no room
+		// (room_hidden).
 		shown := users_seen_by(s, users, hidden, u.account.id)
 		state := proto.Presence {
 			your_user = u.num,
@@ -907,7 +921,7 @@ sync_state :: proc(s: ^Server) {
 		}
 		body, ok := proto.encode_state(state, body_buf[:])
 		if !ok {
-			log.errorf("who is here doesn't fit in %d bytes", proto.MAX_STATE_SIZE)
+			log.errorf("the list of online users doesn't fit in %d bytes", proto.MAX_STATE_SIZE)
 			continue
 		}
 		count := proto.state_chunk_count(len(body))
@@ -944,7 +958,7 @@ sending_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 }
 
 // bulk_session returns the newest session of the connection's bulk
-// link, nil while it has none.
+// link, or nil if it has none.
 bulk_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 	for _, c in s.sessions {
 		if c.conn == u && c.keyed && !c.superseded && c.bulk {
@@ -955,8 +969,8 @@ bulk_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 }
 
 // relay_voice forwards a voice frame to everyone else in the speaker's
-// room, re-encrypted under each recipient's newest session. Someone in
-// no room is talking to nobody.
+// room, re-encrypted for each recipient's newest session. Voice from
+// someone who isn't in a room is not sent to anyone.
 relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	if from.conn.room == 0 {
 		return
@@ -989,8 +1003,8 @@ relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
 	}
 }
 
-// Once the client is using its new session, the ones it replaced are
-// dead weight.
+// retire_superseded drops the sessions a client's new session replaced,
+// since they're no longer needed once the client is using the new one.
 retire_superseded :: proc(s: ^Server, current: ^Client) {
 	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, c in s.sessions {
@@ -1003,8 +1017,8 @@ retire_superseded :: proc(s: ^Server, current: ^Client) {
 	}
 }
 
-// drop_conn ends every session of a connection, and with the last of
-// them the connection.
+// drop_conn ends every session of a connection. Ending the last one also
+// ends the connection itself.
 drop_conn :: proc(s: ^Server, u: ^Conn) {
 	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, c in s.sessions {
@@ -1039,8 +1053,8 @@ reap_sessions :: proc(s: ^Server) {
 	}
 }
 
-// drop_session ends a session; one already gone (with its connection's
-// main link) is left be.
+// drop_session ends a session. It does nothing if the session is already
+// gone (e.g. a bulk session dropped along with its connection's main link).
 drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
 	c := s.sessions[idx] or_else nil
 	if c == nil {
@@ -1051,7 +1065,7 @@ drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
 	if u := c.conn; u != nil && !c.bulk {
 		u.sessions -= 1
 		if u.sessions == 0 {
-			// Its bulk link goes with it, before it's freed.
+			// Drop the connection's bulk link too, before it's freed.
 			bulk := make([dynamic]proto.Session_Id, context.temp_allocator)
 			for other_idx, other in s.sessions {
 				if other.conn == u {

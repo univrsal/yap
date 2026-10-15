@@ -6,13 +6,11 @@ import "common:http"
 import "common:lite"
 import "common:proto"
 
-/*
-The endpoints (docs/bot-api, "Endpoints"), under /api/v1/. Each has a
-run, on the gateway thread with its connection ready, and maybe a
-prepare, on the HTTP thread (serve.odin). The first that matches a
-request is it, so a fixed segment goes before a {} in the same place.
-Reading is in reading.odin.
-*/
+// The endpoints (docs/bot-api, "Endpoints") live under /api/v1/. Each has a
+// `run`, which runs on the gateway thread once its connection is ready, and
+// possibly a `prepare`, which runs on the HTTP thread (serve.odin). The first
+// route that matches a request is used, so a fixed segment must come before a
+// {} in the same position. The read endpoints are in reading.odin.
 
 @(private)
 ROUTES := [?]Route {
@@ -47,19 +45,18 @@ ROUTES := [?]Route {
 	{method = "PUT", pattern = "messages/{}/reactions/{}", kind = .Call, run = react_run},
 	{method = "DELETE", pattern = "messages/{}/reactions/{}", kind = .Call, run = unreact_run},
 	{method = "POST", pattern = "messages/{}/forward", kind = .Call, run = forward_run},
-	// Files are in files.odin; uploads and attachments, which stream,
-	// aren't routes (serve.odin).
+	// The file endpoints are in files.odin. Uploads and attachments are
+	// streamed and therefore aren't routes (serve.odin).
 	{method = "GET", pattern = "blobs/{}", kind = .Call, run = blob_run},
 	{method = "PUT", pattern = "me/avatar", kind = .Call, run = avatar_run},
 	{method = "DELETE", pattern = "me/avatar", kind = .Call, run = avatar_delete_run},
 }
 
-/*
-POST /login {username, password, device} -> {token}: a new token for an
-ordinary account, which is a device of it, called `device` ("API" if
-not given), from then on. The gateway makes the key and logs in with it
-as a client does; the connection is the token's from then on.
-*/
+// POST /login {username, password, device} -> {token} creates a new token for
+// an ordinary account. From then on the token is a device of that account,
+// named `device` ("API" if not given). The gateway generates the key and logs
+// in with it like a client does, and the connection then belongs to the
+// token.
 @(private)
 login_prepare :: proc(j: ^Job, req: ^http.Request) -> (r: Reply, done: bool) {
 	Login_Body :: struct {
@@ -69,21 +66,25 @@ login_prepare :: proc(j: ^Job, req: ^http.Request) -> (r: Reply, done: bool) {
 	}
 	b: Login_Body
 	if err := json.unmarshal(j.body, &b, allocator = context.temp_allocator); err != nil {
-		return error_reply(400, "invalid", "Expected {\"username\": ..., \"password\": ...}."),
+		return error_reply(
+				400,
+				"invalid",
+				"The request body must be JSON like {\"username\": ..., \"password\": ...}.",
+			),
 			true
 	}
 	if b.username == "" || b.password == "" {
-		return error_reply(400, "invalid", "A username and a password are needed."), true
+		return error_reply(400, "invalid", "A username and a password are required."), true
 	}
 	if len(b.device) > proto.MAX_DEVICE_NAME {
-		return error_reply(400, "invalid", "The device's name is too long."), true
+		return error_reply(400, "invalid", "The device name is too long."), true
 	}
 	j.username, j.password, j.device = b.username, b.password, b.device
 	return
 }
 
-// POST /logout: the token stops working, as the device forgets its
-// account.
+// POST /logout makes the token stop working, because the device is logged out
+// of its account.
 @(private)
 logout_run :: proc(c: ^Conn, j: ^Job) {
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -97,7 +98,8 @@ logout_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Auth_Logout)
 }
 
-// GET /server: what the server says about itself; no token needed.
+// GET /server returns what the server reports about itself. No token is
+// needed.
 @(private)
 server_run :: proc(c: ^Conn, j: ^Job) {
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -115,7 +117,7 @@ server_run :: proc(c: ^Conn, j: ^Job) {
 	ask(c, j, .Server_Info)
 }
 
-// GET /me: the token's account, and what it may do.
+// GET /me returns the token's account and what it is allowed to do.
 @(private)
 me_run :: proc(c: ^Conn, j: ^Job) {
 	reply(j, json_reply(200, me_json(&c.model)))

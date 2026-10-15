@@ -9,62 +9,62 @@ import "core:time"
 import "client:audio"
 import "common:proto"
 
-/*
-Messages on our end (src/common/proto/msgs.odin).
+// Messages on our end (src/common/proto/msgs.odin).
+//
+// For each conversation we keep a window of consecutive messages, with the
+// newest at the end (Conv_Cache). The server keeps everything, while we only
+// keep what is being looked at and ask for more one page at a time. We ask for
+// older messages when the list is scrolled to its top, for newer messages when
+// a window that stopped short of the end is scrolled to its bottom, and for a
+// page around one message to jump to it. A message that is posted in any
+// conversation we are a member of arrives as Msg_New, and is added to its
+// window if that window reaches the end.
+//
+// Windows are bounded. Past MAX_CACHE_MESSAGES the far end is dropped (and
+// requested again if the user scrolls back to it), and only the CACHE_KEEP
+// conversations that were looked at last keep their windows. When the
+// connection restarts, every window is dropped and the one on screen is fetched
+// again, because nothing is replayed (D9).
+//
+// What we post goes into the outbox, one message at a time in the order they
+// were written. A picture is uploaded first (see blobs.odin) and then the
+// message is posted. Each message has a nonce, and a post that was lost with
+// the connection is repeated with the same nonce, which the server recognizes.
+// What is written to somebody we have no DM with yet waits in the outbox while
+// the server opens one (DM_Open, see buddies.odin). An offer of a file is posted
+// the same way, and its transfer starts once the offer has its id (see
+// files.odin).
+//
+// Threads (phase 11): a reply is a message of its conversation like any other,
+// so it is in the conversation's window, and also in its thread's window while
+// that thread is open (in a window of the UI's). A thread's window is kept the
+// same way, keyed by the conversation and the root (Timeline_Key), and is
+// dropped when the thread is closed. The roots that replies point at are
+// fetched one at a time (a page of one around the root) when the UI wants to
+// show what a reply replies to and the root isn't in a window. They are kept
+// as long as their conversation's window is.
 
-Per conversation we keep a window of consecutive messages, newest at
-the end (Conv_Cache). The server keeps everything; we keep what's being
-looked at, and ask for more a page at a time: older ones when the list
-is scrolled to its top, newer ones when a window that stopped short of
-the end is scrolled to its bottom, a page around one message to jump to
-it. A message that's posted anywhere we're a member arrives as Msg_New,
-and is added to its window if that window reaches the end.
-
-Windows are bounded: past MAX_CACHE_MESSAGES the far end is dropped (and
-asked for again if it's scrolled back to), and only the CACHE_KEEP
-conversations looked at last keep theirs. When the connection starts
-over, every window goes and the one on screen is fetched again: nothing
-is replayed (D9).
-
-What we post goes into the outbox, one message at a time in the order
-they were written: a picture is uploaded first (blobs.odin), then the
-message posted. Each has a nonce, and a post the connection lost is
-repeated with it, which the server recognises. What's written to
-somebody we have no DM with yet waits there while the server opens one
-(DM_Open, buddies.odin). An offer of a file is posted the same way, and
-its transfer starts once it has its id (files.odin).
-
-Threads (phase 11): a reply is a message of its conversation like any
-other, in the conversation's window, and also in its thread's while that
-thread is open (in a window of the UI's). A thread's window is kept the
-same way, keyed by the conversation and the root (Timeline_Key), and goes
-when the thread is closed. The roots that replies point at are fetched
-one at a time (a page of one around the root) when the UI wants to say
-what a reply replies to and the root isn't in a window; they're kept
-while their conversation's window is.
-*/
-
-// How many messages a conversation's window holds, and how many
-// conversations keep one.
+// How many messages a conversation's window holds, and how many conversations
+// keep a window.
 MAX_CACHE_MESSAGES :: 1000
 CACHE_KEEP :: 8
-// The page asked for at a time.
+// The number of messages requested per page.
 HISTORY_PAGE :: proto.MAX_HISTORY_LIMIT
-// How many threads may be open at once; opening another closes the one
-// opened longest ago.
+// How many threads may be open at once. Opening another one closes the one that
+// was opened longest ago.
 MAX_THREADS :: 4
 
-// Timeline_Key is a window of messages: a conversation's (root 0), or
-// one of its threads'.
+// Timeline_Key identifies a window of messages, which is either a conversation's
+// (root 0) or one of its threads'.
 Timeline_Key :: struct {
 	conv: proto.Conv_Id,
 	root: proto.Msg_Id,
 }
-// Typing notices go out at most this often while typing, and are shown
-// for TYPING_SHOW after the last one arrives.
+// Typing notices are sent at most this often while typing, and are shown for
+// TYPING_SHOW after the last one arrives.
 TYPING_SEND_INTERVAL :: 3 * time.Second
 TYPING_SHOW :: 5 * time.Second
-// How many times a picture is uploaded before its post is given up on.
+// How many times a picture is uploaded before its post is given up.
 UPLOAD_TRIES :: 3
 
 // Msg is a message as we keep it.
@@ -79,20 +79,20 @@ Msg :: struct {
 	text:        string, // owned; a file's name
 	file_size:   u64,
 	reactions:   [dynamic]Reaction, // owned, as are their emoji
-	// A root's thread (.Has_Thread): how many replies, and the last.
+	// The thread of a root (.Has_Thread): the number of replies, and the last one.
 	reply_count: int,
 	last_reply:  proto.Msg_Id,
-	// A system message's: what happened, and a number about it.
+	// For a system message: what happened, and a number that goes with it.
 	system:      u8,
 	system_arg:  u32,
-	// A forwarded message's original (forward.odin).
+	// For a forwarded message: the original message (see forward.odin).
 	forward:     proto.Forward_Info,
-	// The files it carries (.Has_Attachments; attachments.odin).
+	// The files the message carries (.Has_Attachments, see attachments.odin).
 	files:       []Msg_File, // owned, as are their names
 }
 
-// Msg_File is a file a message carries: its blob, 0 once it's been
-// removed (retention), how big it is and what it's called.
+// Msg_File is a file a message carries. It has a blob (0 once the file has been
+// removed because of the retention policy), its size, and its name.
 Msg_File :: struct {
 	blob: proto.Blob_Id,
 	size: u64,
@@ -117,8 +117,8 @@ msg_files_destroy :: proc(files: []Msg_File) {
 	delete(files)
 }
 
-// Reaction is an emoji a message has been reacted to with: how many did,
-// and whether we're among them.
+// Reaction is an emoji that people reacted to a message with. It has the number
+// of people who did, and whether we are among them.
 Reaction :: struct {
 	emoji: string,
 	count: int,
@@ -144,117 +144,119 @@ reactions_destroy :: proc(rs: ^[dynamic]Reaction) {
 }
 
 Conv_Cache :: struct {
-	messages:    [dynamic]Msg, // consecutive, by id
-	have_newest: bool, // the window reaches the conversation's end
+	messages:    [dynamic]Msg, // consecutive messages, ordered by id
+	have_newest: bool, // the window reaches the end of the conversation
 	have_oldest: bool, // ... and its beginning
-	loading:     bool, // a history request is out
-	// Bumped when the window is replaced, so the answer to a request
-	// made for the one before is known for what it is.
+	loading:     bool, // a history request is pending
+	// Incremented when the window is replaced, so that an answer to a request
+	// made for the previous window can be recognized as outdated.
 	generation:  u32,
-	used:        time.Tick, // when it was last looked at
+	used:        time.Tick, // when the window was last looked at
 }
 
 Post_State :: enum {
-	Open, // the DM it's for to open (DM_Open)
-	Put, // a picture to announce (Blob_Put)
-	Upload, // ... and send
-	Post, // the message to post
+	Open, // the DM it is for has to be opened (DM_Open)
+	Put, // a picture has to be announced (Blob_Put)
+	Upload, // ... and sent
+	Post, // the message has to be posted
 }
 
-// Pending is a message of ours on its way.
+// Pending is a message of ours that is on its way.
 Pending :: struct {
 	nonce:  u64,
 	conv:   proto.Conv_Id, // 0 while its DM is being opened
-	root:   proto.Msg_Id, // the thread it replies in, if it does
-	dm_to:  proto.Account_Id, // whom it's for, if it's a DM
-	// Not a message at all: our new picture, set once it's uploaded
-	// (profiles.odin); or with `server`, the server's, set with its name
-	// (`text`) and its description (`about`, owned; server_info.odin).
+	root:   proto.Msg_Id, // the thread it replies in, if it is a reply
+	dm_to:  proto.Account_Id, // who it is for, if it is a DM
+	// Not a message at all, but our new picture, which is set once it has
+	// been uploaded (see profiles.odin). With `server`, it is the server's
+	// picture, which is set together with the server's name (`text`) and
+	// description (`about`, owned; see server_info.odin).
 	avatar: bool,
 	server: bool,
 	about:  string,
 	kind:   proto.Msg_Kind,
-	text:   string, // .Text, .File's name; owned
-	size:   u64, // .File's
+	text:   string, // .Text; for .File its name; owned
+	size:   u64, // for .File
 	state:  Post_State,
-	asking: bool, // a request for it is out
-	// A picture: the JPEG (owned), how it's announced, and once the
-	// server has it, its id.
+	asking: bool, // a request for it is pending
+	// A picture: the JPEG (owned), how it is announced, and its id once the
+	// server has it.
 	jpeg:   []u8,
 	put:    proto.Blob_Put,
 	blob:   proto.Blob_Id,
 	upload: Upload,
 	tries:  int,
-	// A message with files (attachments.odin), whose uploads it names.
+	// A message with files (see attachments.odin), which names the uploads.
 	attach: ^Attach_Post,
 }
 
-// Upload is a picture's bytes on their way to the server.
+// Upload is the bytes of a picture that are on their way to the server.
 Upload :: struct {
 	handle:     u64,
 	send:       proto.Blob_Sender,
 	tokens:     f32,
 	last_chunk: time.Tick,
-	last_heard: time.Tick, // when the server last said anything about it
+	last_heard: time.Tick, // when the server last said anything about the upload
 }
 
 Message_Client :: struct {
 	caches:         map[Timeline_Key]^Conv_Cache,
-	// The threads open, oldest first.
+	// The open threads, oldest first.
 	threads:        [dynamic]Timeline_Key,
-	// Roots fetched for the replies that point at them, or being
-	// fetched (`have` false).
+	// Roots that were fetched for the replies pointing at them, or that are
+	// being fetched (`have` is false).
 	roots:          map[proto.Msg_Id]Root,
-	// The conversation whose pins the UI was last shown (pins_fetch).
+	// The conversation whose pins the UI was last shown (see pins_fetch).
 	pins_conv:      proto.Conv_Id,
-	// Who reacted with what was asked for last (reactors_fetch): only
-	// its answer is shown.
+	// Who reacted with which emoji, as requested last (see reactors_fetch).
+	// Only its answer is shown.
 	reactors_id:    proto.Msg_Id,
 	reactors_emoji: string, // owned
 	generation:     u32,
 	outbox:         [dynamic]Pending,
-	// Typing notices: when the last one went, and for where.
+	// Typing notices: when the last one was sent, and where it was sent to.
 	last_typing:    time.Tick,
 	typing_to:      Timeline_Key,
 }
 
-// Root is a thread's root as fetched, for its conversation.
+// Root is a thread's root message as fetched for its conversation.
 Root :: struct {
 	conv: proto.Conv_Id,
 	have: bool,
 	msg:  Msg,
 }
 
-// Post a message to the conversation we're looking at, or with
-// `dm_to`, to the DM with that account, or with `thread`, as a reply in
-// that thread.
+// Posts a message to the conversation we are looking at. With `dm_to` it is
+// posted to the DM with that account, and with `thread` it is posted as a reply
+// in that thread.
 Chat_Command :: struct {
 	text:   string, // owned by the command
 	dm_to:  proto.Account_Id,
 	thread: Timeline_Key,
-	// As typed, with `@username` for a mention, rather than stored
-	// (headless; the UI turns it into tokens itself).
+	// The text is as typed, with `@username` for a mention, instead of as
+	// stored (headless; the UI turns it into tokens itself).
 	typed:  bool,
 }
-// We're typing in the conversation we're looking at, or in a thread.
+// Reports that we are typing in the conversation we are looking at, or in a
+// thread.
 Typing_Command :: struct {
 	thread: Timeline_Key,
 }
-// More of a conversation (or a thread): older messages, or (`newer`)
-// newer ones than its window has.
+// Requests more of a conversation (or a thread): older messages, or with `newer`,
+// messages that are newer than what its window has.
 History_Command :: struct {
-	conv:  proto.Conv_Id, // 0 for the one we're looking at
+	conv:  proto.Conv_Id, // 0 means the conversation we are looking at
 	root:  proto.Msg_Id,
 	newer: bool,
 }
-// Open a thread (fetch its replies and its root, and keep them up to
-// date), or close it.
+// Opens a thread (fetches its replies and its root, and keeps them up to date),
+// or closes it.
 Thread_Command :: struct {
 	thread: Timeline_Key,
 	open:   bool,
 }
-// Fetch the root of a thread a reply on screen points at, for its line
-// in the conversation.
+// Fetches the root of the thread that a reply on screen points at, so it can be
+// shown in the reply's line in the conversation.
 Root_Command :: struct {
 	conv: proto.Conv_Id,
 	root: proto.Msg_Id,
@@ -294,7 +296,7 @@ msg_destroy :: proc(m: ^Msg) {
 	m^ = {}
 }
 
-// msg_of is a message as we keep it, with its text copied.
+// msg_of returns a message as we keep it, with its text copied.
 msg_of :: proc(m: proto.Message) -> Msg {
 	out := Msg {
 		id          = m.id,
@@ -328,10 +330,8 @@ msg_of :: proc(m: proto.Message) -> Msg {
 	return out
 }
 
-/*
-The window of one conversation. These only change the window; the
-callers publish it.
-*/
+// The window of one conversation. These procedures only change the window, and
+// the callers publish it.
 
 cache_destroy :: proc(cache: ^Conv_Cache) {
 	for &m in cache.messages {
@@ -340,8 +340,8 @@ cache_destroy :: proc(cache: ^Conv_Cache) {
 	delete(cache.messages)
 }
 
-// cache_replace makes a page the whole window: the first one, or one
-// that was jumped to. Takes the messages over.
+// cache_replace makes a page the whole window, either the first page or one
+// that was jumped to. It takes ownership of the messages.
 cache_replace :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 	for &m in cache.messages {
 		msg_destroy(&m)
@@ -352,8 +352,8 @@ cache_replace :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 	cache.have_newest = more & proto.MORE_AFTER == 0
 }
 
-// cache_prepend adds a page of older messages. Takes the messages over;
-// those the window already has are dropped.
+// cache_prepend adds a page of older messages. It takes ownership of the
+// messages, and drops those that the window already has.
 cache_prepend :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 	n := len(page)
 	if len(cache.messages) > 0 {
@@ -365,7 +365,8 @@ cache_prepend :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 	}
 	inject_at_elems(&cache.messages, 0, ..page[:n])
 	cache.have_oldest = more & proto.MORE_BEFORE == 0
-	// Too long now: the newest go, and are fetched again if wanted.
+	// The window is too long now, so drop the newest messages. They are fetched
+	// again if they are wanted.
 	for len(cache.messages) > MAX_CACHE_MESSAGES {
 		msg_destroy(&cache.messages[len(cache.messages) - 1])
 		pop(&cache.messages)
@@ -373,9 +374,9 @@ cache_prepend :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 	}
 }
 
-// cache_append adds newer messages: a page of them, or one that was just
-// posted. Takes the messages over; those the window already has are
-// dropped.
+// cache_append adds newer messages, either a page of them or one that was just
+// posted. It takes ownership of the messages, and drops those that the window
+// already has.
 cache_append :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 	for &m in page {
 		if len(cache.messages) > 0 && m.id <= cache.messages[len(cache.messages) - 1].id {
@@ -388,7 +389,7 @@ cache_append :: proc(cache: ^Conv_Cache, page: []Msg, more: u8) {
 	cache_trim_front(cache)
 }
 
-// cache_trim_front drops the oldest messages past MAX_CACHE_MESSAGES.
+// cache_trim_front drops the oldest messages beyond MAX_CACHE_MESSAGES.
 @(private = "file")
 cache_trim_front :: proc(cache: ^Conv_Cache) {
 	extra := len(cache.messages) - MAX_CACHE_MESSAGES
@@ -402,9 +403,9 @@ cache_trim_front :: proc(cache: ^Conv_Cache) {
 	cache.have_oldest = false
 }
 
-// cache_new takes a message that was just posted, and takes it over;
-// false if the window doesn't reach the end, so it isn't one of the
-// window's (and is freed).
+// cache_new takes ownership of a message that was just posted. It returns false
+// if the window doesn't reach the end, in which case the message doesn't belong
+// to the window and is freed.
 cache_new :: proc(cache: ^Conv_Cache, m: Msg) -> bool {
 	m := m
 	if !cache.have_newest {
@@ -415,11 +416,9 @@ cache_new :: proc(cache: ^Conv_Cache, m: Msg) -> bool {
 	return true
 }
 
-/*
-The network side.
-*/
+// The network side.
 
-// cache_of is a window, made if there's none.
+// cache_of returns the window for a key, making one if there is none.
 @(private = "file")
 cache_of :: proc(c: ^Voice_Client, key: Timeline_Key) -> ^Conv_Cache {
 	mc := &c.msgs
@@ -434,8 +433,8 @@ cache_of :: proc(c: ^Voice_Client, key: Timeline_Key) -> ^Conv_Cache {
 	return cache
 }
 
-// cache_drop lets a window go; a conversation's takes the roots fetched
-// for it along, but for those of threads still open.
+// cache_drop drops a window. Dropping a conversation's window also drops the
+// roots that were fetched for it, except those of threads that are still open.
 @(private = "file")
 cache_drop :: proc(c: ^Voice_Client, key: Timeline_Key, publish := true) {
 	cache := c.msgs.caches[key] or_else nil
@@ -471,8 +470,9 @@ thread_is_open :: proc(c: ^Voice_Client, key: Timeline_Key) -> bool {
 	return false
 }
 
-// messages_view is the UI showing a conversation: its window is fetched
-// if it has none, and the windows looked at longest ago are let go.
+// messages_view is called when the UI shows a conversation: its window is
+// fetched if it has none, and the windows that were looked at longest ago are
+// dropped.
 messages_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	if conv == 0 {
 		return
@@ -482,7 +482,8 @@ messages_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	if len(cache.messages) == 0 && !cache.have_oldest && !cache.loading {
 		history_ask(c, key, 0, .Before)
 	}
-	// Threads' windows stay while they're open.
+	// Only conversation windows are counted; the windows of threads stay as
+	// long as the threads are open.
 	for {
 		count := 0
 		oldest: Timeline_Key
@@ -502,13 +503,14 @@ messages_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 		cache_drop(c, oldest)
 	}
 	publish_timeline(c, key)
-	// The threads open, after a new connection.
+	// Fetch the open threads again, in case this is a new connection.
 	for t in c.msgs.threads {
 		thread_fetch(c, t)
 	}
 }
 
-// messages_more asks for the page before (or `newer`: after) a window.
+// messages_more asks for the page before a window (or, with `newer`, the page
+// after it).
 messages_more :: proc(c: ^Voice_Client, key: Timeline_Key, newer: bool) {
 	cache := c.msgs.caches[key] or_else nil
 	if cache == nil || cache.loading || len(cache.messages) == 0 {
@@ -554,9 +556,9 @@ history_ask :: proc(
 			limit = HISTORY_PAGE,
 		},
 	)
-	// Which window (each has a generation of its own), and what to do
-	// with the page: add it after, or have it replace the window (a
-	// jump, or the newest), or else add it before.
+	// The tag says which window the page is for (each window has its own
+	// generation) and what to do with it: append it (bit 33), have it replace
+	// the window (bit 32: a jump, or the newest page), or else prepend it.
 	tag := u64(cache.generation)
 	if dir == .After {
 		tag |= 1 << 33
@@ -578,14 +580,14 @@ history_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u6
 		}
 	}
 	if cache == nil {
-		return // a window that has gone since
+		return // the window has been dropped since
 	}
 	conv := key.conv
 	cache.loading = false
 	if status != .Ok {
 		if status != .Reset {
 			log.warnf(
-				"the server won't give us the messages of %q (%v)",
+				"the server failed to send the messages of %q (%v)",
 				room_name(c, proto.Room(conv)),
 				status,
 			)
@@ -613,7 +615,7 @@ history_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u6
 		cache_prepend(cache, page, more)
 	}
 	if c.view == nil {
-		// Headless: what came, for the log.
+		// Headless: log what arrived.
 		place := room_name(c, proto.Room(conv))
 		if key.root != 0 {
 			place = fmt.tprintf("%s, thread #%d", place, key.root)
@@ -635,13 +637,11 @@ history_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u6
 	publish_timeline(c, key)
 }
 
-/*
-Threads.
-*/
+// Threads.
 
-// thread_open opens a thread: its window is fetched, and its root, and
-// they're kept up to date until it's closed. Past MAX_THREADS the one
-// opened longest ago is closed.
+// thread_open opens a thread: its window and its root are fetched, and they are
+// kept up to date until the thread is closed. Past MAX_THREADS, the thread that
+// was opened longest ago is closed.
 thread_open :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	if key.conv == 0 || key.root == 0 || thread_is_open(c, key) {
 		return
@@ -661,15 +661,15 @@ thread_close :: proc(c: ^Voice_Client, key: Timeline_Key) {
 		}
 	}
 	cache_drop(c, key)
-	// Its root goes with it, unless it's kept with its conversation's
-	// window.
+	// Its root is dropped too, unless the conversation's window still keeps
+	// it.
 	if (Timeline_Key{key.conv, 0}) not_in c.msgs.caches {
 		root_forget(c, key.root)
 	}
 }
 
-// thread_fetch has an open thread's window and its root fetched, if
-// they aren't here.
+// thread_fetch fetches an open thread's window and its root, if we don't have
+// them yet.
 @(private = "file")
 thread_fetch :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	cache := cache_of(c, key)
@@ -679,7 +679,8 @@ thread_fetch :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	root_want(c, key.conv, key.root)
 }
 
-// root_want has a thread's root fetched, unless it's here or on its way.
+// root_want fetches a thread's root, unless we already have it or it is on its
+// way.
 root_want :: proc(c: ^Voice_Client, conv: proto.Conv_Id, root: proto.Msg_Id) {
 	if root == 0 || root in c.msgs.roots || !c.convs.synced || conv not_in c.convs.convs {
 		return
@@ -697,11 +698,11 @@ root_want :: proc(c: ^Voice_Client, conv: proto.Conv_Id, root: proto.Msg_Id) {
 			root := proto.Msg_Id(tag)
 			r, ok := &c.msgs.roots[root]
 			if !ok || r.have {
-				return // let go of since
+				return // dropped since
 			}
 			if status != .Ok {
 				if status == .Reset {
-					delete_key(&c.msgs.roots, root) // asked again
+					delete_key(&c.msgs.roots, root) // so that it is asked for again
 				} else {
 					publish_root_missing(c, root)
 				}
@@ -731,7 +732,8 @@ root_forget :: proc(c: ^Voice_Client, id: proto.Msg_Id, publish := true) {
 	}
 }
 
-// messages_event takes an event about messages; false if `op` isn't one.
+// messages_event handles an event about messages. It returns false if `op`
+// isn't such an event.
 messages_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	if op == .Reaction_Changed {
 		if change, ok := proto.decode_reaction_changed(body); ok {
@@ -760,16 +762,18 @@ messages_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool
 	return true
 }
 
-// message_arrived takes a message that was just posted: one we were told
-// of, or one of ours the server has taken. Whichever of those comes
-// second is a message we have already.
+// message_arrived handles a message that was just posted: either one we were
+// told about (Msg_New), or one of ours that the server has accepted. For our own
+// messages both happen, and whichever comes second is a message we already
+// have.
 @(private = "file")
 message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 	if m.kind == .File && m.sender != c.auth.me {
 		file_offer_received(c, m)
 	}
 	if m.thread_root != 0 {
-		// Its thread's, if that's open; and the conversation's, below.
+		// Add it to its thread's window if that thread is open. The
+		// conversation's window is handled below.
 		key := Timeline_Key{m.conv, m.thread_root}
 		if cache := c.msgs.caches[key] or_else nil; cache != nil && !cache_has_newer(cache, m.id) {
 			cache_new(cache, msg_of(m))
@@ -778,18 +782,18 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 	if cache := c.msgs.caches[{m.conv, 0}] or_else nil; cache != nil {
 		if cache_has_newer(cache, m.id) {
-			return // had it: ours, told of after its answer, or the other way round
+			return // already have it: ours, announced after the answer to our post or before it
 		}
 		cache_new(cache, msg_of(m))
 		publish_timeline(c, {m.conv, 0})
 	} else if info, ok := c.convs.convs[m.conv]; ok && m.id <= info.last {
-		// The same, for a conversation we keep no window of: nothing
-		// newer than the last we know of arrives before it.
+		// The same check for a conversation we keep no window of: a message
+		// that isn't newer than the last one we know of was seen already.
 		return
 	}
 	interrupts, mention := conv_new_message(c, m)
-	// A DM from someone else is said on the desktop whatever's in it
-	// (unless it's muted); the UI leaves it out while it's being read.
+	// A DM from someone else gets a desktop notification whatever it says
+	// (unless the DM is muted); the UI skips it while the DM is being read.
 	info := c.convs.convs[m.conv] or_else Conv_Info{}
 	dm :=
 		info.kind == .DM &&
@@ -810,10 +814,10 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 	switch {
 	case mention:
-		// Its own sound, and said on the desktop.
+		// A mention has its own sound and a desktop notification.
 		audio.voice_notification_play(&c.voice, .Mail)
 		if dm {
-			break // said above
+			break // already notified above
 		}
 		shown, _ := mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 		publish_mentioned(
@@ -860,14 +864,14 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 }
 
-// cache_has_newer is whether a window ends at or past `id`, so that a
-// message with that id that's just arrived is one it has already.
+// cache_has_newer reports whether a window ends at or past `id`, which means
+// that a message with that id that just arrived is already in the window.
 @(private = "file")
 cache_has_newer :: proc(cache: ^Conv_Cache, id: proto.Msg_Id) -> bool {
 	return len(cache.messages) > 0 && id <= cache.messages[len(cache.messages) - 1].id
 }
 
-// dm_notice_text is a DM as its desktop notification says it.
+// dm_notice_text returns the text of a DM's desktop notification.
 @(private = "file")
 dm_notice_text :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 	if m.kind == .File {
@@ -880,7 +884,7 @@ dm_notice_text :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 	return text
 }
 
-// describe is a message as the log shows it (headless).
+// describe returns a message as the log shows it (headless).
 @(private = "file")
 describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 	if .Deleted in m.flags {
@@ -933,15 +937,13 @@ describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 	return text
 }
 
-/*
-message_changed takes a message as it now is (Msg_Changed): edited,
-deleted, pinned or unpinned. Where a window has it, it's replaced; a
-file offer that's been deleted can't be taken up; and the pins shown are
-fetched again if this was one of them, or becomes one.
-*/
+// message_changed handles the new state of a message (Msg_Changed) after it was
+// edited, deleted, pinned or unpinned. Any window that has the message gets the
+// new version; a deleted file offer can no longer be accepted; and the pins
+// shown are fetched again (the message may have been or become one of them).
 @(private = "file")
 message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
-	// An event marks nobody's reactions: ours are as they were.
+	// An event doesn't say which reactions are ours, so keep ours as they were.
 	replace :: proc(old: ^Msg, m: proto.Message) {
 		fresh := msg_of(m)
 		for &r in fresh.reactions {
@@ -954,8 +956,8 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 		msg_destroy(old)
 		old^ = fresh
 	}
-	// The conversation's window, and its thread's (a reply) or the
-	// thread it's the root of.
+	// Update the conversation's window, and the window of the thread it's a
+	// reply in or the root of.
 	for key in ([]Timeline_Key{{m.conv, 0}, {m.conv, m.thread_root if m.thread_root != 0 else m.id}}) {
 		cache := c.msgs.caches[key] or_else nil
 		if cache == nil {
@@ -989,11 +991,10 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 }
 
-/*
-msgs_purged takes the server saying it has purged a conversation below
-an id: Messages other than pinned ones and roots of threads that go on are removed. A
-window with nothing left is fetched again if it's on screen.
-*/
+// msgs_purged handles the server telling us that it has purged a conversation's
+// messages below an id, except pinned ones and the roots of threads that live
+// on. They are removed from our windows, and a window with nothing left is
+// fetched again if it is on screen.
 @(private = "file")
 msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	if p.what == .Files {
@@ -1039,7 +1040,7 @@ msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	}
 	for id in gone {
 		root_forget(c, id)
-		// Fetched again if it was kept and a thread still wants it.
+		// Fetch it again if an open thread still needs it.
 		for t in c.msgs.threads {
 			if t.root == id {
 				root_want(c, t.conv, id)
@@ -1055,9 +1056,9 @@ msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	}
 }
 
-// purge_files takes the files out of a conversation's messages below
-// the purge's boundary, but for pinned ones  stay listed, without
-// their blobs.
+// purge_files removes the files from a conversation's messages below the
+// purge's boundary, except from pinned messages. The files stay listed, but
+// without their blobs.
 @(private = "file")
 purge_files :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	strip :: proc(m: ^Msg, before: proto.Msg_Id) -> bool {
@@ -1088,7 +1089,7 @@ purge_files :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 	}
 }
 
-// reaction_changed is someone's reaction added or taken back
+// reaction_changed handles someone adding or removing a reaction.
 @(private = "file")
 reaction_changed :: proc(c: ^Voice_Client, change: proto.Reaction_Change) {
 	react :: proc(c: ^Voice_Client, m: ^Msg, change: proto.Reaction_Change) {
@@ -1119,8 +1120,8 @@ reaction_changed :: proc(c: ^Voice_Client, change: proto.Reaction_Change) {
 			)
 		}
 	}
-	// Whichever windows of the conversation have it: its own, a
-	// thread's.
+	// Update every window of the conversation that has the message: the
+	// conversation's own and those of threads.
 	for key, cache in c.msgs.caches {
 		if key.conv != change.conv {
 			continue
@@ -1137,7 +1138,8 @@ reaction_changed :: proc(c: ^Voice_Client, change: proto.Reaction_Change) {
 		react(c, &r.msg, change)
 		publish_root(c, r^)
 	}
-	// Who reacted with it, if that's what's shown, isn't any more.
+	// If the list of who reacted with this emoji is shown, it is outdated
+	// now, so clear it.
 	if v := c.view; v != nil {
 		view_write(v)
 		if v.reactors.id == change.id && v.reactors.emoji == change.emoji {
@@ -1153,8 +1155,8 @@ Reactors_Command :: struct {
 	emoji: string, // owned by the command
 }
 
-// reactors_fetch asks who reacted with `emoji`; what was asked before is
-// forgotten, and its answer, if it comes, ignored.
+// reactors_fetch asks who reacted with `emoji`. The previous request is
+// forgotten, and its answer is ignored if it still arrives.
 reactors_fetch :: proc(c: ^Voice_Client, id: proto.Msg_Id, emoji: string) {
 	mc := &c.msgs
 	delete(mc.reactors_emoji)
@@ -1189,7 +1191,7 @@ React_Command :: struct {
 	id:    proto.Msg_Id,
 	emoji: string, // owned by the command
 	on:    bool,
-	typed: bool, // a :shortcode: for a character, as in Chat_Command
+	typed: bool, // the emoji is a :shortcode: as typed, as in Chat_Command
 }
 
 msg_react :: proc(c: ^Voice_Client, cmd: React_Command) {
@@ -1216,20 +1218,20 @@ msg_react :: proc(c: ^Voice_Client, cmd: React_Command) {
 					),
 				)
 			case .Invalid:
-				notify(c, false, "That isn't an emoji that can be reacted with here.")
+				notify(c, false, "That emoji can't be used as a reaction here.")
 			case:
 				notify(
 					c,
 					false,
-					fmt.tprintf("The server wouldn't take that reaction (%v).", status),
+					fmt.tprintf("The server failed to add the reaction (%v).", status),
 				)
 			}
 		},
 	)
 }
 
-// Forward a message (Msg_Forward) to a conversation; headless, to a
-// channel by name.
+// Forward a message (Msg_Forward) to a conversation. Headless, the
+// destination is a channel given by name.
 Forward_Command :: struct {
 	msg:  proto.Msg_Id,
 	conv: proto.Conv_Id,
@@ -1239,7 +1241,7 @@ Forward_Command :: struct {
 msg_forward :: proc(c: ^Voice_Client, cmd: Forward_Command) {
 	conv := cmd.conv if cmd.conv != 0 else conv_by_name(c, cmd.name)
 	if conv == 0 {
-		log.warnf("there's no channel called %q among yours", cmd.name)
+		log.warnf("you aren't a member of a channel called %q", cmd.name)
 		return
 	}
 	buf: [proto.MSG_FORWARD_SIZE]u8
@@ -1257,14 +1259,18 @@ msg_forward :: proc(c: ^Voice_Client, cmd: Forward_Command) {
 				notify(
 					c,
 					false,
-					"That message to forward or the forward destination can't be found.",
+					"The message to forward or the destination conversation no longer exists.",
 				)
 			case .Invalid:
 				notify(c, false, "That message can't be forwarded.")
 			case .Denied:
-				notify(c, false, "You can't post there.")
+				notify(c, false, "You don't have permission to post in that conversation.")
 			case:
-				notify(c, false, fmt.tprintf("The server wouldn't forward it (%v).", status))
+				notify(
+					c,
+					false,
+					fmt.tprintf("The server failed to forward the message (%v).", status),
+				)
 			}
 		},
 	)
@@ -1284,13 +1290,13 @@ Pin_Command :: struct {
 	id: proto.Msg_Id,
 	on: bool,
 }
-// Fetch the pinned messages of a conversation (0: the one we're looking
-// at), for the UI's pins window; they're kept up to date until another
-// is asked for.
+// Fetch the pinned messages of a conversation (0 means the one we are looking
+// at) for the UI's pins window. They are kept up to date until the pins of
+// another conversation are requested.
 Pins_Command :: struct {
 	conv: proto.Conv_Id,
 }
-// Have the window of the conversation we're looking at reach message `id`.
+// Move the window of the conversation we are looking at to message `id`.
 Jump_Command :: struct {
 	id: proto.Msg_Id,
 }
@@ -1315,8 +1321,8 @@ msg_pin :: proc(c: ^Voice_Client, id: proto.Msg_Id, on: bool) {
 	request(c, .Msg_Pin, proto.encode_msg_pin(&buf, id, on), change_done, u64(id))
 }
 
-// change_done hears how a change to a message went; it shows itself, as
-// Msg_Changed, when it went.
+// change_done handles the answer to a change of a message. A change that
+// succeeded arrives separately, as Msg_Changed.
 @(private = "file")
 change_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	#partial switch status {
@@ -1330,14 +1336,14 @@ change_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64
 			fmt.tprintf("A conversation can't have more than %d pinned messages.", proto.MAX_PINS),
 		)
 	case .Not_Found:
-		notify(c, false, "That message isn't there any more.")
+		notify(c, false, "That message no longer exists.")
 	case:
-		notify(c, false, fmt.tprintf("The server wouldn't change that message (%v).", status))
+		notify(c, false, fmt.tprintf("The server failed to change the message (%v).", status))
 	}
 }
 
-// pins_fetch asks for a conversation's pinned messages, which go to the
-// UI (and headless, the log).
+// pins_fetch asks for a conversation's pinned messages, which are passed to the
+// UI (or, headless, written to the log).
 pins_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	if conv == 0 {
 		return
@@ -1379,8 +1385,8 @@ pins_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	)
 }
 
-// messages_jump_to has the window of the conversation we're looking at
-// jump to message `id`: a page around it, unless it's in the window
+// messages_jump_to moves the window of the conversation we are looking at to
+// message `id` by fetching a page around it, unless it is in the window
 // already.
 messages_jump_to :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 	conv := c.convs.viewing
@@ -1395,12 +1401,11 @@ messages_jump_to :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 	messages_jump(c, conv, id)
 }
 
-/*
-messages_restart is a connection the server has made anew: the windows
-go (the one on screen is fetched again when it's looked at), and what's
-in the outbox is posted again from where it can be. With `forget`, we
-were logged out, and what we'd written goes too.
-*/
+// messages_restart is called when the connection to the server has been made
+// anew: all windows are dropped (the one on screen is fetched again when it is
+// looked at), and the outbox is posted again, resuming where possible. With
+// `forget`, we were logged out, and the messages we had written are dropped
+// too.
 messages_restart :: proc(c: ^Voice_Client, forget := false) {
 	mc := &c.msgs
 	keys := make([dynamic]Timeline_Key, context.temp_allocator)
@@ -1410,8 +1415,8 @@ messages_restart :: proc(c: ^Voice_Client, forget := false) {
 	for key in keys {
 		cache_drop(c, key)
 	}
-	// What was fetched of roots goes too; the threads stay open, and are
-	// fetched again with the conversation on screen (messages_view).
+	// The fetched roots are dropped too. The threads stay open, and are
+	// fetched again along with the conversation on screen (messages_view).
 	roots := make([dynamic]proto.Msg_Id, context.temp_allocator)
 	for id in mc.roots {
 		append(&roots, id)
@@ -1429,23 +1434,23 @@ messages_restart :: proc(c: ^Voice_Client, forget := false) {
 	for &p in mc.outbox {
 		p.asking = false
 		if p.avatar && p.blob == 0 {
-			// The server has forgotten the upload with the connection.
+			// The server forgot the upload when the connection was lost.
 			p.state = .Put
 			proto.blob_sender_destroy(&p.upload.send)
 			p.upload = {}
 		}
 	}
 	mc.last_typing, mc.typing_to = {}, {}
-	// The pins shown are asked for again when they're looked at again.
+	// The pins are requested again the next time they are shown.
 	mc.pins_conv = 0
 	blobs_restart(c)
 	attachments_restart(c, forget)
 	publish_outbox(c)
 }
 
-// chat_send puts a message in the outbox: for the conversation we're
-// looking at, or with `dm_to`, the DM with that account, or with
-// `thread`, a reply in that thread.
+// chat_send puts a message in the outbox. It is for the conversation we are
+// looking at, or with `dm_to`, for the DM with that account, or with `thread`,
+// a reply in that thread.
 chat_send :: proc(
 	c: ^Voice_Client,
 	raw: string,
@@ -1458,8 +1463,8 @@ chat_send :: proc(
 	thread := thread
 	if thread.root != 0 {
 		conv, state, ok = thread.conv, .Post, thread.conv in c.convs.convs
-		// A reply to a reply is to its root, as the server will have it;
-		// what we keep of ours has to say so too.
+		// The server treats a reply to a reply as a reply to the root, so
+		// our pending copy has to point at the root too.
 		if m, found := msg_find(c, thread.conv, thread.root); found && m.thread_root != 0 {
 			thread.root = m.thread_root
 		}
@@ -1479,16 +1484,16 @@ chat_send :: proc(
 			state = state,
 		},
 	)
-	// Whatever comes next is a new bout of typing.
+	// Any typing after this starts a new typing notice.
 	c.msgs.last_typing = {}
 	to_the_end(c, {conv, thread.root})
 	publish_outbox(c)
 }
 
-// post_target is where a post goes: the conversation we're looking at,
-// or with `dm_to`, the DM with that account, which may have to be opened
-// first (`first` says which state the post starts in). False if there's
-// nowhere.
+// post_target returns where a post goes: the conversation we are looking at,
+// or with `dm_to`, the DM with that account, which may have to be opened first.
+// `first` is the state the post starts in if nothing has to be opened. It
+// returns false if there is nowhere to post.
 post_target :: proc(
 	c: ^Voice_Client,
 	dm_to: proto.Account_Id,
@@ -1509,8 +1514,8 @@ post_target :: proc(
 	return conv, first if conv != 0 else .Open, true
 }
 
-// msg_find is a message of a conversation, if one of our windows (or
-// the roots fetched) has it.
+// msg_find looks up a message of a conversation in our windows and in the
+// fetched roots.
 msg_find :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) -> (Msg, bool) {
 	for key, cache in c.msgs.caches {
 		if key.conv != conv {
@@ -1528,8 +1533,8 @@ msg_find :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) -> (Ms
 	return {}, false
 }
 
-// to_the_end has a conversation's window reach its end, where what we
-// post is shown: the newest page replaces one scrolled far back.
+// to_the_end makes a conversation's window reach its end, where what we post
+// is shown: if the window was scrolled far back, the newest page replaces it.
 to_the_end :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	if cache := c.msgs.caches[key] or_else nil;
 	   cache != nil && !cache.have_newest && !cache.loading {
@@ -1537,9 +1542,9 @@ to_the_end :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	}
 }
 
-// file_post puts the offer of a file in the outbox, for the DM with
-// `to`; its nonce, which files.odin knows the transfer by until the
-// offer has its id.
+// file_post puts the offer of a file in the outbox, for the DM with `to`. It
+// returns the offer's nonce, by which files.odin identifies the transfer until
+// the offer has an id.
 file_post :: proc(c: ^Voice_Client, to: proto.Account_Id, name: string, size: u64) -> u64 {
 	conv, state, _ := post_target(c, to)
 	p := Pending {
@@ -1564,8 +1569,8 @@ new_nonce :: proc() -> (nonce: u64) {
 	return
 }
 
-// chat_typing tells the conversation we're looking at (or with
-// `thread`, that thread) that we're typing, if we haven't lately.
+// chat_typing tells the conversation we are looking at (or with `thread`, that
+// thread) that we are typing, unless we did so recently.
 chat_typing :: proc(c: ^Voice_Client, thread := Timeline_Key{}) {
 	mc := &c.msgs
 	to := thread if thread.root != 0 else Timeline_Key{c.convs.viewing, 0}
@@ -1609,11 +1614,9 @@ handle_typing :: proc(c: ^Voice_Client, pt: []u8) {
 	}
 }
 
-/*
-drive_outbox keeps the oldest message of ours going: its picture
-announced and uploaded, then the message posted. One at a time, so they
-arrive in the order they were written.
-*/
+// drive_outbox advances the oldest message in our outbox: its picture is
+// announced and uploaded, then the message is posted. Messages are sent one at
+// a time, so that they arrive in the order they were written.
 drive_outbox :: proc(c: ^Voice_Client) {
 	mc := &c.msgs
 	if len(mc.outbox) == 0 || !c.has_current || !c.convs.synced {
@@ -1621,7 +1624,7 @@ drive_outbox :: proc(c: ^Voice_Client) {
 	}
 	p := &mc.outbox[0]
 	if !p.avatar && p.state != .Open && p.conv not_in c.convs.convs {
-		log.warn("a message wasn't posted: that channel isn't one of ours any more")
+		log.warn("a message wasn't posted because we are no longer a member of its channel")
 		if p.kind == .File {
 			file_post_failed(c, p.nonce)
 		}
@@ -1636,7 +1639,8 @@ drive_outbox :: proc(c: ^Voice_Client) {
 	switch p.state {
 	case .Open:
 		if conv := dm_with(c, p.dm_to); conv != 0 {
-			// Opened since, by this post's DM_Open or another way.
+			// The DM has been opened since, by this post's DM_Open or
+			// otherwise.
 			p.conv = conv
 			p.state = .Post
 			p.asking = false
@@ -1684,8 +1688,8 @@ drive_outbox :: proc(c: ^Voice_Client) {
 	}
 }
 
-// outbox_head is the message at the head of the outbox, if it's the one
-// with `nonce`.
+// outbox_head returns the message at the head of the outbox if it is the one
+// with `nonce`, and nil otherwise.
 outbox_head :: proc(c: ^Voice_Client, nonce: u64) -> ^Pending {
 	if len(c.msgs.outbox) == 0 || c.msgs.outbox[0].nonce != nonce {
 		return nil
@@ -1707,8 +1711,9 @@ outbox_give_up :: proc(c: ^Voice_Client, why: string) {
 	publish_outbox(c)
 }
 
-// open_done is the DM a post is for, opened: the server has told us of
-// it (Conv_Changed) before answering, so it's one of ours by now.
+// open_done handles the answer to opening the DM that a post is for. The server
+// tells us about the DM (Conv_Changed) before answering, so we already know it
+// by now.
 @(private = "file")
 open_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	p := outbox_head(c, tag)
@@ -1721,18 +1726,18 @@ open_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 	case .Reset:
 		return // asked again on the new connection
 	case:
-		outbox_give_up(c, "A message wasn't sent: the server wouldn't open that conversation.")
+		outbox_give_up(c, "A message wasn't sent because the server failed to open the DM.")
 		return
 	}
 	conv, ok := proto.decode_conv_id(body)
 	if !ok || conv not_in c.convs.convs {
-		return // asked again
+		return // asked for again by drive_outbox
 	}
 	p.conv = conv
 	p.state = .Post
 	to_the_end(c, {conv, 0})
 	if c.view == nil && c.convs.viewing != conv {
-		// Headless: where /say goes from here.
+		// Headless: /say posts to this DM from now on.
 		conv_view(c, conv)
 	}
 	publish_outbox(c)
@@ -1750,7 +1755,7 @@ put_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	case .Reset:
 		return // asked again on the new connection
 	case:
-		outbox_give_up(c, "The server won't take that picture.")
+		outbox_give_up(c, "The server refused to accept the picture.")
 		return
 	}
 	blob, have, handle, ok := proto.decode_blob_put_answer(body)
@@ -1763,7 +1768,7 @@ put_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 		proto.blob_sender_destroy(&p.upload.send)
 		p.upload = {}
 	case p.state == .Upload && p.upload.handle == handle:
-	// Still on its way.
+	// The upload is still in progress.
 	case:
 		// Start (or start over) sending it.
 		proto.blob_sender_destroy(&p.upload.send)
@@ -1780,11 +1785,11 @@ put_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	publish_outbox(c)
 }
 
-// How fast a picture is uploaded, and how much may go at once.
+// How fast a picture is uploaded, and how many bytes may be sent at once.
 UPLOAD_RATE :: 256 * 1024 // bytes per second
 UPLOAD_BURST :: 32 * 1024
-// A picture whose upload the server has said nothing about for this long
-// is announced again, which says where it's got to.
+// If the server has said nothing about an upload for this long, the picture is
+// announced again, and the answer tells us how far the upload got.
 UPLOAD_QUIET :: 3 * time.Second
 
 @(private = "file")
@@ -1813,8 +1818,8 @@ upload_step :: proc(c: ^Voice_Client, p: ^Pending) {
 	}
 }
 
-// upload_need is the server saying how our upload is going; false if it
-// isn't about ours.
+// upload_need handles the server telling us how our upload is going. It returns
+// false if the packet isn't about our upload.
 upload_need :: proc(c: ^Voice_Client, pt: []u8) -> bool {
 	handle, complete, count, indices, ok := proto.decode_blob_need(pt)
 	if !ok || len(c.msgs.outbox) == 0 {
@@ -1829,19 +1834,19 @@ upload_need :: proc(c: ^Voice_Client, pt: []u8) -> bool {
 	case proto.blob_need_failed(pt):
 		p.tries += 1
 		if p.tries >= UPLOAD_TRIES {
-			outbox_give_up(c, "A picture couldn't be sent: the server wouldn't take it.")
+			outbox_give_up(c, "A picture couldn't be sent because the server rejected the upload.")
 			return true
 		}
-		log.warn("the server didn't take a picture as it arrived; sending it again")
+		log.warn("the server rejected an uploaded picture; sending it again")
 		fallthrough
 	case complete:
-		// All there: announcing it again gets its id.
+		// Everything has arrived: announcing the picture again gets us its id.
 		proto.blob_sender_destroy(&p.upload.send)
 		p.upload = {}
 		p.state = .Put
 		p.asking = false
 	case p.upload.send.next >= proto.blob_chunk_count(len(p.jpeg)):
-		// Past the first pass: what's missing goes again.
+		// After the first pass, send the missing chunks again.
 		for i in 0 ..< count {
 			proto.blob_sender_needs(&p.upload.send, proto.blob_need_index(indices, i))
 		}
@@ -1862,28 +1867,35 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 		return // posted again, with the same nonce, on the new connection
 	case .Not_Found:
 		if p.attach != nil && p.state == .Post {
-			// Its files have: they go again, and it's queued after.
+			// It's its uploaded files that are gone: they are uploaded
+			// again, and the message is queued again after that.
 			attach_upload_again(c, p.attach)
 			pending_destroy(p)
 			ordered_remove(&c.msgs.outbox, 0)
 			publish_outbox(c)
 			return
 		}
-		outbox_give_up(c, "A message wasn't posted: the channel isn't there any more.")
+		outbox_give_up(c, "A message wasn't posted because its channel no longer exists.")
 		return
 	case .Invalid:
 		if p.kind == .File {
-			outbox_give_up(c, "That file can't be offered: only archives, pictures and videos.")
+			outbox_give_up(
+				c,
+				"That file can't be offered: only archives, pictures and videos are allowed.",
+			)
 			return
 		}
 		if p.root != 0 {
-			outbox_give_up(c, "A reply wasn't posted: what it replies to isn't there any more.")
+			outbox_give_up(
+				c,
+				"A reply wasn't posted because the message it replies to no longer exists.",
+			)
 			return
 		}
-		outbox_give_up(c, "A message wasn't posted: the server wouldn't take it.")
+		outbox_give_up(c, "A message wasn't posted because the server rejected it as invalid.")
 		return
 	case:
-		outbox_give_up(c, "A message wasn't posted: the server wouldn't take it.")
+		outbox_give_up(c, "A message wasn't posted because the server rejected it.")
 		return
 	}
 	id, at, ok := proto.decode_msg_posted(body)
@@ -1891,7 +1903,7 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 		return
 	}
 	if p.attach != nil {
-		// Its Msg_New, which comes next, has it with its files' blobs.
+		// The message arrives next as Msg_New, along with its files' blobs.
 		attach_posted(c, p.attach)
 		pending_destroy(p)
 		ordered_remove(&c.msgs.outbox, 0)
@@ -1917,33 +1929,31 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 	publish_outbox(c)
 }
 
-/*
-What the UI is shown.
-*/
+// What the UI is shown.
 
 View_Message :: struct {
 	id:          proto.Msg_Id,
 	sender:      proto.Account_Id,
 	time:        proto.Unix_Ms,
-	edited:      proto.Unix_Ms, // 0 if it hasn't been
+	edited:      proto.Unix_Ms, // 0 if it hasn't been edited
 	kind:        proto.Msg_Kind,
 	flags:       proto.Msg_Flags,
-	thread_root: proto.Msg_Id, // a reply's
+	thread_root: proto.Msg_Id, // for a reply
 	text:        string, // owned; a file's name
 	file_size:   u64,
 	reactions:   [dynamic]Reaction, // owned, as are their emoji
-	// A root's (.Has_Thread): how many replies, and the last.
+	// For a root (.Has_Thread): the number of replies, and the last one.
 	reply_count: int,
 	last_reply:  proto.Msg_Id,
-	// A system message's (system_text).
+	// For a system message (see system_text).
 	system:      u8,
 	system_arg:  u32,
-	// A forwarded one's original.
+	// For a forwarded message: the original.
 	forward:     proto.Forward_Info,
 	files:       []Msg_File, // owned, as are their names
 }
 
-// view_message_destroy lets go of what a View_Message owns.
+// view_message_destroy frees what a View_Message owns.
 view_message_destroy :: proc(m: View_Message) {
 	m := m
 	delete(m.text)
@@ -1961,28 +1971,29 @@ View_Timeline :: struct {
 	appended:    int, // bumped for every message added at the end
 }
 
-// A message of ours on its way.
+// A message of ours that is on its way.
 View_Pending :: struct {
 	nonce:     u64,
-	// A message with files: what they are and how far they've got, and
-	// whether they're still being uploaded (it's not in the outbox yet).
+	// For a message with files: the files and their upload progress, and
+	// whether they are still being uploaded (then the message isn't in the
+	// outbox yet).
 	files:     []View_Pending_File, // owned
 	uploading: bool,
 	conv:      proto.Conv_Id, // 0 while its DM is being opened
-	root:      proto.Msg_Id, // a reply's thread
-	avatar:    bool, // not a message: our new picture
-	server:    bool, // or the server's (server_info.odin)
+	root:      proto.Msg_Id, // the thread, for a reply
+	avatar:    bool, // not a message, but our new picture
+	server:    bool, // or the server's picture (server_info.odin)
 	dm_to:     proto.Account_Id,
 	kind:      proto.Msg_Kind,
 	text:      string, // owned
 }
 
 View_Typing :: struct {
-	to: Timeline_Key, // where: the conversation, or a thread of it
+	to: Timeline_Key, // where: the conversation, or one of its threads
 	at: time.Tick,
 }
 
-// A thread's root, as fetched (Root_Command, Thread_Command): for its
+// A thread's root as fetched (Root_Command, Thread_Command), together with its
 // conversation.
 View_Root :: struct {
 	conv: proto.Conv_Id,
@@ -2026,8 +2037,8 @@ View_Pins :: struct {
 	count:    int, // bumped whenever they arrive
 }
 
-// publish_message_changed puts a message that has changed in place in
-// the UI's copy of its window, if it has it.
+// publish_message_changed replaces a message that has changed in the UI's copy
+// of its window, if the copy has it.
 @(private = "file")
 publish_message_changed :: proc(c: ^Voice_Client, key: Timeline_Key, m: Msg) {
 	v := c.view
@@ -2094,13 +2105,14 @@ publish_root :: proc(c: ^Voice_Client, r: Root) {
 	v.roots[r.msg.id] = {r.conv, view_message_of(r.msg)}
 }
 
-// publish_root_missing tells the UI a message asked for by its id (a
-// thread's root, a link's) isn't to be had: gone, or not ours to read.
+// publish_root_missing tells the UI that a message that was asked for by its id
+// (i.e. the root of a thread or a message link) does not exist, because it's
+// either gone or we can't read it.
 @(private = "file")
 publish_root_missing :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 	v := c.view
 	if v == nil {
-		log.infof("[chat] message #%d isn't there for us", id)
+		log.infof("[chat] message #%d doesn't exist or can't be read", id)
 		return
 	}
 	view_write(v)
@@ -2120,8 +2132,8 @@ publish_root_gone :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 	}
 }
 
-// View_Reactors is who reacted to a message with an emoji, as last
-// asked (Reactors_Command): the first proto.MAX_REACTORS of `total`.
+// View_Reactors lists who reacted to a message with an emoji, as last requested
+// (Reactors_Command): the first proto.MAX_REACTORS of `total`.
 View_Reactors :: struct {
 	id:       proto.Msg_Id,
 	emoji:    string, // owned
@@ -2183,11 +2195,9 @@ view_clear_timelines :: proc(v: ^View) {
 	v.unread = 0
 }
 
-/*
-publish_timeline brings the UI's copy of a conversation's window in line
-with ours, copying only what it doesn't have: a page of older messages
-goes in at the front, new ones at the end.
-*/
+// publish_timeline brings the UI's copy of a conversation's window in line with
+// ours, copying only what the copy doesn't have: a page of older messages is
+// inserted at the front, and new ones are added at the end.
 publish_timeline :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	v := c.view
 	if v == nil {
@@ -2280,8 +2290,8 @@ publish_outbox :: proc(c: ^Voice_Client) {
 			},
 		)
 	}
-	// Messages whose files are on their way, after: they're posted when
-	// they're there.
+	// Then the messages whose files are still being uploaded. They are posted
+	// once the uploads are done.
 	for p in c.attach.posts {
 		if p.queued {
 			continue
@@ -2302,8 +2312,8 @@ publish_outbox :: proc(c: ^Voice_Client) {
 	}
 }
 
-// publish_unread counts a message from someone else in the
-// conversation on screen; the UI zeroes the count once it's seen.
+// publish_unread counts a message from someone else in the conversation on
+// screen. The UI resets the count once the message has been seen.
 @(private = "file")
 publish_unread :: proc(c: ^Voice_Client) {
 	v := c.view
@@ -2324,7 +2334,8 @@ publish_typing :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.Accoun
 	v.typing[account] = {to, time.tick_now()}
 }
 
-// publish_typing_done: they've posted, so they're done typing that.
+// publish_typing_done clears an account's typing notice once it has posted,
+// since it is done typing that message.
 @(private = "file")
 publish_typing_done :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.Account_Id) {
 	v := c.view
@@ -2337,9 +2348,9 @@ publish_typing_done :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.A
 	}
 }
 
-// is_typing says whether an account has told us lately it's typing in a
-// conversation (or with `root`, in that thread of it). Call with the
-// mutex held.
+// is_typing reports whether an account recently told us that it is typing in a
+// conversation (or with `root`, in that thread of it). Call with the mutex
+// held.
 is_typing :: proc(
 	v: ^View,
 	account: proto.Account_Id,
@@ -2350,8 +2361,9 @@ is_typing :: proc(
 	return ok && t.to == {conv, root} && time.tick_since(t.at) < TYPING_SHOW
 }
 
-// typing_until is when the first typing notice still shown stops being
-// shown, unless another comes; zero if none is. Call with the mutex held.
+// typing_until returns when the first typing notice that is still shown will
+// disappear, unless another one arrives; zero if none is shown. Call with the
+// mutex held.
 typing_until :: proc(v: ^View) -> (until: time.Tick) {
 	for _, t in v.typing {
 		if time.tick_since(t.at) < TYPING_SHOW {
@@ -2364,7 +2376,7 @@ typing_until :: proc(v: ^View) -> (until: time.Tick) {
 	return
 }
 
-// is_typing_in_thread says whether an account has told us lately it's
+// is_typing_in_thread reports whether an account recently told us that it is
 // typing in one of a conversation's threads. Call with the mutex held.
 is_typing_in_thread :: proc(v: ^View, account: proto.Account_Id, conv: proto.Conv_Id) -> bool {
 	t, ok := v.typing[account]

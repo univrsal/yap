@@ -3,34 +3,32 @@ package proto
 import "core:strconv"
 import "core:strings"
 
-/*
-Forwarding messages and linking to them (polish 12).
-
-	Msg_Forward  [conv u32][nonce u64][thread_root u64][msg u64]
-	             ->  [id u64][time u64], as Msg_Post
-
-Forwarding copies a message somewhere else: one the account may read,
-to a conversation it may post to, whichever two. The copy is a message
-of the forwarder's whose content (text, or picture: the same blob) is
-the original's, with the Forwarded flag and, in its record, who wrote
-the original, where and when:
-
-	if Forwarded:  [sender u32][conv u32][time u64]
-
-A copy of a copy names the first. Only text and pictures can be
-forwarded (`Invalid` otherwise, or for one deleted or whose picture
-is gone); a copy's mentions don't mention anybody again, and it can't
-be edited.
-
-A link is a token in a message's text,
-
-	<msg:12:3456>   message 3456 of conversation 12
-
-which a client shows as the message it points at, if it may read it,
-and goes to when it's clicked. A link to a DM's message is only kept in
-that DM: anywhere else the server writes it as plain text
-(links_restrict, server/messages.odin).
-*/
+// Forwarding messages and linking to them (polish 12).
+//
+// 	Msg_Forward  [conv u32][nonce u64][thread_root u64][msg u64]
+// 	             ->  [id u64][time u64], as Msg_Post
+//
+// Forwarding copies a message to another place. The account may forward any
+// message that it may read to any conversation that it may post to. The copy
+// is a message of the forwarder's, whose content (the text or the picture,
+// which is the same blob) is the original's. It has the Forwarded flag and its
+// record says who wrote the original, where and when:
+//
+// 	if Forwarded:  [sender u32][conv u32][time u64]
+//
+// A copy of a copy names the first original. Only text and pictures can be
+// forwarded. Otherwise, or if the message was deleted or its picture is gone,
+// the answer is `Invalid`. The mentions in a copy don't mention anybody again,
+// and a copy can't be edited.
+//
+// A link is a token in a message's text,
+//
+// 	<msg:12:3456>   message 3456 of conversation 12
+//
+// A client shows it as the message that it points to, if the user may read it,
+// and jumps to that message when it is clicked. A link to a message in a DM is
+// only kept in that DM. Anywhere else the server writes it as plain text
+// (links_restrict, server/messages.odin).
 
 MSG_FORWARD_SIZE :: 4 + 8 + 8 + 8
 FORWARD_INFO_SIZE :: 4 + 4 + 8
@@ -42,7 +40,7 @@ Msg_Forward :: struct {
 	msg:         Msg_Id,
 }
 
-// Forward_Info is where a forwarded message came from.
+// Forward_Info says where a forwarded message came from.
 Forward_Info :: struct {
 	sender: Account_Id,
 	conv:   Conv_Id,
@@ -73,14 +71,14 @@ decode_msg_forward :: proc(body: []u8) -> (f: Msg_Forward, ok: bool) {
 
 LINK_PREFIX :: "<msg:"
 
-// Msg_Link is a link token found in a text.
+// Msg_Link is a link token that was found in a text.
 Msg_Link :: struct {
 	start, end: int, // the token's bytes
 	conv:       Conv_Id,
 	id:         Msg_Id,
 }
 
-// link_token writes a link to message `id` of `conv`, in the temp
+// link_token writes a link to message `id` of `conv`, allocated with the temp
 // allocator.
 link_token :: proc(conv: Conv_Id, id: Msg_Id) -> string {
 	b := strings.builder_make(context.temp_allocator)
@@ -92,8 +90,8 @@ link_token :: proc(conv: Conv_Id, id: Msg_Id) -> string {
 	return strings.to_string(b)
 }
 
-// next_link finds the first link token in text[from:]; ok is false if
-// there's none. Anything that only looks a little like one is text.
+// next_link finds the first link token in text[from:]. ok is false if there is
+// none. Anything that only resembles a link token is treated as plain text.
 next_link :: proc(text: string, from: int) -> (l: Msg_Link, ok: bool) {
 	at := from
 	for at < len(text) {

@@ -6,32 +6,30 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-Mentions (src/common/proto/mentions.odin): who a message names with its
-tokens, recorded so it counts as a mention for them (Conv.mentions,
-Read_Changed).
+// Mentions (see src/common/proto/mentions.odin) are tokens in a message
+// text that name an account. They are recorded so that the message counts as
+// a mention for that account (Conv.mentions, Read_Changed).
+//
+// A token counts for an account that exists, isn't the poster and may read
+// the message, i.e. is a member of the conversation. In a public channel,
+// an account that isn't subscribed gets subscribed when it is mentioned
+// (D19) and is told about the channel. <@everyone> mentions every other
+// member if the poster has the Mention_Everyone permission. Otherwise it is
+// kept as the plain text "@everyone". A role's token mentions every other
+// member who has the role, if the role is Mentionable. Otherwise it is kept
+// as the plain text "@name". A role mention never subscribes anybody, so
+// accounts that aren't members aren't notified. Any other token is kept as
+// written and doesn't count as a mention for anybody.
+//
+// The rows are written when a message is posted, rewritten when it is
+// edited and removed when it is deleted. Members whose mention count is
+// changed by an edit or a deletion are notified (Read_Changed). A new
+// message is counted by the clients themselves.
 
-A token counts for an account that exists, isn't the poster, and may
-read the message: a member of the conversation. In a public channel an
-account that isn't subscribed is subscribed by being mentioned (D19), and
-told of the channel. <@everyone> is every other member, from an account
-with Mention_Everyone; from anyone else it's kept as the plain text
-"@everyone". A role's token is every other member who has the role, if
-it's Mentionable; if it isn't, it's kept as the plain text "@name". It
-subscribes nobody: who isn't a member isn't told. Other tokens are kept
-as they were written, and count for nobody.
-
-The rows are written when a message is posted, written again when it's
-edited, and go when it's deleted. A member whose count that changes, by
-an edit or a deletion, is told (Read_Changed); a new message is counted
-by the clients themselves.
-*/
-
-/*
-mentions_resolve is who `text`, by `u` in `conv`, mentions, and the text
-as it's to be kept. Somebody it subscribes has read up to `read_upto`
-(for a new message: what was there before it).
-*/
+// mentions_resolve returns the accounts that `text` mentions, where `text`
+// was posted by `u` in `conv`, and the text as it should be stored. An
+// account that is subscribed by the mention starts out having read up to
+// `read_upto` (for a new message that is the last message before it).
 mentions_resolve :: proc(
 	s: ^Server,
 	u: ^Conn,
@@ -60,7 +58,7 @@ mentions_resolve :: proc(
 		at = m.end
 		if m.everyone {
 			if !can(u.account, .Mention_Everyone) {
-				// Not ours to use: it says what was meant, and nothing more.
+				// The poster isn't allowed to use it, so keep it as plain text.
 				kept = strings.concatenate(
 					{kept[:m.start], "@", proto.MENTION_EVERYONE, kept[m.end:]},
 					context.temp_allocator,
@@ -97,8 +95,7 @@ mentions_resolve :: proc(
 			continue
 		}
 		if !conv_is_member(conv, acc.id) {
-			// A public channel takes in whoever is mentioned there; nothing
-			// else does.
+			// Only public channels subscribe an account that is mentioned there.
 			if conv.kind != .Channel || .Private in conv.flags {
 				continue
 			}
@@ -120,8 +117,8 @@ mentions_resolve :: proc(
 	return kept, list[:]
 }
 
-// mentions_store records who message `id` mentions, in place of what was
-// recorded for it before. False if the database failed.
+// mentions_store records which accounts message `id` mentions, replacing
+// what was recorded before. Returns false if the database failed.
 mentions_store :: proc(
 	s: ^Server,
 	conv: ^Conv,
@@ -145,8 +142,8 @@ mentions_clear :: proc(s: ^Server, id: proto.Msg_Id) -> bool {
 	return db_run(&s.db, q)
 }
 
-// mentioned_in is who message `id` is recorded as mentioning, in the temp
-// allocator.
+// mentioned_in returns the accounts that message `id` is recorded as
+// mentioning, allocated with the temp allocator.
 mentioned_in :: proc(s: ^Server, id: proto.Msg_Id) -> []proto.Account_Id {
 	list := make([dynamic]proto.Account_Id, context.temp_allocator)
 	q := db_stmt(&s.db, .Mentioned_In)
@@ -161,9 +158,9 @@ mentioned_in :: proc(s: ^Server, id: proto.Msg_Id) -> []proto.Account_Id {
 	return list[:]
 }
 
-// mentions_changed tells the members among `accounts`, for whom message
-// `id` of `conv` stopped or started being a mention, what that does to
-// their counts: if they haven't read it yet, it does something.
+// mentions_changed notifies the members among `accounts`, for whom message
+// `id` of `conv` stopped or started being a mention, that their counts
+// changed. This only matters if they haven't read the message yet.
 mentions_changed :: proc(s: ^Server, conv: ^Conv, id: proto.Msg_Id, accounts: []proto.Account_Id) {
 	for a in accounts {
 		m, member := conv.reads[a]

@@ -18,11 +18,12 @@ Options :: struct {
 }
 
 main :: proc() {
-	// Before anything allocates, so that it's all counted (memory.odin).
+	// This must happen before anything allocates so that all allocations
+	// are counted (see memory.odin).
 	context.allocator = memtrack.init()
 
-	// `yap-server account ...` works on the accounts and exits (cli.odin).
-	// And `yap-server role list`, which is its `roles`.
+	// `yap-server account ...` manages accounts and then exits (see cli.odin).
+	// `yap-server role list` is shorthand for `yap-server account roles`.
 	if len(os.args) > 1 && (os.args[1] == "account" || os.args[1] == "role") {
 		quiet, quiet_ok := common.init_logging(.warn)
 		if !quiet_ok {
@@ -43,7 +44,7 @@ main :: proc() {
 		os.exit(run_account_command(args))
 	}
 
-	// `yap-server email test` tries the email config out (cli_email.odin).
+	// `yap-server email test` tests the email configuration (see cli_email.odin).
 	if len(os.args) > 1 && os.args[1] == "email" {
 		quiet, quiet_ok := common.init_logging(.warn)
 		if !quiet_ok {
@@ -53,8 +54,19 @@ main :: proc() {
 		os.exit(run_email_command(os.args[2:]))
 	}
 
-	// `yap-server purge ...` purges and exits (cli_purge.odin). Nobody
-	// is talking then, so a slow checkpoint isn't worth a word.
+	// `yap-server push test` tests push notifications (see cli_push.odin).
+	if len(os.args) > 1 && os.args[1] == "push" {
+		quiet, quiet_ok := common.init_logging(.warn)
+		if !quiet_ok {
+			os.exit(1)
+		}
+		context.logger = quiet
+		os.exit(run_push_command(os.args[2:]))
+	}
+
+	// `yap-server purge ...` purges old messages and then exits (see
+	// cli_purge.odin). No clients are connected at that point, so only
+	// errors are logged and slow checkpoints are not reported.
 	if len(os.args) > 1 && os.args[1] == "purge" {
 		quiet, quiet_ok := common.init_logging(.error)
 		if !quiet_ok {
@@ -69,8 +81,8 @@ main :: proc() {
 	}
 	flags.parse_or_exit(&opt, os.args, .Odin)
 
-	// The config says how to log, so until it's read, log at the
-	// default level to the terminal.
+	// The config decides how to log, so until it has been read the
+	// server logs to the terminal at the default level.
 	early, early_ok := common.init_logging(.info)
 	if !early_ok {
 		os.exit(1)
@@ -124,11 +136,9 @@ main :: proc() {
 	}
 }
 
-/*
-start_api starts the bot API's gateway (docs/bot-api), which is to the
-server only more clients: on this machine, and refusing any server that
-hasn't this one's key.
-*/
+// start_api starts the gateway of the bot API (docs/bot-api). To the server
+// the gateway is just another client: it connects from this machine and
+// refuses to talk to any server that doesn't have this server's key.
 start_api :: proc(settings: Settings) -> (^gateway.Gateway, bool) {
 	key: ecdh.Private_Key
 	defer ecdh.private_key_clear(&key)
@@ -148,8 +158,8 @@ start_api :: proc(settings: Settings) -> (^gateway.Gateway, bool) {
 	return gateway.start(cfg), true
 }
 
-// bootstrap_from_env reads settings used only while creating a new server.
-// Existing server data is never changed from the environment.
+// bootstrap_from_env reads the settings that are only used when a new server
+// is created. The environment never changes an existing server's data.
 bootstrap_from_env :: proc() -> (bootstrap: Config_Bootstrap, ok: bool) {
 	if text := os.get_env("YAP_RELAY_ENABLED", context.allocator); text != "" {
 		bootstrap.relay_enabled_set = true

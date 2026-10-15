@@ -5,12 +5,10 @@ import "core:crypto"
 import "core:encoding/hex"
 import "core:fmt"
 
-/*
-Saving a picture is a download in a browser: the page hands the bytes to
-the browser as a file (web/shell.c), and the browser puts it in its
-downloads folder, or asks where, as the person has set it up. There's
-no path to hand back, so the name it was offered under stands in for one.
-*/
+// In a browser, saving a picture is a download: the page hands the bytes to the
+// browser as a file (web/shell.c), and the browser puts it in its downloads
+// folder or asks where to save it, depending on the user's settings. There is no
+// path to return, so the name the file was offered under is returned instead.
 
 @(default_calling_convention = "c")
 foreign _ {
@@ -18,8 +16,8 @@ foreign _ {
 	yap_download :: proc(data: [^]u8, size: i32, name: cstring) -> i32 ---
 }
 
-// save_to_downloads offers `data` as yap-<random>.<ext>, a name of its
-// own like on a desktop, and returns that name.
+// save_to_downloads offers `data` as yap-<random>.<ext>, a unique name like on
+// the desktop, and returns that name.
 save_to_downloads :: proc(
 	data: []u8,
 	ext: string,

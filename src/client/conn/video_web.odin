@@ -4,33 +4,31 @@ package conn
 import "client:render"
 import "common:proto"
 
-/*
-Screen sharing in the browser: the page captures, encodes and decodes
-(Module.yapVideo in web/video.js, reached through web/shell.c), and the
-client carries the encoded frames (video.odin).
-*/
+// Screen sharing in the browser: the page captures, encodes and decodes
+// (Module.yapVideo in web/video.js, reached through web/shell.c), and the client
+// carries the encoded frames (video.odin).
 
 @(private = "file", default_calling_convention = "c")
 foreign _ {
 	// 1 while the capture is running.
 	yap_video_live :: proc() -> i32 ---
-	// The size of the oldest encoded frame waiting, or -1 for none.
+	// The size of the oldest encoded frame waiting, or -1 if there is none.
 	yap_video_next_size :: proc() -> i32 ---
-	// Copies the oldest encoded frame into buf and returns its size, or
-	// -1 if there's none (or it doesn't fit).
+	// Copies the oldest encoded frame into buf and returns its size, or -1 if
+	// there is none (or it does not fit).
 	yap_video_pull :: proc(buf: [^]u8, buf_size: i32, ts: ^u32, key: ^i32) -> i32 ---
 	// Makes the next frame a keyframe.
 	yap_video_request_key :: proc() ---
-	// Hands a frame of `sharer`'s to the decoder.
+	// Hands a frame from `sharer` to the decoder.
 	yap_video_show :: proc(sharer: u32, data: [^]u8, size: i32, ts: u32, key: i32, codec: i32) ---
 	// Drops the decoder and clears the picture.
 	yap_video_end :: proc() ---
-	// 1 once after the decoder failed.
+	// Returns 1 once after the decoder has failed.
 	yap_video_take_error :: proc() -> i32 ---
 	yap_video_can_share :: proc() -> i32 ---
 	yap_video_can_watch :: proc() -> i32 ---
-	// What the decoder takes, as bits (1 << codec); it grows as the
-	// browser answers.
+	// What the decoder accepts, as bits (1 << codec). It grows as the browser
+	// answers.
 	yap_video_decodable :: proc() -> i32 ---
 	yap_video_share_start :: proc() ---
 	yap_video_share_stop :: proc() ---
@@ -44,8 +42,8 @@ video_capture_live :: proc() -> bool {
 	return yap_video_live() != 0
 }
 
-// video_capture_pull returns the next encoded frame, which the caller
-// then owns.
+// video_capture_pull returns the next encoded frame, which the caller then
+// owns.
 video_capture_pull :: proc(
 ) -> (
 	data: []u8,
@@ -84,27 +82,25 @@ video_show_frame :: proc(sharer: proto.User_Num, frame: proto.Video_Frame) {
 
 video_show_end :: proc() {
 	yap_video_end()
-	web_picture.size = {} // not the last one's picture
+	web_picture.size = {} // do not keep the last picture's size
 }
 
-// video_show_failed says, once, that the decoder gave up on what it was
-// given; it needs a keyframe to start again.
+// video_show_failed says, once, that the decoder gave up on what it was given.
+// It needs a keyframe to start again.
 video_show_failed :: proc() -> bool {
 	return yap_video_take_error() != 0
 }
 
-/*
-For the UI. Starting a share opens the browser's picker, which it only
-allows soon after the user clicked something, so it belongs in a button
-handler.
-*/
+// For the UI. Starting a share opens the browser's picker, which the browser
+// only allows shortly after the user clicked something, so it belongs in a
+// button handler.
 
 // What the page's capture is doing (web/video.js).
 Share_State :: enum i32 {
 	Off      = 0,
 	Starting = 1, // the browser's picker is open
 	Live     = 2,
-	Failed   = 3, // it couldn't start, or stopped with an error
+	Failed   = 3, // it could not start, or stopped with an error
 }
 
 video_can_share :: proc() -> bool {
@@ -119,7 +115,7 @@ video_decodable :: proc() -> proto.Video_Codecs {
 	return transmute(proto.Video_Codecs)u8(yap_video_decodable())
 }
 
-// The page always encodes H.264, which every viewer decodes.
+// The page always encodes H.264, which every viewer can decode.
 video_share_codecs :: proc(codecs: proto.Video_Codecs) {}
 
 video_share_start :: proc() {
@@ -137,20 +133,20 @@ video_share_state :: proc() -> Share_State {
 // The browser asks what to share in its own picker.
 VIDEO_PICKER :: false
 
-// The browser asks in its picker, so nothing needs allowing first.
+// The browser asks in its own picker, so nothing needs to be allowed first.
 video_capture_allowed :: proc() -> bool {
 	return true
 }
 
 video_allow_capture :: proc() {}
 
-// What the page encodes at isn't said; video.odin paces for it.
+// What the page encodes at is not reported; video.odin paces for it.
 video_share_kbit :: proc() -> int {
 	return 0
 }
 
-// The browser's share doesn't follow its viewers' reports: the page's
-// encoder keeps to its own bitrate.
+// The browser's share does not follow its viewers' reports: the page's encoder
+// keeps to its own bitrate.
 video_share_max_kbit :: proc() -> int {
 	return 0
 }
@@ -187,7 +183,7 @@ video_system_picker :: proc() -> bool {
 	return false
 }
 
-// The browser chooses its encoder, and doesn't say.
+// The browser chooses its encoder and does not say which.
 Video_Encoder :: struct {
 	name:  string,
 	label: string,
@@ -203,7 +199,7 @@ video_picture_info :: proc() -> (frames: u64, hardware: bool) {
 	return 0, false
 }
 
-// The page draws a new picture as it comes, with no waking needed.
+// The page draws each new picture as it arrives, so no waking is needed.
 video_set_wake :: proc(wake: proc "c" ()) {}
 
 // The browser's console says why it failed.
@@ -211,18 +207,16 @@ video_share_error :: proc() -> string {
 	return ""
 }
 
-// The texture the page draws frames into, and the size of the one in it.
+// The texture the page draws frames into, and the size of the picture in it.
 @(private = "file")
 web_picture: struct {
 	texture: render.Gpu_Texture,
 	size:    [2]int,
 }
 
-/*
-video_picture is the newest frame of what we're watching, as a texture
-of the renderer's: the page puts each new one into it (an OpenGL texture
-name, as the page knows it, render/gpu_gl.odin).
-*/
+// video_picture is the newest frame of what we are watching, as a texture of
+// the renderer's. The page puts each new frame into it (an OpenGL texture name,
+// as the page knows it, render/gpu_gl.odin).
 video_picture :: proc(
 	g: ^render.Gpu,
 ) -> (
@@ -244,12 +238,12 @@ video_picture :: proc(
 	return p.texture, p.size.x, p.size.y, true
 }
 
-// video_forget_gpu forgets the texture as its device goes.
+// video_forget_gpu forgets the texture when its device goes away.
 video_forget_gpu :: proc(g: ^render.Gpu) {
 	web_picture = {}
 }
 
-// The whole page fullscreen, for the picture (ui_video.odin).
+// The whole page goes fullscreen, to show the picture (ui_video.odin).
 video_set_fullscreen :: proc(on: bool) {
 	yap_video_set_fullscreen(1 if on else 0)
 }

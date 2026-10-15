@@ -4,14 +4,13 @@ import "core:os"
 import "core:strings"
 import win "core:sys/windows"
 
-/*
-Installing on Windows (see the client's ui_install_native.odin): a shortcut in the
-user's Start menu, which is also what makes yap searchable from it. The
-shortcut takes its icon from the .exe (see build.bat).
-
-Shortcuts are only written and read through the shell's IShellLink,
-which core:sys/windows doesn't declare, so the parts of it used here are.
-*/
+// Installing on Windows (see the client's ui_install_native.odin) creates a
+// shortcut in the user's Start menu, which also makes yap searchable from
+// there. The shortcut takes its icon from the .exe (see build.bat).
+//
+// Shortcuts are written and read through the shell's IShellLink interface.
+// core:sys/windows doesn't declare it, so the parts used here are declared
+// in this file.
 
 INSTALL_DESCRIPTION :: "Adds yap to your Start menu, pointing at this copy of yap; nothing is copied or moved. Uninstall removes it again."
 
@@ -42,7 +41,8 @@ IShellLinkW :: struct {
 	using vtable: ^IShellLinkW_VTable,
 }
 
-// In the interface's order; only the ones used have a real type.
+// The methods are in the order of the interface. Only the ones that are used
+// have a real type.
 @(private = "file")
 IShellLinkW_VTable :: struct {
 	using iunknown:      win.IUnknown_VTable,
@@ -100,8 +100,8 @@ IPersistFile_VTable :: struct {
 	GetCurFile:     rawptr,
 }
 
-// shortcut_path is the shortcut's place in the Start menu, in the temp
-// allocator.
+// shortcut_path returns the location of the shortcut in the Start menu,
+// allocated with the temp allocator.
 @(private = "file")
 shortcut_path :: proc() -> (path: string, ok: bool) {
 	dir: win.LPWSTR
@@ -118,7 +118,7 @@ shortcut_path :: proc() -> (path: string, ok: bool) {
 	return path, true
 }
 
-// Shell_Link is a shell link object and the file interface of it.
+// Shell_Link is a shell link object together with its file interface.
 @(private = "file")
 Shell_Link :: struct {
 	link: ^IShellLinkW,
@@ -126,8 +126,8 @@ Shell_Link :: struct {
 	com:  bool, // whether shell_link_close has COM to uninitialize
 }
 
-// shell_link_open makes a Shell_Link, setting COM up on this thread for
-// it if it isn't already.
+// shell_link_open creates a Shell_Link. It initializes COM on this thread if
+// that hasn't been done already.
 @(private = "file")
 shell_link_open :: proc() -> (s: Shell_Link, ok: bool) {
 	s.com = win.SUCCEEDED(win.CoInitializeEx(nil, .APARTMENTTHREADED))
@@ -184,11 +184,11 @@ install_query :: proc(allocator := context.allocator) -> (target: string, instal
 install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 	path, ok := shortcut_path()
 	if !ok {
-		return "Could not find the Start menu."
+		return "Could not find the Start menu folder."
 	}
 	s, sok := shell_link_open()
 	if !sok {
-		return "Could not make a shortcut."
+		return "Could not create the shortcut."
 	}
 	defer shell_link_close(&s)
 	dir, _ := os.split_path(exe)
@@ -206,7 +206,7 @@ install_self :: proc(exe: string, icon_png: []u8) -> (err: string) {
 uninstall_self :: proc() -> (err: string) {
 	path, ok := shortcut_path()
 	if !ok {
-		return "Could not find the Start menu."
+		return "Could not find the Start menu folder."
 	}
 	if os.exists(path) && os.remove(path) != nil {
 		return strings.concatenate({"Could not remove ", path}, context.temp_allocator)

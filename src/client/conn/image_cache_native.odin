@@ -12,30 +12,30 @@ import "core:time"
 import "client:settings"
 import "common:proto"
 
-/*
-Pictures kept on disk between sessions: people's pictures and the
-server's sheet of emoji (the blobs fetched with `keep`, blobs.odin), so
-they're there at once next time instead of being fetched again.
-
-Each is a file named by its blob's id, in a folder named by the server's
-key (settings.server_key): a server never gives an id to anything else
-(its blobs table counts up and doesn't reuse them), and what's under an
-id doesn't change. A file is written under another name and renamed
-into place, so one that's there is whole.
-
-Past `max_bytes` the ones used longest ago go; using one touches its
-file, so that survives a restart. The UI owns the cache and hands it to
-each connection (Blob_Client.disk): the connection loads and stores,
-the settings page shows its size and clears it, hence the mutex.
-*/
+// This file keeps pictures on disk between sessions: people's pictures and the
+// server's emoji sheet (the blobs fetched with `keep`, see blobs.odin). They are
+// available immediately next time instead of being fetched again.
+//
+// Each picture is a file named by its blob id, in a folder named by the
+// server's key (settings.server_key). A server never reuses an id for anything
+// else (its blobs table only counts up), and the content under an id never
+// changes. A file is first written under a temporary name and then renamed, so
+// any file that exists is complete.
+//
+// When `max_bytes` is exceeded, the pictures used longest ago are removed.
+// Using a picture updates its file's timestamp, so this order survives a
+// restart. The UI owns the cache and hands it to each connection
+// (Blob_Client.disk). The connection loads and stores pictures while the
+// settings page shows the cache's size and clears it, which is why a mutex is
+// needed.
 
 Image_Cache :: struct {
 	mutex:     sync.Mutex,
 	dir:       string, // owned; "" when not open
-	max_bytes: int, // 0: nothing is kept
+	max_bytes: int, // 0 means nothing is kept
 	bytes:     int,
 	files:     map[string]Cached_Image, // by settings.server_key; keys owned
-	// Pictures asked for and not yet looked for (image_cache_request).
+	// Pictures that were requested but not yet looked up (see image_cache_request).
 	requests:  map[Cache_Request]Requested_Image,
 	last:      Cache_Request,
 }
@@ -52,12 +52,12 @@ Cached_Image :: struct {
 	used: time.Time,
 }
 
-// The name a file is written under before it's renamed into place.
+// The suffix of the temporary name a file is written under before it is renamed.
 @(private = "file")
 PART_SUFFIX :: ".part"
 
-// default_image_cache_dir is <user cache dir>/yap/images, or "" if the
-// system hasn't got a cache dir.
+// default_image_cache_dir returns <user cache dir>/yap/images, or "" if the
+// system has no cache directory.
 default_image_cache_dir :: proc(allocator := context.allocator) -> string {
 	dir, err := os.user_cache_dir(context.temp_allocator)
 	if err != nil {
@@ -67,9 +67,9 @@ default_image_cache_dir :: proc(allocator := context.allocator) -> string {
 	return path
 }
 
-// image_cache_open makes `dir` the cache's folder (creating it), and
-// takes stock of what's in it. Whatever was open before is closed,
-// leaving its files where they are.
+// image_cache_open makes `dir` the cache's folder (creating it if needed) and
+// scans what is in it. Any cache that was open before is closed, and its files
+// stay where they are.
 image_cache_open :: proc(ic: ^Image_Cache, dir: string, max_bytes: int) -> bool {
 	sync.guard(&ic.mutex)
 	close_locked(ic)
@@ -108,27 +108,27 @@ close_locked :: proc(ic: ^Image_Cache) {
 	ic.bytes = 0
 }
 
-// image_cache_dir is the cache's folder; "" when it isn't open.
+// image_cache_dir returns the cache's folder, or "" if the cache isn't open.
 image_cache_dir :: proc(ic: ^Image_Cache) -> string {
 	return ic.dir
 }
 
-// image_cache_usage is how much the cache takes up, and in how many
-// pictures.
+// image_cache_usage returns the number of bytes the cache takes up and the
+// number of pictures in it.
 image_cache_usage :: proc(ic: ^Image_Cache) -> (bytes, count: int) {
 	sync.guard(&ic.mutex)
 	return ic.bytes, len(ic.files)
 }
 
-// image_cache_set_max changes how much is kept, dropping what's over.
+// image_cache_set_max changes the maximum size and drops pictures above it.
 image_cache_set_max :: proc(ic: ^Image_Cache, max_bytes: int) {
 	sync.guard(&ic.mutex)
 	ic.max_bytes = max(max_bytes, 0)
 	trim(ic)
 }
 
-// image_cache_clear deletes every picture the cache has (and nothing
-// else that's in its folder).
+// image_cache_clear deletes every picture in the cache, and nothing else in its
+// folder.
 image_cache_clear :: proc(ic: ^Image_Cache) {
 	sync.guard(&ic.mutex)
 	if ic.dir == "" {
@@ -137,7 +137,7 @@ image_cache_clear :: proc(ic: ^Image_Cache) {
 	for k in ic.files {
 		os.remove(file_path(ic, k))
 	}
-	// The servers' folders go too, if that's left them empty.
+	// The servers' folders are removed too if they are now empty.
 	if entries, err := os.read_all_directory_by_path(ic.dir, context.temp_allocator); err == nil {
 		for e in entries {
 			if e.type == .Directory && is_server_dir(e.name) {
@@ -152,8 +152,8 @@ image_cache_clear :: proc(ic: ^Image_Cache) {
 	ic.bytes = 0
 }
 
-// image_cache_request asks for a picture, if the cache has it; 0 if it
-// hasn't.
+// image_cache_request requests a picture if the cache has it. It returns 0 if
+// the cache doesn't have it.
 image_cache_request :: proc(
 	ic: ^Image_Cache,
 	server: [proto.KEY_SIZE]u8,
@@ -168,8 +168,9 @@ image_cache_request :: proc(
 	return ic.last
 }
 
-// image_cache_poll is the picture asked for with `req`, in `allocator`,
-// once it's Done; a request that's Done or Failed is over.
+// image_cache_poll returns the picture requested with `req`, allocated with
+// `allocator`, once the state is Done. A request that is Done or Failed is
+// finished.
 image_cache_poll :: proc(
 	ic: ^Image_Cache,
 	req: Cache_Request,
@@ -188,15 +189,15 @@ image_cache_poll :: proc(
 	return read, .Done if ok else .Failed
 }
 
-// image_cache_cancel: the picture asked for with `req` isn't wanted any
-// more.
+// image_cache_cancel cancels the request `req` because the picture is no longer
+// wanted.
 image_cache_cancel :: proc(ic: ^Image_Cache, req: Cache_Request) {
 	sync.guard(&ic.mutex)
 	delete_key(&ic.requests, req)
 }
 
-// image_cache_load is a picture from the cache, in `allocator`; false if
-// it hasn't got it.
+// image_cache_load returns a picture from the cache, allocated with
+// `allocator`. It returns false if the cache doesn't have it.
 image_cache_load :: proc(
 	ic: ^Image_Cache,
 	server: [proto.KEY_SIZE]u8,
@@ -212,7 +213,7 @@ image_cache_load :: proc(
 	path := file_path(ic, key)
 	read, err := os.read_entire_file(path, allocator)
 	if err != nil || len(read) != entry.size {
-		log.debugf("image cache: %s unreadable (%v), dropped", path, err)
+		log.debugf("image cache: %s is unreadable (%v), dropped it", path, err)
 		delete(read, allocator)
 		forget(ic, key, remove = true)
 		return nil, false
@@ -224,8 +225,7 @@ image_cache_load :: proc(
 	return read, true
 }
 
-// image_cache_store keeps a picture, unless there's no room for it at
-// all.
+// image_cache_store stores a picture, unless it is too big for the cache.
 image_cache_store :: proc(
 	ic: ^Image_Cache,
 	server: [proto.KEY_SIZE]u8,
@@ -281,7 +281,7 @@ forget :: proc(ic: ^Image_Cache, key: string, remove: bool) {
 	delete(owned)
 }
 
-// trim drops the pictures used longest ago until what's left fits.
+// trim drops the pictures used longest ago until the rest fits in the cache.
 @(private = "file")
 trim :: proc(ic: ^Image_Cache) {
 	for ic.bytes > ic.max_bytes && len(ic.files) > 0 {
@@ -296,9 +296,9 @@ trim :: proc(ic: ^Image_Cache) {
 	}
 }
 
-// scan takes stock of the files in the cache's folder: a folder per
-// server, a file per picture. Half-written ones are deleted; anything
-// else is left alone.
+// scan reads the files in the cache's folder, which has one folder per server
+// and one file per picture. Incompletely written files are deleted, and
+// anything else is left alone.
 @(private = "file")
 scan :: proc(ic: ^Image_Cache) {
 	servers, err := os.read_all_directory_by_path(ic.dir, context.temp_allocator)
@@ -340,7 +340,8 @@ scan :: proc(ic: ^Image_Cache) {
 	}
 }
 
-// is_server_dir: a server's key in hex, as settings.server_key writes it.
+// is_server_dir reports whether `name` is a server's key in hex, as written by
+// settings.server_key.
 @(private = "file")
 is_server_dir :: proc(name: string) -> bool {
 	_, ok := settings.parse_key_hex(name)

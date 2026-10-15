@@ -6,13 +6,11 @@ import "core:strings"
 import "core:time"
 import mu "vendor:microui"
 
-/*
-The connection indicator: three bars rising left to right, like a
-phone's signal. Three green for a good connection, two yellow for a
-fair one, one red for a poor one, and none lit until there's anything
-to go by (conn/ping.odin says which is which). Hovering over it shows the
-numbers behind it.
-*/
+// The connection indicator: three bars rising from left to right, like a
+// phone's signal. Three green bars mean a good connection, two yellow bars a
+// fair one and one red bar a poor one. No bars are lit until there is anything
+// to go by (conn/ping.odin decides which is which). Hovering over it shows the
+// numbers behind it.
 
 // The bars, in logical pixels: as wide as an icon, and as tall.
 @(private = "file")
@@ -51,13 +49,13 @@ connection_indicator :: proc(ui: ^UI) {
 
 	if mu.mouse_over(ctx, r) {
 		ui.hint, ui.hint_of = connection_hint(v.status, s), r
-		// The figures change with every ping, without waking the UI.
+		// The figures change with every ping, and that doesn't wake the UI.
 		ui_redraw_in(ui, conn.PING_INTERVAL)
 	}
 }
 
-// connection_hint is the indicator's tooltip, one line per figure. It's
-// in the temp allocator, which lasts the frame.
+// connection_hint is the indicator's tooltip, with one line per figure. It is
+// allocated in the temp allocator, which lasts for the frame.
 @(private = "file")
 connection_hint :: proc(status: conn.Status, s: conn.Connection_Stats) -> string {
 	if status != .Connected {
@@ -91,8 +89,8 @@ connection_hint :: proc(status: conn.Status, s: conn.Connection_Stats) -> string
 	return strings.to_string(b)
 }
 
-// ms writes a round trip in milliseconds, with a decimal where they're
-// few enough for it to matter (a server on the same network).
+// ms writes a round trip time in milliseconds, with a decimal where the values
+// are small enough for it to matter (a server on the same network).
 @(private = "file")
 ms :: proc(d: time.Duration) -> string {
 	m := time.duration_milliseconds(d)

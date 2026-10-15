@@ -6,17 +6,15 @@ import "client:platform"
 import "common:proto"
 import log "common:wlog"
 
-/*
-Choosing our picture in a browser: a file input the page opens
-(web/avatar.js). It has to be opened from something the person just did,
-which the click on the button is. The page makes the picture itself, as
-avatar_prepare does on a desktop (ui_avatar_pick_native.odin), and hands
-over the finished JPEG (web_avatar_picked). Pasting isn't offered: a
-page can only read the clipboard inside a paste event (ui_paste_web.odin).
-
-ui.profiles.pick is only a mark that a chosen file is being read, for the
-settings to say so; closing the dialog without choosing never sets it.
-*/
+// Choosing our picture in a browser: a file input that the page opens
+// (see web/avatar.js). It has to be opened from something the person just did,
+// which the click on the button is. The page makes the picture itself, as
+// avatar_prepare does on a desktop (see ui_avatar_pick_native.odin), and hands
+// over the finished JPEG (see web_avatar_picked). Pasting isn't offered, because a
+// page can only read the clipboard inside a paste event (see ui_paste_web.odin).
+//
+// ui.profiles.pick is only a mark that a chosen file is being read, so that the
+// settings can say so. Closing the dialog without choosing never sets it.
 
 Avatar_Pick :: struct {}
 
@@ -56,7 +54,7 @@ avatar_pick_finish :: proc(ui: ^UI) {
 	}
 }
 
-// A file was chosen; the page is making a picture of it.
+// A file was chosen and the page is making a picture of it.
 @(export)
 web_avatar_reading :: proc "c" () {
 	context = platform.callback_context()
@@ -68,7 +66,7 @@ web_avatar_reading :: proc "c" () {
 }
 
 // The page's finished JPEG, uploaded as our picture. The bytes are
-// copied: the page's buffer is only good for this call.
+// copied, because the page's buffer is only valid for this call.
 @(export)
 web_avatar_picked :: proc "c" (data: [^]u8, size: i32, side: i32) {
 	context = platform.callback_context()

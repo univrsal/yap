@@ -13,31 +13,27 @@ import "client:render"
 import "common:proto"
 import log "common:wlog"
 
-/*
-Screen sharing on the desktop comes from an optional library, yap_video
-(src/video, misc/hq-share/README.md), loaded from next to the executable
-the first time anything here is asked. Without it, or with one of
-another version, the client neither shares nor watches.
+// Screen sharing on the desktop comes from an optional library, yap_video
+// (src/video, misc/hq-share/README.md), which is loaded from next to the
+// executable the first time anything here is asked. Without it, or with a
+// different version of it, the client neither shares nor watches.
+//
+// The library decodes on threads of its own and keeps the newest picture on the
+// GPU, created for our renderer's device (video_picture). Frames are pushed
+// from the network thread (video_show_frame).
+//
+// Sharing: the UI picks a monitor or window (video_sources, video_share_source),
+// and the library captures and encodes it on a thread of its own. The network
+// thread pulls the encoded frames (video_capture_pull). Which encoders work is
+// found out on a separate thread while the library loads, because trying them
+// takes a moment. Until then, and if none works, video_can_share says no. There
+// is one share for the whole client, like the browser's.
+//
+// On macOS the user has to allow Screen Recording first. Until they have,
+// sharing is still offered, and the menu asks for the permission
+// (video_capture_allowed, video_allow_capture) instead of listing sources.
 
-The library decodes on threads of its own and keeps the newest picture
-on the GPU, made for our renderer's device (video_picture); frames are
-pushed from the network thread (video_show_frame).
-
-Sharing: the UI picks a monitor or window (video_sources,
-video_share_source), and the library captures and encodes it on a
-thread of its own; the network thread pulls the encoded frames
-(video_capture_pull). Which encoders work is found out on a thread of
-our own as the library loads, since trying them takes a moment; until
-then, and if none does, video_can_share says no. There's one share for
-the whole client, like the browser's.
-
-On macOS the user has to allow Screen Recording first. Until they have,
-sharing is still offered, and the menu asks for it
-(video_capture_allowed, video_allow_capture) instead of listing
-anything.
-*/
-
-// What this was built against: src/video/include/yap_video.h.
+// The version of the library API this was built against (see src/video/include/yap_video.h).
 @(private = "file")
 YV_API_VERSION :: 7
 
@@ -100,7 +96,7 @@ Yv_Share_Config :: struct {
 	max_width, max_height: i32,
 	kbit:                  u32,
 	cursor:                bool,
-	codecs:                u32, // bits (1 << codec) the viewers decode; 0 for any
+	codecs:                u32, // bits (1 << codec) that the viewers decode; 0 for any
 }
 
 @(private = "file")
@@ -112,7 +108,7 @@ Yv_Packet :: struct {
 	key:    bool,
 }
 
-// yv_share_state's values.
+// The values of yv_share_state.
 @(private = "file")
 YV_SHARE_STARTING :: 1
 @(private = "file")
@@ -175,32 +171,32 @@ when ODIN_OS == .Windows {
 @(private = "file")
 Native_Video :: struct {
 	once:          sync.Once,
-	loaded:        bool, // all of the below is there
+	loaded:        bool, // everything below is set up
 	yv:            Yv,
 	ctx:           rawptr,
-	view:          rawptr, // the one we watch with; it lives as long as the process
+	view:          rawptr, // the one we watch with, which lives as long as the process
 	logger:        runtime.Logger,
-	// Whose frames the view is decoding (atomic: network threads).
+	// Whose frames the view is decoding (atomic, because of the network threads).
 	sharer:        proto.User_Num,
-	// The UI thread's: whether the library has the renderer's device,
+	// The UI thread's state: whether the library has the renderer's device,
 	// and our handle on the picture it last gave us.
 	gpu_set:       bool,
 	picture:       render.Gpu_Texture,
 	wrapped:       uintptr,
 	full:          bool, // video_set_fullscreen
-	// Sharing. `share` is started and stopped by the UI and pulled from
-	// by a network thread, so it's only touched under `share_mu`.
-	encoder_ok:    bool, // atomic: an encoder works (probe_encoders)
-	encoders_done: bool, // atomic: probe_encoders has tried them
+	// Sharing. `share` is started and stopped by the UI and pulled from by a
+	// network thread, so it is only touched under `share_mu`.
+	encoder_ok:    bool, // atomic: at least one encoder works (probe_encoders)
+	encoders_done: bool, // atomic: probe_encoders has tried all encoders
 	share_mu:      sync.Mutex,
 	share:         rawptr,
-	share_kbit:    int, // what it was set to encode at (atomic)
-	share_target:  int, // what it's held to for its viewers, 0 for that (atomic)
-	share_codecs:  u8, // what its viewers decode (Video_Codecs; atomic)
-	asked:         bool, // the UI's: video_allow_capture showed the prompt
-	// The UI's waking (video_set_wake; atomic), for each new picture.
+	share_kbit:    int, // the bitrate it was set to encode at (atomic)
+	share_target:  int, // the bitrate it is held to for its viewers, 0 for none (atomic)
+	share_codecs:  u8, // the codecs its viewers decode (Video_Codecs; atomic)
+	asked:         bool, // UI thread only: video_allow_capture has shown the prompt
+	// Wakes the UI for each new picture (video_set_wake; atomic).
 	wake:          proc "c" (),
-	// The last picture's, for the figures (video_picture_info).
+	// The last picture's statistics, for the figures (video_picture_info).
 	frames:        u64,
 	hardware:      bool,
 }
@@ -208,7 +204,7 @@ Native_Video :: struct {
 @(private = "file")
 nv: Native_Video
 
-// loaded loads the library, the first time it's asked from any thread.
+// loaded loads the library the first time it is asked for, from any thread.
 @(private = "file")
 loaded :: proc() -> bool {
 	sync.once_do(&nv.once, load)
@@ -262,8 +258,8 @@ load :: proc() {
 	thread.run(probe_encoders, context)
 }
 
-// probe_encoders finds out, off the UI's thread, whether anything can
-// be captured and any encoder works here; the library remembers which.
+// probe_encoders finds out, off the UI thread, whether anything can be captured
+// and any encoder works here. The library remembers which.
 @(private = "file")
 probe_encoders :: proc() {
 	if !nv.yv.capture_allowed(nv.ctx, false) {
@@ -286,7 +282,7 @@ probe_encoders :: proc() {
 	log.info("video: no encoder works here, so no sharing")
 }
 
-// on_frame: the library has a new picture, from its decoder's thread.
+// on_frame is called by the library, from its decoder's thread, when there is a new picture.
 @(private = "file")
 on_frame :: proc "c" (user: rawptr) {
 	if wake := sync.atomic_load(&nv.wake); wake != nil {
@@ -294,13 +290,13 @@ on_frame :: proc "c" (user: rawptr) {
 	}
 }
 
-// video_set_wake has the UI woken whenever there's a new picture to
-// draw, rather than it looking for one every frame.
+// video_set_wake has the UI woken whenever there is a new picture to draw,
+// rather than the UI looking for one every frame.
 video_set_wake :: proc(wake: proc "c" ()) {
 	sync.atomic_store(&nv.wake, wake)
 }
 
-// The library's log, from any of its threads.
+// The library's log, which may be called from any of its threads.
 @(private = "file")
 yv_log :: proc "c" (user: rawptr, level: i32, msg: cstring) {
 	context = runtime.default_context()
@@ -321,8 +317,8 @@ video_capture_live :: proc() -> bool {
 	return video_share_state() == .Live
 }
 
-// video_capture_pull returns the next encoded frame, which the caller
-// then owns. From the network thread.
+// video_capture_pull returns the next encoded frame, which the caller then
+// owns. Called from the network thread.
 video_capture_pull :: proc(
 ) -> (
 	data: []u8,
@@ -341,7 +337,7 @@ video_capture_pull :: proc(
 	}
 	data = make([]u8, p.size)
 	copy(data, p.data[:p.size])
-	// Milliseconds, wrapping: only differences matter.
+	// Milliseconds, wrapping around: only differences matter.
 	return data, u32(p.pts_us / 1000), p.key, proto.Video_Codec(p.codec), true
 }
 
@@ -355,7 +351,7 @@ video_capture_request_key :: proc() {
 	}
 }
 
-// video_show_frame hands a whole frame to the decoder. From a network
+// video_show_frame hands a whole frame to the decoder. Called from a network
 // thread.
 video_show_frame :: proc(sharer: proto.User_Num, frame: proto.Video_Frame) {
 	if !loaded() || len(frame.data) == 0 || u8(frame.codec) > 2 {
@@ -382,8 +378,8 @@ video_show_end :: proc() {
 	nv.yv.view_clear(nv.view)
 }
 
-// video_show_failed says, once, that the decoder gave up on what it was
-// given; it needs a keyframe to start again.
+// video_show_failed says, once, that the decoder gave up on what it was given.
+// It needs a keyframe to start again.
 video_show_failed :: proc() -> bool {
 	return loaded() && nv.yv.view_take_failed(nv.view)
 }
@@ -403,16 +399,14 @@ video_can_watch :: proc() -> bool {
 	return loaded()
 }
 
-// The library's decoders take every codec (view.cpp).
+// The library's decoders handle every codec (view.cpp).
 video_decodable :: proc() -> proto.Video_Codecs {
 	return {.H264, .HEVC, .AV1} if loaded() else {}
 }
 
-/*
-video_share_codecs says what the share's viewers can decode (video.odin):
-from the network's thread, as they come and go. A share started later
-starts with it too.
-*/
+// video_share_codecs says what the share's viewers can decode (video.odin).
+// It is called from the network thread as viewers come and go, and a share that
+// is started later starts with it too.
 video_share_codecs :: proc(codecs: proto.Video_Codecs) {
 	bits := transmute(u8)codecs
 	if sync.atomic_exchange(&nv.share_codecs, bits) == bits || !loaded() {
@@ -424,21 +418,20 @@ video_share_codecs :: proc(codecs: proto.Video_Codecs) {
 	}
 }
 
-// The desktop asks what to share (video_sources) before starting; the
+// The desktop asks what to share (video_sources) before starting, while the
 // browser asks in its own picker.
 VIDEO_PICKER :: true
 
-// video_capture_allowed says whether the system lets us capture the
-// screen; only macOS asks the user. From the UI thread.
+// video_capture_allowed says whether the system lets us capture the screen.
+// Only macOS asks the user. Called from the UI thread.
 video_capture_allowed :: proc() -> bool {
 	return loaded() && nv.yv.capture_allowed(nv.ctx, false)
 }
 
-/*
-video_allow_capture asks for it: macOS shows its prompt only the first
-time, so after that it opens the settings page instead. Once allowed,
-yap has to be started again before it counts. From the UI thread.
-*/
+// video_allow_capture asks for that permission. macOS shows its prompt only the
+// first time, so after that it opens the settings page instead. Once allowed,
+// yap has to be restarted before the permission takes effect. Called from the
+// UI thread.
 video_allow_capture :: proc() {
 	if !loaded() {
 		return
@@ -461,13 +454,13 @@ Video_Source :: struct {
 	kind:          Video_Source_Kind,
 	id:            u64,
 	name:          string,
-	app:           string, // a window's program, a monitor's device
+	app:           string, // a window's program or a monitor's device
 	width, height: int,
 	primary:       bool,
 }
 
-// video_sources lists the monitors (first) and windows that can be
-// shared, in `allocator`.
+// video_sources lists the monitors (first) and the windows that can be shared,
+// allocated with `allocator`.
 video_sources :: proc(allocator := context.temp_allocator) -> []Video_Source {
 	if !loaded() {
 		return nil
@@ -490,11 +483,9 @@ video_sources :: proc(allocator := context.temp_allocator) -> []Video_Source {
 	return out
 }
 
-/*
-video_share_source starts sharing `src`, as `config` says, instead of
-whatever was shared before. Where the system picks (video_system_picker),
-`src` is {} and the system asks.
-*/
+// video_share_source starts sharing `src` as `config` says, replacing whatever
+// was shared before. Where the system picks the source (video_system_picker),
+// `src` is {} and the system asks.
 video_share_source :: proc(src: Video_Source, config: Share_Config) {
 	if !video_can_share() {
 		return
@@ -515,7 +506,7 @@ video_share_source :: proc(src: Video_Source, config: Share_Config) {
 	sync.guard(&nv.share_mu)
 	nv.share = share
 	if share != nil {
-		// In case the viewers changed since cfg (video_share_codecs).
+		// In case the viewers have changed since cfg was made (video_share_codecs).
 		nv.yv.share_set_codecs(share, u32(sync.atomic_load(&nv.share_codecs)))
 	}
 	sync.atomic_store(&nv.share_kbit, config.kbit)
@@ -530,8 +521,8 @@ video_share_source :: proc(src: Video_Source, config: Share_Config) {
 	)
 }
 
-// video_share_kbit is what the share encodes at, for pacing it
-// (video.odin); 0 while there's none.
+// video_share_kbit is the bitrate the share encodes at, used for pacing it
+// (video.odin). It is 0 while there is no share.
 video_share_kbit :: proc() -> int {
 	if video_share_state() == .Off {
 		return 0
@@ -542,14 +533,14 @@ video_share_kbit :: proc() -> int {
 	return sync.atomic_load(&nv.share_kbit)
 }
 
-// video_share_max_kbit is what the share was set to encode at, which
-// adapting never goes over; 0 while there's none.
+// video_share_max_kbit is the bitrate the share was set to encode at, which
+// adapting never goes above. It is 0 while there is no share.
 video_share_max_kbit :: proc() -> int {
 	return sync.atomic_load(&nv.share_kbit) if video_share_state() != .Off else 0
 }
 
 // video_share_adapt holds the share to `kbit` for its viewers (video.odin).
-// From the network thread.
+// Called from the network thread.
 video_share_adapt :: proc(kbit: int) {
 	if !nv.loaded {
 		return
@@ -561,13 +552,13 @@ video_share_adapt :: proc(kbit: int) {
 	}
 }
 
-// video_library_dir is where the library is looked for: next to us.
+// video_library_dir is the directory the library is looked for in: next to the executable.
 video_library_dir :: proc(allocator := context.temp_allocator) -> string {
 	dir, err := os.get_executable_directory(allocator)
 	return dir if err == nil else "the folder yap is in"
 }
 
-// video_system_picker says the system asks what to share (Wayland's
+// video_system_picker says that the system asks what to share (Wayland's
 // portal, macOS 15's picker) rather than our menu.
 video_system_picker :: proc() -> bool {
 	return loaded() && nv.yv.system_picker(nv.ctx)
@@ -579,8 +570,8 @@ Video_Encoder :: struct {
 	works: bool,
 }
 
-// video_encoders lists the library's encoders, best first, in
-// `allocator`; empty until it has tried them (probe_encoders).
+// video_encoders lists the library's encoders, best first, allocated with
+// `allocator`. It is empty until the encoders have been tried (probe_encoders).
 video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
 	if !loaded() || !sync.atomic_load(&nv.encoders_done) {
 		return nil
@@ -599,7 +590,7 @@ video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
 	return out
 }
 
-// The browser's way, which on the desktop needs a source: see
+// The browser's way of sharing, which on the desktop needs a source: see
 // video_share_source.
 video_share_start :: proc() {}
 
@@ -613,7 +604,7 @@ video_share_stop :: proc() {
 		share, nv.share = nv.share, nil
 	}
 	if share != nil {
-		// It may take a moment, waiting for its thread; nobody else
+		// This may take a moment because it waits for its thread. Nobody else
 		// can reach it any more.
 		nv.yv.share_stop(share)
 		log.info("video: stopped sharing")
@@ -634,12 +625,12 @@ video_share_state :: proc() -> Share_State {
 	case YV_SHARE_LIVE:
 		return .Live
 	case YV_SHARE_CANCELLED:
-		return .Off // the user said no in the system's picker
+		return .Off // the user cancelled in the system's picker
 	}
 	return .Failed
 }
 
-// video_share_error says why sharing failed, in the temp allocator.
+// video_share_error says why sharing failed. The result is in the temp allocator.
 video_share_error :: proc() -> string {
 	if !nv.loaded {
 		return ""
@@ -651,11 +642,9 @@ video_share_error :: proc() -> string {
 	return strings.clone_from_cstring(nv.yv.share_error(nv.share), context.temp_allocator)
 }
 
-/*
-video_picture is the newest frame of what we're watching, as a texture
-of the renderer's, until the next call or video_forget_gpu. From the UI
-thread, with the renderer's device up.
-*/
+// video_picture is the newest frame of what we are watching, as a texture of
+// the renderer's, valid until the next call or video_forget_gpu. Called from
+// the UI thread, with the renderer's device up.
 video_picture :: proc(
 	g: ^render.Gpu,
 ) -> (
@@ -698,11 +687,10 @@ video_picture :: proc(
 	return nv.picture, int(pic.width), int(pic.height), true
 }
 
-// video_forget_gpu lets go of everything on the renderer's device, which
-// is about to go (or has). From the UI thread.
-// video_picture_info is about the last picture video_picture gave: how
-// many have been decoded so far, and whether by the GPU. From the UI
-// thread.
+// video_forget_gpu lets go of everything on the renderer's device, which is
+// about to go away (or already has). Called from the UI thread.
+// video_picture_info describes the last picture video_picture gave: how many
+// have been decoded so far, and whether by the GPU. Called from the UI thread.
 video_picture_info :: proc() -> (frames: u64, hardware: bool) {
 	return nv.frames, nv.hardware
 }
@@ -717,8 +705,8 @@ video_forget_gpu :: proc(g: ^render.Gpu) {
 	nv.gpu_set = false
 }
 
-// Fullscreen on the desktop is the picture filling the window
-// (ui_video.odin), not the window filling the screen.
+// Fullscreen on the desktop means the picture fills the window (ui_video.odin),
+// not that the window fills the screen.
 video_set_fullscreen :: proc(on: bool) {
 	nv.full = on
 }

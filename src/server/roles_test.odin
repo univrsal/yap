@@ -5,8 +5,8 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of roles, managing channels and private channels, on the
-// Test_Server of auth_test.odin.
+// Tests of roles, channel management and private channels, using the
+// Test_Server from auth_test.odin.
 
 @(private = "file")
 role_set :: proc(
@@ -62,8 +62,8 @@ disable :: proc(
 	return status
 }
 
-// self_perms is what the last Self a connection was sent since the last
-// look says it may do, and whether there was one.
+// self_perms returns the permissions from the last Self event a connection
+// was sent since its events were last read, and whether there was one.
 @(private = "file")
 self_perms :: proc(
 	t: ^testing.T,
@@ -95,7 +95,7 @@ test_roles :: proc(t: ^testing.T) {
 	alice := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
 
-	// Only with Manage_Roles, and a name.
+	// Creating a role requires Manage_Roles and a unique, non-empty name.
 	status, _ := role_set(t, &ts, alice, {name = "moderator", perms = {.Manage_Messages}})
 	testing.expect_value(t, status, proto.Status.Denied)
 	status, _ = role_set(t, &ts, owner, {name = " ", perms = {}})
@@ -117,7 +117,8 @@ test_roles :: proc(t: ^testing.T) {
 	status, _ = role_set(t, &ts, owner, {id = 99, name = "x"})
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
-	// Given, it's what the account may do, told at once; and in its record.
+	// Once given a role, the account immediately gets its permissions and
+	// is told about them. The role also shows up in the account's record.
 	ts_events(t, &ts, alice)
 	testing.expect_value(t, roles_give(t, &ts, alice, bob_acc.id, mod), proto.Status.Denied)
 	testing.expect_value(t, roles_give(t, &ts, owner, alice_acc.id, mod), proto.Status.Ok)
@@ -139,7 +140,8 @@ test_roles :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, roles_give(t, &ts, owner, alice_acc.id, 99), proto.Status.Invalid)
 
-	// What a role allows changes what its accounts may do, at once.
+	// Changing a role's permissions immediately changes the permissions of
+	// the accounts that have it.
 	status, _ = role_set(
 		t,
 		&ts,
@@ -155,7 +157,8 @@ test_roles :: proc(t: ^testing.T) {
 		proto.Permissions{.Manage_Messages, .Manage_Accounts, .Attach_Files},
 	)
 
-	// Everyone's: what a plain member may do. Its name stays, and it stays.
+	// The everyone role defines what a regular member may do. It can't be
+	// renamed or deleted.
 	status, _ = role_set(
 		t,
 		&ts,
@@ -176,8 +179,9 @@ test_roles :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Invalid)
 
-	// Nobody gives what they haven't got. A lead may manage roles and
-	// invite, and that's all they can hand out.
+	// Nobody can grant permissions they don't have themselves. A lead may
+	// manage roles and invite, and those are the only permissions they can
+	// hand out.
 	lead: proto.Role_Id
 	status, lead = role_set(t, &ts, owner, {name = "lead", perms = {.Manage_Roles, .Invite}})
 	testing.expect_value(t, roles_give(t, &ts, owner, bob_acc.id, lead), proto.Status.Ok)
@@ -208,7 +212,7 @@ test_roles :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Denied)
 
-	// Deleted, nobody has it any more.
+	// Once a role is deleted, nobody has it anymore.
 	ts_events(t, &ts, alice)
 	status, _ = ts_ask(
 		t,
@@ -268,12 +272,14 @@ test_account_disable :: proc(t: ^testing.T) {
 	roles_give(t, &ts, owner, alice_acc.id, mod)
 	roles_give(t, &ts, owner, carol_acc.id, admin_role)
 
-	// Never the owner, nor oneself, nor anyone who may do more.
+	// Nobody can disable the owner, themselves, or anyone with more
+	// permissions than them.
 	testing.expect_value(t, disable(t, &ts, alice, owner_acc.id, true), proto.Status.Invalid)
 	testing.expect_value(t, disable(t, &ts, alice, alice_acc.id, true), proto.Status.Invalid)
 	testing.expect_value(t, disable(t, &ts, alice, carol_acc.id, true), proto.Status.Denied)
 	testing.expect_value(t, disable(t, &ts, alice, 999, true), proto.Status.Not_Found)
-	// Nor their password, for the same reason.
+	// For the same reason, they also can't change such an account's
+	// password.
 	pw_buf: [proto.ACCOUNT_BODY_MAX]u8
 	status, _ := ts_ask(
 		t,
@@ -284,7 +290,7 @@ test_account_disable :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Denied)
 
-	// Disabled: logged out, and can't get back in.
+	// A disabled account is logged out and can't log back in.
 	ts_events(t, &ts, bob)
 	testing.expect_value(t, disable(t, &ts, alice, bob_acc.id, true), proto.Status.Ok)
 	e, told := has_event(ts_events(t, &ts, bob), .Logged_Out)
@@ -296,7 +302,7 @@ test_account_disable :: proc(t: ^testing.T) {
 	status, _ = ts_login(t, &ts, again, "bob", "a password")
 	testing.expect(t, status != .Ok)
 
-	// Enabled, its device is let in again.
+	// Once re-enabled, its device is logged in again.
 	testing.expect_value(t, disable(t, &ts, alice, bob_acc.id, false), proto.Status.Ok)
 	back := ts_connect(&ts, bob.key)
 	testing.expect(t, back.account == bob_acc)
@@ -364,7 +370,7 @@ test_channel_management :: proc(t: ^testing.T) {
 	e, told := has_event(ts_events(t, &ts, alice), .Conv_Changed)
 	c, _ := proto.decode_conv(e.body)
 	testing.expect(t, told && c.name == "Games" && c.topic == "play" && c.position == 7)
-	// Only what the mask names.
+	// Only the fields named in the mask are changed.
 	testing.expect_value(
 		t,
 		update(
@@ -376,14 +382,16 @@ test_channel_management :: proc(t: ^testing.T) {
 		proto.Status.Ok,
 	)
 	testing.expect(t, gaming.name == "Games" && gaming.topic == "")
-	// The home channel may be renamed.
+	// The home channel can be renamed.
 	testing.expect_value(
 		t,
 		update(t, &ts, owner, {conv = home.id, mask = proto.CONV_UPDATE_NAME, name = "Hall"}),
 		proto.Status.Ok,
 	)
 
-	// Deleted: archived, out of every list and its room, its name free.
+	// A deleted channel is archived, removed from every list, its voice room
+	// is emptied, and its name can be reused. The home channel can't be
+	// deleted.
 	room_buf: [4]u8
 	status, _ = ts_ask(
 		t,
@@ -463,12 +471,12 @@ test_private_channels :: proc(t: ^testing.T) {
 	staff := conv_by_id(&s.convs, staff_id)
 	testing.expect(t, .Private in staff.flags)
 
-	// Something in it: a message.
+	// Put something in it: a message, and the owner in its voice room.
 	post(t, &ts, owner, staff_id, "secret plans", 1)
 	room_buf: [4]u8
 	ts_ask(t, &ts, owner, .Voice_Join, proto.encode_room(&room_buf, proto.Room(staff_id)))
 
-	// Nothing of it reaches anyone else.
+	// Nothing about it is visible to non-members.
 	nothing :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id) {
 		status, body := ts_ask(t, ts, u, .Conv_Browse, nil)
 		list_buf: [8]proto.Conv
@@ -496,13 +504,13 @@ test_private_channels :: proc(t: ^testing.T) {
 		testing.expect(
 			t,
 			room_hidden(&ts.s, proto.Room(conv), u.account.id),
-			"who's in its room shows",
+			"the users in its voice room are visible",
 		)
 	}
 	nothing(t, &ts, alice, staff_id)
 	nothing(t, &ts, bob, staff_id)
 
-	// Adding someone takes Invite and being in it.
+	// Adding someone requires Invite and being a member of the channel.
 	_, inviter := role_set(t, &ts, owner, {name = "inviter", perms = {.Invite}})
 	roles_give(t, &ts, owner, alice_acc.id, inviter)
 	set_buf: [proto.CONV_MEMBER_SET_SIZE]u8
@@ -533,7 +541,7 @@ test_private_channels :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	e, told := has_event(ts_events(t, &ts, alice), .Conv_Changed)
 	c, _ := proto.decode_conv(e.body)
-	// As if subscribed: what's there is read.
+	// Like when subscribing, the existing messages count as read.
 	testing.expect(
 		t,
 		told && c.id == staff_id && c.member && c.unread == 0 && c.read == staff.last_msg,
@@ -541,7 +549,7 @@ test_private_channels :: proc(t: ^testing.T) {
 	testing.expect(t, !room_hidden(&ts.s, proto.Room(staff_id), alice_acc.id))
 	status, _ = ts_ask(t, &ts, alice, .Msg_History, history_body(staff_id))
 	testing.expect_value(t, status, proto.Status.Ok)
-	// And it adds bob, who may leave again.
+	// Now alice can add bob, who can leave again on his own.
 	status, _ = ts_ask(
 		t,
 		&ts,
@@ -564,7 +572,8 @@ test_private_channels :: proc(t: ^testing.T) {
 	testing.expect(t, told)
 	nothing(t, &ts, bob, staff_id)
 
-	// Taken out by someone who manages channels, and out of its room.
+	// Only someone who manages channels can remove a member, which also
+	// removes them from the voice room.
 	ts_ask(t, &ts, alice, .Voice_Join, proto.encode_room(&room_buf, proto.Room(staff_id)))
 	testing.expect_value(t, alice.room, proto.Room(staff_id))
 	status, _ = ts_ask(
@@ -590,7 +599,7 @@ test_private_channels :: proc(t: ^testing.T) {
 	testing.expect_value(t, alice.room, 0)
 	nothing(t, &ts, alice, staff_id)
 
-	// Not someone who may do more than the asker.
+	// But not someone with more permissions than the one asking.
 	_, keeper := role_set(t, &ts, owner, {name = "keeper", perms = {.Manage_Channels}})
 	roles_give(t, &ts, owner, bob_acc.id, keeper)
 	status, _ = ts_ask(
@@ -609,7 +618,7 @@ test_private_channels :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Denied)
 
-	// Out of a public channel isn't a thing.
+	// Members can't be removed from a public channel.
 	gaming := conv_by_name(&s.convs, "Gaming")
 	status, _ = ts_ask(
 		t,
@@ -638,7 +647,8 @@ test_role_colors :: proc(t: ^testing.T) {
 	helpers: proto.Role_Id
 	status, helpers = role_set(t, &ts, owner, {name = "helpers"})
 	testing.expect_value(t, status, proto.Status.Ok)
-	// Told with its colour, and a new role goes under the others.
+	// Clients are told about the role including its colour, and a new role
+	// is placed below the existing ones.
 	_, told := has_event(ts_events(t, &ts, alice), .Role_Changed)
 	testing.expect(t, told)
 	m := s.accounts.roles[mods]
@@ -646,12 +656,13 @@ test_role_colors :: proc(t: ^testing.T) {
 	testing.expect_value(t, m.color, red)
 	testing.expect(t, h.position > m.position)
 
-	// Everyone's role takes no colour.
+	// The everyone role can't have a colour.
 	status, _ = role_set(t, &ts, owner, {id = proto.EVERYONE_ROLE, name = "everyone", color = red})
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, s.accounts.roles[proto.EVERYONE_ROLE].color, 0)
 
-	// The order: only with Manage_Roles, every role but everyone's once.
+	// Reordering roles requires Manage_Roles, and the new order must list
+	// every role except the everyone role exactly once.
 	order_buf: [proto.ROLE_ORDER_MAX_SIZE]u8
 	ask_order :: proc(
 		t: ^testing.T,
@@ -695,10 +706,11 @@ test_role_colors :: proc(t: ^testing.T) {
 			moved += 1
 		}
 	}
-	// Only what moved is told: mods was second already.
+	// Clients are only told about roles that moved; mods was already
+	// second.
 	testing.expect_value(t, moved, 1)
 
-	// As the database has it.
+	// The database has the same colours and order.
 	again: Accounts
 	testing.expect(t, accounts_load(&again, &s.db))
 	defer accounts_destroy(&again)

@@ -36,9 +36,9 @@ test_buddy_list :: proc(t: ^testing.T) {
 	append(&v.buddies, 2, 3, 4)
 	v.users[7] = {
 		account = 2,
-	} // online, so first
-	// A DM with a buddy shows once; one with somebody else shows too,
-	// unless it was hidden and nothing's been said since.
+	} // online, so listed first
+	// A DM with a buddy is listed only once (as the buddy); a DM with someone
+	// else is listed too, unless it was hidden and no message has arrived since.
 	append(&v.dms, conn.View_DM{id = 10, with = 3, last = 100, unread = 2})
 	append(&v.dms, conn.View_DM{id = 11, with = 5, last = 200})
 
@@ -53,7 +53,8 @@ test_buddy_list :: proc(t: ^testing.T) {
 	testing.expect_value(t, list[1].unread, 2)
 	testing.expect(t, !list[3].buddy)
 
-	// The newest conversation first in each section, before who's here.
+	// Within each section the most recent conversation comes first, even before
+	// users who are online.
 	v.dms[0].last_time = 5000
 	list = buddy_list(&s, &v)
 	testing.expect_value(t, list[0].name, "Amy")

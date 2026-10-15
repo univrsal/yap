@@ -6,12 +6,11 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-Bot accounts (src/common/proto/bots.odin), in the settings' accounts
-list for who manages accounts: a bot's tokens, a new one, and a token
-just made, shown once to be copied (conn/bots.odin). Everyone sees a bot
-for what it is by the small BOT tag after its name.
-*/
+// Bot accounts (see src/common/proto/bots.odin), in the settings' accounts
+// list for those who manage accounts: a bot's tokens, a new token, and a token
+// that was just created, which is shown once so it can be copied (see
+// conn/bots.odin). Everyone can recognize a bot by the small BOT tag after
+// its name.
 
 BOT_TAG :: "BOT"
 
@@ -22,11 +21,9 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 	}
 }
 
-/*
-bot_token_shown is the token just made, if there is one: whose it is,
-the token, and buttons to copy it and to be done with it. Call with the
-View locked, in the accounts list.
-*/
+// bot_token_shown shows the token that was just created, if there is one: whose
+// it is, the token itself, and buttons to copy it and to dismiss it. Call with
+// the View locked, in the accounts list.
 bot_token_shown :: proc(ui: ^UI, v: ^conn.View) {
 	if v.bot_token == "" {
 		return
@@ -41,7 +38,7 @@ bot_token_shown :: proc(ui: ^UI, v: ^conn.View) {
 		ctx,
 		theme.warning,
 		fmt.tprintf(
-			"The token for %s, shown this once: copy it now. Whoever has it can do all the bot may.",
+			"This is the token for %s. It is only shown once, so copy it now. Anyone who has it can do everything the bot may do.",
 			whose,
 		),
 		wrap_text,
@@ -56,11 +53,9 @@ bot_token_shown :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
-/*
-bot_tokens is a bot's tokens, under its row once Tokens... was pressed:
-each with when it was last used and a button to revoke it, and a button
-for another. Call with the View locked.
-*/
+// bot_tokens shows a bot's tokens, under its row once Tokens... was pressed:
+// each with when it was last used and a button to revoke it, and a button
+// to create another one. Call with the View locked.
 bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 	ctx := &ui.ctx
 	if v.other_devices_of != id {
@@ -70,7 +65,12 @@ bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 	}
 	if len(v.other_devices) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "    No tokens: it can't log in.", label_proc)
+		with_text_color(
+			ctx,
+			theme.dim,
+			"    This bot has no tokens, so it can't log in.",
+			label_proc,
+		)
 	}
 	for d, i in v.other_devices {
 		mu.push_id(ctx, uintptr(i))
@@ -79,8 +79,8 @@ bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 		seen := "connected"
 		if .Online not_in d.flags {
 			seen = "never used"
-			// A device is seen when it's made, which for a token isn't
-			// being used.
+			// A device counts as seen when it is created, which for a token isn't
+			// the same as being used.
 			if d.last_seen != 0 && d.last_seen != d.created {
 				seen = fmt.tprintf("last used %s", ago_text(ui, i64(d.last_seen)))
 			}
@@ -104,16 +104,14 @@ bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 	}
 }
 
-// bot_tag_width is how much room the BOT tag takes after a name, the
-// gap before it included.
+// bot_tag_width is how much room the BOT tag takes after a name, including
+// the gap before it.
 bot_tag_width :: proc(ctx: ^mu.Context) -> i32 {
 	return 6 + ctx.text_width(ctx.style.font, BOT_TAG) + 8
 }
 
-/*
-bot_tag draws the BOT tag at `x`, on a line of text whose top is `y`,
-and returns the width it took (bot_tag_width), for whatever follows.
-*/
+// bot_tag draws the BOT tag at `x`, on a line of text whose top is `y`,
+// and returns the width it took (see bot_tag_width), for whatever follows.
 bot_tag :: proc(ctx: ^mu.Context, x, y: i32) -> i32 {
 	font := ctx.style.font
 	w := bot_tag_width(ctx)
@@ -123,8 +121,9 @@ bot_tag :: proc(ctx: ^mu.Context, x, y: i32) -> i32 {
 	return w
 }
 
-// header_room is spaces at least `width` wide, in the temp allocator:
-// where a tag is drawn over text that's drawn in one piece.
+// header_room returns spaces that are at least `width` wide, allocated in the
+// temp allocator. It makes room where a tag is drawn over text that is drawn in
+// one piece.
 header_room :: proc(ctx: ^mu.Context, width: i32) -> string {
 	space := max(ctx.text_width(ctx.style.font, " "), 1)
 	n := int((width + space - 1) / space)
@@ -135,7 +134,7 @@ header_room :: proc(ctx: ^mu.Context, width: i32) -> string {
 	return string(room)
 }
 
-// is_bot is whether an account is a bot's. Call with the View locked.
+// is_bot returns whether an account is a bot's. Call with the View locked.
 is_bot :: proc(v: ^conn.View, account: proto.Account_Id) -> bool {
 	acc, ok := v.accounts[account]
 	return ok && .Bot in acc.flags

@@ -1,32 +1,32 @@
 package proto
 
-/*
-Purging: removing old messages, or only their files, for good
-(phase 15). The server does it on its own for what its config says to
-keep no longer, and on demand for whoever has Permission.Purge.
-
-	Purge        [conv u32][before u64][what u8]
-	         ->  [messages u32][blobs u32]
-
-	Msgs_Purged  [conv u32][before u64][what u8]
-
-A Purge names a conversation, or 0 for all of them, and a time in Unix
-milliseconds: what was posted before it goes. `what` says whether the
-messages go, or only the files they carry. It's answered once it's done,
-which can take a while, with how many messages went (or lost their
-files) and how many stored files were removed with them. One purge
-asked for at a time: another while one is under way is Conflict.
-
-Pinned messages are kept, files and all, and so is a thread's root
-while replies to it are kept. Everything else goes with its reactions,
-mentions and pins; unlike a deleted message nothing is left in its place.
-
-Msgs_Purged tells the members of a conversation that its messages with
-ids below `before` are gone, but for those kept (which they can ask for
-again), or with Purge_What.Files, that those messages' attachments
-are, but for pinned ones: the messages keep the list of their files,
-each with blob 0.
-*/
+// Purging permanently removes old messages, or only their files (phase 15).
+// The server does this on its own for anything its config says is no longer
+// to be kept, and on demand for whoever has Permission.Purge.
+//
+//	Purge        [conv u32][before u64][what u8]
+//	         ->  [messages u32][blobs u32]
+//
+//	Msgs_Purged  [conv u32][before u64][what u8]
+//
+// A Purge names a conversation (or 0 for all of them) and a time in Unix
+// milliseconds. Everything posted before that time is removed. `what` says
+// whether the messages are removed or only the files they carry. The answer
+// is sent once the purge is done, which can take a while. It contains how
+// many messages were removed (or lost their files) and how many stored files
+// were removed with them. Only one purge can run at a time: asking for
+// another while one is under way is a Conflict.
+//
+// Pinned messages are kept including their files, and so is a thread's root
+// as long as replies to it are kept. Everything else is removed together with
+// its reactions, mentions and pins. Unlike a deleted message, nothing is left
+// in its place.
+//
+// Msgs_Purged tells the members of a conversation that its messages with
+// ids below `before` are gone, except for those that were kept (which they
+// can request again). With Purge_What.Files it instead tells them that the
+// attachments of those messages are gone, except for pinned ones. The
+// messages keep their list of files, each with blob 0.
 
 Purge_What :: enum u8 {
 	Messages = 0,

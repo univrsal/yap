@@ -6,7 +6,7 @@ package client
 import glfw "client:wglfw"
 
 // Only macOS, Windows and X11 put the UI in the title bar (see
-// ui_titlebar.odin); everywhere else the desktop's own stays where it is.
+// ui_titlebar.odin). Everywhere else the desktop's own title bar stays.
 
 titlebar_init :: proc(merged: bool) {}
 

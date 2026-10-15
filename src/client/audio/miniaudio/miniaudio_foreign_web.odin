@@ -1,11 +1,9 @@
 #+build wasi
-/*
-The C declarations for a web build: the same as miniaudio_foreign.odin, generated from
-it by web/gen_foreign.py. On wasm Odin names a named foreign import's
-procs after the import ("system:c..name"), which no C object defines;
-the unnamed form, `foreign _`, keeps the plain C names that emscripten
-links against.
-*/
+// The C declarations for a web build. They are the same as in
+// miniaudio_foreign.odin and are generated from it by web/gen_foreign.py.
+// On wasm, Odin names the procs of a named foreign import after the import
+// ("system:c..name"), which no C object defines. The unnamed form,
+// `foreign _`, keeps the plain C names that emscripten links against.
 package miniaudio
 
 import "core:c"
@@ -25,7 +23,8 @@ foreign _ {
 	stream_start :: proc(s: ^Stream) -> Result ---
 	stream_stop :: proc(s: ^Stream) -> Result ---
 	stream_close :: proc(s: ^Stream) ---
-	// What the stream delivers/expects: as asked, or the native count if 0 was asked.
+	// The channel count the stream delivers or expects: the requested one, or
+	// the device's native count if 0 was requested.
 	stream_channels :: proc(s: ^Stream) -> c.uint ---
 	stream_device_name :: proc(s: ^Stream, name: ^[NAME_SIZE]u8) ---
 }

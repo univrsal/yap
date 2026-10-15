@@ -21,91 +21,90 @@ import "common:gif"
 import "common:proto"
 import "common:webp"
 
-/*
-The server's own emoji (src/common/proto/emoji.odin): a folder of
-pictures the admin fills, `emoji/` in the data directory. `foo.png`,
-`foo.webp` or `foo.gif` is the emoji `:foo:`; a file whose name isn't one
-an emoji may have (2 to 32 of `a-z 0-9 _`), or that can't be read, is
-skipped with a warning, as is a second file of the same name (the first
-of png, webp, gif is the one).
-
-They go to clients as one picture, the sheet: every emoji scaled into a
-cell of EMOJI_CELL pixels (and a transparent pixel of gap after it),
-EMOJI_COLUMNS to a row, in name order. Core Odin writes no PNG but writes
-QOI, which both clients read in pure Odin, so the sheet is a QOI. It's
-kept as a blob (of kind Emoji_Sheet), so an unchanged folder makes the
-same blob and clients keep their copy. Every connection is told of it
-when it logs in (Emoji_Sheet) and when it changes.
-
-An animated WebP or GIF is an emoji that moves: its first frame is its
-cell in the sheet, and all its frames (at most proto.MAX_EMOJI_FRAMES,
-thinned out evenly if there are more, at the same speed) are scaled into
-cells of their own, in a grid written as a WebP with how long each is
-shown, a blob of kind Emoji_Frames (read_animation). The sheet's
-Emoji_Sheet names them. A client from before animated emoji shows the
-first frame.
-
-The folder is looked at every EMOJI_RESCAN: a file added, removed or
-changed has the sheet made again, on a thread of its own (reading and
-scaling pictures takes a moment, and the loop carries voice), and told
-to everyone when it's done. Nothing has to be restarted.
-*/
+// The server's own emoji (src/common/proto/emoji.odin). They come from a
+// folder of pictures that the admin fills, `emoji/` in the data directory.
+// `foo.png`, `foo.webp` or `foo.gif` is the emoji `:foo:`. A file is skipped
+// with a warning if its name isn't valid for an emoji (2 to 32 characters of
+// `a-z 0-9 _`) or if it can't be read. If several files have the same name,
+// only the first of png, webp and gif is used and the others are skipped.
+//
+// The emoji are sent to clients as a single picture, the sheet. Every emoji is
+// scaled into a cell of EMOJI_CELL pixels, followed by a transparent pixel of
+// gap, with EMOJI_COLUMNS cells per row in name order. Core Odin can't write
+// PNG but can write QOI, which both clients read in pure Odin, so the sheet
+// is a QOI. It is stored as a blob (of kind Emoji_Sheet), so an unchanged
+// folder produces the same blob and clients can keep their copy. Every
+// connection is sent the sheet when it logs in (Emoji_Sheet) and whenever it
+// changes.
+//
+// An animated WebP or GIF is an animated emoji. Its first frame is its cell in
+// the sheet. All of its frames (at most proto.MAX_EMOJI_FRAMES, thinned out
+// evenly if there are more, while keeping the animation speed) are scaled into
+// cells of their own. The cells are arranged in a grid that is written as a
+// WebP together with the duration of each frame, and stored as a blob of kind
+// Emoji_Frames (see read_animation). The Emoji_Sheet message refers to these
+// blobs. A client that doesn't support animated emoji shows the first frame.
+//
+// The folder is scanned every EMOJI_RESCAN. If a file was added, removed or
+// changed, the sheet is rebuilt on a thread of its own, because reading and
+// scaling pictures takes a moment and the main loop also carries voice. Once
+// it is done, the new sheet is sent to everyone. No restart is required.
 
 EMOJI_DIR :: "emoji"
-EMOJI_CELL :: 64 // pixels: twice the size an emoji is drawn at, for scaled-up screens
+EMOJI_CELL :: 64 // in pixels, twice the size an emoji is drawn at to look sharp on scaled-up screens
 EMOJI_COLUMNS :: proto.EMOJI_SHEET_COLUMNS
-// Every cell is followed by a transparent pixel, right and below, so
-// scaling a cell up (filtering) doesn't bleed its neighbour into it.
+// Every cell is followed by a transparent pixel to its right and below it so
+// that scaling a cell up with filtering doesn't bleed its neighbours into it.
 EMOJI_STRIDE :: EMOJI_CELL + 1
 EMOJI_RESCAN :: 5 * time.Second
-// A picture bigger than this isn't read: an emoji is small.
+// Pictures bigger than this (in bytes) are not read, since emoji are small.
 EMOJI_MAX_FILE :: 1024 * 1024
-// The kinds of file an emoji may be, the one used first when there are
-// two of the same name.
+// The file types an emoji can have, in order of priority if there are
+// several files with the same name.
 EMOJI_EXTENSIONS :: [?]string{".png", ".webp", ".gif"}
-// An animation's frames are read only if they're no bigger than this
-// (each is scaled down to a cell straight away, but a GIF's are all
-// decoded at once), and not more of them than EMOJI_MAX_READ: past that,
-// it's its first frame.
+// The frames of an animation are only read if they are no bigger than this
+// (each is scaled down to a cell right away, but all the frames of a GIF are
+// decoded at once) and there are at most EMOJI_MAX_READ of them. Otherwise
+// only its first frame is used.
 EMOJI_MAX_SIDE :: 2048
 EMOJI_GIF_BUDGET :: 64 * 1024 * 1024
 EMOJI_MAX_READ :: 2000
-// The quality of an animation's frames (WebP, its alpha kept as it is).
+// The WebP quality of an animation's frames. The alpha channel is stored as is.
 EMOJI_FRAMES_QUALITY :: 90
 
 Custom_Emoji :: struct {
 	dir:       string,
-	// The sheet everyone has now: its blob (0 for none), and the names of
-	// its cells (owned), and the ones that move.
+	// The sheet that everyone has now: its blob (0 for none), the names of
+	// its cells (owned) and the animated ones.
 	blob:      Blob_Id,
 	size:      int,
 	names:     [dynamic]string,
 	animated:  [dynamic]proto.Emoji_Anim,
-	// What the folder looked like when the sheet was made, and when it was
-	// last looked at.
+	// A signature of the folder when the sheet was made, and the time it was
+	// last scanned.
 	signature: u64,
 	last_scan: time.Tick,
 	building:  ^Emoji_Build,
 }
 
-// Emoji_Build is a sheet being made on a thread of its own.
+// Emoji_Build is a sheet that is being built on a thread of its own.
 Emoji_Build :: struct {
 	thread:    ^thread.Thread,
-	dir:       string, // lent by Custom_Emoji
+	dir:       string, // borrowed from Custom_Emoji
 	signature: u64,
-	done:      bool, // atomic: set by the thread
+	done:      bool, // atomic, set by the thread when it is finished
 	sheet:     Built_Sheet,
 }
 
 Built_Sheet :: struct {
-	qoi:   []u8, // owned; nil if there are no emoji
-	names: []string, // owned, as is each
+	qoi:   []u8, // owned, nil if there are no emoji
+	names: []string, // owned, as is each string
 	anims: [dynamic]Built_Anim,
 	ok:    bool,
 }
 
-// Built_Anim is an emoji that moves: the index of its cell, and its
-// Emoji_Frames blob (owned), whose grid is width x height.
+// Built_Anim is an animated emoji: the index of its cell and its Emoji_Frames
+// blob (owned), whose grid is width x height.
 Built_Anim :: struct {
 	index:         int,
 	data:          []u8,
@@ -125,11 +124,9 @@ built_sheet_destroy :: proc(b: ^Built_Sheet) {
 	b^ = {}
 }
 
-/*
-emoji_open makes the sheet for the folder as it is, before the loop
-starts: everyone who logs in gets it. A folder that isn't there is a
-server without emoji of its own.
-*/
+// emoji_open builds the sheet for the folder as it currently is, before the
+// main loop starts, so that everyone who logs in gets it. If the folder doesn't
+// exist, the server has no emoji of its own.
 emoji_open :: proc(s: ^Server, dir: string) {
 	e := &s.emoji
 	e.dir = strings.clone(dir)
@@ -157,8 +154,8 @@ emoji_close :: proc(s: ^Server) {
 	e^ = {}
 }
 
-// emoji_sync looks at the folder every EMOJI_RESCAN, makes the sheet
-// again if it has changed, and takes it once it's made.
+// emoji_sync scans the folder every EMOJI_RESCAN, rebuilds the sheet if the
+// folder changed, and takes over the new sheet once it is built.
 emoji_sync :: proc(s: ^Server) {
 	e := &s.emoji
 	if b := e.building; b != nil {
@@ -183,13 +180,14 @@ emoji_sync :: proc(s: ^Server) {
 	if signature == e.signature {
 		return
 	}
-	log.infof("%s has changed; making the emoji again", e.dir)
+	log.infof("%s has changed, rebuilding the emoji sheet", e.dir)
 	b := new(Emoji_Build)
 	b.dir, b.signature = e.dir, signature
 	b.thread = thread.create_and_start_with_poly_data(
 		b,
 		proc(b: ^Emoji_Build) {
-			// This thread's own scratch space: the loop's is emptied every turn.
+			// This thread needs its own temp allocator because the main
+			// loop's is emptied every iteration.
 			scratch: runtime.Default_Temp_Allocator
 			runtime.default_temp_allocator_init(&scratch, 4 * 1024 * 1024, context.allocator)
 			defer runtime.default_temp_allocator_destroy(&scratch)
@@ -206,11 +204,10 @@ emoji_sync :: proc(s: ^Server) {
 	e.building = b
 }
 
-/*
-emoji_take makes a sheet that was made the one everyone has: kept as a
-blob, as are the frames of the ones that move, and with `tell`, told to
-every connection. Takes the names over.
-*/
+// emoji_take makes a freshly built sheet the one that everyone has. The sheet
+// is stored as a blob, as are the frames of the animated emoji. If `tell` is
+// set, every connection is sent the new sheet. The names are taken over from
+// the built sheet.
 @(private = "file")
 emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 	e := &s.emoji
@@ -226,7 +223,7 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 			rows * EMOJI_STRIDE,
 		)
 		if !ok {
-			log.error("could not keep the sheet of emoji")
+			log.error("could not store the emoji sheet")
 			return
 		}
 	}
@@ -234,7 +231,10 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 	for a in sheet.anims {
 		frames, ok := blob_put(&s.blobs, .Emoji_Frames, a.data, a.width, a.height)
 		if !ok {
-			log.errorf("could not keep the frames of :%s:; it stays still", sheet.names[a.index])
+			log.errorf(
+				"could not store the frames of :%s:, it will not be animated",
+				sheet.names[a.index],
+			)
 			continue
 		}
 		append(&animated, proto.Emoji_Anim{index = a.index, blob = frames, size = len(a.data)})
@@ -249,18 +249,18 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 	delete(e.animated)
 	e.animated = animated
 	e.blob, e.size = blob, len(sheet.qoi)
-	// For purging, which keeps them, also when it runs without the server
-	// (retention.odin).
+	// Remember the blobs so that purging keeps them, even when it runs without
+	// the server (retention.odin).
 	db_meta_set(&s.db, EMOJI_SHEET_META, i64(blob))
 	q := db_stmt(&s.db, .Meta_Delete_Like)
 	db_bind_text(q, 1, EMOJI_FRAMES_META + "%")
 	if !db_run(&s.db, q) {
-		log.error("could not forget the frames of the emoji there were")
+		log.error("could not remove the frames of the previous emoji from the database")
 	}
 	for a in e.animated {
 		db_meta_set(&s.db, fmt.tprintf("%s%d", EMOJI_FRAMES_META, a.blob), i64(a.blob))
 	}
-	log.infof("%d emoji of our own, %d of them moving", len(e.names), len(e.animated))
+	log.infof("%d custom emoji, %d of them animated", len(e.names), len(e.animated))
 	if tell {
 		for _, u in s.conns {
 			send_emoji_sheet(s, u)
@@ -268,12 +268,12 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 	}
 }
 
-// emoji_take_for_test is emoji_take, for tests, which tell nobody.
+// emoji_take_for_test is emoji_take for tests. It doesn't notify anyone.
 emoji_take_for_test :: proc(s: ^Server, sheet: ^Built_Sheet) {
 	emoji_take(s, sheet, tell = false)
 }
 
-// send_emoji_sheet tells a connection of the server's emoji.
+// send_emoji_sheet sends the server's emoji sheet to a connection.
 send_emoji_sheet :: proc(s: ^Server, u: ^Conn) {
 	e := &s.emoji
 	out := make(
@@ -294,14 +294,14 @@ send_emoji_sheet :: proc(s: ^Server, u: ^Conn) {
 	send_event(u, .Emoji_Sheet, body)
 }
 
-// emoji_known is whether `name` is one of the server's emoji.
+// emoji_known returns whether `name` is one of the server's emoji.
 emoji_known :: proc(s: ^Server, name: string) -> bool {
 	_, found := slice.binary_search(s.emoji.names[:], name)
 	return found
 }
 
-// emoji_frames_known is whether `blob` is the frames of one of the
-// server's emoji that move, for anyone to fetch.
+// emoji_frames_known returns whether `blob` holds the frames of one of the
+// server's animated emoji, which anyone may fetch.
 emoji_frames_known :: proc(s: ^Server, blob: Blob_Id) -> bool {
 	for a in s.emoji.animated {
 		if a.blob == blob {
@@ -311,10 +311,9 @@ emoji_frames_known :: proc(s: ^Server, blob: Blob_Id) -> bool {
 	return false
 }
 
-/*
-folder_signature is what changes when a file in the folder is added,
-removed, renamed or written: a hash of the names, sizes and times.
-*/
+// folder_signature returns a hash of the names, sizes and modification times
+// of the files in the folder. It changes when a file is added, removed,
+// renamed or written.
 @(private = "file")
 folder_signature :: proc(dir: string) -> u64 {
 	files, err := os.read_all_directory_by_path(dir, context.temp_allocator)
@@ -333,20 +332,20 @@ folder_signature :: proc(dir: string) -> u64 {
 	return h
 }
 
-// An emoji's file: which of EMOJI_EXTENSIONS it is (the first wins).
+// Emoji_File is an emoji's file. `kind` is the index of its extension in
+// EMOJI_EXTENSIONS, and the lowest one wins if there are several files.
 @(private = "file")
 Emoji_File :: struct {
 	path: string,
 	kind: int,
 }
 
-/*
-build_sheet makes the sheet from the folder: every picture that may be
-an emoji, scaled into its cell, in name order, as a QOI, and the frames
-of those that move. Safe to run on a thread of its own: it touches
-nothing of the server's. `ok` is false only if the folder couldn't be
-read or the sheet made; a folder that isn't there has no emoji.
-*/
+// build_sheet builds the sheet from the folder. It contains every picture that
+// is valid as an emoji, scaled into its cell, in name order, as a QOI, plus the
+// frames of the animated ones. It is safe to run on a separate thread because
+// it doesn't touch any of the server's state. `ok` is only false if the folder
+// couldn't be read or the sheet couldn't be built. A folder that doesn't exist
+// simply has no emoji.
 build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 	sheet.ok = true
 	if !os.exists(dir) {
@@ -359,7 +358,7 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 		return
 	}
 
-	// One file for each name.
+	// Pick one file per name.
 	chosen := make(map[string]Emoji_File, context.temp_allocator)
 	for f in files {
 		if f.type != .Regular {
@@ -377,10 +376,13 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 		}
 		switch {
 		case !proto.custom_emoji_name_ok(name):
-			log.warnf("%s: an emoji's name is 2 to 32 of a-z, 0-9 and _; skipping it", f.fullpath)
+			log.warnf(
+				"%s: an emoji name must be 2 to 32 of a-z, 0-9 and _, skipping it",
+				f.fullpath,
+			)
 			continue
 		case f.size > EMOJI_MAX_FILE:
-			log.warnf("%s is too big for an emoji; skipping it", f.fullpath)
+			log.warnf("%s is too big for an emoji, skipping it", f.fullpath)
 			continue
 		}
 		if other, twice := chosen[name]; twice {
@@ -389,7 +391,7 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 				first, second = second, first
 			}
 			log.warnf(
-				"%s and %s are both :%s:; using %s",
+				"%s and %s are both :%s:, using %s",
 				first.path,
 				second.path,
 				name,
@@ -412,7 +414,7 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 		path := chosen[name].path
 		if len(names) >= proto.MAX_CUSTOM_EMOJI {
 			log.warnf(
-				"%s: a server has at most %d emoji; skipping it",
+				"%s: a server can have at most %d emoji, skipping it",
 				path,
 				proto.MAX_CUSTOM_EMOJI,
 			)
@@ -434,7 +436,7 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 		return
 	}
 
-	// Shrinking as long as it's too big to send: the last ones go.
+	// While the sheet is too big to send, remove emoji from the end.
 	for len(cells) > 0 {
 		data, ok := encode_sheet(cells[:])
 		if !ok {
@@ -448,7 +450,7 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 		delete(data)
 		keep := len(cells) * 9 / 10
 		log.warnf(
-			"the sheet of %d emoji is too big; leaving out the last %d",
+			"the sheet of %d emoji is too big, leaving out the last %d",
 			len(cells),
 			len(cells) - keep,
 		)
@@ -465,12 +467,10 @@ build_sheet :: proc(dir: string) -> (sheet: Built_Sheet) {
 	return
 }
 
-/*
-read_emoji reads a picture and scales it into a cell (in the temp
-allocator); for an animated WebP or GIF, also its frames, as the blob
-that holds them (index left for the caller). What it is, is told by
-what's in it rather than by its name.
-*/
+// read_emoji reads a picture and scales it into a cell (allocated with the temp
+// allocator). For an animated WebP or GIF it also returns its frames as a blob
+// (the caller sets the index). The picture type is detected from its content
+// rather than from its file name.
 @(private = "file")
 read_emoji :: proc(path: string) -> (cell: []u8, anim: Built_Anim, ok: bool) {
 	data, err := os.read_entire_file(path, context.temp_allocator)
@@ -486,23 +486,23 @@ read_emoji :: proc(path: string) -> (cell: []u8, anim: Built_Anim, ok: bool) {
 	}
 	img, png_err := png.load_from_bytes(data, {.alpha_add_if_missing}, context.temp_allocator)
 	if png_err != nil || img == nil {
-		log.warnf("%s isn't a PNG, WebP or GIF that can be read; skipping it", path)
+		log.warnf("%s isn't a readable PNG, WebP or GIF, skipping it", path)
 		return
 	}
-	// In the temp allocator, all of it: nothing to destroy.
+	// Everything is allocated with the temp allocator, so nothing needs to be freed.
 	if img.depth != 8 || img.channels != 4 || img.width <= 0 || img.height <= 0 {
-		log.warnf("%s: only 8-bit pictures make emoji; skipping it", path)
+		log.warnf("%s: only 8-bit pictures can be used as emoji, skipping it", path)
 		return
 	}
 	return scale_cell(bytes.buffer_to_bytes(&img.pixels), img.width, img.height), {}, true
 }
 
-// read_webp is read_emoji for a WebP, still or animated.
+// read_webp is read_emoji for a WebP, which may be still or animated.
 @(private = "file")
 read_webp :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok: bool) {
 	dec, info, opened := webp.anim_open(data)
 	if !opened {
-		log.warnf("%s isn't a WebP that can be read; skipping it", path)
+		log.warnf("%s isn't a readable WebP, skipping it", path)
 		return
 	}
 	defer webp.anim_close(dec)
@@ -510,12 +510,16 @@ read_webp :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok
 	   info.height > EMOJI_MAX_SIDE ||
 	   info.width <= 0 ||
 	   info.height <= 0 {
-		log.warnf("%s is %dx%d, too big for an emoji; skipping it", path, info.width, info.height)
+		log.warnf("%s is %dx%d, too big for an emoji, skipping it", path, info.width, info.height)
 		return
 	}
 	frames := info.frames
 	if frames > EMOJI_MAX_READ {
-		log.warnf("%s has %d frames, too many to read; it stays still", path, frames)
+		log.warnf(
+			"%s has %d frames, which is too many to read, it will not be animated",
+			path,
+			frames,
+		)
 		frames = 1
 	}
 	thin := Thinning {
@@ -527,10 +531,10 @@ read_webp :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok
 		pixels, ends, next := webp.anim_next(dec, info)
 		if next != .Frame {
 			if i == 0 {
-				log.warnf("%s isn't a WebP that can be read; skipping it", path)
+				log.warnf("%s isn't a readable WebP, skipping it", path)
 				return
 			}
-			log.warnf("%s is broken after %d frames; it stays still", path, i)
+			log.warnf("%s is corrupt after %d frames, it will not be animated", path, i)
 			thin_still(&thin)
 			break
 		}
@@ -540,30 +544,34 @@ read_webp :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok
 	return thin_finish(&thin, path)
 }
 
-// read_gif is read_emoji for a GIF, still or animated.
+// read_gif is read_emoji for a GIF, which may be still or animated.
 @(private = "file")
 read_gif :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok: bool) {
 	g, read := gif.info(data)
 	if !read || g.width <= 0 || g.height <= 0 {
-		log.warnf("%s isn't a GIF that can be read; skipping it", path)
+		log.warnf("%s isn't a readable GIF, skipping it", path)
 		return
 	}
 	if g.width > EMOJI_MAX_SIDE || g.height > EMOJI_MAX_SIDE {
-		log.warnf("%s is %dx%d, too big for an emoji; skipping it", path, g.width, g.height)
+		log.warnf("%s is %dx%d, too big for an emoji, skipping it", path, g.width, g.height)
 		return
 	}
 	all := g.frames > 1
 	if all &&
 	   (g.frames > EMOJI_MAX_READ ||
 			   i64(g.width) * i64(g.height) * 4 * i64(g.frames) > EMOJI_GIF_BUDGET) {
-		log.warnf("%s has %d frames, too many to read; it stays still", path, g.frames)
+		log.warnf(
+			"%s has %d frames, which is too many to read, it will not be animated",
+			path,
+			g.frames,
+		)
 		all = false
 	}
 	if !all {
 		w, h, comp: i32
 		pixels := stbi.load_from_memory(raw_data(data), i32(len(data)), &w, &h, &comp, 4)
 		if pixels == nil {
-			log.warnf("%s isn't a GIF that can be read; skipping it", path)
+			log.warnf("%s isn't a readable GIF, skipping it", path)
 			return
 		}
 		defer stbi.image_free(pixels)
@@ -582,7 +590,7 @@ read_gif :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok:
 		4,
 	)
 	if pixels == nil || x <= 0 || y <= 0 || z <= 0 {
-		log.warnf("%s isn't a GIF that can be read; skipping it", path)
+		log.warnf("%s isn't a readable GIF, skipping it", path)
 		return
 	}
 	defer stbi.image_free(pixels)
@@ -598,17 +606,15 @@ read_gif :: proc(path: string, data: []u8) -> (cell: []u8, anim: Built_Anim, ok:
 	return thin_finish(&thin, path)
 }
 
-/*
-Thinning keeps at most proto.MAX_EMOJI_FRAMES of an animation's frames:
-they're split into that many runs, as even as they go, and the first of
-each run is kept (scaled into a cell), shown for the whole run's time,
-so the animation keeps its speed.
-*/
+// Thinning keeps at most proto.MAX_EMOJI_FRAMES frames of an animation. The
+// frames are split into that many runs that are as even as possible. The first
+// frame of each run is kept (scaled into a cell) and shown for the duration of
+// the whole run, so the animation keeps its speed.
 @(private = "file")
 Thinning :: struct {
-	frames:    int, // in the animation
-	kept:      int, // how many are kept
-	run:       int, // the run the last frame taken was in
+	frames:    int, // the number of frames in the animation
+	kept:      int, // the number of frames that are kept
+	run:       int, // the run that the last frame taken belongs to
 	cells:     [dynamic][]u8,
 	durations: [dynamic]int,
 }
@@ -621,11 +627,9 @@ thin_start :: proc(t: ^Thinning) {
 	t.durations = make([dynamic]int, context.temp_allocator)
 }
 
-/*
-thin_frame takes frame `i` (they come in order), which says it's shown
-for `ms`. Run k starts at frame k * frames / kept; the first frame of
-each is the one kept.
-*/
+// thin_frame takes frame `i` (frames must be passed in order) which is shown
+// for `ms` milliseconds. Run k starts at frame k * frames / kept and the first
+// frame of each run is the one that is kept.
 @(private = "file")
 thin_frame :: proc(t: ^Thinning, i, ms: int, pixels: []u8, width, height: int) {
 	for t.run + 1 < t.kept && (t.run + 1) * t.frames / t.kept <= i {
@@ -638,15 +642,15 @@ thin_frame :: proc(t: ^Thinning, i, ms: int, pixels: []u8, width, height: int) {
 	t.durations[t.run] += frame_ms(ms)
 }
 
-// thin_still keeps only the first frame: the emoji stays still.
+// thin_still keeps only the first frame so the emoji is not animated.
 @(private = "file")
 thin_still :: proc(t: ^Thinning) {
 	resize(&t.cells, min(len(t.cells), 1))
 	resize(&t.durations, min(len(t.durations), 1))
 }
 
-// thin_finish is the first frame's cell, and with more than one frame
-// kept, the blob of all of them.
+// thin_finish returns the cell of the first frame and, if more than one frame
+// was kept, the blob containing all of them.
 @(private = "file")
 thin_finish :: proc(t: ^Thinning, path: string) -> (cell: []u8, anim: Built_Anim, ok: bool) {
 	if len(t.cells) == 0 {
@@ -659,9 +663,9 @@ thin_finish :: proc(t: ^Thinning, path: string) -> (cell: []u8, anim: Built_Anim
 	return
 }
 
-// frame_ms is how long a frame that says `ms` is shown, as clients have
-// it: a frame that says 10 ms or less is shown for 100, as browsers do,
-// and none for less than 20.
+// frame_ms returns how long a frame with a delay of `ms` is shown. Like
+// browsers do, a frame with a delay of 10 ms or less is shown for 100 ms, and
+// no frame is shown for less than 20 ms.
 @(private = "file")
 frame_ms :: proc(ms: int) -> int {
 	if ms <= 10 {
@@ -670,11 +674,10 @@ frame_ms :: proc(ms: int) -> int {
 	return max(ms, 20)
 }
 
-/*
-encode_frames lays an animation's cells out in a grid as near square as
-it goes, and writes it, with each frame's time, as an Emoji_Frames blob.
-Nothing (the emoji stays still) if that's too big to send.
-*/
+// encode_frames arranges an animation's cells in a grid that is as close to
+// square as possible and writes it, together with the duration of each frame,
+// as an Emoji_Frames blob. It returns nothing (so the emoji is not animated) if
+// the result is too big to send.
 @(private = "file")
 encode_frames :: proc(cells: [][]u8, durations: []int, path: string) -> (anim: Built_Anim) {
 	n := len(cells)
@@ -693,7 +696,7 @@ encode_frames :: proc(cells: [][]u8, durations: []int, path: string) -> (anim: B
 		context.temp_allocator,
 	)
 	if !ok {
-		log.warnf("could not write the frames of %s; it stays still", path)
+		log.warnf("could not encode the frames of %s, it will not be animated", path)
 		return
 	}
 	times := make([]u16, n, context.temp_allocator)
@@ -704,18 +707,17 @@ encode_frames :: proc(cells: [][]u8, durations: []int, path: string) -> (anim: B
 		{durations = times, columns = columns, image = image},
 	)
 	if !encoded || len(data) > proto.MAX_BLOB_SIZE {
-		log.warnf("the frames of %s are too big to send; it stays still", path)
+		log.warnf("the frames of %s are too big to send, it will not be animated", path)
 		delete(data)
 		return
 	}
 	return {data = data, width = width, height = height}
 }
 
-/*
-scale_cell scales a picture (RGBA) into a cell, in the temp allocator:
-as big as fits, keeping its shape, in the middle. Shrinking averages the
-pixels each one covers; growing repeats them.
-*/
+// scale_cell scales an RGBA picture into a cell allocated with the temp
+// allocator. The picture is made as big as fits in the cell, keeps its aspect
+// ratio and is centered. Shrinking averages the pixels covered by each target
+// pixel and growing repeats pixels.
 @(private = "file")
 scale_cell :: proc(src: []u8, width, height: int) -> (cell: []u8) {
 	cell = make([]u8, EMOJI_CELL * EMOJI_CELL * 4, context.temp_allocator)
@@ -729,7 +731,7 @@ scale_cell :: proc(src: []u8, width, height: int) -> (cell: []u8) {
 		for x in 0 ..< w {
 			x0 := x * width / w
 			x1 := max(x0 + 1, (x + 1) * width / w)
-			// Averaged weighted by alpha, so transparent pixels don't
+			// Average weighted by alpha so that transparent pixels don't
 			// darken the edges.
 			sum: [4]u32
 			n := u32((y1 - y0) * (x1 - x0))
@@ -750,8 +752,8 @@ scale_cell :: proc(src: []u8, width, height: int) -> (cell: []u8) {
 	return cell
 }
 
-// place_cells copies cells into `pixels` (RGBA, `width` wide), `columns`
-// to a row, each followed by a pixel of gap.
+// place_cells copies the cells into `pixels` (RGBA, `width` wide) with
+// `columns` cells per row, each followed by a pixel of gap.
 @(private = "file")
 place_cells :: proc(pixels: []u8, width, columns: int, cells: [][]u8) {
 	for cell, i in cells {
@@ -765,7 +767,7 @@ place_cells :: proc(pixels: []u8, width, columns: int, cells: [][]u8) {
 	}
 }
 
-// encode_sheet lays the cells out and writes them as a QOI.
+// encode_sheet arranges the cells in a grid and writes them as a QOI.
 @(private = "file")
 encode_sheet :: proc(cells: [][]u8) -> (data: []u8, ok: bool) {
 	rows := (len(cells) + EMOJI_COLUMNS - 1) / EMOJI_COLUMNS
@@ -782,7 +784,7 @@ encode_sheet :: proc(cells: [][]u8) -> (data: []u8, ok: bool) {
 	defer bytes.buffer_destroy(&img.pixels)
 	out: bytes.Buffer
 	if err := qoi.save_to_buffer(&out, &img); err != nil {
-		log.errorf("could not make the sheet of emoji: %v", err)
+		log.errorf("could not encode the emoji sheet: %v", err)
 		bytes.buffer_destroy(&out)
 		return
 	}

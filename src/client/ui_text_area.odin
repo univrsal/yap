@@ -6,66 +6,62 @@ import mu "vendor:microui"
 
 import "client:platform"
 
-/*
-A text area: the box messages are written in, a text box over several
-lines. Its text wraps the way the chat wraps messages (wrap_line), it
-grows a line at a time up to TEXT_AREA_MAX_LINES and scrolls past that,
-and Shift+Enter starts a new line, while Enter submits as in a text box.
+// A text area is the box that messages are written in: a text box over several
+// lines. Its text wraps the way the chat wraps messages (wrap_line), it grows
+// one line at a time up to TEXT_AREA_MAX_LINES and scrolls beyond that, and
+// Shift+Enter starts a new line while Enter submits, as in a text box.
+//
+// It is microui's text box (textbox_raw) taken over line by line: the same id
+// for the same buffer and the same core:text/edit state in the context, so
+// everything that works on a text box from outside (focus_at, the completion
+// list, the composer's keys, pasting) works on this too. On top of that, Up
+// and Down (the UI's own keys, ui.keys) move between lines and keep to the
+// column they started in, Home and End go to the ends of the line (with Ctrl,
+// of the text), and the pointer lands on the line it is over.
+//
+// The box's height is worked out before it is laid out (text_area_height), so
+// the rows above can make room. It is based on the width the text had in the
+// previous frame, and a frame whose lines don't fit the box it got asks for
+// another frame.
 
-It's microui's text box (textbox_raw) taken over line by line: the same
-id for the same buffer, the same core:text/edit state in the context,
-so what works on a text box from outside - focus_at, the completion
-list, the composer's keys, pasting - works on this too. On top of it:
-Up and Down (the UI's own keys, ui.keys) go between lines and keep to
-the column they started in, Home and End go to the line's ends (with
-Ctrl, the text's), and the pointer lands on the line it's over.
-
-The box's height is worked out before it's laid out (text_area_height),
-so the rows above can make room; it's from the width the text had in
-the frame before, and a frame whose lines don't fit the box it got asks
-for another.
-*/
-
-// The most lines a text area grows to; past them it scrolls.
+// The most lines a text area grows to. Beyond that it scrolls.
 TEXT_AREA_MAX_LINES :: 10
 
 // What a text area keeps between frames.
 Text_Area :: struct {
-	width:     i32, // the text's width last frame, for working out the height
+	width:     i32, // the text's width in the last frame, for working out the height
 	scroll:    i32, // pixels of the text above the box's top
 	// Up and Down keep to the column they started in: where they left the
-	// caret, and the x they were aiming for.
+	// caret, and the x position they were aiming for.
 	vert_at:   int,
 	vert_x:    i32,
-	// The selection and length last frame: when either changes, the box
-	// scrolls to the caret.
+	// The selection and length in the last frame. When either changes, the
+	// box scrolls to the caret.
 	last_sel:  [2]int,
 	last_len:  int,
-	// Its scrollbar, when there's more than it shows: where it was last
-	// frame (none: zero), and while its thumb is dragged, how far down the
-	// thumb it was taken.
+	// Its scrollbar, when there is more text than it shows: where it was in
+	// the last frame (zero: none), and while its thumb is dragged, how far
+	// down the thumb it was grabbed.
 	bar:       mu.Rect,
 	dragging:  bool,
 	drag_at:   i32,
-	// Showing the message as it will look instead (the composer's eye,
-	// preview_button).
+	// Whether the message is shown as it will look instead (the composer's
+	// eye, preview_button).
 	preview:   bool,
-	had_focus: bool, // last frame
+	had_focus: bool, // in the last frame
 }
 
-// One line of a text area's text: text[start:end] is drawn, and the caret
-// is on it from `start` up to `stop` (where the next line starts, or
-// before the newline that ends it, or the end of the text).
+// One line of a text area's text: text[start:end] is drawn, and the caret is
+// on it from `start` up to `stop` (where the next line starts, or before the
+// newline that ends it, or the end of the text).
 Area_Line :: struct {
 	start, end, stop: int,
 }
 
-/*
-area_lines lays `text` out in lines `width` wide. Every place in the text
-is on exactly one line: a place where a wrap broke the text is on the
-line it starts. There's always a line, and a text ending in a newline
-ends in an empty one, for the caret to go to.
-*/
+// area_lines lays `text` out in lines `width` wide. Every place in the text is
+// on exactly one line: a place where a wrap broke the text is on the line that
+// starts there. There is always at least one line, and a text ending in a
+// newline ends in an empty line for the caret to go to.
 area_lines :: proc(
 	ctx: ^mu.Context,
 	font: mu.Font,
@@ -90,7 +86,7 @@ area_lines :: proc(
 	return lines[:]
 }
 
-// area_line_of is the line the place `at` is on.
+// area_line_of is the line that the place `at` is on.
 area_line_of :: proc(lines: []Area_Line, at: int) -> int {
 	for l, i in lines {
 		if at <= l.stop {
@@ -105,9 +101,9 @@ area_x :: proc(ctx: ^mu.Context, font: mu.Font, text: string, l: Area_Line, at: 
 	return ctx.text_width(font, text[l.start:clamp(at, l.start, l.stop)])
 }
 
-// area_vertical is the place on the line above (`down` false) or below
-// the one `at` is on, nearest `x` pixels along it; past the first line
-// it's the start, past the last the end.
+// area_vertical is the place on the line above (`down` false) or below the
+// one `at` is on, nearest to `x` pixels along it. Past the first line it is
+// the start, and past the last line the end.
 area_vertical :: proc(
 	ctx: ^mu.Context,
 	font: mu.Font,
@@ -129,13 +125,13 @@ area_vertical :: proc(
 }
 
 // text_area_single is how tall a text area of one line is: a control's
-// height, or more for a bigger font. Each line more adds a line's height.
+// height, or more for a bigger font. Each additional line adds a line's height.
 text_area_single :: proc(ctx: ^mu.Context, font: mu.Font) -> i32 {
 	return max(ctx.style.size.y + 2 * ctx.style.padding, ctx.text_height(font) + 4)
 }
 
-// text_area_height is how tall the text area for `text` is, in `font`
-// (which ctx.style.font has to be when it's laid out).
+// text_area_height is how tall the text area for `text` is, in `font` (which
+// ctx.style.font has to be when it is laid out).
 text_area_height :: proc(ctx: ^mu.Context, font: mu.Font, text: string, area: ^Text_Area) -> i32 {
 	n := 1
 	if area.width > 0 {
@@ -147,12 +143,10 @@ text_area_height :: proc(ctx: ^mu.Context, font: mu.Font, text: string, area: ^T
 	)
 }
 
-/*
-text_area lays out a text area in the next layout cell, as tall as
-text_area_height said, with its text in ctx.style.font. Like a text box
-it answers CHANGE when the text changed and SUBMIT on Enter (and lets go
-of the focus then).
-*/
+// text_area lays out a text area in the next layout cell, as tall as
+// text_area_height said, with its text in ctx.style.font. Like a text box, it
+// returns CHANGE when the text changed and SUBMIT on Enter (and releases the
+// focus then).
 text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: mu.Result_Set) {
 	ctx := &ui.ctx
 	id := mu.get_id(ctx, uintptr(&buf[0]))
@@ -162,13 +156,13 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	}
 	mu.update_control(ctx, id, r, {.HOLD_FOCUS})
 	if ctx.hover_id == id {
-		ui.select.over_text = true // an I-beam over it (draw_frame)
+		ui.select.over_text = true // shows an I-beam over it (draw_frame)
 	}
 
 	font := ctx.style.font
 	lh := ctx.text_height(font)
 	single := text_area_single(ctx, font)
-	top := (single - lh) / 2 // from the box's top to its first line's
+	top := (single - lh) / 2 // from the box's top to its first line's top
 	rows := clamp((r.h - (single - lh)) / lh, 1, TEXT_AREA_MAX_LINES)
 	full := max(r.w - 2 * ctx.style.padding, 1)
 	if area.width != full {
@@ -176,8 +170,8 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		area.width = full
 		ui_redraw(ui)
 	}
-	// Past the most lines it shows, a scrollbar takes its width from the
-	// text's. (The box is as tall either way.)
+	// Beyond the maximum number of lines, a scrollbar takes its width from
+	// the text's. (The box is as tall either way.)
 	bar_w := ctx.style.scrollbar_size
 	width := full
 	if len(area_lines(ctx, font, string(buf[:textlen^]), full)) > TEXT_AREA_MAX_LINES {
@@ -188,7 +182,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 
 	if focused {
 		// The same as microui's text box: a builder on our buffer, and the
-		// selection kept while the focus stays.
+		// selection is kept while the focus stays.
 		builder := strings.builder_from_bytes(buf)
 		non_zero_resize(&builder.buf, textlen^)
 		s.builder = &builder
@@ -253,7 +247,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 			move(s, .Word_Right if ctrl else .Right, shift)
 		}
 
-		// What's left needs the lines, as the text now is.
+		// What is left needs the lines, as the text is now.
 		text := string(buf[:textlen^])
 		lines := area_lines(ctx, font, text, width)
 		l := lines[area_line_of(lines, s.selection[0])]
@@ -284,8 +278,8 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 			res += {.SUBMIT}
 		}
 
-		// Pressing or dragging puts the caret where the pointer is: on
-		// the line it's over, or the first or last if it's past them. Not
+		// Pressing or dragging puts the caret where the pointer is: on the
+		// line it is over, or the first or last line if it is past them. Not
 		// on the scrollbar, though.
 		on_bar := .LEFT in ctx.mouse_pressed_bits && area.bar.w > 0 && mu.mouse_over(ctx, area.bar)
 		if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar {
@@ -309,12 +303,12 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	text := string(buf[:textlen^])
 	lines := area_lines(ctx, font, text, width)
 	if i32(min(len(lines), TEXT_AREA_MAX_LINES)) != rows {
-		// The box is the height the text had before this frame's typing.
+		// The box is the height that the text had before this frame's typing.
 		ui_redraw(ui)
 	}
 
-	// Scrolling: to the caret when it moved, the text changed or the box
-	// has just taken the focus, else by the wheel over the box.
+	// Scrolling: to the caret when it moved, the text changed or the box has
+	// just taken the focus, otherwise by the wheel over the box.
 	most := max(i32(len(lines)) * lh - rows * lh, 0)
 	if focused && (s.selection != area.last_sel || textlen^ != area.last_len || !area.had_focus) {
 		y := i32(area_line_of(lines, s.selection[0])) * lh
@@ -332,8 +326,8 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		area.last_sel, area.last_len = s.selection, textlen^
 	}
 	area.had_focus = focused
-	// The scrollbar: pressed on its thumb, that's dragged; on the rest of
-	// it, the thumb's middle jumps there and is dragged.
+	// The scrollbar: pressing on its thumb drags it, and pressing on the rest
+	// of the bar makes the thumb's middle jump there and be dragged.
 	area.bar = {}
 	thumb: mu.Rect
 	if most > 0 {

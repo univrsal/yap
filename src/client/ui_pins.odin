@@ -8,29 +8,28 @@ import mu "vendor:microui"
 import "client:conn"
 import "common:proto"
 
-/*
-The pinned messages of the conversation being looked at, in a floating
-window of their own, opened by the pin button in the conversation's
-header. The newest pin is first. Clicking one has the timeline jump to
-it (UI_Timeline.jump_to): the page around it is fetched if it isn't in
-the window, and it's scrolled to and lit up for a moment.
-
-The network side fetches the pins when the window opens, or shows
-another conversation's, and again when one of them changes.
-*/
+// The pinned messages of the conversation being looked at, in a floating
+// window of their own, opened by the pin button in the conversation's header.
+// The newest pin is first. Clicking a pin makes the timeline jump to that
+// message (UI_Timeline.jump_to): the page around it is fetched if it isn't in
+// the loaded window, and the message is scrolled to and highlighted for a
+// moment.
+//
+// The network side fetches the pins when the window opens or shows another
+// conversation's, and again when one of them changes.
 
 UI_Pins :: struct {
 	open:   bool,
-	placed: bool, // its place has been set since it opened
-	// The conversation whose pins were asked for.
+	placed: bool, // whether its position has been set since it was opened
+	// The conversation whose pins were requested.
 	asked:  proto.Conv_Id,
 }
 
 @(private = "file")
 PINS_WINDOW :: "Pinned messages"
 
-// pins_button is the header's pin button, which opens and closes the
-// window. Call with the View locked.
+// pins_button is the header's pin button, which opens and closes the window.
+// Call with the View locked.
 pins_button :: proc(ui: ^UI) {
 	if .SUBMIT in
 	   icon_button(
@@ -128,5 +127,5 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
-// How long a message jumped to stays lit.
+// How long a message that was jumped to stays highlighted.
 JUMP_HIGHLIGHT :: 2 * time.Second

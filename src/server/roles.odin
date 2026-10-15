@@ -6,37 +6,39 @@ import "core:strings"
 
 import "common:proto"
 
-/*
-Roles (src/common/proto/roles.odin): what an account may do comes from
-them. Every account has `everyone`; the others it has are kept with it
-(Account.roles), and what they add up to too (Account.perms), worked
-out again whenever a role or an account's roles change. The owner may
-do everything whatever its roles (permissions, accounts.odin).
-
-Nobody can make a role do more than they may themselves: a role whose
-permissions aren't all the asker's can't be made, changed, deleted,
-given or taken away by them (outranks). Nor can the owner's account be
-disabled, and an account that may do more than the asker can't be
-disabled, given a password or have its devices revoked by them.
-
-A role's colour and its place in the list (Role_Order) are only for
-showing names: which role is above another for handling them goes by
-what they allow. Whether it can be mentioned (Mentionable) is up to
-whoever may change it; everyone's never can.
-
-Like the accounts, roles are few and all kept in memory.
-*/
+// Roles (see src/common/proto/roles.odin) determine what an account may do.
+// Every account has the `everyone` role. The other roles of an account are
+// stored with the account (Account.roles) together with the combined
+// permissions of all its roles (Account.perms), which are recalculated
+// whenever a role or the roles of an account change. The owner may do
+// everything regardless of its roles (see permissions in accounts.odin).
+//
+// Nobody can give a role more permissions than they have themselves. A role
+// whose permissions aren't all held by the asker can't be created, changed,
+// deleted, given or taken away by them (see outranks). The owner's account
+// can't be disabled, and an account that has more permissions than the
+// asker can't be disabled, given a password or have its devices revoked by
+// them.
+//
+// A role's colour and its position in the list (Role_Order) only affect how
+// names are displayed. Which role is above another when managing them is
+// decided by the permissions they grant. Whether a role can be mentioned
+// (Mentionable) is up to whoever may change the role. The everyone role can
+// never be mentioned.
+//
+// Like the accounts, there are only a few roles and all of them are kept in
+// memory.
 
 Role :: struct {
 	id:       proto.Role_Id,
 	name:     string, // owned
 	perms:    proto.Permissions,
 	color:    u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
-	position: int, // lower is higher up; ties go by id
+	position: int, // a lower number is higher up, ties are broken by id
 	flags:    proto.Role_Flags,
 }
 
-// roles_load reads the roles and who has them (accounts_load).
+// roles_load reads the roles and which accounts have them (see accounts_load).
 @(require_results)
 roles_load :: proc(a: ^Accounts) -> bool {
 	q := db_stmt(a.db, .Role_All)
@@ -90,7 +92,7 @@ roles_destroy :: proc(a: ^Accounts) {
 	delete(a.roles)
 }
 
-// account_perms_update works out again what an account's roles let it do.
+// account_perms_update recalculates the permissions that an account's roles grant it.
 account_perms_update :: proc(a: ^Accounts, acc: ^Account) {
 	perms := a.roles[proto.EVERYONE_ROLE].perms if proto.EVERYONE_ROLE in a.roles else {}
 	for id in acc.roles {
@@ -101,8 +103,8 @@ account_perms_update :: proc(a: ^Accounts, acc: ^Account) {
 	acc.perms = perms
 }
 
-// roles_sorted is the roles, everyone's first, then by id; in the temp
-// allocator.
+// roles_sorted returns the roles in the order given by role_before,
+// allocated with the temp allocator.
 roles_sorted :: proc(a: ^Accounts) -> []^Role {
 	list := make([dynamic]^Role, 0, len(a.roles), context.temp_allocator)
 	for _, r in a.roles {
@@ -112,8 +114,8 @@ roles_sorted :: proc(a: ^Accounts) -> []^Role {
 	return list[:]
 }
 
-// role_before is the order roles are listed in: by position, then as
-// they were made, with everyone's last.
+// role_before defines the order in which roles are listed: by position, then
+// by creation order, with the everyone role last.
 role_before :: proc(x, y: ^Role) -> bool {
 	xe, ye := x.id == proto.EVERYONE_ROLE, y.id == proto.EVERYONE_ROLE
 	if xe != ye {
@@ -125,7 +127,7 @@ role_before :: proc(x, y: ^Role) -> bool {
 	return x.id < y.id
 }
 
-// role_record is a role as it's told.
+// role_record converts a role to the record that is sent to clients.
 role_record :: proc(r: ^Role) -> proto.Role {
 	return {
 		id = r.id,
@@ -146,14 +148,14 @@ role_by_name :: proc(a: ^Accounts, name: string) -> ^Role {
 	return nil
 }
 
-// outranks is whether an account may do everything `perms` allow, and so
-// may handle a role, or an account, with them.
+// outranks returns whether an account may do everything that `perms` allow.
+// If so, it may manage roles and accounts that have these permissions.
 outranks :: proc(acc: ^Account, perms: proto.Permissions) -> bool {
 	return perms <= permissions(acc)
 }
 
-// account_roles_set gives an account these roles besides everyone's, in
-// the database and here.
+// account_roles_set gives an account these roles in addition to the
+// everyone role, both in the database and in memory.
 account_roles_set :: proc(a: ^Accounts, acc: ^Account, roles: []proto.Role_Id) -> bool {
 	q := db_stmt(a.db, .Account_Roles_Clear)
 	db_bind_int(q, 1, i64(acc.id))
@@ -170,7 +172,7 @@ account_roles_set :: proc(a: ^Accounts, acc: ^Account, roles: []proto.Role_Id) -
 	return true
 }
 
-// role_request handles a request about roles; false if `op` isn't one.
+// role_request handles a request about roles. Returns false if `op` isn't one.
 role_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: []u8) -> bool {
 	#partial switch op {
 	case .Role_Set:
@@ -212,7 +214,7 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	case in_role.id == proto.EVERYONE_ROLE && name != existing.name:
-		// Its name is what it is.
+		// The name of the everyone role can't be changed.
 		respond(u, id, .Invalid)
 		return
 	}
@@ -220,22 +222,22 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Conflict)
 		return
 	}
-	// Only the bits there are.
+	// Drop any bits that aren't valid permissions.
 	known: proto.Permissions
 	for p in proto.Permission {
 		known += {p}
 	}
 	perms := in_role.perms & known
-	// Everyone's role has no colour: it would be everybody's.
+	// The everyone role has no colour, since it would apply to every account.
 	color := in_role.color if in_role.id != proto.EVERYONE_ROLE else 0
-	// Nor can it be mentioned: that's @everyone.
+	// It can't be mentioned either, because that is what @everyone does.
 	flags := in_role.flags if in_role.id != proto.EVERYONE_ROLE else {}
 	if existing == nil {
 		if len(a.roles) >= proto.MAX_ROLES {
 			respond(u, id, .Too_Large)
 			return
 		}
-		// A new role goes under the others.
+		// A new role is added below all the others.
 		position := 0
 		for _, r in a.roles {
 			position = max(position, r.position + 1)
@@ -287,11 +289,10 @@ encode_role_id :: proc(out: ^[4]u8, id: proto.Role_Id) -> []u8 {
 	return proto.encode_account_id(out, proto.Account_Id(id))
 }
 
-/*
-role_order puts the roles in the order given, top first: every role but
-everyone's, each once. It only changes whose colour a name takes, so
-whoever has Manage_Roles may, whatever the roles allow.
-*/
+// role_order puts the roles in the given order, with the top role first. The
+// list must contain every role except the everyone role, each exactly once.
+// The order only decides which role's colour a name is displayed with, so
+// anyone with Manage_Roles may change it, regardless of what the roles allow.
 @(private = "file")
 role_order :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	a := &s.accounts
@@ -377,7 +378,7 @@ role_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	delete(r.name)
 	free(r)
 	respond(u, id, .Ok)
-	// Whoever had it hasn't any more.
+	// Accounts that had the role lose it.
 	for _, acc in a.by_id {
 		if i, found := slice.linear_search(acc.roles[:], role_id); found {
 			ordered_remove(&acc.roles, i)
@@ -411,8 +412,8 @@ account_roles_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Not_Found)
 		return
 	}
-	// The roles it's to have: each one there is, and not everyone's,
-	// once.
+	// The roles the account is to have. Each must exist, must not be the
+	// everyone role and is only counted once.
 	roles := make([dynamic]proto.Role_Id, context.temp_allocator)
 	for role in wanted {
 		if role not_in a.roles || role == proto.EVERYONE_ROLE {
@@ -423,7 +424,7 @@ account_roles_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			append(&roles, role)
 		}
 	}
-	// What changes has to be the asker's to give or take.
+	// The asker must be allowed to give or take away every role that changes.
 	for role in roles {
 		if !slice.contains(target.roles[:], role) && !outranks(u.account, a.roles[role].perms) {
 			respond(u, id, .Denied)
@@ -474,7 +475,8 @@ account_disable :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	log.infof("%s %s %s", conn_label(u), "disabled" if on else "enabled", target.username)
 	respond(u, id, .Ok)
 	if on {
-		// Its devices stay its own, and can't get in until it's enabled.
+		// The account keeps its devices, but they can't log in until the
+		// account is enabled again.
 		conns := make([dynamic]^Conn, context.temp_allocator)
 		append(&conns, ..target.conns[:])
 		for other in conns {
@@ -484,11 +486,10 @@ account_disable :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	account_changed(s, target)
 }
 
-/*
-roles_changed tells everyone logged in about a role, new or changed, and
-the accounts that have it what they may do now (Self). The record
-everyone has of an account doesn't change: it names its roles.
-*/
+// roles_changed tells everyone who is logged in about a role that was
+// created or changed. The accounts that have the role are also told what
+// they may do now (Self). The record that everyone has of an account
+// doesn't change because it only contains the names of its roles.
 roles_changed :: proc(s: ^Server, r: ^Role) {
 	buf: [proto.ROLE_MAX_SIZE]u8
 	body := proto.encode_role(buf[:], role_record(r))
@@ -505,8 +506,8 @@ roles_changed :: proc(s: ^Server, r: ^Role) {
 	}
 }
 
-// send_roles tells a connection that just logged in every role
-// (directory_sync).
+// send_roles sends every role to a connection that just logged in (see
+// directory_sync).
 send_roles :: proc(s: ^Server, u: ^Conn) {
 	buf: [proto.ROLE_MAX_SIZE]u8
 	for r in roles_sorted(&s.accounts) {

@@ -5,23 +5,21 @@ import "core:slice"
 
 import "common:proto"
 
-/*
-Buddies, and when people were last here (src/common/proto/buddies.odin).
-
-An account's buddies are a list it keeps for itself: adding someone
-doesn't ask or tell them. The list is kept with the accounts (in memory
-and in the database), and every connection of the account is told of
-it at login and of each change.
-
-When an account was last here is accounts.last_seen, noted as its last
-connection goes (account_seen). It's only told to people who have
-exchanged messages with it, both having posted in the DM between them;
-whether it's here now anyone can see in the snapshot, so that's told to
-everyone.
-*/
+// Buddies and when people were last seen (src/common/proto/buddies.odin).
+//
+// An account's buddy list is private to it. Adding someone as a buddy
+// doesn't ask or notify them. The list is stored with the accounts (in
+// memory and in the database), and every connection of the account is
+// sent the list at login and each change afterwards.
+//
+// When an account was last seen is stored in accounts.last_seen, which is
+// updated when its last connection leaves (account_seen). It is only
+// revealed to accounts that have exchanged messages with it, meaning both
+// have posted in the DM between them. Whether an account is connected
+// right now is visible to everyone in the snapshot, so that is not hidden.
 
 // buddy_request handles a request about buddies or when people were
-// last here; false if `op` isn't one.
+// last seen. It returns false if `op` isn't one of those.
 buddy_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: []u8) -> bool {
 	#partial switch op {
 	case .Buddy_Set:
@@ -34,7 +32,7 @@ buddy_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body:
 	return true
 }
 
-// send_buddies tells a connection of every one of its account's buddies.
+// send_buddies sends a connection all the buddies of its account.
 send_buddies :: proc(u: ^Conn) {
 	for b in u.account.buddies {
 		buf: [proto.BUDDY_SET_SIZE]u8
@@ -73,8 +71,8 @@ buddy_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	log.debugf("%s %s account %d as a buddy", conn_label(u), "added" if on else "removed", other)
 	respond(u, id, .Ok)
-	// Every device of the account, the one that asked too: the event
-	// is what each of them goes by.
+	// Tell every device of the account, including the one that asked,
+	// because each device relies on this event to update its list.
 	buf: [proto.BUDDY_SET_SIZE]u8
 	changed := proto.encode_buddy(&buf, other, on)
 	for c in acc.conns {
@@ -102,7 +100,8 @@ last_seen :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok, proto.encode_last_seen_answer(out, entries))
 }
 
-// last_seen_by is when `account` was last here, as `asker` may know it.
+// last_seen_by returns when `account` was last seen, as far as `asker`
+// is allowed to know.
 last_seen_by :: proc(
 	s: ^Server,
 	asker: ^Account,
@@ -114,11 +113,11 @@ last_seen_by :: proc(
 	case acc == nil:
 		return 0
 	case len(acc.conns) > 0 && !appears_offline(acc):
-		return now // here, which anyone can see anyway
+		return now // connected, which anyone can see anyway
 	case len(acc.conns) > 0 && acc.id != asker.id && !messages_exchanged(s, asker.id, account):
 		return proto.LAST_SEEN_HIDDEN
 	case len(acc.conns) > 0:
-		// Appearing offline: when it was last seen to be here.
+		// Appearing offline, so report when it was last seen connected.
 		return proto.Unix_Ms(acc.last_seen)
 	case !messages_exchanged(s, asker.id, account):
 		return proto.LAST_SEEN_HIDDEN

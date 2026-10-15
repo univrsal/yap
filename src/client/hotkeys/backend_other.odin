@@ -5,7 +5,7 @@
 #+build !wasi
 package hotkeys
 
-// Nowhere else to look at the keys (the other BSDs, say).
+// There is no way to read the key state on other systems (e.g. the other BSDs).
 
 Backend :: struct {}
 

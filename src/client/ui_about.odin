@@ -7,13 +7,11 @@ import mu "vendor:microui"
 import "client:platform"
 import "common:."
 
-/*
-The About category of the settings page: which build this is (see
-src/common/version.odin), and the third-party software in it with their
-licenses, one collapsible header each.
-
-The license texts are in licenses/, compiled in.
-*/
+// The About category of the settings page: which build this is (see
+// src/common/version.odin) and the third-party software in it with its
+// licenses, one collapsible header each.
+//
+// The license texts are in licenses/ and compiled in.
 
 @(private = "file")
 Build :: enum {
@@ -44,7 +42,7 @@ THIRD_PARTY := [?]Third_Party {
 	{
 		name = "microui",
 		license = "MIT",
-		use = "The user interface (Odin's port of it)",
+		use = "The user interface (Odin's port of microui)",
 		url = "https://github.com/rxi/microui",
 		text = #load("licenses/microui.txt", string),
 		builds = {.Desktop, .Web},
@@ -76,7 +74,7 @@ THIRD_PARTY := [?]Third_Party {
 	{
 		name = "Opus",
 		license = "BSD-3-Clause",
-		use = "The voice codec, and the notification sounds' format",
+		use = "The voice codec and the format of the notification sounds",
 		url = "https://opus-codec.org",
 		text = #load("licenses/opus.txt", string),
 		builds = {.Desktop, .Web},
@@ -100,21 +98,21 @@ THIRD_PARTY := [?]Third_Party {
 	{
 		name = "tinydialogs",
 		license = "MIT or Unlicense",
-		use = "The file dialog, for sending files",
+		use = "The file dialog for sending files",
 		text = #load("licenses/tinydialogs.txt", string),
 		builds = {.Desktop},
 	},
 	{
 		name = "tinyaac",
 		license = "Unlicense or MIT",
-		use = "Capturing an application's audio, for sharing it",
+		use = "Capturing an application's audio so it can be shared",
 		text = #load("licenses/tinyaac.txt", string),
 		builds = {.Desktop},
 	},
 	{
 		name = "Roboto",
 		license = "Apache-2.0",
-		use = "The font, regular, bold and italic (font data copyright Google 2012)",
+		use = "The regular, bold and italic font (font data copyright Google 2012)",
 		url = "https://fonts.google.com/specimen/Roboto",
 		text = #load("licenses/roboto.txt", string),
 		builds = {.Desktop, .Web},
@@ -130,7 +128,7 @@ THIRD_PARTY := [?]Third_Party {
 	{
 		name = "GNU Unifont",
 		license = "OFL-1.1 or GPL-2.0-or-later with the font embedding exception",
-		use = "The fallback font, for characters Roboto doesn't have",
+		use = "The fallback font for characters that Roboto doesn't have",
 		url = "https://unifoundry.com/unifont/",
 		text = #load("licenses/unifont.txt", string),
 		builds = {.Desktop, .Web},
@@ -173,7 +171,7 @@ about_settings :: proc(ui: ^UI) {
 		mu.push_id(ctx, uintptr(i))
 		defer mu.pop_id(ctx)
 		mu.layout_row(ctx, {-1})
-		// Collapsed until clicked: the licenses are long.
+		// Collapsed until clicked, because the licenses are long.
 		if .ACTIVE not_in mu.header(ctx, fmt.tprintf("%s  (%s)", p.name, p.license)) {
 			continue
 		}
@@ -186,14 +184,12 @@ about_settings :: proc(ui: ^UI) {
 	}
 }
 
-/*
-about_text is mu.text, a line at a time: mu.text wraps long lines, but
-draws the newline that ends one as well (a missing glyph), and an empty
-line takes no room at all.
-*/
+// about_text is mu.text, one line at a time. mu.text wraps long lines, but it
+// also draws the newline that ends a line (as a missing glyph), and an empty
+// line takes no room at all.
 @(private = "file")
 about_text :: proc(ctx: ^mu.Context, text: string) {
-	// Lines as close together as mu.text's own wrapped ones.
+	// Lines as close together as mu.text's own wrapped lines.
 	saved_spacing := ctx.style.spacing
 	ctx.style.spacing = 0
 	defer ctx.style.spacing = saved_spacing

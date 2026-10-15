@@ -3,13 +3,11 @@ package clipboard
 import win "core:sys/windows"
 import "core:time"
 
-/*
-Windows: browsers, Office and most image editors put a "PNG" format on
-the clipboard; everything that copies an image offers a device
-independent bitmap (CF_DIBV5 / CF_DIB, synthesized by Windows from the
-others). A DIB is a BMP file without its 14-byte file header, so we add
-one and let stb_image decode it like any BMP.
-*/
+// Windows: browsers, Office and most image editors put a "PNG" format on the
+// clipboard. Everything that copies an image offers a device independent
+// bitmap (CF_DIBV5 / CF_DIB, which Windows synthesizes from the other
+// formats). A DIB is a BMP file without its 14-byte file header, so we add
+// one and let stb_image decode it like any other BMP.
 
 @(private = "file")
 CF_DIB :: 8
@@ -23,7 +21,7 @@ _init :: proc(wayland_display: rawptr) -> bool {
 _destroy :: proc() {}
 
 _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: string, err: Error) {
-	// Another program may have the clipboard open for a moment.
+	// Another program may have the clipboard open for a short time.
 	opened := false
 	for _ in 0 ..< 10 {
 		if win.OpenClipboard(nil) {
@@ -58,8 +56,8 @@ _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: stri
 	return nil, "", .No_Image
 }
 
-// global_bytes copies out the clipboard's data in `format`, which Windows
-// keeps in a global memory block.
+// global_bytes copies the clipboard's data in `format` out of the global
+// memory block that Windows stores it in.
 @(private = "file")
 global_bytes :: proc(format: u32, allocator := context.allocator) -> (data: []u8, err: Error) {
 	h := win.GetClipboardData(format)

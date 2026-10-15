@@ -6,21 +6,19 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
-/*
-A core:log logger, so code just uses log.info, log.warnf, etc.
+// A core:log logger, so code can simply use log.info, log.warnf, etc.
+//
+// It differs from core:log's console logger in these ways:
+// - timestamps use local time with milliseconds instead of UTC to the second
+// - everything goes to stderr, so lines can't be reordered between streams
+// - a mutex guards each line, so logging from several threads is safe
+// - lines can optionally also be appended to a file (without colors)
+// - each line can optionally be handed to a sink, e.g. a UI log panel
+//
+//	2026-09-19 12:34:56.789 INFO  listening on udp :7777
 
-Differences from core:log's console logger:
-- local time with milliseconds rather than UTC to the second
-- everything goes to stderr, so lines can't reorder between streams
-- a mutex around each line, so it's safe to log from several threads
-- optionally also appends to a file (without colors)
-- optionally hands each line to a sink, e.g. a UI log panel
-
-	2026-09-19 12:34:56.789 INFO  listening on udp :7777
-*/
-
-// Level names as typed on the command line (core:flags matches enum
-// names exactly, hence lowercase).
+// Level names as typed on the command line. core:flags matches enum names
+// exactly, which is why they are lowercase.
 Log_Level :: enum {
 	debug,
 	info,
@@ -28,9 +26,9 @@ Log_Level :: enum {
 	error,
 }
 
-// Log_Sink receives every logged line (timestamp, level and text, no
-// colors or newline). It's called with the logger's lock held, from
-// whichever thread logged.
+// Log_Sink receives every logged line (timestamp, level and text, without
+// colors or a trailing newline). It is called with the logger's lock held,
+// from whichever thread logged the line.
 Log_Sink :: struct {
 	procedure: proc(data: rawptr, level: log.Level, line: string),
 	data:      rawptr,
@@ -39,8 +37,8 @@ Log_Sink :: struct {
 @(private)
 Logger_Data :: struct {
 	mutex:  sync.Mutex,
-	// Where the lines go: a terminal and maybe a file on a desktop, the
-	// browser's console in a web build (logging_native/logging_web).
+	// Where the lines go: a terminal and optionally a file on a desktop, or
+	// the browser's console in a web build (see logging_native/logging_web).
 	output: Log_Output,
 	sink:   Log_Sink,
 }

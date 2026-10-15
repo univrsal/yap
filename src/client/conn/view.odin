@@ -8,14 +8,12 @@ import "core:time"
 
 import "common:proto"
 
-/*
-State shared between the network thread (which writes it) and the UI
-(which reads it every frame). Everything is behind one mutex; the UI
-holds it while laying out a frame, which is well under a millisecond.
-
-The network thread never touches UI state directly, and the UI never
-touches the Voice_Client except through its command queue.
-*/
+// State shared between the network thread (which writes it) and the UI (which
+// reads it every frame). Everything is behind one mutex. The UI holds it while
+// laying out a frame, which takes well under a millisecond.
+//
+// The network thread never touches UI state directly, and the UI never touches
+// the Voice_Client except through its command queue.
 
 Status :: enum {
 	Disconnected,
@@ -24,16 +22,16 @@ Status :: enum {
 	Failed,
 }
 
-// A channel we're subscribed to, and who is in its voice room.
+// A channel we are subscribed to, and who is in its voice room.
 View_Channel :: struct {
 	id:       proto.Conv_Id,
 	name:     string, // owned
 	topic:    string, // owned
-	home:     bool, // the one everyone is in, which can't be left
+	home:     bool, // the one everyone is in, which cannot be left
 	private:  bool, // only for those added to it
 	position: int,
 	members:  []proto.User_Num, // owned
-	// What's unread there (see Conv_Info).
+	// What is unread there (see Conv_Info).
 	read:     proto.Msg_Id,
 	unread:   int,
 	mentions: int,
@@ -43,70 +41,74 @@ View_Channel :: struct {
 View_User :: struct {
 	account:  proto.Account_Id,
 	name:     string, // for display (see display_name); owned
-	// What they've switched off for themselves; nothing to do with the
+	// What they have switched off for themselves. This is unrelated to the
 	// per-user volume we keep for our own ears (see user_settings).
 	muted:    bool,
 	deafened: bool,
 	sharing:  bool, // their screen can be watched (video.odin)
-	room:     proto.Room, // where their voice is; 0 for nowhere
+	room:     proto.Room, // the room their voice is in; 0 for none
 }
 
 View :: struct {
 	mutex:               sync.Mutex,
-	// Called, from whichever thread, when something the UI shows has
-	// changed, for it to draw a frame (see view_write); set once by the
-	// UI before any connection starts.
+	// Called, from whichever thread, when something the UI shows has changed, so
+	// that it draws a frame (see view_write). Set once by the UI before any
+	// connection starts.
 	wake:                proc "c" (),
 	status:              Status,
 	error:               string, // why we Failed
 	// After Failing, whether a new connection is being tried (every
-	// RECONNECT_EVERY), and when the next try is: {} while one is under
-	// way. See connection_lost.
+	// RECONNECT_EVERY), and when the next try is. {} while one is in progress.
+	// See connection_lost.
 	retrying:            bool,
 	retry_at:            time.Tick,
-	// Set when we Failed because the server's key isn't the one saved
-	// for it (see verify_server_key), for the UI to offer trusting it.
+	// Set when we Failed because the server's key is not the one saved for it
+	// (see verify_server_key), for the UI to offer trusting the new key.
 	key_change:          Key_Change,
 	server:              string,
-	// What the server calls itself, if it has said and has a name; what
-	// it says it's for; and its picture, once fetched (the JPEG, owned,
-	// and the id it goes by). See server_info.odin.
+	// What the server calls itself, if it has said and has a name; what it says
+	// it is for; and its picture once fetched (the JPEG, owned, and the id it
+	// goes by). See server_info.odin.
 	server_name:         string,
 	server_about:        string,
 	server_icon:         proto.Blob_Id,
 	icon_jpeg:           []u8,
-	// How big a file attached to a message may be; 0 if it takes none.
+	// How big a file attached to a message may be; 0 if attachments are not accepted.
 	max_attachment:      u64,
-	// Whether one may register an account there, and with what; and the
-	// server's own address, where verifying mail goes (verify.odin).
+	// Whether one may register an account there and with what, and the server's
+	// own address, which verification mail comes from (verify.odin).
 	registration:        proto.Registration_Flags,
 	server_email:        string,
-	// Whether it mails accounts what they missed, if they ask
+	// Whether the server mails accounts what they missed, if they ask
 	// (proto.SETTING_EMAIL_DIGEST, in `shared`).
 	server_digests:      bool,
+	// Whether the server supports Web Push, and its VAPID key, which a
+	// browser subscribes with (push.odin).
+	server_push:         bool,
+	server_push_key:     [proto.PUSH_KEY_SIZE]u8,
 	my_key:              [proto.KEY_SIZE]u8,
-	// The server's, once the handshake has shown it (zero until then):
-	// per-user settings are kept by it and the account (settings.odin).
+	// The server's key, once the handshake has revealed it (zero until then).
+	// Per-user settings are stored by it and the account (settings.odin).
 	server_key:          [proto.KEY_SIZE]u8,
 	my_num:              proto.User_Num, // 0 until the first snapshot
-	my_name:             string, // what our account is called
+	my_name:             string, // the name of our account
 	// Our account and the others (auth.odin).
 	login:               View_Login,
 	me:                  proto.Account_Id,
 	permissions:         proto.Permissions,
-	my_activity:         proto.Activity, // what we chose to be (activity.odin)
+	my_activity:         proto.Activity, // the activity we chose (activity.odin)
 	accounts:            map[proto.Account_Id]View_Account,
-	// Our account's devices as of the last time they were asked for, and
-	// how many times they've arrived.
+	// Our account's devices as of the last time they were requested, and how
+	// many times they have arrived.
 	devices:             [dynamic]Dir_Device,
 	devices_count:       int,
-	// Another account's devices (a bot's tokens), as an admin last asked
-	// for them: whose, and how many times they've arrived (bots.odin).
+	// Another account's devices (a bot's tokens), as an admin last requested
+	// them: whose they are, and how many times they have arrived (bots.odin).
 	other_devices:       [dynamic]Dir_Device,
 	other_devices_of:    proto.Account_Id,
 	other_devices_count: int,
-	// A bot's token just made, to be shown once (owned; "" for none),
-	// whose it is, and bumped with each.
+	// A bot's token that was just created, to be shown once (owned, "" for none),
+	// the account it belongs to, and a counter incremented with each token.
 	bot_token:           string,
 	bot_token_account:   proto.Account_Id,
 	bot_token_count:     int,
@@ -114,79 +116,80 @@ View :: struct {
 	server_memory:       View_Server_Memory, // server_info.odin
 	notice:              View_Notice,
 	users:               map[proto.User_Num]View_User,
-	// Our channels, in the order to list them (convs.odin); the
-	// conversation whose messages are shown, and the channel last shown
-	// (to go back to from a DM); the one whose voice room we're in (0
-	// for none); and whether a change of room is on its way.
+	// Our channels in the order to list them (convs.odin), the conversation
+	// whose messages are shown, the channel last shown (to go back to from a
+	// DM), the channel whose voice room we are in (0 for none), and whether a
+	// change of room is in progress.
 	channels:            [dynamic]View_Channel,
 	viewing:             proto.Conv_Id,
 	channel:             proto.Conv_Id,
 	my_room:             proto.Conv_Id,
 	voice_pending:       bool,
-	// The channels there were to subscribe to the last time they were
-	// asked for, and how many times they've arrived.
+	// The channels that were available to subscribe to the last time they were
+	// requested, and how many times they have arrived.
 	browse:              [dynamic]Browse_Entry,
 	browse_count:        int,
-	browse_more:         bool, // there are more of them to ask for
+	browse_more:         bool, // there are more to request
 	// The microphone's level and the voice gate, per captured frame.
 	mic_level:           f32, // dBFS
 	mic_open:            bool,
 	mic_time:            time.Tick,
-	// Last time each user's voice was heard, for a speaking indicator.
+	// The last time each user's voice was heard, for the speaking indicator.
 	speaking:            map[proto.User_Num]time.Tick,
-	// Messages (messages.odin): the windows of the conversations we
-	// keep, ours on their way, the pictures messages show (blobs.odin),
-	// who said last they're typing where, and how many messages from
-	// others have come in the one on screen (the UI zeroes it when seen).
+	// Messages (messages.odin): the windows of the conversations we keep, our
+	// messages that are on their way, the pictures that messages show
+	// (blobs.odin), who last said they were typing where, and how many messages
+	// from others have arrived in the conversation on screen (the UI resets it
+	// to zero when they are seen).
 	timelines:           map[Timeline_Key]View_Timeline,
-	// Roots of threads, fetched for the replies that point at them and
-	// for the threads open.
+	// Roots of threads, fetched for the replies that point at them and for the
+	// threads that are open.
 	roots:               map[proto.Msg_Id]View_Root,
-	// Messages asked for by id (roots, links) that aren't to be had.
+	// Messages that were requested by id (roots, links) but are not available.
 	roots_missing:       map[proto.Msg_Id]bool,
 	outbox:              [dynamic]View_Pending,
-	// Files of messages being saved, or saved, by their blobs
+	// Files of messages that are being saved or have been saved, by their blobs
 	// (attachments.odin).
 	saves:               map[proto.Blob_Id]View_Save,
 	blobs:               map[proto.Blob_Id]View_Image,
 	typing:              map[proto.Account_Id]View_Typing,
 	unread:              int,
-	// Mentions of us, for the UI to show (and take) next frame.
+	// Mentions of us, for the UI to show (and take) in the next frame.
 	mentioned:           [dynamic]View_Mention,
-	// Whose screen we're watching, or 0.
+	// Whose screen we are watching, or 0.
 	watching:            proto.User_Num,
-	// Screen sharing's figures (publish_video_stats), and how much the
-	// server takes from a sharer, in kbit/s (0 if it didn't say).
+	// Screen sharing's figures (publish_video_stats), and how much bandwidth the
+	// server allows a sharer, in kbit/s (0 if it did not say).
 	video_stats:         Video_Stats,
 	video_limit_kbit:    int,
 	// The media link is up, which sharing and watching need (video.odin).
 	video_link:          bool,
 	// How the pings to the server are doing (ping.odin).
 	connection:          Connection_Stats,
-	// Our DMs (buddies.odin): who each is with, and what's unread there.
-	// Our buddies. And when people were last here, as far as the server
-	// has said (proto/buddies.odin).
+	// Our DMs (buddies.odin): who each is with, and what is unread there.
+	// Our buddies, and when people were last here as far as the server has
+	// said (proto/buddies.odin).
 	dms:                 [dynamic]View_DM,
 	buddies:             [dynamic]proto.Account_Id,
 	last_seen:           map[proto.Account_Id]proto.Unix_Ms,
-	// File transfers in DMs, by the message that offers the file
+	// File transfers in DMs, keyed by the message that offers the file
 	// (files.odin).
 	files:               map[proto.Msg_Id]View_File,
-	// The pinned messages of a conversation, last asked for (messages.odin).
+	// The pinned messages of a conversation, as last requested (messages.odin).
 	pins:                View_Pins,
-	// Who reacted with an emoji, as last asked (messages.odin).
+	// Who reacted with an emoji, as last requested (messages.odin).
 	reactors:            View_Reactors,
 	// What the latest search found (search.odin).
 	search:              View_Search,
-	// The server's own emoji (emoji.odin).
+	// The server's custom emoji (emoji.odin).
 	emoji:               View_Emoji,
-	// Our account's settings as the server keeps them, whether the sync
-	// has brought them all, and a count bumped whenever they change; and
-	// the members last asked for (profiles.odin).
+	// Our account's settings as the server stores them, whether the sync has
+	// brought all of them, a counter incremented whenever they change, and the
+	// members that were last requested (profiles.odin).
 	shared:              map[string]string,
 	shared_synced:       bool,
 	shared_count:        int,
-	shared_syncs:        int, // how many syncs have brought them
+	shared_syncs:        int, // how many syncs have delivered them
 	members:             View_Members,
 	// The server's roles, by id (roles.odin).
 	roles:               [dynamic]View_Role,
@@ -194,7 +197,7 @@ View :: struct {
 	call:                View_Call,
 }
 
-// A DM: who it's with, and what's unread there (see View_Channel).
+// A DM: who it is with, and what is unread there (see View_Channel).
 View_DM :: struct {
 	id:        proto.Conv_Id,
 	with:      proto.Account_Id,
@@ -211,9 +214,9 @@ View_File :: struct {
 	size:     u64,
 	outgoing: bool,
 	state:    File_State,
-	done:     u64, // bytes through
-	rate:     f32, // bytes per second, lately
-	path:     string, // where a received one is saved; owned
+	done:     u64, // bytes transferred so far
+	rate:     f32, // recent transfer rate in bytes per second
+	path:     string, // where a received file is saved; owned
 }
 
 Key_Change :: struct {
@@ -225,13 +228,13 @@ Key_Change :: struct {
 
 View_Mention :: struct {
 	name:  string, // who mentioned us; owned
-	place: string, // where; owned
+	place: string, // where it was said; owned
 	text:  string, // what they said, as shown; owned
-	// The message, for a notification to go to when it's clicked.
+	// The message, for a notification to go to when it is clicked.
 	conv:  proto.Conv_Id,
 	msg:   proto.Msg_Id,
-	// Not a mention but a DM (`place` is who it's with), which isn't
-	// told while it's being read.
+	// Not a mention but a DM (`place` is who it is with), which is not
+	// announced while it is being read.
 	dm:    bool,
 }
 
@@ -240,7 +243,7 @@ SPEAKING_HOLD :: 250 * time.Millisecond
 view_init :: proc(v: ^View) {
 }
 
-// view_reset clears everything from a previous connection.
+// view_reset clears everything left over from a previous connection.
 view_reset :: proc(v: ^View) {
 	sync.guard(&v.mutex)
 	view_clear_channels(v)
@@ -285,6 +288,7 @@ view_reset :: proc(v: ^View) {
 	delete(v.server_email)
 	v.server_email = ""
 	v.server_digests = false
+	v.server_push = false
 	delete(v.login.error)
 	delete(v.login.username)
 	delete(v.login.email)
@@ -294,8 +298,8 @@ view_reset :: proc(v: ^View) {
 	v.me, v.permissions = 0, {}
 }
 
-// publish_logged_out takes what the server showed us off the screen:
-// we're connected to it still, but not logged in any more.
+// publish_logged_out removes what the server showed us from the screen. We are
+// still connected to it, but not logged in any more.
 publish_logged_out :: proc(c: ^Voice_Client) {
 	v := c.view
 	if v == nil {
@@ -364,7 +368,7 @@ view_clear_files :: proc(v: ^View) {
 }
 
 // publish_file shows how a transfer is going, at most every
-// FILE_PUBLISH_INTERVAL unless `force` (a change of state).
+// FILE_PUBLISH_INTERVAL unless `force` is set (a change of state).
 publish_file :: proc(c: ^Voice_Client, t: ^File_Transfer, force := false) {
 	v := c.view
 	now := time.tick_now()
@@ -420,8 +424,8 @@ publish_mentioned :: proc(
 	)
 }
 
-// view_take_mentions hands the UI the mentions of us that have come in,
-// as copies in the temp allocator, and forgets them.
+// view_take_mentions hands the UI the mentions of us that have arrived, as
+// copies in the temp allocator, and forgets them.
 view_take_mentions :: proc(v: ^View) -> []View_Mention {
 	sync.guard(&v.mutex)
 	if len(v.mentioned) == 0 {
@@ -467,15 +471,13 @@ is_speaking :: proc(v: ^View, id: proto.User_Num) -> bool {
 	return ok && time.tick_since(t) < SPEAKING_HOLD
 }
 
-// The publish_* procs are called from the network thread. They do
-// nothing when there's no UI (headless mode).
+// The publish_* procs are called from the network thread. They do nothing when
+// there is no UI (headless mode).
 
-/*
-view_write is sync.guard for a change to the View: once the lock is let
-go, it wakes the UI to draw what changed. The UI only draws a frame when
-there's something new to show (see ui_frame), so a change made under a
-plain sync.guard waits for the next thing that does wake it.
-*/
+// view_write is sync.guard for a change to the View: once the lock is released,
+// it wakes the UI to draw what changed. The UI only draws a frame when there is
+// something new to show (see ui_frame), so a change made under a plain
+// sync.guard waits until something else wakes the UI.
 @(deferred_in = view_write_end)
 view_write :: proc(v: ^View) -> bool {
 	sync.mutex_lock(&v.mutex)
@@ -512,8 +514,8 @@ publish_status :: proc(c: ^Voice_Client, status: Status, error := "") {
 	view_set_retry(v, c)
 }
 
-// publish_retry tells the UI whether, and when, a new connection is
-// tried (connection_lost).
+// publish_retry tells the UI whether, and when, a new connection will be tried
+// (connection_lost).
 publish_retry :: proc(c: ^Voice_Client) {
 	v := c.view
 	if v == nil {
@@ -543,6 +545,8 @@ publish_server :: proc(c: ^Voice_Client) {
 	delete(v.server_email)
 	v.server_email = strings.clone(c.rpc.server.email)
 	v.server_digests = c.rpc.server.digests
+	v.server_push = c.rpc.server.push
+	v.server_push_key = c.rpc.server.push_key
 	delete(v.server_about)
 	v.server_about = strings.clone(c.rpc.server.description)
 	if v.server_icon != c.rpc.server.icon || len(v.icon_jpeg) != len(c.rpc.server.icon_jpeg) {
@@ -557,7 +561,7 @@ publish_server :: proc(c: ^Voice_Client) {
 }
 
 // publish_server_key tells the UI the server's key, which the per-user
-// settings go by.
+// settings are keyed by.
 publish_server_key :: proc(c: ^Voice_Client) {
 	v := c.view
 	if v == nil {
@@ -567,8 +571,8 @@ publish_server_key :: proc(c: ^Voice_Client) {
 	v.server_key = c.server_key
 }
 
-// publish_key_change tells the UI the server showed a key other than
-// the one saved for it. The connection fails right after.
+// publish_key_change tells the UI that the server showed a key other than the
+// one saved for it. The connection fails right after.
 publish_key_change :: proc(c: ^Voice_Client, saved, received: [proto.KEY_SIZE]u8) {
 	v := c.view
 	if v == nil {
@@ -659,8 +663,9 @@ publish_mic :: proc(c: ^Voice_Client, level_db: f32, gate_open: bool) {
 	if v == nil {
 		return
 	}
-	// Every captured frame: no waking for this. The meter, the only
-	// thing that shows it, keeps drawing frames while it's on screen.
+	// This runs for every captured frame, so it does not wake the UI. The
+	// meter is the only thing that shows it and keeps drawing frames while it is
+	// on screen.
 	sync.guard(&v.mutex)
 	v.mic_level, v.mic_open, v.mic_time = level_db, gate_open, time.tick_now()
 }
@@ -670,8 +675,8 @@ publish_voice :: proc(c: ^Voice_Client, speaker: proto.User_Num) {
 	if v == nil {
 		return
 	}
-	// Every voice frame: the UI is only woken as someone starts to
-	// speak, and wakes itself for when they'd stop (speaking_until).
+	// This runs for every voice frame. The UI is only woken when someone starts
+	// to speak, and wakes itself for when they would stop (speaking_until).
 	sync.guard(&v.mutex)
 	was := is_speaking(v, speaker)
 	v.speaking[speaker] = time.tick_now()
@@ -681,8 +686,8 @@ publish_voice :: proc(c: ^Voice_Client, speaker: proto.User_Num) {
 }
 
 // speaking_until is when the first of those speaking stops, as far as
-// is_speaking goes, unless more of their voice comes before then; zero
-// if nobody is speaking. Call with the View locked.
+// is_speaking is concerned, unless more of their voice arrives before then. It
+// is zero if nobody is speaking. Call with the View locked.
 speaking_until :: proc(v: ^View) -> (until: time.Tick) {
 	for _, t in v.speaking {
 		if time.tick_since(t) < SPEAKING_HOLD {
@@ -710,8 +715,8 @@ publish_connection :: proc(c: ^Voice_Client) {
 		return
 	}
 	stats := connection_stats(&c.ping, time.tick_now())
-	// Twice a second: the UI is only woken when the indicator's bars
-	// would change. Its tooltip, with the figures, keeps up by itself.
+	// Twice a second. The UI is only woken when the indicator's bars would
+	// change. Its tooltip, with the figures, keeps up by itself.
 	sync.guard(&v.mutex)
 	if stats.quality != v.connection.quality {
 		view_changed(v)
@@ -719,9 +724,7 @@ publish_connection :: proc(c: ^Voice_Client) {
 	v.connection = stats
 }
 
-/*
-Recent log lines for the UI's log panel, fed by a common.Log_Sink.
-*/
+// Recent log lines for the UI's log panel, fed by a common.Log_Sink.
 MAX_LOG_LINES :: 500
 
 Log_Line :: struct {
@@ -732,14 +735,14 @@ Log_Line :: struct {
 Log_Lines :: struct {
 	mutex: sync.Mutex,
 	lines: [dynamic]Log_Line,
-	total: int, // lines ever added, so the UI can tell when new ones arrive
+	total: int, // total lines ever added, so the UI can tell when new ones arrive
 }
 
 log_lines_sink :: proc(data: rawptr, level: log.Level, line: string) {
 	l := (^Log_Lines)(data)
 	sync.guard(&l.mutex)
 	if len(l.lines) >= MAX_LOG_LINES {
-		// Drop the oldest tenth in one go rather than shifting per line.
+		// Drop the oldest tenth in one go rather than shifting for every line.
 		drop := MAX_LOG_LINES / 10
 		for old in l.lines[:drop] {
 			delete(old.text)

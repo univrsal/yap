@@ -30,7 +30,7 @@ test_rpc_messages :: proc(t: ^testing.T) {
 	testing.expect_value(t, eop, Event_Op(0x1234))
 	testing.expect(t, slice.equal(ebody, body[:]))
 
-	// Too short to be what they say, or nothing we know.
+	// Too short to be what they claim to be, or a kind we don't know.
 	_, ok = app_kind(req[:REQUEST_HEADER_SIZE - 1])
 	testing.expect(t, !ok)
 	_, ok = app_kind([]u8{77, 0, 0, 0, 0, 0, 0})
@@ -38,7 +38,7 @@ test_rpc_messages :: proc(t: ^testing.T) {
 	_, ok = app_kind(nil)
 	testing.expect(t, !ok)
 
-	// A body as long as a stream message can carry, and one longer.
+	// A body as long as a stream message can carry, and a longer one.
 	most := make([]u8, MAX_BODY_SIZE + 1, context.temp_allocator)
 	testing.expect_value(
 		t,
@@ -66,7 +66,7 @@ test_server_info :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, info.name, "The Shed")
 
-	// Cut in the icon, before the digests.
+	// Cut off within the icon, before the digests.
 	_, ok = decode_server_info(body[:len(body) - 2])
 	testing.expect(t, !ok)
 	_, ok = decode_server_info(nil)
@@ -80,6 +80,9 @@ test_server_info :: proc(t: ^testing.T) {
 @(test)
 test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	buf: [SERVER_INFO_MAX_SIZE]u8
+	push_key: [PUSH_KEY_SIZE]u8
+	push_key[0] = 4
+	push_key[PUSH_KEY_SIZE - 1] = 9
 	body, ok := encode_server_info(
 		buf[:],
 		{
@@ -90,6 +93,7 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 			digests = true,
 			media_port = 7778,
 			video_kbit = 20000,
+			push_key = push_key[:],
 		},
 	)
 	testing.expect(t, ok)
@@ -101,8 +105,24 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	testing.expect(t, info.digests)
 	testing.expect_value(t, info.media_port, 7778)
 	testing.expect_value(t, info.video_kbit, 20000)
+	testing.expect(t, string(info.push_key) == string(push_key[:]))
 
-	// An older server ends at the digests: no media link.
+	// A push key must be either exactly 65 bytes or empty.
+	_, ok = encode_server_info(buf[:], {push_key = push_key[:10]})
+	testing.expect(t, !ok)
+	bad := slice_clone_tmp(body)
+	bad[len(bad) - PUSH_KEY_SIZE - 1] = 10
+	_, ok = decode_server_info(bad[:len(bad) - PUSH_KEY_SIZE + 10])
+	testing.expect(t, !ok)
+
+	// An older server's info ends after the video rate, so it has no push key.
+	body = body[:len(body) - 1 - PUSH_KEY_SIZE]
+	info, ok = decode_server_info(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, len(info.push_key), 0)
+	testing.expect_value(t, info.video_kbit, 20000)
+
+	// An older server ends at the digests, so it has no media link.
 	MEDIA :: 2 + 4
 	info, ok = decode_server_info(body[:len(body) - MEDIA])
 	testing.expect(t, ok)
@@ -110,13 +130,14 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	testing.expect_value(t, info.media_port, 0)
 	body = body[:len(body) - MEDIA]
 
-	// One older still ends at the icon: no digests.
+	// An even older one ends at the icon, so it has no digests.
 	info, ok = decode_server_info(body[:len(body) - 1])
 	testing.expect(t, ok)
 	testing.expect_value(t, info.icon, Blob_Id(42))
 	testing.expect(t, !info.digests)
 
-	// One older still ends at the email address: no description, no icon.
+	// An even older one ends at the email address, so it has no description
+	// and no icon.
 	old := body[:len(body) - 1 - 2 - len("For the band.") - 8]
 	info, ok = decode_server_info(old)
 	testing.expect(t, ok)
@@ -148,5 +169,34 @@ test_server_info_set :: proc(t: ^testing.T) {
 	testing.expect(t, !ok)
 	long_text := make([]u8, MAX_SERVER_DESCRIPTION + 1, context.temp_allocator)
 	_, ok = encode_server_info_set(buf[:], {description = string(long_text)})
+	testing.expect(t, !ok)
+}
+
+@(private = "file")
+slice_clone_tmp :: proc(b: []u8) -> []u8 {
+	out := make([]u8, len(b), context.temp_allocator)
+	copy(out, b)
+	return out
+}
+
+@(test)
+test_push_subscribe :: proc(t: ^testing.T) {
+	buf: [PUSH_SUBSCRIBE_MAX_SIZE]u8
+	sub := Push_Subscription {
+		endpoint = "https://push.example.net/abc",
+	}
+	sub.p256dh[0] = 4
+	sub.auth[15] = 7
+	body, ok := encode_push_subscribe(buf[:], sub)
+	testing.expect(t, ok)
+	got: Push_Subscription
+	got, ok = decode_push_subscribe(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, got.endpoint, sub.endpoint)
+	testing.expect(t, got.p256dh == sub.p256dh && got.auth == sub.auth)
+
+	_, ok = decode_push_subscribe(body[:len(body) - 1])
+	testing.expect(t, !ok)
+	_, ok = encode_push_subscribe(buf[:], {})
 	testing.expect(t, !ok)
 }

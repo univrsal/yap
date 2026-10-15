@@ -42,8 +42,8 @@ dm_with :: proc(
 	return status, conv
 }
 
-// senders is who wrote each message of a conversation's newest page, as
-// `u` reads it.
+// senders returns who wrote each message on a conversation's newest
+// page, as `u` reads it.
 @(private = "file")
 senders :: proc(
 	t: ^testing.T,
@@ -93,7 +93,7 @@ test_account_delete :: proc(t: ^testing.T) {
 	alice := logged_in(t, &ts, "alice")
 	bob := logged_in(t, &ts, "bob")
 
-	// mod manages accounts; carol may do more than mod.
+	// mod can manage accounts, and carol may do more than mod.
 	a := &s.accounts
 	role_buf: [proto.ROLE_MAX_SIZE]u8
 	status, body := ts_ask(
@@ -117,8 +117,8 @@ test_account_delete :: proc(t: ^testing.T) {
 	testing.expect(t, account_roles_set(a, mod_acc, {proto.Role_Id(mods)}))
 	testing.expect(t, account_roles_set(a, carol_acc, {proto.Role_Id(bosses)}))
 
-	// What alice leaves behind: a message in the home channel and in her
-	// DM with bob, who keeps her as a buddy.
+	// What alice leaves behind is a message in the home channel and one
+	// in her DM with bob, who has her as a buddy.
 	status, _ = post(t, &ts, alice, home, "hello", 1)
 	testing.expect_value(t, status, proto.Status.Ok)
 	dm: proto.Conv_Id
@@ -131,8 +131,9 @@ test_account_delete :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	ts_events(t, &ts, bob)
 
-	// Not without Manage_Accounts, not someone who may do more, never the
-	// owner, and nobody who isn't there.
+	// Deleting is denied without Manage_Accounts and for accounts that may
+	// do more than the requester. The owner can never be deleted, and
+	// accounts that don't exist can't be found.
 	testing.expect_value(t, delete_account(t, &ts, bob, carol_acc.id), proto.Status.Denied)
 	testing.expect_value(t, delete_account(t, &ts, mod, carol_acc.id), proto.Status.Denied)
 	testing.expect_value(t, delete_account(t, &ts, mod, admin_acc.id), proto.Status.Invalid)
@@ -143,7 +144,7 @@ test_account_delete :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, delete_account(t, &ts, mod, 999), proto.Status.Not_Found)
 
-	// One's own takes one's password.
+	// Deleting one's own account requires one's password.
 	testing.expect_value(
 		t,
 		delete_account(t, &ts, alice, alice_acc.id, "not the password"),
@@ -157,8 +158,8 @@ test_account_delete :: proc(t: ^testing.T) {
 		proto.Status.Ok,
 	)
 
-	// Her connection is told, and isn't hers any more; her device has to
-	// log in again, to some other account.
+	// Her connection is told about the deletion and no longer belongs to
+	// her account. Her device can only log in to some other account.
 	e, told := has_event(ts_events(t, &ts, alice), .Logged_Out)
 	testing.expect(t, told && len(e.body) == 1 && e.body[0] == u8(proto.Logout_Reason.Deleted))
 	testing.expect(t, alice.account == nil)
@@ -168,14 +169,14 @@ test_account_delete :: proc(t: ^testing.T) {
 	status, _ = ts_login(t, &ts, again, "alice", "a password")
 	testing.expect_value(t, status, proto.Status.Wrong_Password)
 
-	// What's left of her.
+	// What remains of her account.
 	testing.expect_value(t, alice_acc.flags, proto.Account_Flags{.Deleted})
 	testing.expect_value(t, alice_acc.display, proto.DELETED_NAME)
 	testing.expect_value(t, alice_acc.username, "deleted#3")
 	testing.expect(t, !conv_is_member(s.convs.home, alice_acc.id))
 	testing.expect(t, account_find(a, "alice") == nil)
 
-	// Everyone is told; bob's buddy list loses her.
+	// Everyone is told, and she is removed from bob's buddy list.
 	events := ts_events(t, &ts, bob)
 	changed := false
 	for ev in events {
@@ -192,8 +193,8 @@ test_account_delete :: proc(t: ^testing.T) {
 	testing.expect(t, told && gone == alice_acc.id && !on)
 	testing.expect_value(t, len(bob_acc.buddies), 0)
 
-	// What she wrote stays, hers: in the channel, and in the DM, which bob
-	// can read but not write to, nor open again.
+	// What she wrote stays attributed to her, both in the channel and in
+	// the DM. Bob can read the DM but can't write to it or open it again.
 	ids, read := senders(t, &ts, bob, home)
 	testing.expect_value(t, read, proto.Status.Ok)
 	testing.expect(t, len(ids) == 1 && ids[0] == alice_acc.id)
@@ -207,7 +208,8 @@ test_account_delete :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, bob, .Buddy_Set, proto.encode_buddy(&buddy_buf, alice_acc.id, true))
 	testing.expect_value(t, status, proto.Status.Not_Found)
 
-	// Gone once; and her name is free for somebody new.
+	// A deleted account can't be deleted again, and her username is free
+	// for a new account.
 	testing.expect_value(t, delete_account(t, &ts, admin, alice_acc.id), proto.Status.Not_Found)
 	create_buf: [proto.ACCOUNT_BODY_MAX]u8
 	status, _ = ts_ask(
@@ -219,13 +221,14 @@ test_account_delete :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, status, proto.Status.Ok)
 
-	// Somebody else's, by whoever may: at once.
+	// An account with permission can delete somebody else's account,
+	// which takes effect immediately.
 	testing.expect_value(t, delete_account(t, &ts, admin, mod_acc.id), proto.Status.Ok)
 	_, told = has_event(ts_events(t, &ts, mod), .Logged_Out)
 	testing.expect(t, told, "mod wasn't told")
 	testing.expect(t, .Deleted in mod_acc.flags)
 
-	// It's what the database says too.
+	// The database matches.
 	again_loaded: Accounts
 	testing.expect(t, accounts_load(&again_loaded, &s.db))
 	defer accounts_destroy(&again_loaded)

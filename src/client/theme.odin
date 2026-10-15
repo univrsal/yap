@@ -8,24 +8,23 @@ import mu "vendor:microui"
 import "client:platform"
 import "client:settings"
 
-/*
-The UI's colours: a dark palette and a light one, and the setting that
-picks between them (settings.theme: "system", "dark" or "light"). Every
-colour the UI draws with comes from `theme`, besides microui's own
-(ctx.style.colors), which theme_apply sets from the same palette. A
-picture's tint, the white on a coloured disc and the tray (whose panel
-has colours of its own, ui_tray.odin) are the same in both.
-
-"system" follows the desktop's own choice (platform.prefers_dark), asked
-again every few seconds so a change there shows here without a restart.
-Asking can mean running a program (busctl on Linux, defaults on macOS),
-so it's done on a thread of its own, and the UI only reads the answer.
-*/
+// The UI's colors: a dark palette and a light one, and the setting that
+// picks between them (settings.theme: "system", "dark" or "light"). Every
+// color the UI draws with comes from `theme`, except microui's own
+// (ctx.style.colors), which theme_apply sets from the same palette. An
+// image's tint, the white on a colored disc and the tray (whose panel
+// has colors of its own, see ui_tray.odin) are the same in both palettes.
+//
+// "system" follows the desktop's own choice (platform.prefers_dark), which is
+// queried again every few seconds so a change there shows up here without a
+// restart. Querying can mean running a program (busctl on Linux, defaults on
+// macOS), so it is done on a thread of its own and the UI only reads the
+// answer.
 
 Palette :: struct {
-	style:          [mu.Color_Type]mu.Color, // microui's
+	style:          [mu.Color_Type]mu.Color, // microui's own colors
 	background:     mu.Color, // behind every window
-	// Text: dimmed, picked out, and what's said of how something went.
+	// Text: dimmed, highlighted, and the colors that show how something went.
 	dim:            mu.Color,
 	strong:         mu.Color,
 	notice_ok:      mu.Color,
@@ -34,8 +33,8 @@ Palette :: struct {
 	// The state icons: a voice coming through, something switched off.
 	speaking:       mu.Color,
 	off:            mu.Color,
-	// Channels: an unread one's name, the one being looked at, and the
-	// counts' boxes (whose text is badge_text, or for mentions, mention).
+	// Channels: the name of an unread channel, the channel being looked at, and
+	// the unread count badges (whose text is badge_text, or mention for mentions).
 	unread_text:    mu.Color,
 	viewing:        mu.Color,
 	badge_text:     mu.Color,
@@ -57,24 +56,24 @@ Palette :: struct {
 	day_line:       mu.Color,
 	new_line:       mu.Color,
 	pinned:         mu.Color,
-	hover_tint:     mu.Color, // over the message the bar is for
+	hover_tint:     mu.Color, // over the message the hover bar belongs to
 	selection:      mu.Color, // selected text
-	highlight:      mu.Color, // a message picked out (a search's, a link's)
+	highlight:      mu.Color, // a highlighted message (from a search or a message link)
 	highlight_more: mu.Color,
-	// The rail: a server not connected, its text, and the marks beside
-	// the one shown and where one is dragged to.
+	// The server rail: a server that is not connected, its text, and the marks
+	// next to the selected server and the position a dragged server is dropped to.
 	failed_disc:    mu.Color,
 	failed_text:    mu.Color,
 	mark:           mu.Color,
 	mentions:       mu.Color,
-	plus_disc:      mu.Color, // the + that joins one
+	plus_disc:      mu.Color, // the + button that joins a server
 	// Voice: the panel, and how a call is going.
 	panel:          mu.Color,
 	connected:      mu.Color,
 	ringing:        mu.Color,
-	// Grey parts: a bar that isn't lit, a progress bar's track, what's
-	// behind a picture, dividers, a deleted account's disc, and the ring
-	// round an activity dot.
+	// Grey parts: an unlit bar, a progress bar's track, the background
+	// behind an image, dividers, a deleted account's disc, and the ring
+	// around an activity dot.
 	unlit:          mu.Color,
 	track:          mu.Color,
 	image_bg:       mu.Color,
@@ -216,7 +215,7 @@ LIGHT_PALETTE :: Palette {
 // The palette the UI draws with this frame (theme_update).
 theme := DARK_PALETTE
 
-// The settings' choices, in the order they're offered.
+// The theme choices offered in the settings, in the order they are shown.
 Theme_Choice :: enum {
 	System,
 	Dark,
@@ -230,26 +229,26 @@ THEME_CHOICE_NAMES := [Theme_Choice]string {
 }
 
 THEME_CHOICE_LABELS := [Theme_Choice]string {
-	.System = "Like the system",
+	.System = "Same as system",
 	.Dark   = "Dark",
 	.Light  = "Light",
 }
 
-// How often the desktop is asked again whether it's dark.
+// How often the desktop is asked again whether it is dark.
 @(private = "file")
 SYSTEM_ASK_EVERY :: 5 * time.Second
 
 UI_Theme :: struct {
 	dark:     bool, // the palette in use
 	applied:  bool, // theme_apply has run at all
-	// The desktop's answer (atomic; 1 dark, 0 light, -1 not known yet),
-	// whether a thread is out asking, and when one last went.
+	// The desktop's answer (atomic: 1 for dark, 0 for light, -1 if not known yet),
+	// whether a thread is currently asking, and when the last query was started.
 	system:   i32,
 	asking:   bool, // atomic
 	last_ask: time.Tick,
 }
 
-// theme_choice is what the settings say to use.
+// theme_choice returns the choice that is stored in the settings.
 theme_choice :: proc(s: ^settings.Settings) -> Theme_Choice {
 	for name, c in THEME_CHOICE_NAMES {
 		if s.theme == name {
@@ -259,11 +258,9 @@ theme_choice :: proc(s: ^settings.Settings) -> Theme_Choice {
 	return .System
 }
 
-/*
-theme_update picks the palette for this frame, from the setting and, for
-"system", the desktop's last answer; and asks the desktop again now and
-then. Called once a frame, before the layout.
-*/
+// theme_update picks the palette for this frame from the setting and, for
+// "system", from the desktop's last answer. It also asks the desktop again
+// every now and then. Called once per frame, before the layout.
 theme_update :: proc(ui: ^UI) {
 	t := &ui.theme_state
 	dark := true
@@ -274,8 +271,8 @@ theme_update :: proc(ui: ^UI) {
 		dark = false
 	case .System:
 		if !t.applied {
-			// The first time, asked here: the first frame shouldn't flash
-			// the other palette.
+			// On the first run, ask right here so that the first frame doesn't flash
+			// the wrong palette.
 			t.system = 1 if platform.prefers_dark() else 0
 			t.last_ask = time.tick_now()
 		} else if time.tick_since(t.last_ask) >= SYSTEM_ASK_EVERY {
@@ -289,7 +286,7 @@ theme_update :: proc(ui: ^UI) {
 	}
 }
 
-// theme_apply switches to the dark palette or the light one.
+// theme_apply switches to the dark or the light palette.
 theme_apply :: proc(ui: ^UI, dark: bool) {
 	ui.theme_state.dark, ui.theme_state.applied = dark, true
 	theme = DARK_PALETTE if dark else LIGHT_PALETTE
@@ -297,9 +294,9 @@ theme_apply :: proc(ui: ^UI, dark: bool) {
 	ui_redraw(ui)
 }
 
-// system_ask asks the desktop: right here where that's quick, else on a
-// thread of its own, unless one is out asking already; the answer is
-// there for a frame after it comes.
+// system_ask asks the desktop for its preference. It does so right here when
+// that is quick, and otherwise on a thread of its own (unless one is already
+// asking). The answer is picked up one frame after it arrives.
 @(private = "file")
 system_ask :: proc(ui: ^UI) {
 	t := &ui.theme_state

@@ -4,8 +4,8 @@ package conn
 import "core:testing"
 import "core:time"
 
-// Records pings sent a second apart, the last of them just old enough to
-// judge at `now`; a negative rtt means that one got no answer.
+// Records pings sent a second apart, the last of them just old enough to be
+// judged at `now`. A negative rtt means that ping got no answer.
 @(private = "file")
 fill :: proc(p: ^Ping_Tracker, now: time.Tick, rtts: []time.Duration) {
 	for rtt, i in rtts {
@@ -31,7 +31,7 @@ test_connection_unknown :: proc(t: ^testing.T) {
 	now := time.tick_now()
 	testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Unknown)
 
-	// Only unanswered pings: a server that doesn't know Ping.
+	// Only unanswered pings: a server that does not support Ping.
 	fill(&p, now, {-1, -1, -1, -1})
 	s := connection_stats(&p, now)
 	testing.expect_value(t, s.quality, Connection_Quality.Unknown)
@@ -59,7 +59,7 @@ test_connection_pending_not_counted :: proc(t: ^testing.T) {
 	p: Ping_Tracker
 	now := time.tick_now()
 	fill(&p, now, {20 * MS, 20 * MS})
-	// Just sent, no answer yet: neither lost nor answered.
+	// Just sent and not answered yet: neither lost nor answered.
 	id := p.next_id
 	p.next_id += 1
 	p.records[id % PING_WINDOW] = {
@@ -81,7 +81,7 @@ test_connection_quality :: proc(t: ^testing.T) {
 	}
 
 	{
-		// One lost ping in a full window is still good.
+		// One lost ping in a full window still counts as good.
 		p: Ping_Tracker
 		rtts := good
 		rtts[10] = -1
@@ -97,7 +97,7 @@ test_connection_quality :: proc(t: ^testing.T) {
 		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Fair)
 	}
 	{
-		// So does a slow one.
+		// So does a slow round trip.
 		p: Ping_Tracker
 		fill(&p, now, {150 * MS, 160 * MS})
 		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Fair)
@@ -108,7 +108,7 @@ test_connection_quality :: proc(t: ^testing.T) {
 		testing.expect_value(t, connection_stats(&p, now).quality, Connection_Quality.Poor)
 	}
 	{
-		// The latest several lost in a row is poor straight away.
+		// Several lost pings in a row immediately make it poor.
 		p: Ping_Tracker
 		rtts := good
 		for i in 1 ..= LOST_IN_A_ROW {

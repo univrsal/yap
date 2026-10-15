@@ -6,17 +6,17 @@ import "core:fmt"
 import "core:time"
 import mu "vendor:microui"
 
-/*
-Invite codes in the server settings tab (conn/invites.odin): making one,
-good for so many registrations until so long, and the codes there are -
-ours, or with Manage_Accounts everybody's - to copy or revoke.
-*/
+// Invite codes in the server settings tab (conn/invites.odin): creating a code
+// that is valid for a number of registrations and for a period of time, and
+// listing the existing codes (ours, or with Manage_Accounts everybody's) so
+// they can be copied or revoked.
 
 UI_Invites :: struct {
-	asked:     bool, // the list, since the settings were opened
-	uses:      u16, // for the next code; 0: any number
-	days:      int, // how long it's good for; 0: no end
-	// The code just made was shown, and copied with the button.
+	asked:     bool, // the list was requested since the settings were opened
+	uses:      u16, // number of registrations for the next code; 0: unlimited
+	days:      int, // how many days the next code is valid; 0: forever
+	// The made_count of the newly created code that was dismissed with the
+	// Done button, so it is no longer shown.
 	made_seen: int,
 }
 
@@ -32,10 +32,8 @@ ui_invites_opened :: proc(ui: ^UI) {
 	}
 }
 
-/*
-invites_settings is the "Invite codes" part of the server tab, for who
-may make codes or manage accounts. Call with the View locked.
-*/
+// invites_settings draws the "Invite codes" section of the server tab, for
+// users who may create codes or manage accounts. Call with the View locked.
 invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	st := &ui.invites
@@ -56,9 +54,9 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 				st.uses = uses
 			}
 		}
-		field_row(ui, FORM_LABEL, "Good for", {70, 70, 70, 70})
+		field_row(ui, FORM_LABEL, "Valid for", {70, 70, 70, 70})
 		for days in DAYS {
-			label := "No end"
+			label := "Forever"
 			switch days {
 			case 1:
 				label = "A day"
@@ -80,7 +78,12 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 			}
 			invites_command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
 		}
-		with_text_color(ctx, theme.dim, "Whoever has the code can register here.", wrap_text)
+		with_text_color(
+			ctx,
+			theme.dim,
+			"Anyone with the code can register an account on this server.",
+			wrap_text,
+		)
 
 		if v.invites.made != "" && v.invites.made_count > st.made_seen {
 			field_row(ui, FORM_LABEL, "New code", {150, 90, 90})
@@ -103,8 +106,8 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	for inv in v.invites.list {
 		mu.push_id(ctx, inv.code)
 		defer mu.pop_id(ctx)
-		// In a narrow window, two to a line: the code and its uses, its
-		// state and whose it is, and the buttons.
+		// In a narrow window, two cells per line: the code and its uses, its
+		// state and its creator, and the buttons.
 		row := []i32{110, 110, 170, -(2 * 80 + 2 * ctx.style.spacing), 80, 80}
 		mu.layout_row(ctx, row if row_fits(ctx, row) else {110, -1})
 		mu.label(ctx, inv.code)
@@ -125,7 +128,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 		case inv.expires != 0:
 			state = fmt.tprintf("until %s", invite_date(ui, inv.expires))
 		case:
-			state = "no end"
+			state = "never expires"
 		}
 		with_text_color(ctx, ctx.style.colors[.TEXT] if usable else theme.dim, state, label_proc)
 		by := ""
@@ -150,19 +153,18 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
-/*
-invited_by_line is what the account menu says about how an account got
-here, for whoever manages accounts: which code it registered with and
-whose that was. It's asked for the first time it's wanted. Call with the
-View locked.
-*/
+// invited_by_line returns what the account menu says about how an account was
+// created, for users who manage accounts: which code it registered with and who
+// created that code. It is requested from the server the first time it is
+// needed. Call with the View locked.
 invited_by_line :: proc(ui: ^UI, v: ^conn.View, account: proto.Account_Id) -> string {
 	if .Manage_Accounts not_in v.permissions {
 		return ""
 	}
 	of, known := v.invites.of[account]
 	if !known {
-		// Asked again a while later: the answer goes with the connection.
+		// Ask again after a while, since the answer is lost if the connection
+		// drops.
 		asked, before := ui.invites_asked[account]
 		if !before || time.tick_since(asked) > 10 * time.Second {
 			ui.invites_asked[account] = time.tick_now()
@@ -193,8 +195,8 @@ invite_date :: proc(ui: ^UI, ms: proto.Unix_Ms) -> string {
 	)
 }
 
-// choice_button is a button that's one of a set, showing whether it's
-// the one chosen; it says whether it was clicked.
+// choice_button draws a button that is one of a set of choices, marked if it is
+// the chosen one. It returns whether it was clicked.
 choice_button :: proc(ui: ^UI, id, label: string, chosen: bool) -> bool {
 	text := fmt.tprintf("> %s", label) if chosen else label
 	return .SUBMIT in stable_button(&ui.ctx, id, text, {.ALIGN_CENTER})

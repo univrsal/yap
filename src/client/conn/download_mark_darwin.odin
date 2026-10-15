@@ -13,14 +13,12 @@ foreign system {
 	setxattr :: proc(path: cstring, name: cstring, value: rawptr, size: c.size_t, position: u32, options: c.int) -> c.int ---
 }
 
-/*
-mark_downloaded gives a file we've saved from someone else (a DM's file,
-or a message's) the mark a browser gives its downloads: the quarantine
-attribute. Gatekeeper then checks an app before it's first opened, and
-asks. Nothing comes of it if it can't be set.
-*/
+// mark_downloaded gives a file we saved from someone else (an attachment of a
+// DM or of a message) the quarantine attribute that browsers set on their
+// downloads. Gatekeeper then checks an app and asks before it is opened for
+// the first time. Failing to set the attribute is ignored.
 mark_downloaded :: proc(path: string) {
-	// Flags (0081: downloaded, not yet opened), when, and by what.
+	// The value is: flags (0081 means downloaded and not yet opened), timestamp, and app name.
 	value := fmt.tprintf("0081;%08x;yap;", time.time_to_unix(time.now()))
 	setxattr(
 		strings.clone_to_cstring(path, context.temp_allocator),

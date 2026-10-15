@@ -6,14 +6,12 @@ import "client:settings"
 import "core:fmt"
 import mu "vendor:microui"
 
-/*
-The image cache: people's pictures and servers' emoji kept between
-sessions (conn/image_cache.odin). The UI owns it, opens it in the folder
-the settings say (the system's cache folder if they don't say), and
-hands it to each connection; the settings page shows how big it is and
-changes how big it may get, where it is, or empties it. In a browser
-it's the site's IndexedDB, with no folder to choose.
-*/
+// The image cache: people's pictures and servers' emoji, kept between
+// sessions (see conn/image_cache.odin). The UI owns it, opens it in the folder
+// given in the settings (the system's cache folder if there is none), and
+// hands it to each connection. The settings page shows how big it is and
+// lets the user change how big it may get, where it is, or empty it. In a
+// browser the cache is the site's IndexedDB, with no folder to choose.
 
 // image_cache_start opens the cache where the settings say.
 image_cache_start :: proc(ui: ^UI) {
@@ -30,7 +28,7 @@ image_cache_reopen :: proc(ui: ^UI) {
 	conn.image_cache_open(&ui.image_cache, dir, settings.image_cache_bytes(&ui.settings))
 }
 
-// image_cache_settings is the settings page's section for it.
+// image_cache_settings is the settings page's section for the cache.
 image_cache_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 
@@ -45,7 +43,7 @@ image_cache_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "Maximum size")
 	if .CHANGE in
 	   mu.slider(ctx, &ui.settings.image_cache_mb, 0, settings.MAX_IMAGE_CACHE_MB, 16, "%.0f MB") {
-		// Sliders change every frame while dragged; saved within a second.
+		// Sliders change every frame while dragged. The settings are saved within a second.
 		ui.settings_dirty = true
 		conn.image_cache_set_max(&ui.image_cache, settings.image_cache_bytes(&ui.settings))
 	}
@@ -101,7 +99,7 @@ folder_settings :: proc(ui: ^UI) {
 	)
 }
 
-// format_bytes is a size the way a person reads one.
+// format_bytes writes a size the way a person reads one.
 @(private = "file")
 format_bytes :: proc(n: int) -> string {
 	switch {

@@ -11,26 +11,24 @@ import "client:idle"
 import glfw "client:wglfw"
 import "common:proto"
 
-/*
-Activity (src/common/proto/activity.odin): a dot at the bottom right of
-people's pictures, green online, yellow away, red busy, grey offline;
-choosing ours (the status window, ui_profiles.odin); and noticing that
-nobody has touched this window for a while, which makes us away unless
-we chose otherwise.
+// Activity (see src/common/proto/activity.odin): a dot at the bottom right of
+// people's pictures (green for online, yellow for away, red for busy, grey for
+// offline), choosing our own activity (in the status window, see
+// ui_profiles.odin), and noticing that nobody has touched this window for a
+// while, which makes us away unless we chose otherwise.
+//
+// We are idle when there has been no input for IDLE_AFTER, anywhere on the
+// desktop where the system reports it (see client:idle), and always in yap's
+// own window. Input in either is enough not to be idle. Idleness is only
+// checked while we chose to be online, because for any other choice the server
+// shows what we chose regardless of idleness. Otherwise we are not idle.
 
-Idle is no input for IDLE_AFTER, anywhere on the desktop where the
-system says (client:idle), and in yap's own window always: input in
-either is enough not to be idle. It's only looked for while we chose to
-be online, since for any other choice the server shows what we chose
-whatever the idle; otherwise we're not idle.
-*/
-
-// No input for this long is idle: ten minutes, or for testing,
-// -define:YAP_IDLE_SECONDS=n.
+// No input for this long counts as idle: ten minutes, or the value of
+// -define:YAP_IDLE_SECONDS=n for testing.
 IDLE_SECONDS :: #config(YAP_IDLE_SECONDS, 600)
 IDLE_AFTER :: IDLE_SECONDS * time.Second
-// How often the system is asked: not every turn of the loop, since on
-// X11 it's a round trip to the X server.
+// How often the system is asked. It isn't asked on every turn of the loop,
+// because on X11 each query is a round trip to the X server.
 @(private = "file")
 IDLE_CHECK_EVERY :: min(15 * time.Second, IDLE_AFTER / 4)
 
@@ -39,9 +37,10 @@ UI_Activity :: struct {
 	source:       idle.Source, // where the system's idle comes from
 	opened:       bool,
 	last_check:   time.Tick,
-	system_idle:  bool, // as the system last said, if it could
+	system_idle:  bool, // as the system last reported, if it could
 	system_known: bool,
-	idle:         bool, // as last worked out (each session: Net_Session.idle_told)
+	idle:         bool, // as last determined (per session, see Net_Session.idle_told)
+	hidden:       bool, // whether the page is out of sight (web only, see ui_push_web.odin)
 }
 
 ACTIVITY_COLORS := [proto.Activity]mu.Color {
@@ -65,10 +64,8 @@ ACTIVITY_HINTS := [proto.Activity]string {
 	.Offline = "Appear offline to everyone else",
 }
 
-/*
-activity_input notices input in the window since the last frame, before
-microui takes it. Call once a frame, before mu.begin.
-*/
+// activity_input notices input in the window since the last frame, before
+// microui takes it. Call once per frame, before mu.begin.
 activity_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	input :=
@@ -82,11 +79,9 @@ activity_input :: proc(ui: ^UI) {
 	}
 }
 
-/*
-activity_step works out whether we're idle and tells the network side
-when that changes. Call every turn of the loop, drawn or not, hidden
-window or not: it draws nothing.
-*/
+// activity_step works out whether we are idle and tells the network side
+// when that changes. Call it on every turn of the loop, drawn or not, hidden
+// window or not. It draws nothing.
 activity_step :: proc(ui: ^UI) {
 	a := &ui.activity
 	now := time.tick_now()
@@ -105,8 +100,8 @@ activity_step :: proc(ui: ^UI) {
 		a.source = idle.open(IDLE_AFTER, wayland, x11)
 		log.infof("idle from: %v", a.source)
 	}
-	// Only asked while we chose to be online somewhere: elsewhere it
-	// changes nothing.
+	// Only asked while we chose to be online somewhere, because otherwise
+	// it changes nothing.
 	online := false
 	for ns in ui.sessions {
 		sync.guard(&ns.view.mutex)
@@ -121,16 +116,23 @@ activity_step :: proc(ui: ^UI) {
 		is_idle =
 			time.tick_diff(a.last_input, now) >= IDLE_AFTER && (a.system_idle || !a.system_known)
 	} else {
-		// Asked afresh once we're online again.
+		// Asked again once we are online again.
 		a.last_check = {}
 	}
-	// Every server is told, each once; a new connection starts out not
-	// idle, and the client tells it again after starting over itself.
-	a.idle = is_idle
+	// Whether the page is out of sight is reported regardless of the chosen
+	// activity: it doesn't make anyone away, but it makes the server send us
+	// push notifications (see ui_push_web.odin).
+	hidden := page_hidden()
+	// Every server is told once. A new connection starts out as not idle, and
+	// the client tells it again after it has started over itself.
+	a.idle, a.hidden = is_idle, hidden
 	for ns in ui.sessions {
-		if ns.idle_told != is_idle {
-			ns.idle_told = is_idle
-			conn.push_command(&ns.client.commands, conn.Idle_Command{idle = is_idle})
+		if ns.idle_told != is_idle || ns.hidden_told != hidden {
+			ns.idle_told, ns.hidden_told = is_idle, hidden
+			conn.push_command(
+				&ns.client.commands,
+				conn.Idle_Command{idle = is_idle, hidden = hidden},
+			)
 		}
 	}
 }
@@ -142,11 +144,9 @@ activity_close :: proc(ui: ^UI) {
 	}
 }
 
-/*
-activity_dot draws an account's dot over the bottom right corner of its
-picture, drawn in `r`, with a dark edge so it reads on any picture. Call
-with the View locked.
-*/
+// activity_dot draws an account's dot over the bottom right corner of its
+// picture, which is drawn in `r`, with a dark edge so it is visible on any
+// picture. Call with the View locked.
 activity_dot :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	acc, known := ui.view.accounts[account]
 	if !known {
@@ -158,8 +158,8 @@ activity_dot :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	disc(ui, edge, ACTIVITY_COLORS[acc.activity], inset = 1)
 }
 
-// activity_dot_alone draws just the dot, centred in `r`: for where
-// there's no picture (the compact chat).
+// activity_dot_alone draws just the dot, centered in `r`, for places where
+// there is no picture (the compact chat).
 activity_dot_alone :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	acc, known := ui.view.accounts[account]
 	if !known {

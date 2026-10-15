@@ -7,25 +7,23 @@ import "core:strings"
 import "common:memtrack"
 import "common:proto"
 
-/*
-What the server says about itself (Server_Info, rpc.odin): its name,
-description and picture, which the UI shows on the rail and on the
-login screen. It's asked once a connection is up, before logging in,
-and the server says again when it changes (the Server_Info event).
+// What the server says about itself (Server_Info, rpc.odin): its name,
+// description and picture, which the UI shows on the rail and on the login
+// screen. It is requested once a connection is up, before logging in, and the
+// server announces it again when it changes (the Server_Info event).
+//
+// The picture is fetched with its own request (Server_Icon), which may also be
+// sent before logging in. It is only requested when the server names a picture
+// we don't have, so a reconnect does not fetch it again.
+//
+// The owner changes all three with Server_Info_Command. A new picture goes
+// through the outbox like our own picture does (avatar_set, profiles.odin): it
+// is uploaded as a blob first and then named in the Server_Info_Set that
+// follows (server_info_post).
 
-The picture comes from its own request (Server_Icon), which may be asked
-before logging in too: only when the server names one we don't have,
-so a reconnect doesn't fetch it again.
-
-The owner changes all three with Server_Info_Command. A new picture
-goes through the outbox like our own picture does (avatar_set,
-profiles.odin): uploaded as a blob first, then named in the
-Server_Info_Set that follows (server_info_post).
-*/
-
-// Change what the server says about itself (the owner only). With
-// `image`, a new picture (taken over); with `remove`, none; with
-// neither, the one it has stays.
+// Server_Info_Command changes what the server says about itself (owner only).
+// With `image`, the server gets a new picture (the command takes ownership of
+// it), with `remove` it gets none, and with neither the current one stays.
 Server_Info_Command :: struct {
 	name:        string, // owned by the command
 	description: string, // owned by the command
@@ -33,11 +31,9 @@ Server_Info_Command :: struct {
 	remove:      bool,
 }
 
-/*
-server_info_take reads what the server says about itself, from the
-answer to Server_Info or its event, and fetches its picture if it's a
-new one. False if it can't be read.
-*/
+// server_info_take reads what the server says about itself from the answer to
+// Server_Info or from its event, and fetches the picture if it is a new one.
+// Returns false if it cannot be read.
 server_info_take :: proc(c: ^Voice_Client, body: []u8) -> bool {
 	info, ok := proto.decode_server_info(body)
 	if !ok {
@@ -61,6 +57,9 @@ server_info_take :: proc(c: ^Voice_Client, body: []u8) -> bool {
 	email, email_ok := proto.email_clean(info.email, &email_buf)
 	s.email = strings.clone(email if email_ok else "")
 	s.digests = info.digests
+	s.push = len(info.push_key) == proto.PUSH_KEY_SIZE
+	s.push_key = {}
+	copy(s.push_key[:], info.push_key)
 	s.media_port = info.media_port
 	s.video_kbit = info.video_kbit
 	if view := c.view; view != nil {
@@ -86,8 +85,8 @@ server_info_take :: proc(c: ^Voice_Client, body: []u8) -> bool {
 	return true
 }
 
-// server_info_event takes the event that says the server changed what
-// it says about itself; false if `op` isn't it.
+// server_info_event handles the event that says the server changed what it
+// says about itself. Returns false if `op` is not that event.
 server_info_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	if op != .Server_Info {
 		return false
@@ -101,7 +100,7 @@ server_info_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> b
 @(private = "file")
 icon_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	s := &c.rpc.server
-	// Gone, or another since: whatever came is no longer it.
+	// The picture is gone, or has been replaced since: what arrived is outdated.
 	if status != .Ok || proto.Blob_Id(tag) != s.icon {
 		if status != .Ok && status != .Reset {
 			log.warnf("%s wouldn't send its picture: %v", c.server_addr, status)
@@ -118,12 +117,10 @@ icon_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 	publish_server(c)
 }
 
-/*
-server_info_set changes what the server says about itself. A new picture
-goes in the outbox, to be uploaded and then set with the rest
-(server_info_post); otherwise it's set right away. Takes over the
-command's strings and JPEG.
-*/
+// server_info_set changes what the server says about itself. A new picture
+// goes in the outbox, to be uploaded and then set together with the rest
+// (server_info_post). Otherwise the change is sent right away. Takes over the
+// command's strings and JPEG.
 server_info_set :: proc(c: ^Voice_Client, cmd: Server_Info_Command) {
 	if len(cmd.image.jpeg) == 0 {
 		icon := proto.Blob_Id(0) if cmd.remove else c.rpc.server.icon
@@ -162,14 +159,14 @@ server_info_set :: proc(c: ^Voice_Client, cmd: Server_Info_Command) {
 	publish_outbox(c)
 }
 
-// server_info_post sets the server's picture that's just been uploaded,
-// with its name and description (the outbox's last step for one).
+// server_info_post sets the server's picture that was just uploaded, along with
+// its name and description (the last step of the outbox entry for one).
 server_info_post :: proc(c: ^Voice_Client, p: ^Pending) {
 	info_set_ask(c, p.text, p.about, p.blob, p.nonce)
 }
 
-// info_set_ask sends Server_Info_Set; `nonce` is the outbox's entry it
-// finishes, or 0 for none.
+// info_set_ask sends Server_Info_Set. `nonce` identifies the outbox entry it
+// completes, or is 0 if there is none.
 @(private = "file")
 info_set_ask :: proc(
 	c: ^Voice_Client,
@@ -201,19 +198,19 @@ info_set_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u
 	}
 	#partial switch status {
 	case .Ok:
-		notify(c, true, "The server's details were changed.")
+		notify(c, true, "The server details were updated.")
 	case .Reset:
-		return // set again on the new connection, if it was a picture
+		return // sent again on the new connection, if it was a picture
 	case .Not_Found:
 		if p != nil {
-			// The picture has gone from the server; send it again.
+			// The picture has disappeared from the server, so send it again.
 			p.blob, p.state = 0, .Put
 			return
 		}
 		notify(c, false, status_text(status))
 	case:
 		if p != nil {
-			outbox_give_up(c, "The server's details weren't changed: it wouldn't take them.")
+			outbox_give_up(c, "The server rejected the new server details.")
 			return
 		}
 		notify(c, false, status_text(status))
@@ -225,14 +222,14 @@ info_set_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u
 	}
 }
 
-// Ask where the server's memory goes (the owner only): the report
-// (common/memtrack) comes to the View, or, headless, the log.
+// Ask where the server's memory goes (owner only). The report
+// (common/memtrack) goes to the View, or to the log when headless.
 Server_Memory_Command :: struct {}
 
 View_Server_Memory :: struct {
 	report: string, // owned; as the server sent it
-	status: proto.Status, // the last answer's: Ok, or why there's none
-	count:  int, // bumped each time an answer arrives
+	status: proto.Status, // of the last answer: Ok, or why there is no report
+	count:  int, // incremented each time an answer arrives
 }
 
 view_clear_server_memory :: proc(v: ^View) {
@@ -262,7 +259,7 @@ server_memory :: proc(c: ^Voice_Client) {
 				}
 				return
 			}
-			// Shown as it is, so nothing in it but text, tabs and lines.
+			// Shown as is, so it may only contain text, tabs and newlines.
 			report := strings.to_valid_utf8(string(body), "?")
 			for &b in transmute([]u8)report {
 				if b < ' ' && b != '\t' && b != '\n' {

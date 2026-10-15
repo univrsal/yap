@@ -1,9 +1,8 @@
 #+build wasi
-/*
-The web half of the logging calls: what core:log does, written out, since
-core:log itself doesn't build for WASI (see wlog_native.odin). Each call
-formats its text and hands it to context.logger, exactly as core:log's do.
-*/
+// The web implementation of the logging calls. It does what core:log does,
+// written out, because core:log itself doesn't build for WASI (see
+// wlog_native.odin). Each call formats its text and hands it to
+// context.logger, exactly as core:log's do.
 package wlog
 
 import "base:runtime"

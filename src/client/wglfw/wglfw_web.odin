@@ -1,10 +1,8 @@
 #+build wasi
-/*
-The web half of the window layer: the GLFW that emscripten puts in
-front of a canvas. Its entry points are ordinary C symbols, so they're
-declared here rather than imported as a module, and the few things a
-page has no answer for are answered here instead.
-*/
+// The web half of the window layer: the GLFW implementation that emscripten
+// provides on top of a canvas. Its entry points are ordinary C symbols, so they
+// are declared here rather than imported as a module, and the few calls that
+// make no sense for a page are stubbed out here instead.
 package wglfw
 
 WindowHandle :: distinct rawptr
@@ -35,8 +33,8 @@ foreign _ {
 	glfwSetScrollCallback :: proc(window: WindowHandle, cb: proc "c" (window: WindowHandle, x, y: f64)) -> rawptr ---
 	glfwGetClipboardString :: proc(window: WindowHandle) -> cstring ---
 	glfwSetClipboardString :: proc(window: WindowHandle, text: cstring) ---
-	// The canvas' CSS cursor for a GLFW cursor shape, 0 for the default
-	// (web/shell.c).
+	// Sets the canvas' CSS cursor for a GLFW cursor shape, or the default
+	// cursor for 0 (web/shell.c).
 	yap_set_cursor :: proc(shape: i32) ---
 }
 
@@ -70,7 +68,7 @@ WindowHint :: proc {
 	WindowHint_bool,
 }
 
-// The canvas' size in CSS pixels; the page sets it to fill the tab (see
+// The canvas' size in CSS pixels. The page sets it to fill the tab (see
 // web_resize in main_web.odin).
 SetWindowSize :: proc "contextless" (window: WindowHandle, width, height: i32) {
 	glfwSetWindowSize(window, width, height)
@@ -83,39 +81,39 @@ GetWindowSize :: proc "c" (window: WindowHandle) -> (width, height: i32) {
 
 @(default_calling_convention = "c")
 foreign _ {
-	// web/shell.c: sizes the canvas' backing store to the device pixels
-	// it covers, and returns that size.
+	// web/shell.c: sizes the canvas' backing store to the device pixels it
+	// covers, and returns that size.
 	yap_canvas_fit :: proc(width, height: ^i32) ---
 	yap_device_pixel_ratio :: proc() -> f64 ---
-	// web/shell.c: whether the page has the focus and is on screen, and
+	// web/shell.c: whether the page has the focus and is visible, and setting
 	// its title.
 	yap_page_focused :: proc() -> i32 ---
 	yap_set_title :: proc(title: cstring) ---
 }
 
-// The window is the page: focused when the page is.
+// The window is the page, so it is focused when the page is.
 WindowFocused :: proc "contextless" (window: WindowHandle) -> bool {
 	return yap_page_focused() != 0
 }
 
-// The window's title is the tab's.
+// The window's title is the tab's title.
 SetWindowTitle :: proc "contextless" (window: WindowHandle, title: cstring) {
 	yap_set_title(title)
 }
 
-// The canvas' backing store, in device pixels. Not GLFW's own answer:
-// it sizes the canvas as floor(CSS size * devicePixelRatio), which a
-// fractional ratio makes a pixel off what's on screen, so the page puts
-// that right (yap_canvas_fit) - every frame, since window_metrics asks
-// every frame - and this is the size that results.
+// The size of the canvas' backing store, in device pixels. This doesn't use
+// GLFW's own answer: GLFW sizes the canvas as floor(CSS size *
+// devicePixelRatio), which with a fractional ratio can be a pixel off from what
+// is on screen. So the page corrects it (yap_canvas_fit) every frame, since
+// window_metrics asks every frame, and this returns the corrected size.
 GetFramebufferSize :: proc "c" (window: WindowHandle) -> (width, height: i32) {
 	yap_canvas_fit(&width, &height)
 	return
 }
 
-// The page's devicePixelRatio: device pixels per CSS pixel, which the
-// window's size is in. Asked of the page rather than worked out from the
-// two sizes, which come in whole pixels and so give a slightly different
+// The page's devicePixelRatio: device pixels per CSS pixel (the window's size
+// is in CSS pixels). It is asked of the page rather than calculated from the
+// two sizes, which are whole pixels and so would give a slightly different
 // ratio at every window size (1503 / 1002 = 1.5, but 1504 / 1003 isn't).
 GetWindowContentScale :: proc "c" (window: WindowHandle) -> (xscale, yscale: f32) {
 	ratio := f32(yap_device_pixel_ratio())
@@ -158,13 +156,11 @@ SetScrollCallback :: proc "contextless" (
 	cb: proc "c" (window: WindowHandle, x, y: f64),
 ) {glfwSetScrollCallback(window, cb)}
 
-/*
-Things a page has no answer for. The browser hands us a frame at a time
-and delivers input through the callbacks above, so there is nothing to
-wait for and nothing to wake up; the window is the canvas, so it can't
-be resized, restored or asked for attention from in here; and there is
-no minimizing to hear about.
-*/
+// Calls that make no sense for a page. The browser gives us one frame at a time
+// and delivers input through the callbacks above, so there is nothing to wait
+// for and nothing to wake up. The window is the canvas, so it can't be resized,
+// restored or made to request attention from here, and there are no
+// minimize events.
 WaitEventsTimeout :: proc "contextless" (timeout: f64) {glfwPollEvents()}
 PostEmptyEvent :: proc "contextless" () {}
 SetWindowSizeLimits :: proc "contextless" (window: WindowHandle, minw, minh, maxw, maxh: i32) {}
@@ -174,7 +170,7 @@ SetWindowIconifyCallback :: proc "contextless" (
 	window: WindowHandle,
 	cb: proc "c" (window: WindowHandle, iconified: i32),
 ) {}
-// A cursor is the canvas' CSS one, so the handle is just its shape.
+// A cursor is the canvas' CSS cursor, so the handle is just its shape.
 CreateStandardCursor :: proc "contextless" (shape: i32) -> CursorHandle {
 	return CursorHandle(uintptr(shape))
 }

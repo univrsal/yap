@@ -10,33 +10,33 @@ import "core:time"
 import "common:http"
 import "common:proto"
 
-/*
-Limits (docs/bot-api, "Limits" and "Security"), so that a loop in a bot,
-or someone who isn't one, can't take the gateway or the server down:
-
-- Requests per token: a bucket of Config.burst that fills at
-  Config.rate a second, one taken by every request with a token (event
-  sockets and transfers too); an empty one is 429 with Retry-After.
-  0 for no limit.
-- Connections: Config.max_connections tokens in use at once (503 past
-  that), one event socket per token (events.odin), MAX_BODY a body
-  but for uploads, which stream (serve.odin, files.odin).
-- Sockets that say nothing: HTTP_IDLE between requests (and between a
-  body's bytes), EVENTS_IDLE on an event socket, which a live client
-  answers the gateway's pings on.
-- /login, which carries a password, only over loopback, or, behind a
-  reverse proxy (Config.behind_proxy), only what it says came over
-  HTTPS (X-Forwarded-Proto). A token is as good as a password, but there
-  is no stopping a careless setup for those; a password at least has a
-  safe way.
-*/
+// Limits (docs/bot-api, "Limits" and "Security") keep a looping bot, or
+// someone who isn't a bot, from taking down the gateway or the server:
+//
+// - Requests per token: each token has a bucket of Config.burst requests that
+//   refills at Config.rate per second. Every request with a token takes one
+//   from the bucket, including event sockets and transfers. With an empty
+//   bucket the gateway answers 429 with Retry-After. A rate of 0 means no
+//   limit.
+// - Connections: at most Config.max_connections tokens can be in use at once
+//   (503 beyond that), each token can have one event socket (events.odin),
+//   and bodies are limited to MAX_BODY, except for uploads, which are
+//   streamed (serve.odin, files.odin).
+// - Silent sockets: HTTP_IDLE applies between requests (and between the
+//   bytes of a body), EVENTS_IDLE applies to an event socket, where a live
+//   client answers the gateway's pings.
+// - /login carries a password, so it is only allowed over loopback or, behind
+//   a reverse proxy (Config.behind_proxy), only for requests the proxy says
+//   came over HTTPS (X-Forwarded-Proto). A token is as good as a password,
+//   but a careless setup can't be prevented for tokens, whereas a password at
+//   least has a safe way to be sent.
 
 DEFAULT_RATE :: 10
 DEFAULT_BURST :: 30
 HTTP_IDLE :: 60 * time.Second
 EVENTS_IDLE :: 2 * PING_EVERY + 15 * time.Second
-// Buckets not used for this long are full again, and forgotten once
-// there are many.
+// Buckets that haven't been used for this long are full again. They are
+// forgotten once there are many of them.
 BUCKET_FORGET :: 10 * time.Minute
 BUCKETS_PRUNE_AT :: 1024
 
@@ -46,10 +46,9 @@ Bucket :: struct {
 	last:   time.Tick,
 }
 
-/*
-rate_take takes a turn from the bucket of the token `key` is, or says
-when to come back (429).
-*/
+// rate_take takes one request from the bucket of the token that `key`
+// belongs to. If the bucket is empty, it returns a 429 reply that says when
+// to retry.
 @(private)
 rate_take :: proc(g: ^Gateway, key: ^ecdh.Private_Key) -> (r: Reply, limited: bool) {
 	if g.cfg.rate <= 0 {
@@ -77,7 +76,11 @@ rate_take :: proc(g: ^Gateway, key: ^ecdh.Private_Key) -> (r: Reply, limited: bo
 	b.last = now
 	defer g.buckets[pub] = b
 	if b.tokens < 1 {
-		r = error_reply(429, "rate_limited", "Too many requests with this token; slow down.")
+		r = error_reply(
+			429,
+			"rate_limited",
+			"Too many requests were made with this token. Please slow down.",
+		)
 		r.retry_after = max(1, int(math.ceil((1 - b.tokens) / g.cfg.rate)))
 		return r, true
 	}
@@ -98,11 +101,9 @@ buckets_prune :: proc(g: ^Gateway, now: time.Tick) {
 	}
 }
 
-/*
-login_allowed says whether a /login may carry a password here: over
-loopback; or behind a proxy, only if it says the bot came over HTTPS
-(then the proxy's own address says nothing).
-*/
+// login_allowed says whether a /login may carry a password here. That is the
+// case over loopback or, behind a proxy, only if the proxy says the bot
+// connected over HTTPS (the proxy's own address says nothing in that case).
 login_allowed :: proc(behind_proxy: bool, remote: net.Endpoint, forwarded_proto: string) -> bool {
 	if behind_proxy {
 		return strings.equal_fold(strings.trim_space(forwarded_proto), "https")
@@ -116,7 +117,8 @@ login_allowed :: proc(behind_proxy: bool, remote: net.Endpoint, forwarded_proto:
 	return false
 }
 
-// idle_timeout has a socket give up on a peer quiet for `d`, either way.
+// idle_timeout makes a socket give up on a peer that has been silent for `d`,
+// for both receiving and sending.
 @(private)
 idle_timeout :: proc(c: ^http.Conn, d: time.Duration) {
 	net.set_option(c.sock, .Receive_Timeout, d)

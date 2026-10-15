@@ -5,32 +5,30 @@ import "core:time"
 
 import "client:audio/rnn"
 
-/*
-The voice gate: only send while the microphone is loud enough, so
-silence and background noise cost nothing and nobody hears your room.
-
-It's a level gate with two thresholds (hysteresis), measured on each 20 ms
-frame after noise suppression (if that's on):
-
-	level >= open_db                  opens
-	close_db <= level < open_db       stays as it is
-	level < close_db for HANGOVER     closes
-
-The gap between the thresholds keeps it from flickering around a single
-value, and the hangover keeps word endings and short pauses.
-
-mic_process is shared by the network loop and the settings page's level
-meter, so the meter shows exactly what the gate decides.
-*/
+// The voice gate only sends audio while the microphone is loud enough, so
+// silence and background noise cost no bandwidth and nobody hears your room.
+//
+// It's a level gate with two thresholds (hysteresis), measured on each 20 ms
+// frame after noise suppression (if that's on):
+//
+//	level >= open_db                  opens
+//	close_db <= level < open_db       stays as it is
+//	level < close_db for HANGOVER     closes
+//
+// The gap between the thresholds keeps the gate from flickering around a
+// single value, and the hangover keeps word endings and short pauses.
+//
+// mic_process is shared by the network loop and the settings page's level
+// meter, so the meter shows exactly what the gate decides.
 
 GATE_HANGOVER :: 300 * time.Millisecond
 
-// Defaults, from measurements with RNNoise on: speech comes out at about
-// -35..-16 dBFS, background noise at -80..-65 dBFS.
+// Defaults based on measurements with RNNoise enabled: speech comes out at
+// about -35..-16 dBFS and background noise at -80..-65 dBFS.
 DEFAULT_GATE_OPEN_DB :: -45
 DEFAULT_GATE_CLOSE_DB :: -55
 
-// Levels are clamped to this floor; also the left end of the meter.
+// Levels are clamped to this floor, which is also the left end of the meter.
 MIN_LEVEL_DB :: -80
 
 Gate :: struct {
@@ -41,7 +39,8 @@ Gate :: struct {
 	last_above: time.Tick, // last frame at or above close_db while open
 }
 
-// gate_update feeds one frame's level and returns whether to send it.
+// gate_update feeds the gate one frame's level and returns whether to send
+// that frame.
 gate_update :: proc(g: ^Gate, level_db: f32, now: time.Tick) -> bool {
 	switch {
 	case level_db >= g.open_db:
@@ -56,10 +55,10 @@ gate_update :: proc(g: ^Gate, level_db: f32, now: time.Tick) -> bool {
 }
 
 // mic_process runs one captured stereo frame (FRAME interleaved samples)
-// through noise suppression and the gate, in place. Mono presets are
-// downmixed first and written back to both channels, so the frame then
-// holds exactly what will be sent (and what listen back plays). Returns
-// the frame's level and whether to send it.
+// through noise suppression and the gate, in place. For mono presets the
+// frame is downmixed first and written back to both channels, so afterwards
+// it holds exactly what will be sent (and what listen back plays).
+// Returns the frame's level and whether to send it.
 mic_process :: proc(v: ^Voice, frame: []f32) -> (level_db: f32, send: bool) {
 	assert(len(frame) == FRAME)
 	denoise := v.denoise && v.denoisers[0].state != nil
@@ -69,8 +68,8 @@ mic_process :: proc(v: ^Voice, frame: []f32) -> (level_db: f32, send: bool) {
 		for &s, i in mono {
 			s = (frame[i * CHANNELS] + frame[i * CHANNELS + 1]) / 2
 		}
-		// The denoiser runs on every frame, even unsent ones, so its
-		// state follows the room continuously.
+		// The denoiser runs on every frame, even ones that aren't sent,
+		// so its state keeps following the room.
 		if denoise {
 			rnn.denoise(&v.denoisers[0], mono[:])
 		}

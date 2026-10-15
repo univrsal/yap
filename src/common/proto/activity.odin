@@ -1,28 +1,30 @@
 package proto
 
-/*
-Activity: whether somebody is online, away, busy or offline, as a dot
-by their picture (polish 11).
-
-	Activity_Set  [activity u8]: what the account chooses to be, on all
-	              its devices: Online (and away by itself), Away, Busy,
-	              or Offline (appear offline); kept by the server
-	Idle_Set      [idle u8]: this connection's user has (or hasn't) been
-	              idle for a while
-
-	in an account's record:  [activity u8] as everyone sees it
-	in Self:                 [activity u8] as the account chose it
-
-What everyone sees is worked out by the server: Offline for an account
-with no connection or that chose to appear offline; Busy or Away if
-chosen; else Away if every one of its connections is idle, Online if
-not. An account that appears offline is left out of who is here (the
-snapshot) for everyone else, but for while its voice is in a room they
-can see.
-
-Busy asks the account's own clients to keep quiet: no sound or desktop
-notice for messages, but for mentions and calls.
-*/
+// Activity: whether somebody is online, away, busy or offline. It is shown as
+// a dot next to their picture (polish 11).
+//
+// 	Activity_Set  [activity u8]: what the account chooses to be, on all
+// 	              its devices: Online (and away by itself), Away, Busy,
+// 	              or Offline (appear offline); kept by the server
+// 	Idle_Set      [flags u8]: bit 0, whether this connection's user has
+// 	              been idle for a while; bit 1, whether the client is out
+// 	              of sight (a hidden browser tab, a phone's browser in the
+// 	              background). Being out of sight doesn't make anyone away,
+// 	              but makes the server send push notifications (push.odin).
+// 	              A server that doesn't know bit 1 treats it as idle.
+//
+// 	in an account's record:  [activity u8] as everyone sees it
+// 	in Self:                 [activity u8] as the account chose it
+//
+// What everyone sees is determined by the server. An account is Offline if it
+// has no connection or chose to appear offline. It is Busy or Away if it
+// chose so. Otherwise it is Away if all of its connections are idle, and
+// Online if not. An account that appears offline is left out of the list of
+// who is here (the snapshot) for everyone else, except while its voice is in
+// a room that they can see.
+//
+// Busy asks the account's own clients to keep quiet: no sound or desktop
+// notification for messages, except for mentions and calls.
 
 Activity :: enum u8 {
 	Online  = 0,
@@ -45,21 +47,22 @@ decode_activity :: proc(body: []u8) -> (a: Activity, ok: bool) {
 	return Activity(body[0]), true
 }
 
-// An Idle_Set body: whether this connection's user is idle.
-encode_idle :: proc(out: ^[1]u8, idle: bool) -> []u8 {
-	out[0] = u8(idle)
+// An Idle_Set body, which says whether this connection's user is idle and
+// whether the client is out of sight.
+encode_idle :: proc(out: ^[1]u8, idle: bool, hidden := false) -> []u8 {
+	out[0] = u8(idle) | u8(hidden) << 1
 	return out[:]
 }
 
-decode_idle :: proc(body: []u8) -> (idle: bool, ok: bool) {
+decode_idle :: proc(body: []u8) -> (idle: bool, hidden: bool, ok: bool) {
 	if len(body) < 1 {
 		return
 	}
-	return body[0] != 0, true
+	return body[0] & 1 != 0, body[0] & 2 != 0, true
 }
 
-// self_activity is what a Self event says the account chose; Online if
-// it doesn't say.
+// self_activity returns the activity that the account chose, as stated by a
+// Self event. It is Online if the event doesn't say.
 self_activity :: proc(body: []u8) -> Activity {
 	if len(body) < SELF_FIXED_SIZE || body[SELF_FIXED_SIZE - 1] > u8(max(Activity)) {
 		return .Online

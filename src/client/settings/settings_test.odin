@@ -30,8 +30,8 @@ test_joined_servers :: proc(t: ^testing.T) {
 	testing.expect(t, !set_joined_channel(&s, "c:1", "general"))
 	testing.expect_value(t, joined_channel(&s, "b:1"), "general")
 
-	// Dragged on the rail: c:1 isn't on it (off it till the next start),
-	// so it goes after those that are.
+	// Reordered by dragging on the rail: c:1 isn't shown there (it only appears
+	// after the next start), so it goes after the servers that are.
 	join_server(&s, "c:1", "")
 	join_server(&s, "d:1", "")
 	order_joined_servers(&s, {"d:1", "b:1", "a:1"})
@@ -46,7 +46,7 @@ test_joined_servers :: proc(t: ^testing.T) {
 	leave_server(&s, "a:1")
 	testing.expect_value(t, len(s.joined_servers), 1)
 	testing.expect_value(t, s.joined_servers[0].address, "b:1")
-	leave_server(&s, "c:1") // not joined: nothing
+	leave_server(&s, "c:1") // not joined: no-op
 	testing.expect_value(t, len(s.joined_servers), 1)
 }
 
@@ -55,7 +55,7 @@ test_animate_pictures :: proc(t: ^testing.T) {
 	path := "yap-settings-animate-test.json"
 	defer os.remove(path)
 
-	// A file from before the setting: on hover.
+	// A file from before this setting existed defaults to Hover.
 	testing.expect(t, os.write_entire_file(path, `{ "theme": "dark" }`) == nil)
 	s := settings_load(path)
 	testing.expect_value(t, animate_pictures(&s), Animate_Pictures.Hover)
@@ -65,7 +65,7 @@ test_animate_pictures :: proc(t: ^testing.T) {
 
 	again := settings_load(path)
 	testing.expect_value(t, animate_pictures(&again), Animate_Pictures.Always)
-	set_setting(&again.animate_pictures, "sometimes") // not one it knows
+	set_setting(&again.animate_pictures, "sometimes") // an unknown value
 	testing.expect_value(t, animate_pictures(&again), Animate_Pictures.Hover)
 	set_setting(&again.animate_pictures, "never")
 	testing.expect_value(t, animate_pictures(&again), Animate_Pictures.Never)
@@ -93,7 +93,8 @@ test_recent_servers_become_joined :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(s.recent_servers), 0)
 	testing.expect_value(t, s.server, "")
 
-	// Once: leaving them all doesn't bring them back.
+	// The migration happens only once: after leaving all servers, they don't
+	// come back.
 	leave_server(&s, "a:1")
 	leave_server(&s, "b:1")
 	settings_save(path, s)
@@ -160,13 +161,14 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, !legacy_ok, "a key from before accounts")
 
-	// Hidden until there's something newer.
+	// A hidden DM stays hidden until there's a newer message.
 	testing.expect(t, dm_hidden(&loaded, server, 40, 1234))
 	testing.expect(t, !dm_hidden(&loaded, server, 40, 1235))
 	testing.expect(t, !dm_hidden(&loaded, other, 40, 1234))
 	testing.expect(t, !dm_hidden(&loaded, server, 41, 10))
 
-	// The latest first, each once, and only so many; each server its own.
+	// Most recent first, without duplicates, capped at MAX_RECENT_REACTIONS, and
+	// tracked per server.
 	recent := recent_reactions(&loaded, server)
 	testing.expect_value(t, len(recent), MAX_RECENT_REACTIONS)
 	testing.expect_value(t, recent[0], "b")

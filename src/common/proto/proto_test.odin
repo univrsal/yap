@@ -88,8 +88,8 @@ test_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 test_finish_payload :: proc(t: ^testing.T) {
-	// Where a server password will travel: encrypted, and only sent after
-	// the client has checked the server's key.
+	// This is how a server password will travel: encrypted, and only sent
+	// after the client has checked the server's key.
 	p: Pair
 	secret := "hunter2"
 	got := handshake(t, &p, transmute([]byte)secret)
@@ -160,14 +160,14 @@ test_tampered_resp_resets_initiator :: proc(t: ^testing.T) {
 	init_packet, _ := initiator_start(&ini, &client_key)
 	resp, _ := responder_start(&r, &server_key, init_packet, 42)
 
-	// Wrong receiver index: not for us, keep waiting.
+	// Wrong receiver index: not for us, so keep waiting.
 	resp[5] ~= 1
 	_, result := initiator_read_resp(&ini, resp)
 	testing.expect_value(t, result, Resp_Result.Ignored)
 	testing.expect_value(t, ini.state, Initiator_State.Sent_Init)
 	resp[5] ~= 1
 
-	// Corrupted encrypted server key: fail and start over.
+	// Corrupted encrypted server key: the handshake fails and starts over.
 	resp[RESP_HEADER_SIZE + KEY_SIZE + 3] ~= 1
 	_, result = initiator_read_resp(&ini, resp)
 	testing.expect_value(t, result, Resp_Result.Failed)
@@ -181,7 +181,7 @@ test_bad_finish_rejected :: proc(t: ^testing.T) {
 	gen_key(t, &server_key)
 	gen_key(t, &other_key)
 
-	// Two concurrent handshakes; one's Finish can't complete the other's.
+	// Two concurrent handshakes: one's Finish can't complete the other.
 	a, b: Initiator
 	ra, rb: Responder
 	defer {initiator_reset(&a); initiator_reset(&b); responder_reset(&ra); responder_reset(&rb)}
@@ -231,8 +231,8 @@ test_replay_window_edges :: proc(t: ^testing.T) {
 	testing.expect(t, !replay_check(&w, 5000))
 }
 
-// The window is several words; what's seen has to move across them as
-// newer counters come, by any distance.
+// The window spans several words, so the seen counters have to move across
+// them as newer counters arrive, regardless of the distance.
 @(test)
 test_replay_window_words :: proc(t: ^testing.T) {
 	w: Replay_Window
@@ -242,7 +242,7 @@ test_replay_window_words :: proc(t: ^testing.T) {
 	}
 	for shift in ([?]u64{1, 63, 64, 65, 200, 500}) {
 		replay_update(&w, w.max + shift)
-		// Seen, or too old to tell: refused either way.
+		// Either already seen or too old to tell, so it is refused either way.
 		for n in seen {
 			testing.expectf(t, !replay_check(&w, n), "%d after +%d", n, shift)
 		}

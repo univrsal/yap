@@ -5,7 +5,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of mentions, on the Test_Server of auth_test.odin.
+// Tests of mentions, using the Test_Server from auth_test.odin.
 
 @(private = "file")
 mentions_of :: proc(ts: ^Test_Server, conv: ^Conv, acc: ^Account) -> int {
@@ -32,7 +32,8 @@ test_mentions :: proc(t: ^testing.T) {
 		return proto.mention_token(a.id)
 	}
 
-	// Who exists and isn't the poster; <@everyone> only from who may.
+	// Only accounts that exist and aren't the poster are counted as
+	// mentioned. <@everyone> only works for users who are allowed to use it.
 	_, id := post(
 		t,
 		&ts,
@@ -55,15 +56,15 @@ test_mentions :: proc(t: ^testing.T) {
 	testing.expect_value(t, mentions_of(&ts, home, carol_acc), 1)
 	testing.expect_value(t, mentions_of(&ts, home, alice_acc), 1)
 
-	// Reading them clears them.
+	// Reading the mentions clears them.
 	status, _ := ts_ask(t, &ts, bob, .Mark_Read, mark_body(home.id, everyone))
 	testing.expect_value(t, status, proto.Status.Ok)
 	state, told := read_state(t, &ts, bob)
 	testing.expect(t, told)
 	testing.expect_value(t, state.mentions, 0)
 
-	// An edit that drops a mention tells who it was for; one that adds
-	// one, too.
+	// An edit that adds a mention notifies the mentioned user, and so does
+	// an edit that removes one.
 	ts_events(t, &ts, carol)
 	_, plain := post(t, &ts, alice, home.id, "nothing to see", 3)
 	testing.expect_value(
@@ -78,14 +79,14 @@ test_mentions :: proc(t: ^testing.T) {
 	state, told = read_state(t, &ts, carol)
 	testing.expect(t, told)
 	testing.expect_value(t, state.mentions, 1)
-	// So does deleting one.
+	// So does deleting a message with a mention.
 	testing.expect_value(t, delete_as(t, &ts, admin, everyone), proto.Status.Ok)
 	state, told = read_state(t, &ts, carol)
 	testing.expect(t, told)
 	testing.expect_value(t, state.mentions, 0)
 
-	// In a public channel, being mentioned subscribes; the message is
-	// unread for them, and a mention.
+	// Being mentioned in a public channel subscribes the user to it. The
+	// message counts as unread for them, and as a mention.
 	testing.expect(t, conv_member_add(&s.convs, gaming, alice_acc.id))
 	testing.expect(t, !conv_is_member(gaming, carol_acc.id))
 	ts_events(t, &ts, carol)
@@ -110,7 +111,7 @@ test_mentions :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, conv_told && msg_told)
 
-	// Not in a DM, or anywhere else one can't read.
+	// But not in a DM, or anywhere else the mentioned user can't read.
 	buf: [4]u8
 	_, body := ts_ask(t, &ts, alice, .DM_Open, proto.encode_account_id(&buf, bob_acc.id))
 	dm, _ := proto.decode_conv_id(body)
@@ -147,12 +148,13 @@ test_role_mentions :: proc(t: ^testing.T) {
 	for acc in ([]^Account{alice_acc, bob_acc, carol_acc}) {
 		testing.expect(t, account_roles_set(&s.accounts, acc, {leads, quiet}))
 	}
-	// Everyone's role can't be: that's @everyone.
+	// The everyone role can't be made mentionable, since that's what
+	// @everyone is for.
 	make_role(t, &ts, admin, {id = proto.EVERYONE_ROLE, name = "everyone", flags = {.Mentionable}})
 	testing.expect_value(t, s.accounts.roles[proto.EVERYONE_ROLE].flags, proto.Role_Flags{})
 
-	// Whoever has it, among the members, but not the poster; nobody is
-	// subscribed by it.
+	// A role mention mentions the channel members who have the role, except
+	// the poster. It doesn't subscribe anyone to the channel.
 	testing.expect(t, conv_member_add(&s.convs, gaming, alice_acc.id))
 	testing.expect(t, conv_member_add(&s.convs, gaming, bob_acc.id))
 	testing.expect(t, !conv_is_member(gaming, carol_acc.id))
@@ -163,7 +165,7 @@ test_role_mentions :: proc(t: ^testing.T) {
 	)
 	_, id := post(t, &ts, alice, gaming.id, text, 1)
 	m, _ := msg_by_id(s, id)
-	// One that can't be mentioned is its name.
+	// A role that isn't mentionable is replaced by its plain name.
 	testing.expect_value(t, m.text, fmt.tprintf("%s and @quiet", proto.role_mention_token(leads)))
 	testing.expect(t, !conv_is_member(gaming, carol_acc.id), "carol was subscribed by a role")
 	mentioned := mentioned_in(s, id)
@@ -173,7 +175,7 @@ test_role_mentions :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, mentions_of(&ts, gaming, bob_acc), 1)
 
-	// Once it can't be, an edit drops it.
+	// Once the role is no longer mentionable, an edit removes the mention.
 	make_role(t, &ts, admin, {id = leads, name = "Team Leads"})
 	testing.expect_value(t, edit_as(t, &ts, alice, id, m.text), proto.Status.Ok)
 	m, _ = msg_by_id(s, id)

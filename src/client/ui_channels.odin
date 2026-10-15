@@ -9,47 +9,45 @@ import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-/*
-Channels in the UI (conn/convs.odin is the network's end of it).
-
-  - The list down the left of the session screen: the channels we're
-    subscribed to, the home channel first, with how many messages are
-    unread in each (dimmer for a muted one). Clicking one shows its chat
-    and does nothing else; right-clicking one opens its menu (how much
-    it may interrupt, its settings, leaving it). Under each are the
-    people in its voice room, as they always were.
-  - The line above the chat: which channel it is, and the button that
-    joins or leaves its voice room. Looking at a channel and talking in
-    it are two things, and that button is the only place they meet.
-  - The Channels window: the ones we're in, how much each may
-    interrupt, and leaving them; the ones we aren't, to subscribe to;
-    and, for who may, making one.
-
-Where the window is too narrow for the list beside the chat (a phone),
-the two take turns: the list, or the chat with a way back to the list.
-*/
+// Channels in the UI (conn/convs.odin is the network's end of it).
+//
+//   - The list down the left of the session screen: the channels we're
+//     subscribed to, the home channel first, with the number of unread
+//     messages in each (dimmer for a muted channel). Clicking a channel shows its
+//     chat and does nothing else. Right-clicking one opens its menu (how much
+//     it may interrupt, its settings, leaving it). Under each channel are the
+//     people in its voice room.
+//   - The line above the chat: which channel it is, and the button that
+//     joins or leaves its voice room. Looking at a channel and talking in
+//     it are two separate things, and that button is the only place where they meet.
+//   - The Channels window: the channels we're in, how much each one may
+//     interrupt, and leaving them. It also lists the channels we aren't in, to
+//     subscribe to, and lets those who may create a channel.
+//
+// Where the window is too narrow for the list beside the chat (a phone),
+// the two take turns: the list, or the chat with a way back to the list.
 
 UI_Channels :: struct {
 	// The Channels window.
 	open:        bool,
 	placed:      bool,
-	// Making one: its name and topic.
+	// Creating a channel: its name and topic.
 	name_buf:    [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
 	name_len:    int,
 	topic_buf:   [proto.MAX_TOPIC_SIZE]u8,
 	topic_len:   int,
-	// In a narrow window: the list is showing, rather than the chat.
+	// In a narrow window: the list is showing instead of the chat.
 	show_list:   bool,
 	// What the server had said by the time the window opened isn't about
-	// anything asked in it (conn.View_Notice.count).
+	// anything asked in it (see conn.View_Notice.count).
 	notice_seen: int,
-	// Finding channels to subscribe to: what's typed, and what was last
-	// asked for (owned), which is asked again when it changes.
+	// Finding channels to subscribe to: what is typed, and what was last
+	// asked for (owned), which is asked again when the text changes.
 	find_buf:    [proto.MAX_BROWSE_QUERY]u8,
 	find_len:    int,
 	find_asked:  string,
-	// The channel whose menu is open (channel_menu), and that it was
-	// right-clicked this frame.
+	// The channel whose menu is open (see channel_menu), and whether it was
+	// right-clicked in this frame.
 	menu_conv:   proto.Conv_Id,
 	menu_asked:  bool,
 }
@@ -86,10 +84,8 @@ viewed_channel :: proc(v: ^conn.View) -> ^conn.View_Channel {
 	return nil
 }
 
-/*
-channel_list is the panel of our channels, with who is talking in each.
-Call with the View locked.
-*/
+// channel_list is the panel of our channels, with who is talking in each.
+// Call with the View locked.
 channel_list :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -98,8 +94,8 @@ channel_list :: proc(ui: ^UI) {
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 	button_h := ctx.style.size.y + 2 * ctx.style.padding
-	// And under that, the voice panel; in a narrow window that's across
-	// the screen instead (session_screen).
+	// And under that, the voice panel. In a narrow window that is across
+	// the screen instead (see session_screen).
 	panel_h := 0 if ui.narrow else voice_panel_height(ui)
 	mu.layout_row(ctx, {-1}, -(button_h + ctx.style.spacing + panel_h + 1))
 
@@ -115,12 +111,12 @@ channel_list :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		viewing := ch.id == v.viewing
 		label := fmt.tprintf("%s%s", ch.name, " 🔒" if ch.private else "")
-		// Unread, and not muted: brighter, as well as the count.
+		// Unread and not muted: brighter, as well as showing the count.
 		saved := ctx.style.colors[.TEXT]
 		if ch.unread > 0 && ch.notify != .None {
 			ctx.style.colors[.TEXT] = theme.unread_text
 		}
-		// Narrow, the list is all there is on screen: none is open.
+		// When narrow, the list is all there is on screen, so no channel is open.
 		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow)
 		ctx.style.colors[.TEXT] = saved
 		if ctx.hover_id == mu.get_id(ctx, "view") && .RIGHT in ctx.mouse_pressed_bits {
@@ -136,12 +132,12 @@ channel_list :: proc(ui: ^UI) {
 			if !viewing {
 				log.debugf("ui: view %q", ch.name)
 				command(ui, conn.View_Command{conv = ch.id})
-				// Where to start the next time we're on this server.
+				// Where to start the next time we are on this server.
 				if settings.set_joined_channel(&ui.settings, v.server, ch.name) {
 					ui.settings_dirty = true
 				}
 			}
-			// In a narrow window, picking one is also how to get to it.
+			// In a narrow window, picking a channel is also how to get to it.
 			ui.channels.show_list = false
 		}
 		for m in ch.members {
@@ -159,11 +155,9 @@ channel_list :: proc(ui: ^UI) {
 	}
 }
 
-/*
-conversation_header is the line above the chat: the channel it is, the
-button for its pinned messages, and the one for its voice room. In a
-narrow window it also leads back to the list. Call with the View locked.
-*/
+// conversation_header is the line above the chat: which channel it is, the
+// button for its pinned messages, and the one for its voice room. In a
+// narrow window it also leads back to the list. Call with the View locked.
 conversation_header :: proc(ui: ^UI, narrow: bool) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -187,7 +181,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		return
 	}
 
-	// The name, and what's left of the line for the topic.
+	// The name, and what is left of the line for the topic.
 	r := mu.layout_next(ctx)
 	font := ctx.style.font
 	name := fmt.tprintf("# %s", ch.name)
@@ -230,7 +224,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 }
 
 // unread_badge draws a count of unread messages at the right end of
-// `r`, and says how much of the row it took.
+// `r`, and returns how much of the row it took.
 @(private = "file")
 unread_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, muted: bool) -> i32 {
 	return badge(
@@ -243,9 +237,9 @@ unread_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, muted: bool) -> i
 	)
 }
 
-// mention_badge draws how many of them mention us, in front of the
-// unread count, which took `taken` of the row's end. It shows for a muted
-// channel too: a mention is still one.
+// mention_badge draws how many of the unread messages mention us, in front of
+// the unread count, which took `taken` of the row's end. It is shown for a muted
+// channel too, because a mention is still a mention.
 @(private = "file")
 mention_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, taken: i32) {
 	badge(
@@ -258,8 +252,8 @@ mention_badge :: proc(ctx: ^mu.Context, r: mu.Rect, count: int, taken: i32) {
 	)
 }
 
-// badge draws `text` on a little box at the right end of `r`, leaving
-// `taken` of it; it says how much more it took.
+// badge draws `text` in a little box at the right end of `r`, leaving
+// `taken` of it, and returns how much more it took.
 @(private = "file")
 badge :: proc(
 	ctx: ^mu.Context,
@@ -296,12 +290,10 @@ NOTIFY_LABELS := [proto.Notify_Level]string {
 	.None     = "Muted",
 }
 
-/*
-channel_menu is a channel's menu, opened by right-clicking it in the
-list: how much it may interrupt (clicked round, as in the Channels
-window), its settings for who may change them, and leaving it. Drawn
-after the list, with the View locked.
-*/
+// channel_menu is a channel's menu, opened by right-clicking it in the
+// list: how much it may interrupt (clicking cycles through the choices, as in the
+// Channels window), its settings for those who may change them, and leaving it.
+// It is drawn after the list, with the View locked.
 channel_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	c := &ui.channels
@@ -372,14 +364,14 @@ voice_room_name :: proc(v: ^conn.View) -> string {
 			return ch.name
 		}
 	}
-	// One we're talking in without being subscribed to it.
+	// A channel we're talking in without being subscribed to it.
 	return "another channel"
 }
 
 open_channels :: proc(ui: ^UI) {
 	ui.channels.open = true
 	ui.channels.placed = false
-	ui.channels.notice_seen = -1 // taken from the View when it's next locked
+	ui.channels.notice_seen = -1 // taken from the View the next time it is locked
 	command(
 		ui,
 		conn.Browse_Command {
@@ -390,11 +382,9 @@ open_channels :: proc(ui: ^UI) {
 	)
 }
 
-/*
-channels_window is the floating window for what the list doesn't do:
-leaving a channel, subscribing to another, making one. Call with the
-View unlocked.
-*/
+// channels_window is the floating window for what the list doesn't do:
+// leaving a channel, subscribing to another and creating one. Call with the
+// View unlocked.
 channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	c := &ui.channels
 	if !c.open {
@@ -473,7 +463,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			ui.manage.conv = 0 if ui.manage.conv == ch.id else ch.id
 			ui.manage.loaded = 0
 		}
-		// All, mentions only, muted, and round again.
+		// All, mentions only, muted, and then back to the start.
 		if .SUBMIT in
 		   stable_button_hint(
 			   ui,
@@ -486,7 +476,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			command(ui, conn.Notify_Command{conv = ch.id, notify = next})
 		}
 		if ch.home {
-			with_text_color(ctx, theme.dim, "everyone is in it", label_proc)
+			with_text_color(ctx, theme.dim, "everyone is a member", label_proc)
 		} else if .SUBMIT in stable_button(ctx, "unsubscribe", "Unsubscribe", {.ALIGN_CENTER}) {
 			command(ui, conn.Subscribe_Command{conv = ch.id, on = false})
 		}
@@ -497,7 +487,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "")
 	mu.label(ctx, "Find a channel to join")
-	// What's typed is asked for as it changes: the server looks through
+	// What is typed is sent as it changes: the server looks through
 	// the channels' names and topics, a page at a time.
 	mu.layout_row(ctx, {-1})
 	text_box(ui, c.find_buf[:], &c.find_len)
@@ -535,7 +525,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	if .Create_Channels in v.permissions {
 		mu.layout_row(ctx, {-1})
 		mu.label(ctx, "")
-		mu.label(ctx, "Make a channel")
+		mu.label(ctx, "Create a channel")
 		submit := false
 		mu.layout_row(ctx, {60, -1})
 		mu.label(ctx, "Name")
@@ -547,7 +537,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.checkbox(ctx, "Private: only for those added to it", &ui.manage.private)
 		mu.layout_row(ctx, {60, 120, -1})
 		mu.label(ctx, "")
-		submit |= .SUBMIT in mu.button(ctx, "Make channel")
+		submit |= .SUBMIT in mu.button(ctx, "Create channel")
 		if v.notice.text != "" && v.notice.count > c.notice_seen {
 			with_text_color(
 				ctx,
@@ -573,7 +563,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 }
 
-// channel_label is a channel's name and, dimmer and as far as there's
+// channel_label is a channel's name and, dimmer and as far as there is
 // room, its topic, in the next layout cell.
 @(private = "file")
 channel_label :: proc(ctx: ^mu.Context, name, topic: string) {

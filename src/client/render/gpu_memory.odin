@@ -1,13 +1,11 @@
 package render
 
-/*
-What the textures take, for the memory page (ui_memory.odin): the GPU's
-memory isn't the heap's, so nothing else counts it, but a driver may
-keep a copy in the process's own, and an integrated GPU's is the same
-RAM. Estimated from their sizes - a texture with mipmaps takes a third
-more - and kept by the backends' gpu_texture_make and _delete, on the
-thread that draws.
-*/
+// Tracks how much memory the textures take, for the memory page
+// (ui_memory.odin). GPU memory is not part of the heap, so nothing else
+// counts it, but a driver may keep a copy in the process's own memory, and an
+// integrated GPU shares the same RAM. The numbers are estimated from the
+// texture sizes (a texture with mipmaps takes a third more). They are updated
+// by the backends' gpu_texture_make and _delete on the drawing thread.
 
 @(private = "file")
 g_textures: map[Gpu_Texture]int
@@ -29,8 +27,8 @@ texture_forgotten :: proc(tex: Gpu_Texture) {
 	delete_key(&g_textures, tex)
 }
 
-// texture_memory is how many textures there are, and roughly what they
-// take.
+// texture_memory returns the number of textures and roughly how many bytes
+// they take.
 texture_memory :: proc() -> (bytes: int, count: int) {
 	for _, b in g_textures {
 		bytes += b

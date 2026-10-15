@@ -7,11 +7,11 @@ foreign _ {
 	yap_prefers_dark :: proc() -> i32 ---
 }
 
-// The desktop's own choice is quick to read here, so it needn't be
-// asked off the UI thread (which a page hasn't got anyway).
+// The system's preference is quick to read here, so it doesn't need to be
+// queried off the UI thread (which a page doesn't have anyway).
 PREFERS_DARK_IS_QUICK :: true
 
-// prefers_dark is whether the browser says the system is dark.
+// prefers_dark reports whether the browser says the system is in dark mode.
 prefers_dark :: proc() -> bool {
 	return yap_prefers_dark() != 0
 }

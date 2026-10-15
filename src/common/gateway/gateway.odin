@@ -12,93 +12,96 @@ import "common:."
 import "common:lite"
 import "common:proto"
 
-/*
-The bot API's gateway (docs/bot-api): HTTP and JSON for programs, served
-by being, to the server, nothing but more clients. For each token in use
-it keeps a connection (common/lite), made on the token's first request,
-and turns requests into the protocol's and its answers into JSON.
-
-A token is a device's private key (proto.bot_token_parse), so the
-gateway keeps nothing of its own: a request with a token it has no
-connection for opens one, and the server says whether the key is a
-device of an account. A connection goes once it has been idle for
-Config.idle, and with it everything the gateway knew through it.
-
-Two kinds of thread:
-
-- HTTP threads, one per TCP connection (serve.odin), as the relay has:
-  each reads a request, makes a Job of it and waits for the Job's reply.
-- The gateway thread, here, which owns every connection: it takes the
-  Jobs, runs them on their token's connection once that's logged in and
-  synced, and drives the connections (lite.receive, lite.step). Nothing
-  of a connection is touched by another thread.
-
-A Job always gets a reply, exactly one, which is what the HTTP thread
-waiting on it relies on: from the endpoint, or an error if the
-connection fails, starts over under it or the gateway stops.
-*/
+// The bot API's gateway (docs/bot-api) offers HTTP and JSON for programs. To
+// the server it looks like just another client. For each token in use it keeps
+// a connection (common/lite), which is made on the token's first request. It
+// translates requests into protocol messages and the server's answers into
+// JSON.
+//
+// A token is a device's private key (proto.bot_token_parse), so the gateway
+// stores no accounts of its own. A request with a token that has no connection
+// yet opens one, and the server decides whether the key belongs to a device of
+// an account. A connection is closed once it has been idle for Config.idle,
+// and everything the gateway knew through it is dropped with it.
+//
+// There are two kinds of thread:
+//
+// - HTTP threads, one per TCP connection (serve.odin), as in the relay. Each
+//   reads a request, turns it into a Job and waits for the Job's reply.
+// - The gateway thread, in this file, which owns every connection. It takes
+//   the Jobs, runs them on their token's connection once that is logged in
+//   and synced, and drives the connections (lite.receive, lite.step). No
+//   other thread touches a connection.
+//
+// Every Job gets exactly one reply, which the HTTP thread waiting on it relies
+// on. The reply comes either from the endpoint or is an error if the
+// connection fails, starts over or the gateway stops.
 
 DEFAULT_MAX_CONNECTIONS :: 64
 // How long a connection is kept after its last request (GATEWAY_IDLE in
 // the plan).
 DEFAULT_IDLE :: 5 * time.Minute
-// How long the gateway thread waits between looks at its connections.
+// How long the gateway thread waits between checks of its connections.
 LOOP_WAIT :: time.Millisecond
-// What a token's device is called when /login isn't told, and what it
-// says it is.
+// The device name used when /login doesn't specify one, and the agent
+// string the gateway reports to the server.
 DEFAULT_DEVICE :: "API"
 AGENT :: "yap API"
 
 Config :: struct {
 	server:          net.Endpoint,
-	// The key the server must have; all zero for whichever it has.
+	// The key the server must have. All zeros accepts any key.
 	server_key:      [proto.KEY_SIZE]u8,
-	password:        string, // the server's, if it has one
+	password:        string, // the server's password, if it has one
 	max_connections: int, // 0 for DEFAULT_MAX_CONNECTIONS
 	idle:            time.Duration, // 0 for DEFAULT_IDLE
-	// Requests a second a token may make, and how many at once
-	// (limits.odin); a rate of 0 for no limit.
+	// How many requests per second a token may make and how many may
+	// come at once (limits.odin). A rate of 0 means no limit.
 	rate:            f64,
 	burst:           f64,
-	// Behind a reverse proxy, whose X-Forwarded-Proto is believed
-	// (login_allowed).
+	// Set when running behind a reverse proxy, whose X-Forwarded-Proto
+	// header is trusted (login_allowed).
 	behind_proxy:    bool,
 }
 
 Gateway :: struct {
-	cfg:          Config, // password owned
-	// Jobs handed over by HTTP threads, under the lock.
+	cfg:          Config, // owns the password
+	// Jobs handed over by HTTP threads, guarded by the mutex.
 	mutex:        sync.Mutex,
 	jobs:         [dynamic]^Job,
-	stop:         bool, // under the lock
+	stop:         bool, // guarded by the mutex
 	thread:       ^thread.Thread,
-	// Each token's bucket of requests (limits.odin), the HTTP threads'.
+	// Each token's bucket of requests (limits.odin), used by the HTTP threads.
 	limits_mutex: sync.Mutex,
 	buckets:      map[[proto.KEY_SIZE]u8]Bucket,
-	// The gateway thread's own, from here on.
+	// The fields below are only used by the gateway thread.
 	conns:        map[[proto.KEY_SIZE]u8]^Conn, // by the device's public key
-	// The connection for what needs no token: logged in to nothing.
+	// The connection for requests that need no token. It isn't logged in to
+	// any account.
 	guest:        ^Conn,
 }
 
-// Conn is a token's connection, and what the gateway knows through it.
+// Conn is a token's connection and everything the gateway knows through it.
 Conn :: struct {
 	g:          ^Gateway,
 	client:     lite.Client,
-	// Jobs waiting for it to be logged in and synced.
+	// Jobs waiting for the connection to be logged in and synced.
 	waiting:    [dynamic]^Job,
-	// The /login that made it, until it's logged in or not.
+	// The /login that created the connection, until the login succeeds or
+	// fails.
 	login:      ^Job,
-	token:      string, // that /login's, to answer it with; owned
+	token:      string, // the token to answer that /login with; owned
 	last_used:  time.Tick,
-	// It's to go: failed, logged out, or its token given up.
+	// The connection is to be closed: it failed, was logged out or its
+	// token was given up.
 	done:       bool,
 	transfers:  Transfers, // files.odin
-	announced:  bool, // its account logged
-	ready_once: bool, // it has been synced before
-	// Its event socket, if it has one, and what was told it (events.odin):
-	// from the first socket on, every event is numbered and the last
-	// EVENT_LOG kept, for a socket that comes back to resume.
+	announced:  bool, // the account has been written to the log
+	ready_once: bool, // the connection has been synced before
+	// The connection's event socket, if it has one, and the events sent
+	// to it (events.odin). From the first socket on, every event is
+	// numbered and the last EVENT_LOG events are kept so a socket that
+	// comes back can resume.
 	feed:       ^Feed,
 	logging:    bool,
 	seq:        u64,
@@ -106,61 +109,60 @@ Conn :: struct {
 	model:      Model, // model.odin
 }
 
-/*
-A Job is a request, from an HTTP thread to the gateway thread. What it
-carries in is the HTTP thread's, and stays valid until it has its reply.
-*/
+// A Job is a request passed from an HTTP thread to the gateway thread. The
+// data it carries in belongs to the HTTP thread and stays valid until the Job
+// has been replied to.
 Job :: struct {
 	reply:    Reply,
 	replied:  sync.Sema,
 	kind:     Job_Kind,
-	// Which connection: the token's key (.Call), or none (.Guest).
+	// Which connection to use: the token's key (.Call) or none (.Guest).
 	key:      ecdh.Private_Key,
-	// What to do on it once it's ready, on the gateway thread. It
-	// replies, there or later from the answer to a request it makes
-	// (ask).
+	// What to do on the connection once it is ready, run on the gateway
+	// thread. It replies directly or later, from the answer to a request
+	// it makes (ask).
 	run:      proc(c: ^Conn, j: ^Job),
-	// .Login's.
+	// Used by .Login jobs.
 	username: string,
 	password: string,
 	device:   string,
-	// The request's body, already read, its query (still encoded:
-	// query_param), and the {} parts of its path, decoded.
+	// The request's body (already read), its query (still encoded, see
+	// query_param) and the decoded {} parts of its path.
 	body:     []u8,
 	query:    string,
 	params:   [4]string,
-	// What `run` asks the server, and what to make of the answer.
+	// What to do with the server's answer to a request made by `run`.
 	answer:   proc(c: ^Conn, j: ^Job, a: lite.Answer),
-	// What to do once the events of what was asked have come
-	// (after_events), and what an endpoint of more than one step keeps
-	// between them.
+	// What to do once the events caused by the request have arrived
+	// (after_events), and the state an endpoint with more than one step
+	// keeps between its steps.
 	then:     proc(c: ^Conn, j: ^Job),
 	scratch:  [3]u64,
-	// An event socket's Feed, for its HTTP thread (events_attach), and
-	// a streaming upload's or download's Ring (files.odin).
+	// An event socket's Feed, handed to its HTTP thread (events_attach), and
+	// the Ring of a streaming upload or download (files.odin).
 	feed:     ^Feed,
 	ring:     ^Ring,
 }
 
 Job_Kind :: enum {
-	Call, // with a token
-	Guest, // without
+	Call, // a request with a token
+	Guest, // a request without a token
 	Login, // a new token, with a username and password
 }
 
-// An HTTP answer: its status, JSON (owned, from context.allocator; ""
-// for none) and when to try again, for 429.
+// An HTTP answer: the status, the JSON (owned, allocated with
+// context.allocator, or "" for none) and, for 429, when to try again.
 Reply :: struct {
 	status:       int,
 	json:         string,
-	retry_after:  int, // seconds; 0 for none
-	allow:        string, // for 405: the methods there are
-	// Bytes rather than JSON (owned), and what they are.
+	retry_after:  int, // in seconds, 0 for none
+	allow:        string, // for 405: the methods that are allowed
+	// Raw bytes instead of JSON (owned) and their content type.
 	body:         []u8,
 	content_type: string,
 }
 
-// start makes the gateway and its thread. `cfg.password` is copied.
+// start creates the gateway and its thread. `cfg.password` is copied.
 start :: proc(cfg: Config) -> ^Gateway {
 	g := new(Gateway)
 	g.cfg = cfg
@@ -175,8 +177,8 @@ start :: proc(cfg: Config) -> ^Gateway {
 	return g
 }
 
-// stop replies to every Job still waiting, closes the connections and
-// frees the gateway. No HTTP thread may submit after it.
+// stop replies to every Job that is still waiting, closes the connections and
+// frees the gateway. No HTTP thread may submit a Job after this.
 stop :: proc(g: ^Gateway) {
 	{
 		sync.guard(&g.mutex)
@@ -191,17 +193,15 @@ stop :: proc(g: ^Gateway) {
 	free(g)
 }
 
-/*
-submit hands a Job to the gateway thread and waits for its reply. The
-key in it is wiped once it's been taken.
-*/
+// submit hands a Job to the gateway thread and waits for its reply. The key
+// in the Job is wiped once the gateway thread has taken it.
 submit :: proc(g: ^Gateway, j: ^Job) -> Reply {
 	submit_start(g, j)
 	return submit_wait(j)
 }
 
-// submit_start hands a Job over, for an HTTP thread that has more to do
-// before it waits for its reply (submit_wait).
+// submit_start hands a Job over. It is for an HTTP thread that has more to do
+// before it waits for the reply (submit_wait).
 submit_start :: proc(g: ^Gateway, j: ^Job) {
 	sync.guard(&g.mutex)
 	if g.stop {
@@ -216,11 +216,9 @@ submit_wait :: proc(j: ^Job) -> Reply {
 	return j.reply
 }
 
-/*
-reply answers a Job, which then belongs to its HTTP thread again. An
-error gives up on the file it streams, if it does, which is how its HTTP
-thread knows to stop.
-*/
+// reply answers a Job, after which the Job belongs to its HTTP thread again.
+// An error status marks the Job's streamed file as failed (if it has one),
+// which is how the HTTP thread knows to stop.
 reply :: proc(j: ^Job, r: Reply) {
 	if r.status >= 300 && j.ring != nil {
 		ring_fail(j.ring)
@@ -229,26 +227,27 @@ reply :: proc(j: ^Job, r: Reply) {
 	sync.sema_post(&j.replied)
 }
 
-/*
-ask makes a request on the Job's connection, whose answer goes to
-j.answer. If it can't be sent, the Job is answered that the connection
-is starting over.
-*/
+// ask makes a request on the Job's connection and sends the answer to
+// j.answer. If the request can't be sent, the Job is answered with an error
+// saying that the connection is starting over.
 ask :: proc(c: ^Conn, j: ^Job, op: proto.Request_Op, body: []u8 = nil) {
 	if !lite.request(&c.client, op, body, answered, u64(uintptr(j))) {
 		reply(
 			j,
-			error_reply(503, "reset", "The connection to the server is starting over; try again."),
+			error_reply(
+				503,
+				"reset",
+				"The connection to the server is restarting. Please try again.",
+			),
 		)
 	}
 }
 
-/*
-after_events runs `then` once every event of what the Job asked before
-has come, so the model has it: it asks the server something that costs
-it nothing, whose answer comes after them on the stream, as the server
-handles requests in turn and tells what one did before taking the next.
-*/
+// after_events runs `then` once every event caused by the Job's earlier
+// requests has arrived, so the model is up to date. It does this by asking the
+// server something cheap. The server handles requests one at a time and sends
+// the events of a request before taking the next one, so the answer arrives
+// after those events on the stream.
 after_events :: proc(c: ^Conn, j: ^Job, then: proc(c: ^Conn, j: ^Job)) {
 	j.then = then
 	j.answer = proc(c: ^Conn, j: ^Job, a: lite.Answer) {
@@ -280,8 +279,8 @@ run_gateway :: proc(g: ^Gateway) {
 			stopping = g.stop
 			jobs, g.jobs = g.jobs, jobs
 		}
-		// What has come first, so a Job is answered from the model as
-		// it is by now.
+		// Receive first, so that a Job is answered from the current state
+		// of the model.
 		for _, c in g.conns {
 			lite.receive(&c.client)
 		}
@@ -314,14 +313,12 @@ run_gateway :: proc(g: ^Gateway) {
 	}
 }
 
-/*
-dispatch takes a Job to its connection, made for it if need be. Once
-it's replied to, the Job is the HTTP thread's again, and gone as soon as
-that's answered: nothing here may touch it after.
-*/
+// dispatch takes a Job to its connection, which is created if necessary.
+// Once the Job has been replied to it belongs to the HTTP thread again and may
+// be freed right away, so nothing here may touch it afterwards.
 @(private)
 dispatch :: proc(g: ^Gateway, j: ^Job) {
-	// Off the Job first, while it's certainly still there.
+	// Copy the key off the Job first, while the Job is certainly still valid.
 	token_key := j.key
 	defer ecdh.private_key_clear(&token_key)
 	ecdh.private_key_clear(&j.key)
@@ -332,7 +329,7 @@ dispatch :: proc(g: ^Gateway, j: ^Job) {
 			key: ecdh.Private_Key
 			defer ecdh.private_key_clear(&key)
 			if !ecdh.private_key_generate(&key, .X25519) {
-				reply(j, error_reply(500, "internal", "No key could be made."))
+				reply(j, error_reply(500, "internal", "The gateway failed to generate a key."))
 				return
 			}
 			if g.guest != nil {
@@ -340,7 +337,14 @@ dispatch :: proc(g: ^Gateway, j: ^Job) {
 			}
 			g.guest = conn_open(g, &key, {guest = true, name = "api guest"})
 			if g.guest == nil {
-				reply(j, error_reply(500, "internal", "No socket for the server."))
+				reply(
+					j,
+					error_reply(
+						500,
+						"internal",
+						"The gateway failed to open a socket to the server.",
+					),
+				)
 				return
 			}
 		}
@@ -359,7 +363,7 @@ dispatch :: proc(g: ^Gateway, j: ^Job) {
 	case .Login:
 		token, pub, made := proto.bot_token_make()
 		if !made {
-			reply(j, error_reply(500, "internal", "No key could be made."))
+			reply(j, error_reply(500, "internal", "The gateway failed to generate a key."))
 			return
 		}
 		key: ecdh.Private_Key
@@ -388,7 +392,7 @@ dispatch :: proc(g: ^Gateway, j: ^Job) {
 		return
 	}
 	c.last_used = time.tick_now()
-	// Last: it may reply.
+	// This comes last because running the Job may reply to it.
 	if lite.ready(&c.client) {
 		j.run(c, j)
 	} else {
@@ -396,7 +400,7 @@ dispatch :: proc(g: ^Gateway, j: ^Job) {
 	}
 }
 
-// new_conn opens a token's connection, if there's room for one.
+// new_conn opens a token's connection if the connection limit allows it.
 @(private)
 new_conn :: proc(
 	g: ^Gateway,
@@ -410,17 +414,27 @@ new_conn :: proc(
 	pub: [proto.KEY_SIZE]u8
 	ecdh.private_key_public_bytes(key, pub[:])
 	if old := g.conns[pub] or_else nil; old != nil {
-		// One that's on its way out: it goes now.
+		// An old connection that is about to be removed is closed immediately.
 		conn_close(old, "")
 		delete_key(&g.conns, pub)
 	}
 	if len(g.conns) >= g.cfg.max_connections {
-		reply(j, error_reply(503, "unavailable", "The API has as many connections as it takes."))
+		reply(
+			j,
+			error_reply(
+				503,
+				"unavailable",
+				"The API has reached its maximum number of connections. Please try again later.",
+			),
+		)
 		return
 	}
 	c = conn_open(g, key, opt)
 	if c == nil {
-		reply(j, error_reply(500, "internal", "No socket for the server."))
+		reply(
+			j,
+			error_reply(500, "internal", "The gateway failed to open a socket to the server."),
+		)
 		return
 	}
 	g.conns[pub] = c
@@ -445,8 +459,8 @@ conn_open :: proc(g: ^Gateway, key: ^ecdh.Private_Key, opt: lite.Options) -> ^Co
 	return c
 }
 
-// conn_close replies to what's waiting with `why` (503), says goodbye
-// to the server and frees the connection.
+// conn_close replies to all waiting Jobs with a 503, says goodbye to the
+// server and frees the connection. `why` is only used for the log.
 @(private)
 conn_close :: proc(c: ^Conn, why: string) {
 	if c.model.self != 0 && why != "" {
@@ -474,7 +488,7 @@ conn_close :: proc(c: ^Conn, why: string) {
 	free(c)
 }
 
-// sweep closes the connections that are done, and those that have been
+// sweep closes the connections that are done and the ones that have been
 // idle long enough.
 @(private)
 sweep :: proc(g: ^Gateway, now: time.Tick) {
@@ -482,8 +496,9 @@ sweep :: proc(g: ^Gateway, now: time.Tick) {
 	for key, c in g.conns {
 		if c.feed != nil {
 			if !feed_gone(c.feed) {
-				// Listened to, so not idle; and from when it goes, it has
-				// as long as any to come back and resume.
+				// Someone is listening, so the connection isn't idle. Once the
+				// socket goes away, the bot gets the full idle time to come back
+				// and resume.
 				c.last_used = now
 				continue
 			}
@@ -527,7 +542,8 @@ HANDLERS :: lite.Handlers {
 conn_phase :: proc(client: ^lite.Client, phase: lite.Phase) {
 	c := (^Conn)(client.opt.user)
 	if phase != .Ready {
-		// Starting over, or failed: what was on its way went with it.
+		// The connection is starting over or failed, so transfers in progress
+		// are lost.
 		files_reset(c)
 	}
 	#partial switch phase {
@@ -546,13 +562,13 @@ conn_phase :: proc(client: ^lite.Client, phase: lite.Phase) {
 		if !c.model.server_known && !c.client.opt.guest {
 			lite.request(&c.client, .Server_Info, nil, server_info_done)
 		}
-		// Synced again, on a new connection to the server: everything
-		// may have changed while it was gone.
+		// Synced again over a new connection to the server. Everything may
+		// have changed while the connection was gone.
 		if c.ready_once {
 			emit(c, "READY", ready_json(c))
 		}
 		c.ready_once = true
-		// From a copy: what runs may well wait again.
+		// Iterate over a copy because a Job that runs may end up waiting again.
 		waiting := c.waiting
 		c.waiting = {}
 		for j in waiting {
@@ -569,7 +585,8 @@ conn_phase :: proc(client: ^lite.Client, phase: lite.Phase) {
 				feed_close(c.feed, CLOSE_SERVER, "the server can't be reached")
 			}
 		}
-		// One each: a reply belongs to the HTTP thread that sends it.
+		// Each Job is replied to separately, as a reply belongs to the HTTP
+		// thread that sends it.
 		if c.login != nil {
 			reply(c.login, failure_reply(&c.client))
 			c.login = nil
@@ -609,7 +626,7 @@ conn_message :: proc(client: ^lite.Client, kind: proto.Message_Kind, pt: []u8) {
 	}
 }
 
-// server_info_done keeps what the server says about itself, for READY.
+// server_info_done stores what the server reports about itself, for READY.
 @(private)
 server_info_done :: proc(client: ^lite.Client, a: lite.Answer) {
 	c := (^Conn)(client.opt.user)
@@ -618,7 +635,7 @@ server_info_done :: proc(client: ^lite.Client, a: lite.Answer) {
 	}
 }
 
-// What the log calls a connection before it knows whose it is.
+// The name used in the log for a connection before its account is known.
 @(private)
 common_name :: proc(pub: [proto.KEY_SIZE]u8) -> string {
 	return strings.clone(

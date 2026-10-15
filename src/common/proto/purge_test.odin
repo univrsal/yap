@@ -14,7 +14,8 @@ test_purge_roundtrip :: proc(t: ^testing.T) {
 	got, ok := decode_purge(encode_purge(&buf, p))
 	testing.expect(t, ok)
 	testing.expect_value(t, got, p)
-	// No time, an unknown what, too short: refused.
+	// A purge without a time, with an unknown `what` value, or truncated is
+	// refused.
 	_, ok = decode_purge(encode_purge(&buf, {conv = 7}))
 	testing.expect(t, !ok)
 	body := encode_purge(&buf, p)

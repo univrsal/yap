@@ -7,48 +7,48 @@ import "core:time"
 
 import "common:proto"
 
-/*
-Buddies, direct messages, and when people were last here
-(src/common/proto/buddies.odin, and DMs in proto/convs.odin): what the
-buddy screen is made of.
-
-Our buddies are our account's, kept by the server: it tells us of them
-when we log in and as they change, here or on another of our devices.
-
-A DM is a conversation like a channel (convs.odin), with one other
-account, and its messages are like any other's (messages.odin). We may
-not have one with somebody yet: what we write to them waits in the
-outbox while the server opens it (DM_Open), which it does once, for good.
-
-When somebody was last here is asked for (Last_Seen_Command); the server
-only says to people who have exchanged messages with them.
-*/
+// This file handles buddies, direct messages and when people were last online
+// (src/common/proto/buddies.odin, and DMs in proto/convs.odin). These make up
+// the buddy screen.
+//
+// Our buddies belong to our account and are stored by the server. It sends
+// them when we log in and whenever they change, whether the change was made
+// here or on another of our devices.
+//
+// A DM is a conversation with exactly one other account. It works like a
+// channel conversation (see convs.odin), and its messages are like any other
+// messages (see messages.odin). We may not have a DM with somebody yet. In
+// that case, what we write to them waits in the outbox until the server opens
+// the DM (DM_Open), which it does only once per pair of accounts.
+//
+// When somebody was last online is requested with Last_Seen_Command. The
+// server only answers for people who have exchanged messages with us.
 
 Buddy_Client :: struct {
 	buddies: [dynamic]proto.Account_Id,
 }
 
-// Add somebody as a buddy, or take them off: by account, or by name if
-// the account is 0 (headless).
+// Adds somebody as a buddy or removes them. The person is identified by
+// account, or by name if the account is 0 (headless).
 Buddy_Command :: struct {
 	account: proto.Account_Id,
 	name:    string, // owned by the command
 	on:      bool,
 }
 
-// Ask when some accounts were last here; by name if there's none
-// (headless).
+// Asks when some accounts were last online. If no accounts are given, the
+// name is used instead (headless).
 Last_Seen_Command :: struct {
 	accounts: [64]proto.Account_Id,
 	count:    int,
 	name:     string, // owned by the command
 }
 
-// List our buddies and DMs in the log (headless).
+// Lists our buddies and DMs in the log (headless).
 Buddies_Command :: struct {}
 
-// Look at the DMs with somebody, and post `text` there if it isn't
-// empty: by account, or by name if the account is 0 (headless).
+// Opens the DM with somebody and posts `text` there if it isn't empty. The
+// person is identified by account, or by name if the account is 0 (headless).
 DM_Command :: struct {
 	account: proto.Account_Id,
 	name:    string, // owned by the command
@@ -60,14 +60,15 @@ buddies_destroy :: proc(c: ^Voice_Client) {
 	c.buddies = {}
 }
 
-// buddies_begin forgets our buddies: the server is about to tell us
-// again, or we've been logged out.
+// buddies_begin forgets our buddies, either because the server is about to send
+// them again or because we've been logged out.
 buddies_begin :: proc(c: ^Voice_Client) {
 	clear(&c.buddies.buddies)
 	publish_buddies(c)
 }
 
-// buddies_event takes an event about buddies; false if `op` isn't one.
+// buddies_event handles an event about buddies. It returns false if `op` is not
+// a buddy event.
 buddies_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	if op != .Buddy_Changed {
 		return false
@@ -97,8 +98,8 @@ buddies_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool 
 	return true
 }
 
-// account_named is the account somebody means by `name`: its username,
-// or what it's called; 0 if there's none.
+// account_named returns the account that `name` refers to, matching either the
+// username or the display name. It returns 0 if there is no such account.
 account_named :: proc(c: ^Voice_Client, name: string) -> proto.Account_Id {
 	if id := account_by_username(c, name); id != 0 {
 		return id
@@ -111,8 +112,8 @@ account_named :: proc(c: ^Voice_Client, name: string) -> proto.Account_Id {
 	return 0
 }
 
-// who is the account a command means: `account`, or the one called
-// `name`. Not ourselves.
+// who returns the account a command refers to, which is `account` or else the
+// account called `name`. It returns 0 if that is ourselves.
 @(private = "file")
 who :: proc(c: ^Voice_Client, account: proto.Account_Id, name: string) -> proto.Account_Id {
 	id := account if account != 0 else account_named(c, name)
@@ -138,13 +139,13 @@ buddy_command :: proc(c: ^Voice_Client, cmd: Buddy_Command) {
 		proto.encode_buddy(&buf, account, cmd.on),
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
-				log.warnf("the server wouldn't change your buddies (%v)", status)
+				log.warnf("the server failed to update your buddies (%v)", status)
 			}
 		},
 	)
 }
 
-// is_online is whether an account has a connection here.
+// is_online reports whether an account is connected to this server.
 is_online :: proc(c: ^Voice_Client, account: proto.Account_Id) -> bool {
 	if !c.channels.have_state {
 		return false
@@ -157,7 +158,7 @@ is_online :: proc(c: ^Voice_Client, account: proto.Account_Id) -> bool {
 	return false
 }
 
-// dm_with is our DM conversation with an account, or 0 if there's none
+// dm_with returns our DM conversation with an account, or 0 if there isn't one
 // yet.
 dm_with :: proc(c: ^Voice_Client, account: proto.Account_Id) -> proto.Conv_Id {
 	for id, info in c.convs.convs {
@@ -168,15 +169,15 @@ dm_with :: proc(c: ^Voice_Client, account: proto.Account_Id) -> proto.Conv_Id {
 	return 0
 }
 
-// dm_other is who a DM is with: of its two accounts, the one that isn't
-// ours.
+// dm_other returns the other participant of a DM, which is the one of its two
+// accounts that isn't ours.
 dm_other :: proc(c: ^Voice_Client, info: Conv_Info) -> proto.Account_Id {
 	return info.b if info.a == c.auth.me else info.a
 }
 
-// dm_command looks at the DMs with somebody, posting to them first if
-// there's text. Before there's a conversation there's nothing to look
-// at: what's posted opens it.
+// dm_command opens the DM with somebody, first posting `text` if there is any.
+// If no conversation exists yet there is nothing to open, and posting the text
+// is what creates it.
 dm_command :: proc(c: ^Voice_Client, cmd: DM_Command) {
 	account := who(c, cmd.account, cmd.name)
 	if account == 0 {
@@ -221,7 +222,7 @@ last_seen_command :: proc(c: ^Voice_Client, cmd: Last_Seen_Command) {
 			if c.view != nil {
 				return
 			}
-			// Headless (/seen): the log is the only place to show it.
+			// Headless (/seen): the log is the only place to show the result.
 			for e in entries {
 				name := account_display(c, e.account)
 				switch e.time {
@@ -245,7 +246,7 @@ last_seen_command :: proc(c: ^Voice_Client, cmd: Last_Seen_Command) {
 	)
 }
 
-// list_buddies logs our buddies and our DMs (headless /buddies).
+// list_buddies logs our buddies and DMs (headless /buddies).
 list_buddies :: proc(c: ^Voice_Client) {
 	for b in c.buddies.buddies {
 		log.infof("buddy: %s%s", account_display(c, b), " (here)" if is_online(c, b) else "")

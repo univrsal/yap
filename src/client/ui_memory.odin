@@ -9,27 +9,26 @@ import "core:strings"
 import "core:time"
 import mu "vendor:microui"
 
-/*
-Where the memory goes (common/memtrack, which main installs as the
-allocator): this client's, on the settings page's Memory category, and
-for a server's owner the server's, on the server tab's. Both are the
-same report - the process's numbers beside what's counted, by file and
-by line - and the client's also has the GPU's textures, which nothing
-else counts.
-
-A line about the client's goes in the log every MEMORY_LOG_EVERY too, so
-a long run leaves a trend behind (-log-file keeps it).
-*/
+// Memory usage reporting (common/memtrack, which main installs as the
+// allocator). The client's own report is shown on the settings page's Memory
+// category, and a server's owner also gets the server's report on the server
+// tab. Both are the same report: the process's numbers next to what is
+// tracked, by file and by line. The client's report also lists the GPU
+// textures, which nothing else tracks.
+//
+// A line about the client's memory is also written to the log every
+// MEMORY_LOG_EVERY, so that a long run leaves a trend behind (-log-file keeps
+// it).
 
 UI_Memory :: struct {
 	logged:       time.Tick, // the last line in the log
-	// The client's report, as of `taken`; owned. Taken again every
-	// MEMORY_REFRESH while it's on screen.
+	// The client's report as of `taken` (owned). It is taken again every
+	// MEMORY_REFRESH while it is on screen.
 	report:       string,
 	taken:        time.Tick,
-	// What "Give back" did, to say beside it.
+	// The result of "Give back", shown next to the button.
 	released:     string,
-	// The server's has been asked for since the settings were opened.
+	// Whether the server's report has been requested since the settings were opened.
 	server_asked: bool,
 }
 
@@ -48,7 +47,7 @@ ui_memory_destroy :: proc(ui: ^UI) {
 	ui.memory.report, ui.memory.released = "", ""
 }
 
-// memory_frame logs the line about the client's memory when it's time.
+// memory_frame logs the line about the client's memory when it is due.
 memory_frame :: proc(ui: ^UI) {
 	m := &ui.memory
 	if m.logged == {} {
@@ -61,7 +60,7 @@ memory_frame :: proc(ui: ^UI) {
 	log.info(memtrack.summary(memory_extras(), context.temp_allocator))
 }
 
-// memory_extras is what the client has that memtrack doesn't see.
+// memory_extras is what the client uses that memtrack doesn't track.
 @(private = "file")
 memory_extras :: proc() -> []memtrack.Extra {
 	bytes, count := render.texture_memory()
@@ -123,11 +122,9 @@ memory_settings :: proc(ui: ^UI) {
 	memory_report(ui, m.report)
 }
 
-/*
-server_memory_settings is the server tab's Memory category, for the
-owner. Asked for when it's first shown, and again with Refresh. Call
-with the View locked.
-*/
+// server_memory_settings is the server tab's Memory category, for the owner.
+// The report is requested when first shown and again with Refresh. Call with
+// the View locked.
 server_memory_settings :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	m := &ui.memory
@@ -162,10 +159,8 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 	}
 }
 
-/*
-memory_report shows a report (memtrack's text): headings, and rows of
-an amount, a detail and what it's about, in columns.
-*/
+// memory_report shows a memtrack report: headings and rows with an amount, a
+// detail and what it belongs to, in columns.
 @(private = "file")
 memory_report :: proc(ui: ^UI, report: string) {
 	ctx := &ui.ctx

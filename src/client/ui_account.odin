@@ -10,35 +10,33 @@ import "core:sync"
 import "core:time"
 import mu "vendor:microui"
 
-/*
-Accounts in the UI (conn/auth.odin is the network's end of it).
-
-  - The login screen, shown while connected to a server that doesn't know
-    this device yet: username and password, and whatever the server said
-    to the last attempt; or, where the server takes registrations,
-    registering instead, with what it asks for.
-  - The screen that follows a login with a password an admin chose: it
-    has to be replaced before anything else.
-  - The screen an account whose email address isn't verified yet gets
-    instead of everything else: how to verify it, by mailing the server
-    (proto/verify.odin).
-  - The Account section of the settings: what we're called, our
-    password, the devices logged in to the account, logging out.
-  - For whoever manages accounts, an Accounts section under it: the
-    accounts there are, making one, and giving one a new password.
-
-Where the server doesn't take registrations, accounts are made by an
-admin.
-*/
+// Accounts in the UI (conn/auth.odin is the network's end of it).
+//
+//   - The login screen, shown while connected to a server that doesn't know
+//     this device yet: username and password, and whatever the server said
+//     about the last attempt. Where the server takes registrations, it can
+//     also be used to register instead, with whatever the server asks for.
+//   - The screen that follows a login with a password an admin chose: the
+//     password has to be replaced before anything else.
+//   - The screen shown instead of everything else to an account whose email
+//     address isn't verified yet: it explains how to verify it by sending an
+//     email to the server (see proto/verify.odin).
+//   - The Account section of the settings: our display name, our
+//     password, the devices logged in to the account, and logging out.
+//   - For whoever manages accounts, an Accounts section under it: the
+//     existing accounts, creating one, and giving one a new password.
+//
+// Where the server doesn't take registrations, accounts are created by an
+// admin.
 
 UI_Account :: struct {
-	// The login form, and how tall its card was last frame (login_screen).
+	// The login form, and how tall its card was in the last frame (see login_screen).
 	card_h:        i32,
 	username_buf:  [proto.MAX_USERNAME_SIZE]u8,
 	username_len:  int,
 	password_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
 	password_len:  int,
-	// Registering instead: the password again, the address and the
+	// Registering instead: the password again, the email address and the
 	// invite code, if the server asks for them.
 	registering:   bool,
 	reg_again_buf: [proto.MAX_ACCOUNT_PASSWORD]u8,
@@ -47,12 +45,12 @@ UI_Account :: struct {
 	reg_email_len: int,
 	invite_buf:    [proto.INVITE_CODE_SIZE + 8]u8,
 	invite_len:    int,
-	// Fixing the address on the page that waits for it to be verified,
-	// which starts out as it is.
+	// Fixing the address on the page that waits for it to be verified.
+	// It starts out as the current address.
 	verify_buf:    [proto.MAX_EMAIL_SIZE]u8,
 	verify_len:    int,
 	verify_loaded: string, // what it was filled with; owned
-	// Changing the password: the current one, the new one, and again.
+	// Changing the password: the current one, the new one, and the new one again.
 	old_buf:       [proto.MAX_ACCOUNT_PASSWORD]u8,
 	old_len:       int,
 	new_buf:       [proto.MAX_ACCOUNT_PASSWORD]u8,
@@ -60,32 +58,32 @@ UI_Account :: struct {
 	again_buf:     [proto.MAX_ACCOUNT_PASSWORD]u8,
 	again_len:     int,
 	revoke_others: bool,
-	// What's wrong with what was typed, before the server is asked.
+	// What is wrong with what was typed, found before the server is asked.
 	mistake:       string, // static
-	// The name field (ui.name_buf) has been filled with what we're
-	// called, and the email field with our address, and the devices
-	// asked for, since the settings were opened.
+	// Whether the name field (ui.name_buf) has been filled with our name, the
+	// email field with our address, and the devices requested, since the settings
+	// were opened.
 	name_loaded:   bool,
 	email_buf:     [proto.MAX_EMAIL_SIZE]u8,
 	email_len:     int,
-	// The name's or the email's Apply was used: what the server made of
+	// The name's or the email's Apply button was used. What the server made of
 	// it is shown under them.
 	profile_asked: bool,
 	devices_asked: bool,
-	// What the server had said by then isn't about anything asked since:
-	// only a notice newer than this one (View_Notice.count) is shown.
+	// What the server had said by then isn't about anything asked since,
+	// so only a notice newer than this one (View_Notice.count) is shown.
 	notice_reset:  bool,
 	notice_seen:   int,
-	// Making an account.
+	// Creating an account.
 	add_user_buf:  [proto.MAX_USERNAME_SIZE]u8,
 	add_user_len:  int,
 	add_name_buf:  [2 * proto.MAX_NAME_SIZE]u8,
 	add_name_len:  int,
 	add_pass_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
 	add_pass_len:  int,
-	// The bot whose tokens are shown (ui_bots.odin), 0 for none.
+	// The bot whose tokens are shown (see ui_bots.odin), 0 for none.
 	bot_tokens:    proto.Account_Id,
-	// Giving an account a new password: whose, and the password.
+	// Giving an account a new password: which account, and the password.
 	set_account:   proto.Account_Id,
 	set_pass_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
 	set_pass_len:  int,
@@ -96,18 +94,18 @@ UI_Account :: struct {
 
 FORM_LABEL :: 130
 FORM_FIELD :: 220
-// The login screen's card: how wide, its labels, and the server's
+// The login screen's card: its width, its labels and the server's
 // picture at the top.
 @(private = "file")
 LOGIN_CARD_WIDTH :: 400
 LOGIN_LABEL :: 110
-// Narrower than this beside its label, a login field goes under it.
+// When the space beside the label is narrower than this, a login field goes under its label.
 LOGIN_FIELD_MIN :: 150
 @(private = "file")
 LOGIN_PICTURE :: 72
 
-// ui_account_opened is the settings page being opened: what it shows of
-// the account is fetched anew.
+// ui_account_opened is called when the settings page is opened. It fetches
+// the account's information again.
 ui_account_opened :: proc(ui: ^UI) {
 	ui.account.name_loaded = false
 	ui.account.profile_asked = false
@@ -134,13 +132,11 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 	}
 }
 
-/*
-card_begin starts a card in the middle of what's left of the main
-window, as the login screen has: LOGIN_CARD_WIDTH wide (or all there
-is), and as tall as `h`, what was in it last frame (all there is the
-first time), scrolling if that won't fit. card_end ends it, keeping its
-height in `h`.
-*/
+// card_begin starts a card in the middle of what is left of the main
+// window, as the login screen has. It is LOGIN_CARD_WIDTH wide (or as wide as
+// the space allows) and as tall as `h`, which holds its height in the last
+// frame (as tall as possible the first time). It scrolls if it doesn't fit.
+// card_end ends it and stores its height in `h`.
 card_begin :: proc(ui: ^UI, name: string, h: i32) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, -1)
@@ -158,17 +154,15 @@ card_end :: proc(ui: ^UI, h: ^i32) {
 	h^ = cnt.content_size.y + 2 * ctx.style.padding
 }
 
-// card_heading is a row of `text` in the middle of a card.
+// card_heading is a row with `text` in the middle of a card.
 card_heading :: proc(ui: ^UI, text: string) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1})
 	mu.draw_control_text(ctx, text, mu.layout_next(ctx), .TEXT, {.ALIGN_CENTER})
 }
 
-/*
-login_screen is what a server that doesn't know this device shows
-instead of its channels. Call with the View locked.
-*/
+// login_screen is shown by a server that doesn't know this device, instead
+// of its channels. Call with the View locked.
 login_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -179,7 +173,7 @@ login_screen :: proc(ui: ^UI) {
 	}
 	registering := a.registering
 
-	// A card in the middle: the server, as it says it is, over the form.
+	// A card in the middle: the server, as it describes itself, above the form.
 	card_begin(ui, "login card", a.card_h)
 	defer card_end(ui, &a.card_h)
 
@@ -202,7 +196,7 @@ login_screen :: proc(ui: ^UI) {
 
 	working := v.login.state != .Needed
 	submit := false
-	// A label beside its field, or over it on a narrow phone.
+	// A label beside its field, or above it on a narrow phone.
 	field :: proc(ui: ^UI, label: string) {
 		field_row(ui, LOGIN_LABEL, label, {-1}, fill_min = LOGIN_FIELD_MIN)
 	}
@@ -294,11 +288,9 @@ login_screen :: proc(ui: ^UI) {
 
 }
 
-/*
-register_mistake checks what was typed to register before the server is
-asked, as far as it can be told here; false, with a.mistake saying why,
-if it won't do.
-*/
+// register_mistake checks what was typed for registering, before the server is
+// asked, as far as that can be judged here. It returns false, with a.mistake
+// saying why, if the input won't do.
 @(private = "file")
 register_mistake :: proc(ui: ^UI) -> bool {
 	a := &ui.account
@@ -315,7 +307,7 @@ register_mistake :: proc(ui: ^UI) -> bool {
 	case !proto.account_password_ok(password):
 		a.mistake = "A password is 8 to 128 characters."
 	case password != string(a.reg_again_buf[:a.reg_again_len]):
-		a.mistake = "The two passwords aren't the same."
+		a.mistake = "The two passwords don't match."
 	case .Email in v.registration && strings.trim_space(email) == "":
 		a.mistake = "This server asks for an email address."
 	case strings.trim_space(email) != "" && !email_ok(email, &email_buf):
@@ -323,7 +315,7 @@ register_mistake :: proc(ui: ^UI) -> bool {
 	case .Invite in v.registration && a.invite_len == 0:
 		a.mistake = "This server asks for an invite code."
 	case a.invite_len > 0 && !invite_ok(string(a.invite_buf[:a.invite_len]), &code_buf):
-		a.mistake = "That isn't an invite code: they're 10 letters and digits, as given to you."
+		a.mistake = "That isn't a valid invite code. Invite codes consist of 10 letters and digits."
 	}
 	return a.mistake == ""
 
@@ -341,11 +333,10 @@ register_mistake :: proc(ui: ^UI) -> bool {
 	}
 }
 
-/*
-verify_screen is all an account whose address isn't verified gets: what
-to mail where, a way to fix the address, and logging out. It goes on by
-itself once the server has the mail. Call with the View locked.
-*/
+// verify_screen is all that an account with an unverified address gets: what
+// to email to which address, a way to fix the address, and logging out. It
+// continues by itself once the server has received the email. Call with the
+// View locked.
 verify_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -355,7 +346,10 @@ verify_screen :: proc(ui: ^UI) {
 	title_row(ui, {-1})
 	mu.label(ctx, fmt.tprintf("Verify your email address for %s", server))
 	mu.layout_row(ctx, {-1})
-	wrap_text(ctx, "Send a mail from your address to the server's, with the code in its subject:")
+	wrap_text(
+		ctx,
+		"Send an email from your address to the server's address, with the code in the subject:",
+	)
 
 	mail_row := []i32{FORM_FIELD + 80, 90}
 	field_row(ui, FORM_LABEL, "From", mail_row)
@@ -372,7 +366,7 @@ verify_screen :: proc(ui: ^UI) {
 		set_clipboard(nil, v.login.verify_code)
 	}
 	field_row(ui, FORM_LABEL, "", mail_row)
-	if .SUBMIT in stable_button(ctx, "mailto", "Write it in my mail program") {
+	if .SUBMIT in stable_button(ctx, "mailto", "Open it in my email program") {
 		platform.open_mailto(v.server_email, v.login.verify_code)
 	}
 	mu.label(ctx, "")
@@ -381,7 +375,7 @@ verify_screen :: proc(ui: ^UI) {
 	with_text_color(
 		ctx,
 		theme.dim,
-		"The server reads its mail every minute or so; this page goes on by itself once it has yours.",
+		"The server checks its mail about once a minute. This page continues by itself once your email has arrived.",
 		wrap_text,
 	)
 	if v.login.verify_by != 0 {
@@ -402,7 +396,7 @@ verify_screen :: proc(ui: ^UI) {
 		)
 	}
 
-	// Mistyped? Fixed here, with a new code.
+	// Mistyped? Fix it here, which gives a new code.
 	if a.verify_loaded != v.login.email {
 		delete(a.verify_loaded)
 		a.verify_loaded = strings.clone(v.login.email)
@@ -429,11 +423,9 @@ verify_screen :: proc(ui: ^UI) {
 
 }
 
-/*
-password_screen is what follows a login with a password somebody else
-chose: nothing else until it has been replaced. Call with the View
-locked.
-*/
+// password_screen is shown after a login with a password that somebody else
+// chose. Nothing else is available until the password has been replaced. Call
+// with the View locked.
 password_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -444,7 +436,7 @@ password_screen :: proc(ui: ^UI) {
 	with_text_color(
 		ctx,
 		theme.dim,
-		"The one you logged in with was set by an admin, and is only good for getting in.",
+		"The password you logged in with was set by an admin and can only be used to log in.",
 		wrap_text,
 	)
 	password_form(ui, v, "Password you logged in with", false)
@@ -479,7 +471,7 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 	new := string(a.new_buf[:a.new_len])
 	switch {
 	case new != string(a.again_buf[:a.again_len]):
-		a.mistake = "The two new passwords aren't the same."
+		a.mistake = "The two new passwords don't match."
 	case !proto.account_password_ok(new):
 		a.mistake = "A password has to be at least 8 characters."
 	case:
@@ -498,8 +490,8 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 	}
 }
 
-// notice_label says what's wrong with what was typed, or else what the
-// server made of the last thing asked.
+// notice_label shows what is wrong with what was typed or, if nothing is,
+// what the server made of the last request.
 notice_label :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	switch {
@@ -517,7 +509,7 @@ notice_label :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
-// The server's tab's categories, in the order they're listed.
+// The server tab's categories, in the order they are listed.
 Server_Category :: enum {
 	Server_Info,
 	Account,
@@ -538,7 +530,7 @@ SERVER_CATEGORY_NAMES := [Server_Category]string {
 	.Memory      = "Memory",
 }
 
-// server_settings_categories is which of the server's tab's categories
+// server_settings_categories returns which of the server tab's categories
 // we may see: our account, and what we may manage (the server's name and
 // picture only if it's ours). Call with the View locked.
 server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category]) {
@@ -561,20 +553,18 @@ server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category
 	return
 }
 
-// server_category_opened is for a category of the server's tab that has
-// just been picked.
+// server_category_opened is called when a category of the server tab
+// has just been picked.
 server_category_opened :: proc(ui: ^UI, c: Server_Category) {
 	if c == .Roles {
 		ui.roles.notice_seen = -1 // taken from the View when it's next locked
 	}
 }
 
-/*
-server_settings is the settings page's server tab, the category `c` of
-it: our account, and for who manages them, the roles, everybody's
-accounts, invite codes and purging. The settings page doesn't hold the
-View's lock, so it's taken here.
-*/
+// server_settings is the settings page's server tab, with the category `c`
+// selected: our account and, for those who manage accounts, the roles, everybody's
+// accounts, invite codes and purging. The settings page doesn't hold the
+// View's lock, so it is taken here.
 server_settings :: proc(ui: ^UI, c: Server_Category) {
 	v := ui.view
 	a := &ui.account
@@ -631,7 +621,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		a.profile_asked = true
 		command(ui, conn.Display_Command{strings.clone(string(ui.name_buf[:ui.name_len]))})
 	}
-	// Its own id: the name's button says Apply too.
+	// It needs its own id, because the name's button also says Apply.
 	mu.push_id(ctx, "email")
 	field_row(ui, FORM_LABEL, "Email", {FORM_FIELD, 70})
 	email_submitted := .SUBMIT in text_box(ui, a.email_buf[:], &a.email_len)
@@ -657,6 +647,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		notice_label(ui, v)
 	}
 	digest_settings(ui, v)
+	push_settings(ui, v)
 	profile_settings(ui)
 	status_settings(ui)
 
@@ -681,7 +672,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", wrap_text)
 
-	// Not the owner's: somebody has to be.
+	// Not the owner's, because somebody has to be the owner.
 	if .Owner not_in me.flags {
 		if .ACTIVE in mu.begin_treenode(ctx, "Delete this account") {
 			delete_own_account(ui, v)
@@ -697,12 +688,10 @@ DIGEST_LABELS := [proto.Email_Digest]string {
 	.Mentions = "Mentions and direct messages",
 }
 
-/*
-digest_settings is which mails this server sends us about what came
-while we were away (proto.SETTING_EMAIL_DIGEST), if it sends any: an
-account setting, so it's the same on all our devices, and this server's
-alone. Call with the View locked.
-*/
+// digest_settings is which emails this server sends us about what happened
+// while we were away (see proto.SETTING_EMAIL_DIGEST), if it sends any. It is
+// an account setting, so it is the same on all our devices, and it applies to this
+// server only. Call with the View locked.
 @(private = "file")
 digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 	if !v.server_digests || !v.shared_synced {
@@ -711,7 +700,7 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	current, _ := proto.email_digest_parse(v.shared[proto.SETTING_EMAIL_DIGEST] or_else "")
 	for choice in proto.Email_Digest {
-		// Two a row: the label, then the next two.
+		// Two per row: the label, then the next two.
 		if int(choice) % 2 == 0 {
 			field_row(ui, FORM_LABEL, "Email digests" if choice == .None else "", {210, 210})
 		}
@@ -727,9 +716,9 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 			)
 		}
 	}
-	hint := "Mailed after you've been away a while; muted conversations are left out."
+	hint := "Sent after you've been away for a while. Muted conversations are left out."
 	if v.login.email == "" {
-		hint = "These go to your email address, which you haven't set."
+		hint = "These are sent to your email address, which you haven't set."
 	}
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
@@ -737,7 +726,7 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 }
 
 // delete_own_account is the form for deleting our own account, which
-// takes its password again. Call with the View locked.
+// asks for the password again. Call with the View locked.
 @(private = "file")
 delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
@@ -747,7 +736,7 @@ delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
 		ctx,
 		theme.warning,
 		fmt.tprintf(
-			"For good: your name, picture, status, roles and devices go. What you wrote stays, under \"%s\".",
+			"This is permanent: your name, picture, status, roles and devices are deleted. What you wrote stays, under \"%s\".",
 			proto.DELETED_NAME,
 		),
 		wrap_text,
@@ -766,7 +755,7 @@ delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
 		)
 		wipe(a.delete_buf[:], &a.delete_len)
 	}
-	// A wrong password, say (afterwards it's the login screen that says
+	// For example a wrong password (afterwards it is the login screen that says
 	// the account is gone).
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
@@ -800,8 +789,8 @@ devices_list :: proc(ui: ^UI, v: ^conn.View) {
 			ui.account.mistake = ""
 			command(ui, conn.Revoke_Command{d.key})
 		}
-		// What it is and when it was last here; a device that is has
-		// no need to say.
+		// Show what it is and when it was last here. A device that is online
+		// doesn't need to say so.
 		detail := d.agent
 		if .Online not_in d.flags && d.last_seen != 0 {
 			seen := fmt.tprintf("last seen %s", ago_text(ui, i64(d.last_seen)))
@@ -819,7 +808,7 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	a := &ui.account
 
-	// By id: the order they were made in.
+	// By id, which is the order they were created in.
 	most: proto.Account_Id
 	for id in v.accounts {
 		most = max(most, id)
@@ -856,7 +845,7 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 				strings.join(roles[:], ", ", context.temp_allocator),
 			)
 		}
-		// Over its buttons where they don't fit beside it.
+		// Put it above its buttons where they don't fit beside it.
 		field_row(
 			ui,
 			-(140 + 3 * 90 + 4 * ctx.style.spacing),
@@ -864,7 +853,7 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 			{140, 89, 89, 89},
 		)
 		// The owner's password is the owner's to change, as their own.
-		// A bot has none, but tokens.
+		// A bot has no password, only tokens.
 		if .Owner in acc.flags || .Manage_Accounts not_in v.permissions || !below_us(v, acc) {
 			mu.label(ctx, "")
 		} else if .Bot in acc.flags {
@@ -924,18 +913,18 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "Make an account:")
+	mu.label(ctx, "Create an account:")
 	submit := false
 	field_row(ui, FORM_LABEL, "Username", {FORM_FIELD})
 	submit |= .SUBMIT in text_box(ui, a.add_user_buf[:], &a.add_user_len)
 	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
 	submit |= .SUBMIT in text_box(ui, a.add_name_buf[:], &a.add_name_len)
-	field_row(ui, FORM_LABEL, "First password", {FORM_FIELD})
+	field_row(ui, FORM_LABEL, "Initial password", {FORM_FIELD})
 	submit |= .SUBMIT in password_box(ui, a.add_pass_buf[:], &a.add_pass_len)
 	field_row(ui, FORM_LABEL, "", {140, 140, -1})
-	submit |= .SUBMIT in mu.button(ctx, "Make account")
-	// A bot takes no password: it gets a token (ui_bots.odin).
-	bot := .SUBMIT in mu.button(ctx, "Make bot")
+	submit |= .SUBMIT in mu.button(ctx, "Create account")
+	// A bot takes no password. It gets a token (see ui_bots.odin).
+	bot := .SUBMIT in mu.button(ctx, "Create bot")
 	notice_label(ui, v)
 	if bot && a.add_user_len > 0 {
 		a.mistake = ""

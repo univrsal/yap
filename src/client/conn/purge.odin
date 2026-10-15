@@ -4,16 +4,14 @@ import "core:fmt"
 
 import "common:proto"
 
-/*
-Purging (src/common/proto/purge.odin), for whoever has Permission.Purge:
-asking the server to remove a conversation's messages, or all of them,
-from before a time, or only their pictures. The answer comes when it's
-done, which can take a while; what it removed leaves our windows when
-the server says so (Msgs_Purged, messages.odin).
-*/
+// Purging (src/common/proto/purge.odin) is for users with Permission.Purge.
+// It asks the server to remove a conversation's messages (or all messages)
+// from before a given time, or only their pictures. The answer arrives when the
+// server is done, which can take a while. The removed messages disappear from
+// our windows when the server says so (Msgs_Purged, messages.odin).
 
-// Purge a conversation (`all`: every one; headless, `here`: the one
-// we're looking at) up to `before`.
+// Purge_Command purges a conversation (`all`: every conversation; headless,
+// `here`: the conversation we are looking at) up to `before`.
 Purge_Command :: struct {
 	conv:   proto.Conv_Id,
 	all:    bool,
@@ -28,7 +26,7 @@ purge_start :: proc(c: ^Voice_Client, cmd: Purge_Command) {
 		conv = c.convs.viewing
 	}
 	if conv == 0 && !cmd.all {
-		notify(c, false, "Which conversation is to be purged?")
+		notify(c, false, "Choose a conversation to purge.")
 		return
 	}
 	if cmd.all {
@@ -55,16 +53,20 @@ purge_start :: proc(c: ^Voice_Client, cmd: Purge_Command) {
 				notify(
 					c,
 					false,
-					"The connection started over during the purge; it goes on on the server.",
+					"The connection was reset during the purge. The purge continues on the server.",
 				)
 			case .Conflict:
-				notify(c, false, "A purge is under way already; try again when it's done.")
+				notify(c, false, "A purge is already running. Try again when it has finished.")
 			case .Denied:
-				notify(c, false, "You aren't allowed to purge.")
+				notify(c, false, "You don't have permission to purge.")
 			case .Not_Found:
-				notify(c, false, "That conversation isn't there.")
+				notify(c, false, "That conversation does not exist.")
 			case:
-				notify(c, false, fmt.tprintf("The server wouldn't purge (%v).", status))
+				notify(
+					c,
+					false,
+					fmt.tprintf("The server failed to purge the messages (%v).", status),
+				)
 			}
 		}, u64(cmd.what))
 	notify(c, true, "Purging... this can take a while.")
