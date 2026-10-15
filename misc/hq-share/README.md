@@ -1184,6 +1184,11 @@ Checked: CPU use at 1440p60 compared before and after.
   - **macOS** (`gl_interop_mac.cpp`): the CVPixelBuffer's IOSurface,
     each plane bound with `CGLTexImageIOSurface2D` as a rectangle
     texture; a second fragment shader samples those in pixels.
+    *Since replaced:* the client draws with Metal on macOS now, and so
+    does the library (`output_metal.mm`): each plane of the IOSurface is
+    an `MTLTexture` (`newTextureWithDescriptor:iosurface:plane:`),
+    converted on the client's own command queue, and the frame is held
+    until that command buffer completes.
   - The frame is held until the next is bound, so the GPU is long done
     with it. The decoder gets three more surfaces for that
     (`extra_hw_frames`).

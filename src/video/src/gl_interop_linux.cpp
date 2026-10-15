@@ -89,10 +89,6 @@ public:
 		release();
 	}
 
-	unsigned target() const override {
-		return GL_TEXTURE_2D;
-	}
-
 	bool bind(const AVFrame *frame, unsigned y, unsigned uv) override {
 		release();
 		if (frame->format != AV_PIX_FMT_VAAPI) {

@@ -17,12 +17,6 @@ would, wherever there's no control of ours under the pointer (see
 mouse_button_callback). In fullscreen there's no strip at all.
 */
 
-// NSOpenGLContext, to tell the GL context its view has changed size.
-@(private = "file", objc_class = "NSOpenGLContext")
-GL_Context :: struct {
-	using _: NS.Object,
-}
-
 // NSWindowButton's zoom button, the rightmost of the three.
 @(private = "file")
 ZOOM_BUTTON :: 2
@@ -32,8 +26,9 @@ ZOOM_BUTTON :: 2
 TITLEBAR_GAP :: 8
 
 // titlebar_merge lets the UI take the title bar's place, or gives it
-// back. Called once the window has its GL context, and when the setting
-// changes.
+// back. Called once the window has its Metal layer, and when the setting
+// changes. The view changes size with it, and the next frame's drawable
+// with that (render/gpu_metal.odin).
 titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	w := vglfw.GetCocoaWindow(window)
 	if w == nil {
@@ -51,11 +46,6 @@ titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	w->setStyleMask(mask)
 	w->setTitlebarAppearsTransparent(NS.BOOL(merged))
 	w->setTitleVisibility(.Hidden if merged else .Visible)
-	// The view under the context just changed size by the title bar,
-	// which AppKit doesn't pass on to the context by itself.
-	if gl := intrinsics.objc_send(^GL_Context, GL_Context, "currentContext"); gl != nil {
-		intrinsics.objc_send(nil, gl, "update")
-	}
 }
 
 /*

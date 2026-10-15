@@ -179,7 +179,8 @@ YV_API void yv_set_gpu(yv_context *ctx, const yv_gpu *gpu) {
 		g = *gpu;
 	}
 	if ((g.kind == YV_GPU_D3D11 && !g.d3d11_device) || (g.kind == YV_GPU_GL && !g.gl_get_proc) ||
-	    (g.kind != YV_GPU_D3D11 && g.kind != YV_GPU_GL)) {
+	    (g.kind == YV_GPU_METAL && (!g.metal_device || !g.metal_queue)) ||
+	    (g.kind != YV_GPU_D3D11 && g.kind != YV_GPU_GL && g.kind != YV_GPU_METAL)) {
 		g = {};
 	}
 	std::lock_guard<std::mutex> lock(ctx->views_mutex);

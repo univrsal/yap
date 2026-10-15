@@ -3,12 +3,10 @@ Showing a frame decoded on the GPU through OpenGL without bringing it
 through memory (output_gl.cpp): its two NV12 planes are made into GL
 textures where they lie, and the usual shader converts them.
 
-- Linux (gl_interop_linux.cpp): a VA-API surface is exported as DMA-BUFs
-  (av_hwframe_map to DRM PRIME) and imported as one EGL image a plane.
-  Needs the client's context to be EGL's, which it is on Wayland; GLX
-  (X11) has no way in, so there's no interop there.
-- macOS (gl_interop_mac.cpp): VideoToolbox's CVPixelBuffer is backed by
-  an IOSurface, whose planes CGL binds as rectangle textures.
+On Linux (gl_interop_linux.cpp), a VA-API surface is exported as
+DMA-BUFs (av_hwframe_map to DRM PRIME) and imported as one EGL image a
+plane. Needs the client's context to be EGL's, which it is on Wayland;
+GLX (X11) has no way in, so there's no interop there.
 
 Everything here is the drawing thread's, with the client's context
 current.
@@ -27,12 +25,8 @@ class Gl_Interop {
 public:
 	virtual ~Gl_Interop() = default;
 
-	// What the planes are bound as: GL_TEXTURE_2D, or
-	// GL_TEXTURE_RECTANGLE (macOS), sampled in pixels.
-	virtual unsigned target() const = 0;
-
 	/*
-	bind makes textures `y` and `uv` (names made for target()) show
+	bind makes GL_TEXTURE_2D textures `y` and `uv` show
 	`frame`'s planes, which stay until release. False if it can't, which
 	the caller takes to mean it never will, and goes through memory.
 	*/

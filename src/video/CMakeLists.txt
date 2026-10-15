@@ -50,11 +50,10 @@ set(CAPTURE_DEFINES "")
 if(WIN32)
 	list(APPEND SOURCES src/sources_win.cpp src/output_d3d11.cpp src/capture_win.cpp)
 elseif(APPLE)
-	# ScreenCaptureKit is Objective-C, so these are Objective-C++.
-	list(APPEND SOURCES src/output_gl.cpp src/gl_interop_mac.cpp src/sources_mac.mm
-		src/capture_mac.mm)
-	set_source_files_properties(src/sources_mac.mm src/capture_mac.mm PROPERTIES
-		COMPILE_OPTIONS "-fobjc-arc")
+	# ScreenCaptureKit and Metal are Objective-C, so these are Objective-C++.
+	list(APPEND SOURCES src/output_metal.mm src/sources_mac.mm src/capture_mac.mm)
+	set_source_files_properties(src/output_metal.mm src/sources_mac.mm src/capture_mac.mm
+		PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 else()
 	# X11 (XCB) and the portal (GLib's GIO, PipeWire). Only their headers
 	# are needed to build: the libraries are loaded at run time
@@ -108,9 +107,7 @@ endif()
 if(APPLE)
 	target_link_libraries(yap_video PRIVATE "-framework ScreenCaptureKit"
 		"-framework CoreMedia" "-framework CoreVideo" "-framework CoreGraphics"
-		"-framework Foundation" "-framework AppKit" "-framework OpenGL" "-framework IOSurface")
-	# CGL still works; Apple just says not to start anything new with it.
-	target_compile_definitions(yap_video PRIVATE GL_SILENCE_DEPRECATION)
+		"-framework Foundation" "-framework AppKit" "-framework Metal" "-framework IOSurface")
 endif()
 if(NOT WIN32 AND NOT APPLE)
 	# dlopen, for the above; shm*, for MIT-SHM.
