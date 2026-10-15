@@ -30,7 +30,7 @@ extern "C" {
 #endif
 
 // What a client was built against. yv_create refuses any other.
-#define YV_API_VERSION 6
+#define YV_API_VERSION 7
 
 typedef struct yv_context yv_context;
 
@@ -47,6 +47,7 @@ typedef enum yv_gpu_kind {
 	YV_GPU_NONE = 0,
 	YV_GPU_D3D11 = 1,
 	YV_GPU_GL = 2,
+	YV_GPU_METAL = 3,
 } yv_gpu_kind;
 
 // The numbers are the codec byte of a video fragment (proto.Video_Codec).
@@ -157,11 +158,16 @@ D3D11: the client's ID3D11Device. It's only used from the thread that
 calls yv_set_gpu and yv_view_present, so a SINGLETHREADED device is fine.
 GL: the client's context has to be current on that thread whenever
 these are called; gl_get_proc finds its functions (glfwGetProcAddress).
+Metal: the client's id<MTLDevice>, and the id<MTLCommandQueue> it draws
+its frames with. The pictures are made on that queue, so the client's
+frames that draw them, committed after yv_view_present, find them done.
 */
 typedef struct yv_gpu {
 	yv_gpu_kind kind;
 	void *d3d11_device;
 	void *(*gl_get_proc)(const char *name);
+	void *metal_device;
+	void *metal_queue;
 } yv_gpu;
 
 YV_API void yv_set_gpu(yv_context *ctx, const yv_gpu *gpu);
@@ -209,9 +215,9 @@ typedef void (*yv_frame_fn)(void *user);
 YV_API void yv_view_on_frame(yv_view *view, yv_frame_fn fn, void *user);
 
 typedef struct yv_picture {
-	// What the client draws: an ID3D11ShaderResourceView* (D3D11) or
-	// an OpenGL texture name (GL) of an RGBA texture, made on the
-	// device of yv_set_gpu. The library's; valid until the next
+	// What the client draws: an ID3D11ShaderResourceView* (D3D11), an
+	// OpenGL texture name (GL) or an id<MTLTexture> (Metal) of an RGBA
+	// texture, made on the device of yv_set_gpu. The library's; valid until the next
 	// yv_view_present or yv_set_gpu.
 	uintptr_t texture;
 	int32_t width, height;

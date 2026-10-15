@@ -2,8 +2,8 @@
 Where a view's decoded frames go: the part of watching that depends on
 the client's graphics API. The view's decoder thread hands each frame
 over (submit), and the client's drawing thread takes the newest one
-(present). On Windows that's D3D11 (output_d3d11.cpp), elsewhere OpenGL
-(output_gl.cpp).
+(present). On Windows that's D3D11 (output_d3d11.cpp), on macOS Metal
+(output_metal.mm), elsewhere OpenGL (output_gl.cpp).
 */
 #pragma once
 

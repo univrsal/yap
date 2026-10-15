@@ -39,7 +39,7 @@ anything.
 
 // What this was built against: src/video/include/yap_video.h.
 @(private = "file")
-YV_API_VERSION :: 6
+YV_API_VERSION :: 7
 
 @(private = "file")
 Yv_Log_Proc :: #type proc "c" (user: rawptr, level: i32, msg: cstring)
@@ -54,9 +54,11 @@ Yv_Init :: struct {
 
 @(private = "file")
 Yv_Gpu :: struct {
-	kind:         i32, // 0 none, 1 D3D11, 2 GL
+	kind:         i32, // 0 none, 1 D3D11, 2 GL, 3 Metal
 	d3d11_device: rawptr,
 	gl_get_proc:  rawptr,
+	metal_device: rawptr,
+	metal_queue:  rawptr,
 }
 
 @(private = "file")
@@ -669,8 +671,17 @@ video_picture :: proc(
 		gpu := Yv_Gpu {
 			d3d11_device = native.d3d11_device,
 			gl_get_proc  = native.gl_get_proc,
+			metal_device = native.metal_device,
+			metal_queue  = native.metal_queue,
 		}
-		gpu.kind = 1 if native.d3d11_device != nil else 2 if native.gl_get_proc != nil else 0
+		switch {
+		case native.d3d11_device != nil:
+			gpu.kind = 1
+		case native.gl_get_proc != nil:
+			gpu.kind = 2
+		case native.metal_device != nil:
+			gpu.kind = 3
+		}
 		nv.yv.set_gpu(nv.ctx, &gpu)
 		nv.gpu_set = true
 	}

@@ -1,4 +1,5 @@
 #+build !windows
+#+build !darwin
 package render
 
 import "client:platform"
@@ -9,7 +10,7 @@ import mu "vendor:microui"
 
 /*
 The renderer's OpenGL 3.3 backend (WebGL 2 in a browser), for everywhere
-but Windows. The context lives in the window, so it comes and goes with
+but Windows and macOS. The context lives in the window, so it comes and goes with
 it (see window_open).
 */
 
@@ -70,9 +71,6 @@ gpu_window_hints :: proc() {
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MAJOR, 3)
 	glfw.WindowHint(glfw.CONTEXT_VERSION_MINOR, 3)
 	glfw.WindowHint(glfw.OPENGL_PROFILE, glfw.OPENGL_CORE_PROFILE)
-	when ODIN_OS == .Darwin {
-		glfw.WindowHint(glfw.OPENGL_FORWARD_COMPAT, true)
-	}
 	when platform.WEB {
 		// An opaque canvas (WebGL's alpha: false): the browser otherwise
 		// shows what's behind it wherever alpha falls short of 1.

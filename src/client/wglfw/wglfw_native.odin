@@ -156,3 +156,10 @@ GetX11Display :: proc "contextless" () -> rawptr {
 when ODIN_OS == .Windows {
 	GetWin32Window :: glfw.GetWin32Window
 }
+
+// macOS only: the window's view, for Metal to draw into (render/gpu_metal.odin),
+// and its size changing, which is when it's drawn while being resized.
+when ODIN_OS == .Darwin {
+	GetCocoaView :: glfw.GetCocoaView
+	SetFramebufferSizeCallback :: glfw.SetFramebufferSizeCallback
+}

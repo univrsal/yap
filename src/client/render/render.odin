@@ -12,8 +12,9 @@ atlas. Quads are batched and flushed whenever the clip rect or the
 texture changes.
 
 What the quads are drawn with is the GPU backend's business: Direct3D 11
-on Windows (gpu_d3d11.odin), OpenGL everywhere else (gpu_gl.odin).
-Both give the same procs, gpu_*, over the same vertices.
+on Windows (gpu_d3d11.odin), Metal on macOS (gpu_metal.odin), OpenGL
+everywhere else (gpu_gl.odin). All give the same procs, gpu_*, over the
+same vertices.
 
 Everything is laid out in logical pixels; `scale` is physical pixels per
 logical pixel.
@@ -35,12 +36,15 @@ Gpu_Texture :: distinct uintptr
 
 /*
 The device underneath, for a library that makes textures we draw
-(yap_video, see conn/video_native.odin): Direct3D 11's ID3D11Device, or
-for OpenGL glfwGetProcAddress, to find the current context's functions.
+(yap_video, see conn/video_native.odin): Direct3D 11's ID3D11Device,
+Metal's MTLDevice and the MTLCommandQueue the frames go through, or for
+OpenGL glfwGetProcAddress, to find the current context's functions.
 */
 Gpu_Native :: struct {
 	d3d11_device: rawptr,
 	gl_get_proc:  rawptr,
+	metal_device: rawptr,
+	metal_queue:  rawptr,
 }
 
 // What a texture holds, which decides how it's drawn.

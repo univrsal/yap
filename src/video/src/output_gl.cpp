@@ -1,12 +1,12 @@
 /*
-Watching with OpenGL (Linux, macOS). The newest frame waits until
-present converts its two NV12 planes into an RGBA texture with a small
-shader, in the client's context.
+Watching with OpenGL (Linux). The newest frame waits until present
+converts its two NV12 planes into an RGBA texture with a small shader,
+in the client's context.
 
-A frame decoded in hardware (VA-API, VideoToolbox) is kept as it is,
-and its planes become textures where they lie (gl_interop.h): EGL
-images of its DMA-BUFs on Linux, its IOSurface on macOS. Where that
-can't be done (GLX on X11, a driver that won't), frames are copied back
+A frame decoded in hardware (VA-API) is kept as it is, and its planes
+become textures where they lie (gl_interop.h): EGL images of its
+DMA-BUFs. Where that can't be done (GLX on X11, a driver that won't),
+frames are copied back
 to memory as they're decoded and present uploads them, which at 1440p60
 is about 330 MB/s. The first frame that won't go the GPU's way is
 copied back where it is, and the rest go through memory from then on.
@@ -38,7 +38,6 @@ using GLchar = char;
 using GLfloat = float;
 
 constexpr GLenum GL_TEXTURE_2D = 0x0DE1;
-constexpr GLenum GL_TEXTURE_RECTANGLE = 0x84F5;
 constexpr GLenum GL_TEXTURE0 = 0x84C0;
 constexpr GLenum GL_TEXTURE_MIN_FILTER = 0x2801;
 constexpr GLenum GL_TEXTURE_MAG_FILTER = 0x2800;
@@ -155,21 +154,6 @@ void main() {
 }
 )";
 
-// The same, from rectangle textures (macOS's IOSurfaces), which are
-// sampled in pixels.
-const char FRAGMENT_RECT[] = R"(#version 330 core
-uniform sampler2DRect plane_y;
-uniform sampler2DRect plane_uv;
-uniform vec4 rows[3];
-uniform vec2 size;
-in vec2 uv;
-out vec4 frag;
-void main() {
-	vec4 yuv = vec4(texture(plane_y, uv * size).r, texture(plane_uv, uv * size * 0.5).rg, 1.0);
-	frag = vec4(dot(rows[0], yuv), dot(rows[1], yuv), dot(rows[2], yuv), 1.0);
-}
-)";
-
 // Whether frames decoded in hardware go to GL as they are (interop_).
 enum Interop_State { INTEROP_UNKNOWN, INTEROP_WORKS, INTEROP_NONE };
 
@@ -190,17 +174,11 @@ public:
 		}
 		if (!tried_device_) {
 			tried_device_ = true;
-#if defined(__APPLE__)
-			AVHWDeviceType type = AV_HWDEVICE_TYPE_VIDEOTOOLBOX;
-#else
 			AVHWDeviceType type = AV_HWDEVICE_TYPE_VAAPI;
-#endif
 			Quiet_FFmpeg quiet;
-#if !defined(__APPLE__)
 			if (!vaapi_installed()) {
 				return nullptr;
 			}
-#endif
 			if (av_hwdevice_ctx_create(&hw_device_, type, nullptr, nullptr, 0) < 0) {
 				log(YV_LOG_INFO, "video: no hardware decoding (%s)",
 				    av_hwdevice_get_type_name(type));
@@ -335,7 +313,7 @@ private:
 
 	// The drawing thread's.
 	std::unique_ptr<Gl_Interop> interop_;
-	GLuint hw_y_ = 0, hw_uv_ = 0, program_rect_ = 0;
+	GLuint hw_y_ = 0, hw_uv_ = 0;
 	Nv12 draw_nv12_; // for the one frame copied back here
 	void *(*get_proc_)(const char *) = nullptr;
 	Gl gl_;
@@ -389,16 +367,15 @@ private:
 			if (!hw_y_) {
 				// Without mipmaps, so filtered linearly: the default
 				// filter would leave them incomplete, and black.
-				GLenum target = interop_->target();
 				for (GLuint *tex : {&hw_y_, &hw_uv_}) {
 					gl_.GenTextures(1, tex);
-					gl_.BindTexture(target, *tex);
-					gl_.TexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-					gl_.TexParameteri(target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-					gl_.TexParameteri(target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-					gl_.TexParameteri(target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+					gl_.BindTexture(GL_TEXTURE_2D, *tex);
+					gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+					gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+					gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+					gl_.TexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 				}
-				gl_.BindTexture(target, 0);
+				gl_.BindTexture(GL_TEXTURE_2D, 0);
 			}
 			if (interop_->bind(latest_hw_, hw_y_, hw_uv_)) {
 				interop_state_.store(INTEROP_WORKS);
@@ -431,9 +408,6 @@ private:
 		if (gl_ok_) {
 			GLuint tex[5] = {plane_y_, plane_uv_, rgba_, hw_y_, hw_uv_};
 			gl_.DeleteTextures(5, tex);
-			if (program_rect_) {
-				gl_.DeleteProgram(program_rect_);
-			}
 			if (fbo_) {
 				gl_.DeleteFramebuffers(1, &fbo_);
 			}
@@ -445,7 +419,7 @@ private:
 			}
 		}
 		program_ = vao_ = fbo_ = plane_y_ = plane_uv_ = rgba_ = 0;
-		hw_y_ = hw_uv_ = program_rect_ = 0;
+		hw_y_ = hw_uv_ = 0;
 		planes_w_ = planes_h_ = rgba_w_ = rgba_h_ = 0;
 		gl_ok_ = false;
 	}
@@ -538,15 +512,8 @@ private:
 		// The planes: the GPU frame's own, or uploaded.
 		gl_.ActiveTexture(GL_TEXTURE0);
 		bool on_gpu = latest_hw_ && bind_hw();
-		GLenum target = on_gpu ? interop_->target() : GL_TEXTURE_2D;
 		GLuint y_tex = on_gpu ? hw_y_ : plane_y_, uv_tex = on_gpu ? hw_uv_ : plane_uv_;
 		GLuint program = program_;
-		if (target == GL_TEXTURE_RECTANGLE) {
-			if (!program_rect_) {
-				program_rect_ = link(FRAGMENT_RECT);
-			}
-			program = program_rect_;
-		}
 		int w = latest_w_, h = latest_h_, cw = (w + 1) / 2, ch = (h + 1) / 2;
 		if (!on_gpu && w > 0) {
 			gl_.PixelStorei(GL_UNPACK_ALIGNMENT, 1);
@@ -587,25 +554,13 @@ private:
 			gl_.Uniform1i(gl_.GetUniformLocation(program, "plane_uv"), 1);
 			gl_.Uniform4fv(gl_.GetUniformLocation(program, "rows"), 3, &latest_matrix_.rows[0][0]);
 			gl_.Uniform2f(gl_.GetUniformLocation(program, "uv_scale"), 1.0f, 1.0f);
-			if (target == GL_TEXTURE_RECTANGLE) {
-				gl_.Uniform2f(gl_.GetUniformLocation(program, "size"), static_cast<GLfloat>(w),
-				              static_cast<GLfloat>(h));
-			}
 			gl_.ActiveTexture(GL_TEXTURE0);
-			gl_.BindTexture(target, y_tex);
+			gl_.BindTexture(GL_TEXTURE_2D, y_tex);
 			gl_.ActiveTexture(GL_TEXTURE0 + 1);
-			gl_.BindTexture(target, uv_tex);
+			gl_.BindTexture(GL_TEXTURE_2D, uv_tex);
 			gl_.BindVertexArray(vao_);
 			gl_.DrawArrays(GL_TRIANGLES, 0, 3);
 		}
-		if (target != GL_TEXTURE_2D) {
-			// Nothing of ours left bound where the client doesn't look.
-			gl_.ActiveTexture(GL_TEXTURE0 + 1);
-			gl_.BindTexture(target, 0);
-			gl_.ActiveTexture(GL_TEXTURE0);
-			gl_.BindTexture(target, 0);
-		}
-
 		gl_.BindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(fb));
 		gl_.Viewport(vp[0], vp[1], vp[2], vp[3]);
 		gl_.UseProgram(static_cast<GLuint>(prog));

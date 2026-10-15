@@ -26,8 +26,8 @@ import "common:proto"
 
 /*
 The windowed client: GLFW for the window and input, microui for widgets,
-Direct3D 11 on Windows and OpenGL 3.3 elsewhere to draw them (see
-render/render.odin).
+Direct3D 11 on Windows, Metal on macOS and OpenGL 3.3 elsewhere to draw
+them (see render/render.odin).
 
 The UI owns the main thread (GLFW requires it). Each connection runs the
 same network loop as headless mode on its own thread; the two sides meet
@@ -867,6 +867,9 @@ window_open :: proc(ui: ^UI) -> bool {
 		glfw.SetWindowRefreshCallback(ui.window, refresh_callback)
 		glfw.SetWindowFocusCallback(ui.window, focus_callback)
 		glfw.SetCursorEnterCallback(ui.window, cursor_enter_callback)
+	}
+	when ODIN_OS == .Darwin {
+		glfw.SetFramebufferSizeCallback(ui.window, resize_callback)
 	}
 	glfw.SetCursorPosCallback(ui.window, cursor_pos_callback)
 	glfw.SetMouseButtonCallback(ui.window, mouse_button_callback)
@@ -2100,6 +2103,27 @@ refresh_callback :: proc "c" (window: glfw.WindowHandle) {
 	when ODIN_OS == .Windows {
 		if g_ui.window == window && !g_ui.hidden {
 			draw_frame(g_ui)
+		}
+	}
+}
+
+/*
+resize_callback is macOS's way into the resize loop refresh_callback
+describes: AppKit never asks a view whose layer is ours (Metal's) to
+draw, so no refresh comes while the edge is dragged, but the window's
+size changes do. Each is drawn at once, in step with the window's new
+size (render.gpu_resizing), or the picture would lag behind its edge.
+*/
+when ODIN_OS == .Darwin {
+	@(private = "file")
+	resize_callback :: proc "c" (window: glfw.WindowHandle, width, height: i32) {
+		context = platform.callback_context()
+		context.logger = g_logger
+		ui_redraw(g_ui)
+		if g_ui.window == window && !g_ui.hidden {
+			render.gpu_resizing(&g_ui.renderer.gpu, true)
+			draw_frame(g_ui)
+			render.gpu_resizing(&g_ui.renderer.gpu, false)
 		}
 	}
 }
