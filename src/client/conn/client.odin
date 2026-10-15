@@ -397,16 +397,9 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 		if result != .Ok {
 			return true // ignored, or failed and will be retried later
 		}
-		if !verify_server_key(c, server_key) {
+		if trusted, why := verify_server_key(c, server_key); !trusted {
 			abandon_handshake(&c.link)
-			publish_status(
-				c,
-				.Failed,
-				fmt.tprintf(
-					"The key of %s has changed, so the connection was refused.",
-					c.server_addr,
-				),
-			)
+			publish_status(c, .Failed, why)
 			return false
 		}
 		// Only now that the server's identity is verified do we send ours, together
@@ -561,15 +554,21 @@ refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
 // first time and refuses to continue if the key ever changes. A change is handed
 // to the UI (see publish_key_change), which lets the user trust the new key once
 // they know why it changed.
-verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
+verify_server_key :: proc(
+	c: ^Voice_Client,
+	key: [proto.KEY_SIZE]byte,
+) -> (
+	trusted: bool,
+	why: string,
+) {
 	trust, saved := check_server_key(c.known_servers, c.server_addr, key)
-	if trust != .Mismatch {
+	if trust == .Known || trust == .New {
 		c.server_key = key
 		publish_server_key(c)
 	}
 	switch trust {
 	case .Known:
-		return true
+		return true, ""
 
 	case .New:
 		if remember_server_key(c.known_servers, c.server_addr, key) {
@@ -586,7 +585,19 @@ verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 				key_hex(key),
 			)
 		}
-		return true
+		return true, ""
+
+	case .Unreadable:
+		log.errorf(
+			"could not read %s, so the key of %s can't be checked",
+			c.known_servers,
+			c.server_addr,
+		)
+		return false, fmt.tprintf(
+			"The saved server keys (%s) could not be read, so the key of %s can't be checked.",
+			c.known_servers,
+			c.server_addr,
+		)
 
 	case .Mismatch:
 		log.errorf(
@@ -602,9 +613,12 @@ verify_server_key :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]byte) -> bool {
 			c.known_servers,
 		)
 		publish_key_change(c, saved, key)
-		return false
+		return false, fmt.tprintf(
+			"The key of %s has changed, so the connection was refused.",
+			c.server_addr,
+		)
 	}
-	return false
+	return false, ""
 }
 
 // send_data sends a message to the server. A heavy message (proto.HEAVY_KINDS)

@@ -1,6 +1,7 @@
 #+build !wasi
 package conn
 
+import "core:log"
 import "core:os"
 import "core:testing"
 
@@ -47,4 +48,27 @@ test_known_servers :: proc(t: ^testing.T) {
 	trust, _ = check_server_key(path, "a:1", a)
 	testing.expect_value(t, trust, Trust.New)
 	testing.expect_value(t, len(list_known_servers(path, context.temp_allocator)), 1)
+
+	// Addresses are the same regardless of case: a host name typed
+	// differently is still the same server, not a new one.
+	trust, _ = check_server_key(path, "B:1", c)
+	testing.expect_value(t, trust, Trust.Mismatch)
+	testing.expect(t, forget_server_key(path, "B:1"))
+	testing.expect_value(t, len(list_known_servers(path, context.temp_allocator)), 0)
+}
+
+@(test)
+test_known_servers_unreadable :: proc(t: ^testing.T) {
+	// A file that's there but can't be read (here it's a folder) trusts
+	// nothing, and isn't overwritten.
+	path := "known_servers_unreadable.tmp"
+	os.remove(path)
+	testing.expect_value(t, os.make_directory(path), nil)
+	defer os.remove(path)
+	a: [proto.KEY_SIZE]byte
+	a[0] = 1
+	context.logger = log.nil_logger() // the failed reads are logged as errors
+	trust, _ := check_server_key(path, "a:1", a)
+	testing.expect_value(t, trust, Trust.Unreadable)
+	testing.expect(t, !remember_server_key(path, "a:1", a))
 }

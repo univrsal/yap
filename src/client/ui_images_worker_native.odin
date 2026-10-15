@@ -93,6 +93,8 @@ decode_job :: proc(w: ^Decode_Worker, job: Decode_Job) -> Decode_Result {
 	image, err := clipboard.decode(job.jpeg)
 	if err != .None {
 		log.debugf("image %d could not be decoded: %v", job.id, err)
+	} else if !is_emoji_atlas(job.id) {
+		image, _ = clipboard.scale_down(image, MAX_SHOWN_SIDE)
 	}
 	return {id = job.id, image = image, ok = err == .None, generation = job.generation}
 }

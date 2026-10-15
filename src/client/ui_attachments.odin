@@ -599,6 +599,19 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 				save.cancel = true
 				attach_command(ui, save)
 			}
+		case has_save && s.state == .Done && !platform.WEB && !platform.file_openable(s.path):
+			// Not something that may be opened (platform.open_file), so it can
+			// only be shown in its folder.
+			if .SUBMIT in
+			   stable_button_hint(
+				   ui,
+				   "browse",
+				   "Browse",
+				   fmt.tprintf("Show %s in its folder", f.name),
+				   {.ALIGN_CENTER},
+			   ) {
+				platform.open_folder(os_dir(s.path))
+			}
 		case has_save && s.state == .Done && !platform.WEB:
 			cell := mu.layout_next(ctx)
 			half := (cell.w - ctx.style.spacing) / 2

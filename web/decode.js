@@ -33,16 +33,26 @@ with the next, and one that says 10 ms or less is shown for 100.
 		return canvas;
 	};
 
-	// The pixels of a bitmap or a VideoFrame, as straight RGBA.
+	// Pictures are kept no bigger than this on their longer side, as in the
+	// native client (MAX_SHOWN_SIDE in ui_images.odin): a small file can be a
+	// huge picture, and nothing is shown that big.
+	const MAX_SIDE = 2560;
+
+	// The pixels of a bitmap or a VideoFrame, as straight RGBA, made smaller
+	// to fit MAX_SIDE.
 	const pixelsOf = (r, image, width, height, maxPixels) => {
 		if (width <= 0 || height <= 0 || width * height > maxPixels) {
 			throw new Error(`${width}x${height} is over the limit`);
 		}
-		const g = canvasOf(width, height).getContext("2d", { willReadFrequently: true });
-		g.drawImage(image, 0, 0);
-		r.data = g.getImageData(0, 0, width, height).data;
-		r.width = width;
-		r.height = height;
+		const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
+		const w = Math.max(1, Math.round(width * scale));
+		const h = Math.max(1, Math.round(height * scale));
+		const g = canvasOf(w, h).getContext("2d", { willReadFrequently: true });
+		g.imageSmoothingQuality = "high";
+		g.drawImage(image, 0, 0, w, h);
+		r.data = g.getImageData(0, 0, w, h).data;
+		r.width = w;
+		r.height = h;
 	};
 
 	// The kind of animation the bytes may be, by how they start.

@@ -118,65 +118,91 @@ open_url :: proc(url: string) {
 	}
 }
 
-// Extensions of files that run as programs when the desktop "opens" them. A
-// saved attachment came from someone else, so these are never handed to the
-// opener.
+// Extensions of files that the desktop may "open" from a saved attachment:
+// pictures, videos, audio, archives and plain documents. A saved attachment
+// came from someone else, and too many other kinds run code when opened
+// (.exe and .js, but also .msc, .appref-ms, .settingcontent-ms, .chm,
+// .webloc, .mobileconfig, .deb, ... and whatever is added next), so this is a
+// list of what may be opened rather than of what may not. Disk images (.iso,
+// .img, .vhd) and .cab are left out: Windows mounts or unpacks them, which
+// has been used to get files past the Mark of the Web. Anything else can
+// still be shown in its folder (open_folder).
 @(rodata, private = "file")
-RUNNABLE_EXTENSIONS := [?]string {
-	"exe",
-	"com",
-	"bat",
-	"cmd",
-	"msi",
-	"scr",
-	"pif",
-	"lnk",
-	"url",
-	"vbs",
-	"vbe",
-	"js",
-	"jse",
-	"wsf",
-	"wsh",
-	"ps1",
-	"psm1",
-	"reg",
-	"hta",
-	"cpl",
-	"jar",
-	"dll",
-	"sh",
-	"bash",
-	"zsh",
-	"run",
-	"desktop",
-	"appimage",
-	"command",
-	"app",
-	"pkg",
-	"dmg",
-	"workflow",
-	"action",
-	"scpt",
-	"terminal",
-	"py",
-	"pl",
-	"rb",
+OPENABLE_EXTENSIONS := [?]string {
+	// Pictures
+	"png",
+	"jpg",
+	"jpeg",
+	"gif",
+	"webp",
+	"bmp",
+	"tif",
+	"tiff",
+	"heic",
+	"heif",
+	"avif",
+	// Videos
+	"mp4",
+	"m4v",
+	"mkv",
+	"webm",
+	"mov",
+	"avi",
+	"wmv",
+	"mpg",
+	"mpeg",
+	"ogv",
+	// Audio
+	"mp3",
+	"m4a",
+	"flac",
+	"wav",
+	"ogg",
+	"opus",
+	"aac",
+	// Archives
+	"zip",
+	"rar",
+	"7z",
+	"tar",
+	"gz",
+	"tgz",
+	"bz2",
+	"xz",
+	"zst",
+	// Documents
+	"pdf",
+	"txt",
+	"md",
+	"csv",
+	"log",
 }
 
-// open_file opens a saved file with the system's default application.
-// Programs and scripts are refused.
-open_file :: proc(path: string) {
+// file_openable says whether open_file opens the file at `path`.
+file_openable :: proc(path: string) -> bool {
 	dot := strings.last_index_byte(path, '.')
 	sep := strings.last_index_any(path, `/\`)
-	if dot > sep {
-		ext := strings.to_lower(path[dot + 1:], context.temp_allocator)
-		for r in RUNNABLE_EXTENSIONS {
-			if ext == r {
-				log.warnf("not opening %q: .%s files could run as programs", path, ext)
-				return
-			}
+	if dot <= sep || dot == len(path) - 1 {
+		return false
+	}
+	ext := path[dot + 1:]
+	for allowed in OPENABLE_EXTENSIONS {
+		if strings.equal_fold(ext, allowed) {
+			return true
 		}
+	}
+	return false
+}
+
+// open_file opens a saved file with the system's default application, if it
+// is of a kind that may be opened (file_openable).
+open_file :: proc(path: string) {
+	if !file_openable(path) {
+		log.warnf(
+			"not opening %q: only pictures, videos, audio, archives and documents are opened",
+			path,
+		)
+		return
 	}
 	log.infof("opening %s", path)
 	if !platform_open_url(path) {
