@@ -53,7 +53,7 @@ Selection :: struct {
 	pressed:   bool, // the button went down over the panel
 	hit:       Text_Pos, // the place under the pointer, so far
 	found:     bool, // `hit` is set
-	over_text: bool, // the pointer is on some text: an I-beam cursor
+	over_text: bool, // the pointer is on some text, or a text box: an I-beam cursor
 	text:      strings.Builder, // what's selected, for Ctrl+C
 	last_item: i64, // the item text was last added from
 }
@@ -143,9 +143,10 @@ select_item :: proc(ui: ^UI, item: i64, text: string) {
 
 /*
 select_line is one line of an item as it's drawn: text[start:end] at
-`pos`. It paints the selected part of it (so call it before drawing the
-text), and works out whether the pointer is on the line, or past it,
-for the place a press or a drag lands on.
+`pos`, in `font` (the style's if nil). It paints the selected part of
+it (so call it before drawing the text), and works out whether the
+pointer is on the line, or past it, for the place a press or a drag
+lands on.
 */
 select_line :: proc(
 	ui: ^UI,
@@ -154,10 +155,11 @@ select_line :: proc(
 	start, end: int,
 	pos: mu.Vec2,
 	rich: ^Rich = nil,
+	font: mu.Font = nil,
 ) {
 	ctx := &ui.ctx
 	s := &ui.select
-	font := ctx.style.font
+	font := font if font != nil else ctx.style.font
 	h := ctx.text_height(font)
 	mouse := ctx.mouse_pos
 

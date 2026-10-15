@@ -35,6 +35,9 @@ foreign _ {
 	glfwSetScrollCallback :: proc(window: WindowHandle, cb: proc "c" (window: WindowHandle, x, y: f64)) -> rawptr ---
 	glfwGetClipboardString :: proc(window: WindowHandle) -> cstring ---
 	glfwSetClipboardString :: proc(window: WindowHandle, text: cstring) ---
+	// The canvas' CSS cursor for a GLFW cursor shape, 0 for the default
+	// (web/shell.c).
+	yap_set_cursor :: proc(shape: i32) ---
 }
 
 Init :: proc "contextless" () -> b32 {return glfwInit()}
@@ -171,8 +174,13 @@ SetWindowIconifyCallback :: proc "contextless" (
 	window: WindowHandle,
 	cb: proc "c" (window: WindowHandle, iconified: i32),
 ) {}
-CreateStandardCursor :: proc "contextless" (shape: i32) -> CursorHandle {return nil}
-SetCursor :: proc "contextless" (window: WindowHandle, cursor: CursorHandle) {}
+// A cursor is the canvas' CSS one, so the handle is just its shape.
+CreateStandardCursor :: proc "contextless" (shape: i32) -> CursorHandle {
+	return CursorHandle(uintptr(shape))
+}
+SetCursor :: proc "contextless" (window: WindowHandle, cursor: CursorHandle) {
+	yap_set_cursor(i32(uintptr(cursor)))
+}
 
 // WebGL is linked in, so there are no function pointers to fetch.
 gl_set_proc_address :: proc(p: rawptr, name: cstring) {}

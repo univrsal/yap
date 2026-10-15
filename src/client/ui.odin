@@ -123,6 +123,7 @@ Action :: enum {
 	None,
 	Start, // connect to every joined server, on the first frame
 	Disconnect,
+	Reconnect, // the connect screen's "Reconnect"
 	Trust_Key, // the connect screen's "trust the new key" (ui_known_servers.odin)
 }
 
@@ -186,6 +187,9 @@ UI :: struct {
 	// And the category picked in each of its tabs.
 	settings_client:     Client_Category,
 	settings_server:     Server_Category,
+	// In a narrow window: the categories are showing, rather than the
+	// one picked (settings_page).
+	settings_list:       bool,
 	// Which palette is in use, and what the desktop said (theme.odin).
 	theme_state:         UI_Theme,
 	// For the chat's local timestamps, every server's; nil means UTC
@@ -458,6 +462,8 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		connect_joined(ui)
 	case .Disconnect:
 		disconnect(ui, ui.session)
+	case .Reconnect:
+		reconnect(ui, ui.session)
 	case .Trust_Key:
 		trust_new_key(ui)
 	}
@@ -795,7 +801,7 @@ Usually that's the swap: it waits for the display (vsync). On Wayland
 that wait is for the compositor's go-ahead, which it only gives a window
 it's showing - minimized, or on another virtual desktop, the swap would
 wait until the window is looked at again, and everything else on this
-thread with it: pokes, the tray icon, listen back. So there the swap
+thread with it: notifications, the tray icon, listen back. So there the swap
 doesn't wait, and the loop keeps to the monitor's refresh rate itself
 (frame_pace, at the end of ui_frame). Wayland never tears, so nothing is
 lost.
@@ -1196,6 +1202,28 @@ session_slot :: proc(ui: ^UI) -> i32 {
 }
 
 /*
+reconnect tries a server that isn't connected again, now. A connection
+still trying (conn.connection_lost) is told to; one that has stopped
+(refused, say) is started again in its place. Between frames.
+*/
+reconnect :: proc(ui: ^UI, ns: ^Net_Session) {
+	if ns == nil || ns.joining {
+		return
+	}
+	retrying: bool
+	{
+		sync.guard(&ns.view.mutex)
+		retrying = ns.view.retrying
+	}
+	if retrying {
+		conn.push_command(&ns.client.commands, conn.Reconnect_Command{})
+		return
+	}
+	log.infof("ui: connecting to %s again", ns.server)
+	connect_to(ui, ns.server, ns.password)
+}
+
+/*
 disconnect leaves a server: its session ends, it's no longer joined,
 and if it was the one shown, the one beside it in the rail is. One being
 joined from the + page is given up instead. Between frames.
@@ -1444,6 +1472,8 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	rail_divider_gap(ui, rail)
 	// An enlarged image floats above it all (ui_images.odin).
 	image_viewer(ui, w, h)
+	// A screen being watched, popped out of its tab (ui_video.odin).
+	screen_window(ui, w, h)
 	pins_window(ui, w, h)
 	thread_windows(ui, w, h)
 	profile_windows(ui, w, h)
@@ -1540,8 +1570,8 @@ main_window :: proc(ui: ^UI) {
 
 /*
 connect_screen is a server on the rail that isn't connected, in a card:
-what went wrong, the trust prompt if its key has changed, and leaving
-it.
+what went wrong, when it's tried again, the trust prompt if its key has
+changed, and trying it again now or leaving it.
 */
 @(private = "file")
 connect_screen :: proc(ui: ^UI) {
@@ -1561,12 +1591,29 @@ connect_screen :: proc(ui: ^UI) {
 	case:
 		with_text_color(ctx, theme.dim, "Not connected.", mu.text)
 	}
-	if v.status == .Failed && v.key_change.changed {
+	if v.retrying {
+		mu.layout_row(ctx, {-1})
+		if v.retry_at == {} {
+			with_text_color(ctx, theme.dim, "Connecting...", mu.text)
+		} else {
+			// Counted down a second at a time.
+			left := time.tick_diff(time.tick_now(), v.retry_at)
+			secs := max(int(math.ceil(time.duration_seconds(left))), 1)
+			with_text_color(ctx, theme.dim, fmt.tprintf("Trying again in %ds.", secs), mu.text)
+			ui_redraw_in(ui, left - time.Duration(secs - 1) * time.Second)
+		}
+	}
+	key_change := v.status == .Failed && v.key_change.changed
+	if key_change {
 		key_change_panel(ui)
 	}
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, {-1})
+	// With a changed key, trusting it is what connects again.
+	if !key_change && .SUBMIT in mu.button(ctx, "Reconnect") {
+		ui.action = .Reconnect
+	}
 	if .SUBMIT in mu.button(ctx, "Leave this server") {
 		ui.action = .Disconnect
 	}
@@ -1721,7 +1768,7 @@ log_panel :: proc(ui: ^UI) {
 			pos := mu.Vec2{r.x + ctx.style.padding, r.y + (r.h - ctx.text_height(font)) / 2}
 			item := first + i64(i)
 			select_item(ui, item, text)
-			select_line(ui, item, text, 0, len(text), pos)
+			select_line(ui, item, text, 0, len(text), pos, font = font)
 			mu.draw_text(ctx, font, text, pos, color)
 		}
 	}
@@ -1763,6 +1810,25 @@ icon_button :: proc(
 		ui.hint, ui.hint_of = hint, r
 	}
 	return
+}
+
+/*
+menu_list_begin starts a list of `rows` rows (buttons or labels, each a
+row of its own laid out with {-1}) in a menu, `width` wide: as tall as
+they are, up to half the window, past which it scrolls instead of the
+menu growing off the window. It has no frame or padding of its own, so
+its rows line up with the menu's. End it with mu.end_panel.
+*/
+menu_list_begin :: proc(ui: ^UI, name: string, width: i32, rows: int) {
+	ctx := &ui.ctx
+	row := ctx.style.size.y + 2 * ctx.style.padding
+	tall := i32(rows) * (row + ctx.style.spacing) - ctx.style.spacing
+	most := max(i32(ui.metrics.logical_h) / 2, 3 * row)
+	mu.layout_row(ctx, {width}, clamp(tall, 0, most))
+	padding := ctx.style.padding
+	ctx.style.padding = 0
+	mu.begin_panel(ctx, name, {.NO_FRAME})
+	ctx.style.padding = padding
 }
 
 /*
@@ -1927,6 +1993,39 @@ stable_button :: proc(
 	mu.draw_control_frame(ctx, id, r, .BUTTON)
 	mu.draw_control_text(ctx, label, r, .TEXT, opt)
 
+	return
+}
+
+/*
+list_row is a line of a list to pick from - a settings tab's categories,
+the channels - as text: boxed and bold while it's the one picked,
+highlighted under the mouse. Clicked with the left button, it submits.
+*/
+list_row :: proc(
+	ctx: ^mu.Context,
+	id_name, label: string,
+	selected: bool,
+) -> (
+	res: mu.Result_Set,
+) {
+	id := mu.get_id(ctx, id_name)
+	r := mu.layout_next(ctx)
+	mu.update_control(ctx, id, r)
+	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+		res += {.SUBMIT}
+	}
+	switch {
+	case selected:
+		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_FOCUS])
+	case ctx.hover_id == id:
+		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
+	}
+	saved := ctx.style.font
+	if selected {
+		ctx.style.font = render.font_with_style(saved, .Bold)
+	}
+	mu.draw_control_text(ctx, label, r, .TEXT, {})
+	ctx.style.font = saved
 	return
 }
 

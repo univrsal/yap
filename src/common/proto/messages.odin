@@ -92,8 +92,6 @@ Message_Kind :: enum u8 {
 	Image_Gone      = 16,
 	// What a user has switched off for themselves.
 	Sound           = 17,
-	// One user nudging another, see poke.odin.
-	Poke            = 18,
 	// The server won't have us (see Refusal).
 	Refused         = 19,
 	// Screen sharing, see video.odin.
@@ -234,8 +232,6 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == REFUSED_SIZE
 	case .Chat_Send, .Chat_Sent, .Chat, .Chat_Received:
 		ok = false // retired
-	case .Poke:
-		ok = len(pt) >= POKE_HEADER_SIZE && len(pt) == POKE_HEADER_SIZE + int(pt[9])
 	case .Typing:
 		ok = len(pt) == TYPING_UP_SIZE || len(pt) == TYPING_DOWN_SIZE
 	case .Image_Send, .Image_Get, .Image_Gone:

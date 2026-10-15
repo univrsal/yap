@@ -33,6 +33,7 @@ UI_Known_Servers :: struct {
 // open_settings shows the settings page, with the saved keys read afresh.
 open_settings :: proc(ui: ^UI) {
 	ui.page = .Settings
+	ui.settings_list = true
 	ui.known.loaded = false
 	ui_account_opened(ui)
 	when !platform.WEB {

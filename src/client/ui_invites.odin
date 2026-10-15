@@ -49,15 +49,14 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	if make_codes {
-		mu.layout_row(ctx, {FORM_LABEL, 70, 70, 70, 70})
-		mu.label(ctx, "Registrations")
+		field_row(ui, FORM_LABEL, "Registrations", {70, 70, 70, 70})
 		for uses in USES {
 			label := "Any" if uses == 0 else fmt.tprint(uses)
 			if choice_button(ui, fmt.tprintf("uses%d", uses), label, st.uses == uses) {
 				st.uses = uses
 			}
 		}
-		mu.label(ctx, "Good for")
+		field_row(ui, FORM_LABEL, "Good for", {70, 70, 70, 70})
 		for days in DAYS {
 			label := "No end"
 			switch days {
@@ -72,8 +71,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 				st.days = days
 			}
 		}
-		mu.layout_row(ctx, {FORM_LABEL, 150, -1})
-		mu.label(ctx, "")
+		field_row(ui, FORM_LABEL, "", {150, -1})
 		if .SUBMIT in stable_button(ctx, "make", "Make invite code") {
 			expires: proto.Unix_Ms
 			if st.days > 0 {
@@ -82,11 +80,10 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 			}
 			invites_command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
 		}
-		with_text_color(ctx, theme.dim, "Whoever has the code can register here.", label_proc)
+		with_text_color(ctx, theme.dim, "Whoever has the code can register here.", wrap_text)
 
 		if v.invites.made != "" && v.invites.made_count > st.made_seen {
-			mu.layout_row(ctx, {FORM_LABEL, 150, 90, 90})
-			mu.label(ctx, "New code")
+			field_row(ui, FORM_LABEL, "New code", {150, 90, 90})
 			mu.label(ctx, v.invites.made)
 			if .SUBMIT in stable_button(ctx, "copy_made", "Copy") {
 				set_clipboard(nil, v.invites.made)
@@ -106,7 +103,10 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	for inv in v.invites.list {
 		mu.push_id(ctx, inv.code)
 		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {110, 110, 170, -(2 * 80 + 2 * ctx.style.spacing), 80, 80})
+		// In a narrow window, two to a line: the code and its uses, its
+		// state and whose it is, and the buttons.
+		row := []i32{110, 110, 170, -(2 * 80 + 2 * ctx.style.spacing), 80, 80}
+		mu.layout_row(ctx, row if row_fits(ctx, row) else {110, -1})
 		mu.label(ctx, inv.code)
 		if inv.max_uses == 0 {
 			mu.label(ctx, fmt.tprintf("%d used", inv.uses))

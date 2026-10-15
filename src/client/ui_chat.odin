@@ -114,7 +114,7 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	}
 	// Tabs only while there's a screen to watch beside the chat; the
 	// status line has the row to itself otherwise.
-	if v.watching != 0 {
+	if screen_docked(ui) {
 		mu.layout_row(ctx, {90, 90, -1})
 		chat_label := "Chat" if v.unread == 0 else fmt.tprintf("Chat (%d)", v.unread)
 		if .SUBMIT in tab_button(ctx, "chat tab", chat_label, ui.chat.tab == .Chat) {
@@ -309,12 +309,15 @@ tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu
 	if !active {
 		return stable_button(ctx, id_name, label)
 	}
-	// Lighter, and its label in the colour of a header button that's
-	// open, so which tab is shown reads at a glance.
+	// Lighter, and its label bold and in the colour of a header button
+	// that's open, so which tab is shown reads at a glance.
 	saved, saved_text := ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT]
+	saved_font := ctx.style.font
 	ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
 	ctx.style.colors[.TEXT] = theme.chat_name
+	ctx.style.font = render.font_with_style(saved_font, .Bold)
 	defer ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT] = saved, saved_text
+	defer ctx.style.font = saved_font
 	return stable_button(ctx, id_name, label)
 }
 

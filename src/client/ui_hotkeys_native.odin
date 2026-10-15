@@ -137,8 +137,7 @@ hotkey_settings :: proc(ui: ^UI) {
 		mu.push_id(ctx, uintptr(action))
 		defer mu.pop_id(ctx)
 
-		mu.layout_row(ctx, {60, 200, 80, 60})
-		mu.label(ctx, HOTKEY_LABELS[action])
+		field_row(ui, 60, HOTKEY_LABELS[action], {200, 80, 60})
 		capturing := hk.capturing == action
 		text := hotkey_setting(ui, action)^
 		switch {
@@ -171,7 +170,7 @@ hotkey_settings :: proc(ui: ^UI) {
 			ctx,
 			theme.dim,
 			"  These work in any window, and with yap minimized. Change one and press the keys for it.",
-			label_proc,
+			wrap_text,
 		)
 		return
 	}
@@ -179,9 +178,9 @@ hotkey_settings :: proc(ui: ^UI) {
 	note := fmt.tprintf("  %s", message)
 	switch st {
 	case .Starting, .Ok:
-		with_text_color(ctx, theme.dim, note, label_proc)
+		with_text_color(ctx, theme.dim, note, wrap_text)
 	case .Limited:
-		with_text_color(ctx, theme.warning, note, label_proc)
+		with_text_color(ctx, theme.warning, note, wrap_text)
 	case .Unavailable:
 		with_text_color(ctx, theme.error, note, label_proc)
 	}

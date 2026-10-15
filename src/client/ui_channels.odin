@@ -114,18 +114,14 @@ channel_list :: proc(ui: ^UI) {
 
 		mu.layout_row(ctx, {-1})
 		viewing := ch.id == v.viewing
-		label := fmt.tprintf(
-			"%s%s%s",
-			"⏵ " if viewing else "  ",
-			ch.name,
-			" 🔒" if ch.private else "",
-		)
+		label := fmt.tprintf("%s%s", ch.name, " 🔒" if ch.private else "")
 		// Unread, and not muted: brighter, as well as the count.
 		saved := ctx.style.colors[.TEXT]
 		if ch.unread > 0 && ch.notify != .None {
 			ctx.style.colors[.TEXT] = theme.unread_text
 		}
-		clicked := .SUBMIT in stable_button(ctx, "view", label)
+		// Narrow, the list is all there is on screen: none is open.
+		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow)
 		ctx.style.colors[.TEXT] = saved
 		if ctx.hover_id == mu.get_id(ctx, "view") && .RIGHT in ctx.mouse_pressed_bits {
 			ui.channels.menu_conv, ui.channels.menu_asked = ch.id, true

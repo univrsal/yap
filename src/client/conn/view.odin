@@ -59,6 +59,11 @@ View :: struct {
 	wake:                proc "c" (),
 	status:              Status,
 	error:               string, // why we Failed
+	// After Failing, whether a new connection is being tried (every
+	// RECONNECT_EVERY), and when the next try is: {} while one is under
+	// way. See connection_lost.
+	retrying:            bool,
+	retry_at:            time.Tick,
 	// Set when we Failed because the server's key isn't the one saved
 	// for it (see verify_server_key), for the UI to offer trusting it.
 	key_change:          Key_Change,
@@ -146,9 +151,7 @@ View :: struct {
 	blobs:               map[proto.Blob_Id]View_Image,
 	typing:              map[proto.Account_Id]View_Typing,
 	unread:              int,
-	// Pokes that came in, and mentions of us, for the UI to show (and
-	// take) next frame.
-	pokes:               [dynamic]View_Poke,
+	// Mentions of us, for the UI to show (and take) next frame.
 	mentioned:           [dynamic]View_Mention,
 	// Whose screen we're watching, or 0.
 	watching:            proto.User_Num,
@@ -220,11 +223,6 @@ Key_Change :: struct {
 	received: [proto.KEY_SIZE]u8,
 }
 
-View_Poke :: struct {
-	name:    string, // who poked us; owned
-	message: string, // may be empty; owned
-}
-
 View_Mention :: struct {
 	name:  string, // who mentioned us; owned
 	place: string, // where; owned
@@ -256,6 +254,7 @@ view_reset :: proc(v: ^View) {
 	v.server_about, v.server_icon, v.icon_jpeg = "", 0, nil
 	view_clear_key_change(v)
 	v.status = .Disconnected
+	v.retrying, v.retry_at = false, {}
 	v.server_key = {}
 	v.viewing, v.my_room, v.voice_pending = 0, 0, false
 	view_clear_browse(v)
@@ -265,7 +264,7 @@ view_reset :: proc(v: ^View) {
 	view_clear_timelines(v)
 	view_clear_saves(v)
 	view_clear_blobs(v)
-	view_clear_pokes(v)
+	view_clear_mentions(v)
 	view_clear_files(v)
 	view_clear_pins(v)
 	view_clear_reactors(v)
@@ -340,7 +339,6 @@ view_destroy :: proc(v: ^View) {
 	delete(v.saves)
 	delete(v.typing)
 	delete(v.blobs)
-	delete(v.pokes)
 	delete(v.mentioned)
 	delete(v.dms)
 	delete(v.buddies)
@@ -388,12 +386,7 @@ publish_file :: proc(c: ^Voice_Client, t: ^File_Transfer, force := false) {
 }
 
 @(private = "file")
-view_clear_pokes :: proc(v: ^View) {
-	for p in v.pokes {
-		delete(p.name)
-		delete(p.message)
-	}
-	clear(&v.pokes)
+view_clear_mentions :: proc(v: ^View) {
 	for m in v.mentioned {
 		delete(m.name)
 		delete(m.place)
@@ -449,24 +442,6 @@ view_take_mentions :: proc(v: ^View) -> []View_Mention {
 		delete(m.text)
 	}
 	clear(&v.mentioned)
-	return out
-}
-
-// view_take_pokes hands the UI the pokes that have come in, as copies in
-// the temp allocator, and forgets them.
-view_take_pokes :: proc(v: ^View) -> []View_Poke {
-	sync.guard(&v.mutex)
-	if len(v.pokes) == 0 {
-		return nil
-	}
-	out := make([]View_Poke, len(v.pokes), context.temp_allocator)
-	for p, i in v.pokes {
-		out[i] = {
-			name    = strings.clone(p.name, context.temp_allocator),
-			message = strings.clone(p.message, context.temp_allocator),
-		}
-	}
-	view_clear_pokes(v)
 	return out
 }
 
@@ -534,6 +509,24 @@ publish_status :: proc(c: ^Voice_Client, status: Status, error := "") {
 	}
 	delete(v.error)
 	v.error = strings.clone(error)
+	view_set_retry(v, c)
+}
+
+// publish_retry tells the UI whether, and when, a new connection is
+// tried (connection_lost).
+publish_retry :: proc(c: ^Voice_Client) {
+	v := c.view
+	if v == nil {
+		return
+	}
+	view_write(v)
+	view_set_retry(v, c)
+}
+
+@(private = "file")
+view_set_retry :: proc(v: ^View, c: ^Voice_Client) {
+	v.retrying = c.lost
+	v.retry_at = c.retry_at if c.lost && c.handshake.state == .Idle else {}
 }
 
 // publish_server hands the UI what the server said about itself.
@@ -724,15 +717,6 @@ publish_connection :: proc(c: ^Voice_Client) {
 		view_changed(v)
 	}
 	v.connection = stats
-}
-
-publish_poke :: proc(c: ^Voice_Client, name, message: string) {
-	v := c.view
-	if v == nil {
-		return
-	}
-	view_write(v)
-	append(&v.pokes, View_Poke{strings.clone(name), strings.clone(message)})
 }
 
 /*

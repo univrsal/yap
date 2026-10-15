@@ -101,6 +101,8 @@ FORM_FIELD :: 220
 @(private = "file")
 LOGIN_CARD_WIDTH :: 400
 LOGIN_LABEL :: 110
+// Narrower than this beside its label, a login field goes under it.
+LOGIN_FIELD_MIN :: 150
 @(private = "file")
 LOGIN_PICTURE :: 72
 
@@ -193,31 +195,34 @@ login_screen :: proc(ui: ^UI) {
 	card_heading(ui, v.server_name if v.server_name != "" else server)
 	if v.server_about != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, v.server_about, mu.text)
+		with_text_color(ctx, theme.dim, v.server_about, wrap_text)
 	}
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
 
 	working := v.login.state != .Needed
 	submit := false
-	mu.layout_row(ctx, {LOGIN_LABEL, -1})
-	mu.label(ctx, "Username")
+	// A label beside its field, or over it on a narrow phone.
+	field :: proc(ui: ^UI, label: string) {
+		field_row(ui, LOGIN_LABEL, label, {-1}, fill_min = LOGIN_FIELD_MIN)
+	}
+	field(ui, "Username")
 	submit |= .SUBMIT in text_box(ui, a.username_buf[:], &a.username_len)
-	mu.label(ctx, "Password")
+	field(ui, "Password")
 	submit |= .SUBMIT in password_box(ui, a.password_buf[:], &a.password_len)
 	if registering {
-		mu.label(ctx, "Password again")
+		field(ui, "Password again")
 		submit |= .SUBMIT in password_box(ui, a.reg_again_buf[:], &a.reg_again_len)
 		if .Email in v.registration {
-			mu.label(ctx, "Email")
+			field(ui, "Email")
 			submit |= .SUBMIT in text_box(ui, a.reg_email_buf[:], &a.reg_email_len)
 		}
 		if .Invite in v.registration {
-			mu.label(ctx, "Invite code")
+			field(ui, "Invite code")
 			submit |= .SUBMIT in text_box(ui, a.invite_buf[:], &a.invite_len)
 		}
 	}
-	mu.label(ctx, "")
+	field(ui, "")
 	label := "Log in"
 	switch {
 	case working && registering:
@@ -229,7 +234,7 @@ login_screen :: proc(ui: ^UI) {
 	}
 	submit |= .SUBMIT in mu.button(ctx, label)
 	if open && !working {
-		mu.label(ctx, "")
+		field(ui, "")
 		other := "Log in to an account instead" if registering else "Register an account instead"
 		if .SUBMIT in mu.button(ctx, other) {
 			a.registering = !registering
@@ -240,15 +245,15 @@ login_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case a.mistake != "":
-		with_text_color(ctx, theme.error, a.mistake, mu.text)
+		with_text_color(ctx, theme.error, a.mistake, wrap_text)
 	case v.login.error != "":
-		with_text_color(ctx, theme.error, v.login.error, mu.text)
+		with_text_color(ctx, theme.error, v.login.error, wrap_text)
 	case !working && !open:
 		with_text_color(
 			ctx,
 			theme.dim,
 			"This server does not allow registrations. Ask an admin for an account.",
-			mu.text,
+			wrap_text,
 		)
 	}
 
@@ -350,23 +355,23 @@ verify_screen :: proc(ui: ^UI) {
 	title_row(ui, {-1})
 	mu.label(ctx, fmt.tprintf("Verify your email address for %s", server))
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "Send a mail from your address to the server's, with the code in its subject:")
+	wrap_text(ctx, "Send a mail from your address to the server's, with the code in its subject:")
 
-	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD + 80, 90})
-	mu.label(ctx, "From")
+	mail_row := []i32{FORM_FIELD + 80, 90}
+	field_row(ui, FORM_LABEL, "From", mail_row)
 	mu.label(ctx, v.login.email)
 	mu.label(ctx, "")
-	mu.label(ctx, "To")
+	field_row(ui, FORM_LABEL, "To", mail_row)
 	mu.label(ctx, v.server_email if v.server_email != "" else "(the server hasn't said)")
 	if .SUBMIT in stable_button(ctx, "copy_to", "Copy") {
 		set_clipboard(nil, v.server_email)
 	}
-	mu.label(ctx, "Subject")
+	field_row(ui, FORM_LABEL, "Subject", mail_row)
 	mu.label(ctx, v.login.verify_code)
 	if .SUBMIT in stable_button(ctx, "copy_code", "Copy") {
 		set_clipboard(nil, v.login.verify_code)
 	}
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", mail_row)
 	if .SUBMIT in stable_button(ctx, "mailto", "Write it in my mail program") {
 		platform.open_mailto(v.server_email, v.login.verify_code)
 	}
@@ -377,7 +382,7 @@ verify_screen :: proc(ui: ^UI) {
 		ctx,
 		theme.dim,
 		"The server reads its mail every minute or so; this page goes on by itself once it has yours.",
-		label_proc,
+		wrap_text,
 	)
 	if v.login.verify_by != 0 {
 		dt, _ := time.time_to_datetime(time.unix(i64(v.login.verify_by) / 1000, 0))
@@ -393,7 +398,7 @@ verify_screen :: proc(ui: ^UI) {
 				local.hour,
 				local.minute,
 			),
-			label_proc,
+			wrap_text,
 		)
 	}
 
@@ -403,8 +408,7 @@ verify_screen :: proc(ui: ^UI) {
 		a.verify_loaded = strings.clone(v.login.email)
 		a.verify_len = copy(a.verify_buf[:], v.login.email)
 	}
-	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD, 70})
-	mu.label(ctx, "Not your address?")
+	field_row(ui, FORM_LABEL, "Not your address?", {FORM_FIELD, 70})
 	submitted := .SUBMIT in text_box(ui, a.verify_buf[:], &a.verify_len)
 	if (.SUBMIT in mu.button(ctx, "Change") || submitted) && a.verify_len > 0 {
 		a.mistake = ""
@@ -417,12 +421,11 @@ verify_screen :: proc(ui: ^UI) {
 		notice_label(ui, v)
 	}
 
-	mu.layout_row(ctx, {FORM_LABEL, 140, -1})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", {140, -1})
 	if .SUBMIT in mu.button(ctx, "Log out") {
 		command(ui, conn.Logout_Command{})
 	}
-	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", label_proc)
+	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", wrap_text)
 
 }
 
@@ -442,7 +445,7 @@ password_screen :: proc(ui: ^UI) {
 		ctx,
 		theme.dim,
 		"The one you logged in with was set by an admin, and is only good for getting in.",
-		label_proc,
+		wrap_text,
 	)
 	password_form(ui, v, "Password you logged in with", false)
 
@@ -456,20 +459,17 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 	a := &ui.account
 
 	submit := false
-	mu.layout_row(ctx, {FORM_LABEL + 60, FORM_FIELD})
-	mu.label(ctx, old_label)
+	field_row(ui, FORM_LABEL + 60, old_label, {FORM_FIELD})
 	submit |= .SUBMIT in password_box(ui, a.old_buf[:], &a.old_len)
-	mu.label(ctx, "New password")
+	field_row(ui, FORM_LABEL + 60, "New password", {FORM_FIELD})
 	submit |= .SUBMIT in password_box(ui, a.new_buf[:], &a.new_len)
-	mu.label(ctx, "New password, again")
+	field_row(ui, FORM_LABEL + 60, "New password, again", {FORM_FIELD})
 	submit |= .SUBMIT in password_box(ui, a.again_buf[:], &a.again_len)
 	if offer_revoke {
-		mu.layout_row(ctx, {FORM_LABEL + 60, -1})
-		mu.label(ctx, "")
+		field_row(ui, FORM_LABEL + 60, "", {-1}, fill_min = 200)
 		mu.checkbox(ctx, "Log my other devices out", &a.revoke_others)
 	}
-	mu.layout_row(ctx, {FORM_LABEL + 60, 140, -1})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL + 60, "", {140, -1})
 	submit |= .SUBMIT in mu.button(ctx, "Change password")
 	notice_label(ui, v)
 
@@ -624,8 +624,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		ui.name_len = copy(ui.name_buf[:], me.display)
 		a.email_len = copy(a.email_buf[:], v.login.email)
 	}
-	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD, 70})
-	mu.label(ctx, "Name")
+	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD, 70})
 	submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
 	if (.SUBMIT in mu.button(ctx, "Apply") || submitted) && ui.name_len > 0 {
 		a.mistake = ""
@@ -634,7 +633,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	// Its own id: the name's button says Apply too.
 	mu.push_id(ctx, "email")
-	mu.label(ctx, "Email")
+	field_row(ui, FORM_LABEL, "Email", {FORM_FIELD, 70})
 	email_submitted := .SUBMIT in text_box(ui, a.email_buf[:], &a.email_len)
 	if .SUBMIT in mu.button(ctx, "Apply") || email_submitted {
 		a.mistake = ""
@@ -649,7 +648,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 			ctx,
 			theme.dim,
 			"A new address has to be verified by mail before you can go on.",
-			label_proc,
+			wrap_text,
 		)
 	}
 	if a.profile_asked {
@@ -675,13 +674,12 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		mu.end_treenode(ctx)
 	}
 
-	mu.layout_row(ctx, {FORM_LABEL, 140, -1})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", {140, -1})
 	if .SUBMIT in mu.button(ctx, "Log out") {
 		command(ui, conn.Logout_Command{})
 		ui.page = .Main
 	}
-	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", label_proc)
+	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", wrap_text)
 
 	// Not the owner's: somebody has to be.
 	if .Owner not_in me.flags {
@@ -715,8 +713,7 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 	for choice in proto.Email_Digest {
 		// Two a row: the label, then the next two.
 		if int(choice) % 2 == 0 {
-			mu.layout_row(ctx, {FORM_LABEL, 210, 210})
-			mu.label(ctx, "Email digests" if choice == .None else "")
+			field_row(ui, FORM_LABEL, "Email digests" if choice == .None else "", {210, 210})
 		}
 		name := proto.EMAIL_DIGEST_NAMES[choice]
 		id := fmt.tprintf("digest %s", name)
@@ -736,7 +733,7 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	with_text_color(ctx, theme.dim, hint, label_proc)
+	with_text_color(ctx, theme.dim, hint, wrap_text)
 }
 
 // delete_own_account is the form for deleting our own account, which
@@ -753,10 +750,9 @@ delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
 			"For good: your name, picture, status, roles and devices go. What you wrote stays, under \"%s\".",
 			proto.DELETED_NAME,
 		),
-		label_proc,
+		wrap_text,
 	)
-	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD, 140})
-	mu.label(ctx, "Password")
+	field_row(ui, FORM_LABEL, "Password", {FORM_FIELD, 140})
 	submit := .SUBMIT in password_box(ui, a.delete_buf[:], &a.delete_len)
 	submit |= .SUBMIT in mu.button(ctx, "Delete my account")
 	if submit && a.delete_len > 0 {
@@ -835,7 +831,6 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 		}
 		mu.push_id(ctx, uintptr(id))
 		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-(140 + 3 * 90 + 4 * ctx.style.spacing), 140, 89, 89, 89})
 		what := ""
 		switch {
 		case .Owner in acc.flags:
@@ -861,7 +856,13 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 				strings.join(roles[:], ", ", context.temp_allocator),
 			)
 		}
-		mu.label(ctx, fmt.tprintf("%s  %s%s", acc.username, acc.display, what))
+		// Over its buttons where they don't fit beside it.
+		field_row(
+			ui,
+			-(140 + 3 * 90 + 4 * ctx.style.spacing),
+			fmt.tprintf("%s  %s%s", acc.username, acc.display, what),
+			{140, 89, 89, 89},
+		)
 		// The owner's password is the owner's to change, as their own.
 		// A bot has none, but tokens.
 		if .Owner in acc.flags || .Manage_Accounts not_in v.permissions || !below_us(v, acc) {
@@ -890,8 +891,12 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 	bot_token_shown(ui, v)
 
 	if target, ok := v.accounts[a.set_account]; ok && a.set_account != 0 {
-		mu.layout_row(ctx, {FORM_LABEL + 60, FORM_FIELD, 60, 70})
-		mu.label(ctx, fmt.tprintf("New password for %s", target.username))
+		field_row(
+			ui,
+			FORM_LABEL + 60,
+			fmt.tprintf("New password for %s", target.username),
+			{FORM_FIELD, 60, 70},
+		)
 		submitted := .SUBMIT in password_box(ui, a.set_pass_buf[:], &a.set_pass_len)
 		if (.SUBMIT in mu.button(ctx, "Set") || submitted) && a.set_pass_len > 0 {
 			a.mistake = ""
@@ -914,22 +919,20 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 			ctx,
 			theme.warning,
 			"  It logs their devices out, and they have to choose their own on logging in.",
-			label_proc,
+			wrap_text,
 		)
 	}
 
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "Make an account:")
 	submit := false
-	mu.layout_row(ctx, {FORM_LABEL, FORM_FIELD})
-	mu.label(ctx, "Username")
+	field_row(ui, FORM_LABEL, "Username", {FORM_FIELD})
 	submit |= .SUBMIT in text_box(ui, a.add_user_buf[:], &a.add_user_len)
-	mu.label(ctx, "Name")
+	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
 	submit |= .SUBMIT in text_box(ui, a.add_name_buf[:], &a.add_name_len)
-	mu.label(ctx, "First password")
+	field_row(ui, FORM_LABEL, "First password", {FORM_FIELD})
 	submit |= .SUBMIT in password_box(ui, a.add_pass_buf[:], &a.add_pass_len)
-	mu.layout_row(ctx, {FORM_LABEL, 140, 140, -1})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", {140, 140, -1})
 	submit |= .SUBMIT in mu.button(ctx, "Make account")
 	// A bot takes no password: it gets a token (ui_bots.odin).
 	bot := .SUBMIT in mu.button(ctx, "Make bot")

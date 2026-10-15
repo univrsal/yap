@@ -31,7 +31,11 @@ text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.R
 	when platform.WEB {
 		append(&ui.text_boxes, Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), false})
 	}
-	return mu.textbox_raw(ctx, buf, textlen, id, r, opt)
+	res := mu.textbox_raw(ctx, buf, textlen, id, r, opt)
+	if ctx.hover_id == id {
+		ui.select.over_text = true // an I-beam over it (draw_frame)
+	}
+	return res
 }
 
 /*

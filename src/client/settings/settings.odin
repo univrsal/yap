@@ -98,7 +98,7 @@ Settings :: struct {
 	voice_gate:              bool,
 	gate_open_db:            f32,
 	gate_close_db:           f32,
-	// How loudly local join, leave, message, and poke effects are mixed.
+	// How loudly local join, leave, and message effects are mixed.
 	notification_volume:     f32, // 1 = as encoded, 0..MAX_USER_VOLUME
 	// How loudly a shared application's audio is sent
 	// (ui_app_audio_native.odin).

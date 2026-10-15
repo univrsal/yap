@@ -507,9 +507,9 @@ person_row :: proc(
 }
 
 /*
-name_and_status draws a name in `r`, a bot's with its tag (ui_bots.odin),
-and dimmed after it a status and whatever else there is to say, cut
-where the row ends.
+name_and_status draws a name in `r` (in bold with `bold`, for the one
+picked), a bot's with its tag (ui_bots.odin), and dimmed after it a
+status and whatever else there is to say, cut where the row ends.
 */
 name_and_status :: proc(
 	ctx: ^mu.Context,
@@ -519,14 +519,16 @@ name_and_status :: proc(
 	status: string,
 	extra := "",
 	bot := false,
+	bold := false,
 ) {
 	font := ctx.style.font
+	name_font := render.font_with_style(font, .Bold) if bold else font
 	y := r.y + (r.h - ctx.text_height(font)) / 2
 	x := r.x + ctx.style.padding
 	mu.push_clip_rect(ctx, r)
 	defer mu.pop_clip_rect(ctx)
-	mu.draw_text(ctx, font, name, {x, y}, color)
-	x += ctx.text_width(font, name)
+	mu.draw_text(ctx, name_font, name, {x, y}, color)
+	x += ctx.text_width(name_font, name)
 	if bot {
 		x += bot_tag(ctx, x, y)
 	}
@@ -544,6 +546,10 @@ name_and_status :: proc(
 The account's own section of the settings: our picture and our status.
 Call with the View locked, inside the Account section.
 */
+// How wide a picture's buttons beside it are wanted at least; narrower,
+// the label goes over the picture.
+PICTURE_BUTTONS_MIN :: 260
+
 profile_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
@@ -551,8 +557,7 @@ profile_settings :: proc(ui: ^UI) {
 	me := v.accounts[v.me] or_else {}
 
 	size: i32 = 48
-	mu.layout_row(ctx, {FORM_LABEL, size + 8, -1}, size)
-	mu.label(ctx, "Picture")
+	field_row(ui, FORM_LABEL, "Picture", {size + 8, -1}, size, fill_min = PICTURE_BUTTONS_MIN)
 	cell := mu.layout_next(ctx)
 	avatar(ui, v.me, {cell.x, cell.y, size, size})
 	// The buttons, of the usual height, in the middle of the row.
@@ -564,7 +569,7 @@ profile_settings :: proc(ui: ^UI) {
 		max((size - ctx.style.size.y - 2 * ctx.style.padding) / 2 - ctx.style.spacing, 1),
 	)
 	mu.layout_next(ctx)
-	mu.layout_row(ctx, {110, 110, 110})
+	mu.layout_row(ctx, fit_widths(ctx, {110, 110, 110}))
 	uploading := false
 	for o in v.outbox {
 		uploading ||= o.avatar
@@ -600,8 +605,7 @@ status_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	me := v.accounts[v.me] or_else {}
-	mu.layout_row(ctx, {FORM_LABEL, 140, -1})
-	mu.label(ctx, "Status")
+	field_row(ui, FORM_LABEL, "Status", {140, -1})
 	if .SUBMIT in stable_button(ctx, "status edit", "Set status...", {.ALIGN_CENTER}) {
 		open_status_editor(ui)
 	}

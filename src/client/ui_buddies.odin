@@ -76,6 +76,10 @@ toggle_inbox :: proc(ui: ^UI) {
 	for ns in ui.sessions {
 		ns.seen_asked = {} // ask afresh when it opens
 	}
+	// In a narrow window it opens on the list (buddies_screen).
+	if ui.narrow {
+		ui.buddies.selected = 0
+	}
 }
 
 // open_conversation shows the inbox with the DM with `account`, on the
@@ -139,12 +143,22 @@ back_from_dms :: proc(ui: ^UI) {
 }
 
 // buddies_screen lays the screen out, like session_screen: side by
-// side, or the list over the conversation in a narrow window. Call with
+// side, or in a narrow window the list and the conversation picked
+// taking turns, the conversation with a way back to the list. Call with
 // the View locked.
 buddies_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	body := mu.get_current_container(ctx).body
 	narrow := body.w < NARROW_LAYOUT
+	ui.narrow = narrow
+
+	// Watching somebody's screen (from a call's row in the voice panel)
+	// works here as beside a channel: a Screen tab, and fullscreen.
+	screen_tab_follow(ui)
+	if ui.view.watching != 0 && conn.video_is_fullscreen() {
+		fullscreen_screen(ui)
+		return
+	}
 
 	session_header(ui)
 
@@ -169,32 +183,77 @@ buddies_screen :: proc(ui: ^UI) {
 	}
 	keep_viewing(ui, entry.conv if found else 0)
 
-	// The list over the voice panel; in a narrow window, the list, the
-	// conversation and the panel one over the other.
+	// The list over the voice panel, beside the conversation; in a narrow
+	// window, the list over the panel or the conversation over it.
 	panel_h := voice_panel_height(ui)
-	if narrow {
-		mu.layout_row(ctx, {-1}, max(body.h / 3, 120))
-	} else {
-		mu.layout_row(ctx, {280, -1}, -1)
-	}
-	if narrow {
-		buddy_list_panel(ui, list)
+	switch {
+	case narrow && !found:
 		mu.layout_row(ctx, {-1}, -(panel_h + 1))
-	} else {
+		buddy_list_panel(ui, list)
+		voice_panel(ui)
+	case narrow:
+		mu.layout_row(ctx, {-1}, -(panel_h + 1))
+		conversation_or_screen(ui, entry, found, narrow)
+		voice_panel(ui)
+	case:
+		mu.layout_row(ctx, {280, -1}, -1)
 		mu.layout_begin_column(ctx)
 		mu.layout_row(ctx, {-1}, -(panel_h + 1))
 		buddy_list_panel(ui, list)
 		voice_panel(ui)
 		mu.layout_end_column(ctx)
-	}
-	conversation(ui, entry, found)
-	if narrow {
-		voice_panel(ui)
+		conversation_or_screen(ui, entry, found, narrow)
 	}
 	user_menu(ui)
 	message_menu(ui)
 	app_audio_menu(ui)
 	share_menu(ui)
+}
+
+/*
+conversation_or_screen is the conversation, or while we're watching
+somebody's screen, that and the screen as tabs, like a channel's chat
+(side_panel, ui_chat.odin). With `narrow`, the line at the top starts
+with the way back to the list.
+*/
+@(private = "file")
+conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow: bool) {
+	if !screen_docked(ui) {
+		conversation(ui, entry, found, narrow)
+		return
+	}
+	ctx := &ui.ctx
+	mu.layout_begin_column(ctx)
+	defer mu.layout_end_column(ctx)
+
+	if narrow {
+		mu.layout_row(ctx, {40, 90, 90, -1})
+		back_to_list(ui)
+	} else {
+		mu.layout_row(ctx, {90, 90, -1})
+	}
+	if .SUBMIT in tab_button(ctx, "chat tab", "Chat", ui.chat.tab != .Screen) {
+		ui.chat.tab = .Chat
+	}
+	if .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
+		ui.chat.tab = .Screen
+	}
+	mu.label(ctx, "")
+	if ui.chat.tab == .Screen {
+		screen_panel(ui)
+	} else {
+		mu.layout_row(ctx, {-1}, -1)
+		conversation(ui, entry, found, false)
+	}
+}
+
+// back_to_list is the narrow window's way from a conversation back to
+// the list, which none is picked in then.
+@(private = "file")
+back_to_list :: proc(ui: ^UI) {
+	if .SUBMIT in stable_button_hint(ui, "to inbox list", "<", "Conversations", {.ALIGN_CENTER}) {
+		ui.buddies.selected = 0
+	}
 }
 
 @(private = "file")
@@ -292,7 +351,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 		text = fmt.tprintf("%s  (%s)", b.name, conn.unread_count(b.unread))
 		color = theme.speaking
 	}
-	name_and_status(ctx, text_r, text, color, b.status)
+	name_and_status(ctx, text_r, text, color, b.status, bold = selected)
 
 	if ctx.hover_id != id {
 		return
@@ -309,9 +368,10 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 }
 
 // conversation is the right-hand side: who it's with, the messages,
-// and the box to write in.
+// and the box to write in. With `back`, the line with their name starts
+// with the way back to the list (back_to_list).
 @(private = "file")
-conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
+conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	ctx := &ui.ctx
 	v := ui.view
 
@@ -328,30 +388,22 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool) {
 	// Their name, and the button that takes a DM off the list (somebody
 	// who isn't a buddy, where there's something to take off).
 	can_hide := entry.conv != 0 && !entry.buddy
-	switch {
-	case entry.conv == 0:
-		mu.layout_row(ctx, {-(ICON_BUTTON + ctx.style.spacing * 2), ICON_BUTTON})
-	case can_hide:
-		mu.layout_row(
-			ctx,
-			{
-				-(ICON_BUTTON + 3 * ICON_BUTTON + ctx.style.spacing * 5),
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-			},
-		)
-	case:
-		mu.layout_row(
-			ctx,
-			{
-				-(ICON_BUTTON + 2 * ICON_BUTTON + ctx.style.spacing * 4),
-				ICON_BUTTON,
-				ICON_BUTTON,
-				ICON_BUTTON,
-			},
-		)
+	// The name, then its buttons: up to four.
+	icons := 1 if entry.conv == 0 else 4 if can_hide else 3
+	buf: [5]i32
+	widths := buf[:icons + 1]
+	widths[0] = -(ICON_BUTTON * i32(icons) + ctx.style.spacing * i32(icons + 1))
+	for &w in widths[1:] {
+		w = ICON_BUTTON
+	}
+	if back {
+		row := make([]i32, len(widths) + 1, context.temp_allocator)
+		row[0] = 40
+		copy(row[1:], widths)
+		mu.layout_row(ctx, row)
+		back_to_list(ui)
+	} else {
+		mu.layout_row(ctx, widths)
 	}
 	deleted := .Deleted in (v.accounts[account] or_else {}).flags
 	title := entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name)

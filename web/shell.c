@@ -42,6 +42,21 @@ EM_JS(int, yap_page_focused, (void), {
 	return document.hasFocus() && !document.hidden ? 1 : 0;
 });
 
+/* The mouse cursor over the canvas, for a GLFW cursor shape
+   (src/client/wglfw/wglfw_web.odin); 0, or one it doesn't know, is the
+   default arrow. */
+EM_JS(void, yap_set_cursor, (int shape), {
+	const names = {
+		0x36002: "text",
+		0x36004: "pointer",
+		0x36005: "ew-resize",
+		0x36006: "ns-resize",
+		0x36007: "nwse-resize",
+		0x36008: "nesw-resize",
+	};
+	if (Module.canvas) Module.canvas.style.cursor = names[shape] || "";
+});
+
 // The tab's title, which says when something is unread.
 EM_JS(void, yap_set_title, (const char *title), {
 	document.title = UTF8ToString(title);
@@ -412,10 +427,10 @@ EM_JS(int, yap_utc_offset_minutes, (), {
 	return -new Date().getTimezoneOffset();
 });
 
-/* A browser notification (a poke, see src/client/ui_poke.odin), if the page
+/* A browser notification (see src/client/ui_notices.odin), if the page
    may show them. Browsers only let a page ask while it's handling a
    click or a tap, so the first time one would be shown the page asks on
-   the next one - the poke that prompted it has gone by then, but the
+   the next one - the notice that prompted it has gone by then, but the
    ones after it get through. 1 if shown. */
 EM_JS(int, yap_notify, (const char *title, const char *body), {
 	if (typeof Notification === "undefined") return 0;

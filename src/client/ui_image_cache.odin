@@ -35,8 +35,7 @@ image_cache_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 
 	bytes, count := conn.image_cache_usage(&ui.image_cache)
-	mu.layout_row(ctx, {120, -90, -1})
-	mu.label(ctx, "In use")
+	field_row(ui, 120, "In use", {-90, -1})
 	mu.label(ctx, fmt.tprintf("%s in %d pictures", format_bytes(bytes), count))
 	if .SUBMIT in mu.button(ctx, "Clear") {
 		conn.image_cache_clear(&ui.image_cache)
@@ -57,7 +56,7 @@ image_cache_settings :: proc(ui: ^UI) {
 			ctx,
 			theme.dim,
 			"  People's pictures and servers' emoji, kept in this browser for this site. 0 keeps none.",
-			label_proc,
+			wrap_text,
 		)
 	} else {
 		folder_settings(ui)
@@ -68,8 +67,7 @@ image_cache_settings :: proc(ui: ^UI) {
 @(private = "file")
 folder_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	mu.layout_row(ctx, {120, -90, -1})
-	mu.label(ctx, "Folder")
+	field_row(ui, 120, "Folder", {-90, -1})
 	submit := .SUBMIT in text_box(ui, ui.image_cache_dir_buf[:], &ui.image_cache_dir_len)
 	submit |= .SUBMIT in mu.button(ctx, "Apply")
 	if submit {
@@ -93,13 +91,13 @@ folder_settings :: proc(ui: ^UI) {
 			"  Kept in %s. Empty for the default; pictures already kept elsewhere stay there.",
 			folder,
 		),
-		label_proc,
+		wrap_text,
 	)
 	with_text_color(
 		ctx,
 		theme.dim,
 		"  People's pictures and servers' emoji. 0 keeps none.",
-		label_proc,
+		wrap_text,
 	)
 }
 

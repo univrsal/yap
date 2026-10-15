@@ -34,7 +34,7 @@ share_settings :: proc(ui: ^UI) {
 				"this build. Put what's in it next to yap, in %s, and start yap again.",
 				conn.video_library_dir(),
 			),
-			mu.text,
+			wrap_text,
 		)
 		return
 	}
@@ -48,8 +48,7 @@ share_settings :: proc(ui: ^UI) {
 	cfg := conn.share_config(&ui.settings, limit)
 	preset := conn.share_preset(&ui.settings)
 
-	mu.layout_row(ctx, {120, 110, 110, 110, 110})
-	mu.label(ctx, "Size")
+	field_row(ui, 120, "Size", {110, 110, 110, 110})
 	for p, i in conn.SHARE_PRESETS {
 		if choice_button(ui, fmt.tprintf("share preset %s", p.name), p.label, i == preset) &&
 		   i != preset {
@@ -76,7 +75,7 @@ share_settings :: proc(ui: ^UI) {
 			f64(cfg.kbit) / 1000,
 			held,
 		),
-		mu.text,
+		wrap_text,
 	)
 
 	mu.layout_row(ctx, {-1})
@@ -85,11 +84,11 @@ share_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, "Changes apply the next time you start sharing.", mu.text)
+	with_text_color(ctx, theme.dim, "Changes apply the next time you start sharing.", wrap_text)
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
-	   mu.checkbox(ctx, "Show figures under a screen you watch", &ui.settings.share_stats) {
+	   mu.checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 }
@@ -101,8 +100,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 	ctx := &ui.ctx
 	vid := &ui.video
 
-	mu.layout_row(ctx, {120, 110, 110})
-	mu.label(ctx, "Frame rate")
+	field_row(ui, 120, "Frame rate", {110, 110})
 	for fps in conn.SHARE_FPS_CHOICES {
 		if choice_button(
 			   ui,
@@ -118,8 +116,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 
 	// Taken when the slider is let go, like the UI scale's.
 	top := f32(limit if limit > 0 else conn.SHARE_KBIT_MAX)
-	mu.layout_row(ctx, {120, -120, 110})
-	mu.label(ctx, "Bitrate")
+	field_row(ui, 120, "Bitrate", {-120, 110})
 	id := mu.get_id(ctx, uintptr(&vid.kbit_draft))
 	dragging := ctx.focus_id == id
 	if !dragging {
@@ -147,7 +144,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 	if encoders == nil {
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
-		with_text_color(ctx, theme.dim, "Still trying the encoders...", label_proc)
+		with_text_color(ctx, theme.dim, "Still trying the encoders...", wrap_text)
 		ui_redraw_in(ui, ANIMATION_FRAME * 15)
 	}
 	for e in encoders {
@@ -173,7 +170,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		// (conn/video.odin); a chosen encoder is used regardless.
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
-		with_text_color(ctx, theme.dim, "Viewers that can't decode it see nothing", label_proc)
+		with_text_color(ctx, theme.dim, "Viewers that can't decode it see nothing", wrap_text)
 	}
 
 	mu.layout_row(ctx, {-1})

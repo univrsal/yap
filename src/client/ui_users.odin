@@ -3,7 +3,6 @@ package client
 import log "common:wlog"
 import "core:fmt"
 import "core:slice"
-import "core:strings"
 import mu "vendor:microui"
 
 import "client:conn"
@@ -454,26 +453,10 @@ user_menu :: proc(ui: ^UI) {
 	if talking_to {
 		mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 		mu.label(ctx, "Volume")
-		// Poke them, with a message if there's one in the box. Not ourselves,
-		// and only a connection that's here.
-
 		if .CHANGE in
 		   mu.slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 			u.volume = ui.menu_volume / 100
 			changed = true
-		}
-		mu.layout_row(ctx, {MENU_WIDTH - 60 - ctx.style.spacing, 60})
-		poke := .SUBMIT in text_box(ui, ui.poke_buf[:], &ui.poke_len)
-		if .SUBMIT in stable_button(ctx, "poke", "Poke") {
-			poke = true
-		}
-		if poke && ui.session != nil {
-			text := strings.trim_space(string(ui.poke_buf[:ui.poke_len]))
-			conn.push_command(
-				&ui.session.client.commands,
-				conn.Poke_Command{target_uid = ui.menu_user, message = strings.clone(text)},
-			)
-			ui.poke_len = 0
 		}
 	}
 

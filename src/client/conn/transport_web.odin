@@ -109,7 +109,8 @@ transport_revive opens the socket again once it has died - the server
 went away, or the network did - which a UDP socket never needs: there the
 packets just stop arriving. Without it the page would sit behind a closed
 socket for good. It tries again every REVIVE_AFTER for as long as the
-connection lasts; client_step gives up on it when that's too long.
+connection lasts; once client_step has given up on that (CONNECTION_LOST),
+only when a new connection is tried.
 */
 transport_revive :: proc(t: ^Transport) {
 	if !t.open || yap_ws_state(t.slot) != -1 {

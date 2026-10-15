@@ -44,7 +44,7 @@ bot_token_shown :: proc(ui: ^UI, v: ^conn.View) {
 			"The token for %s, shown this once: copy it now. Whoever has it can do all the bot may.",
 			whose,
 		),
-		label_proc,
+		wrap_text,
 	)
 	mu.layout_row(ctx, {-(2 * 90 + 2 * ctx.style.spacing), 87, 87})
 	mu.label(ctx, v.bot_token)
@@ -96,7 +96,7 @@ bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 		ctx,
 		theme.dim,
 		"    A token is all a program needs to be the bot; revoking one logs it out.",
-		label_proc,
+		wrap_text,
 	)
 	if .SUBMIT in stable_button(ctx, "new token", "New token", {.ALIGN_CENTER}) {
 		ui.account.mistake = ""
