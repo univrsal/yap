@@ -6,7 +6,7 @@ name: Build
 # this for a tag and attaches the zips to a draft release.
 on:
   push:
-    branches: [master, extended]
+    branches: [minimal]
     paths:
       - '**/*.c'
       - '**/*.h'
