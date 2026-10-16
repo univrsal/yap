@@ -187,6 +187,17 @@ bool live_bitrate(const char *name) {
 }
 
 /*
+Whether FFmpeg's `name` says "not yet" while the frame it was just given
+is still being encoded, rather than waiting for it. AMF's do: each look
+waits about a millisecond in the driver, so encode looks until there's a
+packet (and, with AV_CODEC_FLAG_LOW_DELAY, they look at all before the
+next frame; without it a packet only came out with the next frame).
+*/
+bool polls_output(const char *name) {
+	return strstr(name, "_amf") != nullptr;
+}
+
+/*
 Low latency settings, per encoder family; any an encoder doesn't know
 are left over in the dictionary and ignored.
 */
@@ -263,7 +274,21 @@ void fail(yv_share *s, const std::string &why) {
 	s->state.store(YV_SHARE_FAILED);
 }
 
+/*
+close_encoder drains the encoder before freeing it, dropping what comes
+out. FFmpeg's AMF encoders keep a reference to each frame they're given
+until its packet comes back, and closing without draining leaks those
+(and so the frames' pool, its device and the whole capture device, some
+100 MB at 4K, at every stop or restart).
+*/
 void close_encoder(yv_share *s) {
+	if (s->enc && avcodec_is_open(s->enc) && avcodec_send_frame(s->enc, nullptr) >= 0) {
+		AVPacket *pkt = av_packet_alloc();
+		while (pkt && avcodec_receive_packet(s->enc, pkt) >= 0) {
+			av_packet_unref(pkt);
+		}
+		av_packet_free(&pkt);
+	}
 	avcodec_free_context(&s->enc);
 	av_buffer_unref(&s->frames);
 	s->enc_w = s->enc_h = 0;
@@ -285,6 +310,9 @@ bool open_encoder(yv_share *s, Pipeline &pipe, int w, int h) {
 	e->framerate = {fps, 1};
 	e->gop_size = fps * KEY_SECONDS;
 	e->max_b_frames = 0;
+	// One frame in, its packet out (AMF, VideoToolbox; the others are
+	// told in encoder_options).
+	e->flags |= AV_CODEC_FLAG_LOW_DELAY;
 	e->bit_rate = rate;
 	e->rc_max_rate = rate * 3 / 2;
 	e->rc_buffer_size = static_cast<int>(rate / 2);
@@ -427,8 +455,16 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 		fail(s, "the encoder refused a frame");
 		return false;
 	}
+	// For an encoder that polls, until this frame's packet is out, but
+	// never past the next frame's turn.
+	bool poll = polls_output(s->encoder_name.c_str());
+	uint64_t give_up = now_us() + 1'000'000 / static_cast<uint64_t>(s->config.fps);
+	bool got = false;
 	for (;;) {
 		err = avcodec_receive_packet(s->enc, s->pkt);
+		if (err == AVERROR(EAGAIN) && poll && !got && now_us() < give_up && !s->stop.load()) {
+			continue;
+		}
 		if (err == AVERROR(EAGAIN) || err == AVERROR_EOF) {
 			break;
 		}
@@ -436,6 +472,7 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 			fail(s, "the encoder failed");
 			return false;
 		}
+		got = true;
 		Encoded e;
 		e.data.assign(s->pkt->data, s->pkt->data + s->pkt->size);
 		e.pts_us = static_cast<uint64_t>(s->pkt->pts);
