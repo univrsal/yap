@@ -16,9 +16,10 @@ import "core:sync"
 // it until the UI lets go of it (sound_custom_remove).
 
 Sound_Clip :: struct {
-	name:    string,
-	samples: []f32, // interleaved, CHANNELS at SAMPLE_RATE
-	refs:    int,
+	name:     string,
+	samples:  []f32, // at SAMPLE_RATE, `channels` (1 or 2) interleaved
+	channels: int,
+	refs:     int,
 }
 
 // The setting of an event with no sound.
@@ -80,12 +81,12 @@ sound_acquire :: proc(name: string) -> ^Sound_Clip {
 		log.warnf("audio: no sound %q", name)
 		return nil
 	}
-	samples, err := sound_decode(data, name)
+	samples, channels, err := sound_decode(data, name)
 	if err != "" {
 		log.errorf("audio: %s: %s", name, err)
 		return nil
 	}
-	return store_add(name, samples)
+	return store_add(name, samples, channels)
 }
 
 // sound_retain takes one more reference to a sound.
@@ -105,10 +106,10 @@ sound_release :: proc(clip: ^Sound_Clip) {
 }
 
 // sound_custom_add makes a sound of the user's own known by `name`
-// ("custom:<file>"), from `samples` (CHANNELS at SAMPLE_RATE), which are
+// ("custom:<file>"), from `samples` (`channels` at SAMPLE_RATE), which are
 // copied. A name that is already known keeps its sound: a file of the user's
 // own gets a name of its own (see ui_sounds.odin).
-sound_custom_add :: proc(name: string, samples: []f32) {
+sound_custom_add :: proc(name: string, samples: []f32, channels: int) {
 	sync.guard(&store.mutex)
 	context.allocator = store_allocator()
 	if name in store.custom {
@@ -119,8 +120,8 @@ sound_custom_add :: proc(name: string, samples: []f32) {
 		store.custom[clip.name] = clip
 		return
 	}
-	limit := min(len(samples), SOUND_MAX_SECONDS * SAMPLE_RATE * CHANNELS)
-	clip := store_add(name, cut(samples[:limit]))
+	limit := min(len(samples), SOUND_MAX_SECONDS * SAMPLE_RATE * channels)
+	clip := store_add(name, cut(samples[:limit]), channels)
 	store.custom[clip.name] = clip
 }
 
@@ -148,31 +149,49 @@ sound_custom_loaded :: proc(name: string) -> bool {
 }
 
 // sound_decode decodes a sound file: Ogg Opus here, and WAV, FLAC and MP3
-// through miniaudio on a desktop (sound_decode_other). The samples are
-// CHANNELS at SAMPLE_RATE, at most SOUND_MAX_SECONDS of them, in the context's
-// allocator. `err` says what is wrong with a file that doesn't decode.
-sound_decode :: proc(data: []u8, name: string) -> (samples: []f32, err: string) {
+// through miniaudio on a desktop (sound_decode_other). The samples are at
+// SAMPLE_RATE, mono or stereo (`channels`), at most SOUND_MAX_SECONDS of them,
+// in the context's allocator. `err` says what is wrong with a file that
+// doesn't decode.
+sound_decode :: proc(
+	data: []u8,
+	name: string,
+) -> (
+	samples: []f32,
+	channels: int,
+	err: string,
+) {
 	if len(data) >= 4 && string(data[:4]) == "OggS" {
 		if !strings.contains(string(data[:min(len(data), 512)]), "OpusHead") {
-			return nil, "Ogg Vorbis, not Opus"
+			return nil, 0, "Ogg Vorbis, not Opus"
 		}
-		samples = decode_ogg_opus(data, name)
+		samples, channels = decode_ogg_opus(data, name)
 		if samples == nil {
-			return nil, "its Opus data is broken"
+			return nil, 0, "its Opus data is broken"
 		}
 	} else {
 		samples, err = sound_decode_other(data)
 		if err != "" {
 			return
 		}
+		channels = CHANNELS // what miniaudio hands over
 	}
-	if len(samples) > SOUND_MAX_SECONDS * SAMPLE_RATE * CHANNELS {
-		short := cut(samples[:SOUND_MAX_SECONDS * SAMPLE_RATE * CHANNELS])
+	// Stereo with the same on both sides is kept as mono.
+	if channels == 2 {
+		if mono := to_mono(samples); mono != nil {
+			delete(samples)
+			samples, channels = mono, 1
+		}
+	}
+	limit := SOUND_MAX_SECONDS * SAMPLE_RATE * channels
+	if len(samples) > limit {
+		short := cut(samples[:limit])
 		delete(samples)
 		samples = short
 	}
 	if len(samples) == 0 {
-		return nil, "no sound in it"
+		delete(samples)
+		return nil, 0, "no sound in it"
 	}
 	return
 }
@@ -186,13 +205,31 @@ cut :: proc(samples: []f32) -> []f32 {
 
 // store_add adds a sound with one reference. Call with the mutex held and
 // the store's allocator.
+// to_mono returns a mono copy of stereo samples whose channels are the same
+// throughout, and nil for any others.
 @(private = "file")
-store_add :: proc(name: string, samples: []f32) -> ^Sound_Clip {
+to_mono :: proc(stereo: []f32) -> []f32 {
+	frames := len(stereo) / 2
+	for f in 0 ..< frames {
+		if stereo[2 * f] != stereo[2 * f + 1] {
+			return nil
+		}
+	}
+	mono := make([]f32, frames)
+	for &m, f in mono {
+		m = stereo[2 * f]
+	}
+	return mono
+}
+
+@(private = "file")
+store_add :: proc(name: string, samples: []f32, channels: int) -> ^Sound_Clip {
 	clip := new(Sound_Clip)
 	clip^ = {
-		name    = strings.clone(name),
-		samples = samples,
-		refs    = 1,
+		name     = strings.clone(name),
+		samples  = samples,
+		channels = channels,
+		refs     = 1,
 	}
 	store.clips[clip.name] = clip
 	return clip

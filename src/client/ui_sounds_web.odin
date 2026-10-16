@@ -55,9 +55,16 @@ sound_file_delete :: proc(ui: ^UI, file: string) {
 }
 
 // A file was picked for an event, decoded and kept under `name`. The
-// samples are copied (sound_custom_add).
+// samples (`channels` interleaved) are copied (sound_custom_add).
 @(export)
-web_sound_picked :: proc "c" (kind: i32, name: [^]u8, name_len: i32, samples: [^]f32, frames: i32) {
+web_sound_picked :: proc "c" (
+	kind: i32,
+	name: [^]u8,
+	name_len: i32,
+	samples: [^]f32,
+	frames: i32,
+	channels: i32,
+) {
 	context = platform.callback_context()
 	if g_ui == nil || kind <= 0 || kind > i32(max(audio.Sound_Event)) {
 		return
@@ -66,7 +73,7 @@ web_sound_picked :: proc "c" (kind: i32, name: [^]u8, name_len: i32, samples: [^
 		{audio.CUSTOM_SOUND_PREFIX, string(name[:name_len])},
 		context.temp_allocator,
 	)
-	audio.sound_custom_add(full, samples[:frames * audio.CHANNELS])
+	audio.sound_custom_add(full, samples[:frames * channels], int(channels))
 	sound_choose(g_ui, audio.Sound_Event(kind), full)
 	ui_wake()
 }
@@ -84,7 +91,13 @@ web_sound_failed :: proc "c" (kind: i32, why: [^]u8, why_len: i32) {
 
 // A file the settings name is decoded: its events play it from now on.
 @(export)
-web_sound_loaded :: proc "c" (name: [^]u8, name_len: i32, samples: [^]f32, frames: i32) {
+web_sound_loaded :: proc "c" (
+	name: [^]u8,
+	name_len: i32,
+	samples: [^]f32,
+	frames: i32,
+	channels: i32,
+) {
 	context = platform.callback_context()
 	if g_ui == nil {
 		return
@@ -93,7 +106,7 @@ web_sound_loaded :: proc "c" (name: [^]u8, name_len: i32, samples: [^]f32, frame
 		{audio.CUSTOM_SOUND_PREFIX, string(name[:name_len])},
 		context.temp_allocator,
 	)
-	audio.sound_custom_add(full, samples[:frames * audio.CHANNELS])
+	audio.sound_custom_add(full, samples[:frames * channels], int(channels))
 	sounds_send_all(g_ui)
 	ui_wake()
 }

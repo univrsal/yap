@@ -37,13 +37,13 @@ sounds_load :: proc(ui: ^UI) {
 			sound_note(ui, kind, fmt.tprintf("%s is gone, so the default sound plays.", file))
 			continue
 		}
-		samples, why := audio.sound_decode(data, file)
+		samples, channels, why := audio.sound_decode(data, file)
 		if why != "" {
 			log.warnf("sounds: %s: %s", path, why)
 			sound_note(ui, kind, fmt.tprintf("%s can't be played (%s), so the default sound plays.", file, why))
 			continue
 		}
-		audio.sound_custom_add(name, samples)
+		audio.sound_custom_add(name, samples, channels)
 		delete(samples)
 	}
 }
@@ -69,7 +69,7 @@ sound_file_picked :: proc(ui: ^UI, kind: audio.Sound_Event, path: string) {
 		sound_note(ui, kind, fmt.tprintf("%s can't be read.", path))
 		return
 	}
-	samples, why := audio.sound_decode(data, path)
+	samples, channels, why := audio.sound_decode(data, path)
 	if why != "" {
 		sound_note(ui, kind, fmt.tprintf("That file can't be played (%s).", why))
 		return
@@ -81,7 +81,7 @@ sound_file_picked :: proc(ui: ^UI, kind: audio.Sound_Event, path: string) {
 		return
 	}
 	name := strings.concatenate({audio.CUSTOM_SOUND_PREFIX, file}, context.temp_allocator)
-	audio.sound_custom_add(name, samples)
+	audio.sound_custom_add(name, samples, channels)
 	sound_choose(ui, kind, name)
 }
 

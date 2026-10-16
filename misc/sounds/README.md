@@ -260,3 +260,23 @@ event played it any more.
 | D9 | Does a missed outgoing call (no answer) play Call declined too | Yes, it is the same "nobody picked up". The server ends a ringing call after `CALL_RING_SECONDS` (30 s) as `.Unanswered`; a callee with no connection and no push is refused at once. Cancelling our own call plays nothing |
 | D10 | A call to somebody already in a call on the same server | a: still refused, but the callee gets a missed call and a knock; call waiting (b) later if wanted |
 | D11 | Default for Call while in voice | skype/knocking in the Default pack |
+
+## Memory (2026-10-16)
+
+The sounds took more memory than wanted (Skype preset: 20.5 MB decoded,
+against 8.2 MB on `extended`). Three changes, on branch `sound-memory`:
+
+- A sound is decoded into a buffer of its exact size (from the Ogg
+  stream's last granule position), not a growing one: that had wasted
+  40-70%.
+- A sound whose two channels are the same is kept as mono and mixed to
+  both speakers (`Playing.channels`). All the built-in sounds are mono or
+  the same on both sides.
+- Server connections don't hold the start-up and quit sounds
+  (`audio.APP_SOUNDS`), which only the UI plays.
+
+Measured (headless weston, connected to a local server, Settings >
+Memory > Write to log): decoded sounds 2.2 MB with the defaults (was
+7.0), 3.1 MB with AIM (10.2), 6.1 MB with Skype (20.5); `extended`'s 11
+sounds took 8.2 MB. RSS while connected: 208 MB with the defaults, 213
+MB with Skype; `extended` 212 MB.

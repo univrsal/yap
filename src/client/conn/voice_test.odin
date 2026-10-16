@@ -18,14 +18,14 @@ test_deafen_plays_once :: proc(t: ^testing.T) {
 	push_command(&c.commands, Mute_Command{muted = true, feedback = false})
 	push_command(&c.commands, Deafen_Command{deafened = true, feedback = true})
 	process_commands(&c)
-	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.clips[.Deafened].samples))
+	testing.expect(t, raw_data(sounds.active.samples) == raw_data(sounds.clips[.Deafened].samples))
 	testing.expect_value(t, sounds.queued_count, 0)
 
 	audio.notifications_clear(sounds)
 	push_command(&c.commands, Mute_Command{muted = false, feedback = false})
 	push_command(&c.commands, Deafen_Command{deafened = false, feedback = true})
 	process_commands(&c)
-	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.clips[.Undeafened].samples))
+	testing.expect(t, raw_data(sounds.active.samples) == raw_data(sounds.clips[.Undeafened].samples))
 	testing.expect_value(t, sounds.queued_count, 0)
 
 	// Mute on its own, and a repeat of what is already the case, which is silent.
@@ -33,7 +33,7 @@ test_deafen_plays_once :: proc(t: ^testing.T) {
 	push_command(&c.commands, Mute_Command{muted = true, feedback = true})
 	push_command(&c.commands, Mute_Command{muted = true, feedback = true})
 	process_commands(&c)
-	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.clips[.Muted].samples))
+	testing.expect(t, raw_data(sounds.active.samples) == raw_data(sounds.clips[.Muted].samples))
 	testing.expect_value(t, sounds.queued_count, 0)
 }
 
@@ -132,7 +132,7 @@ test_call_sounds :: proc(t: ^testing.T) {
 	// Declined while it rang: the ring stops, and nothing plays.
 	changed(&c, {id = 5, state = .Ended, reason = .Declined, caller = 2, callee = 1})
 	testing.expect_value(t, sounds.loop_event, audio.Sound_Event.None)
-	testing.expect_value(t, len(sounds.active), 0)
+	testing.expect_value(t, len(sounds.active.samples), 0)
 
 	// Our own call, not answered.
 	c.call = {
@@ -142,7 +142,7 @@ test_call_sounds :: proc(t: ^testing.T) {
 		here   = true,
 	}
 	changed(&c, {id = 6, state = .Ended, reason = .Unanswered, caller = 1, callee = 2})
-	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.clips[.Call_Declined].samples))
+	testing.expect(t, raw_data(sounds.active.samples) == raw_data(sounds.clips[.Call_Declined].samples))
 	audio.notifications_clear(sounds)
 
 	// Cancelled by us: nothing.
@@ -153,7 +153,7 @@ test_call_sounds :: proc(t: ^testing.T) {
 		here   = true,
 	}
 	changed(&c, {id = 7, state = .Ended, reason = .Cancelled, caller = 1, callee = 2})
-	testing.expect_value(t, len(sounds.active), 0)
+	testing.expect_value(t, len(sounds.active.samples), 0)
 
 	// A call we were in ends; on another of our devices, it says nothing.
 	c.call = {
@@ -163,7 +163,7 @@ test_call_sounds :: proc(t: ^testing.T) {
 		here   = true,
 	}
 	changed(&c, {id = 8, state = .Ended, reason = .Hung_Up, caller = 1, callee = 2})
-	testing.expect(t, raw_data(sounds.active) == raw_data(sounds.clips[.Call_Ended].samples))
+	testing.expect(t, raw_data(sounds.active.samples) == raw_data(sounds.clips[.Call_Ended].samples))
 	audio.notifications_clear(sounds)
 	c.call = {
 		id     = 9,
@@ -171,5 +171,5 @@ test_call_sounds :: proc(t: ^testing.T) {
 		peer   = 2,
 	}
 	changed(&c, {id = 9, state = .Ended, reason = .Hung_Up, caller = 1, callee = 2})
-	testing.expect_value(t, len(sounds.active), 0)
+	testing.expect_value(t, len(sounds.active.samples), 0)
 }

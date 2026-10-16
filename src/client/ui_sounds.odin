@@ -63,7 +63,7 @@ sound_effective :: proc(ui: ^UI, kind: audio.Sound_Event) -> string {
 // thread starts.
 sounds_session_init :: proc(ui: ^UI, ns: ^Net_Session) {
 	for kind in audio.Sound_Event {
-		if kind != .None {
+		if kind != .None && kind not_in audio.APP_SOUNDS {
 			audio.notifications_set(&ns.client.voice.notifications, kind, sound_effective(ui, kind))
 		}
 	}
@@ -72,7 +72,7 @@ sounds_session_init :: proc(ui: ^UI, ns: ^Net_Session) {
 // sounds_send_all tells every session the sound of every event.
 sounds_send_all :: proc(ui: ^UI) {
 	for kind in audio.Sound_Event {
-		if kind != .None {
+		if kind != .None && kind not_in audio.APP_SOUNDS {
 			command_all(ui, conn.sound_command(kind, sound_effective(ui, kind)))
 		}
 	}
@@ -85,7 +85,9 @@ sound_choose :: proc(ui: ^UI, kind: audio.Sound_Event, name: string) {
 	settings.settings_save(ui.opts.settings_path, ui.settings)
 	sound_note(ui, kind, "")
 	now := sound_effective(ui, kind)
-	command_all(ui, conn.sound_command(kind, now))
+	if kind not_in audio.APP_SOUNDS {
+		command_all(ui, conn.sound_command(kind, now))
+	}
 	sound_forget_unused(ui, old)
 	app_sound_preview(ui, now)
 }

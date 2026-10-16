@@ -101,7 +101,7 @@ test_notification_sounds :: proc(t: ^testing.T) {
 		notification_play(&v.notifications, kind)
 		sum: f64
 		count := 0
-		for len(v.notifications.active) > 0 || v.notifications.queued_count > 0 {
+		for len(v.notifications.active.samples) > 0 || v.notifications.queued_count > 0 {
 			mix_output(&v)
 			out: [FRAME]f32
 			got := ring_read(&v.playback, out[:])
@@ -130,12 +130,22 @@ test_notification_tail :: proc(t: ^testing.T) {
 test_notification_volume :: proc(t: ^testing.T) {
 	clip := []f32{0.8, -0.4}
 	sounds := Notification_Sounds {
-		active = clip,
+		active = {clip, 2},
 		volume = 0.25,
 	}
 	mix: [2]f32
 	notifications_mix(&sounds, mix[:])
 	testing.expect_value(t, mix, [2]f32{0.2, -0.1})
+
+	// A mono sound goes to both sides.
+	mono := Notification_Sounds {
+		active = {clip, 1},
+		volume = 0.5,
+	}
+	both: [4]f32
+	notifications_mix(&mono, both[:])
+	testing.expect_value(t, both, [4]f32{0.4, 0.4, -0.2, -0.2})
+	testing.expect_value(t, len(mono.active.samples), 0)
 }
 
 @(test)
@@ -146,14 +156,14 @@ test_deafen_suppresses_notifications :: proc(t: ^testing.T) {
 	notifications_set(&v.notifications, .Message, "aim/msg")
 	v.deafened = true
 	voice_notification_play(&v, .Message)
-	testing.expect_value(t, len(v.notifications.active), 0)
+	testing.expect_value(t, len(v.notifications.active.samples), 0)
 	testing.expect_value(t, v.notifications.queued_count, 0)
 	v.deafened = false
 	voice_notification_play(&v, .Message)
-	testing.expect(t, len(v.notifications.active) > 0)
+	testing.expect(t, len(v.notifications.active.samples) > 0)
 	v.deafened = true
 	mix_output(&v)
-	testing.expect_value(t, len(v.notifications.active), 0)
+	testing.expect_value(t, len(v.notifications.active.samples), 0)
 	testing.expect_value(t, v.notifications.queued_count, 0)
 }
 
@@ -168,7 +178,7 @@ test_deafen_keeps_feedback :: proc(t: ^testing.T) {
 	voice_feedback_play(&v, .Muted)
 	v.deafened = true
 	mix_output(&v)
-	testing.expect(t, raw_data(v.notifications.active) == raw_data(v.notifications.clips[.Muted].samples))
+	testing.expect(t, raw_data(v.notifications.active.samples) == raw_data(v.notifications.clips[.Muted].samples))
 	testing.expect_value(t, v.notifications.queued_count, 0)
 }
 
@@ -323,8 +333,10 @@ test_ring_loops :: proc(t: ^testing.T) {
 	}
 	// Ringing: it goes on past its own length, from the start again.
 	notification_loop(&s, .Ring)
-	testing.expect(t, energy(&s, len(s.clips[.Ring].samples)) > 0)
-	testing.expect(t, energy(&s, len(s.clips[.Ring].samples) / 2) > 0, "the ring didn't start again")
+	ring := s.clips[.Ring]
+	ring_mix := len(ring.samples) / ring.channels * CHANNELS // as long as the ring, mixed
+	testing.expect(t, energy(&s, ring_mix) > 0)
+	testing.expect(t, energy(&s, ring_mix / 2) > 0, "the ring didn't start again")
 	// The same again doesn't start it over; another does.
 	at := s.loop_pos
 	notification_loop(&s, .Ring)
@@ -346,7 +358,8 @@ test_sound_packs :: proc(t: ^testing.T) {
 		testing.expectf(t, len(pack.files) > 0, "sound pack %s is empty", pack.name)
 		for f in pack.files {
 			testing.expectf(t, strings.has_suffix(f.name, ".opus"), "%s/%s isn't Opus", pack.name, f.name)
-			clip := decode_ogg_opus(f.data, f.name)
+			clip, channels := decode_ogg_opus(f.data, f.name)
+			testing.expectf(t, channels == 1 || channels == 2, "%s/%s has %d channels", pack.name, f.name, channels)
 			testing.expectf(t, len(clip) > 0, "%s/%s didn't decode", pack.name, f.name)
 			delete(clip)
 		}
@@ -380,13 +393,13 @@ test_sound_choices :: proc(t: ^testing.T) {
 
 	// Changing it while it plays stops it.
 	notification_play(&a, .Message)
-	testing.expect(t, raw_data(a.active) == raw_data(a.clips[.Message].samples))
+	testing.expect(t, raw_data(a.active.samples) == raw_data(a.clips[.Message].samples))
 	notifications_set(&a, .Message, NO_SOUND)
 	testing.expect(t, a.clips[.Message] == nil)
-	testing.expect_value(t, len(a.active), 0)
+	testing.expect_value(t, len(a.active.samples), 0)
 	testing.expect_value(t, b.clips[.Message].refs, 1)
 	notification_play(&a, .Message)
-	testing.expect_value(t, len(a.active), 0)
+	testing.expect_value(t, len(a.active.samples), 0)
 
 	// Half a second of a 440 Hz tone, as an 8 kHz mono WAV.
 	RATE :: 8000
@@ -413,21 +426,22 @@ test_sound_choices :: proc(t: ^testing.T) {
 	for i in 0 ..< FRAMES {
 		put16(&wav, u16(i16(math.sin(f64(i) * 2 * math.PI * 440 / RATE) * 10000)))
 	}
-	samples, err := sound_decode(wav[:], "tone.wav")
+	samples, channels, err := sound_decode(wav[:], "tone.wav")
 	defer delete(samples)
 	testing.expect_value(t, err, "")
+	testing.expect_value(t, channels, 1)
 	testing.expectf(
 		t,
-		abs(len(samples) - SAMPLE_RATE / 2 * CHANNELS) < 200,
+		abs(len(samples) - SAMPLE_RATE / 2) < 100,
 		"%d samples, not about half a second",
 		len(samples),
 	)
 
-	sound_custom_add("custom:tone.wav", samples)
+	sound_custom_add("custom:tone.wav", samples, channels)
 	testing.expect(t, sound_custom_loaded("custom:tone.wav"))
 	notifications_set(&a, .Ring, "custom:tone.wav")
 	notification_loop(&a, .Ring)
-	testing.expect(t, len(a.loop) > 0)
+	testing.expect(t, len(a.loop.samples) > 0)
 	// Let go of by the UI, it still plays where it is chosen.
 	sound_custom_remove("custom:tone.wav")
 	testing.expect(t, !sound_custom_loaded("custom:tone.wav"))
@@ -436,8 +450,8 @@ test_sound_choices :: proc(t: ^testing.T) {
 	notifications_set(&b, .Ring, "custom:missing.wav")
 	testing.expect(t, b.clips[.Ring] == nil)
 
-	_, vorbis := sound_decode(transmute([]u8)string("OggS\x00\x02vorbis"), "x.ogg")
+	_, _, vorbis := sound_decode(transmute([]u8)string("OggS\x00\x02vorbis"), "x.ogg")
 	testing.expect(t, vorbis != "")
-	_, junk := sound_decode(transmute([]u8)string("not a sound"), "x.bin")
+	_, _, junk := sound_decode(transmute([]u8)string("not a sound"), "x.bin")
 	testing.expect(t, junk != "")
 }

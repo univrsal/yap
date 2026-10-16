@@ -86,8 +86,7 @@ trouble_length :: proc(c: ^Voice_Client) -> time.Duration {
 	if clip == nil {
 		return 0
 	}
-	frames := min(len(clip.samples), audio.ONE_SHOT_SECONDS * audio.SAMPLE_RATE * audio.CHANNELS)
-	frames /= audio.CHANNELS
+	frames := min(len(clip.samples) / clip.channels, audio.ONE_SHOT_SECONDS * audio.SAMPLE_RATE)
 	return time.Duration(frames) * time.Second / audio.SAMPLE_RATE
 }
 

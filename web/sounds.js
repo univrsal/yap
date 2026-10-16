@@ -1,8 +1,9 @@
 /*
 Sound files of the user's own, for the web client (emcc --pre-js, see
 web/build.sh and src/client/ui_sounds_web.odin). The browser decodes any
-format it knows (decodeAudioData), at 48 kHz in stereo, which is what the
-client mixes; the client is handed the samples. The file itself is kept
+format it knows (decodeAudioData), at 48 kHz, and the client is handed
+the samples: mono for a file whose channels are all the same (the client
+plays it on both speakers), otherwise stereo. The file itself is kept
 in IndexedDB ("yap-sounds"), under the name the client keeps in its
 settings ("custom:<name>" there), and decoded again at the next start
 (load).
@@ -62,12 +63,15 @@ remove(name): forgets a file no event plays any more.
 		const frames = Math.min(buffer.length, MAX_SECONDS * RATE);
 		const left = buffer.getChannelData(0);
 		const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
+		let mono = true;
+		for (let i = 0; mono && i < frames; i++) mono = left[i] === right[i];
+		if (mono) return { samples: left.slice(0, frames), channels: 1 };
 		const out = new Float32Array(frames * 2);
 		for (let i = 0; i < frames; i++) {
 			out[2 * i] = left[i];
 			out[2 * i + 1] = right[i];
 		}
-		return out;
+		return { samples: out, channels: 2 };
 	};
 
 	// The name cut to MAX_NAME bytes of UTF-8, keeping its extension.
@@ -117,11 +121,11 @@ remove(name): forgets a file no event plays any more.
 			_free(ptr);
 		}
 	};
-	const withSamples = (samples, fn) => {
+	const withSamples = ({ samples, channels }, fn) => {
 		const ptr = _malloc(samples.length * 4);
-		HEAPU8.set(new Uint8Array(samples.buffer), ptr);
+		HEAPU8.set(new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength), ptr);
 		try {
-			fn(ptr, samples.length / 2);
+			fn(ptr, samples.length / channels, channels);
 		} finally {
 			_free(ptr);
 		}
@@ -148,7 +152,7 @@ remove(name): forgets a file no event plays any more.
 					fail("That file can't be played (the browser can't decode it).");
 					return;
 				}
-				if (samples.length === 0) {
+				if (samples.samples.length === 0) {
 					fail("That file can't be played (no sound in it).");
 					return;
 				}
@@ -161,7 +165,7 @@ remove(name): forgets a file no event plays any more.
 					return;
 				}
 				withString(name, (np, nl) =>
-					withSamples(samples, (sp, frames) => Module._web_sound_picked(kind, np, nl, sp, frames)),
+					withSamples(samples, (sp, frames, ch) => Module._web_sound_picked(kind, np, nl, sp, frames, ch)),
 				);
 			});
 			input.click();
@@ -177,9 +181,9 @@ remove(name): forgets a file no event plays any more.
 			} catch (e) {
 				why = "can't be played";
 			}
-			if (samples && samples.length > 0) {
+			if (samples && samples.samples.length > 0) {
 				withString(name, (np, nl) =>
-					withSamples(samples, (sp, frames) => Module._web_sound_loaded(np, nl, sp, frames)),
+					withSamples(samples, (sp, frames, ch) => Module._web_sound_loaded(np, nl, sp, frames, ch)),
 				);
 			} else {
 				withString(name, (np, nl) =>

@@ -53,6 +53,10 @@ Sound_Event :: enum {
 	Goodbye,
 }
 
+// The events the UI plays itself (ui_app_sounds.odin): a server's Voice
+// doesn't hold their sounds.
+APP_SOUNDS :: bit_set[Sound_Event]{.Welcome, .Goodbye}
+
 Sound_Event_Info :: struct {
 	key:   string, // in settings.json
 	label: string, // in the settings
