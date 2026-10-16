@@ -45,13 +45,15 @@ Web_Anim :: struct {
 foreign _ {
 	// The bytes are copied, so they can be freed right away. Returns a handle
 	// to poll, or 0.
-	yap_image_decode_start :: proc(data: [^]u8, len: i32, max_pixels: f64) -> i32 ---
+	yap_image_decode_start :: proc(data: [^]u8, len: i32, max_pixels: f64, max_side: i32) -> i32 ---
 	// Returns -1 while the picture is being decoded, -2 if it couldn't be
 	// decoded (the handle is released), 1 when it is ready to be taken, and 2
 	// for an animation that has no more frames.
 	yap_image_decode_poll :: proc(req: i32) -> i32 ---
 	yap_image_decode_width :: proc(req: i32) -> i32 ---
 	yap_image_decode_height :: proc(req: i32) -> i32 ---
+	yap_image_decode_full_width :: proc(req: i32) -> i32 ---
+	yap_image_decode_full_height :: proc(req: i32) -> i32 ---
 	// Copies out the width * height * 4 bytes of RGBA and releases the
 	// handle, unless it belongs to an animation.
 	yap_image_decode_take :: proc(req: i32, buf: [^]u8) ---
@@ -142,6 +144,7 @@ decode_queued :: proc(im: ^UI_Images) {
 				raw_data(job.jpeg),
 				i32(len(job.jpeg)),
 				f64(clipboard.MAX_PIXELS),
+				i32(job.max_side),
 			)
 		}
 		delete(job.jpeg)
@@ -167,6 +170,10 @@ decode_queued :: proc(im: ^UI_Images) {
 		case 1:
 			width := int(yap_image_decode_width(p.req))
 			height := int(yap_image_decode_height(p.req))
+			if full_w := int(yap_image_decode_full_width(p.req)); full_w > width {
+				result.full_w = full_w
+				result.full_h = int(yap_image_decode_full_height(p.req))
+			}
 			kind := yap_image_decode_kind(p.req)
 			result.anim = kind != 0
 			result.gif = kind == 2

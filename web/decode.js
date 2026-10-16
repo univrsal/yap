@@ -38,21 +38,30 @@ with the next, and one that says 10 ms or less is shown for 100.
 	// huge picture, and nothing is shown that big.
 	const MAX_SIDE = 2560;
 
-	// The pixels of a bitmap or a VideoFrame, as straight RGBA, made smaller
-	// to fit MAX_SIDE.
-	const pixelsOf = (r, image, width, height, maxPixels) => {
-		if (width <= 0 || height <= 0 || width * height > maxPixels) {
+	// The pixels of a bitmap or a VideoFrame, as straight RGBA, scaled down
+	// to at most maxSide on the longer side if that is given (the client's
+	// PREVIEW_MAX_SIDE), and never more than MAX_SIDE; fullWidth and
+	// fullHeight keep its own size.
+	const pixelsOf = (r, image, width, height, maxPixels, maxSide) => {
+		maxSide = maxSide > 0 ? Math.min(maxSide, MAX_SIDE) : MAX_SIDE;
+		let w = width;
+		let h = height;
+		if (Math.max(width, height) > maxSide) {
+			const scale = maxSide / Math.max(width, height);
+			w = Math.max(1, Math.round(width * scale));
+			h = Math.max(1, Math.round(height * scale));
+		}
+		if (w <= 0 || h <= 0 || w * h > maxPixels) {
 			throw new Error(`${width}x${height} is over the limit`);
 		}
-		const scale = Math.min(1, MAX_SIDE / Math.max(width, height));
-		const w = Math.max(1, Math.round(width * scale));
-		const h = Math.max(1, Math.round(height * scale));
 		const g = canvasOf(w, h).getContext("2d", { willReadFrequently: true });
 		g.imageSmoothingQuality = "high";
 		g.drawImage(image, 0, 0, w, h);
 		r.data = g.getImageData(0, 0, w, h).data;
 		r.width = w;
 		r.height = h;
+		r.fullWidth = width;
+		r.fullHeight = height;
 	};
 
 	// The kind of animation the bytes may be, by how they start.
@@ -143,14 +152,14 @@ with the next, and one that says 10 ms or less is shown for 100.
 		}
 	};
 
-	const decode = async (r, bytes, maxPixels) => {
+	const decode = async (r, bytes, maxPixels, maxSide) => {
 		if (await startAnim(r, bytes, maxPixels)) return;
 		const bitmap = await createImageBitmap(new Blob([bytes]), {
 			premultiplyAlpha: "none",
 			colorSpaceConversion: "none",
 		});
 		try {
-			pixelsOf(r, bitmap, bitmap.width, bitmap.height, maxPixels);
+			pixelsOf(r, bitmap, bitmap.width, bitmap.height, maxPixels, maxSide);
 		} finally {
 			bitmap.close();
 		}
@@ -174,11 +183,11 @@ with the next, and one that says 10 ms or less is shown for 100.
 
 	Module.yapDecode = {
 		// The bytes are copied out here, so the client can free them.
-		start(ptr, len, maxPixels) {
+		start(ptr, len, maxPixels, maxSide) {
 			const handle = next++;
 			const r = { state: "pending" };
 			requests.set(handle, r);
-			decode(r, HEAPU8.slice(ptr, ptr + len), maxPixels)
+			decode(r, HEAPU8.slice(ptr, ptr + len), maxPixels, maxSide)
 				.then(() => {
 					r.state = "done";
 				})
@@ -212,6 +221,18 @@ with the next, and one that says 10 ms or less is shown for 100.
 		height(handle) {
 			const r = requests.get(handle);
 			return r && r.data ? r.height : 0;
+		},
+
+		// The picture's own size, which width and height are less than when
+		// it was scaled down.
+		fullWidth(handle) {
+			const r = requests.get(handle);
+			return r && r.data ? r.fullWidth || r.width : 0;
+		},
+
+		fullHeight(handle) {
+			const r = requests.get(handle);
+			return r && r.data ? r.fullHeight || r.height : 0;
 		},
 
 		// 0 for a still picture, 1 for an animated WebP, 2 for a GIF.

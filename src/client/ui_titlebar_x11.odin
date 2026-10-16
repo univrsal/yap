@@ -106,6 +106,12 @@ x11: struct {
 // DISPLAY is set alongside WAYLAND_DISPLAY.
 titlebar_init :: proc(merged: bool) {
 	if !merged {
+		// The compositor draws the title bar, so libdecor (and GTK) isn't
+		// needed (see ui_wayland_decorations.odin).
+		if wayland_server_decorations() {
+			vglfw.InitHint(vglfw.WAYLAND_LIBDECOR, vglfw.WAYLAND_DISABLE_LIBDECOR)
+			log.debug("ui: the compositor draws the title bar, so no libdecor")
+		}
 		return
 	}
 	if os.get_env("WAYLAND_DISPLAY", context.temp_allocator) == "" ||

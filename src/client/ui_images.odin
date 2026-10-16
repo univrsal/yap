@@ -25,21 +25,37 @@ import "common:proto"
 // treats an icon id of IMAGE_ICON_BASE or more as "draw image N of this
 // frame's list").
 //
-// Textures are kept for MAX_IMAGE_TEXTURES images, with the least recently
-// drawn going first. Scrolling back to one decodes it again.
+// A picture is decoded at most PREVIEW_MAX_SIDE pixels on its longer side,
+// which is more than any preview needs: a 4000x3000 photo is a 3 MB texture
+// instead of 48 MB. The viewer decodes the one it shows at its own size (up to
+// MAX_SHOWN_SIDE), under its key with VIEWER_KEY, and lets go of that when it
+// is closed.
+//
+// Textures are kept for MAX_IMAGE_TEXTURES images and MAX_IMAGE_TEXTURE_BYTES,
+// with the least recently drawn going first. Scrolling back to one decodes it
+// again.
 //
 // An animated picture's texture holds one frame at a time: the worker
 // decodes the next frame while the previous one is shown (see anims_advance),
 // only for pictures that are drawn, and only while the window has the focus.
 
 MAX_IMAGE_TEXTURES :: 96
-// Pictures are kept no bigger than this on their longer side, which is
-// about as much as can be shown (clipboard.scale_down). Emoji sheets are
-// kept as they are, since their cells must stay where they are.
+MAX_IMAGE_TEXTURE_BYTES :: 256 * 1024 * 1024
+
+// The longest side a picture is decoded at, except for the viewer: what the
+// largest preview (up to 480 wide, PREVIEW_HEIGHT tall) needs at twice the
+// scale.
+PREVIEW_MAX_SIDE :: 1024
+
+// The viewer's picture at its own size is known by the picture's key with
+// this bit.
+VIEWER_KEY :: u64(1) << 57
+
+// No picture is decoded bigger than this on its longer side, the viewer's
+// included, which is about as much as can be shown: a small file can be a
+// huge picture. Emoji sheets are kept as they are, since their cells must
+// stay where they are.
 MAX_SHOWN_SIDE :: 2560
-// And all textures together are kept to about this many bytes, apart from
-// those drawn in the current frame.
-MAX_TEXTURE_BYTES :: 512 * 1024 * 1024
 
 // The shortest time an animation's frame is shown, in milliseconds. Shorter
 // frames are merged with the next one (see ui_images_anim_native.odin), and moving
@@ -62,9 +78,13 @@ Texture :: struct {
 	state:      Texture_State,
 	texture:    render.Gpu_Texture,
 	frame:      int, // the frame number when it was last drawn
-	// The picture's own size, once it is decoded.
+	// The picture's own size, once it is decoded, and the texture's, which
+	// is smaller for a big picture (PREVIEW_MAX_SIDE), and what it takes.
 	width:      int,
 	height:     int,
+	tex_w:      int,
+	tex_h:      int,
+	bytes:      int,
 	// An animation (see ui_images_anim_native.odin): the texture shows one frame
 	// at a time, and `next` (owned) is the frame after it once the worker
 	// has it, shown at `due` for `next_shown`. `asked` is set while the worker is
@@ -94,6 +114,8 @@ Decode_Job :: struct {
 	id:         u64,
 	jpeg:       []u8, // owned by the job
 	generation: u64, // UI_Images.generation when it was asked for
+	// The longest side a still picture is decoded at, 0 for its own size.
+	max_side:   int,
 }
 
 Decode_Result :: struct {
@@ -101,6 +123,9 @@ Decode_Result :: struct {
 	image:      clipboard.Image, // pixels owned by the result
 	ok:         bool,
 	generation: u64,
+	// The picture's own size, when the image is smaller (Decode_Job.max_side).
+	full_w:     int,
+	full_h:     int,
 	// The picture is an animation, and the image is a frame of it shown for
 	// `shown`: its first frame, or with `frame` the one that was asked for
 	// (Next_Frame), which without pixels says there are no more. `gif` is set for a GIF's.
@@ -362,17 +387,26 @@ ui_images_frame :: proc(ui: ^UI) {
 			round_off(&result.image) // a picture of somebody (see ui_avatars.odin)
 		}
 		t.state = .Ready
-		t.width, t.height = result.image.width, result.image.height
+		t.tex_w, t.tex_h = result.image.width, result.image.height
+		t.width, t.height = t.tex_w, t.tex_h
+		if result.full_w > 0 {
+			t.width, t.height = result.full_w, result.full_h
+		}
+		// Usually drawn smaller, and pictures of people are round, but an
+		// animation's frames replace each other, and making them again for
+		// every frame isn't worth it.
+		mipmaps := !result.anim && !is_emoji_atlas(result.id)
+		t.bytes = t.tex_w * t.tex_h * 4
+		if mipmaps {
+			t.bytes += t.bytes / 3
+		}
 		t.texture = render.gpu_texture_make(
 			&ui.renderer.gpu,
 			.Rgba,
 			i32(result.image.width),
 			i32(result.image.height),
 			result.image.pixels,
-			// Usually drawn smaller, and pictures of people are round, but an
-			// animation's frames replace each other, and making them again
-			// for every frame isn't worth it.
-			mipmaps = !result.anim && !is_emoji_atlas(result.id),
+			mipmaps = mipmaps,
 		)
 		t.frame = im.frame
 		if result.anim {
@@ -430,8 +464,8 @@ anims_advance :: proc(ui: ^UI) {
 			render.gpu_texture_update(
 				&ui.renderer.gpu,
 				t.texture,
-				i32(t.width),
-				i32(t.height),
+				i32(t.tex_w),
+				i32(t.tex_h),
 				t.next,
 			)
 			delete(t.next)
@@ -572,6 +606,11 @@ image_fitted :: proc(
 		}
 	}
 	if key == im.viewer {
+		// The viewer shows the picture at its own size, once that is decoded.
+		full := key | VIEWER_KEY
+		if t.tex_w < t.width && full not_in im.textures && len(data) > 0 {
+			enqueue_decode(im, full, data, max_side = 0)
+		}
 		im.shown = {
 			width  = u16(min(t.width, 65535)),
 			height = u16(min(t.height, 65535)),
@@ -638,7 +677,18 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	max_zoom := max(1, MAX_PIXEL_SIZE * f32(im.shown.width) / f32(max(fit_w, 1)))
 	viewer_input(ui, picture, max_zoom)
 	rect := viewer_rect(im, picture)
+	// The picture at its own size once it is here, the preview until then.
+	shown: ^Texture
 	if t, known := &im.textures[im.viewer]; known && t.state == .Ready {
+		shown = t
+	}
+	if f, known := &im.textures[im.viewer | VIEWER_KEY]; known {
+		f.frame = im.frame
+		if f.state == .Ready {
+			shown = f
+		}
+	}
+	if t := shown; t != nil {
 		// Drawn even when its place in the chat isn't. It is kept, and played
 		// whatever the setting says (opening it asks to see it).
 		t.frame, t.played = im.frame, im.frame
@@ -744,7 +794,9 @@ image_size :: proc(ui: ^UI, key: u64) -> (w, h: int, ok: bool) {
 	return t.width, t.height, true
 }
 
-enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8) {
+// enqueue_decode has a picture decoded under `id` from `jpeg` (which is
+// copied), at most `max_side` pixels on its longer side (0 for its own size).
+enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8, max_side := PREVIEW_MAX_SIDE) {
 	copy_of := make([]u8, len(jpeg))
 	copy(copy_of, jpeg)
 	im.textures[id] = {
@@ -753,39 +805,46 @@ enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8) {
 	}
 	{
 		sync.guard(&im.mutex)
-		append(&im.queue, Decode_Job{id = id, jpeg = copy_of, generation = im.generation})
+		append(
+			&im.queue,
+			Decode_Job{id = id, jpeg = copy_of, generation = im.generation, max_side = max_side},
+		)
 	}
 	decode_wake(im)
 }
 
-// trim_textures frees the textures that haven't been drawn for the longest time.
+// trim_textures frees the viewer's picture once the viewer has moved on, and
+// the textures that haven't been drawn for the longest time while there are
+// more than MAX_IMAGE_TEXTURES or MAX_IMAGE_TEXTURE_BYTES of them. What was
+// drawn in the last frame stays, whatever it takes.
 @(private = "file")
 trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
-	for {
-		bytes := 0
-		for _, t in im.textures {
-			bytes += t.width * t.height * 4
+	bytes := 0
+	done := make([dynamic]u64, context.temp_allocator)
+	for id, &t in im.textures {
+		if id & VIEWER_KEY != 0 && id != im.viewer | VIEWER_KEY && t.state != .Decoding {
+			texture_drop(im, gpu, id, &t)
+			append(&done, id)
+			continue
 		}
-		if len(im.textures) <= MAX_IMAGE_TEXTURES && bytes <= MAX_TEXTURE_BYTES {
-			return
-		}
-		// Over the count, any texture may go; over the bytes, only those not
-		// drawn in this frame, so that what's on screen isn't decoded again
-		// and again.
-		over_count := len(im.textures) > MAX_IMAGE_TEXTURES
+		bytes += t.bytes
+	}
+	for id in done {
+		delete_key(&im.textures, id)
+	}
+	for len(im.textures) > MAX_IMAGE_TEXTURES || bytes > MAX_IMAGE_TEXTURE_BYTES {
 		oldest_id: u64
 		oldest_frame := max(int)
 		for id, t in im.textures {
-			if t.state != .Decoding &&
-			   t.frame < oldest_frame &&
-			   (over_count || t.frame != im.frame) {
+			if t.state != .Decoding && t.frame < oldest_frame {
 				oldest_id, oldest_frame = id, t.frame
 			}
 		}
-		if oldest_id == 0 {
+		if oldest_id == 0 || oldest_frame >= im.frame - 1 {
 			return
 		}
 		t := im.textures[oldest_id]
+		bytes -= t.bytes
 		texture_drop(im, gpu, oldest_id, &t)
 		delete_key(&im.textures, oldest_id)
 	}
@@ -843,7 +902,7 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	t, known := im.textures[key]
 	if !known {
 		if img, ok := v.blobs[e.blob]; ok && img.state == .Ready && len(img.jpeg) > 0 {
-			enqueue_decode(im, key, img.jpeg)
+			enqueue_decode(im, key, img.jpeg, max_side = 0) // a grid of cells
 		}
 		return {}, false
 	}
@@ -920,7 +979,7 @@ custom_emoji_frame :: proc(ui: ^UI, index: int) -> (icon: mu.Icon, ok: bool) {
 			columns   = f.columns,
 			total     = total,
 		}
-		enqueue_decode(im, key, f.image)
+		enqueue_decode(im, key, f.image, max_side = 0) // a grid of frames
 		return
 	}
 	timing, timed := im.emoji_frames[key]

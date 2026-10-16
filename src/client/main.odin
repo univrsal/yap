@@ -36,6 +36,7 @@ Options :: struct {
 }
 
 main :: proc() {
+	platform.malloc_tune()
 	// This must run before anything allocates so that every allocation is counted (see ui_memory.odin).
 	context.allocator = memtrack.init()
 	// The sounds are shared by threads (audio/sound_store.odin).

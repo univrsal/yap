@@ -6,7 +6,10 @@ import log "common:wlog"
 import "core:sync"
 import "core:thread"
 
+import stbi "vendor:stb/image"
+
 import "client:clipboard"
+import "client:conn"
 
 // Pictures are decoded on a thread of their own, so that a big one doesn't hold
 // up a frame. The queue and the results are the only things that the UI and the
@@ -93,8 +96,53 @@ decode_job :: proc(w: ^Decode_Worker, job: Decode_Job) -> Decode_Result {
 	image, err := clipboard.decode(job.jpeg)
 	if err != .None {
 		log.debugf("image %d could not be decoded: %v", job.id, err)
-	} else if !is_emoji_atlas(job.id) {
-		image, _ = clipboard.scale_down(image, MAX_SHOWN_SIDE)
 	}
-	return {id = job.id, image = image, ok = err == .None, generation = job.generation}
+	result := Decode_Result {
+		id         = job.id,
+		image      = image,
+		ok         = err == .None,
+		generation = job.generation,
+	}
+	side := job.max_side
+	if !is_emoji_atlas(job.id) && (side <= 0 || side > MAX_SHOWN_SIDE) {
+		side = MAX_SHOWN_SIDE
+	}
+	if result.ok && side > 0 && max(image.width, image.height) > side {
+		shrink(&result, side)
+	}
+	return result
+}
+
+// shrink scales a decoded picture down to at most `max_side` pixels on its
+// longer side, keeping its own size in the result.
+@(private = "file")
+shrink :: proc(result: ^Decode_Result, max_side: int) {
+	src := result.image
+	w, h := conn.fit_box(src.width, src.height, max_side, max_side)
+	small := make([]u8, w * h * 4)
+	if stbi.resize_uint8_srgb(
+		   raw_data(src.pixels),
+		   i32(src.width),
+		   i32(src.height),
+		   0,
+		   raw_data(small),
+		   i32(w),
+		   i32(h),
+		   0,
+		   4,
+		   3, // straight alpha
+		   0,
+	   ) ==
+	   0 {
+		log.debugf("image %d could not be scaled down", result.id)
+		delete(small)
+		return
+	}
+	result.full_w, result.full_h = src.width, src.height
+	delete(src.pixels)
+	result.image = {
+		width  = w,
+		height = h,
+		pixels = small,
+	}
 }
