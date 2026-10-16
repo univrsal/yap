@@ -33,6 +33,23 @@ which phones don't have (they can still watch). Like the microphone, both
 only work on a secure page: `http://localhost` is fine, anything else
 needs HTTPS in front of the relay.
 
+Sharing and watching go over a WebSocket of their own, under `/yap-media/`
+(the voice and chat one is under `/yap/`). A proxy in front of the relay
+has to pass both on as WebSockets. With only `/yap/`, the page connects
+but its media link never comes up, so there is no share button and other
+people's screens say "watch in a browser". For nginx:
+
+```nginx
+location ~ ^/yap(-media)?/ {
+	proxy_pass http://127.0.0.1:8080;
+	proxy_http_version 1.1;
+	proxy_set_header Upgrade $http_upgrade;
+	proxy_set_header Connection "upgrade";
+	proxy_read_timeout 1h;
+	proxy_send_timeout 1h;
+}
+```
+
 ## The relay
 
 The relay runs on that TCP port, alongside the server; `web_dir` points
