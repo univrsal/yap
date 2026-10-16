@@ -275,6 +275,65 @@ test_adapt_bitrate :: proc(t: ^testing.T) {
 	testing.expect_value(t, v.target_kbit, 0)
 }
 
+// adapt_bitrate, when the encoder's bitrate is known: reports are ignored until
+// the encoder has taken up the last change and for ADAPT_SETTLE after, and a
+// change too small for the library to take up counts as taken up.
+@(test)
+test_adapt_bitrate_waits_for_encoder :: proc(t: ^testing.T) {
+	v: Video_Client
+	at := time.tick_now()
+	later :: proc(at: time.Tick, d: time.Duration) -> time.Tick {
+		return time.tick_add(at, d)
+	}
+	MAX :: 8000
+	bad := proto.Video_Report {
+		loss     = 50,
+		delay_ms = 10,
+		kbit     = 8000,
+	}
+	good := proto.Video_Report {
+		loss     = 0,
+		delay_ms = 5,
+		kbit     = 7800,
+	}
+	v.encoding_kbit, v.encoding_at = MAX, at
+
+	// Just started: the first keyframe is still going out.
+	adapt_bitrate(&v, bad, MAX, later(at, time.Second))
+	testing.expect_value(t, v.target_kbit, 0)
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE))
+	testing.expect_value(t, v.target_kbit, 6000)
+
+	// Not taken up yet, however long it takes.
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE + 5 * time.Second))
+	testing.expect_value(t, v.target_kbit, 6000)
+
+	// Taken up: settling first, then the next cut.
+	at = later(at, 10 * time.Second)
+	v.encoding_kbit, v.encoding_at = 6000, at
+	adapt_bitrate(&v, bad, MAX, later(at, time.Second))
+	testing.expect_value(t, v.target_kbit, 6000)
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE))
+	testing.expect_value(t, v.target_kbit, 4500)
+
+	// Good reports while waiting don't count towards going up.
+	at = later(at, 10 * time.Second)
+	v.encoding_kbit, v.encoding_at = 4500, at
+	adapt_bitrate(&v, good, MAX, later(at, time.Second))
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE))
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE + ADAPT_GOOD_FOR - time.Second))
+	testing.expect_value(t, v.target_kbit, 4500)
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE + ADAPT_GOOD_FOR))
+	testing.expect_value(t, v.target_kbit, 4500 + MAX / 5)
+
+	// A change of less than a fifth, which the library leaves alone, isn't waited for.
+	at = later(at, time.Minute)
+	v.target_kbit, v.encoding_kbit, v.encoding_at = 1000, 1201, at
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE))
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE + ADAPT_GOOD_FOR))
+	testing.expect_value(t, v.target_kbit, 1000 + MAX / 5)
+}
+
 @(test)
 test_viewer_codecs :: proc(t: ^testing.T) {
 	c: Voice_Client

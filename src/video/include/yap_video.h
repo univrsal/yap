@@ -30,7 +30,7 @@ extern "C" {
 #endif
 
 // What a client was built against. yv_create refuses any other.
-#define YV_API_VERSION 7
+#define YV_API_VERSION 8
 
 typedef struct yv_context yv_context;
 
@@ -291,6 +291,12 @@ only taken up for a change of a fifth or more, at most every 3 seconds;
 asking again later is how a smaller one gets through. Any thread.
 */
 YV_API void yv_share_set_bitrate(yv_share *share, uint32_t kbit);
+/*
+yv_share_get_bitrate is the bitrate (kbit/s) the share encodes at now:
+yv_share_set_bitrate's once it's been taken up, the config's before.
+Any thread.
+*/
+YV_API uint32_t yv_share_get_bitrate(yv_share *share);
 /*
 yv_share_set_codecs says what the viewers can decode now (as
 yv_share_config.codecs). Where that rules out the codec being encoded,

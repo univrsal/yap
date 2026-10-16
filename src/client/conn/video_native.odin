@@ -35,7 +35,7 @@ import log "common:wlog"
 
 // The version of the library API this was built against (see src/video/include/yap_video.h).
 @(private = "file")
-YV_API_VERSION :: 7
+YV_API_VERSION :: 8
 
 @(private = "file")
 Yv_Log_Proc :: #type proc "c" (user: rawptr, level: i32, msg: cstring)
@@ -143,6 +143,7 @@ Yv :: struct {
 	share_pull:            proc "c" (share: rawptr, out: ^Yv_Packet) -> bool,
 	share_request_key:     proc "c" (share: rawptr),
 	share_set_bitrate:     proc "c" (share: rawptr, kbit: u32),
+	share_get_bitrate:     proc "c" (share: rawptr) -> u32,
 	share_set_codecs:      proc "c" (share: rawptr, codecs: u32),
 	share_get_state:       proc "c" (share: rawptr) -> i32,
 	share_error:           proc "c" (share: rawptr) -> cstring,
@@ -155,7 +156,7 @@ Yv :: struct {
 }
 
 @(private = "file")
-YV_PROCS :: 23
+YV_PROCS :: 24
 
 when ODIN_OS == .Windows {
 	@(private = "file")
@@ -191,7 +192,6 @@ Native_Video :: struct {
 	share_mu:      sync.Mutex,
 	share:         rawptr,
 	share_kbit:    int, // the bitrate it was set to encode at (atomic)
-	share_target:  int, // the bitrate it is held to for its viewers, 0 for none (atomic)
 	share_codecs:  u8, // the codecs its viewers decode (Video_Codecs; atomic)
 	asked:         bool, // UI thread only: video_allow_capture has shown the prompt
 	// Wakes the UI for each new picture (video_set_wake; atomic).
@@ -510,7 +510,6 @@ video_share_source :: proc(src: Video_Source, config: Share_Config) {
 		nv.yv.share_set_codecs(share, u32(sync.atomic_load(&nv.share_codecs)))
 	}
 	sync.atomic_store(&nv.share_kbit, config.kbit)
-	sync.atomic_store(&nv.share_target, 0)
 	log.infof(
 		"video: sharing %s at %d fps, %d kbit/s%s%s",
 		src.name if src.id != 0 else "what the system's picker gives",
@@ -522,15 +521,16 @@ video_share_source :: proc(src: Video_Source, config: Share_Config) {
 }
 
 // video_share_kbit is the bitrate the share encodes at, used for pacing it
-// (video.odin). It is 0 while there is no share.
+// (video.odin). It is 0 while there is no share. This is what the encoder
+// runs at, not what video_share_adapt last asked for: the library takes that
+// up only some seconds later, if at all, and pacing below what the encoder
+// makes in the meantime builds up a queue.
 video_share_kbit :: proc() -> int {
 	if video_share_state() == .Off {
 		return 0
 	}
-	if target := sync.atomic_load(&nv.share_target); target > 0 {
-		return target
-	}
-	return sync.atomic_load(&nv.share_kbit)
+	sync.guard(&nv.share_mu)
+	return int(nv.yv.share_get_bitrate(nv.share)) if nv.share != nil else 0
 }
 
 // video_share_max_kbit is the bitrate the share was set to encode at, which
@@ -548,7 +548,6 @@ video_share_adapt :: proc(kbit: int) {
 	sync.guard(&nv.share_mu)
 	if nv.share != nil {
 		nv.yv.share_set_bitrate(nv.share, u32(kbit))
-		sync.atomic_store(&nv.share_target, kbit)
 	}
 }
 

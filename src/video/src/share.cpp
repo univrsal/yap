@@ -45,6 +45,10 @@ constexpr int KEY_SECONDS = 10;
 // taken up for this big a change, and this seldom.
 constexpr double BITRATE_CHANGE = 0.2;
 constexpr uint64_t BITRATE_US = 3'000'000;
+// The most an encoder that can be held to it may make of one frame, in
+// bits: well below the 1 MB a client sends at most of a frame, which
+// drops anything bigger and asks for a keyframe, which may be as big.
+constexpr int MAX_FRAME_BITS = 6'000'000;
 
 struct Encoded {
 	std::vector<uint8_t> data;
@@ -213,6 +217,14 @@ void encoder_options(const char *name, AVDictionary **opts) {
 		av_dict_set(opts, "usage", "ultralowlatency", 0);
 		av_dict_set(opts, "quality", "balanced", 0);
 		av_dict_set(opts, "rc", "vbr_peak", 0);
+		// Without it a requested keyframe is an I frame that isn't an IDR,
+		// which isn't flagged as a keyframe either, so it doesn't count:
+		// a viewer then only gets going at the next restart or GOP.
+		av_dict_set(opts, "forced_idr", "1", 0);
+		// Without these AMF ignores rc_buffer_size for keyframes, which
+		// then come out at more than a second's worth of the bitrate.
+		av_dict_set(opts, "enforce_hrd", "1", 0);
+		av_dict_set_int(opts, "max_au_size", MAX_FRAME_BITS, 0);
 	} else if (strstr(name, "_qsv")) {
 		av_dict_set(opts, "preset", "veryfast", 0);
 		av_dict_set(opts, "async_depth", "1", 0);
@@ -242,6 +254,7 @@ struct yv_share {
 	std::atomic<bool> stop{false};
 	std::atomic<bool> want_key{true};
 	std::atomic<uint32_t> want_kbit{0}; // yv_share_set_bitrate's; 0 for none
+	std::atomic<uint32_t> encoding_kbit{0}; // `kbit`, for yv_share_get_bitrate
 	std::atomic<uint32_t> want_codecs{0}; // yv_share_set_codecs's; 0 for any
 	std::atomic<int> state{YV_SHARE_STARTING};
 	std::string error; // set before state becomes Failed
@@ -404,11 +417,13 @@ void follow_bitrate(yv_share *s) {
 		s->enc->rc_buffer_size = static_cast<int>(rate / 2);
 		log(YV_LOG_INFO, "share: bitrate %u -> %u kbit/s", s->kbit, want);
 		s->kbit = want;
+		s->encoding_kbit.store(want);
 		return;
 	}
 	log(YV_LOG_INFO, "share: bitrate %u -> %u kbit/s, starting %s again", s->kbit, want,
 	    s->encoder_name.c_str());
 	s->kbit = want;
+	s->encoding_kbit.store(want);
 	close_encoder(s);
 }
 
@@ -665,6 +680,7 @@ YV_API yv_share *yv_share_start(yv_context *ctx, const yv_share_config *config) 
 	if (s->config.kbit == 0) {
 		s->config.kbit = 6000;
 	}
+	s->encoding_kbit.store(s->config.kbit);
 	s->thread = std::thread(yv::run, s);
 	return s;
 }
@@ -697,6 +713,10 @@ YV_API void yv_share_set_bitrate(yv_share *s, uint32_t kbit) {
 	if (s && kbit > 0) {
 		s->want_kbit.store(kbit);
 	}
+}
+
+YV_API uint32_t yv_share_get_bitrate(yv_share *s) {
+	return s ? s->encoding_kbit.load() : 0;
 }
 
 YV_API void yv_share_set_codecs(yv_share *s, uint32_t codecs) {
