@@ -60,6 +60,7 @@ web_start :: proc "c" () -> b32 {
 	g_context = platform.web_context_init()
 	context = g_context
 	runtime._startup_runtime()
+	audio.sounds_allocator = context.allocator
 
 	level, known := reflect.enum_from_name(common.Log_Level, query_param("log"))
 	if !known {

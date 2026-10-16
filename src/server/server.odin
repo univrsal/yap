@@ -801,7 +801,9 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	case .Leave:
 		drop_conn(s, c.conn)
 	case .Sound:
-		if flags := proto.decode_sound(pt); flags != c.conn.flags {
+		// In_Voice and In_Call are the server's to say (sync_state).
+		flags := proto.decode_sound(pt) - {.In_Voice, .In_Call}
+		if flags != c.conn.flags {
 			c.conn.flags = flags
 			log.debugf("%s sound state %v", conn_label(c.conn), flags)
 			bump_version(s)
@@ -907,6 +909,34 @@ bump_version :: proc(s: ^Server) {
 	}
 }
 
+// presence_list returns the list of online users and their rooms, which is
+// the same for everyone, except for users who appear offline (activity.odin):
+// those are only visible to their own account, or to anyone who can see the
+// voice room they're in (`hidden`, by index; see users_seen_by). Both are
+// allocated with the temp allocator.
+presence_list :: proc(s: ^Server) -> (users: []proto.User_Info, hidden: []bool) {
+	users = make([]proto.User_Info, len(s.conns), context.temp_allocator)
+	hidden = make([]bool, len(s.conns), context.temp_allocator)
+	next_user := 0
+	for _, u in s.conns {
+		flags := u.flags
+		if u.room != 0 && !u.account.voice_hidden {
+			// Everyone may know that they are busy talking, even those who
+			// may not know where (room_hidden).
+			flags += {.In_Call} if proto.room_call(u.room) != 0 else {.In_Voice}
+		}
+		users[next_user] = {
+			num     = u.num,
+			account = u.account.id,
+			flags   = flags,
+			room    = u.room,
+		}
+		hidden[next_user] = appears_offline(u.account)
+		next_user += 1
+	}
+	return
+}
+
 // How often a connection is sent a snapshot at most. Every change of
 // anyone's sound flags, voice room or activity makes a new one, which goes to
 // everyone, so without this a client that toggles its flags as fast as it
@@ -939,23 +969,7 @@ sync_state :: proc(s: ^Server) {
 		return
 	}
 
-	// The list of online users and their rooms is the same for everyone,
-	// except for users who appear offline (activity.odin). Those are only
-	// visible to their own account, or to anyone who can see the voice room
-	// they're in.
-	users := make([]proto.User_Info, len(s.conns), context.temp_allocator)
-	hidden := make([]bool, len(s.conns), context.temp_allocator)
-	next_user := 0
-	for _, u in s.conns {
-		users[next_user] = {
-			num     = u.num,
-			account = u.account.id,
-			flags   = u.flags,
-			room    = u.room,
-		}
-		hidden[next_user] = appears_offline(u.account)
-		next_user += 1
-	}
+	users, hidden := presence_list(s)
 
 	body_buf: [proto.MAX_STATE_SIZE]byte
 	for _, u in s.conns {

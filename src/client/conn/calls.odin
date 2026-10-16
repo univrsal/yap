@@ -79,8 +79,9 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 					cc.here = true
 					publish_call(c)
 				}
-				call_sounds(c)
+				loop_sounds(c)
 			case .Closed:
+				audio.voice_notification_play(&c.voice, .Call_Declined)
 				notify(
 					c,
 					false,
@@ -90,6 +91,7 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 					),
 				)
 			case .Conflict:
+				audio.voice_notification_play(&c.voice, .Call_Declined)
 				notify(
 					c,
 					false,
@@ -201,6 +203,16 @@ calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 			}
 		case .Ended:
 			if cc.id == change.id {
+				// Only the connection that is in the call (or started it)
+				// says how it went.
+				switch {
+				case !cc.here:
+				case cc.status == .Active:
+					audio.voice_notification_play(&c.voice, .Call_Ended)
+				case cc.status == .Ringing_Out &&
+				     (change.reason == .Declined || change.reason == .Unanswered):
+					audio.voice_notification_play(&c.voice, .Call_Declined)
+				}
 				cc^ = {}
 			}
 			if c.view == nil {
@@ -214,7 +226,7 @@ calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 	case:
 		return false
 	}
-	call_sounds(c)
+	loop_sounds(c)
 	publish_call(c)
 	return true
 }
@@ -223,24 +235,8 @@ calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 // regardless of what the server knew about the old connection.
 calls_restart :: proc(c: ^Voice_Client) {
 	c.call = {}
-	call_sounds(c)
+	loop_sounds(c)
 	publish_call(c)
-}
-
-// call_sounds plays the sound that fits the call's state: the ring while a call
-// rings in, the ringback while our call rings out, and nothing otherwise.
-@(private = "file")
-call_sounds :: proc(c: ^Voice_Client) {
-	loop: audio.Loop_Kind
-	#partial switch c.call.status {
-	case .Ringing_In:
-		loop = .Ring
-	case .Ringing_Out:
-		if c.call.here {
-			loop = .Ringback
-		}
-	}
-	audio.notification_loop(&c.voice.notifications, loop)
 }
 
 @(private = "file")

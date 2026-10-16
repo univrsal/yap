@@ -304,7 +304,7 @@ convs_synced :: proc(c: ^Voice_Client) {
 		for _, info in cv.convs {
 			if info.kind == .DM && info.unread > 0 && info.notify != .None {
 				cv.mail_played = true
-				audio.voice_notification_play(&c.voice, .Mail)
+				audio.voice_notification_play(&c.voice, .Direct_Message)
 				break
 			}
 		}

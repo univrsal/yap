@@ -65,6 +65,13 @@ decode_setting :: proc(body: []u8) -> (key: string, value: []u8, ok: bool) {
 SETTING_PUSH_TEXT :: "push/text"
 PUSH_TEXT_HIDDEN :: "hidden"
 
+// Whether everyone is shown that the account is talking in a voice room or
+// in a call (User_Flag.In_Voice and .In_Call): "hidden" if not. If the
+// setting isn't set, it is shown. The server reads it and accepts any
+// value, but only "hidden" hides it.
+SETTING_VOICE_SHOWN :: "voice/shown"
+VOICE_SHOWN_HIDDEN :: "hidden"
+
 // This is a setting the server reads. It determines which emails the server
 // sends an account about what happened while the account was away
 // (server/digest.odin), if the server sends any (Server_Info.digests).

@@ -1,65 +1,60 @@
 package audio
 
-Notification_Kind :: enum {
-	Join,
-	Leave,
-	Message,
-	Welcome,
-	Goodbye,
-	// We muted or deafened ourselves, or undid it (voice_feedback_play).
-	Muted,
-	Unmuted,
-	Mail,
-	// A file sent to us has been received completely (conn/files.odin).
-	Done,
-}
-
+// The sounds a Voice plays for events (see sound_packs.odin), mixed into its
+// playback with the voices: one at a time, the others queued, and under
+// them at most one loop (a ringtone, or the connection staying bad).
 Notification_Sounds :: struct {
-	join:         []f32,
-	leave:        []f32,
-	message:      []f32,
-	welcome:      []f32,
-	goodbye:      []f32,
-	muted:        []f32,
-	unmuted:      []f32,
-	mail:         []f32,
-	done:         []f32,
-	// Ringtones for an incoming call (ring) and for our own outgoing call
-	// (ringback). They are played repeatedly while the call rings
-	// (notification_loop), but not while deafened.
-	ring:         []f32,
-	ringback:     []f32,
-	loop:         []f32,
-	loop_pos:     int,
+	// The sound of each event, from the store (sound_store.odin); nil for
+	// no sound. Set with notifications_set.
+	clips:        [Sound_Event]^Sound_Clip,
+	// A sound played to try it out (notification_preview).
+	preview:      ^Sound_Clip,
+	// The loop, played repeatedly (notification_loop), but not while
+	// deafened.
+	loop_event:   Sound_Event,
+	loop:         Playing,
+	loop_pos:     int, // in samples
 	loop_quiet:   bool,
 	volume:       f32,
-	active:       []f32,
-	position:     int,
-	queued:       [8][]f32,
+	active:       Playing,
+	position:     int, // in samples
+	queued:       [8]Playing,
 	queued_count: int,
+}
+
+// Playing is (part of) a sound being played: its samples, interleaved with
+// its own channel count. A mono sound goes to both speakers as it is mixed,
+// so it is only kept once.
+Playing :: struct {
+	samples:  []f32,
+	channels: int,
 }
 
 // voice_notification_play queues a notification sound, unless we are
 // deafened: a deafened client does not play any new notification sounds.
-voice_notification_play :: proc(v: ^Voice, kind: Notification_Kind) {
+voice_notification_play :: proc(v: ^Voice, kind: Sound_Event) {
 	if !v.deafened {
 		notification_play(&v.notifications, kind)
 	}
 }
 
 // voice_feedback_play plays the sound for the user's own mute or deafen
-// toggle. It plays even while deafened, since deafening is one of the
-// actions it gives feedback for.
-voice_feedback_play :: proc(v: ^Voice, on: bool) {
-	notification_play(&v.notifications, .Muted if on else .Unmuted)
+// toggle (Muted, Unmuted, Deafened, Undeafened). It plays even while
+// deafened, since deafening is one of the actions it gives feedback for.
+voice_feedback_play :: proc(v: ^Voice, kind: Sound_Event) {
+	notification_play(&v.notifications, kind)
 }
+
+// The events whose sounds are kept while deafened.
+@(private = "file")
+FEEDBACK :: bit_set[Sound_Event]{.Muted, .Unmuted, .Deafened, .Undeafened}
 
 // notifications_deafen drops every sound except the mute/deafen feedback,
 // whether it is playing or queued. A deafened client hears nothing of what
 // happens on the server, only the feedback for having just deafened.
 notifications_deafen :: proc(s: ^Notification_Sounds) {
 	if !is_feedback(s, s.active) {
-		s.active = nil
+		s.active = {}
 		s.position = 0
 	}
 	kept := 0
@@ -70,28 +65,33 @@ notifications_deafen :: proc(s: ^Notification_Sounds) {
 		}
 	}
 	for i in kept ..< s.queued_count {
-		s.queued[i] = nil
+		s.queued[i] = {}
 	}
 	s.queued_count = kept
 }
 
 @(private = "file")
-is_feedback :: proc(s: ^Notification_Sounds, clip: []f32) -> bool {
-	if len(clip) == 0 {
+is_feedback :: proc(s: ^Notification_Sounds, p: Playing) -> bool {
+	if len(p.samples) == 0 {
 		return false
 	}
-	return raw_data(clip) == raw_data(s.muted) || raw_data(clip) == raw_data(s.unmuted)
+	for kind in FEEDBACK {
+		if c := s.clips[kind]; c != nil && raw_data(p.samples) == raw_data(c.samples) {
+			return true
+		}
+	}
+	return false
 }
 
 notifications_clear :: proc(s: ^Notification_Sounds) {
-	s.active = nil
+	s.active = {}
 	s.position = 0
-	for &clip in s.queued {
-		clip = nil
+	for &p in s.queued {
+		p = {}
 	}
 	s.queued_count = 0
 }
 
 notifications_pending :: proc(s: ^Notification_Sounds) -> bool {
-	return len(s.active) > 0 || s.queued_count > 0
+	return len(s.active.samples) > 0 || s.queued_count > 0
 }

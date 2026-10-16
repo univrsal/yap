@@ -343,7 +343,15 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 		text = fmt.tprintf("%s  (%s)", b.name, conn.unread_count(b.unread))
 		color = theme.speaking
 	}
-	name_and_status(ctx, text_r, text, color, b.status, bold = selected)
+	icon_r := name_and_status(
+		ctx,
+		text_r,
+		text,
+		color,
+		b.status,
+		bold = selected,
+		talking = b.talking,
+	)
 
 	if ctx.hover_id != id {
 		return
@@ -351,6 +359,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	if servers {
 		ui.hint, ui.hint_of = fmt.tprintf("On %s", b.server), r
 	}
+	talking_hint(ui, icon_r, b.talking)
 	switch {
 	case ctx.mouse_pressed_bits == {.LEFT}:
 		open_entry(ui, b)
@@ -436,7 +445,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 			}
 		}
 		settings.hide_dm(&ui.settings, v.server_key, entry.conv, max(last, 1))
-		shared_hidden_changed(ui, entry.conv, max(last, 1))
+		shared_hidden_changed(ui.session, entry.conv, max(last, 1))
 		ui.settings_dirty = true
 		ui.buddies.selected = 0
 		log.debug("ui: hid a conversation")

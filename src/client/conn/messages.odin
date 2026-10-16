@@ -792,6 +792,15 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 		return
 	}
 	interrupts, mention := conv_new_message(c, m)
+	if m.kind == .System &&
+	   proto.Call_System(m.system) == .Missed &&
+	   m.sender != c.auth.me &&
+	   c.call.status != .None &&
+	   c.call.peer != m.sender {
+		// Somebody called while we were in a call (the server turned them
+		// away): a knock, once.
+		audio.voice_notification_play(&c.voice, .Knock)
+	}
 	// A DM from someone else gets a desktop notification whatever it says
 	// (unless the DM is muted); the UI skips it while the DM is being read.
 	info := c.convs.convs[m.conv] or_else Conv_Info{}
@@ -814,8 +823,9 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 	switch {
 	case mention:
-		// A mention has its own sound and a desktop notification.
-		audio.voice_notification_play(&c.voice, .Mail)
+		// A mention has its own sound and a desktop notification. In a DM,
+		// it is the DM's sound.
+		audio.voice_notification_play(&c.voice, .Direct_Message if dm else .Mention)
 		if dm {
 			break // already notified above
 		}
@@ -837,7 +847,7 @@ message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
 			)
 		}
 	case interrupts && !quiet(c):
-		audio.voice_notification_play(&c.voice, .Message)
+		audio.voice_notification_play(&c.voice, .Direct_Message if dm else .Message)
 	}
 	if m.sender != c.auth.me {
 		publish_typing_done(c, {m.conv, m.thread_root}, m.sender)
@@ -958,7 +968,10 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 	// Update the conversation's window, and the window of the thread it's a
 	// reply in or the root of.
-	for key in ([]Timeline_Key{{m.conv, 0}, {m.conv, m.thread_root if m.thread_root != 0 else m.id}}) {
+	for key in ([]Timeline_Key {
+			{m.conv, 0},
+			{m.conv, m.thread_root if m.thread_root != 0 else m.id},
+		}) {
 		cache := c.msgs.caches[key] or_else nil
 		if cache == nil {
 			continue

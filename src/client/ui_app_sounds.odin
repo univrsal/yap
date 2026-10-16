@@ -13,9 +13,12 @@ import "client:settings"
 // played out, the way the settings page's monitor opens the microphone
 // (see ui_gate.odin).
 //
-// Nothing is played while deafened. A web build plays neither sound, because a
-// page may not make a sound before it has been clicked and has no quitting to
-// wait for.
+// The Sounds page plays the sounds to try them out the same way
+// (app_sound_preview).
+//
+// Nothing is played while deafened. A web build plays neither the welcome nor
+// the goodbye, because a page may not make a sound before it has been clicked
+// and has no quitting to wait for.
 
 App_Sound :: struct {
 	active:  bool,
@@ -35,28 +38,48 @@ APP_SOUND_GRACE :: 200 * time.Millisecond
 APP_SOUND_GOODBYE_MAX :: 3 * time.Second
 
 // app_sound_play starts the welcome or the goodbye sound.
-app_sound_play :: proc(ui: ^UI, kind: audio.Notification_Kind) {
+app_sound_play :: proc(ui: ^UI, kind: audio.Sound_Event) {
 	when platform.WEB {
 		return
 	}
+	name := sound_effective(ui, kind)
+	if name == "" || !app_sound_open(ui) {
+		return
+	}
+	s := &ui.app_sound
+	audio.notifications_set(&s.voice.notifications, kind, name)
+	audio.notification_play(&s.voice.notifications, kind)
+}
+
+// app_sound_preview plays a sound (by its name, see audio.sound_acquire) to
+// try it out, in place of any it is playing.
+app_sound_preview :: proc(ui: ^UI, name: string) {
+	if name != "" && app_sound_open(ui) {
+		audio.notification_preview(&ui.app_sound.voice.notifications, name)
+	}
+}
+
+// app_sound_open opens the speakers for a sound, unless they are already.
+@(private = "file")
+app_sound_open :: proc(ui: ^UI) -> bool {
 	s := &ui.app_sound
 	if ui.deafened || ui.audio.ctx == nil {
-		return
+		return false
 	}
 	if !s.active {
 		if !audio.voice_init(&s.voice) {
-			return
+			return false
 		}
 		s.active = true
 		audio.open_playback(&ui.audio, &s.streams, &s.voice, ui.settings.output_device)
 		if s.streams.playback == nil {
 			app_sound_stop(ui)
-			return
+			return false
 		}
 	}
 	s.voice.notifications.volume = settings.notification_gain(&ui.settings)
 	s.drained = {}
-	audio.notification_play(&s.voice.notifications, kind)
+	return true
 }
 
 // app_sound_step feeds the device what is left of the sound, and closes

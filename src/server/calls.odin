@@ -112,6 +112,11 @@ call_start :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	switch {
 	case call_of(s, me) != nil || call_of(s, callee_id) != nil:
 		respond(u, id, .Conflict)
+		// A callee who is in a call (or being rung) hears of this one as a
+		// missed call in the DM, for which their client knocks.
+		if call_of(s, me) == nil {
+			call_note(s, me, callee_id, .Missed, 0)
+		}
 		return
 	case len(callee.conns) == 0 && !push_reaches(s, callee):
 		// There is no connection to ring, so leave a missed call for when

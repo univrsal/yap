@@ -16,7 +16,14 @@ test_links :: proc(t: ^testing.T) {
 	_, ok = next_link(text, l.end)
 	testing.expect(t, !ok)
 	// Malformed links are treated as plain text.
-	for bad in ([]string{"<msg:>", "<msg:12>", "<msg:0:5>", "<msg:a:5>", "<msg:12:5", "<msg:1:0>"}) {
+	for bad in ([]string {
+			"<msg:>",
+			"<msg:12>",
+			"<msg:0:5>",
+			"<msg:a:5>",
+			"<msg:12:5",
+			"<msg:1:0>",
+		}) {
 		_, ok = next_link(bad, 0)
 		testing.expectf(t, !ok, "%q was parsed as a link", bad)
 	}

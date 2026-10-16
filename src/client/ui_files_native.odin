@@ -9,6 +9,7 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "client:audio"
 import "client:conn"
 import "client:dialogs"
 import "client:platform"
@@ -33,6 +34,9 @@ File_Pick_Job :: struct {
 	attach: bool,
 	at:     Attach_Target,
 	paths:  []string,
+	// A sound file for an event (ui_sounds.odin) rather than one to offer.
+	sound:  bool,
+	kind:   audio.Sound_Event,
 }
 
 // The dialog's type list, all of it in one: what may be sent.
@@ -58,6 +62,11 @@ file_filters :: proc() -> []dialogs.Filter {
 // file_pick_start opens the file dialog, to pick a file to offer to `to`.
 file_pick_start :: proc(ui: ^UI, to: proto.Account_Id) {
 	pick_start(ui, {to = to})
+}
+
+// sound_pick_start opens the file dialog, to pick a sound for an event.
+sound_pick_start :: proc(ui: ^UI, kind: audio.Sound_Event) {
+	pick_start(ui, {sound = true, kind = kind})
 }
 
 // attach_pick_start opens the file dialog, to pick files to attach.
@@ -89,9 +98,15 @@ pick_start :: proc(ui: ^UI, what: File_Pick_Job) {
 
 @(private = "file")
 pick_work :: proc(job: ^File_Pick_Job) {
-	if job.attach {
+	switch {
+	case job.attach:
 		job.paths, job.status, job.err = dialogs.open_files("Attach files", nil)
-	} else {
+	case job.sound:
+		@(static) sound_filters := [1]dialogs.Filter {
+			{"Sounds (Opus, WAV, FLAC, MP3)", "*.opus;*.ogg;*.wav;*.flac;*.mp3"},
+		}
+		job.path, job.status, job.err = dialogs.open_file("Choose a sound", sound_filters[:])
+	case:
 		job.path, job.status, job.err = dialogs.open_file("Send a file", file_filters())
 	}
 	sync.atomic_store(&job.done, true)
@@ -116,6 +131,8 @@ file_pick_poll :: proc(ui: ^UI) {
 	case .Ok:
 		if job.attach {
 			attach_picked(ui, job)
+		} else if job.sound {
+			sound_file_picked(ui, job.kind, job.path)
 		} else if ui.session != nil && job.path != "" {
 			conn.push_command(
 				&ui.session.client.commands,

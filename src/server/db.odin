@@ -207,7 +207,7 @@ STMT_SQL := [Stmt]string {
 	.Blob_By_Hash           = "SELECT id FROM blobs WHERE sha256 = ?1",
 	.Blob_Delete            = "DELETE FROM blobs WHERE id = ?1",
 	.Account_Add            = "INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, flags, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-	.Account_All            = "SELECT id, username, display, flags, created, last_seen, status, status_until, coalesce(avatar, 0), activity, email, verify_code, verify_expires, digest_upto, coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'email/digest'), ''), coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'push/text'), '') FROM accounts ORDER BY id",
+	.Account_All            = "SELECT id, username, display, flags, created, last_seen, status, status_until, coalesce(avatar, 0), activity, email, verify_code, verify_expires, digest_upto, coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'email/digest'), ''), coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'push/text'), ''), coalesce((SELECT CAST(value AS TEXT) FROM settings s WHERE s.account = accounts.id AND s.key = 'voice/shown'), '') FROM accounts ORDER BY id",
 	.Account_Secret         = "SELECT pw_hash, pw_salt, pw_params FROM accounts WHERE id = ?1",
 	.Account_Set_Password   = "UPDATE accounts SET pw_hash = ?2, pw_salt = ?3, pw_params = ?4 WHERE id = ?1",
 	.Account_Set_Display    = "UPDATE accounts SET display = ?2 WHERE id = ?1",
@@ -404,7 +404,13 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 		db_close(db)
 		return false
 	}
-	for pragma in ([]string{"PRAGMA journal_mode = WAL", "PRAGMA synchronous = NORMAL", "PRAGMA wal_autocheckpoint = 0", "PRAGMA foreign_keys = ON", "PRAGMA temp_store = MEMORY"}) {
+	for pragma in ([]string {
+			"PRAGMA journal_mode = WAL",
+			"PRAGMA synchronous = NORMAL",
+			"PRAGMA wal_autocheckpoint = 0",
+			"PRAGMA foreign_keys = ON",
+			"PRAGMA temp_store = MEMORY",
+		}) {
 		if !db_exec(db, pragma) {
 			db_close(db)
 			return false

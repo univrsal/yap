@@ -645,6 +645,19 @@ EM_JS(void, yap_avatar_pick, (int side, int size), {
 	Module.yapAvatar.pick(side, size);
 });
 
+/* Sound files of the user's own (web/sounds.js, src/client/ui_sounds_web.odin). */
+EM_JS(void, yap_sound_pick, (int kind), {
+	Module.yapSounds.pick(kind);
+});
+
+EM_JS(void, yap_sound_load, (const char *name), {
+	Module.yapSounds.load(UTF8ToString(name));
+});
+
+EM_JS(void, yap_sound_remove, (const char *name), {
+	Module.yapSounds.remove(UTF8ToString(name));
+});
+
 /* Files in DMs (web/files.js, src/client/files_io_web.odin). */
 EM_JS(void, yap_file_pick, (const char *accept, int multiple), {
 	Module.yapFiles.pick(UTF8ToString(accept), multiple);
@@ -716,8 +729,8 @@ EM_JS(void, yap_image_cache_store, (const char *key, const unsigned char *data, 
 });
 
 /* Pictures decoded by the browser (web/decode.js, src/client/ui_images_worker_web.odin). */
-EM_JS(int, yap_image_decode_start, (const unsigned char *data, int len, double max_pixels), {
-	return Module.yapDecode.start(data, len, max_pixels);
+EM_JS(int, yap_image_decode_start, (const unsigned char *data, int len, double max_pixels, int max_side), {
+	return Module.yapDecode.start(data, len, max_pixels, max_side);
 });
 
 EM_JS(int, yap_image_decode_poll, (int req), {
@@ -730,6 +743,14 @@ EM_JS(int, yap_image_decode_width, (int req), {
 
 EM_JS(int, yap_image_decode_height, (int req), {
 	return Module.yapDecode.height(req);
+});
+
+EM_JS(int, yap_image_decode_full_width, (int req), {
+	return Module.yapDecode.fullWidth(req);
+});
+
+EM_JS(int, yap_image_decode_full_height, (int req), {
+	return Module.yapDecode.fullHeight(req);
 });
 
 EM_JS(void, yap_image_decode_take, (int req, unsigned char *buf), {

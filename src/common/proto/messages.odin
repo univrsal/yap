@@ -161,6 +161,12 @@ User_Flag :: enum u8 {
 	// too old to say counts as H.264 only.
 	Decodes_HEVC,
 	Decodes_AV1,
+	// Set by the server, not by the client: they are talking in a voice room
+	// or in a call, unless they chose not to show it (SETTING_VOICE_SHOWN).
+	// Which room it is isn't said here; see `room` for that, which is 0 for a
+	// room the receiver may not know about.
+	In_Voice,
+	In_Call,
 }
 User_Flags :: distinct bit_set[User_Flag;u8]
 

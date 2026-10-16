@@ -31,6 +31,7 @@ Settings_Tab :: enum {
 // The categories of the client's tab, in the order they are listed.
 Client_Category :: enum {
 	Audio,
+	Sounds,
 	Interface,
 	Hotkeys,
 	Screen_Sharing,
@@ -46,6 +47,7 @@ Client_Category :: enum {
 @(private = "file")
 CLIENT_CATEGORY_NAMES := [Client_Category]string {
 	.Audio           = "Audio",
+	.Sounds          = "Sounds",
 	.Interface       = "User interface",
 	.Hotkeys         = "Global hotkeys",
 	.Screen_Sharing  = "Screen sharing",
@@ -212,6 +214,8 @@ settings_body :: proc(ui: ^UI) {
 		} else {
 			audio_settings(ui)
 		}
+	case .Sounds:
+		sound_settings(ui) // ui_sounds.odin
 	case .Interface:
 		ui_settings(ui)
 	case .Hotkeys:
@@ -484,15 +488,6 @@ ui_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in mu.checkbox(ctx, "Show pictures beside messages", &ui.settings.chat_pictures) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
-	}
-
-	volume := settings.notification_gain(&ui.settings) * 100
-	mu.layout_row(ctx, {120, -1})
-	mu.label(ctx, "Notifications volume")
-	if .CHANGE in mu.slider(ctx, &volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
-		ui.settings.notification_volume = volume / 100
-		settings.settings_save(ui.opts.settings_path, ui.settings)
-		command_all(ui, conn.Notification_Volume_Command{ui.settings.notification_volume})
 	}
 
 	when !platform.WEB {

@@ -1,6 +1,8 @@
 package conn
 
+import "base:runtime"
 import log "common:wlog"
+import "core:sync"
 import "core:time"
 
 import "common:proto"
@@ -19,7 +21,8 @@ import "common:proto"
 // restarted the transfer.
 //
 // Pictures are kept in memory as the JPEG they arrived as, and the UI decodes
-// them (see ui_images.odin). Once BLOB_CACHE_BYTES is exceeded, the pictures
+// them (see ui_images.odin). The UI reads the same bytes (Shared_Bytes), not a
+// copy of its own. Once BLOB_CACHE_BYTES is exceeded, the pictures
 // that were fetched first are dropped, and they are fetched again if they are
 // shown again.
 //
@@ -53,7 +56,8 @@ Image_State :: enum {
 Blob_Fetch :: struct {
 	state:      Image_State,
 	image:      Image_Info,
-	data:       []u8, // the JPEG, once Ready; owned
+	data:       []u8, // the JPEG, once Ready: shared's
+	shared:     ^Shared_Bytes, // owns data, and shares it with the View
 	recv:       proto.Blob_Receiver,
 	handle:     u64, // 0 until the server has provided it
 	asking:     bool, // a Blob_Get request is pending
@@ -97,8 +101,8 @@ fetch_release :: proc(c: ^Voice_Client, f: ^Blob_Fetch) {
 	if f.state == .Ready {
 		c.blobs.bytes -= len(f.data)
 	}
-	delete(f.data)
-	f.data = nil
+	shared_unref(f.shared)
+	f.shared, f.data = nil, nil
 	proto.blob_receiver_destroy(&f.recv)
 }
 
@@ -169,7 +173,7 @@ disk_poll :: proc(c: ^Voice_Client) {
 		unordered_remove(&bc.loads, i)
 		f.disk = 0
 		if state == .Done && (f.image.size == 0 || int(f.image.size) == len(data)) {
-			f.data = data
+			fetch_set_data(f, data)
 			f.image.size = u32(len(data))
 			f.state = .Ready
 			bc.bytes += len(data)
@@ -215,8 +219,8 @@ blob_have :: proc(c: ^Voice_Client, blob: proto.Blob_Id, jpeg: []u8, width, heig
 	f^ = {
 		state = .Ready,
 		image = {blob = blob, width = u16(width), height = u16(height), size = u32(len(jpeg))},
-		data = jpeg,
 	}
+	fetch_set_data(f, jpeg)
 	bc.count += 1
 	f.order = bc.count
 	bc.cache[blob] = f
@@ -352,7 +356,7 @@ handle_blob_chunk :: proc(c: ^Voice_Client, pt: []byte) {
 	send_data(c, msg)
 
 	id := bc.active
-	f.data = f.recv.data
+	fetch_set_data(f, f.recv.data)
 	f.recv.data = nil
 	proto.blob_receiver_destroy(&f.recv)
 	f.state = .Ready
@@ -401,9 +405,10 @@ trim_blobs :: proc(c: ^Voice_Client) {
 // View_Image is a picture to show. It has the picture's info, how far along the
 // fetch is, and the JPEG itself once it has arrived.
 View_Image :: struct {
-	info:  Image_Info,
-	state: Image_State,
-	jpeg:  []u8, // owned; only set when Ready
+	info:   Image_Info,
+	state:  Image_State,
+	jpeg:   []u8, // only set when Ready: shared's
+	shared: ^Shared_Bytes, // the network thread's bytes, held for the UI
 }
 
 // publish_blob copies a picture's state (and its bytes once they have arrived)
@@ -416,28 +421,65 @@ publish_blob :: proc(c: ^Voice_Client, id: proto.Blob_Id) {
 	f := c.blobs.cache[id] or_else nil
 	view_write(v)
 	if old, ok := v.blobs[id]; ok {
-		delete(old.jpeg)
+		shared_unref(old.shared)
 	}
 	if f == nil {
 		delete_key(&v.blobs, id)
 		return
 	}
-	jpeg: []u8
+	shared: ^Shared_Bytes
 	if f.state == .Ready {
-		jpeg = make([]u8, len(f.data))
-		copy(jpeg, f.data)
+		shared = shared_ref(f.shared)
 	}
 	v.blobs[id] = {
-		info  = f.image,
-		state = f.state,
-		jpeg  = jpeg,
+		info   = f.image,
+		state  = f.state,
+		jpeg   = f.data if shared != nil else nil,
+		shared = shared,
 	}
 }
 
 // Call with the mutex held.
 view_clear_blobs :: proc(v: ^View) {
 	for _, img in v.blobs {
-		delete(img.jpeg)
+		shared_unref(img.shared)
 	}
 	clear(&v.blobs)
+}
+
+// Shared_Bytes is a picture's bytes, held by the network thread's cache and by
+// the View (for the UI thread) at once. They don't change once the picture is
+// Ready, so either may read them without a lock; whichever lets go last frees
+// them.
+Shared_Bytes :: struct {
+	data:      []u8,
+	refs:      i32, // atomic
+	allocator: runtime.Allocator,
+}
+
+// fetch_set_data makes `data` (which it takes) a picture's bytes.
+@(private = "file")
+fetch_set_data :: proc(f: ^Blob_Fetch, data: []u8) {
+	shared_unref(f.shared)
+	f.shared = new(Shared_Bytes)
+	f.shared^ = {
+		data      = data,
+		refs      = 1,
+		allocator = context.allocator,
+	}
+	f.data = data
+}
+
+shared_ref :: proc(b: ^Shared_Bytes) -> ^Shared_Bytes {
+	if b != nil {
+		sync.atomic_add(&b.refs, 1)
+	}
+	return b
+}
+
+shared_unref :: proc(b: ^Shared_Bytes) {
+	if b != nil && sync.atomic_sub(&b.refs, 1) == 1 {
+		delete(b.data, b.allocator)
+		free(b, b.allocator)
+	}
 }

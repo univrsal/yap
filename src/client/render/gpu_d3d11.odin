@@ -28,6 +28,7 @@ Gpu :: struct {
 	sampler:       [Texture_Kind]^d3d11.ISamplerState,
 	layout:        ^d3d11.IInputLayout,
 	vbo:           ^d3d11.IBuffer,
+	vbo_quads:     int, // quads written to vbo since it was last discarded
 	ebo:           ^d3d11.IBuffer,
 	constants:     ^d3d11.IBuffer, // Constants
 	blend:         ^d3d11.IBlendState,
@@ -278,6 +279,7 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 		CPUAccessFlags = {.WRITE},
 	}
 	check(g.device->CreateBuffer(&vbo_desc, nil, &g.vbo), "vertex buffer") or_return
+	g.vbo_quads = MAX_QUADS // so that the first draw discards it
 
 	indices := quad_indices()
 	ebo_desc := d3d11.BUFFER_DESC {
@@ -300,7 +302,10 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 
 	// Glyphs are drawn 1:1 with physical pixels, so no filtering is wanted.
 	// Images are usually drawn smaller than their original size.
-	for filter, kind in ([Texture_Kind]d3d11.FILTER{.Alpha = .MIN_MAG_MIP_POINT, .Rgba = .MIN_MAG_MIP_LINEAR}) {
+	for filter, kind in ([Texture_Kind]d3d11.FILTER {
+			.Alpha = .MIN_MAG_MIP_POINT,
+			.Rgba = .MIN_MAG_MIP_LINEAR,
+		}) {
 		sampler_desc := d3d11.SAMPLER_DESC {
 			Filter         = filter,
 			AddressU       = .CLAMP,
@@ -526,16 +531,24 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 		return
 	}
 	mapped: d3d11.MAPPED_SUBRESOURCE
-	if failed(g.ctx->Map(g.vbo, 0, .WRITE_DISCARD, {}, &mapped)) {
+	quads := len(vertices) / 4
+	mode := d3d11.MAP.WRITE_NO_OVERWRITE
+	if g.vbo_quads + quads > MAX_QUADS {
+		mode = .WRITE_DISCARD
+		g.vbo_quads = 0
+	}
+	if failed(g.ctx->Map(g.vbo, 0, mode, {}, &mapped)) {
 		return
 	}
-	copy(([^]Vertex)(mapped.pData)[:len(vertices)], vertices)
+	copy(([^]Vertex)(mapped.pData)[g.vbo_quads * 4:][:len(vertices)], vertices)
 	g.ctx->Unmap(g.vbo, 0)
+	base := i32(g.vbo_quads * 4)
+	g.vbo_quads += quads
 
 	g.ctx->PSSetShader(g.ps[kind], nil, 0)
 	g.ctx->PSSetSamplers(0, 1, &g.sampler[kind])
 	g.ctx->PSSetShaderResources(0, 1, &t.view)
-	g.ctx->DrawIndexed(u32(len(vertices) / 4 * 6), 0, 0)
+	g.ctx->DrawIndexed(u32(quads * 6), 0, base)
 }
 
 // gpu_texture_make creates a width x height texture from `pixels` (one byte
