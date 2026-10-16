@@ -59,15 +59,27 @@ test_sound_files :: proc(t: ^testing.T) {
 	testing.expect(t, !copied(dir, "My Tone-2.wav"))
 
 	// A file that won't play isn't chosen, and says why.
-	sound_file_picked(ui, .Ring, write(dir, "broken.wav", transmute([]u8)string("RIFF....WAVEjunk")))
+	sound_file_picked(
+		ui,
+		.Ring,
+		write(dir, "broken.wav", transmute([]u8)string("RIFF....WAVEjunk")),
+	)
 	testing.expect_value(t, settings.sound_name(&ui.settings, .Ring), "")
 	testing.expect(t, strings.contains(ui.sounds.notes[.Ring], "can't be played"))
 
 	// A long name is cut, keeping its extension.
 	long := strings.repeat("x", 100, context.temp_allocator)
-	sound_file_picked(ui, .Knock, write(dir, strings.concatenate({long, ".wav"}, context.temp_allocator), test_wav(220)))
+	sound_file_picked(
+		ui,
+		.Knock,
+		write(dir, strings.concatenate({long, ".wav"}, context.temp_allocator), test_wav(220)),
+	)
 	name := settings.sound_name(&ui.settings, .Knock)
-	testing.expect(t, strings.has_suffix(name, ".wav") && len(name) - len(audio.CUSTOM_SOUND_PREFIX) <= SOUND_FILE_NAME_MAX)
+	testing.expect(
+		t,
+		strings.has_suffix(name, ".wav") &&
+		len(name) - len(audio.CUSTOM_SOUND_PREFIX) <= SOUND_FILE_NAME_MAX,
+	)
 	sound_choose(ui, .Knock, "")
 }
 

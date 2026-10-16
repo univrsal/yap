@@ -132,8 +132,7 @@ shrink :: proc(result: ^Decode_Result, max_side: int) {
 		   4,
 		   3, // straight alpha
 		   0,
-	   ) ==
-	   0 {
+	   ) == 0 {
 		log.debugf("image %d could not be scaled down", result.id)
 		delete(small)
 		return

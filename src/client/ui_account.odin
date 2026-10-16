@@ -650,6 +650,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	push_settings(ui, v)
 	profile_settings(ui)
 	status_settings(ui)
+	voice_shown_settings(ui, v)
 
 	if .ACTIVE in mu.begin_treenode(ctx, "Password") {
 		password_form(ui, v, "Current password", true)
@@ -723,6 +724,30 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
 	with_text_color(ctx, theme.dim, hint, wrap_text)
+}
+
+// voice_shown_settings is whether everyone else is shown a phone icon by our
+// name while we are in a voice chat or a call (see proto.SETTING_VOICE_SHOWN).
+// It is an account setting, so it is the same on all our devices, and it
+// applies to this server only. Call with the View locked.
+@(private = "file")
+voice_shown_settings :: proc(ui: ^UI, v: ^conn.View) {
+	if !v.shared_synced {
+		return
+	}
+	ctx := &ui.ctx
+	shown := (v.shared[proto.SETTING_VOICE_SHOWN] or_else "") != proto.VOICE_SHOWN_HIDDEN
+	mu.layout_row(ctx, {FORM_LABEL, -1})
+	mu.label(ctx, "")
+	if .CHANGE in mu.checkbox(ctx, "Show others when I'm in a voice chat or a call", &shown) {
+		command(
+			ui,
+			conn.Setting_Command {
+				key = strings.clone(proto.SETTING_VOICE_SHOWN),
+				value = strings.clone("" if shown else proto.VOICE_SHOWN_HIDDEN),
+			},
+		)
+	}
 }
 
 // delete_own_account is the form for deleting our own account, which

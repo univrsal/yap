@@ -55,8 +55,11 @@ forget :: proc(s: ^Notification_Sounds, clip: ^Sound_Clip) {
 	}
 	same :: proc(p: Playing, clip: ^Sound_Clip) -> bool {
 		a := p.samples
-		return len(a) > 0 && raw_data(a) >= raw_data(clip.samples) &&
-			raw_data(a) < raw_data(clip.samples[len(clip.samples):])
+		return(
+			len(a) > 0 &&
+			raw_data(a) >= raw_data(clip.samples) &&
+			raw_data(a) < raw_data(clip.samples[len(clip.samples):]) \
+		)
 	}
 	if same(s.active, clip) {
 		s.active, s.position = {}, 0
@@ -147,7 +150,8 @@ notifications_mix :: proc(s: ^Notification_Sounds, mix: []f32) {
 		for f in 0 ..< frames {
 			if !s.loop_quiet {
 				for c in 0 ..< CHANNELS {
-					mix[f * CHANNELS + c] += loop.samples[s.loop_pos + min(c, loop.channels - 1)] * s.volume
+					mix[f * CHANNELS + c] +=
+						loop.samples[s.loop_pos + min(c, loop.channels - 1)] * s.volume
 				}
 			}
 			s.loop_pos = (s.loop_pos + loop.channels) % len(loop.samples)
@@ -260,7 +264,11 @@ decode_ogg_opus :: proc(data: []u8, name: string) -> (samples: []f32, channels: 
 				err: opus.Error
 				decoder = opus.decoder_create(SAMPLE_RATE, i32(channels), &err)
 				if decoder == nil {
-					log.errorf("opus: could not create a decoder for %s: %s", name, opus.strerror(err))
+					log.errorf(
+						"opus: could not create a decoder for %s: %s",
+						name,
+						opus.strerror(err),
+					)
 					return nil, 0
 				}
 				samples = make([]f32, max(last_granule - pre_skip, 0) * channels)

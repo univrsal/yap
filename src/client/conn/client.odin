@@ -38,69 +38,69 @@ Link :: struct {
 
 Voice_Client :: struct {
 	// The main link: the connection itself.
-	using link:    Link,
+	using link:      Link,
 	// The bulk link, used for heavy messages (proto.HEAVY_KINDS, see bulk.odin).
-	bulk:          Bulk_Link,
+	bulk:            Bulk_Link,
 	// The media link, used for screen sharing on the desktop (see media.odin).
-	media:         Media_Link,
-	server_addr:   string, // as typed by the user; this is the key in known_servers
+	media:           Media_Link,
+	server_addr:     string, // as typed by the user; this is the key in known_servers
 	// The first of this connection's three WebSocket slots in a web build
 	// (see transport_web.odin). The owner sets it before client_open.
-	slot:          i32,
-	known_servers: string,
-	password:      string, // sent in every hello; empty if there is none
-	key:           ecdh.Private_Key,
-	my_key:        [proto.KEY_SIZE]u8,
+	slot:            i32,
+	known_servers:   string,
+	password:        string, // sent in every hello; empty if there is none
+	key:             ecdh.Private_Key,
+	my_key:          [proto.KEY_SIZE]u8,
 	// The server's key, once the handshake has revealed it. It is used to tell
 	// the accounts of this server apart from those of another server (for the
 	// per-user settings).
-	server_key:    [proto.KEY_SIZE]u8,
+	server_key:      [proto.KEY_SIZE]u8,
 	// Which connection this is (see the hello and Welcome in proto/names.odin).
 	// conn_id is our identifier, which is the same in every handshake. instance
 	// is the server's identifier for the connection, which changes whenever the
 	// server treats it as a new connection.
-	conn_id:       u64,
-	instance:      u64,
-	has_instance:  bool,
+	conn_id:         u64,
+	instance:        u64,
+	has_instance:    bool,
 	// We have given up on the connection and are handshaking for a new one
 	// (see connection_restart).
-	restart:       bool,
+	restart:         bool,
 	// The server is unreachable (see connection_lost). A new connection is tried
 	// every RECONNECT_EVERY, with the next attempt at retry_at, until one
 	// succeeds.
-	lost:          bool,
-	retry_at:      time.Tick,
-	stream:        Stream_Client, // requests and events (see stream.odin and rpc.odin)
-	rpc:           Rpc_Client,
-	auth:          Auth_Client, // our account and the others (see auth.odin)
-	voice:         audio.Voice, // set up by the owner before client_open
-	channels:      Channel_Client, // who is here (see channels.odin)
-	convs:         Conv_Client, // our channels (see convs.odin)
-	msgs:          Message_Client, // messages (see messages.odin)
-	search:        Search_Client, // searching them (see search.odin)
-	blobs:         Blob_Client, // pictures (see blobs.odin)
-	buddies:       Buddy_Client, // our buddies, and when people were last online (see buddies.odin)
-	emoji:         Emoji_Client, // the server's own emoji (see emoji.odin)
-	profiles:      Profile_Client, // statuses, pictures and settings (see profiles.odin)
-	call:          Call_Client, // the call we're in (see calls.odin)
+	lost:            bool,
+	retry_at:        time.Tick,
+	stream:          Stream_Client, // requests and events (see stream.odin and rpc.odin)
+	rpc:             Rpc_Client,
+	auth:            Auth_Client, // our account and the others (see auth.odin)
+	voice:           audio.Voice, // set up by the owner before client_open
+	channels:        Channel_Client, // who is here (see channels.odin)
+	convs:           Conv_Client, // our channels (see convs.odin)
+	msgs:            Message_Client, // messages (see messages.odin)
+	search:          Search_Client, // searching them (see search.odin)
+	blobs:           Blob_Client, // pictures (see blobs.odin)
+	buddies:         Buddy_Client, // our buddies, and when people were last online (see buddies.odin)
+	emoji:           Emoji_Client, // the server's own emoji (see emoji.odin)
+	profiles:        Profile_Client, // statuses, pictures and settings (see profiles.odin)
+	call:            Call_Client, // the call we're in (see calls.odin)
 	// Our voice is in a room or a call on another server (see loop_sounds).
 	voice_elsewhere: bool,
 	// The connection going bad while in voice (see sounds.odin).
-	trouble:       Trouble,
-	video:         Video_Client,
-	ping:          Ping_Tracker,
-	files:         File_Client, // files in DMs (see files.odin)
-	attach:        Attach_Client, // files sent with messages (see attachments.odin)
-	commands:      Command_Queue,
-	status:        Status,
+	trouble:         Trouble,
+	video:           Video_Client,
+	ping:            Ping_Tracker,
+	files:           File_Client, // files in DMs (see files.odin)
+	attach:          Attach_Client, // files sent with messages (see attachments.odin)
+	commands:        Command_Queue,
+	status:          Status,
 	// Shared with the UI, if there is one. nil in headless mode.
-	view:          ^View,
+	view:            ^View,
 
 	// Per-second stats, keyed by speaker id.
-	last_stats:    time.Tick,
+	last_stats:      time.Tick,
 	// When client_step last ran, used to detect that the computer was asleep
 	// rather than the loop running normally.
-	last_step:     time.Tick,
+	last_step:       time.Tick,
 }
 
 // client_open loads our key and opens the transport. It doesn't wait for the

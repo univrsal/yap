@@ -153,14 +153,7 @@ sound_custom_loaded :: proc(name: string) -> bool {
 // SAMPLE_RATE, mono or stereo (`channels`), at most SOUND_MAX_SECONDS of them,
 // in the context's allocator. `err` says what is wrong with a file that
 // doesn't decode.
-sound_decode :: proc(
-	data: []u8,
-	name: string,
-) -> (
-	samples: []f32,
-	channels: int,
-	err: string,
-) {
+sound_decode :: proc(data: []u8, name: string) -> (samples: []f32, channels: int, err: string) {
 	if len(data) >= 4 && string(data[:4]) == "OggS" {
 		if !strings.contains(string(data[:min(len(data), 512)]), "OpusHead") {
 			return nil, 0, "Ogg Vorbis, not Opus"

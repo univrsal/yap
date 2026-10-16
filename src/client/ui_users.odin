@@ -286,6 +286,14 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 		{r.x, top + line + 2},
 		theme.dim,
 	)
+	if talking := talking_of(v, account); talking != "" {
+		mu.layout_row(ctx, {MENU_WIDTH})
+		row := mu.layout_next(ctx)
+		h := ctx.text_height(font)
+		y := row.y + (row.h - h) / 2
+		mu.draw_icon(ctx, render.icon_id(.Phone), {row.x, y, h, h}, ctx.style.colors[.TEXT])
+		mu.draw_text(ctx, font, talking, {row.x + h + 6, y}, ctx.style.colors[.TEXT])
+	}
 	if status := status_line(acc); status != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
 		with_text_color(ctx, ctx.style.colors[.TEXT], status, label_proc)

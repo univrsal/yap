@@ -47,6 +47,11 @@ View_User :: struct {
 	deafened: bool,
 	sharing:  bool, // their screen can be watched (video.odin)
 	room:     proto.Room, // the room their voice is in; 0 for none
+	// Whether they are talking in a voice room or in a call, as the server
+	// tells everyone (unless they chose not to show it), even for a room
+	// that `room` doesn't say.
+	in_voice: bool,
+	in_call:  bool,
 }
 
 View :: struct {
@@ -648,6 +653,8 @@ publish_channels :: proc(c: ^Voice_Client) {
 			deafened = .Deafened in u.flags,
 			sharing  = .Sharing in u.flags,
 			room     = u.room,
+			in_voice = .In_Voice in u.flags,
+			in_call  = .In_Call in u.flags,
 		}
 	}
 	v.my_num = ch.state.your_user

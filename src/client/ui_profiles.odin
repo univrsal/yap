@@ -140,6 +140,7 @@ profile_windows :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	shared_apply(ui)
+	unhide_stale(ui, ui.session, v)
 	status_editor(ui, window_w, window_h)
 	members_window(ui, window_w, window_h)
 }
@@ -496,14 +497,26 @@ person_row :: proc(
 	if c, ok := name_color(v, account); ok {
 		color = c if online else {c.r, c.g, c.b, 140}
 	}
-	name_and_status(ctx, r, name, color, status_line(acc), extra, .Bot in acc.flags)
+	talking := talking_of(v, account) if online else ""
+	icon_r := name_and_status(
+		ctx,
+		r,
+		name,
+		color,
+		status_line(acc),
+		extra,
+		.Bot in acc.flags,
+		talking = talking,
+	)
+	talking_hint(ui, icon_r, talking)
 	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {}
 }
 
 // name_and_status draws a name in `r` (in bold with `bold`, for the selected
-// one), followed by the bot tag for a bot (ui_bots.odin) and, dimmed after
-// that, the status and whatever else there is to say, cut off where the row
-// ends.
+// one), followed by the bot tag for a bot (ui_bots.odin), the phone icon if
+// they are talking (`talking`, see talking_of) and, dimmed after that, the
+// status and whatever else there is to say, cut off where the row ends. It
+// returns where the phone icon is, for its tooltip (see talking_hint).
 name_and_status :: proc(
 	ctx: ^mu.Context,
 	r: mu.Rect,
@@ -513,10 +526,14 @@ name_and_status :: proc(
 	extra := "",
 	bot := false,
 	bold := false,
+	talking := "",
+) -> (
+	icon_r: mu.Rect,
 ) {
 	font := ctx.style.font
 	name_font := render.font_with_style(font, .Bold) if bold else font
-	y := r.y + (r.h - ctx.text_height(font)) / 2
+	h := ctx.text_height(font)
+	y := r.y + (r.h - h) / 2
 	x := r.x + ctx.style.padding
 	mu.push_clip_rect(ctx, r)
 	defer mu.pop_clip_rect(ctx)
@@ -526,12 +543,43 @@ name_and_status :: proc(
 		x += bot_tag(ctx, x, y)
 	}
 	x += 10
+	if talking != "" {
+		icon_r = {x, y, h, h}
+		mu.draw_icon(ctx, render.icon_id(.Phone), icon_r, ctx.style.colors[.TEXT])
+		x += h + 6
+	}
 	more := status
 	if extra != "" {
 		more = extra if more == "" else fmt.tprintf("%s  ·  %s", more, extra)
 	}
 	if more != "" {
 		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
+	}
+	return
+}
+
+// talking_of says whether somebody is talking, as far as everyone is told
+// (proto.User_Flag.In_Voice and .In_Call): "In a call", "In a voice chat",
+// or "" if neither. Call with the View locked.
+talking_of :: proc(v: ^conn.View, account: proto.Account_Id) -> string {
+	voice := false
+	for _, u in v.users {
+		if u.account != account {
+			continue
+		}
+		if u.in_call {
+			return "In a call"
+		}
+		voice ||= u.in_voice
+	}
+	return "In a voice chat" if voice else ""
+}
+
+// talking_hint shows what the phone icon drawn by name_and_status means while
+// the pointer is on it.
+talking_hint :: proc(ui: ^UI, icon_r: mu.Rect, talking: string) {
+	if talking != "" && mu.mouse_over(&ui.ctx, icon_r) {
+		ui.hint, ui.hint_of = talking, icon_r
 	}
 }
 
@@ -664,13 +712,13 @@ shared_user_changed :: proc(ui: ^UI, account: proto.Account_Id, u: settings.User
 	}
 }
 
-// shared_hidden_changed tells the server that a DM is hidden from the buddy
+// shared_hidden_changed tells a server that a DM is hidden from the buddy
 // list up to message `last` (0: shown again).
-shared_hidden_changed :: proc(ui: ^UI, conv: proto.Conv_Id, last: proto.Msg_Id) {
-	if ui.session != nil {
+shared_hidden_changed :: proc(ns: ^Net_Session, conv: proto.Conv_Id, last: proto.Msg_Id) {
+	if ns != nil {
 		value := fmt.tprint(u64(last)) if last != 0 else ""
 		conn.push_command(
-			&ui.session.client.commands,
+			&ns.client.commands,
 			conn.Setting_Command {
 				key = strings.clone(hidden_key(conv)),
 				value = strings.clone(value),

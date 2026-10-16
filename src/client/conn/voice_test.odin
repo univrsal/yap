@@ -25,7 +25,10 @@ test_deafen_plays_once :: proc(t: ^testing.T) {
 	push_command(&c.commands, Mute_Command{muted = false, feedback = false})
 	push_command(&c.commands, Deafen_Command{deafened = false, feedback = true})
 	process_commands(&c)
-	testing.expect(t, raw_data(sounds.active.samples) == raw_data(sounds.clips[.Undeafened].samples))
+	testing.expect(
+		t,
+		raw_data(sounds.active.samples) == raw_data(sounds.clips[.Undeafened].samples),
+	)
 	testing.expect_value(t, sounds.queued_count, 0)
 
 	// Mute on its own, and a repeat of what is already the case, which is silent.
@@ -142,7 +145,10 @@ test_call_sounds :: proc(t: ^testing.T) {
 		here   = true,
 	}
 	changed(&c, {id = 6, state = .Ended, reason = .Unanswered, caller = 1, callee = 2})
-	testing.expect(t, raw_data(sounds.active.samples) == raw_data(sounds.clips[.Call_Declined].samples))
+	testing.expect(
+		t,
+		raw_data(sounds.active.samples) == raw_data(sounds.clips[.Call_Declined].samples),
+	)
 	audio.notifications_clear(sounds)
 
 	// Cancelled by us: nothing.
@@ -163,7 +169,10 @@ test_call_sounds :: proc(t: ^testing.T) {
 		here   = true,
 	}
 	changed(&c, {id = 8, state = .Ended, reason = .Hung_Up, caller = 1, callee = 2})
-	testing.expect(t, raw_data(sounds.active.samples) == raw_data(sounds.clips[.Call_Ended].samples))
+	testing.expect(
+		t,
+		raw_data(sounds.active.samples) == raw_data(sounds.clips[.Call_Ended].samples),
+	)
 	audio.notifications_clear(sounds)
 	c.call = {
 		id     = 9,

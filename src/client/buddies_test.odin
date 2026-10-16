@@ -67,3 +67,34 @@ test_buddy_list :: proc(t: ^testing.T) {
 	v.dms[1].last = 201
 	testing.expect_value(t, len(buddy_list(&s, &v)), 4)
 }
+
+// A DM hidden up to a message newer than its newest is hidden from before the
+// server's database was started over: it is shown again, while a DM hidden up
+// to its newest message (or an empty one) stays hidden.
+@(test)
+test_unhide_stale :: proc(t: ^testing.T) {
+	ui := new(UI)
+	defer free(ui)
+	defer settings.settings_destroy(&ui.settings)
+	v: conn.View
+	defer delete(v.dms)
+	v.me = 1
+	v.server_key[0] = 9
+	append(&v.dms, conn.View_DM{id = 1, with = 2, last = 50, unread = 1})
+	append(&v.dms, conn.View_DM{id = 2, with = 3, last = 60})
+	append(&v.dms, conn.View_DM{id = 3, with = 4})
+	settings.hide_dm(&ui.settings, v.server_key, 1, 1000)
+	settings.hide_dm(&ui.settings, v.server_key, 2, 60)
+	settings.hide_dm(&ui.settings, v.server_key, 3, 1)
+	testing.expect_value(t, len(buddy_list(&ui.settings, &v)), 0)
+
+	unhide_stale(ui, nil, &v)
+	list := buddy_list(&ui.settings, &v)
+	testing.expect_value(t, len(list), 1)
+	testing.expect_value(t, list[0].conv, proto.Conv_Id(1))
+	testing.expect(t, ui.settings_dirty)
+	// Hidden again later, it stays hidden until something new is said.
+	settings.hide_dm(&ui.settings, v.server_key, 1, 50)
+	unhide_stale(ui, nil, &v)
+	testing.expect_value(t, len(buddy_list(&ui.settings, &v)), 0)
+}

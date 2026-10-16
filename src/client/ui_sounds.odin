@@ -64,7 +64,11 @@ sound_effective :: proc(ui: ^UI, kind: audio.Sound_Event) -> string {
 sounds_session_init :: proc(ui: ^UI, ns: ^Net_Session) {
 	for kind in audio.Sound_Event {
 		if kind != .None && kind not_in audio.APP_SOUNDS {
-			audio.notifications_set(&ns.client.voice.notifications, kind, sound_effective(ui, kind))
+			audio.notifications_set(
+				&ns.client.voice.notifications,
+				kind,
+				sound_effective(ui, kind),
+			)
 		}
 	}
 }
@@ -189,7 +193,8 @@ sound_settings :: proc(ui: ^UI) {
 	}
 	field_row(ui, 150, "Use the sounds of", widths)
 	for preset, i in audio.SOUND_PRESETS {
-		if .SUBMIT in stable_button(ctx, fmt.tprintf("sound preset %d", i), preset.label, {.ALIGN_CENTER}) {
+		if .SUBMIT in
+		   stable_button(ctx, fmt.tprintf("sound preset %d", i), preset.label, {.ALIGN_CENTER}) {
 			sound_preset_choose(ui, preset)
 		}
 	}
@@ -223,7 +228,8 @@ sound_settings :: proc(ui: ^UI) {
 				sound_choose(ui, kind, names[i])
 			}
 		}
-		if .SUBMIT in stable_button(ctx, fmt.tprintf("try sound %s", info.key), "⏵", {.ALIGN_CENTER}) {
+		if .SUBMIT in
+		   stable_button(ctx, fmt.tprintf("try sound %s", info.key), "⏵", {.ALIGN_CENTER}) {
 			app_sound_preview(ui, sound_effective(ui, kind))
 		}
 		if note := ui.sounds.notes[kind]; note != "" {
@@ -252,7 +258,12 @@ sound_choices :: proc(
 	all := make([dynamic]string, context.temp_allocator)
 	chosen := settings.sound_name(&ui.settings, kind)
 	current = -1
-	add :: proc(its: ^[dynamic]Dropdown_Item, all: ^[dynamic]string, item: Dropdown_Item, name: string) {
+	add :: proc(
+		its: ^[dynamic]Dropdown_Item,
+		all: ^[dynamic]string,
+		item: Dropdown_Item,
+		name: string,
+	) {
 		append(its, item)
 		append(all, name)
 	}

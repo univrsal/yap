@@ -29,7 +29,8 @@ sounds_load :: proc(ui: ^UI) {
 	asked := make([dynamic]string, context.temp_allocator)
 	for kind in audio.Sound_Event {
 		name := settings.sound_name(&ui.settings, kind)
-		if !strings.has_prefix(name, audio.CUSTOM_SOUND_PREFIX) || audio.sound_custom_loaded(name) {
+		if !strings.has_prefix(name, audio.CUSTOM_SOUND_PREFIX) ||
+		   audio.sound_custom_loaded(name) {
 			continue
 		}
 		file := name[len(audio.CUSTOM_SOUND_PREFIX):]

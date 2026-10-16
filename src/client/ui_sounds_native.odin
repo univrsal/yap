@@ -26,7 +26,8 @@ sounds_dir :: proc(ui: ^UI) -> string {
 sounds_load :: proc(ui: ^UI) {
 	for kind in audio.Sound_Event {
 		name := settings.sound_name(&ui.settings, kind)
-		if !strings.has_prefix(name, audio.CUSTOM_SOUND_PREFIX) || audio.sound_custom_loaded(name) {
+		if !strings.has_prefix(name, audio.CUSTOM_SOUND_PREFIX) ||
+		   audio.sound_custom_loaded(name) {
 			continue
 		}
 		file := name[len(audio.CUSTOM_SOUND_PREFIX):]
@@ -40,7 +41,11 @@ sounds_load :: proc(ui: ^UI) {
 		samples, channels, why := audio.sound_decode(data, file)
 		if why != "" {
 			log.warnf("sounds: %s: %s", path, why)
-			sound_note(ui, kind, fmt.tprintf("%s can't be played (%s), so the default sound plays.", file, why))
+			sound_note(
+				ui,
+				kind,
+				fmt.tprintf("%s can't be played (%s), so the default sound plays.", file, why),
+			)
 			continue
 		}
 		audio.sound_custom_add(name, samples, channels)
@@ -60,7 +65,10 @@ sound_file_picked :: proc(ui: ^UI, kind: audio.Sound_Event, path: string) {
 		sound_note(
 			ui,
 			kind,
-			fmt.tprintf("That file is too big: a sound can be at most %d MB.", audio.SOUND_FILE_MAX / (1024 * 1024)),
+			fmt.tprintf(
+				"That file is too big: a sound can be at most %d MB.",
+				audio.SOUND_FILE_MAX / (1024 * 1024),
+			),
 		)
 		return
 	}

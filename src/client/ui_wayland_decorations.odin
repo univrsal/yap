@@ -101,4 +101,3 @@ wayland_server_decorations :: proc() -> bool {
 	}
 	return found
 }
-

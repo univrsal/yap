@@ -120,7 +120,8 @@ dropdown_popup :: proc(ui: ^UI, w, h: i32) {
 			with_text_color(ctx, theme.dim, item.label, label_proc)
 			continue
 		}
-		if .SUBMIT in list_row(ctx, fmt.tprintf("dropdown item %d", i), item.label, i == d.current) {
+		if .SUBMIT in
+		   list_row(ctx, fmt.tprintf("dropdown item %d", i), item.label, i == d.current) {
 			d.picked, d.picked_id = i, d.open
 			d.open = 0
 			mu.get_current_container(ctx).open = false

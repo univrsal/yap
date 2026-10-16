@@ -45,64 +45,64 @@ UI_Options :: struct {
 // The connection and the thread (or the frame loop) that runs it. See
 // net_native.odin and net_web.odin.
 Net_Session :: struct {
-	client:         ^conn.Voice_Client,
-	thread:         Net_Thread,
-	stop:           bool, // set atomically to end the network loop
+	client:          ^conn.Voice_Client,
+	thread:          Net_Thread,
+	stop:            bool, // set atomically to end the network loop
 	// Without threads nobody would notice `stop`, so the frame loop
 	// records here that the connection is finished (see net_web.odin).
-	stopped:        bool,
+	stopped:         bool,
 
 	// Owned copies, because the UI's buffers may change while the thread runs.
-	key_path:       string,
-	server:         string,
-	password:       string,
-	known_servers:  string,
-	channel:        string, // the channel to show and talk in from the start, if any
-	look_at:        string, // otherwise the channel to only look at
+	key_path:        string,
+	server:          string,
+	password:        string,
+	known_servers:   string,
+	channel:         string, // the channel to show and talk in from the start, if any
+	look_at:         string, // otherwise the channel to only look at
 	// What the connection reports to the UI (the client's View), and what
 	// the UI keeps of this server while another one is shown (see ui_servers.odin).
-	view:           conn.View,
-	stash:          Server_UI,
+	view:            conn.View,
+	stash:           Server_UI,
 	// Which WebSockets belong to this session in a web build: slot and
 	// slot + 1 (see conn/transport_web.odin).
-	slot:           i32,
+	slot:            i32,
 	// Whether the server was last told that the user is idle, and that the
 	// page is out of sight (see ui_activity.odin).
-	idle_told:      bool,
-	hidden_told:    bool,
+	idle_told:       bool,
+	hidden_told:     bool,
 	// Web Push (see ui_push_web.odin): whether the browser has been asked
 	// about its subscription for this server's key, and the key it was asked for.
-	push_checked:   bool,
-	push_key:       [proto.PUSH_KEY_SIZE]u8,
+	push_checked:    bool,
+	push_key:        [proto.PUSH_KEY_SIZE]u8,
 	// Set while the server is being joined from the + page (see ui_join.odin). It
 	// is kept off the rail and out of the settings until the login succeeds.
-	joining:        bool,
+	joining:         bool,
 	// Messages unread in its channels, and how many of them mention us,
 	// as of this frame. Used by the rail (see servers_frame).
-	unread:         int,
-	mentions:       int,
+	unread:          int,
+	mentions:        int,
 	// The incoming call that was last announced on the desktop, so that each
 	// call is only announced once (see session_notices).
-	call_announced: proto.Call_Id,
+	call_announced:  proto.Call_Id,
 	// DMs unread on this server. These count towards the inbox's icon rather
 	// than the server's (see servers_frame).
-	dm_unread:      int,
+	dm_unread:       int,
 	// Whether our voice is in a room or a call here, and whether it is on
 	// another server as the session was last told (see sounds_frame).
-	voice_busy:     bool,
+	voice_busy:      bool,
 	voice_elsewhere: bool,
 	// When the server was last asked when the people in the inbox were
 	// last online, and how many of them were online then. If fewer are online
 	// now, someone just left and it is worth asking again (see ask_last_seen).
-	seen_asked:     time.Tick,
-	seen_online:    int,
+	seen_asked:      time.Tick,
+	seen_online:     int,
 
 	// Audio devices, opened and closed on the UI thread (which owns the
 	// miniaudio context). They feed the client's Voice rings.
-	streams:        audio.Audio_Streams,
+	streams:         audio.Audio_Streams,
 	// Whether the microphone is wanted, and whether it has been opened or an
 	// attempt to open it was made (see session_capture_update).
-	capture_on:     bool,
+	capture_on:      bool,
 }
 
 Extra_Key :: enum {

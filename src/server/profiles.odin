@@ -227,7 +227,7 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	acc := u.account
-	// This is the only setting the server reads itself (see digest.odin).
+	// This is the only setting whose value the server checks (see digest.odin).
 	digest: proto.Email_Digest
 	if key == proto.SETTING_EMAIL_DIGEST {
 		digest, ok = proto.email_digest_parse(string(value))
@@ -263,6 +263,12 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		acc.digest = digest
 	case proto.SETTING_PUSH_TEXT:
 		acc.push_hide = string(value) == proto.PUSH_TEXT_HIDDEN
+	case proto.SETTING_VOICE_SHOWN:
+		hidden := string(value) == proto.VOICE_SHOWN_HIDDEN
+		if hidden != acc.voice_hidden {
+			acc.voice_hidden = hidden
+			bump_version(s) // the list of who is here changes
+		}
 	}
 	respond(u, id, .Ok)
 	// Notify the account's other connections.

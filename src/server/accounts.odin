@@ -51,6 +51,9 @@ Account :: struct {
 	// Whether its push notifications leave out the text of messages (its
 	// setting proto.SETTING_PUSH_TEXT, see push_notify.odin).
 	push_hide:      bool,
+	// Whether everyone isn't shown that it is talking in a voice room or a
+	// call (its setting proto.SETTING_VOICE_SHOWN, see sync_state).
+	voice_hidden:   bool,
 	// The activity it chose (online, away, busy or offline) and the
 	// activity everyone was last told it has (activity.odin).
 	chosen:         proto.Activity,
@@ -123,6 +126,7 @@ accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 		acc.digest_upto = proto.Msg_Id(db_col_int(q, 13))
 		acc.digest, _ = proto.email_digest_parse(db_col_text(q, 14))
 		acc.push_hide = db_col_text(q, 15) == proto.PUSH_TEXT_HIDDEN
+		acc.voice_hidden = db_col_text(q, 16) == proto.VOICE_SHOWN_HIDDEN
 		acc.shown = .Offline // nobody is connected yet
 		a.by_id[acc.id] = acc
 		a.by_name[acc.username] = acc

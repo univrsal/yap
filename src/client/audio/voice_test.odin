@@ -178,7 +178,11 @@ test_deafen_keeps_feedback :: proc(t: ^testing.T) {
 	voice_feedback_play(&v, .Muted)
 	v.deafened = true
 	mix_output(&v)
-	testing.expect(t, raw_data(v.notifications.active.samples) == raw_data(v.notifications.clips[.Muted].samples))
+	testing.expect(
+		t,
+		raw_data(v.notifications.active.samples) ==
+		raw_data(v.notifications.clips[.Muted].samples),
+	)
 	testing.expect_value(t, v.notifications.queued_count, 0)
 }
 
@@ -357,9 +361,22 @@ test_sound_packs :: proc(t: ^testing.T) {
 	for pack in SOUND_PACKS {
 		testing.expectf(t, len(pack.files) > 0, "sound pack %s is empty", pack.name)
 		for f in pack.files {
-			testing.expectf(t, strings.has_suffix(f.name, ".opus"), "%s/%s isn't Opus", pack.name, f.name)
+			testing.expectf(
+				t,
+				strings.has_suffix(f.name, ".opus"),
+				"%s/%s isn't Opus",
+				pack.name,
+				f.name,
+			)
 			clip, channels := decode_ogg_opus(f.data, f.name)
-			testing.expectf(t, channels == 1 || channels == 2, "%s/%s has %d channels", pack.name, f.name, channels)
+			testing.expectf(
+				t,
+				channels == 1 || channels == 2,
+				"%s/%s has %d channels",
+				pack.name,
+				f.name,
+				channels,
+			)
 			testing.expectf(t, len(clip) > 0, "%s/%s didn't decode", pack.name, f.name)
 			delete(clip)
 		}
@@ -371,7 +388,14 @@ test_sound_packs :: proc(t: ^testing.T) {
 	for preset in SOUND_PRESETS {
 		for name, kind in preset.sounds {
 			_, ok := sound_data(name)
-			testing.expectf(t, name == "" || ok, "%s: no sound %q for %v", preset.label, name, kind)
+			testing.expectf(
+				t,
+				name == "" || ok,
+				"%s: no sound %q for %v",
+				preset.label,
+				name,
+				kind,
+			)
 		}
 	}
 }

@@ -18,6 +18,7 @@ Buddy_Entry :: struct {
 	account:   proto.Account_Id,
 	name:      string, // points into the View, or the temp allocator
 	status:    string, // their status text as shown in lists (see status_line)
+	talking:   string, // whether they are in a voice chat or a call (see talking_of)
 	online:    bool,
 	buddy:     bool, // false if just someone we have a DM with
 	conv:      proto.Conv_Id, // our DM with them, 0 if there is none yet
@@ -49,6 +50,23 @@ buddy_list :: proc(s: ^settings.Settings, v: ^conn.View) -> []Buddy_Entry {
 	}
 	slice.sort_by(list[:], buddy_before)
 	return list[:]
+}
+
+// unhide_stale forgets that a DM is hidden if it is hidden up to a message
+// newer than the DM's newest, and tells the server. A DM is only ever hidden
+// up to a message it has (or up to 1 while it has none), so such a hide is
+// from before the server's database was started over, when the same ids
+// meant other DMs and messages. Kept, it would hide the DM while new messages
+// arrive in it. Call with the View locked.
+unhide_stale :: proc(ui: ^UI, ns: ^Net_Session, v: ^conn.View) {
+	for dm in v.dms {
+		upto, hidden := ui.settings.hidden_dms[settings.server_key(v.server_key, u64(dm.id))]
+		if hidden && dm.last != 0 && upto > u64(dm.last) {
+			settings.hide_dm(&ui.settings, v.server_key, dm.id, 0)
+			shared_hidden_changed(ns, dm.id, 0)
+			ui.settings_dirty = true
+		}
+	}
 }
 
 // buddy_before is the list order: buddies first, then everyone else we have
@@ -98,6 +116,7 @@ inbox_list :: proc(ui: ^UI) -> []Buddy_Entry {
 		}
 		server := v.server_name if v.server_name != "" else ns.server
 		server = strings.clone(server, context.temp_allocator)
+		unhide_stale(ui, ns, v)
 		mine := buddy_list(&ui.settings, v)
 		for &e in mine {
 			e.name = strings.clone(e.name, context.temp_allocator)
@@ -137,6 +156,9 @@ buddy_entry :: proc(v: ^conn.View, account: proto.Account_Id, buddy: bool) -> Bu
 			e.online = true
 			break
 		}
+	}
+	if e.online {
+		e.talking = talking_of(v, account)
 	}
 	return e
 }
