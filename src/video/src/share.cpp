@@ -405,8 +405,10 @@ void follow_bitrate(yv_share *s) {
 		return;
 	}
 	double change = std::abs(static_cast<double>(want) - s->kbit) / s->kbit;
+	// Back to the configured bitrate always counts, else it might never get there.
+	bool back = want == s->config.kbit;
 	uint64_t now = now_us();
-	if (change < BITRATE_CHANGE || (s->rate_at && now - s->rate_at < BITRATE_US)) {
+	if ((change < BITRATE_CHANGE && !back) || (s->rate_at && now - s->rate_at < BITRATE_US)) {
 		return;
 	}
 	s->rate_at = now;

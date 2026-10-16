@@ -49,8 +49,9 @@ import "common:proto"
 // end router queues would drop.
 VIDEO_SEND_RATE :: 12_000_000 / 8
 VIDEO_SEND_BURST :: 16 * 1024
-// More than this still waiting to go out means we cannot keep up.
-VIDEO_QUEUE_MAX :: VIDEO_SEND_RATE
+// More than this much sending still waiting (behind the frame going out) means
+// we cannot keep up (video_queue_max).
+VIDEO_QUEUE_TIME :: 500 * time.Millisecond
 // Video only goes out while less than this is waiting on the socket, so that
 // the socket's buffer never holds much more than one burst. (Voice does not
 // wait in it: video has the media link to itself.)
@@ -390,7 +391,13 @@ video_queue_frame :: proc(
 		v.awaiting_key, v.want_key = true, true
 		return
 	}
-	if v.queued_bytes > VIDEO_QUEUE_MAX {
+	// The frame going out doesn't count: a keyframe bigger than the limit would
+	// otherwise throw out what follows it, and ask for another.
+	waiting := v.queued_bytes
+	if v.sent > 0 {
+		waiting -= len(v.queue[0].data)
+	}
+	if waiting > video_queue_max(v) {
 		// Behind: keep only what has started going out.
 		start := 1 if v.sent > 0 else 0
 		for f in v.queue[start:] {
@@ -445,6 +452,21 @@ video_next_fragment :: proc(v: ^Video_Client, out: []u8) -> (msg: []u8, ok: bool
 	return msg, true
 }
 
+// video_send_rate is how fast video goes out, in bytes per second: half as
+// much again as the encoder makes, where that is known (VIDEO_SEND_RATE).
+video_send_rate :: proc(v: ^Video_Client) -> int {
+	if v.encoding_kbit > 0 {
+		return v.encoding_kbit * 1000 / 8 * 3 / 2
+	}
+	return VIDEO_SEND_RATE
+}
+
+// video_queue_max is how many bytes may wait behind the frame going out:
+// VIDEO_QUEUE_TIME's worth at the rate they go out.
+video_queue_max :: proc(v: ^Video_Client) -> int {
+	return video_send_rate(v) * int(VIDEO_QUEUE_TIME / time.Millisecond) / 1000
+}
+
 video_clear_queue :: proc(v: ^Video_Client) {
 	for f in v.queue {
 		delete(f.data)
@@ -461,10 +483,7 @@ video_send :: proc(c: ^Voice_Client) {
 		return
 	}
 	now := time.tick_now()
-	rate := VIDEO_SEND_RATE
-	if kbit := v.encoding_kbit; kbit > 0 {
-		rate = kbit * 1000 / 8 * 3 / 2
-	}
+	rate := video_send_rate(v)
 	if v.budget_at == {} {
 		v.budget = VIDEO_SEND_BURST
 	} else {
@@ -658,23 +677,31 @@ note_encoding :: proc(v: ^Video_Client, kbit: int, now: time.Tick) {
 // keep up (to no less than what reaches the viewer, unless that is much less),
 // at most every ADAPT_CUT_EVERY. It goes up by a fifth of the configured
 // bitrate after ADAPT_GOOD_FOR of good reports. It never goes below
-// 1/ADAPT_FLOOR of the configured bitrate, nor above it. While the encoder has
-// not taken up the last change, and for ADAPT_SETTLE after it has, the reports
-// are ignored (when the encoder's bitrate is known).
+// 1/ADAPT_FLOOR of the configured bitrate, nor above it.
+//
+// When the encoder's bitrate is known, changes start from it rather than from
+// what was asked for last, which the library may have left alone as too small
+// a change. While the encoder has not taken up the last change, and for
+// ADAPT_SETTLE after it has, the reports are ignored.
 adapt_bitrate :: proc(v: ^Video_Client, worst: proto.Video_Report, max_kbit: int, now: time.Tick) {
 	if max_kbit <= 0 {
 		return
 	}
 	floor := max(SHARE_KBIT_MIN, max_kbit / ADAPT_FLOOR)
-	target := v.target_kbit if v.target_kbit > 0 else max_kbit
-	was := target
+	asked := v.target_kbit if v.target_kbit > 0 else max_kbit
+	current := asked
 	if enc := v.encoding_kbit; enc > 0 {
-		pending := abs(target - enc) * ADAPT_MIN_CHANGE >= enc
+		// The library takes up a change of a fifth or more, and any change back
+		// to the configured bitrate.
+		pending :=
+			asked != enc && (abs(asked - enc) * ADAPT_MIN_CHANGE >= enc || asked == max_kbit)
 		if pending || time.tick_diff(v.encoding_at, now) < ADAPT_SETTLE {
 			v.good_since = {}
 			return
 		}
+		current = enc
 	}
+	target := current
 	switch {
 	case worst.loss >= ADAPT_LOSS_BAD || worst.delay_ms >= ADAPT_DELAY_BAD:
 		v.good_since = {}
@@ -695,10 +722,11 @@ adapt_bitrate :: proc(v: ^Video_Client, worst: proto.Video_Report, max_kbit: int
 	case:
 		v.good_since = {} // in between: keep the current bitrate
 	}
-	if target != was {
+	// Asking again for what the library left alone would change nothing.
+	if target != current && target != asked {
 		log.infof(
 			"video: bitrate %d -> %d kbit/s for our viewers (worst: %d/1000 lost, %d ms late)",
-			was,
+			current,
 			target,
 			worst.loss,
 			worst.delay_ms,

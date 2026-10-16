@@ -287,8 +287,9 @@ YV_API void yv_share_request_key(yv_share *share);
 yv_share_set_bitrate changes the bitrate (kbit/s), to follow what the
 network takes. A change costs a keyframe with every encoder (NVENC and
 Quick Sync change as they go, the others are started again), so it's
-only taken up for a change of a fifth or more, at most every 3 seconds;
-asking again later is how a smaller one gets through. Any thread.
+only taken up for a change of a fifth or more (or any back to the
+config's bitrate), at most every 3 seconds; asking again later is how a
+smaller one gets through. Any thread.
 */
 YV_API void yv_share_set_bitrate(yv_share *share, uint32_t kbit);
 /*
