@@ -382,13 +382,13 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case strings.has_prefix(line, "/activity "):
 			switch strings.trim_space(line[len("/activity "):]) {
 			case "online":
-				conn.push_command(q, conn.Activity_Command{.Online})
+				conn.push_command(q, conn.Activity_Command{activity = .Online})
 			case "away":
-				conn.push_command(q, conn.Activity_Command{.Away})
+				conn.push_command(q, conn.Activity_Command{activity = .Away})
 			case "busy":
-				conn.push_command(q, conn.Activity_Command{.Busy})
+				conn.push_command(q, conn.Activity_Command{activity = .Busy})
 			case "offline":
-				conn.push_command(q, conn.Activity_Command{.Offline})
+				conn.push_command(q, conn.Activity_Command{activity = .Offline})
 			case:
 				log.warn("/activity online|away|busy|offline")
 			}

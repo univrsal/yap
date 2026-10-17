@@ -93,6 +93,11 @@ Net_Session :: struct {
 	// is told so that it can show it.
 	voice_busy:      bool,
 	voice_elsewhere: bool,
+	// Whether the server can be told our activity and status as of this
+	// frame (it is connected and we are logged in), and what status_sync last
+	// copied to it, and when.
+	status_ready:    bool,
+	status_copied:   Status_Copied,
 	talking:         proto.User_Flags,
 	talking_told:    proto.User_Flags,
 	// When the server was last asked when the people in the inbox were
@@ -524,6 +529,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	tray_update(ui)
 	thumbbar_update(ui)
 	activity_step(ui)
+	status_sync(ui)
 	push_frame(ui)
 	if ui.hidden {
 		ui.meter_shown = false

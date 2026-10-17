@@ -616,7 +616,7 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Root_Command:
 			root_want(c, v.conv, v.root)
 		case Status_Command:
-			status_set(c, v.text, v.until)
+			status_set(c, v.text, v.until, v.at)
 		case Avatar_Command:
 			// The client takes over the JPEG, so it must not be freed twice.
 			avatar_set(c, v.image, v.remove)
@@ -660,7 +660,7 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Purge_Command:
 			purge_start(c, v)
 		case Activity_Command:
-			activity_set(c, v.activity)
+			activity_set(c, v.activity, v.at)
 		case Idle_Command:
 			idle_set(c, v.idle, v.hidden)
 		case Push_Subscribe_Command:

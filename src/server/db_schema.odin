@@ -379,6 +379,13 @@ MIGRATIONS := [?]string {
 	CREATE INDEX push_subs_account ON push_subs(account);
 	CREATE INDEX push_subs_device ON push_subs(device);
 	`,
+	// 26: when an account last chose its activity and set its status, so that
+	// clients connected to several servers can keep the newest on all of them
+	// (proto.self_times).
+	`
+	ALTER TABLE accounts ADD COLUMN activity_at INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE accounts ADD COLUMN status_at INTEGER NOT NULL DEFAULT 0;
+	`,
 }
 
 // The version a database has once it has been through every step.

@@ -69,6 +69,8 @@ send_self :: proc(u: ^Conn) {
 			acc.email,
 			acc.verify_code,
 			proto.Unix_Ms(acc.verify_expires),
+			proto.Unix_Ms(acc.chosen_at),
+			proto.Unix_Ms(acc.status_at),
 		),
 	)
 }

@@ -55,6 +55,10 @@ Auth_Client :: struct {
 	chosen:      proto.Activity,
 	idle:        bool,
 	hidden:      bool,
+	// When we chose the activity and set our status, as reported in Self
+	// (0 if the server doesn't say). See the UI's status_sync.
+	chosen_at:   proto.Unix_Ms,
+	status_at:   proto.Unix_Ms,
 	email:       string, // ours, as reported in Self; owned
 	// While our email address is not verified: the code that a mail to the
 	// server has to contain (owned), and when the account is removed if it
@@ -504,6 +508,7 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 		}
 		a.me, a.permissions, a.flags = me, permissions, flags
 		a.chosen = proto.self_activity(body)
+		a.chosen_at, a.status_at = proto.self_times(body)
 		delete(a.email)
 		a.email = strings.clone(proto.self_email(body))
 		code, by := proto.self_verify(body)
@@ -906,6 +911,7 @@ publish_login :: proc(c: ^Voice_Client) {
 	v.me = a.me
 	v.permissions = a.permissions
 	v.my_activity = a.chosen
+	v.my_activity_at, v.my_status_at = a.chosen_at, a.status_at
 }
 
 // publish_directory hands the UI the accounts as we know them now, and the names

@@ -117,8 +117,16 @@ profile_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		log.infof("%s is now called %q", conn_label(u), display)
 		changed = true
 	}
-	if p.mask & proto.PROFILE_STATUS != 0 && (status != acc.status || until != acc.status_until) {
-		if !account_set_status(&s.accounts, acc, status, until) {
+	// A status copied from another server (one that says when it was set)
+	// only replaces an older one.
+	status_at := i64(p.status_at)
+	if status_at == 0 {
+		status_at = unix_ms()
+	}
+	if p.mask & proto.PROFILE_STATUS != 0 &&
+	   (p.status_at == 0 || status_at > acc.status_at) &&
+	   (status != acc.status || until != acc.status_until) {
+		if !account_set_status(&s.accounts, acc, status, until, status_at) {
 			respond(u, id, .Internal)
 			return
 		}
@@ -168,15 +176,23 @@ is_avatar :: proc(s: ^Server, blob: proto.Blob_Id) -> bool {
 	return false
 }
 
-account_set_status :: proc(a: ^Accounts, acc: ^Account, status: string, until: i64) -> bool {
+// account_set_status sets an account's status, which was set at `at`.
+account_set_status :: proc(
+	a: ^Accounts,
+	acc: ^Account,
+	status: string,
+	until: i64,
+	at: i64,
+) -> bool {
 	q := db_stmt(a.db, .Account_Set_Status)
 	db_bind_int(q, 1, i64(acc.id))
 	db_bind_text(q, 2, status)
 	db_bind_int(q, 3, until)
+	db_bind_int(q, 4, at)
 	db_run(a.db, q) or_return
 	delete(acc.status)
 	acc.status = strings.clone(status)
-	acc.status_until = until
+	acc.status_until, acc.status_at = until, at
 	return true
 }
 
@@ -210,7 +226,9 @@ statuses_expire :: proc(s: ^Server, now: i64) {
 		if acc.status_until == 0 || acc.status_until > now {
 			continue
 		}
-		if account_set_status(&s.accounts, acc, "", 0) {
+		// Expiring is part of the status that was set, not a new one, so
+		// it keeps the time it was set. Every server expires it by itself.
+		if account_set_status(&s.accounts, acc, "", 0, acc.status_at) {
 			account_changed(s, acc)
 		}
 	}
