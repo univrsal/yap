@@ -700,7 +700,9 @@ conn_left :: proc(s: ^Server, u: ^Conn) {
 			break
 		}
 	}
-	if len(acc.conns) == 0 {
+	// An account that appears offline was last seen when it disappeared
+	// (activity_set), and leaving now mustn't give away that it was here.
+	if len(acc.conns) == 0 && !appears_offline(acc) {
 		account_seen(&s.accounts, acc)
 	}
 	u.account = nil

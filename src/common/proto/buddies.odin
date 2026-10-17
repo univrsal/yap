@@ -18,7 +18,8 @@ package proto
 //
 // Last_Seen asks when accounts were last online, in Unix milliseconds. For an
 // account that is online right now, this is the current time (anyone can see
-// that anyway in the snapshot). For an account that is offline, the time is
+// that anyway in the snapshot). For an account that is offline, or appears
+// offline (see activity.odin), it is when it was last seen online, and it is
 // only revealed to people who have exchanged messages with it, which means
 // that both have posted in the DM between them. For anyone else the answer is
 // LAST_SEEN_HIDDEN, and for an account that doesn't exist it is 0.

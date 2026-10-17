@@ -83,6 +83,11 @@ activity_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		was_hidden := appears_offline(acc)
 		acc.chosen, acc.chosen_at = chosen, at
 		log.debugf("%s is %v now", conn_label(u), chosen)
+		// To everyone else it just went offline, so that is when it was
+		// last seen, until it shows itself again (see last_seen_by).
+		if !was_hidden && appears_offline(acc) && len(acc.conns) > 0 {
+			account_seen(&s.accounts, acc)
+		}
 		// The account's own connections are told what it chose (Self),
 		// and it may appear or disappear in the list of who is here.
 		if was_hidden != appears_offline(acc) {

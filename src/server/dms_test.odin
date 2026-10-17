@@ -285,6 +285,52 @@ test_last_seen :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Invalid)
 }
 
+// An account that appears offline looks like it left when it disappeared:
+// that is when it was last seen, and its connections coming and going
+// meanwhile don't change it.
+@(test)
+test_last_seen_invisible :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	ts_account(t, &ts, "bob", "a password")
+	alice := logged_in(t, &ts, "alice")
+	bob := logged_in(t, &ts, "bob")
+	_, conv := dm_open_as(t, &ts, bob, alice_acc.id)
+	post(t, &ts, bob, conv, "hi", 1)
+	post(t, &ts, alice, conv, "hello", 2)
+	set_activity :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, a: proto.Activity) {
+		buf: [proto.ACTIVITY_SET_SIZE]u8
+		status, _ := ts_ask(t, ts, u, .Activity_Set, proto.encode_activity(&buf, a))
+		testing.expect_value(t, status, proto.Status.Ok)
+	}
+
+	// Last seen a day ago, then back, then invisible: to bob, alice left
+	// just now, not a day ago.
+	ts_disconnect(&ts, alice)
+	day_ago := unix_ms() - 24 * 60 * 60 * 1000
+	alice_acc.last_seen = day_ago
+	alice = logged_in(t, &ts, "alice")
+	before := unix_ms()
+	set_activity(t, &ts, alice, .Offline)
+	gone := last_seen_of(t, &ts, bob, alice_acc.id)
+	testing.expect(t, i64(gone) >= before)
+
+	// Leaving and coming back while invisible gives nothing away.
+	ts_disconnect(&ts, alice)
+	testing.expect_value(t, last_seen_of(t, &ts, bob, alice_acc.id), gone)
+	alice = logged_in(t, &ts, "alice")
+	testing.expect_value(t, last_seen_of(t, &ts, bob, alice_acc.id), gone)
+
+	// Shown again, alice is here, and leaving is seen as usual.
+	set_activity(t, &ts, alice, .Online)
+	testing.expect(t, last_seen_of(t, &ts, bob, alice_acc.id) >= gone)
+	ts_disconnect(&ts, alice)
+	testing.expect(t, alice_acc.last_seen >= i64(gone))
+	testing.expect_value(t, last_seen_of(t, &ts, bob, alice_acc.id), proto.Unix_Ms(alice_acc.last_seen))
+}
+
 @(test)
 test_buddies :: proc(t: ^testing.T) {
 	base, _ := os.temp_directory(context.temp_allocator)
