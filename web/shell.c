@@ -336,9 +336,26 @@ EM_JS(int, yap_video_decodable, (), {
 	return v ? v.decodable() : 0;
 });
 
-EM_JS(void, yap_video_share_start, (), {
+EM_JS(void, yap_video_share_start, (int fps, int kbit, int max_width, int max_height), {
 	const v = Module.yapVideo;
-	if (v) v.start();
+	if (v) v.start(fps, kbit, max_width, max_height);
+});
+
+/* The bitrate the share encodes at now, and the most it was asked for (kbit/s,
+   0 while not sharing); and a new one for it to encode at. */
+EM_JS(int, yap_video_encoding_kbit, (), {
+	const v = Module.yapVideo;
+	return v ? v.encodingKbit() : 0;
+});
+
+EM_JS(int, yap_video_max_kbit, (), {
+	const v = Module.yapVideo;
+	return v ? v.maxKbit() : 0;
+});
+
+EM_JS(void, yap_video_set_bitrate, (int kbit), {
+	const v = Module.yapVideo;
+	if (v) v.setBitrate(kbit);
 });
 
 EM_JS(void, yap_video_share_stop, (), {

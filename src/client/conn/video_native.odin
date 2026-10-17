@@ -596,7 +596,7 @@ video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
 
 // The browser's way of sharing, which on the desktop needs a source: see
 // video_share_source.
-video_share_start :: proc() {}
+video_share_start :: proc(config: Share_Config) {}
 
 video_share_stop :: proc() {
 	if !nv.loaded {

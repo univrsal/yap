@@ -61,15 +61,10 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 }
 
 // The categories a web build excludes: a page has neither global hotkeys nor
-// anything to install (ui_hotkeys_web.odin, ui_install_web.odin), and it
-// shares what the browser's picker offers (ui_share_settings.odin).
+// anything to install (ui_hotkeys_web.odin, ui_install_web.odin).
 @(private = "file")
 CLIENT_CATEGORIES ::
-	~bit_set[Client_Category] {
-		.Hotkeys,
-		.Screen_Sharing,
-		.Install,
-	} when platform.WEB else ~bit_set[Client_Category]{}
+	~bit_set[Client_Category]{.Hotkeys, .Install} when platform.WEB else ~bit_set[Client_Category]{}
 
 // How wide the list of categories is.
 @(private = "file")

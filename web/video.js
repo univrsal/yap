@@ -4,9 +4,11 @@ captures the screen and encodes it, and decodes and shows what somebody
 else shares. The client carries the encoded frames (src/client/video.odin)
 and reaches this through Module.yapVideo (web/shell.c).
 
-Sharing: getDisplayMedia's track is scaled to fit 1920x1080, sampled at
-FPS and encoded as H.264 (Annex B, so every keyframe carries what the
-decoder needs to start). Encoded frames wait in a queue until the client
+Sharing: getDisplayMedia's track is scaled to fit the size the client
+asks for (its share settings), sampled at its frame rate and encoded as
+H.264 at its bitrate (Annex B, so every keyframe carries what the decoder
+needs to start). The client lowers the bitrate when its viewers can't keep
+up (setBitrate), which starts the encoder again at a keyframe. Encoded frames wait in a queue until the client
 pulls them. The frames come from a MediaStreamTrackProcessor where there
 is one, otherwise from a <video> playing the stream, sampled from a
 worker's timer - either keeps going when this tab is hidden, which it
@@ -32,11 +34,7 @@ Neither needs the other: a browser with VideoDecoder but no VideoEncoder
 or getDisplayMedia (a phone) can still watch.
 */
 (() => {
-	const FPS = 30;
-	const BITRATE = 2000000; // what src/client/video.odin paces for, and a bit under
 	const KEY_INTERVAL_MS = 5000;
-	const MAX_LONG_SIDE = 1920;
-	const MAX_SHORT_SIDE = 1080;
 	// Frames the client hasn't pulled; more means it isn't running.
 	const MAX_QUEUED = 30;
 	// Frames waiting in the decoder; more means it can't keep up.
@@ -45,8 +43,21 @@ or getDisplayMedia (a phone) can still watch.
 	// stereo at 48 kHz): half a second. Older audio is dropped.
 	const AUDIO_RATE = 48000;
 	const MAX_AUDIO_QUEUED = AUDIO_RATE;
-	// Constrained Baseline, Main, High, all at level 4 (1080p30).
+	// Constrained Baseline, Main, High, at level 4 (1080p30): for watching
+	// when a keyframe doesn't say, and a sharer's level is chosen by its size
+	// and frame rate (h264Level).
 	const H264_CODECS = ["avc1.42E028", "avc1.4D0028", "avc1.640028"];
+	// H.264's levels from 4 up: the most macroblocks a second and in a
+	// frame each allows.
+	const H264_LEVELS = [
+		[0x28, 245760, 8192], // 4: 1080p30
+		[0x2a, 522240, 8704], // 4.2: 1080p60
+		[0x32, 589824, 22080], // 5: 1440p30
+		[0x33, 983040, 36864], // 5.1: 2160p30
+		[0x34, 2073600, 36864], // 5.2: 2160p60
+		[0x3c, 4177920, 139264], // 6
+		[0x3e, 16711680, 139264], // 6.2
+	];
 	// The other codecs, by their number in src/common/proto/video.odin:
 	// HEVC Main and AV1 Main (8-bit), both at level 5.1 (4K60), which is
 	// as far as a native share goes. Both come without a description:
@@ -94,13 +105,28 @@ or getDisplayMedia (a phone) can still watch.
 		awaitKey: false, // frames were dropped here; only a keyframe may follow
 		lastKey: 0,
 		lastFrame: -Infinity,
+		// What the client asked for (start): frames a second, the bitrate
+		// adapting never goes above (bits a second), and the largest size
+		// (0 keeps the screen's own). `bitrate` is what it encodes at now.
+		fps: 30,
+		maxBitrate: 0,
+		bitrate: 0,
+		maxWidth: 0,
+		maxHeight: 0,
 		audio: null, // { context, source, node } while audio is shared
 		audioQueue: [], // Float32Arrays, interleaved stereo
 		audioQueued: 0, // samples in audioQueue
 	};
 
-	async function start() {
+	async function start(fps, kbit, maxWidth, maxHeight) {
 		if (share.state === STARTING || share.state === LIVE) return;
+		Object.assign(share, {
+			fps: Math.max(1, fps),
+			maxBitrate: kbit * 1000,
+			bitrate: kbit * 1000,
+			maxWidth,
+			maxHeight,
+		});
 		if (!canShare()) {
 			share.state = FAILED;
 			return;
@@ -122,7 +148,11 @@ or getDisplayMedia (a phone) can still watch.
 			return;
 		}
 		const track = stream.getVideoTracks()[0];
-		const codec = track ? await pickCodec() : null;
+		let codec = null;
+		if (track) {
+			const { width = 1920, height = 1080 } = track.getSettings();
+			codec = await pickCodec(...fit(width, height));
+		}
 		if (!current() || !codec) {
 			stream.getTracks().forEach((t) => t.stop());
 			if (current()) {
@@ -157,7 +187,7 @@ or getDisplayMedia (a phone) can still watch.
 			video.srcObject = stream;
 			video.play().catch((e) => console.warn("yap: can't play the capture:", e));
 			share.video = video;
-			share.ticker = ticker(1000 / FPS, () => {
+			share.ticker = ticker(1000 / share.fps, () => {
 				if (video.readyState >= 2) capture(video, video.videoWidth, video.videoHeight);
 			});
 		}
@@ -284,12 +314,14 @@ or getDisplayMedia (a phone) can still watch.
 	release of the same click.
 	*/
 	function displayMedia() {
-		const ask = () => askDisplayMedia(true).catch((e) => {
-			// The audio couldn't be started (Chromium, with no audio
-			// service), which fails the picture too. Better without it.
-			if (!e || e.name !== "NotReadableError") throw e;
-			console.warn("yap: sharing without audio:", e);
-			return askDisplayMedia(false);
+		// If the audio can't be started (as headless Chromium can't
+		// without echo cancellation), the picture fails too: then it's asked
+		// again with less, opening the picker again.
+		const ask = (audio = AUDIO_UNPROCESSED) => askDisplayMedia(audio).catch((e) => {
+			if (!e || e.name !== "NotReadableError" || !audio) throw e;
+			const less = audio === AUDIO_UNPROCESSED ? AUDIO_ECHO_CANCELLED : null;
+			console.warn("yap: sharing " + (less ? "with echo cancellation" : "without audio") + ":", e);
+			return ask(less);
 		});
 		return ask().catch((e) => {
 			if (!e || e.name !== "InvalidStateError") throw e;
@@ -312,13 +344,27 @@ or getDisplayMedia (a phone) can still watch.
 		});
 	}
 
+	/*
+	The shared audio as it plays: Chromium otherwise treats it like a
+	microphone (echo cancellation, noise suppression and automatic gain, all
+	on), which muffles it and makes it pump when it goes quiet. Echo
+	cancellation can only be chosen when the track starts (applyConstraints
+	refuses it later). Never our own page's sound (the others' voices).
+	*/
+	const AUDIO_UNPROCESSED = {
+		restrictOwnAudio: true,
+		echoCancellation: false,
+		noiseSuppression: false,
+		autoGainControl: false,
+	};
+	const AUDIO_ECHO_CANCELLED = { ...AUDIO_UNPROCESSED, echoCancellation: true };
+
+	// askDisplayMedia opens the picker, for audio as `audio` says (null:
+	// none).
 	function askDisplayMedia(audio) {
 		return navigator.mediaDevices.getDisplayMedia({
-			video: { frameRate: { ideal: FPS, max: 30 } },
-			// Never our own page's sound (the others' voices). Turning off
-			// echo cancellation and the like as well made Chromium fail to
-			// start the audio at all (headless, 153).
-			audio: audio ? { restrictOwnAudio: true, echoCancellation: 'false', noiseSuppression: 'false' } : false,
+			video: { frameRate: { ideal: share.fps, max: share.fps } },
+			audio: audio || false,
 			// Offer the whole system's audio with a screen, where the
 			// browser can (Chromium on Windows).
 			systemAudio: audio ? "include" : "exclude",
@@ -343,36 +389,50 @@ or getDisplayMedia (a phone) can still watch.
 		}
 	}
 
-	async function pickCodec() {
+	// pickCodec returns the first H.264 profile the browser encodes at this
+	// size, as "avc1.PPCC" (the level is added by encoderConfig).
+	async function pickCodec(width, height) {
 		for (const codec of H264_CODECS) {
+			const profile = codec.slice(0, 9);
 			try {
-				const support = await VideoEncoder.isConfigSupported(encoderConfig(codec, 1920, 1080));
-				if (support.supported) return codec;
+				const support = await VideoEncoder.isConfigSupported(encoderConfig(profile, width, height));
+				if (support.supported) return profile;
 			} catch (e) {}
 		}
 		return null;
 	}
 
-	function encoderConfig(codec, width, height) {
+	// h264Level is the lowest level (as two hex digits) that takes this size
+	// at the share's frame rate. A level below it makes encoders fail.
+	function h264Level(width, height) {
+		const frame = Math.ceil(width / 16) * Math.ceil(height / 16);
+		const rate = frame * share.fps;
+		const level =
+			H264_LEVELS.find(([, maxRate, maxFrame]) => rate <= maxRate && frame <= maxFrame) ||
+			H264_LEVELS[H264_LEVELS.length - 1];
+		return level[0].toString(16).toUpperCase().padStart(2, "0");
+	}
+
+	function encoderConfig(profile, width, height) {
 		return {
-			codec,
+			codec: profile + h264Level(width, height),
 			width,
 			height,
-			bitrate: BITRATE,
-			framerate: FPS,
+			bitrate: share.bitrate,
+			framerate: share.fps,
 			latencyMode: "realtime",
 			avc: { format: "annexb" },
 		};
 	}
 
-	// fit scales a size down to MAX_LONG_SIDE by MAX_SHORT_SIDE (either
+	// fit scales a size down to the largest the client asked for (either
 	// way round), in the even numbers H.264 wants.
 	function fit(width, height) {
-		const scale = Math.min(
-			1,
-			MAX_LONG_SIDE / Math.max(width, height),
-			MAX_SHORT_SIDE / Math.min(width, height),
-		);
+		const long = Math.max(share.maxWidth, share.maxHeight);
+		const short = Math.min(share.maxWidth, share.maxHeight);
+		const scale = long > 0 && short > 0
+			? Math.min(1, long / Math.max(width, height), short / Math.min(width, height))
+			: 1;
 		const even = (n) => Math.max(2, Math.round((n * scale) / 2) * 2);
 		return [even(width), even(height)];
 	}
@@ -380,8 +440,8 @@ or getDisplayMedia (a phone) can still watch.
 	// capture takes a frame of the screen, if one is due, and encodes it.
 	function capture(source, width, height) {
 		const now = performance.now();
-		// A little slack, so a source at exactly FPS isn't halved.
-		if (now - share.lastFrame < 1000 / FPS - 3 || !width || !height) return;
+		// A little slack, so a source at exactly the frame rate isn't halved.
+		if (now - share.lastFrame < 1000 / share.fps - 3 || !width || !height) return;
 		const [w, h] = fit(width, height);
 		if (w !== share.width || h !== share.height || !share.encoder) {
 			// Also when a shared window changes size.
@@ -443,6 +503,15 @@ or getDisplayMedia (a phone) can still watch.
 		const data = new Uint8Array(chunk.byteLength);
 		chunk.copyTo(data);
 		share.queue.push({ data, ts: Math.round(chunk.timestamp / 1000) >>> 0, key });
+	}
+
+	// setBitrate has the encoder make `kbit` from its next frame, which is a
+	// keyframe (configure). The client asks only now and then for this reason.
+	function setBitrate(kbit) {
+		const bitrate = Math.min(kbit * 1000, share.maxBitrate);
+		if (share.state !== LIVE || bitrate <= 0 || bitrate === share.bitrate) return;
+		share.bitrate = bitrate;
+		if (share.encoder && share.width) configure(share.width, share.height);
 	}
 
 	function stop(state) {
@@ -604,6 +673,11 @@ or getDisplayMedia (a phone) can still watch.
 		nextSize: () => (share.queue.length ? share.queue[0].data.length : -1),
 		pull: () => share.queue.shift() || null,
 		requestKey: () => { share.wantKey = true; },
+		setBitrate,
+		// What it encodes at now, and what it was asked to, in kbit/s; 0
+		// while it isn't sharing.
+		encodingKbit: () => (share.state === LIVE ? Math.round(share.bitrate / 1000) : 0),
+		maxKbit: () => (share.state === LIVE ? Math.round(share.maxBitrate / 1000) : 0),
 		audioLive: () => share.state === LIVE && !!share.audio,
 		pullAudio,
 		show,

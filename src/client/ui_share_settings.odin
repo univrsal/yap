@@ -8,21 +8,29 @@ import "client:conn"
 import "client:platform"
 import "client:settings"
 
-// The settings' Screen sharing category, on the desktop: how we share (the
-// size preset and, under Advanced, the frame rate, bitrate, encoder and
-// pointer), and whether statistics are shown under the stream we watch. A
-// browser shares what its own picker offers, so a web build has none of this.
+// The settings' Screen sharing category: how we share (the size preset and,
+// under Advanced, the frame rate, bitrate, encoder and pointer), and whether
+// statistics are shown under the stream we watch. In a browser the page picks
+// the encoder and the browser shows the pointer or not, so those two are
+// desktop only.
 //
 // What the server accepts from a sharer (its video.max_kbit) caps the bitrate,
 // and this is said here when it does. Changes apply from the next share.
 // Without the yap_video add-on there is nothing to set, so this says where to
 // put the add-on instead.
 share_settings :: proc(ui: ^UI) {
-	when platform.WEB {
+	ctx := &ui.ctx
+	if platform.WEB && !conn.video_can_share() {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, theme.dim, "This browser can't share its screen.", wrap_text)
+		mu.layout_row(ctx, {-1})
+		if .CHANGE in
+		   mu.checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
+			settings.settings_save(ui.opts.settings_path, ui.settings)
+		}
 		return
 	}
-	ctx := &ui.ctx
-	if !conn.video_can_watch() {
+	if !platform.WEB && !conn.video_can_watch() {
 		mu.layout_row(ctx, {-1})
 		with_text_color(
 			ctx,
@@ -131,6 +139,9 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 
+	when platform.WEB {
+		return
+	}
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Encoder")
 	if choice_button(ui, "share encoder best", "The best that works", cfg.encoder == "") &&

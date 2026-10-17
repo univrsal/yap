@@ -39,7 +39,14 @@ foreign _ {
 	// What the decoder accepts, as bits (1 << codec). It grows as the browser
 	// answers.
 	yap_video_decodable :: proc() -> i32 ---
-	yap_video_share_start :: proc() ---
+	// Opens the browser's picker, then shares at most max_width by max_height
+	// (0: the screen's own size), `fps` frames a second, at `kbit`.
+	yap_video_share_start :: proc(fps, kbit, max_width, max_height: i32) ---
+	// What the share encodes at now, and the most it may (kbit/s, 0 while it
+	// isn't sharing).
+	yap_video_encoding_kbit :: proc() -> i32 ---
+	yap_video_max_kbit :: proc() -> i32 ---
+	yap_video_set_bitrate :: proc(kbit: i32) ---
 	yap_video_share_stop :: proc() ---
 	yap_video_share_state :: proc() -> i32 ---
 	yap_video_upload :: proc(texture: u32, width, height: ^i32) -> i32 ---
@@ -151,8 +158,18 @@ video_decodable :: proc() -> proto.Video_Codecs {
 // The page always encodes H.264, which every viewer can decode.
 video_share_codecs :: proc(codecs: proto.Video_Codecs) {}
 
-video_share_start :: proc() {
-	yap_video_share_start()
+// video_share_start opens the browser's picker and shares what is picked as
+// `config` says (its size, frame rate and bitrate; the page picks the encoder,
+// and the browser whether the pointer shows).
+video_share_start :: proc(config: Share_Config) {
+	yap_video_share_start(i32(config.fps), i32(config.kbit), config.max.x, config.max.y)
+	log.infof(
+		"video: sharing at %d fps, %d kbit/s, at most %dx%d",
+		config.fps,
+		config.kbit,
+		config.max.x,
+		config.max.y,
+	)
 }
 
 video_share_stop :: proc() {
@@ -173,18 +190,23 @@ video_capture_allowed :: proc() -> bool {
 
 video_allow_capture :: proc() {}
 
-// What the page encodes at is not reported; video.odin paces for it.
+// video_share_kbit is the bitrate the page's encoder runs at, which sending is
+// paced for (video.odin); 0 while there is no share.
 video_share_kbit :: proc() -> int {
-	return 0
+	return int(yap_video_encoding_kbit())
 }
 
-// The browser's share does not follow its viewers' reports: the page's encoder
-// keeps to its own bitrate.
+// video_share_max_kbit is the bitrate the share was started at, which adapting
+// never goes above; 0 while there is no share.
 video_share_max_kbit :: proc() -> int {
-	return 0
+	return int(yap_video_max_kbit())
 }
 
-video_share_adapt :: proc(kbit: int) {}
+// video_share_adapt holds the share to `kbit` for its viewers (video.odin). The
+// encoder starts again at it, with a keyframe.
+video_share_adapt :: proc(kbit: int) {
+	yap_video_set_bitrate(i32(kbit))
+}
 
 Video_Source_Kind :: enum {
 	Monitor,

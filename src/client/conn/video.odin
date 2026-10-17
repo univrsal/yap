@@ -42,9 +42,8 @@ import "common:proto"
 // are about the old bitrate and that keyframe, so they are not acted on.
 
 // How fast video goes out, in bytes per second, and how many bytes may go out
-// at once. The rate is above what the encoder is asked for (the browser's 2
-// Mbit/s), so the queue drains after a keyframe. The desktop's share reports
-// its encoding bitrate (video_share_kbit) and goes out at half as much again,
+// at once, while the encoder's bitrate isn't known. A share reports its
+// encoding bitrate (video_share_kbit) and goes out at half as much again,
 // so that a keyframe is spread over several frames instead of one burst whose
 // end router queues would drop.
 VIDEO_SEND_RATE :: 12_000_000 / 8

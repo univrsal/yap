@@ -153,7 +153,7 @@ share_button :: proc(ui: ^UI) {
 		} else {
 			// Straight from the click: the browser only opens its picker for
 			// something the user just did.
-			conn.video_share_start()
+			conn.video_share_start(share_config(ui))
 		}
 	}
 }
