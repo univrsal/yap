@@ -14,9 +14,11 @@ import "common:proto"
 //
 // While we're busy, messages make no sound, but mentions and calls still do.
 
-// Sets the activity the user chose.
+// Sets the activity the user chose: now, or with `at`, the activity chosen
+// then on another server.
 Activity_Command :: struct {
 	activity: proto.Activity,
+	at:       proto.Unix_Ms,
 }
 // Reports that the user of this client has become idle, or is back, and
 // whether the client is hidden (e.g. a web client in a background tab).
@@ -25,12 +27,12 @@ Idle_Command :: struct {
 	hidden: bool,
 }
 
-activity_set :: proc(c: ^Voice_Client, activity: proto.Activity) {
+activity_set :: proc(c: ^Voice_Client, activity: proto.Activity, at: proto.Unix_Ms) {
 	buf: [proto.ACTIVITY_SET_SIZE]u8
 	request(
 		c,
 		.Activity_Set,
-		proto.encode_activity(&buf, activity),
+		proto.encode_activity(&buf, activity, at),
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
 				notify(

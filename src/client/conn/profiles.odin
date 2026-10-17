@@ -30,6 +30,14 @@ import "common:proto"
 // The setting that stores which conversation was looked at last.
 SETTING_VIEW :: "ui/view"
 
+// The setting that says whether our activity, status and talking in a voice
+// chat or a call are shared between this server and the other servers we are
+// connected to (see the UI's status_sync and sounds_frame): STATUS_SHARED_OFF
+// if not, for an account that has nothing to do with our accounts elsewhere.
+// If it isn't set, they are shared.
+SETTING_STATUS_SHARED :: "status/shared"
+STATUS_SHARED_OFF :: "off"
+
 Profile_Client :: struct {
 	// The account's settings as the server has them. Keys and values are
 	// owned.
@@ -44,10 +52,12 @@ Profile_Client :: struct {
 	members_conv: proto.Conv_Id,
 }
 
-// Set our status: `text` ("" for none), expiring at `until` (0: never).
+// Set our status: `text` ("" for none), expiring at `until` (0: never). It
+// is set now, or with `at`, it is the status set then on another server.
 Status_Command :: struct {
 	text:  string, // owned by the command
 	until: proto.Unix_Ms,
+	at:    proto.Unix_Ms,
 }
 // Set our picture to a JPEG that the UI has made (the command takes ownership
 // of it), or with `remove`, remove it.
@@ -179,13 +189,18 @@ setting_put :: proc(c: ^Voice_Client, key, value: string) {
 }
 
 // status_set sets our status.
-status_set :: proc(c: ^Voice_Client, raw: string, until: proto.Unix_Ms) {
+status_set :: proc(c: ^Voice_Client, raw: string, until: proto.Unix_Ms, at: proto.Unix_Ms) {
 	buf: [proto.MAX_STATUS_SIZE]u8
 	text := proto.sanitize_text(raw, buf[:])
-	body_buf: [proto.ACCOUNT_BODY_MAX + proto.MAX_STATUS_SIZE]u8
+	body_buf: [proto.ACCOUNT_BODY_MAX + proto.MAX_STATUS_SIZE + 8]u8
 	body := proto.encode_profile_set(
 		body_buf[:],
-		{mask = proto.PROFILE_STATUS, status = text, status_until = until if text != "" else 0},
+		{
+			mask = proto.PROFILE_STATUS,
+			status = text,
+			status_until = until if text != "" else 0,
+			status_at = at,
+		},
 	)
 	request(c, .Profile_Set, body, profile_done)
 }

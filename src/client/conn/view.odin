@@ -102,6 +102,10 @@ View :: struct {
 	me:                  proto.Account_Id,
 	permissions:         proto.Permissions,
 	my_activity:         proto.Activity, // the activity we chose (activity.odin)
+	// When we chose it and set our status (in accounts), as the server says;
+	// 0 if it doesn't.
+	my_activity_at:      proto.Unix_Ms,
+	my_status_at:        proto.Unix_Ms,
 	accounts:            map[proto.Account_Id]View_Account,
 	// Our account's devices as of the last time they were requested, and how
 	// many times they have arrived.

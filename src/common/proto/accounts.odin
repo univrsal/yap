@@ -27,6 +27,11 @@ package proto
 // 	                        bit 0  [display str8]
 // 	                        bit 1  [status str8][status until u64]
 // 	                        bit 2  [avatar u64]
+// 	                      and with bit 1, optionally [status at u64] after
+// 	                      them all: when the status was set, for a status
+// 	                      copied from another server. It is only applied if
+// 	                      it is newer than the status the server has. If it
+// 	                      is missing or 0, the status is set now.
 // 	Setting_Set           [key str8][value bytes16] (settings.odin)
 // 	Account_Create        [username str8][password str8][display str8]
 // 	                  ->  [account u32]
@@ -39,6 +44,7 @@ package proto
 // 	                      is told when it logs in
 // 	Self                  [account u32][permissions u64][flags u8][activity u8]
 // 	                      [email str8][verify code str8][verify by u64]
+// 	                      [activity at u64][status at u64] (self_times)
 // 	Account_Changed       an account that is new or has changed
 // 	Setting_Changed       [key str8][value bytes16]: one of the account's
 // 	                      settings (settings.odin)
@@ -184,6 +190,7 @@ Profile_Set :: struct {
 	status:       string,
 	status_until: Unix_Ms,
 	avatar:       Blob_Id,
+	status_at:    Unix_Ms, // when the status was set, if not now (see Profile_Set above)
 }
 
 // username_clean converts `raw` to a username by making it lower case. It
@@ -393,6 +400,9 @@ encode_profile_set :: proc(out: []u8, p: Profile_Set) -> []u8 {
 	if p.mask & PROFILE_AVATAR != 0 {
 		put_u64(&w, u64(p.avatar))
 	}
+	if p.mask & PROFILE_STATUS != 0 && p.status_at != 0 {
+		put_u64(&w, u64(p.status_at))
+	}
 	return written(&w)
 }
 
@@ -416,6 +426,9 @@ decode_profile_set :: proc(body: []u8) -> (p: Profile_Set, ok: bool) {
 	}
 	if p.mask & PROFILE_AVATAR != 0 {
 		p.avatar = Blob_Id(get_u64(&r))
+	}
+	if p.mask & PROFILE_STATUS != 0 && !r.overflow && len(body) - r.pos >= 8 {
+		p.status_at = Unix_Ms(get_u64(&r))
 	}
 	return p, !r.overflow
 }
@@ -554,7 +567,7 @@ decode_account :: proc(body: []u8) -> (a: Account, ok: bool) {
 // the maximum size of Self including the email and the data needed to verify
 // it (verify.odin).
 SELF_FIXED_SIZE :: 4 + 8 + 1 + 1
-SELF_SIZE :: SELF_FIXED_SIZE + 1 + MAX_EMAIL_SIZE + 1 + VERIFY_CODE_SIZE + 8
+SELF_SIZE :: SELF_FIXED_SIZE + 1 + MAX_EMAIL_SIZE + 1 + VERIFY_CODE_SIZE + 8 + 8 + 8
 
 encode_self :: proc(
 	out: ^[SELF_SIZE]u8,
@@ -565,6 +578,8 @@ encode_self :: proc(
 	email := "", // self_email
 	verify_code := "", // self_verify
 	verify_by := Unix_Ms(0),
+	activity_at := Unix_Ms(0), // self_times
+	status_at := Unix_Ms(0),
 ) -> []u8 {
 	w := Writer {
 		buf = out[:],
@@ -576,7 +591,31 @@ encode_self :: proc(
 	put_str8(&w, email)
 	put_str8(&w, verify_code)
 	put_u64(&w, u64(verify_by))
+	put_u64(&w, u64(activity_at))
+	put_u64(&w, u64(status_at))
 	return written(&w)
+}
+
+// self_times returns when the account last chose its activity and when it
+// last set its status, from a Self. Clients that are connected to several
+// servers keep the newest of each on all of them (see Activity_Set and
+// Profile_Set). Both are 0 if the server doesn't say.
+self_times :: proc(body: []u8) -> (activity_at, status_at: Unix_Ms) {
+	if len(body) <= SELF_FIXED_SIZE {
+		return
+	}
+	r := Reader {
+		buf = body[SELF_FIXED_SIZE:],
+	}
+	_ = get_str8(&r)
+	_ = get_str8(&r)
+	_ = get_u64(&r)
+	activity_at = Unix_Ms(get_u64(&r))
+	status_at = Unix_Ms(get_u64(&r))
+	if r.overflow {
+		return 0, 0
+	}
+	return
 }
 
 // self_verify returns what is needed to verify the account's address, from the

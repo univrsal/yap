@@ -88,9 +88,20 @@ Net_Session :: struct {
 	// than the server's (see servers_frame).
 	dm_unread:       int,
 	// Whether our voice is in a room or a call here, and whether it is on
-	// another server as the session was last told (see sounds_frame).
+	// another server as the session was last told (see sounds_frame). The
+	// same for talking in a room or a call (proto.TALKING), which the server
+	// is told so that it can show it.
 	voice_busy:      bool,
 	voice_elsewhere: bool,
+	// Whether the server can be told our activity and status as of this
+	// frame (it is connected and we are logged in), whether they are shared
+	// with our other servers (see status_shared), and what status_sync last
+	// copied to it, and when.
+	status_ready:    bool,
+	status_shared:   bool,
+	status_copied:   Status_Copied,
+	talking:         proto.User_Flags,
+	talking_told:    proto.User_Flags,
 	// When the server was last asked when the people in the inbox were
 	// last online, and how many of them were online then. If fewer are online
 	// now, someone just left and it is worth asking again (see ask_last_seen).
@@ -157,6 +168,10 @@ UI :: struct {
 	// dialog is included here too, although it is not on the rail (see ui_join.odin).
 	sessions:            [dynamic]^Net_Session,
 	join:                UI_Join,
+	// In a web build, the joined server that this page's relay reaches: the
+	// only one with a plain address that is connected (see relay_blocked).
+	// Owned; "" if none has been chosen.
+	relay_server:        string,
 	rail:                UI_Rail, // its menu, and dragging (ui_servers.odin)
 	// Messages unread on every server, in channels and DMs that aren't
 	// muted. Used for the window's title and the tray (see servers_frame).
@@ -520,6 +535,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	tray_update(ui)
 	thumbbar_update(ui)
 	activity_step(ui)
+	status_sync(ui)
 	push_frame(ui)
 	if ui.hidden {
 		ui.meter_shown = false
@@ -752,6 +768,7 @@ settle :: proc(ui: ^UI) {
 ui_shutdown :: proc(ui: ^UI) {
 	disconnect_all(ui)
 	delete(ui.sessions)
+	delete(ui.relay_server)
 	hotkeys_stop(ui)
 	tray_hide(ui)
 	monitor_stop(ui)
@@ -1063,6 +1080,12 @@ connect_joined :: proc(ui: ^UI) {
 	} else if len(ui.settings.joined_servers) > 0 {
 		first = ui.settings.joined_servers[0].address
 	}
+	when platform.WEB {
+		relay_claim(ui, first)
+		for r in ui.settings.joined_servers {
+			relay_claim(ui, r.address)
+		}
+	}
 	for r in ui.settings.joined_servers {
 		this := r.address == first
 		connect_to(ui, r.address, r.password, ui.opts.channel if this else "", show = this)
@@ -1129,7 +1152,9 @@ connect_to :: proc(
 	} else {
 		ns.stash.gains_for = {}
 	}
-	net_start(ns)
+	if !relay_blocked(ui, ns) {
+		net_start(ns)
+	}
 	return ns
 }
 
@@ -1231,6 +1256,7 @@ disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	}
 	settings.leave_server(&ui.settings, ns.server)
 	save_settings(ui)
+	relay_release(ui, ns.server)
 	in_voice: bool
 	{
 		sync.guard(&ns.view.mutex)
@@ -1571,7 +1597,7 @@ connect_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case v.status == .Failed && v.error != "":
-		with_text_color(ctx, theme.error, v.error, mu.text)
+		with_text_color(ctx, theme.error, v.error, wrap_text)
 	case v.status == .Failed:
 		with_text_color(ctx, theme.error, "Could not connect.", mu.text)
 	case:

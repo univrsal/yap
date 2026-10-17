@@ -194,7 +194,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 				   {.ALIGN_CENTER},
 			   ) &&
 		   ui.view.my_activity != a {
-			conn.push_command(&ui.session.client.commands, conn.Activity_Command{activity = a})
+			activity_set_all(ui, a)
 		}
 		ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT] = saved, saved_text
 	}
@@ -264,14 +264,10 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	switch {
 	case cleared:
-		conn.push_command(&ui.session.client.commands, conn.Status_Command{})
+		status_set_all(ui, "", 0)
 		p.editing = false
 	case saved:
-		text := strings.trim_space(string(p.buf[:p.len]))
-		conn.push_command(
-			&ui.session.client.commands,
-			conn.Status_Command{text = strings.clone(text), until = until},
-		)
+		status_set_all(ui, strings.trim_space(string(p.buf[:p.len])), until)
 		log.debug("ui: set a status")
 		p.editing = false
 	}

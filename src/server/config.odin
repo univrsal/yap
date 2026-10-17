@@ -29,7 +29,8 @@ import "common:proto"
 //			"enabled": false,
 //			"port": 8080,
 //			"bind": "",
-//			"web_dir": "web/out"
+//			"web_dir": "web/out",
+//			"allow_sites": []
 //		},
 //		"api": {
 //			"enabled": false,
@@ -110,7 +111,16 @@ import "common:proto"
 //            in a release archive. `bind` is the address to listen on, e.g.
 //            127.0.0.1 when a reverse proxy on this machine is the only way
 //            in (which it should be: see api). If empty, it listens on all
-//            interfaces.
+//            interfaces. `allow_sites` lists the other sites whose web
+//            clients may connect through the relay, as origins
+//            ("https://chat.example.org"), or ["*"] for any. Without it, only
+//            pages of this relay's own site may (see relay_site_allowed).
+//            Allowing others lets a web client opened on another server's page
+//            join this server too. Keep it empty for a server that is only
+//            reachable inside a private network. Behind a reverse proxy, the
+//            proxy has to pass on the Host it was asked for (or set
+//            X-Forwarded-Host), or the relay's own web client is refused too
+//            unless its address is listed here.
 // api        The bot API (see docs/bot-api and common/gateway): HTTP and JSON
 //            for programs. It is served on the relay's port under /api/,
 //            whether the relay is enabled or not (without the relay, the port
@@ -266,10 +276,11 @@ Attach_Config :: struct {
 }
 
 Relay_Config :: struct {
-	enabled: bool,
-	port:    int,
-	bind:    string,
-	web_dir: string,
+	enabled:     bool,
+	port:        int,
+	bind:        string,
+	web_dir:     string,
+	allow_sites: []string, // as written, then normalized (see site_origin)
 }
 
 Api_Config :: struct {
@@ -455,6 +466,18 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 		if relay.bind != "" && net.parse_address(relay.bind) == nil {
 			log.errorf("%s: the relay's bind %q is not an IP address", path, relay.bind)
 			return
+		}
+		for &site in relay.allow_sites {
+			origin, origin_ok := site_origin(site)
+			if !origin_ok {
+				log.errorf(
+					"%s: the relay's allow_sites entry %q is neither \"*\" nor an origin such as \"https://chat.example.org\"",
+					path,
+					site,
+				)
+				return
+			}
+			site = origin
 		}
 	}
 	if relay.web_dir == "" {

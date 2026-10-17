@@ -426,6 +426,66 @@ test_lite_restart :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_lite_duplicate :: proc(t: ^testing.T) {
+	ts: Test_Server
+	lt_open(t, &ts)
+	defer lt_close(&ts)
+	ts_account(t, &ts, "admin", "admin's password", {.Owner})
+	admin := ts_connect(&ts)
+	status, _ := ts_login(t, &ts, admin, "admin", "admin's password")
+	testing.expect_value(t, status, proto.Status.Ok)
+	key: ecdh.Private_Key
+	lt_bot(t, &ts, admin, "helper", &key)
+
+	h1: Heard
+	defer heard_destroy(&h1)
+	first: lite.Client
+	testing.expect(t, lite.open(&first, &key, lt_options(&ts, &h1)))
+	defer lite.close(&first)
+	if !lt_until(t, &ts, &first, .Ready) {
+		return
+	}
+	instance := first.instance
+
+	// A second client with the same key, while the first one is still in
+	// use, is refused, and the first one keeps its connection.
+	{
+		h2: Heard
+		defer heard_destroy(&h2)
+		second: lite.Client
+		testing.expect(t, lite.open(&second, &key, lt_options(&ts, &h2)))
+		defer lite.close(&second)
+		for _ in 0 ..< 5000 {
+			if second.phase == .Failed {
+				break
+			}
+			lt_turn(&ts, &first, &second)
+		}
+		testing.expect_value(t, second.failure, lite.Failure.Refused)
+		testing.expect_value(t, second.refusal, proto.Refusal.Already_Connected)
+		lt_settle(&ts, &first)
+		testing.expect_value(t, first.phase, lite.Phase.Ready)
+		testing.expect_value(t, first.instance, instance)
+		testing.expect(t, lite.request(&first, .Server_Info, nil, answered))
+		lt_settle(&ts, &first)
+		testing.expect_value(t, len(h1.answers), 1)
+	}
+
+	// Once the first one has been silent for a while (it crashed), a new
+	// client with the key takes the connection over.
+	for _, sess in ts.s.sessions {
+		sess.last_recv = time.tick_add(time.tick_now(), -CONN_IN_USE - time.Second)
+	}
+	h3: Heard
+	defer heard_destroy(&h3)
+	third: lite.Client
+	testing.expect(t, lite.open(&third, &key, lt_options(&ts, &h3)))
+	defer lite.close(&third)
+	lt_until(t, &ts, &third, .Ready)
+	testing.expect(t, third.instance != instance)
+}
+
+@(test)
 test_lite_logged_out :: proc(t: ^testing.T) {
 	ts: Test_Server
 	lt_open(t, &ts)

@@ -4,6 +4,7 @@ import log "common:wlog"
 import "core:time"
 
 import "client:audio"
+import "common:proto"
 
 // Which sound each event plays is the UI's to say (Sound_Command, from the
 // settings). What plays when is decided here and in the places the events
@@ -19,9 +20,12 @@ Sound_Command :: struct {
 }
 
 // Whether our voice is busy on another server (in a room or a call there), so
-// that a call here knocks instead of ringing.
+// that a call here knocks instead of ringing, and whether we are talking in a
+// voice room or a call there (proto.TALKING), which this server is told so
+// that it can show it (see drive_sound).
 Voice_Elsewhere_Command :: struct {
-	busy: bool,
+	busy:    bool,
+	talking: proto.User_Flags,
 }
 
 // sound_command returns the command that gives `kind` the sound `name`. A name

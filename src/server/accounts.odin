@@ -28,9 +28,11 @@ Account :: struct {
 	display:        string, // owned
 	flags:          proto.Account_Flags,
 	// Its status text (owned; "" for none), when the status ends
-	// (0 if it never does) and its picture (profiles.odin).
+	// (0 if it never does), when it was set (0 if unknown) and its
+	// picture (profiles.odin).
 	status:         string,
 	status_until:   i64,
+	status_at:      i64,
 	avatar:         proto.Blob_Id,
 	// Its email address (owned; "" for none). It is lower case and no
 	// other account has the same one. Only the account itself is told it.
@@ -54,9 +56,11 @@ Account :: struct {
 	// Whether everyone isn't shown that it is talking in a voice room or a
 	// call (its setting proto.SETTING_VOICE_SHOWN, see sync_state).
 	voice_hidden:   bool,
-	// The activity it chose (online, away, busy or offline) and the
-	// activity everyone was last told it has (activity.odin).
+	// The activity it chose (online, away, busy or offline), when it
+	// chose it (0 if unknown), and the activity everyone was last told it
+	// has (activity.odin).
 	chosen:         proto.Activity,
+	chosen_at:      i64,
 	shown:          proto.Activity,
 	created:        i64, // Unix milliseconds
 	last_seen:      i64, // when its last connection left; 0 if it never connected
@@ -127,6 +131,8 @@ accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 		acc.digest, _ = proto.email_digest_parse(db_col_text(q, 14))
 		acc.push_hide = db_col_text(q, 15) == proto.PUSH_TEXT_HIDDEN
 		acc.voice_hidden = db_col_text(q, 16) == proto.VOICE_SHOWN_HIDDEN
+		acc.chosen_at = db_col_int(q, 17)
+		acc.status_at = db_col_int(q, 18)
 		acc.shown = .Offline // nobody is connected yet
 		a.by_id[acc.id] = acc
 		a.by_name[acc.username] = acc

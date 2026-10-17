@@ -248,6 +248,15 @@ check_alive :: proc(c: ^Voice_Client) {
 		c.last_recv = now
 	}
 	c.last_step = now
+	if !c.lost && transport_never_opened(&c.transport) {
+		// A browser doesn't tell a page why, so this says what it usually is.
+		log.warnf("could not open a WebSocket to %s, trying again every %v", c.server_addr, RECONNECT_EVERY)
+		connection_lost(
+			c,
+			"Could not connect. Check the address, and that the server allows web clients from this site.",
+		)
+		return
+	}
 	if c.lost || time.tick_diff(c.last_recv, now) <= CONNECTION_LOST {
 		return
 	}
@@ -551,6 +560,11 @@ refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
 		return fmt.tprintf("The password for %s is wrong.", c.server_addr)
 	case .Version:
 		return fmt.tprintf("%s runs an incompatible version of yap.", c.server_addr)
+	case .Already_Connected:
+		return fmt.tprintf(
+			"Another client is already connected to %s with this key. Close it and try again.",
+			c.server_addr,
+		)
 	}
 	return fmt.tprintf("%s refused the connection.", c.server_addr)
 }

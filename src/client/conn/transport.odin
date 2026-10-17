@@ -24,3 +24,4 @@ package conn
 // 	transport_send(t, packet) -> bool
 // 	transport_recv(t, buf) -> (packet, ok)   // ok = false: nothing waiting
 // 	transport_revive(t)                      // reopen a socket that has died
+// 	transport_never_opened(t) -> bool        // it keeps failing, never having been open

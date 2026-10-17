@@ -26,6 +26,9 @@ Channel_Client :: struct {
 	// What we have switched off for ourselves, which others can see. It is
 	// sent with Sound until a snapshot shows that the server has it.
 	sound:           proto.User_Flags,
+	// Whether we are talking on another server (In_Voice or In_Call), which
+	// is sent with Sound as well (see Voice_Elsewhere_Command).
+	talking:         proto.User_Flags,
 	last_sound_sent: time.Tick,
 }
 
@@ -95,8 +98,9 @@ set_sound :: proc(c: ^Voice_Client, flag: proto.User_Flag, on: bool) {
 	c.channels.last_sound_sent = {}
 }
 
-// drive_sound resends Sound while the server shows different flags. Sending it
-// is idempotent, so repeats and reordering are harmless.
+// drive_sound resends Sound while the server shows different flags than it
+// would with ours. Sending it is idempotent, so repeats and reordering are
+// harmless.
 drive_sound :: proc(c: ^Voice_Client) {
 	ch := &c.channels
 	if !ch.have_state ||
@@ -105,13 +109,33 @@ drive_sound :: proc(c: ^Voice_Client) {
 		return
 	}
 	me := proto.find_user(&ch.state, ch.state.your_user)
-	if me == nil || me.flags == ch.sound {
+	flags := ch.sound + ch.talking
+	if me == nil || me.flags == shown_flags(c, me.room, flags) {
 		return
 	}
 	buf: [proto.SOUND_SIZE]byte
-	send_data(c, proto.encode_sound(&buf, ch.sound))
+	send_data(c, proto.encode_sound(&buf, flags))
 	ch.last_sound_sent = time.tick_now()
-	log.debugf("sending sound state %v", ch.sound)
+	log.debugf("sending sound state %v", flags)
+}
+
+// shown_flags returns the flags the server shows for us once it has the ones
+// we send (server/server.odin, presence_list): whether we are talking is its
+// to say while we are in one of its rooms, and nobody is told if we chose not
+// to show it.
+@(private = "file")
+shown_flags :: proc(c: ^Voice_Client, room: proto.Room, sent: proto.User_Flags) -> proto.User_Flags {
+	flags := sent - proto.TALKING
+	switch {
+	case (c.profiles.shared[proto.SETTING_VOICE_SHOWN] or_else "") == proto.VOICE_SHOWN_HIDDEN:
+	case room != 0:
+		flags += {.In_Call} if proto.room_call(room) != 0 else {.In_Voice}
+	case .In_Call in sent:
+		flags += {.In_Call}
+	case:
+		flags += sent & {.In_Voice}
+	}
+	return flags
 }
 
 handle_state_message :: proc(c: ^Voice_Client, pt: []byte) {
@@ -592,7 +616,7 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Root_Command:
 			root_want(c, v.conv, v.root)
 		case Status_Command:
-			status_set(c, v.text, v.until)
+			status_set(c, v.text, v.until, v.at)
 		case Avatar_Command:
 			// The client takes over the JPEG, so it must not be freed twice.
 			avatar_set(c, v.image, v.remove)
@@ -636,7 +660,7 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Purge_Command:
 			purge_start(c, v)
 		case Activity_Command:
-			activity_set(c, v.activity)
+			activity_set(c, v.activity, v.at)
 		case Idle_Command:
 			idle_set(c, v.idle, v.hidden)
 		case Push_Subscribe_Command:
@@ -697,6 +721,10 @@ process_commands :: proc(c: ^Voice_Client) {
 			if c.voice_elsewhere != v.busy {
 				c.voice_elsewhere = v.busy
 				loop_sounds(c)
+			}
+			if talking := v.talking & proto.TALKING; c.channels.talking != talking {
+				c.channels.talking = talking
+				c.channels.last_sound_sent = {}
 			}
 		case App_Audio_Command:
 			c.voice.app_volume = clamp(v.volume, 0, settings.MAX_USER_VOLUME)

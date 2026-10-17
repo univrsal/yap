@@ -62,16 +62,26 @@ activity_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	acc := u.account
+	// An activity copied from another server (one that says when it was
+	// chosen) only replaces an older one.
+	at := i64(proto.decode_activity_at(body))
+	if at == 0 {
+		at = unix_ms()
+	} else if at <= acc.chosen_at {
+		respond(u, id, .Ok)
+		return
+	}
 	if chosen != acc.chosen {
 		q := db_stmt(&s.db, .Account_Set_Activity)
 		db_bind_int(q, 1, i64(acc.id))
 		db_bind_int(q, 2, i64(chosen))
+		db_bind_int(q, 3, at)
 		if !db_run(&s.db, q) {
 			respond(u, id, .Internal)
 			return
 		}
 		was_hidden := appears_offline(acc)
-		acc.chosen = chosen
+		acc.chosen, acc.chosen_at = chosen, at
 		log.debugf("%s is %v now", conn_label(u), chosen)
 		// The account's own connections are told what it chose (Self),
 		// and it may appear or disappear in the list of who is here.

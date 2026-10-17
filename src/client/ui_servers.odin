@@ -1,6 +1,7 @@
 package client
 
 import "client:conn"
+import "client:platform"
 import "client:render"
 import "client:settings"
 import glfw "client:wglfw"
@@ -120,6 +121,66 @@ leave_voice_elsewhere :: proc(ui: ^UI, here: ^Net_Session = nil) {
 		} else {
 			conn.push_command(&ns.client.commands, conn.Voice_Command{})
 		}
+	}
+}
+
+// A web page can only reach servers through a relay (server/relay.odin), and
+// a plain host:port goes to the relay beside the page (conn.transport_open),
+// which takes it to its own server whatever address was asked for. So in a
+// web build, only one joined server with a plain address can be connected: the
+// one the page was opened for (?server=), or else the first one. Any other is
+// shown as not reachable from this page, instead of connecting to the page's
+// server a second time under another name. A server given as a relay's address
+// (ws:// or wss://) is reached through that relay and is never affected.
+
+// relay_plain is whether an address goes through the page's own relay.
+@(private = "file")
+relay_plain :: proc(server: string) -> bool {
+	return(
+		server != "" &&
+		!strings.has_prefix(server, "ws://") &&
+		!strings.has_prefix(server, "wss://") \
+	)
+}
+
+// relay_claim makes `server` the one the page's relay reaches, if it has a
+// plain address and no other server has been chosen yet.
+relay_claim :: proc(ui: ^UI, server: string) {
+	if ui.relay_server == "" && relay_plain(server) {
+		ui.relay_server = strings.clone(server)
+	}
+}
+
+// relay_release lets another server have the page's relay once `server`, if
+// it was the one that had it, is no longer joined.
+relay_release :: proc(ui: ^UI, server: string) {
+	if ui.relay_server != "" && ui.relay_server == server {
+		delete(ui.relay_server)
+		ui.relay_server = ""
+	}
+}
+
+// relay_blocked is whether a new session can't be connected because the page's
+// relay reaches another server (see above). If so, the session is left
+// stopped and says why, instead of being started. Only in a web build.
+relay_blocked :: proc(ui: ^UI, ns: ^Net_Session) -> bool {
+	when !platform.WEB {
+		return false
+	} else {
+		if !relay_plain(ns.server) || ui.relay_server == "" || ui.relay_server == ns.server {
+			return false
+		}
+		log.warnf("ui: not connecting to %s, this page's relay reaches %s", ns.server, ui.relay_server)
+		ns.stopped = true
+		v := &ns.view
+		sync.guard(&v.mutex)
+		v.status = .Failed
+		delete(v.error)
+		v.error = fmt.aprintf(
+			"This page can't reach %s by that address. Leave it and join it by its web address instead, like https://chat.example.org.",
+			ns.server,
+		)
+		return true
 	}
 }
 

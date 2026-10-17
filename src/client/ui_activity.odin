@@ -137,6 +137,177 @@ activity_step :: proc(ui: ^UI) {
 	}
 }
 
+// Our activity and our status are the same on every server we are connected
+// to, except the ones where we chose not to share them (status_shared).
+// Choosing one sets it on all of them (activity_set_all, status_set_all).
+// A server that missed it (it was unreachable, or we were not connected) or
+// that has a newer one (chosen on another device, connected only to that
+// server) is noticed by status_sync, which copies the newest of each to the
+// servers that have something else. Each server says when its own were chosen
+// (proto.self_times), a copy keeps that time, and a server only takes a copy
+// that is newer than what it has, so the servers can't take turns undoing each
+// other.
+
+// Status_Copied is what status_sync last copied to a server: the times of the
+// activity and of the status, and when they were copied.
+Status_Copied :: struct {
+	activity_at:   proto.Unix_Ms,
+	activity_tick: time.Tick,
+	status_at:     proto.Unix_Ms,
+	status_tick:   time.Tick,
+}
+
+// A copy that the server still doesn't show after this long is sent again.
+@(private = "file")
+COPY_RETRY :: 5 * time.Second
+
+// status_shared is whether our activity, status and talking are shared
+// between this server and our other servers (conn.SETTING_STATUS_SHARED).
+// Until the account's settings have arrived, they aren't, so that nothing is
+// shared with a server where we chose not to. Call with the View locked.
+status_shared :: proc(v: ^conn.View) -> bool {
+	return(
+		v.shared_synced &&
+		(v.shared[conn.SETTING_STATUS_SHARED] or_else "") != conn.STATUS_SHARED_OFF \
+	)
+}
+
+// status_target is whether choosing an activity or a status in the window
+// applies to the session's server: the shown one, and if that one shares
+// them, every other one that does too. It goes by Net_Session.status_ready
+// and .status_shared (from status_sync) and takes no View's lock, because the
+// status window has the shown one locked.
+@(private = "file")
+status_target :: proc(ui: ^UI, ns: ^Net_Session) -> bool {
+	if !ns.status_ready {
+		return false
+	}
+	if ns == ui.session {
+		return true
+	}
+	return ui.session != nil && ui.session.status_shared && ns.status_shared
+}
+
+// activity_set_all chooses our activity on every server it applies to
+// (status_target).
+activity_set_all :: proc(ui: ^UI, a: proto.Activity) {
+	for ns in ui.sessions {
+		if status_target(ui, ns) {
+			conn.push_command(&ns.client.commands, conn.Activity_Command{activity = a})
+		}
+	}
+}
+
+// status_set_all sets our status on every server it applies to
+// (status_target): "" for none, clearing itself at `until` (0 for never).
+status_set_all :: proc(ui: ^UI, text: string, until: proto.Unix_Ms) {
+	for ns in ui.sessions {
+		if status_target(ui, ns) {
+			conn.push_command(
+				&ns.client.commands,
+				conn.Status_Command{text = strings.clone(text), until = until},
+			)
+		}
+	}
+}
+
+// status_sync notes which servers can be told our activity and status and
+// which share them (Net_Session.status_ready and .status_shared), and copies
+// the newest activity and the newest status among those that share them to
+// the ones that have something else (see above). It is called before the
+// frame is drawn, with no View locked.
+status_sync :: proc(ui: ^UI) {
+	Mine :: struct {
+		known:        bool,
+		activity:     proto.Activity,
+		activity_at:  proto.Unix_Ms,
+		status:       string, // in the temp allocator
+		status_until: proto.Unix_Ms,
+		status_at:    proto.Unix_Ms,
+	}
+	mine := make([]Mine, len(ui.sessions), context.temp_allocator)
+	newest_activity, newest_status := -1, -1
+	for ns, i in ui.sessions {
+		ns.status_ready, ns.status_shared = false, false
+		if ns.joining {
+			continue
+		}
+		v := &ns.view
+		sync.guard(&v.mutex)
+		if v.status != .Connected || v.login.state != .Done {
+			continue
+		}
+		ns.status_ready = true
+		ns.status_shared = status_shared(v)
+		if !ns.status_shared {
+			continue
+		}
+		me, ok := v.accounts[v.me]
+		if !ok {
+			continue
+		}
+		m := &mine[i]
+		m^ = {
+			known        = true,
+			activity     = v.my_activity,
+			activity_at  = v.my_activity_at,
+			status       = strings.clone(me.status, context.temp_allocator),
+			status_until = me.status_until,
+			status_at    = v.my_status_at,
+		}
+		// Only a server that says when can have the newest.
+		if m.activity_at != 0 &&
+		   (newest_activity < 0 || m.activity_at > mine[newest_activity].activity_at) {
+			newest_activity = i
+		}
+		if m.status_at != 0 &&
+		   (newest_status < 0 || m.status_at > mine[newest_status].status_at) {
+			newest_status = i
+		}
+	}
+
+	now := time.tick_now()
+	for ns, i in ui.sessions {
+		m := mine[i]
+		if !m.known {
+			continue
+		}
+		copied := &ns.status_copied
+		if newest_activity >= 0 {
+			n := mine[newest_activity]
+			if m.activity != n.activity &&
+			   n.activity_at > m.activity_at &&
+			   (copied.activity_at != n.activity_at ||
+					   time.tick_diff(copied.activity_tick, now) >= COPY_RETRY) {
+				copied.activity_at, copied.activity_tick = n.activity_at, now
+				log.infof("ui: copying the activity %v to %s", n.activity, ns.server)
+				conn.push_command(
+					&ns.client.commands,
+					conn.Activity_Command{activity = n.activity, at = n.activity_at},
+				)
+			}
+		}
+		if newest_status >= 0 {
+			n := mine[newest_status]
+			if (m.status != n.status || m.status_until != n.status_until) &&
+			   n.status_at > m.status_at &&
+			   (copied.status_at != n.status_at ||
+					   time.tick_diff(copied.status_tick, now) >= COPY_RETRY) {
+				copied.status_at, copied.status_tick = n.status_at, now
+				log.infof("ui: copying the status to %s", ns.server)
+				conn.push_command(
+					&ns.client.commands,
+					conn.Status_Command {
+						text = strings.clone(n.status),
+						until = n.status_until,
+						at = n.status_at,
+					},
+				)
+			}
+		}
+	}
+}
+
 activity_close :: proc(ui: ^UI) {
 	if ui.activity.opened {
 		idle.close()

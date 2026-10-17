@@ -38,14 +38,22 @@ foreign _ {
 }
 
 Transport :: struct {
-	open:     bool,
-	slot:     i32,
-	url:      string, // owned; what transport_revive opens again
-	retry_at: time.Tick,
+	open:         bool,
+	slot:         i32,
+	url:          string, // owned; what transport_revive opens again
+	retry_at:     time.Tick,
+	// Whether the socket has been open since transport_open, and how many
+	// times it was opened again without that (see transport_never_opened).
+	ever_open:    bool,
+	failed_opens: int,
 }
 
 // How long to wait before opening a socket that has died.
 REVIVE_AFTER :: 2 * time.Second
+
+// After this many failed attempts at a socket that has never been open, it
+// most likely won't be (see transport_never_opened).
+NEVER_OPENED_AFTER :: 3
 
 // transport_open turns the address the user typed into a URL for the relay. A
 // plain host:port becomes a WebSocket to the relay beside this page
@@ -80,6 +88,7 @@ transport_open :: proc(
 	}
 	delete(t.url)
 	t.url = strings.clone(url)
+	t.ever_open, t.failed_opens = false, 0
 	if yap_ws_open(t.slot, strings.clone_to_cstring(url, context.temp_allocator)) == 0 {
 		log.errorf("could not open a WebSocket to %s", url)
 		return false
@@ -107,15 +116,33 @@ transport_close :: proc(t: ^Transport) {
 // as the connection lasts. Once client_step has given up on the connection
 // (CONNECTION_LOST), it only retries when a new connection is attempted.
 transport_revive :: proc(t: ^Transport) {
-	if !t.open || yap_ws_state(t.slot) != -1 {
+	if !t.open {
+		return
+	}
+	switch yap_ws_state(t.slot) {
+	case 1:
+		t.ever_open = true
+		return
+	case 0:
 		return
 	}
 	if t.retry_at != {} && time.tick_diff(time.tick_now(), t.retry_at) > 0 {
 		return
 	}
 	t.retry_at = time.tick_add(time.tick_now(), REVIVE_AFTER)
+	if !t.ever_open {
+		t.failed_opens += 1
+	}
 	log.debugf("the WebSocket on slot %d is closed, opening it again", t.slot)
 	yap_ws_open(t.slot, strings.clone_to_cstring(t.url, context.temp_allocator))
+}
+
+// transport_never_opened is whether the socket keeps failing without ever
+// having been open, which a page isn't told the reason for. Usually the relay
+// refused the page (server/relay.odin, relay_site_allowed), or nothing answers
+// at that address.
+transport_never_opened :: proc(t: ^Transport) -> bool {
+	return t.open && !t.ever_open && t.failed_opens >= NEVER_OPENED_AFTER
 }
 
 transport_send :: proc(t: ^Transport, packet: []byte) -> bool {
@@ -154,6 +181,12 @@ foreign _ {
 	// ws:// or wss:// for the page this was served from, followed by its host,
 	// which is wherever the relay is reachable.
 	yap_ws_origin :: proc(buf: [^]u8, buf_size: i32) -> i32 ---
+}
+
+// relay_scheme is "wss" if this page was served over https and "ws" if not:
+// what a relay's address has to start with for this page to reach it.
+relay_scheme :: proc() -> string {
+	return "wss" if strings.has_prefix(relay_url_prefix(), "wss://") else "ws"
 }
 
 @(private = "file")

@@ -512,6 +512,14 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	c.endpoint = from
 	c.last_recv = time.tick_now()
 
+	if u != nil && u.conn_id != conn_id && conn_in_use(s, u, from) {
+		// A second client with the same key, while the first one is still
+		// there. Taking the key over would only make the two of them take it
+		// from each other in turn.
+		log.infof("%s is already connected, refusing another client", conn_label(u))
+		refuse(s, c, from, .Already_Connected)
+		return
+	}
 	if u != nil && u.conn_id != conn_id {
 		// This is not a rekey: the client has started over and knows
 		// nothing about the old connection. Drop it as if the client had
@@ -572,6 +580,29 @@ bind_bulk :: proc(s: ^Server, c: ^Client, u: ^Conn, conn_id: u64, from: net.Endp
 	supersede(s, c)
 	log.debugf("%s has a new bulk link", conn_label(u))
 	send_welcome(s, c)
+}
+
+// How recently a connection's main link must have been heard from for it to
+// count as in use. Clients ping several times this often (at least once a
+// second), so a connection that is silent for this long has most likely
+// crashed or been closed.
+CONN_IN_USE :: 2 * time.Second
+
+// conn_in_use says whether the connection `u` is still being used by a client
+// other than the one at `from`: one of its main link's sessions was heard
+// from recently, at another address. A client that starts over itself does so
+// from the same socket, so it isn't refused.
+@(private = "file")
+conn_in_use :: proc(s: ^Server, u: ^Conn, from: net.Endpoint) -> bool {
+	for _, other in s.sessions {
+		if other.conn == u &&
+		   !other.bulk &&
+		   other.endpoint != from &&
+		   time.tick_since(other.last_recv) < CONN_IN_USE {
+			return true
+		}
+	}
+	return false
 }
 
 // supersede marks the older sessions on the same link as a new session as
@@ -801,13 +832,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	case .Leave:
 		drop_conn(s, c.conn)
 	case .Sound:
-		// In_Voice and In_Call are the server's to say (sync_state).
-		flags := proto.decode_sound(pt) - {.In_Voice, .In_Call}
-		if flags != c.conn.flags {
-			c.conn.flags = flags
-			log.debugf("%s sound state %v", conn_label(c.conn), flags)
-			bump_version(s)
-		}
+		sound_set(s, c.conn, proto.decode_sound(pt))
 	case .Blob_Chunk:
 		handle_blob_chunk(s, c, pt)
 	case .Blob_Need:
@@ -909,6 +934,21 @@ bump_version :: proc(s: ^Server) {
 	}
 }
 
+// sound_set takes the flags a client sent in Sound. In_Voice and In_Call
+// there mean that it is talking on another server; presence_list decides
+// what is shown. A call is the one shown if it claims both.
+sound_set :: proc(s: ^Server, u: ^Conn, flags: proto.User_Flags) {
+	flags := flags
+	if .In_Call in flags {
+		flags -= {.In_Voice}
+	}
+	if flags != u.flags {
+		u.flags = flags
+		log.debugf("%s sound state %v", conn_label(u), flags)
+		bump_version(s)
+	}
+}
+
 // presence_list returns the list of online users and their rooms, which is
 // the same for everyone, except for users who appear offline (activity.odin):
 // those are only visible to their own account, or to anyone who can see the
@@ -919,11 +959,16 @@ presence_list :: proc(s: ^Server) -> (users: []proto.User_Info, hidden: []bool) 
 	hidden = make([]bool, len(s.conns), context.temp_allocator)
 	next_user := 0
 	for _, u in s.conns {
-		flags := u.flags
-		if u.room != 0 && !u.account.voice_hidden {
+		flags := u.flags - proto.TALKING
+		switch {
+		case u.account.voice_hidden:
+		case u.room != 0:
 			// Everyone may know that they are busy talking, even those who
 			// may not know where (room_hidden).
 			flags += {.In_Call} if proto.room_call(u.room) != 0 else {.In_Voice}
+		case:
+			// Talking on another server, as their client says.
+			flags += u.flags & proto.TALKING
 		}
 		users[next_user] = {
 			num     = u.num,
