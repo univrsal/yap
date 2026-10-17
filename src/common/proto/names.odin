@@ -171,7 +171,10 @@ invisible :: proc(r: rune) -> bool {
 // the client starts over. A `conn_id` that matches the connection the server
 // already has for that client is a rekey. Any other `conn_id` means the
 // client started over, and the old connection is removed as if the client
-// had left.
+// had left. The exception is a second client using the same key: if the old
+// connection was heard from within the last couple of seconds at another
+// address, it is still in use, and the new hello is refused with
+// Already_Connected instead.
 //
 // Each connection has two links. Each link has its own transport (a UDP
 // socket, or a WebSocket on the web) and its own sessions, so that light

@@ -551,6 +551,11 @@ refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
 		return fmt.tprintf("The password for %s is wrong.", c.server_addr)
 	case .Version:
 		return fmt.tprintf("%s runs an incompatible version of yap.", c.server_addr)
+	case .Already_Connected:
+		return fmt.tprintf(
+			"Another client is already connected to %s with this key. Close it and try again.",
+			c.server_addr,
+		)
 	}
 	return fmt.tprintf("%s refused the connection.", c.server_addr)
 }

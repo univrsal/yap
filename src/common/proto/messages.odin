@@ -145,6 +145,10 @@ Refusal :: enum u8 {
 	// names.odin). Either the connection is gone or the main link hasn't been
 	// welcomed yet.
 	No_Connection  = 3,
+	// Another client with the same key is connected and still in use, for
+	// example an old copy of the client that was left open. Only one client
+	// may use a key at a time.
+	Already_Connected = 4,
 }
 
 // A user's own state as everyone else sees it: what they have switched off for
