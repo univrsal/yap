@@ -1,6 +1,10 @@
 #+build wasi
 package conn
 
+import log "common:wlog"
+import "core:sync"
+
+import "client:audio"
 import "client:render"
 import "common:proto"
 
@@ -17,6 +21,11 @@ foreign _ {
 	// Copies the oldest encoded frame into buf and returns its size, or -1 if
 	// there is none (or it does not fit).
 	yap_video_pull :: proc(buf: [^]u8, buf_size: i32, ts: ^u32, key: ^i32) -> i32 ---
+	// 1 while the share carries audio too.
+	yap_video_audio_live :: proc() -> i32 ---
+	// Copies up to `max` samples of the shared audio (interleaved stereo, 48
+	// kHz) into buf and returns how many.
+	yap_video_audio_pull :: proc(buf: [^]f32, max: i32) -> i32 ---
 	// Makes the next frame a keyframe.
 	yap_video_request_key :: proc() ---
 	// Hands a frame from `sharer` to the decoder.
@@ -63,6 +72,30 @@ video_capture_pull :: proc(
 		return nil, 0, false, .H264, false
 	}
 	return data, ts, key_flag != 0, .H264, true
+}
+
+// video_capture_audio moves the audio the browser shares with the picture (a
+// tab's, or the system's with a screen) into the voice's app ring while we are
+// sharing here. It is then sent mixed into our voice, like a native client's
+// shared application (app_mix in audio/voice.odin). Whatever comes while we
+// aren't is dropped.
+video_capture_audio :: proc(v: ^audio.Voice, sharing: bool) {
+	live := sharing && yap_video_audio_live() != 0
+	if live != sync.atomic_load(&v.app_input) {
+		sync.atomic_store(&v.app_input, live)
+		log.infof("screen sharing: audio %s", "on" if live else "off")
+	}
+	buf: [2048]f32
+	for {
+		n := int(yap_video_audio_pull(raw_data(buf[:]), i32(len(buf))))
+		if n <= 0 {
+			break
+		}
+		if live {
+			audio.ring_write(&v.app, buf[:n])
+			sync.atomic_add(&v.app_received, u32(n / audio.CHANNELS))
+		}
+	}
 }
 
 video_capture_request_key :: proc() {

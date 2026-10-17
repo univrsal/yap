@@ -78,6 +78,11 @@ app_audio_available :: proc(ui: ^UI) -> bool {
 	return ui.app_audio.available
 }
 
+// app_audio_setting is whether the settings show how shared audio is sent.
+app_audio_setting :: proc(ui: ^UI) -> bool {
+	return ui.app_audio.available
+}
+
 // app_audio_frame ends a share whose application has gone away.
 app_audio_frame :: proc(ui: ^UI) {
 	s := ui.app_audio.share

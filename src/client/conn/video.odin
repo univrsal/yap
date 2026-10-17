@@ -261,6 +261,7 @@ video_step :: proc(c: ^Voice_Client) {
 			video_queue_frame(v, data, ts, key, codec)
 		}
 	}
+	video_capture_audio(&c.voice, v.sharing)
 	if v.want_key {
 		video_capture_request_key()
 		v.want_key = false

@@ -9,6 +9,7 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 
+import "client:audio"
 import "client:render"
 import "common:proto"
 import log "common:wlog"
@@ -312,6 +313,10 @@ yv_log :: proc "c" (user: rawptr, level: i32, msg: cstring) {
 		log.errorf("yap_video: %s", msg)
 	}
 }
+
+// A native share has no audio of its own: an application's is shared on its
+// own (ui_app_audio_native.odin), and owns the voice's app ring.
+video_capture_audio :: proc(v: ^audio.Voice, sharing: bool) {}
 
 video_capture_live :: proc() -> bool {
 	return video_share_state() == .Live

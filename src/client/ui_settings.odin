@@ -389,7 +389,7 @@ audio_settings :: proc(ui: ^UI) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
-	if app_audio_available(ui) {
+	if app_audio_setting(ui) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
 		   mu.checkbox(
@@ -398,12 +398,8 @@ audio_settings :: proc(ui: ^UI) {
 			   &ui.settings.mute_app_audio_with_mic,
 		   ) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
-			if ui.session != nil {
-				conn.push_command(
-					&ui.session.client.commands,
-					conn.app_audio_command(&ui.settings),
-				)
-			}
+			// To all, like the volume: the audio may go out through any of them.
+			command_all(ui, conn.app_audio_command(&ui.settings))
 		}
 	}
 	gate_settings(ui)

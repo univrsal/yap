@@ -284,6 +284,22 @@ EM_JS(int, yap_video_pull, (unsigned char *buf, int buf_size, unsigned int *ts, 
 	return frame.data.length;
 });
 
+/* Shared audio (the tab's or the system's, where the browser gives it):
+   whether there is any, and up to `max` samples of it, interleaved stereo at
+   48 kHz. Returns how many were copied. */
+EM_JS(int, yap_video_audio_live, (), {
+	const v = Module.yapVideo;
+	return v && v.audioLive() ? 1 : 0;
+});
+
+EM_JS(int, yap_video_audio_pull, (float *buf, int max), {
+	const v = Module.yapVideo;
+	const samples = v ? v.pullAudio(max) : null;
+	if (!samples) return 0;
+	HEAPF32.set(samples, buf >> 2);
+	return samples.length;
+});
+
 EM_JS(void, yap_video_request_key, (), {
 	const v = Module.yapVideo;
 	if (v) v.requestKey();

@@ -12,6 +12,13 @@ is one, otherwise from a <video> playing the stream, sampled from a
 worker's timer - either keeps going when this tab is hidden, which it
 usually is while another tab is being shared.
 
+Where the browser shares audio with the picture (Chromium: a tab's, or on
+Windows the whole system's along with a screen), an AudioWorklet takes it at
+48 kHz stereo and it waits in a queue until the client pulls it, to send
+mixed into our voice like a shared application's (src/client/conn/video_web.odin).
+restrictOwnAudio leaves out what this page plays, so nobody hears
+themselves back.
+
 Watching: frames go to a VideoDecoder - H.264, and HEVC and AV1 where
 the browser takes them (decodable, which the client tells the others so
 their shares keep to it) - and the newest decoded one waits
@@ -34,6 +41,10 @@ or getDisplayMedia (a phone) can still watch.
 	const MAX_QUEUED = 30;
 	// Frames waiting in the decoder; more means it can't keep up.
 	const MAX_DECODING = 30;
+	// Shared audio the client hasn't pulled, in samples (interleaved
+	// stereo at 48 kHz): half a second. Older audio is dropped.
+	const AUDIO_RATE = 48000;
+	const MAX_AUDIO_QUEUED = AUDIO_RATE;
 	// Constrained Baseline, Main, High, all at level 4 (1080p30).
 	const H264_CODECS = ["avc1.42E028", "avc1.4D0028", "avc1.640028"];
 	// The other codecs, by their number in src/common/proto/video.odin:
@@ -83,6 +94,9 @@ or getDisplayMedia (a phone) can still watch.
 		awaitKey: false, // frames were dropped here; only a keyframe may follow
 		lastKey: 0,
 		lastFrame: -Infinity,
+		audio: null, // { context, source, node } while audio is shared
+		audioQueue: [], // Float32Arrays, interleaved stereo
+		audioQueued: 0, // samples in audioQueue
 	};
 
 	async function start() {
@@ -147,7 +161,117 @@ or getDisplayMedia (a phone) can still watch.
 				if (video.readyState >= 2) capture(video, video.videoWidth, video.videoHeight);
 			});
 		}
+		const audioTrack = stream.getAudioTracks()[0];
+		if (audioTrack) startAudio(audioTrack, current);
 		share.state = LIVE;
+	}
+
+	// The AudioWorklet: hands over what it's given in 10 ms chunks of
+	// interleaved stereo (the node mixes a mono track up to two channels).
+	const AUDIO_WORKLET = `
+		class YapShareAudio extends AudioWorkletProcessor {
+			constructor() {
+				super();
+				this.chunk = new Float32Array(${(AUDIO_RATE / 100) * 2});
+				this.n = 0;
+			}
+			process(inputs) {
+				const input = inputs[0];
+				if (input && input.length) {
+					const left = input[0], right = input[1] || input[0];
+					for (let i = 0; i < left.length; i++) {
+						this.chunk[this.n++] = left[i];
+						this.chunk[this.n++] = right[i];
+						if (this.n === this.chunk.length) {
+							// Handed over, which leaves this.chunk empty.
+							this.port.postMessage(this.chunk, [this.chunk.buffer]);
+							this.chunk = new Float32Array(${(AUDIO_RATE / 100) * 2});
+							this.n = 0;
+						}
+					}
+				}
+				return true;
+			}
+		}
+		registerProcessor("yap-share-audio", YapShareAudio);
+	`;
+
+	// startAudio feeds the shared audio into share.audioQueue. Without it the
+	// share goes on as a picture alone.
+	async function startAudio(track, current) {
+		let context;
+		try {
+			context = new AudioContext({ sampleRate: AUDIO_RATE, latencyHint: "interactive" });
+			const url = URL.createObjectURL(new Blob([AUDIO_WORKLET], { type: "text/javascript" }));
+			try {
+				await context.audioWorklet.addModule(url);
+			} finally {
+				URL.revokeObjectURL(url);
+			}
+			if (!current()) {
+				context.close().catch(() => {});
+				return;
+			}
+			const source = context.createMediaStreamSource(new MediaStream([track]));
+			const node = new AudioWorkletNode(context, "yap-share-audio", {
+				numberOfInputs: 1,
+				numberOfOutputs: 1,
+				channelCount: 2,
+				channelCountMode: "explicit",
+			});
+			node.port.onmessage = (e) => queueAudio(e.data);
+			source.connect(node);
+			// Silent, but it keeps the node running.
+			node.connect(context.destination);
+			// Set before waiting again, so stop closes it from here on.
+			share.audio = { context, source, node };
+			context = null;
+			if (share.audio.context.state !== "running") await share.audio.context.resume();
+			console.info("yap: sharing audio too");
+		} catch (e) {
+			console.warn("yap: can't share the audio:", e);
+			if (context) context.close().catch(() => {});
+		}
+	}
+
+	function queueAudio(samples) {
+		share.audioQueue.push(samples);
+		share.audioQueued += samples.length;
+		while (share.audioQueued > MAX_AUDIO_QUEUED) {
+			share.audioQueued -= share.audioQueue.shift().length;
+		}
+	}
+
+	// pullAudio takes up to `max` samples (a whole number of stereo frames)
+	// from the queue, or returns null if there are none.
+	function pullAudio(max) {
+		max -= max % 2;
+		if (!share.audioQueued || max <= 0) return null;
+		const out = new Float32Array(Math.min(max, share.audioQueued));
+		let n = 0;
+		while (n < out.length) {
+			const head = share.audioQueue[0];
+			const take = Math.min(head.length, out.length - n);
+			out.set(take === head.length ? head : head.subarray(0, take), n);
+			n += take;
+			if (take === head.length) share.audioQueue.shift();
+			else share.audioQueue[0] = head.subarray(take);
+		}
+		share.audioQueued -= n;
+		return out;
+	}
+
+	function stopAudio() {
+		const a = share.audio;
+		if (a) {
+			a.node.port.onmessage = null;
+			a.source.disconnect();
+			a.node.disconnect();
+			a.context.close().catch(() => {});
+		}
+		share.audio = null;
+		share.audioQueue = [];
+		share.audioQueued = 0;
 	}
 
 	/*
@@ -160,9 +284,12 @@ or getDisplayMedia (a phone) can still watch.
 	release of the same click.
 	*/
 	function displayMedia() {
-		const ask = () => navigator.mediaDevices.getDisplayMedia({
-			video: { frameRate: { ideal: FPS, max: 30 } },
-			audio: false,
+		const ask = () => askDisplayMedia(true).catch((e) => {
+			// The audio couldn't be started (Chromium, with no audio
+			// service), which fails the picture too. Better without it.
+			if (!e || e.name !== "NotReadableError") throw e;
+			console.warn("yap: sharing without audio:", e);
+			return askDisplayMedia(false);
 		});
 		return ask().catch((e) => {
 			if (!e || e.name !== "InvalidStateError") throw e;
@@ -182,6 +309,19 @@ or getDisplayMedia (a phone) can still watch.
 					reject(new DOMException("Sharing was stopped", "AbortError"));
 				};
 			});
+		});
+	}
+
+	function askDisplayMedia(audio) {
+		return navigator.mediaDevices.getDisplayMedia({
+			video: { frameRate: { ideal: FPS, max: 30 } },
+			// Never our own page's sound (the others' voices). Turning off
+			// echo cancellation and the like as well made Chromium fail to
+			// start the audio at all (headless, 153).
+			audio: audio ? { restrictOwnAudio: true } : false,
+			// Offer the whole system's audio with a screen, where the
+			// browser can (Chromium on Windows).
+			systemAudio: audio ? "include" : "exclude",
 		});
 	}
 
@@ -313,6 +453,7 @@ or getDisplayMedia (a phone) can still watch.
 		if (share.video) share.video.srcObject = null;
 		if (share.stream) share.stream.getTracks().forEach((t) => t.stop());
 		if (share.encoder && share.encoder.state !== "closed") share.encoder.close();
+		stopAudio();
 		Object.assign(share, {
 			stream: null, reader: null, video: null, ticker: null, encoder: null,
 			canvas: null, context: null, width: 0, height: 0, queue: [],
@@ -463,6 +604,8 @@ or getDisplayMedia (a phone) can still watch.
 		nextSize: () => (share.queue.length ? share.queue[0].data.length : -1),
 		pull: () => share.queue.shift() || null,
 		requestKey: () => { share.wantKey = true; },
+		audioLive: () => share.state === LIVE && !!share.audio,
+		pullAudio,
 		show,
 		end,
 		takeError: () => {
