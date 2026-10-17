@@ -88,9 +88,13 @@ Net_Session :: struct {
 	// than the server's (see servers_frame).
 	dm_unread:       int,
 	// Whether our voice is in a room or a call here, and whether it is on
-	// another server as the session was last told (see sounds_frame).
+	// another server as the session was last told (see sounds_frame). The
+	// same for talking in a room or a call (proto.TALKING), which the server
+	// is told so that it can show it.
 	voice_busy:      bool,
 	voice_elsewhere: bool,
+	talking:         proto.User_Flags,
+	talking_told:    proto.User_Flags,
 	// When the server was last asked when the people in the inbox were
 	// last online, and how many of them were online then. If fewer are online
 	// now, someone just left and it is worth asking again (see ask_last_seen).

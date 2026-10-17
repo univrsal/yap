@@ -165,14 +165,19 @@ User_Flag :: enum u8 {
 	// too old to say counts as H.264 only.
 	Decodes_HEVC,
 	Decodes_AV1,
-	// Set by the server, not by the client: they are talking in a voice room
-	// or in a call, unless they chose not to show it (SETTING_VOICE_SHOWN).
-	// Which room it is isn't said here; see `room` for that, which is 0 for a
-	// room the receiver may not know about.
+	// They are talking in a voice room or in a call, unless they chose not to
+	// show it (SETTING_VOICE_SHOWN). Which room it is isn't said here; see
+	// `room` for that, which is 0 for a room the receiver may not know about.
+	// The server sets them for a room on this server. A client sends one of
+	// them when it is talking on another server it is connected to, which the
+	// server shows while the user isn't in a room of its own.
 	In_Voice,
 	In_Call,
 }
 User_Flags :: distinct bit_set[User_Flag;u8]
+
+// The flags that say that a user is talking (see In_Voice).
+TALKING :: User_Flags{.In_Voice, .In_Call}
 
 VOICE_UP_HEADER_SIZE :: 1 + 4
 VOICE_DOWN_HEADER_SIZE :: 1 + 4 + 4

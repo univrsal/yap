@@ -86,3 +86,41 @@ test_talking_flags :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 	testing.expect_value(t, flags_of(s, carol_acc.id, alice_acc.id), proto.User_Flags{.In_Voice})
 }
+
+// A client says that it is talking on another server with the same flags in
+// Sound. They are shown unless the account hides them, and a room here counts
+// instead.
+@(test)
+test_talking_elsewhere :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	bob_acc := ts_account(t, &ts, "bob", "a password")
+	alice := logged_in(t, &ts, "alice")
+	logged_in(t, &ts, "bob")
+	VOICE :: proto.User_Flags{.In_Voice}
+
+	sound_set(s, alice, {.Muted, .In_Voice})
+	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), proto.User_Flags{.Muted, .In_Voice})
+	// Claiming both is a call.
+	sound_set(s, alice, {.In_Voice, .In_Call})
+	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), proto.User_Flags{.In_Call})
+
+	set_shown(t, &ts, alice, proto.VOICE_SHOWN_HIDDEN)
+	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), proto.User_Flags{})
+	set_shown(t, &ts, alice, "")
+
+	// In a voice room here, that is what is shown.
+	room_buf: [4]u8
+	home := proto.Room(s.convs.home.id)
+	status, _ := ts_ask(t, &ts, alice, .Voice_Join, proto.encode_room(&room_buf, home))
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), VOICE)
+	sound_set(s, alice, {})
+	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), VOICE)
+	status, _ = ts_ask(t, &ts, alice, .Voice_Join, proto.encode_room(&room_buf, 0))
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), proto.User_Flags{})
+}

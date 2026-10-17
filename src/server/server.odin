@@ -832,13 +832,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	case .Leave:
 		drop_conn(s, c.conn)
 	case .Sound:
-		// In_Voice and In_Call are the server's to say (sync_state).
-		flags := proto.decode_sound(pt) - {.In_Voice, .In_Call}
-		if flags != c.conn.flags {
-			c.conn.flags = flags
-			log.debugf("%s sound state %v", conn_label(c.conn), flags)
-			bump_version(s)
-		}
+		sound_set(s, c.conn, proto.decode_sound(pt))
 	case .Blob_Chunk:
 		handle_blob_chunk(s, c, pt)
 	case .Blob_Need:
@@ -940,6 +934,21 @@ bump_version :: proc(s: ^Server) {
 	}
 }
 
+// sound_set takes the flags a client sent in Sound. In_Voice and In_Call
+// there mean that it is talking on another server; presence_list decides
+// what is shown. A call is the one shown if it claims both.
+sound_set :: proc(s: ^Server, u: ^Conn, flags: proto.User_Flags) {
+	flags := flags
+	if .In_Call in flags {
+		flags -= {.In_Voice}
+	}
+	if flags != u.flags {
+		u.flags = flags
+		log.debugf("%s sound state %v", conn_label(u), flags)
+		bump_version(s)
+	}
+}
+
 // presence_list returns the list of online users and their rooms, which is
 // the same for everyone, except for users who appear offline (activity.odin):
 // those are only visible to their own account, or to anyone who can see the
@@ -950,11 +959,16 @@ presence_list :: proc(s: ^Server) -> (users: []proto.User_Info, hidden: []bool) 
 	hidden = make([]bool, len(s.conns), context.temp_allocator)
 	next_user := 0
 	for _, u in s.conns {
-		flags := u.flags
-		if u.room != 0 && !u.account.voice_hidden {
+		flags := u.flags - proto.TALKING
+		switch {
+		case u.account.voice_hidden:
+		case u.room != 0:
 			// Everyone may know that they are busy talking, even those who
 			// may not know where (room_hidden).
 			flags += {.In_Call} if proto.room_call(u.room) != 0 else {.In_Voice}
+		case:
+			// Talking on another server, as their client says.
+			flags += u.flags & proto.TALKING
 		}
 		users[next_user] = {
 			num     = u.num,
