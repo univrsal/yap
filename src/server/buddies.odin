@@ -13,7 +13,10 @@ import "common:proto"
 // sent the list at login and each change afterwards.
 //
 // When an account was last seen is stored in accounts.last_seen, which is
-// updated when its last connection leaves (account_seen). It is only
+// updated when its last connection leaves (account_seen), or when it starts
+// to appear offline while connected. An account that appears offline looks
+// like it left then, so its connections coming and going while it does
+// doesn't change it. It is only
 // revealed to accounts that have exchanged messages with it, meaning both
 // have posted in the DM between them. Whether an account is connected
 // right now is visible to everyone in the snapshot, so that is not hidden.

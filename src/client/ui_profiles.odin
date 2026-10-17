@@ -54,7 +54,6 @@ UI_Profiles :: struct {
 	members_open:   bool,
 	members_placed: bool,
 	members_asked:  proto.Conv_Id,
-	members_seen:   int, // View_Members.count when last seen (members_asked)
 	// The server's settings as last applied (View.shared_count) and the
 	// sync they came with (View.shared_syncs).
 	shared_seen:    int,
@@ -416,21 +415,6 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		bn := strings.to_lower(b.name, context.temp_allocator)
 		return an < bn if an != bn else a.account < b.account
 	})
-	// When those who aren't here were last here, once per list.
-	if p.members_seen != m.count {
-		p.members_seen = m.count
-		cmd: conn.Last_Seen_Command
-		for e in list {
-			if !e.online && cmd.count < len(cmd.accounts) {
-				cmd.accounts[cmd.count] = e.account
-				cmd.count += 1
-			}
-		}
-		if cmd.count > 0 {
-			conn.push_command(cmds, cmd)
-		}
-	}
-
 	here := 0
 	for e in list {
 		if e.online {
@@ -445,9 +429,12 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		label_proc,
 	)
 	add_people(ui, m.accounts[:])
+	// When those who aren't here were last seen is only shown in the DM
+	// with them (ui_buddies.odin), because the server only says it to people
+	// who have written to each other, and a list where only some have it
+	// would look broken.
 	for e in list {
-		extra := "" if e.online else last_seen_text(ui, e.account)
-		if person_row(ui, e.account, e.name, e.online, extra) {
+		if person_row(ui, e.account, e.name, e.online, "") {
 			if e.account == v.me {
 				open_status_editor(ui)
 			} else {
