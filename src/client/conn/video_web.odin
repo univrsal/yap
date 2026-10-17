@@ -1,6 +1,10 @@
 #+build wasi
 package conn
 
+import log "common:wlog"
+import "core:sync"
+
+import "client:audio"
 import "client:render"
 import "common:proto"
 
@@ -17,6 +21,11 @@ foreign _ {
 	// Copies the oldest encoded frame into buf and returns its size, or -1 if
 	// there is none (or it does not fit).
 	yap_video_pull :: proc(buf: [^]u8, buf_size: i32, ts: ^u32, key: ^i32) -> i32 ---
+	// 1 while the share carries audio too.
+	yap_video_audio_live :: proc() -> i32 ---
+	// Copies up to `max` samples of the shared audio (interleaved stereo, 48
+	// kHz) into buf and returns how many.
+	yap_video_audio_pull :: proc(buf: [^]f32, max: i32) -> i32 ---
 	// Makes the next frame a keyframe.
 	yap_video_request_key :: proc() ---
 	// Hands a frame from `sharer` to the decoder.
@@ -30,7 +39,14 @@ foreign _ {
 	// What the decoder accepts, as bits (1 << codec). It grows as the browser
 	// answers.
 	yap_video_decodable :: proc() -> i32 ---
-	yap_video_share_start :: proc() ---
+	// Opens the browser's picker, then shares at most max_width by max_height
+	// (0: the screen's own size), `fps` frames a second, at `kbit`.
+	yap_video_share_start :: proc(fps, kbit, max_width, max_height: i32) ---
+	// What the share encodes at now, and the most it may (kbit/s, 0 while it
+	// isn't sharing).
+	yap_video_encoding_kbit :: proc() -> i32 ---
+	yap_video_max_kbit :: proc() -> i32 ---
+	yap_video_set_bitrate :: proc(kbit: i32) ---
 	yap_video_share_stop :: proc() ---
 	yap_video_share_state :: proc() -> i32 ---
 	yap_video_upload :: proc(texture: u32, width, height: ^i32) -> i32 ---
@@ -63,6 +79,30 @@ video_capture_pull :: proc(
 		return nil, 0, false, .H264, false
 	}
 	return data, ts, key_flag != 0, .H264, true
+}
+
+// video_capture_audio moves the audio the browser shares with the picture (a
+// tab's, or the system's with a screen) into the voice's app ring while we are
+// sharing here. It is then sent mixed into our voice, like a native client's
+// shared application (app_mix in audio/voice.odin). Whatever comes while we
+// aren't is dropped.
+video_capture_audio :: proc(v: ^audio.Voice, sharing: bool) {
+	live := sharing && yap_video_audio_live() != 0
+	if live != sync.atomic_load(&v.app_input) {
+		sync.atomic_store(&v.app_input, live)
+		log.infof("screen sharing: audio %s", "on" if live else "off")
+	}
+	buf: [2048]f32
+	for {
+		n := int(yap_video_audio_pull(raw_data(buf[:]), i32(len(buf))))
+		if n <= 0 {
+			break
+		}
+		if live {
+			audio.ring_write(&v.app, buf[:n])
+			sync.atomic_add(&v.app_received, u32(n / audio.CHANNELS))
+		}
+	}
 }
 
 video_capture_request_key :: proc() {
@@ -118,8 +158,18 @@ video_decodable :: proc() -> proto.Video_Codecs {
 // The page always encodes H.264, which every viewer can decode.
 video_share_codecs :: proc(codecs: proto.Video_Codecs) {}
 
-video_share_start :: proc() {
-	yap_video_share_start()
+// video_share_start opens the browser's picker and shares what is picked as
+// `config` says (its size, frame rate and bitrate; the page picks the encoder,
+// and the browser whether the pointer shows).
+video_share_start :: proc(config: Share_Config) {
+	yap_video_share_start(i32(config.fps), i32(config.kbit), config.max.x, config.max.y)
+	log.infof(
+		"video: sharing at %d fps, %d kbit/s, at most %dx%d",
+		config.fps,
+		config.kbit,
+		config.max.x,
+		config.max.y,
+	)
 }
 
 video_share_stop :: proc() {
@@ -140,18 +190,23 @@ video_capture_allowed :: proc() -> bool {
 
 video_allow_capture :: proc() {}
 
-// What the page encodes at is not reported; video.odin paces for it.
+// video_share_kbit is the bitrate the page's encoder runs at, which sending is
+// paced for (video.odin); 0 while there is no share.
 video_share_kbit :: proc() -> int {
-	return 0
+	return int(yap_video_encoding_kbit())
 }
 
-// The browser's share does not follow its viewers' reports: the page's encoder
-// keeps to its own bitrate.
+// video_share_max_kbit is the bitrate the share was started at, which adapting
+// never goes above; 0 while there is no share.
 video_share_max_kbit :: proc() -> int {
-	return 0
+	return int(yap_video_max_kbit())
 }
 
-video_share_adapt :: proc(kbit: int) {}
+// video_share_adapt holds the share to `kbit` for its viewers (video.odin). The
+// encoder starts again at it, with a keyframe.
+video_share_adapt :: proc(kbit: int) {
+	yap_video_set_bitrate(i32(kbit))
+}
 
 Video_Source_Kind :: enum {
 	Monitor,

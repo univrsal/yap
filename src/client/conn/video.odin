@@ -38,18 +38,19 @@ import "common:proto"
 // report says the network cannot keep up, and raises it again while it can,
 // never above the configured value (adapt_bitrate). The library only accepts a
 // new bitrate now and then, because each change costs a keyframe
-// (yv_share_set_bitrate).
+// (yv_share_set_bitrate). Until it has, and for a moment after, the reports
+// are about the old bitrate and that keyframe, so they are not acted on.
 
 // How fast video goes out, in bytes per second, and how many bytes may go out
-// at once. The rate is above what the encoder is asked for (the browser's 2
-// Mbit/s), so the queue drains after a keyframe. The desktop's share reports
-// its encoding bitrate (video_share_kbit) and goes out at half as much again,
+// at once, while the encoder's bitrate isn't known. A share reports its
+// encoding bitrate (video_share_kbit) and goes out at half as much again,
 // so that a keyframe is spread over several frames instead of one burst whose
 // end router queues would drop.
 VIDEO_SEND_RATE :: 12_000_000 / 8
 VIDEO_SEND_BURST :: 16 * 1024
-// More than this still waiting to go out means we cannot keep up.
-VIDEO_QUEUE_MAX :: VIDEO_SEND_RATE
+// More than this much sending still waiting (behind the frame going out) means
+// we cannot keep up (video_queue_max).
+VIDEO_QUEUE_TIME :: 500 * time.Millisecond
 // Video only goes out while less than this is waiting on the socket, so that
 // the socket's buffer never holds much more than one burst. (Voice does not
 // wait in it: video has the media link to itself.)
@@ -100,6 +101,8 @@ Video_Client :: struct {
 
 	// Adapting our share to its viewers (adapt_bitrate).
 	target_kbit:    int, // 0: use the configured bitrate
+	encoding_kbit:  int, // what the encoder runs at (video_share_kbit); 0 if not known
+	encoding_at:    time.Tick, // when that last changed
 	cut_at:         time.Tick,
 	good_since:     time.Tick,
 	reports_at:     time.Tick,
@@ -120,6 +123,13 @@ ADAPT_GOOD_FOR :: 4 * time.Second
 ADAPT_FLOOR :: 8
 // With no reports for this long, nobody is watching: go back to the configured bitrate.
 ADAPT_QUIET :: 10 * time.Second
+// How long after the encoder has changed its bitrate reports are not acted on:
+// it starts again with a keyframe, which goes out as a burst, and the reports
+// that come in meanwhile still cover the time before.
+ADAPT_SETTLE :: 2 * time.Second
+// The library takes up a new bitrate only if it differs by at least this part
+// of the current one (yv_share_set_bitrate); a smaller change counts as done.
+ADAPT_MIN_CHANGE :: 5
 // How long the minimum delay is measured over (twice this).
 DELAY_WINDOW :: 5 * time.Second
 
@@ -233,6 +243,7 @@ video_step :: proc(c: ^Voice_Client) {
 	if live := video_capture_live() && sync.atomic_load(&v.share_here); live != v.sharing {
 		v.sharing = live
 		v.target_kbit, v.cut_at, v.good_since, v.reports_at = 0, {}, {}, {}
+		v.encoding_kbit, v.encoding_at = 0, {}
 		v.reports = {}
 		set_sound(c, .Sharing, live)
 		video_clear_queue(v)
@@ -240,6 +251,7 @@ video_step :: proc(c: ^Voice_Client) {
 		log.infof("screen sharing %s", "started" if live else "stopped")
 	}
 	if v.sharing {
+		note_encoding(v, video_share_kbit(), time.tick_now())
 		for {
 			data, ts, key, codec, ok := video_capture_pull()
 			if !ok {
@@ -248,6 +260,7 @@ video_step :: proc(c: ^Voice_Client) {
 			video_queue_frame(v, data, ts, key, codec)
 		}
 	}
+	video_capture_audio(&c.voice, v.sharing)
 	if v.want_key {
 		video_capture_request_key()
 		v.want_key = false
@@ -378,7 +391,13 @@ video_queue_frame :: proc(
 		v.awaiting_key, v.want_key = true, true
 		return
 	}
-	if v.queued_bytes > VIDEO_QUEUE_MAX {
+	// The frame going out doesn't count: a keyframe bigger than the limit would
+	// otherwise throw out what follows it, and ask for another.
+	waiting := v.queued_bytes
+	if v.sent > 0 {
+		waiting -= len(v.queue[0].data)
+	}
+	if waiting > video_queue_max(v) {
 		// Behind: keep only what has started going out.
 		start := 1 if v.sent > 0 else 0
 		for f in v.queue[start:] {
@@ -433,6 +452,21 @@ video_next_fragment :: proc(v: ^Video_Client, out: []u8) -> (msg: []u8, ok: bool
 	return msg, true
 }
 
+// video_send_rate is how fast video goes out, in bytes per second: half as
+// much again as the encoder makes, where that is known (VIDEO_SEND_RATE).
+video_send_rate :: proc(v: ^Video_Client) -> int {
+	if v.encoding_kbit > 0 {
+		return v.encoding_kbit * 1000 / 8 * 3 / 2
+	}
+	return VIDEO_SEND_RATE
+}
+
+// video_queue_max is how many bytes may wait behind the frame going out:
+// VIDEO_QUEUE_TIME's worth at the rate they go out.
+video_queue_max :: proc(v: ^Video_Client) -> int {
+	return video_send_rate(v) * int(VIDEO_QUEUE_TIME / time.Millisecond) / 1000
+}
+
 video_clear_queue :: proc(v: ^Video_Client) {
 	for f in v.queue {
 		delete(f.data)
@@ -449,10 +483,7 @@ video_send :: proc(c: ^Voice_Client) {
 		return
 	}
 	now := time.tick_now()
-	rate := VIDEO_SEND_RATE
-	if kbit := video_share_kbit(); kbit > 0 {
-		rate = kbit * 1000 / 8 * 3 / 2
-	}
+	rate := video_send_rate(v)
 	if v.budget_at == {} {
 		v.budget = VIDEO_SEND_BURST
 	} else {
@@ -631,19 +662,46 @@ video_reports :: proc(c: ^Voice_Client, s: proto.Video_Reports) {
 	adapt_bitrate(v, s.worst, video_share_max_kbit(), v.reports_at)
 }
 
+// note_encoding keeps track of the bitrate the encoder runs at, and of when it
+// last changed (adapt_bitrate).
+@(private = "file")
+note_encoding :: proc(v: ^Video_Client, kbit: int, now: time.Tick) {
+	if kbit != v.encoding_kbit {
+		v.encoding_kbit = kbit
+		v.encoding_at = now
+	}
+}
+
 // adapt_bitrate moves the share's bitrate according to its worst viewer's
 // report. It goes down by a quarter when the report says the network cannot
 // keep up (to no less than what reaches the viewer, unless that is much less),
 // at most every ADAPT_CUT_EVERY. It goes up by a fifth of the configured
 // bitrate after ADAPT_GOOD_FOR of good reports. It never goes below
 // 1/ADAPT_FLOOR of the configured bitrate, nor above it.
+//
+// When the encoder's bitrate is known, changes start from it rather than from
+// what was asked for last, which the library may have left alone as too small
+// a change. While the encoder has not taken up the last change, and for
+// ADAPT_SETTLE after it has, the reports are ignored.
 adapt_bitrate :: proc(v: ^Video_Client, worst: proto.Video_Report, max_kbit: int, now: time.Tick) {
 	if max_kbit <= 0 {
 		return
 	}
 	floor := max(SHARE_KBIT_MIN, max_kbit / ADAPT_FLOOR)
-	target := v.target_kbit if v.target_kbit > 0 else max_kbit
-	was := target
+	asked := v.target_kbit if v.target_kbit > 0 else max_kbit
+	current := asked
+	if enc := v.encoding_kbit; enc > 0 {
+		// The library takes up a change of a fifth or more, and any change back
+		// to the configured bitrate.
+		pending :=
+			asked != enc && (abs(asked - enc) * ADAPT_MIN_CHANGE >= enc || asked == max_kbit)
+		if pending || time.tick_diff(v.encoding_at, now) < ADAPT_SETTLE {
+			v.good_since = {}
+			return
+		}
+		current = enc
+	}
+	target := current
 	switch {
 	case worst.loss >= ADAPT_LOSS_BAD || worst.delay_ms >= ADAPT_DELAY_BAD:
 		v.good_since = {}
@@ -664,10 +722,11 @@ adapt_bitrate :: proc(v: ^Video_Client, worst: proto.Video_Report, max_kbit: int
 	case:
 		v.good_since = {} // in between: keep the current bitrate
 	}
-	if target != was {
+	// Asking again for what the library left alone would change nothing.
+	if target != current && target != asked {
 		log.infof(
 			"video: bitrate %d -> %d kbit/s for our viewers (worst: %d/1000 lost, %d ms late)",
-			was,
+			current,
 			target,
 			worst.loss,
 			worst.delay_ms,

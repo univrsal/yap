@@ -92,16 +92,17 @@ test_video_queue_falls_behind :: proc(t: ^testing.T) {
 	v: Video_Client
 	defer video_free(&v)
 
-	// Enough frames queued to be over the limit, with the first frame started.
+	// Enough frames queued behind the first one to be over the limit, with the
+	// first frame started.
 	size := 100 * 1024
 	video_queue_frame(&v, encoded(size, 1), 0, true)
-	for v.queued_bytes <= VIDEO_QUEUE_MAX {
-		video_queue_frame(&v, encoded(size, 2), 0, false)
-	}
-	queued := len(v.queue)
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
 	_, ok := video_next_fragment(&v, buf[:])
 	testing.expect(t, ok)
+	for v.queued_bytes - size <= video_queue_max(&v) {
+		video_queue_frame(&v, encoded(size, 2), 0, false)
+	}
+	queued := len(v.queue)
 
 	// The next frame finds the queue too long: all frames except the one going
 	// out are dropped, and so is this one, because it is a delta frame.
@@ -121,6 +122,36 @@ test_video_queue_falls_behind :: proc(t: ^testing.T) {
 	// Its number leaves a gap where the dropped frames were, so viewers know
 	// they missed something.
 	testing.expect_value(t, v.queue[1].num, u32(queued))
+}
+
+// The limit is half a second at the rate video goes out, which follows the
+// encoder's bitrate, and a big keyframe going out doesn't count towards it.
+@(test)
+test_video_queue_limit :: proc(t: ^testing.T) {
+	v: Video_Client
+	defer video_free(&v)
+	testing.expect_value(t, video_queue_max(&v), VIDEO_SEND_RATE / 2)
+	v.encoding_kbit = 1000
+	testing.expect_value(t, video_queue_max(&v), 1000 * 1000 / 8 * 3 / 2 / 2)
+
+	// A keyframe of twice the limit, started, and frames behind it up to the limit.
+	key := 2 * video_queue_max(&v)
+	video_queue_frame(&v, encoded(key, 1), 0, true)
+	buf: [proto.MAX_PAYLOAD_SIZE]u8
+	_, ok := video_next_fragment(&v, buf[:])
+	testing.expect(t, ok)
+	for v.queued_bytes - key + 10_000 <= video_queue_max(&v) {
+		video_queue_frame(&v, encoded(10_000, 2), 0, false)
+	}
+	queued := len(v.queue)
+	video_queue_frame(&v, encoded(10_000, 3), 0, false)
+	testing.expect_value(t, len(v.queue), queued + 1)
+	testing.expect(t, !v.awaiting_key)
+
+	// One more, and it's behind.
+	video_queue_frame(&v, encoded(10_000, 4), 0, false)
+	testing.expect_value(t, len(v.queue), 1)
+	testing.expect(t, v.awaiting_key)
 }
 
 @(test)
@@ -273,6 +304,87 @@ test_adapt_bitrate :: proc(t: ^testing.T) {
 	}
 	// Back to the configured bitrate, which is 0.
 	testing.expect_value(t, v.target_kbit, 0)
+}
+
+// adapt_bitrate, when the encoder's bitrate is known: reports are ignored until
+// the encoder has taken up the last change and for ADAPT_SETTLE after, and a
+// change too small for the library to take up counts as taken up.
+@(test)
+test_adapt_bitrate_waits_for_encoder :: proc(t: ^testing.T) {
+	v: Video_Client
+	at := time.tick_now()
+	later :: proc(at: time.Tick, d: time.Duration) -> time.Tick {
+		return time.tick_add(at, d)
+	}
+	MAX :: 8000
+	bad := proto.Video_Report {
+		loss     = 50,
+		delay_ms = 10,
+		kbit     = 8000,
+	}
+	good := proto.Video_Report {
+		loss     = 0,
+		delay_ms = 5,
+		kbit     = 7800,
+	}
+	v.encoding_kbit, v.encoding_at = MAX, at
+
+	// Just started: the first keyframe is still going out.
+	adapt_bitrate(&v, bad, MAX, later(at, time.Second))
+	testing.expect_value(t, v.target_kbit, 0)
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE))
+	testing.expect_value(t, v.target_kbit, 6000)
+
+	// Not taken up yet, however long it takes.
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE + 5 * time.Second))
+	testing.expect_value(t, v.target_kbit, 6000)
+
+	// Taken up: settling first, then the next cut.
+	at = later(at, 10 * time.Second)
+	v.encoding_kbit, v.encoding_at = 6000, at
+	adapt_bitrate(&v, bad, MAX, later(at, time.Second))
+	testing.expect_value(t, v.target_kbit, 6000)
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE))
+	testing.expect_value(t, v.target_kbit, 4500)
+
+	// Good reports while waiting don't count towards going up.
+	at = later(at, 10 * time.Second)
+	v.encoding_kbit, v.encoding_at = 4500, at
+	adapt_bitrate(&v, good, MAX, later(at, time.Second))
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE))
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE + ADAPT_GOOD_FOR - time.Second))
+	testing.expect_value(t, v.target_kbit, 4500)
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE + ADAPT_GOOD_FOR))
+	testing.expect_value(t, v.target_kbit, 4500 + MAX / 5)
+
+	// A change of less than a fifth, which the library leaves alone, isn't
+	// waited for, isn't asked for again, and the next change starts from what
+	// the encoder runs at.
+	at = later(at, time.Minute)
+	v.target_kbit, v.encoding_kbit, v.encoding_at = 1000, 1201, at
+	v.cut_at, v.good_since = {}, {}
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE)) // to the floor, which it is
+	testing.expect_value(t, v.target_kbit, 1000)
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE + time.Second))
+	adapt_bitrate(&v, good, MAX, later(at, ADAPT_SETTLE + time.Second + ADAPT_GOOD_FOR))
+	testing.expect_value(t, v.target_kbit, 1201 + MAX / 5)
+
+	// Cuts start from what the encoder runs at too.
+	at = later(at, time.Minute)
+	v.target_kbit, v.encoding_kbit, v.encoding_at = 6000, 7050, at
+	v.cut_at = {}
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE))
+	testing.expect_value(t, v.target_kbit, 7050 * 3 / 4)
+
+	// Back to the configured bitrate, a small change, is taken up by the
+	// library, so it is waited for.
+	at = later(at, time.Minute)
+	v.target_kbit, v.encoding_kbit, v.encoding_at = 0, 7050, at
+	adapt_bitrate(&v, bad, MAX, later(at, ADAPT_SETTLE))
+	testing.expect_value(t, v.target_kbit, 0)
+	v.encoding_kbit, v.encoding_at = MAX, later(at, ADAPT_SETTLE)
+	adapt_bitrate(&v, bad, MAX, later(at, 2 * ADAPT_SETTLE))
+	testing.expect_value(t, v.target_kbit, 6000)
 }
 
 @(test)

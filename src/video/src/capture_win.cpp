@@ -128,10 +128,21 @@ public:
 
 	bool open(const yv_share_config &config, const char *encoder, const std::atomic<bool> &,
 	          std::string &error) override {
-		try {
-			winrt::init_apartment(winrt::apartment_type::multi_threaded);
-		} catch (const winrt::hresult_error &) {
-			// Already initialised on this thread one way or another.
+		/*
+		Each share has a thread of its own, in the MTA. C++/WinRT keeps
+		the factories it got for good, and they stop working once the MTA
+		goes away, which it does when its last thread ends: so the next
+		share would crash in them, unless something else (the client's
+		audio) happened to be in the MTA. Holding the MTA for the process
+		keeps it there, with every thread that hasn't said otherwise in it.
+		*/
+		static const bool mta = [] {
+			CO_MTA_USAGE_COOKIE cookie;
+			return SUCCEEDED(CoIncrementMTAUsage(&cookie));
+		}();
+		if (!mta) {
+			error = "can't start COM for capturing";
+			return false;
 		}
 		if (!make_device(vendor_of(encoder), error) || !make_pipeline(error)) {
 			return false;

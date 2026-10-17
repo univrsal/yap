@@ -61,15 +61,10 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 }
 
 // The categories a web build excludes: a page has neither global hotkeys nor
-// anything to install (ui_hotkeys_web.odin, ui_install_web.odin), and it
-// shares what the browser's picker offers (ui_share_settings.odin).
+// anything to install (ui_hotkeys_web.odin, ui_install_web.odin).
 @(private = "file")
 CLIENT_CATEGORIES ::
-	~bit_set[Client_Category] {
-		.Hotkeys,
-		.Screen_Sharing,
-		.Install,
-	} when platform.WEB else ~bit_set[Client_Category]{}
+	~bit_set[Client_Category]{.Hotkeys, .Install} when platform.WEB else ~bit_set[Client_Category]{}
 
 // How wide the list of categories is.
 @(private = "file")
@@ -389,7 +384,7 @@ audio_settings :: proc(ui: ^UI) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
-	if app_audio_available(ui) {
+	if app_audio_setting(ui) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
 		   mu.checkbox(
@@ -398,12 +393,8 @@ audio_settings :: proc(ui: ^UI) {
 			   &ui.settings.mute_app_audio_with_mic,
 		   ) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
-			if ui.session != nil {
-				conn.push_command(
-					&ui.session.client.commands,
-					conn.app_audio_command(&ui.settings),
-				)
-			}
+			// To all, like the volume: the audio may go out through any of them.
+			command_all(ui, conn.app_audio_command(&ui.settings))
 		}
 	}
 	gate_settings(ui)

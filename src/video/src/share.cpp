@@ -45,6 +45,10 @@ constexpr int KEY_SECONDS = 10;
 // taken up for this big a change, and this seldom.
 constexpr double BITRATE_CHANGE = 0.2;
 constexpr uint64_t BITRATE_US = 3'000'000;
+// The most an encoder that can be held to it may make of one frame, in
+// bits: well below the 1 MB a client sends at most of a frame, which
+// drops anything bigger and asks for a keyframe, which may be as big.
+constexpr int MAX_FRAME_BITS = 6'000'000;
 
 struct Encoded {
 	std::vector<uint8_t> data;
@@ -187,6 +191,17 @@ bool live_bitrate(const char *name) {
 }
 
 /*
+Whether FFmpeg's `name` says "not yet" while the frame it was just given
+is still being encoded, rather than waiting for it. AMF's do: each look
+waits about a millisecond in the driver, so encode looks until there's a
+packet (and, with AV_CODEC_FLAG_LOW_DELAY, they look at all before the
+next frame; without it a packet only came out with the next frame).
+*/
+bool polls_output(const char *name) {
+	return strstr(name, "_amf") != nullptr;
+}
+
+/*
 Low latency settings, per encoder family; any an encoder doesn't know
 are left over in the dictionary and ignored.
 */
@@ -202,6 +217,14 @@ void encoder_options(const char *name, AVDictionary **opts) {
 		av_dict_set(opts, "usage", "ultralowlatency", 0);
 		av_dict_set(opts, "quality", "balanced", 0);
 		av_dict_set(opts, "rc", "vbr_peak", 0);
+		// Without it a requested keyframe is an I frame that isn't an IDR,
+		// which isn't flagged as a keyframe either, so it doesn't count:
+		// a viewer then only gets going at the next restart or GOP.
+		av_dict_set(opts, "forced_idr", "1", 0);
+		// Without these AMF ignores rc_buffer_size for keyframes, which
+		// then come out at more than a second's worth of the bitrate.
+		av_dict_set(opts, "enforce_hrd", "1", 0);
+		av_dict_set_int(opts, "max_au_size", MAX_FRAME_BITS, 0);
 	} else if (strstr(name, "_qsv")) {
 		av_dict_set(opts, "preset", "veryfast", 0);
 		av_dict_set(opts, "async_depth", "1", 0);
@@ -231,6 +254,7 @@ struct yv_share {
 	std::atomic<bool> stop{false};
 	std::atomic<bool> want_key{true};
 	std::atomic<uint32_t> want_kbit{0}; // yv_share_set_bitrate's; 0 for none
+	std::atomic<uint32_t> encoding_kbit{0}; // `kbit`, for yv_share_get_bitrate
 	std::atomic<uint32_t> want_codecs{0}; // yv_share_set_codecs's; 0 for any
 	std::atomic<int> state{YV_SHARE_STARTING};
 	std::string error; // set before state becomes Failed
@@ -263,7 +287,21 @@ void fail(yv_share *s, const std::string &why) {
 	s->state.store(YV_SHARE_FAILED);
 }
 
+/*
+close_encoder drains the encoder before freeing it, dropping what comes
+out. FFmpeg's AMF encoders keep a reference to each frame they're given
+until its packet comes back, and closing without draining leaks those
+(and so the frames' pool, its device and the whole capture device, some
+100 MB at 4K, at every stop or restart).
+*/
 void close_encoder(yv_share *s) {
+	if (s->enc && avcodec_is_open(s->enc) && avcodec_send_frame(s->enc, nullptr) >= 0) {
+		AVPacket *pkt = av_packet_alloc();
+		while (pkt && avcodec_receive_packet(s->enc, pkt) >= 0) {
+			av_packet_unref(pkt);
+		}
+		av_packet_free(&pkt);
+	}
 	avcodec_free_context(&s->enc);
 	av_buffer_unref(&s->frames);
 	s->enc_w = s->enc_h = 0;
@@ -285,6 +323,9 @@ bool open_encoder(yv_share *s, Pipeline &pipe, int w, int h) {
 	e->framerate = {fps, 1};
 	e->gop_size = fps * KEY_SECONDS;
 	e->max_b_frames = 0;
+	// One frame in, its packet out (AMF, VideoToolbox; the others are
+	// told in encoder_options).
+	e->flags |= AV_CODEC_FLAG_LOW_DELAY;
 	e->bit_rate = rate;
 	e->rc_max_rate = rate * 3 / 2;
 	e->rc_buffer_size = static_cast<int>(rate / 2);
@@ -364,8 +405,10 @@ void follow_bitrate(yv_share *s) {
 		return;
 	}
 	double change = std::abs(static_cast<double>(want) - s->kbit) / s->kbit;
+	// Back to the configured bitrate always counts, else it might never get there.
+	bool back = want == s->config.kbit;
 	uint64_t now = now_us();
-	if (change < BITRATE_CHANGE || (s->rate_at && now - s->rate_at < BITRATE_US)) {
+	if ((change < BITRATE_CHANGE && !back) || (s->rate_at && now - s->rate_at < BITRATE_US)) {
 		return;
 	}
 	s->rate_at = now;
@@ -376,11 +419,13 @@ void follow_bitrate(yv_share *s) {
 		s->enc->rc_buffer_size = static_cast<int>(rate / 2);
 		log(YV_LOG_INFO, "share: bitrate %u -> %u kbit/s", s->kbit, want);
 		s->kbit = want;
+		s->encoding_kbit.store(want);
 		return;
 	}
 	log(YV_LOG_INFO, "share: bitrate %u -> %u kbit/s, starting %s again", s->kbit, want,
 	    s->encoder_name.c_str());
 	s->kbit = want;
+	s->encoding_kbit.store(want);
 	close_encoder(s);
 }
 
@@ -427,8 +472,16 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 		fail(s, "the encoder refused a frame");
 		return false;
 	}
+	// For an encoder that polls, until this frame's packet is out, but
+	// never past the next frame's turn.
+	bool poll = polls_output(s->encoder_name.c_str());
+	uint64_t give_up = now_us() + 1'000'000 / static_cast<uint64_t>(s->config.fps);
+	bool got = false;
 	for (;;) {
 		err = avcodec_receive_packet(s->enc, s->pkt);
+		if (err == AVERROR(EAGAIN) && poll && !got && now_us() < give_up && !s->stop.load()) {
+			continue;
+		}
 		if (err == AVERROR(EAGAIN) || err == AVERROR_EOF) {
 			break;
 		}
@@ -436,6 +489,7 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 			fail(s, "the encoder failed");
 			return false;
 		}
+		got = true;
 		Encoded e;
 		e.data.assign(s->pkt->data, s->pkt->data + s->pkt->size);
 		e.pts_us = static_cast<uint64_t>(s->pkt->pts);
@@ -628,6 +682,7 @@ YV_API yv_share *yv_share_start(yv_context *ctx, const yv_share_config *config) 
 	if (s->config.kbit == 0) {
 		s->config.kbit = 6000;
 	}
+	s->encoding_kbit.store(s->config.kbit);
 	s->thread = std::thread(yv::run, s);
 	return s;
 }
@@ -660,6 +715,10 @@ YV_API void yv_share_set_bitrate(yv_share *s, uint32_t kbit) {
 	if (s && kbit > 0) {
 		s->want_kbit.store(kbit);
 	}
+}
+
+YV_API uint32_t yv_share_get_bitrate(yv_share *s) {
+	return s ? s->encoding_kbit.load() : 0;
 }
 
 YV_API void yv_share_set_codecs(yv_share *s, uint32_t codecs) {
