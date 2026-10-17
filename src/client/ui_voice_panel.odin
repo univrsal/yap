@@ -15,7 +15,7 @@ import "common:proto"
 //
 //	Voice connected            (or: In a call, Calling..., Incoming call)
 //	# Lobby  12:34             (or whom the call is with)
-//	[music] [share]  [ Leave ] (Hang up; Accept Decline; Cancel)
+//	[music] [share]  [ (hang up) ] (leave or hang up; Accept Decline; cancel)
 //	---------------------------------------------------
 //	(pic) alice  in a meeting               [mic] [speaker]
 //
@@ -30,7 +30,10 @@ import "common:proto"
 //
 //	Voice connected on Bravo
 //	# Lobby  12:34
-//	[ Show ]  [ Leave ]
+//	[ Show ]  [ (hang up) ]
+//
+// The way out (leaving, hanging up, cancelling a call) is always the red
+// receiver put down, as for declining a call (hang_up_button).
 
 // Voice_Elsewhere is our voice, or a call that is ringing, in a server that
 // isn't shown, as of this frame. It is worked out before the layout
@@ -315,7 +318,7 @@ voice_panel :: proc(ui: ^UI) {
 			}
 		case .Ringing_Out:
 			mu.layout_row(ctx, {-1})
-			if .SUBMIT in stable_button(ctx, "call cancel", "Cancel", {.ALIGN_CENTER}) {
+			if hang_up_button(ui, "call cancel", "Cancel") {
 				command(cmds, conn.Call_Hangup_Command{})
 			}
 		case .Voice, .Call:
@@ -339,12 +342,7 @@ voice_panel :: proc(ui: ^UI) {
 			if can_share {
 				share_button(ui)
 			}
-			label := "Hang up" if state == .Call else "Leave"
-			saved := ctx.style.colors[.TEXT]
-			ctx.style.colors[.TEXT] = theme.off
-			leave := .SUBMIT in stable_button(ctx, "voice leave", label, {.ALIGN_CENTER})
-			ctx.style.colors[.TEXT] = saved
-			if leave {
+			if hang_up_button(ui, "voice leave", "Hang up" if state == .Call else "Leave") {
 				if state == .Call {
 					command(cmds, conn.Call_Hangup_Command{})
 				} else {
@@ -410,8 +408,15 @@ answer_buttons :: proc(ui: ^UI, id_name: string) -> (accept, decline: bool) {
 	mu.push_id(ctx, id_name)
 	defer mu.pop_id(ctx)
 	accept = .SUBMIT in icon_button(ui, "accept", .Phone, "Accept", theme.connected)
-	decline = .SUBMIT in icon_button(ui, "decline", .Hang_Up, "Decline", theme.off)
+	decline = hang_up_button(ui, "decline", "Decline")
 	return
+}
+
+// hang_up_button is the way out of a call or a voice chat, or of a call that is
+// ringing: a red receiver put down, with `hint` saying what it does.
+@(private = "file")
+hang_up_button :: proc(ui: ^UI, id_name, hint: string) -> bool {
+	return .SUBMIT in icon_button(ui, id_name, .Hang_Up, hint, theme.off)
 }
 
 // voice_elsewhere_part is the panel's part for voice, or a call that is
@@ -445,7 +450,7 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 		mu.label(ctx, e.where_)
 	}
 
-	half := -(90 + ctx.style.spacing)
+	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, -1})
 	switch e.state {
 	case .Idle, .Elsewhere:
@@ -463,13 +468,9 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 		if .SUBMIT in stable_button(ctx, "other show", "Show", {.ALIGN_CENTER}) {
 			ui.switch_to, ui.switching = e.ns, true
 		}
-		label :=
+		hint :=
 			"Leave" if e.state == .Voice else ("Cancel" if e.state == .Ringing_Out else "Hang up")
-		saved := ctx.style.colors[.TEXT]
-		ctx.style.colors[.TEXT] = theme.off
-		out := .SUBMIT in stable_button(ctx, "other leave", label, {.ALIGN_CENTER})
-		ctx.style.colors[.TEXT] = saved
-		if out {
+		if hang_up_button(ui, "other leave", hint) {
 			if e.state == .Voice {
 				conn.push_command(cmds, conn.Voice_Command{})
 			} else {
