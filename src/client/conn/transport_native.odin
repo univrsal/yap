@@ -72,6 +72,12 @@ transport_send :: proc(t: ^Transport, packet: []byte) -> bool {
 // the server goes away.
 transport_revive :: proc(t: ^Transport) {}
 
+// transport_never_opened is always false for a UDP socket, which has nothing
+// to open (see transport_web.odin).
+transport_never_opened :: proc(t: ^Transport) -> bool {
+	return false
+}
+
 // transport_backlog is how much is waiting to go out. A UDP socket sends or
 // drops packets immediately, so nothing ever waits.
 transport_backlog :: proc(t: ^Transport) -> int {

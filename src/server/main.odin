@@ -129,6 +129,7 @@ main :: proc() {
 			   settings.relay.web_dir,
 			   settings.relay.enabled,
 			   api,
+			   settings.relay.allow_sites,
 		   ) {
 		os.exit(1)
 	}

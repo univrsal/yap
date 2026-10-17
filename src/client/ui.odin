@@ -168,6 +168,10 @@ UI :: struct {
 	// dialog is included here too, although it is not on the rail (see ui_join.odin).
 	sessions:            [dynamic]^Net_Session,
 	join:                UI_Join,
+	// In a web build, the joined server that this page's relay reaches: the
+	// only one with a plain address that is connected (see relay_blocked).
+	// Owned; "" if none has been chosen.
+	relay_server:        string,
 	rail:                UI_Rail, // its menu, and dragging (ui_servers.odin)
 	// Messages unread on every server, in channels and DMs that aren't
 	// muted. Used for the window's title and the tray (see servers_frame).
@@ -764,6 +768,7 @@ settle :: proc(ui: ^UI) {
 ui_shutdown :: proc(ui: ^UI) {
 	disconnect_all(ui)
 	delete(ui.sessions)
+	delete(ui.relay_server)
 	hotkeys_stop(ui)
 	tray_hide(ui)
 	monitor_stop(ui)
@@ -1075,6 +1080,12 @@ connect_joined :: proc(ui: ^UI) {
 	} else if len(ui.settings.joined_servers) > 0 {
 		first = ui.settings.joined_servers[0].address
 	}
+	when platform.WEB {
+		relay_claim(ui, first)
+		for r in ui.settings.joined_servers {
+			relay_claim(ui, r.address)
+		}
+	}
 	for r in ui.settings.joined_servers {
 		this := r.address == first
 		connect_to(ui, r.address, r.password, ui.opts.channel if this else "", show = this)
@@ -1141,7 +1152,9 @@ connect_to :: proc(
 	} else {
 		ns.stash.gains_for = {}
 	}
-	net_start(ns)
+	if !relay_blocked(ui, ns) {
+		net_start(ns)
+	}
 	return ns
 }
 
@@ -1243,6 +1256,7 @@ disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	}
 	settings.leave_server(&ui.settings, ns.server)
 	save_settings(ui)
+	relay_release(ui, ns.server)
 	in_voice: bool
 	{
 		sync.guard(&ns.view.mutex)
@@ -1583,7 +1597,7 @@ connect_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case v.status == .Failed && v.error != "":
-		with_text_color(ctx, theme.error, v.error, mu.text)
+		with_text_color(ctx, theme.error, v.error, wrap_text)
 	case v.status == .Failed:
 		with_text_color(ctx, theme.error, "Could not connect.", mu.text)
 	case:

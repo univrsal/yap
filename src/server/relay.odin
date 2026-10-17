@@ -90,6 +90,8 @@ Relay :: struct {
 	// Whether browsers are relayed and the web client is served. If false,
 	// only the API is served.
 	web:           bool,
+	// The other sites whose pages may connect (Relay_Config.allow_sites).
+	allow_sites:   []string,
 	// Only these files of the web directory are served.
 	files:         [9]Web_File,
 	api:           ^gateway.Gateway, // nil if the API is disabled
@@ -114,6 +116,7 @@ start_relay :: proc(
 	web_dir: string,
 	web := true,
 	api: ^gateway.Gateway = nil,
+	allow_sites: []string = nil, // normalized origins, or "*" (see relay_site_allowed)
 ) -> bool {
 	address: net.Address = net.IP4_Any
 	if bind != "" {
@@ -131,6 +134,7 @@ start_relay :: proc(
 	r.media = {net.IP4_Loopback, media_port}
 	r.web = web
 	r.api = api
+	r.allow_sites = allow_sites
 	r.files = {
 		{name = "index.html", content_type = "text/html; charset=utf-8"},
 		{name = "index.js", content_type = "text/javascript; charset=utf-8"},
@@ -335,17 +339,23 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 			http.respond(c.sock, "400 Bad Request", "text/plain", "expected a WebSocket upgrade\n")
 			return
 		}
-		// Only the web client this relay serves may connect, not a page of
-		// another site that a visitor happens to have open (which could
-		// otherwise use their browser to reach a relay inside their network).
-		// Browsers say which it is in Sec-Fetch-Site, which, unlike Host and
-		// Origin, a reverse proxy passes on unchanged.
-		if strings.equal_fold(http.header(&req, "Sec-Fetch-Site"), "cross-site") {
+		page := Relay_Request {
+			origin         = http.header(&req, "Origin"),
+			fetch_site     = http.header(&req, "Sec-Fetch-Site"),
+			host           = http.header(&req, "Host"),
+			forwarded_host = http.header(&req, "X-Forwarded-Host"),
+		}
+		if !relay_site_allowed(r.allow_sites, page) {
+			log.infof(
+				"refused a browser on a page of %s, which isn't this relay's site (%s) nor in its allow_sites",
+				page.origin,
+				page.forwarded_host if page.forwarded_host != "" else page.host,
+			)
 			http.respond(
 				c.sock,
 				"403 Forbidden",
 				"text/plain",
-				"only the web client of this server may connect\n",
+				"this server's relay doesn't accept web clients of other sites\n",
 			)
 			return
 		}
@@ -363,6 +373,102 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 		return
 	}
 	serve_file(r, c.sock, req.path)
+}
+
+// Relay_Request is what a WebSocket request says about the page that made
+// it (see relay_site_allowed): its headers, as received.
+Relay_Request :: struct {
+	origin:         string, // Origin
+	fetch_site:     string, // Sec-Fetch-Site
+	host:           string, // Host
+	forwarded_host: string, // X-Forwarded-Host, from a reverse proxy
+}
+
+// relay_site_allowed is whether a page may connect through the relay. Only the
+// web client of this relay's own site may, and those of the sites the config
+// allows (Relay_Config.allow_sites), not a page of another site that a visitor
+// happens to have open, which could otherwise use their browser to reach a
+// relay inside their network.
+//
+// A browser always says which page it is in Origin, which the page can't
+// change. A request without one isn't from a browser, so it can't be a page
+// using its visitor's browser, and anyone who can send it could just as well
+// send UDP to the server. Some browsers also say in Sec-Fetch-Site whether the
+// page is of the same site, which counts other subdomains of the same domain
+// too. Chrome doesn't send that with a WebSocket, so then the page's host has
+// to be the one the request was sent to: Host, or what a reverse proxy says
+// it was in X-Forwarded-Host if it replaced Host with its own. Ports don't
+// matter, as for sites.
+relay_site_allowed :: proc(allow_sites: []string, req: Relay_Request) -> bool {
+	if req.origin == "" {
+		return true
+	}
+	page := strings.trim_suffix(strings.trim_space(req.origin), "/")
+	if !is_origin(page) {
+		return false // "null", from a sandboxed frame or a file
+	}
+	for site in allow_sites {
+		if site == "*" || strings.equal_fold(site, page) {
+			return true
+		}
+	}
+	switch {
+	case strings.equal_fold(req.fetch_site, "same-origin"), strings.equal_fold(req.fetch_site, "same-site"):
+		return true
+	case req.fetch_site != "":
+		return false
+	}
+	page_host := host_of(page[strings.index(page, "://") + 3:])
+	forwarded, _, _ := strings.partition(req.forwarded_host, ",")
+	return(
+		strings.equal_fold(page_host, host_of(req.host)) ||
+		strings.equal_fold(page_host, host_of(forwarded)) \
+	)
+}
+
+// host_of returns the host of "host", "host:port", "[v6]" or "[v6]:port", or
+// "" if there is none.
+@(private = "file")
+host_of :: proc(host: string) -> string {
+	s := strings.trim_space(host)
+	if strings.has_prefix(s, "[") {
+		end := strings.index_byte(s, ']')
+		return s[:end + 1] if end > 0 else ""
+	}
+	if colon := strings.last_index_byte(s, ':'); colon >= 0 {
+		return s[:colon]
+	}
+	return s
+}
+
+// is_origin is whether `s` is an origin: http:// or https://, then a host and
+// maybe a port, and nothing else.
+@(private = "file")
+is_origin :: proc(s: string) -> bool {
+	rest: string
+	switch {
+	case len(s) > len("https://") && strings.equal_fold(s[:len("https://")], "https://"):
+		rest = s[len("https://"):]
+	case len(s) > len("http://") && strings.equal_fold(s[:len("http://")], "http://"):
+		rest = s[len("http://"):]
+	case:
+		return false
+	}
+	return rest != "" && !strings.contains_any(rest, "/?#@ \\")
+}
+
+// site_origin normalizes an entry of allow_sites: "*" as it is, or an origin
+// (see is_origin, a trailing slash allowed) in lower case without the slash.
+// The result is allocated, since it is kept with the config.
+site_origin :: proc(site: string) -> (origin: string, ok: bool) {
+	s := strings.trim_suffix(strings.trim_space(site), "/")
+	if s == "*" {
+		return strings.clone(s), true
+	}
+	if !is_origin(s) {
+		return "", false
+	}
+	return strings.to_lower(s), true
 }
 
 // relay_websocket carries packets between one browser and the server until

@@ -1,6 +1,7 @@
 package client
 
 import "client:conn"
+import "client:platform"
 import "client:settings"
 import "common:proto"
 import log "common:wlog"
@@ -44,6 +45,8 @@ UI_Join :: struct {
 	// View lock.
 	connect:      bool,
 	close:        bool,
+	// Why the typed address wasn't tried, shown in the card (a constant).
+	mistake:      string,
 }
 
 // join_open opens the + page with an empty form.
@@ -72,11 +75,19 @@ join_frame :: proc(ui: ^UI) {
 	}
 	if j.connect {
 		j.connect = false
-		join_connect(
-			ui,
-			string(j.server_buf[:j.server_len]),
-			string(j.password_buf[:j.password_len]),
-		)
+		typed := string(j.server_buf[:j.server_len])
+		// A browser reaches a server through the relay beside its web page, so
+		// that page's address is what the web client joins (see relay_blocked).
+		j.mistake = ""
+		when platform.WEB {
+			if !conn.is_web_address(typed) {
+				j.mistake = "Enter the server's web address, like https://chat.example.org or http://localhost:8080."
+				typed = ""
+			}
+		}
+		if typed != "" {
+			join_connect(ui, typed, string(j.password_buf[:j.password_len]))
+		}
 	}
 	ns := j.ns
 	if ns == nil {
@@ -135,7 +146,12 @@ join_connect :: proc(ui: ^UI, typed, password: string) {
 		stash_destroy(ui, old)
 		session_free(ui, old)
 	}
-	net_start(ns)
+	when platform.WEB {
+		relay_claim(ui, server)
+	}
+	if !relay_blocked(ui, ns) {
+		net_start(ns)
+	}
 }
 
 // join_close closes the page, giving up the session it was joining, if any, and
@@ -148,6 +164,7 @@ join_close :: proc(ui: ^UI) {
 		return
 	}
 	log.infof("ui: gave up joining %s", ns.server)
+	relay_release(ui, ns.server)
 	session_remove(ui, ns)
 	for other in ui.sessions {
 		if other == j.back {
@@ -217,8 +234,10 @@ join_card :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	if v != nil && v.error != "" {
-		with_text_color(ctx, theme.error, v.error, mu.text)
+	if j.mistake != "" {
+		with_text_color(ctx, theme.error, j.mistake, wrap_text)
+	} else if v != nil && v.error != "" {
+		with_text_color(ctx, theme.error, v.error, wrap_text)
 	}
 	if v != nil && v.key_change.changed {
 		key_change_panel(ui)
