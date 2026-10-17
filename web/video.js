@@ -32,7 +32,7 @@ Neither needs the other: a browser with VideoDecoder but no VideoEncoder
 or getDisplayMedia (a phone) can still watch.
 */
 (() => {
-	const FPS = 15;
+	const FPS = 30;
 	const BITRATE = 2000000; // what src/client/video.odin paces for, and a bit under
 	const KEY_INTERVAL_MS = 5000;
 	const MAX_LONG_SIDE = 1920;
@@ -318,7 +318,7 @@ or getDisplayMedia (a phone) can still watch.
 			// Never our own page's sound (the others' voices). Turning off
 			// echo cancellation and the like as well made Chromium fail to
 			// start the audio at all (headless, 153).
-			audio: audio ? { restrictOwnAudio: true } : false,
+			audio: audio ? { restrictOwnAudio: true, echoCancellation: 'false', noiseSuppression: 'false' } : false,
 			// Offer the whole system's audio with a screen, where the
 			// browser can (Chromium on Windows).
 			systemAudio: audio ? "include" : "exclude",
