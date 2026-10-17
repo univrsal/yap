@@ -30,6 +30,14 @@ import "common:proto"
 // The setting that stores which conversation was looked at last.
 SETTING_VIEW :: "ui/view"
 
+// The setting that says whether our activity, status and talking in a voice
+// chat or a call are shared between this server and the other servers we are
+// connected to (see the UI's status_sync and sounds_frame): STATUS_SHARED_OFF
+// if not, for an account that has nothing to do with our accounts elsewhere.
+// If it isn't set, they are shared.
+SETTING_STATUS_SHARED :: "status/shared"
+STATUS_SHARED_OFF :: "off"
+
 Profile_Client :: struct {
 	// The account's settings as the server has them. Keys and values are
 	// owned.

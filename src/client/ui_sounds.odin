@@ -161,7 +161,8 @@ sound_file_name_fit :: proc(name: string) -> string {
 // sounds_frame tells each session whether our voice is busy on another
 // server, for its calls to knock instead of ring (conn/sounds.odin), and
 // whether we are talking on another server, for the server to show it to the
-// people there.
+// people there. Talking is only told between servers that share our status
+// (status_shared).
 sounds_frame :: proc(ui: ^UI) {
 	busy_count := 0
 	for ns in ui.sessions {
@@ -169,14 +170,16 @@ sounds_frame :: proc(ui: ^UI) {
 		if ns.voice_busy {
 			busy_count += 1
 		}
-		ns.talking = talking_in(ns)
+		ns.talking, ns.status_shared = talking_in(ns)
 	}
 	for ns in ui.sessions {
 		elsewhere := busy_count > (1 if ns.voice_busy else 0)
 		talking: proto.User_Flags
-		for other in ui.sessions {
-			if other != ns {
-				talking += other.talking
+		if ns.status_shared {
+			for other in ui.sessions {
+				if other != ns && other.status_shared {
+					talking += other.talking
+				}
 			}
 		}
 		if elsewhere != ns.voice_elsewhere || talking != ns.talking_told {
@@ -191,18 +194,21 @@ sounds_frame :: proc(ui: ^UI) {
 
 // talking_in returns In_Voice or In_Call if we are talking in a voice room or
 // a call on the session's server, as its own state says rather than the
-// flags the server shows for us, which include talking elsewhere.
+// flags the server shows for us, which include talking elsewhere, and
+// whether the server shares our status (status_shared).
 @(private = "file")
-talking_in :: proc(ns: ^Net_Session) -> proto.User_Flags {
+talking_in :: proc(ns: ^Net_Session) -> (talking: proto.User_Flags, shared: bool) {
 	v := &ns.view
 	sync.guard(&v.mutex)
+	shared = status_shared(v)
 	switch {
 	case ns.joining || v.status != .Connected || v.my_room == 0:
-		return {}
 	case proto.room_call(proto.Room(v.my_room)) != 0:
-		return {.In_Call}
+		talking = {.In_Call}
+	case:
+		talking = {.In_Voice}
 	}
-	return {.In_Voice}
+	return
 }
 
 // sound_settings is the client's Sounds category.

@@ -651,6 +651,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	profile_settings(ui)
 	status_settings(ui)
 	voice_shown_settings(ui, v)
+	status_shared_settings(ui, v)
 
 	if .ACTIVE in mu.begin_treenode(ctx, "Password") {
 		password_form(ui, v, "Current password", true)
@@ -748,6 +749,38 @@ voice_shown_settings :: proc(ui: ^UI, v: ^conn.View) {
 			},
 		)
 	}
+}
+
+// status_shared_settings is whether our activity, status and talking in a
+// voice chat or a call are shared between this server and our other servers
+// (see conn.SETTING_STATUS_SHARED). It is an account setting, so it is the
+// same on all our devices. Call with the View locked.
+@(private = "file")
+status_shared_settings :: proc(ui: ^UI, v: ^conn.View) {
+	if !v.shared_synced {
+		return
+	}
+	ctx := &ui.ctx
+	shared := status_shared(v)
+	mu.layout_row(ctx, {FORM_LABEL, -1})
+	mu.label(ctx, "")
+	if .CHANGE in mu.checkbox(ctx, "Share my status with my other servers", &shared) {
+		command(
+			ui,
+			conn.Setting_Command {
+				key = strings.clone(conn.SETTING_STATUS_SHARED),
+				value = strings.clone("" if shared else conn.STATUS_SHARED_OFF),
+			},
+		)
+	}
+	mu.layout_row(ctx, {FORM_LABEL, -1})
+	mu.label(ctx, "")
+	with_text_color(
+		ctx,
+		theme.dim,
+		"Online, away, busy, your status text and being in a voice chat or a call are kept the same as on your other servers. Turn it off if this account has nothing to do with them.",
+		wrap_text,
+	)
 }
 
 // delete_own_account is the form for deleting our own account, which

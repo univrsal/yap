@@ -138,7 +138,8 @@ activity_step :: proc(ui: ^UI) {
 }
 
 // Our activity and our status are the same on every server we are connected
-// to. Choosing one sets it on all of them (activity_set_all, status_set_all).
+// to, except the ones where we chose not to share them (status_shared).
+// Choosing one sets it on all of them (activity_set_all, status_set_all).
 // A server that missed it (it was unreachable, or we were not connected) or
 // that has a newer one (chosen on another device, connected only to that
 // server) is noticed by status_sync, which copies the newest of each to the
@@ -160,22 +161,48 @@ Status_Copied :: struct {
 @(private = "file")
 COPY_RETRY :: 5 * time.Second
 
-// activity_set_all chooses our activity on every server. It goes by
-// Net_Session.status_ready (from status_sync) and takes no View's lock,
-// because the status window that calls it has the shown one locked.
+// status_shared is whether our activity, status and talking are shared
+// between this server and our other servers (conn.SETTING_STATUS_SHARED).
+// Until the account's settings have arrived, they aren't, so that nothing is
+// shared with a server where we chose not to. Call with the View locked.
+status_shared :: proc(v: ^conn.View) -> bool {
+	return(
+		v.shared_synced &&
+		(v.shared[conn.SETTING_STATUS_SHARED] or_else "") != conn.STATUS_SHARED_OFF \
+	)
+}
+
+// status_target is whether choosing an activity or a status in the window
+// applies to the session's server: the shown one, and if that one shares
+// them, every other one that does too. It goes by Net_Session.status_ready
+// and .status_shared (from status_sync) and takes no View's lock, because the
+// status window has the shown one locked.
+@(private = "file")
+status_target :: proc(ui: ^UI, ns: ^Net_Session) -> bool {
+	if !ns.status_ready {
+		return false
+	}
+	if ns == ui.session {
+		return true
+	}
+	return ui.session != nil && ui.session.status_shared && ns.status_shared
+}
+
+// activity_set_all chooses our activity on every server it applies to
+// (status_target).
 activity_set_all :: proc(ui: ^UI, a: proto.Activity) {
 	for ns in ui.sessions {
-		if ns.status_ready {
+		if status_target(ui, ns) {
 			conn.push_command(&ns.client.commands, conn.Activity_Command{activity = a})
 		}
 	}
 }
 
-// status_set_all sets our status on every server ("" for none), clearing
-// itself at `until` (0 for never). Like activity_set_all, it takes no lock.
+// status_set_all sets our status on every server it applies to
+// (status_target): "" for none, clearing itself at `until` (0 for never).
 status_set_all :: proc(ui: ^UI, text: string, until: proto.Unix_Ms) {
 	for ns in ui.sessions {
-		if ns.status_ready {
+		if status_target(ui, ns) {
 			conn.push_command(
 				&ns.client.commands,
 				conn.Status_Command{text = strings.clone(text), until = until},
@@ -184,10 +211,11 @@ status_set_all :: proc(ui: ^UI, text: string, until: proto.Unix_Ms) {
 	}
 }
 
-// status_sync notes which servers can be told our activity and status
-// (Net_Session.status_ready), and copies the newest activity and the newest
-// status to the ones that have something else (see above). It is called
-// before the frame is drawn, with no View locked.
+// status_sync notes which servers can be told our activity and status and
+// which share them (Net_Session.status_ready and .status_shared), and copies
+// the newest activity and the newest status among those that share them to
+// the ones that have something else (see above). It is called before the
+// frame is drawn, with no View locked.
 status_sync :: proc(ui: ^UI) {
 	Mine :: struct {
 		known:        bool,
@@ -200,7 +228,7 @@ status_sync :: proc(ui: ^UI) {
 	mine := make([]Mine, len(ui.sessions), context.temp_allocator)
 	newest_activity, newest_status := -1, -1
 	for ns, i in ui.sessions {
-		ns.status_ready = false
+		ns.status_ready, ns.status_shared = false, false
 		if ns.joining {
 			continue
 		}
@@ -210,6 +238,10 @@ status_sync :: proc(ui: ^UI) {
 			continue
 		}
 		ns.status_ready = true
+		ns.status_shared = status_shared(v)
+		if !ns.status_shared {
+			continue
+		}
 		me, ok := v.accounts[v.me]
 		if !ok {
 			continue
