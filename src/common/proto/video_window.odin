@@ -46,10 +46,13 @@ MAX_NACKS_A_ROUND :: (MAX_VIDEO_FRAGMENTS + NACK_SPAN - 1) / NACK_SPAN
 // that it already passed on to us before:
 //
 //	client -> server  Nack  [kind][sharer u32][frame u32][first u16][missing u64]
+//	client -> server  Nack  [kind][sharer u32][frame u32][first u16][missing u64][stream u8]
 //
 // Bit i of `missing` is fragment first + i. The server sends those that it
-// still has (it keeps half a second's worth) as Video, like before.
+// still has (it keeps half a second's worth) as Video, like before. Only a
+// camera's Nack has the stream byte (see video.odin).
 NACK_SIZE :: 1 + 4 + 4 + 2 + 8
+NACK_CAMERA_SIZE :: NACK_SIZE + 1
 
 Video_Nack :: struct {
 	frame:   u32,
@@ -57,18 +60,30 @@ Video_Nack :: struct {
 	missing: u64,
 }
 
-encode_nack :: proc(out: ^[NACK_SIZE]u8, sharer: User_Num, n: Video_Nack) -> []u8 {
+encode_nack :: proc(
+	out: ^[NACK_CAMERA_SIZE]u8,
+	sharer: User_Num,
+	n: Video_Nack,
+	stream := Video_Stream.Screen,
+) -> []u8 {
 	out[0] = u8(Message_Kind.Nack)
 	endian.unchecked_put_u32le(out[1:], u32(sharer))
 	endian.unchecked_put_u32le(out[5:], n.frame)
 	endian.unchecked_put_u16le(out[9:], u16(n.first))
 	endian.unchecked_put_u64le(out[11:], n.missing)
-	return out[:]
+	return out[:put_stream(out[:], NACK_SIZE, stream)]
 }
 
 @(require_results)
-decode_nack :: proc(pt: []u8) -> (sharer: User_Num, n: Video_Nack, ok: bool) {
-	if len(pt) != NACK_SIZE {
+decode_nack :: proc(
+	pt: []u8,
+) -> (
+	sharer: User_Num,
+	n: Video_Nack,
+	stream: Video_Stream,
+	ok: bool,
+) {
+	if stream, ok = get_stream(pt, NACK_SIZE); !ok {
 		return
 	}
 	sharer = User_Num(endian.unchecked_get_u32le(pt[1:]))
@@ -77,7 +92,8 @@ decode_nack :: proc(pt: []u8) -> (sharer: User_Num, n: Video_Nack, ok: bool) {
 		first   = int(endian.unchecked_get_u16le(pt[9:])),
 		missing = endian.unchecked_get_u64le(pt[11:]),
 	}
-	return sharer, n, n.first < MAX_VIDEO_FRAGMENTS
+	ok = n.first < MAX_VIDEO_FRAGMENTS
+	return
 }
 
 @(private = "file")

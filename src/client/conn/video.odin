@@ -558,7 +558,7 @@ drive_watch :: proc(c: ^Voice_Client) {
 		proto.video_window_reset(v.window)
 	}
 	for n in proto.video_window_nacks(v.window, time.tick_now(), c.media.has_current) {
-		buf: [proto.NACK_SIZE]u8
+		buf: [proto.NACK_CAMERA_SIZE]u8
 		link_send(&c.media.link, proto.encode_nack(&buf, v.watching, n))
 	}
 	// Giving up may have let the frames behind it through.
@@ -602,7 +602,7 @@ can_watch :: proc(c: ^Voice_Client, user: proto.User_Num) -> bool {
 handle_video :: proc(c: ^Voice_Client, pt: []u8) {
 	v := &c.video
 	sharer, f, ok := proto.decode_video_down(pt)
-	if !ok || sharer != v.watching || v.watching == 0 {
+	if !ok || sharer != v.watching || v.watching == 0 || f.stream != .Screen {
 		return
 	}
 	v.bytes_in += len(pt)
@@ -628,7 +628,7 @@ send_report :: proc(c: ^Voice_Client, s: Video_Stats) {
 	if v.delay_n > 0 {
 		r.delay_ms = int(v.delay_sum / i64(v.delay_n))
 	}
-	buf: [proto.REPORT_SIZE]u8
+	buf: [proto.REPORT_CAMERA_SIZE]u8
 	link_send(&c.media.link, proto.encode_report_up(&buf, v.watching, r))
 }
 

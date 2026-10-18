@@ -290,7 +290,7 @@ layer.
 
 | # | Phase | Size | Where | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Streams in the protocol, the server: camera bit, stream bytes, leases, `Camera` flag and limit, config | M | protocol, server | - | - |
+| 1 | Streams in the protocol, the server: camera bit, stream bytes, leases, `Camera` flag and limit, config | M | protocol, server | - | done (2026-10-18): proto and server tests |
 | 2 | The client's streams: `Video_Out`/`Video_In`, several leases, a view per stream | L | client (conn) | 1 | - |
 | 3 | Cameras in the browser: getUserMedia, a second encoder, several decoders | M | web | 2 | - |
 | 4 | Calls: camera button, Video tab with self view, video call / answer with video | M | client (UI) | 2, 3 | - |
@@ -318,6 +318,68 @@ Why this order:
   first; Linux and macOS can then go in parallel.
 - **10 last**: it's about cost, not about it working, and it's easier
   to judge once real grids can be measured.
+
+### 1. Streams in the protocol, the server
+
+*As built:*
+
+- **Protocol** (`proto/video.odin`, `video_window.odin`,
+  `video_report.odin`, `messages.odin`, `rpc.odin`):
+  - `Video_Stream` (`Screen = 0`, `Camera = 1`) is the stream byte;
+    `Video_Fragment.stream` comes from `VIDEO_CAMERA` (flags bit 1).
+  - Keyframe, Nack and Report end with the stream byte for a camera
+    only (`KEYFRAME_CAMERA_SIZE`, `NACK_CAMERA_SIZE`,
+    `REPORT_CAMERA_SIZE`); without it they're about the screen, so
+    they're byte for byte what they were. `message_kind` takes both
+    sizes; an older client drops the longer ones.
+  - Watch keeps its size: `WATCH_CAMERA` (bit 1) and, not in the plan,
+    `WATCH_STOP` (bit 2) to end one lease at once (a grid's tile going
+    away shouldn't keep a camera coming for 3 seconds). Sharer 0 still
+    ends "every lease", now of that kind of stream; an old client's
+    Watch 0 ends the screen as before. `decode_watch` returns a
+    `Watch` struct.
+  - `User_Flag.Camera` is bit 7, the last.
+  - `Server_Info` ends with `max_cameras u8` and `camera_kbit u32`,
+    after the push key; an older server's info ends before, which
+    reads as 0 cameras. `MAX_CAMERAS :: 16`.
+  - `HELLO_VERSION` is unchanged (see Streams).
+- **Server, media thread** (`server/media.odin`):
+  - `sharers` is keyed by `Media_Stream{num, stream}`: budget
+    (`camera_rate` for a camera), keyframe throttle and cache per
+    stream.
+  - A session has `leases: [1 + MAX_CAMERAS]Media_Lease`, each with its
+    own report. `lease_take`: a screen lease replaces the other screen
+    lease, a camera takes a free or run-out slot, at most 16.
+  - A camera's cache is 256 slots (~300 KB), a screen's 2048 as
+    before; `Media_Cache.slots` is a slice now.
+  - `media_reports` sends one summary per stream that is on, with the
+    stream byte.
+  - Viewer lists per stream aren't built; the relay still scans every
+    session (fine at these numbers, see Server).
+- **Server, main loop**:
+  - `camera_allowed` (`server.odin`) is checked when the Camera flag is
+    turned on (`sound_set`) and on moving rooms (`conn_set_room`).
+  - **Not in the plan:** a camera is only allowed *in* a room; outside
+    one (room 0) the flag is taken off too. A call's room is never
+    counted (it only has the two).
+  - Without the media link, or with `max_cameras: 0`, it never is.
+- **Config**: `video.max_cameras` (default 9, 0..16, 0 = no cameras),
+  `video.camera_max_kbit` (default 4000), with what a full channel costs
+  in the comment.
+- **Client**: only what the new signatures need. It still watches and
+  sends screens only, and drops camera fragments, keyframe requests and
+  reports (`conn/media.odin`, `handle_video`).
+- **Tried**:
+  - proto (90 tests): camera fragments both ways, Watch with the
+    camera and stop flags, Keyframe/Nack/Report with and without the
+    stream byte, `Server_Info` with and without the camera fields.
+  - server (139): `test_media_camera` (camera and screen leases side by
+    side, keyframe, relay, Nack and reports per stream, ending one
+    lease, the camera's cache size, housekeeping) and
+    `test_camera_limit` (room 0, the limit, room again after one goes
+    off, moving into a full room, cameras off).
+  - conn (37) passes; the client type-checks for Linux, Windows and the
+    web.
 
 ## Risks
 
@@ -354,7 +416,7 @@ Why this order:
 
 ## Decisions
 
-Open until the owner answers. Recommended answers first.
+All settled as recommended (2026-10-18).
 
 | # | Question | Recommendation |
 | --- | --- | --- |

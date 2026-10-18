@@ -139,17 +139,68 @@ test_watch_roundtrip :: proc(t: ^testing.T) {
 	kind, ok := message_kind(msg)
 	testing.expect(t, ok)
 	testing.expect_value(t, kind, Message_Kind.Watch)
-	sharer, need_key := decode_watch(msg)
-	testing.expect_value(t, sharer, 12)
-	testing.expect(t, need_key)
+	testing.expect_value(t, decode_watch(msg), Watch{sharer = 12, need_key = true})
 
 	_, ok = message_kind(msg[:WATCH_SIZE - 1])
 	testing.expect(t, !ok)
 
-	key_buf: [KEYFRAME_SIZE]u8
-	kind, ok = message_kind(encode_keyframe(&key_buf))
+	// A camera, and ending a lease.
+	msg = encode_watch(&buf, 12, false, .Camera, stop = true)
+	testing.expect_value(t, decode_watch(msg), Watch{sharer = 12, stream = .Camera, stop = true})
+
+	key_buf: [KEYFRAME_CAMERA_SIZE]u8
+	msg = encode_keyframe(&key_buf)
+	kind, ok = message_kind(msg)
 	testing.expect(t, ok)
 	testing.expect_value(t, kind, Message_Kind.Keyframe)
+	testing.expect_value(t, len(msg), KEYFRAME_SIZE)
+	stream, key_ok := decode_keyframe(msg)
+	testing.expect(t, key_ok)
+	testing.expect_value(t, stream, Video_Stream.Screen)
+
+	msg = encode_keyframe(&key_buf, .Camera)
+	_, ok = message_kind(msg)
+	testing.expect(t, ok)
+	stream, key_ok = decode_keyframe(msg)
+	testing.expect(t, key_ok)
+	testing.expect_value(t, stream, Video_Stream.Camera)
+	// No stream but these.
+	key_buf[1] = 7
+	_, key_ok = decode_keyframe(key_buf[:])
+	testing.expect(t, !key_ok)
+}
+
+@(test)
+test_camera_fragment :: proc(t: ^testing.T) {
+	data := make_frame(100)
+	buf: [MAX_PAYLOAD_SIZE]u8
+	sent := Video_Fragment {
+		frame  = 3,
+		count  = 1,
+		key    = true,
+		stream = .Camera,
+		codec  = .H264,
+		data   = data,
+	}
+	up := encode_video_up(buf[:], sent)
+	got, ok := decode_video_up(up)
+	testing.expect(t, ok)
+	testing.expect_value(t, got.stream, Video_Stream.Camera)
+	testing.expect(t, got.key)
+
+	// The server passes it on as it is.
+	down_buf: [MAX_PAYLOAD_SIZE]u8
+	_, f, down_ok := decode_video_down(video_up_to_down(&down_buf, 5, up))
+	testing.expect(t, down_ok)
+	testing.expect_value(t, f.stream, Video_Stream.Camera)
+	testing.expect(t, f.key)
+
+	// A screen's fragment is as it was before there were cameras.
+	sent.stream, sent.key = .Screen, false
+	up = encode_video_up(buf[:], sent)
+	testing.expect_value(t, up[13], 0)
+	got, _ = decode_video_up(up)
+	testing.expect_value(t, got.stream, Video_Stream.Screen)
 }
 
 @(test)
@@ -360,44 +411,67 @@ test_window_skipped_frame :: proc(t: ^testing.T) {
 
 @(test)
 test_nack_roundtrip :: proc(t: ^testing.T) {
-	buf: [NACK_SIZE]u8
+	buf: [NACK_CAMERA_SIZE]u8
 	msg := encode_nack(&buf, 9, {frame = 77, first = 128, missing = 0xdead_beef})
-	sharer, n, ok := decode_nack(msg)
+	testing.expect_value(t, len(msg), NACK_SIZE)
+	sharer, n, stream, ok := decode_nack(msg)
 	testing.expect(t, ok)
 	testing.expect_value(t, sharer, 9)
 	testing.expect_value(t, n.frame, 77)
 	testing.expect_value(t, n.first, 128)
 	testing.expect_value(t, n.missing, 0xdead_beef)
-	_, _, ok = decode_nack(msg[:NACK_SIZE - 1])
+	testing.expect_value(t, stream, Video_Stream.Screen)
+	_, _, _, ok = decode_nack(msg[:NACK_SIZE - 1])
 	testing.expect(t, !ok)
+
+	msg = encode_nack(&buf, 9, {frame = 78, first = 1, missing = 1}, .Camera)
+	_, kind_ok := message_kind(msg)
+	testing.expect(t, kind_ok)
+	sharer, n, stream, ok = decode_nack(msg)
+	testing.expect(t, ok)
+	testing.expect_value(t, n.frame, 78)
+	testing.expect_value(t, stream, Video_Stream.Camera)
 }
 
 @(test)
 test_video_report :: proc(t: ^testing.T) {
-	buf: [REPORT_SIZE]u8
+	buf: [REPORT_CAMERA_SIZE]u8
 	msg := encode_report_up(&buf, 7, {loss = 12, delay_ms = 40, kbit = 6000})
 	kind, kind_ok := message_kind(msg)
 	testing.expect(t, kind_ok)
 	testing.expect_value(t, kind, Message_Kind.Report)
-	sharer, r, ok := decode_report_up(msg)
+	sharer, r, stream, ok := decode_report_up(msg)
 	testing.expect(t, ok)
 	testing.expect_value(t, sharer, 7)
 	testing.expect_value(t, r, Video_Report{loss = 12, delay_ms = 40, kbit = 6000})
+	testing.expect_value(t, stream, Video_Stream.Screen)
 	// Out of range values are clamped to what fits.
-	_, r, _ = decode_report_up(encode_report_up(&buf, 7, {loss = 5000, delay_ms = -3}))
+	_, r, _, _ = decode_report_up(encode_report_up(&buf, 7, {loss = 5000, delay_ms = -3}))
 	testing.expect_value(t, r.loss, 1000)
 	testing.expect_value(t, r.delay_ms, 0)
-	_, _, ok = decode_report_up(msg[:REPORT_SIZE - 1])
+	_, _, _, ok = decode_report_up(msg[:REPORT_SIZE - 1])
 	testing.expect(t, !ok)
+	msg = encode_report_up(&buf, 7, {kbit = 400}, .Camera)
+	_, kind_ok = message_kind(msg)
+	testing.expect(t, kind_ok)
+	_, r, stream, ok = decode_report_up(msg)
+	testing.expect(t, ok)
+	testing.expect_value(t, r.kbit, 400)
+	testing.expect_value(t, stream, Video_Stream.Camera)
 
 	down := Video_Reports {
 		viewers = 4,
 		left_out = 1,
 		worst = {loss = 30, delay_ms = 120, kbit = 4500},
 	}
-	got, down_ok := decode_report_down(encode_report_down(&buf, down))
+	got, got_stream, down_ok := decode_report_down(encode_report_down(&buf, down))
 	testing.expect(t, down_ok)
 	testing.expect_value(t, got, down)
+	testing.expect_value(t, got_stream, Video_Stream.Screen)
+	got, got_stream, down_ok = decode_report_down(encode_report_down(&buf, down, .Camera))
+	testing.expect(t, down_ok)
+	testing.expect_value(t, got, down)
+	testing.expect_value(t, got_stream, Video_Stream.Camera)
 }
 
 @(test)

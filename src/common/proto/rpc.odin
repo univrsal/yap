@@ -299,6 +299,12 @@ Server_Info :: struct {
 	video_kbit:     u32,
 	// The server's VAPID public key (push.odin), empty if it doesn't support push.
 	push_key:       []u8,
+	// The most cameras that may be on at once in a channel's room (video.odin),
+	// at most MAX_CAMERAS. 0 if cameras are off or the server doesn't know
+	// about them.
+	max_cameras:    int,
+	// The maximum bitrate of one camera in kbit/s.
+	camera_kbit:    u32,
 }
 
 SERVER_INFO_MAX_SIZE ::
@@ -317,7 +323,9 @@ SERVER_INFO_MAX_SIZE ::
 	2 +
 	4 +
 	1 +
-	PUSH_KEY_SIZE
+	PUSH_KEY_SIZE +
+	1 +
+	4
 
 // The maximum length of a server's description in bytes of UTF-8.
 MAX_SERVER_DESCRIPTION :: 512
@@ -376,7 +384,9 @@ decode_server_info_set :: proc(body: []u8) -> (set: Server_Info_Set, ok: bool) {
 encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: bool) {
 	if len(info.name) > MAX_SERVER_NAME ||
 	   len(info.description) > MAX_SERVER_DESCRIPTION ||
-	   (len(info.push_key) != 0 && len(info.push_key) != PUSH_KEY_SIZE) {
+	   (len(info.push_key) != 0 && len(info.push_key) != PUSH_KEY_SIZE) ||
+	   info.max_cameras < 0 ||
+	   info.max_cameras > MAX_CAMERAS {
 		return
 	}
 	w := Writer {
@@ -394,6 +404,8 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	put_u32(&w, info.video_kbit)
 	put_u8(&w, u8(len(info.push_key)))
 	put_bytes(&w, info.push_key)
+	put_u8(&w, u8(info.max_cameras))
+	put_u32(&w, info.camera_kbit)
 	if w.overflow {
 		return
 	}
@@ -427,6 +439,10 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	}
 	if !r.overflow && r.pos < len(r.buf) {
 		info.push_key = get_bytes(&r, int(get_u8(&r)))
+	}
+	if !r.overflow && r.pos < len(r.buf) {
+		info.max_cameras = min(int(get_u8(&r)), MAX_CAMERAS)
+		info.camera_kbit = get_u32(&r)
 	}
 	if r.overflow ||
 	   (len(info.push_key) != 0 && len(info.push_key) != PUSH_KEY_SIZE) ||

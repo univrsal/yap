@@ -308,7 +308,8 @@ voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 }
 
 // conn_set_room moves a connection to a voice room and makes the change visible
-// to everyone.
+// to everyone. A camera that is on stays on in the new room only if that room
+// has room for it (camera_allowed).
 conn_set_room :: proc(s: ^Server, u: ^Conn, room: proto.Room) {
 	if u.room == room {
 		return
@@ -323,6 +324,9 @@ conn_set_room :: proc(s: ^Server, u: ^Conn, room: proto.Room) {
 		log.infof("%s left voice", conn_label(u))
 	}
 	u.room = room
+	if .Camera in u.flags && !camera_allowed(s, u) {
+		u.flags -= {.Camera}
+	}
 	bump_version(s)
 }
 

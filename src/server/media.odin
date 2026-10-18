@@ -42,6 +42,14 @@ import "common:proto"
 // table says who is who, in which room and whether they are sharing.
 // Everything else, i.e. the sessions, leases, budgets and keyframe requests
 // of the media link, belongs to the thread alone.
+//
+// A user can send two streams, their screen and their camera (see
+// proto.Video_Stream), and everything the thread keeps about a sharer is kept
+// for each stream: the budget (a camera's is `camera_rate`), the keyframe
+// requests, the cache (smaller for a camera) and the reports. A session holds
+// a lease on one screen and on up to MAX_CAMERAS cameras. How many cameras may
+// be on in a room is the main loop's business (camera_allowed): the thread
+// only passes on the camera of somebody whose Camera flag is set.
 
 // Media_Peer describes a connection, with what the media thread needs to know about it.
 Media_Peer :: struct {
@@ -50,7 +58,32 @@ Media_Peer :: struct {
 	instance: u64,
 	room:     proto.Room,
 	sharing:  bool,
+	camera:   bool,
 }
+
+// peer_sends tells whether a peer's stream is on.
+@(private = "file")
+peer_sends :: proc(peer: Media_Peer, stream: proto.Video_Stream) -> bool {
+	return peer.camera if stream == .Camera else peer.sharing
+}
+
+// Media_Stream names one of a sharer's streams.
+Media_Stream :: struct {
+	num:    proto.User_Num,
+	stream: proto.Video_Stream,
+}
+
+// Media_Lease is a viewer's lease on one of a sharer's streams.
+Media_Lease :: struct {
+	using of:  Media_Stream, // a num of 0 for an unused one
+	until:     time.Tick,
+	// The viewer's last Report about it and when that arrived.
+	report:    proto.Video_Report,
+	report_at: time.Tick,
+}
+
+// A session's leases: one on a screen, and one on each camera.
+MEDIA_LEASES :: 1 + proto.MAX_CAMERAS
 
 Media_Session :: struct {
 	using session: proto.Session,
@@ -62,24 +95,19 @@ Media_Session :: struct {
 	started:       time.Tick,
 	last_recv:     time.Tick,
 	num:           proto.User_Num, // who it belongs to, once keyed
-	// The lease on the sharer that this session's connection is watching.
-	watching:      proto.User_Num,
-	watch_until:   time.Tick,
+	// The streams that this session's connection is watching.
+	leases:        [MEDIA_LEASES]Media_Lease,
 	// How much it may have resent (Nack), similar to a sharer's budget.
 	resend_budget: int,
 	resend_at:     time.Tick,
-	// Its last Report, the sharer it is about and when it arrived.
-	report:        proto.Video_Report,
-	report_of:     proto.User_Num,
-	report_at:     time.Tick,
 }
 
 // A Report older than this isn't counted because its viewer went quiet.
 @(private = "file")
 REPORT_FRESH :: 3 * time.Second
 
-// Media_Sharer holds the budget, keyframe requests and recent fragments of a
-// sharer on the media link.
+// Media_Sharer holds the budget, keyframe requests and recent fragments of one
+// of a sharer's streams on the media link.
 Media_Sharer :: struct {
 	budget:        int,
 	budget_at:     time.Tick,
@@ -89,10 +117,11 @@ Media_Sharer :: struct {
 
 // Media_Cache holds a sharer's fragments exactly as they were sent out (the
 // Video message that viewers get). They are stored in a ring of
-// MEDIA_CACHE_SLOTS and looked up by frame and index. Fragments that are
-// older than the cache age are never sent again, even if they are still in
-// the ring.
+// MEDIA_CACHE_SLOTS (MEDIA_CAMERA_CACHE_SLOTS for a camera, which sends far
+// less) and looked up by frame and index. Fragments that are older than the
+// cache age are never sent again, even if they are still in the ring.
 MEDIA_CACHE_SLOTS :: 2048
+MEDIA_CAMERA_CACHE_SLOTS :: 256
 
 Media_Cached :: struct {
 	key:  u64, // frame << 16 | index
@@ -102,7 +131,7 @@ Media_Cached :: struct {
 }
 
 Media_Cache :: struct {
-	slots: [MEDIA_CACHE_SLOTS]Media_Cached,
+	slots: []Media_Cached,
 	next:  int,
 	index: map[u64]int, // key -> slot
 }
@@ -111,7 +140,11 @@ Media :: struct {
 	enabled:      bool,
 	port:         int,
 	max_rate:     int, // bytes per second, per sharer
+	camera_rate:  int, // bytes per second, per camera
 	max_burst:    int,
+	// How many cameras may be on in a channel's room. Only used by the main
+	// loop (camera_allowed).
+	max_cameras:  int,
 	max_sessions: int,
 	gate:         Handshake_Gate, // which Inits may start a session
 	cache_age:    time.Duration, // how long fragments are kept for Nacks
@@ -131,7 +164,7 @@ Media :: struct {
 
 	// Only used by the media thread.
 	sessions:     map[proto.Session_Id]^Media_Session,
-	sharers:      map[proto.User_Num]Media_Sharer,
+	sharers:      map[Media_Stream]Media_Sharer,
 	housekept:    time.Tick,
 }
 
@@ -164,6 +197,8 @@ media_open :: proc(s: ^Server, settings: Settings) {
 	}
 	m.port = media_port(settings)
 	m.max_rate = cfg.max_kbit * 1000 / 8
+	m.camera_rate = cfg.camera_max_kbit * 1000 / 8
+	m.max_cameras = cfg.max_cameras
 	m.max_burst = proto.MAX_VIDEO_FRAME_SIZE + 64 * 1024
 	m.max_sessions = s.max_sessions
 	m.cache_age = time.Duration(cfg.cache_ms) * time.Millisecond
@@ -186,7 +221,13 @@ media_open :: proc(s: ^Server, settings: Settings) {
 	m.enabled = true
 	media_publish(s)
 	m.thread = thread.create_and_start_with_poly_data(m, media_run, init_context = context)
-	log.infof("media link on udp :%d, %d kbit/s per sharer", m.port, cfg.max_kbit)
+	log.infof(
+		"media link on udp :%d, %d kbit/s per sharer, %d cameras per channel at %d kbit/s",
+		m.port,
+		cfg.max_kbit,
+		cfg.max_cameras,
+		cfg.camera_max_kbit,
+	)
 }
 
 media_close :: proc(s: ^Server) {
@@ -221,6 +262,7 @@ media_free :: proc(m: ^Media) {
 cache_free :: proc(sh: ^Media_Sharer) {
 	if sh.cache != nil {
 		delete(sh.cache.index)
+		delete(sh.cache.slots)
 		free(sh.cache)
 		sh.cache = nil
 	}
@@ -257,6 +299,7 @@ media_publish :: proc(s: ^Server) {
 			instance = u.instance,
 			room     = u.room,
 			sharing  = .Sharing in u.flags,
+			camera   = .Camera in u.flags,
 		}
 	}
 	m.published = s.version
@@ -476,30 +519,28 @@ media_data :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	}
 }
 
-// media_relay forwards a fragment to every media session that is watching
-// its sharer in the sharer's room, encrypted separately for each. Video
-// from somebody who isn't sharing or who is over their budget is dropped.
+// media_relay forwards a fragment to every media session that holds a lease on
+// its stream in the sharer's room, encrypted separately for each. Video from
+// somebody whose stream isn't on or who is over their budget is dropped.
 @(private = "file")
 media_relay :: proc(m: ^Media, from: ^Media_Session, peer: Media_Peer, pt: []byte) {
-	if _, ok := proto.decode_video_up(pt); !ok || !peer.sharing || peer.room == 0 {
+	f, ok := proto.decode_video_up(pt)
+	if !ok || !peer_sends(peer, f.stream) || peer.room == 0 {
 		return
 	}
-	if !media_spend(m, peer.num, len(pt)) {
-		log.debugf("media: %d is sharing faster than the server passes on", peer.num)
+	of := Media_Stream{peer.num, f.stream}
+	if !media_spend(m, of, len(pt)) {
+		log.debugf("media: %d is sending %v faster than the server passes on", peer.num, f.stream)
 		return
 	}
 	out_buf: [proto.MAX_PAYLOAD_SIZE]u8
 	msg := proto.video_up_to_down(&out_buf, peer.num, pt)
 	now := time.tick_now()
 	if m.cache_age > 0 {
-		f, _ := proto.decode_video_up(pt)
-		cache_put(media_sharer(m, peer.num), f.frame, f.index, msg, now)
+		cache_put(media_sharer(m, of), of.stream, f.frame, f.index, msg, now)
 	}
 	for _, ms in m.sessions {
-		if !ms.keyed || ms.superseded || ms == from || ms.watching != peer.num {
-			continue
-		}
-		if time.tick_diff(now, ms.watch_until) <= 0 {
+		if !ms.keyed || ms.superseded || ms == from || lease_find(ms, of, now) == nil {
 			continue
 		}
 		viewer, known := m.peers[ms.peer_key]
@@ -510,21 +551,71 @@ media_relay :: proc(m: ^Media, from: ^Media_Session, peer: Media_Peer, pt: []byt
 	}
 }
 
-// media_sharer returns what the thread keeps for a sharer, creating it if necessary.
+// lease_find returns the session's lease on a stream if it hasn't run out,
+// or nil.
 @(private = "file")
-media_sharer :: proc(m: ^Media, num: proto.User_Num) -> ^Media_Sharer {
-	sh := &m.sharers[num]
+lease_find :: proc(ms: ^Media_Session, of: Media_Stream, now: time.Tick) -> ^Media_Lease {
+	for &l in ms.leases {
+		if l.of == of && time.tick_diff(now, l.until) > 0 {
+			return &l
+		}
+	}
+	return nil
+}
+
+// lease_take returns the session's lease on a stream, taking a new one if it
+// has none. A lease on a screen replaces the one on another screen. Nil if the
+// session already holds as many leases on cameras as it may.
+@(private = "file")
+lease_take :: proc(ms: ^Media_Session, of: Media_Stream, now: time.Tick) -> ^Media_Lease {
+	free_lease: ^Media_Lease
+	cameras := 0
+	for &l in ms.leases {
+		switch {
+		case l.of == of:
+			return &l
+		case l.num != 0 && l.stream == .Screen && of.stream == .Screen:
+			l = {of = of}
+			return &l
+		case l.num == 0 || time.tick_diff(now, l.until) <= 0:
+			if free_lease == nil {
+				free_lease = &l
+			}
+		case l.stream == .Camera:
+			cameras += 1
+		}
+	}
+	if free_lease == nil || (of.stream == .Camera && cameras >= proto.MAX_CAMERAS) {
+		return nil
+	}
+	free_lease^ = {of = of}
+	return free_lease
+}
+
+// media_sharer returns what the thread keeps for a sharer's stream, creating it if necessary.
+@(private = "file")
+media_sharer :: proc(m: ^Media, of: Media_Stream) -> ^Media_Sharer {
+	sh := &m.sharers[of]
 	if sh == nil {
-		m.sharers[num] = {}
-		sh = &m.sharers[num]
+		m.sharers[of] = {}
+		sh = &m.sharers[of]
 	}
 	return sh
 }
 
 @(private = "file")
-cache_put :: proc(sh: ^Media_Sharer, frame: u32, index: int, msg: []u8, now: time.Tick) {
+cache_put :: proc(
+	sh: ^Media_Sharer,
+	stream: proto.Video_Stream,
+	frame: u32,
+	index: int,
+	msg: []u8,
+	now: time.Tick,
+) {
 	if sh.cache == nil {
 		sh.cache = new(Media_Cache)
+		slots := MEDIA_CAMERA_CACHE_SLOTS if stream == .Camera else MEDIA_CACHE_SLOTS
+		sh.cache.slots = make([]Media_Cached, slots)
 	}
 	c := sh.cache
 	slot := &c.slots[c.next]
@@ -535,7 +626,7 @@ cache_put :: proc(sh: ^Media_Sharer, frame: u32, index: int, msg: []u8, now: tim
 	slot.at = now
 	slot.size = copy(slot.data[:], msg)
 	c.index[slot.key] = c.next
-	c.next = (c.next + 1) % MEDIA_CACHE_SLOTS
+	c.next = (c.next + 1) % len(c.slots)
 }
 
 @(private = "file")
@@ -555,24 +646,25 @@ cache_get :: proc(m: ^Media, sh: ^Media_Sharer, frame: u32, index: int, now: tim
 	return slot.data[:slot.size]
 }
 
-// media_nack resends the fragments of a frame that a viewer asks for from
-// the sharer it is watching. They are taken from the cache, as far as the
-// viewer's own budget (the sharer's rate) allows, so that a viewer can't make
-// the server send more than the sharer could.
+// media_nack resends the fragments of a frame that a viewer asks for from a
+// stream it is watching. They are taken from the cache, as far as the viewer's
+// own budget (the sharer's rate) allows, so that a viewer can't make the server
+// send more than the sharer could.
 @(private = "file")
 media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) {
-	sharer, n, ok := proto.decode_nack(pt)
+	sharer, n, stream, ok := proto.decode_nack(pt)
+	of := Media_Stream{sharer, stream}
 	now := time.tick_now()
-	if !ok || sharer == 0 || sharer != ms.watching || time.tick_diff(now, ms.watch_until) <= 0 {
+	if !ok || sharer == 0 || lease_find(ms, of, now) == nil {
 		return
 	}
 	// A lease can be taken on anyone (media_watch), so the room is checked
 	// here as media_relay does: only viewers in the sharer's room get its
 	// fragments.
-	if !media_same_room(m, viewer, sharer) {
+	if !media_same_room(m, viewer, of) {
 		return
 	}
-	sh := m.sharers[sharer] or_else {}
+	sh := m.sharers[of] or_else {}
 	if sh.cache == nil {
 		return
 	}
@@ -599,36 +691,38 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 	}
 }
 
-// media_same_room tells whether a sharer is sharing in the viewer's room.
+// media_same_room tells whether a sharer's stream is on in the viewer's room.
 @(private = "file")
-media_same_room :: proc(m: ^Media, viewer: Media_Peer, sharer: proto.User_Num) -> bool {
-	if viewer.room == 0 || viewer.num == sharer {
+media_same_room :: proc(m: ^Media, viewer: Media_Peer, of: Media_Stream) -> bool {
+	if viewer.room == 0 || viewer.num == of.num {
 		return false
 	}
 	// A user can be connected from more than one device.
 	for _, peer in m.peers {
-		if peer.num == sharer && peer.sharing && peer.room == viewer.room {
+		if peer.num == of.num && peer_sends(peer, of.stream) && peer.room == viewer.room {
 			return true
 		}
 	}
 	return false
 }
 
-// media_report stores a viewer's report about the sharer it holds a lease on.
+// media_report stores a viewer's report about a stream it holds a lease on.
 @(private = "file")
 media_report :: proc(m: ^Media, ms: ^Media_Session, pt: []u8) {
-	sharer, r, ok := proto.decode_report_up(pt)
+	sharer, r, stream, ok := proto.decode_report_up(pt)
 	now := time.tick_now()
-	if !ok || sharer == 0 || sharer != ms.watching || time.tick_diff(now, ms.watch_until) <= 0 {
+	if !ok || sharer == 0 {
 		return
 	}
-	ms.report, ms.report_of, ms.report_at = r, sharer, now
+	if l := lease_find(ms, {sharer, stream}, now); l != nil {
+		l.report, l.report_at = r, now
+	}
 }
 
-// media_reports tells each sharer on the media link how well the stream
-// reaches its viewers in its room. It sends the worst of their recent
-// reports (see proto.summarize_reports). Sharers that have no reports
-// are sent nothing.
+// media_reports tells each sharer on the media link how well each of its
+// streams reaches its viewers in its room. It sends the worst of their recent
+// reports (see proto.summarize_reports). Streams that have no reports are sent
+// nothing.
 media_reports :: proc(m: ^Media) {
 	now := time.tick_now()
 	for _, target in m.sessions {
@@ -636,38 +730,48 @@ media_reports :: proc(m: ^Media) {
 			continue
 		}
 		peer, known := m.peers[target.peer_key]
-		if !known || !peer.sharing || peer.room == 0 {
+		if !known || peer.room == 0 {
 			continue
 		}
-		reports := make([dynamic]proto.Video_Report, context.temp_allocator)
-		for _, viewer in m.sessions {
-			if viewer.report_of != peer.num ||
-			   viewer.report_at == {} ||
-			   time.tick_diff(viewer.report_at, now) > REPORT_FRESH {
+		for stream in proto.Video_Stream {
+			if !peer_sends(peer, stream) {
 				continue
 			}
-			vp, ok := m.peers[viewer.peer_key]
-			if ok && vp.num == viewer.num && vp.room == peer.room {
-				append(&reports, viewer.report)
+			of := Media_Stream{peer.num, stream}
+			reports := make([dynamic]proto.Video_Report, context.temp_allocator)
+			for _, viewer in m.sessions {
+				vp, ok := m.peers[viewer.peer_key]
+				if !ok || vp.num != viewer.num || vp.room != peer.room {
+					continue
+				}
+				for l in viewer.leases {
+					if l.of == of &&
+					   l.report_at != {} &&
+					   time.tick_diff(l.report_at, now) <= REPORT_FRESH {
+						append(&reports, l.report)
+					}
+				}
 			}
+			if len(reports) == 0 {
+				continue
+			}
+			buf: [proto.REPORT_CAMERA_SIZE]u8
+			summary := proto.summarize_reports(reports[:])
+			media_send(m, target, proto.encode_report_down(&buf, summary, stream))
 		}
-		if len(reports) == 0 {
-			continue
-		}
-		buf: [proto.REPORT_SIZE]u8
-		media_send(m, target, proto.encode_report_down(&buf, proto.summarize_reports(reports[:])))
 	}
 }
 
 @(private = "file")
-media_spend :: proc(m: ^Media, num: proto.User_Num, n: int) -> bool {
-	sh := media_sharer(m, num)
+media_spend :: proc(m: ^Media, of: Media_Stream, n: int) -> bool {
+	sh := media_sharer(m, of)
+	rate := m.camera_rate if of.stream == .Camera else m.max_rate
 	now := time.tick_now()
 	if sh.budget_at == {} {
 		sh.budget = m.max_burst
 	} else {
 		elapsed := time.duration_seconds(time.tick_diff(sh.budget_at, now))
-		sh.budget = min(m.max_burst, sh.budget + int(elapsed * f64(m.max_rate)))
+		sh.budget = min(m.max_burst, sh.budget + int(elapsed * f64(rate)))
 	}
 	sh.budget_at = now
 	if sh.budget < n {
@@ -677,23 +781,33 @@ media_spend :: proc(m: ^Media, num: proto.User_Num, n: int) -> bool {
 	return true
 }
 
-// media_watch records a viewer's lease and forwards a keyframe request to the
-// sharer if the sharer is on the media link, at most once every
-// KEYFRAME_REQUEST_MIN.
+// media_watch records a viewer's lease, or ends it, and forwards a keyframe
+// request to the sharer if the sharer is on the media link, at most once every
+// KEYFRAME_REQUEST_MIN for each stream.
 @(private = "file")
 media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byte) {
-	sharer, need_key := proto.decode_watch(pt)
-	ms.watching = sharer
-	if sharer == 0 {
+	w := proto.decode_watch(pt)
+	of := Media_Stream{w.sharer, w.stream}
+	now := time.tick_now()
+	if w.sharer == 0 || w.stop {
+		for &l in ms.leases {
+			if l.of == of || (w.sharer == 0 && l.stream == w.stream) {
+				l = {}
+			}
+		}
 		return
 	}
-	ms.watch_until = time.tick_add(time.tick_now(), proto.WATCH_LEASE)
-	if !need_key || viewer.room == 0 {
+	l := lease_take(ms, of, now)
+	if l == nil {
+		return
+	}
+	l.until = time.tick_add(now, proto.WATCH_LEASE)
+	if !w.need_key || viewer.room == 0 {
 		return
 	}
 	target: ^Media_Session
 	for _, other in m.sessions {
-		if other.keyed && !other.superseded && other.num == sharer {
+		if other.keyed && !other.superseded && other.num == w.sharer {
 			target = other
 			break
 		}
@@ -702,24 +816,22 @@ media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byt
 		return // the sharer isn't on the media link, so isn't sharing at all
 	}
 	peer, known := m.peers[target.peer_key]
-	if !known || !peer.sharing || peer.room != viewer.room {
+	if !known || !peer_sends(peer, w.stream) || peer.room != viewer.room {
 		return
 	}
-	sh := media_sharer(m, sharer)
-	now := time.tick_now()
+	sh := media_sharer(m, of)
 	if sh.last_key_sent != {} &&
 	   time.tick_diff(sh.last_key_sent, now) < proto.KEYFRAME_REQUEST_MIN {
 		return
 	}
 	sh.last_key_sent = now
-	buf: [proto.KEYFRAME_SIZE]u8
-	media_send(m, target, proto.encode_keyframe(&buf))
+	buf: [proto.KEYFRAME_CAMERA_SIZE]u8
+	media_send(m, target, proto.encode_keyframe(&buf, w.stream))
 }
 
 // media_housekeeping drops sessions that are silent, too old, have an
 // unfinished handshake, or whose connection has gone or started over. It
-// also forgets the budgets of sharers that are no longer sharing.
-@(private = "file")
+// also forgets the budgets of streams that are no longer on.
 media_housekeeping :: proc(m: ^Media) {
 	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, ms in m.sessions {
@@ -741,21 +853,21 @@ media_housekeeping :: proc(m: ^Media) {
 	for idx in stale {
 		media_drop(m, idx)
 	}
-	gone := make([dynamic]proto.User_Num, context.temp_allocator)
-	for num in m.sharers {
-		sharing := false
+	gone := make([dynamic]Media_Stream, context.temp_allocator)
+	for of in m.sharers {
+		on := false
 		for _, peer in m.peers {
-			if peer.num == num && peer.sharing {
-				sharing = true
+			if peer.num == of.num && peer_sends(peer, of.stream) {
+				on = true
 				break
 			}
 		}
-		if !sharing {
-			append(&gone, num)
+		if !on {
+			append(&gone, of)
 		}
 	}
-	for num in gone {
-		cache_free(&m.sharers[num])
-		delete_key(&m.sharers, num)
+	for of in gone {
+		cache_free(&m.sharers[of])
+		delete_key(&m.sharers, of)
 	}
 }
