@@ -2,8 +2,10 @@
 tinyaac (tinyaac.h, public domain or MIT), per-application audio
 capture, compiled as one translation unit for yap. The header is used
 as close to unmodified as possible (see the "yap fork" notes: in its
-macOS part, which didn't compile as it came, and the PipeWire part's
-media.name, which tells two instances of a player apart); this file is only here to
+macOS part, which didn't compile as it came, the PipeWire part's
+media.name, which tells two instances of a player apart, and capturing
+a playback device without yap's own sound, see misc/screen-audio);
+this file is only here to
 hold its implementation and the one thing yap adds, yap_aac_init.
 
 On Linux tinyaac talks to PipeWire, which it would normally link
@@ -63,7 +65,11 @@ unavailable.
 	X(pw_stream_destroy) \
 	X(pw_stream_dequeue_buffer) \
 	X(pw_stream_queue_buffer) \
-	X(pw_stream_get_nsec)
+	X(pw_stream_get_nsec) \
+	X(pw_stream_get_node_id) \
+	X(pw_properties_set) \
+	X(pw_properties_setf) \
+	X(pw_properties_free)
 
 #define YAP_PW_POINTER(name) static __typeof__(name) *yap_dl_##name;
 YAP_PW_SYMS(YAP_PW_POINTER)
@@ -118,6 +124,10 @@ static int yap_pw_load(void)
 #define pw_stream_dequeue_buffer (*yap_dl_pw_stream_dequeue_buffer)
 #define pw_stream_queue_buffer (*yap_dl_pw_stream_queue_buffer)
 #define pw_stream_get_nsec (*yap_dl_pw_stream_get_nsec)
+#define pw_stream_get_node_id (*yap_dl_pw_stream_get_node_id)
+#define pw_properties_set (*yap_dl_pw_properties_set)
+#define pw_properties_setf (*yap_dl_pw_properties_setf)
+#define pw_properties_free (*yap_dl_pw_properties_free)
 #endif
 
 #if defined(__APPLE__)
