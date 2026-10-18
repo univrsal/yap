@@ -22,17 +22,20 @@ A sloppy chat and VOIP application.
 For a more minimal version more similar to Mumble check out the
 [minimal](https://github.com/univrsal/yap/tree/minimal) branch.
 
+See [the tutorial video](https://www.youtube.com/watch?v=zcZ0UOpUYG4) for basic
+server and client usage.
+
 ## Running a server
 
 ```sh
 yap-server               # or: yap-server path/to/config.json
 ```
 
-The first run writes `config.json`: the port, the server's private key, an
-optional password, logging, the web relay. By default there's only the lobby
-channel. The admin can create more from the client's Channels window). Next to
-it, or in the config's `data_dir`, the server keeps its database (`yap.db`) and
-a `blobs` folder.
+The first run writes `config.json`. See the comment in
+[config.odin](https://github.com/univrsal/yap/blob/master/src/server/config.odin)
+for information on the settings. The admin can create more from the client's
+Channels window). Next to it, or in the config's `data_dir`, the server keeps
+its database (`yap.db`) and a `blobs` folder.
 
 People need an account to get in, and accounts are made by an admin. A
 server that has none makes one called `admin` when it starts and writes its
