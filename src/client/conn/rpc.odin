@@ -49,6 +49,10 @@ Server_Details :: struct {
 	// video bitrate of a sharer in kbit/s (0 if the server did not say).
 	media_port:     u16,
 	video_kbit:     u32,
+	// How many cameras it allows in a channel's room (0 for none), and the
+	// maximum bitrate of a camera in kbit/s.
+	max_cameras:    int,
+	camera_kbit:    u32,
 	// What the server is for (owned), and its picture: the id it goes by, and
 	// its JPEG once fetched (owned, nil until then). See server_info.odin.
 	description:    string,

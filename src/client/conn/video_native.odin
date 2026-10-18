@@ -8,6 +8,7 @@ import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:thread"
+import "core:time"
 
 import "client:audio"
 import "client:render"
@@ -21,7 +22,11 @@ import log "common:wlog"
 //
 // The library decodes on threads of its own and keeps the newest picture on the
 // GPU, created for our renderer's device (video_picture). Frames are pushed
-// from the network thread (video_show_frame).
+// from the network thread (video_show_frame). Each stream we watch (a screen,
+// cameras) has a view of its own (View_Slot).
+//
+// Cameras aren't captured here yet (misc/video-chat, phase 6): only the screen
+// is ever live.
 //
 // Sharing: the UI picks a monitor or window (video_sources, video_share_source),
 // and the library captures and encodes it on a thread of its own. The network
@@ -170,21 +175,40 @@ when ODIN_OS == .Windows {
 	YV_LIBRARY :: "libyap_video.so"
 }
 
+// A view decodes one stream (Video_Key). There is one for each stream that can
+// be watched at once (VIDEO_INS), made the first time it's needed and kept as
+// long as the process lives: a view that isn't decoding anything holds next to
+// nothing (yv_view_clear).
+@(private = "file")
+View_Slot :: struct {
+	// What it decodes, {} while it's free, and how often it was given a
+	// stream (under views_mu).
+	key:      Video_Key,
+	used:     u64,
+	view:     rawptr,
+	// When the UI last drew it (take_view).
+	drawn_at: time.Tick,
+	// The UI thread's handle on the picture it last gave us, and that
+	// picture's statistics (video_picture_info).
+	picture:  render.Gpu_Texture,
+	wrapped:  uintptr,
+	frames:   u64,
+	hardware: bool,
+}
+
 @(private = "file")
 Native_Video :: struct {
 	once:          sync.Once,
 	loaded:        bool, // everything below is set up
 	yv:            Yv,
 	ctx:           rawptr,
-	view:          rawptr, // the one we watch with, which lives as long as the process
 	logger:        runtime.Logger,
-	// Whose frames the view is decoding (atomic, because of the network threads).
-	sharer:        proto.User_Num,
-	// The UI thread's state: whether the library has the renderer's device,
-	// and our handle on the picture it last gave us.
+	// The views, which the network threads give streams to and the UI thread
+	// presents.
+	views_mu:      sync.Mutex,
+	views:         [VIDEO_INS]View_Slot,
+	// The UI thread's state: whether the library has the renderer's device.
 	gpu_set:       bool,
-	picture:       render.Gpu_Texture,
-	wrapped:       uintptr,
 	full:          bool, // video_set_fullscreen
 	// Sharing. `share` is started and stopped by the UI and pulled from by a
 	// network thread, so it is only touched under `share_mu`.
@@ -197,9 +221,6 @@ Native_Video :: struct {
 	asked:         bool, // UI thread only: video_allow_capture has shown the prompt
 	// Wakes the UI for each new picture (video_set_wake; atomic).
 	wake:          proc "c" (),
-	// The last picture's statistics, for the figures (video_picture_info).
-	frames:        u64,
-	hardware:      bool,
 }
 
 @(private = "file")
@@ -249,11 +270,6 @@ load :: proc() {
 	if nv.ctx == nil {
 		return
 	}
-	nv.view = nv.yv.view_create(nv.ctx)
-	if nv.view == nil {
-		return
-	}
-	nv.yv.view_on_frame(nv.view, on_frame, nil)
 	nv.loaded = true
 	log.infof("video: yap_video %s", nv.yv.version_string())
 	thread.run(probe_encoders, context)
@@ -318,13 +334,15 @@ yv_log :: proc "c" (user: rawptr, level: i32, msg: cstring) {
 // own (ui_app_audio_native.odin), and owns the voice's app ring.
 video_capture_audio :: proc(v: ^audio.Voice, sharing: bool) {}
 
-video_capture_live :: proc() -> bool {
-	return video_share_state() == .Live
+// Cameras aren't captured on the desktop yet, so only the screen is ever live.
+video_capture_live :: proc(stream: proto.Video_Stream) -> bool {
+	return stream == .Screen && video_share_state() == .Live
 }
 
-// video_capture_pull returns the next encoded frame, which the caller then
-// owns. Called from the network thread.
+// video_capture_pull returns the next encoded frame of a stream, which the
+// caller then owns. Called from the network thread.
 video_capture_pull :: proc(
+	stream: proto.Video_Stream,
 ) -> (
 	data: []u8,
 	ts: u32,
@@ -332,7 +350,7 @@ video_capture_pull :: proc(
 	codec: proto.Video_Codec,
 	ok: bool,
 ) {
-	if !nv.loaded {
+	if !nv.loaded || stream != .Screen {
 		return
 	}
 	sync.guard(&nv.share_mu)
@@ -346,8 +364,8 @@ video_capture_pull :: proc(
 	return data, u32(p.pts_us / 1000), p.key, proto.Video_Codec(p.codec), true
 }
 
-video_capture_request_key :: proc() {
-	if !nv.loaded {
+video_capture_request_key :: proc(stream: proto.Video_Stream) {
+	if !nv.loaded || stream != .Screen {
 		return
 	}
 	sync.guard(&nv.share_mu)
@@ -356,17 +374,85 @@ video_capture_request_key :: proc() {
 	}
 }
 
-// video_show_frame hands a whole frame to the decoder. Called from a network
-// thread.
-video_show_frame :: proc(sharer: proto.User_Num, frame: proto.Video_Frame) {
+// find_view returns the view that decodes `key`, or nil if it has none (yet).
+// The view stays valid, but may be given another stream after video_show_end.
+@(private = "file")
+find_view :: proc(key: Video_Key) -> rawptr {
+	sync.guard(&nv.views_mu)
+	for slot in nv.views {
+		if slot.key == key {
+			return slot.view
+		}
+	}
+	return nil
+}
+
+// take_view gives `key` a view of its own, making one if no free one has been
+// made yet. A view takes the renderer's device when it is made, so this is
+// done on the UI thread, by video_picture. With none free, the one drawn
+// longest ago is taken, if that was over VIEW_UNUSED ago: the UI may have drawn
+// a stream once more after it ended. Nil if there is none.
+@(private = "file")
+take_view :: proc(key: Video_Key) -> ^View_Slot {
+	sync.guard(&nv.views_mu)
+	free_slot, oldest: ^View_Slot
+	for &slot in nv.views {
+		if slot.key == key {
+			return &slot
+		}
+		// One that has a view already, rather than making another.
+		if slot.key == {} && (free_slot == nil || free_slot.view == nil) {
+			free_slot = &slot
+		}
+		if slot.key != {} &&
+		   time.tick_since(slot.drawn_at) > VIEW_UNUSED &&
+		   (oldest == nil || time.tick_diff(oldest.drawn_at, slot.drawn_at) < 0) {
+			oldest = &slot
+		}
+	}
+	if free_slot == nil && oldest != nil {
+		nv.yv.view_clear(oldest.view)
+		free_slot = oldest
+	}
+	if free_slot == nil {
+		return nil
+	}
+	if free_slot.view == nil {
+		free_slot.view = nv.yv.view_create(nv.ctx)
+		if free_slot.view == nil {
+			return nil
+		}
+		nv.yv.view_on_frame(free_slot.view, on_frame, nil)
+	}
+	free_slot.key = key
+	free_slot.used += 1
+	free_slot.drawn_at = time.tick_now()
+	return free_slot
+}
+
+// How long a view goes undrawn before take_view may give it to another stream.
+@(private = "file")
+VIEW_UNUSED :: 5 * time.Second
+
+// video_show_ready says whether a stream has a decoder to take its frames:
+// the UI has started drawing it (video_picture). Until then its frames are
+// dropped, and once it has, the next keyframe is what to start from.
+video_show_ready :: proc(key: Video_Key) -> bool {
+	return loaded() && find_view(key) != nil
+}
+
+// video_show_frame hands a whole frame of a stream to its decoder. Called from
+// a network thread.
+video_show_frame :: proc(key: Video_Key, frame: proto.Video_Frame) {
 	if !loaded() || len(frame.data) == 0 || u8(frame.codec) > 2 {
 		return
 	}
-	if sync.atomic_exchange(&nv.sharer, sharer) != sharer {
-		nv.yv.view_clear(nv.view)
+	view := find_view(key)
+	if view == nil {
+		return
 	}
 	nv.yv.view_push(
-		nv.view,
+		view,
 		raw_data(frame.data),
 		uint(len(frame.data)),
 		i32(frame.codec),
@@ -375,18 +461,28 @@ video_show_frame :: proc(sharer: proto.User_Num, frame: proto.Video_Frame) {
 	)
 }
 
-video_show_end :: proc() {
+// video_show_end drops what a stream's decoder has, and its view.
+video_show_end :: proc(key: Video_Key) {
 	if !loaded() {
 		return
 	}
-	sync.atomic_store(&nv.sharer, 0)
-	nv.yv.view_clear(nv.view)
+	sync.guard(&nv.views_mu)
+	for &slot in nv.views {
+		if slot.key == key {
+			nv.yv.view_clear(slot.view)
+			slot.key = {}
+		}
+	}
 }
 
-// video_show_failed says, once, that the decoder gave up on what it was given.
-// It needs a keyframe to start again.
-video_show_failed :: proc() -> bool {
-	return loaded() && nv.yv.view_take_failed(nv.view)
+// video_show_failed says, once, that a stream's decoder gave up on what it was
+// given. It needs a keyframe to start again.
+video_show_failed :: proc(key: Video_Key) -> bool {
+	if !loaded() {
+		return false
+	}
+	view := find_view(key)
+	return view != nil && nv.yv.view_take_failed(view)
 }
 
 Share_State :: enum i32 {
@@ -412,7 +508,10 @@ video_decodable :: proc() -> proto.Video_Codecs {
 // video_share_codecs says what the share's viewers can decode (video.odin).
 // It is called from the network thread as viewers come and go, and a share that
 // is started later starts with it too.
-video_share_codecs :: proc(codecs: proto.Video_Codecs) {
+video_share_codecs :: proc(stream: proto.Video_Stream, codecs: proto.Video_Codecs) {
+	if stream != .Screen {
+		return
+	}
 	bits := transmute(u8)codecs
 	if sync.atomic_exchange(&nv.share_codecs, bits) == bits || !loaded() {
 		return
@@ -530,8 +629,8 @@ video_share_source :: proc(src: Video_Source, config: Share_Config) {
 // runs at, not what video_share_adapt last asked for: the library takes that
 // up only some seconds later, if at all, and pacing below what the encoder
 // makes in the meantime builds up a queue.
-video_share_kbit :: proc() -> int {
-	if video_share_state() == .Off {
+video_share_kbit :: proc(stream: proto.Video_Stream) -> int {
+	if stream != .Screen || video_share_state() == .Off {
 		return 0
 	}
 	sync.guard(&nv.share_mu)
@@ -540,14 +639,17 @@ video_share_kbit :: proc() -> int {
 
 // video_share_max_kbit is the bitrate the share was set to encode at, which
 // adapting never goes above. It is 0 while there is no share.
-video_share_max_kbit :: proc() -> int {
-	return sync.atomic_load(&nv.share_kbit) if video_share_state() != .Off else 0
+video_share_max_kbit :: proc(stream: proto.Video_Stream) -> int {
+	if stream != .Screen || video_share_state() == .Off {
+		return 0
+	}
+	return sync.atomic_load(&nv.share_kbit)
 }
 
-// video_share_adapt holds the share to `kbit` for its viewers (video.odin).
+// video_share_adapt holds a stream to `kbit` for its viewers (video.odin).
 // Called from the network thread.
-video_share_adapt :: proc(kbit: int) {
-	if !nv.loaded {
+video_share_adapt :: proc(stream: proto.Video_Stream, kbit: int) {
+	if !nv.loaded || stream != .Screen {
 		return
 	}
 	sync.guard(&nv.share_mu)
@@ -646,17 +748,18 @@ video_share_error :: proc() -> string {
 	return strings.clone_from_cstring(nv.yv.share_error(nv.share), context.temp_allocator)
 }
 
-// video_picture is the newest frame of what we are watching, as a texture of
-// the renderer's, valid until the next call or video_forget_gpu. Called from
-// the UI thread, with the renderer's device up.
+// video_picture is the newest frame of a stream we are watching, as a texture
+// of the renderer's, valid until the next call for that stream or
+// video_forget_gpu. Called from the UI thread, with the renderer's device up.
 video_picture :: proc(
 	g: ^render.Gpu,
+	key: Video_Key,
 ) -> (
 	texture: render.Gpu_Texture,
 	width, height: int,
 	ok: bool,
 ) {
-	if !loaded() {
+	if !loaded() || key.user == 0 {
 		return
 	}
 	if !nv.gpu_set {
@@ -678,33 +781,67 @@ video_picture :: proc(
 		nv.yv.set_gpu(nv.ctx, &gpu)
 		nv.gpu_set = true
 	}
-	pic: Yv_Picture
-	if !nv.yv.view_present(nv.view, &pic) || pic.texture == 0 {
+	// Presenting can take a moment, so it is done without the lock. If the
+	// view was given to another stream meanwhile, its picture is not ours.
+	slot, used := find_slot(key)
+	if slot == nil {
+		// The first time this stream is drawn: from now on its frames are
+		// decoded (video_show_ready).
+		if take_view(key) == nil {
+			log.warnf("video: no view free for %v", key)
+		}
 		return
 	}
-	nv.frames, nv.hardware = pic.frames, pic.hardware
-	if pic.texture != nv.wrapped {
-		render.gpu_texture_unwrap(g, &nv.picture)
-		nv.picture = render.gpu_texture_wrap(g, pic.texture)
-		nv.wrapped = pic.texture
+	slot.drawn_at = time.tick_now()
+	pic: Yv_Picture
+	if !nv.yv.view_present(slot.view, &pic) || pic.texture == 0 {
+		return
 	}
-	return nv.picture, int(pic.width), int(pic.height), true
+	if again, again_used := find_slot(key); again != slot || again_used != used {
+		return
+	}
+	slot.frames, slot.hardware = pic.frames, pic.hardware
+	if pic.texture != slot.wrapped {
+		render.gpu_texture_unwrap(g, &slot.picture)
+		slot.picture = render.gpu_texture_wrap(g, pic.texture)
+		slot.wrapped = pic.texture
+	}
+	return slot.picture, int(pic.width), int(pic.height), true
+}
+
+// find_slot returns the slot of the view that decodes `key`, and how often it
+// had been given a stream then, or nil.
+@(private = "file")
+find_slot :: proc(key: Video_Key) -> (slot: ^View_Slot, used: u64) {
+	sync.guard(&nv.views_mu)
+	for &s in nv.views {
+		if s.key == key {
+			return &s, s.used
+		}
+	}
+	return
+}
+
+// video_picture_info describes the last picture video_picture gave of a
+// stream: how many have been decoded so far, and whether by the GPU. Called
+// from the UI thread.
+video_picture_info :: proc(key: Video_Key) -> (frames: u64, hardware: bool) {
+	if slot, _ := find_slot(key); slot != nil {
+		return slot.frames, slot.hardware
+	}
+	return
 }
 
 // video_forget_gpu lets go of everything on the renderer's device, which is
 // about to go away (or already has). Called from the UI thread.
-// video_picture_info describes the last picture video_picture gave: how many
-// have been decoded so far, and whether by the GPU. Called from the UI thread.
-video_picture_info :: proc() -> (frames: u64, hardware: bool) {
-	return nv.frames, nv.hardware
-}
-
 video_forget_gpu :: proc(g: ^render.Gpu) {
 	if !nv.loaded || !nv.gpu_set {
 		return
 	}
-	render.gpu_texture_unwrap(g, &nv.picture)
-	nv.wrapped = 0
+	for &s in nv.views {
+		render.gpu_texture_unwrap(g, &s.picture)
+		s.wrapped = 0
+	}
 	nv.yv.set_gpu(nv.ctx, nil)
 	nv.gpu_set = false
 }

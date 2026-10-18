@@ -219,15 +219,13 @@ handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
 		#partial switch kind {
 		case .Video:
 			handle_video(c, pt)
-		// Only the screen is sent so far, so what is about a camera is dropped.
 		case .Keyframe:
-			if stream, key_ok := proto.decode_keyframe(pt); key_ok && stream == .Screen {
-				video_keyframe_requested(c)
+			if stream, key_ok := proto.decode_keyframe(pt); key_ok {
+				video_keyframe_requested(c, stream)
 			}
 		case .Report:
-			if s, stream, report_ok := proto.decode_report_down(pt);
-			   report_ok && stream == .Screen {
-				video_reports(c, s)
+			if s, stream, report_ok := proto.decode_report_down(pt); report_ok {
+				video_reports(c, stream, s)
 			}
 		case .Welcome, .Pong:
 		// Handshake and ping answers only matter because they arrived.

@@ -343,6 +343,7 @@ Command :: union {
 	Chat_Command,
 	Typing_Command,
 	Watch_Command,
+	Watch_Cameras_Command,
 	Send_File_Command,
 	Attach_Send_Command,
 	Attach_Cancel_Command,
@@ -741,6 +742,9 @@ process_commands :: proc(c: ^Voice_Client) {
 			chat_typing(c, v.thread)
 		case Watch_Command:
 			video_watch(c, v.user)
+		case Watch_Cameras_Command:
+			users := v.users
+			video_watch_cameras(c, users[:clamp(v.count, 0, len(users))])
 		case DM_Command:
 			dm_command(c, v)
 		case Buddy_Command:

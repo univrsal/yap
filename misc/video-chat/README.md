@@ -291,7 +291,7 @@ layer.
 | # | Phase | Size | Where | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Streams in the protocol, the server: camera bit, stream bytes, leases, `Camera` flag and limit, config | M | protocol, server | - | done (2026-10-18): proto and server tests |
-| 2 | The client's streams: `Video_Out`/`Video_In`, several leases, a view per stream | L | client (conn) | 1 | - |
+| 2 | The client's streams: `Video_Out`/`Video_In`, several leases, a view per stream | L | client (conn) | 1 | done (2026-10-18): conn tests; a browser's share watched by a desktop client |
 | 3 | Cameras in the browser: getUserMedia, a second encoder, several decoders | M | web | 2 | - |
 | 4 | Calls: camera button, Video tab with self view, video call / answer with video | M | client (UI) | 2, 3 | - |
 | 5 | Channels: the grid, tiers, focus, the full-room message, pop-out | M | client (UI) | 4 | - |
@@ -380,6 +380,76 @@ Why this order:
     off, moving into a full room, cameras off).
   - conn (37) passes; the client type-checks for Linux, Windows and the
     web.
+
+### 2. The client's streams
+
+*As built:*
+
+- **`conn/video.odin`**:
+  - `Video_Client` is now `outs: [Video_Stream]Video_Out` and
+    `ins: [1 + MAX_CAMERAS]Video_In` (`ins[0]` the screen, the rest
+    cameras). What was per share (queue, frame numbers, keyframe state,
+    `adapt_bitrate`'s figures) is in `Video_Out`; what was per watched
+    sharer (lease timing, `Video_Window`, delay and loss figures,
+    report) is in `Video_In`, keyed by `Video_Key{user, stream}`.
+  - One pace for everything we send (the live streams' rates added
+    up), camera fragments first (`video_next_out`).
+  - A stream's frame numbers keep counting across restarts, so the
+    server's cache never confuses them with the last share's.
+  - `Watch_Command` still watches one screen.
+    `Watch_Cameras_Command` (made with `watch_cameras(users..)`) sets
+    the list of cameras to watch. A camera that goes off stays in the
+    list, without a lease, and is watched again (from a keyframe) when
+    it comes back. A screen that stops being shared is dropped, as
+    before. A stream that stops being watched ends its lease at once
+    (`WATCH_STOP`), and its window is freed.
+  - Reports go out once a second for every stream watched.
+  - The View's `video_stats` stay about the screens (the one shared
+    and the one watched); there are no per-camera figures yet.
+  - **The camera and the server's limit**: a camera's frames are
+    only queued while the server shows our Camera flag
+    (`note_camera_taken`). When it does, the camera starts from a
+    keyframe. After `CAMERA_REFUSED_AFTER` (3 s) without it,
+    `View.camera_refused` is set for the UI. The View also gets
+    `max_cameras` and `camera_limit_kbit` from `Server_Info`.
+- **Platform procs** take a stream: `video_capture_live/pull/
+  request_key`, `video_share_kbit/max_kbit/adapt/codecs` take a
+  `Video_Stream`; `video_show_frame/end/failed`, `video_picture`,
+  `video_picture_info` a `Video_Key`. New: `video_show_ready`. Both
+  platforms only capture screens so far (cameras come in 3 and 6), and
+  the page has one decoder, for the screen (more in 3).
+- **Desktop views** (`video_native.odin`):
+  - A pool of `VIDEO_INS` slots, each with a `yv_view` kept for the
+    life of the process once made.
+  - **Not as planned:** a view has to be made on the UI thread.
+    `yv_view_create` hands it the renderer's device at once, which on
+    GL loads the GL functions and needs the GL context current. A view
+    made on the network thread showed nothing. So `video_picture`
+    makes a stream's view the first time the UI draws it
+    (`take_view`).
+  - Until then `video_show_ready` is false and its frames are
+    dropped; after that, a non-key frame resets the window, so one
+    keyframe is asked for, not one every half second.
+  - With none free, a view not drawn for 5 s is taken, so a stream the
+    UI drew once more after it ended can't hold one forever.
+  - A generation count (`used`) keeps a picture presented while its
+    view changed hands from being shown.
+- **UI**: only `video_picture`'s key. The Screen tab and the popped-out
+  window pass the screen they show.
+- **Tried**:
+  - conn tests (39): two new ones. `test_video_camera_first` checks
+    the camera goes first and fragments carry their stream.
+    `test_video_watch_streams` covers the camera list (duplicates, other
+    rooms), routing fragments by (user, stream), a camera going off and
+    on, a screen ending, and letting cameras go.
+  - Off screen (headless weston, headless Chromium): a browser shared
+    (the web build from this branch), and the desktop client watched
+    it. The picture showed, and also after stopping and watching again.
+    The phase 1 client showed it too.
+  - **Not tried**: a desktop client *sharing*. Native X11 capture on
+    the headless weston display never produced a frame, with the
+    phase 1 client as well, so that's the test setup, not this change.
+  - Type-checks for Linux, Windows, macOS and the web.
 
 ## Risks
 

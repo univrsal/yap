@@ -11,6 +11,9 @@ import "common:proto"
 // Screen sharing in the browser: the page captures, encodes and decodes
 // (Module.yapVideo in web/video.js, reached through web/shell.c), and the client
 // carries the encoded frames (video.odin).
+//
+// The page has one decoder and one capture so far, both for screens: what is
+// asked of a camera is left alone here.
 
 @(private = "file", default_calling_convention = "c")
 foreign _ {
@@ -54,13 +57,14 @@ foreign _ {
 	yap_video_is_fullscreen :: proc() -> i32 ---
 }
 
-video_capture_live :: proc() -> bool {
-	return yap_video_live() != 0
+video_capture_live :: proc(stream: proto.Video_Stream) -> bool {
+	return stream == .Screen && yap_video_live() != 0
 }
 
-// video_capture_pull returns the next encoded frame, which the caller then
-// owns.
+// video_capture_pull returns the next encoded frame of a stream, which the
+// caller then owns.
 video_capture_pull :: proc(
+	stream: proto.Video_Stream,
 ) -> (
 	data: []u8,
 	ts: u32,
@@ -68,6 +72,9 @@ video_capture_pull :: proc(
 	codec: proto.Video_Codec,
 	ok: bool,
 ) {
+	if stream != .Screen {
+		return
+	}
 	size := yap_video_next_size()
 	if size <= 0 {
 		return
@@ -105,13 +112,23 @@ video_capture_audio :: proc(v: ^audio.Voice, sharing: bool) {
 	}
 }
 
-video_capture_request_key :: proc() {
-	yap_video_request_key()
+video_capture_request_key :: proc(stream: proto.Video_Stream) {
+	if stream == .Screen {
+		yap_video_request_key()
+	}
 }
 
-video_show_frame :: proc(sharer: proto.User_Num, frame: proto.Video_Frame) {
+// The page's decoder is always there to take frames.
+video_show_ready :: proc(key: Video_Key) -> bool {
+	return true
+}
+
+video_show_frame :: proc(key: Video_Key, frame: proto.Video_Frame) {
+	if key.stream != .Screen {
+		return
+	}
 	yap_video_show(
-		u32(sharer),
+		u32(key.user),
 		raw_data(frame.data),
 		i32(len(frame.data)),
 		frame.ts,
@@ -120,15 +137,18 @@ video_show_frame :: proc(sharer: proto.User_Num, frame: proto.Video_Frame) {
 	)
 }
 
-video_show_end :: proc() {
+video_show_end :: proc(key: Video_Key) {
+	if key.stream != .Screen {
+		return
+	}
 	yap_video_end()
 	web_picture.size = {} // do not keep the last picture's size
 }
 
-// video_show_failed says, once, that the decoder gave up on what it was given.
-// It needs a keyframe to start again.
-video_show_failed :: proc() -> bool {
-	return yap_video_take_error() != 0
+// video_show_failed says, once, that a stream's decoder gave up on what it was
+// given. It needs a keyframe to start again.
+video_show_failed :: proc(key: Video_Key) -> bool {
+	return key.stream == .Screen && yap_video_take_error() != 0
 }
 
 // For the UI. Starting a share opens the browser's picker, which the browser
@@ -156,7 +176,7 @@ video_decodable :: proc() -> proto.Video_Codecs {
 }
 
 // The page always encodes H.264, which every viewer can decode.
-video_share_codecs :: proc(codecs: proto.Video_Codecs) {}
+video_share_codecs :: proc(stream: proto.Video_Stream, codecs: proto.Video_Codecs) {}
 
 // video_share_start opens the browser's picker and shares what is picked as
 // `config` says (its size, frame rate and bitrate; the page picks the encoder,
@@ -192,20 +212,22 @@ video_allow_capture :: proc() {}
 
 // video_share_kbit is the bitrate the page's encoder runs at, which sending is
 // paced for (video.odin); 0 while there is no share.
-video_share_kbit :: proc() -> int {
-	return int(yap_video_encoding_kbit())
+video_share_kbit :: proc(stream: proto.Video_Stream) -> int {
+	return int(yap_video_encoding_kbit()) if stream == .Screen else 0
 }
 
 // video_share_max_kbit is the bitrate the share was started at, which adapting
 // never goes above; 0 while there is no share.
-video_share_max_kbit :: proc() -> int {
-	return int(yap_video_max_kbit())
+video_share_max_kbit :: proc(stream: proto.Video_Stream) -> int {
+	return int(yap_video_max_kbit()) if stream == .Screen else 0
 }
 
-// video_share_adapt holds the share to `kbit` for its viewers (video.odin). The
+// video_share_adapt holds a stream to `kbit` for its viewers (video.odin). The
 // encoder starts again at it, with a keyframe.
-video_share_adapt :: proc(kbit: int) {
-	yap_video_set_bitrate(i32(kbit))
+video_share_adapt :: proc(stream: proto.Video_Stream, kbit: int) {
+	if stream == .Screen {
+		yap_video_set_bitrate(i32(kbit))
+	}
 }
 
 Video_Source_Kind :: enum {
@@ -250,7 +272,7 @@ video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
 }
 
 // The page shows the picture without the library's counts.
-video_picture_info :: proc() -> (frames: u64, hardware: bool) {
+video_picture_info :: proc(key: Video_Key) -> (frames: u64, hardware: bool) {
 	return 0, false
 }
 
@@ -269,16 +291,20 @@ web_picture: struct {
 	size:    [2]int,
 }
 
-// video_picture is the newest frame of what we are watching, as a texture of
-// the renderer's. The page puts each new frame into it (an OpenGL texture name,
-// as the page knows it, render/gpu_gl.odin).
+// video_picture is the newest frame of a stream we are watching, as a texture
+// of the renderer's. The page puts each new frame into it (an OpenGL texture
+// name, as the page knows it, render/gpu_gl.odin).
 video_picture :: proc(
 	g: ^render.Gpu,
+	key: Video_Key,
 ) -> (
 	texture: render.Gpu_Texture,
 	width, height: int,
 	ok: bool,
 ) {
+	if key.stream != .Screen || key.user == 0 {
+		return
+	}
 	p := &web_picture
 	if p.texture == 0 {
 		p.texture = render.gpu_texture_make(g, .Rgba, 0, 0, nil)

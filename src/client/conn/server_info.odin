@@ -62,9 +62,12 @@ server_info_take :: proc(c: ^Voice_Client, body: []u8) -> bool {
 	copy(s.push_key[:], info.push_key)
 	s.media_port = info.media_port
 	s.video_kbit = info.video_kbit
+	s.max_cameras, s.camera_kbit = info.max_cameras, info.camera_kbit
 	if view := c.view; view != nil {
 		view_write(view)
 		view.video_limit_kbit = int(info.video_kbit)
+		view.max_cameras = info.max_cameras
+		view.camera_limit_kbit = int(info.camera_kbit)
 	}
 
 	if info.icon != s.icon {
