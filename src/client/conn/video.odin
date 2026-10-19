@@ -1,6 +1,7 @@
 package conn
 
 import log "common:wlog"
+import "core:fmt"
 import "core:slice"
 import "core:strings"
 import "core:sync"
@@ -433,7 +434,23 @@ note_camera_taken :: proc(c: ^Voice_Client, o: ^Video_Out, now: time.Tick) {
 			view.camera_refused = refused
 		}
 		if refused {
-			log.info("the server doesn't take our camera (the room is full, or no cameras)")
+			max_cameras := c.rpc.server.max_cameras
+			switch {
+			case max_cameras == 0:
+				notify(c, false, "This server doesn't allow cameras.")
+			case my_room(c) == 0:
+				notify(c, false, "Your camera can only be on in a voice chat or a call.")
+			case:
+				notify(
+					c,
+					false,
+					fmt.tprintf(
+						"This channel already has %d camera%s on.",
+						max_cameras,
+						"" if max_cameras == 1 else "s",
+					),
+				)
+			}
 		}
 	}
 }

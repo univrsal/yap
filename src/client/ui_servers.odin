@@ -244,6 +244,7 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 			conn.push_command(&old.client.commands, conn.Watch_Command{user = 0})
 		}
 		conn.push_command(&old.client.commands, conn.Watch_Cameras_Command{})
+		camera_forget_session(ui)
 		conn.push_command(&old.client.commands, conn.Reading_Command{conv = 0})
 		old.stash = ui.srv
 		old.stash.timeline.reading = 0

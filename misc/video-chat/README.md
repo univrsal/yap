@@ -293,7 +293,7 @@ layer.
 | 1 | Streams in the protocol, the server: camera bit, stream bytes, leases, `Camera` flag and limit, config | M | protocol, server | - | done (2026-10-18): proto and server tests |
 | 2 | The client's streams: `Video_Out`/`Video_In`, several leases, a view per stream | L | client (conn) | 1 | done (2026-10-18): conn tests; a browser's share watched by a desktop client |
 | 3 | Cameras in the browser: getUserMedia, a second encoder, several decoders | M | web | 2 | done (2026-10-19): headless Chromium's fake camera to a headless client |
-| 4 | Calls: camera button, Video tab with self view, video call / answer with video | M | client (UI) | 2, 3 | - |
+| 4 | Calls: camera button, Video tab with self view, video call / answer with video | M | client (UI) | 2, 3 | done (2026-10-19): browser to browser and browser to desktop, headless |
 | 5 | Channels: the grid, tiers, focus, the full-room message, pop-out | M | client (UI) | 4 | - |
 | 6 | `yap_video` cameras on Windows: Media Foundation, `yv_share_preview`, `yv_share_set_size` | L | library, client | 2 | - |
 | 7 | Linux: V4L2, MJPEG | M | library | 6 | - |
@@ -504,6 +504,78 @@ Why this order:
   - conn tests (39) pass, and the client type-checks everywhere.
   - **Not tried**: a real browser's camera and permission prompt, and a
     phone.
+
+### 4. Calls
+
+*As built:*
+
+- **`ui_camera.odin`** (new):
+  - **The Camera button** beside Share, in a voice chat or a call, where
+    the platform can send a camera (`video_can_camera`) and the server
+    allows cameras (`max_cameras` > 0). Its states:
+    - Off: "Turn your camera on".
+    - Starting: dim, the browser asking.
+    - Live: green, "Turn your camera off".
+    - Failed: red, crossed out, "isn't allowed, or another program has
+      it".
+  - **New icons**: `Camera` and `Camera_Off` (`render/icons.odin`).
+  - **The camera follows where it was turned on** (`camera_follow`,
+    each frame). It goes off when our voice is no longer on that
+    server, when we move to another room (**not in the plan**: it never
+    follows us into another channel), or when the server doesn't take
+    it. Leaving the server also turns it off.
+  - **A full channel**: conn puts up a notice, "This channel already has
+    N cameras on." (or "This server doesn't allow cameras."), when the
+    server hasn't taken the Camera flag for 3 seconds. The UI then turns
+    the camera off.
+  - **Video call / Answer with video**:
+    - "Video call" (camera icon) sits beside "Call" in a DM's header and
+      in somebody's menu.
+    - A ringing call gets three buttons where we can send a camera:
+      Accept, Answer with video, Decline. Elsewhere it keeps two.
+    - Either way the camera comes on once the call is on and our voice
+      is in it (`follow_video_call`). Answering never turns it on
+      otherwise.
+- **The Video tab**:
+  - Offered in a call on the shown server while their camera or ours
+    is on. It sits beside Chat (and Screen), beside a channel's chat and
+    in the DM screen alike: the tab row is shared (`side_tab_widths`,
+    `side_tab_buttons` in `ui_chat.odin`).
+  - It opens by itself when their camera comes on (from the Chat tab),
+    and goes back to the chat when there's nothing to show.
+  - Their camera is watched only while the tab shows it
+    (`Watch_Cameras_Command`).
+  - Layout: they're large; our own camera, mirrored, sits in the bottom
+    right-hand corner, a quarter of the width, 16:9. A click on the
+    corner swaps the two. With only one camera on, that one fills the
+    tab.
+  - **Not in this phase**: dragging the corner between corners,
+    fullscreen and pop-out for the Video tab (phase 5 brings them for
+    the grid), and a self view on the desktop (no capture yet, so it
+    reads "Your camera").
+- `call_peer` (`ui_calls.odin`) finds the other person's user in the
+  call's room, for the voice panel's row and the tab.
+  `View_User.camera` comes from the snapshot.
+- **Tried** (headless Chromium with the fake camera, the desktop client
+  on headless weston, one server):
+  - Browser to desktop:
+    - bot1 used "Video call" from bot2's menu. bot2's desktop client
+      rang with two buttons, as it has no camera, and answered.
+    - bot1's camera came on with the call, and bot2's Video tab opened
+      by itself showing it.
+    - bot1's Video tab showed its own camera mirrored.
+    - The camera off: bot2 went back to the chat. On again from the
+      button: the tab reopened.
+    - Hanging up turned the camera off.
+  - Browser to browser:
+    - bot2 got Accept, Answer with video and Decline, and answered with
+      video. Both cameras came on, and both tabs opened with the other
+      large and their own in the corner.
+    - Clicking the corner swapped them.
+  - A full channel (`max_cameras: 1`): bot2's camera was refused with the
+    notice and turned off; bot1's stayed.
+  - conn (39) and render (17) tests pass; the client type-checks for
+    Linux, Windows, macOS and the web.
 
 ## Risks
 

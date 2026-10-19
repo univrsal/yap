@@ -220,6 +220,7 @@ UI :: struct {
 	chat_tz:             ^datetime.TZ_Region,
 	activity:            UI_Activity, // whether whoever uses this is idle (ui_activity.odin)
 	video:               UI_Video, // screen sharing (ui_video.odin)
+	camera:              UI_Camera, // our camera and calls' video (ui_camera.odin)
 	app_audio:           UI_App_Audio, // sharing an application's audio (ui_app_audio_native.odin)
 	muted:               bool,
 	deafened:            bool,
@@ -1265,6 +1266,7 @@ disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	if in_voice {
 		// What was shared there has nobody to go to any more.
 		conn.video_share_stop()
+		conn.video_camera_stop()
 		app_audio_stop(ui)
 	}
 	session_remove(ui, ns)
@@ -1439,6 +1441,8 @@ session_capture_update :: proc(ui: ^UI) {
 		conn.video_share_stop()
 		app_audio_stop(ui)
 	}
+	// The camera, likewise, and when we move elsewhere (ui_camera.odin).
+	camera_follow(ui)
 	// The screen, if it is being shared, goes to the voice too.
 	for ns in ui.sessions {
 		sync.atomic_store(&ns.client.video.share_here, ns == ui.voice_at)
@@ -1644,6 +1648,7 @@ session_screen :: proc(ui: ^UI) {
 	ui.narrow = narrow
 
 	screen_tab_follow(ui)
+	camera_tab_follow(ui)
 	back_from_dms(ui)
 	if v.watching != 0 && conn.video_is_fullscreen() {
 		fullscreen_screen(ui)

@@ -379,6 +379,10 @@ user_menu :: proc(ui: ^UI) {
 	if can_call {
 		append(&widths, ICON_BUTTON)
 	}
+	can_video_call := can_call && camera_available(v)
+	if can_video_call {
+		append(&widths, ICON_BUTTON)
+	}
 	if talking_to {
 		append(&widths, ICON_BUTTON)
 	}
@@ -428,6 +432,10 @@ user_menu :: proc(ui: ^UI) {
 	}
 	if can_call && .SUBMIT in icon_button(ui, "call", .Phone, "Call") {
 		call_account(ui, account)
+		mu.get_current_container(ctx).open = false
+	}
+	if can_video_call && .SUBMIT in icon_button(ui, "video call", .Camera, "Video call") {
+		call_account(ui, account, video = true)
 		mu.get_current_container(ctx).open = false
 	}
 	if .SUBMIT in

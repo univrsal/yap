@@ -16,12 +16,14 @@ import "common:proto"
 
 // The right-hand side of the session screen: the channel's text chat, or
 // the log (opened from the header, see ui.odin) or, while watching somebody's
-// screen, that screen and the chat as tabs.
+// screen or in a call with a camera on, the chat, that screen and the call's
+// video as tabs.
 
 Side_Tab :: enum {
 	Chat,
 	Log,
 	Screen, // while watching somebody's screen (see ui_video.odin)
+	Video, // in a call while a camera is on (see ui_camera.odin)
 }
 
 UI_Chat :: struct {
@@ -110,17 +112,12 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	if ui.chat.tab == .Chat {
 		v.unread = 0
 	}
-	// Show tabs only while there is a screen to watch beside the chat. Otherwise
-	// the status line has the row to itself.
-	if screen_docked(ui) {
-		mu.layout_row(ctx, {90, 90, -1})
+	// Show tabs only while there is a screen or a call's video beside the chat.
+	// Otherwise the status line has the row to itself.
+	if side_tabs_shown(ui) {
+		mu.layout_row(ctx, side_tab_widths(ui))
 		chat_label := "Chat" if v.unread == 0 else fmt.tprintf("Chat (%d)", v.unread)
-		if .SUBMIT in tab_button(ctx, "chat tab", chat_label, ui.chat.tab == .Chat) {
-			ui.chat.tab = .Chat
-		}
-		if .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
-			ui.chat.tab = .Screen
-		}
+		side_tab_buttons(ui, chat_label)
 	} else {
 		mu.layout_row(ctx, {-1})
 	}
@@ -165,6 +162,52 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 		log_panel(ui)
 	case .Screen:
 		screen_panel(ui)
+	case .Video:
+		video_panel(ui)
+	}
+}
+
+// side_tabs_shown says whether the chat has tabs beside it: while there is a
+// screen to watch (screen_docked) or a call's video (video_docked). Call with
+// the View locked.
+side_tabs_shown :: proc(ui: ^UI) -> bool {
+	return screen_docked(ui) || video_docked(ui)
+}
+
+// side_tab_widths is a row for side_tab_buttons: `lead` before the tabs (0 for
+// nothing), a tab each, and the rest of the row (-1) for whatever follows.
+// Allocated in the temp allocator. Call with the View locked.
+side_tab_widths :: proc(ui: ^UI, lead: i32 = 0) -> []i32 {
+	TAB :: 90
+	widths := make([dynamic]i32, context.temp_allocator)
+	if lead > 0 {
+		append(&widths, lead)
+	}
+	append(&widths, TAB)
+	if screen_docked(ui) {
+		append(&widths, TAB)
+	}
+	if video_docked(ui) {
+		append(&widths, TAB)
+	}
+	append(&widths, -1)
+	return widths[:]
+}
+
+// side_tab_buttons draws the tabs: the chat, and the screen and the call's video
+// while they are offered. Call with the View locked.
+side_tab_buttons :: proc(ui: ^UI, chat_label: string) {
+	ctx := &ui.ctx
+	chat_shown := ui.chat.tab != .Screen && ui.chat.tab != .Video
+	if .SUBMIT in tab_button(ctx, "chat tab", chat_label, chat_shown) {
+		ui.chat.tab = .Chat
+	}
+	if screen_docked(ui) &&
+	   .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
+		ui.chat.tab = .Screen
+	}
+	if video_docked(ui) && .SUBMIT in tab_button(ctx, "video tab", "Video", ui.chat.tab == .Video) {
+		ui.chat.tab = .Video
 	}
 }
 
