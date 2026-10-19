@@ -209,7 +209,7 @@ YV_API int yv_list_cameras(yv_context *ctx, yv_camera *out, int max) {
 }
 
 YV_API bool yv_camera_allowed(yv_context *ctx, bool ask) {
-	return ctx && yv::camera_allowed(ask);
+	return ctx && yv::camera_allowed(ask, nullptr);
 }
 
 YV_API int yv_list_sources(yv_context *ctx, yv_source *out, int max) {

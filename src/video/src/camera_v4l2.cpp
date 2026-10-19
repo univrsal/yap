@@ -388,7 +388,7 @@ std::vector<Camera_Info> list_cameras() {
 	return out;
 }
 
-bool camera_allowed(bool) {
+bool camera_allowed(bool, const std::atomic<bool> *) {
 	return true;
 }
 

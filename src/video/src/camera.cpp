@@ -10,8 +10,9 @@ converts to NV12 with swscale when one is encoded. Everything stays on
 the CPU: at a camera's sizes that's a few percent of a core, and every
 encoder takes frames from memory.
 
-Cameras are BT.601 (JPEG's full range, raw YUV's limited); what's
-encoded is BT.709 limited, like a screen.
+Cameras are BT.601 (JPEG's full range, raw YUV's limited), unless the
+platform says BT.709 (macOS); what's encoded is BT.709 limited, like a
+screen.
 */
 #include "pipeline.h"
 
@@ -220,6 +221,7 @@ struct Raw {
 	int width = 0, height = 0;
 	bool flip = false;
 	int stride = 0; // Camera_Frame's
+	bool bt709 = false;
 };
 
 class Camera_Pipeline final : public Pipeline, public Camera_Sink {
@@ -235,17 +237,8 @@ public:
 		av_packet_free(&pkt_);
 	}
 
-	bool open(const yv_share_config &config, const char *, const std::atomic<bool> &,
+	bool open(const yv_share_config &config, const char *, const std::atomic<bool> &stop,
 	          std::string &error) override {
-		if (!camera_allowed(false)) {
-#ifdef _WIN32
-			error = "Windows doesn't let apps use the camera: turn it on in Settings, "
-			        "Privacy & security, Camera (and \"Let desktop apps access your camera\")";
-#else
-			error = "the system doesn't let yap use the camera";
-#endif
-			return false;
-		}
 		std::vector<Camera_Info> cameras = list_cameras();
 		const Camera_Info *cam = nullptr;
 		for (const Camera_Info &c : cameras) {
@@ -256,6 +249,19 @@ public:
 		}
 		if (!cam) {
 			error = cameras.empty() ? "there's no camera" : "that camera isn't there any more";
+			return false;
+		}
+		// macOS asks the user here the first time. The fake camera needs no asking.
+		if (strcmp(cam->camera.id, FAKE_CAMERA_ID) != 0 && !camera_allowed(true, &stop)) {
+#ifdef _WIN32
+			error = "Windows doesn't let apps use the camera: turn it on in Settings, "
+			        "Privacy & security, Camera (and \"Let desktop apps access your camera\")";
+#elif defined(__APPLE__)
+			error = "macOS doesn't let yap use the camera: allow it in System Settings, "
+			        "Privacy & Security, Camera";
+#else
+			error = "the system doesn't let yap use the camera";
+#endif
 			return false;
 		}
 		for (const Camera_Mode &m : cam->modes) {
@@ -305,6 +311,7 @@ public:
 		spare_.height = f.height;
 		spare_.flip = f.flip;
 		spare_.stride = f.stride;
+		spare_.bt709 = f.bt709;
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
 			std::swap(spare_, incoming_);
@@ -370,14 +377,16 @@ public:
 			return false;
 		}
 		// A new context starts with swscale's own colours.
-		if (sws != sws_ || src_full_ != sws_full_) {
+		if (sws != sws_ || src_full_ != sws_full_ || src_709_ != sws_709_) {
 			const AVPixFmtDescriptor *d = av_pix_fmt_desc_get(src_format_);
 			bool rgb = d && (d->flags & AV_PIX_FMT_FLAG_RGB);
-			sws_setColorspaceDetails(sws, sws_getCoefficients(rgb ? SWS_CS_DEFAULT : SWS_CS_ITU601),
+			int cs = rgb ? SWS_CS_DEFAULT : src_709_ ? SWS_CS_ITU709 : SWS_CS_ITU601;
+			sws_setColorspaceDetails(sws, sws_getCoefficients(cs),
 			                         src_full_ ? 1 : 0, sws_getCoefficients(SWS_CS_ITU709), 0, 0,
 			                         1 << 16, 1 << 16);
 			sws_ = sws;
 			sws_full_ = src_full_;
+			sws_709_ = src_709_;
 		}
 		sws_scale(sws_, src_data_, src_linesize_, 0, src_h_, out->data, out->linesize);
 		return true;
@@ -414,9 +423,10 @@ private:
 	AVPixelFormat src_format_ = AV_PIX_FMT_NONE;
 	int src_w_ = 0, src_h_ = 0;
 	bool src_full_ = false;
+	bool src_709_ = false;
 
 	SwsContext *sws_ = nullptr;
-	bool sws_full_ = false;
+	bool sws_full_ = false, sws_709_ = false;
 
 	bool take(Raw &r) {
 		if (r.format == Camera_Format::MJPEG) {
@@ -493,6 +503,7 @@ private:
 		src_format_ = fmt;
 		src_w_ = shown_.width;
 		src_h_ = shown_.height;
+		src_709_ = shown_.bt709;
 		src_full_ = shown_.format == Camera_Format::BGRA || shown_.format == Camera_Format::BGRX ||
 		            shown_.format == Camera_Format::BGR24 || shown_.format == Camera_Format::GRAY;
 		return true;
@@ -525,6 +536,7 @@ private:
 		src_format_ = without_j(fmt);
 		src_w_ = f->width;
 		src_h_ = f->height;
+		src_709_ = false;
 		src_full_ = fmt != src_format_ || f->color_range != AVCOL_RANGE_MPEG;
 		return true;
 	}

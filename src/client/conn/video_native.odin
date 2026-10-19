@@ -32,12 +32,13 @@ import log "common:wlog"
 // takes a moment. Until then, and if none works, video_can_share says no. There
 // is one share of the screen for the whole client, like the browser's, and one
 // of our camera (misc/video-chat): the library shares a camera the same way.
-// Only Windows has cameras so far (DirectShow, through dshowcapture.dll); the
-// library lists them, which is done off the UI thread (list_cameras).
+// The library lists the cameras (DirectShow on Windows, V4L2 on Linux,
+// AVFoundation on macOS), which is done off the UI thread (list_cameras).
 //
 // On macOS the user has to allow Screen Recording first. Until they have,
 // sharing is still offered, and the menu asks for the permission
 // (video_capture_allowed, video_allow_capture) instead of listing sources.
+// The camera is asked for by the library when it's first turned on.
 
 // The desktop's media link is UDP, which loses packets and asks for them again
 // (proto.Video_Window).

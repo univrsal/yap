@@ -265,7 +265,7 @@ std::vector<Camera_Info> list_cameras() {
 	return out;
 }
 
-bool camera_allowed(bool) {
+bool camera_allowed(bool, const std::atomic<bool> *) {
 	const wchar_t *store =
 		L"Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\webcam";
 	const wchar_t *desktop = L"Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager"

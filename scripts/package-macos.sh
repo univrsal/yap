@@ -42,6 +42,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
 	<key>LSMinimumSystemVersion</key><string>11.0</string>
 	<key>NSHighResolutionCapable</key><true/>
 	<key>NSMicrophoneUsageDescription</key><string>Yap needs the microphone for voice chat.</string>
+	<key>NSCameraUsageDescription</key><string>Yap needs the camera for video chat.</string>
+	<key>NSCameraUseContinuityCameraDeviceType</key><true/>
 </dict>
 </plist>
 PLIST

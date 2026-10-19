@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- yv-loopback's, built into it (CMakeLists.txt): macOS kills a process that
+     asks for the camera without saying why. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key><string>cc.vrsal.yap.yv-loopback</string>
+	<key>CFBundleName</key><string>yv-loopback</string>
+	<key>NSCameraUsageDescription</key><string>yv-loopback shares the camera to try yap_video.</string>
+	<key>NSCameraUseContinuityCameraDeviceType</key><true/>
+</dict>
+</plist>

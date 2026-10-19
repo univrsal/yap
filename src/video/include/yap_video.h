@@ -351,7 +351,9 @@ YV_API int yv_list_cameras(yv_context *ctx, yv_camera *out, int max);
 Whether this process may use a camera. On Windows that's the camera
 switches in Settings (Privacy & security, Camera: for the whole
 computer, and for desktop apps), which are only read; `ask` changes
-nothing there. Elsewhere, for now, always true.
+nothing there. On macOS it's true until the user said no; `ask` shows
+macOS's prompt if they haven't answered yet, and waits for the answer
+(starting a camera asks too). Elsewhere always true.
 */
 YV_API bool yv_camera_allowed(yv_context *ctx, bool ask);
 

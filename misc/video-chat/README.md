@@ -297,7 +297,7 @@ layer.
 | 5 | Channels: the grid, tiers, focus, the full-room message, pop-out | M | client (UI) | 4 | done (2026-10-19): three headless browsers in a channel |
 | 6 | `yap_video` cameras on Windows: DirectShow (libdshowcapture), `yv_share_preview`, `yv_share_configure` | L | library, client | 2 | done (2026-10-19): under wine, then by the owner on Windows (OBS's virtual camera to a Linux client) |
 | 7 | Linux: V4L2, MJPEG | M | library | 6 | built (2026-10-19): OBS's v4l2loopback camera, in yv-loopback and the client |
-| 8 | macOS: AVFoundation, `Info.plist` | M | library, scripts | 6 | - |
+| 8 | macOS: AVFoundation, `Info.plist` | M | library, scripts | 6 | built (2026-10-19): on the Mac mini with the fake camera, the client by the owner; no real camera there yet |
 | 9 | Settings: camera, quality, mirror, preview | S | client | 4, 6 | - |
 | 10 | Demand: viewers' tile sizes, pausing unwatched cameras | M | protocol, server, client | 5 | - |
 
@@ -882,6 +882,70 @@ What the owner saw led to this; it isn't one of the plan's phases.
   has no MJPEG decoder (or encoder, for the fake camera's `mjpeg`). It
   needs `--enable-decoder=mjpeg` if AVFoundation ever gives MJPEG; it
   normally gives NV12.
+
+### 8. Cameras on macOS
+
+*As built:*
+
+- **`camera_mac.mm`**, a `Camera_Source` through AVFoundation
+  (`AVCaptureSession`, `AVCaptureVideoDataOutput`). `camera_none.cpp` is
+  gone: every platform has cameras now.
+- **Listing** (`AVCaptureDeviceDiscoverySession`):
+  - Built-in and external (USB) cameras. An iPhone (Continuity Camera)
+    only where the app's Info.plist has
+    `NSCameraUseContinuityCameraDeviceType`; without it macOS 14 lists
+    one as an external camera anyway.
+  - The id is AVFoundation's `uniqueID`, the name its `localizedName`.
+    `front` is set for the built-in camera.
+  - Each `AVCaptureDeviceFormat` is a mode, by its index in the device's
+    list (`Camera_Mode.native`), with the widest frame rates of its
+    ranges. Formats that differ only in what the camera sends are one
+    mode.
+- **Capturing**:
+  - Whatever the camera sends, the output asks for NV12 (`420v`,
+    limited range), so AVFoundation converts (and decodes MJPEG) on the
+    way. Every mode is NV12 to camera.cpp. The macOS FFmpeg can stay
+    without an MJPEG decoder.
+  - The format and frame rate are set on the device after it's in the
+    session and while it's locked, and the session is started before
+    unlocking, so it keeps them instead of a preset's.
+  - Frames come on a serial dispatch queue of the source's own and are
+    read from the `CVPixelBuffer` in memory. Planes that aren't one after
+    the other are packed first. Stopping takes the delegate away and
+    drains the queue, so no frame comes after the source is gone.
+  - What's sent is never mirrored (the connection's automatic mirroring
+    is off).
+- **Colours**: `Camera_Frame.bt709`. macOS tags its buffers' matrix, and
+  HD cameras are BT.709, so camera.cpp now takes BT.709 YUV where the
+  platform says so (BT.601 otherwise, as before).
+- **Permission**:
+  - `camera_allowed` gains a `stop`. On macOS it's true until the user
+    said no. Starting a camera asks (`requestAccessForMediaType`) if
+    they haven't answered, and waits for the answer or for the share to
+    be stopped. Denied, starting says where to allow it (System
+    Settings, Privacy & Security, Camera).
+  - The fake camera needs no asking: camera.cpp now finds the camera
+    first and asks only for a real one.
+  - A process asking without `NSCameraUsageDescription` is killed.
+    `package-macos.sh` adds it (and the Continuity Camera key) to the
+    app's Info.plist. yv-loopback has an Info.plist linked into it
+    (`tools/Info.plist`, `-sectcreate __TEXT __info_plist`). A client
+    run from Terminal goes by Terminal's.
+- **The client** needed nothing but a comment.
+- **Tested on the Mac mini** (macOS 27, M2 Pro):
+  - It builds with no warnings of its own. `yv-loopback --list` shows
+    no cameras (the Mac mini has none) and the fake one with
+    `YAP_VIDEO_FAKE_CAMERA`.
+  - The fake camera in YUY2, NV12 and BGRX through `h264/hevc_videotoolbox`
+    at 30 fps, and `--then-max 640x360` reconfigures.
+  - The client counts the fake camera ("1 camera(s)") and finds a
+    working encoder.
+  - From ssh, asking for the camera gets no prompt and a no at once (the
+    responsible process is sshd), which starting reports as not allowed.
+  - The owner ran the client there with the fake camera: the camera
+    button, and the self view through Metal.
+- **Not tested**: a real camera (none on the Mac mini), the permission
+  prompt and Continuity Camera.
 
 ## Risks
 

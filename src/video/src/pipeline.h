@@ -79,7 +79,7 @@ std::unique_ptr<Pipeline> make_pipeline();
 /*
 Cameras. camera.cpp is the Pipeline, the same everywhere: it picks the
 camera's mode, decodes MJPEG, and scales and converts on the CPU. The
-platform part (camera_win.cpp; camera_none.cpp where there's none yet)
+platform part (camera_win.cpp, camera_v4l2.cpp, camera_mac.mm)
 lists the cameras and hands over what one captures.
 */
 enum class Camera_Format {
@@ -123,6 +123,8 @@ struct Camera_Frame {
 	// are as long as the picture is wide (or the size says, for one plane).
 	// Planar formats' chroma rows are half as long.
 	int stride = 0;
+	// The YUV is BT.709 rather than BT.601 (macOS says which).
+	bool bt709 = false;
 };
 
 class Camera_Sink {
@@ -146,7 +148,12 @@ public:
 };
 
 std::vector<Camera_Info> list_cameras();
-bool camera_allowed(bool ask);
+/*
+Whether the system lets us use a camera. `ask` asks the user where the
+system does (macOS) and they haven't answered yet, and waits for the
+answer, or for `stop`.
+*/
+bool camera_allowed(bool ask, const std::atomic<bool> *stop = nullptr);
 // What captures `camera`; nullptr where cameras can't be captured.
 std::unique_ptr<Camera_Source> make_camera_source(const Camera_Info &camera);
 

@@ -50,9 +50,9 @@ set(CAPTURE_DEFINES "")
 if(WIN32)
 	list(APPEND SOURCES src/sources_win.cpp src/output_d3d11.cpp src/capture_win.cpp src/camera_win.cpp)
 elseif(APPLE)
-	# ScreenCaptureKit and Metal are Objective-C, so these are Objective-C++.
-	list(APPEND SOURCES src/output_metal.mm src/sources_mac.mm src/capture_mac.mm src/camera_none.cpp src/camera_fake.cpp)
-	set_source_files_properties(src/output_metal.mm src/sources_mac.mm src/capture_mac.mm
+	# ScreenCaptureKit, Metal and AVFoundation (cameras) are Objective-C, so these are Objective-C++.
+	list(APPEND SOURCES src/output_metal.mm src/sources_mac.mm src/capture_mac.mm src/camera_mac.mm src/camera_fake.cpp)
+	set_source_files_properties(src/output_metal.mm src/sources_mac.mm src/capture_mac.mm src/camera_mac.mm
 		PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 else()
 	# X11 (XCB) and the portal (GLib's GIO, PipeWire). Only their headers
@@ -123,7 +123,7 @@ else()
 	target_compile_options(yap_video PRIVATE -Wall -Wextra)
 endif()
 if(APPLE)
-	target_link_libraries(yap_video PRIVATE "-framework ScreenCaptureKit"
+	target_link_libraries(yap_video PRIVATE "-framework ScreenCaptureKit" "-framework AVFoundation"
 		"-framework CoreMedia" "-framework CoreVideo" "-framework CoreGraphics"
 		"-framework Foundation" "-framework AppKit" "-framework Metal" "-framework IOSurface")
 endif()
@@ -155,6 +155,12 @@ target_link_libraries(yv-loopback PRIVATE yap_video)
 if(MSVC)
 	target_compile_options(yv-loopback PRIVATE /W4 /utf-8)
 	target_compile_definitions(yv-loopback PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS)
+endif()
+if(APPLE)
+	# An Info.plist in the executable itself, for the camera (tools/Info.plist).
+	target_link_options(yv-loopback PRIVATE
+		"LINKER:-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_SOURCE_DIR}/tools/Info.plist")
+	set_property(TARGET yv-loopback APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/tools/Info.plist")
 endif()
 if(WIN32)
 	target_link_libraries(yv-loopback PRIVATE d3d11 dxgi d3dcompiler user32)
