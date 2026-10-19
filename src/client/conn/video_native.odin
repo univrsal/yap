@@ -265,9 +265,16 @@ Native_Video :: struct {
 	preview_of:    uintptr, // the library's texture `preview` wraps
 	// How many cameras there are (atomic), when they were last counted (UI
 	// thread), and whether they are being counted (atomic; list_cameras).
+	// Their ids and names, for the settings, under `cameras_mu`.
 	cameras:       int,
 	cameras_at:    time.Tick,
 	listing:       bool,
+	cameras_mu:    sync.Mutex,
+	camera_list:   [dynamic]Camera_Device,
+	// The UI thread's: the camera opened for the settings' preview while ours
+	// is off (video_camera_look), and which device it is.
+	look:          rawptr,
+	look_device:   string,
 	// Wakes the UI for each new picture (video_set_wake; atomic).
 	wake:          proc "c" (),
 }
@@ -357,6 +364,27 @@ probe_encoders :: proc() {
 @(private = "file")
 list_cameras :: proc() {
 	n := int(nv.yv.list_cameras(nv.ctx, nil, 0))
+	// Not the temp allocator: this thread was given the UI's context.
+	found := make([]Yv_Camera, n)
+	defer delete(found)
+	n = int(nv.yv.list_cameras(nv.ctx, raw_data(found), i32(n)))
+	{
+		sync.guard(&nv.cameras_mu)
+		for d in nv.camera_list {
+			delete(d.id)
+			delete(d.name)
+		}
+		clear(&nv.camera_list)
+		for &cam in found[:min(n, len(found))] {
+			append(
+				&nv.camera_list,
+				Camera_Device {
+					id = strings.clone_from_cstring(cstring(&cam.id[0])),
+					name = strings.clone_from_cstring(cstring(&cam.name[0])),
+				},
+			)
+		}
+	}
 	if sync.atomic_exchange(&nv.cameras, n) != n {
 		log.infof("video: %d camera(s)", n)
 		if wake := sync.atomic_load(&nv.wake); wake != nil {
@@ -797,14 +825,93 @@ video_can_camera :: proc() -> bool {
 	return sync.atomic_load(&nv.cameras) > 0 && sync.atomic_load(&nv.encoder_ok)
 }
 
-// video_camera_start turns on the camera `device` (a Yv_Camera id; "" for the
-// first) as `config` says, replacing a camera that was on. Called from the UI
-// thread.
-video_camera_start :: proc(config: Share_Config, device := "") {
+// video_cameras lists the cameras as last counted, allocated with
+// `allocator`. Called from the UI thread.
+video_cameras :: proc(allocator := context.temp_allocator) -> []Camera_Device {
+	if !loaded() {
+		return nil
+	}
+	sync.guard(&nv.cameras_mu)
+	out := make([]Camera_Device, len(nv.camera_list), allocator)
+	for d, i in nv.camera_list {
+		out[i] = {strings.clone(d.id, allocator), strings.clone(d.name, allocator)}
+	}
+	return out
+}
+
+// How often the settings have the cameras counted again while they are shown.
+@(private = "file")
+CAMERAS_SHOWN_AGAIN :: 3 * time.Second
+
+// video_cameras_refresh has the cameras counted again (off the UI thread)
+// if they haven't been for a moment, for the settings to see one plugged
+// in. Called from the UI thread.
+video_cameras_refresh :: proc() {
+	if !loaded() || time.tick_since(nv.cameras_at) < CAMERAS_SHOWN_AGAIN {
+		return
+	}
+	if !sync.atomic_exchange(&nv.listing, true) {
+		nv.cameras_at = time.tick_now()
+		thread.run(list_cameras, context)
+	}
+}
+
+// video_camera_look opens the camera `device` for the settings' preview
+// (video_camera_preview) while ours is off, at `config`, without sending it.
+// Turning the camera on then takes it as it is (video_camera_start). A preview
+// of another device is let go of first, and the new one opens in a later
+// frame. Called from the UI thread, each frame the preview is shown.
+video_camera_look :: proc(config: Share_Config, device: string) {
 	if !video_can_camera() {
 		return
 	}
-	video_camera_stop()
+	if share_of(.Camera) != nil {
+		return // ours is on: its preview is shown
+	}
+	if nv.look != nil {
+		if nv.look_device == device {
+			return
+		}
+		video_camera_look_stop()
+	}
+	// A camera let go of this frame may still hold the device.
+	if len(nv.retired) > 0 {
+		return
+	}
+	cfg := camera_config_of(config, device)
+	nv.look = nv.yv.camera_start(nv.ctx, &cfg)
+	if nv.look != nil {
+		nv.look_device = strings.clone(device)
+	}
+}
+
+// video_camera_look_stop lets go of the settings' preview, once the frame that
+// may draw it is done. Called from the UI thread.
+video_camera_look_stop :: proc() {
+	if nv.look == nil {
+		return
+	}
+	append(&nv.retired, nv.look)
+	nv.look = nil
+	delete(nv.look_device)
+	nv.look_device = ""
+}
+
+// video_camera_look_state is how the settings' preview is doing (Off when
+// there is none, or ours is on), and why it failed, in the temp allocator.
+video_camera_look_state :: proc() -> (state: Share_State, why: string) {
+	if nv.look == nil {
+		return .Off, ""
+	}
+	state = state_of(nv.look)
+	if state == .Failed {
+		why = strings.clone_from_cstring(nv.yv.share_error(nv.look), context.temp_allocator)
+	}
+	return
+}
+
+@(private = "file")
+camera_config_of :: proc(config: Share_Config, device: string) -> Yv_Camera_Config {
 	cfg := Yv_Camera_Config {
 		fps        = i32(config.fps),
 		max_width  = config.max.x,
@@ -814,6 +921,42 @@ video_camera_start :: proc(config: Share_Config, device := "") {
 	}
 	copy(cfg.camera[:len(cfg.camera) - 1], device)
 	copy(cfg.encoder[:len(cfg.encoder) - 1], config.encoder)
+	return cfg
+}
+
+@(private = "file")
+share_of :: proc(stream: proto.Video_Stream) -> rawptr {
+	sync.guard(&nv.share_mu)
+	return nv.shares[stream].share
+}
+
+// video_camera_start turns on the camera `device` (a Yv_Camera id; "" for the
+// first) as `config` says, replacing a camera that was on. The settings'
+// preview of the same device becomes it, without opening the camera again.
+// Called from the UI thread.
+video_camera_start :: proc(config: Share_Config, device := "") {
+	if !video_can_camera() {
+		return
+	}
+	video_camera_stop()
+	if nv.look != nil && nv.look_device == device {
+		share := nv.look
+		nv.look = nil
+		delete(nv.look_device)
+		nv.look_device = ""
+		nv.yv.share_configure(share, i32(config.fps), config.max.x, config.max.y, u32(config.kbit))
+		share_took(.Camera, share, config.kbit)
+		log.infof(
+			"video: camera (from the preview) at %d fps, %d kbit/s, at most %dx%d",
+			config.fps,
+			config.kbit,
+			config.max.x,
+			config.max.y,
+		)
+		return
+	}
+	video_camera_look_stop()
+	cfg := camera_config_of(config, device)
 	share_took(.Camera, nv.yv.camera_start(nv.ctx, &cfg), config.kbit)
 	log.infof(
 		"video: camera at %d fps, %d kbit/s, at most %dx%d",
@@ -881,10 +1024,10 @@ video_camera_preview :: proc(
 	}
 	ensure_gpu(g)
 	// Only the UI thread starts and stops it, so it stays while this runs.
-	share: rawptr
-	{
-		sync.guard(&nv.share_mu)
-		share = nv.shares[.Camera].share
+	// While ours is off, the settings' preview.
+	share := share_of(.Camera)
+	if share == nil {
+		share = nv.look
 	}
 	pic: Yv_Picture
 	if share == nil || !nv.yv.share_preview(share, &pic) || pic.texture == 0 {
@@ -937,7 +1080,11 @@ share_state :: proc(stream: proto.Video_Stream) -> Share_State {
 		return .Off
 	}
 	sync.guard(&nv.share_mu)
-	share := nv.shares[stream].share
+	return state_of(nv.shares[stream].share)
+}
+
+@(private = "file")
+state_of :: proc(share: rawptr) -> Share_State {
 	if share == nil {
 		return .Off
 	}

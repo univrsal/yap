@@ -275,6 +275,62 @@ CAMERA_TIERS := [?]Camera_Tier {
 	{proto.MAX_CAMERAS, {max = {480, 270}, fps = 24, kbit = 300}},
 }
 
+// The camera's quality in the settings (settings.camera_quality): Auto is the
+// tiers as they are; High sends a call at 1080p; Low keeps to the 640x360 tier
+// everywhere, for a slow connection or computer.
+Camera_Quality :: enum i32 {
+	Auto,
+	High,
+	Low,
+}
+
+CAMERA_QUALITY_NAMES := [Camera_Quality]string {
+	.Auto = "auto",
+	.High = "high",
+	.Low  = "low",
+}
+
+CAMERA_CALL_HIGH :: Share_Config {
+	max  = {1920, 1080},
+	fps  = 30,
+	kbit = 3500,
+}
+
+CAMERA_LOW :: Share_Config {
+	max  = {640, 360},
+	fps  = 30,
+	kbit = 450,
+}
+
+// camera_quality is the quality settings.camera_quality names; Auto for
+// anything else.
+camera_quality :: proc(name: string) -> Camera_Quality {
+	for n, q in CAMERA_QUALITY_NAMES {
+		if n == name {
+			return q
+		}
+	}
+	return .Auto
+}
+
+// The quality the network thread keeps our camera to (follow_camera_tier),
+// which the UI sets (video_set_camera_quality; atomic).
+@(private = "file")
+quality_now: Camera_Quality
+
+// video_set_camera_quality has the camera follow `q` from now on; a camera
+// that is on changes at once (or, going up, as a tier does).
+video_set_camera_quality :: proc(q: Camera_Quality) {
+	sync.atomic_store(&quality_now, q)
+}
+
+// Camera_Device is a camera that can be picked in the settings: its id, as
+// settings.camera_device stores it, and its name.
+Camera_Device :: struct {
+	id:   string,
+	name: string,
+}
+
 // How long the room has to keep fewer cameras before ours goes up a tier
 // again. Going down happens at once. Each change costs a keyframe, so a camera
 // that goes on and off doesn't make everybody's encoders start again each
@@ -282,10 +338,15 @@ CAMERA_TIERS := [?]Camera_Tier {
 CAMERA_TIER_UP_AFTER :: 5 * time.Second
 
 // camera_config is how to send our camera with `cameras` on in our room (ours
-// included), or in a call, held to `limit_kbit` (the server's limit for a
-// camera; 0 if it did not say).
-camera_config :: proc(cameras: int, call: bool, limit_kbit: int) -> Share_Config {
-	cfg := CAMERA_CALL
+// included), or in a call, at `quality`, held to `limit_kbit` (the server's
+// limit for a camera; 0 if it did not say).
+camera_config :: proc(
+	cameras: int,
+	call: bool,
+	limit_kbit: int,
+	quality := Camera_Quality.Auto,
+) -> Share_Config {
+	cfg := CAMERA_CALL_HIGH if quality == .High else CAMERA_CALL
 	if !call {
 		cfg = CAMERA_TIERS[len(CAMERA_TIERS) - 1].config
 		for t in CAMERA_TIERS {
@@ -294,6 +355,9 @@ camera_config :: proc(cameras: int, call: bool, limit_kbit: int) -> Share_Config
 				break
 			}
 		}
+	}
+	if quality == .Low && cfg.max.x > CAMERA_LOW.max.x {
+		cfg = CAMERA_LOW
 	}
 	if limit_kbit > 0 {
 		cfg.kbit = min(cfg.kbit, limit_kbit)
@@ -312,7 +376,12 @@ room_camera_config :: proc(c: ^Voice_Client) -> Share_Config {
 			cameras += 1
 		}
 	}
-	return camera_config(cameras, proto.room_call(room) != 0, int(c.rpc.server.camera_kbit))
+	return camera_config(
+		cameras,
+		proto.room_call(room) != 0,
+		int(c.rpc.server.camera_kbit),
+		sync.atomic_load(&quality_now),
+	)
 }
 
 // follow_camera_tier keeps our camera to the tier of the room: down at once, up

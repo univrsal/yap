@@ -149,7 +149,140 @@ or getDisplayMedia (a phone) can still watch.
 			camera.state = FAILED;
 			return;
 		}
-		begin(camera, fps, kbit, maxWidth, maxHeight, () => userMedia(device));
+		// The settings' preview of the same camera becomes it, without asking
+		// the browser again.
+		begin(camera, fps, kbit, maxWidth, maxHeight, () => takeLook(device) || userMedia(device));
+	}
+
+	/* ---- the settings' camera list and preview ---- */
+
+	// The cameras as the browser last listed them: { id, name }. Before the
+	// page has been allowed a camera, browsers give neither ids nor names.
+	let cameraList = [];
+	function refreshCameras() {
+		if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+		navigator.mediaDevices.enumerateDevices()
+			.then((devices) => {
+				cameraList = devices
+					.filter((d) => d.kind === "videoinput")
+					.map((d) => ({ id: d.deviceId || "", name: d.label || "" }));
+			})
+			.catch(() => {});
+	}
+	if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+		navigator.mediaDevices.addEventListener("devicechange", refreshCameras);
+	}
+	refreshCameras();
+
+	/*
+	The preview the settings show while our camera is off: the camera
+	`device` opened but not encoded, its frames put where the camera's own
+	go (camera.preview, takePreview). Turning the camera on takes its stream
+	(takeLook).
+	*/
+	const look = { state: OFF, device: "", stream: null, reader: null, video: null, ticker: null, generation: 0 };
+
+	async function startLook(device, maxWidth, maxHeight) {
+		if (!canCamera() || camera.state === STARTING || camera.state === LIVE) return;
+		// One that failed isn't tried again (the browser would ask again) until
+		// another camera is picked or the preview is let go of.
+		if (look.state !== OFF && look.device === device) return;
+		stopLook();
+		Object.assign(look, { state: STARTING, device });
+		Object.assign(camera, { maxWidth, maxHeight });
+		const generation = ++look.generation;
+		const current = () => generation === look.generation;
+		let stream;
+		try {
+			stream = await userMedia(device);
+		} catch (e) {
+			if (current()) {
+				console.warn("yap: no camera to preview:", e);
+				look.state = FAILED;
+			}
+			return;
+		}
+		if (!current()) {
+			stream.getTracks().forEach((t) => t.stop());
+			return;
+		}
+		// Names come once a camera has been allowed.
+		refreshCameras();
+		look.stream = stream;
+		const track = stream.getVideoTracks()[0];
+		const keep = (frame) => {
+			if (camera.state === LIVE) return;
+			if (camera.preview) camera.preview.close();
+			camera.preview = frame;
+		};
+		if (track && typeof MediaStreamTrackProcessor === "function") {
+			const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+			look.reader = reader;
+			(async () => {
+				for (;;) {
+					let result;
+					try {
+						result = await reader.read();
+					} catch (e) {
+						break;
+					}
+					if (result.done) break;
+					if (current()) keep(result.value);
+					else result.value.close();
+				}
+			})();
+		} else if (track) {
+			const video = document.createElement("video");
+			video.muted = true;
+			video.playsInline = true;
+			video.srcObject = stream;
+			video.play().catch(() => {});
+			look.video = video;
+			look.ticker = ticker(1000 / 30, () => {
+				if (video.readyState >= 2) {
+					try {
+						keep(new VideoFrame(video, { timestamp: Math.round(performance.now() * 1000) }));
+					} catch (e) {}
+				}
+			});
+		}
+		look.state = LIVE;
+	}
+
+	// detachLook stops reading the preview's frames; its stream is left to
+	// the caller.
+	function detachLook() {
+		look.generation++;
+		if (look.reader) look.reader.cancel().catch(() => {});
+		if (look.ticker) look.ticker.stop();
+		if (look.video) look.video.srcObject = null;
+		const stream = look.stream;
+		Object.assign(look, { state: OFF, device: "", stream: null, reader: null, video: null, ticker: null });
+		return stream;
+	}
+
+	function stopLook() {
+		const stream = detachLook();
+		if (stream) stream.getTracks().forEach((t) => t.stop());
+		if (camera.state !== LIVE && camera.preview) {
+			camera.preview.close();
+			camera.preview = null;
+		}
+	}
+
+	// takeLook hands over the preview's stream if it is of `device`, for the
+	// camera to send; null otherwise (and the preview is let go of).
+	function takeLook(device) {
+		if (look.state === LIVE && look.device === device && look.stream) {
+			// Clones, since letting go of the preview's reader may end its
+			// tracks; the camera stays open in between, without asking again.
+			const taken = new MediaStream(look.stream.getVideoTracks().map((t) => t.clone()));
+			const stream = detachLook();
+			stream.getTracks().forEach((t) => t.stop());
+			return Promise.resolve(taken);
+		}
+		stopLook();
+		return null;
 	}
 
 	async function begin(s, fps, kbit, maxWidth, maxHeight, open) {
@@ -738,6 +871,13 @@ or getDisplayMedia (a phone) can still watch.
 		start,
 		startCamera,
 		configureCamera,
+		// The settings' list of cameras (refreshed in the background) and
+		// preview.
+		refreshCameras,
+		cameras: () => cameraList,
+		startLook,
+		stopLook,
+		lookState: () => look.state,
 		// The rest take the stream (0 the screen, 1 the camera).
 		stop: (stream) => stop(captureOf(stream), OFF),
 		state: (stream) => captureOf(stream).state,

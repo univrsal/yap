@@ -58,6 +58,14 @@ foreign _ {
 	yap_video_camera_start :: proc(fps, kbit, max_width, max_height: i32, device: cstring) ---
 	// Has the camera go on at another size, frame rate or bitrate.
 	yap_video_camera_configure :: proc(fps, kbit, max_width, max_height: i32) ---
+	// The settings' cameras, as the browser last listed them.
+	yap_video_cameras_refresh :: proc() ---
+	yap_video_camera_count :: proc() -> i32 ---
+	yap_video_camera_info :: proc(i: i32, id: [^]u8, id_size: i32, name: [^]u8, name_size: i32) -> i32 ---
+	// The settings' preview while our camera is off (not sent).
+	yap_video_camera_look :: proc(device: cstring, max_width, max_height: i32) ---
+	yap_video_camera_look_stop :: proc() ---
+	yap_video_camera_look_state :: proc() -> i32 ---
 	// What a stream encodes at now, and the most it may (kbit/s, 0 while it
 	// isn't live).
 	yap_video_encoding_kbit :: proc(stream: i32) -> i32 ---
@@ -245,6 +253,53 @@ video_camera_configure :: proc(config: Share_Config) {
 
 video_camera_stop :: proc() {
 	yap_video_stop(i32(proto.Video_Stream.Camera))
+}
+
+// video_cameras lists the cameras as the browser last said, allocated with
+// `allocator`. Before the page has been allowed a camera they have neither
+// ids nor names.
+video_cameras :: proc(allocator := context.temp_allocator) -> []Camera_Device {
+	n := int(yap_video_camera_count())
+	out := make([dynamic]Camera_Device, 0, n, allocator)
+	for i in 0 ..< n {
+		id, name: [512]u8
+		if yap_video_camera_info(i32(i), &id[0], len(id), &name[0], len(name)) != 0 {
+			append(
+				&out,
+				Camera_Device {
+					id = strings.clone_from_cstring(cstring(&id[0]), allocator),
+					name = strings.clone_from_cstring(cstring(&name[0]), allocator),
+				},
+			)
+		}
+	}
+	return out[:]
+}
+
+// video_cameras_refresh has the browser list its cameras again; the answer
+// comes in a later frame.
+video_cameras_refresh :: proc() {
+	yap_video_cameras_refresh()
+}
+
+// video_camera_look opens the camera `device` for the settings' preview while
+// ours is off, without sending it; the browser asks the first time. Turning
+// the camera on then takes it (video.js).
+video_camera_look :: proc(config: Share_Config, device: string) {
+	yap_video_camera_look(
+		strings.clone_to_cstring(device, context.temp_allocator),
+		config.max.x,
+		config.max.y,
+	)
+}
+
+video_camera_look_stop :: proc() {
+	yap_video_camera_look_stop()
+}
+
+// The browser's console says why it failed.
+video_camera_look_state :: proc() -> (state: Share_State, why: string) {
+	return Share_State(yap_video_camera_look_state()), ""
 }
 
 video_camera_state :: proc() -> Share_State {

@@ -359,6 +359,46 @@ EM_JS(void, yap_video_camera_configure, (int fps, int kbit, int max_width, int m
 	if (v) v.configureCamera(fps, kbit, max_width, max_height);
 });
 
+/* The settings' cameras: has the browser list them again (the answer comes
+   later), how many there are as last listed, and the id and name of one
+   ("" each until a camera has been allowed). */
+EM_JS(void, yap_video_cameras_refresh, (), {
+	const v = Module.yapVideo;
+	if (v) v.refreshCameras();
+});
+
+EM_JS(int, yap_video_camera_count, (), {
+	const v = Module.yapVideo;
+	return v ? v.cameras().length : 0;
+});
+
+EM_JS(int, yap_video_camera_info, (int i, char *id, int id_size, char *name, int name_size), {
+	const v = Module.yapVideo;
+	const c = v ? v.cameras()[i] : null;
+	if (!c) return 0;
+	stringToUTF8(c.id, id, id_size);
+	stringToUTF8(c.name, name, name_size);
+	return 1;
+});
+
+/* The settings' preview of the camera `device` while ours is off: opened,
+   but not sent; its frames come as our camera's (yap_video_upload with
+   sharer 0). */
+EM_JS(void, yap_video_camera_look, (const char *device, int max_width, int max_height), {
+	const v = Module.yapVideo;
+	if (v) v.startLook(UTF8ToString(device), max_width, max_height);
+});
+
+EM_JS(void, yap_video_camera_look_stop, (), {
+	const v = Module.yapVideo;
+	if (v) v.stopLook();
+});
+
+EM_JS(int, yap_video_camera_look_state, (), {
+	const v = Module.yapVideo;
+	return v ? v.lookState() : 0;
+});
+
 /* The bitrate a stream encodes at now, and the most it was asked for (kbit/s,
    0 while it isn't live); and a new one for it to encode at. */
 EM_JS(int, yap_video_encoding_kbit, (int stream), {

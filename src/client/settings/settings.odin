@@ -47,6 +47,9 @@ import "common:proto"
 //		"share_encoder": "",
 //		"share_cursor": true,
 //		"share_stats": false,
+//		"camera_device": "",
+//		"camera_quality": "auto",
+//		"camera_mirror": true,
 //		"users": {
 //			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933/12": { "volume": 0.5, "muted": false }
 //		},
@@ -146,6 +149,13 @@ Settings :: struct {
 	share_encoder:           string,
 	share_cursor:            bool,
 	share_stats:             bool,
+	// The camera (ui_camera_settings.odin): which one, by its id ("" for the
+	// first there is, or in a browser its choice), the quality
+	// (conn.Camera_Quality by name: "auto", "high" or "low"; unset means
+	// auto), and whether our own view is mirrored.
+	camera_device:           string,
+	camera_quality:          string,
+	camera_mirror:           bool,
 	// How to play back other people, by their account: the server's public
 	// key (64 hex digits), a slash, and the account's id on that server
 	// (see server_key). Names can be copied and are shared between
@@ -204,6 +214,7 @@ DEFAULT_SETTINGS :: Settings {
 	chat_scale              = 1,
 	image_cache_mb          = 256,
 	share_cursor            = true,
+	camera_mirror           = true,
 }
 
 // settings_load reads `path` and falls back to the defaults if the file
@@ -289,6 +300,8 @@ settings_destroy :: proc(s: ^Settings) {
 	delete(s.image_cache_dir)
 	delete(s.share_preset)
 	delete(s.share_encoder)
+	delete(s.camera_device)
+	delete(s.camera_quality)
 	for key in s.users {
 		delete(key)
 	}

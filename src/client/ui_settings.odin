@@ -35,6 +35,7 @@ Client_Category :: enum {
 	Interface,
 	Hotkeys,
 	Screen_Sharing,
+	Camera,
 	Transfers,
 	Image_Cache,
 	Trusted_Servers,
@@ -51,6 +52,7 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 	.Interface       = "User interface",
 	.Hotkeys         = "Global hotkeys",
 	.Screen_Sharing  = "Screen sharing",
+	.Camera          = "Camera",
 	.Transfers       = "File transfers",
 	.Image_Cache     = "Image cache",
 	.Trusted_Servers = "Trusted servers",
@@ -217,6 +219,8 @@ settings_body :: proc(ui: ^UI) {
 		hotkey_settings(ui)
 	case .Screen_Sharing:
 		share_settings(ui)
+	case .Camera:
+		camera_settings(ui) // ui_camera_settings.odin
 	case .Transfers:
 		transfer_settings(ui)
 	case .Image_Cache:

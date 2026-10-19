@@ -298,7 +298,7 @@ layer.
 | 6 | `yap_video` cameras on Windows: DirectShow (libdshowcapture), `yv_share_preview`, `yv_share_configure` | L | library, client | 2 | done (2026-10-19): under wine, then by the owner on Windows (OBS's virtual camera to a Linux client) |
 | 7 | Linux: V4L2, MJPEG | M | library | 6 | built (2026-10-19): OBS's v4l2loopback camera, in yv-loopback and the client |
 | 8 | macOS: AVFoundation, `Info.plist` | M | library, scripts | 6 | built (2026-10-19): on the Mac mini with the fake camera, the client by the owner; no real camera there yet |
-| 9 | Settings: camera, quality, mirror, preview | S | client | 4, 6 | - |
+| 9 | Settings: camera, quality, mirror, preview | S | client | 4, 6 | built (2026-10-19): headless Edge's fake camera; the desktop builds, untried |
 | 10 | Demand: viewers' tile sizes, pausing unwatched cameras | M | protocol, server, client | 5 | - |
 
 Why this order:
@@ -946,6 +946,69 @@ What the owner saw led to this; it isn't one of the plan's phases.
     button, and the self view through Metal.
 - **Not tested**: a real camera (none on the Mac mini), the permission
   prompt and Continuity Camera.
+
+### 9. Settings
+
+*As built:*
+
+- **A Camera category** in the client's settings, after Screen sharing
+  (`ui_camera_settings.odin`). Saved as `camera_device`,
+  `camera_quality` and `camera_mirror`.
+- **Which camera**: a dropdown of the cameras there are, with "The first
+  one there is" (in a browser, "The browser's choice", a phone's front
+  camera) on top.
+  - A camera picked before that isn't plugged in now stays picked, as
+    "The one picked before (not there now)".
+  - The list is counted again every 3 s while the category is shown (off
+    the UI thread on the desktop; the browser's `enumerateDevices` and
+    `devicechange` on the web). A browser gives ids and names only once
+    the page has been allowed a camera, which the preview asks for, and
+    the page says so until then.
+  - Picking another camera while ours is on switches to it at once
+    (`camera_switch`).
+- **Quality** (`conn.Camera_Quality`, `camera_config`'s new argument):
+  - Auto is the tiers as before.
+  - High sends a call at 1920x1080, 3500 kbit/s; a channel as Auto.
+  - Low keeps everything to the 640x360, 450 kbit/s tier (480x270 in a
+    room of more than nine).
+  - A camera that's on follows a change as it follows the room's tier
+    (`video_set_camera_quality`, read by `follow_camera_tier`): down at
+    once, up after 5 s.
+- **Mirror my own view**: the self view, in the call's corner and the
+  grid, is mirrored unless it's off. What others see never is.
+- **The preview**:
+  - It shows our camera while it's on.
+  - Otherwise the camera picked is opened for it but not sent
+    (`video_camera_look`): on the desktop a camera share of the library's
+    that the network side never sees, in the browser a `getUserMedia`
+    stream of video.js's own whose frames go where the camera's
+    self-view frames go. It's let go of after a frame without the
+    category (`camera_after_frame`).
+  - Turning the camera on while it's open takes it over as it is: the
+    share becomes the camera's (reconfigured to the tier), or the page
+    hands a clone of its track to the camera. Through the UI that only
+    happens when a call answered with video comes on meanwhile, since
+    the settings cover the voice panel.
+  - A preview that failed says why, and isn't tried again until another
+    camera is picked (the browser would ask again each frame).
+- **Found and fixed**: the dropdown's list left microui's padding out of
+  its row height, so a short list (two cameras) got a scrollbar and
+  half its second row. The Sounds page's lists are long enough that it
+  never showed.
+- **Tried** (headless Edge with its fake camera, a server here):
+  - The category, its preview (mirrored, then not), the dropdown with
+    `fake_device_0`, and the settings saved.
+  - Leaving the settings let go of the preview's camera.
+  - In Lobby's voice chat with Low picked, the camera came on at
+    450 kbit/s. Auto from the settings took it to 1500 after 5 s, Low
+    back to 450 at once. The preview showed the live camera without
+    opening another.
+  - Switching to "The browser's choice" while on kept it live; turning
+    it off brought the preview back.
+  - conn (40) and settings (6) tests pass; the client type-checks for
+    Windows and the web, builds on the Mac, and the web build builds.
+- **Not tried**: the desktop's preview and switching (the library's
+  `video_camera_look`), which needs a desktop client clicked through.
 
 ## Risks
 

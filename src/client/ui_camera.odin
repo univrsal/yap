@@ -63,6 +63,9 @@ UI_Camera :: struct {
 	sent:      [proto.MAX_CAMERAS]proto.User_Num,
 	sent_n:    int,
 	sent_to:   ^Net_Session,
+	// The settings' preview was shown this frame (camera_settings); it is let
+	// go of after a frame without it (camera_after_frame).
+	looked:    bool,
 }
 
 // camera_available says whether our camera can be turned on with this server:
@@ -89,7 +92,8 @@ room_cameras :: proc(v: ^conn.View) -> (n: int) {
 }
 
 // camera_start turns our camera on for the voice chat or call that `ns` is in,
-// with `v` (its View) locked, at the room's tier (conn.camera_config).
+// with `v` (its View) locked, at the room's tier (conn.camera_config): the
+// camera and quality the settings say.
 @(private = "file")
 camera_start :: proc(ui: ^UI, ns: ^Net_Session, v: ^conn.View) {
 	room := proto.Room(v.my_room)
@@ -97,8 +101,9 @@ camera_start :: proc(ui: ^UI, ns: ^Net_Session, v: ^conn.View) {
 		room_cameras(v) + 1,
 		proto.room_call(room) != 0,
 		v.camera_limit_kbit,
+		conn.camera_quality(ui.settings.camera_quality),
 	)
-	conn.video_camera_start(cfg)
+	conn.video_camera_start(cfg, ui.settings.camera_device)
 	ui.camera.at = ns
 	ui.camera.room = room
 }
@@ -151,6 +156,8 @@ camera_button :: proc(ui: ^UI) {
 // started or answered with video is on. Call with no View locked.
 camera_follow :: proc(ui: ^UI) {
 	cam := &ui.camera
+	// The network thread keeps a camera that is on to it (follow_camera_tier).
+	conn.video_set_camera_quality(conn.camera_quality(ui.settings.camera_quality))
 	if cam.on_call {
 		follow_video_call(ui)
 	}
@@ -325,6 +332,23 @@ camera_after_frame :: proc(ui: ^UI) {
 		cam.sent_n = copy(cam.sent[:], drawn)
 	}
 	cam.drawn_n = 0
+	if !cam.looked {
+		conn.video_camera_look_stop()
+	}
+	cam.looked = false
+}
+
+// camera_switch has our camera, if it is on, go on with the camera the
+// settings now say. Call with no View locked.
+camera_switch :: proc(ui: ^UI) {
+	cam := &ui.camera
+	state := conn.video_camera_state()
+	if state == .Off || state == .Failed || !session_alive(ui, cam.at) {
+		return
+	}
+	conn.video_camera_stop()
+	sync.guard(&cam.at.view.mutex)
+	camera_start(ui, cam.at, &cam.at.view)
 }
 
 // video_panel fills the Video tab: the call's video or the room's grid, with
@@ -468,7 +492,8 @@ SELF_VIEW_PART :: 4
 SELF_VIEW_GAP :: 8
 
 // call_video is the person we call, large, and our own camera in the bottom
-// right-hand corner, mirrored like a mirror (they see it the right way round).
+// right-hand corner, mirrored like a mirror unless the settings say not to (they
+// see it the right way round either way).
 // Clicking the corner swaps them.
 @(private = "file")
 call_video :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
@@ -663,15 +688,15 @@ peer_view :: proc(ui: ^UI, r: mu.Rect, user: proto.User_Num, off: string) {
 	fitted_picture(ui, r, texture, w, h, false)
 }
 
-// self_view draws our own camera as big as fits in `r`, mirrored.
-@(private = "file")
-self_view :: proc(ui: ^UI, r: mu.Rect) {
+// self_view draws our own camera as big as fits in `r`, mirrored unless the
+// settings say not to; `none` where there is no picture yet.
+self_view :: proc(ui: ^UI, r: mu.Rect, none := "Your camera") {
 	texture, w, h, ok := conn.video_camera_preview(&ui.renderer.gpu)
 	if !ok {
-		centred_text(ui, r, "Your camera")
+		centred_text(ui, r, none)
 		return
 	}
-	fitted_picture(ui, r, texture, w, h, true)
+	fitted_picture(ui, r, texture, w, h, ui.settings.camera_mirror)
 }
 
 @(private = "file")

@@ -554,4 +554,12 @@ test_camera_config :: proc(t: ^testing.T) {
 	testing.expect_value(t, camera_config(2, true, 0), CAMERA_CALL)
 	testing.expect_value(t, camera_config(2, true, 1000).kbit, 1000)
 	testing.expect_value(t, camera_config(9, false, 4000).kbit, 450)
+	// The settings' quality: High only changes a call, Low keeps everything to 360p.
+	testing.expect_value(t, camera_config(2, true, 0, .High), CAMERA_CALL_HIGH)
+	testing.expect_value(t, camera_config(2, false, 0, .High).max, [2]i32{1280, 720})
+	testing.expect_value(t, camera_config(2, true, 0, .Low), CAMERA_LOW)
+	testing.expect_value(t, camera_config(1, false, 0, .Low), CAMERA_LOW)
+	testing.expect_value(t, camera_config(40, false, 0, .Low).max, [2]i32{480, 270})
+	testing.expect_value(t, camera_quality("high"), Camera_Quality.High)
+	testing.expect_value(t, camera_quality(""), Camera_Quality.Auto)
 }
