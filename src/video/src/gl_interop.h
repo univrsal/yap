@@ -15,9 +15,7 @@ current.
 
 #include <memory>
 
-extern "C" {
-#include <libavutil/frame.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

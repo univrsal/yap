@@ -15,8 +15,10 @@ system's libraries.
 #include <cstring>
 #include <vector>
 
+#include "ffmpeg.h"
+
+// Only types, so after ffmpeg.h.
 extern "C" {
-#include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_drm.h>
 }
 

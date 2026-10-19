@@ -26,8 +26,10 @@ libobs-d3d11.)
 #include <dxgi1_2.h>
 #include <wrl/client.h>
 
+#include "ffmpeg.h"
+
+// Only types, so after ffmpeg.h.
 extern "C" {
-#include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_d3d11va.h>
 }
 

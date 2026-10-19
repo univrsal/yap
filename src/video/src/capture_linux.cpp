@@ -5,10 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 
-extern "C" {
-#include <libavutil/hwcontext.h>
-#include <libswscale/swscale.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

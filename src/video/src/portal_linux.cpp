@@ -42,10 +42,11 @@ are loaded at run time (dl_linux.h).
 #include "vpp_linux.h"
 #endif
 
+#include "ffmpeg.h"
+
+// Only types, so after ffmpeg.h.
 extern "C" {
-#include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_drm.h>
-#include <libavutil/mem.h>
 }
 
 #include <gio/gio.h>

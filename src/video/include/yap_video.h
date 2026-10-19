@@ -30,7 +30,7 @@ extern "C" {
 #endif
 
 // What a client was built against. yv_create refuses any other.
-#define YV_API_VERSION 8
+#define YV_API_VERSION 9
 
 typedef struct yv_context yv_context;
 
@@ -70,7 +70,8 @@ typedef struct yv_init {
 
 /*
 yv_create makes the library's context. NULL if api_version doesn't
-match; the reason went to the log.
+match, or if there's no FFmpeg it can use (see src/ffmpeg.h) or that
+FFmpeg can't decode H.264; the reason went to the log.
 */
 YV_API yv_context *yv_create(const yv_init *init);
 YV_API void yv_destroy(yv_context *ctx);
@@ -313,6 +314,13 @@ YV_API void yv_share_stop(yv_share *share);
 
 // The clock pts_us counts on: microseconds, steady, from some point.
 YV_API uint64_t yv_clock_us(void);
+
+/*
+yv_decodable_codecs says which codecs views can decode, as bits
+(1 << codec): those FFmpeg has a decoder for. FFmpeg from the system
+may leave HEVC or AV1 out (H.264 is always there: see yv_create).
+*/
+YV_API uint32_t yv_decodable_codecs(yv_context *ctx);
 
 #ifdef __cplusplus
 }

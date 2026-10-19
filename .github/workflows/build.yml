@@ -95,8 +95,10 @@ jobs:
       - name: Linux dependencies
         if: runner.os == 'Linux'
         # dbus headers for the tray icon, PipeWire's for application
-        # audio, GLFW to link against; XCB's and GIO's for the screen
-        # sharing add-on's capture (src/video).
+        # audio, GLFW to link against; XCB's, GIO's and libva's for
+        # screen sharing's capture (src/video), which build.sh links into
+        # the client on Linux. Its FFmpeg headers come from the cached
+        # prebuilt FFmpeg below.
         run: |
           sudo apt-get update
           sudo apt-get install -y libdbus-1-dev libx11-dev libpipewire-0.3-dev libglfw3-dev pkg-config \

@@ -26,11 +26,7 @@ say (yv_share_set_bitrate).
 #include <deque>
 #include <thread>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavutil/dict.h>
-#include <libavutil/opt.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

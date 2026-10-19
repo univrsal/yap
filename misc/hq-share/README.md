@@ -487,6 +487,22 @@ encoders on an NVIDIA, an AMD and an Intel machine.
   headers, which want NVIDIA driver 610 or later; on driver 576 every
   NVENC encoder failed to open. 8.0 and 8.1 use the 13.0 headers
   (driver 570, early 2025). Whoever moves the pin has to check this.
+- **Later (2026-10-19): the system's FFmpeg on Linux and macOS.**
+  yap_video no longer links FFmpeg there: `src/ffmpeg.cpp` opens it at
+  run time, from the library's own folder first (what we ship), else the
+  system's, FFmpeg 8 (`libavcodec.so.62`) or 9 (`.so.63`). Built
+  against 8.1's headers, all 69 fields and 42 constants the library
+  uses are the same in 9.0, and its 49 functions are all there; FFmpeg
+  7.1 lays AVFrame and AVCodecContext out differently, so it isn't
+  taken. Without H.264 decoding an FFmpeg is no use (`yv_create`
+  fails); HEVC and AV1 are offered only when it decodes them
+  (`yv_decodable_codecs`, API 9). Windows still links its DLLs.
+- **Later (2026-10-19): linked into the client on Linux.** build.sh
+  builds `src/client/conn/libyap_video.a` (CMake, `YV_STATIC`) and
+  copies the compiler's `libstdc++.a` beside it, which the client links
+  too, so yap needs no particular `libstdc++.so` (only `libgcc_s`).
+  The Linux yap-video download is just FFmpeg's libraries now, for
+  systems without FFmpeg 8 or 9. macOS and Windows keep the add-on.
 - **Much bigger than the plan guessed:** `avcodec-62.dll` alone is
   87 MB, about 91 MB with `avutil` and `swresample`, because BtbN's
   builds carry every codec. Fine per the goals, but if it matters, our

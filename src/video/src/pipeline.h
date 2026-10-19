@@ -12,11 +12,7 @@ capture_win.cpp, Linux capture_linux.h; macOS doesn't capture yet.
 #include <memory>
 #include <string>
 
-extern "C" {
-#include <libavutil/buffer.h>
-#include <libavutil/frame.h>
-struct AVCodec;
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

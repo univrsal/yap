@@ -19,10 +19,7 @@ memory as it is. Keeping it on the GPU is phase 9's.
 #include <cstdint>
 #include <vector>
 
-extern "C" {
-#include <libavutil/pixfmt.h>
-struct SwsContext;
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

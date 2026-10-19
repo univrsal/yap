@@ -9,9 +9,7 @@ time (dl_linux.h) like the rest of the system's libraries.
 
 #include <cstdint>
 
-extern "C" {
-#include <libavutil/buffer.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

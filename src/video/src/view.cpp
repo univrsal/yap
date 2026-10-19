@@ -16,12 +16,7 @@ goes to dav1d, since FFmpeg's own AV1 decoder only drives hardware.
 #include <deque>
 #include <thread>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavutil/dict.h>
-#include <libavutil/hwcontext.h>
-#include <libavutil/pixdesc.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 
@@ -145,7 +140,9 @@ bool open_decoder(yv_view *v, yv_codec codec) {
 		name = "hevc";
 		break;
 	case YV_CODEC_AV1:
-		use_device = use_device && v->output->hw_decodes(codec);
+		// FFmpeg's own decoder may not be built in (decodable_codecs).
+		use_device = use_device && v->output->hw_decodes(codec) &&
+		             avcodec_find_decoder_by_name("av1");
 		name = use_device ? "av1" : "libdav1d";
 		break;
 	}
@@ -277,6 +274,30 @@ void run(yv_view *v) {
 
 void view_set_gpu(yv_view *v, const yv_gpu *gpu, uint64_t luid) {
 	v->output->set_gpu(gpu, luid);
+}
+
+/*
+FFmpeg from the system may be built without some decoders (Fedora's
+ffmpeg-free has no H.264 or HEVC, some have no dav1d), and what it
+can't decode mustn't be asked of it. AV1 counts only with dav1d:
+FFmpeg's own decoder needs hardware, which isn't known until there's a
+GPU, and isn't everyone's.
+*/
+uint32_t decodable_codecs() {
+	static const uint32_t codecs = [] {
+		uint32_t bits = 0;
+		for (yv_codec c : {YV_CODEC_H264, YV_CODEC_HEVC, YV_CODEC_AV1}) {
+			const char *name = c == YV_CODEC_H264 ? "h264" : c == YV_CODEC_HEVC ? "hevc" : "libdav1d";
+			if (avcodec_find_decoder_by_name(name)) {
+				bits |= 1u << c;
+			} else {
+				log(YV_LOG_WARN, "video: this FFmpeg has no %s decoder, so no watching %s", name,
+				    codec_label(c));
+			}
+		}
+		return bits;
+	}();
+	return codecs;
 }
 
 } // namespace yv
