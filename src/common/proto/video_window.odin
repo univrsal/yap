@@ -35,6 +35,9 @@ VIDEO_WINDOW :: 8
 REORDER_WAIT :: 10 * time.Millisecond
 NACK_RETRY :: 80 * time.Millisecond
 TAIL_WAIT :: 20 * time.Millisecond
+// How long a reliable window waits for the rest of a frame when nothing later
+// has come either (video_window_nacks).
+RELIABLE_WAIT :: 1 * time.Second
 // The number of fragments a Nack can name.
 NACK_SPAN :: 64
 // The maximum number of Nacks a frame may send in one round, which is enough
@@ -122,6 +125,9 @@ Video_Window :: struct {
 	next:      u32, // the next frame to hand out
 	newest:    u32, // the newest frame seen
 	broken:    bool,
+	// The fragments come over a link that loses nothing and keeps them in
+	// order (a WebSocket, see video_window_nacks).
+	reliable:  bool,
 	// For the log.
 	nacked:    int, // fragments that were requested again
 	recovered: int, // frames that arrived complete after being requested
@@ -165,6 +171,18 @@ slot_of :: proc(w: ^Video_Window, frame: u32) -> ^Window_Slot {
 @(private = "file")
 complete :: proc(s: ^Window_Slot) -> bool {
 	return s.count > 0 && s.received == s.count
+}
+
+// later_complete says whether a frame after `frame` is complete.
+@(private = "file")
+later_complete :: proc(w: ^Video_Window, frame: u32) -> bool {
+	for fr := frame + 1; fr != w.newest + 1; fr += 1 {
+		s := &w.slots[fr % VIDEO_WINDOW]
+		if s.used && s.frame == fr && complete(s) {
+			return true
+		}
+	}
+	return false
 }
 
 // video_window_add feeds in a fragment that arrived at `now`. Frames that it
@@ -286,6 +304,15 @@ video_window_pop :: proc(w: ^Video_Window) -> (frame: Video_Frame, ok: bool) {
 // the temp allocator. It also gives up on frames that the requests didn't
 // recover. With `asking` false nothing is requested, and whatever would have
 // been is given up on immediately.
+//
+// A reliable window (a browser's, whose video comes over a WebSocket) asks for
+// nothing: what hasn't arrived is only late, however long the gap, and the
+// timings above, which are made for UDP, would take a jittery or distant path
+// for loss. Asking again would only send it twice, and giving up would throw
+// away a frame that was still coming. It gives up on a frame only once a later
+// frame is complete (what was missing would have come before it: it was lost
+// on the way to the server, or the server dropped it) or nothing came for
+// RELIABLE_WAIT.
 video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []Video_Nack {
 	out := make([dynamic]Video_Nack, context.temp_allocator)
 	if !w.started {
@@ -294,6 +321,17 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 	for fr := w.next; fr != w.newest + 1; fr += 1 {
 		s := &w.slots[fr % VIDEO_WINDOW]
 		if !s.used || s.frame != fr || s.gave_up || complete(s) {
+			continue
+		}
+		if w.reliable {
+			if s.gap_at == {} {
+				s.gap_at = now
+			}
+			waited := s.last_at if s.last_at != {} else s.gap_at
+			if later_complete(w, fr) || time.tick_diff(waited, now) >= RELIABLE_WAIT {
+				s.gave_up = true
+				w.given_up += 1
+			}
 			continue
 		}
 		// How far into the frame fragments can be considered missing.

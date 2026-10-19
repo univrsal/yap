@@ -39,6 +39,10 @@ import log "common:wlog"
 // sharing is still offered, and the menu asks for the permission
 // (video_capture_allowed, video_allow_capture) instead of listing sources.
 
+// The desktop's media link is UDP, which loses packets and asks for them again
+// (proto.Video_Window).
+MEDIA_RELIABLE :: false
+
 // The version of the library API this was built against (see src/video/include/yap_video.h).
 @(private = "file")
 YV_API_VERSION :: 8

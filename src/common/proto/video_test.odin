@@ -363,6 +363,58 @@ test_window_gives_up :: proc(t: ^testing.T) {
 	testing.expect(t, !w.broken)
 }
 
+// A reliable window (over a WebSocket) asks for nothing again: a fragment that
+// is late is waited for, and a frame is only given up on once a later one is
+// complete, or after RELIABLE_WAIT.
+@(test)
+test_window_reliable :: proc(t: ^testing.T) {
+	w := new(Video_Window)
+	defer free(w)
+	defer video_window_destroy(w)
+	video_window_reset(w)
+	w.reliable = true
+	now := time.tick_now()
+	_, ok := feed(w, fragments(1, true, make_frame(100)), now)
+	testing.expect(t, ok)
+
+	// Frame 2's last fragment is 300 ms late: no Nack, and it isn't given up.
+	f2 := fragments(2, false, make_frame(2 * VIDEO_FRAGMENT_SIZE))
+	video_window_add(w, f2[0], now)
+	for ms in ([?]int{30, 100, 200, 290}) {
+		testing.expect_value(t, len(video_window_nacks(w, later(now, ms), true)), 0)
+	}
+	frame: Video_Frame
+	frame, ok = feed(w, f2[1:], later(now, 300))
+	testing.expect(t, ok)
+	testing.expect_value(t, frame.frame, 2)
+	testing.expect_value(t, w.nacked, 0)
+	testing.expect_value(t, w.given_up, 0)
+
+	// Frame 3 loses a fragment for good (on the way to the server): once frame
+	// 4 is complete, it is given up on, and a keyframe is what follows.
+	f3 := fragments(3, false, make_frame(2 * VIDEO_FRAGMENT_SIZE))
+	video_window_add(w, f3[0], later(now, 310))
+	testing.expect_value(t, len(video_window_nacks(w, later(now, 320), true)), 0)
+	testing.expect_value(t, w.given_up, 0)
+	_, ok = feed(w, fragments(4, false, make_frame(10)), later(now, 330))
+	testing.expect(t, !ok)
+	testing.expect_value(t, len(video_window_nacks(w, later(now, 331), true)), 0)
+	testing.expect_value(t, w.given_up, 1)
+	_, ok = video_window_pop(w)
+	testing.expect(t, !ok)
+	testing.expect(t, w.broken)
+
+	// With nothing after it, a frame is waited for RELIABLE_WAIT.
+	_, ok = feed(w, fragments(5, true, make_frame(10)), later(now, 400))
+	testing.expect(t, ok)
+	f6 := fragments(6, false, make_frame(2 * VIDEO_FRAGMENT_SIZE))
+	video_window_add(w, f6[0], later(now, 410))
+	_ = video_window_nacks(w, later(now, 1300), true)
+	testing.expect_value(t, w.given_up, 1)
+	_ = video_window_nacks(w, later(now, 1420), true)
+	testing.expect_value(t, w.given_up, 2)
+}
+
 @(test)
 test_window_skipped_frame :: proc(t: ^testing.T) {
 	w := new(Video_Window)

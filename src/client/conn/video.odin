@@ -891,6 +891,7 @@ in_start :: proc(in_: ^Video_In, key: Video_Key) {
 		window = window,
 	}
 	proto.video_window_reset(window)
+	window.reliable = MEDIA_RELIABLE
 }
 
 // in_stop stops watching a stream, ending its lease at once rather than when

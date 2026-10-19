@@ -645,6 +645,59 @@ Why this order:
     does.
   - conn tests (40, with `test_camera_config`) pass; the client
     type-checks for Linux, Windows, macOS and the web.
+- **Tried by the owner** (2026-10-19): three browsers in a channel,
+  behind a Cloudflare tunnel (https) over a VPN. Two OBS virtual cameras
+  and a screen share all worked, with the grid and making tiles larger.
+  But the incoming cameras and the screen had a low frame rate.
+
+### 5a. Video in browsers over slow or jittery paths
+
+What the owner saw led to this; it isn't one of the plan's phases.
+
+- **Why.**
+  - A browser's media link is a WebSocket (TCP), through the relay and
+    whatever is in front of it (a tunnel, a VPN). Nothing on it is lost
+    or reordered, only late, and in bursts. On top of that, the page
+    sends a camera frame's fragments 16 ms apart (its loop runs once per
+    animation frame).
+  - The viewer's `Video_Window` was tuned for UDP. It took a gap of
+    10 ms (or 20 ms at a frame's end) for loss and asked again (Nack),
+    and gave up on a frame about 170 ms after.
+  - So on such a path, viewers kept asking for fragments that were on
+    their way. Their reports counted that as loss, and the sender cut
+    its bitrate to the floor. Where a stall outlasted the 170 ms, the
+    window gave up on a frame that was still coming. Decoding then
+    stopped until the next keyframe: the low frame rate.
+- **Fix**: `Video_Window.reliable`, set for every window in the browser
+  build (`MEDIA_RELIABLE`). Such a window asks for nothing again. It
+  gives up on a frame only once a later frame is complete (what is
+  missing then was lost before the server, or the server dropped it),
+  or after `RELIABLE_WAIT` (1 s) with nothing newer.
+  - The page's reports then have no false loss, so the sender adapts to
+    real queueing delay only.
+  - The desktop (UDP) is unchanged.
+- **Measured** (two headless Chromiums, one camera at the fake device's
+  20 fps; a proxy in front of the relay that delays each chunk, in
+  order, losing nothing):
+
+  | Path (each way) | Before: bitrate, Nacks | After: bitrate, Nacks |
+  | --- | --- | --- |
+  | Direct | 1500 kbit/s, none | 1500, none |
+  | 40 ms | cut to 500 in 4 s; 118/1000 "lost" | 1500, none |
+  | 40 ms + up to 80 ms jitter | 500; 202/1000 | 1500, none |
+  | 100 ms + up to 60 ms jitter | 500; 206/1000 | 1500, none |
+
+  - All frames reached the viewer in all of these, before and after:
+    the proxy's stalls stay under the old 170 ms. A real tunnel's can be
+    longer, which is where the old window lost frames.
+  - In one earlier run before the fix (40 ms) the viewer decoded 11 of 20
+    a second.
+- **Tests**: `test_window_reliable` (proto): a fragment 300 ms late is
+  waited for and asked for by nobody; a frame is given up on once a
+  later one is complete; with nothing newer, after `RELIABLE_WAIT`.
+  proto (91), conn (40) and server (139) pass.
+- **Not changed**: the page's 16 ms send bursts (harmless now). Also
+  the headless fake camera's 20 fps; a real camera runs at its own rate.
 
 ## Risks
 

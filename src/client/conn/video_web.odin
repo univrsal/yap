@@ -16,6 +16,11 @@ import "common:proto"
 // for the screen and one for the camera, and a decoder for each stream
 // watched.
 
+// A page's media link is a WebSocket through the server's relay: nothing on it
+// is lost or reordered, only late, so what is watched is never asked for again
+// (proto.Video_Window.reliable).
+MEDIA_RELIABLE :: true
+
 @(private = "file", default_calling_convention = "c")
 foreign _ {
 	// 1 while a stream's capture is running.
