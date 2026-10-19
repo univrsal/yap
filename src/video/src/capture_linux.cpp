@@ -121,25 +121,7 @@ AVBufferRef *Memory_Pipeline::hw_device() {
 }
 
 AVBufferRef *Memory_Pipeline::hw_frames(int w, int h) {
-	if (!device_) {
-		return nullptr;
-	}
-	AVBufferRef *ref = av_hwframe_ctx_alloc(device_);
-	if (!ref) {
-		return nullptr;
-	}
-	auto *fc = reinterpret_cast<AVHWFramesContext *>(ref->data);
-	fc->format = AV_PIX_FMT_VAAPI;
-	fc->sw_format = AV_PIX_FMT_NV12;
-	fc->width = w;
-	fc->height = h;
-	fc->initial_pool_size = 0; // grows as the encoder holds on to them
-	if (av_hwframe_ctx_init(ref) < 0) {
-		log(YV_LOG_WARN, "share: no VA-API surfaces of %dx%d", w, h);
-		av_buffer_unref(&ref);
-		return nullptr;
-	}
-	return ref;
+	return device_ ? vaapi_frames(device_, w, h) : nullptr;
 }
 
 bool Memory_Pipeline::convert(AVFrame *out, AVBufferRef *frames, int w, int h) {

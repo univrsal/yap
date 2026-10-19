@@ -64,6 +64,12 @@ public:
 	*/
 	virtual bool convert(AVFrame *out, AVBufferRef *frames, int w, int h) = 0;
 
+	// The NV12 in memory that the last convert uploaded into a frame from
+	// `frames`, or nullptr: what a camera's preview shows then.
+	virtual const AVFrame *uploaded() {
+		return nullptr;
+	}
+
 	// What to say when wait found the source gone.
 	virtual std::string gone() {
 		return "what was shared went away";
@@ -162,6 +168,10 @@ std::unique_ptr<Pipeline> make_camera_pipeline(const std::string &id);
 
 // Whether `codec` takes `fmt` as input (encoders.cpp).
 bool takes_pix_fmt(const AVCodec *codec, int fmt);
+
+// A pool of w x h NV12 surfaces on the VA-API `device`, for frames in
+// memory to be uploaded into (a new reference), or nullptr.
+AVBufferRef *vaapi_frames(AVBufferRef *device, int w, int h);
 
 // nv12_to_i420 makes `dst` a YUV420P copy of the NV12 frame `src` in
 // memory, for encoders that take nothing else (OpenH264).

@@ -18,8 +18,9 @@ paces what goes out, and changes the bitrate as its viewers' reports
 say (yv_share_set_bitrate).
 
 A camera is a share like any other, with camera.cpp's pipeline: its
-frames are in memory, so it only takes encoders that take those, and
-what it encodes can be shown as it is (yv_share_preview).
+frames are in memory, so it only takes encoders that take those, or
+VA-API's, for which it uploads them; what it encodes can be shown as it
+is (yv_share_preview).
 */
 #include "output.h"
 #include "pipeline.h"
@@ -506,8 +507,12 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 	}
 	s->frame->color_range = AVCOL_RANGE_MPEG;
 	s->frame->colorspace = AVCOL_SPC_BT709;
-	if (Output *preview = s->preview.load(); preview && !s->frame->hw_frames_ctx) {
-		preview->submit(s->frame);
+	if (Output *preview = s->preview.load()) {
+		// A camera's frame on the GPU is shown from what was uploaded.
+		const AVFrame *shown = s->frame->hw_frames_ctx ? pipe.uploaded() : s->frame;
+		if (shown) {
+			preview->submit(shown);
+		}
 	}
 	AVFrame *in = s->frame;
 	if (s->enc->pix_fmt == AV_PIX_FMT_YUV420P) {
@@ -586,7 +591,8 @@ works of those the viewers can decode (`codecs`; 0 for any), or the best
 that works at all if none of those does. With `current` (sharing
 already), it keeps to that one's GPU, which the pipeline was made for,
 or to software; "" if neither has anything they can decode. A camera
-only takes encoders that take frames from memory.
+only takes encoders that take frames from memory, or VA-API surfaces,
+which camera.cpp uploads to.
 */
 std::string pick_encoder(yv_share *s, uint32_t codecs, const std::string &current) {
 	if (s->config.encoder[0]) {
@@ -606,7 +612,8 @@ std::string pick_encoder(yv_share *s, uint32_t codecs, const std::string &curren
 			return true;
 		}
 		const AVCodec *c = avcodec_find_encoder_by_name(e.name);
-		return c && (takes_pix_fmt(c, AV_PIX_FMT_NV12) || takes_pix_fmt(c, AV_PIX_FMT_YUV420P));
+		return c && (takes_pix_fmt(c, AV_PIX_FMT_NV12) || takes_pix_fmt(c, AV_PIX_FMT_YUV420P) ||
+		             takes_pix_fmt(c, AV_PIX_FMT_VAAPI));
 	};
 	if (!current.empty()) {
 		std::string vendor = vendor_of(current);

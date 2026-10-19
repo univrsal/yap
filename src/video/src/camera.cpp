@@ -6,9 +6,11 @@ NV12 frames share.cpp encodes.
 The camera's frames come in on the platform's thread and wait, newest
 only, for the share's thread. That decodes MJPEG (which most USB
 cameras send at 720p and above) as each one comes, and scales and
-converts to NV12 with swscale when one is encoded. Everything stays on
-the CPU: at a camera's sizes that's a few percent of a core, and every
-encoder takes frames from memory.
+converts to NV12 with swscale when one is encoded. That's on the CPU: at
+a camera's sizes it's a few percent of a core. Most encoders take the
+NV12 from memory; for VA-API's, which only take frames on the GPU, it's
+uploaded to a surface (which is cheap), so a camera is encoded in
+hardware on AMD and Intel GPUs too, rather than with OpenH264.
 
 Cameras are BT.601 (JPEG's full range, raw YUV's limited), unless the
 platform says BT.709 (macOS); what's encoded is BT.709 limited, like a
@@ -230,10 +232,18 @@ public:
 		avcodec_free_context(&mjpeg_);
 		av_frame_free(&decoded_);
 		av_packet_free(&pkt_);
+		av_frame_free(&nv12_);
+		av_buffer_unref(&device_);
 	}
 
-	bool open(const yv_share_config &config, const char *, const std::atomic<bool> &stop,
+	bool open(const yv_share_config &config, const char *encoder, const std::atomic<bool> &stop,
 	          std::string &error) override {
+		// VA-API's encoders only take surfaces, which convert uploads to.
+		if (strstr(encoder, "_vaapi") && vaapi_installed() &&
+		    av_hwdevice_ctx_create(&device_, AV_HWDEVICE_TYPE_VAAPI, nullptr, nullptr, 0) < 0) {
+			log(YV_LOG_WARN, "camera: can't open VA-API");
+			device_ = nullptr;
+		}
 		std::vector<Camera_Info> cameras = list_cameras();
 		const Camera_Info *cam = nullptr;
 		for (const Camera_Info &c : cameras) {
@@ -348,21 +358,33 @@ public:
 	}
 
 	AVBufferRef *hw_device() override {
-		return nullptr;
+		return device_ ? av_buffer_ref(device_) : nullptr;
 	}
 
-	AVBufferRef *hw_frames(int, int) override {
-		return nullptr;
+	AVBufferRef *hw_frames(int w, int h) override {
+		return device_ ? vaapi_frames(device_, w, h) : nullptr;
 	}
 
-	bool convert(AVFrame *out, AVBufferRef *, int w, int h) override {
+	bool convert(AVFrame *out, AVBufferRef *frames, int w, int h) override {
+		uploaded_ = false;
 		if (src_w_ == 0) {
 			return false;
 		}
-		out->format = AV_PIX_FMT_NV12;
-		out->width = w;
-		out->height = h;
-		if (av_frame_get_buffer(out, 0) < 0) {
+		// With `frames`, the NV12 is made in memory and then uploaded.
+		AVFrame *sw = out;
+		if (frames) {
+			if (!nv12_ && !(nv12_ = av_frame_alloc())) {
+				return false;
+			}
+			av_frame_unref(nv12_);
+			sw = nv12_;
+		}
+		sw->format = AV_PIX_FMT_NV12;
+		sw->width = w;
+		sw->height = h;
+		sw->color_range = AVCOL_RANGE_MPEG;
+		sw->colorspace = AVCOL_SPC_BT709;
+		if (av_frame_get_buffer(sw, 0) < 0) {
 			return false;
 		}
 		SwsContext *sws = sws_getCachedContext(sws_, src_w_, src_h_, src_format_, w, h,
@@ -383,8 +405,20 @@ public:
 			sws_full_ = src_full_;
 			sws_709_ = src_709_;
 		}
-		sws_scale(sws_, src_data_, src_linesize_, 0, src_h_, out->data, out->linesize);
+		sws_scale(sws_, src_data_, src_linesize_, 0, src_h_, sw->data, sw->linesize);
+		if (!frames) {
+			return true;
+		}
+		if (av_hwframe_get_buffer(frames, out, 0) < 0 || av_hwframe_transfer_data(out, sw, 0) < 0) {
+			av_frame_unref(out);
+			return false;
+		}
+		uploaded_ = true;
 		return true;
+	}
+
+	const AVFrame *uploaded() override {
+		return uploaded_ ? nv12_ : nullptr;
 	}
 
 	std::string gone() override {
@@ -422,6 +456,12 @@ private:
 
 	SwsContext *sws_ = nullptr;
 	bool sws_full_ = false, sws_709_ = false;
+
+	// VA-API's device, when the encoder is one of its, and the NV12 that
+	// convert last uploaded to it (uploaded_), which the preview shows.
+	AVBufferRef *device_ = nullptr;
+	AVFrame *nv12_ = nullptr;
+	bool uploaded_ = false;
 
 	bool take(Raw &r) {
 		if (r.format == Camera_Format::MJPEG) {

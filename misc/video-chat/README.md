@@ -740,7 +740,8 @@ What the owner saw led to this; it isn't one of the plan's phases.
   - `yv_share_preview`.
   - A camera is a `yv_share` like a screen: `share.cpp` takes
     `camera.cpp`'s pipeline. Only encoders that take frames from memory
-    are picked for a camera (no VA-API).
+    are picked for a camera (no VA-API; later VA-API too, phase 7's
+    notes).
 - **camera.cpp** (every platform, for phases 7 and 8 too):
   - It picks the mode: the fastest that reaches the frame rate, then the
     smallest at least 1280x720 (so the tier can go up again without
@@ -866,6 +867,16 @@ What the owner saw led to this; it isn't one of the plan's phases.
   memory. On AMD and Intel that's OpenH264 on the CPU (VA-API's need
   GPU frames), about 7 ms a frame at 720p here. Uploading to VA-API
   surfaces would cut that; for later if it matters.
+  - Later, with FFmpeg opened at run time (the system's 8 or 9 when
+    there's none next to yap), it mattered: the system's FFmpeg often
+    has no OpenH264 (Arch's hasn't), so a camera there had no encoder at
+    all. Now `camera.cpp` opens VA-API when the encoder is one of its,
+    and `convert` uploads its NV12 to a surface (`vaapi_frames`, shared
+    with X11 capture); the preview shows the NV12 that was uploaded
+    (`Pipeline::uploaded`). `pick_encoder` lets a camera take VA-API's
+    encoders, which come before OpenH264, so AMD and Intel encode
+    cameras in hardware. OpenH264 is left for a machine without
+    VA-API, with the FFmpeg we ship.
 - **Tested here**:
   - OBS's virtual camera (v4l2loopback, YUYV 1280x720 at 30 fps) with
     `yv-loopback --camera`: 30 fps, and `--then-max` gives a 640x360

@@ -298,6 +298,25 @@ bool takes_pix_fmt(const AVCodec *codec, int fmt) {
 	return false;
 }
 
+AVBufferRef *vaapi_frames(AVBufferRef *device, int w, int h) {
+	AVBufferRef *ref = av_hwframe_ctx_alloc(device);
+	if (!ref) {
+		return nullptr;
+	}
+	auto *fc = reinterpret_cast<AVHWFramesContext *>(ref->data);
+	fc->format = AV_PIX_FMT_VAAPI;
+	fc->sw_format = AV_PIX_FMT_NV12;
+	fc->width = w;
+	fc->height = h;
+	fc->initial_pool_size = 0; // grows as the encoder holds on to them
+	if (av_hwframe_ctx_init(ref) < 0) {
+		log(YV_LOG_WARN, "share: no VA-API surfaces of %dx%d", w, h);
+		av_buffer_unref(&ref);
+		return nullptr;
+	}
+	return ref;
+}
+
 bool nv12_to_i420(const AVFrame *src, AVFrame *dst) {
 	av_frame_unref(dst);
 	dst->format = AV_PIX_FMT_YUV420P;
