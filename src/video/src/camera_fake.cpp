@@ -4,8 +4,9 @@ A made-up camera, on Linux and macOS.
 For trying everything after the camera without one, as Chromium's
 --use-fake-device-for-media-stream does, YAP_VIDEO_FAKE_CAMERA=1 in the
 environment makes one up: 1280x720 at 30 fps of colour bars with a box
-going round, sent as YUY2, or as YAP_VIDEO_FAKE_CAMERA says: nv12, bgrx
-(bottom up, as Windows' RGB is) or mjpeg.
+going round, sent as YUY2, or as YAP_VIDEO_FAKE_CAMERA says: nv12 (with
+padded rows, as many drivers give it), bgrx (bottom up, as Windows' RGB
+is) or mjpeg. It's listed first, with the id "fake".
 */
 #include "pipeline.h"
 
@@ -25,6 +26,7 @@ namespace yv {
 namespace {
 
 constexpr int FAKE_WIDTH = 1280, FAKE_HEIGHT = 720, FAKE_FPS = 30;
+constexpr int NV12_STRIDE = FAKE_WIDTH + 64;
 
 Camera_Format fake_format() {
 	const char *v = getenv("YAP_VIDEO_FAKE_CAMERA");
@@ -121,14 +123,16 @@ private:
 		const int w = FAKE_WIDTH, h = FAKE_HEIGHT;
 		switch (format_) {
 		case Camera_Format::NV12:
-			buf_.resize(static_cast<size_t>(w) * h * 3 / 2);
+			// With padded rows, as many V4L2 drivers give it.
+			buf_.assign(static_cast<size_t>(NV12_STRIDE) * h * 3 / 2, 0);
 			for (int y = 0; y < h; y++) {
 				for (int x = 0; x < w; x++) {
 					uint8_t yy, u, v;
 					yuv_of(colour_at(x, y, frame), yy, u, v);
-					buf_[static_cast<size_t>(y) * w + x] = yy;
+					buf_[static_cast<size_t>(y) * NV12_STRIDE + x] = yy;
 					if (y % 2 == 0 && x % 2 == 0) {
-						size_t at = static_cast<size_t>(w) * h + static_cast<size_t>(y / 2) * w + x;
+						size_t at = static_cast<size_t>(NV12_STRIDE) * h +
+						            static_cast<size_t>(y / 2) * NV12_STRIDE + x;
 						buf_[at] = u;
 						buf_[at + 1] = v;
 					}
@@ -198,7 +202,8 @@ private:
 			draw(frame);
 			if (!buf_.empty()) {
 				Camera_Frame f{format_, FAKE_WIDTH, FAKE_HEIGHT, buf_.data(), buf_.size(),
-				               format_ == Camera_Format::BGRX};
+				               format_ == Camera_Format::BGRX,
+				               format_ == Camera_Format::NV12 ? NV12_STRIDE : 0};
 				sink.frame(f);
 			}
 			next += std::chrono::microseconds(1'000'000 / FAKE_FPS);

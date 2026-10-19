@@ -295,8 +295,8 @@ layer.
 | 3 | Cameras in the browser: getUserMedia, a second encoder, several decoders | M | web | 2 | done (2026-10-19): headless Chromium's fake camera to a headless client |
 | 4 | Calls: camera button, Video tab with self view, video call / answer with video | M | client (UI) | 2, 3 | done (2026-10-19): browser to browser and browser to desktop, headless |
 | 5 | Channels: the grid, tiers, focus, the full-room message, pop-out | M | client (UI) | 4 | done (2026-10-19): three headless browsers in a channel |
-| 6 | `yap_video` cameras on Windows: DirectShow (libdshowcapture), `yv_share_preview`, `yv_share_configure` | L | library, client | 2 | built (2026-10-19): under wine with OBS's virtual camera; client on Linux with a fake camera; needs a test on Windows |
-| 7 | Linux: V4L2, MJPEG | M | library | 6 | - |
+| 6 | `yap_video` cameras on Windows: DirectShow (libdshowcapture), `yv_share_preview`, `yv_share_configure` | L | library, client | 2 | done (2026-10-19): under wine, then by the owner on Windows (OBS's virtual camera to a Linux client) |
+| 7 | Linux: V4L2, MJPEG | M | library | 6 | built (2026-10-19): OBS's v4l2loopback camera, in yv-loopback and the client |
 | 8 | macOS: AVFoundation, `Info.plist` | M | library, scripts | 6 | - |
 | 9 | Settings: camera, quality, mirror, preview | S | client | 4, 6 | - |
 | 10 | Demand: viewers' tile sizes, pausing unwatched cameras | M | protocol, server, client | 5 | - |
@@ -812,12 +812,76 @@ What the owner saw led to this; it isn't one of the plan's phases.
     - With two browser cameras on, it started at 960x540/800 kbit/s.
       When one went off, it went up to 1280x720/1500 after 5 s.
     - The browsers' cameras show in its grid.
-- **Not tested**: a real Windows build (MSVC) and real cameras. That
-  includes MJPEG from a real camera, a camera that another program
-  holds, and unplugging one. Media Foundation-only cameras (if any
-  exist without DirectShow) are not tested either.
+- **On Windows** (the owner, after CI built it for every platform): the
+  OBS virtual camera, shared from the Windows client, watched from a
+  Linux one.
+- **Not tested**: MJPEG from a real camera, a camera that another
+  program holds, and unplugging one. Media Foundation-only cameras (if
+  any exist without DirectShow) are not tested either.
 - **Left for later**: picking the camera (phase 9; "" is the first one
   listed), and `front`, which stays false on Windows.
+
+### 7. Cameras on Linux
+
+*As built:*
+
+- **`camera_v4l2.cpp`**, a `Camera_Source` for camera.cpp, talking to
+  V4L2 directly (only the kernel's headers; no libv4l, nothing loaded
+  at run time).
+- **Listing**:
+  - It goes through every `/dev/videoN`, in order, and takes those that
+    capture video and stream. That skips the metadata nodes UVC cameras
+    have next to their video ones.
+  - It reads each format (`VIDIOC_ENUM_FMT`, leaving out ones libv4l
+    makes up), its sizes and its frame rates. Discrete sizes become one
+    mode each; a stepwise or continuous range becomes one mode with
+    steps.
+  - Cameras that only send grey (laptops' infrared ones, for face
+    login) aren't listed.
+  - The id is the camera's `/dev/v4l/by-id` name where it has one, which
+    stays the same when it's plugged in elsewhere, and `/dev/videoN`
+    otherwise (v4l2loopback has none).
+  - Formats: YUYV, UYVY, YVYU, NV12, YUV420, YVU420, MJPEG and JPEG,
+    BGR24, XBGR32 and BGR32, ABGR32, GREY. `Camera_Mode.native` keeps
+    V4L2's own code, which opening needs (MJPEG has two).
+- **Capturing**:
+  - `VIDIOC_S_FMT` at the mode camera.cpp picked, keeping what the
+    driver took. Then the frame rate where it can be set, and four
+    memory-mapped buffers.
+  - A thread polls, dequeues, hands each frame on and queues the buffer
+    again. A frame flagged as broken is dropped. `ENODEV` (unplugged)
+    ends the thread, and camera.cpp then finds the camera stalled.
+  - `EBUSY` from setting the format, the buffers or starting says
+    "another program is using the camera". `EACCES` on opening says yap
+    may not open it.
+- **Padded rows**: `Camera_Frame.stride` (V4L2's `bytesperline`).
+  camera.cpp now takes NV12, I420 and YV12 with rows longer than the
+  picture. The fake camera's NV12 pads its rows, to try that.
+- **The fake camera** moved to `camera_fake.cpp`. On Linux it's listed
+  before the real ones, with the id `fake`. `make_camera_source` now
+  takes the camera, so a platform can give either.
+- **The client** needed nothing: Linux now counts cameras like Windows,
+  and the camera button comes with them.
+- **Encoders**: a camera still takes encoders that take frames from
+  memory. On AMD and Intel that's OpenH264 on the CPU (VA-API's need
+  GPU frames), about 7 ms a frame at 720p here. Uploading to VA-API
+  surfaces would cut that; for later if it matters.
+- **Tested here**:
+  - OBS's virtual camera (v4l2loopback, YUYV 1280x720 at 30 fps) with
+    `yv-loopback --camera`: 30 fps, and `--then-max` gives a 640x360
+    keyframe. The picture is right.
+  - Every fake format again, picked by id: colours right, padded NV12
+    included.
+  - The client on weston with the OBS camera:
+    - The self view shows the OBS scene mirrored, and a browser in the
+      channel shows it unmirrored.
+    - Off and on again works, and the server's `Camera` flag follows.
+- **Not tested**: a real USB camera (MJPEG at 720p and up, the by-id
+  name, unplugging) and `EBUSY`; v4l2loopback lets every reader in.
+- **For phase 8**: the macOS FFmpeg (`scripts/build-ffmpeg-macos.sh`)
+  has no MJPEG decoder (or encoder, for the fake camera's `mjpeg`). It
+  needs `--enable-decoder=mjpeg` if AVFoundation ever gives MJPEG; it
+  normally gives NV12.
 
 ## Risks
 

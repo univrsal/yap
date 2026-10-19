@@ -219,6 +219,7 @@ struct Raw {
 	Camera_Format format = Camera_Format::OTHER;
 	int width = 0, height = 0;
 	bool flip = false;
+	int stride = 0; // Camera_Frame's
 };
 
 class Camera_Pipeline final : public Pipeline, public Camera_Sink {
@@ -303,6 +304,7 @@ public:
 		spare_.width = f.width;
 		spare_.height = f.height;
 		spare_.flip = f.flip;
+		spare_.stride = f.stride;
 		{
 			std::lock_guard<std::mutex> lock(mutex_);
 			std::swap(spare_, incoming_);
@@ -437,8 +439,10 @@ private:
 		if (av_pix_fmt_count_planes(fmt) == 1) {
 			// Rows may be padded (RGB rows to four bytes): the size says how.
 			int min = av_image_get_linesize(fmt, r.width, 0);
-			int stride = static_cast<int>(r.size / static_cast<size_t>(r.height));
-			if (min <= 0 || stride < min) {
+			int stride = r.stride > 0 ? r.stride
+			                          : static_cast<int>(r.size / static_cast<size_t>(r.height));
+			if (min <= 0 || stride < min ||
+			    r.size < static_cast<size_t>(stride) * static_cast<size_t>(r.height)) {
 				return false;
 			}
 			data[0] = r.data.data();
@@ -446,6 +450,30 @@ private:
 			if (r.flip) {
 				data[0] += static_cast<ptrdiff_t>(stride) * (r.height - 1);
 				linesize[0] = -stride;
+			}
+		} else if (r.stride > 0) {
+			// NV12, I420 and YV12 with padded rows: the chroma follows the luma
+			// at the same stride (NV12) or half of it (the others).
+			if (r.stride < r.width || r.height % 2 != 0) {
+				return false;
+			}
+			size_t luma = static_cast<size_t>(r.stride) * static_cast<size_t>(r.height);
+			bool nv12 = r.format == Camera_Format::NV12;
+			int chroma_stride = nv12 ? r.stride : r.stride / 2;
+			size_t chroma = static_cast<size_t>(chroma_stride) * static_cast<size_t>(r.height / 2);
+			if (r.size < luma + chroma * (nv12 ? 1 : 2)) {
+				return false;
+			}
+			data[0] = r.data.data();
+			linesize[0] = r.stride;
+			data[1] = data[0] + luma;
+			linesize[1] = chroma_stride;
+			if (!nv12) {
+				data[2] = data[1] + chroma;
+				linesize[2] = chroma_stride;
+			}
+			if (r.format == Camera_Format::YV12) {
+				std::swap(data[1], data[2]);
 			}
 		} else {
 			int need = av_image_fill_arrays(data, linesize, r.data.data(), fmt, r.width, r.height, 1);

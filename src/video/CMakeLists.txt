@@ -59,7 +59,7 @@ else()
 	# are needed to build: the libraries are loaded at run time
 	# (src/dl_linux.h), so the library loads without them. A way of
 	# capturing whose headers are missing is left out.
-	list(APPEND SOURCES src/output_gl.cpp src/gl_interop_linux.cpp src/capture_linux.cpp src/camera_none.cpp src/camera_fake.cpp)
+	list(APPEND SOURCES src/output_gl.cpp src/gl_interop_linux.cpp src/capture_linux.cpp src/camera_v4l2.cpp src/camera_fake.cpp)
 	find_package(PkgConfig REQUIRED)
 	pkg_check_modules(XCB IMPORTED_TARGET xcb xcb-shm xcb-randr xcb-composite xcb-xfixes)
 	pkg_check_modules(PORTAL IMPORTED_TARGET gio-unix-2.0 libpipewire-0.3)

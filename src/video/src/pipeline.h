@@ -103,6 +103,7 @@ struct Camera_Mode {
 	int step_width = 1, step_height = 1;
 	double min_fps = 0, max_fps = 0;
 	Camera_Format format = Camera_Format::OTHER;
+	uint32_t native = 0; // what the platform calls the format, where it needs it (V4L2)
 };
 
 struct Camera_Info {
@@ -118,6 +119,10 @@ struct Camera_Frame {
 	const uint8_t *data; // valid during Camera_Sink::frame only
 	size_t size;
 	bool flip; // the rows are bottom-up
+	// Bytes from one row of the first plane to the next; 0 where the rows
+	// are as long as the picture is wide (or the size says, for one plane).
+	// Planar formats' chroma rows are half as long.
+	int stride = 0;
 };
 
 class Camera_Sink {
