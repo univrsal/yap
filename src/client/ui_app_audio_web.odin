@@ -37,3 +37,6 @@ app_audio_stop :: proc(ui: ^UI) {}
 app_audio_session_gone :: proc(ui: ^UI, ns: ^Net_Session) {}
 app_audio_button :: proc(ui: ^UI) {}
 app_audio_menu :: proc(ui: ^UI) {}
+share_audio_refresh :: proc(ui: ^UI) {}
+share_audio_choice :: proc(ui: ^UI, width: i32) {}
+share_audio_start :: proc(ui: ^UI) {}

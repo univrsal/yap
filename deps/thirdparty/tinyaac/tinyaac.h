@@ -67,6 +67,9 @@ typedef struct tinyaac_app_info {
 	 * backend says (PipeWire's media.name, e.g. mpv's title); otherwise
 	 * NULL. Owned by the app-list, like the strings above. */
 	const char *media_name;
+	/* yap fork: in a device list (tinyaac_device_list_create), whether
+	 * this is the system's default playback device; 0 for applications. */
+	int is_default;
 } tinyaac_app_info;
 
 typedef struct tinyaac_audio_frame {
@@ -109,6 +112,21 @@ TINYAAC_API tinyaac_status tinyaac_capture_start(tinyaac_capture *capture);
 /* Blocks until all in-flight callbacks have returned. */
 TINYAAC_API tinyaac_status tinyaac_capture_stop(tinyaac_capture *capture);
 TINYAAC_API void tinyaac_capture_destroy(tinyaac_capture *capture);
+
+/* yap fork: playback devices. A device list is an app-list whose entries
+ * are the system's playback devices: display_name is what the device is
+ * called, identifier its id, and is_default marks the default device. */
+TINYAAC_API tinyaac_status tinyaac_device_list_create(tinyaac_app_list **out_list);
+/* yap fork: captures what a playback device plays, leaving out the audio
+ * of process exclude_pid (0 to leave nothing out), such as the caller's
+ * own. On Linux and macOS that is exactly the device without the
+ * process. Windows can't leave a process out of one device: with
+ * exclude_pid set it captures every device except the process (and its
+ * children), and with 0 the device alone. The rest of the capture API is
+ * the same as for applications; TINYAAC_EVENT_TARGET_ENDED says the
+ * device went away. */
+TINYAAC_API tinyaac_status tinyaac_capture_create_device(const tinyaac_app_list *list,
+	size_t index, uint32_t exclude_pid, tinyaac_capture **out_capture);
 
 #ifdef __cplusplus
 }
@@ -153,6 +171,7 @@ static void tinyaac_internal_set_error(const char *message);
 static tinyaac_status tinyaac_platform_init(void);
 static void tinyaac_platform_shutdown(void);
 static tinyaac_status tinyaac_platform_enumerate(tinyaac_app_list *list);
+static tinyaac_status tinyaac_platform_enumerate_devices(tinyaac_app_list *list); /* yap fork */
 static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture);
 static tinyaac_status tinyaac_platform_capture_stop(tinyaac_capture *capture);
 static void tinyaac_platform_capture_destroy(tinyaac_capture *capture);
@@ -199,6 +218,7 @@ static TINYAAC_INTERNAL_UNUSED tinyaac_status tinyaac_internal_append_app(tinyaa
 	list->apps[list->count].identifier = identifier_copy;
 	list->apps[list->count].process_id = process_id;
 	list->apps[list->count].media_name = NULL;
+	list->apps[list->count].is_default = 0; /* yap fork */
 	list->count++;
 	return TINYAAC_OK;
 }
@@ -215,6 +235,17 @@ static TINYAAC_INTERNAL_UNUSED tinyaac_status tinyaac_internal_set_media_name(
 		return TINYAAC_ERR_OUT_OF_MEMORY;
 	list->apps[list->count - 1].media_name = copy;
 	return TINYAAC_OK;
+}
+
+/* yap fork: appends a playback device to a device list. */
+static TINYAAC_INTERNAL_UNUSED tinyaac_status tinyaac_internal_append_device(
+	tinyaac_app_list *list, const char *display_name, const char *identifier,
+	int is_default)
+{
+	tinyaac_status status = tinyaac_internal_append_app(list, display_name, identifier, 0);
+	if (status == TINYAAC_OK)
+		list->apps[list->count - 1].is_default = is_default;
+	return status;
 }
 
 #endif /* TINYAAC_INTERNAL_H_INCLUDED */
@@ -258,6 +289,10 @@ struct tinyaac_win_work {
 
 struct tinyaac_win_capture {
 	DWORD process_id;
+	/* yap fork: a playback device's id instead of an application. With
+	 * process_id, everything but that process (exclude mode); without,
+	 * plain loopback of the device. */
+	wchar_t *device_id;
 	HANDLE capture_thread;
 	HANDLE callback_thread;
 	HANDLE stop_event;
@@ -272,6 +307,15 @@ struct tinyaac_win_capture {
 	LONG callback_worker_started;
 	HRESULT start_result;
 };
+
+/* yap fork: for listing the playback devices and opening one. Defined
+ * here, like IAgileObject below, rather than taken from a library. */
+static const CLSID tinyaac_win_clsid_device_enumerator = {
+	0xBCDE0395, 0xE52F, 0x467C, {0x8E, 0x3D, 0xC4, 0x57, 0x92, 0x91, 0x69, 0x2E}};
+static const IID tinyaac_win_iid_device_enumerator = {
+	0xA95664D2, 0x9614, 0x4F35, {0xA7, 0x46, 0xDE, 0x8D, 0xB6, 0x36, 0x17, 0xE6}};
+static const PROPERTYKEY tinyaac_win_pkey_friendly_name = {
+	{0xA45C254E, 0xDF1C, 0x4EFD, {0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0}}, 14};
 
 /* IAgileObject. ActivateAudioInterfaceAsync rejects completion handlers that are not
  * agile with E_ILLEGAL_METHOD_CALL; defined locally to avoid depending on uuid.lib. */
@@ -488,7 +532,9 @@ static void tinyaac_win_copy_samples(float *output, const BYTE *input, UINT32 fr
 	}
 }
 
-static void tinyaac_win_drain_capture(struct tinyaac_win_capture *backend,
+/* yap fork: returns the last result, which says whether the device is
+ * gone (AUDCLNT_E_DEVICE_INVALIDATED). */
+static HRESULT tinyaac_win_drain_capture(struct tinyaac_win_capture *backend,
 	IAudioCaptureClient *capture_client, const WAVEFORMATEX *format)
 {
 	UINT32 frames;
@@ -517,6 +563,7 @@ static void tinyaac_win_drain_capture(struct tinyaac_win_capture *backend,
 		}
 		IAudioCaptureClient_ReleaseBuffer(capture_client, frames);
 	}
+	return result;
 }
 
 static DWORD WINAPI tinyaac_win_capture_thread(void *data)
@@ -537,12 +584,34 @@ static DWORD WINAPI tinyaac_win_capture_thread(void *data)
 	int com_initialized = 0;
 	DWORD handles_count;
 	HANDLE handles[3];
+	/* yap fork: plain loopback of a device, in its own format. */
+	IMMDeviceEnumerator *enumerator = NULL;
+	IMMDevice *device = NULL;
+	WAVEFORMATEX *mix_format = NULL;
 
 	result = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 	if (FAILED(result))
 		goto done;
 	com_initialized = 1;
 	result = E_FAIL;
+	if (backend->device_id && !backend->process_id) {
+		result = CoCreateInstance(TINYAAC_WIN_REFIID(tinyaac_win_clsid_device_enumerator), NULL,
+			CLSCTX_ALL, TINYAAC_WIN_REFIID(tinyaac_win_iid_device_enumerator), (void **)&enumerator);
+		if (FAILED(result))
+			goto done;
+		result = IMMDeviceEnumerator_GetDevice(enumerator, backend->device_id, &device);
+		if (FAILED(result))
+			goto done;
+		result = IMMDevice_Activate(device, TINYAAC_WIN_REFIID(IID_IAudioClient), CLSCTX_ALL,
+			NULL, (void **)&audio_client);
+		if (FAILED(result))
+			goto done;
+		result = IAudioClient_GetMixFormat(audio_client, &mix_format);
+		if (FAILED(result))
+			goto done;
+		format = mix_format;
+		goto activated;
+	}
 	module = LoadLibraryW(L"Mmdevapi.dll");
 	if (!module)
 		goto done;
@@ -556,7 +625,9 @@ static DWORD WINAPI tinyaac_win_capture_thread(void *data)
 	memset(&parameters, 0, sizeof(parameters));
 	parameters.ActivationType = AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK;
 	parameters.ProcessLoopbackParams.TargetProcessId = backend->process_id;
-	parameters.ProcessLoopbackParams.ProcessLoopbackMode = PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
+	parameters.ProcessLoopbackParams.ProcessLoopbackMode = backend->device_id ?
+		PROCESS_LOOPBACK_MODE_EXCLUDE_TARGET_PROCESS_TREE : /* yap fork */
+		PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE;
 	PropVariantInit(&activation_parameters);
 	activation_parameters.vt = VT_BLOB;
 	activation_parameters.blob.cbSize = sizeof(parameters);
@@ -589,6 +660,7 @@ static DWORD WINAPI tinyaac_win_capture_thread(void *data)
 	capture_format.Samples.wValidBitsPerSample = 32;
 	capture_format.dwChannelMask = SPEAKER_FRONT_LEFT | SPEAKER_FRONT_RIGHT;
 	capture_format.SubFormat = KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+activated:
 	backend->audio_event = CreateEventW(NULL, FALSE, FALSE, NULL);
 	if (!backend->audio_event) {
 		result = HRESULT_FROM_WIN32(GetLastError());
@@ -622,9 +694,14 @@ static DWORD WINAPI tinyaac_win_capture_thread(void *data)
 		DWORD wait = WaitForMultipleObjects(handles_count, handles, FALSE, 10);
 		if (wait == WAIT_OBJECT_0)
 			break;
-		if (wait == WAIT_OBJECT_0 + 1 || wait == WAIT_TIMEOUT)
-			tinyaac_win_drain_capture(backend, capture_client, format);
-		else if (handles_count == 3 && wait == WAIT_OBJECT_0 + 2) {
+		if (wait == WAIT_OBJECT_0 + 1 || wait == WAIT_TIMEOUT) {
+			if (tinyaac_win_drain_capture(backend, capture_client, format) ==
+				AUDCLNT_E_DEVICE_INVALIDATED) {
+				tinyaac_win_enqueue_event(backend, TINYAAC_EVENT_TARGET_ENDED,
+					TINYAAC_ERR_NOT_FOUND, "The playback device was removed");
+				break;
+			}
+		} else if (handles_count == 3 && wait == WAIT_OBJECT_0 + 2) {
 			tinyaac_win_enqueue_event(backend, TINYAAC_EVENT_TARGET_ENDED,
 				TINYAAC_ERR_NOT_FOUND, "Selected process ended");
 			break;
@@ -641,6 +718,12 @@ done:
 		IAudioCaptureClient_Release(capture_client);
 	if (audio_client)
 		IAudioClient_Release(audio_client);
+	if (mix_format) /* yap fork */
+		CoTaskMemFree(mix_format);
+	if (device)
+		IMMDevice_Release(device);
+	if (enumerator)
+		IMMDeviceEnumerator_Release(enumerator);
 	if (operation)
 		IActivateAudioInterfaceAsyncOperation_Release(operation);
 	if (handler) {
@@ -722,6 +805,101 @@ static tinyaac_status tinyaac_platform_enumerate(tinyaac_app_list *list)
 	return TINYAAC_OK;
 }
 
+/* yap fork: a UTF-8 copy of a wide string, or NULL. */
+static char *tinyaac_win_utf8(const wchar_t *text)
+{
+	int length = text ? WideCharToMultiByte(CP_UTF8, 0, text, -1, NULL, 0, NULL, NULL) : 0;
+	char *utf8 = length ? (char *)calloc((size_t)length, 1) : NULL;
+	if (utf8)
+		WideCharToMultiByte(CP_UTF8, 0, text, -1, utf8, length, NULL, NULL);
+	return utf8;
+}
+
+/* yap fork: the active playback endpoints, by their friendly names. */
+static tinyaac_status tinyaac_platform_enumerate_devices(tinyaac_app_list *list)
+{
+	IMMDeviceEnumerator *enumerator = NULL;
+	IMMDeviceCollection *collection = NULL;
+	IMMDevice *default_device = NULL;
+	LPWSTR default_id = NULL;
+	UINT count = 0;
+	UINT index;
+	HRESULT result;
+	int com_initialized = 0;
+	tinyaac_status status = TINYAAC_ERR_BACKEND;
+
+	result = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+	if (SUCCEEDED(result))
+		com_initialized = 1;
+	else if (result != RPC_E_CHANGED_MODE)
+		goto done;
+	result = CoCreateInstance(TINYAAC_WIN_REFIID(tinyaac_win_clsid_device_enumerator), NULL, CLSCTX_ALL,
+		TINYAAC_WIN_REFIID(tinyaac_win_iid_device_enumerator), (void **)&enumerator);
+	if (FAILED(result))
+		goto done;
+	if (SUCCEEDED(IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumerator, eRender, eConsole,
+		&default_device)))
+		IMMDevice_GetId(default_device, &default_id);
+	result = IMMDeviceEnumerator_EnumAudioEndpoints(enumerator, eRender, DEVICE_STATE_ACTIVE,
+		&collection);
+	if (FAILED(result) || FAILED(IMMDeviceCollection_GetCount(collection, &count)))
+		goto done;
+	status = TINYAAC_OK;
+	for (index = 0; index < count && status == TINYAAC_OK; ++index) {
+		IMMDevice *device = NULL;
+		IPropertyStore *store = NULL;
+		LPWSTR id = NULL;
+		PROPVARIANT name;
+		char *utf8_name = NULL;
+		char *utf8_id = NULL;
+		PropVariantInit(&name);
+		if (SUCCEEDED(IMMDeviceCollection_Item(collection, index, &device)) &&
+			SUCCEEDED(IMMDevice_GetId(device, &id)) &&
+			SUCCEEDED(IMMDevice_OpenPropertyStore(device, STGM_READ, &store)) &&
+			SUCCEEDED(IPropertyStore_GetValue(store, &tinyaac_win_pkey_friendly_name,
+				&name)) && name.vt == VT_LPWSTR) {
+			utf8_name = tinyaac_win_utf8(name.pwszVal);
+			utf8_id = tinyaac_win_utf8(id);
+		}
+		if (utf8_name && utf8_id) {
+			size_t size = strlen(utf8_id) + 12;
+			char *identifier = (char *)malloc(size);
+			if (identifier) {
+				snprintf(identifier, size, "win-device:%s", utf8_id);
+				status = tinyaac_internal_append_device(list, utf8_name, identifier,
+					default_id && wcscmp(id, default_id) == 0);
+				free(identifier);
+			} else {
+				status = TINYAAC_ERR_OUT_OF_MEMORY;
+			}
+		}
+		free(utf8_name);
+		free(utf8_id);
+		PropVariantClear(&name);
+		if (store)
+			IPropertyStore_Release(store);
+		if (id)
+			CoTaskMemFree(id);
+		if (device)
+			IMMDevice_Release(device);
+	}
+
+done:
+	if (collection)
+		IMMDeviceCollection_Release(collection);
+	if (default_id)
+		CoTaskMemFree(default_id);
+	if (default_device)
+		IMMDevice_Release(default_device);
+	if (enumerator)
+		IMMDeviceEnumerator_Release(enumerator);
+	if (com_initialized)
+		CoUninitialize();
+	if (status == TINYAAC_ERR_BACKEND)
+		tinyaac_internal_set_error("Unable to list the playback devices");
+	return status;
+}
+
 static void tinyaac_win_capture_cleanup(tinyaac_capture *capture,
 	struct tinyaac_win_capture *backend)
 {
@@ -754,6 +932,7 @@ static void tinyaac_win_capture_cleanup(tinyaac_capture *capture,
 		CloseHandle(backend->ready_event);
 	if (backend->stop_event)
 		CloseHandle(backend->stop_event);
+	free(backend->device_id); /* yap fork */
 	DeleteCriticalSection(&backend->queue_lock);
 	if (capture && capture->backend == backend)
 		capture->backend = NULL;
@@ -763,7 +942,9 @@ static void tinyaac_win_capture_cleanup(tinyaac_capture *capture,
 static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 {
 	struct tinyaac_win_capture *backend;
-	if (!capture || strncmp(capture->identifier, "win-pid:", 8) != 0)
+	/* yap fork: a playback device (see struct tinyaac_win_capture). */
+	int device = capture && strncmp(capture->identifier, "win-device:", 11) == 0;
+	if (!capture || (!device && strncmp(capture->identifier, "win-pid:", 8) != 0))
 		return TINYAAC_ERR_INVALID_ARGUMENT;
 	backend = (struct tinyaac_win_capture *)calloc(1, sizeof(*backend));
 	if (!backend)
@@ -773,7 +954,15 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 	InitializeConditionVariable(&backend->queue_ready);
 	backend->stop_event = CreateEventW(NULL, TRUE, FALSE, NULL);
 	backend->ready_event = CreateEventW(NULL, TRUE, FALSE, NULL);
-	backend->process_handle = OpenProcess(SYNCHRONIZE, FALSE, backend->process_id);
+	if (device) {
+		int length = MultiByteToWideChar(CP_UTF8, 0, capture->identifier + 11, -1, NULL, 0);
+		backend->device_id = length ? (wchar_t *)calloc((size_t)length, sizeof(wchar_t)) : NULL;
+		if (!backend->device_id)
+			goto failed;
+		MultiByteToWideChar(CP_UTF8, 0, capture->identifier + 11, -1, backend->device_id, length);
+	} else {
+		backend->process_handle = OpenProcess(SYNCHRONIZE, FALSE, backend->process_id);
+	}
 	if (!backend->stop_event || !backend->ready_event)
 		goto failed;
 	capture->backend = backend;
@@ -795,8 +984,9 @@ failed:
 	if (FAILED(backend->start_result)) {
 		char message[128];
 		snprintf(message, sizeof(message),
-			"Unable to activate WASAPI process loopback for the selected application "
-			"(HRESULT 0x%08lX)", (unsigned long)backend->start_result);
+			"Unable to activate WASAPI loopback for the selected %s "
+			"(HRESULT 0x%08lX)", device ? "device" : "application", /* yap fork */
+			(unsigned long)backend->start_result);
 		tinyaac_internal_set_error(message);
 	} else {
 		tinyaac_internal_set_error("Unable to activate WASAPI process loopback for the selected application");
@@ -916,7 +1106,26 @@ struct tinyaac_pipewire_capture {
 	int worker_started;
 	int closing;
 	int loop_started;
+	/* yap fork: capturing a device without one process (see
+	 * tinyaac_pipewire_device_watch). */
+	uint32_t sink_id;
+	uint32_t exclude_pid;
+	struct pw_registry *registry;
+	struct spa_hook registry_listener;
+	struct pw_registry_events registry_events;
+	struct spa_hook core_listener;
+	struct pw_core_events core_events;
+	int core_listening;
+	int pending_sync;
+	int sink_gone;
+	struct tinyaac_pipewire_object **objects;
+	size_t object_count;
+	struct tinyaac_pipewire_made_link *made;
+	size_t made_count;
 };
+
+static int tinyaac_pipewire_device_watch(struct tinyaac_pipewire_capture *backend);
+static void tinyaac_pipewire_device_unwatch(struct tinyaac_pipewire_capture *backend);
 
 static void tinyaac_pipewire_done(void *data, uint32_t id, int seq)
 {
@@ -1401,6 +1610,7 @@ static void tinyaac_pipewire_capture_cleanup(tinyaac_capture *capture,
 	if (backend->loop && backend->loop_started) {
 		pw_thread_loop_lock(backend->loop);
 		backend->closing = 1;
+		tinyaac_pipewire_device_unwatch(backend); /* yap fork */
 		if (backend->stream) {
 			pw_stream_disconnect(backend->stream);
 			spa_hook_remove(&backend->stream_listener);
@@ -1431,6 +1641,8 @@ static void tinyaac_pipewire_capture_cleanup(tinyaac_capture *capture,
 	}
 	pthread_cond_destroy(&backend->queue_cond);
 	pthread_mutex_destroy(&backend->queue_mutex);
+	free(backend->objects); /* yap fork */
+	free(backend->made);
 	if (capture && capture->backend == backend)
 		capture->backend = NULL;
 	free(backend);
@@ -1445,8 +1657,16 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 	uint8_t pod_buffer[256];
 	struct spa_pod_builder builder = SPA_POD_BUILDER_INIT(pod_buffer, sizeof(pod_buffer));
 	const struct spa_pod *params[1];
+	/* yap fork: a device (sink) instead of an application, and whether
+	 * its streams are linked one by one to leave a process out. */
+	int device = 0;
+	int linked = 0;
+	struct spa_audio_info_raw stereo;
 
-	if (!capture || strncmp(capture->identifier, "pipewire-node:", 14) != 0)
+	if (capture && strncmp(capture->identifier, "pipewire-sink:", 14) == 0) {
+		device = 1;
+		linked = capture->process_id != 0;
+	} else if (!capture || strncmp(capture->identifier, "pipewire-node:", 14) != 0)
 		return TINYAAC_ERR_INVALID_ARGUMENT;
 	value = capture->identifier + 14;
 	target_id = strtoul(value, &end, 10);
@@ -1461,6 +1681,8 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 		return TINYAAC_ERR_BACKEND;
 	}
 	backend->format = SPA_AUDIO_FORMAT_UNKNOWN;
+	backend->sink_id = device ? (uint32_t)target_id : SPA_ID_INVALID; /* yap fork */
+	backend->exclude_pid = linked ? capture->process_id : 0;
 	backend->loop = pw_thread_loop_new("tinyaac-capture", NULL);
 	if (!backend->loop)
 		goto failed;
@@ -1476,20 +1698,45 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 	backend->stream_events.process = tinyaac_pipewire_stream_process;
 	backend->stream_events.param_changed = tinyaac_pipewire_stream_param_changed;
 	backend->stream_events.state_changed = tinyaac_pipewire_stream_state_changed;
-	backend->stream = pw_stream_new(backend->core, "tinyaac application capture",
-		pw_properties_new(PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY,
-			"Capture", PW_KEY_MEDIA_NAME, "tinyaac application capture", NULL));
+	if (!device) {
+		backend->stream = pw_stream_new(backend->core, "tinyaac application capture",
+			pw_properties_new(PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY,
+				"Capture", PW_KEY_MEDIA_NAME, "tinyaac application capture", NULL));
+	} else {
+		/* yap fork: a device. Linked one by one, the stream must not be
+		 * connected to anything by the session manager. */
+		backend->stream = pw_stream_new(backend->core, "tinyaac device capture",
+			pw_properties_new(PW_KEY_MEDIA_TYPE, "Audio", PW_KEY_MEDIA_CATEGORY,
+				"Capture", PW_KEY_MEDIA_NAME, "tinyaac device capture",
+				linked ? PW_KEY_NODE_AUTOCONNECT : PW_KEY_STREAM_CAPTURE_SINK,
+				linked ? "false" : "true", NULL));
+	}
 	if (!backend->stream)
 		goto unlock_failed;
 	pw_stream_add_listener(backend->stream, &backend->stream_listener,
 		&backend->stream_events, backend);
-	params[0] = (const struct spa_pod *)spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_Format,
-		SPA_PARAM_EnumFormat, SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_audio),
-		SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
-		SPA_FORMAT_AUDIO_format, SPA_POD_Id(SPA_AUDIO_FORMAT_F32_LE));
+	if (!linked) {
+		params[0] = (const struct spa_pod *)spa_pod_builder_add_object(&builder, SPA_TYPE_OBJECT_Format,
+			SPA_PARAM_EnumFormat, SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_audio),
+			SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
+			SPA_FORMAT_AUDIO_format, SPA_POD_Id(SPA_AUDIO_FORMAT_F32_LE));
+	} else {
+		/* yap fork: fixed stereo, so that there are FL and FR ports to
+		 * link to from the start. */
+		memset(&stereo, 0, sizeof(stereo));
+		stereo.format = SPA_AUDIO_FORMAT_F32_LE;
+		stereo.channels = 2;
+		stereo.rate = 48000;
+		stereo.position[0] = SPA_AUDIO_CHANNEL_FL;
+		stereo.position[1] = SPA_AUDIO_CHANNEL_FR;
+		params[0] = spa_format_audio_raw_build(&builder, SPA_PARAM_EnumFormat, &stereo);
+	}
 	if (!params[0] || pw_stream_connect(backend->stream, PW_DIRECTION_INPUT,
-		(uint32_t)target_id, (enum pw_stream_flags)(PW_STREAM_FLAG_AUTOCONNECT |
+		linked ? PW_ID_ANY : (uint32_t)target_id, (enum pw_stream_flags)(
+		(linked ? 0 : PW_STREAM_FLAG_AUTOCONNECT) |
 		PW_STREAM_FLAG_MAP_BUFFERS | PW_STREAM_FLAG_DONT_RECONNECT), params, 1) < 0)
+		goto unlock_failed;
+	if (linked && !tinyaac_pipewire_device_watch(backend))
 		goto unlock_failed;
 	capture->backend = backend;
 	if (pthread_create(&backend->callback_thread, NULL,
@@ -1504,7 +1751,9 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 unlock_failed:
 	pw_thread_loop_unlock(backend->loop);
 failed:
-	tinyaac_internal_set_error("Unable to create a PipeWire capture stream for the selected application");
+	tinyaac_internal_set_error(device ?
+		"Unable to create a PipeWire capture stream for the selected device" :
+		"Unable to create a PipeWire capture stream for the selected application");
 	tinyaac_pipewire_capture_cleanup(NULL, backend);
 	return TINYAAC_ERR_BACKEND;
 }
@@ -1523,6 +1772,591 @@ static void tinyaac_platform_capture_destroy(tinyaac_capture *capture)
 	if (capture && capture->backend)
 		tinyaac_pipewire_capture_cleanup(capture,
 			(struct tinyaac_pipewire_capture *)capture->backend);
+}
+
+/* yap fork: playback devices (sinks), and capturing everything a sink
+ * plays except one process's streams.
+ *
+ * A sink's monitor would include the process asking (yap's own voice
+ * playback, which everyone would then hear back). So the capture stream
+ * isn't connected to the sink. Instead, every playback stream that is
+ * linked to the sink, other than the excluded process's, is linked to the
+ * capture stream's input ports as well, and PipeWire mixes them. A
+ * registry listener keeps that up to date as streams come, go, or move to
+ * another sink. Without a process to exclude, the stream simply captures
+ * the sink's monitor. */
+#include <pipewire/extensions/metadata.h>
+
+struct tinyaac_pipewire_sink {
+	uint32_t id;
+	char *name; /* node.name, which the default is given by */
+	char *description;
+};
+
+struct tinyaac_pipewire_device_enumeration {
+	struct pw_thread_loop *loop;
+	struct pw_registry *registry;
+	struct pw_core *core;
+	struct pw_core_events core_events;
+	struct pw_registry_events registry_events;
+	struct pw_metadata_events metadata_events;
+	struct pw_metadata *metadata;
+	struct spa_hook metadata_listener;
+	struct tinyaac_pipewire_sink *sinks;
+	size_t sink_count;
+	char *default_name;
+	int out_of_memory;
+	int pending_sync;
+	int sync_stage;
+	int core_error;
+};
+
+/* Two syncs, as for the applications: the second waits for the default
+ * metadata's properties, which come after it is bound in the first. */
+static void tinyaac_pipewire_device_done(void *data, uint32_t id, int seq)
+{
+	struct tinyaac_pipewire_device_enumeration *enumeration =
+		(struct tinyaac_pipewire_device_enumeration *)data;
+	(void)id;
+	if (seq != enumeration->pending_sync)
+		return;
+	if (enumeration->sync_stage == 0) {
+		enumeration->sync_stage = 1;
+		enumeration->pending_sync = pw_core_sync(enumeration->core, PW_ID_CORE, 0);
+		if (enumeration->pending_sync >= 0)
+			return;
+		enumeration->core_error = enumeration->pending_sync;
+	}
+	enumeration->pending_sync = 0;
+	pw_thread_loop_signal(enumeration->loop, false);
+}
+
+static void tinyaac_pipewire_device_error(void *data, uint32_t id, int seq, int res,
+	const char *message)
+{
+	struct tinyaac_pipewire_device_enumeration *enumeration =
+		(struct tinyaac_pipewire_device_enumeration *)data;
+	(void)id;
+	(void)seq;
+	(void)message;
+	enumeration->core_error = res ? res : -1;
+	pw_thread_loop_signal(enumeration->loop, false);
+}
+
+/* The "name" of a JSON object such as {"name":"alsa_output.foo"}, as
+ * the "default" metadata gives the default sink. */
+static char *tinyaac_pipewire_json_name(const char *json)
+{
+	const char *start;
+	const char *end;
+	char *name;
+	if (!json || !(start = strstr(json, "\"name\"")))
+		return NULL;
+	start = strchr(start + 6, ':');
+	if (!start || !(start = strchr(start, '"')))
+		return NULL;
+	start++;
+	end = strchr(start, '"');
+	if (!end)
+		return NULL;
+	name = (char *)malloc((size_t)(end - start) + 1);
+	if (name) {
+		memcpy(name, start, (size_t)(end - start));
+		name[end - start] = '\0';
+	}
+	return name;
+}
+
+static int tinyaac_pipewire_default_property(void *data, uint32_t subject,
+	const char *key, const char *type, const char *value)
+{
+	struct tinyaac_pipewire_device_enumeration *enumeration =
+		(struct tinyaac_pipewire_device_enumeration *)data;
+	(void)subject;
+	(void)type;
+	if (!key || strcmp(key, "default.audio.sink") != 0)
+		return 0;
+	free(enumeration->default_name);
+	enumeration->default_name = tinyaac_pipewire_json_name(value);
+	return 0;
+}
+
+static void tinyaac_pipewire_device_global(void *data, uint32_t id,
+	uint32_t permissions, const char *type, uint32_t version,
+	const struct spa_dict *props)
+{
+	struct tinyaac_pipewire_device_enumeration *enumeration =
+		(struct tinyaac_pipewire_device_enumeration *)data;
+	const char *value;
+	(void)permissions;
+	(void)version;
+	if (strcmp(type, PW_TYPE_INTERFACE_Metadata) == 0) {
+		value = props ? spa_dict_lookup(props, PW_KEY_METADATA_NAME) : NULL;
+		if (enumeration->metadata || !value || strcmp(value, "default") != 0)
+			return;
+		/* Its properties come before the second sync's done. */
+		enumeration->metadata = (struct pw_metadata *)pw_registry_bind(
+			enumeration->registry, id, PW_TYPE_INTERFACE_Metadata, PW_VERSION_METADATA, 0);
+		if (enumeration->metadata)
+			pw_metadata_add_listener(enumeration->metadata, &enumeration->metadata_listener,
+				&enumeration->metadata_events, enumeration);
+		return;
+	}
+	if (strcmp(type, PW_TYPE_INTERFACE_Node) != 0 || !props)
+		return;
+	value = spa_dict_lookup(props, PW_KEY_MEDIA_CLASS);
+	if (!value || strcmp(value, "Audio/Sink") != 0)
+		return;
+	{
+		struct tinyaac_pipewire_sink *sinks = (struct tinyaac_pipewire_sink *)realloc(
+			enumeration->sinks, (enumeration->sink_count + 1) * sizeof(*sinks));
+		struct tinyaac_pipewire_sink *sink;
+		const char *description = spa_dict_lookup(props, PW_KEY_NODE_DESCRIPTION);
+		const char *name = spa_dict_lookup(props, PW_KEY_NODE_NAME);
+		if (!description)
+			description = spa_dict_lookup(props, PW_KEY_NODE_NICK);
+		if (!description)
+			description = name;
+		if (!sinks) {
+			enumeration->out_of_memory = 1;
+			return;
+		}
+		enumeration->sinks = sinks;
+		sink = &sinks[enumeration->sink_count++];
+		sink->id = id;
+		sink->name = tinyaac_internal_strdup(name);
+		sink->description = tinyaac_internal_strdup(description);
+	}
+}
+
+static tinyaac_status tinyaac_platform_enumerate_devices(tinyaac_app_list *list)
+{
+	struct tinyaac_pipewire_device_enumeration enumeration;
+	struct pw_context *context = NULL;
+	struct spa_hook core_listener;
+	struct spa_hook registry_listener;
+	tinyaac_status status = TINYAAC_ERR_BACKEND;
+	int loop_started = 0;
+	size_t index;
+
+	memset(&enumeration, 0, sizeof(enumeration));
+	memset(&core_listener, 0, sizeof(core_listener));
+	memset(&registry_listener, 0, sizeof(registry_listener));
+	enumeration.core_events.version = PW_VERSION_CORE_EVENTS;
+	enumeration.core_events.done = tinyaac_pipewire_device_done;
+	enumeration.core_events.error = tinyaac_pipewire_device_error;
+	enumeration.registry_events.version = PW_VERSION_REGISTRY_EVENTS;
+	enumeration.registry_events.global = tinyaac_pipewire_device_global;
+	enumeration.metadata_events.version = PW_VERSION_METADATA_EVENTS;
+	enumeration.metadata_events.property = tinyaac_pipewire_default_property;
+	enumeration.loop = pw_thread_loop_new("tinyaac-devices", NULL);
+	if (!enumeration.loop)
+		goto done;
+	context = pw_context_new(pw_thread_loop_get_loop(enumeration.loop), NULL, 0);
+	if (!context || pw_thread_loop_start(enumeration.loop) < 0)
+		goto done;
+	loop_started = 1;
+	pw_thread_loop_lock(enumeration.loop);
+	enumeration.core = pw_context_connect(context, NULL, 0);
+	if (!enumeration.core)
+		goto unlock;
+	pw_core_add_listener(enumeration.core, &core_listener, &enumeration.core_events,
+		&enumeration);
+	enumeration.registry = pw_core_get_registry(enumeration.core, PW_VERSION_REGISTRY, 0);
+	if (!enumeration.registry)
+		goto unlock;
+	pw_registry_add_listener(enumeration.registry, &registry_listener,
+		&enumeration.registry_events, &enumeration);
+	enumeration.pending_sync = pw_core_sync(enumeration.core, PW_ID_CORE, 0);
+	if (enumeration.pending_sync < 0)
+		goto unlock;
+	while (enumeration.pending_sync && !enumeration.core_error)
+		pw_thread_loop_wait(enumeration.loop);
+	if (enumeration.core_error)
+		goto unlock;
+	status = enumeration.out_of_memory ? TINYAAC_ERR_OUT_OF_MEMORY : TINYAAC_OK;
+	for (index = 0; status == TINYAAC_OK && index < enumeration.sink_count; ++index) {
+		struct tinyaac_pipewire_sink *sink = &enumeration.sinks[index];
+		char identifier[64];
+		if (!sink->description)
+			continue;
+		snprintf(identifier, sizeof(identifier), "pipewire-sink:%u", sink->id);
+		status = tinyaac_internal_append_device(list, sink->description, identifier,
+			sink->name && enumeration.default_name &&
+			strcmp(sink->name, enumeration.default_name) == 0);
+	}
+
+unlock:
+	if (enumeration.metadata) {
+		spa_hook_remove(&enumeration.metadata_listener);
+		pw_proxy_destroy((struct pw_proxy *)enumeration.metadata);
+	}
+	if (enumeration.registry) {
+		spa_hook_remove(&registry_listener);
+		pw_proxy_destroy((struct pw_proxy *)enumeration.registry);
+	}
+	if (enumeration.core) {
+		spa_hook_remove(&core_listener);
+		pw_core_disconnect(enumeration.core);
+	}
+	pw_thread_loop_unlock(enumeration.loop);
+done:
+	if (context)
+		pw_context_destroy(context);
+	if (enumeration.loop) {
+		if (loop_started)
+			pw_thread_loop_stop(enumeration.loop);
+		pw_thread_loop_destroy(enumeration.loop);
+	}
+	for (index = 0; index < enumeration.sink_count; ++index) {
+		free(enumeration.sinks[index].name);
+		free(enumeration.sinks[index].description);
+	}
+	free(enumeration.sinks);
+	free(enumeration.default_name);
+	if (status == TINYAAC_ERR_BACKEND)
+		tinyaac_internal_set_error("Unable to list the PipeWire playback devices");
+	return status;
+}
+
+/* What the device capture's registry listener keeps track of. */
+enum tinyaac_pipewire_object_kind {
+	TINYAAC_PIPEWIRE_CLIENT,
+	TINYAAC_PIPEWIRE_STREAM, /* a playback stream (Stream/Output/Audio) */
+	TINYAAC_PIPEWIRE_PORT,
+	TINYAAC_PIPEWIRE_LINK
+};
+
+struct tinyaac_pipewire_object {
+	uint32_t id;
+	enum tinyaac_pipewire_object_kind kind;
+	/* client: its process; stream: its client; port: its node; link: the
+	 * node it comes out of. */
+	uint32_t a;
+	/* port: 1 for an output port; link: the node it goes into. */
+	uint32_t b;
+	char channel[16]; /* port: audio.channel */
+	/* client: bound for its info, which has the process id of a
+	 * PulseAudio client (the registry gives pipewire-pulse's). */
+	struct pw_client *proxy;
+	struct spa_hook listener;
+};
+
+/* A link this capture made, from `node`'s `output_port` to our
+ * `input_port`. */
+struct tinyaac_pipewire_made_link {
+	uint32_t node;
+	uint32_t output_port;
+	uint32_t input_port;
+	struct pw_proxy *proxy;
+};
+
+static struct tinyaac_pipewire_object *tinyaac_pipewire_find(
+	struct tinyaac_pipewire_capture *backend, uint32_t id)
+{
+	size_t index;
+	for (index = 0; index < backend->object_count; ++index) {
+		if (backend->objects[index]->id == id)
+			return backend->objects[index];
+	}
+	return NULL;
+}
+
+static uint32_t tinyaac_pipewire_stream_pid(struct tinyaac_pipewire_capture *backend,
+	const struct tinyaac_pipewire_object *stream)
+{
+	const struct tinyaac_pipewire_object *client = tinyaac_pipewire_find(backend, stream->a);
+	return client && client->kind == TINYAAC_PIPEWIRE_CLIENT ? client->a : 0;
+}
+
+/* Which of our two input ports (0 = left, 1 = right, 2 = both) a port
+ * of this channel goes to. */
+static int tinyaac_pipewire_side(const char *channel, int index)
+{
+	size_t length = strlen(channel);
+	if (strncmp(channel, "AUX", 3) == 0)
+		return index & 1;
+	if (strcmp(channel, "MONO") == 0 || strcmp(channel, "FC") == 0 || !length)
+		return 2;
+	if (channel[length - 1] == 'L')
+		return 0;
+	if (channel[length - 1] == 'R')
+		return 1;
+	return 2;
+}
+
+static void tinyaac_pipewire_link(struct tinyaac_pipewire_capture *backend,
+	uint32_t node, uint32_t output_port, uint32_t input_port)
+{
+	struct tinyaac_pipewire_made_link *made;
+	struct pw_properties *props;
+	struct pw_proxy *proxy;
+	size_t index;
+	for (index = 0; index < backend->made_count; ++index) {
+		if (backend->made[index].output_port == output_port &&
+			backend->made[index].input_port == input_port)
+			return;
+	}
+	made = (struct tinyaac_pipewire_made_link *)realloc(backend->made,
+		(backend->made_count + 1) * sizeof(*made));
+	if (!made)
+		return;
+	backend->made = made;
+	props = pw_properties_new(NULL, NULL);
+	if (!props)
+		return;
+	pw_properties_setf(props, PW_KEY_LINK_OUTPUT_PORT, "%u", output_port);
+	pw_properties_setf(props, PW_KEY_LINK_INPUT_PORT, "%u", input_port);
+	pw_properties_set(props, PW_KEY_OBJECT_LINGER, "false");
+	proxy = (struct pw_proxy *)pw_core_create_object(backend->core, "link-factory",
+		PW_TYPE_INTERFACE_Link, PW_VERSION_LINK, &props->dict, 0);
+	pw_properties_free(props);
+	if (!proxy)
+		return;
+	made[backend->made_count].node = node;
+	made[backend->made_count].output_port = output_port;
+	made[backend->made_count].input_port = input_port;
+	made[backend->made_count].proxy = proxy;
+	backend->made_count++;
+}
+
+/* Whether `node` is a playback stream to capture: it plays on the sink
+ * and doesn't belong to the excluded process. */
+static int tinyaac_pipewire_wanted(struct tinyaac_pipewire_capture *backend, uint32_t node)
+{
+	struct tinyaac_pipewire_object *stream = tinyaac_pipewire_find(backend, node);
+	size_t index;
+	if (!stream || stream->kind != TINYAAC_PIPEWIRE_STREAM)
+		return 0;
+	if (backend->exclude_pid && tinyaac_pipewire_stream_pid(backend, stream) ==
+		backend->exclude_pid)
+		return 0;
+	for (index = 0; index < backend->object_count; ++index) {
+		struct tinyaac_pipewire_object *link = backend->objects[index];
+		if (link->kind == TINYAAC_PIPEWIRE_LINK && link->a == node &&
+			link->b == backend->sink_id)
+			return 1;
+	}
+	return 0;
+}
+
+/* Links what should be captured and unlinks what shouldn't anymore. Runs
+ * on the loop's thread, after every change the registry announces. */
+static void tinyaac_pipewire_update_links(struct tinyaac_pipewire_capture *backend)
+{
+	uint32_t self = pw_stream_get_node_id(backend->stream);
+	uint32_t inputs[2] = {SPA_ID_INVALID, SPA_ID_INVALID};
+	size_t index;
+	size_t other;
+	if (self == SPA_ID_INVALID)
+		return;
+	for (index = 0; index < backend->object_count; ++index) {
+		struct tinyaac_pipewire_object *port = backend->objects[index];
+		if (port->kind != TINYAAC_PIPEWIRE_PORT || port->a != self || port->b)
+			continue;
+		if (strcmp(port->channel, "FL") == 0)
+			inputs[0] = port->id;
+		else if (strcmp(port->channel, "FR") == 0)
+			inputs[1] = port->id;
+	}
+	if (inputs[0] == SPA_ID_INVALID || inputs[1] == SPA_ID_INVALID)
+		return;
+	for (index = 0; index < backend->made_count;) {
+		if (tinyaac_pipewire_wanted(backend, backend->made[index].node)) {
+			index++;
+			continue;
+		}
+		pw_proxy_destroy(backend->made[index].proxy);
+		backend->made[index] = backend->made[--backend->made_count];
+	}
+	for (index = 0; index < backend->object_count; ++index) {
+		struct tinyaac_pipewire_object *stream = backend->objects[index];
+		int port_index = 0;
+		if (stream->kind != TINYAAC_PIPEWIRE_STREAM ||
+			!tinyaac_pipewire_wanted(backend, stream->id))
+			continue;
+		for (other = 0; other < backend->object_count; ++other) {
+			struct tinyaac_pipewire_object *port = backend->objects[other];
+			int side;
+			if (port->kind != TINYAAC_PIPEWIRE_PORT || port->a != stream->id || !port->b)
+				continue;
+			side = tinyaac_pipewire_side(port->channel, port_index++);
+			if (side != 1)
+				tinyaac_pipewire_link(backend, stream->id, port->id, inputs[0]);
+			if (side != 0)
+				tinyaac_pipewire_link(backend, stream->id, port->id, inputs[1]);
+		}
+	}
+}
+
+static void tinyaac_pipewire_capture_client_info(void *data,
+	const struct pw_client_info *info)
+{
+	struct tinyaac_pipewire_object *client = (struct tinyaac_pipewire_object *)data;
+	uint32_t pid;
+	if (!info || !info->props)
+		return;
+	pid = tinyaac_pipewire_property_u32(info->props, PW_KEY_APP_PROCESS_ID);
+	if (pid)
+		client->a = pid;
+}
+
+static const struct pw_client_events tinyaac_pipewire_capture_client_events = {
+	.version = PW_VERSION_CLIENT_EVENTS,
+	.info = tinyaac_pipewire_capture_client_info,
+};
+
+static void tinyaac_pipewire_capture_global(void *data, uint32_t id,
+	uint32_t permissions, const char *type, uint32_t version,
+	const struct spa_dict *props)
+{
+	struct tinyaac_pipewire_capture *backend = (struct tinyaac_pipewire_capture *)data;
+	struct tinyaac_pipewire_object object;
+	struct tinyaac_pipewire_object **objects;
+	struct tinyaac_pipewire_object *added;
+	const char *value;
+	(void)permissions;
+	(void)version;
+	if (!props)
+		return;
+	memset(&object, 0, sizeof(object));
+	object.id = id;
+	if (strcmp(type, PW_TYPE_INTERFACE_Client) == 0) {
+		object.kind = TINYAAC_PIPEWIRE_CLIENT;
+		object.a = tinyaac_pipewire_property_u32(props, PW_KEY_APP_PROCESS_ID);
+		if (!object.a)
+			object.a = tinyaac_pipewire_property_u32(props, PW_KEY_SEC_PID);
+	} else if (strcmp(type, PW_TYPE_INTERFACE_Node) == 0) {
+		value = spa_dict_lookup(props, PW_KEY_MEDIA_CLASS);
+		if (!value || strcmp(value, "Stream/Output/Audio") != 0)
+			return;
+		object.kind = TINYAAC_PIPEWIRE_STREAM;
+		object.a = tinyaac_pipewire_property_u32(props, PW_KEY_CLIENT_ID);
+	} else if (strcmp(type, PW_TYPE_INTERFACE_Port) == 0) {
+		value = spa_dict_lookup(props, PW_KEY_PORT_MONITOR);
+		if (value && strcmp(value, "true") == 0)
+			return;
+		object.kind = TINYAAC_PIPEWIRE_PORT;
+		object.a = tinyaac_pipewire_property_u32(props, PW_KEY_NODE_ID);
+		value = spa_dict_lookup(props, PW_KEY_PORT_DIRECTION);
+		object.b = value && strcmp(value, "out") == 0;
+		value = spa_dict_lookup(props, PW_KEY_AUDIO_CHANNEL);
+		if (value)
+			snprintf(object.channel, sizeof(object.channel), "%s", value);
+	} else if (strcmp(type, PW_TYPE_INTERFACE_Link) == 0) {
+		object.kind = TINYAAC_PIPEWIRE_LINK;
+		object.a = tinyaac_pipewire_property_u32(props, PW_KEY_LINK_OUTPUT_NODE);
+		object.b = tinyaac_pipewire_property_u32(props, PW_KEY_LINK_INPUT_NODE);
+	} else {
+		return;
+	}
+	objects = (struct tinyaac_pipewire_object **)realloc(backend->objects,
+		(backend->object_count + 1) * sizeof(*objects));
+	if (!objects)
+		return;
+	backend->objects = objects;
+	added = (struct tinyaac_pipewire_object *)malloc(sizeof(*added));
+	if (!added)
+		return;
+	*added = object;
+	objects[backend->object_count++] = added;
+	if (added->kind == TINYAAC_PIPEWIRE_CLIENT) {
+		added->proxy = (struct pw_client *)pw_registry_bind(backend->registry, id,
+			PW_TYPE_INTERFACE_Client, PW_VERSION_CLIENT, 0);
+		if (added->proxy)
+			pw_client_add_listener(added->proxy, &added->listener,
+				&tinyaac_pipewire_capture_client_events, added);
+		/* Its info comes later, and the streams wait for the sync. */
+		backend->pending_sync = pw_core_sync(backend->core, PW_ID_CORE, backend->pending_sync);
+		return;
+	}
+	tinyaac_pipewire_update_links(backend);
+}
+
+static void tinyaac_pipewire_free_object(struct tinyaac_pipewire_object *object)
+{
+	if (object->proxy) {
+		spa_hook_remove(&object->listener);
+		pw_proxy_destroy((struct pw_proxy *)object->proxy);
+	}
+	free(object);
+}
+
+static void tinyaac_pipewire_capture_global_remove(void *data, uint32_t id)
+{
+	struct tinyaac_pipewire_capture *backend = (struct tinyaac_pipewire_capture *)data;
+	size_t index;
+	if (id == backend->sink_id && !backend->sink_gone) {
+		backend->sink_gone = 1;
+		tinyaac_pipewire_enqueue_event(backend, TINYAAC_EVENT_TARGET_ENDED,
+			TINYAAC_ERR_NOT_FOUND, "The playback device was removed");
+	}
+	for (index = 0; index < backend->object_count; ++index) {
+		if (backend->objects[index]->id != id)
+			continue;
+		tinyaac_pipewire_free_object(backend->objects[index]);
+		backend->objects[index] = backend->objects[--backend->object_count];
+		break;
+	}
+	/* A link of ours may have gone with the stream or port it came from.
+	 * Its proxy then has nothing left to stand for. */
+	for (index = 0; index < backend->made_count;) {
+		if (backend->made[index].node != id && backend->made[index].output_port != id) {
+			index++;
+			continue;
+		}
+		pw_proxy_destroy(backend->made[index].proxy);
+		backend->made[index] = backend->made[--backend->made_count];
+	}
+	tinyaac_pipewire_update_links(backend);
+}
+
+static void tinyaac_pipewire_capture_done(void *data, uint32_t id, int seq)
+{
+	struct tinyaac_pipewire_capture *backend = (struct tinyaac_pipewire_capture *)data;
+	if (id == PW_ID_CORE && seq == backend->pending_sync)
+		tinyaac_pipewire_update_links(backend);
+}
+
+/* Starts a device capture once the capture stream exists; called with
+ * the loop locked. */
+static int tinyaac_pipewire_device_watch(struct tinyaac_pipewire_capture *backend)
+{
+	backend->core_events.version = PW_VERSION_CORE_EVENTS;
+	backend->core_events.done = tinyaac_pipewire_capture_done;
+	pw_core_add_listener(backend->core, &backend->core_listener, &backend->core_events,
+		backend);
+	backend->core_listening = 1;
+	backend->registry = pw_core_get_registry(backend->core, PW_VERSION_REGISTRY, 0);
+	if (!backend->registry)
+		return 0;
+	backend->registry_events.version = PW_VERSION_REGISTRY_EVENTS;
+	backend->registry_events.global = tinyaac_pipewire_capture_global;
+	backend->registry_events.global_remove = tinyaac_pipewire_capture_global_remove;
+	pw_registry_add_listener(backend->registry, &backend->registry_listener,
+		&backend->registry_events, backend);
+	return 1;
+}
+
+/* Undoes tinyaac_pipewire_device_watch; called with the loop locked. */
+static void tinyaac_pipewire_device_unwatch(struct tinyaac_pipewire_capture *backend)
+{
+	size_t index;
+	for (index = 0; index < backend->made_count; ++index)
+		pw_proxy_destroy(backend->made[index].proxy);
+	backend->made_count = 0;
+	for (index = 0; index < backend->object_count; ++index)
+		tinyaac_pipewire_free_object(backend->objects[index]);
+	backend->object_count = 0;
+	if (backend->registry) {
+		spa_hook_remove(&backend->registry_listener);
+		pw_proxy_destroy((struct pw_proxy *)backend->registry);
+		backend->registry = NULL;
+	}
+	if (backend->core_listening) {
+		spa_hook_remove(&backend->core_listener);
+		backend->core_listening = 0;
+	}
 }
 
 #endif /* __linux__ */
@@ -1641,6 +2475,104 @@ static tinyaac_status tinyaac_platform_enumerate(tinyaac_app_list *list)
 	if (status != TINYAAC_OK)
 		tinyaac_internal_set_error("Unable to allocate the macOS audio-process snapshot");
 	return status;
+}
+
+/* yap fork: a CFString property of an audio object as UTF-8, written to
+ * `out`; 0 if it has none. */
+static int tinyaac_macos_string(AudioObjectID object, AudioObjectPropertySelector selector,
+	char *out, size_t size)
+{
+	AudioObjectPropertyAddress address = {
+		selector,
+		kAudioObjectPropertyScopeGlobal,
+		kAudioObjectPropertyElementMain
+	};
+	CFStringRef value = NULL;
+	UInt32 value_size = sizeof(value);
+	int ok;
+	if (AudioObjectGetPropertyData(object, &address, 0, NULL, &value_size, &value) != noErr ||
+		!value)
+		return 0;
+	ok = CFStringGetCString(value, out, (CFIndex)size, kCFStringEncodingUTF8);
+	CFRelease(value);
+	return ok;
+}
+
+/* yap fork: the devices with output streams, by their names. */
+static tinyaac_status tinyaac_platform_enumerate_devices(tinyaac_app_list *list)
+{
+	AudioObjectPropertyAddress address = {
+		kAudioHardwarePropertyDevices,
+		kAudioObjectPropertyScopeGlobal,
+		kAudioObjectPropertyElementMain
+	};
+	AudioObjectID default_device = kAudioObjectUnknown;
+	AudioObjectID *devices;
+	UInt32 size = 0;
+	UInt32 count;
+	UInt32 index;
+	tinyaac_status status = TINYAAC_OK;
+
+	if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &address, 0, NULL,
+		&size) != noErr) {
+		tinyaac_internal_set_error("Unable to list the Core Audio devices");
+		return TINYAAC_ERR_BACKEND;
+	}
+	if (!size)
+		return TINYAAC_OK;
+	devices = (AudioObjectID *)malloc(size);
+	if (!devices)
+		return TINYAAC_ERR_OUT_OF_MEMORY;
+	if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &size,
+		devices) != noErr) {
+		free(devices);
+		tinyaac_internal_set_error("Unable to list the Core Audio devices");
+		return TINYAAC_ERR_BACKEND;
+	}
+	count = size / sizeof(*devices);
+	address.mSelector = kAudioHardwarePropertyDefaultOutputDevice;
+	size = sizeof(default_device);
+	AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, 0, NULL, &size,
+		&default_device);
+	for (index = 0; index < count && status == TINYAAC_OK; ++index) {
+		AudioObjectPropertyAddress streams = {
+			kAudioDevicePropertyStreams,
+			kAudioDevicePropertyScopeOutput,
+			kAudioObjectPropertyElementMain
+		};
+		char name[256];
+		char uid[256];
+		char identifier[300];
+		size = 0;
+		if (AudioObjectGetPropertyDataSize(devices[index], &streams, 0, NULL, &size) != noErr ||
+			!size)
+			continue;
+		if (!tinyaac_macos_string(devices[index], kAudioObjectPropertyName, name, sizeof(name)) ||
+			!tinyaac_macos_string(devices[index], kAudioDevicePropertyDeviceUID, uid, sizeof(uid)))
+			continue;
+		snprintf(identifier, sizeof(identifier), "mac-device:%s", uid);
+		status = tinyaac_internal_append_device(list, name, identifier,
+			devices[index] == default_device);
+	}
+	free(devices);
+	return status;
+}
+
+/* yap fork: the audio process object of `pid`, or kAudioObjectUnknown
+ * if it has none (it hasn't opened any audio). */
+static AudioObjectID tinyaac_macos_process_object(pid_t pid)
+{
+	AudioObjectPropertyAddress address = {
+		kAudioHardwarePropertyTranslatePIDToProcessObject,
+		kAudioObjectPropertyScopeGlobal,
+		kAudioObjectPropertyElementMain
+	};
+	AudioObjectID object = kAudioObjectUnknown;
+	UInt32 size = sizeof(object);
+	if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &address, sizeof(pid), &pid,
+		&size, &object) != noErr)
+		return kAudioObjectUnknown;
+	return object;
 }
 
 struct tinyaac_macos_work {
@@ -1813,12 +2745,22 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 	OSStatus result;
 	NSDictionary *aggregate_properties;
 	NSString *aggregate_uid;
+	/* yap fork: a playback device, by its UID, instead of a process. */
+	const char *device_uid = NULL;
+	AudioObjectID excluded = kAudioObjectUnknown;
 
-	if (!capture || strncmp(capture->identifier, "mac-process:", 12) != 0)
-		return TINYAAC_ERR_INVALID_ARGUMENT;
-	process_id = strtoul(capture->identifier + 12, &end, 10);
-	if (!*(capture->identifier + 12) || *end || process_id > UINT32_MAX)
-		return TINYAAC_ERR_INVALID_ARGUMENT;
+	if (capture && strncmp(capture->identifier, "mac-device:", 11) == 0) {
+		device_uid = capture->identifier + 11;
+		if (capture->process_id)
+			excluded = tinyaac_macos_process_object((pid_t)capture->process_id);
+		process_id = 0;
+	} else {
+		if (!capture || strncmp(capture->identifier, "mac-process:", 12) != 0)
+			return TINYAAC_ERR_INVALID_ARGUMENT;
+		process_id = strtoul(capture->identifier + 12, &end, 10);
+		if (!*(capture->identifier + 12) || *end || process_id > UINT32_MAX)
+			return TINYAAC_ERR_INVALID_ARGUMENT;
+	}
 	backend = (struct tinyaac_macos_capture *)calloc(1, sizeof(*backend));
 	if (!backend)
 		return TINYAAC_ERR_OUT_OF_MEMORY;
@@ -1832,7 +2774,18 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 	@autoreleasepool {
 		tap_description = [[CATapDescription alloc] init];
 		tap_description.name = @"tinyaac process tap";
-		tap_description.processes = @[@((AudioObjectID)process_id)];
+		if (device_uid) {
+			/* yap fork: everything on the device's first stream, except
+			 * the excluded process (an exclusive tap's processes are the
+			 * ones left out). */
+			tap_description.processes = excluded != kAudioObjectUnknown ?
+				@[@(excluded)] : @[];
+			tap_description.exclusive = YES;
+			tap_description.deviceUID = [NSString stringWithUTF8String:device_uid];
+			tap_description.stream = @0;
+		} else {
+			tap_description.processes = @[@((AudioObjectID)process_id)];
+		}
 		tap_description.privateTap = YES;
 		tap_description.mixdown = YES;
 		tap_description.mono = NO;
@@ -1848,6 +2801,8 @@ static tinyaac_status tinyaac_platform_capture_start(tinyaac_capture *capture)
 		if (result != noErr || !tap_uid)
 			goto failed;
 		aggregate_uid = [NSUUID UUID].UUIDString;
+		/* yap fork: device taps too go without subdevices, or a device
+		 * with a microphone of its own would add it to the input. */
 		aggregate_properties = @{
 			@kAudioAggregateDeviceNameKey: @"tinyaac aggregate device",
 			@kAudioAggregateDeviceUIDKey: aggregate_uid,
@@ -1931,6 +2886,12 @@ static tinyaac_status tinyaac_platform_init(void)
 static void tinyaac_platform_shutdown(void) {}
 
 static tinyaac_status tinyaac_platform_enumerate(tinyaac_app_list *list)
+{
+	(void)list;
+	return TINYAAC_ERR_PLATFORM_UNAVAILABLE;
+}
+
+static tinyaac_status tinyaac_platform_enumerate_devices(tinyaac_app_list *list)
 {
 	(void)list;
 	return TINYAAC_ERR_PLATFORM_UNAVAILABLE;
@@ -2069,6 +3030,39 @@ tinyaac_status tinyaac_capture_create(const tinyaac_app_list *list, size_t index
 	capture->process_id = list->apps[index].process_id;
 	*out_capture = capture;
 	return TINYAAC_OK;
+}
+
+/* yap fork */
+tinyaac_status tinyaac_device_list_create(tinyaac_app_list **out_list)
+{
+	tinyaac_app_list *list;
+	tinyaac_status status;
+	if (!out_list)
+		return TINYAAC_ERR_INVALID_ARGUMENT;
+	*out_list = NULL;
+	if (!tinyaac_internal_init_count)
+		return TINYAAC_ERR_INVALID_STATE;
+	list = (tinyaac_app_list *)calloc(1, sizeof(*list));
+	if (!list)
+		return TINYAAC_ERR_OUT_OF_MEMORY;
+	status = tinyaac_platform_enumerate_devices(list);
+	if (status != TINYAAC_OK) {
+		tinyaac_app_list_destroy(list);
+		return status;
+	}
+	*out_list = list;
+	return TINYAAC_OK;
+}
+
+/* yap fork: a device capture is told apart by its identifier, and its
+ * process_id is the process to leave out. */
+tinyaac_status tinyaac_capture_create_device(const tinyaac_app_list *list,
+	size_t index, uint32_t exclude_pid, tinyaac_capture **out_capture)
+{
+	tinyaac_status status = tinyaac_capture_create(list, index, out_capture);
+	if (status == TINYAAC_OK)
+		(*out_capture)->process_id = exclude_pid;
+	return status;
 }
 
 tinyaac_status tinyaac_capture_set_callbacks(tinyaac_capture *capture,

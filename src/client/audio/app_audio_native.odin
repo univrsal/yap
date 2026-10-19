@@ -6,8 +6,9 @@ import "core:sync"
 
 import "client:audio/aac"
 
-// Captures an application's audio into a Voice's app ring (native clients
-// only, see aac/aac.odin for the supported systems) and converts it to
+// Captures an application's audio, or a playback device's, into a Voice's
+// app ring (native clients only, see aac/aac.odin for the supported
+// systems) and converts it to
 // 48 kHz stereo on the way. The network thread mixes it into every frame it
 // sends (app_mix in voice.odin). What is shared and when is decided by the
 // UI, see the client's ui_app_audio_native.odin.
@@ -43,9 +44,44 @@ app_share_start :: proc(
 	st: aac.Status,
 	why: string,
 ) {
+	return share_start(v, list, index, false, 0)
+}
+
+// app_share_start_device is app_share_start for the playback device at
+// `index` of a device list, without the audio of process exclude_pid (see
+// aac.capture_create_device).
+app_share_start_device :: proc(
+	v: ^Voice,
+	list: ^aac.App_List,
+	index: uint,
+	exclude_pid: u32,
+) -> (
+	s: ^App_Share,
+	st: aac.Status,
+	why: string,
+) {
+	return share_start(v, list, index, true, exclude_pid)
+}
+
+@(private = "file")
+share_start :: proc(
+	v: ^Voice,
+	list: ^aac.App_List,
+	index: uint,
+	device: bool,
+	exclude_pid: u32,
+) -> (
+	s: ^App_Share,
+	st: aac.Status,
+	why: string,
+) {
 	s = new(App_Share)
 	s.voice = v
-	st = aac.capture_create(list, index, &s.capture)
+	if device {
+		st = aac.capture_create_device(list, index, exclude_pid, &s.capture)
+	} else {
+		st = aac.capture_create(list, index, &s.capture)
+	}
 	if st == .Ok {
 		st = aac.capture_set_callbacks(s.capture, app_audio_callback, app_event_callback, s)
 	}

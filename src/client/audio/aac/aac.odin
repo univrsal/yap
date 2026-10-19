@@ -2,7 +2,8 @@
 // domain or MIT). Build the library with build.sh / build.bat at the repo
 // root.
 //
-// You list the applications that are playing audio and pick one. Its audio
+// You list the applications that are playing audio and pick one (or a
+// playback device, everything it plays but our own sound). Its audio
 // is then delivered through a callback as interleaved float32 samples, at
 // whatever sample rate and channel count the application plays at. The
 // callbacks run one at a time on a thread owned by tinyaac, and
@@ -75,6 +76,9 @@ App_Info :: struct {
 	// media.name, e.g. mpv's title), or nil where the backend doesn't
 	// provide it. Owned by the list.
 	media_name:   cstring,
+	// In a device list (device_list_create), whether this is the system's
+	// default playback device.
+	is_default:   b32,
 }
 
 Audio_Frame :: struct {
@@ -118,4 +122,14 @@ foreign lib {
 	// Returns once no callback is running anymore.
 	capture_stop :: proc(capture: ^Capture) -> Status ---
 	capture_destroy :: proc(capture: ^Capture) ---
+
+	// The playback devices, as an App_List: display_name is what a device
+	// is called, identifier its id, and is_default marks the default one.
+	device_list_create :: proc(out_list: ^^App_List) -> Status ---
+	// Captures what the device at `index` plays, without the audio of
+	// process exclude_pid (0 for none). Windows can't leave a process out
+	// of one device: with exclude_pid it captures every device but the
+	// process, and with 0 the device alone. Target_Ended says the device
+	// went away.
+	capture_create_device :: proc(list: ^App_List, index: uint, exclude_pid: u32, out_capture: ^^Capture) -> Status ---
 }
