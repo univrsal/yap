@@ -47,6 +47,18 @@ import "common:proto"
 // is kept in the list the UI gave (Watch_Cameras_Command), and watched again
 // when it comes back.
 //
+// Demand: a camera goes to all its viewers as one stream, so it need not be
+// bigger than the largest tile any of them shows it in. Each lease on a camera
+// says how big its tile is (in pixels), and the server tells the sharer the
+// largest and how many viewers there are (proto.Demand). The camera is then
+// sent at the smallest of CAMERA_SIZES that covers that tile, if that is
+// smaller than the room's tier (follow_demand): larger at once, smaller once
+// it has been asked for DEMAND_DOWN_AFTER, since each change costs a keyframe.
+// With no viewers it stops encoding (video_camera_pause), and goes on as soon
+// as the server says there is one or a viewer asks for a keyframe. A server
+// that says nothing of it (Server_Info.demand) gets no tile sizes, and a
+// camera that hears nothing for DEMAND_STALE goes back to the tier.
+//
 // Adapting: once a second a viewer reports how well each stream reaches it
 // (proto.Report: missing fragments, how much later than at their quickest the
 // frames arrive, and what came in). The server passes the worst report of a
@@ -127,16 +139,30 @@ Video_Out :: struct {
 	reports_at:    time.Tick,
 	reports:       proto.Video_Reports, // the latest reports
 
-	// The camera's tier (follow_camera_tier): what it is set to ({} not yet),
-	// and a higher one it may go up to, and since when the room has kept to it.
+	// The camera's tier (follow_camera_tier): what the room allows ({} not
+	// yet), and a higher one it may go up to, and since when the room has kept
+	// to it.
 	tier:          Share_Config,
 	tier_pending:  Share_Config,
 	tier_since:    time.Tick,
+	// What its viewers want (follow_demand): the server's last Demand and when
+	// it came, what the camera is set to (the tier, or smaller for its
+	// viewers), since when something smaller has been wanted, and whether it is
+	// paused for having no viewers.
+	demand:        proto.Demand,
+	demand_at:     time.Tick,
+	applied:       Share_Config,
+	smaller_since: time.Tick,
+	paused:        bool,
 }
 
 // Video_In is a stream that we watch.
 Video_In :: struct {
 	key:            Video_Key, // a user of 0 when not in use
+	// How big a camera's tile is in pixels (0 if not known), and what the
+	// last Watch said.
+	tile:           [2]int,
+	tile_sent:      [2]int,
 	// Its stream is on, so we hold a lease on it (drive_in).
 	watching:       bool,
 	last_watch:     time.Tick,
@@ -331,6 +357,49 @@ Camera_Device :: struct {
 	name: string,
 }
 
+// The sizes a camera is sent at for its viewers' tiles (follow_demand), with
+// the bitrate each needs at 30 fps, largest first.
+CAMERA_SIZES := [?]Share_Config {
+	{max = {1920, 1080}, kbit = 3500},
+	{max = {1280, 720}, kbit = 1500},
+	{max = {960, 540}, kbit = 800},
+	{max = {640, 360}, kbit = 450},
+	{max = {480, 270}, kbit = 300},
+	{max = {320, 180}, kbit = 180},
+}
+
+// How long the viewers have to want a smaller camera before it is sent
+// smaller, so that a window being resized or a tile clicked back and forth
+// doesn't cost a keyframe each time.
+DEMAND_DOWN_AFTER :: 3 * time.Second
+// How often a Watch may go out sooner because a tile changed size.
+WATCH_TILE_EVERY :: 250 * time.Millisecond
+// A Demand older than this is not followed: the server went quiet, so the
+// tier applies, and the camera isn't paused.
+DEMAND_STALE :: 3 * time.Second
+
+// demand_config is the camera at `tier`, made smaller to the smallest of
+// CAMERA_SIZES that covers `tile` where that is smaller (a tile of 0: the
+// tier).
+demand_config :: proc(tier: Share_Config, tile: [2]int) -> Share_Config {
+	if tile.x <= 0 || tile.y <= 0 {
+		return tier
+	}
+	fit := CAMERA_SIZES[0]
+	for s in CAMERA_SIZES {
+		if int(s.max.x) >= tile.x && int(s.max.y) >= tile.y {
+			fit = s
+		}
+	}
+	if fit.max.x >= tier.max.x {
+		return tier
+	}
+	cfg := tier
+	cfg.max = fit.max
+	cfg.kbit = min(tier.kbit, fit.kbit)
+	return cfg
+}
+
 // How long the room has to keep fewer cameras before ours goes up a tier
 // again. Going down happens at once. Each change costs a keyframe, so a camera
 // that goes on and off doesn't make everybody's encoders start again each
@@ -413,10 +482,62 @@ follow_camera_tier :: proc(c: ^Voice_Client, o: ^Video_Out, now: time.Tick) {
 		want.fps,
 		want.kbit,
 	)
-	video_camera_configure(want)
 	o.tier, o.tier_since = want, {}
-	// What it was held to was a part of the old tier's bitrate.
+}
+
+// follow_demand keeps our camera to what its viewers show (see Demand above):
+// at the room's tier, or smaller, and paused while nobody watches.
+@(private)
+follow_demand :: proc(o: ^Video_Out, now: time.Tick) {
+	if o.tier == {} {
+		return
+	}
+	fresh := o.demand_at != {} && time.tick_diff(o.demand_at, now) < DEMAND_STALE
+	tile := o.demand.tile if fresh else {}
+	if pause := fresh && o.demand.viewers == 0; pause != o.paused {
+		o.paused = pause
+		video_camera_pause(pause)
+		log.infof("camera: %s", "nobody watches it, so it pauses" if pause else "watched, so it goes on")
+	}
+	want := demand_config(o.tier, tile)
+	if want == o.applied {
+		o.smaller_since = {}
+		return
+	}
+	if o.applied != {} && want.max.x < o.applied.max.x && want != o.tier {
+		// Smaller only for its viewers: once they have kept to it.
+		if o.smaller_since == {} {
+			o.smaller_since = now
+		}
+		if time.tick_diff(o.smaller_since, now) < DEMAND_DOWN_AFTER {
+			return
+		}
+	}
+	if want != o.tier {
+		log.infof(
+			"camera: %dx%d, %d kbit/s for its viewers' %dx%d",
+			want.max.x,
+			want.max.y,
+			want.kbit,
+			tile.x,
+			tile.y,
+		)
+	}
+	video_camera_configure(want)
+	o.applied, o.smaller_since = want, {}
+	// What it was held to was a part of the old bitrate.
 	o.target_kbit = 0
+}
+
+// video_demand is called when the server says what the viewers of one of our
+// streams want of it.
+video_demand :: proc(c: ^Voice_Client, d: proto.Demand) {
+	o := &c.video.outs[d.stream]
+	if !o.live || d.stream != .Camera {
+		return
+	}
+	o.demand, o.demand_at = d, time.tick_now()
+	follow_demand(o, o.demand_at)
 }
 
 // What the View shows of screen sharing, calculated once a second.
@@ -446,10 +567,12 @@ Watch_Command :: struct {
 	user: proto.User_Num,
 }
 
-// Watch the cameras of these users, and no others. A user whose camera is off
-// stays in the list and is watched once it comes on.
+// Watch the cameras of these users, and no others, each in a tile of that
+// size in pixels (0 if not known). A user whose camera is off stays in the
+// list and is watched once it comes on.
 Watch_Cameras_Command :: struct {
 	users: [proto.MAX_CAMERAS]proto.User_Num,
+	tiles: [proto.MAX_CAMERAS][2]int,
 	count: int,
 }
 
@@ -474,7 +597,7 @@ video_watch_camera_names :: proc(c: ^Voice_Client, names: string) {
 			}
 		}
 	}
-	video_watch_cameras(c, users[:])
+	video_watch_cameras(c, users[:], nil)
 	log.infof("watching %d cameras", len(users))
 }
 
@@ -544,6 +667,7 @@ out_step :: proc(c: ^Voice_Client, o: ^Video_Out, here: bool) {
 	}
 	if o.stream == .Camera {
 		follow_camera_tier(c, o, now)
+		follow_demand(o, now)
 	}
 	note_encoding(o, video_share_kbit(o.stream), now)
 	for {
@@ -899,10 +1023,17 @@ video_send :: proc(c: ^Voice_Client) {
 }
 
 // video_keyframe_requested is called when a viewer asked the server for a
-// keyframe of one of our streams.
+// keyframe of one of our streams. A camera paused for want of viewers has one
+// now, so it goes on at once.
 video_keyframe_requested :: proc(c: ^Voice_Client, stream: proto.Video_Stream) {
-	if o := &c.video.outs[stream]; o.live {
-		o.want_key = true
+	o := &c.video.outs[stream]
+	if !o.live {
+		return
+	}
+	o.want_key = true
+	if o.paused {
+		o.demand.viewers = max(o.demand.viewers, 1)
+		follow_demand(o, time.tick_now())
 	}
 }
 
@@ -923,22 +1054,24 @@ video_watch :: proc(c: ^Voice_Client, user: proto.User_Num) {
 	publish_watching(c)
 }
 
-// video_watch_cameras watches the cameras of `users`, and stops watching all
-// others.
-video_watch_cameras :: proc(c: ^Voice_Client, users: []proto.User_Num) {
+// video_watch_cameras watches the cameras of `users`, each in a tile of the
+// size `tiles` says (none if nil), and stops watching all others.
+video_watch_cameras :: proc(c: ^Voice_Client, users: []proto.User_Num, tiles: [][2]int) {
 	v := &c.video
 	for &in_ in v.ins[1:] {
 		if in_.key.user != 0 && !slice.contains(users, in_.key.user) {
 			in_stop(c, &in_)
 		}
 	}
-	next: for user in users {
+	next: for user, i in users {
 		if user == 0 {
 			continue
 		}
+		tile := tiles[i] if i < len(tiles) else {}
 		free_in: ^Video_In
 		for &in_ in v.ins[1:] {
 			if in_.key.user == user {
+				in_.tile = tile
 				continue next
 			}
 			if in_.key.user == 0 && free_in == nil {
@@ -949,6 +1082,7 @@ video_watch_cameras :: proc(c: ^Voice_Client, users: []proto.User_Num) {
 			break // more than MAX_CAMERAS
 		}
 		in_start(free_in, {user, .Camera})
+		free_in.tile = tile
 	}
 }
 
@@ -968,7 +1102,7 @@ in_start :: proc(in_: ^Video_In, key: Video_Key) {
 @(private = "file")
 in_stop :: proc(c: ^Voice_Client, in_: ^Video_In) {
 	if in_.watching {
-		buf: [proto.WATCH_SIZE]u8
+		buf: [proto.WATCH_TILE_SIZE]u8
 		send_watch(c, proto.encode_watch(&buf, in_.key.user, false, in_.key.stream, stop = true))
 	}
 	video_show_end(in_.key)
@@ -1031,12 +1165,19 @@ drive_in :: proc(c: ^Voice_Client, in_: ^Video_In) {
 		due = true
 		in_.last_key_asked = time.tick_now()
 	}
+	// A server that takes tile sizes hears of a new one soon (but not at every
+	// step of a window being resized).
+	tile := in_.tile if c.rpc.server.demand && in_.key.stream == .Camera else {}
+	if tile != in_.tile_sent && time.tick_since(in_.last_watch) >= WATCH_TILE_EVERY {
+		due = true
+	}
 	if !due {
 		return
 	}
-	buf: [proto.WATCH_SIZE]u8
-	send_watch(c, proto.encode_watch(&buf, in_.key.user, need_key, in_.key.stream))
+	buf: [proto.WATCH_TILE_SIZE]u8
+	send_watch(c, proto.encode_watch(&buf, in_.key.user, need_key, in_.key.stream, tile = tile))
 	in_.last_watch = time.tick_now()
+	in_.tile_sent = tile
 }
 
 // send_watch sends a Watch, if there is a media link to send it on.

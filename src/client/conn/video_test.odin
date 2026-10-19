@@ -563,3 +563,64 @@ test_camera_config :: proc(t: ^testing.T) {
 	testing.expect_value(t, camera_quality("high"), Camera_Quality.High)
 	testing.expect_value(t, camera_quality(""), Camera_Quality.Auto)
 }
+
+@(test)
+test_demand_config :: proc(t: ^testing.T) {
+	tier := camera_config(1, false, 0) // 1280x720, 1500
+	// No tile said: the tier.
+	testing.expect_value(t, demand_config(tier, {}), tier)
+	// The smallest size that covers the tile, at its bitrate.
+	cfg := demand_config(tier, {600, 340})
+	testing.expect_value(t, cfg.max, [2]i32{640, 360})
+	testing.expect_value(t, cfg.kbit, 450)
+	testing.expect_value(t, cfg.fps, tier.fps)
+	testing.expect_value(t, demand_config(tier, {700, 300}).max, [2]i32{960, 540})
+	// Never above the tier.
+	testing.expect_value(t, demand_config(tier, {1600, 900}), tier)
+	testing.expect_value(t, demand_config(tier, {4000, 3000}), tier)
+	// Nor above the tier's bitrate.
+	low := camera_config(9, false, 0) // 640x360, 450
+	testing.expect_value(t, demand_config(low, {320, 180}).kbit, 180)
+	testing.expect_value(t, demand_config(low, {300, 160}).max, [2]i32{320, 180})
+}
+
+@(test)
+test_follow_demand :: proc(t: ^testing.T) {
+	o := Video_Out {
+		stream = .Camera,
+		live   = true,
+		tier   = camera_config(1, false, 0),
+	}
+	now := time.tick_now()
+	// No Demand yet (an older server): the tier, and not paused.
+	follow_demand(&o, now)
+	testing.expect_value(t, o.applied, o.tier)
+	testing.expect(t, !o.paused)
+
+	// Nobody watching: paused.
+	o.demand, o.demand_at = {stream = .Camera}, now
+	follow_demand(&o, now)
+	testing.expect(t, o.paused)
+
+	// A viewer with a small tile: going on, smaller once it has stayed so.
+	o.demand = {stream = .Camera, tile = {400, 224}, viewers = 1}
+	follow_demand(&o, now)
+	testing.expect(t, !o.paused)
+	testing.expect_value(t, o.applied.max, [2]i32{1280, 720})
+	later := time.tick_add(now, DEMAND_DOWN_AFTER)
+	o.demand_at = later
+	follow_demand(&o, later)
+	testing.expect_value(t, o.applied.max, [2]i32{480, 270})
+
+	// A bigger tile: at once.
+	o.demand.tile = {960, 540}
+	follow_demand(&o, later)
+	testing.expect_value(t, o.applied.max, [2]i32{960, 540})
+
+	// The server goes quiet: back to the tier, not paused.
+	o.demand.viewers = 0
+	quiet := time.tick_add(later, DEMAND_STALE)
+	follow_demand(&o, quiet)
+	testing.expect(t, !o.paused)
+	testing.expect_value(t, o.applied, o.tier)
+}

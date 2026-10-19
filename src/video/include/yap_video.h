@@ -31,7 +31,7 @@ extern "C" {
 #endif
 
 // What a client was built against. yv_create refuses any other.
-#define YV_API_VERSION 9
+#define YV_API_VERSION 10
 
 typedef struct yv_context yv_context;
 
@@ -385,6 +385,13 @@ yv_share_set_bitrate's changes come back to. Any thread.
 */
 YV_API void yv_share_configure(yv_share *share, int32_t fps, int32_t max_width, int32_t max_height,
                                uint32_t kbit);
+
+/*
+yv_share_pause stops encoding while nobody watches (`paused`), and goes on
+from a keyframe when it's false again. The capture keeps going, and a
+camera's preview with it. Any thread.
+*/
+YV_API void yv_share_pause(yv_share *share, bool paused);
 
 /*
 yv_share_preview is a camera's newest picture as it's encoded (not

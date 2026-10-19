@@ -168,7 +168,7 @@ test_media_link :: proc(t: ^testing.T) {
 
 	// The viewer starts watching the sharer and asks for a keyframe. The
 	// request is passed on to the sharer on its media link.
-	watch_buf: [proto.WATCH_SIZE]u8
+	watch_buf: [proto.WATCH_TILE_SIZE]u8
 	media_link_send(m, &links[1], proto.encode_watch(&watch_buf, sharer.num, true))
 	pt = media_link_recv(t, &links[0], out[:])
 	testing.expect_value(t, proto.Message_Kind(pt[0]), proto.Message_Kind.Keyframe)
@@ -327,10 +327,15 @@ test_media_camera :: proc(t: ^testing.T) {
 		testing.expect_value(t, proto.Message_Kind(pt[0]), proto.Message_Kind.Welcome)
 	}
 
-	// Watching the camera asks the sharer for a keyframe of the camera.
-	watch_buf: [proto.WATCH_SIZE]u8
+	// Watching the camera tells the sharer at once that it has a viewer, one
+	// that didn't say how big it shows it, and asks for a keyframe of it.
+	watch_buf: [proto.WATCH_TILE_SIZE]u8
 	media_link_send(m, &links[1], proto.encode_watch(&watch_buf, sharer.num, true, .Camera))
 	pt := media_link_recv(t, &links[0], out[:])
+	demand, demand_ok := proto.decode_demand(pt)
+	testing.expect(t, demand_ok)
+	testing.expect_value(t, demand, proto.Demand{stream = .Camera, viewers = 1})
+	pt = media_link_recv(t, &links[0], out[:])
 	stream, key_ok := proto.decode_keyframe(pt)
 	testing.expect(t, key_ok)
 	testing.expect_value(t, stream, proto.Video_Stream.Camera)
@@ -409,8 +414,14 @@ test_media_camera :: proc(t: ^testing.T) {
 	)
 	media_reports(m)
 	got: [proto.Video_Stream]proto.Video_Reports
-	for _ in 0 ..< 2 {
+	for _ in 0 ..< 3 {
 		pt = media_link_recv(t, &links[0], out[:])
+		if proto.Message_Kind(pt[0]) == .Demand {
+			demand, demand_ok = proto.decode_demand(pt)
+			testing.expect(t, demand_ok)
+			testing.expect_value(t, demand.viewers, 1)
+			continue
+		}
 		summary, summary_stream, summary_ok := proto.decode_report_down(pt)
 		testing.expect(t, summary_ok)
 		got[summary_stream] = summary
@@ -426,6 +437,28 @@ test_media_camera :: proc(t: ^testing.T) {
 		proto.Video_Reports{viewers = 1, worst = {loss = 30, kbit = 400}},
 	)
 
+	// A tile that says its size, and then another, are told at once; the same
+	// size again isn't.
+	media_link_send(
+		m,
+		&links[1],
+		proto.encode_watch(&watch_buf, sharer.num, false, .Camera, tile = {640, 360}),
+	)
+	pt = media_link_recv(t, &links[0], out[:])
+	demand, demand_ok = proto.decode_demand(pt)
+	testing.expect(t, demand_ok)
+	testing.expect_value(
+		t,
+		demand,
+		proto.Demand{stream = .Camera, tile = {640, 360}, viewers = 1},
+	)
+	media_link_send(
+		m,
+		&links[1],
+		proto.encode_watch(&watch_buf, sharer.num, false, .Camera, tile = {640, 360}),
+	)
+	testing.expect(t, media_link_quiet(&links[0]))
+
 	// Ending the camera's lease stops only the camera.
 	media_link_send(
 		m,
@@ -439,6 +472,17 @@ test_media_camera :: proc(t: ^testing.T) {
 	_, f, ok = proto.decode_video_down(pt)
 	testing.expect(t, ok)
 	testing.expect_value(t, f.stream, proto.Video_Stream.Screen)
+
+	// With nobody watching it, the sharer is told so once a second.
+	media_reports(m)
+	for _ in 0 ..< 2 {
+		pt = media_link_recv(t, &links[0], out[:])
+		if proto.Message_Kind(pt[0]) == .Demand {
+			demand, demand_ok = proto.decode_demand(pt)
+			testing.expect(t, demand_ok)
+			testing.expect_value(t, demand, proto.Demand{stream = .Camera})
+		}
+	}
 
 	// Without the Camera flag, a camera isn't relayed even with a lease, and
 	// what was kept for it is forgotten.

@@ -13,8 +13,10 @@ import "core:time"
 //	client -> server  Video     [kind][frame u32][ts u32][index u16][count u16][flags u8][codec u8][data]
 //	server -> client  Video     [kind][sharer u32][frame u32][ts u32][index u16][count u16][flags u8][codec u8][data]
 //	client -> server  Watch     [kind][sharer u32][flags u8]
+//	client -> server  Watch     [kind][sharer u32][flags u8][width u16][height u16]
 //	server -> client  Keyframe  [kind]
 //	server -> client  Keyframe  [kind][stream u8]
+//	server -> sharer  Demand    [kind][stream u8][width u16][height u16][viewers u16]
 //
 // A frame is split into `count` fragments, and `index` says which fragment
 // this is. All but the last carry VIDEO_FRAGMENT_SIZE bytes. Frames are
@@ -55,6 +57,17 @@ import "core:time"
 // A viewer holds one lease on a screen at most, and watching another screen
 // replaces it, but a lease on each of up to MAX_CAMERAS cameras. WATCH_STOP
 // ends a lease at once.
+//
+// Demand: a camera goes to all of its viewers as one stream, so it need not be
+// bigger than the largest of them shows it. A viewer's Watch on a camera says
+// how big its tile is, in pixels, where the server says it takes that
+// (Server_Info.demand). Once a second, and at once when a lease starts or a
+// tile changes size, the server tells the sharer the largest tile any viewer
+// in its room shows the camera at, and how many viewers there are (Demand). A
+// size of 0 means that somebody didn't say, so there is no limit. With no
+// viewers the sharer stops encoding until there are, or until a viewer asks
+// for a keyframe. A client that knows nothing of it never gets a Demand,
+// since it never sends a camera.
 
 VIDEO_UP_HEADER_SIZE :: 1 + 4 + 4 + 2 + 2 + 1 + 1
 VIDEO_DOWN_HEADER_SIZE :: VIDEO_UP_HEADER_SIZE + 4
@@ -67,6 +80,8 @@ MAX_VIDEO_FRAME_SIZE :: 1024 * 1024
 MAX_VIDEO_FRAGMENTS :: (MAX_VIDEO_FRAME_SIZE + VIDEO_FRAGMENT_SIZE - 1) / VIDEO_FRAGMENT_SIZE
 
 WATCH_SIZE :: 1 + 4 + 1
+WATCH_TILE_SIZE :: WATCH_SIZE + 2 + 2
+DEMAND_SIZE :: 1 + 1 + 2 + 2 + 2
 KEYFRAME_SIZE :: 1
 KEYFRAME_CAMERA_SIZE :: KEYFRAME_SIZE + 1
 
@@ -248,14 +263,18 @@ Watch :: struct {
 	stream:   Video_Stream,
 	need_key: bool,
 	stop:     bool, // ends the lease instead of renewing it
+	// How big the viewer shows it, in pixels; 0 if it didn't say.
+	tile:     [2]int,
 }
 
+// encode_watch writes a Watch, with the tile's size if `tile` has one.
 encode_watch :: proc(
-	out: ^[WATCH_SIZE]u8,
+	out: ^[WATCH_TILE_SIZE]u8,
 	sharer: User_Num,
 	need_key: bool,
 	stream := Video_Stream.Screen,
 	stop := false,
+	tile := [2]int{},
 ) -> []u8 {
 	out[0] = u8(Message_Kind.Watch)
 	endian.unchecked_put_u32le(out[1:], u32(sharer))
@@ -263,16 +282,59 @@ encode_watch :: proc(
 		(WATCH_NEED_KEY if need_key else 0) |
 		(WATCH_CAMERA if stream == .Camera else 0) |
 		(WATCH_STOP if stop else 0)
+	if tile.x <= 0 || tile.y <= 0 {
+		return out[:WATCH_SIZE]
+	}
+	endian.unchecked_put_u16le(out[6:], u16(min(tile.x, 65535)))
+	endian.unchecked_put_u16le(out[8:], u16(min(tile.y, 65535)))
 	return out[:]
 }
 
-decode_watch :: proc(pt: []u8) -> Watch {
-	return {
+decode_watch :: proc(pt: []u8) -> (w: Watch) {
+	w = {
 		sharer = User_Num(endian.unchecked_get_u32le(pt[1:])),
 		stream = .Camera if pt[5] & WATCH_CAMERA != 0 else .Screen,
 		need_key = pt[5] & WATCH_NEED_KEY != 0,
 		stop = pt[5] & WATCH_STOP != 0,
 	}
+	if len(pt) >= WATCH_TILE_SIZE {
+		w.tile = {
+			int(endian.unchecked_get_u16le(pt[6:])),
+			int(endian.unchecked_get_u16le(pt[8:])),
+		}
+	}
+	return
+}
+
+// Demand is what the server says of one of a sharer's streams: the largest
+// tile any viewer shows it at (0 by 0 if one of them didn't say), and how many
+// viewers there are.
+Demand :: struct {
+	stream:  Video_Stream,
+	tile:    [2]int,
+	viewers: int,
+}
+
+encode_demand :: proc(out: ^[DEMAND_SIZE]u8, d: Demand) -> []u8 {
+	out[0] = u8(Message_Kind.Demand)
+	out[1] = u8(d.stream)
+	endian.unchecked_put_u16le(out[2:], u16(clamp(d.tile.x, 0, 65535)))
+	endian.unchecked_put_u16le(out[4:], u16(clamp(d.tile.y, 0, 65535)))
+	endian.unchecked_put_u16le(out[6:], u16(clamp(d.viewers, 0, 65535)))
+	return out[:]
+}
+
+@(require_results)
+decode_demand :: proc(pt: []u8) -> (d: Demand, ok: bool) {
+	if len(pt) != DEMAND_SIZE || pt[1] > u8(max(Video_Stream)) {
+		return
+	}
+	return {
+			stream = Video_Stream(pt[1]),
+			tile = {int(endian.unchecked_get_u16le(pt[2:])), int(endian.unchecked_get_u16le(pt[4:]))},
+			viewers = int(endian.unchecked_get_u16le(pt[6:])),
+		},
+		true
 }
 
 encode_keyframe :: proc(out: ^[KEYFRAME_CAMERA_SIZE]u8, stream := Video_Stream.Screen) -> []u8 {

@@ -359,6 +359,13 @@ EM_JS(void, yap_video_camera_configure, (int fps, int kbit, int max_width, int m
 	if (v) v.configureCamera(fps, kbit, max_width, max_height);
 });
 
+/* Stops encoding the camera while nobody watches it (1), or goes on (0),
+   from a keyframe. */
+EM_JS(void, yap_video_camera_pause, (int paused), {
+	const v = Module.yapVideo;
+	if (v) v.pauseCamera(paused !== 0);
+});
+
 /* The settings' cameras: has the browser list them again (the answer comes
    later), how many there are as last listed, and the id and name of one
    ("" each until a camera has been allowed). */

@@ -746,8 +746,9 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Watch_Command:
 			video_watch(c, v.user)
 		case Watch_Cameras_Command:
-			users := v.users
-			video_watch_cameras(c, users[:clamp(v.count, 0, len(users))])
+			users, tiles := v.users, v.tiles
+			n := clamp(v.count, 0, len(users))
+			video_watch_cameras(c, users[:n], tiles[:n])
 		case Watch_Camera_Names_Command:
 			video_watch_camera_names(c, v.names)
 		case DM_Command:

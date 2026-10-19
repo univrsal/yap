@@ -53,6 +53,9 @@ Server_Details :: struct {
 	// maximum bitrate of a camera in kbit/s.
 	max_cameras:    int,
 	camera_kbit:    u32,
+	// It takes a camera's tile size on Watch and says what a camera's viewers
+	// want (proto.Demand).
+	demand:         bool,
 	// What the server is for (owned), and its picture: the id it goes by, and
 	// its JPEG once fetched (owned, nil until then). See server_info.odin.
 	description:    string,

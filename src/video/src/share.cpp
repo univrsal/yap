@@ -258,6 +258,7 @@ struct yv_share {
 	std::thread thread;
 	std::atomic<bool> stop{false};
 	std::atomic<bool> want_key{true};
+	std::atomic<bool> paused{false}; // yv_share_pause's
 	std::atomic<uint32_t> want_kbit{0}; // yv_share_set_bitrate's; 0 for none
 	std::atomic<uint32_t> encoding_kbit{0}; // `kbit`, for yv_share_get_bitrate
 	std::atomic<uint32_t> want_codecs{0}; // yv_share_set_codecs's; 0 for any
@@ -480,6 +481,21 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 	follow_bitrate(s);
 	int w, h;
 	fit(pipe.width(), pipe.height(), s->config.max_width, s->config.max_height, w, h);
+	if (s->paused.load()) {
+		// Nobody watches: the preview still moves, but nothing is encoded, and
+		// what follows starts from a keyframe.
+		if (Output *preview = s->preview.load()) {
+			av_frame_unref(s->frame);
+			if (pipe.convert(s->frame, nullptr, w, h)) {
+				s->frame->color_range = AVCOL_RANGE_MPEG;
+				s->frame->colorspace = AVCOL_SPC_BT709;
+				preview->submit(s->frame);
+			}
+			av_frame_unref(s->frame);
+		}
+		s->want_key.store(true);
+		return true;
+	}
 	if (!s->enc || w != s->enc_w || h != s->enc_h) {
 		if (!open_encoder(s, pipe, w, h)) {
 			fail(s, "the encoder (" + s->encoder_name + ") won't start");
@@ -703,7 +719,8 @@ void run(yv_share *s) {
 		}
 		now = now_us();
 		bool have = pipe->width() > 0;
-		bool key = s->want_key.load() && have;
+		// A paused share wants its next frame to be a keyframe, but not now.
+		bool key = s->want_key.load() && have && !s->paused.load();
 		if ((pending && now >= next_due) || key) {
 			if (!encode(s, *pipe, sets, now)) {
 				break;
@@ -781,6 +798,12 @@ YV_API yv_share *yv_camera_start(yv_context *ctx, const yv_camera_config *config
 	memcpy(camera, config->camera, sizeof(camera));
 	camera[sizeof(camera) - 1] = 0;
 	return yv::start_share(ctx, c, camera);
+}
+
+YV_API void yv_share_pause(yv_share *s, bool paused) {
+	if (s && s->paused.exchange(paused) != paused) {
+		yv::log(YV_LOG_INFO, "share: %s", paused ? "nobody watches, so it pauses" : "watched again");
+	}
 }
 
 YV_API void yv_share_configure(yv_share *s, int32_t fps, int32_t max_width, int32_t max_height,

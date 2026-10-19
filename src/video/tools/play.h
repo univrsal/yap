@@ -28,6 +28,7 @@ struct Play_Options {
 	const char *camera_id = ""; // "": the first
 	// Fit within this 3 seconds in (yv_share_configure), as a room's tier does.
 	int then_w = 0, then_h = 0;
+	bool then_pause = false; // pause 3 seconds in, go on 2 seconds later (yv_share_pause)
 };
 
 int play(yv_context *ctx, const Play_Options &opt);

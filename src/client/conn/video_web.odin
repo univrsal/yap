@@ -58,6 +58,8 @@ foreign _ {
 	yap_video_camera_start :: proc(fps, kbit, max_width, max_height: i32, device: cstring) ---
 	// Has the camera go on at another size, frame rate or bitrate.
 	yap_video_camera_configure :: proc(fps, kbit, max_width, max_height: i32) ---
+	// Stops encoding the camera while nobody watches it, or goes on.
+	yap_video_camera_pause :: proc(paused: i32) ---
 	// The settings' cameras, as the browser last listed them.
 	yap_video_cameras_refresh :: proc() ---
 	yap_video_camera_count :: proc() -> i32 ---
@@ -253,6 +255,12 @@ video_camera_configure :: proc(config: Share_Config) {
 
 video_camera_stop :: proc() {
 	yap_video_stop(i32(proto.Video_Stream.Camera))
+}
+
+// video_camera_pause stops encoding the camera while nobody watches it, and
+// goes on from a keyframe when `paused` is false again (video.odin).
+video_camera_pause :: proc(paused: bool) {
+	yap_video_camera_pause(1 if paused else 0)
 }
 
 // video_cameras lists the cameras as the browser last said, allocated with

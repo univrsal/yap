@@ -134,7 +134,7 @@ test_video_rejects :: proc(t: ^testing.T) {
 
 @(test)
 test_watch_roundtrip :: proc(t: ^testing.T) {
-	buf: [WATCH_SIZE]u8
+	buf: [WATCH_TILE_SIZE]u8
 	msg := encode_watch(&buf, 12, true)
 	kind, ok := message_kind(msg)
 	testing.expect(t, ok)
@@ -147,6 +147,19 @@ test_watch_roundtrip :: proc(t: ^testing.T) {
 	// A camera, and ending a lease.
 	msg = encode_watch(&buf, 12, false, .Camera, stop = true)
 	testing.expect_value(t, decode_watch(msg), Watch{sharer = 12, stream = .Camera, stop = true})
+
+	// A camera's tile.
+	msg = encode_watch(&buf, 12, false, .Camera, tile = {640, 360})
+	testing.expect_value(t, len(msg), WATCH_TILE_SIZE)
+	kind, ok = message_kind(msg)
+	testing.expect(t, ok)
+	testing.expect_value(
+		t,
+		decode_watch(msg),
+		Watch{sharer = 12, stream = .Camera, tile = {640, 360}},
+	)
+	_, ok = message_kind(msg[:WATCH_TILE_SIZE - 1])
+	testing.expect(t, !ok)
 
 	key_buf: [KEYFRAME_CAMERA_SIZE]u8
 	msg = encode_keyframe(&key_buf)
@@ -565,4 +578,26 @@ test_summarize_reports :: proc(t: ^testing.T) {
 	s = summarize_reports(close)
 	testing.expect_value(t, s.left_out, 0)
 	testing.expect_value(t, s.worst.loss, 40)
+}
+
+@(test)
+test_demand_roundtrip :: proc(t: ^testing.T) {
+	buf: [DEMAND_SIZE]u8
+	d := Demand {
+		stream  = .Camera,
+		tile    = {960, 540},
+		viewers = 3,
+	}
+	msg := encode_demand(&buf, d)
+	kind, ok := message_kind(msg)
+	testing.expect(t, ok)
+	testing.expect_value(t, kind, Message_Kind.Demand)
+	got, got_ok := decode_demand(msg)
+	testing.expect(t, got_ok)
+	testing.expect_value(t, got, d)
+	_, ok = message_kind(msg[:DEMAND_SIZE - 1])
+	testing.expect(t, !ok)
+	buf[1] = 7 // no such stream
+	_, got_ok = decode_demand(buf[:])
+	testing.expect(t, !got_ok)
 }

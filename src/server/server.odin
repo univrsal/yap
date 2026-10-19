@@ -866,7 +866,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		handle_download_ack(s, c.conn, pt)
 	case .Transfer_Cancel:
 		handle_transfer_cancel(s, c.conn, pt)
-	case .State, .Refused, .Keyframe, .Pong, .Welcome, .Upload_Ack, .Download_Chunk:
+	case .State, .Refused, .Keyframe, .Demand, .Pong, .Welcome, .Upload_Ack, .Download_Chunk:
 	// Server-to-client only.
 	case .Video, .Watch, .Nack, .Report:
 	// Screen sharing only uses the media link (media.odin).

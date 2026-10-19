@@ -96,6 +96,7 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 			push_key = push_key[:],
 			max_cameras = 9,
 			camera_kbit = 4000,
+			demand = true,
 		},
 	)
 	testing.expect(t, ok)
@@ -110,8 +111,16 @@ test_server_info_description_and_icon :: proc(t: ^testing.T) {
 	testing.expect(t, string(info.push_key) == string(push_key[:]))
 	testing.expect_value(t, info.max_cameras, 9)
 	testing.expect_value(t, info.camera_kbit, 4000)
+	testing.expect(t, info.demand)
 	_, ok = encode_server_info(buf[:], {max_cameras = MAX_CAMERAS + 1})
 	testing.expect(t, !ok)
+
+	// An older server's info ends after the cameras, so it has no Demand.
+	body = body[:len(body) - 1]
+	info, ok = decode_server_info(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, info.max_cameras, 9)
+	testing.expect(t, !info.demand)
 
 	// An older server's info ends after the push key, so it allows no cameras.
 	CAMERAS :: 1 + 4

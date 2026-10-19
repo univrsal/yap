@@ -110,7 +110,7 @@ the server's `video_up_to_down` still just puts the sharer in front
 | Report up | `[sharer u32][loss u16][delay u16][kbit u32]` | `[stream u8]` appended |
 | Report down | `[viewers][left out][loss][delay][kbit]` | `[stream u8]` appended |
 | Keyframe | `[kind]` | `[kind][stream u8]`; no byte means the screen |
-| Demand (new, phase 10) | - | server → sharer: `[stream u8][width u16][height u16][viewers u16]` |
+| Demand (new, phase 10) | - | server → sharer: `[stream u8][width u16][height u16][viewers u16]`; Watch on a camera gains `[width u16][height u16]` where `Server_Info.demand` says so |
 
 Messages are told apart by length, so the old ones still mean the
 screen, and an old client never takes a camera lease, so it never gets
@@ -298,8 +298,8 @@ layer.
 | 6 | `yap_video` cameras on Windows: DirectShow (libdshowcapture), `yv_share_preview`, `yv_share_configure` | L | library, client | 2 | done (2026-10-19): under wine, then by the owner on Windows (OBS's virtual camera to a Linux client) |
 | 7 | Linux: V4L2, MJPEG | M | library | 6 | built (2026-10-19): OBS's v4l2loopback camera, in yv-loopback and the client |
 | 8 | macOS: AVFoundation, `Info.plist` | M | library, scripts | 6 | built (2026-10-19): on the Mac mini with the fake camera, the client by the owner; no real camera there yet |
-| 9 | Settings: camera, quality, mirror, preview | S | client | 4, 6 | built (2026-10-19): headless Edge's fake camera; the desktop builds, untried |
-| 10 | Demand: viewers' tile sizes, pausing unwatched cameras | M | protocol, server, client | 5 | - |
+| 9 | Settings: camera, quality, mirror, preview | S | client | 4, 6 | done (2026-10-19): headless Edge's fake camera; the owner on macOS (fake camera) and Windows (OBS) |
+| 10 | Demand: viewers' tile sizes, pausing unwatched cameras | M | protocol, server, client | 5 | built (2026-10-19): two headless Edges; the library's pause in yv-loopback on the Mac |
 
 Why this order:
 
@@ -1007,8 +1007,77 @@ What the owner saw led to this; it isn't one of the plan's phases.
     it off brought the preview back.
   - conn (40) and settings (6) tests pass; the client type-checks for
     Windows and the web, builds on the Mac, and the web build builds.
-- **Not tried**: the desktop's preview and switching (the library's
-  `video_camera_look`), which needs a desktop client clicked through.
+- **Tried by the owner** (2026-10-19): the settings on macOS with the
+  fake camera, and on Windows with the OBS virtual camera.
+
+### 10. Demand
+
+*As built:*
+
+- **Protocol** (`proto/video.odin`):
+  - A Watch on a camera may end with the tile's size in pixels
+    (`WATCH_TILE_SIZE`: `[width u16][height u16]`).
+  - Demand, the new message kind 50, server to sharer:
+    `[stream u8][width u16][height u16][viewers u16]`. A size of 0 means
+    a viewer didn't say, so there's no limit.
+  - `Server_Info.demand` says the server takes tile sizes; a client only
+    sends them then. Older servers drop the longer Watch, so this keeps
+    new clients working with them.
+- **Server** (`media.odin`):
+  - A lease keeps its tile (`Media_Lease.tile`).
+  - `media_demand` works out the largest tile and the viewers in the
+    sharer's room.
+  - It's sent once a second with the reports, to every camera that's
+    on, nobody watching included. It's also sent at once when a lease
+    starts or its tile changes size, so a new viewer wakes a paused
+    camera without waiting.
+- **Viewers** (`ui_camera.odin`, `conn/video.odin`):
+  - Each drawn tile notes its size in the framebuffer's pixels, rounded
+    up to 16, the largest if a camera is drawn twice (the call's corner
+    and the pop-out).
+  - The list goes with `Watch_Cameras_Command` when users or sizes
+    change. A changed size goes out with the next Watch, at most every
+    250 ms (`WATCH_TILE_EVERY`), so resizing the window doesn't flood
+    the link.
+- **The sharer** (`follow_demand`):
+  - It sends at the smallest of `CAMERA_SIZES` that covers the largest
+    tile, never above the room's tier. The sizes and rates are 1080p
+    3500, 720p 1500, 540p 800, 360p 450, 270p 300 and 180p 180.
+  - Larger at once, smaller after 3 s (`DEMAND_DOWN_AFTER`), since each
+    change costs a keyframe.
+  - `follow_camera_tier` now only works out the room's tier;
+    `follow_demand` is what configures the camera.
+  - **Paused with no viewers**: `yv_share_pause` (library API 10) and
+    the page's `pauseCamera`. The capture goes on, and so does the self
+    view (the library still converts the frame for the preview, the page
+    still makes its preview frame). Nothing is encoded, and the camera
+    goes on from a keyframe.
+  - It goes on when a Demand has viewers, or at once when a viewer asks
+    for a keyframe.
+  - A Demand older than 3 s (`DEMAND_STALE`) isn't followed: back to the
+    tier, not paused. An older server never sends one, so nothing
+    changes there.
+  - yv-loopback gains `--then-pause`.
+- **Tried** (two headless Edges with their fake cameras, the server
+  built from this tree):
+  - admin's camera on with nobody watching: paused within a second of
+    the camera being taken.
+  - bot1 opened the Video tab: it went on at once, then dropped to
+    960x540 at 800 kbit/s for bot1's 912x512 tile after 3 s.
+  - Back to Chat: paused again; the tab again: on again, with a picture.
+  - bot1's camera on too: the grid's two tiles took admin's camera to
+    640x360 at 450 for a 496x288 tile. bot1's own camera, unwatched,
+    paused, while its self view kept moving.
+  - On the Mac, `yv-loopback --camera fake --then-pause`: no frames while
+    paused, then on again with a second keyframe.
+  - proto (92), server and conn (42, with `test_demand_config` and
+    `test_follow_demand`) tests pass. One server test,
+    `test_attachments_quota`, fails now and then on its own timing,
+    also without these changes. The client type-checks for Windows and
+    the web, and builds on the Mac.
+- **Not tried**: a desktop client watching or being watched (its tile
+  sizes come from the window's scale, so a Retina display asks for
+  twice the points), and the pop-out window's tiles.
 
 ## Risks
 

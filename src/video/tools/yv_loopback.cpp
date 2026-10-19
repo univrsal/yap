@@ -12,14 +12,16 @@ with bitrate and latency printed, to try encoders on new hardware.
 
 	yv-loopback --camera [ID] [--encoder NAME] [--kbit N] [--fps N] [--max WxH]
 	                    [--seconds S] [--dump picture.bmp] [--out stream]
-	                    [--then-kbit N] [--then-max WxH] [--debug]
+	                    [--then-kbit N] [--then-max WxH] [--then-pause] [--debug]
 
 --out saves what the share encoded, with the extension --play needs
 added (.h264, .hevc or .obu). --then-kbit changes the bitrate 3 seconds
 in, as the client does when its viewers fall behind. --camera shares a
 camera (the first, or the one with that ID from --list) instead of the
 screen, and --then-max has it fit a smaller size 3 seconds in, as the
-client does when more cameras come on in the room.
+client does when more cameras come on in the room. --then-pause pauses
+it 3 seconds in and goes on 2 seconds later, as the client does while
+nobody watches.
 */
 #include "play.h"
 #include "yap_video.h"
@@ -120,7 +122,7 @@ void usage() {
 	        "                   [--dump picture.bmp] [--out stream] [--then-kbit N] [--debug]\n"
 	        "       yv-loopback --camera [ID] [--encoder NAME] [--kbit N] [--fps N] [--max WxH]\n"
 	        "                   [--seconds S] [--dump picture.bmp] [--out stream]\n"
-	        "                   [--then-kbit N] [--then-max WxH] [--debug]\n");
+	        "                   [--then-kbit N] [--then-max WxH] [--then-pause] [--debug]\n");
 }
 
 } // namespace
@@ -172,10 +174,20 @@ yv_share *start_share(yv_context *ctx, const Play_Options &opt) {
 }
 
 void follow_then(yv_share *share, const Play_Options &opt, double seconds, bool &done) {
+	static bool resumed = false;
+	if (opt.then_pause && done && !resumed && seconds >= 5) {
+		resumed = true;
+		printf("going on\n");
+		yv_share_pause(share, false);
+	}
 	if (done || seconds < 3) {
 		return;
 	}
 	done = true;
+	if (opt.then_pause) {
+		printf("paused\n");
+		yv_share_pause(share, true);
+	}
 	if (opt.then_kbit) {
 		printf("bitrate now %u kbit/s\n", opt.then_kbit);
 		yv_share_set_bitrate(share, opt.then_kbit);
@@ -250,6 +262,8 @@ int main(int argc, char **argv) {
 			play_opt.dump = argv[++i];
 		} else if (strcmp(argv[i], "--out") == 0 && more) {
 			play_opt.out = argv[++i];
+		} else if (strcmp(argv[i], "--then-pause") == 0) {
+			play_opt.then_pause = true;
 		} else if (strcmp(argv[i], "--then-kbit") == 0 && more) {
 			play_opt.then_kbit = static_cast<unsigned>(atoi(argv[++i]));
 		} else if (strcmp(argv[i], "--debug") == 0) {

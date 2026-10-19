@@ -25,8 +25,10 @@ import "common:proto"
 // another server is shown.
 //
 // A camera is only watched while one of its tiles is drawn: drawing a tile
-// notes it (note_drawn), and after the frame the list goes to the network if
-// it changed (camera_after_frame).
+// notes it and its size (note_drawn), and after the frame the list goes to the
+// network if it changed (camera_after_frame). The size, in pixels, lets the
+// sharer send no bigger than the largest tile anyone shows it in (conn's
+// Demand).
 //
 // A call can be started or answered with the camera on ("Video call",
 // "Answer with video"); otherwise the camera is off until its button is
@@ -59,8 +61,10 @@ UI_Camera :: struct {
 	// The cameras drawn this frame, and what was last asked of which session
 	// (camera_after_frame).
 	drawn:     [proto.MAX_CAMERAS]proto.User_Num,
+	drawn_at:  [proto.MAX_CAMERAS][2]int, // each one's largest tile, in pixels
 	drawn_n:   int,
 	sent:      [proto.MAX_CAMERAS]proto.User_Num,
+	sent_at:   [proto.MAX_CAMERAS][2]int,
 	sent_n:    int,
 	sent_to:   ^Net_Session,
 	// The settings' preview was shown this frame (camera_settings); it is let
@@ -302,14 +306,34 @@ camera_fullscreen :: proc(ui: ^UI) -> bool {
 	return ui.camera.full && conn.video_is_fullscreen() && has_video(ui.view)
 }
 
-// note_drawn has a camera that a tile shows watched (camera_after_frame).
+// The step tile sizes are rounded up to, so that a few pixels either way
+// aren't news.
 @(private = "file")
-note_drawn :: proc(ui: ^UI, user: proto.User_Num) {
+TILE_STEP :: 16
+
+// note_drawn has a camera that a tile `r` shows watched (camera_after_frame),
+// at the largest size it is drawn at this frame.
+@(private = "file")
+note_drawn :: proc(ui: ^UI, user: proto.User_Num, r: mu.Rect) {
 	cam := &ui.camera
-	if user == 0 || slice.contains(cam.drawn[:cam.drawn_n], user) || cam.drawn_n == len(cam.drawn) {
+	if user == 0 {
+		return
+	}
+	// In the framebuffer's pixels, which is what the picture is drawn in.
+	scale := ui.metrics.scale if ui.metrics.scale > 0 else 1
+	size := [2]int {
+		(int(f32(r.w) * scale) + TILE_STEP - 1) / TILE_STEP * TILE_STEP,
+		(int(f32(r.h) * scale) + TILE_STEP - 1) / TILE_STEP * TILE_STEP,
+	}
+	if i, found := slice.linear_search(cam.drawn[:cam.drawn_n], user); found {
+		cam.drawn_at[i] = {max(cam.drawn_at[i].x, size.x), max(cam.drawn_at[i].y, size.y)}
+		return
+	}
+	if cam.drawn_n == len(cam.drawn) {
 		return
 	}
 	cam.drawn[cam.drawn_n] = user
+	cam.drawn_at[cam.drawn_n] = size
 	cam.drawn_n += 1
 }
 
@@ -318,18 +342,30 @@ note_drawn :: proc(ui: ^UI, user: proto.User_Num) {
 // the room our voice is in. Call with no View locked.
 camera_after_frame :: proc(ui: ^UI) {
 	cam := &ui.camera
-	drawn := cam.drawn[:cam.drawn_n]
-	slice.sort(drawn)
+	n := cam.drawn_n
+	drawn, sizes := cam.drawn[:n], cam.drawn_at[:n]
+	// In the order of their users, with their sizes.
+	for i in 1 ..< n {
+		for j := i; j > 0 && drawn[j] < drawn[j - 1]; j -= 1 {
+			drawn[j], drawn[j - 1] = drawn[j - 1], drawn[j]
+			sizes[j], sizes[j - 1] = sizes[j - 1], sizes[j]
+		}
+	}
 	ns := ui.voice_at
-	if ns != cam.sent_to || !slice.equal(drawn, cam.sent[:cam.sent_n]) {
+	if ns != cam.sent_to ||
+	   !slice.equal(drawn, cam.sent[:cam.sent_n]) ||
+	   !slice.equal(sizes, cam.sent_at[:cam.sent_n]) {
 		if cam.sent_to != ns && cam.sent_n > 0 && session_alive(ui, cam.sent_to) {
 			conn.push_command(&cam.sent_to.client.commands, conn.watch_cameras())
 		}
 		if ns != nil {
-			conn.push_command(&ns.client.commands, conn.watch_cameras(..drawn))
+			cmd := conn.watch_cameras(..drawn)
+			copy(cmd.tiles[:], sizes)
+			conn.push_command(&ns.client.commands, cmd)
 		}
 		cam.sent_to = ns
 		cam.sent_n = copy(cam.sent[:], drawn)
+		copy(cam.sent_at[:], sizes)
 	}
 	cam.drawn_n = 0
 	if !cam.looked {
@@ -679,7 +715,7 @@ peer_view :: proc(ui: ^UI, r: mu.Rect, user: proto.User_Num, off: string) {
 		centred_text(ui, r, off)
 		return
 	}
-	note_drawn(ui, user)
+	note_drawn(ui, user, r)
 	texture, w, h, ok := conn.video_picture(&ui.renderer.gpu, {user, .Camera})
 	if !ok {
 		centred_text(ui, r, "Waiting for the picture...")

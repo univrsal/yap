@@ -68,6 +68,7 @@ server_info_body :: proc(s: ^Server) -> []u8 {
 		push_key       = s.push.public[:] if s.push.enabled else nil,
 		max_cameras    = s.media.max_cameras if s.media.enabled else 0,
 		camera_kbit    = u32(s.media.camera_rate * 8 / 1000) if s.media.enabled else 0,
+		demand         = s.media.enabled,
 	}
 	body, ok := proto.encode_server_info(buf, info)
 	return body if ok else nil

@@ -227,6 +227,10 @@ handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
 			if s, stream, report_ok := proto.decode_report_down(pt); report_ok {
 				video_reports(c, stream, s)
 			}
+		case .Demand:
+			if d, demand_ok := proto.decode_demand(pt); demand_ok {
+				video_demand(c, d)
+			}
 		case .Welcome, .Pong:
 		// Handshake and ping answers only matter because they arrived.
 		}

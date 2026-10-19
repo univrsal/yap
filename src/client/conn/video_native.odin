@@ -46,7 +46,7 @@ MEDIA_RELIABLE :: false
 
 // The version of the library API this was built against (see src/video/include/yap_video.h).
 @(private = "file")
-YV_API_VERSION :: 9
+YV_API_VERSION :: 10
 
 @(private = "file")
 Yv_Log_Proc :: #type proc "c" (user: rawptr, level: i32, msg: cstring)
@@ -186,11 +186,12 @@ Yv :: struct {
 	camera_start:          proc "c" (ctx: rawptr, config: ^Yv_Camera_Config) -> rawptr,
 	share_configure:       proc "c" (share: rawptr, fps, max_width, max_height: i32, kbit: u32),
 	share_preview:         proc "c" (share: rawptr, out: ^Yv_Picture) -> bool,
+	share_pause:           proc "c" (share: rawptr, paused: bool),
 	__handle:              dynlib.Library,
 }
 
 @(private = "file")
-YV_PROCS :: 29
+YV_PROCS :: 30
 
 when ODIN_OS == .Windows {
 	@(private = "file")
@@ -994,6 +995,19 @@ video_camera_configure :: proc(config: Share_Config) {
 	if share := nv.shares[.Camera].share; share != nil {
 		nv.yv.share_configure(share, i32(config.fps), config.max.x, config.max.y, u32(config.kbit))
 		sync.atomic_store(&nv.shares[.Camera].kbit, config.kbit)
+	}
+}
+
+// video_camera_pause stops encoding the camera while nobody watches it, and
+// goes on from a keyframe when `paused` is false again (video.odin). Called
+// from the network thread.
+video_camera_pause :: proc(paused: bool) {
+	if !nv.loaded {
+		return
+	}
+	sync.guard(&nv.share_mu)
+	if share := nv.shares[.Camera].share; share != nil {
+		nv.yv.share_pause(share, paused)
 	}
 }
 

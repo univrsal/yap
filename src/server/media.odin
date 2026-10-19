@@ -50,6 +50,12 @@ import "common:proto"
 // a lease on one screen and on up to MAX_CAMERAS cameras. How many cameras may
 // be on in a room is the main loop's business (camera_allowed): the thread
 // only passes on the camera of somebody whose Camera flag is set.
+//
+// A viewer's lease on a camera also says how big it shows the camera, and the
+// sharer is told the largest of these and how many viewers there are in its
+// room (proto.Demand): once a second with the reports, and at once when a
+// lease starts or its tile changes size (media_demand). The sharer then
+// encodes no bigger than that, and not at all with nobody watching.
 
 // Media_Peer describes a connection, with what the media thread needs to know about it.
 Media_Peer :: struct {
@@ -80,6 +86,8 @@ Media_Lease :: struct {
 	// The viewer's last Report about it and when that arrived.
 	report:    proto.Video_Report,
 	report_at: time.Tick,
+	// How big the viewer shows a camera, in pixels; 0 if it didn't say.
+	tile:      [2]int,
 }
 
 // A session's leases: one on a screen, and one on each camera.
@@ -752,6 +760,9 @@ media_reports :: proc(m: ^Media) {
 					}
 				}
 			}
+			if stream == .Camera {
+				media_send_demand(m, target, peer, now)
+			}
 			if len(reports) == 0 {
 				continue
 			}
@@ -760,6 +771,66 @@ media_reports :: proc(m: ^Media) {
 			media_send(m, target, proto.encode_report_down(&buf, summary, stream))
 		}
 	}
+}
+
+// media_demand works out what the viewers of a camera in the sharer's room
+// want of it: the largest tile they show it at (none if one of them didn't
+// say), and how many they are.
+media_demand :: proc(m: ^Media, sharer: Media_Peer, now: time.Tick) -> (d: proto.Demand) {
+	d.stream = .Camera
+	of := Media_Stream{sharer.num, .Camera}
+	unsized := false
+	for _, viewer in m.sessions {
+		if !viewer.keyed || viewer.superseded {
+			continue
+		}
+		vp, ok := m.peers[viewer.peer_key]
+		if !ok || vp.num != viewer.num || vp.room != sharer.room || vp.num == sharer.num {
+			continue
+		}
+		l := lease_find(viewer, of, now)
+		if l == nil {
+			continue
+		}
+		d.viewers += 1
+		if l.tile.x <= 0 || l.tile.y <= 0 {
+			unsized = true
+		}
+		d.tile = {max(d.tile.x, l.tile.x), max(d.tile.y, l.tile.y)}
+	}
+	if unsized {
+		d.tile = {}
+	}
+	return
+}
+
+@(private = "file")
+media_send_demand :: proc(m: ^Media, target: ^Media_Session, sharer: Media_Peer, now: time.Tick) {
+	buf: [proto.DEMAND_SIZE]u8
+	media_send(m, target, proto.encode_demand(&buf, media_demand(m, sharer, now)))
+}
+
+// media_sharer_session returns the media session of the user `num` whose
+// stream `stream` is on, and that user's peer; nil if there's none.
+@(private = "file")
+media_sharer_session :: proc(
+	m: ^Media,
+	num: proto.User_Num,
+	stream: proto.Video_Stream,
+) -> (
+	^Media_Session,
+	Media_Peer,
+) {
+	for _, other in m.sessions {
+		if !other.keyed || other.superseded || other.num != num {
+			continue
+		}
+		peer, known := m.peers[other.peer_key]
+		if known && peer.num == num && peer_sends(peer, stream) {
+			return other, peer
+		}
+	}
+	return nil, {}
 }
 
 @(private = "file")
@@ -801,22 +872,22 @@ media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byt
 	if l == nil {
 		return
 	}
+	fresh := time.tick_diff(now, l.until) <= 0
+	resized := w.stream == .Camera && w.tile != l.tile
 	l.until = time.tick_add(now, proto.WATCH_LEASE)
-	if !w.need_key || viewer.room == 0 {
+	l.tile = w.tile if w.stream == .Camera else {}
+	if viewer.room == 0 || (!w.need_key && !(w.stream == .Camera && (fresh || resized))) {
 		return
 	}
-	target: ^Media_Session
-	for _, other in m.sessions {
-		if other.keyed && !other.superseded && other.num == w.sharer {
-			target = other
-			break
-		}
-	}
-	if target == nil {
+	target, peer := media_sharer_session(m, w.sharer, w.stream)
+	if target == nil || peer.room != viewer.room {
 		return // the sharer isn't on the media link, so isn't sharing at all
 	}
-	peer, known := m.peers[target.peer_key]
-	if !known || !peer_sends(peer, w.stream) || peer.room != viewer.room {
+	// A new viewer, or one whose tile changed, is told to the sharer at once.
+	if w.stream == .Camera && (fresh || resized) {
+		media_send_demand(m, target, peer, now)
+	}
+	if !w.need_key {
 		return
 	}
 	sh := media_sharer(m, of)

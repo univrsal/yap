@@ -126,6 +126,7 @@ or getDisplayMedia (a phone) can still watch.
 		audioQueue: [], // Float32Arrays, interleaved stereo
 		audioQueued: 0, // samples in audioQueue
 		preview: null, // the camera's newest frame, not yet drawn (takePreview)
+		paused: false, // nobody watches: frames are taken for the preview only (pauseCamera)
 	});
 	const screen = newCapture(false);
 	const camera = newCapture(true);
@@ -644,6 +645,15 @@ or getDisplayMedia (a phone) can still watch.
 		const encoder = s.encoder;
 		if (encoder.state !== "configured" || encoder.encodeQueueSize > 2) return;
 		s.lastFrame = now;
+		if (s.paused) {
+			// Nobody watches: the self view still moves, but nothing is encoded,
+			// and what follows starts from a keyframe.
+			s.context.drawImage(source, 0, 0, w, h);
+			if (s.preview) s.preview.close();
+			s.preview = new VideoFrame(s.canvas, { timestamp: Math.round(now * 1000) });
+			s.wantKey = true;
+			return;
+		}
 
 		s.context.drawImage(source, 0, 0, w, h);
 		const frame = new VideoFrame(s.canvas, { timestamp: Math.round(now * 1000) });
@@ -724,7 +734,7 @@ or getDisplayMedia (a phone) can still watch.
 		if (!s.camera) stopAudio();
 		Object.assign(s, {
 			stream: null, reader: null, video: null, ticker: null, encoder: null,
-			canvas: null, context: null, width: 0, height: 0, queue: [], preview: null,
+			canvas: null, context: null, width: 0, height: 0, queue: [], preview: null, paused: false,
 		});
 		s.state = state;
 	}
@@ -871,6 +881,7 @@ or getDisplayMedia (a phone) can still watch.
 		start,
 		startCamera,
 		configureCamera,
+		pauseCamera: (on) => { camera.paused = on; },
 		// The settings' list of cameras (refreshed in the background) and
 		// preview.
 		refreshCameras,

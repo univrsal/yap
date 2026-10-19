@@ -305,6 +305,9 @@ Server_Info :: struct {
 	max_cameras:    int,
 	// The maximum bitrate of one camera in kbit/s.
 	camera_kbit:    u32,
+	// The server takes the size of a viewer's tile on Watch and tells a
+	// camera's sharer what its viewers want (Demand, video.odin).
+	demand:         bool,
 }
 
 SERVER_INFO_MAX_SIZE ::
@@ -325,7 +328,8 @@ SERVER_INFO_MAX_SIZE ::
 	1 +
 	PUSH_KEY_SIZE +
 	1 +
-	4
+	4 +
+	1
 
 // The maximum length of a server's description in bytes of UTF-8.
 MAX_SERVER_DESCRIPTION :: 512
@@ -406,6 +410,7 @@ encode_server_info :: proc(out: []u8, info: Server_Info) -> (body: []u8, ok: boo
 	put_bytes(&w, info.push_key)
 	put_u8(&w, u8(info.max_cameras))
 	put_u32(&w, info.camera_kbit)
+	put_u8(&w, 1 if info.demand else 0)
 	if w.overflow {
 		return
 	}
@@ -443,6 +448,9 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	if !r.overflow && r.pos < len(r.buf) {
 		info.max_cameras = min(int(get_u8(&r)), MAX_CAMERAS)
 		info.camera_kbit = get_u32(&r)
+	}
+	if !r.overflow && r.pos < len(r.buf) {
+		info.demand = get_u8(&r) != 0
 	}
 	if r.overflow ||
 	   (len(info.push_key) != 0 && len(info.push_key) != PUSH_KEY_SIZE) ||

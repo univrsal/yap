@@ -135,6 +135,8 @@ Message_Kind :: enum u8 {
 	// Reports about how well a shared screen reaches its viewers, which are
 	// used to adjust its bitrate (video_report.odin).
 	Report          = 49,
+	// How big a camera's viewers show it, and how many there are (video.odin).
+	Demand          = 50,
 }
 
 // The reason why the server refused a hello.
@@ -259,7 +261,9 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		// decode_video_down check the rest.
 		ok = len(pt) > VIDEO_UP_HEADER_SIZE
 	case .Watch:
-		ok = len(pt) == WATCH_SIZE
+		ok = len(pt) == WATCH_SIZE || len(pt) == WATCH_TILE_SIZE
+	case .Demand:
+		ok = len(pt) == DEMAND_SIZE
 	case .Keyframe:
 		ok = len(pt) == KEYFRAME_SIZE || len(pt) == KEYFRAME_CAMERA_SIZE
 	case .Nack:
