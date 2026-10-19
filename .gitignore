@@ -17,6 +17,7 @@ src/client/tray/*.o
 src/client/tray/*.obj
 src/client/idle/*.a
 src/client/idle/*.o
+src/client/conn/*.a
 src/client/dialogs/*.a
 src/client/dialogs/*.lib
 src/client/dialogs/*.o

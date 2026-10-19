@@ -11,7 +11,9 @@
 # The client links a trimmed-down miniaudio (src/client/audio/miniaudio), RNNoise
 # (src/client/audio/rnn) and traycon (src/client/tray), whose third-party sources
 # are in deps/thirdparty, compiled here with the system C
-# compiler ($CC, default cc) whenever their sources change.
+# compiler ($CC, default cc) whenever their sources change. On Linux it
+# also links screen sharing (src/video), built with CMake and the C++
+# compiler (see below).
 set -e
 cd "$(dirname "$0")"
 mkdir -p bin
@@ -101,6 +103,36 @@ if [ "$(uname -s)" = Linux ]; then
 		${CC:-cc} -std=c99 -Os -D_POSIX_C_SOURCE=200809L -c "$idle/yap_idle.c" -o "$idle/yap_idle.o"
 		ar rcs "$lib" "$idle/yap_idle.o"
 		rm "$idle/yap_idle.o"
+	fi
+fi
+
+# Screen sharing (src/video), linked into the client on Linux; elsewhere
+# it's the yap-video add-on (scripts/build-video.sh). FFmpeg isn't
+# linked: it's opened at run time, from next to yap (the yap-video
+# download for Linux is FFmpeg's libraries) or else the system's 8 or 9
+# (src/video/src/ffmpeg.h), so only its headers are needed here, from
+# the prebuilt FFmpeg scripts/fetch-ffmpeg.sh fetches on x86_64 and
+# pkg-config's elsewhere. Needs CMake and a C++20 compiler; capturing
+# needs the headers scripts/build-video.sh lists, and a way whose headers
+# are missing is left out. The client is C++ only here, so libstdc++ is
+# linked statically (src/client/conn/video_native.odin): yap then runs
+# where the system's is older than the one it was built with.
+if [ "$(uname -s)" = Linux ]; then
+	lib=src/client/conn/libyap_video.a
+	if [ ! -f "$lib" ] || [ -n "$(find src/video/src src/video/include src/video/CMakeLists.txt scripts/ffmpeg.version -newer "$lib" | head -n 1)" ]; then
+		echo "building $lib"
+		ffmpeg_dir=
+		if [ "$(uname -m)" = x86_64 ]; then
+			ffmpeg_dir="-DFFMPEG_DIR=$PWD/$(scripts/fetch-ffmpeg.sh .cache)"
+		fi
+		cmake -S src/video -B .cache/video-static -DCMAKE_BUILD_TYPE=Release -DYV_STATIC=ON \
+			$ffmpeg_dir >/dev/null
+		cmake --build .cache/video-static --target yap_video --parallel
+		cp .cache/video-static/libyap_video.a "$lib"
+	fi
+	# The C++ compiler's own, which the library was built with.
+	if [ ! -f src/client/conn/libstdc++.a ] || [ "$lib" -nt src/client/conn/libstdc++.a ]; then
+		cp "$(${CXX:-c++} -print-file-name=libstdc++.a)" src/client/conn/libstdc++.a
 	fi
 fi
 

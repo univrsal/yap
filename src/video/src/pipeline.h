@@ -14,11 +14,7 @@ are below.
 #include <string>
 #include <vector>
 
-extern "C" {
-#include <libavutil/buffer.h>
-#include <libavutil/frame.h>
-struct AVCodec;
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

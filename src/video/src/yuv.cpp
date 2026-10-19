@@ -5,9 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 
-extern "C" {
-#include <libswscale/swscale.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

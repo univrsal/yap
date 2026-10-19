@@ -23,12 +23,7 @@ screen.
 #include <cstring>
 #include <mutex>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/pixdesc.h>
-#include <libswscale/swscale.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

@@ -31,11 +31,7 @@ what it encodes can be shown as it is (yv_share_preview).
 #include <deque>
 #include <thread>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavutil/dict.h>
-#include <libavutil/opt.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

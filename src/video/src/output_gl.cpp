@@ -20,9 +20,7 @@ The client's GL state is put back as it was after present draws.
 #include <cstdlib>
 #include <cstring>
 
-extern "C" {
-#include <libavutil/hwcontext.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

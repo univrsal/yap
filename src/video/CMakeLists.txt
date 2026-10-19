@@ -1,10 +1,13 @@
-# yap_video, the optional screen sharing library (misc/hq-share/README.md).
-# Built by scripts/build-video.sh / build-video.bat, never by build.sh or
-# build.bat: the client runs without it.
+# yap_video, the screen sharing library (misc/hq-share/README.md). On
+# Linux build.sh links it into the client (YV_STATIC); elsewhere it's an
+# optional add-on the client runs without, built by
+# scripts/build-video.sh / build-video.bat (which build it shared, with
+# the yv-loopback tool, on Linux too).
 #
 # FFMPEG_DIR is an FFmpeg with include/ and lib/ (and bin/ on Windows,
 # for the DLLs), as the build scripts fetch it. Without it, pkg-config
-# looks for the system's.
+# looks for the system's. Only Windows links it: elsewhere it's opened
+# at run time (src/ffmpeg.h), and only its headers are needed here.
 cmake_minimum_required(VERSION 3.21)
 # ScreenCaptureKit's first (D10 in the plan); ignored elsewhere.
 set(CMAKE_OSX_DEPLOYMENT_TARGET "12.3" CACHE STRING "oldest macOS")
@@ -29,22 +32,19 @@ if(FFMPEG_DIR)
 		target_link_libraries(ffmpeg INTERFACE
 			"${FFMPEG_DIR}/lib/avcodec.lib" "${FFMPEG_DIR}/lib/avutil.lib"
 			"${FFMPEG_DIR}/lib/swscale.lib")
-	else()
-		# By full path, so CMake knows where they are and programs in the
-		# build folder find them when run. Installing sets the run path to
-		# $ORIGIN instead.
-		target_link_libraries(ffmpeg INTERFACE
-			"${FFMPEG_DIR}/lib/libavcodec${CMAKE_SHARED_LIBRARY_SUFFIX}"
-			"${FFMPEG_DIR}/lib/libavutil${CMAKE_SHARED_LIBRARY_SUFFIX}"
-			"${FFMPEG_DIR}/lib/libswscale${CMAKE_SHARED_LIBRARY_SUFFIX}")
 	endif()
 else()
 	find_package(PkgConfig REQUIRED)
 	pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET libavcodec libavutil libswscale)
-	target_link_libraries(ffmpeg INTERFACE PkgConfig::LIBAV)
+	if(WIN32)
+		target_link_libraries(ffmpeg INTERFACE PkgConfig::LIBAV)
+	else()
+		target_include_directories(ffmpeg SYSTEM INTERFACE ${LIBAV_INCLUDE_DIRS})
+	endif()
 endif()
 
-set(SOURCES src/context.cpp src/encoders.cpp src/view.cpp src/yuv.cpp src/share.cpp src/camera.cpp)
+set(SOURCES src/context.cpp src/encoders.cpp src/ffmpeg.cpp src/view.cpp src/yuv.cpp
+	src/share.cpp src/camera.cpp)
 set(CAPTURE_INCLUDES "")
 set(CAPTURE_DEFINES "")
 if(WIN32)
@@ -89,7 +89,15 @@ else()
 	endif()
 endif()
 
-add_library(yap_video SHARED ${SOURCES})
+# YV_STATIC builds it to link into the client, as build.sh does on Linux
+# (build.sh builds only the library, not the tool, that way).
+option(YV_STATIC "a static library, for linking into the client" OFF)
+if(YV_STATIC)
+	add_library(yap_video STATIC ${SOURCES})
+	set_target_properties(yap_video PROPERTIES POSITION_INDEPENDENT_CODE ON)
+else()
+	add_library(yap_video SHARED ${SOURCES})
+endif()
 target_include_directories(yap_video PUBLIC include)
 target_compile_definitions(yap_video PRIVATE YV_BUILDING ${CAPTURE_DEFINES})
 target_include_directories(yap_video SYSTEM PRIVATE ${CAPTURE_INCLUDES})
@@ -131,22 +139,14 @@ if(NOT WIN32 AND NOT APPLE)
 	# dlopen, for the above; shm*, for MIT-SHM.
 	target_link_libraries(yap_video PRIVATE ${CMAKE_DL_LIBS})
 endif()
-# Once installed, find FFmpeg's libraries (and the tool the library) in
-# the same folder.
+# Once installed, the tool finds the library in the same folder. On macOS
+# the FFmpeg we ship names its libraries @rpath/..., so the library's
+# run path is where they find each other when it opens them.
 if(APPLE)
 	set(HERE "@loader_path")
+	set_target_properties(yap_video PROPERTIES INSTALL_RPATH "${HERE}")
 else()
 	set(HERE "$ORIGIN")
-endif()
-if(NOT WIN32)
-	set_target_properties(yap_video PROPERTIES INSTALL_RPATH "${HERE}")
-endif()
-if(NOT WIN32 AND NOT APPLE)
-	# As DT_RPATH, not DT_RUNPATH: a run path only covers the object's own
-	# dependencies, but an rpath covers everything loaded under it, and
-	# FFmpeg's libraries (BtbN's have no run path) need each other. This
-	# is what lets the client dlopen the library from next to itself.
-	target_link_options(yap_video PRIVATE "-Wl,--disable-new-dtags")
 endif()
 
 add_executable(yv-loopback tools/yv_loopback.cpp tools/stream_file.cpp
@@ -166,15 +166,6 @@ if(WIN32)
 	target_link_libraries(yv-loopback PRIVATE d3d11 dxgi d3dcompiler user32)
 else()
 	set_target_properties(yv-loopback PROPERTIES INSTALL_RPATH "${HERE}")
-endif()
-if(FFMPEG_DIR AND NOT WIN32 AND NOT APPLE)
-	# The linker checks that the library's FFmpeg resolves, and FFmpeg's
-	# libraries need each other (libavcodec, libswresample): tell it
-	# where they all are.
-	target_link_options(yv-loopback PRIVATE "-Wl,-rpath-link,${FFMPEG_DIR}/lib")
-endif()
-if(NOT WIN32 AND NOT APPLE)
-	target_link_options(yv-loopback PRIVATE "-Wl,--disable-new-dtags")
 endif()
 
 install(TARGETS yap_video yv-loopback RUNTIME DESTINATION . LIBRARY DESTINATION .)

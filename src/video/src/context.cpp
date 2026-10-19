@@ -13,10 +13,7 @@
 #include <dlfcn.h>
 #endif
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavutil/log.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 
@@ -78,7 +75,10 @@ void set_log(yv_log_fn fn, void *user, yv_log_level level) {
 		log_user = user;
 	}
 	log_min.store(level);
-	av_log_set_callback(fn ? ffmpeg_log : nullptr);
+	// Loading FFmpeg the first time, so that what that logs goes to fn.
+	if (load_ffmpeg()) {
+		av_log_set_callback(fn ? ffmpeg_log : nullptr);
+	}
 }
 
 Quiet_FFmpeg::Quiet_FFmpeg() {
@@ -143,8 +143,12 @@ YV_API uint32_t yv_api_version(void) {
 
 YV_API const char *yv_version_string(void) {
 	static std::string s = [] {
-		unsigned v = avcodec_version();
 		char buf[64];
+		if (!yv::load_ffmpeg()) {
+			snprintf(buf, sizeof(buf), "%d (no FFmpeg)", YV_API_VERSION);
+			return std::string(buf);
+		}
+		unsigned v = avcodec_version();
 		snprintf(buf, sizeof(buf), "%d (libavcodec %u.%u.%u)", YV_API_VERSION,
 		         AV_VERSION_MAJOR(v), AV_VERSION_MINOR(v), AV_VERSION_MICRO(v));
 		return std::string(buf);
@@ -162,9 +166,18 @@ YV_API yv_context *yv_create(const yv_init *init) {
 		        YV_API_VERSION);
 		return nullptr;
 	}
-	auto *ctx = new yv_context;
-	yv::log(YV_LOG_INFO, "yap_video %s", yv_version_string());
-	return ctx;
+	// set_log has tried to load it, with the log already set up.
+	if (!yv::load_ffmpeg()) {
+		return nullptr;
+	}
+	yv::log(YV_LOG_INFO, "yap_video %s, FFmpeg from %s", yv_version_string(), yv::ffmpeg_where());
+	// Everyone has to decode H.264: it's what any sharer can fall back
+	// to, and there's no saying that we can't.
+	if (!(yv::decodable_codecs() & (1u << YV_CODEC_H264))) {
+		yv::log(YV_LOG_ERROR, "%s can't decode H.264, so it's no use", yv::ffmpeg_where());
+		return nullptr;
+	}
+	return new yv_context;
 }
 
 // The views have to be gone by now.
@@ -246,6 +259,10 @@ YV_API int yv_list_encoders(yv_context *ctx, yv_encoder *out, int max) {
 		out[i] = ctx->encoders[i];
 	}
 	return static_cast<int>(ctx->encoders.size());
+}
+
+YV_API uint32_t yv_decodable_codecs(yv_context *ctx) {
+	return ctx ? yv::decodable_codecs() : 0;
 }
 
 } // extern "C"

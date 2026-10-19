@@ -15,10 +15,13 @@ import "client:render"
 import "common:proto"
 import log "common:wlog"
 
-// Screen sharing on the desktop comes from an optional library, yap_video
-// (src/video, misc/hq-share/README.md), which is loaded from next to the
-// executable the first time anything here is asked. Without it, or with a
-// different version of it, the client neither shares nor watches.
+// Screen sharing on the desktop comes from a library, yap_video (src/video,
+// misc/hq-share/README.md), set up the first time anything here is asked. On
+// Linux it's linked in (build.sh), and opens FFmpeg itself, from next to the
+// executable or the system's; without one it can use, the client neither
+// shares nor watches. Elsewhere it's an optional add-on, loaded from next to
+// the executable, and without it, or with a different version of it, the
+// same goes.
 //
 // The library decodes on threads of its own and keeps the newest picture on the
 // GPU, created for our renderer's device (video_picture). Frames are pushed
@@ -46,7 +49,7 @@ MEDIA_RELIABLE :: false
 
 // The version of the library API this was built against (see src/video/include/yap_video.h).
 @(private = "file")
-YV_API_VERSION :: 10
+YV_API_VERSION :: 11
 
 @(private = "file")
 Yv_Log_Proc :: #type proc "c" (user: rawptr, level: i32, msg: cstring)
@@ -187,11 +190,12 @@ Yv :: struct {
 	share_configure:       proc "c" (share: rawptr, fps, max_width, max_height: i32, kbit: u32),
 	share_preview:         proc "c" (share: rawptr, out: ^Yv_Picture) -> bool,
 	share_pause:           proc "c" (share: rawptr, paused: bool),
+	decodable_codecs:      proc "c" (ctx: rawptr) -> u32,
 	__handle:              dynlib.Library,
 }
 
 @(private = "file")
-YV_PROCS :: 30
+YV_PROCS :: 31
 
 when ODIN_OS == .Windows {
 	@(private = "file")
@@ -199,6 +203,94 @@ when ODIN_OS == .Windows {
 } else when ODIN_OS == .Darwin {
 	@(private = "file")
 	YV_LIBRARY :: "libyap_video.dylib"
+} else when ODIN_OS == .Linux {
+	@(private = "file")
+	YV_LIBRARY :: "libyap_video.a"
+
+	when !#exists(YV_LIBRARY) || !#exists("libstdc++.a") {
+		#panic("src/client/conn/" + YV_LIBRARY + " or libstdc++.a is missing; build them with build.sh")
+	}
+
+	// Only the add-on is looked for by its path.
+	_ :: filepath
+
+	// The library is C++, and the C++ runtime is linked in too (the compiler's
+	// libstdc++.a, which build.sh copies here), so the client doesn't need the
+	// system's to be as new as the one it was built with.
+	foreign import yv_lib {YV_LIBRARY, "libstdc++.a"}
+
+	@(private = "file", default_calling_convention = "c")
+	foreign yv_lib {
+		yv_api_version :: proc() -> u32 ---
+		yv_version_string :: proc() -> cstring ---
+		yv_create :: proc(init: ^Yv_Init) -> rawptr ---
+		yv_set_gpu :: proc(ctx: rawptr, gpu: ^Yv_Gpu) ---
+		yv_view_create :: proc(ctx: rawptr) -> rawptr ---
+		yv_view_push :: proc(view: rawptr, data: [^]u8, size: uint, codec: i32, pts_us: u64, key: bool) ---
+		yv_view_clear :: proc(view: rawptr) ---
+		yv_view_take_failed :: proc(view: rawptr) -> bool ---
+		yv_view_present :: proc(view: rawptr, out: ^Yv_Picture) -> bool ---
+		yv_list_sources :: proc(ctx: rawptr, out: [^]Yv_Source, max: i32) -> i32 ---
+		yv_list_encoders :: proc(ctx: rawptr, out: [^]Yv_Encoder, max: i32) -> i32 ---
+		yv_share_start :: proc(ctx: rawptr, config: ^Yv_Share_Config) -> rawptr ---
+		yv_share_pull :: proc(share: rawptr, out: ^Yv_Packet) -> bool ---
+		yv_share_request_key :: proc(share: rawptr) ---
+		yv_share_set_bitrate :: proc(share: rawptr, kbit: u32) ---
+		yv_share_get_bitrate :: proc(share: rawptr) -> u32 ---
+		yv_share_set_codecs :: proc(share: rawptr, codecs: u32) ---
+		yv_share_get_state :: proc(share: rawptr) -> i32 ---
+		yv_share_error :: proc(share: rawptr) -> cstring ---
+		yv_share_stop :: proc(share: rawptr) ---
+		yv_capture_allowed :: proc(ctx: rawptr, ask: bool) -> bool ---
+		yv_open_capture_settings :: proc(ctx: rawptr) -> bool ---
+		yv_system_picker :: proc(ctx: rawptr) -> bool ---
+		yv_view_on_frame :: proc(view: rawptr, fn: proc "c" (user: rawptr), user: rawptr) ---
+		yv_list_cameras :: proc(ctx: rawptr, out: [^]Yv_Camera, max: i32) -> i32 ---
+		yv_camera_allowed :: proc(ctx: rawptr, ask: bool) -> bool ---
+		yv_camera_start :: proc(ctx: rawptr, config: ^Yv_Camera_Config) -> rawptr ---
+		yv_share_configure :: proc(share: rawptr, fps, max_width, max_height: i32, kbit: u32) ---
+		yv_share_preview :: proc(share: rawptr, out: ^Yv_Picture) -> bool ---
+		yv_share_pause :: proc(share: rawptr, paused: bool) ---
+		yv_decodable_codecs :: proc(ctx: rawptr) -> u32 ---
+	}
+
+	// linked_yv is the table of the library that's linked in.
+	@(private = "file")
+	linked_yv :: proc() -> Yv {
+		return {
+			api_version = yv_api_version,
+			version_string = yv_version_string,
+			create = yv_create,
+			set_gpu = yv_set_gpu,
+			view_create = yv_view_create,
+			view_push = yv_view_push,
+			view_clear = yv_view_clear,
+			view_take_failed = yv_view_take_failed,
+			view_present = yv_view_present,
+			list_sources = yv_list_sources,
+			list_encoders = yv_list_encoders,
+			share_start = yv_share_start,
+			share_pull = yv_share_pull,
+			share_request_key = yv_share_request_key,
+			share_set_bitrate = yv_share_set_bitrate,
+			share_get_bitrate = yv_share_get_bitrate,
+			share_set_codecs = yv_share_set_codecs,
+			share_get_state = yv_share_get_state,
+			share_error = yv_share_error,
+			share_stop = yv_share_stop,
+			capture_allowed = yv_capture_allowed,
+			open_capture_settings = yv_open_capture_settings,
+			system_picker = yv_system_picker,
+			view_on_frame = yv_view_on_frame,
+			list_cameras = yv_list_cameras,
+			camera_allowed = yv_camera_allowed,
+			camera_start = yv_camera_start,
+			share_configure = yv_share_configure,
+			share_preview = yv_share_preview,
+			share_pause = yv_share_pause,
+			decodable_codecs = yv_decodable_codecs,
+		}
+	}
 } else {
 	@(private = "file")
 	YV_LIBRARY :: "libyap_video.so"
@@ -241,7 +333,10 @@ CAMERAS_AGAIN :: 10 * time.Second
 Native_Video :: struct {
 	once:          sync.Once,
 	loaded:        bool, // everything below is set up
+	no_ffmpeg:     bool, // the library is there, but found no FFmpeg it can use
 	yv:            Yv,
+	// What the library's FFmpeg has decoders for.
+	decodable:     proto.Video_Codecs,
 	ctx:           rawptr,
 	logger:        runtime.Logger,
 	// The views, which the network threads give streams to and the UI thread
@@ -290,32 +385,47 @@ loaded :: proc() -> bool {
 	return nv.loaded
 }
 
+// open_library fills in nv.yv: the library linked in, or the add-on's from next
+// to the executable, if it's there and of our version.
+@(private = "file")
+open_library :: proc() -> bool {
+	when ODIN_OS == .Linux {
+		nv.yv = linked_yv()
+		return true
+	} else {
+		dir, err := os.get_executable_directory(context.temp_allocator)
+		if err != nil {
+			return false
+		}
+		path, _ := filepath.join({dir, YV_LIBRARY}, context.temp_allocator)
+		if !os.exists(path) {
+			log.debugf("video: no %s, so no screen sharing", path)
+			return false
+		}
+		count, ok := dynlib.initialize_symbols(&nv.yv, path, "yv_")
+		if !ok {
+			log.warnf("video: can't load %s: %s", path, dynlib.last_error())
+			return false
+		}
+		if count != YV_PROCS || nv.yv.api_version() != YV_API_VERSION {
+			log.warnf(
+				"video: %s is of another version (API %d, wanted %d)",
+				path,
+				nv.yv.api_version() if nv.yv.api_version != nil else 0,
+				YV_API_VERSION,
+			)
+			dynlib.unload_library(nv.yv.__handle)
+			nv.yv = {}
+			return false
+		}
+		return true
+	}
+}
+
 @(private = "file")
 load :: proc() {
 	nv.logger = context.logger
-	dir, err := os.get_executable_directory(context.temp_allocator)
-	if err != nil {
-		return
-	}
-	path, _ := filepath.join({dir, YV_LIBRARY}, context.temp_allocator)
-	if !os.exists(path) {
-		log.debugf("video: no %s, so no screen sharing", path)
-		return
-	}
-	count, ok := dynlib.initialize_symbols(&nv.yv, path, "yv_")
-	if !ok {
-		log.warnf("video: can't load %s: %s", path, dynlib.last_error())
-		return
-	}
-	if count != YV_PROCS || nv.yv.api_version() != YV_API_VERSION {
-		log.warnf(
-			"video: %s is of another version (API %d, wanted %d)",
-			path,
-			nv.yv.api_version() if nv.yv.api_version != nil else 0,
-			YV_API_VERSION,
-		)
-		dynlib.unload_library(nv.yv.__handle)
-		nv.yv = {}
+	if !open_library() {
 		return
 	}
 	init := Yv_Init {
@@ -325,8 +435,12 @@ load :: proc() {
 	}
 	nv.ctx = nv.yv.create(&init)
 	if nv.ctx == nil {
+		// The version matched, so it's FFmpeg it's missing, or one that
+		// decodes H.264 (logged).
+		nv.no_ffmpeg = true
 		return
 	}
+	nv.decodable = transmute(proto.Video_Codecs)u8(nv.yv.decodable_codecs(nv.ctx))
 	nv.loaded = true
 	log.infof("video: yap_video %s", nv.yv.version_string())
 	thread.run(probe_encoders, context)
@@ -596,9 +710,17 @@ video_can_watch :: proc() -> bool {
 	return loaded()
 }
 
-// The library's decoders handle every codec (view.cpp).
+// What the library's FFmpeg decodes: a system's may leave codecs out (view.cpp).
 video_decodable :: proc() -> proto.Video_Codecs {
-	return {.H264, .HEVC, .AV1} if loaded() else {}
+	return nv.decodable if loaded() else {}
+}
+
+// video_missing_ffmpeg says the library is there but has no FFmpeg to use, or
+// none that decodes H.264 (on Linux and macOS it can use the system's,
+// src/video/src/ffmpeg.h).
+video_missing_ffmpeg :: proc() -> bool {
+	loaded()
+	return nv.no_ffmpeg
 }
 
 // video_share_codecs says what the share's viewers can decode (video.odin).

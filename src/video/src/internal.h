@@ -74,4 +74,7 @@ bool capture_allowed(bool ask);
 bool open_capture_settings();
 std::vector<yv_encoder> probe_encoders();
 
+// yv_decodable_codecs (view.cpp). The first call logs what's missing.
+uint32_t decodable_codecs();
+
 } // namespace yv

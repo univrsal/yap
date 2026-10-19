@@ -17,9 +17,7 @@ is) or mjpeg. It's listed first, with the id "fake".
 #include <cstring>
 #include <thread>
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 
