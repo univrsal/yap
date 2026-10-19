@@ -251,6 +251,14 @@ video_camera_state :: proc() -> Share_State {
 	return Share_State(yap_video_state(i32(proto.Video_Stream.Camera)))
 }
 
+// The browser's console says why it failed.
+video_camera_error :: proc() -> string {
+	return ""
+}
+
+// The page lets go of its camera itself.
+video_frame_done :: proc() {}
+
 // The browser asks what to share in its own picker.
 VIDEO_PICKER :: false
 

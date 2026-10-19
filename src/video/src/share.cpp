@@ -16,7 +16,12 @@ rate is VBR with a peak of 1.5 times the bitrate and half a second of
 buffer, so a keyframe of a detailed screen isn't starved; the client
 paces what goes out, and changes the bitrate as its viewers' reports
 say (yv_share_set_bitrate).
+
+A camera is a share like any other, with camera.cpp's pipeline: its
+frames are in memory, so it only takes encoders that take those, and
+what it encodes can be shown as it is (yv_share_preview).
 */
+#include "output.h"
 #include "pipeline.h"
 
 #include <atomic>
@@ -259,6 +264,17 @@ struct yv_share {
 	std::atomic<int> state{YV_SHARE_STARTING};
 	std::string error; // set before state becomes Failed
 
+	// A camera's: which, and its preview, made by the first yv_share_preview.
+	bool is_camera = false;
+	std::string camera;
+	std::atomic<yv::Output *> preview{nullptr};
+
+	// yv_share_configure's, until the thread takes it up.
+	std::mutex config_mutex;
+	std::atomic<bool> reconfigure{false};
+	int32_t next_fps = 0, next_width = 0, next_height = 0;
+	uint32_t next_kbit = 0;
+
 	std::mutex mutex;
 	std::deque<yv::Encoded> queue;
 	yv::Encoded pulled; // what the last yv_share_pull handed out
@@ -429,7 +445,37 @@ void follow_bitrate(yv_share *s) {
 	close_encoder(s);
 }
 
+/*
+follow_config takes up yv_share_configure's size, frame rate and bitrate,
+all at once, by starting the encoder again (encode opens it).
+*/
+void follow_config(yv_share *s) {
+	if (!s->reconfigure.exchange(false)) {
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> lock(s->config_mutex);
+		// The same again isn't worth a keyframe.
+		if (s->config.fps == s->next_fps && s->config.max_width == s->next_width &&
+		    s->config.max_height == s->next_height && s->config.kbit == s->next_kbit) {
+			return;
+		}
+		s->config.fps = s->next_fps;
+		s->config.max_width = s->next_width;
+		s->config.max_height = s->next_height;
+		s->config.kbit = s->next_kbit;
+	}
+	log(YV_LOG_INFO, "share: now at most %dx%d at %d fps, %u kbit/s", s->config.max_width,
+	    s->config.max_height, s->config.fps, s->config.kbit);
+	s->kbit = s->config.kbit;
+	s->encoding_kbit.store(s->kbit);
+	s->want_kbit.store(0);
+	s->rate_at = now_us();
+	close_encoder(s);
+}
+
 bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
+	follow_config(s);
 	follow_codecs(s, sets);
 	follow_bitrate(s);
 	int w, h;
@@ -445,6 +491,11 @@ bool encode(yv_share *s, Pipeline &pipe, Parameter_Sets &sets, uint64_t pts) {
 	if (!pipe.convert(s->frame, s->frames, w, h)) {
 		fail(s, "can't convert the captured picture");
 		return false;
+	}
+	s->frame->color_range = AVCOL_RANGE_MPEG;
+	s->frame->colorspace = AVCOL_SPC_BT709;
+	if (Output *preview = s->preview.load(); preview && !s->frame->hw_frames_ctx) {
+		preview->submit(s->frame);
 	}
 	AVFrame *in = s->frame;
 	if (s->enc->pix_fmt == AV_PIX_FMT_YUV420P) {
@@ -522,7 +573,8 @@ pick_encoder is the encoder named in the config, else the best that
 works of those the viewers can decode (`codecs`; 0 for any), or the best
 that works at all if none of those does. With `current` (sharing
 already), it keeps to that one's GPU, which the pipeline was made for,
-or to software; "" if neither has anything they can decode.
+or to software; "" if neither has anything they can decode. A camera
+only takes encoders that take frames from memory.
 */
 std::string pick_encoder(yv_share *s, uint32_t codecs, const std::string &current) {
 	if (s->config.encoder[0]) {
@@ -534,28 +586,38 @@ std::string pick_encoder(yv_share *s, uint32_t codecs, const std::string &curren
 	auto decodable = [&](const yv_encoder &e) {
 		return codecs == 0 || (codecs & (1u << e.codec)) != 0;
 	};
+	auto usable = [&](const yv_encoder &e) {
+		if (!e.works) {
+			return false;
+		}
+		if (!s->is_camera) {
+			return true;
+		}
+		const AVCodec *c = avcodec_find_encoder_by_name(e.name);
+		return c && (takes_pix_fmt(c, AV_PIX_FMT_NV12) || takes_pix_fmt(c, AV_PIX_FMT_YUV420P));
+	};
 	if (!current.empty()) {
 		std::string vendor = vendor_of(current);
 		for (int i = 0; i < n; i++) {
-			if (list[i].works && decodable(list[i]) && list[i].hardware &&
+			if (usable(list[i]) && decodable(list[i]) && list[i].hardware &&
 			    vendor_of(list[i].name) == vendor) {
 				return list[i].name;
 			}
 		}
 		for (int i = 0; i < n; i++) {
-			if (list[i].works && decodable(list[i]) && !list[i].hardware) {
+			if (usable(list[i]) && decodable(list[i]) && !list[i].hardware) {
 				return list[i].name;
 			}
 		}
 		return {};
 	}
 	for (int i = 0; i < n; i++) {
-		if (list[i].works && decodable(list[i])) {
+		if (usable(list[i]) && decodable(list[i])) {
 			return list[i].name;
 		}
 	}
 	for (int i = 0; i < n; i++) {
-		if (list[i].works) {
+		if (usable(list[i])) {
 			return list[i].name;
 		}
 	}
@@ -598,7 +660,7 @@ void run(yv_share *s) {
 	}
 	s->codec = codec_of(s->encoder_name.c_str());
 	s->kbit = s->config.kbit;
-	std::unique_ptr<Pipeline> pipe = make_pipeline();
+	std::unique_ptr<Pipeline> pipe = s->is_camera ? make_camera_pipeline(s->camera) : make_pipeline();
 	std::string error;
 	if (!pipe) {
 		fail(s, "sharing isn't possible on this system");
@@ -618,10 +680,11 @@ void run(yv_share *s) {
 	s->pkt = av_packet_alloc();
 	Parameter_Sets sets(s->codec);
 
-	const uint64_t interval = 1'000'000 / static_cast<uint64_t>(s->config.fps);
 	uint64_t next_due = 0;
 	bool pending = false; // captured, not yet encoded
 	while (!s->stop.load()) {
+		// Again each time: yv_share_configure may change the frame rate.
+		const uint64_t interval = 1'000'000 / static_cast<uint64_t>(s->config.fps);
 		uint64_t now = now_us();
 		int wait_ms = 100;
 		if (pending) {
@@ -632,7 +695,7 @@ void run(yv_share *s) {
 			pending = true;
 		}
 		if (closed) {
-			fail(s, "what was shared went away");
+			fail(s, pipe->gone());
 			break;
 		}
 		if (s->stop.load()) {
@@ -667,13 +730,14 @@ YV_API uint64_t yv_clock_us(void) {
 	return yv::now_us();
 }
 
-YV_API yv_share *yv_share_start(yv_context *ctx, const yv_share_config *config) {
-	if (!ctx || !config) {
-		return nullptr;
-	}
+} // extern "C"
+
+namespace yv {
+
+yv_share *start_share(yv_context *ctx, const yv_share_config &config, const char *camera) {
 	auto *s = new yv_share;
 	s->ctx = ctx;
-	s->config = *config;
+	s->config = config;
 	s->config.encoder[sizeof(s->config.encoder) - 1] = 0;
 	s->want_codecs.store(s->config.codecs);
 	if (s->config.fps <= 0 || s->config.fps > 240) {
@@ -682,9 +746,75 @@ YV_API yv_share *yv_share_start(yv_context *ctx, const yv_share_config *config) 
 	if (s->config.kbit == 0) {
 		s->config.kbit = 6000;
 	}
+	if (camera) {
+		s->is_camera = true;
+		s->camera = camera;
+	}
 	s->encoding_kbit.store(s->config.kbit);
-	s->thread = std::thread(yv::run, s);
+	s->thread = std::thread(run, s);
 	return s;
+}
+
+} // namespace yv
+
+extern "C" {
+
+YV_API yv_share *yv_share_start(yv_context *ctx, const yv_share_config *config) {
+	if (!ctx || !config) {
+		return nullptr;
+	}
+	return yv::start_share(ctx, *config, nullptr);
+}
+
+YV_API yv_share *yv_camera_start(yv_context *ctx, const yv_camera_config *config) {
+	if (!ctx || !config) {
+		return nullptr;
+	}
+	yv_share_config c{};
+	memcpy(c.encoder, config->encoder, sizeof(c.encoder));
+	c.fps = config->fps;
+	c.max_width = config->max_width;
+	c.max_height = config->max_height;
+	c.kbit = config->kbit;
+	c.codecs = config->codecs;
+	char camera[YV_CAMERA_ID_SIZE];
+	memcpy(camera, config->camera, sizeof(camera));
+	camera[sizeof(camera) - 1] = 0;
+	return yv::start_share(ctx, c, camera);
+}
+
+YV_API void yv_share_configure(yv_share *s, int32_t fps, int32_t max_width, int32_t max_height,
+                               uint32_t kbit) {
+	if (!s) {
+		return;
+	}
+	{
+		std::lock_guard<std::mutex> lock(s->config_mutex);
+		s->next_fps = fps > 0 && fps <= 240 ? fps : s->config.fps;
+		s->next_width = std::max(0, max_width);
+		s->next_height = std::max(0, max_height);
+		s->next_kbit = kbit > 0 ? kbit : s->config.kbit;
+	}
+	s->reconfigure.store(true);
+}
+
+YV_API bool yv_share_preview(yv_share *s, yv_picture *out) {
+	if (!s || !out || !s->is_camera) {
+		return false;
+	}
+	*out = {};
+	yv::Output *p = s->preview.load();
+	if (!p) {
+		// Only this thread makes it, so there's no race to.
+		p = yv::make_output().release();
+		{
+			std::lock_guard<std::mutex> lock(s->ctx->views_mutex);
+			s->ctx->outputs.push_back(p);
+			p->set_gpu(&s->ctx->gpu, s->ctx->gpu_luid);
+		}
+		s->preview.store(p);
+	}
+	return p->present(out);
 }
 
 YV_API bool yv_share_pull(yv_share *s, yv_packet *out) {
@@ -744,6 +874,15 @@ YV_API void yv_share_stop(yv_share *s) {
 	}
 	s->stop.store(true);
 	s->thread.join();
+	if (yv::Output *p = s->preview.load()) {
+		{
+			std::lock_guard<std::mutex> lock(s->ctx->views_mutex);
+			std::erase(s->ctx->outputs, p);
+		}
+		// What it made on the client's device goes with it.
+		p->set_gpu(nullptr, 0);
+		delete p;
+	}
 	delete s;
 }
 

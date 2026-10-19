@@ -22,12 +22,22 @@ struct Play_Options {
 	unsigned then_kbit = 0; // switch to this bitrate 3 seconds in (yv_share_set_bitrate)
 	int max_w = 1920, max_h = 1080;
 	const char *out = nullptr; // the encoded stream, as --play reads it
+
+	// --camera: a camera's share instead of the screen's (share is set too).
+	bool camera = false;
+	const char *camera_id = ""; // "": the first
+	// Fit within this 3 seconds in (yv_share_configure), as a room's tier does.
+	int then_w = 0, then_h = 0;
 };
 
 int play(yv_context *ctx, const Play_Options &opt);
 
-// The share --share asks for: source 0 is the primary monitor.
-yv_share_config share_config(yv_context *ctx, const Play_Options &opt);
+// Starts what --share or --camera asks for: source 0 is the primary monitor.
+yv_share *start_share(yv_context *ctx, const Play_Options &opt);
+
+// Does what --then-kbit and --then-max ask for, once `seconds` since starting
+// have gone by.
+void follow_then(yv_share *share, const Play_Options &opt, double seconds, bool &done);
 
 // The extension --play needs to read what --out wrote.
 const char *stream_extension(yv_codec codec);

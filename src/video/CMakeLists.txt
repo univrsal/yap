@@ -44,14 +44,14 @@ else()
 	target_link_libraries(ffmpeg INTERFACE PkgConfig::LIBAV)
 endif()
 
-set(SOURCES src/context.cpp src/encoders.cpp src/view.cpp src/yuv.cpp src/share.cpp)
+set(SOURCES src/context.cpp src/encoders.cpp src/view.cpp src/yuv.cpp src/share.cpp src/camera.cpp)
 set(CAPTURE_INCLUDES "")
 set(CAPTURE_DEFINES "")
 if(WIN32)
-	list(APPEND SOURCES src/sources_win.cpp src/output_d3d11.cpp src/capture_win.cpp)
+	list(APPEND SOURCES src/sources_win.cpp src/output_d3d11.cpp src/capture_win.cpp src/camera_win.cpp)
 elseif(APPLE)
 	# ScreenCaptureKit and Metal are Objective-C, so these are Objective-C++.
-	list(APPEND SOURCES src/output_metal.mm src/sources_mac.mm src/capture_mac.mm)
+	list(APPEND SOURCES src/output_metal.mm src/sources_mac.mm src/capture_mac.mm src/camera_none.cpp)
 	set_source_files_properties(src/output_metal.mm src/sources_mac.mm src/capture_mac.mm
 		PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 else()
@@ -59,7 +59,7 @@ else()
 	# are needed to build: the libraries are loaded at run time
 	# (src/dl_linux.h), so the library loads without them. A way of
 	# capturing whose headers are missing is left out.
-	list(APPEND SOURCES src/output_gl.cpp src/gl_interop_linux.cpp src/capture_linux.cpp)
+	list(APPEND SOURCES src/output_gl.cpp src/gl_interop_linux.cpp src/capture_linux.cpp src/camera_none.cpp)
 	find_package(PkgConfig REQUIRED)
 	pkg_check_modules(XCB IMPORTED_TARGET xcb xcb-shm xcb-randr xcb-composite xcb-xfixes)
 	pkg_check_modules(PORTAL IMPORTED_TARGET gio-unix-2.0 libpipewire-0.3)
@@ -97,7 +97,25 @@ target_link_libraries(yap_video PRIVATE ffmpeg)
 if(WIN32)
 	target_compile_definitions(yap_video PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE _CRT_SECURE_NO_WARNINGS)
 	# windowsapp: WinRT, for Windows.Graphics.Capture (C++/WinRT, from the SDK).
-	target_link_libraries(yap_video PRIVATE dwmapi user32 d3d11 dxgi d3dcompiler windowsapp)
+	# ole32 and advapi32: COM and the registry, for cameras.
+	target_link_libraries(yap_video PRIVATE dwmapi user32 d3d11 dxgi d3dcompiler windowsapp ole32 advapi32)
+
+	# Cameras: libdshowcapture (LGPL) as a DLL of its own, dshowcapture.dll,
+	# with yv_dshow.cpp as its C face. yap_video loads it at run time
+	# (src/camera_win.cpp), so it isn't linked here.
+	set(DSHOW thirdparty/dshowcapture)
+	file(GLOB DSHOW_SOURCES ${DSHOW}/source/*.cpp)
+	add_library(dshowcapture SHARED ${DSHOW_SOURCES} ${DSHOW}/yv_dshow.cpp)
+	target_include_directories(dshowcapture PRIVATE ${DSHOW})
+	# Upstream's standard.
+	set_target_properties(dshowcapture PROPERTIES CXX_STANDARD 17)
+	target_compile_definitions(dshowcapture PRIVATE UNICODE _UNICODE _UP_WINDOWS=1 NOMINMAX)
+	target_link_libraries(dshowcapture PRIVATE setupapi strmiids ksuser winmm wmcodecdspuuid ole32 oleaut32 uuid)
+	if(MSVC)
+		# As upstream builds it.
+		target_compile_options(dshowcapture PRIVATE /W4 /wd4127 /wd4201 /utf-8)
+	endif()
+	install(TARGETS dshowcapture RUNTIME DESTINATION .)
 endif()
 if(MSVC)
 	target_compile_options(yap_video PRIVATE /W4 /utf-8 /bigobj)

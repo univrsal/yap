@@ -7,12 +7,18 @@
 #include <string>
 #include <vector>
 
+namespace yv {
+class Output;
+}
+
 struct yv_context {
-	// yv_set_gpu's, and the views it's passed on to.
+	// yv_set_gpu's, and the views it's passed on to, and the cameras'
+	// previews (share.cpp).
 	yv_gpu gpu{};
 	uint64_t gpu_luid = 0;
 	std::mutex views_mutex;
 	std::vector<yv_view *> views;
+	std::vector<yv::Output *> outputs;
 
 	// yv_list_encoders' findings, made on its first call.
 	std::once_flag encoders_probed;

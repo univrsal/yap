@@ -644,6 +644,8 @@ draw_frame :: proc(ui: ^UI) {
 	ui.renderer.control_scale = m.scale / settings.ui_scale_factor(&ui.settings)
 	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, theme.background)
 	render.gpu_present(&ui.renderer.gpu)
+	// A camera turned off in this frame no longer has its preview drawn.
+	conn.video_frame_done()
 }
 
 // Drawing a frame lays out the whole UI, which costs the same whether

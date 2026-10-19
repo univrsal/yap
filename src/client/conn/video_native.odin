@@ -25,15 +25,15 @@ import log "common:wlog"
 // from the network thread (video_show_frame). Each stream we watch (a screen,
 // cameras) has a view of its own (View_Slot).
 //
-// Cameras aren't captured here yet (misc/video-chat, phase 6): only the screen
-// is ever live.
-//
 // Sharing: the UI picks a monitor or window (video_sources, video_share_source),
 // and the library captures and encodes it on a thread of its own. The network
 // thread pulls the encoded frames (video_capture_pull). Which encoders work is
 // found out on a separate thread while the library loads, because trying them
 // takes a moment. Until then, and if none works, video_can_share says no. There
-// is one share for the whole client, like the browser's.
+// is one share of the screen for the whole client, like the browser's, and one
+// of our camera (misc/video-chat): the library shares a camera the same way.
+// Only Windows has cameras so far (DirectShow, through dshowcapture.dll); the
+// library lists them, which is done off the UI thread (list_cameras).
 //
 // On macOS the user has to allow Screen Recording first. Until they have,
 // sharing is still offered, and the menu asks for the permission
@@ -45,7 +45,7 @@ MEDIA_RELIABLE :: false
 
 // The version of the library API this was built against (see src/video/include/yap_video.h).
 @(private = "file")
-YV_API_VERSION :: 8
+YV_API_VERSION :: 9
 
 @(private = "file")
 Yv_Log_Proc :: #type proc "c" (user: rawptr, level: i32, msg: cstring)
@@ -110,6 +110,24 @@ Yv_Share_Config :: struct {
 }
 
 @(private = "file")
+Yv_Camera :: struct {
+	id:                             [512]u8,
+	name:                           [256]u8,
+	max_width, max_height, max_fps: i32,
+	front:                          bool,
+}
+
+@(private = "file")
+Yv_Camera_Config :: struct {
+	camera:                [512]u8, // Yv_Camera.id, or "" for the first
+	encoder:               [64]u8,
+	fps:                   i32,
+	max_width, max_height: i32,
+	kbit:                  u32,
+	codecs:                u32,
+}
+
+@(private = "file")
 Yv_Packet :: struct {
 	data:   [^]u8,
 	size:   uint,
@@ -162,11 +180,16 @@ Yv :: struct {
 	open_capture_settings: proc "c" (ctx: rawptr) -> bool,
 	system_picker:         proc "c" (ctx: rawptr) -> bool,
 	view_on_frame:         proc "c" (view: rawptr, fn: proc "c" (user: rawptr), user: rawptr),
+	list_cameras:          proc "c" (ctx: rawptr, out: [^]Yv_Camera, max: i32) -> i32,
+	camera_allowed:        proc "c" (ctx: rawptr, ask: bool) -> bool,
+	camera_start:          proc "c" (ctx: rawptr, config: ^Yv_Camera_Config) -> rawptr,
+	share_configure:       proc "c" (share: rawptr, fps, max_width, max_height: i32, kbit: u32),
+	share_preview:         proc "c" (share: rawptr, out: ^Yv_Picture) -> bool,
 	__handle:              dynlib.Library,
 }
 
 @(private = "file")
-YV_PROCS :: 24
+YV_PROCS :: 29
 
 when ODIN_OS == .Windows {
 	@(private = "file")
@@ -200,6 +223,18 @@ View_Slot :: struct {
 	hardware: bool,
 }
 
+// A share of one of our streams: the screen, or our camera.
+@(private = "file")
+Share_Slot :: struct {
+	share:  rawptr,
+	kbit:   int, // the bitrate it was set to encode at (atomic)
+	codecs: u8, // the codecs its viewers decode (Video_Codecs; atomic)
+}
+
+// How often the cameras are counted again while there's none (video_can_camera).
+@(private = "file")
+CAMERAS_AGAIN :: 10 * time.Second
+
 @(private = "file")
 Native_Video :: struct {
 	once:          sync.Once,
@@ -214,15 +249,24 @@ Native_Video :: struct {
 	// The UI thread's state: whether the library has the renderer's device.
 	gpu_set:       bool,
 	full:          bool, // video_set_fullscreen
-	// Sharing. `share` is started and stopped by the UI and pulled from by a
-	// network thread, so it is only touched under `share_mu`.
+	// Sharing. The shares are started and stopped by the UI and pulled from by
+	// a network thread, so they are only touched under `share_mu`.
 	encoder_ok:    bool, // atomic: at least one encoder works (probe_encoders)
 	encoders_done: bool, // atomic: probe_encoders has tried all encoders
 	share_mu:      sync.Mutex,
-	share:         rawptr,
-	share_kbit:    int, // the bitrate it was set to encode at (atomic)
-	share_codecs:  u8, // the codecs its viewers decode (Video_Codecs; atomic)
+	shares:        [proto.Video_Stream]Share_Slot,
 	asked:         bool, // UI thread only: video_allow_capture has shown the prompt
+	// The UI thread's: the camera's shares that were turned off, until the
+	// frame that may still draw their preview has been drawn
+	// (video_frame_done), and the preview's texture.
+	retired:       [dynamic]rawptr,
+	preview:       render.Gpu_Texture,
+	preview_of:    uintptr, // the library's texture `preview` wraps
+	// How many cameras there are (atomic), when they were last counted (UI
+	// thread), and whether they are being counted (atomic; list_cameras).
+	cameras:       int,
+	cameras_at:    time.Tick,
+	listing:       bool,
 	// Wakes the UI for each new picture (video_set_wake; atomic).
 	wake:          proc "c" (),
 }
@@ -280,12 +324,15 @@ load :: proc() {
 }
 
 // probe_encoders finds out, off the UI thread, whether anything can be captured
-// and any encoder works here. The library remembers which.
+// and any encoder works here. The library remembers which. The cameras are
+// counted first.
 @(private = "file")
 probe_encoders :: proc() {
+	sync.atomic_store(&nv.listing, true)
+	list_cameras()
 	if !nv.yv.capture_allowed(nv.ctx, false) {
 		log.info("video: capturing isn't allowed yet; the share menu asks")
-	} else if nv.yv.list_sources(nv.ctx, nil, 0) == 0 {
+	} else if nv.yv.list_sources(nv.ctx, nil, 0) == 0 && sync.atomic_load(&nv.cameras) == 0 {
 		log.info("video: nothing to capture here (yet), so no sharing")
 		return
 	}
@@ -301,6 +348,21 @@ probe_encoders :: proc() {
 		}
 	}
 	log.info("video: no encoder works here, so no sharing")
+}
+
+// list_cameras counts the cameras, which can take a moment, so it's done on a
+// thread of its own, with `listing` set until it's done. The UI is woken if
+// the count changed, for the camera button to come or go.
+@(private = "file")
+list_cameras :: proc() {
+	n := int(nv.yv.list_cameras(nv.ctx, nil, 0))
+	if sync.atomic_exchange(&nv.cameras, n) != n {
+		log.infof("video: %d camera(s)", n)
+		if wake := sync.atomic_load(&nv.wake); wake != nil {
+			wake()
+		}
+	}
+	sync.atomic_store(&nv.listing, false)
 }
 
 // on_frame is called by the library, from its decoder's thread, when there is a new picture.
@@ -338,9 +400,8 @@ yv_log :: proc "c" (user: rawptr, level: i32, msg: cstring) {
 // own (ui_app_audio_native.odin), and owns the voice's app ring.
 video_capture_audio :: proc(v: ^audio.Voice, sharing: bool) {}
 
-// Cameras aren't captured on the desktop yet, so only the screen is ever live.
 video_capture_live :: proc(stream: proto.Video_Stream) -> bool {
-	return stream == .Screen && video_share_state() == .Live
+	return share_state(stream) == .Live
 }
 
 // video_capture_pull returns the next encoded frame of a stream, which the
@@ -354,12 +415,13 @@ video_capture_pull :: proc(
 	codec: proto.Video_Codec,
 	ok: bool,
 ) {
-	if !nv.loaded || stream != .Screen {
+	if !nv.loaded {
 		return
 	}
 	sync.guard(&nv.share_mu)
 	p: Yv_Packet
-	if nv.share == nil || !nv.yv.share_pull(nv.share, &p) || p.size == 0 {
+	share := nv.shares[stream].share
+	if share == nil || !nv.yv.share_pull(share, &p) || p.size == 0 {
 		return
 	}
 	data = make([]u8, p.size)
@@ -369,12 +431,12 @@ video_capture_pull :: proc(
 }
 
 video_capture_request_key :: proc(stream: proto.Video_Stream) {
-	if !nv.loaded || stream != .Screen {
+	if !nv.loaded {
 		return
 	}
 	sync.guard(&nv.share_mu)
-	if nv.share != nil {
-		nv.yv.share_request_key(nv.share)
+	if share := nv.shares[stream].share; share != nil {
+		nv.yv.share_request_key(share)
 	}
 }
 
@@ -513,16 +575,13 @@ video_decodable :: proc() -> proto.Video_Codecs {
 // It is called from the network thread as viewers come and go, and a share that
 // is started later starts with it too.
 video_share_codecs :: proc(stream: proto.Video_Stream, codecs: proto.Video_Codecs) {
-	if stream != .Screen {
-		return
-	}
 	bits := transmute(u8)codecs
-	if sync.atomic_exchange(&nv.share_codecs, bits) == bits || !loaded() {
+	if sync.atomic_exchange(&nv.shares[stream].codecs, bits) == bits || !loaded() {
 		return
 	}
 	sync.guard(&nv.share_mu)
-	if nv.share != nil {
-		nv.yv.share_set_codecs(nv.share, u32(bits))
+	if share := nv.shares[stream].share; share != nil {
+		nv.yv.share_set_codecs(share, u32(bits))
 	}
 }
 
@@ -607,17 +666,10 @@ video_share_source :: proc(src: Video_Source, config: Share_Config) {
 		max_height = config.max.y,
 		kbit       = u32(config.kbit),
 		cursor     = config.cursor,
-		codecs     = u32(sync.atomic_load(&nv.share_codecs)),
+		codecs     = u32(sync.atomic_load(&nv.shares[.Screen].codecs)),
 	}
 	copy(cfg.encoder[:len(cfg.encoder) - 1], config.encoder)
-	share := nv.yv.share_start(nv.ctx, &cfg)
-	sync.guard(&nv.share_mu)
-	nv.share = share
-	if share != nil {
-		// In case the viewers have changed since cfg was made (video_share_codecs).
-		nv.yv.share_set_codecs(share, u32(sync.atomic_load(&nv.share_codecs)))
-	}
-	sync.atomic_store(&nv.share_kbit, config.kbit)
+	share_took(.Screen, nv.yv.share_start(nv.ctx, &cfg), config.kbit)
 	log.infof(
 		"video: sharing %s at %d fps, %d kbit/s%s%s",
 		src.name if src.id != 0 else "what the system's picker gives",
@@ -634,32 +686,55 @@ video_share_source :: proc(src: Video_Source, config: Share_Config) {
 // up only some seconds later, if at all, and pacing below what the encoder
 // makes in the meantime builds up a queue.
 video_share_kbit :: proc(stream: proto.Video_Stream) -> int {
-	if stream != .Screen || video_share_state() == .Off {
+	if share_state(stream) == .Off {
 		return 0
 	}
 	sync.guard(&nv.share_mu)
-	return int(nv.yv.share_get_bitrate(nv.share)) if nv.share != nil else 0
+	share := nv.shares[stream].share
+	return int(nv.yv.share_get_bitrate(share)) if share != nil else 0
 }
 
 // video_share_max_kbit is the bitrate the share was set to encode at, which
 // adapting never goes above. It is 0 while there is no share.
 video_share_max_kbit :: proc(stream: proto.Video_Stream) -> int {
-	if stream != .Screen || video_share_state() == .Off {
+	if share_state(stream) == .Off {
 		return 0
 	}
-	return sync.atomic_load(&nv.share_kbit)
+	return sync.atomic_load(&nv.shares[stream].kbit)
 }
 
 // video_share_adapt holds a stream to `kbit` for its viewers (video.odin).
 // Called from the network thread.
 video_share_adapt :: proc(stream: proto.Video_Stream, kbit: int) {
-	if !nv.loaded || stream != .Screen {
+	if !nv.loaded {
 		return
 	}
 	sync.guard(&nv.share_mu)
-	if nv.share != nil {
-		nv.yv.share_set_bitrate(nv.share, u32(kbit))
+	if share := nv.shares[stream].share; share != nil {
+		nv.yv.share_set_bitrate(share, u32(kbit))
 	}
+}
+
+// share_took makes `share` (nil if it didn't start) the share of `stream`,
+// set to encode at `kbit`.
+@(private = "file")
+share_took :: proc(stream: proto.Video_Stream, share: rawptr, kbit: int) {
+	sync.guard(&nv.share_mu)
+	nv.shares[stream].share = share
+	if share != nil {
+		// In case the viewers have changed since it was started (video_share_codecs).
+		nv.yv.share_set_codecs(share, u32(sync.atomic_load(&nv.shares[stream].codecs)))
+	}
+	sync.atomic_store(&nv.shares[stream].kbit, kbit)
+}
+
+// share_take takes the share of `stream` away from the network thread, which
+// then has nothing more to pull: nil if there was none.
+@(private = "file")
+share_take :: proc(stream: proto.Video_Stream) -> (share: rawptr) {
+	sync.guard(&nv.share_mu)
+	share, nv.shares[stream].share = nv.shares[stream].share, nil
+	return
 }
 
 // video_library_dir is the directory the library is looked for in: next to the executable.
@@ -704,23 +779,93 @@ video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
 // video_share_source.
 video_share_start :: proc(config: Share_Config) {}
 
-// The camera isn't captured on the desktop yet (misc/video-chat, phase 6).
+// video_can_camera says whether our camera can be turned on: there is a camera
+// and an encoder that works. While there is none, the cameras are counted
+// again now and then, for one that is plugged in later. Called from the UI
+// thread.
 video_can_camera :: proc() -> bool {
-	return false
+	if !loaded() {
+		return false
+	}
+	if sync.atomic_load(&nv.cameras) == 0 &&
+	   time.tick_since(nv.cameras_at) > CAMERAS_AGAIN &&
+	   !sync.atomic_exchange(&nv.listing, true) {
+		nv.cameras_at = time.tick_now()
+		thread.run(list_cameras, context)
+	}
+	return sync.atomic_load(&nv.cameras) > 0 && sync.atomic_load(&nv.encoder_ok)
 }
 
-video_camera_start :: proc(config: Share_Config, device := "") {}
+// video_camera_start turns on the camera `device` (a Yv_Camera id; "" for the
+// first) as `config` says, replacing a camera that was on. Called from the UI
+// thread.
+video_camera_start :: proc(config: Share_Config, device := "") {
+	if !video_can_camera() {
+		return
+	}
+	video_camera_stop()
+	cfg := Yv_Camera_Config {
+		fps        = i32(config.fps),
+		max_width  = config.max.x,
+		max_height = config.max.y,
+		kbit       = u32(config.kbit),
+		codecs     = u32(sync.atomic_load(&nv.shares[.Camera].codecs)),
+	}
+	copy(cfg.camera[:len(cfg.camera) - 1], device)
+	copy(cfg.encoder[:len(cfg.encoder) - 1], config.encoder)
+	share_took(.Camera, nv.yv.camera_start(nv.ctx, &cfg), config.kbit)
+	log.infof(
+		"video: camera at %d fps, %d kbit/s, at most %dx%d",
+		config.fps,
+		config.kbit,
+		config.max.x,
+		config.max.y,
+	)
+}
 
-video_camera_stop :: proc() {}
+// video_camera_stop turns the camera off. The network thread has nothing more
+// to send at once, but the share itself is stopped once the frame being drawn
+// is done (video_frame_done), since that may still draw its preview. Called
+// from the UI thread.
+video_camera_stop :: proc() {
+	if !nv.loaded {
+		return
+	}
+	share := share_take(.Camera)
+	if share == nil {
+		return
+	}
+	append(&nv.retired, share)
+	log.info("video: camera off")
+}
 
-video_camera_configure :: proc(config: Share_Config) {}
+// video_camera_configure has the camera go on as `config` says (its size,
+// frame rate and bitrate), from a keyframe: the room's tier changed
+// (video.odin). Called from the network thread.
+video_camera_configure :: proc(config: Share_Config) {
+	if !nv.loaded {
+		return
+	}
+	sync.guard(&nv.share_mu)
+	if share := nv.shares[.Camera].share; share != nil {
+		nv.yv.share_configure(share, i32(config.fps), config.max.x, config.max.y, u32(config.kbit))
+		sync.atomic_store(&nv.shares[.Camera].kbit, config.kbit)
+	}
+}
 
 video_camera_state :: proc() -> Share_State {
-	return .Off
+	return share_state(.Camera)
 }
 
-// video_camera_preview is the newest frame of our own camera, for the self
-// view: none yet on the desktop.
+// video_camera_error says why the camera failed. The result is in the temp
+// allocator.
+video_camera_error :: proc() -> string {
+	return share_error(.Camera)
+}
+
+// video_camera_preview is the newest frame of our own camera as it is sent
+// (not mirrored), for the self view, valid until the next call or
+// video_forget_gpu. Called from the UI thread, with the renderer's device up.
 video_camera_preview :: proc(
 	g: ^render.Gpu,
 ) -> (
@@ -728,19 +873,52 @@ video_camera_preview :: proc(
 	width, height: int,
 	ok: bool,
 ) {
-	return
+	// While a camera is being let go of, its preview may still be drawn this
+	// frame, so it's kept as it is until video_frame_done.
+	if !nv.loaded || len(nv.retired) > 0 {
+		return
+	}
+	ensure_gpu(g)
+	// Only the UI thread starts and stops it, so it stays while this runs.
+	share: rawptr
+	{
+		sync.guard(&nv.share_mu)
+		share = nv.shares[.Camera].share
+	}
+	pic: Yv_Picture
+	if share == nil || !nv.yv.share_preview(share, &pic) || pic.texture == 0 {
+		return
+	}
+	if pic.texture != nv.preview_of {
+		render.gpu_texture_unwrap(g, &nv.preview)
+		nv.preview = render.gpu_texture_wrap(g, pic.texture)
+		nv.preview_of = pic.texture
+	}
+	return nv.preview, int(pic.width), int(pic.height), true
+}
+
+// video_frame_done is called once a frame has been drawn: a camera turned off
+// while it was laid out is stopped now that nothing draws its preview. This
+// may take a moment, since it waits for the camera's thread. Called from the
+// UI thread.
+video_frame_done :: proc() {
+	if len(nv.retired) == 0 {
+		return
+	}
+	// The wrapper only (no renderer needed); the share frees the texture.
+	render.gpu_texture_unwrap(nil, &nv.preview)
+	nv.preview_of = 0
+	for share in nv.retired {
+		nv.yv.share_stop(share)
+	}
+	clear(&nv.retired)
 }
 
 video_share_stop :: proc() {
 	if !nv.loaded {
 		return
 	}
-	share: rawptr
-	{
-		sync.guard(&nv.share_mu)
-		share, nv.share = nv.share, nil
-	}
-	if share != nil {
+	if share := share_take(.Screen); share != nil {
 		// This may take a moment because it waits for its thread. Nobody else
 		// can reach it any more.
 		nv.yv.share_stop(share)
@@ -749,14 +927,20 @@ video_share_stop :: proc() {
 }
 
 video_share_state :: proc() -> Share_State {
+	return share_state(.Screen)
+}
+
+@(private = "file")
+share_state :: proc(stream: proto.Video_Stream) -> Share_State {
 	if !nv.loaded {
 		return .Off
 	}
 	sync.guard(&nv.share_mu)
-	if nv.share == nil {
+	share := nv.shares[stream].share
+	if share == nil {
 		return .Off
 	}
-	switch nv.yv.share_get_state(nv.share) {
+	switch nv.yv.share_get_state(share) {
 	case YV_SHARE_STARTING:
 		return .Starting
 	case YV_SHARE_LIVE:
@@ -769,14 +953,20 @@ video_share_state :: proc() -> Share_State {
 
 // video_share_error says why sharing failed. The result is in the temp allocator.
 video_share_error :: proc() -> string {
+	return share_error(.Screen)
+}
+
+@(private = "file")
+share_error :: proc(stream: proto.Video_Stream) -> string {
 	if !nv.loaded {
 		return ""
 	}
 	sync.guard(&nv.share_mu)
-	if nv.share == nil {
+	share := nv.shares[stream].share
+	if share == nil {
 		return ""
 	}
-	return strings.clone_from_cstring(nv.yv.share_error(nv.share), context.temp_allocator)
+	return strings.clone_from_cstring(nv.yv.share_error(share), context.temp_allocator)
 }
 
 // video_picture is the newest frame of a stream we are watching, as a texture
@@ -793,25 +983,7 @@ video_picture :: proc(
 	if !loaded() || key.user == 0 {
 		return
 	}
-	if !nv.gpu_set {
-		native := render.gpu_native(g)
-		gpu := Yv_Gpu {
-			d3d11_device = native.d3d11_device,
-			gl_get_proc  = native.gl_get_proc,
-			metal_device = native.metal_device,
-			metal_queue  = native.metal_queue,
-		}
-		switch {
-		case native.d3d11_device != nil:
-			gpu.kind = 1
-		case native.gl_get_proc != nil:
-			gpu.kind = 2
-		case native.metal_device != nil:
-			gpu.kind = 3
-		}
-		nv.yv.set_gpu(nv.ctx, &gpu)
-		nv.gpu_set = true
-	}
+	ensure_gpu(g)
 	// Presenting can take a moment, so it is done without the lock. If the
 	// view was given to another stream meanwhile, its picture is not ours.
 	slot, used := find_slot(key)
@@ -838,6 +1010,32 @@ video_picture :: proc(
 		slot.wrapped = pic.texture
 	}
 	return slot.picture, int(pic.width), int(pic.height), true
+}
+
+// ensure_gpu hands the library the renderer's device, the first time a picture
+// is asked for. Called from the UI thread.
+@(private = "file")
+ensure_gpu :: proc(g: ^render.Gpu) {
+	if nv.gpu_set {
+		return
+	}
+	native := render.gpu_native(g)
+	gpu := Yv_Gpu {
+		d3d11_device = native.d3d11_device,
+		gl_get_proc  = native.gl_get_proc,
+		metal_device = native.metal_device,
+		metal_queue  = native.metal_queue,
+	}
+	switch {
+	case native.d3d11_device != nil:
+		gpu.kind = 1
+	case native.gl_get_proc != nil:
+		gpu.kind = 2
+	case native.metal_device != nil:
+		gpu.kind = 3
+	}
+	nv.yv.set_gpu(nv.ctx, &gpu)
+	nv.gpu_set = true
 }
 
 // find_slot returns the slot of the view that decodes `key`, and how often it
@@ -873,6 +1071,9 @@ video_forget_gpu :: proc(g: ^render.Gpu) {
 		render.gpu_texture_unwrap(g, &s.picture)
 		s.wrapped = 0
 	}
+	video_frame_done()
+	render.gpu_texture_unwrap(g, &nv.preview)
+	nv.preview_of = 0
 	nv.yv.set_gpu(nv.ctx, nil)
 	nv.gpu_set = false
 }

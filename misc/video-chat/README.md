@@ -200,7 +200,7 @@ YV_API bool yv_share_preview(yv_share *, yv_picture *out);
 
 | Platform | API | Formats | Notes |
 | --- | --- | --- | --- |
-| Windows | Media Foundation `IMFSourceReader` (`MFEnumDeviceSources`) with a D3D manager, so NV12 arrives on the GPU | NV12, YUY2, MJPEG (decoded by MF) | Windows' camera privacy switch shows as `E_ACCESSDENIED`: say where to turn it on. The Frame Server shares a camera with other apps. |
+| Windows | DirectShow, through OBS's libdshowcapture (LGPL, as dshowcapture.dll); Media Foundation was the plan, see phase 6 | NV12, I420, YUY2, MJPEG (FFmpeg's decoder), RGB | Windows' camera privacy switches are read from the registry: say where to turn them on. The Frame Server shares a camera with other apps. |
 | Linux | V4L2 directly (`/dev/video*`, `VIDIOC_ENUM_FMT`, mmap buffers) | MJPEG (FFmpeg's `mjpeg`, or VA-API's JPEG decoder), YUYV, NV12 | Covers USB cameras everywhere. Intel IPU6 laptop cameras need libcamera, reachable through PipeWire: later (D5). |
 | macOS | AVFoundation `AVCaptureSession`, `AVCaptureDevice.DiscoverySession` (Continuity Camera too) | NV12 `CVPixelBuffer` on an IOSurface, straight into VideoToolbox | The app's `Info.plist` needs `NSCameraUsageDescription`, or macOS kills the app on first use (`scripts/package-macos.sh`). |
 | Browser | `getUserMedia({video: {deviceId, width, height, frameRate}})`, `enumerateDevices` | `VideoFrame`s, into the share's `VideoEncoder` | Labels only after permission is granted once. Phones: front camera by default, `facingMode` to switch. |
@@ -295,7 +295,7 @@ layer.
 | 3 | Cameras in the browser: getUserMedia, a second encoder, several decoders | M | web | 2 | done (2026-10-19): headless Chromium's fake camera to a headless client |
 | 4 | Calls: camera button, Video tab with self view, video call / answer with video | M | client (UI) | 2, 3 | done (2026-10-19): browser to browser and browser to desktop, headless |
 | 5 | Channels: the grid, tiers, focus, the full-room message, pop-out | M | client (UI) | 4 | done (2026-10-19): three headless browsers in a channel |
-| 6 | `yap_video` cameras on Windows: Media Foundation, `yv_share_preview`, `yv_share_set_size` | L | library, client | 2 | - |
+| 6 | `yap_video` cameras on Windows: DirectShow (libdshowcapture), `yv_share_preview`, `yv_share_configure` | L | library, client | 2 | built (2026-10-19): under wine with OBS's virtual camera; client on Linux with a fake camera; needs a test on Windows |
 | 7 | Linux: V4L2, MJPEG | M | library | 6 | - |
 | 8 | macOS: AVFoundation, `Info.plist` | M | library, scripts | 6 | - |
 | 9 | Settings: camera, quality, mirror, preview | S | client | 4, 6 | - |
@@ -698,6 +698,126 @@ What the owner saw led to this; it isn't one of the plan's phases.
   proto (91), conn (40) and server (139) pass.
 - **Not changed**: the page's 16 ms send bursts (harmless now). Also
   the headless fake camera's 20 fps; a real camera runs at its own rate.
+
+### 6. Cameras on Windows
+
+*As built:*
+
+- **DirectShow, not Media Foundation.** The owner suggested OBS's
+  libdshowcapture (LGPL), and it fits better:
+  - DirectShow sees every camera Media Foundation does (both go through
+    the Frame Server), and also the virtual ones that are DirectShow
+    filters only, such as OBS's virtual camera.
+  - Its frames arrive in memory, which is where camera.cpp wants them.
+    The plan's NV12 on the GPU isn't worth it at a camera's sizes.
+  - Vendored in `src/video/thirdparty/dshowcapture`, without its VS
+    project and its submodule (Elgato's capture-device-support).
+  - Two changes from upstream, marked `yap:`:
+    - Elgato's HDR tonemapper (and two GC4K60SPlus calls) is behind
+      `DSHOWCAPTURE_ELGATO`, which we leave off.
+    - Frames without time stamps are passed on too (wine's camera sends
+      them that way; Windows' carry times).
+- **dshowcapture.dll.** libdshowcapture is built as a DLL of its own, so
+  that the LGPL part stays a separate library, like FFmpeg's.
+  - Its interface is C++ (`std::vector`, `std::function`), which can't
+    cross between two DLLs with their own static C runtime. So the DLL
+    also holds `yv_dshow.cpp`, a plain C face (`yv_dshow.h`: fixed-size
+    device and mode structs, a frame callback, open/close).
+  - `yap_video` loads it from its own folder at run time (`camera_win.cpp`).
+    Without it there are no cameras and nothing else changes.
+  - build-video.bat copies its licence (`dshowcapture-LICENSE.txt`).
+    package-video.sh packs both files, and the installer removes them
+    with the add-on.
+- **Library API 9** (`yap_video.h`):
+  - `yv_list_cameras` / `yv_camera` (id up to 512 bytes: a device path,
+    or a virtual camera's name).
+  - `yv_camera_allowed`.
+  - `yv_camera_start` / `yv_camera_config`.
+  - `yv_share_configure(fps, max_w, max_h, kbit)`, instead of the plan's
+    `yv_share_set_size`. The tier changes the bitrate too, and changing
+    it all at once costs one keyframe rather than two. The same config
+    again is ignored.
+  - `yv_share_preview`.
+  - A camera is a `yv_share` like a screen: `share.cpp` takes
+    `camera.cpp`'s pipeline. Only encoders that take frames from memory
+    are picked for a camera (no VA-API).
+- **camera.cpp** (every platform, for phases 7 and 8 too):
+  - It picks the mode: the fastest that reaches the frame rate, then the
+    smallest at least 1280x720 (so the tier can go up again without
+    reopening the camera), then raw before MJPEG.
+  - It keeps the newest frame only, and decodes MJPEG with FFmpeg as
+    frames come in.
+  - swscale scales it and converts BT.601 (JPEG full range, raw YUV
+    limited) to BT.709 limited NV12 when a frame is encoded.
+  - A camera that sends nothing for 5 s (10 s at first) fails the share:
+    unplugged, or taken. "Another program is using the camera" comes
+    from DirectShow's `InUse`.
+  - RGB that arrives at three bytes a pixel is taken as RGB24, whatever
+    it was called: libdshowcapture calls RGB24 XRGB, and on Windows a
+    converter usually makes it XRGB on the way, but not always.
+- **Privacy switches.**
+  - The three camera switches in Settings (the computer's, the user's
+    for all apps, desktop apps) are read from where Settings keeps them
+    (`CapabilityAccessManager\ConsentStore\webcam`).
+  - Cameras are still listed while a switch is off, so the camera button
+    stays and turning it on fails with "turn it on in Settings, Privacy
+    & security, Camera". The button's tooltip now says the library's
+    reason (`video_camera_error`).
+- **The preview** is what is encoded (at the tier's size), handed to an
+  `Output` of the share's own on the client's GPU, as a view's picture.
+  `yv_set_gpu` reaches it through `ctx->outputs`.
+- **Client** (`video_native.odin`):
+  - The shares are per stream (`Share_Slot`), so the network side's
+    procs work for the camera as they did for the screen.
+  - Cameras are counted on the probe thread, and again every 10 s while
+    there are none (plugged in later). `video_can_camera` needs a camera
+    and a working encoder.
+  - `video_camera_preview` hands the library the GPU itself, for a self
+    view shown before any other video.
+  - Turning the camera off stops the network side at once, but the share
+    and its preview's texture wrapper only after the frame is drawn
+    (`video_frame_done`, after `gpu_present`). The frame may have the
+    preview queued, and on D3D11 and Metal that wrapper is freed memory
+    otherwise.
+- **yv-loopback**:
+  - `--list` shows the cameras.
+  - `--camera [ID]` shares one.
+  - `--then-max WxH` reconfigures 3 s in, as a tier change does.
+- **A fake camera for testing** (Linux and macOS, until phases 7 and 8):
+  `YAP_VIDEO_FAKE_CAMERA=1` (or `nv12`, `bgrx`, `mjpeg`) lists one camera
+  of colour bars with a moving box, at 1280x720 and 30 fps. It's like
+  Chromium's `--use-fake-device-for-media-stream`.
+- **Tested here:**
+  - **Under wine**, built with zig's mingw-w64 (screen capture left out:
+    it needs C++/WinRT). DirectShow (wine's qcap, over V4L2) saw the OBS
+    virtual camera on this machine.
+    - `yv-loopback --camera` captured it at 1280x720 and 30 fps through
+      libopenh264. `--then-max 640x360` gave a new keyframe at 640x360.
+      The picture came out upright: bottom-up RGB handled.
+    - With the desktop-apps switch set to Deny in the prefix, the camera
+      was listed as not allowed, and starting it said where to allow it.
+    - Wine found three bugs that MSVC would have hit too: missing
+      `<objbase.h>`, and two Elgato calls outside the guard. It also
+      found two wine-only problems: no time stamps, and RGB24 called
+      XRGB.
+  - **The fake camera in every format** through yv-loopback: the bars
+    decode in the right colours and order, and bottom-up BGRX comes out
+    upright.
+  - **The client on Linux** (weston, fake camera) with a headless
+    Chromium in the channel:
+    - The camera button shows. The Video tab shows our camera mirrored
+      (the preview), and the browser shows it unmirrored.
+    - It went off and on again three times with the tab open, without
+      trouble.
+    - With two browser cameras on, it started at 960x540/800 kbit/s.
+      When one went off, it went up to 1280x720/1500 after 5 s.
+    - The browsers' cameras show in its grid.
+- **Not tested**: a real Windows build (MSVC) and real cameras. That
+  includes MJPEG from a real camera, a camera that another program
+  holds, and unplugging one. Media Foundation-only cameras (if any
+  exist without DirectShow) are not tested either.
+- **Left for later**: picking the camera (phase 9; "" is the first one
+  listed), and `front`, which stays false on Windows.
 
 ## Risks
 

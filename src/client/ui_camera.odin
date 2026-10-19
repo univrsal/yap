@@ -128,6 +128,9 @@ camera_button :: proc(ui: ^UI) {
 		hint, color = "Turning your camera on...", theme.dim
 	case .Failed:
 		hint = "Your camera didn't start (it isn't allowed, or another program has it); try again"
+		if why := conn.video_camera_error(); why != "" {
+			hint = fmt.tprintf("Your camera didn't start: %s. Try again", why)
+		}
 		color, icon = theme.off, .Camera_Off
 	case .Off:
 	}

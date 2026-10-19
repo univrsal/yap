@@ -1,6 +1,7 @@
 @echo off
 rem Builds the optional screen sharing library, yap_video.dll
-rem (src\video, misc\hq-share\README.md), and yv-loopback.exe into bin\
+rem (src\video, misc\hq-share\README.md), dshowcapture.dll for its cameras
+rem (misc\video-chat\README.md), and yv-loopback.exe into bin\
 rem next to the client, with the FFmpeg DLLs it needs beside them. The
 rem client runs without any of it; build.bat never builds it.
 rem FFmpeg is BtbN's LGPL shared build (scripts\ffmpeg.version), fetched
@@ -38,7 +39,9 @@ for %%l in (avcodec avutil swresample swscale) do (
 )
 rem And the licence that has to go with them.
 copy /y .cache\%ffmpeg_win%\LICENSE.txt bin\ffmpeg-LICENSE.txt >nul || exit /b 1
-echo built bin\yap_video.dll and bin\yv-loopback.exe; try: bin\yv-loopback --list
+rem dshowcapture.dll (cameras) is libdshowcapture, LGPL too.
+copy /y src\video\thirdparty\dshowcapture\COPYING bin\dshowcapture-LICENSE.txt >nul || exit /b 1
+echo built bin\yap_video.dll, bin\dshowcapture.dll and bin\yv-loopback.exe; try: bin\yv-loopback --list
 exit /b 0
 
 :fetch_ffmpeg

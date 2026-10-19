@@ -75,6 +75,8 @@ Type: files; Name: "{app}\avutil-*.dll"; Components: not video
 Type: files; Name: "{app}\swresample-*.dll"; Components: not video
 Type: files; Name: "{app}\swscale-*.dll"; Components: not video
 Type: files; Name: "{app}\ffmpeg-LICENSE.txt"; Components: not video
+Type: files; Name: "{app}\dshowcapture.dll"; Components: not video
+Type: files; Name: "{app}\dshowcapture-LICENSE.txt"; Components: not video
 
 [Icons]
 Name: "{autoprograms}\Yap"; Filename: "{app}\yap.exe"; WorkingDir: "{app}"; Comment: "Voice chat"

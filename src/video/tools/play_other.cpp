@@ -17,20 +17,18 @@ int play(yv_context *ctx, const Play_Options &opt) {
 		return 1;
 	}
 	// macOS: the first time, its prompt; after that, its settings.
-	if (!yv_capture_allowed(ctx, true)) {
+	if (!opt.camera && !yv_capture_allowed(ctx, true)) {
 		fprintf(stderr, "capturing isn't allowed: allow it in the settings this opens (for the "
 		                "terminal, on macOS), then run this again\n");
 		yv_open_capture_settings(ctx);
 		return 1;
 	}
-	yv_share_config cfg = share_config(ctx, opt);
-	yv_share *share = yv_share_start(ctx, &cfg);
+	yv_share *share = start_share(ctx, opt);
 	if (!share) {
 		return 1;
 	}
 	double seconds = opt.seconds > 0 ? opt.seconds : 10;
-	printf("sharing %#llx for %.0f seconds\n", static_cast<unsigned long long>(cfg.source),
-	       seconds);
+	printf("for %.0f seconds\n", seconds);
 
 	using Clock = std::chrono::steady_clock;
 	auto start = Clock::now(), last = start;
@@ -40,12 +38,8 @@ int play(yv_context *ctx, const Play_Options &opt) {
 	uint64_t last_frames = 0, last_bytes = 0, last_encode = 0;
 	bool switched = false;
 	for (;;) {
-		if (opt.then_kbit && !switched &&
-		    std::chrono::duration<double>(Clock::now() - start).count() >= 3) {
-			printf("bitrate now %u kbit/s\n", opt.then_kbit);
-			yv_share_set_bitrate(share, opt.then_kbit);
-			switched = true;
-		}
+		follow_then(share, opt, std::chrono::duration<double>(Clock::now() - start).count(),
+		            switched);
 		yv_share_state st = yv_share_get_state(share);
 		if (st == YV_SHARE_FAILED) {
 			fprintf(stderr, "share failed: %s\n", yv_share_error(share));
