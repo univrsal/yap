@@ -292,7 +292,7 @@ layer.
 | --- | --- | --- | --- | --- | --- |
 | 1 | Streams in the protocol, the server: camera bit, stream bytes, leases, `Camera` flag and limit, config | M | protocol, server | - | done (2026-10-18): proto and server tests |
 | 2 | The client's streams: `Video_Out`/`Video_In`, several leases, a view per stream | L | client (conn) | 1 | done (2026-10-18): conn tests; a browser's share watched by a desktop client |
-| 3 | Cameras in the browser: getUserMedia, a second encoder, several decoders | M | web | 2 | - |
+| 3 | Cameras in the browser: getUserMedia, a second encoder, several decoders | M | web | 2 | done (2026-10-19): headless Chromium's fake camera to a headless client |
 | 4 | Calls: camera button, Video tab with self view, video call / answer with video | M | client (UI) | 2, 3 | - |
 | 5 | Channels: the grid, tiers, focus, the full-room message, pop-out | M | client (UI) | 4 | - |
 | 6 | `yap_video` cameras on Windows: Media Foundation, `yv_share_preview`, `yv_share_set_size` | L | library, client | 2 | - |
@@ -450,6 +450,60 @@ Why this order:
     the headless weston display never produced a frame, with the
     phase 1 client as well, so that's the test setup, not this change.
   - Type-checks for Linux, Windows, macOS and the web.
+
+### 3. Cameras in the browser
+
+*As built:*
+
+- **`web/video.js`**:
+  - What was the share is now a capture made by `newCapture`, one for
+    the screen and one for the camera (`captures[stream]`). Capturing,
+    sizing, encoding, the queue and `setBitrate` take the capture they
+    work on.
+  - The camera starts with `getUserMedia` (`startCamera(fps, kbit,
+    w, h, device)`). It asks for the size and frame rate the client
+    wants, with `facingMode: "user"` (a phone's front camera) when no
+    device is named, and `contentHint = "motion"`.
+  - A camera that isn't allowed is `FAILED`. A picker the user cancels
+    stays `OFF`, as before. Shared audio stays the screen's alone.
+  - **Self view**: the camera's newest frame as it is encoded (scaled
+    to the sending size, not mirrored) is kept for `takePreview`.
+  - **Watching**: a decoder per `sharer:stream` (`views`), each with
+    its own codec, failure flag and newest frame; `end(sharer,
+    stream)` drops one. The old "a new sharer ends the previous one"
+    is gone, since streams no longer share a decoder.
+- **`web/shell.c`**: the calls take the stream (and the sharer where
+  they're about watching). New: `yap_video_camera_start`,
+  `yap_video_can_camera`, and `yap_video_stop`/`yap_video_state` for
+  either stream. `yap_video_upload` with sharer 0 uploads the self view.
+- **`conn/video_web.odin`**:
+  - A texture for each stream drawn, plus one for the self view (the
+    one drawn longest ago is given to a new stream), instead of one.
+  - New procs for the UI: `video_can_camera`, `video_camera_start
+    (config, device)`, `video_camera_stop`, `video_camera_state`,
+    `video_camera_preview`. The desktop has stubs that say no (phase
+    6).
+- **`conn/video.odin`**: `camera_config(limit_kbit)` with a first
+  `CAMERA_CONFIG` (720p30, 1800 kbit/s) until the tiers (phase 5).
+- **Not in the plan**: `/cameras [names]` in the headless client
+  (`Watch_Camera_Names_Command`) watches the named accounts' cameras.
+  It's for testing without the UI: what arrives shows in the debug
+  log's figures.
+- **Tried** (headless Chromium with its fake camera, against a headless
+  client):
+  - The camera turned on outside any room: the server didn't take the
+    Camera flag. After joining Lobby's voice it did.
+  - With `/cameras bot1`, the headless client received the camera at
+    about 65 kB/s.
+  - Turning it off cleared the flag and the video stopped.
+  - In the page: H.264 fed to two streams of one sharer decoded on
+    their own (10 and 9 frames). Ending one left the other, and the self
+    view gave 1280x720 frames.
+  - The screen still shares from the page (live at 8000 kbit/s, pulled
+    as it comes).
+  - conn tests (39) pass, and the client type-checks everywhere.
+  - **Not tried**: a real browser's camera and permission prompt, and a
+    phone.
 
 ## Risks
 

@@ -92,6 +92,8 @@ import "core:time"
 //	                 at, or remove them from a private one
 //	/call <name>     call someone; /answer accepts an incoming call; /hangup ends
 //	                 the call (or cancels or declines it)
+//	/cameras [names] watch the cameras of these accounts in our room (none:
+//	                 stop); only the figures in the debug log show them
 //	/activity online|away|busy|offline   set your activity on all your devices
 //	/forward <id> <channel>   forward a message to one of your channels
 //	/search [all] <words>     search the conversation being looked at (or all
@@ -357,6 +359,15 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			conn.push_command(q, conn.Call_Answer_Command{})
 		case line == "/hangup":
 			conn.push_command(q, conn.Call_Hangup_Command{})
+		case line == "/cameras" || strings.has_prefix(line, "/cameras "):
+			// Watching the cameras of these accounts (none: stop), for testing:
+			// what arrives shows in the debug log's figures.
+			conn.push_command(
+				q,
+				conn.Watch_Camera_Names_Command {
+					names = strings.clone(strings.trim_space(line[len("/cameras"):])),
+				},
+			)
 		case line == "/search more":
 			conn.push_command(q, conn.Search_Command{more = true})
 		case strings.has_prefix(line, "/search "):

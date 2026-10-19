@@ -2,6 +2,7 @@ package conn
 
 import log "common:wlog"
 import "core:slice"
+import "core:strings"
 import "core:sync"
 import "core:time"
 
@@ -243,6 +244,24 @@ share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> Share_Config {
 	return cfg
 }
 
+// How a camera is sent, until the number of cameras in the room sets it
+// (misc/video-chat, Quality): 720p at 30 frames a second.
+CAMERA_CONFIG :: Share_Config {
+	max  = {1280, 720},
+	fps  = 30,
+	kbit = 1800,
+}
+
+// camera_config is how to send our camera, held to `limit_kbit` (the server's
+// limit for a camera; 0 if it did not say).
+camera_config :: proc(limit_kbit: int) -> Share_Config {
+	cfg := CAMERA_CONFIG
+	if limit_kbit > 0 {
+		cfg.kbit = min(cfg.kbit, limit_kbit)
+	}
+	return cfg
+}
+
 // What the View shows of screen sharing, calculated once a second.
 Video_Stats :: struct {
 	kbit_in, kbit_out:     int,
@@ -275,6 +294,31 @@ Watch_Command :: struct {
 Watch_Cameras_Command :: struct {
 	users: [proto.MAX_CAMERAS]proto.User_Num,
 	count: int,
+}
+
+// Watch the cameras of the users of these accounts (names separated by spaces,
+// owned), and no others: the headless client's /cameras.
+Watch_Camera_Names_Command :: struct {
+	names: string,
+}
+
+// video_watch_camera_names watches the cameras of the named accounts' users.
+video_watch_camera_names :: proc(c: ^Voice_Client, names: string) {
+	users := make([dynamic]proto.User_Num, context.temp_allocator)
+	for name in strings.fields(names, context.temp_allocator) {
+		account := account_named(c, name)
+		if account == 0 {
+			log.warnf("there's no account %q", name)
+			continue
+		}
+		for u in c.channels.state.users {
+			if u.account == account {
+				append(&users, u.num)
+			}
+		}
+	}
+	video_watch_cameras(c, users[:])
+	log.infof("watching %d cameras", len(users))
 }
 
 // watch_cameras makes the command that watches the cameras of `users` (the

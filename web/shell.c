@@ -256,27 +256,28 @@ EM_JS(void, yap_idle_web_close, (), {
 	Module.yapIdle = null;
 });
 
-/* ---- screen sharing ----
+/* ---- screen sharing and the camera ----
 
 The capturing, encoding and decoding are the page's, in Module.yapVideo
 if it has one; without it, nobody here shares or watches
-(src/client/video_web.odin). Encoded frames wait there until the client
-pulls them, one at a time, the way packets wait on the WebSocket.
+(src/client/conn/video_web.odin). Encoded frames wait there until the client
+pulls them, one at a time, the way packets wait on the WebSocket. `stream` is
+0 for the screen and 1 for the camera (proto.Video_Stream).
 */
 
-EM_JS(int, yap_video_live, (), {
+EM_JS(int, yap_video_live, (int stream), {
 	const v = Module.yapVideo;
-	return v && v.live() ? 1 : 0;
+	return v && v.live(stream) ? 1 : 0;
 });
 
-EM_JS(int, yap_video_next_size, (), {
+EM_JS(int, yap_video_next_size, (int stream), {
 	const v = Module.yapVideo;
-	return v ? v.nextSize() : -1;
+	return v ? v.nextSize(stream) : -1;
 });
 
-EM_JS(int, yap_video_pull, (unsigned char *buf, int buf_size, unsigned int *ts, int *key), {
+EM_JS(int, yap_video_pull, (int stream, unsigned char *buf, int buf_size, unsigned int *ts, int *key), {
 	const v = Module.yapVideo;
-	const frame = v ? v.pull() : null;
+	const frame = v ? v.pull(stream) : null;
 	if (!frame || frame.data.length > buf_size) return -1;
 	HEAPU8.set(frame.data, buf);
 	HEAPU32[ts >> 2] = frame.ts >>> 0;
@@ -300,30 +301,35 @@ EM_JS(int, yap_video_audio_pull, (float *buf, int max), {
 	return samples.length;
 });
 
-EM_JS(void, yap_video_request_key, (), {
+EM_JS(void, yap_video_request_key, (int stream), {
 	const v = Module.yapVideo;
-	if (v) v.requestKey();
+	if (v) v.requestKey(stream);
 });
 
-EM_JS(void, yap_video_show, (unsigned int sharer, const unsigned char *data, int size, unsigned int ts, int key, int codec), {
+EM_JS(void, yap_video_show, (unsigned int sharer, int stream, const unsigned char *data, int size, unsigned int ts, int key, int codec), {
 	const v = Module.yapVideo;
 	// A copy: the heap view is only good until the next allocation.
-	if (v) v.show(sharer, HEAPU8.slice(data, data + size), ts, key !== 0, codec);
+	if (v) v.show(sharer, stream, HEAPU8.slice(data, data + size), ts, key !== 0, codec);
 });
 
-EM_JS(void, yap_video_end, (), {
+EM_JS(void, yap_video_end, (unsigned int sharer, int stream), {
 	const v = Module.yapVideo;
-	if (v) v.end();
+	if (v) v.end(sharer, stream);
 });
 
-EM_JS(int, yap_video_take_error, (), {
+EM_JS(int, yap_video_take_error, (unsigned int sharer, int stream), {
 	const v = Module.yapVideo;
-	return v && v.takeError() ? 1 : 0;
+	return v && v.takeError(sharer, stream) ? 1 : 0;
 });
 
 EM_JS(int, yap_video_can_share, (), {
 	const v = Module.yapVideo;
 	return v && v.canShare() ? 1 : 0;
+});
+
+EM_JS(int, yap_video_can_camera, (), {
+	const v = Module.yapVideo;
+	return v && v.canCamera() ? 1 : 0;
 });
 
 EM_JS(int, yap_video_can_watch, (), {
@@ -341,42 +347,49 @@ EM_JS(void, yap_video_share_start, (int fps, int kbit, int max_width, int max_he
 	if (v) v.start(fps, kbit, max_width, max_height);
 });
 
-/* The bitrate the share encodes at now, and the most it was asked for (kbit/s,
-   0 while not sharing); and a new one for it to encode at. */
-EM_JS(int, yap_video_encoding_kbit, (), {
+/* Turns on the camera `device` (a deviceId, "" for the browser's choice). */
+EM_JS(void, yap_video_camera_start, (int fps, int kbit, int max_width, int max_height, const char *device), {
 	const v = Module.yapVideo;
-	return v ? v.encodingKbit() : 0;
+	if (v) v.startCamera(fps, kbit, max_width, max_height, UTF8ToString(device));
 });
 
-EM_JS(int, yap_video_max_kbit, (), {
+/* The bitrate a stream encodes at now, and the most it was asked for (kbit/s,
+   0 while it isn't live); and a new one for it to encode at. */
+EM_JS(int, yap_video_encoding_kbit, (int stream), {
 	const v = Module.yapVideo;
-	return v ? v.maxKbit() : 0;
+	return v ? v.encodingKbit(stream) : 0;
 });
 
-EM_JS(void, yap_video_set_bitrate, (int kbit), {
+EM_JS(int, yap_video_max_kbit, (int stream), {
 	const v = Module.yapVideo;
-	if (v) v.setBitrate(kbit);
+	return v ? v.maxKbit(stream) : 0;
 });
 
-EM_JS(void, yap_video_share_stop, (), {
+EM_JS(void, yap_video_set_bitrate, (int stream, int kbit), {
 	const v = Module.yapVideo;
-	if (v) v.stop();
+	if (v) v.setBitrate(stream, kbit);
 });
 
-EM_JS(int, yap_video_share_state, (), {
+EM_JS(void, yap_video_stop, (int stream), {
 	const v = Module.yapVideo;
-	return v ? v.state() : 0;
+	if (v) v.stop(stream);
+});
+
+EM_JS(int, yap_video_state, (int stream), {
+	const v = Module.yapVideo;
+	return v ? v.state(stream) : 0;
 });
 
 /*
-Puts the newest decoded frame into `texture` (a name from glGenTextures)
-and says how big it is. Returns 0 if no frame has come since the last
-call. A browser that can't take a VideoFrame as a texture's source gets
-it by way of a 2D canvas.
+Puts the newest decoded frame of `sharer`'s `stream` into `texture` (a name
+from glGenTextures) and says how big it is; with a sharer of 0, our own
+camera's newest frame (the self view). Returns 0 if no frame has come since
+the last call. A browser that can't take a VideoFrame as a texture's source
+gets it by way of a 2D canvas.
 */
-EM_JS(int, yap_video_upload, (unsigned int texture, int *width, int *height), {
+EM_JS(int, yap_video_upload, (unsigned int sharer, int stream, unsigned int texture, int *width, int *height), {
 	const v = Module.yapVideo;
-	const frame = v ? v.takeFrame() : null;
+	const frame = !v ? null : sharer ? v.takeFrame(sharer, stream) : v.takePreview();
 	if (!frame) return 0;
 	const gl = GLctx;
 	const w = frame.displayWidth, h = frame.displayHeight;
@@ -392,7 +405,7 @@ EM_JS(int, yap_video_upload, (unsigned int texture, int *width, int *height), {
 		}
 		gl.bindTexture(gl.TEXTURE_2D, null);
 	} catch (e) {
-		console.warn("yap: can't draw the shared screen:", e);
+		console.warn("yap: can't draw the video:", e);
 		return 0;
 	} finally {
 		frame.close();

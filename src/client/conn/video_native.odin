@@ -700,6 +700,31 @@ video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
 // video_share_source.
 video_share_start :: proc(config: Share_Config) {}
 
+// The camera isn't captured on the desktop yet (misc/video-chat, phase 6).
+video_can_camera :: proc() -> bool {
+	return false
+}
+
+video_camera_start :: proc(config: Share_Config, device := "") {}
+
+video_camera_stop :: proc() {}
+
+video_camera_state :: proc() -> Share_State {
+	return .Off
+}
+
+// video_camera_preview is the newest frame of our own camera, for the self
+// view: none yet on the desktop.
+video_camera_preview :: proc(
+	g: ^render.Gpu,
+) -> (
+	texture: render.Gpu_Texture,
+	width, height: int,
+	ok: bool,
+) {
+	return
+}
+
 video_share_stop :: proc() {
 	if !nv.loaded {
 		return
