@@ -24,10 +24,7 @@ main thread's queue, which the client's event loop runs.
 // doesn't reach the library; nothing here uses it.
 #define AVMediaType FFmpeg_AVMediaType
 #include "pipeline.h"
-extern "C" {
-#include <libavutil/hwcontext.h>
-#include <libswscale/swscale.h>
-}
+#include "ffmpeg.h"
 #undef AVMediaType
 
 #include "mac.h"

@@ -16,12 +16,7 @@ OpenH264 on the CPU, for machines where none of those work.
 #include "dl_linux.h"
 #endif
 
-extern "C" {
-#include <libavcodec/avcodec.h>
-#include <libavutil/hwcontext.h>
-#include <libavutil/imgutils.h>
-#include <libavutil/opt.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 
@@ -66,7 +61,8 @@ const Candidate candidates[] = {
 /*
 The NVENC API version FFmpeg's NVENC encoders were built against, that
 of the nv-codec-headers in our FFmpeg (scripts/ffmpeg.version), and the
-first NVIDIA driver that has it. An older driver opens none of them.
+first NVIDIA driver that has it. An older driver opens none of them. A
+system's FFmpeg may have been built with others.
 */
 constexpr uint32_t NVENC_API_MAJOR = 13;
 constexpr uint32_t NVENC_API_MINOR = 0;
@@ -126,6 +122,14 @@ void explain_nvenc(const std::vector<yv_encoder> &found) {
 		return;
 	}
 	uint32_t major = v >> 4, minor = v & 0xf;
+	if (!ffmpeg_bundled()) {
+		// Whose headers the system's FFmpeg was built with, we can't know.
+		log(YV_LOG_WARN,
+		    "NVENC: no NVENC encoder opened; the NVIDIA driver has NVENC API %u.%u, which may "
+		    "be older than the system's FFmpeg needs",
+		    major, minor);
+		return;
+	}
 	if (major < NVENC_API_MAJOR || (major == NVENC_API_MAJOR && minor < NVENC_API_MINOR)) {
 		log(YV_LOG_WARN,
 		    "NVENC: the NVIDIA driver has NVENC API %u.%u, but this FFmpeg needs %u.%u; "

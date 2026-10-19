@@ -8,8 +8,10 @@
 #include <va/va.h>
 #include <va/va_vpp.h>
 
+#include "ffmpeg.h"
+
+// Only types, so after ffmpeg.h.
 extern "C" {
-#include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_vaapi.h>
 }
 

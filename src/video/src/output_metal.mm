@@ -25,9 +25,7 @@ decoded and go that way too.
 #include <IOSurface/IOSurfaceObjC.h>
 #include <Metal/Metal.h>
 
-extern "C" {
-#include <libavutil/hwcontext.h>
-}
+#include "ffmpeg.h"
 
 namespace yv {
 

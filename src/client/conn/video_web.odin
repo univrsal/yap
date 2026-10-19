@@ -233,6 +233,10 @@ video_library_dir :: proc(allocator := context.temp_allocator) -> string {
 	return ""
 }
 
+video_missing_ffmpeg :: proc() -> bool {
+	return false
+}
+
 // The browser's picker is ours to open, not the system's.
 video_system_picker :: proc() -> bool {
 	return false

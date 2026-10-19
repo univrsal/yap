@@ -2,8 +2,11 @@
 # Builds the optional screen sharing library, yap_video
 # (src/video, misc/hq-share/README.md), and yv-loopback, into bin/ next
 # to the client, with FFmpeg's libraries beside them. The client runs
-# without any of it; build.sh never builds it. Needs CMake and a C++20
-# compiler. Extra arguments go to CMake's configure step.
+# without any of it. On Linux build.sh links the library into the client
+# itself, so there this is for the tool and for FFmpeg's libraries (the
+# Linux yap-video download), and the client ignores bin/libyap_video.so.
+# Needs CMake and a C++20 compiler. Extra arguments go to CMake's
+# configure step.
 #
 # On Linux, capturing needs headers to build (the libraries themselves
 # are only loaded at run time): libxcb1-dev libxcb-shm0-dev

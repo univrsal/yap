@@ -17,7 +17,8 @@ import "client:settings"
 // What the server accepts from a sharer (its video.max_kbit) caps the bitrate,
 // and this is said here when it does. Changes apply from the next share.
 // Without the yap_video add-on there is nothing to set, so this says where to
-// put the add-on instead.
+// put the add-on instead (or, when it's there but found no FFmpeg, where FFmpeg
+// comes from).
 share_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	if platform.WEB && !conn.video_can_share() {
@@ -32,16 +33,22 @@ share_settings :: proc(ui: ^UI) {
 	}
 	if !platform.WEB && !conn.video_can_watch() {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			fmt.tprintf(
+		text: string
+		if conn.video_missing_ffmpeg() {
+			text = fmt.tprintf(
+				"Screen sharing needs FFmpeg 8 or 9, with H.264, and none was found. Install " +
+				"FFmpeg from your system's packages, or put the FFmpeg libraries from the " +
+				"yap-video download next to yap, in %s, and start yap again.",
+				conn.video_library_dir(),
+			)
+		} else {
+			text = fmt.tprintf(
 				"Screen sharing needs yap's video add-on: the yap-video download that goes with " +
 				"this build. Put what's in it next to yap, in %s, and start yap again.",
 				conn.video_library_dir(),
-			),
-			wrap_text,
-		)
+			)
+		}
+		with_text_color(ctx, theme.dim, text, wrap_text)
 		return
 	}
 

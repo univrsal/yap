@@ -11,11 +11,7 @@ over (submit), and the client's drawing thread takes the newest one
 
 #include <memory>
 
-extern "C" {
-#include <libavutil/buffer.h>
-#include <libavutil/frame.h>
-struct SwsContext;
-}
+#include "ffmpeg.h"
 
 namespace yv {
 
