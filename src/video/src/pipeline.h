@@ -142,8 +142,13 @@ public:
 
 std::vector<Camera_Info> list_cameras();
 bool camera_allowed(bool ask);
-// nullptr where cameras can't be captured.
-std::unique_ptr<Camera_Source> make_camera_source();
+// What captures `camera`; nullptr where cameras can't be captured.
+std::unique_ptr<Camera_Source> make_camera_source(const Camera_Info &camera);
+
+// camera_fake.cpp (Linux, macOS): YAP_VIDEO_FAKE_CAMERA's camera, if it's set.
+constexpr const char *FAKE_CAMERA_ID = "fake";
+bool fake_camera(Camera_Info &out);
+std::unique_ptr<Camera_Source> make_fake_source();
 // The camera with yv_camera.id `id` ("" for the first) as a Pipeline.
 std::unique_ptr<Pipeline> make_camera_pipeline(const std::string &id);
 

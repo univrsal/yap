@@ -275,7 +275,7 @@ bool camera_allowed(bool) {
 	       !denied(HKEY_CURRENT_USER, desktop);
 }
 
-std::unique_ptr<Camera_Source> make_camera_source() {
+std::unique_ptr<Camera_Source> make_camera_source(const Camera_Info &) {
 	if (!dshow().ok) {
 		return nullptr;
 	}

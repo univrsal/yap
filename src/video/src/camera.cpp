@@ -270,7 +270,7 @@ public:
 			error = "the camera sends nothing yap can take";
 			return false;
 		}
-		source_ = make_camera_source();
+		source_ = make_camera_source(*cam);
 		if (!source_) {
 			error = "cameras can't be used here";
 			return false;
