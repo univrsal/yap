@@ -1,6 +1,7 @@
 package client
 
 import "core:fmt"
+import "core:slice"
 import "core:sync"
 import "core:time"
 import mu "vendor:microui"
@@ -11,31 +12,57 @@ import "client:render"
 import "common:proto"
 
 // Cameras in the UI (see conn/video.odin, misc/video-chat): the Camera button
-// beside Share, and in a call the Video tab beside the chat, with the person we
-// call large and our own camera small in a corner (click it to swap them). The
-// tab opens by itself when their camera comes on, and our camera is only
-// watched by them while theirs is in the tab. A call can be started or
-// answered with the camera on ("Video call", "Answer with video"); otherwise
-// the camera is off until its button is pressed, and it goes off again when we
-// leave the voice chat or call it was turned on in, move to another room, or
-// the server doesn't take it (a full channel). Cameras work in a browser, and
-// on the desktop once the library captures them.
+// beside Share, and the Video tab beside the chat.
+//
+// In a call, the tab shows the person we call large and our own camera small
+// in a corner (click it to swap them), and it opens by itself when their
+// camera comes on. In a channel's voice chat it is "Video (N)", offered while
+// anybody there has their camera on but never opened by itself: a grid of every
+// camera in the room, ours included, with names, and an outline round whoever
+// is talking. A click on a tile makes it large, with the others in a row under
+// it; another click goes back to the grid. Either can be made fullscreen or
+// popped out into a window of its own (camera_window), which stays while
+// another server is shown.
+//
+// A camera is only watched while one of its tiles is drawn: drawing a tile
+// notes it (note_drawn), and after the frame the list goes to the network if
+// it changed (camera_after_frame).
+//
+// A call can be started or answered with the camera on ("Video call",
+// "Answer with video"); otherwise the camera is off until its button is
+// pressed, and it goes off again when we leave the voice chat or call it was
+// turned on in, move to another room, or the server doesn't take it (a full
+// channel). Cameras work in a browser, and on the desktop once the library
+// captures them.
 
 UI_Camera :: struct {
 	// Where our camera was turned on: its session and room (camera_follow).
-	at:         ^Net_Session,
-	room:       proto.Room,
+	at:        ^Net_Session,
+	room:      proto.Room,
 	// A call started or answered with video, on `call_at`: the camera comes
 	// on once it is on. `call_seen` is set once that call has been seen at
 	// all, so its end can be told from it not having begun yet.
-	on_call:    bool,
-	call_at:    ^Net_Session,
-	call_seen:  bool,
-	// The Video tab: whose camera the tabs were last arranged for, whose is
-	// watched (as last told to the network), and whether it shows us large.
-	followed:   proto.User_Num,
-	watched:    proto.User_Num,
-	swapped:    bool,
+	on_call:   bool,
+	call_at:   ^Net_Session,
+	call_seen: bool,
+	// Whose camera the tabs were last arranged for in a call.
+	followed:  proto.User_Num,
+	// The call's tab shows us large; the grid shows one tile large (0: none).
+	swapped:   bool,
+	focus:     proto.User_Num,
+	// The grid or the call fills the window, or is in a window of its own
+	// (camera_window, placed once).
+	full:         bool,
+	popped:       bool,
+	placed:       bool,
+	window_shown: bool, // drawn in the last frame
+	// The cameras drawn this frame, and what was last asked of which session
+	// (camera_after_frame).
+	drawn:     [proto.MAX_CAMERAS]proto.User_Num,
+	drawn_n:   int,
+	sent:      [proto.MAX_CAMERAS]proto.User_Num,
+	sent_n:    int,
+	sent_to:   ^Net_Session,
 }
 
 // camera_available says whether our camera can be turned on with this server:
@@ -45,13 +72,35 @@ camera_available :: proc(v: ^conn.View) -> bool {
 	return conn.video_can_camera() && v.max_cameras > 0
 }
 
+// room_cameras is how many cameras are on in our room, other than ours. Call
+// with the View locked.
+@(private = "file")
+room_cameras :: proc(v: ^conn.View) -> (n: int) {
+	room := proto.Room(v.my_room)
+	if room == 0 {
+		return
+	}
+	for num, u in v.users {
+		if num != v.my_num && proto.Room(u.room) == room && u.camera {
+			n += 1
+		}
+	}
+	return
+}
+
 // camera_start turns our camera on for the voice chat or call that `ns` is in,
-// with `v` (its View) locked.
+// with `v` (its View) locked, at the room's tier (conn.camera_config).
 @(private = "file")
 camera_start :: proc(ui: ^UI, ns: ^Net_Session, v: ^conn.View) {
-	conn.video_camera_start(conn.camera_config(v.camera_limit_kbit))
+	room := proto.Room(v.my_room)
+	cfg := conn.camera_config(
+		room_cameras(v) + 1,
+		proto.room_call(room) != 0,
+		v.camera_limit_kbit,
+	)
+	conn.video_camera_start(cfg)
 	ui.camera.at = ns
-	ui.camera.room = proto.Room(v.my_room)
+	ui.camera.room = room
 }
 
 // camera_on_call has the camera come on once the call that is being started or
@@ -123,11 +172,7 @@ camera_follow :: proc(ui: ^UI) {
 follow_video_call :: proc(ui: ^UI) {
 	cam := &ui.camera
 	ns := cam.call_at
-	alive := false
-	for s in ui.sessions {
-		alive = alive || s == ns
-	}
-	if !alive {
+	if !session_alive(ui, ns) {
 		cam.on_call = false
 		return
 	}
@@ -151,82 +196,281 @@ follow_video_call :: proc(ui: ^UI) {
 	}
 }
 
+@(private = "file")
+session_alive :: proc(ui: ^UI, ns: ^Net_Session) -> bool {
+	if ns == nil {
+		return false
+	}
+	for s in ui.sessions {
+		if s == ns {
+			return true
+		}
+	}
+	return false
+}
+
 // call_camera is the user of the person we are in a call with on this server,
 // while their camera is on; 0 otherwise. Call with the View locked.
 @(private = "file")
 call_camera :: proc(v: ^conn.View) -> proto.User_Num {
-	if v.call.status != .Active || !v.call.here {
+	if !in_call(v) {
 		return 0
 	}
 	num, peer := call_peer(v)
 	return num if peer.camera else 0
 }
 
-// video_docked says whether the Video tab is offered beside the chat: in a
-// call on this server while their camera or ours is on. Call with the View
-// locked.
-video_docked :: proc(ui: ^UI) -> bool {
-	v := ui.view
-	if v.call.status != .Active || !v.call.here {
+@(private = "file")
+in_call :: proc(v: ^conn.View) -> bool {
+	return v.call.status == .Active && v.call.here
+}
+
+// our_camera_on says whether our camera is on (or coming on).
+@(private = "file")
+our_camera_on :: proc() -> bool {
+	state := conn.video_camera_state()
+	return state == .Live || state == .Starting
+}
+
+// has_video says whether there is a call's video or a grid to show for `v`: in
+// a call while their camera or ours is on, or in a channel's voice chat while
+// anybody's is. Call with the View locked.
+@(private = "file")
+has_video :: proc(v: ^conn.View) -> bool {
+	if in_call(v) {
+		return call_camera(v) != 0 || our_camera_on()
+	}
+	room := proto.Room(v.my_room)
+	if room == 0 || proto.room_call(room) != 0 {
 		return false
 	}
-	ours := conn.video_camera_state()
-	return call_camera(v) != 0 || ours == .Live || ours == .Starting
+	return room_cameras(v) > 0 || our_camera_on()
+}
+
+// video_docked says whether the Video tab is offered beside the chat: there is
+// video to show (has_video), and it isn't popped out. Call with the View
+// locked.
+video_docked :: proc(ui: ^UI) -> bool {
+	return has_video(ui.view) && !(ui.camera.popped && ui.session == ui.voice_at)
+}
+
+// video_tab_label is the Video tab's name: in a channel, with how many cameras
+// are on. Call with the View locked.
+video_tab_label :: proc(ui: ^UI) -> string {
+	v := ui.view
+	if in_call(v) {
+		return "Video"
+	}
+	return fmt.tprintf("Video (%d)", room_cameras(v) + (1 if our_camera_on() else 0))
 }
 
 // camera_tab_follow opens the Video tab when the person we call turns their
-// camera on, goes back to the chat when there is nothing left to show, and
-// watches their camera while the tab shows it. Call with the View locked.
+// camera on, and goes back to the chat when there is nothing left to show (or
+// it was popped out). Fullscreen ends with the video. Call with the View
+// locked.
 camera_tab_follow :: proc(ui: ^UI) {
 	cam := &ui.camera
 	if ui.chat.tab == .Video && !video_docked(ui) {
 		ui.chat.tab = .Chat
 	}
+	if cam.full && (!conn.video_is_fullscreen() || !has_video(ui.view)) {
+		cam.full = false
+		conn.video_set_fullscreen(false)
+	}
 	shown := call_camera(ui.view)
 	if shown != cam.followed {
 		cam.followed = shown
-		if shown != 0 && ui.chat.tab == .Chat {
+		if shown != 0 && ui.chat.tab == .Chat && video_docked(ui) {
 			ui.chat.tab = .Video
 		}
 	}
-	want := shown if ui.chat.tab == .Video else 0
-	if want != cam.watched && ui.session != nil {
-		cam.watched = want
-		cmd := conn.watch_cameras(want) if want != 0 else conn.watch_cameras()
-		conn.push_command(&ui.session.client.commands, cmd)
+}
+
+// camera_fullscreen says whether the video fills the window now, in place of
+// everything else (camera_full_screen). Call with the View locked.
+camera_fullscreen :: proc(ui: ^UI) -> bool {
+	return ui.camera.full && conn.video_is_fullscreen() && has_video(ui.view)
+}
+
+// note_drawn has a camera that a tile shows watched (camera_after_frame).
+@(private = "file")
+note_drawn :: proc(ui: ^UI, user: proto.User_Num) {
+	cam := &ui.camera
+	if user == 0 || slice.contains(cam.drawn[:cam.drawn_n], user) || cam.drawn_n == len(cam.drawn) {
+		return
+	}
+	cam.drawn[cam.drawn_n] = user
+	cam.drawn_n += 1
+}
+
+// camera_after_frame has the voice's server watch the cameras that the frame
+// drew, and no others, when that list changed. A camera is only ever drawn for
+// the room our voice is in. Call with no View locked.
+camera_after_frame :: proc(ui: ^UI) {
+	cam := &ui.camera
+	drawn := cam.drawn[:cam.drawn_n]
+	slice.sort(drawn)
+	ns := ui.voice_at
+	if ns != cam.sent_to || !slice.equal(drawn, cam.sent[:cam.sent_n]) {
+		if cam.sent_to != ns && cam.sent_n > 0 && session_alive(ui, cam.sent_to) {
+			conn.push_command(&cam.sent_to.client.commands, conn.watch_cameras())
+		}
+		if ns != nil {
+			conn.push_command(&ns.client.commands, conn.watch_cameras(..drawn))
+		}
+		cam.sent_to = ns
+		cam.sent_n = copy(cam.sent[:], drawn)
+	}
+	cam.drawn_n = 0
+}
+
+// video_panel fills the Video tab: the call's video or the room's grid, with
+// buttons to pop it out and to make it fullscreen. Call with the View locked.
+video_panel :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	v := ui.view
+	cam := &ui.camera
+	mu.layout_row(
+		ctx,
+		{-(2 * ICON_BUTTON + 2 * ctx.style.spacing + 1), ICON_BUTTON, ICON_BUTTON},
+	)
+	mu.label(ctx, video_title(v))
+	if .SUBMIT in icon_button(ui, "video pop out", .Pop_Out, "Pop out into its own window") {
+		cam.popped = true
+		ui.chat.tab = .Chat
+	}
+	if .SUBMIT in icon_button(ui, "video fullscreen", .Fullscreen, "Fullscreen") {
+		cam.full = true
+		conn.video_set_fullscreen(true)
+	}
+	mu.layout_row(ctx, {-1}, -1)
+	video_body(ui, v, mu.layout_next(ctx))
+}
+
+@(private = "file")
+video_title :: proc(v: ^conn.View) -> string {
+	if in_call(v) {
+		return fmt.tprintf("Video call with %s", call_peer_name(v))
+	}
+	return "Cameras"
+}
+
+// camera_full_screen is all there is while the video is fullscreen: the call
+// or the grid, and a way back. Call with the View locked.
+camera_full_screen :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	title_row(ui, {-(ICON_BUTTON + ctx.style.spacing + 1), ICON_BUTTON})
+	with_text_color(
+		ctx,
+		theme.dim,
+		fmt.tprintf("%s (Escape leaves fullscreen)", video_title(ui.view)),
+		label_proc,
+	)
+	if .SUBMIT in icon_button(ui, "video exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
+	   .Escape in ui.keys {
+		ui.keys -= {.Escape}
+		ui.camera.full = false
+		conn.video_set_fullscreen(false)
+	}
+	mu.layout_row(ctx, {-1}, -1)
+	video_body(ui, ui.view, mu.layout_next(ctx))
+}
+
+@(private = "file")
+CAMERA_WINDOW :: "Cameras"
+
+// camera_window is the Video tab popped out: a window of its own over every
+// page, at first in the bottom left-hand corner. It shows the room our voice
+// is in, so it stays while another server is shown. Putting it back and
+// fullscreen are offered while that server is the one shown; closing it
+// stops watching. Call with no View locked.
+camera_window :: proc(ui: ^UI, window_w, window_h: i32) {
+	cam := &ui.camera
+	ns := ui.voice_at
+	if !cam.popped || ns == nil {
+		cam.window_shown = false
+		return
+	}
+	v := &ns.view
+	sync.guard(&v.mutex)
+	shown_here := ns == ui.session && ui.page != .Settings
+	if !has_video(v) || (shown_here && camera_fullscreen(ui)) {
+		cam.window_shown = false
+		return
+	}
+	ctx := &ui.ctx
+	if !cam.window_shown {
+		if cnt := mu.get_container(ctx, CAMERA_WINDOW); cnt != nil {
+			if !cam.placed {
+				cam.placed = true
+				w := clamp(window_w / 3, 320, 640)
+				h :=
+					w * 9 / 16 +
+					2 * (ctx.style.size.y + 2 * ctx.style.padding) +
+					3 * ctx.style.spacing
+				cnt.rect = {20, window_h - h - 20, w, h}
+			}
+			cnt.open = true
+			mu.bring_to_front(ctx, cnt)
+		}
+	}
+	cam.window_shown = true
+	if !mu.begin_window(ctx, CAMERA_WINDOW, {}, {.NO_SCROLL}) {
+		// Closed with the title bar's button.
+		cam.window_shown, cam.popped = false, false
+		return
+	}
+	defer mu.end_window(ctx)
+
+	buttons: i32 = 0
+	if ns == ui.session {
+		buttons = 2 if shown_here else 1
+	}
+	widths := [3]i32{-(buttons * (ICON_BUTTON + ctx.style.spacing) + 1), ICON_BUTTON, ICON_BUTTON}
+	mu.layout_row(ctx, widths[:buttons + 1])
+	mu.label(ctx, video_title(v))
+	if shown_here &&
+	   .SUBMIT in icon_button(ui, "popped video fullscreen", .Fullscreen, "Fullscreen") {
+		cam.full = true
+		conn.video_set_fullscreen(true)
+	}
+	if ns == ui.session &&
+	   .SUBMIT in icon_button(ui, "video pop in", .Pop_In, "Put back beside the chat") {
+		cam.popped = false
+		ui.chat.tab = .Video
+	}
+	mu.layout_row(ctx, {-1}, -1)
+	video_body(ui, v, mu.layout_next(ctx))
+}
+
+// video_body draws the call's video or the room's grid of `v` in `r`.
+@(private = "file")
+video_body :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
+	mu.draw_rect(&ui.ctx, r, {0, 0, 0, 255})
+	// A page draws its pictures every frame (the library wakes us instead).
+	when platform.WEB {
+		ui_redraw_at(ui, time.tick_now())
+	}
+	if in_call(v) {
+		call_video(ui, v, r)
+	} else {
+		camera_grid(ui, v, r)
 	}
 }
 
-// camera_forget_session forgets what the tabs did with a server that is no
-// longer shown (it has been told to watch no cameras, see show_session).
-camera_forget_session :: proc(ui: ^UI) {
-	ui.camera.followed, ui.camera.watched = 0, 0
-}
-
-// The self view's share of the panel's width, and its gap from the corner.
+// The self view's share of the call's width, and its gap from the corner.
 @(private = "file")
 SELF_VIEW_PART :: 4
 @(private = "file")
 SELF_VIEW_GAP :: 8
 
-// video_panel fills the Video tab: the person we call, large, and our own
-// camera in the bottom right-hand corner, mirrored like a mirror (they see it
-// the right way round). Clicking the corner swaps them. Call with the View
-// locked.
-video_panel :: proc(ui: ^UI) {
+// call_video is the person we call, large, and our own camera in the bottom
+// right-hand corner, mirrored like a mirror (they see it the right way round).
+// Clicking the corner swaps them.
+@(private = "file")
+call_video :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
 	ctx := &ui.ctx
-	v := ui.view
 	cam := &ui.camera
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, fmt.tprintf("Video call with %s", call_peer_name(v)))
-	mu.layout_row(ctx, {-1}, -1)
-	r := mu.layout_next(ctx)
-	mu.draw_rect(ctx, r, {0, 0, 0, 255})
-	// A page draws its pictures every frame (the library wakes us instead).
-	when platform.WEB {
-		ui_redraw_at(ui, time.tick_now())
-	}
-
 	them := call_camera(v)
 	ours := conn.video_camera_state() == .Live
 	if them == 0 || !ours {
@@ -236,7 +480,7 @@ video_panel :: proc(ui: ^UI) {
 	if big_self {
 		self_view(ui, r)
 	} else {
-		peer_view(ui, r, them, call_peer_name(v))
+		peer_view(ui, r, them, fmt.tprintf("%s's camera is off", call_peer_name(v)))
 	}
 	if !(ours && them != 0) {
 		return
@@ -255,20 +499,159 @@ video_panel :: proc(ui: ^UI) {
 	}
 	mu.draw_rect(ctx, small, {30, 30, 30, 255})
 	if big_self {
-		peer_view(ui, small, them, call_peer_name(v))
+		peer_view(ui, small, them, "")
 	} else {
 		self_view(ui, small)
 	}
 	mu.draw_box(ctx, mu.expand_rect(small, 1), ctx.style.colors[.BORDER])
 }
 
-// peer_view draws `user`'s camera as big as fits in `r`.
+// A camera in the grid: whose (ours: self), what to call it, and whether they
+// are talking.
 @(private = "file")
-peer_view :: proc(ui: ^UI, r: mu.Rect, user: proto.User_Num, name: string) {
-	if user == 0 {
-		centred_text(ui, r, fmt.tprintf("%s's camera is off", name))
+Tile :: struct {
+	user:     proto.User_Num,
+	self:     bool,
+	name:     string,
+	speaking: bool,
+}
+
+// The gap between tiles, the part of the height the row under a large tile
+// takes, and what a tile's shape is kept to.
+@(private = "file")
+TILE_GAP :: 6
+@(private = "file")
+TILE_ROW_PART :: 5
+
+// camera_grid is every camera in our room as tiles of 16:9, ours last, in as
+// many columns as makes them largest. With a tile made large (focus), it is on
+// top and the others are in a row under it.
+@(private = "file")
+camera_grid :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
+	cam := &ui.camera
+	tiles := make([dynamic]Tile, context.temp_allocator)
+	room := proto.Room(v.my_room)
+	for num, u in v.users {
+		if num != v.my_num && proto.Room(u.room) == room && u.camera {
+			append(&tiles, Tile{user = num, name = u.name, speaking = conn.is_speaking(v, num)})
+		}
+	}
+	slice.sort_by(tiles[:], proc(a, b: Tile) -> bool {return a.user < b.user})
+	if conn.video_camera_state() == .Live {
+		append(&tiles, Tile{user = v.my_num, self = true, name = "You", speaking = conn.is_speaking(v, v.my_num)})
+	}
+	if len(tiles) == 0 {
+		centred_text(ui, r, "Nobody's camera is on")
 		return
 	}
+	focused := -1
+	for t, i in tiles {
+		if t.user == cam.focus {
+			focused = i
+		}
+	}
+	if focused < 0 || len(tiles) == 1 {
+		cam.focus = 0
+		rects := grid_rects(r, len(tiles), r.h)
+		for t, i in tiles {
+			tile(ui, rects[i], t, false)
+		}
+		return
+	}
+	row_h := max(r.h / TILE_ROW_PART, 40)
+	big := mu.Rect{r.x, r.y, r.w, r.h - row_h - TILE_GAP}
+	tile(ui, big, tiles[focused], true)
+	others := make([dynamic]Tile, context.temp_allocator)
+	for t, i in tiles {
+		if i != focused {
+			append(&others, t)
+		}
+	}
+	row := mu.Rect{r.x, r.y + r.h - row_h, r.w, row_h}
+	rects := grid_rects(row, len(others), row_h)
+	for t, i in others {
+		tile(ui, rects[i], t, false)
+	}
+}
+
+// grid_rects lays out `n` tiles of 16:9 in `r`, in the number of columns that
+// makes them largest, no taller than `max_h`, the whole block in the middle.
+// Allocated in the temp allocator.
+@(private = "file")
+grid_rects :: proc(r: mu.Rect, n: int, max_h: i32) -> []mu.Rect {
+	best_w, best_cols: i32 = 0, 1
+	for cols in 1 ..= i32(n) {
+		rows := (i32(n) + cols - 1) / cols
+		cell_w := (r.w - TILE_GAP * (cols - 1)) / cols
+		cell_h := min((r.h - TILE_GAP * (rows - 1)) / rows, max_h)
+		w := min(cell_w, cell_h * 16 / 9)
+		if w > best_w {
+			best_w, best_cols = w, cols
+		}
+	}
+	cols := best_cols
+	rows := (i32(n) + cols - 1) / cols
+	w, h := best_w, best_w * 9 / 16
+	block_w := cols * w + (cols - 1) * TILE_GAP
+	block_h := rows * h + (rows - 1) * TILE_GAP
+	x0, y0 := r.x + (r.w - block_w) / 2, r.y + (r.h - block_h) / 2
+	out := make([]mu.Rect, n, context.temp_allocator)
+	for i in 0 ..< n {
+		row, col := i32(i) / cols, i32(i) % cols
+		// The last row, if it isn't full, in the middle too.
+		in_row := min(cols, i32(n) - row * cols)
+		x := x0 + (cols - in_row) * (w + TILE_GAP) / 2
+		out[i] = {x + col * (w + TILE_GAP), y0 + row * (h + TILE_GAP), w, h}
+	}
+	return out
+}
+
+// tile draws one camera of the grid: its picture, the name on a dark band at
+// the bottom, and an outline while they talk. A click makes it large, or back.
+@(private = "file")
+tile :: proc(ui: ^UI, r: mu.Rect, t: Tile, large: bool) {
+	ctx := &ui.ctx
+	if r.w <= 0 || r.h <= 0 {
+		return
+	}
+	mu.draw_rect(ctx, r, {24, 24, 24, 255})
+	if t.self {
+		self_view(ui, r)
+	} else {
+		peer_view(ui, r, t.user, "")
+	}
+	mu.push_id(ctx, uintptr(t.user))
+	id := mu.get_id(ctx, "tile")
+	mu.pop_id(ctx)
+	mu.update_control(ctx, id, r)
+	if ctx.hover_id == id {
+		ui.hint, ui.hint_of = "Back to all cameras" if large else "Make larger", r
+		if .LEFT in ctx.mouse_pressed_bits {
+			ui.camera.focus = 0 if large else t.user
+		}
+	}
+	// The name, on a band across the bottom.
+	th := ctx.text_height(ctx.style.font)
+	band := mu.Rect{r.x, r.y + r.h - th - 6, r.w, th + 6}
+	mu.draw_rect(ctx, band, {0, 0, 0, 150})
+	mu.push_clip_rect(ctx, r)
+	mu.draw_text(ctx, ctx.style.font, t.name, {band.x + 6, band.y + 3}, {255, 255, 255, 255})
+	mu.pop_clip_rect(ctx)
+	if t.speaking {
+		mu.draw_box(ctx, r, theme.speaking)
+		mu.draw_box(ctx, mu.expand_rect(r, -1), theme.speaking)
+	}
+}
+
+// peer_view draws `user`'s camera as big as fits in `r`, or `off` (if any)
+// while there is none.
+@(private = "file")
+peer_view :: proc(ui: ^UI, r: mu.Rect, user: proto.User_Num, off: string) {
+	if user == 0 {
+		centred_text(ui, r, off)
+		return
+	}
+	note_drawn(ui, user)
 	texture, w, h, ok := conn.video_picture(&ui.renderer.gpu, {user, .Camera})
 	if !ok {
 		centred_text(ui, r, "Waiting for the picture...")
@@ -291,6 +674,9 @@ self_view :: proc(ui: ^UI, r: mu.Rect) {
 @(private = "file")
 centred_text :: proc(ui: ^UI, r: mu.Rect, text: string) {
 	ctx := &ui.ctx
+	if text == "" {
+		return
+	}
 	tw := ctx.text_width(ctx.style.font, text)
 	th := ctx.text_height(ctx.style.font)
 	mu.push_clip_rect(ctx, r)

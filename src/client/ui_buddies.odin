@@ -153,6 +153,10 @@ buddies_screen :: proc(ui: ^UI) {
 	// does a call's video, in the Video tab.
 	screen_tab_follow(ui)
 	camera_tab_follow(ui)
+	if camera_fullscreen(ui) {
+		camera_full_screen(ui)
+		return
+	}
 	if ui.view.watching != 0 && conn.video_is_fullscreen() {
 		fullscreen_screen(ui)
 		return

@@ -206,7 +206,8 @@ side_tab_buttons :: proc(ui: ^UI, chat_label: string) {
 	   .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
 		ui.chat.tab = .Screen
 	}
-	if video_docked(ui) && .SUBMIT in tab_button(ctx, "video tab", "Video", ui.chat.tab == .Video) {
+	if video_docked(ui) &&
+	   .SUBMIT in tab_button(ctx, "video tab", video_tab_label(ui), ui.chat.tab == .Video) {
 		ui.chat.tab = .Video
 	}
 }

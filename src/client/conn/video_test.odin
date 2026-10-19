@@ -538,3 +538,20 @@ test_video_watch_streams :: proc(t: ^testing.T) {
 	testing.expect_value(t, held(c), 1)
 	testing.expect(t, watching(c, {3, .Camera}))
 }
+
+// The camera's size and bitrate follow how many cameras are in the room, a call
+// gets the most, and the server's limit holds.
+@(test)
+test_camera_config :: proc(t: ^testing.T) {
+	testing.expect_value(t, camera_config(1, false, 0).max, [2]i32{1280, 720})
+	testing.expect_value(t, camera_config(2, false, 0).kbit, 1500)
+	testing.expect_value(t, camera_config(3, false, 0).max, [2]i32{960, 540})
+	testing.expect_value(t, camera_config(9, false, 0).max, [2]i32{640, 360})
+	cfg := camera_config(10, false, 0)
+	testing.expect_value(t, cfg.max, [2]i32{480, 270})
+	testing.expect_value(t, cfg.fps, 24)
+	testing.expect_value(t, camera_config(40, false, 0).max, [2]i32{480, 270})
+	testing.expect_value(t, camera_config(2, true, 0), CAMERA_CALL)
+	testing.expect_value(t, camera_config(2, true, 1000).kbit, 1000)
+	testing.expect_value(t, camera_config(9, false, 4000).kbit, 450)
+}

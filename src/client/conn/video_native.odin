@@ -709,6 +709,8 @@ video_camera_start :: proc(config: Share_Config, device := "") {}
 
 video_camera_stop :: proc() {}
 
+video_camera_configure :: proc(config: Share_Config) {}
+
 video_camera_state :: proc() -> Share_State {
 	return .Off
 }

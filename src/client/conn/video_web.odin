@@ -51,6 +51,8 @@ foreign _ {
 	// Turns on the camera `device` ("" for the browser's choice), as big as
 	// max_width by max_height at most.
 	yap_video_camera_start :: proc(fps, kbit, max_width, max_height: i32, device: cstring) ---
+	// Has the camera go on at another size, frame rate or bitrate.
+	yap_video_camera_configure :: proc(fps, kbit, max_width, max_height: i32) ---
 	// What a stream encodes at now, and the most it may (kbit/s, 0 while it
 	// isn't live).
 	yap_video_encoding_kbit :: proc(stream: i32) -> i32 ---
@@ -227,6 +229,13 @@ video_camera_start :: proc(config: Share_Config, device := "") {
 		config.max.x,
 		config.max.y,
 	)
+}
+
+// video_camera_configure has the camera go on as `config` says (its size,
+// frame rate and bitrate), from a keyframe: the room's tier changed
+// (video.odin).
+video_camera_configure :: proc(config: Share_Config) {
+	yap_video_camera_configure(i32(config.fps), i32(config.kbit), config.max.x, config.max.y)
 }
 
 video_camera_stop :: proc() {

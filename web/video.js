@@ -228,16 +228,32 @@ or getDisplayMedia (a phone) can still watch.
 		s.state = LIVE;
 	}
 
-	// userMedia asks for the camera, as big as the client asked for at most.
+	// userMedia asks for the camera at 720p (or as big as the client asked for,
+	// if bigger), so that it can be sent bigger again when the room has fewer
+	// cameras (configureCamera): what is sent is scaled down from it.
 	function userMedia(device) {
 		const video = {
-			frameRate: { ideal: camera.fps, max: camera.fps },
-			width: { ideal: camera.maxWidth || 1280 },
-			height: { ideal: camera.maxHeight || 720 },
+			frameRate: { ideal: 30 },
+			width: { ideal: Math.max(camera.maxWidth, 1280) },
+			height: { ideal: Math.max(camera.maxHeight, 720) },
 		};
 		if (device) video.deviceId = { exact: device };
 		else video.facingMode = "user";
 		return navigator.mediaDevices.getUserMedia({ video, audio: false });
+	}
+
+	// configureCamera has the camera go on at another size, frame rate or
+	// bitrate. The next frame sets the encoder up again (capture), so it
+	// starts with a keyframe.
+	function configureCamera(fps, kbit, maxWidth, maxHeight) {
+		const s = camera;
+		const bitrate = kbit * 1000;
+		fps = Math.max(1, fps);
+		if (s.fps === fps && s.maxBitrate === bitrate && s.maxWidth === maxWidth && s.maxHeight === maxHeight) {
+			return;
+		}
+		Object.assign(s, { fps, maxBitrate: bitrate, bitrate, maxWidth, maxHeight });
+		s.width = s.height = 0;
 	}
 
 	// The AudioWorklet: hands over what it's given in 10 ms chunks of
@@ -721,6 +737,7 @@ or getDisplayMedia (a phone) can still watch.
 		// The screen: start opens the browser's picker.
 		start,
 		startCamera,
+		configureCamera,
 		// The rest take the stream (0 the screen, 1 the camera).
 		stop: (stream) => stop(captureOf(stream), OFF),
 		state: (stream) => captureOf(stream).state,

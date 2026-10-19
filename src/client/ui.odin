@@ -637,6 +637,7 @@ draw_frame :: proc(ui: ^UI) {
 	}
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
+	camera_after_frame(ui)
 	ui.keys = {}
 	// The window's buttons keep their size at 100%. Only the display's
 	// density scales them, not the UI's zoom.
@@ -1493,6 +1494,8 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	image_viewer(ui, w, h)
 	// A screen that is being watched, popped out of its tab (see ui_video.odin).
 	screen_window(ui, w, h)
+	// The cameras, popped out of the Video tab (see ui_camera.odin).
+	camera_window(ui, w, h)
 	pins_window(ui, w, h)
 	thread_windows(ui, w, h)
 	profile_windows(ui, w, h)
@@ -1650,6 +1653,10 @@ session_screen :: proc(ui: ^UI) {
 	screen_tab_follow(ui)
 	camera_tab_follow(ui)
 	back_from_dms(ui)
+	if camera_fullscreen(ui) {
+		camera_full_screen(ui)
+		return
+	}
 	if v.watching != 0 && conn.video_is_fullscreen() {
 		fullscreen_screen(ui)
 		return

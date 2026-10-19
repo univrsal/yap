@@ -294,7 +294,7 @@ layer.
 | 2 | The client's streams: `Video_Out`/`Video_In`, several leases, a view per stream | L | client (conn) | 1 | done (2026-10-18): conn tests; a browser's share watched by a desktop client |
 | 3 | Cameras in the browser: getUserMedia, a second encoder, several decoders | M | web | 2 | done (2026-10-19): headless Chromium's fake camera to a headless client |
 | 4 | Calls: camera button, Video tab with self view, video call / answer with video | M | client (UI) | 2, 3 | done (2026-10-19): browser to browser and browser to desktop, headless |
-| 5 | Channels: the grid, tiers, focus, the full-room message, pop-out | M | client (UI) | 4 | - |
+| 5 | Channels: the grid, tiers, focus, the full-room message, pop-out | M | client (UI) | 4 | done (2026-10-19): three headless browsers in a channel |
 | 6 | `yap_video` cameras on Windows: Media Foundation, `yv_share_preview`, `yv_share_set_size` | L | library, client | 2 | - |
 | 7 | Linux: V4L2, MJPEG | M | library | 6 | - |
 | 8 | macOS: AVFoundation, `Info.plist` | M | library, scripts | 6 | - |
@@ -576,6 +576,75 @@ Why this order:
     notice and turned off; bot1's stayed.
   - conn (39) and render (17) tests pass; the client type-checks for
     Linux, Windows, macOS and the web.
+- **Tried by the owner** (2026-10-19): a video call between two
+  browsers with the OBS virtual camera worked.
+
+### 5. Channels
+
+*As built:*
+
+- **Tiers** (`conn/video.odin`):
+  - `camera_config(cameras, call, limit_kbit)` follows the table under
+    Quality (`CAMERA_TIERS`, `CAMERA_CALL`).
+  - The UI starts the camera at the room's tier, and conn keeps it
+    there (`follow_camera_tier`): down at once, up once the room has
+    kept to fewer cameras for `CAMERA_TIER_UP_AFTER` (5 s). A change
+    clears what adapting held it to.
+  - **The page**: `configureCamera` (`yap_video_camera_configure`)
+    sets the size, frame rate and bitrate; the next frame sets the
+    encoder up again, from a keyframe.
+  - The camera is now always asked for at 720p, so that a tier can go
+    back up (what is sent is scaled down from it).
+  - The desktop has a stub.
+- **The grid** (`ui_camera.odin`):
+  - The Video tab is offered in a channel's voice chat while anyone's
+    camera there is on (ours too). It's labelled "Video (N)" and never
+    opens by itself.
+  - Tiles are 16:9 in the number of columns that makes them largest.
+    The whole block and a short last row are centred. Others come in the
+    order of their user numbers, ours last ("You", mirrored).
+  - Names sit on a dark band; a green outline marks whoever is talking.
+  - A click makes a tile large, with the others in a row under it (a
+    fifth of the height). A click on the large one goes back.
+  - With nobody's camera on but ours not yet live, it reads "Nobody's
+    camera is on".
+- **Fullscreen and pop-out**, for the grid and for a call's video alike:
+  - Buttons in the tab's header row.
+  - Fullscreen fills the window (on the web, the page goes fullscreen)
+    until Escape or its button (`camera_full_screen`).
+  - The pop-out window "Cameras" (`camera_window`) shows the room our
+    voice is in, so it stays while another server is shown. It offers
+    fullscreen and putting it back while its server is shown.
+- **Not as planned (watching)**:
+  - Phase 4 had the tab send its camera when the tab changed.
+  - Now every tile drawn notes its camera (`note_drawn`), and after each
+    frame the list goes to the voice's server if it changed
+    (`camera_after_frame`).
+  - So whatever is drawn (the tab, fullscreen, the window, the call's
+    corner) is what is watched, and switching servers needs nothing
+    special: `show_session` no longer sends an empty list.
+- **The channel list** marks a camera that is on with the camera icon
+  (ours too). A click on it opens the Video tab.
+- **Not done**:
+  - A row of tiles that scrolls (the row under a large tile shrinks
+    them instead).
+  - Talking order or pinning.
+  - Watching a channel's cameras without being in its voice chat (the
+    server only passes cameras to the same room).
+- **Tried** (three headless Chromiums with the fake camera, in Lobby):
+  - **Tiers**: one camera and two sent 1500 kbit/s; the third took all
+    three to 800 at once. When it went off, they stayed at 800 for the
+    5 s, then went back to 1500.
+  - The grid of three (two above, one centred under them), names,
+    outlines, "Video (3)", and the camera marks in the list.
+  - Focusing bot3's tile.
+  - The pop-out window, and fullscreen from it and back.
+  - **Found and fixed while trying**: the window never showed the first
+    time. microui makes a new container already open, so it was never
+    placed; it now keeps its own "shown last frame" as the Screen window
+    does.
+  - conn tests (40, with `test_camera_config`) pass; the client
+    type-checks for Linux, Windows, macOS and the web.
 
 ## Risks
 

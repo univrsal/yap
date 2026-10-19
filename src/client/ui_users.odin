@@ -174,6 +174,15 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 			sharing_mark(ui, ctx.last_rect, slot, id)
 			slot += 1
 		}
+		if user.camera {
+			mu.draw_icon(
+				ctx,
+				render.icon_id(.Camera),
+				end_of_row(ctx.last_rect, slot),
+				ctx.style.colors[.TEXT],
+			)
+			slot += 1
+		}
 		if speaking && ui.muted && !ui.settings.mute_app_audio_with_mic {
 			app_audio_mark(ctx, ctx.last_rect, slot, true)
 		}
@@ -219,6 +228,12 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		share_r = sharing_mark(ui, r, slot, id)
 		slot += 1
 	}
+	camera_r: mu.Rect
+	if user.camera {
+		camera_r = end_of_row(r, slot)
+		mu.draw_icon(ctx, render.icon_id(.Camera), camera_r, ctx.style.colors[.TEXT])
+		slot += 1
+	}
 	if speaking && user.muted {
 		app_audio_mark(ctx, r, slot, !u.muted)
 	}
@@ -230,6 +245,14 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		   (can_watch_screens(ui) || v.watching == id) &&
 		   inside(share_r, ctx.mouse_pos) {
 			watch(ui, 0 if v.watching == id else id)
+			return
+		}
+		// A click on the camera mark shows the cameras, where they can be seen.
+		if user.camera &&
+		   ctx.mouse_pressed_bits == {.LEFT} &&
+		   inside(camera_r, ctx.mouse_pos) &&
+		   video_docked(ui) {
+			ui.chat.tab = .Video
 			return
 		}
 		open_user_menu(ui, id, user.account)

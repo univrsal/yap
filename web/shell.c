@@ -353,6 +353,12 @@ EM_JS(void, yap_video_camera_start, (int fps, int kbit, int max_width, int max_h
 	if (v) v.startCamera(fps, kbit, max_width, max_height, UTF8ToString(device));
 });
 
+/* Has the camera go on at another size, frame rate or bitrate. */
+EM_JS(void, yap_video_camera_configure, (int fps, int kbit, int max_width, int max_height), {
+	const v = Module.yapVideo;
+	if (v) v.configureCamera(fps, kbit, max_width, max_height);
+});
+
 /* The bitrate a stream encodes at now, and the most it was asked for (kbit/s,
    0 while it isn't live); and a new one for it to encode at. */
 EM_JS(int, yap_video_encoding_kbit, (int stream), {

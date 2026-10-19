@@ -126,6 +126,12 @@ Video_Out :: struct {
 	good_since:    time.Tick,
 	reports_at:    time.Tick,
 	reports:       proto.Video_Reports, // the latest reports
+
+	// The camera's tier (follow_camera_tier): what it is set to ({} not yet),
+	// and a higher one it may go up to, and since when the room has kept to it.
+	tier:          Share_Config,
+	tier_pending:  Share_Config,
+	tier_since:    time.Tick,
 }
 
 // Video_In is a stream that we watch.
@@ -245,22 +251,103 @@ share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> Share_Config {
 	return cfg
 }
 
-// How a camera is sent, until the number of cameras in the room sets it
-// (misc/video-chat, Quality): 720p at 30 frames a second.
-CAMERA_CONFIG :: Share_Config {
+// How a camera is sent (misc/video-chat, Quality). One stream goes to all of
+// its viewers, so it has to suit the grid they all see: the more cameras in
+// the room, the smaller each. Everyone works this out the same way from the
+// Camera flags, so nothing needs to be said about it. A call has two, and
+// gets the most.
+CAMERA_CALL :: Share_Config {
 	max  = {1280, 720},
 	fps  = 30,
 	kbit = 1800,
 }
 
-// camera_config is how to send our camera, held to `limit_kbit` (the server's
-// limit for a camera; 0 if it did not say).
-camera_config :: proc(limit_kbit: int) -> Share_Config {
-	cfg := CAMERA_CONFIG
+// The tiers of a channel's room, by the most cameras each is for.
+Camera_Tier :: struct {
+	cameras: int,
+	config:  Share_Config,
+}
+
+CAMERA_TIERS := [?]Camera_Tier {
+	{2, {max = {1280, 720}, fps = 30, kbit = 1500}},
+	{4, {max = {960, 540}, fps = 30, kbit = 800}},
+	{9, {max = {640, 360}, fps = 30, kbit = 450}},
+	{proto.MAX_CAMERAS, {max = {480, 270}, fps = 24, kbit = 300}},
+}
+
+// How long the room has to keep fewer cameras before ours goes up a tier
+// again. Going down happens at once. Each change costs a keyframe, so a camera
+// that goes on and off doesn't make everybody's encoders start again each
+// time.
+CAMERA_TIER_UP_AFTER :: 5 * time.Second
+
+// camera_config is how to send our camera with `cameras` on in our room (ours
+// included), or in a call, held to `limit_kbit` (the server's limit for a
+// camera; 0 if it did not say).
+camera_config :: proc(cameras: int, call: bool, limit_kbit: int) -> Share_Config {
+	cfg := CAMERA_CALL
+	if !call {
+		cfg = CAMERA_TIERS[len(CAMERA_TIERS) - 1].config
+		for t in CAMERA_TIERS {
+			if cameras <= t.cameras {
+				cfg = t.config
+				break
+			}
+		}
+	}
 	if limit_kbit > 0 {
 		cfg.kbit = min(cfg.kbit, limit_kbit)
 	}
 	return cfg
+}
+
+// room_camera_config is camera_config for our room as it is now.
+@(private = "file")
+room_camera_config :: proc(c: ^Voice_Client) -> Share_Config {
+	ch := &c.channels
+	room := my_room(c)
+	cameras := 1 // ours
+	for u in ch.state.users {
+		if u.room == room && u.num != ch.state.your_user && .Camera in u.flags {
+			cameras += 1
+		}
+	}
+	return camera_config(cameras, proto.room_call(room) != 0, int(c.rpc.server.camera_kbit))
+}
+
+// follow_camera_tier keeps our camera to the tier of the room: down at once, up
+// once the room has kept to fewer cameras for CAMERA_TIER_UP_AFTER.
+@(private = "file")
+follow_camera_tier :: proc(c: ^Voice_Client, o: ^Video_Out, now: time.Tick) {
+	if !c.channels.have_state || my_room(c) == 0 {
+		return
+	}
+	want := room_camera_config(c)
+	switch {
+	case want == o.tier:
+		o.tier_since = {}
+		return
+	case o.tier != {} && want.max.x >= o.tier.max.x && want.kbit >= o.tier.kbit:
+		// Up: once it has kept to it for long enough.
+		if o.tier_since == {} || want != o.tier_pending {
+			o.tier_pending, o.tier_since = want, now
+			return
+		}
+		if time.tick_diff(o.tier_since, now) < CAMERA_TIER_UP_AFTER {
+			return
+		}
+	}
+	log.infof(
+		"camera: %dx%d at %d fps, %d kbit/s for this room",
+		want.max.x,
+		want.max.y,
+		want.fps,
+		want.kbit,
+	)
+	video_camera_configure(want)
+	o.tier, o.tier_since = want, {}
+	// What it was held to was a part of the old tier's bitrate.
+	o.target_kbit = 0
 }
 
 // What the View shows of screen sharing, calculated once a second.
@@ -385,6 +472,9 @@ out_step :: proc(c: ^Voice_Client, o: ^Video_Out, here: bool) {
 	}
 	if !o.live {
 		return
+	}
+	if o.stream == .Camera {
+		follow_camera_tier(c, o, now)
 	}
 	note_encoding(o, video_share_kbit(o.stream), now)
 	for {
