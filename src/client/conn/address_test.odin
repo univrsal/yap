@@ -35,6 +35,33 @@ test_with_default_port :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_web_address :: proc(t: ^testing.T) {
+	cases := []struct {
+		input, origin, want: string,
+	} {
+		{"chat.example.org", "wss://example.com", "https://chat.example.org"},
+		{"  chat.example.org/  ", "wss://example.com", "https://chat.example.org/"},
+		{"chat.example.org:8443", "wss://example.com", "https://chat.example.org:8443"},
+		{"10.0.0.5", "ws://localhost:8080", "http://10.0.0.5:8080"},
+		{"10.0.0.5:", "ws://localhost:8080", "http://10.0.0.5:8080"},
+		{"10.0.0.5:8081", "ws://localhost:8080", "http://10.0.0.5:8081"},
+		{"localhost", "ws://localhost", "http://localhost"},
+		{"::1", "ws://[::1]:8080", "http://[::1]:8080"},
+		{"[::1]", "ws://[::1]", "http://[::1]"},
+		{"[::1]:8081", "ws://localhost:8080", "http://[::1]:8081"},
+		{"other.org?x", "wss://example.com:8443", "https://other.org:8443?x"},
+		// Typed with a scheme: as it was, so is_web_address judges it.
+		{"https://chat.example.org", "ws://localhost:8080", "https://chat.example.org"},
+		{"http://localhost:8081", "wss://example.com", "http://localhost:8081"},
+		{"ws://localhost:8081/yap/x", "ws://localhost:8080", "ws://localhost:8081/yap/x"},
+		{"", "ws://localhost:8080", ""},
+	}
+	for c in cases {
+		testing.expect_value(t, web_address(c.input, c.origin), c.want)
+	}
+}
+
+@(test)
 test_is_web_address :: proc(t: ^testing.T) {
 	good := []string {
 		"https://chat.example.org",

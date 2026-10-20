@@ -72,7 +72,7 @@ transport_open :: proc(
 	url := server_addr
 	if !strings.has_prefix(url, "ws://") && !strings.has_prefix(url, "wss://") {
 		url = strings.concatenate(
-			{relay_url_prefix(), "/yap-media/" if media else "/yap/", server_addr},
+			{relay_origin(), "/yap-media/" if media else "/yap/", server_addr},
 			context.temp_allocator,
 		)
 	} else if media {
@@ -186,11 +186,12 @@ foreign _ {
 // relay_scheme is "wss" if this page was served over https and "ws" if not:
 // what a relay's address has to start with for this page to reach it.
 relay_scheme :: proc() -> string {
-	return "wss" if strings.has_prefix(relay_url_prefix(), "wss://") else "ws"
+	return "wss" if strings.has_prefix(relay_origin(), "wss://") else "ws"
 }
 
-@(private = "file")
-relay_url_prefix :: proc() -> string {
+// relay_origin is the address of this page's relay without its path:
+// "wss://chat.example.org" or "ws://localhost:8080".
+relay_origin :: proc() -> string {
 	buf: [256]u8
 	n := yap_ws_origin(raw_data(buf[:]), len(buf))
 	if n <= 0 {

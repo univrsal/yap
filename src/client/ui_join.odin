@@ -77,11 +77,13 @@ join_frame :: proc(ui: ^UI) {
 		j.connect = false
 		typed := string(j.server_buf[:j.server_len])
 		// A browser reaches a server through the relay beside its web page, so
-		// that page's address is what the web client joins (see relay_blocked).
+		// that page's address is what the web client joins (see relay_blocked),
+		// with this page's scheme and port where none was typed.
 		j.mistake = ""
 		when platform.WEB {
+			typed = conn.web_address(typed, conn.relay_origin())
 			if !conn.is_web_address(typed) {
-				j.mistake = "Enter the server's web address, like https://chat.example.org or http://localhost:8080."
+				j.mistake = "Enter the server's web address, like chat.example.org or http://localhost:8080."
 				typed = ""
 			}
 		}

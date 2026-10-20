@@ -60,6 +60,48 @@ relay_address :: proc(page: string, allocator := context.temp_allocator) -> stri
 	return fmt.aprintf("%s://%s/yap/%s", "wss" if secure else "ws", rest, host, allocator = allocator)
 }
 
+// web_address is how the web client reads an address typed to join a server:
+// as a server's web address (see is_web_address), so http:// or https:// may
+// be left out. `origin` is the page's own relay ("wss://chat.example.org" or
+// "ws://localhost:8080", see relay_origin), and an address without a scheme
+// gets the page's, and if it has no port either, the page's port: on
+// http://localhost:8080, "10.0.0.5" becomes "http://10.0.0.5:8080", and on
+// https://chat.example.org, "other.org" becomes "https://other.org". Any
+// other address is returned as typed, without the spaces around it.
+web_address :: proc(typed, origin: string, allocator := context.temp_allocator) -> string {
+	addr := strings.trim_space(typed)
+	if addr == "" || strings.contains(addr, "://") {
+		return strings.clone(addr, allocator)
+	}
+	secure := strings.has_prefix(origin, "wss://")
+	page := strings.trim_prefix(strings.trim_prefix(origin, "wss://"), "ws://")
+	page_port := ""
+	if colon := strings.last_index_byte(page, ':'); colon > strings.last_index_byte(page, ']') {
+		page_port = page[colon:]
+	}
+	tail := ""
+	if cut := strings.index_any(addr, "/?#"); cut >= 0 {
+		addr, tail = addr[:cut], addr[cut:]
+	}
+	// Whether a port was typed, as in with_default_port.
+	has_port: bool
+	switch {
+	case strings.has_prefix(addr, "["):
+		has_port = strings.contains(addr, "]:") && !strings.has_suffix(addr, "]:")
+		addr = strings.trim_suffix(addr, ":")
+	case strings.count(addr, ":") > 1:
+		addr = strings.concatenate({"[", addr, "]"}, context.temp_allocator)
+	case strings.has_suffix(addr, ":"):
+		addr = addr[:len(addr) - 1]
+	case:
+		has_port = strings.contains(addr, ":")
+	}
+	return strings.concatenate(
+		{"https://" if secure else "http://", addr, "" if has_port else page_port, tail},
+		allocator,
+	)
+}
+
 // is_web_address is whether `typed` is the address of a server's web page,
 // which is how the web client joins a server (see relay_address): http:// or
 // https://, then a domain or an IP address and maybe a port, and nothing else
