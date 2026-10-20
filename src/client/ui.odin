@@ -326,6 +326,8 @@ UI :: struct {
 	// Files dropped on the window since the last frame, to be attached
 	// (see ui_files_*.odin). Owned.
 	dropped:             [dynamic]string,
+	// Files being dragged over the window (see drop_hint).
+	drag:                Drag,
 	// What the icon button under the pointer does, and where it is, for
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
@@ -541,6 +543,7 @@ ui_frame :: proc(ui: ^UI) -> bool {
 		ui.meter_shown = false
 		return true // there is no window to draw in
 	}
+	drag_frame(ui)
 	if !frame_due(ui) {
 		return true
 	}
@@ -1503,6 +1506,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// Last, and in windows of their own, so they are over the popups too.
 	chip_preview_popup(ui, w, h)
 	icon_hint(ui, w, h)
+	drop_hint(ui)
 }
 
 // rail_divider_gap hides the line between the rail and the main window
@@ -2056,7 +2060,7 @@ glfw_error_callback :: proc "c" (code: i32, description: cstring) {
 // GLFW input -> microui. The callbacks run on the main thread, inside
 // glfw.WaitEventsTimeout.
 
-@(private = "file")
+// to_logical turns window coordinates into the UI's (see Window_Metrics).
 to_logical :: proc "contextless" (v: f64) -> i32 {
 	return i32(v * f64(g_ui.input_scale))
 }

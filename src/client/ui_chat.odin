@@ -104,6 +104,7 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
+	drop_zone(ui)
 
 	conversation_header(ui, narrow)
 

@@ -25,6 +25,10 @@ _init :: proc(wayland_display: rawptr) -> bool {
 
 _destroy :: proc() {}
 
+_drag_over :: proc(wayland_surface: rawptr) -> (x, y: f64, over: bool) {
+	return
+}
+
 _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: string, err: Error) {
 	pool := NS.AutoreleasePool_init(NS.AutoreleasePool_alloc())
 	defer NS.AutoreleasePool_drain(pool)

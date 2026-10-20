@@ -140,6 +140,16 @@ GetWaylandDisplay :: proc "contextless" () -> rawptr {
 	}
 }
 
+// Wayland only (nil elsewhere): the window's surface, which a drag over it
+// names (see drag_frame).
+GetWaylandWindow :: proc "contextless" (window: WindowHandle) -> rawptr {
+	when ODIN_OS == .Linux {
+		return glfw.GetWaylandWindow(window)
+	} else {
+		return nil
+	}
+}
+
 // X11 on Linux only (nil elsewhere): GLFW's X11 connection, used to ask how
 // long ago the last input was (client:idle).
 GetX11Display :: proc "contextless" () -> rawptr {
