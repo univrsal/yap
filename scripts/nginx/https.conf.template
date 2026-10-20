@@ -1,0 +1,42 @@
+# yap behind nginx with the certificate certbot fetched (see yap.sh). Plain
+# HTTP is only answered for certbot and otherwise redirected.
+
+resolver ${YAP_RESOLVER} valid=10s;
+
+upstream yap_relay {
+	zone yap_relay 64k;
+	server yap:${YAP_RELAY_PORT} resolve;
+}
+
+map $http_upgrade $connection_upgrade {
+	default upgrade;
+	'' close;
+}
+
+server {
+	listen 80;
+	server_name ${YAP_DOMAIN};
+
+	location /.well-known/acme-challenge/ {
+		root /var/www/certbot;
+	}
+
+	location / {
+		return 301 https://${YAP_HTTPS_HOST}$request_uri;
+	}
+}
+
+server {
+	listen 443 ssl;
+	http2 on;
+	server_name ${YAP_DOMAIN};
+
+	ssl_certificate /etc/letsencrypt/live/${YAP_DOMAIN}/fullchain.pem;
+	ssl_certificate_key /etc/letsencrypt/live/${YAP_DOMAIN}/privkey.pem;
+	ssl_protocols TLSv1.2 TLSv1.3;
+	ssl_session_cache shared:yap_tls:10m;
+
+	location / {
+		include /etc/nginx/yap/proxy.conf;
+	}
+}

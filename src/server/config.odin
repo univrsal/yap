@@ -218,6 +218,12 @@ import "common:proto"
 //
 // Fields that are left out use the defaults listed above.
 //
+// In a container, the environment variables YAP_PORT, YAP_VIDEO_PORT and
+// YAP_RELAY_PORT set `port`, `video.port` and `relay.port` on every start and
+// are saved to the file (see Config_Ports). YAP_RELAY_ENABLED and
+// YAP_INITIAL_ADMIN_PASSWORD are only used when the file is created
+// (Config_Bootstrap).
+//
 // Channels aren't configured here. A new database starts with a single channel
 // called Lobby (DEFAULT_CHANNEL_NAME), which is the home channel that everyone
 // is in. All other channels are created from a client.
@@ -297,9 +303,17 @@ Api_Config :: struct {
 Config_Bootstrap :: struct {
 	relay_enabled_set:      bool,
 	relay_enabled:          bool,
-	relay_port_set:         bool,
-	relay_port:             int,
 	initial_admin_password: string,
+}
+
+// Config_Ports holds the ports taken from a container environment, 0 for those
+// that aren't set. Unlike Config_Bootstrap, they are applied on every start
+// and saved to the config, because they have to match the ports the container
+// publishes: clients are told the video port, so it can't be mapped to another.
+Config_Ports :: struct {
+	port:       int,
+	video_port: int,
+	relay_port: int,
 }
 
 // Settings holds the validated and parsed parts of a Config that the server
@@ -355,6 +369,7 @@ default_config :: proc() -> Config {
 load_config :: proc(
 	path: string,
 	bootstrap := Config_Bootstrap{},
+	ports := Config_Ports{},
 ) -> (
 	settings: Settings,
 	ok: bool,
@@ -364,9 +379,7 @@ load_config :: proc(
 		if bootstrap.relay_enabled_set {
 			cfg.relay.enabled = bootstrap.relay_enabled
 		}
-		if bootstrap.relay_port_set {
-			cfg.relay.port = bootstrap.relay_port
-		}
+		apply_ports(&cfg, ports)
 		create_config(path, &cfg) or_return
 		return check_config(path, cfg)
 	}
@@ -380,7 +393,13 @@ load_config :: proc(
 		log.errorf("%s is not valid: %v", path, json_err)
 		return
 	}
-	settings = check_config(path, cfg) or_return
+	if apply_ports(&cfg, ports) {
+		settings = check_config(path, cfg) or_return
+		save_config(path, cfg) or_return
+		log.infof("saved the ports from the environment to %s", path)
+	} else {
+		settings = check_config(path, cfg) or_return
+	}
 	if cfg.key == "" {
 		cfg.key = common.generate_private_key() or_return
 		save_config(path, cfg) or_return
@@ -394,6 +413,22 @@ load_config :: proc(
 		log.infof("%s had no push vapid_key, so a new one was generated and saved to it", path)
 	}
 	return settings, true
+}
+
+// apply_ports sets the ports of `ports` that are set, and returns whether that
+// changed any.
+@(private = "file")
+apply_ports :: proc(cfg: ^Config, ports: Config_Ports) -> (changed: bool) {
+	set :: proc(field: ^int, port: int, changed: ^bool) {
+		if port != 0 && field^ != port {
+			field^ = port
+			changed^ = true
+		}
+	}
+	set(&cfg.port, ports.port, &changed)
+	set(&cfg.video.port, ports.video_port, &changed)
+	set(&cfg.relay.port, ports.relay_port, &changed)
+	return
 }
 
 // create_config generates a key for a new config and writes it to `path`.
