@@ -98,7 +98,11 @@ main :: proc() {
 			os.exit(2)
 		}
 	}
-	settings, config_ok := load_config(opt.config, bootstrap)
+	ports, ports_ok := ports_from_env()
+	if !ports_ok {
+		os.exit(2)
+	}
+	settings, config_ok := load_config(opt.config, bootstrap, ports)
 	common.destroy_logging(early)
 	context.logger = {}
 	if !config_ok {
@@ -162,7 +166,8 @@ start_api :: proc(settings: Settings) -> (^gateway.Gateway, bool) {
 }
 
 // bootstrap_from_env reads the settings that are only used when a new server
-// is created. The environment never changes an existing server's data.
+// is created. The environment never changes an existing server's data. The
+// ports, which it does change, are read by ports_from_env.
 bootstrap_from_env :: proc() -> (bootstrap: Config_Bootstrap, ok: bool) {
 	if text := os.get_env("YAP_RELAY_ENABLED", context.allocator); text != "" {
 		bootstrap.relay_enabled_set = true
@@ -177,16 +182,6 @@ bootstrap_from_env :: proc() -> (bootstrap: Config_Bootstrap, ok: bool) {
 		}
 	}
 
-	if text := os.get_env("YAP_RELAY_PORT", context.allocator); text != "" {
-		port, port_ok := strconv.parse_int(text, 10)
-		if !port_ok || port <= 0 || port > 65535 {
-			log.errorf("YAP_RELAY_PORT must be a port from 1 to 65535")
-			return
-		}
-		bootstrap.relay_port_set = true
-		bootstrap.relay_port = port
-	}
-
 	if password := os.get_env("YAP_INITIAL_ADMIN_PASSWORD", context.allocator); password != "" {
 		if !proto.account_password_ok(password) {
 			log.errorf(
@@ -199,4 +194,26 @@ bootstrap_from_env :: proc() -> (bootstrap: Config_Bootstrap, ok: bool) {
 		bootstrap.initial_admin_password = password
 	}
 	return bootstrap, true
+}
+
+// ports_from_env reads the ports, which override the config's on every start
+// (see Config_Ports).
+ports_from_env :: proc() -> (ports: Config_Ports, ok: bool) {
+	env_port :: proc(name: string, port: ^int) -> bool {
+		text := os.get_env(name, context.temp_allocator)
+		if text == "" {
+			return true
+		}
+		value, value_ok := strconv.parse_int(text, 10)
+		if !value_ok || value <= 0 || value > 65535 {
+			log.errorf("%s must be a port from 1 to 65535", name)
+			return false
+		}
+		port^ = value
+		return true
+	}
+	env_port("YAP_PORT", &ports.port) or_return
+	env_port("YAP_VIDEO_PORT", &ports.video_port) or_return
+	env_port("YAP_RELAY_PORT", &ports.relay_port) or_return
+	return ports, true
 }

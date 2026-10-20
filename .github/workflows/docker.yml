@@ -57,6 +57,8 @@ jobs:
             --mount type=volume,src=yap-smoke-data,dst=/data \
             --env YAP_RELAY_ENABLED=true \
             --env YAP_RELAY_PORT=18080 \
+            --env YAP_PORT=17777 \
+            --env YAP_VIDEO_PORT=17779 \
             --env YAP_INITIAL_ADMIN_PASSWORD \
             yap:ci
           trap 'status=$?; [ $status -ne 0 ] && docker logs yap-smoke; docker rm --force yap-smoke; docker volume rm yap-smoke-data; exit $status' EXIT
@@ -66,14 +68,16 @@ jobs:
             sleep 1
           done
           for _ in $(seq 1 10); do
-            docker logs yap-smoke 2>&1 | grep -qF 'listening on udp :7777' && break
+            docker logs yap-smoke 2>&1 | grep -qF 'listening on udp :17777' && break
             sleep 1
           done
           test "$(docker inspect --format '{{.State.Running}}' yap-smoke)" = true
           docker exec yap-smoke test -f /data/config.json
           docker exec yap-smoke grep -F '"enabled": true' /data/config.json
           docker exec yap-smoke grep -F '"port": 18080' /data/config.json
-          docker logs yap-smoke 2>&1 | grep -F 'listening on udp :7777'
+          docker exec yap-smoke grep -F '"port": 17777' /data/config.json
+          docker exec yap-smoke grep -F '"port": 17779' /data/config.json
+          docker logs yap-smoke 2>&1 | grep -F 'listening on udp :17777'
           curl --fail --retry 10 --retry-connrefused http://127.0.0.1:18080/
           ! docker logs yap-smoke 2>&1 | grep -F "$YAP_INITIAL_ADMIN_PASSWORD"
 

@@ -1,0 +1,26 @@
+# yap behind nginx without TLS, until certbot has a certificate (see yap.sh).
+
+resolver ${YAP_RESOLVER} valid=10s;
+
+upstream yap_relay {
+	zone yap_relay 64k;
+	server yap:${YAP_RELAY_PORT} resolve;
+}
+
+map $http_upgrade $connection_upgrade {
+	default upgrade;
+	'' close;
+}
+
+server {
+	listen 80;
+	server_name ${YAP_DOMAIN};
+
+	location /.well-known/acme-challenge/ {
+		root /var/www/certbot;
+	}
+
+	location / {
+		include /etc/nginx/yap/proxy.conf;
+	}
+}
