@@ -50,6 +50,7 @@ import "common:proto"
 //		"camera_device": "",
 //		"camera_quality": "auto",
 //		"camera_mirror": true,
+//		"share_audio": "default",
 //		"users": {
 //			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933/12": { "volume": 0.5, "muted": false }
 //		},
@@ -156,6 +157,10 @@ Settings :: struct {
 	camera_device:           string,
 	camera_quality:          string,
 	camera_mirror:           bool,
+	// What audio a screen share sends on the desktop (ui_app_audio_native.odin):
+	// "" for none, "default" for the default playback device, or a
+	// playback device by name (the default if it is gone).
+	share_audio:             string,
 	// How to play back other people, by their account: the server's public
 	// key (64 hex digits), a slash, and the account's id on that server
 	// (see server_key). Names can be copied and are shared between
@@ -302,6 +307,7 @@ settings_destroy :: proc(s: ^Settings) {
 	delete(s.share_encoder)
 	delete(s.camera_device)
 	delete(s.camera_quality)
+	delete(s.share_audio)
 	for key in s.users {
 		delete(key)
 	}

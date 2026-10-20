@@ -17,7 +17,9 @@ import "common:proto"
 // yap_video library (conn/video_native.odin). On the desktop, the Share button
 // opens a menu of monitors and windows to share (share_menu), or, where the
 // system asks by itself (Wayland's portal, macOS 15), the system's picker is
-// used. A browser has its own picker. Either way, the channel list marks who is
+// used. Where a playback device's audio can go along (ui_app_audio_native.odin),
+// the menu asks for that first, and with the system's picker the menu
+// then has only that and a button to open the picker. A browser has its own picker. Either way, the channel list marks who is
 // sharing. The Screen tab's picture can be popped out into a window of its own
 // (screen_window), which floats over every page and stays while another server
 // is shown. What is shared is set up in the settings (Screen sharing,
@@ -145,7 +147,7 @@ share_button :: proc(ui: ^UI) {
 	if .SUBMIT in icon_button(ui, "share", .Screen, hint, color) {
 		if state == .Live || state == .Starting {
 			conn.video_share_stop()
-		} else if system {
+		} else if system && !app_audio_available(ui) {
 			// Its picker is all there is to ask.
 			conn.video_share_source({}, share_config(ui))
 		} else if conn.VIDEO_PICKER {
@@ -163,20 +165,26 @@ SHARE_MENU :: "share menu"
 @(private = "file")
 SHARE_MENU_WIDTH :: 320
 
-// share_menu is what the desktop shares, while it is open: the monitors, then
-// the windows, as the library finds them when it opens. Picking one starts
-// sharing it (in place of anything shared before).
+// share_menu is what the desktop shares, while it is open: the audio that
+// goes along, then the monitors and the windows, as the library finds them
+// when it opens. Picking one starts sharing it (in place of anything shared
+// before). Where the system has its own picker, a button opens that instead
+// of the monitors and windows.
 share_menu :: proc(ui: ^UI) {
 	when !conn.VIDEO_PICKER {
 		return
 	}
 	ctx := &ui.ctx
 	vid := &ui.video
+	system := conn.video_system_picker()
 	if vid.menu_requested {
 		vid.menu_requested = false
 		free_sources(ui)
 		vid.allowed = conn.video_capture_allowed()
-		vid.sources = conn.video_sources(context.allocator)
+		if !system {
+			vid.sources = conn.video_sources(context.allocator)
+		}
+		share_audio_refresh(ui)
 		mu.open_popup(ctx, SHARE_MENU)
 	}
 	if cnt := mu.get_container(ctx, SHARE_MENU, {.CLOSED}); cnt != nil && cnt.open {
@@ -191,6 +199,16 @@ share_menu :: proc(ui: ^UI) {
 
 	if !vid.allowed {
 		allow_capture(ui)
+		return
+	}
+	share_audio_choice(ui, SHARE_MENU_WIDTH)
+	if system {
+		mu.layout_row(ctx, {SHARE_MENU_WIDTH})
+		if .SUBMIT in stable_button(ctx, "pick", "Choose a screen or window...") {
+			conn.video_share_source({}, share_config(ui))
+			share_audio_start(ui)
+			mu.get_current_container(ctx).open = false
+		}
 		return
 	}
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
@@ -245,6 +263,7 @@ share_menu :: proc(ui: ^UI) {
 	}
 	if picked >= 0 {
 		conn.video_share_source(vid.sources[picked], share_config(ui))
+		share_audio_start(ui)
 		mu.get_current_container(ctx).open = false
 	}
 }
