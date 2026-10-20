@@ -27,6 +27,10 @@ import "core:time"
 // compositor makes two offers for the same clipboard; weston serves only
 // the newest one it made, which is GLFW's, and then hands us nothing. We
 // report that as "no image", so pasting text still works there.
+//
+// Drags over the window reach our data device as well as GLFW's. GLFW takes
+// the drop; we only follow where a drag of files is, which GLFW doesn't
+// report (wayland_drag_over), and must not accept or refuse anything.
 
 @(private = "file")
 Argument :: struct #raw_union {
@@ -109,7 +113,14 @@ wl: struct {
 	device:    rawptr,
 	offers:    [dynamic]Offer,
 	selection: rawptr, // the clipboard's current offer, or nil
-	dnd:       rawptr, // a drag-and-drop offer, which we ignore
+	dnd:       rawptr, // a drag-and-drop offer, which is only looked at (see wayland_drag_over)
+	// The drag over a surface of ours: whether it carries files, where it
+	// is (surface coordinates), and on which surface.
+	drag:      struct {
+		files:   bool,
+		x, y:    f64,
+		surface: rawptr,
+	},
 }
 
 // Listeners are tables of C function pointers, in event order.
@@ -131,8 +142,9 @@ data_offer_listener := [3]rawptr {
 	rawptr(offer_action),
 }
 
-// Our queue is only dispatched from wayland_init and wayland_read, so the
-// handlers always run inside them, and take their context from there.
+// Our queue is only dispatched from wayland_init, wayland_read and
+// wayland_drag_over, so the handlers always run inside them, and take their
+// context from there.
 @(private = "file")
 handler_context: runtime.Context
 
@@ -293,6 +305,16 @@ wayland_read :: proc(allocator := context.allocator) -> (data: []u8, mime: strin
 	return data, mime, err
 }
 
+// wayland_drag_over handles what GLFW's loop has queued for us, and says
+// whether files are being dragged over `surface` (the window's), and where.
+wayland_drag_over :: proc(surface: rawptr) -> (x, y: f64, over: bool) {
+	handler_context = context
+	if wl.sym.display_dispatch_queue_pending(wl.display, wl.queue) < 0 {
+		return
+	}
+	return wl.drag.x, wl.drag.y, wl.drag.files && wl.drag.surface == surface
+}
+
 @(private = "file")
 all_symbols :: proc(s: ^Symbols) -> bool {
 	return(
@@ -378,13 +400,14 @@ registry_global :: proc "c" (data, registry: rawptr, name: u32, interface: cstri
 			wl.seat = bind(name, wl.sym.seat_interface, "wl_seat", 1)
 		}
 	case "wl_data_device_manager":
+		// Version 1, as GLFW binds it. A drag over the window is offered to
+		// our data device too, and from version 3 on an offer that names no
+		// actions (wl_data_offer.set_actions) accepts none. KWin settles the
+		// drag's action with each of the client's offers in turn, so ours,
+		// the last, would have the drop refused that GLFW accepted. A version 1
+		// offer takes a copy, as GLFW's does.
 		if wl.manager == nil {
-			wl.manager = bind(
-				name,
-				wl.sym.data_device_manager_interface,
-				"wl_data_device_manager",
-				min(version, 3),
-			)
+			wl.manager = bind(name, wl.sym.data_device_manager_interface, "wl_data_device_manager", 1)
 		}
 	}
 }
@@ -409,6 +432,15 @@ device_enter :: proc "c" (
 ) {
 	context = handler_context
 	wl.dnd = offer
+	// Files come as a list of their URIs, which is what GLFW takes too. Its
+	// MIME types were listed before this.
+	files := false
+	if o := find_offer(offer); o != nil {
+		for m in o.mimes {
+			files ||= m == "text/uri-list"
+		}
+	}
+	wl.drag = {files, f64(x) / 256, f64(y) / 256, surface} // wl_fixed_t
 }
 
 @(private = "file")
@@ -418,13 +450,18 @@ device_leave :: proc "c" (data, device: rawptr) {
 		destroy_offer(wl.dnd)
 	}
 	wl.dnd = nil
+	wl.drag.files = false // where it was stays, for where it was dropped
 }
 
 @(private = "file")
-device_motion :: proc "c" (data, device: rawptr, time: u32, x, y: i32) {}
+device_motion :: proc "c" (data, device: rawptr, time: u32, x, y: i32) {
+	wl.drag.x, wl.drag.y = f64(x) / 256, f64(y) / 256
+}
 
 @(private = "file")
-device_drop :: proc "c" (data, device: rawptr) {}
+device_drop :: proc "c" (data, device: rawptr) {
+	wl.drag.files = false
+}
 
 @(private = "file")
 device_selection :: proc "c" (data, device, offer: rawptr) {

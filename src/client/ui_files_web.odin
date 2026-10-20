@@ -2,6 +2,7 @@
 package client
 
 import "core:strings"
+import mu "vendor:microui"
 
 import "client:conn"
 import "client:platform"
@@ -77,6 +78,26 @@ web_file_picked :: proc "c" (handle: i32, name: [^]u8, name_len: i32, size: f64)
 // attach_dropped: a browser's dropped files come from the page
 // (see web_file_dropped), not as paths.
 attach_dropped :: proc(ui: ^UI) {}
+
+// drag_frame: the page reports drags as they happen (see web_drag).
+drag_frame :: proc(ui: ^UI) {}
+
+// Files are dragged over the page (`over`), or left it or were dropped, at
+// fx, fy: how far across and down the canvas, from 0 to 1. The page says so
+// before it hands over dropped files, so they go where they were dropped.
+@(export)
+web_drag :: proc "c" (over: i32, fx, fy: f64) {
+	context = platform.callback_context()
+	if g_ui == nil {
+		return
+	}
+	d := &g_ui.drag
+	pos := mu.Vec2{i32(fx * f64(g_ui.metrics.logical_w)), i32(fy * f64(g_ui.metrics.logical_h))}
+	if (over != 0) != d.over || pos != d.pos {
+		ui_redraw(g_ui)
+	}
+	d.over, d.pos, d.known = over != 0, pos, true
+}
 
 // A file was dropped on the page. It is attached to the message that is being
 // written where it was dropped.

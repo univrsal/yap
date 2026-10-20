@@ -8,8 +8,10 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
+import mu "vendor:microui"
 
 import "client:audio"
+import "client:clipboard"
 import "client:conn"
 import "client:dialogs"
 import "client:platform"
@@ -202,6 +204,27 @@ attach_dropped :: proc(ui: ^UI) {
 		delete(path)
 	}
 	clear(&ui.dropped)
+	ui.drag.known = false
+}
+
+// drag_frame follows files being dragged over the window, where the platform
+// tells (Wayland, see clipboard.drag_over), for drop_hint and drop_target.
+// Elsewhere GLFW moves the pointer to where they are dropped before
+// reporting the drop, so the pointer's position does for drop_target.
+drag_frame :: proc(ui: ^UI) {
+	surface: rawptr
+	if glfw.GetPlatform() == glfw.PLATFORM_WAYLAND {
+		surface = glfw.GetWaylandWindow(ui.window)
+	}
+	x, y, over := clipboard.drag_over(surface)
+	if !over && !ui.drag.over {
+		return
+	}
+	pos := mu.Vec2{to_logical(x), to_logical(y)}
+	if over != ui.drag.over || pos != ui.drag.pos {
+		ui_redraw(ui)
+	}
+	ui.drag.over, ui.drag.pos, ui.drag.known = over, pos, true
 }
 
 // attach_paths attaches files by their paths, with each one's name and size

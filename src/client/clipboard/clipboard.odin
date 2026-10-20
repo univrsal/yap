@@ -92,6 +92,16 @@ read_encoded :: proc(allocator := context.allocator) -> (data: []u8, err: Error)
 	return
 }
 
+// drag_over says whether files are being dragged over the window, and where,
+// in window coordinates. Only Wayland tells: the compositor shows a drag to
+// every data device the window's client has, ours among them (see
+// wayland_linux.odin), while GLFW only reports the drop. Elsewhere it is
+// always false. `wayland_surface` is the window's (glfw.GetWaylandWindow).
+// Call it from the window's thread, once a frame.
+drag_over :: proc(wayland_surface: rawptr) -> (x, y: f64, over: bool) {
+	return _drag_over(wayland_surface)
+}
+
 image_destroy :: proc(img: ^Image, allocator := context.allocator) {
 	delete(img.pixels, allocator)
 	img^ = {}

@@ -46,17 +46,41 @@ under the sender's name.
 		_free(ptr);
 	}
 
+	// Where files being dragged are, for the client to show where they would
+	// go (web_drag): how far across and down the canvas. A dragleave also
+	// comes when the drag moves onto another element, or in Safari for no
+	// reason, so the drag only counts as gone if no dragover follows soon.
+	let dragX = 0, dragY = 0, dragGone = 0;
+	function drag(over, e) {
+		clearTimeout(dragGone);
+		if (e && Module.canvas) {
+			const r = Module.canvas.getBoundingClientRect();
+			dragX = (e.clientX - r.left) / Math.max(r.width, 1);
+			dragY = (e.clientY - r.top) / Math.max(r.height, 1);
+		}
+		if (typeof Module._web_drag === "function") Module._web_drag(over ? 1 : 0, dragX, dragY);
+	}
+
 	// Files dropped on the page are attached to the message being written
 	// (web_file_dropped). Without this the browser would open them.
 	window.addEventListener("dragover", (e) => {
 		if (e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")) {
 			e.preventDefault();
 			e.dataTransfer.dropEffect = "copy";
+			drag(true, e);
 		}
 	});
+	window.addEventListener("dragleave", () => {
+		clearTimeout(dragGone);
+		dragGone = setTimeout(() => drag(false), 150);
+	});
 	window.addEventListener("drop", (e) => {
-		if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+		if (!e.dataTransfer || !e.dataTransfer.files.length) {
+			drag(false);
+			return;
+		}
 		e.preventDefault();
+		drag(false, e);
 		if (typeof Module._web_file_dropped !== "function") return;
 		for (const file of e.dataTransfer.files) {
 			// A folder comes as a File of no type and no size; it can't be read.

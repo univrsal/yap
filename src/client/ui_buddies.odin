@@ -378,6 +378,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
+	drop_zone(ui)
 
 	if !found {
 		mu.layout_row(ctx, {-1})

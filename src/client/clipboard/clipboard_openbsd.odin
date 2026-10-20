@@ -23,6 +23,10 @@ _destroy :: proc() {
 	have_x11 = false
 }
 
+_drag_over :: proc(wayland_surface: rawptr) -> (x, y: f64, over: bool) {
+	return
+}
+
 _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: string, err: Error) {
 	if !have_x11 {
 		return nil, "", .Unavailable

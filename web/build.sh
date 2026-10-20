@@ -46,7 +46,7 @@ background_exports=_web_tick,_web_visibility
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
 paste_exports=_web_file_pasted,_web_paste_failed,_web_paste_text,_web_max_attachment,_malloc,_free
 # What web/files.js calls (src/client/ui_files_web.odin).
-files_exports=_web_file_picked,_web_file_dropped
+files_exports=_web_file_picked,_web_file_dropped,_web_drag
 # What web/avatar.js calls (src/client/ui_avatar_pick_web.odin).
 avatar_exports=_web_avatar_reading,_web_avatar_picked,_web_avatar_failed
 # What web/decode.js calls (src/client/ui_images_worker_web.odin).

@@ -42,6 +42,13 @@ _destroy :: proc() {
 	backend = .None
 }
 
+_drag_over :: proc(wayland_surface: rawptr) -> (x, y: f64, over: bool) {
+	if backend == .Wayland {
+		return wayland_drag_over(wayland_surface)
+	}
+	return
+}
+
 _read_encoded :: proc(allocator := context.allocator) -> (data: []u8, mime: string, err: Error) {
 	switch backend {
 	case .Wayland:

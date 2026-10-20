@@ -63,6 +63,21 @@ Attach_Target :: struct {
 	thread: int,
 }
 
+// Drag is files being dragged over the window, as far as we are told: a
+// browser and Wayland say where they are (see drag_frame), elsewhere only the
+// drop is known.
+Drag :: struct {
+	over:  bool,
+	// Where they are, or were dropped, once a drag has said so (`known`).
+	pos:   mu.Vec2,
+	known: bool,
+	// The composers that took files in the last frame, the page's (0) and
+	// the thread windows', and where the page's conversation is (see
+	// drop_zone), for drop_hint.
+	takes: bit_set[0 ..= conn.MAX_THREADS],
+	page:  mu.Rect,
+}
+
 // composer_files_of returns where an Attach_Target's files go.
 composer_files_of :: proc(ui: ^UI, at: Attach_Target) -> ^[dynamic]Picked_File {
 	if at.thread != 0 {
@@ -161,7 +176,9 @@ drop_target :: proc(ui: ^UI) -> Attach_Target {
 	}
 	at := Attach_Target{ui.page, 0}
 	top: i32 = -1
-	pos := ui.ctx.mouse_pos
+	// While files are dragged, the pointer doesn't move as far as the window
+	// knows (on Wayland and in a browser).
+	pos := ui.drag.pos if ui.drag.known else ui.ctx.mouse_pos
 	for t, i in ui.threads {
 		if t.key != {} && mu.rect_overlaps_vec2(t.rect, pos) && t.zindex > top {
 			at.thread, top = i + 1, t.zindex
@@ -185,10 +202,91 @@ attach_button :: proc(ui: ^UI, c: Composer) {
 		mu.layout_next(ctx) // its place stays empty
 		return
 	}
+	ui.drag.takes += {c.thread}
 	if .SUBMIT in icon_button(ui, fmt.tprintf("attach %d", c.thread), .Attach, "Attach files") {
 		ui.attach_pick = true
 		ui.attach_to = {ui.page, c.thread}
 	}
+}
+
+// drop_zone records the layout cell just begun as the page's conversation:
+// what drop_hint marks when files would go to the page's composer.
+drop_zone :: proc(ui: ^UI) {
+	ui.drag.page = mu.get_layout(&ui.ctx).body
+}
+
+// DROP_WINDOW is the window drop_hint draws in.
+@(private = "file")
+DROP_WINDOW :: "drop hint"
+
+// drop_hint marks, while files are dragged over the window, the conversation
+// they would be attached to if dropped there (see drop_target): the page's
+// or a thread window's. Nothing is marked where they can't be attached.
+drop_hint :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	d := &ui.drag
+	defer d.takes = {} // attach_button fills it again in the next frame
+	if !d.over || ui.session == nil || ui.page == .Settings {
+		return
+	}
+	at := drop_target(ui)
+	if at.thread not_in d.takes {
+		return
+	}
+	// A narrow window shows a thread in the page's place.
+	r := d.page
+	if at.thread != 0 && !ui.narrow {
+		r = ui.threads[at.thread - 1].rect
+	}
+	if r.w <= 0 || r.h <= 0 {
+		return
+	}
+	cnt := mu.get_container(ctx, DROP_WINDOW)
+	if cnt == nil {
+		return
+	}
+	cnt.rect = r
+	if cnt.zindex != ctx.last_zindex {
+		mu.bring_to_front(ctx, cnt)
+	}
+	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_SCROLL, .NO_CLOSE, .NO_INTERACT}
+	if !mu.begin_window(ctx, DROP_WINDOW, r, opts) {
+		return
+	}
+	defer mu.end_window(ctx)
+
+	// The area tinted and outlined in the links' color.
+	accent := theme.link
+	mu.draw_rect(ctx, r, {accent.r, accent.g, accent.b, 40})
+	edge: i32 = 2
+	mu.draw_rect(ctx, {r.x, r.y, r.w, edge}, accent)
+	mu.draw_rect(ctx, {r.x, r.y + r.h - edge, r.w, edge}, accent)
+	mu.draw_rect(ctx, {r.x, r.y, edge, r.h}, accent)
+	mu.draw_rect(ctx, {r.x + r.w - edge, r.y, edge, r.h}, accent)
+
+	// In the middle, a paperclip and what dropping does.
+	label := "Drop files to attach"
+	font := render.font_with_style(ctx.style.font, .Bold)
+	pad := ctx.style.padding
+	text_w, text_h := ctx.text_width(font, label), ctx.text_height(font)
+	h := max(text_h, ICON_BUTTON) + 2 * pad
+	w := ICON_BUTTON + text_w + 3 * pad
+	box := mu.Rect{r.x + (r.w - w) / 2, r.y + (r.h - h) / 2, w, h}
+	mu.draw_rect(ctx, box, ctx.style.colors[.BASE])
+	render.draw_border(ctx, box, accent)
+	mu.draw_icon(
+		ctx,
+		render.icon_id(.Attach),
+		{box.x + pad, box.y + (h - ICON_BUTTON) / 2, ICON_BUTTON, ICON_BUTTON},
+		accent,
+	)
+	mu.draw_text(
+		ctx,
+		font,
+		label,
+		{box.x + 2 * pad + ICON_BUTTON, box.y + (h - text_h) / 2},
+		ctx.style.colors[.TEXT],
+	)
 }
 
 // What a chip takes besides its name: the multiplication sign, the size and the gaps.
