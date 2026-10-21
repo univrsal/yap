@@ -473,7 +473,7 @@ ui_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in mu.checkbox(ctx, "Show pictures beside messages", &ui.settings.chat_pictures) {
+	if .CHANGE in mu.checkbox(ctx, "Show avatars beside messages", &ui.settings.chat_pictures) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 

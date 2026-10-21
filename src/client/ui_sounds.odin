@@ -227,7 +227,7 @@ sound_settings :: proc(ui: ^UI) {
 	for &w in widths {
 		w = 80
 	}
-	field_row(ui, 150, "Use the sounds of", widths)
+	field_row(ui, 150, "Presets", widths)
 	for preset, i in audio.SOUND_PRESETS {
 		if .SUBMIT in
 		   stable_button(ctx, fmt.tprintf("sound preset %d", i), preset.label, {.ALIGN_CENTER}) {

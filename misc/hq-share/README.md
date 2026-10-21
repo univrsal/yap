@@ -4,7 +4,7 @@ Screen sharing for the native clients at up to 60fps and a sharp picture,
 built as an optional library that the client loads only if it's there.
 Nothing here is built yet. As in `misc/next`, each phase is its own commit
 or series of commits; what turns out differently is written under it when
-it's done ("*As built:*"), and the open questions are in the Decisions
+it's done ("_As built:_"), and the open questions are in the Decisions
 table at the end.
 
 Sizes as in `docs/extended`: S up to about 300 changed lines, M up to
@@ -12,7 +12,7 @@ Sizes as in `docs/extended`: S up to about 300 changed lines, M up to
 FFmpeg.
 
 The OBS source in `misc/hq-share/obs-studio-master` is a reference for
-*how* capture and hardware encoding are done on each platform (which
+_how_ capture and hardware encoding are done on each platform (which
 APIs, in what order, what goes wrong). OBS is GPL-2.0 and yap is zlib, so
 nothing is copied from it; the library is written fresh against the
 platform APIs and FFmpeg. "OBS:" lines below point at the parts worth
@@ -42,19 +42,20 @@ reading before each phase.
   on the bulk link, its own UDP socket and Noise session, so voice isn't
   harmed. But everything is sized for 2–4 Mbit/s:
 
-  | Limit | Today | Where |
-  | --- | --- | --- |
-  | Server rate per sharer | 4 Mbit/s | `server/video.odin` `VIDEO_MAX_RATE` |
-  | Client send pace | 3 Mbit/s | `conn/video.odin` `VIDEO_SEND_RATE` |
-  | Largest frame | 256 KiB | `proto/video.odin` `MAX_VIDEO_FRAME_SIZE` |
-  | Replay window | 64 packets | `proto/session.odin` |
-  | Client bulk receive | 16 packets a loop turn | `conn/bulk.odin` `BULK_RECV_MAX` |
-  | Server loop | one packet, then every sync phase | `server/server.odin` |
-  | Relay | scans every session per fragment | `server/video.odin` `relay_video` |
-  | Reassembly | one frame at a time, broken until a keyframe | `proto.Video_Assembler` |
+  | Limit                  | Today                                        | Where                                     |
+  | ---------------------- | -------------------------------------------- | ----------------------------------------- |
+  | Server rate per sharer | 4 Mbit/s                                     | `server/video.odin` `VIDEO_MAX_RATE`      |
+  | Client send pace       | 3 Mbit/s                                     | `conn/video.odin` `VIDEO_SEND_RATE`       |
+  | Largest frame          | 256 KiB                                      | `proto/video.odin` `MAX_VIDEO_FRAME_SIZE` |
+  | Replay window          | 64 packets                                   | `proto/session.odin`                      |
+  | Client bulk receive    | 16 packets a loop turn                       | `conn/bulk.odin` `BULK_RECV_MAX`          |
+  | Server loop            | one packet, then every sync phase            | `server/server.odin`                      |
+  | Relay                  | scans every session per fragment             | `server/video.odin` `relay_video`         |
+  | Reassembly             | one frame at a time, broken until a keyframe | `proto.Video_Assembler`                   |
 
   60fps at a good quality is 8–20 Mbit/s, which is 900–2200 packets a
   second per viewer. Each of these limits breaks before that.
+
 - **Losses are repaired only with keyframes.** A lost fragment spoils
   everything up to the next keyframe, and the viewer asks for one. At
   15fps and 2 Mbit/s that's tolerable; at 60fps a 1440p keyframe is
@@ -167,7 +168,7 @@ decoders named below, with `nv-codec-headers` (NVENC/NVDEC), AMF
 headers, `libvpl` (QSV), `libdav1d` (AV1 decode), VA-API, D3D11VA and
 VideoToolbox. All of those are MIT/BSD. No x264, x265 or anything else
 GPL. Expect 15–25 MB for the lot. (For now it's a prebuilt FFmpeg
-with every codec, about 90 MB; see phase 1's *As built*.)
+with every codec, about 90 MB; see phase 1's _As built_.)
 
 #### API sketch
 
@@ -219,12 +220,12 @@ browser or the library is underneath.
 
 #### Capture
 
-| Platform | Monitor | Window | Cursor | OBS |
-| --- | --- | --- | --- | --- |
-| Windows | Windows.Graphics.Capture; DXGI Desktop Duplication as the fallback | WGC | WGC's `IsCursorCaptureEnabled`; drawn ourselves with DXGI | `libobs-winrt/winrt-capture.cpp`, `libobs-d3d11/d3d11-duplicator.cpp`, `plugins/win-capture/cursor-capture.c`, `libobs/util/windows/window-helpers.c` |
-| macOS | ScreenCaptureKit display stream | SCK window stream | `showsCursor` | `plugins/mac-capture/mac-sck-common.m`, `mac-sck-video-capture.m` |
-| Linux, Wayland | xdg-desktop-portal ScreenCast + PipeWire | same, the portal picks | portal cursor mode: embedded (metadata later) | `plugins/linux-pipewire/screencast-portal.c`, `portal.c`, `pipewire.c` |
-| Linux, X11 | portal if there is one, else XShm | XComposite | XFixes | `plugins/linux-capture/xshm-input.c`, `xcomposite-input.c`, `xcursor-xcb.c` |
+| Platform       | Monitor                                                            | Window                 | Cursor                                                    | OBS                                                                                                                                                   |
+| -------------- | ------------------------------------------------------------------ | ---------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows        | Windows.Graphics.Capture; DXGI Desktop Duplication as the fallback | WGC                    | WGC's `IsCursorCaptureEnabled`; drawn ourselves with DXGI | `libobs-winrt/winrt-capture.cpp`, `libobs-d3d11/d3d11-duplicator.cpp`, `plugins/win-capture/cursor-capture.c`, `libobs/util/windows/window-helpers.c` |
+| macOS          | ScreenCaptureKit display stream                                    | SCK window stream      | `showsCursor`                                             | `plugins/mac-capture/mac-sck-common.m`, `mac-sck-video-capture.m`                                                                                     |
+| Linux, Wayland | xdg-desktop-portal ScreenCast + PipeWire                           | same, the portal picks | portal cursor mode: embedded (metadata later)             | `plugins/linux-pipewire/screencast-portal.c`, `portal.c`, `pipewire.c`                                                                                |
+| Linux, X11     | portal if there is one, else XShm                                  | XComposite             | XFixes                                                    | `plugins/linux-capture/xshm-input.c`, `xcomposite-input.c`, `xcursor-xcb.c`                                                                           |
 
 Points that matter, from reading OBS:
 
@@ -256,11 +257,11 @@ texture, BT.709, limited range. OBS: `libobs/data/format_conversion.effect`
 Encoding is FFmpeg's `avcodec` with hardware frames, so the frame
 doesn't leave the GPU:
 
-| Platform | Path | Encoders, best first |
-| --- | --- | --- |
-| Windows | capture texture → NV12 shader → `AV_PIX_FMT_D3D11` frame from a hwframes pool on the capture device | `av1_nvenc`, `hevc_nvenc`, `h264_nvenc`; `av1_amf`, `hevc_amf`, `h264_amf`; `av1_qsv`, `hevc_qsv`, `h264_qsv` (D3D11 mapped to QSV) |
-| macOS | SCK NV12 `CVPixelBuffer` → `AV_PIX_FMT_VIDEOTOOLBOX` frame | `hevc_videotoolbox`, `h264_videotoolbox` |
-| Linux | first: shm → `swscale` → upload. Later: DMA-BUF → VA-API surface (`hwmap`) → `scale_vaapi` to NV12 | `av1_vaapi`, `hevc_vaapi`, `h264_vaapi`; `*_nvenc` (CUDA) on NVIDIA |
+| Platform | Path                                                                                                | Encoders, best first                                                                                                                |
+| -------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Windows  | capture texture → NV12 shader → `AV_PIX_FMT_D3D11` frame from a hwframes pool on the capture device | `av1_nvenc`, `hevc_nvenc`, `h264_nvenc`; `av1_amf`, `hevc_amf`, `h264_amf`; `av1_qsv`, `hevc_qsv`, `h264_qsv` (D3D11 mapped to QSV) |
+| macOS    | SCK NV12 `CVPixelBuffer` → `AV_PIX_FMT_VIDEOTOOLBOX` frame                                          | `hevc_videotoolbox`, `h264_videotoolbox`                                                                                            |
+| Linux    | first: shm → `swscale` → upload. Later: DMA-BUF → VA-API surface (`hwmap`) → `scale_vaapi` to NV12  | `av1_vaapi`, `hevc_vaapi`, `h264_vaapi`; `*_nvenc` (CUDA) on NVIDIA                                                                 |
 
 Low-latency settings, the same idea for each (OBS sets most of these
 differently because it records and streams):
@@ -424,18 +425,18 @@ No new dependencies, still one binary.
 
 ## Phases
 
-| # | Phase | Size | Where | Depends on | Status |
-| --- | --- | --- | --- | --- | --- |
-| 1 | The library's skeleton, the FFmpeg build, a loopback tool | L | library, scripts | - | built (2026-10-12) on Windows and Linux (WSL); macOS not yet built |
-| 2 | Decoding and presenting; natives watch web shares | M | library, client | 1 | done (2026-10-12): a Linux client watched a web share |
-| 3 | Windows capture and encoding; natives share over the bulk link | L | library, client | 2 | done (2026-10-12): two Windows clients share and watch |
-| 4 | The media link | L | protocol, server, client | 3 | done (2026-10-13): two Windows clients over it |
-| 5 | Nack, the server's cache, pacing | M | protocol, server, client | 4 | built (2026-10-13); tested in proto, conn and the server, not yet with a real share |
-| 6 | Linux capture and encoding | L | library | 3 | done (2026-10-13): the portal and VA-API on Arch (AMD, Wayland); X11 listing under XWayland; a full X11 session not yet |
-| 7 | macOS capture and encoding | M | library | 3 | done (2026-10-13): CI builds it; sharing and watching on a Mac |
-| 8 | The UI: picker, presets, advanced settings, stats | M | client | 3 | done (2026-10-13): Wayland's and macOS's pickers, the settings |
-| 9 | Zero-copy on Linux and macOS | M | library, client | 6, 7 | built (2026-10-13); builds on Linux, macOS waits for CI; not yet tried |
-| 10 | Adapting the bitrate | M | protocol, server, client, library | 5 | built (2026-10-13); tested in proto, conn, the server and yv-loopback, not yet with real viewers |
+| #   | Phase                                                          | Size | Where                             | Depends on | Status                                                                                                                  |
+| --- | -------------------------------------------------------------- | ---- | --------------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------- |
+| 1   | The library's skeleton, the FFmpeg build, a loopback tool      | L    | library, scripts                  | -          | built (2026-10-12) on Windows and Linux (WSL); macOS not yet built                                                      |
+| 2   | Decoding and presenting; natives watch web shares              | M    | library, client                   | 1          | done (2026-10-12): a Linux client watched a web share                                                                   |
+| 3   | Windows capture and encoding; natives share over the bulk link | L    | library, client                   | 2          | done (2026-10-12): two Windows clients share and watch                                                                  |
+| 4   | The media link                                                 | L    | protocol, server, client          | 3          | done (2026-10-13): two Windows clients over it                                                                          |
+| 5   | Nack, the server's cache, pacing                               | M    | protocol, server, client          | 4          | built (2026-10-13); tested in proto, conn and the server, not yet with a real share                                     |
+| 6   | Linux capture and encoding                                     | L    | library                           | 3          | done (2026-10-13): the portal and VA-API on Arch (AMD, Wayland); X11 listing under XWayland; a full X11 session not yet |
+| 7   | macOS capture and encoding                                     | M    | library                           | 3          | done (2026-10-13): CI builds it; sharing and watching on a Mac                                                          |
+| 8   | The UI: picker, presets, advanced settings, stats              | M    | client                            | 3          | done (2026-10-13): Wayland's and macOS's pickers, the settings                                                          |
+| 9   | Zero-copy on Linux and macOS                                   | M    | library, client                   | 6, 7       | built (2026-10-13); builds on Linux, macOS waits for CI; not yet tried                                                  |
+| 10  | Adapting the bitrate                                           | M    | protocol, server, client, library | 5          | built (2026-10-13); tested in proto, conn, the server and yv-loopback, not yet with real viewers                        |
 
 Why this order:
 
@@ -470,7 +471,7 @@ Checked: the library builds on all three platforms from a clean
 checkout; `yv-loopback --list` shows monitors, windows and working
 encoders on an NVIDIA, an AMD and an Intel machine.
 
-*As built:*
+_As built:_
 
 - **FFmpeg is fetched prebuilt, not built.** Building it on Windows
   needs MSYS2's make and a POSIX shell, and dav1d needs meson; none of
@@ -554,7 +555,7 @@ Checked: a native client on Windows and Linux watches a web client's
 share; without the library the client behaves as today; the D3D11 debug
 layer is quiet.
 
-*As built:*
+_As built:_
 
 - **The API** (`yap_video.h`): the GPU moved out of `yv_init` into
   `yv_set_gpu(ctx, gpu)`, because the client's device comes and goes
@@ -605,7 +606,7 @@ layer is quiet.
   limited. Software frames other than I420/NV12 go through swscale, so
   `swscale` is linked and shipped too.
 - **`yv-loopback --play <file> [--fps N] [--seconds S] [--once]
-  [--dump picture.bmp]`** (Windows): it splits an Annex B (.h264/.hevc)
+[--dump picture.bmp]`** (Windows): it splits an Annex B (.h264/.hevc)
   or OBU (.obu) file into frames, pushes them from another thread at the
   given rate, and draws what the view presents in a window with a
   SINGLETHREADED device of its own, like the client's. It prints frames
@@ -632,8 +633,7 @@ layer is quiet.
   - `yv-loopback --play` with 1080p60 H.264, HEVC and AV1 from NVENC
     decodes 60 frames a second in hardware, about two frames behind
     what was pushed.
-  - With `YAP_VIDEO_SOFTWARE=1`, H.264 and AV1 (dav1d) also keep up at
-    60.
+  - With `YAP_VIDEO_SOFTWARE=1`, H.264 and AV1 (dav1d) also keep up at 60.
   - The saved pictures are right way up. A BT.709-tagged stream's
     colour bars come out exact (red 253,0,1; blue 1,0,255).
   - The client builds with `-vet -strict-style`. `odin check` for
@@ -673,7 +673,7 @@ Checked: 1080p60 between two native Windows clients on a LAN, latency
 measured with `yv-loopback` and by filming both screens; GPU and CPU use
 noted per vendor.
 
-*As built:*
+_As built:_
 
 - **The API** (`YV_API_VERSION` 2):
   - `yv_share_start(ctx, config)` with a source (kind and id from
@@ -727,7 +727,7 @@ noted per vendor.
   (D10), and duplication's only gain here is no border on Windows 10.
   It's left for later.
 - **`yv-loopback --share [--monitor ID | --window ID] [--encoder NAME]
-  [--kbit N] [--fps N] [--max WxH]`** shares into its own window
+[--kbit N] [--fps N] [--max WxH]`** shares into its own window
   through a view. Every second it prints frames, Mbit/s, the time from
   capture to encoded packet, the time from capture to the picture
   being ready to draw, and keyframes.
@@ -788,7 +788,7 @@ upload run, with voice unaffected (the next item 5 tests, extended);
 the server's main loop never handles a video packet; a server with
 `video.port = 0` refuses sharing cleanly.
 
-*As built:*
+_As built:_
 
 - **Protocol:**
   - `Link.Media = 2`. No new `HELLO_VERSION`: only a server that names
@@ -875,7 +875,7 @@ Checked: at 2% random loss, 1080p60 shows no keyframe requests in a
 minute and no visible freezes; at 10% it degrades to occasional
 keyframes rather than a frozen picture.
 
-*As built:*
+_As built:_
 
 - **Protocol:** `Nack = 48`, viewer to server on the media link:
   `[sharer u32][frame u32][first u16][missing u64]`, with bit i meaning
@@ -949,7 +949,7 @@ Linux. The portal's picker replaces ours on Wayland.
 Checked: GNOME and KDE on Wayland, one X11 desktop; AMD, Intel and
 NVIDIA.
 
-*As built:*
+_As built:_
 
 - **Which way** (`capture_linux.cpp`): the portal on Wayland
   (`WAYLAND_DISPLAY` or `XDG_SESSION_TYPE=wayland`) if it offers
@@ -1040,7 +1040,7 @@ to the settings page). On macOS 14+ the system picker
 
 Checked: an Apple Silicon and an Intel Mac; 1080p60 HEVC.
 
-*As built (unbuilt):* written on Windows without a Mac or its SDK, so
+_As built (unbuilt):_ written on Windows without a Mac or its SDK, so
 none of it has been compiled. The client's side type-checks for macOS.
 
 - **Sources** (`sources_mac.mm`): SCShareableContent's displays (id is
@@ -1121,7 +1121,7 @@ frame. Where the system picks (`yv_system_picker`: Wayland, later
 macOS), the share button opens the system's picker straight away
 rather than our menu with its one "Screen or window 0x0 (main)" entry.
 
-*As built:*
+_As built:_
 
 - **Settings, "Screen sharing"** (`ui_share_settings.odin`, the
   desktop only: a browser shares what its picker says).
@@ -1129,7 +1129,7 @@ rather than our menu with its one "Screen or window 0x0 (main)" entry.
     a bitrate for 60 fps: 4, 8, 15 and 20 Mbit/s (`conn.SHARE_PRESETS`).
   - **Advanced:** 30 or 60 fps (30 halves the preset's bitrate); a
     bitrate slider from 0.5 Mbit/s up to the server's limit (or 50),
-    with "The size's" to go back; the encoder ("The best that works", or
+    with "Auto" to go back; the encoder ("The best that works", or
     one of those that do); the pointer.
   - **Watching:** "Show figures under a screen you watch".
   - A line says what it comes to, and when the server holds the bitrate
@@ -1188,7 +1188,7 @@ and IOSurface → GL texture for presenting.
 
 Checked: CPU use at 1440p60 compared before and after.
 
-*As built:* the library only; the client didn't change.
+_As built:_ the library only; the client didn't change.
 
 - **Presenting** (`output_gl.cpp`, `gl_interop.h`): a frame decoded on
   the GPU is kept as it is, and its two NV12 planes are bound as
@@ -1200,7 +1200,7 @@ Checked: CPU use at 1440p60 compared before and after.
   - **macOS** (`gl_interop_mac.cpp`): the CVPixelBuffer's IOSurface,
     each plane bound with `CGLTexImageIOSurface2D` as a rectangle
     texture; a second fragment shader samples those in pixels.
-    *Since replaced:* the client draws with Metal on macOS now, and so
+    _Since replaced:_ the client draws with Metal on macOS now, and so
     does the library (`output_metal.mm`): each plane of the IOSurface is
     an `MTLTexture` (`newTextureWithDescriptor:iosurface:plane:`),
     converted on the client's own command queue, and the frame is held
@@ -1256,7 +1256,7 @@ Checked: CPU use at 1440p60 compared before and after.
 
 Reports, aggregation on the server, `yv_share_set_bitrate`.
 
-*As built:*
+_As built:_
 
 - **Report** (`Message_Kind.Report = 49`, `proto/video_report.odin`),
   13 bytes each way, on the media link only.
@@ -1334,25 +1334,25 @@ Reports, aggregation on the server, `yv_share_set_bitrate`.
 
 Open until the owner answers. Recommended answers first.
 
-| # | Question | Recommendation |
-| --- | --- | --- |
-| D1 | The library's language | C++20 behind a C header. WinRT and Objective-C++ need it; Odin would have to bind all of D3D11, WinRT, SCK and FFmpeg. |
-| D2 | FFmpeg, or the vendors' SDKs directly | FFmpeg for both directions. |
-| D3 | Transport | A third UDP link on its own port and server thread (Transport, option 3). |
-| D4 | Codecs | Every viewer decodes H.264, HEVC and AV1; the sharer encodes the best its hardware can. No negotiation. |
-| D5 | Software encoding | None at first: every GPU of the last ten years encodes H.264. OpenH264 later if someone needs it; it was needed (a GTX 1050 Ti on driver 560, too old for our FFmpeg's NVENC), so `libopenh264` is the last encoder tried. |
-| D6 | HEVC's patents | Ship FFmpeg's HEVC decoder and use hardware HEVC encoders, as browsers and OBS do; make HEVC easy to switch off at build time. |
-| D7 | Where the library lives | `src/video/` in this repository, built by its own script, never by `build.sh`/`build.bat`. Keeps the protocol and the library in step. |
-| D8 | EGL instead of GLX on X11 | Only when phase 9 needs it, behind a check that EGL works. |
-| D9 | Web clients watching native shares | Not now; keep the protocol able to (the codec byte is all a viewer needs). |
-| D10 | Minimum OS versions | Windows 10 1903 (WGC), macOS 12.3 (SCK), Linux with PipeWire 0.3 and xdg-desktop-portal, or X11. |
-| D11 | The server's default limit | 20 Mbit/s per sharer, 500ms of cache; the operator raises or lowers them, 0 turns video off. |
-| D12 | Shipping | A separate archive per platform (`yap-video-<os>.zip`) to unpack next to the client; the client says "screen sharing needs the video add-on" with a link when it's missing. |
+| #   | Question                              | Recommendation                                                                                                                                                                                                             |
+| --- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | The library's language                | C++20 behind a C header. WinRT and Objective-C++ need it; Odin would have to bind all of D3D11, WinRT, SCK and FFmpeg.                                                                                                     |
+| D2  | FFmpeg, or the vendors' SDKs directly | FFmpeg for both directions.                                                                                                                                                                                                |
+| D3  | Transport                             | A third UDP link on its own port and server thread (Transport, option 3).                                                                                                                                                  |
+| D4  | Codecs                                | Every viewer decodes H.264, HEVC and AV1; the sharer encodes the best its hardware can. No negotiation.                                                                                                                    |
+| D5  | Software encoding                     | None at first: every GPU of the last ten years encodes H.264. OpenH264 later if someone needs it; it was needed (a GTX 1050 Ti on driver 560, too old for our FFmpeg's NVENC), so `libopenh264` is the last encoder tried. |
+| D6  | HEVC's patents                        | Ship FFmpeg's HEVC decoder and use hardware HEVC encoders, as browsers and OBS do; make HEVC easy to switch off at build time.                                                                                             |
+| D7  | Where the library lives               | `src/video/` in this repository, built by its own script, never by `build.sh`/`build.bat`. Keeps the protocol and the library in step.                                                                                     |
+| D8  | EGL instead of GLX on X11             | Only when phase 9 needs it, behind a check that EGL works.                                                                                                                                                                 |
+| D9  | Web clients watching native shares    | Not now; keep the protocol able to (the codec byte is all a viewer needs).                                                                                                                                                 |
+| D10 | Minimum OS versions                   | Windows 10 1903 (WGC), macOS 12.3 (SCK), Linux with PipeWire 0.3 and xdg-desktop-portal, or X11.                                                                                                                           |
+| D11 | The server's default limit            | 20 Mbit/s per sharer, 500ms of cache; the operator raises or lowers them, 0 turns video off.                                                                                                                               |
+| D12 | Shipping                              | A separate archive per platform (`yap-video-<os>.zip`) to unpack next to the client; the client says "screen sharing needs the video add-on" with a link when it's missing.                                                |
 
 ## Working through a phase
 
 As in `misc/next`: read the "OBS:" references and the yap code the
 phase touches, build it, write what turned out differently under
-"*As built:*", tick it in the table.
+"_As built:_", tick it in the table.
 
 A note on testing: We'll start the work on Windows, so code for other platforms has to be tested later.

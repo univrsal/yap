@@ -61,7 +61,7 @@ camera_settings :: proc(ui: ^UI) {
 		with_text_color(
 			ctx,
 			theme.dim,
-			"This browser can't use a camera." when platform.WEB else "There's no camera (yet). One that is plugged in shows up here.",
+			"This browser can't use a camera." when platform.WEB else "No cameras found.",
 			wrap_text,
 		)
 		ui_redraw_in(ui, time.Second)

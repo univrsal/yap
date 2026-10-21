@@ -148,7 +148,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		ui.settings.share_kbit = int(vid.kbit_draft)
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
-	if choice_button(ui, "share kbit preset", "The size's", ui.settings.share_kbit == 0) &&
+	if choice_button(ui, "share kbit preset", "Auto", ui.settings.share_kbit == 0) &&
 	   ui.settings.share_kbit != 0 {
 		ui.settings.share_kbit = 0
 		settings.settings_save(ui.opts.settings_path, ui.settings)
@@ -160,7 +160,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 	names := make([dynamic]string, context.temp_allocator)
 	labels := make([dynamic]string, context.temp_allocator)
 	append(&names, "")
-	append(&labels, "The best that works")
+	append(&labels, "Best available")
 	encoder_at := 0
 	for e in encoders {
 		if !e.works && e.name != cfg.encoder {
@@ -188,14 +188,19 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		// decode (conn/video.odin). A chosen encoder is used regardless.
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
-		with_text_color(ctx, theme.dim, "Viewers that can't decode it see nothing", wrap_text)
+		with_text_color(
+			ctx,
+			theme.dim,
+			"Devices that do not support this codec will not be able to view your stream",
+			wrap_text,
+		)
 	}
 
 	when platform.WEB {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in mu.checkbox(ctx, "Show the pointer", &ui.settings.share_cursor) {
+	if .CHANGE in mu.checkbox(ctx, "Show mouse cursor", &ui.settings.share_cursor) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 }
