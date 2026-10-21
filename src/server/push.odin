@@ -359,12 +359,12 @@ ipv6_public :: proc(a: []u8) -> bool {
 	mapped := [12]u8 {
 		10 = 0xff,
 		11 = 0xff,
-	} 	// ::ffff:0:0/96
+	} // ::ffff:0:0/96
 	nat64 := [12]u8 {
 		1 = 0x64,
 		2 = 0xff,
 		3 = 0x9b,
-	} 	// 64:ff9b::/96
+	} // 64:ff9b::/96
 	prefix := a[:12]
 	switch {
 	case slice.equal(prefix, mapped[:]), slice.equal(prefix, nat64[:]):

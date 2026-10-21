@@ -170,7 +170,11 @@ relay_blocked :: proc(ui: ^UI, ns: ^Net_Session) -> bool {
 		if !relay_plain(ns.server) || ui.relay_server == "" || ui.relay_server == ns.server {
 			return false
 		}
-		log.warnf("ui: not connecting to %s, this page's relay reaches %s", ns.server, ui.relay_server)
+		log.warnf(
+			"ui: not connecting to %s, this page's relay reaches %s",
+			ns.server,
+			ui.relay_server,
+		)
 		ns.stopped = true
 		v := &ns.view
 		sync.guard(&v.mutex)

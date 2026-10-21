@@ -66,7 +66,10 @@ CLIENT_CATEGORY_NAMES := [Client_Category]string {
 // anything to install (ui_hotkeys_web.odin, ui_install_web.odin).
 @(private = "file")
 CLIENT_CATEGORIES ::
-	~bit_set[Client_Category]{.Hotkeys, .Install} when platform.WEB else ~bit_set[Client_Category]{}
+	~bit_set[Client_Category] {
+		.Hotkeys,
+		.Install,
+	} when platform.WEB else ~bit_set[Client_Category]{}
 
 // How wide the list of categories is.
 @(private = "file")

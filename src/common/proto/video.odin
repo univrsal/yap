@@ -163,10 +163,10 @@ decodable_codecs :: proc(flags: User_Flags) -> Video_Codecs {
 
 // One fragment of a frame. `data` points into the message it came from.
 Video_Fragment :: struct {
-	frame: u32,
-	ts:    u32,
-	index: int,
-	count: int,
+	frame:  u32,
+	ts:     u32,
+	index:  int,
+	count:  int,
 	key:    bool,
 	stream: Video_Stream,
 	codec:  Video_Codec,
@@ -198,10 +198,10 @@ put_video_body :: proc(out: []u8, f: Video_Fragment) -> int {
 @(private = "file")
 get_video_body :: proc(body: []u8) -> (f: Video_Fragment, ok: bool) {
 	f = {
-		frame = endian.unchecked_get_u32le(body[0:]),
-		ts    = endian.unchecked_get_u32le(body[4:]),
-		index = int(endian.unchecked_get_u16le(body[8:])),
-		count = int(endian.unchecked_get_u16le(body[10:])),
+		frame  = endian.unchecked_get_u32le(body[0:]),
+		ts     = endian.unchecked_get_u32le(body[4:]),
+		index  = int(endian.unchecked_get_u16le(body[8:])),
+		count  = int(endian.unchecked_get_u16le(body[10:])),
 		key    = body[12] & VIDEO_KEY != 0,
 		stream = .Camera if body[12] & VIDEO_CAMERA != 0 else .Screen,
 		codec  = Video_Codec(body[13]),
@@ -292,16 +292,13 @@ encode_watch :: proc(
 
 decode_watch :: proc(pt: []u8) -> (w: Watch) {
 	w = {
-		sharer = User_Num(endian.unchecked_get_u32le(pt[1:])),
-		stream = .Camera if pt[5] & WATCH_CAMERA != 0 else .Screen,
+		sharer   = User_Num(endian.unchecked_get_u32le(pt[1:])),
+		stream   = .Camera if pt[5] & WATCH_CAMERA != 0 else .Screen,
 		need_key = pt[5] & WATCH_NEED_KEY != 0,
-		stop = pt[5] & WATCH_STOP != 0,
+		stop     = pt[5] & WATCH_STOP != 0,
 	}
 	if len(pt) >= WATCH_TILE_SIZE {
-		w.tile = {
-			int(endian.unchecked_get_u16le(pt[6:])),
-			int(endian.unchecked_get_u16le(pt[8:])),
-		}
+		w.tile = {int(endian.unchecked_get_u16le(pt[6:])), int(endian.unchecked_get_u16le(pt[8:]))}
 	}
 	return
 }
@@ -331,7 +328,10 @@ decode_demand :: proc(pt: []u8) -> (d: Demand, ok: bool) {
 	}
 	return {
 			stream = Video_Stream(pt[1]),
-			tile = {int(endian.unchecked_get_u16le(pt[2:])), int(endian.unchecked_get_u16le(pt[4:]))},
+			tile = {
+				int(endian.unchecked_get_u16le(pt[2:])),
+				int(endian.unchecked_get_u16le(pt[4:])),
+			},
 			viewers = int(endian.unchecked_get_u16le(pt[6:])),
 		},
 		true

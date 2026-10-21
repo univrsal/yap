@@ -25,12 +25,7 @@ video_free :: proc(v: ^Video_Out) {
 // send_all takes every fragment off the queue and passes it through the
 // server's rewrite into `a`, returning the frames that came out.
 @(private = "file")
-send_all :: proc(
-	v: ^Video_Out,
-	w: ^proto.Video_Window,
-) -> (
-	frames: [dynamic]proto.Video_Frame,
-) {
+send_all :: proc(v: ^Video_Out, w: ^proto.Video_Window) -> (frames: [dynamic]proto.Video_Frame) {
 	frames = make([dynamic]proto.Video_Frame, context.temp_allocator)
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
 	for {
@@ -598,12 +593,18 @@ test_follow_demand :: proc(t: ^testing.T) {
 	testing.expect(t, !o.paused)
 
 	// Nobody watching: paused.
-	o.demand, o.demand_at = {stream = .Camera}, now
+	o.demand, o.demand_at = {
+			stream = .Camera,
+		}, now
 	follow_demand(&o, now)
 	testing.expect(t, o.paused)
 
 	// A viewer with a small tile: going on, smaller once it has stayed so.
-	o.demand = {stream = .Camera, tile = {400, 224}, viewers = 1}
+	o.demand = {
+		stream  = .Camera,
+		tile    = {400, 224},
+		viewers = 1,
+	}
 	follow_demand(&o, now)
 	testing.expect(t, !o.paused)
 	testing.expect_value(t, o.applied.max, [2]i32{1280, 720})

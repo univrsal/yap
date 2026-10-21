@@ -141,12 +141,12 @@ Message_Kind :: enum u8 {
 
 // The reason why the server refused a hello.
 Refusal :: enum u8 {
-	Wrong_Password = 1, // missing, or not the server's password
-	Version        = 2, // a hello that this server can't read
+	Wrong_Password    = 1, // missing, or not the server's password
+	Version           = 2, // a hello that this server can't read
 	// A bulk link's hello names no connection of this device (see Link in
 	// names.odin). Either the connection is gone or the main link hasn't been
 	// welcomed yet.
-	No_Connection  = 3,
+	No_Connection     = 3,
 	// Another client with the same key is connected and still in use, for
 	// example an old copy of the client that was left open. Only one client
 	// may use a key at a time.

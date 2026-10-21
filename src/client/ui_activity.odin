@@ -260,8 +260,7 @@ status_sync :: proc(ui: ^UI) {
 		   (newest_activity < 0 || m.activity_at > mine[newest_activity].activity_at) {
 			newest_activity = i
 		}
-		if m.status_at != 0 &&
-		   (newest_status < 0 || m.status_at > mine[newest_status].status_at) {
+		if m.status_at != 0 && (newest_status < 0 || m.status_at > mine[newest_status].status_at) {
 			newest_status = i
 		}
 	}

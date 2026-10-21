@@ -515,7 +515,10 @@ follow_demand :: proc(o: ^Video_Out, now: time.Tick) {
 	if pause := fresh && o.demand.viewers == 0; pause != o.paused {
 		o.paused = pause
 		video_camera_pause(pause)
-		log.infof("camera: %s", "nobody watches it, so it pauses" if pause else "watched, so it goes on")
+		log.infof(
+			"camera: %s",
+			"nobody watches it, so it pauses" if pause else "watched, so it goes on",
+		)
 	}
 	want := demand_config(o.tier, tile)
 	if want == o.applied {

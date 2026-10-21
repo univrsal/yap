@@ -432,7 +432,9 @@ web_picture :: proc(key: Video_Key) -> ^Web_Picture {
 		if p.used && p.key == key {
 			return &p
 		}
-		if oldest == nil || !p.used || (oldest.used && time.tick_diff(oldest.drawn_at, p.drawn_at) < 0) {
+		if oldest == nil ||
+		   !p.used ||
+		   (oldest.used && time.tick_diff(oldest.drawn_at, p.drawn_at) < 0) {
 			oldest = &p
 		}
 	}

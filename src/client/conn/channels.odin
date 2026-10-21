@@ -124,7 +124,11 @@ drive_sound :: proc(c: ^Voice_Client) {
 // to say while we are in one of its rooms, and nobody is told if we chose not
 // to show it.
 @(private = "file")
-shown_flags :: proc(c: ^Voice_Client, room: proto.Room, sent: proto.User_Flags) -> proto.User_Flags {
+shown_flags :: proc(
+	c: ^Voice_Client,
+	room: proto.Room,
+	sent: proto.User_Flags,
+) -> proto.User_Flags {
 	flags := sent - proto.TALKING
 	switch {
 	case (c.profiles.shared[proto.SETTING_VOICE_SHOWN] or_else "") == proto.VOICE_SHOWN_HIDDEN:

@@ -268,8 +268,8 @@ Config :: struct {
 }
 
 Video_Config :: struct {
-	enabled:  bool,
-	port:     int,
+	enabled:         bool,
+	port:            int,
 	max_kbit:        int,
 	cache_ms:        int,
 	max_cameras:     int,

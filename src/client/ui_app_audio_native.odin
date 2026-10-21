@@ -385,7 +385,10 @@ share_audio_choice :: proc(ui: ^UI, width: i32) {
 	for i in 0 ..< count {
 		d := aac.app_list_get(a.devices, uint(i))
 		name := string(d.display_name)
-		label := strings.concatenate({name, " (default)" if d.is_default else ""}, context.temp_allocator)
+		label := strings.concatenate(
+			{name, " (default)" if d.is_default else ""},
+			context.temp_allocator,
+		)
 		mu.push_id(ctx, uintptr(i))
 		if .SUBMIT in list_row(ctx, "device", label, i == current) {
 			// The default device is followed to wherever the system moves it.

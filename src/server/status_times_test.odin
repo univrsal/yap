@@ -43,7 +43,13 @@ set_status :: proc(
 
 // self_times_of returns the times in the last Self that `u` was sent.
 @(private = "file")
-self_times_of :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> (activity_at, status_at: proto.Unix_Ms) {
+self_times_of :: proc(
+	t: ^testing.T,
+	ts: ^Test_Server,
+	u: ^Conn,
+) -> (
+	activity_at, status_at: proto.Unix_Ms,
+) {
 	for e in ts_events(t, ts, u) {
 		if e.op == .Self {
 			activity_at, status_at = proto.self_times(e.body)

@@ -404,13 +404,7 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 		db_close(db)
 		return false
 	}
-	for pragma in ([]string {
-			"PRAGMA journal_mode = WAL",
-			"PRAGMA synchronous = NORMAL",
-			"PRAGMA wal_autocheckpoint = 0",
-			"PRAGMA foreign_keys = ON",
-			"PRAGMA temp_store = MEMORY",
-		}) {
+	for pragma in ([]string{"PRAGMA journal_mode = WAL", "PRAGMA synchronous = NORMAL", "PRAGMA wal_autocheckpoint = 0", "PRAGMA foreign_keys = ON", "PRAGMA temp_store = MEMORY"}) {
 		if !db_exec(db, pragma) {
 			db_close(db)
 			return false

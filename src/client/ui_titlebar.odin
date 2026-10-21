@@ -89,6 +89,10 @@ window_edge :: proc(ui: ^UI, x, y: i32) -> Window_Edge {
 	return .None
 }
 
+// The button that the pointer went down on, or -1.
+@(private = "file")
+armed := -1
+
 // window_buttons draws minimize, maximize (or restore) and close in the top
 // right corner of the window, `w` wide, in the strip that titlebar_area made
 // room for, `gap` window coordinates short of its left end. It returns which
@@ -120,8 +124,17 @@ window_buttons :: proc(ui: ^UI, w: i32, gap: f32, maximized: bool) -> int {
 			}
 		}
 		mu.draw_icon(ctx, render.icon_id(b.icon), r, color)
+		// A button acts when the press is released over it, not when it
+		// goes down: closing the window on the press would leave the
+		// release for whatever window is behind it.
 		if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
-			clicked = i
+			armed = i
+		}
+		if armed == i && .LEFT not_in ctx.mouse_down_bits {
+			armed = -1
+			if ctx.hover_id == id {
+				clicked = i
+			}
 		}
 	}
 	return clicked

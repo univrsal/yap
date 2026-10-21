@@ -54,15 +54,7 @@ test_fts_query :: proc(t: ^testing.T) {
 		typed, query, from: string,
 		ok:                 bool,
 	}
-	for c in ([]Case {
-			{"hello world", `"hello" "world"`, "", true},
-			{`say "good morning" now`, `"say" "good morning" "now"`, "", true},
-			{"walk* from:Alice", `"walk"`, "Alice", true},
-			{`AND OR NOT ( ) "`, `"AND" "OR" "NOT"`, "", true},
-			{`quo"te`, `"quote"`, "", true},
-			{"  ... !!! ", "", "", false},
-			{"from:alice", "", "alice", false},
-		}) {
+	for c in ([]Case{{"hello world", `"hello" "world"`, "", true}, {`say "good morning" now`, `"say" "good morning" "now"`, "", true}, {"walk* from:Alice", `"walk"`, "Alice", true}, {`AND OR NOT ( ) "`, `"AND" "OR" "NOT"`, "", true}, {`quo"te`, `"quote"`, "", true}, {"  ... !!! ", "", "", false}, {"from:alice", "", "alice", false}}) {
 		query, from, ok := fts_query(c.typed)
 		testing.expectf(
 			t,

@@ -407,7 +407,12 @@ registry_global :: proc "c" (data, registry: rawptr, name: u32, interface: cstri
 		// the last, would have the drop refused that GLFW accepted. A version 1
 		// offer takes a copy, as GLFW's does.
 		if wl.manager == nil {
-			wl.manager = bind(name, wl.sym.data_device_manager_interface, "wl_data_device_manager", 1)
+			wl.manager = bind(
+				name,
+				wl.sym.data_device_manager_interface,
+				"wl_data_device_manager",
+				1,
+			)
 		}
 	}
 }

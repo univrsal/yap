@@ -447,11 +447,7 @@ test_media_camera :: proc(t: ^testing.T) {
 	pt = media_link_recv(t, &links[0], out[:])
 	demand, demand_ok = proto.decode_demand(pt)
 	testing.expect(t, demand_ok)
-	testing.expect_value(
-		t,
-		demand,
-		proto.Demand{stream = .Camera, tile = {640, 360}, viewers = 1},
-	)
+	testing.expect_value(t, demand, proto.Demand{stream = .Camera, tile = {640, 360}, viewers = 1})
 	media_link_send(
 		m,
 		&links[1],

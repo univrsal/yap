@@ -413,7 +413,8 @@ relay_site_allowed :: proc(allow_sites: []string, req: Relay_Request) -> bool {
 		}
 	}
 	switch {
-	case strings.equal_fold(req.fetch_site, "same-origin"), strings.equal_fold(req.fetch_site, "same-site"):
+	case strings.equal_fold(req.fetch_site, "same-origin"),
+	     strings.equal_fold(req.fetch_site, "same-site"):
 		return true
 	case req.fetch_site != "":
 		return false

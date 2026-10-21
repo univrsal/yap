@@ -103,7 +103,11 @@ test_talking_elsewhere :: proc(t: ^testing.T) {
 	VOICE :: proto.User_Flags{.In_Voice}
 
 	sound_set(s, alice, {.Muted, .In_Voice})
-	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), proto.User_Flags{.Muted, .In_Voice})
+	testing.expect_value(
+		t,
+		flags_of(s, alice_acc.id, bob_acc.id),
+		proto.User_Flags{.Muted, .In_Voice},
+	)
 	// Claiming both is a call.
 	sound_set(s, alice, {.In_Voice, .In_Call})
 	testing.expect_value(t, flags_of(s, alice_acc.id, bob_acc.id), proto.User_Flags{.In_Call})

@@ -103,7 +103,12 @@ camera_choice :: proc(ui: ^UI) {
 	devices := conn.video_cameras()
 	items := make([dynamic]Dropdown_Item, context.temp_allocator)
 	ids := make([dynamic]string, context.temp_allocator)
-	append(&items, Dropdown_Item{label = "The browser's choice" when platform.WEB else "The first one there is"})
+	append(
+		&items,
+		Dropdown_Item {
+			label = "The browser's choice" when platform.WEB else "The first one there is",
+		},
+	)
 	append(&ids, "")
 	current := 0
 	unnamed := false
@@ -113,7 +118,10 @@ camera_choice :: proc(ui: ^UI) {
 			unnamed = true
 			continue
 		}
-		append(&items, Dropdown_Item{label = d.name if d.name != "" else fmt.tprintf("Camera %d", i + 1)})
+		append(
+			&items,
+			Dropdown_Item{label = d.name if d.name != "" else fmt.tprintf("Camera %d", i + 1)},
+		)
 		append(&ids, d.id)
 		if d.id == ui.settings.camera_device {
 			current = len(items) - 1
@@ -175,7 +183,12 @@ camera_preview :: proc(ui: ^UI, quality: conn.Camera_Quality) {
 	mu.draw_rect(ctx, r, {24, 24, 24, 255})
 	if why != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.error, fmt.tprintf("The camera didn't start: %s.", why), wrap_text)
+		with_text_color(
+			ctx,
+			theme.error,
+			fmt.tprintf("The camera didn't start: %s.", why),
+			wrap_text,
+		)
 	} else {
 		self_view(ui, r, waiting)
 	}

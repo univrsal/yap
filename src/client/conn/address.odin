@@ -57,7 +57,13 @@ relay_address :: proc(page: string, allocator := context.temp_allocator) -> stri
 		rest = rest[:len(rest) - len("/index.html")]
 	}
 	host, _, _ := strings.partition(rest, "/")
-	return fmt.aprintf("%s://%s/yap/%s", "wss" if secure else "ws", rest, host, allocator = allocator)
+	return fmt.aprintf(
+		"%s://%s/yap/%s",
+		"wss" if secure else "ws",
+		rest,
+		host,
+		allocator = allocator,
+	)
 }
 
 // web_address is how the web client reads an address typed to join a server:

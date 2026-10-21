@@ -173,10 +173,7 @@ make_pipeline :: proc(g: ^Gpu) -> bool {
 	attributes->object(2)->setOffset(NS.UInteger(offset_of(Vertex, color)))
 	vertices->layouts()->object(0)->setStride(size_of(Vertex))
 
-	for name, kind in ([Texture_Kind]^NS.String {
-			.Alpha = NS.AT("ps_alpha"),
-			.Rgba = NS.AT("ps_rgba"),
-		}) {
+	for name, kind in ([Texture_Kind]^NS.String{.Alpha = NS.AT("ps_alpha"), .Rgba = NS.AT("ps_rgba")}) {
 		fs := library->newFunctionWithName(name)
 		defer fs->release()
 		desc := MTL.RenderPipelineDescriptor.alloc()->init()

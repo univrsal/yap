@@ -328,7 +328,11 @@ test_last_seen_invisible :: proc(t: ^testing.T) {
 	testing.expect(t, last_seen_of(t, &ts, bob, alice_acc.id) >= gone)
 	ts_disconnect(&ts, alice)
 	testing.expect(t, alice_acc.last_seen >= i64(gone))
-	testing.expect_value(t, last_seen_of(t, &ts, bob, alice_acc.id), proto.Unix_Ms(alice_acc.last_seen))
+	testing.expect_value(
+		t,
+		last_seen_of(t, &ts, bob, alice_acc.id),
+		proto.Unix_Ms(alice_acc.last_seen),
+	)
 }
 
 @(test)

@@ -39,19 +39,19 @@ import "common:proto"
 
 UI_Camera :: struct {
 	// Where our camera was turned on: its session and room (camera_follow).
-	at:        ^Net_Session,
-	room:      proto.Room,
+	at:           ^Net_Session,
+	room:         proto.Room,
 	// A call started or answered with video, on `call_at`: the camera comes
 	// on once it is on. `call_seen` is set once that call has been seen at
 	// all, so its end can be told from it not having begun yet.
-	on_call:   bool,
-	call_at:   ^Net_Session,
-	call_seen: bool,
+	on_call:      bool,
+	call_at:      ^Net_Session,
+	call_seen:    bool,
 	// Whose camera the tabs were last arranged for in a call.
-	followed:  proto.User_Num,
+	followed:     proto.User_Num,
 	// The call's tab shows us large; the grid shows one tile large (0: none).
-	swapped:   bool,
-	focus:     proto.User_Num,
+	swapped:      bool,
+	focus:        proto.User_Num,
 	// The grid or the call fills the window, or is in a window of its own
 	// (camera_window, placed once).
 	full:         bool,
@@ -60,16 +60,16 @@ UI_Camera :: struct {
 	window_shown: bool, // drawn in the last frame
 	// The cameras drawn this frame, and what was last asked of which session
 	// (camera_after_frame).
-	drawn:     [proto.MAX_CAMERAS]proto.User_Num,
-	drawn_at:  [proto.MAX_CAMERAS][2]int, // each one's largest tile, in pixels
-	drawn_n:   int,
-	sent:      [proto.MAX_CAMERAS]proto.User_Num,
-	sent_at:   [proto.MAX_CAMERAS][2]int,
-	sent_n:    int,
-	sent_to:   ^Net_Session,
+	drawn:        [proto.MAX_CAMERAS]proto.User_Num,
+	drawn_at:     [proto.MAX_CAMERAS][2]int, // each one's largest tile, in pixels
+	drawn_n:      int,
+	sent:         [proto.MAX_CAMERAS]proto.User_Num,
+	sent_at:      [proto.MAX_CAMERAS][2]int,
+	sent_n:       int,
+	sent_to:      ^Net_Session,
 	// The settings' preview was shown this frame (camera_settings); it is let
 	// go of after a frame without it (camera_after_frame).
-	looked:    bool,
+	looked:       bool,
 }
 
 // camera_available says whether our camera can be turned on with this server:
@@ -173,7 +173,8 @@ camera_follow :: proc(ui: ^UI) {
 	stop := ns == nil || ns != cam.at
 	if !stop {
 		sync.guard(&ns.view.mutex)
-		stop = proto.Room(ns.view.my_room) != cam.room || (state == .Live && ns.view.camera_refused)
+		stop =
+			proto.Room(ns.view.my_room) != cam.room || (state == .Live && ns.view.camera_refused)
 	}
 	if stop {
 		conn.video_camera_stop()
@@ -393,10 +394,7 @@ video_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	cam := &ui.camera
-	mu.layout_row(
-		ctx,
-		{-(2 * ICON_BUTTON + 2 * ctx.style.spacing + 1), ICON_BUTTON, ICON_BUTTON},
-	)
+	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 2 * ctx.style.spacing + 1), ICON_BUTTON, ICON_BUTTON})
 	mu.label(ctx, video_title(v))
 	if .SUBMIT in icon_button(ui, "video pop out", .Pop_Out, "Pop out into its own window") {
 		cam.popped = true
@@ -602,7 +600,15 @@ camera_grid :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
 	}
 	slice.sort_by(tiles[:], proc(a, b: Tile) -> bool {return a.user < b.user})
 	if conn.video_camera_state() == .Live {
-		append(&tiles, Tile{user = v.my_num, self = true, name = "You", speaking = conn.is_speaking(v, v.my_num)})
+		append(
+			&tiles,
+			Tile {
+				user = v.my_num,
+				self = true,
+				name = "You",
+				speaking = conn.is_speaking(v, v.my_num),
+			},
+		)
 	}
 	if len(tiles) == 0 {
 		centred_text(ui, r, "Nobody's camera is on")
@@ -745,13 +751,25 @@ centred_text :: proc(ui: ^UI, r: mu.Rect, text: string) {
 	th := ctx.text_height(ctx.style.font)
 	mu.push_clip_rect(ctx, r)
 	defer mu.pop_clip_rect(ctx)
-	mu.draw_text(ctx, ctx.style.font, text, {r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2}, theme.dim)
+	mu.draw_text(
+		ctx,
+		ctx.style.font,
+		text,
+		{r.x + (r.w - tw) / 2, r.y + (r.h - th) / 2},
+		theme.dim,
+	)
 }
 
 // fitted_picture draws a picture as big as fits in `r`, keeping its shape, in
 // the middle; `mirror` flips it left to right.
 @(private = "file")
-fitted_picture :: proc(ui: ^UI, r: mu.Rect, texture: render.Gpu_Texture, pw, ph: int, mirror: bool) {
+fitted_picture :: proc(
+	ui: ^UI,
+	r: mu.Rect,
+	texture: render.Gpu_Texture,
+	pw, ph: int,
+	mirror: bool,
+) {
 	if r.w <= 0 || r.h <= 0 || pw <= 0 || ph <= 0 {
 		return
 	}

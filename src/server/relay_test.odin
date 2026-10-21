@@ -16,34 +16,85 @@ test_relay_site_allowed :: proc(t: ^testing.T) {
 
 	// Chrome says nothing but Origin: the page's host has to be the relay's,
 	// whatever the ports.
-	testing.expect(t, relay_site_allowed(nil, R{origin = "http://localhost:8080", host = "localhost:8080"}))
-	testing.expect(t, relay_site_allowed(nil, R{origin = "https://Chat.Example.org", host = "chat.example.org"}))
-	testing.expect(t, relay_site_allowed(nil, R{origin = "http://localhost:8080", host = "localhost:8081"}))
-	testing.expect(t, relay_site_allowed(nil, R{origin = "http://[::1]:8080", host = "[::1]:8080"}))
-	testing.expect(t, !relay_site_allowed(nil, R{origin = "http://localhost:8080", host = "127.0.0.1:8081"}))
-	testing.expect(t, !relay_site_allowed(nil, R{origin = "https://evil.example", host = "chat.example.org"}))
-	testing.expect(t, !relay_site_allowed(nil, R{origin = "https://chat.example.org.evil", host = "chat.example.org"}))
+	testing.expect(
+		t,
+		relay_site_allowed(nil, R{origin = "http://localhost:8080", host = "localhost:8080"}),
+	)
+	testing.expect(
+		t,
+		relay_site_allowed(nil, R{origin = "https://Chat.Example.org", host = "chat.example.org"}),
+	)
+	testing.expect(
+		t,
+		relay_site_allowed(nil, R{origin = "http://localhost:8080", host = "localhost:8081"}),
+	)
+	testing.expect(
+		t,
+		relay_site_allowed(nil, R{origin = "http://[::1]:8080", host = "[::1]:8080"}),
+	)
+	testing.expect(
+		t,
+		!relay_site_allowed(nil, R{origin = "http://localhost:8080", host = "127.0.0.1:8081"}),
+	)
+	testing.expect(
+		t,
+		!relay_site_allowed(nil, R{origin = "https://evil.example", host = "chat.example.org"}),
+	)
+	testing.expect(
+		t,
+		!relay_site_allowed(
+			nil,
+			R{origin = "https://chat.example.org.evil", host = "chat.example.org"},
+		),
+	)
 	// Behind a proxy that replaced Host with its own, X-Forwarded-Host says
 	// what the browser asked for.
-	behind := R{origin = "https://chat.example.org", host = "127.0.0.1:8080"}
+	behind := R {
+		origin = "https://chat.example.org",
+		host   = "127.0.0.1:8080",
+	}
 	testing.expect(t, !relay_site_allowed(nil, behind))
 	behind.forwarded_host = "chat.example.org, proxy.internal"
 	testing.expect(t, relay_site_allowed(nil, behind))
 
 	// Browsers that say whether it's the same site are taken at their word,
 	// which also lets other subdomains in.
-	testing.expect(t, relay_site_allowed(nil, R{origin = "https://a.example.org", fetch_site = "same-site", host = "b.example.org"}))
-	testing.expect(t, !relay_site_allowed(nil, R{origin = "https://evil.example", fetch_site = "cross-site", host = "evil.example"}))
+	testing.expect(
+		t,
+		relay_site_allowed(
+			nil,
+			R{origin = "https://a.example.org", fetch_site = "same-site", host = "b.example.org"},
+		),
+	)
+	testing.expect(
+		t,
+		!relay_site_allowed(
+			nil,
+			R{origin = "https://evil.example", fetch_site = "cross-site", host = "evil.example"},
+		),
+	)
 
 	// Other sites only if they are allowed.
 	allowed := []string{"https://chat.example.org", "http://localhost:9000"}
-	other := R{origin = "https://chat.example.org", host = "voice.other.net"}
+	other := R {
+		origin = "https://chat.example.org",
+		host   = "voice.other.net",
+	}
 	testing.expect(t, relay_site_allowed(allowed, other))
 	other.fetch_site = "cross-site"
 	testing.expect(t, relay_site_allowed(allowed, other))
-	testing.expect(t, relay_site_allowed(allowed, R{origin = "HTTPS://Chat.Example.org/", host = "x"}))
-	testing.expect(t, !relay_site_allowed(allowed, R{origin = "http://chat.example.org", host = "x"}))
-	testing.expect(t, relay_site_allowed([]string{"*"}, R{origin = "https://anything.example", host = "x"}))
+	testing.expect(
+		t,
+		relay_site_allowed(allowed, R{origin = "HTTPS://Chat.Example.org/", host = "x"}),
+	)
+	testing.expect(
+		t,
+		!relay_site_allowed(allowed, R{origin = "http://chat.example.org", host = "x"}),
+	)
+	testing.expect(
+		t,
+		relay_site_allowed([]string{"*"}, R{origin = "https://anything.example", host = "x"}),
+	)
 	// A page without a real origin ("null", from a sandboxed frame) never is.
 	testing.expect(t, !relay_site_allowed([]string{"*"}, R{origin = "null", host = "null"}))
 }

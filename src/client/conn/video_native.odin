@@ -208,7 +208,11 @@ when ODIN_OS == .Windows {
 	YV_LIBRARY :: "libyap_video.a"
 
 	when !#exists(YV_LIBRARY) || !#exists("libstdc++.a") {
-		#panic("src/client/conn/" + YV_LIBRARY + " or libstdc++.a is missing; build them with build.sh")
+		#panic(
+			"src/client/conn/" +
+			YV_LIBRARY +
+			" or libstdc++.a is missing; build them with build.sh",
+		)
 	}
 
 	// Only the add-on is looked for by its path.

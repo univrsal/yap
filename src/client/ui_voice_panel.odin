@@ -425,7 +425,8 @@ answer_buttons :: proc(
 	accept = .SUBMIT in icon_button(ui, "accept", .Phone, "Accept", theme.connected)
 	if video {
 		with_video =
-			.SUBMIT in icon_button(ui, "accept video", .Camera, "Answer with video", theme.connected)
+			.SUBMIT in
+			icon_button(ui, "accept video", .Camera, "Answer with video", theme.connected)
 	}
 	decline = hang_up_button(ui, "decline", "Decline")
 	return

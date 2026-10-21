@@ -583,7 +583,9 @@ lease_take :: proc(ms: ^Media_Session, of: Media_Stream, now: time.Tick) -> ^Med
 		case l.of == of:
 			return &l
 		case l.num != 0 && l.stream == .Screen && of.stream == .Screen:
-			l = {of = of}
+			l = {
+				of = of,
+			}
 			return &l
 		case l.num == 0 || time.tick_diff(now, l.until) <= 0:
 			if free_lease == nil {
@@ -596,7 +598,9 @@ lease_take :: proc(ms: ^Media_Session, of: Media_Stream, now: time.Tick) -> ^Med
 	if free_lease == nil || (of.stream == .Camera && cameras >= proto.MAX_CAMERAS) {
 		return nil
 	}
-	free_lease^ = {of = of}
+	free_lease^ = {
+		of = of,
+	}
 	return free_lease
 }
 
