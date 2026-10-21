@@ -413,9 +413,10 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		}
 	}
 	if area.bar.w > 0 {
-		// Rounded like the panels' scrollbars (draw_frame).
-		ctx.draw_frame(ctx, area.bar, .SCROLL_BASE)
-		ctx.draw_frame(ctx, thumb, .SCROLL_THUMB)
+		// Thin like the panels' scrollbars, but always shown while there is one.
+		hovered := area.dragging || mu.mouse_over(ctx, area.bar)
+		scrollbar_draw(ctx, area.bar, .SCROLL_BASE, 1, hovered)
+		scrollbar_draw(ctx, thumb, .SCROLL_THUMB, 1, hovered)
 	}
 	return
 }

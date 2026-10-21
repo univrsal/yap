@@ -19,7 +19,7 @@ to 2500.
 | 5 | Icons for Add, Back and Next | S | - | done (2026-10-21) |
 | 6 | Spinners for what is loading | S | - | done (2026-10-21) |
 | 7 | Smooth scrolling | M | - | done (2026-10-21) |
-| 8 | Smaller polish (see the list at the end) | S each | 1 | next (ideas) |
+| 8 | Smaller polish (see the list at the end) | S each | 1 | 4 of 5 done (2026-10-21) |
 
 Why this order:
 
@@ -268,6 +268,18 @@ as without the change (28-31 ticks in 10 s, measured against a build of
   a channel and the like), in `theme.shadow` (black, alpha 55 light, 120
   dark).
 - Thinner scrollbars that fade out when nothing scrolls.
+
+  *As built:* `ui_scrollbars.odin`. `draw_frame_themed` hands microui's
+  scrollbar tracks and thumbs to `scrollbar_frame`, which keeps each
+  container's last scroll position (`UI.scrollbar_fades`). The thumb is a
+  `SCROLLBAR_THIN` (4) pill at the strip's outer edge, `SCROLLBAR_WIDE`
+  (8) over a faint track with the pointer on the strip. It shows for
+  `SCROLLBAR_SHOWN` (0.8 s) after the container scrolled and fades out
+  over `SCROLLBAR_FADE` (0.3 s), asking for frames only for that; one that
+  hasn't scrolled since it was first drawn shows none until the pointer
+  is on it. The strip (`style.scrollbar_size`) is still what it takes and
+  where it is grabbed, so no layout changed. The text area's scrollbar is
+  thin too, and always shown while it has one.
 - Placeholders the size of a picture while it loads, where the size is
   known, so the timeline doesn't jump.
 

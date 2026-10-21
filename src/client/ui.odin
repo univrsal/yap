@@ -373,6 +373,8 @@ UI :: struct {
 	// The mouse wheel's scrolling not handed to microui yet, in pixels, and
 	// when some was last handed over (see scroll_step).
 	scroll_left:         [2]f32,
+	// Each panel's and window's scrollbar (ui_scrollbars.odin).
+	scrollbar_fades:     map[^mu.Container]Scrollbar_Fade,
 	scroll_at:           time.Tick,
 	drawn_hash:          u64,
 	log_drawn:           int,
@@ -808,6 +810,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	app_audio_destroy(ui)
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
+	delete(ui.scrollbar_fades)
 	// The paste thread uses the clipboard, so it has to be
 	// finished before the clipboard is torn down.
 	paste_wait(ui)
@@ -1871,6 +1874,10 @@ draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Typ
 	   ctx.container_stack.idx > 0 &&
 	   mu.get_current_container(ctx).zindex >= 0 {
 		render.draw_shadow(ctx, rect, theme.shadow)
+	}
+	if colorid == .SCROLL_BASE || colorid == .SCROLL_THUMB {
+		scrollbar_frame(g_ui, rect, colorid)
+		return
 	}
 	if colorid != .BASE_FOCUS {
 		render.draw_frame(ctx, rect, colorid)

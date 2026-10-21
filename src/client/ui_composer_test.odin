@@ -280,3 +280,55 @@ test_picture_placeholder_shape :: proc(t: ^testing.T) {
 	testing.expect_value(t, placeholder(ui, 7, area), mu.Rect{10, 10, 213, 160})
 	testing.expect_value(t, placeholder(ui, 8, area), area)
 }
+
+// A container's scrollbar shows once it scrolls, and fades out after a while,
+// asking for frames only until it is gone. With the pointer on it, it shows.
+@(test)
+test_scrollbar_fades :: proc(t: ^testing.T) {
+	ct := composer_test_start("")
+	defer composer_test_end(ct)
+	ui := ct.ui
+	ctx := &ui.ctx
+	defer delete(ui.scrollbar_fades)
+	strip := mu.Rect{388, 0, 12, 300}
+	step :: proc(ui: ^UI, strip: mu.Rect, scroll: i32, ago: time.Duration) -> (f: Scrollbar_Fade) {
+		ctx := &ui.ctx
+		ui.redraw_at = {}
+		mu.begin(ctx)
+		if mu.begin_window(
+			ctx,
+			"w",
+			{0, 0, 400, 300},
+			{.NO_TITLE, .NO_RESIZE, .NO_CLOSE, .NO_SCROLL},
+		) {
+			cnt := mu.get_current_container(ctx)
+			cnt.scroll.y = scroll
+			if fade, ok := &ui.scrollbar_fades[cnt]; ok && ago > 0 {
+				fade.moved = time.tick_add(time.tick_now(), -ago)
+			}
+			scrollbar_frame(ui, strip, .SCROLL_BASE)
+			f = ui.scrollbar_fades[cnt]
+			mu.end_window(ctx)
+		}
+		mu.end(ctx)
+		return
+	}
+	f := step(ui, strip, 0, 0)
+	testing.expect_value(t, f.alpha, 0) // not scrolled yet
+	f = step(ui, strip, 40, 0)
+	testing.expect_value(t, f.alpha, 1)
+	testing.expect(t, ui.redraw_at != {}) // for when it starts to fade
+	f = step(ui, strip, 40, SCROLLBAR_SHOWN + SCROLLBAR_FADE / 2)
+	testing.expect(t, f.alpha > 0.3 && f.alpha < 0.7)
+	testing.expect(t, ui.redraw_at != {})
+	f = step(ui, strip, 40, SCROLLBAR_SHOWN + SCROLLBAR_FADE + time.Millisecond)
+	testing.expect_value(t, f.alpha, 0)
+	f = step(ui, strip, 40, 0)
+	testing.expect_value(t, f.alpha, 0) // and stays gone
+	testing.expect_value(t, ui.redraw_at, time.Tick{})
+	mu.input_mouse_move(ctx, 394, 100)
+	step(ui, strip, 40, 0) // the pointer reaches the window
+	f = step(ui, strip, 40, 0)
+	testing.expect(t, f.hovered)
+	testing.expect_value(t, f.alpha, 1)
+}
