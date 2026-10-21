@@ -161,9 +161,9 @@ buddies_screen :: proc(ui: ^UI) {
 		fullscreen_screen(ui)
 		return
 	}
-
-	session_header(ui)
-
+	if !narrow {
+		session_header(ui)
+	}
 	list := ui.inbox
 	// Somebody who has left the list (removed from it, or no longer a buddy
 	// and with no DM) takes the conversation along.
@@ -581,7 +581,12 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, fmt.tprintf("Nothing said with %s yet.", entry.name), label_proc)
+	with_text_color(
+		ctx,
+		theme.dim,
+		fmt.tprintf("Nothing said with %s yet.", entry.name),
+		label_proc,
+	)
 }
 
 // ask_last_seen asks a server when those in its part of the inbox who

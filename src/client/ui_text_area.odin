@@ -34,30 +34,30 @@ TEXT_AREA_MAX_LINES :: 10
 
 // What a text area keeps between frames.
 Text_Area :: struct {
-	width:     i32, // the text's width in the last frame, for working out the height
-	scroll:    i32, // pixels of the text above the box's top
+	width:        i32, // the text's width in the last frame, for working out the height
+	scroll:       i32, // pixels of the text above the box's top
 	// Up and Down keep to the column they started in: where they left the
 	// caret, and the x position they were aiming for.
-	vert_at:   int,
-	vert_x:    i32,
+	vert_at:      int,
+	vert_x:       i32,
 	// The selection and length in the last frame. When either changes, the
 	// box scrolls to the caret.
-	last_sel:  [2]int,
-	last_len:  int,
+	last_sel:     [2]int,
+	last_len:     int,
 	// Its scrollbar, when there is more text than it shows: where it was in
 	// the last frame (zero: none), and while its thumb is dragged, how far
 	// down the thumb it was grabbed.
-	bar:       mu.Rect,
-	dragging:  bool,
-	drag_at:   i32,
+	bar:          mu.Rect,
+	dragging:     bool,
+	drag_at:      i32,
 	// Whether the message is shown as it will look instead (the composer's
 	// eye, preview_button).
-	preview:   bool,
-	had_focus: bool, // in the last frame
+	preview:      bool,
+	had_focus:    bool, // in the last frame
 	// Set by its owner before it is measured and laid out: how many lines tall
 	// it is at least (0 or 1 for one), and how tall the strip at its bottom is.
-	min_lines: int,
-	footer:    i32,
+	min_lines:    int,
+	footer:       i32,
 	// A press in the footer, which the caret ignores until it is released.
 	footer_press: bool,
 }

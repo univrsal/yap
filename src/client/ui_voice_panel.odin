@@ -359,7 +359,12 @@ voice_panel :: proc(ui: ^UI) {
 	slot := picture_slot(ctx)
 	mu.layout_row(
 		ctx,
-		{slot + PICTURE_GAP, -(2 * icon_button_w(ctx) + 2 * ctx.style.spacing), icon_button_w(ctx), icon_button_w(ctx)},
+		{
+			slot + PICTURE_GAP,
+			-(2 * icon_button_w(ctx) + 2 * ctx.style.spacing),
+			icon_button_w(ctx),
+			icon_button_w(ctx),
+		},
 		max(slot, ctx.style.size.y + 2 * ctx.style.padding),
 	)
 	cell := mu.layout_next(ctx)

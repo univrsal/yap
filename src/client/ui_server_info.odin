@@ -43,7 +43,10 @@ server_icon :: proc(ui: ^UI, server: string, v: ^conn.View) -> (mu.Icon, bool) {
 	which := hash.fnv64a(transmute([]u8)server) ~ u64(v.server_icon)
 	// Known by the server's address rather than by its blob ids, so it stays
 	// when another server is shown (ui_images_switch).
-	key := Image_Key{kind = .Server_Icon, id = which}
+	key := Image_Key {
+		kind = .Server_Icon,
+		id   = which,
+	}
 	t, known := im.textures[key]
 	if !known {
 		enqueue_decode(im, key, v.icon_jpeg)

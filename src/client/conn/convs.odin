@@ -625,10 +625,7 @@ conv_browse :: proc(c: ^Voice_Client, cmd: Browse_Command) {
 @(private = "file")
 browse_again :: proc(c: ^Voice_Client) {
 	cv := &c.convs
-	conv_browse(
-		c,
-		{query = cv.browse_query, offset = cv.browse_offset, limit = cv.browse_limit},
-	)
+	conv_browse(c, {query = cv.browse_query, offset = cv.browse_offset, limit = cv.browse_limit})
 }
 
 // fetch_all_channels asks for every channel there is to manage (proto.BROWSE_ALL)

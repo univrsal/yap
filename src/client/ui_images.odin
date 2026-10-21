@@ -762,7 +762,11 @@ viewer_input :: proc(ui: ^UI, picture: mu.Rect, max_zoom: f32) {
 
 	if ctx.hover_id == id && ctx.scroll_delta.y != 0 {
 		old := im.zoom
-		im.zoom = clamp(old * math.pow(ZOOM_STEP, -f32(ctx.scroll_delta.y) / WHEEL_NOTCH), 1, max_zoom)
+		im.zoom = clamp(
+			old * math.pow(ZOOM_STEP, -f32(ctx.scroll_delta.y) / WHEEL_NOTCH),
+			1,
+			max_zoom,
+		)
 		// The pointer, relative to the picture area's center.
 		p := [2]f32 {
 			f32(ctx.mouse_pos.x) - (f32(picture.x) + f32(picture.w) / 2),
@@ -854,7 +858,9 @@ trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 	bytes := 0
 	done := make([dynamic]Image_Key, context.temp_allocator)
 	for id, &t in im.textures {
-		if id.full && (id.kind != im.viewer.kind || id.id != im.viewer.id) && t.state != .Decoding {
+		if id.full &&
+		   (id.kind != im.viewer.kind || id.id != im.viewer.id) &&
+		   t.state != .Decoding {
 			texture_drop(im, gpu, id, &t)
 			append(&done, id)
 			continue
@@ -922,7 +928,10 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	if icon, moving := custom_emoji_frame(ui, index); moving {
 		return icon, true
 	}
-	key := Image_Key{kind = .Emoji_Sheet, id = u64(e.blob)}
+	key := Image_Key {
+		kind = .Emoji_Sheet,
+		id   = u64(e.blob),
+	}
 	t, known := im.textures[key]
 	if !known {
 		if img, ok := v.blobs[e.blob]; ok && img.state == .Ready && len(img.jpeg) > 0 {
@@ -976,7 +985,10 @@ custom_emoji_frame :: proc(ui: ^UI, index: int) -> (icon: mu.Icon, ok: bool) {
 	if blob == 0 || !anims_running(ui) {
 		return
 	}
-	key := Image_Key{kind = .Emoji_Frames, id = u64(blob)}
+	key := Image_Key {
+		kind = .Emoji_Frames,
+		id   = u64(blob),
+	}
 	t, known := im.textures[key]
 	if !known {
 		img, here := v.blobs[blob]

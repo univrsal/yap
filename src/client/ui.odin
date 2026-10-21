@@ -1717,7 +1717,9 @@ session_screen :: proc(ui: ^UI) {
 		return
 	}
 
-	session_header(ui)
+	if !narrow {
+		session_header(ui)
+	}
 
 	// Side by side where there is room. In a narrow window the list and
 	// the chat take turns (see ui_channels.odin), over the voice panel.
@@ -2301,7 +2303,7 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 }
 
 // How far a notch of the mouse wheel scrolls, in pixels.
-WHEEL_NOTCH :: 30
+WHEEL_NOTCH :: 60
 
 @(private = "file")
 scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
@@ -2321,7 +2323,7 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 // SCROLL_EASE, so a notch is mostly done in a few frames. While some is left,
 // frames come every SCROLL_FRAME.
 @(private = "file")
-SCROLL_EASE :: 0.05 // seconds
+SCROLL_EASE :: 0.1 // seconds
 SCROLL_FRAME :: time.Second / 60
 
 // scroll_step hands microui this frame's share of the mouse wheel's
@@ -2343,7 +2345,10 @@ scroll_step :: proc(ui: ^UI) {
 			v = 0 // the rest, now
 		}
 	}
-	give := [2]i32{i32(math.round(ui.scroll_left.x - left.x)), i32(math.round(ui.scroll_left.y - left.y))}
+	give := [2]i32 {
+		i32(math.round(ui.scroll_left.x - left.x)),
+		i32(math.round(ui.scroll_left.y - left.y)),
+	}
 	ui.scroll_left -= {f32(give.x), f32(give.y)}
 	mu.input_scroll(&ui.ctx, give.x, give.y)
 	if ui.scroll_left != {} {

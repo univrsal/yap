@@ -118,7 +118,9 @@ media_handshake :: proc(c: ^Voice_Client) {
 		m.timeouts += 1
 		if m.timeouts == MEDIA_WARN_SILENT {
 			when platform.WEB {
-				log.warn("the relay doesn't answer on the media link, so screen sharing is unavailable")
+				log.warn(
+					"the relay doesn't answer on the media link, so screen sharing is unavailable",
+				)
 			} else {
 				log.warnf(
 					"no answer from the media link at %s, so screen sharing is unavailable: is udp port %d reachable?",

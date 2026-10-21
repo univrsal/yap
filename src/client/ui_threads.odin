@@ -213,7 +213,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	}
 	if back {
 		mu.layout_row(ctx, {70, -1})
-		if .SUBMIT in stable_button(ctx, "thread back", "Back") {
+		if .SUBMIT in icon_button(ui, "thread back", .Back, "Back") {
 			close_thread(ui, slot)
 			return
 		}

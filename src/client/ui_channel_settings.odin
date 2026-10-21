@@ -312,7 +312,8 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 		string(a.name_buf[:a.name_len]) != ch.name || string(a.topic_buf[:a.topic_len]) != ch.topic
 	field_row(ui, LABEL, "", {100, -1})
 	submit |=
-		.SUBMIT in stable_button(ctx, "save channel", "Save" if changed else "Saved", {.ALIGN_CENTER})
+		.SUBMIT in
+		stable_button(ctx, "save channel", "Save" if changed else "Saved", {.ALIGN_CENTER})
 	if !ch.member && !private {
 		if .SUBMIT in stable_button(ctx, "join channel", "Join it", {.ALIGN_CENTER}) {
 			command(ui, conn.Subscribe_Command{conv = ch.id, on = true})
@@ -342,7 +343,8 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 				a.conv, a.confirm = 0, false
 				return
 			}
-		} else if .SUBMIT in stable_button(ctx, "delete channel?", "Delete channel...", {.ALIGN_CENTER}) {
+		} else if .SUBMIT in
+		   stable_button(ctx, "delete channel?", "Delete channel...", {.ALIGN_CENTER}) {
 			a.confirm = true
 		}
 	}
@@ -441,8 +443,7 @@ channel_members :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 		acc := v.accounts[id] or_else {}
 		allowed[i] = id != v.me && below_us(v, acc)
 	}
-	if out := people_list(ui, &a.members, v.members.accounts[:], "Take out", allowed);
-	   out != 0 {
+	if out := people_list(ui, &a.members, v.members.accounts[:], "Take out", allowed); out != 0 {
 		command(ui, conn.Conv_Member_Command{conv = ch.id, account = out, on = false})
 	}
 

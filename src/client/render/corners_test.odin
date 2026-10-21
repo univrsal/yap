@@ -75,7 +75,14 @@ test_corner_tiles :: proc(t: ^testing.T) {
 				// Where the tile meets the straight edges, the curve has the
 				// line's thickness for a ring and fills the tile for a disc.
 				edge := texel(pixels, p, side - 1, 0)
-				testing.expectf(t, edge >= 128, "edge %d at scale %.2f, radius %d", edge, scale, side)
+				testing.expectf(
+					t,
+					edge >= 128,
+					"edge %d at scale %.2f, radius %d",
+					edge,
+					scale,
+					side,
+				)
 			}
 		}
 	}

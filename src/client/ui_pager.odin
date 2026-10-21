@@ -101,8 +101,12 @@ pager_footer :: proc(ui: ^UI, p: ^Pager, n: int) {
 	}
 	lo, hi := pager_window(p, n)
 	pages := (n + PAGE_ROWS - 1) / PAGE_ROWS
-	if back, next := footer(ui, fmt.tprintf("%d-%d of %d", lo + 1, hi, n), p.page > 0, p.page < pages - 1);
-	   back {
+	if back, next := footer(
+		ui,
+		fmt.tprintf("%d-%d of %d", lo + 1, hi, n),
+		p.page > 0,
+		p.page < pages - 1,
+	); back {
 		p.page -= 1
 	} else if next {
 		p.page += 1
@@ -112,14 +116,7 @@ pager_footer :: proc(ui: ^UI, p: ^Pager, n: int) {
 // pager_footer_open is pager_footer for a list that the server pages, where
 // only the page's start, its length and whether more follow are known. It
 // returns the start of the page to ask for when a button was pressed.
-pager_footer_open :: proc(
-	ui: ^UI,
-	offset, count: int,
-	more: bool,
-) -> (
-	ask: int,
-	turned: bool,
-) {
+pager_footer_open :: proc(ui: ^UI, offset, count: int, more: bool) -> (ask: int, turned: bool) {
 	if offset == 0 && !more {
 		return
 	}

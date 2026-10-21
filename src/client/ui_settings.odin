@@ -107,8 +107,7 @@ settings_page :: proc(ui: ^UI) {
 	// with a way back to the list.
 	if narrow && !ui.settings_list {
 		title_row(ui, {40, -1})
-		if .SUBMIT in
-		   icon_button(ui, "to settings list", .Back, "Settings") {
+		if .SUBMIT in icon_button(ui, "to settings list", .Back, "Settings") {
 			ui.settings_list = true
 		}
 		if ui.settings_tab == .Server {

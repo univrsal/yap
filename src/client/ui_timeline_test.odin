@@ -25,17 +25,22 @@ timeline_test_start :: proc(count: int) -> ^Timeline_Test {
 	mu.init(&tt.ui.ctx)
 	tt.ui.ctx.text_width = proc(font: mu.Font, s: string) -> i32 {return i32(len(s)) * 8}
 	tt.ui.ctx.text_height = proc(font: mu.Font) -> i32 {return 16}
-	tt.key = {conv = 1}
-	tl := conn.View_Timeline{have_oldest = true, have_newest = true}
+	tt.key = {
+		conv = 1,
+	}
+	tl := conn.View_Timeline {
+		have_oldest = true,
+		have_newest = true,
+	}
 	for i in 0 ..< count {
 		append(
 			&tl.messages,
 			conn.View_Message {
-				id = proto.Msg_Id(i + 1),
+				id     = proto.Msg_Id(i + 1),
 				sender = 1,
-				time = proto.Unix_Ms(i * 600_000), // ten minutes apart: not merged
-				kind = .Text,
-				text = "hello there",
+				time   = proto.Unix_Ms(i * 600_000), // ten minutes apart: not merged
+				kind   = .Text,
+				text   = "hello there",
 			},
 		)
 	}

@@ -325,10 +325,10 @@ Config_Bootstrap :: struct {
 // and saved to the config, because they have to match the ports the container
 // publishes: clients are told the video port, so it can't be mapped to another.
 Config_Ports :: struct {
-	port:       int,
-	video_port: int,
-	relay_port: int,
-	allow_sites: []string,
+	port:              int,
+	video_port:        int,
+	relay_port:        int,
+	allow_sites:       []string,
 	// Whether the media link (video.enabled) is on, if the environment says.
 	video_enabled_set: bool,
 	video_enabled:     bool,

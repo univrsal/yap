@@ -112,7 +112,14 @@ rounded_id :: proc(shape: Rounded_Shape, corners: Corners, radius: i32) -> mu.Ic
 
 // rounded_of decodes an id from rounded_id.
 @(private)
-rounded_of :: proc(id: mu.Icon) -> (shape: Rounded_Shape, corners: Corners, radius: i32, ok: bool) {
+rounded_of :: proc(
+	id: mu.Icon,
+) -> (
+	shape: Rounded_Shape,
+	corners: Corners,
+	radius: i32,
+	ok: bool,
+) {
 	n := int(id) - ROUNDED_ICON_BASE
 	if n < 0 || n >= ROUNDED_ICONS {
 		return
@@ -789,7 +796,8 @@ push_rounded :: proc(
 	x1, y1 := math.round(f32(rect.x + rect.w) * s), math.round(f32(rect.y + rect.h) * s)
 	t := min(line_thickness(s), (x1 - x0) / 2, (y1 - y0) / 2)
 	R := min(
-		math.round(f32(radius) * s), 		math.floor((x1 - x0) / 2),
+		math.round(f32(radius) * s),
+		math.floor((x1 - x0) / 2),
 		math.floor((y1 - y0) / 2),
 		f32(len(tiles.at)),
 	)

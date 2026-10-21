@@ -107,7 +107,6 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 	drop_zone(ui)
-
 	conversation_header(ui, narrow)
 
 	if ui.chat.tab == .Chat {
@@ -124,7 +123,7 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 		// controls are a fingertip tall.
 		mu.layout_row(ctx, {-1}, ctx.text_height(ctx.style.font) + 4)
 	}
-	status :="reading the clipboard..." if ui.paste != nil else typing_text(v)
+	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
 	status_color := theme.dim
 	if editing := composer_status(composer_of_page(ui)); editing != "" {
 		status = editing
@@ -259,7 +258,12 @@ composer_buttons :: proc(ui: ^UI, box: mu.Rect, buttons: int) {
 	ctx := &ui.ctx
 	size := composer_button_size(ctx)
 	w := i32(buttons) * size + i32(buttons - 1) * ctx.style.spacing
-	strip := mu.Rect{box.x + box.w - COMPOSER_INSET - w, box.y + box.h - COMPOSER_INSET - size, w, size}
+	strip := mu.Rect {
+		box.x + box.w - COMPOSER_INSET - w,
+		box.y + box.h - COMPOSER_INSET - size,
+		w,
+		size,
+	}
 	mu.layout_set_next(ctx, strip, false)
 	mu.layout_begin_column(ctx)
 	widths: [8]i32

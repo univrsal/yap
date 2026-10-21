@@ -231,7 +231,14 @@ test_wheel_scrolls_smoothly :: proc(t: ^testing.T) {
 		ui.ctx.scroll_delta = {}
 		scroll_step(ui)
 		got := ui.ctx.scroll_delta.y
-		testing.expectf(t, got > 0 && got <= last, "frame %d scrolled %d after %d", frames, got, last)
+		testing.expectf(
+			t,
+			got > 0 && got <= last,
+			"frame %d scrolled %d after %d",
+			frames,
+			got,
+			last,
+		)
 		total, last = total + got, got
 		frames += 1
 	}

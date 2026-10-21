@@ -115,7 +115,11 @@ test_browse :: proc(t: ^testing.T) {
 	b, ok = decode_conv_browse(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, b, Browse{query = "gam", limit = 20, flags = BROWSE_ALL})
-	testing.expect_value(t, len(encode_conv_browse(&req_buf, {query = "gam", limit = 20})), 1 + 3 + 2 + 2)
+	testing.expect_value(
+		t,
+		len(encode_conv_browse(&req_buf, {query = "gam", limit = 20})),
+		1 + 3 + 2 + 2,
+	)
 	// An empty request asks for the first page of all conversations.
 	b, ok = decode_conv_browse(nil)
 	testing.expect(t, ok)

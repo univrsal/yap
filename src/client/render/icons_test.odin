@@ -259,7 +259,12 @@ test_spinner_steps :: proc(t: ^testing.T) {
 				covered * 100,
 				first * 100,
 			)
-			testing.expectf(t, column(&a, icon, 0) == 0, "spinner step %d touches its left edge", step)
+			testing.expectf(
+				t,
+				column(&a, icon, 0) == 0,
+				"spinner step %d touches its left edge",
+				step,
+			)
 			testing.expectf(
 				t,
 				column(&a, icon, int(a.side) - 1) == 0,

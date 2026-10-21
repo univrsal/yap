@@ -147,7 +147,10 @@ avatar_color :: proc(account: proto.Account_Id) -> mu.Color {
 avatar_icon :: proc(ui: ^UI, blob: proto.Blob_Id) -> (mu.Icon, bool) {
 	v := ui.view
 	im := &ui.images
-	key := Image_Key{kind = .Avatar, id = u64(blob)}
+	key := Image_Key {
+		kind = .Avatar,
+		id   = u64(blob),
+	}
 	t, known := im.textures[key]
 	if !known {
 		img, here := v.blobs[blob]

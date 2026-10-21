@@ -431,7 +431,10 @@ chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
 	}
 	if f.preview_key.kind == .None {
 		g_chip_previews += 1
-		f.preview_key = {kind = .Chip_Preview, id = g_chip_previews}
+		f.preview_key = {
+			kind = .Chip_Preview,
+			id   = g_chip_previews,
+		}
 	}
 	if ready {
 		image_want(ui, f.preview_key, data)

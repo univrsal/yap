@@ -171,12 +171,31 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 
 	right := 4 * icon_button_w(ctx) + 4 * ctx.style.spacing + 1
 	if narrow {
-		mu.layout_row(ctx, {40, -right, icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx)})
+		mu.layout_row(
+			ctx,
+			{
+				40,
+				-right,
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+			},
+		)
 		if .SUBMIT in icon_button(ui, "to list", .Back, "Channels") {
 			ui.channels.show_list = true
 		}
 	} else {
-		mu.layout_row(ctx, {-right, icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx)})
+		mu.layout_row(
+			ctx,
+			{
+				-right,
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+			},
+		)
 	}
 	if ch == nil {
 		mu.label(ctx, "")
@@ -188,17 +207,21 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	}
 
 	// The name, and what is left of the line for the topic.
-	r := mu.layout_next(ctx)
-	font := ctx.style.font
-	name := fmt.tprintf("# %s", ch.name)
-	y := r.y + (r.h - ctx.text_height(font)) / 2
-	mu.push_clip_rect(ctx, r)
-	mu.draw_text(ctx, font, name, {r.x + ctx.style.padding, y}, theme.viewing)
-	if ch.topic != "" {
-		x := r.x + ctx.style.padding + ctx.text_width(font, name) + 12
-		mu.draw_text(ctx, font, ch.topic, {x, y}, theme.dim)
+	if narrow {
+		mu.label(ctx, "")
+	} else {
+		r := mu.layout_next(ctx)
+		font := ctx.style.font
+		name := fmt.tprintf("# %s", ch.name)
+		y := r.y + (r.h - ctx.text_height(font)) / 2
+		mu.push_clip_rect(ctx, r)
+		mu.draw_text(ctx, font, name, {r.x + ctx.style.padding, y}, theme.viewing)
+		if ch.topic != "" {
+			x := r.x + ctx.style.padding + ctx.text_width(font, name) + 12
+			mu.draw_text(ctx, font, ch.topic, {x, y}, theme.dim)
+		}
+		mu.pop_clip_rect(ctx)
 	}
-	mu.pop_clip_rect(ctx)
 	members_button(ui)
 	pins_button(ui)
 	search_button(ui)
