@@ -272,8 +272,8 @@ drop_hint :: proc(ui: ^UI) {
 	h := max(text_h, ICON_BUTTON) + 2 * pad
 	w := ICON_BUTTON + text_w + 3 * pad
 	box := mu.Rect{r.x + (r.w - w) / 2, r.y + (r.h - h) / 2, w, h}
-	mu.draw_rect(ctx, box, ctx.style.colors[.BASE])
-	render.draw_border(ctx, box, accent)
+	render.draw_rounded(ctx, box, ctx.style.colors[.BASE], render.WINDOW_RADIUS)
+	render.draw_rounded_border(ctx, box, accent, render.WINDOW_RADIUS)
 	mu.draw_icon(
 		ctx,
 		render.icon_id(.Attach),
@@ -490,8 +490,8 @@ chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
-	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
-	render.draw_border(ctx, r, ctx.style.colors[.BORDER])
+	render.draw_rounded(ctx, r, ctx.style.colors[.BASE], render.WINDOW_RADIUS)
+	render.draw_rounded_border(ctx, r, ctx.style.colors[.BORDER], render.WINDOW_RADIUS)
 	image_fitted(ui, p.key, .Wanted, nil, {x + pad, y + pad, pic_w, pic_h}, hovered = true)
 	mu.draw_text(
 		ctx,

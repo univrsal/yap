@@ -1949,8 +1949,8 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
-	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
-	render.draw_border(ctx, r, ctx.style.colors[.BORDER])
+	render.draw_rounded(ctx, r, ctx.style.colors[.BASE], render.CONTROL_RADIUS)
+	render.draw_rounded_border(ctx, r, ctx.style.colors[.BORDER], render.CONTROL_RADIUS)
 	line_y := y + pad
 	if big_h > 0 {
 		at := mu.Vec2{x + (w - big_w) / 2, line_y}
@@ -2035,9 +2035,9 @@ list_row :: proc(
 	}
 	switch {
 	case selected:
-		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_FOCUS])
+		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_FOCUS], render.CONTROL_RADIUS)
 	case ctx.hover_id == id:
-		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
+		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_HOVER], render.CONTROL_RADIUS)
 	}
 	saved := ctx.style.font
 	if selected {

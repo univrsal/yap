@@ -87,6 +87,8 @@ Face :: struct {
 	height:     i32,
 	// A few fully opaque texels for drawing solid rectangles.
 	white:      [2]f32,
+	// The pieces of rounded rects, below the white texels (corners.odin).
+	corners:    Corner_Tiles,
 }
 
 Font :: struct {
@@ -205,6 +207,7 @@ font_destroy :: proc(f: ^Font) {
 		delete(fc.codepoints)
 		delete(fc.advance)
 		delete(fc.glyphs)
+		delete(fc.corners.at)
 	}
 	// Reset everything, so that a font that is built again asks for new
 	// atlases instead of trusting the ones from the previous scale (see
@@ -235,9 +238,11 @@ font_build_atlas :: proc(f: ^Font, style: Font_Style) -> bool {
 	}
 
 	// Start small and grow until everything fits. Two extra rows at the
-	// bottom, outside the packing area, hold the white texels.
+	// bottom, outside the packing area, hold the white texels, and the pieces
+	// of rounded rects go below them.
 	for size: i32 = 256; size <= 4096; size *= 2 {
-		pixels := make([]u8, int(size) * int(size + 2))
+		corners_h := corner_tiles_layout(&fc.corners, f.scale, size, size + 2)
+		pixels := make([]u8, int(size) * int(size + 2 + corners_h))
 		spc: stbtt.pack_context
 		if !stbtt.PackBegin(&spc, raw_data(pixels), size, size, size, 1, nil) {
 			delete(pixels)
@@ -262,8 +267,9 @@ font_build_atlas :: proc(f: ^Font, style: Font_Style) -> bool {
 			pixels[white_row + i] = 255
 			pixels[white_row + int(size) + i] = 255
 		}
+		corner_tiles_draw(&fc.corners, pixels, size)
 		fc.pixels = pixels
-		fc.width, fc.height = size, size + 2
+		fc.width, fc.height = size, size + 2 + corners_h
 		fc.white = {1 / f32(fc.width), (f32(size) + 1) / f32(fc.height)}
 		return true
 	}

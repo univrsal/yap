@@ -1,6 +1,7 @@
 package client
 
 import "client:conn"
+import "client:render"
 import "client:settings"
 import "common:proto"
 import log "common:wlog"
@@ -252,7 +253,8 @@ badge :: proc(
 	w := ctx.text_width(font, text) + 10
 	h := ctx.text_height(font) + 2
 	b := mu.Rect{r.x + r.w - w - 4 - taken, r.y + (r.h - h) / 2, w, h}
-	mu.draw_rect(ctx, b, background)
+	// A pill.
+	render.draw_rounded(ctx, b, background, h / 2)
 	mu.draw_text(ctx, font, text, {b.x + 5, b.y + 1}, color)
 	return taken + w + 4
 }
