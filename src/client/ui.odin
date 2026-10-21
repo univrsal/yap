@@ -2322,7 +2322,6 @@ scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 // The mouse wheel's scrolling eases out: what is left shrinks by e every
 // SCROLL_EASE, so a notch is mostly done in a few frames. While some is left,
 // frames come every SCROLL_FRAME.
-@(private = "file")
 SCROLL_EASE :: 0.1 // seconds
 SCROLL_FRAME :: time.Second / 60
 
@@ -2348,6 +2347,13 @@ scroll_step :: proc(ui: ^UI) {
 	give := [2]i32 {
 		i32(math.round(ui.scroll_left.x - left.x)),
 		i32(math.round(ui.scroll_left.y - left.y)),
+	}
+	// At least a pixel while some is left: with a slow ease, a frame's share
+	// of the last few pixels rounds to none, and it would never finish.
+	for &g, i in give {
+		if g == 0 && ui.scroll_left[i] != 0 {
+			g = 1 if ui.scroll_left[i] > 0 else -1
+		}
 	}
 	ui.scroll_left -= {f32(give.x), f32(give.y)}
 	mu.input_scroll(&ui.ctx, give.x, give.y)

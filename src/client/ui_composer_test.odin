@@ -1,6 +1,7 @@
 #+build !wasi
 package client
 
+import "core:math"
 import "core:testing"
 import "core:time"
 import mu "vendor:microui"
@@ -243,6 +244,9 @@ test_wheel_scrolls_smoothly :: proc(t: ^testing.T) {
 		frames += 1
 	}
 	testing.expect_value(t, total, 2 * WHEEL_NOTCH)
-	testing.expectf(t, frames >= 4 && frames <= 20, "took %d frames", frames)
+	// What is left shrinks by e every SCROLL_EASE, down to the last pixel,
+	// and then by a pixel a frame (a few at most).
+	most := int(math.ceil(SCROLL_EASE * 60 * math.ln(f64(2 * WHEEL_NOTCH)))) + 5
+	testing.expectf(t, frames >= 4 && frames <= most, "took %d frames (at most %d)", frames, most)
 	testing.expect_value(t, ui.scroll_at, time.Tick{})
 }

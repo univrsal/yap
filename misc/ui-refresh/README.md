@@ -231,7 +231,11 @@ frames; it asks for frames every `SCROLL_FRAME` (1/60 s) while any is
 left. The native loop now wakes for a frame asked for by a time
 (`ui_redraw_at`) instead of at most every 1/30 s, which also keeps the
 spinners on time. The viewer's wheel zoom follows the spread-out input,
-so it zooms smoothly too.
+so it zooms smoothly too. The wheel over a message's bar
+(`ui_message_bar.odin`, a window of its own) scrolls the timeline under
+it: while microui takes the bar as under the pointer, the bar makes that
+timeline's panel the scroll target, which also covers the frames in which
+the bar moves with the message under the pointer.
 
 Seen off-screen in a channel of 60 messages: each notch moved the text
 exactly 30 px (24-25 px in a shot taken right after it), up and down;

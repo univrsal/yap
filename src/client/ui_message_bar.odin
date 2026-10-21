@@ -53,6 +53,7 @@ UI_Message_Bar :: struct {
 	block:        mu.Rect, // where the message is
 	clip:         mu.Rect, // the part of its timeline that is on screen
 	host:         ^mu.Container, // the window its timeline is in
+	panel:        ^mu.Container, // its timeline's panel, which the wheel scrolls over the bar
 	// Where the bar was last frame, if it was shown.
 	shown:        bool,
 	shown_target: Bar_Target,
@@ -104,6 +105,7 @@ message_bar_track :: proc(
 	}
 	mu.draw_rect(ctx, block, theme.hover_tint)
 	b.found, b.target, b.msg, b.block, b.clip = true, t, m, block, clip
+	b.panel = mu.get_current_container(ctx)
 	b.host = nil
 	for i := ctx.container_stack.idx - 1; i >= 0; i -= 1 {
 		// Only a window has its `head` set (microui's in_hover_root).
@@ -124,6 +126,16 @@ message_bar :: proc(ui: ^UI) {
 	defer {
 		b.found, b.tap_claimed = false, false
 		ui.touch_tap = false
+	}
+	// The wheel over the bar scrolls the timeline under it, as it does
+	// everywhere else on the timeline: microui would give it to the bar, which
+	// doesn't scroll. What microui takes as under the pointer is the window it
+	// was over in the last frame, so this goes by that too: the bar moves
+	// with the message under the pointer as the timeline scrolls, and in
+	// between neither would take the wheel.
+	if bar := mu.get_container(ctx, BAR_WINDOW);
+	   bar != nil && ctx.hover_root == bar && b.panel != nil {
+		ctx.scroll_target = b.panel
 	}
 	// A tap on neither a message nor the bar hides the tapped message's bar.
 	if ui.touch_tap &&
