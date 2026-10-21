@@ -5,8 +5,8 @@ import "core:time"
 
 // Screen sharing and cameras: a user's encoded video is forwarded by the server
 // to everyone in the same room who is watching them. The web client shares
-// and watches using what the browser provides (H.264), and the desktop client
-// uses the optional yap_video library (H.264, HEVC or AV1). The protocol
+// and watches using what the browser provides, and the desktop client uses the
+// optional yap_video library (H.264, HEVC or AV1 either way). The protocol
 // doesn't depend on which client is on either end, and the server never
 // looks inside the video.
 //

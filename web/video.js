@@ -8,9 +8,13 @@ screen, 1 the camera.
 
 Sharing: getDisplayMedia's track (the screen) or getUserMedia's (the
 camera) is scaled to fit the size the client asks for, sampled at its
-frame rate and encoded as H.264 at its bitrate (Annex B, so every keyframe
-carries what the decoder needs to start). Each has a capture of its own
-(screen, camera) with its own encoder. The client lowers the bitrate when
+frame rate and encoded at its bitrate as H.264, HEVC or AV1 (H.264 and
+HEVC as Annex B, so every keyframe carries what the decoder needs to
+start). Which encoder is the client's choice, else the best that works
+of those the viewers decode, as on the desktop: each is tried once on a
+test frame (probeEncoders), and one that fails during a share gives way
+to the next (recover). Each has a capture of its own (screen, camera)
+with its own encoder. The client lowers the bitrate when
 its viewers can't keep up (setBitrate), which the encoder takes up from its
 next frame without a keyframe. An encoder that makes more than it's asked
 for is asked for less (correctRate). Encoded frames wait in a queue until the
@@ -81,8 +85,33 @@ or getDisplayMedia (a phone) can still watch.
 	// HEVC Main and AV1 Main (8-bit), both at level 5.1 (4K60), which is
 	// as far as a native share goes. Both come without a description:
 	// HEVC as Annex B, AV1 as OBUs with sizes.
-	const H264 = 0;
-	const OTHER_CODECS = { 1: "hev1.1.6.L153.B0", 2: "av01.0.13M.08" };
+	const H264 = 0, HEVC = 1, AV1 = 2;
+	const OTHER_CODECS = { [HEVC]: "hev1.1.6.L153.B0", [AV1]: "av01.0.13M.08" };
+	const CODEC_NAMES = ["H.264", "HEVC", "AV1"];
+
+	/*
+	The encoders a share may use, best first, as the desktop's
+	(src/video/src/encoders.cpp): any on the GPU before the CPU's, there
+	AV1, then HEVC, then H.264, and on the CPU H.264 first, which costs it
+	least. The browser doesn't say whose encoder it is, only whether one on
+	the GPU was asked for (prefer-hardware), which some (Firefox) take as a
+	hint. `name` is what the client's settings keep (share_encoder).
+	*/
+	const ENCODERS = [
+		{ name: "browser-av1-gpu", codec: AV1, hardware: true },
+		{ name: "browser-hevc-gpu", codec: HEVC, hardware: true },
+		{ name: "browser-h264-gpu", codec: H264, hardware: true },
+		{ name: "browser-h264-cpu", codec: H264, hardware: false },
+		{ name: "browser-av1-cpu", codec: AV1, hardware: false },
+		{ name: "browser-hevc-cpu", codec: HEVC, hardware: false },
+	].map((e) => ({ ...e, label: `${CODEC_NAMES[e.codec]} (on the ${e.hardware ? "GPU" : "CPU"})` }));
+	// The codec strings an encoder is asked for, in order: H.264's profiles
+	// (encoderConfig adds the level), the others' as for watching.
+	const encoderCodecs = (e) =>
+		e.codec === H264 ? H264_CODECS.map((c) => c.slice(0, 9)) : [OTHER_CODECS[e.codec]];
+	// The test frame's size and rate (tryEncoder), and how long it may take.
+	const PROBE_WIDTH = 1280, PROBE_HEIGHT = 720, PROBE_FPS = 30, PROBE_KBIT = 2000;
+	const PROBE_TIMEOUT_MS = 5000;
 
 	// What the client's Share_State says (src/client/video_web.odin).
 	const OFF = 0, STARTING = 1, LIVE = 2, FAILED = 3;
@@ -117,7 +146,17 @@ or getDisplayMedia (a phone) can still watch.
 		reader: null, // MediaStreamTrackProcessor's
 		video: null, // or a <video> of the stream
 		ticker: null, // and what samples it
-		codec: null,
+		// The encoder the client named ("" for the best that works), what
+		// the viewers decode (bits, 0 for any; setCodecs), the encoders that
+		// failed during this share (recover), and how it encodes now:
+		// { encoder (of ENCODERS), codec, bitrateMode } (pickEncoding). `picks`
+		// is bumped by each new pick, so an older one still underway gives up.
+		encoderName: "",
+		codecs: 0,
+		broken: new Set(),
+		encoding: null,
+		picks: 0,
+		why: "", // why it failed, for the client; "" if the console says
 		encoder: null,
 		width: 0,
 		height: 0,
@@ -134,9 +173,6 @@ or getDisplayMedia (a phone) can still watch.
 		fps: 30,
 		maxBitrate: 0,
 		bitrate: 0,
-		// "constant" where the browser encodes at a constant bitrate
-		// (pickCodec), else "variable".
-		bitrateMode: "variable",
 		// What the encoder is asked for as a fraction of `bitrate`, and what
 		// it made since `outSince` (correctRate).
 		factor: 1,
@@ -157,24 +193,25 @@ or getDisplayMedia (a phone) can still watch.
 	const captureOf = (stream) => captures[stream] || screen;
 
 	// start shares the screen, asking the browser's picker what.
-	function start(fps, kbit, maxWidth, maxHeight) {
+	// `encoder` is one of ENCODERS' names, or "" for the best that works.
+	function start(fps, kbit, maxWidth, maxHeight, encoder) {
 		if (!canShare()) {
 			screen.state = FAILED;
 			return;
 		}
-		begin(screen, fps, kbit, maxWidth, maxHeight, () => displayMedia());
+		begin(screen, fps, kbit, maxWidth, maxHeight, encoder, () => displayMedia());
 	}
 
 	// startCamera turns on the camera `device` (a deviceId; "" for the
 	// browser's choice, a phone's front camera).
-	function startCamera(fps, kbit, maxWidth, maxHeight, device) {
+	function startCamera(fps, kbit, maxWidth, maxHeight, device, encoder) {
 		if (!canCamera()) {
 			camera.state = FAILED;
 			return;
 		}
 		// The settings' preview of the same camera becomes it, without asking
 		// the browser again.
-		begin(camera, fps, kbit, maxWidth, maxHeight, () => takeLook(device) || userMedia(device));
+		begin(camera, fps, kbit, maxWidth, maxHeight, encoder, () => takeLook(device) || userMedia(device));
 	}
 
 	/* ---- the settings' camera list and preview ---- */
@@ -308,7 +345,7 @@ or getDisplayMedia (a phone) can still watch.
 		return null;
 	}
 
-	async function begin(s, fps, kbit, maxWidth, maxHeight, open) {
+	async function begin(s, fps, kbit, maxWidth, maxHeight, encoderName, open) {
 		if (s.state === STARTING || s.state === LIVE) return;
 		Object.assign(s, {
 			fps: Math.max(1, fps),
@@ -317,10 +354,16 @@ or getDisplayMedia (a phone) can still watch.
 			maxWidth,
 			maxHeight,
 			factor: 1,
+			encoderName: encoderName || "",
+			broken: new Set(),
+			encoding: null,
+			why: "",
 		});
 		s.state = STARTING;
 		const generation = ++s.generation;
 		const current = () => generation === s.generation;
+		// While the picker is open, if they haven't been tried yet.
+		probeEncoders();
 
 		let stream;
 		try {
@@ -336,15 +379,23 @@ or getDisplayMedia (a phone) can still watch.
 			return;
 		}
 		const track = stream.getVideoTracks()[0];
-		let codec = null;
+		let encoding = null;
 		if (track) {
 			const { width = 1920, height = 1080 } = track.getSettings();
-			codec = await pickCodec(s, ...fit(s, width, height));
+			encoding = await pickEncoding(s, ...fit(s, width, height));
 		}
-		if (!current() || !codec) {
+		if (!current() || !encoding) {
 			stream.getTracks().forEach((t) => t.stop());
 			if (current()) {
-				console.warn("yap: this browser can't encode H.264");
+				const works = encoderList ? encoderList.filter((e) => e.works) : [];
+				if (!track) {
+					s.why = "the browser gave no picture";
+				} else if (!works.length) {
+					s.why = "this browser encodes none of H.264, HEVC and AV1";
+				} else {
+					s.why = "this browser can't encode it at this size";
+				}
+				console.warn("yap: " + s.why);
 				s.state = FAILED;
 			}
 			return;
@@ -354,8 +405,9 @@ or getDisplayMedia (a phone) can still watch.
 		// way round.
 		try { track.contentHint = s.camera ? "motion" : "detail"; } catch (e) {}
 		track.addEventListener("ended", () => { if (current()) stop(s, OFF); });
+		console.info(`yap: ${s.camera ? "camera" : "screen"} encoded with ${describe(encoding)}`);
 		s.stream = stream;
-		s.codec = codec;
+		s.encoding = encoding;
 		s.wantKey = true;
 		s.awaitKey = false;
 		s.lastFrame = -Infinity;
@@ -610,27 +662,181 @@ or getDisplayMedia (a phone) can still watch.
 		}
 	}
 
-	// pickCodec returns the first H.264 profile the browser encodes at this
-	// size, as "avc1.PPCC" (the level is added by encoderConfig), at a
-	// constant bitrate if any profile can be. A variable bitrate is only held
-	// to on average, if that: Firefox's goes from a tenth of it on a still
-	// picture to three times it on a moving one, and what's over the pace it
-	// goes out at waits in the client's queue, holding up the picture.
-	async function pickCodec(s, width, height) {
-		for (const mode of ["constant", "variable"]) {
-			s.bitrateMode = mode;
-			for (const codec of H264_CODECS) {
-				const profile = codec.slice(0, 9);
-				try {
-					const support = await VideoEncoder.isConfigSupported(encoderConfig(s, profile, width, height));
-					if (support.supported) {
-						console.debug(`yap: ${s.camera ? "camera" : "screen"} encoded as ${profile} at a ${mode} bitrate`);
-						return profile;
-					}
-				} catch (e) {}
+	/* ---- the encoders ---- */
+
+	// What probeEncoders found: ENCODERS, each with whether it works, those
+	// that do first; null until it is done.
+	let encoderList = null;
+	let probing = null;
+
+	/*
+	probeEncoders tries each encoder once, on a test frame, as the desktop
+	does (yv_list_encoders): a browser may say it takes a config and then
+	fail on the first frame (Firefox without OpenH264). It starts with the
+	first share, or when the client asks for the list (the settings), and
+	the answer is kept.
+	*/
+	function probeEncoders() {
+		if (!probing) {
+			probing = (async () => {
+				const list = [];
+				for (const e of ENCODERS) {
+					list.push({ ...e, works: canEncode() && (await tryEncoder(e)) });
+				}
+				const works = list.filter((e) => e.works);
+				console.info("yap: encoders that work here: " + (works.map((e) => e.label).join(", ") || "none"));
+				encoderList = [...works, ...list.filter((e) => !e.works)];
+				return encoderList;
+			})();
+		}
+		return probing;
+	}
+
+	// tryEncoder says whether `e` encodes a test frame with any of its codec
+	// strings.
+	async function tryEncoder(e) {
+		const probe = { fps: PROBE_FPS, bitrate: PROBE_KBIT * 1000, factor: 1, camera: false };
+		for (const codec of encoderCodecs(e)) {
+			const config = encoderConfig(probe, { encoder: e, codec, bitrateMode: "variable" }, PROBE_WIDTH, PROBE_HEIGHT);
+			try {
+				if (!(await VideoEncoder.isConfigSupported(config)).supported) continue;
+			} catch (err) {
+				continue;
+			}
+			if (await testEncode(config)) return true;
+		}
+		return false;
+	}
+
+	// testEncode says whether an encoder set up as `config` makes something
+	// of a grey frame within PROBE_TIMEOUT_MS.
+	function testEncode(config) {
+		return new Promise((resolve) => {
+			let encoder = null, made = false, done = false;
+			const finish = (ok) => {
+				if (done) return;
+				done = true;
+				clearTimeout(timer);
+				try { if (encoder && encoder.state !== "closed") encoder.close(); } catch (e) {}
+				resolve(ok);
+			};
+			const timer = setTimeout(() => finish(false), PROBE_TIMEOUT_MS);
+			try {
+				encoder = new VideoEncoder({ output: () => { made = true; }, error: () => finish(false) });
+				encoder.configure(config);
+				const { width, height } = config;
+				const frame = new VideoFrame(new Uint8Array((width * height * 3) / 2).fill(128), {
+					format: "I420",
+					codedWidth: width,
+					codedHeight: height,
+					timestamp: 0,
+				});
+				encoder.encode(frame, { keyFrame: true });
+				frame.close();
+				encoder.flush().then(() => finish(made), () => finish(false));
+			} catch (e) {
+				finish(false);
+			}
+		});
+	}
+
+	/*
+	pickEncoding finds how to encode a capture at this size: with the
+	encoder the client named, else the best that works of those its viewers
+	decode (s.codecs) - or, unless `strict`, the best that works at all -
+	leaving out any that failed during this share. Within an encoder, the
+	first codec string it takes, at a constant bitrate if it can. A
+	variable bitrate is only held to on average, if that: Firefox's goes
+	from a tenth of it on a still picture to three times it on a moving
+	one, and what's over the pace it goes out at waits in the client's
+	queue, holding up the picture. Returns { encoder, codec, bitrateMode },
+	or null if none will.
+	*/
+	async function pickEncoding(s, width, height, strict = false) {
+		const list = await probeEncoders();
+		const named = list.find((e) => e.name === s.encoderName);
+		let order;
+		if (named) {
+			order = [named];
+		} else {
+			const usable = list.filter((e) => e.works && !s.broken.has(e.name));
+			const decodable = usable.filter((e) => !s.codecs || s.codecs & (1 << e.codec));
+			order = strict ? decodable : [...decodable, ...usable.filter((e) => !decodable.includes(e))];
+		}
+		for (const encoder of order) {
+			for (const bitrateMode of ["constant", "variable"]) {
+				for (const codec of encoderCodecs(encoder)) {
+					const encoding = { encoder, codec, bitrateMode };
+					try {
+						const support = await VideoEncoder.isConfigSupported(encoderConfig(s, encoding, width, height));
+						if (support.supported) return encoding;
+					} catch (e) {}
+				}
 			}
 		}
 		return null;
+	}
+
+	const describe = (encoding) =>
+		`${encoding.encoder.label}, ${encoding.codec} at a ${encoding.bitrateMode} bitrate`;
+
+	/*
+	recover goes on with the next encoder that works when the one a share
+	uses fails (as one may on a frame it said it would take), from a
+	keyframe. The share fails if the encoder was the client's choice, or
+	if there is no other.
+	*/
+	async function recover(s, width, height) {
+		const failed = s.encoding;
+		dropEncoder(s);
+		s.encoding = null;
+		if (!failed) return;
+		s.broken.add(failed.encoder.name);
+		const generation = s.generation, pick = ++s.picks;
+		const next = failed.encoder.name === s.encoderName
+			? null
+			: await pickEncoding(s, width || PROBE_WIDTH, height || PROBE_HEIGHT);
+		if (generation !== s.generation || pick !== s.picks) return;
+		if (!next) {
+			s.why = `its ${failed.encoder.label} encoder failed`;
+			stop(s, FAILED);
+			return;
+		}
+		console.info(`yap: ${s.camera ? "camera" : "screen"}: going on with ${describe(next)}`);
+		s.encoding = next;
+		s.width = s.height = 0; // capture sets it up, from a keyframe
+	}
+
+	/*
+	setCodecs says what a capture's viewers decode now (bits, 1 << codec; 0
+	for any). Where that rules out what it encodes, the best encoder that
+	works of those takes over, from a keyframe. One that's still fine is
+	kept even if a better one would now do, since changing costs a keyframe
+	and viewers come and go; so is the client's choice, whatever they
+	decode (as the desktop's follow_codecs).
+	*/
+	async function setCodecs(s, codecs) {
+		if (codecs === s.codecs) return;
+		s.codecs = codecs;
+		const now = s.encoding;
+		if (s.state !== LIVE || !now || !codecs || codecs & (1 << now.encoder.codec)) return;
+		if (now.encoder.name === s.encoderName) return;
+		const generation = s.generation, pick = ++s.picks;
+		const next = await pickEncoding(s, s.width || PROBE_WIDTH, s.height || PROBE_HEIGHT, true);
+		if (generation !== s.generation || pick !== s.picks || s.encoding !== now) return;
+		if (!next) {
+			console.warn("yap: nothing else here encodes what the viewers can decode");
+			return;
+		}
+		console.info(`yap: ${s.camera ? "camera" : "screen"}: ${describe(now)} -> ${describe(next)}, for the viewers`);
+		dropEncoder(s);
+		s.encoding = next;
+		s.width = s.height = 0;
+	}
+
+	function dropEncoder(s) {
+		if (s.encoder && s.encoder.state !== "closed") s.encoder.close();
+		s.encoder = null;
 	}
 
 	// h264Level is the lowest level (as two hex digits) that takes this size
@@ -644,17 +850,23 @@ or getDisplayMedia (a phone) can still watch.
 		return level[0].toString(16).toUpperCase().padStart(2, "0");
 	}
 
-	function encoderConfig(s, profile, width, height) {
-		return {
-			codec: profile + h264Level(s, width, height),
+	// encoderConfig is how a capture is encoded at this size as `encoding`
+	// says (pickEncoding).
+	function encoderConfig(s, encoding, width, height) {
+		const { encoder, codec, bitrateMode } = encoding;
+		const config = {
+			codec: encoder.codec === H264 ? codec + h264Level(s, width, height) : codec,
 			width,
 			height,
 			bitrate: Math.round(s.bitrate * s.factor),
-			bitrateMode: s.bitrateMode,
+			bitrateMode,
 			framerate: s.fps,
 			latencyMode: "realtime",
-			avc: { format: "annexb" },
+			hardwareAcceleration: encoder.hardware ? "prefer-hardware" : "prefer-software",
 		};
+		if (encoder.codec === H264) config.avc = { format: "annexb" };
+		if (encoder.codec === HEVC) config.hevc = { format: "annexb" };
+		return config;
 	}
 
 	// fit scales a size down to the largest the client asked for (either
@@ -675,6 +887,8 @@ or getDisplayMedia (a phone) can still watch.
 		const now = performance.now();
 		// A little slack, so a source at exactly the frame rate isn't halved.
 		if (now - s.lastFrame < 1000 / s.fps - 3 || !width || !height) return;
+		// None while another encoder is picked (recover).
+		if (!s.encoding) return;
 		const [w, h] = fit(s, width, height);
 		if (w !== s.width || h !== s.height || !s.encoder) {
 			// Also when a shared window changes size.
@@ -718,18 +932,23 @@ or getDisplayMedia (a phone) can still watch.
 	function configure(s, width, height, key = true) {
 		try {
 			if (!s.encoder) {
-				s.encoder = new VideoEncoder({
-					output: (chunk) => encoded(s, chunk),
+				// What its frames are, kept with it: a new encoding gets a new
+				// encoder (recover, setCodecs).
+				const out = { codec: s.encoding.encoder.codec, lengthSize: 0, header: [] };
+				const encoder = new VideoEncoder({
+					output: (chunk, metadata) => encoded(s, out, chunk, metadata),
 					error: (e) => {
-						console.warn("yap: the encoder failed:", e);
-						stop(s, FAILED);
+						if (encoder !== s.encoder) return;
+						console.warn(`yap: the encoder (${describe(s.encoding)}) failed:`, e);
+						recover(s, s.width, s.height);
 					},
 				});
+				s.encoder = encoder;
 			}
-			s.encoder.configure(encoderConfig(s, s.codec, width, height));
+			s.encoder.configure(encoderConfig(s, s.encoding, width, height));
 		} catch (e) {
 			console.warn("yap: can't encode " + width + "x" + height + ":", e);
-			stop(s, FAILED);
+			recover(s, width, height);
 			return false;
 		}
 		s.width = s.canvas.width = width;
@@ -740,7 +959,8 @@ or getDisplayMedia (a phone) can still watch.
 		return true;
 	}
 
-	function encoded(s, chunk) {
+	function encoded(s, out, chunk, metadata) {
+		if (metadata && metadata.decoderConfig) takeDescription(out, metadata.decoderConfig.description);
 		if (s.state !== LIVE) return;
 		s.outBytes += chunk.byteLength;
 		const key = chunk.type === "key";
@@ -757,10 +977,112 @@ or getDisplayMedia (a phone) can still watch.
 		}
 		if (s.awaitKey && !key) return;
 		s.awaitKey = false;
-		const data = new Uint8Array(chunk.byteLength);
+		let data = new Uint8Array(chunk.byteLength);
 		chunk.copyTo(data);
-		s.queue.push({ data, ts: Math.round(chunk.timestamp / 1000) >>> 0, key });
+		data = asSent(out, data, key);
+		s.queue.push({ data, ts: Math.round(chunk.timestamp / 1000) >>> 0, key, codec: out.codec });
 		correctRate(s);
+	}
+
+	/*
+	H.264 and HEVC are sent as Annex B, each keyframe starting with the
+	parameter sets, and AV1 as OBUs with sizes, each keyframe with the
+	sequence header. A browser that doesn't take avc or hevc { format:
+	"annexb" } puts each NAL unit's length in front of it instead, and the
+	parameter sets only in the description it gives with the first frame
+	(avcC, hvcC); an AV1 encoder may leave the sequence header to its
+	description (av1C). takeDescription keeps what's needed from it, and
+	asSent puts it back.
+	*/
+	function takeDescription(out, description) {
+		out.lengthSize = 0;
+		out.header = [];
+		if (!description) return;
+		const d = ArrayBuffer.isView(description)
+			? new Uint8Array(description.buffer, description.byteOffset, description.byteLength)
+			: new Uint8Array(description);
+		// Takes `n` NAL units from `i`, each with its length in two bytes in
+		// front, and returns where they end.
+		const units = (i, n) => {
+			for (let k = 0; k < n && i + 2 <= d.length; k++) {
+				const len = (d[i] << 8) | d[i + 1];
+				out.header.push(d.slice(i + 2, i + 2 + len));
+				i += 2 + len;
+			}
+			return i;
+		};
+		if (out.codec === H264 && d.length > 6) {
+			out.lengthSize = (d[4] & 3) + 1;
+			let i = units(6, d[5] & 0x1f); // SPS
+			if (i < d.length) units(i + 1, d[i]); // PPS
+		} else if (out.codec === HEVC && d.length > 22) {
+			out.lengthSize = (d[21] & 3) + 1;
+			let i = 23;
+			for (let a = 0; a < d[22] && i + 3 <= d.length; a++) {
+				i = units(i + 3, (d[i + 1] << 8) | d[i + 2]);
+			}
+		} else if (out.codec === AV1 && d.length > 4) {
+			out.header.push(d.slice(4)); // configOBUs
+		}
+	}
+
+	function asSent(out, data, key) {
+		if (out.codec === AV1) {
+			return key && out.header.length && !hasSequenceHeader(data) ? withSequenceHeader(data, out.header[0]) : data;
+		}
+		if (!out.lengthSize) return data;
+		const START = [0, 0, 0, 1];
+		const parts = [];
+		if (key) for (const unit of out.header) parts.push(START, unit);
+		for (let i = 0; i + out.lengthSize <= data.length;) {
+			let len = 0;
+			for (let k = 0; k < out.lengthSize; k++) len = len * 256 + data[i + k];
+			i += out.lengthSize;
+			parts.push(START, data.subarray(i, i + len));
+			i += len;
+		}
+		const sent = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
+		let at = 0;
+		for (const p of parts) {
+			sent.set(p, at);
+			at += p.length;
+		}
+		return sent;
+	}
+
+	// obus lists the OBUs of an AV1 frame: { type, start, end }. It stops at
+	// one without a size.
+	function obus(data) {
+		const list = [];
+		for (let i = 0; i < data.length;) {
+			const start = i, header = data[i++];
+			if (!(header & 2)) break;
+			if (header & 4) i++; // the extension
+			let size = 0;
+			for (let shift = 0; i < data.length; shift += 7) {
+				const b = data[i++];
+				size += (b & 0x7f) * 2 ** shift;
+				if (!(b & 0x80)) break;
+			}
+			i += size;
+			list.push({ type: (header >> 3) & 15, start, end: i });
+		}
+		return list;
+	}
+
+	const OBU_SEQUENCE_HEADER = 1, OBU_TEMPORAL_DELIMITER = 2;
+	const hasSequenceHeader = (data) => obus(data).some((o) => o.type === OBU_SEQUENCE_HEADER);
+
+	// withSequenceHeader puts it in front of a frame, after its temporal
+	// delimiter if it has one.
+	function withSequenceHeader(data, header) {
+		const first = obus(data)[0];
+		const at = first && first.type === OBU_TEMPORAL_DELIMITER ? first.end : 0;
+		const sent = new Uint8Array(data.length + header.length);
+		sent.set(data.subarray(0, at), 0);
+		sent.set(header, at);
+		sent.set(data.subarray(at), at + header.length);
+		return sent;
 	}
 
 	/*
@@ -826,7 +1148,7 @@ or getDisplayMedia (a phone) can still watch.
 		if (s.preview) s.preview.close();
 		if (!s.camera) stopAudio();
 		Object.assign(s, {
-			stream: null, reader: null, video: null, ticker: null, encoder: null,
+			stream: null, reader: null, video: null, ticker: null, encoder: null, encoding: null,
 			canvas: null, context: null, width: 0, height: 0, queue: [], preview: null, paused: false,
 			outBytes: 0, outSince: 0,
 		});
@@ -971,6 +1293,12 @@ or getDisplayMedia (a phone) can still watch.
 		canCamera,
 		canWatch,
 		decodable: () => decodable,
+		// The encoders, best first, as { name, label, codec, hardware, works };
+		// null while they are being tried (which this starts).
+		encoders: () => {
+			probeEncoders();
+			return encoderList;
+		},
 		// The screen: start opens the browser's picker.
 		start,
 		startCamera,
@@ -986,6 +1314,9 @@ or getDisplayMedia (a phone) can still watch.
 		// The rest take the stream (0 the screen, 1 the camera).
 		stop: (stream) => stop(captureOf(stream), OFF),
 		state: (stream) => captureOf(stream).state,
+		// Why it failed, or "" if only the console says.
+		why: (stream) => captureOf(stream).why,
+		setCodecs: (stream, codecs) => setCodecs(captureOf(stream), codecs),
 		live: (stream) => captureOf(stream).state === LIVE,
 		nextSize: (stream) => {
 			const q = captureOf(stream).queue;

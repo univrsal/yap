@@ -10,9 +10,9 @@ import "client:settings"
 
 // The settings' Screen sharing category: how we share (the size preset and,
 // under Advanced, the frame rate, bitrate, encoder and pointer), and whether
-// statistics are shown under the stream we watch. In a browser the page picks
-// the encoder and the browser shows the pointer or not, so those two are
-// desktop only.
+// statistics are shown under the stream we watch. In a browser the browser
+// shows the pointer or not, so that is desktop only, and the encoders are the
+// browser's (conn/video_web.odin).
 //
 // What the server accepts from a sharer (its video.max_kbit) caps the bitrate,
 // and this is said here when it does. Changes apply from the next share.
@@ -146,9 +146,6 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 
-	when platform.WEB {
-		return
-	}
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Encoder")
 	if choice_button(ui, "share encoder best", "The best that works", cfg.encoder == "") &&
@@ -189,6 +186,9 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		with_text_color(ctx, theme.dim, "Viewers that can't decode it see nothing", wrap_text)
 	}
 
+	when platform.WEB {
+		return
+	}
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in mu.checkbox(ctx, "Show the pointer", &ui.settings.share_cursor) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)

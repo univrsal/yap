@@ -275,13 +275,14 @@ EM_JS(int, yap_video_next_size, (int stream), {
 	return v ? v.nextSize(stream) : -1;
 });
 
-EM_JS(int, yap_video_pull, (int stream, unsigned char *buf, int buf_size, unsigned int *ts, int *key), {
+EM_JS(int, yap_video_pull, (int stream, unsigned char *buf, int buf_size, unsigned int *ts, int *key, int *codec), {
 	const v = Module.yapVideo;
 	const frame = v ? v.pull(stream) : null;
 	if (!frame || frame.data.length > buf_size) return -1;
 	HEAPU8.set(frame.data, buf);
 	HEAPU32[ts >> 2] = frame.ts >>> 0;
 	HEAP32[key >> 2] = frame.key ? 1 : 0;
+	HEAP32[codec >> 2] = frame.codec;
 	return frame.data.length;
 });
 
@@ -342,15 +343,48 @@ EM_JS(int, yap_video_decodable, (), {
 	return v ? v.decodable() : 0;
 });
 
-EM_JS(void, yap_video_share_start, (int fps, int kbit, int max_width, int max_height), {
+/* The page's encoders, best first: how many (-1 while they are being tried,
+   which asking starts), and the name, label and whether it works of one. */
+EM_JS(int, yap_video_encoder_count, (), {
 	const v = Module.yapVideo;
-	if (v) v.start(fps, kbit, max_width, max_height);
+	const list = v ? v.encoders() : [];
+	return list ? list.length : -1;
+});
+
+EM_JS(int, yap_video_encoder_info, (int i, char *name, int name_size, char *label, int label_size, int *works), {
+	const v = Module.yapVideo;
+	const list = v ? v.encoders() : null;
+	const e = list ? list[i] : null;
+	if (!e) return 0;
+	stringToUTF8(e.name, name, name_size);
+	stringToUTF8(e.label, label, label_size);
+	HEAP32[works >> 2] = e.works ? 1 : 0;
+	return 1;
+});
+
+/* `encoder` is one of the page's encoders by name, or "" for the best that
+   works. */
+EM_JS(void, yap_video_share_start, (int fps, int kbit, int max_width, int max_height, const char *encoder), {
+	const v = Module.yapVideo;
+	if (v) v.start(fps, kbit, max_width, max_height, UTF8ToString(encoder));
 });
 
 /* Turns on the camera `device` (a deviceId, "" for the browser's choice). */
-EM_JS(void, yap_video_camera_start, (int fps, int kbit, int max_width, int max_height, const char *device), {
+EM_JS(void, yap_video_camera_start, (int fps, int kbit, int max_width, int max_height, const char *device, const char *encoder), {
 	const v = Module.yapVideo;
-	if (v) v.startCamera(fps, kbit, max_width, max_height, UTF8ToString(device));
+	if (v) v.startCamera(fps, kbit, max_width, max_height, UTF8ToString(device), UTF8ToString(encoder));
+});
+
+/* What a stream's viewers decode, as bits (1 << codec; 0 for any). */
+EM_JS(void, yap_video_set_codecs, (int stream, int codecs), {
+	const v = Module.yapVideo;
+	if (v) v.setCodecs(stream, codecs);
+});
+
+/* Why a stream failed, into buf; "" if only the browser's console says. */
+EM_JS(void, yap_video_why, (int stream, char *buf, int buf_size), {
+	const v = Module.yapVideo;
+	stringToUTF8(v ? v.why(stream) : "", buf, buf_size);
 });
 
 /* Has the camera go on at another size, frame rate or bitrate. */

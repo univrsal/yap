@@ -29,7 +29,9 @@ row in the channel list means they're sharing - click it to watch. The
 desktop client shows who is sharing but can't watch.
 
 It needs WebCodecs with H.264, and sharing also needs `getDisplayMedia`,
-which phones don't have (they can still watch). Like the microphone, both
+which phones don't have (they can still watch). A share is encoded with
+H.264, HEVC or AV1, whichever of the browser's encoders works best for
+the viewers; the screen sharing settings list them under Advanced. Like the microphone, both
 only work on a secure page: `http://localhost` is fine, anything else
 needs HTTPS in front of the relay.
 
