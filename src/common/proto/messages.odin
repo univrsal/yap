@@ -135,6 +135,8 @@ Message_Kind :: enum u8 {
 	// Reports about how well a shared screen reaches its viewers, which are
 	// used to adjust its bitrate (video_report.odin).
 	Report          = 49,
+	// How big a camera's viewers show it, and how many there are (video.odin).
+	Demand          = 50,
 }
 
 // The reason why the server refused a hello.
@@ -173,6 +175,9 @@ User_Flag :: enum u8 {
 	// server shows while the user isn't in a room of its own.
 	In_Voice,
 	In_Call,
+	// Their camera is on (see video.odin). The server takes it off again
+	// while their room already has as many cameras as it allows.
+	Camera,
 }
 User_Flags :: distinct bit_set[User_Flag;u8]
 
@@ -256,13 +261,15 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		// decode_video_down check the rest.
 		ok = len(pt) > VIDEO_UP_HEADER_SIZE
 	case .Watch:
-		ok = len(pt) == WATCH_SIZE
+		ok = len(pt) == WATCH_SIZE || len(pt) == WATCH_TILE_SIZE
+	case .Demand:
+		ok = len(pt) == DEMAND_SIZE
 	case .Keyframe:
-		ok = len(pt) == KEYFRAME_SIZE
+		ok = len(pt) == KEYFRAME_SIZE || len(pt) == KEYFRAME_CAMERA_SIZE
 	case .Nack:
-		ok = len(pt) == NACK_SIZE
+		ok = len(pt) == NACK_SIZE || len(pt) == NACK_CAMERA_SIZE
 	case .Report:
-		ok = len(pt) == REPORT_SIZE
+		ok = len(pt) == REPORT_SIZE || len(pt) == REPORT_CAMERA_SIZE
 	case .Ping, .Pong:
 		ok = len(pt) == PING_SIZE
 	case .DM_Send,

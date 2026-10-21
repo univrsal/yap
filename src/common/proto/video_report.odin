@@ -17,8 +17,12 @@ import "core:encoding/endian"
 // The sharer's client lowers its bitrate while the report says that the
 // network can't keep up, and raises it again, up to the configured bitrate,
 // as long as it can (conn/video.odin).
+//
+// A report about a camera ends with its stream byte, both ways (see
+// video.odin).
 REPORT_SIZE :: 1 + 4 + 2 + 2 + 4
 #assert(REPORT_SIZE == 1 + 2 + 2 + 2 + 2 + 4) // both ways
+REPORT_CAMERA_SIZE :: REPORT_SIZE + 1
 
 Video_Report :: struct {
 	// Fragments that were missing before any were requested again, in
@@ -32,18 +36,30 @@ Video_Report :: struct {
 	kbit:     int,
 }
 
-encode_report_up :: proc(out: ^[REPORT_SIZE]u8, sharer: User_Num, r: Video_Report) -> []u8 {
+encode_report_up :: proc(
+	out: ^[REPORT_CAMERA_SIZE]u8,
+	sharer: User_Num,
+	r: Video_Report,
+	stream := Video_Stream.Screen,
+) -> []u8 {
 	out[0] = u8(Message_Kind.Report)
 	endian.unchecked_put_u32le(out[1:], u32(sharer))
 	endian.unchecked_put_u16le(out[5:], u16(clamp(r.loss, 0, 1000)))
 	endian.unchecked_put_u16le(out[7:], u16(clamp(r.delay_ms, 0, 65535)))
 	endian.unchecked_put_u32le(out[9:], u32(max(r.kbit, 0)))
-	return out[:]
+	return out[:put_stream(out[:], REPORT_SIZE, stream)]
 }
 
 @(require_results)
-decode_report_up :: proc(pt: []u8) -> (sharer: User_Num, r: Video_Report, ok: bool) {
-	if len(pt) != REPORT_SIZE {
+decode_report_up :: proc(
+	pt: []u8,
+) -> (
+	sharer: User_Num,
+	r: Video_Report,
+	stream: Video_Stream,
+	ok: bool,
+) {
+	if stream, ok = get_stream(pt, REPORT_SIZE); !ok {
 		return
 	}
 	sharer = User_Num(endian.unchecked_get_u32le(pt[1:]))
@@ -52,7 +68,7 @@ decode_report_up :: proc(pt: []u8) -> (sharer: User_Num, r: Video_Report, ok: bo
 		delay_ms = int(endian.unchecked_get_u16le(pt[7:])),
 		kbit     = int(endian.unchecked_get_u32le(pt[9:])),
 	}
-	return sharer, r, true
+	return
 }
 
 // The server's summary for a sharer: the worst of `viewers` reports, not
@@ -63,19 +79,23 @@ Video_Reports :: struct {
 	worst:    Video_Report,
 }
 
-encode_report_down :: proc(out: ^[REPORT_SIZE]u8, s: Video_Reports) -> []u8 {
+encode_report_down :: proc(
+	out: ^[REPORT_CAMERA_SIZE]u8,
+	s: Video_Reports,
+	stream := Video_Stream.Screen,
+) -> []u8 {
 	out[0] = u8(Message_Kind.Report)
 	endian.unchecked_put_u16le(out[1:], u16(clamp(s.viewers, 0, 65535)))
 	endian.unchecked_put_u16le(out[3:], u16(clamp(s.left_out, 0, 65535)))
 	endian.unchecked_put_u16le(out[5:], u16(clamp(s.worst.loss, 0, 1000)))
 	endian.unchecked_put_u16le(out[7:], u16(clamp(s.worst.delay_ms, 0, 65535)))
 	endian.unchecked_put_u32le(out[9:], u32(max(s.worst.kbit, 0)))
-	return out[:]
+	return out[:put_stream(out[:], REPORT_SIZE, stream)]
 }
 
 @(require_results)
-decode_report_down :: proc(pt: []u8) -> (s: Video_Reports, ok: bool) {
-	if len(pt) != REPORT_SIZE {
+decode_report_down :: proc(pt: []u8) -> (s: Video_Reports, stream: Video_Stream, ok: bool) {
+	if stream, ok = get_stream(pt, REPORT_SIZE); !ok {
 		return
 	}
 	s = {
@@ -87,7 +107,7 @@ decode_report_down :: proc(pt: []u8) -> (s: Video_Reports, ok: bool) {
 			kbit = int(endian.unchecked_get_u32le(pt[9:])),
 		},
 	}
-	return s, true
+	return
 }
 
 // summarize_reports is what the server tells a sharer about its viewers'

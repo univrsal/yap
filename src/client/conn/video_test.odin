@@ -17,7 +17,7 @@ encoded :: proc(size: int, seed: u8) -> []u8 {
 }
 
 @(private = "file")
-video_free :: proc(v: ^Video_Client) {
+video_free :: proc(v: ^Video_Out) {
 	video_clear_queue(v)
 	delete(v.queue)
 }
@@ -26,7 +26,7 @@ video_free :: proc(v: ^Video_Client) {
 // server's rewrite into `a`, returning the frames that came out.
 @(private = "file")
 send_all :: proc(
-	v: ^Video_Client,
+	v: ^Video_Out,
 	w: ^proto.Video_Window,
 ) -> (
 	frames: [dynamic]proto.Video_Frame,
@@ -62,7 +62,7 @@ copy_slice :: proc(b: []u8) -> []u8 {
 
 @(test)
 test_video_queue_roundtrip :: proc(t: ^testing.T) {
-	v: Video_Client
+	v: Video_Out
 	defer video_free(&v)
 	w := new(proto.Video_Window)
 	defer free(w)
@@ -89,7 +89,7 @@ test_video_queue_roundtrip :: proc(t: ^testing.T) {
 
 @(test)
 test_video_queue_falls_behind :: proc(t: ^testing.T) {
-	v: Video_Client
+	v: Video_Out
 	defer video_free(&v)
 
 	// Enough frames queued behind the first one to be over the limit, with the
@@ -128,7 +128,7 @@ test_video_queue_falls_behind :: proc(t: ^testing.T) {
 // encoder's bitrate, and a big keyframe going out doesn't count towards it.
 @(test)
 test_video_queue_limit :: proc(t: ^testing.T) {
-	v: Video_Client
+	v: Video_Out
 	defer video_free(&v)
 	testing.expect_value(t, video_queue_max(&v), VIDEO_SEND_RATE / 2)
 	v.encoding_kbit = 1000
@@ -156,7 +156,7 @@ test_video_queue_limit :: proc(t: ^testing.T) {
 
 @(test)
 test_video_queue_too_big :: proc(t: ^testing.T) {
-	v: Video_Client
+	v: Video_Out
 	defer video_free(&v)
 	video_queue_frame(&v, encoded(proto.MAX_VIDEO_FRAME_SIZE + 1, 0), 0, true)
 	testing.expect_value(t, len(v.queue), 0)
@@ -170,7 +170,7 @@ test_video_queue_too_big :: proc(t: ^testing.T) {
 // and no keyframe needed.
 @(test)
 test_video_loss_repaired :: proc(t: ^testing.T) {
-	v: Video_Client
+	v: Video_Out
 	defer video_free(&v)
 	w := new(proto.Video_Window)
 	defer free(w)
@@ -248,7 +248,7 @@ slice_clone :: proc(b: []u8) -> []u8 {
 // bitrate.
 @(test)
 test_adapt_bitrate :: proc(t: ^testing.T) {
-	v: Video_Client
+	v: Video_Out
 	at := time.tick_now()
 	later :: proc(at: time.Tick, d: time.Duration) -> time.Tick {
 		return time.tick_add(at, d)
@@ -311,7 +311,7 @@ test_adapt_bitrate :: proc(t: ^testing.T) {
 // change too small for the library to take up counts as taken up.
 @(test)
 test_adapt_bitrate_waits_for_encoder :: proc(t: ^testing.T) {
-	v: Video_Client
+	v: Video_Out
 	at := time.tick_now()
 	later :: proc(at: time.Tick, d: time.Duration) -> time.Tick {
 		return time.tick_add(at, d)
@@ -415,4 +415,212 @@ test_viewer_codecs :: proc(t: ^testing.T) {
 	// Out of the room: nobody is watching.
 	users[0].room = 0
 	testing.expect_value(t, viewer_codecs(&c), proto.Video_Codecs{.H264, .HEVC, .AV1})
+}
+
+// Our camera's fragments go out marked as the camera's, and ahead of the
+// screen's.
+@(test)
+test_video_camera_first :: proc(t: ^testing.T) {
+	v: Video_Client
+	defer video_destroy_outs(&v)
+	v.outs[.Camera].stream = .Camera
+	video_queue_frame(&v.outs[.Screen], encoded(10, 1), 0, true)
+	video_queue_frame(&v.outs[.Camera], encoded(10, 2), 0, true)
+	buf: [proto.MAX_PAYLOAD_SIZE]u8
+	want := [?]proto.Video_Stream{.Camera, .Screen}
+	for stream in want {
+		o := video_next_out(&v)
+		testing.expect(t, o != nil && o.stream == stream)
+		up, ok := video_next_fragment(o, buf[:])
+		testing.expect(t, ok)
+		f, up_ok := proto.decode_video_up(up)
+		testing.expect(t, up_ok)
+		testing.expect_value(t, f.stream, stream)
+	}
+	testing.expect(t, video_next_out(&v) == nil)
+}
+
+@(private = "file")
+video_destroy_outs :: proc(v: ^Video_Client) {
+	for &o in v.outs {
+		video_free(&o)
+	}
+}
+
+// The streams we watch: a screen, and the cameras the UI asks for, of which only
+// those that are on in our room are watched.
+@(test)
+test_video_watch_streams :: proc(t: ^testing.T) {
+	c := new(Voice_Client)
+	defer free(c)
+	defer video_destroy(c)
+	defer commands_destroy(&c.commands)
+	users := []proto.User_Info {
+		{num = 1, room = 7}, // us
+		{num = 2, room = 7, flags = {.Camera}},
+		{num = 3, room = 7, flags = {.Camera, .Sharing}},
+		{num = 4, room = 8, flags = {.Camera}}, // in another room
+	}
+	c.channels.have_state = true
+	c.channels.state.your_user = 1
+	c.channels.state.users = users
+	c.has_current = true
+
+	watching :: proc(c: ^Voice_Client, key: Video_Key) -> bool {
+		for in_ in c.video.ins {
+			if in_.key == key {
+				return in_.watching
+			}
+		}
+		return false
+	}
+	held :: proc(c: ^Voice_Client) -> (n: int) {
+		for in_ in c.video.ins {
+			if in_.key.user != 0 {
+				n += 1
+			}
+		}
+		return
+	}
+
+	// Asking twice for the same camera counts once.
+	push_command(&c.commands, watch_cameras(2, 3, 4, 2))
+	process_commands(c)
+	testing.expect_value(t, held(c), 3)
+	video_step(c)
+	testing.expect(t, watching(c, {2, .Camera}))
+	testing.expect(t, watching(c, {3, .Camera}))
+	testing.expect(t, !watching(c, {4, .Camera}))
+
+	// Only what we watch gets through: user 3's screen isn't, yet.
+	fragment :: proc(sharer: proto.User_Num, stream: proto.Video_Stream, out: []u8) -> []u8 {
+		data := [?]u8{1, 2, 3}
+		up_buf: [proto.MAX_PAYLOAD_SIZE]u8
+		up := proto.encode_video_up(
+			up_buf[:],
+			{frame = 0, count = 1, key = true, stream = stream, data = data[:]},
+		)
+		down := proto.video_up_to_down(cast(^[proto.MAX_PAYLOAD_SIZE]u8)raw_data(out), sharer, up)
+		return down
+	}
+	buf: [proto.MAX_PAYLOAD_SIZE]u8
+	handle_video(c, fragment(2, .Camera, buf[:]))
+	handle_video(c, fragment(3, .Screen, buf[:]))
+	testing.expect_value(t, c.video.ins[1].stats_frags, 1)
+	testing.expect_value(t, c.video.bytes_in, len(fragment(2, .Camera, buf[:])))
+
+	// Watching user 3's screen too.
+	push_command(&c.commands, Watch_Command{user = 3})
+	process_commands(c)
+	video_step(c)
+	testing.expect(t, watching(c, {3, .Screen}))
+	handle_video(c, fragment(3, .Screen, buf[:]))
+	testing.expect_value(t, c.video.ins[0].stats_frags, 1)
+
+	// A camera that goes off is kept, and watched again once it comes back.
+	users[1].flags = {}
+	video_step(c)
+	testing.expect(t, !watching(c, {2, .Camera}))
+	testing.expect_value(t, held(c), 4)
+	users[1].flags = {.Camera}
+	video_step(c)
+	testing.expect(t, watching(c, {2, .Camera}))
+
+	// A screen that stops being shared isn't.
+	users[2].flags = {.Camera}
+	video_step(c)
+	testing.expect_value(t, c.video.ins[0].key, Video_Key{})
+	testing.expect(t, watching(c, {3, .Camera}))
+
+	// The cameras that are no longer asked for are let go.
+	push_command(&c.commands, watch_cameras(3))
+	process_commands(c)
+	testing.expect_value(t, held(c), 1)
+	testing.expect(t, watching(c, {3, .Camera}))
+}
+
+// The camera's size and bitrate follow how many cameras are in the room, a call
+// gets the most, and the server's limit holds.
+@(test)
+test_camera_config :: proc(t: ^testing.T) {
+	testing.expect_value(t, camera_config(1, false, 0).max, [2]i32{1280, 720})
+	testing.expect_value(t, camera_config(2, false, 0).kbit, 1500)
+	testing.expect_value(t, camera_config(3, false, 0).max, [2]i32{960, 540})
+	testing.expect_value(t, camera_config(9, false, 0).max, [2]i32{640, 360})
+	cfg := camera_config(10, false, 0)
+	testing.expect_value(t, cfg.max, [2]i32{480, 270})
+	testing.expect_value(t, cfg.fps, 24)
+	testing.expect_value(t, camera_config(40, false, 0).max, [2]i32{480, 270})
+	testing.expect_value(t, camera_config(2, true, 0), CAMERA_CALL)
+	testing.expect_value(t, camera_config(2, true, 1000).kbit, 1000)
+	testing.expect_value(t, camera_config(9, false, 4000).kbit, 450)
+	// The settings' quality: High only changes a call, Low keeps everything to 360p.
+	testing.expect_value(t, camera_config(2, true, 0, .High), CAMERA_CALL_HIGH)
+	testing.expect_value(t, camera_config(2, false, 0, .High).max, [2]i32{1280, 720})
+	testing.expect_value(t, camera_config(2, true, 0, .Low), CAMERA_LOW)
+	testing.expect_value(t, camera_config(1, false, 0, .Low), CAMERA_LOW)
+	testing.expect_value(t, camera_config(40, false, 0, .Low).max, [2]i32{480, 270})
+	testing.expect_value(t, camera_quality("high"), Camera_Quality.High)
+	testing.expect_value(t, camera_quality(""), Camera_Quality.Auto)
+}
+
+@(test)
+test_demand_config :: proc(t: ^testing.T) {
+	tier := camera_config(1, false, 0) // 1280x720, 1500
+	// No tile said: the tier.
+	testing.expect_value(t, demand_config(tier, {}), tier)
+	// The smallest size that covers the tile, at its bitrate.
+	cfg := demand_config(tier, {600, 340})
+	testing.expect_value(t, cfg.max, [2]i32{640, 360})
+	testing.expect_value(t, cfg.kbit, 450)
+	testing.expect_value(t, cfg.fps, tier.fps)
+	testing.expect_value(t, demand_config(tier, {700, 300}).max, [2]i32{960, 540})
+	// Never above the tier.
+	testing.expect_value(t, demand_config(tier, {1600, 900}), tier)
+	testing.expect_value(t, demand_config(tier, {4000, 3000}), tier)
+	// Nor above the tier's bitrate.
+	low := camera_config(9, false, 0) // 640x360, 450
+	testing.expect_value(t, demand_config(low, {320, 180}).kbit, 180)
+	testing.expect_value(t, demand_config(low, {300, 160}).max, [2]i32{320, 180})
+}
+
+@(test)
+test_follow_demand :: proc(t: ^testing.T) {
+	o := Video_Out {
+		stream = .Camera,
+		live   = true,
+		tier   = camera_config(1, false, 0),
+	}
+	now := time.tick_now()
+	// No Demand yet (an older server): the tier, and not paused.
+	follow_demand(&o, now)
+	testing.expect_value(t, o.applied, o.tier)
+	testing.expect(t, !o.paused)
+
+	// Nobody watching: paused.
+	o.demand, o.demand_at = {stream = .Camera}, now
+	follow_demand(&o, now)
+	testing.expect(t, o.paused)
+
+	// A viewer with a small tile: going on, smaller once it has stayed so.
+	o.demand = {stream = .Camera, tile = {400, 224}, viewers = 1}
+	follow_demand(&o, now)
+	testing.expect(t, !o.paused)
+	testing.expect_value(t, o.applied.max, [2]i32{1280, 720})
+	later := time.tick_add(now, DEMAND_DOWN_AFTER)
+	o.demand_at = later
+	follow_demand(&o, later)
+	testing.expect_value(t, o.applied.max, [2]i32{480, 270})
+
+	// A bigger tile: at once.
+	o.demand.tile = {960, 540}
+	follow_demand(&o, later)
+	testing.expect_value(t, o.applied.max, [2]i32{960, 540})
+
+	// The server goes quiet: back to the tier, not paused.
+	o.demand.viewers = 0
+	quiet := time.tick_add(later, DEMAND_STALE)
+	follow_demand(&o, quiet)
+	testing.expect(t, !o.paused)
+	testing.expect_value(t, o.applied, o.tier)
 }

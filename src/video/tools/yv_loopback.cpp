@@ -10,9 +10,18 @@ with bitrate and latency printed, to try encoders on new hardware.
 	                    [--max WxH] [--seconds S] [--dump picture.bmp] [--out stream]
 	                    [--then-kbit N] [--debug]
 
+	yv-loopback --camera [ID] [--encoder NAME] [--kbit N] [--fps N] [--max WxH]
+	                    [--seconds S] [--dump picture.bmp] [--out stream]
+	                    [--then-kbit N] [--then-max WxH] [--then-pause] [--debug]
+
 --out saves what the share encoded, with the extension --play needs
 added (.h264, .hevc or .obu). --then-kbit changes the bitrate 3 seconds
-in, as the client does when its viewers fall behind.
+in, as the client does when its viewers fall behind. --camera shares a
+camera (the first, or the one with that ID from --list) instead of the
+screen, and --then-max has it fit a smaller size 3 seconds in, as the
+client does when more cameras come on in the room. --then-pause pauses
+it 3 seconds in and goes on 2 seconds later, as the client does while
+nobody watches.
 */
 #include "play.h"
 #include "yap_video.h"
@@ -73,6 +82,22 @@ int list(yv_context *ctx) {
 		}
 	}
 
+	n = yv_list_cameras(ctx, nullptr, 0);
+	std::vector<yv_camera> cameras(n);
+	n = yv_list_cameras(ctx, cameras.data(), n);
+	printf("\ncameras:\n");
+	if (!yv_camera_allowed(ctx, false)) {
+		printf("  not allowed (the system's privacy settings)\n");
+	}
+	if (n == 0) {
+		printf("  none\n");
+	}
+	for (int i = 0; i < n; i++) {
+		const yv_camera &c = cameras[static_cast<size_t>(i)];
+		printf("  %s, up to %dx%d at %d fps%s\n    %s\n", c.name, c.max_width, c.max_height,
+		       c.max_fps, c.front ? ", front" : "", c.id);
+	}
+
 	n = yv_list_encoders(ctx, nullptr, 0);
 	std::vector<yv_encoder> encoders(n);
 	n = yv_list_encoders(ctx, encoders.data(), n);
@@ -94,10 +119,15 @@ void usage() {
 	        "                   [--once] [--dump picture.bmp] [--debug]\n"
 	        "       yv-loopback --share [--monitor ID | --window ID] [--encoder NAME]\n"
 	        "                   [--kbit N] [--fps N] [--max WxH] [--seconds S]\n"
-	        "                   [--dump picture.bmp] [--out stream] [--then-kbit N] [--debug]\n");
+	        "                   [--dump picture.bmp] [--out stream] [--then-kbit N] [--debug]\n"
+	        "       yv-loopback --camera [ID] [--encoder NAME] [--kbit N] [--fps N] [--max WxH]\n"
+	        "                   [--seconds S] [--dump picture.bmp] [--out stream]\n"
+	        "                   [--then-kbit N] [--then-max WxH] [--then-pause] [--debug]\n");
 }
 
 } // namespace
+
+namespace {
 
 yv_share_config share_config(yv_context *ctx, const Play_Options &opt) {
 	yv_share_config cfg{};
@@ -122,6 +152,50 @@ yv_share_config share_config(yv_context *ctx, const Play_Options &opt) {
 	cfg.max_height = opt.max_h;
 	cfg.cursor = true;
 	return cfg;
+}
+
+} // namespace
+
+yv_share *start_share(yv_context *ctx, const Play_Options &opt) {
+	if (!opt.camera) {
+		yv_share_config cfg = share_config(ctx, opt);
+		printf("sharing %#llx\n", static_cast<unsigned long long>(cfg.source));
+		return yv_share_start(ctx, &cfg);
+	}
+	yv_camera_config cfg{};
+	snprintf(cfg.camera, sizeof(cfg.camera), "%s", opt.camera_id);
+	snprintf(cfg.encoder, sizeof(cfg.encoder), "%s", opt.encoder);
+	cfg.fps = opt.fps;
+	cfg.kbit = opt.kbit;
+	cfg.max_width = opt.max_w;
+	cfg.max_height = opt.max_h;
+	printf("sharing the camera %s\n", opt.camera_id[0] ? opt.camera_id : "(the first)");
+	return yv_camera_start(ctx, &cfg);
+}
+
+void follow_then(yv_share *share, const Play_Options &opt, double seconds, bool &done) {
+	static bool resumed = false;
+	if (opt.then_pause && done && !resumed && seconds >= 5) {
+		resumed = true;
+		printf("going on\n");
+		yv_share_pause(share, false);
+	}
+	if (done || seconds < 3) {
+		return;
+	}
+	done = true;
+	if (opt.then_pause) {
+		printf("paused\n");
+		yv_share_pause(share, true);
+	}
+	if (opt.then_kbit) {
+		printf("bitrate now %u kbit/s\n", opt.then_kbit);
+		yv_share_set_bitrate(share, opt.then_kbit);
+	}
+	if (opt.then_w) {
+		printf("now at most %dx%d\n", opt.then_w, opt.then_h);
+		yv_share_configure(share, opt.fps, opt.then_w, opt.then_h, opt.then_kbit ? opt.then_kbit : opt.kbit);
+	}
 }
 
 const char *stream_extension(yv_codec codec) {
@@ -153,6 +227,16 @@ int main(int argc, char **argv) {
 			play_opt.path = argv[++i];
 		} else if (strcmp(argv[i], "--share") == 0) {
 			play_opt.share = true;
+		} else if (strcmp(argv[i], "--camera") == 0) {
+			play_opt.share = play_opt.camera = true;
+			if (more && strncmp(argv[i + 1], "--", 2) != 0) {
+				play_opt.camera_id = argv[++i];
+			}
+		} else if (strcmp(argv[i], "--then-max") == 0 && more) {
+			if (sscanf(argv[++i], "%dx%d", &play_opt.then_w, &play_opt.then_h) != 2) {
+				usage();
+				return 2;
+			}
 		} else if (strcmp(argv[i], "--monitor") == 0 && more) {
 			play_opt.kind = YV_SOURCE_MONITOR;
 			play_opt.source = strtoull(argv[++i], nullptr, 0);
@@ -178,6 +262,8 @@ int main(int argc, char **argv) {
 			play_opt.dump = argv[++i];
 		} else if (strcmp(argv[i], "--out") == 0 && more) {
 			play_opt.out = argv[++i];
+		} else if (strcmp(argv[i], "--then-pause") == 0) {
+			play_opt.then_pause = true;
 		} else if (strcmp(argv[i], "--then-kbit") == 0 && more) {
 			play_opt.then_kbit = static_cast<unsigned>(atoi(argv[++i]));
 		} else if (strcmp(argv[i], "--debug") == 0) {

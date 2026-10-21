@@ -174,6 +174,15 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 			sharing_mark(ui, ctx.last_rect, slot, id)
 			slot += 1
 		}
+		if user.camera {
+			mu.draw_icon(
+				ctx,
+				render.icon_id(.Camera),
+				end_of_row(ctx.last_rect, slot),
+				ctx.style.colors[.TEXT],
+			)
+			slot += 1
+		}
 		if speaking && ui.muted && !ui.settings.mute_app_audio_with_mic {
 			app_audio_mark(ctx, ctx.last_rect, slot, true)
 		}
@@ -219,6 +228,12 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		share_r = sharing_mark(ui, r, slot, id)
 		slot += 1
 	}
+	camera_r: mu.Rect
+	if user.camera {
+		camera_r = end_of_row(r, slot)
+		mu.draw_icon(ctx, render.icon_id(.Camera), camera_r, ctx.style.colors[.TEXT])
+		slot += 1
+	}
 	if speaking && user.muted {
 		app_audio_mark(ctx, r, slot, !u.muted)
 	}
@@ -230,6 +245,14 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		   (can_watch_screens(ui) || v.watching == id) &&
 		   inside(share_r, ctx.mouse_pos) {
 			watch(ui, 0 if v.watching == id else id)
+			return
+		}
+		// A click on the camera mark shows the cameras, where they can be seen.
+		if user.camera &&
+		   ctx.mouse_pressed_bits == {.LEFT} &&
+		   inside(camera_r, ctx.mouse_pos) &&
+		   video_docked(ui) {
+			ui.chat.tab = .Video
 			return
 		}
 		open_user_menu(ui, id, user.account)
@@ -379,6 +402,10 @@ user_menu :: proc(ui: ^UI) {
 	if can_call {
 		append(&widths, ICON_BUTTON)
 	}
+	can_video_call := can_call && camera_available(v)
+	if can_video_call {
+		append(&widths, ICON_BUTTON)
+	}
 	if talking_to {
 		append(&widths, ICON_BUTTON)
 	}
@@ -428,6 +455,10 @@ user_menu :: proc(ui: ^UI) {
 	}
 	if can_call && .SUBMIT in icon_button(ui, "call", .Phone, "Call") {
 		call_account(ui, account)
+		mu.get_current_container(ctx).open = false
+	}
+	if can_video_call && .SUBMIT in icon_button(ui, "video call", .Camera, "Video call") {
+		call_account(ui, account, video = true)
 		mu.get_current_container(ctx).open = false
 	}
 	if .SUBMIT in

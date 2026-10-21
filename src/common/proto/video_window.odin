@@ -35,6 +35,9 @@ VIDEO_WINDOW :: 8
 REORDER_WAIT :: 10 * time.Millisecond
 NACK_RETRY :: 80 * time.Millisecond
 TAIL_WAIT :: 20 * time.Millisecond
+// How long a reliable window waits for the rest of a frame when nothing later
+// has come either (video_window_nacks).
+RELIABLE_WAIT :: 1 * time.Second
 // The number of fragments a Nack can name.
 NACK_SPAN :: 64
 // The maximum number of Nacks a frame may send in one round, which is enough
@@ -46,10 +49,13 @@ MAX_NACKS_A_ROUND :: (MAX_VIDEO_FRAGMENTS + NACK_SPAN - 1) / NACK_SPAN
 // that it already passed on to us before:
 //
 //	client -> server  Nack  [kind][sharer u32][frame u32][first u16][missing u64]
+//	client -> server  Nack  [kind][sharer u32][frame u32][first u16][missing u64][stream u8]
 //
 // Bit i of `missing` is fragment first + i. The server sends those that it
-// still has (it keeps half a second's worth) as Video, like before.
+// still has (it keeps half a second's worth) as Video, like before. Only a
+// camera's Nack has the stream byte (see video.odin).
 NACK_SIZE :: 1 + 4 + 4 + 2 + 8
+NACK_CAMERA_SIZE :: NACK_SIZE + 1
 
 Video_Nack :: struct {
 	frame:   u32,
@@ -57,18 +63,30 @@ Video_Nack :: struct {
 	missing: u64,
 }
 
-encode_nack :: proc(out: ^[NACK_SIZE]u8, sharer: User_Num, n: Video_Nack) -> []u8 {
+encode_nack :: proc(
+	out: ^[NACK_CAMERA_SIZE]u8,
+	sharer: User_Num,
+	n: Video_Nack,
+	stream := Video_Stream.Screen,
+) -> []u8 {
 	out[0] = u8(Message_Kind.Nack)
 	endian.unchecked_put_u32le(out[1:], u32(sharer))
 	endian.unchecked_put_u32le(out[5:], n.frame)
 	endian.unchecked_put_u16le(out[9:], u16(n.first))
 	endian.unchecked_put_u64le(out[11:], n.missing)
-	return out[:]
+	return out[:put_stream(out[:], NACK_SIZE, stream)]
 }
 
 @(require_results)
-decode_nack :: proc(pt: []u8) -> (sharer: User_Num, n: Video_Nack, ok: bool) {
-	if len(pt) != NACK_SIZE {
+decode_nack :: proc(
+	pt: []u8,
+) -> (
+	sharer: User_Num,
+	n: Video_Nack,
+	stream: Video_Stream,
+	ok: bool,
+) {
+	if stream, ok = get_stream(pt, NACK_SIZE); !ok {
 		return
 	}
 	sharer = User_Num(endian.unchecked_get_u32le(pt[1:]))
@@ -77,39 +95,64 @@ decode_nack :: proc(pt: []u8) -> (sharer: User_Num, n: Video_Nack, ok: bool) {
 		first   = int(endian.unchecked_get_u16le(pt[9:])),
 		missing = endian.unchecked_get_u64le(pt[11:]),
 	}
-	return sharer, n, n.first < MAX_VIDEO_FRAGMENTS
+	ok = n.first < MAX_VIDEO_FRAGMENTS
+	return
 }
 
 @(private = "file")
 Window_Slot :: struct {
-	used:     bool,
-	frame:    u32,
-	ts:       u32,
-	key:      bool,
-	codec:    Video_Codec,
-	count:    int, // 0 while no fragment has arrived
-	received: int,
-	size:     int,
-	newest:   int, // the highest index that has arrived so far, -1 for none
-	have:     [MAX_VIDEO_FRAGMENTS]bool,
-	buf:      [dynamic]u8,
-	last_at:  time.Tick, // when its last fragment arrived
-	gap_at:   time.Tick, // when it was first seen to be missing something
-	rounds:   int, // the number of Nack rounds sent
-	nack_at:  time.Tick,
-	gave_up:  bool,
+	used:       bool,
+	frame:      u32,
+	ts:         u32,
+	key:        bool,
+	codec:      Video_Codec,
+	count:      int, // 0 while no fragment has arrived
+	received:   int,
+	size:       int,
+	newest:     int, // the highest index that has arrived so far, -1 for none
+	have:       [MAX_VIDEO_FRAGMENTS]bool,
+	buf:        [dynamic]u8,
+	last_at:    time.Tick, // when its last fragment arrived
+	gap_at:     time.Tick, // when it was first seen to be missing something
+	rounds:     int, // the number of Nack rounds sent
+	nack_at:    time.Tick,
+	gave_up:    bool,
+	gave_up_at: time.Tick,
+}
+
+// Video_Break says why a window went broken (for the log): a frame given up on,
+// or `pushed_out` frames pushed out of the window by newer ones.
+Video_Break :: struct {
+	frame:      u32,
+	pushed_out: int,
+	// The frame given up on: what of it had arrived, how many Nack rounds were
+	// sent for it, how long after its gap was first seen it was given up on,
+	// and how long after its last fragment (0 if none arrived).
+	key:        bool,
+	received:   int,
+	count:      int,
+	rounds:     int,
+	waited:     time.Duration,
+	idle:       time.Duration,
 }
 
 Video_Window :: struct {
-	slots:     [VIDEO_WINDOW]Window_Slot,
-	started:   bool,
-	next:      u32, // the next frame to hand out
-	newest:    u32, // the newest frame seen
-	broken:    bool,
+	slots:      [VIDEO_WINDOW]Window_Slot,
+	started:    bool,
+	next:       u32, // the next frame to hand out
+	newest:     u32, // the newest frame seen
+	broken:     bool,
+	// The fragments come over a link that loses nothing and keeps them in
+	// order (a WebSocket, see video_window_nacks).
+	reliable:   bool,
 	// For the log.
-	nacked:    int, // fragments that were requested again
-	recovered: int, // frames that arrived complete after being requested
-	given_up:  int, // frames that were given up on
+	nacked:     int, // fragments that were requested again
+	recovered:  int, // frames that arrived complete after being requested
+	given_up:   int, // frames that were given up on
+	// How often it went from decodable to broken, and why the last time
+	// (the client logs and clears it).
+	breaks:     int,
+	last_break: Video_Break,
 }
 
 video_window_reset :: proc(w: ^Video_Window) {
@@ -151,6 +194,18 @@ complete :: proc(s: ^Window_Slot) -> bool {
 	return s.count > 0 && s.received == s.count
 }
 
+// later_complete says whether a frame after `frame` is complete.
+@(private = "file")
+later_complete :: proc(w: ^Video_Window, frame: u32) -> bool {
+	for fr := frame + 1; fr != w.newest + 1; fr += 1 {
+		s := &w.slots[fr % VIDEO_WINDOW]
+		if s.used && s.frame == fr && complete(s) {
+			return true
+		}
+	}
+	return false
+}
+
 // video_window_add feeds in a fragment that arrived at `now`. Frames that it
 // completes are returned in order by video_window_pop.
 video_window_add :: proc(w: ^Video_Window, f: Video_Fragment, now: time.Tick) {
@@ -169,6 +224,13 @@ video_window_add :: proc(w: ^Video_Window, f: Video_Fragment, now: time.Tick) {
 				clear_slot(s)
 			}
 			w.given_up += 1
+		}
+		if !w.broken {
+			w.breaks += 1
+			w.last_break = {
+				frame      = w.next,
+				pushed_out = int(start - w.next),
+			}
 		}
 		w.next, w.broken = start, true
 	}
@@ -256,6 +318,22 @@ video_window_pop :: proc(w: ^Video_Window) -> (frame: Video_Frame, ok: bool) {
 				},
 				true
 		case s.gave_up:
+			if !w.broken {
+				w.breaks += 1
+				w.last_break = {
+					frame    = s.frame,
+					key      = s.key,
+					received = s.received,
+					count    = s.count,
+					rounds   = s.rounds,
+				}
+				if s.gap_at != {} {
+					w.last_break.waited = time.tick_diff(s.gap_at, s.gave_up_at)
+				}
+				if s.last_at != {} {
+					w.last_break.idle = time.tick_diff(s.last_at, s.gave_up_at)
+				}
+			}
 			w.next += 1
 			w.broken = true
 			clear_slot(s)
@@ -270,6 +348,15 @@ video_window_pop :: proc(w: ^Video_Window) -> (frame: Video_Frame, ok: bool) {
 // the temp allocator. It also gives up on frames that the requests didn't
 // recover. With `asking` false nothing is requested, and whatever would have
 // been is given up on immediately.
+//
+// A reliable window (a browser's, whose video comes over a WebSocket) asks for
+// nothing: what hasn't arrived is only late, however long the gap, and the
+// timings above, which are made for UDP, would take a jittery or distant path
+// for loss. Asking again would only send it twice, and giving up would throw
+// away a frame that was still coming. It gives up on a frame only once a later
+// frame is complete (what was missing would have come before it: it was lost
+// on the way to the server, or the server dropped it) or nothing came for
+// RELIABLE_WAIT.
 video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []Video_Nack {
 	out := make([dynamic]Video_Nack, context.temp_allocator)
 	if !w.started {
@@ -278,6 +365,16 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 	for fr := w.next; fr != w.newest + 1; fr += 1 {
 		s := &w.slots[fr % VIDEO_WINDOW]
 		if !s.used || s.frame != fr || s.gave_up || complete(s) {
+			continue
+		}
+		if w.reliable {
+			if s.gap_at == {} {
+				s.gap_at = now
+			}
+			waited := s.last_at if s.last_at != {} else s.gap_at
+			if later_complete(w, fr) || time.tick_diff(waited, now) >= RELIABLE_WAIT {
+				give_up(w, s, now)
+			}
 			continue
 		}
 		// How far into the frame fragments can be considered missing.
@@ -309,8 +406,7 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 				continue
 			}
 			if !asking {
-				s.gave_up = true
-				w.given_up += 1
+				give_up(w, s, now)
 				continue
 			}
 		case 1:
@@ -319,8 +415,7 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 			}
 		case:
 			if time.tick_diff(s.nack_at, now) >= NACK_RETRY {
-				s.gave_up = true
-				w.given_up += 1
+				give_up(w, s, now)
 			}
 			continue
 		}
@@ -348,4 +443,10 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 		}
 	}
 	return out[:]
+}
+
+@(private = "file")
+give_up :: proc(w: ^Video_Window, s: ^Window_Slot, now: time.Tick) {
+	s.gave_up, s.gave_up_at = true, now
+	w.given_up += 1
 }

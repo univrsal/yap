@@ -76,9 +76,12 @@ static_assert(LIBAVCODEC_VERSION_MAJOR == 62 || LIBAVCODEC_VERSION_MAJOR == 63,
 	X(av_hwframe_get_buffer)                                                                       \
 	X(av_hwframe_map)                                                                              \
 	X(av_hwframe_transfer_data)                                                                    \
+	X(av_image_fill_arrays)                                                                        \
+	X(av_image_get_linesize)                                                                       \
 	X(av_log_format_line)                                                                          \
 	X(av_log_set_callback)                                                                         \
 	X(av_mallocz)                                                                                  \
+	X(av_pix_fmt_count_planes)                                                                     \
 	X(av_pix_fmt_desc_get)                                                                         \
 	X(av_strerror)                                                                                 \
 	X(avutil_version)                                                                              \
@@ -86,7 +89,9 @@ static_assert(LIBAVCODEC_VERSION_MAJOR == 62 || LIBAVCODEC_VERSION_MAJOR == 63,
 	X(av_packet_free)                                                                              \
 	X(av_packet_unref)                                                                             \
 	X(avcodec_alloc_context3)                                                                      \
+	X(avcodec_find_decoder)                                                                        \
 	X(avcodec_find_decoder_by_name)                                                                \
+	X(avcodec_find_encoder)                                                                        \
 	X(avcodec_find_encoder_by_name)                                                                \
 	X(avcodec_free_context)                                                                        \
 	X(avcodec_get_hw_config)                                                                       \
@@ -140,9 +145,12 @@ extern Ffmpeg ff;
 #define av_hwframe_get_buffer ::yv::ff.av_hwframe_get_buffer
 #define av_hwframe_map ::yv::ff.av_hwframe_map
 #define av_hwframe_transfer_data ::yv::ff.av_hwframe_transfer_data
+#define av_image_fill_arrays ::yv::ff.av_image_fill_arrays
+#define av_image_get_linesize ::yv::ff.av_image_get_linesize
 #define av_log_format_line ::yv::ff.av_log_format_line
 #define av_log_set_callback ::yv::ff.av_log_set_callback
 #define av_mallocz ::yv::ff.av_mallocz
+#define av_pix_fmt_count_planes ::yv::ff.av_pix_fmt_count_planes
 #define av_pix_fmt_desc_get ::yv::ff.av_pix_fmt_desc_get
 #define av_strerror ::yv::ff.av_strerror
 #define avutil_version ::yv::ff.avutil_version
@@ -150,7 +158,9 @@ extern Ffmpeg ff;
 #define av_packet_free ::yv::ff.av_packet_free
 #define av_packet_unref ::yv::ff.av_packet_unref
 #define avcodec_alloc_context3 ::yv::ff.avcodec_alloc_context3
+#define avcodec_find_decoder ::yv::ff.avcodec_find_decoder
 #define avcodec_find_decoder_by_name ::yv::ff.avcodec_find_decoder_by_name
+#define avcodec_find_encoder ::yv::ff.avcodec_find_encoder
 #define avcodec_find_encoder_by_name ::yv::ff.avcodec_find_encoder_by_name
 #define avcodec_free_context ::yv::ff.avcodec_free_context
 #define avcodec_get_hw_config ::yv::ff.avcodec_get_hw_config

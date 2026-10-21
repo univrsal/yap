@@ -46,6 +46,7 @@ View_User :: struct {
 	muted:    bool,
 	deafened: bool,
 	sharing:  bool, // their screen can be watched (video.odin)
+	camera:   bool, // their camera is on (video.odin)
 	room:     proto.Room, // the room their voice is in; 0 for none
 	// Whether they are talking in a voice room or in a call, as the server
 	// tells everyone (unless they chose not to show it), even for a room
@@ -173,6 +174,12 @@ View :: struct {
 	video_limit_kbit:    int,
 	// The media link is up, which sharing and watching need (video.odin).
 	video_link:          bool,
+	// How many cameras the server allows in a channel's room (0 for none, or
+	// a server that doesn't know about cameras), how much bandwidth one may
+	// use (kbit/s), and whether it didn't take ours (video.odin).
+	max_cameras:         int,
+	camera_limit_kbit:   int,
+	camera_refused:      bool,
 	// How the pings to the server are doing (ping.odin).
 	connection:          Connection_Stats,
 	// Our DMs (buddies.odin): who each is with, and what is unread there.
@@ -270,7 +277,7 @@ view_reset :: proc(v: ^View) {
 	v.server_key = {}
 	v.viewing, v.my_room, v.voice_pending = 0, 0, false
 	view_clear_browse(v)
-	v.watching, v.video_link = 0, false
+	v.watching, v.video_link, v.camera_refused = 0, false, false
 	v.connection = {}
 	clear(&v.speaking)
 	view_clear_timelines(v)
@@ -328,7 +335,7 @@ publish_logged_out :: proc(c: ^Voice_Client) {
 	v.my_num, v.me, v.permissions = 0, 0, {}
 	v.viewing, v.my_room, v.voice_pending = 0, 0, false
 	view_clear_browse(v)
-	v.watching, v.video_link = 0, false
+	v.watching, v.video_link, v.camera_refused = 0, false, false
 	clear(&v.speaking)
 }
 
@@ -656,6 +663,7 @@ publish_channels :: proc(c: ^Voice_Client) {
 			muted    = .Muted in u.flags,
 			deafened = .Deafened in u.flags,
 			sharing  = .Sharing in u.flags,
+			camera   = .Camera in u.flags,
 			room     = u.room,
 			in_voice = .In_Voice in u.flags,
 			in_call  = .In_Call in u.flags,
@@ -717,7 +725,7 @@ publish_watching :: proc(c: ^Voice_Client) {
 		return
 	}
 	view_write(v)
-	v.watching = c.video.watching
+	v.watching = c.video.ins[0].key.user
 }
 
 publish_connection :: proc(c: ^Voice_Client) {

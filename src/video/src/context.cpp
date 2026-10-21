@@ -1,5 +1,7 @@
 // The context, logging, and the calls that just ask the platform parts.
 #include "internal.h"
+#include "output.h"
+#include "pipeline.h"
 
 #include <algorithm>
 #include <atomic>
@@ -202,6 +204,25 @@ YV_API void yv_set_gpu(yv_context *ctx, const yv_gpu *gpu) {
 	for (yv_view *v : ctx->views) {
 		yv::view_set_gpu(v, &ctx->gpu, ctx->gpu_luid);
 	}
+	for (yv::Output *o : ctx->outputs) {
+		o->set_gpu(&ctx->gpu, ctx->gpu_luid);
+	}
+}
+
+YV_API int yv_list_cameras(yv_context *ctx, yv_camera *out, int max) {
+	if (!ctx) {
+		return 0;
+	}
+	std::vector<yv::Camera_Info> all = yv::list_cameras();
+	int n = std::min(static_cast<int>(all.size()), max);
+	for (int i = 0; out && i < n; i++) {
+		out[i] = all[static_cast<size_t>(i)].camera;
+	}
+	return static_cast<int>(all.size());
+}
+
+YV_API bool yv_camera_allowed(yv_context *ctx, bool ask) {
+	return ctx && yv::camera_allowed(ask, nullptr);
 }
 
 YV_API int yv_list_sources(yv_context *ctx, yv_source *out, int max) {

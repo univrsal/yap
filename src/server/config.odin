@@ -72,7 +72,9 @@ import "common:proto"
 //			"enabled": true,
 //			"port": 0,
 //			"max_kbit": 20000,
-//			"cache_ms": 500
+//			"cache_ms": 500,
+//			"max_cameras": 9,
+//			"camera_max_kbit": 4000
 //		},
 //		"push": {
 //			"enabled": true,
@@ -204,7 +206,12 @@ import "common:proto"
 //            sharer's video is kept so that what viewers lost can be sent
 //            again (500 if left out). -1 keeps none. This costs about that
 //            fraction of a second of `max_kbit` in memory per sharer, at most
-//            2.5 MB.
+//            2.5 MB. `max_cameras` is how many cameras may be on at once in a
+//            channel's voice (9 if left out, at most 16, 0 for no cameras), and
+//            `camera_max_kbit` the maximum bitrate of one camera (4000 if left
+//            out). Each camera goes to everyone watching it in the channel, so
+//            a full channel costs about max_cameras x watchers x what each
+//            camera sends (450 kbit/s at nine).
 // push       Web Push (see push.odin): notifying browsers that enabled it about
 //            messages while the client isn't open, through their push
 //            services (Google's, Mozilla's, Apple's). This needs libcurl and
@@ -263,8 +270,10 @@ Config :: struct {
 Video_Config :: struct {
 	enabled:  bool,
 	port:     int,
-	max_kbit: int,
-	cache_ms: int,
+	max_kbit:        int,
+	cache_ms:        int,
+	max_cameras:     int,
+	camera_max_kbit: int,
 }
 
 Registration_Config :: struct {
@@ -357,7 +366,7 @@ default_config :: proc() -> Config {
 		api = {max_connections = 64, rate = 10, burst = 30},
 		attachments = {max_megabytes = 100, rate_kb = 2048, daily_megabytes = 4096},
 		email = {check_auth_results = true},
-		video = {enabled = true, max_kbit = 20000},
+		video = {enabled = true, max_kbit = 20000, max_cameras = 9, camera_max_kbit = 4000},
 		push = {enabled = true},
 	}
 }
@@ -602,9 +611,22 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 	case video.cache_ms < -1 || video.cache_ms > 5000:
 		log.errorf("%s: video.cache_ms has to be between -1 (none) and 5000", path)
 		return
+	case video.max_cameras < 0 || video.max_cameras > proto.MAX_CAMERAS:
+		log.errorf(
+			"%s: video.max_cameras has to be between 0 (none) and %d",
+			path,
+			proto.MAX_CAMERAS,
+		)
+		return
+	case video.camera_max_kbit < 0:
+		log.errorf("%s: video.camera_max_kbit can't be negative", path)
+		return
 	}
 	if video.max_kbit == 0 {
 		video.max_kbit = 20000
+	}
+	if video.camera_max_kbit == 0 {
+		video.camera_max_kbit = 4000
 	}
 	switch video.cache_ms {
 	case 0:

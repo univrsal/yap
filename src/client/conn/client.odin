@@ -727,19 +727,14 @@ log_stats :: proc(c: ^Voice_Client) {
 			c.video.bytes_in / 1000,
 		)
 		c.video.bytes_out, c.video.bytes_in = 0, 0
-		if w := c.video.window; w != nil {
-			counts := [3]int{w.nacked, w.recovered, w.given_up}
-			d := counts - c.video.logged
-			c.video.logged = counts
-			if d[0] > 0 || d[2] > 0 {
-				fmt.sbprintf(
-					&b,
-					" (%d fragments asked for again, %d frames saved, %d lost)",
-					d[0],
-					d[1],
-					d[2],
-				)
-			}
+		if d := video_log_counts(c); d[0] > 0 || d[2] > 0 {
+			fmt.sbprintf(
+				&b,
+				" (%d fragments asked for again, %d frames saved, %d lost)",
+				d[0],
+				d[1],
+				d[2],
+			)
 		}
 	}
 	log.debug(strings.to_string(b))

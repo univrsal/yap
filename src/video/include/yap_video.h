@@ -1,6 +1,7 @@
 /*
-yap_video: capture, encoding and decoding for screen sharing in the
-native client (misc/hq-share/README.md). The client loads it at runtime
+yap_video: capture, encoding and decoding for screen sharing and
+cameras in the native client (misc/hq-share/README.md,
+misc/video-chat/README.md). The client loads it at runtime
 if it's there; nothing here knows about networks or yap's protocol:
 encoded frames go out, encoded frames come in.
 
@@ -30,7 +31,7 @@ extern "C" {
 #endif
 
 // What a client was built against. yv_create refuses any other.
-#define YV_API_VERSION 9
+#define YV_API_VERSION 11
 
 typedef struct yv_context yv_context;
 
@@ -309,8 +310,97 @@ YV_API void yv_share_set_codecs(yv_share *share, uint32_t codecs);
 YV_API yv_share_state yv_share_get_state(yv_share *share);
 // Why it failed, or "" ; valid until yv_share_stop.
 YV_API const char *yv_share_error(yv_share *share);
-// Stops the share and frees it.
+/*
+Stops the share and frees it. A camera's share that has shown its
+preview (yv_share_preview) lets go of it on the client's device, so it
+is stopped from the thread of yv_set_gpu, after the client has let go
+of the preview's texture.
+*/
 YV_API void yv_share_stop(yv_share *share);
+
+/*
+Cameras (misc/video-chat/README.md): a camera is a share like a screen,
+started from a camera instead of a monitor or window. Everything above
+for shares holds for it too. Its pictures are converted and scaled on
+the CPU, so the encoder takes them from memory.
+
+On Windows cameras come through DirectShow, from dshowcapture.dll next
+to the library (libdshowcapture, LGPL); without it there are none. That
+includes virtual cameras such as OBS's, which Media Foundation doesn't
+see. Linux and macOS have none yet.
+*/
+#define YV_CAMERA_ID_SIZE 512
+
+typedef struct yv_camera {
+	char id[YV_CAMERA_ID_SIZE]; // what to pass back: a device path, or the name of one without
+	char name[YV_NAME_SIZE];    // "Logitech C920"
+	// Its biggest picture, and the most frames a second it takes at that size.
+	int32_t max_width, max_height, max_fps;
+	bool front; // a phone's or laptop's own camera, where that's known
+} yv_camera;
+
+/*
+yv_list_cameras fills `out` with up to `max` cameras and says how many
+there are in all. It asks the system each time, which can take a
+moment, so not from a thread that draws. They're listed even while
+they aren't allowed (yv_camera_allowed); starting one then fails,
+saying where to allow it.
+*/
+YV_API int yv_list_cameras(yv_context *ctx, yv_camera *out, int max);
+
+/*
+Whether this process may use a camera. On Windows that's the camera
+switches in Settings (Privacy & security, Camera: for the whole
+computer, and for desktop apps), which are only read; `ask` changes
+nothing there. On macOS it's true until the user said no; `ask` shows
+macOS's prompt if they haven't answered yet, and waits for the answer
+(starting a camera asks too). Elsewhere always true.
+*/
+YV_API bool yv_camera_allowed(yv_context *ctx, bool ask);
+
+typedef struct yv_camera_config {
+	char camera[YV_CAMERA_ID_SIZE]; // yv_camera.id, or "" for the first there is
+	char encoder[64];               // as yv_share_config's
+	int32_t fps;                    // at most this many frames a second
+	int32_t max_width, max_height;  // scaled down to fit, keeping its shape; 0 for no limit
+	uint32_t kbit;
+	uint32_t codecs; // as yv_share_config's
+} yv_camera_config;
+
+/*
+yv_camera_start opens the camera and shares it: NULL only for nonsense
+in `config`. The camera is opened at the mode that best covers the
+config's size and frame rate, but at least 1280x720 where it has that,
+so that yv_share_configure can go up again later without opening it
+anew. A camera that another program has (and doesn't share) fails the
+share, saying so (yv_share_error), as does one that's unplugged or
+stops sending pictures.
+*/
+YV_API yv_share *yv_camera_start(yv_context *ctx, const yv_camera_config *config);
+
+/*
+yv_share_configure has a share go on at another size, frame rate and
+bitrate, as yv_share_config's fields: when the number of cameras in the
+room changes. It costs a keyframe. The bitrate is then also what
+yv_share_set_bitrate's changes come back to. Any thread.
+*/
+YV_API void yv_share_configure(yv_share *share, int32_t fps, int32_t max_width, int32_t max_height,
+                               uint32_t kbit);
+
+/*
+yv_share_pause stops encoding while nobody watches (`paused`), and goes on
+from a keyframe when it's false again. The capture keeps going, and a
+camera's preview with it. Any thread.
+*/
+YV_API void yv_share_pause(yv_share *share, bool paused);
+
+/*
+yv_share_preview is a camera's newest picture as it's encoded (not
+mirrored), for the self view, as yv_view_present describes it: false
+until there's one, and always for a screen. From the thread of
+yv_set_gpu.
+*/
+YV_API bool yv_share_preview(yv_share *share, yv_picture *out);
 
 // The clock pts_us counts on: microseconds, steady, from some point.
 YV_API uint64_t yv_clock_us(void);

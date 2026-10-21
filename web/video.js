@@ -1,40 +1,59 @@
 /*
-Screen sharing, the browser's half (emcc --pre-js, see web/build.sh): it
-captures the screen and encodes it, and decodes and shows what somebody
-else shares. The client carries the encoded frames (src/client/video.odin)
-and reaches this through Module.yapVideo (web/shell.c).
+Screen sharing and the camera, the browser's half (emcc --pre-js, see
+web/build.sh): it captures the screen and the camera and encodes them, and
+decodes and shows what others share. The client carries the encoded frames
+(src/client/conn/video.odin) and reaches this through Module.yapVideo
+(web/shell.c). Streams are numbered as in src/common/proto/video.odin: 0 the
+screen, 1 the camera.
 
-Sharing: getDisplayMedia's track is scaled to fit the size the client
-asks for (its share settings), sampled at its frame rate and encoded as
-H.264 at its bitrate (Annex B, so every keyframe carries what the decoder
-needs to start). The client lowers the bitrate when its viewers can't keep
-up (setBitrate), which starts the encoder again at a keyframe. Encoded frames wait in a queue until the client
-pulls them. The frames come from a MediaStreamTrackProcessor where there
-is one, otherwise from a <video> playing the stream, sampled from a
+Sharing: getDisplayMedia's track (the screen) or getUserMedia's (the
+camera) is scaled to fit the size the client asks for, sampled at its
+frame rate and encoded as H.264 at its bitrate (Annex B, so every keyframe
+carries what the decoder needs to start). Each has a capture of its own
+(screen, camera) with its own encoder. The client lowers the bitrate when
+its viewers can't keep up (setBitrate), which the encoder takes up from its
+next frame without a keyframe. An encoder that makes more than it's asked
+for is asked for less (correctRate). Encoded frames wait in a queue until the
+client pulls them. The frames come from a MediaStreamTrackProcessor where
+there is one, otherwise from a <video> playing the stream, sampled from a
 worker's timer - either keeps going when this tab is hidden, which it
-usually is while another tab is being shared.
+usually is while another tab is being shared. The camera's newest frame, as
+it is encoded, is also kept for the self view (takePreview); it isn't
+mirrored here.
 
-Where the browser shares audio with the picture (Chromium: a tab's, or on
+Where the browser shares audio with the screen (Chromium: a tab's, or on
 Windows the whole system's along with a screen), an AudioWorklet takes it at
 48 kHz stereo and it waits in a queue until the client pulls it, to send
 mixed into our voice like a shared application's (src/client/conn/video_web.odin).
 restrictOwnAudio leaves out what this page plays, so nobody hears
 themselves back.
 
-Watching: frames go to a VideoDecoder - H.264, and HEVC and AV1 where
-the browser takes them (decodable, which the client tells the others so
-their shares keep to it) - and the newest decoded one waits
-until the client draws it, which it does in its own canvas as a texture
-(takeFrame, yap_video_upload in web/shell.c) - older ones are let go
-unseen. A decoder that fails says so through takeError, and the client
-asks for a new keyframe. Fullscreen is the whole page's; the client then
-shows nothing but the picture.
+Watching: each stream watched (a sharer's screen or camera) has a
+VideoDecoder of its own - H.264, and HEVC and AV1 where the browser takes
+them (decodable, which the client tells the others so their shares keep to
+it) - and its newest decoded frame waits until the client draws it, which it
+does in its own canvas as a texture (takeFrame, yap_video_upload in
+web/shell.c) - older ones are let go unseen. A decoder that fails says so
+through takeError, and the client asks for a new keyframe. Fullscreen is the
+whole page's; the client then shows nothing but the picture.
 
 Neither needs the other: a browser with VideoDecoder but no VideoEncoder
 or getDisplayMedia (a phone) can still watch.
 */
 (() => {
-	const KEY_INTERVAL_MS = 5000;
+	// As the desktop's (KEY_SECONDS in src/video/src/share.cpp). A browser's
+	// keyframes aren't held to a size, and each takes a while to go out at
+	// the client's pace, holding up what follows; a viewer that needs one
+	// sooner asks for it.
+	const KEY_INTERVAL_MS = 10000;
+	// How often what the encoder makes is compared with its bitrate, how far
+	// over or under that it may be before it's asked for less or more, and
+	// the least it may be asked for, as a fraction of the bitrate
+	// (correctRate).
+	const CORRECT_MS = 2000;
+	const CORRECT_OVER = 1.1;
+	const CORRECT_UNDER = 0.8;
+	const CORRECT_MIN = 0.25;
 	// Frames the client hasn't pulled; more means it isn't running.
 	const MAX_QUEUED = 30;
 	// Frames waiting in the decoder; more means it can't keep up.
@@ -68,9 +87,11 @@ or getDisplayMedia (a phone) can still watch.
 	// What the client's Share_State says (src/client/video_web.odin).
 	const OFF = 0, STARTING = 1, LIVE = 2, FAILED = 3;
 
+	const canEncode = () => !!(window.VideoEncoder && window.VideoFrame);
 	const canShare = () =>
-		!!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia &&
-			window.VideoEncoder && window.VideoFrame);
+		!!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia && canEncode());
+	const canCamera = () =>
+		!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && canEncode());
 	const canWatch = () => !!(window.VideoDecoder && window.EncodedVideoChunk);
 
 	// What can be watched, as bits (1 << codec); H.264 always, the others
@@ -86,7 +107,9 @@ or getDisplayMedia (a phone) can still watch.
 
 	/* ---- sharing ---- */
 
-	const share = {
+	// newCapture makes what a capture keeps: the screen's, or the camera's.
+	const newCapture = (camera) => ({
+		camera,
 		state: OFF,
 		generation: 0, // bumped by stop, so a start still underway knows to give up
 		stream: null,
@@ -107,43 +130,208 @@ or getDisplayMedia (a phone) can still watch.
 		lastFrame: -Infinity,
 		// What the client asked for (start): frames a second, the bitrate
 		// adapting never goes above (bits a second), and the largest size
-		// (0 keeps the screen's own). `bitrate` is what it encodes at now.
+		// (0 keeps the source's own). `bitrate` is what it encodes at now.
 		fps: 30,
 		maxBitrate: 0,
 		bitrate: 0,
+		// "constant" where the browser encodes at a constant bitrate
+		// (pickCodec), else "variable".
+		bitrateMode: "variable",
+		// What the encoder is asked for as a fraction of `bitrate`, and what
+		// it made since `outSince` (correctRate).
+		factor: 1,
+		outBytes: 0,
+		outSince: 0,
 		maxWidth: 0,
 		maxHeight: 0,
-		audio: null, // { context, source, node } while audio is shared
+		audio: null, // { context, source, node } while audio is shared (the screen's)
 		audioQueue: [], // Float32Arrays, interleaved stereo
 		audioQueued: 0, // samples in audioQueue
-	};
+		preview: null, // the camera's newest frame, not yet drawn (takePreview)
+		paused: false, // nobody watches: frames are taken for the preview only (pauseCamera)
+	});
+	const screen = newCapture(false);
+	const camera = newCapture(true);
+	// By stream number.
+	const captures = [screen, camera];
+	const captureOf = (stream) => captures[stream] || screen;
 
-	async function start(fps, kbit, maxWidth, maxHeight) {
-		if (share.state === STARTING || share.state === LIVE) return;
-		Object.assign(share, {
+	// start shares the screen, asking the browser's picker what.
+	function start(fps, kbit, maxWidth, maxHeight) {
+		if (!canShare()) {
+			screen.state = FAILED;
+			return;
+		}
+		begin(screen, fps, kbit, maxWidth, maxHeight, () => displayMedia());
+	}
+
+	// startCamera turns on the camera `device` (a deviceId; "" for the
+	// browser's choice, a phone's front camera).
+	function startCamera(fps, kbit, maxWidth, maxHeight, device) {
+		if (!canCamera()) {
+			camera.state = FAILED;
+			return;
+		}
+		// The settings' preview of the same camera becomes it, without asking
+		// the browser again.
+		begin(camera, fps, kbit, maxWidth, maxHeight, () => takeLook(device) || userMedia(device));
+	}
+
+	/* ---- the settings' camera list and preview ---- */
+
+	// The cameras as the browser last listed them: { id, name }. Before the
+	// page has been allowed a camera, browsers give neither ids nor names.
+	let cameraList = [];
+	function refreshCameras() {
+		if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+		navigator.mediaDevices.enumerateDevices()
+			.then((devices) => {
+				cameraList = devices
+					.filter((d) => d.kind === "videoinput")
+					.map((d) => ({ id: d.deviceId || "", name: d.label || "" }));
+			})
+			.catch(() => {});
+	}
+	if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+		navigator.mediaDevices.addEventListener("devicechange", refreshCameras);
+	}
+	refreshCameras();
+
+	/*
+	The preview the settings show while our camera is off: the camera
+	`device` opened but not encoded, its frames put where the camera's own
+	go (camera.preview, takePreview). Turning the camera on takes its stream
+	(takeLook).
+	*/
+	const look = { state: OFF, device: "", stream: null, reader: null, video: null, ticker: null, generation: 0 };
+
+	async function startLook(device, maxWidth, maxHeight) {
+		if (!canCamera() || camera.state === STARTING || camera.state === LIVE) return;
+		// One that failed isn't tried again (the browser would ask again) until
+		// another camera is picked or the preview is let go of.
+		if (look.state !== OFF && look.device === device) return;
+		stopLook();
+		Object.assign(look, { state: STARTING, device });
+		Object.assign(camera, { maxWidth, maxHeight });
+		const generation = ++look.generation;
+		const current = () => generation === look.generation;
+		let stream;
+		try {
+			stream = await userMedia(device);
+		} catch (e) {
+			if (current()) {
+				console.warn("yap: no camera to preview:", e);
+				look.state = FAILED;
+			}
+			return;
+		}
+		if (!current()) {
+			stream.getTracks().forEach((t) => t.stop());
+			return;
+		}
+		// Names come once a camera has been allowed.
+		refreshCameras();
+		look.stream = stream;
+		const track = stream.getVideoTracks()[0];
+		const keep = (frame) => {
+			if (camera.state === LIVE) return;
+			if (camera.preview) camera.preview.close();
+			camera.preview = frame;
+		};
+		if (track && typeof MediaStreamTrackProcessor === "function") {
+			const reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+			look.reader = reader;
+			(async () => {
+				for (;;) {
+					let result;
+					try {
+						result = await reader.read();
+					} catch (e) {
+						break;
+					}
+					if (result.done) break;
+					if (current()) keep(result.value);
+					else result.value.close();
+				}
+			})();
+		} else if (track) {
+			const video = document.createElement("video");
+			video.muted = true;
+			video.playsInline = true;
+			video.srcObject = stream;
+			video.play().catch(() => {});
+			look.video = video;
+			look.ticker = ticker(1000 / 30, () => {
+				if (video.readyState >= 2) {
+					try {
+						keep(new VideoFrame(video, { timestamp: Math.round(performance.now() * 1000) }));
+					} catch (e) {}
+				}
+			});
+		}
+		look.state = LIVE;
+	}
+
+	// detachLook stops reading the preview's frames; its stream is left to
+	// the caller.
+	function detachLook() {
+		look.generation++;
+		if (look.reader) look.reader.cancel().catch(() => {});
+		if (look.ticker) look.ticker.stop();
+		if (look.video) look.video.srcObject = null;
+		const stream = look.stream;
+		Object.assign(look, { state: OFF, device: "", stream: null, reader: null, video: null, ticker: null });
+		return stream;
+	}
+
+	function stopLook() {
+		const stream = detachLook();
+		if (stream) stream.getTracks().forEach((t) => t.stop());
+		if (camera.state !== LIVE && camera.preview) {
+			camera.preview.close();
+			camera.preview = null;
+		}
+	}
+
+	// takeLook hands over the preview's stream if it is of `device`, for the
+	// camera to send; null otherwise (and the preview is let go of).
+	function takeLook(device) {
+		if (look.state === LIVE && look.device === device && look.stream) {
+			// Clones, since letting go of the preview's reader may end its
+			// tracks; the camera stays open in between, without asking again.
+			const taken = new MediaStream(look.stream.getVideoTracks().map((t) => t.clone()));
+			const stream = detachLook();
+			stream.getTracks().forEach((t) => t.stop());
+			return Promise.resolve(taken);
+		}
+		stopLook();
+		return null;
+	}
+
+	async function begin(s, fps, kbit, maxWidth, maxHeight, open) {
+		if (s.state === STARTING || s.state === LIVE) return;
+		Object.assign(s, {
 			fps: Math.max(1, fps),
 			maxBitrate: kbit * 1000,
 			bitrate: kbit * 1000,
 			maxWidth,
 			maxHeight,
+			factor: 1,
 		});
-		if (!canShare()) {
-			share.state = FAILED;
-			return;
-		}
-		share.state = STARTING;
-		const generation = ++share.generation;
-		const current = () => generation === share.generation;
+		s.state = STARTING;
+		const generation = ++s.generation;
+		const current = () => generation === s.generation;
 
 		let stream;
 		try {
-			stream = await displayMedia();
+			stream = await open();
 		} catch (e) {
 			// Cancelling the browser's picker is a NotAllowedError, and no
 			// failure; neither is stop while waiting for a gesture (AbortError).
+			// A camera that isn't allowed is one.
 			if (current()) {
-				console.warn("yap: nothing to share:", e);
-				share.state = e && e.name === "NotAllowedError" ? OFF : FAILED;
+				console.warn("yap: nothing to " + (s.camera ? "show:" : "share:"), e);
+				s.state = e && e.name === "NotAllowedError" && !s.camera ? OFF : FAILED;
 			}
 			return;
 		}
@@ -151,49 +339,82 @@ or getDisplayMedia (a phone) can still watch.
 		let codec = null;
 		if (track) {
 			const { width = 1920, height = 1080 } = track.getSettings();
-			codec = await pickCodec(...fit(width, height));
+			codec = await pickCodec(s, ...fit(s, width, height));
 		}
 		if (!current() || !codec) {
 			stream.getTracks().forEach((t) => t.stop());
 			if (current()) {
 				console.warn("yap: this browser can't encode H.264");
-				share.state = FAILED;
+				s.state = FAILED;
 			}
 			return;
 		}
 
-		// A screen is text and edges more than motion.
-		try { track.contentHint = "detail"; } catch (e) {}
-		track.addEventListener("ended", () => { if (current()) stop(OFF); });
-		share.stream = stream;
-		share.codec = codec;
-		share.wantKey = true;
-		share.awaitKey = false;
-		share.lastFrame = -Infinity;
+		// A screen is text and edges more than motion, a camera the other
+		// way round.
+		try { track.contentHint = s.camera ? "motion" : "detail"; } catch (e) {}
+		track.addEventListener("ended", () => { if (current()) stop(s, OFF); });
+		s.stream = stream;
+		s.codec = codec;
+		s.wantKey = true;
+		s.awaitKey = false;
+		s.lastFrame = -Infinity;
 		if (typeof OffscreenCanvas === "function") {
-			share.canvas = new OffscreenCanvas(2, 2);
+			s.canvas = new OffscreenCanvas(2, 2);
 		} else {
-			share.canvas = document.createElement("canvas");
+			s.canvas = document.createElement("canvas");
 		}
-		share.context = share.canvas.getContext("2d", { alpha: false });
+		s.context = s.canvas.getContext("2d", { alpha: false });
 
 		if (typeof MediaStreamTrackProcessor === "function") {
-			share.reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
-			pump(share.reader, current);
+			s.reader = new MediaStreamTrackProcessor({ track }).readable.getReader();
+			pump(s, s.reader, current);
 		} else {
 			const video = document.createElement("video");
 			video.muted = true;
 			video.playsInline = true;
 			video.srcObject = stream;
 			video.play().catch((e) => console.warn("yap: can't play the capture:", e));
-			share.video = video;
-			share.ticker = ticker(1000 / share.fps, () => {
-				if (video.readyState >= 2) capture(video, video.videoWidth, video.videoHeight);
+			s.video = video;
+			s.ticker = ticker(1000 / s.fps, () => {
+				if (video.readyState >= 2) capture(s, video, video.videoWidth, video.videoHeight);
 			});
 		}
+		console.debug(
+			`yap: ${s.camera ? "camera" : "screen"} captured through ` +
+			(s.reader ? "a MediaStreamTrackProcessor" : "a <video> sampled by a timer"),
+		);
 		const audioTrack = stream.getAudioTracks()[0];
-		if (audioTrack) startAudio(audioTrack, current);
-		share.state = LIVE;
+		if (audioTrack && !s.camera) startAudio(audioTrack, current);
+		s.state = LIVE;
+	}
+
+	// userMedia asks for the camera at 720p (or as big as the client asked for,
+	// if bigger), so that it can be sent bigger again when the room has fewer
+	// cameras (configureCamera): what is sent is scaled down from it.
+	function userMedia(device) {
+		const video = {
+			frameRate: { ideal: 30 },
+			width: { ideal: Math.max(camera.maxWidth, 1280) },
+			height: { ideal: Math.max(camera.maxHeight, 720) },
+		};
+		if (device) video.deviceId = { exact: device };
+		else video.facingMode = "user";
+		return navigator.mediaDevices.getUserMedia({ video, audio: false });
+	}
+
+	// configureCamera has the camera go on at another size, frame rate or
+	// bitrate. The next frame sets the encoder up again (capture), so it
+	// starts with a keyframe.
+	function configureCamera(fps, kbit, maxWidth, maxHeight) {
+		const s = camera;
+		const bitrate = kbit * 1000;
+		fps = Math.max(1, fps);
+		if (s.fps === fps && s.maxBitrate === bitrate && s.maxWidth === maxWidth && s.maxHeight === maxHeight) {
+			return;
+		}
+		Object.assign(s, { fps, maxBitrate: bitrate, bitrate, maxWidth, maxHeight });
+		s.width = s.height = 0;
 	}
 
 	// The AudioWorklet: hands over what it's given in 10 ms chunks of
@@ -226,7 +447,7 @@ or getDisplayMedia (a phone) can still watch.
 		registerProcessor("yap-share-audio", YapShareAudio);
 	`;
 
-	// startAudio feeds the shared audio into share.audioQueue. Without it the
+	// startAudio feeds the shared audio into screen.audioQueue. Without it the
 	// share goes on as a picture alone.
 	async function startAudio(track, current) {
 		let context;
@@ -254,9 +475,9 @@ or getDisplayMedia (a phone) can still watch.
 			// Silent, but it keeps the node running.
 			node.connect(context.destination);
 			// Set before waiting again, so stop closes it from here on.
-			share.audio = { context, source, node };
+			screen.audio = { context, source, node };
 			context = null;
-			if (share.audio.context.state !== "running") await share.audio.context.resume();
+			if (screen.audio.context.state !== "running") await screen.audio.context.resume();
 			console.info("yap: sharing audio too");
 		} catch (e) {
 			console.warn("yap: can't share the audio:", e);
@@ -265,10 +486,10 @@ or getDisplayMedia (a phone) can still watch.
 	}
 
 	function queueAudio(samples) {
-		share.audioQueue.push(samples);
-		share.audioQueued += samples.length;
-		while (share.audioQueued > MAX_AUDIO_QUEUED) {
-			share.audioQueued -= share.audioQueue.shift().length;
+		screen.audioQueue.push(samples);
+		screen.audioQueued += samples.length;
+		while (screen.audioQueued > MAX_AUDIO_QUEUED) {
+			screen.audioQueued -= screen.audioQueue.shift().length;
 		}
 	}
 
@@ -276,32 +497,32 @@ or getDisplayMedia (a phone) can still watch.
 	// from the queue, or returns null if there are none.
 	function pullAudio(max) {
 		max -= max % 2;
-		if (!share.audioQueued || max <= 0) return null;
-		const out = new Float32Array(Math.min(max, share.audioQueued));
+		if (!screen.audioQueued || max <= 0) return null;
+		const out = new Float32Array(Math.min(max, screen.audioQueued));
 		let n = 0;
 		while (n < out.length) {
-			const head = share.audioQueue[0];
+			const head = screen.audioQueue[0];
 			const take = Math.min(head.length, out.length - n);
 			out.set(take === head.length ? head : head.subarray(0, take), n);
 			n += take;
-			if (take === head.length) share.audioQueue.shift();
-			else share.audioQueue[0] = head.subarray(take);
+			if (take === head.length) screen.audioQueue.shift();
+			else screen.audioQueue[0] = head.subarray(take);
 		}
-		share.audioQueued -= n;
+		screen.audioQueued -= n;
 		return out;
 	}
 
 	function stopAudio() {
-		const a = share.audio;
+		const a = screen.audio;
 		if (a) {
 			a.node.port.onmessage = null;
 			a.source.disconnect();
 			a.node.disconnect();
 			a.context.close().catch(() => {});
 		}
-		share.audio = null;
-		share.audioQueue = [];
-		share.audioQueued = 0;
+		screen.audio = null;
+		screen.audioQueue = [];
+		screen.audioQueued = 0;
 	}
 
 	/*
@@ -329,14 +550,14 @@ or getDisplayMedia (a phone) can still watch.
 				const types = ["mouseup", "pointerup", "touchend", "keyup"];
 				const done = () => {
 					for (const type of types) window.removeEventListener(type, go, true);
-					share.cancelGesture = null;
+					screen.cancelGesture = null;
 				};
 				const go = () => {
 					done();
 					ask().then(resolve, reject);
 				};
 				for (const type of types) window.addEventListener(type, go, true);
-				share.cancelGesture = () => {
+				screen.cancelGesture = () => {
 					done();
 					reject(new DOMException("Sharing was stopped", "AbortError"));
 				};
@@ -363,7 +584,7 @@ or getDisplayMedia (a phone) can still watch.
 	// none).
 	function askDisplayMedia(audio) {
 		return navigator.mediaDevices.getDisplayMedia({
-			video: { frameRate: { ideal: share.fps, max: share.fps } },
+			video: { frameRate: { ideal: screen.fps, max: screen.fps } },
 			audio: audio || false,
 			// Offer the whole system's audio with a screen, where the
 			// browser can (Chromium on Windows).
@@ -371,7 +592,7 @@ or getDisplayMedia (a phone) can still watch.
 		});
 	}
 
-	async function pump(reader, current) {
+	async function pump(s, reader, current) {
 		while (current()) {
 			let result;
 			try {
@@ -382,7 +603,7 @@ or getDisplayMedia (a phone) can still watch.
 			if (result.done) break;
 			const frame = result.value;
 			try {
-				if (current()) capture(frame, frame.displayWidth, frame.displayHeight);
+				if (current()) capture(s, frame, frame.displayWidth, frame.displayHeight);
 			} finally {
 				frame.close();
 			}
@@ -390,36 +611,47 @@ or getDisplayMedia (a phone) can still watch.
 	}
 
 	// pickCodec returns the first H.264 profile the browser encodes at this
-	// size, as "avc1.PPCC" (the level is added by encoderConfig).
-	async function pickCodec(width, height) {
-		for (const codec of H264_CODECS) {
-			const profile = codec.slice(0, 9);
-			try {
-				const support = await VideoEncoder.isConfigSupported(encoderConfig(profile, width, height));
-				if (support.supported) return profile;
-			} catch (e) {}
+	// size, as "avc1.PPCC" (the level is added by encoderConfig), at a
+	// constant bitrate if any profile can be. A variable bitrate is only held
+	// to on average, if that: Firefox's goes from a tenth of it on a still
+	// picture to three times it on a moving one, and what's over the pace it
+	// goes out at waits in the client's queue, holding up the picture.
+	async function pickCodec(s, width, height) {
+		for (const mode of ["constant", "variable"]) {
+			s.bitrateMode = mode;
+			for (const codec of H264_CODECS) {
+				const profile = codec.slice(0, 9);
+				try {
+					const support = await VideoEncoder.isConfigSupported(encoderConfig(s, profile, width, height));
+					if (support.supported) {
+						console.debug(`yap: ${s.camera ? "camera" : "screen"} encoded as ${profile} at a ${mode} bitrate`);
+						return profile;
+					}
+				} catch (e) {}
+			}
 		}
 		return null;
 	}
 
 	// h264Level is the lowest level (as two hex digits) that takes this size
-	// at the share's frame rate. A level below it makes encoders fail.
-	function h264Level(width, height) {
+	// at the capture's frame rate. A level below it makes encoders fail.
+	function h264Level(s, width, height) {
 		const frame = Math.ceil(width / 16) * Math.ceil(height / 16);
-		const rate = frame * share.fps;
+		const rate = frame * s.fps;
 		const level =
 			H264_LEVELS.find(([, maxRate, maxFrame]) => rate <= maxRate && frame <= maxFrame) ||
 			H264_LEVELS[H264_LEVELS.length - 1];
 		return level[0].toString(16).toUpperCase().padStart(2, "0");
 	}
 
-	function encoderConfig(profile, width, height) {
+	function encoderConfig(s, profile, width, height) {
 		return {
-			codec: profile + h264Level(width, height),
+			codec: profile + h264Level(s, width, height),
 			width,
 			height,
-			bitrate: share.bitrate,
-			framerate: share.fps,
+			bitrate: Math.round(s.bitrate * s.factor),
+			bitrateMode: s.bitrateMode,
+			framerate: s.fps,
 			latencyMode: "realtime",
 			avc: { format: "annexb" },
 		};
@@ -427,9 +659,9 @@ or getDisplayMedia (a phone) can still watch.
 
 	// fit scales a size down to the largest the client asked for (either
 	// way round), in the even numbers H.264 wants.
-	function fit(width, height) {
-		const long = Math.max(share.maxWidth, share.maxHeight);
-		const short = Math.min(share.maxWidth, share.maxHeight);
+	function fit(s, width, height) {
+		const long = Math.max(s.maxWidth, s.maxHeight);
+		const short = Math.min(s.maxWidth, s.maxHeight);
 		const scale = long > 0 && short > 0
 			? Math.min(1, long / Math.max(width, height), short / Math.min(width, height))
 			: 1;
@@ -437,97 +669,168 @@ or getDisplayMedia (a phone) can still watch.
 		return [even(width), even(height)];
 	}
 
-	// capture takes a frame of the screen, if one is due, and encodes it.
-	function capture(source, width, height) {
+	// capture takes a frame of the screen or camera, if one is due, and
+	// encodes it.
+	function capture(s, source, width, height) {
 		const now = performance.now();
 		// A little slack, so a source at exactly the frame rate isn't halved.
-		if (now - share.lastFrame < 1000 / share.fps - 3 || !width || !height) return;
-		const [w, h] = fit(width, height);
-		if (w !== share.width || h !== share.height || !share.encoder) {
+		if (now - s.lastFrame < 1000 / s.fps - 3 || !width || !height) return;
+		const [w, h] = fit(s, width, height);
+		if (w !== s.width || h !== s.height || !s.encoder) {
 			// Also when a shared window changes size.
-			if (!configure(w, h)) return;
+			if (!configure(s, w, h)) return;
 		}
-		const encoder = share.encoder;
+		const encoder = s.encoder;
 		if (encoder.state !== "configured" || encoder.encodeQueueSize > 2) return;
-		share.lastFrame = now;
+		s.lastFrame = now;
+		if (s.paused) {
+			// Nobody watches: the self view still moves, but nothing is encoded,
+			// and what follows starts from a keyframe.
+			s.context.drawImage(source, 0, 0, w, h);
+			if (s.preview) s.preview.close();
+			s.preview = new VideoFrame(s.canvas, { timestamp: Math.round(now * 1000) });
+			s.wantKey = true;
+			return;
+		}
 
-		share.context.drawImage(source, 0, 0, w, h);
-		const frame = new VideoFrame(share.canvas, { timestamp: Math.round(now * 1000) });
-		const key = share.wantKey || now - share.lastKey >= KEY_INTERVAL_MS;
+		s.context.drawImage(source, 0, 0, w, h);
+		const frame = new VideoFrame(s.canvas, { timestamp: Math.round(now * 1000) });
+		const key = s.wantKey || now - s.lastKey >= KEY_INTERVAL_MS;
 		if (key) {
-			share.wantKey = false;
-			share.lastKey = now;
+			s.wantKey = false;
+			s.lastKey = now;
 		}
 		try {
+			if (s.camera) {
+				if (s.preview) s.preview.close();
+				s.preview = frame.clone();
+			}
 			encoder.encode(frame, { keyFrame: key });
 		} finally {
 			frame.close();
 		}
 	}
 
-	function configure(width, height) {
+	// configure sets the encoder up for this size at the current bitrate. A
+	// new size starts with a keyframe; a new bitrate alone (key false)
+	// doesn't need one, since the encoder goes on from where it was (or, if
+	// it can't, starts again, which makes one anyway).
+	function configure(s, width, height, key = true) {
 		try {
-			if (!share.encoder) {
-				share.encoder = new VideoEncoder({
-					output: encoded,
+			if (!s.encoder) {
+				s.encoder = new VideoEncoder({
+					output: (chunk) => encoded(s, chunk),
 					error: (e) => {
 						console.warn("yap: the encoder failed:", e);
-						stop(FAILED);
+						stop(s, FAILED);
 					},
 				});
 			}
-			share.encoder.configure(encoderConfig(share.codec, width, height));
+			s.encoder.configure(encoderConfig(s, s.codec, width, height));
 		} catch (e) {
 			console.warn("yap: can't encode " + width + "x" + height + ":", e);
-			stop(FAILED);
+			stop(s, FAILED);
 			return false;
 		}
-		share.width = share.canvas.width = width;
-		share.height = share.canvas.height = height;
-		share.wantKey = true;
+		s.width = s.canvas.width = width;
+		s.height = s.canvas.height = height;
+		s.outBytes = 0;
+		s.outSince = 0;
+		if (key) s.wantKey = true;
 		return true;
 	}
 
-	function encoded(chunk) {
-		if (share.state !== LIVE) return;
+	function encoded(s, chunk) {
+		if (s.state !== LIVE) return;
+		s.outBytes += chunk.byteLength;
 		const key = chunk.type === "key";
-		if (share.queue.length >= MAX_QUEUED) {
+		if (s.queue.length >= MAX_QUEUED) {
 			// The client isn't taking them. What's queued goes, and with it
 			// anything that depends on it.
-			share.queue.length = 0;
-			share.awaitKey = true;
-			share.wantKey = true;
+			console.debug(
+				`yap: ${logTime()} ${s.camera ? "camera" : "screen"}: ` +
+				`the client isn't taking frames; dropped ${s.queue.length}`,
+			);
+			s.queue.length = 0;
+			s.awaitKey = true;
+			s.wantKey = true;
 		}
-		if (share.awaitKey && !key) return;
-		share.awaitKey = false;
+		if (s.awaitKey && !key) return;
+		s.awaitKey = false;
 		const data = new Uint8Array(chunk.byteLength);
 		chunk.copyTo(data);
-		share.queue.push({ data, ts: Math.round(chunk.timestamp / 1000) >>> 0, key });
+		s.queue.push({ data, ts: Math.round(chunk.timestamp / 1000) >>> 0, key });
+		correctRate(s);
 	}
 
-	// setBitrate has the encoder make `kbit` from its next frame, which is a
-	// keyframe (configure). The client asks only now and then for this reason.
-	function setBitrate(kbit) {
-		const bitrate = Math.min(kbit * 1000, share.maxBitrate);
-		if (share.state !== LIVE || bitrate <= 0 || bitrate === share.bitrate) return;
-		share.bitrate = bitrate;
-		if (share.encoder && share.width) configure(share.width, share.height);
+	/*
+	correctRate asks the encoder for less than the bitrate when it makes more
+	than that, and for more again when it makes less, every CORRECT_MS. An
+	encoder may not keep to what it's asked for, constant or not: Firefox's
+	makes twice as much at 720p, and its own keyframes on top, and what goes
+	over waits in the client's queue, holding up the picture, while the
+	client's cuts (setBitrate) change nothing. It moves halfway towards what
+	would have been right (in proportion), so that one busy stretch doesn't
+	throw it far off, and only by a tenth or more, since each change sets
+	the encoder up again (configure).
+	*/
+	function correctRate(s) {
+		const now = performance.now();
+		if (!s.outSince) {
+			s.outSince = now;
+			s.outBytes = 0;
+			return;
+		}
+		const ms = now - s.outSince;
+		if (ms < CORRECT_MS || !s.bitrate || !s.encoder || !s.width) return;
+		const made = (s.outBytes * 8 * 1000) / ms;
+		s.outSince = now;
+		s.outBytes = 0;
+		const ratio = Math.max(made / s.bitrate, 0.01);
+		if (ratio <= CORRECT_OVER && (ratio >= CORRECT_UNDER || s.factor >= 1)) return;
+		const factor = Math.min(1, Math.max(CORRECT_MIN, s.factor / Math.sqrt(ratio)));
+		if (Math.abs(factor - s.factor) < s.factor / 10) return;
+		console.debug(
+			`yap: ${logTime()} ${s.camera ? "camera" : "screen"} made ${Math.round(made / 1000)} kbit/s ` +
+			`at ${Math.round(s.bitrate / 1000)}: asking for ${Math.round((s.bitrate * factor) / 1000)} ` +
+			`(was ${Math.round((s.bitrate * s.factor) / 1000)})`,
+		);
+		s.factor = factor;
+		configure(s, s.width, s.height, false);
 	}
 
-	function stop(state) {
-		share.generation++;
-		if (share.cancelGesture) share.cancelGesture();
-		if (share.reader) share.reader.cancel().catch(() => {});
-		if (share.ticker) share.ticker.stop();
-		if (share.video) share.video.srcObject = null;
-		if (share.stream) share.stream.getTracks().forEach((t) => t.stop());
-		if (share.encoder && share.encoder.state !== "closed") share.encoder.close();
-		stopAudio();
-		Object.assign(share, {
+	// setBitrate has the encoder make `kbit` from its next frame, without a
+	// keyframe (configure).
+	function setBitrate(s, kbit) {
+		const bitrate = Math.min(kbit * 1000, s.maxBitrate);
+		if (s.state !== LIVE || bitrate <= 0 || bitrate === s.bitrate) return;
+		s.bitrate = bitrate;
+		if (s.encoder && s.width) configure(s, s.width, s.height, false);
+	}
+
+	// logTime is the time of day for the console, to match the client's log.
+	function logTime() {
+		const d = new Date();
+		const two = (n) => String(n).padStart(2, "0");
+		return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+	}
+
+	function stop(s, state) {
+		s.generation++;
+		if (s.cancelGesture) s.cancelGesture();
+		if (s.reader) s.reader.cancel().catch(() => {});
+		if (s.ticker) s.ticker.stop();
+		if (s.video) s.video.srcObject = null;
+		if (s.stream) s.stream.getTracks().forEach((t) => t.stop());
+		if (s.encoder && s.encoder.state !== "closed") s.encoder.close();
+		if (s.preview) s.preview.close();
+		if (!s.camera) stopAudio();
+		Object.assign(s, {
 			stream: null, reader: null, video: null, ticker: null, encoder: null,
-			canvas: null, context: null, width: 0, height: 0, queue: [],
+			canvas: null, context: null, width: 0, height: 0, queue: [], preview: null, paused: false,
+			outBytes: 0, outSince: 0,
 		});
-		share.state = state;
+		s.state = state;
 	}
 
 	/*
@@ -550,36 +853,37 @@ or getDisplayMedia (a phone) can still watch.
 
 	/* ---- watching ---- */
 
-	const watch = {
-		sharer: 0,
-		codec: H264, // what the decoder is set up for
-		decoder: null,
-		failed: false,
-		latest: null, // the newest decoded frame, not yet drawn
-		frames: 0, // decoded, for tests
-	};
+	// The streams being decoded, by "sharer:stream": each with its decoder,
+	// the codec it is set up for, whether it failed, its newest decoded frame
+	// not yet drawn, and how many it decoded (for tests).
+	const views = new Map();
+	const viewKey = (sharer, stream) => sharer + ":" + stream;
 
-	function show(sharer, data, ts, key, codec) {
+	function show(sharer, stream, data, ts, key, codec) {
 		if (!canWatch() || !(decodable & (1 << codec))) return;
-		if (sharer !== watch.sharer) end();
-		watch.sharer = sharer;
-		if (codec !== watch.codec && watch.decoder) {
-			// The sharer changed encoder; a keyframe starts the new one.
-			if (watch.decoder.state !== "closed") watch.decoder.close();
-			watch.decoder = null;
+		const id = viewKey(sharer, stream);
+		let v = views.get(id);
+		if (!v) {
+			v = { codec, decoder: null, failed: false, latest: null, frames: 0 };
+			views.set(id, v);
 		}
-		watch.codec = codec;
-		if (!watch.decoder) {
+		if (codec !== v.codec && v.decoder) {
+			// The sharer changed encoder; a keyframe starts the new one.
+			if (v.decoder.state !== "closed") v.decoder.close();
+			v.decoder = null;
+		}
+		v.codec = codec;
+		if (!v.decoder) {
 			if (!key) return;
-			watch.decoder = new VideoDecoder({
-				output: draw,
+			v.decoder = new VideoDecoder({
+				output: (frame) => draw(v, frame),
 				error: (e) => {
 					console.warn("yap: the decoder failed:", e);
-					fail();
+					fail(v);
 				},
 			});
 		}
-		const decoder = watch.decoder;
+		const decoder = v.decoder;
 		try {
 			if (decoder.state !== "configured") {
 				if (!key) return;
@@ -587,37 +891,37 @@ or getDisplayMedia (a phone) can still watch.
 				decoder.configure({ codec: name, optimizeForLatency: true });
 			}
 			if (decoder.decodeQueueSize > MAX_DECODING) {
-				fail();
+				fail(v);
 				return;
 			}
 			decoder.decode(new EncodedVideoChunk({ type: key ? "key" : "delta", timestamp: ts * 1000, data }));
 		} catch (e) {
 			console.warn("yap: can't decode:", e);
-			fail();
+			fail(v);
 		}
 	}
 
-	function draw(frame) {
-		if (watch.latest) watch.latest.close();
-		watch.latest = frame;
-		watch.frames++;
+	function draw(v, frame) {
+		if (v.latest) v.latest.close();
+		v.latest = frame;
+		v.frames++;
 	}
 
-	// fail drops the decoder; the next keyframe starts a new one.
-	function fail() {
-		watch.failed = true;
-		if (watch.decoder && watch.decoder.state !== "closed") watch.decoder.close();
-		watch.decoder = null;
+	// fail drops a decoder; the next keyframe starts a new one.
+	function fail(v) {
+		v.failed = true;
+		if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
+		v.decoder = null;
 	}
 
-	// end forgets whoever we were watching.
-	function end() {
-		if (watch.decoder && watch.decoder.state !== "closed") watch.decoder.close();
-		watch.decoder = null;
-		watch.sharer = 0;
-		watch.failed = false;
-		if (watch.latest) watch.latest.close();
-		watch.latest = null;
+	// end forgets a stream we were watching.
+	function end(sharer, stream) {
+		const id = viewKey(sharer, stream);
+		const v = views.get(id);
+		if (!v) return;
+		if (v.decoder && v.decoder.state !== "closed") v.decoder.close();
+		if (v.latest) v.latest.close();
+		views.delete(id);
 	}
 
 	/*
@@ -664,38 +968,73 @@ or getDisplayMedia (a phone) can still watch.
 
 	Module.yapVideo = {
 		canShare,
+		canCamera,
 		canWatch,
 		decodable: () => decodable,
+		// The screen: start opens the browser's picker.
 		start,
-		stop: () => stop(OFF),
-		state: () => share.state,
-		live: () => share.state === LIVE,
-		nextSize: () => (share.queue.length ? share.queue[0].data.length : -1),
-		pull: () => share.queue.shift() || null,
-		requestKey: () => { share.wantKey = true; },
-		setBitrate,
+		startCamera,
+		configureCamera,
+		pauseCamera: (on) => { camera.paused = on; },
+		// The settings' list of cameras (refreshed in the background) and
+		// preview.
+		refreshCameras,
+		cameras: () => cameraList,
+		startLook,
+		stopLook,
+		lookState: () => look.state,
+		// The rest take the stream (0 the screen, 1 the camera).
+		stop: (stream) => stop(captureOf(stream), OFF),
+		state: (stream) => captureOf(stream).state,
+		live: (stream) => captureOf(stream).state === LIVE,
+		nextSize: (stream) => {
+			const q = captureOf(stream).queue;
+			return q.length ? q[0].data.length : -1;
+		},
+		pull: (stream) => captureOf(stream).queue.shift() || null,
+		requestKey: (stream) => { captureOf(stream).wantKey = true; },
+		setBitrate: (stream, kbit) => setBitrate(captureOf(stream), kbit),
 		// What it encodes at now, and what it was asked to, in kbit/s; 0
-		// while it isn't sharing.
-		encodingKbit: () => (share.state === LIVE ? Math.round(share.bitrate / 1000) : 0),
-		maxKbit: () => (share.state === LIVE ? Math.round(share.maxBitrate / 1000) : 0),
-		audioLive: () => share.state === LIVE && !!share.audio,
+		// while it isn't live.
+		encodingKbit: (stream) => {
+			const s = captureOf(stream);
+			return s.state === LIVE ? Math.round(s.bitrate / 1000) : 0;
+		},
+		maxKbit: (stream) => {
+			const s = captureOf(stream);
+			return s.state === LIVE ? Math.round(s.maxBitrate / 1000) : 0;
+		},
+		audioLive: () => screen.state === LIVE && !!screen.audio,
 		pullAudio,
+		// The camera's newest frame as it was encoded, which the caller then
+		// owns (and closes); null if none came since the last time.
+		takePreview: () => {
+			const frame = camera.preview;
+			camera.preview = null;
+			return frame;
+		},
 		show,
 		end,
-		takeError: () => {
-			const failed = watch.failed;
-			watch.failed = false;
+		takeError: (sharer, stream) => {
+			const v = views.get(viewKey(sharer, stream));
+			const failed = !!(v && v.failed);
+			if (v) v.failed = false;
 			return failed;
 		},
-		// The newest decoded frame, which the caller then owns (and closes).
-		takeFrame: () => {
-			const frame = watch.latest;
-			watch.latest = null;
+		// A stream's newest decoded frame, which the caller then owns (and
+		// closes).
+		takeFrame: (sharer, stream) => {
+			const v = views.get(viewKey(sharer, stream));
+			const frame = v ? v.latest : null;
+			if (v) v.latest = null;
 			return frame;
 		},
 		setFullscreen,
 		isFullscreen: () => full.wanted,
-		// For tests: how many frames have been decoded.
-		framesShown: () => watch.frames,
+		// For tests: how many frames of a stream have been decoded.
+		framesShown: (sharer, stream) => {
+			const v = views.get(viewKey(sharer, stream));
+			return v ? v.frames : 0;
+		},
 	};
 })();

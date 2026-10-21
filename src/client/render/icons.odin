@@ -53,6 +53,8 @@ Icon :: enum {
 	Exit_Fullscreen, // four corners pointing in: back from fullscreen
 	Pop_Out, // an arrow out of a frame's corner: move into its own window
 	Pop_In, // an arrow into a frame's corner: move back from its own window
+	Camera, // a video camera: turn our camera on, or somebody's is on
+	Camera_Off, // a video camera with a line through it
 	// The window's own controls, for where Windows does not provide them
 	// (ui_titlebar_windows.odin).
 	Minimize, // a line
@@ -241,6 +243,10 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return popping(p, false)
 	case .Pop_In:
 		return popping(p, true)
+	case .Camera:
+		return video_camera(p)
+	case .Camera_Off:
+		return crossed_out(video_camera(p), p)
 	case .Minimize, .Maximize, .Restore, .Close:
 		// These are drawn in texels instead (window_control).
 		return 1
@@ -346,6 +352,8 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Exit_Fullscreen,
 	     .Pop_Out,
 	     .Pop_In,
+	     .Camera,
+	     .Camera_Off,
 	     .Check,
 	     .Collapsed,
 	     .Expanded:
@@ -516,6 +524,15 @@ video :: proc(p: Point) -> f32 {
 	STROKE :: 0.085
 	d := abs(rounded_box(p, {0.5, 0.5}, {0.36, 0.30}, 0.06)) - STROKE / 2
 	return nearer(d, triangle(p, {0.42, 0.34}, {0.66, 0.5}, {0.42, 0.66}))
+}
+
+// A video camera seen from the side: an outlined body, and its lens as a cone
+// widening to the right.
+@(private = "file")
+video_camera :: proc(p: Point) -> f32 {
+	STROKE :: 0.085
+	d := abs(rounded_box(p, {0.38, 0.5}, {0.26, 0.21}, 0.06)) - STROKE / 2
+	return nearer(d, triangle(p, {0.69, 0.5}, {0.90, 0.32}, {0.90, 0.68}))
 }
 
 // A text file: a sheet with a folded corner and lines of text on it.

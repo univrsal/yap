@@ -376,7 +376,7 @@ picture_and_figures :: proc(ui: ^UI, v: ^conn.View) {
 	} else {
 		mu.layout_row(ctx, {-1}, -1)
 	}
-	picture(ui, mu.layout_next(ctx))
+	picture(ui, mu.layout_next(ctx), {v.watching, .Screen})
 	if figures {
 		mu.layout_row(ctx, {-1})
 		figures_line(ui, v)
@@ -470,7 +470,7 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	vid := &ui.video
 	s := v.video_stats
-	frames, hardware := conn.video_picture_info()
+	frames, hardware := conn.video_picture_info({v.watching, .Screen})
 	// The frame rate, from how many frames were decoded in the last second.
 	if now := time.tick_now(); vid.fps_at == {} || frames < vid.fps_frames {
 		vid.fps_at, vid.fps_frames = now, frames
@@ -530,14 +530,14 @@ fullscreen_screen :: proc(ui: ^UI) {
 		conn.video_set_fullscreen(false)
 	}
 	mu.layout_row(ctx, {-1}, -1)
-	picture(ui, mu.layout_next(ctx))
+	picture(ui, mu.layout_next(ctx), {ui.view.watching, .Screen})
 }
 
 // picture draws the newest frame as big as fits in `r`, on black.
 @(private = "file")
-picture :: proc(ui: ^UI, r: mu.Rect) {
+picture :: proc(ui: ^UI, r: mu.Rect, key: conn.Video_Key) {
 	ctx := &ui.ctx
-	texture, pw, ph, have := conn.video_picture(&ui.renderer.gpu)
+	texture, pw, ph, have := conn.video_picture(&ui.renderer.gpu, key)
 	if have {
 		ui.video.size = {pw, ph}
 	}

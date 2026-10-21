@@ -11,7 +11,7 @@ import "common:proto"
 // call is on, the panel shows who it is with, how long it has lasted, and the
 // call's buttons. An incoming call is also announced on the desktop, and asks
 // for the window's attention. A call is started from a DM's header or from
-// somebody's menu.
+// somebody's menu, with or without video (ui_camera.odin).
 
 // call_peer_name returns who a call is with. Call with the View locked.
 call_peer_name :: proc(v: ^conn.View) -> string {
@@ -19,6 +19,19 @@ call_peer_name :: proc(v: ^conn.View) -> string {
 		return acc.display
 	}
 	return "someone"
+}
+
+// call_peer returns the user of the person a call is with (their device in the
+// call's room, the one whose state counts), or 0 if they aren't there. Call
+// with the View locked.
+call_peer :: proc(v: ^conn.View) -> (num: proto.User_Num, peer: conn.View_User) {
+	room := proto.call_room(v.call.id)
+	for n, u in v.users {
+		if u.account == v.call.peer && u.room == room {
+			return n, u
+		}
+	}
+	return
 }
 
 // may_call returns whether we could call an account now: it has to be somebody
@@ -36,11 +49,15 @@ may_call :: proc(v: ^conn.View, account: proto.Account_Id) -> bool {
 	return false
 }
 
-// call_account calls somebody.
-call_account :: proc(ui: ^UI, account: proto.Account_Id) {
+// call_account calls somebody, with our camera on once they answer if `video`
+// says so (see ui_camera.odin).
+call_account :: proc(ui: ^UI, account: proto.Account_Id, video := false) {
 	if ui.session != nil {
 		leave_voice_elsewhere(ui)
 		conn.push_command(&ui.session.client.commands, conn.Call_Command{account = account})
+		if video {
+			camera_on_call(ui)
+		}
 	}
 }
 

@@ -89,16 +89,7 @@ panel_state :: proc(v: ^conn.View) -> Panel_State {
 call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	ctx := &ui.ctx
 	v := ui.view
-	// Their device in the call's room: the one whose state counts.
-	room := proto.call_room(v.call.id)
-	peer: conn.View_User
-	num: proto.User_Num
-	for n, u in v.users {
-		if u.account == v.call.peer && u.room == room {
-			peer, num = u, n
-			break
-		}
-	}
+	num, peer := call_peer(v)
 	slot := picture_slot(ctx)
 	icon, icon_color := their_status(peer, num != 0 && conn.is_speaking(v, num))
 	watching := num != 0 && v.watching == num
@@ -308,10 +299,13 @@ voice_panel :: proc(ui: ^UI) {
 		switch state {
 		case .Idle, .Elsewhere:
 		case .Ringing_In:
-			accept, decline := answer_buttons(ui, "call")
-			if accept {
+			accept, video, decline := answer_buttons(ui, "call", camera_available(v))
+			if accept || video {
 				leave_voice_elsewhere(ui)
 				command(cmds, conn.Call_Answer_Command{})
+			}
+			if video {
+				camera_on_call(ui)
 			}
 			if decline {
 				command(cmds, conn.Call_Hangup_Command{})
@@ -328,10 +322,16 @@ voice_panel :: proc(ui: ^UI) {
 			can_share :=
 				conn.video_can_share() && (ui.view.video_link || conn.video_share_state() != .Off)
 			can_music := app_audio_available(ui)
+			// Likewise the camera, which needs the media link to go anywhere.
+			can_camera :=
+				camera_available(v) && (v.video_link || conn.video_camera_state() != .Off)
 			if can_music {
 				append(&widths, ICON_BUTTON)
 			}
 			if can_share {
+				append(&widths, ICON_BUTTON)
+			}
+			if can_camera {
 				append(&widths, ICON_BUTTON)
 			}
 			append(&widths, -1)
@@ -341,6 +341,9 @@ voice_panel :: proc(ui: ^UI) {
 			}
 			if can_share {
 				share_button(ui)
+			}
+			if can_camera {
+				camera_button(ui)
 			}
 			if hang_up_button(ui, "voice leave", "Hang up" if state == .Call else "Leave") {
 				if state == .Call {
@@ -399,15 +402,31 @@ voice_panel :: proc(ui: ^UI) {
 
 // answer_buttons are the Accept and Decline buttons for a call that is ringing,
 // in a row of their own, half each: a green receiver picked up and a red one
-// put down. `id_name` tells this pair from another.
+// put down. With `video`, a green camera between them answers with our camera
+// on, and each takes a third. `id_name` tells this set from another.
 @(private = "file")
-answer_buttons :: proc(ui: ^UI, id_name: string) -> (accept, decline: bool) {
+answer_buttons :: proc(
+	ui: ^UI,
+	id_name: string,
+	video := false,
+) -> (
+	accept, with_video, decline: bool,
+) {
 	ctx := &ui.ctx
-	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
-	mu.layout_row(ctx, {half, -1})
+	w := mu.get_layout(ctx).body.w
+	if video {
+		third := (w - 2 * ctx.style.spacing) / 3
+		mu.layout_row(ctx, {third, third, -1})
+	} else {
+		mu.layout_row(ctx, {(w - ctx.style.spacing) / 2, -1})
+	}
 	mu.push_id(ctx, id_name)
 	defer mu.pop_id(ctx)
 	accept = .SUBMIT in icon_button(ui, "accept", .Phone, "Accept", theme.connected)
+	if video {
+		with_video =
+			.SUBMIT in icon_button(ui, "accept video", .Camera, "Answer with video", theme.connected)
+	}
 	decline = hang_up_button(ui, "decline", "Decline")
 	return
 }
@@ -455,7 +474,7 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	switch e.state {
 	case .Idle, .Elsewhere:
 	case .Ringing_In:
-		accept, decline := answer_buttons(ui, "other")
+		accept, _, decline := answer_buttons(ui, "other")
 		if accept {
 			leave_voice_elsewhere(ui, e.ns)
 			conn.push_command(cmds, conn.Call_Answer_Command{})

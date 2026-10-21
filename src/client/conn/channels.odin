@@ -343,6 +343,8 @@ Command :: union {
 	Chat_Command,
 	Typing_Command,
 	Watch_Command,
+	Watch_Cameras_Command,
+	Watch_Camera_Names_Command,
 	Send_File_Command,
 	Attach_Send_Command,
 	Attach_Cancel_Command,
@@ -501,6 +503,8 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.name)
 	case Call_Command:
 		delete(v.name)
+	case Watch_Camera_Names_Command:
+		delete(v.names)
 	case Edit_Command:
 		delete(v.text)
 	case React_Command:
@@ -741,6 +745,12 @@ process_commands :: proc(c: ^Voice_Client) {
 			chat_typing(c, v.thread)
 		case Watch_Command:
 			video_watch(c, v.user)
+		case Watch_Cameras_Command:
+			users, tiles := v.users, v.tiles
+			n := clamp(v.count, 0, len(users))
+			video_watch_cameras(c, users[:n], tiles[:n])
+		case Watch_Camera_Names_Command:
+			video_watch_camera_names(c, v.names)
 		case DM_Command:
 			dm_command(c, v)
 		case Buddy_Command:

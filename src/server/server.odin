@@ -866,7 +866,7 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		handle_download_ack(s, c.conn, pt)
 	case .Transfer_Cancel:
 		handle_transfer_cancel(s, c.conn, pt)
-	case .State, .Refused, .Keyframe, .Pong, .Welcome, .Upload_Ack, .Download_Chunk:
+	case .State, .Refused, .Keyframe, .Demand, .Pong, .Welcome, .Upload_Ack, .Download_Chunk:
 	// Server-to-client only.
 	case .Video, .Watch, .Nack, .Report:
 	// Screen sharing only uses the media link (media.odin).
@@ -944,11 +944,34 @@ sound_set :: proc(s: ^Server, u: ^Conn, flags: proto.User_Flags) {
 	if .In_Call in flags {
 		flags -= {.In_Voice}
 	}
+	if .Camera in flags && .Camera not_in u.flags && !camera_allowed(s, u) {
+		flags -= {.Camera}
+	}
 	if flags != u.flags {
 		u.flags = flags
 		log.debugf("%s sound state %v", conn_label(u), flags)
 		bump_version(s)
 	}
+}
+
+// camera_allowed tells whether a connection may turn its camera on (see
+// proto.Video_Stream): only in a room, and in a channel's room only while fewer
+// than the server's max_cameras others have theirs on. A call's room only ever
+// has the two of them. Without the media link there are no cameras at all.
+camera_allowed :: proc(s: ^Server, u: ^Conn) -> bool {
+	if !s.media.enabled || s.media.max_cameras == 0 || u.room == 0 {
+		return false
+	}
+	if proto.room_call(u.room) != 0 {
+		return true
+	}
+	on := 0
+	for _, other in s.conns {
+		if other != u && other.room == u.room && .Camera in other.flags {
+			on += 1
+		}
+	}
+	return on < s.media.max_cameras
 }
 
 // presence_list returns the list of online users and their rooms, which is

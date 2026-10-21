@@ -149,8 +149,14 @@ buddies_screen :: proc(ui: ^UI) {
 	ui.narrow = narrow
 
 	// Watching somebody's screen (from a call's row in the voice panel)
-	// works here as beside a channel: with a Screen tab, and fullscreen.
+	// works here as beside a channel: with a Screen tab, and fullscreen. So
+	// does a call's video, in the Video tab.
 	screen_tab_follow(ui)
+	camera_tab_follow(ui)
+	if camera_fullscreen(ui) {
+		camera_full_screen(ui)
+		return
+	}
 	if ui.view.watching != 0 && conn.video_is_fullscreen() {
 		fullscreen_screen(ui)
 		return
@@ -207,12 +213,13 @@ buddies_screen :: proc(ui: ^UI) {
 }
 
 // conversation_or_screen shows the conversation or, while we are watching
-// somebody's screen, the conversation and the screen as tabs, like a channel's
-// chat (see side_panel in ui_chat.odin). With `narrow`, the line at the top starts
-// with the way back to the list.
+// somebody's screen or are in a call with a camera on, the conversation, the
+// screen and the call's video as tabs, like a channel's chat (see side_panel in
+// ui_chat.odin). With `narrow`, the line at the top starts with the way back to
+// the list.
 @(private = "file")
 conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow: bool) {
-	if !screen_docked(ui) {
+	if !side_tabs_shown(ui) {
 		conversation(ui, entry, found, narrow)
 		return
 	}
@@ -220,22 +227,18 @@ conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow:
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 
+	mu.layout_row(ctx, side_tab_widths(ui, 40 if narrow else 0))
 	if narrow {
-		mu.layout_row(ctx, {40, 90, 90, -1})
 		back_to_list(ui)
-	} else {
-		mu.layout_row(ctx, {90, 90, -1})
 	}
-	if .SUBMIT in tab_button(ctx, "chat tab", "Chat", ui.chat.tab != .Screen) {
-		ui.chat.tab = .Chat
-	}
-	if .SUBMIT in tab_button(ctx, "screen tab", "Screen", ui.chat.tab == .Screen) {
-		ui.chat.tab = .Screen
-	}
+	side_tab_buttons(ui, "Chat")
 	mu.label(ctx, "")
-	if ui.chat.tab == .Screen {
+	#partial switch ui.chat.tab {
+	case .Screen:
 		screen_panel(ui)
-	} else {
+	case .Video:
+		video_panel(ui)
+	case:
 		mu.layout_row(ctx, {-1}, -1)
 		conversation(ui, entry, found, false)
 	}
@@ -390,9 +393,14 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	// Their name, and the button that removes a DM from the list (for somebody
 	// who isn't a buddy, where there is something to remove).
 	can_hide := entry.conv != 0 && !entry.buddy
-	// The name, then its buttons: up to four.
+	// The name, then its buttons: up to five (a video call beside the call
+	// where we can send our camera).
+	video := camera_available(v)
 	icons := 1 if entry.conv == 0 else 4 if can_hide else 3
-	buf: [5]i32
+	if video {
+		icons += 1
+	}
+	buf: [6]i32
 	widths := buf[:icons + 1]
 	widths[0] = -(ICON_BUTTON * i32(icons) + ctx.style.spacing * i32(icons + 1))
 	for &w in widths[1:] {
@@ -423,8 +431,14 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
 			call_account(ui, account)
 		}
+		if video && .SUBMIT in icon_button(ui, "dm video call", .Camera, "Video call") {
+			call_account(ui, account, video = true)
+		}
 	} else {
 		mu.label(ctx, "")
+		if video {
+			mu.label(ctx, "")
+		}
 	}
 	if entry.conv != 0 {
 		pins_button(ui)

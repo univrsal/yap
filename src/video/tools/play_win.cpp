@@ -129,8 +129,7 @@ int play(yv_context *ctx, const Play_Options &opt) {
 	std::string error;
 	yv_share *share = nullptr;
 	if (opt.share) {
-		yv_share_config cfg = share_config(ctx, opt);
-		share = yv_share_start(ctx, &cfg);
+		share = start_share(ctx, opt);
 	} else {
 		if (!load_stream(opt.path, file, error)) {
 			fprintf(stderr, "%s: %s\n", opt.path, error.c_str());
@@ -218,12 +217,9 @@ int play(yv_context *ctx, const Play_Options &opt) {
 		auto began = std::chrono::steady_clock::now();
 		bool switched = false;
 		while (!quit) {
-			if (opt.then_kbit && !switched &&
-			    std::chrono::steady_clock::now() - began >= std::chrono::seconds(3)) {
-				printf("bitrate now %u kbit/s\n", opt.then_kbit);
-				yv_share_set_bitrate(share, opt.then_kbit);
-				switched = true;
-			}
+			follow_then(share, opt,
+			            std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count(),
+			            switched);
 			yv_share_state st = yv_share_get_state(share);
 			if (st == YV_SHARE_FAILED) {
 				fprintf(stderr, "share failed: %s\n", yv_share_error(share));

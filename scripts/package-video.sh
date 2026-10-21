@@ -18,6 +18,8 @@ mkdir -p "dist/$name"
 
 if [ -f bin/yap_video.dll ]; then
 	cp bin/yap_video.dll bin/yv-loopback.exe dist/$name/
+	# Cameras, through DirectShow (src/video/thirdparty/dshowcapture).
+	cp bin/dshowcapture.dll bin/dshowcapture-LICENSE.txt dist/$name/
 	for lib in avcodec avutil swresample swscale; do
 		cp bin/$lib-*.dll "dist/$name/"
 	done
@@ -60,9 +62,13 @@ yap's screen sharing add-on
 Put everything here next to yap (yap.exe), in the same folder, and
 start yap again: it can then share your screen and watch others'.
 
-  yap_video          yap's screen sharing library (zlib licence)
+  yap_video          yap's screen sharing and camera library (zlib licence)
   avcodec, avutil,   FFmpeg, LGPL 2.1 or later; ffmpeg-LICENSE.txt says
   swscale, ...       which build and where its source is
+  dshowcapture       (Windows) cameras, through DirectShow: OBS's
+                     libdshowcapture, LGPL 2.1 or later
+                     (dshowcapture-LICENSE.txt); its source is in yap's,
+                     src/video/thirdparty/dshowcapture
   yv-loopback        a tool to try it on its own: yv-loopback --list
 
 On macOS, FFmpeg 8 or 9 installed on the system (Homebrew's) does as
