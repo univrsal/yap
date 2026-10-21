@@ -337,9 +337,6 @@ UI :: struct {
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
 	hint_of:             mu.Rect,
-	// Icon buttons are drawn flat, without a frame until the pointer is on
-	// them (the composer's, see composer_buttons).
-	flat_buttons:        bool,
 	// The emoji the hint is about, drawn large above it (icon_hint).
 	hint_emoji:          Hint_Emoji,
 	// The picture chip under the pointer, which is shown over it
@@ -452,7 +449,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	mu.init(&ui.ctx, set_clipboard, get_clipboard)
 	ui.ctx.text_width = render.ui_text_width
 	ui.ctx.text_height = render.ui_text_height
-	ui.ctx.draw_frame = render.draw_frame
+	ui.ctx.draw_frame = draw_frame_themed
 	ui.input_scale = 1
 
 	ui.action = .Start
@@ -1863,6 +1860,20 @@ icon_button_w :: proc(ctx: ^mu.Context) -> i32 {
 	return max(ICON_BUTTON, ctx.style.size.y + 2 * ctx.style.padding)
 }
 
+// draw_frame_themed is microui's draw_frame (render.draw_frame), except that a
+// focused text box has a ring in the theme's accent color: its border and one
+// more line inside it.
+draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Type) {
+	if colorid != .BASE_FOCUS {
+		render.draw_frame(ctx, rect, colorid)
+		return
+	}
+	outer := mu.expand_rect(rect, 1)
+	render.draw_rounded(ctx, outer, ctx.style.colors[colorid], render.CONTROL_RADIUS)
+	render.draw_rounded_border(ctx, outer, theme.accent, render.CONTROL_RADIUS)
+	render.draw_rounded_border(ctx, rect, theme.accent, render.CONTROL_RADIUS - 1)
+}
+
 // stable_button is mu.button, except that its id comes from `id_name` (under
 // the current id stack) instead of from the label, so the label can
 // change from frame to frame without the button becoming a new control.
@@ -1886,9 +1897,8 @@ icon_button :: proc(
 	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
 		res += {.SUBMIT}
 	}
-	if !ui.flat_buttons {
-		mu.draw_control_frame(ctx, id, r, .BUTTON)
-	} else if ctx.focus_id == id || ctx.hover_id == id {
+	// Flat: a background only while the pointer is on it or it is pressed.
+	if ctx.focus_id == id || ctx.hover_id == id {
 		hovered := ctx.style.colors[.BUTTON_FOCUS if ctx.focus_id == id else .BUTTON_HOVER]
 		render.draw_rounded(ctx, r, hovered, render.CONTROL_RADIUS)
 	}

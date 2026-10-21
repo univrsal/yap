@@ -247,6 +247,14 @@ as without the change (28-31 ticks in 10 s, measured against a build of
 
 - Flat buttons elsewhere: no border, a background only under the pointer;
   an accent ring on the focused text box.
+
+  *As built:* every `icon_button` is flat (`UI.flat_buttons` is gone);
+  buttons with words keep their fill but lose their border
+  (`render.draw_frame`), since a word without a background doesn't read
+  as a button. A focused text box (`.BASE_FOCUS`) is drawn by
+  `draw_frame_themed` (`ui.odin`, microui's `draw_frame`) with a 2 px
+  ring in `theme.accent`: its border and a line inside it, so nothing
+  reaches past the box.
 - Shadows under popups, from blurred corner tiles the same way as 1.
 - Thinner scrollbars that fade out when nothing scrolls.
 - Placeholders the size of a picture while it loads, where the size is

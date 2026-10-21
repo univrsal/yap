@@ -175,10 +175,14 @@ draw_frame :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Type) {
 		draw_rounded_border(ctx, mu.expand_rect(cnt.rect, 1), ctx.style.colors[.BORDER], radius)
 		return
 	}
+	// Buttons are flat: filled, without a border.
 	bordered :=
 		colorid != .SCROLL_BASE &&
 		colorid != .SCROLL_THUMB &&
 		colorid != .TITLE_BG &&
+		colorid != .BUTTON &&
+		colorid != .BUTTON_HOVER &&
+		colorid != .BUTTON_FOCUS &&
 		ctx.style.colors[.BORDER].a != 0
 	if !bordered {
 		if radius > 0 {
