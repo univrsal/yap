@@ -182,15 +182,18 @@ push_settings :: proc(ui: ^UI, v: ^conn.View) {
 		return
 	}
 	ctx := &ui.ctx
-	field_row(ui, FORM_LABEL, "Push notifications", {210, 210})
+	field_row(ui, FORM_LABEL, "Push notifications", {CHOICE_WIDTH})
 	on := state == .On
-	if choice_button(ui, "push off", "Off", !on && state != .Working) && on {
-		yap_push_disable(server_cstring(ns))
-	}
+	at := -1 if state == .Working else int(on)
 	can := state == .Off || state == .Failed
-	if choice_button(ui, "push on", "On this device", on) && can {
-		key := v.server_push_key
-		yap_push_enable(server_cstring(ns), &key[0])
+	if i, ok := choice_dropdown(ui, "push", {"Off", "On this device"}, at, none = "Updating...");
+	   ok {
+		if i == 0 && on {
+			yap_push_disable(server_cstring(ns))
+		} else if i == 1 && can {
+			key := v.server_push_key
+			yap_push_enable(server_cstring(ns), &key[0])
+		}
 	}
 	hint: string
 	switch state {
@@ -212,22 +215,14 @@ push_settings :: proc(ui: ^UI, v: ^conn.View) {
 	with_text_color(ctx, theme.dim, hint, wrap_text)
 
 	hidden := (v.shared[proto.SETTING_PUSH_TEXT] or_else "") == proto.PUSH_TEXT_HIDDEN
-	field_row(ui, FORM_LABEL, "Pushes contain", {210, 210})
-	if choice_button(ui, "push text shown", "Message text", !hidden) && hidden {
+	field_row(ui, FORM_LABEL, "Pushes contain", {CHOICE_WIDTH})
+	if i, ok := choice_dropdown(ui, "push text", {"Message text", "Only the sender"}, int(hidden));
+	   ok {
 		conn.push_command(
 			&ns.client.commands,
 			conn.Setting_Command {
 				key = strings.clone(proto.SETTING_PUSH_TEXT),
-				value = strings.clone(""),
-			},
-		)
-	}
-	if choice_button(ui, "push text hidden", "Only the sender", hidden) && !hidden {
-		conn.push_command(
-			&ns.client.commands,
-			conn.Setting_Command {
-				key = strings.clone(proto.SETTING_PUSH_TEXT),
-				value = strings.clone(proto.PUSH_TEXT_HIDDEN),
+				value = strings.clone("" if i == 0 else proto.PUSH_TEXT_HIDDEN),
 			},
 		)
 	}

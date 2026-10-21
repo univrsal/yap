@@ -332,3 +332,31 @@ test_scrollbar_fades :: proc(t: ^testing.T) {
 	testing.expect(t, f.hovered)
 	testing.expect_value(t, f.alpha, 1)
 }
+
+// A setting's dropdown reports a pick other than the current choice, as the
+// value of its enum.
+@(test)
+test_choice_dropdowns :: proc(t: ^testing.T) {
+	ct := composer_test_start("")
+	defer composer_test_end(ct)
+	ui := ct.ui
+	pick :: proc(ui: ^UI, row: int, current: Theme_Choice) -> (got: Theme_Choice, ok: bool) {
+		ctx := &ui.ctx
+		mu.begin(ctx)
+		if mu.begin_window(ctx, "w", {0, 0, 400, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+			mu.layout_row(ctx, {CHOICE_WIDTH})
+			// As if `row` was picked from the open list in the last frame.
+			ui.dropdown.picked, ui.dropdown.picked_id = row, mu.get_id(ctx, "theme")
+			got, ok = enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, current)
+			mu.end_window(ctx)
+		}
+		mu.end(ctx)
+		return
+	}
+	_, ok := pick(ui, int(Theme_Choice.Dark), .Dark)
+	testing.expect(t, !ok)
+	got: Theme_Choice
+	got, ok = pick(ui, int(Theme_Choice.Light), .Dark)
+	testing.expect(t, ok)
+	testing.expect_value(t, got, Theme_Choice.Light)
+}

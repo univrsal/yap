@@ -717,22 +717,16 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	ctx := &ui.ctx
 	current, _ := proto.email_digest_parse(v.shared[proto.SETTING_EMAIL_DIGEST] or_else "")
-	for choice in proto.Email_Digest {
-		// Two per row: the label, then the next two.
-		if int(choice) % 2 == 0 {
-			field_row(ui, FORM_LABEL, "Email digests" if choice == .None else "", {210, 210})
-		}
+	field_row(ui, FORM_LABEL, "Email digests", {CHOICE_WIDTH})
+	if choice, ok := enum_dropdown(ui, "digest", DIGEST_LABELS, current); ok {
 		name := proto.EMAIL_DIGEST_NAMES[choice]
-		id := fmt.tprintf("digest %s", name)
-		if choice_button(ui, id, DIGEST_LABELS[choice], choice == current) && choice != current {
-			command(
-				ui,
-				conn.Setting_Command {
-					key = strings.clone(proto.SETTING_EMAIL_DIGEST),
-					value = strings.clone("" if choice == .None else name),
-				},
-			)
-		}
+		command(
+			ui,
+			conn.Setting_Command {
+				key = strings.clone(proto.SETTING_EMAIL_DIGEST),
+				value = strings.clone("" if choice == .None else name),
+			},
+		)
 	}
 	hint := "Sent after you've been away for a while. Muted conversations are left out."
 	if v.login.email == "" {

@@ -367,22 +367,16 @@ category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	current := settings.settings_quality(&ui.settings)
-	field_row(ui, 60, "Quality", {90, 90, 90})
+	field_row(ui, 60, "Quality", {CHOICE_WIDTH})
+	labels: [audio.Quality]string
 	for preset, q in audio.QUALITY_PRESETS {
-		mark := "⏵ " if q == current else "  "
-		if .SUBMIT in
-			   stable_button_hint(
-				   ui,
-				   preset.name,
-				   fmt.tprintf("%s%s", mark, preset.label),
-				   preset.description,
-			   ) &&
-		   q != current {
-			settings.set_setting(&ui.settings.quality, preset.name)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			command_all(ui, conn.Quality_Command{q})
-			current = q
-		}
+		labels[q] = preset.label
+	}
+	hint := audio.QUALITY_PRESETS[current].description
+	if q, ok := enum_dropdown(ui, "quality", labels, current, hint); ok {
+		settings.set_setting(&ui.settings.quality, audio.QUALITY_PRESETS[q].name)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		command_all(ui, conn.Quality_Command{q})
 	}
 
 	mu.layout_row(ctx, {-1})
@@ -418,28 +412,24 @@ ANIMATE_CHOICE_LABELS := [settings.Animate_Pictures]string {
 ui_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	// Dark, light, or whichever the system uses (theme.odin).
-	field_row(ui, 120, "Theme", {130, 130, 130})
-	current := theme_choice(&ui.settings)
-	for label, choice in THEME_CHOICE_LABELS {
-		if choice_button(ui, THEME_CHOICE_NAMES[choice], label, choice == current) &&
-		   choice != current {
-			settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			ui_redraw(ui)
-		}
+	field_row(ui, 120, "Theme", {CHOICE_WIDTH})
+	if choice, ok := enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, theme_choice(&ui.settings));
+	   ok {
+		settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		ui_redraw(ui)
 	}
 
 	// When animated pictures in the chat play (ui_images.odin).
-	field_row(ui, 120, "Animate pictures", {130, 130, 130})
+	field_row(ui, 120, "Animate pictures", {CHOICE_WIDTH})
 	animate := settings.animate_pictures(&ui.settings)
-	for label, choice in ANIMATE_CHOICE_LABELS {
-		name := settings.ANIMATE_PICTURES_NAMES[choice]
-		id := fmt.tprintf("animate %s", name)
-		if choice_button(ui, id, label, choice == animate) && choice != animate {
-			settings.set_setting(&ui.settings.animate_pictures, name)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			ui_redraw(ui)
-		}
+	if choice, ok := enum_dropdown(ui, "animate", ANIMATE_CHOICE_LABELS, animate); ok {
+		settings.set_setting(
+			&ui.settings.animate_pictures,
+			settings.ANIMATE_PICTURES_NAMES[choice],
+		)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		ui_redraw(ui)
 	}
 
 	mu.layout_row(ctx, {120, -1})
@@ -572,14 +562,8 @@ transfer_settings :: proc(ui: ^UI) {
 	}
 }
 
-// device_settings shows the input and output pickers side by side (one above
-// the other in a narrow window), each in a box with its own height, so that
-// neither has to share the other's space. Either scrolls on its own if its
-// device list doesn't fit.
-// Narrower than this, the device lists go one above the other.
-@(private = "file")
-DEVICE_LIST_MIN :: 220
-
+// device_settings shows the input and output devices, each a dropdown
+// (device_choice).
 @(private = "file")
 device_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -595,94 +579,74 @@ device_settings :: proc(ui: ^UI) {
 		audio.audio_refresh(a)
 	}
 
-	// The width left in the panel once the tree nodes have indented it.
-	layout := mu.get_layout(ctx)
-	half := (layout.body.w - layout.indent - ctx.style.spacing) / 2
-	mu.layout_row(ctx, {half, -1} if half >= DEVICE_LIST_MIN else {-1}, 210)
-
-	if mu.layout_column(ctx) {
-		if choice, changed := device_list(
-			ctx,
-			"Input (microphone)",
-			"inputs",
-			a.inputs[:],
-			ui.settings.input_device,
-			200,
-		); changed {
-			settings.set_setting(&ui.settings.input_device, choice)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			log.infof("input device: %s", choice if choice != "" else "system default")
-			reopen_audio(ui, true)
-		}
+	if choice, changed := device_choice(
+		ui,
+		"Input",
+		"input device",
+		a.inputs[:],
+		ui.settings.input_device,
+	); changed {
+		settings.set_setting(&ui.settings.input_device, choice)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		log.infof("input device: %s", choice if choice != "" else "system default")
+		reopen_audio(ui, true)
 	}
-	if mu.layout_column(ctx) {
-		if choice, changed := device_list(
-			ctx,
-			"Output (speakers / headphones)",
-			"outputs",
-			a.outputs[:],
-			ui.settings.output_device,
-			200,
-		); changed {
-			settings.set_setting(&ui.settings.output_device, choice)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			log.infof("output device: %s", choice if choice != "" else "system default")
-			reopen_audio(ui, false)
-		}
+	if choice, changed := device_choice(
+		ui,
+		"Output",
+		"output device",
+		a.outputs[:],
+		ui.settings.output_device,
+	); changed {
+		settings.set_setting(&ui.settings.output_device, choice)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		log.infof("output device: %s", choice if choice != "" else "system default")
+		reopen_audio(ui, false)
 	}
 }
 
-// device_list shows "System default" plus every device, with `selected` (a
-// device name, "" for the default) marked. It returns the new choice when
-// one is clicked.
+// device_choice is a dropdown of "System default" and every device, with
+// `selected` (a device name, "" for the default) shown. It returns the new
+// choice when one is picked.
 @(private = "file")
-device_list :: proc(
-	ctx: ^mu.Context,
+device_choice :: proc(
+	ui: ^UI,
 	title, id: string,
 	devices: []audio.Audio_Device,
 	selected: string,
-	height: i32,
 ) -> (
 	choice: string,
 	changed: bool,
 ) {
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, title)
-
-	mu.layout_row(ctx, {-1}, height)
-	mu.begin_panel(ctx, id)
-	defer mu.end_panel(ctx)
-
+	ctx := &ui.ctx
 	// A saved device that isn't plugged in falls back to the default, so the
 	// default is what is in effect. Say so instead of hiding it.
 	missing := selected != "" && audio.find_device(devices, selected) == nil
 
-	mu.layout_row(ctx, {-1})
-	mark := "⏵ " if selected == "" || missing else "  "
-	if .SUBMIT in stable_button(ctx, "default", fmt.tprintf("%sSystem default", mark)) &&
-	   selected != "" {
-		choice, changed = "", true
+	labels := make([]string, len(devices) + 1, context.temp_allocator)
+	labels[0] = "System default"
+	current := 0
+	for d, i in devices {
+		suffix := "  (current default)" if d.is_default else ""
+		labels[i + 1] = fmt.tprintf("%s%s", d.name, suffix)
+		if d.name == selected {
+			current = i + 1
+		}
+	}
+	field_row(ui, 60, title, {-1})
+	if picked, ok := choice_dropdown(ui, id, labels, current); ok {
+		choice = "" if picked == 0 else devices[picked - 1].name
+		changed = choice != selected
 	}
 	if missing {
-		mu.layout_row(ctx, {-1})
+		mu.layout_row(ctx, {60, -1})
+		mu.label(ctx, "")
 		with_text_color(
 			ctx,
 			theme.warning,
-			fmt.tprintf("  %s is not available, using the default", selected),
-			label_proc,
+			fmt.tprintf("%s is not available, using the default", selected),
+			wrap_text,
 		)
-	}
-
-	for d, i in devices {
-		mu.push_id(ctx, uintptr(i))
-		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-1})
-		mark = "⏵ " if d.name == selected else "  "
-		suffix := "  (current default)" if d.is_default else ""
-		if .SUBMIT in stable_button(ctx, "device", fmt.tprintf("%s%s%s", mark, d.name, suffix)) &&
-		   d.name != selected {
-			choice, changed = d.name, true
-		}
 	}
 	return
 }

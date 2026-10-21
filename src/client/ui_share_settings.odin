@@ -61,13 +61,14 @@ share_settings :: proc(ui: ^UI) {
 	cfg := conn.share_config(&ui.settings, limit)
 	preset := conn.share_preset(&ui.settings)
 
-	field_row(ui, 120, "Size", {110, 110, 110, 110})
+	field_row(ui, 120, "Size", {CHOICE_WIDTH})
+	sizes := make([]string, len(conn.SHARE_PRESETS), context.temp_allocator)
 	for p, i in conn.SHARE_PRESETS {
-		if choice_button(ui, fmt.tprintf("share preset %s", p.name), p.label, i == preset) &&
-		   i != preset {
-			settings.set_setting(&ui.settings.share_preset, p.name)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-		}
+		sizes[i] = p.label
+	}
+	if i, ok := choice_dropdown(ui, "share preset", sizes, preset); ok {
+		settings.set_setting(&ui.settings.share_preset, conn.SHARE_PRESETS[i].name)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 	mu.layout_row(ctx, {-1})
 	size := "as big as it is"
@@ -113,18 +114,25 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 	ctx := &ui.ctx
 	vid := &ui.video
 
-	field_row(ui, 120, "Frame rate", {110, 110})
-	for fps in conn.SHARE_FPS_CHOICES {
-		if choice_button(
-			   ui,
-			   fmt.tprintf("share fps %d", fps),
-			   fmt.tprintf("%d fps", fps),
-			   fps == cfg.fps,
-		   ) &&
-		   fps != cfg.fps {
-			ui.settings.share_fps = fps
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+	field_row(ui, 120, "Frame rate", {CHOICE_WIDTH})
+	fps_choices := conn.SHARE_FPS_CHOICES
+	rates := make([]string, len(fps_choices), context.temp_allocator)
+	rate_at := -1
+	for fps, i in fps_choices {
+		rates[i] = fmt.tprintf("%d fps", fps)
+		if fps == cfg.fps {
+			rate_at = i
 		}
+	}
+	if i, ok := choice_dropdown(
+		ui,
+		"share fps",
+		rates,
+		rate_at,
+		none = fmt.tprintf("%d fps", cfg.fps),
+	); ok {
+		ui.settings.share_fps = fps_choices[i]
+		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 
 	// Applied when the slider is released, like the UI scale.
@@ -146,37 +154,34 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 
-	mu.layout_row(ctx, {120, -1})
-	mu.label(ctx, "Encoder")
-	if choice_button(ui, "share encoder best", "The best that works", cfg.encoder == "") &&
-	   cfg.encoder != "" {
-		settings.set_setting(&ui.settings.share_encoder, "")
+	// The best that works, or one picked: those that work here, and the one
+	// picked before if it doesn't.
+	encoders := conn.video_encoders()
+	names := make([dynamic]string, context.temp_allocator)
+	labels := make([dynamic]string, context.temp_allocator)
+	append(&names, "")
+	append(&labels, "The best that works")
+	encoder_at := 0
+	for e in encoders {
+		if !e.works && e.name != cfg.encoder {
+			continue
+		}
+		if e.name == cfg.encoder {
+			encoder_at = len(names)
+		}
+		append(&names, e.name)
+		append(&labels, e.label if e.works else fmt.tprintf("%s (doesn't work here)", e.label))
+	}
+	field_row(ui, 120, "Encoder", {-1})
+	if i, ok := choice_dropdown(ui, "share encoder", labels[:], encoder_at); ok {
+		settings.set_setting(&ui.settings.share_encoder, names[i])
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
-	encoders := conn.video_encoders()
 	if encoders == nil {
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
 		with_text_color(ctx, theme.dim, "Still trying the encoders...", wrap_text)
 		ui_redraw_in(ui, ANIMATION_FRAME * 15)
-	}
-	for e in encoders {
-		if !e.works && e.name != cfg.encoder {
-			continue
-		}
-		mu.layout_row(ctx, {120, -1})
-		mu.label(ctx, "")
-		label := e.label if e.works else fmt.tprintf("%s (doesn't work here)", e.label)
-		if choice_button(
-			   ui,
-			   fmt.tprintf("share encoder %s", e.name),
-			   label,
-			   e.name == cfg.encoder,
-		   ) &&
-		   e.name != cfg.encoder {
-			settings.set_setting(&ui.settings.share_encoder, e.name)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-		}
 	}
 	if cfg.encoder != "" && encoders != nil {
 		// The best encoder that works keeps to what everyone in the room can

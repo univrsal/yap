@@ -71,13 +71,10 @@ camera_settings :: proc(ui: ^UI) {
 	camera_choice(ui)
 
 	quality := conn.camera_quality(ui.settings.camera_quality)
-	field_row(ui, 120, "Quality", {110, 110, 110})
-	for label, q in CAMERA_QUALITY_LABELS {
-		if choice_button(ui, fmt.tprintf("camera quality %v", q), label, q == quality) &&
-		   q != quality {
-			settings.set_setting(&ui.settings.camera_quality, conn.CAMERA_QUALITY_NAMES[q])
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-		}
+	field_row(ui, 120, "Quality", {CHOICE_WIDTH})
+	if q, ok := enum_dropdown(ui, "camera quality", CAMERA_QUALITY_LABELS, quality); ok {
+		settings.set_setting(&ui.settings.camera_quality, conn.CAMERA_QUALITY_NAMES[q])
+		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, theme.dim, CAMERA_QUALITY_NOTES[quality], wrap_text)
