@@ -19,12 +19,12 @@ cd "$(dirname "$0")/.."
 build=.cache/video-build-$(uname -s)
 case "$(uname -s)-$(uname -m)" in
 Linux-x86_64)
-	ffmpeg=$(scripts/fetch-ffmpeg.sh .cache)
+	ffmpeg=$(sh scripts/fetch-ffmpeg.sh .cache)
 	set -- -DFFMPEG_DIR="$PWD/$ffmpeg" "$@"
 	;;
 Darwin-*)
 	# Built from source the first time, which takes a few minutes.
-	ffmpeg=$(scripts/build-ffmpeg-macos.sh .cache)
+	ffmpeg=$(sh scripts/build-ffmpeg-macos.sh .cache)
 	set -- -DFFMPEG_DIR="$PWD/$ffmpeg" "$@"
 	;;
 *)

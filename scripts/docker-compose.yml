@@ -29,6 +29,8 @@ services:
       YAP_PORT: ${YAP_PORT:-7777}
       YAP_VIDEO_PORT: ${YAP_VIDEO_PORT:-7778}
       YAP_RELAY_PORT: ${YAP_RELAY_PORT:-8080}
+      # Applied on every start if not empty.
+      YAP_RELAY_ALLOW_SITES: ${YAP_RELAY_ALLOW_SITES:-}
       # Only used when config.json is created.
       YAP_RELAY_ENABLED: ${YAP_RELAY_ENABLED:-false}
       YAP_INITIAL_ADMIN_PASSWORD: ${YAP_INITIAL_ADMIN_PASSWORD:-}

@@ -980,7 +980,12 @@ or getDisplayMedia (a phone) can still watch.
 		let data = new Uint8Array(chunk.byteLength);
 		chunk.copyTo(data);
 		data = asSent(out, data, key);
-		s.queue.push({ data, ts: Math.round(chunk.timestamp / 1000) >>> 0, key, codec: out.codec });
+		// Stamped as it leaves the encoder, not as it was captured: viewers
+		// take how late frames arrive for a network that can't keep up, and
+		// an encoder that holds frames back (Firefox's H.264 keeps 8, 130 ms
+		// at 60 fps) would otherwise read as one that never can, whatever
+		// the bitrate.
+		s.queue.push({ data, ts: Math.round(performance.now()) >>> 0, key, codec: out.codec });
 		correctRate(s);
 	}
 

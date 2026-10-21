@@ -21,8 +21,9 @@ import "core:time"
 // A frame is split into `count` fragments, and `index` says which fragment
 // this is. All but the last carry VIDEO_FRAGMENT_SIZE bytes. Frames are
 // numbered consecutively, so a receiver that sees a skipped number knows that
-// something is missing. `ts` is the capture time in milliseconds, which the
-// decoder uses.
+// something is missing. `ts` is the capture time in milliseconds (a browser's:
+// when its encoder put the frame out, web/video.js), which the decoder uses,
+// and how late frames arrive is measured against.
 //
 // Video depends on the frames before it, so a lost fragment spoils every
 // frame up to the next keyframe. On the media link, a viewer first asks the
