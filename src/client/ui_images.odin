@@ -590,9 +590,13 @@ image_fitted :: proc(
 		t, known = im.textures[key]
 	}
 	if !known || t.state != .Ready {
-		label := "broken image" if known && t.state == .Failed else "loading picture..."
 		mu.draw_rect(ctx, area, theme.image_bg)
-		mu.draw_control_text(ctx, label, area, .TEXT, {.ALIGN_CENTER})
+		// One the server no longer has will never come.
+		if (known && t.state == .Failed) || state == .Gone {
+			mu.draw_control_text(ctx, "broken image", area, .TEXT, {.ALIGN_CENTER})
+		} else {
+			spinner(ui, area)
+		}
 		return
 	}
 	w, h := conn.fit_box(t.width, t.height, int(area.w), int(area.h))
@@ -733,7 +737,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 		mu.pop_clip_rect(ctx)
 	} else {
 		mu.draw_rect(ctx, rect, theme.image_bg)
-		mu.draw_control_text(ctx, "loading image...", rect, .TEXT, {.ALIGN_CENTER})
+		spinner(ui, rect)
 	}
 
 	mu.layout_row(ctx, {90, -1})

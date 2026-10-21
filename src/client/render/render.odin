@@ -97,7 +97,7 @@ Rounded_Shape :: enum {
 ROUNDED_ICON_BASE :: 300
 @(private)
 ROUNDED_ICONS :: len(Rounded_Shape) * 16 * (ROUND_MAX + 1)
-#assert(UI_ICON_BASE + len(Icon) <= ROUNDED_ICON_BASE)
+#assert(UI_ICON_BASE + ICON_SLOTS <= ROUNDED_ICON_BASE)
 #assert(ROUNDED_ICON_BASE + ROUNDED_ICONS <= IMAGE_ICON_BASE)
 
 // rounded_id returns the icon id that draws a rounded rect.
@@ -950,7 +950,7 @@ draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 // snapped to physical pixels, so it stays as crisp as the text next to it.
 @(private = "file")
 draw_ui_icon :: proc(r: ^Renderer, icon: Icon, rect: mu.Rect, color: mu.Color) {
-	if r.icons.side == 0 || int(icon) >= len(Icon) {
+	if r.icons.side == 0 || int(icon) >= ICON_SLOTS {
 		return
 	}
 	atlas, texture := &r.icons, r.icons_texture

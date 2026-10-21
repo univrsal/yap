@@ -2,6 +2,7 @@
 package client
 
 import "core:testing"
+import "core:time"
 import mu "vendor:microui"
 
 import "common:proto"
@@ -189,4 +190,25 @@ test_style_for_phones :: proc(t: ^testing.T) {
 	ui.touched = true
 	style_apply(ui, 1000)
 	testing.expect(t, ui.compact)
+}
+
+// A spinner asks for a frame by its next step while it is on screen, and none
+// when it is clipped away.
+@(test)
+test_spinner_redraws_while_shown :: proc(t: ^testing.T) {
+	ct := composer_test_start("")
+	defer composer_test_end(ct)
+	ui := ct.ui
+	ctx := &ui.ctx
+	mu.begin(ctx)
+	if mu.begin_window(ctx, "w", {0, 0, 400, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+		spinner(ui, {1000, 1000, 20, 20}) // outside the window
+		testing.expect_value(t, ui.redraw_at, time.Tick{})
+		spinner(ui, {10, 10, 20, 20})
+		testing.expect(t, ui.redraw_at != {})
+		left := time.tick_diff(time.tick_now(), ui.redraw_at)
+		testing.expect(t, left > 0 && left <= SPINNER_STEP)
+		mu.end_window(ctx)
+	}
+	mu.end(ctx)
 }

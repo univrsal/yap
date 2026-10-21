@@ -545,11 +545,9 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 	text: string
 	switch {
 	case tl == nil || tl.loading:
-		if thread {
-			text = "Loading replies..." if n == 0 else "Loading older replies..."
-		} else {
-			text = "Loading messages..." if n == 0 else "Loading older messages..."
-		}
+		// Messages, or older ones above these, on their way.
+		spinner_row(ui)
+		return
 	case thread && tl.have_oldest && n > 0:
 		rule(ui, "Replies", theme.day_line)
 		return

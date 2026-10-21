@@ -69,6 +69,22 @@ Icon :: enum {
 	Check, // a tick: a checked checkbox
 	Collapsed, // a triangle pointing right: a collapsed tree node
 	Expanded, // a triangle pointing down: an expanded tree node
+	// Something loading: a ring with a gap, turning. This is the first of
+	// SPINNER_STEPS icons, each turned a step further, which come after the
+	// others in the atlas (spinner_id). It has to stay last.
+	Spinner,
+}
+
+// How many steps a spinner turns in, one after another.
+SPINNER_STEPS :: 12
+
+// How many icons the atlas holds: one of each, and the spinner's steps.
+ICON_SLOTS :: len(Icon) + SPINNER_STEPS - 1
+
+// spinner_id is the id for drawing a spinner at `step` (wrapped to
+// SPINNER_STEPS).
+spinner_id :: proc(step: int) -> mu.Icon {
+	return mu.Icon(UI_ICON_BASE + int(Icon.Spinner) + step %% SPINNER_STEPS)
 }
 
 // Icon command ids start here, above microui's own icons and below the ids of
@@ -100,11 +116,12 @@ icon_atlas_build :: proc(a: ^Icon_Atlas, scale: f32) -> bool {
 	if side <= 0 {
 		return false
 	}
-	width, height := side * i32(len(Icon)), side
+	width, height := side * i32(ICON_SLOTS), side
 	pixels := make([]u8, int(width) * int(height))
 
-	for icon in Icon {
-		left := int(icon) * int(side)
+	for slot in 0 ..< ICON_SLOTS {
+		icon := Icon(slot) // past Spinner, its further steps
+		left := slot * int(side)
 		for y in 0 ..< int(side) {
 			for x in 0 ..< int(side) {
 				d := texel_distance(icon, x, y, int(side))
@@ -179,6 +196,9 @@ texel_distance :: proc(icon: Icon, x, y, side: int) -> f32 {
 
 @(private = "file")
 icon_distance :: proc(icon: Icon, p: Point) -> f32 {
+	if icon >= .Spinner {
+		return spinner(p, int(icon) - int(Icon.Spinner))
+	}
 	switch icon {
 	case .Mic:
 		return microphone(p)
@@ -267,12 +287,36 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return triangle(p, {0.28, 0.18}, {0.72, 0.5}, {0.28, 0.82})
 	case .Expanded:
 		return triangle(p, {0.18, 0.28}, {0.82, 0.28}, {0.5, 0.72})
+	case .Spinner:
+		return spinner(p, 0)
 	}
 	return 1
 }
 
 @(private = "file")
 CHECK_STROKE :: 0.12
+
+// spinner is a ring with a quarter of it missing, turned `step` steps of a
+// whole turn (SPINNER_STEPS) clockwise, with round ends.
+@(private = "file")
+spinner :: proc(p: Point, step: int) -> f32 {
+	RADIUS :: 0.34
+	SPAN :: 1.5 * math.PI // how much of the ring there is
+	centre := Point{0.5, 0.5}
+	start := 2 * math.PI * f32(step) / SPINNER_STEPS - math.PI / 2 // from the top
+	rel := p - centre
+	// How far along the ring from its start the point is, from 0 to 2 pi
+	// (y points down, so the angle grows clockwise).
+	along := math.atan2(rel.y, rel.x) - start
+	along -= 2 * math.PI * math.floor(along / (2 * math.PI))
+	if along <= SPAN {
+		return abs(length(rel) - RADIUS) - CHECK_STROKE / 2
+	}
+	end := start + SPAN
+	a := centre + RADIUS * Point{math.cos(start), math.sin(start)}
+	b := centre + RADIUS * Point{math.cos(end), math.sin(end)}
+	return min(length(p - a), length(p - b)) - CHECK_STROKE / 2
+}
 
 // chevron is an arrowhead pointing left (`towards` -1) or right (1), drawn
 // with the tick's stroke.
@@ -379,7 +423,8 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Next,
 	     .Check,
 	     .Collapsed,
-	     .Expanded:
+	     .Expanded,
+	     .Spinner:
 	}
 	return 0, false
 }

@@ -393,8 +393,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	m := &v.members
 	if m.conv != v.viewing || (m.loading && len(m.accounts) == 0) {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Loading...", label_proc)
+		spinner_row(ui)
 		return
 	}
 	Member :: struct {

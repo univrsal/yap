@@ -576,10 +576,12 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 	if pending > 0 {
 		return
 	}
+	if entry.conv != 0 {
+		spinner_row(ui) // its messages, on their way
+		return
+	}
 	mu.layout_row(ctx, {-1})
-	text :=
-		"Loading messages..." if entry.conv != 0 else fmt.tprintf("Nothing said with %s yet.", entry.name)
-	with_text_color(ctx, theme.dim, text, label_proc)
+	with_text_color(ctx, theme.dim, fmt.tprintf("Nothing said with %s yet.", entry.name), label_proc)
 }
 
 // ask_last_seen asks a server when those in its part of the inbox who

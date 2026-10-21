@@ -42,7 +42,7 @@ test_icons_are_drawn :: proc(t: ^testing.T) {
 		a: Icon_Atlas
 		defer icon_atlas_destroy(&a)
 		testing.expect(t, icon_atlas_build(&a, scale))
-		testing.expect_value(t, a.width, a.side * i32(len(Icon)))
+		testing.expect_value(t, a.width, a.side * i32(ICON_SLOTS))
 		testing.expect_value(t, a.height, a.side)
 
 		for icon in Icon {
@@ -236,4 +236,48 @@ test_window_controls_are_sharp :: proc(t: ^testing.T) {
 			)
 		}
 	}
+}
+
+// Each of a spinner's steps is drawn, about as much as the others (it is the
+// same ring, turned), inside its square, and differs from the step before.
+@(test)
+test_spinner_steps :: proc(t: ^testing.T) {
+	for scale in ([]f32{1, 1.5, 2}) {
+		a: Icon_Atlas
+		defer icon_atlas_destroy(&a)
+		testing.expect(t, icon_atlas_build(&a, scale))
+		first := ink(&a, .Spinner)
+		for step in 0 ..< SPINNER_STEPS {
+			icon := Icon(int(Icon.Spinner) + step)
+			covered := ink(&a, icon)
+			testing.expectf(
+				t,
+				covered > 0.1 && abs(covered - first) < first * 0.15,
+				"spinner step %d at %.1fx covers %.0f%% (step 0: %.0f%%)",
+				step,
+				scale,
+				covered * 100,
+				first * 100,
+			)
+			testing.expectf(t, column(&a, icon, 0) == 0, "spinner step %d touches its left edge", step)
+			testing.expectf(
+				t,
+				column(&a, icon, int(a.side) - 1) == 0,
+				"spinner step %d touches its right edge",
+				step,
+			)
+			prev := Icon(int(Icon.Spinner) + (step + SPINNER_STEPS - 1) % SPINNER_STEPS)
+			differs := false
+			for y in 0 ..< int(a.side) {
+				row := y * int(a.width)
+				for x in 0 ..< int(a.side) {
+					differs ||=
+						a.pixels[row + int(icon) * int(a.side) + x] !=
+						a.pixels[row + int(prev) * int(a.side) + x]
+				}
+			}
+			testing.expectf(t, differs, "spinner step %d looks like the one before", step)
+		}
+	}
+	testing.expect_value(t, spinner_id(SPINNER_STEPS + 1), spinner_id(1))
 }

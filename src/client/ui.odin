@@ -1885,6 +1885,36 @@ icon_button :: proc(
 	return
 }
 
+// A spinner turns once a second, a step at a time.
+SPINNER_STEP :: time.Second / render.SPINNER_STEPS
+
+// spinner says that something is loading: a turning ring in the middle of
+// `r`, dim unless it gets a `color`. While it is on screen, it asks for a frame
+// when it is to turn next, and only then: a spinner scrolled out of view
+// costs no frames.
+spinner :: proc(ui: ^UI, r: mu.Rect, color := mu.Color{}) {
+	ctx := &ui.ctx
+	if mu.check_clip(ctx, r) == .ALL {
+		return
+	}
+	// The same step everywhere, from the clock.
+	ns := time.tick_now()._nsec
+	step := ns / i64(SPINNER_STEP)
+	mu.draw_icon(
+		ctx,
+		render.spinner_id(int(step % render.SPINNER_STEPS)),
+		r,
+		color if color.a != 0 else theme.dim,
+	)
+	ui_redraw_in(ui, time.Duration(i64(SPINNER_STEP) - ns % i64(SPINNER_STEP)))
+}
+
+// spinner_row is a row of its own with a spinner in its middle.
+spinner_row :: proc(ui: ^UI) {
+	mu.layout_row(&ui.ctx, {-1})
+	spinner(ui, mu.layout_next(&ui.ctx))
+}
+
 // menu_list_begin starts a list of `rows` rows in a menu, `width` wide. The rows
 // are buttons or labels, each on a row of its own, laid out with {-1}. The list
 // is as tall as its rows, up to half the window, beyond which it scrolls instead

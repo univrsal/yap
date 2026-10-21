@@ -96,8 +96,7 @@ channel_list :: proc(ui: ^UI) {
 
 	mu.begin_panel(ctx, "channels")
 	if len(v.channels) == 0 {
-		mu.layout_row(ctx, {-1})
-		mu.label(ctx, "Waiting for the channel list...")
+		spinner_row(ui) // the channel list, on its way
 	}
 	// The rows close together, and so the people in a voice room under its
 	// channel.

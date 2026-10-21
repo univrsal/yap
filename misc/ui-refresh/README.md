@@ -17,8 +17,8 @@ to 2500.
 | 3 | The composer's buttons inside its box | M | 1 | done (2026-10-21) |
 | 4 | Bigger channel list, more spacing, bigger on phones | M | - | done (2026-10-21) |
 | 5 | Icons for Add, Back and Next | S | - | done (2026-10-21) |
-| 6 | Spinners for what is loading | S | - | next |
-| 7 | Smooth scrolling | M | - | |
+| 6 | Spinners for what is loading | S | - | done (2026-10-21) |
+| 7 | Smooth scrolling | M | - | next |
 | 8 | Smaller polish (see the list at the end) | S each | 1 | ideas |
 
 Why this order:
@@ -188,6 +188,25 @@ screen it asks for a frame every `ANIMATION_FRAME` (`ui_redraw_in`), and
 only then. It replaces "Loading messages...", "loading picture...",
 "loading image..." and the like (`ui_timeline`, `ui_images`), keeping the
 words where they say more than a spinner would.
+
+*As built:* `render.Icon.Spinner` is the first of `SPINNER_STEPS` (12)
+slots at the end of the icon atlas (`ICON_SLOTS`, `spinner_id`): a ring
+with a quarter missing, turned 30 degrees clockwise per step, in the
+tick's stroke. `spinner` (`ui.odin`) draws the step the clock is at, a
+turn a second, and asks for a frame at the next step (`ui_redraw_in`), so
+12 a second rather than every `ANIMATION_FRAME`, and none when it is
+clipped away; `spinner_row` is one in a row of its own. They replace:
+the timeline's "Loading (older) messages/replies...", a DM's "Loading
+messages...", the pins' and members' "Loading...", "Waiting for the
+channel list...", and "loading picture..." / "loading image..." in
+pictures and the viewer. A picture the server no longer has (`.Gone`)
+now says "broken image", where it used to say "loading picture..."
+forever. Words stay for connecting, uploading, sending, the camera's
+"Waiting for the picture..." and "Loading the message replied to...".
+
+Seen off-screen through a UDP proxy that delays every packet 0.25 s: the
+channel list's and the timeline's spinners while connecting. Idle after
+loading: 1% of a core, as before.
 
 ## 7. Smooth scrolling
 

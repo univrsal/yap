@@ -455,7 +455,7 @@ chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 	ctx := &ui.ctx
 	pad := ctx.style.padding
 	line_h := ctx.text_height(ctx.style.font)
-	// While it is being read or decoded, leave room for "loading picture...".
+	// While it is being read or decoded, leave room for its spinner.
 	pic_w, pic_h := i32(CHIP_PREVIEW_W), i32(CHIP_PREVIEW_H / 2)
 	if iw, ih, ok := image_size(ui, p.key); ok {
 		fw, fh := conn.fit_box(iw, ih, CHIP_PREVIEW_W, CHIP_PREVIEW_H)
