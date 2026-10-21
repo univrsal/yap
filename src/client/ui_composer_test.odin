@@ -212,3 +212,30 @@ test_spinner_redraws_while_shown :: proc(t: ^testing.T) {
 	}
 	mu.end(ctx)
 }
+
+// A notch of the mouse wheel reaches microui over a few frames, less in each
+// than the one before, and all of it in the end.
+@(test)
+test_wheel_scrolls_smoothly :: proc(t: ^testing.T) {
+	ct := composer_test_start("")
+	defer composer_test_end(ct)
+	ui := ct.ui
+	ui.scroll_left = {0, 2 * WHEEL_NOTCH}
+	total, last: i32 = 0, max(i32)
+	frames := 0
+	for ui.scroll_left != {} && frames < 100 {
+		// A frame later than the last.
+		if ui.scroll_at != {} {
+			ui.scroll_at = time.tick_add(time.tick_now(), -SCROLL_FRAME)
+		}
+		ui.ctx.scroll_delta = {}
+		scroll_step(ui)
+		got := ui.ctx.scroll_delta.y
+		testing.expectf(t, got > 0 && got <= last, "frame %d scrolled %d after %d", frames, got, last)
+		total, last = total + got, got
+		frames += 1
+	}
+	testing.expect_value(t, total, 2 * WHEEL_NOTCH)
+	testing.expectf(t, frames >= 4 && frames <= 20, "took %d frames", frames)
+	testing.expect_value(t, ui.scroll_at, time.Tick{})
+}

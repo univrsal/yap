@@ -659,7 +659,8 @@ image_fitted :: proc(
 // Zooming in stops once an image pixel is this many screen pixels.
 @(private = "file")
 MAX_PIXEL_SIZE :: 8
-// How much one notch of the mouse wheel (30, see scroll_callback) zooms.
+// How much one notch of the mouse wheel (WHEEL_NOTCH) zooms. A notch arrives
+// spread over a few frames (scroll_step), and so does the zoom.
 @(private = "file")
 ZOOM_STEP :: 1.25
 
@@ -761,7 +762,7 @@ viewer_input :: proc(ui: ^UI, picture: mu.Rect, max_zoom: f32) {
 
 	if ctx.hover_id == id && ctx.scroll_delta.y != 0 {
 		old := im.zoom
-		im.zoom = clamp(old * math.pow(ZOOM_STEP, -f32(ctx.scroll_delta.y) / 30), 1, max_zoom)
+		im.zoom = clamp(old * math.pow(ZOOM_STEP, -f32(ctx.scroll_delta.y) / WHEEL_NOTCH), 1, max_zoom)
 		// The pointer, relative to the picture area's center.
 		p := [2]f32 {
 			f32(ctx.mouse_pos.x) - (f32(picture.x) + f32(picture.w) / 2),

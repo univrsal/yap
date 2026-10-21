@@ -373,6 +373,10 @@ UI :: struct {
 	// the log panel showed in it (-1: it wasn't on screen).
 	redraw_frames:       int,
 	redraw_at:           time.Tick,
+	// The mouse wheel's scrolling not handed to microui yet, in pixels, and
+	// when some was last handed over (see scroll_step).
+	scroll_left:         [2]f32,
+	scroll_at:           time.Tick,
 	drawn_hash:          u64,
 	log_drawn:           int,
 }
@@ -514,7 +518,14 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	// loop (see monitor_update), so the loop needs to run at the display's rate.
 	// In a web build the browser has already decided when this frame
 	// happens, so there is nothing to wait for.
-	glfw.WaitEventsTimeout(1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30)
+	// A frame asked for by a time (ui_redraw_at) wakes it sooner, so that what
+	// moves faster than that (scrolling, see scroll_step) does.
+	wait := 1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30
+	if ui.redraw_at != {} {
+		due := time.duration_seconds(time.tick_diff(time.tick_now(), ui.redraw_at))
+		wait = clamp(due, 0.001, wait)
+	}
+	glfw.WaitEventsTimeout(wait)
 
 	// Without threads nobody else can run the connection, so it
 	// gets its turn here, between frames (see net_thread).
@@ -623,6 +634,7 @@ draw_frame :: proc(ui: ^UI) {
 	voice_elsewhere_update(ui)
 	theme_update(ui) // the palette for this frame (theme.odin)
 	style_apply(ui, i32(m.logical_w))
+	scroll_step(ui)
 	mu.begin(&ui.ctx)
 	ui.meter_shown = false // until gate_settings draws it again (it sets this when it draws the meter)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
@@ -2288,11 +2300,58 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	}
 }
 
+// How far a notch of the mouse wheel scrolls, in pixels.
+WHEEL_NOTCH :: 30
+
 @(private = "file")
 scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
 	ui_redraw(g_ui)
-	mu.input_scroll(&g_ui.ctx, i32(-x * 30), i32(-y * 30))
+	// A wheel turns in whole notches, which are spread over a few frames
+	// (scroll_step). A touchpad scrolls in fractions of one, a little at a
+	// time already, so that goes to microui as it comes.
+	if x == math.round(x) && y == math.round(y) {
+		g_ui.scroll_left += {f32(-x * WHEEL_NOTCH), f32(-y * WHEEL_NOTCH)}
+	} else {
+		mu.input_scroll(&g_ui.ctx, i32(-x * WHEEL_NOTCH), i32(-y * WHEEL_NOTCH))
+	}
+}
+
+// The mouse wheel's scrolling eases out: what is left shrinks by e every
+// SCROLL_EASE, so a notch is mostly done in a few frames. While some is left,
+// frames come every SCROLL_FRAME.
+@(private = "file")
+SCROLL_EASE :: 0.05 // seconds
+SCROLL_FRAME :: time.Second / 60
+
+// scroll_step hands microui this frame's share of the mouse wheel's
+// scrolling, before the frame is laid out. Only whole pixels are handed over,
+// so in the end a notch scrolls exactly as far as it would at once.
+scroll_step :: proc(ui: ^UI) {
+	if ui.scroll_left == {} {
+		return
+	}
+	now := time.tick_now()
+	// The first frame of a scroll gets a frame's share too.
+	dt := f32(time.duration_seconds(SCROLL_FRAME))
+	if ui.scroll_at != {} {
+		dt = clamp(f32(time.duration_seconds(time.tick_diff(ui.scroll_at, now))), 0, 0.1)
+	}
+	left := ui.scroll_left * math.exp(-dt / SCROLL_EASE)
+	for &v in left {
+		if abs(v) < 1 {
+			v = 0 // the rest, now
+		}
+	}
+	give := [2]i32{i32(math.round(ui.scroll_left.x - left.x)), i32(math.round(ui.scroll_left.y - left.y))}
+	ui.scroll_left -= {f32(give.x), f32(give.y)}
+	mu.input_scroll(&ui.ctx, give.x, give.y)
+	if ui.scroll_left != {} {
+		ui.scroll_at = now
+		ui_redraw_in(ui, SCROLL_FRAME)
+	} else {
+		ui.scroll_at = {}
+	}
 }
 
 @(private = "file")

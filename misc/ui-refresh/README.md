@@ -18,8 +18,8 @@ to 2500.
 | 4 | Bigger channel list, more spacing, bigger on phones | M | - | done (2026-10-21) |
 | 5 | Icons for Add, Back and Next | S | - | done (2026-10-21) |
 | 6 | Spinners for what is loading | S | - | done (2026-10-21) |
-| 7 | Smooth scrolling | M | - | next |
-| 8 | Smaller polish (see the list at the end) | S each | 1 | ideas |
+| 7 | Smooth scrolling | M | - | done (2026-10-21) |
+| 8 | Smaller polish (see the list at the end) | S each | 1 | next (ideas) |
 
 Why this order:
 
@@ -221,6 +221,23 @@ The timeline keeps its own scroll position (a message and how far into it,
 message and keeping to the end must be checked with the spread-out input.
 Scrolling wants 60 frames a second while it moves (`ANIMATION_FRAME` is
 30).
+
+*As built:* `scroll_callback` keeps whole notches (`WHEEL_NOTCH`, 30 px)
+in `ui.scroll_left`; fractions of one (touchpads) still go to microui as
+they come. `scroll_step`, before each frame's layout, hands microui the
+share that has run out: what is left shrinks by e every `SCROLL_EASE`
+(50 ms), in whole pixels, so a notch ends exactly 30 px away, in about 11
+frames; it asks for frames every `SCROLL_FRAME` (1/60 s) while any is
+left. The native loop now wakes for a frame asked for by a time
+(`ui_redraw_at`) instead of at most every 1/30 s, which also keeps the
+spinners on time. The viewer's wheel zoom follows the spread-out input,
+so it zooms smoothly too.
+
+Seen off-screen in a channel of 60 messages: each notch moved the text
+exactly 30 px (24-25 px in a shot taken right after it), up and down;
+back at the end, a new message was followed. Idle afterwards is the same
+as without the change (28-31 ticks in 10 s, measured against a build of
+`better-ui`).
 
 ## Smaller polish, later
 
