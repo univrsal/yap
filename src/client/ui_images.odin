@@ -114,6 +114,7 @@ Image_Kind :: enum u8 {
 	Emoji_Frames, // the frames of one of the server's emoji that moves, by its blob's id
 	Chip_Preview, // a picked file's picture, by a count (see chip_hovered)
 	Builtin_Emoji, // the client's own emoji sheet (see EMOJI_SHEET_KEY)
+	Logo, // the client's logo, 0 for the light theme and 1 for the dark (see about_logo)
 }
 
 Image_Key :: struct {
@@ -841,6 +842,31 @@ image_want :: proc(ui: ^UI, key: Image_Key, data: []u8) {
 	if key not_in ui.images.textures && len(data) > 0 {
 		enqueue_decode(&ui.images, key, data)
 	}
+}
+
+// image_plain draws a picture from `data` (one of the client's own, compiled
+// in) as large as fits in `area`, at its top left. Unlike image_fitted it
+// shows nothing until it is decoded, and clicking it does nothing.
+image_plain :: proc(ui: ^UI, key: Image_Key, data: []u8, area: mu.Rect) {
+	im := &ui.images
+	t, known := im.textures[key]
+	if !known {
+		enqueue_decode(im, key, data)
+		return
+	}
+	if t.state != .Ready {
+		return
+	}
+	t.frame = im.frame
+	im.textures[key] = t
+	w, h := conn.fit_box(t.width, t.height, int(area.w), int(area.h))
+	append(&im.draws, render.Image_Draw{texture = t.texture})
+	mu.draw_icon(
+		&ui.ctx,
+		mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1),
+		{area.x, area.y, i32(w), i32(h)},
+		{255, 255, 255, 255},
+	)
 }
 
 // image_size is a decoded picture's own size: of its texture, or for a message's

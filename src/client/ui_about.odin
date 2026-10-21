@@ -11,7 +11,8 @@ import "common:."
 // src/common/version.odin) and the third-party software in it with its
 // licenses, one collapsible header each.
 //
-// The license texts are in licenses/ and compiled in.
+// The license texts are in licenses/ and compiled in, and so is the logo at
+// the top, one for each theme.
 
 @(private = "file")
 Build :: enum {
@@ -154,6 +155,8 @@ THIRD_PARTY := [?]Third_Party {
 // about_settings fills the settings page's right-hand panel.
 about_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
+	mu.layout_row(ctx, {-1}, LOGO_HEIGHT)
+	about_logo(ui, mu.layout_next(ctx))
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, fmt.tprintf("yap %s", common.version_string()))
 	about_text(
@@ -182,6 +185,29 @@ about_settings :: proc(ui: ^UI) {
 		mu.label(ctx, "")
 		with_text_color(ctx, theme.dim, p.text, about_text)
 	}
+}
+
+// The logo's height, half its pictures', so that they are drawn at their own
+// size at twice the scale.
+@(private = "file")
+LOGO_HEIGHT :: 68
+
+// The logo with dark letters (for the light theme) and with light ones.
+@(private = "file")
+LOGO_LIGHT_THEME := #load("assets/logo_bright.png")
+@(private = "file")
+LOGO_DARK_THEME := #load("assets/logo_dark.png")
+
+// about_logo draws the logo for the theme in use, as large as fits in `area`.
+@(private = "file")
+about_logo :: proc(ui: ^UI, area: mu.Rect) {
+	dark := ui.theme_state.dark
+	image_plain(
+		ui,
+		{kind = .Logo, id = 1 if dark else 0},
+		LOGO_DARK_THEME if dark else LOGO_LIGHT_THEME,
+		area,
+	)
 }
 
 // about_text is mu.text, one line at a time. mu.text wraps long lines, but it
