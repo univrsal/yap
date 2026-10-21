@@ -337,6 +337,9 @@ UI :: struct {
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
 	hint_of:             mu.Rect,
+	// Icon buttons are drawn flat, with a background only while the pointer
+	// is on them (the composer's, inside its box, see composer_buttons).
+	flat_buttons:        bool,
 	// The emoji the hint is about, drawn large above it (icon_hint).
 	hint_emoji:          Hint_Emoji,
 	// The picture chip under the pointer, which is shown over it
@@ -1912,10 +1915,16 @@ icon_button :: proc(
 	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
 		res += {.SUBMIT}
 	}
-	// Flat: a background only while the pointer is on it or it is pressed.
-	if ctx.focus_id == id || ctx.hover_id == id {
-		hovered := ctx.style.colors[.BUTTON_FOCUS if ctx.focus_id == id else .BUTTON_HOVER]
-		render.draw_rounded(ctx, r, hovered, render.CONTROL_RADIUS)
+	// Filled, without a border, or flat: a background only while the pointer
+	// is on it or it is pressed.
+	colorid := mu.Color_Type.BUTTON
+	if ctx.focus_id == id {
+		colorid = .BUTTON_FOCUS
+	} else if ctx.hover_id == id {
+		colorid = .BUTTON_HOVER
+	}
+	if !ui.flat_buttons || colorid != .BUTTON {
+		render.draw_rounded(ctx, r, ctx.style.colors[colorid], render.CONTROL_RADIUS)
 	}
 	mu.draw_icon(ctx, render.icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
 	if ctx.hover_id == id {

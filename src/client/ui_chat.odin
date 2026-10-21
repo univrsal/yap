@@ -271,9 +271,11 @@ composer_buttons :: proc(ui: ^UI, box: mu.Rect, buttons: int) {
 		bw = size
 	}
 	mu.layout_row(ctx, widths[:buttons], size)
+	ui.flat_buttons = true
 }
 
 composer_buttons_end :: proc(ui: ^UI) {
+	ui.flat_buttons = false
 	mu.layout_end_column(&ui.ctx)
 }
 
