@@ -131,3 +131,34 @@ test_composer_footer_keeps_caret :: proc(t: ^testing.T) {
 	composer_test_frame(ct)
 	testing.expect_value(t, ctx.textbox_state.selection, [2]int{0, 0})
 }
+
+// While Shift+Enter makes the box grow, the frame each new line is typed in
+// neither scrolls nor shows a scrollbar, though the box only grows in the next
+// one. Past the most lines it grows to, the scrollbar shows.
+@(test)
+test_composer_grows_without_scrollbar :: proc(t: ^testing.T) {
+	ct := composer_test_start("")
+	defer composer_test_end(ct)
+	ctx := &ct.ui.ctx
+	composer_test_frame(ct)
+	mu.set_focus(ctx, ct.box)
+	composer_test_frame(ct)
+	newline :: proc(ct: ^Composer_Test) {
+		ctx := &ct.ui.ctx
+		mu.input_key_down(ctx, .SHIFT)
+		mu.input_key_down(ctx, .RETURN)
+		composer_test_frame(ct)
+		mu.input_key_up(ctx, .RETURN)
+		mu.input_key_up(ctx, .SHIFT)
+	}
+	for _ in 1 ..< TEXT_AREA_MAX_LINES {
+		newline(ct)
+		testing.expect_value(t, ct.area.bar.w, 0)
+		testing.expect_value(t, ct.area.scroll, 0)
+		composer_test_frame(ct)
+	}
+	newline(ct)
+	composer_test_frame(ct)
+	testing.expect(t, ct.area.bar.w > 0)
+	testing.expect(t, ct.area.scroll > 0)
+}

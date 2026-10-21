@@ -338,14 +338,18 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	}
 
 	// Scrolling: to the caret when it moved, the text changed or the box has
-	// just taken the focus, otherwise by the wheel over the box.
-	most := max(i32(len(lines)) * lh - rows * lh, 0)
+	// just taken the focus, otherwise by the wheel over the box. It scrolls as
+	// if the box were already as tall as it is about to be: while it grows to
+	// fit a new line, that line is cut off for a frame instead of the text
+	// scrolling and a scrollbar showing for one.
+	view := max(rows, i32(min(len(lines), TEXT_AREA_MAX_LINES)))
+	most := max(i32(len(lines)) * lh - view * lh, 0)
 	if focused && (s.selection != area.last_sel || textlen^ != area.last_len || !area.had_focus) {
 		y := i32(area_line_of(lines, s.selection[0])) * lh
 		if y < area.scroll {
 			area.scroll = y
-		} else if y + lh > area.scroll + rows * lh {
-			area.scroll = y + lh - rows * lh
+		} else if y + lh > area.scroll + view * lh {
+			area.scroll = y + lh - view * lh
 		}
 	} else if most > 0 && ctx.scroll_delta.y != 0 && mu.mouse_over(ctx, tr) {
 		area.scroll += ctx.scroll_delta.y
@@ -362,7 +366,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	thumb: mu.Rect
 	if most > 0 {
 		area.bar = {tr.x + tr.w - bar_w, tr.y, bar_w, tr.h}
-		thumb_h := max(tr.h * rows / i32(len(lines)), bar_w)
+		thumb_h := max(tr.h * view / i32(len(lines)), bar_w)
 		span := max(tr.h - thumb_h, 1)
 		thumb = {area.bar.x, r.y + span * area.scroll / most, bar_w, thumb_h}
 		if .LEFT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, area.bar) {
@@ -409,8 +413,9 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		}
 	}
 	if area.bar.w > 0 {
-		mu.draw_rect(ctx, area.bar, ctx.style.colors[.SCROLL_BASE])
-		mu.draw_rect(ctx, thumb, ctx.style.colors[.SCROLL_THUMB])
+		// Rounded like the panels' scrollbars (draw_frame).
+		ctx.draw_frame(ctx, area.bar, .SCROLL_BASE)
+		ctx.draw_frame(ctx, thumb, .SCROLL_THUMB)
 	}
 	return
 }

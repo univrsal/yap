@@ -104,6 +104,11 @@ fills the part above the strip. Same for threads and DMs. The box is about
 108 px tall when empty (`COMPOSER_LINES`, `COMPOSER_BUTTON`,
 `COMPOSER_INSET` in `ui_chat.odin`). Tests in `ui_composer_test.odin`.
 
+Two fixes after: the box scrolls as if it already had the height it is
+growing to, so a new line no longer shows its scrollbar for a frame
+(and scrolls the text) before the box grows; and its scrollbar is drawn
+with `draw_frame`, as pills like the panels'.
+
 ## 4. Bigger channel list, more spacing, bigger on phones
 
 - The channel list in a larger font, with more padding per row. A
