@@ -345,7 +345,7 @@ video_share_max_kbit :: proc(stream: proto.Video_Stream) -> int {
 }
 
 // video_share_adapt holds a stream to `kbit` for its viewers (video.odin). The
-// encoder starts again at it, with a keyframe.
+// encoder takes it up from its next frame, without a keyframe.
 video_share_adapt :: proc(stream: proto.Video_Stream, kbit: int) {
 	yap_video_set_bitrate(i32(stream), i32(kbit))
 }

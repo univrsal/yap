@@ -101,37 +101,58 @@ decode_nack :: proc(
 
 @(private = "file")
 Window_Slot :: struct {
-	used:     bool,
-	frame:    u32,
-	ts:       u32,
-	key:      bool,
-	codec:    Video_Codec,
-	count:    int, // 0 while no fragment has arrived
-	received: int,
-	size:     int,
-	newest:   int, // the highest index that has arrived so far, -1 for none
-	have:     [MAX_VIDEO_FRAGMENTS]bool,
-	buf:      [dynamic]u8,
-	last_at:  time.Tick, // when its last fragment arrived
-	gap_at:   time.Tick, // when it was first seen to be missing something
-	rounds:   int, // the number of Nack rounds sent
-	nack_at:  time.Tick,
-	gave_up:  bool,
+	used:       bool,
+	frame:      u32,
+	ts:         u32,
+	key:        bool,
+	codec:      Video_Codec,
+	count:      int, // 0 while no fragment has arrived
+	received:   int,
+	size:       int,
+	newest:     int, // the highest index that has arrived so far, -1 for none
+	have:       [MAX_VIDEO_FRAGMENTS]bool,
+	buf:        [dynamic]u8,
+	last_at:    time.Tick, // when its last fragment arrived
+	gap_at:     time.Tick, // when it was first seen to be missing something
+	rounds:     int, // the number of Nack rounds sent
+	nack_at:    time.Tick,
+	gave_up:    bool,
+	gave_up_at: time.Tick,
+}
+
+// Video_Break says why a window went broken (for the log): a frame given up on,
+// or `pushed_out` frames pushed out of the window by newer ones.
+Video_Break :: struct {
+	frame:      u32,
+	pushed_out: int,
+	// The frame given up on: what of it had arrived, how many Nack rounds were
+	// sent for it, how long after its gap was first seen it was given up on,
+	// and how long after its last fragment (0 if none arrived).
+	key:        bool,
+	received:   int,
+	count:      int,
+	rounds:     int,
+	waited:     time.Duration,
+	idle:       time.Duration,
 }
 
 Video_Window :: struct {
-	slots:     [VIDEO_WINDOW]Window_Slot,
-	started:   bool,
-	next:      u32, // the next frame to hand out
-	newest:    u32, // the newest frame seen
-	broken:    bool,
+	slots:      [VIDEO_WINDOW]Window_Slot,
+	started:    bool,
+	next:       u32, // the next frame to hand out
+	newest:     u32, // the newest frame seen
+	broken:     bool,
 	// The fragments come over a link that loses nothing and keeps them in
 	// order (a WebSocket, see video_window_nacks).
-	reliable:  bool,
+	reliable:   bool,
 	// For the log.
-	nacked:    int, // fragments that were requested again
-	recovered: int, // frames that arrived complete after being requested
-	given_up:  int, // frames that were given up on
+	nacked:     int, // fragments that were requested again
+	recovered:  int, // frames that arrived complete after being requested
+	given_up:   int, // frames that were given up on
+	// How often it went from decodable to broken, and why the last time
+	// (the client logs and clears it).
+	breaks:     int,
+	last_break: Video_Break,
 }
 
 video_window_reset :: proc(w: ^Video_Window) {
@@ -203,6 +224,13 @@ video_window_add :: proc(w: ^Video_Window, f: Video_Fragment, now: time.Tick) {
 				clear_slot(s)
 			}
 			w.given_up += 1
+		}
+		if !w.broken {
+			w.breaks += 1
+			w.last_break = {
+				frame      = w.next,
+				pushed_out = int(start - w.next),
+			}
 		}
 		w.next, w.broken = start, true
 	}
@@ -290,6 +318,22 @@ video_window_pop :: proc(w: ^Video_Window) -> (frame: Video_Frame, ok: bool) {
 				},
 				true
 		case s.gave_up:
+			if !w.broken {
+				w.breaks += 1
+				w.last_break = {
+					frame    = s.frame,
+					key      = s.key,
+					received = s.received,
+					count    = s.count,
+					rounds   = s.rounds,
+				}
+				if s.gap_at != {} {
+					w.last_break.waited = time.tick_diff(s.gap_at, s.gave_up_at)
+				}
+				if s.last_at != {} {
+					w.last_break.idle = time.tick_diff(s.last_at, s.gave_up_at)
+				}
+			}
 			w.next += 1
 			w.broken = true
 			clear_slot(s)
@@ -329,8 +373,7 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 			}
 			waited := s.last_at if s.last_at != {} else s.gap_at
 			if later_complete(w, fr) || time.tick_diff(waited, now) >= RELIABLE_WAIT {
-				s.gave_up = true
-				w.given_up += 1
+				give_up(w, s, now)
 			}
 			continue
 		}
@@ -363,8 +406,7 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 				continue
 			}
 			if !asking {
-				s.gave_up = true
-				w.given_up += 1
+				give_up(w, s, now)
 				continue
 			}
 		case 1:
@@ -373,8 +415,7 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 			}
 		case:
 			if time.tick_diff(s.nack_at, now) >= NACK_RETRY {
-				s.gave_up = true
-				w.given_up += 1
+				give_up(w, s, now)
 			}
 			continue
 		}
@@ -402,4 +443,10 @@ video_window_nacks :: proc(w: ^Video_Window, now: time.Tick, asking: bool) -> []
 		}
 	}
 	return out[:]
+}
+
+@(private = "file")
+give_up :: proc(w: ^Video_Window, s: ^Window_Slot, now: time.Tick) {
+	s.gave_up, s.gave_up_at = true, now
+	w.given_up += 1
 }

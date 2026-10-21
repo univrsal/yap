@@ -24,7 +24,8 @@ import "common:proto"
 // what is described below to itself; only the pacing is shared.
 //
 // Sharing: encoded frames are numbered and queued, and go out one fragment at a
-// time over the media link, paced to VIDEO_SEND_RATE and only while the socket
+// time over the media link, paced (video_pace_rate: to the encoder's bitrate,
+// or in a browser as fast as the server takes it) and only while the socket
 // is not already backed up. Voice does not wait in this queue or on that
 // socket, so a keyframe going out does not hold it up. When the queue has
 // fallen too far behind, the frames that have not started yet are thrown away
@@ -112,6 +113,15 @@ Video_Client :: struct {
 	stats_at:     time.Tick,
 	// Whether the View says that our camera was refused.
 	refused:      bool,
+	// For the log of what we send (log_video_out): when it last looked, when
+	// video_step last ran and the longest it went without, and how often
+	// video_send had to leave something waiting because the socket was backed
+	// up or the pacing budget was spent.
+	log_at:       time.Tick,
+	step_at:      time.Tick,
+	step_gap_max: time.Duration,
+	held_backlog: int,
+	held_budget:  int,
 }
 
 // Video_Out is one of our own streams going out.
@@ -129,6 +139,14 @@ Video_Out :: struct {
 	awaiting_key:  bool, // frames were dropped, so only a keyframe may follow
 	want_key:      bool, // the encoder should make the next frame a keyframe
 	stats_out:     int, // bytes sent this second, for the View's figures
+	// For the log (log_video_out): bytes the encoder made and bytes sent since
+	// it last looked, the most that waited in the queue, and how often the
+	// queue was dropped.
+	log_encoded:   int,
+	log_sent:      int,
+	log_queue_max: int,
+	log_drops:     int,
+	log_pace_max:  int, // the fastest it was paced, in bytes per second
 
 	// Adapting it to its viewers (adapt_bitrate).
 	target_kbit:   int, // 0: use the configured bitrate
@@ -623,6 +641,11 @@ video_destroy :: proc(c: ^Voice_Client) {
 // video_step gives video its turn in the network loop.
 video_step :: proc(c: ^Voice_Client) {
 	v := &c.video
+	now := time.tick_now()
+	if v.step_at != {} {
+		v.step_gap_max = max(v.step_gap_max, time.tick_diff(v.step_at, now))
+	}
+	v.step_at = now
 	here := sync.atomic_load(&v.share_here)
 	for &o, stream in v.outs {
 		o.stream = stream
@@ -636,6 +659,7 @@ video_step :: proc(c: ^Voice_Client) {
 		drive_watch(c)
 	}
 	publish_video_stats(c)
+	log_video_out(c, now)
 }
 
 // out_step follows one of our streams: whether it is live, whether the server
@@ -675,6 +699,7 @@ out_step :: proc(c: ^Voice_Client, o: ^Video_Out, here: bool) {
 		if !ok {
 			break
 		}
+		o.log_encoded += len(data)
 		if !o.taken {
 			delete(data) // the server would drop it
 			continue
@@ -898,9 +923,16 @@ video_queue_frame :: proc(
 			o.queued_bytes -= len(f.data)
 			delete(f.data)
 		}
+		dropped := len(o.queue) - start
 		resize(&o.queue, start)
 		o.awaiting_key, o.want_key = true, true
-		log.debug("video can't keep up; dropped the queue")
+		o.log_drops += 1
+		log.debugf(
+			"video: %s can't keep up; dropped %d queued frames (%d kB waiting)",
+			stream_name(o.stream),
+			dropped,
+			waiting / 1000,
+		)
 	}
 	if o.awaiting_key && !key {
 		delete(data)
@@ -913,6 +945,7 @@ video_queue_frame :: proc(
 	)
 	o.next_frame += 1
 	o.queued_bytes += len(data)
+	o.log_queue_max = max(o.log_queue_max, o.queued_bytes)
 }
 
 // video_next_fragment returns the next fragment to go out, as a Video message
@@ -956,6 +989,24 @@ video_send_rate :: proc(o: ^Video_Out) -> int {
 	return VIDEO_SEND_RATE
 }
 
+// video_pace_rate is how fast a stream goes out, in bytes per second. On a
+// reliable media link (a browser's WebSocket) this is as fast as the server
+// takes from one stream: the pacing is there so that routers don't drop the
+// end of a burst, which TCP already sees to, and a browser's encoder may go
+// well over its bitrate while the picture moves (web/video.js, pickCodec), and
+// put out large keyframes of its own, which would otherwise wait in the queue
+// and hold up the picture. (Pacing in proportion to what waits leaves a long
+// tail: the last of a keyframe goes out slowest.)
+video_pace_rate :: proc(c: ^Voice_Client, o: ^Video_Out) -> int {
+	rate := video_send_rate(o)
+	if !MEDIA_RELIABLE {
+		return rate
+	}
+	limit_kbit := int(c.rpc.server.camera_kbit if o.stream == .Camera else c.rpc.server.video_kbit)
+	limit := limit_kbit * 1000 / 8 if limit_kbit > 0 else VIDEO_SEND_RATE
+	return max(rate, limit)
+}
+
 // video_queue_max is how many bytes may wait behind the frame going out:
 // VIDEO_QUEUE_TIME's worth at the rate they go out.
 video_queue_max :: proc(o: ^Video_Out) -> int {
@@ -993,7 +1044,9 @@ video_send :: proc(c: ^Voice_Client) {
 	rate := 0
 	for &o in v.outs {
 		if o.live {
-			rate += video_send_rate(&o)
+			pace := video_pace_rate(c, &o)
+			o.log_pace_max = max(o.log_pace_max, pace)
+			rate += pace
 		}
 	}
 	if v.budget_at == {} {
@@ -1019,7 +1072,61 @@ video_send :: proc(c: ^Voice_Client) {
 		v.budget -= len(msg)
 		v.bytes_out += len(msg)
 		o.stats_out += len(msg)
+		o.log_sent += len(msg)
 	}
+	if video_next_out(v) != nil {
+		if v.budget <= 0 {
+			v.held_budget += 1
+		} else {
+			v.held_backlog += 1
+		}
+	}
+}
+
+// log_video_out logs, once a second while we send anything, how it goes: for
+// each stream what its encoder made against what it was asked for, what went
+// out, and the most that waited in the queue;
+// and how often sending was held back by the socket or by the pacing, and the
+// longest video_step went without running (the page's frames, on the web).
+@(private = "file")
+log_video_out :: proc(c: ^Voice_Client, now: time.Tick) {
+	v := &c.video
+	if v.log_at != {} && time.tick_diff(v.log_at, now) < time.Second {
+		return
+	}
+	secs := time.duration_seconds(time.tick_diff(v.log_at, now))
+	first := v.log_at == {}
+	v.log_at = now
+	b := strings.builder_make(context.temp_allocator)
+	for &o in v.outs {
+		if o.live && !first {
+			fmt.sbprintf(
+				&b,
+				"%s%s: encoded %d kbit/s (at %d), sent %d kbit/s (paced up to %d), queue up to %d kB",
+				" | " if strings.builder_len(b) > 0 else "",
+				stream_name(o.stream),
+				int(f64(o.log_encoded) * 8 / 1000 / secs),
+				o.encoding_kbit,
+				int(f64(o.log_sent) * 8 / 1000 / secs),
+				o.log_pace_max * 8 / 1000,
+				o.log_queue_max / 1000,
+			)
+			if o.log_drops > 0 {
+				fmt.sbprintf(&b, ", dropped %dx", o.log_drops)
+			}
+		}
+		o.log_encoded, o.log_sent, o.log_queue_max, o.log_drops, o.log_pace_max = 0, 0, 0, 0, 0
+	}
+	if strings.builder_len(b) > 0 {
+		log.debugf(
+			"video out: %s | held %dx by the socket, %dx by pacing; steps up to %.0f ms apart",
+			strings.to_string(b),
+			v.held_backlog,
+			v.held_budget,
+			time.duration_milliseconds(v.step_gap_max),
+		)
+	}
+	v.held_backlog, v.held_budget, v.step_gap_max = 0, 0, 0
 }
 
 // video_keyframe_requested is called when a viewer asked the server for a
@@ -1030,6 +1137,7 @@ video_keyframe_requested :: proc(c: ^Voice_Client, stream: proto.Video_Stream) {
 	if !o.live {
 		return
 	}
+	log.debugf("video: a viewer asked for a %s keyframe", stream_name(stream))
 	o.want_key = true
 	if o.paused {
 		o.demand.viewers = max(o.demand.viewers, 1)
@@ -1151,6 +1259,7 @@ drive_in :: proc(c: ^Voice_Client, in_: ^Video_In) {
 	in_.watching = true
 	if video_show_failed(in_.key) {
 		// Whatever the decoder had is gone, so start again from a keyframe.
+		log.infof("video: %s's decoder failed", in_name(c, in_.key))
 		proto.video_window_reset(in_.window)
 	}
 	for n in proto.video_window_nacks(in_.window, time.tick_now(), c.media.has_current) {
@@ -1159,6 +1268,7 @@ drive_in :: proc(c: ^Voice_Client, in_: ^Video_In) {
 	}
 	// Giving up may have let the frames behind it through.
 	show_frames(in_)
+	log_break(c, in_)
 	need_key := in_.window.broken
 	due := time.tick_since(in_.last_watch) >= proto.WATCH_RESEND
 	if need_key && time.tick_since(in_.last_key_asked) >= proto.KEYFRAME_REQUEST_MIN {
@@ -1178,6 +1288,51 @@ drive_in :: proc(c: ^Voice_Client, in_: ^Video_In) {
 	send_watch(c, proto.encode_watch(&buf, in_.key.user, need_key, in_.key.stream, tile = tile))
 	in_.last_watch = time.tick_now()
 	in_.tile_sent = tile
+}
+
+// log_break logs why the frames of a stream we watch can no longer be decoded,
+// which asks for a keyframe and leaves the picture still until it comes.
+@(private = "file")
+log_break :: proc(c: ^Voice_Client, in_: ^Video_In) {
+	w := in_.window
+	if w.breaks == 0 {
+		return
+	}
+	b := w.last_break
+	more := fmt.tprintf(" (and %d more)", w.breaks - 1) if w.breaks > 1 else ""
+	w.breaks = 0
+	if b.pushed_out > 0 {
+		log.debugf(
+			"video: %s broke at frame %d: %d frames pushed out of the window%s",
+			in_name(c, in_.key),
+			b.frame,
+			b.pushed_out,
+			more,
+		)
+		return
+	}
+	log.debugf(
+		"video: %s broke at frame %d: gave up on it with %d of %d fragments%s after %d Nack rounds, %.0f ms after its gap was seen, %.0f ms after its last fragment%s",
+		in_name(c, in_.key),
+		b.frame,
+		b.received,
+		b.count,
+		" (a keyframe)" if b.key else "",
+		b.rounds,
+		time.duration_milliseconds(b.waited),
+		time.duration_milliseconds(b.idle),
+		more,
+	)
+}
+
+// in_name names a stream we watch for the log.
+@(private = "file")
+in_name :: proc(c: ^Voice_Client, key: Video_Key) -> string {
+	return fmt.tprintf(
+		"%s's %s",
+		display_name(c, key.user),
+		"camera" if key.stream == .Camera else "screen",
+	)
 }
 
 // send_watch sends a Watch, if there is a media link to send it on.

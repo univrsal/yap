@@ -11,13 +11,15 @@ camera) is scaled to fit the size the client asks for, sampled at its
 frame rate and encoded as H.264 at its bitrate (Annex B, so every keyframe
 carries what the decoder needs to start). Each has a capture of its own
 (screen, camera) with its own encoder. The client lowers the bitrate when
-its viewers can't keep up (setBitrate), which starts the encoder again at a
-keyframe. Encoded frames wait in a queue until the client pulls them. The
-frames come from a MediaStreamTrackProcessor where there is one, otherwise
-from a <video> playing the stream, sampled from a worker's timer - either
-keeps going when this tab is hidden, which it usually is while another tab
-is being shared. The camera's newest frame, as it is encoded, is also kept
-for the self view (takePreview); it isn't mirrored here.
+its viewers can't keep up (setBitrate), which the encoder takes up from its
+next frame without a keyframe. An encoder that makes more than it's asked
+for is asked for less (correctRate). Encoded frames wait in a queue until the
+client pulls them. The frames come from a MediaStreamTrackProcessor where
+there is one, otherwise from a <video> playing the stream, sampled from a
+worker's timer - either keeps going when this tab is hidden, which it
+usually is while another tab is being shared. The camera's newest frame, as
+it is encoded, is also kept for the self view (takePreview); it isn't
+mirrored here.
 
 Where the browser shares audio with the screen (Chromium: a tab's, or on
 Windows the whole system's along with a screen), an AudioWorklet takes it at
@@ -39,7 +41,19 @@ Neither needs the other: a browser with VideoDecoder but no VideoEncoder
 or getDisplayMedia (a phone) can still watch.
 */
 (() => {
-	const KEY_INTERVAL_MS = 5000;
+	// As the desktop's (KEY_SECONDS in src/video/src/share.cpp). A browser's
+	// keyframes aren't held to a size, and each takes a while to go out at
+	// the client's pace, holding up what follows; a viewer that needs one
+	// sooner asks for it.
+	const KEY_INTERVAL_MS = 10000;
+	// How often what the encoder makes is compared with its bitrate, how far
+	// over or under that it may be before it's asked for less or more, and
+	// the least it may be asked for, as a fraction of the bitrate
+	// (correctRate).
+	const CORRECT_MS = 2000;
+	const CORRECT_OVER = 1.1;
+	const CORRECT_UNDER = 0.8;
+	const CORRECT_MIN = 0.25;
 	// Frames the client hasn't pulled; more means it isn't running.
 	const MAX_QUEUED = 30;
 	// Frames waiting in the decoder; more means it can't keep up.
@@ -120,6 +134,14 @@ or getDisplayMedia (a phone) can still watch.
 		fps: 30,
 		maxBitrate: 0,
 		bitrate: 0,
+		// "constant" where the browser encodes at a constant bitrate
+		// (pickCodec), else "variable".
+		bitrateMode: "variable",
+		// What the encoder is asked for as a fraction of `bitrate`, and what
+		// it made since `outSince` (correctRate).
+		factor: 1,
+		outBytes: 0,
+		outSince: 0,
 		maxWidth: 0,
 		maxHeight: 0,
 		audio: null, // { context, source, node } while audio is shared (the screen's)
@@ -294,6 +316,7 @@ or getDisplayMedia (a phone) can still watch.
 			bitrate: kbit * 1000,
 			maxWidth,
 			maxHeight,
+			factor: 1,
 		});
 		s.state = STARTING;
 		const generation = ++s.generation;
@@ -357,6 +380,10 @@ or getDisplayMedia (a phone) can still watch.
 				if (video.readyState >= 2) capture(s, video, video.videoWidth, video.videoHeight);
 			});
 		}
+		console.debug(
+			`yap: ${s.camera ? "camera" : "screen"} captured through ` +
+			(s.reader ? "a MediaStreamTrackProcessor" : "a <video> sampled by a timer"),
+		);
 		const audioTrack = stream.getAudioTracks()[0];
 		if (audioTrack && !s.camera) startAudio(audioTrack, current);
 		s.state = LIVE;
@@ -584,14 +611,24 @@ or getDisplayMedia (a phone) can still watch.
 	}
 
 	// pickCodec returns the first H.264 profile the browser encodes at this
-	// size, as "avc1.PPCC" (the level is added by encoderConfig).
+	// size, as "avc1.PPCC" (the level is added by encoderConfig), at a
+	// constant bitrate if any profile can be. A variable bitrate is only held
+	// to on average, if that: Firefox's goes from a tenth of it on a still
+	// picture to three times it on a moving one, and what's over the pace it
+	// goes out at waits in the client's queue, holding up the picture.
 	async function pickCodec(s, width, height) {
-		for (const codec of H264_CODECS) {
-			const profile = codec.slice(0, 9);
-			try {
-				const support = await VideoEncoder.isConfigSupported(encoderConfig(s, profile, width, height));
-				if (support.supported) return profile;
-			} catch (e) {}
+		for (const mode of ["constant", "variable"]) {
+			s.bitrateMode = mode;
+			for (const codec of H264_CODECS) {
+				const profile = codec.slice(0, 9);
+				try {
+					const support = await VideoEncoder.isConfigSupported(encoderConfig(s, profile, width, height));
+					if (support.supported) {
+						console.debug(`yap: ${s.camera ? "camera" : "screen"} encoded as ${profile} at a ${mode} bitrate`);
+						return profile;
+					}
+				} catch (e) {}
+			}
 		}
 		return null;
 	}
@@ -612,7 +649,8 @@ or getDisplayMedia (a phone) can still watch.
 			codec: profile + h264Level(s, width, height),
 			width,
 			height,
-			bitrate: s.bitrate,
+			bitrate: Math.round(s.bitrate * s.factor),
+			bitrateMode: s.bitrateMode,
 			framerate: s.fps,
 			latencyMode: "realtime",
 			avc: { format: "annexb" },
@@ -673,7 +711,11 @@ or getDisplayMedia (a phone) can still watch.
 		}
 	}
 
-	function configure(s, width, height) {
+	// configure sets the encoder up for this size at the current bitrate. A
+	// new size starts with a keyframe; a new bitrate alone (key false)
+	// doesn't need one, since the encoder goes on from where it was (or, if
+	// it can't, starts again, which makes one anyway).
+	function configure(s, width, height, key = true) {
 		try {
 			if (!s.encoder) {
 				s.encoder = new VideoEncoder({
@@ -692,16 +734,23 @@ or getDisplayMedia (a phone) can still watch.
 		}
 		s.width = s.canvas.width = width;
 		s.height = s.canvas.height = height;
-		s.wantKey = true;
+		s.outBytes = 0;
+		s.outSince = 0;
+		if (key) s.wantKey = true;
 		return true;
 	}
 
 	function encoded(s, chunk) {
 		if (s.state !== LIVE) return;
+		s.outBytes += chunk.byteLength;
 		const key = chunk.type === "key";
 		if (s.queue.length >= MAX_QUEUED) {
 			// The client isn't taking them. What's queued goes, and with it
 			// anything that depends on it.
+			console.debug(
+				`yap: ${logTime()} ${s.camera ? "camera" : "screen"}: ` +
+				`the client isn't taking frames; dropped ${s.queue.length}`,
+			);
 			s.queue.length = 0;
 			s.awaitKey = true;
 			s.wantKey = true;
@@ -711,15 +760,59 @@ or getDisplayMedia (a phone) can still watch.
 		const data = new Uint8Array(chunk.byteLength);
 		chunk.copyTo(data);
 		s.queue.push({ data, ts: Math.round(chunk.timestamp / 1000) >>> 0, key });
+		correctRate(s);
 	}
 
-	// setBitrate has the encoder make `kbit` from its next frame, which is a
-	// keyframe (configure). The client asks only now and then for this reason.
+	/*
+	correctRate asks the encoder for less than the bitrate when it makes more
+	than that, and for more again when it makes less, every CORRECT_MS. An
+	encoder may not keep to what it's asked for, constant or not: Firefox's
+	makes twice as much at 720p, and its own keyframes on top, and what goes
+	over waits in the client's queue, holding up the picture, while the
+	client's cuts (setBitrate) change nothing. It moves halfway towards what
+	would have been right (in proportion), so that one busy stretch doesn't
+	throw it far off, and only by a tenth or more, since each change sets
+	the encoder up again (configure).
+	*/
+	function correctRate(s) {
+		const now = performance.now();
+		if (!s.outSince) {
+			s.outSince = now;
+			s.outBytes = 0;
+			return;
+		}
+		const ms = now - s.outSince;
+		if (ms < CORRECT_MS || !s.bitrate || !s.encoder || !s.width) return;
+		const made = (s.outBytes * 8 * 1000) / ms;
+		s.outSince = now;
+		s.outBytes = 0;
+		const ratio = Math.max(made / s.bitrate, 0.01);
+		if (ratio <= CORRECT_OVER && (ratio >= CORRECT_UNDER || s.factor >= 1)) return;
+		const factor = Math.min(1, Math.max(CORRECT_MIN, s.factor / Math.sqrt(ratio)));
+		if (Math.abs(factor - s.factor) < s.factor / 10) return;
+		console.debug(
+			`yap: ${logTime()} ${s.camera ? "camera" : "screen"} made ${Math.round(made / 1000)} kbit/s ` +
+			`at ${Math.round(s.bitrate / 1000)}: asking for ${Math.round((s.bitrate * factor) / 1000)} ` +
+			`(was ${Math.round((s.bitrate * s.factor) / 1000)})`,
+		);
+		s.factor = factor;
+		configure(s, s.width, s.height, false);
+	}
+
+	// setBitrate has the encoder make `kbit` from its next frame, without a
+	// keyframe (configure).
 	function setBitrate(s, kbit) {
 		const bitrate = Math.min(kbit * 1000, s.maxBitrate);
 		if (s.state !== LIVE || bitrate <= 0 || bitrate === s.bitrate) return;
 		s.bitrate = bitrate;
-		if (s.encoder && s.width) configure(s, s.width, s.height);
+		if (s.encoder && s.width) configure(s, s.width, s.height, false);
+	}
+
+	// logTime is the time of day for the console, to match the client's log.
+	function logTime() {
+		const d = new Date();
+		const two = (n) => String(n).padStart(2, "0");
+		return `${two(d.getHours())}:${two(d.getMinutes())}:${two(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
 	}
 
 	function stop(s, state) {
@@ -735,6 +828,7 @@ or getDisplayMedia (a phone) can still watch.
 		Object.assign(s, {
 			stream: null, reader: null, video: null, ticker: null, encoder: null,
 			canvas: null, context: null, width: 0, height: 0, queue: [], preview: null, paused: false,
+			outBytes: 0, outSince: 0,
 		});
 		s.state = state;
 	}
