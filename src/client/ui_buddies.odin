@@ -248,7 +248,7 @@ conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow:
 // the list, in which no conversation is picked then.
 @(private = "file")
 back_to_list :: proc(ui: ^UI) {
-	if .SUBMIT in stable_button_hint(ui, "to inbox list", "<", "Conversations", {.ALIGN_CENTER}) {
+	if .SUBMIT in icon_button(ui, "to inbox list", .Back, "Conversations") {
 		ui.buddies.selected = 0
 	}
 }

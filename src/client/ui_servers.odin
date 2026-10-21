@@ -491,7 +491,9 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 	}
 	white := mu.Color{255, 255, 255, 255}
-	_, plus := rail_icon(ui, RAIL_PLUS, "+", theme.plus_disc, white, "Join a server", ui.join.open)
+	r, plus := rail_icon(ui, RAIL_PLUS, "", theme.plus_disc, white, "Join a server", ui.join.open)
+	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
+	mu.draw_icon(ctx, render.icon_id(.Plus), icon, white)
 	if ctx.hover_id == plus && ctx.mouse_pressed_bits == {.LEFT} {
 		join_open(ui)
 	}

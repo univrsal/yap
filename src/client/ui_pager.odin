@@ -144,7 +144,7 @@ footer :: proc(ui: ^UI, text: string, has_back, has_next: bool) -> (back, next: 
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {PAGE_BUTTON, -(PAGE_BUTTON + ctx.style.spacing + 1), PAGE_BUTTON})
 	if has_back {
-		back = .SUBMIT in stable_button_hint(ui, "page back", "<", "Page before", {.ALIGN_CENTER})
+		back = .SUBMIT in icon_button(ui, "page back", .Back, "Page before")
 	} else {
 		mu.label(ctx, "")
 	}
@@ -153,7 +153,7 @@ footer :: proc(ui: ^UI, text: string, has_back, has_next: bool) -> (back, next: 
 		mu.draw_control_text(ctx, text, r, .TEXT, {.ALIGN_CENTER})
 	})
 	if has_next {
-		next = .SUBMIT in stable_button_hint(ui, "page next", ">", "Page after", {.ALIGN_CENTER})
+		next = .SUBMIT in icon_button(ui, "page next", .Next, "Page after")
 	} else {
 		mu.label(ctx, "")
 	}

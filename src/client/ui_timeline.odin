@@ -241,6 +241,12 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	saved_font := ctx.style.font
 	ctx.style.font = render.CHAT_FONT
 	defer ctx.style.font = saved_font
+	// On a phone, closer together than the controls around them.
+	saved_padding, saved_spacing := ctx.style.padding, ctx.style.spacing
+	if ui.compact {
+		ctx.style.padding, ctx.style.spacing = COMPACT_MESSAGE_PADDING, COMPACT_MESSAGE_SPACING
+	}
+	defer ctx.style.padding, ctx.style.spacing = saved_padding, saved_spacing
 	conv := key.conv
 	if st.key != key {
 		// Opened with unread messages: the line goes where they begin.

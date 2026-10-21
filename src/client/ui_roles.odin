@@ -221,7 +221,7 @@ roles_settings :: proc(ui: ^UI) {
 			return
 		}
 		mu.layout_row(ctx, {40, -1})
-		if .SUBMIT in stable_button_hint(ui, "to role list", "<", "Roles", {.ALIGN_CENTER}) {
+		if .SUBMIT in icon_button(ui, "to role list", .Back, "Roles") {
 			r.role = 0
 			r.confirm, r.holders, r.giving = false, {}, {}
 		}

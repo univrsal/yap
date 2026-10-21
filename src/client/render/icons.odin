@@ -55,6 +55,9 @@ Icon :: enum {
 	Pop_In, // an arrow into a frame's corner: move back from its own window
 	Camera, // a video camera: turn our camera on, or somebody's is on
 	Camera_Off, // a video camera with a line through it
+	Plus, // a plus: add (a server, a person)
+	Back, // a chevron pointing left: back to a list, or the page before
+	Next, // a chevron pointing right: the page after
 	// The window's own controls, for where Windows does not provide them
 	// (ui_titlebar_windows.odin).
 	Minimize, // a line
@@ -247,6 +250,13 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return video_camera(p)
 	case .Camera_Off:
 		return crossed_out(video_camera(p), p)
+	case .Plus:
+		d := capsule(p, {0.5, 0.2}, {0.5, 0.8}, CHECK_STROKE)
+		return nearer(d, capsule(p, {0.2, 0.5}, {0.8, 0.5}, CHECK_STROKE))
+	case .Back:
+		return chevron(p, -1)
+	case .Next:
+		return chevron(p, 1)
 	case .Minimize, .Maximize, .Restore, .Close:
 		// These are drawn in texels instead (window_control).
 		return 1
@@ -263,6 +273,16 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 
 @(private = "file")
 CHECK_STROKE :: 0.12
+
+// chevron is an arrowhead pointing left (`towards` -1) or right (1), drawn
+// with the tick's stroke.
+@(private = "file")
+chevron :: proc(p: Point, towards: f32) -> f32 {
+	tip := Point{0.5 + 0.14 * towards, 0.5}
+	top := Point{0.5 - 0.14 * towards, 0.2}
+	bottom := Point{0.5 - 0.14 * towards, 0.8}
+	return nearer(capsule(p, top, tip, CHECK_STROKE), capsule(p, tip, bottom, CHECK_STROKE))
+}
 
 // window_control returns the distance from `p` (in texels, in an icon that
 // is `side` texels square) to the outline of one of the window's own
@@ -354,6 +374,9 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Pop_In,
 	     .Camera,
 	     .Camera_Off,
+	     .Plus,
+	     .Back,
+	     .Next,
 	     .Check,
 	     .Collapsed,
 	     .Expanded:

@@ -903,7 +903,7 @@ accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 			return
 		}
 		mu.layout_row(ctx, {40, -1})
-		if .SUBMIT in stable_button_hint(ui, "to account list", "<", "Accounts", {.ALIGN_CENTER}) {
+		if .SUBMIT in icon_button(ui, "to account list", .Back, "Accounts") {
 			account_pick(ui, 0)
 		}
 		mu.label(ctx, v.accounts[a.picked].username if a.picked != 0 else "New account")

@@ -182,9 +182,9 @@ test_style_for_phones :: proc(t: ^testing.T) {
 
 	style_apply(ui, 420)
 	testing.expect(t, ui.compact)
-	testing.expect_value(t, row(ctx), 44)
-	testing.expect_value(t, icon_button_w(ctx), 44)
-	testing.expect_value(t, composer_button_size(ctx), 44)
+	testing.expect_value(t, row(ctx), 40)
+	testing.expect_value(t, icon_button_w(ctx), 40)
+	testing.expect_value(t, composer_button_size(ctx), 40)
 
 	ui.touched = true
 	style_apply(ui, 1000)

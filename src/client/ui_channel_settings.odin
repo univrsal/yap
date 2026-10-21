@@ -127,7 +127,7 @@ channels_settings :: proc(ui: ^UI) {
 			return
 		}
 		mu.layout_row(ctx, {40, -1})
-		if .SUBMIT in stable_button_hint(ui, "to channel list", "<", "Channels", {.ALIGN_CENTER}) {
+		if .SUBMIT in icon_button(ui, "to channel list", .Back, "Channels") {
 			a.conv = 0
 			a.confirm = false
 		}
@@ -459,7 +459,7 @@ channel_members :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 			append(&others, id)
 		}
 	}
-	if add := people_finder(ui, &a.adding, others[:], "Add"); add != 0 {
+	if add := people_finder(ui, &a.adding, others[:], "Add", .Plus); add != 0 {
 		command(ui, conn.Conv_Member_Command{conv = ch.id, account = add, on = true})
 	}
 }

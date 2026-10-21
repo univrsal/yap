@@ -173,7 +173,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	right := 4 * icon_button_w(ctx) + 4 * ctx.style.spacing + 1
 	if narrow {
 		mu.layout_row(ctx, {40, -right, icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx)})
-		if .SUBMIT in stable_button_hint(ui, "to list", "<", "Channels", {.ALIGN_CENTER}) {
+		if .SUBMIT in icon_button(ui, "to list", .Back, "Channels") {
 			ui.channels.show_list = true
 		}
 	} else {

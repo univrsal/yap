@@ -16,8 +16,8 @@ to 2500.
 | 2 | Idle redraws: image keys that collided | S | - | done (2026-10-21) |
 | 3 | The composer's buttons inside its box | M | 1 | done (2026-10-21) |
 | 4 | Bigger channel list, more spacing, bigger on phones | M | - | done (2026-10-21) |
-| 5 | Icons for Add, Back and Next | S | - | next |
-| 6 | Spinners for what is loading | S | - | |
+| 5 | Icons for Add, Back and Next | S | - | done (2026-10-21) |
+| 6 | Spinners for what is loading | S | - | next |
 | 7 | Smooth scrolling | M | - | |
 | 8 | Smaller polish (see the list at the end) | S each | 1 | ideas |
 
@@ -150,6 +150,12 @@ Looked at off-screen at 1000 and 420 px wide: the session screen, the
 channel list and a channel's menu, settings, a server's channels, Join a
 channel, DMs. Not seen: a real phone (touch), and scales other than 1.
 
+Then less room on phones, which left too little for the messages: rows
+40 px (padding 6, spacing 4), the timeline spaced as microui's own
+(`COMPACT_MESSAGE_PADDING` 5, `COMPACT_MESSAGE_SPACING` 4), and the
+composer one line tall to start with. At 420x700 the messages got 431 px
+instead of 365.
+
 ## 5. Icons for Add, Back and Next
 
 Three more icons in `render/icons.odin` (distance functions, like the
@@ -162,6 +168,17 @@ others): a plus and two chevrons. They replace the text labels:
 - `"+"`: the rail's join button (`ui_servers`), and the "Add" of the people
   finders (`ui_channel_settings`, `ui_manage`) where an icon reads better
   than the word.
+
+*As built:* `Plus`, `Back` and `Next` in `render.Icon`, drawn with the
+tick's stroke (`chevron`). The back buttons and the pager are
+`icon_button`s with the hints they had, the purge page's arrows got hints
+("Conversation before", "Conversation after"), and the rail's join button
+draws the plus over its disc, as the DM button does its envelope.
+`people_list` and `people_finder` take an optional `icon` that replaces
+the button's word (which becomes its hint): the two "Add" finders use
+`.Plus`; "Take out", "Take it" and "Give" stay words. Looked at
+off-screen: the rail, the purge page, a phone's back button, the members
+window's finder.
 
 ## 6. Spinners for what is loading
 

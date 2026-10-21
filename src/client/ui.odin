@@ -1658,14 +1658,19 @@ NARROW_LAYOUT :: 600
 
 // How roomy controls are: microui's padding inside them and spacing between
 // them, and the size of its controls (a row is size.y + 2 * padding tall).
-// microui's own are 5, 4 and 68x10. On a phone, rows are about 44 px tall, as
-// big as a fingertip.
+// microui's own are 5, 4 and 68x10. On a phone, rows are 40 px tall, as big as
+// a fingertip, and closer together, to leave room for the messages.
 STYLE_PADDING :: 6
 STYLE_SPACING :: 6
 STYLE_SIZE :: mu.Vec2{80, 14}
-COMPACT_PADDING :: 8
-COMPACT_SPACING :: 8
+COMPACT_PADDING :: 6
+COMPACT_SPACING :: 4
 COMPACT_SIZE :: mu.Vec2{80, 28}
+
+// On a phone, the messages (the timeline) are spaced as microui's own
+// controls are, closer than elsewhere: there is little room for them.
+COMPACT_MESSAGE_PADDING :: 5
+COMPACT_MESSAGE_SPACING :: 4
 
 // style_apply sets microui's sizes for this frame, a window `width` wide: for
 // a finger where the window is as narrow as a phone's (as session_screen

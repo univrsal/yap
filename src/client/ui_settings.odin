@@ -108,7 +108,7 @@ settings_page :: proc(ui: ^UI) {
 	if narrow && !ui.settings_list {
 		title_row(ui, {40, -1})
 		if .SUBMIT in
-		   stable_button_hint(ui, "to settings list", "<", "Settings", {.ALIGN_CENTER}) {
+		   icon_button(ui, "to settings list", .Back, "Settings") {
 			ui.settings_list = true
 		}
 		if ui.settings_tab == .Server {

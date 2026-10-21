@@ -8,6 +8,7 @@ import "core:time"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:render"
 import "common:proto"
 
 // Server management for users who have the required permissions
@@ -59,8 +60,9 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 // people_list is a list of accounts, a page at a time and with a box to
 // narrow it down once it has more than a page (unless the caller has its own,
 // `searched`), with a button labelled `action` beside each account that
-// `allowed` permits (nil: all of them). It returns the account whose button
-// was pressed, or 0.
+// `allowed` permits (nil: all of them). With an `icon`, the button shows that
+// instead, and `action` is its hint. It returns the account whose button was
+// pressed, or 0.
 people_list :: proc(
 	ui: ^UI,
 	p: ^Pager,
@@ -68,6 +70,7 @@ people_list :: proc(
 	action: string,
 	allowed: []bool = nil,
 	searched := false,
+	icon: Maybe(render.Icon) = nil,
 ) -> (
 	pressed: proto.Account_Id,
 ) {
@@ -95,15 +98,22 @@ people_list :: proc(
 		)
 	}
 	lo, hi := pager_window(p, len(shown))
+	button_icon, has_icon := icon.?
+	w := icon_button_w(ctx) if has_icon else 90
 	for i in shown[lo:hi] {
 		id := ids[i]
 		mu.push_id(ctx, uintptr(id))
 		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-(90 + ctx.style.spacing + 1), 90})
+		mu.layout_row(ctx, {-(w + ctx.style.spacing + 1), w})
 		mu.label(ctx, person_label(v, id))
-		if allowed != nil && !allowed[i] {
+		switch {
+		case allowed != nil && !allowed[i]:
 			mu.label(ctx, "")
-		} else if .SUBMIT in stable_button(ctx, "act", action, {.ALIGN_CENTER}) {
+		case has_icon:
+			if .SUBMIT in icon_button(ui, "act", button_icon, action) {
+				pressed = id
+			}
+		case .SUBMIT in stable_button(ctx, "act", action, {.ALIGN_CENTER}):
 			pressed = id
 		}
 	}
@@ -113,12 +123,14 @@ people_list :: proc(
 
 // people_finder is a box to find someone among `ids` by name: once something
 // is typed, those who match it are listed with a button labelled `action`
-// beside each. It returns the account whose button was pressed, or 0.
+// beside each (or an `icon`, with `action` as its hint, as for people_list).
+// It returns the account whose button was pressed, or 0.
 people_finder :: proc(
 	ui: ^UI,
 	p: ^Pager,
 	ids: []proto.Account_Id,
 	action: string,
+	icon: Maybe(render.Icon) = nil,
 ) -> (
 	pressed: proto.Account_Id,
 ) {
@@ -132,7 +144,7 @@ people_finder :: proc(
 	if pager_query(p) == "" {
 		return
 	}
-	return people_list(ui, p, ids, action, searched = true)
+	return people_list(ui, p, ids, action, searched = true, icon = icon)
 }
 
 // person_label is how an account is listed: its name and its username.
@@ -197,7 +209,7 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 			append(&others, id)
 		}
 	}
-	if id := people_finder(ui, &m.add_find, others[:], "Add"); id != 0 {
+	if id := people_finder(ui, &m.add_find, others[:], "Add", .Plus); id != 0 {
 		command(ui, conn.Conv_Member_Command{conv = v.viewing, account = id, on = true})
 	}
 }
@@ -386,12 +398,12 @@ purge_settings :: proc(ui: ^UI) {
 	place := purge_place(v, m.purge_conv)
 
 	field_row(ui, FORM_LABEL, "Conversation", {30, 220, 30})
-	if .SUBMIT in stable_button(ctx, "purge prev", "<", {.ALIGN_CENTER}) {
+	if .SUBMIT in icon_button(ui, "purge prev", .Back, "Conversation before") {
 		m.purge_conv = choices[(at + len(choices) - 1) % len(choices)]
 		m.purge_confirm = false
 	}
 	mu.label(ctx, place)
-	if .SUBMIT in stable_button(ctx, "purge next", ">", {.ALIGN_CENTER}) {
+	if .SUBMIT in icon_button(ui, "purge next", .Next, "Conversation after") {
 		m.purge_conv = choices[(at + 1) % len(choices)]
 		m.purge_confirm = false
 	}

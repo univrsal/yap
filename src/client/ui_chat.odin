@@ -238,7 +238,8 @@ composer_button_size :: proc(ctx: ^mu.Context) -> i32 {
 // is: two lines or more of the chat's text (see ui_text_area.odin), and the
 // strip for its buttons.
 composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
-	c.area.min_lines = COMPOSER_LINES
+	// On a phone, one line to start with, to leave room for the messages.
+	c.area.min_lines = 1 if ui.compact else COMPOSER_LINES
 	c.area.footer = composer_button_size(&ui.ctx) + COMPOSER_INSET
 	return text_area_height(&ui.ctx, render.CHAT_FONT, string(c.buf[:c.len^]), c.area)
 }
