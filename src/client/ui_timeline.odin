@@ -458,6 +458,10 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	select_end(ui)
 	mu.end_panel(ctx)
 
+	// How far the panel moved itself in this frame: its scrollbar, or a
+	// selection dragged past its edge (the wheel's is `moved`, next frame).
+	dragged := cnt.scroll.y - scroll
+
 	// Where that left us, for the next frame: the message at the top, how
 	// far into it, and whether we are at the end.
 	st.scroll = cnt.scroll.y
@@ -469,9 +473,18 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 		}
 	}
 	end := max(cnt.content_size.y + 2 * pad - cnt.body.h, 0)
+	// Moving up, by however little, stops following the end: a pixel's drag
+	// (as little as a slow drag of the scrollbar moves a short timeline) is
+	// close enough to the end to count as there, and the next frame would go
+	// back to it. It is followed again once the end is gone back to.
+	up := moved < 0 || dragged < 0
+	near_end := cnt.scroll.y >= end - 2
 	st.follow =
-		(cnt.scroll.y >= end - 2 || following && outbox_grew) && (tl == nil || tl.have_newest)
-	if moved < 0 || (st.follow && tl != nil && !tl.loading) {
+		!up &&
+		(near_end && (following || moved > 0 || dragged > 0 || cnt.scroll.y >= end) ||
+				following && outbox_grew) &&
+		(tl == nil || tl.have_newest)
+	if up || (st.follow && tl != nil && !tl.loading) {
 		st.to_end = false // scrolled away from the end, or already there (with its messages loaded)
 	}
 
