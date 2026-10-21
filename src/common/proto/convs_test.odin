@@ -109,6 +109,13 @@ test_browse :: proc(t: ^testing.T) {
 	)
 	testing.expect(t, ok)
 	testing.expect_value(t, b, Browse{query = "gam", offset = 50, limit = 20})
+	// The flags are only sent when there are some, and older requests have none.
+	body := encode_conv_browse(&req_buf, {query = "gam", limit = 20, flags = BROWSE_ALL})
+	testing.expect_value(t, len(body), 1 + 3 + 2 + 2 + 1)
+	b, ok = decode_conv_browse(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, b, Browse{query = "gam", limit = 20, flags = BROWSE_ALL})
+	testing.expect_value(t, len(encode_conv_browse(&req_buf, {query = "gam", limit = 20})), 1 + 3 + 2 + 2)
 	// An empty request asks for the first page of all conversations.
 	b, ok = decode_conv_browse(nil)
 	testing.expect(t, ok)

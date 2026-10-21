@@ -65,6 +65,7 @@ Server_UI :: struct {
 	// panel (ui_voice_panel.odin).
 	manage:         UI_Manage,
 	roles:          UI_Roles, // the settings' Roles (ui_roles.odin)
+	channel_admin:  UI_Channel_Admin, // and its Channels (ui_channel_settings.odin)
 	server_info:    UI_Server_Info, // and its Server (ui_server_info.odin)
 	voice_panel:    UI_Voice_Panel,
 	// Completing a mention in a composer (ui_completion.odin).
@@ -210,6 +211,7 @@ server_ui_destroy :: proc(ui: ^UI) {
 	ui_profiles_destroy(ui)
 	ui_manage_destroy(ui)
 	ui_roles_destroy(ui)
+	ui_channel_admin_destroy(ui)
 	delete(ui.invites_asked)
 	delete(ui.account.verify_loaded)
 	delete(ui.previews_asked)
@@ -219,7 +221,6 @@ server_ui_destroy :: proc(ui: ^UI) {
 		picked_files_destroy(&t.files)
 	}
 	delete(ui.reactors_asked.emoji)
-	delete(ui.channels.find_asked)
 	ui.srv = {}
 }
 

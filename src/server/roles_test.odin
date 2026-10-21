@@ -657,6 +657,156 @@ test_private_channels :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_manage_all_channels :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	ts_account(t, &ts, "admin", "a password", {.Owner})
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	bob_acc := ts_account(t, &ts, "bob", "a password")
+	owner := logged_in(t, &ts, "admin")
+	alice := logged_in(t, &ts, "alice")
+	bob := logged_in(t, &ts, "bob")
+	_, keeper := role_set(t, &ts, owner, {name = "keeper", perms = {.Manage_Channels}})
+	roles_give(t, &ts, owner, alice_acc.id, keeper)
+
+	// A private channel that bob is in and alice isn't.
+	create_buf: [proto.CONV_CREATE_MAX_SIZE]u8
+	_, body := ts_ask(
+		t,
+		&ts,
+		owner,
+		.Conv_Create,
+		proto.encode_conv_create(create_buf[:], "Staff", "", true),
+	)
+	staff_id, _ := proto.decode_conv_id(body)
+	set_buf: [proto.CONV_MEMBER_SET_SIZE]u8
+	status, _ := ts_ask(
+		t,
+		&ts,
+		owner,
+		.Conv_Member_Set,
+		proto.encode_conv_member_set(&set_buf, staff_id, bob_acc.id, true),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+
+	all :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> (proto.Status, []proto.Conv) {
+		req: [proto.CONV_BROWSE_MAX_SIZE]u8
+		body := proto.encode_conv_browse(
+			&req,
+			{limit = proto.BROWSE_PAGE, flags = proto.BROWSE_ALL},
+		)
+		status, answer := ts_ask(t, ts, u, .Conv_Browse, body)
+		buf := make([]proto.Conv, proto.BROWSE_PAGE, context.temp_allocator)
+		_, convs, _ := proto.decode_browse_page(answer, buf)
+		return status, convs
+	}
+
+	// Listing every channel is only for those who manage channels.
+	status, _ = all(t, &ts, bob)
+	testing.expect_value(t, status, proto.Status.Denied)
+	// For them it has the channels they are in and the private ones they
+	// aren't, in the order of the lists.
+	convs: []proto.Conv
+	status, convs = all(t, &ts, alice)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, len(convs), 3)
+	if len(convs) == 3 {
+		testing.expect(t, convs[0].name == "Lobby" && convs[0].member)
+		testing.expect(t, convs[1].name == "Gaming" && !convs[1].member)
+		testing.expect(t, convs[2].id == staff_id && !convs[2].member)
+		testing.expect(t, .Private in convs[2].flags)
+	}
+	// Browsing to subscribe still doesn't show it.
+	status, body = ts_ask(t, &ts, alice, .Conv_Browse, nil)
+	list_buf: [8]proto.Conv
+	_, browsed, _ := proto.decode_browse_page(body, list_buf[:])
+	for b in browsed {
+		testing.expect(t, b.id != staff_id, "a private channel is browsed")
+	}
+
+	// Alice may rename it, see and remove its members without being in it.
+	update_buf: [proto.CONV_UPDATE_MAX_SIZE]u8
+	status, _ = ts_ask(
+		t,
+		&ts,
+		alice,
+		.Conv_Update,
+		proto.encode_conv_update(
+			update_buf[:],
+			{conv = staff_id, mask = proto.CONV_UPDATE_NAME, name = "Team"},
+		),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, conv_by_id(&s.convs, staff_id).name, "Team")
+	id_buf: [4]u8
+	status, _ = ts_ask(t, &ts, alice, .Conv_Members, proto.encode_conv_id(&id_buf, staff_id))
+	testing.expect_value(t, status, proto.Status.Ok)
+	status, _ = ts_ask(
+		t,
+		&ts,
+		alice,
+		.Conv_Member_Set,
+		proto.encode_conv_member_set(&set_buf, staff_id, bob_acc.id, false),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect(t, !conv_is_member(conv_by_id(&s.convs, staff_id), bob_acc.id))
+
+	// But she can't join it, add anyone to it or talk in it.
+	sub_buf: [proto.CONV_SUBSCRIBE_SIZE]u8
+	status, _ = ts_ask(
+		t,
+		&ts,
+		alice,
+		.Conv_Subscribe,
+		proto.encode_conv_subscribe(&sub_buf, staff_id, true),
+	)
+	testing.expect_value(t, status, proto.Status.Not_Found)
+	status, _ = ts_ask(
+		t,
+		&ts,
+		alice,
+		.Conv_Member_Set,
+		proto.encode_conv_member_set(&set_buf, staff_id, alice_acc.id, true),
+	)
+	testing.expect_value(t, status, proto.Status.Not_Found)
+	room_buf: [4]u8
+	status, _ = ts_ask(
+		t,
+		&ts,
+		alice,
+		.Voice_Join,
+		proto.encode_room(&room_buf, proto.Room(staff_id)),
+	)
+	testing.expect_value(t, status, proto.Status.Not_Found)
+	status, _ = ts_ask(t, &ts, alice, .Msg_History, history_body(staff_id))
+	testing.expect(t, status != .Ok, "a private channel's history was read")
+
+	// Bob, without the permission, can do none of it.
+	status, _ = ts_ask(
+		t,
+		&ts,
+		bob,
+		.Conv_Update,
+		proto.encode_conv_update(
+			update_buf[:],
+			{conv = staff_id, mask = proto.CONV_UPDATE_NAME, name = "Bob's"},
+		),
+	)
+	testing.expect_value(t, status, proto.Status.Denied)
+	status, _ = ts_ask(t, &ts, bob, .Conv_Members, proto.encode_conv_id(&id_buf, staff_id))
+	testing.expect_value(t, status, proto.Status.Not_Found)
+
+	// And she may delete it.
+	status, _ = ts_ask(t, &ts, alice, .Conv_Delete, proto.encode_conv_id(&id_buf, staff_id))
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect(t, .Archived in conv_by_id(&s.convs, staff_id).flags)
+	_, convs = all(t, &ts, alice)
+	testing.expect_value(t, len(convs), 2)
+}
+
+@(test)
 test_role_colors :: proc(t: ^testing.T) {
 	ts: Test_Server
 	ts_open(t, &ts)

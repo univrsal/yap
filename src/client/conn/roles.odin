@@ -289,17 +289,31 @@ conv_update :: proc(c: ^Voice_Client, cmd: Conv_Update_Command) {
 		notify(c, false, "The channel name or topic is too long.")
 		return
 	}
-	request(c, .Conv_Update, body, manage_done)
+	c.convs.changing += 1
+	request(c, .Conv_Update, body, conv_done)
 }
 
 conv_delete :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	buf: [4]u8
+	c.convs.changing += 1
 	request(
 		c,
 		.Conv_Delete,
 		proto.encode_conv_id(&buf, conv if conv != 0 else c.convs.viewing),
-		manage_done,
+		conv_done,
 	)
+}
+
+// conv_done is manage_done for a change to a channel, which may change the
+// lists of channels (channels_changed). Moving a channel is several changes at
+// once, so that waits for the last one.
+@(private = "file")
+conv_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+	manage_done(c, status, body, tag)
+	c.convs.changing = max(c.convs.changing - 1, 0)
+	if c.convs.changing == 0 && status != .Reset {
+		channels_changed(c)
+	}
 }
 
 conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
@@ -310,12 +324,13 @@ conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
 		return
 	}
 	buf: [proto.CONV_MEMBER_SET_SIZE]u8
+	c.convs.changing += 1
 	request(
 		c,
 		.Conv_Member_Set,
 		proto.encode_conv_member_set(&buf, conv, account, cmd.on),
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
-			manage_done(c, status, body, tag)
+			conv_done(c, status, body, tag)
 			// Fetch the members shown again.
 			if status == .Ok && c.profiles.members_conv != 0 {
 				members_fetch(c, c.profiles.members_conv)

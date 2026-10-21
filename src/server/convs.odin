@@ -315,6 +315,17 @@ conv_visible :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
 	return conv_is_member(conv, account) || (conv.kind == .Channel && .Private not_in conv.flags)
 }
 
+// conv_manageable returns whether an account may manage a channel: rename it,
+// delete it, see and remove its members. Besides the channels it may see, those
+// who manage channels may manage the private ones they aren't in. Being able to
+// manage one doesn't make it possible to read it, join it or talk in it.
+conv_manageable :: proc(conv: ^Conv, acc: ^Account) -> bool {
+	if conv.kind != .Channel || .Archived in conv.flags {
+		return false
+	}
+	return conv_visible(conv, acc.id) || can(acc, .Manage_Channels)
+}
+
 // conv_member_add makes an account a member, and does nothing if it already is
 // one. A new member counts as having read everything that is already there, up
 // to `read_upto` at most, because it isn't news to someone who has only just
