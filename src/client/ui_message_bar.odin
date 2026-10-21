@@ -149,7 +149,7 @@ message_bar :: proc(ui: ^UI) {
 	// part of its timeline that is on screen.
 	pad, spacing := ctx.style.padding, ctx.style.spacing
 	row_h := ctx.style.size.y + 2 * pad
-	w := i32(n) * ICON_BUTTON + i32(n - 1) * spacing + 2 * pad
+	w := i32(n) * icon_button_w(ctx) + i32(n - 1) * spacing + 2 * pad
 	h := row_h + 2 * pad
 	right := min(b.block.x + b.block.w, b.clip.x + b.clip.w) - BAR_INSET
 	x := max(right - w, b.clip.x)
@@ -176,7 +176,7 @@ message_bar :: proc(ui: ^UI) {
 
 	widths := make([]i32, n, context.temp_allocator)
 	for &bw in widths {
-		bw = ICON_BUTTON
+		bw = icon_button_w(ctx)
 	}
 	mu.layout_row(ctx, widths, row_h)
 	cmds := &ui.session.client.commands

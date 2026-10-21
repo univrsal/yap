@@ -162,3 +162,31 @@ test_composer_grows_without_scrollbar :: proc(t: ^testing.T) {
 	testing.expect(t, ct.area.bar.w > 0)
 	testing.expect(t, ct.area.scroll > 0)
 }
+
+// A window as narrow as a phone's, or a touch screen, gets controls a
+// fingertip tall, and icon and composer buttons as wide; otherwise they are
+// roomier than microui's own.
+@(test)
+test_style_for_phones :: proc(t: ^testing.T) {
+	ct := composer_test_start("")
+	defer composer_test_end(ct)
+	ui := ct.ui
+	ctx := &ui.ctx
+	row :: proc(ctx: ^mu.Context) -> i32 {return ctx.style.size.y + 2 * ctx.style.padding}
+
+	style_apply(ui, 1000)
+	testing.expect(t, !ui.compact)
+	testing.expect_value(t, row(ctx), 26)
+	testing.expect_value(t, icon_button_w(ctx), ICON_BUTTON)
+	testing.expect_value(t, composer_button_size(ctx), COMPOSER_BUTTON)
+
+	style_apply(ui, 420)
+	testing.expect(t, ui.compact)
+	testing.expect_value(t, row(ctx), 44)
+	testing.expect_value(t, icon_button_w(ctx), 44)
+	testing.expect_value(t, composer_button_size(ctx), 44)
+
+	ui.touched = true
+	style_apply(ui, 1000)
+	testing.expect(t, ui.compact)
+}

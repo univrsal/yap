@@ -394,22 +394,29 @@ user_menu :: proc(ui: ^UI) {
 	}
 
 	widths := make([dynamic]i32, context.temp_allocator)
-	append(&widths, 0, ICON_BUTTON, ICON_BUTTON)
+	append(&widths, 0, icon_button_w(ctx), icon_button_w(ctx))
 	if user_is_screen_sharing {
-		append(&widths, ICON_BUTTON)
+		append(&widths, icon_button_w(ctx))
 	}
 	can_call := may_call(v, account)
 	if can_call {
-		append(&widths, ICON_BUTTON)
+		append(&widths, icon_button_w(ctx))
 	}
 	can_video_call := can_call && camera_available(v)
 	if can_video_call {
-		append(&widths, ICON_BUTTON)
+		append(&widths, icon_button_w(ctx))
 	}
 	if talking_to {
-		append(&widths, ICON_BUTTON)
+		append(&widths, icon_button_w(ctx))
 	}
-	widths[0] = i32(MENU_WIDTH) - (ICON_BUTTON + ctx.style.spacing) * i32(len(widths) - 1)
+	// At the menu's right end, narrower if they don't all fit (on a phone,
+	// where buttons are wider).
+	n := i32(len(widths) - 1)
+	bw := min(icon_button_w(ctx), (MENU_WIDTH + ctx.style.spacing) / n - ctx.style.spacing)
+	for &w in widths[1:] {
+		w = bw
+	}
+	widths[0] = i32(MENU_WIDTH) - (bw + ctx.style.spacing) * n
 	mu.layout_row(ctx, widths[:])
 
 	mu.label(ctx, "")

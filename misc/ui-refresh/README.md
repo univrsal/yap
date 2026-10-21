@@ -15,8 +15,8 @@ to 2500.
 | 1 | Rounded corners: controls, panels, floating windows | M | - | done (2026-10-21) |
 | 2 | Idle redraws: image keys that collided | S | - | done (2026-10-21) |
 | 3 | The composer's buttons inside its box | M | 1 | done (2026-10-21) |
-| 4 | Bigger channel list, more spacing, bigger on phones | M | - | next |
-| 5 | Icons for Add, Back and Next | S | - | |
+| 4 | Bigger channel list, more spacing, bigger on phones | M | - | done (2026-10-21) |
+| 5 | Icons for Add, Back and Next | S | - | next |
 | 6 | Spinners for what is loading | S | - | |
 | 7 | Smooth scrolling | M | - | |
 | 8 | Smaller polish (see the list at the end) | S each | 1 | ideas |
@@ -124,6 +124,31 @@ layout (`ICON_BUTTON :: 30`, `LINE_HEIGHT :: 18`, widths per screen, rows
 sized as `size.y + 2 * padding`), so every screen needs a look afterwards,
 and tests that measure layouts (`ui_chat_preview_test`,
 `ui_text_area_test`, the composer tests) may need new numbers.
+
+*As built:* `style_apply` (`ui.odin`) sets microui's style every frame,
+before `mu.begin`: padding 6, spacing 6, size 80x14 (rows 26 px, from
+20), and on a phone padding 8, spacing 8, size 80x28 (rows 44 px). A
+phone (`ui.compact`) is a window narrower than `NARROW_LAYOUT` beside the
+rail, or a touch screen once it has been used (`ui.touched`, set when
+`ui_touch_web.odin` queues an event), on every screen, not only the
+session's.
+
+- The channel list is in `render.LIST_FONT` (`Font_Kind.List`, the UI's
+  font at `LIST_ZOOM` 1.15, its atlases made once it is drawn with, like
+  `Preview`'s). Its rows are the text and 6 px above and below, at least a
+  control's height (33 px, 44 on a phone), and 2 px apart.
+- `icon_button_w` and `composer_button_size` make icon buttons and the
+  composer's buttons square with the rows on a phone (otherwise 30 and 26
+  as before). The rail and the drop overlay keep `ICON_BUTTON`; the user
+  menu narrows its icons where all of them don't fit its width.
+- The status line above the chat (typing, notices) is a text line tall,
+  not a control's.
+
+The tests keep microui's own style (they don't call `style_apply`), so
+their numbers didn't change; `test_style_for_phones` checks the sizes.
+Looked at off-screen at 1000 and 420 px wide: the session screen, the
+channel list and a channel's menu, settings, a server's channels, Join a
+channel, DMs. Not seen: a real phone (touch), and scales other than 1.
 
 ## 5. Icons for Add, Back and Next
 

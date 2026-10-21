@@ -402,9 +402,9 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	}
 	buf: [6]i32
 	widths := buf[:icons + 1]
-	widths[0] = -(ICON_BUTTON * i32(icons) + ctx.style.spacing * i32(icons + 1))
+	widths[0] = -(icon_button_w(ctx) * i32(icons) + ctx.style.spacing * i32(icons + 1))
 	for &w in widths[1:] {
-		w = ICON_BUTTON
+		w = icon_button_w(ctx)
 	}
 	if back {
 		row := make([]i32, len(widths) + 1, context.temp_allocator)

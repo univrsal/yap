@@ -250,12 +250,19 @@ Font_Kind :: enum {
 	// closely (a hover preview). Its atlases are only created once it is
 	// drawn with.
 	Preview,
+	// The UI's font LIST_ZOOM times bigger, for the channel list. Like the
+	// preview's, its atlases are only created once it is drawn with.
+	List,
 }
 
 PREVIEW_ZOOM :: 3
+LIST_ZOOM :: 1.15
 
 // PREVIEW_FONT is the handle of the large font.
 PREVIEW_FONT :: mu.Font(uintptr(Font_Kind.Preview))
+
+// LIST_FONT is the handle of the channel list's font.
+LIST_FONT :: mu.Font(uintptr(Font_Kind.List))
 
 CHAT_FONT :: mu.Font(uintptr(1))
 
@@ -330,8 +337,17 @@ slot_of :: proc(fonts: ^[Font_Kind]Font_Slot, font: mu.Font) -> ^Font_Slot {
 		return &fonts[.Chat]
 	case uintptr(Font_Kind.Preview):
 		return &fonts[.Preview]
+	case uintptr(Font_Kind.List):
+		return &fonts[.List]
 	}
 	return &fonts[.UI]
+}
+
+// lazy_font says whether a font's atlases wait until it is drawn with, rather
+// than being made for every frame: the fonts that only some screens use.
+@(private = "file")
+lazy_font :: proc(kind: Font_Kind) -> bool {
+	return kind == .Preview || kind == .List
 }
 
 // set_chat_zoom sets how much bigger the chat's text is than the UI's text
@@ -373,6 +389,7 @@ renderer_init :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 		slot.zoom = 1
 	}
 	r.fonts[.Preview].zoom, r.fonts[.Preview].font.zoom = PREVIEW_ZOOM, PREVIEW_ZOOM
+	r.fonts[.List].zoom, r.fonts[.List].font.zoom = LIST_ZOOM, LIST_ZOOM
 	g_fonts = &r.fonts
 	if !gpu_init(&r.gpu, window) {
 		for &slot in r.fonts {
@@ -476,8 +493,9 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 	}
 
 	for kind in Font_Kind {
-		// The preview font waits until it is drawn with (Command_Text).
-		if kind != .Preview {
+		// The preview and list fonts wait until they are drawn with
+		// (Command_Text).
+		if !lazy_font(kind) {
 			slot_prepare(r, &r.fonts[kind], scale)
 		}
 	}
@@ -533,7 +551,8 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 		switch c in variant {
 		case ^mu.Command_Text:
 			slot := slot_of(&r.fonts, c.font)
-			if slot == &r.fonts[.Preview] && slot.font.scale != scale * slot.font.zoom {
+			kind := Font_Kind(uintptr(c.font) & 0xf)
+			if lazy_font(kind) && slot.font.scale != scale * slot.font.zoom {
 				slot_prepare(r, slot, scale)
 			}
 			style := font_style(c.font)

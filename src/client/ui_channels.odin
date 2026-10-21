@@ -48,6 +48,14 @@ CHANNEL_MENU :: "channel menu"
 @(private = "file")
 CHANNEL_MENU_WIDTH :: 200
 
+// The channel list's rows are in a bigger font (render.LIST_FONT), with this
+// much room above and below the text, and this far apart. They are at least a
+// control's height, which on a phone is a fingertip's (style_apply).
+@(private = "file")
+CHANNEL_ROW_PADDING :: 6
+@(private = "file")
+CHANNEL_ROW_GAP :: 2
+
 @(private = "file")
 CHANNELS_WINDOW :: "Join a channel"
 @(private = "file")
@@ -91,11 +99,20 @@ channel_list :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		mu.label(ctx, "Waiting for the channel list...")
 	}
+	// The rows close together, and so the people in a voice room under its
+	// channel.
+	saved_spacing := ctx.style.spacing
+	ctx.style.spacing = CHANNEL_ROW_GAP
+	defer ctx.style.spacing = saved_spacing
+	row_h := max(
+		ctx.text_height(render.LIST_FONT) + 2 * CHANNEL_ROW_PADDING,
+		ctx.style.size.y + 2 * ctx.style.padding,
+	)
 	for ch in v.channels {
 		mu.push_id(ctx, uintptr(ch.id))
 		defer mu.pop_id(ctx)
 
-		mu.layout_row(ctx, {-1})
+		mu.layout_row(ctx, {-1}, row_h)
 		viewing := ch.id == v.viewing
 		label := fmt.tprintf("%s%s", ch.name, " 🔒" if ch.private else "")
 		// Unread and not muted: brighter, as well as showing the count.
@@ -103,8 +120,11 @@ channel_list :: proc(ui: ^UI) {
 		if ch.unread > 0 && ch.notify != .None {
 			ctx.style.colors[.TEXT] = theme.unread_text
 		}
+		saved_font := ctx.style.font
+		ctx.style.font = render.LIST_FONT
 		// When narrow, the list is all there is on screen, so no channel is open.
 		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow)
+		ctx.style.font = saved_font
 		ctx.style.colors[.TEXT] = saved
 		if ctx.hover_id == mu.get_id(ctx, "view") && .RIGHT in ctx.mouse_pressed_bits {
 			ui.channels.menu_conv, ui.channels.menu_asked = ch.id, true
@@ -150,14 +170,14 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	v := ui.view
 	ch := viewed_channel(v)
 
-	right := 4 * ICON_BUTTON + 4 * ctx.style.spacing + 1
+	right := 4 * icon_button_w(ctx) + 4 * ctx.style.spacing + 1
 	if narrow {
-		mu.layout_row(ctx, {40, -right, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+		mu.layout_row(ctx, {40, -right, icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx)})
 		if .SUBMIT in stable_button_hint(ui, "to list", "<", "Channels", {.ALIGN_CENTER}) {
 			ui.channels.show_list = true
 		}
 	} else {
-		mu.layout_row(ctx, {-right, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+		mu.layout_row(ctx, {-right, icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx), icon_button_w(ctx)})
 	}
 	if ch == nil {
 		mu.label(ctx, "")

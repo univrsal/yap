@@ -273,6 +273,10 @@ UI :: struct {
 	// Whether the last frame was laid out narrow. In that case an open thread takes
 	// the place of the conversation instead of floating over it (see ui_threads.odin).
 	narrow:              bool,
+	// Whether controls are sized for a finger (see style_apply): in a narrow
+	// window, or once a touch screen has been used (web, ui_touch_web.odin).
+	compact:             bool,
+	touched:             bool,
 	// The bar over the message under the pointer (see ui_message_bar.odin),
 	// and whether this frame is a tap on a touch screen (see ui_touch_web.odin),
 	// which shows the message's bar.
@@ -618,6 +622,7 @@ draw_frame :: proc(ui: ^UI) {
 	activity_input(ui)
 	voice_elsewhere_update(ui)
 	theme_update(ui) // the palette for this frame (theme.odin)
+	style_apply(ui, i32(m.logical_w))
 	mu.begin(&ui.ctx)
 	ui.meter_shown = false // until gate_settings draws it again (it sets this when it draws the meter)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
@@ -1651,6 +1656,30 @@ connect_screen :: proc(ui: ^UI) {
 // the channels go above the chat instead of beside it.
 NARROW_LAYOUT :: 600
 
+// How roomy controls are: microui's padding inside them and spacing between
+// them, and the size of its controls (a row is size.y + 2 * padding tall).
+// microui's own are 5, 4 and 68x10. On a phone, rows are about 44 px tall, as
+// big as a fingertip.
+STYLE_PADDING :: 6
+STYLE_SPACING :: 6
+STYLE_SIZE :: mu.Vec2{80, 14}
+COMPACT_PADDING :: 8
+COMPACT_SPACING :: 8
+COMPACT_SIZE :: mu.Vec2{80, 28}
+
+// style_apply sets microui's sizes for this frame, a window `width` wide: for
+// a finger where the window is as narrow as a phone's (as session_screen
+// tells it, beside the rail) or a touch screen has been used.
+style_apply :: proc(ui: ^UI, width: i32) {
+	ui.compact = width - RAIL_WIDTH < NARROW_LAYOUT || ui.touched
+	style := ui.ctx.style
+	if ui.compact {
+		style.padding, style.spacing, style.size = COMPACT_PADDING, COMPACT_SPACING, COMPACT_SIZE
+	} else {
+		style.padding, style.spacing, style.size = STYLE_PADDING, STYLE_SPACING, STYLE_SIZE
+	}
+}
+
 @(private = "file")
 session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -1805,8 +1834,15 @@ log_panel :: proc(ui: ^UI) {
 	mu.end_panel(ctx)
 }
 
-// A button with nothing but an icon on it is this wide.
+// A button with nothing but an icon on it is this wide, or as wide as it is
+// tall where rows are taller (icon_button_w).
 ICON_BUTTON :: 30
+
+// icon_button_w is how wide a button with only an icon on it is: square on a
+// phone, where rows are a fingertip tall (style_apply).
+icon_button_w :: proc(ctx: ^mu.Context) -> i32 {
+	return max(ICON_BUTTON, ctx.style.size.y + 2 * ctx.style.padding)
+}
 
 // stable_button is mu.button, except that its id comes from `id_name` (under
 // the current id stack) instead of from the label, so the label can

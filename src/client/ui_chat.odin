@@ -120,9 +120,11 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 		chat_label := "Chat" if v.unread == 0 else fmt.tprintf("Chat (%d)", v.unread)
 		side_tab_buttons(ui, chat_label)
 	} else {
-		mu.layout_row(ctx, {-1})
+		// A line of text, not a control: no taller than one, even where
+		// controls are a fingertip tall.
+		mu.layout_row(ctx, {-1}, ctx.text_height(ctx.style.font) + 4)
 	}
-	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
+	status :="reading the clipboard..." if ui.paste != nil else typing_text(v)
 	status_color := theme.dim
 	if editing := composer_status(composer_of_page(ui)); editing != "" {
 		status = editing
@@ -220,16 +222,24 @@ panel_width :: proc(ctx: ^mu.Context) -> i32 {
 
 // A composer's box is at least this many lines of the chat's text tall, with
 // a strip along its bottom for its buttons (composer_buttons): square buttons
-// of COMPOSER_BUTTON, COMPOSER_INSET in from the box's edges.
+// of COMPOSER_BUTTON (composer_button_size), COMPOSER_INSET in from the box's
+// edges.
 COMPOSER_LINES :: 2
 COMPOSER_BUTTON :: 26
 COMPOSER_INSET :: 4
+
+// composer_button_size is how big a composer's buttons are: COMPOSER_BUTTON,
+// or a control's height where that is more (a fingertip, on a phone).
+composer_button_size :: proc(ctx: ^mu.Context) -> i32 {
+	return max(COMPOSER_BUTTON, ctx.style.size.y + 2 * ctx.style.padding)
+}
 
 // composer_height is how tall the box that a composer's message is written in
 // is: two lines or more of the chat's text (see ui_text_area.odin), and the
 // strip for its buttons.
 composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
-	c.area.min_lines, c.area.footer = COMPOSER_LINES, COMPOSER_BUTTON + COMPOSER_INSET
+	c.area.min_lines = COMPOSER_LINES
+	c.area.footer = composer_button_size(&ui.ctx) + COMPOSER_INSET
 	return text_area_height(&ui.ctx, render.CHAT_FONT, string(c.buf[:c.len^]), c.area)
 }
 
@@ -246,20 +256,16 @@ composer_row :: proc(ui: ^UI, height: i32) {
 // send button (composer_send_button). End them with composer_buttons_end.
 composer_buttons :: proc(ui: ^UI, box: mu.Rect, buttons: int) {
 	ctx := &ui.ctx
-	w := i32(buttons) * COMPOSER_BUTTON + i32(buttons - 1) * ctx.style.spacing
-	strip := mu.Rect {
-		box.x + box.w - COMPOSER_INSET - w,
-		box.y + box.h - COMPOSER_INSET - COMPOSER_BUTTON,
-		w,
-		COMPOSER_BUTTON,
-	}
+	size := composer_button_size(ctx)
+	w := i32(buttons) * size + i32(buttons - 1) * ctx.style.spacing
+	strip := mu.Rect{box.x + box.w - COMPOSER_INSET - w, box.y + box.h - COMPOSER_INSET - size, w, size}
 	mu.layout_set_next(ctx, strip, false)
 	mu.layout_begin_column(ctx)
 	widths: [8]i32
 	for &bw in widths[:buttons] {
-		bw = COMPOSER_BUTTON
+		bw = size
 	}
-	mu.layout_row(ctx, widths[:buttons], COMPOSER_BUTTON)
+	mu.layout_row(ctx, widths[:buttons], size)
 	ui.flat_buttons = true
 }
 
