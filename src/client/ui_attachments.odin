@@ -32,11 +32,11 @@ Picked_File :: struct {
 	size:           u64,
 	// The preview of its chip, for a picture (see chip_preview_bytes): the bytes
 	// read so far (owned; a pasted picture's bytes are in `data`), how many were
-	// read, the key of its texture (0 until it is first shown), and whether it
+	// read, the key of its texture (kind None until it is first shown), and whether it
 	// couldn't be read.
 	preview:        []u8,
 	preview_read:   int,
-	preview_key:    u64,
+	preview_key:    Image_Key,
 	preview_failed: bool,
 }
 
@@ -378,11 +378,8 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 // popup is drawn at the end of the frame from the decoded texture alone,
 // so a chip that is removed or sent meanwhile leaves nothing behind for it to use.
 
-// The key that the chips' previews are decoded under, next to messages' pictures
-// (their blob's id), avatars (AVATAR_KEY) and the emoji sheet: this bit
-// plus a count.
-@(private = "file")
-CHIP_PREVIEW_KEY :: u64(1) << 60
+// How many chips' previews there have been, which tells their keys apart
+// (Image_Kind.Chip_Preview).
 @(private = "file")
 g_chip_previews: u64
 
@@ -396,7 +393,7 @@ CHIP_PREVIEW_H :: 240
 
 // The chip the pointer is on in this frame, for chip_preview_popup.
 Chip_Preview :: struct {
-	key:     u64, // 0 for none
+	key:     Image_Key, // kind None for none
 	of:      mu.Rect, // the chip
 	caption: string,
 }
@@ -432,9 +429,9 @@ chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
 	if !ready && f.preview_failed {
 		return // the plain hint
 	}
-	if f.preview_key == 0 {
+	if f.preview_key.kind == .None {
 		g_chip_previews += 1
-		f.preview_key = CHIP_PREVIEW_KEY | g_chip_previews
+		f.preview_key = {kind = .Chip_Preview, id = g_chip_previews}
 	}
 	if ready {
 		image_want(ui, f.preview_key, data)
@@ -451,7 +448,7 @@ chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
 // above it (or below it if there is no room), together with the chip's hint.
 chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 	p := ui.chip_preview
-	if p.key == 0 {
+	if p.key.kind == .None {
 		return
 	}
 	ui.chip_preview = {}
@@ -618,7 +615,7 @@ file_preview :: proc(
 	}
 	if image_fitted(
 		ui,
-		u64(f.blob),
+		Image_Key{kind = .Picture, id = u64(f.blob)},
 		img.state if here else .Wanted,
 		img.jpeg if here else nil,
 		area,

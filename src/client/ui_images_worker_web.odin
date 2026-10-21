@@ -24,13 +24,13 @@ Decode_Worker :: struct {
 	// The pictures the browser is decoding.
 	pending: [dynamic]Pending_Decode,
 	// The handles of the animations being played, by picture.
-	anims:   map[u64]Web_Anim,
+	anims:   map[Image_Key]Web_Anim,
 }
 
 @(private = "file")
 Pending_Decode :: struct {
 	req:        i32,
-	id:         u64,
+	id:         Image_Key,
 	generation: u64,
 	frame:      bool, // an animation's next frame, rather than a picture
 }
@@ -209,7 +209,7 @@ decode_queued :: proc(im: ^UI_Images) {
 // anim_close releases the animation playing as `id`, if it is the one of
 // `generation`.
 @(private = "file")
-anim_close :: proc(w: ^Decode_Worker, id, generation: u64) {
+anim_close :: proc(w: ^Decode_Worker, id: Image_Key, generation: u64) {
 	if a, playing := w.anims[id]; playing && a.generation == generation {
 		yap_image_decode_close(a.req)
 		delete_key(&w.anims, id)

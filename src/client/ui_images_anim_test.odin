@@ -25,8 +25,13 @@ first_pixel :: proc(r: Decode_Result) -> [4]u8 {
 }
 
 @(private = "file")
+pic :: proc(id: u64) -> Image_Key {
+	return {kind = .Picture, id = id}
+}
+
+@(private = "file")
 job_of :: proc(data: []u8, id: u64) -> Decode_Job {
-	return {kind = .Decode, id = id, jpeg = slice.clone(data), generation = 1}
+	return {kind = .Decode, id = pic(id), jpeg = slice.clone(data), generation = 1}
 }
 
 @(test)
@@ -62,7 +67,7 @@ test_anim_plays :: proc(t: ^testing.T) {
 		{{0, 255, 0, 255}, 100 * time.Millisecond},
 	}
 	for f in want {
-		r := anim_next_frame(&w, 7, 1)
+		r := anim_next_frame(&w, pic(7), 1)
 		defer clipboard_image_free(&r)
 		testing.expect(t, r.ok && r.anim && r.frame)
 		testing.expect_value(t, first_pixel(r), f.rgba)
@@ -70,13 +75,13 @@ test_anim_plays :: proc(t: ^testing.T) {
 	}
 
 	// Dropping it for another generation (i.e. another server) leaves it alone.
-	anim_drop(&w, 7, 2)
+	anim_drop(&w, pic(7), 2)
 	testing.expect_value(t, len(w.anims), 1)
-	stale := anim_next_frame(&w, 7, 2)
+	stale := anim_next_frame(&w, pic(7), 2)
 	testing.expect(t, !stale.ok && stale.image.pixels == nil)
-	anim_drop(&w, 7, 1)
+	anim_drop(&w, pic(7), 1)
 	testing.expect_value(t, len(w.anims), 0)
-	gone := anim_next_frame(&w, 7, 1)
+	gone := anim_next_frame(&w, pic(7), 1)
 	testing.expect(t, !gone.ok && gone.frame)
 }
 
@@ -92,13 +97,13 @@ test_anim_merges_and_ends :: proc(t: ^testing.T) {
 	testing.expect_value(t, first.shown, 40 * time.Millisecond)
 	testing.expect_value(t, first_pixel(first), [4]u8{0, 255, 0, 255})
 
-	second := anim_next_frame(&w, 3, 1)
+	second := anim_next_frame(&w, pic(3), 1)
 	defer clipboard_image_free(&second)
 	testing.expect_value(t, second.shown, 40 * time.Millisecond)
 	testing.expect_value(t, first_pixel(second), [4]u8{255, 255, 0, 255})
 
 	// Played once: there are no more frames, and the decoder is released.
-	end := anim_next_frame(&w, 3, 1)
+	end := anim_next_frame(&w, pic(3), 1)
 	testing.expect(t, end.frame && !end.ok && end.image.pixels == nil)
 	testing.expect_value(t, len(w.anims), 0)
 }
@@ -153,7 +158,7 @@ test_gif_plays :: proc(t: ^testing.T) {
 		{{255, 0, 0, 255}, 50 * time.Millisecond},
 	}
 	for f in want {
-		r := anim_next_frame(&w, 9, 1)
+		r := anim_next_frame(&w, pic(9), 1)
 		defer clipboard_image_free(&r)
 		testing.expect(t, r.ok)
 		testing.expect_value(t, first_pixel(r), f.rgba)
@@ -171,21 +176,21 @@ test_gif_merges_and_loops :: proc(t: ^testing.T) {
 	defer clipboard_image_free(&first)
 	testing.expect_value(t, first.shown, 40 * time.Millisecond)
 	testing.expect_value(t, first_pixel(first), [4]u8{0, 255, 0, 255})
-	second := anim_next_frame(&w, 1, 1)
+	second := anim_next_frame(&w, pic(1), 1)
 	defer clipboard_image_free(&second)
 	testing.expect_value(t, first_pixel(second), [4]u8{255, 255, 0, 255})
-	end := anim_next_frame(&w, 1, 1)
+	end := anim_next_frame(&w, pic(1), 1)
 	testing.expect(t, !end.ok && end.image.pixels == nil)
 
 	// Three times through two frames: five frames after the first.
 	start, _ := anim_start(&w, job_of(GIF_LOOP2, 2))
 	defer clipboard_image_free(&start)
 	for _ in 0 ..< 5 {
-		r := anim_next_frame(&w, 2, 1)
+		r := anim_next_frame(&w, pic(2), 1)
 		defer clipboard_image_free(&r)
 		testing.expect(t, r.ok)
 	}
-	end = anim_next_frame(&w, 2, 1)
+	end = anim_next_frame(&w, pic(2), 1)
 	testing.expect(t, !end.ok)
 	testing.expect_value(t, len(w.anims), 0)
 }

@@ -28,7 +28,7 @@ import "common:proto"
 // A picture is decoded at most PREVIEW_MAX_SIDE pixels on its longer side,
 // which is more than any preview needs: a 4000x3000 photo is a 3 MB texture
 // instead of 48 MB. The viewer decodes the one it shows at its own size (up to
-// MAX_SHOWN_SIDE), under its key with VIEWER_KEY, and lets go of that when it
+// MAX_SHOWN_SIDE), under its key marked `full`, and lets go of that when it
 // is closed.
 //
 // Textures are kept for MAX_IMAGE_TEXTURES images and MAX_IMAGE_TEXTURE_BYTES,
@@ -46,10 +46,6 @@ MAX_IMAGE_TEXTURE_BYTES :: 256 * 1024 * 1024
 // largest preview (up to 480 wide, PREVIEW_HEIGHT tall) needs at twice the
 // scale.
 PREVIEW_MAX_SIDE :: 1024
-
-// The viewer's picture at its own size is known by the picture's key with
-// this bit.
-VIEWER_KEY :: u64(1) << 57
 
 // No picture is decoded bigger than this on its longer side, the viewer's
 // included, which is about as much as can be shown: a small file can be a
@@ -101,7 +97,35 @@ Texture :: struct {
 	ended:      bool,
 }
 
-// Pictures are known by a key that their drawer provides (see image_fitted).
+// Pictures are known by a key that their drawer provides (see image_fitted):
+// what kind of picture it is, and an id that tells the pictures of that kind
+// apart. Blob ids take all 64 bits, so the kind can't be kept in bits of the
+// id: a picture whose id happened to have such a bit was taken for another
+// kind, and could be dropped and decoded again in every frame.
+Image_Kind :: enum u8 {
+	None,
+	Picture, // a message's picture, by its blob's id
+	Avatar, // somebody's picture, by its blob's id (see ui_avatars.odin)
+	Server_Icon, // a server's picture, by its address and blob (see server_icon)
+	Emoji_Sheet, // the server's sheet of emoji cells, by its blob's id
+	Emoji_Frames, // the frames of one of the server's emoji that moves, by its blob's id
+	Chip_Preview, // a picked file's picture, by a count (see chip_hovered)
+	Builtin_Emoji, // the client's own emoji sheet (see EMOJI_SHEET_KEY)
+}
+
+Image_Key :: struct {
+	kind: Image_Kind,
+	// The viewer's copy of the picture at its own size (see image_fitted).
+	full: bool,
+	id:   u64,
+}
+
+// is_round says whether pictures of this kind are of somebody or of a
+// server, which are drawn round (see round_off).
+@(private = "file")
+is_round :: proc(key: Image_Key) -> bool {
+	return key.kind == .Avatar || key.kind == .Server_Icon
+}
 
 Decode_Job_Kind :: enum {
 	Decode, // decode the picture in `jpeg`
@@ -111,7 +135,7 @@ Decode_Job_Kind :: enum {
 
 Decode_Job :: struct {
 	kind:       Decode_Job_Kind,
-	id:         u64,
+	id:         Image_Key,
 	jpeg:       []u8, // owned by the job
 	generation: u64, // UI_Images.generation when it was asked for
 	// The longest side a still picture is decoded at, 0 for its own size.
@@ -119,7 +143,7 @@ Decode_Job :: struct {
 }
 
 Decode_Result :: struct {
-	id:         u64,
+	id:         Image_Key,
 	image:      clipboard.Image, // pixels owned by the result
 	ok:         bool,
 	generation: u64,
@@ -136,10 +160,10 @@ Decode_Result :: struct {
 }
 
 UI_Images :: struct {
-	textures:      map[u64]Texture,
-	// The image shown enlarged, 0 for none, and whether it still has to
+	textures:      map[Image_Key]Texture,
+	// The image shown enlarged, kind None for none, and whether it still has to
 	// be sized to the window.
-	viewer:        u64,
+	viewer:        Image_Key,
 	placed:        bool,
 	// The shown image's file name, for the window's title ("" if it has
 	// none). Owned. It is kept from the View, which isn't locked while the
@@ -182,15 +206,17 @@ UI_Images :: struct {
 	sheet_failed:  bool,
 	// The frames of the server's emoji that move, by their texture's key,
 	// and when the client started, which their time is measured from.
-	emoji_frames:  map[u64]Emoji_Timing,
+	emoji_frames:  map[Image_Key]Emoji_Timing,
 	anim_epoch:    time.Tick,
 }
 
-// The id that the emoji sheet is decoded under, which no picture's key is.
-// Unlike them, it belongs to no server and to no texture in `textures`:
-// it goes straight to the renderer (see ui_images_frame).
+// The key that the client's own emoji sheet is decoded under. Unlike the
+// other pictures, it belongs to no server and to no texture in `textures`: it
+// goes straight to the renderer (see ui_images_frame).
 @(private = "file")
-EMOJI_SHEET_ID :: u64(1) << 61
+EMOJI_SHEET_KEY :: Image_Key {
+	kind = .Builtin_Emoji,
+}
 
 @(private = "file")
 EMOJI_SHEET_DATA := #load("assets/emoji.webp")
@@ -218,7 +244,7 @@ ui_images_forget_textures :: proc(ui: ^UI) {
 // nil if the device is already gone, an animation's next frame, and the worker's
 // decoder for it) before it is removed from `textures`.
 @(private = "file")
-texture_drop :: proc(im: ^UI_Images, gpu: ^render.Gpu, id: u64, t: ^Texture) {
+texture_drop :: proc(im: ^UI_Images, gpu: ^render.Gpu, id: Image_Key, t: ^Texture) {
 	if gpu != nil && t.state == .Ready {
 		render.gpu_texture_delete(gpu, &t.texture)
 	}
@@ -231,7 +257,7 @@ texture_drop :: proc(im: ^UI_Images, gpu: ^render.Gpu, id: u64, t: ^Texture) {
 
 // anim_job asks the worker for an animation's next frame, or to drop it.
 @(private = "file")
-anim_job :: proc(im: ^UI_Images, kind: Decode_Job_Kind, id, generation: u64) {
+anim_job :: proc(im: ^UI_Images, kind: Decode_Job_Kind, id: Image_Key, generation: u64) {
 	{
 		sync.guard(&im.mutex)
 		append(&im.queue, Decode_Job{kind = kind, id = id, generation = generation})
@@ -248,9 +274,9 @@ ui_images_switch :: proc(ui: ^UI) {
 	emoji_frames_clear(im)
 	// The servers' own pictures stay, because they are known by address and
 	// the rail draws them whichever server is shown.
-	drop := make([dynamic]u64, context.temp_allocator)
+	drop := make([dynamic]Image_Key, context.temp_allocator)
 	for id, &t in im.textures {
-		if is_server_icon_key(id) && t.state == .Ready {
+		if id.kind == .Server_Icon && t.state == .Ready {
 			continue
 		}
 		texture_drop(im, &ui.renderer.gpu, id, &t)
@@ -260,14 +286,14 @@ ui_images_switch :: proc(ui: ^UI) {
 		delete_key(&im.textures, id)
 	}
 	clear(&im.draws)
-	im.viewer, im.placed = 0, false
+	im.viewer, im.placed = {}, false
 	sync.guard(&im.mutex)
 	im.generation += 1
 	// The emoji sheet belongs to every server, and the animations dropped above
 	// still have to be released.
 	kept := 0
 	for job in im.queue {
-		if job.id == EMOJI_SHEET_ID || job.kind == .Drop {
+		if job.id == EMOJI_SHEET_KEY || job.kind == .Drop {
 			im.queue[kept] = job
 			kept += 1
 		} else {
@@ -329,7 +355,7 @@ ui_images_frame :: proc(ui: ^UI) {
 			append(
 				&im.queue,
 				Decode_Job {
-					id = EMOJI_SHEET_ID,
+					id = EMOJI_SHEET_KEY,
 					jpeg = slice.clone(EMOJI_SHEET_DATA),
 					generation = im.generation,
 				},
@@ -349,7 +375,7 @@ ui_images_frame :: proc(ui: ^UI) {
 	defer delete(results)
 	for &result in results {
 		defer clipboard.image_destroy(&result.image)
-		if result.id == EMOJI_SHEET_ID {
+		if result.id == EMOJI_SHEET_KEY {
 			im.sheet_pending = false
 			if !result.ok ||
 			   !render.emoji_sheet_upload(
@@ -383,7 +409,7 @@ ui_images_frame :: proc(ui: ^UI) {
 			}
 			continue
 		}
-		if result.id & AVATAR_KEY != 0 {
+		if is_round(result.id) {
 			round_off(&result.image) // a picture of somebody (see ui_avatars.odin)
 		}
 		t.state = .Ready
@@ -547,7 +573,7 @@ anim_redraw_at :: proc(ui: ^UI, at: time.Tick) {
 // it plays unless the setting is never.
 image_fitted :: proc(
 	ui: ^UI,
-	key: u64,
+	key: Image_Key,
 	state: conn.Image_State,
 	data: []u8,
 	area: mu.Rect,
@@ -607,7 +633,8 @@ image_fitted :: proc(
 	}
 	if key == im.viewer {
 		// The viewer shows the picture at its own size, once that is decoded.
-		full := key | VIEWER_KEY
+		full := key
+		full.full = true
 		if t.tex_w < t.width && full not_in im.textures && len(data) > 0 {
 			enqueue_decode(im, full, data, max_side = 0)
 		}
@@ -639,7 +666,7 @@ ZOOM_STEP :: 1.25
 // zoomed image around, and Fit goes back to the whole image.
 image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	im := &ui.images
-	if im.viewer == 0 {
+	if im.viewer.kind == .None {
 		return
 	}
 	ctx := &ui.ctx
@@ -659,7 +686,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 
 	if !mu.begin_window(ctx, title, {}, {.NO_SCROLL}) {
-		im.viewer = 0 // closed with the title bar's button
+		im.viewer = {} // closed with the title bar's button
 		return
 	}
 	defer mu.end_window(ctx)
@@ -682,7 +709,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	if t, known := &im.textures[im.viewer]; known && t.state == .Ready {
 		shown = t
 	}
-	if f, known := &im.textures[im.viewer | VIEWER_KEY]; known {
+	if f, known := &im.textures[Image_Key{im.viewer.kind, true, im.viewer.id}]; known {
 		f.frame = im.frame
 		if f.state == .Ready {
 			shown = f
@@ -779,14 +806,14 @@ viewer_rect :: proc(im: ^UI_Images, picture: mu.Rect) -> mu.Rect {
 
 // image_want has a picture decoded under `key` from `data` (which is copied),
 // unless it is known already, for image_fitted to draw without the bytes.
-image_want :: proc(ui: ^UI, key: u64, data: []u8) {
+image_want :: proc(ui: ^UI, key: Image_Key, data: []u8) {
 	if key not_in ui.images.textures && len(data) > 0 {
 		enqueue_decode(&ui.images, key, data)
 	}
 }
 
 // image_size is a decoded picture's own size. It returns false until it is decoded.
-image_size :: proc(ui: ^UI, key: u64) -> (w, h: int, ok: bool) {
+image_size :: proc(ui: ^UI, key: Image_Key) -> (w, h: int, ok: bool) {
 	t, known := ui.images.textures[key]
 	if !known || t.state != .Ready {
 		return
@@ -796,7 +823,7 @@ image_size :: proc(ui: ^UI, key: u64) -> (w, h: int, ok: bool) {
 
 // enqueue_decode has a picture decoded under `id` from `jpeg` (which is
 // copied), at most `max_side` pixels on its longer side (0 for its own size).
-enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8, max_side := PREVIEW_MAX_SIDE) {
+enqueue_decode :: proc(im: ^UI_Images, id: Image_Key, jpeg: []u8, max_side := PREVIEW_MAX_SIDE) {
 	copy_of := make([]u8, len(jpeg))
 	copy(copy_of, jpeg)
 	im.textures[id] = {
@@ -820,9 +847,9 @@ enqueue_decode :: proc(im: ^UI_Images, id: u64, jpeg: []u8, max_side := PREVIEW_
 @(private = "file")
 trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 	bytes := 0
-	done := make([dynamic]u64, context.temp_allocator)
+	done := make([dynamic]Image_Key, context.temp_allocator)
 	for id, &t in im.textures {
-		if id & VIEWER_KEY != 0 && id != im.viewer | VIEWER_KEY && t.state != .Decoding {
+		if id.full && (id.kind != im.viewer.kind || id.id != im.viewer.id) && t.state != .Decoding {
 			texture_drop(im, gpu, id, &t)
 			append(&done, id)
 			continue
@@ -833,14 +860,14 @@ trim_textures :: proc(im: ^UI_Images, gpu: ^render.Gpu) {
 		delete_key(&im.textures, id)
 	}
 	for len(im.textures) > MAX_IMAGE_TEXTURES || bytes > MAX_IMAGE_TEXTURE_BYTES {
-		oldest_id: u64
+		oldest_id: Image_Key
 		oldest_frame := max(int)
 		for id, t in im.textures {
 			if t.state != .Decoding && t.frame < oldest_frame {
 				oldest_id, oldest_frame = id, t.frame
 			}
 		}
-		if oldest_id == 0 || oldest_frame >= im.frame - 1 {
+		if oldest_id.kind == .None || oldest_frame >= im.frame - 1 {
 			return
 		}
 		t := im.textures[oldest_id]
@@ -857,19 +884,11 @@ file_name :: proc(path: string) -> string {
 	return path[i + 1:]
 }
 
-// The key that the server's sheet of emoji is decoded and kept under, next to
-// messages' pictures (which use their blob's id), and the key of the frames
-// of an emoji that moves (which use their blob's id).
-@(private = "file")
-EMOJI_SHEET_KEY :: u64(1) << 62
-@(private = "file")
-EMOJI_FRAMES_KEY :: u64(1) << 58
-
 // is_emoji_atlas is whether a picture's key is one of the server's
 // sheets of emoji cells. No smaller copies (mipmaps) are made of these,
 // because they would mix neighboring cells.
-is_emoji_atlas :: proc(key: u64) -> bool {
-	return key & (EMOJI_SHEET_KEY | EMOJI_FRAMES_KEY) != 0 && key & AVATAR_KEY == 0
+is_emoji_atlas :: proc(key: Image_Key) -> bool {
+	return key.kind == .Emoji_Sheet || key.kind == .Emoji_Frames
 }
 
 // Emoji_Timing is how the frames of one of the server's moving emoji
@@ -898,7 +917,7 @@ custom_emoji_icon :: proc(ui: ^UI, index: int) -> (mu.Icon, bool) {
 	if icon, moving := custom_emoji_frame(ui, index); moving {
 		return icon, true
 	}
-	key := EMOJI_SHEET_KEY | u64(e.blob)
+	key := Image_Key{kind = .Emoji_Sheet, id = u64(e.blob)}
 	t, known := im.textures[key]
 	if !known {
 		if img, ok := v.blobs[e.blob]; ok && img.state == .Ready && len(img.jpeg) > 0 {
@@ -952,7 +971,7 @@ custom_emoji_frame :: proc(ui: ^UI, index: int) -> (icon: mu.Icon, ok: bool) {
 	if blob == 0 || !anims_running(ui) {
 		return
 	}
-	key := EMOJI_FRAMES_KEY | u64(blob)
+	key := Image_Key{kind = .Emoji_Frames, id = u64(blob)}
 	t, known := im.textures[key]
 	if !known {
 		img, here := v.blobs[blob]

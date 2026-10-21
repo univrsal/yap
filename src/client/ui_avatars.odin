@@ -20,10 +20,6 @@ import "common:proto"
 // A picture is fetched the first time it is to be drawn (see conn's
 // Avatar_Want_Command), once per session.
 
-// The key a picture is decoded and kept under: its blob's id with this
-// bit set, to keep it apart from the same blob shown as a message's picture.
-AVATAR_KEY :: u64(1) << 61
-
 // How big the disc's own texture is, in pixels. It is scaled to the size
 // that is drawn.
 @(private = "file")
@@ -151,7 +147,7 @@ avatar_color :: proc(account: proto.Account_Id) -> mu.Color {
 avatar_icon :: proc(ui: ^UI, blob: proto.Blob_Id) -> (mu.Icon, bool) {
 	v := ui.view
 	im := &ui.images
-	key := AVATAR_KEY | u64(blob)
+	key := Image_Key{kind = .Avatar, id = u64(blob)}
 	t, known := im.textures[key]
 	if !known {
 		img, here := v.blobs[blob]

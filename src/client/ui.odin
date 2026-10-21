@@ -2266,7 +2266,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		// Close the enlarged image, if one is open. For the rest of
 		// the frame, treat it as a key like microui's (see UI.keys).
 		if action == glfw.PRESS {
-			g_ui.images.viewer = 0
+			g_ui.images.viewer = {}
 			g_ui.keys += {.Escape}
 		}
 		return
