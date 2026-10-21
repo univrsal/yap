@@ -28,6 +28,8 @@ services:
     environment:
       YAP_PORT: ${YAP_PORT:-7777}
       YAP_VIDEO_PORT: ${YAP_VIDEO_PORT:-7778}
+      # Applied on every start if not empty.
+      YAP_VIDEO_ENABLED: ${YAP_VIDEO_ENABLED:-}
       YAP_RELAY_PORT: ${YAP_RELAY_PORT:-8080}
       # Applied on every start if not empty.
       YAP_RELAY_ALLOW_SITES: ${YAP_RELAY_ALLOW_SITES:-}

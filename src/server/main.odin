@@ -217,6 +217,17 @@ ports_from_env :: proc() -> (ports: Config_Ports, ok: bool) {
 	env_port("YAP_VIDEO_PORT", &ports.video_port) or_return
 	env_port("YAP_RELAY_PORT", &ports.relay_port) or_return
 
+	switch os.get_env("YAP_VIDEO_ENABLED", context.temp_allocator) {
+	case "":
+	case "true", "1":
+		ports.video_enabled_set, ports.video_enabled = true, true
+	case "false", "0":
+		ports.video_enabled_set, ports.video_enabled = true, false
+	case:
+		log.errorf("YAP_VIDEO_ENABLED must be true, false, 1, or 0")
+		return
+	}
+
 	// YAP_RELAY_ALLOW_SITES: origins (or *) separated by commas or whitespace.
 	// check_config validates them like the config file's.
 	if text := os.get_env("YAP_RELAY_ALLOW_SITES", context.allocator); text != "" {

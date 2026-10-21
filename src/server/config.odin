@@ -230,7 +230,8 @@ import "common:proto"
 // YAP_RELAY_PORT set `port`, `video.port` and `relay.port` on every start and
 // are saved to the file (see Config_Ports). So does YAP_RELAY_ALLOW_SITES, a
 // comma separated list that sets `relay.allow_sites`; if it is empty or not
-// set, the file's list stays. YAP_RELAY_ENABLED and
+// set, the file's list stays. YAP_VIDEO_ENABLED (true, false, 1 or 0) sets
+// `video.enabled`, the media link, the same way. YAP_RELAY_ENABLED and
 // YAP_INITIAL_ADMIN_PASSWORD are only used when the file is created
 // (Config_Bootstrap).
 //
@@ -328,6 +329,9 @@ Config_Ports :: struct {
 	video_port: int,
 	relay_port: int,
 	allow_sites: []string,
+	// Whether the media link (video.enabled) is on, if the environment says.
+	video_enabled_set: bool,
+	video_enabled:     bool,
 }
 
 // Settings holds the validated and parsed parts of a Config that the server
@@ -442,6 +446,10 @@ apply_ports :: proc(cfg: ^Config, ports: Config_Ports) -> (changed: bool) {
 	set(&cfg.port, ports.port, &changed)
 	set(&cfg.video.port, ports.video_port, &changed)
 	set(&cfg.relay.port, ports.relay_port, &changed)
+	if ports.video_enabled_set && cfg.video.enabled != ports.video_enabled {
+		cfg.video.enabled = ports.video_enabled
+		changed = true
+	}
 	if len(ports.allow_sites) > 0 && !slice.equal(cfg.relay.allow_sites, ports.allow_sites) {
 		cfg.relay.allow_sites = ports.allow_sites
 		changed = true
