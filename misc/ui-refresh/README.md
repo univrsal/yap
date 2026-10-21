@@ -251,5 +251,15 @@ as without the change (28-31 ticks in 10 s, measured against a build of
 - Thinner scrollbars that fade out when nothing scrolls.
 - Placeholders the size of a picture while it loads, where the size is
   known, so the timeline doesn't jump.
+
+  *As built:* the timeline didn't jump (a picture's row is
+  `PREVIEW_HEIGHT` either way), but the placeholder was the whole row
+  until the picture's shape showed. Messages' files carry no picture
+  size, so it can't be known before the first decode; after that,
+  `UI_Images.sizes` keeps it (up to `MAX_KNOWN_SIZES`, cleared on a
+  server switch), and a picture decoded again (past
+  `MAX_IMAGE_TEXTURES`, or back in a channel) waits in a box of its own
+  shape, with its spinner. `image_size` answers from it too (the chip
+  preview).
 - Typing dots that move, and short fades on hover (state per control
   id).

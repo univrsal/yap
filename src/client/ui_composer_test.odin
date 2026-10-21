@@ -250,3 +250,33 @@ test_wheel_scrolls_smoothly :: proc(t: ^testing.T) {
 	testing.expectf(t, frames >= 4 && frames <= most, "took %d frames (at most %d)", frames, most)
 	testing.expect_value(t, ui.scroll_at, time.Tick{})
 }
+
+// While a message's picture is decoded again, its place is the shape it will
+// have; one never decoded takes the whole area.
+@(test)
+test_picture_placeholder_shape :: proc(t: ^testing.T) {
+	ct := composer_test_start("")
+	defer composer_test_end(ct)
+	ui := ct.ui
+	defer delete(ui.images.sizes)
+	area := mu.Rect{10, 10, 480, 160}
+	placeholder :: proc(ui: ^UI, id: u64, area: mu.Rect) -> (got: mu.Rect) {
+		ctx := &ui.ctx
+		mu.begin(ctx)
+		if mu.begin_window(ctx, "w", {0, 0, 600, 300}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+			image_fitted(ui, {kind = .Picture, id = id}, .Wanted, nil, area)
+			mu.end_window(ctx)
+		}
+		mu.end(ctx)
+		cmd: ^mu.Command
+		for variant in mu.next_command_iterator(ctx, &cmd) {
+			if r, ok := variant.(^mu.Command_Rect); ok && r.color == theme.image_bg {
+				got = r.rect
+			}
+		}
+		return
+	}
+	ui.images.sizes[{kind = .Picture, id = 7}] = {800, 600}
+	testing.expect_value(t, placeholder(ui, 7, area), mu.Rect{10, 10, 213, 160})
+	testing.expect_value(t, placeholder(ui, 8, area), area)
+}

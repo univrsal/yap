@@ -40,6 +40,9 @@ import "common:proto"
 // only for pictures that are drawn, and only while the window has the focus.
 
 MAX_IMAGE_TEXTURES :: 96
+// How many decoded pictures' sizes are kept (UI_Images.sizes), a few bytes
+// each. Past that they are forgotten all at once.
+MAX_KNOWN_SIZES :: 4096
 MAX_IMAGE_TEXTURE_BYTES :: 256 * 1024 * 1024
 
 // The longest side a picture is decoded at, except for the viewer: what the
@@ -161,6 +164,10 @@ Decode_Result :: struct {
 
 UI_Images :: struct {
 	textures:      map[Image_Key]Texture,
+	// The sizes of messages' pictures that have been decoded, kept after
+	// their textures go (see MAX_IMAGE_TEXTURES), so that while one is
+	// decoded again its place is already the shape it will have.
+	sizes:         map[Image_Key][2]int,
 	// The image shown enlarged, kind None for none, and whether it still has to
 	// be sized to the window.
 	viewer:        Image_Key,
@@ -285,6 +292,7 @@ ui_images_switch :: proc(ui: ^UI) {
 	for id in drop {
 		delete_key(&im.textures, id)
 	}
+	clear(&im.sizes)
 	clear(&im.draws)
 	im.viewer, im.placed = {}, false
 	sync.guard(&im.mutex)
@@ -325,6 +333,7 @@ ui_images_destroy :: proc(ui: ^UI) {
 	delete(im.queue)
 	delete(im.results)
 	delete(im.textures)
+	delete(im.sizes)
 	delete(im.draws)
 	emoji_frames_clear(im)
 	delete(im.emoji_frames)
@@ -417,6 +426,12 @@ ui_images_frame :: proc(ui: ^UI) {
 		t.width, t.height = t.tex_w, t.tex_h
 		if result.full_w > 0 {
 			t.width, t.height = result.full_w, result.full_h
+		}
+		if result.id.kind == .Picture {
+			if len(im.sizes) >= MAX_KNOWN_SIZES {
+				clear(&im.sizes)
+			}
+			im.sizes[{kind = .Picture, id = result.id.id}] = {t.width, t.height}
 		}
 		// Usually drawn smaller, and pictures of people are round, but an
 		// animation's frames replace each other, and making them again for
@@ -590,13 +605,20 @@ image_fitted :: proc(
 		t, known = im.textures[key]
 	}
 	if !known || t.state != .Ready {
-		mu.draw_rect(ctx, area, theme.image_bg)
 		// One the server no longer has will never come.
 		if (known && t.state == .Failed) || state == .Gone {
+			mu.draw_rect(ctx, area, theme.image_bg)
 			mu.draw_control_text(ctx, "broken image", area, .TEXT, {.ALIGN_CENTER})
-		} else {
-			spinner(ui, area)
+			return
 		}
+		// The shape it will have, where it has been decoded before.
+		place := area
+		if w, h, ok := image_size(ui, key); ok {
+			fw, fh := conn.fit_box(w, h, int(area.w), int(area.h))
+			place.w, place.h = i32(fw), i32(fh)
+		}
+		mu.draw_rect(ctx, place, theme.image_bg)
+		spinner(ui, place)
 		return
 	}
 	w, h := conn.fit_box(t.width, t.height, int(area.w), int(area.h))
@@ -821,11 +843,16 @@ image_want :: proc(ui: ^UI, key: Image_Key, data: []u8) {
 	}
 }
 
-// image_size is a decoded picture's own size. It returns false until it is decoded.
+// image_size is a decoded picture's own size: of its texture, or for a message's
+// picture decoded before, as it was then (UI_Images.sizes). It returns false
+// for a picture that has never been decoded.
 image_size :: proc(ui: ^UI, key: Image_Key) -> (w, h: int, ok: bool) {
 	t, known := ui.images.textures[key]
 	if !known || t.state != .Ready {
-		return
+		// Decoded before, and being decoded again.
+		size: [2]int
+		size, ok = ui.images.sizes[{kind = key.kind, id = key.id}]
+		return size.x, size.y, ok
 	}
 	return t.width, t.height, true
 }
