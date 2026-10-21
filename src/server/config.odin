@@ -6,6 +6,7 @@ import "core:log"
 import "core:net"
 import "core:os"
 import "core:reflect"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -227,7 +228,9 @@ import "common:proto"
 //
 // In a container, the environment variables YAP_PORT, YAP_VIDEO_PORT and
 // YAP_RELAY_PORT set `port`, `video.port` and `relay.port` on every start and
-// are saved to the file (see Config_Ports). YAP_RELAY_ENABLED and
+// are saved to the file (see Config_Ports). So does YAP_RELAY_ALLOW_SITES, a
+// comma separated list that sets `relay.allow_sites`; if it is empty or not
+// set, the file's list stays. YAP_RELAY_ENABLED and
 // YAP_INITIAL_ADMIN_PASSWORD are only used when the file is created
 // (Config_Bootstrap).
 //
@@ -316,13 +319,15 @@ Config_Bootstrap :: struct {
 }
 
 // Config_Ports holds the ports taken from a container environment, 0 for those
-// that aren't set. Unlike Config_Bootstrap, they are applied on every start
+// that aren't set, and the relay's allow_sites if that is set (nil if not).
+// Unlike Config_Bootstrap, they are applied on every start
 // and saved to the config, because they have to match the ports the container
 // publishes: clients are told the video port, so it can't be mapped to another.
 Config_Ports :: struct {
 	port:       int,
 	video_port: int,
 	relay_port: int,
+	allow_sites: []string,
 }
 
 // Settings holds the validated and parsed parts of a Config that the server
@@ -405,7 +410,7 @@ load_config :: proc(
 	if apply_ports(&cfg, ports) {
 		settings = check_config(path, cfg) or_return
 		save_config(path, cfg) or_return
-		log.infof("saved the ports from the environment to %s", path)
+		log.infof("saved the settings from the environment to %s", path)
 	} else {
 		settings = check_config(path, cfg) or_return
 	}
@@ -437,6 +442,10 @@ apply_ports :: proc(cfg: ^Config, ports: Config_Ports) -> (changed: bool) {
 	set(&cfg.port, ports.port, &changed)
 	set(&cfg.video.port, ports.video_port, &changed)
 	set(&cfg.relay.port, ports.relay_port, &changed)
+	if len(ports.allow_sites) > 0 && !slice.equal(cfg.relay.allow_sites, ports.allow_sites) {
+		cfg.relay.allow_sites = ports.allow_sites
+		changed = true
+	}
 	return
 }
 

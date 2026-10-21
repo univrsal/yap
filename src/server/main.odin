@@ -7,6 +7,7 @@ import "core:log"
 import "core:net"
 import "core:os"
 import "core:strconv"
+import "core:strings"
 
 import "common:."
 import "common:gateway"
@@ -196,8 +197,8 @@ bootstrap_from_env :: proc() -> (bootstrap: Config_Bootstrap, ok: bool) {
 	return bootstrap, true
 }
 
-// ports_from_env reads the ports, which override the config's on every start
-// (see Config_Ports).
+// ports_from_env reads the ports and the relay's allow_sites, which override
+// the config's on every start (see Config_Ports).
 ports_from_env :: proc() -> (ports: Config_Ports, ok: bool) {
 	env_port :: proc(name: string, port: ^int) -> bool {
 		text := os.get_env(name, context.temp_allocator)
@@ -215,5 +216,17 @@ ports_from_env :: proc() -> (ports: Config_Ports, ok: bool) {
 	env_port("YAP_PORT", &ports.port) or_return
 	env_port("YAP_VIDEO_PORT", &ports.video_port) or_return
 	env_port("YAP_RELAY_PORT", &ports.relay_port) or_return
+
+	// YAP_RELAY_ALLOW_SITES: origins (or *) separated by commas or whitespace.
+	// check_config validates them like the config file's.
+	if text := os.get_env("YAP_RELAY_ALLOW_SITES", context.allocator); text != "" {
+		sites := make([dynamic]string)
+		for site in strings.split_multi(text, {",", " ", "\t", "\n"}, context.allocator) {
+			if site != "" {
+				append(&sites, site)
+			}
+		}
+		ports.allow_sites = sites[:]
+	}
 	return ports, true
 }

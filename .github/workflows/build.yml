@@ -52,7 +52,7 @@ jobs:
         with:
           path: web/deps
           key: opus-wasm-${{ hashFiles('scripts/opus.version') }}
-      - run: ./web/build.sh
+      - run: sh web/build.sh
       - uses: actions/upload-artifact@v7
         with:
           name: web
@@ -168,7 +168,7 @@ jobs:
 
       - name: Build (Linux, macOS)
         if: runner.os != 'Windows'
-        run: ./build.sh $OPT
+        run: sh build.sh $OPT
       - name: Strip symbols (Linux, macOS)
         # A release doesn't need the symbol table; Windows builds have no
         # debug info in the .exe to begin with.
@@ -189,7 +189,7 @@ jobs:
       - name: Build the screen sharing add-on (Linux, macOS)
         if: runner.os != 'Windows'
         continue-on-error: true
-        run: scripts/build-video.sh
+        run: sh scripts/build-video.sh
       - name: Build the screen sharing add-on (Windows)
         if: runner.os == 'Windows'
         continue-on-error: true
@@ -212,7 +212,7 @@ jobs:
           path: web-build
       - name: Pack
         shell: bash
-        run: scripts/package.sh ${{ matrix.platform }} web-build
+        run: sh scripts/package.sh ${{ matrix.platform }} web-build
       - name: Artifact name
         id: name
         shell: bash
@@ -227,10 +227,10 @@ jobs:
         id: pack_video
         continue-on-error: true
         shell: bash
-        run: scripts/package-video.sh ${{ matrix.platform }}
+        run: sh scripts/package-video.sh ${{ matrix.platform }}
       - name: Disk image (macOS)
         if: runner.os == 'macOS'
-        run: scripts/package-macos.sh arm64
+        run: sh scripts/package-macos.sh arm64
       - uses: actions/upload-artifact@v7
         if: runner.os == 'macOS'
         with:
@@ -246,7 +246,7 @@ jobs:
         run: |
           [ -d "$PROGRAMFILES (x86)/Inno Setup 6" ] || [ -d "$PROGRAMFILES/Inno Setup 7" ] ||
             choco install innosetup -y --no-progress
-          scripts/package-windows.sh x64
+          sh scripts/package-windows.sh x64
       - uses: actions/upload-artifact@v7
         if: runner.os == 'Windows' && steps.pack_video.outcome == 'success'
         with:

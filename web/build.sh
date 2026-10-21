@@ -23,7 +23,7 @@ deps=web/deps
 opus_build=$deps/opus-$opus_version-wasm
 opus_lib=$opus_build/libopus.a
 if [ ! -f "$opus_lib" ]; then
-	scripts/fetch-opus.sh "$deps"
+	sh scripts/fetch-opus.sh "$deps"
 	rm -rf "$opus_build"
 	echo "building $opus_lib"
 	# The float API without DRED or OSCE (both off by default), which is
@@ -56,7 +56,7 @@ sounds_exports=_web_sound_picked,_web_sound_failed,_web_sound_loaded,_web_sound_
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
-version_defines=$(scripts/version-defines.sh)
+version_defines=$(sh scripts/version-defines.sh)
 
 # We seem to need -o:speed to prevent iOS safari from crashing, but it can increase build times quite a bit
 # The object's name is spelled out: without an extension Odin picks one,

@@ -123,7 +123,7 @@ if [ "$(uname -s)" = Linux ]; then
 		echo "building $lib"
 		ffmpeg_dir=
 		if [ "$(uname -m)" = x86_64 ]; then
-			ffmpeg_dir="-DFFMPEG_DIR=$PWD/$(scripts/fetch-ffmpeg.sh .cache)"
+			ffmpeg_dir="-DFFMPEG_DIR=$PWD/$(sh scripts/fetch-ffmpeg.sh .cache)"
 		fi
 		cmake -S src/video -B .cache/video-static -DCMAKE_BUILD_TYPE=Release -DYV_STATIC=ON \
 			$ffmpeg_dir >/dev/null
@@ -144,7 +144,7 @@ sqlite=src/server/sqlite
 lib=$sqlite/libyap_sqlite.a
 if [ ! -f "$lib" ] || [ "$sqlite/yap_sqlite.c" -nt "$lib" ] || [ scripts/sqlite.version -nt "$lib" ]; then
 	. scripts/sqlite.version
-	scripts/fetch-sqlite.sh .cache
+	sh scripts/fetch-sqlite.sh .cache
 	echo "building $lib"
 	${CC:-cc} -Os -I".cache/sqlite-autoconf-$sqlite_version" -c "$sqlite/yap_sqlite.c" -o "$sqlite/yap_sqlite.o"
 	ar rcs "$lib" "$sqlite/yap_sqlite.o"
@@ -161,7 +161,7 @@ OpenBSD) opus_os=openbsd ;;
 *) opus_os= ;;
 esac
 if [ -n "$opus_os" ] && [ ! -f "src/client/audio/opus/libopus_$opus_os.a" ]; then
-	scripts/fetch-opus.sh .cache
+	sh scripts/fetch-opus.sh .cache
 	echo "building src/client/audio/opus/libopus_$opus_os.a"
 	. scripts/opus.version
 	cmake -S ".cache/opus-$opus_version" -B ".cache/opus-$opus_os" \
@@ -179,7 +179,7 @@ fi
 
 # libwebp, for WebP pictures, which the client and the server both link
 # (src/common/webp).
-scripts/build-webp.sh
+sh scripts/build-webp.sh
 
 # OpenBSD: two libraries Odin's own packages ask the linker for aren't
 # there. vendor:stb only links its prebuilt vendor/stb/lib on Linux and
@@ -206,7 +206,7 @@ fi
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
-version_defines=$(scripts/version-defines.sh)
+version_defines=$(sh scripts/version-defines.sh)
 # The collections the imports name: "common:wlog", "client:audio/opus".
 collections="-collection:common=src/common -collection:client=src/client"
 odin build src/server $collections -vet -strict-style -out:bin/yap-server $link_flags $version_defines "$@"
