@@ -1861,9 +1861,17 @@ icon_button_w :: proc(ctx: ^mu.Context) -> i32 {
 }
 
 // draw_frame_themed is microui's draw_frame (render.draw_frame), except that a
-// focused text box has a ring in the theme's accent color: its border and one
-// more line inside it.
+// focused text box has a ring in the theme's accent color (its border and one
+// more line inside it), and a window that floats over the main window casts a
+// shadow.
 draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Type) {
+	// A window's frame is drawn while it is the current container
+	// (begin_window). The main window and the rail are below everything.
+	if colorid == .WINDOW_BG &&
+	   ctx.container_stack.idx > 0 &&
+	   mu.get_current_container(ctx).zindex >= 0 {
+		render.draw_shadow(ctx, rect, theme.shadow)
+	}
 	if colorid != .BASE_FOCUS {
 		render.draw_frame(ctx, rect, colorid)
 		return

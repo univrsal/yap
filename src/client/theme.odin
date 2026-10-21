@@ -85,6 +85,7 @@ Palette :: struct {
 	accent:         mu.Color,
 	accent_hover:   mu.Color,
 	accent_text:    mu.Color,
+	shadow:         mu.Color, // under windows that float (render.draw_shadow)
 }
 
 DARK_PALETTE :: Palette {
@@ -153,6 +154,7 @@ DARK_PALETTE :: Palette {
 	accent = {60, 110, 200, 255},
 	accent_hover = {80, 130, 220, 255},
 	accent_text = {255, 255, 255, 255},
+	shadow = {0, 0, 0, 120},
 }
 
 LIGHT_PALETTE :: Palette {
@@ -221,6 +223,7 @@ LIGHT_PALETTE :: Palette {
 	accent = {45, 100, 200, 255},
 	accent_hover = {65, 120, 220, 255},
 	accent_text = {255, 255, 255, 255},
+	shadow = {0, 0, 0, 55},
 }
 
 // The palette the UI draws with this frame (theme_update).

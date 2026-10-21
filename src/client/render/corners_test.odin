@@ -87,3 +87,46 @@ test_corner_tiles :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+// The shadow's tile fits below the corners' tiles, is clear at its outer
+// corner and as dark as can be where the window's corner is, and gets no
+// lighter towards it along its edges.
+@(test)
+test_shadow_tile :: proc(t: ^testing.T) {
+	for scale in ([]f32{1, 1.5, 2}) {
+		c: Corner_Tiles
+		defer delete(c.at)
+		WIDTH :: 256
+		height := corner_tiles_layout(&c, scale, WIDTH, 3) + 3
+		pixels := make([]u8, WIDTH * int(height))
+		defer delete(pixels)
+		corner_tiles_draw(&c, pixels, WIDTH)
+
+		side := c.shadow_side
+		testing.expect(t, side > 0 && c.shadow.y + side <= height && side <= WIDTH)
+		for at, i in c.at {
+			for kind in Corner_Kind {
+				testing.expectf(
+					t,
+					at[kind].y + i32(i + 1) < c.shadow.y,
+					"radius %d overlaps the shadow",
+					i + 1,
+				)
+			}
+		}
+		at :: proc(c: ^Corner_Tiles, pixels: []u8, x, y: i32) -> u8 {
+			return pixels[int(c.shadow.y + y) * WIDTH + int(c.shadow.x + x)]
+		}
+		testing.expect_value(t, at(&c, pixels, 0, 0), 0)
+		testing.expect_value(t, at(&c, pixels, side - 1, side - 1), 255)
+		for i in 1 ..< side {
+			testing.expectf(
+				t,
+				at(&c, pixels, side - 1, i) >= at(&c, pixels, side - 1, i - 1),
+				"the edge gets lighter at %d (%.1fx)",
+				i,
+				scale,
+			)
+		}
+	}
+}

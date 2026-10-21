@@ -256,6 +256,17 @@ as without the change (28-31 ticks in 10 s, measured against a build of
   ring in `theme.accent`: its border and a line inside it, so nothing
   reaches past the box.
 - Shadows under popups, from blurred corner tiles the same way as 1.
+
+  *As built:* one more tile below the corners in each font atlas
+  (`Corner_Tiles.shadow`, `corners.odin`): the corner of a window's
+  rounded shape blurred over `SHADOW_BLUR` (10), dark from a little
+  inside the edge and about half at it. `push_shadow` draws a shadow
+  from it in 9 quads (the tile mirrored at the corners, its last column
+  or row stretched along the edges, the middle solid), `SHADOW_DROP` (2)
+  lower than the window. `draw_frame_themed` draws it before the frame of
+  every window over the main window (menus, popups, the message bar, Join
+  a channel and the like), in `theme.shadow` (black, alpha 55 light, 120
+  dark).
 - Thinner scrollbars that fade out when nothing scrolls.
 - Placeholders the size of a picture while it loads, where the size is
   known, so the timeline doesn't jump.

@@ -61,6 +61,16 @@ BORDER_ICON :: mu.Icon(UI_ICON_BASE - 1)
 // (draw_frame).
 INSIDE_BORDER_ICON :: mu.Icon(UI_ICON_BASE - 2)
 
+// An icon command with this id draws the shadow that a floating window with
+// that rect casts (draw_shadow).
+SHADOW_ICON :: mu.Icon(UI_ICON_BASE - 3)
+
+// draw_shadow draws the shadow under a window `rect` (see SHADOW_BLUR).
+// Draw it before the window.
+draw_shadow :: proc(ctx: ^mu.Context, rect: mu.Rect, color: mu.Color) {
+	mu.draw_icon(ctx, SHADOW_ICON, rect, color)
+}
+
 // draw_border draws a one pixel border inside `rect` like mu.draw_box does,
 // but as a single command so the renderer can snap it as a whole
 // (push_border).
@@ -626,6 +636,10 @@ render :: proc(r: ^Renderer, ctx: ^mu.Context, fb_w, fb_h: i32, scale: f32, clea
 				push_border(r, rect, c.color, inside = true)
 				continue
 			}
+			if c.id == SHADOW_ICON {
+				push_shadow(r, rect, c.color)
+				continue
+			}
 			if shape, corners, radius, ok := rounded_of(c.id); ok {
 				push_rounded(r, rect, c.color, shape, corners, radius)
 				continue
@@ -771,6 +785,52 @@ push_border :: proc(r: ^Renderer, rect: mu.Rect, color: mu.Color, inside := fals
 	push_quad(r, [4]f32{x0, y1 - t, x1, y1} / s, uv, color)
 	push_quad(r, [4]f32{x0, y0 + t, x0 + t, y1 - t} / s, uv, color)
 	push_quad(r, [4]f32{x1 - t, y0 + t, x1, y1 - t} / s, uv, color)
+}
+
+// push_shadow draws the shadow of a window `rect` (draw_shadow), from the
+// shadow's tile (Corner_Tiles): its corners, the tile mirrored; its edges,
+// the tile's last column or row stretched; and its middle, solid. Nothing is
+// drawn for a window too small for the corners to fit.
+@(private = "file")
+push_shadow :: proc(r: ^Renderer, rect: mu.Rect, color: mu.Color) {
+	slot := &r.fonts[.UI]
+	fc := &slot.font.faces[.Regular]
+	tiles := &fc.corners
+	if slot.textures[.Regular] == 0 || tiles.shadow_side == 0 {
+		return
+	}
+	s := r.scale
+	Q := f32(tiles.shadow_side)
+	blur := math.round(SHADOW_BLUR * s)
+	x0 := math.round(f32(rect.x) * s) - blur
+	y0 := math.round(f32(rect.y + SHADOW_DROP) * s) - blur
+	x1 := math.round(f32(rect.x + rect.w) * s) + blur
+	y1 := math.round(f32(rect.y + rect.h + SHADOW_DROP) * s) + blur
+	if x1 - x0 < 2 * Q || y1 - y0 < 2 * Q {
+		return // too small to have one
+	}
+	use_texture(r, slot.textures[.Regular])
+	box :: proc(r: ^Renderer, x0, y0, x1, y1: f32, uv: [4]f32, color: mu.Color) {
+		if x1 > x0 && y1 > y0 {
+			push_quad(r, [4]f32{x0, y0, x1, y1} / r.scale, uv, color)
+		}
+	}
+	W, H := f32(fc.width), f32(fc.height)
+	at := tiles.shadow
+	u0, v0 := f32(at.x) / W, f32(at.y) / H
+	u1, v1 := (f32(at.x) + Q) / W, (f32(at.y) + Q) / H
+	// The tile's last column and row, stretched along the edges.
+	uc, vc := (f32(at.x) + Q - 0.5) / W, (f32(at.y) + Q - 0.5) / H
+	box(r, x0, y0, x0 + Q, y0 + Q, {u0, v0, u1, v1}, color)
+	box(r, x1 - Q, y0, x1, y0 + Q, {u1, v0, u0, v1}, color)
+	box(r, x0, y1 - Q, x0 + Q, y1, {u0, v1, u1, v0}, color)
+	box(r, x1 - Q, y1 - Q, x1, y1, {u1, v1, u0, v0}, color)
+	box(r, x0 + Q, y0, x1 - Q, y0 + Q, {uc, v0, uc, v1}, color)
+	box(r, x0 + Q, y1 - Q, x1 - Q, y1, {uc, v1, uc, v0}, color)
+	box(r, x0, y0 + Q, x0 + Q, y1 - Q, {u0, vc, u1, vc}, color)
+	box(r, x1 - Q, y0 + Q, x1, y1 - Q, {u1, vc, u0, vc}, color)
+	w := fc.white
+	box(r, x0 + Q, y0 + Q, x1 - Q, y1 - Q, {w.x, w.y, w.x, w.y}, color)
 }
 
 // push_rounded draws a rounded rect (draw_rounded): straight parts as rects and
