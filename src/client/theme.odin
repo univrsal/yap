@@ -80,6 +80,11 @@ Palette :: struct {
 	divider:        mu.Color,
 	deleted_disc:   mu.Color,
 	dot_ring:       mu.Color,
+	// What is ready to be done (the composer's send button once there is a
+	// message), the same when the pointer is on it, and the text and icons on it.
+	accent:         mu.Color,
+	accent_hover:   mu.Color,
+	accent_text:    mu.Color,
 }
 
 DARK_PALETTE :: Palette {
@@ -145,6 +150,9 @@ DARK_PALETTE :: Palette {
 	divider = {70, 70, 70, 255},
 	deleted_disc = {90, 90, 90, 255},
 	dot_ring = {32, 32, 32, 255},
+	accent = {60, 110, 200, 255},
+	accent_hover = {80, 130, 220, 255},
+	accent_text = {255, 255, 255, 255},
 }
 
 LIGHT_PALETTE :: Palette {
@@ -210,6 +218,9 @@ LIGHT_PALETTE :: Palette {
 	divider = {200, 200, 200, 255},
 	deleted_disc = {165, 165, 165, 255},
 	dot_ring = {246, 246, 246, 255},
+	accent = {45, 100, 200, 255},
+	accent_hover = {65, 120, 220, 255},
+	accent_text = {255, 255, 255, 255},
 }
 
 // The palette the UI draws with this frame (theme_update).

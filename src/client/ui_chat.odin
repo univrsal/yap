@@ -218,49 +218,98 @@ panel_width :: proc(ctx: ^mu.Context) -> i32 {
 	return mu.get_current_container(ctx).body.w - 2 * ctx.style.padding
 }
 
+// A composer's box is at least this many lines of the chat's text tall, with
+// a strip along its bottom for its buttons (composer_buttons): square buttons
+// of COMPOSER_BUTTON, COMPOSER_INSET in from the box's edges.
+COMPOSER_LINES :: 2
+COMPOSER_BUTTON :: 26
+COMPOSER_INSET :: 4
+
 // composer_height is how tall the box that a composer's message is written in
-// is: a line or more of the chat's text (see ui_text_area.odin).
+// is: two lines or more of the chat's text (see ui_text_area.odin), and the
+// strip for its buttons.
 composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
+	c.area.min_lines, c.area.footer = COMPOSER_LINES, COMPOSER_BUTTON + COMPOSER_INSET
 	return text_area_height(&ui.ctx, render.CHAT_FONT, string(c.buf[:c.len^]), c.area)
 }
 
-// composer_row lays out the row that a composer's box is in, `height` tall,
-// with `buttons` icon buttons beside it: the box, then a column for the
-// buttons, which stay one line high at the foot of the box however tall
-// it grows. Lay out the box, then the buttons, then end the column with
-// mu.layout_end_column.
-composer_row :: proc(ui: ^UI, height: i32, buttons: int) {
-	ctx := &ui.ctx
-	mu.layout_row(ctx, {-(i32(buttons) * (ICON_BUTTON + 4) + 2), -1}, height)
+// composer_row lays out the row that a composer's box is in, `height` tall.
+// Lay out the box (composer_box), then its buttons (composer_buttons, the
+// buttons, and composer_buttons_end).
+composer_row :: proc(ui: ^UI, height: i32) {
+	mu.layout_row(&ui.ctx, {-1}, height)
 }
 
-// composer_buttons starts the column of a composer_row's buttons, after
-// its box.
-composer_buttons :: proc(ui: ^UI, height: i32, buttons: int) {
+// composer_buttons lays out a row of `buttons` icon buttons at the bottom right
+// of a composer's box `box` (from composer_box), over the strip that the box
+// keeps free of text. They are drawn flat, without a frame, except for the
+// send button (composer_send_button). End them with composer_buttons_end.
+composer_buttons :: proc(ui: ^UI, box: mu.Rect, buttons: int) {
 	ctx := &ui.ctx
+	w := i32(buttons) * COMPOSER_BUTTON + i32(buttons - 1) * ctx.style.spacing
+	strip := mu.Rect {
+		box.x + box.w - COMPOSER_INSET - w,
+		box.y + box.h - COMPOSER_INSET - COMPOSER_BUTTON,
+		w,
+		COMPOSER_BUTTON,
+	}
+	mu.layout_set_next(ctx, strip, false)
 	mu.layout_begin_column(ctx)
-	single := text_area_single(ctx, render.CHAT_FONT)
-	if height > single {
-		mu.layout_row(ctx, {-1}, height - single - ctx.style.spacing)
-		mu.layout_next(ctx)
-	}
 	widths: [8]i32
-	for &w in widths[:buttons] {
-		w = ICON_BUTTON
+	for &bw in widths[:buttons] {
+		bw = COMPOSER_BUTTON
 	}
-	mu.layout_row(ctx, widths[:buttons], single)
+	mu.layout_row(ctx, widths[:buttons], COMPOSER_BUTTON)
+	ui.flat_buttons = true
+}
+
+composer_buttons_end :: proc(ui: ^UI) {
+	ui.flat_buttons = false
+	mu.layout_end_column(&ui.ctx)
+}
+
+// composer_send_button is a composer's send button, the last of its buttons:
+// grey while there is nothing to send, and in the accent color once there is.
+// It returns whether it was pressed.
+composer_send_button :: proc(ui: ^UI, c: Composer, id_name, hint: string) -> bool {
+	ctx := &ui.ctx
+	id := mu.get_id(ctx, id_name)
+	r := mu.layout_next(ctx)
+	mu.update_control(ctx, id, r)
+	pressed := ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id
+	ready :=
+		strings.trim_space(string(c.buf[:c.len^])) != "" || (c.files != nil && len(c.files) > 0)
+	over := ctx.hover_id == id
+	back, fore: mu.Color
+	if ready {
+		back, fore = theme.accent_hover if over else theme.accent, theme.accent_text
+	} else {
+		back, fore = ctx.style.colors[.BUTTON_HOVER if over else .BUTTON], ctx.style.colors[.TEXT]
+	}
+	render.draw_rounded(ctx, r, back, render.CONTROL_RADIUS)
+	mu.draw_icon(ctx, render.icon_id(.Send), r, fore)
+	if over {
+		ui.hint, ui.hint_of = hint, r
+	}
+	return pressed
 }
 
 // composer_box lays out the box that a composer's message is written in: its
 // text area or, with the preview on (see preview_button), the message as it
 // will look. It gives the composer the focus when it should have it (which ends
-// the preview), and returns what the text area did and the box's id.
-composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id) {
+// the preview), and returns what the text area did, the box's id and where it
+// is (for composer_buttons).
+composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id, rect: mu.Rect) {
 	ctx := &ui.ctx
 	box = mu.get_id(ctx, uintptr(&c.buf[0]))
+	rect = mu.layout_next(ctx)
 	if c.area.preview {
+		// The box's frame, with the preview in the part above the buttons.
+		ctx.draw_frame(ctx, rect, .BASE)
+		mu.layout_set_next(ctx, text_area_text_rect(rect, c.area), false)
 		chat_preview(ui, c)
 	} else {
+		mu.layout_set_next(ctx, rect, false)
 		res = chat_text_area(ui, c)
 	}
 	if takes_focus(ui, c) {
@@ -317,7 +366,7 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	top := (text_area_single(ctx, ctx.style.font) - lh) / 2
 	ctx.style.padding = top
 	defer ctx.style.padding = padding
-	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread))
+	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread), {.NO_FRAME})
 	defer mu.end_panel(ctx)
 	if side := padding - top; side > 0 {
 		l := mu.get_layout(ctx)
@@ -363,23 +412,23 @@ chat_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	composer := composer_of(ui, 0)
 	input_h := composer_height(ui, composer)
-	composer_row(ui, input_h, 4)
+	composer_row(ui, input_h)
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
-	res, box := composer_box(ui, composer)
+	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil && ui.chat.editing == 0 {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
-	composer_buttons(ui, input_h, 4)
+	composer_buttons(ui, box_rect, 4)
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	preview_button(ui, composer)
-	if .SUBMIT in icon_button(ui, "send", .Send, "Save" if ui.chat.editing != 0 else "Send") {
+	if composer_send_button(ui, composer, "send", "Save" if ui.chat.editing != 0 else "Send") {
 		send = true
 	}
-	mu.layout_end_column(ctx)
+	composer_buttons_end(ui)
 	if !send {
 		return
 	}

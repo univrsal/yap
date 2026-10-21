@@ -516,10 +516,10 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	composer := composer_of_page(ui)
 	composer_files(ui, composer, panel_width(ctx))
-	composer_row(ui, input_h, 5)
+	composer_row(ui, input_h)
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
-	res, box := composer_box(ui, composer)
+	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res &&
 	   ui.buddies.len > 0 &&
@@ -530,7 +530,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
-	composer_buttons(ui, input_h, 5)
+	composer_buttons(ui, box_rect, 5)
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	preview_button(ui, composer)
@@ -542,16 +542,15 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 			ui.buddies.pick, ui.buddies.pick_to = true, account
 		}
 	}
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "dm send",
-		   .Send,
-		   "Save" if ui.buddies.editing != 0 else "Enter: Send\nCtrl+Enter: New line",
-	   ) {
+	if composer_send_button(
+		ui,
+		composer,
+		"dm send",
+		"Save" if ui.buddies.editing != 0 else "Enter: Send\nCtrl+Enter: New line",
+	) {
 		send = true
 	}
-	mu.layout_end_column(ctx)
+	composer_buttons_end(ui)
 	if !send {
 		return
 	}
