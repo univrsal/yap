@@ -554,6 +554,22 @@ FILES_STATE_W :: 90
 @(private = "file")
 FILES_BUTTON_W :: 100 when platform.WEB else 150
 
+// What a message's file has at the end of its line (message_files).
+@(private = "file")
+File_Action :: enum {
+	None, // it is gone from the server
+	Save, // an icon button
+	Cancel, // while it is being saved
+	Browse, // saved, and not something that may be opened
+	Open_Browse, // saved
+}
+
+// word_button_w is how wide a button with `label` on it is.
+@(private = "file")
+word_button_w :: proc(ctx: ^mu.Context, label: string) -> i32 {
+	return ctx.text_width(ctx.style.font, label) + 4 * ctx.style.padding
+}
+
 @(private = "file")
 file_save :: proc(ui: ^UI, f: conn.Msg_File) -> (conn.View_Save, bool) {
 	return ui.view.saves[f.blob]
@@ -641,15 +657,41 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 	for f, i in m.files {
 		mu.push_id(ctx, uintptr(i))
 		defer mu.pop_id(ctx)
+		s, has_save := file_save(ui, f)
+		action := File_Action.Save
+		switch {
+		case f.blob == 0:
+			action = .None
+		case has_save && saving(s):
+			action = .Cancel
+		case has_save && s.state == .Done && !platform.WEB && !platform.file_openable(s.path):
+			// Not something that may be opened (platform.open_file), so it can
+			// only be shown in its folder.
+			action = .Browse
+		case has_save && s.state == .Done && !platform.WEB:
+			action = .Open_Browse
+		}
+		// The button's cell is as wide as what is in it: Save is an icon, so
+		// that the name and the size keep the room.
+		button_w := icon_button_w(ctx)
+		#partial switch action {
+		case .Cancel:
+			button_w = word_button_w(ctx, "Cancel")
+		case .Browse:
+			button_w = word_button_w(ctx, "Browse")
+		case .Open_Browse:
+			button_w =
+				word_button_w(ctx, "Open") + ctx.style.spacing + word_button_w(ctx, "Browse")
+		}
 		// The name takes what is left, and one more: microui's "the rest"
 		// is a pixel more than the rest, which would widen the panel.
 		mu.layout_row(
 			ctx,
 			{
 				ICON_SIZE_CELL,
-				-(FILES_STATE_W + FILES_BUTTON_W + 2 * ctx.style.spacing + 1),
+				-(FILES_STATE_W + button_w + 2 * ctx.style.spacing + 1),
 				FILES_STATE_W,
-				FILES_BUTTON_W,
+				button_w,
 			},
 			control_height(ctx),
 		)
@@ -670,7 +712,6 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			label_proc,
 		)
 
-		s, has_save := file_save(ui, f)
 		state, color := conn.format_bytes(f.size), theme.dim
 		switch {
 		case f.blob == 0:
@@ -689,17 +730,15 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			msg   = m.id,
 			index = i,
 		}
-		switch {
-		case f.blob == 0:
+		switch action {
+		case .None:
 			mu.layout_next(ctx)
-		case has_save && saving(s):
+		case .Cancel:
 			if .SUBMIT in stable_button(ctx, "cancel save", "Cancel", {.ALIGN_CENTER}) {
 				save.cancel = true
 				attach_command(ui, save)
 			}
-		case has_save && s.state == .Done && !platform.WEB && !platform.file_openable(s.path):
-			// Not something that may be opened (platform.open_file), so it can
-			// only be shown in its folder.
+		case .Browse:
 			if .SUBMIT in
 			   stable_button_hint(
 				   ui,
@@ -710,10 +749,10 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			   ) {
 				platform.open_folder(os_dir(s.path))
 			}
-		case has_save && s.state == .Done && !platform.WEB:
+		case .Open_Browse:
 			cell := mu.layout_next(ctx)
-			half := (cell.w - ctx.style.spacing) / 2
-			mu.layout_set_next(ctx, {cell.x, cell.y, half, cell.h}, false)
+			open_w := word_button_w(ctx, "Open")
+			mu.layout_set_next(ctx, {cell.x, cell.y, open_w, cell.h}, false)
 			if .SUBMIT in
 			   stable_button_hint(
 				   ui,
@@ -724,23 +763,14 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			   ) {
 				platform.open_file(s.path)
 			}
-			mu.layout_set_next(
-				ctx,
-				{cell.x + half + ctx.style.spacing, cell.y, half, cell.h},
-				false,
-			)
+			browse_x := cell.x + open_w + ctx.style.spacing
+			mu.layout_set_next(ctx, {browse_x, cell.y, cell.x + cell.w - browse_x, cell.h}, false)
 			if .SUBMIT in stable_button_hint(ui, "browse", "Browse", s.path, {.ALIGN_CENTER}) {
 				platform.open_folder(os_dir(s.path))
 			}
-		case:
-			if .SUBMIT in
-			   stable_button_hint(
-				   ui,
-				   "save",
-				   "Save",
-				   fmt.tprintf("Save %s to the downloads folder", f.name),
-				   {.ALIGN_CENTER},
-			   ) {
+		case .Save:
+			hint := fmt.tprintf("Save %s to the downloads folder", f.name)
+			if .SUBMIT in icon_button(ui, "save", .Download, hint) {
 				attach_command(ui, save)
 			}
 		}

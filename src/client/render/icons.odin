@@ -35,7 +35,7 @@ Icon :: enum {
 	Log, // a framed page of lines: the log
 	Search, // a magnifying glass: searching messages
 	Attach, // a paperclip: attach files to a message
-	Download, // an arrow pointing down into a tray: save a file
+	Download, // an arrow pointing down onto a line: save a file
 	// Kinds of file, shown next to the file names in a message (File is used
 	// for all other kinds and App_Audio's notes for sound).
 	Archive, // a sheet with a zip down it
@@ -606,16 +606,13 @@ text_file :: proc(p: Point) -> f32 {
 	return nearer(d, capsule(p, {0.34, 0.74}, {0.56, 0.74}, STROKE))
 }
 
-// Saving: an arrow pointing down into an open tray.
+// Saving: an arrow pointing down onto a line.
 @(private = "file")
 download :: proc(p: Point) -> f32 {
 	STROKE :: 0.09
-	d := capsule(p, {0.5, 0.12}, {0.5, 0.58}, STROKE)
-	d = nearer(d, triangle(p, {0.30, 0.48}, {0.70, 0.48}, {0.5, 0.70}))
-	d = nearer(d, capsule(p, {0.16, 0.66}, {0.16, 0.86}, STROKE))
-	d = nearer(d, capsule(p, {0.16, 0.86}, {0.84, 0.86}, STROKE))
-	d = nearer(d, capsule(p, {0.84, 0.66}, {0.84, 0.86}, STROKE))
-	return d
+	d := capsule(p, {0.5, 0.12}, {0.5, 0.56}, STROKE)
+	d = nearer(d, triangle(p, {0.27, 0.46}, {0.73, 0.46}, {0.5, 0.71}))
+	return nearer(d, capsule(p, {0.18, 0.86}, {0.82, 0.86}, STROKE))
 }
 
 // A magnifying glass: a ring with its handle going down to the right.
