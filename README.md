@@ -25,4 +25,4 @@ For a more minimal version more similar to Mumble check out the
 See [the tutorial video](https://www.youtube.com/watch?v=zcZ0UOpUYG4) for basic
 server and client usage.
 
-## [Running a server](docs/Server.md)
+### [Running a server](docs/Server.md)
