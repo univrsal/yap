@@ -14,7 +14,7 @@ mkdir -p "$deps"
 tarball=$deps/opus-$opus_version.tar.gz
 if [ ! -f "$tarball" ]; then
 	echo "fetching opus $opus_version"
-	curl -fL --retry 3 -o "$tarball.part" "https://downloads.xiph.org/releases/opus/opus-$opus_version.tar.gz"
+	curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o "$tarball.part" "https://downloads.xiph.org/releases/opus/opus-$opus_version.tar.gz"
 	mv "$tarball.part" "$tarball"
 fi
 if command -v sha256sum >/dev/null; then

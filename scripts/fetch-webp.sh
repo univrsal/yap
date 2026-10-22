@@ -12,7 +12,7 @@ mkdir -p "$deps"
 tarball=$deps/libwebp-$webp_version.tar.gz
 if [ ! -f "$tarball" ]; then
 	echo "fetching libwebp $webp_version"
-	curl -fL --retry 3 -o "$tarball.part" "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-$webp_version.tar.gz"
+	curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o "$tarball.part" "https://storage.googleapis.com/downloads.webmproject.org/releases/webp/libwebp-$webp_version.tar.gz"
 	mv "$tarball.part" "$tarball"
 fi
 if command -v sha256sum >/dev/null; then

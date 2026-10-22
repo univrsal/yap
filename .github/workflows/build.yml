@@ -100,8 +100,8 @@ jobs:
         # the client on Linux. Its FFmpeg headers come from the cached
         # prebuilt FFmpeg below.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libdbus-1-dev libx11-dev libpipewire-0.3-dev libglfw3-dev pkg-config \
+          sudo apt-get -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::Retries=5 install -y libdbus-1-dev libx11-dev libpipewire-0.3-dev libglfw3-dev pkg-config \
             libxcb1-dev libxcb-shm0-dev libxcb-randr0-dev libxcb-composite0-dev libxcb-xfixes0-dev \
             libglib2.0-dev libva-dev
       - name: macOS tools for FFmpeg

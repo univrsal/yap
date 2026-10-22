@@ -113,7 +113,7 @@ if not exist .cache mkdir .cache
 if exist .cache\%SQLITE_NAME%\sqlite3.c goto :compile_sqlite
 if not exist .cache\%SQLITE_NAME%.tar.gz (
 	echo fetching sqlite %sqlite_version%
-	curl -fL --retry 3 -o .cache\%SQLITE_NAME%.tar.gz.part https://www.sqlite.org/%sqlite_year%/%SQLITE_NAME%.tar.gz || exit /b 1
+	curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o .cache\%SQLITE_NAME%.tar.gz.part https://www.sqlite.org/%sqlite_year%/%SQLITE_NAME%.tar.gz || exit /b 1
 	move /y .cache\%SQLITE_NAME%.tar.gz.part .cache\%SQLITE_NAME%.tar.gz >nul || exit /b 1
 )
 rem certutil prints the sum on a line of its own, in lower case.
@@ -138,7 +138,7 @@ if not exist .cache mkdir .cache
 if exist .cache\%OPUS_NAME%\CMakeLists.txt goto :compile_opus
 if not exist .cache\%OPUS_NAME%.tar.gz (
 	echo fetching opus %opus_version%
-	curl -fL --retry 3 -o .cache\%OPUS_NAME%.tar.gz.part https://downloads.xiph.org/releases/opus/%OPUS_NAME%.tar.gz || exit /b 1
+	curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o .cache\%OPUS_NAME%.tar.gz.part https://downloads.xiph.org/releases/opus/%OPUS_NAME%.tar.gz || exit /b 1
 	move /y .cache\%OPUS_NAME%.tar.gz.part .cache\%OPUS_NAME%.tar.gz >nul || exit /b 1
 )
 certutil -hashfile .cache\%OPUS_NAME%.tar.gz SHA256 | findstr /x /i /c:"%opus_sha256%" >nul
@@ -175,7 +175,7 @@ if not exist .cache mkdir .cache
 if exist .cache\%WEBP_NAME%\CMakeLists.txt exit /b 0
 if not exist .cache\%WEBP_NAME%.tar.gz (
 	echo fetching libwebp %webp_version%
-	curl -fL --retry 3 -o .cache\%WEBP_NAME%.tar.gz.part https://storage.googleapis.com/downloads.webmproject.org/releases/webp/%WEBP_NAME%.tar.gz || exit /b 1
+	curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o .cache\%WEBP_NAME%.tar.gz.part https://storage.googleapis.com/downloads.webmproject.org/releases/webp/%WEBP_NAME%.tar.gz || exit /b 1
 	move /y .cache\%WEBP_NAME%.tar.gz.part .cache\%WEBP_NAME%.tar.gz >nul || exit /b 1
 )
 certutil -hashfile .cache\%WEBP_NAME%.tar.gz SHA256 | findstr /x /i /c:"%webp_sha256%" >nul

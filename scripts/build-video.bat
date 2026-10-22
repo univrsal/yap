@@ -51,7 +51,7 @@ if not exist .cache mkdir .cache
 if exist .cache\%ffmpeg_win%\include exit /b 0
 if not exist .cache\%ffmpeg_win%.zip (
 	echo fetching %ffmpeg_win%
-	curl -fL --retry 3 -o .cache\%ffmpeg_win%.zip.part https://github.com/BtbN/FFmpeg-Builds/releases/download/%ffmpeg_release%/%ffmpeg_win%.zip || exit /b 1
+	curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o .cache\%ffmpeg_win%.zip.part https://github.com/BtbN/FFmpeg-Builds/releases/download/%ffmpeg_release%/%ffmpeg_win%.zip || exit /b 1
 	move /y .cache\%ffmpeg_win%.zip.part .cache\%ffmpeg_win%.zip >nul || exit /b 1
 )
 certutil -hashfile .cache\%ffmpeg_win%.zip SHA256 | findstr /x /i /c:"%ffmpeg_win_sha256%" >nul

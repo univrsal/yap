@@ -4,11 +4,12 @@ FROM ubuntu:24.04 AS builder
 
 ARG ODIN_RELEASE=dev-2026-09
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates clang cmake curl make \
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates clang cmake curl make \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir /opt/odin \
     && curl --fail --location --silent --show-error \
+        --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 \
         "https://github.com/odin-lang/Odin/releases/download/${ODIN_RELEASE}/odin-linux-amd64-${ODIN_RELEASE}.tar.gz" \
         | tar --extract --gzip --strip-components=1 --directory /opt/odin
 
@@ -54,8 +55,8 @@ RUN set -eux; \
 
 FROM docker.io/emscripten/emsdk:latest AS web-builder
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends cmake curl \
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends cmake curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/odin /opt/odin
@@ -78,8 +79,8 @@ FROM ubuntu:24.04
 
 # libcurl is loaded at runtime for the server's email, if configured;
 # the certificates are for checking the mail server's.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates libcurl4t64 \
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates libcurl4t64 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system yap \

@@ -17,7 +17,7 @@ mkdir -p "$deps"
 tarball=$deps/$name.tar.xz
 if [ ! -f "$tarball" ]; then
 	echo "fetching $name" >&2
-	curl -fL --retry 3 -o "$tarball.part" "https://github.com/BtbN/FFmpeg-Builds/releases/download/$ffmpeg_release/$name.tar.xz"
+	curl -fL --retry 5 --retry-all-errors --retry-delay 5 --connect-timeout 30 --speed-limit 1024 --speed-time 60 -o "$tarball.part" "https://github.com/BtbN/FFmpeg-Builds/releases/download/$ffmpeg_release/$name.tar.xz"
 	mv "$tarball.part" "$tarball"
 fi
 if command -v sha256sum >/dev/null; then
