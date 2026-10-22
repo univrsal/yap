@@ -1063,7 +1063,6 @@ account_detail :: proc(ui: ^UI, v: ^conn.View) {
 	manage := .Manage_Accounts in v.permissions && .Owner not_in acc.flags && below_us(v, acc)
 	if manage && .Bot in acc.flags {
 		mu.layout_row(ctx, {-1})
-		mu.label(ctx, "")
 		mu.label(ctx, "Tokens")
 		if a.bot_tokens != id {
 			a.bot_tokens = id

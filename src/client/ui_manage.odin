@@ -253,7 +253,6 @@ account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "")
 	field_row(ui, FORM_LABEL, "Account", {100, 100})
 	disabled := .Disabled in acc.flags
 	if .SUBMIT in
@@ -309,8 +308,6 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Accou
 		clear(&m.account_roles)
 		append(&m.account_roles, ..acc.roles)
 	}
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "")
 	mu.label(ctx, "Roles")
 	if len(v.roles) <= 1 {
 		with_text_color(ctx, theme.dim, "There are no roles to give yet.", label_proc)
