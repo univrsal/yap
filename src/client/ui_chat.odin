@@ -406,8 +406,7 @@ chat_input :: proc(ui: ^UI) {
 	composer := composer_of(ui, 0)
 	input_h := composer_height(ui, composer)
 	composer_row(ui, input_h)
-	completion_keys(ui, composer)
-	composer_keys(ui, composer)
+	composer_input(ui, composer)
 	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil && ui.chat.editing == 0 {

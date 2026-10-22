@@ -681,6 +681,32 @@ EM_JS(void, yap_keyboard_multiline, (int on), {
 	if (field) field.enterKeyHint = on ? "enter" : "send";
 });
 
+/* The page's text fields that stand in for the client's text areas
+   (web/field.js, src/client/ui_field_web.odin). */
+EM_JS(void, yap_field_font, (const unsigned char *data, int n), {
+	Module.yapField.font(HEAPU8.slice(data, data + n));
+});
+
+EM_JS(void, yap_field_text, (unsigned int id, const char *text, int n, int caret, int anchor), {
+	Module.yapField.text(id >>> 0, n > 0 ? UTF8ToString(text, n) : "", caret, anchor);
+});
+
+EM_JS(void, yap_field_select, (unsigned int id, int caret, int anchor), {
+	Module.yapField.select(id >>> 0, caret, anchor);
+});
+
+EM_JS(void, yap_fields_begin, (void), {
+	Module.yapField.begin();
+});
+
+EM_JS(void, yap_field_place, (unsigned int id, double x, double y, double w, double h, double cx, double cy, double cw, double ch, double pad_x, double pad_top, double pad_bottom, double em, double line, unsigned int color, unsigned int selection, int flags), {
+	Module.yapField.place(id >>> 0, x, y, w, h, cx, cy, cw, ch, pad_x, pad_top, pad_bottom, em, line, color >>> 0, selection >>> 0, flags);
+});
+
+EM_JS(void, yap_fields_end, (void), {
+	Module.yapField.end();
+});
+
 /* ---- the canvas' pixels ---- */
 
 /* Sizes the canvas' backing store to exactly the device pixels it covers,

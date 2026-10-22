@@ -535,6 +535,13 @@ renderer_reset :: proc(r: ^Renderer, window: glfw.WindowHandle) -> bool {
 	return true
 }
 
+// ui_font_em is the em size of `font`, in logical pixels: what a browser
+// calls its size, for the web client's text fields (ui_field_web.odin).
+ui_font_em :: proc(font: mu.Font) -> f32 {
+	f := &slot_of(g_fonts, font).font
+	return f.em * f.zoom
+}
+
 // microui text metrics, in logical pixels.
 ui_text_width :: proc(font: mu.Font, text: string) -> i32 {
 	return i32(math.ceil(font_text_width(&slot_of(g_fonts, font).font, text, font_style(font))))

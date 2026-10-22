@@ -529,8 +529,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	composer := composer_of_page(ui)
 	composer_files(ui, composer, panel_width(ctx))
 	composer_row(ui, input_h)
-	completion_keys(ui, composer)
-	composer_keys(ui, composer)
+	composer_input(ui, composer)
 	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res &&

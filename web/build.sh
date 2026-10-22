@@ -41,6 +41,8 @@ fi
 
 # What web/touch.js calls (src/client/ui_touch_web.odin).
 touch_exports=_web_touch_tap,_web_touch_hold,_web_text_box_at,_web_touch_drag_begin,_web_touch_drag_move,_web_touch_drag_end,_web_touch_scroll,_web_text_rune,_web_text_backspace,_web_text_enter
+# What web/field.js calls (src/client/ui_field_web.odin).
+field_exports=_web_field_input,_web_field_focus,_web_field_lines,_web_field_touched
 # What web/background.js calls (src/client/main_web.odin).
 background_exports=_web_tick,_web_visibility
 # What web/paste.js calls (src/client/ui_paste_web.odin), and the heap helpers it uses.
@@ -79,9 +81,10 @@ emcc "$out/yap.obj" \
 	-sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sFULL_ES3 \
 	-sALLOW_MEMORY_GROWTH \
 	-sSTACK_SIZE=4MB \
-	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$background_exports,$paste_exports,$files_exports,$avatar_exports,$decode_exports,$sounds_exports \
+	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$field_exports,$background_exports,$paste_exports,$files_exports,$avatar_exports,$decode_exports,$sounds_exports \
 	--js-library web/wasi.js \
 	--pre-js web/touch.js \
+	--pre-js web/field.js \
 	--pre-js web/background.js \
 	--pre-js web/paste.js \
 	--pre-js web/files.js \

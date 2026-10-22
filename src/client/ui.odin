@@ -644,6 +644,7 @@ draw_frame :: proc(ui: ^UI) {
 	settle(ui)
 	when platform.WEB {
 		touch_after_frame(ui)
+		fields_after_frame(ui)
 	}
 	edge := Window_Edge.None
 	if ui.ctx.mouse_down_bits == {} {

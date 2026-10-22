@@ -60,6 +60,23 @@ Text_Area :: struct {
 	footer:       i32,
 	// A press in the footer, which the caret ignores until it is released.
 	footer_press: bool,
+	// In a web build, the page's own text field that stands in for it.
+	field:        Field_Sync,
+}
+
+// What a text area keeps about the page's text field that stands in for it in
+// a web build (ui_field_web.odin): whether it does in this frame, how many
+// lines the page wraps the text into (0 while it hasn't said), whether the
+// field changed the text since the text area last said so, and the text (as a
+// hash and its length) and selection that the two last agreed on.
+Field_Sync :: struct {
+	live:    bool,
+	lines:   int,
+	changed: bool,
+	synced:  bool,
+	hash:    u64,
+	len:     int,
+	sel:     [2]int,
 }
 
 // One line of a text area's text: text[start:end] is drawn, and the caret is
@@ -145,7 +162,9 @@ text_area_single :: proc(ctx: ^mu.Context, font: mu.Font) -> i32 {
 // ctx.style.font has to be when it is laid out).
 text_area_height :: proc(ctx: ^mu.Context, font: mu.Font, text: string, area: ^Text_Area) -> i32 {
 	n := 1
-	if area.width > 0 {
+	if area.field.live && area.field.lines > 0 {
+		n = area.field.lines // as the page wraps it
+	} else if area.width > 0 {
 		n = len(area_lines(ctx, font, text, area.width))
 	}
 	return(
@@ -171,12 +190,25 @@ text_area_text_rect :: proc(r: mu.Rect, area: ^Text_Area) -> mu.Rect {
 // text_area_height said, with its text in ctx.style.font. Like a text box, it
 // returns CHANGE when the text changed and SUBMIT on Enter (and releases the
 // focus then).
+//
+// In a web build the page's own text field draws and edits the text instead,
+// over the box (ui_field_web.odin), unless something covers it.
 text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: mu.Result_Set) {
 	ctx := &ui.ctx
 	id := mu.get_id(ctx, uintptr(&buf[0]))
 	r := mu.layout_next(ctx)
+	live := false
 	when platform.WEB {
-		append(&ui.text_boxes, Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), true})
+		field_take(ui, id, buf, textlen, area)
+		live = area.field.live
+		append(
+			&ui.text_boxes,
+			Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), true, live},
+		)
+	}
+	if area.field.changed {
+		area.field.changed = false
+		res += {.CHANGE}
 	}
 	mu.update_control(ctx, id, r, {.HOLD_FOCUS})
 	tr := text_area_text_rect(r, area)
@@ -230,111 +262,133 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		ctrl := .CTRL in ctx.key_down_bits && .ALT not_in ctx.key_down_bits
 		shift := .SHIFT in ctx.key_down_bits
 
-		if strings.builder_len(ctx.text_input) > 0 {
-			if textedit.input_text(s, strings.to_string(ctx.text_input)) > 0 {
+		// The page's field does the editing itself.
+		if !live {
+			if strings.builder_len(ctx.text_input) > 0 {
+				if textedit.input_text(s, strings.to_string(ctx.text_input)) > 0 {
+					edited(&res, textlen, &builder)
+				}
+			}
+			// A new line: Shift+Enter, or Enter on a phone's keyboard.
+			if (.RETURN in ctx.key_pressed_bits && shift) || .Newline in ui.keys {
+				ctx.key_pressed_bits -= {.RETURN}
+				ui.keys -= {.Newline}
+				if textedit.input_text(s, "\n") > 0 {
+					edited(&res, textlen, &builder)
+				}
+			}
+			if .A in ctx.key_pressed_bits && ctrl {
+				s.selection = {textlen^, 0}
+			}
+			if .X in ctx.key_pressed_bits && ctrl && textedit.cut(s) {
 				edited(&res, textlen, &builder)
 			}
-		}
-		// A new line: Shift+Enter, or Enter on a phone's keyboard.
-		if (.RETURN in ctx.key_pressed_bits && shift) || .Newline in ui.keys {
-			ctx.key_pressed_bits -= {.RETURN}
-			ui.keys -= {.Newline}
-			if textedit.input_text(s, "\n") > 0 {
+			if .C in ctx.key_pressed_bits && ctrl {
+				textedit.copy(s)
+			}
+			if .V in ctx.key_pressed_bits && ctrl && textedit.paste(s) {
 				edited(&res, textlen, &builder)
 			}
-		}
-		if .A in ctx.key_pressed_bits && ctrl {
-			s.selection = {textlen^, 0}
-		}
-		if .X in ctx.key_pressed_bits && ctrl && textedit.cut(s) {
-			edited(&res, textlen, &builder)
-		}
-		if .C in ctx.key_pressed_bits && ctrl {
-			textedit.copy(s)
-		}
-		if .V in ctx.key_pressed_bits && ctrl && textedit.paste(s) {
-			edited(&res, textlen, &builder)
-		}
-		if .BACKSPACE in ctx.key_pressed_bits && textlen^ > 0 {
-			textedit.delete_to(s, .Word_Left if ctrl else .Left)
-			edited(&res, textlen, &builder)
-		}
-		if .DELETE in ctx.key_pressed_bits && textlen^ > 0 {
-			textedit.delete_to(s, .Word_Right if ctrl else .Right)
-			edited(&res, textlen, &builder)
-		}
-		move :: proc(s: ^textedit.State, t: textedit.Translation, shift: bool) {
-			if shift {
-				textedit.select_to(s, t)
-			} else {
-				textedit.move_to(s, t)
+			if .BACKSPACE in ctx.key_pressed_bits && textlen^ > 0 {
+				textedit.delete_to(s, .Word_Left if ctrl else .Left)
+				edited(&res, textlen, &builder)
 			}
-		}
-		if .LEFT in ctx.key_pressed_bits {
-			move(s, .Word_Left if ctrl else .Left, shift)
-		}
-		if .RIGHT in ctx.key_pressed_bits {
-			move(s, .Word_Right if ctrl else .Right, shift)
-		}
+			if .DELETE in ctx.key_pressed_bits && textlen^ > 0 {
+				textedit.delete_to(s, .Word_Right if ctrl else .Right)
+				edited(&res, textlen, &builder)
+			}
+			move :: proc(s: ^textedit.State, t: textedit.Translation, shift: bool) {
+				if shift {
+					textedit.select_to(s, t)
+				} else {
+					textedit.move_to(s, t)
+				}
+			}
+			if .LEFT in ctx.key_pressed_bits {
+				move(s, .Word_Left if ctrl else .Left, shift)
+			}
+			if .RIGHT in ctx.key_pressed_bits {
+				move(s, .Word_Right if ctrl else .Right, shift)
+			}
 
-		// What is left needs the lines, as the text is now.
-		text := string(buf[:textlen^])
-		lines := area_lines(ctx, font, text, width)
-		l := lines[area_line_of(lines, s.selection[0])]
-		s.line_start, s.line_end = l.start, l.stop
-		if .HOME in ctx.key_pressed_bits {
-			move(s, .Start if ctrl else .Soft_Line_Start, shift)
-		}
-		if .END in ctx.key_pressed_bits {
-			move(s, .End if ctrl else .Soft_Line_End, shift)
-		}
-		if .Up in ui.keys || .Down in ui.keys {
-			down := .Down in ui.keys
-			ui.keys -= {.Up, .Down}
-			at := s.selection[0]
-			x := area.vert_x
-			if area.vert_at != at {
-				x = area_x(ctx, font, text, lines[area_line_of(lines, at)], at)
+			// What is left needs the lines, as the text is now.
+			text := string(buf[:textlen^])
+			lines := area_lines(ctx, font, text, width)
+			l := lines[area_line_of(lines, s.selection[0])]
+			s.line_start, s.line_end = l.start, l.stop
+			if .HOME in ctx.key_pressed_bits {
+				move(s, .Start if ctrl else .Soft_Line_Start, shift)
 			}
-			to := area_vertical(ctx, font, text, lines, at, x, down)
-			s.selection[0] = to
-			if !shift {
-				s.selection[1] = to
+			if .END in ctx.key_pressed_bits {
+				move(s, .End if ctrl else .Soft_Line_End, shift)
 			}
-			area.vert_at, area.vert_x = to, x
+			if .Up in ui.keys || .Down in ui.keys {
+				down := .Down in ui.keys
+				ui.keys -= {.Up, .Down}
+				at := s.selection[0]
+				x := area.vert_x
+				if area.vert_at != at {
+					x = area_x(ctx, font, text, lines[area_line_of(lines, at)], at)
+				}
+				to := area_vertical(ctx, font, text, lines, at, x, down)
+				s.selection[0] = to
+				if !shift {
+					s.selection[1] = to
+				}
+				area.vert_at, area.vert_x = to, x
+			}
+
+			// Pressing or dragging puts the caret where the pointer is: on the
+			// line it is over, or the first or last line if it is past them. Not
+			// on the scrollbar, though.
+			on_bar :=
+				.LEFT in ctx.mouse_pressed_bits && area.bar.w > 0 && mu.mouse_over(ctx, area.bar)
+			if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar && !area.footer_press {
+				i := clamp(
+					(ctx.mouse_pos.y - r.y - top + area.scroll) / lh,
+					0,
+					i32(len(lines) - 1),
+				)
+				pl := lines[i]
+				at := offset_at(
+					ctx,
+					font,
+					text,
+					pl.start,
+					pl.stop,
+					ctx.mouse_pos.x - r.x - ctx.style.padding,
+				)
+				s.selection[0] = at
+				if .LEFT in ctx.mouse_pressed_bits && !shift {
+					s.selection[1] = at
+				}
+			}
 		}
 		if .RETURN in ctx.key_pressed_bits {
 			mu.set_focus(ctx, 0)
 			res += {.SUBMIT}
 		}
-
-		// Pressing or dragging puts the caret where the pointer is: on the
-		// line it is over, or the first or last line if it is past them. Not
-		// on the scrollbar, though.
-		on_bar := .LEFT in ctx.mouse_pressed_bits && area.bar.w > 0 && mu.mouse_over(ctx, area.bar)
-		if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar && !area.footer_press {
-			i := clamp((ctx.mouse_pos.y - r.y - top + area.scroll) / lh, 0, i32(len(lines) - 1))
-			pl := lines[i]
-			at := offset_at(
-				ctx,
-				font,
-				text,
-				pl.start,
-				pl.stop,
-				ctx.mouse_pos.x - r.x - ctx.style.padding,
-			)
-			s.selection[0] = at
-			if .LEFT in ctx.mouse_pressed_bits && !shift {
-				s.selection[1] = at
-			}
-		}
 	}
 
 	text := string(buf[:textlen^])
 	lines := area_lines(ctx, font, text, width)
-	if i32(area_rows(area, len(lines))) != rows {
+	n := len(lines)
+	if live && area.field.lines > 0 {
+		n = area.field.lines
+	}
+	if i32(area_rows(area, n)) != rows {
 		// The box is the height that the text had before this frame's typing.
 		ui_redraw(ui)
+	}
+	when platform.WEB {
+		field_place(ui, id, text, area, tr, top, single - lh - top, focused)
+	}
+	if live {
+		// Only the box: the page's field is over it, with the text.
+		mu.draw_control_frame(ctx, id, r, .BASE, {})
+		area.bar = {}
+		area.had_focus = focused
+		return
 	}
 
 	// Scrolling: to the caret when it moved, the text changed or the box has

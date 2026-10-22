@@ -58,6 +58,12 @@ FACE_DATA := [Font_Style][]u8 {
 	.Bold_Italic = #load("../assets/Roboto-BoldItalic.ttf"),
 	.Mono        = #load("../assets/JetBrainsMono-Regular.ttf"),
 }
+// face_data is the font file of one face, for a browser to draw the same
+// letters with (the web client's text fields, ui_field_web.odin).
+face_data :: proc(style: Font_Style) -> []u8 {
+	return FACE_DATA[style]
+}
+
 FONT_SIZE :: 15 // logical pixels, Regular's ascent to descent
 LINE_HEIGHT :: 18 // logical pixels; microui's default, which its layout metrics assume
 
