@@ -153,7 +153,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	ctx := &ui.ctx
 	if !p.edit_placed {
 		p.edit_placed = true
-		w, h: i32 = STATUS_WINDOW_W, 192
+		w, h: i32 = STATUS_WINDOW_W, 235
 		if idle.can_ask() {
 			h += 28
 		}
