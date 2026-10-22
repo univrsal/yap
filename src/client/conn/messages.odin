@@ -1907,6 +1907,9 @@ post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 		}
 		outbox_give_up(c, "A message wasn't posted because the server rejected it as invalid.")
 		return
+	case .Denied:
+		outbox_give_up(c, "A message wasn't posted because you can't write or attach files there.")
+		return
 	case:
 		outbox_give_up(c, "A message wasn't posted because the server rejected it.")
 		return

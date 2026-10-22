@@ -47,7 +47,7 @@ msg_of_member :: proc(
 		return {}, nil, .Not_Found
 	}
 	conv = conv_by_id(&s.convs, m.conv)
-	if conv == nil || !conv_is_member(conv, u.account.id) || .Archived in conv.flags {
+	if conv == nil || !conv_reader(conv, u.account) {
 		return {}, nil, .Not_Found
 	}
 	return m, conv, .Ok
@@ -79,7 +79,7 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case conv == nil:
 		respond(u, id, status)
 		return
-	case m.sender != u.account.id:
+	case m.sender != u.account.id || .Edit not_in conv_rights(conv, u.account):
 		respond(u, id, .Denied)
 		return
 	case m.kind != .Text || .Deleted in m.flags || .Forwarded in m.flags:
@@ -144,7 +144,10 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case conv == nil:
 		respond(u, id, status)
 		return
-	case m.sender != u.account.id && !can(u.account, .Manage_Messages):
+	// One's own message with the Delete right there, anyone's with
+	// Manage_Messages.
+	case !can(u.account, .Manage_Messages) &&
+	     (m.sender != u.account.id || .Delete not_in conv_rights(conv, u.account)):
 		respond(u, id, .Denied)
 		return
 	case .Deleted in m.flags:
@@ -275,7 +278,7 @@ pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	conv := conv_by_id(&s.convs, conv_id)
-	if conv == nil || !conv_visible(conv, u.account.id) {
+	if conv == nil || !conv_visible(conv, u.account) {
 		respond(u, id, .Not_Found)
 		return
 	}

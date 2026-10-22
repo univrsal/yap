@@ -100,6 +100,8 @@ Request_Op :: enum u16 {
 	DM_Open              = 0x0038,
 	Voice_Join           = 0x0039,
 	// 0x003A was Conv_View, while chat was still streamed per channel.
+	Conv_Rights_Get      = 0x003B,
+	Conv_Rights_Set      = 0x003C,
 	// Messages, see msgs.odin.
 	Msg_Post             = 0x0040,
 	Msg_History          = 0x0041,

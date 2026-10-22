@@ -113,7 +113,8 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return false
 	}
 	for ch in v.channels {
-		if row(ui, ch.id, fmt.tprintf("# %s", ch.name), filter) {
+		// Only where we may write.
+		if .Write in ch.rights && row(ui, ch.id, fmt.tprintf("# %s", ch.name), filter) {
 			return
 		}
 	}

@@ -386,6 +386,23 @@ MIGRATIONS := [?]string {
 	ALTER TABLE accounts ADD COLUMN activity_at INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE accounts ADD COLUMN status_at INTEGER NOT NULL DEFAULT 0;
 	`,
+	// 27: what each role may do in each channel (convs.odin, conv_rights). A
+	// channel that existed before gives everyone every right, as it did.
+	`
+	CREATE TABLE conv_rights (
+		conv   INTEGER NOT NULL REFERENCES convs(id),
+		role   INTEGER NOT NULL REFERENCES roles(id),
+		rights INTEGER NOT NULL,
+		PRIMARY KEY (conv, role)
+	) WITHOUT ROWID;
+	INSERT INTO conv_rights (conv, role, rights) SELECT id, 1, 63 FROM convs WHERE kind = 0;
+	`,
+	// 28: attaching files became a right of its own (proto.Conv_Right.Attach,
+	// 64). Whoever could write in a channel could attach files there, so they
+	// still can.
+	`
+	UPDATE conv_rights SET rights = rights | 64 WHERE rights & 2 != 0;
+	`,
 }
 
 // The version a database has once it has been through every step.

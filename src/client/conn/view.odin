@@ -29,6 +29,8 @@ View_Channel :: struct {
 	topic:    string, // owned
 	home:     bool, // the one everyone is in, which cannot be left
 	private:  bool, // only for those added to it
+	flags:    proto.Conv_Flags, // all of them, Default and Text_Only included
+	rights:   proto.Conv_Rights, // what we may do there
 	position: int,
 	members:  []proto.User_Num, // owned
 	// What is unread there (see Conv_Info).
@@ -213,6 +215,8 @@ View :: struct {
 	shared_count:        int,
 	shared_syncs:        int, // how many syncs have delivered them
 	members:             View_Members,
+	// The rights map of the channel last asked about (roles.odin).
+	rights_map:          View_Rights_Map,
 	// The server's roles, by id (roles.odin).
 	roles:               [dynamic]View_Role,
 	// The call our account is in, if any (calls.odin).
@@ -356,6 +360,7 @@ view_destroy :: proc(v: ^View) {
 	view_clear_shared(v)
 	delete(v.shared)
 	delete(v.members.accounts)
+	delete(v.rights_map.entries)
 	view_clear_roles(v)
 	delete(v.roles)
 	delete(v.reactors.accounts)
@@ -654,6 +659,8 @@ publish_channels :: proc(c: ^Voice_Client) {
 				topic = strings.clone(info.topic),
 				home = .Home in info.flags,
 				private = .Private in info.flags,
+				flags = info.flags,
+				rights = info.rights,
 				position = info.position,
 				members = slice.clone(room_members(c, proto.Room(id))),
 				read = info.read,

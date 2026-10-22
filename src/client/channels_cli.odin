@@ -88,6 +88,12 @@ import "core:time"
 //	/private <name>  create a private channel
 //	/rename <name>, /topic <text>, /move <position>, /archive   change or
 //	                 archive the channel being looked at
+//	/default on|off, /textonly on|off   whether new members join the channel
+//	                 being looked at, and whether it has a voice room
+//	/rights          show what each role may do in the channel being looked at;
+//	/rights <role>=<right,...> ...  replace that, e.g. /rights
+//	                 everyone=see,react writers=see,write,edit,delete
+//	                 (rights: see, write, attach, react, edit, delete, voice, none)
 //	/invite <name>, /kick <name>  add someone to the channel being looked
 //	                 at, or remove them from a private one
 //	/call <name>     call someone; /answer accepts an incoming call; /hangup ends
@@ -510,6 +516,29 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			}
 		case line == "/archive":
 			conn.push_command(q, conn.Conv_Delete_Command{})
+		case strings.has_prefix(line, "/default "), strings.has_prefix(line, "/textonly "):
+			cmd, _, value := strings.partition(line, " ")
+			value = strings.trim_space(value)
+			if value != "on" && value != "off" {
+				log.warnf("%s on|off", cmd)
+				break
+			}
+			conn.push_command(
+				q,
+				conn.Conv_Flag_Command {
+					flag = .Default if cmd == "/default" else .Text_Only,
+					on = value == "on",
+				},
+			)
+		case line == "/rights":
+			conn.push_command(q, conn.Conv_Rights_Get_Command{})
+		case strings.has_prefix(line, "/rights "):
+			conn.push_command(
+				q,
+				conn.Conv_Rights_Text_Command {
+					text = strings.clone(strings.trim_space(line[len("/rights "):])),
+				},
+			)
 		case strings.has_prefix(line, "/invite "), strings.has_prefix(line, "/kick "):
 			_, _, name := strings.partition(line, " ")
 			conn.push_command(
@@ -733,7 +762,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case:
 			log.warn(
-				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
+				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
 			)
 		}
 	}

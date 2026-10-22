@@ -82,7 +82,7 @@ message_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, bod
 // account is a member of it. Otherwise it returns the status that explains why not.
 conv_of_member :: proc(s: ^Server, u: ^Conn, conv_id: proto.Conv_Id) -> (^Conv, proto.Status) {
 	conv := conv_by_id(&s.convs, conv_id)
-	if conv == nil || !conv_visible(conv, u.account.id) {
+	if conv == nil || !conv_visible(conv, u.account) {
 		return nil, .Not_Found
 	}
 	if !conv_is_member(conv, u.account.id) {
@@ -104,7 +104,10 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, status)
 		return
 	}
-	if dm_closed(s, conv) {
+	rights := conv_rights(conv, u.account)
+	if dm_closed(s, conv) ||
+	   .Write not_in rights ||
+	   (p.attachment_count > 0 && .Attach not_in rights) {
 		respond(u, id, .Denied)
 		return
 	}
@@ -284,18 +287,23 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, status)
 		return
 	}
-	if dm_closed(s, conv) {
+	if dm_closed(s, conv) || .Write not_in conv_rights(conv, u.account) {
 		respond(u, id, .Denied)
 		return
 	}
 	src, found := msg_by_id(s, f.msg)
 	src_conv := conv_by_id(&s.convs, src.conv) if found else nil
-	if src_conv == nil || !conv_is_member(src_conv, u.account.id) || .Archived in src_conv.flags {
+	if src_conv == nil || !conv_reader(src_conv, u.account) {
 		respond(u, id, .Not_Found)
 		return
 	}
 	if .Deleted in src.flags || src.kind != .Text {
 		respond(u, id, .Invalid)
+		return
+	}
+	// Its files come along, which takes the right to attach them there.
+	if src.attachment_count > 0 && .Attach not_in conv_rights(conv, u.account) {
+		respond(u, id, .Denied)
 		return
 	}
 	// When forwarding into a thread, its root must belong to this
@@ -448,7 +456,7 @@ msg_deliver :: proc(s: ^Server, conv: ^Conv, m: proto.Message, op := proto.Event
 	}
 	for member in conv.members {
 		acc := s.accounts.by_id[member] or_else nil
-		if acc == nil {
+		if !conv_reader(conv, acc) {
 			continue
 		}
 		for c in acc.conns {
@@ -658,7 +666,7 @@ handle_typing :: proc(s: ^Server, from: ^Conn, pt: []u8) {
 	conv := conv_by_id(&s.convs, conv_id)
 	if conv == nil ||
 	   !conv_is_member(conv, from.account.id) ||
-	   .Archived in conv.flags ||
+	   .Write not_in conv_rights(conv, from.account) ||
 	   dm_closed(s, conv) {
 		return
 	}
@@ -668,7 +676,7 @@ handle_typing :: proc(s: ^Server, from: ^Conn, pt: []u8) {
 	msg := proto.encode_typing_down(&buf, conv_id, root, from.account.id)
 	for member in conv.members {
 		acc := s.accounts.by_id[member] or_else nil
-		if acc == nil || acc == from.account {
+		if acc == nil || acc == from.account || !conv_reader(conv, acc) {
 			continue
 		}
 		for u in acc.conns {

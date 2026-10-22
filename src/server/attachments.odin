@@ -484,7 +484,7 @@ attachment_visible :: proc(s: ^Server, account: proto.Account_Id, blob: Blob_Id)
 		conv := conv_by_id(&s.convs, proto.Conv_Id(db_col_int(q, 0)))
 		// An archived channel's messages can't be read any more, and nor can
 		// its files.
-		if conv != nil && .Archived not_in conv.flags && conv_is_member(conv, account) {
+		if conv != nil && conv_reader(conv, account_by_id(&s.accounts, account)) {
 			sqlite.reset(q)
 			return true
 		}

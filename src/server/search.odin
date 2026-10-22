@@ -194,7 +194,7 @@ msg_search :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 					wanted = conv_id == req.conv
 				} else {
 					conv := conv_by_id(&s.convs, conv_id)
-					wanted = conv != nil && conv_is_member(conv, me) && .Archived not_in conv.flags
+					wanted = conv != nil && conv_reader(conv, u.account)
 				}
 			}
 			if wanted && len(found) == req.limit {

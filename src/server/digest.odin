@@ -196,8 +196,13 @@ digest_query :: proc(
 			files  = .Has_Attachments in transmute(proto.Msg_Flags)u8(db_col_int(q, 5)),
 			kind   = kind,
 		}
-		if conv := s.convs.by_id[item.conv] or_else nil; conv != nil && conv.kind == .DM {
+		conv := s.convs.by_id[item.conv] or_else nil
+		if conv != nil && conv.kind == .DM {
 			item.kind = .Direct
+		}
+		// Not from a channel that the account may no longer see.
+		if conv != nil && !conv_reader(conv, acc) {
+			continue
 		}
 		if found == DIGEST_MOST {
 			more[item.kind] = true

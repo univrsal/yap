@@ -151,12 +151,18 @@ message_bar :: proc(ui: ^UI) {
 	}
 	m := b.msg
 	mine := m.sender == v.me
+	rights := rights_here(v)
 	reply := b.target.slot == 0
-	edit := mine && m.kind == .Text && .Forwarded not_in m.flags
+	edit := mine && .Edit in rights && m.kind == .Text && .Forwarded not_in m.flags
 	pin := may_pin_here(v) && m.thread_root == 0
-	del := mine || .Manage_Messages in v.permissions
-	recent := bar_recent_reactions(ui, m)
-	n := len(recent) + 1 + int(reply) + int(edit) + int(pin) + int(del)
+	del := (mine && .Delete in rights) || .Manage_Messages in v.permissions
+	react := .React in rights
+	recent := bar_recent_reactions(ui, m) if react else nil
+	n := len(recent) + int(react) + int(reply) + int(edit) + int(pin) + int(del)
+	if n == 0 {
+		b.shown = false
+		return
+	}
 
 	// At the message's top right, half over the line above, and kept on the
 	// part of its timeline that is on screen.
@@ -202,7 +208,7 @@ message_bar :: proc(ui: ^UI) {
 		}
 		mu.pop_id(ctx)
 	}
-	if .SUBMIT in icon_button(ui, "react", .Smiley, "React") {
+	if react && .SUBMIT in icon_button(ui, "react", .Smiley, "React") {
 		open_picker(ui, m.id, r)
 		done = true
 	}
@@ -316,7 +322,8 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 // reaction that is added is also recorded as recent on this server, for the
 // bar to offer.
 send_reaction :: proc(ui: ^UI, id: proto.Msg_Id, emoji: string, on: bool) {
-	if ui.session == nil {
+	// Not where we may not react (the server would refuse it).
+	if ui.session == nil || .React not_in rights_here(ui.view) {
 		return
 	}
 	conn.push_command(

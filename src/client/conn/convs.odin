@@ -53,6 +53,7 @@ Conv_Info :: struct {
 	// A DM's two accounts (see dm_other); 0 for a channel.
 	a, b:      proto.Account_Id,
 	position:  int, // the position of a channel in the list
+	rights:    proto.Conv_Rights, // what we may do there
 }
 
 // A Mark_Read to send, once a second has passed since the last one.
@@ -161,6 +162,7 @@ Create_Channel_Command :: struct {
 	name:    string, // owned by the command
 	topic:   string, // owned by the command
 	private: bool, // only visible to those who were added to it
+	flags:   proto.Conv_Flags, // Default, Text_Only
 }
 // The conversation being read, or 0 for none (see Conv_Client.reading).
 Reading_Command :: struct {
@@ -355,7 +357,11 @@ convs_synced :: proc(c: ^Voice_Client) {
 
 	if cv.want_voice != "" {
 		if room := conv_by_name(c, cv.want_voice); room != 0 {
-			voice_join(c, proto.Room(room))
+			if .Voice in cv.convs[room].rights {
+				voice_join(c, proto.Room(room))
+			} else {
+				log.warnf("%q has no voice room for us any more", cv.want_voice)
+			}
 		} else {
 			log.warnf("there is no channel called %q among yours to talk in", cv.want_voice)
 		}
@@ -396,6 +402,7 @@ conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 			a         = record.a,
 			b         = record.b,
 			position  = record.position,
+			rights    = record.rights,
 		}
 		if cv.synced {
 			if added && record.kind == .Channel {
@@ -544,6 +551,13 @@ voice_command :: proc(c: ^Voice_Client, cmd: Voice_Command) {
 	conv := cmd.conv if cmd.conv != 0 else conv_by_name(c, cmd.name)
 	if conv == 0 {
 		log.warnf("there's no channel called %q among yours (/channels lists them)", cmd.name)
+		return
+	}
+	// A channel we aren't in is left to the server to judge.
+	if info, ok := cv.convs[conv]; ok && .Voice not_in info.rights {
+		text :=
+			"That channel has no voice room." if .Text_Only in info.flags else "You can't talk in that channel."
+		notify(c, false, text)
 		return
 	}
 	voice_join(c, proto.Room(conv))
@@ -768,9 +782,14 @@ conv_subscribe :: proc(c: ^Voice_Client, conv: proto.Conv_Id, on: bool) {
 	)
 }
 
-conv_create :: proc(c: ^Voice_Client, name, topic: string, private := false) {
+conv_create :: proc(
+	c: ^Voice_Client,
+	name, topic: string,
+	private := false,
+	flags := proto.Conv_Flags{},
+) {
 	buf: [proto.CONV_CREATE_MAX_SIZE]u8
-	body := proto.encode_conv_create(buf[:], name, topic, private)
+	body := proto.encode_conv_create(buf[:], name, topic, private, flags)
 	if body == nil {
 		log.warn("that name or topic is too long")
 		return
@@ -789,7 +808,7 @@ conv_create :: proc(c: ^Voice_Client, name, topic: string, private := false) {
 			case .Conflict:
 				text = "A channel with that name already exists."
 			case .Invalid:
-				text = "A channel must have a name."
+				text = "A channel must have a name, and a private one can't be default."
 			case .Too_Large:
 				text = "You've reached the maximum number of channels."
 			case .Reset:

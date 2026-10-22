@@ -226,12 +226,20 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	files_h: i32 = 0
 	width := panel_width(ctx)
 
-	if !t.readonly {
+	// A thread in a channel we may not write in can be read, not replied to.
+	no_write := !t.readonly && .Write not_in rights_in(v, t.key.conv)
+	if no_write {
+		input_h = read_only_height(ctx)
+	} else if !t.readonly {
 		input_h = composer_height(ui, composer)
 		files_h = composer_files_height(ui, composer, width)
 	}
 	mu.layout_row(ctx, {-1}, -(input_h + files_h + ctx.style.spacing + 1))
 	timeline(ui, &t.timeline, t.key, t.readonly)
+	if no_write {
+		read_only_line(ui)
+		return
+	}
 	if t.readonly {
 		return
 	}

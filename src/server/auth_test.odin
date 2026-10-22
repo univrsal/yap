@@ -439,7 +439,7 @@ test_schema_upgrade :: proc(t: ^testing.T) {
 			t,
 			db_exec(
 				&db,
-				"DROP TABLE push_subs; DROP TABLE invite_uses; DROP TABLE invites; DROP TABLE files_fts; DROP TABLE attachments; DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
+				"DROP TABLE conv_rights; DROP TABLE push_subs; DROP TABLE invite_uses; DROP TABLE invites; DROP TABLE files_fts; DROP TABLE attachments; DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
 			),
 		)
 		db_close(&db)

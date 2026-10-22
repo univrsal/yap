@@ -33,11 +33,22 @@ UI_Channel_Admin :: struct {
 	loaded:        proto.Conv_Id,
 	loaded_name:   string,
 	loaded_topic:  string,
+	loaded_flags:  proto.Conv_Flags,
 	name_buf:      [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
 	name_len:      int,
 	topic_buf:     [proto.MAX_TOPIC_SIZE]u8,
 	topic_len:     int,
+	// Its Default and Text_Only being edited.
+	is_default:    bool,
+	text_only:     bool,
 	confirm:       bool, // Delete was pressed once
+	// Its rights map being edited: a row per role, in the order of View.roles
+	// when it was loaded, and a box per right (see channel_rights). Loaded
+	// again when the map arrives (rights_count) or the roles change.
+	rows:          [proto.MAX_ROLES]proto.Role_Id,
+	row_count:     int,
+	cells:         [proto.MAX_ROLES][len(proto.Conv_Right)]bool,
+	rights_count:  int,
 	// Who is in a private channel, and adding someone to it.
 	members:       Pager,
 	adding:        Pager,
@@ -47,6 +58,8 @@ UI_Channel_Admin :: struct {
 	new_topic_buf: [proto.MAX_TOPIC_SIZE]u8,
 	new_topic_len: int,
 	new_private:   bool,
+	new_default:   bool,
+	new_text_only: bool,
 	// A notice that the server sent before the category was picked isn't
 	// about anything requested in it (conn.View_Notice.count).
 	notice_seen:   int,
@@ -207,7 +220,12 @@ channel_admin_list :: proc(ui: ^UI) {
 		mu.push_id(ctx, uintptr(e.id))
 		defer mu.pop_id(ctx)
 		mu.layout_row(ctx, {-1})
-		label := fmt.tprintf("%s%s", e.name, " 🔒" if .Private in e.flags else "")
+		label := fmt.tprintf(
+			"%s%s%s",
+			e.name,
+			" 🔒" if .Private in e.flags else "",
+			" ⭐" if .Default in e.flags else "",
+		)
 		saved := ctx.style.colors[.TEXT]
 		if !e.member {
 			// Ours to manage, but not one we're in.
@@ -228,8 +246,8 @@ channel_admin_list :: proc(ui: ^UI) {
 	}
 }
 
-// new_channel is the form for making a channel: its name, its topic and whether
-// it is private.
+// new_channel is the form for making a channel: its name, its topic, whether
+// it is private or default, and whether it is text only.
 @(private = "file")
 new_channel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -245,20 +263,40 @@ new_channel :: proc(ui: ^UI) {
 	checkbox(ctx, "Private", &a.new_private)
 	if a.new_private {
 		with_text_color(ctx, theme.dim, "Only those added to it can see it.", wrap_text)
+		a.new_default = false // the server refuses a private default channel
+	} else {
+		mu.layout_row(ctx, {-1})
+		checkbox(ctx, "Default", &a.new_default)
+		if a.new_default {
+			with_text_color(ctx, theme.dim, "New members join it. They can leave.", wrap_text)
+		}
+	}
+	mu.layout_row(ctx, {-1})
+	checkbox(ctx, "Text only", &a.new_text_only)
+	if a.new_text_only {
+		with_text_color(ctx, theme.dim, "It has no voice room.", wrap_text)
 	}
 	mu.layout_row(ctx, {120})
 	submit |= .SUBMIT in stable_button(ctx, "make channel", "Make channel", {.ALIGN_CENTER})
 	if submit && a.new_name_len > 0 {
+		flags: proto.Conv_Flags
+		if a.new_default {
+			flags += {.Default}
+		}
+		if a.new_text_only {
+			flags += {.Text_Only}
+		}
 		command(
 			ui,
 			conn.Create_Channel_Command {
 				name = strings.clone(string(a.new_name_buf[:a.new_name_len])),
 				topic = strings.clone(string(a.new_topic_buf[:a.new_topic_len])),
 				private = a.new_private,
+				flags = flags,
 			},
 		)
 		a.new_name_len, a.new_topic_len = 0, 0
-		a.new_private = false
+		a.new_private, a.new_default, a.new_text_only = false, false, false
 	}
 	if .Manage_Channels not_in v.permissions {
 		channel_admin_notice(ui)
@@ -272,13 +310,19 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	a := &ui.channel_admin
 	home := .Home in ch.flags
 	private := .Private in ch.flags
-	if a.loaded != ch.id || a.loaded_name != ch.name || a.loaded_topic != ch.topic {
+	settable := ch.flags & proto.CONV_SETTABLE_FLAGS
+	if a.loaded != ch.id ||
+	   a.loaded_name != ch.name ||
+	   a.loaded_topic != ch.topic ||
+	   a.loaded_flags != settable {
 		if a.loaded != ch.id {
 			a.confirm = false
 			a.members.page, a.adding.find_len = 0, 0
 			if private {
 				command(ui, conn.Members_Command{conv = ch.id})
 			}
+			a.row_count, a.rights_count = 0, -1
+			command(ui, conn.Conv_Rights_Get_Command{conv = ch.id})
 		}
 		a.loaded = ch.id
 		delete(a.loaded_name)
@@ -286,6 +330,9 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 		a.loaded_name, a.loaded_topic = strings.clone(ch.name), strings.clone(ch.topic)
 		a.name_len = copy(a.name_buf[:], ch.name)
 		a.topic_len = copy(a.topic_buf[:], ch.topic)
+		a.loaded_flags = settable
+		a.is_default = .Default in settable
+		a.text_only = .Text_Only in settable
 	}
 
 	mu.layout_row(ctx, {-1})
@@ -302,14 +349,37 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	case:
 		what = "Anyone can join it. You aren't in it."
 	}
+	if .Default in ch.flags {
+		what = fmt.tprintf("%s New members join it, and can leave.", what)
+	}
+	if .Text_Only in ch.flags {
+		what = fmt.tprintf("%s It has no voice room.", what)
+	}
 	with_text_color(ctx, theme.dim, what, wrap_text)
 
 	field_row(ui, LABEL, "Name", {-1})
 	submit := .SUBMIT in text_box(ui, a.name_buf[:], &a.name_len)
 	field_row(ui, LABEL, "Topic", {-1})
 	submit |= .SUBMIT in text_box(ui, a.topic_buf[:], &a.topic_len)
+	// Only a channel that anyone could join can be default, and the home
+	// channel is more than that.
+	if !home && !private {
+		field_row(ui, LABEL, "", {-1})
+		checkbox(ctx, "Default: new members join it", &a.is_default)
+	}
+	field_row(ui, LABEL, "", {-1})
+	checkbox(ctx, "Text only: no voice room", &a.text_only)
+	flags: proto.Conv_Flags
+	if a.is_default {
+		flags += {.Default}
+	}
+	if a.text_only {
+		flags += {.Text_Only}
+	}
 	changed :=
-		string(a.name_buf[:a.name_len]) != ch.name || string(a.topic_buf[:a.topic_len]) != ch.topic
+		string(a.name_buf[:a.name_len]) != ch.name ||
+		string(a.topic_buf[:a.topic_len]) != ch.topic ||
+		flags != settable
 	field_row(ui, LABEL, "", {100, -1})
 	submit |=
 		.SUBMIT in
@@ -326,9 +396,10 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 			ui,
 			conn.Conv_Update_Command {
 				conv = ch.id,
-				mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC,
+				mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC | proto.CONV_UPDATE_FLAGS,
 				name = strings.clone(string(a.name_buf[:a.name_len])),
 				topic = strings.clone(string(a.topic_buf[:a.topic_len])),
+				flags = flags,
 			},
 		)
 	}
@@ -349,10 +420,205 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 		}
 	}
 	channel_admin_notice(ui)
+	channel_rights(ui, ch, a.text_only)
 
 	if private {
 		channel_members(ui, ch)
 	}
+}
+
+// The grid's columns, by right, in the order they are shown, and how wide each
+// is when there is room for all of them in a row.
+@(private = "file")
+RIGHT_LABELS := [proto.Conv_Right]string {
+	.See    = "See",
+	.Write  = "Write",
+	.Attach = "Attach",
+	.React  = "React",
+	.Edit   = "Edit",
+	.Delete = "Delete",
+	.Voice  = "Voice",
+}
+@(private = "file")
+RIGHT_ORDER := [?]proto.Conv_Right{.See, .Write, .Attach, .React, .Edit, .Delete, .Voice}
+@(private = "file")
+RIGHT_COLUMN :: 58
+@(private = "file")
+ROLE_COLUMN_MIN :: 110
+
+// channel_rights is the channel's rights map: what each role may do there, as
+// a grid of a row per role (everyone last) and a box per right, with its own
+// Save. A box whose right needs another that its row lacks (Edit, Delete and
+// Attach need Write, everything needs See) is dimmer; it still counts, since the
+// account may have the other right through another role. The Voice column is
+// left out for a text-only channel, and everyone always sees the home channel.
+@(private = "file")
+channel_rights :: proc(ui: ^UI, ch: conn.Browse_Entry, text_only: bool) {
+	ctx := &ui.ctx
+	v := ui.view
+	a := &ui.channel_admin
+	home := .Home in ch.flags
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, "")
+	mu.label(ctx, "What each role may do here")
+	m := &v.rights_map
+	if m.conv != ch.id || m.loading {
+		with_text_color(ctx, theme.dim, "  Asking the server...", label_proc)
+		return
+	}
+	if a.rights_count != m.count || a.row_count != len(v.roles) {
+		rights_load(ui, m)
+	}
+	if home {
+		a.cells[a.row_count - 1][proto.Conv_Right.See] = true // everyone, last
+	}
+
+	shown := make([dynamic]proto.Conv_Right, 0, len(proto.Conv_Right), context.temp_allocator)
+	for r in RIGHT_ORDER {
+		if r != .Voice || !text_only {
+			append(&shown, r)
+		}
+	}
+	wide := row_room(ctx) >= ROLE_COLUMN_MIN + i32(len(shown)) * RIGHT_COLUMN
+	widths := make([]i32, len(shown) + 1, context.temp_allocator)
+	widths[0] = -(i32(len(shown)) * (RIGHT_COLUMN + ctx.style.spacing) + 1)
+	for &w in widths[1:] {
+		w = RIGHT_COLUMN
+	}
+	if wide {
+		mu.layout_row(ctx, widths)
+		mu.label(ctx, "")
+		for r in shown {
+			with_text_color(ctx, theme.dim, RIGHT_LABELS[r], label_proc)
+		}
+	}
+	for i in 0 ..< a.row_count {
+		role := a.rows[i]
+		name := "?"
+		for r in v.roles {
+			if r.id == role {
+				name = r.name
+			}
+		}
+		mu.push_id(ctx, uintptr(role))
+		defer mu.pop_id(ctx)
+		row := &a.cells[i]
+		if wide {
+			mu.layout_row(ctx, widths)
+			mu.label(ctx, name)
+		} else {
+			mu.layout_row(ctx, {-1})
+			mu.label(ctx, name)
+		}
+		for r, at in shown {
+			if !wide && at % 3 == 0 {
+				mu.layout_row(ctx, {16, 90, 90, 90})
+				mu.label(ctx, "")
+			}
+			needs := !row[proto.Conv_Right.See] && r != .See
+			needs |= (r == .Edit || r == .Delete || r == .Attach) && !row[proto.Conv_Right.Write]
+			fixed := home && role == proto.EVERYONE_ROLE && r == .See
+			saved := ctx.style.colors[.TEXT]
+			if needs || fixed {
+				ctx.style.colors[.TEXT] = theme.dim
+			}
+			checkbox(ctx, "" if wide else RIGHT_LABELS[r], &row[r])
+			ctx.style.colors[.TEXT] = saved
+			if fixed {
+				row[r] = true
+			}
+		}
+	}
+
+	entries := rights_entries(ui)
+	everyone := proto.conv_rights_settle(
+		rights_of(entries, proto.EVERYONE_ROLE),
+		ch.flags + ({.Text_Only} if text_only else {}),
+	)
+	mu.layout_row(ctx, {-1})
+	with_text_color(
+		ctx,
+		theme.dim,
+		fmt.tprintf(
+			"People with no role can: %s. Users with the 'manage channels' have access to all permissions.",
+			conn.rights_text(everyone),
+		),
+		wrap_text,
+	)
+	changed := len(entries) != len(m.entries)
+	for e in entries {
+		if rights_of(m.entries[:], e.role) != e.rights || !rights_has(m.entries[:], e.role) {
+			changed = true
+		}
+	}
+	field_row(ui, LABEL, "", {120})
+	if .SUBMIT in
+		   stable_button(
+			   ctx,
+			   "save rights",
+			   "Save rights" if changed else "Saved",
+			   {.ALIGN_CENTER},
+		   ) &&
+	   changed {
+		command(ui, conn.Conv_Rights_Set_Command{conv = ch.id, entries = slice.clone(entries)})
+	}
+}
+
+// rights_load fills the grid from the rights map that arrived, with a row for
+// each of the roles there are now.
+@(private = "file")
+rights_load :: proc(ui: ^UI, m: ^conn.View_Rights_Map) {
+	v := ui.view
+	a := &ui.channel_admin
+	a.rights_count = m.count
+	a.row_count = min(len(v.roles), proto.MAX_ROLES)
+	for r, i in v.roles[:a.row_count] {
+		a.rows[i] = r.id
+		rights := rights_of(m.entries[:], r.id)
+		for right in proto.Conv_Right {
+			a.cells[i][right] = right in rights
+		}
+	}
+}
+
+// rights_entries is the grid as a rights map: every role that has a right
+// there, and everyone whatever it has. Allocated with the temp allocator.
+@(private = "file")
+rights_entries :: proc(ui: ^UI) -> []proto.Role_Rights {
+	a := &ui.channel_admin
+	entries := make([dynamic]proto.Role_Rights, 0, a.row_count, context.temp_allocator)
+	for i in 0 ..< a.row_count {
+		rights: proto.Conv_Rights
+		for right in proto.Conv_Right {
+			if a.cells[i][right] {
+				rights += {right}
+			}
+		}
+		if rights != {} || a.rows[i] == proto.EVERYONE_ROLE {
+			append(&entries, proto.Role_Rights{a.rows[i], rights})
+		}
+	}
+	return entries[:]
+}
+
+@(private = "file")
+rights_of :: proc(entries: []proto.Role_Rights, role: proto.Role_Id) -> proto.Conv_Rights {
+	for e in entries {
+		if e.role == role {
+			return e.rights
+		}
+	}
+	return {}
+}
+
+@(private = "file")
+rights_has :: proc(entries: []proto.Role_Rights, role: proto.Role_Id) -> bool {
+	for e in entries {
+		if e.role == role {
+			return true
+		}
+	}
+	return false
 }
 
 // channel_move_buttons move a channel up or down the lists immediately. The

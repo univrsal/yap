@@ -17,9 +17,16 @@ package proto
 //
 // Everything here travels as requests and events (rpc.odin):
 //
-// 	Conv_Create     [name str8][topic str8][private u8]  ->  [conv u32]
+// 	Conv_Create     [name str8][topic str8][private u8][flags u8]  ->  [conv u32]
+// 	                `flags` is optional and may have Default and Text_Only
 // 	Conv_Update     [conv u32][mask u8][name str8][topic str8][position u32]
-// 	                changes the fields that the mask names (CONV_UPDATE_*)
+// 	                [flags u8]
+// 	                changes the fields that the mask names (CONV_UPDATE_*).
+// 	                `flags` is only there with CONV_UPDATE_FLAGS, and sets
+// 	                Default and Text_Only.
+// 	Conv_Rights_Get [conv u32]  ->  rights map
+// 	Conv_Rights_Set [conv u32] rights map   replaces a channel's rights map
+// 	                (both for Manage_Channels only)
 // 	Conv_Delete     [conv u32]   archive a channel, which removes it from every list
 // 	Conv_Member_Set [conv u32][account u32][on u8]   add someone to a
 // 	                channel (as if they had subscribed), or remove them from
@@ -54,11 +61,27 @@ package proto
 // 	conversation  [id u32][kind u8][flags u8][name str8][topic str8]
 // 	              [a u32][b u32][last message u64][member u8]
 // 	              [read u64][unread u16][mentions u16][notify u8]
-// 	              [position u32][last time u64]
+// 	              [position u32][last time u64][rights u8]
+// 	rights map    [count u8]([role u32][rights u8])...
 //
 // A private channel (flag Private) is only for those who were added to it.
 // Nobody else is told about it, can find it or can join its room. An archived
-// channel (Archived, set by Conv_Delete) no longer belongs to anyone.
+// channel (Archived, set by Conv_Delete) no longer belongs to anyone. New
+// accounts are subscribed to a Default channel, but may leave it. A Text_Only
+// channel has no voice room.
+//
+// What an account may do in a channel (Conv_Right) is given by the channel's
+// rights map: the rights each role has there. An account has the rights of all
+// its roles, the everyone role included, and none without See. Edit, Delete
+// and Attach also need Write, and there is no Voice in a Text_Only channel.
+// Attaching files also takes the Attach_Files permission. The owner and
+// those with Manage_Channels have every right everywhere. A new channel's map
+// gives everyone every right. Deleting a role removes it from every map.
+//
+// The `rights` that end a conversation are what the receiver may do there. They
+// are only sent with Conv_Changed, never in a list such as a Conv_Browse page,
+// and a record without them (from an older server) means every right (see
+// conv_rights_default). In a DM both accounts have every right but Voice.
 //
 // When a connection logs in, it is told about every conversation that its
 // account is a member of, between Sync_Begin and Sync_End (accounts.odin).
@@ -104,8 +127,59 @@ Conv_Flag :: enum u8 {
 	Home, // the channel that everyone is in
 	Private, // only for those who were added to it
 	Archived, // deleted as far as anyone can tell
+	Default, // new accounts are subscribed to it
+	Text_Only, // it has no voice room
 }
 Conv_Flags :: distinct bit_set[Conv_Flag;u8]
+
+// The flags that Conv_Create and Conv_Update set besides Private.
+CONV_SETTABLE_FLAGS :: Conv_Flags{.Default, .Text_Only}
+
+// What an account may do in a channel.
+Conv_Right :: enum u8 {
+	See, // find it, subscribe, read it, be notified, see who is in its voice room
+	Write, // post, reply in threads, forward to it, type
+	React, // add and remove one's reactions
+	Edit, // edit one's own messages
+	Delete, // delete one's own messages
+	Voice, // join its voice room
+	Attach, // post messages with files, forward such messages to it
+}
+Conv_Rights :: distinct bit_set[Conv_Right;u8]
+
+CONV_RIGHTS_ALL :: Conv_Rights{.See, .Write, .React, .Edit, .Delete, .Voice, .Attach}
+
+// conv_rights_settle applies the rules between rights: nothing without See,
+// Edit, Delete and Attach only with Write, and no Voice in a Text_Only channel.
+conv_rights_settle :: proc(given: Conv_Rights, flags: Conv_Flags) -> Conv_Rights {
+	rights := given & CONV_RIGHTS_ALL
+	if .See not_in rights {
+		return {}
+	}
+	if .Write not_in rights {
+		rights -= {.Edit, .Delete, .Attach}
+	}
+	if .Text_Only in flags {
+		rights -= {.Voice}
+	}
+	return rights
+}
+
+// conv_rights_default is what a conversation record that doesn't say means:
+// every right there can be.
+conv_rights_default :: proc(kind: Conv_Kind, flags: Conv_Flags) -> Conv_Rights {
+	rights := CONV_RIGHTS_ALL
+	if kind == .DM {
+		rights -= {.Voice}
+	}
+	return conv_rights_settle(rights, flags)
+}
+
+// One role's rights in a channel, an entry of a rights map.
+Role_Rights :: struct {
+	role:   Role_Id,
+	rights: Conv_Rights,
+}
 
 MAX_TOPIC_SIZE :: 128 // bytes of UTF-8
 
@@ -137,6 +211,8 @@ Conv :: struct {
 	position:  int,
 	// The time at which the newest message was posted, or 0 for none.
 	last_time: Unix_Ms,
+	// What the receiver may do there (only sent in Conv_Changed).
+	rights:    Conv_Rights,
 }
 
 CONV_MAX_SIZE ::
@@ -154,7 +230,8 @@ CONV_MAX_SIZE ::
 	2 +
 	1 +
 	4 +
-	8
+	8 +
+	1
 
 @(private = "file")
 put_conv :: proc(w: ^Writer, c: Conv) {
@@ -198,13 +275,15 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 	return
 }
 
-// encode_conv writes one conversation as it is sent in Conv_Changed. It returns
-// nil if it doesn't fit in `out` (CONV_MAX_SIZE is enough for any conversation).
+// encode_conv writes one conversation as it is sent in Conv_Changed, with the
+// receiver's rights. It returns nil if it doesn't fit in `out` (CONV_MAX_SIZE
+// is enough for any conversation).
 encode_conv :: proc(out: []u8, c: Conv) -> []u8 {
 	w := Writer {
 		buf = out,
 	}
 	put_conv(&w, c)
+	put_u8(&w, transmute(u8)c.rights)
 	return nil if w.overflow else out[:w.pos]
 }
 
@@ -216,6 +295,11 @@ decode_conv :: proc(body: []u8) -> (c: Conv, ok: bool) {
 	c = get_conv(&r)
 	if r.overflow || c.id == 0 {
 		return {}, false
+	}
+	if r.pos < len(r.buf) {
+		c.rights = conv_rights_settle(transmute(Conv_Rights)get_u8(&r), c.flags)
+	} else {
+		c.rights = conv_rights_default(c.kind, c.flags)
 	}
 	return c, true
 }
@@ -339,6 +423,7 @@ decode_conv_list :: proc(body: []u8, convs_buf: []Conv) -> (convs: []Conv, ok: b
 	}
 	for &c in convs_buf[:count] {
 		c = get_conv(&r)
+		c.rights = conv_rights_default(c.kind, c.flags)
 	}
 	if r.overflow {
 		return
@@ -346,26 +431,44 @@ decode_conv_list :: proc(body: []u8, convs_buf: []Conv) -> (convs: []Conv, ok: b
 	return convs_buf[:count], true
 }
 
-CONV_CREATE_MAX_SIZE :: (1 + 255) + (1 + 255) + 1
+CONV_CREATE_MAX_SIZE :: (1 + 255) + (1 + 255) + 1 + 1
 
-encode_conv_create :: proc(out: []u8, name, topic: string, private: bool) -> []u8 {
+// encode_conv_create writes a Conv_Create request. `flags` may have Default
+// and Text_Only, and is left out when it has neither, so that an older server
+// understands it.
+encode_conv_create :: proc(
+	out: []u8,
+	name, topic: string,
+	private: bool,
+	flags := Conv_Flags{},
+) -> []u8 {
 	w := Writer {
 		buf = out,
 	}
 	put_str8(&w, name)
 	put_str8(&w, topic)
 	put_u8(&w, u8(private))
+	if flags & CONV_SETTABLE_FLAGS != {} {
+		put_u8(&w, transmute(u8)(flags & CONV_SETTABLE_FLAGS))
+	}
 	return nil if w.overflow else out[:w.pos]
 }
 
-decode_conv_create :: proc(body: []u8) -> (name, topic: string, private: bool, ok: bool) {
+// decode_conv_create reads a Conv_Create request. `flags` has Private if the
+// channel is to be private, and whichever of CONV_SETTABLE_FLAGS were asked for.
+decode_conv_create :: proc(body: []u8) -> (name, topic: string, flags: Conv_Flags, ok: bool) {
 	r := Reader {
 		buf = body,
 	}
 	name = get_str8(&r)
 	topic = get_str8(&r)
-	private = get_u8(&r) != 0
-	return name, topic, private, !r.overflow
+	if get_u8(&r) != 0 {
+		flags += {.Private}
+	}
+	if !r.overflow && r.pos < len(r.buf) {
+		flags += transmute(Conv_Flags)get_u8(&r) & CONV_SETTABLE_FLAGS
+	}
+	return name, topic, flags, !r.overflow
 }
 
 // A body that consists of one conversation's id, such as Conv_Members,
@@ -548,7 +651,8 @@ decode_read_changed :: proc(body: []u8) -> (s: Read_State, ok: bool) {
 CONV_UPDATE_NAME :: 1 << 0
 CONV_UPDATE_TOPIC :: 1 << 1
 CONV_UPDATE_POSITION :: 1 << 2
-CONV_UPDATE_ALL :: CONV_UPDATE_NAME | CONV_UPDATE_TOPIC | CONV_UPDATE_POSITION
+CONV_UPDATE_FLAGS :: 1 << 3
+CONV_UPDATE_ALL :: CONV_UPDATE_NAME | CONV_UPDATE_TOPIC | CONV_UPDATE_POSITION | CONV_UPDATE_FLAGS
 
 Conv_Update :: struct {
 	conv:     Conv_Id,
@@ -556,9 +660,10 @@ Conv_Update :: struct {
 	name:     string,
 	topic:    string,
 	position: int,
+	flags:    Conv_Flags, // with CONV_UPDATE_FLAGS: which of CONV_SETTABLE_FLAGS it has
 }
 
-CONV_UPDATE_MAX_SIZE :: 4 + 1 + (1 + 255) + (1 + 255) + 4
+CONV_UPDATE_MAX_SIZE :: 4 + 1 + (1 + 255) + (1 + 255) + 4 + 1
 
 encode_conv_update :: proc(out: []u8, u: Conv_Update) -> []u8 {
 	w := Writer {
@@ -569,6 +674,9 @@ encode_conv_update :: proc(out: []u8, u: Conv_Update) -> []u8 {
 	put_str8(&w, u.name)
 	put_str8(&w, u.topic)
 	put_u32(&w, u32(u.position))
+	if u.mask & CONV_UPDATE_FLAGS != 0 {
+		put_u8(&w, transmute(u8)(u.flags & CONV_SETTABLE_FLAGS))
+	}
 	return nil if w.overflow else out[:w.pos]
 }
 
@@ -581,6 +689,9 @@ decode_conv_update :: proc(body: []u8) -> (u: Conv_Update, ok: bool) {
 	u.name = get_str8(&r)
 	u.topic = get_str8(&r)
 	u.position = int(get_u32(&r))
+	if u.mask & CONV_UPDATE_FLAGS != 0 {
+		u.flags = transmute(Conv_Flags)get_u8(&r) & CONV_SETTABLE_FLAGS
+	}
 	return u, !r.overflow && u.mask & ~u8(CONV_UPDATE_ALL) == 0
 }
 
@@ -616,4 +727,75 @@ decode_conv_member_set :: proc(
 	account = Account_Id(get_u32(&r))
 	on = get_u8(&r) != 0
 	return conv, account, on, !r.overflow
+}
+
+// A rights map has at most one entry per role.
+RIGHTS_MAP_MAX_SIZE :: 1 + (4 + 1) * MAX_ROLES
+CONV_RIGHTS_SET_MAX_SIZE :: 4 + RIGHTS_MAP_MAX_SIZE
+
+@(private = "file")
+put_rights_map :: proc(w: ^Writer, entries: []Role_Rights) {
+	put_u8(w, u8(min(len(entries), 255)))
+	for e in entries {
+		put_u32(w, u32(e.role))
+		put_u8(w, transmute(u8)(e.rights & CONV_RIGHTS_ALL))
+	}
+}
+
+@(private = "file")
+get_rights_map :: proc(r: ^Reader, buf: []Role_Rights) -> (entries: []Role_Rights, ok: bool) {
+	count := int(get_u8(r))
+	if r.overflow || count > len(buf) {
+		return
+	}
+	for &e in buf[:count] {
+		e.role = Role_Id(get_u32(r))
+		e.rights = transmute(Conv_Rights)get_u8(r) & CONV_RIGHTS_ALL
+	}
+	return buf[:count], !r.overflow
+}
+
+// encode_rights_map writes the answer to Conv_Rights_Get.
+encode_rights_map :: proc(out: []u8, entries: []Role_Rights) -> []u8 {
+	w := Writer {
+		buf = out,
+	}
+	put_rights_map(&w, entries)
+	return nil if w.overflow || len(entries) > MAX_ROLES else out[:w.pos]
+}
+
+// decode_rights_map reads the answer to Conv_Rights_Get into `buf`.
+decode_rights_map :: proc(body: []u8, buf: []Role_Rights) -> (entries: []Role_Rights, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	entries, ok = get_rights_map(&r, buf)
+	return entries, ok && r.pos == len(body)
+}
+
+encode_conv_rights_set :: proc(out: []u8, conv: Conv_Id, entries: []Role_Rights) -> []u8 {
+	w := Writer {
+		buf = out,
+	}
+	put_u32(&w, u32(conv))
+	put_rights_map(&w, entries)
+	return nil if w.overflow || len(entries) > MAX_ROLES else out[:w.pos]
+}
+
+// decode_conv_rights_set reads a Conv_Rights_Set request. The entries are
+// written to `buf`.
+decode_conv_rights_set :: proc(
+	body: []u8,
+	buf: []Role_Rights,
+) -> (
+	conv: Conv_Id,
+	entries: []Role_Rights,
+	ok: bool,
+) {
+	r := Reader {
+		buf = body,
+	}
+	conv = Conv_Id(get_u32(&r))
+	entries, ok = get_rights_map(&r, buf)
+	return conv, entries, ok && r.pos == len(body)
 }

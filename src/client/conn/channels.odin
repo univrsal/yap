@@ -420,6 +420,10 @@ Command :: union {
 	Account_Delete_Command,
 	Role_Order_Command,
 	Conv_Update_Command,
+	Conv_Rights_Get_Command,
+	Conv_Rights_Set_Command,
+	Conv_Rights_Text_Command,
+	Conv_Flag_Command,
 	Conv_Delete_Command,
 	Conv_Member_Command,
 	Roles_Command,
@@ -504,6 +508,10 @@ command_destroy :: proc(cmd: Command) {
 	case Conv_Update_Command:
 		delete(v.name)
 		delete(v.topic)
+	case Conv_Rights_Set_Command:
+		delete(v.entries)
+	case Conv_Rights_Text_Command:
+		delete(v.text)
 	case Conv_Member_Command:
 		delete(v.name)
 	case Call_Command:
@@ -592,7 +600,7 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Subscribe_Command:
 			conv_subscribe_command(c, v)
 		case Create_Channel_Command:
-			conv_create(c, v.name, v.topic, v.private)
+			conv_create(c, v.name, v.topic, v.private, v.flags)
 		case Reading_Command:
 			conv_reading(c, v.conv)
 		case Notify_Command:
@@ -656,6 +664,14 @@ process_commands :: proc(c: ^Voice_Client) {
 			role_order(c, v)
 		case Conv_Update_Command:
 			conv_update(c, v)
+		case Conv_Rights_Get_Command:
+			conv_rights_fetch(c, v.conv if v.conv != 0 else c.convs.viewing)
+		case Conv_Rights_Set_Command:
+			conv_rights_set(c, v)
+		case Conv_Rights_Text_Command:
+			conv_rights_text_set(c, v)
+		case Conv_Flag_Command:
+			conv_flag_set(c, v)
 		case Conv_Delete_Command:
 			conv_delete(c, v.conv)
 		case Conv_Member_Command:

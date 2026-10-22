@@ -226,7 +226,7 @@ register_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 	acc := account_add(&s.accounts, p.username, p.display, result.made, {})
 	if acc == nil ||
 	   (p.email != "" && !account_set_email(&s.accounts, acc, p.email)) ||
-	   !conv_member_add(&s.convs, s.convs.home, acc.id) {
+	   !account_join_defaults(&s.convs, acc) {
 		respond(u, p.request, .Internal)
 		return
 	}

@@ -26,6 +26,10 @@ import "common:proto"
 // (Mentionable) is up to whoever may change the role. The everyone role can
 // never be mentioned.
 //
+// What a role may do in a channel is up to that channel's rights map (see
+// conv_rights in convs.odin), so a change to roles is followed by
+// channel_access_changed.
+//
 // Like the accounts, there are only a few roles and all of them are kept in
 // memory.
 
@@ -367,6 +371,11 @@ role_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Internal)
 		return
 	}
+	// It leaves every channel's rights map (see conv_rights).
+	if !conv_rights_role_gone(&s.convs, role_id) {
+		respond(u, id, .Internal)
+		return
+	}
 	q = db_stmt(a.db, .Role_Delete)
 	db_bind_int(q, 1, i64(role_id))
 	if !db_run(a.db, q) {
@@ -393,6 +402,7 @@ role_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			send_event(other, .Role_Removed, gone)
 		}
 	}
+	channel_access_changed(s)
 }
 
 @(private = "file")
@@ -444,6 +454,8 @@ account_roles_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	log.infof("%s gave %s %d role(s)", conn_label(u), target.username, len(roles))
 	respond(u, id, .Ok)
 	account_changed(s, target)
+	// What the account may do in channels comes from its roles.
+	channel_access_changed(s)
 }
 
 @(private = "file")
@@ -504,6 +516,9 @@ roles_changed :: proc(s: ^Server, r: ^Role) {
 			send_self(other)
 		}
 	}
+	// Manage_Channels, given or taken away, decides what may be done in every
+	// channel.
+	channel_access_changed(s)
 }
 
 // send_roles sends every role to a connection that just logged in (see

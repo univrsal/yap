@@ -131,6 +131,13 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 				break
 			}
 		}
+		// Where we may not write, a line saying so takes the composer's place.
+		if .Write not_in rights_here(v) {
+			mu.layout_row(ctx, {-1}, -(read_only_height(ctx) + ctx.style.spacing + 1))
+			timeline(ui, &ui.timeline, {v.viewing, 0})
+			read_only_line(ui)
+			break
+		}
 		// Leave room for the input row below, and for the files above it.
 		input_h := composer_height(ui, composer_of(ui, 0))
 		width := panel_width(ctx)
@@ -147,6 +154,19 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	case .Video:
 		video_panel(ui)
 	}
+}
+
+// read_only_height is how tall read_only_line is.
+read_only_height :: proc(ctx: ^mu.Context) -> i32 {
+	return ctx.style.size.y + 2 * ctx.style.padding
+}
+
+// read_only_line is what is shown instead of a composer in a channel we may
+// not write in.
+read_only_line :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	mu.layout_row(ctx, {-1}, read_only_height(ctx))
+	with_text_color(ctx, theme.dim, "You can't write in this channel.", label_proc)
 }
 
 // side_tabs_shown says whether the chat has tabs beside it: while there is a
