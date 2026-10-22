@@ -87,6 +87,26 @@ avatar_column :: proc(ui: ^UI) -> i32 {
 	return avatar_size(&ui.ctx) + 8 if ui.settings.chat_pictures else COMPACT_DOT_COLUMN
 }
 
+// A message's time (chat_time) comes first, in a column of its own before the
+// picture's, as wide as the longest time the locale writes (an older day's,
+// with the date), so that the messages line up whatever day they are from.
+time_column :: proc(ui: ^UI) -> i32 {
+	ctx := &ui.ctx
+	longest := datetime.DateTime {
+		date = {year = 2088, month = 12, day = 28},
+		time = {hour = 22, minute = 58},
+	}
+	return ctx.text_width(ctx.style.font, date_time_text(ui.date_style, longest, false)) + TIME_GAP
+}
+@(private = "file")
+TIME_GAP :: 10
+
+// message_column is how far in from the timeline's edge (or a reply's
+// indent) the messages' headers and text start: past the time and the picture.
+message_column :: proc(ui: ^UI) -> i32 {
+	return time_column(ui) + avatar_column(ui)
+}
+
 @(private = "file")
 COMPACT_DOT_COLUMN :: 14
 // How far beyond the panel's edges messages are still laid out, in screens.
@@ -453,11 +473,11 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	start := layout.next_row
 	last_id := i64(msgs[n - 1].id) if n > 0 else 0
 	// Our messages on their way, in the messages' column.
-	layout.indent += avatar_column(ui)
+	layout.indent += message_column(ui)
 	for p, i in pending {
 		pending_message(ui, p, (last_id + 1 + i64(i)) * ITEMS_PER_MESSAGE)
 	}
-	layout.indent -= avatar_column(ui)
+	layout.indent -= message_column(ui)
 	outbox_grew := layout.next_row - start != st.outbox_h
 	st.outbox_h = layout.next_row - start
 	mu.layout_end_column(ctx)
@@ -758,7 +778,7 @@ message_height :: proc(
 	replies := m.reply_count if has_thread_line(st, m) else 0
 	// The cache is for the timeline's width. A reply is laid out narrower, by
 	// its indent.
-	width := full - (REPLY_INDENT if is_indented(st, m) else 0) - avatar_column(ui)
+	width := full - (REPLY_INDENT if is_indented(st, m) else 0) - message_column(ui)
 	_, l, _, _ := map_entry(&st.layouts, m.id)
 	shown, _, _, _ := message_text(ui, m.text)
 	changing := m.kind == .File || len(m.reactions) > 0 || len(m.files) > 0
@@ -864,7 +884,7 @@ timeline_message :: proc(
 	}
 	// A reply is indented: everything of it from here on.
 	indent: i32 = REPLY_INDENT if is_indented(st, m) else 0
-	column := avatar_column(ui)
+	column := message_column(ui)
 	width := full - indent - column
 	mu.get_layout(ctx).indent += indent + column
 	defer mu.get_layout(ctx).indent -= indent + column
@@ -881,34 +901,37 @@ timeline_message :: proc(
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display
 	}
-	stamp := "" if merged else chat_time(ui, seconds)
 	// Their name opens their menu, unless it is ours.
 	ui.header_sender = 0
 	if !merged && m.sender != v.me {
 		ui.header_sender = m.sender
-		ui.header_name = {len(stamp) + 2, len(stamp) + 2 + len(name)}
+		ui.header_name = {0, len(name)}
 	}
 	defer ui.header_sender = 0
 	// Room for a bot's tag after the name, which selectable_header draws.
 	bot_room := ""
 	ui.header_bot = 0
 	if !merged && is_bot(v, m.sender) {
-		ui.header_bot = len(stamp) + 2 + len(name)
+		ui.header_bot = len(name)
 		bot_room = header_room(ctx, bot_tag_width(ctx))
 	}
 	defer ui.header_bot = 0
 	header :=
-		"" if merged else fmt.tprintf("%s  %s%s%s%s%s", stamp, name, bot_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
+		"" if merged else fmt.tprintf("%s%s%s%s%s", name, bot_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
 	header_color := author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
-		// The picture, beside the header (which comes after the gap), or in
-		// the compact chat, the dot beside it.
+		// The time on the header's line (which comes after the gap), then the
+		// picture beside the header, or in the compact chat, the dot.
 		layout := mu.get_layout(ctx)
 		y := layout.body.y + layout.next_row + (MERGED_GAP if tight else ctx.style.spacing)
+		x := layout.body.x + indent
+		stamp := chat_time(ui, seconds)
+		mu.draw_text(ctx, ctx.style.font, stamp, {x, y}, ctx.style.colors[.TEXT])
+		x += time_column(ui)
 		if ui.settings.chat_pictures {
 			size := avatar_size(ctx)
-			pic := mu.Rect{layout.body.x + indent, y, size, size}
+			pic := mu.Rect{x, y, size, size}
 			avatar(ui, m.sender, pic)
 			if m.sender != v.me && mu.mouse_over(ctx, pic) {
 				ui.chat.hovering = true // shows a hand, as over a link
@@ -920,7 +943,7 @@ timeline_message :: proc(
 			activity_dot_alone(
 				ui,
 				m.sender,
-				{layout.body.x + indent, y, COMPACT_DOT_COLUMN, ctx.text_height(ctx.style.font)},
+				{x, y, COMPACT_DOT_COLUMN, ctx.text_height(ctx.style.font)},
 			)
 		}
 	}

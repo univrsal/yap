@@ -216,6 +216,7 @@ UI :: struct {
 	// For the chat's local timestamps, for every server. nil means UTC
 	// (see ui_chat_time_native.odin).
 	chat_tz:             ^datetime.TZ_Region,
+	date_style:          Date_Style, // how dates and times are written (chat_time)
 	activity:            UI_Activity, // whether whoever uses this is idle (ui_activity.odin)
 	video:               UI_Video, // screen sharing (ui_video.odin)
 	camera:              UI_Camera, // our camera and calls' video (ui_camera.odin)

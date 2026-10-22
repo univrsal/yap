@@ -52,6 +52,7 @@ UI_Chat :: struct {
 
 ui_chat_init :: proc(ui: ^UI) {
 	chat_load_timezone(ui)
+	ui.date_style = date_style_of(platform.locale_name())
 }
 
 // ui_chat_destroy frees what the chat keeps that doesn't belong to one server.
@@ -545,9 +546,10 @@ typing_text :: proc(v: ^conn.View, root: proto.Msg_Id = 0) -> string {
 	}
 }
 
-// chat_time formats a message's time in the local time zone: the time of day
-// for today's messages, and the date as well for older ones. The buddy screen
-// uses it too, for when someone was last online.
+// chat_time formats a message's time in the local time zone, as the locale
+// writes it (Date_Style): the time of day for today's messages, and the
+// date in short as well for older ones. The buddy screen uses it too, for when
+// someone was last online.
 chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 	local :: proc(ui: ^UI, t: time.Time) -> datetime.DateTime {
 		dt, _ := time.time_to_datetime(t)
@@ -555,10 +557,121 @@ chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 	}
 	dt := local(ui, time.unix(i64(unix), 0))
 	now := local(ui, time.now())
-	if dt.date == now.date {
-		return fmt.tprintf("%02d:%02d", dt.hour, dt.minute)
+	return date_time_text(ui.date_style, dt, dt.date == now.date)
+}
+
+// How the locale writes a date in short and a time of day: the order of the
+// day, month and year, what goes between them, and whether the clock has
+// twelve hours with AM and PM.
+Date_Order :: enum {
+	DMY, // 31/9/26
+	MDY, // 9/31/26
+	YMD, // 2026-9-31
+}
+
+Date_Style :: struct {
+	order:  Date_Order,
+	sep:    u8,
+	hour12: bool,
+}
+
+// date_style_of works out a Date_Style from a locale's name, as the system
+// gives it ("en_US.UTF-8", "en-US", "de"). Without one, or for one it doesn't
+// know, it is the day first and a 24 hour clock.
+date_style_of :: proc(locale: string) -> (style: Date_Style) {
+	name := strings.to_lower(locale, context.temp_allocator)
+	if i := strings.index_any(name, ".@"); i >= 0 {
+		name = name[:i]
 	}
-	return fmt.tprintf("%d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute)
+	lang, region := name, ""
+	if i := strings.index_any(name, "_-"); i >= 0 {
+		lang, region = name[:i], name[i + 1:]
+	}
+	has :: proc(list: []string, s: string) -> bool {
+		for l in list {
+			if l == s {
+				return true
+			}
+		}
+		return false
+	}
+	style = {.DMY, '/', false}
+	switch {
+	case (lang == "en" && has({"", "us", "ph"}, region)) || (lang == "es" && region == "us"):
+		style.order = .MDY
+	case has({"zh", "ja"}, lang):
+		style.order = .YMD
+	case has({"ko", "hu", "lt", "sv", "mn"}, lang) || (region == "ca" && has({"en", "fr"}, lang)):
+		style.order, style.sep = .YMD, '-'
+	case has(
+		     {
+			     "de",
+			     "ru",
+			     "pl",
+			     "fi",
+			     "cs",
+			     "sk",
+			     "nb",
+			     "nn",
+			     "no",
+			     "da",
+			     "tr",
+			     "uk",
+			     "ro",
+			     "hr",
+			     "sl",
+			     "sr",
+			     "bg",
+			     "et",
+			     "lv",
+			     "is",
+			     "be",
+			     "kk",
+			     "az",
+		     },
+		     lang,
+	     ):
+		style.sep = '.'
+	case lang == "nl":
+		style.sep = '-'
+	}
+	style.hour12 =
+		(lang == "en" && has({"", "us", "ca", "au", "nz", "in", "ph"}, region)) ||
+		(lang == "es" && region == "us") ||
+		has({"hi", "ko"}, lang)
+	return
+}
+
+// date_time_text writes `dt` as `style` says: only the time of day with
+// `today`, otherwise the date in short before it (with the year's last two
+// digits, or all four when the year comes first).
+date_time_text :: proc(style: Date_Style, dt: datetime.DateTime, today: bool) -> string {
+	clock: string
+	if style.hour12 {
+		h := dt.hour % 12
+		clock = fmt.tprintf(
+			"%d:%02d %s",
+			12 if h == 0 else h,
+			dt.minute,
+			"PM" if dt.hour >= 12 else "AM",
+		)
+	} else {
+		clock = fmt.tprintf("%02d:%02d", dt.hour, dt.minute)
+	}
+	if today {
+		return clock
+	}
+	s := rune(style.sep)
+	date: string
+	switch style.order {
+	case .DMY:
+		date = fmt.tprintf("%d%r%d%r%02d", dt.day, s, dt.month, s, dt.year % 100)
+	case .MDY:
+		date = fmt.tprintf("%d%r%d%r%02d", dt.month, s, dt.day, s, dt.year % 100)
+	case .YMD:
+		date = fmt.tprintf("%d%r%d%r%d", dt.year, s, dt.month, s, dt.day)
+	}
+	return fmt.tprintf("%s %s", date, clock)
 }
 
 // chat_same_minute says whether two messages are shown as part of the same

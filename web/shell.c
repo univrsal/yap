@@ -560,6 +560,15 @@ EM_JS(int, yap_utc_offset_minutes, (), {
 	return -new Date().getTimezoneOffset();
 });
 
+/* The browser's language, for how dates and times are written (see
+   src/client/platform/locale_web.odin). */
+EM_JS(int, yap_locale, (char *buf, int buf_size), {
+	const name = navigator.language || "";
+	if (lengthBytesUTF8(name) + 1 > buf_size) return 0;
+	stringToUTF8(name, buf, buf_size);
+	return lengthBytesUTF8(name);
+});
+
 /* A browser notification (see src/client/ui_notices.odin), if the page
    may show them. Browsers only let a page ask while it's handling a
    click or a tap, so the first time one would be shown the page asks on
