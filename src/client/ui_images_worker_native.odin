@@ -17,7 +17,7 @@ import "client:conn"
 // (ui_images_anim_native.odin) belong to the thread alone.
 Decode_Worker :: struct {
 	thread: ^thread.Thread,
-	anims:  map[u64]Anim_Source,
+	anims:  map[Image_Key]Anim_Source,
 }
 
 decode_worker_start :: proc(ui: ^UI) {
@@ -95,7 +95,7 @@ decode_job :: proc(w: ^Decode_Worker, job: Decode_Job) -> Decode_Result {
 	defer delete(job.jpeg)
 	image, err := clipboard.decode(job.jpeg)
 	if err != .None {
-		log.debugf("image %d could not be decoded: %v", job.id, err)
+		log.debugf("image %v could not be decoded: %v", job.id, err)
 	}
 	result := Decode_Result {
 		id         = job.id,
@@ -133,7 +133,7 @@ shrink :: proc(result: ^Decode_Result, max_side: int) {
 		   3, // straight alpha
 		   0,
 	   ) == 0 {
-		log.debugf("image %d could not be scaled down", result.id)
+		log.debugf("image %v could not be scaled down", result.id)
 		delete(small)
 		return
 	}

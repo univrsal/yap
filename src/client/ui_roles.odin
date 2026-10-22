@@ -33,9 +33,11 @@ UI_Roles :: struct {
 	perms:       proto.Permissions,
 	color:       u32,
 	flags:       proto.Role_Flags,
-	// Delete was pressed once, and the list of people to give the role to is open.
+	// Delete was pressed once.
 	confirm:     bool,
-	adding:      bool,
+	// Who has the picked role, and finding someone to give it to.
+	holders:     Pager,
+	giving:      Pager,
 	new_buf:     [proto.MAX_ROLE_NAME]u8,
 	new_len:     int,
 	// A notice that the server sent before the category was picked isn't
@@ -219,9 +221,9 @@ roles_settings :: proc(ui: ^UI) {
 			return
 		}
 		mu.layout_row(ctx, {40, -1})
-		if .SUBMIT in stable_button_hint(ui, "to role list", "<", "Roles", {.ALIGN_CENTER}) {
+		if .SUBMIT in icon_button(ui, "to role list", .Back, "Roles") {
 			r.role = 0
-			r.confirm, r.adding = false, false
+			r.confirm, r.holders, r.giving = false, {}, {}
 		}
 		mu.label(ctx, role.name)
 		mu.layout_row(ctx, {-1}, -1)
@@ -287,7 +289,7 @@ role_list :: proc(ui: ^UI) {
 		}
 		if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
 			r.role = role.id
-			r.confirm, r.adding = false, false
+			r.confirm, r.holders, r.giving = false, {}, {}
 		}
 	}
 	mu.layout_row(ctx, {-1})
@@ -351,7 +353,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		mentionable := .Mentionable in r.flags
 		mu.layout_row(ctx, {-1})
 		if editable {
-			if .CHANGE in mu.checkbox(ctx, "Can be mentioned with @name", &mentionable) {
+			if .CHANGE in checkbox(ctx, "Can be mentioned with @name", &mentionable) {
 				r.flags ~= {.Mentionable}
 			}
 		} else {
@@ -394,7 +396,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 			continue
 		}
 		mu.layout_row(ctx, {-1})
-		if .CHANGE in mu.checkbox(ctx, PERMISSION_TEXT[p], &on) {
+		if .CHANGE in checkbox(ctx, PERMISSION_TEXT[p], &on) {
 			if on {
 				r.perms += {p}
 			} else {
@@ -529,72 +531,44 @@ move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 	command(ui, cmd)
 }
 
-// role_members is who has a role, with buttons to take it from them and to
-// give it to others when we may give it.
+// role_members is who has a role, a page at a time, with buttons to take it
+// from them and a box to find others to give it to, when we may give it.
 @(private = "file")
 role_members :: proc(ui: ^UI, role: conn.View_Role, editable: bool) {
 	ctx := &ui.ctx
 	v := ui.view
 	r := &ui.roles
-	ids, _ := slice.map_keys(v.accounts, context.temp_allocator)
-	slice.sort(ids)
+	holders := make([dynamic]proto.Account_Id, context.temp_allocator)
+	others := make([dynamic]proto.Account_Id, context.temp_allocator)
+	for id, acc in v.accounts {
+		switch {
+		case .Deleted in acc.flags:
+		case slice.contains(acc.roles, role.id):
+			append(&holders, id)
+		case .Owner not_in acc.flags && len(acc.roles) < proto.MAX_ACCOUNT_ROLES:
+			append(&others, id)
+		}
+	}
 
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "")
 	mu.label(ctx, "Who has it")
-	any := false
-	for id in ids {
-		acc := v.accounts[id]
-		if .Deleted in acc.flags || !slice.contains(acc.roles, role.id) {
-			continue
-		}
-		any = true
-		mu.push_id(ctx, uintptr(id))
-		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-(90 + ctx.style.spacing + 1), 90})
-		mu.label(ctx, fmt.tprintf("  %s  @%s", acc.display, acc.username))
-		if !editable {
-			mu.label(ctx, "")
-		} else if .SUBMIT in stable_button(ctx, "take", "Take it", {.ALIGN_CENTER}) {
-			give(ui, id, acc, role.id, false)
-		}
+	allowed: []bool
+	if !editable {
+		allowed = make([]bool, len(holders), context.temp_allocator) // none
 	}
-	if !any {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "  Nobody yet.", label_proc)
+	if take := people_list(ui, &r.holders, holders[:], "Take it", allowed); take != 0 {
+		give(ui, take, v.accounts[take], role.id, false)
 	}
 	if !editable {
 		return
 	}
 
-	mu.layout_row(ctx, {140})
-	if .SUBMIT in
-	   stable_button(ctx, "give", "Hide" if r.adding else "Give it to...", {.ALIGN_CENTER}) {
-		r.adding = !r.adding
-	}
-	if !r.adding {
-		return
-	}
-	others := false
-	for id in ids {
-		acc := v.accounts[id]
-		if acc.flags & {.Deleted, .Owner} != {} ||
-		   slice.contains(acc.roles, role.id) ||
-		   len(acc.roles) >= proto.MAX_ACCOUNT_ROLES {
-			continue
-		}
-		others = true
-		mu.push_id(ctx, uintptr(id))
-		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-(90 + ctx.style.spacing + 1), 90})
-		mu.label(ctx, fmt.tprintf("  %s  @%s", acc.display, acc.username))
-		if .SUBMIT in stable_button(ctx, "add", "Give", {.ALIGN_CENTER}) {
-			give(ui, id, acc, role.id, true)
-		}
-	}
-	if !others {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "  Nobody else to give it to.", label_proc)
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, "")
+	mu.label(ctx, "Give it to")
+	if to := people_finder(ui, &r.giving, others[:], "Give"); to != 0 {
+		give(ui, to, v.accounts[to], role.id, true)
 	}
 }
 

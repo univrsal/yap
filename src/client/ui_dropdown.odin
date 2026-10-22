@@ -1,5 +1,6 @@
 package client
 
+import "base:intrinsics"
 import "core:fmt"
 import mu "vendor:microui"
 
@@ -36,13 +37,19 @@ DROPDOWN_POPUP :: "dropdown list"
 @(private = "file")
 DROPDOWN_MIN_WIDTH :: 200
 
+// How wide a dropdown of a setting's choices is (choice_dropdown), in a
+// field_row.
+CHOICE_WIDTH :: 220
+
 // dropdown draws a dropdown that shows `label`, choosing from `items` with
-// `current` marked. It returns the index of the item picked, if one was.
+// `current` marked, and `hint` while the pointer is on it. It returns the
+// index of the item picked, if one was.
 dropdown :: proc(
 	ui: ^UI,
 	id_name, label: string,
 	items: []Dropdown_Item,
 	current: int,
+	hint := "",
 ) -> (
 	picked: int,
 	ok: bool,
@@ -60,6 +67,9 @@ dropdown :: proc(
 	text.w -= r.h
 	mu.draw_control_text(ctx, label, text, .TEXT, {})
 	mu.draw_icon(ctx, .EXPANDED, {r.x + r.w - r.h, r.y, r.h, r.h}, ctx.style.colors[.TEXT])
+	if hint != "" && ctx.hover_id == id {
+		ui.hint, ui.hint_of = hint, r
+	}
 	if d.open == id {
 		d.anchor, d.items, d.current, d.frame = r, items, current, ctx.frame
 	}
@@ -68,6 +78,57 @@ dropdown :: proc(
 		d.picked_id = 0
 	}
 	return
+}
+
+// choice_dropdown is a dropdown of a setting's choices, `labels`, showing the
+// current one, or `none` while there is none (`current` -1). It returns the
+// choice picked, if one was other than the current one.
+choice_dropdown :: proc(
+	ui: ^UI,
+	id_name: string,
+	labels: []string,
+	current: int,
+	hint := "",
+	none := "",
+) -> (
+	picked: int,
+	ok: bool,
+) {
+	items := make([]Dropdown_Item, len(labels), context.temp_allocator)
+	for l, i in labels {
+		items[i] = {
+			label = l,
+		}
+	}
+	label := labels[current] if current >= 0 && current < len(labels) else none
+	picked, ok = dropdown(ui, id_name, label, items, current, hint)
+	return picked, ok && picked != current
+}
+
+// enum_dropdown is choice_dropdown for a setting that is an enum, with a label
+// for each of its values.
+enum_dropdown :: proc(
+	ui: ^UI,
+	id_name: string,
+	labels: [$E]string,
+	current: E,
+	hint := "",
+) -> (
+	picked: E,
+	ok: bool,
+) where intrinsics.type_is_enum(E) {
+	names := make([dynamic]string, 0, len(E), context.temp_allocator)
+	values := make([dynamic]E, 0, len(E), context.temp_allocator)
+	at := -1
+	for label, value in labels {
+		if value == current {
+			at = len(names)
+		}
+		append(&names, label)
+		append(&values, value)
+	}
+	i := choice_dropdown(ui, id_name, names[:], at, hint) or_return
+	return values[i], true
 }
 
 // dropdown_popup draws the open dropdown's list. The list is closed by
@@ -90,9 +151,10 @@ dropdown_popup :: proc(ui: ^UI, w, h: i32) {
 		d.requested = false
 		mu.open_popup(ctx, DROPDOWN_POPUP)
 		cnt := mu.get_container(ctx, DROPDOWN_POPUP)
-		// As microui lays a row out: its size and padding, then the spacing.
+		// As microui lays a row out: its size and padding, then the spacing,
+		// which the last row doesn't need. The window's padding is around them.
 		row := ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing
-		want := i32(len(d.items)) * row + 2 * ctx.style.padding + ctx.style.spacing
+		want := i32(len(d.items)) * row - ctx.style.spacing + 2 * ctx.style.padding
 		width := max(d.anchor.w, DROPDOWN_MIN_WIDTH)
 		below := h - (d.anchor.y + d.anchor.h)
 		above := d.anchor.y

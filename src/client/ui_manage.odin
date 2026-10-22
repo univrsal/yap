@@ -8,18 +8,17 @@ import "core:time"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:render"
 import "common:proto"
 
 // Server management for users who have the required permissions
 // (see conn/roles.odin). Every control is only shown to users who have the
 // permission it needs, and the server checks the permission again.
 //
-//   - A channel's settings in the Channels window: its name, topic and
-//     position in the list, and deleting it (Manage_Channels). For a private
-//     channel, also removing members.
+//   - The channels, in the settings' Channels (ui_channel_settings.odin).
 //   - Adding people to a channel in the members window (needs Invite and
 //     membership of the channel).
-//   - The roles, in their own window (ui_roles.odin).
+//   - The roles, in the settings' Roles (ui_roles.odin).
 //   - Accounts in the settings: their roles (Manage_Roles) and disabling or
 //     deleting them (Manage_Accounts).
 //   - Purging in the settings (Purge): the messages of one conversation or of
@@ -27,22 +26,10 @@ import "common:proto"
 //     This needs a confirmation.
 
 UI_Manage :: struct {
-	// The channel whose settings are open in the Channels window, plus its
-	// name and topic as they are currently being edited.
-	conv:           proto.Conv_Id,
-	loaded:         proto.Conv_Id,
-	// The name and topic the server had when they were loaded. They are
-	// loaded again when these change.
-	loaded_name:    string, // owned
-	loaded_topic:   string, // owned
-	name_buf:       [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
-	name_len:       int,
-	topic_buf:      [proto.MAX_TOPIC_SIZE]u8,
-	topic_len:      int,
-	confirm:        bool, // Delete was pressed once
-	private:        bool, // making a private channel
-	// Whether the members window's list of people to add is open.
+	// Whether the members window's list of people to add is open, and its
+	// search.
 	adding:         bool,
+	add_find:       Pager,
 	// The account whose roles are being edited (0: none), and its chosen roles.
 	account:        proto.Account_Id,
 	account_roles:  [dynamic]proto.Role_Id,
@@ -60,9 +47,7 @@ UI_Manage :: struct {
 ui_manage_destroy :: proc(ui: ^UI) {
 	m := &ui.manage
 	delete(m.account_roles)
-	delete(m.loaded_name)
-	delete(m.loaded_topic)
-	m.account_roles, m.loaded_name, m.loaded_topic = nil, "", ""
+	m.account_roles = nil
 }
 
 @(private = "file")
@@ -72,132 +57,131 @@ command :: proc(ui: ^UI, cmd: conn.Command) {
 	}
 }
 
-// channel_settings is the Channels window's section for the channel picked
-// with Manage: its name, topic and position, deleting it and, for a private
-// channel, removing members. Call with the View locked.
-channel_settings :: proc(ui: ^UI) {
+// people_list is a list of accounts, a page at a time and with a box to
+// narrow it down once it has more than a page (unless the caller has its own,
+// `searched`), with a button labelled `action` beside each account that
+// `allowed` permits (nil: all of them). With an `icon`, the button shows that
+// instead, and `action` is its hint. It returns the account whose button was
+// pressed, or 0.
+people_list :: proc(
+	ui: ^UI,
+	p: ^Pager,
+	ids: []proto.Account_Id,
+	action: string,
+	allowed: []bool = nil,
+	searched := false,
+	icon: Maybe(render.Icon) = nil,
+) -> (
+	pressed: proto.Account_Id,
+) {
 	ctx := &ui.ctx
 	v := ui.view
-	m := &ui.manage
-	if m.conv == 0 || .Manage_Channels not_in v.permissions {
-		return
+	if !searched && (len(ids) > PAGE_ROWS || p.find_len > 0) {
+		pager_search(ui, p, "Find someone")
 	}
-	index := -1
-	for ch, i in v.channels {
-		if ch.id == m.conv {
-			index = i
+	query := pager_query(p)
+	shown := make([dynamic]int, 0, len(ids), context.temp_allocator)
+	for id, i in ids {
+		acc := v.accounts[id] or_else {}
+		if pager_matches(query, acc.display, acc.username) {
+			append(&shown, i)
 		}
 	}
-	if index < 0 {
-		m.conv = 0 // gone
-		return
-	}
-	ch := v.channels[index]
-	if m.loaded != ch.id || m.loaded_name != ch.name || m.loaded_topic != ch.topic {
-		if m.loaded != ch.id && ch.private {
-			command(ui, conn.Members_Command{conv = ch.id})
-		}
-		m.loaded = ch.id
-		delete(m.loaded_name)
-		delete(m.loaded_topic)
-		m.loaded_name, m.loaded_topic = strings.clone(ch.name), strings.clone(ch.topic)
-		m.name_len = copy(m.name_buf[:], ch.name)
-		m.topic_len = copy(m.topic_buf[:], ch.topic)
-		m.confirm = false
-	}
-
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "")
-	mu.label(ctx, fmt.tprintf("Settings of #%s%s", ch.name, "  (private)" if ch.private else ""))
-	mu.layout_row(ctx, {60, -1})
-	mu.label(ctx, "Name")
-	submit := .SUBMIT in text_box(ui, m.name_buf[:], &m.name_len)
-	mu.label(ctx, "Topic")
-	submit |= .SUBMIT in text_box(ui, m.topic_buf[:], &m.topic_len)
-	mu.layout_row(ctx, {60, 90, 90, 90, -1})
-	mu.label(ctx, "")
-	submit |= .SUBMIT in stable_button(ctx, "save channel", "Save", {.ALIGN_CENTER})
-	up := index > 1 && .SUBMIT in stable_button(ctx, "move up", "Move up", {.ALIGN_CENTER})
-	if index <= 1 {
-		mu.label(ctx, "")
-	}
-	down :=
-		index > 0 &&
-		index < len(v.channels) - 1 &&
-		.SUBMIT in stable_button(ctx, "move down", "Move down", {.ALIGN_CENTER})
-	if index == 0 || index == len(v.channels) - 1 {
-		mu.label(ctx, "")
-	}
-	if !ch.home {
-		if m.confirm {
-			if .SUBMIT in
-			   stable_button(ctx, "delete channel", "Delete it for everyone", {.ALIGN_CENTER}) {
-				command(ui, conn.Conv_Delete_Command{conv = ch.id})
-				m.conv, m.confirm = 0, false
-				return
-			}
-		} else if .SUBMIT in stable_button(ctx, "delete channel?", "Delete...", {.ALIGN_CENTER}) {
-			m.confirm = true
-		}
-	}
-	if submit && m.name_len > 0 {
-		command(
-			ui,
-			conn.Conv_Update_Command {
-				conv = ch.id,
-				mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC,
-				name = strings.clone(string(m.name_buf[:m.name_len])),
-				topic = strings.clone(string(m.topic_buf[:m.topic_len])),
-			},
+	people_sort(v, ids, shown[:])
+	if len(shown) == 0 {
+		mu.layout_row(ctx, {-1})
+		with_text_color(
+			ctx,
+			theme.dim,
+			"  Nobody." if query == "" else "  Nobody by that name.",
+			label_proc,
 		)
 	}
-	if up || down {
-		// Renumber all our channels in the new order (the home channel
-		// stays first regardless of its number).
-		order := make([dynamic]proto.Conv_Id, 0, len(v.channels), context.temp_allocator)
-		for c in v.channels {
-			append(&order, c.id)
-		}
-		other := index - 1 if up else index + 1
-		order[index], order[other] = order[other], order[index]
-		for id, i in order {
-			for c in v.channels {
-				if c.id == id && c.position != i && !c.home {
-					command(
-						ui,
-						conn.Conv_Update_Command {
-							conv = id,
-							mask = proto.CONV_UPDATE_POSITION,
-							position = i,
-						},
-					)
-				}
-			}
-		}
-	}
-
-	// The members of a private channel, and removing them.
-	if !ch.private {
-		return
-	}
-	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, "Who is in it:", label_proc)
-	if v.members.conv != ch.id {
-		with_text_color(ctx, theme.dim, "  Loading...", label_proc)
-		return
-	}
-	for account in v.members.accounts {
-		mu.push_id(ctx, uintptr(account))
+	lo, hi := pager_window(p, len(shown))
+	button_icon, has_icon := icon.?
+	w := icon_button_w(ctx) if has_icon else 90
+	for i in shown[lo:hi] {
+		id := ids[i]
+		mu.push_id(ctx, uintptr(id))
 		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-100, 90})
-		acc := v.accounts[account] or_else {}
-		mu.label(ctx, fmt.tprintf("  %s", acc.display if acc.display != "" else "someone"))
-		if account == v.me || !below_us(v, acc) {
+		mu.layout_row(ctx, {-(w + ctx.style.spacing + 1), w})
+		mu.label(ctx, person_label(v, id))
+		switch {
+		case allowed != nil && !allowed[i]:
 			mu.label(ctx, "")
-		} else if .SUBMIT in stable_button(ctx, "remove", "Take out", {.ALIGN_CENTER}) {
-			command(ui, conn.Conv_Member_Command{conv = ch.id, account = account, on = false})
+		case has_icon:
+			if .SUBMIT in icon_button(ui, "act", button_icon, action) {
+				pressed = id
+			}
+		case .SUBMIT in stable_button(ctx, "act", action, {.ALIGN_CENTER}):
+			pressed = id
 		}
 	}
+	pager_footer(ui, p, len(shown))
+	return
+}
+
+// people_finder is a box to find someone among `ids` by name: once something
+// is typed, those who match it are listed with a button labelled `action`
+// beside each (or an `icon`, with `action` as its hint, as for people_list).
+// It returns the account whose button was pressed, or 0.
+people_finder :: proc(
+	ui: ^UI,
+	p: ^Pager,
+	ids: []proto.Account_Id,
+	action: string,
+	icon: Maybe(render.Icon) = nil,
+) -> (
+	pressed: proto.Account_Id,
+) {
+	ctx := &ui.ctx
+	if len(ids) == 0 {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, theme.dim, "  Everyone is in it already.", label_proc)
+		return
+	}
+	pager_search(ui, p, "Type a name")
+	if pager_query(p) == "" {
+		return
+	}
+	return people_list(ui, p, ids, action, searched = true, icon = icon)
+}
+
+// person_label is how an account is listed: its name and its username.
+person_label :: proc(v: ^conn.View, id: proto.Account_Id) -> string {
+	acc, known := v.accounts[id]
+	if !known {
+		return "  someone"
+	}
+	if acc.display == "" || acc.display == acc.username {
+		return fmt.tprintf("  @%s", acc.username)
+	}
+	return fmt.tprintf("  %s  @%s", acc.display, acc.username)
+}
+
+// people_sort sorts `shown`, indices into `ids`, by name.
+@(private = "file")
+people_sort :: proc(v: ^conn.View, ids: []proto.Account_Id, shown: []int) {
+	Key :: struct {
+		v:   ^conn.View,
+		ids: []proto.Account_Id,
+	}
+	key := Key{v, ids}
+	context.user_ptr = &key
+	slice.sort_by(shown, proc(a, b: int) -> bool {
+		k := (^Key)(context.user_ptr)
+		x := k.v.accounts[k.ids[a]] or_else {}
+		y := k.v.accounts[k.ids[b]] or_else {}
+		nx := x.display if x.display != "" else x.username
+		ny := y.display if y.display != "" else y.username
+		if c := strings.compare(
+			strings.to_lower(nx, context.temp_allocator),
+			strings.to_lower(ny, context.temp_allocator),
+		); c != 0 {
+			return c < 0
+		}
+		return k.ids[a] < k.ids[b]
+	})
 }
 
 // add_people is the members window's list of accounts that could be added to
@@ -214,30 +198,19 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	if .SUBMIT in
 	   stable_button(ctx, "add people", "Hide" if m.adding else "Add people...", {.ALIGN_CENTER}) {
 		m.adding = !m.adding
+		m.add_find.find_len = 0
 	}
 	if !m.adding {
 		return
 	}
-	ids, _ := slice.map_keys(v.accounts, context.temp_allocator)
-	slice.sort_by(ids, proc(a, b: proto.Account_Id) -> bool {return a < b})
-	any := false
-	for id in ids {
-		acc := v.accounts[id]
-		if slice.contains(members, id) || acc.flags & {.Disabled, .Deleted} != {} {
-			continue
-		}
-		any = true
-		mu.push_id(ctx, uintptr(id))
-		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-70, 60})
-		mu.label(ctx, fmt.tprintf("%s  @%s", acc.display, acc.username))
-		if .SUBMIT in stable_button(ctx, "add", "Add", {.ALIGN_CENTER}) {
-			command(ui, conn.Conv_Member_Command{conv = v.viewing, account = id, on = true})
+	others := make([dynamic]proto.Account_Id, context.temp_allocator)
+	for id, acc in v.accounts {
+		if !slice.contains(members, id) && acc.flags & {.Disabled, .Deleted} == {} {
+			append(&others, id)
 		}
 	}
-	if !any {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Everyone is in it.", label_proc)
+	if id := people_finder(ui, &m.add_find, others[:], "Add", .Plus); id != 0 {
+		command(ui, conn.Conv_Member_Command{conv = v.viewing, account = id, on = true})
 	}
 }
 
@@ -266,53 +239,41 @@ is_channel :: proc(v: ^conn.View, conv: proto.Conv_Id) -> bool {
 	return false
 }
 
-// account_manage is what the accounts list offers for one account, next to
-// its password: choosing its roles (Manage_Roles) and disabling or deleting
-// it (Manage_Accounts). Call with the View locked, in a row with three cells
-// for it.
+// account_manage is what the Accounts category offers for the account picked,
+// under its roles: disabling or deleting it (Manage_Accounts). Call with the
+// View locked.
 account_manage :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	ctx := &ui.ctx
 	v := ui.view
 	m := &ui.manage
-	owner := .Owner in acc.flags
-	if .Manage_Roles in v.permissions && !owner {
-		if .SUBMIT in stable_button(ctx, "roles", "Roles...", {.ALIGN_CENTER}) {
-			if m.account == id {
-				m.account = 0
-			} else {
-				m.account = id
-				clear(&m.account_roles)
-				append(&m.account_roles, ..acc.roles)
-			}
-		}
-	} else {
-		mu.label(ctx, "")
+	if .Manage_Accounts not_in v.permissions ||
+	   .Owner in acc.flags ||
+	   id == v.me ||
+	   !below_us(v, acc) {
+		return
 	}
-	if .Manage_Accounts in v.permissions && !owner && id != v.me && below_us(v, acc) {
-		disabled := .Disabled in acc.flags
-		if .SUBMIT in
-		   stable_button(ctx, "disable", "Enable" if disabled else "Disable", {.ALIGN_CENTER}) {
-			command(ui, conn.Account_Disable_Command{account = id, on = !disabled})
-		}
-		if .SUBMIT in stable_button(ctx, "delete?", "Delete...", {.ALIGN_CENTER}) {
-			m.delete_account = 0 if m.delete_account == id else id
-		}
-	} else {
-		mu.label(ctx, "")
-		mu.label(ctx, "")
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "Account", {100, 100})
+	disabled := .Disabled in acc.flags
+	if .SUBMIT in
+	   stable_button(ctx, "disable", "Enable" if disabled else "Disable", {.ALIGN_CENTER}) {
+		command(ui, conn.Account_Disable_Command{account = id, on = !disabled})
+	}
+	if .SUBMIT in stable_button(ctx, "delete?", "Delete...", {.ALIGN_CENTER}) {
+		m.delete_account = 0 if m.delete_account == id else id
 	}
 }
 
 // account_delete_confirm asks for confirmation to delete the account picked
-// with Delete... Call with the View locked, after its row.
+// with Delete... Call with the View locked, after account_manage.
 account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	ctx := &ui.ctx
 	m := &ui.manage
 	if m.delete_account != id {
 		return
 	}
-	mu.layout_row(ctx, {30, -1})
-	mu.label(ctx, "")
+	mu.layout_row(ctx, {-1})
 	with_text_color(
 		ctx,
 		theme.warning,
@@ -323,8 +284,7 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 		),
 		wrap_text,
 	)
-	mu.layout_row(ctx, {30, 140, 100})
-	mu.label(ctx, "")
+	field_row(ui, FORM_LABEL, "", {140, 100})
 	if .SUBMIT in stable_button(ctx, "delete account", "Delete for good", {.ALIGN_CENTER}) {
 		command(ui, conn.Account_Delete_Command{account = id})
 		m.delete_account = 0
@@ -335,12 +295,25 @@ account_delete_confirm :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Acc
 }
 
 // account_roles_editor lets the user tick and save the roles of the account
-// picked with Roles... Call with the View locked, after its row.
-account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
+// picked (Manage_Roles). The ticks are taken from the account whenever another
+// one is picked or it is saved. Call with the View locked.
+account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
 	ctx := &ui.ctx
 	v := ui.view
 	m := &ui.manage
+	if .Manage_Roles not_in v.permissions || .Owner in acc.flags {
+		return
+	}
 	if m.account != id {
+		m.account = id
+		clear(&m.account_roles)
+		append(&m.account_roles, ..acc.roles)
+	}
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, "")
+	mu.label(ctx, "Roles")
+	if len(v.roles) <= 1 {
+		with_text_color(ctx, theme.dim, "There are no roles to give yet.", label_proc)
 		return
 	}
 	for r in v.roles {
@@ -349,8 +322,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 		}
 		mu.push_id(ctx, uintptr(r.id))
 		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {30, -1})
-		mu.label(ctx, "")
+		mu.layout_row(ctx, {-1})
 		i, has := slice.linear_search(m.account_roles[:], r.id)
 		if !(r.perms <= v.permissions) {
 			with_text_color(
@@ -362,7 +334,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 			continue
 		}
 		on := has
-		if .CHANGE in mu.checkbox(ctx, r.name, &on) {
+		if .CHANGE in checkbox(ctx, r.name, &on) {
 			if on && !has {
 				append(&m.account_roles, r.id)
 			} else if !on && has {
@@ -370,9 +342,14 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 			}
 		}
 	}
-	mu.layout_row(ctx, {30, 100, 100})
-	mu.label(ctx, "")
-	if .SUBMIT in stable_button(ctx, "save roles", "Save", {.ALIGN_CENTER}) {
+	changed := len(m.account_roles) != len(acc.roles)
+	for r in m.account_roles {
+		changed ||= !slice.contains(acc.roles, r)
+	}
+	mu.layout_row(ctx, {100, 100})
+	if .SUBMIT in
+		   stable_button(ctx, "save roles", "Save" if changed else "Saved", {.ALIGN_CENTER}) &&
+	   changed {
 		cmd := conn.Account_Roles_Command {
 			account = id,
 		}
@@ -383,10 +360,9 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id) {
 			}
 		}
 		command(ui, cmd)
-		m.account = 0
 	}
-	if .SUBMIT in stable_button(ctx, "cancel roles", "Cancel", {.ALIGN_CENTER}) {
-		m.account = 0
+	if changed && .SUBMIT in stable_button(ctx, "undo roles", "Undo", {.ALIGN_CENTER}) {
+		m.account = 0 // taken from the account again
 	}
 }
 
@@ -422,12 +398,12 @@ purge_settings :: proc(ui: ^UI) {
 	place := purge_place(v, m.purge_conv)
 
 	field_row(ui, FORM_LABEL, "Conversation", {30, 220, 30})
-	if .SUBMIT in stable_button(ctx, "purge prev", "<", {.ALIGN_CENTER}) {
+	if .SUBMIT in icon_button(ui, "purge prev", .Back, "Conversation before") {
 		m.purge_conv = choices[(at + len(choices) - 1) % len(choices)]
 		m.purge_confirm = false
 	}
 	mu.label(ctx, place)
-	if .SUBMIT in stable_button(ctx, "purge next", ">", {.ALIGN_CENTER}) {
+	if .SUBMIT in icon_button(ui, "purge next", .Next, "Conversation after") {
 		m.purge_conv = choices[(at + 1) % len(choices)]
 		m.purge_confirm = false
 	}
@@ -442,7 +418,7 @@ purge_settings :: proc(ui: ^UI) {
 	days_ok = days_ok && days >= 0
 
 	field_row(ui, FORM_LABEL, "", {-1}, fill_min = 240)
-	if .CHANGE in mu.checkbox(ctx, "Only their files; the messages stay", &m.purge_files) {
+	if .CHANGE in checkbox(ctx, "Only their files; the messages stay", &m.purge_files) {
 		m.purge_confirm = false
 	}
 

@@ -65,6 +65,7 @@ Server_UI :: struct {
 	// panel (ui_voice_panel.odin).
 	manage:         UI_Manage,
 	roles:          UI_Roles, // the settings' Roles (ui_roles.odin)
+	channel_admin:  UI_Channel_Admin, // and its Channels (ui_channel_settings.odin)
 	server_info:    UI_Server_Info, // and its Server (ui_server_info.odin)
 	voice_panel:    UI_Voice_Panel,
 	// Completing a mention in a composer (ui_completion.odin).
@@ -210,6 +211,7 @@ server_ui_destroy :: proc(ui: ^UI) {
 	ui_profiles_destroy(ui)
 	ui_manage_destroy(ui)
 	ui_roles_destroy(ui)
+	ui_channel_admin_destroy(ui)
 	delete(ui.invites_asked)
 	delete(ui.account.verify_loaded)
 	delete(ui.previews_asked)
@@ -219,7 +221,6 @@ server_ui_destroy :: proc(ui: ^UI) {
 		picked_files_destroy(&t.files)
 	}
 	delete(ui.reactors_asked.emoji)
-	delete(ui.channels.find_asked)
 	ui.srv = {}
 }
 
@@ -280,6 +281,8 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 servers_frame :: proc(ui: ^UI) {
 	named := rail_count(ui) > 1
 	total, mentions, dms := 0, 0, 0
+	// What is shown, for the window's title.
+	shown := "Direct messages" if ui.page == .Buddies else ""
 	for ns in ui.sessions {
 		if ns.joining {
 			continue
@@ -288,6 +291,10 @@ servers_frame :: proc(ui: ^UI) {
 		{
 			sync.guard(&v.mutex)
 			ns.unread, ns.mentions, ns.dm_unread = 0, 0, 0
+			if ns == ui.session && shown == "" {
+				name := v.server_name if v.server_name != "" else v.server
+				shown = strings.clone(name, context.temp_allocator)
+			}
 			if v.status == .Connected {
 				ns.dm_unread = dm_unread(&ui.settings, v)
 				ns.unread = unread_total(&ui.settings, v) - ns.dm_unread
@@ -304,17 +311,17 @@ servers_frame :: proc(ui: ^UI) {
 		session_notices(ui, ns, named)
 	}
 	ui.unread, ui.mentions, ui.dm_unread = total, mentions, dms
-	if key := title_key(ui.unread, ui.mentions); ui.window != nil && key != ui.title_unread {
-		ui.title_unread = key
-		title: string
-		switch {
-		case key > 0:
-			title = fmt.tprintf("(%s) Yap", conn.unread_count(key))
-		case key < 0:
-			title = "(*) Yap"
-		case:
-			title = "Yap"
-		}
+	// "Yap | <server>", after what is unread.
+	title := "Yap" if shown == "" else fmt.tprintf("Yap | %s", shown)
+	switch key := title_key(ui.unread, ui.mentions); {
+	case key > 0:
+		title = fmt.tprintf("(%s) %s", conn.unread_count(key), title)
+	case key < 0:
+		title = fmt.tprintf("(*) %s", title)
+	}
+	if ui.window != nil && title != ui.window_title {
+		delete(ui.window_title)
+		ui.window_title = strings.clone(title)
 		glfw.SetWindowTitle(ui.window, strings.clone_to_cstring(title, context.temp_allocator))
 	}
 }
@@ -490,7 +497,9 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 	}
 	white := mu.Color{255, 255, 255, 255}
-	_, plus := rail_icon(ui, RAIL_PLUS, "+", theme.plus_disc, white, "Join a server", ui.join.open)
+	r, plus := rail_icon(ui, RAIL_PLUS, "", theme.plus_disc, white, "Join a server", ui.join.open)
+	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
+	mu.draw_icon(ctx, render.icon_id(.Plus), icon, white)
 	if ctx.hover_id == plus && ctx.mouse_pressed_bits == {.LEFT} {
 		join_open(ui)
 	}
@@ -518,7 +527,7 @@ inbox_icon :: proc(ui: ^UI) {
 	white := mu.Color{255, 255, 255, 255}
 	r, id := rail_icon(ui, RAIL_INBOX, "", theme.plus_disc, white, hint, open)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
-	mu.draw_icon(ctx, render.icon_id(.Mail), icon, white)
+	mu.draw_icon(ctx, render.icon_id(.Yap), icon, white)
 	if ui.dm_unread > 0 {
 		mentions_badge(ui, r, ui.dm_unread)
 	}
@@ -857,7 +866,7 @@ rail_icon :: proc(
 	mu.update_control(ctx, id, r)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	if shown {
-		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, theme.mark)
+		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, theme.accent)
 	}
 	if pic, ok := picture.?; ok {
 		mu.draw_icon(ctx, pic, icon, text_color)

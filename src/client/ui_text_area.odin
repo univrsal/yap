@@ -23,32 +23,43 @@ import "client:platform"
 // the rows above can make room. It is based on the width the text had in the
 // previous frame, and a frame whose lines don't fit the box it got asks for
 // another frame.
+//
+// A text area can be at least a number of lines tall (min_lines), and keep a
+// strip along its bottom (footer) free of text, for buttons that are laid out
+// over it (the composer's, see composer_buttons). Pressing in the strip doesn't
+// move the caret.
 
 // The most lines a text area grows to. Beyond that it scrolls.
 TEXT_AREA_MAX_LINES :: 10
 
 // What a text area keeps between frames.
 Text_Area :: struct {
-	width:     i32, // the text's width in the last frame, for working out the height
-	scroll:    i32, // pixels of the text above the box's top
+	width:        i32, // the text's width in the last frame, for working out the height
+	scroll:       i32, // pixels of the text above the box's top
 	// Up and Down keep to the column they started in: where they left the
 	// caret, and the x position they were aiming for.
-	vert_at:   int,
-	vert_x:    i32,
+	vert_at:      int,
+	vert_x:       i32,
 	// The selection and length in the last frame. When either changes, the
 	// box scrolls to the caret.
-	last_sel:  [2]int,
-	last_len:  int,
+	last_sel:     [2]int,
+	last_len:     int,
 	// Its scrollbar, when there is more text than it shows: where it was in
 	// the last frame (zero: none), and while its thumb is dragged, how far
 	// down the thumb it was grabbed.
-	bar:       mu.Rect,
-	dragging:  bool,
-	drag_at:   i32,
+	bar:          mu.Rect,
+	dragging:     bool,
+	drag_at:      i32,
 	// Whether the message is shown as it will look instead (the composer's
 	// eye, preview_button).
-	preview:   bool,
-	had_focus: bool, // in the last frame
+	preview:      bool,
+	had_focus:    bool, // in the last frame
+	// Set by its owner before it is measured and laid out: how many lines tall
+	// it is at least (0 or 1 for one), and how tall the strip at its bottom is.
+	min_lines:    int,
+	footer:       i32,
+	// A press in the footer, which the caret ignores until it is released.
+	footer_press: bool,
 }
 
 // One line of a text area's text: text[start:end] is drawn, and the caret is
@@ -139,8 +150,21 @@ text_area_height :: proc(ctx: ^mu.Context, font: mu.Font, text: string, area: ^T
 	}
 	return(
 		text_area_single(ctx, font) +
-		i32(min(n, TEXT_AREA_MAX_LINES) - 1) * ctx.text_height(font) \
+		i32(area_rows(area, n) - 1) * ctx.text_height(font) +
+		area.footer \
 	)
+}
+
+// area_rows is how many lines tall a text area with `n` lines of text is.
+@(private = "file")
+area_rows :: proc(area: ^Text_Area, n: int) -> int {
+	return max(min(n, TEXT_AREA_MAX_LINES), area.min_lines, 1)
+}
+
+// text_area_text_rect is the part of a text area's rect that the text is in:
+// all of it except the footer.
+text_area_text_rect :: proc(r: mu.Rect, area: ^Text_Area) -> mu.Rect {
+	return {r.x, r.y, r.w, max(r.h - area.footer, 1)}
 }
 
 // text_area lays out a text area in the next layout cell, as tall as
@@ -155,7 +179,13 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		append(&ui.text_boxes, Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), true})
 	}
 	mu.update_control(ctx, id, r, {.HOLD_FOCUS})
-	if ctx.hover_id == id {
+	tr := text_area_text_rect(r, area)
+	if .LEFT in ctx.mouse_pressed_bits {
+		area.footer_press = area.footer > 0 && mu.mouse_over(ctx, r) && !mu.mouse_over(ctx, tr)
+	} else if .LEFT not_in ctx.mouse_down_bits {
+		area.footer_press = false
+	}
+	if ctx.hover_id == id && mu.mouse_over(ctx, tr) {
 		ui.select.over_text = true // shows an I-beam over it (draw_frame)
 	}
 
@@ -163,7 +193,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	lh := ctx.text_height(font)
 	single := text_area_single(ctx, font)
 	top := (single - lh) / 2 // from the box's top to its first line's top
-	rows := clamp((r.h - (single - lh)) / lh, 1, TEXT_AREA_MAX_LINES)
+	rows := clamp((tr.h - (single - lh)) / lh, 1, TEXT_AREA_MAX_LINES)
 	full := max(r.w - 2 * ctx.style.padding, 1)
 	if area.width != full {
 		// The next frame's height is worked out at this width.
@@ -282,7 +312,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		// line it is over, or the first or last line if it is past them. Not
 		// on the scrollbar, though.
 		on_bar := .LEFT in ctx.mouse_pressed_bits && area.bar.w > 0 && mu.mouse_over(ctx, area.bar)
-		if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar {
+		if .LEFT in ctx.mouse_down_bits && !area.dragging && !on_bar && !area.footer_press {
 			i := clamp((ctx.mouse_pos.y - r.y - top + area.scroll) / lh, 0, i32(len(lines) - 1))
 			pl := lines[i]
 			at := offset_at(
@@ -302,22 +332,26 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 
 	text := string(buf[:textlen^])
 	lines := area_lines(ctx, font, text, width)
-	if i32(min(len(lines), TEXT_AREA_MAX_LINES)) != rows {
+	if i32(area_rows(area, len(lines))) != rows {
 		// The box is the height that the text had before this frame's typing.
 		ui_redraw(ui)
 	}
 
 	// Scrolling: to the caret when it moved, the text changed or the box has
-	// just taken the focus, otherwise by the wheel over the box.
-	most := max(i32(len(lines)) * lh - rows * lh, 0)
+	// just taken the focus, otherwise by the wheel over the box. It scrolls as
+	// if the box were already as tall as it is about to be: while it grows to
+	// fit a new line, that line is cut off for a frame instead of the text
+	// scrolling and a scrollbar showing for one.
+	view := max(rows, i32(min(len(lines), TEXT_AREA_MAX_LINES)))
+	most := max(i32(len(lines)) * lh - view * lh, 0)
 	if focused && (s.selection != area.last_sel || textlen^ != area.last_len || !area.had_focus) {
 		y := i32(area_line_of(lines, s.selection[0])) * lh
 		if y < area.scroll {
 			area.scroll = y
-		} else if y + lh > area.scroll + rows * lh {
-			area.scroll = y + lh - rows * lh
+		} else if y + lh > area.scroll + view * lh {
+			area.scroll = y + lh - view * lh
 		}
-	} else if most > 0 && ctx.scroll_delta.y != 0 && mu.mouse_over(ctx, r) {
+	} else if most > 0 && ctx.scroll_delta.y != 0 && mu.mouse_over(ctx, tr) {
 		area.scroll += ctx.scroll_delta.y
 		ctx.scroll_delta.y = 0 // not for the panel behind
 	}
@@ -331,9 +365,9 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	area.bar = {}
 	thumb: mu.Rect
 	if most > 0 {
-		area.bar = {r.x + r.w - bar_w, r.y, bar_w, r.h}
-		thumb_h := max(r.h * rows / i32(len(lines)), bar_w)
-		span := max(r.h - thumb_h, 1)
+		area.bar = {tr.x + tr.w - bar_w, tr.y, bar_w, tr.h}
+		thumb_h := max(tr.h * view / i32(len(lines)), bar_w)
+		span := max(tr.h - thumb_h, 1)
 		thumb = {area.bar.x, r.y + span * area.scroll / most, bar_w, thumb_h}
 		if .LEFT in ctx.mouse_pressed_bits && mu.mouse_over(ctx, area.bar) {
 			area.dragging = true
@@ -349,7 +383,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	}
 
 	mu.draw_control_frame(ctx, id, r, .BASE, {})
-	mu.push_clip_rect(ctx, r)
+	mu.push_clip_rect(ctx, tr)
 	defer mu.pop_clip_rect(ctx)
 	color := ctx.style.colors[.TEXT]
 	x0 := r.x + ctx.style.padding
@@ -360,7 +394,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 	caret := area_line_of(lines, s.selection[0])
 	for l, i in lines {
 		y := r.y + top + i32(i) * lh - area.scroll
-		if y + lh <= r.y || y >= r.y + r.h {
+		if y + lh <= tr.y || y >= tr.y + tr.h {
 			continue
 		}
 		if focused && lo != hi && lo <= l.stop && hi >= l.start {
@@ -379,8 +413,10 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		}
 	}
 	if area.bar.w > 0 {
-		mu.draw_rect(ctx, area.bar, ctx.style.colors[.SCROLL_BASE])
-		mu.draw_rect(ctx, thumb, ctx.style.colors[.SCROLL_THUMB])
+		// Thin like the panels' scrollbars, but always shown while there is one.
+		hovered := area.dragging || mu.mouse_over(ctx, area.bar)
+		scrollbar_draw(ctx, area.bar, .SCROLL_BASE, 1, hovered)
+		scrollbar_draw(ctx, thumb, .SCROLL_THUMB, 1, hovered)
 	}
 	return
 }

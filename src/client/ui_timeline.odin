@@ -87,6 +87,49 @@ avatar_column :: proc(ui: ^UI) -> i32 {
 	return avatar_size(&ui.ctx) + 8 if ui.settings.chat_pictures else COMPACT_DOT_COLUMN
 }
 
+// A message's time (chat_time) comes first, in a column of its own before the
+// picture's, right-aligned in it. The column is as wide as the longest time
+// the locale writes for the message: with `dates`, an older day's (with the
+// date), otherwise today's (the time of day). So today's messages line up with
+// each other, and older ones with each other, without today's leaving room for
+// a date they don't have.
+time_column :: proc(ui: ^UI, dates: bool) -> i32 {
+	ctx := &ui.ctx
+	longest := datetime.DateTime {
+		date = {year = 2088, month = 12, day = 28},
+		time = {hour = 22, minute = 58},
+	}
+	text := date_time_text(ui.date_style, longest, !dates)
+	return ctx.text_width(ctx.style.font, text) + TIME_GAP
+}
+@(private = "file")
+TIME_GAP :: 10
+
+// message_time_w is the width of a message's times' column: posted at `ms`
+// (Unix milliseconds), before today or not. Call after timeline has worked
+// out this frame's widths.
+@(private = "file")
+message_time_w :: proc(st: ^UI_Timeline, ms: proto.Unix_Ms) -> i32 {
+	return st.time_w_dated if i64(ms) / 1000 < st.midnight else st.time_w_today
+}
+
+// message_column is how far in from the timeline's edge (or a reply's
+// indent) a message's header and text start: past its time and the picture.
+message_column :: proc(ui: ^UI, time_w: i32) -> i32 {
+	return time_w + avatar_column(ui)
+}
+
+// local_midnight is when today began in the local time zone, in Unix
+// seconds: what chat_time writes without a date from.
+@(private = "file")
+local_midnight :: proc(ui: ^UI) -> i64 {
+	now := time.now()
+	dt, _ := time.time_to_datetime(now)
+	local := chat_local_time(ui, dt)
+	since := i64(local.hour) * 3600 + i64(local.minute) * 60 + i64(local.second)
+	return time.to_unix_seconds(now) - since
+}
+
 @(private = "file")
 COMPACT_DOT_COLUMN :: 14
 // How far beyond the panel's edges messages are still laid out, in screens.
@@ -169,6 +212,11 @@ UI_Timeline :: struct {
 	lit_mentions: bool, // ... and they are highlighted along with the one gone to
 	lit:          proto.Msg_Id,
 	lit_at:       time.Tick,
+	// In this frame: when today began (local_midnight), and the width of the
+	// times' column for today's messages and older ones (time_column).
+	midnight:     i64,
+	time_w_today: i32,
+	time_w_dated: i32,
 }
 
 Msg_Layout :: struct {
@@ -188,6 +236,7 @@ Msg_Layout :: struct {
 	replies:    int,
 	reply_line: bool,
 	pictures:   bool, // laid out with the pictures' column (avatar_column)
+	time_w:     i32, // and with the times' column this wide (time_column)
 	line:       i32, // and with lines of text this tall (the chat's text size)
 	// Worked out together with what is worked out afresh every frame
 	// (reactions, files, an offer of a file), so it can't be reused as it is
@@ -241,6 +290,12 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	saved_font := ctx.style.font
 	ctx.style.font = render.CHAT_FONT
 	defer ctx.style.font = saved_font
+	// On a phone, closer together than the controls around them.
+	saved_padding, saved_spacing := ctx.style.padding, ctx.style.spacing
+	if ui.compact {
+		ctx.style.padding, ctx.style.spacing = COMPACT_MESSAGE_PADDING, COMPACT_MESSAGE_SPACING
+	}
+	defer ctx.style.padding, ctx.style.spacing = saved_padding, saved_spacing
 	conv := key.conv
 	if st.key != key {
 		// Opened with unread messages: the line goes where they begin.
@@ -290,6 +345,8 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	tops := make([]i32, n + 1, context.temp_allocator)
 	root, have_root := thread_root_message(ui, key)
 	st.root_day = local_day(ui, st, root) if have_root else 0
+	st.midnight = local_midnight(ui)
+	st.time_w_today, st.time_w_dated = time_column(ui, false), time_column(ui, true)
 	y := top_line_height(ctx)
 	if key.root != 0 {
 		y += message_height(ui, st, {root}, 0, width) if have_root else usual_row_height(ctx)
@@ -447,16 +504,21 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	start := layout.next_row
 	last_id := i64(msgs[n - 1].id) if n > 0 else 0
 	// Our messages on their way, in the messages' column.
-	layout.indent += avatar_column(ui)
+	// (They are today's.)
+	layout.indent += message_column(ui, st.time_w_today)
 	for p, i in pending {
 		pending_message(ui, p, (last_id + 1 + i64(i)) * ITEMS_PER_MESSAGE)
 	}
-	layout.indent -= avatar_column(ui)
+	layout.indent -= message_column(ui, st.time_w_today)
 	outbox_grew := layout.next_row - start != st.outbox_h
 	st.outbox_h = layout.next_row - start
 	mu.layout_end_column(ctx)
 	select_end(ui)
 	mu.end_panel(ctx)
+
+	// How far the panel moved itself in this frame: its scrollbar, or a
+	// selection dragged past its edge (the wheel's is `moved`, next frame).
+	dragged := cnt.scroll.y - scroll
 
 	// Where that left us, for the next frame: the message at the top, how
 	// far into it, and whether we are at the end.
@@ -469,9 +531,18 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 		}
 	}
 	end := max(cnt.content_size.y + 2 * pad - cnt.body.h, 0)
+	// Moving up, by however little, stops following the end: a pixel's drag
+	// (as little as a slow drag of the scrollbar moves a short timeline) is
+	// close enough to the end to count as there, and the next frame would go
+	// back to it. It is followed again once the end is gone back to.
+	up := moved < 0 || dragged < 0
+	near_end := cnt.scroll.y >= end - 2
 	st.follow =
-		(cnt.scroll.y >= end - 2 || following && outbox_grew) && (tl == nil || tl.have_newest)
-	if moved < 0 || (st.follow && tl != nil && !tl.loading) {
+		!up &&
+		(near_end && (following || moved > 0 || dragged > 0 || cnt.scroll.y >= end) ||
+				following && outbox_grew) &&
+		(tl == nil || tl.have_newest)
+	if up || (st.follow && tl != nil && !tl.loading) {
 		st.to_end = false // scrolled away from the end, or already there (with its messages loaded)
 	}
 
@@ -526,11 +597,9 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 	text: string
 	switch {
 	case tl == nil || tl.loading:
-		if thread {
-			text = "Loading replies..." if n == 0 else "Loading older replies..."
-		} else {
-			text = "Loading messages..." if n == 0 else "Loading older messages..."
-		}
+		// Messages, or older ones above these, on their way.
+		spinner_row(ui)
+		return
 	case thread && tl.have_oldest && n > 0:
 		rule(ui, "Replies", theme.day_line)
 		return
@@ -741,7 +810,8 @@ message_height :: proc(
 	replies := m.reply_count if has_thread_line(st, m) else 0
 	// The cache is for the timeline's width. A reply is laid out narrower, by
 	// its indent.
-	width := full - (REPLY_INDENT if is_indented(st, m) else 0) - avatar_column(ui)
+	time_w := message_time_w(st, m.time)
+	width := full - (REPLY_INDENT if is_indented(st, m) else 0) - message_column(ui, time_w)
 	_, l, _, _ := map_entry(&st.layouts, m.id)
 	shown, _, _, _ := message_text(ui, m.text)
 	changing := m.kind == .File || len(m.reactions) > 0 || len(m.files) > 0
@@ -758,6 +828,7 @@ message_height :: proc(
 	   l.replies == replies &&
 	   l.reply_line == reply_line &&
 	   l.pictures == ui.settings.chat_pictures &&
+	   l.time_w == time_w &&
 	   l.line == ui.ctx.text_height(ui.ctx.style.font) {
 		return l.height
 	}
@@ -801,6 +872,7 @@ message_height :: proc(
 	l.edited, l.flags, l.shown = m.edited, m.flags, len(shown)
 	l.replies, l.reply_line = replies, reply_line
 	l.pictures = ui.settings.chat_pictures
+	l.time_w = time_w
 	l.line = ctx.text_height(ctx.style.font)
 	l.changing = changing
 	return h
@@ -847,7 +919,8 @@ timeline_message :: proc(
 	}
 	// A reply is indented: everything of it from here on.
 	indent: i32 = REPLY_INDENT if is_indented(st, m) else 0
-	column := avatar_column(ui)
+	time_w := message_time_w(st, m.time)
+	column := message_column(ui, time_w)
 	width := full - indent - column
 	mu.get_layout(ctx).indent += indent + column
 	defer mu.get_layout(ctx).indent -= indent + column
@@ -864,34 +937,38 @@ timeline_message :: proc(
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display
 	}
-	stamp := "" if merged else chat_time(ui, seconds)
 	// Their name opens their menu, unless it is ours.
 	ui.header_sender = 0
 	if !merged && m.sender != v.me {
 		ui.header_sender = m.sender
-		ui.header_name = {len(stamp) + 2, len(stamp) + 2 + len(name)}
+		ui.header_name = {0, len(name)}
 	}
 	defer ui.header_sender = 0
 	// Room for a bot's tag after the name, which selectable_header draws.
 	bot_room := ""
 	ui.header_bot = 0
 	if !merged && is_bot(v, m.sender) {
-		ui.header_bot = len(stamp) + 2 + len(name)
+		ui.header_bot = len(name)
 		bot_room = header_room(ctx, bot_tag_width(ctx))
 	}
 	defer ui.header_bot = 0
 	header :=
-		"" if merged else fmt.tprintf("%s  %s%s%s%s%s", stamp, name, bot_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
+		"" if merged else fmt.tprintf("%s%s%s%s%s", name, bot_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
 	header_color := author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
-		// The picture, beside the header (which comes after the gap), or in
-		// the compact chat, the dot beside it.
+		// The time on the header's line (which comes after the gap), then the
+		// picture beside the header, or in the compact chat, the dot.
 		layout := mu.get_layout(ctx)
 		y := layout.body.y + layout.next_row + (MERGED_GAP if tight else ctx.style.spacing)
+		x := layout.body.x + indent
+		stamp := chat_time(ui, seconds)
+		stamp_x := x + time_w - TIME_GAP - ctx.text_width(ctx.style.font, stamp)
+		mu.draw_text(ctx, ctx.style.font, stamp, {stamp_x, y}, ctx.style.colors[.TEXT])
+		x += time_w
 		if ui.settings.chat_pictures {
 			size := avatar_size(ctx)
-			pic := mu.Rect{layout.body.x + indent, y, size, size}
+			pic := mu.Rect{x, y, size, size}
 			avatar(ui, m.sender, pic)
 			if m.sender != v.me && mu.mouse_over(ctx, pic) {
 				ui.chat.hovering = true // shows a hand, as over a link
@@ -903,7 +980,7 @@ timeline_message :: proc(
 			activity_dot_alone(
 				ui,
 				m.sender,
-				{layout.body.x + indent, y, COMPACT_DOT_COLUMN, ctx.text_height(ctx.style.font)},
+				{x, y, COMPACT_DOT_COLUMN, ctx.text_height(ctx.style.font)},
 			)
 		}
 	}
@@ -1132,7 +1209,7 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := fa
 			if ctx.hover_id == id && c.r.me {
 				background = theme.highlight_more
 			}
-			mu.draw_rect(ctx, rect, background)
+			render.draw_rounded(ctx, rect, background, render.CONTROL_RADIUS)
 			font := ctx.style.font
 			pos := mu.Vec2{rect.x + 6, rect.y + (rect.h - ctx.text_height(font)) / 2}
 			mu.draw_text(ctx, font, c.text, pos, ctx.style.colors[.TEXT])

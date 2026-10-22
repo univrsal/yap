@@ -52,6 +52,7 @@ UI_Chat :: struct {
 
 ui_chat_init :: proc(ui: ^UI) {
 	chat_load_timezone(ui)
+	ui.date_style = date_style_of(platform.locale_name())
 }
 
 // ui_chat_destroy frees what the chat keeps that doesn't belong to one server.
@@ -107,38 +108,18 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 	drop_zone(ui)
-
 	conversation_header(ui, narrow)
 
 	if ui.chat.tab == .Chat {
 		v.unread = 0
 	}
-	// Show tabs only while there is a screen or a call's video beside the chat.
-	// Otherwise the status line has the row to itself.
+	// Tabs only while there is a screen or a call's video beside the chat.
+	// What is going on (chat_status) is in the header's line.
 	if side_tabs_shown(ui) {
 		mu.layout_row(ctx, side_tab_widths(ui))
 		chat_label := "Chat" if v.unread == 0 else fmt.tprintf("Chat (%d)", v.unread)
 		side_tab_buttons(ui, chat_label)
-	} else {
-		mu.layout_row(ctx, {-1})
 	}
-	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
-	status_color := theme.dim
-	if editing := composer_status(composer_of_page(ui)); editing != "" {
-		status = editing
-	}
-	if notice, ok, fresh := fresh_notice(v); fresh {
-		status, status_color = notice, theme.dim if ok else theme.error
-	}
-	when TIMELINE_DEBUG {
-		status = fmt.tprintf(
-			"%s  [%d laid out, %d off]",
-			status,
-			ui.timeline.laid_out,
-			ui.timeline.mismatched,
-		)
-	}
-	with_text_color(ctx, status_color, status, label_proc)
 
 	switch ui.chat.tab {
 	case .Chat:
@@ -218,49 +199,108 @@ panel_width :: proc(ctx: ^mu.Context) -> i32 {
 	return mu.get_current_container(ctx).body.w - 2 * ctx.style.padding
 }
 
+// A composer's box is at least this many lines of the chat's text tall, with
+// a strip along its bottom for its buttons (composer_buttons): square buttons
+// of COMPOSER_BUTTON (composer_button_size), COMPOSER_INSET in from the box's
+// edges.
+COMPOSER_LINES :: 2
+COMPOSER_BUTTON :: 26
+COMPOSER_INSET :: 4
+
+// composer_button_size is how big a composer's buttons are: COMPOSER_BUTTON,
+// or a control's height where that is more (a fingertip, on a phone).
+composer_button_size :: proc(ctx: ^mu.Context) -> i32 {
+	return max(COMPOSER_BUTTON, ctx.style.size.y + 2 * ctx.style.padding)
+}
+
 // composer_height is how tall the box that a composer's message is written in
-// is: a line or more of the chat's text (see ui_text_area.odin).
+// is: two lines or more of the chat's text (see ui_text_area.odin), and the
+// strip for its buttons.
 composer_height :: proc(ui: ^UI, c: Composer) -> i32 {
+	// On a phone, one line to start with, to leave room for the messages.
+	c.area.min_lines = 1 if ui.compact else COMPOSER_LINES
+	c.area.footer = composer_button_size(&ui.ctx) + COMPOSER_INSET
 	return text_area_height(&ui.ctx, render.CHAT_FONT, string(c.buf[:c.len^]), c.area)
 }
 
-// composer_row lays out the row that a composer's box is in, `height` tall,
-// with `buttons` icon buttons beside it: the box, then a column for the
-// buttons, which stay one line high at the foot of the box however tall
-// it grows. Lay out the box, then the buttons, then end the column with
-// mu.layout_end_column.
-composer_row :: proc(ui: ^UI, height: i32, buttons: int) {
-	ctx := &ui.ctx
-	mu.layout_row(ctx, {-(i32(buttons) * (ICON_BUTTON + 4) + 2), -1}, height)
+// composer_row lays out the row that a composer's box is in, `height` tall.
+// Lay out the box (composer_box), then its buttons (composer_buttons, the
+// buttons, and composer_buttons_end).
+composer_row :: proc(ui: ^UI, height: i32) {
+	mu.layout_row(&ui.ctx, {-1}, height)
 }
 
-// composer_buttons starts the column of a composer_row's buttons, after
-// its box.
-composer_buttons :: proc(ui: ^UI, height: i32, buttons: int) {
+// composer_buttons lays out a row of `buttons` icon buttons at the bottom right
+// of a composer's box `box` (from composer_box), over the strip that the box
+// keeps free of text. They are drawn flat, without a frame, except for the
+// send button (composer_send_button). End them with composer_buttons_end.
+composer_buttons :: proc(ui: ^UI, box: mu.Rect, buttons: int) {
 	ctx := &ui.ctx
+	size := composer_button_size(ctx)
+	w := i32(buttons) * size + i32(buttons - 1) * ctx.style.spacing
+	strip := mu.Rect {
+		box.x + box.w - COMPOSER_INSET - w,
+		box.y + box.h - COMPOSER_INSET - size,
+		w,
+		size,
+	}
+	mu.layout_set_next(ctx, strip, false)
 	mu.layout_begin_column(ctx)
-	single := text_area_single(ctx, render.CHAT_FONT)
-	if height > single {
-		mu.layout_row(ctx, {-1}, height - single - ctx.style.spacing)
-		mu.layout_next(ctx)
-	}
 	widths: [8]i32
-	for &w in widths[:buttons] {
-		w = ICON_BUTTON
+	for &bw in widths[:buttons] {
+		bw = size
 	}
-	mu.layout_row(ctx, widths[:buttons], single)
+	mu.layout_row(ctx, widths[:buttons], size)
+	ui.flat_buttons = true
+}
+
+composer_buttons_end :: proc(ui: ^UI) {
+	ui.flat_buttons = false
+	mu.layout_end_column(&ui.ctx)
+}
+
+// composer_send_button is a composer's send button, the last of its buttons:
+// grey while there is nothing to send, and in the accent color once there is.
+// It returns whether it was pressed.
+composer_send_button :: proc(ui: ^UI, c: Composer, id_name, hint: string) -> bool {
+	ctx := &ui.ctx
+	id := mu.get_id(ctx, id_name)
+	r := mu.layout_next(ctx)
+	mu.update_control(ctx, id, r)
+	pressed := ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id
+	ready :=
+		strings.trim_space(string(c.buf[:c.len^])) != "" || (c.files != nil && len(c.files) > 0)
+	over := ctx.hover_id == id
+	back, fore: mu.Color
+	if ready {
+		back, fore = theme.accent_hover if over else theme.accent, theme.accent_text
+	} else {
+		back, fore = ctx.style.colors[.BUTTON_HOVER if over else .BUTTON], ctx.style.colors[.TEXT]
+	}
+	render.draw_rounded(ctx, r, back, render.CONTROL_RADIUS)
+	mu.draw_icon(ctx, render.icon_id(.Send), r, fore)
+	if over {
+		ui.hint, ui.hint_of = hint, r
+	}
+	return pressed
 }
 
 // composer_box lays out the box that a composer's message is written in: its
 // text area or, with the preview on (see preview_button), the message as it
 // will look. It gives the composer the focus when it should have it (which ends
-// the preview), and returns what the text area did and the box's id.
-composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id) {
+// the preview), and returns what the text area did, the box's id and where it
+// is (for composer_buttons).
+composer_box :: proc(ui: ^UI, c: Composer) -> (res: mu.Result_Set, box: mu.Id, rect: mu.Rect) {
 	ctx := &ui.ctx
 	box = mu.get_id(ctx, uintptr(&c.buf[0]))
+	rect = mu.layout_next(ctx)
 	if c.area.preview {
+		// The box's frame, with the preview in the part above the buttons.
+		ctx.draw_frame(ctx, rect, .BASE)
+		mu.layout_set_next(ctx, text_area_text_rect(rect, c.area), false)
 		chat_preview(ui, c)
 	} else {
+		mu.layout_set_next(ctx, rect, false)
 		res = chat_text_area(ui, c)
 	}
 	if takes_focus(ui, c) {
@@ -317,7 +357,7 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	top := (text_area_single(ctx, ctx.style.font) - lh) / 2
 	ctx.style.padding = top
 	defer ctx.style.padding = padding
-	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread))
+	mu.begin_panel(ctx, fmt.tprintf("composer preview %d", c.thread), {.NO_FRAME})
 	defer mu.end_panel(ctx)
 	if side := padding - top; side > 0 {
 		l := mu.get_layout(ctx)
@@ -346,14 +386,16 @@ tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu
 	if !active {
 		return stable_button(ctx, id_name, label)
 	}
-	// Lighter, and with its label bold and in the color of an open header
-	// button, so that the shown tab can be recognized at a glance.
-	saved, saved_text := ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT]
+	// In the accent color, with its label bold, so that the shown tab can be
+	// recognized at a glance.
+	saved := ctx.style.colors
 	saved_font := ctx.style.font
-	ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
-	ctx.style.colors[.TEXT] = theme.chat_name
+	ctx.style.colors[.BUTTON] = theme.accent
+	ctx.style.colors[.BUTTON_HOVER] = theme.accent_hover
+	ctx.style.colors[.BUTTON_FOCUS] = theme.accent_hover
+	ctx.style.colors[.TEXT] = theme.accent_text
 	ctx.style.font = render.font_with_style(saved_font, .Bold)
-	defer ctx.style.colors[.BUTTON], ctx.style.colors[.TEXT] = saved, saved_text
+	defer ctx.style.colors = saved
 	defer ctx.style.font = saved_font
 	return stable_button(ctx, id_name, label)
 }
@@ -363,23 +405,23 @@ chat_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	composer := composer_of(ui, 0)
 	input_h := composer_height(ui, composer)
-	composer_row(ui, input_h, 4)
+	composer_row(ui, input_h)
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
-	res, box := composer_box(ui, composer)
+	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil && ui.chat.editing == 0 {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
-	composer_buttons(ui, input_h, 4)
+	composer_buttons(ui, box_rect, 4)
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	preview_button(ui, composer)
-	if .SUBMIT in icon_button(ui, "send", .Send, "Save" if ui.chat.editing != 0 else "Send") {
+	if composer_send_button(ui, composer, "send", "Save" if ui.chat.editing != 0 else "Send") {
 		send = true
 	}
-	mu.layout_end_column(ctx)
+	composer_buttons_end(ui)
 	if !send {
 		return
 	}
@@ -391,6 +433,67 @@ chat_input :: proc(ui: ^UI) {
 // How long a notice (see conn.notify) shows in the line over a conversation.
 @(private = "file")
 NOTICE_SHOW :: 5 * time.Second
+
+// chat_status is what the channel's header says at its right end (see
+// header_line): that the clipboard is being read, that a message is being
+// edited, the network side's latest notice, or who is typing. Call with the
+// View locked.
+chat_status :: proc(ui: ^UI) -> (status: string, color: mu.Color) {
+	v := ui.view
+	status = "reading the clipboard..." if ui.paste != nil else typing_text(v)
+	color = theme.dim
+	if editing := composer_status(composer_of_page(ui)); editing != "" {
+		status = editing
+	}
+	if notice, ok, fresh := fresh_notice(v); fresh {
+		status, color = notice, theme.dim if ok else theme.error
+	}
+	when TIMELINE_DEBUG {
+		status = fmt.tprintf(
+			"%s  [%d laid out, %d off]",
+			status,
+			ui.timeline.laid_out,
+			ui.timeline.mismatched,
+		)
+	}
+	return
+}
+
+// header_line draws a conversation's header in `r`, on one line: `name`, then
+// `more` (a channel's topic) dimmed, and `status` (who is typing, or that a
+// message is being edited) at the right end. `more` gives way to `status`
+// where both don't fit, and `status` to the name.
+header_line :: proc(
+	ctx: ^mu.Context,
+	r: mu.Rect,
+	name: string,
+	name_color: mu.Color,
+	more: string,
+	status: string,
+	status_color: mu.Color,
+) {
+	GAP :: 12
+	font := ctx.style.font
+	y := r.y + (r.h - ctx.text_height(font)) / 2
+	x := r.x + ctx.style.padding
+	mu.push_clip_rect(ctx, r)
+	defer mu.pop_clip_rect(ctx)
+	if name != "" {
+		mu.draw_text(ctx, font, name, {x, y}, name_color)
+		x += ctx.text_width(font, name) + GAP
+	}
+	end := r.x + r.w - ctx.style.padding
+	if status != "" {
+		sx := max(end - ctx.text_width(font, status), x)
+		mu.draw_text(ctx, font, status, {sx, y}, status_color)
+		end = sx - GAP
+	}
+	if more != "" && end > x {
+		mu.push_clip_rect(ctx, {x, r.y, end - x, r.h})
+		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
+		mu.pop_clip_rect(ctx)
+	}
+}
 
 // fresh_notice is the notice the network side gave last, if it was
 // recent. Call with the View locked.
@@ -443,9 +546,10 @@ typing_text :: proc(v: ^conn.View, root: proto.Msg_Id = 0) -> string {
 	}
 }
 
-// chat_time formats a message's time in the local time zone: the time of day
-// for today's messages, and the date as well for older ones. The buddy screen
-// uses it too, for when someone was last online.
+// chat_time formats a message's time in the local time zone, as the locale
+// writes it (Date_Style): the time of day for today's messages, and the
+// date in short as well for older ones. The buddy screen uses it too, for when
+// someone was last online.
 chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 	local :: proc(ui: ^UI, t: time.Time) -> datetime.DateTime {
 		dt, _ := time.time_to_datetime(t)
@@ -453,10 +557,121 @@ chat_time :: proc(ui: ^UI, unix: proto.Unix_Time) -> string {
 	}
 	dt := local(ui, time.unix(i64(unix), 0))
 	now := local(ui, time.now())
-	if dt.date == now.date {
-		return fmt.tprintf("%02d:%02d", dt.hour, dt.minute)
+	return date_time_text(ui.date_style, dt, dt.date == now.date)
+}
+
+// How the locale writes a date in short and a time of day: the order of the
+// day, month and year, what goes between them, and whether the clock has
+// twelve hours with AM and PM.
+Date_Order :: enum {
+	DMY, // 31/9/26
+	MDY, // 9/31/26
+	YMD, // 2026-9-31
+}
+
+Date_Style :: struct {
+	order:  Date_Order,
+	sep:    u8,
+	hour12: bool,
+}
+
+// date_style_of works out a Date_Style from a locale's name, as the system
+// gives it ("en_US.UTF-8", "en-US", "de"). Without one, or for one it doesn't
+// know, it is the day first and a 24 hour clock.
+date_style_of :: proc(locale: string) -> (style: Date_Style) {
+	name := strings.to_lower(locale, context.temp_allocator)
+	if i := strings.index_any(name, ".@"); i >= 0 {
+		name = name[:i]
 	}
-	return fmt.tprintf("%d-%02d-%02d %02d:%02d", dt.year, dt.month, dt.day, dt.hour, dt.minute)
+	lang, region := name, ""
+	if i := strings.index_any(name, "_-"); i >= 0 {
+		lang, region = name[:i], name[i + 1:]
+	}
+	has :: proc(list: []string, s: string) -> bool {
+		for l in list {
+			if l == s {
+				return true
+			}
+		}
+		return false
+	}
+	style = {.DMY, '/', false}
+	switch {
+	case (lang == "en" && has({"", "us", "ph"}, region)) || (lang == "es" && region == "us"):
+		style.order = .MDY
+	case has({"zh", "ja"}, lang):
+		style.order = .YMD
+	case has({"ko", "hu", "lt", "sv", "mn"}, lang) || (region == "ca" && has({"en", "fr"}, lang)):
+		style.order, style.sep = .YMD, '-'
+	case has(
+		     {
+			     "de",
+			     "ru",
+			     "pl",
+			     "fi",
+			     "cs",
+			     "sk",
+			     "nb",
+			     "nn",
+			     "no",
+			     "da",
+			     "tr",
+			     "uk",
+			     "ro",
+			     "hr",
+			     "sl",
+			     "sr",
+			     "bg",
+			     "et",
+			     "lv",
+			     "is",
+			     "be",
+			     "kk",
+			     "az",
+		     },
+		     lang,
+	     ):
+		style.sep = '.'
+	case lang == "nl":
+		style.sep = '-'
+	}
+	style.hour12 =
+		(lang == "en" && has({"", "us", "ca", "au", "nz", "in", "ph"}, region)) ||
+		(lang == "es" && region == "us") ||
+		has({"hi", "ko"}, lang)
+	return
+}
+
+// date_time_text writes `dt` as `style` says: only the time of day with
+// `today`, otherwise the date in short before it (with the year's last two
+// digits, or all four when the year comes first).
+date_time_text :: proc(style: Date_Style, dt: datetime.DateTime, today: bool) -> string {
+	clock: string
+	if style.hour12 {
+		h := dt.hour % 12
+		clock = fmt.tprintf(
+			"%d:%02d %s",
+			12 if h == 0 else h,
+			dt.minute,
+			"PM" if dt.hour >= 12 else "AM",
+		)
+	} else {
+		clock = fmt.tprintf("%02d:%02d", dt.hour, dt.minute)
+	}
+	if today {
+		return clock
+	}
+	s := rune(style.sep)
+	date: string
+	switch style.order {
+	case .DMY:
+		date = fmt.tprintf("%d%r%d%r%02d", dt.day, s, dt.month, s, dt.year % 100)
+	case .MDY:
+		date = fmt.tprintf("%d%r%d%r%02d", dt.month, s, dt.day, s, dt.year % 100)
+	case .YMD:
+		date = fmt.tprintf("%d%r%d%r%d", dt.year, s, dt.month, s, dt.day)
+	}
+	return fmt.tprintf("%s %s", date, clock)
 }
 
 // chat_same_minute says whether two messages are shown as part of the same

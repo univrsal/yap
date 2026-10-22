@@ -81,7 +81,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	submit := .SUBMIT in text_box(ui, s.query_buf[:], &s.query_len)
 	submit |= .SUBMIT in stable_button(ctx, "find", "Search", {.ALIGN_CENTER})
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in mu.checkbox(ctx, "In all my conversations", &s.all) && v.search.query != "" {
+	if .CHANGE in checkbox(ctx, "In all my conversations", &s.all) && v.search.query != "" {
 		submit = true
 	}
 	query := strings.trim_space(string(s.query_buf[:s.query_len]))

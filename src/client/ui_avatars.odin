@@ -20,10 +20,6 @@ import "common:proto"
 // A picture is fetched the first time it is to be drawn (see conn's
 // Avatar_Want_Command), once per session.
 
-// The key a picture is decoded and kept under: its blob's id with this
-// bit set, to keep it apart from the same blob shown as a message's picture.
-AVATAR_KEY :: u64(1) << 61
-
 // How big the disc's own texture is, in pixels. It is scaled to the size
 // that is drawn.
 @(private = "file")
@@ -151,7 +147,10 @@ avatar_color :: proc(account: proto.Account_Id) -> mu.Color {
 avatar_icon :: proc(ui: ^UI, blob: proto.Blob_Id) -> (mu.Icon, bool) {
 	v := ui.view
 	im := &ui.images
-	key := AVATAR_KEY | u64(blob)
+	key := Image_Key {
+		kind = .Avatar,
+		id   = u64(blob),
+	}
 	t, known := im.textures[key]
 	if !known {
 		img, here := v.blobs[blob]
@@ -268,10 +267,17 @@ avatar_ringed :: proc(
 			)
 			a.have_ring = true
 		}
-		append(&im.draws, render.Image_Draw{texture = a.ring})
-		mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), slot, color)
 	}
-	avatar(ui, account, {slot.x + inset, slot.y + inset, slot.w - 2 * inset, slot.h - 2 * inset})
+	pic := mu.Rect{slot.x + inset, slot.y + inset, slot.w - 2 * inset, slot.h - 2 * inset}
+	if ring {
+		// Grown from the picture's rect once that is snapped, rather than
+		// snapped from the slot on its own, which at a fractional scale can
+		// put the picture a pixel off the ring's middle.
+		append(&im.draws, render.Image_Draw{texture = a.ring, grow = inset})
+		icon := mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1)
+		render.draw_icon_reaching(ctx, icon, pic, mu.expand_rect(slot, 1), color)
+	}
+	avatar(ui, account, pic)
 }
 
 // disc draws a round dot of `color` in `r`, inset by `inset`. This is for a

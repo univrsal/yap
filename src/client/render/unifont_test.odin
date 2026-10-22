@@ -56,6 +56,38 @@ test_unifont_cache_scales :: proc(t: ^testing.T) {
 	testing.expect_value(t, unifont_glyph_height(1.5), 24)
 	testing.expect_value(t, unifont_glyph_width(&u, '中'), 24)
 	testing.expect_value(t, unifont_glyph_width(&u, 'A'), 12)
+
+	// At a fractional scale every pixel of the chart takes the same room: the
+	// glyph has as much ink as the chart's pixels times the scale squared,
+	// with soft edges, rather than whole pixels of uneven widths.
+	slot, ok = unifont_cache(&u, '中')
+	testing.expect(t, ok)
+	set := 0
+	for row in u.rows[int('中') * 16:][:16] {
+		for b in 0 ..< 16 {
+			set += int(row >> uint(b)) & 1
+		}
+	}
+	ink, soft := 0, 0
+	for y in 0 ..< 24 {
+		for x in 0 ..< 24 {
+			v := at(&u, x, y)
+			ink += int(v)
+			soft += 1 if v != 0 && v != 255 else 0
+		}
+	}
+	testing.expect(t, abs(f32(ink) / 255 - f32(set) * 2.25) < 1)
+	testing.expect(t, soft > 0)
+
+	// At a whole scale, nothing is soft.
+	unifont_reset(&u, 2)
+	slot, ok = unifont_cache(&u, '中')
+	for y in 0 ..< 32 {
+		for x in 0 ..< 32 {
+			v := at(&u, x, y)
+			testing.expect(t, v == 0 || v == 255)
+		}
+	}
 }
 
 @(test)

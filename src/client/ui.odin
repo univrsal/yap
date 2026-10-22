@@ -202,10 +202,8 @@ UI :: struct {
 	// waiting on the View lock, so they happen after the layout, not during it.
 	action:              Action,
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
-	// What the window's title shows about unread messages: the number of mentions,
-	// -1 for "(*)" (something unread but no mention) or 0 for neither (see
-	// title_key).
-	title_unread:        int,
+	// What the window's title says (owned; see servers_frame).
+	window_title:        string,
 	settings_tab:        Settings_Tab, // which the settings page shows (ui_settings.odin)
 	// The category selected in each of the settings tabs.
 	settings_client:     Client_Category,
@@ -218,6 +216,7 @@ UI :: struct {
 	// For the chat's local timestamps, for every server. nil means UTC
 	// (see ui_chat_time_native.odin).
 	chat_tz:             ^datetime.TZ_Region,
+	date_style:          Date_Style, // how dates and times are written (chat_time)
 	activity:            UI_Activity, // whether whoever uses this is idle (ui_activity.odin)
 	video:               UI_Video, // screen sharing (ui_video.odin)
 	camera:              UI_Camera, // our camera and calls' video (ui_camera.odin)
@@ -273,6 +272,10 @@ UI :: struct {
 	// Whether the last frame was laid out narrow. In that case an open thread takes
 	// the place of the conversation instead of floating over it (see ui_threads.odin).
 	narrow:              bool,
+	// Whether controls are sized for a finger (see style_apply): in a narrow
+	// window, or once a touch screen has been used (web, ui_touch_web.odin).
+	compact:             bool,
+	touched:             bool,
 	// The bar over the message under the pointer (see ui_message_bar.odin),
 	// and whether this frame is a tap on a touch screen (see ui_touch_web.odin),
 	// which shows the message's bar.
@@ -333,6 +336,9 @@ UI :: struct {
 	// the hint drawn under it (see icon_button and icon_hint).
 	hint:                string,
 	hint_of:             mu.Rect,
+	// Icon buttons are drawn flat, with a background only while the pointer
+	// is on them (the composer's, inside its box, see composer_buttons).
+	flat_buttons:        bool,
 	// The emoji the hint is about, drawn large above it (icon_hint).
 	hint_emoji:          Hint_Emoji,
 	// The picture chip under the pointer, which is shown over it
@@ -366,6 +372,12 @@ UI :: struct {
 	// the log panel showed in it (-1: it wasn't on screen).
 	redraw_frames:       int,
 	redraw_at:           time.Tick,
+	// The mouse wheel's scrolling not handed to microui yet, in pixels, and
+	// when some was last handed over (see scroll_step).
+	scroll_left:         [2]f32,
+	// Each panel's and window's scrollbar (ui_scrollbars.odin).
+	scrollbar_fades:     map[^mu.Container]Scrollbar_Fade,
+	scroll_at:           time.Tick,
 	drawn_hash:          u64,
 	log_drawn:           int,
 }
@@ -441,7 +453,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	mu.init(&ui.ctx, set_clipboard, get_clipboard)
 	ui.ctx.text_width = render.ui_text_width
 	ui.ctx.text_height = render.ui_text_height
-	ui.ctx.draw_frame = render.draw_frame
+	ui.ctx.draw_frame = draw_frame_themed
 	ui.input_scale = 1
 
 	ui.action = .Start
@@ -507,7 +519,14 @@ ui_frame :: proc(ui: ^UI) -> bool {
 	// loop (see monitor_update), so the loop needs to run at the display's rate.
 	// In a web build the browser has already decided when this frame
 	// happens, so there is nothing to wait for.
-	glfw.WaitEventsTimeout(1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30)
+	// A frame asked for by a time (ui_redraw_at) wakes it sooner, so that what
+	// moves faster than that (scrolling, see scroll_step) does.
+	wait := 1.0 / 240 if ui.monitor.streams.playback != nil else 1.0 / 30
+	if ui.redraw_at != {} {
+		due := time.duration_seconds(time.tick_diff(time.tick_now(), ui.redraw_at))
+		wait = clamp(due, 0.001, wait)
+	}
+	glfw.WaitEventsTimeout(wait)
 
 	// Without threads nobody else can run the connection, so it
 	// gets its turn here, between frames (see net_thread).
@@ -615,6 +634,8 @@ draw_frame :: proc(ui: ^UI) {
 	activity_input(ui)
 	voice_elsewhere_update(ui)
 	theme_update(ui) // the palette for this frame (theme.odin)
+	style_apply(ui, i32(m.logical_w))
+	scroll_step(ui)
 	mu.begin(&ui.ctx)
 	ui.meter_shown = false // until gate_settings draws it again (it sets this when it draws the meter)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
@@ -776,6 +797,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	disconnect_all(ui)
 	delete(ui.sessions)
 	delete(ui.relay_server)
+	delete(ui.window_title)
 	hotkeys_stop(ui)
 	tray_hide(ui)
 	monitor_stop(ui)
@@ -791,6 +813,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	app_audio_destroy(ui)
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
+	delete(ui.scrollbar_fades)
 	// The paste thread uses the clipboard, so it has to be
 	// finished before the clipboard is torn down.
 	paste_wait(ui)
@@ -868,7 +891,8 @@ window_open :: proc(ui: ^UI) -> bool {
 	}
 	titlebar_window_hints(ui.settings.merge_title_bar)
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
-	ui.title_unread = 0 // what the window title shows
+	delete(ui.window_title)
+	ui.window_title = strings.clone("Yap") // what the window title says
 	if ui.window == nil {
 		log.errorf("failed to create a window (%s is required)", render.GPU_REQUIREMENT)
 		return false
@@ -1648,6 +1672,35 @@ connect_screen :: proc(ui: ^UI) {
 // the channels go above the chat instead of beside it.
 NARROW_LAYOUT :: 600
 
+// How roomy controls are: microui's padding inside them and spacing between
+// them, and the size of its controls (a row is size.y + 2 * padding tall).
+// microui's own are 5, 4 and 68x10. On a phone, rows are 40 px tall, as big as
+// a fingertip, and closer together, to leave room for the messages.
+STYLE_PADDING :: 6
+STYLE_SPACING :: 6
+STYLE_SIZE :: mu.Vec2{80, 14}
+COMPACT_PADDING :: 6
+COMPACT_SPACING :: 4
+COMPACT_SIZE :: mu.Vec2{80, 28}
+
+// On a phone, the messages (the timeline) are spaced as microui's own
+// controls are, closer than elsewhere: there is little room for them.
+COMPACT_MESSAGE_PADDING :: 5
+COMPACT_MESSAGE_SPACING :: 4
+
+// style_apply sets microui's sizes for this frame, a window `width` wide: for
+// a finger where the window is as narrow as a phone's (as session_screen
+// tells it, beside the rail) or a touch screen has been used.
+style_apply :: proc(ui: ^UI, width: i32) {
+	ui.compact = width - RAIL_WIDTH < NARROW_LAYOUT || ui.touched
+	style := ui.ctx.style
+	if ui.compact {
+		style.padding, style.spacing, style.size = COMPACT_PADDING, COMPACT_SPACING, COMPACT_SIZE
+	} else {
+		style.padding, style.spacing, style.size = STYLE_PADDING, STYLE_SPACING, STYLE_SIZE
+	}
+}
+
 @(private = "file")
 session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -1668,7 +1721,9 @@ session_screen :: proc(ui: ^UI) {
 		return
 	}
 
-	session_header(ui)
+	if !narrow {
+		session_header(ui)
+	}
 
 	// Side by side where there is room. In a narrow window the list and
 	// the chat take turns (see ui_channels.odin), over the voice panel.
@@ -1690,6 +1745,13 @@ session_screen :: proc(ui: ^UI) {
 	message_menu(ui)
 	app_audio_menu(ui)
 	share_menu(ui)
+}
+
+// titlebar_merged says whether the window's buttons are drawn in the top row
+// of our own layout (ui_titlebar.odin) rather than in a title bar of the
+// system's, which shows the window's title.
+titlebar_merged :: proc(ui: ^UI) -> bool {
+	return ui.titlebar_left > 0 || ui.titlebar_right > 0
 }
 
 // title_row is mu.layout_row for a screen's first row. With the title bar
@@ -1719,9 +1781,17 @@ title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 // status and the settings are at the bottom of the rail
 // (see rail_bottom). Mute, deafen and what is shared are in the voice panel
 // (see ui_voice_panel.odin).
+//
+// It is only there with the title bar merged (titlebar_merged), where the row
+// is taken anyway by the window's buttons. Otherwise the window's own title
+// says the same (servers_frame), and the row is left to the chat, unless there
+// is something to say about connecting.
 session_header :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
+	if !titlebar_merged(ui) && (ui.page == .Buddies || v.status == .Connected) {
+		return
+	}
 	title_row(ui, {-1})
 	switch {
 	case ui.page == .Buddies:
@@ -1802,8 +1872,43 @@ log_panel :: proc(ui: ^UI) {
 	mu.end_panel(ctx)
 }
 
-// A button with nothing but an icon on it is this wide.
+// A button with nothing but an icon on it is this wide, or as wide as it is
+// tall where rows are taller (icon_button_w).
 ICON_BUTTON :: 30
+
+// icon_button_w is how wide a button with only an icon on it is: square on a
+// phone, where rows are a fingertip tall (style_apply).
+icon_button_w :: proc(ctx: ^mu.Context) -> i32 {
+	return max(ICON_BUTTON, ctx.style.size.y + 2 * ctx.style.padding)
+}
+
+// draw_frame_themed is microui's draw_frame (render.draw_frame), except that a
+// focused text box has a ring in the theme's accent color (its border and one
+// more line inside it), and a window that floats over the main window casts a
+// shadow.
+draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Type) {
+	// A window's frame is drawn while it is the current container
+	// (begin_window). The main window and the rail are below everything.
+	if colorid == .WINDOW_BG &&
+	   ctx.container_stack.idx > 0 &&
+	   mu.get_current_container(ctx).zindex >= 0 {
+		render.draw_shadow(ctx, rect, theme.shadow)
+	}
+	if colorid == .SCROLL_BASE || colorid == .SCROLL_THUMB {
+		scrollbar_frame(g_ui, rect, colorid)
+		return
+	}
+	if colorid != .BASE_FOCUS {
+		render.draw_frame(ctx, rect, colorid)
+		return
+	}
+	// The outer line is snapped from the inner one, so that the two touch
+	// on every side at any scale.
+	radius := i32(render.CONTROL_RADIUS - 1)
+	render.draw_rounded_outside(ctx, rect, ctx.style.colors[colorid], radius)
+	render.draw_rounded_outside(ctx, rect, theme.accent, radius, border = true)
+	render.draw_rounded_border(ctx, rect, theme.accent, radius)
+}
 
 // stable_button is mu.button, except that its id comes from `id_name` (under
 // the current id stack) instead of from the label, so the label can
@@ -1828,12 +1933,52 @@ icon_button :: proc(
 	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
 		res += {.SUBMIT}
 	}
-	mu.draw_control_frame(ctx, id, r, .BUTTON)
+	// Filled, without a border, or flat: a background only while the pointer
+	// is on it or it is pressed.
+	colorid := mu.Color_Type.BUTTON
+	if ctx.focus_id == id {
+		colorid = .BUTTON_FOCUS
+	} else if ctx.hover_id == id {
+		colorid = .BUTTON_HOVER
+	}
+	if !ui.flat_buttons || colorid != .BUTTON {
+		render.draw_rounded(ctx, r, ctx.style.colors[colorid], render.CONTROL_RADIUS)
+	}
 	mu.draw_icon(ctx, render.icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
 	if ctx.hover_id == id {
 		ui.hint, ui.hint_of = hint, r
 	}
 	return
+}
+
+// A spinner turns once a second, a step at a time.
+SPINNER_STEP :: time.Second / render.SPINNER_STEPS
+
+// spinner says that something is loading: a turning ring in the middle of
+// `r`, dim unless it gets a `color`. While it is on screen, it asks for a frame
+// when it is to turn next, and only then: a spinner scrolled out of view
+// costs no frames.
+spinner :: proc(ui: ^UI, r: mu.Rect, color := mu.Color{}) {
+	ctx := &ui.ctx
+	if mu.check_clip(ctx, r) == .ALL {
+		return
+	}
+	// The same step everywhere, from the clock.
+	ns := time.tick_now()._nsec
+	step := ns / i64(SPINNER_STEP)
+	mu.draw_icon(
+		ctx,
+		render.spinner_id(int(step % render.SPINNER_STEPS)),
+		r,
+		color if color.a != 0 else theme.dim,
+	)
+	ui_redraw_in(ui, time.Duration(i64(SPINNER_STEP) - ns % i64(SPINNER_STEP)))
+}
+
+// spinner_row is a row of its own with a spinner in its middle.
+spinner_row :: proc(ui: ^UI) {
+	mu.layout_row(&ui.ctx, {-1})
+	spinner(ui, mu.layout_next(&ui.ctx))
 }
 
 // menu_list_begin starts a list of `rows` rows in a menu, `width` wide. The rows
@@ -1949,8 +2094,8 @@ icon_hint :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
-	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
-	render.draw_border(ctx, r, ctx.style.colors[.BORDER])
+	render.draw_rounded(ctx, r, ctx.style.colors[.BASE], render.CONTROL_RADIUS)
+	render.draw_rounded_border(ctx, r, ctx.style.colors[.BORDER], render.CONTROL_RADIUS)
 	line_y := y + pad
 	if big_h > 0 {
 		at := mu.Vec2{x + (w - big_w) / 2, line_y}
@@ -2019,11 +2164,14 @@ stable_button :: proc(
 // list_row is a line of a list to pick from (such as a settings tab's
 // categories or the channels), shown as text. It is boxed and bold while it is
 // the selected one and highlighted under the mouse. Clicking it with the left
-// button submits it.
+// button submits it. With `accent`, the selected one is in the accent color
+// (what is shown: a settings category, the channel that is open), rather than
+// grey (the current choice in a dropdown or a list of options).
 list_row :: proc(
 	ctx: ^mu.Context,
 	id_name, label: string,
 	selected: bool,
+	accent := false,
 ) -> (
 	res: mu.Result_Set,
 ) {
@@ -2034,17 +2182,45 @@ list_row :: proc(
 		res += {.SUBMIT}
 	}
 	switch {
+	case selected && accent:
+		color := theme.accent_hover if ctx.hover_id == id else theme.accent
+		render.draw_rounded(ctx, r, color, render.CONTROL_RADIUS)
 	case selected:
-		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_FOCUS])
+		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_FOCUS], render.CONTROL_RADIUS)
 	case ctx.hover_id == id:
-		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
+		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_HOVER], render.CONTROL_RADIUS)
 	}
-	saved := ctx.style.font
+	saved, saved_text := ctx.style.font, ctx.style.colors[.TEXT]
 	if selected {
 		ctx.style.font = render.font_with_style(saved, .Bold)
 	}
+	if selected && accent {
+		ctx.style.colors[.TEXT] = theme.accent_text
+	}
 	mu.draw_control_text(ctx, label, r, .TEXT, {})
-	ctx.style.font = saved
+	ctx.style.font, ctx.style.colors[.TEXT] = saved, saved_text
+	return
+}
+
+// checkbox is mu.checkbox, except that it is ticked when the mouse button
+// goes down on it, like a button, instead of when it comes up. Otherwise a
+// press that closes a dropdown's list (dropdown_popup) or changes the
+// settings page under the pointer would tick the checkbox that is there
+// when the button comes up.
+checkbox :: proc(ctx: ^mu.Context, label: string, state: ^bool) -> (res: mu.Result_Set) {
+	id := mu.get_id(ctx, uintptr(state))
+	r := mu.layout_next(ctx)
+	box := mu.Rect{r.x, r.y, r.h, r.h}
+	mu.update_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+		res += {.CHANGE}
+		state^ = !state^
+	}
+	mu.draw_control_frame(ctx, id, box, .BASE)
+	if state^ {
+		mu.draw_icon(ctx, .CHECK, box, ctx.style.colors[.TEXT])
+	}
+	mu.draw_control_text(ctx, label, {r.x + box.w, r.y, r.w - box.w, r.h}, .TEXT)
 	return
 }
 
@@ -2209,11 +2385,67 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	}
 }
 
+// How far a notch of the mouse wheel scrolls, in pixels.
+WHEEL_NOTCH :: 60
+
 @(private = "file")
 scroll_callback :: proc "c" (window: glfw.WindowHandle, x, y: f64) {
 	context = platform.callback_context()
 	ui_redraw(g_ui)
-	mu.input_scroll(&g_ui.ctx, i32(-x * 30), i32(-y * 30))
+	// A wheel turns in whole notches, which are spread over a few frames
+	// (scroll_step). A touchpad scrolls in fractions of one, a little at a
+	// time already, so that goes to microui as it comes.
+	if x == math.round(x) && y == math.round(y) {
+		g_ui.scroll_left += {f32(-x * WHEEL_NOTCH), f32(-y * WHEEL_NOTCH)}
+	} else {
+		mu.input_scroll(&g_ui.ctx, i32(-x * WHEEL_NOTCH), i32(-y * WHEEL_NOTCH))
+	}
+}
+
+// The mouse wheel's scrolling eases out: what is left shrinks by e every
+// SCROLL_EASE, so a notch is mostly done in a few frames. While some is left,
+// frames come every SCROLL_FRAME.
+SCROLL_EASE :: 0.1 // seconds
+SCROLL_FRAME :: time.Second / 60
+
+// scroll_step hands microui this frame's share of the mouse wheel's
+// scrolling, before the frame is laid out. Only whole pixels are handed over,
+// so in the end a notch scrolls exactly as far as it would at once.
+scroll_step :: proc(ui: ^UI) {
+	if ui.scroll_left == {} {
+		return
+	}
+	now := time.tick_now()
+	// The first frame of a scroll gets a frame's share too.
+	dt := f32(time.duration_seconds(SCROLL_FRAME))
+	if ui.scroll_at != {} {
+		dt = clamp(f32(time.duration_seconds(time.tick_diff(ui.scroll_at, now))), 0, 0.1)
+	}
+	left := ui.scroll_left * math.exp(-dt / SCROLL_EASE)
+	for &v in left {
+		if abs(v) < 1 {
+			v = 0 // the rest, now
+		}
+	}
+	give := [2]i32 {
+		i32(math.round(ui.scroll_left.x - left.x)),
+		i32(math.round(ui.scroll_left.y - left.y)),
+	}
+	// At least a pixel while some is left: with a slow ease, a frame's share
+	// of the last few pixels rounds to none, and it would never finish.
+	for &g, i in give {
+		if g == 0 && ui.scroll_left[i] != 0 {
+			g = 1 if ui.scroll_left[i] > 0 else -1
+		}
+	}
+	ui.scroll_left -= {f32(give.x), f32(give.y)}
+	mu.input_scroll(&ui.ctx, give.x, give.y)
+	if ui.scroll_left != {} {
+		ui.scroll_at = now
+		ui_redraw_in(ui, SCROLL_FRAME)
+	} else {
+		ui.scroll_at = {}
+	}
 }
 
 @(private = "file")
@@ -2266,7 +2498,7 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		// Close the enlarged image, if one is open. For the rest of
 		// the frame, treat it as a key like microui's (see UI.keys).
 		if action == glfw.PRESS {
-			g_ui.images.viewer = 0
+			g_ui.images.viewer = {}
 			g_ui.keys += {.Escape}
 		}
 		return

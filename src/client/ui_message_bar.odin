@@ -7,6 +7,7 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:render"
 import "client:settings"
 import "common:proto"
 
@@ -53,6 +54,7 @@ UI_Message_Bar :: struct {
 	block:        mu.Rect, // where the message is
 	clip:         mu.Rect, // the part of its timeline that is on screen
 	host:         ^mu.Container, // the window its timeline is in
+	panel:        ^mu.Container, // its timeline's panel, which the wheel scrolls over the bar
 	// Where the bar was last frame, if it was shown.
 	shown:        bool,
 	shown_target: Bar_Target,
@@ -104,6 +106,7 @@ message_bar_track :: proc(
 	}
 	mu.draw_rect(ctx, block, theme.hover_tint)
 	b.found, b.target, b.msg, b.block, b.clip = true, t, m, block, clip
+	b.panel = mu.get_current_container(ctx)
 	b.host = nil
 	for i := ctx.container_stack.idx - 1; i >= 0; i -= 1 {
 		// Only a window has its `head` set (microui's in_hover_root).
@@ -124,6 +127,16 @@ message_bar :: proc(ui: ^UI) {
 	defer {
 		b.found, b.tap_claimed = false, false
 		ui.touch_tap = false
+	}
+	// The wheel over the bar scrolls the timeline under it, as it does
+	// everywhere else on the timeline: microui would give it to the bar, which
+	// doesn't scroll. What microui takes as under the pointer is the window it
+	// was over in the last frame, so this goes by that too: the bar moves
+	// with the message under the pointer as the timeline scrolls, and in
+	// between neither would take the wheel.
+	if bar := mu.get_container(ctx, BAR_WINDOW);
+	   bar != nil && ctx.hover_root == bar && b.panel != nil {
+		ctx.scroll_target = b.panel
 	}
 	// A tap on neither a message nor the bar hides the tapped message's bar.
 	if ui.touch_tap &&
@@ -149,7 +162,7 @@ message_bar :: proc(ui: ^UI) {
 	// part of its timeline that is on screen.
 	pad, spacing := ctx.style.padding, ctx.style.spacing
 	row_h := ctx.style.size.y + 2 * pad
-	w := i32(n) * ICON_BUTTON + i32(n - 1) * spacing + 2 * pad
+	w := i32(n) * icon_button_w(ctx) + i32(n - 1) * spacing + 2 * pad
 	h := row_h + 2 * pad
 	right := min(b.block.x + b.block.w, b.clip.x + b.clip.w) - BAR_INSET
 	x := max(right - w, b.clip.x)
@@ -176,7 +189,7 @@ message_bar :: proc(ui: ^UI) {
 
 	widths := make([]i32, n, context.temp_allocator)
 	for &bw in widths {
-		bw = ICON_BUTTON
+		bw = icon_button_w(ctx)
 	}
 	mu.layout_row(ctx, widths, row_h)
 	cmds := &ui.session.client.commands
@@ -267,7 +280,8 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 	rect := mu.layout_next(ctx)
 	mu.update_control(ctx, id, rect)
 	if r.me {
-		mu.draw_rect(ctx, rect, theme.highlight_more if ctx.hover_id == id else theme.highlight)
+		color := theme.highlight_more if ctx.hover_id == id else theme.highlight
+		render.draw_rounded(ctx, rect, color, render.CONTROL_RADIUS)
 	} else {
 		mu.draw_control_frame(ctx, id, rect, .BUTTON)
 	}

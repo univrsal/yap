@@ -385,6 +385,7 @@ Command :: union {
 	View_Command,
 	Voice_Command,
 	Browse_Command,
+	All_Channels_Command,
 	Subscribe_Command,
 	Create_Channel_Command,
 	Reading_Command,
@@ -585,7 +586,9 @@ process_commands :: proc(c: ^Voice_Client) {
 		case Voice_Command:
 			voice_command(c, v)
 		case Browse_Command:
-			conv_browse(c, v.query, v.more)
+			conv_browse(c, v)
+		case All_Channels_Command:
+			fetch_all_channels(c)
 		case Subscribe_Command:
 			conv_subscribe_command(c, v)
 		case Create_Channel_Command:

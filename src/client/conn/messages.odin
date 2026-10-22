@@ -968,7 +968,10 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 	}
 	// Update the conversation's window, and the window of the thread it's a
 	// reply in or the root of.
-	for key in ([]Timeline_Key{{m.conv, 0}, {m.conv, m.thread_root if m.thread_root != 0 else m.id}}) {
+	for key in ([]Timeline_Key {
+			{m.conv, 0},
+			{m.conv, m.thread_root if m.thread_root != 0 else m.id},
+		}) {
 		cache := c.msgs.caches[key] or_else nil
 		if cache == nil {
 			continue

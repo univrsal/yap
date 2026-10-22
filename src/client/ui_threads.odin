@@ -213,7 +213,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	}
 	if back {
 		mu.layout_row(ctx, {70, -1})
-		if .SUBMIT in stable_button(ctx, "thread back", "Back") {
+		if .SUBMIT in icon_button(ui, "thread back", .Back, "Back") {
 			close_thread(ui, slot)
 			return
 		}
@@ -238,29 +238,28 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 
 	composer_files(ui, composer, width)
 
-	composer_row(ui, input_h, 4)
+	composer_row(ui, input_h)
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
-	res, box := composer_box(ui, composer)
+	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && t.len > 0 && ui.session != nil && t.editing == 0 {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{thread = t.key})
 	}
 	send := .SUBMIT in res
-	composer_buttons(ui, input_h, 4)
+	composer_buttons(ui, box_rect, 4)
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	preview_button(ui, composer)
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "send",
-		   .Send,
-		   "Enter: Save\nCtrl+Enter: New line" if t.editing != 0 else "Enter: Reply\nCtrl+Enter: New line",
-	   ) {
+	if composer_send_button(
+		ui,
+		composer,
+		"send",
+		"Enter: Save\nCtrl+Enter: New line" if t.editing != 0 else "Enter: Reply\nCtrl+Enter: New line",
+	) {
 		send = true
 	}
-	mu.layout_end_column(ctx)
+	composer_buttons_end(ui)
 	if !send {
 		return
 	}

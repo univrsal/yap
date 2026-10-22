@@ -32,11 +32,11 @@ Picked_File :: struct {
 	size:           u64,
 	// The preview of its chip, for a picture (see chip_preview_bytes): the bytes
 	// read so far (owned; a pasted picture's bytes are in `data`), how many were
-	// read, the key of its texture (0 until it is first shown), and whether it
+	// read, the key of its texture (kind None until it is first shown), and whether it
 	// couldn't be read.
 	preview:        []u8,
 	preview_read:   int,
-	preview_key:    u64,
+	preview_key:    Image_Key,
 	preview_failed: bool,
 }
 
@@ -272,8 +272,8 @@ drop_hint :: proc(ui: ^UI) {
 	h := max(text_h, ICON_BUTTON) + 2 * pad
 	w := ICON_BUTTON + text_w + 3 * pad
 	box := mu.Rect{r.x + (r.w - w) / 2, r.y + (r.h - h) / 2, w, h}
-	mu.draw_rect(ctx, box, ctx.style.colors[.BASE])
-	render.draw_border(ctx, box, accent)
+	render.draw_rounded(ctx, box, ctx.style.colors[.BASE], render.WINDOW_RADIUS)
+	render.draw_rounded_border(ctx, box, accent, render.WINDOW_RADIUS)
 	mu.draw_icon(
 		ctx,
 		render.icon_id(.Attach),
@@ -378,11 +378,8 @@ composer_files :: proc(ui: ^UI, c: Composer, width: i32) {
 // popup is drawn at the end of the frame from the decoded texture alone,
 // so a chip that is removed or sent meanwhile leaves nothing behind for it to use.
 
-// The key that the chips' previews are decoded under, next to messages' pictures
-// (their blob's id), avatars (AVATAR_KEY) and the emoji sheet: this bit
-// plus a count.
-@(private = "file")
-CHIP_PREVIEW_KEY :: u64(1) << 60
+// How many chips' previews there have been, which tells their keys apart
+// (Image_Kind.Chip_Preview).
 @(private = "file")
 g_chip_previews: u64
 
@@ -396,7 +393,7 @@ CHIP_PREVIEW_H :: 240
 
 // The chip the pointer is on in this frame, for chip_preview_popup.
 Chip_Preview :: struct {
-	key:     u64, // 0 for none
+	key:     Image_Key, // kind None for none
 	of:      mu.Rect, // the chip
 	caption: string,
 }
@@ -432,9 +429,12 @@ chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
 	if !ready && f.preview_failed {
 		return // the plain hint
 	}
-	if f.preview_key == 0 {
+	if f.preview_key.kind == .None {
 		g_chip_previews += 1
-		f.preview_key = CHIP_PREVIEW_KEY | g_chip_previews
+		f.preview_key = {
+			kind = .Chip_Preview,
+			id   = g_chip_previews,
+		}
 	}
 	if ready {
 		image_want(ui, f.preview_key, data)
@@ -451,14 +451,14 @@ chip_hovered :: proc(ui: ^UI, f: ^Picked_File) {
 // above it (or below it if there is no room), together with the chip's hint.
 chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 	p := ui.chip_preview
-	if p.key == 0 {
+	if p.key.kind == .None {
 		return
 	}
 	ui.chip_preview = {}
 	ctx := &ui.ctx
 	pad := ctx.style.padding
 	line_h := ctx.text_height(ctx.style.font)
-	// While it is being read or decoded, leave room for "loading picture...".
+	// While it is being read or decoded, leave room for its spinner.
 	pic_w, pic_h := i32(CHIP_PREVIEW_W), i32(CHIP_PREVIEW_H / 2)
 	if iw, ih, ok := image_size(ui, p.key); ok {
 		fw, fh := conn.fit_box(iw, ih, CHIP_PREVIEW_W, CHIP_PREVIEW_H)
@@ -490,8 +490,8 @@ chip_preview_popup :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
-	mu.draw_rect(ctx, r, ctx.style.colors[.BASE])
-	render.draw_border(ctx, r, ctx.style.colors[.BORDER])
+	render.draw_rounded(ctx, r, ctx.style.colors[.BASE], render.WINDOW_RADIUS)
+	render.draw_rounded_border(ctx, r, ctx.style.colors[.BORDER], render.WINDOW_RADIUS)
 	image_fitted(ui, p.key, .Wanted, nil, {x + pad, y + pad, pic_w, pic_h}, hovered = true)
 	mu.draw_text(
 		ctx,
@@ -553,6 +553,22 @@ FILES_BAR :: 6
 FILES_STATE_W :: 90
 @(private = "file")
 FILES_BUTTON_W :: 100 when platform.WEB else 150
+
+// What a message's file has at the end of its line (message_files).
+@(private = "file")
+File_Action :: enum {
+	None, // it is gone from the server
+	Save, // an icon button
+	Cancel, // while it is being saved
+	Browse, // saved, and not something that may be opened
+	Open_Browse, // saved
+}
+
+// word_button_w is how wide a button with `label` on it is.
+@(private = "file")
+word_button_w :: proc(ctx: ^mu.Context, label: string) -> i32 {
+	return ctx.text_width(ctx.style.font, label) + 4 * ctx.style.padding
+}
 
 @(private = "file")
 file_save :: proc(ui: ^UI, f: conn.Msg_File) -> (conn.View_Save, bool) {
@@ -618,7 +634,7 @@ file_preview :: proc(
 	}
 	if image_fitted(
 		ui,
-		u64(f.blob),
+		Image_Key{kind = .Picture, id = u64(f.blob)},
 		img.state if here else .Wanted,
 		img.jpeg if here else nil,
 		area,
@@ -641,15 +657,41 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 	for f, i in m.files {
 		mu.push_id(ctx, uintptr(i))
 		defer mu.pop_id(ctx)
+		s, has_save := file_save(ui, f)
+		action := File_Action.Save
+		switch {
+		case f.blob == 0:
+			action = .None
+		case has_save && saving(s):
+			action = .Cancel
+		case has_save && s.state == .Done && !platform.WEB && !platform.file_openable(s.path):
+			// Not something that may be opened (platform.open_file), so it can
+			// only be shown in its folder.
+			action = .Browse
+		case has_save && s.state == .Done && !platform.WEB:
+			action = .Open_Browse
+		}
+		// The button's cell is as wide as what is in it: Save is an icon, so
+		// that the name and the size keep the room.
+		button_w := icon_button_w(ctx)
+		#partial switch action {
+		case .Cancel:
+			button_w = word_button_w(ctx, "Cancel")
+		case .Browse:
+			button_w = word_button_w(ctx, "Browse")
+		case .Open_Browse:
+			button_w =
+				word_button_w(ctx, "Open") + ctx.style.spacing + word_button_w(ctx, "Browse")
+		}
 		// The name takes what is left, and one more: microui's "the rest"
 		// is a pixel more than the rest, which would widen the panel.
 		mu.layout_row(
 			ctx,
 			{
 				ICON_SIZE_CELL,
-				-(FILES_STATE_W + FILES_BUTTON_W + 2 * ctx.style.spacing + 1),
+				-(FILES_STATE_W + button_w + 2 * ctx.style.spacing + 1),
 				FILES_STATE_W,
-				FILES_BUTTON_W,
+				button_w,
 			},
 			control_height(ctx),
 		)
@@ -670,7 +712,6 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			label_proc,
 		)
 
-		s, has_save := file_save(ui, f)
 		state, color := conn.format_bytes(f.size), theme.dim
 		switch {
 		case f.blob == 0:
@@ -689,17 +730,15 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			msg   = m.id,
 			index = i,
 		}
-		switch {
-		case f.blob == 0:
+		switch action {
+		case .None:
 			mu.layout_next(ctx)
-		case has_save && saving(s):
+		case .Cancel:
 			if .SUBMIT in stable_button(ctx, "cancel save", "Cancel", {.ALIGN_CENTER}) {
 				save.cancel = true
 				attach_command(ui, save)
 			}
-		case has_save && s.state == .Done && !platform.WEB && !platform.file_openable(s.path):
-			// Not something that may be opened (platform.open_file), so it can
-			// only be shown in its folder.
+		case .Browse:
 			if .SUBMIT in
 			   stable_button_hint(
 				   ui,
@@ -710,10 +749,10 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			   ) {
 				platform.open_folder(os_dir(s.path))
 			}
-		case has_save && s.state == .Done && !platform.WEB:
+		case .Open_Browse:
 			cell := mu.layout_next(ctx)
-			half := (cell.w - ctx.style.spacing) / 2
-			mu.layout_set_next(ctx, {cell.x, cell.y, half, cell.h}, false)
+			open_w := word_button_w(ctx, "Open")
+			mu.layout_set_next(ctx, {cell.x, cell.y, open_w, cell.h}, false)
 			if .SUBMIT in
 			   stable_button_hint(
 				   ui,
@@ -724,23 +763,14 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 			   ) {
 				platform.open_file(s.path)
 			}
-			mu.layout_set_next(
-				ctx,
-				{cell.x + half + ctx.style.spacing, cell.y, half, cell.h},
-				false,
-			)
+			browse_x := cell.x + open_w + ctx.style.spacing
+			mu.layout_set_next(ctx, {browse_x, cell.y, cell.x + cell.w - browse_x, cell.h}, false)
 			if .SUBMIT in stable_button_hint(ui, "browse", "Browse", s.path, {.ALIGN_CENTER}) {
 				platform.open_folder(os_dir(s.path))
 			}
-		case:
-			if .SUBMIT in
-			   stable_button_hint(
-				   ui,
-				   "save",
-				   "Save",
-				   fmt.tprintf("Save %s to the downloads folder", f.name),
-				   {.ALIGN_CENTER},
-			   ) {
+		case .Save:
+			hint := fmt.tprintf("Save %s to the downloads folder", f.name)
+			if .SUBMIT in icon_button(ui, "save", .Download, hint) {
 				attach_command(ui, save)
 			}
 		}

@@ -80,12 +80,12 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	defer mu.end_window(ctx)
 
 	pins := &v.pins
-	mu.layout_row(ctx, {-1})
-	switch {
-	case pins.conv != v.viewing || (pins.loading && len(pins.messages) == 0):
-		with_text_color(ctx, theme.dim, "Loading...", label_proc)
+	if pins.conv != v.viewing || (pins.loading && len(pins.messages) == 0) {
+		spinner_row(ui)
 		return
-	case len(pins.messages) == 0:
+	}
+	if len(pins.messages) == 0 {
+		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, theme.dim, "Nothing is pinned here.", label_proc)
 		return
 	}

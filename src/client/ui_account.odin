@@ -5,6 +5,7 @@ import "client:platform"
 import "client:settings"
 import "common:proto"
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 import "core:sync"
 import "core:time"
@@ -81,6 +82,11 @@ UI_Account :: struct {
 	add_name_len:  int,
 	add_pass_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
 	add_pass_len:  int,
+	// The accounts list (accounts_admin): the account picked in it (0: none),
+	// whether the form to make one is showing instead, and its search.
+	picked:        proto.Account_Id,
+	creating:      bool,
+	accounts_find: Pager,
 	// The bot whose tokens are shown (see ui_bots.odin), 0 for none.
 	bot_tokens:    proto.Account_Id,
 	// Giving an account a new password: which account, and the password.
@@ -459,7 +465,7 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 	submit |= .SUBMIT in password_box(ui, a.again_buf[:], &a.again_len)
 	if offer_revoke {
 		field_row(ui, FORM_LABEL + 60, "", {-1}, fill_min = 200)
-		mu.checkbox(ctx, "Log my other devices out", &a.revoke_others)
+		checkbox(ctx, "Log my other devices out", &a.revoke_others)
 	}
 	field_row(ui, FORM_LABEL + 60, "", {140, -1})
 	submit |= .SUBMIT in mu.button(ctx, "Change password")
@@ -513,6 +519,7 @@ notice_label :: proc(ui: ^UI, v: ^conn.View) {
 Server_Category :: enum {
 	Server_Info,
 	Account,
+	Channels,
 	Roles,
 	Accounts,
 	Invites,
@@ -523,6 +530,7 @@ Server_Category :: enum {
 SERVER_CATEGORY_NAMES := [Server_Category]string {
 	.Server_Info = "Server",
 	.Account     = "Account",
+	.Channels    = "Channels",
 	.Roles       = "Roles",
 	.Accounts    = "Accounts",
 	.Invites     = "Invite codes",
@@ -537,6 +545,9 @@ server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category
 	c += {.Account}
 	if me, known := v.accounts[v.me]; known && .Owner in me.flags {
 		c += {.Server_Info, .Memory}
+	}
+	if v.permissions & {.Create_Channels, .Manage_Channels} != {} {
+		c += {.Channels}
 	}
 	if .Manage_Roles in v.permissions {
 		c += {.Roles}
@@ -556,8 +567,11 @@ server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category
 // server_category_opened is called when a category of the server tab
 // has just been picked.
 server_category_opened :: proc(ui: ^UI, c: Server_Category) {
-	if c == .Roles {
+	#partial switch c {
+	case .Roles:
 		ui.roles.notice_seen = -1 // taken from the View when it's next locked
+	case .Channels:
+		channels_category_opened(ui) // ui_channel_settings.odin
 	}
 }
 
@@ -581,6 +595,8 @@ server_settings :: proc(ui: ^UI, c: Server_Category) {
 		server_info_settings(ui, v) // ui_server_info.odin
 	case .Account:
 		account_settings(ui, v)
+	case .Channels:
+		channels_settings(ui) // ui_channel_settings.odin
 	case .Roles:
 		roles_settings(ui)
 	case .Accounts:
@@ -701,22 +717,16 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	ctx := &ui.ctx
 	current, _ := proto.email_digest_parse(v.shared[proto.SETTING_EMAIL_DIGEST] or_else "")
-	for choice in proto.Email_Digest {
-		// Two per row: the label, then the next two.
-		if int(choice) % 2 == 0 {
-			field_row(ui, FORM_LABEL, "Email digests" if choice == .None else "", {210, 210})
-		}
+	field_row(ui, FORM_LABEL, "Email digests", {CHOICE_WIDTH})
+	if choice, ok := enum_dropdown(ui, "digest", DIGEST_LABELS, current); ok {
 		name := proto.EMAIL_DIGEST_NAMES[choice]
-		id := fmt.tprintf("digest %s", name)
-		if choice_button(ui, id, DIGEST_LABELS[choice], choice == current) && choice != current {
-			command(
-				ui,
-				conn.Setting_Command {
-					key = strings.clone(proto.SETTING_EMAIL_DIGEST),
-					value = strings.clone("" if choice == .None else name),
-				},
-			)
-		}
+		command(
+			ui,
+			conn.Setting_Command {
+				key = strings.clone(proto.SETTING_EMAIL_DIGEST),
+				value = strings.clone("" if choice == .None else name),
+			},
+		)
 	}
 	hint := "Sent after you've been away for a while. Muted conversations are left out."
 	if v.login.email == "" {
@@ -740,7 +750,7 @@ voice_shown_settings :: proc(ui: ^UI, v: ^conn.View) {
 	shown := (v.shared[proto.SETTING_VOICE_SHOWN] or_else "") != proto.VOICE_SHOWN_HIDDEN
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	if .CHANGE in mu.checkbox(ctx, "Show others when I'm in a voice chat or a call", &shown) {
+	if .CHANGE in checkbox(ctx, "Show others when I'm in a voice chat or a call", &shown) {
 		command(
 			ui,
 			conn.Setting_Command {
@@ -764,7 +774,7 @@ status_shared_settings :: proc(ui: ^UI, v: ^conn.View) {
 	shared := status_shared(v)
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	if .CHANGE in mu.checkbox(ctx, "Share my status with my other servers", &shared) {
+	if .CHANGE in checkbox(ctx, "Share my status with my other servers", &shared) {
 		command(
 			ui,
 			conn.Setting_Command {
@@ -861,117 +871,267 @@ devices_list :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
+// The Accounts category: the accounts on the left, a page at a time and narrowed
+// down by name, and the one picked on the right, with what may be done to it.
+// With none picked, the right-hand side is for making one.
+@(private = "file")
+ACCOUNTS_LIST_WIDTH :: 230
+@(private = "file")
+ACCOUNT_EDITOR_MIN :: 330
+
 @(private = "file")
 accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	a := &ui.account
-
-	// By id, which is the order they were created in.
-	most: proto.Account_Id
-	for id in v.accounts {
-		most = max(most, id)
+	if acc, ok := v.accounts[a.picked]; a.picked != 0 && (!ok || .Deleted in acc.flags) {
+		a.picked = 0 // gone
 	}
-	for id in 1 ..= most {
-		acc, ok := v.accounts[id]
-		if !ok || .Deleted in acc.flags {
-			continue
+
+	// When narrow, the list and the account picked take turns, as roles do.
+	if row_room(ctx) < ACCOUNTS_LIST_WIDTH + ACCOUNT_EDITOR_MIN {
+		if a.picked == 0 && !a.creating {
+			mu.layout_row(ctx, {-1}, -1)
+			mu.begin_panel(ctx, "account list")
+			accounts_list(ui, v)
+			mu.end_panel(ctx)
+			return
 		}
+		mu.layout_row(ctx, {40, -1})
+		if .SUBMIT in icon_button(ui, "to account list", .Back, "Accounts") {
+			account_pick(ui, 0)
+		}
+		mu.label(ctx, v.accounts[a.picked].username if a.picked != 0 else "New account")
+		mu.layout_row(ctx, {-1}, -1)
+		mu.begin_panel(ctx, "account")
+		account_detail(ui, v)
+		mu.end_panel(ctx)
+		return
+	}
+
+	mu.layout_row(ctx, {ACCOUNTS_LIST_WIDTH, -1}, -1)
+	mu.begin_panel(ctx, "account list")
+	accounts_list(ui, v)
+	mu.end_panel(ctx)
+	mu.begin_panel(ctx, "account")
+	account_detail(ui, v)
+	mu.end_panel(ctx)
+}
+
+// account_pick picks an account in the list (0: none), leaving whatever was
+// being done to the one before.
+@(private = "file")
+account_pick :: proc(ui: ^UI, id: proto.Account_Id) {
+	a := &ui.account
+	a.creating = false
+	if a.picked == id {
+		return
+	}
+	a.picked = id
+	a.bot_tokens = 0
+	if a.set_account != 0 {
+		wipe(a.set_pass_buf[:], &a.set_pass_len)
+		a.set_account = 0
+	}
+	ui.manage.account, ui.manage.delete_account = 0, 0
+}
+
+// accounts_list is the left-hand side: the accounts that match the search, by
+// username, a page of them.
+@(private = "file")
+accounts_list :: proc(ui: ^UI, v: ^conn.View) {
+	ctx := &ui.ctx
+	a := &ui.account
+	pager_search(ui, &a.accounts_find, "Find an account")
+	query := pager_query(&a.accounts_find)
+	ids := make([dynamic]proto.Account_Id, 0, len(v.accounts), context.temp_allocator)
+	for id, acc in v.accounts {
+		if .Deleted not_in acc.flags && pager_matches(query, acc.display, acc.username) {
+			append(&ids, id)
+		}
+	}
+	context.user_ptr = v
+	slice.sort_by(ids[:], proc(x, y: proto.Account_Id) -> bool {
+		v := (^conn.View)(context.user_ptr)
+		a, b := v.accounts[x], v.accounts[y]
+		if c := strings.compare(
+			strings.to_lower(a.username, context.temp_allocator),
+			strings.to_lower(b.username, context.temp_allocator),
+		); c != 0 {
+			return c < 0
+		}
+		return x < y
+	})
+	if len(ids) == 0 {
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, theme.dim, "Nobody by that name.", label_proc)
+	}
+	lo, hi := pager_window(&a.accounts_find, len(ids))
+	for id in ids[lo:hi] {
+		acc := v.accounts[id]
 		mu.push_id(ctx, uintptr(id))
 		defer mu.pop_id(ctx)
-		what := ""
-		switch {
-		case .Owner in acc.flags:
-			what = "  (owner)"
-		case .Disabled in acc.flags:
-			what = "  (disabled)"
+		mu.layout_row(ctx, {-1})
+		saved := ctx.style.colors[.TEXT]
+		if .Disabled in acc.flags {
+			ctx.style.colors[.TEXT] = theme.dim
 		}
-		if .Bot in acc.flags {
-			what = fmt.tprintf("  (bot)%s", what)
+		if .SUBMIT in list_row(ctx, "account", account_line(acc), a.picked == id) {
+			account_pick(ui, id)
 		}
-		roles := make([dynamic]string, context.temp_allocator)
-		for r in acc.roles {
-			for vr in v.roles {
-				if vr.id == r {
-					append(&roles, vr.name)
-				}
-			}
+		ctx.style.colors[.TEXT] = saved
+	}
+	pager_footer(ui, &a.accounts_find, len(ids))
+
+	if .Manage_Accounts in v.permissions {
+		mu.layout_row(ctx, {-1})
+		mu.label(ctx, "")
+		if .SUBMIT in stable_button(ctx, "new account", "New account...", {.ALIGN_CENTER}) {
+			account_pick(ui, 0)
+			a.creating = true
 		}
-		if len(roles) > 0 {
-			what = fmt.tprintf(
-				"%s  [%s]",
-				what,
-				strings.join(roles[:], ", ", context.temp_allocator),
+	}
+}
+
+// account_line is how an account is listed: its username, its name if that is
+// different, and what kind of account it is.
+@(private = "file")
+account_line :: proc(acc: conn.View_Account) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	strings.write_string(&b, acc.username)
+	if acc.display != "" && acc.display != acc.username {
+		fmt.sbprintf(&b, "  %s", acc.display)
+	}
+	switch {
+	case .Owner in acc.flags:
+		strings.write_string(&b, "  (owner)")
+	case .Disabled in acc.flags:
+		strings.write_string(&b, "  (disabled)")
+	}
+	if .Bot in acc.flags {
+		strings.write_string(&b, "  (bot)")
+	}
+	return strings.to_string(b)
+}
+
+// account_detail is the right-hand side: the account picked, or making one.
+@(private = "file")
+account_detail :: proc(ui: ^UI, v: ^conn.View) {
+	ctx := &ui.ctx
+	a := &ui.account
+	// A bot's token that was just made, wherever it was made from.
+	if .Manage_Accounts in v.permissions {
+		bot_token_shown(ui, v)
+	}
+	acc, ok := v.accounts[a.picked]
+	if a.picked == 0 || !ok {
+		if .Manage_Accounts in v.permissions {
+			account_create(ui, v)
+		} else {
+			mu.layout_row(ctx, {-1})
+			with_text_color(
+				ctx,
+				theme.dim,
+				"Pick an account to see and change its roles.",
+				label_proc,
 			)
 		}
-		// Put it above its buttons where they don't fit beside it.
-		field_row(
-			ui,
-			-(140 + 3 * 90 + 4 * ctx.style.spacing),
-			fmt.tprintf("%s  %s%s", acc.username, acc.display, what),
-			{140, 89, 89, 89},
-		)
-		// The owner's password is the owner's to change, as their own.
-		// A bot has no password, only tokens.
-		if .Owner in acc.flags || .Manage_Accounts not_in v.permissions || !below_us(v, acc) {
-			mu.label(ctx, "")
-		} else if .Bot in acc.flags {
-			if .SUBMIT in stable_button(ctx, "tokens", "Tokens...") {
-				a.bot_tokens = 0 if a.bot_tokens == id else id
-				if a.bot_tokens != 0 {
-					command(ui, conn.Devices_Command{account = id})
-				}
+		return
+	}
+	id := a.picked
+
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, account_line(acc))
+	roles := make([dynamic]string, context.temp_allocator)
+	for r in acc.roles {
+		for vr in v.roles {
+			if vr.id == r {
+				append(&roles, vr.name)
 			}
-		} else if .SUBMIT in stable_button(ctx, "setpass", "New password...") {
+		}
+	}
+	about := "No roles."
+	if len(roles) > 0 {
+		about = fmt.tprintf("Roles: %s", strings.join(roles[:], ", ", context.temp_allocator))
+	}
+	with_text_color(ctx, theme.dim, about, wrap_text)
+	if invited := invited_by_line(ui, v, id); invited != "" {
+		with_text_color(ctx, theme.dim, invited, wrap_text)
+	}
+
+	// Its password, or a bot's tokens. The owner's password is the owner's
+	// to change, as their own.
+	manage := .Manage_Accounts in v.permissions && .Owner not_in acc.flags && below_us(v, acc)
+	if manage && .Bot in acc.flags {
+		mu.layout_row(ctx, {-1})
+		mu.label(ctx, "")
+		mu.label(ctx, "Tokens")
+		if a.bot_tokens != id {
+			a.bot_tokens = id
+			command(ui, conn.Devices_Command{account = id})
+		}
+		bot_tokens(ui, v, id)
+	} else if manage {
+		account_password(ui, id, acc)
+	}
+
+	account_roles_editor(ui, id, acc) // ui_manage.odin
+	account_manage(ui, id, acc)
+	account_delete_confirm(ui, id, acc)
+	mu.layout_row(ctx, {-1})
+	notice_label(ui, v)
+}
+
+// account_password gives an account a new password, once New password... has
+// been pressed.
+@(private = "file")
+account_password :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) {
+	ctx := &ui.ctx
+	a := &ui.account
+	if a.set_account != id {
+		field_row(ui, FORM_LABEL, "Password", {140})
+		if .SUBMIT in stable_button(ctx, "setpass", "New password...") {
 			a.set_account = id
 			wipe(a.set_pass_buf[:], &a.set_pass_len)
 		}
-		account_manage(ui, id, acc)
-		account_roles_editor(ui, id)
-		account_delete_confirm(ui, id, acc)
-		if a.bot_tokens == id {
-			bot_tokens(ui, v, id)
-		}
-	}
-	if .Manage_Accounts not_in v.permissions {
 		return
 	}
-	bot_token_shown(ui, v)
-
-	if target, ok := v.accounts[a.set_account]; ok && a.set_account != 0 {
-		field_row(
+	field_row(ui, FORM_LABEL, "New password", {FORM_FIELD, 60, 70})
+	submitted := .SUBMIT in password_box(ui, a.set_pass_buf[:], &a.set_pass_len)
+	if (.SUBMIT in mu.button(ctx, "Set") || submitted) && a.set_pass_len > 0 {
+		a.mistake = ""
+		command(
 			ui,
-			FORM_LABEL + 60,
-			fmt.tprintf("New password for %s", target.username),
-			{FORM_FIELD, 60, 70},
+			conn.Account_Password_Command {
+				account = id,
+				password = strings.clone(string(a.set_pass_buf[:a.set_pass_len])),
+			},
 		)
-		submitted := .SUBMIT in password_box(ui, a.set_pass_buf[:], &a.set_pass_len)
-		if (.SUBMIT in mu.button(ctx, "Set") || submitted) && a.set_pass_len > 0 {
-			a.mistake = ""
-			command(
-				ui,
-				conn.Account_Password_Command {
-					account = a.set_account,
-					password = strings.clone(string(a.set_pass_buf[:a.set_pass_len])),
-				},
-			)
-			wipe(a.set_pass_buf[:], &a.set_pass_len)
-			a.set_account = 0
-		}
-		if .SUBMIT in mu.button(ctx, "Cancel") {
-			wipe(a.set_pass_buf[:], &a.set_pass_len)
-			a.set_account = 0
-		}
-		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.warning,
-			"  It logs their devices out, and they have to choose their own on logging in.",
-			wrap_text,
-		)
+		wipe(a.set_pass_buf[:], &a.set_pass_len)
+		a.set_account = 0
 	}
-
+	if .SUBMIT in mu.button(ctx, "Cancel") {
+		wipe(a.set_pass_buf[:], &a.set_pass_len)
+		a.set_account = 0
+	}
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "Create an account:")
+	with_text_color(
+		ctx,
+		theme.warning,
+		fmt.tprintf(
+			"It logs %s's devices out, and they have to choose their own on logging in.",
+			acc.username,
+		),
+		wrap_text,
+	)
+}
+
+// account_create is the form for making an account, or a bot's.
+@(private = "file")
+account_create :: proc(ui: ^UI, v: ^conn.View) {
+	ctx := &ui.ctx
+	a := &ui.account
+	mu.layout_row(ctx, {-1})
+	mu.label(ctx, "Create an account")
 	submit := false
 	field_row(ui, FORM_LABEL, "Username", {FORM_FIELD})
 	submit |= .SUBMIT in text_box(ui, a.add_user_buf[:], &a.add_user_len)

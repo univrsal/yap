@@ -6,6 +6,7 @@ import "core:time"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:render"
 import "client:settings"
 import "common:proto"
 
@@ -161,9 +162,9 @@ buddies_screen :: proc(ui: ^UI) {
 		fullscreen_screen(ui)
 		return
 	}
-
-	session_header(ui)
-
+	if !narrow {
+		session_header(ui)
+	}
 	list := ui.inbox
 	// Somebody who has left the list (removed from it, or no longer a buddy
 	// and with no DM) takes the conversation along.
@@ -248,7 +249,7 @@ conversation_or_screen :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, narrow:
 // the list, in which no conversation is picked then.
 @(private = "file")
 back_to_list :: proc(ui: ^UI) {
-	if .SUBMIT in stable_button_hint(ui, "to inbox list", "<", "Conversations", {.ALIGN_CENTER}) {
+	if .SUBMIT in icon_button(ui, "to inbox list", .Back, "Conversations") {
 		ui.buddies.selected = 0
 	}
 }
@@ -330,11 +331,13 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
 	selected := here && ui.buddies.selected == b.account
+	// The open one in the accent color, like the open channel (list_row).
 	switch {
 	case selected:
-		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_FOCUS])
+		color := theme.accent_hover if ctx.hover_id == id else theme.accent
+		render.draw_rounded(ctx, r, color, render.CONTROL_RADIUS)
 	case ctx.hover_id == id:
-		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
+		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_HOVER], render.CONTROL_RADIUS)
 	}
 	text_r := r
 	if servers {
@@ -346,6 +349,14 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 		text = fmt.tprintf("%s  (%s)", b.name, conn.unread_count(b.unread))
 		color = theme.speaking
 	}
+	status_color: mu.Color
+	saved_text := ctx.style.colors[.TEXT]
+	defer ctx.style.colors[.TEXT] = saved_text
+	if selected {
+		color = theme.accent_text
+		status_color = {color.r, color.g, color.b, 190}
+		ctx.style.colors[.TEXT] = color // the phone icon
+	}
 	icon_r := name_and_status(
 		ctx,
 		text_r,
@@ -354,6 +365,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 		b.status,
 		bold = selected,
 		talking = b.talking,
+		status_color = status_color,
 	)
 
 	if ctx.hover_id != id {
@@ -402,9 +414,9 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	}
 	buf: [6]i32
 	widths := buf[:icons + 1]
-	widths[0] = -(ICON_BUTTON * i32(icons) + ctx.style.spacing * i32(icons + 1))
+	widths[0] = -(icon_button_w(ctx) * i32(icons) + ctx.style.spacing * i32(icons + 1))
 	for &w in widths[1:] {
-		w = ICON_BUTTON
+		w = icon_button_w(ctx)
 	}
 	if back {
 		row := make([]i32, len(widths) + 1, context.temp_allocator)
@@ -425,7 +437,28 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 			v.server_name if v.server_name != "" else v.server,
 		)
 	}
-	mu.label(ctx, title)
+	// How they are and what is going on, at the right end of the line.
+	status := "" if deleted else "here now" if entry.online else last_seen_text(ui, account)
+	status_color := theme.speaking if entry.online else theme.dim
+	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {
+		status = "typing..."
+	} else if entry.conv != 0 && conn.is_typing_in_thread(v, account, entry.conv) {
+		status = "typing in a thread..."
+	}
+	if ui.paste != nil {
+		status = "reading the clipboard..."
+	}
+	if editing := composer_status(composer_of_page(ui)); editing != "" {
+		status, status_color = editing, theme.dim
+	}
+	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
+		status, status_color = notice, theme.off
+	}
+	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
+		status, status_color = ui.buddies.notice, theme.off
+		ui_redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
+	}
+	header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
 	// Calling them, while they are online and we are in no call.
 	if !deleted && may_call(v, account) {
 		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
@@ -466,8 +499,8 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		log.debug("ui: hid a conversation")
 		return
 	}
-	mu.layout_row(ctx, {-1})
 	if deleted {
+		mu.layout_row(ctx, {-1})
 		// What is there can be read, but nothing more can be said (the server
 		// refuses it too).
 		with_text_color(
@@ -482,27 +515,6 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		}
 		return
 	}
-	status := "here now" if entry.online else last_seen_text(ui, account)
-	status_color := theme.speaking if entry.online else theme.dim
-	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {
-		status = "typing..."
-	} else if entry.conv != 0 && conn.is_typing_in_thread(v, account, entry.conv) {
-		status = "typing in a thread..."
-	}
-	if ui.paste != nil {
-		status = "reading the clipboard..."
-	}
-	if editing := composer_status(composer_of_page(ui)); editing != "" {
-		status, status_color = editing, theme.dim
-	}
-	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
-		status, status_color = notice, theme.off
-	}
-	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
-		status, status_color = ui.buddies.notice, theme.off
-		ui_redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
-	}
-	with_text_color(ctx, status_color, status, label_proc)
 
 	// Leave room for the input row below, as the chat does.
 	input_h := composer_height(ui, composer_of_page(ui))
@@ -516,10 +528,10 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	composer := composer_of_page(ui)
 	composer_files(ui, composer, panel_width(ctx))
-	composer_row(ui, input_h, 5)
+	composer_row(ui, input_h)
 	completion_keys(ui, composer)
 	composer_keys(ui, composer)
-	res, box := composer_box(ui, composer)
+	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res &&
 	   ui.buddies.len > 0 &&
@@ -530,7 +542,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
-	composer_buttons(ui, input_h, 5)
+	composer_buttons(ui, box_rect, 5)
 	attach_button(ui, composer)
 	emoji_button(ui, composer)
 	preview_button(ui, composer)
@@ -542,16 +554,15 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 			ui.buddies.pick, ui.buddies.pick_to = true, account
 		}
 	}
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "dm send",
-		   .Send,
-		   "Save" if ui.buddies.editing != 0 else "Enter: Send\nCtrl+Enter: New line",
-	   ) {
+	if composer_send_button(
+		ui,
+		composer,
+		"dm send",
+		"Save" if ui.buddies.editing != 0 else "Enter: Send\nCtrl+Enter: New line",
+	) {
 		send = true
 	}
-	mu.layout_end_column(ctx)
+	composer_buttons_end(ui)
 	if !send {
 		return
 	}
@@ -577,10 +588,17 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 	if pending > 0 {
 		return
 	}
+	if entry.conv != 0 {
+		spinner_row(ui) // its messages, on their way
+		return
+	}
 	mu.layout_row(ctx, {-1})
-	text :=
-		"Loading messages..." if entry.conv != 0 else fmt.tprintf("Nothing said with %s yet.", entry.name)
-	with_text_color(ctx, theme.dim, text, label_proc)
+	with_text_color(
+		ctx,
+		theme.dim,
+		fmt.tprintf("Nothing said with %s yet.", entry.name),
+		label_proc,
+	)
 }
 
 // ask_last_seen asks a server when those in its part of the inbox who

@@ -107,8 +107,7 @@ settings_page :: proc(ui: ^UI) {
 	// with a way back to the list.
 	if narrow && !ui.settings_list {
 		title_row(ui, {40, -1})
-		if .SUBMIT in
-		   stable_button_hint(ui, "to settings list", "<", "Settings", {.ALIGN_CENTER}) {
+		if .SUBMIT in icon_button(ui, "to settings list", .Back, "Settings") {
 			ui.settings_list = true
 		}
 		if ui.settings_tab == .Server {
@@ -346,9 +345,9 @@ checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_
 	full := fmt.tprintf("%s (%s)", label, note)
 	box := ctx.style.size.y + 2 * ctx.style.padding
 	if ctx.text_width(ctx.style.font, full) + box + ctx.style.padding <= row_room(ctx) {
-		return mu.checkbox(ctx, full, state)
+		return checkbox(ctx, full, state)
 	}
-	res := mu.checkbox(ctx, label, state)
+	res := checkbox(ctx, label, state)
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, theme.dim, fmt.tprintf("  %s", note), wrap_text)
 	return res
@@ -358,7 +357,7 @@ checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_
 // Roles list, ui_roles.odin), a list_row. It returns true when clicked.
 category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 	mu.layout_row(ctx, {-1})
-	return .SUBMIT in list_row(ctx, label, label, selected)
+	return .SUBMIT in list_row(ctx, label, label, selected, accent = true)
 }
 
 // audio_settings picks the send quality preset (see audio/quality.odin),
@@ -368,33 +367,27 @@ category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 audio_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	current := settings.settings_quality(&ui.settings)
-	field_row(ui, 60, "Quality", {90, 90, 90})
+	field_row(ui, 60, "Quality", {CHOICE_WIDTH})
+	labels: [audio.Quality]string
 	for preset, q in audio.QUALITY_PRESETS {
-		mark := "⏵ " if q == current else "  "
-		if .SUBMIT in
-			   stable_button_hint(
-				   ui,
-				   preset.name,
-				   fmt.tprintf("%s%s", mark, preset.label),
-				   preset.description,
-			   ) &&
-		   q != current {
-			settings.set_setting(&ui.settings.quality, preset.name)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			command_all(ui, conn.Quality_Command{q})
-			current = q
-		}
+		labels[q] = preset.label
+	}
+	hint := audio.QUALITY_PRESETS[current].description
+	if q, ok := enum_dropdown(ui, "quality", labels, current, hint); ok {
+		settings.set_setting(&ui.settings.quality, audio.QUALITY_PRESETS[q].name)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		command_all(ui, conn.Quality_Command{q})
 	}
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in mu.checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
+	if .CHANGE in checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
 	if app_audio_setting(ui) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
-		   mu.checkbox(
+		   checkbox(
 			   ctx,
 			   "Mute audio sharing when microphone is muted",
 			   &ui.settings.mute_app_audio_with_mic,
@@ -419,28 +412,24 @@ ANIMATE_CHOICE_LABELS := [settings.Animate_Pictures]string {
 ui_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	// Dark, light, or whichever the system uses (theme.odin).
-	field_row(ui, 120, "Theme", {130, 130, 130})
-	current := theme_choice(&ui.settings)
-	for label, choice in THEME_CHOICE_LABELS {
-		if choice_button(ui, THEME_CHOICE_NAMES[choice], label, choice == current) &&
-		   choice != current {
-			settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			ui_redraw(ui)
-		}
+	field_row(ui, 120, "Theme", {CHOICE_WIDTH})
+	if choice, ok := enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, theme_choice(&ui.settings));
+	   ok {
+		settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		ui_redraw(ui)
 	}
 
 	// When animated pictures in the chat play (ui_images.odin).
-	field_row(ui, 120, "Animate pictures", {130, 130, 130})
+	field_row(ui, 120, "Animate pictures", {CHOICE_WIDTH})
 	animate := settings.animate_pictures(&ui.settings)
-	for label, choice in ANIMATE_CHOICE_LABELS {
-		name := settings.ANIMATE_PICTURES_NAMES[choice]
-		id := fmt.tprintf("animate %s", name)
-		if choice_button(ui, id, label, choice == animate) && choice != animate {
-			settings.set_setting(&ui.settings.animate_pictures, name)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			ui_redraw(ui)
-		}
+	if choice, ok := enum_dropdown(ui, "animate", ANIMATE_CHOICE_LABELS, animate); ok {
+		settings.set_setting(
+			&ui.settings.animate_pictures,
+			settings.ANIMATE_PICTURES_NAMES[choice],
+		)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		ui_redraw(ui)
 	}
 
 	mu.layout_row(ctx, {120, -1})
@@ -484,7 +473,7 @@ ui_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in mu.checkbox(ctx, "Show pictures beside messages", &ui.settings.chat_pictures) {
+	if .CHANGE in checkbox(ctx, "Show avatars beside messages", &ui.settings.chat_pictures) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 
@@ -493,7 +482,7 @@ ui_settings :: proc(ui: ^UI) {
 		// of the desktop's (ui_titlebar.odin).
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
-		   mu.checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
+		   checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 			titlebar_merge(ui.window, ui.settings.merge_title_bar)
 			ui_redraw(ui)
@@ -504,7 +493,7 @@ ui_settings :: proc(ui: ^UI) {
 		}
 
 		mu.layout_row(ctx, {-1})
-		if .CHANGE in mu.checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
+		if .CHANGE in checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 			tray_update(ui)
 		}
@@ -517,10 +506,10 @@ ui_settings :: proc(ui: ^UI) {
 
 		// One under the other where they don't fit side by side.
 		mu.layout_row(ctx, {230, -1} if row_fits(ctx, {230, 200}) else {-1})
-		if .CHANGE in mu.checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
+		if .CHANGE in checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
-		if .CHANGE in mu.checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
+		if .CHANGE in checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
 		// Only the desktop can tell us that a window has been minimized, and
@@ -573,14 +562,8 @@ transfer_settings :: proc(ui: ^UI) {
 	}
 }
 
-// device_settings shows the input and output pickers side by side (one above
-// the other in a narrow window), each in a box with its own height, so that
-// neither has to share the other's space. Either scrolls on its own if its
-// device list doesn't fit.
-// Narrower than this, the device lists go one above the other.
-@(private = "file")
-DEVICE_LIST_MIN :: 220
-
+// device_settings shows the input and output devices, each a dropdown
+// (device_choice).
 @(private = "file")
 device_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -596,94 +579,74 @@ device_settings :: proc(ui: ^UI) {
 		audio.audio_refresh(a)
 	}
 
-	// The width left in the panel once the tree nodes have indented it.
-	layout := mu.get_layout(ctx)
-	half := (layout.body.w - layout.indent - ctx.style.spacing) / 2
-	mu.layout_row(ctx, {half, -1} if half >= DEVICE_LIST_MIN else {-1}, 210)
-
-	if mu.layout_column(ctx) {
-		if choice, changed := device_list(
-			ctx,
-			"Input (microphone)",
-			"inputs",
-			a.inputs[:],
-			ui.settings.input_device,
-			200,
-		); changed {
-			settings.set_setting(&ui.settings.input_device, choice)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			log.infof("input device: %s", choice if choice != "" else "system default")
-			reopen_audio(ui, true)
-		}
+	if choice, changed := device_choice(
+		ui,
+		"Input",
+		"input device",
+		a.inputs[:],
+		ui.settings.input_device,
+	); changed {
+		settings.set_setting(&ui.settings.input_device, choice)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		log.infof("input device: %s", choice if choice != "" else "system default")
+		reopen_audio(ui, true)
 	}
-	if mu.layout_column(ctx) {
-		if choice, changed := device_list(
-			ctx,
-			"Output (speakers / headphones)",
-			"outputs",
-			a.outputs[:],
-			ui.settings.output_device,
-			200,
-		); changed {
-			settings.set_setting(&ui.settings.output_device, choice)
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-			log.infof("output device: %s", choice if choice != "" else "system default")
-			reopen_audio(ui, false)
-		}
+	if choice, changed := device_choice(
+		ui,
+		"Output",
+		"output device",
+		a.outputs[:],
+		ui.settings.output_device,
+	); changed {
+		settings.set_setting(&ui.settings.output_device, choice)
+		settings.settings_save(ui.opts.settings_path, ui.settings)
+		log.infof("output device: %s", choice if choice != "" else "system default")
+		reopen_audio(ui, false)
 	}
 }
 
-// device_list shows "System default" plus every device, with `selected` (a
-// device name, "" for the default) marked. It returns the new choice when
-// one is clicked.
+// device_choice is a dropdown of "System default" and every device, with
+// `selected` (a device name, "" for the default) shown. It returns the new
+// choice when one is picked.
 @(private = "file")
-device_list :: proc(
-	ctx: ^mu.Context,
+device_choice :: proc(
+	ui: ^UI,
 	title, id: string,
 	devices: []audio.Audio_Device,
 	selected: string,
-	height: i32,
 ) -> (
 	choice: string,
 	changed: bool,
 ) {
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, title)
-
-	mu.layout_row(ctx, {-1}, height)
-	mu.begin_panel(ctx, id)
-	defer mu.end_panel(ctx)
-
+	ctx := &ui.ctx
 	// A saved device that isn't plugged in falls back to the default, so the
 	// default is what is in effect. Say so instead of hiding it.
 	missing := selected != "" && audio.find_device(devices, selected) == nil
 
-	mu.layout_row(ctx, {-1})
-	mark := "⏵ " if selected == "" || missing else "  "
-	if .SUBMIT in stable_button(ctx, "default", fmt.tprintf("%sSystem default", mark)) &&
-	   selected != "" {
-		choice, changed = "", true
+	labels := make([]string, len(devices) + 1, context.temp_allocator)
+	labels[0] = "System default"
+	current := 0
+	for d, i in devices {
+		suffix := "  (current default)" if d.is_default else ""
+		labels[i + 1] = fmt.tprintf("%s%s", d.name, suffix)
+		if d.name == selected {
+			current = i + 1
+		}
+	}
+	field_row(ui, 60, title, {-1})
+	if picked, ok := choice_dropdown(ui, id, labels, current); ok {
+		choice = "" if picked == 0 else devices[picked - 1].name
+		changed = choice != selected
 	}
 	if missing {
-		mu.layout_row(ctx, {-1})
+		mu.layout_row(ctx, {60, -1})
+		mu.label(ctx, "")
 		with_text_color(
 			ctx,
 			theme.warning,
-			fmt.tprintf("  %s is not available, using the default", selected),
-			label_proc,
+			fmt.tprintf("%s is not available, using the default", selected),
+			wrap_text,
 		)
-	}
-
-	for d, i in devices {
-		mu.push_id(ctx, uintptr(i))
-		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-1})
-		mark = "⏵ " if d.name == selected else "  "
-		suffix := "  (current default)" if d.is_default else ""
-		if .SUBMIT in stable_button(ctx, "device", fmt.tprintf("%s%s%s", mark, d.name, suffix)) &&
-		   d.name != selected {
-			choice, changed = d.name, true
-		}
 	}
 	return
 }

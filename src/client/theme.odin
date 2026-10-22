@@ -80,6 +80,12 @@ Palette :: struct {
 	divider:        mu.Color,
 	deleted_disc:   mu.Color,
 	dot_ring:       mu.Color,
+	// What is ready to be done (the composer's send button once there is a
+	// message), the same when the pointer is on it, and the text and icons on it.
+	accent:         mu.Color,
+	accent_hover:   mu.Color,
+	accent_text:    mu.Color,
+	shadow:         mu.Color, // under windows that float (render.draw_shadow)
 }
 
 DARK_PALETTE :: Palette {
@@ -91,9 +97,9 @@ DARK_PALETTE :: Palette {
 		.TITLE_BG = {25, 25, 25, 255},
 		.TITLE_TEXT = {240, 240, 240, 255},
 		.PANEL_BG = {0, 0, 0, 0},
-		.BUTTON = {75, 75, 75, 255},
-		.BUTTON_HOVER = {95, 95, 95, 255},
-		.BUTTON_FOCUS = {115, 115, 115, 255},
+		.BUTTON = {80, 80, 80, 255},
+		.BUTTON_HOVER = {98, 98, 98, 255},
+		.BUTTON_FOCUS = {116, 116, 116, 255},
 		.BASE = {30, 30, 30, 255},
 		.BASE_HOVER = {35, 35, 35, 255},
 		.BASE_FOCUS = {40, 40, 40, 255},
@@ -145,6 +151,10 @@ DARK_PALETTE :: Palette {
 	divider = {70, 70, 70, 255},
 	deleted_disc = {90, 90, 90, 255},
 	dot_ring = {32, 32, 32, 255},
+	accent = {60, 110, 200, 255},
+	accent_hover = {80, 130, 220, 255},
+	accent_text = {255, 255, 255, 255},
+	shadow = {0, 0, 0, 120},
 }
 
 LIGHT_PALETTE :: Palette {
@@ -156,9 +166,9 @@ LIGHT_PALETTE :: Palette {
 		.TITLE_BG = {222, 222, 222, 255},
 		.TITLE_TEXT = {20, 20, 20, 255},
 		.PANEL_BG = {0, 0, 0, 0},
-		.BUTTON = {222, 222, 222, 255},
-		.BUTTON_HOVER = {208, 208, 208, 255},
-		.BUTTON_FOCUS = {188, 188, 188, 255},
+		.BUTTON = {214, 214, 214, 255},
+		.BUTTON_HOVER = {200, 200, 200, 255},
+		.BUTTON_FOCUS = {184, 184, 184, 255},
 		.BASE = {255, 255, 255, 255},
 		.BASE_HOVER = {250, 250, 250, 255},
 		.BASE_FOCUS = {244, 246, 252, 255},
@@ -210,6 +220,10 @@ LIGHT_PALETTE :: Palette {
 	divider = {200, 200, 200, 255},
 	deleted_disc = {165, 165, 165, 255},
 	dot_ring = {246, 246, 246, 255},
+	accent = {45, 100, 200, 255},
+	accent_hover = {65, 120, 220, 255},
+	accent_text = {255, 255, 255, 255},
+	shadow = {0, 0, 0, 55},
 }
 
 // The palette the UI draws with this frame (theme_update).

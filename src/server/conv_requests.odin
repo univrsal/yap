@@ -174,12 +174,19 @@ conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 @(private = "file")
 // conv_browse answers with a page of the channels that the connection's account
 // could subscribe to. These are the channels it isn't in but can see, and whose
-// name or topic contains the query (ignoring case). The channels are kept in
-// memory, so this loops over all of them, however far into the list the page is.
+// name or topic contains the query (ignoring case). With BROWSE_ALL, which is for
+// managing channels, they are all the channels it may manage instead (see
+// conv_manageable). The channels are kept in memory, so this loops over all of
+// them, however far into the list the page is.
 conv_browse :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	b, ok := proto.decode_conv_browse(body)
 	if !ok {
 		respond(u, id, .Invalid)
+		return
+	}
+	all := b.flags & proto.BROWSE_ALL != 0
+	if all && !can(u.account, .Manage_Channels) {
+		respond(u, id, .Denied)
 		return
 	}
 	query := strings.to_lower(b.query, context.temp_allocator)
@@ -187,7 +194,11 @@ conv_browse :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	matched := 0
 	more := false
 	for conv in convs_sorted(&s.convs) {
-		if conv.kind != .Channel ||
+		if all {
+			if !conv_manageable(conv, u.account) {
+				continue
+			}
+		} else if conv.kind != .Channel ||
 		   !conv_visible(conv, u.account.id) ||
 		   conv_is_member(conv, u.account.id) {
 			continue
@@ -263,7 +274,7 @@ conv_members :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	conv := conv_by_id(&s.convs, conv_id)
-	if conv == nil || !conv_visible(conv, u.account.id) {
+	if conv == nil || (!conv_visible(conv, u.account.id) && !conv_manageable(conv, u.account)) {
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -392,7 +403,9 @@ conv_notify :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // its position in the lists (Manage_Channels), archiving a channel, which is as
 // good as deleting it (also Manage_Channels), adding somebody to a channel, which
 // is as if they had subscribed (requires Invite and being in it), and removing
-// somebody from a private channel (Manage_Channels).
+// somebody from a private channel (Manage_Channels). Those who manage channels
+// may do this to the private channels they aren't in as well (conv_manageable),
+// which they find with Conv_Browse's BROWSE_ALL.
 //
 // The voice room of a private channel is only for its members. Whoever is
 // removed from the channel or leaves it is removed from its room as well, and
@@ -409,7 +422,7 @@ conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case !ok:
 		respond(u, id, .Invalid)
 		return
-	case conv == nil || conv.kind != .Channel || !conv_visible(conv, u.account.id):
+	case conv == nil || !conv_manageable(conv, u.account):
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -455,7 +468,7 @@ conv_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case !ok:
 		respond(u, id, .Invalid)
 		return
-	case conv == nil || conv.kind != .Channel || !conv_visible(conv, u.account.id):
+	case conv == nil || !conv_manageable(conv, u.account):
 		respond(u, id, .Not_Found)
 		return
 	case .Home in conv.flags:
@@ -490,7 +503,11 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	conv := conv_by_id(&s.convs, conv_id)
 	target := account_live(&s.accounts, account)
 	switch {
-	case conv == nil || conv.kind != .Channel || !conv_visible(conv, u.account.id):
+	// Those who manage channels may remove members from a private channel they
+	// aren't in, but adding someone requires being in it.
+	case conv == nil ||
+	     conv.kind != .Channel ||
+	     (!conv_visible(conv, u.account.id) && (on || !conv_manageable(conv, u.account))):
 		respond(u, id, .Not_Found)
 		return
 	case on && !(can(u.account, .Invite) && conv_is_member(conv, u.account.id)):

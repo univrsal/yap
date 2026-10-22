@@ -35,7 +35,7 @@ Icon :: enum {
 	Log, // a framed page of lines: the log
 	Search, // a magnifying glass: searching messages
 	Attach, // a paperclip: attach files to a message
-	Download, // an arrow pointing down into a tray: save a file
+	Download, // an arrow pointing down onto a line: save a file
 	// Kinds of file, shown next to the file names in a message (File is used
 	// for all other kinds and App_Audio's notes for sound).
 	Archive, // a sheet with a zip down it
@@ -47,7 +47,7 @@ Icon :: enum {
 	Edit, // a pencil: edit a message
 	Phone, // a telephone receiver: call someone
 	Hang_Up, // a receiver lying flat with its ends pointing down: decline a call
-	Mail, // a closed envelope: for direct messages
+	Yap, // yap's own icon, in one color: for direct messages (the rail's inbox)
 	Screen_Off, // a monitor with a line through it: stop watching a screen
 	Fullscreen, // four corners pointing out: fill the screen
 	Exit_Fullscreen, // four corners pointing in: back from fullscreen
@@ -55,6 +55,9 @@ Icon :: enum {
 	Pop_In, // an arrow into a frame's corner: move back from its own window
 	Camera, // a video camera: turn our camera on, or somebody's is on
 	Camera_Off, // a video camera with a line through it
+	Plus, // a plus: add (a server, a person)
+	Back, // a chevron pointing left: back to a list, or the page before
+	Next, // a chevron pointing right: the page after
 	// The window's own controls, for where Windows does not provide them
 	// (ui_titlebar_windows.odin).
 	Minimize, // a line
@@ -66,6 +69,22 @@ Icon :: enum {
 	Check, // a tick: a checked checkbox
 	Collapsed, // a triangle pointing right: a collapsed tree node
 	Expanded, // a triangle pointing down: an expanded tree node
+	// Something loading: a ring with a gap, turning. This is the first of
+	// SPINNER_STEPS icons, each turned a step further, which come after the
+	// others in the atlas (spinner_id). It has to stay last.
+	Spinner,
+}
+
+// How many steps a spinner turns in, one after another.
+SPINNER_STEPS :: 12
+
+// How many icons the atlas holds: one of each, and the spinner's steps.
+ICON_SLOTS :: len(Icon) + SPINNER_STEPS - 1
+
+// spinner_id is the id for drawing a spinner at `step` (wrapped to
+// SPINNER_STEPS).
+spinner_id :: proc(step: int) -> mu.Icon {
+	return mu.Icon(UI_ICON_BASE + int(Icon.Spinner) + step %% SPINNER_STEPS)
 }
 
 // Icon command ids start here, above microui's own icons and below the ids of
@@ -97,11 +116,12 @@ icon_atlas_build :: proc(a: ^Icon_Atlas, scale: f32) -> bool {
 	if side <= 0 {
 		return false
 	}
-	width, height := side * i32(len(Icon)), side
+	width, height := side * i32(ICON_SLOTS), side
 	pixels := make([]u8, int(width) * int(height))
 
-	for icon in Icon {
-		left := int(icon) * int(side)
+	for slot in 0 ..< ICON_SLOTS {
+		icon := Icon(slot) // past Spinner, its further steps
+		left := slot * int(side)
 		for y in 0 ..< int(side) {
 			for x in 0 ..< int(side) {
 				d := texel_distance(icon, x, y, int(side))
@@ -176,6 +196,9 @@ texel_distance :: proc(icon: Icon, x, y, side: int) -> f32 {
 
 @(private = "file")
 icon_distance :: proc(icon: Icon, p: Point) -> f32 {
+	if icon >= .Spinner {
+		return spinner(p, int(icon) - int(Icon.Spinner))
+	}
 	switch icon {
 	case .Mic:
 		return microphone(p)
@@ -231,8 +254,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return receiver(p)
 	case .Hang_Up:
 		return hung_up(p)
-	case .Mail:
-		return mail_letter(p)
+	case .Yap:
+		return yap_logo(p)
 	case .Screen_Off:
 		return crossed_out(monitor(p), p)
 	case .Fullscreen:
@@ -247,6 +270,13 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return video_camera(p)
 	case .Camera_Off:
 		return crossed_out(video_camera(p), p)
+	case .Plus:
+		d := capsule(p, {0.5, 0.2}, {0.5, 0.8}, CHECK_STROKE)
+		return nearer(d, capsule(p, {0.2, 0.5}, {0.8, 0.5}, CHECK_STROKE))
+	case .Back:
+		return chevron(p, -1)
+	case .Next:
+		return chevron(p, 1)
 	case .Minimize, .Maximize, .Restore, .Close:
 		// These are drawn in texels instead (window_control).
 		return 1
@@ -257,12 +287,46 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return triangle(p, {0.28, 0.18}, {0.72, 0.5}, {0.28, 0.82})
 	case .Expanded:
 		return triangle(p, {0.18, 0.28}, {0.82, 0.28}, {0.5, 0.72})
+	case .Spinner:
+		return spinner(p, 0)
 	}
 	return 1
 }
 
 @(private = "file")
 CHECK_STROKE :: 0.12
+
+// spinner is a ring with a quarter of it missing, turned `step` steps of a
+// whole turn (SPINNER_STEPS) clockwise, with round ends.
+@(private = "file")
+spinner :: proc(p: Point, step: int) -> f32 {
+	RADIUS :: 0.34
+	SPAN :: 1.5 * math.PI // how much of the ring there is
+	centre := Point{0.5, 0.5}
+	start := 2 * math.PI * f32(step) / SPINNER_STEPS - math.PI / 2 // from the top
+	rel := p - centre
+	// How far along the ring from its start the point is, from 0 to 2 pi
+	// (y points down, so the angle grows clockwise).
+	along := math.atan2(rel.y, rel.x) - start
+	along -= 2 * math.PI * math.floor(along / (2 * math.PI))
+	if along <= SPAN {
+		return abs(length(rel) - RADIUS) - CHECK_STROKE / 2
+	}
+	end := start + SPAN
+	a := centre + RADIUS * Point{math.cos(start), math.sin(start)}
+	b := centre + RADIUS * Point{math.cos(end), math.sin(end)}
+	return min(length(p - a), length(p - b)) - CHECK_STROKE / 2
+}
+
+// chevron is an arrowhead pointing left (`towards` -1) or right (1), drawn
+// with the tick's stroke.
+@(private = "file")
+chevron :: proc(p: Point, towards: f32) -> f32 {
+	tip := Point{0.5 + 0.14 * towards, 0.5}
+	top := Point{0.5 - 0.14 * towards, 0.2}
+	bottom := Point{0.5 - 0.14 * towards, 0.8}
+	return nearer(capsule(p, top, tip, CHECK_STROKE), capsule(p, tip, bottom, CHECK_STROKE))
+}
 
 // window_control returns the distance from `p` (in texels, in an icon that
 // is `side` texels square) to the outline of one of the window's own
@@ -346,7 +410,7 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Edit,
 	     .Phone,
 	     .Hang_Up,
-	     .Mail,
+	     .Yap,
 	     .Screen_Off,
 	     .Fullscreen,
 	     .Exit_Fullscreen,
@@ -354,9 +418,13 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Pop_In,
 	     .Camera,
 	     .Camera_Off,
+	     .Plus,
+	     .Back,
+	     .Next,
 	     .Check,
 	     .Collapsed,
-	     .Expanded:
+	     .Expanded,
+	     .Spinner:
 	}
 	return 0, false
 }
@@ -406,27 +474,20 @@ blend :: proc(a, b, k: f32) -> f32 {
 	return math.lerp(b, a, h) - k * h * (1 - h)
 }
 
-// A closed envelope. It has an outline the size of the monitor's, a flap
-// folded down from the top as a solid triangle, and two folds that run from
-// under the flap's point to the bottom corners.
+// Yap's icon (assets/icon.svg) in one color: a square of three by three
+// cells with its top left and bottom right corners cut off diagonally, a
+// cell deep, and the middle cell left open. The cells are a quarter of the
+// square, so at ICON_SIZE they are whole pixels.
 @(private = "file")
-mail_letter :: proc(p: Point) -> f32 {
-	STROKE :: 0.085
+yap_logo :: proc(p: Point) -> f32 {
+	CELL :: 0.25
+	L, T :: 0.125, 0.125
+	R, B :: L + 3 * CELL, T + 3 * CELL
 	CENTRE :: Point{0.5, 0.5}
-	HALF :: Point{0.39, 0.29}
-	ROUND :: 0.06
-	L, R :: CENTRE.x - HALF.x, CENTRE.x + HALF.x
-	T, B :: CENTRE.y - HALF.y, CENTRE.y + HALF.y
-	inside := rounded_box(p, CENTRE, HALF, ROUND)
-	d := abs(inside) - STROKE / 2
-	// The flap, which is kept inside the outline at its rounded corners.
-	flap := max(triangle(p, {L, T}, {R, T}, {CENTRE.x, 0.58}), inside)
-	d = nearer(d, flap)
-	// The folds, from just inside the bottom corners to under the flap.
-	FOLD :: STROKE * 0.75
-	IN :: ROUND / 2
-	d = nearer(d, capsule(p, {L + IN, B - IN}, {CENTRE.x, 0.44}, FOLD))
-	return nearer(d, capsule(p, {R - IN, B - IN}, {CENTRE.x, 0.44}, FOLD))
+	d := rounded_box(p, CENTRE, {R - CENTRE.x, B - CENTRE.y}, 0)
+	d = max(d, edge(p, {L, T + CELL}, {L + CELL, T}))
+	d = max(d, edge(p, {R, B - CELL}, {R - CELL, B}))
+	return cut(d, rounded_box(p, CENTRE, {CELL / 2, CELL / 2}, 0))
 }
 
 // Four corners, one in each quarter of the square. They point out to its
@@ -545,16 +606,13 @@ text_file :: proc(p: Point) -> f32 {
 	return nearer(d, capsule(p, {0.34, 0.74}, {0.56, 0.74}, STROKE))
 }
 
-// Saving: an arrow pointing down into an open tray.
+// Saving: an arrow pointing down onto a line.
 @(private = "file")
 download :: proc(p: Point) -> f32 {
 	STROKE :: 0.09
-	d := capsule(p, {0.5, 0.12}, {0.5, 0.58}, STROKE)
-	d = nearer(d, triangle(p, {0.30, 0.48}, {0.70, 0.48}, {0.5, 0.70}))
-	d = nearer(d, capsule(p, {0.16, 0.66}, {0.16, 0.86}, STROKE))
-	d = nearer(d, capsule(p, {0.16, 0.86}, {0.84, 0.86}, STROKE))
-	d = nearer(d, capsule(p, {0.84, 0.66}, {0.84, 0.86}, STROKE))
-	return d
+	d := capsule(p, {0.5, 0.12}, {0.5, 0.56}, STROKE)
+	d = nearer(d, triangle(p, {0.27, 0.46}, {0.73, 0.46}, {0.5, 0.71}))
+	return nearer(d, capsule(p, {0.18, 0.86}, {0.82, 0.86}, STROKE))
 }
 
 // A magnifying glass: a ring with its handle going down to the right.

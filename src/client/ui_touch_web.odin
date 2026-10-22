@@ -111,6 +111,8 @@ touch_after_frame :: proc(ui: ^UI) {
 
 @(private = "file")
 queue :: proc(e: Touch_Event) {
+	// From now on, controls are sized for a finger (style_apply).
+	g_ui.touched = true
 	append(&g_touch, e)
 	ui_wake()
 }

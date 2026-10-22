@@ -346,7 +346,12 @@ screen_panel :: proc(ui: ^UI) {
 		ctx,
 		// -1 fills the row: -n leaves n - 1 for the buttons and the gaps
 		// before them.
-		{-(3 * ICON_BUTTON + 3 * ctx.style.spacing + 1), ICON_BUTTON, ICON_BUTTON, ICON_BUTTON},
+		{
+			-(3 * icon_button_w(ctx) + 3 * ctx.style.spacing + 1),
+			icon_button_w(ctx),
+			icon_button_w(ctx),
+			icon_button_w(ctx),
+		},
 	)
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(ui.view)))
 	if .SUBMIT in icon_button(ui, "pop out", .Pop_Out, "Pop out into its own window") {
@@ -448,7 +453,11 @@ screen_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	if ns == ui.session {
 		buttons = 2 if shown_here else 1
 	}
-	widths := [3]i32{-(buttons * (ICON_BUTTON + ctx.style.spacing) + 1), ICON_BUTTON, ICON_BUTTON}
+	widths := [3]i32 {
+		-(buttons * (icon_button_w(ctx) + ctx.style.spacing) + 1),
+		icon_button_w(ctx),
+		icon_button_w(ctx),
+	}
 	mu.layout_row(ctx, widths[:buttons + 1])
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(v)))
 	if shown_here && .SUBMIT in icon_button(ui, "popped fullscreen", .Fullscreen, "Fullscreen") {
@@ -517,7 +526,7 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 // locked.
 fullscreen_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	title_row(ui, {-(ICON_BUTTON + ctx.style.spacing + 1), ICON_BUTTON})
+	title_row(ui, {-(icon_button_w(ctx) + ctx.style.spacing + 1), icon_button_w(ctx)})
 	with_text_color(
 		ctx,
 		theme.dim,

@@ -98,11 +98,11 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 	append(&widths, slot + PICTURE_GAP)
 	name_w := -(60 + render.ICON_SIZE + 2 * ctx.style.spacing)
 	if can_watch {
-		name_w -= ICON_BUTTON + ctx.style.spacing
+		name_w -= icon_button_w(ctx) + ctx.style.spacing
 	}
 	append(&widths, name_w, render.ICON_SIZE + 4)
 	if can_watch {
-		append(&widths, ICON_BUTTON)
+		append(&widths, icon_button_w(ctx))
 	}
 	append(&widths, 56)
 	mu.layout_row(ctx, widths[:], max(slot, ctx.style.size.y + 2 * ctx.style.padding))
@@ -326,13 +326,13 @@ voice_panel :: proc(ui: ^UI) {
 			can_camera :=
 				camera_available(v) && (v.video_link || conn.video_camera_state() != .Off)
 			if can_music {
-				append(&widths, ICON_BUTTON)
+				append(&widths, icon_button_w(ctx))
 			}
 			if can_share {
-				append(&widths, ICON_BUTTON)
+				append(&widths, icon_button_w(ctx))
 			}
 			if can_camera {
-				append(&widths, ICON_BUTTON)
+				append(&widths, icon_button_w(ctx))
 			}
 			append(&widths, -1)
 			mu.layout_row(ctx, widths[:])
@@ -359,7 +359,12 @@ voice_panel :: proc(ui: ^UI) {
 	slot := picture_slot(ctx)
 	mu.layout_row(
 		ctx,
-		{slot + PICTURE_GAP, -(2 * ICON_BUTTON + 2 * ctx.style.spacing), ICON_BUTTON, ICON_BUTTON},
+		{
+			slot + PICTURE_GAP,
+			-(2 * icon_button_w(ctx) + 2 * ctx.style.spacing),
+			icon_button_w(ctx),
+			icon_button_w(ctx),
+		},
 		max(slot, ctx.style.size.y + 2 * ctx.style.padding),
 	)
 	cell := mu.layout_next(ctx)

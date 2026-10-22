@@ -32,7 +32,11 @@ package proto
 // 	                of them (at most MAX_BROWSE_LIMIT), starting at the
 // 	                `offset`th. `more` says whether there are more after
 // 	                them. An empty body asks for the first BROWSE_PAGE of
-// 	                all channels.
+// 	                all channels. An optional [flags u8] may follow:
+// 	                BROWSE_ALL (only for Manage_Channels) lists every
+// 	                channel instead, including the ones we are in and the
+// 	                private ones we aren't (for managing them). A server
+// 	                that doesn't know the flags ignores them.
 // 	Conv_Subscribe  [conv u32][on u8]
 // 	Conv_Members    [conv u32]  ->  [count u16][account u32]...
 // 	Voice_Join      [room u32]   0 leaves the room we're in
@@ -220,12 +224,16 @@ decode_conv :: proc(body: []u8) -> (c: Conv, ok: bool) {
 BROWSE_PAGE :: 50
 MAX_BROWSE_LIMIT :: 100
 MAX_BROWSE_QUERY :: MAX_CHANNEL_NAME_SIZE
-CONV_BROWSE_MAX_SIZE :: 1 + MAX_BROWSE_QUERY + 2 + 2
+CONV_BROWSE_MAX_SIZE :: 1 + MAX_BROWSE_QUERY + 2 + 2 + 1
+
+// Conv_Browse's flags.
+BROWSE_ALL :: 1
 
 Browse :: struct {
 	query:  string,
 	offset: int,
 	limit:  int,
+	flags:  u8,
 }
 
 encode_conv_browse :: proc(out: ^[CONV_BROWSE_MAX_SIZE]u8, b: Browse) -> []u8 {
@@ -235,6 +243,11 @@ encode_conv_browse :: proc(out: ^[CONV_BROWSE_MAX_SIZE]u8, b: Browse) -> []u8 {
 	put_str8(&w, b.query[:min(len(b.query), MAX_BROWSE_QUERY)])
 	put_u16(&w, u16(clamp(b.offset, 0, int(max(u16)))))
 	put_u16(&w, u16(clamp(b.limit, 0, MAX_BROWSE_LIMIT)))
+	// Left out when there are none, so that the request is the same as before
+	// there were flags.
+	if b.flags != 0 {
+		put_u8(&w, b.flags)
+	}
 	return out[:w.pos]
 }
 
@@ -250,6 +263,9 @@ decode_conv_browse :: proc(body: []u8) -> (b: Browse, ok: bool) {
 	b.query = get_str8(&r)
 	b.offset = int(get_u16(&r))
 	b.limit = int(get_u16(&r))
+	if r.pos < len(body) {
+		b.flags = get_u8(&r)
+	}
 	if r.overflow ||
 	   len(b.query) > MAX_BROWSE_QUERY ||
 	   b.limit == 0 ||

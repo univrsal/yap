@@ -64,11 +64,15 @@ Mark :: struct {
 // How often the server is told what has been read of one conversation.
 MARK_INTERVAL :: time.Second
 
-// A channel that can be subscribed to.
+// A channel that can be subscribed to, or for those who manage channels, any
+// channel (see All_Channels_Command).
 Browse_Entry :: struct {
-	id:    proto.Conv_Id,
-	name:  string, // owned
-	topic: string, // owned
+	id:       proto.Conv_Id,
+	name:     string, // owned
+	topic:    string, // owned
+	flags:    proto.Conv_Flags,
+	member:   bool, // we are in it
+	position: int,
 }
 
 Conv_Client :: struct {
@@ -91,13 +95,25 @@ Conv_Client :: struct {
 	// A Voice_Join request is on its way.
 	voice_pending: bool,
 	// The channels that could be subscribed to when we last asked, as many
-	// pages of them as were requested, the query they were requested with
-	// (owned), whether there are more, and which request is the latest. Only
-	// the answer to the latest request is used.
+	// pages of them as were requested from `browse_offset` on, how many were
+	// asked for at a time, the query they were requested with (owned), whether
+	// there are more, and which request is the latest. Only the answer to the
+	// latest request is used.
 	browse:        [dynamic]Browse_Entry,
+	browse_offset: int,
+	browse_limit:  int,
 	browse_query:  string,
 	browse_more:   bool,
 	browse_asked:  u64,
+	// Every channel, for managing them (fetch_all_channels): the ones that have
+	// arrived so far, which fetch is the latest, and whether they were ever
+	// asked for (so that they are kept up to date).
+	all:           [dynamic]Browse_Entry,
+	all_asked:     u64,
+	all_wanted:    bool,
+	// How many changes to channels are on their way (roles.odin). The lists are
+	// fetched again once the last of them is done, not after each.
+	changing:      int,
 	// The name (owned) of a channel to subscribe to that we didn't know about
 	// and are looking for (see conv_subscribe_command).
 	finding:       string,
@@ -124,12 +140,17 @@ Voice_Command :: struct {
 	name: string, // owned by the command
 }
 // Asks which channels can be subscribed to, namely those whose name or topic
-// contains `query` (all channels for ""). With `more`, it requests the next page
-// of what was requested last.
+// contains `query` (all channels for ""): `limit` of them (0: proto.BROWSE_PAGE)
+// from the `offset`th on. With `more`, it requests the next page of what was
+// requested last, in addition to what it has.
 Browse_Command :: struct {
-	query: string, // owned by the command
-	more:  bool,
+	query:  string, // owned by the command
+	offset: int,
+	limit:  int,
+	more:   bool,
 }
+// Fetches every channel, for those who manage channels (View.all_channels).
+All_Channels_Command :: struct {}
 Subscribe_Command :: struct {
 	conv: proto.Conv_Id,
 	name: string, // owned by the command; for a channel from the last Browse
@@ -160,6 +181,8 @@ convs_destroy :: proc(c: ^Voice_Client) {
 	browse_clear(cv)
 	delete(cv.browse)
 	delete(cv.browse_query)
+	entries_clear(&cv.all)
+	delete(cv.all)
 	delete(cv.finding)
 	delete(cv.want_view)
 	delete(cv.want_voice)
@@ -179,11 +202,28 @@ convs_clear :: proc(cv: ^Conv_Client) {
 
 @(private = "file")
 browse_clear :: proc(cv: ^Conv_Client) {
-	for e in cv.browse {
+	entries_clear(&cv.browse)
+}
+
+entries_clear :: proc(entries: ^[dynamic]Browse_Entry) {
+	for e in entries {
 		delete(e.name)
 		delete(e.topic)
 	}
-	clear(&cv.browse)
+	clear(entries)
+}
+
+// entry_of makes a list's entry (owning its strings) from what the server sent.
+@(private = "file")
+entry_of :: proc(record: proto.Conv) -> Browse_Entry {
+	return {
+		id = record.id,
+		name = strings.clone(record.name),
+		topic = strings.clone(record.topic),
+		flags = record.flags,
+		member = record.member,
+		position = record.position,
+	}
 }
 
 @(private = "file")
@@ -216,6 +256,7 @@ convs_restart :: proc(c: ^Voice_Client, forget := false) {
 		want(&cv.want_voice, "")
 		cv.want_view_id, cv.want_channel = 0, 0
 		clear(&cv.marks)
+		cv.all_wanted = false
 	} else {
 		if cv.viewing != 0 && cv.want_view == "" {
 			cv.want_view_id = cv.viewing
@@ -227,6 +268,8 @@ convs_restart :: proc(c: ^Voice_Client, forget := false) {
 	}
 	convs_clear(cv)
 	browse_clear(cv)
+	entries_clear(&cv.all)
+	cv.all_asked += 1 // whatever was on its way is from before
 	cv.viewing, cv.channel = 0, 0
 	cv.voice_pending = false
 }
@@ -506,33 +549,38 @@ voice_command :: proc(c: ^Voice_Client, cmd: Voice_Command) {
 	voice_join(c, proto.Room(conv))
 }
 
-// conv_browse asks which channels can be subscribed to that match `query`. It
-// requests the first page, or with `more`, the next page of the last query. The
-// answer goes to the UI, or to the log when running headless. Only the answer to
-// the latest request is used.
-conv_browse :: proc(c: ^Voice_Client, query: string, more := false) {
+// conv_browse asks which channels can be subscribed to that match the
+// command's query: the page it asks for, or with `more`, the next page of the
+// last query. The answer goes to the UI, or to the log when running headless.
+// Only the answer to the latest request is used.
+conv_browse :: proc(c: ^Voice_Client, cmd: Browse_Command) {
 	cv := &c.convs
-	offset := 0
-	if more {
-		offset = len(cv.browse)
-	} else if query != cv.browse_query {
-		delete(cv.browse_query)
-		cv.browse_query = strings.clone(query)
+	offset := cmd.offset
+	adding := cmd.more
+	if adding {
+		offset = cv.browse_offset + len(cv.browse)
+	} else {
+		if cmd.query != cv.browse_query {
+			delete(cv.browse_query)
+			cv.browse_query = strings.clone(cmd.query)
+		}
+		cv.browse_limit = cmd.limit if cmd.limit > 0 else proto.BROWSE_PAGE
 	}
 	cv.browse_asked += 1
 	buf: [proto.CONV_BROWSE_MAX_SIZE]u8
 	body := proto.encode_conv_browse(
 		&buf,
-		{query = cv.browse_query, offset = offset, limit = proto.BROWSE_PAGE},
+		{query = cv.browse_query, offset = offset, limit = cv.browse_limit},
 	)
-	tag := cv.browse_asked << 16 | u64(offset)
+	// Which request it is, whether it adds to what we have, and where it starts.
+	tag := cv.browse_asked << 32 | u64(adding) << 31 | u64(offset)
 	request(
 		c,
 		.Conv_Browse,
 		body,
 		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 			cv := &c.convs
-			if status != .Ok || tag >> 16 != cv.browse_asked {
+			if status != .Ok || tag >> 32 != cv.browse_asked {
 				return
 			}
 			buf: [proto.MAX_BROWSE_LIMIT]proto.Conv
@@ -540,19 +588,13 @@ conv_browse :: proc(c: ^Voice_Client, query: string, more := false) {
 			if !ok {
 				return
 			}
-			if tag & 0xffff == 0 {
+			if tag & (1 << 31) == 0 {
 				browse_clear(cv)
+				cv.browse_offset = int(tag & 0xffff)
 			}
 			cv.browse_more = more
 			for record in found {
-				append(
-					&cv.browse,
-					Browse_Entry {
-						id = record.id,
-						name = strings.clone(record.name),
-						topic = strings.clone(record.topic),
-					},
-				)
+				append(&cv.browse, entry_of(record))
 			}
 			if c.view == nil {
 				if len(cv.browse) == 0 {
@@ -576,6 +618,82 @@ conv_browse :: proc(c: ^Voice_Client, query: string, more := false) {
 		},
 		tag,
 	)
+}
+
+// browse_again asks again for the page of channels to subscribe to that was
+// asked for last, after something that changes it.
+@(private = "file")
+browse_again :: proc(c: ^Voice_Client) {
+	cv := &c.convs
+	conv_browse(c, {query = cv.browse_query, offset = cv.browse_offset, limit = cv.browse_limit})
+}
+
+// fetch_all_channels asks for every channel there is to manage (proto.BROWSE_ALL)
+// as many pages as it takes, and shows them once they have all arrived. Managing
+// them works on the whole list (their order, for one), which is only ever as long
+// as the server has channels.
+fetch_all_channels :: proc(c: ^Voice_Client) {
+	cv := &c.convs
+	cv.all_asked += 1
+	cv.all_wanted = true
+	entries_clear(&cv.all)
+	all_page(c, 0)
+}
+
+@(private = "file")
+all_page :: proc(c: ^Voice_Client, offset: int) {
+	cv := &c.convs
+	buf: [proto.CONV_BROWSE_MAX_SIZE]u8
+	body := proto.encode_conv_browse(
+		&buf,
+		{offset = offset, limit = proto.MAX_BROWSE_LIMIT, flags = proto.BROWSE_ALL},
+	)
+	request(
+		c,
+		.Conv_Browse,
+		body,
+		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			cv := &c.convs
+			if tag != cv.all_asked || status == .Reset {
+				return
+			}
+			buf: [proto.MAX_BROWSE_LIMIT]proto.Conv
+			more, found, ok := proto.decode_browse_page(body, buf[:])
+			if status != .Ok || !ok {
+				// Nothing more is coming, so show what there is.
+				if status == .Denied {
+					cv.all_wanted = false // not ours to manage (any more)
+				} else {
+					log.warnf("the server failed to list the channels (%v)", status)
+				}
+				publish_all_channels(c)
+				return
+			}
+			for record in found {
+				append(&cv.all, entry_of(record))
+			}
+			if more && len(found) > 0 && len(cv.all) < proto.MAX_CHANNELS {
+				all_page(c, len(cv.all))
+				return
+			}
+			publish_all_channels(c)
+		},
+		cv.all_asked,
+	)
+}
+
+// channels_changed is called when a change we asked for to a channel or to
+// what we are subscribed to has been made. What the lists of channels show
+// may be different now, so they are asked for again (if they were ever asked
+// for).
+channels_changed :: proc(c: ^Voice_Client) {
+	cv := &c.convs
+	if cv.browse_asked != 0 {
+		browse_again(c)
+	}
+	if cv.all_wanted {
+		fetch_all_channels(c)
+	}
 }
 
 conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
@@ -639,7 +757,7 @@ conv_subscribe :: proc(c: ^Voice_Client, conv: proto.Conv_Id, on: bool) {
 			#partial switch status {
 			case .Ok:
 				// This changes which channels can be subscribed to.
-				conv_browse(c, c.convs.browse_query)
+				channels_changed(c)
 			case .Denied:
 				log.warn("that channel cannot be left because everyone is in it")
 			case .Reset:
@@ -680,6 +798,9 @@ conv_create :: proc(c: ^Voice_Client, name, topic: string, private := false) {
 				text = fmt.tprintf("The server failed to create the channel (%v).", status)
 			}
 			notify(c, status == .Ok, text)
+			if status == .Ok {
+				channels_changed(c)
+			}
 		},
 	)
 }
@@ -881,21 +1002,42 @@ publish_browse :: proc(c: ^Voice_Client) {
 	}
 	view_write(v)
 	view_clear_browse(v)
-	for e in c.convs.browse {
-		append(
-			&v.browse,
-			Browse_Entry{id = e.id, name = strings.clone(e.name), topic = strings.clone(e.topic)},
-		)
-	}
+	entries_copy(&v.browse, c.convs.browse[:])
+	v.browse_offset = c.convs.browse_offset
 	v.browse_more = c.convs.browse_more
 	v.browse_count += 1
 }
 
+publish_all_channels :: proc(c: ^Voice_Client) {
+	v := c.view
+	if v == nil {
+		for e in c.convs.all {
+			log.infof(
+				"%s%s%s",
+				e.name,
+				" (private)" if .Private in e.flags else "",
+				"" if e.member else " (not in it)",
+			)
+		}
+		return
+	}
+	view_write(v)
+	entries_clear(&v.all_channels)
+	entries_copy(&v.all_channels, c.convs.all[:])
+	v.all_channels_count += 1
+}
+
+@(private = "file")
+entries_copy :: proc(to: ^[dynamic]Browse_Entry, from: []Browse_Entry) {
+	for e in from {
+		owned := e
+		owned.name, owned.topic = strings.clone(e.name), strings.clone(e.topic)
+		append(to, owned)
+	}
+}
+
 // Call with the mutex held.
 view_clear_browse :: proc(v: ^View) {
-	for e in v.browse {
-		delete(e.name)
-		delete(e.topic)
-	}
-	clear(&v.browse)
+	entries_clear(&v.browse)
+	entries_clear(&v.all_channels)
 }

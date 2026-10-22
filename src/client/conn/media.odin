@@ -30,6 +30,7 @@ Media_Link :: struct {
 	retry_at:   time.Tick,
 	last_ping:  time.Tick,
 	refusals:   int, // consecutive refusals; the link is given up on after MEDIA_GIVE_UP
+	timeouts:   int, // consecutive handshakes without an answer, warned about at MEDIA_WARN_SILENT
 }
 
 // How often the media link pings the server to check that it still answers.
@@ -42,6 +43,12 @@ MEDIA_RETRY :: 2 * time.Second
 // a password that the main link accepted but this link doesn't).
 @(private = "file")
 MEDIA_GIVE_UP :: 5
+// The number of unanswered handshakes after which the media port is said to be
+// unreachable. The main link works by then, so it is usually a UDP port that
+// isn't forwarded (for example not published by a container, or published as
+// another port than the one the server announces).
+@(private = "file")
+MEDIA_WARN_SILENT :: 3
 // The maximum number of packets read from the media link per loop iteration.
 @(private = "file")
 MEDIA_RECV_MAX :: 256
@@ -108,6 +115,20 @@ media_handshake :: proc(c: ^Voice_Client) {
 	ini := &m.handshake
 	if ini.state != .Idle && time.tick_since(ini.started) > proto.HANDSHAKE_TIMEOUT {
 		log.debug("media link handshake timed out, retrying")
+		m.timeouts += 1
+		if m.timeouts == MEDIA_WARN_SILENT {
+			when platform.WEB {
+				log.warn(
+					"the relay doesn't answer on the media link, so screen sharing is unavailable",
+				)
+			} else {
+				log.warnf(
+					"no answer from the media link at %s, so screen sharing is unavailable: is udp port %d reachable?",
+					with_port(c.server_addr, m.port),
+					m.port,
+				)
+			}
+		}
 		abandon_handshake(&m.link)
 		m.retry_at = time.tick_add(time.tick_now(), MEDIA_RETRY)
 	}
@@ -212,6 +233,7 @@ handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
 			}
 			m.retry_at = {}
 			m.refusals = 0
+			m.timeouts = 0
 		}
 		if !kind_ok {
 			return
@@ -250,6 +272,7 @@ media_restart :: proc(c: ^Voice_Client) {
 	link_reset(&c.media.link)
 	c.media.retry_at = {}
 	c.media.refusals = 0
+	c.media.timeouts = 0
 }
 
 media_close :: proc(c: ^Voice_Client) {

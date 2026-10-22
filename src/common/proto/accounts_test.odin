@@ -18,7 +18,15 @@ test_username_clean :: proc(t: ^testing.T) {
 	testing.expect(t, ok)
 	testing.expect_value(t, len(name), MAX_USERNAME_SIZE)
 
-	for bad in ([]string{"", "a", "abcdefghijklmnopqrstuvwxyz0123456", "has space", "ümlaut", "semi;colon", "a\x00b"}) {
+	for bad in ([]string {
+			"",
+			"a",
+			"abcdefghijklmnopqrstuvwxyz0123456",
+			"has space",
+			"ümlaut",
+			"semi;colon",
+			"a\x00b",
+		}) {
 		_, ok = username_clean(bad, &buf)
 		testing.expectf(t, !ok, "%q should not be a username", bad)
 	}

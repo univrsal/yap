@@ -61,7 +61,7 @@ camera_settings :: proc(ui: ^UI) {
 		with_text_color(
 			ctx,
 			theme.dim,
-			"This browser can't use a camera." when platform.WEB else "There's no camera (yet). One that is plugged in shows up here.",
+			"This browser can't use a camera." when platform.WEB else "No cameras found.",
 			wrap_text,
 		)
 		ui_redraw_in(ui, time.Second)
@@ -71,20 +71,17 @@ camera_settings :: proc(ui: ^UI) {
 	camera_choice(ui)
 
 	quality := conn.camera_quality(ui.settings.camera_quality)
-	field_row(ui, 120, "Quality", {110, 110, 110})
-	for label, q in CAMERA_QUALITY_LABELS {
-		if choice_button(ui, fmt.tprintf("camera quality %v", q), label, q == quality) &&
-		   q != quality {
-			settings.set_setting(&ui.settings.camera_quality, conn.CAMERA_QUALITY_NAMES[q])
-			settings.settings_save(ui.opts.settings_path, ui.settings)
-		}
+	field_row(ui, 120, "Quality", {CHOICE_WIDTH})
+	if q, ok := enum_dropdown(ui, "camera quality", CAMERA_QUALITY_LABELS, quality); ok {
+		settings.set_setting(&ui.settings.camera_quality, conn.CAMERA_QUALITY_NAMES[q])
+		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, theme.dim, CAMERA_QUALITY_NOTES[quality], wrap_text)
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
-	   mu.checkbox(
+	   checkbox(
 		   ctx,
 		   "Mirror my own view (others see it the right way round)",
 		   &ui.settings.camera_mirror,

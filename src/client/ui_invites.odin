@@ -47,27 +47,28 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	if make_codes {
-		field_row(ui, FORM_LABEL, "Registrations", {70, 70, 70, 70})
-		for uses in USES {
-			label := "Any" if uses == 0 else fmt.tprint(uses)
-			if choice_button(ui, fmt.tprintf("uses%d", uses), label, st.uses == uses) {
-				st.uses = uses
+		field_row(ui, FORM_LABEL, "Registrations", {CHOICE_WIDTH})
+		uses_labels: [len(USES)]string
+		uses_at := -1
+		for uses, i in USES {
+			uses_labels[i] = "Any" if uses == 0 else fmt.tprint(uses)
+			if st.uses == uses {
+				uses_at = i
 			}
 		}
-		field_row(ui, FORM_LABEL, "Valid for", {70, 70, 70, 70})
-		for days in DAYS {
-			label := "Forever"
-			switch days {
-			case 1:
-				label = "A day"
-			case 7:
-				label = "A week"
-			case 30:
-				label = "A month"
+		if i, ok := choice_dropdown(ui, "uses", uses_labels[:], uses_at); ok {
+			st.uses = USES[i]
+		}
+		field_row(ui, FORM_LABEL, "Valid for", {CHOICE_WIDTH})
+		days_labels := [len(DAYS)]string{"Forever", "A day", "A week", "A month"}
+		days_at := -1
+		for days, i in DAYS {
+			if st.days == days {
+				days_at = i
 			}
-			if choice_button(ui, fmt.tprintf("days%d", days), label, st.days == days) {
-				st.days = days
-			}
+		}
+		if i, ok := choice_dropdown(ui, "days", days_labels[:], days_at); ok {
+			st.days = DAYS[i]
 		}
 		field_row(ui, FORM_LABEL, "", {150, -1})
 		if .SUBMIT in stable_button(ctx, "make", "Make invite code") {

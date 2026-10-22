@@ -33,17 +33,6 @@ UI_Server_Info :: struct {
 	asked:      bool,
 }
 
-// The keys that servers' pictures are decoded under. They have AVATAR_KEY, so
-// they are rounded, plus this bit to keep them apart from people's.
-@(private = "file")
-SERVER_ICON_KEY :: u64(1) << 59
-
-// is_server_icon_key says whether a texture key is a server's picture, which
-// is identified by the server's address rather than by its blob ids.
-is_server_icon_key :: proc(key: u64) -> bool {
-	return key & (AVATAR_KEY | SERVER_ICON_KEY) == AVATAR_KEY | SERVER_ICON_KEY
-}
-
 // server_icon draws a server's picture this frame, once it is available and
 // decoded. `server` is its address. Call with `v` (its View) locked.
 server_icon :: proc(ui: ^UI, server: string, v: ^conn.View) -> (mu.Icon, bool) {
@@ -52,7 +41,12 @@ server_icon :: proc(ui: ^UI, server: string, v: ^conn.View) -> (mu.Icon, bool) {
 	}
 	im := &ui.images
 	which := hash.fnv64a(transmute([]u8)server) ~ u64(v.server_icon)
-	key := AVATAR_KEY | SERVER_ICON_KEY | (which & (SERVER_ICON_KEY - 1))
+	// Known by the server's address rather than by its blob ids, so it stays
+	// when another server is shown (ui_images_switch).
+	key := Image_Key {
+		kind = .Server_Icon,
+		id   = which,
+	}
 	t, known := im.textures[key]
 	if !known {
 		enqueue_decode(im, key, v.icon_jpeg)

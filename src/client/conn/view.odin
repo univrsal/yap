@@ -136,10 +136,16 @@ View :: struct {
 	my_room:             proto.Conv_Id,
 	voice_pending:       bool,
 	// The channels that were available to subscribe to the last time they were
-	// requested, and how many times they have arrived.
+	// requested, how far into the list they start, and how many times they
+	// have arrived.
 	browse:              [dynamic]Browse_Entry,
+	browse_offset:       int,
 	browse_count:        int,
 	browse_more:         bool, // there are more to request
+	// Every channel, for those who manage channels, as last fetched
+	// (All_Channels_Command), and how many times they have arrived.
+	all_channels:        [dynamic]Browse_Entry,
+	all_channels_count:  int,
 	// The microphone's level and the voice gate, per captured frame.
 	mic_level:           f32, // dBFS
 	mic_open:            bool,
@@ -372,6 +378,7 @@ view_destroy :: proc(v: ^View) {
 	delete(v.other_devices)
 	view_destroy_invites(v)
 	delete(v.browse)
+	delete(v.all_channels)
 }
 
 @(private = "file")

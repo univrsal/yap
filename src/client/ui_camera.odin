@@ -394,7 +394,14 @@ video_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	cam := &ui.camera
-	mu.layout_row(ctx, {-(2 * ICON_BUTTON + 2 * ctx.style.spacing + 1), ICON_BUTTON, ICON_BUTTON})
+	mu.layout_row(
+		ctx,
+		{
+			-(2 * icon_button_w(ctx) + 2 * ctx.style.spacing + 1),
+			icon_button_w(ctx),
+			icon_button_w(ctx),
+		},
+	)
 	mu.label(ctx, video_title(v))
 	if .SUBMIT in icon_button(ui, "video pop out", .Pop_Out, "Pop out into its own window") {
 		cam.popped = true
@@ -420,7 +427,7 @@ video_title :: proc(v: ^conn.View) -> string {
 // or the grid, and a way back. Call with the View locked.
 camera_full_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	title_row(ui, {-(ICON_BUTTON + ctx.style.spacing + 1), ICON_BUTTON})
+	title_row(ui, {-(icon_button_w(ctx) + ctx.style.spacing + 1), icon_button_w(ctx)})
 	with_text_color(
 		ctx,
 		theme.dim,
@@ -487,7 +494,11 @@ camera_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	if ns == ui.session {
 		buttons = 2 if shown_here else 1
 	}
-	widths := [3]i32{-(buttons * (ICON_BUTTON + ctx.style.spacing) + 1), ICON_BUTTON, ICON_BUTTON}
+	widths := [3]i32 {
+		-(buttons * (icon_button_w(ctx) + ctx.style.spacing) + 1),
+		icon_button_w(ctx),
+		icon_button_w(ctx),
+	}
 	mu.layout_row(ctx, widths[:buttons + 1])
 	mu.label(ctx, video_title(v))
 	if shown_here &&

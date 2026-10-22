@@ -79,14 +79,14 @@ anim_start :: proc(w: ^Decode_Worker, job: Decode_Job) -> (result: Decode_Result
 		// libwebp allocates the canvas (twice) as it opens the animation, so
 		// its size is checked before that.
 		if w, h, sized := webp.size(job.jpeg); !sized || i64(w) * i64(h) > clipboard.MAX_PIXELS {
-			log.debugf("image %d: the animation is too big, or not one", job.id)
+			log.debugf("image %v: the animation is too big, or not one", job.id)
 			anim_source_close(&src)
 			return result, true
 		}
 		ok: bool
 		src.dec, src.info, ok = webp.anim_open(src.data)
 		if !ok || src.info.width <= 0 || src.info.height <= 0 {
-			log.debugf("image %d: can't decode the animation", job.id)
+			log.debugf("image %v: can't decode the animation", job.id)
 			anim_source_close(&src)
 			return result, true
 		}
@@ -96,7 +96,7 @@ anim_start :: proc(w: ^Decode_Worker, job: Decode_Job) -> (result: Decode_Result
 		if !ok || info.frames <= 1 || !gif_fits(info) {
 			if ok && info.frames > 1 {
 				log.debugf(
-					"image %d: a GIF of %d frames of %dx%d is too big to play; showing its first",
+					"image %v: a GIF of %d frames of %dx%d is too big to play; showing its first",
 					job.id,
 					info.frames,
 					info.width,
@@ -119,7 +119,7 @@ anim_start :: proc(w: ^Decode_Worker, job: Decode_Job) -> (result: Decode_Result
 		delete(job.jpeg)
 		src.info = {int(x), int(y), int(z), info.loops}
 		if src.gif == nil || x <= 0 || y <= 0 || z <= 0 || !gif_fits(src.info) {
-			log.debugf("image %d: can't decode the GIF: %s", job.id, stbi.failure_reason())
+			log.debugf("image %v: can't decode the GIF: %s", job.id, stbi.failure_reason())
 			anim_source_close(&src)
 			return result, true
 		}
@@ -128,7 +128,7 @@ anim_start :: proc(w: ^Decode_Worker, job: Decode_Job) -> (result: Decode_Result
 	}
 	if i64(src.info.width) * i64(src.info.height) > clipboard.MAX_PIXELS {
 		log.debugf(
-			"image %d: animation is %dx%d, over the limit",
+			"image %v: animation is %dx%d, over the limit",
 			job.id,
 			src.info.width,
 			src.info.height,
@@ -138,7 +138,7 @@ anim_start :: proc(w: ^Decode_Worker, job: Decode_Job) -> (result: Decode_Result
 	}
 	frame, shown, got := anim_take(&src)
 	if !got {
-		log.debugf("image %d: can't decode the animation's first frame", job.id)
+		log.debugf("image %v: can't decode the animation's first frame", job.id)
 		anim_source_close(&src)
 		return result, true
 	}
@@ -163,7 +163,7 @@ anim_start :: proc(w: ^Decode_Worker, job: Decode_Job) -> (result: Decode_Result
 // anim_next_frame hands over the next frame of animation `id`, in a result
 // of its own (see Decode_Result.frame). A result without pixels says there are no
 // more frames: it has played as often as it says, or it can't be decoded.
-anim_next_frame :: proc(w: ^Decode_Worker, id, generation: u64) -> Decode_Result {
+anim_next_frame :: proc(w: ^Decode_Worker, id: Image_Key, generation: u64) -> Decode_Result {
 	result := Decode_Result {
 		id         = id,
 		generation = generation,
@@ -190,7 +190,7 @@ anim_next_frame :: proc(w: ^Decode_Worker, id, generation: u64) -> Decode_Result
 }
 
 // anim_drop stops playing `id`, if it is the animation of `generation`.
-anim_drop :: proc(w: ^Decode_Worker, id, generation: u64) {
+anim_drop :: proc(w: ^Decode_Worker, id: Image_Key, generation: u64) {
 	if src, playing := &w.anims[id]; playing && src.generation == generation {
 		anim_source_close(src)
 		delete_key(&w.anims, id)

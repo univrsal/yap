@@ -1,6 +1,7 @@
 package client
 
 import "client:conn"
+import "client:render"
 import "client:settings"
 import "common:proto"
 import log "common:wlog"
@@ -16,40 +17,31 @@ import mu "vendor:microui"
 //     messages in each (dimmer for a muted channel). Clicking a channel shows its
 //     chat and does nothing else. Right-clicking one opens its menu (how much
 //     it may interrupt, its settings, leaving it). Under each channel are the
-//     people in its voice room.
+//     people in its voice room. At the list's foot, whichever way it is
+//     scrolled, is the button to the Join a channel window.
 //   - The line above the chat: which channel it is, and the button that
 //     joins or leaves its voice room. Looking at a channel and talking in
 //     it are two separate things, and that button is the only place where they meet.
-//   - The Channels window: the channels we're in, how much each one may
-//     interrupt, and leaving them. It also lists the channels we aren't in, to
-//     subscribe to, and lets those who may create a channel.
+//   - The Join a channel window: finding a channel we aren't in by its name or
+//     topic, and joining it. Making and changing channels is in the settings
+//     (ui_channel_settings.odin), and leaving one or how much it may interrupt
+//     is in its menu.
 //
 // Where the window is too narrow for the list beside the chat (a phone),
 // the two take turns: the list, or the chat with a way back to the list.
 
 UI_Channels :: struct {
-	// The Channels window.
-	open:        bool,
-	placed:      bool,
-	// Creating a channel: its name and topic.
-	name_buf:    [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
-	name_len:    int,
-	topic_buf:   [proto.MAX_TOPIC_SIZE]u8,
-	topic_len:   int,
+	// The Join a channel window, and what is typed in it to find a channel,
+	// which is asked for again whenever it changes.
+	open:       bool,
+	placed:     bool,
+	find:       Pager,
 	// In a narrow window: the list is showing instead of the chat.
-	show_list:   bool,
-	// What the server had said by the time the window opened isn't about
-	// anything asked in it (see conn.View_Notice.count).
-	notice_seen: int,
-	// Finding channels to subscribe to: what is typed, and what was last
-	// asked for (owned), which is asked again when the text changes.
-	find_buf:    [proto.MAX_BROWSE_QUERY]u8,
-	find_len:    int,
-	find_asked:  string,
+	show_list:  bool,
 	// The channel whose menu is open (see channel_menu), and whether it was
 	// right-clicked in this frame.
-	menu_conv:   proto.Conv_Id,
-	menu_asked:  bool,
+	menu_conv:  proto.Conv_Id,
+	menu_asked: bool,
 }
 
 @(private = "file")
@@ -57,14 +49,18 @@ CHANNEL_MENU :: "channel menu"
 @(private = "file")
 CHANNEL_MENU_WIDTH :: 200
 
+// The channel list's rows are in a bigger font (render.LIST_FONT), with this
+// much room above and below the text, and this far apart. They are at least a
+// control's height, which on a phone is a fingertip's (style_apply).
 @(private = "file")
-CHANNELS_WINDOW :: "Channels"
+CHANNEL_ROW_PADDING :: 6
 @(private = "file")
-SUBSCRIBE_BUTTON :: 120
+CHANNEL_ROW_GAP :: 2
+
 @(private = "file")
-MANAGE_BUTTON :: 90
+CHANNELS_WINDOW :: "Join a channel"
 @(private = "file")
-NOTIFY_BUTTON :: 120
+JOIN_BUTTON :: 80
 
 @(private = "file")
 command :: proc(ui: ^UI, cmd: conn.Command) {
@@ -90,25 +86,62 @@ channel_list :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 
-	// The list, and under it the way to the rest of the channels.
+	// The list, with the way to the rest of the channels at its foot.
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
-	button_h := ctx.style.size.y + 2 * ctx.style.padding
-	// And under that, the voice panel. In a narrow window that is across
-	// the screen instead (see session_screen).
+	// And under it, the voice panel. In a narrow window that is across the
+	// screen instead (see session_screen).
 	panel_h := 0 if ui.narrow else voice_panel_height(ui)
-	mu.layout_row(ctx, {-1}, -(button_h + ctx.style.spacing + panel_h + 1))
+	mu.layout_row(ctx, {-1}, -(panel_h + 1))
+	area := mu.layout_next(ctx)
 
-	mu.begin_panel(ctx, "channels")
+	// One frame around both: the rows scroll in a panel without its own,
+	// over the button, which stays put.
+	ctx.draw_frame(ctx, area, .PANEL_BG)
+	pad := ctx.style.padding
+	button_h := ctx.style.size.y + 2 * pad
+	mu.layout_set_next(ctx, {area.x, area.y, area.w, area.h - button_h - pad}, false)
+	mu.begin_panel(ctx, "channels", {.NO_FRAME})
 	if len(v.channels) == 0 {
-		mu.layout_row(ctx, {-1})
-		mu.label(ctx, "Waiting for the channel list...")
+		spinner_row(ui) // the channel list, on its way
 	}
+	channel_rows(ui)
+	mu.end_panel(ctx)
+	mu.layout_set_next(
+		ctx,
+		{area.x + pad, area.y + area.h - button_h - pad, area.w - 2 * pad, button_h},
+		false,
+	)
+	if .SUBMIT in mu.button(ctx, "Join a channel...") {
+		open_channels(ui)
+	}
+
+	if !ui.narrow {
+		voice_panel(ui)
+	}
+}
+
+// channel_rows is a row for each of our channels in the list, each followed
+// by the people in its voice room. Call with the View locked.
+@(private = "file")
+channel_rows :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	v := ui.view
+	// The rows close together, and so the people in a voice room under its
+	// channel. Only here: the rest of the list, and the voice panel under
+	// it, are spaced as everything else (voice_panel_height counts on that).
+	saved_spacing := ctx.style.spacing
+	ctx.style.spacing = CHANNEL_ROW_GAP
+	defer ctx.style.spacing = saved_spacing
+	row_h := max(
+		ctx.text_height(render.LIST_FONT) + 2 * CHANNEL_ROW_PADDING,
+		ctx.style.size.y + 2 * ctx.style.padding,
+	)
 	for ch in v.channels {
 		mu.push_id(ctx, uintptr(ch.id))
 		defer mu.pop_id(ctx)
 
-		mu.layout_row(ctx, {-1})
+		mu.layout_row(ctx, {-1}, row_h)
 		viewing := ch.id == v.viewing
 		label := fmt.tprintf("%s%s", ch.name, " 🔒" if ch.private else "")
 		// Unread and not muted: brighter, as well as showing the count.
@@ -116,8 +149,11 @@ channel_list :: proc(ui: ^UI) {
 		if ch.unread > 0 && ch.notify != .None {
 			ctx.style.colors[.TEXT] = theme.unread_text
 		}
+		saved_font := ctx.style.font
+		ctx.style.font = render.LIST_FONT
 		// When narrow, the list is all there is on screen, so no channel is open.
-		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow)
+		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow, accent = true)
+		ctx.style.font = saved_font
 		ctx.style.colors[.TEXT] = saved
 		if ctx.hover_id == mu.get_id(ctx, "view") && .RIGHT in ctx.mouse_pressed_bits {
 			ui.channels.menu_conv, ui.channels.menu_asked = ch.id, true
@@ -144,15 +180,6 @@ channel_list :: proc(ui: ^UI) {
 			member_row(ui, m)
 		}
 	}
-	mu.end_panel(ctx)
-
-	mu.layout_row(ctx, {-1})
-	if .SUBMIT in mu.button(ctx, "Channels...") {
-		open_channels(ui)
-	}
-	if !ui.narrow {
-		voice_panel(ui)
-	}
 }
 
 // conversation_header is the line above the chat: which channel it is, the
@@ -163,14 +190,33 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	v := ui.view
 	ch := viewed_channel(v)
 
-	right := 4 * ICON_BUTTON + 4 * ctx.style.spacing + 1
+	right := 4 * icon_button_w(ctx) + 4 * ctx.style.spacing + 1
 	if narrow {
-		mu.layout_row(ctx, {40, -right, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
-		if .SUBMIT in stable_button_hint(ui, "to list", "<", "Channels", {.ALIGN_CENTER}) {
+		mu.layout_row(
+			ctx,
+			{
+				40,
+				-right,
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+			},
+		)
+		if .SUBMIT in icon_button(ui, "to list", .Back, "Channels") {
 			ui.channels.show_list = true
 		}
 	} else {
-		mu.layout_row(ctx, {-right, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON, ICON_BUTTON})
+		mu.layout_row(
+			ctx,
+			{
+				-right,
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+				icon_button_w(ctx),
+			},
+		)
 	}
 	if ch == nil {
 		mu.label(ctx, "")
@@ -181,18 +227,15 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		return
 	}
 
-	// The name, and what is left of the line for the topic.
-	r := mu.layout_next(ctx)
-	font := ctx.style.font
-	name := fmt.tprintf("# %s", ch.name)
-	y := r.y + (r.h - ctx.text_height(font)) / 2
-	mu.push_clip_rect(ctx, r)
-	mu.draw_text(ctx, font, name, {r.x + ctx.style.padding, y}, theme.viewing)
-	if ch.topic != "" {
-		x := r.x + ctx.style.padding + ctx.text_width(font, name) + 12
-		mu.draw_text(ctx, font, ch.topic, {x, y}, theme.dim)
+	// The name and the topic (not in a narrow window, where the list is a
+	// button away), and what is going on.
+	status, status_color := chat_status(ui)
+	if narrow {
+		header_line(ctx, mu.layout_next(ctx), "", {}, "", status, status_color)
+	} else {
+		name := fmt.tprintf("# %s", ch.name)
+		header_line(ctx, mu.layout_next(ctx), name, theme.viewing, ch.topic, status, status_color)
 	}
-	mu.pop_clip_rect(ctx)
 	members_button(ui)
 	pins_button(ui)
 	search_button(ui)
@@ -266,7 +309,8 @@ badge :: proc(
 	w := ctx.text_width(font, text) + 10
 	h := ctx.text_height(font) + 2
 	b := mu.Rect{r.x + r.w - w - 4 - taken, r.y + (r.h - h) / 2, w, h}
-	mu.draw_rect(ctx, b, background)
+	// A pill.
+	render.draw_rounded(ctx, b, background, h / 2)
 	mu.draw_text(ctx, font, text, {b.x + 5, b.y + 1}, color)
 	return taken + w + 4
 }
@@ -291,8 +335,8 @@ NOTIFY_LABELS := [proto.Notify_Level]string {
 }
 
 // channel_menu is a channel's menu, opened by right-clicking it in the
-// list: how much it may interrupt (clicking cycles through the choices, as in the
-// Channels window), its settings for those who may change them, and leaving it.
+// list: how much it may interrupt (clicking cycles through the choices), its
+// settings for those who may change them, and leaving it.
 // It is drawn after the list, with the View locked.
 channel_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -340,8 +384,7 @@ channel_menu :: proc(ui: ^UI) {
 	}
 	if .Manage_Channels in v.permissions &&
 	   .SUBMIT in stable_button(ctx, "settings", "Settings...") {
-		open_channels(ui)
-		ui.manage.conv, ui.manage.loaded = ch.id, 0
+		open_channel_settings(ui, ch.id) // ui_channel_settings.odin
 		close(ctx)
 	}
 	if !ch.home && .SUBMIT in stable_button(ctx, "unsubscribe", "Unsubscribe") {
@@ -371,20 +414,26 @@ voice_room_name :: proc(v: ^conn.View) -> string {
 open_channels :: proc(ui: ^UI) {
 	ui.channels.open = true
 	ui.channels.placed = false
-	ui.channels.notice_seen = -1 // taken from the View the next time it is locked
+	browse(ui, 0)
+}
+
+// browse asks for the page of channels to join that starts at `offset`,
+// among those that match what is typed.
+@(private = "file")
+browse :: proc(ui: ^UI, offset: int) {
 	command(
 		ui,
 		conn.Browse_Command {
-			query = strings.clone(
-				strings.trim_space(string(ui.channels.find_buf[:ui.channels.find_len])),
-			),
+			query = strings.clone(pager_query(&ui.channels.find)),
+			offset = offset,
+			limit = PAGE_ROWS,
 		},
 	)
 }
 
-// channels_window is the floating window for what the list doesn't do:
-// leaving a channel, subscribing to another and creating one. Call with the
-// View unlocked.
+// channels_window is the floating window for joining a channel: what is typed
+// in it is looked for in the names and topics of the channels we aren't in,
+// which the server answers a page at a time. Call with the View unlocked.
 channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	c := &ui.channels
 	if !c.open {
@@ -397,14 +446,11 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		c.open = false
 		return
 	}
-	if c.notice_seen < 0 {
-		c.notice_seen = v.notice.count
-	}
 
 	if !c.placed {
 		c.placed = true
-		w := clamp(window_w - 40, 240, 520)
-		h := clamp(window_h - 40, 200, 480)
+		w := clamp(window_w - 40, 240, 460)
+		h := clamp(window_h - 40, 200, 520)
 		if cnt := mu.get_container(ctx, CHANNELS_WINDOW); cnt != nil {
 			cnt.rect = {(window_w - w) / 2, (window_h - h) / 2, w, h}
 			cnt.open = true
@@ -421,144 +467,41 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	defer mu.end_window(ctx)
 
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "Your channels")
-	manage := .Manage_Channels in v.permissions
-	for ch in v.channels {
-		mu.push_id(ctx, uintptr(ch.id))
-		defer mu.pop_id(ctx)
-		if manage {
-			mu.layout_row(
-				ctx,
-				{
-					-(NOTIFY_BUTTON +
-						SUBSCRIBE_BUTTON +
-						MANAGE_BUTTON +
-						3 * ctx.style.spacing +
-						1),
-					MANAGE_BUTTON,
-					NOTIFY_BUTTON,
-					SUBSCRIBE_BUTTON,
-				},
-			)
-		} else {
-			mu.layout_row(
-				ctx,
-				{
-					-(NOTIFY_BUTTON + SUBSCRIBE_BUTTON + 2 * ctx.style.spacing + 1),
-					NOTIFY_BUTTON,
-					SUBSCRIBE_BUTTON,
-				},
-			)
-		}
-		channel_label(ctx, fmt.tprintf("%s%s", ch.name, " 🔒" if ch.private else ""), ch.topic)
-		if manage &&
-		   .SUBMIT in
-			   stable_button(
-				   ctx,
-				   "manage",
-				   "Close" if ui.manage.conv == ch.id else "Settings",
-				   {.ALIGN_CENTER},
-			   ) {
-			ui.manage.conv = 0 if ui.manage.conv == ch.id else ch.id
-			ui.manage.loaded = 0
-		}
-		// All, mentions only, muted, and then back to the start.
-		if .SUBMIT in
-		   stable_button_hint(
-			   ui,
-			   "notify",
-			   NOTIFY_LABELS[ch.notify],
-			   "How much this channel may interrupt: click to change",
-			   {.ALIGN_CENTER},
-		   ) {
-			next := proto.Notify_Level((int(ch.notify) + 1) % len(proto.Notify_Level))
-			command(ui, conn.Notify_Command{conv = ch.id, notify = next})
-		}
-		if ch.home {
-			with_text_color(ctx, theme.dim, "everyone is a member", label_proc)
-		} else if .SUBMIT in stable_button(ctx, "unsubscribe", "Unsubscribe", {.ALIGN_CENTER}) {
-			command(ui, conn.Subscribe_Command{conv = ch.id, on = false})
-		}
-	}
-
-	channel_settings(ui)
-
-	mu.layout_row(ctx, {-1})
-	mu.label(ctx, "")
-	mu.label(ctx, "Find a channel to join")
-	// What is typed is sent as it changes: the server looks through
-	// the channels' names and topics, a page at a time.
-	mu.layout_row(ctx, {-1})
-	text_box(ui, c.find_buf[:], &c.find_len)
-	if find := string(c.find_buf[:c.find_len]); find != c.find_asked {
-		delete(c.find_asked)
-		c.find_asked = strings.clone(find)
-		command(ui, conn.Browse_Command{query = strings.clone(strings.trim_space(find))})
+	if pager_search(ui, &c.find, "Search by name or topic") {
+		browse(ui, 0)
 	}
 	if len(v.browse) == 0 {
-		none :=
-			"  There are none you aren't in." if c.find_len == 0 else "  None has that in its name or topic."
-		with_text_color(
-			ctx,
-			theme.dim,
-			none if v.browse_count > 0 else "  Asking the server...",
-			label_proc,
-		)
+		text := "Asking the server..."
+		if v.browse_count > 0 {
+			text =
+				"You're in every channel you can join." if pager_query(&c.find) == "" else "No channel you aren't in has that in its name or topic."
+		}
+		mu.layout_row(ctx, {-1})
+		with_text_color(ctx, theme.dim, text, wrap_text)
 	}
 	for e in v.browse {
 		mu.push_id(ctx, uintptr(e.id))
 		defer mu.pop_id(ctx)
-		mu.layout_row(ctx, {-(SUBSCRIBE_BUTTON + ctx.style.spacing + 1), SUBSCRIBE_BUTTON})
+		mu.layout_row(ctx, {-(JOIN_BUTTON + ctx.style.spacing + 1), JOIN_BUTTON})
 		channel_label(ctx, e.name, e.topic)
-		if .SUBMIT in stable_button(ctx, "subscribe", "Subscribe", {.ALIGN_CENTER}) {
+		if .SUBMIT in stable_button(ctx, "join", "Join", {.ALIGN_CENTER}) {
 			command(ui, conn.Subscribe_Command{conv = e.id, on = true})
 		}
 	}
-	if v.browse_more {
-		mu.layout_row(ctx, {SUBSCRIBE_BUTTON})
-		if .SUBMIT in stable_button(ctx, "browse more", "More...", {.ALIGN_CENTER}) {
-			command(ui, conn.Browse_Command{more = true})
-		}
+	if offset, turned := pager_footer_open(ui, v.browse_offset, len(v.browse), v.browse_more);
+	   turned {
+		browse(ui, offset)
 	}
 
-	if .Create_Channels in v.permissions {
+	// Where the rest of what this window used to do went.
+	if v.permissions & {.Create_Channels, .Manage_Channels} != {} {
 		mu.layout_row(ctx, {-1})
 		mu.label(ctx, "")
-		mu.label(ctx, "Create a channel")
-		submit := false
-		mu.layout_row(ctx, {60, -1})
-		mu.label(ctx, "Name")
-		submit |= .SUBMIT in text_box(ui, c.name_buf[:], &c.name_len)
-		mu.label(ctx, "Topic")
-		submit |= .SUBMIT in text_box(ui, c.topic_buf[:], &c.topic_len)
-		mu.layout_row(ctx, {60, -1})
-		mu.label(ctx, "")
-		mu.checkbox(ctx, "Private: only for those added to it", &ui.manage.private)
-		mu.layout_row(ctx, {60, 120, -1})
-		mu.label(ctx, "")
-		submit |= .SUBMIT in mu.button(ctx, "Create channel")
-		if v.notice.text != "" && v.notice.count > c.notice_seen {
-			with_text_color(
-				ctx,
-				theme.notice_ok if v.notice.ok else theme.error,
-				v.notice.text,
-				label_proc,
-			)
-		} else {
-			mu.label(ctx, "")
-		}
-		if submit && c.name_len > 0 {
-			command(
-				ui,
-				conn.Create_Channel_Command {
-					name = strings.clone(string(c.name_buf[:c.name_len])),
-					topic = strings.clone(string(c.topic_buf[:c.topic_len])),
-					private = ui.manage.private,
-				},
-			)
-			c.name_len, c.topic_len = 0, 0
-			ui.manage.private = false
+		mu.layout_row(ctx, {-1})
+		if .SUBMIT in
+		   stable_button(ctx, "channel settings", "Make or change channels...", {.ALIGN_CENTER}) {
+			c.open = false
+			open_channel_settings(ui, 0)
 		}
 	}
 }
