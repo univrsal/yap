@@ -437,7 +437,28 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 			v.server_name if v.server_name != "" else v.server,
 		)
 	}
-	mu.label(ctx, title)
+	// How they are and what is going on, at the right end of the line.
+	status := "" if deleted else "here now" if entry.online else last_seen_text(ui, account)
+	status_color := theme.speaking if entry.online else theme.dim
+	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {
+		status = "typing..."
+	} else if entry.conv != 0 && conn.is_typing_in_thread(v, account, entry.conv) {
+		status = "typing in a thread..."
+	}
+	if ui.paste != nil {
+		status = "reading the clipboard..."
+	}
+	if editing := composer_status(composer_of_page(ui)); editing != "" {
+		status, status_color = editing, theme.dim
+	}
+	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
+		status, status_color = notice, theme.off
+	}
+	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
+		status, status_color = ui.buddies.notice, theme.off
+		ui_redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
+	}
+	header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
 	// Calling them, while they are online and we are in no call.
 	if !deleted && may_call(v, account) {
 		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
@@ -478,8 +499,8 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		log.debug("ui: hid a conversation")
 		return
 	}
-	mu.layout_row(ctx, {-1})
 	if deleted {
+		mu.layout_row(ctx, {-1})
 		// What is there can be read, but nothing more can be said (the server
 		// refuses it too).
 		with_text_color(
@@ -494,27 +515,6 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		}
 		return
 	}
-	status := "here now" if entry.online else last_seen_text(ui, account)
-	status_color := theme.speaking if entry.online else theme.dim
-	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {
-		status = "typing..."
-	} else if entry.conv != 0 && conn.is_typing_in_thread(v, account, entry.conv) {
-		status = "typing in a thread..."
-	}
-	if ui.paste != nil {
-		status = "reading the clipboard..."
-	}
-	if editing := composer_status(composer_of_page(ui)); editing != "" {
-		status, status_color = editing, theme.dim
-	}
-	if notice, ok, fresh := fresh_notice(v); fresh && !ok {
-		status, status_color = notice, theme.off
-	}
-	if ui.buddies.notice != "" && time.tick_since(ui.buddies.notice_at) < NOTICE_SHOW {
-		status, status_color = ui.buddies.notice, theme.off
-		ui_redraw_at(ui, time.tick_add(ui.buddies.notice_at, NOTICE_SHOW))
-	}
-	with_text_color(ctx, status_color, status, label_proc)
 
 	// Leave room for the input row below, as the chat does.
 	input_h := composer_height(ui, composer_of_page(ui))

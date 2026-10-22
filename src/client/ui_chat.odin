@@ -112,34 +112,13 @@ side_panel :: proc(ui: ^UI, narrow: bool) {
 	if ui.chat.tab == .Chat {
 		v.unread = 0
 	}
-	// Show tabs only while there is a screen or a call's video beside the chat.
-	// Otherwise the status line has the row to itself.
+	// Tabs only while there is a screen or a call's video beside the chat.
+	// What is going on (chat_status) is in the header's line.
 	if side_tabs_shown(ui) {
 		mu.layout_row(ctx, side_tab_widths(ui))
 		chat_label := "Chat" if v.unread == 0 else fmt.tprintf("Chat (%d)", v.unread)
 		side_tab_buttons(ui, chat_label)
-	} else {
-		// A line of text, not a control: no taller than one, even where
-		// controls are a fingertip tall.
-		mu.layout_row(ctx, {-1}, ctx.text_height(ctx.style.font) + 4)
 	}
-	status := "reading the clipboard..." if ui.paste != nil else typing_text(v)
-	status_color := theme.dim
-	if editing := composer_status(composer_of_page(ui)); editing != "" {
-		status = editing
-	}
-	if notice, ok, fresh := fresh_notice(v); fresh {
-		status, status_color = notice, theme.dim if ok else theme.error
-	}
-	when TIMELINE_DEBUG {
-		status = fmt.tprintf(
-			"%s  [%d laid out, %d off]",
-			status,
-			ui.timeline.laid_out,
-			ui.timeline.mismatched,
-		)
-	}
-	with_text_color(ctx, status_color, status, label_proc)
 
 	switch ui.chat.tab {
 	case .Chat:
@@ -453,6 +432,67 @@ chat_input :: proc(ui: ^UI) {
 // How long a notice (see conn.notify) shows in the line over a conversation.
 @(private = "file")
 NOTICE_SHOW :: 5 * time.Second
+
+// chat_status is what the channel's header says at its right end (see
+// header_line): that the clipboard is being read, that a message is being
+// edited, the network side's latest notice, or who is typing. Call with the
+// View locked.
+chat_status :: proc(ui: ^UI) -> (status: string, color: mu.Color) {
+	v := ui.view
+	status = "reading the clipboard..." if ui.paste != nil else typing_text(v)
+	color = theme.dim
+	if editing := composer_status(composer_of_page(ui)); editing != "" {
+		status = editing
+	}
+	if notice, ok, fresh := fresh_notice(v); fresh {
+		status, color = notice, theme.dim if ok else theme.error
+	}
+	when TIMELINE_DEBUG {
+		status = fmt.tprintf(
+			"%s  [%d laid out, %d off]",
+			status,
+			ui.timeline.laid_out,
+			ui.timeline.mismatched,
+		)
+	}
+	return
+}
+
+// header_line draws a conversation's header in `r`, on one line: `name`, then
+// `more` (a channel's topic) dimmed, and `status` (who is typing, or that a
+// message is being edited) at the right end. `more` gives way to `status`
+// where both don't fit, and `status` to the name.
+header_line :: proc(
+	ctx: ^mu.Context,
+	r: mu.Rect,
+	name: string,
+	name_color: mu.Color,
+	more: string,
+	status: string,
+	status_color: mu.Color,
+) {
+	GAP :: 12
+	font := ctx.style.font
+	y := r.y + (r.h - ctx.text_height(font)) / 2
+	x := r.x + ctx.style.padding
+	mu.push_clip_rect(ctx, r)
+	defer mu.pop_clip_rect(ctx)
+	if name != "" {
+		mu.draw_text(ctx, font, name, {x, y}, name_color)
+		x += ctx.text_width(font, name) + GAP
+	}
+	end := r.x + r.w - ctx.style.padding
+	if status != "" {
+		sx := max(end - ctx.text_width(font, status), x)
+		mu.draw_text(ctx, font, status, {sx, y}, status_color)
+		end = sx - GAP
+	}
+	if more != "" && end > x {
+		mu.push_clip_rect(ctx, {x, r.y, end - x, r.h})
+		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
+		mu.pop_clip_rect(ctx)
+	}
+}
 
 // fresh_notice is the notice the network side gave last, if it was
 // recent. Call with the View locked.

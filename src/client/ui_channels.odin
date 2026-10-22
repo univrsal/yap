@@ -227,21 +227,14 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		return
 	}
 
-	// The name, and what is left of the line for the topic.
+	// The name and the topic (not in a narrow window, where the list is a
+	// button away), and what is going on.
+	status, status_color := chat_status(ui)
 	if narrow {
-		mu.label(ctx, "")
+		header_line(ctx, mu.layout_next(ctx), "", {}, "", status, status_color)
 	} else {
-		r := mu.layout_next(ctx)
-		font := ctx.style.font
 		name := fmt.tprintf("# %s", ch.name)
-		y := r.y + (r.h - ctx.text_height(font)) / 2
-		mu.push_clip_rect(ctx, r)
-		mu.draw_text(ctx, font, name, {r.x + ctx.style.padding, y}, theme.viewing)
-		if ch.topic != "" {
-			x := r.x + ctx.style.padding + ctx.text_width(font, name) + 12
-			mu.draw_text(ctx, font, ch.topic, {x, y}, theme.dim)
-		}
-		mu.pop_clip_rect(ctx)
+		header_line(ctx, mu.layout_next(ctx), name, theme.viewing, ch.topic, status, status_color)
 	}
 	members_button(ui)
 	pins_button(ui)
