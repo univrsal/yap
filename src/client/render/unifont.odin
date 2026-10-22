@@ -16,9 +16,13 @@ import "core:math"
 // The chart is only decoded once some text needs it, because most sessions
 // never do, and only its bits are kept (32 bytes per character).
 //
-// Glyphs are scaled with nearest-neighbour sampling to keep their pixels
-// square. This is exact at whole scales; at fractional scales some pixels end
-// up one physical pixel wider than others. Not all glyphs would fit in one
+// Glyphs are scaled by area: each physical pixel is as opaque as the share
+// of it that the glyph's pixels cover. At whole scales that is every pixel of
+// the chart becoming a solid square. At fractional scales (the channel list's
+// bigger font, or a UI scale of 1.5) every pixel of the chart still takes the
+// same room, with a soft edge where it ends partway into a physical pixel,
+// instead of some becoming a physical pixel wider than others and the glyph
+// looking jagged. Not all glyphs would fit in one
 // texture, so the glyphs that text uses are copied into an atlas at the
 // current scale the first time they appear (unifont_cache).
 //
@@ -222,15 +226,24 @@ unifont_cache :: proc(u: ^Unifont, r: rune) -> (slot: i32, ok: bool) {
 	w := unifont_glyph_width(u, r)
 	x0 := (slot % u.per_row) * u.cell
 	y0 := (slot / u.per_row) * u.cell
+	glyph := u.rows[int(r) * 16:][:16]
+	k := f32(16) / f32(h) // chart pixels per physical pixel, on each side
 	for y in 0 ..< h {
-		// The source pixel under the center of this one.
-		row := u.rows[int(r) * 16 + int(min((2 * y + 1) * 16 / (2 * h), 15))]
+		ya, yb := f32(y) * k, f32(y + 1) * k
 		line := u.pixels[int(y0 + y) * int(u.side) + int(x0):]
 		for x in 0 ..< w {
-			sx := min((2 * x + 1) * 16 / (2 * h), 15)
-			if row & (0x8000 >> uint(sx)) != 0 {
-				line[x] = 255
+			xa, xb := f32(x) * k, f32(x + 1) * k
+			// How much of this pixel the chart's set pixels cover.
+			cover: f32
+			for sy := int(ya); sy < 16 && f32(sy) < yb; sy += 1 {
+				dy := min(yb, f32(sy + 1)) - max(ya, f32(sy))
+				for sx := int(xa); sx < 16 && f32(sx) < xb; sx += 1 {
+					if glyph[sy] & (0x8000 >> uint(sx)) != 0 {
+						cover += dy * (min(xb, f32(sx + 1)) - max(xa, f32(sx)))
+					}
+				}
 			}
+			line[x] = u8(math.round(clamp(cover / (k * k), 0, 1) * 255))
 		}
 	}
 	u.slots[r] = slot
