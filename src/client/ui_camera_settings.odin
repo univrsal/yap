@@ -81,7 +81,7 @@ camera_settings :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
-	   mu.checkbox(
+	   checkbox(
 		   ctx,
 		   "Mirror my own view (others see it the right way round)",
 		   &ui.settings.camera_mirror,

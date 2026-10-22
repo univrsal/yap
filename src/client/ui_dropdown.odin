@@ -151,9 +151,10 @@ dropdown_popup :: proc(ui: ^UI, w, h: i32) {
 		d.requested = false
 		mu.open_popup(ctx, DROPDOWN_POPUP)
 		cnt := mu.get_container(ctx, DROPDOWN_POPUP)
-		// As microui lays a row out: its size and padding, then the spacing.
+		// As microui lays a row out: its size and padding, then the spacing,
+		// which the last row doesn't need. The window's padding is around them.
 		row := ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing
-		want := i32(len(d.items)) * row + 2 * ctx.style.padding + ctx.style.spacing
+		want := i32(len(d.items)) * row - ctx.style.spacing + 2 * ctx.style.padding
 		width := max(d.anchor.w, DROPDOWN_MIN_WIDTH)
 		below := h - (d.anchor.y + d.anchor.h)
 		above := d.anchor.y

@@ -345,9 +345,9 @@ checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_
 	full := fmt.tprintf("%s (%s)", label, note)
 	box := ctx.style.size.y + 2 * ctx.style.padding
 	if ctx.text_width(ctx.style.font, full) + box + ctx.style.padding <= row_room(ctx) {
-		return mu.checkbox(ctx, full, state)
+		return checkbox(ctx, full, state)
 	}
-	res := mu.checkbox(ctx, label, state)
+	res := checkbox(ctx, label, state)
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, theme.dim, fmt.tprintf("  %s", note), wrap_text)
 	return res
@@ -380,14 +380,14 @@ audio_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in mu.checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
+	if .CHANGE in checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
 	if app_audio_setting(ui) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
-		   mu.checkbox(
+		   checkbox(
 			   ctx,
 			   "Mute audio sharing when microphone is muted",
 			   &ui.settings.mute_app_audio_with_mic,
@@ -473,7 +473,7 @@ ui_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in mu.checkbox(ctx, "Show avatars beside messages", &ui.settings.chat_pictures) {
+	if .CHANGE in checkbox(ctx, "Show avatars beside messages", &ui.settings.chat_pictures) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 
@@ -482,7 +482,7 @@ ui_settings :: proc(ui: ^UI) {
 		// of the desktop's (ui_titlebar.odin).
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
-		   mu.checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
+		   checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 			titlebar_merge(ui.window, ui.settings.merge_title_bar)
 			ui_redraw(ui)
@@ -493,7 +493,7 @@ ui_settings :: proc(ui: ^UI) {
 		}
 
 		mu.layout_row(ctx, {-1})
-		if .CHANGE in mu.checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
+		if .CHANGE in checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 			tray_update(ui)
 		}
@@ -506,10 +506,10 @@ ui_settings :: proc(ui: ^UI) {
 
 		// One under the other where they don't fit side by side.
 		mu.layout_row(ctx, {230, -1} if row_fits(ctx, {230, 200}) else {-1})
-		if .CHANGE in mu.checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
+		if .CHANGE in checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
-		if .CHANGE in mu.checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
+		if .CHANGE in checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
 		// Only the desktop can tell us that a window has been minimized, and

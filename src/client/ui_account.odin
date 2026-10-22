@@ -465,7 +465,7 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 	submit |= .SUBMIT in password_box(ui, a.again_buf[:], &a.again_len)
 	if offer_revoke {
 		field_row(ui, FORM_LABEL + 60, "", {-1}, fill_min = 200)
-		mu.checkbox(ctx, "Log my other devices out", &a.revoke_others)
+		checkbox(ctx, "Log my other devices out", &a.revoke_others)
 	}
 	field_row(ui, FORM_LABEL + 60, "", {140, -1})
 	submit |= .SUBMIT in mu.button(ctx, "Change password")
@@ -750,7 +750,7 @@ voice_shown_settings :: proc(ui: ^UI, v: ^conn.View) {
 	shown := (v.shared[proto.SETTING_VOICE_SHOWN] or_else "") != proto.VOICE_SHOWN_HIDDEN
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	if .CHANGE in mu.checkbox(ctx, "Show others when I'm in a voice chat or a call", &shown) {
+	if .CHANGE in checkbox(ctx, "Show others when I'm in a voice chat or a call", &shown) {
 		command(
 			ui,
 			conn.Setting_Command {
@@ -774,7 +774,7 @@ status_shared_settings :: proc(ui: ^UI, v: ^conn.View) {
 	shared := status_shared(v)
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	if .CHANGE in mu.checkbox(ctx, "Share my status with my other servers", &shared) {
+	if .CHANGE in checkbox(ctx, "Share my status with my other servers", &shared) {
 		command(
 			ui,
 			conn.Setting_Command {

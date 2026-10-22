@@ -26,7 +26,7 @@ share_settings :: proc(ui: ^UI) {
 		with_text_color(ctx, theme.dim, "This browser can't share its screen.", wrap_text)
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
-		   mu.checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
+		   checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
 			settings.settings_save(ui.opts.settings_path, ui.settings)
 		}
 		return
@@ -101,8 +101,7 @@ share_settings :: proc(ui: ^UI) {
 	with_text_color(ctx, theme.dim, "Changes apply the next time you start sharing.", wrap_text)
 
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in
-	   mu.checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
+	if .CHANGE in checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 }
@@ -200,7 +199,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	if .CHANGE in mu.checkbox(ctx, "Show mouse cursor", &ui.settings.share_cursor) {
+	if .CHANGE in checkbox(ctx, "Show mouse cursor", &ui.settings.share_cursor) {
 		settings.settings_save(ui.opts.settings_path, ui.settings)
 	}
 }

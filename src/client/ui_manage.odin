@@ -334,7 +334,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Accou
 			continue
 		}
 		on := has
-		if .CHANGE in mu.checkbox(ctx, r.name, &on) {
+		if .CHANGE in checkbox(ctx, r.name, &on) {
 			if on && !has {
 				append(&m.account_roles, r.id)
 			} else if !on && has {
@@ -418,7 +418,7 @@ purge_settings :: proc(ui: ^UI) {
 	days_ok = days_ok && days >= 0
 
 	field_row(ui, FORM_LABEL, "", {-1}, fill_min = 240)
-	if .CHANGE in mu.checkbox(ctx, "Only their files; the messages stay", &m.purge_files) {
+	if .CHANGE in checkbox(ctx, "Only their files; the messages stay", &m.purge_files) {
 		m.purge_confirm = false
 	}
 

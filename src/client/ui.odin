@@ -2177,6 +2177,28 @@ list_row :: proc(
 	return
 }
 
+// checkbox is mu.checkbox, except that it is ticked when the mouse button
+// goes down on it, like a button, instead of when it comes up. Otherwise a
+// press that closes a dropdown's list (dropdown_popup) or changes the
+// settings page under the pointer would tick the checkbox that is there
+// when the button comes up.
+checkbox :: proc(ctx: ^mu.Context, label: string, state: ^bool) -> (res: mu.Result_Set) {
+	id := mu.get_id(ctx, uintptr(state))
+	r := mu.layout_next(ctx)
+	box := mu.Rect{r.x, r.y, r.h, r.h}
+	mu.update_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+		res += {.CHANGE}
+		state^ = !state^
+	}
+	mu.draw_control_frame(ctx, id, box, .BASE)
+	if state^ {
+		mu.draw_icon(ctx, .CHECK, box, ctx.style.colors[.TEXT])
+	}
+	mu.draw_control_text(ctx, label, {r.x + box.w, r.y, r.w - box.w, r.h}, .TEXT)
+	return
+}
+
 label_proc :: proc(ctx: ^mu.Context, text: string) {
 	mu.label(ctx, text)
 }

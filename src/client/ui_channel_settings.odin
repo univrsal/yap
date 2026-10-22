@@ -242,7 +242,7 @@ new_channel :: proc(ui: ^UI) {
 	field_row(ui, LABEL, "Topic", {-1})
 	submit |= .SUBMIT in text_box(ui, a.new_topic_buf[:], &a.new_topic_len)
 	mu.layout_row(ctx, {-1})
-	mu.checkbox(ctx, "Private", &a.new_private)
+	checkbox(ctx, "Private", &a.new_private)
 	if a.new_private {
 		with_text_color(ctx, theme.dim, "Only those added to it can see it.", wrap_text)
 	}

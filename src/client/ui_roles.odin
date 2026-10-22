@@ -353,7 +353,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		mentionable := .Mentionable in r.flags
 		mu.layout_row(ctx, {-1})
 		if editable {
-			if .CHANGE in mu.checkbox(ctx, "Can be mentioned with @name", &mentionable) {
+			if .CHANGE in checkbox(ctx, "Can be mentioned with @name", &mentionable) {
 				r.flags ~= {.Mentionable}
 			}
 		} else {
@@ -396,7 +396,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 			continue
 		}
 		mu.layout_row(ctx, {-1})
-		if .CHANGE in mu.checkbox(ctx, PERMISSION_TEXT[p], &on) {
+		if .CHANGE in checkbox(ctx, PERMISSION_TEXT[p], &on) {
 			if on {
 				r.perms += {p}
 			} else {
