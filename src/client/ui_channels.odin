@@ -17,7 +17,8 @@ import mu "vendor:microui"
 //     messages in each (dimmer for a muted channel). Clicking a channel shows its
 //     chat and does nothing else. Right-clicking one opens its menu (how much
 //     it may interrupt, its settings, leaving it). Under each channel are the
-//     people in its voice room.
+//     people in its voice room. The list ends with the button to the Join a
+//     channel window.
 //   - The line above the chat: which channel it is, and the button that
 //     joins or leaves its voice room. Looking at a channel and talking in
 //     it are two separate things, and that button is the only place where they meet.
@@ -85,21 +86,39 @@ channel_list :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 
-	// The list, and under it the way to the rest of the channels.
+	// The list, ending with the way to the rest of the channels.
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
-	button_h := ctx.style.size.y + 2 * ctx.style.padding
-	// And under that, the voice panel. In a narrow window that is across
-	// the screen instead (see session_screen).
+	// And under it, the voice panel. In a narrow window that is across the
+	// screen instead (see session_screen).
 	panel_h := 0 if ui.narrow else voice_panel_height(ui)
-	mu.layout_row(ctx, {-1}, -(button_h + ctx.style.spacing + panel_h + 1))
+	mu.layout_row(ctx, {-1}, -(panel_h + 1))
 
 	mu.begin_panel(ctx, "channels")
 	if len(v.channels) == 0 {
 		spinner_row(ui) // the channel list, on its way
 	}
+	channel_rows(ui)
+	mu.layout_row(ctx, {-1})
+	if .SUBMIT in mu.button(ctx, "Join a channel...") {
+		open_channels(ui)
+	}
+	mu.end_panel(ctx)
+
+	if !ui.narrow {
+		voice_panel(ui)
+	}
+}
+
+// channel_rows is a row for each of our channels in the list, each followed
+// by the people in its voice room. Call with the View locked.
+@(private = "file")
+channel_rows :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	v := ui.view
 	// The rows close together, and so the people in a voice room under its
-	// channel.
+	// channel. Only here: the rest of the list, and the voice panel under
+	// it, are spaced as everything else (voice_panel_height counts on that).
 	saved_spacing := ctx.style.spacing
 	ctx.style.spacing = CHANNEL_ROW_GAP
 	defer ctx.style.spacing = saved_spacing
@@ -149,15 +168,6 @@ channel_list :: proc(ui: ^UI) {
 		for m in ch.members {
 			member_row(ui, m)
 		}
-	}
-	mu.end_panel(ctx)
-
-	mu.layout_row(ctx, {-1})
-	if .SUBMIT in mu.button(ctx, "Join a channel...") {
-		open_channels(ui)
-	}
-	if !ui.narrow {
-		voice_panel(ui)
 	}
 }
 
