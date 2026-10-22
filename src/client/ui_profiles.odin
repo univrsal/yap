@@ -180,10 +180,6 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 		if ui.view.my_activity == a {
 			ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
 		}
-		// The dot's colour, except for grey, which wouldn't be visible on a button.
-		if a != .Offline {
-			ctx.style.colors[.TEXT] = ACTIVITY_COLORS[a]
-		}
 		if .SUBMIT in
 			   stable_button_hint(
 				   ui,
