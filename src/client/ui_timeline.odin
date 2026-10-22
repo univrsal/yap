@@ -1149,7 +1149,7 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := fa
 			if ctx.hover_id == id && c.r.me {
 				background = theme.highlight_more
 			}
-			mu.draw_rect(ctx, rect, background)
+			render.draw_rounded(ctx, rect, background, render.CONTROL_RADIUS)
 			font := ctx.style.font
 			pos := mu.Vec2{rect.x + 6, rect.y + (rect.h - ctx.text_height(font)) / 2}
 			mu.draw_text(ctx, font, c.text, pos, ctx.style.colors[.TEXT])

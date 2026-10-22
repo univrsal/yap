@@ -7,6 +7,7 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:render"
 import "client:settings"
 import "common:proto"
 
@@ -279,7 +280,8 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 	rect := mu.layout_next(ctx)
 	mu.update_control(ctx, id, rect)
 	if r.me {
-		mu.draw_rect(ctx, rect, theme.highlight_more if ctx.hover_id == id else theme.highlight)
+		color := theme.highlight_more if ctx.hover_id == id else theme.highlight
+		render.draw_rounded(ctx, rect, color, render.CONTROL_RADIUS)
 	} else {
 		mu.draw_control_frame(ctx, id, rect, .BUTTON)
 	}
