@@ -281,6 +281,8 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 servers_frame :: proc(ui: ^UI) {
 	named := rail_count(ui) > 1
 	total, mentions, dms := 0, 0, 0
+	// What is shown, for the window's title.
+	shown := "Direct messages" if ui.page == .Buddies else ""
 	for ns in ui.sessions {
 		if ns.joining {
 			continue
@@ -289,6 +291,10 @@ servers_frame :: proc(ui: ^UI) {
 		{
 			sync.guard(&v.mutex)
 			ns.unread, ns.mentions, ns.dm_unread = 0, 0, 0
+			if ns == ui.session && shown == "" {
+				name := v.server_name if v.server_name != "" else v.server
+				shown = strings.clone(name, context.temp_allocator)
+			}
 			if v.status == .Connected {
 				ns.dm_unread = dm_unread(&ui.settings, v)
 				ns.unread = unread_total(&ui.settings, v) - ns.dm_unread
@@ -305,17 +311,17 @@ servers_frame :: proc(ui: ^UI) {
 		session_notices(ui, ns, named)
 	}
 	ui.unread, ui.mentions, ui.dm_unread = total, mentions, dms
-	if key := title_key(ui.unread, ui.mentions); ui.window != nil && key != ui.title_unread {
-		ui.title_unread = key
-		title: string
-		switch {
-		case key > 0:
-			title = fmt.tprintf("(%s) Yap", conn.unread_count(key))
-		case key < 0:
-			title = "(*) Yap"
-		case:
-			title = "Yap"
-		}
+	// "Yap | <server>", after what is unread.
+	title := "Yap" if shown == "" else fmt.tprintf("Yap | %s", shown)
+	switch key := title_key(ui.unread, ui.mentions); {
+	case key > 0:
+		title = fmt.tprintf("(%s) %s", conn.unread_count(key), title)
+	case key < 0:
+		title = fmt.tprintf("(*) %s", title)
+	}
+	if ui.window != nil && title != ui.window_title {
+		delete(ui.window_title)
+		ui.window_title = strings.clone(title)
 		glfw.SetWindowTitle(ui.window, strings.clone_to_cstring(title, context.temp_allocator))
 	}
 }

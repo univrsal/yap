@@ -202,10 +202,8 @@ UI :: struct {
 	// waiting on the View lock, so they happen after the layout, not during it.
 	action:              Action,
 	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
-	// What the window's title shows about unread messages: the number of mentions,
-	// -1 for "(*)" (something unread but no mention) or 0 for neither (see
-	// title_key).
-	title_unread:        int,
+	// What the window's title says (owned; see servers_frame).
+	window_title:        string,
 	settings_tab:        Settings_Tab, // which the settings page shows (ui_settings.odin)
 	// The category selected in each of the settings tabs.
 	settings_client:     Client_Category,
@@ -798,6 +796,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	disconnect_all(ui)
 	delete(ui.sessions)
 	delete(ui.relay_server)
+	delete(ui.window_title)
 	hotkeys_stop(ui)
 	tray_hide(ui)
 	monitor_stop(ui)
@@ -891,7 +890,8 @@ window_open :: proc(ui: ^UI) -> bool {
 	}
 	titlebar_window_hints(ui.settings.merge_title_bar)
 	ui.window = glfw.CreateWindow(ui.window_size.x, ui.window_size.y, "Yap", nil, nil)
-	ui.title_unread = 0 // what the window title shows
+	delete(ui.window_title)
+	ui.window_title = strings.clone("Yap") // what the window title says
 	if ui.window == nil {
 		log.errorf("failed to create a window (%s is required)", render.GPU_REQUIREMENT)
 		return false
@@ -1746,6 +1746,13 @@ session_screen :: proc(ui: ^UI) {
 	share_menu(ui)
 }
 
+// titlebar_merged says whether the window's buttons are drawn in the top row
+// of our own layout (ui_titlebar.odin) rather than in a title bar of the
+// system's, which shows the window's title.
+titlebar_merged :: proc(ui: ^UI) -> bool {
+	return ui.titlebar_left > 0 || ui.titlebar_right > 0
+}
+
 // title_row is mu.layout_row for a screen's first row. With the title bar
 // merged, that row shares the top of the window with the window's buttons
 // (see ui_titlebar.odin), so it keeps clear of them. On macOS the buttons are on
@@ -1773,9 +1780,17 @@ title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 // status and the settings are at the bottom of the rail
 // (see rail_bottom). Mute, deafen and what is shared are in the voice panel
 // (see ui_voice_panel.odin).
+//
+// It is only there with the title bar merged (titlebar_merged), where the row
+// is taken anyway by the window's buttons. Otherwise the window's own title
+// says the same (servers_frame), and the row is left to the chat, unless there
+// is something to say about connecting.
 session_header :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
+	if !titlebar_merged(ui) && (ui.page == .Buddies || v.status == .Connected) {
+		return
+	}
 	title_row(ui, {-1})
 	switch {
 	case ui.page == .Buddies:
