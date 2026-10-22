@@ -239,8 +239,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	composer_files(ui, composer, width)
 
 	composer_row(ui, input_h)
-	completion_keys(ui, composer)
-	composer_keys(ui, composer)
+	composer_input(ui, composer)
 	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && t.len > 0 && ui.session != nil && t.editing == 0 {

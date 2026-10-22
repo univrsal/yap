@@ -224,6 +224,17 @@ composer_of :: proc(ui: ^UI, thread: int) -> Composer {
 	return {t.buf[:], &t.len, &t.editing, &t.editing_conv, thread, &t.files, &t.area}
 }
 
+// composer_input takes a composer's keys before its box is laid out: in a web
+// build what was typed in the page's field for it first (ui_field_web.odin),
+// then the completion list's keys and the composer's own.
+composer_input :: proc(ui: ^UI, c: Composer) {
+	when platform.WEB {
+		field_take(ui, mu.get_id(&ui.ctx, uintptr(&c.buf[0])), c.buf, c.len, c.area)
+	}
+	completion_keys(ui, c)
+	composer_keys(ui, c)
+}
+
 // composer_keys handles Up, Escape and Ctrl+V in a composer before its text
 // box is laid out. Up in an empty composer starts editing our newest message,
 // Escape stops editing (and empties the composer), and Ctrl+V may paste a

@@ -17,6 +17,9 @@ Text_Box :: struct {
 	id:        mu.Id,
 	rect:      mu.Rect, // as visible: clipped to its container
 	multiline: bool, // a text area (ui_text_area.odin), where Enter starts a line
+	// The page's own text field is over it (ui_field_web.odin), so a tap
+	// lands there and brings the keyboard up itself.
+	live:      bool,
 }
 
 text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.Result_Set {
@@ -26,7 +29,10 @@ text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.R
 	id := mu.get_id(ctx, uintptr(&buf[0]))
 	r := mu.layout_next(ctx)
 	when platform.WEB {
-		append(&ui.text_boxes, Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), false})
+		append(
+			&ui.text_boxes,
+			Text_Box{id, mu.intersect_rects(r, mu.get_clip_rect(ctx)), false, false},
+		)
 	}
 	res := mu.textbox_raw(ctx, buf, textlen, id, r, opt)
 	if ctx.hover_id == id {

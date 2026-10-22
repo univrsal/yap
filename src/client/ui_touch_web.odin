@@ -145,7 +145,7 @@ queue_lift :: proc() {
 text_box_at :: proc(x, y: f64) -> bool {
 	lx, ly := to_layout(x, y)
 	for b in g_ui.text_boxes {
-		if mu.rect_overlaps_vec2(b.rect, {lx, ly}) {
+		if !b.live && mu.rect_overlaps_vec2(b.rect, {lx, ly}) {
 			return true
 		}
 	}

@@ -149,8 +149,11 @@ clipboard.
 	document.addEventListener("paste", async (event) => {
 		if (typeof Module._web_file_pasted !== "function") return;
 		const target = event.target;
-		if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
-		sendText(event.clipboardData ? event.clipboardData.getData("text/plain") : "");
+		// A text area's field (web/field.js) pastes text itself, but a
+		// picture pasted there is still attached.
+		const field = target instanceof HTMLTextAreaElement && target.dataset.yapField !== undefined;
+		if (!field && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) return;
+		if (!field) sendText(event.clipboardData ? event.clipboardData.getData("text/plain") : "");
 		const items = event.clipboardData ? Array.from(event.clipboardData.items) : [];
 		const images = items.filter((i) => i.kind === "file" && i.type.startsWith("image/"));
 		// A GIF or WebP first: either may be an animation.
