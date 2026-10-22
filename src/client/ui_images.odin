@@ -864,7 +864,7 @@ image_plain :: proc(ui: ^UI, key: Image_Key, data: []u8, area: mu.Rect) {
 	mu.draw_icon(
 		&ui.ctx,
 		mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1),
-		{area.x, area.y, i32(w), i32(h)},
+		{area.x + (area.w - i32(w)) / 2, area.y, i32(w), i32(h)},
 		{255, 255, 255, 255},
 	)
 }

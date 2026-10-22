@@ -158,14 +158,13 @@ about_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1}, LOGO_HEIGHT)
 	about_logo(ui, mu.layout_next(ctx))
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, fmt.tprintf("yap %s", common.version_string()))
-	about_text(
+	mu.label(
 		ctx,
-		"A sloppy, minimal and limited VOIP application.\nhttps://github.com/univrsal/yap",
+		fmt.tprintf(
+			"Yap %s - A portable VOIP application. https://github.com/univrsal/yap",
+			common.version_string(),
+		),
 	)
-
-	mu.label(ctx, "")
-	mu.label(ctx, "Third-party software (click one for its license):")
 	build := Build.Web if platform.WEB else Build.Desktop
 	for &p, i in THIRD_PARTY {
 		if build not_in p.builds {
@@ -221,6 +220,7 @@ about_text :: proc(ctx: ^mu.Context, text: string) {
 	defer ctx.style.spacing = saved_spacing
 
 	rest := strings.trim_right(text, "\n")
+
 	for line in strings.split_lines_iterator(&rest) {
 		if strings.trim_space(line) == "" {
 			mu.label(ctx, "")
