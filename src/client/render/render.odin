@@ -53,7 +53,7 @@ Texture_Kind :: enum {
 
 // Icon ids from here on mean "the picture at this index of the frame's draw
 // list" (Renderer.images). microui's own icons never reach this range.
-IMAGE_ICON_BASE :: 1000
+IMAGE_ICON_BASE :: 2000
 
 // An icon command with this id is a border around its rect (draw_border).
 BORDER_ICON :: mu.Icon(UI_ICON_BASE - 1)
@@ -99,6 +99,11 @@ TOP_CORNERS :: Corners{.Top_Left, .Top_Right}
 Rounded_Shape :: enum {
 	Fill, // the whole rect
 	Border, // a border one line thick inside the rect, like draw_border
+	// Fill and Border for the rect grown by one line on every side once it
+	// is snapped, with its radius grown as much: a ring around a Border of
+	// the same rect, touching it at any scale (draw_rounded_outside).
+	Fill_Out,
+	Border_Out,
 }
 
 // Icon commands with ids from here on are rounded rects (rounded_id), up to
@@ -160,6 +165,49 @@ draw_rounded_border :: proc(
 	corners := ALL_CORNERS,
 ) {
 	mu.draw_icon(ctx, rounded_id(.Border, corners, radius), rect, color)
+}
+
+// draw_rounded_outside is draw_rounded (or with `border`,
+// draw_rounded_border) for `rect` grown by one line (line_thickness) on
+// every side, with `radius` grown as much. A rect grown by a logical pixel
+// would be snapped on its own, a physical pixel or two further out depending
+// on where it is at a fractional scale, so a line drawn around another would
+// touch it on some sides and leave a gap on others.
+draw_rounded_outside :: proc(
+	ctx: ^mu.Context,
+	rect: mu.Rect,
+	color: mu.Color,
+	radius: i32,
+	border := false,
+	corners := ALL_CORNERS,
+) {
+	// Two logical pixels covers the line and the rect's own rounding.
+	draw_icon_reaching(
+		ctx,
+		rounded_id(.Border_Out if border else .Fill_Out, corners, radius),
+		rect,
+		mu.expand_rect(rect, 2),
+		color,
+	)
+}
+
+// draw_icon_reaching is mu.draw_icon for an icon command that draws past its
+// `rect`, as far as `reach`. microui only clips a command whose rect isn't
+// all inside the clip rect, so this clips by `reach` instead.
+draw_icon_reaching :: proc(ctx: ^mu.Context, id: mu.Icon, rect, reach: mu.Rect, color: mu.Color) {
+	clipped := mu.check_clip(ctx, reach)
+	switch clipped {
+	case .NONE:
+	case .ALL:
+		return
+	case .PART:
+		mu.set_clip(ctx, mu.get_clip_rect(ctx))
+	}
+	cmd := mu.push_command(ctx, mu.Command_Icon)
+	cmd.id, cmd.rect, cmd.color = id, rect, color
+	if clipped == .PART {
+		mu.set_clip(ctx, mu.unclipped_rect)
+	}
 }
 
 // draw_frame is microui's default_draw_frame, with its border drawn by
@@ -257,6 +305,10 @@ Image_Draw :: struct {
 	// its rect on every side, once that is snapped. This keeps a dot inside
 	// a ring with the same rect in the middle at any scale.
 	inset:   i32,
+	// Or this many logical pixels out from it, rounded to whole physical
+	// pixels, the same on every side. This keeps a ring around a picture
+	// drawn in the same rect in the middle at any scale.
+	grow:    i32,
 }
 
 // The fonts are the UI's and the chat's, which is the same font zoomed to the
@@ -772,10 +824,19 @@ push_border :: proc(r: ^Renderer, rect: mu.Rect, color: mu.Color, inside := fals
 		return
 	}
 	s := r.scale
-	w := rect_white(r)
-	uv := [4]f32{w.x, w.y, w.x, w.y}
 	x0, y0 := math.round(f32(rect.x) * s), math.round(f32(rect.y) * s)
 	x1, y1 := math.round(f32(rect.x + rect.w) * s), math.round(f32(rect.y + rect.h) * s)
+	push_border_px(r, {x0, y0, x1, y1}, color, inside)
+}
+
+// push_border_px is push_border for a box already snapped, in physical pixels
+// ({x0, y0, x1, y1}).
+@(private = "file")
+push_border_px :: proc(r: ^Renderer, box: [4]f32, color: mu.Color, inside := false) {
+	s := r.scale
+	w := rect_white(r)
+	uv := [4]f32{w.x, w.y, w.x, w.y}
+	x0, y0, x1, y1 := box[0], box[1], box[2], box[3]
 	t := min(line_thickness(s), (x1 - x0) / 2, (y1 - y0) / 2)
 	if inside {
 		push_quad(r, [4]f32{x0 + t, y0 + t, x1 - t, y1 - t} / s, uv, color)
@@ -858,23 +919,31 @@ push_rounded :: proc(
 	s := r.scale
 	x0, y0 := math.round(f32(rect.x) * s), math.round(f32(rect.y) * s)
 	x1, y1 := math.round(f32(rect.x + rect.w) * s), math.round(f32(rect.y + rect.h) * s)
+	// Out a line from the snapped rect (draw_rounded_outside).
+	out := shape == .Fill_Out || shape == .Border_Out
+	grow := line_thickness(s) if out else 0
+	x0, y0, x1, y1 = x0 - grow, y0 - grow, x1 + grow, y1 + grow
+	border := shape == .Border || shape == .Border_Out
 	t := min(line_thickness(s), (x1 - x0) / 2, (y1 - y0) / 2)
 	R := min(
-		math.round(f32(radius) * s),
+		math.round(f32(radius) * s) + grow,
 		math.floor((x1 - x0) / 2),
 		math.floor((y1 - y0) / 2),
 		f32(len(tiles.at)),
 	)
-	if R < 1 || corners == {} || (shape == .Border && t != tiles.ring) {
+	if R < 1 || corners == {} || (border && t != tiles.ring) {
 		// Nothing left to round, or a rect too small for a ring.
-		switch shape {
-		case .Fill:
+		switch {
+		case border:
+			push_border_px(r, {x0, y0, x1, y1}, color)
+		case out:
+			w := rect_white(r)
+			push_quad(r, [4]f32{x0, y0, x1, y1} / s, {w.x, w.y, w.x, w.y}, color)
+		case:
 			w := rect_white(r)
 			fx0, fx1 := snap_span(rect.x, rect.w, s)
 			fy0, fy1 := snap_span(rect.y, rect.h, s)
 			push_quad(r, {fx0, fy0, fx1, fy1}, {w.x, w.y, w.x, w.y}, color)
-		case .Border:
-			push_border(r, rect, color)
 		}
 		return
 	}
@@ -893,7 +962,7 @@ push_rounded :: proc(
 	bl := R if .Bottom_Left in corners else 0
 	br := R if .Bottom_Right in corners else 0
 
-	kind := Corner_Kind.Ring if shape == .Border else .Fill
+	kind := Corner_Kind.Ring if border else .Fill
 	at := tiles.at[int(R) - 1][kind]
 	W, H := f32(fc.width), f32(fc.height)
 	u0, v0 := f32(at.x) / W, f32(at.y) / H
@@ -904,7 +973,7 @@ push_rounded :: proc(
 	if bl > 0 do box(r, x0, y1 - R, x0 + R, y1, {u0, v1, u1, v0}, color)
 	if br > 0 do box(r, x1 - R, y1 - R, x1, y1, {u1, v1, u0, v0}, color)
 
-	if shape == .Border {
+	if border {
 		box(r, x0 + tl, y0, x1 - tr, y0 + t, white, color)
 		box(r, x0 + bl, y1 - t, x1 - br, y1, white, color)
 		box(r, x0, y0 + (tl if tl > 0 else t), x0 + t, y1 - (bl if bl > 0 else t), white, color)
@@ -1007,6 +1076,10 @@ draw_image :: proc(r: ^Renderer, index: int, rect: mu.Rect, color: mu.Color) {
 	s := r.scale
 	x0, y0 := math.round(f32(rect.x) * s), math.round(f32(rect.y) * s)
 	x1, y1 := x0 + math.round(f32(rect.w) * s), y0 + math.round(f32(rect.h) * s)
+	if img.grow > 0 {
+		g := math.round(f32(img.grow) * s)
+		x0, y0, x1, y1 = x0 - g, y0 - g, x1 + g, y1 + g
+	}
 	if img.inset > 0 {
 		t := f32(img.inset) * line_thickness(s)
 		x0, y0, x1, y1 = x0 + t, y0 + t, x1 - t, y1 - t

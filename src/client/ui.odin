@@ -1886,10 +1886,12 @@ draw_frame_themed :: proc(ctx: ^mu.Context, rect: mu.Rect, colorid: mu.Color_Typ
 		render.draw_frame(ctx, rect, colorid)
 		return
 	}
-	outer := mu.expand_rect(rect, 1)
-	render.draw_rounded(ctx, outer, ctx.style.colors[colorid], render.CONTROL_RADIUS)
-	render.draw_rounded_border(ctx, outer, theme.accent, render.CONTROL_RADIUS)
-	render.draw_rounded_border(ctx, rect, theme.accent, render.CONTROL_RADIUS - 1)
+	// The outer line is snapped from the inner one, so that the two touch
+	// on every side at any scale.
+	radius := i32(render.CONTROL_RADIUS - 1)
+	render.draw_rounded_outside(ctx, rect, ctx.style.colors[colorid], radius)
+	render.draw_rounded_outside(ctx, rect, theme.accent, radius, border = true)
+	render.draw_rounded_border(ctx, rect, theme.accent, radius)
 }
 
 // stable_button is mu.button, except that its id comes from `id_name` (under

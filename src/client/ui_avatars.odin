@@ -267,10 +267,17 @@ avatar_ringed :: proc(
 			)
 			a.have_ring = true
 		}
-		append(&im.draws, render.Image_Draw{texture = a.ring})
-		mu.draw_icon(ctx, mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1), slot, color)
 	}
-	avatar(ui, account, {slot.x + inset, slot.y + inset, slot.w - 2 * inset, slot.h - 2 * inset})
+	pic := mu.Rect{slot.x + inset, slot.y + inset, slot.w - 2 * inset, slot.h - 2 * inset}
+	if ring {
+		// Grown from the picture's rect once that is snapped, rather than
+		// snapped from the slot on its own, which at a fractional scale can
+		// put the picture a pixel off the ring's middle.
+		append(&im.draws, render.Image_Draw{texture = a.ring, grow = inset})
+		icon := mu.Icon(render.IMAGE_ICON_BASE + len(im.draws) - 1)
+		render.draw_icon_reaching(ctx, icon, pic, mu.expand_rect(slot, 1), color)
+	}
+	avatar(ui, account, pic)
 }
 
 // disc draws a round dot of `color` in `r`, inset by `inset`. This is for a
