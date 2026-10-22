@@ -406,13 +406,16 @@ tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu
 	if !active {
 		return stable_button(ctx, id_name, label)
 	}
-	// Lighter, and with its label bold and in the color of an open header
-	// button, so that the shown tab can be recognized at a glance.
-	saved := ctx.style.colors[.BUTTON]
+	// In the accent color, with its label bold, so that the shown tab can be
+	// recognized at a glance.
+	saved := ctx.style.colors
 	saved_font := ctx.style.font
-	ctx.style.colors[.BUTTON] = ctx.style.colors[.BUTTON_FOCUS]
+	ctx.style.colors[.BUTTON] = theme.accent
+	ctx.style.colors[.BUTTON_HOVER] = theme.accent_hover
+	ctx.style.colors[.BUTTON_FOCUS] = theme.accent_hover
+	ctx.style.colors[.TEXT] = theme.accent_text
 	ctx.style.font = render.font_with_style(saved_font, .Bold)
-	defer ctx.style.colors[.BUTTON] = saved
+	defer ctx.style.colors = saved
 	defer ctx.style.font = saved_font
 	return stable_button(ctx, id_name, label)
 }

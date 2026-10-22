@@ -357,7 +357,7 @@ checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_
 // Roles list, ui_roles.odin), a list_row. It returns true when clicked.
 category_row :: proc(ctx: ^mu.Context, label: string, selected: bool) -> bool {
 	mu.layout_row(ctx, {-1})
-	return .SUBMIT in list_row(ctx, label, label, selected)
+	return .SUBMIT in list_row(ctx, label, label, selected, accent = true)
 }
 
 // audio_settings picks the send quality preset (see audio/quality.odin),

@@ -2148,11 +2148,14 @@ stable_button :: proc(
 // list_row is a line of a list to pick from (such as a settings tab's
 // categories or the channels), shown as text. It is boxed and bold while it is
 // the selected one and highlighted under the mouse. Clicking it with the left
-// button submits it.
+// button submits it. With `accent`, the selected one is in the accent color
+// (what is shown: a settings category, the channel that is open), rather than
+// grey (the current choice in a dropdown or a list of options).
 list_row :: proc(
 	ctx: ^mu.Context,
 	id_name, label: string,
 	selected: bool,
+	accent := false,
 ) -> (
 	res: mu.Result_Set,
 ) {
@@ -2163,17 +2166,23 @@ list_row :: proc(
 		res += {.SUBMIT}
 	}
 	switch {
+	case selected && accent:
+		color := theme.accent_hover if ctx.hover_id == id else theme.accent
+		render.draw_rounded(ctx, r, color, render.CONTROL_RADIUS)
 	case selected:
 		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_FOCUS], render.CONTROL_RADIUS)
 	case ctx.hover_id == id:
 		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_HOVER], render.CONTROL_RADIUS)
 	}
-	saved := ctx.style.font
+	saved, saved_text := ctx.style.font, ctx.style.colors[.TEXT]
 	if selected {
 		ctx.style.font = render.font_with_style(saved, .Bold)
 	}
+	if selected && accent {
+		ctx.style.colors[.TEXT] = theme.accent_text
+	}
 	mu.draw_control_text(ctx, label, r, .TEXT, {})
-	ctx.style.font = saved
+	ctx.style.font, ctx.style.colors[.TEXT] = saved, saved_text
 	return
 }
 

@@ -860,7 +860,7 @@ rail_icon :: proc(
 	mu.update_control(ctx, id, r)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	if shown {
-		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, theme.mark)
+		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, theme.accent)
 	}
 	if pic, ok := picture.?; ok {
 		mu.draw_icon(ctx, pic, icon, text_color)

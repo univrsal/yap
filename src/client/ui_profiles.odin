@@ -509,6 +509,7 @@ name_and_status :: proc(
 	bot := false,
 	bold := false,
 	talking := "",
+	status_color := mu.Color{}, // theme.dim if zero
 ) -> (
 	icon_r: mu.Rect,
 ) {
@@ -535,7 +536,7 @@ name_and_status :: proc(
 		more = extra if more == "" else fmt.tprintf("%s  ·  %s", more, extra)
 	}
 	if more != "" {
-		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
+		mu.draw_text(ctx, font, more, {x, y}, status_color if status_color.a != 0 else theme.dim)
 	}
 	return
 }

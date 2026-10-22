@@ -6,6 +6,7 @@ import "core:time"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:render"
 import "client:settings"
 import "common:proto"
 
@@ -330,11 +331,13 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
 	selected := here && ui.buddies.selected == b.account
+	// The open one in the accent color, like the open channel (list_row).
 	switch {
 	case selected:
-		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_FOCUS])
+		color := theme.accent_hover if ctx.hover_id == id else theme.accent
+		render.draw_rounded(ctx, r, color, render.CONTROL_RADIUS)
 	case ctx.hover_id == id:
-		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
+		render.draw_rounded(ctx, r, ctx.style.colors[.BUTTON_HOVER], render.CONTROL_RADIUS)
 	}
 	text_r := r
 	if servers {
@@ -346,6 +349,14 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 		text = fmt.tprintf("%s  (%s)", b.name, conn.unread_count(b.unread))
 		color = theme.speaking
 	}
+	status_color: mu.Color
+	saved_text := ctx.style.colors[.TEXT]
+	defer ctx.style.colors[.TEXT] = saved_text
+	if selected {
+		color = theme.accent_text
+		status_color = {color.r, color.g, color.b, 190}
+		ctx.style.colors[.TEXT] = color // the phone icon
+	}
 	icon_r := name_and_status(
 		ctx,
 		text_r,
@@ -354,6 +365,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 		b.status,
 		bold = selected,
 		talking = b.talking,
+		status_color = status_color,
 	)
 
 	if ctx.hover_id != id {

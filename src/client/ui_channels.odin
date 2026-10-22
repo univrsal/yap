@@ -152,7 +152,7 @@ channel_rows :: proc(ui: ^UI) {
 		saved_font := ctx.style.font
 		ctx.style.font = render.LIST_FONT
 		// When narrow, the list is all there is on screen, so no channel is open.
-		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow)
+		clicked := .SUBMIT in list_row(ctx, "view", label, viewing && !ui.narrow, accent = true)
 		ctx.style.font = saved_font
 		ctx.style.colors[.TEXT] = saved
 		if ctx.hover_id == mu.get_id(ctx, "view") && .RIGHT in ctx.mouse_pressed_bits {
