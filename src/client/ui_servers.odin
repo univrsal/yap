@@ -527,7 +527,7 @@ inbox_icon :: proc(ui: ^UI) {
 	white := mu.Color{255, 255, 255, 255}
 	r, id := rail_icon(ui, RAIL_INBOX, "", theme.plus_disc, white, hint, open)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
-	mu.draw_icon(ctx, render.icon_id(.Mail), icon, white)
+	mu.draw_icon(ctx, render.icon_id(.Yap), icon, white)
 	if ui.dm_unread > 0 {
 		mentions_badge(ui, r, ui.dm_unread)
 	}

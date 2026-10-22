@@ -47,7 +47,7 @@ Icon :: enum {
 	Edit, // a pencil: edit a message
 	Phone, // a telephone receiver: call someone
 	Hang_Up, // a receiver lying flat with its ends pointing down: decline a call
-	Mail, // a closed envelope: for direct messages
+	Yap, // yap's own icon, in one color: for direct messages (the rail's inbox)
 	Screen_Off, // a monitor with a line through it: stop watching a screen
 	Fullscreen, // four corners pointing out: fill the screen
 	Exit_Fullscreen, // four corners pointing in: back from fullscreen
@@ -254,8 +254,8 @@ icon_distance :: proc(icon: Icon, p: Point) -> f32 {
 		return receiver(p)
 	case .Hang_Up:
 		return hung_up(p)
-	case .Mail:
-		return mail_letter(p)
+	case .Yap:
+		return yap_logo(p)
 	case .Screen_Off:
 		return crossed_out(monitor(p), p)
 	case .Fullscreen:
@@ -410,7 +410,7 @@ window_control :: proc(icon: Icon, p: Point, side: f32) -> (d: f32, ok: bool) {
 	     .Edit,
 	     .Phone,
 	     .Hang_Up,
-	     .Mail,
+	     .Yap,
 	     .Screen_Off,
 	     .Fullscreen,
 	     .Exit_Fullscreen,
@@ -474,27 +474,20 @@ blend :: proc(a, b, k: f32) -> f32 {
 	return math.lerp(b, a, h) - k * h * (1 - h)
 }
 
-// A closed envelope. It has an outline the size of the monitor's, a flap
-// folded down from the top as a solid triangle, and two folds that run from
-// under the flap's point to the bottom corners.
+// Yap's icon (assets/icon.svg) in one color: a square of three by three
+// cells with its top left and bottom right corners cut off diagonally, a
+// cell deep, and the middle cell left open. The cells are a quarter of the
+// square, so at ICON_SIZE they are whole pixels.
 @(private = "file")
-mail_letter :: proc(p: Point) -> f32 {
-	STROKE :: 0.085
+yap_logo :: proc(p: Point) -> f32 {
+	CELL :: 0.25
+	L, T :: 0.125, 0.125
+	R, B :: L + 3 * CELL, T + 3 * CELL
 	CENTRE :: Point{0.5, 0.5}
-	HALF :: Point{0.39, 0.29}
-	ROUND :: 0.06
-	L, R :: CENTRE.x - HALF.x, CENTRE.x + HALF.x
-	T, B :: CENTRE.y - HALF.y, CENTRE.y + HALF.y
-	inside := rounded_box(p, CENTRE, HALF, ROUND)
-	d := abs(inside) - STROKE / 2
-	// The flap, which is kept inside the outline at its rounded corners.
-	flap := max(triangle(p, {L, T}, {R, T}, {CENTRE.x, 0.58}), inside)
-	d = nearer(d, flap)
-	// The folds, from just inside the bottom corners to under the flap.
-	FOLD :: STROKE * 0.75
-	IN :: ROUND / 2
-	d = nearer(d, capsule(p, {L + IN, B - IN}, {CENTRE.x, 0.44}, FOLD))
-	return nearer(d, capsule(p, {R - IN, B - IN}, {CENTRE.x, 0.44}, FOLD))
+	d := rounded_box(p, CENTRE, {R - CENTRE.x, B - CENTRE.y}, 0)
+	d = max(d, edge(p, {L, T + CELL}, {L + CELL, T}))
+	d = max(d, edge(p, {R, B - CELL}, {R - CELL, B}))
+	return cut(d, rounded_box(p, CENTRE, {CELL / 2, CELL / 2}, 0))
 }
 
 // Four corners, one in each quarter of the square. They point out to its
