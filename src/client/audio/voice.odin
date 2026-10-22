@@ -608,6 +608,9 @@ notification_tail_step :: proc(v: ^Voice) {
 		}
 		mix: [FRAME]f32
 		notifications_mix(&v.notifications, mix[:])
+		for &s in mix {
+			s = clamp(s, -1, 1)
+		}
 		ring_write(&v.playback, mix[:])
 	}
 }

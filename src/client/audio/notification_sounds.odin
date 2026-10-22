@@ -61,33 +61,30 @@ forget :: proc(s: ^Notification_Sounds, clip: ^Sound_Clip) {
 			raw_data(a) < raw_data(clip.samples[len(clip.samples):]) \
 		)
 	}
-	if same(s.active, clip) {
-		s.active, s.position = {}, 0
-	}
 	kept := 0
-	for i in 0 ..< s.queued_count {
-		if !same(s.queued[i], clip) {
-			s.queued[kept] = s.queued[i]
+	for i in 0 ..< s.playing_count {
+		if !same(s.playing[i], clip) {
+			s.playing[kept] = s.playing[i]
 			kept += 1
 		}
 	}
-	for i in kept ..< s.queued_count {
-		s.queued[i] = {}
+	for i in kept ..< s.playing_count {
+		s.playing[i] = {}
 	}
-	s.queued_count = kept
+	s.playing_count = kept
 	if same(s.loop, clip) {
-		s.loop, s.loop_pos = {}, 0
+		s.loop = {}
 	}
 }
 
 notification_play :: proc(s: ^Notification_Sounds, kind: Sound_Event) {
 	if clip := s.clips[kind]; clip != nil {
-		queue(s, one_shot(clip))
+		start(s, one_shot(clip))
 	}
 }
 
-// notification_preview plays the sound of that name once, ahead of anything
-// queued, to try it out.
+// notification_preview plays the sound of that name once, in place of
+// anything playing, to try it out.
 notification_preview :: proc(s: ^Notification_Sounds, name: string) {
 	old := s.preview
 	s.preview = sound_acquire(name)
@@ -97,7 +94,7 @@ notification_preview :: proc(s: ^Notification_Sounds, name: string) {
 	}
 	notifications_clear(s)
 	if s.preview != nil {
-		queue(s, one_shot(s.preview))
+		start(s, one_shot(s.preview))
 	}
 }
 
@@ -106,27 +103,30 @@ notification_preview :: proc(s: ^Notification_Sounds, name: string) {
 @(private = "file")
 one_shot :: proc(clip: ^Sound_Clip) -> Playing {
 	limit := ONE_SHOT_SECONDS * SAMPLE_RATE * clip.channels
-	return {clip.samples[:min(len(clip.samples), limit)], clip.channels}
+	return {clip.samples[:min(len(clip.samples), limit)], clip.channels, 0}
 }
 
+// start plays a sound over the others playing. A sound that is already
+// playing starts over instead of being played twice, which would only be
+// louder; past MAX_PLAYING, the sound that started first is ended.
 @(private = "file")
-queue :: proc(s: ^Notification_Sounds, p: Playing) {
+start :: proc(s: ^Notification_Sounds, p: Playing) {
 	if len(p.samples) == 0 {
 		return
 	}
-	if len(s.active.samples) == 0 {
-		s.active = p
-		s.position = 0
-		return
+	end := 0 // the one to take out, if any
+	for end < s.playing_count && raw_data(s.playing[end].samples) != raw_data(p.samples) {
+		end += 1
 	}
-	if s.queued_count < len(s.queued) {
-		s.queued[s.queued_count] = p
-		s.queued_count += 1
-	} else {
-		// During a burst, keep the earlier events but replace the last one
-		// with the newest.
-		s.queued[len(s.queued) - 1] = p
+	if end == s.playing_count && s.playing_count == MAX_PLAYING {
+		end = 0
 	}
+	if end < s.playing_count {
+		copy(s.playing[end:s.playing_count], s.playing[end + 1:s.playing_count])
+		s.playing_count -= 1
+	}
+	s.playing[s.playing_count] = p
+	s.playing_count += 1
 }
 
 // notification_loop starts playing an event's sound repeatedly, from its
@@ -136,9 +136,9 @@ notification_loop :: proc(s: ^Notification_Sounds, kind: Sound_Event) {
 		return
 	}
 	s.loop_event = kind
-	s.loop, s.loop_pos = {}, 0
+	s.loop = {}
 	if clip := s.clips[kind]; clip != nil && kind != .None {
-		s.loop = {clip.samples, clip.channels}
+		s.loop = {clip.samples, clip.channels, 0}
 	}
 }
 
@@ -146,46 +146,37 @@ notification_loop :: proc(s: ^Notification_Sounds, kind: Sound_Event) {
 // sound goes to every channel.
 notifications_mix :: proc(s: ^Notification_Sounds, mix: []f32) {
 	frames := len(mix) / CHANNELS
-	if loop := s.loop; len(loop.samples) > 0 {
+	if loop := &s.loop; len(loop.samples) > 0 {
 		for f in 0 ..< frames {
 			if !s.loop_quiet {
 				for c in 0 ..< CHANNELS {
 					mix[f * CHANNELS + c] +=
-						loop.samples[s.loop_pos + min(c, loop.channels - 1)] * s.volume
+						loop.samples[loop.position + min(c, loop.channels - 1)] * s.volume
 				}
 			}
-			s.loop_pos = (s.loop_pos + loop.channels) % len(loop.samples)
+			loop.position = (loop.position + loop.channels) % len(loop.samples)
 		}
 	}
-	at := 0 // frames
-	for at < frames {
-		if len(s.active.samples) == 0 {
-			if s.queued_count == 0 {
-				return
-			}
-			s.active = s.queued[0]
-			s.position = 0
-			s.queued_count -= 1
-			for i in 0 ..< s.queued_count {
-				s.queued[i] = s.queued[i + 1]
-			}
-			s.queued[s.queued_count] = {}
-		}
-		a := s.active
-		count := min(frames - at, (len(a.samples) - s.position) / a.channels)
-		for i in 0 ..< count {
+	kept := 0
+	for i in 0 ..< s.playing_count {
+		p := s.playing[i]
+		count := min(frames, (len(p.samples) - p.position) / p.channels)
+		for f in 0 ..< count {
 			for c in 0 ..< CHANNELS {
-				mix[(at + i) * CHANNELS + c] +=
-					a.samples[s.position + i * a.channels + min(c, a.channels - 1)] * s.volume
+				mix[f * CHANNELS + c] +=
+					p.samples[p.position + f * p.channels + min(c, p.channels - 1)] * s.volume
 			}
 		}
-		at += count
-		s.position += count * a.channels
-		if s.position + a.channels > len(a.samples) {
-			s.active = {}
-			s.position = 0
+		p.position += count * p.channels
+		if p.position + p.channels <= len(p.samples) {
+			s.playing[kept] = p
+			kept += 1
 		}
 	}
+	for i in kept ..< s.playing_count {
+		s.playing[i] = {}
+	}
+	s.playing_count = kept
 }
 
 // decode_ogg_opus decodes an Ogg Opus file, with its own channel count (1 or

@@ -62,7 +62,7 @@ names in lower case, so they survive reordering.
 Applying: a `Sounds_Command` to every connection (as
 `Notification_Volume_Command` is), carrying the event and the choice.
 The voice thread decodes the new clip and swaps it in; a clip being
-replaced is first dropped from `active`/`queued`/`loop`, since the mixer
+replaced is first dropped from `playing`/`loop`, since the mixer
 holds slices into it.
 
 While at it, decode each sound once for the whole client (a cache keyed
