@@ -48,6 +48,9 @@ Conv :: struct {
 	// about.
 	members:    [dynamic]proto.Account_Id,
 	reads:      map[proto.Account_Id]Membership,
+	// A channel's rights map: what each role may do there (see conv_rights).
+	// A role that isn't in it has no rights there.
+	rights:     map[proto.Role_Id]proto.Conv_Rights,
 }
 
 // Membership is the state that each member has for a conversation.
@@ -124,6 +127,21 @@ convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> b
 		}
 	}
 
+	q = db_stmt(db, .Conv_Rights_All)
+	for {
+		row, ok := db_step(db, q)
+		if !ok {
+			return false
+		}
+		if !row {
+			break
+		}
+		if conv := c.by_id[proto.Conv_Id(db_col_int(q, 0))] or_else nil; conv != nil {
+			role := proto.Role_Id(db_col_int(q, 1))
+			conv.rights[role] = transmute(proto.Conv_Rights)u8(db_col_int(q, 2))
+		}
+	}
+
 	if len(c.by_id) == 0 {
 		for name, i in seed {
 			flags: proto.Conv_Flags = {.Home} if i == 0 else {}
@@ -151,6 +169,7 @@ convs_destroy :: proc(c: ^Convs) {
 		delete(conv.topic)
 		delete(conv.members)
 		delete(conv.reads)
+		delete(conv.rights)
 		free(conv)
 	}
 	delete(c.by_id)
@@ -198,7 +217,95 @@ conv_add :: proc(
 	if .Home in flags {
 		c.home = conv
 	}
+	// Everyone may do everything in a new channel.
+	everyone := []proto.Role_Rights{{proto.EVERYONE_ROLE, proto.CONV_RIGHTS_ALL}}
+	if !conv_rights_set(c, conv, everyone) {
+		return nil
+	}
 	return conv
+}
+
+// account_join_defaults makes a new account a member of the home channel and of
+// every Default channel it may see. Unlike the home channel, it may leave those.
+account_join_defaults :: proc(c: ^Convs, acc: ^Account) -> bool {
+	conv_member_add(c, c.home, acc.id) or_return
+	for conv in convs_sorted(c) {
+		if conv.kind == .Channel && .Default in conv.flags && .See in conv_rights(conv, acc) {
+			conv_member_add(c, conv, acc.id) or_return
+		}
+	}
+	return true
+}
+
+// conv_rights_set replaces a channel's rights map, in the database and in
+// memory. The roles must exist.
+conv_rights_set :: proc(c: ^Convs, conv: ^Conv, entries: []proto.Role_Rights) -> bool {
+	q := db_stmt(c.db, .Conv_Rights_Clear)
+	db_bind_int(q, 1, i64(conv.id))
+	db_run(c.db, q) or_return
+	clear(&conv.rights)
+	for e in entries {
+		q = db_stmt(c.db, .Conv_Rights_Add)
+		db_bind_int(q, 1, i64(conv.id))
+		db_bind_int(q, 2, i64(e.role))
+		db_bind_int(q, 3, i64(transmute(u8)(e.rights & proto.CONV_RIGHTS_ALL)))
+		db_run(c.db, q) or_return
+		conv.rights[e.role] = e.rights & proto.CONV_RIGHTS_ALL
+	}
+	return true
+}
+
+// conv_rights_role_gone removes a deleted role from every channel's rights map.
+conv_rights_role_gone :: proc(c: ^Convs, role: proto.Role_Id) -> bool {
+	q := db_stmt(c.db, .Conv_Rights_Drop_Role)
+	db_bind_int(q, 1, i64(role))
+	db_run(c.db, q) or_return
+	for _, conv in c.by_id {
+		delete_key(&conv.rights, role)
+	}
+	return true
+}
+
+// conv_rights returns what an account may do in a conversation, whether or not
+// it is a member (proto.Conv_Right). For a channel these are the rights of the
+// account's roles there, and every right for the owner and those with
+// Manage_Channels, settled by proto.conv_rights_settle. A private channel gives
+// no rights to someone who isn't in it, whoever they are. Both accounts of a DM
+// may do everything but Voice, and nobody else anything. In the home channel,
+// everyone can always see.
+conv_rights :: proc(conv: ^Conv, acc: ^Account) -> proto.Conv_Rights {
+	if acc == nil || .Archived in conv.flags {
+		return {}
+	}
+	if conv.kind == .DM {
+		if !conv_is_member(conv, acc.id) {
+			return {}
+		}
+		return proto.conv_rights_default(.DM, conv.flags)
+	}
+	if .Private in conv.flags && !conv_is_member(conv, acc.id) {
+		return {}
+	}
+	return conv_role_rights(conv, acc)
+}
+
+// conv_role_rights returns the rights that a channel's map gives an account's
+// roles, settled, whether or not it is a member (see conv_rights, which also
+// asks that for a private channel).
+conv_role_rights :: proc(conv: ^Conv, acc: ^Account) -> proto.Conv_Rights {
+	rights: proto.Conv_Rights
+	if can(acc, .Manage_Channels) {
+		rights = proto.CONV_RIGHTS_ALL
+	} else {
+		rights = conv.rights[proto.EVERYONE_ROLE] or_else {}
+		for role in acc.roles {
+			rights += conv.rights[role] or_else {}
+		}
+	}
+	if .Home in conv.flags {
+		rights += {.See}
+	}
+	return proto.conv_rights_settle(rights, conv.flags)
 }
 
 // dm_find returns the DM between two accounts, given in either order, or nil if
@@ -265,13 +372,21 @@ dm_posted :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> bool {
 }
 
 // conv_shown returns whether an account is told about a conversation it is a
-// member of. This is always the case for a channel. For a DM it is the case once
-// the DM has a message, or if the account is the one that opened it.
-conv_shown :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
-	if .Archived in conv.flags || !conv_is_member(conv, account) {
+// member of. This is the case for a channel it may see (see conv_rights). For a
+// DM it is the case once the DM has a message, or if the account is the one
+// that opened it.
+conv_shown :: proc(conv: ^Conv, acc: ^Account) -> bool {
+	if !conv_reader(conv, acc) {
 		return false
 	}
-	return conv.kind != .DM || conv.last_msg != 0 || conv.created_by == account
+	return conv.kind != .DM || conv.last_msg != 0 || conv.created_by == acc.id
+}
+
+// conv_reader returns whether an account is a member of a conversation that it
+// may see, which is who reads it, is sent what happens there and is notified.
+// A member who lost See stays a member, but not a reader, until it gets it back.
+conv_reader :: proc(conv: ^Conv, acc: ^Account) -> bool {
+	return acc != nil && conv_is_member(conv, acc.id) && .See in conv_rights(conv, acc)
 }
 
 conv_by_id :: proc(c: ^Convs, id: proto.Conv_Id) -> ^Conv {
@@ -305,14 +420,12 @@ conv_is_member :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
 	return slice.contains(conv.members[:], account)
 }
 
-// conv_visible returns whether an account may know that a conversation exists,
-// which is the case if it is a member or if it is a channel anyone may subscribe
-// to.
-conv_visible :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
-	if .Archived in conv.flags {
-		return false
-	}
-	return conv_is_member(conv, account) || (conv.kind == .Channel && .Private not_in conv.flags)
+// conv_visible returns whether an account may know that a conversation exists:
+// whether it has See there (see conv_rights). That takes being a member for a DM
+// or a private channel, and the right roles for a channel that limits who sees
+// it.
+conv_visible :: proc(conv: ^Conv, acc: ^Account) -> bool {
+	return .See in conv_rights(conv, acc)
 }
 
 // conv_manageable returns whether an account may manage a channel: rename it,
@@ -323,7 +436,7 @@ conv_manageable :: proc(conv: ^Conv, acc: ^Account) -> bool {
 	if conv.kind != .Channel || .Archived in conv.flags {
 		return false
 	}
-	return conv_visible(conv, acc.id) || can(acc, .Manage_Channels)
+	return conv_visible(conv, acc) || can(acc, .Manage_Channels)
 }
 
 // conv_member_add makes an account a member, and does nothing if it already is

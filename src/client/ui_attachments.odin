@@ -78,6 +78,23 @@ Drag :: struct {
 	page:  mu.Rect,
 }
 
+// attach_allowed says whether we may attach files where an Attach_Target's
+// message would go: the Attach_Files permission, and the Attach right in a
+// channel (a DM on the Buddies page always has it). Call with the View locked.
+attach_allowed :: proc(ui: ^UI, at: Attach_Target) -> bool {
+	v := ui.view
+	if .Attach_Files not_in v.permissions {
+		return false
+	}
+	conv := v.viewing
+	if at.thread != 0 {
+		conv = ui.threads[at.thread - 1].key.conv
+	} else if at.page == .Buddies {
+		return true
+	}
+	return .Attach in rights_in(v, conv)
+}
+
 // composer_files_of returns where an Attach_Target's files go.
 composer_files_of :: proc(ui: ^UI, at: Attach_Target) -> ^[dynamic]Picked_File {
 	if at.thread != 0 {
@@ -94,14 +111,18 @@ composer_files_of :: proc(ui: ^UI, at: Attach_Target) -> ^[dynamic]Picked_File {
 attach_add :: proc(ui: ^UI, at: Attach_Target, picked: []Picked_File) {
 	files := composer_files_of(ui, at)
 	max_size: u64
+	allowed: bool
 	{
 		sync.guard(&ui.view.mutex)
 		max_size = ui.view.max_attachment
+		allowed = attach_allowed(ui, at)
 	}
 	refused := ""
 	for f in picked {
 		switch {
 		case files == nil:
+		case !allowed:
+			refused = "You can't attach files here."
 		case max_size == 0:
 			refused = "This server doesn't accept files."
 		case len(files) >= proto.MAX_ATTACHMENTS:
@@ -188,12 +209,12 @@ drop_target :: proc(ui: ^UI) -> Attach_Target {
 }
 
 // attach_button is the paperclip. After the frame, the dialog opens for
-// this composer. It isn't shown if the server takes no files, or while a
-// message is being edited.
+// this composer. It isn't shown if the server takes no files, where we may
+// not attach any, or while a message is being edited.
 attach_button :: proc(ui: ^UI, c: Composer) {
 	ctx := &ui.ctx
 
-	if .Attach_Files not_in ui.view.permissions {
+	if !attach_allowed(ui, {ui.page, c.thread}) {
 		mu.layout_next(ctx) // its place stays empty
 		return
 	}

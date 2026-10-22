@@ -77,7 +77,7 @@ reactors_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	m, found := msg_by_id(s, msg_id)
 	conv := conv_by_id(&s.convs, m.conv) if found else nil
-	if conv == nil || !conv_is_member(conv, u.account.id) || .Archived in conv.flags {
+	if conv == nil || !conv_reader(conv, u.account) {
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -122,11 +122,12 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	m, found := msg_by_id(s, msg_id)
 	conv := conv_by_id(&s.convs, m.conv) if found else nil
-	if conv == nil ||
-	   !conv_is_member(conv, u.account.id) ||
-	   .Archived in conv.flags ||
-	   .Deleted in u.account.flags {
+	if conv == nil || !conv_reader(conv, u.account) || .Deleted in u.account.flags {
 		respond(u, id, .Not_Found)
+		return
+	}
+	if .React not_in conv_rights(conv, u.account) {
+		respond(u, id, .Denied)
 		return
 	}
 	if .Deleted in m.flags || (on && !reaction_allowed(s, emoji)) {
@@ -178,7 +179,7 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	buf: [proto.REACTION_CHANGED_MAX_SIZE]u8
 	event := proto.encode_reaction_changed(&buf, {m.id, conv.id, emoji, after, u.account.id, on})
 	for member in conv.members {
-		if acc := account_by_id(&s.accounts, member); acc != nil {
+		if acc := account_by_id(&s.accounts, member); conv_reader(conv, acc) {
 			for c in acc.conns {
 				send_event(c, .Reaction_Changed, event)
 			}

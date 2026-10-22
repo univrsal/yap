@@ -24,6 +24,7 @@ test_conv_record :: proc(t: ^testing.T) {
 		notify    = .Mentions,
 		position  = 70000,
 		last_time = 1_700_000_000_000,
+		rights    = {.See, .React},
 	}
 	body := encode_conv(buf[:], c)
 	testing.expect(t, body != nil)
@@ -44,6 +45,7 @@ test_conv_record :: proc(t: ^testing.T) {
 	testing.expect_value(t, got.mentions, 2)
 	testing.expect_value(t, got.notify, Notify_Level.Mentions)
 	testing.expect_value(t, got.position, c.position)
+	testing.expect_value(t, got.rights, c.rights)
 
 	// Counts above the cap are sent as the cap, and an unknown notify level
 	// from a newer server is treated as the default.
@@ -52,13 +54,31 @@ test_conv_record :: proc(t: ^testing.T) {
 	got, ok = decode_conv(encode_conv(buf[:], many))
 	testing.expect_value(t, got.unread, UNREAD_CAP)
 	body = encode_conv(buf[:], c)
-	body[len(body) - 13] = 9 // the notify level, before the position and the last time
+	body[len(body) - 14] = 9 // the notify level, before the position, the last time and the rights
 	got, ok = decode_conv(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, got.notify, Notify_Level.All)
 	body = encode_conv(buf[:], c)
 
-	_, ok = decode_conv(body[:len(body) - 1])
+	// A record from an older server has no rights, which means all of them.
+	got, ok = decode_conv(body[:len(body) - 1])
+	testing.expect(t, ok)
+	testing.expect_value(t, got.rights, CONV_RIGHTS_ALL)
+	text_only := c
+	text_only.flags += {.Text_Only}
+	got, ok = decode_conv(encode_conv(buf[:], text_only)[:len(body) - 1])
+	testing.expect(t, ok)
+	testing.expect_value(t, got.rights, CONV_RIGHTS_ALL - {.Voice})
+	// Rights that break the rules between them are settled when read.
+	odd := c
+	odd.rights = {.Write, .Edit}
+	got, _ = decode_conv(encode_conv(buf[:], odd))
+	testing.expect_value(t, got.rights, Conv_Rights{})
+	odd.rights = {.See, .Edit, .Delete, .Voice}
+	got, _ = decode_conv(encode_conv(buf[:], odd))
+	testing.expect_value(t, got.rights, Conv_Rights{.See, .Voice})
+
+	_, ok = decode_conv(body[:len(body) - 2])
 	testing.expect(t, !ok)
 	_, ok = decode_conv(nil)
 	testing.expect(t, !ok)
@@ -151,15 +171,24 @@ test_browse :: proc(t: ^testing.T) {
 test_conv_bodies :: proc(t: ^testing.T) {
 	{
 		buf: [CONV_CREATE_MAX_SIZE]u8
-		name, topic, private, ok := decode_conv_create(
-			encode_conv_create(buf[:], "Gaming", "for games", true),
-		)
+		body := encode_conv_create(buf[:], "Gaming", "for games", true)
+		name, topic, flags, ok := decode_conv_create(body)
 		testing.expect(t, ok)
 		testing.expect_value(t, name, "Gaming")
 		testing.expect_value(t, topic, "for games")
-		testing.expect(t, private)
+		testing.expect_value(t, flags, Conv_Flags{.Private})
+		// Without Default or Text_Only, the body is what an older server knows.
+		testing.expect_value(t, len(body), 1 + 6 + 1 + 9 + 1)
 		_, _, _, ok = decode_conv_create(buf[:3])
 		testing.expect(t, !ok)
+		// Only Default and Text_Only can be asked for besides Private.
+		body = encode_conv_create(buf[:], "News", "", false, {.Default, .Text_Only, .Home})
+		_, _, flags, ok = decode_conv_create(body)
+		testing.expect(t, ok)
+		testing.expect_value(t, flags, Conv_Flags{.Default, .Text_Only})
+		body[len(body) - 1] = 0xff
+		_, _, flags, _ = decode_conv_create(body)
+		testing.expect_value(t, flags, CONV_SETTABLE_FLAGS)
 	}
 	{
 		buf: [4]u8
@@ -309,6 +338,15 @@ test_conv_update :: proc(t: ^testing.T) {
 	_, ok = decode_conv_update(body)
 	testing.expect(t, !ok)
 
+	// The flags are only there with their bit.
+	body = encode_conv_update(buf[:], {conv = 3, mask = CONV_UPDATE_FLAGS, flags = {.Text_Only}})
+	u, ok = decode_conv_update(body)
+	testing.expect(t, ok && u.flags == {.Text_Only})
+	_, ok = decode_conv_update(body[:len(body) - 1])
+	testing.expect(t, !ok)
+	plain := encode_conv_update(buf[:], {conv = 3, mask = CONV_UPDATE_TOPIC, flags = {.Default}})
+	testing.expect_value(t, len(plain), len(body) - 1)
+
 	mbuf: [CONV_MEMBER_SET_SIZE]u8
 	conv, account, on, m_ok := decode_conv_member_set(encode_conv_member_set(&mbuf, 4, 8, true))
 	testing.expect(t, m_ok && conv == 4 && account == 8 && on)
@@ -342,4 +380,49 @@ test_calls :: proc(t: ^testing.T) {
 	changed_buf[4] = 9
 	_, c_ok = decode_call_changed(changed_buf[:])
 	testing.expect(t, !c_ok)
+}
+
+@(test)
+test_conv_rights :: proc(t: ^testing.T) {
+	testing.expect_value(t, conv_rights_default(.Channel, {}), CONV_RIGHTS_ALL)
+	testing.expect_value(t, conv_rights_default(.DM, {}), CONV_RIGHTS_ALL - {.Voice})
+	testing.expect_value(t, conv_rights_settle({.See, .Voice}, {.Text_Only}), Conv_Rights{.See})
+	testing.expect_value(t, conv_rights_settle({.See, .Attach}, {}), Conv_Rights{.See})
+	testing.expect_value(
+		t,
+		conv_rights_settle({.See, .Write, .Attach}, {}),
+		Conv_Rights{.See, .Write, .Attach},
+	)
+
+	entries := []Role_Rights{{EVERYONE_ROLE, {.See, .React}}, {7, CONV_RIGHTS_ALL}}
+	buf: [CONV_RIGHTS_SET_MAX_SIZE]u8
+	got_buf: [MAX_ROLES]Role_Rights
+	conv, got, ok := decode_conv_rights_set(encode_conv_rights_set(buf[:], 5, entries), got_buf[:])
+	testing.expect(t, ok)
+	testing.expect_value(t, conv, 5)
+	testing.expect_value(t, len(got), 2)
+	if len(got) == 2 {
+		testing.expect_value(t, got[0], entries[0])
+		testing.expect_value(t, got[1], entries[1])
+	}
+	body := encode_conv_rights_set(buf[:], 5, entries)
+	_, _, ok = decode_conv_rights_set(body[:len(body) - 1], got_buf[:])
+	testing.expect(t, !ok)
+	// Trailing bytes and more entries than the buffer holds are refused.
+	extra := make([]u8, len(body) + 1, context.temp_allocator)
+	copy(extra, body)
+	_, _, ok = decode_conv_rights_set(extra, got_buf[:])
+	testing.expect(t, !ok)
+	_, _, ok = decode_conv_rights_set(body, got_buf[:1])
+	testing.expect(t, !ok)
+	// Unknown rights are dropped.
+	body[len(body) - 1] = 0xff
+	_, got, _ = decode_conv_rights_set(body, got_buf[:])
+	testing.expect_value(t, got[1].rights, CONV_RIGHTS_ALL)
+
+	map_buf: [RIGHTS_MAP_MAX_SIZE]u8
+	got, ok = decode_rights_map(encode_rights_map(map_buf[:], entries), got_buf[:])
+	testing.expect(t, ok && len(got) == 2 && got[0] == entries[0])
+	too_many := make([]Role_Rights, MAX_ROLES + 1, context.temp_allocator)
+	testing.expect(t, encode_rights_map(map_buf[:], too_many) == nil)
 }

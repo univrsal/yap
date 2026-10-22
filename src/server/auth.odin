@@ -637,8 +637,8 @@ account_create_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Res
 		return
 	}
 	acc := account_add(&s.accounts, p.username, p.display, result.made, {.Must_Change})
-	// Everyone is a member of the home channel.
-	if acc == nil || !conv_member_add(&s.convs, s.convs.home, acc.id) {
+	// Everyone is a member of the home channel, and starts in the default ones.
+	if acc == nil || !account_join_defaults(&s.convs, acc) {
 		respond(u, p.request, .Internal)
 		return
 	}

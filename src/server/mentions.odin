@@ -84,7 +84,10 @@ mentions_resolve :: proc(
 			}
 			for member in conv.members {
 				acc := account_live(&s.accounts, member)
-				if acc != nil && acc.id != sender && slice.contains(acc.roles[:], r.id) {
+				if acc != nil &&
+				   acc.id != sender &&
+				   slice.contains(acc.roles[:], r.id) &&
+				   conv_reader(conv, acc) {
 					add(&list, acc.id)
 				}
 			}
@@ -92,6 +95,10 @@ mentions_resolve :: proc(
 		}
 		acc := account_live(&s.accounts, m.account)
 		if acc == nil || acc.id == sender {
+			continue
+		}
+		if .See not_in conv_rights(conv, acc) {
+			// Nobody is told about a channel they may not see.
 			continue
 		}
 		if !conv_is_member(conv, acc.id) {
@@ -109,7 +116,7 @@ mentions_resolve :: proc(
 	}
 	if everyone {
 		for member in conv.members {
-			if member != sender {
+			if member != sender && conv_reader(conv, account_by_id(&s.accounts, member)) {
 				add(&list, member)
 			}
 		}

@@ -551,6 +551,7 @@ Seen_Conv :: struct {
 	recipient:       string,
 	last_message_id: string,
 	unread:          int,
+	rights:          []string,
 }
 
 @(private = "file")
@@ -771,7 +772,10 @@ test_gateway_reading :: proc(t: ^testing.T) {
 		testing.expect_value(t, convs[0].kind, "channel")
 		testing.expect_value(t, convs[0].last_message_id, fmt.tprint(third))
 		testing.expect_value(t, convs[0].unread, 3)
+		testing.expect_value(t, len(convs[0].rights), 7)
 		testing.expect_value(t, convs[1].kind, "dm")
+		// No voice in a DM.
+		testing.expect_value(t, len(convs[1].rights), 6)
 		testing.expect_value(t, convs[1].recipient, fmt.tprint(alice.id))
 		testing.expect_value(t, convs[1].unread, 1)
 	}

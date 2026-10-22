@@ -372,13 +372,21 @@ An [account](#account) without `deleted` and `online`, plus `owner` and
 
 ```json
 {"id": "1", "kind": "channel", "name": "Lobby", "topic": "", "home": true, "private": false,
+ "default": false, "text_only": false,
+ "rights": ["see", "write", "react", "edit", "delete", "voice", "attach"],
  "position": 0, "recipient": null, "member": true,
  "last_message_id": "272", "last_message_timestamp": "2026-10-12T08:49:49.273Z",
  "last_read_id": "268", "unread": 3, "mentions": 0, "notify": "all"}
 ```
 
 `kind` is `channel` or `dm`. A DM has `recipient` (the other account)
-and no name. `home` is the channel everyone is in. `last_read_id`,
+and no name. `home` is the channel everyone is in. New accounts are put
+in a `default` channel, and a `text_only` one has no voice room.
+`rights` are what your account may do there: `see`, `write` (post,
+reply, forward to it), `react`, `edit` and `delete` (its own messages),
+`voice`, `attach` (post or forward messages with files); doing something
+without the right answers 403 `denied`. A
+channel's admins set these per role in the client. `last_read_id`,
 `unread` and `mentions` are where your account stands. `unread` stops
 counting at 100.
 

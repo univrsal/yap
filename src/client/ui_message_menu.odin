@@ -257,7 +257,7 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 		ui.chat.paste = true
 		ui.paste_to = {ui.page, c.thread}
 	}
-	if .Up in ui.keys && c.len^ == 0 && c.editing^ == 0 {
+	if .Up in ui.keys && c.len^ == 0 && c.editing^ == 0 && .Edit in rights_here(v) {
 		key := conn.Timeline_Key{v.viewing, 0}
 		if c.thread != 0 {
 			key = ui.threads[c.thread - 1].key

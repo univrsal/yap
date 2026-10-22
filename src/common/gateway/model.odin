@@ -273,6 +273,10 @@ Conv_JSON :: struct {
 	topic:                  string,
 	home:                   bool, // the channel that everyone is in
 	private:                bool,
+	default:                bool, // new accounts are put in it
+	text_only:              bool, // it has no voice room
+	// What the account may do there: see, write, react, edit, delete, voice.
+	rights:                 []string,
 	position:               int,
 	// A DM's other account.
 	recipient:              Maybe(string),
@@ -463,21 +467,28 @@ roles_json :: proc(m: ^Model) -> []Role_JSON {
 
 conv_json :: proc(m: ^Model, c: ^proto.Conv) -> Conv_JSON {
 	j := Conv_JSON {
-		id       = id_string(c.id),
-		kind     = enum_name(c.kind),
-		name     = c.name,
-		topic    = c.topic,
-		home     = .Home in c.flags,
-		private  = .Private in c.flags,
-		position = c.position,
-		member   = c.member,
-		unread   = c.unread,
-		mentions = c.mentions,
-		notify   = enum_name(c.notify),
+		id        = id_string(c.id),
+		kind      = enum_name(c.kind),
+		name      = c.name,
+		topic     = c.topic,
+		home      = .Home in c.flags,
+		private   = .Private in c.flags,
+		default   = .Default in c.flags,
+		text_only = .Text_Only in c.flags,
+		position  = c.position,
+		member    = c.member,
+		unread    = c.unread,
+		mentions  = c.mentions,
+		notify    = enum_name(c.notify),
 	}
 	if c.kind == .DM {
 		j.recipient = id_string(c.b if c.a == m.self else c.a)
 	}
+	rights := make([dynamic]string, 0, len(proto.Conv_Right), context.temp_allocator)
+	for r in c.rights {
+		append(&rights, enum_name(r))
+	}
+	j.rights = rights[:]
 	if c.last != 0 {
 		j.last_message_id = id_string(c.last)
 	}

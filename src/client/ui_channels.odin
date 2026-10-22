@@ -80,6 +80,23 @@ viewed_channel :: proc(v: ^conn.View) -> ^conn.View_Channel {
 	return nil
 }
 
+// rights_here is what we may do in the conversation being shown: a channel's
+// rights as the server told us, or everything but Voice in a DM. Call with the
+// View locked.
+rights_here :: proc(v: ^conn.View) -> proto.Conv_Rights {
+	return rights_in(v, v.viewing)
+}
+
+// rights_in is what we may do in one of our conversations (see rights_here).
+rights_in :: proc(v: ^conn.View, conv: proto.Conv_Id) -> proto.Conv_Rights {
+	for ch in v.channels {
+		if ch.id == conv {
+			return ch.rights
+		}
+	}
+	return proto.conv_rights_default(.DM, {})
+}
+
 // channel_list is the panel of our channels, with who is talking in each.
 // Call with the View locked.
 channel_list :: proc(ui: ^UI) {
@@ -241,6 +258,11 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	search_button(ui)
 
 	in_it := v.my_room == ch.id
+	// No voice room here for us: text only, or not ours to talk in.
+	if .Voice not_in ch.rights && !in_it {
+		mu.label(ctx, "")
+		return
+	}
 	hint: string
 	color := mu.Color{}
 	switch {

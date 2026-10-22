@@ -1,6 +1,7 @@
 package server
 
 import "core:log"
+import "core:slice"
 import "core:strings"
 
 import "common:proto"
@@ -49,20 +50,23 @@ conv_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		conv_notify(s, u, id, body)
 	case .DM_Open:
 		dm_open(s, u, id, body)
+	case .Conv_Rights_Get:
+		conv_rights_get(s, u, id, body)
+	case .Conv_Rights_Set:
+		conv_rights_request(s, u, id, body)
 	case:
 		return false
 	}
 	return true
 }
 
-// send_conv tells a connection about a conversation as its account sees it.
+// send_conv tells a connection about a conversation as its account sees it,
+// including what it may do there.
 send_conv :: proc(s: ^Server, u: ^Conn, conv: ^Conv) {
 	buf: [proto.CONV_MAX_SIZE]u8
-	send_event(
-		u,
-		.Conv_Changed,
-		proto.encode_conv(buf[:], conv_record(&s.convs, conv, u.account.id)),
-	)
+	record := conv_record(&s.convs, conv, u.account.id)
+	record.rights = conv_rights(conv, u.account)
+	send_event(u, .Conv_Changed, proto.encode_conv(buf[:], record))
 }
 
 // send_read tells every connection of an account how far it has read in a
@@ -79,15 +83,16 @@ send_read :: proc(s: ^Server, acc: ^Account, conv: ^Conv) {
 // about (see conv_shown), in the order they appear in a list.
 send_convs :: proc(s: ^Server, u: ^Conn) {
 	for conv in convs_sorted(&s.convs) {
-		if conv_shown(conv, u.account.id) {
+		if conv_shown(conv, u.account) {
 			send_conv(s, u, conv)
 		}
 	}
 }
 
-// send_conv_to_account tells every connection of an account about a conversation.
+// send_conv_to_account tells every connection of an account about a conversation,
+// unless it may not see it.
 send_conv_to_account :: proc(s: ^Server, account: proto.Account_Id, conv: ^Conv) {
-	if acc := account_by_id(&s.accounts, account); acc != nil {
+	if acc := account_by_id(&s.accounts, account); acc != nil && conv_visible(conv, acc) {
 		for u in acc.conns {
 			send_conv(s, u, conv)
 		}
@@ -128,7 +133,8 @@ dm_open :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 
 @(private = "file")
 conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
-	raw_name, raw_topic, private, ok := proto.decode_conv_create(body)
+	raw_name, raw_topic, flags, ok := proto.decode_conv_create(body)
+	private := .Private in flags
 	name_buf: [proto.MAX_CHANNEL_NAME_SIZE]u8
 	topic_buf: [proto.MAX_TOPIC_SIZE]u8
 	name := proto.sanitize_text(raw_name, name_buf[:])
@@ -137,7 +143,7 @@ conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	case !can(u.account, .Create_Channels):
 		respond(u, id, .Denied)
 		return
-	case !ok || name == "":
+	case !ok || name == "" || !channel_flags_ok(flags):
 		respond(u, id, .Invalid)
 		return
 	case conv_by_name(&s.convs, name) != nil:
@@ -152,16 +158,18 @@ conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	for _, other in s.convs.by_id {
 		position = max(position, other.position + 1)
 	}
-	conv := conv_add(&s.convs, name, topic, {.Private} if private else {}, u.account.id, position)
+	conv := conv_add(&s.convs, name, topic, flags, u.account.id, position)
 	// The creator of a channel is always a member of it.
 	if conv == nil || !conv_member_add(&s.convs, conv, u.account.id) {
 		respond(u, id, .Internal)
 		return
 	}
 	log.infof(
-		"%s created the %schannel %q",
+		"%s created the %s%s%schannel %q",
 		conn_label(u),
 		"private " if private else "",
+		"default " if .Default in flags else "",
+		"text-only " if .Text_Only in flags else "",
 		conv.name,
 	)
 	buf: [4]u8
@@ -169,6 +177,14 @@ conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	for other in u.account.conns {
 		send_conv(s, other, conv)
 	}
+}
+
+// channel_flags_ok says whether a channel may have these flags: new accounts
+// are only put in a Default channel that anyone could join, so it can't be
+// private, and the home channel is more than that already.
+@(private = "file")
+channel_flags_ok :: proc(flags: proto.Conv_Flags) -> bool {
+	return .Default not_in flags || flags & {.Private, .Home} == {}
 }
 
 @(private = "file")
@@ -199,7 +215,7 @@ conv_browse :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 				continue
 			}
 		} else if conv.kind != .Channel ||
-		   !conv_visible(conv, u.account.id) ||
+		   !conv_visible(conv, u.account) ||
 		   conv_is_member(conv, u.account.id) {
 			continue
 		}
@@ -231,7 +247,7 @@ conv_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	acc := u.account
 	conv := conv_by_id(&s.convs, conv_id)
-	if conv == nil || conv.kind != .Channel || !conv_visible(conv, acc.id) {
+	if conv == nil || conv.kind != .Channel || !conv_visible(conv, acc) {
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -274,7 +290,7 @@ conv_members :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	conv := conv_by_id(&s.convs, conv_id)
-	if conv == nil || (!conv_visible(conv, u.account.id) && !conv_manageable(conv, u.account)) {
+	if conv == nil || (!conv_visible(conv, u.account) && !conv_manageable(conv, u.account)) {
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -283,8 +299,9 @@ conv_members :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 }
 
 // voice_join puts a connection in a channel's voice room, or takes it out of its
-// current room if the room is 0. Anyone who may see the channel may be in its
-// room, whether or not they are subscribed to the channel.
+// current room if the room is 0. Anyone who has Voice in the channel may be in
+// its room, whether or not they are subscribed to the channel. A text-only
+// channel has no room.
 @(private = "file")
 voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	room, ok := proto.decode_room(body)
@@ -299,8 +316,13 @@ voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			return
 		}
 		conv := conv_by_id(&s.convs, proto.Conv_Id(room))
-		if conv == nil || conv.kind != .Channel || !conv_visible(conv, u.account.id) {
+		if conv == nil || conv.kind != .Channel || !conv_visible(conv, u.account) {
 			respond(u, id, .Not_Found)
+			return
+		}
+		// Not in a text-only channel, nor without the right to talk there.
+		if .Voice not_in conv_rights(conv, u.account) {
+			respond(u, id, .Denied)
 			return
 		}
 		// Only one connection of an account can be in a room at a time, so
@@ -346,7 +368,7 @@ conn_set_room :: proc(s: ^Server, u: ^Conn, room: proto.Room) {
 @(private = "file")
 member_conv :: proc(s: ^Server, u: ^Conn, conv_id: proto.Conv_Id) -> (^Conv, proto.Status) {
 	conv := conv_by_id(&s.convs, conv_id)
-	if conv == nil || !conv_visible(conv, u.account.id) {
+	if conv == nil || !conv_visible(conv, u.account) {
 		return nil, .Not_Found
 	}
 	if !conv_is_member(conv, u.account.id) {
@@ -446,15 +468,23 @@ conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	if up.mask & proto.CONV_UPDATE_POSITION != 0 {
 		position = up.position
 	}
-	if !conv_update(&s.convs, conv, name, topic, position) {
+	flags := conv.flags
+	if up.mask & proto.CONV_UPDATE_FLAGS != 0 {
+		flags = conv.flags - proto.CONV_SETTABLE_FLAGS + up.flags
+		if !channel_flags_ok(flags) {
+			respond(u, id, .Invalid)
+			return
+		}
+	}
+	if !conv_update(&s.convs, conv, name, topic, position) ||
+	   (flags != conv.flags && !conv_set_flags(&s.convs, conv, flags)) {
 		respond(u, id, .Internal)
 		return
 	}
 	log.infof("%s changed the channel %q", conn_label(u), conv.name)
 	respond(u, id, .Ok)
-	for m in conv.members {
-		send_conv_to_account(s, m, conv)
-	}
+	// This also empties the voice room of a channel that became text only.
+	channel_access_changed(s, conv)
 }
 
 @(private = "file")
@@ -507,7 +537,7 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	// aren't in, but adding someone requires being in it.
 	case conv == nil ||
 	     conv.kind != .Channel ||
-	     (!conv_visible(conv, u.account.id) && (on || !conv_manageable(conv, u.account))):
+	     (!conv_visible(conv, u.account) && (on || !conv_manageable(conv, u.account))):
 		respond(u, id, .Not_Found)
 		return
 	case on && !(can(u.account, .Invite) && conv_is_member(conv, u.account.id)):
@@ -518,6 +548,10 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	case target == nil:
 		respond(u, id, .Not_Found)
+		return
+	case on && .See not_in conv_role_rights(conv, target):
+		// Nobody is added to a channel they wouldn't see.
+		respond(u, id, .Denied)
 		return
 	case !on && (.Private not_in conv.flags || .Home in conv.flags):
 		// Removing someone from a public channel makes no sense, since they
@@ -572,14 +606,15 @@ member_gone :: proc(s: ^Server, conv: ^Conv, account: proto.Account_Id) {
 	room_check(s, conv)
 }
 
-// room_check removes everyone who may no longer see a channel from its voice
-// room and tells them with a Voice_Moved event to no room.
+// room_check removes everyone who may no longer talk in a channel's voice room
+// (it is text only, or they lost Voice or See there) from that room and tells
+// them with a Voice_Moved event to no room.
 room_check :: proc(s: ^Server, conv: ^Conv) {
 	changed := .Private in conv.flags
 	for _, other in s.conns {
 		if other.account == nil ||
 		   other.room != proto.Room(conv.id) ||
-		   conv_visible(conv, other.account.id) {
+		   .Voice in conv_rights(conv, other.account) {
 			continue
 		}
 		conn_set_room(s, other, 0)
@@ -593,7 +628,8 @@ room_check :: proc(s: ^Server, conv: ^Conv) {
 }
 
 // room_hidden returns whether an account isn't allowed to know who is in a room.
-// This is the case for the room of a private channel the account isn't in.
+// This is the case for the room of a channel it may not see, such as a private
+// one it isn't in.
 room_hidden :: proc(s: ^Server, room: proto.Room, account: proto.Account_Id) -> bool {
 	if room == 0 {
 		return false
@@ -602,5 +638,116 @@ room_hidden :: proc(s: ^Server, room: proto.Room, account: proto.Account_Id) -> 
 		return !call_room_member(s, room, account)
 	}
 	conv := conv_by_id(&s.convs, proto.Conv_Id(room))
-	return conv != nil && !conv_visible(conv, account)
+	return conv != nil && !conv_visible(conv, account_by_id(&s.accounts, account))
+}
+
+// Rights in channels (proto.Conv_Right): what each role may do in a channel is
+// its rights map, which those with Manage_Channels read and replace whole.
+
+// conv_rights_get answers with a channel's rights map, in the order of the
+// roles' ids.
+@(private = "file")
+conv_rights_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	conv_id, ok := proto.decode_conv_id(body)
+	conv := conv_by_id(&s.convs, conv_id)
+	switch {
+	case !can(u.account, .Manage_Channels):
+		respond(u, id, .Denied)
+		return
+	case !ok:
+		respond(u, id, .Invalid)
+		return
+	case conv == nil || !conv_manageable(conv, u.account):
+		respond(u, id, .Not_Found)
+		return
+	}
+	entries := make([dynamic]proto.Role_Rights, 0, len(conv.rights), context.temp_allocator)
+	for role, rights in conv.rights {
+		append(&entries, proto.Role_Rights{role, rights})
+	}
+	slice.sort_by(entries[:], proc(a, b: proto.Role_Rights) -> bool {return a.role < b.role})
+	buf: [proto.RIGHTS_MAP_MAX_SIZE]u8
+	respond(u, id, .Ok, proto.encode_rights_map(buf[:], entries[:]))
+}
+
+// conv_rights_request replaces a channel's rights map. Every role in it must
+// exist and appear once. In the home channel, which everyone is in, everyone
+// must keep See.
+@(private = "file")
+conv_rights_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	buf: [proto.MAX_ROLES]proto.Role_Rights
+	conv_id, entries, ok := proto.decode_conv_rights_set(body, buf[:])
+	conv := conv_by_id(&s.convs, conv_id)
+	switch {
+	case !can(u.account, .Manage_Channels):
+		respond(u, id, .Denied)
+		return
+	case !ok:
+		respond(u, id, .Invalid)
+		return
+	case conv == nil || !conv_manageable(conv, u.account):
+		respond(u, id, .Not_Found)
+		return
+	}
+	everyone_sees := false
+	for e, i in entries {
+		if e.role not_in s.accounts.roles {
+			respond(u, id, .Invalid)
+			return
+		}
+		for other in entries[:i] {
+			if other.role == e.role {
+				respond(u, id, .Invalid)
+				return
+			}
+		}
+		if e.role == proto.EVERYONE_ROLE && .See in e.rights {
+			everyone_sees = true
+		}
+	}
+	if .Home in conv.flags && !everyone_sees {
+		respond(u, id, .Invalid)
+		return
+	}
+	if !conv_rights_set(&s.convs, conv, entries) {
+		respond(u, id, .Internal)
+		return
+	}
+	log.infof("%s changed the rights in %q", conn_label(u), conv.name)
+	respond(u, id, .Ok)
+	channel_access_changed(s, conv)
+}
+
+// channel_access_changed tells the members of a channel, or of every channel if
+// `conv` is nil, what they may now do there, after something that decides it
+// changed: a rights map, a channel's flags, or roles. A member who may no longer
+// see it is told it is gone (it stays a member, see conv_reader), and one who
+// may see it again is told about it again. Whoever may no longer talk there
+// leaves its voice room, and everyone's view of who is in which room is
+// brought up to date.
+channel_access_changed :: proc(s: ^Server, conv: ^Conv = nil) {
+	buf: [4]u8
+	for c in convs_sorted(&s.convs) {
+		if c.kind != .Channel || .Archived in c.flags || (conv != nil && c != conv) {
+			continue
+		}
+		gone := proto.encode_conv_id(&buf, c.id)
+		for m in c.members {
+			acc := account_by_id(&s.accounts, m)
+			if acc == nil {
+				continue
+			}
+			if conv_visible(c, acc) {
+				for u in acc.conns {
+					send_conv(s, u, c)
+				}
+			} else {
+				for u in acc.conns {
+					send_event(u, .Conv_Removed, gone)
+				}
+			}
+		}
+		room_check(s, c)
+	}
+	bump_version(s)
 }
