@@ -17,8 +17,8 @@ import mu "vendor:microui"
 //     messages in each (dimmer for a muted channel). Clicking a channel shows its
 //     chat and does nothing else. Right-clicking one opens its menu (how much
 //     it may interrupt, its settings, leaving it). Under each channel are the
-//     people in its voice room. The list ends with the button to the Join a
-//     channel window.
+//     people in its voice room. At the list's foot, whichever way it is
+//     scrolled, is the button to the Join a channel window.
 //   - The line above the chat: which channel it is, and the button that
 //     joins or leaves its voice room. Looking at a channel and talking in
 //     it are two separate things, and that button is the only place where they meet.
@@ -86,24 +86,35 @@ channel_list :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 
-	// The list, ending with the way to the rest of the channels.
+	// The list, with the way to the rest of the channels at its foot.
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 	// And under it, the voice panel. In a narrow window that is across the
 	// screen instead (see session_screen).
 	panel_h := 0 if ui.narrow else voice_panel_height(ui)
 	mu.layout_row(ctx, {-1}, -(panel_h + 1))
+	area := mu.layout_next(ctx)
 
-	mu.begin_panel(ctx, "channels")
+	// One frame around both: the rows scroll in a panel without its own,
+	// over the button, which stays put.
+	ctx.draw_frame(ctx, area, .PANEL_BG)
+	pad := ctx.style.padding
+	button_h := ctx.style.size.y + 2 * pad
+	mu.layout_set_next(ctx, {area.x, area.y, area.w, area.h - button_h - pad}, false)
+	mu.begin_panel(ctx, "channels", {.NO_FRAME})
 	if len(v.channels) == 0 {
 		spinner_row(ui) // the channel list, on its way
 	}
 	channel_rows(ui)
-	mu.layout_row(ctx, {-1})
+	mu.end_panel(ctx)
+	mu.layout_set_next(
+		ctx,
+		{area.x + pad, area.y + area.h - button_h - pad, area.w - 2 * pad, button_h},
+		false,
+	)
 	if .SUBMIT in mu.button(ctx, "Join a channel...") {
 		open_channels(ui)
 	}
-	mu.end_panel(ctx)
 
 	if !ui.narrow {
 		voice_panel(ui)
