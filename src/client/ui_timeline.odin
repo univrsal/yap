@@ -88,12 +88,11 @@ avatar_column :: proc(ui: ^UI) -> i32 {
 }
 
 // A message's time (chat_time) comes first, in a column of its own before the
-// picture's, right-aligned in it so that it is as far from the picture
-// whatever day it is from. The column is as wide as the longest time the
-// locale writes: with `dates`, an older day's (with the date), otherwise
-// today's (the time of day). A timeline only has room for dates while it has
-// messages from before today (UI_Timeline.time_w), so that one with only
-// today's messages doesn't leave a gap.
+// picture's, right-aligned in it. The column is as wide as the longest time
+// the locale writes for the message: with `dates`, an older day's (with the
+// date), otherwise today's (the time of day). So today's messages line up with
+// each other, and older ones with each other, without today's leaving room for
+// a date they don't have.
 time_column :: proc(ui: ^UI, dates: bool) -> i32 {
 	ctx := &ui.ctx
 	longest := datetime.DateTime {
@@ -106,10 +105,18 @@ time_column :: proc(ui: ^UI, dates: bool) -> i32 {
 @(private = "file")
 TIME_GAP :: 10
 
+// message_time_w is the width of a message's times' column: posted at `ms`
+// (Unix milliseconds), before today or not. Call after timeline has worked
+// out this frame's widths.
+@(private = "file")
+message_time_w :: proc(st: ^UI_Timeline, ms: proto.Unix_Ms) -> i32 {
+	return st.time_w_dated if i64(ms) / 1000 < st.midnight else st.time_w_today
+}
+
 // message_column is how far in from the timeline's edge (or a reply's
-// indent) the messages' headers and text start: past the time and the picture.
-message_column :: proc(ui: ^UI, st: ^UI_Timeline) -> i32 {
-	return st.time_w + avatar_column(ui)
+// indent) a message's header and text start: past its time and the picture.
+message_column :: proc(ui: ^UI, time_w: i32) -> i32 {
+	return time_w + avatar_column(ui)
 }
 
 // local_midnight is when today began in the local time zone, in Unix
@@ -205,8 +212,11 @@ UI_Timeline :: struct {
 	lit_mentions: bool, // ... and they are highlighted along with the one gone to
 	lit:          proto.Msg_Id,
 	lit_at:       time.Tick,
-	// The width of the times' column in this frame (time_column).
-	time_w:       i32,
+	// In this frame: when today began (local_midnight), and the width of the
+	// times' column for today's messages and older ones (time_column).
+	midnight:     i64,
+	time_w_today: i32,
+	time_w_dated: i32,
 }
 
 Msg_Layout :: struct {
@@ -335,15 +345,8 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	tops := make([]i32, n + 1, context.temp_allocator)
 	root, have_root := thread_root_message(ui, key)
 	st.root_day = local_day(ui, st, root) if have_root else 0
-	// Room for dates in the times' column while any message here is from
-	// before today. The oldest comes first (a thread's root, then the replies).
-	oldest: i64 = max(i64)
-	if have_root {
-		oldest = i64(root.time) / 1000
-	} else if n > 0 {
-		oldest = i64(msgs[0].time) / 1000
-	}
-	st.time_w = time_column(ui, oldest < local_midnight(ui))
+	st.midnight = local_midnight(ui)
+	st.time_w_today, st.time_w_dated = time_column(ui, false), time_column(ui, true)
 	y := top_line_height(ctx)
 	if key.root != 0 {
 		y += message_height(ui, st, {root}, 0, width) if have_root else usual_row_height(ctx)
@@ -501,11 +504,12 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	start := layout.next_row
 	last_id := i64(msgs[n - 1].id) if n > 0 else 0
 	// Our messages on their way, in the messages' column.
-	layout.indent += message_column(ui, st)
+	// (They are today's.)
+	layout.indent += message_column(ui, st.time_w_today)
 	for p, i in pending {
 		pending_message(ui, p, (last_id + 1 + i64(i)) * ITEMS_PER_MESSAGE)
 	}
-	layout.indent -= message_column(ui, st)
+	layout.indent -= message_column(ui, st.time_w_today)
 	outbox_grew := layout.next_row - start != st.outbox_h
 	st.outbox_h = layout.next_row - start
 	mu.layout_end_column(ctx)
@@ -806,7 +810,8 @@ message_height :: proc(
 	replies := m.reply_count if has_thread_line(st, m) else 0
 	// The cache is for the timeline's width. A reply is laid out narrower, by
 	// its indent.
-	width := full - (REPLY_INDENT if is_indented(st, m) else 0) - message_column(ui, st)
+	time_w := message_time_w(st, m.time)
+	width := full - (REPLY_INDENT if is_indented(st, m) else 0) - message_column(ui, time_w)
 	_, l, _, _ := map_entry(&st.layouts, m.id)
 	shown, _, _, _ := message_text(ui, m.text)
 	changing := m.kind == .File || len(m.reactions) > 0 || len(m.files) > 0
@@ -823,7 +828,7 @@ message_height :: proc(
 	   l.replies == replies &&
 	   l.reply_line == reply_line &&
 	   l.pictures == ui.settings.chat_pictures &&
-	   l.time_w == st.time_w &&
+	   l.time_w == time_w &&
 	   l.line == ui.ctx.text_height(ui.ctx.style.font) {
 		return l.height
 	}
@@ -867,7 +872,7 @@ message_height :: proc(
 	l.edited, l.flags, l.shown = m.edited, m.flags, len(shown)
 	l.replies, l.reply_line = replies, reply_line
 	l.pictures = ui.settings.chat_pictures
-	l.time_w = st.time_w
+	l.time_w = time_w
 	l.line = ctx.text_height(ctx.style.font)
 	l.changing = changing
 	return h
@@ -914,7 +919,8 @@ timeline_message :: proc(
 	}
 	// A reply is indented: everything of it from here on.
 	indent: i32 = REPLY_INDENT if is_indented(st, m) else 0
-	column := message_column(ui, st)
+	time_w := message_time_w(st, m.time)
+	column := message_column(ui, time_w)
 	width := full - indent - column
 	mu.get_layout(ctx).indent += indent + column
 	defer mu.get_layout(ctx).indent -= indent + column
@@ -957,9 +963,9 @@ timeline_message :: proc(
 		y := layout.body.y + layout.next_row + (MERGED_GAP if tight else ctx.style.spacing)
 		x := layout.body.x + indent
 		stamp := chat_time(ui, seconds)
-		stamp_x := x + st.time_w - TIME_GAP - ctx.text_width(ctx.style.font, stamp)
+		stamp_x := x + time_w - TIME_GAP - ctx.text_width(ctx.style.font, stamp)
 		mu.draw_text(ctx, ctx.style.font, stamp, {stamp_x, y}, ctx.style.colors[.TEXT])
-		x += st.time_w
+		x += time_w
 		if ui.settings.chat_pictures {
 			size := avatar_size(ctx)
 			pic := mu.Rect{x, y, size, size}
