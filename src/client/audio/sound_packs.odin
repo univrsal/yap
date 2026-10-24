@@ -21,6 +21,7 @@ SOUND_PACKS := [?]Sound_Pack {
 	{"base", "Yap", #load_directory("../assets/soundpacks/base")},
 	{"aim", "AIM", #load_directory("../assets/soundpacks/aim")},
 	{"skype", "Skype", #load_directory("../assets/soundpacks/skype")},
+	{"icq", "ICQ", #load_directory("../assets/soundpacks/icq")},
 }
 
 // The events that make a sound. None is no event: notification_loop(.None)
@@ -147,6 +148,21 @@ SOUND_PRESETS := [?]Sound_Preset {
 			.Call_Ended = "skype/hangup",
 			.Welcome = "skype/login",
 			.Goodbye = "skype/logout",
+		},
+	},
+	{
+		label = "ICQ",
+		kind = .Pack,
+		sounds = #partial [Sound_Event]string {
+			.Message = "icq/message",
+			.Direct_Message = "icq/message",
+			.Mention = "icq/notify",
+			.File_Offered = "icq/file",
+			.Done = "icq/file_done",
+			.Join = "icq/online",
+			.Ring = "icq/ring",
+			.Knock = "icq/knock",
+			.Welcome = "icq/startup",
 		},
 	},
 }
