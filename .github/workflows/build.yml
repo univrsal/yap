@@ -9,14 +9,16 @@ name: Build
 on:
   push:
     branches: [master]
+    # Everything that goes into a build: sources and their assets, the web
+    # shell, the build and packaging scripts and dependency pins, and CI.
     paths:
-      - '**/*.c'
-      - '**/*.h'
-      - '**/*.js'
-      - '**/*.odin'
-      - '**/*.yml'
-      - '**/*.bat'
-      - '**/*.sh'
+      - 'src/**'
+      - 'web/**'
+      - 'deps/**'
+      - 'scripts/**'
+      - 'build.sh'
+      - 'build.bat'
+      - '.github/workflows/**'
   pull_request:
   workflow_call:
     inputs:
@@ -27,7 +29,11 @@ on:
 
 env:
   # The Odin release to build with (https://github.com/odin-lang/Odin/releases).
-  ODIN_RELEASE: dev-2026-07
+  # Keep in line with ODIN_RELEASE in scripts/Dockerfile.
+  ODIN_RELEASE: dev-2026-09
+  # The Emscripten release for the web client. Keep in line with the
+  # emsdk image in scripts/Dockerfile.
+  EMSDK_VERSION: 6.0.13
   # The version the client's About dialog shows (scripts/version-defines.sh):
   # the tag for a release, and "dev" otherwise.
   YAP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
@@ -47,11 +53,13 @@ jobs:
           release: ${{ env.ODIN_RELEASE }}
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: mymindstorm/setup-emsdk@v16
+        with:
+          version: ${{ env.EMSDK_VERSION }}
       - name: Cache libopus for wasm
         uses: actions/cache@v6
         with:
           path: web/deps
-          key: opus-wasm-${{ hashFiles('scripts/opus.version') }}
+          key: opus-wasm-${{ env.EMSDK_VERSION }}-${{ hashFiles('scripts/opus.version') }}
       - run: sh web/build.sh
       - uses: actions/upload-artifact@v7
         with:

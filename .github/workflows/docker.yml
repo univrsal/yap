@@ -1,10 +1,26 @@
 name: Docker
 
+# Only for changes to what goes into the image (GitHub doesn't apply path
+# filters to tag pushes, so a release tag always builds).
 on:
   pull_request:
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'deps/**'
+      - 'scripts/**'
+      - '.dockerignore'
+      - '.github/workflows/docker.yml'
   push:
     branches: [master]
     tags: ['v2*']
+    paths:
+      - 'src/**'
+      - 'web/**'
+      - 'deps/**'
+      - 'scripts/**'
+      - '.dockerignore'
+      - '.github/workflows/docker.yml'
   workflow_dispatch:
 
 permissions:
@@ -15,7 +31,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      IMAGE_NAME: ${{ github.ref == 'refs/heads/extended' && format('ghcr.io/{0}/yap-extended', github.repository_owner) || format('ghcr.io/{0}/yap', github.repository_owner) }}
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/yap
     steps:
       - uses: actions/checkout@v7
 
@@ -30,7 +46,7 @@ jobs:
             latest=false
           tags: |
             type=ref,event=tag
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/extended' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' }}
 
       - name: Build smoke-test image
         uses: docker/build-push-action@v6
@@ -91,6 +107,8 @@ jobs:
 
       - name: Publish image
         if: github.event_name != 'pull_request'
+        # Built again for the registry, but every layer comes from the
+        # smoke-test build's cache.
         uses: docker/build-push-action@v6
         with:
           context: .

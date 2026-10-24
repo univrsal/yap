@@ -2,6 +2,7 @@
 
 FROM ubuntu:24.04 AS builder
 
+# Keep in line with ODIN_RELEASE in .github/workflows/build.yml.
 ARG ODIN_RELEASE=dev-2026-09
 
 RUN apt-get -o Acquire::Retries=5 update \
@@ -53,7 +54,8 @@ RUN set -eux; \
         "-define:YAP_VERSION=\"${version}\"" \
         "-define:YAP_COMMIT=\"${commit}\""
 
-FROM docker.io/emscripten/emsdk:latest AS web-builder
+# Keep in line with EMSDK_VERSION in .github/workflows/build.yml.
+FROM docker.io/emscripten/emsdk:6.0.13 AS web-builder
 
 RUN apt-get -o Acquire::Retries=5 update \
     && apt-get -o Acquire::Retries=5 install -y --no-install-recommends cmake curl \
@@ -70,6 +72,10 @@ COPY src/common ./src/common
 COPY src/client ./src/client
 COPY web ./web
 COPY scripts/fetch-opus.sh scripts/opus.version scripts/version-defines.sh ./scripts/
+
+# The web client's version and commit, as for the server above.
+ARG YAP_VERSION=dev
+ARG YAP_COMMIT=
 
 RUN sh web/build.sh
 

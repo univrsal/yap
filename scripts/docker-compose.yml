@@ -56,7 +56,7 @@ services:
       YAP_HTTPS_PORT: ${YAP_HTTPS_PORT:-443}
 
   certbot:
-    image: docker.io/certbot/certbot:latest
+    image: docker.io/certbot/certbot:v5.8.0
     profiles: [proxy]
     restart: unless-stopped
     depends_on: [nginx]

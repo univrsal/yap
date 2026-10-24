@@ -168,7 +168,6 @@ if [ -n "$opus_os" ] && [ ! -f "src/client/audio/opus/libopus_$opus_os.a" ]; the
 		-DCMAKE_BUILD_TYPE=Release \
 		-DOPUS_BUILD_PROGRAMS=OFF \
 		-DOPUS_BUILD_TESTING=OFF \
-		-DOPUS_HARDENING=OFF \
 		-DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF \
 		-DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF >/dev/null
 	# A job count, since OpenBSD's make won't take a bare -j.

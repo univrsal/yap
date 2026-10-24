@@ -1,8 +1,8 @@
 #!/bin/sh
 # Prints the -define flags that tell a build what it is (see
 # src/common/version.odin): the release tag being built, from $YAP_VERSION
-# or an exact git tag, and the short commit hash. Prints nothing it can't
-# find out, e.g. outside a git checkout.
+# or an exact git tag, and the short commit hash, from git or $YAP_COMMIT
+# (the Docker build has no checkout). Prints nothing it can't find out.
 # Usage: odin build ... $(scripts/version-defines.sh)
 cd "$(dirname "$0")/.." || exit 0
 
@@ -15,4 +15,6 @@ fi
 if commit=$(git rev-parse --short=7 HEAD 2>/dev/null); then
 	git diff --quiet HEAD 2>/dev/null || commit="$commit-dirty"
 	printf ' -define:YAP_COMMIT="%s"' "$commit"
+elif [ -n "$YAP_COMMIT" ]; then
+	printf ' -define:YAP_COMMIT="%.7s"' "$YAP_COMMIT"
 fi

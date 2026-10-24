@@ -580,6 +580,9 @@ conv_browse :: proc(c: ^Voice_Client, cmd: Browse_Command) {
 		}
 		cv.browse_limit = cmd.limit if cmd.limit > 0 else proto.BROWSE_PAGE
 	}
+	// The offset is a u16 on the wire; clamp it here so that what the tag
+	// remembers is what was asked for.
+	offset = clamp(offset, 0, int(max(u16)))
 	cv.browse_asked += 1
 	buf: [proto.CONV_BROWSE_MAX_SIZE]u8
 	body := proto.encode_conv_browse(
