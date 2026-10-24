@@ -24,7 +24,10 @@ Branch `sound-settings`, off `notifications`. Sizes as in `misc/next`.
   ringback, muted, unmuted), `aim` (join, leave, msg, mail, done,
   welcome, goodbye), `skype` (msg, done, ring, ringback, login, logout,
   hangup, busy, incoming_file, reconnect, reconnect_loop, and `old_`
-  versions of msg, ring, ringback, hangup). All 48 kHz mono Opus.
+  versions of msg, ring, ringback, hangup), `icq` (message, notify,
+  bell, file, file_done, online, ring, old_ring, knock, startup; from the
+  original WAVs, turned down to about the AIM pack's loudness, knock
+  padded to 1.2 s so its loop pauses). All 48 kHz mono Opus.
 - `audio.Notification_Kind`: Join, Leave, Message, Welcome, Goodbye,
   Muted, Unmuted, Mail, Done. `audio.Loop_Kind`: Ring, Ringback.
 - Where they are played: `conn/channels.odin` (join/leave of our voice
@@ -226,8 +229,8 @@ pack that sets all to none.
 
 
 *As built:* a row of buttons, "Use the sounds of: Default, Quiet, AIM,
-Skype", rather than a dropdown and a Use button. Default forgets every
-choice, Quiet sets every event to no sound, and AIM and Skype set the
+Skype, ICQ", rather than a dropdown and a Use button. Default forgets
+every choice, Quiet sets every event to no sound, and the packs set the
 events they have sounds for (`audio.SOUND_PRESETS`).
 ## 6. Web
 
