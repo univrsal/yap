@@ -685,10 +685,6 @@ db_col_int :: proc(s: ^sqlite.Stmt, column: int) -> i64 {
 	return sqlite.column_int64(s, c.int(column))
 }
 
-db_col_null :: proc(s: ^sqlite.Stmt, column: int) -> bool {
-	return sqlite.column_type(s, c.int(column)) == sqlite.NULL
-}
-
 db_col_text :: proc(s: ^sqlite.Stmt, column: int, allocator := context.temp_allocator) -> string {
 	text := sqlite.column_text(s, c.int(column))
 	n := int(sqlite.column_bytes(s, c.int(column)))

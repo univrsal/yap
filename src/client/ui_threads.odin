@@ -251,7 +251,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && t.len > 0 && ui.session != nil && t.editing == 0 {
-		conn.push_command(&ui.session.client.commands, conn.Typing_Command{thread = t.key})
+		command(ui, conn.Typing_Command{thread = t.key})
 	}
 	send := .SUBMIT in res
 	composer_buttons(ui, box_rect, 4)

@@ -251,12 +251,6 @@ voice_panel :: proc(ui: ^UI) {
 	mu.layout_set_next(ctx, {r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad}, false)
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
-	cmds := &ui.session.client.commands if ui.session != nil else nil
-	command :: proc(cmds: ^conn.Command_Queue, cmd: conn.Command) {
-		if cmds != nil {
-			conn.push_command(cmds, cmd)
-		}
-	}
 	if ui.voice_other.ns != nil {
 		voice_elsewhere_part(ui, ui.voice_other)
 	}
@@ -302,18 +296,18 @@ voice_panel :: proc(ui: ^UI) {
 			accept, video, decline := answer_buttons(ui, "call", camera_available(v))
 			if accept || video {
 				leave_voice_elsewhere(ui)
-				command(cmds, conn.Call_Answer_Command{})
+				command(ui, conn.Call_Answer_Command{})
 			}
 			if video {
 				camera_on_call(ui)
 			}
 			if decline {
-				command(cmds, conn.Call_Hangup_Command{})
+				command(ui, conn.Call_Hangup_Command{})
 			}
 		case .Ringing_Out:
 			mu.layout_row(ctx, {-1})
 			if hang_up_button(ui, "call cancel", "Cancel") {
-				command(cmds, conn.Call_Hangup_Command{})
+				command(ui, conn.Call_Hangup_Command{})
 			}
 		case .Voice, .Call:
 			// What may be shared there, then the way out.
@@ -347,9 +341,9 @@ voice_panel :: proc(ui: ^UI) {
 			}
 			if hang_up_button(ui, "voice leave", "Hang up" if state == .Call else "Leave") {
 				if state == .Call {
-					command(cmds, conn.Call_Hangup_Command{})
+					command(ui, conn.Call_Hangup_Command{})
 				} else {
-					command(cmds, conn.Voice_Command{})
+					command(ui, conn.Voice_Command{})
 				}
 			}
 		}

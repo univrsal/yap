@@ -27,8 +27,8 @@ import "common:proto"
 // again, because nothing is replayed (D9).
 //
 // What we post goes into the outbox, one message at a time in the order they
-// were written. A picture is uploaded first (see blobs.odin) and then the
-// message is posted. Each message has a nonce, and a post that was lost with
+// were written. A message's files are uploaded first (see attachments.odin)
+// and then the message is posted. Each message has a nonce, and a post that was lost with
 // the connection is repeated with the same nonce, which the server recognizes.
 // What is written to somebody we have no DM with yet waits in the outbox while
 // the server opens one (DM_Open, see buddies.odin). An offer of a file is posted
@@ -64,7 +64,7 @@ Timeline_Key :: struct {
 // TYPING_SHOW after the last one arrives.
 TYPING_SEND_INTERVAL :: 3 * time.Second
 TYPING_SHOW :: 5 * time.Second
-// How many times a picture is uploaded before its post is given up.
+// How many times an avatar or server picture is uploaded before it is given up.
 UPLOAD_TRIES :: 3
 
 // Msg is a message as we keep it.
@@ -156,7 +156,7 @@ Conv_Cache :: struct {
 
 Post_State :: enum {
 	Open, // the DM it is for has to be opened (DM_Open)
-	Put, // a picture has to be announced (Blob_Put)
+	Put, // an avatar or server picture has to be announced (Blob_Put)
 	Upload, // ... and sent
 	Post, // the message has to be posted
 }
@@ -179,8 +179,8 @@ Pending :: struct {
 	size:   u64, // for .File
 	state:  Post_State,
 	asking: bool, // a request for it is pending
-	// A picture: the JPEG (owned), how it is announced, and its id once the
-	// server has it.
+	// The avatar or server picture: the JPEG (owned), how it is announced, and
+	// its id once the server has it.
 	jpeg:   []u8,
 	put:    proto.Blob_Put,
 	blob:   proto.Blob_Id,
@@ -190,7 +190,7 @@ Pending :: struct {
 	attach: ^Attach_Post,
 }
 
-// Upload is the bytes of a picture that are on their way to the server.
+// Upload is the bytes of an avatar or server picture on their way to the server.
 Upload :: struct {
 	handle:     u64,
 	send:       proto.Blob_Sender,
@@ -1627,9 +1627,10 @@ handle_typing :: proc(c: ^Voice_Client, pt: []u8) {
 	}
 }
 
-// drive_outbox advances the oldest message in our outbox: its picture is
-// announced and uploaded, then the message is posted. Messages are sent one at
-// a time, so that they arrive in the order they were written.
+// drive_outbox advances the oldest entry in our outbox: an avatar or server
+// picture is announced and uploaded, and a message is posted once its DM is
+// open and its files are uploaded. Entries are sent one at a time, so that
+// they arrive in the order they were written.
 drive_outbox :: proc(c: ^Voice_Client) {
 	mc := &c.msgs
 	if len(mc.outbox) == 0 || !c.has_current || !c.convs.synced {

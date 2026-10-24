@@ -62,13 +62,6 @@ CHANNELS_WINDOW :: "Join a channel"
 @(private = "file")
 JOIN_BUTTON :: 80
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // viewed_channel is the channel whose chat is showing, or nil. Call
 // with the View locked.
 viewed_channel :: proc(v: ^conn.View) -> ^conn.View_Channel {

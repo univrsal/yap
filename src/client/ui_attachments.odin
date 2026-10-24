@@ -557,7 +557,7 @@ composer_send_files :: proc(ui: ^UI, c: Composer, text: string, dm_to: proto.Acc
 	} else {
 		ui.timeline.to_end = true
 	}
-	conn.push_command(&ui.session.client.commands, cmd)
+	command(ui, cmd)
 	return true
 }
 
@@ -650,7 +650,7 @@ file_preview :: proc(
 		asked, was := ui.previews_asked[f.blob]
 		if !was || time.tick_since(asked) > 10 * time.Second {
 			ui.previews_asked[f.blob] = time.tick_now()
-			attach_command(ui, conn.Attach_Preview_Command{conv = conv, msg = m.id, index = i})
+			command(ui, conn.Attach_Preview_Command{conv = conv, msg = m.id, index = i})
 		}
 	}
 	if image_fitted(
@@ -662,7 +662,7 @@ file_preview :: proc(
 		f.name,
 	) {
 		// The viewer's Save: the file itself, under its name.
-		attach_command(ui, conn.Attach_Save_Command{conv = conv, msg = m.id, index = i})
+		command(ui, conn.Attach_Save_Command{conv = conv, msg = m.id, index = i})
 	}
 }
 
@@ -757,7 +757,7 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 		case .Cancel:
 			if .SUBMIT in stable_button(ctx, "cancel save", "Cancel", {.ALIGN_CENTER}) {
 				save.cancel = true
-				attach_command(ui, save)
+				command(ui, save)
 			}
 		case .Browse:
 			if .SUBMIT in
@@ -792,7 +792,7 @@ message_files :: proc(ui: ^UI, conv: proto.Conv_Id, m: conn.View_Message) {
 		case .Save:
 			hint := fmt.tprintf("Save %s to the downloads folder", f.name)
 			if .SUBMIT in icon_button(ui, "save", .Download, hint) {
-				attach_command(ui, save)
+				command(ui, save)
 			}
 		}
 		if has_save && saving(s) {
@@ -1002,15 +1002,8 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 	if p.uploading {
 		mu.layout_row(ctx, {FILES_BUTTON_W})
 		if .SUBMIT in stable_button(ctx, "cancel upload", "Cancel", {.ALIGN_CENTER}) {
-			attach_command(ui, conn.Attach_Cancel_Command{nonce = p.nonce})
+			command(ui, conn.Attach_Cancel_Command{nonce = p.nonce})
 		}
-	}
-}
-
-@(private = "file")
-attach_command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
 	}
 }
 

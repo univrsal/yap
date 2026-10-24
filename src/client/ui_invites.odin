@@ -43,7 +43,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	if !st.asked {
 		st.asked = true
-		invites_command(ui, conn.Invites_Command{})
+		command(ui, conn.Invites_Command{})
 	}
 
 	if make_codes {
@@ -77,7 +77,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 				now := time.time_to_unix_nano(time.now()) / 1_000_000
 				expires = proto.Unix_Ms(now + i64(st.days) * 24 * 60 * 60 * 1000)
 			}
-			invites_command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
+			command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
 		}
 		with_text_color(
 			ctx,
@@ -145,7 +145,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 			}
 			if inv.creator == v.me || .Manage_Accounts in v.permissions {
 				if .SUBMIT in stable_button(ctx, "revoke", "Revoke") {
-					invites_command(ui, conn.Invite_Revoke_Command{code = clone(inv.code)})
+					command(ui, conn.Invite_Revoke_Command{code = clone(inv.code)})
 				}
 			} else {
 				mu.label(ctx, "")
@@ -169,7 +169,7 @@ invited_by_line :: proc(ui: ^UI, v: ^conn.View, account: proto.Account_Id) -> st
 		asked, before := ui.invites_asked[account]
 		if !before || time.tick_since(asked) > 10 * time.Second {
 			ui.invites_asked[account] = time.tick_now()
-			invites_command(ui, conn.Invite_Of_Command{account = account})
+			command(ui, conn.Invite_Of_Command{account = account})
 		}
 		return ""
 	}
@@ -201,13 +201,6 @@ invite_date :: proc(ui: ^UI, ms: proto.Unix_Ms) -> string {
 choice_button :: proc(ui: ^UI, id, label: string, chosen: bool) -> bool {
 	text := fmt.tprintf("> %s", label) if chosen else label
 	return .SUBMIT in stable_button(&ui.ctx, id, text, {.ALIGN_CENTER})
-}
-
-@(private = "file")
-invites_command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
 }
 
 @(private = "file")

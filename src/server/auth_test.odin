@@ -423,42 +423,6 @@ test_accounts_kept :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_schema_upgrade :: proc(t: ^testing.T) {
-	// A database from before accounts existed is upgraded to the current
-	// schema without losing the data it already had.
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	defer remove_tree(dir)
-	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
-	{
-		db: DB
-		testing.expect(t, db_open(&db, path))
-		testing.expect(t, db_meta_set(&db, "kept", 5))
-		db_commit(&db)
-		testing.expect(
-			t,
-			db_exec(
-				&db,
-				"DROP TABLE conv_rights; DROP TABLE push_subs; DROP TABLE invite_uses; DROP TABLE invites; DROP TABLE files_fts; DROP TABLE attachments; DROP TABLE messages_fts; DROP TABLE account_roles; DROP TABLE roles; DROP TABLE settings; DROP TABLE reactions; DROP TABLE mentions; DROP TABLE pins; DROP TABLE buddies; DROP TABLE messages; DROP TABLE members; DROP TABLE convs; DROP TABLE devices; DROP TABLE accounts; PRAGMA user_version = 1",
-			),
-		)
-		db_close(&db)
-	}
-	db: DB
-	testing.expect(t, db_open(&db, path))
-	defer db_close(&db)
-	version, _ := db_pragma_int(&db, "PRAGMA user_version")
-	testing.expect_value(t, version, SCHEMA_VERSION)
-	kept, found := db_meta(&db, "kept")
-	testing.expect(t, found)
-	testing.expect_value(t, kept, 5)
-	a: Accounts
-	testing.expect(t, accounts_load(&a, &db))
-	defer accounts_destroy(&a)
-	testing.expect_value(t, len(a.by_id), 0)
-}
-
-@(test)
 test_login :: proc(t: ^testing.T) {
 	ts: Test_Server
 	ts_open(t, &ts)

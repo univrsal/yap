@@ -190,7 +190,7 @@ test_video_loss_repaired :: proc(t: ^testing.T) {
 			down := proto.video_up_to_down(&down_buf, 3, up)
 			_, f, ok := proto.decode_video_down(down)
 			testing.expect(t, ok)
-			cache[u64(f.frame) << 16 | u64(f.index)] = slice_clone(down)
+			cache[u64(f.frame) << 16 | u64(f.index)] = copy_slice(down)
 			sent += 1
 			if sent % 10 == 0 {
 				dropped += 1
@@ -227,13 +227,6 @@ test_video_loss_repaired :: proc(t: ^testing.T) {
 	testing.expect_value(t, w.given_up, 0)
 	testing.expect(t, !w.broken)
 	testing.expect(t, w.recovered > 0)
-}
-
-@(private = "file")
-slice_clone :: proc(b: []u8) -> []u8 {
-	out := make([]u8, len(b), context.temp_allocator)
-	copy(out, b)
-	return out
 }
 
 // adapt_bitrate, fed reports at made-up times: it goes down by a quarter when a

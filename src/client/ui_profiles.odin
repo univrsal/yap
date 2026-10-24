@@ -610,7 +610,7 @@ profile_settings :: proc(ui: ^UI) {
 		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
 	case me.avatar != 0:
 		if .SUBMIT in stable_button(ctx, "avatar remove", "Remove", {.ALIGN_CENTER}) {
-			conn.push_command(&ui.session.client.commands, conn.Avatar_Command{remove = true})
+			command(ui, conn.Avatar_Command{remove = true})
 		}
 	case:
 		mu.label(ctx, "")

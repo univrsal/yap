@@ -51,9 +51,6 @@ OPEN_CREATE :: 0x00000004
 CHECKPOINT_PASSIVE :: 0
 CHECKPOINT_TRUNCATE :: 3
 
-// The value type that column_type returns for a null value.
-NULL :: 5
-
 // Destructor argument for bind_text and bind_blob that makes SQLite copy
 // the data before the call returns (SQLITE_TRANSIENT).
 TRANSIENT :: rawptr(~uintptr(0))
@@ -64,7 +61,6 @@ Progress_Handler :: #type proc "c" (arg: rawptr) -> c.int
 
 @(default_calling_convention = "c", link_prefix = "sqlite3_")
 foreign lib {
-	libversion :: proc() -> cstring ---
 	open_v2 :: proc(filename: cstring, db: ^^Connection, flags: c.int, vfs: cstring) -> c.int ---
 	close :: proc(db: ^Connection) -> c.int ---
 	errmsg :: proc(db: ^Connection) -> cstring ---
@@ -94,7 +90,6 @@ foreign lib {
 	// Columns are numbered from 0. The memory that text and blob results
 	// point at belongs to SQLite and is only valid until the statement is
 	// stepped or reset again.
-	column_type :: proc(stmt: ^Stmt, column: c.int) -> c.int ---
 	column_int64 :: proc(stmt: ^Stmt, column: c.int) -> i64 ---
 	column_text :: proc(stmt: ^Stmt, column: c.int) -> [^]u8 ---
 	column_blob :: proc(stmt: ^Stmt, column: c.int) -> rawptr ---

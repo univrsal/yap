@@ -1190,6 +1190,14 @@ connect_to :: proc(
 	return ns
 }
 
+// command hands a command to the session's connection thread, if there is a
+// session.
+command :: proc(ui: ^UI, cmd: conn.Command) {
+	if ui.session != nil {
+		conn.push_command(&ui.session.client.commands, cmd)
+	}
+}
+
 // session_new creates a session for `server`, ready to start, which joins
 // `channel` if there is one.
 session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Session {

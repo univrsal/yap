@@ -162,10 +162,6 @@ test_ack_encoding :: proc(t: ^testing.T) {
 	kind, ok := message_kind(msg)
 	testing.expect(t, ok && kind == .State_Ack)
 	testing.expect_value(t, decode_state_ack(msg), 5)
-
-	// Join is retired, so any message claiming to be one is rejected.
-	_, ok = message_kind([]u8{u8(Message_Kind.Join), 0, 0, 0, 0, 0, 0})
-	testing.expect(t, !ok)
 }
 
 @(test)
@@ -260,10 +256,6 @@ test_hello_and_welcome :: proc(t: ^testing.T) {
 	kind, kind_ok = message_kind(refused)
 	testing.expect(t, kind_ok && kind == .Refused)
 	testing.expect_value(t, decode_refused(refused), Refusal.Wrong_Password)
-
-	// Set_Name is retired, so any message claiming to be one is rejected.
-	_, kind_ok = message_kind([]u8{u8(Message_Kind.Set_Name), 1, 'a'})
-	testing.expect(t, !kind_ok)
 }
 
 @(test)

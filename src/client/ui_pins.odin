@@ -59,7 +59,7 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if p.asked != v.viewing {
 		p.asked = v.viewing
-		conn.push_command(&ui.session.client.commands, conn.Pins_Command{conv = v.viewing})
+		command(ui, conn.Pins_Command{conv = v.viewing})
 	}
 	if !p.placed {
 		p.placed = true

@@ -293,7 +293,7 @@ allow_capture :: proc(ui: ^UI) {
 // watch starts watching `user`, or stops watching with 0.
 watch :: proc(ui: ^UI, user: proto.User_Num) {
 	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.Watch_Command{user})
+		command(ui, conn.Watch_Command{user})
 	}
 }
 

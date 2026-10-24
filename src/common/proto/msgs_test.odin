@@ -265,18 +265,13 @@ test_typing :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_old_chat_retired :: proc(t: ^testing.T) {
-	for kind in ([]Message_Kind {
-			.Chat_Send,
-			.Chat_Sent,
-			.Chat,
-			.Chat_Received,
-			.Image_Send,
-			.Image_Get,
-			.Image_Gone,
-		}) {
+test_retired_kinds_rejected :: proc(t: ^testing.T) {
+	// The numbers of the retired kinds (see Message_Kind), and one past
+	// the last kind.
+	retired := [?]u8{2, 6, 7, 8, 9, 10, 12, 13, 16, 18, 25, 33, 38, 39, u8(max(Message_Kind)) + 1}
+	for b in retired {
 		pt := make([]u8, 64, context.temp_allocator)
-		pt[0] = u8(kind)
+		pt[0] = b
 		_, ok := message_kind(pt)
 		testing.expect(t, !ok)
 	}

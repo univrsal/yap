@@ -152,13 +152,6 @@ server_memory_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 }
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // memory_report shows a memtrack report: headings and rows with an amount, a
 // detail and what it belongs to, in columns.
 @(private = "file")

@@ -430,7 +430,7 @@ chat_input :: proc(ui: ^UI) {
 	res, box, box_rect := composer_box(ui, composer)
 	completion_update(ui, composer)
 	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil && ui.chat.editing == 0 {
-		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
+		command(ui, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
 	composer_buttons(ui, box_rect, 4)

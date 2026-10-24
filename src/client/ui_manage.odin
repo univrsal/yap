@@ -50,13 +50,6 @@ ui_manage_destroy :: proc(ui: ^UI) {
 	m.account_roles = nil
 }
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // people_list is a list of accounts, a page at a time and with a box to
 // narrow it down once it has more than a page (unless the caller has its own,
 // `searched`), with a button labelled `action` beside each account that

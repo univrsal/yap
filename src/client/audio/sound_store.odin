@@ -2,8 +2,12 @@ package audio
 
 import "base:runtime"
 import log "common:wlog"
+import "core:encoding/endian"
+import "core:slice"
 import "core:strings"
 import "core:sync"
+
+import "client:audio/opus"
 
 // The decoded sounds, shared by every Voice (each server's, and the UI's own)
 // so that a sound is decoded once however many servers play it. A sound is
@@ -121,7 +125,7 @@ sound_custom_add :: proc(name: string, samples: []f32, channels: int) {
 		return
 	}
 	limit := min(len(samples), SOUND_MAX_SECONDS * SAMPLE_RATE * channels)
-	clip := store_add(name, cut(samples[:limit]), channels)
+	clip := store_add(name, slice.clone(samples[:limit]), channels)
 	store.custom[clip.name] = clip
 }
 
@@ -178,7 +182,7 @@ sound_decode :: proc(data: []u8, name: string) -> (samples: []f32, channels: int
 	}
 	limit := SOUND_MAX_SECONDS * SAMPLE_RATE * channels
 	if len(samples) > limit {
-		short := cut(samples[:limit])
+		short := slice.clone(samples[:limit])
 		delete(samples)
 		samples = short
 	}
@@ -189,11 +193,120 @@ sound_decode :: proc(data: []u8, name: string) -> (samples: []f32, channels: int
 	return
 }
 
-@(private = "file")
-cut :: proc(samples: []f32) -> []f32 {
-	out := make([]f32, len(samples))
-	copy(out, samples)
-	return out
+// decode_ogg_opus decodes an Ogg Opus file, with its own channel count (1 or
+// 2). The samples are allocated once, as many as the stream says it has (its
+// last granule position), rather than grown while decoding.
+decode_ogg_opus :: proc(data: []u8, name: string) -> (samples: []f32, channels: int) {
+	// The last granule position: how many samples (at 48 kHz, whatever the
+	// stream was made from) the stream ends at, pre-skip included.
+	last_granule := 0
+	for at := 0; at + 27 <= len(data) && string(data[at:at + 4]) == "OggS"; {
+		if granule := i64(endian.unchecked_get_u64le(data[at + 6:])); granule > 0 {
+			last_granule = int(granule)
+		}
+		segments := int(data[at + 26])
+		next := at + 27 + segments
+		if next > len(data) {
+			break
+		}
+		for i in 0 ..< segments {
+			next += int(data[at + 27 + i])
+		}
+		at = next
+	}
+
+	decoder: ^opus.Decoder
+	defer if decoder != nil {
+		opus.decoder_destroy(decoder)
+	}
+	fail :: proc(samples: []f32, why, name: string) -> ([]f32, int) {
+		log.errorf("opus: %s in %s", why, name)
+		delete(samples)
+		return nil, 0
+	}
+	filled := 0
+	packet: [dynamic]u8
+	defer delete(packet)
+	at := 0
+	packet_count := 0
+	pre_skip := 0
+	for at < len(data) {
+		if at + 27 > len(data) || string(data[at:at + 4]) != "OggS" {
+			return fail(samples, "invalid Ogg page", name)
+		}
+		segments := int(data[at + 26])
+		lacing_at := at + 27
+		body_at := lacing_at + segments
+		if body_at > len(data) {
+			return fail(samples, "truncated Ogg page", name)
+		}
+		body_end := body_at
+		for i in 0 ..< segments {
+			body_end += int(data[lacing_at + i])
+		}
+		if body_end > len(data) {
+			return fail(samples, "truncated Ogg packet", name)
+		}
+		for i in 0 ..< segments {
+			count := int(data[lacing_at + i])
+			append(&packet, ..data[body_at:body_at + count])
+			body_at += count
+			if count == 255 {
+				continue
+			}
+			switch packet_count {
+			case 0:
+				// Version 1, mono or stereo.
+				if len(packet) < 19 ||
+				   string(packet[:8]) != "OpusHead" ||
+				   packet[8] != 1 ||
+				   packet[9] < 1 ||
+				   packet[9] > 2 {
+					return fail(samples, "invalid Opus header", name)
+				}
+				channels = int(packet[9])
+				pre_skip = int(endian.unchecked_get_u16le(packet[10:]))
+				err: opus.Error
+				decoder = opus.decoder_create(SAMPLE_RATE, i32(channels), &err)
+				if decoder == nil {
+					log.errorf(
+						"opus: could not create a decoder for %s: %s",
+						name,
+						opus.strerror(err),
+					)
+					return nil, 0
+				}
+				samples = make([]f32, max(last_granule - pre_skip, 0) * channels)
+			case 1:
+			// OpusTags contains no audio data.
+			case:
+				frame: [opus.MAX_FRAME_SAMPLES * CHANNELS]f32
+				n := opus.decode_float(
+					decoder,
+					raw_data(packet[:]),
+					i32(len(packet)),
+					&frame[0],
+					opus.MAX_FRAME_SAMPLES,
+					0,
+				)
+				if n < 0 {
+					return fail(samples, string(opus.strerror(opus.Error(n))), name)
+				}
+				skip := min(pre_skip, int(n))
+				pre_skip -= skip
+				// The last packet decodes past the end of the stream.
+				decoded := frame[skip * channels:int(n) * channels]
+				filled += copy(samples[filled:], decoded)
+			}
+			packet_count += 1
+			clear(&packet)
+		}
+		at = body_end
+	}
+	if packet_count < 3 || filled == 0 {
+		return fail(samples, "no audio", name)
+	}
+	return samples[:filled], channels
 }
 
 // store_add adds a sound with one reference. Call with the mutex held and

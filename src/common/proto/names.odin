@@ -140,7 +140,8 @@ invisible :: proc(r: rune) -> bool {
 // format from misreading each other's messages: the server refuses a hello
 // it can't read (see Refused in messages.odin).
 // Version 2 added the sound flags to a snapshot's users (see messages.odin).
-// Version 3 widened a chat entry's time to 64 bits (see chat.odin).
+// Version 3 widened a chat entry's time to 64 bits (chat entries were
+// retired in version 8).
 // Version 4 added the password, and Refused.
 // Version 5 added conn_id, and Welcome.
 // Version 6 removed the name from the hello because it belongs to the account
@@ -159,6 +160,8 @@ invisible :: proc(r: rune) -> bool {
 // handshake is for (see Link below).
 // Version 13 retired the picture kind of message and purging only pictures,
 // because a picture in a message is an attachment (msgs.odin).
+// Version 14 added the time of the newest message to a conversation's record,
+// which a list of DMs from several servers is put in order by (convs.odin).
 // Link.Media was added without a new version because it is only ever sent to
 // a client by a server that names a media port in Server_Info, and only on
 // that port.

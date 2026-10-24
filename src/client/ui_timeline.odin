@@ -391,7 +391,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 		}
 		if !found && !st.jump_asked && ui.session != nil && (tl == nil || !tl.loading) {
 			st.jump_asked = true
-			conn.push_command(&ui.session.client.commands, conn.Jump_Command{id = st.jump_to})
+			command(ui, conn.Jump_Command{id = st.jump_to})
 		}
 	}
 	// Following the end: what is on its way below the messages may have
@@ -1416,7 +1416,7 @@ timeline_reading :: proc(ui: ^UI, focused: bool) {
 		return
 	}
 	if reading != st.reading || session != st.reading_to {
-		conn.push_command(&ui.session.client.commands, conn.Reading_Command{conv = reading})
+		command(ui, conn.Reading_Command{conv = reading})
 		st.reading, st.reading_to = reading, session
 	}
 }

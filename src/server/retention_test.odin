@@ -30,12 +30,6 @@ age_messages :: proc(t: ^testing.T, ts: ^Test_Server, first, last: proto.Msg_Id,
 }
 
 @(private = "file")
-age_blobs :: proc(t: ^testing.T, ts: ^Test_Server, hours: int) {
-	at := unix_ms() - i64(hours) * 60 * 60 * 1000
-	testing.expect(t, db_exec(&ts.s.db, fmt.tprintf("UPDATE blobs SET created = %d", at)))
-}
-
-@(private = "file")
 count_of :: proc(t: ^testing.T, ts: ^Test_Server, sql: string) -> i64 {
 	n, rc := db_pragma_int(&ts.s.db, sql)
 	testing.expect_value(t, rc, sqlite.OK)

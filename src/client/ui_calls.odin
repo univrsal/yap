@@ -54,7 +54,7 @@ may_call :: proc(v: ^conn.View, account: proto.Account_Id) -> bool {
 call_account :: proc(ui: ^UI, account: proto.Account_Id, video := false) {
 	if ui.session != nil {
 		leave_voice_elsewhere(ui)
-		conn.push_command(&ui.session.client.commands, conn.Call_Command{account = account})
+		command(ui, conn.Call_Command{account = account})
 		if video {
 			camera_on_call(ui)
 		}

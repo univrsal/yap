@@ -14,13 +14,6 @@ import "common:proto"
 
 BOT_TAG :: "BOT"
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // bot_token_shown shows the token that was just created, if there is one: whose
 // it is, the token itself, and buttons to copy it and to dismiss it. Call with
 // the View locked, in the accounts list.

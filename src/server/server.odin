@@ -870,27 +870,6 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	// Server-to-client only.
 	case .Video, .Watch, .Nack, .Report:
 	// Screen sharing only uses the media link (media.odin).
-	case .Set_Name,
-	     .Join,
-	     .Chat_Send,
-	     .Chat_Sent,
-	     .Chat,
-	     .Chat_Received,
-	     .Image_Send,
-	     .Image_Get,
-	     .Image_Gone,
-	     .DM_Send,
-	     .DM_Sent,
-	     .DM,
-	     .DM_Ack,
-	     .DM_Delivered,
-	     .DM_Typing,
-	     .DM_Image_Send,
-	     .DM_Image_Get,
-	     .DM_Image_Gone,
-	     .Last_Seen_Get,
-	     .Last_Seen:
-	// No longer used.
 	case .Stream:
 		handle_stream(s, c.conn, pt)
 	case .Stream_Ack:

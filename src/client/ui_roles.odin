@@ -184,13 +184,6 @@ ui_roles_destroy :: proc(ui: ^UI) {
 	ui.roles.seen = {}
 }
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // roles_settings is the Roles category of the settings' server tab
 // (server_settings), for users who have Manage_Roles. Call with the View locked.
 roles_settings :: proc(ui: ^UI) {

@@ -131,13 +131,6 @@ wipe :: proc(buf: []u8, length: ^int) {
 	length^ = 0
 }
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // card_begin starts a card in the middle of what is left of the main
 // window, as the login screen has. It is LOGIN_CARD_WIDTH wide (or as wide as
 // the space allows) and as tall as `h`, which holds its height in the last

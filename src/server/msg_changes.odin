@@ -23,10 +23,9 @@ import "sqlite"
 // as it is now.
 //
 // A deleted message keeps its row so that ids, read markers and threads
-// stay valid, but its text, picture and file are removed. Nothing can be
-// fetched through it any more (blob_visible only looks at the messages that
-// reference a picture). It is also unpinned, and a file it offered can no
-// longer be accepted.
+// stay valid, but its text, attachments and file are removed, so nothing
+// can be fetched through it any more. It is also unpinned, and a file it
+// offered can no longer be accepted.
 
 // msg_of_member returns message `id` and its conversation if the
 // connection's account is a member of that conversation. Otherwise it

@@ -671,6 +671,17 @@ log_stats :: proc(c: ^Voice_Client) {
 	}
 	c.last_stats = time.tick_now()
 	v := &c.voice
+	defer {
+		v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed, v.dropouts = 0, 0, 0, 0, 0, 0
+		v.skipped = 0
+		clear(&v.received)
+		c.video.bytes_out, c.video.bytes_in = 0, 0
+	}
+	// The counters are only for this line, so without debug logging it isn't
+	// built and they just start over.
+	if context.logger.lowest_level > .Debug {
+		return
+	}
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintf(
 		&b,
@@ -730,7 +741,6 @@ log_stats :: proc(c: ^Voice_Client) {
 			c.video.bytes_out / 1000,
 			c.video.bytes_in / 1000,
 		)
-		c.video.bytes_out, c.video.bytes_in = 0, 0
 		if d := video_log_counts(c); d[0] > 0 || d[2] > 0 {
 			fmt.sbprintf(
 				&b,
@@ -742,7 +752,4 @@ log_stats :: proc(c: ^Voice_Client) {
 		}
 	}
 	log.debug(strings.to_string(b))
-	v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed, v.dropouts = 0, 0, 0, 0, 0, 0
-	v.skipped = 0
-	clear(&v.received)
 }

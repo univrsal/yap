@@ -123,7 +123,7 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 	}
 	b.view_asked, b.view_back, b.view_at = want, back, time.tick_now()
 	ui_redraw_in(ui, VIEW_RETRY)
-	conn.push_command(&ui.session.client.commands, conn.View_Command{conv = conv, back = back})
+	command(ui, conn.View_Command{conv = conv, back = back})
 }
 
 // back_from_dms is the session screen making sure that what it shows is a
@@ -538,7 +538,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	   v.viewing == entry.conv &&
 	   entry.conv != 0 &&
 	   ui.buddies.editing == 0 {
-		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
+		command(ui, conn.Typing_Command{})
 	}
 	send := .SUBMIT in res
 	composer_buttons(ui, box_rect, 5)

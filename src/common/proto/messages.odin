@@ -60,32 +60,20 @@ import "core:time"
 // user may have several sessions.
 User_Num :: distinct u32
 
+// The numbers missing below belong to retired kinds (2, 6-10, 12, 13, 16,
+// 18, 25-33, 38, 39; see the version history in names.odin). A client old
+// enough to send one doesn't get past the hello, and message_kind rejects
+// them like any other unknown byte.
 Message_Kind :: enum u8 {
 	Voice           = 1,
-	// Retired: a voice room is now joined with a request (Voice_Join,
-	// convs.odin).
-	Join            = 2,
 	State           = 3,
 	State_Ack       = 4,
 	Leave           = 5,
-	// Retired: names now belong to accounts (Profile_Set, accounts.odin).
-	Set_Name        = 6,
-	// Retired: messages are now posted and read with requests (msgs.odin).
-	Chat_Send       = 7,
-	Chat_Sent       = 8,
-	Chat            = 9,
-	Chat_Received   = 10,
 	// Who is typing and where, see msgs.odin.
 	Typing          = 11,
-	// Retired: pictures are now blobs that are announced and requested with
-	// requests (msgs.odin) and sent in chunks as before.
-	Image_Send      = 12,
-	Image_Get       = 13,
 	// A blob's chunks, see blob.odin.
 	Blob_Chunk      = 14,
 	Blob_Need       = 15,
-	// Retired with Image_Send.
-	Image_Gone      = 16,
 	// What a user has switched off for themselves.
 	Sound           = 17,
 	// The server refuses us (see Refusal).
@@ -97,26 +85,11 @@ Message_Kind :: enum u8 {
 	// Measuring the connection, see ping.odin.
 	Ping            = 23,
 	Pong            = 24,
-	// Retired: direct messages are now conversations (DM_Open, convs.odin)
-	// and their messages work like any other messages (msgs.odin).
-	DM_Send         = 25,
-	DM_Sent         = 26,
-	DM              = 27,
-	DM_Ack          = 28,
-	DM_Delivered    = 29,
-	DM_Typing       = 30,
-	DM_Image_Send   = 31,
-	DM_Image_Get    = 32,
-	DM_Image_Gone   = 33,
 	// File transfers, see files.odin.
 	File_Accept     = 34,
 	File_Chunk      = 35,
 	File_Ack        = 36,
 	File_Cancel     = 37,
-	// Retired: when someone was last online is now requested with a request
-	// (Last_Seen, buddies.odin).
-	Last_Seen_Get   = 38,
-	Last_Seen       = 39,
 	// The server's answer to a hello that it accepts, see names.odin.
 	Welcome         = 40,
 	// The reliable stream, see stream.odin.
@@ -231,26 +204,18 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 	switch kind {
 	case .Voice:
 		ok = true
-	case .Join:
-		ok = false // retired
 	case .State:
 		ok = len(pt) > STATE_HEADER_SIZE
 	case .State_Ack:
 		ok = len(pt) == STATE_ACK_SIZE
 	case .Leave:
 		ok = len(pt) == 1
-	case .Set_Name:
-		ok = false // retired
 	case .Sound:
 		ok = len(pt) == SOUND_SIZE
 	case .Refused:
 		ok = len(pt) == REFUSED_SIZE
-	case .Chat_Send, .Chat_Sent, .Chat, .Chat_Received:
-		ok = false // retired
 	case .Typing:
 		ok = len(pt) == TYPING_UP_SIZE || len(pt) == TYPING_DOWN_SIZE
-	case .Image_Send, .Image_Get, .Image_Gone:
-		ok = false // retired
 	case .Blob_Chunk:
 		ok =
 			len(pt) > BLOB_CHUNK_HEADER_SIZE && len(pt) <= BLOB_CHUNK_HEADER_SIZE + BLOB_CHUNK_SIZE
@@ -272,16 +237,6 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) == REPORT_SIZE || len(pt) == REPORT_CAMERA_SIZE
 	case .Ping, .Pong:
 		ok = len(pt) == PING_SIZE
-	case .DM_Send,
-	     .DM,
-	     .DM_Sent,
-	     .DM_Ack,
-	     .DM_Delivered,
-	     .DM_Typing,
-	     .DM_Image_Send,
-	     .DM_Image_Get,
-	     .DM_Image_Gone:
-		ok = false // retired
 	case .File_Accept:
 		ok = len(pt) == FILE_ACCEPT_SIZE
 	case .File_Chunk:
@@ -290,8 +245,6 @@ message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
 		ok = len(pt) >= FILE_ACK_HEADER_SIZE
 	case .File_Cancel:
 		ok = len(pt) == FILE_CANCEL_SIZE
-	case .Last_Seen_Get, .Last_Seen:
-		ok = false // retired
 	case .Welcome:
 		ok = len(pt) == WELCOME_SIZE
 	case .Stream:

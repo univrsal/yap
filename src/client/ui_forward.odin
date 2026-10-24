@@ -146,7 +146,7 @@ go_to_message :: proc(ui: ^UI, conv: proto.Conv_Id, id: proto.Msg_Id) {
 	for ch in v.channels {
 		if ch.id == conv {
 			ui.page = .Main
-			conn.push_command(&ui.session.client.commands, conn.View_Command{conv = conv})
+			command(ui, conn.View_Command{conv = conv})
 			return
 		}
 	}

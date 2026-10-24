@@ -31,6 +31,7 @@ import "core:encoding/endian"
 //	                           [registration u8] (register.odin)[email str8]
 //	                           [description str16][icon u64][digests u8]
 //	                           [media_port u16][video_kbit u32][push_key str8]
+//	                           [max_cameras u8][camera_kbit u32][demand u8]
 //	Server_Icon      request   [icon u64]
 //	                 response  [the icon's JPEG]
 //	Server_Info_Set  request   [name str8][description str16][icon u64]

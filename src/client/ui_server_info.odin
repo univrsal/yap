@@ -73,7 +73,7 @@ picture_picked :: proc(ui: ^UI, use: Pick_For, image: conn.Chat_Image) {
 	}
 	switch use {
 	case .Avatar:
-		conn.push_command(&ui.session.client.commands, conn.Avatar_Command{image = image})
+		command(ui, conn.Avatar_Command{image = image})
 	case .Server_Icon:
 		v := ui.view
 		sync.guard(&v.mutex)

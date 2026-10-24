@@ -79,13 +79,6 @@ ui_channel_admin_destroy :: proc(ui: ^UI) {
 	a.loaded_name, a.loaded_topic = "", ""
 }
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // channels_category_opened is called when the category has just been picked:
 // the channels are fetched again, since the server only tells us about changes
 // to the ones we're in.
