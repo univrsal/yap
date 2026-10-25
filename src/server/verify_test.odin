@@ -6,9 +6,10 @@ import "core:sync"
 import "core:testing"
 
 import "common:proto"
+import "mail"
 
 // Tests of verifying email addresses by mail (verify.odin), using the
-// Test_Server from harness_test.odin. Mail is put into the server's queue
+// Test_Server from harness_test.odin. mail.Message is put into the server's queue
 // directly.
 
 @(test)
@@ -89,7 +90,7 @@ mail_in :: proc(ts: ^Test_Server, uid: u32, from, subject: string, auth := GOOD_
 	}
 	e := &ts.s.email
 	sync.guard(&e.mutex)
-	append(&e.inbox, mail_parse(uid, header))
+	append(&e.inbox, mail.parse(uid, header))
 }
 
 // deletes_asked returns how many mails the loop has asked to be deleted, and
@@ -110,7 +111,7 @@ verifying_server :: proc(t: ^testing.T, ts: ^Test_Server) {
 		verify_email     = true,
 		unverified_hours = 48,
 	}
-	// Email is enabled, but without its thread: incoming mail is put in its
+	// mail.Mailer is enabled, but without its thread: incoming mail is put in its
 	// queue by hand, and the jobs it's given just wait in its job list.
 	ts.s.email.enabled = true
 	ts.s.email.config = {

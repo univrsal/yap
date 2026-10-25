@@ -12,6 +12,7 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "mail"
 
 // The server's settings are all in one file (config.json by default), which is
 // read once at startup:
@@ -159,7 +160,7 @@ import "common:proto"
 //            `daily_megabytes`: how much one account may upload in 24 hours,
 //            so that one account can't fill the disk. 0 means no limit. If
 //            left out, they are 100, 2048 and 4096.
-// email      The server's own email account (see email.odin). Without an
+// email      The server's own email account (see mail/mail.odin). Without an
 //            `address`, the server has no email.
 //            `imap` and `smtp` are the URLs of the mail servers: use imaps://
 //            and smtps:// for TLS from the start, or imap:// and smtp:// for
@@ -181,7 +182,7 @@ import "common:proto"
 //            the messages, mentions and direct messages they missed, once they
 //            have been away for `digest_minutes` (at least 5, and 30 if left
 //            out), and at most that often afterwards.
-//            Email needs libcurl, which has to be installed on Linux and macOS
+//            mail.Mailer needs libcurl, which has to be installed on Linux and macOS
 //            (the server runs without email if it is missing). `yap-server
 //            email test` tries it out.
 // registration  Whether people may create their own accounts (see
@@ -265,7 +266,7 @@ Config :: struct {
 	api:                Api_Config,
 	retention:          Retention_Config,
 	attachments:        Attach_Config,
-	email:              Email_Config,
+	email:              mail.Config,
 	registration:       Registration_Config,
 	video:              Video_Config,
 	push:               Push_Config,
@@ -355,7 +356,7 @@ Settings :: struct {
 	emoji_dir:    string,
 	retention:    Retention_Config,
 	attachments:  Attach_Config,
-	email:        Email_Config, // checked; address "" for none
+	email:        mail.Config, // checked; address "" for none
 	registration: Registration_Config,
 	video:        Video_Config, // checked; port 0 for the one after `port`
 	push:         Push_Config, // subject filled in with a default if not set
@@ -704,7 +705,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 // check_email validates the email config. An empty address means that email is
 // not configured.
 @(private = "file")
-check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bool) {
+check_email :: proc(path: string, cfg: mail.Config) -> (e: mail.Config, ok: bool) {
 	e = cfg
 	if e.address == "" {
 		return {}, true
@@ -727,17 +728,17 @@ check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bo
 		return
 	}
 	if e.poll_seconds == 0 {
-		e.poll_seconds = DEFAULT_POLL_SECONDS
+		e.poll_seconds = mail.DEFAULT_POLL_SECONDS
 	}
-	if e.poll_seconds < MIN_POLL_SECONDS {
-		log.errorf("%s: email.poll_seconds has to be at least %d", path, MIN_POLL_SECONDS)
+	if e.poll_seconds < mail.MIN_POLL_SECONDS {
+		log.errorf("%s: email.poll_seconds has to be at least %d", path, mail.MIN_POLL_SECONDS)
 		return
 	}
 	if e.digest_minutes == 0 {
-		e.digest_minutes = DEFAULT_DIGEST_MINUTES
+		e.digest_minutes = mail.DEFAULT_DIGEST_MINUTES
 	}
-	if e.digest_minutes < MIN_DIGEST_MINUTES {
-		log.errorf("%s: email.digest_minutes has to be at least %d", path, MIN_DIGEST_MINUTES)
+	if e.digest_minutes < mail.MIN_DIGEST_MINUTES {
+		log.errorf("%s: email.digest_minutes has to be at least %d", path, mail.MIN_DIGEST_MINUTES)
 		return
 	}
 	return e, true

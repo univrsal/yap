@@ -1,4 +1,4 @@
-package server
+package mail
 
 import "base:runtime"
 import "core:crypto"
@@ -13,9 +13,9 @@ import "core:thread"
 import "core:time"
 import "core:unicode/utf8"
 
+import "../curl"
 import "common:memtrack"
 import "common:proto"
-import "curl"
 
 // The server's own email account (config.json's "email", see config.odin).
 // It reads incoming mail over IMAP and sends mail over SMTP, both through
@@ -23,17 +23,17 @@ import "curl"
 // accounts (verify.odin). Outgoing mail tells accounts what they missed while
 // they were away (digest.odin) and will also be used for password resets.
 //
-// Mail is slow and can hang, so all of it runs on a thread of its own. The
+// Message is slow and can hang, so all of it runs on a thread of its own. The
 // main loop talks to that thread through two queues, like it does with the
 // password hasher (hash_worker.odin):
 //
 // - Every poll_seconds, and whenever it is asked to, the thread searches the
 //   INBOX for mails that haven't been seen yet (UID SEARCH UNSEEN). It fetches
 //   the header of each one, which marks it as seen, and queues it for the
-//   main loop as a Mail containing the sender, subject, date and
-//   Authentication-Results. The main loop takes them with email_poll.
+//   main loop as a Message containing the sender, subject, date and
+//   Authentication-Results. The main loop takes them with poll.
 // - The main loop queues the work that should be done: sending a mail
-//   (email_send) or deleting a mail it has finished with (email_delete).
+//   (send) or deleting a mail it has finished with (delete_mail).
 //
 // The main loop never waits for any of this. If the mail server can't be
 // reached, this is logged when it starts failing and when it works again, and
@@ -44,7 +44,7 @@ import "curl"
 // offer so that the password is never sent in the clear. A server on this
 // machine (localhost, 127.x) may do without it.
 
-Email_Config :: struct {
+Config :: struct {
 	address:            string, // the server's address, empty if email is disabled
 	imap:               string, // imaps://host[:port]
 	smtp:               string, // smtps://host[:port], empty if sending is disabled
@@ -86,17 +86,17 @@ CONNECT_TIMEOUT :: 15
 @(private = "file")
 EXCHANGE_TIMEOUT :: 60
 
-// Mail is a mail that has come in, as it is handed to the main loop. It owns
-// its strings (see mail_destroy).
-Mail :: struct {
-	uid:          u32, // its IMAP UID, used by email_delete
+// Message is a mail that has come in, as it is handed to the main loop. It owns
+// its strings (see message_destroy).
+Message :: struct {
+	uid:          u32, // its IMAP UID, used by delete_mail
 	from:         string, // only the address, in lower case, or "" if none could be read
 	subject:      string, // decoded (RFC 2047)
 	date:         string, // as written in the header
 	auth_results: []string, // the Authentication-Results headers, unfolded
 }
 
-mail_destroy :: proc(m: ^Mail) {
+message_destroy :: proc(m: ^Message) {
 	delete(m.from)
 	delete(m.subject)
 	delete(m.date)
@@ -107,8 +107,8 @@ mail_destroy :: proc(m: ^Mail) {
 	m^ = {}
 }
 
-// Email_Job is a job the main loop has queued for the email thread.
-Email_Job :: struct {
+// Job is a job the main loop has queued for the email thread.
+Job :: struct {
 	delete:  bool, // delete mail `uid` instead of sending
 	uid:     u32,
 	to:      string,
@@ -116,17 +116,17 @@ Email_Job :: struct {
 	body:    string,
 }
 
-Email :: struct {
+Mailer :: struct {
 	enabled:      bool, // configured and libcurl is available
-	config:       Email_Config,
+	config:       Config,
 	lib:          curl.Lib,
 	thread:       ^thread.Thread,
 	mutex:        sync.Mutex,
 	wake:         sync.Cond,
 	stop:         bool,
 	poll:         bool, // poll now instead of when it is due
-	jobs:         [dynamic]Email_Job,
-	inbox:        [dynamic]Mail,
+	jobs:         [dynamic]Job,
+	inbox:        [dynamic]Message,
 	// Owned by the email thread: its IMAP handle, which is kept so the
 	// connection can be reused, and whether the last attempt of each protocol
 	// failed so that a failure is only logged once instead of at every poll.
@@ -135,10 +135,10 @@ Email :: struct {
 	smtp_failing: bool,
 }
 
-// email_open starts the email thread if the config has an address and
+// open starts the email thread if the config has an address and
 // libcurl is available. Without either, the server runs without email:
-// email_send and email_delete do nothing and email_poll never returns a mail.
-email_open :: proc(e: ^Email, config: Email_Config) {
+// send and delete_mail do nothing and poll never returns a mail.
+open :: proc(e: ^Mailer, config: Config) {
 	if config.address == "" {
 		return
 	}
@@ -146,9 +146,9 @@ email_open :: proc(e: ^Email, config: Email_Config) {
 		log.warn("email is disabled because libcurl could not be loaded")
 		return
 	}
-	e.config = email_config_clone(config)
+	e.config = config_clone(config)
 	e.enabled = true
-	e.thread = thread.create_and_start_with_poly_data(e, email_run, init_context = context)
+	e.thread = thread.create_and_start_with_poly_data(e, run, init_context = context)
 	log.infof(
 		"email as %s, reading %s every %d s",
 		config.address,
@@ -157,7 +157,7 @@ email_open :: proc(e: ^Email, config: Email_Config) {
 	)
 }
 
-email_close :: proc(e: ^Email) {
+close :: proc(e: ^Mailer) {
 	if e.thread != nil {
 		sync.lock(&e.mutex)
 		e.stop = true
@@ -167,21 +167,21 @@ email_close :: proc(e: ^Email) {
 		thread.destroy(e.thread)
 	}
 	for &job in e.jobs {
-		email_job_destroy(&job)
+		job_destroy(&job)
 	}
 	delete(e.jobs)
 	for &m in e.inbox {
-		mail_destroy(&m)
+		message_destroy(&m)
 	}
 	delete(e.inbox)
-	email_config_destroy(&e.config)
+	config_destroy(&e.config)
 	e^ = {}
 }
 
-// email_send queues a mail to `to`, sent from the server's address. It returns
+// send queues a mail to `to`, sent from the server's address. It returns
 // false if sending is disabled (no email or no SMTP), the address or subject
 // is invalid, or too many jobs are already waiting.
-email_send :: proc(e: ^Email, to, subject, body: string) -> bool {
+send :: proc(e: ^Mailer, to, subject, body: string) -> bool {
 	if !e.enabled || e.config.smtp == "" {
 		return false
 	}
@@ -190,7 +190,7 @@ email_send :: proc(e: ^Email, to, subject, body: string) -> bool {
 	if !ok || strings.contains_any(subject, "\r\n") {
 		return false
 	}
-	return email_queue(
+	return queue(
 		e,
 		{
 			to = strings.clone(address),
@@ -200,15 +200,15 @@ email_send :: proc(e: ^Email, to, subject, body: string) -> bool {
 	)
 }
 
-// email_delete queues the deletion of a mail that came in (see Mail.uid) from
+// delete_mail queues the deletion of a mail that came in (see Message.uid) from
 // the mailbox.
-email_delete :: proc(e: ^Email, uid: u32) -> bool {
-	return e.enabled && email_queue(e, {delete = true, uid = uid})
+delete_mail :: proc(e: ^Mailer, uid: u32) -> bool {
+	return e.enabled && queue(e, {delete = true, uid = uid})
 }
 
-// email_check_now polls the mailbox right away instead of at the next
+// check_now polls the mailbox right away instead of at the next
 // scheduled poll.
-email_check_now :: proc(e: ^Email) {
+check_now :: proc(e: ^Mailer) {
 	if !e.enabled {
 		return
 	}
@@ -217,10 +217,10 @@ email_check_now :: proc(e: ^Email) {
 	sync.cond_signal(&e.wake)
 }
 
-// email_poll takes the oldest mail that has come in, if there is one.
-// The caller owns it and must free it with mail_destroy.
+// poll takes the oldest mail that has come in, if there is one.
+// The caller owns it and must free it with message_destroy.
 @(require_results)
-email_poll :: proc(e: ^Email) -> (m: Mail, ok: bool) {
+poll :: proc(e: ^Mailer) -> (m: Message, ok: bool) {
 	if !e.enabled {
 		return
 	}
@@ -234,11 +234,11 @@ email_poll :: proc(e: ^Email) -> (m: Mail, ok: bool) {
 }
 
 @(private = "file")
-email_queue :: proc(e: ^Email, job: Email_Job) -> bool {
+queue :: proc(e: ^Mailer, job: Job) -> bool {
 	job := job
 	sync.guard(&e.mutex)
 	if len(e.jobs) >= JOBS_MOST {
-		email_job_destroy(&job)
+		job_destroy(&job)
 		return false
 	}
 	append(&e.jobs, job)
@@ -247,14 +247,14 @@ email_queue :: proc(e: ^Email, job: Email_Job) -> bool {
 }
 
 @(private = "file")
-email_job_destroy :: proc(job: ^Email_Job) {
+job_destroy :: proc(job: ^Job) {
 	delete(job.to)
 	delete(job.subject)
 	delete(job.body)
 }
 
 @(private = "file")
-email_config_clone :: proc(c: Email_Config) -> Email_Config {
+config_clone :: proc(c: Config) -> Config {
 	out := c
 	out.address = strings.clone(c.address)
 	out.imap = strings.clone(c.imap)
@@ -266,7 +266,7 @@ email_config_clone :: proc(c: Email_Config) -> Email_Config {
 }
 
 @(private = "file")
-email_config_destroy :: proc(c: ^Email_Config) {
+config_destroy :: proc(c: ^Config) {
 	delete(c.address)
 	delete(c.imap)
 	delete(c.smtp)
@@ -275,14 +275,14 @@ email_config_destroy :: proc(c: ^Email_Config) {
 	delete(c.trusted_auth_host)
 }
 
-// email_run is the email thread. It handles jobs as they arrive and polls the
+// run is the email thread. It handles jobs as they arrive and polls the
 // mailbox every poll_seconds.
 @(private = "file")
-email_run :: proc(e: ^Email) {
+run :: proc(e: ^Mailer) {
 	memtrack.thread_init()
 	every := time.Duration(e.config.poll_seconds) * time.Second
 	next_poll := time.tick_now()
-	jobs := make([dynamic]Email_Job)
+	jobs := make([dynamic]Job)
 	defer delete(jobs)
 	e.imap = e.lib.easy_init()
 	defer if e.imap != nil {
@@ -317,7 +317,7 @@ email_run :: proc(e: ^Email) {
 			} else {
 				smtp_send(e, job.to, job.subject, job.body)
 			}
-			email_job_destroy(&job)
+			job_destroy(&job)
 		}
 		clear(&jobs)
 		if poll {
@@ -329,41 +329,37 @@ email_run :: proc(e: ^Email) {
 
 // imap_poll queues all unseen mails for the main loop.
 @(private = "file")
-imap_poll :: proc(e: ^Email) {
+imap_poll :: proc(e: ^Mailer) {
 	box := fmt.tprintf("%s/INBOX", url_base(e.config.imap))
 	found := make([dynamic]u8, context.temp_allocator)
-	if !email_report(
-		e,
-		true,
-		curl_request(e, e.imap, box, custom = "UID SEARCH UNSEEN", out = &found),
-	) {
+	if !report(e, true, curl_request(e, e.imap, box, custom = "UID SEARCH UNSEEN", out = &found)) {
 		return
 	}
 	uids := imap_search_uids(string(found[:]))
 	for uid in uids[:min(len(uids), POLL_MAILS_MOST)] {
 		header := make([dynamic]u8, context.temp_allocator)
 		url := fmt.tprintf("%s/;UID=%d/;SECTION=HEADER", box, uid)
-		if !email_report(e, true, curl_request(e, e.imap, url, out = &header)) {
+		if !report(e, true, curl_request(e, e.imap, url, out = &header)) {
 			return
 		}
-		m := mail_parse(uid, string(header[:]))
+		m := parse(uid, string(header[:]))
 		sync.guard(&e.mutex)
 		append(&e.inbox, m)
 	}
 }
 
 @(private = "file")
-imap_delete :: proc(e: ^Email, uid: u32) {
+imap_delete :: proc(e: ^Mailer, uid: u32) {
 	box := fmt.tprintf("%s/INBOX", url_base(e.config.imap))
 	store := fmt.tprintf("UID STORE %d +FLAGS.SILENT (\\Deleted)", uid)
-	if email_report(e, true, curl_request(e, e.imap, box, custom = store)) {
-		email_report(e, true, curl_request(e, e.imap, box, custom = "EXPUNGE"))
+	if report(e, true, curl_request(e, e.imap, box, custom = store)) {
+		report(e, true, curl_request(e, e.imap, box, custom = "EXPUNGE"))
 	}
 }
 
 @(private = "file")
-smtp_send :: proc(e: ^Email, to, subject, body: string) {
-	message := mail_compose(e.config.address, to, subject, body, time.now())
+smtp_send :: proc(e: ^Mailer, to, subject, body: string) {
+	message := compose(e.config.address, to, subject, body, time.now())
 	err := curl_request(
 		e,
 		nil,
@@ -372,16 +368,16 @@ smtp_send :: proc(e: ^Email, to, subject, body: string) {
 		mail_to = to,
 		upload = transmute([]u8)message,
 	)
-	if email_report(e, false, err) {
+	if report(e, false, err) {
 		log.infof("mailed %s: %q", to, subject)
 	}
 }
 
-// email_report logs the outcome of a request to the mail server (IMAP if
+// report logs the outcome of a request to the mail server (IMAP if
 // `imap` is set, otherwise SMTP). It logs the first failure in a row and when
 // the server works again afterwards. It returns whether the request worked.
 @(private = "file")
-email_report :: proc(e: ^Email, imap: bool, err: string) -> bool {
+report :: proc(e: ^Mailer, imap: bool, err: string) -> bool {
 	failing := &e.imap_failing if imap else &e.smtp_failing
 	what := "IMAP" if imap else "SMTP"
 	if err != "" {
@@ -438,7 +434,7 @@ curl_read :: proc "c" (data: [^]u8, size, count: uint, user: rawptr) -> uint {
 // `upload` from `mail_from` to `mail_to`. It returns the error message, or ""
 // if the exchange succeeded.
 curl_request :: proc(
-	e: ^Email,
+	e: ^Mailer,
 	h: curl.Handle,
 	url: string,
 	custom := "",
@@ -551,11 +547,11 @@ imap_search_uids :: proc(response: string) -> []u32 {
 	return uids[:]
 }
 
-// mail_parse extracts the relevant fields from a mail's header, which is read
-// up to the first empty line, with folded lines joined. The returned Mail owns
+// parse extracts the relevant fields from a mail's header, which is read
+// up to the first empty line, with folded lines joined. The returned Message owns
 // its strings.
-mail_parse :: proc(uid: u32, header: string) -> Mail {
-	m := Mail {
+parse :: proc(uid: u32, header: string) -> Message {
+	m := Message {
 		uid = uid,
 	}
 	results := make([dynamic]string)
@@ -714,10 +710,10 @@ decode_word :: proc(s: string) -> (decoded: string, used: int, ok: bool) {
 
 // ---- writing mail ----
 
-// mail_compose writes a plain text mail from `from` to `to` using CRLF line
+// compose writes a plain text mail from `from` to `to` using CRLF line
 // endings as SMTP requires. A subject that isn't ASCII is encoded as described
 // in RFC 2047. The result is allocated with the temp allocator.
-mail_compose :: proc(from, to, subject, body: string, now: time.Time) -> string {
+compose :: proc(from, to, subject, body: string, now: time.Time) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	id: [16]u8
 	crypto.rand_bytes(id[:])

@@ -1,4 +1,4 @@
-package server
+package mail
 
 import "core:strings"
 import "core:testing"
@@ -6,7 +6,7 @@ import "core:time"
 
 import "common:proto"
 
-// Tests of reading and writing mail (email.odin) that don't need a mail server.
+// Tests of reading and writing mail (mail/mail.odin) that don't need a mail server.
 
 @(test)
 test_mail_parse :: proc(t: ^testing.T) {
@@ -21,8 +21,8 @@ test_mail_parse :: proc(t: ^testing.T) {
 		"Date: Tue, 06 Oct 2026 08:00:00 +0000\r\n" +
 		"\r\n" +
 		"Subject: not a header, the body\r\n"
-	m := mail_parse(5, header)
-	defer mail_destroy(&m)
+	m := parse(5, header)
+	defer message_destroy(&m)
 	testing.expect_value(t, m.uid, 5)
 	testing.expect_value(t, m.from, "alice@example.com")
 	testing.expect_value(t, m.subject, "Verify ABC123 ä")
@@ -37,16 +37,16 @@ test_mail_parse :: proc(t: ^testing.T) {
 	}
 
 	// A header with bare LF line endings, a bare address and no other fields.
-	n := mail_parse(7, "From: bob@example.net\nSubject: plain\n")
-	defer mail_destroy(&n)
+	n := parse(7, "From: bob@example.net\nSubject: plain\n")
+	defer message_destroy(&n)
 	testing.expect_value(t, n.from, "bob@example.net")
 	testing.expect_value(t, n.subject, "plain")
 	testing.expect_value(t, n.date, "")
 	testing.expect_value(t, len(n.auth_results), 0)
 
 	// No address can be extracted.
-	o := mail_parse(8, "From: Mailer Daemon\r\n\r\n")
-	defer mail_destroy(&o)
+	o := parse(8, "From: Mailer Daemon\r\n\r\n")
+	defer message_destroy(&o)
 	testing.expect_value(t, o.from, "")
 }
 
@@ -106,7 +106,7 @@ test_mail_compose :: proc(t: ^testing.T) {
 	when_ := time.unix(1791273600, 0) // Tue, 06 Oct 2026 08:00:00 UTC
 	testing.expect_value(t, rfc5322_date(when_), "Tue, 06 Oct 2026 08:00:00 +0000")
 
-	mail := mail_compose("yap@example.org", "bob@example.net", "Hi", "one\ntwo\r\n", when_)
+	mail := compose("yap@example.org", "bob@example.net", "Hi", "one\ntwo\r\n", when_)
 	testing.expect(t, strings.contains(mail, "Date: Tue, 06 Oct 2026 08:00:00 +0000\r\n"))
 	testing.expect(t, strings.contains(mail, "From: <yap@example.org>\r\n"))
 	testing.expect(t, strings.contains(mail, "To: <bob@example.net>\r\n"))
@@ -116,7 +116,7 @@ test_mail_compose :: proc(t: ^testing.T) {
 
 	// A subject that is not ASCII is encoded and decodes back to the original.
 	subject := "Grüße aus der Ferne, mit einer Betreffzeile, die lang genug ist"
-	mail = mail_compose("yap@example.org", "bob@example.net", subject, "", when_)
+	mail = compose("yap@example.org", "bob@example.net", subject, "", when_)
 	start := strings.index(mail, "Subject: ") + len("Subject: ")
 	end := strings.index(mail, "\r\nMessage-ID")
 	encoded := mail[start:end]

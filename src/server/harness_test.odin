@@ -8,6 +8,7 @@ import "core:time"
 
 import "common:proto"
 import "gate"
+import "mail"
 
 // The server tests' harness. A Test_Server is a Server without its socket.
 // Connections are created by hand, requests are passed to rpc_handle as if
@@ -73,7 +74,7 @@ ts_close :: proc(ts: ^Test_Server) {
 	// Free what verify_test.odin put in the email queues. There is no
 	// email thread and no config of its own to free.
 	for &m in s.email.inbox {
-		mail_destroy(&m)
+		mail.message_destroy(&m)
 	}
 	delete(s.email.inbox)
 	delete(s.email.jobs)

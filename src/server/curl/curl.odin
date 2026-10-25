@@ -4,7 +4,7 @@ import "core:c"
 import "core:log"
 
 // This file contains the libcurl bindings the server needs for email (see
-// email.odin) and Web Push (see push.odin). Only the few procedures they use
+// mail/mail.odin) and Web Push (see push.odin). Only the few procedures they use
 // are loaded, into a table.
 //
 // On Linux and macOS, libcurl is loaded from the system when email or push is
@@ -24,7 +24,7 @@ Slist :: distinct rawptr
 // The result code of curl's procedures, where 0 is CURLE_OK.
 Code :: i32
 
-// The options that email.odin and push.odin set (the CURLOPT_* values from curl.h).
+// The options that mail.odin and push.odin set (the CURLOPT_* values from curl.h).
 Option :: enum i32 {
 	Timeout              = 13,
 	Post_Field_Size      = 60,

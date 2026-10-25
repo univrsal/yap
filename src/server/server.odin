@@ -12,6 +12,7 @@ import "core:time"
 import "common:."
 import "common:proto"
 import "gate"
+import "mail"
 
 // The default maximum number of sessions, unless the config sets one
 // (max_sessions). It limits how much memory the sessions use, and with
@@ -144,8 +145,8 @@ Server :: struct {
 	// iterations take (loop_stats.odin).
 	handling:           proto.Message_Kind,
 	loop:               Loop_Stats,
-	// The server's own email account, if it has one (email.odin).
-	email:              Email,
+	// The server's own email account, if it has one (mail/mail.odin).
+	email:              mail.Mailer,
 	// Who is allowed to register, and how quickly registrations are
 	// accepted (register.odin).
 	registration:       Registration_Config,
@@ -215,8 +216,8 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 	defer hash_worker_stop(&s.hasher)
 	defer auth_destroy(&s.auth)
-	email_open(&s.email, settings.email)
-	defer email_close(&s.email)
+	mail.open(&s.email, settings.email)
+	defer mail.close(&s.email)
 	push_open(&s.push, settings.push)
 	defer push_close(&s.push)
 	memory_log_open(&s, settings.memory_log)

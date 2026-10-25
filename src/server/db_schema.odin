@@ -89,7 +89,8 @@ MESSAGES_TRIGGERS :: `
 `
 
 @(private = "file")
-BASELINE :: `
+BASELINE ::
+	`
 	-- The database's own metadata, and the blobs (see blobs.odin).
 	CREATE TABLE meta (
 		key   TEXT PRIMARY KEY,
@@ -114,7 +115,7 @@ BASELINE :: `
 	-- that clients connected to several servers can keep the newest on all of
 	-- them (proto.self_times). Its email address is in lower case, or '' for
 	-- none, and can only belong to one account at a time; deleted accounts
-	-- (flag 8) have none (email.odin). verify_code and verify_expires are what
+	-- (flag 8) have none (mail/mail.odin). verify_code and verify_expires are what
 	-- verifying that address takes (verify.odin): the code its mail has to
 	-- contain, and when the account is deleted if it hasn't been verified (0
 	-- means never); they are set while the account is Unverified (flag 16).
@@ -182,7 +183,9 @@ BASELINE :: `
 		PRIMARY KEY (conv, account)
 	) WITHOUT ROWID;
 	CREATE INDEX members_account ON members(account);
-` + MESSAGES_TABLE + `
+` +
+	MESSAGES_TABLE +
+	`
 	-- The people in an account's buddy list (see buddies.odin).
 	CREATE TABLE buddies (
 		account INTEGER NOT NULL REFERENCES accounts(id),
@@ -322,7 +325,8 @@ BASELINE :: `
 		rights INTEGER NOT NULL,
 		PRIMARY KEY (conv, role)
 	) WITHOUT ROWID;
-` + MESSAGES_TRIGGERS
+` +
+	MESSAGES_TRIGGERS
 
 // UPGRADE_28 brings a database from the last of the squashed steps (28) to the
 // baseline. The only difference is `messages.blob`, which pictures used before
@@ -336,14 +340,17 @@ BASELINE :: `
 //
 // It can go once no database at version 28 is left.
 @(private = "file")
-UPGRADE_28 :: `
+UPGRADE_28 ::
+	`
 	PRAGMA legacy_alter_table = ON;
 	ALTER TABLE messages RENAME TO messages_old;
 	DROP INDEX messages_conv;
 	DROP INDEX messages_thread;
 	DROP INDEX messages_nonce;
 	DROP INDEX messages_blob;
-` + MESSAGES_TABLE + `
+` +
+	MESSAGES_TABLE +
+	`
 	INSERT INTO messages (id, conv, sender, time, kind, flags, thread_root, text, edited,
 			reply_count, last_reply, nonce, file_size, fwd_sender, fwd_conv, fwd_time)
 		SELECT id, conv, sender, time, kind, flags, thread_root, text, edited,
@@ -354,7 +361,8 @@ UPGRADE_28 :: `
 		SELECT 'messages', seq FROM sqlite_sequence WHERE name = 'messages_old';
 	DROP TABLE messages_old;
 	PRAGMA legacy_alter_table = OFF;
-` + MESSAGES_TRIGGERS
+` +
+	MESSAGES_TRIGGERS
 
 // The steps since the baseline, the first of which takes a database to
 // BASELINE_VERSION + 1.

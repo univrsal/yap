@@ -5,8 +5,9 @@ import "core:strings"
 import "core:time"
 
 import "curl"
+import "mail"
 
-// `yap-server email test` tries out the email config (see email.odin) and
+// `yap-server email test` tries out the email config (see mail/mail.odin) and
 // reports what worked. It is meant for whoever is setting up the server.
 //
 //	yap-server email test [config.json]
@@ -46,7 +47,7 @@ run_email_command :: proc(args: []string) -> int {
 		)
 		return 2
 	}
-	e := Email {
+	e := mail.Mailer {
 		config = cfg,
 	}
 	if !curl.load(&e.lib) {
@@ -56,16 +57,17 @@ run_email_command :: proc(args: []string) -> int {
 
 	failed := false
 	found := make([dynamic]u8, context.temp_allocator)
-	box := fmt.tprintf("%s/INBOX", url_base(cfg.imap))
+	box := fmt.tprintf("%s/INBOX", mail.url_base(cfg.imap))
 	// Searching doesn't mark any mail as read.
-	if err := curl_request(&e, nil, box, custom = "UID SEARCH UNSEEN", out = &found); err != "" {
+	if err := mail.curl_request(&e, nil, box, custom = "UID SEARCH UNSEEN", out = &found);
+	   err != "" {
 		fmt.printfln("IMAP %s: failed: %s", cfg.imap, err)
 		failed = true
 	} else {
 		fmt.printfln(
 			"IMAP %s: logged in, %d unread mails in the INBOX",
 			cfg.imap,
-			len(imap_search_uids(string(found[:]))),
+			len(mail.imap_search_uids(string(found[:]))),
 		)
 	}
 
@@ -73,17 +75,17 @@ run_email_command :: proc(args: []string) -> int {
 	case cfg.smtp == "":
 		fmt.println("SMTP: not configured, so the server will not send any mail")
 	case to != "":
-		message := mail_compose(
+		message := mail.compose(
 			cfg.address,
 			strings.to_lower(to, context.temp_allocator),
 			"yap: a test",
 			"This is a test from yap-server email test.\n",
 			time.now(),
 		)
-		err := curl_request(
+		err := mail.curl_request(
 			&e,
 			nil,
-			url_base(cfg.smtp),
+			mail.url_base(cfg.smtp),
 			mail_from = cfg.address,
 			mail_to = strings.to_lower(to, context.temp_allocator),
 			upload = transmute([]u8)message,
@@ -95,8 +97,13 @@ run_email_command :: proc(args: []string) -> int {
 			fmt.printfln("SMTP %s: sent a test mail to %s", cfg.smtp, to)
 		}
 	case:
-		if err := curl_request(&e, nil, url_base(cfg.smtp), custom = "NOOP", no_body = true);
-		   err != "" {
+		if err := mail.curl_request(
+			&e,
+			nil,
+			mail.url_base(cfg.smtp),
+			custom = "NOOP",
+			no_body = true,
+		); err != "" {
 			fmt.printfln("SMTP %s: failed: %s", cfg.smtp, err)
 			failed = true
 		} else {

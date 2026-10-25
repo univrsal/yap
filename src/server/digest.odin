@@ -7,6 +7,7 @@ import "core:time"
 import "core:unicode/utf8"
 
 import "common:proto"
+import "mail"
 import "sqlite"
 
 // Emailing accounts what they missed (see proto.SETTING_EMAIL_DIGEST), as the
@@ -22,7 +23,7 @@ import "sqlite"
 // A mail lists direct messages first, then mentions, then the rest of what came
 // in channels, with each message listed only once.
 //
-// This needs the server's email with SMTP (see email.odin), and an account with
+// This needs the server's email with SMTP (see mail/mail.odin), and an account with
 // an email address that isn't waiting to be verified (see verify.odin). Once a
 // minute, every account that wants mail and has had no connection for
 // digest_minutes is checked, unless no message has been posted since it was
@@ -57,7 +58,7 @@ digest_on :: proc(s: ^Server) -> bool {
 digest_wait :: proc(s: ^Server) -> i64 {
 	minutes := s.email.config.digest_minutes
 	if minutes <= 0 {
-		minutes = DEFAULT_DIGEST_MINUTES
+		minutes = mail.DEFAULT_DIGEST_MINUTES
 	}
 	return i64(minutes) * 60 * 1000
 }
@@ -152,7 +153,7 @@ digest_account :: proc(s: ^Server, acc: ^Account, newest: proto.Msg_Id, now: i64
 	}
 	slice.sort_by(items[:], proc(a, b: Digest_Item) -> bool {return a.id < b.id})
 	subject, body := digest_compose(s, acc, items[:], more)
-	if !email_send(&s.email, acc.email, subject, body) {
+	if !mail.send(&s.email, acc.email, subject, body) {
 		return // it is tried again next time
 	}
 	_ = db_write(&s.db, .Account_Set_Digest, i64(acc.id), i64(newest))

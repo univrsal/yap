@@ -85,7 +85,7 @@ package proto
 // told the address (Self), and only the account itself can set it
 // (Email_Set), in the form that email_clean produces. The address must not
 // belong to another account (otherwise the answer is Conflict). It is used
-// for mail sent by the server (src/server/email.odin).
+// for mail sent by the server (src/server/mail/mail.odin).
 //
 // Times are Unix milliseconds.
 
