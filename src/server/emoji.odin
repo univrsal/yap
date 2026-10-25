@@ -252,9 +252,7 @@ emoji_take :: proc(s: ^Server, sheet: ^Built_Sheet, tell: bool) {
 	// Remember the blobs so that purging keeps them, even when it runs without
 	// the server (retention.odin).
 	db_meta_set(&s.db, EMOJI_SHEET_META, i64(blob))
-	q := db_stmt(&s.db, .Meta_Delete_Like)
-	db_bind_text(q, 1, EMOJI_FRAMES_META + "%")
-	if !db_run(&s.db, q) {
+	if !db_write(&s.db, .Meta_Delete_Like, EMOJI_FRAMES_META + "%") {
 		log.error("could not remove the frames of the previous emoji from the database")
 	}
 	for a in e.animated {

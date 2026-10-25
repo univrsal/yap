@@ -377,11 +377,7 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // the conversation, sender, kind and content.
 msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> bool {
 	m.time = proto.Unix_Ms(unix_ms())
-	q := db_stmt(&s.db, .Msg_Add)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(m.sender))
-	db_bind_int(q, 3, i64(m.time))
-	db_bind_int(q, 4, i64(m.kind))
+	q := db_query(&s.db, .Msg_Add, i64(conv.id), i64(m.sender), i64(m.time), i64(m.kind))
 	#partial switch m.kind {
 	case .Text:
 		db_bind_text(q, 5, m.text)
@@ -412,9 +408,7 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 		conv.posted[0 if m.sender == conv.a else 1] = true
 	}
 
-	q = db_stmt(&s.db, .Conv_Set_Last)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(m.id))
+	q = db_query(&s.db, .Conv_Set_Last, i64(conv.id), i64(m.id))
 	db_run(&s.db, q) or_return
 	conv.last_msg, conv.last_time = m.id, m.time
 	return true
@@ -431,9 +425,7 @@ msg_by_nonce :: proc(
 	at: proto.Unix_Ms,
 	found: bool,
 ) {
-	q := db_stmt(db, .Msg_By_Nonce)
-	db_bind_int(q, 1, i64(sender))
-	db_bind_int(q, 2, i64(nonce))
+	q := db_query(db, .Msg_By_Nonce, i64(sender), i64(nonce))
 	row, ok := db_step(db, q)
 	if !ok || !row {
 		return
@@ -624,10 +616,7 @@ msgs_read :: proc(
 	limit: int,
 	out: ^[dynamic]proto.Message,
 ) -> bool {
-	q := db_stmt(&s.db, stmt)
-	db_bind_int(q, 1, i64(conv))
-	db_bind_int(q, 2, anchor)
-	db_bind_int(q, 3, i64(limit))
+	q := db_query(&s.db, stmt, i64(conv), anchor, i64(limit))
 	for {
 		row, ok := db_step(&s.db, q)
 		if !ok {
@@ -644,9 +633,7 @@ msgs_read :: proc(
 // before or after an id finds one.
 @(private = "file")
 msg_any :: proc(s: ^Server, stmt: Stmt, conv: proto.Conv_Id, id: proto.Msg_Id) -> bool {
-	q := db_stmt(&s.db, stmt)
-	db_bind_int(q, 1, i64(conv))
-	db_bind_int(q, 2, i64(id))
+	q := db_query(&s.db, stmt, i64(conv), i64(id))
 	row, ok := db_step(&s.db, q)
 	if ok && row {
 		sqlite.reset(q)

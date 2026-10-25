@@ -234,8 +234,7 @@ msg_boundary :: proc(db: ^DB, time_ms: i64) -> proto.Msg_Id {
 	// Look for the first position whose next message isn't older than `time`.
 	for lo < hi {
 		mid := lo + (hi - lo) / 2
-		q = db_stmt(db, .Msg_From)
-		db_bind_int(q, 1, mid)
+		q = db_query(db, .Msg_From, mid)
 		row, ok := db_step(db, q)
 		if !ok {
 			return proto.Msg_Id(lo)
@@ -418,10 +417,7 @@ scan :: proc(
 	rows: []Scanned,
 	ok: bool,
 ) {
-	q := db_stmt(db, one if step.conv != 0 else all)
-	db_bind_int(q, 1, step.cursor)
-	db_bind_int(q, 2, i64(step.below))
-	db_bind_int(q, 3, PURGE_CHUNK)
+	q := db_query(db, one if step.conv != 0 else all, step.cursor, i64(step.below), PURGE_CHUNK)
 	if step.conv != 0 {
 		db_bind_int(q, 4, i64(step.conv))
 	}
@@ -468,9 +464,7 @@ purge_messages_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 		if .Has_Thread in m.flags {
 			kept := .Pinned in m.flags
 			if !kept {
-				q := db_stmt(db, .Purge_Reply_Kept)
-				db_bind_int(q, 1, i64(m.id))
-				db_bind_int(q, 2, i64(step.below))
+				q := db_query(db, .Purge_Reply_Kept, i64(m.id), i64(step.below))
 				row, stepped := db_step(db, q)
 				if row {
 					sqlite.reset(q)
@@ -568,11 +562,7 @@ collect_chunk :: proc(bs: ^Blob_Store, step: ^Purge_Step, now_ms: i64) -> bool {
 	}
 	unused: [PURGE_CHUNK]Unused
 	n, seen := 0, 0
-	q := db_stmt(db, .Blob_Scan)
-	db_bind_int(q, 1, step.cursor)
-	db_bind_int(q, 2, now_ms - BLOB_GRACE_MS)
-	db_bind_int(q, 3, i64(step.keep))
-	db_bind_int(q, 4, PURGE_CHUNK)
+	q := db_query(db, .Blob_Scan, step.cursor, now_ms - BLOB_GRACE_MS, i64(step.keep), PURGE_CHUNK)
 	for {
 		row, ok := db_step(db, q)
 		if !ok {

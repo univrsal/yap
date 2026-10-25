@@ -113,8 +113,7 @@ run_purge_command :: proc(args: []string) -> int {
 	}
 
 	below := msg_boundary(&db, before)
-	q := db_stmt(&db, .Purge_Count_Conv if conv != nil else .Purge_Count)
-	db_bind_int(q, 1, i64(below))
+	q := db_query(&db, .Purge_Count_Conv if conv != nil else .Purge_Count, i64(below))
 	if conv != nil {
 		db_bind_int(q, 2, i64(conv.id))
 	}
@@ -123,8 +122,7 @@ run_purge_command :: proc(args: []string) -> int {
 		count = db_col_int(q, 0)
 		sqlite.reset(q)
 	}
-	q = db_stmt(&db, .Purge_Count_Files_Conv if conv != nil else .Purge_Count_Files)
-	db_bind_int(q, 1, i64(below))
+	q = db_query(&db, .Purge_Count_Files_Conv if conv != nil else .Purge_Count_Files, i64(below))
 	if conv != nil {
 		db_bind_int(q, 2, i64(conv.id))
 	}

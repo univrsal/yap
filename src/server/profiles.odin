@@ -184,12 +184,7 @@ account_set_status :: proc(
 	until: i64,
 	at: i64,
 ) -> bool {
-	q := db_stmt(a.db, .Account_Set_Status)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_text(q, 2, status)
-	db_bind_int(q, 3, until)
-	db_bind_int(q, 4, at)
-	db_run(a.db, q) or_return
+	db_write(a.db, .Account_Set_Status, i64(acc.id), status, until, at) or_return
 	delete(acc.status)
 	acc.status = strings.clone(status)
 	acc.status_until, acc.status_at = until, at
@@ -197,8 +192,7 @@ account_set_status :: proc(
 }
 
 account_set_avatar :: proc(a: ^Accounts, acc: ^Account, avatar: proto.Blob_Id) -> bool {
-	q := db_stmt(a.db, .Account_Set_Avatar)
-	db_bind_int(q, 1, i64(acc.id))
+	q := db_query(a.db, .Account_Set_Avatar, i64(acc.id))
 	if avatar == 0 {
 		db_bind_null(q, 2)
 	} else {
@@ -255,10 +249,7 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 	}
 	if len(value) == 0 {
-		q := db_stmt(&s.db, .Setting_Delete)
-		db_bind_int(q, 1, i64(acc.id))
-		db_bind_text(q, 2, key)
-		if !db_run(&s.db, q) {
+		if !db_write(&s.db, .Setting_Delete, i64(acc.id), key) {
 			respond(u, id, .Internal)
 			return
 		}
@@ -267,11 +258,7 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			respond(u, id, .Too_Large)
 			return
 		}
-		q := db_stmt(&s.db, .Setting_Put)
-		db_bind_int(q, 1, i64(acc.id))
-		db_bind_text(q, 2, key)
-		db_bind_blob(q, 3, value)
-		if !db_run(&s.db, q) {
+		if !db_write(&s.db, .Setting_Put, i64(acc.id), key, value) {
 			respond(u, id, .Internal)
 			return
 		}
@@ -301,9 +288,7 @@ setting_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 
 @(private = "file")
 setting_exists :: proc(s: ^Server, acc: ^Account, key: string) -> bool {
-	q := db_stmt(&s.db, .Setting_Has)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_text(q, 2, key)
+	q := db_query(&s.db, .Setting_Has, i64(acc.id), key)
 	row, _ := db_step(&s.db, q)
 	sqlite.reset(q)
 	return row
@@ -311,8 +296,7 @@ setting_exists :: proc(s: ^Server, acc: ^Account, key: string) -> bool {
 
 @(private = "file")
 setting_count :: proc(s: ^Server, acc: ^Account) -> int {
-	q := db_stmt(&s.db, .Setting_Count)
-	db_bind_int(q, 1, i64(acc.id))
+	q := db_query(&s.db, .Setting_Count, i64(acc.id))
 	row, _ := db_step(&s.db, q)
 	n := int(db_col_int(q, 0)) if row else 0
 	sqlite.reset(q)
@@ -322,8 +306,7 @@ setting_count :: proc(s: ^Server, acc: ^Account) -> int {
 // send_settings sends the settings of the account to a connection that
 // just logged in (see directory_sync).
 send_settings :: proc(s: ^Server, u: ^Conn) {
-	q := db_stmt(&s.db, .Setting_All)
-	db_bind_int(q, 1, i64(u.account.id))
+	q := db_query(&s.db, .Setting_All, i64(u.account.id))
 	buf: [proto.SETTING_MAX_SIZE]u8
 	for {
 		row, ok := db_step(&s.db, q)

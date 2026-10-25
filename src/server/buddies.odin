@@ -60,10 +60,7 @@ buddy_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Ok)
 		return
 	}
-	q := db_stmt(&s.db, .Buddy_Add if on else .Buddy_Remove)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_int(q, 2, i64(other))
-	if !db_run(&s.db, q) {
+	if !db_write(&s.db, .Buddy_Add if on else .Buddy_Remove, i64(acc.id), i64(other)) {
 		respond(u, id, .Internal)
 		return
 	}

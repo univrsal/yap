@@ -134,27 +134,20 @@ mentions_store :: proc(
 ) -> bool {
 	mentions_clear(s, id) or_return
 	for a in accounts {
-		q := db_stmt(&s.db, .Mention_Add)
-		db_bind_int(q, 1, i64(a))
-		db_bind_int(q, 2, i64(conv.id))
-		db_bind_int(q, 3, i64(id))
-		db_run(&s.db, q) or_return
+		db_write(&s.db, .Mention_Add, i64(a), i64(conv.id), i64(id)) or_return
 	}
 	return true
 }
 
 mentions_clear :: proc(s: ^Server, id: proto.Msg_Id) -> bool {
-	q := db_stmt(&s.db, .Mention_Clear)
-	db_bind_int(q, 1, i64(id))
-	return db_run(&s.db, q)
+	return db_write(&s.db, .Mention_Clear, i64(id))
 }
 
 // mentioned_in returns the accounts that message `id` is recorded as
 // mentioning, allocated with the temp allocator.
 mentioned_in :: proc(s: ^Server, id: proto.Msg_Id) -> []proto.Account_Id {
 	list := make([dynamic]proto.Account_Id, context.temp_allocator)
-	q := db_stmt(&s.db, .Mentioned_In)
-	db_bind_int(q, 1, i64(id))
+	q := db_query(&s.db, .Mentioned_In, i64(id))
 	for {
 		row, ok := db_step(&s.db, q)
 		if !ok || !row {

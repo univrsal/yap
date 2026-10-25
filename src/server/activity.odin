@@ -72,11 +72,7 @@ activity_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	if chosen != acc.chosen {
-		q := db_stmt(&s.db, .Account_Set_Activity)
-		db_bind_int(q, 1, i64(acc.id))
-		db_bind_int(q, 2, i64(chosen))
-		db_bind_int(q, 3, at)
-		if !db_run(&s.db, q) {
+		if !db_write(&s.db, .Account_Set_Activity, i64(acc.id), i64(chosen), at) {
 			respond(u, id, .Internal)
 			return
 		}

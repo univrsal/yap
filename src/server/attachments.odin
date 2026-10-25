@@ -466,8 +466,7 @@ attach_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // attachment_visible is whether an account may fetch a file, which is the
 // case if it may read a message that has the file attached.
 attachment_visible :: proc(s: ^Server, account: proto.Account_Id, blob: Blob_Id) -> bool {
-	q := db_stmt(&s.db, .Attach_Blob_Convs)
-	db_bind_int(q, 1, i64(blob))
+	q := db_query(&s.db, .Attach_Blob_Convs, i64(blob))
 	for {
 		row, ok := db_step(&s.db, q)
 		if !ok || !row {
@@ -664,8 +663,7 @@ attach_files :: proc(s: ^Server, m: ^proto.Message) {
 	if .Has_Attachments not_in m.flags {
 		return
 	}
-	q := db_stmt(&s.db, .Attach_Of_Msg)
-	db_bind_int(q, 1, i64(m.id))
+	q := db_query(&s.db, .Attach_Of_Msg, i64(m.id))
 	m.attachment_count = 0
 	for m.attachment_count < proto.MAX_ATTACHMENTS {
 		row, ok := db_step(&s.db, q)
@@ -700,19 +698,10 @@ attachments_store :: proc(s: ^Server, m: proto.Message) -> bool {
 		}
 		strings.write_string(&names, m.attachments[i].name)
 	}
-	index := db_stmt(&s.db, .Files_Index_Add)
-	db_bind_int(index, 1, i64(m.id))
-	db_bind_text(index, 2, strings.to_string(names))
-	db_run(&s.db, index) or_return
+	db_write(&s.db, .Files_Index_Add, i64(m.id), strings.to_string(names)) or_return
 	for i in 0 ..< m.attachment_count {
 		a := m.attachments[i]
-		q := db_stmt(&s.db, .Attach_Add)
-		db_bind_int(q, 1, i64(m.id))
-		db_bind_int(q, 2, i64(i))
-		db_bind_int(q, 3, i64(a.blob))
-		db_bind_text(q, 4, a.name)
-		db_bind_int(q, 5, i64(a.size))
-		db_run(&s.db, q) or_return
+		db_write(&s.db, .Attach_Add, i64(m.id), i64(i), i64(a.blob), a.name, i64(a.size)) or_return
 	}
 	return true
 }

@@ -1,10 +1,13 @@
 package server
 
 import "core:c"
+import "core:fmt"
 import "core:log"
+import "core:reflect"
 import "core:strings"
 import "core:time"
 
+import "base:runtime"
 import "sqlite"
 
 // The server's database is a single SQLite file (yap.db in the data directory)
@@ -201,6 +204,10 @@ Stmt :: enum {
 	Push_Subs_Of,
 }
 
+// The columns of a whole message, in the order msg_of_row (messages.odin)
+// reads them.
+MSG_COLS :: "m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time"
+
 @(private = "file", rodata)
 STMT_SQL := [Stmt]string {
 	.Meta_Get               = "SELECT value FROM meta WHERE key = ?1",
@@ -240,17 +247,17 @@ STMT_SQL := [Stmt]string {
 	.Conv_Set_Last          = "UPDATE convs SET last_msg = ?2 WHERE id = ?1",
 	.Msg_Add                = "INSERT INTO messages (conv, sender, time, kind, text, nonce, file_size, thread_root, flags, fwd_sender, fwd_conv, fwd_time) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
 	.Msg_By_Nonce           = "SELECT id, time FROM messages WHERE sender = ?1 AND nonce = ?2",
-	.Msg_Before             = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages m WHERE m.conv = ?1 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3",
-	.Msg_After              = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages m WHERE m.conv = ?1 AND m.id > ?2 ORDER BY m.id LIMIT ?3",
+	.Msg_Before             = "SELECT " + MSG_COLS + " FROM messages m WHERE m.conv = ?1 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3",
+	.Msg_After              = "SELECT " + MSG_COLS + " FROM messages m WHERE m.conv = ?1 AND m.id > ?2 ORDER BY m.id LIMIT ?3",
 	.Msg_Any_Before         = "SELECT 1 FROM messages WHERE conv = ?1 AND id < ?2 LIMIT 1",
 	.Msg_Any_After          = "SELECT 1 FROM messages WHERE conv = ?1 AND id > ?2 LIMIT 1",
-	.Thread_Before          = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages m WHERE m.thread_root = ?1 AND m.thread_root != 0 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3",
-	.Thread_After           = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages m WHERE m.thread_root = ?1 AND m.thread_root != 0 AND m.id > ?2 ORDER BY m.id LIMIT ?3",
+	.Thread_Before          = "SELECT " + MSG_COLS + " FROM messages m WHERE m.thread_root = ?1 AND m.thread_root != 0 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3",
+	.Thread_After           = "SELECT " + MSG_COLS + " FROM messages m WHERE m.thread_root = ?1 AND m.thread_root != 0 AND m.id > ?2 ORDER BY m.id LIMIT ?3",
 	.Thread_Any_Before      = "SELECT 1 FROM messages WHERE thread_root = ?1 AND thread_root != 0 AND id < ?2 LIMIT 1",
 	.Thread_Any_After       = "SELECT 1 FROM messages WHERE thread_root = ?1 AND thread_root != 0 AND id > ?2 LIMIT 1",
 	.Thread_Recount         = "UPDATE messages SET reply_count = (SELECT count(*) FROM messages WHERE thread_root = ?1 AND thread_root != 0 AND flags & 1 = 0), last_reply = coalesce((SELECT max(id) FROM messages WHERE thread_root = ?1 AND thread_root != 0 AND flags & 1 = 0), 0), flags = CASE WHEN EXISTS (SELECT 1 FROM messages WHERE thread_root = ?1 AND thread_root != 0) THEN flags | 4 ELSE flags & ~4 END WHERE id = ?1",
 	.Msg_Posted_In          = "SELECT 1 FROM messages WHERE conv = ?1 AND sender = ?2 LIMIT 1",
-	.Msg_By_Id              = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages m WHERE m.id = ?1",
+	.Msg_By_Id              = "SELECT " + MSG_COLS + " FROM messages m WHERE m.id = ?1",
 	.Msg_Edit               = "UPDATE messages SET text = ?2, edited = ?3 WHERE id = ?1",
 	// Marks the message as deleted, and as neither pinned nor having files.
 	.Msg_Delete             = "UPDATE messages SET flags = (flags | 1) & ~18, text = NULL, file_size = 0 WHERE id = ?1",
@@ -268,7 +275,7 @@ STMT_SQL := [Stmt]string {
 	.Reactions_Of           = "SELECT emoji, count(*), max(account = ?2) FROM reactions WHERE message = ?1 GROUP BY emoji ORDER BY min(time), emoji",
 	.React_Clear            = "DELETE FROM reactions WHERE message = ?1",
 	.Mention_Count          = "SELECT count(*) FROM (SELECT 1 FROM mentions WHERE account = ?1 AND conv = ?2 AND message > ?3 LIMIT 100)",
-	.Pins_Of                = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM pins p JOIN messages m ON m.id = p.message WHERE p.conv = ?1 ORDER BY p.time DESC, p.message DESC LIMIT ?2",
+	.Pins_Of                = "SELECT " + MSG_COLS + " FROM pins p JOIN messages m ON m.id = p.message WHERE p.conv = ?1 ORDER BY p.time DESC, p.message DESC LIMIT ?2",
 	.Buddy_All              = "SELECT account, buddy FROM buddies",
 	.Role_All               = "SELECT id, name, perms, color, position, flags FROM roles ORDER BY id",
 	.Role_Add               = "INSERT INTO roles (name, perms, color, position, flags) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -299,7 +306,7 @@ STMT_SQL := [Stmt]string {
 	.Invite_Use             = "UPDATE invites SET uses = uses + 1 WHERE code = ?1",
 	.Invite_Use_Add         = "INSERT INTO invite_uses (code, account, used) VALUES (?1, ?2, ?3)",
 	.Invite_Of              = "SELECT u.code, i.creator FROM invite_uses u JOIN invites i ON i.code = u.code WHERE u.account = ?1 ORDER BY u.used LIMIT 1",
-	.Msg_Search             = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM messages_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE messages_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
+	.Msg_Search             = "SELECT " + MSG_COLS + " FROM messages_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE messages_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
 	.Reactors_Of            = "SELECT account FROM reactions WHERE message = ?1 AND emoji = ?2 ORDER BY time, account LIMIT ?3",
 	.Msg_Bounds             = "SELECT coalesce((SELECT min(id) FROM messages), 0), coalesce((SELECT max(id) FROM messages), 0)",
 	.Msg_From               = "SELECT id, time FROM messages WHERE id >= ?1 ORDER BY id LIMIT 1",
@@ -327,7 +334,7 @@ STMT_SQL := [Stmt]string {
 	.Files_Index_Add        = "INSERT INTO files_fts (rowid, names) VALUES (?1, ?2)",
 	.Files_Index_Remove     = "DELETE FROM files_fts WHERE rowid = ?1",
 	// Like Msg_Search, but searches the names of the files attached to messages.
-	.File_Search            = "SELECT m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE files_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
+	.File_Search            = "SELECT " + MSG_COLS + " FROM files_fts f CROSS JOIN messages m ON m.id = f.rowid WHERE files_fts MATCH ?1 AND f.rowid < ?2 ORDER BY f.rowid DESC",
 	// What is left of a deleted account (see account_erase): a name nobody can
 	// log in with, and nothing else.
 	.Account_Erase          = "UPDATE accounts SET username = ?2, display = ?3, flags = ?4, status = '', status_until = 0, avatar = NULL, activity = 0, email = '', verify_code = '', verify_expires = 0, pw_hash = zeroblob(32) WHERE id = ?1",
@@ -637,6 +644,45 @@ db_bind_blob :: proc(s: ^sqlite.Stmt, index: int, value: []u8) {
 
 db_bind_null :: proc(s: ^sqlite.Stmt, index: int) {
 	sqlite.bind_null(s, c.int(index))
+}
+
+// db_bind binds `args` to a statement's parameters, ?1 first: integers (and
+// distinct integers, enums and bools, as 0 and 1), strings, byte slices,
+// and nil for NULL.
+db_bind :: proc(s: ^sqlite.Stmt, args: ..any) {
+	for arg, i in args {
+		index := i + 1
+		if arg == nil {
+			db_bind_null(s, index)
+			continue
+		}
+		if text, is_text := reflect.as_string(arg); is_text {
+			db_bind_text(s, index, text)
+			continue
+		}
+		if arg.id == []u8 {
+			db_bind_blob(s, index, arg.([]u8))
+			continue
+		}
+		_, is_float := runtime.type_info_core(type_info_of(arg.id)).variant.(runtime.Type_Info_Float)
+		value, is_int := reflect.as_i64(arg)
+		fmt.assertf(is_int && !is_float, "db_bind: can't bind a %v (parameter %d)", arg.id, index)
+		db_bind_int(s, index, value)
+	}
+}
+
+// db_query is a prepared statement with its parameters bound (db_bind), to
+// step through or run.
+db_query :: proc(db: ^DB, id: Stmt, args: ..any) -> ^sqlite.Stmt {
+	s := db_stmt(db, id)
+	db_bind(s, ..args)
+	return s
+}
+
+// db_write runs a statement that writes, with its parameters (db_bind).
+@(require_results)
+db_write :: proc(db: ^DB, id: Stmt, args: ..any) -> bool {
+	return db_run(db, db_query(db, id, ..args))
 }
 
 // db_step moves a query to its next row. `row` says whether there is one, whose
