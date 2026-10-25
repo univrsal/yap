@@ -8,12 +8,13 @@ import "core:sync"
 import "core:time"
 
 import "client:settings"
+import "client:video"
 import "common:proto"
 
 // Screen sharing and cameras (see src/common/proto/video.odin): the part that
 // is the same wherever the client runs. Capturing, encoding and decoding are
-// done by the browser (video_web.odin), or on the desktop by the optional
-// yap_video library (video_native.odin). Without it, a desktop build never
+// done by the browser (video/web.odin), or on the desktop by the optional
+// yap_video library (video/native.odin). Without it, a desktop build never
 // shares or watches, but still shows who is sharing.
 //
 // Everything goes over the media link (media.odin). Without it there is no
@@ -55,7 +56,7 @@ import "common:proto"
 // sent at the smallest of CAMERA_SIZES that covers that tile, if that is
 // smaller than the room's tier (follow_demand): larger at once, smaller once
 // it has been asked for DEMAND_DOWN_AFTER, since each change costs a keyframe.
-// With no viewers it stops encoding (video_camera_pause), and goes on as soon
+// With no viewers it stops encoding (video.camera_pause), and goes on as soon
 // as the server says there is one or a viewer asks for a keyframe. A server
 // that says nothing of it (Server_Info.demand) gets no tile sizes, and a
 // camera that hears nothing for DEMAND_STALE goes back to the tier.
@@ -72,7 +73,7 @@ import "common:proto"
 
 // How fast video goes out, in bytes per second, and how many bytes may go out
 // at once, while the encoder's bitrate isn't known. A share reports its
-// encoding bitrate (video_share_kbit) and goes out at half as much again,
+// encoding bitrate (video.share_kbit) and goes out at half as much again,
 // so that a keyframe is spread over several frames instead of one burst whose
 // end router queues would drop.
 VIDEO_SEND_RATE :: 12_000_000 / 8
@@ -88,18 +89,9 @@ VIDEO_BACKLOG_MAX :: 16 * 1024
 // the View says that it was refused (a few Sound resends).
 CAMERA_REFUSED_AFTER :: 3 * time.Second
 
-// Video_Key names one of a user's streams.
-Video_Key :: struct {
-	user:   proto.User_Num,
-	stream: proto.Video_Stream,
-}
-
-// The streams we watch: ins[0] is the screen, the others cameras.
-VIDEO_INS :: 1 + proto.MAX_CAMERAS
-
 Video_Client :: struct {
 	outs:         [proto.Video_Stream]Video_Out,
-	ins:          [VIDEO_INS]Video_In,
+	ins:          [video.STREAMS]Video_In,
 	// How much of our video may go out now (VIDEO_SEND_RATE), for all of it.
 	budget:       proto.Bucket,
 	// This connection is the one that the page's screen voice goes to (set by
@@ -149,7 +141,7 @@ Video_Out :: struct {
 
 	// Adapting it to its viewers (adapt_bitrate).
 	target_kbit:   int, // 0: use the configured bitrate
-	encoding_kbit: int, // what the encoder runs at (video_share_kbit); 0 if not known
+	encoding_kbit: int, // what the encoder runs at (video.share_kbit); 0 if not known
 	encoding_at:   time.Tick, // when that last changed
 	cut_at:        time.Tick,
 	good_since:    time.Tick,
@@ -159,8 +151,8 @@ Video_Out :: struct {
 	// The camera's tier (follow_camera_tier): what the room allows ({} not
 	// yet), and a higher one it may go up to, and since when the room has kept
 	// to it.
-	tier:          Share_Config,
-	tier_pending:  Share_Config,
+	tier:          video.Share_Config,
+	tier_pending:  video.Share_Config,
 	tier_since:    time.Tick,
 	// What its viewers want (follow_demand): the server's last Demand and when
 	// it came, what the camera is set to (the tier, or smaller for its
@@ -168,14 +160,14 @@ Video_Out :: struct {
 	// paused for having no viewers.
 	demand:        proto.Demand,
 	demand_at:     time.Tick,
-	applied:       Share_Config,
+	applied:       video.Share_Config,
 	smaller_since: time.Tick,
 	paused:        bool,
 }
 
 // Video_In is a stream that we watch.
 Video_In :: struct {
-	key:            Video_Key, // a user of 0 when not in use
+	key:            video.Key, // a user of 0 when not in use
 	// How big a camera's tile is in pixels (0 if not known), and what the
 	// last Watch said.
 	tile:           [2]int,
@@ -264,20 +256,11 @@ share_preset :: proc(s: ^settings.Settings) -> int {
 	return DEFAULT_SHARE_PRESET
 }
 
-// How a share is set up (see video_share_source).
-Share_Config :: struct {
-	max:     [2]i32,
-	fps:     int,
-	kbit:    int,
-	encoder: string, // "" picks the best encoder that works
-	cursor:  bool,
-}
-
 // share_config is what `s` says to share at, held to `limit_kbit` (the server's
 // limit for a sharer; 0 if it did not say).
-share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> Share_Config {
+share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> video.Share_Config {
 	p := SHARE_PRESETS[share_preset(s)]
-	cfg := Share_Config {
+	cfg := video.Share_Config {
 		max     = p.max,
 		fps     = s.share_fps if s.share_fps > 0 else 60,
 		kbit    = s.share_kbit if s.share_kbit > 0 else p.kbit,
@@ -299,7 +282,7 @@ share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> Share_Config {
 // the room, the smaller each. Everyone works this out the same way from the
 // Camera flags, so nothing needs to be said about it. A call has two, and
 // gets the most.
-CAMERA_CALL :: Share_Config {
+CAMERA_CALL :: video.Share_Config {
 	max  = {1280, 720},
 	fps  = 30,
 	kbit = 1800,
@@ -308,7 +291,7 @@ CAMERA_CALL :: Share_Config {
 // The tiers of a channel's room, by the most cameras each is for.
 Camera_Tier :: struct {
 	cameras: int,
-	config:  Share_Config,
+	config:  video.Share_Config,
 }
 
 CAMERA_TIERS := [?]Camera_Tier {
@@ -333,13 +316,13 @@ CAMERA_QUALITY_NAMES := [Camera_Quality]string {
 	.Low  = "low",
 }
 
-CAMERA_CALL_HIGH :: Share_Config {
+CAMERA_CALL_HIGH :: video.Share_Config {
 	max  = {1920, 1080},
 	fps  = 30,
 	kbit = 3500,
 }
 
-CAMERA_LOW :: Share_Config {
+CAMERA_LOW :: video.Share_Config {
 	max  = {640, 360},
 	fps  = 30,
 	kbit = 450,
@@ -367,16 +350,9 @@ video_set_camera_quality :: proc(q: Camera_Quality) {
 	sync.atomic_store(&quality_now, q)
 }
 
-// Camera_Device is a camera that can be picked in the settings: its id, as
-// settings.camera_device stores it, and its name.
-Camera_Device :: struct {
-	id:   string,
-	name: string,
-}
-
 // The sizes a camera is sent at for its viewers' tiles (follow_demand), with
 // the bitrate each needs at 30 fps, largest first.
-CAMERA_SIZES := [?]Share_Config {
+CAMERA_SIZES := [?]video.Share_Config {
 	{max = {1920, 1080}, kbit = 3500},
 	{max = {1280, 720}, kbit = 1500},
 	{max = {960, 540}, kbit = 800},
@@ -398,7 +374,7 @@ DEMAND_STALE :: 3 * time.Second
 // demand_config is the camera at `tier`, made smaller to the smallest of
 // CAMERA_SIZES that covers `tile` where that is smaller (a tile of 0: the
 // tier).
-demand_config :: proc(tier: Share_Config, tile: [2]int) -> Share_Config {
+demand_config :: proc(tier: video.Share_Config, tile: [2]int) -> video.Share_Config {
 	if tile.x <= 0 || tile.y <= 0 {
 		return tier
 	}
@@ -431,7 +407,7 @@ camera_config :: proc(
 	call: bool,
 	limit_kbit: int,
 	quality := Camera_Quality.Auto,
-) -> Share_Config {
+) -> video.Share_Config {
 	cfg := CAMERA_CALL_HIGH if quality == .High else CAMERA_CALL
 	if !call {
 		cfg = CAMERA_TIERS[len(CAMERA_TIERS) - 1].config
@@ -453,7 +429,7 @@ camera_config :: proc(
 
 // room_camera_config is camera_config for our room as it is now.
 @(private = "file")
-room_camera_config :: proc(c: ^Server_Conn) -> Share_Config {
+room_camera_config :: proc(c: ^Server_Conn) -> video.Share_Config {
 	ch := &c.channels
 	room := my_room(c)
 	cameras := 1 // ours
@@ -513,7 +489,7 @@ follow_demand :: proc(o: ^Video_Out, now: time.Tick) {
 	tile := o.demand.tile if fresh else {}
 	if pause := fresh && o.demand.viewers == 0; pause != o.paused {
 		o.paused = pause
-		video_camera_pause(pause)
+		video.camera_pause(pause)
 		log.infof(
 			"camera: %s",
 			"nobody watches it, so it pauses" if pause else "watched, so it goes on",
@@ -543,7 +519,7 @@ follow_demand :: proc(o: ^Video_Out, now: time.Tick) {
 			tile.y,
 		)
 	}
-	video_camera_configure(want)
+	video.camera_configure(want)
 	o.applied, o.smaller_since = want, {}
 	// What it was held to was a part of the old bitrate.
 	o.target_kbit = 0
@@ -653,7 +629,7 @@ video_step :: proc(c: ^Server_Conn) {
 		o.stream = stream
 		out_step(c, &o, here)
 	}
-	video_capture_audio(&c.voice, v.outs[.Screen].live)
+	video.capture_audio(&c.voice, v.outs[.Screen].live)
 	say_decodable(c)
 	publish_video_link(c)
 	if c.has_current {
@@ -669,7 +645,7 @@ video_step :: proc(c: ^Server_Conn) {
 @(private = "file")
 out_step :: proc(c: ^Server_Conn, o: ^Video_Out, here: bool) {
 	now := time.tick_now()
-	if live := video_capture_live(o.stream) && here; live != o.live {
+	if live := video.capture_live(o.stream) && here; live != o.live {
 		video_clear_queue(o)
 		// The frames keep counting on, so that the server's cache never mixes
 		// them up with the last share's.
@@ -695,9 +671,9 @@ out_step :: proc(c: ^Server_Conn, o: ^Video_Out, here: bool) {
 		follow_camera_tier(c, o, now)
 		follow_demand(o, now)
 	}
-	note_encoding(o, video_share_kbit(o.stream), now)
+	note_encoding(o, video.share_kbit(o.stream), now)
 	for {
-		data, ts, key, codec, ok := video_capture_pull(o.stream)
+		data, ts, key, codec, ok := video.capture_pull(o.stream)
 		if !ok {
 			break
 		}
@@ -709,10 +685,10 @@ out_step :: proc(c: ^Server_Conn, o: ^Video_Out, here: bool) {
 		video_queue_frame(o, data, ts, key, codec)
 	}
 	if o.want_key {
-		video_capture_request_key(o.stream)
+		video.capture_request_key(o.stream)
 		o.want_key = false
 	}
-	video_share_codecs(o.stream, viewer_codecs(c))
+	video.share_codecs(o.stream, viewer_codecs(c))
 }
 
 @(private = "file")
@@ -782,7 +758,7 @@ publish_video_link :: proc(c: ^Server_Conn) {
 // knows this once it has asked the browser.
 @(private = "file")
 say_decodable :: proc(c: ^Server_Conn) {
-	codecs := video_decodable() if video_can_watch() else {}
+	codecs := video.decodable() if video.can_watch() else {}
 	have := proto.decodable_codecs(c.channels.sound)
 	if (.HEVC in codecs) != (.HEVC in have) {
 		set_sound(c, .Decodes_HEVC, .HEVC in codecs)
@@ -794,7 +770,7 @@ say_decodable :: proc(c: ^Server_Conn) {
 
 // viewer_codecs is what everyone else in our voice room can decode, any of whom
 // may watch. A share is encoded in one of those codecs (the best that works,
-// video_share_codecs). Anything goes while nobody else is there.
+// video.share_codecs). Anything goes while nobody else is there.
 @(private)
 viewer_codecs :: proc(c: ^Server_Conn) -> proto.Video_Codecs {
 	ch := &c.channels
@@ -862,14 +838,14 @@ publish_video_stats :: proc(c: ^Server_Conn) {
 		if o.live && o.target_kbit > 0 && time.tick_diff(o.reports_at, now) > ADAPT_QUIET {
 			// Nobody has reported for a while: go back to the configured bitrate.
 			o.target_kbit = 0
-			video_share_adapt(o.stream, video_share_max_kbit(o.stream))
+			video.share_adapt(o.stream, video.share_max_kbit(o.stream))
 		}
 	}
 	screen := &v.outs[.Screen]
 	s.kbit_out = kbit(screen.stats_out, secs)
 	if screen.live {
 		s.kbit_target = screen.target_kbit
-		s.kbit_max = video_share_max_kbit(.Screen)
+		s.kbit_max = video.share_max_kbit(.Screen)
 		s.viewers, s.left_out = screen.reports.viewers, screen.reports.left_out
 	}
 	for &o in v.outs {
@@ -1001,7 +977,7 @@ video_send_rate :: proc(o: ^Video_Out) -> int {
 // tail: the last of a keyframe goes out slowest.)
 video_pace_rate :: proc(c: ^Server_Conn, o: ^Video_Out) -> int {
 	rate := video_send_rate(o)
-	if !MEDIA_RELIABLE {
+	if !video.MEDIA_RELIABLE {
 		return rate
 	}
 	limit_kbit := int(c.rpc.server.camera_kbit if o.stream == .Camera else c.rpc.server.video_kbit)
@@ -1191,14 +1167,14 @@ video_watch_cameras :: proc(c: ^Server_Conn, users: []proto.User_Num, tiles: [][
 }
 
 @(private = "file")
-in_start :: proc(in_: ^Video_In, key: Video_Key) {
+in_start :: proc(in_: ^Video_In, key: video.Key) {
 	window := in_.window if in_.window != nil else new(proto.Video_Window)
 	in_^ = {
 		key    = key,
 		window = window,
 	}
 	proto.video_window_reset(window)
-	window.reliable = MEDIA_RELIABLE
+	window.reliable = video.MEDIA_RELIABLE
 }
 
 // in_stop stops watching a stream, ending its lease at once rather than when
@@ -1209,7 +1185,7 @@ in_stop :: proc(c: ^Server_Conn, in_: ^Video_In) {
 		buf: [proto.WATCH_TILE_SIZE]u8
 		send_watch(c, proto.encode_watch(&buf, in_.key.user, false, in_.key.stream, stop = true))
 	}
-	video_show_end(in_.key)
+	video.show_end(in_.key)
 	in_free(in_)
 }
 
@@ -1246,14 +1222,14 @@ drive_in :: proc(c: ^Server_Conn, in_: ^Video_In) {
 			video_watch(c, 0)
 		} else if in_.watching {
 			// Its lease runs out by itself.
-			video_show_end(in_.key)
+			video.show_end(in_.key)
 			proto.video_window_reset(in_.window)
 			in_.watching, in_.last_watch, in_.last_key_asked = false, {}, {}
 		}
 		return
 	}
 	in_.watching = true
-	if video_show_failed(in_.key) {
+	if video.show_failed(in_.key) {
 		// Whatever the decoder had is gone, so start again from a keyframe.
 		log.infof("video: %s's decoder failed", in_name(c, in_.key))
 		proto.video_window_reset(in_.window)
@@ -1323,7 +1299,7 @@ log_break :: proc(c: ^Server_Conn, in_: ^Video_In) {
 
 // in_name names a stream we watch for the log.
 @(private = "file")
-in_name :: proc(c: ^Server_Conn, key: Video_Key) -> string {
+in_name :: proc(c: ^Server_Conn, key: video.Key) -> string {
 	return fmt.tprintf(
 		"%s's %s",
 		display_name(c, key.user),
@@ -1341,7 +1317,7 @@ send_watch :: proc(c: ^Server_Conn, msg: []u8) {
 
 // can_watch says whether `key`'s stream is on, its user is in our voice room,
 // and is not us.
-can_watch :: proc(c: ^Server_Conn, key: Video_Key) -> bool {
+can_watch :: proc(c: ^Server_Conn, key: video.Key) -> bool {
 	ch := &c.channels
 	if !ch.have_state || key.user == ch.state.your_user {
 		return false
@@ -1360,7 +1336,7 @@ handle_video :: proc(c: ^Server_Conn, pt: []u8) {
 	if !ok || sharer == 0 {
 		return
 	}
-	key := Video_Key{sharer, f.stream}
+	key := video.Key{sharer, f.stream}
 	in_: ^Video_In
 	for &candidate in v.ins {
 		if candidate.key == key && candidate.watching {
@@ -1426,7 +1402,7 @@ video_reports :: proc(c: ^Server_Conn, stream: proto.Video_Stream, s: proto.Vide
 	}
 	o.reports = s
 	o.reports_at = time.tick_now()
-	adapt_bitrate(o, s.worst, video_share_max_kbit(stream), o.reports_at)
+	adapt_bitrate(o, s.worst, video.share_max_kbit(stream), o.reports_at)
 }
 
 // note_encoding keeps track of the bitrate the encoder runs at, and of when it
@@ -1500,17 +1476,17 @@ adapt_bitrate :: proc(o: ^Video_Out, worst: proto.Video_Report, max_kbit: int, n
 			worst.delay_ms,
 		)
 		o.target_kbit = target if target < max_kbit else 0
-		video_share_adapt(o.stream, target)
+		video.share_adapt(o.stream, target)
 	}
 }
 
 // show_frames hands what a stream's window has ready to its decoder. While it
-// has none yet (video_show_ready: the desktop makes it when the UI first draws
+// has none yet (video.show_ready: the desktop makes it when the UI first draws
 // the stream), the frames are dropped. Once it has, it starts from a keyframe:
 // anything else resets the window, which asks for one.
 @(private = "file")
 show_frames :: proc(in_: ^Video_In) {
-	ready := video_show_ready(in_.key)
+	ready := video.show_ready(in_.key)
 	for {
 		frame := proto.video_window_pop(in_.window) or_break
 		if !ready {
@@ -1523,6 +1499,6 @@ show_frames :: proc(in_: ^Video_In) {
 		}
 		in_.dropped = false
 		in_.last_codec = frame.codec
-		video_show_frame(in_.key, frame)
+		video.show_frame(in_.key, frame)
 	}
 }

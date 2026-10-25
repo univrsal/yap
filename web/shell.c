@@ -9,7 +9,7 @@ that hands the client its frames.
   message; arriving messages wait in a queue until the client's network
   loop takes them (src/client/transport_web.odin).
 - Screen sharing: hooks into Module.yapVideo, which does the capturing,
-  encoding and decoding (src/client/video_web.odin).
+  encoding and decoding (src/client/video/web.odin).
 - A few small questions about the page: where it was served from, what
   the address said, the local time's offset from UTC.
 
@@ -260,7 +260,7 @@ EM_JS(void, yap_idle_web_close, (), {
 
 The capturing, encoding and decoding are the page's, in Module.yapVideo
 if it has one; without it, nobody here shares or watches
-(src/client/conn/video_web.odin). Encoded frames wait there until the client
+(src/client/video/web.odin). Encoded frames wait there until the client
 pulls them, one at a time, the way packets wait on the WebSocket. `stream` is
 0 for the screen and 1 for the camera (proto.Video_Stream).
 */

@@ -115,10 +115,10 @@ fi
 # pkg-config's elsewhere. Needs CMake and a C++20 compiler; capturing
 # needs the headers scripts/build-video.sh lists, and a way whose headers
 # are missing is left out. The client is C++ only here, so libstdc++ is
-# linked statically (src/client/conn/video_native.odin): yap then runs
+# linked statically (src/client/video/native.odin): yap then runs
 # where the system's is older than the one it was built with.
 if [ "$(uname -s)" = Linux ]; then
-	lib=src/client/conn/libyap_video.a
+	lib=src/client/video/libyap_video.a
 	if [ ! -f "$lib" ] || [ -n "$(find src/video/src src/video/include src/video/CMakeLists.txt scripts/ffmpeg.version -newer "$lib" | head -n 1)" ]; then
 		echo "building $lib"
 		ffmpeg_dir=
@@ -131,8 +131,8 @@ if [ "$(uname -s)" = Linux ]; then
 		cp .cache/video-static/libyap_video.a "$lib"
 	fi
 	# The C++ compiler's own, which the library was built with.
-	if [ ! -f src/client/conn/libstdc++.a ] || [ "$lib" -nt src/client/conn/libstdc++.a ]; then
-		cp "$(${CXX:-c++} -print-file-name=libstdc++.a)" src/client/conn/libstdc++.a
+	if [ ! -f src/client/video/libstdc++.a ] || [ "$lib" -nt src/client/video/libstdc++.a ]; then
+		cp "$(${CXX:-c++} -print-file-name=libstdc++.a)" src/client/video/libstdc++.a
 	fi
 fi
 

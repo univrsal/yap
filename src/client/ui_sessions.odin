@@ -5,6 +5,7 @@ import "client:audio"
 import "client:conn"
 import "client:platform"
 import "client:settings"
+import "client:video"
 import log "common:wlog"
 import "core:strings"
 import "core:sync"
@@ -221,8 +222,8 @@ disconnect :: proc(ui: ^UI, ns: ^Net_Session) {
 	}
 	if in_voice {
 		// What was shared there has nobody to go to any more.
-		conn.video_share_stop()
-		conn.video_camera_stop()
+		video.share_stop()
+		video.camera_stop()
 		app_audio_stop(ui)
 	}
 	session_remove(ui, ns)
@@ -393,7 +394,7 @@ session_capture_update :: proc(ui: ^UI) {
 	// ends with it (otherwise the OS keeps showing it with the yellow border and
 	// the menu bar icon).
 	if ui.voice_at == nil {
-		conn.video_share_stop()
+		video.share_stop()
 		app_audio_stop(ui)
 	}
 	// The camera, likewise, and when we move elsewhere (ui_camera.odin).

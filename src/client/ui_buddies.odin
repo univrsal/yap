@@ -8,6 +8,7 @@ import mu "vendor:microui"
 import "client:conn"
 import "client:render"
 import "client:settings"
+import "client:video"
 import "common:proto"
 
 
@@ -155,7 +156,7 @@ buddies_screen :: proc(ui: ^UI) {
 		camera_full_screen(ui)
 		return
 	}
-	if ui.view.watching != 0 && conn.video_is_fullscreen() {
+	if ui.view.watching != 0 && video.is_fullscreen() {
 		fullscreen_screen(ui)
 		return
 	}

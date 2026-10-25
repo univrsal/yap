@@ -7,12 +7,13 @@ import mu "vendor:microui"
 import "client:conn"
 import "client:platform"
 import "client:settings"
+import "client:video"
 
 // The settings' Screen sharing category: how we share (the size preset and,
 // under Advanced, the frame rate, bitrate, encoder and pointer), and whether
 // statistics are shown under the stream we watch. In a browser the browser
 // shows the pointer or not, so that is desktop only, and the encoders are the
-// browser's (conn/video_web.odin).
+// browser's (video/web.odin).
 //
 // What the server accepts from a sharer (its video.max_kbit) caps the bitrate,
 // and this is said here when it does. Changes apply from the next share.
@@ -21,7 +22,7 @@ import "client:settings"
 // comes from).
 share_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if platform.WEB && !conn.video_can_share() {
+	if platform.WEB && !video.can_share() {
 		mu.layout_row(ctx, {-1})
 		with_text_color(ctx, theme.dim, "This browser can't share its screen.", wrap_text)
 		mu.layout_row(ctx, {-1})
@@ -31,21 +32,21 @@ share_settings :: proc(ui: ^UI) {
 		}
 		return
 	}
-	if !platform.WEB && !conn.video_can_watch() {
+	if !platform.WEB && !video.can_watch() {
 		mu.layout_row(ctx, {-1})
 		text: string
-		if conn.video_missing_ffmpeg() {
+		if video.missing_ffmpeg() {
 			text = fmt.tprintf(
 				"Screen sharing needs FFmpeg 8 or 9, with H.264, and none was found. Install " +
 				"FFmpeg from your system's packages, or put the FFmpeg libraries from the " +
 				"yap-video download next to yap, in %s, and start yap again.",
-				conn.video_library_dir(),
+				video.library_dir(),
 			)
 		} else {
 			text = fmt.tprintf(
 				"Screen sharing needs yap's video add-on: the yap-video download that goes with " +
 				"this build. Put what's in it next to yap, in %s, and start yap again.",
-				conn.video_library_dir(),
+				video.library_dir(),
 			)
 		}
 		with_text_color(ctx, theme.dim, text, wrap_text)
@@ -109,7 +110,7 @@ share_settings :: proc(ui: ^UI) {
 // share_advanced is what changes about the preset: the frame rate, the
 // bitrate, the encoder and the pointer.
 @(private = "file")
-share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
+share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 	ctx := &ui.ctx
 	vid := &ui.video
 
@@ -152,7 +153,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 
 	// The best that works, or one picked: those that work here, and the one
 	// picked before if it doesn't.
-	encoders := conn.video_encoders()
+	encoders := video.encoders()
 	names := make([dynamic]string, context.temp_allocator)
 	labels := make([dynamic]string, context.temp_allocator)
 	append(&names, "")

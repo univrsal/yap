@@ -8,6 +8,7 @@ import mu "vendor:microui"
 
 import "client:conn"
 import "client:render"
+import "client:video"
 import "common:proto"
 
 // The voice panel is at the foot of the channel list and the buddy list (in a
@@ -313,12 +314,10 @@ voice_panel :: proc(ui: ^UI) {
 			// What may be shared there, then the way out.
 			widths := make([dynamic]i32, context.temp_allocator)
 			// Once started, sharing can always be stopped.
-			can_share :=
-				conn.video_can_share() && (ui.view.video_link || conn.video_share_state() != .Off)
+			can_share := video.can_share() && (ui.view.video_link || video.share_state() != .Off)
 			can_music := app_audio_available(ui)
 			// Likewise the camera, which needs the media link to go anywhere.
-			can_camera :=
-				camera_available(v) && (v.video_link || conn.video_camera_state() != .Off)
+			can_camera := camera_available(v) && (v.video_link || video.camera_state() != .Off)
 			if can_music {
 				append(&widths, icon_button_w(ctx))
 			}

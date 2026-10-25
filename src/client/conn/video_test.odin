@@ -4,6 +4,7 @@ package conn
 import "core:testing"
 import "core:time"
 
+import "client:video"
 import "common:proto"
 
 // An encoded frame of `size` bytes, owned by whoever it is handed to.
@@ -454,7 +455,7 @@ test_video_watch_streams :: proc(t: ^testing.T) {
 	c.channels.state.users = users
 	c.has_current = true
 
-	watching :: proc(c: ^Server_Conn, key: Video_Key) -> bool {
+	watching :: proc(c: ^Server_Conn, key: video.Key) -> bool {
 		for in_ in c.video.ins {
 			if in_.key == key {
 				return in_.watching
@@ -517,7 +518,7 @@ test_video_watch_streams :: proc(t: ^testing.T) {
 	// A screen that stops being shared isn't.
 	users[2].flags = {.Camera}
 	video_step(c)
-	testing.expect_value(t, c.video.ins[0].key, Video_Key{})
+	testing.expect_value(t, c.video.ins[0].key, video.Key{})
 	testing.expect(t, watching(c, {3, .Camera}))
 
 	// The cameras that are no longer asked for are let go.

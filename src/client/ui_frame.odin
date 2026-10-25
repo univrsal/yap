@@ -7,6 +7,7 @@ import "client:conn"
 import "client:platform"
 import "client:render"
 import "client:settings"
+import "client:video"
 import glfw "client:wglfw"
 import "common:."
 import log "common:wlog"
@@ -46,7 +47,7 @@ ui_startup :: proc(ui: ^UI, opts: UI_Options) -> bool {
 	ui.view = &ui.no_view
 	conn.view_init(ui.view)
 	ui.view.wake = ui_wake
-	conn.video_set_wake(ui_wake)
+	video.set_wake(ui_wake)
 	ui_chat_init(ui)
 
 	// Load (or create) the key now, to show our id before connecting.
@@ -302,7 +303,7 @@ draw_frame :: proc(ui: ^UI) {
 	render.render(&ui.renderer, &ui.ctx, m.fb_w, m.fb_h, m.scale, theme.background)
 	render.gpu_present(&ui.renderer.gpu)
 	// A camera turned off in this frame no longer has its preview drawn.
-	conn.video_frame_done()
+	video.frame_done()
 }
 
 // After input, draw at least this many frames, because microui answers some

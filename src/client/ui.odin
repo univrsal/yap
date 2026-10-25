@@ -5,6 +5,7 @@ import "client:audio"
 import "client:conn"
 import "client:render"
 import "client:settings"
+import "client:video"
 import glfw "client:wglfw"
 import "common:proto"
 import log "common:wlog"
@@ -629,7 +630,7 @@ session_screen :: proc(ui: ^UI) {
 		camera_full_screen(ui)
 		return
 	}
-	if v.watching != 0 && conn.video_is_fullscreen() {
+	if v.watching != 0 && video.is_fullscreen() {
 		fullscreen_screen(ui)
 		return
 	}

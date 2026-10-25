@@ -554,7 +554,7 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 // gpu_texture_make creates a width x height texture from `pixels` (one byte
 // per pixel for .Alpha, four for .Rgba). A texture without pixels is not
 // supported here, because only the page's video decoder fills such textures
-// (conn/video_web.odin), and there is no page on the desktop (its video comes
+// (video/web.odin), and there is no page on the desktop (its video comes
 // from gpu_texture_wrap). With `mipmaps`, an .Rgba texture gets smaller copies
 // of itself (see gpu_gl.odin).
 gpu_texture_make :: proc(

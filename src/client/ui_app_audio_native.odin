@@ -11,6 +11,7 @@ import "client:audio"
 import "client:audio/aac"
 import "client:conn"
 import "client:settings"
+import "client:video"
 
 // Sharing an application's audio with the channel, next to the
 // microphone (native clients; see audio/aac/aac.odin for which systems
@@ -108,7 +109,7 @@ app_audio_frame :: proc(ui: ^UI) {
 		log.infof("app audio: %s stopped: %s", a.name, cstring(&s.why[0]))
 		app_audio_stop(ui)
 		ui_redraw(ui)
-	} else if state := conn.video_share_state(); a.device && state != .Starting && state != .Live {
+	} else if state := video.share_state(); a.device && state != .Starting && state != .Live {
 		app_audio_stop(ui)
 		ui_redraw(ui)
 	}

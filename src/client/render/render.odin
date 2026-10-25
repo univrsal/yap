@@ -30,7 +30,7 @@ Vertex :: struct {
 Gpu_Texture :: distinct uintptr
 
 // The underlying device, for a library that creates textures that we draw
-// (yap_video, see conn/video_native.odin). This is Direct3D 11's
+// (yap_video, see video/native.odin). This is Direct3D 11's
 // ID3D11Device, Metal's MTLDevice together with the MTLCommandQueue that the
 // frames go through, or, for OpenGL, glfwGetProcAddress to look up the
 // current context's functions.

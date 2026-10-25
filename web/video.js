@@ -28,7 +28,7 @@ mirrored here.
 Where the browser shares audio with the screen (Chromium: a tab's, or on
 Windows the whole system's along with a screen), an AudioWorklet takes it at
 48 kHz stereo and it waits in a queue until the client pulls it, to send
-mixed into our voice like a shared application's (src/client/conn/video_web.odin).
+mixed into our voice like a shared application's (src/client/video/web.odin).
 restrictOwnAudio leaves out what this page plays, so nobody hears
 themselves back.
 
@@ -113,7 +113,7 @@ or getDisplayMedia (a phone) can still watch.
 	const PROBE_WIDTH = 1280, PROBE_HEIGHT = 720, PROBE_FPS = 30, PROBE_KBIT = 2000;
 	const PROBE_TIMEOUT_MS = 5000;
 
-	// What the client's Share_State says (src/client/video_web.odin).
+	// What the client's Share_State says (src/client/video/web.odin).
 	const OFF = 0, STARTING = 1, LIVE = 2, FAILED = 3;
 
 	const canEncode = () => !!(window.VideoEncoder && window.VideoFrame);

@@ -182,7 +182,7 @@ gpu_draw :: proc(g: ^Gpu, vertices: []Vertex, tex: Gpu_Texture, kind: Texture_Ki
 
 // gpu_texture_make creates a width x height texture from `pixels` (one byte
 // per pixel for .Alpha, four for .Rgba). Without pixels the texture is left
-// empty for the page's video decoder to fill (conn/video_web.odin). With
+// empty for the page's video decoder to fill (video/web.odin). With
 // `mipmaps`, an .Rgba texture with pixels gets smaller copies of itself so it
 // still looks smooth when drawn much smaller than its size (such as the edges
 // of round pictures). Do not use this for atlases, because their cells would

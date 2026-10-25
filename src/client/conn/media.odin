@@ -5,6 +5,7 @@ import "core:strings"
 import "core:time"
 
 import "client:platform"
+import "client:video"
 import "common:."
 import "common:proto"
 import log "common:wlog"
@@ -60,7 +61,7 @@ media_step :: proc(c: ^Server_Conn) {
 	if !c.has_current || !c.has_instance || c.restart || c.auth.state != .Done || port == 0 {
 		return
 	}
-	if m.refusals >= MEDIA_GIVE_UP || !video_can_watch() {
+	if m.refusals >= MEDIA_GIVE_UP || !video.can_watch() {
 		return
 	}
 	if m.transport.open && m.port != port {

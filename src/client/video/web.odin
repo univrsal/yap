@@ -1,5 +1,5 @@
 #+build wasi
-package conn
+package video
 
 import log "common:wlog"
 import "core:strings"
@@ -91,13 +91,13 @@ foreign _ {
 	yap_video_is_fullscreen :: proc() -> i32 ---
 }
 
-video_capture_live :: proc(stream: proto.Video_Stream) -> bool {
+capture_live :: proc(stream: proto.Video_Stream) -> bool {
 	return yap_video_live(i32(stream)) != 0
 }
 
-// video_capture_pull returns the next encoded frame of a stream, which the
+// capture_pull returns the next encoded frame of a stream, which the
 // caller then owns.
-video_capture_pull :: proc(
+capture_pull :: proc(
 	stream: proto.Video_Stream,
 ) -> (
 	data: []u8,
@@ -119,12 +119,12 @@ video_capture_pull :: proc(
 	return data, ts, key_flag != 0, proto.Video_Codec(codec_num), true
 }
 
-// video_capture_audio moves the audio the browser shares with the picture (a
+// capture_audio moves the audio the browser shares with the picture (a
 // tab's, or the system's with a screen) into the voice's app ring while we are
 // sharing here. It is then sent mixed into our voice, like a native client's
 // shared application (app_mix in audio/voice.odin). Whatever comes while we
 // aren't is dropped.
-video_capture_audio :: proc(v: ^audio.Voice, sharing: bool) {
+capture_audio :: proc(v: ^audio.Voice, sharing: bool) {
 	live := sharing && yap_video_audio_live() != 0
 	if live != sync.atomic_load(&v.app_input) {
 		sync.atomic_store(&v.app_input, live)
@@ -143,16 +143,16 @@ video_capture_audio :: proc(v: ^audio.Voice, sharing: bool) {
 	}
 }
 
-video_capture_request_key :: proc(stream: proto.Video_Stream) {
+capture_request_key :: proc(stream: proto.Video_Stream) {
 	yap_video_request_key(i32(stream))
 }
 
 // The page's decoders are always there to take frames.
-video_show_ready :: proc(key: Video_Key) -> bool {
+show_ready :: proc(key: Key) -> bool {
 	return true
 }
 
-video_show_frame :: proc(key: Video_Key, frame: proto.Video_Frame) {
+show_frame :: proc(key: Key, frame: proto.Video_Frame) {
 	yap_video_show(
 		u32(key.user),
 		i32(key.stream),
@@ -164,7 +164,7 @@ video_show_frame :: proc(key: Video_Key, frame: proto.Video_Frame) {
 	)
 }
 
-video_show_end :: proc(key: Video_Key) {
+show_end :: proc(key: Key) {
 	yap_video_end(u32(key.user), i32(key.stream))
 	// Do not keep the last picture's size.
 	for &p in web_pictures {
@@ -174,9 +174,9 @@ video_show_end :: proc(key: Video_Key) {
 	}
 }
 
-// video_show_failed says, once, that a stream's decoder gave up on what it was
+// show_failed says, once, that a stream's decoder gave up on what it was
 // given. It needs a keyframe to start again.
-video_show_failed :: proc(key: Video_Key) -> bool {
+show_failed :: proc(key: Key) -> bool {
 	return yap_video_take_error(u32(key.user), i32(key.stream)) != 0
 }
 
@@ -184,23 +184,15 @@ video_show_failed :: proc(key: Video_Key) -> bool {
 // only allows shortly after the user clicked something, so it belongs in a
 // button handler. The camera asks for permission the first time, likewise.
 
-// What the page's capture is doing (web/video.js).
-Share_State :: enum i32 {
-	Off      = 0,
-	Starting = 1, // the browser's picker is open, or it asks about the camera
-	Live     = 2,
-	Failed   = 3, // it could not start, or stopped with an error
-}
-
-video_can_share :: proc() -> bool {
+can_share :: proc() -> bool {
 	return yap_video_can_share() != 0
 }
 
-video_can_watch :: proc() -> bool {
+can_watch :: proc() -> bool {
 	return yap_video_can_watch() != 0
 }
 
-video_decodable :: proc() -> proto.Video_Codecs {
+decodable :: proc() -> proto.Video_Codecs {
 	return transmute(proto.Video_Codecs)u8(yap_video_decodable())
 }
 
@@ -208,9 +200,9 @@ video_decodable :: proc() -> proto.Video_Codecs {
 @(private = "file")
 share_codecs: [proto.Video_Stream]proto.Video_Codecs
 
-// video_share_codecs says what the share's viewers can decode (video.odin),
+// share_codecs says what the share's viewers can decode (video.odin),
 // which the page's best encoder keeps to.
-video_share_codecs :: proc(stream: proto.Video_Stream, codecs: proto.Video_Codecs) {
+share_codecs :: proc(stream: proto.Video_Stream, codecs: proto.Video_Codecs) {
 	if share_codecs[stream] == codecs {
 		return
 	}
@@ -218,10 +210,10 @@ video_share_codecs :: proc(stream: proto.Video_Stream, codecs: proto.Video_Codec
 	yap_video_set_codecs(i32(stream), i32(transmute(u8)codecs))
 }
 
-// video_share_start opens the browser's picker and shares what is picked as
+// share_start opens the browser's picker and shares what is picked as
 // `config` says (its size, frame rate, bitrate and encoder; the browser
 // whether the pointer shows).
-video_share_start :: proc(config: Share_Config) {
+share_start :: proc(config: Share_Config) {
 	yap_video_share_start(
 		i32(config.fps),
 		i32(config.kbit),
@@ -240,24 +232,24 @@ video_share_start :: proc(config: Share_Config) {
 	)
 }
 
-video_share_stop :: proc() {
+share_stop :: proc() {
 	yap_video_stop(i32(proto.Video_Stream.Screen))
 }
 
-video_share_state :: proc() -> Share_State {
+share_state :: proc() -> Share_State {
 	return Share_State(yap_video_state(i32(proto.Video_Stream.Screen)))
 }
 
-// video_can_camera says whether a camera can be turned on here at all (not
+// can_camera says whether a camera can be turned on here at all (not
 // whether there is one: the browser says that when it is asked).
-video_can_camera :: proc() -> bool {
+can_camera :: proc() -> bool {
 	return yap_video_can_camera() != 0
 }
 
-// video_camera_start turns on the camera `device` ("" for the browser's choice,
+// camera_start turns on the camera `device` ("" for the browser's choice,
 // a phone's front camera) as `config` says. The browser asks for permission
 // the first time.
-video_camera_start :: proc(config: Share_Config, device := "") {
+camera_start :: proc(config: Share_Config, device := "") {
 	yap_video_camera_start(
 		i32(config.fps),
 		i32(config.kbit),
@@ -275,27 +267,27 @@ video_camera_start :: proc(config: Share_Config, device := "") {
 	)
 }
 
-// video_camera_configure has the camera go on as `config` says (its size,
+// camera_configure has the camera go on as `config` says (its size,
 // frame rate and bitrate), from a keyframe: the room's tier changed
 // (video.odin).
-video_camera_configure :: proc(config: Share_Config) {
+camera_configure :: proc(config: Share_Config) {
 	yap_video_camera_configure(i32(config.fps), i32(config.kbit), config.max.x, config.max.y)
 }
 
-video_camera_stop :: proc() {
+camera_stop :: proc() {
 	yap_video_stop(i32(proto.Video_Stream.Camera))
 }
 
-// video_camera_pause stops encoding the camera while nobody watches it, and
+// camera_pause stops encoding the camera while nobody watches it, and
 // goes on from a keyframe when `paused` is false again (video.odin).
-video_camera_pause :: proc(paused: bool) {
+camera_pause :: proc(paused: bool) {
 	yap_video_camera_pause(1 if paused else 0)
 }
 
-// video_cameras lists the cameras as the browser last said, allocated with
+// cameras lists the cameras as the browser last said, allocated with
 // `allocator`. Before the page has been allowed a camera they have neither
 // ids nor names.
-video_cameras :: proc(allocator := context.temp_allocator) -> []Camera_Device {
+cameras :: proc(allocator := context.temp_allocator) -> []Camera_Device {
 	n := int(yap_video_camera_count())
 	out := make([dynamic]Camera_Device, 0, n, allocator)
 	for i in 0 ..< n {
@@ -313,16 +305,16 @@ video_cameras :: proc(allocator := context.temp_allocator) -> []Camera_Device {
 	return out[:]
 }
 
-// video_cameras_refresh has the browser list its cameras again; the answer
+// cameras_refresh has the browser list its cameras again; the answer
 // comes in a later frame.
-video_cameras_refresh :: proc() {
+cameras_refresh :: proc() {
 	yap_video_cameras_refresh()
 }
 
-// video_camera_look opens the camera `device` for the settings' preview while
+// camera_look opens the camera `device` for the settings' preview while
 // ours is off, without sending it; the browser asks the first time. Turning
 // the camera on then takes it (video.js).
-video_camera_look :: proc(config: Share_Config, device: string) {
+camera_look :: proc(config: Share_Config, device: string) {
 	yap_video_camera_look(
 		strings.clone_to_cstring(device, context.temp_allocator),
 		config.max.x,
@@ -330,22 +322,22 @@ video_camera_look :: proc(config: Share_Config, device: string) {
 	)
 }
 
-video_camera_look_stop :: proc() {
+camera_look_stop :: proc() {
 	yap_video_camera_look_stop()
 }
 
 // The browser's console says why it failed.
-video_camera_look_state :: proc() -> (state: Share_State, why: string) {
+camera_look_state :: proc() -> (state: Share_State, why: string) {
 	return Share_State(yap_video_camera_look_state()), ""
 }
 
-video_camera_state :: proc() -> Share_State {
+camera_state :: proc() -> Share_State {
 	return Share_State(yap_video_state(i32(proto.Video_Stream.Camera)))
 }
 
-// video_camera_error says why the camera failed, or "" if only the browser's
+// camera_error says why the camera failed, or "" if only the browser's
 // console says. The result is in the temp allocator.
-video_camera_error :: proc() -> string {
+camera_error :: proc() -> string {
 	return page_why(.Camera)
 }
 
@@ -357,86 +349,66 @@ page_why :: proc(stream: proto.Video_Stream) -> string {
 }
 
 // The page lets go of its camera itself.
-video_frame_done :: proc() {}
+frame_done :: proc() {}
 
 // The browser asks what to share in its own picker.
-VIDEO_PICKER :: false
+PICKER :: false
 
 // The browser asks in its own picker, so nothing needs to be allowed first.
-video_capture_allowed :: proc() -> bool {
+capture_allowed :: proc() -> bool {
 	return true
 }
 
-video_allow_capture :: proc() {}
+allow_capture :: proc() {}
 
-// video_share_kbit is the bitrate a stream's encoder runs at, which sending is
+// share_kbit is the bitrate a stream's encoder runs at, which sending is
 // paced for (video.odin); 0 while it isn't live.
-video_share_kbit :: proc(stream: proto.Video_Stream) -> int {
+share_kbit :: proc(stream: proto.Video_Stream) -> int {
 	return int(yap_video_encoding_kbit(i32(stream)))
 }
 
-// video_share_max_kbit is the bitrate a stream was started at, which adapting
+// share_max_kbit is the bitrate a stream was started at, which adapting
 // never goes above; 0 while it isn't live.
-video_share_max_kbit :: proc(stream: proto.Video_Stream) -> int {
+share_max_kbit :: proc(stream: proto.Video_Stream) -> int {
 	return int(yap_video_max_kbit(i32(stream)))
 }
 
-// video_share_adapt holds a stream to `kbit` for its viewers (video.odin). The
+// share_adapt holds a stream to `kbit` for its viewers (video.odin). The
 // encoder takes it up from its next frame, without a keyframe.
-video_share_adapt :: proc(stream: proto.Video_Stream, kbit: int) {
+share_adapt :: proc(stream: proto.Video_Stream, kbit: int) {
 	yap_video_set_bitrate(i32(stream), i32(kbit))
 }
 
-Video_Source_Kind :: enum {
-	Monitor,
-	Window,
-}
-
-Video_Source :: struct {
-	kind:          Video_Source_Kind,
-	id:            u64,
-	name:          string,
-	app:           string,
-	width, height: int,
-	primary:       bool,
-}
-
-video_sources :: proc(allocator := context.temp_allocator) -> []Video_Source {
+sources :: proc(allocator := context.temp_allocator) -> []Source {
 	return nil
 }
 
-video_share_source :: proc(src: Video_Source, config: Share_Config) {}
+share_source :: proc(src: Source, config: Share_Config) {}
 
 // A page has no library to look for.
-video_library_dir :: proc(allocator := context.temp_allocator) -> string {
+library_dir :: proc(allocator := context.temp_allocator) -> string {
 	return ""
 }
 
-video_missing_ffmpeg :: proc() -> bool {
+missing_ffmpeg :: proc() -> bool {
 	return false
 }
 
 // The browser's picker is ours to open, not the system's.
-video_system_picker :: proc() -> bool {
+system_picker :: proc() -> bool {
 	return false
 }
 
 // The browser says which codecs it encodes, and whether on the GPU was asked
 // for, but not whose encoder it is (web/video.js).
-Video_Encoder :: struct {
-	name:  string, // what settings.share_encoder stores
-	label: string,
-	works: bool,
-}
-
-// video_encoders lists the page's encoders, best first, allocated with
+// encoders lists the page's encoders, best first, allocated with
 // `allocator`. It is empty until they have been tried; asking starts that.
-video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
+encoders :: proc(allocator := context.temp_allocator) -> []Encoder {
 	n := int(yap_video_encoder_count())
 	if n <= 0 {
 		return nil
 	}
-	out := make([dynamic]Video_Encoder, 0, n, allocator)
+	out := make([dynamic]Encoder, 0, n, allocator)
 	for i in 0 ..< n {
 		name, label: [128]u8
 		works: i32
@@ -444,7 +416,7 @@ video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
 		   0 {
 			append(
 				&out,
-				Video_Encoder {
+				Encoder {
 					name = strings.clone_from_cstring(cstring(&name[0]), allocator),
 					label = strings.clone_from_cstring(cstring(&label[0]), allocator),
 					works = works != 0,
@@ -456,16 +428,16 @@ video_encoders :: proc(allocator := context.temp_allocator) -> []Video_Encoder {
 }
 
 // The page shows the picture without the library's counts.
-video_picture_info :: proc(key: Video_Key) -> (frames: u64, hardware: bool) {
+picture_info :: proc(key: Key) -> (frames: u64, hardware: bool) {
 	return 0, false
 }
 
 // The page draws each new picture as it arrives, so no waking is needed.
-video_set_wake :: proc(wake: proc "c" ()) {}
+set_wake :: proc(wake: proc "c" ()) {}
 
-// video_share_error says why sharing failed, or "" if only the browser's
+// share_error says why sharing failed, or "" if only the browser's
 // console says. The result is in the temp allocator.
-video_share_error :: proc() -> string {
+share_error :: proc() -> string {
 	return page_why(.Screen)
 }
 
@@ -474,7 +446,7 @@ video_share_error :: proc() -> string {
 // once, and one for our own camera.
 @(private = "file")
 Web_Picture :: struct {
-	key:      Video_Key, // user 0 and the camera: our own camera
+	key:      Key, // user 0 and the camera: our own camera
 	texture:  render.Gpu_Texture,
 	size:     [2]int,
 	drawn_at: time.Tick,
@@ -482,12 +454,12 @@ Web_Picture :: struct {
 }
 
 @(private = "file")
-web_pictures: [VIDEO_INS + 1]Web_Picture
+web_pictures: [STREAMS + 1]Web_Picture
 
 // web_picture returns the picture of `key`, giving it the one drawn longest
 // ago if it has none.
 @(private = "file")
-web_picture :: proc(key: Video_Key) -> ^Web_Picture {
+web_picture :: proc(key: Key) -> ^Web_Picture {
 	oldest: ^Web_Picture
 	for &p in web_pictures {
 		if p.used && p.key == key {
@@ -503,12 +475,12 @@ web_picture :: proc(key: Video_Key) -> ^Web_Picture {
 	return oldest
 }
 
-// video_picture is the newest frame of a stream we are watching, as a texture
+// picture is the newest frame of a stream we are watching, as a texture
 // of the renderer's. The page puts each new frame into it (an OpenGL texture
 // name, as the page knows it, render/gpu_gl.odin).
-video_picture :: proc(
+picture :: proc(
 	g: ^render.Gpu,
-	key: Video_Key,
+	key: Key,
 ) -> (
 	texture: render.Gpu_Texture,
 	width, height: int,
@@ -520,9 +492,9 @@ video_picture :: proc(
 	return upload(g, key)
 }
 
-// video_camera_preview is the newest frame of our own camera, as it is sent
-// (not mirrored), for the self view. Like video_picture.
-video_camera_preview :: proc(
+// camera_preview is the newest frame of our own camera, as it is sent
+// (not mirrored), for the self view. Like picture.
+camera_preview :: proc(
 	g: ^render.Gpu,
 ) -> (
 	texture: render.Gpu_Texture,
@@ -535,7 +507,7 @@ video_camera_preview :: proc(
 @(private = "file")
 upload :: proc(
 	g: ^render.Gpu,
-	key: Video_Key,
+	key: Key,
 ) -> (
 	texture: render.Gpu_Texture,
 	width, height: int,
@@ -556,16 +528,16 @@ upload :: proc(
 	return p.texture, p.size.x, p.size.y, true
 }
 
-// video_forget_gpu forgets the textures when their device goes away.
-video_forget_gpu :: proc(g: ^render.Gpu) {
+// forget_gpu forgets the textures when their device goes away.
+forget_gpu :: proc(g: ^render.Gpu) {
 	web_pictures = {}
 }
 
 // The whole page goes fullscreen, to show the picture (ui_video.odin).
-video_set_fullscreen :: proc(on: bool) {
+set_fullscreen :: proc(on: bool) {
 	yap_video_set_fullscreen(1 if on else 0)
 }
 
-video_is_fullscreen :: proc() -> bool {
+is_fullscreen :: proc() -> bool {
 	return yap_video_is_fullscreen() != 0
 }
