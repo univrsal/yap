@@ -180,7 +180,7 @@ channel_admin_list :: proc(ui: ^UI) {
 		} else if query == "" {
 			text = "There are no channels."
 		}
-		with_text_color(ctx, theme.dim, text, wrap_text)
+		dim_note(ctx, text)
 	}
 	if a.reveal && v.all_channels_count > 0 {
 		a.reveal = false
@@ -230,7 +230,7 @@ new_channel :: proc(ui: ^UI) {
 	v := ui.view
 	a := &ui.channel_admin
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, "New channel", label_proc)
+	dim_label(ctx, "New channel")
 	field_row(ui, LABEL, "Name", {-1})
 	submit := .SUBMIT in text_box(ui, a.new_name.buf[:], &a.new_name.len)
 	field_row(ui, LABEL, "Topic", {-1})
@@ -238,19 +238,19 @@ new_channel :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	checkbox(ctx, "Private", &a.new_private)
 	if a.new_private {
-		with_text_color(ctx, theme.dim, "Only those added to it can see it.", wrap_text)
+		dim_note(ctx, "Only those added to it can see it.")
 		a.new_default = false // the server refuses a private default channel
 	} else {
 		mu.layout_row(ctx, {-1})
 		checkbox(ctx, "Default", &a.new_default)
 		if a.new_default {
-			with_text_color(ctx, theme.dim, "New members join it. They can leave.", wrap_text)
+			dim_note(ctx, "New members join it. They can leave.")
 		}
 	}
 	mu.layout_row(ctx, {-1})
 	checkbox(ctx, "Text only", &a.new_text_only)
 	if a.new_text_only {
-		with_text_color(ctx, theme.dim, "It has no voice room.", wrap_text)
+		dim_note(ctx, "It has no voice room.")
 	}
 	mu.layout_row(ctx, {120})
 	submit |= .SUBMIT in stable_button(ctx, "make channel", "Make channel", {.ALIGN_CENTER})
@@ -331,7 +331,7 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	if .Text_Only in ch.flags {
 		what = fmt.tprintf("%s It has no voice room.", what)
 	}
-	with_text_color(ctx, theme.dim, what, wrap_text)
+	dim_note(ctx, what)
 
 	field_row(ui, LABEL, "Name", {-1})
 	submit := .SUBMIT in text_box(ui, a.name.buf[:], &a.name.len)
@@ -437,7 +437,7 @@ channel_rights :: proc(ui: ^UI, ch: conn.Browse_Entry, text_only: bool) {
 	mu.label(ctx, "What each role may do here")
 	m := &v.rights_map
 	if m.conv != ch.id || m.loading {
-		with_text_color(ctx, theme.dim, "  Asking the server...", label_proc)
+		dim_label(ctx, "  Asking the server...")
 		return
 	}
 	if a.rights_count != m.count || a.row_count != len(v.roles) {
@@ -463,7 +463,7 @@ channel_rights :: proc(ui: ^UI, ch: conn.Browse_Entry, text_only: bool) {
 		mu.layout_row(ctx, widths)
 		mu.label(ctx, "")
 		for r in shown {
-			with_text_color(ctx, theme.dim, RIGHT_LABELS[r], label_proc)
+			dim_label(ctx, RIGHT_LABELS[r])
 		}
 	}
 	for i in 0 ..< a.row_count {
@@ -510,14 +510,12 @@ channel_rights :: proc(ui: ^UI, ch: conn.Browse_Entry, text_only: bool) {
 		ch.flags + ({.Text_Only} if text_only else {}),
 	)
 	mu.layout_row(ctx, {-1})
-	with_text_color(
+	dim_note(
 		ctx,
-		theme.dim,
 		fmt.tprintf(
 			"People with no role can: %s. Users with the 'manage channels' have access to all permissions.",
 			conn.rights_text(everyone),
 		),
-		wrap_text,
 	)
 	changed := len(entries) != len(m.entries)
 	for e in entries {
@@ -607,7 +605,7 @@ channel_move_buttons :: proc(ui: ^UI, id: proto.Conv_Id) {
 	if pager_query(&a.list) != "" {
 		mu.label(ctx, "")
 		mu.label(ctx, "")
-		with_text_color(ctx, theme.dim, "Clear the search to move it.", label_proc)
+		dim_label(ctx, "Clear the search to move it.")
 		return
 	}
 	at := -1
@@ -675,7 +673,7 @@ channel_members :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	mu.label(ctx, "")
 	mu.label(ctx, "Who is in it")
 	if v.members.conv != ch.id || v.members.loading {
-		with_text_color(ctx, theme.dim, "  Asking the server...", label_proc)
+		dim_label(ctx, "  Asking the server...")
 		return
 	}
 	allowed := make([]bool, len(v.members.accounts), context.temp_allocator)

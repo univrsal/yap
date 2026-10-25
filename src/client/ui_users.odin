@@ -323,7 +323,7 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 		if acc.status_until != 0 {
 			mu.layout_row(ctx, {MENU_WIDTH})
 			until := chat_time(ui, proto.Unix_Time(acc.status_until / 1000))
-			with_text_color(ctx, theme.dim, fmt.tprintf("Until %s", until), label_proc)
+			dim_label(ctx, fmt.tprintf("Until %s", until))
 		}
 	}
 	if len(acc.roles) > 0 {
@@ -331,7 +331,7 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 	}
 	if invited := invited_by_line(ui, v, account); invited != "" {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, theme.dim, invited, label_proc)
+		dim_label(ctx, invited)
 	}
 }
 
@@ -373,7 +373,7 @@ user_menu :: proc(ui: ^UI) {
 		if .Deleted in acc.flags {
 			mu.layout_row(ctx, {MENU_WIDTH})
 			mu.label(ctx, name)
-			with_text_color(ctx, theme.dim, "This account was deleted.", label_proc)
+			dim_label(ctx, "This account was deleted.")
 			return
 		}
 	}

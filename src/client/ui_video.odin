@@ -213,7 +213,7 @@ share_menu :: proc(ui: ^UI) {
 		return
 	}
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
-	with_text_color(ctx, theme.dim, "Share a monitor:", label_proc)
+	dim_label(ctx, "Share a monitor:")
 	picked := -1
 	windows := 0
 	for s in vid.sources {
@@ -244,7 +244,7 @@ share_menu :: proc(ui: ^UI) {
 	}
 	if windows > 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Or a window:", label_proc)
+		dim_label(ctx, "Or a window:")
 	}
 	for s, i in vid.sources {
 		if s.kind != .Window {
@@ -528,12 +528,7 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 fullscreen_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	title_row(ui, {-(icon_button_w(ctx) + ctx.style.spacing + 1), icon_button_w(ctx)})
-	with_text_color(
-		ctx,
-		theme.dim,
-		fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui.view)),
-		label_proc,
-	)
+	dim_label(ctx, fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui.view)))
 	if .SUBMIT in icon_button(ui, "exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
 	   .Escape in ui.keys {
 		ui.keys -= {.Escape}

@@ -210,7 +210,7 @@ settings_body :: proc(ui: ^UI) {
 	case .Audio:
 		if a := &ui.audio; a.ctx == nil {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, theme.error, a.error, label_proc)
+			error_label(ctx, a.error)
 		} else {
 			audio_settings(ui)
 		}
@@ -252,7 +252,7 @@ checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_
 	}
 	res := checkbox(ctx, label, state)
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, fmt.tprintf("  %s", note), wrap_text)
+	dim_note(ctx, fmt.tprintf("  %s", note))
 	return res
 }
 
@@ -444,12 +444,7 @@ transfer_settings :: proc(ui: ^UI) {
 			"%.1f MB/s",
 		)
 	mu.layout_row(ctx, {-1})
-	with_text_color(
-		ctx,
-		theme.dim,
-		"  0 means no limit. A download limit also slows down whoever is sending.",
-		wrap_text,
-	)
+	dim_note(ctx, "  0 means no limit. A download limit also slows down whoever is sending.")
 	if changed {
 		// Sliders change every frame while dragged, so save within a second.
 		ui.settings_dirty = true

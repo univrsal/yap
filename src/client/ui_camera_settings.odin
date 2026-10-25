@@ -44,26 +44,22 @@ camera_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	if !platform.WEB && !video.can_watch() {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
+		dim_note(
 			ctx,
-			theme.dim,
 			fmt.tprintf(
 				"The camera needs yap's video add-on: the yap-video download that goes with this " +
 				"build. Put what's in it next to yap, in %s, and start yap again.",
 				video.library_dir(),
 			),
-			wrap_text,
 		)
 		return
 	}
 	video.cameras_refresh()
 	if !video.can_camera() {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
+		dim_note(
 			ctx,
-			theme.dim,
 			"This browser can't use a camera." when platform.WEB else "No cameras found.",
-			wrap_text,
 		)
 		ui_redraw_in(ui, time.Second)
 		return
@@ -78,7 +74,7 @@ camera_settings :: proc(ui: ^UI) {
 		save_settings(ui)
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, CAMERA_QUALITY_NOTES[quality], wrap_text)
+	dim_note(ctx, CAMERA_QUALITY_NOTES[quality])
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
@@ -139,12 +135,7 @@ camera_choice :: proc(ui: ^UI) {
 	}
 	if unnamed {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			"The browser names its cameras once yap may use one.",
-			wrap_text,
-		)
+		dim_note(ctx, "The browser names its cameras once yap may use one.")
 	}
 }
 
@@ -181,12 +172,7 @@ camera_preview :: proc(ui: ^UI, quality: conn.Camera_Quality) {
 	mu.draw_rect(ctx, r, {24, 24, 24, 255})
 	if why != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.error,
-			fmt.tprintf("The camera didn't start: %s.", why),
-			wrap_text,
-		)
+		error_note(ctx, fmt.tprintf("The camera didn't start: %s.", why))
 	} else {
 		self_view(ui, r, waiting)
 	}

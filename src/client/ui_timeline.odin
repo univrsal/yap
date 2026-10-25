@@ -9,8 +9,8 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
-import "client:richtext"
 import "client:render"
+import "client:richtext"
 import "common:proto"
 
 _ :: log // only used when TIMELINE_DEBUG
@@ -495,12 +495,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 
 	if n == 0 && len(pending) == 0 && tl != nil && !tl.loading {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			"No replies yet." if key.root != 0 else "No messages here yet.",
-			label_proc,
-		)
+		dim_label(ctx, "No replies yet." if key.root != 0 else "No messages here yet.")
 	}
 	start := layout.next_row
 	last_id := i64(msgs[n - 1].id) if n > 0 else 0
@@ -608,7 +603,7 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 		text = "The start of the conversation."
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, text, label_proc)
+	dim_label(ctx, text)
 }
 
 // timeline_select_panel is the panel that a timeline's text is selected in.
@@ -662,7 +657,7 @@ thread_head :: proc(
 	ctx := &ui.ctx
 	if !have {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Loading the message replied to...", label_proc)
+		dim_label(ctx, "Loading the message replied to...")
 		return
 	}
 	layout := mu.get_layout(ctx)

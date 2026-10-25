@@ -211,7 +211,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	res := text_box(ui, p.buf[:], &p.len)
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, "Clear it after:", label_proc)
+	dim_label(ctx, "Clear it after:")
 	widths: [len(Clear_After)]i32
 	for &w in widths {
 		w =
@@ -248,7 +248,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	} else if until != 0 {
 		when_text = fmt.tprintf("It clears %s.", until_text(ui, until))
 	}
-	with_text_color(ctx, theme.dim, when_text, label_proc)
+	dim_label(ctx, when_text)
 	mu.layout_row(ctx, {120, -1})
 	cleared := .SUBMIT in stable_button(ctx, "status clear", "Clear status", {.ALIGN_CENTER})
 	saved :=
@@ -416,12 +416,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(
-		ctx,
-		theme.dim,
-		fmt.tprintf("%d members, %d here", len(list), here),
-		label_proc,
-	)
+	dim_label(ctx, fmt.tprintf("%d members, %d here", len(list), here))
 	add_people(ui, m.accounts[:])
 	// When those who aren't here were last seen is only shown in the DM
 	// with them (ui_buddies.odin), because the server only says it to people
@@ -599,9 +594,9 @@ profile_settings :: proc(ui: ^UI) {
 	}
 	switch {
 	case uploading:
-		with_text_color(ctx, theme.dim, "uploading...", label_proc)
+		dim_label(ctx, "uploading...")
 	case p.pick != nil:
-		with_text_color(ctx, theme.dim, "reading the picture...", label_proc)
+		dim_label(ctx, "reading the picture...")
 	case p.pick_notice != "":
 		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
 	case me.avatar != 0:
@@ -631,7 +626,7 @@ status_settings :: proc(ui: ^UI) {
 			chat_time(ui, proto.Unix_Time(me.status_until / 1000)),
 		)
 	}
-	with_text_color(ctx, theme.dim, text, label_proc)
+	dim_label(ctx, text)
 }
 
 // Settings on the server. Each is kept as text:

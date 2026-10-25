@@ -132,9 +132,9 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	switch {
 	case uploading:
-		with_text_color(ctx, theme.dim, "uploading...", label_proc)
+		dim_label(ctx, "uploading...")
 	case p.pick != nil && p.pick_for == .Server_Icon:
-		with_text_color(ctx, theme.dim, "reading the picture...", label_proc)
+		dim_label(ctx, "reading the picture...")
 	case p.pick_notice != "" && p.pick_for == .Server_Icon:
 		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
 	case v.server_icon != 0:
@@ -189,12 +189,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	if s.asked {
 		notice_label(ui, v)
 	} else {
-		with_text_color(
-			ctx,
-			theme.dim,
-			"Shown on everyone's rail, and before logging in.",
-			label_proc,
-		)
+		dim_label(ctx, "Shown on everyone's rail, and before logging in.")
 	}
 }
 

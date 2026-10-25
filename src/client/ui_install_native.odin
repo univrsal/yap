@@ -102,7 +102,7 @@ install_settings :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-(2 * (110 + ctx.style.spacing)), 109, 109})
 	switch {
 	case !st.installed:
-		with_text_color(ctx, theme.dim, "  Not installed.", label_proc)
+		dim_label(ctx, "  Not installed.")
 	case elsewhere:
 		with_text_color(
 			ctx,
@@ -132,6 +132,6 @@ install_settings :: proc(ui: ^UI) {
 	}
 	if st.error != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.error, st.error, label_proc)
+		error_label(ctx, st.error)
 	}
 }

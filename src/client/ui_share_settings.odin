@@ -24,7 +24,7 @@ share_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	if platform.WEB && !video.can_share() {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "This browser can't share its screen.", wrap_text)
+		dim_note(ctx, "This browser can't share its screen.")
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
 		   checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
@@ -49,7 +49,7 @@ share_settings :: proc(ui: ^UI) {
 				video.library_dir(),
 			)
 		}
-		with_text_color(ctx, theme.dim, text, wrap_text)
+		dim_note(ctx, text)
 		return
 	}
 
@@ -80,9 +80,8 @@ share_settings :: proc(ui: ^UI) {
 	if wanted := conn.share_config(&ui.settings, 0).kbit; wanted > cfg.kbit {
 		held = fmt.tprintf(", as this server takes no more (%.1f asked for)", f64(wanted) / 1000)
 	}
-	with_text_color(
+	dim_note(
 		ctx,
-		theme.dim,
 		fmt.tprintf(
 			"Shares %s, at %d frames a second and %.1f Mbit/s%s.",
 			size,
@@ -90,7 +89,6 @@ share_settings :: proc(ui: ^UI) {
 			f64(cfg.kbit) / 1000,
 			held,
 		),
-		wrap_text,
 	)
 
 	mu.layout_row(ctx, {-1})
@@ -99,7 +97,7 @@ share_settings :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, "Changes apply the next time you start sharing.", wrap_text)
+	dim_note(ctx, "Changes apply the next time you start sharing.")
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
@@ -177,7 +175,7 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 	if encoders == nil {
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
-		with_text_color(ctx, theme.dim, "Still trying the encoders...", wrap_text)
+		dim_note(ctx, "Still trying the encoders...")
 		ui_redraw_in(ui, ANIMATION_FRAME * 15)
 	}
 	if cfg.encoder != "" && encoders != nil {
@@ -185,11 +183,9 @@ share_advanced :: proc(ui: ^UI, cfg: video.Share_Config, limit: int) {
 		// decode (conn/video.odin). A chosen encoder is used regardless.
 		mu.layout_row(ctx, {120, -1})
 		mu.label(ctx, "")
-		with_text_color(
+		dim_note(
 			ctx,
-			theme.dim,
 			"Devices that do not support this codec will not be able to view your stream",
-			wrap_text,
 		)
 	}
 

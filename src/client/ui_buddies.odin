@@ -280,7 +280,7 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 	section_label(ui, "Buddies")
 	if others == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "None yet. Add someone from their menu.", label_proc)
+		dim_label(ctx, "None yet. Add someone from their menu.")
 	}
 	for b in list[:others] {
 		buddy_row(ui, b)
@@ -388,7 +388,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	if !found {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Pick a buddy to start talking.", label_proc)
+		dim_label(ctx, "Pick a buddy to start talking.")
 		return
 	}
 	account := entry.account
@@ -494,11 +494,9 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		mu.layout_row(ctx, {-1})
 		// What is there can be read, but nothing more can be said (the server
 		// refuses it too).
-		with_text_color(
+		dim_label(
 			ctx,
-			theme.dim,
 			"Their account was deleted. You can still read this conversation, but not write to it.",
-			label_proc,
 		)
 		mu.layout_row(ctx, {-1}, -1)
 		if entry.conv != 0 && v.viewing == entry.conv {
@@ -576,12 +574,7 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(
-		ctx,
-		theme.dim,
-		fmt.tprintf("Nothing said with %s yet.", entry.name),
-		label_proc,
-	)
+	dim_label(ctx, fmt.tprintf("Nothing said with %s yet.", entry.name))
 }
 
 // ask_last_seen asks a server when those in its part of the inbox who

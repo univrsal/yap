@@ -10,10 +10,10 @@ import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-// Joining a server from the rail's + button (docs/next, item 9b), which is also
-// picked automatically when there is no server to show: the main window asks
-// for the server's address and password, and connects. From then on the new
-// session is in UI.sessions (its network turns, mute, idle etc. are handled
+// Joining a server from the rail's + button (docs/design/next.md, item 9b),
+// which is also picked automatically when there is no server to show: the
+// main window asks for the server's address and password, and connects.
+// From then on the new session is in UI.sessions (its network turns, mute, idle etc. are handled
 // like those of every other session) and is shown, but it is marked `joining`:
 // it is left off the rail and out of the settings, and the main window shows
 // the join page.
@@ -235,9 +235,9 @@ join_card :: proc(ui: ^UI, v: ^conn.View) {
 
 	mu.layout_row(ctx, {-1})
 	if j.mistake != "" {
-		with_text_color(ctx, theme.error, j.mistake, wrap_text)
+		error_note(ctx, j.mistake)
 	} else if v != nil && v.error != "" {
-		with_text_color(ctx, theme.error, v.error, wrap_text)
+		error_note(ctx, v.error)
 	}
 	if v != nil && v.key_change.changed {
 		key_change_panel(ui)

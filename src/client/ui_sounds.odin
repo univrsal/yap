@@ -250,7 +250,7 @@ sound_settings :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {-1})
 			mu.label(ctx, "")
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, theme.dim, heading, label_proc)
+			dim_label(ctx, heading)
 		}
 		info := audio.SOUND_EVENTS[kind]
 		// The dropdown takes what the play button leaves.

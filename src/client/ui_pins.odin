@@ -87,7 +87,7 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if len(pins.messages) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Nothing is pinned here.", label_proc)
+		dim_label(ctx, "Nothing is pinned here.")
 		return
 	}
 	for m, i in pins.messages {

@@ -80,12 +80,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 			}
 			command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
 		}
-		with_text_color(
-			ctx,
-			theme.dim,
-			"Anyone with the code can register an account on this server.",
-			wrap_text,
-		)
+		dim_note(ctx, "Anyone with the code can register an account on this server.")
 
 		if v.invites.made != "" && v.invites.made_count > st.made_seen {
 			field_row(ui, FORM_LABEL, "New code", {150, 90, 90})
@@ -101,7 +96,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 
 	if len(v.invites.list) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "No invite codes yet.", label_proc)
+		dim_label(ctx, "No invite codes yet.")
 		return
 	}
 	now := proto.Unix_Ms(time.time_to_unix_nano(time.now()) / 1_000_000)
@@ -139,7 +134,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 				by = fmt.tprintf("by %s", acc.display)
 			}
 		}
-		with_text_color(ctx, theme.dim, by, label_proc)
+		dim_label(ctx, by)
 		if usable {
 			if .SUBMIT in stable_button(ctx, "copy", "Copy") {
 				set_clipboard(nil, inv.code)

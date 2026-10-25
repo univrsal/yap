@@ -50,11 +50,9 @@ image_cache_settings :: proc(ui: ^UI) {
 
 	when platform.WEB {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
+		dim_note(
 			ctx,
-			theme.dim,
 			"  People's pictures and servers' emoji, kept in this browser for this site. 0 keeps none.",
-			wrap_text,
 		)
 	} else {
 		folder_settings(ui)
@@ -82,19 +80,12 @@ folder_settings :: proc(ui: ^UI) {
 	if folder == "" {
 		folder = "nowhere: the folder couldn't be created"
 	}
-	with_text_color(
+	dim_note(
 		ctx,
-		theme.dim,
 		fmt.tprintf(
 			"  Kept in %s. Empty for the default; pictures already kept elsewhere stay there.",
 			folder,
 		),
-		wrap_text,
 	)
-	with_text_color(
-		ctx,
-		theme.dim,
-		"  People's pictures and servers' emoji. 0 keeps none.",
-		wrap_text,
-	)
+	dim_note(ctx, "  People's pictures and servers' emoji. 0 keeps none.")
 }

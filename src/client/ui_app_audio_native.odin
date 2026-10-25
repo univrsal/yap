@@ -192,7 +192,7 @@ app_audio_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {MENU_WIDTH})
-	with_text_color(ctx, theme.dim, "Share the audio of:", label_proc)
+	dim_label(ctx, "Share the audio of:")
 	// Not ourselves, because everyone would hear themselves back.
 	me := u32(os.get_pid())
 	count := 0
@@ -223,7 +223,7 @@ app_audio_menu :: proc(ui: ^UI) {
 		mu.end_panel(ctx)
 	} else {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, theme.dim, "Nothing is playing audio.", label_proc)
+		dim_label(ctx, "Nothing is playing audio.")
 	}
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if .SUBMIT in stable_button(ctx, "refresh", "Refresh") {
@@ -376,7 +376,7 @@ share_audio_choice :: proc(ui: ^UI, width: i32) {
 	current := share_audio_index(ui)
 	count := int(aac.app_list_count(a.devices))
 	mu.layout_row(ctx, {width})
-	with_text_color(ctx, theme.dim, "Share the audio of:", label_proc)
+	dim_label(ctx, "Share the audio of:")
 	menu_list_begin(ui, "audio", width, 1 + count)
 	mu.layout_row(ctx, {-1})
 	if .SUBMIT in list_row(ctx, "none", "No audio", current < 0) {

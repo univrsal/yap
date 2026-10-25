@@ -770,7 +770,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	shown_percent := 100 * f32(rect.w) / f32(max(im.shown.width, 1))
 	status := fmt.tprintf("%dx%d   %.0f%%", im.shown.width, im.shown.height, shown_percent)
-	with_text_color(ctx, theme.dim, status, label_proc)
+	dim_label(ctx, status)
 }
 
 // viewer_input zooms with the mouse wheel over the picture area, keeping

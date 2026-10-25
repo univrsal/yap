@@ -429,12 +429,7 @@ video_title :: proc(v: ^conn.View) -> string {
 camera_full_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	title_row(ui, {-(icon_button_w(ctx) + ctx.style.spacing + 1), icon_button_w(ctx)})
-	with_text_color(
-		ctx,
-		theme.dim,
-		fmt.tprintf("%s (Escape leaves fullscreen)", video_title(ui.view)),
-		label_proc,
-	)
+	dim_label(ctx, fmt.tprintf("%s (Escape leaves fullscreen)", video_title(ui.view)))
 	if .SUBMIT in icon_button(ui, "video exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
 	   .Escape in ui.keys {
 		ui.keys -= {.Escape}

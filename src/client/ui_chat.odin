@@ -9,9 +9,9 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
-import "client:richtext"
 import "client:platform"
 import "client:render"
+import "client:richtext"
 import glfw "client:wglfw"
 import "common:proto"
 
@@ -168,7 +168,7 @@ read_only_height :: proc(ctx: ^mu.Context) -> i32 {
 read_only_line :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, read_only_height(ctx))
-	with_text_color(ctx, theme.dim, "You can't write in this channel.", label_proc)
+	dim_label(ctx, "You can't write in this channel.")
 }
 
 // side_tabs_shown says whether the chat has tabs beside it: while there is a

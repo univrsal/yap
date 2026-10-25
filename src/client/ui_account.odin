@@ -140,7 +140,7 @@ login_screen :: proc(ui: ^UI) {
 	card_heading(ui, v.server_name if v.server_name != "" else server)
 	if v.server_about != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, v.server_about, wrap_text)
+		dim_note(ctx, v.server_about)
 	}
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
@@ -190,16 +190,11 @@ login_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case a.mistake != "":
-		with_text_color(ctx, theme.error, a.mistake, wrap_text)
+		error_note(ctx, a.mistake)
 	case v.login.error != "":
-		with_text_color(ctx, theme.error, v.login.error, wrap_text)
+		error_note(ctx, v.login.error)
 	case !working && !open:
-		with_text_color(
-			ctx,
-			theme.dim,
-			"This server does not allow registrations. Ask an admin for an account.",
-			wrap_text,
-		)
+		dim_note(ctx, "This server does not allow registrations. Ask an admin for an account.")
 	}
 
 	if submit && !working && a.username.len > 0 && a.password.len > 0 {
@@ -323,11 +318,9 @@ verify_screen :: proc(ui: ^UI) {
 	mu.label(ctx, "")
 
 	mu.layout_row(ctx, {-1})
-	with_text_color(
+	dim_note(
 		ctx,
-		theme.dim,
 		"The server checks its mail about once a minute. This page continues by itself once your email has arrived.",
-		wrap_text,
 	)
 	if v.login.verify_by != 0 {
 		dt, _ := time.time_to_datetime(time.unix(i64(v.login.verify_by) / 1000, 0))
@@ -370,7 +363,7 @@ verify_screen :: proc(ui: ^UI) {
 	if .SUBMIT in mu.button(ctx, "Log out") {
 		command(ui, conn.Logout_Command{})
 	}
-	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", wrap_text)
+	dim_note(ctx, "This device has to log in again afterwards.")
 
 }
 
@@ -384,11 +377,9 @@ password_screen :: proc(ui: ^UI) {
 	title_row(ui, {-1})
 	mu.label(ctx, fmt.tprintf("Choose a password for %s", v.login.username))
 	mu.layout_row(ctx, {-1})
-	with_text_color(
+	dim_note(
 		ctx,
-		theme.dim,
 		"The password you logged in with was set by an admin and can only be used to log in.",
-		wrap_text,
 	)
 	password_form(ui, v, "Password you logged in with", false)
 
@@ -448,7 +439,7 @@ notice_label :: proc(ui: ^UI, v: ^conn.View) {
 	_, _, fresh := notice_fresh(ui.account.notice, v)
 	switch {
 	case ui.account.mistake != "":
-		with_text_color(ctx, theme.error, ui.account.mistake, label_proc)
+		error_label(ctx, ui.account.mistake)
 	case fresh:
 		with_text_color(
 			ctx,
@@ -484,7 +475,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, fmt.tprintf("Logged in as %s", me.username), label_proc)
+	dim_label(ctx, fmt.tprintf("Logged in as %s", me.username))
 
 	if !a.name_loaded {
 		a.name_loaded = true
@@ -511,12 +502,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	if v.server_email != "" && .Owner not_in me.flags {
 		mu.layout_row(ctx, {FORM_LABEL, -1})
 		mu.label(ctx, "")
-		with_text_color(
-			ctx,
-			theme.dim,
-			"A new address has to be verified by mail before you can go on.",
-			wrap_text,
-		)
+		dim_note(ctx, "A new address has to be verified by mail before you can go on.")
 	}
 	if a.profile_asked {
 		mu.layout_row(ctx, {FORM_LABEL, -1})
@@ -549,7 +535,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 		command(ui, conn.Logout_Command{})
 		ui.page = .Main
 	}
-	with_text_color(ctx, theme.dim, "This device has to log in again afterwards.", wrap_text)
+	dim_note(ctx, "This device has to log in again afterwards.")
 
 	// Not the owner's, because somebody has to be the owner.
 	if .Owner not_in me.flags {
@@ -595,7 +581,7 @@ digest_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	with_text_color(ctx, theme.dim, hint, wrap_text)
+	dim_note(ctx, hint)
 }
 
 // voice_shown_settings is whether everyone else is shown a phone icon by our
@@ -646,11 +632,9 @@ status_shared_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	with_text_color(
+	dim_note(
 		ctx,
-		theme.dim,
 		"Online, away, busy, your status text and being in a voice chat or a call are kept the same as on your other servers. Turn it off if this account has nothing to do with them.",
-		wrap_text,
 	)
 }
 
@@ -696,7 +680,7 @@ devices_list :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	if len(v.devices) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Asking the server...", label_proc)
+		dim_label(ctx, "Asking the server...")
 		return
 	}
 	for d, i in v.devices {
@@ -727,7 +711,7 @@ devices_list :: proc(ui: ^UI, v: ^conn.View) {
 		}
 		if detail != "" {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, theme.dim, detail, label_proc)
+			dim_label(ctx, detail)
 		}
 	}
 }

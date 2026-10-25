@@ -548,7 +548,7 @@ connect_screen :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case v.status == .Failed && v.error != "":
-		with_text_color(ctx, theme.error, v.error, wrap_text)
+		error_note(ctx, v.error)
 	case v.status == .Failed:
 		with_text_color(ctx, theme.error, "Could not connect.", mu.text)
 	case:

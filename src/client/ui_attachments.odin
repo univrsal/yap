@@ -971,21 +971,14 @@ pending_files :: proc(ui: ^UI, p: conn.View_Pending) {
 		mu.draw_icon(ctx, render.icon_id(file_icon(f.name)), mu.layout_next(ctx), theme.dim)
 		name_cell := mu.layout_next(ctx)
 		mu.layout_set_next(ctx, name_cell, false)
-		with_text_color(
+		dim_label(ctx, cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding))
+		dim_label(
 			ctx,
-			theme.dim,
-			cut_to_width(ctx, f.name, name_cell.w - 2 * ctx.style.padding),
-			label_proc,
-		)
-		with_text_color(
-			ctx,
-			theme.dim,
 			fmt.tprintf(
 				"%s, %d%%",
 				conn.format_bytes(f.size),
 				int(f64(f.done) * 100 / f64(max(f.size, 1))),
 			),
-			label_proc,
 		)
 		mu.layout_row(ctx, {-1}, FILES_BAR)
 		bar := mu.layout_next(ctx)

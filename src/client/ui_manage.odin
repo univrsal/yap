@@ -82,12 +82,7 @@ people_list :: proc(
 	people_sort(v, ids, shown[:])
 	if len(shown) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			"  Nobody." if query == "" else "  Nobody by that name.",
-			label_proc,
-		)
+		dim_label(ctx, "  Nobody." if query == "" else "  Nobody by that name.")
 	}
 	lo, hi := pager_window(p, len(shown))
 	button_icon, has_icon := icon.?
@@ -129,7 +124,7 @@ people_finder :: proc(
 	ctx := &ui.ctx
 	if len(ids) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "  Everyone is in it already.", label_proc)
+		dim_label(ctx, "  Everyone is in it already.")
 		return
 	}
 	pager_search(ui, p, "Type a name")
@@ -302,7 +297,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Accou
 	}
 	mu.label(ctx, "Roles")
 	if len(v.roles) <= 1 {
-		with_text_color(ctx, theme.dim, "There are no roles to give yet.", label_proc)
+		dim_label(ctx, "There are no roles to give yet.")
 		return
 	}
 	for r in v.roles {
@@ -314,12 +309,7 @@ account_roles_editor :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Accou
 		mu.layout_row(ctx, {-1})
 		i, has := slice.linear_search(m.account_roles[:], r.id)
 		if !(r.perms <= v.permissions) {
-			with_text_color(
-				ctx,
-				theme.dim,
-				fmt.tprintf("[%s] %s (above you)", "x" if has else " ", r.name),
-				label_proc,
-			)
+			dim_label(ctx, fmt.tprintf("[%s] %s (above you)", "x" if has else " ", r.name))
 			continue
 		}
 		on := has
@@ -414,7 +404,7 @@ purge_settings :: proc(ui: ^UI) {
 	field_row(ui, FORM_LABEL, "", {140, -1})
 	if !days_ok {
 		mu.label(ctx, "")
-		with_text_color(ctx, theme.dim, "How many days, as a number.", wrap_text)
+		dim_note(ctx, "How many days, as a number.")
 		return
 	}
 	now_ms := time.time_to_unix_nano(time.now()) / 1_000_000
@@ -423,7 +413,7 @@ purge_settings :: proc(ui: ^UI) {
 		if .SUBMIT in stable_button(ctx, "purge", "Purge...", {.ALIGN_CENTER}) {
 			m.purge_confirm = true
 		}
-		with_text_color(ctx, theme.dim, "Asks first. Pinned messages are always kept.", wrap_text)
+		dim_note(ctx, "Asks first. Pinned messages are always kept.")
 		return
 	}
 	dt, _ := time.time_to_datetime(time.unix(before / 1000, 0))
@@ -437,16 +427,14 @@ purge_settings :: proc(ui: ^UI) {
 		local.minute,
 	)
 	mu.label(ctx, "")
-	with_text_color(
+	error_note(
 		ctx,
-		theme.error,
 		fmt.tprintf(
 			"This removes for good the %s in %s from before %s.",
 			"files of the messages" if m.purge_files else "messages",
 			place,
 			when_text,
 		),
-		wrap_text,
 	)
 	field_row(ui, FORM_LABEL, "", {140, 140})
 	if .SUBMIT in stable_button(ctx, "purge yes", "Purge them", {.ALIGN_CENTER}) {
@@ -562,7 +550,7 @@ accounts_list :: proc(ui: ^UI, v: ^conn.View) {
 	})
 	if len(ids) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Nobody by that name.", label_proc)
+		dim_label(ctx, "Nobody by that name.")
 	}
 	lo, hi := pager_window(&a.accounts_find, len(ids))
 	for id in ids[lo:hi] {
@@ -627,12 +615,7 @@ account_detail :: proc(ui: ^UI, v: ^conn.View) {
 			account_create(ui, v)
 		} else {
 			mu.layout_row(ctx, {-1})
-			with_text_color(
-				ctx,
-				theme.dim,
-				"Pick an account to see and change its roles.",
-				label_proc,
-			)
+			dim_label(ctx, "Pick an account to see and change its roles.")
 		}
 		return
 	}
@@ -652,9 +635,9 @@ account_detail :: proc(ui: ^UI, v: ^conn.View) {
 	if len(roles) > 0 {
 		about = fmt.tprintf("Roles: %s", strings.join(roles[:], ", ", context.temp_allocator))
 	}
-	with_text_color(ctx, theme.dim, about, wrap_text)
+	dim_note(ctx, about)
 	if invited := invited_by_line(ui, v, id); invited != "" {
-		with_text_color(ctx, theme.dim, invited, wrap_text)
+		dim_note(ctx, invited)
 	}
 
 	// Its password, or a bot's tokens. The owner's password is the owner's

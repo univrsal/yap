@@ -134,7 +134,7 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 		}
 	}
 	length := call_length_shown(ui, p.since)
-	with_text_color(ctx, theme.dim, length, label_proc)
+	dim_label(ctx, length)
 }
 
 // A picture in the panel, with the room that its ring takes around it
@@ -285,7 +285,7 @@ voice_panel :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {-60, 56})
 			mu.label(ctx, where_)
 			length := call_length_shown(ui, p.since)
-			with_text_color(ctx, theme.dim, length, label_proc)
+			dim_label(ctx, length)
 		} else {
 			mu.layout_row(ctx, {-1})
 			mu.label(ctx, where_)
@@ -462,7 +462,7 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	if e.state == .Voice || e.state == .Call {
 		mu.layout_row(ctx, {-60, 56})
 		mu.label(ctx, e.where_)
-		with_text_color(ctx, theme.dim, call_length_shown(ui, e.since), label_proc)
+		dim_label(ctx, call_length_shown(ui, e.since))
 	} else {
 		mu.layout_row(ctx, {-1})
 		mu.label(ctx, e.where_)

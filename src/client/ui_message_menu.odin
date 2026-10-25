@@ -5,8 +5,8 @@ import "core:strings"
 import mu "vendor:microui"
 
 import "client:conn"
-import "client:richtext"
 import "client:platform"
+import "client:richtext"
 import "common:proto"
 
 // A message's own menu, opened by right-clicking the message in a timeline (or
@@ -117,7 +117,7 @@ message_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if mm.confirm {
-		with_text_color(ctx, theme.dim, "Delete it for everyone?", label_proc)
+		dim_label(ctx, "Delete it for everyone?")
 		half := (MENU_WIDTH - ctx.style.spacing) / 2
 		mu.layout_row(ctx, {half, half})
 		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
@@ -133,7 +133,7 @@ message_menu :: proc(ui: ^UI) {
 		return
 	}
 	if deleted {
-		with_text_color(ctx, theme.dim, "This message was deleted.", label_proc)
+		dim_label(ctx, "This message was deleted.")
 		return
 	}
 	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "copy", "Copy text") {

@@ -15,9 +15,9 @@ import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-// Many servers at once (docs/next, item 9): every server that was joined is
-// connected, each with its own Net_Session with its own View and network loop,
-// and one of them is shown. UI.session is that one, and UI.view is its View.
+// Many servers at once (docs/design/next.md, item 9): every server that was
+// joined is connected, each with its own Net_Session with its own View and
+// network loop, and one of them is shown. UI.session is that one, and UI.view is its View.
 //
 // What the UI keeps of a server (the channel list, the timeline and its
 // scroll position, open threads, drafts, the login and settings forms, search,
@@ -749,7 +749,7 @@ rail_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {RAIL_MENU_WIDTH})
-	with_text_color(ctx, theme.dim, name, label_proc)
+	dim_label(ctx, name)
 	if rl.confirm != .None {
 		mu.text(
 			ctx,

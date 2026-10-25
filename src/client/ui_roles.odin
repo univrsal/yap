@@ -272,7 +272,7 @@ role_list :: proc(ui: ^UI) {
 	}
 	mu.layout_row(ctx, {-1})
 	mu.label(ctx, "")
-	with_text_color(ctx, theme.dim, "New role", label_proc)
+	dim_label(ctx, "New role")
 	mu.layout_row(ctx, {-1})
 	submit := .SUBMIT in text_box(ui, r.new.buf[:], &r.new.len)
 	submit |= .SUBMIT in stable_button(ctx, "make role", "Make role", {.ALIGN_CENTER})
@@ -335,11 +335,9 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 				r.flags ~= {.Mentionable}
 			}
 		} else {
-			with_text_color(
+			dim_label(
 				ctx,
-				theme.dim,
 				fmt.tprintf("[%s] Can be mentioned with @name", "x" if mentionable else " "),
-				label_proc,
 			)
 		}
 	}
@@ -353,9 +351,9 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 			label_proc,
 		)
 	case everyone:
-		with_text_color(ctx, theme.dim, "What everyone may do. Everyone has it.", label_proc)
+		dim_label(ctx, "What everyone may do. Everyone has it.")
 	case:
-		with_text_color(ctx, theme.dim, "What it allows, besides what everyone may:", label_proc)
+		dim_label(ctx, "What it allows, besides what everyone may:")
 	}
 
 	for p in proto.Permission {
@@ -365,12 +363,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 		if !editable || p not_in mine {
 			mu.layout_row(ctx, {-1})
 			why := "" if !editable else "  (you don't have it yourself)"
-			with_text_color(
-				ctx,
-				theme.dim,
-				fmt.tprintf("[%s] %s%s", "x" if on else " ", PERMISSION_TEXT[p], why),
-				label_proc,
-			)
+			dim_label(ctx, fmt.tprintf("[%s] %s%s", "x" if on else " ", PERMISSION_TEXT[p], why))
 			continue
 		}
 		mu.layout_row(ctx, {-1})
@@ -495,7 +488,7 @@ move_buttons :: proc(ui: ^UI, id: proto.Role_Id) {
 	} else {
 		mu.label(ctx, "")
 	}
-	with_text_color(ctx, theme.dim, "The highest coloured role colours a name.", label_proc)
+	dim_label(ctx, "The highest coloured role colours a name.")
 	switch {
 	case up:
 		cmd.roles[at], cmd.roles[at - 1] = cmd.roles[at - 1], cmd.roles[at]

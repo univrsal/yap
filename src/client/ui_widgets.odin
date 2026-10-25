@@ -367,6 +367,25 @@ with_text_color :: proc(
 	ctx.style.colors[.TEXT] = saved
 }
 
+// dim_label shows a line in the dim colour of notes and hints, dim_note the
+// same wrapped to the row's width (wrap_text); error_label and error_note
+// show an error.
+dim_label :: proc(ctx: ^mu.Context, text: string) {
+	with_text_color(ctx, theme.dim, text, label_proc)
+}
+
+dim_note :: proc(ctx: ^mu.Context, text: string) {
+	with_text_color(ctx, theme.dim, text, wrap_text)
+}
+
+error_label :: proc(ctx: ^mu.Context, text: string) {
+	with_text_color(ctx, theme.error, text, label_proc)
+}
+
+error_note :: proc(ctx: ^mu.Context, text: string) {
+	with_text_color(ctx, theme.error, text, wrap_text)
+}
+
 // In a narrow window (a phone), a row of settings that wouldn't fit across
 // goes down instead: field_row puts its label on a line of its own, above the
 // controls, and fit_widths shrinks fixed widths that still don't fit. In a

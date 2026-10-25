@@ -93,21 +93,21 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case found.error != "":
-		with_text_color(ctx, theme.error, found.error, label_proc)
+		error_label(ctx, found.error)
 		return
 	case found.query == "":
-		with_text_color(ctx, theme.dim, `Whole words, "a phrase", from:username.`, label_proc)
+		dim_label(ctx, `Whole words, "a phrase", from:username.`)
 		return
 	case found.loading && len(found.found) == 0:
-		with_text_color(ctx, theme.dim, "Searching...", label_proc)
+		dim_label(ctx, "Searching...")
 		return
 	case len(found.found) == 0 && !found.more:
-		with_text_color(ctx, theme.dim, fmt.tprintf("Nothing has %q.", found.query), label_proc)
+		dim_label(ctx, fmt.tprintf("Nothing has %q.", found.query))
 		return
 	case len(found.found) == 0:
 		// The search stopped because of its time limit before finding any
 		// result, so older messages are left.
-		with_text_color(ctx, theme.dim, "Nothing yet in the newest messages.", label_proc)
+		dim_label(ctx, "Nothing yet in the newest messages.")
 	}
 	for f, i in found.found {
 		m := f.msg
@@ -157,7 +157,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if found.loading {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Searching...", label_proc)
+		dim_label(ctx, "Searching...")
 	} else if found.more {
 		mu.layout_row(ctx, {140})
 		if .SUBMIT in

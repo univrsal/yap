@@ -74,8 +74,8 @@ key_change_panel :: proc(ui: ^UI) {
 	// The two keys side by side, each as a heading over its four lines.
 	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, -1})
-	with_text_color(ctx, theme.dim, "Saved key", label_proc)
-	with_text_color(ctx, theme.dim, "New key", label_proc)
+	dim_label(ctx, "Saved key")
+	dim_label(ctx, "New key")
 	saved, received := key_lines(kc.saved), key_lines(kc.received)
 	for i in 0 ..< len(saved) {
 		mu.label(ctx, saved[i])

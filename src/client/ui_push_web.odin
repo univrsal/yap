@@ -212,7 +212,7 @@ push_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	mu.layout_row(ctx, {FORM_LABEL, -1})
 	mu.label(ctx, "")
-	with_text_color(ctx, theme.dim, hint, wrap_text)
+	dim_note(ctx, hint)
 
 	hidden := (v.shared[proto.SETTING_PUSH_TEXT] or_else "") == proto.PUSH_TEXT_HIDDEN
 	field_row(ui, FORM_LABEL, "Pushes contain", {CHOICE_WIDTH})
