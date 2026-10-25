@@ -145,16 +145,9 @@ Client :: struct {
 	// new conn_id, until its Welcome arrives.
 	restart:       bool,
 
-	// The sessions, managed as the client does (client/conn/client.odin).
-	handshake:     proto.Initiator,
-	pending:       proto.Session,
-	current:       proto.Session,
-	previous:      proto.Session,
-	has_pending:   bool,
-	has_current:   bool,
-	has_previous:  bool,
+	// The handshake and sessions, managed as the client does (proto.Initiator_Link).
+	using link:    proto.Initiator_Link,
 	last_sent:     time.Tick,
-	last_recv:     time.Tick,
 	login_at:      time.Tick, // when to retry the login; 0 for never
 	login_tries:   int,
 	stream:        proto.Stream,
@@ -341,7 +334,7 @@ restart :: proc(c: ^Client) {
 	}
 	crypto.rand_bytes(([^]byte)(&c.conn_id)[:size_of(c.conn_id)])
 	// A handshake in progress would still use the old conn_id.
-	abandon_handshake(c)
+	proto.link_abandon(&c.link)
 	c.restart = true
 	set_phase(c, .Connecting)
 }
@@ -399,11 +392,7 @@ leave :: proc(c: ^Client) {
 			send(c, bye[:])
 		}
 	}
-	proto.initiator_reset(&c.handshake)
-	proto.session_reset(&c.pending)
-	proto.session_reset(&c.current)
-	proto.session_reset(&c.previous)
-	c.has_pending, c.has_current, c.has_previous = false, false, false
+	proto.link_reset(&c.link)
 	c.has_instance = false
 }
 
@@ -435,49 +424,15 @@ answer_all :: proc(c: ^Client, status: proto.Status) {
 // over. It also resends a stalled handshake or starts it over.
 @(private)
 drive_handshake :: proc(c: ^Client, now: time.Tick) {
-	if c.has_current && time.tick_diff(c.current.created, now) > proto.REJECT_AFTER {
+	s := proto.link_step(&c.link, &c.key, now, restart = c.restart)
+	if s.expired {
 		log.warnf("%s: the session expired without a rekey", c.opt.name)
-		proto.session_reset(&c.current)
-		c.has_current = false
 	}
-	ini := &c.handshake
-	if ini.state != .Idle && time.tick_diff(ini.started, now) > proto.HANDSHAKE_TIMEOUT {
-		abandon_handshake(c)
+	if s.silent {
+		log.warnf("%s: nothing from the server for a while, connecting again", c.opt.name)
 	}
-	switch ini.state {
-	case .Idle:
-		silent := c.has_current && time.tick_diff(c.last_recv, now) > proto.SERVER_SILENT
-		if c.has_current &&
-		   time.tick_diff(c.current.created, now) <= proto.REKEY_AFTER &&
-		   !silent &&
-		   !c.restart {
-			return
-		}
-		if silent {
-			log.warnf("%s: nothing from the server for a while, connecting again", c.opt.name)
-		}
-		packet, ok := proto.initiator_start(ini, &c.key)
-		if !ok {
-			return
-		}
-		ini.last_sent = now
-		net.send_udp(c.sock, packet, c.opt.server)
-	case .Sent_Init, .Sent_Finish:
-		// Resending unchanged is fine: the server answers a repeated Init
-		// with the same Resp and a repeated Finish with a Welcome.
-		if time.tick_diff(ini.last_sent, now) >= proto.HANDSHAKE_RETRY {
-			ini.last_sent = now
-			net.send_udp(c.sock, proto.initiator_packet(ini), c.opt.server)
-		}
-	}
-}
-
-@(private)
-abandon_handshake :: proc(c: ^Client) {
-	proto.initiator_reset(&c.handshake)
-	if c.has_pending {
-		proto.session_reset(&c.pending)
-		c.has_pending = false
+	if s.packet != nil {
+		net.send_udp(c.sock, s.packet, c.opt.server)
 	}
 }
 
@@ -486,82 +441,55 @@ handle_packet :: proc(c: ^Client, packet: []u8) {
 	#partial switch proto.packet_type(packet) {
 	case .Handshake_Cookie:
 		// The server is busy: the Init goes again, with the cookie.
-		if proto.initiator_read_cookie(&c.handshake, packet) {
-			c.handshake.last_sent = time.tick_now()
-			net.send_udp(c.sock, proto.initiator_packet(&c.handshake), c.opt.server)
+		if resend, ok := proto.link_cookie(&c.link, packet); ok {
+			net.send_udp(c.sock, resend, c.opt.server)
 		}
 	case .Handshake_Resp:
-		server_key, result := proto.initiator_read_resp(&c.handshake, packet)
-		if result != .Ok {
+		server_key, resp_ok := proto.link_resp(&c.link, packet)
+		if !resp_ok {
 			return
 		}
 		if c.opt.server_key != {} && server_key != c.opt.server_key {
 			log.warnf("%s: the server's key isn't the one expected", c.opt.name)
-			abandon_handshake(c)
+			proto.link_abandon(&c.link)
 			fail(c, .Wrong_Server_Key)
 			return
 		}
 		hello_buf: [proto.HELLO_MAX_SIZE]u8
 		hello := proto.encode_hello(&hello_buf, c.conn_id, c.opt.password)
-		finish, ok := proto.initiator_finish(&c.handshake, &c.pending, hello)
+		finish, ok := proto.link_finish(&c.link, hello)
 		if !ok {
 			return
 		}
-		c.has_pending = true
-		c.handshake.last_sent = time.tick_now()
 		net.send_udp(c.sock, finish, c.opt.server)
 
 	case .Data:
-		idx := proto.receiver_index(packet)
-		sess: ^proto.Session
-		switch {
-		case c.has_pending && idx == c.pending.local_idx:
-			sess = &c.pending
-		case c.has_current && idx == c.current.local_idx:
-			sess = &c.current
-		case c.has_previous && idx == c.previous.local_idx:
-			sess = &c.previous
-		case:
-			return
-		}
 		pt_buf: [proto.MAX_PACKET_SIZE]u8
-		pt, ok := proto.open(sess, packet, pt_buf[:])
+		pt, pending, ok := proto.link_open(&c.link, packet, pt_buf[:])
 		if !ok {
 			return
 		}
-		c.last_recv = time.tick_now()
 		kind, kind_ok := proto.message_kind(pt)
-		if sess == &c.pending {
+		if pending {
 			// This is the answer to our hello: either the Welcome or the
 			// reason we aren't welcome. Nothing else counts until one of
 			// them arrives.
 			if kind_ok && kind == .Refused {
 				c.refusal = proto.decode_refused(pt)
 				log.warnf("%s: the server refused us: %v", c.opt.name, c.refusal)
-				abandon_handshake(c)
+				proto.link_abandon(&c.link)
 				fail(c, .Refused)
 				return
 			}
 			if !kind_ok || kind != .Welcome {
 				return
 			}
-			promote_pending(c)
+			proto.link_promote(&c.link)
 		}
 		if kind_ok {
 			handle_message(c, kind, pt)
 		}
 	}
-}
-
-@(private)
-promote_pending :: proc(c: ^Client) {
-	if c.has_previous {
-		proto.session_reset(&c.previous)
-	}
-	c.previous, c.has_previous = c.current, c.has_current
-	c.current, c.has_current = c.pending, true
-	c.pending, c.has_pending = {}, false
-	proto.initiator_reset(&c.handshake)
 }
 
 @(private)

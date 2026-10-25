@@ -61,7 +61,7 @@ connection_restart :: proc(c: ^Server_Conn) {
 	}
 	crypto.rand_bytes(([^]byte)(&c.conn_id)[:size_of(c.conn_id)])
 	// A handshake that is still in progress would still use the old conn_id.
-	abandon_handshake(&c.link)
+	proto.link_abandon(&c.link)
 	c.restart = true // until the Welcome (handle_welcome)
 }
 

@@ -18,22 +18,9 @@ import "common:proto"
 // connection itself. The bulk link joins it once it is established and carries
 // the heavy traffic (see bulk.odin).
 Link :: struct {
-	transport:    Transport,
-	handshake:    proto.Initiator,
-	// The keys are derived and Finish has been sent. We are waiting for the
-	// server's first Data packet before switching to this session.
-	pending:      proto.Session,
-	has_pending:  bool,
-	// The session used for sending.
-	current:      proto.Session,
-	has_current:  bool,
-	// Kept after a rekey so that packets that are still in flight on the old
-	// session can be decrypted.
-	previous:     proto.Session,
-	has_previous: bool,
-	last_sent:    time.Tick,
-	// When the server was last heard from, on any session.
-	last_recv:    time.Tick,
+	using sessions: proto.Initiator_Link,
+	transport:      Transport,
+	last_sent:      time.Tick,
 }
 
 // Server_Conn is everything we have going with one server: its links, our
@@ -158,7 +145,7 @@ client_close :: proc(c: ^Server_Conn) {
 		}
 	}
 	transport_close(&c.transport)
-	link_reset(&c.link)
+	proto.link_reset(&c.link)
 	bulk_close(c)
 	media_close(c)
 	ecdh.private_key_clear(&c.key)
@@ -282,7 +269,7 @@ check_alive :: proc(c: ^Server_Conn) {
 // connection_lost drops the main link, publishes the reason, and makes
 // drive_handshake try for a new connection every RECONNECT_EVERY.
 connection_lost :: proc(c: ^Server_Conn, why: string) {
-	link_reset(&c.link)
+	proto.link_reset(&c.link)
 	c.lost = true
 	trouble_end(c)
 	c.retry_at = time.tick_add(time.tick_now(), RECONNECT_EVERY)
@@ -294,115 +281,39 @@ connection_lost :: proc(c: ^Server_Conn, why: string) {
 // (it may have restarted and no longer know our session). It also retransmits
 // lost handshake packets and starts over if a handshake stalls.
 drive_handshake :: proc(c: ^Server_Conn) {
-	if c.has_current && time.tick_since(c.current.created) > proto.REJECT_AFTER {
-		log.warn("session expired without a successful rekey")
-		proto.session_reset(&c.current)
-		c.has_current = false
+	now := time.tick_now()
+	if c.handshake.state == .Idle && c.lost {
+		if time.tick_diff(now, c.retry_at) > 0 {
+			return
+		}
+		c.retry_at = time.tick_add(now, RECONNECT_EVERY)
+		if !c.transport.open && !transport_open(&c.transport, c.server_addr, c.slot) {
+			publish_retry(c)
+			return
+		}
+		log.infof("trying %s again", c.server_addr)
+		transport_revive(&c.transport)
 	}
-
-	ini := &c.handshake
-	if ini.state != .Idle && time.tick_since(ini.started) > proto.HANDSHAKE_TIMEOUT {
+	s := proto.link_step(&c.link, &c.key, now, restart = c.restart)
+	if s.expired {
+		log.warn("session expired without a successful rekey")
+	}
+	if s.stalled {
 		log.warn("handshake timed out, retrying")
-		abandon_handshake(&c.link)
 		publish_retry(c)
 	}
-
-	switch ini.state {
-	case .Idle:
-		if c.lost {
-			if time.tick_diff(time.tick_now(), c.retry_at) > 0 {
-				return
-			}
-			c.retry_at = time.tick_add(time.tick_now(), RECONNECT_EVERY)
-			if !c.transport.open && !transport_open(&c.transport, c.server_addr, c.slot) {
-				publish_retry(c)
-				return
-			}
-			log.infof("trying %s again", c.server_addr)
-			transport_revive(&c.transport)
+	if s.silent {
+		log.warnf("nothing from %s for a while, connecting again", c.server_addr)
+	}
+	if s.packet != nil {
+		if !s.started {
+			log.debugf("resending %v", proto.packet_type(s.packet))
 		}
-		silent := c.has_current && time.tick_since(c.last_recv) > proto.SERVER_SILENT
-		if c.has_current &&
-		   time.tick_since(c.current.created) <= proto.REKEY_AFTER &&
-		   !silent &&
-		   !c.restart {
-			return
-		}
-		if silent {
-			log.warnf("nothing from %s for a while, connecting again", c.server_addr)
-		}
-		packet, ok := proto.initiator_start(ini, &c.key)
-		if !ok {
-			log.error("failed to start handshake")
-			return
-		}
-		ini.last_sent = time.tick_now()
-		transport_send(&c.transport, packet)
-		if c.lost {
+		transport_send(&c.transport, s.packet)
+		if s.started && c.lost {
 			publish_retry(c)
 		}
-
-	case .Sent_Init, .Sent_Finish:
-		// Resending the packet unchanged is fine. The server answers a repeated
-		// Init with the same Resp, and a repeated Finish with a new keepalive.
-		if time.tick_since(ini.last_sent) >= proto.HANDSHAKE_RETRY {
-			log.debugf("resending %v", proto.packet_type(proto.initiator_packet(ini)))
-			ini.last_sent = time.tick_now()
-			transport_send(&c.transport, proto.initiator_packet(ini))
-		}
 	}
-}
-
-abandon_handshake :: proc(l: ^Link) {
-	proto.initiator_reset(&l.handshake)
-	if l.has_pending {
-		proto.session_reset(&l.pending)
-		l.has_pending = false
-	}
-}
-
-// link_reset forgets a link's handshake and sessions. Its transport stays
-// unchanged.
-link_reset :: proc(l: ^Link) {
-	proto.initiator_reset(&l.handshake)
-	proto.session_reset(&l.pending)
-	proto.session_reset(&l.current)
-	proto.session_reset(&l.previous)
-	l.has_pending, l.has_current, l.has_previous = false, false, false
-}
-
-// link_open opens a Data packet that came over the link, using whichever of the
-// link's sessions it is addressed to. `pending` is true if it was the pending
-// session, which the caller has to promote once it is sure of the packet.
-link_open :: proc(l: ^Link, packet: []byte, out: []byte) -> (pt: []byte, pending: bool, ok: bool) {
-	idx := proto.receiver_index(packet)
-	sess: ^proto.Session
-	switch {
-	case l.has_pending && idx == l.pending.local_idx:
-		sess = &l.pending
-	case l.has_current && idx == l.current.local_idx:
-		sess = &l.current
-	case l.has_previous && idx == l.previous.local_idx:
-		sess = &l.previous
-	case:
-		return
-	}
-	pt = proto.open(sess, packet, out) or_return
-	l.last_recv = time.tick_now()
-	return pt, sess == &l.pending, true
-}
-
-// link_promote switches the link over to its pending session, which the server
-// has confirmed. It returns whether this is the link's first session.
-link_promote :: proc(l: ^Link) -> (first: bool) {
-	if l.has_previous {
-		proto.session_reset(&l.previous)
-	}
-	l.previous, l.has_previous = l.current, l.has_current
-	l.current, l.has_current = l.pending, true
-	l.pending, l.has_pending = {}, false
-	proto.initiator_reset(&l.handshake)
-	return !l.has_previous
 }
 
 // handle_server_packet returns false if the connection must be aborted.
@@ -411,17 +322,16 @@ handle_server_packet :: proc(c: ^Server_Conn, packet: []byte) -> bool {
 	case .Handshake_Cookie:
 		// The server is busy and wants to know that we can be reached
 		// here: the Init goes again, with the cookie.
-		if proto.initiator_read_cookie(&c.handshake, packet) {
-			c.handshake.last_sent = time.tick_now()
-			transport_send(&c.transport, proto.initiator_packet(&c.handshake))
+		if resend, ok := proto.link_cookie(&c.link, packet); ok {
+			transport_send(&c.transport, resend)
 		}
 	case .Handshake_Resp:
-		server_key, result := proto.initiator_read_resp(&c.handshake, packet)
-		if result != .Ok {
+		server_key, resp_ok := proto.link_resp(&c.link, packet)
+		if !resp_ok {
 			return true // ignored, or failed and will be retried later
 		}
 		if trusted, why := verify_server_key(c, server_key); !trusted {
-			abandon_handshake(&c.link)
+			proto.link_abandon(&c.link)
 			publish_status(c, .Failed, why)
 			return false
 		}
@@ -429,17 +339,15 @@ handle_server_packet :: proc(c: ^Server_Conn, packet: []byte) -> bool {
 		// with the server's password in the (encrypted) hello.
 		hello_buf: [proto.HELLO_MAX_SIZE]u8
 		hello := proto.encode_hello(&hello_buf, c.conn_id, c.password)
-		finish, ok := proto.initiator_finish(&c.handshake, &c.pending, hello)
+		finish, ok := proto.link_finish(&c.link, hello)
 		if !ok {
 			return true
 		}
-		c.has_pending = true
-		c.handshake.last_sent = time.tick_now()
 		transport_send(&c.transport, finish)
 
 	case .Data:
 		pt_buf: [proto.MAX_PACKET_SIZE]byte
-		pt, pending, ok := link_open(&c.link, packet, pt_buf[:])
+		pt, pending, ok := proto.link_open(&c.link, packet, pt_buf[:])
 		if !ok {
 			return true
 		}
@@ -449,7 +357,7 @@ handle_server_packet :: proc(c: ^Server_Conn, packet: []byte) -> bool {
 			// why it refuses us. Nothing else counts until one of them arrives,
 			// because the Welcome says which connection everything else belongs to.
 			if kind_ok && kind == .Refused {
-				abandon_handshake(&c.link)
+				proto.link_abandon(&c.link)
 				publish_status(c, .Failed, refusal_text(c, proto.decode_refused(pt)))
 				return false
 			}
@@ -513,7 +421,7 @@ handle_message :: proc(c: ^Server_Conn, kind: proto.Message_Kind, pt: []byte) {
 
 // The server has confirmed the pending session, so start sending on it.
 promote_pending :: proc(c: ^Server_Conn) {
-	if !link_promote(&c.link) {
+	if !proto.link_promote(&c.link) {
 		log.debugf("rekeyed (session %08x)", c.current.local_idx)
 	} else {
 		c.last_stats = time.tick_now()

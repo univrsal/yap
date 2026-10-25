@@ -108,13 +108,13 @@ with_port :: proc(addr: string, port: u16) -> string {
 @(private = "file")
 media_handshake :: proc(c: ^Server_Conn) {
 	m := &c.media
-	if m.has_current && time.tick_since(m.current.created) > proto.REJECT_AFTER {
+	now := time.tick_now()
+	hold := m.retry_at != {} && time.tick_diff(now, m.retry_at) > 0
+	s := proto.link_step(&m.link, &c.key, now, hold = hold)
+	if s.expired {
 		log.warn("media link expired without a successful rekey")
-		proto.session_reset(&m.current)
-		m.has_current = false
 	}
-	ini := &m.handshake
-	if ini.state != .Idle && time.tick_since(ini.started) > proto.HANDSHAKE_TIMEOUT {
+	if s.stalled {
 		log.debug("media link handshake timed out, retrying")
 		m.timeouts += 1
 		if m.timeouts == MEDIA_WARN_SILENT {
@@ -130,32 +130,13 @@ media_handshake :: proc(c: ^Server_Conn) {
 				)
 			}
 		}
-		abandon_handshake(&m.link)
-		m.retry_at = time.tick_add(time.tick_now(), MEDIA_RETRY)
+		m.retry_at = time.tick_add(now, MEDIA_RETRY)
 	}
-	switch ini.state {
-	case .Idle:
-		silent := m.has_current && time.tick_since(m.last_recv) > proto.SERVER_SILENT
-		if m.has_current && time.tick_since(m.current.created) <= proto.REKEY_AFTER && !silent {
-			return
-		}
-		if m.retry_at != {} && time.tick_diff(time.tick_now(), m.retry_at) > 0 {
-			return
-		}
-		if silent {
-			log.debug("nothing on the media link for a while, connecting it again")
-		}
-		packet, ok := proto.initiator_start(ini, &c.key)
-		if !ok {
-			return
-		}
-		ini.last_sent = time.tick_now()
-		transport_send(&m.transport, packet)
-	case .Sent_Init, .Sent_Finish:
-		if time.tick_since(ini.last_sent) >= proto.HANDSHAKE_RETRY {
-			ini.last_sent = time.tick_now()
-			transport_send(&m.transport, proto.initiator_packet(ini))
-		}
+	if s.silent {
+		log.debug("nothing on the media link for a while, connecting it again")
+	}
+	if s.packet != nil {
+		transport_send(&m.transport, s.packet)
 	}
 }
 
@@ -179,13 +160,12 @@ handle_media_packet :: proc(c: ^Server_Conn, packet: []byte) {
 	m := &c.media
 	#partial switch proto.packet_type(packet) {
 	case .Handshake_Cookie:
-		if proto.initiator_read_cookie(&m.handshake, packet) {
-			m.handshake.last_sent = time.tick_now()
-			transport_send(&m.transport, proto.initiator_packet(&m.handshake))
+		if resend, ok := proto.link_cookie(&m.link, packet); ok {
+			transport_send(&m.transport, resend)
 		}
 	case .Handshake_Resp:
-		server_key, result := proto.initiator_read_resp(&m.handshake, packet)
-		if result != .Ok {
+		server_key, resp_ok := proto.link_resp(&m.link, packet)
+		if !resp_ok {
 			return
 		}
 		if server_key != c.server_key {
@@ -195,17 +175,15 @@ handle_media_packet :: proc(c: ^Server_Conn, packet: []byte) {
 		}
 		hello_buf: [proto.HELLO_MAX_SIZE]u8
 		hello := proto.encode_hello(&hello_buf, c.conn_id, c.password, .Media)
-		finish, ok := proto.initiator_finish(&m.handshake, &m.pending, hello)
+		finish, ok := proto.link_finish(&m.link, hello)
 		if !ok {
 			return
 		}
-		m.has_pending = true
-		m.handshake.last_sent = time.tick_now()
 		transport_send(&m.transport, finish)
 
 	case .Data:
 		pt_buf: [proto.MAX_PACKET_SIZE]byte
-		pt, pending, ok := link_open(&m.link, packet, pt_buf[:])
+		pt, pending, ok := proto.link_open(&m.link, packet, pt_buf[:])
 		if !ok {
 			return
 		}
@@ -229,7 +207,7 @@ handle_media_packet :: proc(c: ^Server_Conn, packet: []byte) {
 				media_retry_later(m)
 				return
 			}
-			if link_promote(&m.link) {
+			if proto.link_promote(&m.link) {
 				log.info("media link up")
 			}
 			m.retry_at = {}
@@ -262,7 +240,7 @@ handle_media_packet :: proc(c: ^Server_Conn, packet: []byte) {
 
 @(private = "file")
 media_retry_later :: proc(m: ^Media_Link) {
-	abandon_handshake(&m.link)
+	proto.link_abandon(&m.link)
 	m.retry_at = time.tick_add(time.tick_now(), MEDIA_RETRY)
 }
 
@@ -270,7 +248,7 @@ media_retry_later :: proc(m: ^Media_Link) {
 // one, because the server dropped them together with the old connection. The
 // transport stays open for the next handshake.
 media_restart :: proc(c: ^Server_Conn) {
-	link_reset(&c.media.link)
+	proto.link_reset(&c.media.link)
 	c.media.retry_at = {}
 	c.media.refusals = 0
 	c.media.timeouts = 0
