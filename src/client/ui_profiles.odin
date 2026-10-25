@@ -587,10 +587,7 @@ profile_settings :: proc(ui: ^UI) {
 	)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, fit_widths(ctx, {110, 110, 110}))
-	uploading := false
-	for o in v.outbox {
-		uploading ||= o.avatar
-	}
+	uploading := v.uploading.avatar
 	if .SUBMIT in stable_button(ctx, "avatar file", "Choose...", {.ALIGN_CENTER}) {
 		avatar_pick_start(ui, false)
 	}

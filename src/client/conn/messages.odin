@@ -65,8 +65,6 @@ Timeline_Key :: struct {
 // TYPING_SHOW after the last one arrives.
 TYPING_SEND_INTERVAL :: 3 * time.Second
 TYPING_SHOW :: 5 * time.Second
-// How many times an avatar or server picture is uploaded before it is given up.
-UPLOAD_TRIES :: 3
 
 // Msg is a message as we keep it.
 Msg :: struct {
@@ -157,8 +155,6 @@ Conv_Cache :: struct {
 
 Post_State :: enum {
 	Open, // the DM it is for has to be opened (DM_Open)
-	Put, // an avatar or server picture has to be announced (Blob_Put)
-	Upload, // ... and sent
 	Post, // the message has to be posted
 }
 
@@ -168,35 +164,13 @@ Pending :: struct {
 	conv:   proto.Conv_Id, // 0 while its DM is being opened
 	root:   proto.Msg_Id, // the thread it replies in, if it is a reply
 	dm_to:  proto.Account_Id, // who it is for, if it is a DM
-	// Not a message at all, but our new picture, which is set once it has
-	// been uploaded (see profiles.odin). With `server`, it is the server's
-	// picture, which is set together with the server's name (`text`) and
-	// description (`about`, owned; see server_info.odin).
-	avatar: bool,
-	server: bool,
-	about:  string,
 	kind:   proto.Msg_Kind,
 	text:   string, // .Text; for .File its name; owned
 	size:   u64, // for .File
 	state:  Post_State,
 	asking: bool, // a request for it is pending
-	// The avatar or server picture: the JPEG (owned), how it is announced, and
-	// its id once the server has it.
-	jpeg:   []u8,
-	put:    proto.Blob_Put,
-	blob:   proto.Blob_Id,
-	upload: Upload,
-	tries:  int,
 	// A message with files (see attachments.odin), which names the uploads.
 	attach: ^Attach_Post,
-}
-
-// Upload is the bytes of an avatar or server picture on their way to the server.
-Upload :: struct {
-	handle:     u64,
-	send:       proto.Blob_Sender,
-	pace:       proto.Bucket,
-	last_heard: time.Tick, // when the server last said anything about the upload
 }
 
 Message_Client :: struct {
@@ -283,9 +257,6 @@ messages_destroy :: proc(c: ^Server_Conn) {
 
 pending_destroy :: proc(p: ^Pending) {
 	delete(p.text)
-	delete(p.about)
-	delete(p.jpeg)
-	proto.blob_sender_destroy(&p.upload.send)
 	p^ = {}
 }
 
@@ -1446,17 +1417,11 @@ messages_restart :: proc(c: ^Server_Conn, forget := false) {
 	}
 	for &p in mc.outbox {
 		p.asking = false
-		if p.avatar && p.blob == 0 {
-			// The server forgot the upload when the connection was lost.
-			p.state = .Put
-			proto.blob_sender_destroy(&p.upload.send)
-			p.upload = {}
-		}
 	}
 	mc.last_typing, mc.typing_to = {}, {}
 	// The pins are requested again the next time they are shown.
 	mc.pins_conv = 0
-	blobs_restart(c)
+	blobs_restart(c, forget)
 	attachments_restart(c, forget)
 	publish_outbox(c)
 }
@@ -1627,27 +1592,18 @@ handle_typing :: proc(c: ^Server_Conn, pt: []u8) {
 	}
 }
 
-// drive_outbox advances the oldest entry in our outbox: an avatar or server
-// picture is announced and uploaded, and a message is posted once its DM is
-// open and its files are uploaded. Entries are sent one at a time, so that
-// they arrive in the order they were written.
+// drive_outbox advances the oldest entry in our outbox: a message is posted
+// once its DM is open and its files are uploaded. Entries are sent one at a
+// time, so that they arrive in the order they were written.
 drive_outbox :: proc(c: ^Server_Conn) {
 	mc := &c.msgs
 	if len(mc.outbox) == 0 || !c.has_current || !c.convs.synced {
 		return
 	}
 	p := &mc.outbox[0]
-	if !p.avatar && p.state != .Open && p.conv not_in c.convs.convs {
+	if p.state != .Open && p.conv not_in c.convs.convs {
 		log.warn("a message wasn't posted because we are no longer a member of its channel")
-		if p.kind == .File {
-			file_post_failed(c, p.nonce)
-		}
-		if p.attach != nil {
-			attach_post_failed(c, p.attach)
-		}
-		pending_destroy(p)
-		ordered_remove(&mc.outbox, 0)
-		publish_outbox(c)
+		outbox_fail(c)
 		return
 	}
 	switch p.state {
@@ -1665,22 +1621,8 @@ drive_outbox :: proc(c: ^Server_Conn) {
 			buf: [4]u8
 			request(c, .DM_Open, proto.encode_account_id(&buf, p.dm_to), open_done, p.nonce)
 		}
-	case .Put:
-		if !p.asking {
-			p.asking = true
-			buf: [proto.BLOB_PUT_SIZE]u8
-			request(c, .Blob_Put, proto.encode_blob_put(&buf, p.put), put_done, p.nonce)
-		}
-	case .Upload:
-		upload_step(c, p)
 	case .Post:
-		if !p.asking && p.server {
-			p.asking = true
-			server_info_post(c, p)
-		} else if !p.asking && p.avatar {
-			p.asking = true
-			avatar_post(c, p)
-		} else if !p.asking {
+		if !p.asking {
 			p.asking = true
 			buf: [proto.MSG_POST_MAX_SIZE]u8
 			post := proto.Msg_Post {
@@ -1711,18 +1653,30 @@ outbox_head :: proc(c: ^Server_Conn, nonce: u64) -> ^Pending {
 	return &c.msgs.outbox[0]
 }
 
-// outbox_give_up drops the message at the head of the outbox.
-outbox_give_up :: proc(c: ^Server_Conn, why: string) {
-	notify(c, false, why)
-	if c.msgs.outbox[0].kind == .File {
-		file_post_failed(c, c.msgs.outbox[0].nonce)
-	}
-	if attach := c.msgs.outbox[0].attach; attach != nil {
-		attach_post_failed(c, attach)
-	}
+// outbox_pop drops the message at the head of the outbox, which is done with.
+outbox_pop :: proc(c: ^Server_Conn) {
 	pending_destroy(&c.msgs.outbox[0])
 	ordered_remove(&c.msgs.outbox, 0)
 	publish_outbox(c)
+}
+
+// outbox_fail drops the message at the head of the outbox, which could not be
+// posted, and tells what was waiting for it.
+outbox_fail :: proc(c: ^Server_Conn) {
+	p := &c.msgs.outbox[0]
+	if p.kind == .File {
+		file_post_failed(c, p.nonce)
+	}
+	if p.attach != nil {
+		attach_post_failed(c, p.attach)
+	}
+	outbox_pop(c)
+}
+
+// outbox_give_up is outbox_fail, with a notice of why.
+outbox_give_up :: proc(c: ^Server_Conn, why: string) {
+	notify(c, false, why)
+	outbox_fail(c)
 }
 
 // open_done handles the answer to opening the DM that a post is for. The server
@@ -1758,115 +1712,6 @@ open_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 }
 
 @(private = "file")
-put_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
-	p := outbox_head(c, tag)
-	if p == nil || p.state == .Post {
-		return
-	}
-	p.asking = false
-	#partial switch status {
-	case .Ok:
-	case .Reset:
-		return // asked again on the new connection
-	case:
-		outbox_give_up(c, "The server refused to accept the picture.")
-		return
-	}
-	blob, have, handle, ok := proto.decode_blob_put_answer(body)
-	switch {
-	case !ok:
-		return
-	case have:
-		p.blob = blob
-		p.state = .Post
-		proto.blob_sender_destroy(&p.upload.send)
-		p.upload = {}
-	case p.state == .Upload && p.upload.handle == handle:
-	// The upload is still in progress.
-	case:
-		// Start (or start over) sending it.
-		proto.blob_sender_destroy(&p.upload.send)
-		now := time.tick_now()
-		p.upload = {
-			handle = handle,
-			send = {data = p.jpeg},
-			pace = {last = now}, // empty until the first refill
-			last_heard = now,
-		}
-		p.state = .Upload
-		log.debugf("uploading a %dx%d picture, %d bytes", p.put.width, p.put.height, p.put.size)
-	}
-	publish_outbox(c)
-}
-
-// How fast a picture is uploaded, and how many bytes may be sent at once.
-UPLOAD_RATE :: 256 * 1024 // bytes per second
-UPLOAD_BURST :: 32 * 1024
-// If the server has said nothing about an upload for this long, the picture is
-// announced again, and the answer tells us how far the upload got.
-UPLOAD_QUIET :: 3 * time.Second
-
-@(private = "file")
-upload_step :: proc(c: ^Server_Conn, p: ^Pending) {
-	up := &p.upload
-	now := time.tick_now()
-	proto.bucket_refill(&up.pace, now, UPLOAD_RATE, UPLOAD_BURST)
-	buf: [proto.MAX_PAYLOAD_SIZE]u8
-	for up.pace.tokens > 0 {
-		index, data, ok := proto.blob_next_chunk(&up.send)
-		if !ok {
-			break
-		}
-		send_data(c, proto.encode_blob_chunk(buf[:], up.handle, index, data))
-		up.pace.tokens -= f64(len(data))
-	}
-	if proto.blob_sender_idle(&up.send) &&
-	   !p.asking &&
-	   time.tick_since(up.last_heard) > UPLOAD_QUIET {
-		up.last_heard = now
-		p.asking = true
-		put_buf: [proto.BLOB_PUT_SIZE]u8
-		request(c, .Blob_Put, proto.encode_blob_put(&put_buf, p.put), put_done, p.nonce)
-	}
-}
-
-// upload_need handles the server telling us how our upload is going. It returns
-// false if the packet isn't about our upload.
-upload_need :: proc(c: ^Server_Conn, pt: []u8) -> bool {
-	handle, complete, count, indices, ok := proto.decode_blob_need(pt)
-	if !ok || len(c.msgs.outbox) == 0 {
-		return false
-	}
-	p := &c.msgs.outbox[0]
-	if p.state != .Upload || p.upload.handle != handle {
-		return false
-	}
-	p.upload.last_heard = time.tick_now()
-	switch {
-	case proto.blob_need_failed(pt):
-		p.tries += 1
-		if p.tries >= UPLOAD_TRIES {
-			outbox_give_up(c, "A picture couldn't be sent because the server rejected the upload.")
-			return true
-		}
-		log.warn("the server rejected an uploaded picture; sending it again")
-		fallthrough
-	case complete:
-		// Everything has arrived: announcing the picture again gets us its id.
-		proto.blob_sender_destroy(&p.upload.send)
-		p.upload = {}
-		p.state = .Put
-		p.asking = false
-	case p.upload.send.next >= proto.blob_chunk_count(len(p.jpeg)):
-		// After the first pass, send the missing chunks again.
-		for i in 0 ..< count {
-			proto.blob_sender_needs(&p.upload.send, proto.blob_need_index(indices, i))
-		}
-	}
-	return true
-}
-
-@(private = "file")
 post_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	p := outbox_head(c, tag)
 	if p == nil {
@@ -1882,9 +1727,7 @@ post_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			// It's its uploaded files that are gone: they are uploaded
 			// again, and the message is queued again after that.
 			attach_upload_again(c, p.attach)
-			pending_destroy(p)
-			ordered_remove(&c.msgs.outbox, 0)
-			publish_outbox(c)
+			outbox_pop(c)
 			return
 		}
 		outbox_give_up(c, "A message wasn't posted because its channel no longer exists.")
@@ -1920,9 +1763,7 @@ post_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	if p.attach != nil {
 		// The message arrives next as Msg_New, along with its files' blobs.
 		attach_posted(c, p.attach)
-		pending_destroy(p)
-		ordered_remove(&c.msgs.outbox, 0)
-		publish_outbox(c)
+		outbox_pop(c)
 		return
 	}
 	m := proto.Message {
@@ -1939,9 +1780,7 @@ post_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 		file_posted(c, p.nonce, id)
 	}
 	message_arrived(c, m)
-	pending_destroy(p)
-	ordered_remove(&c.msgs.outbox, 0)
-	publish_outbox(c)
+	outbox_pop(c)
 }
 
 // What the UI is shown.
@@ -1996,8 +1835,6 @@ View_Pending :: struct {
 	uploading: bool,
 	conv:      proto.Conv_Id, // 0 while its DM is being opened
 	root:      proto.Msg_Id, // the thread, for a reply
-	avatar:    bool, // not a message, but our new picture
-	server:    bool, // or the server's picture (server_info.odin)
 	dm_to:     proto.Account_Id,
 	kind:      proto.Msg_Kind,
 	text:      string, // owned
@@ -2297,8 +2134,6 @@ publish_outbox :: proc(c: ^Server_Conn) {
 				files = pending_files(p.attach) if p.attach != nil else nil,
 				conv = p.conv,
 				root = p.root,
-				avatar = p.avatar && !p.server,
-				server = p.server,
 				dm_to = p.dm_to,
 				kind = p.kind,
 				text = strings.clone(p.text),

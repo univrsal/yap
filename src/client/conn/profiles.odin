@@ -1,7 +1,6 @@
 package conn
 
 import log "common:wlog"
-import "core:crypto/hash"
 import "core:fmt"
 import "core:strconv"
 import "core:strings"
@@ -205,8 +204,8 @@ status_set :: proc(c: ^Server_Conn, raw: string, until: proto.Unix_Ms, at: proto
 	request(c, .Profile_Set, body, profile_done)
 }
 
-// avatar_set puts our new picture in the outbox, to be uploaded and then
-// set (drive_outbox). It takes over the JPEG. With `remove` we have none.
+// avatar_set uploads our new picture and then sets it (picture_upload). It
+// takes over the JPEG. With `remove` we have none.
 avatar_set :: proc(c: ^Server_Conn, image: Chat_Image, remove: bool) {
 	if remove {
 		buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -231,29 +230,20 @@ avatar_set :: proc(c: ^Server_Conn, image: Chat_Image, remove: bool) {
 		delete(image.jpeg)
 		return
 	}
-	p := Pending {
-		nonce = new_nonce(),
-		avatar = true,
-		jpeg = image.jpeg,
-		state = .Put,
-		put = {kind = .Avatar, size = len(image.jpeg), width = image.width, height = image.height},
-	}
-	hash.hash_bytes_to_buffer(.SHA256, image.jpeg, p.put.hash[:])
-	append(&c.msgs.outbox, p)
-	publish_outbox(c)
+	picture_upload(c, image)
 }
 
-// avatar_post sets the picture that was just uploaded (the last step of the
-// outbox entry for one).
-avatar_post :: proc(c: ^Server_Conn, p: ^Pending) {
+// avatar_post sets the picture that was just uploaded (the last step of
+// picture_upload).
+avatar_post :: proc(c: ^Server_Conn, p: ^Picture_Up) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	request(
 		c,
 		.Profile_Set,
 		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR, avatar = p.blob}),
 		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
-			p := outbox_head(c, tag)
-			if p == nil || !p.avatar || p.server {
+			p := picture_head(c, tag)
+			if p == nil || p.server {
 				return
 			}
 			p.asking = false
@@ -263,22 +253,20 @@ avatar_post :: proc(c: ^Server_Conn, p: ^Pending) {
 				return // set again on the new connection
 			case .Not_Found:
 				// The picture has disappeared from the server, so send it again.
-				p.blob, p.state = 0, .Put
+				picture_retry(p)
 				return
 			case:
-				outbox_give_up(c, "The server rejected your new picture.")
+				picture_give_up(c, "The server rejected your new picture.")
 				return
 			}
 			blob_have(c, p.blob, p.jpeg, p.put.width, p.put.height)
 			p.jpeg = nil
-			pending_destroy(p)
-			ordered_remove(&c.msgs.outbox, 0)
-			publish_outbox(c)
+			picture_done(c)
 			if c.view == nil {
 				log.info("[status] picture set")
 			}
 		},
-		p.nonce,
+		p.tag,
 	)
 }
 

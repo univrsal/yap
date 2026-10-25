@@ -9,8 +9,7 @@ import "common:proto"
 
 // This file fetches the pictures shown by messages on our end, using the id of
 // their blob (src/common/proto/messages.odin requests a blob and blob.odin
-// transfers its chunks). Uploading our own pictures is handled by the outbox
-// (see messages.odin).
+// transfers its chunks). Uploading our own pictures is picture_upload.odin.
 //
 // Only one picture is fetched at a time, starting with the one that was
 // wanted last, since that is the message most likely to be on screen. A
@@ -70,16 +69,18 @@ Blob_Fetch :: struct {
 }
 
 Blob_Client :: struct {
-	cache:  map[proto.Blob_Id]^Blob_Fetch,
-	queue:  [dynamic]proto.Blob_Id, // pictures to fetch, with the one wanted last first
-	active: proto.Blob_Id, // the picture being fetched, 0 if there is none
-	bytes:  int, // the number of bytes the ready pictures take up
-	count:  int,
+	cache:    map[proto.Blob_Id]^Blob_Fetch,
+	queue:    [dynamic]proto.Blob_Id, // pictures to fetch, with the one wanted last first
+	active:   proto.Blob_Id, // the picture being fetched, 0 if there is none
+	bytes:    int, // the number of bytes the ready pictures take up
+	count:    int,
 	// Owned by the UI: where pictures fetched with `keep` are stored between
 	// sessions. nil means they are not stored.
-	disk:   ^Image_Cache,
+	disk:     ^Image_Cache,
 	// The pictures that are being read from the cache.
-	loads:  [dynamic]proto.Blob_Id,
+	loads:    [dynamic]proto.Blob_Id,
+	// Our own pictures that are on their way to the server (picture_upload.odin).
+	pictures: [dynamic]Picture_Up,
 }
 
 blobs_destroy :: proc(c: ^Server_Conn) {
@@ -90,6 +91,10 @@ blobs_destroy :: proc(c: ^Server_Conn) {
 	delete(c.blobs.cache)
 	delete(c.blobs.queue)
 	delete(c.blobs.loads)
+	for &p in c.blobs.pictures {
+		picture_destroy(&p)
+	}
+	delete(c.blobs.pictures)
 }
 
 @(private = "file")
@@ -230,8 +235,9 @@ blob_have :: proc(c: ^Server_Conn, blob: proto.Blob_Id, jpeg: []u8, width, heigh
 }
 
 // blobs_restart requests the fetch that is in progress again on the new
-// connection.
-blobs_restart :: proc(c: ^Server_Conn) {
+// connection, and starts our uploads over (see pictures_restart).
+blobs_restart :: proc(c: ^Server_Conn, forget: bool) {
+	pictures_restart(c, forget)
 	bc := &c.blobs
 	if f := bc.cache[bc.active] or_else nil; f != nil && f.state == .Loading {
 		proto.blob_receiver_destroy(&f.recv)
@@ -373,7 +379,7 @@ handle_blob_chunk :: proc(c: ^Server_Conn, pt: []byte) {
 }
 
 // handle_blob_need handles the server telling us which chunks of one of our
-// uploads it still needs (see messages.odin).
+// uploads it still needs (see picture_upload.odin).
 handle_blob_need :: proc(c: ^Server_Conn, pt: []byte) {
 	upload_need(c, pt)
 }

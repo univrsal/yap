@@ -120,10 +120,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, fit_widths(ctx, {110, 110, 110}))
-	uploading := false
-	for o in v.outbox {
-		uploading ||= o.server
-	}
+	uploading := v.uploading.server
 	if .SUBMIT in stable_button(ctx, "icon file", "Choose...", {.ALIGN_CENTER}) {
 		avatar_pick_start(ui, false, .Server_Icon)
 	}

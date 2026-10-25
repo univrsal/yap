@@ -1,7 +1,6 @@
 package conn
 
 import log "common:wlog"
-import "core:crypto/hash"
 import "core:strings"
 
 import "common:memtrack"
@@ -122,8 +121,8 @@ icon_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 }
 
 // server_info_set changes what the server says about itself. A new picture
-// goes in the outbox, to be uploaded and then set together with the rest
-// (server_info_post). Otherwise the change is sent right away. Takes over the
+// is uploaded and then set together with the rest (picture_upload,
+// server_info_post). Otherwise the change is sent right away. Takes over the
 // command's strings and JPEG.
 server_info_set :: proc(c: ^Server_Conn, cmd: Server_Info_Command) {
 	if len(cmd.image.jpeg) == 0 {
@@ -148,28 +147,16 @@ server_info_set :: proc(c: ^Server_Conn, cmd: Server_Info_Command) {
 		delete(cmd.description)
 		return
 	}
-	p := Pending {
-		nonce = new_nonce(),
-		avatar = true,
-		server = true,
-		text = cmd.name,
-		about = cmd.description,
-		jpeg = image.jpeg,
-		state = .Put,
-		put = {kind = .Avatar, size = len(image.jpeg), width = image.width, height = image.height},
-	}
-	hash.hash_bytes_to_buffer(.SHA256, image.jpeg, p.put.hash[:])
-	append(&c.msgs.outbox, p)
-	publish_outbox(c)
+	picture_upload(c, image, server = true, name = cmd.name, about = cmd.description)
 }
 
 // server_info_post sets the server's picture that was just uploaded, along with
-// its name and description (the last step of the outbox entry for one).
-server_info_post :: proc(c: ^Server_Conn, p: ^Pending) {
-	info_set_ask(c, p.text, p.about, p.blob, p.nonce)
+// its name and description (the last step of picture_upload).
+server_info_post :: proc(c: ^Server_Conn, p: ^Picture_Up) {
+	info_set_ask(c, p.name, p.about, p.blob, p.tag)
 }
 
-// info_set_ask sends Server_Info_Set. `nonce` identifies the outbox entry it
+// info_set_ask sends Server_Info_Set. `nonce` identifies the picture it
 // completes, or is 0 if there is none.
 @(private = "file")
 info_set_ask :: proc(c: ^Server_Conn, name, description: string, icon: proto.Blob_Id, nonce: u64) {
@@ -187,9 +174,9 @@ info_set_ask :: proc(c: ^Server_Conn, name, description: string, icon: proto.Blo
 
 @(private = "file")
 info_set_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
-	p: ^Pending
+	p: ^Picture_Up
 	if tag != 0 {
-		p = outbox_head(c, tag)
+		p = picture_head(c, tag)
 		if p == nil || !p.server {
 			return
 		}
@@ -203,21 +190,19 @@ info_set_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u6
 	case .Not_Found:
 		if p != nil {
 			// The picture has disappeared from the server, so send it again.
-			p.blob, p.state = 0, .Put
+			picture_retry(p)
 			return
 		}
 		notify(c, false, status_text(status))
 	case:
 		if p != nil {
-			outbox_give_up(c, "The server rejected the new server details.")
+			picture_give_up(c, "The server rejected the new server details.")
 			return
 		}
 		notify(c, false, status_text(status))
 	}
 	if p != nil {
-		pending_destroy(p)
-		ordered_remove(&c.msgs.outbox, 0)
-		publish_outbox(c)
+		picture_done(c)
 	}
 }
 

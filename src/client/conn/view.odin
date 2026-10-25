@@ -166,6 +166,7 @@ View :: struct {
 	// Messages that were requested by id (roots, links) but are not available.
 	roots_missing:       map[proto.Msg_Id]bool,
 	outbox:              [dynamic]View_Pending,
+	uploading:           View_Uploading, // our pictures on their way (picture_upload.odin)
 	// Files of messages that are being saved or have been saved, by their blobs
 	// (attachments.odin).
 	saves:               map[proto.Blob_Id]View_Save,

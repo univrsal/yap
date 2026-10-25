@@ -197,6 +197,7 @@ client_step :: proc(c: ^Server_Conn) -> bool {
 	process_commands(c)
 	drive_sound(c)
 	drive_outbox(c)
+	drive_pictures(c)
 	blobs_step(c)
 	files_step(c)
 	attachments_step(c)
