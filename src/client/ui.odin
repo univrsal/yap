@@ -586,6 +586,11 @@ connect_screen :: proc(ui: ^UI) {
 // the channels go above the chat instead of beside it.
 NARROW_LAYOUT :: 600
 
+// In a window at least this wide, the members are pinned down the right of the
+// channel instead of being in a window from the header's button.
+MEMBERS_PIN_LAYOUT :: 1100
+MEMBERS_PANEL_WIDTH :: 240
+
 // How roomy controls are: microui's padding inside them and spacing between
 // them, and the size of its controls (a row is size.y + 2 * padding tall).
 // microui's own are 5, 4 and 68x10. On a phone, rows are 40 px tall, as big as
@@ -622,6 +627,7 @@ session_screen :: proc(ui: ^UI) {
 	body := mu.get_current_container(ctx).body
 	narrow := body.w < NARROW_LAYOUT
 	ui.narrow = narrow
+	ui.profiles.members_pinned = body.w >= MEMBERS_PIN_LAYOUT
 
 	screen_tab_follow(ui)
 	camera_tab_follow(ui)
@@ -635,7 +641,9 @@ session_screen :: proc(ui: ^UI) {
 		return
 	}
 
-	if !narrow {
+	// A narrow window has no header of its own, except where the window's
+	// buttons are among the content and the chat's own header would run into them.
+	if !narrow || titlebar_merged(ui) {
 		session_header(ui)
 	}
 
@@ -650,9 +658,22 @@ session_screen :: proc(ui: ^UI) {
 		}
 		voice_panel(ui)
 	} else {
-		mu.layout_row(ctx, {280, -1}, -1)
+		if ui.profiles.members_pinned {
+			// -1 would leave the last cell no room, so the chat's cell
+			// keeps the members' width (and the gap before it) free.
+			mu.layout_row(
+				ctx,
+				{280, -(MEMBERS_PANEL_WIDTH + ctx.style.spacing + 1), MEMBERS_PANEL_WIDTH},
+				-1,
+			)
+		} else {
+			mu.layout_row(ctx, {280, -1}, -1)
+		}
 		channel_list(ui)
 		side_panel(ui, narrow)
+		if ui.profiles.members_pinned {
+			members_panel(ui)
+		}
 	}
 	user_menu(ui)
 	channel_menu(ui)

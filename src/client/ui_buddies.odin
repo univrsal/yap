@@ -146,6 +146,7 @@ buddies_screen :: proc(ui: ^UI) {
 	body := mu.get_current_container(ctx).body
 	narrow := body.w < NARROW_LAYOUT
 	ui.narrow = narrow
+	ui.profiles.members_pinned = false
 
 	// Watching somebody's screen (from a call's row in the voice panel)
 	// works here as beside a channel: with a Screen tab, and fullscreen. So
@@ -160,7 +161,9 @@ buddies_screen :: proc(ui: ^UI) {
 		fullscreen_screen(ui)
 		return
 	}
-	if !narrow {
+	// A narrow window has no header of its own, except where the window's
+	// buttons are among the content and the conversation's header would run into them.
+	if !narrow || titlebar_merged(ui) {
 		session_header(ui)
 	}
 	list := ui.inbox

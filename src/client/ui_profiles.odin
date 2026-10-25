@@ -53,6 +53,9 @@ UI_Profiles :: struct {
 	members_open:   bool,
 	members_placed: bool,
 	members_asked:  proto.Conv_Id,
+	// The members are pinned down the right of the screen (set by the
+	// session screen when it is wide enough) instead of in the window.
+	members_pinned: bool,
 	// The server's settings as last applied (View.shared_count) and the
 	// sync they came with (View.shared_syncs).
 	shared_seen:    int,
@@ -360,14 +363,10 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		p.members_open = false
 		return
 	}
-	if ui.page == .Settings {
+	if ui.page == .Settings || p.members_pinned {
 		return
 	}
-	cmds := &ui.session.client.commands
-	if p.members_asked != v.viewing {
-		p.members_asked = v.viewing
-		conn.push_command(cmds, conn.Members_Command{conv = v.viewing})
-	}
+	members_ask(ui)
 	if !p.members_placed {
 		p.members_placed = true
 		w := clamp(window_w / 4, 240, 340)
@@ -385,7 +384,43 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	defer mu.end_window(ctx)
+	members_list(ui)
+}
 
+// members_ask asks the server for the members of the conversation being
+// looked at, once. Call with the View locked.
+@(private = "file")
+members_ask :: proc(ui: ^UI) {
+	p := &ui.profiles
+	v := ui.view
+	if p.members_asked != v.viewing {
+		p.members_asked = v.viewing
+		conn.push_command(&ui.session.client.commands, conn.Members_Command{conv = v.viewing})
+	}
+}
+
+// members_panel is the members pinned down the right of the session screen,
+// in the current layout cell. Call with the View locked.
+members_panel :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	if ui.view.viewing == 0 {
+		return
+	}
+	members_ask(ui)
+	mu.layout_begin_column(ctx)
+	defer mu.layout_end_column(ctx)
+	mu.layout_row(ctx, {-1}, -1)
+	mu.begin_panel(ctx, "members pinned")
+	defer mu.end_panel(ctx)
+	members_list(ui)
+}
+
+// members_list is the members' rows: the window's contents, or the panel's.
+// Call with the View locked.
+@(private = "file")
+members_list :: proc(ui: ^UI) {
+	ctx := &ui.ctx
+	v := ui.view
 	m := &v.members
 	if m.conv != v.viewing || (m.loading && len(m.accounts) == 0) {
 		spinner_row(ui)

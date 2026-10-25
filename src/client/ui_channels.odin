@@ -200,40 +200,26 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	v := ui.view
 	ch := viewed_channel(v)
 
-	right := 4 * icon_button_w(ctx) + 4 * ctx.style.spacing + 1
+	// The members' button is not there while they are pinned down the side.
+	pinned := ui.profiles.members_pinned && !narrow
+	buttons: i32 = 3 if pinned else 4
+	right := buttons * icon_button_w(ctx) + buttons * ctx.style.spacing + 1
+	widths := make([dynamic]i32, context.temp_allocator)
 	if narrow {
-		mu.layout_row(
-			ctx,
-			{
-				40,
-				-right,
-				icon_button_w(ctx),
-				icon_button_w(ctx),
-				icon_button_w(ctx),
-				icon_button_w(ctx),
-			},
-		)
-		if .SUBMIT in icon_button(ui, "to list", .Back, "Channels") {
-			ui.channels.show_list = true
-		}
-	} else {
-		mu.layout_row(
-			ctx,
-			{
-				-right,
-				icon_button_w(ctx),
-				icon_button_w(ctx),
-				icon_button_w(ctx),
-				icon_button_w(ctx),
-			},
-		)
+		append(&widths, 40)
+	}
+	append(&widths, -right)
+	for _ in 0 ..< buttons {
+		append(&widths, icon_button_w(ctx))
+	}
+	mu.layout_row(ctx, widths[:])
+	if narrow && .SUBMIT in icon_button(ui, "to list", .Back, "Channels") {
+		ui.channels.show_list = true
 	}
 	if ch == nil {
-		mu.label(ctx, "")
-		mu.label(ctx, "")
-		mu.label(ctx, "")
-		mu.label(ctx, "")
-		mu.label(ctx, "")
+		for _ in 0 ..< buttons + 1 {
+			mu.label(ctx, "")
+		}
 		return
 	}
 
@@ -246,7 +232,9 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		name := fmt.tprintf("# %s", ch.name)
 		header_line(ctx, mu.layout_next(ctx), name, theme.viewing, ch.topic, status, status_color)
 	}
-	members_button(ui)
+	if !pinned {
+		members_button(ui)
+	}
 	pins_button(ui)
 	search_button(ui)
 
