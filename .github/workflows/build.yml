@@ -55,6 +55,13 @@ jobs:
       - uses: mymindstorm/setup-emsdk@v16
         with:
           version: ${{ env.EMSDK_VERSION }}
+          # Keeps the SDK (several hundred MB) between runs.
+          actions-cache-folder: .cache/emsdk
+      - name: Generated bindings are current
+        # The web copies of the audio bindings come from tools/gen_foreign.py.
+        run: |
+          python3 tools/gen_foreign.py
+          git diff --exit-code -- src/client/audio
       - name: Cache libopus for wasm
         uses: actions/cache@v6
         with:
@@ -174,8 +181,22 @@ jobs:
           [ -f "$(odin root)/vendor/stb/lib/stb_image.a" ] && exit 0
           if [ -f "$stb/build_stb.sh" ]; then sh "$stb/build_stb.sh"; else make -C "$stb"; fi
 
+      - name: Compiler cache (Linux, macOS)
+        # src/video is compiled twice on Linux (linked into the client by
+        # build.sh, and as the add-on), with different flags, and a fresh
+        # checkout's file times make build.sh rebuild it every run. ccache
+        # goes by content, so both come from the cache while src/video is
+        # unchanged.
+        if: runner.os != 'Windows'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: video-${{ matrix.platform }}
+
       - name: Build (Linux, macOS)
         if: runner.os != 'Windows'
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: sh build.sh $OPT
       - name: Strip symbols (Linux, macOS)
         # A release doesn't need the symbol table; Windows builds have no
@@ -183,9 +204,6 @@ jobs:
         if: runner.os != 'Windows' && inputs.release
         run: strip bin/yap bin/yap-server
 
-      - name: Set up MSVC
-        if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
       - name: Build (Windows)
         if: runner.os == 'Windows'
         shell: cmd
@@ -197,6 +215,9 @@ jobs:
       - name: Build the screen sharing add-on (Linux, macOS)
         if: runner.os != 'Windows'
         continue-on-error: true
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: sh scripts/build/build-video.sh
       - name: Build the screen sharing add-on (Windows)
         if: runner.os == 'Windows'

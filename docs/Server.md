@@ -30,7 +30,7 @@ settings come from the environment or a `.env` file next to it; see
 [docker/.env.example](../docker/.env.example).
 
 ```sh
-cd scripts
+cd docker
 cp .env.example .env    # and edit it
 docker compose up -d
 ```

@@ -23,10 +23,12 @@ Then open <http://localhost:8080/>.
 
 ## Screen sharing
 
-Only the web client shares and watches screens: the monitor button next
-to mute and deafen shares yours, and a monitor at the end of somebody's
-row in the channel list means they're sharing - click it to watch. The
-desktop client shows who is sharing but can't watch.
+The monitor button next to mute and deafen shares your screen, and a
+monitor at the end of somebody's row in the channel list means they're
+sharing - click it to watch. The desktop client shares and watches too
+when it has the yap-video add-on (built in on Linux, see
+[docs/Screenshare.md](../docs/Screenshare.md)); without it, it shows
+who is sharing and says to watch in a browser.
 
 It needs WebCodecs with H.264, and sharing also needs `getDisplayMedia`,
 which phones don't have (they can still watch). A share is encoded with

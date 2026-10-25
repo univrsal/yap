@@ -18,7 +18,7 @@ second lists what is still open, roughly in the order it should be done.
 The last lists what was checked and found sound, so it isn't checked
 again for nothing.
 
-Sizes as in `docs/extended`: S up to about 300 changed lines, M up to
+Sizes: S up to about 300 changed lines, M up to
 1000, L up to 2500.
 
 ## Fixed

@@ -4,10 +4,9 @@ The list of changes written after polish, attachments and markdown, for
 the `extended` client and server (not master), in the order they're to
 be done. Nothing here is built yet. Each item is its own commit or
 series of commits; the item's section is the plan, and what turns out
-differently is written under it when it's done ("*As built:*"), as in
-`docs/polish`.
+differently is written under it when it's done ("*As built:*").
 
-Sizes as in `docs/extended`: S up to about 300 changed lines, M up to
+Sizes: S up to about 300 changed lines, M up to
 1000, L up to 2500, XL more. "Client" means no protocol change;
 "protocol" means new or changed requests or events; "schema" means a
 database step.
@@ -573,8 +572,8 @@ whatever else wants mail (D6).
 
 ## 7. Registration, and invite codes
 
-D5 of `docs/extended` made accounts admin-only. This makes
-registration an option of the server:
+D5 of the extended plan (`docs/extended`, now only in git history) made
+accounts admin-only. This makes registration an option of the server:
 
 - **Config:**
 
@@ -1061,6 +1060,6 @@ Open until the owner answers. Recommended answers first.
 
 The item's section is the plan; what turns out differently is written
 under it when the item is done, and its row in the table says done.
-Work on `extended`, committed locally, not pushed. Build and test as in
-`docs/extended/README.md`; server tests with
-`odin test src/server -collection:common=src/common -collection:client=src/client`.
+Work on `extended`, committed locally, not pushed. Build as in
+`docs/Building.md`; server tests with
+`. scripts/build/collections.sh; odin test src/server $collections`.

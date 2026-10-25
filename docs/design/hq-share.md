@@ -7,11 +7,11 @@ or series of commits; what turns out differently is written under it when
 it's done ("_As built:_"), and the open questions are in the Decisions
 table at the end.
 
-Sizes as in `docs/extended`: S up to about 300 changed lines, M up to
+Sizes: S up to about 300 changed lines, M up to
 1000, L up to 2500, XL more. Sizes for the library count its own C++, not
 FFmpeg.
 
-The OBS source in `misc/hq-share/obs-studio-master` is a reference for
+A checkout of the OBS source (kept outside the repository) is a reference for
 _how_ capture and hardware encoding are done on each platform (which
 APIs, in what order, what goes wrong). OBS is GPL-2.0 and yap is zlib, so
 nothing is copied from it; the library is written fresh against the

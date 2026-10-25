@@ -67,11 +67,11 @@ import "common:proto"
 // (e.g. because the device was unplugged), means the system default.
 //
 // joined_servers are the servers this client has joined, in the order of
-// the server rail (docs/next, item 9), each with the password it was joined
-// with. All of them are connected to at start. The passwords are stored as
-// they are, so the file is only readable by its owner. Older settings had
-// the last server (`server`) and the recent ones (`recent_servers`)
-// instead, which are converted to joined servers once (see settings_load).
+// the server rail (docs/design/next.md, item 9), each with the password it
+// was joined with. All of them are connected to at start. The passwords are
+// stored as they are, so the file is only readable by its owner. Older
+// settings had the last server (`server`) and the recent ones
+// (`recent_servers`) instead, which are converted to joined servers once (see settings_load).
 Settings :: struct {
 	joined_servers:          [dynamic]Joined_Server, // in the rail's order
 	// Legacy fields from before joined_servers. They are only read (see

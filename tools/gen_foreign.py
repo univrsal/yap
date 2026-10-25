@@ -14,13 +14,11 @@ binding's declarations.
 import pathlib
 import re
 
-NOTE = """/*
-The C declarations for a web build: the same as {native}, generated from
-it by tools/gen_foreign.py. On wasm Odin names a named foreign import's
-procs after the import ("system:c..name"), which no C object defines;
-the unnamed form, `foreign _`, keeps the plain C names that emscripten
-links against.
-*/
+NOTE = """// The C declarations for a web build. They are the same as in
+// {native} and are generated from it by tools/gen_foreign.py.
+// On wasm, Odin names the procs of a named foreign import after the import
+// ("system:c..name"), which no C object defines. The unnamed form,
+// `foreign _`, keeps the plain C names that emscripten links against.
 """
 
 # The `when ODIN_OS == ... { foreign import lib ... } else { ... }` chain

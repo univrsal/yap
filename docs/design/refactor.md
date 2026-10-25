@@ -4,8 +4,10 @@ Reviewed 2026-10-24 on `master` (0f33ee7), now that the client is feature
 complete. About 137k lines of our own code (vendored libraries not counted):
 client 33k + conn 21k, server 34k, proto 15k, gateway 5k, web 4.4k.
 
-Nothing here is built yet. The findings come first, grouped by theme, with
-`file:line` references from 0f33ee7. A proposed order of work is at the end.
+Phases 1-10 are built and collected on `big-cleanup` (see Progress); 11 is
+optional and not started. The findings come first, grouped by theme, with
+`file:line` references from 0f33ee7, so they describe the code before the
+work. A proposed order of work is at the end.
 Each item says roughly what it saves; "spot-checked" marks the ones that
 were confirmed by hand on top of the review.
 
@@ -720,7 +722,7 @@ master, so it can be tested and merged alone.
   Doing 5 before 9 helps, since the shared link code would use the new
   codec helpers.
 - **H2 moves this plan too**, to `docs/design/refactor.md`, as the last step
-  of phase 10. Until then it stays in `docs/design/refactor` so its references
+  of phase 10. Until then it stays in `misc/refactor` so its references
   remain valid.
 
 ## Progress
@@ -737,8 +739,13 @@ master, so it can be tested and merged alone.
 | 8 | `refactor-conn` (off `big-cleanup` 41a2dea) | 0a7c317..7bc6a4b | built: all targets checked, conn/richtext/imaging/client tests, headless avatar set (known and fresh picture) and a headless command run diffed old against new; server-icon upload and a GUI run not done |
 | 9 | `refactor-link` (off `big-cleanup` 2de967b) | af0752d, 53accd7 | built: all targets checked, proto/server/conn tests (+ link_step and session tests), headless client with a 6 s rekey across a server restart (main, bulk and media links all came back), stress run identical to before; browser client not run |
 | 10 | `refactor-layout` (off `big-cleanup` a7bb33a) | 5689fde..d13e48b | built: all targets checked, all test suites, `build.sh` run twice (second is a no-op), `fetch.sh` run, web build and node checks of the output, container build; Windows scripts and the web client in a browser not run |
+| — | `refactor-gaps` (off `big-cleanup` b5fec6d) | 1cf396b, 7d8baa9 and the docs commit | built: all targets checked, all test suites, 300+ connections each to the relay and the standalone gateway (none refused), GUI run (login, timeline, settings); CI changes and the OpenBSD backend not run |
 
-Phases are collected on `big-cleanup`; each phase branches off it.
+Phases are collected on `big-cleanup`; each phase branches off it. The
+commits above are the phase branches'; on `big-cleanup` they are 25fe6ef
+(1), 8879b3d (2), 427ec47 (3), 4cd517b..b53aa3e (4), e61936d (5),
+73609eb..6f23d89 (6), 0bd3374..41a2dea (7), 4bf2352..2de967b (8),
+950f7e4..a7bb33a (9) and e7a9de2..b5fec6d (10).
 
 Notes from phase 2:
 
@@ -901,3 +908,33 @@ Notes from phase 10:
   `toBlob` loop, IndexedDB opening, splitting `shell.c`, and the other items.
 - **Docker:** the server stage makes an empty `src/client` because
   `collections.sh` names the `client:` collection.
+
+Notes from `refactor-gaps` (items that phases 1-10 neither built nor wrote
+off, found by checking the plan against `big-cleanup`):
+
+- **F, accept loop:** `http.accept_loop` with an `http.Conn_Limit` is the
+  relay's loop, now also the standalone gateway's (256 connections, 32 per
+  address as in the relay; it had no cap and leaked the socket when a
+  thread didn't start). `http.conn_close` closes, uncounts and frees a
+  connection. The address key it counts by is `common.Address_Key`;
+  `gate.Key` and `gate.key_of` are that key now.
+- **F, key wipe:** `generate_private_key` and `parse_private_key` clear the
+  raw key bytes.
+- **D5:** `dim_label`, `dim_note`, `error_label` and `error_note` replace
+  134 `with_text_color` calls. They don't add the `{-1}` row, so the
+  layout stays visible at each call.
+- **D9:** `hotkeys/x11.odin` opens libX11 and queries the keymap for both
+  the Linux and the OpenBSD backend.
+- **G1:** no "Set up MSVC" step (`build.bat` and `build-video.bat` find
+  vcvarsall themselves); ccache for the C/C++ builds on Linux and macOS,
+  so `src/video`'s two Linux builds come from the cache; emsdk is cached.
+- **G3:** a CI step regenerates the web bindings with `gen_foreign.py` and
+  fails on a diff (the script's header comment had drifted from the
+  committed files, and is the committed one now). `web/README.md` says the
+  desktop client watches with the add-on.
+- **H2:** references to the old plans (`docs/next`, `docs/extended`,
+  `docs/polish`, `docs/markdown`, `misc/hq-share`) point to
+  `docs/design/` or say they are only in git history. The design docs'
+  "Nothing here is built yet" lines are left for the editorial pass.
+- **B4, kept:** `decode_auth_login_response` is the decoder of the
+  server's answer, which the test harness reads logins with.

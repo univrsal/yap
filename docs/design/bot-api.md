@@ -2,12 +2,12 @@
 
 A way for programs to use a yap server: bots that answer commands,
 post from a cron job, bridge to another chat, moderate. Nothing here is
-built yet. As in `docs/next`, each phase is its own commit or series of
+built yet. As in `next.md`, each phase is its own commit or series of
 commits; what turns out differently is written under it when it's done
 ("*As built:*"), and the open questions are in the Decisions table at
 the end.
 
-Sizes as in `docs/extended`: S up to about 300 changed lines, M up to
+Sizes: S up to about 300 changed lines, M up to
 1000, L up to 2500, XL more.
 
 ## What we start from
@@ -249,7 +249,7 @@ doesn't post twice (Msg_Post already deduplicates by nonce). Not given,
 the gateway picks one.
 
 `content` is the text as a person would type it, markdown and all
-(`docs/markdown`); mentions as `@username`, as typed, which the server
+(`src/client/richtext/markdown.odin`); mentions as `@username`, as typed, which the server
 already resolves (`mentions.odin`).
 
 ### Messages as JSON

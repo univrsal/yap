@@ -4,9 +4,9 @@ Animated WebP and GIF, in the chat's picture previews, in the image
 viewer and as the server's own emoji, for the `extended` client and
 server. Nothing here is built yet. Each phase is its own commit or
 series of commits; what turns out differently is written under its
-section when it's done ("*As built:*"), as in `docs/next`.
+section when it's done ("*As built:*"), as in `next.md`.
 
-Sizes as in `docs/extended`: S up to about 300 changed lines, M up to
+Sizes: S up to about 300 changed lines, M up to
 1000, L up to 2500. "Client" means no protocol change; "protocol" means
 new or changed requests or events.
 
