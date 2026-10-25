@@ -106,8 +106,7 @@ Media_Session :: struct {
 	// The streams that this session's connection is watching.
 	leases:        [MEDIA_LEASES]Media_Lease,
 	// How much it may have resent (Nack), similar to a sharer's budget.
-	resend_budget: int,
-	resend_at:     time.Tick,
+	resend_budget: proto.Bucket,
 }
 
 // A Report older than this isn't counted because its viewer went quiet.
@@ -117,8 +116,7 @@ REPORT_FRESH :: 3 * time.Second
 // Media_Sharer holds the budget, keyframe requests and recent fragments of one
 // of a sharer's streams on the media link.
 Media_Sharer :: struct {
-	budget:        int,
-	budget_at:     time.Tick,
+	budget:        proto.Bucket,
 	last_key_sent: time.Tick,
 	cache:         ^Media_Cache, // created when the first fragment arrives
 }
@@ -680,13 +678,7 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 	if sh.cache == nil {
 		return
 	}
-	if ms.resend_at == {} {
-		ms.resend_budget = m.max_burst
-	} else {
-		elapsed := time.duration_seconds(time.tick_diff(ms.resend_at, now))
-		ms.resend_budget = min(m.max_burst, ms.resend_budget + int(elapsed * f64(m.max_rate)))
-	}
-	ms.resend_at = now
+	proto.bucket_refill(&ms.resend_budget, now, f64(m.max_rate), f64(m.max_burst))
 	for bit in 0 ..< proto.NACK_SPAN {
 		if n.missing & (u64(1) << uint(bit)) == 0 {
 			continue
@@ -695,10 +687,9 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 		if msg == nil {
 			continue
 		}
-		if ms.resend_budget < len(msg) {
+		if !proto.bucket_take(&ms.resend_budget, f64(len(msg))) {
 			return
 		}
-		ms.resend_budget -= len(msg)
 		media_send(m, ms, msg)
 	}
 }
@@ -841,19 +832,8 @@ media_sharer_session :: proc(
 media_spend :: proc(m: ^Media, of: Media_Stream, n: int) -> bool {
 	sh := media_sharer(m, of)
 	rate := m.camera_rate if of.stream == .Camera else m.max_rate
-	now := time.tick_now()
-	if sh.budget_at == {} {
-		sh.budget = m.max_burst
-	} else {
-		elapsed := time.duration_seconds(time.tick_diff(sh.budget_at, now))
-		sh.budget = min(m.max_burst, sh.budget + int(elapsed * f64(rate)))
-	}
-	sh.budget_at = now
-	if sh.budget < n {
-		return false
-	}
-	sh.budget -= n
-	return true
+	proto.bucket_refill(&sh.budget, time.tick_now(), f64(rate), f64(m.max_burst))
+	return proto.bucket_take(&sh.budget, f64(n))
 }
 
 // media_watch records a viewer's lease, or ends it, and forwards a keyframe

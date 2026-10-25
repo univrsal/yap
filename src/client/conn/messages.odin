@@ -194,8 +194,7 @@ Pending :: struct {
 Upload :: struct {
 	handle:     u64,
 	send:       proto.Blob_Sender,
-	tokens:     f32,
-	last_chunk: time.Tick,
+	pace:       proto.Bucket,
 	last_heard: time.Tick, // when the server last said anything about the upload
 }
 
@@ -1790,7 +1789,7 @@ put_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 		p.upload = {
 			handle = handle,
 			send = {data = p.jpeg},
-			last_chunk = now,
+			pace = {last = now}, // empty until the first refill
 			last_heard = now,
 		}
 		p.state = .Upload
@@ -1810,17 +1809,15 @@ UPLOAD_QUIET :: 3 * time.Second
 upload_step :: proc(c: ^Server_Conn, p: ^Pending) {
 	up := &p.upload
 	now := time.tick_now()
-	elapsed := f32(time.duration_seconds(time.tick_diff(up.last_chunk, now)))
-	up.last_chunk = now
-	up.tokens = min(up.tokens + elapsed * UPLOAD_RATE, UPLOAD_BURST)
+	proto.bucket_refill(&up.pace, now, UPLOAD_RATE, UPLOAD_BURST)
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
-	for up.tokens > 0 {
+	for up.pace.tokens > 0 {
 		index, data, ok := proto.blob_next_chunk(&up.send)
 		if !ok {
 			break
 		}
 		send_data(c, proto.encode_blob_chunk(buf[:], up.handle, index, data))
-		up.tokens -= f32(len(data))
+		up.pace.tokens -= f64(len(data))
 	}
 	if proto.blob_sender_idle(&up.send) &&
 	   !p.asking &&

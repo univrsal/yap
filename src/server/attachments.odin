@@ -98,8 +98,7 @@ Attach_Upload :: struct {
 	hasher:    hash.Context,
 	hashed:    u32, // number of chunks hashed, always counted from the start
 	last_data: time.Tick,
-	tokens:    f32, // bytes that may arrive now, see upload_paced
-	paced_at:  time.Tick,
+	pace:      proto.Bucket, // bytes that may arrive now, see upload_paced
 	blob:      Blob_Id, // once it's stored
 	kept_at:   time.Tick,
 }
@@ -259,8 +258,7 @@ attach_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	up.name = strings.clone(name)
 	up.size = p.size
 	up.last_data = time.tick_now()
-	up.paced_at = up.last_data
-	up.tokens = upload_burst(s)
+	up.pace = {f64(upload_burst(s)), up.last_data}
 	proto.transfer_receiver_init(&up.recv, p.size)
 	hash.init(&up.hasher, .SHA256)
 	s.attach.uploads[up.id] = up
@@ -354,15 +352,9 @@ upload_burst :: proc(s: ^Server) -> f32 {
 // there aren't enough; the chunk is then dropped.
 @(private = "file")
 upload_paced :: proc(s: ^Server, up: ^Attach_Upload, bytes: int) -> bool {
-	now := time.tick_now()
-	elapsed := f32(time.duration_seconds(time.tick_diff(up.paced_at, now)))
-	up.paced_at = now
-	up.tokens = min(up.tokens + elapsed * s.attach.rate * ATTACH_UPLOAD_SLACK, upload_burst(s))
-	if up.tokens < f32(bytes) {
-		return false
-	}
-	up.tokens -= f32(bytes)
-	return true
+	rate := f64(s.attach.rate * ATTACH_UPLOAD_SLACK)
+	proto.bucket_refill(&up.pace, time.tick_now(), rate, f64(upload_burst(s)))
+	return proto.bucket_take(&up.pace, f64(bytes))
 }
 
 // upload_keep stores a completed upload as a blob and acknowledges it.

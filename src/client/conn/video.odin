@@ -101,8 +101,7 @@ Video_Client :: struct {
 	outs:         [proto.Video_Stream]Video_Out,
 	ins:          [VIDEO_INS]Video_In,
 	// How much of our video may go out now (VIDEO_SEND_RATE), for all of it.
-	budget:       int,
-	budget_at:    time.Tick,
+	budget:       proto.Bucket,
 	// This connection is the one that the page's screen voice goes to (set by
 	// the UI, which has several; atomic). Only it shares.
 	share_here:   bool,
@@ -1052,33 +1051,27 @@ video_send :: proc(c: ^Server_Conn) {
 			rate += pace
 		}
 	}
-	if v.budget_at == {} {
-		v.budget = VIDEO_SEND_BURST
-	} else {
-		elapsed := time.duration_seconds(time.tick_diff(v.budget_at, now))
-		v.budget = min(VIDEO_SEND_BURST, v.budget + int(elapsed * f64(rate)))
-	}
-	v.budget_at = now
+	proto.bucket_refill(&v.budget, now, f64(rate), VIDEO_SEND_BURST)
 	if !c.media.has_current {
 		return // the queue is falling behind, which asks for a keyframe
 	}
 
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
 	link := &c.media.link
-	for v.budget > 0 && transport_backlog(&link.transport) < VIDEO_BACKLOG_MAX {
+	for v.budget.tokens > 0 && transport_backlog(&link.transport) < VIDEO_BACKLOG_MAX {
 		o := video_next_out(v)
 		if o == nil {
 			break
 		}
 		msg, _ := video_next_fragment(o, buf[:])
 		link_send(link, msg)
-		v.budget -= len(msg)
+		v.budget.tokens -= f64(len(msg))
 		v.bytes_out += len(msg)
 		o.stats_out += len(msg)
 		o.log_sent += len(msg)
 	}
 	if video_next_out(v) != nil {
-		if v.budget <= 0 {
+		if v.budget.tokens <= 0 {
 			v.held_budget += 1
 		} else {
 			v.held_backlog += 1

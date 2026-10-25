@@ -479,7 +479,7 @@ test_request_limit :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 
 	home := conv_by_name(&ts.s.convs, "Lobby").id
-	searches := int(alice.request_tokens) / int(request_cost(.Msg_Search))
+	searches := int(alice.requests.tokens) / int(request_cost(.Msg_Search))
 	buf: [proto.MSG_SEARCH_MAX_SIZE]u8
 	body := proto.encode_msg_search(&buf, {conv = home, limit = 10, query = "hello"})
 	for _ in 0 ..< searches {
@@ -489,15 +489,14 @@ test_request_limit :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
 	testing.expect_value(t, status, proto.Status.Rate_Limited)
 	// A cheaper request may still fit.
-	alice.request_tokens = 1
-	alice.request_last = time.tick_now()
+	alice.requests = {1, time.tick_now()}
 	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
 	testing.expect_value(t, status, proto.Status.Rate_Limited)
 	status, _ = ts_ask(t, &ts, alice, .Server_Info)
 	testing.expect_value(t, status, proto.Status.Ok)
 
 	// After a while there are enough again.
-	alice.request_last = time.tick_add(time.tick_now(), -time.Second)
+	alice.requests.last = time.tick_add(time.tick_now(), -time.Second)
 	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
 	testing.expect_value(t, status, proto.Status.Ok)
 }

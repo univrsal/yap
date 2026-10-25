@@ -75,12 +75,12 @@ Gateway :: struct {
 	thread:       ^thread.Thread,
 	// Each token's bucket of requests (limits.odin), used by the HTTP threads.
 	limits_mutex: sync.Mutex,
-	buckets:      map[[proto.KEY_SIZE]u8]Bucket,
+	buckets:      proto.Keyed_Buckets([proto.KEY_SIZE]u8),
 	// The fields below are only used by the gateway thread.
 	conns:        map[[proto.KEY_SIZE]u8]^Conn, // by the device's public key
 	// Connections opened to the server, by the address they were for
 	// (opens_take).
-	opens:        map[Address_Key]Bucket,
+	opens:        proto.Keyed_Buckets(Address_Key),
 	// The connection for requests that need no token. It isn't logged in to
 	// any account.
 	guest:        ^Conn,
@@ -196,8 +196,8 @@ stop :: proc(g: ^Gateway) {
 	thread.destroy(g.thread)
 	delete(g.jobs)
 	delete(g.conns)
-	delete(g.opens)
-	delete(g.buckets)
+	proto.keyed_buckets_destroy(&g.opens)
+	proto.keyed_buckets_destroy(&g.buckets)
 	delete(g.cfg.password)
 	free(g)
 }

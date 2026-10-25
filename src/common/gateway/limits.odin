@@ -35,16 +35,6 @@ DEFAULT_RATE :: 10
 DEFAULT_BURST :: 30
 HTTP_IDLE :: 60 * time.Second
 EVENTS_IDLE :: 2 * PING_EVERY + 15 * time.Second
-// Buckets that haven't been used for this long are full again. They are
-// forgotten once there are many of them.
-BUCKET_FORGET :: 10 * time.Minute
-BUCKETS_PRUNE_AT :: 1024
-
-@(private)
-Bucket :: struct {
-	tokens: f64,
-	last:   time.Tick,
-}
 
 // rate_take takes one request from the bucket of the token that `key`
 // belongs to. If the bucket is empty, it returns a 429 reply that says when
@@ -56,26 +46,10 @@ rate_take :: proc(g: ^Gateway, key: ^ecdh.Private_Key) -> (r: Reply, limited: bo
 	}
 	pub: [proto.KEY_SIZE]u8
 	ecdh.private_key_public_bytes(key, pub[:])
-	now := time.tick_now()
-	burst := max(g.cfg.burst, 1)
+	burst := f64(max(g.cfg.burst, 1))
 	sync.guard(&g.limits_mutex)
-	b, seen := g.buckets[pub]
-	if !seen {
-		if len(g.buckets) >= BUCKETS_PRUNE_AT {
-			buckets_prune(g, now)
-		}
-		b = {
-			tokens = burst,
-			last   = now,
-		}
-	}
-	b.tokens = min(
-		b.tokens + time.duration_seconds(time.tick_diff(b.last, now)) * g.cfg.rate,
-		burst,
-	)
-	b.last = now
-	defer g.buckets[pub] = b
-	if b.tokens < 1 {
+	b := proto.keyed_bucket(&g.buckets, pub, time.tick_now(), g.cfg.rate, burst)
+	if !proto.bucket_take(b, 1) {
 		r = error_reply(
 			429,
 			"rate_limited",
@@ -84,21 +58,7 @@ rate_take :: proc(g: ^Gateway, key: ^ecdh.Private_Key) -> (r: Reply, limited: bo
 		r.retry_after = max(1, int(math.ceil((1 - b.tokens) / g.cfg.rate)))
 		return r, true
 	}
-	b.tokens -= 1
 	return
-}
-
-@(private)
-buckets_prune :: proc(g: ^Gateway, now: time.Tick) {
-	stale := make([dynamic][proto.KEY_SIZE]u8, context.temp_allocator)
-	for key, b in g.buckets {
-		if time.tick_diff(b.last, now) > BUCKET_FORGET {
-			append(&stale, key)
-		}
-	}
-	for key in stale {
-		delete_key(&g.buckets, key)
-	}
 }
 
 // Each address may make the gateway open OPENS_PER_ADDRESS connections to the
@@ -130,42 +90,17 @@ opens_take :: proc(g: ^Gateway, remote: net.Address) -> (r: Reply, limited: bool
 	case:
 		return // in tests, Jobs made by hand have no address
 	}
-	now := time.tick_now()
-	b, seen := g.opens[key]
-	if !seen {
-		if len(g.opens) >= BUCKETS_PRUNE_AT {
-			stale := make([dynamic]Address_Key, context.temp_allocator)
-			for k, old in g.opens {
-				if time.tick_diff(old.last, now) > BUCKET_FORGET {
-					append(&stale, k)
-				}
-			}
-			for k in stale {
-				delete_key(&g.opens, k)
-			}
-		}
-		b = {
-			tokens = OPENS_PER_ADDRESS,
-			last   = now,
-		}
-	}
-	b.tokens = min(
-		b.tokens +
-		time.duration_seconds(time.tick_diff(b.last, now)) / time.duration_seconds(OPEN_EVERY),
-		OPENS_PER_ADDRESS,
-	)
-	b.last = now
-	defer g.opens[key] = b
-	if b.tokens < 1 {
+	every := time.duration_seconds(OPEN_EVERY)
+	b := proto.keyed_bucket(&g.opens, key, time.tick_now(), 1 / every, OPENS_PER_ADDRESS)
+	if !proto.bucket_take(b, 1) {
 		r = error_reply(
 			429,
 			"rate_limited",
 			"Too many new connections were asked for from this address. Please slow down.",
 		)
-		r.retry_after = max(1, int(math.ceil((1 - b.tokens) * time.duration_seconds(OPEN_EVERY))))
+		r.retry_after = max(1, int(math.ceil((1 - b.tokens) * every)))
 		return r, true
 	}
-	b.tokens -= 1
 	return
 }
 

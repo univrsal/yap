@@ -1082,13 +1082,13 @@ test_addr_buckets :: proc(t: ^testing.T) {
 	addr_spend(&b, other)
 	addr_spend(&b, other)
 	testing.expect(t, !addr_allowed(&b, other))
-	bucket := b.by_addr[gate_addr(other)]
+	bucket := b.buckets.by_key[gate_addr(other)]
 	testing.expect(t, bucket.tokens < 0)
 
 	// Tokens come back with time.
-	bucket = b.by_addr[gate_addr(one)]
+	bucket = b.buckets.by_key[gate_addr(one)]
 	bucket.last = time.tick_add(bucket.last, -2 * time.Hour)
-	b.by_addr[gate_addr(one)] = bucket
+	b.buckets.by_key[gate_addr(one)] = bucket
 	testing.expect(t, addr_allowed(&b, one))
 	testing.expect(t, addr_take(&b, one))
 	testing.expect(t, addr_take(&b, one))

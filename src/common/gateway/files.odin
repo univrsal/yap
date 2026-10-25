@@ -146,8 +146,7 @@ Blob_Upload :: struct {
 	put:        proto.Blob_Put,
 	handle:     u64, // 0 until the server asks for the data
 	send:       proto.Blob_Sender,
-	tokens:     f32,
-	last_pace:  time.Tick,
+	pace:       proto.Bucket,
 	last_heard: time.Tick,
 	asking:     bool,
 	tries:      int,
@@ -554,17 +553,15 @@ blob_upload_turn :: proc(c: ^Conn, b: ^Blob_Upload, now: time.Tick) {
 	if b.handle == 0 {
 		return
 	}
-	elapsed := f32(time.duration_seconds(time.tick_diff(b.last_pace, now)))
-	b.last_pace = now
-	b.tokens = min(b.tokens + elapsed * BLOB_UPLOAD_RATE, BLOB_UPLOAD_BURST)
+	proto.bucket_refill(&b.pace, now, BLOB_UPLOAD_RATE, BLOB_UPLOAD_BURST)
 	buf: [proto.MAX_PAYLOAD_SIZE]u8
-	for b.tokens > 0 {
+	for b.pace.tokens > 0 {
 		index, data, ok := proto.blob_next_chunk(&b.send)
 		if !ok {
 			break
 		}
 		lite.send(&c.client, proto.encode_blob_chunk(buf[:], b.handle, index, data))
-		b.tokens -= f32(len(data))
+		b.pace.tokens -= f64(len(data))
 	}
 	if proto.blob_sender_idle(&b.send) &&
 	   !b.asking &&
@@ -947,7 +944,7 @@ blob_put :: proc(c: ^Conn, b: ^Blob_Upload) {
 			b.send = {
 				data = j.body,
 			}
-			b.last_pace, b.last_heard = now, now
+			b.pace.last, b.last_heard = now, now
 		}
 	}
 	buf: [proto.BLOB_PUT_SIZE]u8

@@ -44,11 +44,6 @@ import "common:proto"
 // This only uses the main link (proto.Link). Without a bulk link, the
 // server sends heavy messages on the main link too.
 
-// Pacing of the stream, as the client does it (client/conn/stream.odin).
-STREAM_QUEUE_MAX :: 1024 * 1024
-STREAM_RATE :: 256 * 1024
-STREAM_BURST :: 32 * 1024
-STREAM_RESEND_MOST :: time.Second
 // Pings measure the round trip time (used for the stream's resends) and
 // make the server answer, so that a quiet server is noticed
 // (proto.SERVER_SILENT).
@@ -163,8 +158,6 @@ Client :: struct {
 	login_at:      time.Tick, // when to retry the login; 0 for never
 	login_tries:   int,
 	stream:        proto.Stream,
-	tokens:        f32, // how many bytes the stream may send right now
-	stream_last:   time.Tick,
 	last_id:       u32,
 	asked:         map[u32]Asked,
 	ping_id:       u32,
@@ -214,7 +207,7 @@ open :: proc(c: ^Client, key: ^ecdh.Private_Key, opt: Options) -> bool {
 	o.name = strings.clone(opt.name)
 	ecdh.private_key_public_bytes(&c.key, c.public_key[:])
 	crypto.rand_bytes(([^]byte)(&c.conn_id)[:size_of(c.conn_id)])
-	c.stream.max_queue = STREAM_QUEUE_MAX
+	c.stream.max_queue = proto.STREAM_CLIENT_QUEUE
 	c.assembler = new(proto.State_Assembler)
 	c.last_recv = time.tick_now()
 	return true
@@ -627,9 +620,7 @@ handle_welcome :: proc(c: ^Client, pt: []u8) {
 		c.has_previous = false
 	}
 	proto.stream_reset(&c.stream)
-	c.stream.max_queue = STREAM_QUEUE_MAX
-	c.tokens = STREAM_BURST
-	c.stream_last = time.tick_now()
+	c.stream.max_queue = proto.STREAM_CLIENT_QUEUE
 	c.has_state = false
 	c.assembler^ = {}
 	c.login_at, c.login_tries = {}, 0
@@ -778,23 +769,8 @@ stream_step :: proc(c: ^Client, now: time.Tick) {
 	if !c.has_instance || c.restart {
 		return
 	}
-	st := &c.stream
-	elapsed := f32(time.duration_seconds(time.tick_diff(c.stream_last, now)))
-	c.stream_last = now
-	c.tokens = min(c.tokens + elapsed * STREAM_RATE, STREAM_BURST)
-	ack_buf: [proto.STREAM_ACK_SIZE]u8
-	if ack, ok := proto.stream_ack(st, &ack_buf); ok {
-		send(c, ack)
+	send_frame :: proc(data: rawptr, msg: []u8) {
+		send((^Client)(data), msg)
 	}
-	// Twice the round trip time, once the pings have measured it.
-	resend := proto.STREAM_RESEND
-	if c.rtt > 0 {
-		resend = clamp(2 * c.rtt, proto.STREAM_RESEND_MIN, STREAM_RESEND_MOST)
-	}
-	out: [proto.MAX_PAYLOAD_SIZE]u8
-	for c.tokens > 0 && !proto.stream_idle(st) {
-		frame := proto.stream_next_frame(st, now, resend, out[:]) or_break
-		send(c, frame)
-		c.tokens -= f32(len(frame))
-	}
+	proto.stream_pace(&c.stream, now, proto.stream_resend_for(c.rtt), send_frame, c)
 }

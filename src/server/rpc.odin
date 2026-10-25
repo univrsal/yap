@@ -38,20 +38,8 @@ request_cost :: proc(op: proto.Request_Op) -> f32 {
 // request_take takes what a request costs from the connection's requests,
 // if there's enough left.
 request_take :: proc(u: ^Conn, op: proto.Request_Op) -> bool {
-	now := time.tick_now()
-	if u.request_last == {} {
-		u.request_tokens = REQUEST_BURST
-	} else {
-		elapsed := f32(time.duration_seconds(time.tick_diff(u.request_last, now)))
-		u.request_tokens = min(u.request_tokens + elapsed * REQUEST_RATE, REQUEST_BURST)
-	}
-	u.request_last = now
-	cost := request_cost(op)
-	if u.request_tokens < cost {
-		return false
-	}
-	u.request_tokens -= cost
-	return true
+	proto.bucket_refill(&u.requests, time.tick_now(), REQUEST_RATE, REQUEST_BURST)
+	return proto.bucket_take(&u.requests, f64(request_cost(op)))
 }
 
 // rpc_handle takes one message off a user's stream.

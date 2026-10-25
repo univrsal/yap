@@ -49,8 +49,7 @@ Download :: struct {
 	handle: u64, // the handle that the chunks are sent under
 	data:   []u8, // owned
 	send:   proto.Blob_Sender,
-	tokens: f32, // bytes that may be sent to this connection right now
-	last:   time.Tick,
+	pace:   proto.Bucket, // bytes that may be sent to this connection right now
 }
 
 // new_handle generates the handle of a transfer. It is random so that it
@@ -206,7 +205,7 @@ blob_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		handle = new_handle(),
 		data = data,
 		send = {data = data},
-		last = time.tick_now(),
+		pace = {last = time.tick_now()}, // empty until the first refill
 	}
 	log.debugf("sending blob %d to %s", blob, conn_label(u))
 	respond(u, id, .Ok, proto.encode_blob_get_answer(&answer, len(data), down.handle))
@@ -281,18 +280,16 @@ send_chunks :: proc(s: ^Server, c: ^Client, down: ^Download, now: time.Tick) {
 	if !down.active {
 		return
 	}
-	elapsed := f32(time.duration_seconds(time.tick_diff(down.last, now)))
-	down.last = now
-	down.tokens = min(down.tokens + elapsed * TRANSFER_RATE, TRANSFER_BURST)
+	proto.bucket_refill(&down.pace, now, TRANSFER_RATE, TRANSFER_BURST)
 
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	for down.tokens > 0 {
+	for down.pace.tokens > 0 {
 		index, data, ok := proto.blob_next_chunk(&down.send)
 		if !ok {
 			break
 		}
 		send_message(s, c, proto.encode_blob_chunk(out[:], down.handle, index, data))
-		down.tokens -= f32(len(data))
+		down.pace.tokens -= f64(len(data))
 	}
 }
 

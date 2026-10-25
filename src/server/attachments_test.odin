@@ -472,7 +472,7 @@ test_attachments_quota :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 
 	// A second later the rest arrives.
-	up.paced_at = time.tick_add(up.paced_at, -time.Second)
+	up.pace.last = time.tick_add(up.pace.last, -time.Second)
 	send_all(s, alice, id, data)
 	testing.expect(t, up.blob != 0)
 	status, _ = put(t, &ts, alice, MIB / 2, "too much.zip")

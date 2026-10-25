@@ -101,8 +101,7 @@ Conn :: struct {
 	last_state_sent: time.Tick,
 	last_typing:     time.Tick, // see handle_typing
 	// How many requests it may still make (request_take in rpc.odin).
-	request_tokens:  f32,
-	request_last:    time.Tick,
+	requests:        proto.Bucket, // see request_take
 	request_warned:  bool, // that it's over the limit, until it's not
 	upload:          Upload, // a blob on its way in (transfers.odin)
 	download:        Download, // a blob on its way out
@@ -173,7 +172,7 @@ Server :: struct {
 	// Who is allowed to register, and how quickly registrations are
 	// accepted (register.odin).
 	registration:       Registration_Config,
-	register_rate:      Register_Rate,
+	register_rate:      proto.Bucket,
 	// Deleting registrations whose email addresses weren't verified
 	// (verify.odin).
 	verify:             Verify_State,

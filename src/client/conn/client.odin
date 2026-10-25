@@ -74,7 +74,7 @@ Server_Conn :: struct {
 	// succeeds.
 	lost:            bool,
 	retry_at:        time.Tick,
-	stream:          Stream_Client, // requests and events (see stream.odin and rpc.odin)
+	stream:          proto.Stream, // requests and events (see stream.odin and rpc.odin)
 	rpc:             Rpc_Client,
 	auth:            Auth_Client, // our account and the others (see auth.odin)
 	voice:           audio.Voice, // set up by the owner before client_open

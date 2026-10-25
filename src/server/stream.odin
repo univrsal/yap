@@ -22,16 +22,10 @@ STREAM_QUEUE_MAX :: #config(YAP_STREAM_QUEUE, 4 * 1024 * 1024)
 // smaller so that connections without an account, which never acknowledge
 // what they're sent, can't make the server keep a lot of memory for them.
 STREAM_QUEUE_WAITING :: min(128 * 1024, STREAM_QUEUE_MAX)
-// The rate limit per user: bytes per second and the largest burst of bytes
-// that may be sent at once.
-STREAM_RATE :: 256 * 1024
-STREAM_BURST :: 32 * 1024
-
-// Conn_Stream is a user's stream together with its rate limiting state.
+// Conn_Stream is a user's stream (paced at proto.STREAM_RATE, as a client paces
+// its own) and whether it can go on.
 Conn_Stream :: struct {
 	using stream: proto.Stream,
-	tokens:       f32, // bytes this user may be sent right now
-	last:         time.Tick,
 	// The stream can't continue because the client broke the protocol
 	// rules or fell too far behind. stream_sync drops the user.
 	broken:       bool,
@@ -39,8 +33,6 @@ Conn_Stream :: struct {
 
 stream_init :: proc(st: ^Conn_Stream) {
 	st.max_queue = STREAM_QUEUE_WAITING // until conn_login
-	st.tokens = STREAM_BURST
-	st.last = time.tick_now()
 }
 
 handle_stream :: proc(s: ^Server, u: ^Conn, pt: []byte) {
@@ -85,7 +77,6 @@ stream_send :: proc(u: ^Conn, msg: []byte) {
 stream_sync :: proc(s: ^Server) {
 	now := time.tick_now()
 	broken := make([dynamic]^Conn, context.temp_allocator)
-	out: [proto.MAX_PAYLOAD_SIZE]u8
 	// Connections that aren't logged in have a stream too, since they use it to log in.
 	for conns in ([2]map[[proto.KEY_SIZE]byte]^Conn{s.conns, s.waiting}) {
 		for _, u in conns {
@@ -94,9 +85,6 @@ stream_sync :: proc(s: ^Server) {
 				append(&broken, u)
 				continue
 			}
-			elapsed := f32(time.duration_seconds(time.tick_diff(st.last, now)))
-			st.last = now
-			st.tokens = min(st.tokens + elapsed * STREAM_RATE, STREAM_BURST)
 			if !st.ack_due && proto.stream_idle(st) {
 				continue
 			}
@@ -104,21 +92,24 @@ stream_sync :: proc(s: ^Server) {
 			if c == nil {
 				continue
 			}
-			ack_buf: [proto.STREAM_ACK_SIZE]u8
-			if ack, ok := proto.stream_ack(st, &ack_buf); ok {
-				send_message(s, c, ack)
-			}
-			for st.tokens > 0 {
-				frame, ok := proto.stream_next_frame(st, now, proto.STREAM_RESEND, out[:])
-				if !ok {
-					break
-				}
-				send_message(s, c, frame)
-				st.tokens -= f32(len(frame))
-			}
+			to := Stream_To{s, c}
+			proto.stream_pace(st, now, proto.STREAM_RESEND, stream_to, &to)
 		}
 	}
 	for u in broken {
 		drop_conn(s, u)
 	}
+}
+
+// Where stream_sync sends a user's stream.
+@(private = "file")
+Stream_To :: struct {
+	s: ^Server,
+	c: ^Client,
+}
+
+@(private = "file")
+stream_to :: proc(data: rawptr, msg: []u8) {
+	to := (^Stream_To)(data)
+	send_message(to.s, to.c, msg)
 }
