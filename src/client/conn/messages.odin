@@ -9,7 +9,7 @@ import "core:time"
 import "client:audio"
 import "common:proto"
 
-// Messages on our end (src/common/proto/msgs.odin).
+// Messages on our end (src/common/proto/messages.odin).
 //
 // For each conversation we keep a window of consecutive messages, with the
 // newest at the end (Conv_Cache). The server keeps everything, while we only
@@ -262,7 +262,7 @@ Root_Command :: struct {
 	root: proto.Msg_Id,
 }
 
-messages_destroy :: proc(c: ^Voice_Client) {
+messages_destroy :: proc(c: ^Server_Conn) {
 	mc := &c.msgs
 	for key in mc.caches {
 		cache_drop(c, key, publish = false)
@@ -420,7 +420,7 @@ cache_new :: proc(cache: ^Conv_Cache, m: Msg) -> bool {
 
 // cache_of returns the window for a key, making one if there is none.
 @(private = "file")
-cache_of :: proc(c: ^Voice_Client, key: Timeline_Key) -> ^Conv_Cache {
+cache_of :: proc(c: ^Server_Conn, key: Timeline_Key) -> ^Conv_Cache {
 	mc := &c.msgs
 	cache := mc.caches[key] or_else nil
 	if cache == nil {
@@ -436,7 +436,7 @@ cache_of :: proc(c: ^Voice_Client, key: Timeline_Key) -> ^Conv_Cache {
 // cache_drop drops a window. Dropping a conversation's window also drops the
 // roots that were fetched for it, except those of threads that are still open.
 @(private = "file")
-cache_drop :: proc(c: ^Voice_Client, key: Timeline_Key, publish := true) {
+cache_drop :: proc(c: ^Server_Conn, key: Timeline_Key, publish := true) {
 	cache := c.msgs.caches[key] or_else nil
 	if cache == nil {
 		return
@@ -461,7 +461,7 @@ cache_drop :: proc(c: ^Voice_Client, key: Timeline_Key, publish := true) {
 }
 
 @(private = "file")
-thread_is_open :: proc(c: ^Voice_Client, key: Timeline_Key) -> bool {
+thread_is_open :: proc(c: ^Server_Conn, key: Timeline_Key) -> bool {
 	for t in c.msgs.threads {
 		if t == key {
 			return true
@@ -473,7 +473,7 @@ thread_is_open :: proc(c: ^Voice_Client, key: Timeline_Key) -> bool {
 // messages_view is called when the UI shows a conversation: its window is
 // fetched if it has none, and the windows that were looked at longest ago are
 // dropped.
-messages_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+messages_view :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	if conv == 0 {
 		return
 	}
@@ -511,7 +511,7 @@ messages_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 
 // messages_more asks for the page before a window (or, with `newer`, the page
 // after it).
-messages_more :: proc(c: ^Voice_Client, key: Timeline_Key, newer: bool) {
+messages_more :: proc(c: ^Server_Conn, key: Timeline_Key, newer: bool) {
 	cache := c.msgs.caches[key] or_else nil
 	if cache == nil || cache.loading || len(cache.messages) == 0 {
 		return
@@ -525,7 +525,7 @@ messages_more :: proc(c: ^Voice_Client, key: Timeline_Key, newer: bool) {
 
 // messages_jump replaces a conversation's window with the page around a
 // message.
-messages_jump :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) {
+messages_jump :: proc(c: ^Server_Conn, conv: proto.Conv_Id, id: proto.Msg_Id) {
 	cache := cache_of(c, {conv, 0})
 	if cache.loading {
 		return
@@ -535,7 +535,7 @@ messages_jump :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) {
 
 @(private = "file")
 history_ask :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	key: Timeline_Key,
 	anchor: proto.Msg_Id,
 	dir: proto.History_Dir,
@@ -570,7 +570,7 @@ history_ask :: proc(
 }
 
 @(private = "file")
-history_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+history_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	generation := u32(tag)
 	key: Timeline_Key
 	cache: ^Conv_Cache
@@ -642,7 +642,7 @@ history_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u6
 // thread_open opens a thread: its window and its root are fetched, and they are
 // kept up to date until the thread is closed. Past MAX_THREADS, the thread that
 // was opened longest ago is closed.
-thread_open :: proc(c: ^Voice_Client, key: Timeline_Key) {
+thread_open :: proc(c: ^Server_Conn, key: Timeline_Key) {
 	if key.conv == 0 || key.root == 0 || thread_is_open(c, key) {
 		return
 	}
@@ -653,7 +653,7 @@ thread_open :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	thread_fetch(c, key)
 }
 
-thread_close :: proc(c: ^Voice_Client, key: Timeline_Key) {
+thread_close :: proc(c: ^Server_Conn, key: Timeline_Key) {
 	for t, i in c.msgs.threads {
 		if t == key {
 			ordered_remove(&c.msgs.threads, i)
@@ -671,7 +671,7 @@ thread_close :: proc(c: ^Voice_Client, key: Timeline_Key) {
 // thread_fetch fetches an open thread's window and its root, if we don't have
 // them yet.
 @(private = "file")
-thread_fetch :: proc(c: ^Voice_Client, key: Timeline_Key) {
+thread_fetch :: proc(c: ^Server_Conn, key: Timeline_Key) {
 	cache := cache_of(c, key)
 	if len(cache.messages) == 0 && !cache.have_oldest && !cache.loading {
 		history_ask(c, key, 0, .Before)
@@ -681,7 +681,7 @@ thread_fetch :: proc(c: ^Voice_Client, key: Timeline_Key) {
 
 // root_want fetches a thread's root, unless we already have it or it is on its
 // way.
-root_want :: proc(c: ^Voice_Client, conv: proto.Conv_Id, root: proto.Msg_Id) {
+root_want :: proc(c: ^Server_Conn, conv: proto.Conv_Id, root: proto.Msg_Id) {
 	if root == 0 || root in c.msgs.roots || !c.convs.synced || conv not_in c.convs.convs {
 		return
 	}
@@ -694,7 +694,7 @@ root_want :: proc(c: ^Voice_Client, conv: proto.Conv_Id, root: proto.Msg_Id) {
 		c,
 		.Msg_History,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			root := proto.Msg_Id(tag)
 			r, ok := &c.msgs.roots[root]
 			if !ok || r.have {
@@ -722,7 +722,7 @@ root_want :: proc(c: ^Voice_Client, conv: proto.Conv_Id, root: proto.Msg_Id) {
 }
 
 @(private = "file")
-root_forget :: proc(c: ^Voice_Client, id: proto.Msg_Id, publish := true) {
+root_forget :: proc(c: ^Server_Conn, id: proto.Msg_Id, publish := true) {
 	if r, ok := &c.msgs.roots[id]; ok {
 		msg_destroy(&r.msg)
 		delete_key(&c.msgs.roots, id)
@@ -734,7 +734,7 @@ root_forget :: proc(c: ^Voice_Client, id: proto.Msg_Id, publish := true) {
 
 // messages_event handles an event about messages. It returns false if `op`
 // isn't such an event.
-messages_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
+messages_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	if op == .Reaction_Changed {
 		if change, ok := proto.decode_reaction_changed(body); ok {
 			reaction_changed(c, change)
@@ -767,7 +767,7 @@ messages_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool
 // messages both happen, and whichever comes second is a message we already
 // have.
 @(private = "file")
-message_arrived :: proc(c: ^Voice_Client, m: proto.Message) {
+message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 	if m.kind == .File && m.sender != c.auth.me {
 		file_offer_received(c, m)
 	}
@@ -883,7 +883,7 @@ cache_has_newer :: proc(cache: ^Conv_Cache, id: proto.Msg_Id) -> bool {
 
 // dm_notice_text returns the text of a DM's desktop notification.
 @(private = "file")
-dm_notice_text :: proc(c: ^Voice_Client, m: proto.Message) -> string {
+dm_notice_text :: proc(c: ^Server_Conn, m: proto.Message) -> string {
 	if m.kind == .File {
 		return fmt.tprintf("Sent you the file %q", m.file_name)
 	}
@@ -896,7 +896,7 @@ dm_notice_text :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 
 // describe returns a message as the log shows it (headless).
 @(private = "file")
-describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
+describe :: proc(c: ^Server_Conn, m: proto.Message) -> string {
 	if .Deleted in m.flags {
 		return "(deleted)"
 	}
@@ -952,7 +952,7 @@ describe :: proc(c: ^Voice_Client, m: proto.Message) -> string {
 // new version; a deleted file offer can no longer be accepted; and the pins
 // shown are fetched again (the message may have been or become one of them).
 @(private = "file")
-message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
+message_changed :: proc(c: ^Server_Conn, m: proto.Message) {
 	// An event doesn't say which reactions are ours, so keep ours as they were.
 	replace :: proc(old: ^Msg, m: proto.Message) {
 		fresh := msg_of(m)
@@ -1009,7 +1009,7 @@ message_changed :: proc(c: ^Voice_Client, m: proto.Message) {
 // on. They are removed from our windows, and a window with nothing left is
 // fetched again if it is on screen.
 @(private = "file")
-msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
+msgs_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	if p.what == .Files {
 		purge_files(c, p)
 		return
@@ -1073,7 +1073,7 @@ msgs_purged :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 // purge's boundary, except from pinned messages. The files stay listed, but
 // without their blobs.
 @(private = "file")
-purge_files :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
+purge_files :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	strip :: proc(m: ^Msg, before: proto.Msg_Id) -> bool {
 		if m.id >= before || .Pinned in m.flags {
 			return false
@@ -1104,8 +1104,8 @@ purge_files :: proc(c: ^Voice_Client, p: proto.Msgs_Purged) {
 
 // reaction_changed handles someone adding or removing a reaction.
 @(private = "file")
-reaction_changed :: proc(c: ^Voice_Client, change: proto.Reaction_Change) {
-	react :: proc(c: ^Voice_Client, m: ^Msg, change: proto.Reaction_Change) {
+reaction_changed :: proc(c: ^Server_Conn, change: proto.Reaction_Change) {
+	react :: proc(c: ^Server_Conn, m: ^Msg, change: proto.Reaction_Change) {
 		found := false
 		for &r, i in m.reactions {
 			if r.emoji != change.emoji {
@@ -1170,7 +1170,7 @@ Reactors_Command :: struct {
 
 // reactors_fetch asks who reacted with `emoji`. The previous request is
 // forgotten, and its answer is ignored if it still arrives.
-reactors_fetch :: proc(c: ^Voice_Client, id: proto.Msg_Id, emoji: string) {
+reactors_fetch :: proc(c: ^Server_Conn, id: proto.Msg_Id, emoji: string) {
 	mc := &c.msgs
 	delete(mc.reactors_emoji)
 	mc.reactors_id, mc.reactors_emoji = id, strings.clone(emoji)
@@ -1183,7 +1183,7 @@ reactors_fetch :: proc(c: ^Voice_Client, id: proto.Msg_Id, emoji: string) {
 		c,
 		.Reactors_Get,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			mc := &c.msgs
 			if status != .Ok || proto.Msg_Id(tag) != mc.reactors_id {
 				return
@@ -1207,7 +1207,7 @@ React_Command :: struct {
 	typed: bool, // the emoji is a :shortcode: as typed, as in Chat_Command
 }
 
-msg_react :: proc(c: ^Voice_Client, cmd: React_Command) {
+msg_react :: proc(c: ^Server_Conn, cmd: React_Command) {
 	emoji := emoji_encode(cmd.emoji, c.emoji.names[:]) if cmd.typed else cmd.emoji
 	buf: [proto.MSG_REACT_MAX_SIZE]u8
 	body := proto.encode_msg_react(&buf, cmd.id, emoji, cmd.on)
@@ -1218,7 +1218,7 @@ msg_react :: proc(c: ^Voice_Client, cmd: React_Command) {
 		c,
 		.Msg_React,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Ok, .Reset:
 			case .Too_Large:
@@ -1251,7 +1251,7 @@ Forward_Command :: struct {
 	name: string, // owned by the command
 }
 
-msg_forward :: proc(c: ^Voice_Client, cmd: Forward_Command) {
+msg_forward :: proc(c: ^Server_Conn, cmd: Forward_Command) {
 	conv := cmd.conv if cmd.conv != 0 else conv_by_name(c, cmd.name)
 	if conv == 0 {
 		log.warnf("you aren't a member of a channel called %q", cmd.name)
@@ -1263,7 +1263,7 @@ msg_forward :: proc(c: ^Voice_Client, cmd: Forward_Command) {
 		c,
 		.Msg_Forward,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Ok:
 				notify(c, true, "Forwarded.")
@@ -1314,7 +1314,7 @@ Jump_Command :: struct {
 	id: proto.Msg_Id,
 }
 
-msg_edit :: proc(c: ^Voice_Client, id: proto.Msg_Id, raw: string) {
+msg_edit :: proc(c: ^Server_Conn, id: proto.Msg_Id, raw: string) {
 	buf: [proto.MAX_CHAT_SIZE]u8
 	text := proto.sanitize_message(raw, buf[:])
 	if text == "" {
@@ -1324,12 +1324,12 @@ msg_edit :: proc(c: ^Voice_Client, id: proto.Msg_Id, raw: string) {
 	request(c, .Msg_Edit, proto.encode_msg_edit(&body_buf, id, text), change_done, u64(id))
 }
 
-msg_delete :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
+msg_delete :: proc(c: ^Server_Conn, id: proto.Msg_Id) {
 	buf: [proto.MSG_ID_SIZE]u8
 	request(c, .Msg_Delete, proto.encode_msg_id(&buf, id), change_done, u64(id))
 }
 
-msg_pin :: proc(c: ^Voice_Client, id: proto.Msg_Id, on: bool) {
+msg_pin :: proc(c: ^Server_Conn, id: proto.Msg_Id, on: bool) {
 	buf: [proto.MSG_PIN_SIZE]u8
 	request(c, .Msg_Pin, proto.encode_msg_pin(&buf, id, on), change_done, u64(id))
 }
@@ -1337,7 +1337,7 @@ msg_pin :: proc(c: ^Voice_Client, id: proto.Msg_Id, on: bool) {
 // change_done handles the answer to a change of a message. A change that
 // succeeded arrives separately, as Msg_Changed.
 @(private = "file")
-change_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+change_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	#partial switch status {
 	case .Ok, .Reset:
 	case .Denied:
@@ -1357,7 +1357,7 @@ change_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64
 
 // pins_fetch asks for a conversation's pinned messages, which are passed to the
 // UI (or, headless, written to the log).
-pins_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+pins_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	if conv == 0 {
 		return
 	}
@@ -1368,7 +1368,7 @@ pins_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 		c,
 		.Pins_Get,
 		proto.encode_conv_id(&buf, conv),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			conv := proto.Conv_Id(tag)
 			if c.msgs.pins_conv != conv || status != .Ok {
 				return
@@ -1401,7 +1401,7 @@ pins_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 // messages_jump_to moves the window of the conversation we are looking at to
 // message `id` by fetching a page around it, unless it is in the window
 // already.
-messages_jump_to :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
+messages_jump_to :: proc(c: ^Server_Conn, id: proto.Msg_Id) {
 	conv := c.convs.viewing
 	if conv == 0 {
 		return
@@ -1419,7 +1419,7 @@ messages_jump_to :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 // looked at), and the outbox is posted again, resuming where possible. With
 // `forget`, we were logged out, and the messages we had written are dropped
 // too.
-messages_restart :: proc(c: ^Voice_Client, forget := false) {
+messages_restart :: proc(c: ^Server_Conn, forget := false) {
 	mc := &c.msgs
 	keys := make([dynamic]Timeline_Key, context.temp_allocator)
 	for key in mc.caches {
@@ -1465,7 +1465,7 @@ messages_restart :: proc(c: ^Voice_Client, forget := false) {
 // looking at, or with `dm_to`, for the DM with that account, or with `thread`,
 // a reply in that thread.
 chat_send :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	raw: string,
 	dm_to: proto.Account_Id = 0,
 	thread := Timeline_Key{},
@@ -1508,7 +1508,7 @@ chat_send :: proc(
 // `first` is the state the post starts in if nothing has to be opened. It
 // returns false if there is nowhere to post.
 post_target :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	dm_to: proto.Account_Id,
 	first := Post_State.Post,
 ) -> (
@@ -1529,7 +1529,7 @@ post_target :: proc(
 
 // msg_find looks up a message of a conversation in our windows and in the
 // fetched roots.
-msg_find :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) -> (Msg, bool) {
+msg_find :: proc(c: ^Server_Conn, conv: proto.Conv_Id, id: proto.Msg_Id) -> (Msg, bool) {
 	for key, cache in c.msgs.caches {
 		if key.conv != conv {
 			continue
@@ -1548,7 +1548,7 @@ msg_find :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) -> (Ms
 
 // to_the_end makes a conversation's window reach its end, where what we post
 // is shown: if the window was scrolled far back, the newest page replaces it.
-to_the_end :: proc(c: ^Voice_Client, key: Timeline_Key) {
+to_the_end :: proc(c: ^Server_Conn, key: Timeline_Key) {
 	if cache := c.msgs.caches[key] or_else nil;
 	   cache != nil && !cache.have_newest && !cache.loading {
 		history_ask(c, key, 0, .Before)
@@ -1558,7 +1558,7 @@ to_the_end :: proc(c: ^Voice_Client, key: Timeline_Key) {
 // file_post puts the offer of a file in the outbox, for the DM with `to`. It
 // returns the offer's nonce, by which files.odin identifies the transfer until
 // the offer has an id.
-file_post :: proc(c: ^Voice_Client, to: proto.Account_Id, name: string, size: u64) -> u64 {
+file_post :: proc(c: ^Server_Conn, to: proto.Account_Id, name: string, size: u64) -> u64 {
 	conv, state, _ := post_target(c, to)
 	p := Pending {
 		nonce = new_nonce(),
@@ -1584,7 +1584,7 @@ new_nonce :: proc() -> (nonce: u64) {
 
 // chat_typing tells the conversation we are looking at (or with `thread`, that
 // thread) that we are typing, unless we did so recently.
-chat_typing :: proc(c: ^Voice_Client, thread := Timeline_Key{}) {
+chat_typing :: proc(c: ^Server_Conn, thread := Timeline_Key{}) {
 	mc := &c.msgs
 	to := thread if thread.root != 0 else Timeline_Key{c.convs.viewing, 0}
 	if !c.has_current || to.conv == 0 {
@@ -1600,7 +1600,7 @@ chat_typing :: proc(c: ^Voice_Client, thread := Timeline_Key{}) {
 	send_data(c, proto.encode_typing_up(&buf, to.conv, to.root))
 }
 
-handle_typing :: proc(c: ^Voice_Client, pt: []u8) {
+handle_typing :: proc(c: ^Server_Conn, pt: []u8) {
 	if len(pt) != proto.TYPING_DOWN_SIZE {
 		return
 	}
@@ -1631,7 +1631,7 @@ handle_typing :: proc(c: ^Voice_Client, pt: []u8) {
 // picture is announced and uploaded, and a message is posted once its DM is
 // open and its files are uploaded. Entries are sent one at a time, so that
 // they arrive in the order they were written.
-drive_outbox :: proc(c: ^Voice_Client) {
+drive_outbox :: proc(c: ^Server_Conn) {
 	mc := &c.msgs
 	if len(mc.outbox) == 0 || !c.has_current || !c.convs.synced {
 		return
@@ -1704,7 +1704,7 @@ drive_outbox :: proc(c: ^Voice_Client) {
 
 // outbox_head returns the message at the head of the outbox if it is the one
 // with `nonce`, and nil otherwise.
-outbox_head :: proc(c: ^Voice_Client, nonce: u64) -> ^Pending {
+outbox_head :: proc(c: ^Server_Conn, nonce: u64) -> ^Pending {
 	if len(c.msgs.outbox) == 0 || c.msgs.outbox[0].nonce != nonce {
 		return nil
 	}
@@ -1712,7 +1712,7 @@ outbox_head :: proc(c: ^Voice_Client, nonce: u64) -> ^Pending {
 }
 
 // outbox_give_up drops the message at the head of the outbox.
-outbox_give_up :: proc(c: ^Voice_Client, why: string) {
+outbox_give_up :: proc(c: ^Server_Conn, why: string) {
 	notify(c, false, why)
 	if c.msgs.outbox[0].kind == .File {
 		file_post_failed(c, c.msgs.outbox[0].nonce)
@@ -1729,7 +1729,7 @@ outbox_give_up :: proc(c: ^Voice_Client, why: string) {
 // tells us about the DM (Conv_Changed) before answering, so we already know it
 // by now.
 @(private = "file")
-open_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+open_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	p := outbox_head(c, tag)
 	if p == nil || p.state != .Open {
 		return
@@ -1758,7 +1758,7 @@ open_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 }
 
 @(private = "file")
-put_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+put_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	p := outbox_head(c, tag)
 	if p == nil || p.state == .Post {
 		return
@@ -1807,7 +1807,7 @@ UPLOAD_BURST :: 32 * 1024
 UPLOAD_QUIET :: 3 * time.Second
 
 @(private = "file")
-upload_step :: proc(c: ^Voice_Client, p: ^Pending) {
+upload_step :: proc(c: ^Server_Conn, p: ^Pending) {
 	up := &p.upload
 	now := time.tick_now()
 	elapsed := f32(time.duration_seconds(time.tick_diff(up.last_chunk, now)))
@@ -1834,7 +1834,7 @@ upload_step :: proc(c: ^Voice_Client, p: ^Pending) {
 
 // upload_need handles the server telling us how our upload is going. It returns
 // false if the packet isn't about our upload.
-upload_need :: proc(c: ^Voice_Client, pt: []u8) -> bool {
+upload_need :: proc(c: ^Server_Conn, pt: []u8) -> bool {
 	handle, complete, count, indices, ok := proto.decode_blob_need(pt)
 	if !ok || len(c.msgs.outbox) == 0 {
 		return false
@@ -1869,7 +1869,7 @@ upload_need :: proc(c: ^Voice_Client, pt: []u8) -> bool {
 }
 
 @(private = "file")
-post_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+post_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	p := outbox_head(c, tag)
 	if p == nil {
 		return
@@ -2057,7 +2057,7 @@ View_Pins :: struct {
 // publish_message_changed replaces a message that has changed in the UI's copy
 // of its window, if the copy has it.
 @(private = "file")
-publish_message_changed :: proc(c: ^Voice_Client, key: Timeline_Key, m: Msg) {
+publish_message_changed :: proc(c: ^Server_Conn, key: Timeline_Key, m: Msg) {
 	v := c.view
 	if v == nil {
 		return
@@ -2078,7 +2078,7 @@ publish_message_changed :: proc(c: ^Voice_Client, key: Timeline_Key, m: Msg) {
 }
 
 @(private = "file")
-publish_pins_loading :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+publish_pins_loading :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	v := c.view
 	if v == nil {
 		return
@@ -2092,7 +2092,7 @@ publish_pins_loading :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 }
 
 @(private = "file")
-publish_pins :: proc(c: ^Voice_Client, conv: proto.Conv_Id, pins: []proto.Message) {
+publish_pins :: proc(c: ^Server_Conn, conv: proto.Conv_Id, pins: []proto.Message) {
 	v := c.view
 	if v == nil {
 		return
@@ -2110,7 +2110,7 @@ publish_pins :: proc(c: ^Voice_Client, conv: proto.Conv_Id, pins: []proto.Messag
 }
 
 @(private = "file")
-publish_root :: proc(c: ^Voice_Client, r: Root) {
+publish_root :: proc(c: ^Server_Conn, r: Root) {
 	v := c.view
 	if v == nil {
 		return
@@ -2126,7 +2126,7 @@ publish_root :: proc(c: ^Voice_Client, r: Root) {
 // (i.e. the root of a thread or a message link) does not exist, because it's
 // either gone or we can't read it.
 @(private = "file")
-publish_root_missing :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
+publish_root_missing :: proc(c: ^Server_Conn, id: proto.Msg_Id) {
 	v := c.view
 	if v == nil {
 		log.infof("[chat] message #%d doesn't exist or can't be read", id)
@@ -2137,7 +2137,7 @@ publish_root_missing :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 }
 
 @(private = "file")
-publish_root_gone :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
+publish_root_gone :: proc(c: ^Server_Conn, id: proto.Msg_Id) {
 	v := c.view
 	if v == nil {
 		return
@@ -2160,7 +2160,7 @@ View_Reactors :: struct {
 
 @(private = "file")
 publish_reactors :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	id: proto.Msg_Id,
 	emoji: string,
 	total: int,
@@ -2215,7 +2215,7 @@ view_clear_timelines :: proc(v: ^View) {
 // publish_timeline brings the UI's copy of a conversation's window in line with
 // ours, copying only what the copy doesn't have: a page of older messages is
 // inserted at the front, and new ones are added at the end.
-publish_timeline :: proc(c: ^Voice_Client, key: Timeline_Key) {
+publish_timeline :: proc(c: ^Server_Conn, key: Timeline_Key) {
 	v := c.view
 	if v == nil {
 		return
@@ -2281,7 +2281,7 @@ publish_timeline :: proc(c: ^Voice_Client, key: Timeline_Key) {
 	tl.revision += 1
 }
 
-publish_outbox :: proc(c: ^Voice_Client) {
+publish_outbox :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -2332,7 +2332,7 @@ publish_outbox :: proc(c: ^Voice_Client) {
 // publish_unread counts a message from someone else in the conversation on
 // screen. The UI resets the count once the message has been seen.
 @(private = "file")
-publish_unread :: proc(c: ^Voice_Client) {
+publish_unread :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -2342,7 +2342,7 @@ publish_unread :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-publish_typing :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.Account_Id) {
+publish_typing :: proc(c: ^Server_Conn, to: Timeline_Key, account: proto.Account_Id) {
 	v := c.view
 	if v == nil {
 		return
@@ -2354,7 +2354,7 @@ publish_typing :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.Accoun
 // publish_typing_done clears an account's typing notice once it has posted,
 // since it is done typing that message.
 @(private = "file")
-publish_typing_done :: proc(c: ^Voice_Client, to: Timeline_Key, account: proto.Account_Id) {
+publish_typing_done :: proc(c: ^Server_Conn, to: Timeline_Key, account: proto.Account_Id) {
 	v := c.view
 	if v == nil {
 		return

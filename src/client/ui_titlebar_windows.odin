@@ -32,11 +32,11 @@ TITLEBAR_GAP :: 8
 
 // The window procedure that GLFW installed, which ours passes messages on to.
 @(private = "file")
-glfw_proc: win.WNDPROC
+g_glfw_proc: win.WNDPROC
 
 // When the last press on the strip happened, to tell a double click.
 @(private = "file")
-last_press: win.DWORD
+g_last_press: win.DWORD
 
 // How thick the sizing frame is, in pixels.
 @(private = "file")
@@ -72,7 +72,7 @@ title_proc :: proc "system" (
 		}
 		return 0
 	case win.WM_NCHITTEST:
-		hit := win.CallWindowProcW(glfw_proc, hwnd, msg, wparam, lparam)
+		hit := win.CallWindowProcW(g_glfw_proc, hwnd, msg, wparam, lparam)
 		if hit != win.HTCLIENT || win.IsZoomed(hwnd) {
 			return hit
 		}
@@ -107,7 +107,7 @@ title_proc :: proc "system" (
 		}
 		return hit
 	}
-	return win.CallWindowProcW(glfw_proc, hwnd, msg, wparam, lparam)
+	return win.CallWindowProcW(g_glfw_proc, hwnd, msg, wparam, lparam)
 }
 
 // titlebar_merge lets the UI take the title bar's place, or gives it back.
@@ -122,11 +122,11 @@ titlebar_merge :: proc(window: glfw.WindowHandle, merged: bool) {
 	margins: win.MARGINS
 	if merged {
 		previous := win.SetWindowLongPtrW(hwnd, win.GWLP_WNDPROC, our_proc())
-		glfw_proc = cast(win.WNDPROC)rawptr(uintptr(previous))
+		g_glfw_proc = cast(win.WNDPROC)rawptr(uintptr(previous))
 		// A sliver of frame keeps the shadow around the window.
 		margins = {0, 0, 1, 0}
 	} else {
-		win.SetWindowLongPtrW(hwnd, win.GWLP_WNDPROC, win.LONG_PTR(uintptr(rawptr(glfw_proc))))
+		win.SetWindowLongPtrW(hwnd, win.GWLP_WNDPROC, win.LONG_PTR(uintptr(rawptr(g_glfw_proc))))
 	}
 	win.DwmExtendFrameIntoClientArea(hwnd, &margins)
 	win.SetWindowPos(
@@ -203,12 +203,12 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 		return
 	}
 	now := GetTickCount()
-	if now - last_press < GetDoubleClickTime() {
-		last_press = 0
+	if now - g_last_press < GetDoubleClickTime() {
+		g_last_press = 0
 		win.ShowWindow(hwnd, win.SW_RESTORE if win.IsZoomed(hwnd) else win.SW_MAXIMIZE)
 		return
 	}
-	last_press = now
+	g_last_press = now
 	pos: win.POINT
 	win.GetCursorPos(&pos)
 	win.ReleaseCapture()

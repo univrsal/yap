@@ -27,7 +27,7 @@ run_headless :: proc(
 	quality: audio.Quality,
 ) -> bool {
 	// Heap-allocated because the channel state buffers make it fairly large.
-	c := new(conn.Voice_Client)
+	c := new(conn.Server_Conn)
 	defer free(c)
 	if !audio.voice_init(&c.voice) {
 		return false

@@ -79,14 +79,14 @@ Members_Command :: struct {
 	conv: proto.Conv_Id,
 }
 
-profiles_destroy :: proc(c: ^Voice_Client) {
+profiles_destroy :: proc(c: ^Server_Conn) {
 	shared_clear(c)
 	delete(c.profiles.shared)
 	c.profiles = {}
 }
 
 @(private = "file")
-shared_clear :: proc(c: ^Voice_Client) {
+shared_clear :: proc(c: ^Server_Conn) {
 	for k, v in c.profiles.shared {
 		delete(k)
 		delete(v)
@@ -95,14 +95,14 @@ shared_clear :: proc(c: ^Voice_Client) {
 }
 
 // shared_begin is called when the sync starts, which brings every setting.
-shared_begin :: proc(c: ^Voice_Client) {
+shared_begin :: proc(c: ^Server_Conn) {
 	shared_clear(c)
 	c.profiles.synced = false
 	publish_shared(c)
 }
 
 // shared_end is called when the sync is over, so we now have every setting.
-shared_end :: proc(c: ^Voice_Client) {
+shared_end :: proc(c: ^Server_Conn) {
 	c.profiles.synced = true
 	c.profiles.syncs += 1
 	publish_shared(c)
@@ -113,7 +113,7 @@ shared_end :: proc(c: ^Voice_Client) {
 
 // shared_view is the conversation that was looked at last on any of our
 // devices. It is applied once per client, and a fresh start opens it (convs_synced).
-shared_view :: proc(c: ^Voice_Client) -> proto.Conv_Id {
+shared_view :: proc(c: ^Server_Conn) -> proto.Conv_Id {
 	p := &c.profiles
 	if p.view_applied {
 		return 0
@@ -124,7 +124,7 @@ shared_view :: proc(c: ^Voice_Client) -> proto.Conv_Id {
 }
 
 // shared_viewed records the conversation being looked at, for our other devices.
-shared_viewed :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+shared_viewed :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	if !c.profiles.synced || conv == 0 {
 		return
 	}
@@ -132,7 +132,7 @@ shared_viewed :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 }
 
 // profiles_event handles an event about settings. Returns false if `op` is not one.
-profiles_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
+profiles_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	if op != .Setting_Changed {
 		return false
 	}
@@ -148,7 +148,7 @@ profiles_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool
 }
 
 @(private = "file")
-shared_store :: proc(c: ^Voice_Client, key, value: string) {
+shared_store :: proc(c: ^Server_Conn, key, value: string) {
 	p := &c.profiles
 	if key in p.shared {
 		old_key, old_value := delete_key(&p.shared, key)
@@ -163,7 +163,7 @@ shared_store :: proc(c: ^Voice_Client, key, value: string) {
 
 // setting_put changes one of the account's settings, here and on the server.
 // No request is sent if the setting already has that value.
-setting_put :: proc(c: ^Voice_Client, key, value: string) {
+setting_put :: proc(c: ^Server_Conn, key, value: string) {
 	if !proto.setting_key_ok(key) || len(value) > proto.MAX_SETTING_VALUE {
 		return
 	}
@@ -176,7 +176,7 @@ setting_put :: proc(c: ^Voice_Client, key, value: string) {
 		c,
 		.Setting_Set,
 		proto.encode_setting(buf[:], key, transmute([]u8)value),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Ok, .Reset:
 			case .Too_Large:
@@ -189,7 +189,7 @@ setting_put :: proc(c: ^Voice_Client, key, value: string) {
 }
 
 // status_set sets our status.
-status_set :: proc(c: ^Voice_Client, raw: string, until: proto.Unix_Ms, at: proto.Unix_Ms) {
+status_set :: proc(c: ^Server_Conn, raw: string, until: proto.Unix_Ms, at: proto.Unix_Ms) {
 	buf: [proto.MAX_STATUS_SIZE]u8
 	text := proto.sanitize_text(raw, buf[:])
 	body_buf: [proto.ACCOUNT_BODY_MAX + proto.MAX_STATUS_SIZE + 8]u8
@@ -207,7 +207,7 @@ status_set :: proc(c: ^Voice_Client, raw: string, until: proto.Unix_Ms, at: prot
 
 // avatar_set puts our new picture in the outbox, to be uploaded and then
 // set (drive_outbox). It takes over the JPEG. With `remove` we have none.
-avatar_set :: proc(c: ^Voice_Client, image: Chat_Image, remove: bool) {
+avatar_set :: proc(c: ^Server_Conn, image: Chat_Image, remove: bool) {
 	if remove {
 		buf: [proto.ACCOUNT_BODY_MAX]u8
 		request(
@@ -245,13 +245,13 @@ avatar_set :: proc(c: ^Voice_Client, image: Chat_Image, remove: bool) {
 
 // avatar_post sets the picture that was just uploaded (the last step of the
 // outbox entry for one).
-avatar_post :: proc(c: ^Voice_Client, p: ^Pending) {
+avatar_post :: proc(c: ^Server_Conn, p: ^Pending) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	request(
 		c,
 		.Profile_Set,
 		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR, avatar = p.blob}),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			p := outbox_head(c, tag)
 			if p == nil || !p.avatar || p.server {
 				return
@@ -283,7 +283,7 @@ avatar_post :: proc(c: ^Voice_Client, p: ^Pending) {
 }
 
 @(private = "file")
-profile_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+profile_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	if status != .Ok && status != .Reset {
 		notify(c, false, status_text(status))
 	}
@@ -291,7 +291,7 @@ profile_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u6
 
 // members_fetch asks for a conversation's members, for the UI's panel (or for
 // the log when headless).
-members_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+members_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	if conv == 0 {
 		return
 	}
@@ -302,7 +302,7 @@ members_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 		c,
 		.Conv_Members,
 		proto.encode_conv_id(&buf, conv),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			conv := proto.Conv_Id(tag)
 			if c.profiles.members_conv != conv {
 				return
@@ -346,7 +346,7 @@ View_Members :: struct {
 }
 
 @(private = "file")
-publish_shared :: proc(c: ^Voice_Client) {
+publish_shared :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -363,7 +363,7 @@ publish_shared :: proc(c: ^Voice_Client) {
 
 @(private = "file")
 publish_members :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	conv: proto.Conv_Id,
 	accounts: []proto.Account_Id,
 	loading: bool,

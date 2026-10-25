@@ -81,7 +81,7 @@ Conn :: struct {
 	// a time.
 	auth_busy:       bool,
 	// Identify the client's connection and our side of it: see the hello and
-	// Welcome in proto/names.odin. A handshake with the same conn_id is a
+	// Welcome in proto/hello.odin. A handshake with the same conn_id is a
 	// rekey; one with a different conn_id means the client has started over.
 	conn_id:         u64,
 	instance:        u64,
@@ -737,7 +737,7 @@ conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
 WELCOME_COPIES :: 3
 
 // send_welcome tells a client whose hello was accepted which connection
-// its new session belongs to (see proto/names.odin).
+// its new session belongs to (see proto/hello.odin).
 @(private = "file")
 send_welcome :: proc(s: ^Server, c: ^Client) {
 	buf: [proto.WELCOME_SIZE]u8

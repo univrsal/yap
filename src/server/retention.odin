@@ -16,7 +16,7 @@ import "sqlite"
 // more than `blob_megabytes`. An account with Permission.Purge can purge a
 // conversation, or all of them, up to a given time (Purge). So can whoever
 // runs the server, from the command line while the server is stopped (see
-// cli.odin). After each run and each purge, the stored files that nothing
+// cli_purge.odin). After each run and each purge, the stored files that nothing
 // uses any more are removed and the space they took in the database is
 // returned to the filesystem.
 //

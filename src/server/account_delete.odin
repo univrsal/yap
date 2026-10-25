@@ -26,7 +26,7 @@ import "common:proto"
 //
 // The request is in auth.odin and requires the account's own password
 // when an account deletes itself. The command line's `account delete`
-// is in cli.odin.
+// is in cli_account.odin.
 
 // deleted_username is the username a deleted account is given.
 deleted_username :: proc(id: proto.Account_Id, allocator := context.temp_allocator) -> string {

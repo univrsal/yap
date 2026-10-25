@@ -46,7 +46,7 @@ Search_Client :: struct {
 // How many results a page asks for.
 SEARCH_PAGE :: 30
 
-search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
+search_start :: proc(c: ^Server_Conn, cmd: Search_Command) {
 	sc := &c.search
 	if !cmd.more {
 		delete(sc.query)
@@ -68,7 +68,7 @@ search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
 		c,
 		.Msg_Search,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			sc := &c.search
 			if tag != sc.asked {
 				return
@@ -115,7 +115,7 @@ search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
 	)
 }
 
-search_destroy :: proc(c: ^Voice_Client) {
+search_destroy :: proc(c: ^Server_Conn) {
 	delete(c.search.query)
 	c.search = {}
 }
@@ -125,7 +125,7 @@ search_destroy :: proc(c: ^Voice_Client) {
 // more results, whether the search is still running, and what went wrong.
 @(private = "file")
 publish_search :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	found: []proto.Message,
 	more, loading: bool,
 	error: string,

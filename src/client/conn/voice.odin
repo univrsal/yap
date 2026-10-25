@@ -7,7 +7,7 @@ import "client:audio"
 // in client_step.
 
 // voice_step sends captured audio and keeps the output supplied.
-voice_step :: proc(c: ^Voice_Client) {
+voice_step :: proc(c: ^Server_Conn) {
 	send_captured(c)
 	audio.voice_step(&c.voice)
 }
@@ -15,7 +15,7 @@ voice_step :: proc(c: ^Voice_Client) {
 // send_captured sends a frame for every 20 ms of captured audio, once there is
 // a session and a settled channel to send it to.
 @(private = "file")
-send_captured :: proc(c: ^Voice_Client) {
+send_captured :: proc(c: ^Server_Conn) {
 	v := &c.voice
 	mic, capturing := audio.capture_begin(v)
 	if !capturing {

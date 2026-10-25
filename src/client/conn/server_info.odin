@@ -34,7 +34,7 @@ Server_Info_Command :: struct {
 // server_info_take reads what the server says about itself from the answer to
 // Server_Info or from its event, and fetches the picture if it is a new one.
 // Returns false if it cannot be read.
-server_info_take :: proc(c: ^Voice_Client, body: []u8) -> bool {
+server_info_take :: proc(c: ^Server_Conn, body: []u8) -> bool {
 	info, ok := proto.decode_server_info(body)
 	if !ok {
 		log.warnf("%s sent a Server_Info we can't read", c.server_addr)
@@ -91,7 +91,7 @@ server_info_take :: proc(c: ^Voice_Client, body: []u8) -> bool {
 
 // server_info_event handles the event that says the server changed what it
 // says about itself. Returns false if `op` is not that event.
-server_info_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
+server_info_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	if op != .Server_Info {
 		return false
 	}
@@ -102,7 +102,7 @@ server_info_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> b
 }
 
 @(private = "file")
-icon_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+icon_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	s := &c.rpc.server
 	// The picture is gone, or has been replaced since: what arrived is outdated.
 	if status != .Ok || proto.Blob_Id(tag) != s.icon {
@@ -125,7 +125,7 @@ icon_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 // goes in the outbox, to be uploaded and then set together with the rest
 // (server_info_post). Otherwise the change is sent right away. Takes over the
 // command's strings and JPEG.
-server_info_set :: proc(c: ^Voice_Client, cmd: Server_Info_Command) {
+server_info_set :: proc(c: ^Server_Conn, cmd: Server_Info_Command) {
 	if len(cmd.image.jpeg) == 0 {
 		icon := proto.Blob_Id(0) if cmd.remove else c.rpc.server.icon
 		info_set_ask(c, cmd.name, cmd.description, icon, 0)
@@ -165,19 +165,14 @@ server_info_set :: proc(c: ^Voice_Client, cmd: Server_Info_Command) {
 
 // server_info_post sets the server's picture that was just uploaded, along with
 // its name and description (the last step of the outbox entry for one).
-server_info_post :: proc(c: ^Voice_Client, p: ^Pending) {
+server_info_post :: proc(c: ^Server_Conn, p: ^Pending) {
 	info_set_ask(c, p.text, p.about, p.blob, p.nonce)
 }
 
 // info_set_ask sends Server_Info_Set. `nonce` identifies the outbox entry it
 // completes, or is 0 if there is none.
 @(private = "file")
-info_set_ask :: proc(
-	c: ^Voice_Client,
-	name, description: string,
-	icon: proto.Blob_Id,
-	nonce: u64,
-) {
+info_set_ask :: proc(c: ^Server_Conn, name, description: string, icon: proto.Blob_Id, nonce: u64) {
 	buf: [proto.SERVER_INFO_SET_MAX_SIZE]u8
 	body, ok := proto.encode_server_info_set(
 		buf[:],
@@ -191,7 +186,7 @@ info_set_ask :: proc(
 }
 
 @(private = "file")
-info_set_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+info_set_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	p: ^Pending
 	if tag != 0 {
 		p = outbox_head(c, tag)
@@ -241,12 +236,12 @@ view_clear_server_memory :: proc(v: ^View) {
 	v.server_memory = {}
 }
 
-server_memory :: proc(c: ^Voice_Client) {
+server_memory :: proc(c: ^Server_Conn) {
 	request(
 		c,
 		.Server_Memory,
 		nil,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status == .Reset {
 				return
 			}

@@ -17,7 +17,7 @@ import "core:encoding/endian"
 //
 // The stream delivers each message exactly once, so nothing here is resent
 // or checked for duplicates. When a connection starts over (see Welcome in
-// names.odin), the requests that are still waiting for a response are lost
+// hello.odin), the requests that are still waiting for a response are lost
 // with it, and the client gives up on them with Status.Reset.
 //
 // A server answers a request with an op it doesn't know with Unknown_Op, and
@@ -41,7 +41,7 @@ import "core:encoding/endian"
 //	                 response  [a memory report, as text] (common/memtrack/report.odin)
 //
 // where str8 is [len u8][bytes] and str16 is [len u16][bytes]. The remaining
-// ops are described in accounts.odin, buddies.odin, convs.odin, msgs.odin and
+// ops are described in accounts.odin, buddies.odin, convs.odin, messages.odin and
 // push.odin. A body may grow at its end: a decoder ignores whatever follows
 // the fields it knows.
 
@@ -103,7 +103,7 @@ Request_Op :: enum u16 {
 	// 0x003A was Conv_View, while chat was still streamed per channel.
 	Conv_Rights_Get      = 0x003B,
 	Conv_Rights_Set      = 0x003C,
-	// Messages, see msgs.odin.
+	// Messages, see messages.odin.
 	Msg_Post             = 0x0040,
 	Msg_History          = 0x0041,
 	Msg_Edit             = 0x0042,
@@ -156,7 +156,7 @@ Event_Op :: enum u16 {
 	Conv_Removed     = 0x0031,
 	Read_Changed     = 0x0032,
 	Voice_Moved      = 0x0033,
-	// See msgs.odin.
+	// See messages.odin.
 	Msg_New          = 0x0040,
 	Msg_Changed      = 0x0041,
 	Reaction_Changed = 0x0042,

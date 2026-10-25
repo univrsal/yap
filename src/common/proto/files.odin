@@ -6,7 +6,7 @@ import "core:unicode/utf8"
 
 // File transfers in direct messages.
 //
-// A file is offered in a DM as a message of kind File (msgs.odin) that states
+// A file is offered in a DM as a message of kind File (messages.odin) that states
 // its name and size. The transfer's id is the id of that message. If the
 // recipient accepts, the two clients transfer the file through the server,
 // which only relays it and never stores any of it:

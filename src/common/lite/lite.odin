@@ -141,7 +141,7 @@ Client :: struct {
 	login_status:  proto.Status,
 	logout_reason: proto.Logout_Reason,
 	// Identifies the connection (see the hello and Welcome in
-	// proto/names.odin): conn_id is ours and stays the same in every
+	// proto/hello.odin): conn_id is ours and stays the same in every
 	// handshake, instance is the server's id for the connection.
 	conn_id:       u64,
 	instance:      u64,
@@ -340,7 +340,7 @@ send :: proc(c: ^Client, pt: []u8) -> bool {
 
 // restart gives up on the current connection and handshakes for a new one
 // with a new conn_id, which the server treats as the client starting over
-// (see proto/names.odin). Waiting requests are answered with Reset once the
+// (see proto/hello.odin). Waiting requests are answered with Reset once the
 // new connection exists, and the server sends everything again.
 restart :: proc(c: ^Client) {
 	if c.restart || c.phase == .Failed {

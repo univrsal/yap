@@ -11,7 +11,7 @@ package proto
 // Reading a channel and talking in its voice room are separate things. A
 // channel has a voice room, which a connection joins and leaves independently
 // (Voice_Join). The snapshot says which room each connection is in
-// (messages.odin), and a connection starts out in no room. A Room is 0 for
+// (datagrams.odin), and a connection starts out in no room. A Room is 0 for
 // none or the channel's id. The top bit is reserved for rooms that don't
 // belong to a channel.
 //
@@ -87,7 +87,7 @@ package proto
 // account is a member of, between Sync_Begin and Sync_End (accounts.odin).
 //
 // A conversation's last message is the id of the newest message posted to it
-// (msgs.odin), or 0 for none. `last time` is the time at which that message
+// (messages.odin), or 0 for none. `last time` is the time at which that message
 // was posted, in Unix milliseconds (0 for none). It is used to order a list of
 // DMs from many servers, because ids from different servers can't be compared.
 //

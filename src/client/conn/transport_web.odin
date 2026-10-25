@@ -18,7 +18,7 @@ import "core:time"
 @(default_calling_convention = "c")
 foreign _ {
 	// Each takes the socket's slot: a connection's main link has the first of
-	// three (Voice_Client.slot), its bulk link (bulk.odin) the next and its media
+	// three (Server_Conn.slot), its bulk link (bulk.odin) the next and its media
 	// link (media.odin) the last.
 	// Opens the socket, dropping whatever was open before in that slot.
 	// The address is a ws:// or wss:// URL.

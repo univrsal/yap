@@ -6,7 +6,7 @@ import "core:strings"
 import "common:proto"
 import "sqlite"
 
-// Reactions (see src/common/proto/msgs.odin) are emojis that an account
+// Reactions (see src/common/proto/messages.odin) are emojis that an account
 // adds to a message. Anyone who may read a message may react to it, either
 // with a Unicode emoji (from the table in proto/emoji_table.odin) or with
 // one of the server's custom emojis (`:name:`, see emoji.odin). An account

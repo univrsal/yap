@@ -8,7 +8,7 @@ import "core:time"
 import "common:proto"
 
 // This file fetches the pictures shown by messages on our end, using the id of
-// their blob (src/common/proto/msgs.odin requests a blob and blob.odin
+// their blob (src/common/proto/messages.odin requests a blob and blob.odin
 // transfers its chunks). Uploading our own pictures is handled by the outbox
 // (see messages.odin).
 //
@@ -82,7 +82,7 @@ Blob_Client :: struct {
 	loads:  [dynamic]proto.Blob_Id,
 }
 
-blobs_destroy :: proc(c: ^Voice_Client) {
+blobs_destroy :: proc(c: ^Server_Conn) {
 	for _, f in c.blobs.cache {
 		fetch_release(c, f)
 		free(f)
@@ -93,7 +93,7 @@ blobs_destroy :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-fetch_release :: proc(c: ^Voice_Client, f: ^Blob_Fetch) {
+fetch_release :: proc(c: ^Server_Conn, f: ^Blob_Fetch) {
 	if f.disk != 0 {
 		image_cache_cancel(c.blobs.disk, f.disk)
 		f.disk = 0
@@ -110,7 +110,7 @@ fetch_release :: proc(c: ^Voice_Client, f: ^Blob_Fetch) {
 // the picture stays cached regardless of how many other pictures there are. A
 // size of 0 means the server will tell us the size (for example a person's
 // picture).
-blob_want :: proc(c: ^Voice_Client, image: Image_Info, keep := false) {
+blob_want :: proc(c: ^Server_Conn, image: Image_Info, keep := false) {
 	if image.blob == 0 || int(image.size) > proto.MAX_BLOB_SIZE {
 		return
 	}
@@ -155,7 +155,7 @@ blob_want :: proc(c: ^Voice_Client, image: Image_Info, keep := false) {
 // picture that has arrived becomes Ready, as if it had just been fetched, and
 // one that the cache could not provide is fetched from the server after all.
 @(private = "file")
-disk_poll :: proc(c: ^Voice_Client) {
+disk_poll :: proc(c: ^Server_Conn) {
 	bc := &c.blobs
 	for i := 0; i < len(bc.loads); {
 		id := bc.loads[i]
@@ -194,7 +194,7 @@ disk_poll :: proc(c: ^Voice_Client) {
 
 // disk_store stores a picture on disk for next time.
 @(private = "file")
-disk_store :: proc(c: ^Voice_Client, id: proto.Blob_Id, data: []u8) {
+disk_store :: proc(c: ^Server_Conn, id: proto.Blob_Id, data: []u8) {
 	if c.blobs.disk != nil && c.server_key != {} {
 		image_cache_store(c.blobs.disk, c.server_key, id, data)
 	}
@@ -202,7 +202,7 @@ disk_store :: proc(c: ^Voice_Client, id: proto.Blob_Id, data: []u8) {
 
 // blob_have records a picture of ours that the server has just accepted, so
 // there is nothing to fetch. It takes ownership of `jpeg`.
-blob_have :: proc(c: ^Voice_Client, blob: proto.Blob_Id, jpeg: []u8, width, height: int) {
+blob_have :: proc(c: ^Server_Conn, blob: proto.Blob_Id, jpeg: []u8, width, height: int) {
 	bc := &c.blobs
 	if f, seen := bc.cache[blob]; seen {
 		if f.state == .Ready {
@@ -231,7 +231,7 @@ blob_have :: proc(c: ^Voice_Client, blob: proto.Blob_Id, jpeg: []u8, width, heig
 
 // blobs_restart requests the fetch that is in progress again on the new
 // connection.
-blobs_restart :: proc(c: ^Voice_Client) {
+blobs_restart :: proc(c: ^Server_Conn) {
 	bc := &c.blobs
 	if f := bc.cache[bc.active] or_else nil; f != nil && f.state == .Loading {
 		proto.blob_receiver_destroy(&f.recv)
@@ -244,7 +244,7 @@ blobs_restart :: proc(c: ^Voice_Client) {
 }
 
 // blobs_step drives the fetching of one picture at a time.
-blobs_step :: proc(c: ^Voice_Client) {
+blobs_step :: proc(c: ^Server_Conn) {
 	if len(c.blobs.loads) > 0 {
 		disk_poll(c)
 	}
@@ -300,7 +300,7 @@ blobs_step :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-get_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+get_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	id := proto.Blob_Id(tag)
 	bc := &c.blobs
 	f := bc.cache[id] or_else nil
@@ -336,7 +336,7 @@ get_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
 	publish_blob(c, id)
 }
 
-handle_blob_chunk :: proc(c: ^Voice_Client, pt: []byte) {
+handle_blob_chunk :: proc(c: ^Server_Conn, pt: []byte) {
 	handle, index, data := proto.decode_blob_chunk(pt)
 	bc := &c.blobs
 	f := bc.cache[bc.active] or_else nil
@@ -374,14 +374,14 @@ handle_blob_chunk :: proc(c: ^Voice_Client, pt: []byte) {
 
 // handle_blob_need handles the server telling us which chunks of one of our
 // uploads it still needs (see messages.odin).
-handle_blob_need :: proc(c: ^Voice_Client, pt: []byte) {
+handle_blob_need :: proc(c: ^Server_Conn, pt: []byte) {
 	upload_need(c, pt)
 }
 
 // trim_blobs drops the pictures that were fetched longest ago once there are too
 // many. They are fetched again if they are wanted later.
 @(private = "file")
-trim_blobs :: proc(c: ^Voice_Client) {
+trim_blobs :: proc(c: ^Server_Conn) {
 	bc := &c.blobs
 	for bc.bytes > BLOB_CACHE_BYTES {
 		oldest: proto.Blob_Id
@@ -413,7 +413,7 @@ View_Image :: struct {
 
 // publish_blob copies a picture's state (and its bytes once they have arrived)
 // for the UI to draw. A picture we no longer keep is removed from the view.
-publish_blob :: proc(c: ^Voice_Client, id: proto.Blob_Id) {
+publish_blob :: proc(c: ^Server_Conn, id: proto.Blob_Id) {
 	v := c.view
 	if v == nil {
 		return

@@ -176,7 +176,7 @@ Notify_Command :: struct {
 	notify: proto.Notify_Level,
 }
 
-convs_destroy :: proc(c: ^Voice_Client) {
+convs_destroy :: proc(c: ^Server_Conn) {
 	cv := &c.convs
 	convs_clear(cv)
 	delete(cv.convs)
@@ -236,14 +236,14 @@ want :: proc(slot: ^string, name: string) {
 
 // conv_start_in sets where to begin once connected: the channel called `name` is
 // looked at, and its voice room is joined.
-conv_start_in :: proc(c: ^Voice_Client, name: string) {
+conv_start_in :: proc(c: ^Server_Conn, name: string) {
 	want(&c.convs.want_view, name)
 	want(&c.convs.want_voice, name)
 }
 
 // conv_start_viewing is like conv_start_in, but without joining the voice room:
 // the channel called `name` is the one looked at once connected.
-conv_start_viewing :: proc(c: ^Voice_Client, name: string) {
+conv_start_viewing :: proc(c: ^Server_Conn, name: string) {
 	want(&c.convs.want_view, name)
 }
 
@@ -251,7 +251,7 @@ conv_start_viewing :: proc(c: ^Voice_Client, name: string) {
 // for us, because it tells us about them again. What we were looking at and
 // talking in is requested again once it has, since a new connection starts out
 // doing neither. With `forget`, we were logged out, and that is not wanted.
-convs_restart :: proc(c: ^Voice_Client, forget := false) {
+convs_restart :: proc(c: ^Server_Conn, forget := false) {
 	cv := &c.convs
 	if forget {
 		want(&cv.want_view, "")
@@ -278,7 +278,7 @@ convs_restart :: proc(c: ^Voice_Client, forget := false) {
 
 // conv_by_name returns the channel of ours called `name`, ignoring case, or 0 if
 // there is none.
-conv_by_name :: proc(c: ^Voice_Client, name: string) -> proto.Conv_Id {
+conv_by_name :: proc(c: ^Server_Conn, name: string) -> proto.Conv_Id {
 	for id, info in c.convs.convs {
 		if info.kind == .Channel && strings.equal_fold(info.name, name) {
 			return id
@@ -288,7 +288,7 @@ conv_by_name :: proc(c: ^Voice_Client, name: string) -> proto.Conv_Id {
 }
 
 // home_conv returns the channel everyone is in, or 0 before we know about it.
-home_conv :: proc(c: ^Voice_Client) -> proto.Conv_Id {
+home_conv :: proc(c: ^Server_Conn) -> proto.Conv_Id {
 	for id, info in c.convs.convs {
 		if .Home in info.flags {
 			return id
@@ -299,7 +299,7 @@ home_conv :: proc(c: ^Voice_Client) -> proto.Conv_Id {
 
 // room_name returns what to call a voice room, which is the name of its channel
 // if it is one of ours. For a DM it is who the DM is with.
-room_name :: proc(c: ^Voice_Client, room: proto.Room) -> string {
+room_name :: proc(c: ^Server_Conn, room: proto.Room) -> string {
 	if info, ok := c.convs.convs[proto.Conv_Id(room)]; ok {
 		if info.kind == .DM {
 			return fmt.tprintf("DMs with %s", account_display(c, dm_other(c, info)))
@@ -311,11 +311,11 @@ room_name :: proc(c: ^Voice_Client, room: proto.Room) -> string {
 
 // convs_begin and convs_synced handle the server starting to tell us how things
 // are and having told us (Sync_Begin and Sync_End).
-convs_begin :: proc(c: ^Voice_Client) {
+convs_begin :: proc(c: ^Server_Conn) {
 	convs_clear(&c.convs)
 }
 
-convs_synced :: proc(c: ^Voice_Client) {
+convs_synced :: proc(c: ^Server_Conn) {
 	cv := &c.convs
 	cv.synced = true
 
@@ -372,7 +372,7 @@ convs_synced :: proc(c: ^Voice_Client) {
 
 // conv_event handles an event about conversations or rooms. It returns false if
 // `op` is not one.
-conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
+conv_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	cv := &c.convs
 	#partial switch op {
 	case .Conv_Changed:
@@ -456,7 +456,7 @@ conv_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 
 // conv_view makes `conv` the conversation whose messages we are shown. 0 means
 // none.
-conv_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+conv_view :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	cv := &c.convs
 	if conv == cv.viewing {
 		return
@@ -485,7 +485,7 @@ conv_view :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	publish_channels(c)
 }
 
-conv_view_command :: proc(c: ^Voice_Client, cmd: View_Command) {
+conv_view_command :: proc(c: ^Server_Conn, cmd: View_Command) {
 	cv := &c.convs
 	if !cv.synced {
 		if cmd.name != "" {
@@ -511,7 +511,7 @@ conv_view_command :: proc(c: ^Voice_Client, cmd: View_Command) {
 
 // voice_join puts us in a voice room, or with 0 takes us out of the room we are
 // in. The snapshot shows when it has happened.
-voice_join :: proc(c: ^Voice_Client, room: proto.Room) {
+voice_join :: proc(c: ^Server_Conn, room: proto.Room) {
 	cv := &c.convs
 	if room == my_room(c) && !cv.voice_pending {
 		return
@@ -522,7 +522,7 @@ voice_join :: proc(c: ^Voice_Client, room: proto.Room) {
 		c,
 		.Voice_Join,
 		proto.encode_room(&buf, room),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			c.convs.voice_pending = false
 			if status != .Ok && status != .Reset {
 				log.warnf(
@@ -538,7 +538,7 @@ voice_join :: proc(c: ^Voice_Client, room: proto.Room) {
 	publish_channels(c)
 }
 
-voice_command :: proc(c: ^Voice_Client, cmd: Voice_Command) {
+voice_command :: proc(c: ^Server_Conn, cmd: Voice_Command) {
 	cv := &c.convs
 	if cmd.conv == 0 && cmd.name == "" {
 		voice_join(c, 0)
@@ -567,7 +567,7 @@ voice_command :: proc(c: ^Voice_Client, cmd: Voice_Command) {
 // command's query: the page it asks for, or with `more`, the next page of the
 // last query. The answer goes to the UI, or to the log when running headless.
 // Only the answer to the latest request is used.
-conv_browse :: proc(c: ^Voice_Client, cmd: Browse_Command) {
+conv_browse :: proc(c: ^Server_Conn, cmd: Browse_Command) {
 	cv := &c.convs
 	offset := cmd.offset
 	adding := cmd.more
@@ -595,7 +595,7 @@ conv_browse :: proc(c: ^Voice_Client, cmd: Browse_Command) {
 		c,
 		.Conv_Browse,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			cv := &c.convs
 			if status != .Ok || tag >> 32 != cv.browse_asked {
 				return
@@ -640,7 +640,7 @@ conv_browse :: proc(c: ^Voice_Client, cmd: Browse_Command) {
 // browse_again asks again for the page of channels to subscribe to that was
 // asked for last, after something that changes it.
 @(private = "file")
-browse_again :: proc(c: ^Voice_Client) {
+browse_again :: proc(c: ^Server_Conn) {
 	cv := &c.convs
 	conv_browse(c, {query = cv.browse_query, offset = cv.browse_offset, limit = cv.browse_limit})
 }
@@ -649,7 +649,7 @@ browse_again :: proc(c: ^Voice_Client) {
 // as many pages as it takes, and shows them once they have all arrived. Managing
 // them works on the whole list (their order, for one), which is only ever as long
 // as the server has channels.
-fetch_all_channels :: proc(c: ^Voice_Client) {
+fetch_all_channels :: proc(c: ^Server_Conn) {
 	cv := &c.convs
 	cv.all_asked += 1
 	cv.all_wanted = true
@@ -658,7 +658,7 @@ fetch_all_channels :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-all_page :: proc(c: ^Voice_Client, offset: int) {
+all_page :: proc(c: ^Server_Conn, offset: int) {
 	cv := &c.convs
 	buf: [proto.CONV_BROWSE_MAX_SIZE]u8
 	body := proto.encode_conv_browse(
@@ -669,7 +669,7 @@ all_page :: proc(c: ^Voice_Client, offset: int) {
 		c,
 		.Conv_Browse,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			cv := &c.convs
 			if tag != cv.all_asked || status == .Reset {
 				return
@@ -703,7 +703,7 @@ all_page :: proc(c: ^Voice_Client, offset: int) {
 // what we are subscribed to has been made. What the lists of channels show
 // may be different now, so they are asked for again (if they were ever asked
 // for).
-channels_changed :: proc(c: ^Voice_Client) {
+channels_changed :: proc(c: ^Server_Conn) {
 	cv := &c.convs
 	if cv.browse_asked != 0 {
 		browse_again(c)
@@ -713,7 +713,7 @@ channels_changed :: proc(c: ^Voice_Client) {
 	}
 }
 
-conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
+conv_subscribe_command :: proc(c: ^Server_Conn, cmd: Subscribe_Command) {
 	conv := cmd.conv
 	if conv == 0 {
 		// Either one of ours to leave, or one we were told about to join.
@@ -735,7 +735,7 @@ conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
 			c,
 			.Conv_Browse,
 			body,
-			proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+			proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 				cv := &c.convs
 				name := cv.finding
 				cv.finding = ""
@@ -764,13 +764,13 @@ conv_subscribe_command :: proc(c: ^Voice_Client, cmd: Subscribe_Command) {
 }
 
 @(private = "file")
-conv_subscribe :: proc(c: ^Voice_Client, conv: proto.Conv_Id, on: bool) {
+conv_subscribe :: proc(c: ^Server_Conn, conv: proto.Conv_Id, on: bool) {
 	buf: [proto.CONV_SUBSCRIBE_SIZE]u8
 	request(
 		c,
 		.Conv_Subscribe,
 		proto.encode_conv_subscribe(&buf, conv, on),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Ok:
 				// This changes which channels can be subscribed to.
@@ -786,7 +786,7 @@ conv_subscribe :: proc(c: ^Voice_Client, conv: proto.Conv_Id, on: bool) {
 }
 
 conv_create :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	name, topic: string,
 	private := false,
 	flags := proto.Conv_Flags{},
@@ -801,7 +801,7 @@ conv_create :: proc(
 		c,
 		.Conv_Create,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			text: string
 			#partial switch status {
 			case .Ok:
@@ -836,7 +836,7 @@ conv_create :: proc(
 // it is still counted), but it is the case in the conversation being read too
 // (which may be on a server that isn't shown, or in a window that is in the
 // background).
-conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: bool, mention: bool) {
+conv_new_message :: proc(c: ^Server_Conn, m: proto.Message) -> (interrupts: bool, mention: bool) {
 	cv := &c.convs
 	info, ok := &cv.convs[m.conv]
 	if !ok {
@@ -880,7 +880,7 @@ conv_new_message :: proc(c: ^Voice_Client, m: proto.Message) -> (interrupts: boo
 // <@everyone> is only ever stored if the sender was allowed to use it, and a
 // role mention is only stored if the role can be mentioned.
 @(private = "file")
-mentions_me :: proc(c: ^Voice_Client, m: proto.Message) -> bool {
+mentions_me :: proc(c: ^Server_Conn, m: proto.Message) -> bool {
 	if m.kind != .Text || .Deleted in m.flags {
 		return false
 	}
@@ -889,7 +889,7 @@ mentions_me :: proc(c: ^Voice_Client, m: proto.Message) -> bool {
 
 // conv_reading handles the UI saying which conversation is being read, if any.
 // What is in it counts as read.
-conv_reading :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+conv_reading :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	cv := &c.convs
 	cv.reading = conv
 	if info, ok := cv.convs[conv]; ok && info.last > info.read {
@@ -900,7 +900,7 @@ conv_reading :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 // mark_read marks a conversation as read up to `id` here and now, and tells the
 // server as soon as it is allowed to (see convs_step).
 @(private = "file")
-mark_read :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) {
+mark_read :: proc(c: ^Server_Conn, conv: proto.Conv_Id, id: proto.Msg_Id) {
 	cv := &c.convs
 	info, ok := &cv.convs[conv]
 	if !ok || id <= info.read {
@@ -914,7 +914,7 @@ mark_read :: proc(c: ^Voice_Client, conv: proto.Conv_Id, id: proto.Msg_Id) {
 
 // convs_step tells the server what has been read, at most once every
 // MARK_INTERVAL for each conversation.
-convs_step :: proc(c: ^Voice_Client) {
+convs_step :: proc(c: ^Server_Conn) {
 	cv := &c.convs
 	if !cv.synced || !c.has_current || len(cv.marks) == 0 {
 		return
@@ -933,7 +933,7 @@ convs_step :: proc(c: ^Voice_Client) {
 	}
 }
 
-conv_notify :: proc(c: ^Voice_Client, cmd: Notify_Command) {
+conv_notify :: proc(c: ^Server_Conn, cmd: Notify_Command) {
 	conv := cmd.conv if cmd.conv != 0 else conv_by_name(c, cmd.name)
 	if conv not_in c.convs.convs {
 		log.warnf("there's no channel called %q among yours (/channels lists them)", cmd.name)
@@ -944,7 +944,7 @@ conv_notify :: proc(c: ^Voice_Client, cmd: Notify_Command) {
 		c,
 		.Conv_Notify,
 		proto.encode_conv_notify(&buf, conv, cmd.notify),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
 				log.warnf("the server failed to change the notification level (%v)", status)
 			}
@@ -953,7 +953,7 @@ conv_notify :: proc(c: ^Voice_Client, cmd: Notify_Command) {
 }
 
 // list_channels logs our channels, with who is talking in each.
-list_channels :: proc(c: ^Voice_Client) {
+list_channels :: proc(c: ^Server_Conn) {
 	cv := &c.convs
 	if !cv.synced {
 		log.info("not logged in yet")
@@ -987,7 +987,7 @@ list_channels :: proc(c: ^Voice_Client) {
 // convs_ordered returns our channels in the order a list shows them, which is
 // the home channel first and then in the order they were made. It is allocated
 // in the temp allocator.
-convs_ordered :: proc(c: ^Voice_Client) -> []proto.Conv_Id {
+convs_ordered :: proc(c: ^Server_Conn) -> []proto.Conv_Id {
 	ids := make([dynamic]proto.Conv_Id, 0, len(c.convs.convs), context.temp_allocator)
 	for id, info in c.convs.convs {
 		if info.kind == .Channel {
@@ -998,7 +998,7 @@ convs_ordered :: proc(c: ^Voice_Client) -> []proto.Conv_Id {
 	// then by id, the same way the server orders them.
 	context.user_ptr = c
 	slice.sort_by(ids[:], proc(x, y: proto.Conv_Id) -> bool {
-		c := (^Voice_Client)(context.user_ptr)
+		c := (^Server_Conn)(context.user_ptr)
 		a, b := c.convs.convs[x], c.convs.convs[y]
 		if (.Home in a.flags) != (.Home in b.flags) {
 			return .Home in a.flags
@@ -1017,7 +1017,7 @@ unread_count :: proc(n: int) -> string {
 	return "99+" if n >= proto.UNREAD_CAP else fmt.tprintf("%d", n)
 }
 
-publish_browse :: proc(c: ^Voice_Client) {
+publish_browse :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -1030,7 +1030,7 @@ publish_browse :: proc(c: ^Voice_Client) {
 	v.browse_count += 1
 }
 
-publish_all_channels :: proc(c: ^Voice_Client) {
+publish_all_channels :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		for e in c.convs.all {

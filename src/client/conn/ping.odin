@@ -71,7 +71,7 @@ Connection_Stats :: struct {
 }
 
 // ping_step sends the next ping when it is due.
-ping_step :: proc(c: ^Voice_Client) {
+ping_step :: proc(c: ^Server_Conn) {
 	p := &c.ping
 	if p.count > 0 && time.tick_since(p.last_sent) < PING_INTERVAL {
 		return
@@ -93,7 +93,7 @@ ping_step :: proc(c: ^Voice_Client) {
 	trouble_step(c, connection_stats(p, time.tick_now()))
 }
 
-handle_pong :: proc(c: ^Voice_Client, pt: []byte) {
+handle_pong :: proc(c: ^Server_Conn, pt: []byte) {
 	p := &c.ping
 	id := proto.decode_ping(pt)
 	r := &p.records[id % PING_WINDOW]

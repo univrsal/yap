@@ -7,7 +7,7 @@ import "core:time"
 import "common:proto"
 
 // Blobs are uploaded to and downloaded from the server in chunks. How blobs
-// are requested is described in src/common/proto/msgs.odin and how the
+// are requested is described in src/common/proto/messages.odin and how the
 // chunks are transferred in src/common/proto/blob.odin.
 //
 // A client announces a picture with Blob_Put, which contains its kind (a

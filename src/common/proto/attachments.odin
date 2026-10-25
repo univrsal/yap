@@ -3,7 +3,7 @@ package proto
 import "core:encoding/endian"
 
 // Attachments: files that are uploaded to the server together with a message
-// in a channel or a DM. They are kept until the message is deleted (msgs.odin
+// in a channel or a DM. They are kept until the message is deleted (messages.odin
 // describes how a message carries them). A file sent in a DM (files.odin) goes
 // directly from one client to the other and is never stored. An attachment is
 // uploaded once instead and can be fetched by any member at any time.

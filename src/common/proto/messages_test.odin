@@ -1,278 +1,492 @@
 #+build !wasi
 package proto
 
+import "core:strings"
 import "core:testing"
 
 @(test)
-test_state_roundtrip :: proc(t: ^testing.T) {
-	users := []User_Info {
-		{num = 1, account = 10, flags = {.Muted}, room = 3},
-		{num = 2, account = 10, flags = {.Muted, .Deafened}},
-		{num = 7, account = max(Account_Id), room = max(Room)},
+test_message_record :: proc(t: ^testing.T) {
+	long := strings.repeat("x", MAX_CHAT_SIZE, context.temp_allocator)
+	msgs := []Message {
+		{
+			id = 1,
+			conv = 2,
+			sender = 3,
+			time = 1_700_000_000_123,
+			kind = .Text,
+			text = "Zoë says ☺",
+		},
+		{id = 2, conv = 2, sender = 3, time = 1, kind = .Text, text = long},
+		{
+			id = 3,
+			conv = 2,
+			sender = 4,
+			kind = .Text,
+			flags = {.Has_Attachments},
+			attachment_count = 1,
+			attachments = {0 = {blob = 77, size = 200_000, name = "pasted-image.jpg"}},
+		},
+		{id = 4, conv = 9, sender = 4, kind = .File, file_size = 1 << 40, file_name = "a.tar"},
+		{id = 5, conv = 9, sender = 4, kind = .System, system = 2, system_arg = 17},
+		{
+			id = 6,
+			conv = 9,
+			sender = 4,
+			kind = .Text,
+			text = "root",
+			flags = {.Pinned, .Has_Thread},
+			thread_root = 0,
+			edited = 55,
+			reply_count = 3,
+			last_reply = 99,
+		},
 	}
-	state := Presence {
-		your_user = 7,
-		users     = users,
+	for m in msgs {
+		buf: [MESSAGE_MAX_SIZE + 64]u8
+		body := encode_message(buf[:], m)
+		testing.expect(t, body != nil)
+		testing.expect_value(t, len(body), message_size(m))
+		got, ok := decode_message(body)
+		testing.expect(t, ok)
+		again: [MESSAGE_MAX_SIZE + 64]u8
+		testing.expect_value(t, string(encode_message(again[:], got)), string(body))
+		testing.expect(t, got.id == m.id && got.conv == m.conv && got.sender == m.sender)
+		testing.expect(t, got.kind == m.kind && got.flags == m.flags && got.time == m.time)
+		testing.expect(t, got.text == m.text && got.file_name == m.file_name)
+		testing.expect(t, got.reply_count == m.reply_count && got.system_arg == m.system_arg)
+		testing.expect(t, got.attachment_count == m.attachment_count)
+		testing.expect(t, got.attachments[0].blob == m.attachments[0].blob)
+		testing.expect(t, got.attachments[0].name == m.attachments[0].name)
+		// A truncated message, or one with trailing bytes, is rejected.
+		_, ok = decode_message(body[:len(body) - 1])
+		testing.expect(t, !ok)
+		padded := buf[:len(body) + 1]
+		_, ok = decode_message(padded)
+		testing.expect(t, !ok)
 	}
 
-	body_buf: [MAX_STATE_SIZE]byte
-	body, ok := encode_state(state, body_buf[:])
+	// Reactions are passed through unchanged, so that whoever understands
+	// them can decode them.
+	with := make([dynamic]u8, context.temp_allocator)
+	buf: [MESSAGE_MAX_SIZE]u8
+	body := encode_message(buf[:], msgs[0])
+	append(&with, ..body[:len(body) - 1])
+	append(&with, 1, 2, 'o', 'k', 5, 0, 1)
+	got, ok := decode_message(with[:])
 	testing.expect(t, ok)
-	testing.expect_value(t, len(body), 4 + 2 + 3 * USER_SIZE)
+	testing.expect_value(t, got.reaction_count, 1)
+	testing.expect_value(t, len(got.reactions), 6)
 
-	users_buf: [64]User_Info
-	got: Presence
-	got, ok = decode_state(body, users_buf[:])
-	testing.expect(t, ok)
-	testing.expect_value(t, got.your_user, 7)
-	testing.expect_value(t, len(got.users), 3)
-	for u, i in users {
-		testing.expect_value(t, got.users[i].num, u.num)
-		testing.expect_value(t, got.users[i].account, u.account)
-		testing.expect_value(t, got.users[i].flags, u.flags)
-		testing.expect_value(t, got.users[i].room, u.room)
-	}
-	me := find_user(&got, 7)
-	testing.expect(t, me != nil && me.account == max(Account_Id))
-	testing.expect(t, find_user(&got, 3) == nil)
-
-	// A snapshot with no users at all is still valid.
-	body, ok = encode_state({your_user = 1}, body_buf[:])
-	testing.expect(t, ok)
-	got, ok = decode_state(body, users_buf[:])
-	testing.expect(t, ok)
-	testing.expect_value(t, len(got.users), 0)
-}
-
-@(test)
-test_state_decode_rejects_garbage :: proc(t: ^testing.T) {
-	state := Presence {
-		your_user = 1,
-		users     = []User_Info{{num = 1, account = 1}, {num = 2, account = 2}},
-	}
-	body_buf: [MAX_STATE_SIZE]byte
-	body, _ := encode_state(state, body_buf[:])
-
-	users_buf: [64]User_Info
-	// Truncated data, trailing junk, and more users than there is room for
+	// A text that is too long, an unknown kind from a newer server, and id 0
 	// are all refused.
-	_, ok := decode_state(body[:len(body) - 1], users_buf[:])
+	bad := msgs[0]
+	bad.text = strings.repeat("x", MAX_CHAT_SIZE + 1, context.temp_allocator)
+	big: [2 * MESSAGE_MAX_SIZE]u8
+	testing.expect(t, encode_message(big[:], bad) == nil)
+	body = encode_message(buf[:], msgs[0])
+	body[24] = 9
+	_, ok = decode_message(body)
 	testing.expect(t, !ok)
-	junk := make([]byte, len(body) + 1, context.temp_allocator)
-	copy(junk, body)
-	_, ok = decode_state(junk, users_buf[:])
-	testing.expect(t, !ok)
-	_, ok = decode_state(body, users_buf[:1])
-	testing.expect(t, !ok)
-	_, ok = decode_state(nil, users_buf[:])
+	zero := msgs[0]
+	zero.id = 0
+	_, ok = decode_message(encode_message(buf[:], zero))
 	testing.expect(t, !ok)
 }
 
 @(test)
-test_state_chunking :: proc(t: ^testing.T) {
-	// Big enough to need several chunks.
-	users: [100]User_Info
-	for &u, i in users {
-		u = {
-			num     = User_Num(i + 1),
-			account = Account_Id(i + 1),
-			room    = Room(i % 5),
+test_history_page :: proc(t: ^testing.T) {
+	long := strings.repeat("y", MAX_CHAT_SIZE, context.temp_allocator)
+	msgs := make([]Message, MAX_HISTORY_LIMIT, context.temp_allocator)
+	for &m, i in msgs {
+		m = {
+			id     = Msg_Id(100 + i),
+			conv   = 1,
+			sender = 2,
+			kind   = .Text,
+			text   = long,
 		}
 	}
-	state := Presence {
-		your_user = 63,
-		users     = users[:],
-	}
-
-	body_buf: [MAX_STATE_SIZE]byte
-	body, ok := encode_state(state, body_buf[:])
+	// A page of maximum-length messages holds as many as fit into one stream
+	// message (the server trims pages to fit, see history_page).
+	out := make([]u8, MAX_BODY_SIZE, context.temp_allocator)
+	body, count := encode_history_page(out, MORE_BEFORE, msgs)
+	fit := min(MAX_HISTORY_LIMIT, (MAX_BODY_SIZE - HISTORY_HEADER_SIZE) / message_size(msgs[0]))
+	testing.expect_value(t, count, fit)
+	buf: [MAX_HISTORY_LIMIT]Message
+	more, got, ok := decode_history_page(body, buf[:])
 	testing.expect(t, ok)
-	count := state_chunk_count(len(body))
-	testing.expect(t, count > 1)
+	testing.expect_value(t, more, MORE_BEFORE)
+	testing.expect_value(t, len(got), fit)
+	testing.expect_value(t, got[fit - 1].id, Msg_Id(100 + fit - 1))
+	testing.expect_value(t, got[fit - 1].text, long)
 
-	chunk_bufs := make([][MAX_PAYLOAD_SIZE]byte, count, context.temp_allocator)
-	chunks := make([][]byte, count, context.temp_allocator)
-	for i in 0 ..< count {
-		chunks[i] = encode_state_chunk(chunk_bufs[i][:], 9, body, i)
-		kind, kind_ok := message_kind(chunks[i])
-		testing.expect(t, kind_ok && kind == .State)
-		testing.expect(t, len(chunks[i]) <= MAX_PAYLOAD_SIZE)
-	}
+	// If they don't all fit, as many as possible are encoded, starting with
+	// the first.
+	small := make(
+		[]u8,
+		3 * message_size(msgs[0]) + HISTORY_HEADER_SIZE + 10,
+		context.temp_allocator,
+	)
+	body, count = encode_history_page(small, 0, msgs)
+	testing.expect_value(t, count, 3)
+	more, got, ok = decode_history_page(body, buf[:])
+	testing.expect(t, ok && len(got) == 3 && got[0].id == 100)
 
-	a := new(State_Assembler, context.temp_allocator)
-	// Feed the chunks out of order and with a duplicate; the snapshot is only
-	// complete once the last missing chunk arrives.
-	order := make([dynamic]int, context.temp_allocator)
-	for i := count - 1; i >= 0; i -= 1 {
-		append(&order, i)
-	}
-	append(&order, 0)
-	complete_at := -1
-	got_body: []byte
-	for idx, n in order {
-		version, b, complete := assembler_add(a, chunks[idx], 0)
-		if complete {
-			testing.expect_value(t, version, 9)
-			complete_at, got_body = n, b
-			break
-		}
-	}
-	testing.expect_value(t, complete_at, count - 1)
-	testing.expect_value(t, string(got_body), string(body))
+	// A page with more messages than the receiving buffer can hold is refused.
+	_, _, ok = decode_history_page(body, buf[:2])
+	testing.expect(t, !ok)
+	// So is an empty body, and a truncated one.
+	_, _, ok = decode_history_page(nil, buf[:])
+	testing.expect(t, !ok)
+	_, _, ok = decode_history_page(body[:len(body) - 1], buf[:])
+	testing.expect(t, !ok)
+	// An empty page is still valid.
+	body, count = encode_history_page(out, MORE_AFTER, nil)
+	more, got, ok = decode_history_page(body, buf[:])
+	testing.expect(t, ok && len(got) == 0 && more == MORE_AFTER)
+}
 
-	// Chunks of a version the caller already has are ignored.
-	_, _, complete := assembler_add(a, chunks[0], 9)
-	testing.expect(t, !complete)
-
-	// The maximum number of users a snapshot can hold still fits.
-	most := make([]User_Info, MAX_STATE_USERS, context.temp_allocator)
-	_, ok = encode_state({users = most}, body_buf[:])
+@(test)
+test_msg_bodies :: proc(t: ^testing.T) {
+	// Posting.
+	post_buf: [MSG_POST_MAX_SIZE]u8
+	body := encode_msg_post(post_buf[:], {conv = 3, nonce = 0xfeed, kind = .Text, text = "hello"})
+	p, ok := decode_msg_post(body)
 	testing.expect(t, ok)
+	testing.expect_value(t, p, Msg_Post{conv = 3, nonce = 0xfeed, kind = .Text, text = "hello"})
+	body = encode_msg_post(
+		post_buf[:],
+		{conv = 3, nonce = 1, thread_root = 8, kind = .File, file_size = 42, text = "a.tar"},
+	)
+	p, ok = decode_msg_post(body)
+	testing.expect(t, ok && p.kind == .File && p.file_size == 42 && p.thread_root == 8)
+	_, ok = decode_msg_post(body[:len(body) - 1])
+	testing.expect(t, !ok)
+	// Only text messages and file offers can be posted this way.
+	testing.expect(t, encode_msg_post(post_buf[:], {conv = 3, kind = .System}) == nil)
+	// Pictures (kind 1) can no longer be posted directly; they are sent as
+	// attachments instead.
+	body = encode_msg_post(post_buf[:], {conv = 3, kind = .Text, text = "hi"})
+	body[20] = 1
+	_, ok = decode_msg_post(body)
+	testing.expect(t, !ok)
+	long := strings.repeat("z", MAX_CHAT_SIZE + 1, context.temp_allocator)
+	big: [2 * MSG_POST_MAX_SIZE]u8
+	body = encode_msg_post(big[:], {conv = 3, kind = .Text, text = long})
+	_, ok = decode_msg_post(body)
+	testing.expect(t, !ok)
+
+	posted_buf: [MSG_POSTED_SIZE]u8
+	id, time, posted_ok := decode_msg_posted(encode_msg_posted(&posted_buf, 12, 34))
+	testing.expect(t, posted_ok && id == 12 && time == 34)
+
+	// History.
+	history_buf: [MSG_HISTORY_SIZE]u8
+	want := Msg_History {
+		conv   = 5,
+		anchor = 900,
+		dir    = .Around,
+		limit  = 20,
+	}
+	h, h_ok := decode_msg_history(encode_msg_history(&history_buf, want))
+	testing.expect(t, h_ok)
+	testing.expect_value(t, h, want)
+	history_buf[21] = MAX_HISTORY_LIMIT + 1
+	_, h_ok = decode_msg_history(history_buf[:])
+	testing.expect(t, !h_ok)
+	history_buf[21] = 1
+	history_buf[20] = 3
+	_, h_ok = decode_msg_history(history_buf[:])
+	testing.expect(t, !h_ok)
+
+	// Blobs.
+	put_buf: [BLOB_PUT_SIZE]u8
+	put := Blob_Put {
+		kind   = .Avatar,
+		size   = 1234,
+		width  = 640,
+		height = 480,
+	}
+	put.hash[0], put.hash[31] = 1, 2
+	got_put, put_ok := decode_blob_put(encode_blob_put(&put_buf, put))
+	testing.expect(t, put_ok)
+	testing.expect_value(t, got_put, put)
+
+	answer_buf: [BLOB_PUT_ANSWER_SIZE]u8
+	blob, have, handle, answer_ok := decode_blob_put_answer(
+		encode_blob_put_answer(&answer_buf, 7, true, 0),
+	)
+	testing.expect(t, answer_ok && blob == 7 && have && handle == 0)
+	blob, have, handle, answer_ok = decode_blob_put_answer(
+		encode_blob_put_answer(&answer_buf, 0, false, 99),
+	)
+	testing.expect(t, answer_ok && !have && handle == 99)
+	_, _, _, answer_ok = decode_blob_put_answer(encode_blob_put_answer(&answer_buf, 0, true, 0))
+	testing.expect(t, !answer_ok)
+
+	id_buf: [BLOB_GET_SIZE]u8
+	got_blob, blob_ok := decode_blob_id(encode_blob_id(&id_buf, 55))
+	testing.expect(t, blob_ok && got_blob == 55)
+	get_buf: [BLOB_GET_ANSWER_SIZE]u8
+	size, get_handle, get_ok := decode_blob_get_answer(encode_blob_get_answer(&get_buf, 1000, 3))
+	testing.expect(t, get_ok && size == 1000 && get_handle == 3)
+	_, _, get_ok = decode_blob_get_answer(encode_blob_get_answer(&get_buf, MAX_BLOB_SIZE + 1, 3))
+	testing.expect(t, !get_ok)
+
+	// A refused upload says so.
+	need_buf: [MAX_PAYLOAD_SIZE]u8
+	need, _ := encode_blob_need(need_buf[:], 99, false, nil, failed = true)
+	testing.expect(t, blob_need_failed(need))
+	need, _ = encode_blob_need(need_buf[:], 99, true, nil)
+	testing.expect(t, !blob_need_failed(need))
 }
 
 @(test)
-test_assembler_prefers_newer_version :: proc(t: ^testing.T) {
-	body_buf: [MAX_STATE_SIZE]byte
-	body, _ := encode_state(Presence{your_user = 1}, body_buf[:])
+test_typing :: proc(t: ^testing.T) {
+	up_buf: [TYPING_UP_SIZE]u8
+	up := encode_typing_up(&up_buf, 4, 0)
+	kind, ok := message_kind(up)
+	testing.expect(t, ok && kind == .Typing)
+	conv, root := decode_typing_up(up)
+	testing.expect(t, conv == 4 && root == 0)
 
-	old_buf, new_buf: [MAX_PAYLOAD_SIZE]byte
-	older := encode_state_chunk(old_buf[:], 1, body, 0)
-	newer := encode_state_chunk(new_buf[:], 2, body, 0)
+	down_buf: [TYPING_DOWN_SIZE]u8
+	down := encode_typing_down(&down_buf, 4, 8, 17)
+	kind, ok = message_kind(down)
+	testing.expect(t, ok && kind == .Typing)
+	conv2, root2, account := decode_typing_down(down)
+	testing.expect(t, conv2 == 4 && root2 == 8 && account == 17)
 
-	a := new(State_Assembler, context.temp_allocator)
-	version, _, complete := assembler_add(a, newer, 0)
-	testing.expect(t, complete && version == 2)
-	// A late snapshot older than the one applied is ignored.
-	_, _, complete = assembler_add(a, older, 2)
-	testing.expect(t, !complete)
+	// Messages with the old sizes are rejected.
+	_, ok = message_kind(up[:1])
+	testing.expect(t, !ok)
+	_, ok = message_kind(down[:5])
+	testing.expect(t, !ok)
 }
 
 @(test)
-test_serial_newer :: proc(t: ^testing.T) {
-	testing.expect(t, serial_newer(2, 1))
-	testing.expect(t, !serial_newer(1, 1))
-	testing.expect(t, !serial_newer(1, 2))
-	testing.expect(t, serial_newer(0, max(u32))) // wraps
+test_retired_kinds_rejected :: proc(t: ^testing.T) {
+	// The numbers of the retired kinds (see Message_Kind), and one past
+	// the last kind.
+	retired := [?]u8{2, 6, 7, 8, 9, 10, 12, 13, 16, 18, 25, 33, 38, 39, u8(max(Message_Kind)) + 1}
+	for b in retired {
+		pt := make([]u8, 64, context.temp_allocator)
+		pt[0] = b
+		_, ok := message_kind(pt)
+		testing.expect(t, !ok)
+	}
 }
 
 @(test)
-test_ack_encoding :: proc(t: ^testing.T) {
-	ab: [STATE_ACK_SIZE]byte
-	msg := encode_state_ack(&ab, 5)
-	kind, ok := message_kind(msg)
-	testing.expect(t, ok && kind == .State_Ack)
-	testing.expect_value(t, decode_state_ack(msg), 5)
+test_sanitize_text :: proc(t: ^testing.T) {
+	buf: [MAX_CHAT_SIZE]u8
+	testing.expect_value(t, sanitize_text("  a\tb\r\nc\x00‮  ", buf[:]), "a b  c")
+	long := strings.repeat("é", MAX_CHAT_SIZE, context.temp_allocator)
+	got := sanitize_text(long, buf[:])
+	// Cut at a character boundary.
+	testing.expect_value(t, len(got), MAX_CHAT_SIZE)
 }
 
 @(test)
-test_sanitize_name :: proc(t: ^testing.T) {
-	cases := [?]struct {
-		input, want: string,
-	} {
-		{"alice", "alice"},
-		{"  padded \t", "padded"},
-		{"tab\there", "tab here"},
-		{"new\nline\x00", "new line"},
-		{"Zoë ☕", "Zoë ☕"},
-		{"bad\xffutf8", "badutf8"},
-		// Right-to-left override and zero-width space, used for spoofing.
-		{"ev\u202eil\u200bname", "evilname"},
-		// Cut at 32 bytes without splitting a character (é is 2 bytes).
-		{"0123456789012345678901234567890é", "0123456789012345678901234567890"},
-		{"", ""},
-		{"   ", ""},
+test_sanitize_message :: proc(t: ^testing.T) {
+	buf: [MAX_CHAT_SIZE]u8
+	cases := [?][2]string {
+		{"one line", "one line"},
+		{"  \n\n  first\nsecond  \n\n", "first\nsecond"},
+		{"a\r\nb\rc\u2028d", "a\nb\nc\nd"},
+		{"a\r\n\r\nb", "a\n\nb"},
+		// Indentation stays, trailing whitespace goes.
+		{"list:\n  - one \t\n\t- two", "list:\n  - one\n - two"},
+		// At most two blank lines in a row.
+		{"a\n\n\n\n\n\nb", "a\n\n\nb"},
+		{"a\n \n\t\n \n\nb", "a\n\n\nb"},
+		{"a\x00b\u202ec\x7f", "abc"},
+		{" \n\t\r\n", ""},
 	}
 	for c in cases {
-		buf: [MAX_NAME_SIZE]u8
-		testing.expect_value(t, sanitize_name(c.input, &buf), c.want)
+		testing.expect_value(t, sanitize_message(c[0], buf[:]), c[1])
+	}
+	long := strings.repeat("é", MAX_CHAT_SIZE, context.temp_allocator)
+	got := sanitize_message(long, buf[:])
+	testing.expect_value(t, len(got), MAX_CHAT_SIZE)
+	// A line that doesn't fit is left out entirely rather than cut off.
+	small: [4]u8
+	testing.expect_value(t, sanitize_message("abc\nd", small[:]), "abc")
+}
+
+@(test)
+test_edit_delete_pin_bodies :: proc(t: ^testing.T) {
+	edit_buf: [MSG_EDIT_MAX_SIZE]u8
+	id, text, ok := decode_msg_edit(encode_msg_edit(&edit_buf, 42, "better words"))
+	testing.expect(t, ok)
+	testing.expect_value(t, id, Msg_Id(42))
+	testing.expect_value(t, text, "better words")
+	_, _, ok = decode_msg_edit(edit_buf[:5])
+	testing.expect(t, !ok, "a truncated edit was accepted")
+
+	id_buf: [MSG_ID_SIZE]u8
+	id, ok = decode_msg_id(encode_msg_id(&id_buf, 7))
+	testing.expect(t, ok && id == 7)
+	_, ok = decode_msg_id(encode_msg_id(&id_buf, 0))
+	testing.expect(t, !ok, "message id 0 was accepted")
+
+	pin_buf: [MSG_PIN_SIZE]u8
+	on: bool
+	id, on, ok = decode_msg_pin(encode_msg_pin(&pin_buf, 9, true))
+	testing.expect(t, ok && on && id == 9)
+
+	msgs := []Message {
+		{id = 1, conv = 2, sender = 3, kind = .Text, text = "pinned", flags = {.Pinned}},
+		{id = 4, conv = 2, sender = 3, kind = .Text, flags = {.Deleted}, edited = 99},
+	}
+	list_buf: [1024]u8
+	got_buf: [4]Message
+	got, list_ok := decode_message_list(encode_message_list(list_buf[:], msgs), got_buf[:])
+	testing.expect(t, list_ok)
+	testing.expect_value(t, len(got), 2)
+	if len(got) == 2 {
+		testing.expect_value(t, got[0].text, "pinned")
+		testing.expect_value(t, got[0].flags, Msg_Flags{.Pinned})
+		testing.expect_value(t, got[1].edited, Unix_Ms(99))
 	}
 }
 
 @(test)
-test_hello_and_welcome :: proc(t: ^testing.T) {
-	hb: [HELLO_MAX_SIZE]u8
-	conn_id, password, link, ok := decode_hello(encode_hello(&hb, 7))
-	testing.expect(t, ok)
-	testing.expect_value(t, conn_id, 7)
-	testing.expect_value(t, password, "")
-	testing.expect_value(t, link, Link.Main)
-
-	conn_id, password, link, ok = decode_hello(encode_hello(&hb, max(u64), "hunter2", .Bulk))
-	testing.expect(t, ok)
-	testing.expect_value(t, conn_id, max(u64))
-	testing.expect_value(t, password, "hunter2")
-	testing.expect_value(t, link, Link.Bulk)
-
-	// The longest password still fits.
-	long_password := "0123456789012345678901234567890123456789012345678901234567890123456789"
-	_, password, _, ok = decode_hello(encode_hello(&hb, 1, long_password))
-	testing.expect(t, ok)
-	testing.expect_value(t, password, long_password[:MAX_PASSWORD_SIZE])
-
-	_, _, _, ok = decode_hello(nil) // empty hello, without a conn_id
-	testing.expect(t, !ok)
-	id :: [8]u8{1, 2, 3, 4, 5, 6, 7, 8}
-	hello :: proc(version: u8, rest: ..u8) -> []u8 {
-		out := make([dynamic]u8, context.temp_allocator)
-		append(&out, version)
-		conn := id
-		append(&out, ..conn[:])
-		append(&out, ..rest)
-		return out[:]
+test_reactions :: proc(t: ^testing.T) {
+	m := Message {
+		id     = 1,
+		conv   = 2,
+		sender = 3,
+		kind   = .Text,
+		text   = "hi",
 	}
-	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 0, 1, 'a'))
+	set_reactions(&m, {{"👍", 3, true}, {":party:", 1, false}})
+	buf: [MESSAGE_MAX_SIZE]u8
+	got, ok := decode_message(encode_message(buf[:], m))
 	testing.expect(t, ok)
-	_, _, _, ok = decode_hello(hello(HELLO_VERSION + 1, 0, 0)) // unknown version
-	testing.expect(t, !ok)
-	_, _, _, ok = decode_hello(hello(5, 1, 'a', 0)) // version 5 included a name
-	testing.expect(t, !ok)
-	_, _, _, ok = decode_hello(hello(11, 1, 'a')) // version 11 had no link byte
-	testing.expect(t, !ok)
-	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 2, 0)) // the media link
-	testing.expect(t, ok)
-	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 3, 0)) // no such link
-	testing.expect(t, !ok)
-	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 0, 2, 'x')) // truncated password
-	testing.expect(t, !ok)
-	_, _, _, ok = decode_hello(hello(HELLO_VERSION, 0, 0, 'x')) // trailing bytes
-	testing.expect(t, !ok)
+	rbuf: [MAX_REACTIONS]Reaction
+	rs := reactions_of(got, rbuf[:])
+	testing.expect_value(t, len(rs), 2)
+	if len(rs) == 2 {
+		testing.expect_value(t, rs[0], Reaction{"👍", 3, true})
+		testing.expect_value(t, rs[1], Reaction{":party:", 1, false})
+	}
 
-	testing.expect(t, is_heavy({u8(Message_Kind.Video)}))
-	testing.expect(t, !is_heavy({u8(Message_Kind.Voice)}))
-	testing.expect(t, !is_heavy(nil))
+	// The maximum number of reactions a message can have fits in a record.
+	many: [MAX_REACTIONS]Reaction
+	for &r in many {
+		r = {":abcdefghijklmnopqrstuvwxyz012345:", 999, true}
+	}
+	m.text = string(make([]u8, MAX_CHAT_SIZE, context.temp_allocator))
+	set_reactions(&m, many[:])
+	testing.expect(t, encode_message(buf[:], m) != nil)
 
-	wb: [WELCOME_SIZE]u8
-	welcome := encode_welcome(&wb, 0x1122334455667788, false)
-	kind, kind_ok := message_kind(welcome)
-	testing.expect(t, kind_ok && kind == .Welcome)
-	instance, logged_in := decode_welcome(welcome)
-	testing.expect_value(t, instance, 0x1122334455667788)
-	testing.expect(t, !logged_in)
-	_, logged_in = decode_welcome(encode_welcome(&wb, 1, true))
-	testing.expect(t, logged_in)
-
-	rb: [REFUSED_SIZE]u8
-	refused := encode_refused(&rb, .Wrong_Password)
-	kind, kind_ok = message_kind(refused)
-	testing.expect(t, kind_ok && kind == .Refused)
-	testing.expect_value(t, decode_refused(refused), Refusal.Wrong_Password)
+	react_buf: [MSG_REACT_MAX_SIZE]u8
+	id, emoji, on, react_ok := decode_msg_react(encode_msg_react(&react_buf, 5, "🎉", true))
+	testing.expect(t, react_ok && id == 5 && emoji == "🎉" && on)
+	changed_buf: [REACTION_CHANGED_MAX_SIZE]u8
+	c, changed_ok := decode_reaction_changed(
+		encode_reaction_changed(&changed_buf, {5, 6, ":party:", 2, 7, false}),
+	)
+	testing.expect(t, changed_ok)
+	testing.expect_value(t, c, Reaction_Change{5, 6, ":party:", 2, 7, false})
 }
 
 @(test)
-test_sound_roundtrip :: proc(t: ^testing.T) {
-	for flags in ([]User_Flags{{}, {.Muted}, {.Deafened}, {.Muted, .Deafened}}) {
-		buf: [SOUND_SIZE]byte
-		pt := encode_sound(&buf, flags)
-		kind, ok := message_kind(pt)
-		testing.expect(t, ok)
-		testing.expect_value(t, kind, Message_Kind.Sound)
-		testing.expect_value(t, decode_sound(pt), flags)
+test_reactors_roundtrip :: proc(t: ^testing.T) {
+	get_buf: [REACTORS_GET_MAX_SIZE]u8
+	id, emoji, ok := decode_reactors_get(encode_reactors_get(&get_buf, 42, ":party:"))
+	testing.expect(t, ok)
+	testing.expect_value(t, id, Msg_Id(42))
+	testing.expect_value(t, emoji, ":party:")
+	_, _, ok = decode_reactors_get(encode_reactors_get(&get_buf, 0, ":party:"))
+	testing.expect(t, !ok)
+
+	// With more accounts than an answer can hold, only the first MAX_REACTORS
+	// are included.
+	many: [MAX_REACTORS + 3]Account_Id
+	for &a, i in many {
+		a = Account_Id(i + 1)
 	}
-	// A flag that a newer client knows about but this build doesn't survives
-	// the round trip, instead of being turned into a known flag.
-	unknown := [SOUND_SIZE]byte{u8(Message_Kind.Sound), 0x80}
-	kept := decode_sound(unknown[:])
-	testing.expect(t, .Muted not_in kept && .Deafened not_in kept)
-	buf: [SOUND_SIZE]byte
-	testing.expect_value(t, encode_sound(&buf, kept)[1], 0x80)
+	buf: [REACTORS_MAX_SIZE]u8
+	got: [MAX_REACTORS]Account_Id
+	total, accounts, read := decode_reactors(encode_reactors(&buf, 70, many[:]), &got)
+	testing.expect(t, read)
+	testing.expect_value(t, total, 70)
+	testing.expect_value(t, len(accounts), MAX_REACTORS)
+	testing.expect_value(t, accounts[MAX_REACTORS - 1], Account_Id(MAX_REACTORS))
+}
+
+@(test)
+test_attachments_record :: proc(t: ^testing.T) {
+	m := Message {
+		id               = 5,
+		conv             = 2,
+		sender           = 3,
+		kind             = .Text,
+		flags            = {.Has_Attachments},
+		text             = "",
+		attachment_count = 2,
+	}
+	m.attachments[0] = {
+		blob = 11,
+		size = 1 << 33,
+		name = "big.iso",
+	}
+	m.attachments[1] = {
+		blob = 12,
+		size = 7,
+		name = "setup.exe",
+	}
+	buf: [MESSAGE_MAX_SIZE]u8
+	body := encode_message(buf[:], m)
+	testing.expect_value(t, len(body), message_size(m))
+	got, ok := decode_message(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, got.attachment_count, 2)
+	testing.expect_value(t, got.attachments[0].size, u64(1 << 33))
+	testing.expect_value(t, got.attachments[1].name, "setup.exe")
+	testing.expect_value(t, got.attachments[1].blob, Blob_Id(12))
+
+	// The most a message can carry fits in MESSAGE_MAX_SIZE.
+	name := strings.repeat("n", MAX_FILE_NAME, context.temp_allocator)
+	m.text = strings.repeat("t", MAX_CHAT_SIZE, context.temp_allocator)
+	m.attachment_count = MAX_ATTACHMENTS
+	for &a in m.attachments {
+		a = {
+			blob = 1,
+			size = 1,
+			name = name,
+		}
+	}
+	testing.expect(t, encode_message(buf[:], m) != nil)
+
+	// The attachment flag without any files, or with too many files, is
+	// rejected.
+	m.attachment_count = 0
+	testing.expect(t, encode_message(buf[:], m) == nil)
+	m.attachment_count = 1
+	body = encode_message(buf[:], m)
+	body[8 + 4 + 4 + 8 + 1 + 1 + 8 + 8 + 2 + MAX_CHAT_SIZE] = MAX_ATTACHMENTS + 1
+	_, ok = decode_message(body)
+	testing.expect(t, !ok)
+
+	// A post references the uploaded blobs.
+	post_buf: [MSG_POST_MAX_SIZE]u8
+	p := Msg_Post {
+		conv             = 3,
+		nonce            = 9,
+		kind             = .Text,
+		text             = strings.repeat("x", MAX_CHAT_SIZE, context.temp_allocator),
+		attachment_count = MAX_ATTACHMENTS,
+	}
+	for &u, i in p.uploads {
+		u = u64(100 + i)
+	}
+	post := encode_msg_post(post_buf[:], p)
+	testing.expect(t, post != nil)
+	back, post_ok := decode_msg_post(post)
+	testing.expect(t, post_ok)
+	testing.expect_value(t, back.attachment_count, MAX_ATTACHMENTS)
+	testing.expect_value(t, back.uploads[9], 109)
 }

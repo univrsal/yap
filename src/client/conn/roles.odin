@@ -130,7 +130,7 @@ roles_clear :: proc(a: ^Auth_Client) {
 }
 
 // roles_event takes Role_Changed and Role_Removed (auth_event).
-roles_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) {
+roles_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) {
 	a := &c.auth
 	#partial switch op {
 	case .Role_Changed:
@@ -161,7 +161,7 @@ roles_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) {
 }
 
 @(private = "file")
-role_named :: proc(c: ^Voice_Client, name: string) -> proto.Role_Id {
+role_named :: proc(c: ^Server_Conn, name: string) -> proto.Role_Id {
 	for id, r in c.auth.roles {
 		if strings.equal_fold(r.name, strings.trim_space(name)) {
 			return id
@@ -170,7 +170,7 @@ role_named :: proc(c: ^Voice_Client, name: string) -> proto.Role_Id {
 	return 0
 }
 
-roles_list :: proc(c: ^Voice_Client) {
+roles_list :: proc(c: ^Server_Conn) {
 	ids, _ := slice.map_keys(c.auth.roles, context.temp_allocator)
 	slice.sort(ids)
 	for id in ids {
@@ -185,7 +185,7 @@ roles_list :: proc(c: ^Voice_Client) {
 	}
 }
 
-role_set :: proc(c: ^Voice_Client, cmd: Role_Set_Command) {
+role_set :: proc(c: ^Server_Conn, cmd: Role_Set_Command) {
 	id, color, flags := cmd.id, cmd.color, cmd.flags
 	if cmd.by_name {
 		id = role_named(c, cmd.name)
@@ -207,13 +207,13 @@ role_set :: proc(c: ^Voice_Client, cmd: Role_Set_Command) {
 	request(c, .Role_Set, body, manage_done)
 }
 
-role_order :: proc(c: ^Voice_Client, cmd: Role_Order_Command) {
+role_order :: proc(c: ^Server_Conn, cmd: Role_Order_Command) {
 	cmd := cmd
 	buf: [proto.ROLE_ORDER_MAX_SIZE]u8
 	request(c, .Role_Order, proto.encode_role_order(buf[:], cmd.roles[:cmd.count]), manage_done)
 }
 
-role_delete :: proc(c: ^Voice_Client, cmd: Role_Delete_Command) {
+role_delete :: proc(c: ^Server_Conn, cmd: Role_Delete_Command) {
 	id := cmd.id if cmd.id != 0 else role_named(c, cmd.name)
 	if id == 0 {
 		log.warnf("there's no role called %q", cmd.name)
@@ -223,7 +223,7 @@ role_delete :: proc(c: ^Voice_Client, cmd: Role_Delete_Command) {
 	request(c, .Role_Delete, proto.encode_account_id(&buf, proto.Account_Id(id)), manage_done)
 }
 
-account_roles_set :: proc(c: ^Voice_Client, cmd: Account_Roles_Command) {
+account_roles_set :: proc(c: ^Server_Conn, cmd: Account_Roles_Command) {
 	cmd := cmd
 	if cmd.name != "" {
 		cmd.account = account_named(c, cmd.name)
@@ -255,7 +255,7 @@ account_roles_set :: proc(c: ^Voice_Client, cmd: Account_Roles_Command) {
 	)
 }
 
-account_disable :: proc(c: ^Voice_Client, cmd: Account_Disable_Command) {
+account_disable :: proc(c: ^Server_Conn, cmd: Account_Disable_Command) {
 	account := cmd.account if cmd.account != 0 else account_named(c, cmd.name)
 	if account == 0 {
 		log.warn("there's no such account")
@@ -265,7 +265,7 @@ account_disable :: proc(c: ^Voice_Client, cmd: Account_Disable_Command) {
 	request(c, .Account_Disable, proto.encode_account_disable(&buf, account, cmd.on), manage_done)
 }
 
-account_delete :: proc(c: ^Voice_Client, cmd: Account_Delete_Command) {
+account_delete :: proc(c: ^Server_Conn, cmd: Account_Delete_Command) {
 	account := cmd.account if cmd.account != 0 else account_named(c, cmd.name)
 	if cmd.own {
 		account = c.auth.me
@@ -284,7 +284,7 @@ account_delete :: proc(c: ^Voice_Client, cmd: Account_Delete_Command) {
 		c,
 		.Account_Delete,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Wrong_Password:
 				notify(c, false, "Wrong password. The account was not deleted.")
@@ -297,7 +297,7 @@ account_delete :: proc(c: ^Voice_Client, cmd: Account_Delete_Command) {
 	)
 }
 
-conv_update :: proc(c: ^Voice_Client, cmd: Conv_Update_Command) {
+conv_update :: proc(c: ^Server_Conn, cmd: Conv_Update_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	buf: [proto.CONV_UPDATE_MAX_SIZE]u8
 	body := proto.encode_conv_update(
@@ -329,7 +329,7 @@ View_Rights_Map :: struct {
 
 // conv_rights_fetch asks for a channel's rights map, for the UI (or for the
 // log when headless).
-conv_rights_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+conv_rights_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	if conv == 0 {
 		return
 	}
@@ -339,7 +339,7 @@ conv_rights_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 		c,
 		.Conv_Rights_Get,
 		proto.encode_conv_id(&buf, conv),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			conv := proto.Conv_Id(tag)
 			buf: [proto.MAX_ROLES]proto.Role_Rights
 			entries, ok := proto.decode_rights_map(body, buf[:])
@@ -361,7 +361,7 @@ conv_rights_fetch :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 	)
 }
 
-conv_rights_set :: proc(c: ^Voice_Client, cmd: Conv_Rights_Set_Command) {
+conv_rights_set :: proc(c: ^Server_Conn, cmd: Conv_Rights_Set_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	buf: [proto.CONV_RIGHTS_SET_MAX_SIZE]u8
 	body := proto.encode_conv_rights_set(buf[:], conv, cmd.entries)
@@ -373,7 +373,7 @@ conv_rights_set :: proc(c: ^Voice_Client, cmd: Conv_Rights_Set_Command) {
 		c,
 		.Conv_Rights_Set,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			manage_done(c, status, body, tag)
 			if status == .Ok && c.view != nil && c.view.rights_map.conv == proto.Conv_Id(tag) {
 				conv_rights_fetch(c, proto.Conv_Id(tag))
@@ -383,7 +383,7 @@ conv_rights_set :: proc(c: ^Voice_Client, cmd: Conv_Rights_Set_Command) {
 	)
 }
 
-conv_flag_set :: proc(c: ^Voice_Client, cmd: Conv_Flag_Command) {
+conv_flag_set :: proc(c: ^Server_Conn, cmd: Conv_Flag_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	info, ok := c.convs.convs[conv]
 	if !ok {
@@ -404,7 +404,7 @@ conv_flag_set :: proc(c: ^Voice_Client, cmd: Conv_Flag_Command) {
 // "everyone=see,react writers=see,write". A role may be named by its name or
 // its number. It returns false, having logged why, if something isn't known.
 conv_rights_parse :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	text: string,
 	buf: []proto.Role_Rights,
 ) -> (
@@ -452,7 +452,7 @@ conv_rights_parse :: proc(
 	return buf[:count], true
 }
 
-conv_rights_text_set :: proc(c: ^Voice_Client, cmd: Conv_Rights_Text_Command) {
+conv_rights_text_set :: proc(c: ^Server_Conn, cmd: Conv_Rights_Text_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	buf: [proto.MAX_ROLES]proto.Role_Rights
 	if entries, ok := conv_rights_parse(c, cmd.text, buf[:]); ok {
@@ -461,7 +461,7 @@ conv_rights_text_set :: proc(c: ^Voice_Client, cmd: Conv_Rights_Text_Command) {
 }
 
 // role_name returns a role's name, or its number if we don't know it.
-role_name :: proc(c: ^Voice_Client, id: proto.Role_Id) -> string {
+role_name :: proc(c: ^Server_Conn, id: proto.Role_Id) -> string {
 	if r, ok := c.auth.roles[id]; ok {
 		return r.name
 	}
@@ -484,7 +484,7 @@ rights_text :: proc(rights: proto.Conv_Rights) -> string {
 
 @(private = "file")
 publish_rights_map :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	conv: proto.Conv_Id,
 	entries: []proto.Role_Rights,
 	loading: bool,
@@ -501,7 +501,7 @@ publish_rights_map :: proc(
 	v.rights_map.count += 1
 }
 
-conv_delete :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
+conv_delete :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 	buf: [4]u8
 	c.convs.changing += 1
 	request(
@@ -516,7 +516,7 @@ conv_delete :: proc(c: ^Voice_Client, conv: proto.Conv_Id) {
 // lists of channels (channels_changed). Moving a channel is several changes at
 // once, so that waits for the last one.
 @(private = "file")
-conv_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+conv_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	manage_done(c, status, body, tag)
 	c.convs.changing = max(c.convs.changing - 1, 0)
 	if c.convs.changing == 0 && status != .Reset {
@@ -524,7 +524,7 @@ conv_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) 
 	}
 }
 
-conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
+conv_member_set :: proc(c: ^Server_Conn, cmd: Conv_Member_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	account := cmd.account if cmd.account != 0 else account_named(c, cmd.name)
 	if account == 0 {
@@ -537,7 +537,7 @@ conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
 		c,
 		.Conv_Member_Set,
 		proto.encode_conv_member_set(&buf, conv, account, cmd.on),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			conv_done(c, status, body, tag)
 			// Fetch the members shown again.
 			if status == .Ok && c.profiles.members_conv != 0 {
@@ -550,7 +550,7 @@ conv_member_set :: proc(c: ^Voice_Client, cmd: Conv_Member_Command) {
 // manage_done reports what went wrong with a change to the server's roles,
 // accounts or channels. Successful changes need no message.
 @(private = "file")
-manage_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+manage_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	#partial switch status {
 	case .Ok, .Reset:
 		if c.view == nil && status == .Ok {
@@ -571,7 +571,7 @@ manage_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64
 	}
 }
 
-publish_roles :: proc(c: ^Voice_Client) {
+publish_roles :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -600,7 +600,7 @@ publish_roles :: proc(c: ^Voice_Client) {
 // dir_roles returns the roles in the form mentions expect (mentions.odin),
 // built from what we know about them rather than from the View. It is allocated
 // in the temp allocator and the names are not copied.
-dir_roles :: proc(c: ^Voice_Client) -> []View_Role {
+dir_roles :: proc(c: ^Server_Conn) -> []View_Role {
 	list := make([dynamic]View_Role, 0, len(c.auth.roles), context.temp_allocator)
 	for id, r in c.auth.roles {
 		append(&list, View_Role{id, r.name, r.perms, r.color, r.flags})

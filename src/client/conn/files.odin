@@ -133,7 +133,7 @@ transfer_limits_command :: proc(s: ^settings.Settings) -> Transfer_Limits_Comman
 	return {upload = to_bytes(s.upload_limit), download = to_bytes(s.download_limit)}
 }
 
-files_destroy :: proc(c: ^Voice_Client) {
+files_destroy :: proc(c: ^Server_Conn) {
 	for _, t in c.files.transfers {
 		transfer_close(t, keep = false)
 		transfer_free(t)
@@ -153,7 +153,7 @@ files_destroy :: proc(c: ^Voice_Client) {
 // transfer ends. Files can only be sent to someone who is online, because the
 // file is on this device and the recipient has to be there to accept it
 // before it can be sent.
-send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
+send_file :: proc(c: ^Server_Conn, cmd: Send_File_Command) {
 	to := cmd.to if cmd.to != 0 else account_named(c, cmd.name)
 	if to == 0 || to == c.auth.me {
 		log.warnf("file: there's nobody called %q to send it to", cmd.name)
@@ -203,7 +203,7 @@ send_file :: proc(c: ^Voice_Client, cmd: Send_File_Command) {
 
 // file_posted handles the offer with `nonce` having been posted as message
 // `id`. From here on the transfer is identified by that id.
-file_posted :: proc(c: ^Voice_Client, nonce: u64, id: proto.Msg_Id) {
+file_posted :: proc(c: ^Server_Conn, nonce: u64, id: proto.Msg_Id) {
 	t, ok := c.files.posting[nonce]
 	if !ok {
 		return
@@ -217,7 +217,7 @@ file_posted :: proc(c: ^Voice_Client, nonce: u64, id: proto.Msg_Id) {
 
 // file_post_failed handles the offer with `nonce` failing to be posted. There
 // is then nothing to send the file for.
-file_post_failed :: proc(c: ^Voice_Client, nonce: u64) {
+file_post_failed :: proc(c: ^Server_Conn, nonce: u64) {
 	t, ok := c.files.posting[nonce]
 	if !ok {
 		return
@@ -228,7 +228,7 @@ file_post_failed :: proc(c: ^Voice_Client, nonce: u64) {
 }
 
 // file_offer_received handles an offer that has just been posted to us.
-file_offer_received :: proc(c: ^Voice_Client, m: proto.Message) {
+file_offer_received :: proc(c: ^Server_Conn, m: proto.Message) {
 	if m.id in c.files.transfers {
 		return
 	}
@@ -264,7 +264,7 @@ file_offer_received :: proc(c: ^Voice_Client, m: proto.Message) {
 
 // file_offer_deleted handles an offer whose message was deleted. An offer that
 // has not been accepted yet can no longer be accepted.
-file_offer_deleted :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
+file_offer_deleted :: proc(c: ^Server_Conn, id: proto.Msg_Id) {
 	t := c.files.transfers[id] or_else nil
 	if t != nil && (t.state == .Incoming || t.state == .Offered) {
 		end_transfer(c, t, .Expired)
@@ -273,7 +273,7 @@ file_offer_deleted :: proc(c: ^Voice_Client, id: proto.Msg_Id) {
 
 // file_action handles the user's answer to an offer, or stopping a transfer. An
 // id of 0 means all transfers the action applies to (headless mode).
-file_action :: proc(c: ^Voice_Client, id: proto.Msg_Id, action: File_Action) {
+file_action :: proc(c: ^Server_Conn, id: proto.Msg_Id, action: File_Action) {
 	if id == 0 {
 		ids := make([dynamic]proto.Msg_Id, context.temp_allocator)
 		for other in c.files.transfers {
@@ -316,7 +316,7 @@ file_action :: proc(c: ^Voice_Client, id: proto.Msg_Id, action: File_Action) {
 }
 
 // files_step runs the transfers. It is called from the client's loop.
-files_step :: proc(c: ^Voice_Client) {
+files_step :: proc(c: ^Server_Conn) {
 	if !c.has_current {
 		return
 	}
@@ -378,7 +378,7 @@ files_step :: proc(c: ^Voice_Client) {
 // send_chunks sends as much as the pace allows (see transfer.odin): first the
 // chunks that were requested again, then new ones within the window.
 @(private = "file")
-send_chunks :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
+send_chunks :: proc(c: ^Server_Conn, t: ^File_Transfer, now: time.Tick) {
 	rate := transfer_rate(c.files.upload_limit, t.send.peer_rate)
 	proto.transfer_refill(&t.send, now, rate, FILE_BURST * rate / FILE_MAX_RATE)
 	data: [proto.FILE_CHUNK_DATA]u8
@@ -419,7 +419,7 @@ transfer_rate :: proc(ours, theirs: u32) -> f32 {
 	return rate
 }
 
-handle_file_accept :: proc(c: ^Voice_Client, pt: []u8) {
+handle_file_accept :: proc(c: ^Server_Conn, pt: []u8) {
 	id, from, rate := proto.decode_file_accept(pt)
 	t := c.files.transfers[id] or_else nil
 	if t == nil || !t.outgoing || t.peer != from {
@@ -440,7 +440,7 @@ handle_file_accept :: proc(c: ^Voice_Client, pt: []u8) {
 	publish_file(c, t, force = true)
 }
 
-handle_file_ack :: proc(c: ^Voice_Client, pt: []u8) {
+handle_file_ack :: proc(c: ^Server_Conn, pt: []u8) {
 	ack, count, missing, ok := proto.decode_transfer_ack(pt)
 	t := c.files.transfers[proto.Msg_Id(ack.id)] or_else nil
 	if !ok || t == nil || !t.outgoing || t.state != .Transferring {
@@ -457,7 +457,7 @@ handle_file_ack :: proc(c: ^Voice_Client, pt: []u8) {
 	t.done = proto.transfer_sender_done(&t.send)
 }
 
-handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
+handle_file_chunk :: proc(c: ^Server_Conn, pt: []u8) {
 	id, index, data := proto.decode_transfer_chunk(pt)
 	t := c.files.transfers[proto.Msg_Id(id)] or_else nil
 	if t == nil || t.outgoing || (t.state != .Starting && t.state != .Transferring) {
@@ -497,7 +497,7 @@ handle_file_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 // send_file_ack tells the sender what we have and what is missing up to the
 // highest chunk that has arrived.
 @(private = "file")
-send_file_ack :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
+send_file_ack :: proc(c: ^Server_Conn, t: ^File_Transfer, now: time.Tick) {
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 	send_data(
 		c,
@@ -512,7 +512,7 @@ send_file_ack :: proc(c: ^Voice_Client, t: ^File_Transfer, now: time.Tick) {
 	)
 }
 
-handle_file_cancel :: proc(c: ^Voice_Client, pt: []u8) {
+handle_file_cancel :: proc(c: ^Server_Conn, pt: []u8) {
 	id, from, reason := proto.decode_file_cancel(pt)
 	t := c.files.transfers[id] or_else nil
 	if t == nil || t.peer != from || file_state_over(t.state) {
@@ -542,7 +542,7 @@ handle_file_cancel :: proc(c: ^Voice_Client, pt: []u8) {
 // is kept if the transfer is Done, and otherwise thrown away.
 @(private = "file")
 end_transfer :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	t: ^File_Transfer,
 	state: File_State,
 	tell := proto.File_Cancel_Reason(0),
@@ -575,7 +575,7 @@ transfer_free :: proc(t: ^File_Transfer) {
 
 @(private = "file")
 send_file_cancel :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	id: proto.Msg_Id,
 	to: proto.Account_Id,
 	reason: proto.File_Cancel_Reason,

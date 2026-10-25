@@ -52,7 +52,7 @@ Push_State :: enum i32 {
 // The conversation of a tapped notification, kept until its server is connected and
 // ready to show it.
 @(private = "file")
-pending_open: struct {
+g_pending_open: struct {
 	server: string, // owned
 	conv:   proto.Conv_Id,
 	msg:    proto.Msg_Id,
@@ -60,7 +60,7 @@ pending_open: struct {
 
 // The conversation that was last read here, so that its notification is removed only once.
 @(private = "file")
-last_seen: struct {
+g_last_seen: struct {
 	ns:   ^Net_Session,
 	conv: proto.Conv_Id,
 }
@@ -129,9 +129,9 @@ push_frame :: proc(ui: ^UI) {
 	   !glfw.WindowFocused(ui.window) ||
 	   st.open == 0 ||
 	   st.open_to != rawptr(ns) {
-		last_seen = {}
-	} else if last_seen.ns != ns || last_seen.conv != st.open {
-		last_seen = {ns, st.open}
+		g_last_seen = {}
+	} else if g_last_seen.ns != ns || g_last_seen.conv != st.open {
+		g_last_seen = {ns, st.open}
 		yap_push_seen(server_cstring(ns), u32(st.open))
 	}
 }
@@ -144,14 +144,14 @@ push_open_step :: proc(ui: ^UI) {
 	conv: u32
 	msg: f64
 	if n := yap_push_take_open(&buf[0], i32(len(buf)), &conv, &msg); n > 0 {
-		delete(pending_open.server)
-		pending_open = {strings.clone(string(buf[:n])), proto.Conv_Id(conv), proto.Msg_Id(msg)}
+		delete(g_pending_open.server)
+		g_pending_open = {strings.clone(string(buf[:n])), proto.Conv_Id(conv), proto.Msg_Id(msg)}
 	}
-	if pending_open.server == "" {
+	if g_pending_open.server == "" {
 		return
 	}
 	for ns in ui.sessions {
-		if ns.server != pending_open.server || ns.joining {
+		if ns.server != g_pending_open.server || ns.joining {
 			continue
 		}
 		if !session_ready(ns) {
@@ -159,13 +159,13 @@ push_open_step :: proc(ui: ^UI) {
 		}
 		show_session(ui, ns)
 		sync.lock(&ui.view.mutex)
-		go_to_message(ui, pending_open.conv, pending_open.msg)
+		go_to_message(ui, g_pending_open.conv, g_pending_open.msg)
 		sync.unlock(&ui.view.mutex)
 		ui_redraw(ui)
 		break
 	}
-	delete(pending_open.server)
-	pending_open = {}
+	delete(g_pending_open.server)
+	g_pending_open = {}
 }
 
 // push_settings draws the account settings rows for push on this device, if the server

@@ -377,7 +377,7 @@ test_adapt_bitrate_waits_for_encoder :: proc(t: ^testing.T) {
 
 @(test)
 test_viewer_codecs :: proc(t: ^testing.T) {
-	c: Voice_Client
+	c: Server_Conn
 	users := []proto.User_Info {
 		{num = 1, room = 7, flags = {.Sharing, .Decodes_HEVC, .Decodes_AV1}}, // us
 		{num = 2, room = 7, flags = {.Decodes_HEVC, .Decodes_AV1}},
@@ -439,7 +439,7 @@ video_destroy_outs :: proc(v: ^Video_Client) {
 // those that are on in our room are watched.
 @(test)
 test_video_watch_streams :: proc(t: ^testing.T) {
-	c := new(Voice_Client)
+	c := new(Server_Conn)
 	defer free(c)
 	defer video_destroy(c)
 	defer commands_destroy(&c.commands)
@@ -454,7 +454,7 @@ test_video_watch_streams :: proc(t: ^testing.T) {
 	c.channels.state.users = users
 	c.has_current = true
 
-	watching :: proc(c: ^Voice_Client, key: Video_Key) -> bool {
+	watching :: proc(c: ^Server_Conn, key: Video_Key) -> bool {
 		for in_ in c.video.ins {
 			if in_.key == key {
 				return in_.watching
@@ -462,7 +462,7 @@ test_video_watch_streams :: proc(t: ^testing.T) {
 		}
 		return false
 	}
-	held :: proc(c: ^Voice_Client) -> (n: int) {
+	held :: proc(c: ^Server_Conn) -> (n: int) {
 		for in_ in c.video.ins {
 			if in_.key.user != 0 {
 				n += 1

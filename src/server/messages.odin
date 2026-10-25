@@ -10,7 +10,7 @@ import "core:time"
 import "common:proto"
 import "sqlite"
 
-// Messages (see src/common/proto/msgs.odin) are posted to a conversation,
+// Messages (see src/common/proto/messages.odin) are posted to a conversation,
 // stored permanently in the database and read back one page at a time.
 //
 // Only the members of a conversation can post to it and read it. A posted

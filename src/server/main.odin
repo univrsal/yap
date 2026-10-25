@@ -23,7 +23,7 @@ main :: proc() {
 	// are counted (see memory.odin).
 	context.allocator = memtrack.init()
 
-	// `yap-server account ...` manages accounts and then exits (see cli.odin).
+	// `yap-server account ...` manages accounts and then exits (see cli_account.odin).
 	// `yap-server role list` is shorthand for `yap-server account roles`.
 	if len(os.args) > 1 && (os.args[1] == "account" || os.args[1] == "role") {
 		quiet, quiet_ok := common.init_logging(.warn)

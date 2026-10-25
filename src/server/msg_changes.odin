@@ -7,7 +7,7 @@ import "common:proto"
 import "sqlite"
 
 // Changing messages after they have been posted (see
-// src/common/proto/msgs.odin): editing, deleting and pinning, and listing
+// src/common/proto/messages.odin): editing, deleting and pinning, and listing
 // the pins of a conversation.
 //
 //	Edit    Only the author, only text messages, and not deleted ones.

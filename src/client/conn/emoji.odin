@@ -19,7 +19,7 @@ Emoji_Client :: struct {
 	animated: [dynamic]proto.Emoji_Anim, // the ones that move
 }
 
-emoji_destroy :: proc(c: ^Voice_Client) {
+emoji_destroy :: proc(c: ^Server_Conn) {
 	emoji_clear(c)
 	delete(c.emoji.names)
 	delete(c.emoji.animated)
@@ -27,7 +27,7 @@ emoji_destroy :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-emoji_clear :: proc(c: ^Voice_Client) {
+emoji_clear :: proc(c: ^Server_Conn) {
 	for n in c.emoji.names {
 		delete(n)
 	}
@@ -38,7 +38,7 @@ emoji_clear :: proc(c: ^Voice_Client) {
 
 // emoji_event handles an event about the server's emoji. It returns false if
 // `op` is not an emoji event.
-emoji_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
+emoji_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	if op != .Emoji_Sheet {
 		return false
 	}
@@ -78,7 +78,7 @@ View_Emoji :: struct {
 	revision: int, // incremented whenever the emoji change
 }
 
-publish_emoji :: proc(c: ^Voice_Client) {
+publish_emoji :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -106,6 +106,6 @@ view_clear_emoji :: proc(v: ^View) {
 // typed_text converts the text the user typed into the form in which it is
 // stored, with mentions and emoji written as tokens and characters
 // (see mentions.odin).
-typed_text :: proc(c: ^Voice_Client, text: string) -> string {
+typed_text :: proc(c: ^Server_Conn, text: string) -> string {
 	return emoji_encode(mentions_encode(text, c.auth.accounts, dir_roles(c)), c.emoji.names[:])
 }

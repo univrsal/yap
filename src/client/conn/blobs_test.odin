@@ -7,7 +7,7 @@ import "core:testing"
 // whichever of the two lets go of them first.
 @(test)
 test_blob_bytes_shared :: proc(t: ^testing.T) {
-	c := new(Voice_Client)
+	c := new(Server_Conn)
 	defer free(c)
 	v := new(View)
 	defer free(v)

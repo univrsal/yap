@@ -75,7 +75,7 @@ Thumbbar :: struct {
 
 // There is only one window, and the window procedure has nowhere else to look.
 @(private = "file")
-thumbs: Thumbbar
+g_thumbs: Thumbbar
 
 @(private = "file")
 thumb_proc :: proc "system" (
@@ -85,26 +85,26 @@ thumb_proc :: proc "system" (
 	lparam: win.LPARAM,
 ) -> win.LRESULT {
 	switch {
-	case msg == thumbs.created && msg != 0:
+	case msg == g_thumbs.created && msg != 0:
 		// A new taskbar button, which doesn't have any of our buttons yet.
-		thumbs.added, thumbs.waiting = false, false
+		g_thumbs.added, g_thumbs.waiting = false, false
 	case msg == win.WM_COMMAND && win.HIWORD(wparam) == THBN_CLICKED:
 		switch win.LOWORD(wparam) {
 		case THUMB_MUTE:
-			thumbs.mute = true
+			g_thumbs.mute = true
 		case THUMB_DEAFEN:
-			thumbs.deafen = true
+			g_thumbs.deafen = true
 		}
 		return 0
 	}
-	return win.CallWindowProcW(thumbs.next_proc, hwnd, msg, wparam, lparam)
+	return win.CallWindowProcW(g_thumbs.next_proc, hwnd, msg, wparam, lparam)
 }
 
 // thumbbar_attach puts the buttons on a new window, or tries to. A desktop
 // without a taskbar to put them on goes without them and says so in the log.
 // Called from window_open, before titlebar_merge.
 thumbbar_attach :: proc(window: glfw.WindowHandle) {
-	t := &thumbs
+	t := &g_thumbs
 	hwnd := win.HWND(glfw.GetWin32Window(window))
 	if hwnd == nil {
 		return
@@ -150,7 +150,7 @@ thumbbar_attach :: proc(window: glfw.WindowHandle) {
 
 // thumbbar_detach releases the window, which is about to be destroyed.
 thumbbar_detach :: proc() {
-	t := &thumbs
+	t := &g_thumbs
 	for icon in ([?]win.HICON{t.mic, t.mic_off, t.sound, t.sound_off}) {
 		if icon != nil {
 			win.DestroyIcon(icon)
@@ -165,7 +165,7 @@ thumbbar_detach :: proc() {
 // thumbbar_update acts on the button presses and keeps the buttons showing
 // the current state. Called once a frame.
 thumbbar_update :: proc(ui: ^UI) {
-	t := &thumbs
+	t := &g_thumbs
 	if t.mute {
 		t.mute = false
 		set_muted(ui, !ui.muted)
@@ -207,7 +207,7 @@ thumbbar_update :: proc(ui: ^UI) {
 
 @(private = "file")
 thumb_buttons :: proc(look: Thumb_Look) -> (buttons: [2]win.THUMBBUTTON) {
-	t := &thumbs
+	t := &g_thumbs
 	mask := win.THUMBBUTTONMASK(
 		i32(win.THUMBBUTTONMASK.ICON) |
 		i32(win.THUMBBUTTONMASK.TOOLTIP) |

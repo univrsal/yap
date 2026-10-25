@@ -454,7 +454,7 @@ camera_config :: proc(
 
 // room_camera_config is camera_config for our room as it is now.
 @(private = "file")
-room_camera_config :: proc(c: ^Voice_Client) -> Share_Config {
+room_camera_config :: proc(c: ^Server_Conn) -> Share_Config {
 	ch := &c.channels
 	room := my_room(c)
 	cameras := 1 // ours
@@ -474,7 +474,7 @@ room_camera_config :: proc(c: ^Voice_Client) -> Share_Config {
 // follow_camera_tier keeps our camera to the tier of the room: down at once, up
 // once the room has kept to fewer cameras for CAMERA_TIER_UP_AFTER.
 @(private = "file")
-follow_camera_tier :: proc(c: ^Voice_Client, o: ^Video_Out, now: time.Tick) {
+follow_camera_tier :: proc(c: ^Server_Conn, o: ^Video_Out, now: time.Tick) {
 	if !c.channels.have_state || my_room(c) == 0 {
 		return
 	}
@@ -552,7 +552,7 @@ follow_demand :: proc(o: ^Video_Out, now: time.Tick) {
 
 // video_demand is called when the server says what the viewers of one of our
 // streams want of it.
-video_demand :: proc(c: ^Voice_Client, d: proto.Demand) {
+video_demand :: proc(c: ^Server_Conn, d: proto.Demand) {
 	o := &c.video.outs[d.stream]
 	if !o.live || d.stream != .Camera {
 		return
@@ -604,7 +604,7 @@ Watch_Camera_Names_Command :: struct {
 }
 
 // video_watch_camera_names watches the cameras of the named accounts' users.
-video_watch_camera_names :: proc(c: ^Voice_Client, names: string) {
+video_watch_camera_names :: proc(c: ^Server_Conn, names: string) {
 	users := make([dynamic]proto.User_Num, context.temp_allocator)
 	for name in strings.fields(names, context.temp_allocator) {
 		account := account_named(c, name)
@@ -629,7 +629,7 @@ watch_cameras :: proc(users: ..proto.User_Num) -> (cmd: Watch_Cameras_Command) {
 	return
 }
 
-video_destroy :: proc(c: ^Voice_Client) {
+video_destroy :: proc(c: ^Server_Conn) {
 	v := &c.video
 	for &o in v.outs {
 		video_clear_queue(&o)
@@ -642,7 +642,7 @@ video_destroy :: proc(c: ^Voice_Client) {
 }
 
 // video_step gives video its turn in the network loop.
-video_step :: proc(c: ^Voice_Client) {
+video_step :: proc(c: ^Server_Conn) {
 	v := &c.video
 	now := time.tick_now()
 	if v.step_at != {} {
@@ -668,7 +668,7 @@ video_step :: proc(c: ^Voice_Client) {
 // out_step follows one of our streams: whether it is live, whether the server
 // takes it, and what its encoder has ready.
 @(private = "file")
-out_step :: proc(c: ^Voice_Client, o: ^Video_Out, here: bool) {
+out_step :: proc(c: ^Server_Conn, o: ^Video_Out, here: bool) {
 	now := time.tick_now()
 	if live := video_capture_live(o.stream) && here; live != o.live {
 		video_clear_queue(o)
@@ -724,7 +724,7 @@ stream_name :: proc(stream: proto.Video_Stream) -> string {
 // note_camera_taken follows whether the server shows our Camera flag, which is
 // what lets our camera through, and tells the View when it doesn't.
 @(private = "file")
-note_camera_taken :: proc(c: ^Voice_Client, o: ^Video_Out, now: time.Tick) {
+note_camera_taken :: proc(c: ^Server_Conn, o: ^Video_Out, now: time.Tick) {
 	v := &c.video
 	ch := &c.channels
 	me := proto.find_user(&ch.state, ch.state.your_user) if ch.have_state else nil
@@ -770,7 +770,7 @@ note_camera_taken :: proc(c: ^Voice_Client, o: ^Video_Out, now: time.Tick) {
 // sharing and watching need. (Only we write it, so it may be read without the
 // lock.)
 @(private = "file")
-publish_video_link :: proc(c: ^Voice_Client) {
+publish_video_link :: proc(c: ^Server_Conn) {
 	up := c.media.has_current
 	if c.view == nil || c.view.video_link == up {
 		return
@@ -782,7 +782,7 @@ publish_video_link :: proc(c: ^Voice_Client) {
 // say_decodable tells the others what we can watch (User_Flag). The page only
 // knows this once it has asked the browser.
 @(private = "file")
-say_decodable :: proc(c: ^Voice_Client) {
+say_decodable :: proc(c: ^Server_Conn) {
 	codecs := video_decodable() if video_can_watch() else {}
 	have := proto.decodable_codecs(c.channels.sound)
 	if (.HEVC in codecs) != (.HEVC in have) {
@@ -797,7 +797,7 @@ say_decodable :: proc(c: ^Voice_Client) {
 // may watch. A share is encoded in one of those codecs (the best that works,
 // video_share_codecs). Anything goes while nobody else is there.
 @(private)
-viewer_codecs :: proc(c: ^Voice_Client) -> proto.Video_Codecs {
+viewer_codecs :: proc(c: ^Server_Conn) -> proto.Video_Codecs {
 	ch := &c.channels
 	codecs := proto.Video_Codecs{.H264, .HEVC, .AV1}
 	room := my_room(c)
@@ -817,7 +817,7 @@ viewer_codecs :: proc(c: ^Voice_Client) -> proto.Video_Codecs {
 // View, once a second while anything is going on, and clears them once
 // afterwards.
 @(private = "file")
-publish_video_stats :: proc(c: ^Voice_Client) {
+publish_video_stats :: proc(c: ^Server_Conn) {
 	v := &c.video
 	active := false
 	for o in v.outs {
@@ -886,7 +886,7 @@ publish_video_stats :: proc(c: ^Voice_Client) {
 // video_log_counts is how many fragments of what we watch were asked for again,
 // how many frames that saved and how many were lost anyway, since it was last
 // asked (for the log).
-video_log_counts :: proc(c: ^Voice_Client) -> (d: [3]int) {
+video_log_counts :: proc(c: ^Server_Conn) -> (d: [3]int) {
 	for &in_ in c.video.ins {
 		if w := in_.window; w != nil {
 			counts := [3]int{w.nacked, w.recovered, w.given_up}
@@ -1000,7 +1000,7 @@ video_send_rate :: proc(o: ^Video_Out) -> int {
 // put out large keyframes of its own, which would otherwise wait in the queue
 // and hold up the picture. (Pacing in proportion to what waits leaves a long
 // tail: the last of a keyframe goes out slowest.)
-video_pace_rate :: proc(c: ^Voice_Client, o: ^Video_Out) -> int {
+video_pace_rate :: proc(c: ^Server_Conn, o: ^Video_Out) -> int {
 	rate := video_send_rate(o)
 	if !MEDIA_RELIABLE {
 		return rate
@@ -1038,7 +1038,7 @@ video_next_out :: proc(v: ^Video_Client) -> ^Video_Out {
 // video_send sends what the pacing and the socket allow. The pace is the sum of
 // the live streams' rates.
 @(private = "file")
-video_send :: proc(c: ^Voice_Client) {
+video_send :: proc(c: ^Server_Conn) {
 	v := &c.video
 	if video_next_out(v) == nil {
 		return
@@ -1092,7 +1092,7 @@ video_send :: proc(c: ^Voice_Client) {
 // and how often sending was held back by the socket or by the pacing, and the
 // longest video_step went without running (the page's frames, on the web).
 @(private = "file")
-log_video_out :: proc(c: ^Voice_Client, now: time.Tick) {
+log_video_out :: proc(c: ^Server_Conn, now: time.Tick) {
 	v := &c.video
 	if v.log_at != {} && time.tick_diff(v.log_at, now) < time.Second {
 		return
@@ -1135,7 +1135,7 @@ log_video_out :: proc(c: ^Voice_Client, now: time.Tick) {
 // video_keyframe_requested is called when a viewer asked the server for a
 // keyframe of one of our streams. A camera paused for want of viewers has one
 // now, so it goes on at once.
-video_keyframe_requested :: proc(c: ^Voice_Client, stream: proto.Video_Stream) {
+video_keyframe_requested :: proc(c: ^Server_Conn, stream: proto.Video_Stream) {
 	o := &c.video.outs[stream]
 	if !o.live {
 		return
@@ -1150,7 +1150,7 @@ video_keyframe_requested :: proc(c: ^Voice_Client, stream: proto.Video_Stream) {
 
 // video_watch starts watching `user`'s screen, or stops watching any when
 // `user` is 0.
-video_watch :: proc(c: ^Voice_Client, user: proto.User_Num) {
+video_watch :: proc(c: ^Server_Conn, user: proto.User_Num) {
 	in_ := &c.video.ins[0]
 	if user == in_.key.user {
 		return
@@ -1167,7 +1167,7 @@ video_watch :: proc(c: ^Voice_Client, user: proto.User_Num) {
 
 // video_watch_cameras watches the cameras of `users`, each in a tile of the
 // size `tiles` says (none if nil), and stops watching all others.
-video_watch_cameras :: proc(c: ^Voice_Client, users: []proto.User_Num, tiles: [][2]int) {
+video_watch_cameras :: proc(c: ^Server_Conn, users: []proto.User_Num, tiles: [][2]int) {
 	v := &c.video
 	for &in_ in v.ins[1:] {
 		if in_.key.user != 0 && !slice.contains(users, in_.key.user) {
@@ -1211,7 +1211,7 @@ in_start :: proc(in_: ^Video_In, key: Video_Key) {
 // in_stop stops watching a stream, ending its lease at once rather than when
 // it runs out, and lets go of what it took.
 @(private = "file")
-in_stop :: proc(c: ^Voice_Client, in_: ^Video_In) {
+in_stop :: proc(c: ^Server_Conn, in_: ^Video_In) {
 	if in_.watching {
 		buf: [proto.WATCH_TILE_SIZE]u8
 		send_watch(c, proto.encode_watch(&buf, in_.key.user, false, in_.key.stream, stop = true))
@@ -1231,7 +1231,7 @@ in_free :: proc(in_: ^Video_In) {
 
 // drive_watch drives each stream we watch (drive_in).
 @(private = "file")
-drive_watch :: proc(c: ^Voice_Client) {
+drive_watch :: proc(c: ^Server_Conn) {
 	if !c.channels.have_state {
 		return
 	}
@@ -1247,7 +1247,7 @@ drive_watch :: proc(c: ^Voice_Client) {
 // A screen that is no longer shared or whose sharer leaves the channel is no
 // longer watched, and a camera that goes off waits until it comes on again.
 @(private = "file")
-drive_in :: proc(c: ^Voice_Client, in_: ^Video_In) {
+drive_in :: proc(c: ^Server_Conn, in_: ^Video_In) {
 	if !can_watch(c, in_.key) {
 		if in_.key.stream == .Screen {
 			video_watch(c, 0)
@@ -1296,7 +1296,7 @@ drive_in :: proc(c: ^Voice_Client, in_: ^Video_In) {
 // log_break logs why the frames of a stream we watch can no longer be decoded,
 // which asks for a keyframe and leaves the picture still until it comes.
 @(private = "file")
-log_break :: proc(c: ^Voice_Client, in_: ^Video_In) {
+log_break :: proc(c: ^Server_Conn, in_: ^Video_In) {
 	w := in_.window
 	if w.breaks == 0 {
 		return
@@ -1330,7 +1330,7 @@ log_break :: proc(c: ^Voice_Client, in_: ^Video_In) {
 
 // in_name names a stream we watch for the log.
 @(private = "file")
-in_name :: proc(c: ^Voice_Client, key: Video_Key) -> string {
+in_name :: proc(c: ^Server_Conn, key: Video_Key) -> string {
 	return fmt.tprintf(
 		"%s's %s",
 		display_name(c, key.user),
@@ -1340,7 +1340,7 @@ in_name :: proc(c: ^Voice_Client, key: Video_Key) -> string {
 
 // send_watch sends a Watch, if there is a media link to send it on.
 @(private = "file")
-send_watch :: proc(c: ^Voice_Client, msg: []u8) {
+send_watch :: proc(c: ^Server_Conn, msg: []u8) {
 	if c.media.has_current {
 		link_send(&c.media.link, msg)
 	}
@@ -1348,7 +1348,7 @@ send_watch :: proc(c: ^Voice_Client, msg: []u8) {
 
 // can_watch says whether `key`'s stream is on, its user is in our voice room,
 // and is not us.
-can_watch :: proc(c: ^Voice_Client, key: Video_Key) -> bool {
+can_watch :: proc(c: ^Server_Conn, key: Video_Key) -> bool {
 	ch := &c.channels
 	if !ch.have_state || key.user == ch.state.your_user {
 		return false
@@ -1361,7 +1361,7 @@ can_watch :: proc(c: ^Voice_Client, key: Video_Key) -> bool {
 	return room != 0 && u.room == room
 }
 
-handle_video :: proc(c: ^Voice_Client, pt: []u8) {
+handle_video :: proc(c: ^Server_Conn, pt: []u8) {
 	v := &c.video
 	sharer, f, ok := proto.decode_video_down(pt)
 	if !ok || sharer == 0 {
@@ -1393,7 +1393,7 @@ handle_video :: proc(c: ^Voice_Client, pt: []u8) {
 // during the past second: `asked` fragments were asked for again, and
 // `kbit_in` came in.
 @(private = "file")
-send_report :: proc(c: ^Voice_Client, in_: ^Video_In, asked, kbit_in: int) {
+send_report :: proc(c: ^Server_Conn, in_: ^Video_In, asked, kbit_in: int) {
 	r := proto.Video_Report {
 		loss = asked * 1000 / max(in_.stats_frags, 1),
 		kbit = kbit_in,
@@ -1426,7 +1426,7 @@ note_delay :: proc(in_: ^Video_In, ts: u32, now: time.Tick) {
 
 // video_reports is called when the server says how one of our streams reaches
 // its viewers.
-video_reports :: proc(c: ^Voice_Client, stream: proto.Video_Stream, s: proto.Video_Reports) {
+video_reports :: proc(c: ^Server_Conn, stream: proto.Video_Stream, s: proto.Video_Reports) {
 	o := &c.video.outs[stream]
 	if !o.live {
 		return

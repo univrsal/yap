@@ -5,7 +5,7 @@ package proto
 //
 // An account has a username and a display name. The username is unique, in
 // lower case, and is what the person logs in with. The display name is what
-// others see and may be any valid name (see names.odin). Nobody creates their
+// others see and may be any valid name (see sanitize.odin). Nobody creates their
 // own account: an admin does, with a first password that the person then
 // changes.
 //

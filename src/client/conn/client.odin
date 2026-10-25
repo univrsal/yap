@@ -36,7 +36,11 @@ Link :: struct {
 	last_recv:    time.Tick,
 }
 
-Voice_Client :: struct {
+// Server_Conn is everything we have going with one server: its links, our
+// account there, and the channels, conversations, voice and video of it.
+// client_step drives it: on the session's network thread (net_native.odin), or
+// from the main loop on the web and when headless.
+Server_Conn :: struct {
 	// The main link: the connection itself.
 	using link:      Link,
 	// The bulk link, used for heavy messages (proto.HEAVY_KINDS, see bulk.odin).
@@ -55,7 +59,7 @@ Voice_Client :: struct {
 	// the accounts of this server apart from those of another server (for the
 	// per-user settings).
 	server_key:      [proto.KEY_SIZE]u8,
-	// Which connection this is (see the hello and Welcome in proto/names.odin).
+	// Which connection this is (see the hello and Welcome in proto/hello.odin).
 	// conn_id is our identifier, which is the same in every handshake. instance
 	// is the server's identifier for the connection, which changes whenever the
 	// server treats it as a new connection.
@@ -108,7 +112,7 @@ Voice_Client :: struct {
 // server's password, if it has one. The credentials for logging in to an
 // account are given with auth_credentials or a Login_Command.
 client_open :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	key_path, typed_addr, known_servers: string,
 	password := "",
 ) -> bool {
@@ -145,7 +149,7 @@ client_open :: proc(
 
 // client_close says goodbye to the server (if connected) and releases everything
 // that client_open and the connection acquired.
-client_close :: proc(c: ^Voice_Client) {
+client_close :: proc(c: ^Server_Conn) {
 	if c.has_current {
 		// The transport is unreliable, so send a few. Otherwise the server times us out.
 		leave := [1]byte{u8(proto.Message_Kind.Leave)}
@@ -181,7 +185,7 @@ client_close :: proc(c: ^Voice_Client) {
 // client_step runs one iteration of the network loop and waits up to a couple
 // of milliseconds for a packet. It returns false once the connection has failed
 // for good.
-client_step :: proc(c: ^Voice_Client) -> bool {
+client_step :: proc(c: ^Server_Conn) -> bool {
 	free_all(context.temp_allocator)
 
 	check_alive(c)
@@ -242,7 +246,7 @@ RECONNECT_EVERY :: 30 * time.Second
 // was in the background), so the silence is not the server's fault.
 LOOP_STALLED :: 5 * time.Second
 
-check_alive :: proc(c: ^Voice_Client) {
+check_alive :: proc(c: ^Server_Conn) {
 	now := time.tick_now()
 	if time.tick_diff(c.last_step, now) > LOOP_STALLED {
 		c.last_recv = now
@@ -276,7 +280,7 @@ check_alive :: proc(c: ^Voice_Client) {
 
 // connection_lost drops the main link, publishes the reason, and makes
 // drive_handshake try for a new connection every RECONNECT_EVERY.
-connection_lost :: proc(c: ^Voice_Client, why: string) {
+connection_lost :: proc(c: ^Server_Conn, why: string) {
 	link_reset(&c.link)
 	c.lost = true
 	trouble_end(c)
@@ -288,7 +292,7 @@ connection_lost :: proc(c: ^Voice_Client, why: string) {
 // current session is due for rekeying, or when the server has gone quiet on it
 // (it may have restarted and no longer know our session). It also retransmits
 // lost handshake packets and starts over if a handshake stalls.
-drive_handshake :: proc(c: ^Voice_Client) {
+drive_handshake :: proc(c: ^Server_Conn) {
 	if c.has_current && time.tick_since(c.current.created) > proto.REJECT_AFTER {
 		log.warn("session expired without a successful rekey")
 		proto.session_reset(&c.current)
@@ -401,7 +405,7 @@ link_promote :: proc(l: ^Link) -> (first: bool) {
 }
 
 // handle_server_packet returns false if the connection must be aborted.
-handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
+handle_server_packet :: proc(c: ^Server_Conn, packet: []byte) -> bool {
 	#partial switch proto.packet_type(packet) {
 	case .Handshake_Cookie:
 		// The server is busy and wants to know that we can be reached
@@ -466,7 +470,7 @@ handle_server_packet :: proc(c: ^Voice_Client, packet: []byte) -> bool {
 }
 
 // handle_message handles a message from the server, from either link.
-handle_message :: proc(c: ^Voice_Client, kind: proto.Message_Kind, pt: []byte) {
+handle_message :: proc(c: ^Server_Conn, kind: proto.Message_Kind, pt: []byte) {
 	#partial switch kind {
 	case .Stream:
 		handle_stream(c, pt)
@@ -507,7 +511,7 @@ handle_message :: proc(c: ^Voice_Client, kind: proto.Message_Kind, pt: []byte) {
 }
 
 // The server has confirmed the pending session, so start sending on it.
-promote_pending :: proc(c: ^Voice_Client) {
+promote_pending :: proc(c: ^Server_Conn) {
 	if !link_promote(&c.link) {
 		log.debugf("rekeyed (session %08x)", c.current.local_idx)
 	} else {
@@ -519,12 +523,12 @@ promote_pending :: proc(c: ^Voice_Client) {
 }
 
 // handle_welcome handles the server's answer to our hello (see
-// proto/names.odin). After a rekey the answer names the connection we already
+// proto/hello.odin). After a rekey the answer names the connection we already
 // have, and nothing changes. Any other answer means the server has made a new
 // connection for us, either because this is our first handshake, or the server
 // restarted, or it had given up on us. Everything we knew about the old
 // connection is then void.
-handle_welcome :: proc(c: ^Voice_Client, pt: []byte) {
+handle_welcome :: proc(c: ^Server_Conn, pt: []byte) {
 	instance, logged_in := proto.decode_welcome(pt)
 	if c.has_instance && instance == c.instance {
 		return
@@ -554,7 +558,7 @@ handle_welcome :: proc(c: ^Voice_Client, pt: []byte) {
 	auth_restart(c, logged_in)
 }
 
-refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
+refusal_text :: proc(c: ^Server_Conn, reason: proto.Refusal) -> string {
 	log.warnf("%s refused the connection: %v", c.server_addr, reason)
 	#partial switch reason {
 	case .Wrong_Password:
@@ -578,7 +582,7 @@ refusal_text :: proc(c: ^Voice_Client, reason: proto.Refusal) -> string {
 // to the UI (see publish_key_change), which lets the user trust the new key once
 // they know why it changed.
 verify_server_key :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	key: [proto.KEY_SIZE]byte,
 ) -> (
 	trusted: bool,
@@ -647,7 +651,7 @@ verify_server_key :: proc(
 // send_data sends a message to the server. A heavy message (proto.HEAVY_KINDS)
 // goes over the bulk link once that is available, and anything else goes over
 // the main link.
-send_data :: proc(c: ^Voice_Client, plaintext: []byte) -> bool {
+send_data :: proc(c: ^Server_Conn, plaintext: []byte) -> bool {
 	l := &c.link
 	if c.bulk.has_current && proto.is_heavy(plaintext) {
 		l = &c.bulk.link
@@ -665,14 +669,15 @@ link_send :: proc(l: ^Link, plaintext: []byte) -> bool {
 	return transport_send(&l.transport, pkt)
 }
 
-log_stats :: proc(c: ^Voice_Client) {
+log_stats :: proc(c: ^Server_Conn) {
 	if !c.has_current || time.tick_since(c.last_stats) < time.Second {
 		return
 	}
 	c.last_stats = time.tick_now()
 	v := &c.voice
 	defer {
-		v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed, v.dropouts = 0, 0, 0, 0, 0, 0
+		v.captured, v.gated, v.sent_frames, v.sent_bytes, v.concealed, v.dropouts =
+			0, 0, 0, 0, 0, 0
 		v.skipped = 0
 		clear(&v.received)
 		c.video.bytes_out, c.video.bytes_in = 0, 0

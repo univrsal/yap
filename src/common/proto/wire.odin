@@ -6,7 +6,7 @@
 // checked against a saved key afterwards) *before* revealing its own
 // static key in msg3. So an impostor server learns nothing about who is
 // connecting. msg3 also has an encrypted payload, the client's hello
-// (see names.odin), which carries the server password if there is one.
+// (see hello.odin), which carries the server password if there is one.
 // Only a server whose key the client has checked ever sees it.
 //
 //	client                               server

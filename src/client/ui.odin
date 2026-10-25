@@ -45,7 +45,7 @@ UI_Options :: struct {
 // The connection and the thread (or the frame loop) that runs it. See
 // net_native.odin and net_web.odin.
 Net_Session :: struct {
-	client:          ^conn.Voice_Client,
+	client:          ^conn.Server_Conn,
 	thread:          Net_Thread,
 	stop:            bool, // set atomically to end the network loop
 	// Without threads nobody would notice `stop`, so the frame loop
@@ -1218,7 +1218,7 @@ session_new :: proc(ui: ^UI, server, password: string, channel := "") -> ^Net_Se
 	ns.view.wake = ui_wake
 	ns.view.status = .Connecting
 	ns.view.server = strings.clone(server)
-	ns.client = new(conn.Voice_Client)
+	ns.client = new(conn.Server_Conn)
 	ns.client.view = &ns.view
 	ns.client.slot = ns.slot
 	ns.client.blobs.disk = &ui.image_cache

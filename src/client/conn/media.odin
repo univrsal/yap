@@ -54,7 +54,7 @@ MEDIA_WARN_SILENT :: 3
 MEDIA_RECV_MAX :: 256
 
 // media_step opens the media link when it is time to do so and keeps it running.
-media_step :: proc(c: ^Voice_Client) {
+media_step :: proc(c: ^Server_Conn) {
 	m := &c.media
 	port := c.rpc.server.media_port
 	if !c.has_current || !c.has_instance || c.restart || c.auth.state != .Done || port == 0 {
@@ -105,7 +105,7 @@ with_port :: proc(addr: string, port: u16) -> string {
 
 // media_handshake is drive_handshake for the media link.
 @(private = "file")
-media_handshake :: proc(c: ^Voice_Client) {
+media_handshake :: proc(c: ^Server_Conn) {
 	m := &c.media
 	if m.has_current && time.tick_since(m.current.created) > proto.REJECT_AFTER {
 		log.warn("media link expired without a successful rekey")
@@ -159,7 +159,7 @@ media_handshake :: proc(c: ^Voice_Client) {
 }
 
 // media_receive handles packets that arrived over the media link.
-media_receive :: proc(c: ^Voice_Client) {
+media_receive :: proc(c: ^Server_Conn) {
 	m := &c.media
 	if !m.transport.open {
 		return
@@ -174,7 +174,7 @@ media_receive :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-handle_media_packet :: proc(c: ^Voice_Client, packet: []byte) {
+handle_media_packet :: proc(c: ^Server_Conn, packet: []byte) {
 	m := &c.media
 	#partial switch proto.packet_type(packet) {
 	case .Handshake_Cookie:
@@ -268,14 +268,14 @@ media_retry_later :: proc(m: ^Media_Link) {
 // media_restart forgets the media link's sessions when the connection is a new
 // one, because the server dropped them together with the old connection. The
 // transport stays open for the next handshake.
-media_restart :: proc(c: ^Voice_Client) {
+media_restart :: proc(c: ^Server_Conn) {
 	link_reset(&c.media.link)
 	c.media.retry_at = {}
 	c.media.refusals = 0
 	c.media.timeouts = 0
 }
 
-media_close :: proc(c: ^Voice_Client) {
+media_close :: proc(c: ^Server_Conn) {
 	transport_close(&c.media.transport)
 	media_restart(c)
 }

@@ -62,13 +62,13 @@ view_destroy_invites :: proc(v: ^View) {
 	delete(v.invites.of)
 }
 
-invite_create :: proc(c: ^Voice_Client, cmd: Invite_Create_Command) {
+invite_create :: proc(c: ^Server_Conn, cmd: Invite_Create_Command) {
 	buf: [proto.INVITE_CREATE_SIZE]u8
 	request(
 		c,
 		.Invite_Create,
 		proto.encode_invite_create(&buf, cmd.max_uses, cmd.expires),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Ok:
 			case .Too_Large:
@@ -101,12 +101,12 @@ invite_create :: proc(c: ^Voice_Client, cmd: Invite_Create_Command) {
 	)
 }
 
-invites_list :: proc(c: ^Voice_Client) {
+invites_list :: proc(c: ^Server_Conn) {
 	request(
 		c,
 		.Invite_List,
 		nil,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
 				return
 			}
@@ -143,7 +143,7 @@ invites_list :: proc(c: ^Voice_Client) {
 	)
 }
 
-invite_revoke :: proc(c: ^Voice_Client, code: string) {
+invite_revoke :: proc(c: ^Server_Conn, code: string) {
 	buf: [1 + proto.INVITE_CODE_SIZE]u8
 	body := proto.encode_invite_code(&buf, code)
 	if body == nil {
@@ -153,7 +153,7 @@ invite_revoke :: proc(c: ^Voice_Client, code: string) {
 		c,
 		.Invite_Revoke,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
 				notify(c, false, status_text(status))
 				return
@@ -163,13 +163,13 @@ invite_revoke :: proc(c: ^Voice_Client, code: string) {
 	)
 }
 
-invite_of :: proc(c: ^Voice_Client, account: proto.Account_Id) {
+invite_of :: proc(c: ^Server_Conn, account: proto.Account_Id) {
 	buf: [4]u8
 	request(
 		c,
 		.Invite_Of,
 		proto.encode_account_id(&buf, account),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			account := proto.Account_Id(tag)
 			of: View_Invite_Of
 			#partial switch status {

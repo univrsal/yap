@@ -39,7 +39,7 @@ sound_command :: proc(kind: audio.Sound_Event, name: string) -> (cmd: Sound_Comm
 	return
 }
 
-sound_command_apply :: proc(c: ^Voice_Client, cmd: ^Sound_Command) {
+sound_command_apply :: proc(c: ^Server_Conn, cmd: ^Sound_Command) {
 	audio.notifications_set(&c.voice.notifications, cmd.kind, string(cmd.name_buf[:cmd.name_len]))
 }
 
@@ -54,7 +54,7 @@ Trouble :: struct {
 }
 
 // trouble_step checks the connection, along with the pings (ping_step).
-trouble_step :: proc(c: ^Voice_Client, stats: Connection_Stats) {
+trouble_step :: proc(c: ^Server_Conn, stats: Connection_Stats) {
 	t := &c.trouble
 	bad := my_room(c) != 0 && stats.lost_run >= LOST_IN_A_ROW
 	switch {
@@ -76,7 +76,7 @@ trouble_step :: proc(c: ^Voice_Client, stats: Connection_Stats) {
 
 // trouble_end forgets about the connection being bad: it is better, or it is
 // gone (connection_lost).
-trouble_end :: proc(c: ^Voice_Client) {
+trouble_end :: proc(c: ^Server_Conn) {
 	if c.trouble.bad {
 		c.trouble = {}
 		loop_sounds(c)
@@ -85,7 +85,7 @@ trouble_end :: proc(c: ^Voice_Client) {
 
 // trouble_length is how long Connection_Trouble plays.
 @(private = "file")
-trouble_length :: proc(c: ^Voice_Client) -> time.Duration {
+trouble_length :: proc(c: ^Server_Conn) -> time.Duration {
 	clip := c.voice.notifications.clips[.Connection_Trouble]
 	if clip == nil {
 		return 0
@@ -98,7 +98,7 @@ trouble_length :: proc(c: ^Voice_Client) -> time.Duration {
 // knock instead if our voice is busy, here or on another server), the
 // ringback while our call rings out, otherwise Connection_Bad while the
 // connection stays bad, and nothing otherwise.
-loop_sounds :: proc(c: ^Voice_Client) {
+loop_sounds :: proc(c: ^Server_Conn) {
 	loop: audio.Sound_Event
 	#partial switch c.call.status {
 	case .Ringing_In:

@@ -29,7 +29,7 @@ import "core:time"
 // feeds in whatever arrives. Its state belongs to the connection rather than
 // to a session, so it carries across rekeys. A rekey is told apart from a
 // connection starting over, where both ends restart from 0, by the Welcome
-// (names.odin).
+// (hello.odin).
 
 STREAM_HEADER_SIZE :: 1 + 4 + 1
 STREAM_FRAME_DATA :: MAX_PAYLOAD_SIZE - STREAM_HEADER_SIZE
