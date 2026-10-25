@@ -41,8 +41,8 @@ import "core:encoding/endian"
 //	                 response  [a memory report, as text] (common/memtrack/report.odin)
 //
 // where str8 is [len u8][bytes] and str16 is [len u16][bytes]. The remaining
-// ops are described in accounts.odin, buddies.odin, convs.odin, messages.odin and
-// push.odin. A body may grow at its end: a decoder ignores whatever follows
+// ops are described in accounts.odin, buddies.odin, convs.odin, messages.odin,
+// moderation.odin and push.odin. A body may grow at its end: a decoder ignores whatever follows
 // the fields it knows.
 
 App_Kind :: enum u8 {
@@ -103,6 +103,9 @@ Request_Op :: enum u16 {
 	// 0x003A was Conv_View, while chat was still streamed per channel.
 	Conv_Rights_Get      = 0x003B,
 	Conv_Rights_Set      = 0x003C,
+	// Moving and muting people in voice, see moderation.odin.
+	Voice_Move           = 0x003D,
+	Voice_Mute           = 0x003E,
 	// Messages, see messages.odin.
 	Msg_Post             = 0x0040,
 	Msg_History          = 0x0041,
@@ -121,6 +124,9 @@ Request_Op :: enum u16 {
 	Account_Roles_Set    = 0x0072,
 	Account_Disable      = 0x0073,
 	Role_Order           = 0x0074,
+	// Bans, see moderation.odin.
+	Ban_Set              = 0x0075,
+	Ban_List             = 0x0076,
 	// Calls, see calls.odin.
 	Call_Start           = 0x0080,
 	Call_Accept          = 0x0081,
@@ -183,6 +189,9 @@ Status :: enum u8 {
 	Closed          = 10,
 	Internal        = 11,
 	Quota           = 12, // the account has used its allowance, such as for uploads
+	// The account is banned (moderation.odin). It answers a login with the
+	// right password, and the body is [reason str8].
+	Banned          = 13,
 	// Never sent by a server. A client uses it for a request whose
 	// connection started over before the response arrived.
 	Reset           = 255,

@@ -10,8 +10,8 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-import "lib:http"
 import "common:proto"
+import "lib:http"
 
 // Events (docs/bot-api, "Events: the WebSocket"): GET /api/v1/events
 // upgrades to a WebSocket over which the gateway sends text frames, each
@@ -256,7 +256,8 @@ events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 		)
 	case .Msgs_Purged:
 		p, ok := proto.decode_msgs_purged(body)
-		if !ok {
+		// One author's messages: not told about yet (moderation.md, phase 6).
+		if !ok || p.author != 0 {
 			return
 		}
 		emit(

@@ -643,7 +643,8 @@ messages_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool 
 		return true
 	}
 	if op == .Msgs_Purged {
-		if p, ok := proto.decode_msgs_purged(body); ok {
+		// One author's messages: not handled yet (moderation.md, phase 6).
+		if p, ok := proto.decode_msgs_purged(body); ok && p.author == 0 {
 			msgs_purged(c, p)
 		}
 		return true

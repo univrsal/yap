@@ -14,7 +14,7 @@ Branch `moderation-plan`, off master (10f7192). Sizes as in [next.md](next.md).
 
 | # | Change | Size | Status |
 | --- | --- | --- | --- |
-| 1 | Wire and database: permissions, Server_Muted, requests, bans table | M | |
+| 1 | Wire and database: permissions, Server_Muted, requests, bans table | M | done |
 | 2 | Server: move, disconnect, mute | M | |
 | 3 | Client: menu items, mute shown, notices | M | |
 | 4 | Client: dragging people between rooms | M | |
@@ -230,6 +230,31 @@ and `CREATE INDEX messages_sender ON messages(sender, id)` for phase 6.
 Server_Muted lives in `accounts.flags`, which needs no migration.
 
 Tests: encode/decode round trips, old-length bodies still decode.
+
+*As built:* the codecs are in `proto/moderation.odin`, which also
+documents the requests and rules; `rpc.odin` has Voice_Move 0x003D,
+Voice_Mute 0x003E, Ban_Set 0x0075, Ban_List 0x0076 and Status.Banned 13
+(body `[reason str8]`, `encode_banned`). `MAX_BAN_REASON` is 200 bytes,
+Ban_List holds the newest bans that fit (MAX_BANS_LISTED 1000 for
+decoding). Logged_Out goes through `encode_logged_out` /
+`decode_logged_out` everywhere (server, client, `lite`); without a text
+the body is the one byte it always was.
+
+A Purge by author must have `before = 0` (`decode_purge` refuses a time
+and an author together, and neither), so an older server answers it
+Invalid rather than purging everyone's old messages. Until phase 6 the
+server answers an author purge Invalid, and the client and the bot
+gateway ignore a Msgs_Purged with an author.
+
+The gateway maps Status.Banned to 403 `banned` (docs/API.md), and the
+permissions show up there as `move_members`, `mute_members`,
+`ban_members`. The Roles page already offers them, with no effect until
+phases 2 and 5.
+
+Schema 30 is the first step after the squashed baseline.
+`test_db_upgrade_28` builds its version-28 database from a current one,
+so it now drops what step 30 adds first; `test_db_bans_step` takes a
+baseline database to 30.
 
 ## 2. Server: move, disconnect, mute
 

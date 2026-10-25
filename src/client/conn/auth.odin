@@ -545,7 +545,7 @@ auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 		shared_end(c)
 		convs_synced(c)
 	case .Logged_Out:
-		reason := proto.Logout_Reason(body[0]) if len(body) > 0 else proto.Logout_Reason{}
+		reason, _ := proto.decode_logged_out(body)
 		why := "You have been logged out."
 		#partial switch reason {
 		case .Revoked:

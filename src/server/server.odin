@@ -645,8 +645,8 @@ conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
 	u.last_typing = {}
 	s.waiting[u.key] = u
 	if reason != {} {
-		body := [1]u8{u8(reason)}
-		send_event(u, .Logged_Out, body[:])
+		buf: [proto.LOGGED_OUT_MAX_SIZE]u8
+		send_event(u, .Logged_Out, proto.encode_logged_out(&buf, reason, ""))
 	}
 }
 

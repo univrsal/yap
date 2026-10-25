@@ -77,7 +77,7 @@ purge :: proc(
 ) {
 	ts.requests += 1
 	id := ts.requests
-	buf: [proto.PURGE_SIZE]u8
+	buf: [proto.PURGE_MAX_SIZE]u8
 	rpc_handle(&ts.s, u, proto.encode_request(id, .Purge, proto.encode_purge(&buf, p)))
 	retention_drain(&ts.s.retention, &ts.s.blobs, &ts.s)
 	ts_pump(t, ts, u)

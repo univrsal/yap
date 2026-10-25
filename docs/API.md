@@ -166,6 +166,7 @@ Anything that isn't a success answers with an HTTP status and:
 | 401 | `unauthenticated` | No token, not a token, or one that doesn't work (any more). |
 | 401 | `wrong_password` | `/login` with a wrong username or password. |
 | 403 | `denied` | The account may not do that. |
+| 403 | `banned` | `/login` for an account that is banned from the server. |
 | 404 | `not_found` | There's no such thing, or the account can't see it. |
 | 405 | `method_not_allowed` | Not with that method; `Allow` lists the ones there are. |
 | 409 | `conflict` | It's taken, or there already. |
@@ -359,7 +360,8 @@ An [account](#account) without `deleted` and `online`, plus `owner` and
 `permissions`, the permissions beyond everyone's: `create_channels`,
 `manage_channels`, `invite`, `manage_roles`, `manage_messages`,
 `pin_messages`, `manage_accounts`, `mention_everyone`, `purge`,
-`attach_files`, `create_invites`.
+`attach_files`, `create_invites`, `move_members`, `mute_members`,
+`ban_members`.
 
 ### role
 

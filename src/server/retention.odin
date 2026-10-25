@@ -702,7 +702,7 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 				len(step.convs),
 			)
 		}
-		buf: [proto.MSGS_PURGED_SIZE]u8
+		buf: [proto.MSGS_PURGED_MAX_SIZE]u8
 		for id in step.convs {
 			conv := conv_by_id(&s.convs, id)
 			if conv == nil {
@@ -788,7 +788,8 @@ purge_answer :: proc(s: ^Server) {
 // purge_request handles Purge. It is answered when the purge is done.
 purge_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	p, ok := proto.decode_purge(body)
-	if !ok {
+	// Purging one author's messages isn't there yet (moderation.md, phase 6).
+	if !ok || p.author != 0 {
 		respond(u, id, .Invalid)
 		return
 	}

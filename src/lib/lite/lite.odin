@@ -630,8 +630,7 @@ handle_app :: proc(c: ^Client, msg: []u8) {
 				set_phase(c, .Syncing)
 			}
 		case .Logged_Out:
-			c.logout_reason =
-				proto.Logout_Reason(body[0]) if len(body) > 0 else proto.Logout_Reason{}
+			c.logout_reason, _ = proto.decode_logged_out(body)
 			log.warnf("%s: logged out: %v", c.opt.name, c.logout_reason)
 		}
 		if c.opt.handlers.event != nil {

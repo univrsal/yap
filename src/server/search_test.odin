@@ -160,7 +160,7 @@ test_search :: proc(t: ^testing.T) {
 
 	// Purged messages are removed from the search index too.
 	testing.expect(t, db_exec(&s.db, "UPDATE messages SET time = 1"))
-	buf: [proto.PURGE_SIZE]u8
+	buf: [proto.PURGE_MAX_SIZE]u8
 	ts.requests += 1
 	rpc_handle(
 		s,

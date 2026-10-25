@@ -176,10 +176,9 @@ test_db_before_baseline :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_db_upgrade_28 :: proc(t: ^testing.T) {
-	// A database at version 28 still has messages.blob and its index. It is
-	// brought to the baseline without them, and keeps its messages, what
-	// refers to them, the search index and the id counter.
+test_db_bans_step :: proc(t: ^testing.T) {
+	// A database at the baseline gets the bans table and the index on
+	// messages' senders (step 30), and keeps its messages.
 	dir := test_dir(t)
 	defer remove_tree(dir)
 	path := file_in(dir, DB_FILE)
@@ -191,6 +190,60 @@ test_db_upgrade_28 :: proc(t: ^testing.T) {
 			db_exec(
 				&db,
 				`
+				DROP TABLE bans;
+				DROP INDEX messages_sender;
+				INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, created)
+					VALUES ('alice', 'Alice', x'00', x'00', 1, 1);
+				INSERT INTO convs (kind, name, created) VALUES (0, 'lobby', 1);
+				INSERT INTO messages (conv, sender, time, kind, text) VALUES (1, 1, 1, 0, 'hello');
+				PRAGMA user_version = 29;
+				`,
+			),
+		)
+		db_commit(&db)
+		db_close(&db)
+	}
+
+	db: DB
+	testing.expect(t, db_open(&db, path))
+	defer db_close(&db)
+	testing.expect_value(t, pragma(t, &db, "PRAGMA user_version"), SCHEMA_VERSION)
+	testing.expect_value(
+		t,
+		pragma(
+			t,
+			&db,
+			"SELECT count(*) FROM sqlite_master WHERE name IN ('bans', 'bans_email', 'messages_sender')",
+		),
+		3,
+	)
+	testing.expect_value(t, pragma(t, &db, "SELECT count(*) FROM messages"), 1)
+	testing.expect(
+		t,
+		db_exec(&db, "INSERT INTO bans (account, by, time, reason) VALUES (1, 1, 2, 'spam')"),
+	)
+	testing.expect_value(t, pragma(t, &db, "SELECT count(*) FROM bans WHERE email = ''"), 1)
+}
+
+@(test)
+test_db_upgrade_28 :: proc(t: ^testing.T) {
+	// A database at version 28 still has messages.blob and its index, and
+	// nothing from the steps after the baseline. It is brought to the
+	// baseline without them, and keeps its messages, what refers to them,
+	// the search index and the id counter.
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	path := file_in(dir, DB_FILE)
+	{
+		db: DB
+		testing.expect(t, db_open(&db, path))
+		testing.expect(
+			t,
+			db_exec(
+				&db,
+				`
+				DROP TABLE bans;
+				DROP INDEX messages_sender;
 				ALTER TABLE messages ADD COLUMN blob INTEGER REFERENCES blobs(id);
 				CREATE INDEX messages_blob ON messages(blob) WHERE blob IS NOT NULL;
 				INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, created)
@@ -229,6 +282,15 @@ test_db_upgrade_28 :: proc(t: ^testing.T) {
 		0,
 	)
 	testing.expect_value(t, pragma(t, &db, "SELECT count(*) FROM pragma_foreign_key_check"), 0)
+	testing.expect_value(
+		t,
+		pragma(
+			t,
+			&db,
+			"SELECT count(*) FROM sqlite_master WHERE name = 'messages_sender' AND tbl_name = 'messages'",
+		),
+		1,
+	)
 	testing.expect_value(t, pragma(t, &db, "SELECT count(*) FROM messages"), 1)
 	testing.expect_value(t, pragma(t, &db, "SELECT message FROM pins"), 1)
 	testing.expect_value(

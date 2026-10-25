@@ -367,7 +367,23 @@ UPGRADE_28 ::
 // The steps since the baseline, the first of which takes a database to
 // BASELINE_VERSION + 1.
 @(private = "file", rodata)
-MIGRATIONS := [?]string{}
+MIGRATIONS := [?]string {
+	// 30: bans (proto/moderation.odin). A banned account is also Disabled.
+	// `email` is the account's address when it was banned, in lower case or
+	// '' for none, which can't be used to register while the ban lasts. The
+	// index on messages' senders is for removing one account's messages.
+	`
+	CREATE TABLE bans (
+		account INTEGER PRIMARY KEY REFERENCES accounts(id),
+		by      INTEGER NOT NULL REFERENCES accounts(id),
+		time    INTEGER NOT NULL,
+		reason  TEXT NOT NULL DEFAULT '',
+		email   TEXT NOT NULL DEFAULT ''
+	);
+	CREATE INDEX bans_email ON bans(email) WHERE email != '';
+	CREATE INDEX messages_sender ON messages(sender, id);
+	`,
+}
 
 // The version a database has once it has been through every step.
 SCHEMA_VERSION :: BASELINE_VERSION + len(MIGRATIONS)

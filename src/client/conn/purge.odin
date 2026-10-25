@@ -32,7 +32,7 @@ purge_start :: proc(c: ^Server_Conn, cmd: Purge_Command) {
 	if cmd.all {
 		conv = 0
 	}
-	buf: [proto.PURGE_SIZE]u8
+	buf: [proto.PURGE_MAX_SIZE]u8
 	body := proto.encode_purge(&buf, {conv = conv, before = cmd.before, what = cmd.what})
 	request(c, .Purge, body, proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			files := proto.Purge_What(tag) == .Files
