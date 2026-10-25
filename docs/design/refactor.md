@@ -736,7 +736,7 @@ master, so it can be tested and merged alone.
 | 7 | `refactor-ui` (off `big-cleanup` 6f23d89) | 71e4f45, 21a3918, 57d7422, 68ae614 | built: all targets checked, client tests, GUI run (channel/thread/DM composers, server settings, Channels/Roles/Accounts wide and at 420 px, notices, two-press deletes, release sliders, text fields) |
 | 8 | `refactor-conn` (off `big-cleanup` 41a2dea) | 0a7c317..7bc6a4b | built: all targets checked, conn/richtext/imaging/client tests, headless avatar set (known and fresh picture) and a headless command run diffed old against new; server-icon upload and a GUI run not done |
 | 9 | `refactor-link` (off `big-cleanup` 2de967b) | af0752d, 53accd7 | built: all targets checked, proto/server/conn tests (+ link_step and session tests), headless client with a 6 s rekey across a server restart (main, bulk and media links all came back), stress run identical to before; browser client not run |
-| 10 | `refactor-layout` (off `big-cleanup` a7bb33a) | 5689fde..HEAD | built: all targets checked, all test suites, `build.sh` run twice (second is a no-op), `fetch.sh` run, web build and node checks of the output, container build; Windows scripts and the web client in a browser not run |
+| 10 | `refactor-layout` (off `big-cleanup` a7bb33a) | 5689fde..d13e48b | built: all targets checked, all test suites, `build.sh` run twice (second is a no-op), `fetch.sh` run, web build and node checks of the output, container build; Windows scripts and the web client in a browser not run |
 
 Phases are collected on `big-cleanup`; each phase branches off it.
 
