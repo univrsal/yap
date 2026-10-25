@@ -11,9 +11,10 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "common:proto"
+import "gate"
 import "lib:gateway"
 import "lib:http"
-import "common:proto"
 
 // The relay runs alongside the server if the config enables it (see
 // config.odin). It lets the web client reach this server.
@@ -99,7 +100,7 @@ Relay :: struct {
 	// threads count down when they end (see MAX_CONNECTIONS).
 	open:          int,
 	by_addr_mutex: sync.Mutex,
-	by_addr:       map[Gate_Addr]int,
+	by_addr:       map[gate.Key]int,
 }
 
 // start_relay listens for browsers on `port` (of `bind`) in a thread of its own and
@@ -229,7 +230,7 @@ relay_count :: proc(r: ^Relay, from: net.Endpoint) -> bool {
 	if r.open >= MAX_CONNECTIONS {
 		return false
 	}
-	addr := gate_addr(from)
+	addr := gate.key_of(from)
 	if !gateway.address_private(from.address) {
 		if r.by_addr[addr] >= MAX_CONNECTIONS_PER_ADDRESS {
 			return false
@@ -247,7 +248,7 @@ relay_uncount :: proc(r: ^Relay, from: net.Endpoint) {
 	if gateway.address_private(from.address) {
 		return
 	}
-	addr := gate_addr(from)
+	addr := gate.key_of(from)
 	if n := r.by_addr[addr]; n > 1 {
 		r.by_addr[addr] = n - 1
 	} else {

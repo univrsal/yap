@@ -7,6 +7,7 @@ import "core:net"
 import "core:time"
 
 import "common:proto"
+import "gate"
 
 // Session_Base is what a session has on the server, on the main port (Client)
 // and on the media port (Media_Session) alike: the handshake it came from, the
@@ -49,7 +50,7 @@ REFUSED_COPIES :: 3
 session_init :: proc(
 	sock: net.UDP_Socket,
 	key: ^ecdh.Private_Key,
-	gate: ^Handshake_Gate,
+	g: ^gate.Gate,
 	sessions: ^map[proto.Session_Id]^$S,
 	max_sessions: int,
 	packet: []byte,
@@ -59,7 +60,7 @@ session_init :: proc(
 ) {
 	sender_idx := proto.init_sender_index(packet)
 	// This comes first so that a flood of Inits is turned away cheaply.
-	verdict, cookie := gate_check(gate, packet, from, len(sessions), max_sessions)
+	verdict, cookie := gate.check(g, packet, from, len(sessions), max_sessions)
 	if verdict == .Cookie {
 		buf: [proto.COOKIE_PACKET_SIZE]byte
 		net.send_udp(sock, proto.encode_cookie_packet(&buf, sender_idx, cookie), from)
@@ -95,7 +96,7 @@ session_init :: proc(
 	c.endpoint = from
 	c.started = time.tick_now()
 	sessions[idx] = c
-	gate_opened(gate, from)
+	gate.opened(g, from)
 	net.send_udp(sock, resp, from)
 	return c
 }
@@ -115,7 +116,7 @@ Finish_Result :: enum {
 // handshake.
 session_finish :: proc(
 	b: ^Session_Base,
-	gate: ^Handshake_Gate,
+	g: ^gate.Gate,
 	password: string,
 	packet: []byte,
 	from: net.Endpoint,
@@ -133,15 +134,15 @@ session_finish :: proc(
 	case !hello_ok:
 		return 0, {}, .Version
 	case password != "" && !password_matches(password, got_password):
-		gate_wrong_password(gate, from)
+		gate.wrong_password(g, from)
 		return 0, {}, .Wrong_Password
 	}
 	return id, hello_link, .Ok
 }
 
 // session_keyed marks a session whose handshake has just finished.
-session_keyed :: proc(b: ^Session_Base, gate: ^Handshake_Gate, from: net.Endpoint) {
-	gate_closed(gate, b.endpoint)
+session_keyed :: proc(b: ^Session_Base, g: ^gate.Gate, from: net.Endpoint) {
+	gate.closed(g, b.endpoint)
 	b.keyed = true
 	b.endpoint = from
 	b.last_recv = time.tick_now()
@@ -236,9 +237,9 @@ session_expired :: proc(b: ^Session_Base) -> bool {
 
 // session_release closes a session's handshake and wipes its keys. The caller
 // has taken it out of its map, and frees it.
-session_release :: proc(gate: ^Handshake_Gate, b: ^Session_Base) {
+session_release :: proc(g: ^gate.Gate, b: ^Session_Base) {
 	if !b.keyed {
-		gate_closed(gate, b.endpoint)
+		gate.closed(g, b.endpoint)
 	}
 	proto.responder_reset(&b.handshake)
 	proto.session_reset(&b.session)

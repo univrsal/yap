@@ -7,6 +7,7 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "gate"
 
 // Logging in and the other requests from clients that are about accounts
 // (src/common/proto/accounts.odin).
@@ -84,7 +85,7 @@ Auth :: struct {
 	params:  int,
 	pending: map[u64]Pending, // by the job's id
 	// Logins and registrations by address (LOGINS_PER_ADDRESS).
-	logins:  Addr_Buckets,
+	logins:  gate.Addr_Buckets,
 }
 
 auth_destroy :: proc(a: ^Auth) {
@@ -92,7 +93,7 @@ auth_destroy :: proc(a: ^Auth) {
 		pending_destroy(p)
 	}
 	delete(a.pending)
-	addr_buckets_destroy(&a.logins)
+	gate.addr_buckets_destroy(&a.logins)
 	a^ = {}
 }
 
@@ -549,7 +550,7 @@ login_allowed :: proc(s: ^Server, u: ^Conn) -> bool {
 	}
 	s.auth.logins.burst = LOGINS_PER_ADDRESS
 	s.auth.logins.every = LOGIN_EVERY
-	if !addr_take(&s.auth.logins, c.endpoint) {
+	if !gate.addr_take(&s.auth.logins, c.endpoint) {
 		log.infof("%s: too many logins from its address, refused one", conn_label(u))
 		return false
 	}

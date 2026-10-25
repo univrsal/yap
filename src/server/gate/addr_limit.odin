@@ -1,4 +1,4 @@
-package server
+package gate
 
 import "core:net"
 import "core:time"
@@ -11,7 +11,7 @@ import "common:proto"
 Addr_Buckets :: struct {
 	burst:   int,
 	every:   time.Duration,
-	buckets: proto.Keyed_Buckets(Gate_Addr),
+	buckets: proto.Keyed_Buckets(Key),
 }
 
 addr_buckets_destroy :: proc(b: ^Addr_Buckets) {
@@ -35,7 +35,7 @@ addr_spend :: proc(b: ^Addr_Buckets, from: net.Endpoint) {
 // address without a bucket has, even before `burst` and `every` are set
 // (handshake_gate.odin sets them on the first failure).
 addr_allowed :: proc(b: ^Addr_Buckets, from: net.Endpoint) -> bool {
-	addr := gate_addr(from)
+	addr := key_of(from)
 	if addr not_in b.buckets.by_key {
 		return true
 	}
@@ -46,7 +46,7 @@ addr_allowed :: proc(b: ^Addr_Buckets, from: net.Endpoint) -> bool {
 addr_bucket :: proc(b: ^Addr_Buckets, from: net.Endpoint) -> ^proto.Bucket {
 	return proto.keyed_bucket(
 		&b.buckets,
-		gate_addr(from),
+		key_of(from),
 		time.tick_now(),
 		addr_rate(b),
 		f64(b.burst),

@@ -11,6 +11,7 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "gate"
 
 // The default maximum number of sessions, unless the config sets one
 // (max_sessions). It limits how much memory the sessions use, and with
@@ -105,7 +106,7 @@ Server :: struct {
 	// Only for tests, which make requests much faster than any client
 	// (request_take).
 	requests_unlimited: bool,
-	gate:               Handshake_Gate, // which Inits may start a session
+	gate:               gate.Gate, // which Inits may start a session
 	// The connections that are logged in, and those that aren't yet, keyed
 	// by their device's key (see Conn).
 	conns:              map[[proto.KEY_SIZE]byte]^Conn,
@@ -206,7 +207,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 	defer convs_destroy(&s.convs)
 	defer calls_destroy(&s)
-	defer gate_destroy(&s.gate)
+	defer gate.destroy(&s.gate)
 	db_commit(&s.db)
 	if !hash_worker_start(&s.hasher) {
 		log.error("could not start the thread that hashes passwords")

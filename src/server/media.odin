@@ -9,6 +9,7 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "gate"
 
 // The media link (proto.Link.Media) carries all screen sharing. It uses a UDP
 // port and a thread of its own, so that the thousands of packets per second
@@ -145,7 +146,7 @@ Media :: struct {
 	// loop (camera_allowed).
 	max_cameras:  int,
 	max_sessions: int,
-	gate:         Handshake_Gate, // which Inits may start a session
+	gate:         gate.Gate, // which Inits may start a session
 	cache_age:    time.Duration, // how long fragments are kept for Nacks
 	password:     string, // the server's password
 	key:          ecdh.Private_Key, // a copy of the server's key for the thread
@@ -254,7 +255,7 @@ media_free :: proc(m: ^Media) {
 	delete(m.sessions)
 	delete(m.sharers)
 	delete(m.peers)
-	gate_destroy(&m.gate)
+	gate.destroy(&m.gate)
 }
 
 @(private = "file")

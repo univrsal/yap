@@ -7,6 +7,7 @@ import "core:testing"
 import "core:time"
 
 import "common:proto"
+import "gate"
 
 // The server tests' harness. A Test_Server is a Server without its socket.
 // Connections are created by hand, requests are passed to rpc_handle as if
@@ -82,7 +83,7 @@ ts_close :: proc(ts: ^Test_Server) {
 	delete(s.conns)
 	delete(s.waiting)
 	calls_destroy(s)
-	gate_destroy(&s.gate)
+	gate.destroy(&s.gate)
 	convs_destroy(&s.convs)
 	retention_close(&s.retention)
 	blob_store_close(&s.blobs)

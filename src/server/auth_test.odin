@@ -6,6 +6,7 @@ import "core:testing"
 import "core:time"
 
 import "common:proto"
+import "gate"
 
 // Tests of accounts and logging in, with the harness in harness_test.odin.
 
@@ -809,36 +810,36 @@ test_login_in_flight :: proc(t: ^testing.T) {
 
 @(test)
 test_addr_buckets :: proc(t: ^testing.T) {
-	b := Addr_Buckets {
+	b := gate.Addr_Buckets {
 		burst = 3,
 		every = time.Hour,
 	}
-	defer addr_buckets_destroy(&b)
+	defer gate.addr_buckets_destroy(&b)
 	one := net.Endpoint{net.IP4_Address{192, 0, 2, 1}, 1000}
 	same := net.Endpoint{net.IP4_Address{192, 0, 2, 1}, 2000} // only the port differs
 	other := net.Endpoint{net.IP4_Address{192, 0, 2, 2}, 1000}
 	for _ in 0 ..< 3 {
-		testing.expect(t, addr_take(&b, one))
+		testing.expect(t, gate.addr_take(&b, one))
 	}
-	testing.expect(t, !addr_take(&b, same))
-	testing.expect(t, !addr_allowed(&b, one))
-	testing.expect(t, addr_take(&b, other))
+	testing.expect(t, !gate.addr_take(&b, same))
+	testing.expect(t, !gate.addr_allowed(&b, one))
+	testing.expect(t, gate.addr_take(&b, other))
 
 	// Counting what has already happened goes into debt, which takes longer
 	// to pay off.
-	addr_spend(&b, other)
-	addr_spend(&b, other)
-	addr_spend(&b, other)
-	testing.expect(t, !addr_allowed(&b, other))
-	bucket := b.buckets.by_key[gate_addr(other)]
+	gate.addr_spend(&b, other)
+	gate.addr_spend(&b, other)
+	gate.addr_spend(&b, other)
+	testing.expect(t, !gate.addr_allowed(&b, other))
+	bucket := b.buckets.by_key[gate.key_of(other)]
 	testing.expect(t, bucket.tokens < 0)
 
 	// Tokens come back with time.
-	bucket = b.buckets.by_key[gate_addr(one)]
+	bucket = b.buckets.by_key[gate.key_of(one)]
 	bucket.last = time.tick_add(bucket.last, -2 * time.Hour)
-	b.buckets.by_key[gate_addr(one)] = bucket
-	testing.expect(t, addr_allowed(&b, one))
-	testing.expect(t, addr_take(&b, one))
-	testing.expect(t, addr_take(&b, one))
-	testing.expect(t, !addr_take(&b, one))
+	b.buckets.by_key[gate.key_of(one)] = bucket
+	testing.expect(t, gate.addr_allowed(&b, one))
+	testing.expect(t, gate.addr_take(&b, one))
+	testing.expect(t, gate.addr_take(&b, one))
+	testing.expect(t, !gate.addr_take(&b, one))
 }

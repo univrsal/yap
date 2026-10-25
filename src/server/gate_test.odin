@@ -6,6 +6,7 @@ import "core:testing"
 import "core:time"
 
 import "common:proto"
+import "gate"
 
 // A busy server asks for a cookie, and a client that has it gets in. A
 // forged Init with a wrong cookie gets nowhere, and the handshakes in
@@ -31,7 +32,7 @@ test_handshake_gate :: proc(t: ^testing.T) {
 	from, _ := net.bound_endpoint(client)
 	buf: [proto.MAX_PACKET_SIZE]u8
 
-	// Up to gate_cookie_after(16) = 4 handshakes in progress, Inits are
+	// Up to gate.cookie_after(16) = 4 handshakes in progress, Inits are
 	// answered right away.
 	key: ecdh.Private_Key
 	testing.expect(t, ecdh.private_key_generate(&key, .X25519))
@@ -100,8 +101,8 @@ test_handshake_gate :: proc(t: ^testing.T) {
 // The limits on handshakes in progress: in total, and from one address.
 @(test)
 test_handshake_gate_limits :: proc(t: ^testing.T) {
-	g: Handshake_Gate
-	defer gate_destroy(&g)
+	g: gate.Gate
+	defer gate.destroy(&g)
 	MAX :: 1024
 	init: [proto.INIT_COOKIE_SIZE]u8
 	init[0] = u8(proto.Packet_Type.Handshake_Init)
@@ -110,67 +111,67 @@ test_handshake_gate_limits :: proc(t: ^testing.T) {
 
 	// One address may only have so many handshakes in progress, except
 	// this machine.
-	for _ in 0 ..< HALF_OPEN_PER_ADDRESS {
-		gate_opened(&g, remote)
-		gate_opened(&g, local)
+	for _ in 0 ..< gate.HALF_OPEN_PER_ADDRESS {
+		gate.opened(&g, remote)
+		gate.opened(&g, local)
 	}
-	verdict, _ := gate_check(&g, init[:proto.INIT_SIZE], remote, 0, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Drop)
-	verdict, _ = gate_check(&g, init[:proto.INIT_SIZE], local, 0, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Accept)
-	gate_closed(&g, remote)
-	verdict, _ = gate_check(&g, init[:proto.INIT_SIZE], remote, 0, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Accept)
+	verdict, _ := gate.check(&g, init[:proto.INIT_SIZE], remote, 0, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Drop)
+	verdict, _ = gate.check(&g, init[:proto.INIT_SIZE], local, 0, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Accept)
+	gate.closed(&g, remote)
+	verdict, _ = gate.check(&g, init[:proto.INIT_SIZE], remote, 0, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Accept)
 
 	// Over the threshold a cookie is needed. Up to half of the sessions,
 	// an Init that has one is let in, beyond that not even then.
-	g.half_open = gate_cookie_after(MAX)
+	g.half_open = gate.cookie_after(MAX)
 	cookie: [proto.COOKIE_SIZE]u8
-	verdict, cookie = gate_check(&g, init[:proto.INIT_SIZE], remote, 0, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Cookie)
+	verdict, cookie = gate.check(&g, init[:proto.INIT_SIZE], remote, 0, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Cookie)
 	copy(init[proto.INIT_SIZE:], cookie[:])
-	verdict, _ = gate_check(&g, init[:], remote, 0, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Accept)
+	verdict, _ = gate.check(&g, init[:], remote, 0, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Accept)
 	g.half_open = MAX / 2
-	verdict, _ = gate_check(&g, init[:], remote, 0, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Drop)
+	verdict, _ = gate.check(&g, init[:], remote, 0, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Drop)
 	// A full session table turns everybody away.
-	g.half_open = gate_cookie_after(MAX)
-	verdict, _ = gate_check(&g, init[:], remote, MAX, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Drop)
+	g.half_open = gate.cookie_after(MAX)
+	verdict, _ = gate.check(&g, init[:], remote, MAX, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Drop)
 
 	// A cookie made with the secret before the current one still works,
 	// one older than that doesn't.
-	g.rotated = time.tick_add(time.tick_now(), -COOKIE_ROTATE)
-	verdict, _ = gate_check(&g, init[:], remote, 0, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Accept)
-	g.rotated = time.tick_add(time.tick_now(), -COOKIE_ROTATE)
-	verdict, _ = gate_check(&g, init[:], remote, 0, MAX)
-	testing.expect_value(t, verdict, Gate_Verdict.Cookie)
+	g.rotated = time.tick_add(time.tick_now(), -gate.COOKIE_ROTATE)
+	verdict, _ = gate.check(&g, init[:], remote, 0, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Accept)
+	g.rotated = time.tick_add(time.tick_now(), -gate.COOKIE_ROTATE)
+	verdict, _ = gate.check(&g, init[:], remote, 0, MAX)
+	testing.expect_value(t, verdict, gate.Verdict.Cookie)
 }
 
 // An address that keeps getting the server password wrong is ignored for a
 // while, and nobody else is.
 @(test)
 test_handshake_gate_password :: proc(t: ^testing.T) {
-	g: Handshake_Gate
-	defer gate_destroy(&g)
+	g: gate.Gate
+	defer gate.destroy(&g)
 	init: [proto.INIT_SIZE]u8
 	init[0] = u8(proto.Packet_Type.Handshake_Init)
 	guesser := net.Endpoint{net.IP4_Address{192, 0, 2, 1}, 5000}
 	other := net.Endpoint{net.IP4_Address{192, 0, 2, 2}, 5000}
-	for _ in 0 ..< PASSWORD_FAILURES - 1 {
-		gate_wrong_password(&g, guesser)
+	for _ in 0 ..< gate.PASSWORD_FAILURES - 1 {
+		gate.wrong_password(&g, guesser)
 	}
-	verdict, _ := gate_check(&g, init[:], guesser, 0, 1024)
-	testing.expect_value(t, verdict, Gate_Verdict.Accept)
-	gate_wrong_password(&g, guesser)
-	verdict, _ = gate_check(&g, init[:], guesser, 0, 1024)
-	testing.expect_value(t, verdict, Gate_Verdict.Drop)
+	verdict, _ := gate.check(&g, init[:], guesser, 0, 1024)
+	testing.expect_value(t, verdict, gate.Verdict.Accept)
+	gate.wrong_password(&g, guesser)
+	verdict, _ = gate.check(&g, init[:], guesser, 0, 1024)
+	testing.expect_value(t, verdict, gate.Verdict.Drop)
 	// Another port of the same address doesn't help.
 	guesser.port += 1
-	verdict, _ = gate_check(&g, init[:], guesser, 0, 1024)
-	testing.expect_value(t, verdict, Gate_Verdict.Drop)
-	verdict, _ = gate_check(&g, init[:], other, 0, 1024)
-	testing.expect_value(t, verdict, Gate_Verdict.Accept)
+	verdict, _ = gate.check(&g, init[:], guesser, 0, 1024)
+	testing.expect_value(t, verdict, gate.Verdict.Drop)
+	verdict, _ = gate.check(&g, init[:], other, 0, 1024)
+	testing.expect_value(t, verdict, gate.Verdict.Accept)
 }
