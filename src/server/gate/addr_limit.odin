@@ -33,7 +33,7 @@ addr_spend :: proc(b: ^Addr_Buckets, from: net.Endpoint) {
 
 // addr_allowed says whether `from` has a token left, without taking it. An
 // address without a bucket has, even before `burst` and `every` are set
-// (handshake_gate.odin sets them on the first failure).
+// (gate.odin sets them on the first failure).
 addr_allowed :: proc(b: ^Addr_Buckets, from: net.Endpoint) -> bool {
 	addr := key_of(from)
 	if addr not_in b.buckets.by_key {
