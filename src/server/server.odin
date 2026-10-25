@@ -972,9 +972,10 @@ bulk_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 
 // relay_voice forwards a voice frame to everyone else in the speaker's
 // room, re-encrypted for each recipient's newest session. Voice from
-// someone who isn't in a room is not sent to anyone.
+// someone who isn't in a room, or whose account a moderator muted
+// (moderation.odin), is not sent to anyone.
 relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
-	if from.conn.room == 0 {
+	if from.conn.room == 0 || .Server_Muted in from.conn.account.flags {
 		return
 	}
 	// [kind][seq][frame] -> [kind][speaker][seq][frame]

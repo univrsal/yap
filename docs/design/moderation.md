@@ -15,7 +15,7 @@ Branch `moderation-plan`, off master (10f7192). Sizes as in [next.md](next.md).
 | # | Change | Size | Status |
 | --- | --- | --- | --- |
 | 1 | Wire and database: permissions, Server_Muted, requests, bans table | M | done |
-| 2 | Server: move, disconnect, mute | M | |
+| 2 | Server: move, disconnect, mute | M | done |
 | 3 | Client: menu items, mute shown, notices | M | |
 | 4 | Client: dragging people between rooms | M | |
 | 5 | Bans on the server, and in the client | L | |
@@ -272,6 +272,40 @@ baseline database to 30.
   room the target has no Voice in (allowed, D5), into a text-only
   channel (Not_Found), disconnect, outranking, mute survives rejoin and
   reconnect, muted voice isn't relayed, unmute.
+
+*As built:* `server/moderation.odin` (`moderation_request`, reached from
+`rpc_handle` after `role_request`). `moderation_target` is the shared
+check: the permission (Denied), a live account (Not_Found), not oneself
+or the owner (Invalid), outranked (Denied). It will serve Ban_Set too.
+
+Differences from the text above:
+
+- A target channel without Voice for the mover, text-only ones
+  included, is Denied (as Voice_Join answers), not Not_Found.
+- The mover must also be able to see the room the person is in now
+  (`room_hidden`), otherwise Not_Found, so nobody learns who is in a
+  private room by trying to move them out of it. Someone in a call is
+  Not_Found too.
+- Moving someone to the room they are in is Ok and tells them nothing.
+
+A consequence of D5 to keep in mind for phase 3: someone moved into a
+room where they themselves lack Voice is taken out again by
+`room_check` the next time it runs for that channel (a rights or
+membership change there), and someone moved into a private channel
+they aren't in doesn't see the room's name in their own presence
+(`room_hidden`).
+
+The mute is checked in `relay_voice` on the account flag, one test per
+frame. Unmuting someone who isn't muted, or muting twice, is Ok and
+sends nothing.
+
+Tests (`server/moderation_test.odin`): `test_voice_move`,
+`test_voice_mute` (including the flag in the database after a
+reconnect), and `test_muted_voice_dropped`, which sends real voice
+frames over loopback sessions as `bulk_test` does: frame 2, said while
+muted, never arrives, frame 3 after the unmute does. Test accounts get
+the permissions on top of everyone's (`+=`), since `outranks` compares
+against the target's full set, which includes everyone's Attach_Files.
 
 ## 3. Client: menu items, mute shown, notices
 
