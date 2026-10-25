@@ -9,6 +9,7 @@ on:
       - 'web/**'
       - 'deps/**'
       - 'scripts/**'
+      - 'docker/**'
       - '.dockerignore'
       - '.github/workflows/docker.yml'
   push:
@@ -19,6 +20,7 @@ on:
       - 'web/**'
       - 'deps/**'
       - 'scripts/**'
+      - 'docker/**'
       - '.dockerignore'
       - '.github/workflows/docker.yml'
   workflow_dispatch:
@@ -52,7 +54,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: scripts/Dockerfile
+          file: docker/Dockerfile
           load: true
           push: false
           tags: yap:ci
@@ -112,7 +114,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: scripts/Dockerfile
+          file: docker/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

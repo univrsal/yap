@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the FFmpeg yap_video uses on macOS (scripts/ffmpeg.version) into
+# Builds the FFmpeg yap_video uses on macOS (scripts/build/ffmpeg.version) into
 # <deps-dir>/<name>, unless it's there already, and prints that folder.
 # There are no LGPL macOS builds to fetch as on Windows and Linux, and
 # Homebrew's is GPL and only works where Homebrew is, so it's built
@@ -15,7 +15,7 @@
 # Takes a few minutes the first time. Needs Xcode's command line tools
 # and `brew install pkg-config meson ninja` (and nasm on Intel Macs).
 # Works on Linux too, without VideoToolbox, to try the script.
-# Usage: scripts/build-ffmpeg-macos.sh <deps-dir>
+# Usage: scripts/build/build-ffmpeg-macos.sh <deps-dir>
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 # Without the CRs a Windows checkout gives it (core.autocrlf).
@@ -104,7 +104,7 @@ esac
 	{
 		echo "FFmpeg ($ffmpeg_source), LGPL 2.1 or later."
 		echo "Source: https://ffmpeg.org/releases/$ffmpeg_source.tar.xz"
-		echo "Built by scripts/build-ffmpeg-macos.sh in yap's repository."
+		echo "Built by scripts/build/build-ffmpeg-macos.sh in yap's repository."
 		echo
 		cat COPYING.LGPLv2.1
 		echo

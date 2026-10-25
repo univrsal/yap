@@ -53,14 +53,14 @@ rem libopus, for the voice codec (src\client\audio\opus): fetched into
 rem .cache on first use and built from the release source with the static
 rem C runtime, the float API without DRED or OSCE, which is what
 rem src\client\audio\opus binds. Delete opus.lib after changing
-rem scripts\opus.version to build it again.
+rem scripts\build\opus.version to build it again.
 set OPUS=src\client\audio\opus
 if not exist %OPUS%\opus.lib call :build_opus || exit /b 1
 
 rem libwebp, for WebP pictures (src\common\webp): fetched into .cache on
 rem first use and built from the release source with CMake and the static
 rem C runtime, for size but with its SIMD code, and without threads. Delete
-rem libwebp.lib after changing scripts\webp.version to build it again.
+rem libwebp.lib after changing scripts\build\webp.version to build it again.
 rem yap_webp.c, the part src\common\webp binds, is compiled against its
 rem headers every time, like the C above.
 set WEBP=src\common\webp
@@ -76,12 +76,12 @@ rem SQLite, for the server's database (src\server\sqlite): one big C file,
 rem fetched into .cache on first use and compiled the way yap_sqlite.c
 rem configures it. It takes a little while, so it's only built when the
 rem library isn't there; delete it after changing yap_sqlite.c or
-rem scripts\sqlite.version. curl and tar come with Windows 10 and later.
+rem scripts\build\sqlite.version. curl and tar come with Windows 10 and later.
 set SQLITE=src\server\sqlite
 if not exist %SQLITE%\yap_sqlite.lib call :build_sqlite || exit /b 1
 
 rem The version and commit (src\common\version.odin), as
-rem scripts/version-defines.sh finds them. The values are passed with
+rem scripts/build/version-defines.sh finds them. The values are passed with
 rem their quotes (\" survives the command line as "), see version.odin.
 rem No ( ) blocks here: cmd expands a whole block before running any of
 rem it, and %VAR:~0,1% of a variable that isn't set comes out as stray
@@ -100,15 +100,15 @@ set ICON=src\client\assets\icon
 rc /nologo /i src\client\assets /fo %ICON%.res %ICON%.rc || exit /b 1
 
 rem The collections the imports name: "common:wlog", "client:audio/opus",
-rem "lib:http" (the same as scripts/collections.sh).
+rem "lib:http" (the same as scripts/build/collections.sh).
 set COLLECTIONS=-collection:common=src\common -collection:client=src\client -collection:lib=src\lib
 odin build src\server %COLLECTIONS% -vet -strict-style -out:bin\yap-server.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
 odin build src\client %COLLECTIONS% -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res /SUBSYSTEM:WINDOWS" %DEFINES% %* || exit /b 1
 exit /b 0
 
 :build_sqlite
-rem scripts\sqlite.version is name=value lines, and # comments.
-for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\sqlite.version") do set "%%a=%%b"
+rem scripts\build\sqlite.version is name=value lines, and # comments.
+for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\build\sqlite.version") do set "%%a=%%b"
 set SQLITE_NAME=sqlite-autoconf-%sqlite_version%
 if not exist .cache mkdir .cache
 if exist .cache\%SQLITE_NAME%\sqlite3.c goto :compile_sqlite
@@ -132,8 +132,8 @@ del %SQLITE%\yap_sqlite.obj
 exit /b 0
 
 :build_opus
-rem scripts\opus.version is name=value lines, and # comments.
-for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\opus.version") do set "%%a=%%b"
+rem scripts\build\opus.version is name=value lines, and # comments.
+for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\build\opus.version") do set "%%a=%%b"
 set OPUS_NAME=opus-%opus_version%
 if not exist .cache mkdir .cache
 if exist .cache\%OPUS_NAME%\CMakeLists.txt goto :compile_opus
@@ -169,8 +169,8 @@ copy /y .cache\%OPUS_NAME%-windows\opus.lib %OPUS%\opus.lib >nul || exit /b 1
 exit /b 0
 
 :fetch_webp
-rem scripts\webp.version is name=value lines, and # comments.
-for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\webp.version") do set "%%a=%%b"
+rem scripts\build\webp.version is name=value lines, and # comments.
+for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\build\webp.version") do set "%%a=%%b"
 set WEBP_NAME=libwebp-%webp_version%
 if not exist .cache mkdir .cache
 if exist .cache\%WEBP_NAME%\CMakeLists.txt exit /b 0

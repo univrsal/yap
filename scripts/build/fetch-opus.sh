@@ -5,7 +5,7 @@
 # build.bat, Linux links the prebuilt libopus.a) and the web build
 # compiles it for wasm (web/build.sh); the source is too big to keep in
 # the repo (its DNN model data).
-# Usage: scripts/fetch-opus.sh <deps-dir>
+# Usage: scripts/build/fetch-opus.sh <deps-dir>
 set -e
 . "$(dirname "$0")/opus.version"
 deps=${1:?usage: fetch-opus.sh <deps-dir>}

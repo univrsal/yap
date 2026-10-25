@@ -1,9 +1,9 @@
 #!/bin/sh
-# Makes sure a prebuilt FFmpeg (scripts/ffmpeg.version) is unpacked in
+# Makes sure a prebuilt FFmpeg (scripts/build/ffmpeg.version) is unpacked in
 # <deps-dir>/<name>, fetching and checking it if need be, and prints that
 # folder. Only for x86_64 Linux; Windows has build-video.bat, macOS
 # build-ffmpeg-macos.sh.
-# Usage: scripts/fetch-ffmpeg.sh <deps-dir>
+# Usage: scripts/build/fetch-ffmpeg.sh <deps-dir>
 set -e
 # Without the CRs a Windows checkout gives it (core.autocrlf).
 eval "$(tr -d '\r' <"$(dirname "$0")/ffmpeg.version")"

@@ -1,10 +1,10 @@
 #!/bin/sh
 # Wraps the client in a macOS app bundle and a disk image (dist/Yap-<arch>.dmg)
 # to drag into Applications. The server and the web build aren't included.
-# Usage: scripts/package-macos.sh <arch>
+# Usage: scripts/package/package-macos.sh <arch>
 # Run after build.sh on macOS. YAP_VERSION (e.g. v0.1.0) sets the bundle version.
 set -e
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 arch=${1:?usage: package-macos.sh <arch>}
 
 version=${YAP_VERSION#v}

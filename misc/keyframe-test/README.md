@@ -30,7 +30,7 @@ answered, else `BROKEN` (exit 2). Without an encoder argument it lists the
 encoders that work. On Wayland the portal's picker opens first; the clock
 starts once the share is live.
 
-Build the library first (`scripts/build-video.sh`, or `scripts\build-video.bat`
+Build the library first (`scripts/build/build-video.sh`, or `scripts\build\build-video.bat`
 on Windows), then from the repository root:
 
 Linux:

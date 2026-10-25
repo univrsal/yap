@@ -372,7 +372,7 @@ total time kept; a still WebP is a plain emoji.
   read, and a sheet without it (an older server's) reads as none moving.
 - **The bindings are shared rather than copied:** `src/client/webp`
   became `src/common/webp` (client and server import `common:webp`),
-  built by `scripts/build-webp.sh`, which build.sh and the Dockerfile
+  built by `scripts/build/build-webp.sh`, which build.sh and the Dockerfile
   run (the Dockerfile also builds Odin's stb libraries when the release
   lacks them, as CI does, and installs cmake and make). The shim gained
   `yap_webp_encode` with alpha (`webp.encode_rgba`). The GIF block

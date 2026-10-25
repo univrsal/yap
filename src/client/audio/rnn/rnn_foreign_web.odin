@@ -1,6 +1,6 @@
 #+build wasi
 // The C declarations for a web build. They are the same as in
-// rnn_foreign.odin and are generated from it by web/gen_foreign.py.
+// rnn_foreign.odin and are generated from it by tools/gen_foreign.py.
 // On wasm, Odin names the procs of a named foreign import after the import
 // ("system:c..name"), which no C object defines. The unnamed form,
 // `foreign _`, keeps the plain C names that emscripten links against.

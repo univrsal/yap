@@ -1,4 +1,4 @@
-![header](scripts/demo.png)
+![header](docs/demo.png)
 
 A sloppy chat and VOIP application.
 

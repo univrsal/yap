@@ -6,7 +6,7 @@
 # the repo. It's the "autoconf" tarball rather than the amalgamation's
 # zip because tar is everywhere and unzip isn't; both hold the same
 # sqlite3.c.
-# Usage: scripts/fetch-sqlite.sh <deps-dir>
+# Usage: scripts/build/fetch-sqlite.sh <deps-dir>
 set -e
 . "$(dirname "$0")/sqlite.version"
 deps=${1:?usage: fetch-sqlite.sh <deps-dir>}

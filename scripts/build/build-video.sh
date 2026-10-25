@@ -14,17 +14,17 @@
 # libglib2.0-dev libpipewire-0.3-dev for Wayland's portal, and
 # libva-dev for its pictures to reach VA-API without a copy.
 set -e
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 # A folder per system, so a WSL build doesn't trip over a Windows one.
 build=.cache/video-build-$(uname -s)
 case "$(uname -s)-$(uname -m)" in
 Linux-x86_64)
-	ffmpeg=$(sh scripts/fetch-ffmpeg.sh .cache)
+	ffmpeg=$(sh scripts/build/fetch-ffmpeg.sh .cache)
 	set -- -DFFMPEG_DIR="$PWD/$ffmpeg" "$@"
 	;;
 Darwin-*)
 	# Built from source the first time, which takes a few minutes.
-	ffmpeg=$(sh scripts/build-ffmpeg-macos.sh .cache)
+	ffmpeg=$(sh scripts/build/build-ffmpeg-macos.sh .cache)
 	set -- -DFFMPEG_DIR="$PWD/$ffmpeg" "$@"
 	;;
 *)

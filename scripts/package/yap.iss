@@ -10,17 +10,17 @@
 ; image cache) is in %LOCALAPPDATA%\yap; uninstalling asks whether to
 ; remove that too, and leaves it when run silently.
 ;
-; Built by scripts/package-windows.sh after package.sh and
+; Built by scripts/package/package-windows.sh after package.sh and
 ; package-video.sh; the defines below are what it passes.
 
 #ifndef AppVersion
   #define AppVersion "dev"
 #endif
 #ifndef ClientDir
-  #define ClientDir SourcePath + "..\dist\yap-windows-x64"
+  #define ClientDir SourcePath + "..\..\dist\yap-windows-x64"
 #endif
 #ifndef VideoDir
-  #define VideoDir SourcePath + "..\dist\yap-video-windows-x64"
+  #define VideoDir SourcePath + "..\..\dist\yap-video-windows-x64"
 #endif
 #ifndef OutputName
   #define OutputName "Yap-Setup-x64"
@@ -39,9 +39,9 @@ PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputDir={#SourcePath}..\dist
+OutputDir={#SourcePath}..\..\dist
 OutputBaseFilename={#OutputName}
-SetupIconFile={#SourcePath}..\src\client\assets\icon.ico
+SetupIconFile={#SourcePath}..\..\src\client\assets\icon.ico
 UninstallDisplayIcon={app}\yap.exe
 UninstallDisplayName=Yap
 Compression=lzma2/max

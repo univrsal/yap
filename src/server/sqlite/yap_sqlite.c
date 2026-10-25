@@ -1,7 +1,7 @@
 /*
 SQLite, as the server uses it: the whole library in one translation
 unit, with what the server doesn't need left out. build.sh and build.bat
-compile this against the source scripts/fetch-sqlite.sh unpacks.
+compile this against the source scripts/build/fetch-sqlite.sh unpacks.
 
 The options are the ones SQLite's own documentation recommends for an
 application that links it statically, and that it says are safe to set

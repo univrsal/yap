@@ -4,7 +4,7 @@ name: Build
 # Windows and macOS, and packs each desktop platform into a zip holding
 # the client, the server and the web build (in web/). macOS also gets a
 # .dmg holding just the client, and Windows an installer for the client
-# and the screen sharing add-on (scripts/yap.iss). release.yml calls
+# and the screen sharing add-on (scripts/package/yap.iss). release.yml calls
 # this for a tag and attaches the zips to a draft release.
 on:
   push:
@@ -29,12 +29,12 @@ on:
 
 env:
   # The Odin release to build with (https://github.com/odin-lang/Odin/releases).
-  # Keep in line with ODIN_RELEASE in scripts/Dockerfile.
+  # Keep in line with ODIN_RELEASE in docker/Dockerfile.
   ODIN_RELEASE: dev-2026-09
   # The Emscripten release for the web client. Keep in line with the
-  # emsdk image in scripts/Dockerfile.
+  # emsdk image in docker/Dockerfile.
   EMSDK_VERSION: 6.0.13
-  # The version the client's About dialog shows (scripts/version-defines.sh):
+  # The version the client's About dialog shows (scripts/build/version-defines.sh):
   # the tag for a release, and "dev" otherwise.
   YAP_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
   # The desktop client and server are built for size for a release, and
@@ -59,7 +59,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: web/deps
-          key: opus-wasm-${{ env.EMSDK_VERSION }}-${{ hashFiles('scripts/opus.version') }}
+          key: opus-wasm-${{ env.EMSDK_VERSION }}-${{ hashFiles('scripts/build/opus.version') }}
       - run: sh web/build.sh
       - uses: actions/upload-artifact@v7
         with:
@@ -114,34 +114,34 @@ jobs:
             libglib2.0-dev libva-dev
       - name: macOS tools for FFmpeg
         if: runner.os == 'macOS'
-        # scripts/build-ffmpeg-macos.sh builds dav1d with meson.
+        # scripts/build/build-ffmpeg-macos.sh builds dav1d with meson.
         run: brew install pkgconf meson ninja
       - name: Cache FFmpeg
         # The prebuilt archives on Linux and Windows; on macOS, the build
-        # from source (scripts/build-ffmpeg-macos.sh), which takes minutes.
+        # from source (scripts/build/build-ffmpeg-macos.sh), which takes minutes.
         uses: actions/cache@v6
         with:
           path: |
             .cache/ffmpeg-*.zip
             .cache/ffmpeg-*.tar.xz
             .cache/ffmpeg-*-dav1d-*-darwin-*
-          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/ffmpeg.version', 'scripts/build-ffmpeg-macos.sh') }}
+          key: ffmpeg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build/ffmpeg.version', 'scripts/build/build-ffmpeg-macos.sh') }}
       - name: Cache libopus for macOS
         if: runner.os == 'macOS'
         uses: actions/cache@v6
         with:
           path: src/client/audio/opus/libopus_macos.a
-          key: opus-macos-${{ runner.arch }}-${{ hashFiles('scripts/opus.version', 'build.sh') }}
+          key: opus-macos-${{ runner.arch }}-${{ hashFiles('scripts/build/opus.version', 'build.sh') }}
 
       - name: Cache libopus for Windows
         if: runner.os == 'Windows'
         uses: actions/cache@v6
         with:
           path: src/client/audio/opus/opus.lib
-          key: opus-windows-${{ hashFiles('scripts/opus.version', 'build.bat') }}
+          key: opus-windows-${{ hashFiles('scripts/build/opus.version', 'build.bat') }}
 
       - name: Cache libwebp
-        # scripts/build-webp.sh and build.bat only build it when it isn't
+        # scripts/build/build-webp.sh and build.bat only build it when it isn't
         # there; the small yap_webp.c is compiled against the source's
         # headers, which they fetch.
         uses: actions/cache@v6
@@ -153,15 +153,15 @@ jobs:
             src/common/webp/libwebp.lib
             src/common/webp/libwebpdemux.lib
             src/common/webp/libsharpyuv.lib
-          key: webp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/webp.version', 'scripts/build-webp.sh', 'build.bat') }}
+          key: webp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build/webp.version', 'scripts/build/build-webp.sh', 'build.bat') }}
 
       - name: Cache the SQLite source
-        # build.sh and build.bat fetch it (scripts/fetch-sqlite.sh) when
+        # build.sh and build.bat fetch it (scripts/build/fetch-sqlite.sh) when
         # it isn't there, and check it either way.
         uses: actions/cache@v6
         with:
           path: .cache/sqlite-autoconf-*.tar.gz
-          key: sqlite-${{ hashFiles('scripts/sqlite.version') }}
+          key: sqlite-${{ hashFiles('scripts/build/sqlite.version') }}
           enableCrossOsArchive: true
 
       - name: Odin's stb libraries
@@ -197,22 +197,23 @@ jobs:
       - name: Build the screen sharing add-on (Linux, macOS)
         if: runner.os != 'Windows'
         continue-on-error: true
-        run: sh scripts/build-video.sh
+        run: sh scripts/build/build-video.sh
       - name: Build the screen sharing add-on (Windows)
         if: runner.os == 'Windows'
         continue-on-error: true
         shell: cmd
-        run: scripts\build-video.bat
+        run: scripts\build\build-video.bat
 
       - name: Test
         shell: bash
         run: |
-          . scripts/collections.sh
+          . scripts/build/collections.sh
           odin test src/common/proto $collections -vet -strict-style
           odin test src/common/webp $collections -vet -strict-style
           odin test src/common/gif $collections -vet -strict-style
           odin test src/client/hotkeys $collections -vet -strict-style
           odin test src/client/richtext $collections -vet -strict-style
+          odin test src/server/mail $collections -vet -strict-style
           odin test src/server $collections -vet -strict-style
 
       - uses: actions/download-artifact@v8
@@ -221,7 +222,7 @@ jobs:
           path: web-build
       - name: Pack
         shell: bash
-        run: sh scripts/package.sh ${{ matrix.platform }} web-build
+        run: sh scripts/package/package.sh ${{ matrix.platform }} web-build
       - name: Artifact name
         id: name
         shell: bash
@@ -236,10 +237,10 @@ jobs:
         id: pack_video
         continue-on-error: true
         shell: bash
-        run: sh scripts/package-video.sh ${{ matrix.platform }}
+        run: sh scripts/package/package-video.sh ${{ matrix.platform }}
       - name: Disk image (macOS)
         if: runner.os == 'macOS'
-        run: sh scripts/package-macos.sh arm64
+        run: sh scripts/package/package-macos.sh arm64
       - uses: actions/upload-artifact@v7
         if: runner.os == 'macOS'
         with:
@@ -255,7 +256,7 @@ jobs:
         run: |
           [ -d "$PROGRAMFILES (x86)/Inno Setup 6" ] || [ -d "$PROGRAMFILES/Inno Setup 7" ] ||
             choco install innosetup -y --no-progress
-          sh scripts/package-windows.sh x64
+          sh scripts/package/package-windows.sh x64
       - uses: actions/upload-artifact@v7
         if: runner.os == 'Windows' && steps.pack_video.outcome == 'success'
         with:

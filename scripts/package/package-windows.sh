@@ -1,13 +1,13 @@
 #!/bin/sh
 # Makes the Windows installer, dist/Yap-Setup-<arch>.exe, from
-# scripts/yap.iss: the client, and the screen sharing add-on as a part
+# scripts/package/yap.iss: the client, and the screen sharing add-on as a part
 # that can be left out. Needs Inno Setup 6 or 7 (ISCC.exe on PATH or in
 # its usual place).
-# Usage: scripts/package-windows.sh <arch>
+# Usage: scripts/package/package-windows.sh <arch>
 # Run in Git Bash after package.sh and package-video.sh. YAP_VERSION
 # (e.g. v0.1.0) sets the version the installer shows.
 set -e
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 arch=${1:?usage: package-windows.sh <arch>}
 
 version=${YAP_VERSION#v}
@@ -43,5 +43,5 @@ rm -f "dist/Yap-Setup-$arch.exe"
 	"//DClientDir=$(cygpath -aw "$client")" \
 	"//DVideoDir=$(cygpath -aw "$video")" \
 	"//DOutputName=Yap-Setup-$arch" \
-	scripts/yap.iss
+	scripts/package/yap.iss
 echo "packed dist/Yap-Setup-$arch.exe"

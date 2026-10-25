@@ -4,7 +4,7 @@ import "core:fmt"
 import "core:strings"
 
 // The build scripts (build.sh, build.bat and web/build.sh, via
-// scripts/version-defines.sh) fill in the version of this build from git:
+// scripts/build/version-defines.sh) fill in the version of this build from git:
 //
 //	-define:YAP_VERSION="1.2.0"    the release tag being built, if any
 //	-define:YAP_COMMIT="0fb9278"   the short commit hash, "-dirty" added

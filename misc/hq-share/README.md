@@ -157,8 +157,8 @@ COM. Odin binds the header with `core:dynlib` (a proc table filled with
 links it.
 
 Built with CMake from its own folder (`src/video/`, D7) by
-`scripts/build-video.sh` / `.bat`, which also fetches FFmpeg
-the way `opus` and `webp` are fetched (`scripts/ffmpeg.version`). The
+`scripts/build/build-video.sh` / `.bat`, which also fetches FFmpeg
+the way `opus` and `webp` are fetched (`scripts/build/ffmpeg.version`). The
 output is the library and FFmpeg's shared libraries, copied into `bin/`
 next to the client.
 
@@ -463,7 +463,7 @@ Why this order:
 `src/video/` with CMake, `yap_video.h`, the context and logging, source
 listing on Windows (monitors via `EnumDisplayMonitors`/DXGI outputs,
 windows via `EnumWindows` filtered as OBS does), encoder probing.
-`scripts/build-video.sh` / `.bat` and `scripts/fetch-ffmpeg.sh` build
+`scripts/build/build-video.sh` / `.bat` and `scripts/build/fetch-ffmpeg.sh` build
 dav1d, libvpl and FFmpeg with the configure line kept in one place.
 `yv-loopback` for Windows.
 
@@ -478,7 +478,7 @@ _As built:_
   that is otherwise needed for yap. BtbN's LGPL shared builds
   (github.com/BtbN/FFmpeg-Builds) have everything the plan lists
   (NVENC, AMF, QSV through libvpl, VA-API, D3D11VA, dav1d), nothing
-  GPL, and MSVC import libraries. `scripts/ffmpeg.version` pins one
+  GPL, and MSVC import libraries. `scripts/build/ffmpeg.version` pins one
   autobuild with its SHA-256 sums; `build-video.bat` fetches the
   Windows zip, `fetch-ffmpeg.sh` the x86_64 Linux tarball. macOS uses
   the system's FFmpeg through pkg-config until phase 7 decides. The
@@ -533,7 +533,7 @@ _As built:_
   memory. Probing runs once, on the first `yv_list_encoders`.
 - **`yv-loopback --list [--debug]`** prints the version, monitors,
   windows and encoders.
-- `scripts/build-video.bat` / `build-video.sh` configure, build and
+- `scripts/build/build-video.bat` / `build-video.sh` configure, build and
   install into `bin/`, and copy only `avcodec`, `avutil` and
   `swresample` from FFmpeg.
 - **Tried:** Windows 10 with an RTX 4060 Ti (driver 576.88): the build
@@ -1094,7 +1094,7 @@ none of it has been compiled. The client's side type-checks for macOS.
   - the client sharing
 - **FFmpeg and shipping**, added after the first try on a Mac:
   - macOS had no FFmpeg to fetch (it relied on Homebrew's, which is GPL
-    and only works where Homebrew is). `scripts/build-ffmpeg-macos.sh`
+    and only works where Homebrew is). `scripts/build/build-ffmpeg-macos.sh`
     now builds a small LGPL one from pinned sources (FFmpeg 8.1.3, and
     dav1d 1.5.4 inside libavcodec for AV1 before the M3). It has the
     H.264, HEVC and AV1 decoders, the VideoToolbox encoders and decoding,
@@ -1104,7 +1104,7 @@ none of it has been compiled. The client's side type-checks for macOS.
     against it.
   - D12 is built. CI builds the add-on on all three platforms and
     uploads `yap-video-<platform>` next to `yap-<platform>`
-    (`scripts/package-video.sh`): the library, FFmpeg's libraries,
+    (`scripts/package/package-video.sh`): the library, FFmpeg's libraries,
     `ffmpeg-LICENSE.txt` (which build, where its source is), yv-loopback
     and a README. The release workflow zips it with the rest.
   - The add-on's CI steps are `continue-on-error`, so a broken add-on

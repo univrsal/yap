@@ -1,5 +1,5 @@
 # The FFmpeg src/video (the optional yap_video library) is built against:
-# read by scripts/fetch-ffmpeg.sh (and with it build-video.sh) and by
+# read by scripts/build/fetch-ffmpeg.sh (and with it build-video.sh) and by
 # build-video.bat, so lines are name=value and nothing else.
 #
 # On Windows and Linux these are BtbN's LGPL shared builds
@@ -9,7 +9,7 @@
 # autobuild's n8.1 lgpl-shared files and their sums from its
 # checksums.sha256.
 #
-# macOS has no such builds, so scripts/build-ffmpeg-macos.sh builds a
+# macOS has no such builds, so scripts/build/build-ffmpeg-macos.sh builds a
 # small LGPL one from these sources (VideoToolbox, and dav1d for AV1).
 #
 # Stay on the 8.x branch: BtbN builds 8.0 and 8.1 against the NVENC 13.0

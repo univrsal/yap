@@ -3,7 +3,7 @@
 # fetching and checking the release tarball if need be. build.sh builds
 # it into src/common/webp (build.bat does the same on Windows); a web
 # build leaves pictures to the browser and doesn't need it.
-# Usage: scripts/fetch-webp.sh <deps-dir>
+# Usage: scripts/build/fetch-webp.sh <deps-dir>
 set -e
 . "$(dirname "$0")/webp.version"
 deps=${1:?usage: fetch-webp.sh <deps-dir>}

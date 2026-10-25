@@ -7,7 +7,7 @@ included; the client plays it over and over while a call rings.
 	ring      a call coming in: two soft bell notes, twice, then quiet
 	ringback  our call ringing out: a low two-tone purr, then quiet
 
-Needs ffmpeg with libopus.  Usage: scripts/call_sounds.py
+Needs ffmpeg with libopus.  Usage: tools/call_sounds.py
 """
 import math, os, struct, subprocess, tempfile, wave
 

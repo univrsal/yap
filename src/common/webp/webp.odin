@@ -2,7 +2,7 @@
 // WebP pictures (https://developers.google.com/speed/webp): decoding them
 // and compressing pasted images into them. libwebp is statically linked from
 // libraries in this directory, none of which are kept in the repo. build.sh
-// (build.bat on Windows) fetches the release named in scripts/webp.version
+// (build.bat on Windows) fetches the release named in scripts/build/webp.version
 // and builds it, optimized for size but with its SIMD code, and compiles
 // yap_webp.c, which is what is bound here.
 //
@@ -48,7 +48,7 @@ when !#exists(SHIM) || !#exists(WEBP) || !#exists(DEMUX) || !#exists(SHARPYUV) {
 		DEMUX +
 		" or " +
 		SHARPYUV +
-		" is missing (build them with build.sh or scripts/build-webp.sh, or build.bat on Windows)",
+		" is missing (build them with build.sh or scripts/build/build-webp.sh, or build.bat on Windows)",
 	)
 }
 

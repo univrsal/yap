@@ -5,7 +5,7 @@ how the server and clients hold up with years of messages: about what
 moving a team's chat over from another system (Mattermost, say) would
 bring along.
 
-	scripts/gen_testdata.py <data_dir> [options]
+	tools/gen_testdata.py <data_dir> [options]
 
 <data_dir> gets what a server keeps there: yap.db and blobs/. Point a
 config's "data_dir" at it and start the server as usual.

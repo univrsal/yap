@@ -1,4 +1,4 @@
-# Only what scripts/Dockerfile copies.
+# Only what docker/Dockerfile copies.
 **
 !src/common/
 !src/lib/
@@ -6,15 +6,15 @@
 !src/client/
 !deps/thirdparty/
 !web/
-!scripts/collections.sh
-!scripts/fetch-sqlite.sh
-!scripts/sqlite.version
-!scripts/fetch-webp.sh
-!scripts/build-webp.sh
-!scripts/webp.version
-!scripts/fetch-opus.sh
-!scripts/opus.version
-!scripts/version-defines.sh
+!scripts/build/collections.sh
+!scripts/build/fetch-sqlite.sh
+!scripts/build/sqlite.version
+!scripts/build/fetch-webp.sh
+!scripts/build/build-webp.sh
+!scripts/build/webp.version
+!scripts/build/fetch-opus.sh
+!scripts/build/opus.version
+!scripts/build/version-defines.sh
 
 # But no build output from a local build: the image builds its own, and a
 # library built here (another libc, other flags) would be taken as current.

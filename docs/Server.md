@@ -24,10 +24,10 @@ yap-server account passwd <username>   # a new one, if it was forgotten
 
 ### Docker
 
-[scripts/docker-compose.yml](../scripts/docker-compose.yml) runs the server from
+[docker/docker-compose.yml](../docker/docker-compose.yml) runs the server from
 `ghcr.io/univrsal/yap`, with its data (and `config.json`) in a volume. Its
 settings come from the environment or a `.env` file next to it; see
-[scripts/.env.example](../scripts/.env.example).
+[docker/.env.example](../docker/.env.example).
 
 ```sh
 cd scripts

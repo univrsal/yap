@@ -21,18 +21,18 @@ WORKDIR /build
 COPY src/common ./src/common
 COPY src/lib ./src/lib
 COPY src/server ./src/server
-COPY scripts/collections.sh scripts/fetch-sqlite.sh scripts/sqlite.version \
-    scripts/fetch-webp.sh scripts/build-webp.sh scripts/webp.version ./scripts/
+COPY scripts/build/collections.sh scripts/build/fetch-sqlite.sh scripts/build/sqlite.version \
+    scripts/build/fetch-webp.sh scripts/build/build-webp.sh scripts/build/webp.version ./scripts/build/
 
 # libwebp, for animated emoji (src/common/webp), and Odin's stb_image,
 # which reads GIF emoji: a release doesn't always ship it built.
 RUN set -eux; \
-    CC=clang sh scripts/build-webp.sh; \
+    CC=clang sh scripts/build/build-webp.sh; \
     [ -f /opt/odin/vendor/stb/lib/stb_image.a ] || CC=clang sh /opt/odin/vendor/stb/src/build_stb.sh unix
 
 RUN set -eux; \
-    . scripts/sqlite.version; \
-    sh scripts/fetch-sqlite.sh .cache; \
+    . scripts/build/sqlite.version; \
+    sh scripts/build/fetch-sqlite.sh .cache; \
     clang -Os -I".cache/sqlite-autoconf-${sqlite_version}" \
         -c src/server/sqlite/yap_sqlite.c \
         -o src/server/sqlite/yap_sqlite.o; \
@@ -46,7 +46,7 @@ RUN set -eux; \
     version=${YAP_VERSION#v}; \
     commit=$(printf %.7s "$YAP_COMMIT"); \
     mkdir -p bin; \
-    . scripts/collections.sh; \
+    . scripts/build/collections.sh; \
     odin build src/server \
         $collections \
         -vet \
@@ -74,7 +74,7 @@ COPY src/common ./src/common
 COPY src/lib ./src/lib
 COPY src/client ./src/client
 COPY web ./web
-COPY scripts/collections.sh scripts/fetch-opus.sh scripts/opus.version scripts/version-defines.sh ./scripts/
+COPY scripts/build/collections.sh scripts/build/fetch-opus.sh scripts/build/opus.version scripts/build/version-defines.sh ./scripts/build/
 
 # The web client's version and commit, as for the server above.
 ARG YAP_VERSION=dev

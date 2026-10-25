@@ -7,10 +7,10 @@
 # systems without their own FFmpeg 8 or 9.
 # CI gathers the platforms' folders into one yap-video artifact, with
 # linux/, macos/ and windows/ in it, which GitHub zips itself.
-# Usage: scripts/package-video.sh <platform>
+# Usage: scripts/package/package-video.sh <platform>
 # Run after build-video.sh / build-video.bat.
 set -e
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 platform=${1:?usage: package-video.sh <platform>}
 name=yap-video-$platform
 rm -rf "dist/$name"

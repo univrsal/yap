@@ -6,7 +6,7 @@
 #
 # The server links SQLite (src/server/sqlite), whose source is fetched
 # into .cache the first time; both link libwebp (src/common/webp) the
-# same way, built with CMake (scripts/build-webp.sh).
+# same way, built with CMake (scripts/build/build-webp.sh).
 #
 # The client links a trimmed-down miniaudio (src/client/audio/miniaudio), RNNoise
 # (src/client/audio/rnn) and traycon (src/client/tray), whose third-party sources
@@ -107,23 +107,23 @@ if [ "$(uname -s)" = Linux ]; then
 fi
 
 # Screen sharing (src/video), linked into the client on Linux; elsewhere
-# it's the yap-video add-on (scripts/build-video.sh). FFmpeg isn't
+# it's the yap-video add-on (scripts/build/build-video.sh). FFmpeg isn't
 # linked: it's opened at run time, from next to yap (the yap-video
 # download for Linux is FFmpeg's libraries) or else the system's 8 or 9
 # (src/video/src/ffmpeg.h), so only its headers are needed here, from
-# the prebuilt FFmpeg scripts/fetch-ffmpeg.sh fetches on x86_64 and
+# the prebuilt FFmpeg scripts/build/fetch-ffmpeg.sh fetches on x86_64 and
 # pkg-config's elsewhere. Needs CMake and a C++20 compiler; capturing
-# needs the headers scripts/build-video.sh lists, and a way whose headers
+# needs the headers scripts/build/build-video.sh lists, and a way whose headers
 # are missing is left out. The client is C++ only here, so libstdc++ is
 # linked statically (src/client/video/native.odin): yap then runs
 # where the system's is older than the one it was built with.
 if [ "$(uname -s)" = Linux ]; then
 	lib=src/client/video/libyap_video.a
-	if [ ! -f "$lib" ] || [ -n "$(find src/video/src src/video/include src/video/CMakeLists.txt scripts/ffmpeg.version -newer "$lib" | head -n 1)" ]; then
+	if [ ! -f "$lib" ] || [ -n "$(find src/video/src src/video/include src/video/CMakeLists.txt scripts/build/ffmpeg.version -newer "$lib" | head -n 1)" ]; then
 		echo "building $lib"
 		ffmpeg_dir=
 		if [ "$(uname -m)" = x86_64 ]; then
-			ffmpeg_dir="-DFFMPEG_DIR=$PWD/$(sh scripts/fetch-ffmpeg.sh .cache)"
+			ffmpeg_dir="-DFFMPEG_DIR=$PWD/$(sh scripts/build/fetch-ffmpeg.sh .cache)"
 		fi
 		cmake -S src/video -B .cache/video-static -DCMAKE_BUILD_TYPE=Release -DYV_STATIC=ON \
 			$ffmpeg_dir >/dev/null
@@ -137,14 +137,14 @@ if [ "$(uname -s)" = Linux ]; then
 fi
 
 # SQLite, for the server's database: one big C file, fetched on first
-# use (scripts/fetch-sqlite.sh) and compiled the way
+# use (scripts/build/fetch-sqlite.sh) and compiled the way
 # src/server/sqlite/yap_sqlite.c configures it. It takes a little while,
 # and is only done again when that file or the version changes.
 sqlite=src/server/sqlite
 lib=$sqlite/libyap_sqlite.a
-if [ ! -f "$lib" ] || [ "$sqlite/yap_sqlite.c" -nt "$lib" ] || [ scripts/sqlite.version -nt "$lib" ]; then
-	. scripts/sqlite.version
-	sh scripts/fetch-sqlite.sh .cache
+if [ ! -f "$lib" ] || [ "$sqlite/yap_sqlite.c" -nt "$lib" ] || [ scripts/build/sqlite.version -nt "$lib" ]; then
+	. scripts/build/sqlite.version
+	sh scripts/build/fetch-sqlite.sh .cache
 	echo "building $lib"
 	${CC:-cc} -Os -I".cache/sqlite-autoconf-$sqlite_version" -c "$sqlite/yap_sqlite.c" -o "$sqlite/yap_sqlite.o"
 	ar rcs "$lib" "$sqlite/yap_sqlite.o"
@@ -153,7 +153,7 @@ fi
 
 # libopus on macOS and OpenBSD: there's no prebuilt library for them in
 # src/client/audio/opus, so it's built from the release source
-# (scripts/fetch-opus.sh, scripts/opus.version), the float API without DRED or OSCE, which is
+# (scripts/build/fetch-opus.sh, scripts/build/opus.version), the float API without DRED or OSCE, which is
 # what src/client/audio/opus binds.
 case "$(uname -s)" in
 Darwin) opus_os=macos ;;
@@ -161,9 +161,9 @@ OpenBSD) opus_os=openbsd ;;
 *) opus_os= ;;
 esac
 if [ -n "$opus_os" ] && [ ! -f "src/client/audio/opus/libopus_$opus_os.a" ]; then
-	sh scripts/fetch-opus.sh .cache
+	sh scripts/build/fetch-opus.sh .cache
 	echo "building src/client/audio/opus/libopus_$opus_os.a"
-	. scripts/opus.version
+	. scripts/build/opus.version
 	cmake -S ".cache/opus-$opus_version" -B ".cache/opus-$opus_os" \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DOPUS_BUILD_PROGRAMS=OFF \
@@ -178,7 +178,7 @@ fi
 
 # libwebp, for WebP pictures, which the client and the server both link
 # (src/common/webp).
-sh scripts/build-webp.sh
+sh scripts/build/build-webp.sh
 
 # OpenBSD: two libraries Odin's own packages ask the linker for aren't
 # there. vendor:stb only links its prebuilt vendor/stb/lib on Linux and
@@ -205,7 +205,7 @@ fi
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
-version_defines=$(sh scripts/version-defines.sh)
-. scripts/collections.sh
+version_defines=$(sh scripts/build/version-defines.sh)
+. scripts/build/collections.sh
 odin build src/server $collections -vet -strict-style -out:bin/yap-server $link_flags $version_defines "$@"
 odin build src/client $collections -vet -strict-style -out:bin/yap $link_flags $version_defines "$@"

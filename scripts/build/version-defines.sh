@@ -3,8 +3,8 @@
 # src/common/version.odin): the release tag being built, from $YAP_VERSION
 # or an exact git tag, and the short commit hash, from git or $YAP_COMMIT
 # (the Docker build has no checkout). Prints nothing it can't find out.
-# Usage: odin build ... $(scripts/version-defines.sh)
-cd "$(dirname "$0")/.." || exit 0
+# Usage: odin build ... $(scripts/build/version-defines.sh)
+cd "$(dirname "$0")/../.." || exit 0
 
 version=${YAP_VERSION:-$(git describe --tags --exact-match 2>/dev/null)}
 version=${version#v}

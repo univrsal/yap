@@ -4,11 +4,11 @@ rem (src\video, misc\hq-share\README.md), dshowcapture.dll for its cameras
 rem (misc\video-chat\README.md), and yv-loopback.exe into bin\
 rem next to the client, with the FFmpeg DLLs it needs beside them. The
 rem client runs without any of it; build.bat never builds it.
-rem FFmpeg is BtbN's LGPL shared build (scripts\ffmpeg.version), fetched
+rem FFmpeg is BtbN's LGPL shared build (scripts\build\ffmpeg.version), fetched
 rem into .cache the first time. Needs Visual Studio's C++ tools and
 rem CMake. Extra arguments go to CMake's configure step.
 setlocal
-cd /d "%~dp0.."
+cd /d "%~dp0..\.."
 if not exist bin mkdir bin
 
 set "VCVARSALL="
@@ -45,8 +45,8 @@ echo built bin\yap_video.dll, bin\dshowcapture.dll and bin\yv-loopback.exe; try:
 exit /b 0
 
 :fetch_ffmpeg
-rem scripts\ffmpeg.version is name=value lines, and # comments.
-for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\ffmpeg.version") do set "%%a=%%b"
+rem scripts\build\ffmpeg.version is name=value lines, and # comments.
+for /f "usebackq eol=# tokens=1,2 delims==" %%a in ("scripts\build\ffmpeg.version") do set "%%a=%%b"
 if not exist .cache mkdir .cache
 if exist .cache\%ffmpeg_win%\include exit /b 0
 if not exist .cache\%ffmpeg_win%.zip (

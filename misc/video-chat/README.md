@@ -202,7 +202,7 @@ YV_API bool yv_share_preview(yv_share *, yv_picture *out);
 | --- | --- | --- | --- |
 | Windows | DirectShow, through OBS's libdshowcapture (LGPL, as dshowcapture.dll); Media Foundation was the plan, see phase 6 | NV12, I420, YUY2, MJPEG (FFmpeg's decoder), RGB | Windows' camera privacy switches are read from the registry: say where to turn them on. The Frame Server shares a camera with other apps. |
 | Linux | V4L2 directly (`/dev/video*`, `VIDIOC_ENUM_FMT`, mmap buffers) | MJPEG (FFmpeg's `mjpeg`, or VA-API's JPEG decoder), YUYV, NV12 | Covers USB cameras everywhere. Intel IPU6 laptop cameras need libcamera, reachable through PipeWire: later (D5). |
-| macOS | AVFoundation `AVCaptureSession`, `AVCaptureDevice.DiscoverySession` (Continuity Camera too) | NV12 `CVPixelBuffer` on an IOSurface, straight into VideoToolbox | The app's `Info.plist` needs `NSCameraUsageDescription`, or macOS kills the app on first use (`scripts/package-macos.sh`). |
+| macOS | AVFoundation `AVCaptureSession`, `AVCaptureDevice.DiscoverySession` (Continuity Camera too) | NV12 `CVPixelBuffer` on an IOSurface, straight into VideoToolbox | The app's `Info.plist` needs `NSCameraUsageDescription`, or macOS kills the app on first use (`scripts/package/package-macos.sh`). |
 | Browser | `getUserMedia({video: {deviceId, width, height, frameRate}})`, `enumerateDevices` | `VideoFrame`s, into the share's `VideoEncoder` | Labels only after permission is granted once. Phones: front camera by default, `facingMode` to switch. |
 
 Most USB cameras give 720p and 1080p at 30fps only as MJPEG (YUYV is
@@ -889,7 +889,7 @@ What the owner saw led to this; it isn't one of the plan's phases.
     - Off and on again works, and the server's `Camera` flag follows.
 - **Not tested**: a real USB camera (MJPEG at 720p and up, the by-id
   name, unplugging) and `EBUSY`; v4l2loopback lets every reader in.
-- **For phase 8**: the macOS FFmpeg (`scripts/build-ffmpeg-macos.sh`)
+- **For phase 8**: the macOS FFmpeg (`scripts/build/build-ffmpeg-macos.sh`)
   has no MJPEG decoder (or encoder, for the fake camera's `mjpeg`). It
   needs `--enable-decoder=mjpeg` if AVFoundation ever gives MJPEG; it
   normally gives NV12.

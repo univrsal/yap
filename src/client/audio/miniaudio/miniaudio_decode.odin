@@ -5,7 +5,7 @@ import "core:c"
 
 // Decoding sound files (WAV, FLAC, MP3), on a desktop only: a browser decodes
 // them itself. Kept apart from miniaudio_foreign.odin, which
-// web/gen_foreign.py copies for the web build.
+// tools/gen_foreign.py copies for the web build.
 
 when ODIN_OS == .Windows {
 	foreign import decode_lib {LIB}
