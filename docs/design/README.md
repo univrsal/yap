@@ -13,6 +13,7 @@ comments cite them by file name (for example "D12 in hq-share.md").
 | [keyframe-test.md](keyframe-test.md) | Whether encoders answer keyframe requests (`tools/keytest.cpp`) |
 | [memory.md](memory.md) | Client memory: measurements and what to save |
 | [mobile.md](mobile.md) | Phones, and Web Push |
+| [moderation.md](moderation.md) | Moving, muting and disconnecting people in voice, and bans |
 | [next.md](next.md) | Traffic split, multi-server, registration, email and more |
 | [screen-audio.md](screen-audio.md) | Audio of a shared screen on the desktop |
 | [security.md](security.md) | The security review of 2026-10-15 |

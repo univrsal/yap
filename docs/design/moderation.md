@@ -10,7 +10,7 @@ The goal: roles that can keep order without being admins.
 - **Ban** an account, optionally removing what it posted recently or
   ever.
 
-Branch `moderation-plan`, off master (10f7192). Sizes as in `misc/next`.
+Branch `moderation-plan`, off master (10f7192). Sizes as in [next.md](next.md).
 
 | # | Change | Size | Status |
 | --- | --- | --- | --- |
@@ -97,10 +97,11 @@ the camera stay. Alternative: a mute that ends when they leave the room.
 That takes the second-to-last free account flag. A server deafen would
 take the last; it isn't in this plan (not asked for, and less useful).
 
-**D5 — Moving rules.** Recommended: the person moved must be allowed in
-the target room (Voice there, so not text only, not a private channel
-they aren't in), and the mover must be able to see it. The mover needn't
-be in either room. Only people in a room on this server can be moved;
+**D5 — Moving rules.** The mover must be able to see the target room and
+enter it themselves (See and Voice there, so never a text-only channel).
+The rights of the person being moved aren't checked, so a moderator can
+bring someone into a room they couldn't join on their own. The mover
+needn't be in either room. Only people in a room on this server can be moved;
 someone in a DM call can't (calls are private).
 
 **D6 — Disconnect.** Recommended: takes them out of the room, and they
@@ -122,8 +123,9 @@ server log.
   release if the pointer moved less than DRAG_START. A right press still
   opens it at once.
 - While dragging, the person's name follows the pointer, and the channel
-  row under it is highlighted if they may be moved there (D5; the client
-  knows the rights of channels it has, and the server checks anyway).
+  row under it is highlighted if we may move them there (D5: we have See
+  and Voice there; the client knows its own rights in its channels, and
+  the server checks anyway).
   Dropping elsewhere does nothing.
 - Dropping on a channel without a room (text only) does nothing.
 - The menu also gets **Move to…** with a list of rooms, so moving works
@@ -141,6 +143,15 @@ through Account_Disable also removes the row, so the two can't disagree.
 No IP or device bans: everyone on the web comes through the relay, many
 people share addresses, and a new key costs nothing. No timed bans for
 now (easy to add later with an `until` column).
+
+The banned person sees the reason: when they are banned, every device of
+theirs that is online is logged out with a new Logout_Reason.Banned that
+carries the reason, and the client shows "You were banned from <server>"
+with it instead of the login screen. Later attempts get the same: a
+known device that reconnects is told Logged_Out(Banned, reason) instead
+of being silently left logged out, and a password login is answered
+Banned with the reason. Who banned them isn't shown. An empty reason
+shows as "No reason was given".
 
 **D10 — Ban without Manage_Accounts.** Recommended: Ban_Members alone
 may ban and unban (subject to D3), and see the ban list. Manage_Accounts
@@ -186,6 +197,11 @@ the client is out of scope.
 		Ban_List     ->  [count u16]([account u32][by u32][time u64]
 		             [reason str8])...
 
+- `Logout_Reason.Banned = 5`; `Logged_Out [reason u8]` gets an optional
+  `[text str8]`, the ban's reason. Older clients read only the first byte
+  and show their generic logged-out text for an unknown reason.
+- A new response status `Banned`, answering Auth_Login, with the body
+  `[text str8]`. Older clients treat an unknown status as a failure.
 - `Voice_Moved [room u32]` gets an optional `[by u32]` (0 or missing:
   not a person, as today).
 - `Purge` gets an optional `[author u32][since u64]` (phase 6): with an
@@ -227,8 +243,9 @@ Tests: encode/decode round trips, old-length bodies still decode.
   A cheap flag test on the hot path.
 - Log lines (D14).
 - Tests in `server/moderation_test.odin` on the harness: move between
-  rooms, into a room without Voice (Denied), into a private room the
-  target isn't in, disconnect, outranking, mute survives rejoin and
+  rooms, into a room the mover has no Voice or See in (Denied), into a
+  room the target has no Voice in (allowed, D5), into a text-only
+  channel (Not_Found), disconnect, outranking, mute survives rejoin and
   reconnect, muted voice isn't relayed, unmute.
 
 ## 3. Client: menu items, mute shown, notices
@@ -237,7 +254,7 @@ Tests: encode/decode round trips, old-length bodies still decode.
   for the notice.
 - `user_menu`: for someone in a room on this server, and only with the
   permission: **Mute for everyone** / **Unmute for everyone**
-  (Mute_Members), **Move to…** (a list of rooms they may join) and
+  (Mute_Members), **Move to…** (the rooms we may join, D5) and
   **Disconnect** (Move_Members). Under the existing "for me" items,
   apart from them so the two mutes can't be confused.
 - A server-muted person gets a distinct mark in the room list (the
@@ -273,9 +290,17 @@ Server:
   purge; off → remove row, clear Disabled. Account_Disable off also
   removes the row.
 - `ban_list` for Ban_Members.
+- The reason reaches the banned person (D9): Logged_Out(Banned, reason)
+  to every online device when banned; the same to a known device of a
+  banned account when it reconnects (`auth_known_device`); Auth_Login
+  answers Banned with the reason (instead of Denied), but only once the
+  password is right, so the reason isn't shown to whoever guesses a
+  username.
 - Registration and `Account_Create` refuse an email address in `bans`.
   Email change (if an account can change its address) too.
-- Tests: ban logs out every device, can't log in, re-register with the
+- Tests: ban logs out every device with the reason, a reconnecting
+  device and a correct password login get the reason, a wrong password
+  doesn't, can't log in, re-register with the
   same email refused, unban restores login, outranking, enable via
   Account_Disable clears the ban.
 
@@ -284,6 +309,9 @@ Client:
 - User menu (anywhere a person can be clicked: channel list, member
   list, chat): **Ban…** with Ban_Members. A dialog: reason, the purge
   choice (D11), Ban (red), Cancel.
+- Being banned: a screen in place of the login screen for that server,
+  "You were banned from <server>" and the reason, with Remove server and
+  Close. The web build shows it the same way.
 - Settings: a **Bans** page (with Ban_Members): who, by whom, when,
   reason, Unban. The Accounts page shows "banned" instead of "disabled"
   for a banned account.
