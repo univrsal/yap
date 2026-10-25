@@ -592,6 +592,10 @@ server_category_opened :: proc(ui: ^UI, c: Server_Category) {
 		notice_mark_reset(&ui.roles.notice)
 	case .Channels:
 		channels_category_opened(ui) // ui_channel_settings.odin
+	case:
+		// The others share the account screen's mark, so a notice about
+		// something done in another category doesn't show up here.
+		notice_mark_reset(&ui.account.notice)
 	}
 }
 
