@@ -16,7 +16,7 @@ import "core:encoding/endian"
 // 	              been idle for a while; bit 1, whether the client is out
 // 	              of sight (a hidden browser tab, a phone's browser in the
 // 	              background). Being out of sight doesn't make anyone away,
-// 	              but makes the server send push notifications (push.odin).
+// 	              but makes the server send push notifications (server/webpush).
 // 	              A server that doesn't know bit 1 treats it as idle.
 //
 // 	in an account's record:  [activity u8] as everyone sees it

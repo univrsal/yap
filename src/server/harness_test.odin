@@ -9,6 +9,7 @@ import "core:time"
 import "common:proto"
 import "gate"
 import "mail"
+import "webpush"
 
 // The server tests' harness. A Test_Server is a Server without its socket.
 // Connections are created by hand, requests are passed to rpc_handle as if
@@ -80,7 +81,7 @@ ts_close :: proc(ts: ^Test_Server) {
 	delete(s.email.jobs)
 	// Frees the push jobs that push_test.odin queued; no push thread is running in tests
 	// either.
-	push_close(&s.push)
+	webpush.close(&s.push)
 	delete(s.conns)
 	delete(s.waiting)
 	calls_destroy(s)

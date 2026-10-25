@@ -146,7 +146,7 @@ start_relay :: proc(
 		{name = "icon-192.png", content_type = "image/png"},
 		{name = "icon-512.png", content_type = "image/png"},
 		{name = "apple-touch-icon.png", content_type = "image/png"},
-		// The service worker that displays push notifications (push.odin, web/sw.js).
+		// The service worker that displays push notifications (webpush/webpush.odin, web/sw.js).
 		{name = "sw.js", content_type = "text/javascript; charset=utf-8"},
 	}
 	for &f in r.files {

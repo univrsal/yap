@@ -4,9 +4,10 @@ import "core:log"
 
 import "common:proto"
 import "sqlite"
+import "webpush"
 
 // Web Push subscriptions (src/common/proto/push.odin): the subscriptions that browsers
-// with push enabled sent to the server, so push.odin can reach them.
+// with push enabled sent to the server, so webpush/webpush.odin can reach them.
 //
 // They are only stored in the database (push_subs). Each one belongs to a device, and each
 // device has at most one: a new subscription replaces the previous one. The table's
@@ -18,8 +19,8 @@ import "sqlite"
 Push_Sub :: struct {
 	id:       i64,
 	endpoint: string,
-	p256dh:   [P256_PUBLIC_SIZE]u8,
-	auth:     [PUSH_AUTH_SIZE]u8,
+	p256dh:   [webpush.P256_PUBLIC_SIZE]u8,
+	auth:     [webpush.PUSH_AUTH_SIZE]u8,
 	device:   [proto.KEY_SIZE]u8, // the key of the device it belongs to
 }
 
@@ -40,7 +41,7 @@ push_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 push_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	sub, ok := proto.decode_push_subscribe(body)
 	switch {
-	case !ok || push_origin(sub.endpoint) == "":
+	case !ok || webpush.origin(sub.endpoint) == "":
 		respond(u, id, .Invalid)
 		return
 	case !s.push.enabled:
@@ -64,7 +65,7 @@ push_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	q = db_query(&s.db, .Push_Sub_Others, key[:], sub.endpoint)
 	_ = db_run(&s.db, q)
-	log.debugf("%s enabled push, via %s", conn_label(u), push_origin(sub.endpoint))
+	log.debugf("%s enabled push, via %s", conn_label(u), webpush.origin(sub.endpoint))
 	respond(u, id, .Ok)
 }
 
@@ -106,7 +107,7 @@ push_subs_of :: proc(s: ^Server, account: proto.Account_Id) -> []Push_Sub {
 // reports as gone is deleted.
 push_sync :: proc(s: ^Server) {
 	for {
-		r := push_poll(&s.push) or_break
+		r := webpush.poll(&s.push) or_break
 		if r.outcome != .Gone {
 			continue
 		}

@@ -1,4 +1,4 @@
-package server
+package webpush
 
 import "base:runtime"
 import "core:c"
@@ -11,27 +11,27 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "../curl"
 import "common:memtrack"
 import "common:proto"
-import "curl"
 
-// Web Push (misc/mobile): notifies browsers about new activity while the client isn't open,
+// Web Pusher (misc/mobile): notifies browsers about new activity while the client isn't open,
 // through the push service each browser uses (Google's, Mozilla's, Apple's).
 //
-// A subscribing browser is given this server's VAPID public key (Push.public) and receives
+// A subscribing browser is given this server's VAPID public key (Pusher.public) and receives
 // an endpoint URL at its push service, plus two keys used to encrypt messages for it. To
-// notify it, the server encrypts a small payload for it (push_crypto.odin) and POSTs it to
+// notify it, the server encrypts a small payload for it (crypto.odin) and POSTs it to
 // the endpoint with libcurl, signed with the VAPID key. The push service delivers it to the
 // browser, which shows it from its service worker (web/sw.js), whether or not the page is
 // open.
 //
 // The POSTs are made on PUSH_WORKERS threads of their own, so a slow push service never
-// blocks the main loop: push_send queues a job, and its result is returned by push_poll. An
+// blocks the main loop: send queues a job, and its result is returned by poll. An
 // endpoint that answers 404 or 410 is gone for good, and its subscription should be deleted.
 //
 // Endpoints are chosen by users' browsers, or by a modified client, so they're treated with
 // care:
-//   - Only addresses on the public internet are connected to (push_address_public), checked
+//   - Only addresses on the public internet are connected to (address_public), checked
 //     after the name is resolved. An endpoint elsewhere is gone for good.
 //   - Redirects aren't followed, and the answer is only logged.
 //   - An account has at most one push in progress, so endpoints that answer slowly can only
@@ -52,7 +52,7 @@ PUSH_TIMEOUT :: 10
 // The number of threads that make the POSTs.
 PUSH_WORKERS :: 4
 // How long a VAPID token is valid, and how long before it expires a new one is created.
-// Push services accept a lifetime of at most a day.
+// Pusher services accept a lifetime of at most a day.
 @(private = "file")
 VAPID_LIFETIME :: 12 * time.Hour
 @(private = "file")
@@ -62,14 +62,14 @@ VAPID_RENEW :: time.Hour
 PUSH_ANSWER_MOST :: 512
 
 // The "push" section of the config.
-Push_Config :: struct {
+Config :: struct {
 	enabled:   bool,
 	vapid_key: string,
 	subject:   string,
 }
 
 // How urgently a push service should deliver a push (the Urgency header of RFC 8030).
-Push_Urgency :: enum u8 {
+Urgency :: enum u8 {
 	Very_Low,
 	Low,
 	Normal,
@@ -77,16 +77,16 @@ Push_Urgency :: enum u8 {
 }
 
 @(private = "file")
-URGENCY_NAMES := [Push_Urgency]string {
+URGENCY_NAMES := [Urgency]string {
 	.Very_Low = "very-low",
 	.Low      = "low",
 	.Normal   = "normal",
 	.High     = "high",
 }
 
-// Push_Job is one message for one subscription. Its strings and slices are owned by the
+// Job is one message for one subscription. Its strings and slices are owned by the
 // job.
-Push_Job :: struct {
+Job :: struct {
 	sub:      i64, // the subscription's id, returned with the result
 	account:  proto.Account_Id, // the subscription's; 0 for none (the CLI's test push)
 	endpoint: string,
@@ -94,21 +94,21 @@ Push_Job :: struct {
 	auth:     [PUSH_AUTH_SIZE]u8,
 	payload:  []u8,
 	ttl:      int, // how many seconds the push service may hold on to it
-	urgency:  Push_Urgency,
+	urgency:  Urgency,
 	// A push with the same topic that is still waiting at the push service gets replaced
 	// by this one; "" for no topic. At most 32 base64url characters.
 	topic:    string,
 }
 
-Push_Outcome :: enum u8 {
+Outcome :: enum u8 {
 	Sent,
 	Gone, // the subscription no longer exists (404, 410)
 	Failed, // failed this time, but may work next time
 }
 
-Push_Result :: struct {
+Result :: struct {
 	sub:     i64,
-	outcome: Push_Outcome,
+	outcome: Outcome,
 }
 
 Vapid_Token :: struct {
@@ -116,18 +116,18 @@ Vapid_Token :: struct {
 	expires: time.Time,
 }
 
-Push :: struct {
+Pusher :: struct {
 	enabled: bool, // push is configured and libcurl was loaded
 	key:     ecdsa.Private_Key,
 	public:  [P256_PUBLIC_SIZE]u8,
 	subject: string,
 	lib:     curl.Lib,
-	workers: [PUSH_WORKERS]Push_Worker,
+	workers: [PUSH_WORKERS]Worker,
 	mutex:   sync.Mutex,
 	wake:    sync.Cond,
 	stop:    bool,
-	jobs:    [dynamic]Push_Job,
-	results: [dynamic]Push_Result,
+	jobs:    [dynamic]Job,
+	results: [dynamic]Result,
 	// The accounts that have a push in progress, once for each.
 	sending: [dynamic]proto.Account_Id,
 	// The origins whose last push failed, so a failure is logged once rather than for
@@ -135,20 +135,20 @@ Push :: struct {
 	failing: map[string]bool,
 }
 
-// Push_Worker is one of the threads that make the POSTs. Its curl handle is kept alive so
+// Worker is one of the threads that make the POSTs. Its curl handle is kept alive so
 // connections are reused, and it keeps the VAPID tokens it made, by push service origin.
 @(private = "file")
-Push_Worker :: struct {
-	push:   ^Push,
+Worker :: struct {
+	push:   ^Pusher,
 	thread: ^thread.Thread,
 	handle: curl.Handle,
 	tokens: map[string]Vapid_Token,
 }
 
-// push_open starts push, if it is enabled in the config and libcurl can be loaded.
-// Otherwise push_send does nothing and Server_Info doesn't include a key, so clients don't
+// open starts push, if it is enabled in the config and libcurl can be loaded.
+// Otherwise send does nothing and Server_Info doesn't include a key, so clients don't
 // offer push.
-push_open :: proc(p: ^Push, config: Push_Config) {
+open :: proc(p: ^Pusher, config: Config) {
 	if !config.enabled {
 		log.info("push is disabled in the config")
 		return
@@ -167,12 +167,12 @@ push_open :: proc(p: ^Push, config: Push_Config) {
 	p.enabled = true
 	for &w in p.workers {
 		w.push = p
-		w.thread = thread.create_and_start_with_poly_data(&w, push_run, init_context = context)
+		w.thread = thread.create_and_start_with_poly_data(&w, run, init_context = context)
 	}
 	log.infof("push enabled, with subject %s", config.subject)
 }
 
-push_close :: proc(p: ^Push) {
+close :: proc(p: ^Pusher) {
 	sync.lock(&p.mutex)
 	p.stop = true
 	sync.cond_broadcast(&p.wake)
@@ -184,7 +184,7 @@ push_close :: proc(p: ^Push) {
 		}
 	}
 	for &job in p.jobs {
-		push_job_destroy(&job)
+		job_destroy(&job)
 	}
 	delete(p.jobs)
 	delete(p.results)
@@ -198,11 +198,11 @@ push_close :: proc(p: ^Push) {
 	p^ = {}
 }
 
-// push_send queues a message for a subscription; the job's strings and payload are copied.
+// send queues a message for a subscription; the job's strings and payload are copied.
 // Returns false if push is disabled, the endpoint isn't a valid endpoint URL, the payload
 // is too large, or the queue is full.
-push_send :: proc(p: ^Push, job: Push_Job) -> bool {
-	if !p.enabled || push_origin(job.endpoint) == "" || len(job.payload) > PUSH_PAYLOAD_MOST {
+send :: proc(p: ^Pusher, job: Job) -> bool {
+	if !p.enabled || origin(job.endpoint) == "" || len(job.payload) > PUSH_PAYLOAD_MOST {
 		return false
 	}
 	job := job
@@ -211,7 +211,7 @@ push_send :: proc(p: ^Push, job: Push_Job) -> bool {
 	job.payload = clone_bytes(job.payload)
 	sync.guard(&p.mutex)
 	if len(p.jobs) >= PUSH_JOBS_MOST {
-		push_job_destroy(&job)
+		job_destroy(&job)
 		return false
 	}
 	append(&p.jobs, job)
@@ -219,9 +219,9 @@ push_send :: proc(p: ^Push, job: Push_Job) -> bool {
 	return true
 }
 
-// push_poll returns the result of a finished push, if there is one.
+// poll returns the result of a finished push, if there is one.
 @(require_results)
-push_poll :: proc(p: ^Push) -> (r: Push_Result, ok: bool) {
+poll :: proc(p: ^Pusher) -> (r: Result, ok: bool) {
 	if !p.enabled {
 		return
 	}
@@ -234,16 +234,16 @@ push_poll :: proc(p: ^Push) -> (r: Push_Result, ok: bool) {
 	return r, true
 }
 
-// push_waiting returns the number of queued jobs and of unread results, so tests and the
+// waiting returns the number of queued jobs and of unread results, so tests and the
 // CLI can wait for them.
-push_waiting :: proc(p: ^Push) -> (jobs, results: int) {
+waiting :: proc(p: ^Pusher) -> (jobs, results: int) {
 	sync.guard(&p.mutex)
 	return len(p.jobs) + len(p.sending), len(p.results)
 }
 
-// push_origin returns an endpoint's origin, "https://host[:port]", which is what its VAPID
+// origin returns an endpoint's origin, "https://host[:port]", which is what its VAPID
 // token is issued for; "" if it isn't an https:// URL with a path.
-push_origin :: proc(endpoint: string) -> string {
+origin :: proc(endpoint: string) -> string {
 	PREFIX :: "https://"
 	if !strings.has_prefix(endpoint, PREFIX) || len(endpoint) > 2048 {
 		return ""
@@ -262,7 +262,7 @@ push_origin :: proc(endpoint: string) -> string {
 }
 
 @(private = "file")
-push_job_destroy :: proc(job: ^Push_Job) {
+job_destroy :: proc(job: ^Job) {
 	delete(job.endpoint)
 	delete(job.topic)
 	delete(job.payload)
@@ -275,10 +275,10 @@ clone_bytes :: proc(b: []u8) -> []u8 {
 	return out
 }
 
-// push_run is a push worker's main proc: it sends the queued jobs as they arrive, taking
+// run is a push worker's main proc: it sends the queued jobs as they arrive, taking
 // the oldest one whose account has no push in progress.
 @(private = "file")
-push_run :: proc(w: ^Push_Worker) {
+run :: proc(w: ^Worker) {
 	memtrack.thread_init()
 	p := w.push
 	w.handle = p.lib.easy_init()
@@ -294,7 +294,7 @@ push_run :: proc(w: ^Push_Worker) {
 	}
 	for {
 		free_all(context.temp_allocator)
-		job: Push_Job
+		job: Job
 		{
 			sync.guard(&p.mutex)
 			next: for {
@@ -312,23 +312,23 @@ push_run :: proc(w: ^Push_Worker) {
 				sync.cond_wait(&p.wake, &p.mutex)
 			}
 		}
-		outcome := push_post(p, w, &job)
-		push_job_destroy(&job)
+		outcome := post(p, w, &job)
+		job_destroy(&job)
 		sync.guard(&p.mutex)
 		if i, found := slice.linear_search(p.sending[:], job.account); found {
 			unordered_remove(&p.sending, i)
 		}
-		append(&p.results, Push_Result{job.sub, outcome})
+		append(&p.results, Result{job.sub, outcome})
 		// A job of the same account may have been waiting for this one.
 		sync.cond_broadcast(&p.wake)
 	}
 }
 
-// push_address_public reports whether an address that a push is about to connect to is on
+// address_public reports whether an address that a push is about to connect to is on
 // the public internet: not loopback, private, link-local, shared (CGNAT), multicast or
 // reserved, nor an IPv6 address that embeds one of those. `sa` is a struct sockaddr_in or
 // sockaddr_in6, whose address is at the same place on every system.
-push_address_public :: proc(family: c.int, sa: []u8) -> bool {
+address_public :: proc(family: c.int, sa: []u8) -> bool {
 	switch family {
 	case curl.AF_INET:
 		return len(sa) >= 8 && ipv4_public(sa[4:8])
@@ -384,32 +384,32 @@ ipv6_public :: proc(a: []u8) -> bool {
 	return true
 }
 
-// Push_Socket is CURLOPT_OPENSOCKETDATA for push_open_socket.
+// Socket is CURLOPT_OPENSOCKETDATA for open_socket.
 @(private = "file")
-Push_Socket :: struct {
+Socket :: struct {
 	refused: bool, // an address wasn't public
 }
 
-// push_open_socket is the CURLOPT_OPENSOCKETFUNCTION for pushes. curl calls it with each
+// open_socket is the CURLOPT_OPENSOCKETFUNCTION for pushes. curl calls it with each
 // address it's about to connect to, once the name is resolved, so a name that resolves to
 // an address that isn't public is caught too.
 @(private = "file")
-push_open_socket :: proc "c" (user: rawptr, purpose: c.int, a: ^curl.Sockaddr) -> curl.Socket {
+open_socket :: proc "c" (user: rawptr, purpose: c.int, a: ^curl.Sockaddr) -> curl.Socket {
 	context = runtime.default_context()
 	sa := ([^]u8)(&a.addr)[:a.addrlen]
-	if !push_address_public(a.family, sa) {
-		(^Push_Socket)(user).refused = true
+	if !address_public(a.family, sa) {
+		(^Socket)(user).refused = true
 		return curl.SOCKET_BAD
 	}
 	return curl.socket(a.family, a.socktype, a.protocol)
 }
 
-// push_post encrypts a job and POSTs it to its endpoint (RFC 8030 section 5), which
+// post encrypts a job and POSTs it to its endpoint (RFC 8030 section 5), which
 // answers 201 once it has accepted it.
 @(private = "file")
-push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
-	origin := push_origin(job.endpoint)
-	body, ok := push_encrypt(job.payload, job.p256dh[:], job.auth[:], context.temp_allocator)
+post :: proc(p: ^Pusher, w: ^Worker, job: ^Job) -> Outcome {
+	origin := origin(job.endpoint)
+	body, ok := encrypt(job.payload, job.p256dh[:], job.auth[:], context.temp_allocator)
 	if !ok {
 		// A p256dh that isn't a valid point will never become valid, so drop the subscription.
 		log.warnf("push: a subscription at %s has an invalid p256dh key", origin)
@@ -454,7 +454,7 @@ push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
 
 	errors: [curl.ERROR_SIZE]u8
 	answer := make([dynamic]u8, context.temp_allocator)
-	sink := Push_Sink{context, &answer}
+	sink := Sink{context, &answer}
 	lib.easy_setopt(h, .Url, tc(job.endpoint))
 	lib.easy_setopt(h, .Http_Header, headers)
 	lib.easy_setopt(h, .Post_Field_Size, c.long(len(body)))
@@ -463,10 +463,10 @@ push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
 	lib.easy_setopt(h, .Timeout, c.long(PUSH_TIMEOUT))
 	lib.easy_setopt(h, .No_Signal, c.long(1))
 	lib.easy_setopt(h, .Error_Buffer, raw_data(errors[:]))
-	lib.easy_setopt(h, .Write_Function, push_answer)
+	lib.easy_setopt(h, .Write_Function, answer)
 	lib.easy_setopt(h, .Write_Data, &sink)
-	socket: Push_Socket
-	lib.easy_setopt(h, .Open_Socket_Function, push_open_socket)
+	socket: Socket
+	lib.easy_setopt(h, .Open_Socket_Function, open_socket)
 	lib.easy_setopt(h, .Open_Socket_Data, &socket)
 	code := lib.easy_perform(h)
 	if socket.refused && code != 0 {
@@ -476,21 +476,21 @@ push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
 	if code != 0 {
 		why :=
 			string(cstring(raw_data(errors[:]))) if errors[0] != 0 else string(lib.easy_strerror(code))
-		push_report(p, origin, fmt.tprintf("could not reach the push service: %s", why))
+		report(p, origin, fmt.tprintf("could not reach the push service: %s", why))
 		return .Failed
 	}
 	status: c.long
 	lib.easy_getinfo(h, curl.INFO_RESPONSE_CODE, &status)
 	switch status {
 	case 200 ..= 299:
-		push_report(p, origin, "")
+		report(p, origin, "")
 		log.debugf("push: %s accepted a push (%d)", origin, status)
 		return .Sent
 	case 404, 410:
 		log.debugf("push: %s reports that a subscription no longer exists (%d)", origin, status)
 		return .Gone
 	case:
-		push_report(
+		report(
 			p,
 			origin,
 			fmt.tprintf("the push service answered %d: %s", status, string(answer[:])),
@@ -499,10 +499,10 @@ push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
 	}
 }
 
-// push_report logs that pushing to `origin` failed (with `err`), or that it works again
+// report logs that pushing to `origin` failed (with `err`), or that it works again
 // (`err` is ""). Each change is only logged once.
 @(private = "file")
-push_report :: proc(p: ^Push, origin, err: string) {
+report :: proc(p: ^Pusher, origin, err: string) {
 	sync.guard(&p.mutex)
 	if err == "" {
 		if origin in p.failing {
@@ -521,7 +521,7 @@ push_report :: proc(p: ^Push, origin, err: string) {
 // vapid_token returns the VAPID token for an origin, creating a new one when the cached
 // token is about to expire.
 @(private = "file")
-vapid_token :: proc(p: ^Push, w: ^Push_Worker, origin: string) -> string {
+vapid_token :: proc(p: ^Pusher, w: ^Worker, origin: string) -> string {
 	now := time.now()
 	if token, ok := w.tokens[origin]; ok && time.diff(now, token.expires) > VAPID_RENEW {
 		return token.jwt
@@ -541,14 +541,14 @@ vapid_token :: proc(p: ^Push, w: ^Push_Worker, origin: string) -> string {
 }
 
 @(private = "file")
-Push_Sink :: struct {
+Sink :: struct {
 	ctx:  runtime.Context,
 	data: ^[dynamic]u8,
 }
 
 @(private = "file")
-push_answer :: proc "c" (data: [^]u8, size, count: uint, user: rawptr) -> uint {
-	sink := (^Push_Sink)(user)
+answer :: proc "c" (data: [^]u8, size, count: uint, user: rawptr) -> uint {
+	sink := (^Sink)(user)
 	context = sink.ctx
 	n := int(size * count)
 	room := PUSH_ANSWER_MOST - len(sink.data)

@@ -13,6 +13,7 @@ import "common:."
 import "common:proto"
 import "gate"
 import "mail"
+import "webpush"
 
 // The default maximum number of sessions, unless the config sets one
 // (max_sessions). It limits how much memory the sessions use, and with
@@ -156,8 +157,8 @@ Server :: struct {
 	verify:             Verify_State,
 	// Emailing accounts a digest of what they missed (digest.odin).
 	digest:             Digest_State,
-	// Sends notifications to browsers through their push services (push.odin).
-	push:               Push,
+	// Sends notifications to browsers through their push services (webpush/webpush.odin).
+	push:               webpush.Pusher,
 	// Screen sharing's own port and thread (media.odin).
 	media:              Media,
 }
@@ -218,8 +219,8 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	defer auth_destroy(&s.auth)
 	mail.open(&s.email, settings.email)
 	defer mail.close(&s.email)
-	push_open(&s.push, settings.push)
-	defer push_close(&s.push)
+	webpush.open(&s.push, settings.push)
+	defer webpush.close(&s.push)
 	memory_log_open(&s, settings.memory_log)
 	loop_stats_open(&s)
 	if s.registration.verify_email && !s.email.enabled {

@@ -1,4 +1,4 @@
-package server
+package webpush
 
 import "core:crypto"
 import "core:crypto/aead"
@@ -9,7 +9,7 @@ import "core:encoding/base64"
 import "core:encoding/hex"
 import "core:strings"
 
-// The cryptography for Web Push (push.odin), all of it implemented with core:crypto:
+// The cryptography for Web Push (webpush.odin), all of it implemented with core:crypto:
 //
 //   - A message is encrypted for the subscribed browser (RFC 8291, using RFC 8188's
 //     aes128gcm content coding): a fresh P-256 key is generated for each message and
@@ -38,11 +38,11 @@ PUSH_TAG_SIZE :: 16
 // header, the padding delimiter and the tag.
 PUSH_PAYLOAD_MOST :: 4096 - PUSH_HEADER_SIZE - 1 - PUSH_TAG_SIZE
 
-// push_encrypt encrypts `plaintext` for a subscription (given its p256dh key and auth
+// encrypt encrypts `plaintext` for a subscription (given its p256dh key and auth
 // secret) with a fresh key and salt, and returns the body to POST, allocated with
 // `allocator`. Returns false if the p256dh key isn't a point on P-256 or the plaintext is
 // too long.
-push_encrypt :: proc(
+encrypt :: proc(
 	plaintext: []u8,
 	ua_public: []u8,
 	auth: []u8,
@@ -58,12 +58,12 @@ push_encrypt :: proc(
 	defer ecdh.private_key_clear(&key)
 	salt: [PUSH_SALT_SIZE]u8
 	crypto.rand_bytes(salt[:])
-	return push_encrypt_with(plaintext, ua_public, auth, &key, salt[:], allocator)
+	return encrypt_with(plaintext, ua_public, auth, &key, salt[:], allocator)
 }
 
-// push_encrypt_with is push_encrypt with a caller-supplied key and salt, so the tests can
+// encrypt_with is encrypt with a caller-supplied key and salt, so the tests can
 // use the ones from RFC 8291's example.
-push_encrypt_with :: proc(
+encrypt_with :: proc(
 	plaintext: []u8,
 	ua_public: []u8,
 	auth: []u8,
@@ -205,7 +205,7 @@ vapid_key_parse :: proc(encoded: string, key: ^ecdsa.Private_Key) -> bool {
 }
 
 // base64url encodes `data` as base64url without padding, as required by JWTs and the Web
-// Push headers.
+// Pusher headers.
 base64url :: proc(data: []u8, allocator := context.allocator) -> string {
 	encoded := base64.encode(data, base64.ENC_URL_TABLE, allocator)
 	return strings.trim_right(encoded, "=")

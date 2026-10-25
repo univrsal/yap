@@ -13,6 +13,7 @@ import "core:time"
 import "common:."
 import "common:proto"
 import "mail"
+import "webpush"
 
 // The server's settings are all in one file (config.json by default), which is
 // read once at startup:
@@ -214,7 +215,7 @@ import "mail"
 //            out). Each camera goes to everyone watching it in the channel, so
 //            a full channel costs about max_cameras x watchers x what each
 //            camera sends (450 kbit/s at nine).
-// push       Web Push (see push.odin): notifying browsers that enabled it about
+// push       Web Push (see webpush/webpush.odin): notifying browsers that enabled it about
 //            messages while the client isn't open, through their push
 //            services (Google's, Mozilla's, Apple's). This needs libcurl and
 //            the server must be able to reach those services over HTTPS.
@@ -269,7 +270,7 @@ Config :: struct {
 	email:              mail.Config,
 	registration:       Registration_Config,
 	video:              Video_Config,
-	push:               Push_Config,
+	push:               webpush.Config,
 }
 
 Video_Config :: struct {
@@ -359,7 +360,7 @@ Settings :: struct {
 	email:        mail.Config, // checked; address "" for none
 	registration: Registration_Config,
 	video:        Video_Config, // checked; port 0 for the one after `port`
-	push:         Push_Config, // subject filled in with a default if not set
+	push:         webpush.Config, // subject filled in with a default if not set
 }
 
 // The subject used for push when neither a push subject nor an email address is
@@ -426,7 +427,7 @@ load_config :: proc(
 		log.infof("%s had no key, so a new one was generated and saved to it", path)
 	}
 	if cfg.push.vapid_key == "" {
-		cfg.push.vapid_key = vapid_key_generate() or_return
+		cfg.push.vapid_key = webpush.vapid_key_generate() or_return
 		save_config(path, cfg) or_return
 		settings.push.vapid_key = cfg.push.vapid_key
 		log.infof("%s had no push vapid_key, so a new one was generated and saved to it", path)
@@ -462,7 +463,7 @@ apply_ports :: proc(cfg: ^Config, ports: Config_Ports) -> (changed: bool) {
 @(private = "file")
 create_config :: proc(path: string, cfg: ^Config) -> bool {
 	cfg.key = common.generate_private_key() or_return
-	cfg.push.vapid_key = vapid_key_generate() or_return
+	cfg.push.vapid_key = webpush.vapid_key_generate() or_return
 	log.info("generated a new private key")
 
 	if !save_config(path, cfg^) {
