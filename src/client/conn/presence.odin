@@ -200,6 +200,7 @@ apply_state :: proc(c: ^Server_Conn, version: u32, body: []byte) {
 	// joined it and who left, including ourselves.
 	room := my_room(c)
 	members := room_members(c, room)
+	guest_left(c, old_room, room)
 	switch {
 	case room != old_room:
 		if room != 0 {

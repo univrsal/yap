@@ -71,6 +71,9 @@ Conn :: struct {
 	flags:           proto.User_Flags,
 	// The voice room the connection is in, 0 for none (conv_requests.odin).
 	room:            proto.Room,
+	// The room a moderator moved it into (moderation.odin), for as long as
+	// it is still there, else 0. It may stay there without the rights.
+	guest_room:      proto.Room,
 	sessions:        int, // keyed sessions of the main link pointing here
 
 	// State sync: the newest snapshot version the client confirmed, and
@@ -594,7 +597,7 @@ conn_unseen :: proc(s: ^Server, u: ^Conn) {
 	delete_key(&s.conns, u.key)
 	drop_conn_files(s, u)
 	s.waiting[u.key] = u
-	u.room, u.flags = 0, {}
+	u.room, u.guest_room, u.flags = 0, 0, {}
 	u.acked_version, u.sent_version = 0, 0
 	u.last_typing = {}
 }
@@ -640,7 +643,7 @@ conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
 	}
 	conn_left(s, u)
 	// Reset it to a fresh state for whoever logs in on it next.
-	u.room, u.flags = 0, {}
+	u.room, u.guest_room, u.flags = 0, 0, {}
 	u.acked_version, u.sent_version = 0, 0
 	u.last_typing = {}
 	s.waiting[u.key] = u

@@ -80,7 +80,7 @@ told_moved :: proc(
 ) {
 	for e in ts_events(t, ts, u) {
 		if e.op == .Voice_Moved {
-			room, by, told = proto.decode_voice_moved(e.body)
+			room, by, _, told = proto.decode_voice_moved(e.body)
 		}
 	}
 	return
@@ -187,6 +187,84 @@ test_voice_move :: proc(t: ^testing.T) {
 	testing.expect_value(t, move_as(t, &ts, alice, bob_acc.id, 0), proto.Status.Not_Found)
 	testing.expect_value(t, bob.room, secret)
 	testing.expect_value(t, move_as(t, &ts, olga, bob_acc.id, 0), proto.Status.Ok)
+}
+
+// room_seen_by returns the room that `viewer` is told `account` is in.
+@(private = "file")
+room_seen_by :: proc(s: ^Server, account, viewer: proto.Account_Id) -> proto.Room {
+	users, hidden := presence_list(s)
+	for u in users_seen_by(s, users, hidden, viewer) {
+		if u.account == account {
+			return u.room
+		}
+	}
+	return 0
+}
+
+@(test)
+test_voice_guest :: proc(t: ^testing.T) {
+	// Someone moved into a room they couldn't join stays there, and sees it,
+	// until they go elsewhere or the room goes (D5).
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	ts_account(t, &ts, "olga", "a password", {.Owner})
+	bob_acc := ts_account(t, &ts, "bob", "a password")
+	carol_acc := ts_account(t, &ts, "carol", "a password")
+	olga := logged_in(t, &ts, "olga")
+	bob := logged_in(t, &ts, "bob")
+	logged_in(t, &ts, "carol")
+	home := proto.Room(s.convs.home.id)
+	secret := channel_as(t, &ts, olga, "secret", private = true)
+	join_as(t, &ts, bob, home)
+
+	// bob isn't in "secret", yet is moved there, sees where he is, and is
+	// told the room's name. carol, who isn't in it either, doesn't see it.
+	ts_events(t, &ts, bob)
+	testing.expect_value(t, move_as(t, &ts, olga, bob_acc.id, secret), proto.Status.Ok)
+	testing.expect_value(t, bob.room, secret)
+	testing.expect_value(t, room_seen_by(s, bob_acc.id, bob_acc.id), secret)
+	testing.expect_value(t, room_seen_by(s, bob_acc.id, carol_acc.id), proto.Room(0))
+	e, told := has_event(ts_events(t, &ts, bob), .Voice_Moved)
+	testing.expect(t, told)
+	_, _, name, _ := proto.decode_voice_moved(e.body)
+	testing.expect_value(t, name, "secret")
+
+	// Changing who may do what there doesn't take him out.
+	rights_buf: [proto.CONV_RIGHTS_SET_MAX_SIZE]u8
+	status, _ := ts_ask(
+		t,
+		&ts,
+		olga,
+		.Conv_Rights_Set,
+		proto.encode_conv_rights_set(
+			rights_buf[:],
+			proto.Conv_Id(secret),
+			{{proto.EVERYONE_ROLE, {.See}}},
+		),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, bob.room, secret)
+
+	// Once he has gone elsewhere, he can't come back on his own.
+	join_as(t, &ts, bob, home)
+	testing.expect_value(t, bob.guest_room, proto.Room(0))
+	buf: [4]u8
+	status, _ = ts_ask(t, &ts, bob, .Voice_Join, proto.encode_room(&buf, secret))
+	testing.expect_value(t, status, proto.Status.Not_Found)
+
+	// A room that goes away takes its guests with it.
+	testing.expect_value(t, move_as(t, &ts, olga, bob_acc.id, secret), proto.Status.Ok)
+	status, _ = ts_ask(
+		t,
+		&ts,
+		olga,
+		.Conv_Delete,
+		proto.encode_conv_id(&buf, proto.Conv_Id(secret)),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, bob.room, proto.Room(0))
 }
 
 @(test)

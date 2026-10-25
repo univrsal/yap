@@ -347,6 +347,8 @@ conn_set_room :: proc(s: ^Server, u: ^Conn, room: proto.Room) {
 	if u.room == room {
 		return
 	}
+	// Anywhere else it goes, it goes by the rights again.
+	u.guest_room = 0
 	// Leaving a call's room ends the call (see calls.odin).
 	calls_room_left(s, u, room)
 	if proto.room_call(room) != 0 {
@@ -608,12 +610,15 @@ member_gone :: proc(s: ^Server, conv: ^Conv, account: proto.Account_Id) {
 
 // room_check removes everyone who may no longer talk in a channel's voice room
 // (it is text only, or they lost Voice or See there) from that room and tells
-// them with a Voice_Moved event to no room.
+// them with a Voice_Moved event to no room. Those a moderator moved there stay
+// whatever their rights (moderation.odin), as long as the room is still there.
 room_check :: proc(s: ^Server, conv: ^Conv) {
 	changed := .Private in conv.flags
+	gone := conv.flags & {.Archived, .Text_Only} != {}
 	for _, other in s.conns {
 		if other.account == nil ||
 		   other.room != proto.Room(conv.id) ||
+		   (other.guest_room == other.room && !gone) ||
 		   .Voice in conv_rights(conv, other.account) {
 			continue
 		}
@@ -629,7 +634,8 @@ room_check :: proc(s: ^Server, conv: ^Conv) {
 
 // room_hidden returns whether an account isn't allowed to know who is in a room.
 // This is the case for the room of a channel it may not see, such as a private
-// one it isn't in.
+// one it isn't in, unless a moderator moved it there and it hasn't left
+// (moderation.odin).
 room_hidden :: proc(s: ^Server, room: proto.Room, account: proto.Account_Id) -> bool {
 	if room == 0 {
 		return false
@@ -638,7 +644,18 @@ room_hidden :: proc(s: ^Server, room: proto.Room, account: proto.Account_Id) -> 
 		return !call_room_member(s, room, account)
 	}
 	conv := conv_by_id(&s.convs, proto.Conv_Id(room))
-	return conv != nil && !conv_visible(conv, account_by_id(&s.accounts, account))
+	if conv == nil {
+		return false
+	}
+	acc := account_by_id(&s.accounts, account)
+	if acc != nil {
+		for u in acc.conns {
+			if u.guest_room == room {
+				return false
+			}
+		}
+	}
+	return !conv_visible(conv, acc)
 }
 
 // Rights in channels (proto.Conv_Right): what each role may do in a channel is

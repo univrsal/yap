@@ -168,6 +168,9 @@ Command :: union {
 	Account_Disable_Command,
 	Account_Delete_Command,
 	Role_Order_Command,
+	// Moderation, see moderation.odin.
+	Voice_Move_Command,
+	Voice_Mute_Command,
 	Conv_Update_Command,
 	Conv_Rights_Get_Command,
 	Conv_Rights_Set_Command,
@@ -250,6 +253,11 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.name)
 		delete(v.role_names)
 	case Account_Disable_Command:
+		delete(v.name)
+	case Voice_Move_Command:
+		delete(v.name)
+		delete(v.channel)
+	case Voice_Mute_Command:
 		delete(v.name)
 	case Account_Delete_Command:
 		delete(v.name)
@@ -407,6 +415,10 @@ process_commands :: proc(c: ^Server_Conn) {
 			account_roles_set(c, v)
 		case Account_Disable_Command:
 			account_disable(c, v)
+		case Voice_Move_Command:
+			voice_move(c, v)
+		case Voice_Mute_Command:
+			voice_mute(c, v)
 		case Account_Delete_Command:
 			account_delete(c, v)
 		case Role_Order_Command:

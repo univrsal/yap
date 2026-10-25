@@ -11,8 +11,9 @@ package proto
 //	            account, or unban it (the rest is then ignored)
 //	Ban_List    (nothing)  ->  [count u16] bans...
 //
-//	Voice_Moved [room u32][by u32]  (convs.odin) `by` is the account that
-//	            moved us, or 0 (or missing) if it wasn't a person
+//	Voice_Moved [room u32][by u32][name str8]  (convs.odin) `by` is the
+//	            account that moved us, or 0 (or missing) if it wasn't a
+//	            person, and `name` the channel's (or "")
 //
 //	ban  [account u32][by u32][time u64][reason str8]
 //
@@ -24,7 +25,10 @@ package proto
 // Voice_Move only moves someone who is in a channel's voice room on this
 // server, never someone in a call. The mover must have See and Voice in the
 // target room (convs.odin); what the person moved may do there isn't asked.
-// They may rejoin their old room on their own afterwards.
+// They may rejoin their old room on their own afterwards. A room that the
+// person moved couldn't join on their own is theirs to stay in until they
+// leave or are moved again: losing rights there doesn't take them out, they
+// see who is in it as long as they are, and Voice_Moved tells them its name.
 //
 // A muted account has Account_Flag.Server_Muted, which everyone sees in its
 // account record. It lasts until it is lifted, across rooms and logins, and
@@ -77,6 +81,7 @@ Ban_Set :: struct {
 VOICE_MOVE_SIZE :: 4 + 4
 VOICE_MUTE_SIZE :: 4 + 1
 VOICE_MOVED_SIZE :: 4 + 4
+VOICE_MOVED_MAX_SIZE :: VOICE_MOVED_SIZE + 1 + MAX_CHANNEL_NAME_SIZE
 BAN_SET_MAX_SIZE :: 4 + 1 + 1 + MAX_BAN_REASON + 1
 BAN_MAX_SIZE :: 4 + 4 + 8 + 1 + MAX_BAN_REASON
 BANNED_MAX_SIZE :: 1 + MAX_BAN_REASON
@@ -117,18 +122,26 @@ decode_voice_mute :: proc(body: []u8) -> (account: Account_Id, on: bool, ok: boo
 	return account, on, !r.overflow
 }
 
-encode_voice_moved :: proc(out: ^[VOICE_MOVED_SIZE]u8, room: Room, by: Account_Id) -> []u8 {
+// encode_voice_moved writes a Voice_Moved event. `name` is the room's
+// channel's (at most MAX_CHANNEL_NAME_SIZE bytes), or "".
+encode_voice_moved :: proc(
+	out: ^[VOICE_MOVED_MAX_SIZE]u8,
+	room: Room,
+	by: Account_Id,
+	name: string,
+) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
 	put_u32(&w, u32(room))
 	put_u32(&w, u32(by))
-	return out[:]
+	put_str8(&w, name)
+	return written(&w)
 }
 
 // decode_voice_moved reads a Voice_Moved event. Older servers send only the
-// room, so `by` is 0 then.
-decode_voice_moved :: proc(body: []u8) -> (room: Room, by: Account_Id, ok: bool) {
+// room, so `by` is 0 and `name` "" then. `name` points into `body`.
+decode_voice_moved :: proc(body: []u8) -> (room: Room, by: Account_Id, name: string, ok: bool) {
 	r := Reader {
 		buf = body,
 	}
@@ -138,8 +151,9 @@ decode_voice_moved :: proc(body: []u8) -> (room: Room, by: Account_Id, ok: bool)
 	}
 	if has_more(&r) {
 		by = Account_Id(get_u32(&r))
+		name = get_str8_opt(&r)
 	}
-	return room, by, !r.overflow
+	return room, by, name, !r.overflow
 }
 
 // encode_ban_set writes a Ban_Set request. It returns nil if the reason is

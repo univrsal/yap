@@ -410,6 +410,10 @@ voice_room_name :: proc(v: ^conn.View) -> string {
 			return ch.name
 		}
 	}
+	// One a moderator moved us into (conn/moderation.odin).
+	if v.guest_name != "" {
+		return v.guest_name
+	}
 	// A channel we're talking in without being subscribed to it.
 	return "another channel"
 }

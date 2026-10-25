@@ -16,7 +16,8 @@ import "common:proto"
 // account (names can be copied and are the same on many servers, so they can't
 // be used as a key) and applied to every connection of the account (see
 // user_settings / Gain_Command). The same menu adds or removes a buddy and
-// opens a DM with them.
+// opens a DM with them, and for moderators mutes them for everyone, moves them
+// to another voice room or disconnects them (conn/moderation.odin).
 
 @(private = "file")
 MENU :: "user menu"
@@ -34,22 +35,40 @@ status_icon :: proc(ctx: ^mu.Context, icon: render.Icon, color: mu.Color) {
 }
 
 // What the icon in front of your own name says, from most to least telling:
-// deafened means hearing nobody, muted means saying nothing to anybody. This
-// is the one state that we don't wait for the server to tell us about.
+// muted by a moderator means nobody here hears you whatever you do, deafened
+// means hearing nobody, muted means saying nothing to anybody. Our own mute is
+// the one state that we don't wait for the server to tell us about.
 @(private = "file")
 my_status :: proc(ui: ^UI, speaking: bool) -> (render.Icon, mu.Color) {
-	return sound_status(ui.muted, ui.deafened, speaking)
+	return sound_status(ui.muted, ui.deafened, speaking, server_muted(ui.view, ui.view.me))
 }
 
 // The same for someone else, from what the server passed on.
 // (Also used by the voice panel for the other side of a call.)
-their_status :: proc(user: conn.View_User, speaking: bool) -> (render.Icon, mu.Color) {
-	return sound_status(user.muted, user.deafened, speaking)
+their_status :: proc(
+	user: conn.View_User,
+	speaking: bool,
+	server_muted := false,
+) -> (
+	render.Icon,
+	mu.Color,
+) {
+	return sound_status(user.muted, user.deafened, speaking, server_muted)
+}
+
+// server_muted returns whether a moderator has muted an account on this
+// server. Call with the View locked.
+server_muted :: proc(v: ^conn.View, account: proto.Account_Id) -> bool {
+	acc, ok := v.accounts[account]
+	return ok && .Server_Muted in acc.flags
 }
 
 @(private = "file")
-sound_status :: proc(muted, deafened, speaking: bool) -> (render.Icon, mu.Color) {
+sound_status :: proc(muted, deafened, speaking, server_muted: bool) -> (render.Icon, mu.Color) {
 	switch {
+	case server_muted:
+		// Not their own doing, so in a colour of its own.
+		return .Mic_Off, theme.warning
 	case deafened:
 		// Someone who isn't listening is usually muted as well, and of the
 		// two, that is the one worth showing.
@@ -195,7 +214,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		text = fmt.tprintf("%s  (%.0f%%)", text, u.volume * 100)
 	}
 	speaking := conn.is_speaking(v, id)
-	icon, icon_color := their_status(user, speaking)
+	icon, icon_color := their_status(user, speaking, .Server_Muted in acc.flags)
 	status_icon(ctx, icon, icon_color)
 	cell := mu.layout_next(ctx)
 	avatar(ui, user.account, {cell.x, cell.y + (cell.h - pic) / 2, pic, pic})
@@ -267,6 +286,7 @@ open_user_menu :: proc(ui: ^UI, num: proto.User_Num, account: proto.Account_Id) 
 	ui.menu_user = num
 	ui.menu_account = account
 	ui.menu_volume = u.volume * 100
+	ui.menu_moving = false
 	// Opened by user_menu: microui scopes container names by the id stack,
 	// and the row it is opened from is nested in ids that the menu isn't.
 	ui.menu_requested = true
@@ -325,6 +345,10 @@ user_card :: proc(ui: ^UI, account: proto.Account_Id, acc: conn.View_Account) {
 			until := chat_time(ui, proto.Unix_Time(acc.status_until / 1000))
 			dim_label(ctx, fmt.tprintf("Until %s", until))
 		}
+	}
+	if .Server_Muted in acc.flags {
+		mu.layout_row(ctx, {MENU_WIDTH})
+		with_text_color(ctx, theme.warning, "Muted by a moderator", label_proc)
 	}
 	if len(acc.roles) > 0 {
 		role_chips(ui, acc.roles, MENU_WIDTH)
@@ -494,6 +518,8 @@ user_menu :: proc(ui: ^UI) {
 		}
 	}
 
+	moderation_items(ui, account, clicked if clicked_here else {})
+
 	if changed {
 		settings.set_user_settings(&ui.settings, v.server_key, account, u)
 		shared_user_changed(ui, account, u)
@@ -505,6 +531,71 @@ user_menu :: proc(ui: ^UI) {
 				conn.Gain_Command{account, settings.user_gain(u)},
 			)
 		}
+	}
+}
+
+// moderation_items is the part of the user menu for moderators, apart from
+// the rest so that muting for everyone isn't mistaken for muting for
+// ourselves: mute or unmute them for everyone (Mute_Members), and, for the
+// connection that was clicked while it is in a channel's voice room here,
+// move it to another room or out of voice (Move_Members). The rooms to move
+// to are the ones we may talk in ourselves (D5). The server checks all of it
+// again, including that we outrank them. Call with the View locked, inside
+// the menu.
+@(private = "file")
+moderation_items :: proc(ui: ^UI, account: proto.Account_Id, clicked: conn.View_User) {
+	ctx := &ui.ctx
+	v := ui.view
+	acc, known := v.accounts[account]
+	if !known || acc.flags & {.Owner, .Bot} != {} {
+		return
+	}
+	can_mute := .Mute_Members in v.permissions
+	room := clicked.room
+	can_move := .Move_Members in v.permissions && room != 0 && proto.room_call(room) == 0
+	if !can_mute && !can_move {
+		return
+	}
+	close :: proc(ctx: ^mu.Context) {
+		mu.get_current_container(ctx).open = false
+	}
+	mu.layout_row(ctx, {MENU_WIDTH})
+	dim_label(ctx, "Moderation")
+	if can_mute {
+		muted := .Server_Muted in acc.flags
+		label := "Unmute for everyone" if muted else "Mute for everyone"
+		if .SUBMIT in stable_button(ctx, "server mute", label) {
+			command(ui, conn.Voice_Mute_Command{account = account, on = !muted})
+		}
+	}
+	if !can_move {
+		return
+	}
+	if .SUBMIT in stable_button(ctx, "move", "Move to..." if !ui.menu_moving else "Move to:") {
+		ui.menu_moving = !ui.menu_moving
+	}
+	if ui.menu_moving {
+		listed := false
+		for ch in v.channels {
+			if ch.id == proto.Conv_Id(room) || .Voice not_in ch.rights {
+				continue
+			}
+			listed = true
+			mu.push_id(ctx, uintptr(ch.id))
+			pressed := .SUBMIT in stable_button(ctx, "room", fmt.tprintf("  # %s", ch.name))
+			mu.pop_id(ctx)
+			if pressed {
+				command(ui, conn.Voice_Move_Command{account = account, room = proto.Room(ch.id)})
+				close(ctx)
+			}
+		}
+		if !listed {
+			dim_label(ctx, "  No other room you can talk in")
+		}
+	}
+	if .SUBMIT in stable_button(ctx, "disconnect", "Disconnect from voice") {
+		command(ui, conn.Voice_Move_Command{account = account, room = 0})
+		close(ctx)
 	}
 }
 

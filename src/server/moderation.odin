@@ -15,8 +15,9 @@ import "common:proto"
 // (voice_join), and that connection is moved. Someone in a call can't be
 // moved, and neither can someone whose room the mover can't see. The mover
 // needs See and Voice in the target room; what the person moved may do there
-// isn't asked (D5), so room_check takes them out again whenever it runs for
-// that channel while they lack Voice there.
+// isn't asked (D5). The connection's guest_room keeps them there whatever
+// their rights (room_check), and lets them see who is in it (room_hidden),
+// until they go anywhere else.
 //
 // A mute is the account flag Server_Muted, kept in the database, so it lasts
 // across rooms and logins until it is lifted. relay_voice drops the voice of
@@ -119,8 +120,11 @@ voice_move :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		log.infof("%s disconnected %s from voice", conn_label(u), target.username)
 	}
 	conn_set_room(s, moved, room)
-	buf: [proto.VOICE_MOVED_SIZE]u8
-	send_event(moved, .Voice_Moved, proto.encode_voice_moved(&buf, room, u.account.id))
+	// It stays there, rights or not, until it goes elsewhere (D5).
+	moved.guest_room = room
+	buf: [proto.VOICE_MOVED_MAX_SIZE]u8
+	name := to.name if to != nil else ""
+	send_event(moved, .Voice_Moved, proto.encode_voice_moved(&buf, room, u.account.id, name))
 }
 
 // voice_mute mutes an account for everyone, or lifts that.

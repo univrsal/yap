@@ -85,6 +85,10 @@ import "core:time"
 //	                 Invite,Pin_Messages)
 //	/assign <name> [role,...]  give someone exactly these roles
 //	/disable <name>, /enable <name>  prevent someone from logging in, or allow it again
+//	/voicemove <name> <channel>, /voicekick <name>   move someone's voice to
+//	                 another channel's room, or out of voice
+//	/servermute <name>, /serverunmute <name>   mute someone for everyone on
+//	                 the server, or lift that
 //	/deluser <name>  delete someone's account; /deleteme <password> deletes your own
 //	/private <name>  create a private channel
 //	/rename <name>, /topic <text>, /move <position>, /archive   change or
@@ -467,6 +471,34 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				conn.Account_Disable_Command {
 					name = strings.clone(strings.trim_space(name)),
 					on = strings.has_prefix(line, "/disable "),
+				},
+			)
+		case strings.has_prefix(line, "/voicemove "):
+			name, _, channel := strings.partition(
+				strings.trim_space(line[len("/voicemove "):]),
+				" ",
+			)
+			conn.push_command(
+				q,
+				conn.Voice_Move_Command {
+					name = strings.clone(name),
+					channel = strings.clone(strings.trim_space(channel)),
+				},
+			)
+		case strings.has_prefix(line, "/voicekick "):
+			conn.push_command(
+				q,
+				conn.Voice_Move_Command {
+					name = strings.clone(strings.trim_space(line[len("/voicekick "):])),
+				},
+			)
+		case strings.has_prefix(line, "/servermute "), strings.has_prefix(line, "/serverunmute "):
+			_, _, name := strings.partition(line, " ")
+			conn.push_command(
+				q,
+				conn.Voice_Mute_Command {
+					name = strings.clone(strings.trim_space(name)),
+					on = strings.has_prefix(line, "/servermute "),
 				},
 			)
 		case strings.has_prefix(line, "/deluser "):

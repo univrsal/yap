@@ -23,19 +23,22 @@ test_voice_moderation_roundtrip :: proc(t: ^testing.T) {
 	_, _, ok = decode_voice_mute(mute_buf[:4])
 	testing.expect(t, !ok)
 
-	moved_buf: [VOICE_MOVED_SIZE]u8
+	moved_buf: [VOICE_MOVED_MAX_SIZE]u8
 	by: Account_Id
-	room, by, ok = decode_voice_moved(encode_voice_moved(&moved_buf, 3, 5))
+	name: string
+	room, by, name, ok = decode_voice_moved(encode_voice_moved(&moved_buf, 3, 5, "games"))
 	testing.expect(t, ok)
 	testing.expect_value(t, room, Room(3))
 	testing.expect_value(t, by, Account_Id(5))
+	testing.expect_value(t, name, "games")
 	// An older server sends only the room.
 	room_buf: [4]u8
-	room, by, ok = decode_voice_moved(encode_room(&room_buf, 4))
+	room, by, name, ok = decode_voice_moved(encode_room(&room_buf, 4))
 	testing.expect(t, ok)
 	testing.expect_value(t, room, Room(4))
 	testing.expect_value(t, by, Account_Id(0))
-	_, _, ok = decode_voice_moved(moved_buf[:6])
+	testing.expect_value(t, name, "")
+	_, _, _, ok = decode_voice_moved(moved_buf[:6])
 	testing.expect(t, !ok)
 }
 

@@ -137,6 +137,9 @@ View :: struct {
 	channel:             proto.Conv_Id,
 	my_room:             proto.Conv_Id,
 	voice_pending:       bool,
+	// The name (owned) of the channel whose voice room we are in, while a
+	// moderator has us there and it isn't one of ours (moderation.odin), else "".
+	guest_name:          string,
 	// The channels that were available to subscribe to the last time they were
 	// requested, how far into the list they start, and how many times they
 	// have arrived.
@@ -493,6 +496,8 @@ view_clear_channels :: proc(v: ^View) {
 	clear(&v.users)
 	delete(v.my_name)
 	v.my_name = ""
+	delete(v.guest_name)
+	v.guest_name = ""
 }
 
 is_speaking :: proc(v: ^View, id: proto.User_Num) -> bool {
@@ -690,6 +695,9 @@ publish_channels :: proc(c: ^Server_Conn) {
 	v.channel = c.convs.channel
 	v.my_room = proto.Conv_Id(my_room(c))
 	v.voice_pending = c.convs.voice_pending
+	if c.convs.guest_room != 0 && proto.Room(v.my_room) == c.convs.guest_room {
+		v.guest_name = strings.clone(c.convs.guest_name)
+	}
 }
 
 publish_mic :: proc(c: ^Server_Conn, level_db: f32, gate_open: bool) {

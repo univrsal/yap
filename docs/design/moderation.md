@@ -16,7 +16,7 @@ Branch `moderation-plan`, off master (10f7192). Sizes as in [next.md](next.md).
 | --- | --- | --- | --- |
 | 1 | Wire and database: permissions, Server_Muted, requests, bans table | M | done |
 | 2 | Server: move, disconnect, mute | M | done |
-| 3 | Client: menu items, mute shown, notices | M | |
+| 3 | Client: menu items, mute shown, notices | M | done |
 | 4 | Client: dragging people between rooms | M | |
 | 5 | Bans on the server, and in the client | L | |
 | 6 | Purging one author's messages | M | |
@@ -103,6 +103,13 @@ The rights of the person being moved aren't checked, so a moderator can
 bring someone into a room they couldn't join on their own. The mover
 needn't be in either room. Only people in a room on this server can be moved;
 someone in a DM call can't (calls are private).
+
+A user that was moved into a channel they normally can't see or enter
+should
+- be able to see the channel name for the duration they are in the channel
+- stay in the channel and not be kicked by the server when it re-checks the members
+the user should only leave the channel either when they leave themselves
+or are moved/kicked out of the channel.
 
 **D6 — Disconnect.** Recommended: takes them out of the room, and they
 may rejoin straight away. Keeping someone out is what a mute, the Voice
@@ -288,12 +295,18 @@ Differences from the text above:
   Not_Found too.
 - Moving someone to the room they are in is Ok and tells them nothing.
 
-A consequence of D5 to keep in mind for phase 3: someone moved into a
-room where they themselves lack Voice is taken out again by
-`room_check` the next time it runs for that channel (a rights or
-membership change there), and someone moved into a private channel
-they aren't in doesn't see the room's name in their own presence
-(`room_hidden`).
+*Guests (D5 as clarified, built with phase 3):* `Conn.guest_room` is
+the room a moderator moved the connection into. `conn_set_room` clears
+it whenever the connection goes anywhere else (and logging out does).
+While it holds, `room_check` leaves the connection there whatever its
+rights, unless the room itself goes (the channel is archived or made
+text only), and `room_hidden` lets the account see who is in it.
+Voice_Moved carries the channel's name (`[name str8]` after `by`), which
+is how the moved person learns the name of a channel they don't have.
+`test_voice_guest` covers it: moved into a private channel, sees itself
+there while others outside don't, stays through a rights change, can't
+come back on its own once it has left, and leaves with the room when
+the channel is archived.
 
 The mute is checked in `relay_voice` on the account flag, one test per
 frame. Unmuting someone who isn't muted, or muting twice, is Ok and
@@ -324,6 +337,45 @@ against the target's full set, which includes everyone's Attach_Files.
   would be dropped anyway).
 - Notices (D7) in the voice panel for a few seconds.
 - Check: narrow (phone) layout of the menu, the web build.
+
+*As built:* `conn/moderation.odin` has Voice_Move_Command and
+Voice_Mute_Command (by id, or by name for the headless client),
+`voice_moved` (the notices, and the guest room) and the mute helpers.
+
+- The menu's "Moderation" part (`moderation_items` in ui_users.odin)
+  comes after the "for me" controls, under a dim heading. **Mute for
+  everyone** / **Unmute for everyone** is there for anyone we may mute,
+  not only people in a room, since the mute is the account's. **Move
+  to...** opens a list of the rooms we may talk in (our channels with
+  Voice), and **Disconnect from voice** needs the clicked connection to
+  be in a channel's room here. It is hidden for the owner and for bots;
+  the server judges outranking, and a refusal comes back as a notice.
+- Muted by a moderator: a crossed-out mic in `theme.warning` in front
+  of the name (before deafened and self-muted), "Muted by a moderator"
+  on their card. For ourselves the same icon on the mic button (whose
+  click still switches our own mute, which is every server's), and the
+  voice panel's first line says "Muted by a moderator" in that colour.
+- Our voice isn't sent at all while our account is Server_Muted
+  (`capture_loop`'s `sending`): a tone client went from 50 frames a
+  second sent to 0 when muted.
+- Notices use the existing `notify` line: "bot1 moved you to # games.",
+  "bot1 disconnected you from voice.", "A moderator muted you on this
+  server. Nobody here hears you.", "A moderator lifted your mute on this
+  server." Voice_Moved without a mover keeps its old log line (another
+  device), and room 0 without one now says the right lost.
+- The guest room's name is kept in `Conv_Client.guest_room/guest_name`
+  until a snapshot shows we left it (`guest_left`; Voice_Moved and the
+  snapshot arrive separately), and reaches the panel as
+  `View.guest_name` (`voice_room_name`) and the logs through
+  `room_name`.
+
+Checked off-screen (weston, test server on 17860): the menu as owner,
+mute (icon, card, button label, the target's notice and send counter),
+the room list, moving into a private channel the target isn't in, and
+from the target's GUI the panel naming `# secret`, "Muted by a
+moderator", the mute surviving a new login, unmute and disconnect
+notices; the menu at 420 px wide. The web build type-checks but wasn't
+run.
 
 ## 4. Client: dragging people between rooms
 
@@ -393,6 +445,9 @@ Client:
 
 ## 7. CLI client, server CLI, bot API, docs
 
+- *Done early, for testing phase 3:* `/voicemove <name> <channel>`,
+  `/voicekick <name>`, `/servermute <name>`, `/serverunmute <name>`
+  (`/move` and `/kick` were taken).
 - Headless client: `/move <name> <channel>`, `/disconnect <name>`,
   `/servermute <name>`, `/ban <name> [reason]`, `/unban <name>`,
   `/bans`.

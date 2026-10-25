@@ -52,6 +52,7 @@ Server_UI :: struct {
 	menu_account:   proto.Account_Id,
 	menu_volume:    mu.Real,
 	menu_requested: bool,
+	menu_moving:    bool, // its list of rooms to move them to is open
 	// The buddy screen (ui_buddies.odin).
 	buddies:        UI_Buddies,
 	// The thread windows (ui_threads.odin) by slot, and how many threads

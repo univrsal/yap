@@ -483,6 +483,7 @@ auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 		}
 		_, acc, _, _ := map_entry(&a.accounts, record.id)
 		was_status := strings.clone(acc.status, context.temp_allocator)
+		was_muted := .Server_Muted in acc.flags
 		delete(acc.username)
 		delete(acc.display)
 		delete(acc.status)
@@ -499,6 +500,9 @@ auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 		}
 		if a.state == .Done && was_status != record.status {
 			report_status(c, record.display, record.status, record.status_until)
+		}
+		if a.state == .Done && record.id == a.me {
+			server_mute_changed(c, was_muted, .Server_Muted in record.flags)
 		}
 		publish_directory(c)
 	case .Self:
