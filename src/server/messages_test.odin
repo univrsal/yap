@@ -4,6 +4,7 @@ import "core:os"
 import "core:testing"
 import "core:time"
 
+import "common:imagekind"
 import "common:proto"
 
 // Tests of messages and blobs, using the Test_Server from auth_test.odin.
@@ -278,13 +279,13 @@ test_jpeg :: proc(width, height: int, filler: u8) -> []u8 {
 
 @(test)
 test_jpeg_size :: proc(t: ^testing.T) {
-	w, h, ok := jpeg_size(test_jpeg(1920, 1080, 7))
+	w, h, ok := imagekind.jpeg_size(test_jpeg(1920, 1080, 7))
 	testing.expect(t, ok && w == 1920 && h == 1080)
-	_, _, ok = jpeg_size([]u8{0x89, 'P', 'N', 'G'})
+	_, _, ok = imagekind.jpeg_size([]u8{0x89, 'P', 'N', 'G'})
 	testing.expect(t, !ok)
-	_, _, ok = jpeg_size(test_jpeg(1920, 1080, 7)[:12])
+	_, _, ok = imagekind.jpeg_size(test_jpeg(1920, 1080, 7)[:12])
 	testing.expect(t, !ok)
-	_, _, ok = jpeg_size(nil)
+	_, _, ok = imagekind.jpeg_size(nil)
 	testing.expect(t, !ok)
 }
 

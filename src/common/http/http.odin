@@ -197,26 +197,70 @@ read_body :: proc(c: ^Conn, out: []u8) -> bool {
 	return read_exact(c, out)
 }
 
-// respond sends a complete response with its body. `extra` holds additional
-// header lines, each ending in "\r\n". With `keep_alive` the connection
-// stays open for another request. Without it, the client is told that the
-// connection will be closed.
+// respond sends a complete response with its body, with an HTTP status code
+// (status_line). `extra` holds additional header lines, each ending in
+// "\r\n". With `keep_alive` the connection stays open for another request.
+// Without it, the client is told that the connection will be closed.
 respond :: proc(
 	sock: net.TCP_Socket,
-	status, content_type: string,
+	status: int,
+	content_type: string,
 	body: string,
 	keep_alive := false,
 	extra := "",
 ) -> bool {
 	head := fmt.tprintf(
 		"HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nCache-Control: no-cache\r\nConnection: %s\r\n%s\r\n",
-		status,
+		status_line(status),
 		content_type,
 		len(body),
 		"keep-alive" if keep_alive else "close",
 		extra,
 	)
 	return send_all(sock, transmute([]u8)head) && send_all(sock, transmute([]u8)body)
+}
+
+// status_line is the status line's code and reason for an HTTP status code;
+// one it doesn't know reads as 500's.
+status_line :: proc(status: int) -> string {
+	text: string
+	switch status {
+	case 200:
+		text = "OK"
+	case 201:
+		text = "Created"
+	case 204:
+		text = "No Content"
+	case 400:
+		text = "Bad Request"
+	case 401:
+		text = "Unauthorized"
+	case 403:
+		text = "Forbidden"
+	case 404:
+		text = "Not Found"
+	case 405:
+		text = "Method Not Allowed"
+	case 409:
+		text = "Conflict"
+	case 410:
+		text = "Gone"
+	case 411:
+		text = "Length Required"
+	case 413:
+		text = "Content Too Large"
+	case 429:
+		text = "Too Many Requests"
+	case 501:
+		text = "Not Implemented"
+	case 502:
+		text = "Bad Gateway"
+	case 503:
+		text = "Service Unavailable"
+	case:
+		text = "Internal Server Error"
+	}
+	return fmt.tprintf("%d %s", status, text)
 }
 
 // has_token returns whether the comma-separated header value contains

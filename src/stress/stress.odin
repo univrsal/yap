@@ -223,17 +223,9 @@ main :: proc() {
 	opt.talkers = clamp(opt.talkers, 0, opt.voice)
 	opt.report = max(opt.report, 1)
 
-	ep, ep_ok := net.parse_endpoint(opt.server)
+	ep, ep_ok := common.resolve_endpoint(opt.server, proto.DEFAULT_PORT)
 	if !ep_ok {
-		resolved, err := net.resolve_ip4(opt.server)
-		if err != nil {
-			log.errorf("can't find %s: %v", opt.server, err)
-			os.exit(1)
-		}
-		ep = resolved
-	}
-	if ep.port == 0 {
-		ep.port = proto.DEFAULT_PORT
+		os.exit(1)
 	}
 	r.server = ep
 	if !os.exists(opt.keys) {

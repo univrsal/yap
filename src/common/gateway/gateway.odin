@@ -1,6 +1,7 @@
 package gateway
 
 import "core:crypto/ecdh"
+import "core:fmt"
 import "core:log"
 import "core:net"
 import "core:strings"
@@ -651,21 +652,9 @@ server_info_done :: proc(client: ^lite.Client, a: lite.Answer) {
 // The name used in the log for a connection before its account is known.
 @(private)
 common_name :: proc(pub: [proto.KEY_SIZE]u8) -> string {
-	return strings.clone(
-		strings.concatenate({"api ", key_hex(common.key_id(pub))}, context.temp_allocator),
-		context.temp_allocator,
-	)
+	return fmt.tprintf("api %08x", common.key_id(pub))
 }
 
-@(private)
-key_hex :: proc(id: u32) -> string {
-	DIGITS := "0123456789abcdef"
-	buf := make([]u8, 8, context.temp_allocator)
-	for i in 0 ..< 8 {
-		buf[i] = DIGITS[(id >> (28 - 4 * uint(i))) & 0xF]
-	}
-	return string(buf)
-}
 
 // crypto_wipe zeroes and frees a string that held a secret.
 @(private)

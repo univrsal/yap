@@ -4,6 +4,7 @@ import "core:crypto"
 import "core:log"
 import "core:time"
 
+import "common:imagekind"
 import "common:proto"
 
 // Blobs are uploaded to and downloaded from the server in chunks. How blobs
@@ -148,7 +149,7 @@ upload_chunk :: proc(s: ^Server, u: ^Conn, index: int, data: []u8) -> (done, sto
 	// All chunks have arrived. Check that the content is what was announced.
 	content := up.recv.data
 	put := up.put
-	width, height, is_jpeg := jpeg_size(content)
+	width, height, is_jpeg := imagekind.jpeg_size(content)
 	switch {
 	case blob_hash(content) != put.hash:
 		log.warnf("%s uploaded a picture that doesn't match its announced hash", conn_label(u))
@@ -297,48 +298,4 @@ send_chunks :: proc(s: ^Server, c: ^Client, down: ^Download, now: time.Tick) {
 drop_conn_transfers :: proc(u: ^Conn) {
 	upload_end(u)
 	download_end(&u.download)
-}
-
-// jpeg_size returns the width and height from the first start-of-frame
-// segment of a JPEG's header. `ok` is false if `data` isn't a JPEG that has
-// one.
-jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
-	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
-		return
-	}
-	at := 2
-	for at + 4 <= len(data) {
-		if data[at] != 0xFF {
-			return
-		}
-		marker := data[at + 1]
-		switch marker {
-		case 0xFF:
-			at += 1 // fill byte
-			continue
-		case 0x01, 0xD0 ..= 0xD7:
-			at += 2 // no length
-			continue
-		case 0xD9, 0xDA:
-			return // end of image or start of image data before any frame
-		}
-		length := int(data[at + 2]) << 8 | int(data[at + 3])
-		if length < 2 || at + 2 + length > len(data) {
-			return
-		}
-		switch marker {
-		// All start-of-frame markers, i.e. excluding the markers in this range
-		// that aren't (C4 is a Huffman table, C8 is reserved and CC is the
-		// arithmetic coding conditioning).
-		case 0xC0 ..= 0xC3, 0xC5 ..= 0xC7, 0xC9 ..= 0xCB, 0xCD ..= 0xCF:
-			if length < 7 {
-				return
-			}
-			height = int(data[at + 5]) << 8 | int(data[at + 6])
-			width = int(data[at + 7]) << 8 | int(data[at + 8])
-			return width, height, width > 0 && height > 0
-		}
-		at += 2 + length
-	}
-	return
 }

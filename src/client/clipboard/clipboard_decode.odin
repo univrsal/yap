@@ -1,6 +1,7 @@
 package clipboard
 
 import stbi "client:wstbi"
+import "common:imagekind"
 import log "common:wlog"
 import "core:bytes"
 import "core:encoding/endian"
@@ -18,8 +19,7 @@ decode :: proc(data: []u8, allocator := context.allocator) -> (img: Image, err: 
 	if is_qoi(data) {
 		return decode_qoi(data, allocator)
 	}
-	// RIFF, a size, WEBP.
-	if len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+	if imagekind.is_webp(data) {
 		return decode_webp(data, allocator)
 	}
 	w, h, comp: i32

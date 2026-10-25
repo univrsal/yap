@@ -5,6 +5,7 @@ import "core:log"
 import "core:strings"
 import "core:time"
 
+import "common:."
 import "common:proto"
 
 // Logging in and the other requests from clients that are about accounts
@@ -785,7 +786,7 @@ device_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	log.infof("%s revoked the device %q (%08x)", conn_label(u), d.name, key_id_of(key))
+	log.infof("%s revoked the device %q (%08x)", conn_label(u), d.name, common.key_id(key))
 	device_unlink(&s.accounts, key)
 	respond(u, id, .Ok)
 	if other := s.conns[key] or_else nil; other != nil {
@@ -793,9 +794,4 @@ device_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		// Somebody else's device is told it was revoked.
 		conn_logout(s, other, {} if other == u else proto.Logout_Reason.Revoked)
 	}
-}
-
-@(private = "file")
-key_id_of :: proc(key: [proto.KEY_SIZE]u8) -> u32 {
-	return u32(key[0]) << 24 | u32(key[1]) << 16 | u32(key[2]) << 8 | u32(key[3])
 }

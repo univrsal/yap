@@ -1,7 +1,6 @@
 package settings
 
 import log "common:wlog"
-import "core:encoding/hex"
 import "core:encoding/json"
 import "core:fmt"
 import "core:strconv"
@@ -450,27 +449,11 @@ joined_server_destroy :: proc(r: Joined_Server) {
 	delete(r.channel)
 }
 
-// key_hex returns a public key as hex, the way settings and commands write it.
-key_hex :: proc(key: [proto.KEY_SIZE]u8) -> string {
-	key := key
-	return string(hex.encode(key[:], context.temp_allocator))
-}
-
-// parse_key_hex converts the output of key_hex back into a key.
-parse_key_hex :: proc(s: string) -> (key: [proto.KEY_SIZE]u8, ok: bool) {
-	if len(s) != 2 * proto.KEY_SIZE {
-		return
-	}
-	raw := hex.decode(transmute([]u8)s, context.temp_allocator) or_return
-	copy(key[:], raw)
-	return key, true
-}
-
 // server_key is how `users` and `hidden_dms` identify something on a server:
 // the server's key, a slash, and the id of the thing on that server. The
 // result is allocated with the temp allocator.
 server_key :: proc(server: [proto.KEY_SIZE]u8, id: u64) -> string {
-	return fmt.tprintf("%s/%d", key_hex(server), id)
+	return fmt.tprintf("%s/%d", common.key_hex(server), id)
 }
 
 // parse_server_key is the inverse of server_key. It returns false for
@@ -481,7 +464,7 @@ parse_server_key :: proc(k: string) -> (server: [proto.KEY_SIZE]u8, id: u64, ok:
 	if slash < 0 {
 		return
 	}
-	server = parse_key_hex(k[:slash]) or_return
+	server = common.parse_key_hex(k[:slash]) or_return
 	id = strconv.parse_u64_of_base(k[slash + 1:], 10) or_return
 	return server, id, true
 }
@@ -557,14 +540,14 @@ MAX_RECENT_REACTIONS :: 3
 // recent_reactions returns the emoji most recently used for reactions on
 // `server`, latest first.
 recent_reactions :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8) -> []string {
-	recent := s.recent_reactions[key_hex(server)] or_else nil
+	recent := s.recent_reactions[common.key_hex(server)] or_else nil
 	return recent[:min(len(recent), MAX_RECENT_REACTIONS)]
 }
 
 // note_reaction moves `emoji` to the front of the recent reactions on
 // `server`. It returns whether that changed anything.
 note_reaction :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, emoji: string) -> bool {
-	key := key_hex(server)
+	key := common.key_hex(server)
 	if key not_in s.recent_reactions {
 		s.recent_reactions[strings.clone(key)] = {}
 	}

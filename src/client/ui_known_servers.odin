@@ -8,6 +8,7 @@ import mu "vendor:microui"
 
 import "client:conn"
 import "client:platform"
+import "common:."
 import "common:proto"
 
 // Managing server keys from the UI, instead of editing known_servers (or, in a
@@ -51,7 +52,7 @@ known_servers_destroy :: proc(ui: ^UI) {
 // digits.
 @(private = "file")
 key_lines :: proc(key: [proto.KEY_SIZE]u8) -> [4]string {
-	full := conn.key_hex(key)
+	full := common.key_hex(key)
 	lines: [4]string
 	per := (len(full) + 3) / 4
 	for &line, i in lines {
@@ -126,7 +127,7 @@ trust_new_key :: proc(ui: ^UI) {
 		v.error = fmt.aprintf("Could not save the new key of %s.", server)
 		return
 	}
-	log.infof("trusting the new key of %s: %s", server, conn.key_hex(key))
+	log.infof("trusting the new key of %s: %s", server, common.key_hex(key))
 	ui.known.loaded = false
 	// When trusted from the join page, continue joining (ui_join.odin).
 	if ns := ui.session; ns != nil && ns.joining {

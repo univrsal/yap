@@ -602,14 +602,14 @@ verify_server_key :: proc(
 			log.infof(
 				"first connection to %s, trusting server key %s (saved to %s)",
 				c.server_addr,
-				key_hex(key),
+				common.key_hex(key),
 				c.known_servers,
 			)
 		} else {
 			log.warnf(
 				"first connection to %s, trusting server key %s for now, but it could not be saved",
 				c.server_addr,
-				key_hex(key),
+				common.key_hex(key),
 			)
 		}
 		return true, ""
@@ -630,8 +630,8 @@ verify_server_key :: proc(
 		log.errorf(
 			"the key of %s has changed! saved %s, received %s",
 			c.server_addr,
-			key_hex(saved),
-			key_hex(key),
+			common.key_hex(saved),
+			common.key_hex(key),
 		)
 		log.error("someone may be impersonating the server, or it got a new key")
 		log.errorf(

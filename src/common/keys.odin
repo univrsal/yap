@@ -65,7 +65,26 @@ load_private_key :: proc(path: string, key: ^ecdh.Private_Key) -> bool {
 public_key_hex :: proc(key: ^ecdh.Private_Key) -> string {
 	raw: [proto.KEY_SIZE]byte
 	ecdh.private_key_public_bytes(key, raw[:])
-	return string(hex.encode(raw[:], context.temp_allocator))
+	return key_hex(raw)
+}
+
+// key_hex returns a public key as hex, allocated with the temp allocator: the
+// form keys are written in (settings, known_servers, the server's log of its
+// own key).
+key_hex :: proc(key: [proto.KEY_SIZE]byte) -> string {
+	key := key
+	return string(hex.encode(key[:], context.temp_allocator))
+}
+
+// parse_key_hex reads a public key as key_hex writes it: 2 * KEY_SIZE hex
+// digits.
+parse_key_hex :: proc(s: string) -> (key: [proto.KEY_SIZE]byte, ok: bool) {
+	if len(s) != 2 * proto.KEY_SIZE {
+		return
+	}
+	raw := hex.decode(transmute([]u8)s, context.temp_allocator) or_return
+	copy(key[:], raw)
+	return key, true
 }
 
 // key_id returns a short, stable display id for a peer. It is made of the

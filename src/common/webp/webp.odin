@@ -15,6 +15,7 @@
 // (web/decode.js) and compresses pastes (web/paste.js).
 package webp
 
+import "common:imagekind"
 import "core:c"
 
 when ODIN_OS == .Windows {
@@ -78,7 +79,7 @@ foreign lib {
 // is_webp returns whether `data` starts like a WebP file: a RIFF container
 // of type WEBP.
 is_webp :: proc(data: []u8) -> bool {
-	return len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP"
+	return imagekind.is_webp(data)
 }
 
 // size returns a WebP picture's width and height, read from its header.

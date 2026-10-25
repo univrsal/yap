@@ -34,7 +34,7 @@ image_cache_settings :: proc(ui: ^UI) {
 
 	bytes, count := conn.image_cache_usage(&ui.image_cache)
 	field_row(ui, 120, "In use", {-90, -1})
-	mu.label(ctx, fmt.tprintf("%s in %d pictures", format_bytes(bytes), count))
+	mu.label(ctx, fmt.tprintf("%s in %d pictures", conn.format_bytes(u64(bytes)), count))
 	if .SUBMIT in mu.button(ctx, "Clear") {
 		conn.image_cache_clear(&ui.image_cache)
 	}
@@ -97,18 +97,4 @@ folder_settings :: proc(ui: ^UI) {
 		"  People's pictures and servers' emoji. 0 keeps none.",
 		wrap_text,
 	)
-}
-
-// format_bytes writes a size the way a person reads one.
-@(private = "file")
-format_bytes :: proc(n: int) -> string {
-	switch {
-	case n >= 1024 * 1024 * 1024:
-		return fmt.tprintf("%.1f GB", f64(n) / (1024 * 1024 * 1024))
-	case n >= 1024 * 1024:
-		return fmt.tprintf("%.1f MB", f64(n) / (1024 * 1024))
-	case n >= 1024:
-		return fmt.tprintf("%.0f KB", f64(n) / 1024)
-	}
-	return fmt.tprintf("%d bytes", n)
 }

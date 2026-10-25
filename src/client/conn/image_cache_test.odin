@@ -6,7 +6,7 @@ import "core:path/filepath"
 import "core:testing"
 import "core:time"
 
-import "client:settings"
+import "common:."
 import "common:proto"
 
 @(test)
@@ -77,7 +77,7 @@ test_image_cache :: proc(t: ^testing.T) {
 
 	// When opened again, the cache finds what it stored and removes the
 	// incompletely written file.
-	part, _ := filepath.join({dir, settings.key_hex(a), "11.part"}, context.temp_allocator)
+	part, _ := filepath.join({dir, common.key_hex(a), "11.part"}, context.temp_allocator)
 	testing.expect(t, os.write_entire_file(part, big[:10]) == nil)
 	image_cache_destroy(&ic)
 	ic = {}
@@ -105,7 +105,7 @@ test_image_cache :: proc(t: ^testing.T) {
 	testing.expect_value(t, bytes, 0)
 	testing.expect_value(t, count, 0)
 	testing.expect(t, os.exists(other))
-	server_dir, _ := filepath.join({dir, settings.key_hex(a)}, context.temp_allocator)
+	server_dir, _ := filepath.join({dir, common.key_hex(a)}, context.temp_allocator)
 	testing.expect(t, !os.exists(server_dir))
 	image_cache_destroy(&ic)
 }

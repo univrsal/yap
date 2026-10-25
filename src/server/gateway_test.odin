@@ -1893,3 +1893,20 @@ test_gateway_limits :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+@(test)
+test_gateway_private_addresses :: proc(t: ^testing.T) {
+	lan := net.IP4_Address{192, 168, 1, 20}
+	testing.expect(t, gateway.address_private(lan))
+	testing.expect(t, gateway.address_private(net.IP4_Address{10, 0, 0, 1}))
+	testing.expect(t, !gateway.address_private(net.IP4_Address{8, 8, 8, 8}))
+	// The same addresses as a dual-stack socket reports them.
+	mapped := net.IP6_Address{0, 0, 0, 0, 0, 0xffff, 0xc0a8, 0x0114} // ::ffff:192.168.1.20
+	testing.expect(t, gateway.address_private(mapped))
+	testing.expect(t, gateway.unmapped(mapped) == net.Address(lan))
+	loop := net.IP6_Address{0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001} // ::ffff:127.0.0.1
+	testing.expect(t, gateway.address_loopback(loop))
+	public := net.IP6_Address{0, 0, 0, 0, 0, 0xffff, 0x0808, 0x0808}
+	testing.expect(t, !gateway.address_private(public))
+	testing.expect(t, gateway.address_private(net.IP6_Loopback))
+}

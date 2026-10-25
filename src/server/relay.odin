@@ -303,12 +303,7 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	}
 	if strings.has_prefix(req.path, gateway.API_PREFIX) {
 		if r.api == nil {
-			http.respond(
-				c.sock,
-				"404 Not Found",
-				"text/plain",
-				"the API is not enabled on this server\n",
-			)
+			http.respond(c.sock, 404, "text/plain", "the API is not enabled on this server\n")
 			return
 		}
 		gateway.serve(r.api, c, req)
@@ -317,26 +312,21 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	if !r.web {
 		http.respond(
 			c.sock,
-			"404 Not Found",
+			404,
 			"text/plain",
 			"this server only provides the API, not the web client\n",
 		)
 		return
 	}
 	if req.method != "GET" {
-		http.respond(
-			c.sock,
-			"405 Method Not Allowed",
-			"text/plain",
-			"the yap relay only answers GET\n",
-		)
+		http.respond(c.sock, 405, "text/plain", "the yap relay only answers GET\n")
 		return
 	}
 	media := strings.has_prefix(req.path, "/yap-media/")
 	if media || strings.has_prefix(req.path, "/yap/") {
 		key := http.header(&req, "Sec-WebSocket-Key")
 		if !strings.equal_fold(http.header(&req, "Upgrade"), "websocket") || key == "" {
-			http.respond(c.sock, "400 Bad Request", "text/plain", "expected a WebSocket upgrade\n")
+			http.respond(c.sock, 400, "text/plain", "expected a WebSocket upgrade\n")
 			return
 		}
 		page := Relay_Request {
@@ -353,7 +343,7 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 			)
 			http.respond(
 				c.sock,
-				"403 Forbidden",
+				403,
 				"text/plain",
 				"this server's relay doesn't accept web clients of other sites\n",
 			)
@@ -362,7 +352,7 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 		if media && r.media.port == 0 {
 			http.respond(
 				c.sock,
-				"404 Not Found",
+				404,
 				"text/plain",
 				"the media link is not enabled on this server\n",
 			)
@@ -485,7 +475,7 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, m
 	udp, udp_err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if udp_err != nil {
 		log.errorf("could not open a UDP socket: %v", udp_err)
-		http.respond(c.sock, "502 Bad Gateway", "text/plain", "could not open a UDP socket\n")
+		http.respond(c.sock, 502, "text/plain", "could not open a UDP socket\n")
 		return
 	}
 	defer net.close(udp)
@@ -665,16 +655,11 @@ serve_file :: proc(r: ^Relay, sock: net.TCP_Socket, path: string) {
 			continue
 		}
 		if !f.loaded {
-			http.respond(
-				sock,
-				"404 Not Found",
-				"text/plain",
-				"the web client has not been built\n",
-			)
+			http.respond(sock, 404, "text/plain", "the web client has not been built\n")
 			return
 		}
-		http.respond(sock, "200 OK", f.content_type, string(f.data))
+		http.respond(sock, 200, f.content_type, string(f.data))
 		return
 	}
-	http.respond(sock, "404 Not Found", "text/plain", "not found\n")
+	http.respond(sock, 404, "text/plain", "not found\n")
 }

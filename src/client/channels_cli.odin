@@ -3,7 +3,7 @@ package client
 
 import "client:conn"
 import "client:platform"
-import "client:settings"
+import "common:."
 import "common:memtrack"
 import "common:proto"
 import log "common:wlog"
@@ -253,7 +253,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 		case line == "/devices":
 			conn.push_command(q, conn.Devices_Command{})
 		case strings.has_prefix(line, "/revoke "):
-			if key, ok := settings.parse_key_hex(strings.trim_space(line[len("/revoke "):])); ok {
+			if key, ok := common.parse_key_hex(strings.trim_space(line[len("/revoke "):])); ok {
 				conn.push_command(q, conn.Revoke_Command{key})
 			} else {
 				log.warn("/revoke takes a device's key (64 hex digits)")

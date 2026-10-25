@@ -6,6 +6,7 @@ import "core:sync"
 import "core:time"
 
 import "common:http"
+import "common:imagekind"
 import "common:lite"
 import "common:proto"
 
@@ -516,7 +517,7 @@ fetch_turn :: proc(c: ^Conn, f: ^Blob_Fetch, now: time.Tick) -> bool {
 		r := Reply {
 			status       = 200,
 			body         = f.recv.data,
-			content_type = sniff(f.recv.data),
+			content_type = imagekind.content_type(imagekind.kind_of(f.recv.data)),
 		}
 		f.recv.data = nil
 		reply(f.job, r)
@@ -871,7 +872,7 @@ avatar_run :: proc(c: ^Conn, j: ^Job) {
 		)
 		return
 	}
-	w, h, is_jpeg := jpeg_size(data)
+	w, h, is_jpeg := imagekind.jpeg_size(data)
 	if !is_jpeg || w > proto.MAX_AVATAR_SIDE || h > proto.MAX_AVATAR_SIDE {
 		reply(
 			j,
@@ -978,60 +979,4 @@ set_avatar :: proc(c: ^Conn, j: ^Job, blob: proto.Blob_Id) {
 		.Profile_Set,
 		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_AVATAR, avatar = blob}),
 	)
-}
-
-// jpeg_size returns a JPEG's width and height from its frame header. It
-// returns false if the data is not a JPEG.
-jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
-	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
-		return
-	}
-	i := 2
-	for i + 4 <= len(data) {
-		if data[i] != 0xFF {
-			return
-		}
-		marker := data[i + 1]
-		switch {
-		case marker == 0xFF:
-			i += 1 // fill byte
-			continue
-		case marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8):
-			i += 2 // marker without a length
-			continue
-		case marker == 0xD9 || marker == 0xDA:
-			return // end of image or start of scan, with no frame header before it
-		}
-		length := int(data[i + 2]) << 8 | int(data[i + 3])
-		if length < 2 || i + 2 + length > len(data) {
-			return
-		}
-		// Start of frame: any but DHT (C4), JPG (C8) and DAC (CC).
-		if marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC {
-			if length < 7 {
-				return
-			}
-			height = int(data[i + 5]) << 8 | int(data[i + 6])
-			width = int(data[i + 7]) << 8 | int(data[i + 8])
-			return width, height, width > 0 && height > 0
-		}
-		i += 2 + length
-	}
-	return
-}
-
-// sniff returns the content type of a picture, based on its first bytes.
-@(private)
-sniff :: proc(data: []u8) -> string {
-	switch {
-	case len(data) >= 3 && data[0] == 0xFF && data[1] == 0xD8 && data[2] == 0xFF:
-		return "image/jpeg"
-	case len(data) >= 8 && string(data[:8]) == "\x89PNG\r\n\x1a\n":
-		return "image/png"
-	case len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP":
-		return "image/webp"
-	case len(data) >= 6 && (string(data[:6]) == "GIF87a" || string(data[:6]) == "GIF89a"):
-		return "image/gif"
-	}
-	return "application/octet-stream"
 }

@@ -1,6 +1,5 @@
 package yap_gateway
 
-import "core:encoding/hex"
 import "core:flags"
 import "core:fmt"
 import "core:log"
@@ -77,22 +76,22 @@ main :: proc() {
 			os.exit(2)
 		}
 	}
-	server, server_ok := resolve(opt.server, proto.DEFAULT_PORT)
+	server, server_ok := common.resolve_endpoint(opt.server, proto.DEFAULT_PORT)
 	if !server_ok {
 		os.exit(2)
 	}
 	cfg.server = server
 	if opt.server_key != "" {
-		key, key_ok := hex.decode(transmute([]u8)opt.server_key, context.temp_allocator)
-		if !key_ok || len(key) != proto.KEY_SIZE {
+		key, key_ok := common.parse_key_hex(opt.server_key)
+		if !key_ok {
 			fmt.eprintln("-server-key must be the server's public key as 64 hex digits")
 			os.exit(2)
 		}
-		copy(cfg.server_key[:], key)
+		cfg.server_key = key
 	} else {
 		log.warn("no -server-key given, so any server key will be accepted")
 	}
-	listen, listen_ok := resolve(opt.listen, 8080)
+	listen, listen_ok := common.resolve_endpoint(opt.listen, 8080)
 	if !listen_ok {
 		os.exit(2)
 	}
@@ -124,23 +123,4 @@ main :: proc() {
 			self_cleanup = true,
 		)
 	}
-}
-
-// resolve parses host:port into an endpoint, using `port` if the address
-// doesn't specify one.
-resolve :: proc(address: string, port: int) -> (ep: net.Endpoint, ok: bool) {
-	if parsed, parsed_ok := net.parse_endpoint(address); parsed_ok {
-		ep = parsed
-	} else {
-		resolved, err := net.resolve_ip4(address)
-		if err != nil {
-			log.errorf("can't find %s: %v", address, err)
-			return
-		}
-		ep = resolved
-	}
-	if ep.port == 0 {
-		ep.port = port
-	}
-	return ep, true
 }

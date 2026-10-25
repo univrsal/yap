@@ -153,7 +153,7 @@ login_allowed :: proc(
 }
 
 address_loopback :: proc(address: net.Address) -> bool {
-	switch a in address {
+	switch a in unmapped(address) {
 	case net.IP4_Address:
 		return a[0] == 127
 	case net.IP6_Address:
@@ -169,13 +169,30 @@ address_private :: proc(address: net.Address) -> bool {
 	if address_loopback(address) {
 		return true
 	}
-	switch a in address {
+	switch a in unmapped(address) {
 	case net.IP4_Address:
 		return a[0] == 10 || a[0] == 172 && a[1] & 0xf0 == 16 || a[0] == 192 && a[1] == 168
 	case net.IP6_Address:
 		return u16(a[0]) & 0xfe00 == 0xfc00
 	}
 	return false
+}
+
+// unmapped returns an IPv4-mapped IPv6 address (::ffff:a.b.c.d, which is how
+// a dual-stack socket reports an IPv4 peer) as the IPv4 address it is, and
+// any other address as it is.
+unmapped :: proc(address: net.Address) -> net.Address {
+	if a, ok := address.(net.IP6_Address); ok {
+		b := transmute([16]u8)a
+		zeros := 0
+		for x in b[:10] {
+			zeros += 1 if x == 0 else 0
+		}
+		if zeros == 10 && b[10] == 0xff && b[11] == 0xff {
+			return net.IP4_Address{b[12], b[13], b[14], b[15]}
+		}
+	}
+	return address
 }
 
 // idle_timeout makes a socket give up on a peer that has been silent for `d`,

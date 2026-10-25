@@ -9,6 +9,7 @@ are below.
 
 #include "internal.h"
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <string>
@@ -17,6 +18,21 @@ are below.
 #include "ffmpeg.h"
 
 namespace yv {
+
+// Fits w x h into max_w x max_h (0 for no limit) keeping its shape, in even
+// numbers, which NV12 needs. The encoder (share.cpp) and a capture that
+// scales by itself (capture_mac.mm) both use it, so they agree on the size.
+inline void fit(int w, int h, int max_w, int max_h, int &out_w, int &out_h) {
+	double s = 1.0;
+	if (max_w > 0 && w > max_w) {
+		s = std::min(s, static_cast<double>(max_w) / w);
+	}
+	if (max_h > 0 && h > max_h) {
+		s = std::min(s, static_cast<double>(max_h) / h);
+	}
+	out_w = std::max(2, static_cast<int>(w * s) & ~1);
+	out_h = std::max(2, static_cast<int>(h * s) & ~1);
+}
 
 class Pipeline {
 public:

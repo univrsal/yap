@@ -286,7 +286,7 @@ send :: proc(c: ^http.Conn, r: Reply, keep_alive: bool) -> bool {
 	if r.body != nil {
 		return http.respond(
 			c.sock,
-			status_line(r.status),
+			r.status,
 			r.content_type,
 			string(r.body),
 			keep_alive,
@@ -295,54 +295,12 @@ send :: proc(c: ^http.Conn, r: Reply, keep_alive: bool) -> bool {
 	}
 	return http.respond(
 		c.sock,
-		status_line(r.status),
+		r.status,
 		"application/json; charset=utf-8",
 		r.json,
 		keep_alive,
 		strings.to_string(extra),
 	)
-}
-
-@(private)
-status_line :: proc(status: int) -> string {
-	text: string
-	switch status {
-	case 200:
-		text = "OK"
-	case 201:
-		text = "Created"
-	case 204:
-		text = "No Content"
-	case 400:
-		text = "Bad Request"
-	case 401:
-		text = "Unauthorized"
-	case 403:
-		text = "Forbidden"
-	case 404:
-		text = "Not Found"
-	case 405:
-		text = "Method Not Allowed"
-	case 409:
-		text = "Conflict"
-	case 410:
-		text = "Gone"
-	case 411:
-		text = "Length Required"
-	case 413:
-		text = "Content Too Large"
-	case 429:
-		text = "Too Many Requests"
-	case 501:
-		text = "Not Implemented"
-	case 502:
-		text = "Bad Gateway"
-	case 503:
-		text = "Service Unavailable"
-	case:
-		text = "Internal Server Error"
-	}
-	return fmt.tprintf("%d %s", status, text)
 }
 
 Error_JSON :: struct {

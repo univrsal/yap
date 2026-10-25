@@ -10,6 +10,7 @@ import "core:sync"
 import "core:time"
 
 import "client:settings"
+import "common:."
 import "common:proto"
 
 // This file keeps pictures on disk between sessions: people's pictures and the
@@ -344,6 +345,6 @@ scan :: proc(ic: ^Image_Cache) {
 // settings.server_key.
 @(private = "file")
 is_server_dir :: proc(name: string) -> bool {
-	_, ok := settings.parse_key_hex(name)
+	_, ok := common.parse_key_hex(name)
 	return ok
 }

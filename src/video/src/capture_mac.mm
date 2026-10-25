@@ -192,20 +192,6 @@ void release_pixel_buffer(void *, uint8_t *data) {
 	CVPixelBufferRelease(reinterpret_cast<CVPixelBufferRef>(data));
 }
 
-// The same fitting as share.cpp's, so the stream comes at the size the
-// encoder will be.
-void fit(int w, int h, int max_w, int max_h, int &out_w, int &out_h) {
-	double s = 1.0;
-	if (max_w > 0 && w > max_w) {
-		s = std::min(s, static_cast<double>(max_w) / w);
-	}
-	if (max_h > 0 && h > max_h) {
-		s = std::min(s, static_cast<double>(max_h) / h);
-	}
-	out_w = std::max(2, static_cast<int>(w * s) & ~1);
-	out_h = std::max(2, static_cast<int>(h * s) & ~1);
-}
-
 class Pipeline_Mac : public Pipeline {
 public:
 	~Pipeline_Mac() override {
