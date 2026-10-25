@@ -280,21 +280,6 @@ account_password_ok :: proc(password: string) -> bool {
 
 ACCOUNT_BODY_MAX :: 4 + 4 * (1 + 255) + 8
 
-@(private = "file")
-written :: proc(w: ^Writer) -> []u8 {
-	return nil if w.overflow else w.buf[:w.pos]
-}
-
-// get_str8_opt is get_str8 for a trailing field that older peers leave out.
-// It returns "" if the body has already ended.
-@(private = "file")
-get_str8_opt :: proc(r: ^Reader) -> string {
-	if r.pos >= len(r.buf) {
-		return ""
-	}
-	return get_str8(r)
-}
-
 encode_auth_login :: proc(out: []u8, username, password, device: string, agent := "") -> []u8 {
 	w := Writer {
 		buf = out,
@@ -455,19 +440,11 @@ decode_account_create :: proc(body: []u8) -> (username, password, display: strin
 
 // An Account_Create response, or any other body that consists of a single account id.
 encode_account_id :: proc(out: ^[4]u8, account: Account_Id) -> []u8 {
-	w := Writer {
-		buf = out[:],
-	}
-	put_u32(&w, u32(account))
-	return out[:]
+	return id_put(out[:], account)
 }
 
 decode_account_id :: proc(body: []u8) -> (account: Account_Id, ok: bool) {
-	r := Reader {
-		buf = body,
-	}
-	account = Account_Id(get_u32(&r))
-	return account, !r.overflow
+	return id_get(Account_Id, body)
 }
 
 encode_account_password_set :: proc(out: []u8, account: Account_Id, password: string) -> []u8 {
@@ -738,7 +715,7 @@ decode_devices :: proc(body: []u8, devices_buf: []Device) -> (devices: []Device,
 		d.agent = ""
 	}
 	// If the server sends agents, they follow the records.
-	if r.pos < len(r.buf) {
+	if has_more(&r) {
 		for &d in devices_buf[:count] {
 			d.agent = get_str8(&r)
 		}

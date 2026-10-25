@@ -171,7 +171,7 @@ encode_emoji_sheet :: proc(out: []u8, sheet: Emoji_Sheet) -> []u8 {
 		put_u64(&w, u64(a.blob))
 		put_u32(&w, u32(a.size))
 	}
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 // decode_emoji_sheet reads an Emoji_Sheet. The slice of names and the list of

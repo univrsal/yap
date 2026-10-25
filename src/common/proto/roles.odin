@@ -84,7 +84,7 @@ encode_role :: proc(out: []u8, role: Role) -> []u8 {
 	put_u32(&w, role.color)
 	put_u16(&w, role.position)
 	put_u8(&w, transmute(u8)role.flags)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_role :: proc(body: []u8) -> (role: Role, ok: bool) {
@@ -94,11 +94,11 @@ decode_role :: proc(body: []u8) -> (role: Role, ok: bool) {
 	role.id = Role_Id(get_u32(&r))
 	role.perms = transmute(Permissions)get_u64(&r)
 	role.name = get_str8(&r)
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		role.color = get_u32(&r)
 		role.position = get_u16(&r)
 	}
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		role.flags = transmute(Role_Flags)get_u8(&r)
 	}
 	known: Role_Flags

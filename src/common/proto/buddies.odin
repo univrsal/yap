@@ -64,7 +64,7 @@ encode_last_seen_ask :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
 	for a in accounts[:count] {
 		put_u32(&w, u32(a))
 	}
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_last_seen_ask :: proc(body: []u8, buf: []Account_Id) -> (accounts: []Account_Id, ok: bool) {
@@ -100,7 +100,7 @@ encode_last_seen_answer :: proc(out: []u8, entries: []Last_Seen_Entry) -> []u8 {
 		put_u32(&w, u32(e.account))
 		put_u64(&w, u64(e.time))
 	}
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_last_seen_answer :: proc(

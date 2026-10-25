@@ -380,7 +380,7 @@ encode_message :: proc(out: []u8, m: Message) -> []u8 {
 		buf = out,
 	}
 	put_message(&w, m)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 // decode_message reads a message. Its strings point into `body`.
@@ -430,7 +430,7 @@ encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
 	case:
 		return nil
 	}
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_msg_post :: proc(body: []u8) -> (p: Msg_Post, ok: bool) {
@@ -607,15 +607,12 @@ decode_blob_put_answer :: proc(body: []u8) -> (blob: Blob_Id, have: bool, handle
 }
 
 encode_blob_id :: proc(out: ^[BLOB_GET_SIZE]u8, blob: Blob_Id) -> []u8 {
-	endian.unchecked_put_u64le(out[:], u64(blob))
-	return out[:]
+	return id_put(out[:], blob)
 }
 
+// decode_blob_id, like decode_msg_id, refuses 0, which is no blob.
 decode_blob_id :: proc(body: []u8) -> (blob: Blob_Id, ok: bool) {
-	if len(body) != BLOB_GET_SIZE {
-		return
-	}
-	blob = Blob_Id(endian.unchecked_get_u64le(body))
+	blob = id_get(Blob_Id, body) or_return
 	return blob, blob != 0
 }
 
@@ -670,7 +667,7 @@ encode_msg_edit :: proc(out: ^[MSG_EDIT_MAX_SIZE]u8, id: Msg_Id, text: string) -
 	}
 	put_u64(&w, u64(id))
 	put_str16(&w, text)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 // decode_msg_edit's text is raw and has to be sanitized.
@@ -685,15 +682,11 @@ decode_msg_edit :: proc(body: []u8) -> (id: Msg_Id, text: string, ok: bool) {
 
 // A body that consists of one message's id, such as Msg_Delete.
 encode_msg_id :: proc(out: ^[MSG_ID_SIZE]u8, id: Msg_Id) -> []u8 {
-	endian.unchecked_put_u64le(out[:], u64(id))
-	return out[:]
+	return id_put(out[:], id)
 }
 
 decode_msg_id :: proc(body: []u8) -> (id: Msg_Id, ok: bool) {
-	if len(body) != MSG_ID_SIZE {
-		return
-	}
-	id = Msg_Id(endian.unchecked_get_u64le(body))
+	id = id_get(Msg_Id, body) or_return
 	return id, id != 0
 }
 
@@ -808,7 +801,7 @@ encode_msg_react :: proc(
 	put_u64(&w, u64(id))
 	put_str8(&w, emoji)
 	put_u8(&w, u8(on))
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 // The maximum number of accounts that a Reactors_Get answer names.
@@ -822,7 +815,7 @@ encode_reactors_get :: proc(out: ^[REACTORS_GET_MAX_SIZE]u8, id: Msg_Id, emoji: 
 	}
 	put_u64(&w, u64(id))
 	put_str8(&w, emoji)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_reactors_get :: proc(body: []u8) -> (id: Msg_Id, emoji: string, ok: bool) {
@@ -904,7 +897,7 @@ encode_reaction_changed :: proc(out: ^[REACTION_CHANGED_MAX_SIZE]u8, c: Reaction
 	put_u16(&w, u16(min(c.count, int(max(u16)))))
 	put_u32(&w, u32(c.account))
 	put_u8(&w, u8(c.on))
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_reaction_changed :: proc(body: []u8) -> (c: Reaction_Change, ok: bool) {

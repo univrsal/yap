@@ -151,7 +151,7 @@ encode_register :: proc(out: []u8, r: Register) -> []u8 {
 	put_str8(&w, r.email)
 	put_str8(&w, r.invite)
 	put_str8(&w, r.agent)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_register :: proc(body: []u8) -> (r: Register, ok: bool) {
@@ -211,7 +211,7 @@ encode_invite_code :: proc(out: ^[1 + INVITE_CODE_SIZE]u8, code: string) -> []u8
 		buf = out[:],
 	}
 	put_str8(&w, code)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_invite_code :: proc(body: []u8) -> (code: string, ok: bool) {
@@ -290,7 +290,7 @@ encode_invite_of :: proc(out: ^[INVITE_OF_SIZE]u8, code: string, creator: Accoun
 	}
 	put_str8(&w, code)
 	put_u32(&w, u32(creator))
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_invite_of :: proc(body: []u8) -> (code: string, creator: Account_Id, ok: bool) {

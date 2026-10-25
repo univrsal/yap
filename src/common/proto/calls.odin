@@ -70,12 +70,11 @@ room_call :: proc(room: Room) -> Call_Id {
 }
 
 encode_call_id :: proc(out: ^[4]u8, id: Call_Id) -> []u8 {
-	return encode_account_id(out, Account_Id(id))
+	return id_put(out[:], id)
 }
 
 decode_call_id :: proc(body: []u8) -> (Call_Id, bool) {
-	id, ok := decode_account_id(body)
-	return Call_Id(id), ok
+	return id_get(Call_Id, body)
 }
 
 CALL_RING_SIZE :: 4 + 4

@@ -434,25 +434,25 @@ decode_server_info :: proc(body: []u8) -> (info: Server_Info, ok: bool) {
 	info.registration = transmute(Registration_Flags)get_u8(&r)
 	info.email = get_str8(&r)
 	// A server older than these fields doesn't send them.
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		info.description = get_str16(&r)
 		info.icon = Blob_Id(get_u64(&r))
 	}
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		info.digests = get_u8(&r) != 0
 	}
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		info.media_port = get_u16(&r)
 		info.video_kbit = get_u32(&r)
 	}
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		info.push_key = get_bytes(&r, int(get_u8(&r)))
 	}
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		info.max_cameras = min(int(get_u8(&r)), MAX_CAMERAS)
 		info.camera_kbit = get_u32(&r)
 	}
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		info.demand = get_u8(&r) != 0
 	}
 	if r.overflow ||

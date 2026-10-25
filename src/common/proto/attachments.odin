@@ -67,15 +67,11 @@ decode_attach_put :: proc(body: []u8) -> (p: Attach_Put, ok: bool) {
 }
 
 encode_attach_id :: proc(out: ^[8]u8, id: u64) -> []u8 {
-	endian.unchecked_put_u64le(out[:], id)
-	return out[:]
+	return id_put(out[:], id)
 }
 
 decode_attach_id :: proc(body: []u8) -> (id: u64, ok: bool) {
-	if len(body) != 8 {
-		return
-	}
-	return endian.unchecked_get_u64le(body), true
+	return id_get(u64, body)
 }
 
 encode_attach_get_answer :: proc(
