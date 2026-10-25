@@ -17,7 +17,7 @@ import "common:proto"
 //     (see messages.odin).
 //   - Talking in one: our connection is in its voice room (Voice_Join). Which
 //     room we are in, like who else is in which room, comes back in the
-//     snapshot (see channels.odin).
+//     snapshot (see presence.odin).
 //
 // A DM (see buddies.odin) is looked at the same way, from the buddy screen.
 // Looking at a DM leaves the channel we were looking at, so we can go back to

@@ -78,7 +78,7 @@ Server_Conn :: struct {
 	rpc:             Rpc_Client,
 	auth:            Auth_Client, // our account and the others (see auth.odin)
 	voice:           audio.Voice, // set up by the owner before client_open
-	channels:        Channel_Client, // who is here (see channels.odin)
+	channels:        Channel_Client, // who is here (see presence.odin)
 	convs:           Conv_Client, // our channels (see convs.odin)
 	msgs:            Message_Client, // messages (see messages.odin)
 	search:          Search_Client, // searching them (see search.odin)
