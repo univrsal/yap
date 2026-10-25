@@ -597,7 +597,7 @@ server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category
 server_category_opened :: proc(ui: ^UI, c: Server_Category) {
 	#partial switch c {
 	case .Roles:
-		ui.roles.notice_seen = -1 // taken from the View when it's next locked
+		notice_mark_reset(&ui.roles.notice)
 	case .Channels:
 		channels_category_opened(ui) // ui_channel_settings.odin
 	}
@@ -611,10 +611,7 @@ server_settings :: proc(ui: ^UI, c: Server_Category) {
 	v := ui.view
 	a := &ui.account
 	sync.guard(&v.mutex)
-	if a.notice_reset {
-		a.notice_reset = false
-		a.notice_seen = v.notice.count
-	}
+	notice_mark_update(&a.notice, v)
 	if v.status != .Connected || v.login.state != .Done {
 		return
 	}

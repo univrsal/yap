@@ -25,24 +25,22 @@ import "common:proto"
 UI_Roles :: struct {
 	// The picked role (0: none) as it is being edited. It is loaded again
 	// whenever another role is picked or the server says it changed.
-	role:        proto.Role_Id,
-	loaded:      proto.Role_Id,
-	seen:        proto.Role, // the name is owned
-	name_buf:    [proto.MAX_ROLE_NAME]u8,
-	name_len:    int,
-	perms:       proto.Permissions,
-	color:       u32,
-	flags:       proto.Role_Flags,
+	role:     proto.Role_Id,
+	loaded:   proto.Role_Id,
+	seen:     proto.Role, // the name is owned
+	name_buf: [proto.MAX_ROLE_NAME]u8,
+	name_len: int,
+	perms:    proto.Permissions,
+	color:    u32,
+	flags:    proto.Role_Flags,
 	// Delete was pressed once.
-	confirm:     bool,
+	confirm:  bool,
 	// Who has the picked role, and finding someone to give it to.
-	holders:     Pager,
-	giving:      Pager,
-	new_buf:     [proto.MAX_ROLE_NAME]u8,
-	new_len:     int,
-	// A notice that the server sent before the category was picked isn't
-	// about anything requested in it (conn.View_Notice.count).
-	notice_seen: int,
+	holders:  Pager,
+	giving:   Pager,
+	new_buf:  [proto.MAX_ROLE_NAME]u8,
+	new_len:  int,
+	notice:   Notice_Mark,
 }
 
 @(private = "file")
@@ -188,57 +186,46 @@ ui_roles_destroy :: proc(ui: ^UI) {
 // (server_settings), for users who have Manage_Roles. Call with the View locked.
 roles_settings :: proc(ui: ^UI) {
 	r := &ui.roles
-	ctx := &ui.ctx
 	v := ui.view
 	if .Manage_Roles not_in v.permissions {
 		return
 	}
-	if r.notice_seen < 0 {
-		r.notice_seen = v.notice.count
-	}
+	notice_mark_update(&r.notice, v)
 
 	// A role that is gone takes the right-hand side with it.
 	if r.role != 0 && role_of(v, r.role) == nil {
 		r.role = 0
 	}
 
-	// When narrow, the list and the picked role take turns, as the settings'
-	// categories do: the role is shown under its name with a way back to the list.
-	if row_room(ctx) < LIST_WIDTH + EDITOR_MIN {
-		role := role_of(v, r.role)
-		if role == nil {
-			mu.layout_row(ctx, {-1}, -1)
-			mu.begin_panel(ctx, "role list")
-			role_list(ui)
-			mu.end_panel(ctx)
-			return
-		}
-		mu.layout_row(ctx, {40, -1})
-		if .SUBMIT in icon_button(ui, "to role list", .Back, "Roles") {
+	role := role_of(v, r.role)
+	list_detail(ui, {
+		name = "role",
+		list_width = LIST_WIDTH,
+		detail_min = EDITOR_MIN,
+		picked = role != nil,
+		title = role.name if role != nil else "",
+		back_hint = "Roles",
+		list = role_list,
+		detail = role_detail,
+		back = proc(ui: ^UI) {
+			r := &ui.roles
 			r.role = 0
 			r.confirm, r.holders, r.giving = false, {}, {}
-		}
-		mu.label(ctx, role.name)
-		mu.layout_row(ctx, {-1}, -1)
-		mu.begin_panel(ctx, "role")
+		},
+	})
+}
+
+// role_detail is the picked role's side of the category, or what to do with
+// none picked.
+@(private = "file")
+role_detail :: proc(ui: ^UI) {
+	if role := role_of(ui.view, ui.roles.role); role != nil {
 		role_editor(ui, role^)
-		mu.end_panel(ctx)
 		return
 	}
-
-	mu.layout_row(ctx, {LIST_WIDTH, -1}, -1)
-	mu.begin_panel(ctx, "role list")
-	role_list(ui)
-	mu.end_panel(ctx)
-	mu.begin_panel(ctx, "role")
-	if role := role_of(v, r.role); role != nil {
-		role_editor(ui, role^)
-	} else {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Pick a role to see and change it.", label_proc)
-		roles_notice(ui)
-	}
-	mu.end_panel(ctx)
+	mu.layout_row(&ui.ctx, {-1})
+	with_text_color(&ui.ctx, theme.dim, "Pick a role to see and change it.", label_proc)
+	notice_row(ui, ui.roles.notice, ui.view)
 }
 
 @(private = "file")
@@ -420,23 +407,21 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 				},
 			)
 		}
-		switch {
-		case everyone:
+		if everyone {
 			mu.label(ctx, "")
-		case r.confirm:
-			if .SUBMIT in
-			   stable_button(ctx, "delete role", "Delete it for good", {.ALIGN_CENTER}) {
-				command(ui, conn.Role_Delete_Command{id = role.id})
-				r.role, r.confirm = 0, false
-				return
-			}
-		case:
-			if .SUBMIT in stable_button(ctx, "delete role?", "Delete role...", {.ALIGN_CENTER}) {
-				r.confirm = true
-			}
+		} else if confirm_button(
+			ctx,
+			&r.confirm,
+			"delete role",
+			"Delete role...",
+			"Delete it for good",
+		) {
+			command(ui, conn.Role_Delete_Command{id = role.id})
+			r.role = 0
+			return
 		}
 	}
-	roles_notice(ui)
+	notice_row(ui, ui.roles.notice, ui.view)
 
 	if everyone {
 		return
@@ -588,22 +573,4 @@ give :: proc(
 		cmd.count += 1
 	}
 	command(ui, cmd)
-}
-
-// roles_notice is what the server last said about something requested in the
-// window, such as a refusal.
-@(private = "file")
-roles_notice :: proc(ui: ^UI) {
-	ctx := &ui.ctx
-	v := ui.view
-	if v.notice.text == "" || v.notice.count <= ui.roles.notice_seen {
-		return
-	}
-	mu.layout_row(ctx, {-1})
-	with_text_color(
-		ctx,
-		theme.notice_ok if v.notice.ok else theme.error,
-		v.notice.text,
-		label_proc,
-	)
 }

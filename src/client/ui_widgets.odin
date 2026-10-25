@@ -1,6 +1,7 @@
 package client
 
 import "base:intrinsics"
+import "client:conn"
 import "client:render"
 import "core:fmt"
 import "core:strings"
@@ -563,4 +564,112 @@ header_line :: proc(
 		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
 		mu.pop_clip_rect(ctx)
 	}
+}
+
+// List_Detail is a settings category with a list on the left and what is
+// picked in it on the right (list_detail).
+List_Detail :: struct {
+	name:       string, // the picked thing's panel; the list's is "<name> list"
+	list_width: i32,
+	detail_min: i32, // the least room beside the list before the two take turns
+	picked:     bool, // something is picked (or being made)
+	title:      string, // what is picked, over it when the two take turns
+	back_hint:  string, // the hint of the way back: what the list is
+	list:       proc(ui: ^UI),
+	detail:     proc(ui: ^UI), // what is picked, or what to show without
+	back:       proc(ui: ^UI), // going back to the list
+}
+
+// list_detail lays out a List_Detail. In a narrow window the list and what
+// is picked take turns, as the settings' categories do: the list, or what is
+// picked under its title with a way back to the list.
+list_detail :: proc(ui: ^UI, ld: List_Detail) {
+	ctx := &ui.ctx
+	list_name := strings.concatenate({ld.name, " list"}, context.temp_allocator)
+	if row_room(ctx) < ld.list_width + ld.detail_min {
+		if !ld.picked {
+			mu.layout_row(ctx, {-1}, -1)
+			mu.begin_panel(ctx, list_name)
+			ld.list(ui)
+			mu.end_panel(ctx)
+			return
+		}
+		mu.layout_row(ctx, {40, -1})
+		if .SUBMIT in icon_button(ui, fmt.tprintf("to %s", list_name), .Back, ld.back_hint) {
+			ld.back(ui)
+		}
+		mu.label(ctx, ld.title)
+		mu.layout_row(ctx, {-1}, -1)
+		mu.begin_panel(ctx, ld.name)
+		ld.detail(ui)
+		mu.end_panel(ctx)
+		return
+	}
+	mu.layout_row(ctx, {ld.list_width, -1}, -1)
+	mu.begin_panel(ctx, list_name)
+	ld.list(ui)
+	mu.end_panel(ctx)
+	mu.begin_panel(ctx, ld.name)
+	ld.detail(ui)
+	mu.end_panel(ctx)
+}
+
+// Notice_Mark keeps a screen from showing a notice that the server sent before
+// the screen was opened (conn.View_Notice.count), which isn't about anything
+// requested there. notice_mark_reset marks the opening, and
+// notice_mark_update, at the top of the screen with the View locked, takes
+// the count then.
+Notice_Mark :: struct {
+	seen:  int,
+	reset: bool,
+}
+
+notice_mark_reset :: proc(m: ^Notice_Mark) {
+	m.reset = true
+}
+
+notice_mark_update :: proc(m: ^Notice_Mark, v: ^conn.View) {
+	if m.reset {
+		m.reset = false
+		m.seen = v.notice.count
+	}
+}
+
+// notice_fresh is the server's last notice if it came after the screen was
+// opened. Call with the View locked.
+notice_fresh :: proc(m: Notice_Mark, v: ^conn.View) -> (text: string, ok: bool, fresh: bool) {
+	if v.notice.text == "" || v.notice.count <= m.seen {
+		return
+	}
+	return v.notice.text, v.notice.ok, true
+}
+
+// notice_row shows the server's last notice in a row of its own, if it is
+// fresh (notice_fresh): what it made of something requested on the screen,
+// such as a refusal.
+notice_row :: proc(ui: ^UI, m: Notice_Mark, v: ^conn.View) {
+	text, ok, fresh := notice_fresh(m, v)
+	if !fresh {
+		return
+	}
+	ctx := &ui.ctx
+	mu.layout_row(ctx, {-1})
+	with_text_color(ctx, theme.notice_ok if ok else theme.error, text, wrap_text)
+}
+
+// confirm_button is a button that has to be pressed twice, for what can't be
+// undone: `ask` first, then `confirm` in its place. It returns true on the
+// second press. `armed` says whether it was pressed once.
+confirm_button :: proc(ctx: ^mu.Context, armed: ^bool, id, ask, confirm: string) -> bool {
+	if !armed^ {
+		if .SUBMIT in stable_button(ctx, fmt.tprintf("%s?", id), ask, {.ALIGN_CENTER}) {
+			armed^ = true
+		}
+		return false
+	}
+	if .SUBMIT in stable_button(ctx, id, confirm, {.ALIGN_CENTER}) {
+		armed^ = false
+		return true
+	}
+	return false
 }

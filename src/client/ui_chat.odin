@@ -404,35 +404,62 @@ chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 
 @(private = "file")
 chat_input :: proc(ui: ^UI) {
+	composer_bar(
+		ui,
+		composer_of(ui, 0),
+		{send_id = "send", verb = "Send", typing = conn.Typing_Command{}},
+	)
+}
+
+// Composer_Bar is what differs between the composer rows of a channel, a
+// thread and a DM (composer_bar).
+Composer_Bar :: struct {
+	send_id: string, // the send button's id
+	verb:    string, // what Enter does with a new message ("Send", "Reply")
+	// Sent when the text changes, to show that we're typing; nil for nothing.
+	typing:  Maybe(conn.Typing_Command),
+	// One more button before the send button, with `data` (a DM's file button).
+	extra:   proc(ui: ^UI, data: rawptr),
+	data:    rawptr,
+	dm_to:   proto.Account_Id, // who a DM's message is for
+}
+
+// composer_bar is the row a message is written in: the box, then the buttons
+// for files, emoji, the preview, `bar.extra` and sending.
+composer_bar :: proc(ui: ^UI, c: Composer, bar: Composer_Bar) {
 	ctx := &ui.ctx
-	composer := composer_of(ui, 0)
-	input_h := composer_height(ui, composer)
-	composer_row(ui, input_h)
-	composer_input(ui, composer)
-	res, box, box_rect := composer_box(ui, composer)
-	completion_update(ui, composer)
-	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil && ui.chat.editing == 0 {
-		command(ui, conn.Typing_Command{})
+	composer_row(ui, composer_height(ui, c))
+	composer_input(ui, c)
+	res, box, box_rect := composer_box(ui, c)
+	completion_update(ui, c)
+	if typing, ok := bar.typing.?;
+	   ok && .CHANGE in res && c.len^ > 0 && ui.session != nil && c.editing^ == 0 {
+		command(ui, typing)
 	}
 	send := .SUBMIT in res
-	composer_buttons(ui, box_rect, 4)
-	attach_button(ui, composer)
-	emoji_button(ui, composer)
-	preview_button(ui, composer)
-	if composer_send_button(ui, composer, "send", "Save" if ui.chat.editing != 0 else "Send") {
+	composer_buttons(ui, box_rect, 5 if bar.extra != nil else 4)
+	attach_button(ui, c)
+	emoji_button(ui, c)
+	preview_button(ui, c)
+	if bar.extra != nil {
+		bar.extra(ui, bar.data)
+	}
+	verb := "Save" if c.editing^ != 0 else bar.verb
+	hint := fmt.tprintf("Enter: %s\nCtrl+Enter: New line", verb)
+	if composer_send_button(ui, c, bar.send_id, hint) {
 		send = true
 	}
 	composer_buttons_end(ui)
 	if !send {
 		return
 	}
-	// Enter takes the focus away from the box, so keep typing instead.
+	// Enter takes the focus away from the box, so give it back to keep typing.
 	mu.set_focus(ctx, box)
-	composer_send(ui, composer)
+	composer_send(ui, c, bar.dm_to)
 }
 
-// How long a notice (see conn.notify) shows in the line over a conversation.
-@(private = "file")
+// How long a notice (see conn.notify, and a DM's own) shows in the line over a
+// conversation.
 NOTICE_SHOW :: 5 * time.Second
 
 // chat_status is what the channel's header says at its right end (see

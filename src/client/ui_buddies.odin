@@ -56,10 +56,6 @@ UI_Buddies :: struct {
 @(private = "file")
 LAST_SEEN_REFRESH :: 30 * time.Second
 
-// How long a notice under the conversation's header stays.
-@(private = "file")
-NOTICE_SHOW :: 5 * time.Second
-
 // How long to wait for the network side to look at what it was asked
 // to before asking again.
 @(private = "file")
@@ -522,46 +518,39 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	composer := composer_of_page(ui)
 	composer_files(ui, composer, panel_width(ctx))
-	composer_row(ui, input_h)
-	composer_input(ui, composer)
-	res, box, box_rect := composer_box(ui, composer)
-	completion_update(ui, composer)
-	if .CHANGE in res &&
-	   ui.buddies.len > 0 &&
-	   ui.session != nil &&
-	   v.viewing == entry.conv &&
-	   entry.conv != 0 &&
-	   ui.buddies.editing == 0 {
-		command(ui, conn.Typing_Command{})
+	file_to := Dm_File_Button{entry.online, account}
+	bar := Composer_Bar {
+		send_id = "dm send",
+		verb    = "Send",
+		extra   = dm_file_button,
+		data    = &file_to,
+		dm_to   = account,
 	}
-	send := .SUBMIT in res
-	composer_buttons(ui, box_rect, 5)
-	attach_button(ui, composer)
-	emoji_button(ui, composer)
-	preview_button(ui, composer)
+	if v.viewing == entry.conv && entry.conv != 0 {
+		bar.typing = conn.Typing_Command{}
+	}
+	composer_bar(ui, composer, bar)
+}
+
+// Who a DM's file button sends a file to, and whether they are here to take it.
+@(private = "file")
+Dm_File_Button :: struct {
+	online:  bool,
+	account: proto.Account_Id,
+}
+
+// dm_file_button is the DM's button for sending a file, in its composer row.
+@(private = "file")
+dm_file_button :: proc(ui: ^UI, data: rawptr) {
+	to := (^Dm_File_Button)(data)
 	if .SUBMIT in icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
-		if !entry.online {
+		if !to.online {
 			ui.buddies.notice = "files only go to someone who's here"
 			ui.buddies.notice_at = time.tick_now()
 		} else {
-			ui.buddies.pick, ui.buddies.pick_to = true, account
+			ui.buddies.pick, ui.buddies.pick_to = true, to.account
 		}
 	}
-	if composer_send_button(
-		ui,
-		composer,
-		"dm send",
-		"Save" if ui.buddies.editing != 0 else "Enter: Send\nCtrl+Enter: New line",
-	) {
-		send = true
-	}
-	composer_buttons_end(ui)
-	if !send {
-		return
-	}
-	// Enter takes the focus away from the box, so keep typing instead.
-	mu.set_focus(ctx, box)
-	composer_send(ui, composer, account)
 }
 
 // no_conversation_yet stands in for the timeline where there is no DM

@@ -499,40 +499,22 @@ ACCOUNTS_LIST_WIDTH :: 230
 ACCOUNT_EDITOR_MIN :: 330
 
 accounts_admin :: proc(ui: ^UI, v: ^conn.View) {
-	ctx := &ui.ctx
 	a := &ui.account
 	if acc, ok := v.accounts[a.picked]; a.picked != 0 && (!ok || .Deleted in acc.flags) {
 		a.picked = 0 // gone
 	}
 
-	// When narrow, the list and the account picked take turns, as roles do.
-	if row_room(ctx) < ACCOUNTS_LIST_WIDTH + ACCOUNT_EDITOR_MIN {
-		if a.picked == 0 && !a.creating {
-			mu.layout_row(ctx, {-1}, -1)
-			mu.begin_panel(ctx, "account list")
-			accounts_list(ui, v)
-			mu.end_panel(ctx)
-			return
-		}
-		mu.layout_row(ctx, {40, -1})
-		if .SUBMIT in icon_button(ui, "to account list", .Back, "Accounts") {
-			account_pick(ui, 0)
-		}
-		mu.label(ctx, v.accounts[a.picked].username if a.picked != 0 else "New account")
-		mu.layout_row(ctx, {-1}, -1)
-		mu.begin_panel(ctx, "account")
-		account_detail(ui, v)
-		mu.end_panel(ctx)
-		return
-	}
-
-	mu.layout_row(ctx, {ACCOUNTS_LIST_WIDTH, -1}, -1)
-	mu.begin_panel(ctx, "account list")
-	accounts_list(ui, v)
-	mu.end_panel(ctx)
-	mu.begin_panel(ctx, "account")
-	account_detail(ui, v)
-	mu.end_panel(ctx)
+	list_detail(ui, {
+		name = "account",
+		list_width = ACCOUNTS_LIST_WIDTH,
+		detail_min = ACCOUNT_EDITOR_MIN,
+		picked = a.picked != 0 || a.creating,
+		title = v.accounts[a.picked].username if a.picked != 0 else "New account",
+		back_hint = "Accounts",
+		list = proc(ui: ^UI) {accounts_list(ui, ui.view)},
+		detail = proc(ui: ^UI) {account_detail(ui, ui.view)},
+		back = proc(ui: ^UI) {account_pick(ui, 0)},
+	})
 }
 
 // account_pick picks an account in the list (0: none), leaving whatever was

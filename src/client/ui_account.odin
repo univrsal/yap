@@ -72,8 +72,7 @@ UI_Account :: struct {
 	devices_asked: bool,
 	// What the server had said by then isn't about anything asked since,
 	// so only a notice newer than this one (View_Notice.count) is shown.
-	notice_reset:  bool,
-	notice_seen:   int,
+	notice:        Notice_Mark,
 	// Creating an account.
 	add_user_buf:  [proto.MAX_USERNAME_SIZE]u8,
 	add_user_len:  int,
@@ -115,7 +114,7 @@ ui_account_opened :: proc(ui: ^UI) {
 	ui.account.profile_asked = false
 	ui.account.devices_asked = false
 	ui.account.mistake = ""
-	ui.account.notice_reset = true
+	notice_mark_reset(&ui.account.notice)
 	ui_invites_opened(ui)
 	ui_memory_opened(ui)
 }
@@ -461,10 +460,11 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 // what the server made of the last request.
 notice_label :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
+	_, _, fresh := notice_fresh(ui.account.notice, v)
 	switch {
 	case ui.account.mistake != "":
 		with_text_color(ctx, theme.error, ui.account.mistake, label_proc)
-	case v.notice.text != "" && v.notice.count > ui.account.notice_seen:
+	case fresh:
 		with_text_color(
 			ctx,
 			theme.notice_ok if v.notice.ok else theme.error,

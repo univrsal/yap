@@ -60,9 +60,7 @@ UI_Channel_Admin :: struct {
 	new_private:   bool,
 	new_default:   bool,
 	new_text_only: bool,
-	// A notice that the server sent before the category was picked isn't
-	// about anything requested in it (conn.View_Notice.count).
-	notice_seen:   int,
+	notice:        Notice_Mark,
 }
 
 @(private = "file")
@@ -83,7 +81,7 @@ ui_channel_admin_destroy :: proc(ui: ^UI) {
 // the channels are fetched again, since the server only tells us about changes
 // to the ones we're in.
 channels_category_opened :: proc(ui: ^UI) {
-	ui.channel_admin.notice_seen = -1 // taken from the View when it's next locked
+	notice_mark_reset(&ui.channel_admin.notice)
 	command(ui, conn.All_Channels_Command{})
 }
 
@@ -104,11 +102,8 @@ open_channel_settings :: proc(ui: ^UI, conv: proto.Conv_Id) {
 // channels_settings is the category. Call with the View locked.
 channels_settings :: proc(ui: ^UI) {
 	a := &ui.channel_admin
-	ctx := &ui.ctx
 	v := ui.view
-	if a.notice_seen < 0 {
-		a.notice_seen = v.notice.count
-	}
+	notice_mark_update(&a.notice, v)
 	if .Manage_Channels not_in v.permissions {
 		if .Create_Channels in v.permissions {
 			new_channel(ui)
@@ -123,41 +118,33 @@ channels_settings :: proc(ui: ^UI) {
 		a.conv = 0
 	}
 
-	// When narrow, the list and the picked channel take turns, as the roles do.
-	if row_room(ctx) < LIST_WIDTH + EDITOR_MIN {
-		if picked == nil {
-			mu.layout_row(ctx, {-1}, -1)
-			mu.begin_panel(ctx, "channel list")
-			channel_admin_list(ui)
-			mu.end_panel(ctx)
-			return
-		}
-		mu.layout_row(ctx, {40, -1})
-		if .SUBMIT in icon_button(ui, "to channel list", .Back, "Channels") {
-			a.conv = 0
-			a.confirm = false
-		}
-		mu.label(ctx, picked.name)
-		mu.layout_row(ctx, {-1}, -1)
-		mu.begin_panel(ctx, "channel")
+	list_detail(ui, {
+		name = "channel",
+		list_width = LIST_WIDTH,
+		detail_min = EDITOR_MIN,
+		picked = picked != nil,
+		title = picked.name if picked != nil else "",
+		back_hint = "Channels",
+		list = channel_admin_list,
+		detail = channel_detail,
+		back = proc(ui: ^UI) {
+			ui.channel_admin.conv = 0
+			ui.channel_admin.confirm = false
+		},
+	})
+}
+
+// channel_detail is the picked channel's side of the category, or what to do
+// with none picked.
+@(private = "file")
+channel_detail :: proc(ui: ^UI) {
+	if picked := channel_of(ui.view, ui.channel_admin.conv); picked != nil {
 		channel_editor(ui, picked^)
-		mu.end_panel(ctx)
 		return
 	}
-
-	mu.layout_row(ctx, {LIST_WIDTH, -1}, -1)
-	mu.begin_panel(ctx, "channel list")
-	channel_admin_list(ui)
-	mu.end_panel(ctx)
-	mu.begin_panel(ctx, "channel")
-	if picked != nil {
-		channel_editor(ui, picked^)
-	} else {
-		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Pick a channel to see and change it.", label_proc)
-		channel_admin_notice(ui)
-	}
-	mu.end_panel(ctx)
+	mu.layout_row(&ui.ctx, {-1})
+	with_text_color(&ui.ctx, theme.dim, "Pick a channel to see and change it.", label_proc)
+	notice_row(ui, ui.channel_admin.notice, ui.view)
 }
 
 @(private = "file")
@@ -292,7 +279,7 @@ new_channel :: proc(ui: ^UI) {
 		a.new_private, a.new_default, a.new_text_only = false, false, false
 	}
 	if .Manage_Channels not_in v.permissions {
-		channel_admin_notice(ui)
+		notice_row(ui, ui.channel_admin.notice, ui.view)
 	}
 }
 
@@ -400,19 +387,19 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	if !home {
 		channel_move_buttons(ui, ch.id)
 		field_row(ui, LABEL, "", {160})
-		if a.confirm {
-			if .SUBMIT in
-			   stable_button(ctx, "delete channel", "Delete it for everyone", {.ALIGN_CENTER}) {
-				command(ui, conn.Conv_Delete_Command{conv = ch.id})
-				a.conv, a.confirm = 0, false
-				return
-			}
-		} else if .SUBMIT in
-		   stable_button(ctx, "delete channel?", "Delete channel...", {.ALIGN_CENTER}) {
-			a.confirm = true
+		if confirm_button(
+			ctx,
+			&a.confirm,
+			"delete channel",
+			"Delete channel...",
+			"Delete it for everyone",
+		) {
+			command(ui, conn.Conv_Delete_Command{conv = ch.id})
+			a.conv = 0
+			return
 		}
 	}
-	channel_admin_notice(ui)
+	notice_row(ui, ui.channel_admin.notice, ui.view)
 	channel_rights(ui, ch, a.text_only)
 
 	if private {
@@ -722,17 +709,4 @@ channel_members :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	if add := people_finder(ui, &a.adding, others[:], "Add", .Plus); add != 0 {
 		command(ui, conn.Conv_Member_Command{conv = ch.id, account = add, on = true})
 	}
-}
-
-// channel_admin_notice is what the server last said about something requested
-// in the category, such as a refusal.
-@(private = "file")
-channel_admin_notice :: proc(ui: ^UI) {
-	ctx := &ui.ctx
-	v := ui.view
-	if v.notice.text == "" || v.notice.count <= ui.channel_admin.notice_seen {
-		return
-	}
-	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.notice_ok if v.notice.ok else theme.error, v.notice.text, wrap_text)
 }
