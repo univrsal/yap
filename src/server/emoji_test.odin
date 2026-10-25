@@ -59,8 +59,7 @@ test_png :: proc(width, height: int, rgba: [4]u8) -> []u8 {
 
 @(test)
 test_emoji_sheet :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path :: proc(dir, name: string) -> string {
 		p, _ := os.join_path({dir, name}, context.temp_allocator)
@@ -132,8 +131,7 @@ test_emoji_sheet :: proc(t: ^testing.T) {
 // rows are removed too.
 @(test)
 test_emoji_frames_kept :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -200,8 +198,7 @@ GIF_100 := #load("../common/gif/testdata/anim_100.gif")
 
 @(test)
 test_emoji_animated :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	write :: proc(t: ^testing.T, dir, name: string, data: []u8) {
 		p, _ := os.join_path({dir, name}, context.temp_allocator)

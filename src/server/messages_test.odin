@@ -7,7 +7,7 @@ import "core:time"
 import "common:imagekind"
 import "common:proto"
 
-// Tests of messages and blobs, using the Test_Server from auth_test.odin.
+// Tests of messages and blobs, using the Test_Server from harness_test.odin.
 
 history_body :: proc(
 	conv: proto.Conv_Id,
@@ -331,8 +331,7 @@ upload :: proc(
 // the only kind that's uploaded with Blob_Put.
 @(test)
 test_blob_transfer :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -428,8 +427,7 @@ test_blob_transfer :: proc(t: ^testing.T) {
 
 @(test)
 test_messages_kept :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 

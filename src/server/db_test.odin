@@ -13,22 +13,6 @@ import "core:testing"
 // The test runner counts an error in the log as a failure, so where a test makes
 // something fail on purpose, it does so with the log switched off.
 
-// test_dir returns a new folder for one test, which the test has to remove when
-// it is over.
-@(private = "file")
-test_dir :: proc(t: ^testing.T) -> string {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, err := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	testing.expect(t, err == nil)
-	return dir
-}
-
-@(private = "file")
-file_in :: proc(dir, name: string) -> string {
-	path, _ := os.join_path({dir, name}, context.temp_allocator)
-	return path
-}
-
 @(private = "file")
 pragma :: proc(t: ^testing.T, db: ^DB, sql: string) -> i64 {
 	value, rc := db_pragma_int(db, sql)
@@ -237,7 +221,11 @@ test_db_upgrade_28 :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(
 		t,
-		pragma(t, &db, "SELECT count(*) FROM sqlite_master WHERE name IN ('messages_blob', 'messages_old')"),
+		pragma(
+			t,
+			&db,
+			"SELECT count(*) FROM sqlite_master WHERE name IN ('messages_blob', 'messages_old')",
+		),
 		0,
 	)
 	testing.expect_value(t, pragma(t, &db, "SELECT count(*) FROM pragma_foreign_key_check"), 0)
@@ -256,7 +244,10 @@ test_db_upgrade_28 :: proc(t: ^testing.T) {
 	// are back.
 	testing.expect(
 		t,
-		db_exec(&db, "INSERT INTO messages (conv, sender, time, kind, text) VALUES (1, 1, 4, 0, 'new one')"),
+		db_exec(
+			&db,
+			"INSERT INTO messages (conv, sender, time, kind, text) VALUES (1, 1, 4, 0, 'new one')",
+		),
 	)
 	testing.expect_value(t, pragma(t, &db, "SELECT max(id) FROM messages"), 3)
 	testing.expect_value(

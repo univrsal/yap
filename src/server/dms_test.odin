@@ -6,30 +6,9 @@ import "core:testing"
 import "common:proto"
 
 // Tests of direct messages, buddies and last-seen times, using the Test_Server
-// from auth_test.odin.
+// from harness_test.odin.
 
 // dm_open opens the DM with `other` as `u`.
-@(private = "file")
-dm_open_as :: proc(
-	t: ^testing.T,
-	ts: ^Test_Server,
-	u: ^Conn,
-	other: proto.Account_Id,
-) -> (
-	status: proto.Status,
-	conv: proto.Conv_Id,
-) {
-	buf: [4]u8
-	body: []u8
-	status, body = ts_ask(t, ts, u, .DM_Open, proto.encode_account_id(&buf, other))
-	if status == .Ok {
-		ok: bool
-		conv, ok = proto.decode_conv_id(body)
-		testing.expect(t, ok)
-	}
-	return
-}
-
 // told_of returns the conversation `conv` as described by a connection's events
 // since the last call, whether the events mentioned it at all, and whether a
 // Msg_New event came after it.
@@ -126,8 +105,7 @@ test_dm_open :: proc(t: ^testing.T) {
 
 @(test)
 test_dm_messages :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
@@ -337,8 +315,7 @@ test_last_seen_invisible :: proc(t: ^testing.T) {
 
 @(test)
 test_buddies :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 

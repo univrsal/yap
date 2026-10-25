@@ -55,14 +55,7 @@ run_purge_command :: proc(args: []string) -> int {
 		)
 		return 2
 	}
-	if !os.exists(config) {
-		fmt.eprintfln(
-			"%s: config file not found (start the server once to create it, or pass the path to its config)",
-			config,
-		)
-		return 2
-	}
-	settings, config_ok := load_config(config)
+	settings, config_ok := cli_config(config)
 	if !config_ok {
 		return 2
 	}

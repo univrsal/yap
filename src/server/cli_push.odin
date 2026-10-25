@@ -1,7 +1,6 @@
 package server
 
 import "core:fmt"
-import "core:os"
 import "core:time"
 
 // `yap-server push test`: sends a single push to a manually supplied subscription, to
@@ -32,14 +31,7 @@ run_push_command :: proc(args: []string) -> int {
 	if len(args) == 2 || len(args) == 5 {
 		config = args[len(args) - 1]
 	}
-	if !os.exists(config) {
-		fmt.eprintfln(
-			"%s: config file not found (run the server once to create it, or pass the path to its config)",
-			config,
-		)
-		return 2
-	}
-	settings, config_ok := load_config(config)
+	settings, config_ok := cli_config(config)
 	if !config_ok {
 		return 2
 	}

@@ -1,7 +1,6 @@
 package server
 
 import "core:fmt"
-import "core:os"
 import "core:strings"
 import "core:time"
 
@@ -33,14 +32,7 @@ run_email_command :: proc(args: []string) -> int {
 			config = arg
 		}
 	}
-	if !os.exists(config) {
-		fmt.eprintfln(
-			"%s: config file not found (start the server once to create it, or pass the path to its config)",
-			config,
-		)
-		return 2
-	}
-	settings, config_ok := load_config(config)
+	settings, config_ok := cli_config(config)
 	if !config_ok {
 		return 2
 	}

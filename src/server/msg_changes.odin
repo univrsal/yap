@@ -27,29 +27,25 @@ import "sqlite"
 // can be fetched through it any more. It is also unpinned, and a file it
 // offered can no longer be accepted.
 
-// msg_of_member returns message `id` and its conversation if the
-// connection's account is a member of that conversation. Otherwise it
-// returns the status that explains why not.
-@(private = "file")
-msg_of_member :: proc(
+// msg_readable returns message `id` and its conversation if the
+// connection's account may read that conversation. A message that it may
+// not read is answered as one that doesn't exist (Not_Found).
+msg_readable :: proc(
 	s: ^Server,
 	u: ^Conn,
 	id: proto.Msg_Id,
 ) -> (
 	m: proto.Message,
 	conv: ^Conv,
-	status: proto.Status,
+	ok: bool,
 ) {
 	found: bool
 	m, found = msg_by_id(s, id)
-	if !found {
-		return {}, nil, .Not_Found
-	}
-	conv = conv_by_id(&s.convs, m.conv)
+	conv = conv_by_id(&s.convs, m.conv) if found else nil
 	if conv == nil || !conv_reader(conv, u.account) {
-		return {}, nil, .Not_Found
+		return {}, nil, false
 	}
-	return m, conv, .Ok
+	return m, conv, true
 }
 
 // msg_by_id reads one message. Its strings are allocated with the temp allocator.
@@ -72,10 +68,10 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, conv, status := msg_of_member(s, u, msg_id)
+	m, conv, readable := msg_readable(s, u, msg_id)
 	switch {
-	case conv == nil:
-		respond(u, id, status)
+	case !readable:
+		respond(u, id, .Not_Found)
 		return
 	case m.sender != u.account.id || .Edit not_in conv_rights(conv, u.account):
 		respond(u, id, .Denied)
@@ -134,10 +130,10 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, conv, status := msg_of_member(s, u, msg_id)
+	m, conv, readable := msg_readable(s, u, msg_id)
 	switch {
-	case conv == nil:
-		respond(u, id, status)
+	case !readable:
+		respond(u, id, .Not_Found)
 		return
 	// One's own message with the Delete right there, anyone's with
 	// Manage_Messages.
@@ -198,10 +194,10 @@ msg_pin :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, conv, status := msg_of_member(s, u, msg_id)
+	m, conv, readable := msg_readable(s, u, msg_id)
 	switch {
-	case conv == nil:
-		respond(u, id, status)
+	case !readable:
+		respond(u, id, .Not_Found)
 		return
 	case !may_pin(u.account, conv):
 		respond(u, id, .Denied)

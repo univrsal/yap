@@ -4,7 +4,6 @@ import "core:crypto/ecdh"
 import "core:encoding/json"
 import "core:fmt"
 import "core:net"
-import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
@@ -1615,8 +1614,7 @@ test_gateway_files :: proc(t: ^testing.T) {
 	lt_open(t, &ts)
 	defer lt_close(&ts)
 	s := &ts.s
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	dir = strings.clone(dir)
 	defer delete(dir)
 	defer remove_tree(dir)

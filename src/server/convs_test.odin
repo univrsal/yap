@@ -6,18 +6,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of conversations and voice rooms, using the Test_Server from
-// auth_test.odin.
-
-// logged_in returns a new connection that is logged in to an account with the
-// password "a password". The events sent on logging in are consumed.
-logged_in :: proc(t: ^testing.T, ts: ^Test_Server, username: string) -> ^Conn {
-	u := ts_connect(ts)
-	status, _ := ts_login(t, ts, u, username, "a password")
-	testing.expect_value(t, status, proto.Status.Ok)
-	ts_events(t, ts, u)
-	return u
-}
+// Tests of conversations and voice rooms.
 
 @(private = "file")
 conv_id_body :: proc(conv: proto.Conv_Id) -> []u8 {
@@ -49,8 +38,7 @@ browse :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn) -> []proto.Conv {
 
 @(test)
 test_convs_seeded_once :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 

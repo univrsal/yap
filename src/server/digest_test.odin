@@ -7,7 +7,7 @@ import "core:testing"
 import "common:proto"
 
 // Tests of emailing accounts what they missed (see digest.odin), using the
-// Test_Server from auth_test.odin. The mails that would be sent are left in the
+// Test_Server from harness_test.odin. The mails that would be sent are left in the
 // email's jobs.
 
 @(private = "file")

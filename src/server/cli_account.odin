@@ -78,27 +78,16 @@ account_bots :: proc(args: []string) -> int {
 		return 2
 	}
 	config := args[2] if len(args) == 3 else DEFAULT_CONFIG_FILE
-	if !os.exists(config) {
-		fmt.eprintfln(
-			"%s: config file not found (start the server once to create it, or pass the path to its config)",
-			config,
-		)
-		return 2
-	}
-	settings, config_ok := load_config(config)
+	settings, config_ok := cli_config(config)
 	if !config_ok {
 		return 2
 	}
 	db: DB
-	if !db_open(&db, settings.db_path) {
-		return 1
-	}
-	defer db_close(&db)
 	a: Accounts
-	if !accounts_load(&a, &db) {
+	if !cli_open(&db, &a, settings.db_path) {
 		return 1
 	}
-	defer accounts_destroy(&a)
+	defer cli_close(&db, &a)
 
 	password := password_of(args[1])
 	defer crypto.zero_explicit(&password, size_of(password))
@@ -159,28 +148,16 @@ run_account_command :: proc(args: []string) -> int {
 		config = rest[len(rest) - 1]
 	}
 
-	// The server writes its config on the first run, so the CLI doesn't create one.
-	if !os.exists(config) {
-		fmt.eprintfln(
-			"%s: config file not found (start the server once to create it, or pass the path to its config)",
-			config,
-		)
-		return 2
-	}
-	settings, config_ok := load_config(config)
+	settings, config_ok := cli_config(config)
 	if !config_ok {
 		return 2
 	}
 	db: DB
-	if !db_open(&db, settings.db_path) {
-		return 1
-	}
-	defer db_close(&db)
 	a: Accounts
-	if !accounts_load(&a, &db) {
+	if !cli_open(&db, &a, settings.db_path) {
 		return 1
 	}
-	defer accounts_destroy(&a)
+	defer cli_close(&db, &a)
 
 	if command == "list" {
 		account_list(&a)
@@ -435,4 +412,48 @@ account_list :: proc(a: ^Accounts) {
 			acc.display,
 		)
 	}
+}
+
+// run_role_command runs `yap-server role list`, which is short for
+// `yap-server account roles`.
+run_role_command :: proc(args: []string) -> int {
+	if len(args) == 0 || args[0] != "list" {
+		fmt.eprintln(ACCOUNT_USAGE)
+		return 2
+	}
+	list := make([dynamic]string, context.temp_allocator)
+	append(&list, "roles")
+	append(&list, ..args[1:])
+	return run_account_command(list[:])
+}
+
+// cli_config loads the config a command works on. The server writes its
+// config on the first run, so a command doesn't create one.
+cli_config :: proc(path: string) -> (settings: Settings, ok: bool) {
+	if !os.exists(path) {
+		fmt.eprintfln(
+			"%s: config file not found (start the server once to create it, or pass the path to its config)",
+			path,
+		)
+		return
+	}
+	return load_config(path)
+}
+
+// cli_open opens the database and loads the accounts, for a command that
+// works on them. cli_close closes them again.
+cli_open :: proc(db: ^DB, a: ^Accounts, db_path: string) -> bool {
+	if !db_open(db, db_path) {
+		return false
+	}
+	if !accounts_load(a, db) {
+		db_close(db)
+		return false
+	}
+	return true
+}
+
+cli_close :: proc(db: ^DB, a: ^Accounts) {
+	accounts_destroy(a)
+	db_close(db)
 }

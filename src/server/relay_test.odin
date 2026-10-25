@@ -119,8 +119,7 @@ load_relay :: proc(dir, allow_sites: string) -> (s: Settings, ok: bool) {
 
 @(test)
 test_relay_allow_sites_config :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 
 	s, ok := load_relay(dir, `[" HTTPS://Chat.Example.org/ ", "http://localhost:9000", "*"]`)

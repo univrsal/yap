@@ -5,21 +5,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of reactions, using the Test_Server from auth_test.odin.
-
-@(private = "file")
-react_as :: proc(
-	t: ^testing.T,
-	ts: ^Test_Server,
-	u: ^Conn,
-	id: proto.Msg_Id,
-	emoji: string,
-	on: bool,
-) -> proto.Status {
-	buf := new([proto.MSG_REACT_MAX_SIZE]u8, context.temp_allocator)
-	status, _ := ts_ask(t, ts, u, .Msg_React, proto.encode_msg_react(buf, id, emoji, on))
-	return status
-}
+// Tests of reactions, using the Test_Server from harness_test.odin.
 
 @(private = "file")
 reaction_events :: proc(

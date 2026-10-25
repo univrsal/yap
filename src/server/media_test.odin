@@ -13,37 +13,9 @@ import "common:proto"
 // video to whoever watches them in their room, and relays keyframe requests
 // back to the sharer.
 
-@(private = "file")
-Media_Test_Link :: struct {
-	sock: net.UDP_Socket,
-	from: net.Endpoint,
-	sess: proto.Session,
-}
-
-@(private = "file")
-media_link_open :: proc(t: ^testing.T, l: ^Media_Test_Link) {
-	sock, err := net.make_bound_udp_socket(net.IP4_Loopback, 0)
-	testing.expect_value(t, err, nil)
-	net.set_option(sock, .Receive_Timeout, time.Second)
-	l.sock = sock
-	l.from, _ = net.bound_endpoint(sock)
-}
-
-@(private = "file")
-media_link_recv :: proc(t: ^testing.T, l: ^Media_Test_Link, out: []u8) -> []u8 {
-	buf: [proto.MAX_PACKET_SIZE]u8
-	n, _, err := net.recv_udp(l.sock, buf[:])
-	if !testing.expect_value(t, err, nil) {
-		return nil
-	}
-	pt, ok := proto.open(&l.sess, buf[:n], out)
-	testing.expect(t, ok)
-	return pt
-}
-
 // media_link_quiet reports whether nothing more has arrived on the link.
 @(private = "file")
-media_link_quiet :: proc(l: ^Media_Test_Link) -> bool {
+media_link_quiet :: proc(l: ^Test_Link) -> bool {
 	net.set_option(l.sock, .Receive_Timeout, 50 * time.Millisecond)
 	defer net.set_option(l.sock, .Receive_Timeout, time.Second)
 	buf: [proto.MAX_PACKET_SIZE]u8
@@ -52,7 +24,7 @@ media_link_quiet :: proc(l: ^Media_Test_Link) -> bool {
 }
 
 @(private = "file")
-media_link_send :: proc(m: ^Media, l: ^Media_Test_Link, msg: []u8) {
+media_link_send :: proc(m: ^Media, l: ^Test_Link, msg: []u8) {
 	pkt_buf: [proto.MAX_PACKET_SIZE]u8
 	pkt, ok := proto.seal(&l.sess, msg, pkt_buf[:])
 	if ok {
@@ -60,38 +32,21 @@ media_link_send :: proc(m: ^Media, l: ^Media_Test_Link, msg: []u8) {
 	}
 }
 
-// media_link_handshake runs a client's handshake on the media link and
-// returns the first of the three copies of the server's answer, after
-// reading and discarding the other two.
+// media_link_handshake runs a client's handshake on the media link (see
+// link_handshake_with).
 @(private = "file")
 media_link_handshake :: proc(
 	t: ^testing.T,
 	m: ^Media,
-	l: ^Media_Test_Link,
+	l: ^Test_Link,
 	key: ^ecdh.Private_Key,
 	conn_id: u64,
 	out: []u8,
 ) -> []u8 {
-	ini: proto.Initiator
-	init, started := proto.initiator_start(&ini, key)
-	testing.expect(t, started)
-	media_handle_packet(m, init, l.from)
-	buf: [proto.MAX_PACKET_SIZE]u8
-	n, _, err := net.recv_udp(l.sock, buf[:])
-	testing.expect_value(t, err, nil)
-	_, result := proto.initiator_read_resp(&ini, buf[:n])
-	testing.expect_value(t, result, proto.Resp_Result.Ok)
-	hello_buf: [proto.HELLO_MAX_SIZE]u8
-	hello := proto.encode_hello(&hello_buf, conn_id, "", .Media)
-	finish, finished := proto.initiator_finish(&ini, &l.sess, hello)
-	testing.expect(t, finished)
-	media_handle_packet(m, finish, l.from)
-	answer := media_link_recv(t, l, out)
-	copy_buf: [proto.MAX_PAYLOAD_SIZE]u8
-	for _ in 1 ..< 3 {
-		media_link_recv(t, l, copy_buf[:])
+	handle :: proc(data: rawptr, pkt: []u8, from: net.Endpoint) {
+		media_handle_packet((^Media)(data), pkt, from)
 	}
-	return answer
+	return link_handshake_with(t, l, key, conn_id, .Media, out, handle, m)
 }
 
 @(test)
@@ -140,9 +95,9 @@ test_media_link :: proc(t: ^testing.T) {
 	}
 	media_sync(s)
 
-	links: [2]Media_Test_Link
+	links: [2]Test_Link
 	for &l in links {
-		media_link_open(t, &l)
+		link_open_socket(t, &l)
 	}
 	defer for l in links {
 		net.close(l.sock)
@@ -170,7 +125,7 @@ test_media_link :: proc(t: ^testing.T) {
 	// request is passed on to the sharer on its media link.
 	watch_buf: [proto.WATCH_TILE_SIZE]u8
 	media_link_send(m, &links[1], proto.encode_watch(&watch_buf, sharer.num, true))
-	pt = media_link_recv(t, &links[0], out[:])
+	pt = link_recv(t, &links[0], out[:])
 	testing.expect_value(t, proto.Message_Kind(pt[0]), proto.Message_Kind.Keyframe)
 
 	// A video fragment from the sharer is relayed to the viewer, but not
@@ -182,7 +137,7 @@ test_media_link :: proc(t: ^testing.T) {
 		{frame = 7, ts = 100, index = 0, count = 1, key = true, codec = .AV1, data = data[:]},
 	)
 	media_link_send(m, &links[0], up)
-	pt = media_link_recv(t, &links[1], out[:])
+	pt = link_recv(t, &links[1], out[:])
 	from, f, ok := proto.decode_video_down(pt)
 	testing.expect(t, ok)
 	testing.expect_value(t, from, sharer.num)
@@ -199,7 +154,7 @@ test_media_link :: proc(t: ^testing.T) {
 		&links[1],
 		proto.encode_nack(&nack_buf, sharer.num, {frame = 7, first = 0, missing = 0b11}),
 	)
-	pt = media_link_recv(t, &links[1], out[:])
+	pt = link_recv(t, &links[1], out[:])
 	from, f, ok = proto.decode_video_down(pt)
 	testing.expect(t, ok)
 	testing.expect_value(t, from, sharer.num)
@@ -240,7 +195,7 @@ test_media_link :: proc(t: ^testing.T) {
 		proto.encode_report_up(&report_buf, sharer.num, {loss = 25, delay_ms = 60, kbit = 5000}),
 	)
 	media_reports(m)
-	pt = media_link_recv(t, &links[0], out[:])
+	pt = link_recv(t, &links[0], out[:])
 	testing.expect_value(t, proto.Message_Kind(pt[0]), proto.Message_Kind.Report)
 	summary, _, summary_ok := proto.decode_report_down(pt)
 	testing.expect(t, summary_ok)
@@ -314,9 +269,9 @@ test_media_camera :: proc(t: ^testing.T) {
 	}
 	media_sync(s)
 
-	links: [2]Media_Test_Link
+	links: [2]Test_Link
 	for &l in links {
-		media_link_open(t, &l)
+		link_open_socket(t, &l)
 	}
 	defer for l in links {
 		net.close(l.sock)
@@ -331,11 +286,11 @@ test_media_camera :: proc(t: ^testing.T) {
 	// that didn't say how big it shows it, and asks for a keyframe of it.
 	watch_buf: [proto.WATCH_TILE_SIZE]u8
 	media_link_send(m, &links[1], proto.encode_watch(&watch_buf, sharer.num, true, .Camera))
-	pt := media_link_recv(t, &links[0], out[:])
+	pt := link_recv(t, &links[0], out[:])
 	demand, demand_ok := proto.decode_demand(pt)
 	testing.expect(t, demand_ok)
 	testing.expect_value(t, demand, proto.Demand{stream = .Camera, viewers = 1})
-	pt = media_link_recv(t, &links[0], out[:])
+	pt = link_recv(t, &links[0], out[:])
 	stream, key_ok := proto.decode_keyframe(pt)
 	testing.expect(t, key_ok)
 	testing.expect_value(t, stream, proto.Video_Stream.Camera)
@@ -352,7 +307,7 @@ test_media_camera :: proc(t: ^testing.T) {
 		{frame = 30, index = 0, count = 1, key = true, data = data[:]},
 	)
 	media_link_send(m, &links[0], camera)
-	pt = media_link_recv(t, &links[1], out[:])
+	pt = link_recv(t, &links[1], out[:])
 	_, f, ok := proto.decode_video_down(pt)
 	testing.expect(t, ok)
 	testing.expect_value(t, f.stream, proto.Video_Stream.Camera)
@@ -370,12 +325,12 @@ test_media_camera :: proc(t: ^testing.T) {
 	media_sync(s)
 	media_link_send(m, &links[1], proto.encode_watch(&watch_buf, sharer.num, false))
 	media_link_send(m, &links[0], screen)
-	pt = media_link_recv(t, &links[1], out[:])
+	pt = link_recv(t, &links[1], out[:])
 	_, f, ok = proto.decode_video_down(pt)
 	testing.expect(t, ok)
 	testing.expect_value(t, f.stream, proto.Video_Stream.Screen)
 	media_link_send(m, &links[0], camera)
-	pt = media_link_recv(t, &links[1], out[:])
+	pt = link_recv(t, &links[1], out[:])
 	_, f, ok = proto.decode_video_down(pt)
 	testing.expect(t, ok)
 	testing.expect_value(t, f.stream, proto.Video_Stream.Camera)
@@ -394,7 +349,7 @@ test_media_camera :: proc(t: ^testing.T) {
 		&links[1],
 		proto.encode_nack(&nack_buf, sharer.num, {frame = 7, first = 0, missing = 1}, .Camera),
 	)
-	pt = media_link_recv(t, &links[1], out[:])
+	pt = link_recv(t, &links[1], out[:])
 	_, f, ok = proto.decode_video_down(pt)
 	testing.expect(t, ok)
 	testing.expect_value(t, f.stream, proto.Video_Stream.Camera)
@@ -415,7 +370,7 @@ test_media_camera :: proc(t: ^testing.T) {
 	media_reports(m)
 	got: [proto.Video_Stream]proto.Video_Reports
 	for _ in 0 ..< 3 {
-		pt = media_link_recv(t, &links[0], out[:])
+		pt = link_recv(t, &links[0], out[:])
 		if proto.Message_Kind(pt[0]) == .Demand {
 			demand, demand_ok = proto.decode_demand(pt)
 			testing.expect(t, demand_ok)
@@ -444,7 +399,7 @@ test_media_camera :: proc(t: ^testing.T) {
 		&links[1],
 		proto.encode_watch(&watch_buf, sharer.num, false, .Camera, tile = {640, 360}),
 	)
-	pt = media_link_recv(t, &links[0], out[:])
+	pt = link_recv(t, &links[0], out[:])
 	demand, demand_ok = proto.decode_demand(pt)
 	testing.expect(t, demand_ok)
 	testing.expect_value(t, demand, proto.Demand{stream = .Camera, tile = {640, 360}, viewers = 1})
@@ -464,7 +419,7 @@ test_media_camera :: proc(t: ^testing.T) {
 	media_link_send(m, &links[0], camera)
 	testing.expect(t, media_link_quiet(&links[1]))
 	media_link_send(m, &links[0], screen)
-	pt = media_link_recv(t, &links[1], out[:])
+	pt = link_recv(t, &links[1], out[:])
 	_, f, ok = proto.decode_video_down(pt)
 	testing.expect(t, ok)
 	testing.expect_value(t, f.stream, proto.Video_Stream.Screen)
@@ -472,7 +427,7 @@ test_media_camera :: proc(t: ^testing.T) {
 	// With nobody watching it, the sharer is told so once a second.
 	media_reports(m)
 	for _ in 0 ..< 2 {
-		pt = media_link_recv(t, &links[0], out[:])
+		pt = link_recv(t, &links[0], out[:])
 		if proto.Message_Kind(pt[0]) == .Demand {
 			demand, demand_ok = proto.decode_demand(pt)
 			testing.expect(t, demand_ok)

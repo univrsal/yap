@@ -78,6 +78,9 @@ Attachments :: struct {
 	uploads:   map[u64]^Attach_Upload,
 	downloads: map[u64]^Attach_Download,
 	used:      map[proto.Account_Id]Attach_Use,
+	// When set (by tests, which have no sessions), it receives whatever would
+	// have been sent to a connection.
+	test_sent: proc(u: ^Conn, msg: []u8),
 }
 
 // Attach_Use is what an account has uploaded since `since`.
@@ -152,21 +155,16 @@ download_free :: proc(down: ^Attach_Download) {
 	free(down)
 }
 
-// attach_test_sent, when set (by tests, which have no sessions),
-// receives whatever would have been sent to a connection.
-@(thread_local)
-attach_test_sent: proc(u: ^Conn, msg: []u8)
-
 // can_send is whether datagrams can currently be sent to `u`.
 @(private = "file")
 can_send :: proc(s: ^Server, u: ^Conn) -> bool {
-	return u != nil && (attach_test_sent != nil || sending_session(s, u) != nil)
+	return u != nil && (s.attach.test_sent != nil || sending_session(s, u) != nil)
 }
 
 @(private = "file")
 attach_send :: proc(s: ^Server, u: ^Conn, msg: []u8) {
-	if attach_test_sent != nil {
-		attach_test_sent(u, msg)
+	if s.attach.test_sent != nil {
+		s.attach.test_sent(u, msg)
 	} else if c := sending_session(s, u); c != nil {
 		send_message(s, c, msg)
 	}

@@ -73,9 +73,8 @@ reactors_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, found := msg_by_id(s, msg_id)
-	conv := conv_by_id(&s.convs, m.conv) if found else nil
-	if conv == nil || !conv_reader(conv, u.account) {
+	m, _, readable := msg_readable(s, u, msg_id)
+	if !readable {
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -113,9 +112,8 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, found := msg_by_id(s, msg_id)
-	conv := conv_by_id(&s.convs, m.conv) if found else nil
-	if conv == nil || !conv_reader(conv, u.account) || .Deleted in u.account.flags {
+	m, conv, readable := msg_readable(s, u, msg_id)
+	if !readable || .Deleted in u.account.flags {
 		respond(u, id, .Not_Found)
 		return
 	}
