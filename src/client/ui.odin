@@ -201,7 +201,6 @@ UI :: struct {
 	// Connecting and disconnecting wait on the network thread, which may be
 	// waiting on the View lock, so they happen after the layout, not during it.
 	action:              Action,
-	log_seen:            int, // Log_Lines.total when the log panel was last scrolled
 	// What the window's title says (owned; see servers_frame).
 	window_title:        string,
 	settings_tab:        Settings_Tab, // which the settings page shows (ui_settings.odin)
@@ -1841,22 +1840,15 @@ log_panel :: proc(ui: ^UI) {
 		defer ctx.style.spacing = saved_spacing
 
 		font := render.font_with_style(ctx.style.font, .Mono)
-		// A line longer than the panel makes every row as wide as that line,
-		// which is what makes microui add a horizontal scrollbar.
-		widest: i32
-		for line in logs.lines {
-			text := line.text[11:] if len(line.text) > 11 else line.text
-			widest = max(widest, ctx.text_width(font, text))
-		}
-		row_w := widest + ctx.style.padding * 2
-		if row_w <= cnt.body.w - ctx.style.padding * 2 {
-			row_w = -1
-		}
+		// A line too long for the panel is wrapped, as the chat wraps it, and
+		// goes on below, indented as far as the time at its start (but no
+		// more than a third of the width, in a narrow window).
+		width := cnt.body.w - ctx.style.padding * 4
+		indent := min(ctx.text_width(font, "00:00:00.000 "), width / 3)
 		// Lines are numbered by the running total, so a selection stays
 		// on the same lines as new lines come in (see ui_select.odin).
 		first := i64(logs.total - len(logs.lines))
 		for line, i in logs.lines {
-			mu.layout_row(ctx, {row_w}, render.LINE_HEIGHT)
 			// Drop the date, because the time is enough on screen.
 			text := line.text[11:] if len(line.text) > 11 else line.text
 			color := ctx.style.colors[.TEXT]
@@ -1868,13 +1860,31 @@ log_panel :: proc(ui: ^UI) {
 			case line.level < .Info:
 				color = theme.dim
 			}
-			// Where mu.label would put it.
-			r := mu.layout_next(ctx)
-			pos := mu.Vec2{r.x + ctx.style.padding, r.y + (r.h - ctx.text_height(font)) / 2}
 			item := first + i64(i)
 			select_item(ui, item, text)
-			select_line(ui, item, text, 0, len(text), pos, font = font)
-			mu.draw_text(ctx, font, text, pos, color)
+			// One row for each part of the line, the whole of it if it fits
+			// (which is measured first, as most lines do).
+			start, x := 0, i32(0)
+			for {
+				end, next := len(text), len(text)
+				if ctx.text_width(font, text[start:]) > width - x {
+					e, n := wrap_line(ctx, font, text[start:], width - x)
+					end, next = start + e, start + n
+				}
+				mu.layout_row(ctx, {-1}, render.LINE_HEIGHT)
+				// Where mu.label would put it.
+				r := mu.layout_next(ctx)
+				pos := mu.Vec2 {
+					r.x + ctx.style.padding + x,
+					r.y + (r.h - ctx.text_height(font)) / 2,
+				}
+				select_line(ui, item, text, start, end, pos, font = font)
+				mu.draw_text(ctx, font, text[start:end], pos, color)
+				if next >= len(text) {
+					break
+				}
+				start, x = next, indent
+			}
 		}
 	}
 	select_end(ui)

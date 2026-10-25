@@ -193,8 +193,8 @@ category_list :: proc(
 @(private = "file")
 settings_body :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	// The log scrolls on its own and keeps to the bottom as lines come in, so
-	// it fills the whole cell instead of being in a panel that scrolls too.
+	// The log is a panel that scrolls on its own, so it fills the whole cell
+	// instead of being in a panel that scrolls too.
 	if ui.settings_tab == .Client && ui.settings_client == .Log {
 		log_panel(ui)
 		return
