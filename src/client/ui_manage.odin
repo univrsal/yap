@@ -38,8 +38,7 @@ UI_Manage :: struct {
 	// The purge being set up: the conversation (0: all), how many days back,
 	// whether only pictures are purged, and whether Purge was pressed once.
 	purge_conv:     proto.Conv_Id,
-	purge_days_buf: [6]u8,
-	purge_days_len: int,
+	purge_days:     Text_Field(6),
 	purge_files:    bool,
 	purge_confirm:  bool,
 }
@@ -69,7 +68,7 @@ people_list :: proc(
 ) {
 	ctx := &ui.ctx
 	v := ui.view
-	if !searched && (len(ids) > PAGE_ROWS || p.find_len > 0) {
+	if !searched && (len(ids) > PAGE_ROWS || p.find.len > 0) {
 		pager_search(ui, p, "Find someone")
 	}
 	query := pager_query(p)
@@ -191,7 +190,7 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	if .SUBMIT in
 	   stable_button(ctx, "add people", "Hide" if m.adding else "Add people...", {.ALIGN_CENTER}) {
 		m.adding = !m.adding
-		m.add_find.find_len = 0
+		m.add_find.find.len = 0
 	}
 	if !m.adding {
 		return
@@ -365,8 +364,8 @@ purge_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	m := &ui.manage
-	if m.purge_days_len == 0 && !m.purge_confirm {
-		m.purge_days_len = copy(m.purge_days_buf[:], "90")
+	if m.purge_days.len == 0 && !m.purge_confirm {
+		field_set(&m.purge_days, "90")
 	}
 
 	// What can be picked: all conversations, our channels or our DMs.
@@ -400,11 +399,11 @@ purge_settings :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {FORM_LABEL, 60, -1})
 	mu.label(ctx, "Older than")
-	if .CHANGE in text_box(ui, m.purge_days_buf[:], &m.purge_days_len) {
+	if .CHANGE in text_box(ui, m.purge_days.buf[:], &m.purge_days.len) {
 		m.purge_confirm = false
 	}
 	mu.label(ctx, "days")
-	days, days_ok := strconv.parse_int(string(m.purge_days_buf[:m.purge_days_len]), 10)
+	days, days_ok := strconv.parse_int(field_text(&m.purge_days), 10)
 	days_ok = days_ok && days >= 0
 
 	field_row(ui, FORM_LABEL, "", {-1}, fill_min = 240)
@@ -529,7 +528,7 @@ account_pick :: proc(ui: ^UI, id: proto.Account_Id) {
 	a.picked = id
 	a.bot_tokens = 0
 	if a.set_account != 0 {
-		wipe(a.set_pass_buf[:], &a.set_pass_len)
+		wipe(a.set_pass.buf[:], &a.set_pass.len)
 		a.set_account = 0
 	}
 	ui.manage.account, ui.manage.delete_account = 0, 0
@@ -690,26 +689,26 @@ account_password :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) 
 		field_row(ui, FORM_LABEL, "Password", {140})
 		if .SUBMIT in stable_button(ctx, "setpass", "New password...") {
 			a.set_account = id
-			wipe(a.set_pass_buf[:], &a.set_pass_len)
+			wipe(a.set_pass.buf[:], &a.set_pass.len)
 		}
 		return
 	}
 	field_row(ui, FORM_LABEL, "New password", {FORM_FIELD, 60, 70})
-	submitted := .SUBMIT in password_box(ui, a.set_pass_buf[:], &a.set_pass_len)
-	if (.SUBMIT in mu.button(ctx, "Set") || submitted) && a.set_pass_len > 0 {
+	submitted := .SUBMIT in password_box(ui, a.set_pass.buf[:], &a.set_pass.len)
+	if (.SUBMIT in mu.button(ctx, "Set") || submitted) && a.set_pass.len > 0 {
 		a.mistake = ""
 		command(
 			ui,
 			conn.Account_Password_Command {
 				account = id,
-				password = strings.clone(string(a.set_pass_buf[:a.set_pass_len])),
+				password = strings.clone(field_text(&a.set_pass)),
 			},
 		)
-		wipe(a.set_pass_buf[:], &a.set_pass_len)
+		wipe(a.set_pass.buf[:], &a.set_pass.len)
 		a.set_account = 0
 	}
 	if .SUBMIT in mu.button(ctx, "Cancel") {
-		wipe(a.set_pass_buf[:], &a.set_pass_len)
+		wipe(a.set_pass.buf[:], &a.set_pass.len)
 		a.set_account = 0
 	}
 	mu.layout_row(ctx, {-1})
@@ -733,38 +732,38 @@ account_create :: proc(ui: ^UI, v: ^conn.View) {
 	mu.label(ctx, "Create an account")
 	submit := false
 	field_row(ui, FORM_LABEL, "Username", {FORM_FIELD})
-	submit |= .SUBMIT in text_box(ui, a.add_user_buf[:], &a.add_user_len)
+	submit |= .SUBMIT in text_box(ui, a.add_user.buf[:], &a.add_user.len)
 	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
-	submit |= .SUBMIT in text_box(ui, a.add_name_buf[:], &a.add_name_len)
+	submit |= .SUBMIT in text_box(ui, a.add_name.buf[:], &a.add_name.len)
 	field_row(ui, FORM_LABEL, "Initial password", {FORM_FIELD})
-	submit |= .SUBMIT in password_box(ui, a.add_pass_buf[:], &a.add_pass_len)
+	submit |= .SUBMIT in password_box(ui, a.add_pass.buf[:], &a.add_pass.len)
 	field_row(ui, FORM_LABEL, "", {140, 140, -1})
 	submit |= .SUBMIT in mu.button(ctx, "Create account")
 	// A bot takes no password. It gets a token (see ui_bots.odin).
 	bot := .SUBMIT in mu.button(ctx, "Create bot")
 	notice_label(ui, v)
-	if bot && a.add_user_len > 0 {
+	if bot && a.add_user.len > 0 {
 		a.mistake = ""
 		command(
 			ui,
 			conn.Bot_Create_Command {
-				username = strings.clone(string(a.add_user_buf[:a.add_user_len])),
-				display = strings.clone(string(a.add_name_buf[:a.add_name_len])),
+				username = strings.clone(field_text(&a.add_user)),
+				display = strings.clone(field_text(&a.add_name)),
 			},
 		)
-		wipe(a.add_pass_buf[:], &a.add_pass_len)
-		a.add_user_len, a.add_name_len = 0, 0
-	} else if submit && a.add_user_len > 0 {
+		wipe(a.add_pass.buf[:], &a.add_pass.len)
+		a.add_user.len, a.add_name.len = 0, 0
+	} else if submit && a.add_user.len > 0 {
 		a.mistake = ""
 		command(
 			ui,
 			conn.Account_Create_Command {
-				username = strings.clone(string(a.add_user_buf[:a.add_user_len])),
-				password = strings.clone(string(a.add_pass_buf[:a.add_pass_len])),
-				display = strings.clone(string(a.add_name_buf[:a.add_name_len])),
+				username = strings.clone(field_text(&a.add_user)),
+				password = strings.clone(field_text(&a.add_pass)),
+				display = strings.clone(field_text(&a.add_name)),
 			},
 		)
-		wipe(a.add_pass_buf[:], &a.add_pass_len)
-		a.add_user_len, a.add_name_len = 0, 0
+		wipe(a.add_pass.buf[:], &a.add_pass.len)
+		a.add_user.len, a.add_name.len = 0, 0
 	}
 }

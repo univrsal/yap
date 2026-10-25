@@ -34,10 +34,8 @@ UI_Channel_Admin :: struct {
 	loaded_name:   string,
 	loaded_topic:  string,
 	loaded_flags:  proto.Conv_Flags,
-	name_buf:      [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
-	name_len:      int,
-	topic_buf:     [proto.MAX_TOPIC_SIZE]u8,
-	topic_len:     int,
+	name:          Text_Field(2 * proto.MAX_CHANNEL_NAME_SIZE),
+	topic:         Text_Field(proto.MAX_TOPIC_SIZE),
 	// Its Default and Text_Only being edited.
 	is_default:    bool,
 	text_only:     bool,
@@ -53,10 +51,8 @@ UI_Channel_Admin :: struct {
 	members:       Pager,
 	adding:        Pager,
 	// Making a channel.
-	new_name_buf:  [2 * proto.MAX_CHANNEL_NAME_SIZE]u8,
-	new_name_len:  int,
-	new_topic_buf: [proto.MAX_TOPIC_SIZE]u8,
-	new_topic_len: int,
+	new_name:      Text_Field(2 * proto.MAX_CHANNEL_NAME_SIZE),
+	new_topic:     Text_Field(proto.MAX_TOPIC_SIZE),
 	new_private:   bool,
 	new_default:   bool,
 	new_text_only: bool,
@@ -94,7 +90,7 @@ open_channel_settings :: proc(ui: ^UI, conv: proto.Conv_Id) {
 	ui.settings_list = false
 	a := &ui.channel_admin
 	a.conv, a.loaded = conv, 0
-	a.list.find_len = 0
+	a.list.find.len = 0
 	a.reveal = conv != 0
 	channels_category_opened(ui)
 }
@@ -236,9 +232,9 @@ new_channel :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, theme.dim, "New channel", label_proc)
 	field_row(ui, LABEL, "Name", {-1})
-	submit := .SUBMIT in text_box(ui, a.new_name_buf[:], &a.new_name_len)
+	submit := .SUBMIT in text_box(ui, a.new_name.buf[:], &a.new_name.len)
 	field_row(ui, LABEL, "Topic", {-1})
-	submit |= .SUBMIT in text_box(ui, a.new_topic_buf[:], &a.new_topic_len)
+	submit |= .SUBMIT in text_box(ui, a.new_topic.buf[:], &a.new_topic.len)
 	mu.layout_row(ctx, {-1})
 	checkbox(ctx, "Private", &a.new_private)
 	if a.new_private {
@@ -258,7 +254,7 @@ new_channel :: proc(ui: ^UI) {
 	}
 	mu.layout_row(ctx, {120})
 	submit |= .SUBMIT in stable_button(ctx, "make channel", "Make channel", {.ALIGN_CENTER})
-	if submit && a.new_name_len > 0 {
+	if submit && a.new_name.len > 0 {
 		flags: proto.Conv_Flags
 		if a.new_default {
 			flags += {.Default}
@@ -269,13 +265,13 @@ new_channel :: proc(ui: ^UI) {
 		command(
 			ui,
 			conn.Create_Channel_Command {
-				name = strings.clone(string(a.new_name_buf[:a.new_name_len])),
-				topic = strings.clone(string(a.new_topic_buf[:a.new_topic_len])),
+				name = strings.clone(field_text(&a.new_name)),
+				topic = strings.clone(field_text(&a.new_topic)),
 				private = a.new_private,
 				flags = flags,
 			},
 		)
-		a.new_name_len, a.new_topic_len = 0, 0
+		a.new_name.len, a.new_topic.len = 0, 0
 		a.new_private, a.new_default, a.new_text_only = false, false, false
 	}
 	if .Manage_Channels not_in v.permissions {
@@ -297,7 +293,7 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	   a.loaded_flags != settable {
 		if a.loaded != ch.id {
 			a.confirm = false
-			a.members.page, a.adding.find_len = 0, 0
+			a.members.page, a.adding.find.len = 0, 0
 			if private {
 				command(ui, conn.Members_Command{conv = ch.id})
 			}
@@ -308,8 +304,8 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 		delete(a.loaded_name)
 		delete(a.loaded_topic)
 		a.loaded_name, a.loaded_topic = strings.clone(ch.name), strings.clone(ch.topic)
-		a.name_len = copy(a.name_buf[:], ch.name)
-		a.topic_len = copy(a.topic_buf[:], ch.topic)
+		field_set(&a.name, ch.name)
+		field_set(&a.topic, ch.topic)
 		a.loaded_flags = settable
 		a.is_default = .Default in settable
 		a.text_only = .Text_Only in settable
@@ -338,9 +334,9 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	with_text_color(ctx, theme.dim, what, wrap_text)
 
 	field_row(ui, LABEL, "Name", {-1})
-	submit := .SUBMIT in text_box(ui, a.name_buf[:], &a.name_len)
+	submit := .SUBMIT in text_box(ui, a.name.buf[:], &a.name.len)
 	field_row(ui, LABEL, "Topic", {-1})
-	submit |= .SUBMIT in text_box(ui, a.topic_buf[:], &a.topic_len)
+	submit |= .SUBMIT in text_box(ui, a.topic.buf[:], &a.topic.len)
 	// Only a channel that anyone could join can be default, and the home
 	// channel is more than that.
 	if !home && !private {
@@ -357,9 +353,7 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 		flags += {.Text_Only}
 	}
 	changed :=
-		string(a.name_buf[:a.name_len]) != ch.name ||
-		string(a.topic_buf[:a.topic_len]) != ch.topic ||
-		flags != settable
+		field_text(&a.name) != ch.name || field_text(&a.topic) != ch.topic || flags != settable
 	field_row(ui, LABEL, "", {100, -1})
 	submit |=
 		.SUBMIT in
@@ -371,14 +365,14 @@ channel_editor :: proc(ui: ^UI, ch: conn.Browse_Entry) {
 	} else {
 		mu.label(ctx, "")
 	}
-	if submit && changed && a.name_len > 0 {
+	if submit && changed && a.name.len > 0 {
 		command(
 			ui,
 			conn.Conv_Update_Command {
 				conv = ch.id,
 				mask = proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC | proto.CONV_UPDATE_FLAGS,
-				name = strings.clone(string(a.name_buf[:a.name_len])),
-				topic = strings.clone(string(a.topic_buf[:a.topic_len])),
+				name = strings.clone(field_text(&a.name)),
+				topic = strings.clone(field_text(&a.topic)),
 				flags = flags,
 			},
 		)

@@ -15,7 +15,7 @@ import mu "vendor:microui"
 
 // image_cache_start opens the cache where the settings say.
 image_cache_start :: proc(ui: ^UI) {
-	ui.image_cache_dir_len = copy(ui.image_cache_dir_buf[:], ui.settings.image_cache_dir)
+	field_set(&ui.image_cache_dir, ui.settings.image_cache_dir)
 	image_cache_reopen(ui)
 }
 
@@ -66,10 +66,10 @@ image_cache_settings :: proc(ui: ^UI) {
 folder_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	field_row(ui, 120, "Folder", {-90, -1})
-	submit := .SUBMIT in text_box(ui, ui.image_cache_dir_buf[:], &ui.image_cache_dir_len)
+	submit := .SUBMIT in text_box(ui, ui.image_cache_dir.buf[:], &ui.image_cache_dir.len)
 	submit |= .SUBMIT in mu.button(ctx, "Apply")
 	if submit {
-		dir := string(ui.image_cache_dir_buf[:ui.image_cache_dir_len])
+		dir := field_text(&ui.image_cache_dir)
 		if dir != ui.settings.image_cache_dir {
 			settings.set_setting(&ui.settings.image_cache_dir, dir)
 			save_settings(ui)

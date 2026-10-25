@@ -144,10 +144,8 @@ UI :: struct {
 	renderer:            render.Renderer,
 	opts:                UI_Options,
 	my_key:              [proto.KEY_SIZE]u8,
-	server_buf:          [256]u8,
-	server_len:          int,
-	password_buf:        [proto.MAX_PASSWORD_SIZE]u8,
-	password_len:        int,
+	server:              Text_Field(256),
+	password:            Text_Field(proto.MAX_PASSWORD_SIZE),
 	// The height of the connect screen's card in the last frame (see card_end).
 	connect_card_h:      i32,
 	// What the shown server's connection reports (its session's View), or
@@ -245,8 +243,7 @@ UI :: struct {
 	// sessions (see ui_image_cache.odin), and the settings page's box for
 	// the folder.
 	image_cache:         conn.Image_Cache,
-	image_cache_dir_buf: [512]u8,
-	image_cache_dir_len: int,
+	image_cache_dir:     Text_Field(512),
 	// Memory usage: the settings page and the line in the log
 	// (see ui_memory.odin).
 	memory:              UI_Memory,

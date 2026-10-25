@@ -88,7 +88,7 @@ sounds_send_all :: proc(ui: ^UI) {
 sound_choose :: proc(ui: ^UI, kind: audio.Sound_Event, name: string) {
 	old := strings.clone(settings.sound_name(&ui.settings, kind), context.temp_allocator)
 	settings.set_sound_name(&ui.settings, kind, name)
-	settings.settings_save(ui.opts.settings_path, ui.settings)
+	save_settings(ui)
 	sound_note(ui, kind, "")
 	now := sound_effective(ui, kind)
 	if kind not_in audio.APP_SOUNDS {
@@ -106,7 +106,7 @@ sound_preset_choose :: proc(ui: ^UI, preset: audio.Sound_Preset) {
 		name = strings.clone(settings.sound_name(&ui.settings, kind), context.temp_allocator)
 	}
 	settings.sound_preset_use(&ui.settings, preset)
-	settings.settings_save(ui.opts.settings_path, ui.settings)
+	save_settings(ui)
 	for kind in audio.Sound_Event {
 		sound_note(ui, kind, "")
 	}

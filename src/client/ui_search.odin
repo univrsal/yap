@@ -19,11 +19,10 @@ import "common:proto"
 // the words in a row, and from:username matches one person's messages.
 
 UI_Search :: struct {
-	open:      bool,
-	placed:    bool,
-	query_buf: [proto.MAX_SEARCH_QUERY]u8,
-	query_len: int,
-	all:       bool, // search in all of our conversations
+	open:   bool,
+	placed: bool,
+	query:  Text_Field(proto.MAX_SEARCH_QUERY),
+	all:    bool, // search in all of our conversations
 }
 
 @(private = "file")
@@ -78,13 +77,13 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	cmds := &ui.session.client.commands
 	mu.layout_row(ctx, {-(70 + ctx.style.spacing + 1), 70})
-	submit := .SUBMIT in text_box(ui, s.query_buf[:], &s.query_len)
+	submit := .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len)
 	submit |= .SUBMIT in stable_button(ctx, "find", "Search", {.ALIGN_CENTER})
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "In all my conversations", &s.all) && v.search.query != "" {
 		submit = true
 	}
-	query := strings.trim_space(string(s.query_buf[:s.query_len]))
+	query := strings.trim_space(field_text(&s.query))
 	if submit && query != "" {
 		conn.push_command(cmds, conn.Search_Command{query = strings.clone(query), all = s.all})
 	}

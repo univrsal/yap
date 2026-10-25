@@ -673,3 +673,41 @@ confirm_button :: proc(ctx: ^mu.Context, armed: ^bool, id, ask, confirm: string)
 	}
 	return false
 }
+
+// release_slider is mu.slider for a setting that is applied only once the
+// slider is let go, and says when that happens: applying it while dragging
+// would move the slider out from under the pointer (the UI scale) or redo
+// slow work for every step (the chat text's glyphs).
+release_slider :: proc(
+	ctx: ^mu.Context,
+	value: ^f32,
+	low, high, step: f32,
+	format: string,
+) -> (
+	released: bool,
+) {
+	was_dragging := slider_dragged(ctx, value)
+	mu.slider(ctx, value, low, high, step, format)
+	return was_dragging && !slider_dragged(ctx, value)
+}
+
+// slider_dragged says whether the slider of `value` is being dragged.
+slider_dragged :: proc(ctx: ^mu.Context, value: ^f32) -> bool {
+	return ctx.focus_id == mu.get_id(ctx, uintptr(value))
+}
+
+// Text_Field is what a text box holds: up to N bytes of text.
+Text_Field :: struct($N: int) {
+	buf: [N]u8,
+	len: int,
+}
+
+// field_text is a Text_Field's text. It points into the field.
+field_text :: proc(f: ^Text_Field($N)) -> string {
+	return string(f.buf[:f.len])
+}
+
+// field_set sets a Text_Field's text, cut to what fits.
+field_set :: proc(f: ^Text_Field($N), text: string) {
+	f.len = copy(f.buf[:], text)
+}

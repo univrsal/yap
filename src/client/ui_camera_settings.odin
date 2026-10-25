@@ -74,7 +74,7 @@ camera_settings :: proc(ui: ^UI) {
 	field_row(ui, 120, "Quality", {CHOICE_WIDTH})
 	if q, ok := enum_dropdown(ui, "camera quality", CAMERA_QUALITY_LABELS, quality); ok {
 		settings.set_setting(&ui.settings.camera_quality, conn.CAMERA_QUALITY_NAMES[q])
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 	mu.layout_row(ctx, {-1})
 	with_text_color(ctx, theme.dim, CAMERA_QUALITY_NOTES[quality], wrap_text)
@@ -86,7 +86,7 @@ camera_settings :: proc(ui: ^UI) {
 		   "Mirror my own view (others see it the right way round)",
 		   &ui.settings.camera_mirror,
 	   ) {
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
 	camera_preview(ui, quality)
@@ -133,7 +133,7 @@ camera_choice :: proc(ui: ^UI) {
 	if i, picked := dropdown(ui, "camera device", items[current].label, items[:], current);
 	   picked && ids[i] != ui.settings.camera_device {
 		settings.set_setting(&ui.settings.camera_device, ids[i])
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		camera_switch(ui)
 	}
 	if unnamed {

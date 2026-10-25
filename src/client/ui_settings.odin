@@ -278,13 +278,13 @@ audio_settings :: proc(ui: ^UI) {
 	hint := audio.QUALITY_PRESETS[current].description
 	if q, ok := enum_dropdown(ui, "quality", labels, current, hint); ok {
 		settings.set_setting(&ui.settings.quality, audio.QUALITY_PRESETS[q].name)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		command_all(ui, conn.Quality_Command{q})
 	}
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
 	if app_audio_setting(ui) {
@@ -295,7 +295,7 @@ audio_settings :: proc(ui: ^UI) {
 			   "Mute audio sharing when microphone is muted",
 			   &ui.settings.mute_app_audio_with_mic,
 		   ) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 			// To all, like the volume: the audio may go out through any of them.
 			command_all(ui, conn.app_audio_command(&ui.settings))
 		}
@@ -319,7 +319,7 @@ ui_settings :: proc(ui: ^UI) {
 	if choice, ok := enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, theme_choice(&ui.settings));
 	   ok {
 		settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		ui_redraw(ui)
 	}
 
@@ -331,53 +331,45 @@ ui_settings :: proc(ui: ^UI) {
 			&ui.settings.animate_pictures,
 			settings.ANIMATE_PICTURES_NAMES[choice],
 		)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		ui_redraw(ui)
 	}
 
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "UI scale")
-	// Applying every change live would resize the window while dragging,
-	// which moves the slider out from under the pointer that is dragging it.
-	// So ui.ui_scale_draft only reaches settings.ui_scale (and with it
-	// window_metrics) once the drag is released.
-	id := mu.get_id(ctx, uintptr(&ui.ui_scale_draft))
-	was_dragging := ctx.focus_id == id
-	mu.slider(
+	// ui.ui_scale_draft reaches settings.ui_scale (and with it window_metrics)
+	// once the slider is released, as resizing the window while dragging would
+	// move the slider out from under the pointer.
+	if release_slider(
 		ctx,
 		&ui.ui_scale_draft,
 		settings.MIN_UI_SCALE * 100,
 		settings.MAX_UI_SCALE * 100,
 		10,
 		"%.0f%%",
-	)
-	if was_dragging && ctx.focus_id != id {
+	) {
 		ui.settings.ui_scale = ui.ui_scale_draft / 100
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
-	// Like the UI scale: applied when the slider is released, because the
-	// glyphs are rasterized again for it.
+	// Also applied when released, because the glyphs are rasterized again.
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Chat text size")
-	chat_id := mu.get_id(ctx, uintptr(&ui.chat_scale_draft))
-	chat_dragging := ctx.focus_id == chat_id
-	mu.slider(
+	if release_slider(
 		ctx,
 		&ui.chat_scale_draft,
 		settings.MIN_CHAT_SCALE * 100,
 		settings.MAX_CHAT_SCALE * 100,
 		10,
 		"%.0f%%",
-	)
-	if chat_dragging && ctx.focus_id != chat_id {
+	) {
 		ui.settings.chat_scale = ui.chat_scale_draft / 100
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "Show avatars beside messages", &ui.settings.chat_pictures) {
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
 	when !platform.WEB {
@@ -386,7 +378,7 @@ ui_settings :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
 		   checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 			titlebar_merge(ui.window, ui.settings.merge_title_bar)
 			ui_redraw(ui)
 		}
@@ -397,7 +389,7 @@ ui_settings :: proc(ui: ^UI) {
 
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 			tray_update(ui)
 		}
 
@@ -410,10 +402,10 @@ ui_settings :: proc(ui: ^UI) {
 		// One under the other where they don't fit side by side.
 		mu.layout_row(ctx, {230, -1} if row_fits(ctx, {230, 200}) else {-1})
 		if .CHANGE in checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 		}
 		if .CHANGE in checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 		}
 		// Only the desktop can tell us that a window has been minimized, and
 		// Wayland has no message for it, so say so instead of leaving the
@@ -490,7 +482,7 @@ device_settings :: proc(ui: ^UI) {
 		ui.settings.input_device,
 	); changed {
 		settings.set_setting(&ui.settings.input_device, choice)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		log.infof("input device: %s", choice if choice != "" else "system default")
 		reopen_audio(ui, true)
 	}
@@ -502,7 +494,7 @@ device_settings :: proc(ui: ^UI) {
 		ui.settings.output_device,
 	); changed {
 		settings.set_setting(&ui.settings.output_device, choice)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		log.infof("output device: %s", choice if choice != "" else "system default")
 		reopen_audio(ui, false)
 	}

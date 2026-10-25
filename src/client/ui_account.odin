@@ -32,40 +32,30 @@ import mu "vendor:microui"
 UI_Account :: struct {
 	// The login form, and how tall its card was in the last frame (see login_screen).
 	card_h:        i32,
-	username_buf:  [proto.MAX_USERNAME_SIZE]u8,
-	username_len:  int,
-	password_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
-	password_len:  int,
+	username:      Text_Field(proto.MAX_USERNAME_SIZE),
+	password:      Text_Field(proto.MAX_ACCOUNT_PASSWORD),
 	// Registering instead: the password again, the email address and the
 	// invite code, if the server asks for them.
 	registering:   bool,
-	reg_again_buf: [proto.MAX_ACCOUNT_PASSWORD]u8,
-	reg_again_len: int,
-	reg_email_buf: [proto.MAX_EMAIL_SIZE]u8,
-	reg_email_len: int,
-	invite_buf:    [proto.INVITE_CODE_SIZE + 8]u8,
-	invite_len:    int,
+	reg_again:     Text_Field(proto.MAX_ACCOUNT_PASSWORD),
+	reg_email:     Text_Field(proto.MAX_EMAIL_SIZE),
+	invite:        Text_Field(proto.INVITE_CODE_SIZE + 8),
 	// Fixing the address on the page that waits for it to be verified.
 	// It starts out as the current address.
-	verify_buf:    [proto.MAX_EMAIL_SIZE]u8,
-	verify_len:    int,
+	verify:        Text_Field(proto.MAX_EMAIL_SIZE),
 	verify_loaded: string, // what it was filled with; owned
 	// Changing the password: the current one, the new one, and the new one again.
-	old_buf:       [proto.MAX_ACCOUNT_PASSWORD]u8,
-	old_len:       int,
-	new_buf:       [proto.MAX_ACCOUNT_PASSWORD]u8,
-	new_len:       int,
-	again_buf:     [proto.MAX_ACCOUNT_PASSWORD]u8,
-	again_len:     int,
+	old:           Text_Field(proto.MAX_ACCOUNT_PASSWORD),
+	new:           Text_Field(proto.MAX_ACCOUNT_PASSWORD),
+	again:         Text_Field(proto.MAX_ACCOUNT_PASSWORD),
 	revoke_others: bool,
 	// What is wrong with what was typed, found before the server is asked.
 	mistake:       string, // static
-	// Whether the name field (ui.name_buf) has been filled with our name, the
+	// Whether the name field (ui.name.buf) has been filled with our name, the
 	// email field with our address, and the devices requested, since the settings
 	// were opened.
 	name_loaded:   bool,
-	email_buf:     [proto.MAX_EMAIL_SIZE]u8,
-	email_len:     int,
+	email:         Text_Field(proto.MAX_EMAIL_SIZE),
 	// The name's or the email's Apply button was used. What the server made of
 	// it is shown under them.
 	profile_asked: bool,
@@ -74,12 +64,9 @@ UI_Account :: struct {
 	// so only a notice newer than this one (View_Notice.count) is shown.
 	notice:        Notice_Mark,
 	// Creating an account.
-	add_user_buf:  [proto.MAX_USERNAME_SIZE]u8,
-	add_user_len:  int,
-	add_name_buf:  [2 * proto.MAX_NAME_SIZE]u8,
-	add_name_len:  int,
-	add_pass_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
-	add_pass_len:  int,
+	add_user:      Text_Field(proto.MAX_USERNAME_SIZE),
+	add_name:      Text_Field(2 * proto.MAX_NAME_SIZE),
+	add_pass:      Text_Field(proto.MAX_ACCOUNT_PASSWORD),
 	// The accounts list (accounts_admin): the account picked in it (0: none),
 	// whether the form to make one is showing instead, and its search.
 	picked:        proto.Account_Id,
@@ -89,11 +76,9 @@ UI_Account :: struct {
 	bot_tokens:    proto.Account_Id,
 	// Giving an account a new password: which account, and the password.
 	set_account:   proto.Account_Id,
-	set_pass_buf:  [proto.MAX_ACCOUNT_PASSWORD]u8,
-	set_pass_len:  int,
+	set_pass:      Text_Field(proto.MAX_ACCOUNT_PASSWORD),
 	// Deleting our own account: the password, typed again.
-	delete_buf:    [proto.MAX_ACCOUNT_PASSWORD]u8,
-	delete_len:    int,
+	delete:        Text_Field(proto.MAX_ACCOUNT_PASSWORD),
 }
 
 FORM_LABEL :: 130
@@ -167,19 +152,19 @@ login_screen :: proc(ui: ^UI) {
 		field_row(ui, LOGIN_LABEL, label, {-1}, fill_min = LOGIN_FIELD_MIN)
 	}
 	field(ui, "Username")
-	submit |= .SUBMIT in text_box(ui, a.username_buf[:], &a.username_len)
+	submit |= .SUBMIT in text_box(ui, a.username.buf[:], &a.username.len)
 	field(ui, "Password")
-	submit |= .SUBMIT in password_box(ui, a.password_buf[:], &a.password_len)
+	submit |= .SUBMIT in password_box(ui, a.password.buf[:], &a.password.len)
 	if registering {
 		field(ui, "Password again")
-		submit |= .SUBMIT in password_box(ui, a.reg_again_buf[:], &a.reg_again_len)
+		submit |= .SUBMIT in password_box(ui, a.reg_again.buf[:], &a.reg_again.len)
 		if .Email in v.registration {
 			field(ui, "Email")
-			submit |= .SUBMIT in text_box(ui, a.reg_email_buf[:], &a.reg_email_len)
+			submit |= .SUBMIT in text_box(ui, a.reg_email.buf[:], &a.reg_email.len)
 		}
 		if .Invite in v.registration {
 			field(ui, "Invite code")
-			submit |= .SUBMIT in text_box(ui, a.invite_buf[:], &a.invite_len)
+			submit |= .SUBMIT in text_box(ui, a.invite.buf[:], &a.invite.len)
 		}
 	}
 	field(ui, "")
@@ -217,9 +202,9 @@ login_screen :: proc(ui: ^UI) {
 		)
 	}
 
-	if submit && !working && a.username_len > 0 && a.password_len > 0 {
-		username := string(a.username_buf[:a.username_len])
-		password := string(a.password_buf[:a.password_len])
+	if submit && !working && a.username.len > 0 && a.password.len > 0 {
+		username := field_text(&a.username)
+		password := field_text(&a.password)
 		if registering {
 			if !register_mistake(ui) {
 				return
@@ -234,11 +219,11 @@ login_screen :: proc(ui: ^UI) {
 					username = strings.clone(username),
 					password = strings.clone(password),
 					device = strings.clone(platform.default_name()),
-					email = strings.clone(string(a.reg_email_buf[:a.reg_email_len])),
-					invite = strings.clone(string(a.invite_buf[:a.invite_len])),
+					email = strings.clone(field_text(&a.reg_email)),
+					invite = strings.clone(field_text(&a.invite)),
 				},
 			)
-			wipe(a.reg_again_buf[:], &a.reg_again_len)
+			wipe(a.reg_again.buf[:], &a.reg_again.len)
 		} else {
 			command(
 				ui,
@@ -249,7 +234,7 @@ login_screen :: proc(ui: ^UI) {
 				},
 			)
 		}
-		wipe(a.password_buf[:], &a.password_len)
+		wipe(a.password.buf[:], &a.password.len)
 	}
 
 }
@@ -263,24 +248,24 @@ register_mistake :: proc(ui: ^UI) -> bool {
 	v := ui.view
 	a.mistake = ""
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
-	password := string(a.password_buf[:a.password_len])
-	email := string(a.reg_email_buf[:a.reg_email_len])
+	password := field_text(&a.password)
+	email := field_text(&a.reg_email)
 	email_buf: [proto.MAX_EMAIL_SIZE]u8
 	code_buf: [proto.INVITE_CODE_SIZE]u8
 	switch {
-	case !username_ok(string(a.username_buf[:a.username_len]), &name_buf):
+	case !username_ok(field_text(&a.username), &name_buf):
 		a.mistake = "A username is 2 to 32 of a-z 0-9 _ . - (no spaces)."
 	case !proto.account_password_ok(password):
 		a.mistake = "A password is 8 to 128 characters."
-	case password != string(a.reg_again_buf[:a.reg_again_len]):
+	case password != field_text(&a.reg_again):
 		a.mistake = "The two passwords don't match."
 	case .Email in v.registration && strings.trim_space(email) == "":
 		a.mistake = "This server asks for an email address."
 	case strings.trim_space(email) != "" && !email_ok(email, &email_buf):
 		a.mistake = "That's no email address."
-	case .Invite in v.registration && a.invite_len == 0:
+	case .Invite in v.registration && a.invite.len == 0:
 		a.mistake = "This server asks for an invite code."
-	case a.invite_len > 0 && !invite_ok(string(a.invite_buf[:a.invite_len]), &code_buf):
+	case a.invite.len > 0 && !invite_ok(field_text(&a.invite), &code_buf):
 		a.mistake = "That isn't a valid invite code. Invite codes consist of 10 letters and digits."
 	}
 	return a.mistake == ""
@@ -366,14 +351,14 @@ verify_screen :: proc(ui: ^UI) {
 	if a.verify_loaded != v.login.email {
 		delete(a.verify_loaded)
 		a.verify_loaded = strings.clone(v.login.email)
-		a.verify_len = copy(a.verify_buf[:], v.login.email)
+		field_set(&a.verify, v.login.email)
 	}
 	field_row(ui, FORM_LABEL, "Not your address?", {FORM_FIELD, 70})
-	submitted := .SUBMIT in text_box(ui, a.verify_buf[:], &a.verify_len)
-	if (.SUBMIT in mu.button(ctx, "Change") || submitted) && a.verify_len > 0 {
+	submitted := .SUBMIT in text_box(ui, a.verify.buf[:], &a.verify.len)
+	if (.SUBMIT in mu.button(ctx, "Change") || submitted) && a.verify.len > 0 {
 		a.mistake = ""
 		a.profile_asked = true
-		command(ui, conn.Email_Command{strings.clone(string(a.verify_buf[:a.verify_len]))})
+		command(ui, conn.Email_Command{strings.clone(field_text(&a.verify))})
 	}
 	if a.profile_asked {
 		mu.layout_row(ctx, {FORM_LABEL, -1})
@@ -418,11 +403,11 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 
 	submit := false
 	field_row(ui, FORM_LABEL + 60, old_label, {FORM_FIELD})
-	submit |= .SUBMIT in password_box(ui, a.old_buf[:], &a.old_len)
+	submit |= .SUBMIT in password_box(ui, a.old.buf[:], &a.old.len)
 	field_row(ui, FORM_LABEL + 60, "New password", {FORM_FIELD})
-	submit |= .SUBMIT in password_box(ui, a.new_buf[:], &a.new_len)
+	submit |= .SUBMIT in password_box(ui, a.new.buf[:], &a.new.len)
 	field_row(ui, FORM_LABEL + 60, "New password, again", {FORM_FIELD})
-	submit |= .SUBMIT in password_box(ui, a.again_buf[:], &a.again_len)
+	submit |= .SUBMIT in password_box(ui, a.again.buf[:], &a.again.len)
 	if offer_revoke {
 		field_row(ui, FORM_LABEL + 60, "", {-1}, fill_min = 200)
 		checkbox(ctx, "Log my other devices out", &a.revoke_others)
@@ -434,9 +419,9 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 	if !submit {
 		return
 	}
-	new := string(a.new_buf[:a.new_len])
+	new := field_text(&a.new)
 	switch {
-	case new != string(a.again_buf[:a.again_len]):
+	case new != field_text(&a.again):
 		a.mistake = "The two new passwords don't match."
 	case !proto.account_password_ok(new):
 		a.mistake = "A password has to be at least 8 characters."
@@ -445,14 +430,14 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 		command(
 			ui,
 			conn.Password_Command {
-				old = strings.clone(string(a.old_buf[:a.old_len])),
+				old = strings.clone(field_text(&a.old)),
 				new = strings.clone(new),
 				revoke_others = offer_revoke && a.revoke_others,
 			},
 		)
-		wipe(a.old_buf[:], &a.old_len)
-		wipe(a.new_buf[:], &a.new_len)
-		wipe(a.again_buf[:], &a.again_len)
+		wipe(a.old.buf[:], &a.old.len)
+		wipe(a.new.buf[:], &a.new.len)
+		wipe(a.again.buf[:], &a.again.len)
 	}
 }
 
@@ -503,24 +488,24 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 
 	if !a.name_loaded {
 		a.name_loaded = true
-		ui.name_len = copy(ui.name_buf[:], me.display)
-		a.email_len = copy(a.email_buf[:], v.login.email)
+		field_set(&ui.name, me.display)
+		field_set(&a.email, v.login.email)
 	}
 	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD, 70})
-	submitted := .SUBMIT in text_box(ui, ui.name_buf[:], &ui.name_len)
-	if (.SUBMIT in mu.button(ctx, "Apply") || submitted) && ui.name_len > 0 {
+	submitted := .SUBMIT in text_box(ui, ui.name.buf[:], &ui.name.len)
+	if (.SUBMIT in mu.button(ctx, "Apply") || submitted) && ui.name.len > 0 {
 		a.mistake = ""
 		a.profile_asked = true
-		command(ui, conn.Display_Command{strings.clone(string(ui.name_buf[:ui.name_len]))})
+		command(ui, conn.Display_Command{strings.clone(field_text(&ui.name))})
 	}
 	// It needs its own id, because the name's button also says Apply.
 	mu.push_id(ctx, "email")
 	field_row(ui, FORM_LABEL, "Email", {FORM_FIELD, 70})
-	email_submitted := .SUBMIT in text_box(ui, a.email_buf[:], &a.email_len)
+	email_submitted := .SUBMIT in text_box(ui, a.email.buf[:], &a.email.len)
 	if .SUBMIT in mu.button(ctx, "Apply") || email_submitted {
 		a.mistake = ""
 		a.profile_asked = true
-		command(ui, conn.Email_Command{strings.clone(string(a.email_buf[:a.email_len]))})
+		command(ui, conn.Email_Command{strings.clone(field_text(&a.email))})
 	}
 	mu.pop_id(ctx)
 	if v.server_email != "" && .Owner not_in me.flags {
@@ -686,18 +671,18 @@ delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
 		wrap_text,
 	)
 	field_row(ui, FORM_LABEL, "Password", {FORM_FIELD, 140})
-	submit := .SUBMIT in password_box(ui, a.delete_buf[:], &a.delete_len)
+	submit := .SUBMIT in password_box(ui, a.delete.buf[:], &a.delete.len)
 	submit |= .SUBMIT in mu.button(ctx, "Delete my account")
-	if submit && a.delete_len > 0 {
+	if submit && a.delete.len > 0 {
 		a.mistake = ""
 		command(
 			ui,
 			conn.Account_Delete_Command {
 				own = true,
-				password = strings.clone(string(a.delete_buf[:a.delete_len])),
+				password = strings.clone(field_text(&a.delete)),
 			},
 		)
-		wipe(a.delete_buf[:], &a.delete_len)
+		wipe(a.delete.buf[:], &a.delete.len)
 	}
 	// For example a wrong password (afterwards it is the login screen that says
 	// the account is gone).

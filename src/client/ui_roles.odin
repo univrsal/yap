@@ -25,22 +25,20 @@ import "common:proto"
 UI_Roles :: struct {
 	// The picked role (0: none) as it is being edited. It is loaded again
 	// whenever another role is picked or the server says it changed.
-	role:     proto.Role_Id,
-	loaded:   proto.Role_Id,
-	seen:     proto.Role, // the name is owned
-	name_buf: [proto.MAX_ROLE_NAME]u8,
-	name_len: int,
-	perms:    proto.Permissions,
-	color:    u32,
-	flags:    proto.Role_Flags,
+	role:    proto.Role_Id,
+	loaded:  proto.Role_Id,
+	seen:    proto.Role, // the name is owned
+	name:    Text_Field(proto.MAX_ROLE_NAME),
+	perms:   proto.Permissions,
+	color:   u32,
+	flags:   proto.Role_Flags,
 	// Delete was pressed once.
-	confirm:  bool,
+	confirm: bool,
 	// Who has the picked role, and finding someone to give it to.
-	holders:  Pager,
-	giving:   Pager,
-	new_buf:  [proto.MAX_ROLE_NAME]u8,
-	new_len:  int,
-	notice:   Notice_Mark,
+	holders: Pager,
+	giving:  Pager,
+	new:     Text_Field(proto.MAX_ROLE_NAME),
+	notice:  Notice_Mark,
 }
 
 @(private = "file")
@@ -276,11 +274,11 @@ role_list :: proc(ui: ^UI) {
 	mu.label(ctx, "")
 	with_text_color(ctx, theme.dim, "New role", label_proc)
 	mu.layout_row(ctx, {-1})
-	submit := .SUBMIT in text_box(ui, r.new_buf[:], &r.new_len)
+	submit := .SUBMIT in text_box(ui, r.new.buf[:], &r.new.len)
 	submit |= .SUBMIT in stable_button(ctx, "make role", "Make role", {.ALIGN_CENTER})
-	if submit && r.new_len > 0 {
-		command(ui, conn.Role_Set_Command{name = strings.clone(string(r.new_buf[:r.new_len]))})
-		r.new_len = 0
+	if submit && r.new.len > 0 {
+		command(ui, conn.Role_Set_Command{name = strings.clone(field_text(&r.new))})
+		r.new.len = 0
 	}
 }
 
@@ -297,7 +295,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	   r.seen.color != role.color ||
 	   r.seen.flags != role.flags {
 		r.loaded = role.id
-		r.name_len = copy(r.name_buf[:], role.name)
+		field_set(&r.name, role.name)
 		r.perms = role.perms
 		r.color = role.color
 		r.flags = role.flags
@@ -321,7 +319,7 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 	if everyone || above {
 		mu.label(ctx, role.name)
 	} else {
-		text_box(ui, r.name_buf[:], &r.name_len)
+		text_box(ui, r.name.buf[:], &r.name.len)
 	}
 	// Its colour and its position, which decide the colour of names.
 	if !everyone {
@@ -390,17 +388,17 @@ role_editor :: proc(ui: ^UI, role: conn.View_Role) {
 			r.perms != role.perms ||
 			r.color != role.color ||
 			r.flags != role.flags ||
-			string(r.name_buf[:r.name_len]) != role.name
+			field_text(&r.name) != role.name
 		mu.layout_row(ctx, {100, 140, -1})
 		if .SUBMIT in
 			   stable_button(ctx, "save role", "Save" if changed else "Saved", {.ALIGN_CENTER}) &&
 		   changed &&
-		   r.name_len > 0 {
+		   r.name.len > 0 {
 			command(
 				ui,
 				conn.Role_Set_Command {
 					id = role.id,
-					name = strings.clone(string(r.name_buf[:r.name_len])),
+					name = strings.clone(field_text(&r.name)),
 					perms = r.perms,
 					color = r.color,
 					flags = r.flags,

@@ -129,7 +129,7 @@ trust_new_key :: proc(ui: ^UI) {
 		join_connect(ui, server, strings.clone(ns.password, context.temp_allocator))
 		return
 	}
-	ui.server_len = copy(ui.server_buf[:], server)
+	field_set(&ui.server, server)
 	connect(ui)
 }
 

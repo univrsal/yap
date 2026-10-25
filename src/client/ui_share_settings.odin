@@ -27,7 +27,7 @@ share_settings :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
 		   checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 		}
 		return
 	}
@@ -68,7 +68,7 @@ share_settings :: proc(ui: ^UI) {
 	}
 	if i, ok := choice_dropdown(ui, "share preset", sizes, preset); ok {
 		settings.set_setting(&ui.settings.share_preset, conn.SHARE_PRESETS[i].name)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 	mu.layout_row(ctx, {-1})
 	size := "as big as it is"
@@ -102,7 +102,7 @@ share_settings :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "Show screen share info below stream", &ui.settings.share_stats) {
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 }
 
@@ -131,26 +131,23 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 		none = fmt.tprintf("%d fps", cfg.fps),
 	); ok {
 		ui.settings.share_fps = fps_choices[i]
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
 	// Applied when the slider is released, like the UI scale.
 	top := f32(limit if limit > 0 else conn.SHARE_KBIT_MAX)
 	field_row(ui, 120, "Bitrate", {-120, 110})
-	id := mu.get_id(ctx, uintptr(&vid.kbit_draft))
-	dragging := ctx.focus_id == id
-	if !dragging {
+	if !slider_dragged(ctx, &vid.kbit_draft) {
 		vid.kbit_draft = f32(cfg.kbit)
 	}
-	mu.slider(ctx, &vid.kbit_draft, conn.SHARE_KBIT_MIN, top, 100, "%.0f kbit/s")
-	if dragging && ctx.focus_id != id {
+	if release_slider(ctx, &vid.kbit_draft, conn.SHARE_KBIT_MIN, top, 100, "%.0f kbit/s") {
 		ui.settings.share_kbit = int(vid.kbit_draft)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 	if choice_button(ui, "share kbit preset", "Auto", ui.settings.share_kbit == 0) &&
 	   ui.settings.share_kbit != 0 {
 		ui.settings.share_kbit = 0
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
 	// The best that works, or one picked: those that work here, and the one
@@ -174,7 +171,7 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 	field_row(ui, 120, "Encoder", {-1})
 	if i, ok := choice_dropdown(ui, "share encoder", labels[:], encoder_at); ok {
 		settings.set_setting(&ui.settings.share_encoder, names[i])
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 	if encoders == nil {
 		mu.layout_row(ctx, {120, -1})
@@ -200,6 +197,6 @@ share_advanced :: proc(ui: ^UI, cfg: conn.Share_Config, limit: int) {
 	}
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "Show mouse cursor", &ui.settings.share_cursor) {
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 }

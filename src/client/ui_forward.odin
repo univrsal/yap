@@ -27,8 +27,7 @@ UI_Forward :: struct {
 	open:        bool,
 	placed:      bool,
 	msg:         proto.Msg_Id,
-	filter_buf:  [proto.MAX_CHANNEL_NAME_SIZE]u8,
-	filter_len:  int,
+	filter:      Text_Field(proto.MAX_CHANNEL_NAME_SIZE),
 	// Linked messages that were asked for, and when. They are asked for again a
 	// while later if they haven't arrived (the network side drops them together with
 	// their conversation's window, and asking twice counts as one request there).
@@ -49,7 +48,7 @@ ui_forward_destroy :: proc(ui: ^UI) {
 // open_forward opens the window for forwarding message `id`.
 open_forward :: proc(ui: ^UI, id: proto.Msg_Id) {
 	f := &ui.forward
-	f.open, f.placed, f.msg, f.filter_len = true, false, id, 0
+	f.open, f.placed, f.msg, f.filter.len = true, false, id, 0
 }
 
 // forward_window is where a message is forwarded to: our channels, then
@@ -86,11 +85,8 @@ forward_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	defer mu.end_window(ctx)
 
 	mu.layout_row(ctx, {-1})
-	text_box(ui, f.filter_buf[:], &f.filter_len)
-	filter := strings.to_lower(
-		strings.trim_space(string(f.filter_buf[:f.filter_len])),
-		context.temp_allocator,
-	)
+	text_box(ui, f.filter.buf[:], &f.filter.len)
+	filter := strings.to_lower(strings.trim_space(field_text(&f.filter)), context.temp_allocator)
 	row :: proc(ui: ^UI, conv: proto.Conv_Id, name, filter: string) -> bool {
 		if filter != "" &&
 		   !strings.contains(strings.to_lower(name, context.temp_allocator), filter) {

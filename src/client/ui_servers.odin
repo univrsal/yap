@@ -34,8 +34,7 @@ import mu "vendor:microui"
 Server_UI :: struct {
 	// Room for more than MAX_NAME_SIZE while typing; sanitize_name trims it.
 	// What our account is called, as it is being edited in the settings.
-	name_buf:       [2 * proto.MAX_NAME_SIZE]u8,
-	name_len:       int,
+	name:           Text_Field(2 * proto.MAX_NAME_SIZE),
 	account:        UI_Account, // the login and the account's settings (ui_account.odin)
 	invites:        UI_Invites, // invite codes in the settings (ui_invites.odin)
 	// When the code that accounts registered with was last requested
@@ -260,8 +259,8 @@ show_session :: proc(ui: ^UI, ns: ^Net_Session) {
 		ui.view = &ns.view
 		// What the connect screen says, should it be shown for this session
 		// (because it failed): connecting again takes one click.
-		ui.server_len = copy(ui.server_buf[:], ns.server)
-		ui.password_len = copy(ui.password_buf[:], ns.password)
+		field_set(&ui.server, ns.server)
+		field_set(&ui.password, ns.password)
 	} else {
 		ui.view = &ui.no_view
 	}

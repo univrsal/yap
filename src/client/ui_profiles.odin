@@ -48,8 +48,7 @@ UI_Profiles :: struct {
 	buf:            [proto.MAX_STATUS_SIZE]u8,
 	len:            int,
 	clear_after:    Clear_After,
-	days_buf:       [3]u8, // Clear_After.Days: the number of days
-	days_len:       int,
+	days:           Text_Field(3), // Clear_After.Days: the number of days
 	// The members window, and the conversation it last requested.
 	members_open:   bool,
 	members_placed: bool,
@@ -80,7 +79,7 @@ Clear_After :: enum {
 	Hour,
 	Four_Hours,
 	Today,
-	Days, // a number of days from now (UI_Profiles.days_buf)
+	Days, // a number of days from now (UI_Profiles.days.buf)
 }
 
 @(private = "file")
@@ -125,7 +124,7 @@ open_status_editor :: proc(ui: ^UI) {
 	me := v.accounts[v.me] or_else {}
 	p.len = copy(p.buf[:], me.status)
 	p.clear_after = .Never
-	p.days_len = copy(p.days_buf[:], "1")
+	field_set(&p.days, "1")
 	p.editing, p.edit_placed = true, false
 }
 
@@ -239,7 +238,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	if p.clear_after == .Days {
 		mu.layout_row(ctx, {60, 50, -1})
 		mu.label(ctx, "Days")
-		text_box(ui, p.days_buf[:], &p.days_len)
+		text_box(ui, p.days.buf[:], &p.days.len)
 	} else {
 		mu.layout_row(ctx, {-1})
 	}
@@ -275,7 +274,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 // text is not a valid number.
 @(private = "file")
 status_days :: proc(p: ^UI_Profiles) -> int {
-	days, ok := strconv.parse_int(strings.trim_space(string(p.days_buf[:p.days_len])), 10)
+	days, ok := strconv.parse_int(strings.trim_space(field_text(&p.days)), 10)
 	return days if ok && days >= 1 && days <= MAX_STATUS_DAYS else 0
 }
 

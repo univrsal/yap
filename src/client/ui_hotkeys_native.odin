@@ -119,7 +119,7 @@ set_hotkey :: proc(ui: ^UI, action: Hotkey_Action, h: hotkeys.Hotkey) {
 		}
 	}
 	settings.set_setting(hotkey_setting(ui, action), text)
-	settings.settings_save(ui.opts.settings_path, ui.settings)
+	save_settings(ui)
 	hotkeys.set_bind(&ui.hotkeys.watcher, int(action), h)
 	log.infof("%s hotkey: %s", HOTKEY_LABELS[action], text if text != "" else "none")
 }
