@@ -280,37 +280,45 @@ Mute_Command :: struct {
 	muted:    bool,
 	feedback: bool,
 }
+
 // Deafen: stop playing anyone else's voice. This is local only, and the server
 // and the other clients don't know about it.
 Deafen_Command :: struct {
 	deafened: bool,
 	feedback: bool,
 }
+
 Noise_Command :: struct {
 	enabled: bool,
 }
+
 // How loud to play an account's connections. 1 means unchanged and 0 means
 // muted.
 Gain_Command :: struct {
 	account: proto.Account_Id,
 	gain:    f32,
 }
+
 Listen_Command :: struct {
 	on: bool,
 }
+
 // Try a server that has become unreachable again right now, instead of waiting
 // for the next scheduled attempt (see connection_lost).
 Reconnect_Command :: struct {}
 Quality_Command :: struct {
 	quality: audio.Quality,
 }
+
 Gate_Command :: struct {
 	enabled:           bool,
 	open_db, close_db: f32,
 }
+
 Notification_Volume_Command :: struct {
 	volume: f32,
 }
+
 // How to send a shared application's audio (see ui_app_audio_native.odin): how
 // loud it is, and whether muting the microphone mutes it too.
 App_Audio_Command :: struct {

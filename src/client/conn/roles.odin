@@ -39,16 +39,19 @@ Role_Set_Command :: struct {
 	flags:   proto.Role_Flags,
 	by_name: bool,
 }
+
 // Put the roles in this order, top first, leaving out the everyone role.
 Role_Order_Command :: struct {
 	roles: [proto.MAX_ROLES]proto.Role_Id,
 	count: int,
 }
+
 // Delete a role (headless: by name).
 Role_Delete_Command :: struct {
 	id:   proto.Role_Id,
 	name: string, // owned by the command
 }
+
 // An account's roles besides the everyone role. Headless, by name (`name`, and
 // the roles' names in `role_names`, comma separated).
 Account_Roles_Command :: struct {
@@ -58,11 +61,13 @@ Account_Roles_Command :: struct {
 	name:       string, // owned by the command
 	role_names: string, // owned by the command
 }
+
 Account_Disable_Command :: struct {
 	account: proto.Account_Id,
 	name:    string, // owned by the command; headless
 	on:      bool,
 }
+
 // Delete an account: our own (with our password), or somebody else's if we are
 // allowed to. Headless, by name.
 Account_Delete_Command :: struct {
@@ -71,6 +76,7 @@ Account_Delete_Command :: struct {
 	own:      bool, // ours, whatever `account` says
 	password: string, // owned by the command; for our own
 }
+
 // Change a channel (0: the one we're looking at) as selected by the mask.
 Conv_Update_Command :: struct {
 	conv:     proto.Conv_Id,
@@ -80,16 +86,19 @@ Conv_Update_Command :: struct {
 	position: int,
 	flags:    proto.Conv_Flags, // with proto.CONV_UPDATE_FLAGS: Default, Text_Only
 }
+
 // Fetches a channel's rights map (View.rights_map), for those who manage
 // channels.
 Conv_Rights_Get_Command :: struct {
 	conv: proto.Conv_Id,
 }
+
 // Replaces a channel's rights map.
 Conv_Rights_Set_Command :: struct {
 	conv:    proto.Conv_Id,
 	entries: []proto.Role_Rights, // owned by the command
 }
+
 // Headless: turns one of a channel's flags (Default or Text_Only) on or off,
 // keeping the other.
 Conv_Flag_Command :: struct {
@@ -97,15 +106,18 @@ Conv_Flag_Command :: struct {
 	flag: proto.Conv_Flag,
 	on:   bool,
 }
+
 // Headless: replaces a channel's rights map with one given as text, such as
 // "everyone=see,react writers=see,write,edit,delete" (see conv_rights_parse).
 Conv_Rights_Text_Command :: struct {
 	conv: proto.Conv_Id, // 0: the one we're looking at
 	text: string, // owned by the command
 }
+
 Conv_Delete_Command :: struct {
 	conv: proto.Conv_Id,
 }
+
 // Add somebody to a channel (0: the one we're looking at), or remove them from
 // a private one. Headless, by name.
 Conv_Member_Command :: struct {
@@ -114,6 +126,7 @@ Conv_Member_Command :: struct {
 	name:    string, // owned by the command
 	on:      bool,
 }
+
 // List the roles in the log (headless).
 Roles_Command :: struct {}
 
