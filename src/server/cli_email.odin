@@ -4,6 +4,8 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 
+import "curl"
+
 // `yap-server email test` tries out the email config (see email.odin) and
 // reports what worked. It is meant for whoever is setting up the server.
 //
@@ -47,7 +49,7 @@ run_email_command :: proc(args: []string) -> int {
 	e := Email {
 		config = cfg,
 	}
-	if !curl_load(&e.curl) {
+	if !curl.load(&e.lib) {
 		fmt.eprintln("email is unavailable because libcurl could not be loaded")
 		return 1
 	}

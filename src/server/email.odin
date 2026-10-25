@@ -15,6 +15,7 @@ import "core:unicode/utf8"
 
 import "common:memtrack"
 import "common:proto"
+import "curl"
 
 // The server's own email account (config.json's "email", see config.odin).
 // It reads incoming mail over IMAP and sends mail over SMTP, both through
@@ -118,7 +119,7 @@ Email_Job :: struct {
 Email :: struct {
 	enabled:      bool, // configured and libcurl is available
 	config:       Email_Config,
-	curl:         Curl,
+	lib:          curl.Lib,
 	thread:       ^thread.Thread,
 	mutex:        sync.Mutex,
 	wake:         sync.Cond,
@@ -129,7 +130,7 @@ Email :: struct {
 	// Owned by the email thread: its IMAP handle, which is kept so the
 	// connection can be reused, and whether the last attempt of each protocol
 	// failed so that a failure is only logged once instead of at every poll.
-	imap:         Curl_Handle,
+	imap:         curl.Handle,
 	imap_failing: bool,
 	smtp_failing: bool,
 }
@@ -141,7 +142,7 @@ email_open :: proc(e: ^Email, config: Email_Config) {
 	if config.address == "" {
 		return
 	}
-	if !curl_load(&e.curl) {
+	if !curl.load(&e.lib) {
 		log.warn("email is disabled because libcurl could not be loaded")
 		return
 	}
@@ -283,9 +284,9 @@ email_run :: proc(e: ^Email) {
 	next_poll := time.tick_now()
 	jobs := make([dynamic]Email_Job)
 	defer delete(jobs)
-	e.imap = e.curl.easy_init()
+	e.imap = e.lib.easy_init()
 	defer if e.imap != nil {
-		e.curl.easy_cleanup(e.imap)
+		e.lib.easy_cleanup(e.imap)
 	}
 	for {
 		free_all(context.temp_allocator)
@@ -438,7 +439,7 @@ curl_read :: proc "c" (data: [^]u8, size, count: uint, user: rawptr) -> uint {
 // if the exchange succeeded.
 curl_request :: proc(
 	e: ^Email,
-	h: Curl_Handle,
+	h: curl.Handle,
 	url: string,
 	custom := "",
 	out: ^[dynamic]u8 = nil,
@@ -447,7 +448,7 @@ curl_request :: proc(
 	upload: []u8 = nil,
 	no_body := false,
 ) -> string {
-	c := &e.curl
+	c := &e.lib
 	h := h
 	if h == nil {
 		h = c.easy_init()
@@ -463,7 +464,7 @@ curl_request :: proc(
 	tc :: proc(s: string) -> cstring {
 		return strings.clone_to_cstring(s, context.temp_allocator)
 	}
-	errors: [CURL_ERROR_SIZE]u8
+	errors: [curl.ERROR_SIZE]u8
 	sink := Curl_Sink{context, out}
 	source := Curl_Source {
 		data = upload,
@@ -485,7 +486,7 @@ curl_request :: proc(
 	if no_body {
 		c.easy_setopt(h, .No_Body, int(1))
 	}
-	rcpt: Curl_Slist
+	rcpt: curl.Slist
 	defer if rcpt != nil {
 		c.slist_free_all(rcpt)
 	}
@@ -524,9 +525,9 @@ tls_wanted :: proc(url: string) -> int {
 	if host == "localhost" ||
 	   strings.has_prefix(host, "127.") ||
 	   strings.has_prefix(rest, "[::1]") {
-		return CURL_USESSL_TRY
+		return curl.USESSL_TRY
 	}
-	return CURL_USESSL_ALL
+	return curl.USESSL_ALL
 }
 
 // ---- reading mail ----

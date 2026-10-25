@@ -1,24 +1,24 @@
 #+build windows
-package server
+package curl
 
 import "core:c"
 import "core:sys/windows"
 import curl "vendor:curl"
 
 // curl_socket_t, and the value curl takes as a failure to open one.
-Curl_Socket :: windows.SOCKET
-CURL_SOCKET_BAD :: windows.INVALID_SOCKET
+Socket :: windows.SOCKET
+SOCKET_BAD :: windows.INVALID_SOCKET
 AF_INET6 :: c.int(windows.AF_INET6)
 
-// curl_socket opens a socket, as a CURLOPT_OPENSOCKETFUNCTION does. Winsock
+// socket opens a socket, as a CURLOPT_OPENSOCKETFUNCTION does. Winsock
 // was started by curl_global_init.
-curl_socket :: proc "c" (family, socktype, protocol: c.int) -> Curl_Socket {
+socket :: proc "c" (family, socktype, protocol: c.int) -> Socket {
 	return windows.socket(family, socktype, protocol)
 }
 
-// curl_load_system uses the libcurl from Odin's vendor directory, which is
+// load_system uses the libcurl from Odin's vendor directory, which is
 // linked in statically because Windows has no system libcurl.
-curl_load_system :: proc(c: ^Curl, what: string) -> bool {
+load_system :: proc(c: ^Lib, what: string) -> bool {
 	c.version = auto_cast curl.version
 	c.global_init = auto_cast curl.global_init
 	c.easy_init = auto_cast curl.easy_init

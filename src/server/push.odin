@@ -13,6 +13,7 @@ import "core:time"
 
 import "common:memtrack"
 import "common:proto"
+import "curl"
 
 // Web Push (misc/mobile): notifies browsers about new activity while the client isn't open,
 // through the push service each browser uses (Google's, Mozilla's, Apple's).
@@ -120,7 +121,7 @@ Push :: struct {
 	key:     ecdsa.Private_Key,
 	public:  [P256_PUBLIC_SIZE]u8,
 	subject: string,
-	curl:    Curl,
+	lib:     curl.Lib,
 	workers: [PUSH_WORKERS]Push_Worker,
 	mutex:   sync.Mutex,
 	wake:    sync.Cond,
@@ -140,7 +141,7 @@ Push :: struct {
 Push_Worker :: struct {
 	push:   ^Push,
 	thread: ^thread.Thread,
-	handle: Curl_Handle,
+	handle: curl.Handle,
 	tokens: map[string]Vapid_Token,
 }
 
@@ -156,7 +157,7 @@ push_open :: proc(p: ^Push, config: Push_Config) {
 		log.error("push.vapid_key in the config is not a valid key, so push is disabled")
 		return
 	}
-	if !curl_load(&p.curl, "push") {
+	if !curl.load(&p.lib, "push") {
 		log.warn("push is disabled because libcurl couldn't be loaded")
 		ecdsa.private_key_clear(&p.key)
 		return
@@ -280,10 +281,10 @@ clone_bytes :: proc(b: []u8) -> []u8 {
 push_run :: proc(w: ^Push_Worker) {
 	memtrack.thread_init()
 	p := w.push
-	w.handle = p.curl.easy_init()
+	w.handle = p.lib.easy_init()
 	defer {
 		if w.handle != nil {
-			p.curl.easy_cleanup(w.handle)
+			p.lib.easy_cleanup(w.handle)
 		}
 		for origin, token in w.tokens {
 			delete(origin)
@@ -329,9 +330,9 @@ push_run :: proc(w: ^Push_Worker) {
 // sockaddr_in6, whose address is at the same place on every system.
 push_address_public :: proc(family: c.int, sa: []u8) -> bool {
 	switch family {
-	case AF_INET:
+	case curl.AF_INET:
 		return len(sa) >= 8 && ipv4_public(sa[4:8])
-	case AF_INET6:
+	case curl.AF_INET6:
 		return len(sa) >= 24 && ipv6_public(sa[8:24])
 	}
 	return false
@@ -393,14 +394,14 @@ Push_Socket :: struct {
 // address it's about to connect to, once the name is resolved, so a name that resolves to
 // an address that isn't public is caught too.
 @(private = "file")
-push_open_socket :: proc "c" (user: rawptr, purpose: c.int, a: ^Curl_Sockaddr) -> Curl_Socket {
+push_open_socket :: proc "c" (user: rawptr, purpose: c.int, a: ^curl.Sockaddr) -> curl.Socket {
 	context = runtime.default_context()
 	sa := ([^]u8)(&a.addr)[:a.addrlen]
 	if !push_address_public(a.family, sa) {
 		(^Push_Socket)(user).refused = true
-		return CURL_SOCKET_BAD
+		return curl.SOCKET_BAD
 	}
-	return curl_socket(a.family, a.socktype, a.protocol)
+	return curl.socket(a.family, a.socktype, a.protocol)
 }
 
 // push_post encrypts a job and POSTs it to its endpoint (RFC 8030 section 5), which
@@ -420,7 +421,7 @@ push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
 		return .Failed
 	}
 
-	lib := &p.curl
+	lib := &p.lib
 	h := w.handle
 	if h == nil {
 		return .Failed
@@ -429,11 +430,11 @@ push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
 	tc :: proc(s: string) -> cstring {
 		return strings.clone_to_cstring(s, context.temp_allocator)
 	}
-	headers: Curl_Slist
+	headers: curl.Slist
 	defer if headers != nil {
 		lib.slist_free_all(headers)
 	}
-	header :: proc(lib: ^Curl, list: ^Curl_Slist, format: string, args: ..any) {
+	header :: proc(lib: ^curl.Lib, list: ^curl.Slist, format: string, args: ..any) {
 		list^ = lib.slist_append(list^, tc(fmt.tprintf(format, ..args)))
 	}
 	header(lib, &headers, "Content-Type: application/octet-stream")
@@ -451,7 +452,7 @@ push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
 		base64url(p.public[:], context.temp_allocator),
 	)
 
-	errors: [CURL_ERROR_SIZE]u8
+	errors: [curl.ERROR_SIZE]u8
 	answer := make([dynamic]u8, context.temp_allocator)
 	sink := Push_Sink{context, &answer}
 	lib.easy_setopt(h, .Url, tc(job.endpoint))
@@ -479,7 +480,7 @@ push_post :: proc(p: ^Push, w: ^Push_Worker, job: ^Push_Job) -> Push_Outcome {
 		return .Failed
 	}
 	status: c.long
-	lib.easy_getinfo(h, CURLINFO_RESPONSE_CODE, &status)
+	lib.easy_getinfo(h, curl.INFO_RESPONSE_CODE, &status)
 	switch status {
 	case 200 ..= 299:
 		push_report(p, origin, "")

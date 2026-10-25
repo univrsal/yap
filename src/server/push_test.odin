@@ -8,6 +8,7 @@ import "core:strings"
 import "core:testing"
 
 import "common:proto"
+import "curl"
 
 // Tests for the Web Push cryptography (push_crypto.odin), using the example from RFC 8291.
 
@@ -470,13 +471,13 @@ test_push_address_public :: proc(t: ^testing.T) {
 			6 = a[2],
 			7 = a[3],
 		}
-		return push_address_public(AF_INET, sa[:])
+		return push_address_public(curl.AF_INET, sa[:])
 	}
 	v6 :: proc(addr: [16]u8) -> bool {
 		addr := addr
 		sa: [28]u8
 		copy(sa[8:24], addr[:])
-		return push_address_public(AF_INET6, sa[:])
+		return push_address_public(curl.AF_INET6, sa[:])
 	}
 	for public in ([][4]u8{{142, 250, 185, 10}, {100, 128, 0, 1}, {172, 32, 0, 1}}) {
 		testing.expectf(t, v4(public), "%v", public)
@@ -513,7 +514,7 @@ test_push_address_public :: proc(t: ^testing.T) {
 	}
 	// Too short for what it claims to be, or another family.
 	short: [6]u8
-	testing.expect(t, !push_address_public(AF_INET, short[:]))
+	testing.expect(t, !push_address_public(curl.AF_INET, short[:]))
 	other: [16]u8
 	testing.expect(t, !push_address_public(1, other[:]))
 }
