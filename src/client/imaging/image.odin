@@ -1,5 +1,5 @@
 #+build !wasi
-package client
+package imaging
 
 import "base:runtime"
 import log "common:wlog"
@@ -50,8 +50,8 @@ WEBP_METHOD :: 2
 MAX_SCALE_ROUNDS :: 4
 
 
-// image_prepare scales and compresses a pasted image so it can be attached.
-image_prepare :: proc(
+// prepare scales and compresses a pasted image so it can be attached.
+prepare :: proc(
 	src: clipboard.Image,
 	allocator := context.allocator,
 ) -> (

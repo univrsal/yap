@@ -1,7 +1,7 @@
 package conn
 
 // A picture that is ready to be posted in the chat, consisting of the compressed
-// bytes and the size the picture was scaled to (see image.odin, which creates
+// bytes and the size the picture was scaled to (see imaging/image.odin, which creates
 // these from files and pastes). Profile and server pictures are JPEGs, and
 // pasted images are WebPs.
 Chat_Image :: struct {

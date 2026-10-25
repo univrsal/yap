@@ -8,6 +8,7 @@ import mu "vendor:microui"
 
 import "client:clipboard"
 import "client:conn"
+import "client:imaging"
 import "common:gif"
 import "common:webp"
 
@@ -88,7 +89,7 @@ paste_work :: proc(job: ^Paste_Job) {
 	job.err = decode_err
 	if decode_err == .None {
 		job.source_w, job.source_h = img.width, img.height
-		job.image, job.ok = image_prepare(img)
+		job.image, job.ok = imaging.prepare(img)
 	}
 }
 

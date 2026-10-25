@@ -1,5 +1,5 @@
 #+build !wasi
-package client
+package headless
 
 import "client:audio"
 import "client:conn"
@@ -10,12 +10,12 @@ import "core:slice"
 import "core:strings"
 
 
-// run_headless is the command-line client, which reads commands from stdin.
+// run is the command-line client, which reads commands from stdin.
 // With tone_hz > 0 it "talks" by sending that tone and logs what it hears
 // (see Fake_Audio), which exercises the whole voice path without audio devices.
 // If input_file is set (raw 48 kHz mono f32), it is looped as the microphone
 // instead.
-run_headless :: proc(
+run :: proc(
 	key_path, server_addr, known_servers, initial_channel, password: string,
 	user, user_password, device: string, // credentials to log in with, if the server asks
 	tone_hz: f32,

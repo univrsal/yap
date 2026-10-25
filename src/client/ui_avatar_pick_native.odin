@@ -8,11 +8,12 @@ import "core:thread"
 import "client:clipboard"
 import "client:conn"
 import "client:dialogs"
+import "client:imaging"
 import "common:proto"
 
 // Choosing our picture on a desktop: from an image file (using the system's file
 // dialog) or from the clipboard. The image is read and made into a picture
-// (see avatar_prepare) on a thread of its own, as a paste is (see ui_paste.odin).
+// (see imaging.avatar_prepare) on a thread of its own, as a paste is (see ui_paste.odin).
 // On macOS the dialog has to be on the main thread, so there the frame waits for it.
 
 Avatar_Pick :: struct {
@@ -73,7 +74,7 @@ pick_work :: proc(job: ^Avatar_Pick) {
 			job.why = "there's no picture on the clipboard"
 			return
 		}
-		job.image, job.ok = avatar_prepare(img, max_side = side, max_size = size)
+		job.image, job.ok = imaging.avatar_prepare(img, max_side = side, max_size = size)
 	} else {
 		path, status, err := dialogs.open_file("Choose a picture", AVATAR_FILTERS[:])
 		defer delete(path)
@@ -86,7 +87,7 @@ pick_work :: proc(job: ^Avatar_Pick) {
 			job.why = "the file dialog didn't open"
 			return
 		}
-		job.image, job.ok = avatar_load(path, max_side = side, max_size = size)
+		job.image, job.ok = imaging.avatar_load(path, max_side = side, max_size = size)
 	}
 	if !job.ok && job.why == "" {
 		job.why = "that isn't a picture that can be read"

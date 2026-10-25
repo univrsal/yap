@@ -32,7 +32,7 @@ import "common:proto"
 //     clicking ourselves opens the status editor.
 //   - Our picture is set in the settings from a file or (on desktop) the
 //     clipboard (ui_avatar_pick_native.odin, ui_avatar_pick_web.odin). It is
-//     made square and small (avatar_prepare, web/avatar.js) and uploaded.
+//     made square and small (imaging.avatar_prepare, web/avatar.js) and uploaded.
 //   - Settings kept on the server (conn/profiles.odin): how loud each person
 //     is and which DMs are hidden from the buddy list. settings.json keeps a
 //     copy for each server so that they apply before the sync. What the

@@ -1,5 +1,5 @@
 #+build !wasi
-package client
+package imaging
 
 import "core:testing"
 import stbi "vendor:stb/image"
@@ -69,7 +69,7 @@ test_fit :: proc(t: ^testing.T) {
 test_image_prepare :: proc(t: ^testing.T) {
 	src := test_image(200, 100)
 	defer delete(src.pixels)
-	img, ok := image_prepare(src)
+	img, ok := prepare(src)
 	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 	testing.expect_value(t, img.width, 200)
@@ -130,7 +130,7 @@ test_image_scaled_to_4k :: proc(t: ^testing.T) {
 	// A smooth image compresses well, so it is only scaled down to the 4K limit.
 	src := gradient_image(5000, 400)
 	defer delete(src.pixels)
-	img, ok := image_prepare(src)
+	img, ok := prepare(src)
 	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 	testing.expect_value(t, img.width, MAX_IMAGE_SIDE)
@@ -144,7 +144,7 @@ test_image_scaled_to_fit_budget :: proc(t: ^testing.T) {
 	// size budget, keeping its aspect ratio.
 	src := test_image(5000, 400)
 	defer delete(src.pixels)
-	img, ok := image_prepare(src)
+	img, ok := prepare(src)
 	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 	testing.expectf(t, len(img.jpeg) <= MAX_IMAGE_BYTES, "%d bytes", len(img.jpeg))
@@ -158,7 +158,7 @@ test_image_scaled_to_fit_budget :: proc(t: ^testing.T) {
 test_image_transparency :: proc(t: ^testing.T) {
 	src := test_image(64, 64, alpha = true)
 	defer delete(src.pixels)
-	img, ok := image_prepare(src)
+	img, ok := prepare(src)
 	defer conn.chat_image_destroy(&img)
 	testing.expect(t, ok)
 
@@ -184,11 +184,9 @@ test_image_transparency :: proc(t: ^testing.T) {
 
 @(test)
 test_image_rejects_bad_input :: proc(t: ^testing.T) {
-	_, ok := image_prepare({})
+	_, ok := prepare({})
 	testing.expect(t, !ok)
-	_, ok = image_prepare(
-		{width = 10, height = 10, pixels = make([]u8, 4, context.temp_allocator)},
-	)
+	_, ok = prepare({width = 10, height = 10, pixels = make([]u8, 4, context.temp_allocator)})
 	testing.expect(t, !ok)
 }
 

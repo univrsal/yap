@@ -1,7 +1,8 @@
 #+build !wasi
-package client
+package headless
 
 import "client:conn"
+import "client:imaging"
 import "client:platform"
 import "common:."
 import "common:memtrack"
@@ -336,8 +337,8 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 				conn.Status_Command{text = strings.clone(strings.trim_space(text)), until = until},
 			)
 		case strings.has_prefix(line, "/avatar "):
-			if image, ok := avatar_load(strings.trim_space(line[len("/avatar "):])); ok {
-				conn.push_command(q, conn.Avatar_Command{image = image})
+			if img, ok := imaging.avatar_load(strings.trim_space(line[len("/avatar "):])); ok {
+				conn.push_command(q, conn.Avatar_Command{image = img})
 			}
 		case line == "/noavatar":
 			conn.push_command(q, conn.Avatar_Command{remove = true})
