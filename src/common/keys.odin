@@ -1,6 +1,7 @@
 package common
 
 import log "common:wlog"
+import "core:crypto"
 import "core:crypto/ecdh"
 import "core:encoding/hex"
 import "core:strings"
@@ -18,6 +19,7 @@ generate_private_key :: proc(allocator := context.allocator) -> (encoded: string
 	defer ecdh.private_key_clear(&key)
 
 	raw: [proto.KEY_SIZE]byte
+	defer crypto.zero_explicit(&raw, size_of(raw))
 	ecdh.private_key_bytes(&key, raw[:])
 	return string(hex.encode(raw[:], allocator)), true
 }
@@ -26,6 +28,7 @@ generate_private_key :: proc(allocator := context.allocator) -> (encoded: string
 // is ignored.
 parse_private_key :: proc(encoded: string, key: ^ecdh.Private_Key) -> bool {
 	raw, ok := hex.decode(transmute([]byte)strings.trim_space(encoded), context.temp_allocator)
+	defer crypto.zero_explicit(raw_data(raw), len(raw))
 	return ok && len(raw) == proto.KEY_SIZE && ecdh.private_key_set_bytes(key, .X25519, raw)
 }
 

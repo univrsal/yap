@@ -8,6 +8,7 @@ import "core:log"
 import "core:net"
 import "core:time"
 
+import "common:."
 import "common:proto"
 
 // A handshake in progress ("half open": the server has answered the Init
@@ -60,7 +61,7 @@ PASSWORD_FAILURE_EVERY :: 30 * time.Second
 GATE_WARN_EVERY :: 10 * time.Second
 
 // Key is an address (without the port) as bytes, to count by.
-Key :: [17]byte
+Key :: common.Address_Key
 
 Verdict :: enum {
 	Accept, // start the handshake (and call opened)
@@ -181,19 +182,7 @@ cookie_valid :: proc(g: ^Gate, packet: []byte, from: net.Endpoint) -> bool {
 }
 
 // key_of returns the address of an endpoint, without the port, as bytes.
-key_of :: proc(from: net.Endpoint) -> (addr: Key) {
-	switch a in from.address {
-	case net.IP4_Address:
-		addr[0] = 4
-		b := a
-		copy(addr[1:], b[:])
-	case net.IP6_Address:
-		addr[0] = 6
-		b := transmute([16]u8)a
-		copy(addr[1:17], b[:])
-	}
-	return
-}
+key_of :: common.address_key
 
 @(private = "file")
 local :: proc(from: net.Endpoint) -> bool {

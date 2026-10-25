@@ -22,6 +22,7 @@ MAX_HEAD :: 8192
 Conn :: struct {
 	sock:   net.TCP_Socket,
 	remote: net.Endpoint, // the peer's address, as reported by accept
+	limit:  ^Conn_Limit, // what counts it (accept_loop), or nil
 	buf:    [MAX_HEAD]u8,
 	start:  int,
 	end:    int,

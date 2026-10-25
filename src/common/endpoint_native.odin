@@ -22,3 +22,23 @@ resolve_endpoint :: proc(address: string, port: int) -> (ep: net.Endpoint, ok: b
 	}
 	return ep, true
 }
+
+// Address_Key is an address (without the port) as bytes, to count
+// connections or requests by. net.Address itself can't be a map key: the
+// bytes an IPv4 address leaves unused in the union are undefined.
+Address_Key :: [17]byte
+
+// address_key returns the address of an endpoint, without the port, as bytes.
+address_key :: proc(from: net.Endpoint) -> (key: Address_Key) {
+	switch a in from.address {
+	case net.IP4_Address:
+		key[0] = 4
+		b := a
+		copy(key[1:], b[:])
+	case net.IP6_Address:
+		key[0] = 6
+		b := transmute([16]u8)a
+		copy(key[1:17], b[:])
+	}
+	return
+}

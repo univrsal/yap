@@ -4,12 +4,11 @@ import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
-import "core:net"
 import "core:strings"
 
+import "common:proto"
 import "lib:http"
 import "lib:lite"
-import "common:proto"
 
 // This is the HTTP side: what an HTTP thread does with the API's requests, all
 // of which are under API_PREFIX. Each request is matched to a Route, its token
@@ -420,15 +419,14 @@ failure_reply :: proc(c: ^lite.Client) -> Reply {
 CONNECTION_TEMP :: 64 * 1024
 
 // serve_connection is the thread for an HTTP connection of a standalone
-// gateway (src/gateway). It serves the API's requests and nothing else. It
-// closes the socket and frees `c` when the client disconnects.
+// gateway (src/gateway), started by http.accept_loop. It serves the API's
+// requests and nothing else, and closes `c` when the client disconnects.
 serve_connection :: proc(g: ^Gateway, c: ^http.Conn) {
 	temp: runtime.Arena
 	_ = runtime.arena_init(&temp, CONNECTION_TEMP, context.allocator)
 	context.temp_allocator = runtime.arena_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
-	defer free(c)
-	defer net.close(c.sock)
+	defer http.conn_close(c)
 
 	// Without it, a client that never sends a head would keep its thread.
 	idle_timeout(c, HTTP_IDLE)

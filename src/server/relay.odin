@@ -12,7 +12,6 @@ import "core:thread"
 import "core:time"
 
 import "common:proto"
-import "gate"
 import "lib:gateway"
 import "lib:http"
 
@@ -85,22 +84,20 @@ Web_File :: struct {
 
 @(private = "file")
 Relay :: struct {
-	listener:      net.TCP_Socket,
-	server:        net.Endpoint, // the only destination that packets are relayed to
-	media:         net.Endpoint, // the server's media port, or port 0 if there is none
+	listener:    net.TCP_Socket,
+	server:      net.Endpoint, // the only destination that packets are relayed to
+	media:       net.Endpoint, // the server's media port, or port 0 if there is none
 	// Whether browsers are relayed and the web client is served. If false,
 	// only the API is served.
-	web:           bool,
+	web:         bool,
 	// The other sites whose pages may connect (Relay_Config.allow_sites).
-	allow_sites:   []string,
+	allow_sites: []string,
 	// Only these files of the web directory are served.
-	files:         [9]Web_File,
-	api:           ^gateway.Gateway, // nil if the API is disabled
-	// How many connections there are, in total and by address, which the
-	// threads count down when they end (see MAX_CONNECTIONS).
-	open:          int,
-	by_addr_mutex: sync.Mutex,
-	by_addr:       map[gate.Key]int,
+	files:       [9]Web_File,
+	api:         ^gateway.Gateway, // nil if the API is disabled
+	// How many connections there are, in total and by address (see
+	// MAX_CONNECTIONS).
+	limit:       http.Conn_Limit,
 }
 
 // start_relay listens for browsers on `port` (of `bind`) in a thread of its own and
@@ -136,6 +133,11 @@ start_relay :: proc(
 	r.web = web
 	r.api = api
 	r.allow_sites = allow_sites
+	r.limit = {
+		max         = MAX_CONNECTIONS,
+		per_address = MAX_CONNECTIONS_PER_ADDRESS,
+		exempt      = gateway.address_private,
+	}
 	r.files = {
 		{name = "index.html", content_type = "text/html; charset=utf-8"},
 		{name = "index.js", content_type = "text/javascript; charset=utf-8"},
@@ -178,82 +180,11 @@ start_relay :: proc(
 	}
 	thread.create_and_start_with_poly_data(
 		r,
-		accept_browsers,
+		proc(r: ^Relay) {http.accept_loop(r.listener, &r.limit, r, handle_connection)},
 		init_context = context,
 		self_cleanup = true,
 	)
 	return true
-}
-
-@(private = "file")
-accept_browsers :: proc(r: ^Relay) {
-	for {
-		free_all(context.temp_allocator)
-
-		sock, from, accept_err := net.accept_tcp(r.listener)
-		if accept_err != nil {
-			log.warnf("accept failed: %v", accept_err)
-			continue
-		}
-		if !relay_count(r, from) {
-			log.warnf(
-				"too many connections, closing the one from %s",
-				net.endpoint_to_string(from, context.temp_allocator),
-			)
-			net.close(sock)
-			continue
-		}
-		c := new(http.Conn)
-		c.sock, c.remote = sock, from
-		log.debugf("connection from %s", net.endpoint_to_string(from, context.temp_allocator))
-		started := thread.create_and_start_with_poly_data2(
-			r,
-			c,
-			handle_connection,
-			init_context = context,
-			self_cleanup = true,
-		)
-		if started == nil {
-			log.warn("could not start a thread for a connection")
-			net.close(sock)
-			free(c)
-			relay_uncount(r, from)
-		}
-	}
-}
-
-// relay_count counts a new connection from `from`, unless there are too many
-// (MAX_CONNECTIONS, MAX_CONNECTIONS_PER_ADDRESS).
-@(private = "file")
-relay_count :: proc(r: ^Relay, from: net.Endpoint) -> bool {
-	sync.guard(&r.by_addr_mutex)
-	if r.open >= MAX_CONNECTIONS {
-		return false
-	}
-	addr := gate.key_of(from)
-	if !gateway.address_private(from.address) {
-		if r.by_addr[addr] >= MAX_CONNECTIONS_PER_ADDRESS {
-			return false
-		}
-		r.by_addr[addr] += 1
-	}
-	r.open += 1
-	return true
-}
-
-@(private = "file")
-relay_uncount :: proc(r: ^Relay, from: net.Endpoint) {
-	sync.guard(&r.by_addr_mutex)
-	r.open -= 1
-	if gateway.address_private(from.address) {
-		return
-	}
-	addr := gate.key_of(from)
-	if n := r.by_addr[addr]; n > 1 {
-		r.by_addr[addr] = n - 1
-	} else {
-		delete_key(&r.by_addr, addr)
-	}
 }
 
 // The temp allocations of a connection thread are only the headers of a
@@ -284,10 +215,7 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
-	remote := c.remote // c is freed before this defer runs
-	defer relay_uncount(r, remote)
-	defer free(c)
-	defer net.close(c.sock)
+	defer http.conn_close(c)
 
 	// gateway.serve sets timeouts of its own for the API.
 	net.set_option(c.sock, .Receive_Timeout, HEAD_TIMEOUT)

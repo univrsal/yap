@@ -5,12 +5,11 @@ import "core:fmt"
 import "core:log"
 import "core:net"
 import "core:os"
-import "core:thread"
 
 import "common:."
+import "common:proto"
 import "lib:gateway"
 import "lib:http"
-import "common:proto"
 
 // yap-gateway runs the bot API (docs/bot-api) as a standalone program. It
 // works with any yap server, even one that doesn't enable the API itself, so a
@@ -40,6 +39,12 @@ Options :: struct {
 	behind_proxy:    bool `usage:"set when running behind a TLS reverse proxy; its X-Forwarded-Proto header tells whether a request came over HTTPS"`,
 	trusted_proxy:   string `usage:"with -behind-proxy, the proxy's IP address: only its X-Forwarded-Proto is believed (default: this machine and private networks)"`,
 }
+
+// At most this many HTTP connections at once, each a thread, and this many
+// from one address (this machine and private networks, where a reverse
+// proxy is, aren't limited), as in the server's relay.
+MAX_CONNECTIONS :: 256
+MAX_CONNECTIONS_PER_ADDRESS :: 32
 
 main :: proc() {
 	logger, logger_ok := common.init_logging(.info)
@@ -106,21 +111,10 @@ main :: proc() {
 		net.to_string(server),
 		net.to_string(listen),
 	)
-	for {
-		free_all(context.temp_allocator)
-		sock, from, accept_err := net.accept_tcp(listener)
-		if accept_err != nil {
-			log.warnf("accept failed: %v", accept_err)
-			continue
-		}
-		c := new(http.Conn)
-		c.sock, c.remote = sock, from
-		thread.create_and_start_with_poly_data2(
-			g,
-			c,
-			gateway.serve_connection,
-			init_context = context,
-			self_cleanup = true,
-		)
+	limit := http.Conn_Limit {
+		max         = MAX_CONNECTIONS,
+		per_address = MAX_CONNECTIONS_PER_ADDRESS,
+		exempt      = gateway.address_private,
 	}
+	http.accept_loop(listener, &limit, g, gateway.serve_connection)
 }
