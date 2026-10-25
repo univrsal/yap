@@ -7,6 +7,7 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:richtext"
 import "common:proto"
 
 // Completing a mention or an emoji in a composer.
@@ -15,14 +16,14 @@ import "common:proto"
 // start of a word), a list over the composer shows the accounts that it could
 // refer to, matched by username or display name, with accounts that are online
 // first, at most COMPLETION_MAX. Choosing one completes the word to
-// `@username ` (conn/mentions.odin turns it into a token when the message
+// `@username ` (richtext/mentions.odin turns it into a token when the message
 // is sent). Under them are the roles that can be mentioned and whose names
 // start with the typed text, at most ROLE_COMPLETION_MAX. Each is shown in its
 // color and marked as a role, so that a role with the same name as an account
 // can be told apart from it. A role's name may contain spaces, so the list stays
 // open past them while what follows the `@` is the start of a role name. Choosing
 // a role completes to `@role name `, or to its token if `@role name` would be
-// an account's name (see conn/mentions.odin).
+// an account's name (see richtext/mentions.odin).
 //
 // Emoji: a word of at least two more characters after a `:` lists the emoji
 // whose shortcode starts with that text, with the server's own first. Choosing
@@ -237,7 +238,7 @@ role_word_start :: proc(v: ^conn.View, text: string, cursor: int) -> int {
 			return -1 // that is a single word, which the usual list handles
 		}
 		for r in v.roles {
-			if conn.role_mentionable(r) &&
+			if richtext.role_mentionable(r) &&
 			   len(r.name) >= len(typed) &&
 			   strings.equal_fold(r.name[:len(typed)], typed) {
 				return at
@@ -260,12 +261,12 @@ role_items :: proc(ui: ^UI, prefix: string) {
 		if n == ROLE_COMPLETION_MAX {
 			break
 		}
-		if !conn.role_mentionable(r) ||
+		if !richtext.role_mentionable(r) ||
 		   !strings.has_prefix(strings.to_lower(r.name, context.temp_allocator), prefix) {
 			continue
 		}
 		insert: string
-		if conn.role_name_shadowed(v.accounts, r.name) {
+		if richtext.role_name_shadowed(v.accounts, r.name) {
 			insert = strings.concatenate({proto.role_mention_token(r.id), " "})
 		} else {
 			insert = strings.concatenate({"@", r.name, " "})

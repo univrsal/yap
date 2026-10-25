@@ -6,6 +6,7 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 
+import "client:richtext"
 import "common:proto"
 
 // Roles and managing the server (src/common/proto/roles.odin, convs.odin):
@@ -26,13 +27,7 @@ Dir_Role :: struct {
 
 // The roles in View.roles are in the server's order, top first, with the
 // everyone role last.
-View_Role :: struct {
-	id:    proto.Role_Id,
-	name:  string, // owned
-	perms: proto.Permissions,
-	color: u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
-	flags: proto.Role_Flags,
-}
+View_Role :: richtext.Role
 
 // Make a role (id 0) or change one. Headless, `by_name` changes the role
 // called `name` and keeps its color and flags.
@@ -589,7 +584,7 @@ publish_roles :: proc(c: ^Server_Conn) {
 	}
 }
 
-// dir_roles returns the roles in the form mentions expect (mentions.odin),
+// dir_roles returns the roles in the form mentions expect (richtext/mentions.odin),
 // built from what we know about them rather than from the View. It is allocated
 // in the temp allocator and the names are not copied.
 dir_roles :: proc(c: ^Server_Conn) -> []View_Role {

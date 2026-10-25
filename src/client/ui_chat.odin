@@ -9,6 +9,7 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:richtext"
 import "client:platform"
 import "client:render"
 import glfw "client:wglfw"
@@ -363,8 +364,8 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	} else {
 		text = message_rich(
 			ui,
-			conn.emoji_encode(
-				conn.mentions_encode(typed, v.accounts, v.roles[:]),
+			richtext.emoji_encode(
+				richtext.mentions_encode(typed, v.accounts, v.roles[:]),
 				v.emoji.names[:],
 			),
 		)

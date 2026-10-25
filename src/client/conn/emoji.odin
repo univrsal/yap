@@ -1,8 +1,8 @@
 package conn
 
-import "core:slice"
 import "core:strings"
 
+import "client:richtext"
 import "common:proto"
 
 // The server's custom emoji (src/common/proto/emoji.odin) consist of their names
@@ -63,12 +63,6 @@ emoji_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	return true
 }
 
-// custom_emoji_index returns the position of the emoji `name` in the sheet. It
-// returns false if the server has no emoji with that name.
-custom_emoji_index :: proc(names: []string, name: string) -> (int, bool) {
-	return slice.binary_search(names, name)
-}
-
 // The server's emoji as seen by the UI.
 View_Emoji :: struct {
 	blob:     proto.Blob_Id,
@@ -105,7 +99,10 @@ view_clear_emoji :: proc(v: ^View) {
 
 // typed_text converts the text the user typed into the form in which it is
 // stored, with mentions and emoji written as tokens and characters
-// (see mentions.odin).
+// (see richtext/mentions.odin).
 typed_text :: proc(c: ^Server_Conn, text: string) -> string {
-	return emoji_encode(mentions_encode(text, c.auth.accounts, dir_roles(c)), c.emoji.names[:])
+	return richtext.emoji_encode(
+		richtext.mentions_encode(text, c.auth.accounts, dir_roles(c)),
+		c.emoji.names[:],
+	)
 }

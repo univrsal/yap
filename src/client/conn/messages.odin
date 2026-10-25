@@ -7,6 +7,7 @@ import "core:strings"
 import "core:time"
 
 import "client:audio"
+import "client:richtext"
 import "common:proto"
 
 // Messages on our end (src/common/proto/messages.odin).
@@ -828,7 +829,7 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 		if dm {
 			break // already notified above
 		}
-		shown, _ := mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
+		shown, _ := richtext.mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 		publish_mentioned(
 			c,
 			account_display(c, m.sender),
@@ -886,7 +887,7 @@ dm_notice_text :: proc(c: ^Server_Conn, m: proto.Message) -> string {
 	if m.kind == .File {
 		return fmt.tprintf("Sent you the file %q", m.file_name)
 	}
-	text, _ := mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
+	text, _ := richtext.mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 	if text == "" && .Has_Attachments in m.flags {
 		return "Sent you a file"
 	}
@@ -909,7 +910,7 @@ describe :: proc(c: ^Server_Conn, m: proto.Message) -> string {
 			m.sender == c.auth.me,
 		)
 	case .Text:
-		text, _ = mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
+		text, _ = richtext.mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 		if .Has_Attachments in m.flags {
 			b := strings.builder_make(context.temp_allocator)
 			strings.write_string(&b, text)
@@ -1207,7 +1208,7 @@ React_Command :: struct {
 }
 
 msg_react :: proc(c: ^Server_Conn, cmd: React_Command) {
-	emoji := emoji_encode(cmd.emoji, c.emoji.names[:]) if cmd.typed else cmd.emoji
+	emoji := richtext.emoji_encode(cmd.emoji, c.emoji.names[:]) if cmd.typed else cmd.emoji
 	buf: [proto.MSG_REACT_MAX_SIZE]u8
 	body := proto.encode_msg_react(&buf, cmd.id, emoji, cmd.on)
 	if body == nil {

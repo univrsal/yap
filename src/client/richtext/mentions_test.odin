@@ -1,14 +1,20 @@
 #+build !wasi
-package conn
+package richtext
 
 import "core:fmt"
 import "core:testing"
 
 import "common:proto"
 
+Account :: struct {
+	username: string,
+	display:  string,
+	roles:    []proto.Role_Id,
+}
+
 @(test)
 test_mentions_transform :: proc(t: ^testing.T) {
-	accounts: map[proto.Account_Id]Dir_Account
+	accounts: map[proto.Account_Id]Account
 	defer delete(accounts)
 	accounts[17] = {
 		username = "alice",
@@ -72,7 +78,7 @@ test_mentions_transform :: proc(t: ^testing.T) {
 
 @(test)
 test_role_mentions_transform :: proc(t: ^testing.T) {
-	accounts: map[proto.Account_Id]Dir_Account
+	accounts: map[proto.Account_Id]Account
 	defer delete(accounts)
 	accounts[17] = {
 		username = "alice",
@@ -83,7 +89,7 @@ test_role_mentions_transform :: proc(t: ^testing.T) {
 		username = "dev",
 		display  = "Dev Person",
 	}
-	roles := []View_Role {
+	roles := []Role {
 		{id = proto.EVERYONE_ROLE, name = "everyone", flags = {.Mentionable}},
 		{id = 5, name = "Team Leads", flags = {.Mentionable}},
 		{id = 6, name = "Team", flags = {.Mentionable}},
@@ -138,7 +144,7 @@ test_emoji_transform :: proc(t: ^testing.T) {
 
 	// Shown: the server's own emoji become placeholders, and the spans say which
 	// emoji each one is.
-	accounts: map[proto.Account_Id]Dir_Account
+	accounts: map[proto.Account_Id]Account
 	defer delete(accounts)
 	shown, _, icons := text_display(":party::smile: x :nope: <@1>", accounts, nil, 0, custom)
 	ph := proto.CUSTOM_EMOJI_PLACEHOLDER

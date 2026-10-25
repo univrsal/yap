@@ -212,6 +212,7 @@ jobs:
           odin test src/common/webp $collections -vet -strict-style
           odin test src/common/gif $collections -vet -strict-style
           odin test src/client/hotkeys $collections -vet -strict-style
+          odin test src/client/richtext $collections -vet -strict-style
           odin test src/server $collections -vet -strict-style
 
       - uses: actions/download-artifact@v8

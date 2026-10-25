@@ -1,4 +1,4 @@
-package conn
+package richtext
 
 import "core:slice"
 import "core:strings"
@@ -37,6 +37,15 @@ import "common:proto"
 // `display` and `roles` fields, such as the directory's (Dir_Account) or the
 // View's. The roles are the View's (or dir_roles).
 
+// Role is a role as the client keeps it (conn.View_Role is the same type).
+Role :: struct {
+	id:    proto.Role_Id,
+	name:  string, // owned
+	perms: proto.Permissions,
+	color: u32, // proto.ROLE_COLOR_SET | 0xRRGGBB, or 0
+	flags: proto.Role_Flags,
+}
+
 // Mention_Span is the position of a mention in the shown text, and whether it
 // mentions the reader (or one of the reader's roles).
 Mention_Span :: struct {
@@ -67,7 +76,7 @@ username_lookup :: proc(accounts: map[proto.Account_Id]$T, name: string) -> prot
 
 // role_mentionable reports whether a role can be mentioned. The everyone role
 // cannot.
-role_mentionable :: proc(r: View_Role) -> bool {
+role_mentionable :: proc(r: Role) -> bool {
 	return r.id != proto.EVERYONE_ROLE && .Mentionable in r.flags
 }
 
@@ -83,7 +92,7 @@ word_byte :: proc(ch: u8) -> bool {
 }
 
 @(private = "file")
-role_by_id :: proc(roles: []View_Role, id: proto.Role_Id) -> (View_Role, bool) {
+role_by_id :: proc(roles: []Role, id: proto.Role_Id) -> (Role, bool) {
 	for r in roles {
 		if r.id == id {
 			return r, true
@@ -102,11 +111,7 @@ role_name_shadowed :: proc(accounts: map[proto.Account_Id]$T, name: string) -> b
 // at the start of a word becomes the account's token, and `@role name` becomes
 // the role's token. Everything else stays unchanged. The result is allocated in
 // the temp allocator.
-mentions_encode :: proc(
-	text: string,
-	accounts: map[proto.Account_Id]$T,
-	roles: []View_Role,
-) -> string {
+mentions_encode :: proc(text: string, accounts: map[proto.Account_Id]$T, roles: []Role) -> string {
 	if strings.index_byte(text, '@') < 0 {
 		return text
 	}
@@ -172,7 +177,7 @@ mentions_encode :: proc(
 mentions_for_edit :: proc(
 	text: string,
 	accounts: map[proto.Account_Id]$T,
-	roles: []View_Role,
+	roles: []Role,
 ) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	at := 0
@@ -205,6 +210,12 @@ mentions_for_edit :: proc(
 	return strings.to_string(b)
 }
 
+// custom_emoji_index returns the position of the emoji `name` in the sheet. It
+// returns false if the server has no emoji with that name.
+custom_emoji_index :: proc(names: []string, name: string) -> (int, bool) {
+	return slice.binary_search(names, name)
+}
+
 // Emoji_Span is the position of one of the server's emoji in the shown text
 // (its placeholder character), and which emoji it is (its cell in the sheet).
 Emoji_Span :: struct {
@@ -220,7 +231,7 @@ Emoji_Span :: struct {
 mentions_display :: proc(
 	text: string,
 	accounts: map[proto.Account_Id]$T,
-	roles: []View_Role,
+	roles: []Role,
 	me: proto.Account_Id,
 ) -> (
 	shown: string,
@@ -238,7 +249,7 @@ mentions_display :: proc(
 text_display :: proc(
 	text: string,
 	accounts: map[proto.Account_Id]$T,
-	roles: []View_Role,
+	roles: []Role,
 	me: proto.Account_Id,
 	emoji: []string,
 ) -> (
@@ -266,7 +277,7 @@ LINK_TEXT :: "\u21aa a message"
 text_display_links :: proc(
 	text: string,
 	accounts: map[proto.Account_Id]$T,
-	roles: []View_Role,
+	roles: []Role,
 	me: proto.Account_Id,
 	emoji: []string,
 	label: proc(data: rawptr, l: proto.Msg_Link) -> string = nil,

@@ -8,6 +8,7 @@ import "core:unicode/utf8"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:richtext"
 import "common:proto"
 
 // Forwarding and links (see src/common/proto/forward.odin).
@@ -190,7 +191,7 @@ LINK_ASK_AGAIN :: 3 * time.Second
 @(private = "file")
 LINK_SNIPPET :: 60
 
-// link_label is how a link is shown (see conn.text_display_links): the message
+// link_label is how a link is shown (see richtext.text_display_links): the message
 // it points at, by whom and its first words, or a note that it is on its way, or
 // that we may not see it. The message is asked for the first time it is wanted.
 // `data` is the UI. Call with the View locked.
@@ -214,8 +215,8 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 		case m.kind == .System:
 			said = "a call"
 		case:
-			said, _, _ = conn.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
-			said = conn.markdown_plain(said)
+			said, _, _ = richtext.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
+			said = richtext.markdown_plain(said)
 			if len(said) > LINK_SNIPPET {
 				cut := LINK_SNIPPET
 				for cut > 0 && !utf8.rune_start(said[cut]) {
@@ -243,7 +244,7 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 	if asked != {} {
 		ui_redraw_at(ui, time.tick_add(asked, LINK_ASK_AGAIN + time.Millisecond))
 	}
-	return conn.LINK_TEXT
+	return richtext.LINK_TEXT
 }
 
 // message_text is a message's text as the timeline shows it: mentions,
@@ -253,12 +254,12 @@ message_text :: proc(
 	text: string,
 ) -> (
 	shown: string,
-	spans: []conn.Mention_Span,
-	emoji: []conn.Emoji_Span,
-	links: []conn.Link_Span,
+	spans: []richtext.Mention_Span,
+	emoji: []richtext.Emoji_Span,
+	links: []richtext.Link_Span,
 ) {
 	v := ui.view
-	return conn.text_display_links(
+	return richtext.text_display_links(
 		text,
 		v.accounts,
 		v.roles[:],

@@ -6,6 +6,7 @@ import "core:sync"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:richtext"
 import "common:proto"
 
 // Searching messages (src/common/proto/search.odin) happens in a floating
@@ -131,9 +132,9 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			go_to_message(ui, f.conv, m.id)
 		}
 		mu.layout_row(ctx, {-1})
-		text, _, _ := conn.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
+		text, _, _ := richtext.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
 		if text != "" {
-			mu.text(ctx, conn.markdown_plain(text))
+			mu.text(ctx, richtext.markdown_plain(text))
 		}
 		// Its files, which may be what the message was found by.
 		if len(m.files) > 0 {

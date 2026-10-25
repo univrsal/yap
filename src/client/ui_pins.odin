@@ -6,6 +6,7 @@ import "core:time"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:richtext"
 import "common:proto"
 
 // The pinned messages of the conversation being looked at, in a floating
@@ -109,8 +110,8 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			ui.timeline.jump_conv = 0
 		}
 		mu.layout_row(ctx, {-1})
-		shown, _ := conn.mentions_display(m.text, v.accounts, v.roles[:], v.me)
-		text := conn.markdown_plain(shown)
+		shown, _ := richtext.mentions_display(m.text, v.accounts, v.roles[:], v.me)
+		text := richtext.markdown_plain(shown)
 		#partial switch m.kind {
 		case .File:
 			text = fmt.tprintf("the file %s", m.text)
@@ -119,7 +120,7 @@ pins_window :: proc(ui: ^UI, window_w, window_h: i32) {
 				text = files_said(m.files)
 			}
 		}
-		mu.text(ctx, conn.one_line(text))
+		mu.text(ctx, richtext.one_line(text))
 		if i < len(pins.messages) - 1 {
 			mu.layout_row(ctx, {-1}, 1)
 			mu.draw_rect(ctx, mu.layout_next(ctx), theme.divider)

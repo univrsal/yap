@@ -8,6 +8,7 @@ import mu "vendor:microui"
 
 import "client:conn"
 import "client:render"
+import "client:richtext"
 import "client:settings"
 import "common:proto"
 
@@ -260,7 +261,7 @@ bar_recent_reactions :: proc(ui: ^UI, m: conn.View_Message) -> []Recent_Reaction
 			emoji = e,
 		}
 		if strings.has_prefix(e, ":") && strings.has_suffix(e, ":") && len(e) > 2 {
-			index, ok := conn.custom_emoji_index(v.emoji.names[:], e[1:len(e) - 1])
+			index, ok := richtext.custom_emoji_index(v.emoji.names[:], e[1:len(e) - 1])
 			if !ok {
 				continue
 			}

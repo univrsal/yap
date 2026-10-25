@@ -1,4 +1,4 @@
-package conn
+package richtext
 
 import "core:strings"
 import "core:unicode"

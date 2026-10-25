@@ -1,5 +1,5 @@
 #+build !wasi
-package conn
+package richtext
 
 import "core:strings"
 import "core:testing"
