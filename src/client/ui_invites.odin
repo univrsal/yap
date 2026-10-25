@@ -6,6 +6,7 @@ import "core:fmt"
 import "core:time"
 import mu "vendor:microui"
 
+
 // Invite codes in the server settings tab (conn/invites.odin): creating a code
 // that is valid for a number of registrations and for a period of time, and
 // listing the existing codes (ours, or with Manage_Accounts everybody's) so
@@ -194,13 +195,6 @@ invite_date :: proc(ui: ^UI, ms: proto.Unix_Ms) -> string {
 		local.hour,
 		local.minute,
 	)
-}
-
-// choice_button draws a button that is one of a set of choices, marked if it is
-// the chosen one. It returns whether it was clicked.
-choice_button :: proc(ui: ^UI, id, label: string, chosen: bool) -> bool {
-	text := fmt.tprintf("> %s", label) if chosen else label
-	return .SUBMIT in stable_button(&ui.ctx, id, text, {.ALIGN_CENTER})
 }
 
 @(private = "file")

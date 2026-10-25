@@ -14,6 +14,7 @@ import "client:render"
 import glfw "client:wglfw"
 import "common:proto"
 
+
 // The right-hand side of the session screen: the channel's text chat, or
 // the log (opened from the header, see ui.odin) or, while watching somebody's
 // screen or in a call with a camera on, the chat, that screen and the call's
@@ -401,25 +402,6 @@ chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 	return text_area(ui, c.buf, c.len, c.area)
 }
 
-// tab_button is a stable_button that is drawn pressed while its tab is shown.
-tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu.Result_Set {
-	if !active {
-		return stable_button(ctx, id_name, label)
-	}
-	// In the accent color, with its label bold, so that the shown tab can be
-	// recognized at a glance.
-	saved := ctx.style.colors
-	saved_font := ctx.style.font
-	ctx.style.colors[.BUTTON] = theme.accent
-	ctx.style.colors[.BUTTON_HOVER] = theme.accent_hover
-	ctx.style.colors[.BUTTON_FOCUS] = theme.accent_hover
-	ctx.style.colors[.TEXT] = theme.accent_text
-	ctx.style.font = render.font_with_style(saved_font, .Bold)
-	defer ctx.style.colors = saved
-	defer ctx.style.font = saved_font
-	return stable_button(ctx, id_name, label)
-}
-
 @(private = "file")
 chat_input :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -476,42 +458,6 @@ chat_status :: proc(ui: ^UI) -> (status: string, color: mu.Color) {
 		)
 	}
 	return
-}
-
-// header_line draws a conversation's header in `r`, on one line: `name`, then
-// `more` (a channel's topic) dimmed, and `status` (who is typing, or that a
-// message is being edited) at the right end. `more` gives way to `status`
-// where both don't fit, and `status` to the name.
-header_line :: proc(
-	ctx: ^mu.Context,
-	r: mu.Rect,
-	name: string,
-	name_color: mu.Color,
-	more: string,
-	status: string,
-	status_color: mu.Color,
-) {
-	GAP :: 12
-	font := ctx.style.font
-	y := r.y + (r.h - ctx.text_height(font)) / 2
-	x := r.x + ctx.style.padding
-	mu.push_clip_rect(ctx, r)
-	defer mu.pop_clip_rect(ctx)
-	if name != "" {
-		mu.draw_text(ctx, font, name, {x, y}, name_color)
-		x += ctx.text_width(font, name) + GAP
-	}
-	end := r.x + r.w - ctx.style.padding
-	if status != "" {
-		sx := max(end - ctx.text_width(font, status), x)
-		mu.draw_text(ctx, font, status, {sx, y}, status_color)
-		end = sx - GAP
-	}
-	if more != "" && end > x {
-		mu.push_clip_rect(ctx, {x, r.y, end - x, r.h})
-		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
-		mu.pop_clip_rect(ctx)
-	}
 }
 
 // fresh_notice is the notice the network side gave last, if it was

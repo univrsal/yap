@@ -64,11 +64,6 @@ key_lines :: proc(key: [proto.KEY_SIZE]u8) -> [4]string {
 	return lines
 }
 
-@(private = "file")
-text_proc :: proc(ctx: ^mu.Context, text: string) {
-	mu.text(ctx, text)
-}
-
 // key_change_panel is drawn in the connect screen's card (or the join page's),
 // below the error, when the last connection failed because the server's key has
 // changed. Called with the View locked.

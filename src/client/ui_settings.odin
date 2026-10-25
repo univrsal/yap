@@ -9,6 +9,7 @@ import "core:fmt"
 import "core:sync"
 import mu "vendor:microui"
 
+
 // The settings page has two tabs. This client's tab has noise suppression,
 // the voice gate (ui_gate.odin), the choice of microphone and
 // speakers/headphones, the UI, hotkeys and the rest. This server's tab is
@@ -236,104 +237,6 @@ settings_body :: proc(ui: ^UI) {
 	case .Log:
 	case .About:
 		about_settings(ui)
-	}
-}
-
-// In a narrow window (a phone), a row of settings that wouldn't fit across
-// goes down instead: field_row puts its label on a line of its own, above the
-// controls, and fit_widths shrinks fixed widths that still don't fit. In a
-// wide window everything is laid out as requested.
-
-// How wide a fill (a width of 0 or less) counts when working out whether a
-// row fits.
-FILL_MIN :: 100
-
-// row_room is the width that a row laid out now gets.
-row_room :: proc(ctx: ^mu.Context) -> i32 {
-	layout := mu.get_layout(ctx)
-	return layout.body.w - layout.indent
-}
-
-// row_fits says whether `widths` fit across a row laid out now, with a fill
-// counted as `fill_min` wide.
-row_fits :: proc(ctx: ^mu.Context, widths: []i32, fill_min: i32 = FILL_MIN) -> bool {
-	need := i32(max(len(widths) - 1, 0)) * ctx.style.spacing
-	for w in widths {
-		need += w if w > 0 else fill_min
-	}
-	return need <= row_room(ctx)
-}
-
-// fit_widths is `widths` with the fixed ones shrunk in proportion if they
-// don't fit across a row laid out now.
-fit_widths :: proc(ctx: ^mu.Context, widths: []i32) -> []i32 {
-	if row_fits(ctx, widths) {
-		return widths
-	}
-	fixed, fills: i32
-	for w in widths {
-		if w > 0 {
-			fixed += w
-		} else {
-			fills += 1
-		}
-	}
-	room := row_room(ctx) - i32(len(widths) - 1) * ctx.style.spacing - fills * FILL_MIN
-	out := make([]i32, len(widths), context.temp_allocator)
-	copy(out, widths)
-	if fixed > 0 && room > 0 {
-		for &w in out {
-			if w > 0 {
-				w = max(w * room / fixed, 1)
-			}
-		}
-	}
-	return out
-}
-
-// field_row lays out a row with a label `label_w` wide followed by controls of
-// `widths`, and draws the label. The controls are drawn by the caller. When
-// that doesn't fit (a fill counts as `fill_min` wide), the label gets a line
-// of its own (none if it is empty) and the controls go under it.
-field_row :: proc(
-	ui: ^UI,
-	label_w: i32,
-	label: string,
-	widths: []i32,
-	height: i32 = 0,
-	fill_min: i32 = FILL_MIN,
-) {
-	ctx := &ui.ctx
-	row := make([]i32, len(widths) + 1, context.temp_allocator)
-	row[0] = label_w
-	copy(row[1:], widths)
-	if row_fits(ctx, row, fill_min) {
-		mu.layout_row(ctx, row, height)
-		mu.label(ctx, label)
-		return
-	}
-	if label != "" {
-		mu.layout_row(ctx, {-1})
-		mu.label(ctx, label)
-	}
-	mu.layout_row(ctx, fit_widths(ctx, widths), height)
-}
-
-// wrap_text is mu.text as the settings' notes need it: the last word of the
-// text wraps too (mu.text only measures a word that is followed by a space),
-// and so does a word that is longer than a line, such as a path, like the
-// chat's text does (wrap_line). It uses the text colour, for with_text_color.
-wrap_text :: proc(ctx: ^mu.Context, text: string) {
-	font := ctx.style.font
-	mu.layout_begin_column(ctx)
-	defer mu.layout_end_column(ctx)
-	mu.layout_row(ctx, {-1}, ctx.text_height(font))
-	rest := text
-	for len(rest) > 0 {
-		r := mu.layout_next(ctx)
-		end, next := wrap_line(ctx, font, rest, r.w)
-		mu.draw_text(ctx, font, rest[:end], {r.x, r.y}, ctx.style.colors[.TEXT])
-		rest = rest[next:]
 	}
 }
 
@@ -649,4 +552,88 @@ device_choice :: proc(
 		)
 	}
 	return
+}
+
+// The server tab's categories, in the order they are listed.
+Server_Category :: enum {
+	Server_Info,
+	Account,
+	Channels,
+	Roles,
+	Accounts,
+	Invites,
+	Purge,
+	Memory,
+}
+
+// server_settings_categories returns which of the server tab's categories
+// we may see: our account, and what we may manage (the server's name and
+// picture only if it's ours). Call with the View locked.
+server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category]) {
+	c += {.Account}
+	if me, known := v.accounts[v.me]; known && .Owner in me.flags {
+		c += {.Server_Info, .Memory}
+	}
+	if v.permissions & {.Create_Channels, .Manage_Channels} != {} {
+		c += {.Channels}
+	}
+	if .Manage_Roles in v.permissions {
+		c += {.Roles}
+	}
+	if v.permissions & {.Manage_Accounts, .Manage_Roles} != {} {
+		c += {.Accounts}
+	}
+	if v.permissions & {.Create_Invites, .Manage_Accounts} != {} {
+		c += {.Invites}
+	}
+	if .Purge in v.permissions {
+		c += {.Purge}
+	}
+	return
+}
+
+// server_category_opened is called when a category of the server tab
+// has just been picked.
+server_category_opened :: proc(ui: ^UI, c: Server_Category) {
+	#partial switch c {
+	case .Roles:
+		ui.roles.notice_seen = -1 // taken from the View when it's next locked
+	case .Channels:
+		channels_category_opened(ui) // ui_channel_settings.odin
+	}
+}
+
+// server_settings is the settings page's server tab, with the category `c`
+// selected: our account and, for those who manage accounts, the roles, everybody's
+// accounts, invite codes and purging. The settings page doesn't hold the
+// View's lock, so it is taken here.
+server_settings :: proc(ui: ^UI, c: Server_Category) {
+	v := ui.view
+	a := &ui.account
+	sync.guard(&v.mutex)
+	if a.notice_reset {
+		a.notice_reset = false
+		a.notice_seen = v.notice.count
+	}
+	if v.status != .Connected || v.login.state != .Done {
+		return
+	}
+	switch c {
+	case .Server_Info:
+		server_info_settings(ui, v) // ui_server_info.odin
+	case .Account:
+		account_settings(ui, v)
+	case .Channels:
+		channels_settings(ui) // ui_channel_settings.odin
+	case .Roles:
+		roles_settings(ui)
+	case .Accounts:
+		accounts_admin(ui, v)
+	case .Invites:
+		invites_settings(ui, v)
+	case .Purge:
+		purge_settings(ui)
+	case .Memory:
+		server_memory_settings(ui, v) // ui_memory.odin
+	}
 }

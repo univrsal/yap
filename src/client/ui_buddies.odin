@@ -10,6 +10,7 @@ import "client:render"
 import "client:settings"
 import "common:proto"
 
+
 // The inbox, or buddy screen (see buddies.odin): on the left, the buddies and
 // anyone else we have a DM with, on every server we're logged in to, in
 // two sections. On the right, the DM with whoever is picked, drawn by the
@@ -293,13 +294,6 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 			buddy_row(ui, b)
 		}
 	}
-}
-
-// section_label is the heading of one of the list's sections.
-@(private = "file")
-section_label :: proc(ui: ^UI, text: string) {
-	mu.layout_row(&ui.ctx, {-1})
-	with_text_color(&ui.ctx, theme.dim, text, label_proc)
 }
 
 // buddy_row is one buddy in the list: a flat, full-width control like the
@@ -658,9 +652,4 @@ ago_text :: proc(ui: ^UI, ms: i64) -> string {
 		return fmt.tprintf("%d day%s ago", ago / 86400, plural(ago / 86400))
 	}
 	return chat_time(ui, proto.Unix_Time(ms / 1000))
-}
-
-@(private = "file")
-text_proc :: proc(ctx: ^mu.Context, text: string) {
-	mu.text(ctx, text)
 }
