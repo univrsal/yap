@@ -6,7 +6,7 @@ import "core:testing"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "client:conn"
+import "client:richtext"
 import "client:render"
 
 // Characters are 8 pixels wide in Regular, 10 in Bold, 9 in Mono (and 8 in the
@@ -108,8 +108,8 @@ test_rich_spans :: proc(t: ^testing.T) {
 	icon := strings.index(shown, "")
 	r := rich_make(shown, {{ann, ann + 4, true}}, {{icon, icon + 3, 2}}, nil, true)
 	testing.expect_value(t, r.text, "@Ann  site https://b.org")
-	testing.expect_value(t, r.mentions[0], conn.Mention_Span{0, 4, true})
-	testing.expect_value(t, r.emoji[0], conn.Emoji_Span{5, 8, 2})
+	testing.expect_value(t, r.mentions[0], richtext.Mention_Span{0, 4, true})
+	testing.expect_value(t, r.emoji[0], richtext.Emoji_Span{5, 8, 2})
 	testing.expect_value(t, len(r.links), 1)
 	testing.expect_value(t, r.text[r.links[0].start:r.links[0].end], "site")
 	testing.expect_value(t, r.links[0].url, "https://a.org")

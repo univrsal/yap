@@ -3,7 +3,6 @@ package server
 import "core:crypto/ecdh"
 import "core:net"
 import "core:testing"
-import "core:time"
 
 import "common:proto"
 
@@ -12,39 +11,6 @@ import "common:proto"
 // handling. The bulk link joins the connection the main link created,
 // heavy messages are sent on it, and it is removed with the connection.
 
-@(private = "file")
-Test_Link :: struct {
-	sock: net.UDP_Socket,
-	from: net.Endpoint,
-	sess: proto.Session,
-}
-
-@(private = "file")
-link_open_socket :: proc(t: ^testing.T, l: ^Test_Link) {
-	sock, err := net.make_bound_udp_socket(net.IP4_Loopback, 0)
-	testing.expect_value(t, err, nil)
-	net.set_option(sock, .Receive_Timeout, time.Second)
-	l.sock = sock
-	l.from, _ = net.bound_endpoint(sock)
-}
-
-// link_recv reads the next Data packet on the link and decrypts it.
-@(private = "file")
-link_recv :: proc(t: ^testing.T, l: ^Test_Link, out: []u8) -> []u8 {
-	buf: [proto.MAX_PACKET_SIZE]u8
-	n, _, err := net.recv_udp(l.sock, buf[:])
-	if !testing.expect_value(t, err, nil) {
-		return nil
-	}
-	pt, ok := proto.open(&l.sess, buf[:n], out)
-	testing.expect(t, ok)
-	return pt
-}
-
-// link_handshake runs the client side of a handshake on `l`. The server
-// handles each packet as if it had come off its socket. It returns the
-// server's answer, which is either Welcome or Refused. The server sends
-// three copies of the answer.
 @(private = "file")
 link_handshake :: proc(
 	t: ^testing.T,
@@ -55,28 +21,10 @@ link_handshake :: proc(
 	link: proto.Link,
 	out: []u8,
 ) -> []u8 {
-	ini: proto.Initiator
-	init, started := proto.initiator_start(&ini, key)
-	testing.expect(t, started)
-	handle_packet(s, init, l.from)
-
-	buf: [proto.MAX_PACKET_SIZE]u8
-	n, _, err := net.recv_udp(l.sock, buf[:])
-	testing.expect_value(t, err, nil)
-	_, result := proto.initiator_read_resp(&ini, buf[:n])
-	testing.expect_value(t, result, proto.Resp_Result.Ok)
-
-	hello_buf: [proto.HELLO_MAX_SIZE]u8
-	hello := proto.encode_hello(&hello_buf, conn_id, "", link)
-	finish, finished := proto.initiator_finish(&ini, &l.sess, hello)
-	testing.expect(t, finished)
-	handle_packet(s, finish, l.from)
-	answer := link_recv(t, l, out)
-	copy_buf: [proto.MAX_PAYLOAD_SIZE]u8
-	for _ in 1 ..< 3 {
-		link_recv(t, l, copy_buf[:])
+	handle :: proc(data: rawptr, pkt: []u8, from: net.Endpoint) {
+		handle_packet((^Server)(data), pkt, from)
 	}
-	return answer
+	return link_handshake_with(t, l, key, conn_id, link, out, handle, s)
 }
 
 @(test)

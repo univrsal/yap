@@ -10,7 +10,7 @@ import "core:encoding/endian"
 //
 // The receiver always knows the size in advance, and therefore how many chunks
 // to expect. An upload is announced with Blob_Put, and a download is requested
-// with Blob_Get, whose answer contains the size (see msgs.odin). A `handle`
+// with Blob_Get, whose answer contains the size (see messages.odin). A `handle`
 // identifies the transfer, and the server hands one out for each transfer.
 //
 // The sender pushes chunks at its own pace. The receiver requests the chunks

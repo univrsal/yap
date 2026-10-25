@@ -11,7 +11,7 @@ test_emoji_glyphs :: proc(t: ^testing.T) {
 	testing.expect(t, font_init(&f))
 	defer font_destroy(&f)
 
-	// The sheet has every emoji that the table has (scripts/emoji.py
+	// The sheet has every emoji that the table has (tools/emoji.py
 	// creates both) and no others, in sorted order as the lookup requires.
 	testing.expect_value(t, len(EMOJI_CELLS), len(proto.EMOJI))
 	for e in proto.EMOJI {

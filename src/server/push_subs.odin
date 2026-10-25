@@ -4,9 +4,10 @@ import "core:log"
 
 import "common:proto"
 import "sqlite"
+import "webpush"
 
 // Web Push subscriptions (src/common/proto/push.odin): the subscriptions that browsers
-// with push enabled sent to the server, so push.odin can reach them.
+// with push enabled sent to the server, so webpush/webpush.odin can reach them.
 //
 // They are only stored in the database (push_subs). Each one belongs to a device, and each
 // device has at most one: a new subscription replaces the previous one. The table's
@@ -18,8 +19,8 @@ import "sqlite"
 Push_Sub :: struct {
 	id:       i64,
 	endpoint: string,
-	p256dh:   [P256_PUBLIC_SIZE]u8,
-	auth:     [PUSH_AUTH_SIZE]u8,
+	p256dh:   [webpush.P256_PUBLIC_SIZE]u8,
+	auth:     [webpush.PUSH_AUTH_SIZE]u8,
 	device:   [proto.KEY_SIZE]u8, // the key of the device it belongs to
 }
 
@@ -40,7 +41,7 @@ push_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 push_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	sub, ok := proto.decode_push_subscribe(body)
 	switch {
-	case !ok || push_origin(sub.endpoint) == "":
+	case !ok || webpush.origin(sub.endpoint) == "":
 		respond(u, id, .Invalid)
 		return
 	case !s.push.enabled:
@@ -48,31 +49,30 @@ push_subscribe :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	key := u.key
-	q := db_stmt(&s.db, .Push_Sub_Put)
-	db_bind_blob(q, 1, key[:])
-	db_bind_int(q, 2, i64(u.account.id))
-	db_bind_text(q, 3, sub.endpoint)
-	db_bind_blob(q, 4, sub.p256dh[:])
-	db_bind_blob(q, 5, sub.auth[:])
-	db_bind_int(q, 6, unix_ms())
+	q := db_query(
+		&s.db,
+		.Push_Sub_Put,
+		key[:],
+		i64(u.account.id),
+		sub.endpoint,
+		sub.p256dh[:],
+		sub.auth[:],
+		unix_ms(),
+	)
 	if !db_run(&s.db, q) {
 		respond(u, id, .Internal)
 		return
 	}
-	q = db_stmt(&s.db, .Push_Sub_Others)
-	db_bind_blob(q, 1, key[:])
-	db_bind_text(q, 2, sub.endpoint)
+	q = db_query(&s.db, .Push_Sub_Others, key[:], sub.endpoint)
 	_ = db_run(&s.db, q)
-	log.debugf("%s enabled push, via %s", conn_label(u), push_origin(sub.endpoint))
+	log.debugf("%s enabled push, via %s", conn_label(u), webpush.origin(sub.endpoint))
 	respond(u, id, .Ok)
 }
 
 @(private = "file")
 push_unsubscribe :: proc(s: ^Server, u: ^Conn, id: u32) {
 	key := u.key
-	q := db_stmt(&s.db, .Push_Sub_Drop)
-	db_bind_blob(q, 1, key[:])
-	if !db_run(&s.db, q) {
+	if !db_write(&s.db, .Push_Sub_Drop, key[:]) {
 		respond(u, id, .Internal)
 		return
 	}
@@ -83,8 +83,7 @@ push_unsubscribe :: proc(s: ^Server, u: ^Conn, id: u32) {
 // push_subs_of returns an account's subscriptions, in the temp allocator.
 push_subs_of :: proc(s: ^Server, account: proto.Account_Id) -> []Push_Sub {
 	subs := make([dynamic]Push_Sub, context.temp_allocator)
-	q := db_stmt(&s.db, .Push_Subs_Of)
-	db_bind_int(q, 1, i64(account))
+	q := db_query(&s.db, .Push_Subs_Of, i64(account))
 	for {
 		row, ok := db_step(&s.db, q)
 		if !row || !ok {
@@ -108,13 +107,11 @@ push_subs_of :: proc(s: ^Server, account: proto.Account_Id) -> []Push_Sub {
 // reports as gone is deleted.
 push_sync :: proc(s: ^Server) {
 	for {
-		r := push_poll(&s.push) or_break
+		r := webpush.poll(&s.push) or_break
 		if r.outcome != .Gone {
 			continue
 		}
-		q := db_stmt(&s.db, .Push_Sub_Gone)
-		db_bind_int(q, 1, r.sub)
-		if db_run(&s.db, q) && db_changed(&s.db) > 0 {
+		if db_write(&s.db, .Push_Sub_Gone, r.sub) && db_changed(&s.db) > 0 {
 			log.debugf("push: subscription %d no longer exists and was deleted", r.sub)
 		}
 	}

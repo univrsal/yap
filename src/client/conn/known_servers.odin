@@ -43,11 +43,11 @@ check_server_key :: proc(
 		if len(fields) != 2 || !strings.equal_fold(fields[0], addr) {
 			continue
 		}
-		raw, ok := hex.decode(transmute([]byte)fields[1], context.temp_allocator)
-		if !ok || len(raw) != proto.KEY_SIZE {
+		ok: bool
+		saved, ok = common.parse_key_hex(fields[1])
+		if !ok {
 			continue
 		}
-		copy(saved[:], raw)
 		return saved == key ? .Known : .Mismatch, saved
 	}
 	return .New, {}
@@ -95,15 +95,11 @@ list_known_servers :: proc(path: string, allocator := context.allocator) -> []Kn
 		if len(fields) != 2 {
 			continue
 		}
-		raw, hex_ok := hex.decode(transmute([]byte)fields[1], context.temp_allocator)
-		if !hex_ok || len(raw) != proto.KEY_SIZE {
+		key, key_ok := common.parse_key_hex(fields[1])
+		if !key_ok {
 			continue
 		}
-		entry := Known_Server {
-			addr = strings.clone(fields[0], allocator),
-		}
-		copy(entry.key[:], raw)
-		append(&list, entry)
+		append(&list, Known_Server{addr = strings.clone(fields[0], allocator), key = key})
 	}
 	return list[:]
 }
@@ -136,11 +132,4 @@ forget_server_key :: proc(path, addr: string) -> bool {
 // used when the user has decided that a changed key is expected.
 replace_server_key :: proc(path, addr: string, key: [proto.KEY_SIZE]byte) -> bool {
 	return forget_server_key(path, addr) && remember_server_key(path, addr, key)
-}
-
-// key_hex returns the whole public key as hex, so it can be compared with the
-// key the server logs when it starts ("server public key: ...").
-key_hex :: proc(key: [proto.KEY_SIZE]byte) -> string {
-	key := key
-	return string(hex.encode(key[:], context.temp_allocator))
 }

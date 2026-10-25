@@ -17,7 +17,7 @@ _ :: time // only used when proto.STREAM_FLOOD
 
 // Request_Done receives a request's answer. `tag` is whatever was passed to
 // request, which tells apart requests of the same kind.
-Request_Done :: #type proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
+Request_Done :: #type proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64)
 
 @(private = "file")
 Request_Pending :: struct {
@@ -63,7 +63,7 @@ Server_Details :: struct {
 	icon_jpeg:      []u8,
 }
 
-rpc_destroy :: proc(c: ^Voice_Client) {
+rpc_destroy :: proc(c: ^Server_Conn) {
 	delete(c.rpc.pending)
 	delete(c.rpc.server.name)
 	delete(c.rpc.server.version)
@@ -75,7 +75,7 @@ rpc_destroy :: proc(c: ^Voice_Client) {
 
 // request asks the server for `op`. `done` is called with the outcome.
 request :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	op: proto.Request_Op,
 	body: []u8 = nil,
 	done: Request_Done = nil,
@@ -99,7 +99,7 @@ request :: proc(
 
 // rpc_restart gives up on every request that is still waiting, because the
 // connection they were sent on is gone.
-rpc_restart :: proc(c: ^Voice_Client) {
+rpc_restart :: proc(c: ^Server_Conn) {
 	r := &c.rpc
 	if len(r.pending) == 0 {
 		return
@@ -122,7 +122,7 @@ rpc_restart :: proc(c: ^Voice_Client) {
 }
 
 // rpc_handle processes one message from the stream.
-rpc_handle :: proc(c: ^Voice_Client, msg: []u8) {
+rpc_handle :: proc(c: ^Server_Conn, msg: []u8) {
 	kind, ok := proto.app_kind(msg)
 	if !ok {
 		return // from a server that knows more than we do
@@ -161,14 +161,14 @@ rpc_handle :: proc(c: ^Voice_Client, msg: []u8) {
 
 // server_info_ask asks the server for its name and description. The answer
 // ends up in the View.
-server_info_ask :: proc(c: ^Voice_Client) {
+server_info_ask :: proc(c: ^Server_Conn) {
 	c.rpc.server.known = false
 	request(c, .Server_Info, nil, server_info_done)
 }
 
 // rpc_step is the requests' turn in the network loop. They need none, except
 // when testing (see proto.STREAM_FLOOD).
-rpc_step :: proc(c: ^Voice_Client) {
+rpc_step :: proc(c: ^Server_Conn) {
 	when proto.STREAM_FLOOD {
 		@(static) last: time.Tick
 		if !c.has_instance || time.tick_since(last) < 2 * time.Second {
@@ -181,7 +181,7 @@ rpc_step :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-server_info_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+server_info_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	if status != .Ok {
 		return // Reset: it is asked again on the new connection
 	}

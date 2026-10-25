@@ -6,38 +6,7 @@ import "core:testing"
 import "common:proto"
 
 // Tests of editing, deleting and pinning messages, using the Test_Server from
-// auth_test.odin.
-
-edit_as :: proc(
-	t: ^testing.T,
-	ts: ^Test_Server,
-	u: ^Conn,
-	id: proto.Msg_Id,
-	text: string,
-) -> proto.Status {
-	buf := new([proto.MSG_EDIT_MAX_SIZE]u8, context.temp_allocator)
-	status, _ := ts_ask(t, ts, u, .Msg_Edit, proto.encode_msg_edit(buf, id, text))
-	return status
-}
-
-delete_as :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id) -> proto.Status {
-	buf := new([proto.MSG_ID_SIZE]u8, context.temp_allocator)
-	status, _ := ts_ask(t, ts, u, .Msg_Delete, proto.encode_msg_id(buf, id))
-	return status
-}
-
-@(private = "file")
-pin_as :: proc(
-	t: ^testing.T,
-	ts: ^Test_Server,
-	u: ^Conn,
-	id: proto.Msg_Id,
-	on: bool,
-) -> proto.Status {
-	buf := new([proto.MSG_PIN_SIZE]u8, context.temp_allocator)
-	status, _ := ts_ask(t, ts, u, .Msg_Pin, proto.encode_msg_pin(buf, id, on))
-	return status
-}
+// harness_test.odin.
 
 @(private = "file")
 pins_of :: proc(
@@ -82,8 +51,7 @@ changed :: proc(
 
 @(test)
 test_edit :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
@@ -139,8 +107,7 @@ test_edit :: proc(t: ^testing.T) {
 
 @(test)
 test_delete :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)

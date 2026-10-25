@@ -8,6 +8,7 @@ import mu "vendor:microui"
 
 import "client:conn"
 import "client:render"
+import "client:video"
 import "common:proto"
 
 // The voice panel is at the foot of the channel list and the buddy list (in a
@@ -133,7 +134,7 @@ call_peer_row :: proc(ui: ^UI, p: ^UI_Voice_Panel) {
 		}
 	}
 	length := call_length_shown(ui, p.since)
-	with_text_color(ctx, theme.dim, length, label_proc)
+	dim_label(ctx, length)
 }
 
 // A picture in the panel, with the room that its ring takes around it
@@ -251,12 +252,6 @@ voice_panel :: proc(ui: ^UI) {
 	mu.layout_set_next(ctx, {r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad}, false)
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
-	cmds := &ui.session.client.commands if ui.session != nil else nil
-	command :: proc(cmds: ^conn.Command_Queue, cmd: conn.Command) {
-		if cmds != nil {
-			conn.push_command(cmds, cmd)
-		}
-	}
 	if ui.voice_other.ns != nil {
 		voice_elsewhere_part(ui, ui.voice_other)
 	}
@@ -290,7 +285,7 @@ voice_panel :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {-60, 56})
 			mu.label(ctx, where_)
 			length := call_length_shown(ui, p.since)
-			with_text_color(ctx, theme.dim, length, label_proc)
+			dim_label(ctx, length)
 		} else {
 			mu.layout_row(ctx, {-1})
 			mu.label(ctx, where_)
@@ -302,29 +297,27 @@ voice_panel :: proc(ui: ^UI) {
 			accept, video, decline := answer_buttons(ui, "call", camera_available(v))
 			if accept || video {
 				leave_voice_elsewhere(ui)
-				command(cmds, conn.Call_Answer_Command{})
+				command(ui, conn.Call_Answer_Command{})
 			}
 			if video {
 				camera_on_call(ui)
 			}
 			if decline {
-				command(cmds, conn.Call_Hangup_Command{})
+				command(ui, conn.Call_Hangup_Command{})
 			}
 		case .Ringing_Out:
 			mu.layout_row(ctx, {-1})
 			if hang_up_button(ui, "call cancel", "Cancel") {
-				command(cmds, conn.Call_Hangup_Command{})
+				command(ui, conn.Call_Hangup_Command{})
 			}
 		case .Voice, .Call:
 			// What may be shared there, then the way out.
 			widths := make([dynamic]i32, context.temp_allocator)
 			// Once started, sharing can always be stopped.
-			can_share :=
-				conn.video_can_share() && (ui.view.video_link || conn.video_share_state() != .Off)
+			can_share := video.can_share() && (ui.view.video_link || video.share_state() != .Off)
 			can_music := app_audio_available(ui)
 			// Likewise the camera, which needs the media link to go anywhere.
-			can_camera :=
-				camera_available(v) && (v.video_link || conn.video_camera_state() != .Off)
+			can_camera := camera_available(v) && (v.video_link || video.camera_state() != .Off)
 			if can_music {
 				append(&widths, icon_button_w(ctx))
 			}
@@ -347,9 +340,9 @@ voice_panel :: proc(ui: ^UI) {
 			}
 			if hang_up_button(ui, "voice leave", "Hang up" if state == .Call else "Leave") {
 				if state == .Call {
-					command(cmds, conn.Call_Hangup_Command{})
+					command(ui, conn.Call_Hangup_Command{})
 				} else {
-					command(cmds, conn.Voice_Command{})
+					command(ui, conn.Voice_Command{})
 				}
 			}
 		}
@@ -469,7 +462,7 @@ voice_elsewhere_part :: proc(ui: ^UI, e: Voice_Elsewhere) {
 	if e.state == .Voice || e.state == .Call {
 		mu.layout_row(ctx, {-60, 56})
 		mu.label(ctx, e.where_)
-		with_text_color(ctx, theme.dim, call_length_shown(ui, e.since), label_proc)
+		dim_label(ctx, call_length_shown(ui, e.since))
 	} else {
 		mu.layout_row(ctx, {-1})
 		mu.label(ctx, e.where_)

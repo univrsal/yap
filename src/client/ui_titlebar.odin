@@ -91,7 +91,7 @@ window_edge :: proc(ui: ^UI, x, y: i32) -> Window_Edge {
 
 // The button that the pointer went down on, or -1.
 @(private = "file")
-armed := -1
+g_armed := -1
 
 // window_buttons draws minimize, maximize (or restore) and close in the top
 // right corner of the window, `w` wide, in the strip that titlebar_area made
@@ -128,10 +128,10 @@ window_buttons :: proc(ui: ^UI, w: i32, gap: f32, maximized: bool) -> int {
 		// goes down: closing the window on the press would leave the
 		// release for whatever window is behind it.
 		if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
-			armed = i
+			g_armed = i
 		}
-		if armed == i && .LEFT not_in ctx.mouse_down_bits {
-			armed = -1
+		if g_armed == i && .LEFT not_in ctx.mouse_down_bits {
+			g_armed = -1
 			if ctx.hover_id == id {
 				clicked = i
 			}

@@ -9,6 +9,7 @@ import "core:fmt"
 import "core:sync"
 import mu "vendor:microui"
 
+
 // The settings page has two tabs. This client's tab has noise suppression,
 // the voice gate (ui_gate.odin), the choice of microphone and
 // speakers/headphones, the UI, hotkeys and the rest. This server's tab is
@@ -193,8 +194,8 @@ category_list :: proc(
 @(private = "file")
 settings_body :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	// The log scrolls on its own and keeps to the bottom as lines come in, so
-	// it fills the whole cell instead of being in a panel that scrolls too.
+	// The log is a panel that scrolls on its own, so it fills the whole cell
+	// instead of being in a panel that scrolls too.
 	if ui.settings_tab == .Client && ui.settings_client == .Log {
 		log_panel(ui)
 		return
@@ -209,7 +210,7 @@ settings_body :: proc(ui: ^UI) {
 	case .Audio:
 		if a := &ui.audio; a.ctx == nil {
 			mu.layout_row(ctx, {-1})
-			with_text_color(ctx, theme.error, a.error, label_proc)
+			error_label(ctx, a.error)
 		} else {
 			audio_settings(ui)
 		}
@@ -239,104 +240,6 @@ settings_body :: proc(ui: ^UI) {
 	}
 }
 
-// In a narrow window (a phone), a row of settings that wouldn't fit across
-// goes down instead: field_row puts its label on a line of its own, above the
-// controls, and fit_widths shrinks fixed widths that still don't fit. In a
-// wide window everything is laid out as requested.
-
-// How wide a fill (a width of 0 or less) counts when working out whether a
-// row fits.
-FILL_MIN :: 100
-
-// row_room is the width that a row laid out now gets.
-row_room :: proc(ctx: ^mu.Context) -> i32 {
-	layout := mu.get_layout(ctx)
-	return layout.body.w - layout.indent
-}
-
-// row_fits says whether `widths` fit across a row laid out now, with a fill
-// counted as `fill_min` wide.
-row_fits :: proc(ctx: ^mu.Context, widths: []i32, fill_min: i32 = FILL_MIN) -> bool {
-	need := i32(max(len(widths) - 1, 0)) * ctx.style.spacing
-	for w in widths {
-		need += w if w > 0 else fill_min
-	}
-	return need <= row_room(ctx)
-}
-
-// fit_widths is `widths` with the fixed ones shrunk in proportion if they
-// don't fit across a row laid out now.
-fit_widths :: proc(ctx: ^mu.Context, widths: []i32) -> []i32 {
-	if row_fits(ctx, widths) {
-		return widths
-	}
-	fixed, fills: i32
-	for w in widths {
-		if w > 0 {
-			fixed += w
-		} else {
-			fills += 1
-		}
-	}
-	room := row_room(ctx) - i32(len(widths) - 1) * ctx.style.spacing - fills * FILL_MIN
-	out := make([]i32, len(widths), context.temp_allocator)
-	copy(out, widths)
-	if fixed > 0 && room > 0 {
-		for &w in out {
-			if w > 0 {
-				w = max(w * room / fixed, 1)
-			}
-		}
-	}
-	return out
-}
-
-// field_row lays out a row with a label `label_w` wide followed by controls of
-// `widths`, and draws the label. The controls are drawn by the caller. When
-// that doesn't fit (a fill counts as `fill_min` wide), the label gets a line
-// of its own (none if it is empty) and the controls go under it.
-field_row :: proc(
-	ui: ^UI,
-	label_w: i32,
-	label: string,
-	widths: []i32,
-	height: i32 = 0,
-	fill_min: i32 = FILL_MIN,
-) {
-	ctx := &ui.ctx
-	row := make([]i32, len(widths) + 1, context.temp_allocator)
-	row[0] = label_w
-	copy(row[1:], widths)
-	if row_fits(ctx, row, fill_min) {
-		mu.layout_row(ctx, row, height)
-		mu.label(ctx, label)
-		return
-	}
-	if label != "" {
-		mu.layout_row(ctx, {-1})
-		mu.label(ctx, label)
-	}
-	mu.layout_row(ctx, fit_widths(ctx, widths), height)
-}
-
-// wrap_text is mu.text as the settings' notes need it: the last word of the
-// text wraps too (mu.text only measures a word that is followed by a space),
-// and so does a word that is longer than a line, such as a path, like the
-// chat's text does (wrap_line). It uses the text colour, for with_text_color.
-wrap_text :: proc(ctx: ^mu.Context, text: string) {
-	font := ctx.style.font
-	mu.layout_begin_column(ctx)
-	defer mu.layout_end_column(ctx)
-	mu.layout_row(ctx, {-1}, ctx.text_height(font))
-	rest := text
-	for len(rest) > 0 {
-		r := mu.layout_next(ctx)
-		end, next := wrap_line(ctx, font, rest, r.w)
-		mu.draw_text(ctx, font, rest[:end], {r.x, r.y}, ctx.style.colors[.TEXT])
-		rest = rest[next:]
-	}
-}
-
 // checkbox_noted is a checkbox with a note: the note follows the label in
 // brackets where that fits, otherwise it goes under it, in text that wraps.
 checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_Set {
@@ -349,7 +252,7 @@ checkbox_noted :: proc(ui: ^UI, label, note: string, state: ^bool) -> mu.Result_
 	}
 	res := checkbox(ctx, label, state)
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, fmt.tprintf("  %s", note), wrap_text)
+	dim_note(ctx, fmt.tprintf("  %s", note))
 	return res
 }
 
@@ -375,13 +278,13 @@ audio_settings :: proc(ui: ^UI) {
 	hint := audio.QUALITY_PRESETS[current].description
 	if q, ok := enum_dropdown(ui, "quality", labels, current, hint); ok {
 		settings.set_setting(&ui.settings.quality, audio.QUALITY_PRESETS[q].name)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		command_all(ui, conn.Quality_Command{q})
 	}
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "Use RNN noise suppression", &ui.settings.noise_suppression) {
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		command_all(ui, conn.Noise_Command{ui.settings.noise_suppression})
 	}
 	if app_audio_setting(ui) {
@@ -392,7 +295,7 @@ audio_settings :: proc(ui: ^UI) {
 			   "Mute audio sharing when microphone is muted",
 			   &ui.settings.mute_app_audio_with_mic,
 		   ) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 			// To all, like the volume: the audio may go out through any of them.
 			command_all(ui, conn.app_audio_command(&ui.settings))
 		}
@@ -416,7 +319,7 @@ ui_settings :: proc(ui: ^UI) {
 	if choice, ok := enum_dropdown(ui, "theme", THEME_CHOICE_LABELS, theme_choice(&ui.settings));
 	   ok {
 		settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		ui_redraw(ui)
 	}
 
@@ -428,53 +331,45 @@ ui_settings :: proc(ui: ^UI) {
 			&ui.settings.animate_pictures,
 			settings.ANIMATE_PICTURES_NAMES[choice],
 		)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		ui_redraw(ui)
 	}
 
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "UI scale")
-	// Applying every change live would resize the window while dragging,
-	// which moves the slider out from under the pointer that is dragging it.
-	// So ui.ui_scale_draft only reaches settings.ui_scale (and with it
-	// window_metrics) once the drag is released.
-	id := mu.get_id(ctx, uintptr(&ui.ui_scale_draft))
-	was_dragging := ctx.focus_id == id
-	mu.slider(
+	// ui.ui_scale_draft reaches settings.ui_scale (and with it window_metrics)
+	// once the slider is released, as resizing the window while dragging would
+	// move the slider out from under the pointer.
+	if release_slider(
 		ctx,
 		&ui.ui_scale_draft,
 		settings.MIN_UI_SCALE * 100,
 		settings.MAX_UI_SCALE * 100,
 		10,
 		"%.0f%%",
-	)
-	if was_dragging && ctx.focus_id != id {
+	) {
 		ui.settings.ui_scale = ui.ui_scale_draft / 100
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
-	// Like the UI scale: applied when the slider is released, because the
-	// glyphs are rasterized again for it.
+	// Also applied when released, because the glyphs are rasterized again.
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Chat text size")
-	chat_id := mu.get_id(ctx, uintptr(&ui.chat_scale_draft))
-	chat_dragging := ctx.focus_id == chat_id
-	mu.slider(
+	if release_slider(
 		ctx,
 		&ui.chat_scale_draft,
 		settings.MIN_CHAT_SCALE * 100,
 		settings.MAX_CHAT_SCALE * 100,
 		10,
 		"%.0f%%",
-	)
-	if chat_dragging && ctx.focus_id != chat_id {
+	) {
 		ui.settings.chat_scale = ui.chat_scale_draft / 100
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "Show avatars beside messages", &ui.settings.chat_pictures) {
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
 	when !platform.WEB {
@@ -483,7 +378,7 @@ ui_settings :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in
 		   checkbox(ctx, "Merge the title bar into the window", &ui.settings.merge_title_bar) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 			titlebar_merge(ui.window, ui.settings.merge_title_bar)
 			ui_redraw(ui)
 		}
@@ -494,7 +389,7 @@ ui_settings :: proc(ui: ^UI) {
 
 		mu.layout_row(ctx, {-1})
 		if .CHANGE in checkbox(ctx, "Enable tray icon", &ui.settings.tray) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 			tray_update(ui)
 		}
 
@@ -507,10 +402,10 @@ ui_settings :: proc(ui: ^UI) {
 		// One under the other where they don't fit side by side.
 		mu.layout_row(ctx, {230, -1} if row_fits(ctx, {230, 200}) else {-1})
 		if .CHANGE in checkbox(ctx, "Close hides in tray", &ui.settings.close_to_tray) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 		}
 		if .CHANGE in checkbox(ctx, "Minimize hides in tray", &ui.settings.minimize_to_tray) {
-			settings.settings_save(ui.opts.settings_path, ui.settings)
+			save_settings(ui)
 		}
 		// Only the desktop can tell us that a window has been minimized, and
 		// Wayland has no message for it, so say so instead of leaving the
@@ -549,12 +444,7 @@ transfer_settings :: proc(ui: ^UI) {
 			"%.1f MB/s",
 		)
 	mu.layout_row(ctx, {-1})
-	with_text_color(
-		ctx,
-		theme.dim,
-		"  0 means no limit. A download limit also slows down whoever is sending.",
-		wrap_text,
-	)
+	dim_note(ctx, "  0 means no limit. A download limit also slows down whoever is sending.")
 	if changed {
 		// Sliders change every frame while dragged, so save within a second.
 		ui.settings_dirty = true
@@ -587,7 +477,7 @@ device_settings :: proc(ui: ^UI) {
 		ui.settings.input_device,
 	); changed {
 		settings.set_setting(&ui.settings.input_device, choice)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		log.infof("input device: %s", choice if choice != "" else "system default")
 		reopen_audio(ui, true)
 	}
@@ -599,7 +489,7 @@ device_settings :: proc(ui: ^UI) {
 		ui.settings.output_device,
 	); changed {
 		settings.set_setting(&ui.settings.output_device, choice)
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		log.infof("output device: %s", choice if choice != "" else "system default")
 		reopen_audio(ui, false)
 	}
@@ -649,4 +539,89 @@ device_choice :: proc(
 		)
 	}
 	return
+}
+
+// The server tab's categories, in the order they are listed.
+Server_Category :: enum {
+	Server_Info,
+	Account,
+	Channels,
+	Roles,
+	Accounts,
+	Invites,
+	Purge,
+	Memory,
+}
+
+// server_settings_categories returns which of the server tab's categories
+// we may see: our account, and what we may manage (the server's name and
+// picture only if it's ours). Call with the View locked.
+server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category]) {
+	c += {.Account}
+	if me, known := v.accounts[v.me]; known && .Owner in me.flags {
+		c += {.Server_Info, .Memory}
+	}
+	if v.permissions & {.Create_Channels, .Manage_Channels} != {} {
+		c += {.Channels}
+	}
+	if .Manage_Roles in v.permissions {
+		c += {.Roles}
+	}
+	if v.permissions & {.Manage_Accounts, .Manage_Roles} != {} {
+		c += {.Accounts}
+	}
+	if v.permissions & {.Create_Invites, .Manage_Accounts} != {} {
+		c += {.Invites}
+	}
+	if .Purge in v.permissions {
+		c += {.Purge}
+	}
+	return
+}
+
+// server_category_opened is called when a category of the server tab
+// has just been picked.
+server_category_opened :: proc(ui: ^UI, c: Server_Category) {
+	#partial switch c {
+	case .Roles:
+		notice_mark_reset(&ui.roles.notice)
+	case .Channels:
+		channels_category_opened(ui) // ui_channel_settings.odin
+	case:
+		// The others share the account screen's mark, so a notice about
+		// something done in another category doesn't show up here.
+		notice_mark_reset(&ui.account.notice)
+	}
+}
+
+// server_settings is the settings page's server tab, with the category `c`
+// selected: our account and, for those who manage accounts, the roles, everybody's
+// accounts, invite codes and purging. The settings page doesn't hold the
+// View's lock, so it is taken here.
+server_settings :: proc(ui: ^UI, c: Server_Category) {
+	v := ui.view
+	a := &ui.account
+	sync.guard(&v.mutex)
+	notice_mark_update(&a.notice, v)
+	if v.status != .Connected || v.login.state != .Done {
+		return
+	}
+	switch c {
+	case .Server_Info:
+		server_info_settings(ui, v) // ui_server_info.odin
+	case .Account:
+		account_settings(ui, v)
+	case .Channels:
+		channels_settings(ui) // ui_channel_settings.odin
+	case .Roles:
+		roles_settings(ui)
+	case .Accounts:
+		accounts_admin(ui, v)
+	case .Invites:
+		invites_settings(ui, v)
+	case .Purge:
+		purge_settings(ui)
+	case .Memory:
+		server_memory_settings(ui, v) // ui_memory.odin
+	}
 }

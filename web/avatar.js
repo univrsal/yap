@@ -2,7 +2,7 @@
 Choosing our picture, for the web client (emcc --pre-js, see
 web/build.sh and src/client/ui_avatar_pick_web.odin). A file input the
 page clicks for the client; the picture is made here, the way
-avatar_prepare (src/client/image.odin) makes it on a desktop: the
+avatar_prepare (src/client/imaging/image.odin) makes it on a desktop: the
 largest square from its centre, scaled down to MAX_SIDE, and compressed
 to a JPEG within MAX_BYTES by lowering the quality till it fits. A
 server's picture is made the same way, smaller: the client says how big
@@ -55,10 +55,7 @@ Closing the dialog without a choice tells it nothing.
 	};
 
 	const send = ({ bytes, side }) => {
-		const ptr = _malloc(bytes.length);
-		HEAPU8.set(bytes, ptr);
-		Module._web_avatar_picked(ptr, bytes.length, side);
-		_free(ptr);
+		Module.yapWithBytes(bytes, (ptr, n) => Module._web_avatar_picked(ptr, n, side));
 	};
 
 	Module.yapAvatar = {

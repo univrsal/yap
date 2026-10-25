@@ -1,7 +1,6 @@
 package conn
 
 import log "common:wlog"
-import "core:fmt"
 import "core:strings"
 
 import "common:proto"
@@ -28,19 +27,11 @@ Bot_Token_Forget_Command :: struct {}
 // The device name shown in the bot's device list for a token.
 BOT_TOKEN_DEVICE :: "API token"
 
-auth_bot_create :: proc(c: ^Voice_Client, cmd: Bot_Create_Command) {
+auth_bot_create :: proc(c: ^Server_Conn, cmd: Bot_Create_Command) {
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
 	username, clean := proto.username_clean(cmd.username, &name_buf)
 	if !clean {
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
-				proto.MIN_USERNAME_SIZE,
-				proto.MAX_USERNAME_SIZE,
-			),
-		)
+		notify(c, false, username_rule())
 		return
 	}
 	public, made := new_token(c)
@@ -52,11 +43,11 @@ auth_bot_create :: proc(c: ^Voice_Client, cmd: Bot_Create_Command) {
 		c,
 		.Bot_Create,
 		proto.encode_bot_create(buf[:], username, cmd.display, public, BOT_TOKEN_DEVICE),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			account, ok := proto.decode_account_id(body)
 			if status != .Ok || !ok {
 				bot_token_wipe(c)
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "account"))
 				return
 			}
 			publish_bot_token(c, account)
@@ -65,7 +56,7 @@ auth_bot_create :: proc(c: ^Voice_Client, cmd: Bot_Create_Command) {
 	)
 }
 
-auth_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
+auth_bot_token :: proc(c: ^Server_Conn, account: proto.Account_Id) {
 	public, made := new_token(c)
 	if !made {
 		return
@@ -75,10 +66,10 @@ auth_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
 		c,
 		.Bot_Token_Add,
 		proto.encode_bot_token_add(buf[:], account, public, BOT_TOKEN_DEVICE),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
 				bot_token_wipe(c)
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "account"))
 				return
 			}
 			publish_bot_token(c, proto.Account_Id(tag))
@@ -89,7 +80,7 @@ auth_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
 	)
 }
 
-auth_bot_token_forget :: proc(c: ^Voice_Client) {
+auth_bot_token_forget :: proc(c: ^Server_Conn) {
 	bot_token_wipe(c)
 	if v := c.view; v != nil {
 		view_write(v)
@@ -100,7 +91,7 @@ auth_bot_token_forget :: proc(c: ^Voice_Client) {
 // new_token creates a token and keeps it until the server has accepted its
 // public half. Only one token is kept at a time, so a new one replaces the old.
 @(private = "file")
-new_token :: proc(c: ^Voice_Client) -> (public: [proto.KEY_SIZE]u8, ok: bool) {
+new_token :: proc(c: ^Server_Conn) -> (public: [proto.KEY_SIZE]u8, ok: bool) {
 	bot_token_wipe(c)
 	c.auth.bot_token, public, ok = proto.bot_token_make()
 	if !ok {
@@ -110,7 +101,7 @@ new_token :: proc(c: ^Voice_Client) -> (public: [proto.KEY_SIZE]u8, ok: bool) {
 }
 
 // bot_token_wipe forgets a token that is waiting for the server's answer.
-bot_token_wipe :: proc(c: ^Voice_Client) {
+bot_token_wipe :: proc(c: ^Server_Conn) {
 	wipe_string(c.auth.bot_token)
 	delete(c.auth.bot_token)
 	c.auth.bot_token = ""
@@ -120,7 +111,7 @@ bot_token_wipe :: proc(c: ^Voice_Client) {
 // can be shown once. Without a UI it is written to the log, which is where the
 // command line client shows output.
 @(private = "file")
-publish_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
+publish_bot_token :: proc(c: ^Server_Conn, account: proto.Account_Id) {
 	defer bot_token_wipe(c)
 	v := c.view
 	if v == nil {
@@ -136,7 +127,7 @@ publish_bot_token :: proc(c: ^Voice_Client, account: proto.Account_Id) {
 
 // publish_other_devices hands the devices of another account to the UI.
 publish_other_devices :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	account: proto.Account_Id,
 	devices: []proto.Device,
 ) {

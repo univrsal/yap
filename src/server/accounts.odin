@@ -235,15 +235,17 @@ account_add :: proc(
 	}
 	secret := secret
 	now := unix_ms()
-	q := db_stmt(a.db, .Account_Add)
-	db_bind_text(q, 1, username)
-	db_bind_text(q, 2, display)
-	db_bind_blob(q, 3, secret.hash[:])
-	db_bind_blob(q, 4, secret.salt[:])
-	db_bind_int(q, 5, i64(secret.params))
-	db_bind_int(q, 6, i64(transmute(u8)flags))
-	db_bind_int(q, 7, now)
-	if !db_run(a.db, q) {
+	if !db_write(
+		a.db,
+		.Account_Add,
+		username,
+		display,
+		secret.hash[:],
+		secret.salt[:],
+		i64(secret.params),
+		i64(transmute(u8)flags),
+		now,
+	) {
 		return nil
 	}
 	acc := new(Account)
@@ -262,8 +264,7 @@ account_add :: proc(
 // account_secret fetches an account's stored password hash.
 @(require_results)
 account_secret :: proc(a: ^Accounts, acc: ^Account) -> (s: Secret, ok: bool) {
-	q := db_stmt(a.db, .Account_Secret)
-	db_bind_int(q, 1, i64(acc.id))
+	q := db_query(a.db, .Account_Secret, i64(acc.id))
 	row, stepped := db_step(a.db, q)
 	if !stepped || !row {
 		return
@@ -287,12 +288,14 @@ account_set_password :: proc(
 	must_change: bool,
 ) -> bool {
 	secret := secret
-	q := db_stmt(a.db, .Account_Set_Password)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_blob(q, 2, secret.hash[:])
-	db_bind_blob(q, 3, secret.salt[:])
-	db_bind_int(q, 4, i64(secret.params))
-	db_run(a.db, q) or_return
+	db_write(
+		a.db,
+		.Account_Set_Password,
+		i64(acc.id),
+		secret.hash[:],
+		secret.salt[:],
+		i64(secret.params),
+	) or_return
 	flags := acc.flags
 	if must_change {
 		flags += {.Must_Change}
@@ -307,10 +310,7 @@ account_set_flags :: proc(a: ^Accounts, acc: ^Account, flags: proto.Account_Flag
 	if flags == acc.flags {
 		return true
 	}
-	q := db_stmt(a.db, .Account_Set_Flags)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_int(q, 2, i64(transmute(u8)flags))
-	db_run(a.db, q) or_return
+	db_write(a.db, .Account_Set_Flags, i64(acc.id), i64(transmute(u8)flags)) or_return
 	acc.flags = flags
 	return true
 }
@@ -318,10 +318,7 @@ account_set_flags :: proc(a: ^Accounts, acc: ^Account, flags: proto.Account_Flag
 // account_set_display changes an account's display name. `display` must
 // be sanitized and not empty.
 account_set_display :: proc(a: ^Accounts, acc: ^Account, display: string) -> bool {
-	q := db_stmt(a.db, .Account_Set_Display)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_text(q, 2, display)
-	db_run(a.db, q) or_return
+	db_write(a.db, .Account_Set_Display, i64(acc.id), display) or_return
 	delete(acc.display)
 	acc.display = strings.clone(display)
 	return true
@@ -345,10 +342,7 @@ account_by_email :: proc(a: ^Accounts, email: string) -> ^Account {
 // it is "". The address must be cleaned, lower case and not used by
 // another account (see account_by_email).
 account_set_email :: proc(a: ^Accounts, acc: ^Account, email: string) -> bool {
-	q := db_stmt(a.db, .Account_Set_Email)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_text(q, 2, email)
-	db_run(a.db, q) or_return
+	db_write(a.db, .Account_Set_Email, i64(acc.id), email) or_return
 	delete(acc.email)
 	acc.email = strings.clone(email)
 	return true
@@ -363,12 +357,14 @@ account_set_verify :: proc(
 	code: string,
 	expires: i64,
 ) -> bool {
-	q := db_stmt(a.db, .Account_Set_Verify)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_int(q, 2, i64(transmute(u8)flags))
-	db_bind_text(q, 3, code)
-	db_bind_int(q, 4, expires)
-	db_run(a.db, q) or_return
+	db_write(
+		a.db,
+		.Account_Set_Verify,
+		i64(acc.id),
+		i64(transmute(u8)flags),
+		code,
+		expires,
+	) or_return
 	acc.flags = flags
 	delete(acc.verify_code)
 	acc.verify_code = strings.clone(code)
@@ -379,10 +375,7 @@ account_set_verify :: proc(
 // account_seen records that an account was just seen.
 account_seen :: proc(a: ^Accounts, acc: ^Account) {
 	acc.last_seen = unix_ms()
-	q := db_stmt(a.db, .Account_Set_Seen)
-	db_bind_int(q, 1, i64(acc.id))
-	db_bind_int(q, 2, acc.last_seen)
-	_ = db_run(a.db, q)
+	_ = db_write(a.db, .Account_Set_Seen, i64(acc.id), acc.last_seen)
 }
 
 // device_of returns the device with this key if it is logged in to an
@@ -404,13 +397,7 @@ device_link :: proc(
 ) -> ^Device {
 	key := key
 	now := unix_ms()
-	q := db_stmt(a.db, .Device_Put)
-	db_bind_blob(q, 1, key[:])
-	db_bind_int(q, 2, i64(acc.id))
-	db_bind_text(q, 3, name)
-	db_bind_int(q, 4, now)
-	db_bind_text(q, 5, agent)
-	if !db_run(a.db, q) {
+	if !db_write(a.db, .Device_Put, key[:], i64(acc.id), name, now, agent) {
 		return nil
 	}
 	d := a.devices[key] or_else nil
@@ -435,9 +422,7 @@ device_unlink :: proc(a: ^Accounts, key: [proto.KEY_SIZE]u8) -> bool {
 	if d == nil {
 		return false
 	}
-	q := db_stmt(a.db, .Device_Delete)
-	db_bind_blob(q, 1, key[:])
-	db_run(a.db, q) or_return
+	db_write(a.db, .Device_Delete, key[:]) or_return
 	delete_key(&a.devices, key)
 	delete(d.name)
 	delete(d.agent)
@@ -449,10 +434,7 @@ device_unlink :: proc(a: ^Accounts, key: [proto.KEY_SIZE]u8) -> bool {
 device_seen :: proc(a: ^Accounts, d: ^Device) {
 	key := d.key
 	d.last_seen = unix_ms()
-	q := db_stmt(a.db, .Device_Set_Seen)
-	db_bind_blob(q, 1, key[:])
-	db_bind_int(q, 2, d.last_seen)
-	_ = db_run(a.db, q)
+	_ = db_write(a.db, .Device_Set_Seen, key[:], d.last_seen)
 }
 
 // devices_of returns an account's devices, oldest first, allocated with

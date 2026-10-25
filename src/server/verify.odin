@@ -6,9 +6,10 @@ import "core:strings"
 import "core:time"
 
 import "common:proto"
+import "mail"
 
 // Verification of the email addresses of accounts (see proto/verify.odin).
-// It uses the server's mailbox (see email.odin) and is active when the
+// It uses the server's mailbox (see mail/mail.odin) and is active when the
 // registration config has verify_email set.
 //
 // An account is Unverified from the moment it registers until an email
@@ -101,8 +102,8 @@ account_verified :: proc(s: ^Server, acc: ^Account) -> bool {
 // are only logged and are left in the mailbox.
 verify_sync :: proc(s: ^Server) {
 	for {
-		m := email_poll(&s.email) or_break
-		defer mail_destroy(&m)
+		m := mail.poll(&s.email) or_break
+		defer mail.message_destroy(&m)
 		if !s.registration.verify_email {
 			log.debugf("mail %d from %q: %q", m.uid, m.from, m.subject)
 			continue
@@ -136,7 +137,7 @@ verify_sync :: proc(s: ^Server) {
 		case:
 			account_verified(s, acc)
 		}
-		email_delete(&s.email, m.uid)
+		mail.delete_mail(&s.email, m.uid)
 	}
 	verify_expire(s)
 }

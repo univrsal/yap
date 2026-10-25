@@ -40,7 +40,7 @@ encode_msg_search :: proc(out: ^[MSG_SEARCH_MAX_SIZE]u8, s: Msg_Search) -> []u8 
 	put_u64(&w, u64(s.before))
 	put_u8(&w, u8(clamp(s.limit, 1, MAX_SEARCH_LIMIT)))
 	put_str8(&w, s.query[:min(len(s.query), MAX_SEARCH_QUERY)])
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 // encode_search_answer writes a Msg_Search answer, which consists of how far

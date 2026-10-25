@@ -3,7 +3,6 @@ package hotkeys
 
 import "core:c"
 import "core:dynlib"
-import "core:os"
 
 // OpenBSD has no evdev devices to read, so X11's XQueryKeymap is used. It
 // reports the X server's view of the keyboard, regardless of which window
@@ -158,35 +157,27 @@ Xkb_Names :: struct {
 }
 
 Backend :: struct {
-	lib:          dynlib.Library,
-	display:      rawptr,
-	query_keymap: proc "c" (display: rawptr, keys: ^[32]u8) -> i32,
-	close:        proc "c" (display: rawptr) -> i32,
+	x11:       X11,
 	// The keycode at each position, or 0 where the keyboard has no such key.
-	key_codes:    [Key]u8,
-	mod_codes:    [Mod][2]u8,
+	key_codes: [Key]u8,
+	mod_codes: [Mod][2]u8,
 }
 
 backend_open :: proc(b: ^Backend) -> (Status, string) {
-	if !x11_open(b) {
+	if !keyboard_open(b) {
 		return .Unavailable, "No X11 display available."
 	}
 	return .Ok, "Using X11."
 }
 
 backend_close :: proc(b: ^Backend) {
-	if b.display != nil {
-		b.close(b.display)
-	}
-	if b.lib != nil {
-		dynlib.unload_library(b.lib)
-	}
+	x11_close(&b.x11)
 	b^ = {}
 }
 
 backend_poll :: proc(b: ^Backend, s: ^State, wanted: Keys) {
 	keymap: [32]u8
-	if b.display == nil || b.query_keymap(b.display, &keymap) == 0 {
+	if !x11_keymap(&b.x11, &keymap) {
 		return
 	}
 	down :: proc(keymap: ^[32]u8, code: u8) -> bool {
@@ -206,42 +197,28 @@ backend_poll :: proc(b: ^Backend, s: ^State, wanted: Keys) {
 
 // Unlike keyboards on Linux, nothing appears or disappears on X11.
 backend_status :: proc(b: ^Backend) -> (Status, string, bool) {
-	if b.display == nil {
+	if b.x11.display == nil {
 		return .Unavailable, "No X11 display available.", false
 	}
 	return .Ok, "Using X11.", false
 }
 
+// keyboard_open opens X11 and finds where each key is.
 @(private = "file")
-x11_open :: proc(b: ^Backend) -> bool {
-	if os.get_env("DISPLAY", context.temp_allocator) == "" {
-		return false
-	}
+keyboard_open :: proc(b: ^Backend) -> bool {
 	// OpenBSD uses a different versioning scheme for libX11 (libX11.so.19.0),
 	// but its loader finds the newest version for the bare name.
-	lib, ok := dynlib.load_library("libX11.so")
-	if !ok {
+	if !x11_open(&b.x11, "libX11.so") {
 		return false
 	}
-	open_display, open_ok := dynlib.symbol_address(lib, "XOpenDisplay")
-	query, query_ok := dynlib.symbol_address(lib, "XQueryKeymap")
-	close_display, close_ok := dynlib.symbol_address(lib, "XCloseDisplay")
-	get_map, map_ok := dynlib.symbol_address(lib, "XkbGetMap")
-	get_names, names_ok := dynlib.symbol_address(lib, "XkbGetNames")
-	free_keyboard, free_ok := dynlib.symbol_address(lib, "XkbFreeKeyboard")
-	if !open_ok || !query_ok || !close_ok || !map_ok || !names_ok || !free_ok {
-		dynlib.unload_library(lib)
+	display := b.x11.display
+	get_map, map_ok := dynlib.symbol_address(b.x11.lib, "XkbGetMap")
+	get_names, names_ok := dynlib.symbol_address(b.x11.lib, "XkbGetNames")
+	free_keyboard, free_ok := dynlib.symbol_address(b.x11.lib, "XkbFreeKeyboard")
+	if !map_ok || !names_ok || !free_ok {
+		backend_close(b)
 		return false
 	}
-	display := (proc "c" (name: cstring) -> rawptr)(open_display)(nil)
-	if display == nil {
-		dynlib.unload_library(lib)
-		return false
-	}
-	b.lib = lib
-	b.display = display
-	b.query_keymap = auto_cast query
-	b.close = auto_cast close_display
 
 	// Find where each key is using the keyboard's key names: first get a
 	// description of the core keyboard (for its range of keycodes), then its

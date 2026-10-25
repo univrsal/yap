@@ -2,7 +2,6 @@ package server
 
 import "core:crypto"
 import "core:crypto/ecdh"
-import "core:crypto/hash"
 import "core:encoding/endian"
 import "core:fmt"
 import "core:log"
@@ -12,6 +11,9 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "gate"
+import "mail"
+import "webpush"
 
 // The default maximum number of sessions, unless the config sets one
 // (max_sessions). It limits how much memory the sessions use, and with
@@ -24,37 +26,14 @@ DEFAULT_MAX_SESSIONS :: 512
 // on one of its links (proto.Link). A connection normally has one session
 // per link, and briefly more while rekeying.
 Client :: struct {
-	using session: proto.Session,
-	handshake:     proto.Responder, // in use until keyed
-	conn:          ^Conn, // set once keyed
+	using base: Session_Base,
+	conn:       ^Conn, // set once keyed
 	// Whether this session is the connection's bulk link (proto.Link).
 	// Heavy messages to the client are sent on it (see send_message).
 	// Only the main link's sessions count towards keeping a connection
 	// alive.
-	bulk:          bool,
-	endpoint:      net.Endpoint,
-	started:       time.Tick, // when the Handshake_Init arrived
-	last_recv:     time.Tick,
-
-	// Handshake_Finish was verified: the client proved it holds its key.
-	keyed:         bool,
-	// The client has sent Data on this session, so it has switched over
-	// to it and any older sessions with the same key can be dropped.
-	confirmed:     bool,
-	// A newer session with the same client key exists. This one is still
-	// accepted for receiving (packets may still be in flight), but never
-	// used for sending.
-	superseded:    bool,
-	// When the Welcome was last sent again for a resent Handshake_Finish.
-	rewelcomed:    time.Tick,
+	bulk:       bool,
 }
-
-// How often a keyed session answers a resent Handshake_Finish with another
-// Welcome at most. The Finish isn't checked again, so anyone who knows the
-// session's index could otherwise make the server send Welcomes as fast as
-// they send Finishes.
-@(private = "file")
-REWELCOME_EVERY :: 500 * time.Millisecond
 
 // Conn is a connection: one client, identified by its device's static key,
 // which lives for as long as it has a session. (Not to be confused with a
@@ -81,7 +60,7 @@ Conn :: struct {
 	// a time.
 	auth_busy:       bool,
 	// Identify the client's connection and our side of it: see the hello and
-	// Welcome in proto/names.odin. A handshake with the same conn_id is a
+	// Welcome in proto/hello.odin. A handshake with the same conn_id is a
 	// rekey; one with a different conn_id means the client has started over.
 	conn_id:         u64,
 	instance:        u64,
@@ -101,8 +80,7 @@ Conn :: struct {
 	last_state_sent: time.Tick,
 	last_typing:     time.Tick, // see handle_typing
 	// How many requests it may still make (request_take in rpc.odin).
-	request_tokens:  f32,
-	request_last:    time.Tick,
+	requests:        proto.Bucket, // see request_take
 	request_warned:  bool, // that it's over the limit, until it's not
 	upload:          Upload, // a blob on its way in (transfers.odin)
 	download:        Download, // a blob on its way out
@@ -130,7 +108,7 @@ Server :: struct {
 	// Only for tests, which make requests much faster than any client
 	// (request_take).
 	requests_unlimited: bool,
-	gate:               Handshake_Gate, // which Inits may start a session
+	gate:               gate.Gate, // which Inits may start a session
 	// The connections that are logged in, and those that aren't yet, keyed
 	// by their device's key (see Conn).
 	conns:              map[[proto.KEY_SIZE]byte]^Conn,
@@ -168,19 +146,19 @@ Server :: struct {
 	// iterations take (loop_stats.odin).
 	handling:           proto.Message_Kind,
 	loop:               Loop_Stats,
-	// The server's own email account, if it has one (email.odin).
-	email:              Email,
+	// The server's own email account, if it has one (mail/mail.odin).
+	email:              mail.Mailer,
 	// Who is allowed to register, and how quickly registrations are
 	// accepted (register.odin).
 	registration:       Registration_Config,
-	register_rate:      Register_Rate,
+	register_rate:      proto.Bucket,
 	// Deleting registrations whose email addresses weren't verified
 	// (verify.odin).
 	verify:             Verify_State,
 	// Emailing accounts a digest of what they missed (digest.odin).
 	digest:             Digest_State,
-	// Sends notifications to browsers through their push services (push.odin).
-	push:               Push,
+	// Sends notifications to browsers through their push services (webpush/webpush.odin).
+	push:               webpush.Pusher,
 	// Screen sharing's own port and thread (media.odin).
 	media:              Media,
 }
@@ -231,7 +209,7 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 	defer convs_destroy(&s.convs)
 	defer calls_destroy(&s)
-	defer gate_destroy(&s.gate)
+	defer gate.destroy(&s.gate)
 	db_commit(&s.db)
 	if !hash_worker_start(&s.hasher) {
 		log.error("could not start the thread that hashes passwords")
@@ -239,10 +217,10 @@ run_server :: proc(settings: Settings, initial_admin_password := "") -> bool {
 	}
 	defer hash_worker_stop(&s.hasher)
 	defer auth_destroy(&s.auth)
-	email_open(&s.email, settings.email)
-	defer email_close(&s.email)
-	push_open(&s.push, settings.push)
-	defer push_close(&s.push)
+	mail.open(&s.email, settings.email)
+	defer mail.close(&s.email)
+	webpush.open(&s.push, settings.push)
+	defer webpush.close(&s.push)
 	memory_log_open(&s, settings.memory_log)
 	loop_stats_open(&s)
 	if s.registration.verify_email && !s.email.enabled {
@@ -413,53 +391,7 @@ handle_packet :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 }
 
 handle_init :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
-	sender_idx := proto.init_sender_index(packet)
-	// This comes first so that a flood of Inits is turned away cheaply.
-	verdict, cookie := gate_check(&s.gate, packet, from, len(s.sessions), s.max_sessions)
-	if verdict == .Cookie {
-		buf: [proto.COOKIE_PACKET_SIZE]byte
-		net.send_udp(s.sock, proto.encode_cookie_packet(&buf, sender_idx, cookie), from)
-		return
-	}
-
-	// A retransmitted Init (because our Resp got lost) gets the same Resp
-	// again rather than starting a second handshake.
-	for _, c in s.sessions {
-		if !c.keyed && c.handshake.remote_idx == sender_idx && c.endpoint == from {
-			net.send_udp(s.sock, c.handshake.packet[:], from)
-			return
-		}
-	}
-	if verdict != .Accept {
-		return
-	}
-
-	idx: proto.Session_Id
-	for {
-		idx = proto.random_index()
-		if idx not_in s.sessions {
-			break
-		}
-	}
-
-	c := new(Client)
-	resp, ok := proto.responder_start(&c.handshake, &s.key, packet, idx)
-	if !ok {
-		free(c)
-		return
-	}
-	c.endpoint = from
-	c.started = time.tick_now()
-	s.sessions[idx] = c
-	gate_opened(&s.gate, from)
-	net.send_udp(s.sock, resp, from)
-}
-
-// session_keyed marks a session whose handshake has just finished.
-@(private = "file")
-session_keyed :: proc(s: ^Server, c: ^Client) {
-	gate_closed(&s.gate, c.endpoint)
-	c.keyed = true
+	session_init(s.sock, &s.key, &s.gate, &s.sessions, s.max_sessions, packet, from)
 }
 
 handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
@@ -472,32 +404,23 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		// Our Welcome got lost and the client resent Finish. Welcome it
 		// again, at the address we know rather than the (unauthenticated)
 		// source of this packet.
-		now := time.tick_now()
-		if c.rewelcomed == {} || time.tick_diff(c.rewelcomed, now) >= REWELCOME_EVERY {
-			c.rewelcomed = now
+		if session_rewelcome_due(c) {
 			send_welcome(s, c)
 		}
 		return
 	}
 
-	// On failure the handshake state is used up, so the session is dropped
-	// too. The client will time out and start a fresh handshake.
-	payload, ok := proto.responder_finish(&c.handshake, packet, &c.session)
-	if !ok {
+	conn_id, link, result := session_finish(c, &s.gate, s.password, packet, from)
+	switch result {
+	case .Ok:
+	case .Invalid:
 		log.debugf("invalid handshake finish from %v", net.to_string(from))
 		drop_session(s, idx)
 		return
-	}
-	// The msg3 payload is the client's hello: which of its connections this
-	// is, which of the connection's links this session is for, and the
-	// server password.
-	conn_id, hello_password, link, hello_ok := proto.decode_hello(payload)
-	switch {
-	case !hello_ok:
+	case .Version:
 		refuse(s, c, from, .Version)
 		return
-	case s.password != "" && !password_matches(s.password, hello_password):
-		gate_wrong_password(&s.gate, from)
+	case .Wrong_Password:
 		refuse(s, c, from, .Wrong_Password)
 		return
 	}
@@ -508,9 +431,7 @@ handle_finish :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 		return
 	}
 
-	session_keyed(s, c)
-	c.endpoint = from
-	c.last_recv = time.tick_now()
+	session_keyed(c, &s.gate, from)
 
 	if u != nil && u.conn_id != conn_id && conn_in_use(s, u, from) {
 		// A second client with the same key, while the first one is still
@@ -572,10 +493,8 @@ bind_bulk :: proc(s: ^Server, c: ^Client, u: ^Conn, conn_id: u64, from: net.Endp
 		refuse(s, c, from, .No_Connection)
 		return
 	}
-	session_keyed(s, c)
+	session_keyed(c, &s.gate, from)
 	c.bulk = true
-	c.endpoint = from
-	c.last_recv = time.tick_now()
 	c.conn = u
 	supersede(s, c)
 	log.debugf("%s has a new bulk link", conn_label(u))
@@ -737,7 +656,7 @@ conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
 WELCOME_COPIES :: 3
 
 // send_welcome tells a client whose hello was accepted which connection
-// its new session belongs to (see proto/names.odin).
+// its new session belongs to (see proto/hello.odin).
 @(private = "file")
 send_welcome :: proc(s: ^Server, c: ^Client) {
 	buf: [proto.WELCOME_SIZE]u8
@@ -747,63 +666,28 @@ send_welcome :: proc(s: ^Server, c: ^Client) {
 	}
 }
 
-// How many copies of Refused are sent, since it's sent unreliably (like
-// Leave).
-@(private = "file")
-REFUSED_COPIES :: 3
-
 // refuse tells a client that just finished its handshake why it can't join,
 // using the session created by that handshake, and then drops the session.
 // The client never gets a connection, so nobody else ever hears about it.
 @(private = "file")
 refuse :: proc(s: ^Server, c: ^Client, from: net.Endpoint, reason: proto.Refusal) {
 	log.infof("refused %08x from %v: %v", common.key_id(c.peer_key), net.to_string(from), reason)
-	msg_buf: [proto.REFUSED_SIZE]byte
-	msg := proto.encode_refused(&msg_buf, reason)
-	pkt_buf: [proto.MAX_PACKET_SIZE]byte
-	for _ in 0 ..< REFUSED_COPIES {
-		if pkt, ok := proto.seal(&c.session, msg, pkt_buf[:]); ok {
-			net.send_udp(s.sock, pkt, from)
-		}
-	}
+	session_refuse(s.sock, c, from, reason)
 	drop_session(s, c.local_idx)
-}
-
-// password_matches compares the hashes of both passwords, so the time it
-// takes reveals nothing about the password, not even its length.
-password_matches :: proc(want, got: string) -> bool {
-	a := hash.hash_string(.SHA256, want, context.temp_allocator)
-	b := hash.hash_string(.SHA256, got, context.temp_allocator)
-	return crypto.compare_constant_time(a, b) == 1
 }
 
 handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	c := s.sessions[proto.receiver_index(packet)] or_else nil
-	if c == nil || !c.keyed || time.tick_since(c.created) > proto.REJECT_AFTER {
+	if c == nil || !c.keyed {
 		return
 	}
 
 	pt_buf: [proto.MAX_PACKET_SIZE]byte
-	pt, ok := proto.open(&c.session, packet, pt_buf[:])
+	pt, ok := session_receive(c, packet, from, pt_buf[:], follow = c.conn.account != nil)
 	if !ok {
 		return
 	}
-
-	// The packet is authenticated, so it's safe to follow the client to a
-	// new address. Not before the client has logged in, though: the
-	// handshake can be made by anyone (who knows the server password), and
-	// packets with the source address of somebody else would make the
-	// server send its answers there.
-	if from != c.endpoint {
-		if c.conn.account == nil {
-			return
-		}
-		c.endpoint = from
-	}
-	c.last_recv = time.tick_now()
-
-	if !c.confirmed && !c.superseded {
-		c.confirmed = true
+	if session_confirm(c) {
 		retire_superseded(s, c)
 	}
 
@@ -870,27 +754,6 @@ handle_data :: proc(s: ^Server, packet: []byte, from: net.Endpoint) {
 	// Server-to-client only.
 	case .Video, .Watch, .Nack, .Report:
 	// Screen sharing only uses the media link (media.odin).
-	case .Set_Name,
-	     .Join,
-	     .Chat_Send,
-	     .Chat_Sent,
-	     .Chat,
-	     .Chat_Received,
-	     .Image_Send,
-	     .Image_Get,
-	     .Image_Gone,
-	     .DM_Send,
-	     .DM_Sent,
-	     .DM,
-	     .DM_Ack,
-	     .DM_Delivered,
-	     .DM_Typing,
-	     .DM_Image_Send,
-	     .DM_Image_Get,
-	     .DM_Image_Gone,
-	     .Last_Seen_Get,
-	     .Last_Seen:
-	// No longer used.
 	case .Stream:
 		handle_stream(s, c.conn, pt)
 	case .Stream_Ack:
@@ -1174,16 +1037,7 @@ reap_sessions :: proc(s: ^Server) {
 	drop_departed_browsers(s)
 	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, c in s.sessions {
-		expired: bool
-		switch {
-		case !c.keyed:
-			expired = time.tick_since(c.started) > proto.HANDSHAKE_TIMEOUT
-		case:
-			expired =
-				time.tick_since(c.last_recv) > proto.SESSION_TIMEOUT ||
-				time.tick_since(c.created) > proto.REJECT_AFTER
-		}
-		if expired {
+		if session_expired(c) {
 			append(&stale, idx)
 		}
 	}
@@ -1200,9 +1054,7 @@ drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
 		return
 	}
 	delete_key(&s.sessions, idx)
-	if !c.keyed {
-		gate_closed(&s.gate, c.endpoint)
-	}
+	session_release(&s.gate, c)
 
 	if u := c.conn; u != nil && !c.bulk {
 		u.sessions -= 1
@@ -1228,7 +1080,5 @@ drop_session :: proc(s: ^Server, idx: proto.Session_Id) {
 		}
 	}
 
-	proto.responder_reset(&c.handshake)
-	proto.session_reset(&c.session)
 	free(c)
 }

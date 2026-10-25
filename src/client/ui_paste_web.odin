@@ -12,7 +12,7 @@ import mu "vendor:microui"
 // inside the paste event that the user caused, so the page does the whole job
 // there (web/paste.js). It decodes the picture, scales it to fit
 // MAX_IMAGE_SIDE and compresses it to a WebP within MAX_IMAGE_BYTES (what
-// image.odin does on desktop) and keeps the result as a file (web/files.js).
+// imaging/image.odin does on desktop) and keeps the result as a file (web/files.js).
 // web_file_pasted then attaches that file to the message being written, as a
 // desktop paste does. Nothing is read from here, so the calls below are empty.
 //

@@ -1,17 +1,15 @@
 package yap_gateway
 
-import "core:encoding/hex"
 import "core:flags"
 import "core:fmt"
 import "core:log"
 import "core:net"
 import "core:os"
-import "core:thread"
 
 import "common:."
-import "common:gateway"
-import "common:http"
 import "common:proto"
+import "lib:gateway"
+import "lib:http"
 
 // yap-gateway runs the bot API (docs/bot-api) as a standalone program. It
 // works with any yap server, even one that doesn't enable the API itself, so a
@@ -21,7 +19,7 @@ import "common:proto"
 //
 // It isn't part of build.sh:
 //
-//	odin build src/gateway -collection:common=src/common -out:bin/yap-gateway
+//	odin build src/gateway -collection:common=src/common -collection:lib=src/lib -out:bin/yap-gateway
 //	bin/yap-gateway -server:chat.example.org:7777 -server-key:<64 hex digits>
 //
 // The server's key is printed in its log on startup ("server public key").
@@ -41,6 +39,12 @@ Options :: struct {
 	behind_proxy:    bool `usage:"set when running behind a TLS reverse proxy; its X-Forwarded-Proto header tells whether a request came over HTTPS"`,
 	trusted_proxy:   string `usage:"with -behind-proxy, the proxy's IP address: only its X-Forwarded-Proto is believed (default: this machine and private networks)"`,
 }
+
+// At most this many HTTP connections at once, each a thread, and this many
+// from one address (this machine and private networks, where a reverse
+// proxy is, aren't limited), as in the server's relay.
+MAX_CONNECTIONS :: 256
+MAX_CONNECTIONS_PER_ADDRESS :: 32
 
 main :: proc() {
 	logger, logger_ok := common.init_logging(.info)
@@ -77,22 +81,22 @@ main :: proc() {
 			os.exit(2)
 		}
 	}
-	server, server_ok := resolve(opt.server, proto.DEFAULT_PORT)
+	server, server_ok := common.resolve_endpoint(opt.server, proto.DEFAULT_PORT)
 	if !server_ok {
 		os.exit(2)
 	}
 	cfg.server = server
 	if opt.server_key != "" {
-		key, key_ok := hex.decode(transmute([]u8)opt.server_key, context.temp_allocator)
-		if !key_ok || len(key) != proto.KEY_SIZE {
+		key, key_ok := common.parse_key_hex(opt.server_key)
+		if !key_ok {
 			fmt.eprintln("-server-key must be the server's public key as 64 hex digits")
 			os.exit(2)
 		}
-		copy(cfg.server_key[:], key)
+		cfg.server_key = key
 	} else {
 		log.warn("no -server-key given, so any server key will be accepted")
 	}
-	listen, listen_ok := resolve(opt.listen, 8080)
+	listen, listen_ok := common.resolve_endpoint(opt.listen, 8080)
 	if !listen_ok {
 		os.exit(2)
 	}
@@ -107,40 +111,10 @@ main :: proc() {
 		net.to_string(server),
 		net.to_string(listen),
 	)
-	for {
-		free_all(context.temp_allocator)
-		sock, from, accept_err := net.accept_tcp(listener)
-		if accept_err != nil {
-			log.warnf("accept failed: %v", accept_err)
-			continue
-		}
-		c := new(http.Conn)
-		c.sock, c.remote = sock, from
-		thread.create_and_start_with_poly_data2(
-			g,
-			c,
-			gateway.serve_connection,
-			init_context = context,
-			self_cleanup = true,
-		)
+	limit := http.Conn_Limit {
+		max         = MAX_CONNECTIONS,
+		per_address = MAX_CONNECTIONS_PER_ADDRESS,
+		exempt      = gateway.address_private,
 	}
-}
-
-// resolve parses host:port into an endpoint, using `port` if the address
-// doesn't specify one.
-resolve :: proc(address: string, port: int) -> (ep: net.Endpoint, ok: bool) {
-	if parsed, parsed_ok := net.parse_endpoint(address); parsed_ok {
-		ep = parsed
-	} else {
-		resolved, err := net.resolve_ip4(address)
-		if err != nil {
-			log.errorf("can't find %s: %v", address, err)
-			return
-		}
-		ep = resolved
-	}
-	if ep.port == 0 {
-		ep.port = port
-	}
-	return ep, true
+	http.accept_loop(listener, &limit, g, gateway.serve_connection)
 }

@@ -11,8 +11,10 @@ import mu "vendor:microui"
 import "client:conn"
 import "client:platform"
 import "client:render"
+import "client:richtext"
 import glfw "client:wglfw"
 import "common:proto"
+
 
 // The right-hand side of the session screen: the channel's text chat, or
 // the log (opened from the header, see ui.odin) or, while watching somebody's
@@ -166,7 +168,7 @@ read_only_height :: proc(ctx: ^mu.Context) -> i32 {
 read_only_line :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, read_only_height(ctx))
-	with_text_color(ctx, theme.dim, "You can't write in this channel.", label_proc)
+	dim_label(ctx, "You can't write in this channel.")
 }
 
 // side_tabs_shown says whether the chat has tabs beside it: while there is a
@@ -362,8 +364,8 @@ chat_preview :: proc(ui: ^UI, c: Composer) {
 	} else {
 		text = message_rich(
 			ui,
-			conn.emoji_encode(
-				conn.mentions_encode(typed, v.accounts, v.roles[:]),
+			richtext.emoji_encode(
+				richtext.mentions_encode(typed, v.accounts, v.roles[:]),
 				v.emoji.names[:],
 			),
 		)
@@ -401,56 +403,64 @@ chat_text_area :: proc(ui: ^UI, c: Composer) -> mu.Result_Set {
 	return text_area(ui, c.buf, c.len, c.area)
 }
 
-// tab_button is a stable_button that is drawn pressed while its tab is shown.
-tab_button :: proc(ctx: ^mu.Context, id_name, label: string, active: bool) -> mu.Result_Set {
-	if !active {
-		return stable_button(ctx, id_name, label)
-	}
-	// In the accent color, with its label bold, so that the shown tab can be
-	// recognized at a glance.
-	saved := ctx.style.colors
-	saved_font := ctx.style.font
-	ctx.style.colors[.BUTTON] = theme.accent
-	ctx.style.colors[.BUTTON_HOVER] = theme.accent_hover
-	ctx.style.colors[.BUTTON_FOCUS] = theme.accent_hover
-	ctx.style.colors[.TEXT] = theme.accent_text
-	ctx.style.font = render.font_with_style(saved_font, .Bold)
-	defer ctx.style.colors = saved
-	defer ctx.style.font = saved_font
-	return stable_button(ctx, id_name, label)
-}
-
 @(private = "file")
 chat_input :: proc(ui: ^UI) {
+	composer_bar(
+		ui,
+		composer_of(ui, 0),
+		{send_id = "send", verb = "Send", typing = conn.Typing_Command{}},
+	)
+}
+
+// Composer_Bar is what differs between the composer rows of a channel, a
+// thread and a DM (composer_bar).
+Composer_Bar :: struct {
+	send_id: string, // the send button's id
+	verb:    string, // what Enter does with a new message ("Send", "Reply")
+	// Sent when the text changes, to show that we're typing; nil for nothing.
+	typing:  Maybe(conn.Typing_Command),
+	// One more button before the send button, with `data` (a DM's file button).
+	extra:   proc(ui: ^UI, data: rawptr),
+	data:    rawptr,
+	dm_to:   proto.Account_Id, // who a DM's message is for
+}
+
+// composer_bar is the row a message is written in: the box, then the buttons
+// for files, emoji, the preview, `bar.extra` and sending.
+composer_bar :: proc(ui: ^UI, c: Composer, bar: Composer_Bar) {
 	ctx := &ui.ctx
-	composer := composer_of(ui, 0)
-	input_h := composer_height(ui, composer)
-	composer_row(ui, input_h)
-	composer_input(ui, composer)
-	res, box, box_rect := composer_box(ui, composer)
-	completion_update(ui, composer)
-	if .CHANGE in res && ui.chat.len > 0 && ui.session != nil && ui.chat.editing == 0 {
-		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
+	composer_row(ui, composer_height(ui, c))
+	composer_input(ui, c)
+	res, box, box_rect := composer_box(ui, c)
+	completion_update(ui, c)
+	if typing, ok := bar.typing.?;
+	   ok && .CHANGE in res && c.len^ > 0 && ui.session != nil && c.editing^ == 0 {
+		command(ui, typing)
 	}
 	send := .SUBMIT in res
-	composer_buttons(ui, box_rect, 4)
-	attach_button(ui, composer)
-	emoji_button(ui, composer)
-	preview_button(ui, composer)
-	if composer_send_button(ui, composer, "send", "Save" if ui.chat.editing != 0 else "Send") {
+	composer_buttons(ui, box_rect, 5 if bar.extra != nil else 4)
+	attach_button(ui, c)
+	emoji_button(ui, c)
+	preview_button(ui, c)
+	if bar.extra != nil {
+		bar.extra(ui, bar.data)
+	}
+	verb := "Save" if c.editing^ != 0 else bar.verb
+	hint := fmt.tprintf("Enter: %s\nCtrl+Enter: New line", verb)
+	if composer_send_button(ui, c, bar.send_id, hint) {
 		send = true
 	}
 	composer_buttons_end(ui)
 	if !send {
 		return
 	}
-	// Enter takes the focus away from the box, so keep typing instead.
+	// Enter takes the focus away from the box, so give it back to keep typing.
 	mu.set_focus(ctx, box)
-	composer_send(ui, composer)
+	composer_send(ui, c, bar.dm_to)
 }
 
-// How long a notice (see conn.notify) shows in the line over a conversation.
-@(private = "file")
+// How long a notice (see conn.notify, and a DM's own) shows in the line over a
+// conversation.
 NOTICE_SHOW :: 5 * time.Second
 
 // chat_status is what the channel's header says at its right end (see
@@ -476,42 +486,6 @@ chat_status :: proc(ui: ^UI) -> (status: string, color: mu.Color) {
 		)
 	}
 	return
-}
-
-// header_line draws a conversation's header in `r`, on one line: `name`, then
-// `more` (a channel's topic) dimmed, and `status` (who is typing, or that a
-// message is being edited) at the right end. `more` gives way to `status`
-// where both don't fit, and `status` to the name.
-header_line :: proc(
-	ctx: ^mu.Context,
-	r: mu.Rect,
-	name: string,
-	name_color: mu.Color,
-	more: string,
-	status: string,
-	status_color: mu.Color,
-) {
-	GAP :: 12
-	font := ctx.style.font
-	y := r.y + (r.h - ctx.text_height(font)) / 2
-	x := r.x + ctx.style.padding
-	mu.push_clip_rect(ctx, r)
-	defer mu.pop_clip_rect(ctx)
-	if name != "" {
-		mu.draw_text(ctx, font, name, {x, y}, name_color)
-		x += ctx.text_width(font, name) + GAP
-	}
-	end := r.x + r.w - ctx.style.padding
-	if status != "" {
-		sx := max(end - ctx.text_width(font, status), x)
-		mu.draw_text(ctx, font, status, {sx, y}, status_color)
-		end = sx - GAP
-	}
-	if more != "" && end > x {
-		mu.push_clip_rect(ctx, {x, r.y, end - x, r.h})
-		mu.draw_text(ctx, font, more, {x, y}, theme.dim)
-		mu.pop_clip_rect(ctx)
-	}
 }
 
 // fresh_notice is the notice the network side gave last, if it was

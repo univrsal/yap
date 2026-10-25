@@ -7,9 +7,9 @@ import "core:time"
 
 import "common:proto"
 
-// Tests of attachments, on the Test_Server of auth_test.odin.
+// Tests of attachments, on the Test_Server of harness_test.odin.
 
-// The messages the server sent to each connection (attach_test_sent),
+// The messages the server sent to each connection (Attachments.test_sent),
 // oldest first.
 @(thread_local, private = "file")
 sent: map[^Conn][dynamic][]u8
@@ -208,8 +208,7 @@ fetch :: proc(
 
 @(test)
 test_attachments :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -218,8 +217,7 @@ test_attachments :: proc(t: ^testing.T) {
 	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
 	attachments_open(s, {max_megabytes = 4, rate_kb = 1024 * 1024})
 	defer attachments_close(s)
-	attach_test_sent = record_sent
-	defer attach_test_sent = nil
+	s.attach.test_sent = record_sent
 	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")
@@ -373,8 +371,7 @@ test_attachments :: proc(t: ^testing.T) {
 // file. A finished upload stays so it can still be posted.
 @(test)
 test_attachments_conn_gone :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -383,8 +380,7 @@ test_attachments_conn_gone :: proc(t: ^testing.T) {
 	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
 	attachments_open(s, {max_megabytes = 1, rate_kb = 1024})
 	defer attachments_close(s)
-	attach_test_sent = record_sent
-	defer attach_test_sent = nil
+	s.attach.test_sent = record_sent
 	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")
@@ -423,8 +419,7 @@ test_attachments_conn_gone :: proc(t: ^testing.T) {
 // day, counting what its uploads in progress will still send.
 @(test)
 test_attachments_quota :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -433,8 +428,7 @@ test_attachments_quota :: proc(t: ^testing.T) {
 	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
 	attachments_open(s, {max_megabytes = 4, rate_kb = 1024, daily_megabytes = 3})
 	defer attachments_close(s)
-	attach_test_sent = record_sent
-	defer attach_test_sent = nil
+	s.attach.test_sent = record_sent
 	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")
@@ -472,7 +466,7 @@ test_attachments_quota :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 
 	// A second later the rest arrives.
-	up.paced_at = time.tick_add(up.paced_at, -time.Second)
+	up.pace.last = time.tick_add(up.pace.last, -time.Second)
 	send_all(s, alice, id, data)
 	testing.expect(t, up.blob != 0)
 	status, _ = put(t, &ts, alice, MIB / 2, "too much.zip")
@@ -491,8 +485,7 @@ test_attachments_quota :: proc(t: ^testing.T) {
 // much space. The messages keep their list of files.
 @(test)
 test_attachments_retention :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -501,8 +494,7 @@ test_attachments_retention :: proc(t: ^testing.T) {
 	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
 	attachments_open(s, {max_megabytes = 8, rate_kb = 1024 * 1024})
 	defer attachments_close(s)
-	attach_test_sent = record_sent
-	defer attach_test_sent = nil
+	s.attach.test_sent = record_sent
 	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")
@@ -576,8 +568,7 @@ test_attachments_retention :: proc(t: ^testing.T) {
 // messages are no longer found.
 @(test)
 test_attachments_search :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -586,8 +577,7 @@ test_attachments_search :: proc(t: ^testing.T) {
 	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
 	attachments_open(s, {max_megabytes = 1, rate_kb = 1024})
 	defer attachments_close(s)
-	attach_test_sent = record_sent
-	defer attach_test_sent = nil
+	s.attach.test_sent = record_sent
 	defer sent_reset()
 
 	ts_account(t, &ts, "alice", "a password")

@@ -11,9 +11,9 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-import "common:gateway"
-import "common:http"
 import "common:proto"
+import "lib:gateway"
+import "lib:http"
 
 // The relay runs alongside the server if the config enables it (see
 // config.odin). It lets the web client reach this server.
@@ -36,7 +36,7 @@ import "common:proto"
 // packets. It only relays to this server, regardless of which address the
 // page asks for, so it can't be abused to send UDP packets anywhere else.
 //
-// The bot API (see common/gateway and docs/bot-api) is served on the same
+// The bot API (see lib/gateway and docs/bot-api) is served on the same
 // port under /api/, so that one port, one proxy rule and one certificate
 // are enough for both. If the API is enabled but the relay is not, the port
 // serves the API and nothing else.
@@ -84,22 +84,20 @@ Web_File :: struct {
 
 @(private = "file")
 Relay :: struct {
-	listener:      net.TCP_Socket,
-	server:        net.Endpoint, // the only destination that packets are relayed to
-	media:         net.Endpoint, // the server's media port, or port 0 if there is none
+	listener:    net.TCP_Socket,
+	server:      net.Endpoint, // the only destination that packets are relayed to
+	media:       net.Endpoint, // the server's media port, or port 0 if there is none
 	// Whether browsers are relayed and the web client is served. If false,
 	// only the API is served.
-	web:           bool,
+	web:         bool,
 	// The other sites whose pages may connect (Relay_Config.allow_sites).
-	allow_sites:   []string,
+	allow_sites: []string,
 	// Only these files of the web directory are served.
-	files:         [9]Web_File,
-	api:           ^gateway.Gateway, // nil if the API is disabled
-	// How many connections there are, in total and by address, which the
-	// threads count down when they end (see MAX_CONNECTIONS).
-	open:          int,
-	by_addr_mutex: sync.Mutex,
-	by_addr:       map[Gate_Addr]int,
+	files:       [9]Web_File,
+	api:         ^gateway.Gateway, // nil if the API is disabled
+	// How many connections there are, in total and by address (see
+	// MAX_CONNECTIONS).
+	limit:       http.Conn_Limit,
 }
 
 // start_relay listens for browsers on `port` (of `bind`) in a thread of its own and
@@ -135,6 +133,11 @@ start_relay :: proc(
 	r.web = web
 	r.api = api
 	r.allow_sites = allow_sites
+	r.limit = {
+		max         = MAX_CONNECTIONS,
+		per_address = MAX_CONNECTIONS_PER_ADDRESS,
+		exempt      = gateway.address_private,
+	}
 	r.files = {
 		{name = "index.html", content_type = "text/html; charset=utf-8"},
 		{name = "index.js", content_type = "text/javascript; charset=utf-8"},
@@ -145,7 +148,7 @@ start_relay :: proc(
 		{name = "icon-192.png", content_type = "image/png"},
 		{name = "icon-512.png", content_type = "image/png"},
 		{name = "apple-touch-icon.png", content_type = "image/png"},
-		// The service worker that displays push notifications (push.odin, web/sw.js).
+		// The service worker that displays push notifications (webpush/webpush.odin, web/sw.js).
 		{name = "sw.js", content_type = "text/javascript; charset=utf-8"},
 	}
 	for &f in r.files {
@@ -177,82 +180,11 @@ start_relay :: proc(
 	}
 	thread.create_and_start_with_poly_data(
 		r,
-		accept_browsers,
+		proc(r: ^Relay) {http.accept_loop(r.listener, &r.limit, r, handle_connection)},
 		init_context = context,
 		self_cleanup = true,
 	)
 	return true
-}
-
-@(private = "file")
-accept_browsers :: proc(r: ^Relay) {
-	for {
-		free_all(context.temp_allocator)
-
-		sock, from, accept_err := net.accept_tcp(r.listener)
-		if accept_err != nil {
-			log.warnf("accept failed: %v", accept_err)
-			continue
-		}
-		if !relay_count(r, from) {
-			log.warnf(
-				"too many connections, closing the one from %s",
-				net.endpoint_to_string(from, context.temp_allocator),
-			)
-			net.close(sock)
-			continue
-		}
-		c := new(http.Conn)
-		c.sock, c.remote = sock, from
-		log.debugf("connection from %s", net.endpoint_to_string(from, context.temp_allocator))
-		started := thread.create_and_start_with_poly_data2(
-			r,
-			c,
-			handle_connection,
-			init_context = context,
-			self_cleanup = true,
-		)
-		if started == nil {
-			log.warn("could not start a thread for a connection")
-			net.close(sock)
-			free(c)
-			relay_uncount(r, from)
-		}
-	}
-}
-
-// relay_count counts a new connection from `from`, unless there are too many
-// (MAX_CONNECTIONS, MAX_CONNECTIONS_PER_ADDRESS).
-@(private = "file")
-relay_count :: proc(r: ^Relay, from: net.Endpoint) -> bool {
-	sync.guard(&r.by_addr_mutex)
-	if r.open >= MAX_CONNECTIONS {
-		return false
-	}
-	addr := gate_addr(from)
-	if !gateway.address_private(from.address) {
-		if r.by_addr[addr] >= MAX_CONNECTIONS_PER_ADDRESS {
-			return false
-		}
-		r.by_addr[addr] += 1
-	}
-	r.open += 1
-	return true
-}
-
-@(private = "file")
-relay_uncount :: proc(r: ^Relay, from: net.Endpoint) {
-	sync.guard(&r.by_addr_mutex)
-	r.open -= 1
-	if gateway.address_private(from.address) {
-		return
-	}
-	addr := gate_addr(from)
-	if n := r.by_addr[addr]; n > 1 {
-		r.by_addr[addr] = n - 1
-	} else {
-		delete_key(&r.by_addr, addr)
-	}
 }
 
 // The temp allocations of a connection thread are only the headers of a
@@ -283,10 +215,7 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	temp: runtime.Arena
 	context.temp_allocator = connection_temp_allocator(&temp)
 	defer runtime.arena_destroy(&temp)
-	remote := c.remote // c is freed before this defer runs
-	defer relay_uncount(r, remote)
-	defer free(c)
-	defer net.close(c.sock)
+	defer http.conn_close(c)
 
 	// gateway.serve sets timeouts of its own for the API.
 	net.set_option(c.sock, .Receive_Timeout, HEAD_TIMEOUT)
@@ -303,12 +232,7 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	}
 	if strings.has_prefix(req.path, gateway.API_PREFIX) {
 		if r.api == nil {
-			http.respond(
-				c.sock,
-				"404 Not Found",
-				"text/plain",
-				"the API is not enabled on this server\n",
-			)
+			http.respond(c.sock, 404, "text/plain", "the API is not enabled on this server\n")
 			return
 		}
 		gateway.serve(r.api, c, req)
@@ -317,26 +241,21 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 	if !r.web {
 		http.respond(
 			c.sock,
-			"404 Not Found",
+			404,
 			"text/plain",
 			"this server only provides the API, not the web client\n",
 		)
 		return
 	}
 	if req.method != "GET" {
-		http.respond(
-			c.sock,
-			"405 Method Not Allowed",
-			"text/plain",
-			"the yap relay only answers GET\n",
-		)
+		http.respond(c.sock, 405, "text/plain", "the yap relay only answers GET\n")
 		return
 	}
 	media := strings.has_prefix(req.path, "/yap-media/")
 	if media || strings.has_prefix(req.path, "/yap/") {
 		key := http.header(&req, "Sec-WebSocket-Key")
 		if !strings.equal_fold(http.header(&req, "Upgrade"), "websocket") || key == "" {
-			http.respond(c.sock, "400 Bad Request", "text/plain", "expected a WebSocket upgrade\n")
+			http.respond(c.sock, 400, "text/plain", "expected a WebSocket upgrade\n")
 			return
 		}
 		page := Relay_Request {
@@ -353,7 +272,7 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 			)
 			http.respond(
 				c.sock,
-				"403 Forbidden",
+				403,
 				"text/plain",
 				"this server's relay doesn't accept web clients of other sites\n",
 			)
@@ -362,7 +281,7 @@ handle_connection :: proc(r: ^Relay, c: ^http.Conn) {
 		if media && r.media.port == 0 {
 			http.respond(
 				c.sock,
-				"404 Not Found",
+				404,
 				"text/plain",
 				"the media link is not enabled on this server\n",
 			)
@@ -485,7 +404,7 @@ relay_websocket :: proc(r: ^Relay, c: ^http.Conn, target: string, key: string, m
 	udp, udp_err := net.make_bound_udp_socket(net.IP4_Any, 0)
 	if udp_err != nil {
 		log.errorf("could not open a UDP socket: %v", udp_err)
-		http.respond(c.sock, "502 Bad Gateway", "text/plain", "could not open a UDP socket\n")
+		http.respond(c.sock, 502, "text/plain", "could not open a UDP socket\n")
 		return
 	}
 	defer net.close(udp)
@@ -665,16 +584,11 @@ serve_file :: proc(r: ^Relay, sock: net.TCP_Socket, path: string) {
 			continue
 		}
 		if !f.loaded {
-			http.respond(
-				sock,
-				"404 Not Found",
-				"text/plain",
-				"the web client has not been built\n",
-			)
+			http.respond(sock, 404, "text/plain", "the web client has not been built\n")
 			return
 		}
-		http.respond(sock, "200 OK", f.content_type, string(f.data))
+		http.respond(sock, 200, f.content_type, string(f.data))
 		return
 	}
-	http.respond(sock, "404 Not Found", "text/plain", "not found\n")
+	http.respond(sock, 404, "text/plain", "not found\n")
 }

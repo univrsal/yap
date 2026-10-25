@@ -7,7 +7,7 @@ import "common:proto"
 import "sqlite"
 
 // Changing messages after they have been posted (see
-// src/common/proto/msgs.odin): editing, deleting and pinning, and listing
+// src/common/proto/messages.odin): editing, deleting and pinning, and listing
 // the pins of a conversation.
 //
 //	Edit    Only the author, only text messages, and not deleted ones.
@@ -23,40 +23,34 @@ import "sqlite"
 // as it is now.
 //
 // A deleted message keeps its row so that ids, read markers and threads
-// stay valid, but its text, picture and file are removed. Nothing can be
-// fetched through it any more (blob_visible only looks at the messages that
-// reference a picture). It is also unpinned, and a file it offered can no
-// longer be accepted.
+// stay valid, but its text, attachments and file are removed, so nothing
+// can be fetched through it any more. It is also unpinned, and a file it
+// offered can no longer be accepted.
 
-// msg_of_member returns message `id` and its conversation if the
-// connection's account is a member of that conversation. Otherwise it
-// returns the status that explains why not.
-@(private = "file")
-msg_of_member :: proc(
+// msg_readable returns message `id` and its conversation if the
+// connection's account may read that conversation. A message that it may
+// not read is answered as one that doesn't exist (Not_Found).
+msg_readable :: proc(
 	s: ^Server,
 	u: ^Conn,
 	id: proto.Msg_Id,
 ) -> (
 	m: proto.Message,
 	conv: ^Conv,
-	status: proto.Status,
+	ok: bool,
 ) {
 	found: bool
 	m, found = msg_by_id(s, id)
-	if !found {
-		return {}, nil, .Not_Found
-	}
-	conv = conv_by_id(&s.convs, m.conv)
+	conv = conv_by_id(&s.convs, m.conv) if found else nil
 	if conv == nil || !conv_reader(conv, u.account) {
-		return {}, nil, .Not_Found
+		return {}, nil, false
 	}
-	return m, conv, .Ok
+	return m, conv, true
 }
 
 // msg_by_id reads one message. Its strings are allocated with the temp allocator.
 msg_by_id :: proc(s: ^Server, id: proto.Msg_Id) -> (m: proto.Message, found: bool) {
-	q := db_stmt(&s.db, .Msg_By_Id)
-	db_bind_int(q, 1, i64(id))
+	q := db_query(&s.db, .Msg_By_Id, i64(id))
 	row, ok := db_step(&s.db, q)
 	if !ok || !row {
 		return
@@ -74,10 +68,10 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, conv, status := msg_of_member(s, u, msg_id)
+	m, conv, readable := msg_readable(s, u, msg_id)
 	switch {
-	case conv == nil:
-		respond(u, id, status)
+	case !readable:
+		respond(u, id, .Not_Found)
 		return
 	case m.sender != u.account.id || .Edit not_in conv_rights(conv, u.account):
 		respond(u, id, .Denied)
@@ -106,11 +100,8 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	before := mentioned_in(s, m.id)
 	m.text = kept
 	m.edited = proto.Unix_Ms(unix_ms())
-	q := db_stmt(&s.db, .Msg_Edit)
-	db_bind_int(q, 1, i64(m.id))
-	db_bind_text(q, 2, m.text)
-	db_bind_int(q, 3, i64(m.edited))
-	if !db_run(&s.db, q) || !mentions_store(s, conv, m.id, mentioned) {
+	if !db_write(&s.db, .Msg_Edit, i64(m.id), m.text, i64(m.edited)) ||
+	   !mentions_store(s, conv, m.id, mentioned) {
 		respond(u, id, .Internal)
 		return
 	}
@@ -139,10 +130,10 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, conv, status := msg_of_member(s, u, msg_id)
+	m, conv, readable := msg_readable(s, u, msg_id)
 	switch {
-	case conv == nil:
-		respond(u, id, status)
+	case !readable:
+		respond(u, id, .Not_Found)
 		return
 	// One's own message with the Delete right there, anyone's with
 	// Manage_Messages.
@@ -154,16 +145,13 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Ok)
 		return
 	}
-	q := db_stmt(&s.db, .Msg_Delete)
-	db_bind_int(q, 1, i64(m.id))
+	q := db_query(&s.db, .Msg_Delete, i64(m.id))
 	if !db_run(&s.db, q) {
 		respond(u, id, .Internal)
 		return
 	}
 	if .Pinned in m.flags {
-		q = db_stmt(&s.db, .Pin_Remove)
-		db_bind_int(q, 1, i64(conv.id))
-		db_bind_int(q, 2, i64(m.id))
+		q = db_query(&s.db, .Pin_Remove, i64(conv.id), i64(m.id))
 		if !db_run(&s.db, q) {
 			respond(u, id, .Internal)
 			return
@@ -171,14 +159,12 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	forget_offer(s, m.id)
 	mentioned := mentioned_in(s, m.id)
-	q = db_stmt(&s.db, .React_Clear)
-	db_bind_int(q, 1, i64(m.id))
-	clear_files := db_stmt(&s.db, .Attach_Clear)
-	db_bind_int(clear_files, 1, i64(m.id))
-	ok_files := db_run(&s.db, clear_files)
-	unindex := db_stmt(&s.db, .Files_Index_Remove)
-	db_bind_int(unindex, 1, i64(m.id))
-	if !db_run(&s.db, q) || !ok_files || !db_run(&s.db, unindex) || !mentions_clear(s, m.id) {
+	q = db_query(&s.db, .React_Clear, i64(m.id))
+	ok_files := db_write(&s.db, .Attach_Clear, i64(m.id))
+	if !db_run(&s.db, q) ||
+	   !ok_files ||
+	   !db_write(&s.db, .Files_Index_Remove, i64(m.id)) ||
+	   !mentions_clear(s, m.id) {
 		respond(u, id, .Internal)
 		return
 	}
@@ -208,10 +194,10 @@ msg_pin :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, conv, status := msg_of_member(s, u, msg_id)
+	m, conv, readable := msg_readable(s, u, msg_id)
 	switch {
-	case conv == nil:
-		respond(u, id, status)
+	case !readable:
+		respond(u, id, .Not_Found)
 		return
 	case !may_pin(u.account, conv):
 		respond(u, id, .Denied)
@@ -226,8 +212,7 @@ msg_pin :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	if on {
-		q := db_stmt(&s.db, .Pin_Count)
-		db_bind_int(q, 1, i64(conv.id))
+		q := db_query(&s.db, .Pin_Count, i64(conv.id))
 		count := 0
 		if row, stepped := db_step(&s.db, q); stepped && row {
 			count = int(db_col_int(q, 0))
@@ -237,30 +222,20 @@ msg_pin :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			respond(u, id, .Too_Large)
 			return
 		}
-		q = db_stmt(&s.db, .Pin_Add)
-		db_bind_int(q, 1, i64(conv.id))
-		db_bind_int(q, 2, i64(m.id))
-		db_bind_int(q, 3, i64(u.account.id))
-		db_bind_int(q, 4, unix_ms())
+		q = db_query(&s.db, .Pin_Add, i64(conv.id), i64(m.id), i64(u.account.id), unix_ms())
 		if !db_run(&s.db, q) {
 			respond(u, id, .Internal)
 			return
 		}
 		m.flags += {.Pinned}
 	} else {
-		q := db_stmt(&s.db, .Pin_Remove)
-		db_bind_int(q, 1, i64(conv.id))
-		db_bind_int(q, 2, i64(m.id))
-		if !db_run(&s.db, q) {
+		if !db_write(&s.db, .Pin_Remove, i64(conv.id), i64(m.id)) {
 			respond(u, id, .Internal)
 			return
 		}
 		m.flags -= {.Pinned}
 	}
-	q := db_stmt(&s.db, .Msg_Set_Flags)
-	db_bind_int(q, 1, i64(m.id))
-	db_bind_int(q, 2, i64(transmute(u8)m.flags))
-	if !db_run(&s.db, q) {
+	if !db_write(&s.db, .Msg_Set_Flags, i64(m.id), i64(transmute(u8)m.flags)) {
 		respond(u, id, .Internal)
 		return
 	}
@@ -287,9 +262,7 @@ pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	list := make([dynamic]proto.Message, 0, proto.MAX_PINS, context.temp_allocator)
-	q := db_stmt(&s.db, .Pins_Of)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, proto.MAX_PINS)
+	q := db_query(&s.db, .Pins_Of, i64(conv.id), proto.MAX_PINS)
 	for {
 		row, stepped := db_step(&s.db, q)
 		if !stepped {
@@ -314,9 +287,7 @@ pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // everyone. This includes its reply count, its last reply and whether it
 // still has a thread at all.
 thread_changed :: proc(s: ^Server, conv: ^Conv, root: proto.Msg_Id) {
-	q := db_stmt(&s.db, .Thread_Recount)
-	db_bind_int(q, 1, i64(root))
-	if !db_run(&s.db, q) {
+	if !db_write(&s.db, .Thread_Recount, i64(root)) {
 		return
 	}
 	if m, found := msg_by_id(s, root); found {

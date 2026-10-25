@@ -10,6 +10,7 @@ import mu "vendor:microui"
 
 import "client:conn"
 import "client:render"
+import "client:richtext"
 import "common:proto"
 
 _ :: log // only used when TIMELINE_DEBUG
@@ -391,7 +392,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 		}
 		if !found && !st.jump_asked && ui.session != nil && (tl == nil || !tl.loading) {
 			st.jump_asked = true
-			conn.push_command(&ui.session.client.commands, conn.Jump_Command{id = st.jump_to})
+			command(ui, conn.Jump_Command{id = st.jump_to})
 		}
 	}
 	// Following the end: what is on its way below the messages may have
@@ -494,12 +495,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 
 	if n == 0 && len(pending) == 0 && tl != nil && !tl.loading {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			"No replies yet." if key.root != 0 else "No messages here yet.",
-			label_proc,
-		)
+		dim_label(ctx, "No replies yet." if key.root != 0 else "No messages here yet.")
 	}
 	start := layout.next_row
 	last_id := i64(msgs[n - 1].id) if n > 0 else 0
@@ -607,7 +603,7 @@ top_line :: proc(ui: ^UI, st: ^UI_Timeline, tl: ^conn.View_Timeline, n: int) {
 		text = "The start of the conversation."
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, text, label_proc)
+	dim_label(ctx, text)
 }
 
 // timeline_select_panel is the panel that a timeline's text is selected in.
@@ -661,7 +657,7 @@ thread_head :: proc(
 	ctx := &ui.ctx
 	if !have {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Loading the message replied to...", label_proc)
+		dim_label(ctx, "Loading the message replied to...")
 		return
 	}
 	layout := mu.get_layout(ctx)
@@ -756,7 +752,7 @@ pending_message :: proc(ui: ^UI, p: conn.View_Pending, item: i64) {
 	case .File:
 		text = rich_plain(fmt.tprintf("the file %s", p.text))
 	case:
-		shown, spans, emoji := conn.text_display(
+		shown, spans, emoji := richtext.text_display(
 			p.text,
 			ui.view.accounts,
 			ui.view.roles[:],
@@ -1043,10 +1039,10 @@ reply_line :: proc(
 		case root.kind == .File:
 			said = fmt.tprintf("the file %s", root.text)
 		case:
-			shown, _ := conn.mentions_display(root.text, v.accounts, v.roles[:], v.me)
-			said = conn.markdown_plain(shown)
+			shown, _ := richtext.mentions_display(root.text, v.accounts, v.roles[:], v.me)
+			said = richtext.markdown_plain(shown)
 		}
-		said = conn.one_line(said)
+		said = richtext.one_line(said)
 		text = fmt.tprintf("%s: %s", name, said)
 	} else if !st.roots_asked[m.thread_root] && ui.session != nil {
 		st.roots_asked[m.thread_root] = true
@@ -1129,7 +1125,7 @@ cut_to_width :: proc(ctx: ^mu.Context, text: string, width: i32) -> string {
 Chip :: struct {
 	r:     conn.Reaction,
 	text:  string, // the emoji as shown, followed by the count
-	icons: []conn.Emoji_Span, // the server's emoji in it
+	icons: []richtext.Emoji_Span, // the server's emoji in it
 	w:     i32,
 }
 
@@ -1149,7 +1145,7 @@ reaction_rows :: proc(ui: ^UI, m: conn.View_Message, width: i32) -> [][dynamic]C
 	x := width + 1
 	for r in m.reactions {
 		code := fmt.tprintf("%s %d", r.emoji, r.count)
-		shown, _, icons := conn.text_display(
+		shown, _, icons := richtext.text_display(
 			code,
 			map[proto.Account_Id]conn.View_Account{},
 			nil,
@@ -1416,7 +1412,7 @@ timeline_reading :: proc(ui: ^UI, focused: bool) {
 		return
 	}
 	if reading != st.reading || session != st.reading_to {
-		conn.push_command(&ui.session.client.commands, conn.Reading_Command{conv = reading})
+		command(ui, conn.Reading_Command{conv = reading})
 		st.reading, st.reading_to = reading, session
 	}
 }

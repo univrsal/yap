@@ -8,6 +8,7 @@ import "core:os"
 
 import "client:audio"
 import "client:conn"
+import "client:headless"
 import "client:platform"
 import "common:."
 import "common:memtrack"
@@ -93,7 +94,7 @@ main :: proc() {
 			log.error("-headless needs a server address")
 			os.exit(2)
 		}
-		if !run_headless(
+		if !headless.run(
 			opt.key,
 			opt.server,
 			opt.known_servers,

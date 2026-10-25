@@ -13,17 +13,17 @@ test_file_chunks :: proc(t: ^testing.T) {
 
 	data := [5]u8{1, 2, 3, 4, 5}
 	wire: [MAX_PAYLOAD_SIZE]u8
-	msg := encode_file_chunk(wire[:], 7, 2, data[:])
+	msg := encode_transfer_chunk(wire[:], .File_Chunk, 7, 2, data[:])
 	kind, kind_ok := message_kind(msg)
 	testing.expect(t, kind_ok && kind == .File_Chunk)
-	id, index, got := decode_file_chunk(msg)
-	testing.expect_value(t, id, Msg_Id(7))
+	id, index, got := decode_transfer_chunk(msg)
+	testing.expect_value(t, id, 7)
 	testing.expect_value(t, index, 2)
 	testing.expect(t, string(got) == string(data[:]))
 
 	// A full chunk fits exactly into one datagram.
 	full: [FILE_CHUNK_DATA]u8
-	msg = encode_file_chunk(wire[:], 7, 0, full[:])
+	msg = encode_transfer_chunk(wire[:], .File_Chunk, 7, 0, full[:])
 	testing.expect_value(t, len(msg), MAX_PAYLOAD_SIZE)
 	_, kind_ok = message_kind(msg)
 	testing.expect(t, kind_ok)
@@ -33,14 +33,15 @@ test_file_chunks :: proc(t: ^testing.T) {
 test_file_messages :: proc(t: ^testing.T) {
 	ack_buf: [MAX_PAYLOAD_SIZE]u8
 	missing := [3]u32{10, 12, 99}
-	msg := encode_file_ack(
+	msg := encode_transfer_ack(
 		ack_buf[:],
+		.File_Ack,
 		{id = 1, max_rate = 1000, base = 10, highest = 120, complete = false},
 		missing[:],
 	)
 	kind, ok := message_kind(msg)
 	testing.expect(t, ok && kind == .File_Ack)
-	ack, count, raw, ack_ok := decode_file_ack(msg)
+	ack, count, raw, ack_ok := decode_transfer_ack(msg)
 	testing.expect(t, ack_ok)
 	testing.expect_value(t, ack.base, 10)
 	testing.expect_value(t, ack.highest, 120)

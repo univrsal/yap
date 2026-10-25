@@ -6,7 +6,7 @@ import "core:time"
 import "common:."
 import "common:proto"
 
-// The bulk link (proto.Link in proto/names.odin) is a second transport to the
+// The bulk link (proto.Link in proto/hello.odin) is a second transport to the
 // server with its own sessions. It carries the heavy traffic: video and the
 // chunks of blobs, attachments and files (proto.HEAVY_KINDS). Voice and
 // everything else that is small stays on the main link, so it never has to wait
@@ -41,7 +41,7 @@ BULK_RETRY :: 1 * time.Second
 BULK_RECV_MAX :: 64
 
 // bulk_step opens the bulk link when it is time to do so and keeps it running.
-bulk_step :: proc(c: ^Voice_Client) {
+bulk_step :: proc(c: ^Server_Conn) {
 	b := &c.bulk
 	if !c.has_current || !c.has_instance || c.restart {
 		return
@@ -66,47 +66,28 @@ bulk_step :: proc(c: ^Voice_Client) {
 
 // bulk_handshake is drive_handshake for the bulk link.
 @(private = "file")
-bulk_handshake :: proc(c: ^Voice_Client) {
+bulk_handshake :: proc(c: ^Server_Conn) {
 	b := &c.bulk
-	if b.has_current && time.tick_since(b.current.created) > proto.REJECT_AFTER {
+	now := time.tick_now()
+	hold := b.retry_at != {} && time.tick_diff(now, b.retry_at) > 0
+	s := proto.link_step(&b.link, &c.key, now, hold = hold)
+	if s.expired {
 		log.warn("bulk link expired without a successful rekey")
-		proto.session_reset(&b.current)
-		b.has_current = false
 	}
-	ini := &b.handshake
-	if ini.state != .Idle && time.tick_since(ini.started) > proto.HANDSHAKE_TIMEOUT {
+	if s.stalled {
 		log.debug("bulk link handshake timed out, retrying")
-		abandon_handshake(&b.link)
 	}
-	switch ini.state {
-	case .Idle:
-		silent := b.has_current && time.tick_since(b.last_recv) > proto.SERVER_SILENT
-		if b.has_current && time.tick_since(b.current.created) <= proto.REKEY_AFTER && !silent {
-			return
-		}
-		if b.retry_at != {} && time.tick_diff(time.tick_now(), b.retry_at) > 0 {
-			return
-		}
-		if silent {
-			log.debug("nothing on the bulk link for a while, connecting it again")
-		}
-		packet, ok := proto.initiator_start(ini, &c.key)
-		if !ok {
-			return
-		}
-		ini.last_sent = time.tick_now()
-		transport_send(&b.transport, packet)
-	case .Sent_Init, .Sent_Finish:
-		if time.tick_since(ini.last_sent) >= proto.HANDSHAKE_RETRY {
-			ini.last_sent = time.tick_now()
-			transport_send(&b.transport, proto.initiator_packet(ini))
-		}
+	if s.silent {
+		log.debug("nothing on the bulk link for a while, connecting it again")
+	}
+	if s.packet != nil {
+		transport_send(&b.transport, s.packet)
 	}
 }
 
 // bulk_receive handles packets that arrived over the bulk link, up to
 // BULK_RECV_MAX packets at a time.
-bulk_receive :: proc(c: ^Voice_Client) {
+bulk_receive :: proc(c: ^Server_Conn) {
 	b := &c.bulk
 	if !b.transport.open {
 		return
@@ -121,17 +102,16 @@ bulk_receive :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-handle_bulk_packet :: proc(c: ^Voice_Client, packet: []byte) {
+handle_bulk_packet :: proc(c: ^Server_Conn, packet: []byte) {
 	b := &c.bulk
 	#partial switch proto.packet_type(packet) {
 	case .Handshake_Cookie:
-		if proto.initiator_read_cookie(&b.handshake, packet) {
-			b.handshake.last_sent = time.tick_now()
-			transport_send(&b.transport, proto.initiator_packet(&b.handshake))
+		if resend, ok := proto.link_cookie(&b.link, packet); ok {
+			transport_send(&b.transport, resend)
 		}
 	case .Handshake_Resp:
-		server_key, result := proto.initiator_read_resp(&b.handshake, packet)
-		if result != .Ok {
+		server_key, resp_ok := proto.link_resp(&b.link, packet)
+		if !resp_ok {
 			return
 		}
 		// The main link has already verified the server, so this link must reach the same one.
@@ -142,17 +122,15 @@ handle_bulk_packet :: proc(c: ^Voice_Client, packet: []byte) {
 		}
 		hello_buf: [proto.HELLO_MAX_SIZE]u8
 		hello := proto.encode_hello(&hello_buf, c.conn_id, c.password, .Bulk)
-		finish, ok := proto.initiator_finish(&b.handshake, &b.pending, hello)
+		finish, ok := proto.link_finish(&b.link, hello)
 		if !ok {
 			return
 		}
-		b.has_pending = true
-		b.handshake.last_sent = time.tick_now()
 		transport_send(&b.transport, finish)
 
 	case .Data:
 		pt_buf: [proto.MAX_PACKET_SIZE]byte
-		pt, pending, ok := link_open(&b.link, packet, pt_buf[:])
+		pt, pending, ok := proto.link_open(&b.link, packet, pt_buf[:])
 		if !ok {
 			return
 		}
@@ -171,7 +149,7 @@ handle_bulk_packet :: proc(c: ^Voice_Client, packet: []byte) {
 				bulk_retry_later(b)
 				return
 			}
-			if link_promote(&b.link) {
+			if proto.link_promote(&b.link) {
 				log.debug("bulk link up")
 			}
 			b.retry_at = {}
@@ -190,19 +168,19 @@ handle_bulk_packet :: proc(c: ^Voice_Client, packet: []byte) {
 
 @(private = "file")
 bulk_retry_later :: proc(b: ^Bulk_Link) {
-	abandon_handshake(&b.link)
+	proto.link_abandon(&b.link)
 	b.retry_at = time.tick_add(time.tick_now(), BULK_RETRY)
 }
 
 // bulk_restart forgets the bulk link's sessions when the connection is a new
 // one, because the server dropped them together with the old connection. The
 // transport stays open for the next handshake.
-bulk_restart :: proc(c: ^Voice_Client) {
-	link_reset(&c.bulk.link)
+bulk_restart :: proc(c: ^Server_Conn) {
+	proto.link_reset(&c.bulk.link)
 	c.bulk.retry_at = {}
 }
 
-bulk_close :: proc(c: ^Voice_Client) {
+bulk_close :: proc(c: ^Server_Conn) {
 	transport_close(&c.bulk.transport)
 	bulk_restart(c)
 }

@@ -3,14 +3,14 @@ Pasting a picture into the chat, for the web client (emcc --pre-js, see
 web/build.sh). A page can only read the clipboard inside the paste event
 the user caused, so this listens for that event and does the whole job
 here: it decodes the picture, scales it down to fit MAX_SIDE and
-compresses it to a WebP within MAX_BYTES - the same budget image.odin
+compresses it to a WebP within MAX_BYTES - the same budget src/client/imaging/image.odin
 keeps on a desktop, and the same order of giving things up: quality
 first, then size - then hands it to the client as a file to attach
 (web/files.js keeps it; web_file_pasted, src/client/ui_paste_web.odin).
 A browser that can't write WebP (Safari, which writes a PNG instead) is
 given the JPEG this made before WebP, at the qualities it had then.
 
-Transparent parts are put on white, as image.odin does.
+Transparent parts are put on white, as src/client/imaging/image.odin does.
 
 An animated GIF or WebP no bigger than the server takes is sent as it
 is instead, as on a desktop (src/client/ui_paste.odin).
@@ -19,7 +19,7 @@ which is where its text boxes paste from: emscripten's GLFW has no
 clipboard.
 */
 (() => {
-	// Keep these in step with src/client/image.odin.
+	// Keep these in step with src/client/imaging/image.odin.
 	const MAX_SIDE = 3840;
 	const MAX_BYTES = 256 * 1024;
 	const MAX_SCALE_ROUNDS = 4;
@@ -139,11 +139,7 @@ clipboard.
 	// src/client/ui_paste_web.odin); empty for a paste without any. The
 	// on-screen keyboard's field (web/touch.js) takes its pastes itself.
 	const sendText = (text) => {
-		const bytes = new TextEncoder().encode(text);
-		const ptr = _malloc(bytes.length + 1);
-		HEAPU8.set(bytes, ptr);
-		Module._web_paste_text(ptr, bytes.length);
-		_free(ptr);
+		Module.yapWithString(text, (ptr, n) => Module._web_paste_text(ptr, n));
 	};
 
 	document.addEventListener("paste", async (event) => {

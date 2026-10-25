@@ -220,7 +220,7 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 	} else {
 		mu.layout_row(ctx, {-1})
 	}
-	with_text_color(ctx, theme.dim, status, label_proc)
+	dim_label(ctx, status)
 
 	input_h: i32 = 0
 	files_h: i32 = 0
@@ -246,31 +246,9 @@ thread_panel :: proc(ui: ^UI, slot: int, back: bool) {
 
 	composer_files(ui, composer, width)
 
-	composer_row(ui, input_h)
-	composer_input(ui, composer)
-	res, box, box_rect := composer_box(ui, composer)
-	completion_update(ui, composer)
-	if .CHANGE in res && t.len > 0 && ui.session != nil && t.editing == 0 {
-		conn.push_command(&ui.session.client.commands, conn.Typing_Command{thread = t.key})
-	}
-	send := .SUBMIT in res
-	composer_buttons(ui, box_rect, 4)
-	attach_button(ui, composer)
-	emoji_button(ui, composer)
-	preview_button(ui, composer)
-	if composer_send_button(
+	composer_bar(
 		ui,
 		composer,
-		"send",
-		"Enter: Save\nCtrl+Enter: New line" if t.editing != 0 else "Enter: Reply\nCtrl+Enter: New line",
-	) {
-		send = true
-	}
-	composer_buttons_end(ui)
-	if !send {
-		return
-	}
-	// Enter takes the focus away from the box, so give it back to keep typing.
-	mu.set_focus(ctx, box)
-	composer_send(ui, composer)
+		{send_id = "send", verb = "Reply", typing = conn.Typing_Command{thread = t.key}},
+	)
 }

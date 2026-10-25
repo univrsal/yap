@@ -4,8 +4,9 @@ import "core:encoding/json"
 import "core:fmt"
 
 import "common:proto"
+import "webpush"
 
-// What gets pushed (push.odin), and to whom: the same things a desktop client would show
+// What gets pushed (webpush/webpush.odin), and to whom: the same things a desktop client would show
 // as a desktop notification (src/client/ui_notices.odin), for users who aren't around to
 // see them.
 //
@@ -23,7 +24,7 @@ import "common:proto"
 //   - A call (calls.odin) is pushed to a callee that is away: "Alice is calling you". Once
 //     the call is over, that notification is replaced by one for a missed call, or
 //     (silently, and not to the device that handled it) one saying it was answered or
-//     declined elsewhere. A push can't remove a notification (see misc/mobile, phase 3),
+//     declined elsewhere. A push can't remove a notification (see docs/design/mobile.md, phase 3),
 //     but it can replace it with another one.
 //
 // A push carries JSON for the service worker (web/sw.js) to display:
@@ -144,7 +145,7 @@ push_call :: proc(s: ^Server, call: ^Call, what: Push_Call, except: ^Conn = nil)
 	if dm := dm_find(&s.convs, call.caller, call.callee); dm != nil {
 		p.conv = u32(dm.id)
 	}
-	ttl, urgency := PUSH_TTL, Push_Urgency.Normal
+	ttl, urgency := PUSH_TTL, webpush.Urgency.Normal
 	switch what {
 	case .Ringing:
 		p.title = fmt.tprintf("%s is calling you", name)
@@ -182,7 +183,7 @@ push_to :: proc(
 	payload: []u8,
 	topic: string,
 	ttl: int,
-	urgency: Push_Urgency,
+	urgency: webpush.Urgency,
 	skip: [proto.KEY_SIZE]u8 = {},
 ) -> (
 	sent: int,
@@ -191,7 +192,7 @@ push_to :: proc(
 		if skip != {} && sub.device == skip {
 			continue
 		}
-		if push_send(
+		if webpush.send(
 			&s.push,
 			{
 				sub = sub.id,
@@ -242,7 +243,7 @@ push_payload :: proc(
 		p.body = digest_quote(s, {text = text, files = m.kind == .File || m.attachment_count > 0})
 	}
 	data, err := json.marshal(p, allocator = context.temp_allocator)
-	if err != nil || len(data) > PUSH_PAYLOAD_MOST {
+	if err != nil || len(data) > webpush.PUSH_PAYLOAD_MOST {
 		return
 	}
 	return data, true

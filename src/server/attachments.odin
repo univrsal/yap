@@ -78,6 +78,9 @@ Attachments :: struct {
 	uploads:   map[u64]^Attach_Upload,
 	downloads: map[u64]^Attach_Download,
 	used:      map[proto.Account_Id]Attach_Use,
+	// When set (by tests, which have no sessions), it receives whatever would
+	// have been sent to a connection.
+	test_sent: proc(u: ^Conn, msg: []u8),
 }
 
 // Attach_Use is what an account has uploaded since `since`.
@@ -98,8 +101,7 @@ Attach_Upload :: struct {
 	hasher:    hash.Context,
 	hashed:    u32, // number of chunks hashed, always counted from the start
 	last_data: time.Tick,
-	tokens:    f32, // bytes that may arrive now, see upload_paced
-	paced_at:  time.Tick,
+	pace:      proto.Bucket, // bytes that may arrive now, see upload_paced
 	blob:      Blob_Id, // once it's stored
 	kept_at:   time.Tick,
 }
@@ -153,21 +155,16 @@ download_free :: proc(down: ^Attach_Download) {
 	free(down)
 }
 
-// attach_test_sent, when set (by tests, which have no sessions),
-// receives whatever would have been sent to a connection.
-@(thread_local)
-attach_test_sent: proc(u: ^Conn, msg: []u8)
-
 // can_send is whether datagrams can currently be sent to `u`.
 @(private = "file")
 can_send :: proc(s: ^Server, u: ^Conn) -> bool {
-	return u != nil && (attach_test_sent != nil || sending_session(s, u) != nil)
+	return u != nil && (s.attach.test_sent != nil || sending_session(s, u) != nil)
 }
 
 @(private = "file")
 attach_send :: proc(s: ^Server, u: ^Conn, msg: []u8) {
-	if attach_test_sent != nil {
-		attach_test_sent(u, msg)
+	if s.attach.test_sent != nil {
+		s.attach.test_sent(u, msg)
 	} else if c := sending_session(s, u); c != nil {
 		send_message(s, c, msg)
 	}
@@ -259,8 +256,7 @@ attach_put_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	up.name = strings.clone(name)
 	up.size = p.size
 	up.last_data = time.tick_now()
-	up.paced_at = up.last_data
-	up.tokens = upload_burst(s)
+	up.pace = {f64(upload_burst(s)), up.last_data}
 	proto.transfer_receiver_init(&up.recv, p.size)
 	hash.init(&up.hasher, .SHA256)
 	s.attach.uploads[up.id] = up
@@ -354,15 +350,9 @@ upload_burst :: proc(s: ^Server) -> f32 {
 // there aren't enough; the chunk is then dropped.
 @(private = "file")
 upload_paced :: proc(s: ^Server, up: ^Attach_Upload, bytes: int) -> bool {
-	now := time.tick_now()
-	elapsed := f32(time.duration_seconds(time.tick_diff(up.paced_at, now)))
-	up.paced_at = now
-	up.tokens = min(up.tokens + elapsed * s.attach.rate * ATTACH_UPLOAD_SLACK, upload_burst(s))
-	if up.tokens < f32(bytes) {
-		return false
-	}
-	up.tokens -= f32(bytes)
-	return true
+	rate := f64(s.attach.rate * ATTACH_UPLOAD_SLACK)
+	proto.bucket_refill(&up.pace, time.tick_now(), rate, f64(upload_burst(s)))
+	return proto.bucket_take(&up.pace, f64(bytes))
 }
 
 // upload_keep stores a completed upload as a blob and acknowledges it.
@@ -474,8 +464,7 @@ attach_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // attachment_visible is whether an account may fetch a file, which is the
 // case if it may read a message that has the file attached.
 attachment_visible :: proc(s: ^Server, account: proto.Account_Id, blob: Blob_Id) -> bool {
-	q := db_stmt(&s.db, .Attach_Blob_Convs)
-	db_bind_int(q, 1, i64(blob))
+	q := db_query(&s.db, .Attach_Blob_Convs, i64(blob))
 	for {
 		row, ok := db_step(&s.db, q)
 		if !ok || !row {
@@ -672,8 +661,7 @@ attach_files :: proc(s: ^Server, m: ^proto.Message) {
 	if .Has_Attachments not_in m.flags {
 		return
 	}
-	q := db_stmt(&s.db, .Attach_Of_Msg)
-	db_bind_int(q, 1, i64(m.id))
+	q := db_query(&s.db, .Attach_Of_Msg, i64(m.id))
 	m.attachment_count = 0
 	for m.attachment_count < proto.MAX_ATTACHMENTS {
 		row, ok := db_step(&s.db, q)
@@ -708,19 +696,10 @@ attachments_store :: proc(s: ^Server, m: proto.Message) -> bool {
 		}
 		strings.write_string(&names, m.attachments[i].name)
 	}
-	index := db_stmt(&s.db, .Files_Index_Add)
-	db_bind_int(index, 1, i64(m.id))
-	db_bind_text(index, 2, strings.to_string(names))
-	db_run(&s.db, index) or_return
+	db_write(&s.db, .Files_Index_Add, i64(m.id), strings.to_string(names)) or_return
 	for i in 0 ..< m.attachment_count {
 		a := m.attachments[i]
-		q := db_stmt(&s.db, .Attach_Add)
-		db_bind_int(q, 1, i64(m.id))
-		db_bind_int(q, 2, i64(i))
-		db_bind_int(q, 3, i64(a.blob))
-		db_bind_text(q, 4, a.name)
-		db_bind_int(q, 5, i64(a.size))
-		db_run(&s.db, q) or_return
+		db_write(&s.db, .Attach_Add, i64(m.id), i64(i), i64(a.blob), a.name, i64(a.size)) or_return
 	}
 	return true
 }

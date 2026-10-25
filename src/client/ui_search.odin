@@ -6,6 +6,7 @@ import "core:sync"
 import mu "vendor:microui"
 
 import "client:conn"
+import "client:richtext"
 import "common:proto"
 
 // Searching messages (src/common/proto/search.odin) happens in a floating
@@ -19,11 +20,10 @@ import "common:proto"
 // the words in a row, and from:username matches one person's messages.
 
 UI_Search :: struct {
-	open:      bool,
-	placed:    bool,
-	query_buf: [proto.MAX_SEARCH_QUERY]u8,
-	query_len: int,
-	all:       bool, // search in all of our conversations
+	open:   bool,
+	placed: bool,
+	query:  Text_Field(proto.MAX_SEARCH_QUERY),
+	all:    bool, // search in all of our conversations
 }
 
 @(private = "file")
@@ -78,13 +78,13 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 
 	cmds := &ui.session.client.commands
 	mu.layout_row(ctx, {-(70 + ctx.style.spacing + 1), 70})
-	submit := .SUBMIT in text_box(ui, s.query_buf[:], &s.query_len)
+	submit := .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len)
 	submit |= .SUBMIT in stable_button(ctx, "find", "Search", {.ALIGN_CENTER})
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in checkbox(ctx, "In all my conversations", &s.all) && v.search.query != "" {
 		submit = true
 	}
-	query := strings.trim_space(string(s.query_buf[:s.query_len]))
+	query := strings.trim_space(field_text(&s.query))
 	if submit && query != "" {
 		conn.push_command(cmds, conn.Search_Command{query = strings.clone(query), all = s.all})
 	}
@@ -93,21 +93,21 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	switch {
 	case found.error != "":
-		with_text_color(ctx, theme.error, found.error, label_proc)
+		error_label(ctx, found.error)
 		return
 	case found.query == "":
-		with_text_color(ctx, theme.dim, `Whole words, "a phrase", from:username.`, label_proc)
+		dim_label(ctx, `Whole words, "a phrase", from:username.`)
 		return
 	case found.loading && len(found.found) == 0:
-		with_text_color(ctx, theme.dim, "Searching...", label_proc)
+		dim_label(ctx, "Searching...")
 		return
 	case len(found.found) == 0 && !found.more:
-		with_text_color(ctx, theme.dim, fmt.tprintf("Nothing has %q.", found.query), label_proc)
+		dim_label(ctx, fmt.tprintf("Nothing has %q.", found.query))
 		return
 	case len(found.found) == 0:
 		// The search stopped because of its time limit before finding any
 		// result, so older messages are left.
-		with_text_color(ctx, theme.dim, "Nothing yet in the newest messages.", label_proc)
+		dim_label(ctx, "Nothing yet in the newest messages.")
 	}
 	for f, i in found.found {
 		m := f.msg
@@ -132,9 +132,9 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 			go_to_message(ui, f.conv, m.id)
 		}
 		mu.layout_row(ctx, {-1})
-		text, _, _ := conn.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
+		text, _, _ := richtext.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
 		if text != "" {
-			mu.text(ctx, conn.markdown_plain(text))
+			mu.text(ctx, richtext.markdown_plain(text))
 		}
 		// Its files, which may be what the message was found by.
 		if len(m.files) > 0 {
@@ -157,7 +157,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if found.loading {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Searching...", label_proc)
+		dim_label(ctx, "Searching...")
 	} else if found.more {
 		mu.layout_row(ctx, {140})
 		if .SUBMIT in

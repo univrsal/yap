@@ -166,7 +166,7 @@ Attach_Client :: struct {
 	last_publish: time.Tick,
 }
 
-attachments_destroy :: proc(c: ^Voice_Client) {
+attachments_destroy :: proc(c: ^Server_Conn) {
 	for p in c.attach.posts {
 		attach_post_free(p)
 	}
@@ -211,7 +211,7 @@ save_free :: proc(sv: ^Attach_Save) {
 
 // attach_send takes in a message with files. The files are opened now and stay
 // open until the message is posted.
-attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
+attach_send :: proc(c: ^Server_Conn, cmd: Attach_Send_Command) {
 	max_size := c.rpc.server.max_attachment
 	if len(cmd.files) == 0 || len(cmd.files) > proto.MAX_ATTACHMENTS {
 		notify(c, false, "A message can have at most 10 files attached.")
@@ -299,7 +299,7 @@ attach_send :: proc(c: ^Voice_Client, cmd: Attach_Send_Command) {
 
 // attachments_step advances the uploads and saves. It is called from the client's
 // loop.
-attachments_step :: proc(c: ^Voice_Client) {
+attachments_step :: proc(c: ^Server_Conn) {
 	if !c.has_current || !c.convs.synced {
 		return
 	}
@@ -321,7 +321,7 @@ attachments_step :: proc(c: ^Voice_Client) {
 // upload_turn drives the one file that is being uploaded or starts the next one,
 // and queues a message once all its files are uploaded.
 @(private = "file")
-upload_turn :: proc(c: ^Voice_Client, now: time.Tick) {
+upload_turn :: proc(c: ^Server_Conn, now: time.Tick) {
 	for i := 0; i < len(c.attach.posts); {
 		p := c.attach.posts[i]
 		if p.queued {
@@ -361,7 +361,17 @@ upload_turn :: proc(c: ^Voice_Client, now: time.Tick) {
 				if !upload_again(c, p, active) {
 					continue // the message was given up, so `i` already refers to the next one
 				}
-			} else if !send_upload(c, active, now) {
+			} else if !send_chunks(
+				c,
+				&active.send,
+				&active.src,
+				active.memory,
+				active.size,
+				active.name,
+				.Upload_Chunk,
+				active.id,
+				now,
+			) {
 				drop_post(c, p, "A file could not be read, so the message was not sent.")
 				continue
 			}
@@ -372,45 +382,10 @@ upload_turn :: proc(c: ^Voice_Client, now: time.Tick) {
 	}
 }
 
-// send_upload sends as much of a file as the pace allows. It returns false if
-// the file cannot be read.
-@(private = "file")
-send_upload :: proc(c: ^Voice_Client, f: ^Attach_Upload, now: time.Tick) -> bool {
-	rate := transfer_rate(c.files.upload_limit, f.send.peer_rate)
-	proto.transfer_refill(&f.send, now, rate, FILE_BURST * rate / FILE_MAX_RATE)
-	data: [proto.FILE_CHUNK_DATA]u8
-	out: [proto.MAX_PAYLOAD_SIZE]u8
-	for {
-		index, first, ok := proto.transfer_pick(&f.send, now)
-		if !ok {
-			return true
-		}
-		start, end := proto.file_chunk_range(f.size, index)
-		ready, read_ok := true, true
-		if f.memory != nil {
-			copy(data[:end - start], f.memory[start:end])
-		} else {
-			ready, read_ok = file_source_read(&f.src, start, data[:end - start])
-		}
-		if !read_ok {
-			log.errorf("[file] could not read %q", f.name)
-			return false
-		}
-		if !ready {
-			return true // a browser is still reading it, so try again next time
-		}
-		send_data(
-			c,
-			proto.encode_transfer_chunk(out[:], .Upload_Chunk, f.id, index, data[:end - start]),
-		)
-		proto.transfer_sent(&f.send, index, first, int(end - start), now)
-	}
-}
-
 // upload_again starts a file over, unless it has been tried too often. It returns
 // false if the message was given up.
 @(private = "file")
-upload_again :: proc(c: ^Voice_Client, p: ^Attach_Post, f: ^Attach_Upload) -> bool {
+upload_again :: proc(c: ^Server_Conn, p: ^Attach_Post, f: ^Attach_Upload) -> bool {
 	f.tries += 1
 	if f.tries >= ATTACH_TRIES {
 		drop_post(c, p, "A file could not be sent because the server rejected it.")
@@ -423,7 +398,7 @@ upload_again :: proc(c: ^Voice_Client, p: ^Attach_Post, f: ^Attach_Upload) -> bo
 }
 
 @(private = "file")
-attach_post_of :: proc(c: ^Voice_Client, nonce: u64) -> (^Attach_Post, int) {
+attach_post_of :: proc(c: ^Server_Conn, nonce: u64) -> (^Attach_Post, int) {
 	for p, i in c.attach.posts {
 		if p.nonce == nonce {
 			return p, i
@@ -434,7 +409,7 @@ attach_post_of :: proc(c: ^Voice_Client, nonce: u64) -> (^Attach_Post, int) {
 
 // drop_post gives up a message with files and tells the user why.
 @(private = "file")
-drop_post :: proc(c: ^Voice_Client, p: ^Attach_Post, why: string) {
+drop_post :: proc(c: ^Server_Conn, p: ^Attach_Post, why: string) {
 	if why != "" {
 		notify(c, false, why)
 	}
@@ -453,7 +428,7 @@ drop_post :: proc(c: ^Voice_Client, p: ^Attach_Post, why: string) {
 
 // attach_cancel drops a message whose files are still being sent or are waiting
 // in the outbox to be posted.
-attach_cancel :: proc(c: ^Voice_Client, nonce: u64) {
+attach_cancel :: proc(c: ^Server_Conn, nonce: u64) {
 	p, _ := attach_post_of(c, nonce)
 	if p == nil {
 		return
@@ -477,7 +452,7 @@ attach_cancel :: proc(c: ^Voice_Client, nonce: u64) {
 }
 
 @(private = "file")
-still_queued :: proc(c: ^Voice_Client, p: ^Attach_Post) -> bool {
+still_queued :: proc(c: ^Server_Conn, p: ^Attach_Post) -> bool {
 	for pending in c.msgs.outbox {
 		if pending.attach == p {
 			return true
@@ -487,13 +462,13 @@ still_queued :: proc(c: ^Voice_Client, p: ^Attach_Post) -> bool {
 }
 
 @(private = "file")
-cancel_transfer :: proc(c: ^Voice_Client, id: u64) {
+cancel_transfer :: proc(c: ^Server_Conn, id: u64) {
 	buf: [proto.TRANSFER_CANCEL_SIZE]u8
 	send_data(c, proto.encode_transfer_cancel(&buf, id, .Cancelled))
 }
 
 @(private = "file")
-put_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+put_answer :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	p, _ := attach_post_of(c, tag)
 	if p == nil {
 		return
@@ -545,7 +520,7 @@ put_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 
 // upload_of returns the file that is being uploaded as `id`, and its message.
 @(private = "file")
-upload_of :: proc(c: ^Voice_Client, id: u64) -> (^Attach_Post, ^Attach_Upload) {
+upload_of :: proc(c: ^Server_Conn, id: u64) -> (^Attach_Post, ^Attach_Upload) {
 	for p in c.attach.posts {
 		for &f in p.files {
 			if f.id == id && (f.state == .Sending || f.state == .Done) {
@@ -556,7 +531,7 @@ upload_of :: proc(c: ^Voice_Client, id: u64) -> (^Attach_Post, ^Attach_Upload) {
 	return nil, nil
 }
 
-handle_upload_ack :: proc(c: ^Voice_Client, pt: []u8) {
+handle_upload_ack :: proc(c: ^Server_Conn, pt: []u8) {
 	ack, count, missing, ok := proto.decode_transfer_ack(pt)
 	if !ok {
 		return
@@ -576,7 +551,7 @@ handle_upload_ack :: proc(c: ^Voice_Client, pt: []u8) {
 }
 
 // handle_transfer_cancel handles the server stopping an upload or a download.
-handle_transfer_cancel :: proc(c: ^Voice_Client, pt: []u8) {
+handle_transfer_cancel :: proc(c: ^Server_Conn, pt: []u8) {
 	id, reason := proto.decode_transfer_cancel(pt)
 	if p, f := upload_of(c, id); f != nil && f.state == .Sending {
 		if reason == .Failed {
@@ -602,7 +577,7 @@ handle_transfer_cancel :: proc(c: ^Voice_Client, pt: []u8) {
 
 // queue_post puts a message whose files are all on the server into the outbox.
 @(private = "file")
-queue_post :: proc(c: ^Voice_Client, p: ^Attach_Post) {
+queue_post :: proc(c: ^Server_Conn, p: ^Attach_Post) {
 	p.queued = true
 	pending := Pending {
 		nonce  = p.nonce,
@@ -621,7 +596,7 @@ queue_post :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 // attach_posted handles a message with files having been posted, so whatever is
 // left of it here is removed. The message itself arrives in its Msg_New, together
 // with the files' blobs.
-attach_posted :: proc(c: ^Voice_Client, p: ^Attach_Post) {
+attach_posted :: proc(c: ^Server_Conn, p: ^Attach_Post) {
 	_, i := attach_post_of(c, p.nonce)
 	if i >= 0 {
 		ordered_remove(&c.attach.posts, i)
@@ -630,13 +605,13 @@ attach_posted :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 }
 
 // attach_post_failed handles the outbox giving up on a message with files.
-attach_post_failed :: proc(c: ^Voice_Client, p: ^Attach_Post) {
+attach_post_failed :: proc(c: ^Server_Conn, p: ^Attach_Post) {
 	drop_post(c, p, "")
 }
 
 // attach_upload_again handles a post that found its uploads gone. The files are
 // uploaded again, and the message is queued again afterwards.
-attach_upload_again :: proc(c: ^Voice_Client, p: ^Attach_Post) {
+attach_upload_again :: proc(c: ^Server_Conn, p: ^Attach_Post) {
 	p.queued = false
 	for &f in p.files {
 		proto.transfer_sender_destroy(&f.send)
@@ -649,7 +624,7 @@ attach_upload_again :: proc(c: ^Voice_Client, p: ^Attach_Post) {
 // Saving.
 
 // attach_save starts saving a file that a message carries, or stops it.
-attach_save :: proc(c: ^Voice_Client, cmd: Attach_Save_Command) {
+attach_save :: proc(c: ^Server_Conn, cmd: Attach_Save_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	m, found := msg_find(c, conv, cmd.msg)
 	if !found || cmd.index < 0 || cmd.index >= len(m.files) {
@@ -708,7 +683,7 @@ attach_save :: proc(c: ^Voice_Client, cmd: Attach_Save_Command) {
 }
 
 @(private = "file")
-save_turn :: proc(c: ^Voice_Client, sv: ^Attach_Save, now: time.Tick) {
+save_turn :: proc(c: ^Server_Conn, sv: ^Attach_Save, now: time.Tick) {
 	switch sv.state {
 	case .Asking:
 		if !sv.asking {
@@ -736,7 +711,7 @@ save_turn :: proc(c: ^Voice_Client, sv: ^Attach_Save, now: time.Tick) {
 }
 
 @(private = "file")
-send_save_ack :: proc(c: ^Voice_Client, sv: ^Attach_Save, now: time.Tick) {
+send_save_ack :: proc(c: ^Server_Conn, sv: ^Attach_Save, now: time.Tick) {
 	out: [proto.MAX_PAYLOAD_SIZE]u8
 	send_data(
 		c,
@@ -752,7 +727,7 @@ send_save_ack :: proc(c: ^Voice_Client, sv: ^Attach_Save, now: time.Tick) {
 }
 
 @(private = "file")
-get_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+get_answer :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	blob := proto.Blob_Id(tag &~ PREVIEW_TAG)
 	sv := (c.attach.previews if tag & PREVIEW_TAG != 0 else c.attach.saves)[blob] or_else nil
 	if sv == nil || sv.state != .Asking {
@@ -794,7 +769,7 @@ get_answer :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 	publish_saves(c)
 }
 
-handle_download_chunk :: proc(c: ^Voice_Client, pt: []u8) {
+handle_download_chunk :: proc(c: ^Server_Conn, pt: []u8) {
 	id, index, data := proto.decode_transfer_chunk(pt)
 	sv: ^Attach_Save
 	for _, s in all_saves(c) {
@@ -844,7 +819,7 @@ handle_download_chunk :: proc(c: ^Voice_Client, pt: []u8) {
 }
 
 @(private = "file")
-save_end :: proc(c: ^Voice_Client, sv: ^Attach_Save, state: Save_State) {
+save_end :: proc(c: ^Server_Conn, sv: ^Attach_Save, state: Save_State) {
 	if !sv.memory && (sv.state == .Asking || sv.state == .Receiving) {
 		file_sink_abort(&sv.sink)
 	}
@@ -855,7 +830,7 @@ save_end :: proc(c: ^Voice_Client, sv: ^Attach_Save, state: Save_State) {
 // attachments_restart handles the server having made a new connection. What was
 // in progress starts again (an upload from the start, a save from where it got
 // to). With `forget`, we were logged out and everything is discarded.
-attachments_restart :: proc(c: ^Voice_Client, forget: bool) {
+attachments_restart :: proc(c: ^Server_Conn, forget: bool) {
 	if forget {
 		for p in c.attach.posts {
 			attach_post_free(p)
@@ -891,7 +866,7 @@ attachments_restart :: proc(c: ^Voice_Client, forget: bool) {
 // all_saves returns every file that is being fetched, either to be saved or to
 // be shown. It is allocated in the temp allocator.
 @(private = "file")
-all_saves :: proc(c: ^Voice_Client) -> map[proto.Blob_Id]^Attach_Save {
+all_saves :: proc(c: ^Server_Conn) -> map[proto.Blob_Id]^Attach_Save {
 	all := make(
 		map[proto.Blob_Id]^Attach_Save,
 		len(c.attach.saves) + len(c.attach.previews),
@@ -930,7 +905,7 @@ preview_wanted :: proc(name: string, size: u64) -> bool {
 
 // attach_preview fetches a picture that a message carries so it can be shown,
 // unless it is already here or on its way.
-attach_preview :: proc(c: ^Voice_Client, cmd: Attach_Preview_Command) {
+attach_preview :: proc(c: ^Server_Conn, cmd: Attach_Preview_Command) {
 	conv := cmd.conv if cmd.conv != 0 else c.convs.viewing
 	m, found := msg_find(c, conv, cmd.msg)
 	if !found || cmd.index < 0 || cmd.index >= len(m.files) {
@@ -1006,7 +981,7 @@ view_pending_destroy :: proc(p: View_Pending) {
 	delete(p.files)
 }
 
-publish_saves :: proc(c: ^Voice_Client) {
+publish_saves :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return

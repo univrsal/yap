@@ -14,13 +14,6 @@ import "common:proto"
 
 BOT_TAG :: "BOT"
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // bot_token_shown shows the token that was just created, if there is one: whose
 // it is, the token itself, and buttons to copy it and to dismiss it. Call with
 // the View locked, in the accounts list.
@@ -60,17 +53,12 @@ bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 	ctx := &ui.ctx
 	if v.other_devices_of != id {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "    Asking the server...", label_proc)
+		dim_label(ctx, "    Asking the server...")
 		return
 	}
 	if len(v.other_devices) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			"    This bot has no tokens, so it can't log in.",
-			label_proc,
-		)
+		dim_label(ctx, "    This bot has no tokens, so it can't log in.")
 	}
 	for d, i in v.other_devices {
 		mu.push_id(ctx, uintptr(i))
@@ -92,12 +80,7 @@ bot_tokens :: proc(ui: ^UI, v: ^conn.View, id: proto.Account_Id) {
 		}
 	}
 	mu.layout_row(ctx, {-(90 + ctx.style.spacing), 87})
-	with_text_color(
-		ctx,
-		theme.dim,
-		"    A token is all a program needs to be the bot; revoking one logs it out.",
-		wrap_text,
-	)
+	dim_note(ctx, "    A token is all a program needs to be the bot; revoking one logs it out.")
 	if .SUBMIT in stable_button(ctx, "new token", "New token", {.ALIGN_CENTER}) {
 		ui.account.mistake = ""
 		command(ui, conn.Bot_Token_Command{account = id})

@@ -62,13 +62,6 @@ CHANNELS_WINDOW :: "Join a channel"
 @(private = "file")
 JOIN_BUTTON :: 80
 
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
-}
-
 // viewed_channel is the channel whose chat is showing, or nil. Call
 // with the View locked.
 viewed_channel :: proc(v: ^conn.View) -> ^conn.View_Channel {
@@ -393,7 +386,7 @@ channel_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {CHANNEL_MENU_WIDTH})
-	with_text_color(ctx, theme.dim, ch.name, label_proc)
+	dim_label(ctx, ch.name)
 	if .SUBMIT in
 	   stable_button_hint(
 		   ui,
@@ -499,7 +492,7 @@ channels_window :: proc(ui: ^UI, window_w, window_h: i32) {
 				"You're in every channel you can join." if pager_query(&c.find) == "" else "No channel you aren't in has that in its name or topic."
 		}
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, text, wrap_text)
+		dim_note(ctx, text)
 	}
 	for e in v.browse {
 		mu.push_id(ctx, uintptr(e.id))

@@ -33,11 +33,6 @@ import "common:proto"
 REGISTER_BURST :: 10
 REGISTER_EVERY :: 10 * time.Second
 
-Register_Rate :: struct {
-	tokens: f64,
-	last:   time.Tick,
-}
-
 // registration_flags returns the registration settings that are reported in Server_Info.
 registration_flags :: proc(s: ^Server) -> (flags: proto.Registration_Flags) {
 	r := s.registration
@@ -71,23 +66,9 @@ refuse_register :: proc(u: ^Conn, id: u32, reason: proto.Register_Refusal) {
 // It returns false if none are left.
 @(private = "file")
 register_take :: proc(s: ^Server) -> bool {
-	r := &s.register_rate
-	now := time.tick_now()
-	if r.last == {} {
-		r.tokens = REGISTER_BURST
-	} else {
-		elapsed := time.duration_seconds(time.tick_diff(r.last, now))
-		r.tokens = min(
-			f64(REGISTER_BURST),
-			r.tokens + elapsed / time.duration_seconds(REGISTER_EVERY),
-		)
-	}
-	r.last = now
-	if r.tokens < 1 {
-		return false
-	}
-	r.tokens -= 1
-	return true
+	rate := 1 / time.duration_seconds(REGISTER_EVERY)
+	proto.bucket_refill(&s.register_rate, time.tick_now(), rate, REGISTER_BURST)
+	return proto.bucket_take(&s.register_rate, 1)
 }
 
 // register_checks validates a registration, both when it is requested and

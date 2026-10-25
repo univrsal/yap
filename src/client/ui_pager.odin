@@ -22,9 +22,8 @@ import mu "vendor:microui"
 PAGE_ROWS :: 20
 
 Pager :: struct {
-	find_buf: [64]u8,
-	find_len: int,
-	page:     int,
+	find: Text_Field(64),
+	page: int,
 }
 
 @(private = "file")
@@ -36,8 +35,8 @@ PAGE_BUTTON :: 40
 pager_search :: proc(ui: ^UI, p: ^Pager, hint: string) -> (changed: bool) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1})
-	res := text_box(ui, p.find_buf[:], &p.find_len)
-	if p.find_len == 0 && ctx.focus_id != ctx.last_id {
+	res := text_box(ui, p.find.buf[:], &p.find.len)
+	if p.find.len == 0 && ctx.focus_id != ctx.last_id {
 		r := ctx.last_rect
 		font := ctx.style.font
 		mu.push_clip_rect(ctx, r)
@@ -60,7 +59,7 @@ pager_search :: proc(ui: ^UI, p: ^Pager, hint: string) -> (changed: bool) {
 // pager_query is what was typed to narrow the list down, without the spaces
 // around it.
 pager_query :: proc(p: ^Pager) -> string {
-	return strings.trim_space(string(p.find_buf[:p.find_len]))
+	return strings.trim_space(field_text(&p.find))
 }
 
 // pager_matches says whether any of `fields` contains `query`, ignoring case. An

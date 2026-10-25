@@ -11,7 +11,7 @@ package proto
 // Reading a channel and talking in its voice room are separate things. A
 // channel has a voice room, which a connection joins and leaves independently
 // (Voice_Join). The snapshot says which room each connection is in
-// (messages.odin), and a connection starts out in no room. A Room is 0 for
+// (datagrams.odin), and a connection starts out in no room. A Room is 0 for
 // none or the channel's id. The top bit is reserved for rooms that don't
 // belong to a channel.
 //
@@ -87,7 +87,7 @@ package proto
 // account is a member of, between Sync_Begin and Sync_End (accounts.odin).
 //
 // A conversation's last message is the id of the newest message posted to it
-// (msgs.odin), or 0 for none. `last time` is the time at which that message
+// (messages.odin), or 0 for none. `last time` is the time at which that message
 // was posted, in Unix milliseconds (0 for none). It is used to order a list of
 // DMs from many servers, because ids from different servers can't be compared.
 //
@@ -284,7 +284,7 @@ encode_conv :: proc(out: []u8, c: Conv) -> []u8 {
 	}
 	put_conv(&w, c)
 	put_u8(&w, transmute(u8)c.rights)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 // decode_conv reads a conversation. Its strings point into `body`.
@@ -296,7 +296,7 @@ decode_conv :: proc(body: []u8) -> (c: Conv, ok: bool) {
 	if r.overflow || c.id == 0 {
 		return {}, false
 	}
-	if r.pos < len(r.buf) {
+	if has_more(&r) {
 		c.rights = conv_rights_settle(transmute(Conv_Rights)get_u8(&r), c.flags)
 	} else {
 		c.rights = conv_rights_default(c.kind, c.flags)
@@ -451,7 +451,7 @@ encode_conv_create :: proc(
 	if flags & CONV_SETTABLE_FLAGS != {} {
 		put_u8(&w, transmute(u8)(flags & CONV_SETTABLE_FLAGS))
 	}
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 // decode_conv_create reads a Conv_Create request. `flags` has Private if the
@@ -465,7 +465,7 @@ decode_conv_create :: proc(body: []u8) -> (name, topic: string, flags: Conv_Flag
 	if get_u8(&r) != 0 {
 		flags += {.Private}
 	}
-	if !r.overflow && r.pos < len(r.buf) {
+	if has_more(&r) {
 		flags += transmute(Conv_Flags)get_u8(&r) & CONV_SETTABLE_FLAGS
 	}
 	return name, topic, flags, !r.overflow
@@ -474,36 +474,20 @@ decode_conv_create :: proc(body: []u8) -> (name, topic: string, flags: Conv_Flag
 // A body that consists of one conversation's id, such as Conv_Members,
 // Conv_Removed and the response to Conv_Create.
 encode_conv_id :: proc(out: ^[4]u8, conv: Conv_Id) -> []u8 {
-	w := Writer {
-		buf = out[:],
-	}
-	put_u32(&w, u32(conv))
-	return out[:]
+	return id_put(out[:], conv)
 }
 
 decode_conv_id :: proc(body: []u8) -> (conv: Conv_Id, ok: bool) {
-	r := Reader {
-		buf = body,
-	}
-	conv = Conv_Id(get_u32(&r))
-	return conv, !r.overflow
+	return id_get(Conv_Id, body)
 }
 
 // A body that consists of a room, such as Voice_Join and Voice_Moved.
 encode_room :: proc(out: ^[4]u8, room: Room) -> []u8 {
-	w := Writer {
-		buf = out[:],
-	}
-	put_u32(&w, u32(room))
-	return out[:]
+	return id_put(out[:], room)
 }
 
 decode_room :: proc(body: []u8) -> (room: Room, ok: bool) {
-	r := Reader {
-		buf = body,
-	}
-	room = Room(get_u32(&r))
-	return room, !r.overflow
+	return id_get(Room, body)
 }
 
 CONV_SUBSCRIBE_SIZE :: 4 + 1
@@ -537,7 +521,7 @@ encode_conv_members :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
 	for a in accounts[:count] {
 		put_u32(&w, u32(a))
 	}
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_conv_members :: proc(
@@ -677,7 +661,7 @@ encode_conv_update :: proc(out: []u8, u: Conv_Update) -> []u8 {
 	if u.mask & CONV_UPDATE_FLAGS != 0 {
 		put_u8(&w, transmute(u8)(u.flags & CONV_SETTABLE_FLAGS))
 	}
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_conv_update :: proc(body: []u8) -> (u: Conv_Update, ok: bool) {

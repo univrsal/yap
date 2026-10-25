@@ -50,7 +50,7 @@ View_Call :: struct {
 	since:  time.Tick,
 }
 
-call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
+call_start :: proc(c: ^Server_Conn, cmd: Call_Command) {
 	cc := &c.call
 	account := cmd.account if cmd.account != 0 else account_named(c, cmd.name)
 	switch {
@@ -67,7 +67,7 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 		c,
 		.Call_Start,
 		proto.encode_account_id(&buf, account),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			cc := &c.call
 			cc.asking = false
 			#partial switch status {
@@ -109,7 +109,7 @@ call_start :: proc(c: ^Voice_Client, cmd: Call_Command) {
 	)
 }
 
-call_answer :: proc(c: ^Voice_Client) {
+call_answer :: proc(c: ^Server_Conn) {
 	cc := &c.call
 	if cc.status != .Ringing_In {
 		return
@@ -120,7 +120,7 @@ call_answer :: proc(c: ^Voice_Client) {
 		c,
 		.Call_Accept,
 		proto.encode_call_id(&buf, cc.id),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
 				c.call.here = false
 				notify(
@@ -135,7 +135,7 @@ call_answer :: proc(c: ^Voice_Client) {
 	publish_call(c)
 }
 
-call_hangup :: proc(c: ^Voice_Client) {
+call_hangup :: proc(c: ^Server_Conn) {
 	cc := &c.call
 	if cc.status == .None {
 		return
@@ -146,7 +146,7 @@ call_hangup :: proc(c: ^Voice_Client) {
 
 // calls_event handles an event about calls. It returns false if `op` is not a
 // call event.
-calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
+calls_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	cc := &c.call
 	#partial switch op {
 	case .Call_Ring:
@@ -194,13 +194,7 @@ calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 				here   = here,
 				since  = time.tick_now(),
 			}
-			if c.view == nil {
-				log.infof(
-					"[call] in a call with %s%s",
-					account_display(c, peer),
-					"" if here else " (on another device)",
-				)
-			}
+			report_call_active(c, peer, here)
 		case .Ended:
 			if cc.id == change.id {
 				// Only the connection that is in the call (or started it)
@@ -215,13 +209,7 @@ calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 				}
 				cc^ = {}
 			}
-			if c.view == nil {
-				log.infof(
-					"[call] the call with %s is over (%v)",
-					account_display(c, peer),
-					change.reason,
-				)
-			}
+			report_call_over(c, peer, change.reason)
 		}
 	case:
 		return false
@@ -233,14 +221,14 @@ calls_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 
 // calls_restart resets the call state. A new connection is not in any call,
 // regardless of what the server knew about the old connection.
-calls_restart :: proc(c: ^Voice_Client) {
+calls_restart :: proc(c: ^Server_Conn) {
 	c.call = {}
 	loop_sounds(c)
 	publish_call(c)
 }
 
 @(private = "file")
-publish_call :: proc(c: ^Voice_Client) {
+publish_call :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return

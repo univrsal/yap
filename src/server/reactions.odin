@@ -6,7 +6,7 @@ import "core:strings"
 import "common:proto"
 import "sqlite"
 
-// Reactions (see src/common/proto/msgs.odin) are emojis that an account
+// Reactions (see src/common/proto/messages.odin) are emojis that an account
 // adds to a message. Anyone who may read a message may react to it, either
 // with a Unicode emoji (from the table in proto/emoji_table.odin) or with
 // one of the server's custom emojis (`:name:`, see emoji.odin). An account
@@ -29,9 +29,7 @@ attach_reactions :: proc(s: ^Server, m: ^proto.Message, asker: proto.Account_Id)
 		return
 	}
 	list := make([dynamic]proto.Reaction, 0, 4, context.temp_allocator)
-	q := db_stmt(&s.db, .Reactions_Of)
-	db_bind_int(q, 1, i64(m.id))
-	db_bind_int(q, 2, i64(asker))
+	q := db_query(&s.db, .Reactions_Of, i64(m.id), i64(asker))
 	for {
 		row, ok := db_step(&s.db, q)
 		if !ok || !row {
@@ -75,19 +73,15 @@ reactors_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, found := msg_by_id(s, msg_id)
-	conv := conv_by_id(&s.convs, m.conv) if found else nil
-	if conv == nil || !conv_reader(conv, u.account) {
+	m, _, readable := msg_readable(s, u, msg_id)
+	if !readable {
 		respond(u, id, .Not_Found)
 		return
 	}
 	accounts := make([dynamic]proto.Account_Id, 0, proto.MAX_REACTORS, context.temp_allocator)
 	total := 0
 	if .Deleted not_in m.flags {
-		q := db_stmt(&s.db, .Reactors_Of)
-		db_bind_int(q, 1, i64(m.id))
-		db_bind_text(q, 2, emoji)
-		db_bind_int(q, 3, proto.MAX_REACTORS)
+		q := db_query(&s.db, .Reactors_Of, i64(m.id), emoji, proto.MAX_REACTORS)
 		for {
 			row, stepped := db_step(&s.db, q)
 			if !stepped {
@@ -101,9 +95,7 @@ reactors_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		total = len(accounts)
 		if total == proto.MAX_REACTORS {
-			q = db_stmt(&s.db, .React_Count)
-			db_bind_int(q, 1, i64(m.id))
-			db_bind_text(q, 2, emoji)
+			q = db_query(&s.db, .React_Count, i64(m.id), emoji)
 			if row, stepped := db_step(&s.db, q); stepped && row {
 				total = int(db_col_int(q, 0))
 				sqlite.reset(q)
@@ -120,9 +112,8 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	m, found := msg_by_id(s, msg_id)
-	conv := conv_by_id(&s.convs, m.conv) if found else nil
-	if conv == nil || !conv_reader(conv, u.account) || .Deleted in u.account.flags {
+	m, conv, readable := msg_readable(s, u, msg_id)
+	if !readable || .Deleted in u.account.flags {
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -135,8 +126,7 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	count_of :: proc(s: ^Server, stmt: Stmt, id: proto.Msg_Id, emoji: string) -> int {
-		q := db_stmt(&s.db, stmt)
-		db_bind_int(q, 1, i64(id))
+		q := db_query(&s.db, stmt, i64(id))
 		if stmt == .React_Count {
 			db_bind_text(q, 2, emoji)
 		}
@@ -153,10 +143,7 @@ msg_react :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Too_Large)
 		return
 	}
-	q := db_stmt(&s.db, .React_Add if on else .React_Remove)
-	db_bind_int(q, 1, i64(m.id))
-	db_bind_text(q, 2, emoji)
-	db_bind_int(q, 3, i64(u.account.id))
+	q := db_query(&s.db, .React_Add if on else .React_Remove, i64(m.id), emoji, i64(u.account.id))
 	if on {
 		db_bind_int(q, 4, unix_ms())
 	}

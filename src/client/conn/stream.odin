@@ -14,40 +14,23 @@ import "common:proto"
 // it starts over whenever the server says the connection is a new one (see
 // handle_welcome).
 
-// What may be waiting to go out.
-STREAM_QUEUE_MAX :: 1024 * 1024
-// Bytes per second, and the number of bytes that may go out at once.
-STREAM_RATE :: 256 * 1024
-STREAM_BURST :: 32 * 1024
-// The longest a frame waits for its first acknowledgement, however long the
-// round trip seems to be.
-STREAM_RESEND_MOST :: time.Second
-
-Stream_Client :: struct {
-	using stream: proto.Stream,
-	tokens:       f32, // bytes that may be sent right now
-	last:         time.Tick,
-}
-
-stream_destroy :: proc(c: ^Voice_Client) {
+stream_destroy :: proc(c: ^Server_Conn) {
 	proto.stream_destroy(&c.stream)
 }
 
 // stream_restart starts the stream over for a new connection. Anything that
 // was in transit in either direction is dropped, including the requests that
 // were waiting for an answer.
-stream_restart :: proc(c: ^Voice_Client) {
+stream_restart :: proc(c: ^Server_Conn) {
 	st := &c.stream
 	proto.stream_reset(st)
-	st.max_queue = STREAM_QUEUE_MAX
-	st.tokens = STREAM_BURST
-	st.last = time.tick_now()
+	st.max_queue = proto.STREAM_CLIENT_QUEUE
 	rpc_restart(c)
 }
 
 // stream_send queues a message for the server. It goes out in
 // stream_step.
-stream_send :: proc(c: ^Voice_Client, msg: []u8) {
+stream_send :: proc(c: ^Server_Conn, msg: []u8) {
 	// While a new connection is being set up, nothing more goes out on this
 	// one. Whoever asked gets Reset once the new connection is established.
 	if c.restart || proto.stream_send(&c.stream, msg) {
@@ -71,61 +54,41 @@ stream_send :: proc(c: ^Voice_Client, msg: []u8) {
 
 // connection_restart gives up on the current connection and handshakes for a
 // new one under a new conn_id, which the server takes as us having started over
-// (proto/names.odin).
-connection_restart :: proc(c: ^Voice_Client) {
+// (proto/hello.odin).
+connection_restart :: proc(c: ^Server_Conn) {
 	if c.restart {
 		return
 	}
 	crypto.rand_bytes(([^]byte)(&c.conn_id)[:size_of(c.conn_id)])
 	// A handshake that is still in progress would still use the old conn_id.
-	abandon_handshake(&c.link)
+	proto.link_abandon(&c.link)
 	c.restart = true // until the Welcome (handle_welcome)
 }
 
 // stream_step sends what the stream has to send: first the acknowledgements
 // that have arrived, then frames (new and due for a resend) as far as the
 // pacing allows.
-stream_step :: proc(c: ^Voice_Client) {
+stream_step :: proc(c: ^Server_Conn) {
 	st := &c.stream
 	if !c.has_current || !c.has_instance {
 		return
 	}
 	now := time.tick_now()
-	elapsed := f32(time.duration_seconds(time.tick_diff(st.last, now)))
-	st.last = now
-	st.tokens = min(st.tokens + elapsed * STREAM_RATE, STREAM_BURST)
-
-	ack_buf: [proto.STREAM_ACK_SIZE]u8
-	if ack, ok := proto.stream_ack(st, &ack_buf); ok {
-		send_data(c, ack)
-	}
-	if proto.stream_idle(st) {
-		return
-	}
-	resend := stream_resend(c, now)
-	out: [proto.MAX_PAYLOAD_SIZE]u8
-	for st.tokens > 0 {
-		frame, ok := proto.stream_next_frame(st, now, resend, out[:])
-		if !ok {
-			break
+	// The round trip, once the pings have measured one, for when frames are
+	// due again; only looked up when there are frames.
+	rtt: time.Duration
+	if !proto.stream_idle(st) {
+		if stats := connection_stats(&c.ping, now); stats.quality != .Unknown {
+			rtt = stats.avg_rtt
 		}
-		send_data(c, frame)
-		st.tokens -= f32(len(frame))
 	}
+	send_frame :: proc(data: rawptr, msg: []u8) {
+		send_data((^Server_Conn)(data), msg)
+	}
+	proto.stream_pace(st, now, proto.stream_resend_for(rtt), send_frame, c)
 }
 
-// stream_resend is how long a frame waits for its acknowledgement before it is
-// sent again: twice the round trip once the pings have measured one.
-@(private = "file")
-stream_resend :: proc(c: ^Voice_Client, now: time.Tick) -> time.Duration {
-	stats := connection_stats(&c.ping, now)
-	if stats.quality == .Unknown || stats.avg_rtt <= 0 {
-		return proto.STREAM_RESEND
-	}
-	return clamp(2 * stats.avg_rtt, proto.STREAM_RESEND_MIN, STREAM_RESEND_MOST)
-}
-
-handle_stream :: proc(c: ^Voice_Client, pt: []byte) {
+handle_stream :: proc(c: ^Server_Conn, pt: []byte) {
 	st := &c.stream
 	if c.restart {
 		return
@@ -144,6 +107,6 @@ handle_stream :: proc(c: ^Voice_Client, pt: []byte) {
 	}
 }
 
-handle_stream_ack :: proc(c: ^Voice_Client, pt: []byte) {
+handle_stream_ack :: proc(c: ^Server_Conn, pt: []byte) {
 	proto.stream_acked(&c.stream, pt)
 }

@@ -1,12 +1,13 @@
 package server
 
 import "core:fmt"
+import "core:strings"
 import "core:testing"
 
 import "common:proto"
 
 // Tests of registration and invite codes, using the Test_Server from
-// auth_test.odin.
+// harness_test.odin.
 
 @(private = "file")
 Reg_Result :: struct {
@@ -200,7 +201,7 @@ test_invites :: proc(t: ^testing.T) {
 	code = clone_temp(code)
 
 	// Codes are case-insensitive. This one is used up after one use.
-	lower := to_lower_temp(code)
+	lower := strings.to_lower(code, context.temp_allocator)
 	r := reg(t, &ts, {username = "first", password = PW, invite = lower})
 	testing.expect_value(t, r.status, proto.Status.Ok)
 	r = reg(t, &ts, {username = "second", password = PW, invite = code})
@@ -282,14 +283,5 @@ test_invites :: proc(t: ^testing.T) {
 clone_temp :: proc(s: string) -> string {
 	out := make([]u8, len(s), context.temp_allocator)
 	copy(out, s)
-	return string(out)
-}
-
-@(private = "file")
-to_lower_temp :: proc(s: string) -> string {
-	out := make([]u8, len(s), context.temp_allocator)
-	for i in 0 ..< len(s) {
-		out[i] = s[i] + ('a' - 'A') if s[i] >= 'A' && s[i] <= 'Z' else s[i]
-	}
 	return string(out)
 }

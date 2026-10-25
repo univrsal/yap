@@ -6,6 +6,7 @@ import "core:fmt"
 import "core:time"
 import mu "vendor:microui"
 
+
 // Invite codes in the server settings tab (conn/invites.odin): creating a code
 // that is valid for a number of registrations and for a period of time, and
 // listing the existing codes (ours, or with Manage_Accounts everybody's) so
@@ -43,7 +44,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	if !st.asked {
 		st.asked = true
-		invites_command(ui, conn.Invites_Command{})
+		command(ui, conn.Invites_Command{})
 	}
 
 	if make_codes {
@@ -77,14 +78,9 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 				now := time.time_to_unix_nano(time.now()) / 1_000_000
 				expires = proto.Unix_Ms(now + i64(st.days) * 24 * 60 * 60 * 1000)
 			}
-			invites_command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
+			command(ui, conn.Invite_Create_Command{max_uses = st.uses, expires = expires})
 		}
-		with_text_color(
-			ctx,
-			theme.dim,
-			"Anyone with the code can register an account on this server.",
-			wrap_text,
-		)
+		dim_note(ctx, "Anyone with the code can register an account on this server.")
 
 		if v.invites.made != "" && v.invites.made_count > st.made_seen {
 			field_row(ui, FORM_LABEL, "New code", {150, 90, 90})
@@ -100,7 +96,7 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 
 	if len(v.invites.list) == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "No invite codes yet.", label_proc)
+		dim_label(ctx, "No invite codes yet.")
 		return
 	}
 	now := proto.Unix_Ms(time.time_to_unix_nano(time.now()) / 1_000_000)
@@ -138,14 +134,14 @@ invites_settings :: proc(ui: ^UI, v: ^conn.View) {
 				by = fmt.tprintf("by %s", acc.display)
 			}
 		}
-		with_text_color(ctx, theme.dim, by, label_proc)
+		dim_label(ctx, by)
 		if usable {
 			if .SUBMIT in stable_button(ctx, "copy", "Copy") {
 				set_clipboard(nil, inv.code)
 			}
 			if inv.creator == v.me || .Manage_Accounts in v.permissions {
 				if .SUBMIT in stable_button(ctx, "revoke", "Revoke") {
-					invites_command(ui, conn.Invite_Revoke_Command{code = clone(inv.code)})
+					command(ui, conn.Invite_Revoke_Command{code = clone(inv.code)})
 				}
 			} else {
 				mu.label(ctx, "")
@@ -169,7 +165,7 @@ invited_by_line :: proc(ui: ^UI, v: ^conn.View, account: proto.Account_Id) -> st
 		asked, before := ui.invites_asked[account]
 		if !before || time.tick_since(asked) > 10 * time.Second {
 			ui.invites_asked[account] = time.tick_now()
-			invites_command(ui, conn.Invite_Of_Command{account = account})
+			command(ui, conn.Invite_Of_Command{account = account})
 		}
 		return ""
 	}
@@ -194,20 +190,6 @@ invite_date :: proc(ui: ^UI, ms: proto.Unix_Ms) -> string {
 		local.hour,
 		local.minute,
 	)
-}
-
-// choice_button draws a button that is one of a set of choices, marked if it is
-// the chosen one. It returns whether it was clicked.
-choice_button :: proc(ui: ^UI, id, label: string, chosen: bool) -> bool {
-	text := fmt.tprintf("> %s", label) if chosen else label
-	return .SUBMIT in stable_button(&ui.ctx, id, text, {.ALIGN_CENTER})
-}
-
-@(private = "file")
-invites_command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
-	}
 }
 
 @(private = "file")

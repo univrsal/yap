@@ -87,7 +87,7 @@ Symbols :: struct {
 }
 
 @(private = "file")
-x11: struct {
+g_x11: struct {
 	sym:        Symbols,
 	tried:      bool,
 	loaded:     bool,
@@ -119,7 +119,7 @@ titlebar_init :: proc(merged: bool) {
 		return
 	}
 	vglfw.InitHint(vglfw.PLATFORM, vglfw.PLATFORM_X11)
-	x11.xwayland = true
+	g_x11.xwayland = true
 	log.debug("ui: X11 rather than Wayland, for the merged title bar")
 }
 
@@ -191,9 +191,9 @@ titlebar_buttons :: proc(ui: ^UI, w: i32) {
 // maximize or restore it on a double click. Called from the mouse button
 // callback. The drag runs until the button is released.
 titlebar_press :: proc(window: glfw.WindowHandle) {
-	if x11.last_press != {} && time.tick_since(x11.last_press) < DOUBLE_CLICK {
-		x11.last_press = {}
-		x11.pending = false
+	if g_x11.last_press != {} && time.tick_since(g_x11.last_press) < DOUBLE_CLICK {
+		g_x11.last_press = {}
+		g_x11.pending = false
 		if vglfw.GetWindowAttrib(window, vglfw.MAXIMIZED) != 0 {
 			glfw.RestoreWindow(window)
 		} else {
@@ -201,7 +201,7 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 		}
 		return
 	}
-	x11.last_press = time.tick_now()
+	g_x11.last_press = time.tick_now()
 	start_drag(window, MOVERESIZE_MOVE)
 }
 
@@ -209,21 +209,21 @@ titlebar_press :: proc(window: glfw.WindowHandle) {
 // manager once the pointer has moved far enough with the button held. Called
 // from the cursor position callback.
 titlebar_motion :: proc(window: glfw.WindowHandle) {
-	if !x11.pending {
+	if !g_x11.pending {
 		return
 	}
 	if vglfw.GetMouseButton(window, vglfw.MOUSE_BUTTON_LEFT) != vglfw.PRESS {
-		x11.pending = false
+		g_x11.pending = false
 		return
 	}
 	x, y := glfw.GetCursorPos(window)
 	scale, _ := glfw.GetWindowContentScale(window)
 	reach := f64(DRAG_DISTANCE * max(scale, 1))
-	if abs(x - x11.pressed_at.x) < reach && abs(y - x11.pressed_at.y) < reach {
+	if abs(x - g_x11.pressed_at.x) < reach && abs(y - g_x11.pressed_at.y) < reach {
 		return
 	}
-	x11.pending = false
-	move_resize(window, x11.direction)
+	g_x11.pending = false
+	move_resize(window, g_x11.direction)
 }
 
 // titlebar_resizable reports whether window_edge resizes the window: it has no
@@ -250,7 +250,7 @@ titlebar_restart_note :: proc(merged: bool) -> string {
 	switch {
 	case merged && on_wayland():
 		return XWAYLAND_NOTE
-	case !merged && x11.xwayland:
+	case !merged && g_x11.xwayland:
 		return "From the next start this window will run on Wayland again."
 	}
 	return ""
@@ -278,18 +278,18 @@ merged :: proc(window: glfw.WindowHandle) -> bool {
 @(private = "file")
 start_drag :: proc(window: glfw.WindowHandle, direction: c.long) {
 	x, y := glfw.GetCursorPos(window)
-	x11.pending = true
-	x11.direction = direction
-	x11.pressed_at = {x, y}
+	g_x11.pending = true
+	g_x11.direction = direction
+	g_x11.pressed_at = {x, y}
 }
 
 @(private = "file")
 load_x11 :: proc() -> bool {
-	if x11.tried {
-		return x11.loaded
+	if g_x11.tried {
+		return g_x11.loaded
 	}
-	x11.tried = true
-	s := &x11.sym
+	g_x11.tried = true
+	s := &g_x11.sym
 	_, ok := dynlib.initialize_symbols(s, "libX11.so.6")
 	if !ok {
 		_, ok = dynlib.initialize_symbols(s, "libX11.so")
@@ -303,7 +303,7 @@ load_x11 :: proc() -> bool {
 		log.warn("ui: couldn't load libX11, so the window can't be moved by its title bar")
 		return false
 	}
-	x11.loaded = true
+	g_x11.loaded = true
 	return true
 }
 
@@ -319,9 +319,9 @@ move_resize :: proc(window: glfw.WindowHandle, direction: c.long) {
 	if display == nil || !load_x11() {
 		return
 	}
-	s := &x11.sym
+	s := &g_x11.sym
 	wx, wy := vglfw.GetWindowPos(window)
-	px, py := x11.pressed_at.x, x11.pressed_at.y
+	px, py := g_x11.pressed_at.x, g_x11.pressed_at.y
 	event := Client_Message {
 		type         = CLIENT_MESSAGE,
 		send_event   = true,

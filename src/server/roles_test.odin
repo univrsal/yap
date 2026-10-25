@@ -7,7 +7,7 @@ import "core:time"
 import "common:proto"
 
 // Tests of roles, channel management and private channels, using the
-// Test_Server from auth_test.odin.
+// Test_Server from harness_test.odin.
 
 @(private = "file")
 role_set :: proc(
@@ -232,8 +232,7 @@ test_roles :: proc(t: ^testing.T) {
 
 @(test)
 test_roles_kept :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 	{
@@ -469,8 +468,7 @@ test_channel_management :: proc(t: ^testing.T) {
 
 @(test)
 test_private_channels :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)

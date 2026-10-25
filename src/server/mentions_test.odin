@@ -5,7 +5,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of mentions, using the Test_Server from auth_test.odin.
+// Tests of mentions, using the Test_Server from harness_test.odin.
 
 @(private = "file")
 mentions_of :: proc(ts: ^Test_Server, conv: ^Conv, acc: ^Account) -> int {

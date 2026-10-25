@@ -5,6 +5,8 @@
 // emoji. It is pure Odin, so the web build can use it too.
 package gif
 
+import "common:imagekind"
+
 Info :: struct {
 	width, height: int,
 	frames:        int,
@@ -13,7 +15,7 @@ Info :: struct {
 
 // is_gif returns whether `data` starts with a GIF header.
 is_gif :: proc(data: []u8) -> bool {
-	return len(data) >= 6 && (string(data[:6]) == "GIF89a" || string(data[:6]) == "GIF87a")
+	return imagekind.is_gif(data)
 }
 
 // info reads a GIF's size, frame count and loop count.

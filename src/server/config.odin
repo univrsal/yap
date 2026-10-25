@@ -12,6 +12,8 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "mail"
+import "webpush"
 
 // The server's settings are all in one file (config.json by default), which is
 // read once at startup:
@@ -101,7 +103,7 @@ import "common:proto"
 //            the number of clients that can be connected, because each client
 //            has two sessions (one for each of its links), and more while
 //            sessions are being rekeyed. At most half of them can be
-//            handshakes in progress (see handshake_gate.odin). If left out
+//            handshakes in progress (see gate/gate.odin). If left out
 //            or 0, it is 512.
 // log_level  The lowest level to log: debug, info, warn or error.
 // log_file   If set, the log is also appended to this file.
@@ -124,7 +126,7 @@ import "common:proto"
 //            proxy has to pass on the Host it was asked for (or set
 //            X-Forwarded-Host), or the relay's own web client is refused too
 //            unless its address is listed here.
-// api        The bot API (see docs/bot-api and common/gateway): HTTP and JSON
+// api        The bot API (see docs/bot-api and lib/gateway): HTTP and JSON
 //            for programs. It is served on the relay's port under /api/,
 //            whether the relay is enabled or not (without the relay, the port
 //            serves only the API). It uses plain HTTP, like the relay, so
@@ -159,7 +161,7 @@ import "common:proto"
 //            `daily_megabytes`: how much one account may upload in 24 hours,
 //            so that one account can't fill the disk. 0 means no limit. If
 //            left out, they are 100, 2048 and 4096.
-// email      The server's own email account (see email.odin). Without an
+// email      The server's own email account (see mail/mail.odin). Without an
 //            `address`, the server has no email.
 //            `imap` and `smtp` are the URLs of the mail servers: use imaps://
 //            and smtps:// for TLS from the start, or imap:// and smtp:// for
@@ -181,7 +183,7 @@ import "common:proto"
 //            the messages, mentions and direct messages they missed, once they
 //            have been away for `digest_minutes` (at least 5, and 30 if left
 //            out), and at most that often afterwards.
-//            Email needs libcurl, which has to be installed on Linux and macOS
+//            mail.Mailer needs libcurl, which has to be installed on Linux and macOS
 //            (the server runs without email if it is missing). `yap-server
 //            email test` tries it out.
 // registration  Whether people may create their own accounts (see
@@ -213,7 +215,7 @@ import "common:proto"
 //            out). Each camera goes to everyone watching it in the channel, so
 //            a full channel costs about max_cameras x watchers x what each
 //            camera sends (450 kbit/s at nine).
-// push       Web Push (see push.odin): notifying browsers that enabled it about
+// push       Web Push (see webpush/webpush.odin): notifying browsers that enabled it about
 //            messages while the client isn't open, through their push
 //            services (Google's, Mozilla's, Apple's). This needs libcurl and
 //            the server must be able to reach those services over HTTPS.
@@ -265,10 +267,10 @@ Config :: struct {
 	api:                Api_Config,
 	retention:          Retention_Config,
 	attachments:        Attach_Config,
-	email:              Email_Config,
+	email:              mail.Config,
 	registration:       Registration_Config,
 	video:              Video_Config,
-	push:               Push_Config,
+	push:               webpush.Config,
 }
 
 Video_Config :: struct {
@@ -355,10 +357,10 @@ Settings :: struct {
 	emoji_dir:    string,
 	retention:    Retention_Config,
 	attachments:  Attach_Config,
-	email:        Email_Config, // checked; address "" for none
+	email:        mail.Config, // checked; address "" for none
 	registration: Registration_Config,
 	video:        Video_Config, // checked; port 0 for the one after `port`
-	push:         Push_Config, // subject filled in with a default if not set
+	push:         webpush.Config, // subject filled in with a default if not set
 }
 
 // The subject used for push when neither a push subject nor an email address is
@@ -425,7 +427,7 @@ load_config :: proc(
 		log.infof("%s had no key, so a new one was generated and saved to it", path)
 	}
 	if cfg.push.vapid_key == "" {
-		cfg.push.vapid_key = vapid_key_generate() or_return
+		cfg.push.vapid_key = webpush.vapid_key_generate() or_return
 		save_config(path, cfg) or_return
 		settings.push.vapid_key = cfg.push.vapid_key
 		log.infof("%s had no push vapid_key, so a new one was generated and saved to it", path)
@@ -461,7 +463,7 @@ apply_ports :: proc(cfg: ^Config, ports: Config_Ports) -> (changed: bool) {
 @(private = "file")
 create_config :: proc(path: string, cfg: ^Config) -> bool {
 	cfg.key = common.generate_private_key() or_return
-	cfg.push.vapid_key = vapid_key_generate() or_return
+	cfg.push.vapid_key = webpush.vapid_key_generate() or_return
 	log.info("generated a new private key")
 
 	if !save_config(path, cfg^) {
@@ -704,7 +706,7 @@ check_config :: proc(path: string, cfg: Config) -> (s: Settings, ok: bool) {
 // check_email validates the email config. An empty address means that email is
 // not configured.
 @(private = "file")
-check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bool) {
+check_email :: proc(path: string, cfg: mail.Config) -> (e: mail.Config, ok: bool) {
 	e = cfg
 	if e.address == "" {
 		return {}, true
@@ -727,17 +729,17 @@ check_email :: proc(path: string, cfg: Email_Config) -> (e: Email_Config, ok: bo
 		return
 	}
 	if e.poll_seconds == 0 {
-		e.poll_seconds = DEFAULT_POLL_SECONDS
+		e.poll_seconds = mail.DEFAULT_POLL_SECONDS
 	}
-	if e.poll_seconds < MIN_POLL_SECONDS {
-		log.errorf("%s: email.poll_seconds has to be at least %d", path, MIN_POLL_SECONDS)
+	if e.poll_seconds < mail.MIN_POLL_SECONDS {
+		log.errorf("%s: email.poll_seconds has to be at least %d", path, mail.MIN_POLL_SECONDS)
 		return
 	}
 	if e.digest_minutes == 0 {
-		e.digest_minutes = DEFAULT_DIGEST_MINUTES
+		e.digest_minutes = mail.DEFAULT_DIGEST_MINUTES
 	}
-	if e.digest_minutes < MIN_DIGEST_MINUTES {
-		log.errorf("%s: email.digest_minutes has to be at least %d", path, MIN_DIGEST_MINUTES)
+	if e.digest_minutes < mail.MIN_DIGEST_MINUTES {
+		log.errorf("%s: email.digest_minutes has to be at least %d", path, mail.MIN_DIGEST_MINUTES)
 		return
 	}
 	return e, true

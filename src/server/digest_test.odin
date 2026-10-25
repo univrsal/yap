@@ -5,9 +5,10 @@ import "core:strings"
 import "core:testing"
 
 import "common:proto"
+import "mail"
 
 // Tests of emailing accounts what they missed (see digest.odin), using the
-// Test_Server from auth_test.odin. The mails that would be sent are left in the
+// Test_Server from harness_test.odin. The mails that would be sent are left in the
 // email's jobs.
 
 @(private = "file")
@@ -15,9 +16,9 @@ MINUTE :: i64(60 * 1000)
 
 // mails_sent takes the mails that the loop has asked to send.
 @(private = "file")
-mails_sent :: proc(ts: ^Test_Server) -> []Email_Job {
+mails_sent :: proc(ts: ^Test_Server) -> []mail.Job {
 	e := &ts.s.email
-	out := make([]Email_Job, len(e.jobs), context.temp_allocator)
+	out := make([]mail.Job, len(e.jobs), context.temp_allocator)
 	for job, i in e.jobs {
 		out[i] = job
 		out[i].to = strings.clone(job.to, context.temp_allocator)
@@ -55,7 +56,7 @@ test_digests :: proc(t: ^testing.T) {
 	ts_open(t, &ts)
 	defer ts_close(&ts)
 	s := &ts.s
-	// Email that is enabled without a thread, so the mails it is asked to send
+	// mail.Mailer that is enabled without a thread, so the mails it is asked to send
 	// wait in its jobs.
 	s.email.enabled = true
 	s.email.config = {

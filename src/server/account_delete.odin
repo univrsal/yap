@@ -26,7 +26,7 @@ import "common:proto"
 //
 // The request is in auth.odin and requires the account's own password
 // when an account deletes itself. The command line's `account delete`
-// is in cli.odin.
+// is in cli_account.odin.
 
 // deleted_username is the username a deleted account is given.
 deleted_username :: proc(id: proto.Account_Id, allocator := context.temp_allocator) -> string {
@@ -46,11 +46,14 @@ account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 		db_exec(db, "ROLLBACK TO account_erase")
 		db_exec(db, "RELEASE account_erase")
 	}
-	q := db_stmt(db, .Account_Erase)
-	db_bind_int(q, 1, i64(id))
-	db_bind_text(q, 2, deleted_username(id))
-	db_bind_text(q, 3, proto.DELETED_NAME)
-	db_bind_int(q, 4, i64(transmute(u8)proto.Account_Flags{.Deleted}))
+	q := db_query(
+		db,
+		.Account_Erase,
+		i64(id),
+		deleted_username(id),
+		proto.DELETED_NAME,
+		i64(transmute(u8)proto.Account_Flags{.Deleted}),
+	)
 	db_run(db, q) or_return
 	for stmt in ([]Stmt {
 			.Device_Erase,
@@ -61,8 +64,7 @@ account_erase_rows :: proc(db: ^DB, id: proto.Account_Id) -> bool {
 			.Account_Roles_Clear,
 			.Invite_Erase,
 		}) {
-		q = db_stmt(db, stmt)
-		db_bind_int(q, 1, i64(id))
+		q = db_query(db, stmt, i64(id))
 		db_run(db, q) or_return
 	}
 	db_exec(db, "RELEASE account_erase") or_return

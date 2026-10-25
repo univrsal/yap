@@ -161,13 +161,10 @@ outranks :: proc(acc: ^Account, perms: proto.Permissions) -> bool {
 // account_roles_set gives an account these roles in addition to the
 // everyone role, both in the database and in memory.
 account_roles_set :: proc(a: ^Accounts, acc: ^Account, roles: []proto.Role_Id) -> bool {
-	q := db_stmt(a.db, .Account_Roles_Clear)
-	db_bind_int(q, 1, i64(acc.id))
+	q := db_query(a.db, .Account_Roles_Clear, i64(acc.id))
 	db_run(a.db, q) or_return
 	for role in roles {
-		q = db_stmt(a.db, .Account_Role_Add)
-		db_bind_int(q, 1, i64(acc.id))
-		db_bind_int(q, 2, i64(role))
+		q = db_query(a.db, .Account_Role_Add, i64(acc.id), i64(role))
 		db_run(a.db, q) or_return
 	}
 	clear(&acc.roles)
@@ -246,12 +243,15 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		for _, r in a.roles {
 			position = max(position, r.position + 1)
 		}
-		q := db_stmt(a.db, .Role_Add)
-		db_bind_text(q, 1, name)
-		db_bind_int(q, 2, i64(transmute(u64)perms))
-		db_bind_int(q, 3, i64(color))
-		db_bind_int(q, 4, i64(position))
-		db_bind_int(q, 5, i64(transmute(u8)flags))
+		q := db_query(
+			a.db,
+			.Role_Add,
+			name,
+			i64(transmute(u64)perms),
+			i64(color),
+			i64(position),
+			i64(transmute(u8)flags),
+		)
 		if !db_run(a.db, q) {
 			respond(u, id, .Internal)
 			return
@@ -266,12 +266,15 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		a.roles[existing.id] = existing
 		log.infof("%s made the role %q", conn_label(u), name)
 	} else {
-		q := db_stmt(a.db, .Role_Update)
-		db_bind_int(q, 1, i64(existing.id))
-		db_bind_text(q, 2, name)
-		db_bind_int(q, 3, i64(transmute(u64)perms))
-		db_bind_int(q, 4, i64(color))
-		db_bind_int(q, 5, i64(transmute(u8)flags))
+		q := db_query(
+			a.db,
+			.Role_Update,
+			i64(existing.id),
+			name,
+			i64(transmute(u64)perms),
+			i64(color),
+			i64(transmute(u8)flags),
+		)
 		if !db_run(a.db, q) {
 			respond(u, id, .Internal)
 			return
@@ -322,10 +325,7 @@ role_order :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		if r.position == i {
 			continue
 		}
-		q := db_stmt(a.db, .Role_Set_Position)
-		db_bind_int(q, 1, i64(role))
-		db_bind_int(q, 2, i64(i))
-		if !db_run(a.db, q) {
+		if !db_write(a.db, .Role_Set_Position, i64(role), i64(i)) {
 			respond(u, id, .Internal)
 			return
 		}
@@ -365,8 +365,7 @@ role_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	q := db_stmt(a.db, .Role_Unassign_All)
-	db_bind_int(q, 1, i64(role_id))
+	q := db_query(a.db, .Role_Unassign_All, i64(role_id))
 	if !db_run(a.db, q) {
 		respond(u, id, .Internal)
 		return
@@ -376,8 +375,7 @@ role_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Internal)
 		return
 	}
-	q = db_stmt(a.db, .Role_Delete)
-	db_bind_int(q, 1, i64(role_id))
+	q = db_query(a.db, .Role_Delete, i64(role_id))
 	if !db_run(a.db, q) {
 		respond(u, id, .Internal)
 		return

@@ -11,7 +11,7 @@ has one, which stays the same when it's plugged in elsewhere, and its
 
 Laptop cameras behind libcamera (Intel IPU6) aren't V4L2 capture
 devices; they need PipeWire, which is for later (D5 in
-misc/video-chat/README.md). YAP_VIDEO_FAKE_CAMERA's camera is listed
+docs/design/video-chat.md). YAP_VIDEO_FAKE_CAMERA's camera is listed
 first (camera_fake.cpp).
 */
 #include "pipeline.h"

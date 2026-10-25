@@ -60,7 +60,7 @@ const Candidate candidates[] = {
 
 /*
 The NVENC API version FFmpeg's NVENC encoders were built against, that
-of the nv-codec-headers in our FFmpeg (scripts/ffmpeg.version), and the
+of the nv-codec-headers in our FFmpeg (scripts/build/ffmpeg.version), and the
 first NVIDIA driver that has it. An older driver opens none of them. A
 system's FFmpeg may have been built with others.
 */

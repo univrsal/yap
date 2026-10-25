@@ -60,8 +60,7 @@ self_times_of :: proc(
 
 @(test)
 test_status_times :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 

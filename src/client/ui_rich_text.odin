@@ -6,13 +6,13 @@ import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "client:conn"
+import "client:richtext"
 import "client:platform"
 import "client:render"
 import "common:proto"
 
 // A message's text as the timeline draws it: its markdown is parsed
-// (conn.markdown_parse) and laid out in lines.
+// (richtext.markdown_parse) and laid out in lines.
 //
 // Rich is a message's text as shown (text_display_links) after the parse, with
 // the things in it (mentions, the server's emoji, links to messages and web
@@ -45,10 +45,10 @@ QUOTE_BAR_W :: 3
 CODE_PAD :: 6
 
 Rich :: struct {
-	using rt:  conn.Rich_Text,
-	mentions:  []conn.Mention_Span,
-	emoji:     []conn.Emoji_Span,
-	msg_links: []conn.Link_Span,
+	using rt:  richtext.Rich_Text,
+	mentions:  []richtext.Mention_Span,
+	emoji:     []richtext.Emoji_Span,
+	msg_links: []richtext.Link_Span,
 	web:       []platform.Link, // web addresses not taken by a [text](url)
 }
 
@@ -65,9 +65,9 @@ Rich_Line :: struct {
 // temp allocator.
 rich_make :: proc(
 	shown: string,
-	mentions: []conn.Mention_Span,
-	emoji: []conn.Emoji_Span,
-	msg_links: []conn.Link_Span,
+	mentions: []richtext.Mention_Span,
+	emoji: []richtext.Emoji_Span,
+	msg_links: []richtext.Link_Span,
 	links: bool,
 ) -> Rich {
 	// Web addresses, except where a link to a message is.
@@ -82,46 +82,46 @@ rich_make :: proc(
 			append(&web, l)
 		}
 	}
-	atoms := make([dynamic]conn.Md_Atom, context.temp_allocator)
+	atoms := make([dynamic]richtext.Md_Atom, context.temp_allocator)
 	for m in mentions {
-		append(&atoms, conn.Md_Atom{m.start, m.end, false})
+		append(&atoms, richtext.Md_Atom{m.start, m.end, false})
 	}
 	for e in emoji {
-		append(&atoms, conn.Md_Atom{e.start, e.end, false})
+		append(&atoms, richtext.Md_Atom{e.start, e.end, false})
 	}
 	for l in msg_links {
-		append(&atoms, conn.Md_Atom{l.start, l.end, false})
+		append(&atoms, richtext.Md_Atom{l.start, l.end, false})
 	}
 	for l in web {
-		append(&atoms, conn.Md_Atom{l.start, l.end, true})
+		append(&atoms, richtext.Md_Atom{l.start, l.end, true})
 	}
 	r := Rich {
-		rt = conn.markdown_parse(shown, atoms[:]),
+		rt = richtext.markdown_parse(shown, atoms[:]),
 	}
 	// Each list in the order it was added, with where the atoms went. The
 	// web addresses that a [text](url) took are gone.
 	at := 0
-	moved :: proc(a: conn.Md_Atom) -> (start, end: int, ok: bool) {
+	moved :: proc(a: richtext.Md_Atom) -> (start, end: int, ok: bool) {
 		return a.start, a.end, a.start >= 0
 	}
-	ms := make([dynamic]conn.Mention_Span, context.temp_allocator)
+	ms := make([dynamic]richtext.Mention_Span, context.temp_allocator)
 	for m in mentions {
 		if s, e, ok := moved(r.atoms[at]); ok {
-			append(&ms, conn.Mention_Span{s, e, m.me})
+			append(&ms, richtext.Mention_Span{s, e, m.me})
 		}
 		at += 1
 	}
-	es := make([dynamic]conn.Emoji_Span, context.temp_allocator)
+	es := make([dynamic]richtext.Emoji_Span, context.temp_allocator)
 	for em in emoji {
 		if s, e, ok := moved(r.atoms[at]); ok {
-			append(&es, conn.Emoji_Span{s, e, em.index})
+			append(&es, richtext.Emoji_Span{s, e, em.index})
 		}
 		at += 1
 	}
-	ls := make([dynamic]conn.Link_Span, context.temp_allocator)
+	ls := make([dynamic]richtext.Link_Span, context.temp_allocator)
 	for l in msg_links {
 		if s, e, ok := moved(r.atoms[at]); ok {
-			append(&ls, conn.Link_Span{s, e, l.link})
+			append(&ls, richtext.Link_Span{s, e, l.link})
 		}
 		at += 1
 	}
@@ -143,13 +143,13 @@ rich_plain :: proc(text: string) -> Rich {
 	r: Rich
 	r.text = text
 	if len(text) > 0 {
-		r.runs = slice.clone([]conn.Md_Run{{0, len(text), {}}}, context.temp_allocator)
+		r.runs = slice.clone([]richtext.Md_Run{{0, len(text), {}}}, context.temp_allocator)
 	}
-	lines := make([dynamic]conn.Md_Line, context.temp_allocator)
+	lines := make([dynamic]richtext.Md_Line, context.temp_allocator)
 	start := 0
 	for i in 0 ..= len(text) {
 		if i == len(text) || text[i] == '\n' {
-			append(&lines, conn.Md_Line{start = start, end = i})
+			append(&lines, richtext.Md_Line{start = start, end = i})
 			start = i + 1
 		}
 	}
@@ -174,7 +174,7 @@ rich_run :: proc(r: ^Rich, i: int) -> int {
 
 // rich_font is the font that the runs in `styles` are drawn in: the current
 // (the chat's) font in the face for those styles.
-rich_font :: proc(ctx: ^mu.Context, styles: conn.Md_Styles) -> mu.Font {
+rich_font :: proc(ctx: ^mu.Context, styles: richtext.Md_Styles) -> mu.Font {
 	style := render.Font_Style.Regular
 	switch {
 	case .Code in styles:
@@ -191,7 +191,7 @@ rich_font :: proc(ctx: ^mu.Context, styles: conn.Md_Styles) -> mu.Font {
 
 // rich_styles_at is the styles of the run that text[i] is in.
 @(private = "file")
-rich_styles_at :: proc(r: ^Rich, i: int) -> conn.Md_Styles {
+rich_styles_at :: proc(r: ^Rich, i: int) -> richtext.Md_Styles {
 	if len(r.runs) == 0 {
 		return {}
 	}
@@ -422,7 +422,7 @@ rich_pieces :: proc(
 				link_start, url = l.start, platform.link_url(r.text, l)
 			}
 		}
-		mention: Maybe(conn.Mention_Span)
+		mention: Maybe(richtext.Mention_Span)
 		for m in r.mentions {
 			if m.start <= a && a < m.end {
 				mention = m

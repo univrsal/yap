@@ -4,6 +4,7 @@ package conn
 import "core:testing"
 import "core:time"
 
+import "client:video"
 import "common:proto"
 
 // An encoded frame of `size` bytes, owned by whoever it is handed to.
@@ -190,7 +191,7 @@ test_video_loss_repaired :: proc(t: ^testing.T) {
 			down := proto.video_up_to_down(&down_buf, 3, up)
 			_, f, ok := proto.decode_video_down(down)
 			testing.expect(t, ok)
-			cache[u64(f.frame) << 16 | u64(f.index)] = slice_clone(down)
+			cache[u64(f.frame) << 16 | u64(f.index)] = copy_slice(down)
 			sent += 1
 			if sent % 10 == 0 {
 				dropped += 1
@@ -227,13 +228,6 @@ test_video_loss_repaired :: proc(t: ^testing.T) {
 	testing.expect_value(t, w.given_up, 0)
 	testing.expect(t, !w.broken)
 	testing.expect(t, w.recovered > 0)
-}
-
-@(private = "file")
-slice_clone :: proc(b: []u8) -> []u8 {
-	out := make([]u8, len(b), context.temp_allocator)
-	copy(out, b)
-	return out
 }
 
 // adapt_bitrate, fed reports at made-up times: it goes down by a quarter when a
@@ -384,7 +378,7 @@ test_adapt_bitrate_waits_for_encoder :: proc(t: ^testing.T) {
 
 @(test)
 test_viewer_codecs :: proc(t: ^testing.T) {
-	c: Voice_Client
+	c: Server_Conn
 	users := []proto.User_Info {
 		{num = 1, room = 7, flags = {.Sharing, .Decodes_HEVC, .Decodes_AV1}}, // us
 		{num = 2, room = 7, flags = {.Decodes_HEVC, .Decodes_AV1}},
@@ -446,7 +440,7 @@ video_destroy_outs :: proc(v: ^Video_Client) {
 // those that are on in our room are watched.
 @(test)
 test_video_watch_streams :: proc(t: ^testing.T) {
-	c := new(Voice_Client)
+	c := new(Server_Conn)
 	defer free(c)
 	defer video_destroy(c)
 	defer commands_destroy(&c.commands)
@@ -461,7 +455,7 @@ test_video_watch_streams :: proc(t: ^testing.T) {
 	c.channels.state.users = users
 	c.has_current = true
 
-	watching :: proc(c: ^Voice_Client, key: Video_Key) -> bool {
+	watching :: proc(c: ^Server_Conn, key: video.Key) -> bool {
 		for in_ in c.video.ins {
 			if in_.key == key {
 				return in_.watching
@@ -469,7 +463,7 @@ test_video_watch_streams :: proc(t: ^testing.T) {
 		}
 		return false
 	}
-	held :: proc(c: ^Voice_Client) -> (n: int) {
+	held :: proc(c: ^Server_Conn) -> (n: int) {
 		for in_ in c.video.ins {
 			if in_.key.user != 0 {
 				n += 1
@@ -524,7 +518,7 @@ test_video_watch_streams :: proc(t: ^testing.T) {
 	// A screen that stops being shared isn't.
 	users[2].flags = {.Camera}
 	video_step(c)
-	testing.expect_value(t, c.video.ins[0].key, Video_Key{})
+	testing.expect_value(t, c.video.ins[0].key, video.Key{})
 	testing.expect(t, watching(c, {3, .Camera}))
 
 	// The cameras that are no longer asked for are let go.

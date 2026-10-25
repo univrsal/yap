@@ -6,7 +6,7 @@ import "core:testing"
 import "common:proto"
 
 // Tests of tracking what accounts have read, using the Test_Server from
-// auth_test.odin.
+// harness_test.odin.
 
 // read_state returns the state from the last Read_Changed event a connection
 // was sent, and whether there was one.
@@ -36,8 +36,7 @@ mark_body :: proc(conv: proto.Conv_Id, id: proto.Msg_Id) -> []u8 {
 
 @(test)
 test_unread :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 

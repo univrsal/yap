@@ -22,7 +22,7 @@ MMAP_THRESHOLD :: 256 * 1024
 // freed (decoded pictures, the emoji sheet). glibc raises its mmap threshold
 // after the first big buffer is freed, so that later ones come from its arenas
 // and stay in RAM after they are freed: 12 MB after start and over 100 MB
-// after looking at some photos (see misc/memory). A fixed threshold also turns
+// after looking at some photos (see docs/design/memory.md). A fixed threshold also turns
 // that off. Call before anything allocates. musl ignores it, and doesn't need it.
 malloc_tune :: proc() {
 	mallopt(M_MMAP_THRESHOLD, MMAP_THRESHOLD)

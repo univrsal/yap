@@ -8,7 +8,9 @@ import mu "vendor:microui"
 import "client:conn"
 import "client:render"
 import "client:settings"
+import "client:video"
 import "common:proto"
+
 
 // The inbox, or buddy screen (see buddies.odin): on the left, the buddies and
 // anyone else we have a DM with, on every server we're logged in to, in
@@ -54,10 +56,6 @@ UI_Buddies :: struct {
 // How often the inbox asks when the people who aren't online were last seen.
 @(private = "file")
 LAST_SEEN_REFRESH :: 30 * time.Second
-
-// How long a notice under the conversation's header stays.
-@(private = "file")
-NOTICE_SHOW :: 5 * time.Second
 
 // How long to wait for the network side to look at what it was asked
 // to before asking again.
@@ -123,7 +121,7 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 	}
 	b.view_asked, b.view_back, b.view_at = want, back, time.tick_now()
 	ui_redraw_in(ui, VIEW_RETRY)
-	conn.push_command(&ui.session.client.commands, conn.View_Command{conv = conv, back = back})
+	command(ui, conn.View_Command{conv = conv, back = back})
 }
 
 // back_from_dms is the session screen making sure that what it shows is a
@@ -158,7 +156,7 @@ buddies_screen :: proc(ui: ^UI) {
 		camera_full_screen(ui)
 		return
 	}
-	if ui.view.watching != 0 && conn.video_is_fullscreen() {
+	if ui.view.watching != 0 && video.is_fullscreen() {
 		fullscreen_screen(ui)
 		return
 	}
@@ -282,7 +280,7 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 	section_label(ui, "Buddies")
 	if others == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "None yet. Add someone from their menu.", label_proc)
+		dim_label(ctx, "None yet. Add someone from their menu.")
 	}
 	for b in list[:others] {
 		buddy_row(ui, b)
@@ -293,13 +291,6 @@ buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 			buddy_row(ui, b)
 		}
 	}
-}
-
-// section_label is the heading of one of the list's sections.
-@(private = "file")
-section_label :: proc(ui: ^UI, text: string) {
-	mu.layout_row(&ui.ctx, {-1})
-	with_text_color(&ui.ctx, theme.dim, text, label_proc)
 }
 
 // buddy_row is one buddy in the list: a flat, full-width control like the
@@ -397,7 +388,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	if !found {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Pick a buddy to start talking.", label_proc)
+		dim_label(ctx, "Pick a buddy to start talking.")
 		return
 	}
 	account := entry.account
@@ -503,11 +494,9 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		mu.layout_row(ctx, {-1})
 		// What is there can be read, but nothing more can be said (the server
 		// refuses it too).
-		with_text_color(
+		dim_label(
 			ctx,
-			theme.dim,
 			"Their account was deleted. You can still read this conversation, but not write to it.",
-			label_proc,
 		)
 		mu.layout_row(ctx, {-1}, -1)
 		if entry.conv != 0 && v.viewing == entry.conv {
@@ -528,46 +517,39 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 
 	composer := composer_of_page(ui)
 	composer_files(ui, composer, panel_width(ctx))
-	composer_row(ui, input_h)
-	composer_input(ui, composer)
-	res, box, box_rect := composer_box(ui, composer)
-	completion_update(ui, composer)
-	if .CHANGE in res &&
-	   ui.buddies.len > 0 &&
-	   ui.session != nil &&
-	   v.viewing == entry.conv &&
-	   entry.conv != 0 &&
-	   ui.buddies.editing == 0 {
-		conn.push_command(&ui.session.client.commands, conn.Typing_Command{})
+	file_to := Dm_File_Button{entry.online, account}
+	bar := Composer_Bar {
+		send_id = "dm send",
+		verb    = "Send",
+		extra   = dm_file_button,
+		data    = &file_to,
+		dm_to   = account,
 	}
-	send := .SUBMIT in res
-	composer_buttons(ui, box_rect, 5)
-	attach_button(ui, composer)
-	emoji_button(ui, composer)
-	preview_button(ui, composer)
+	if v.viewing == entry.conv && entry.conv != 0 {
+		bar.typing = conn.Typing_Command{}
+	}
+	composer_bar(ui, composer, bar)
+}
+
+// Who a DM's file button sends a file to, and whether they are here to take it.
+@(private = "file")
+Dm_File_Button :: struct {
+	online:  bool,
+	account: proto.Account_Id,
+}
+
+// dm_file_button is the DM's button for sending a file, in its composer row.
+@(private = "file")
+dm_file_button :: proc(ui: ^UI, data: rawptr) {
+	to := (^Dm_File_Button)(data)
 	if .SUBMIT in icon_button(ui, "dm file", .File, "Send a file (archives, pictures, videos)") {
-		if !entry.online {
+		if !to.online {
 			ui.buddies.notice = "files only go to someone who's here"
 			ui.buddies.notice_at = time.tick_now()
 		} else {
-			ui.buddies.pick, ui.buddies.pick_to = true, account
+			ui.buddies.pick, ui.buddies.pick_to = true, to.account
 		}
 	}
-	if composer_send_button(
-		ui,
-		composer,
-		"dm send",
-		"Save" if ui.buddies.editing != 0 else "Enter: Send\nCtrl+Enter: New line",
-	) {
-		send = true
-	}
-	composer_buttons_end(ui)
-	if !send {
-		return
-	}
-	// Enter takes the focus away from the box, so keep typing instead.
-	mu.set_focus(ctx, box)
-	composer_send(ui, composer, account)
 }
 
 // no_conversation_yet stands in for the timeline where there is no DM
@@ -592,12 +574,7 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(
-		ctx,
-		theme.dim,
-		fmt.tprintf("Nothing said with %s yet.", entry.name),
-		label_proc,
-	)
+	dim_label(ctx, fmt.tprintf("Nothing said with %s yet.", entry.name))
 }
 
 // ask_last_seen asks a server when those in its part of the inbox who
@@ -658,9 +635,4 @@ ago_text :: proc(ui: ^UI, ms: i64) -> string {
 		return fmt.tprintf("%d day%s ago", ago / 86400, plural(ago / 86400))
 	}
 	return chat_time(ui, proto.Unix_Time(ms / 1000))
-}
-
-@(private = "file")
-text_proc :: proc(ctx: ^mu.Context, text: string) {
-	mu.text(ctx, text)
 }

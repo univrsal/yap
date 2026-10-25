@@ -7,12 +7,13 @@ import mu "vendor:microui"
 import "client:conn"
 import "client:platform"
 import "client:settings"
+import "client:video"
 
 // The settings' Camera category: which camera, the quality it is sent at,
 // whether our own view is mirrored, and a preview while the category is shown.
 //
 // The preview is our camera when it is on. Otherwise the camera is opened for
-// it but not sent (conn.video_camera_look), and let go of once the category
+// it but not sent (video.camera_look), and let go of once the category
 // isn't shown (camera_after_frame); turning the camera on meanwhile takes it
 // over as it is. In a browser that asks for the camera the first time, and
 // only then does the browser name its cameras.
@@ -41,28 +42,24 @@ PREVIEW_WIDTH :: 480
 
 camera_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	if !platform.WEB && !conn.video_can_watch() {
+	if !platform.WEB && !video.can_watch() {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
+		dim_note(
 			ctx,
-			theme.dim,
 			fmt.tprintf(
 				"The camera needs yap's video add-on: the yap-video download that goes with this " +
 				"build. Put what's in it next to yap, in %s, and start yap again.",
-				conn.video_library_dir(),
+				video.library_dir(),
 			),
-			wrap_text,
 		)
 		return
 	}
-	conn.video_cameras_refresh()
-	if !conn.video_can_camera() {
+	video.cameras_refresh()
+	if !video.can_camera() {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
+		dim_note(
 			ctx,
-			theme.dim,
 			"This browser can't use a camera." when platform.WEB else "No cameras found.",
-			wrap_text,
 		)
 		ui_redraw_in(ui, time.Second)
 		return
@@ -74,10 +71,10 @@ camera_settings :: proc(ui: ^UI) {
 	field_row(ui, 120, "Quality", {CHOICE_WIDTH})
 	if q, ok := enum_dropdown(ui, "camera quality", CAMERA_QUALITY_LABELS, quality); ok {
 		settings.set_setting(&ui.settings.camera_quality, conn.CAMERA_QUALITY_NAMES[q])
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, CAMERA_QUALITY_NOTES[quality], wrap_text)
+	dim_note(ctx, CAMERA_QUALITY_NOTES[quality])
 
 	mu.layout_row(ctx, {-1})
 	if .CHANGE in
@@ -86,7 +83,7 @@ camera_settings :: proc(ui: ^UI) {
 		   "Mirror my own view (others see it the right way round)",
 		   &ui.settings.camera_mirror,
 	   ) {
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 	}
 
 	camera_preview(ui, quality)
@@ -97,7 +94,7 @@ camera_settings :: proc(ui: ^UI) {
 @(private = "file")
 camera_choice :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	devices := conn.video_cameras()
+	devices := video.cameras()
 	items := make([dynamic]Dropdown_Item, context.temp_allocator)
 	ids := make([dynamic]string, context.temp_allocator)
 	append(
@@ -133,17 +130,12 @@ camera_choice :: proc(ui: ^UI) {
 	if i, picked := dropdown(ui, "camera device", items[current].label, items[:], current);
 	   picked && ids[i] != ui.settings.camera_device {
 		settings.set_setting(&ui.settings.camera_device, ids[i])
-		settings.settings_save(ui.opts.settings_path, ui.settings)
+		save_settings(ui)
 		camera_switch(ui)
 	}
 	if unnamed {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.dim,
-			"The browser names its cameras once yap may use one.",
-			wrap_text,
-		)
+		dim_note(ctx, "The browser names its cameras once yap may use one.")
 	}
 }
 
@@ -152,21 +144,21 @@ camera_choice :: proc(ui: ^UI) {
 @(private = "file")
 camera_preview :: proc(ui: ^UI, quality: conn.Camera_Quality) {
 	ctx := &ui.ctx
-	ours := conn.video_camera_state()
+	ours := video.camera_state()
 	why := ""
 	waiting := "Waiting for the picture..."
 	switch ours {
 	case .Live, .Starting:
 		waiting = "Your camera is starting..."
 	case .Failed:
-		why = conn.video_camera_error()
+		why = video.camera_error()
 		if why == "" {
 			why = "it isn't allowed, or another program has it"
 		}
 	case .Off:
-		conn.video_camera_look(conn.camera_config(1, false, 0, quality), ui.settings.camera_device)
+		video.camera_look(conn.camera_config(1, false, 0, quality), ui.settings.camera_device)
 		ui.camera.looked = true
-		state, look_why := conn.video_camera_look_state()
+		state, look_why := video.camera_look_state()
 		if state == .Failed {
 			why = look_why if look_why != "" else "it isn't allowed, or another program has it"
 		}
@@ -180,12 +172,7 @@ camera_preview :: proc(ui: ^UI, quality: conn.Camera_Quality) {
 	mu.draw_rect(ctx, r, {24, 24, 24, 255})
 	if why != "" {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
-			ctx,
-			theme.error,
-			fmt.tprintf("The camera didn't start: %s.", why),
-			wrap_text,
-		)
+		error_note(ctx, fmt.tprintf("The camera didn't start: %s.", why))
 	} else {
 		self_view(ui, r, waiting)
 	}

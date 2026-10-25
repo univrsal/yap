@@ -1,12 +1,11 @@
 package server
 
-import "core:os"
 import "core:testing"
 
 import "common:proto"
 
 // Tests of searching (search.odin), using the Test_Server from
-// auth_test.odin.
+// harness_test.odin.
 
 @(private = "file")
 search :: proc(
@@ -78,8 +77,7 @@ test_fts_query :: proc(t: ^testing.T) {
 
 @(test)
 test_search :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)

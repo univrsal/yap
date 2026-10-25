@@ -4,7 +4,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of threads, using the Test_Server from auth_test.odin.
+// Tests of threads, using the Test_Server from harness_test.odin.
 
 @(private = "file")
 reply :: proc(

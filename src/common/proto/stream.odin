@@ -29,7 +29,7 @@ import "core:time"
 // feeds in whatever arrives. Its state belongs to the connection rather than
 // to a session, so it carries across rekeys. A rekey is told apart from a
 // connection starting over, where both ends restart from 0, by the Welcome
-// (names.odin).
+// (hello.odin).
 
 STREAM_HEADER_SIZE :: 1 + 4 + 1
 STREAM_FRAME_DATA :: MAX_PAYLOAD_SIZE - STREAM_HEADER_SIZE
@@ -46,6 +46,16 @@ STREAM_MORE :: 1 << 0
 STREAM_RESEND :: CONTROL_RESEND
 STREAM_RESEND_MIN :: 100 * time.Millisecond
 STREAM_RESEND_MAX :: 2 * time.Second
+// The longest a frame waits for its first acknowledgement, however long the
+// round trip seems to be (stream_resend_for).
+STREAM_RESEND_MOST :: time.Second
+
+// How fast a stream sends (stream_pace): bytes per second, and how many may go
+// out at once. The server paces each connection's stream the same way.
+STREAM_RATE :: 256 * 1024
+STREAM_BURST :: 32 * 1024
+// What a client may have waiting to go out (Stream.max_queue).
+STREAM_CLIENT_QUEUE :: 1024 * 1024
 
 Stream_Error :: enum {
 	None,
@@ -90,10 +100,12 @@ Stream :: struct {
 	ready:     queue.Queue([]u8), // whole messages not yet taken; each owned
 	taken:     []u8, // the message stream_next handed out last, owned
 	ack_due:   bool,
+	// What stream_pace may send (STREAM_RATE).
+	pace:      Bucket,
 }
 
-// stream_reset starts both directions over, like for a new connection.
-// The queue's limit is kept.
+// stream_reset starts both directions over, like for a new connection, with
+// a full pace. The queue's limit is kept.
 stream_reset :: proc(s: ^Stream) {
 	for queue.len(s.waiting) > 0 {
 		delete(queue.pop_front(&s.waiting))
@@ -115,6 +127,7 @@ stream_reset :: proc(s: ^Stream) {
 	s.queued, s.offset = 0, 0
 	s.send_base, s.send_next, s.recv_next = 0, 0, 0
 	s.ack_due = false
+	s.pace = {} // full on its first refill
 }
 
 stream_destroy :: proc(s: ^Stream) {
@@ -349,4 +362,37 @@ encode_stream_ack :: proc(out: ^[STREAM_ACK_SIZE]u8, next: u32, mask: u64) -> []
 
 decode_stream_ack :: proc(pt: []u8) -> (next: u32, mask: u64) {
 	return endian.unchecked_get_u32le(pt[1:]), endian.unchecked_get_u64le(pt[5:])
+}
+
+// stream_resend_for is how long a frame waits for its acknowledgement before it
+// is sent again, given the round trip time (0 if it isn't known): twice that,
+// within STREAM_RESEND_MIN and STREAM_RESEND_MOST.
+stream_resend_for :: proc(rtt: time.Duration) -> time.Duration {
+	if rtt <= 0 {
+		return STREAM_RESEND
+	}
+	return clamp(2 * rtt, STREAM_RESEND_MIN, STREAM_RESEND_MOST)
+}
+
+// stream_pace sends what the stream has to send, as fast as its pace allows:
+// the acknowledgement for what has arrived, then new frames and frames that
+// waited `resend` for theirs. `send` is called with `data` for each message.
+stream_pace :: proc(
+	s: ^Stream,
+	now: time.Tick,
+	resend: time.Duration,
+	send: proc(data: rawptr, msg: []u8),
+	data: rawptr,
+) {
+	bucket_refill(&s.pace, now, STREAM_RATE, STREAM_BURST)
+	ack_buf: [STREAM_ACK_SIZE]u8
+	if ack, ok := stream_ack(s, &ack_buf); ok {
+		send(data, ack)
+	}
+	out: [MAX_PAYLOAD_SIZE]u8
+	for s.pace.tokens > 0 {
+		frame := stream_next_frame(s, now, resend, out[:]) or_break
+		send(data, frame)
+		s.pace.tokens -= f64(len(frame))
+	}
 }

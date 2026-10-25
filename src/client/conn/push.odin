@@ -16,7 +16,7 @@ Push_Subscribe_Command :: struct {
 // Asks the server to forget this device's subscription.
 Push_Unsubscribe_Command :: struct {}
 
-push_subscribe :: proc(c: ^Voice_Client, sub: proto.Push_Subscription) {
+push_subscribe :: proc(c: ^Server_Conn, sub: proto.Push_Subscription) {
 	buf: [proto.PUSH_SUBSCRIBE_MAX_SIZE]u8
 	body, ok := proto.encode_push_subscribe(buf[:], sub)
 	if !ok {
@@ -26,7 +26,7 @@ push_subscribe :: proc(c: ^Voice_Client, sub: proto.Push_Subscription) {
 		c,
 		.Push_Subscribe,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
 				notify(
 					c,
@@ -41,11 +41,11 @@ push_subscribe :: proc(c: ^Voice_Client, sub: proto.Push_Subscription) {
 	)
 }
 
-push_unsubscribe :: proc(c: ^Voice_Client) {
+push_unsubscribe :: proc(c: ^Server_Conn) {
 	request(
 		c,
 		.Push_Unsubscribe,
 		nil,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {},
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {},
 	)
 }

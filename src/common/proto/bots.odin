@@ -52,7 +52,7 @@ encode_bot_create :: proc(
 	put_str8(&w, display)
 	put_bytes(&w, key[:])
 	put_str8(&w, device)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_bot_create :: proc(
@@ -86,7 +86,7 @@ encode_bot_token_add :: proc(
 	put_u32(&w, u32(account))
 	put_bytes(&w, key[:])
 	put_str8(&w, device)
-	return nil if w.overflow else out[:w.pos]
+	return written(&w)
 }
 
 decode_bot_token_add :: proc(

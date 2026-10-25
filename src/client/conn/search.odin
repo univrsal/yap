@@ -46,7 +46,7 @@ Search_Client :: struct {
 // How many results a page asks for.
 SEARCH_PAGE :: 30
 
-search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
+search_start :: proc(c: ^Server_Conn, cmd: Search_Command) {
 	sc := &c.search
 	if !cmd.more {
 		delete(sc.query)
@@ -68,7 +68,7 @@ search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
 		c,
 		.Msg_Search,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			sc := &c.search
 			if tag != sc.asked {
 				return
@@ -92,30 +92,14 @@ search_start :: proc(c: ^Voice_Client, cmd: Search_Command) {
 			}
 			// Where the next page continues from.
 			sc.last = searched_to
-			if c.view == nil {
-				if len(found) == 0 && sc.last == 0 {
-					log.infof("[search] nothing has %q", sc.query)
-				}
-				for m in found {
-					log.infof(
-						"[search] %s %s (#%d): %s",
-						room_name(c, proto.Room(m.conv)),
-						account_display(c, m.sender),
-						m.id,
-						m.text,
-					)
-				}
-				if more & proto.MORE_BEFORE != 0 {
-					log.info("[search] and maybe more (/search more)")
-				}
-			}
+			report_search(c, sc.query, sc.last, found, more & proto.MORE_BEFORE != 0)
 			publish_search(c, found, more & proto.MORE_BEFORE != 0, false, "", false)
 		},
 		sc.asked,
 	)
 }
 
-search_destroy :: proc(c: ^Voice_Client) {
+search_destroy :: proc(c: ^Server_Conn) {
 	delete(c.search.query)
 	c.search = {}
 }
@@ -125,7 +109,7 @@ search_destroy :: proc(c: ^Voice_Client) {
 // more results, whether the search is still running, and what went wrong.
 @(private = "file")
 publish_search :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	found: []proto.Message,
 	more, loading: bool,
 	error: string,

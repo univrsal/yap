@@ -13,7 +13,7 @@ import "common:proto"
 // laying out a frame, which takes well under a millisecond.
 //
 // The network thread never touches UI state directly, and the UI never touches
-// the Voice_Client except through its command queue.
+// the Server_Conn except through its command queue.
 
 Status :: enum {
 	Disconnected,
@@ -166,6 +166,7 @@ View :: struct {
 	// Messages that were requested by id (roots, links) but are not available.
 	roots_missing:       map[proto.Msg_Id]bool,
 	outbox:              [dynamic]View_Pending,
+	uploading:           View_Uploading, // our pictures on their way (picture_upload.odin)
 	// Files of messages that are being saved or have been saved, by their blobs
 	// (attachments.odin).
 	saves:               map[proto.Blob_Id]View_Save,
@@ -326,7 +327,7 @@ view_reset :: proc(v: ^View) {
 
 // publish_logged_out removes what the server showed us from the screen. We are
 // still connected to it, but not logged in any more.
-publish_logged_out :: proc(c: ^Voice_Client) {
+publish_logged_out :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -397,7 +398,7 @@ view_clear_files :: proc(v: ^View) {
 
 // publish_file shows how a transfer is going, at most every
 // FILE_PUBLISH_INTERVAL unless `force` is set (a change of state).
-publish_file :: proc(c: ^Voice_Client, t: ^File_Transfer, force := false) {
+publish_file :: proc(c: ^Server_Conn, t: ^File_Transfer, force := false) {
 	v := c.view
 	now := time.tick_now()
 	if v == nil || (!force && time.tick_diff(t.last_publish, now) < FILE_PUBLISH_INTERVAL) {
@@ -428,7 +429,7 @@ view_clear_mentions :: proc(v: ^View) {
 }
 
 publish_mentioned :: proc(
-	c: ^Voice_Client,
+	c: ^Server_Conn,
 	name, place, text: string,
 	conv: proto.Conv_Id,
 	msg: proto.Msg_Id,
@@ -525,7 +526,7 @@ view_changed :: proc "contextless" (v: ^View) {
 	}
 }
 
-publish_status :: proc(c: ^Voice_Client, status: Status, error := "") {
+publish_status :: proc(c: ^Server_Conn, status: Status, error := "") {
 	c.status = status
 	v := c.view
 	if v == nil {
@@ -544,7 +545,7 @@ publish_status :: proc(c: ^Voice_Client, status: Status, error := "") {
 
 // publish_retry tells the UI whether, and when, a new connection will be tried
 // (connection_lost).
-publish_retry :: proc(c: ^Voice_Client) {
+publish_retry :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -554,13 +555,13 @@ publish_retry :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-view_set_retry :: proc(v: ^View, c: ^Voice_Client) {
+view_set_retry :: proc(v: ^View, c: ^Server_Conn) {
 	v.retrying = c.lost
 	v.retry_at = c.retry_at if c.lost && c.handshake.state == .Idle else {}
 }
 
 // publish_server hands the UI what the server said about itself.
-publish_server :: proc(c: ^Voice_Client) {
+publish_server :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -590,7 +591,7 @@ publish_server :: proc(c: ^Voice_Client) {
 
 // publish_server_key tells the UI the server's key, which the per-user
 // settings are keyed by.
-publish_server_key :: proc(c: ^Voice_Client) {
+publish_server_key :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -601,7 +602,7 @@ publish_server_key :: proc(c: ^Voice_Client) {
 
 // publish_key_change tells the UI that the server showed a key other than the
 // one saved for it. The connection fails right after.
-publish_key_change :: proc(c: ^Voice_Client, saved, received: [proto.KEY_SIZE]u8) {
+publish_key_change :: proc(c: ^Server_Conn, saved, received: [proto.KEY_SIZE]u8) {
 	v := c.view
 	if v == nil {
 		return
@@ -622,7 +623,7 @@ view_clear_key_change :: proc(v: ^View) {
 	v.key_change = {}
 }
 
-publish_channels :: proc(c: ^Voice_Client) {
+publish_channels :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -691,7 +692,7 @@ publish_channels :: proc(c: ^Voice_Client) {
 	v.voice_pending = c.convs.voice_pending
 }
 
-publish_mic :: proc(c: ^Voice_Client, level_db: f32, gate_open: bool) {
+publish_mic :: proc(c: ^Server_Conn, level_db: f32, gate_open: bool) {
 	v := c.view
 	if v == nil {
 		return
@@ -703,7 +704,7 @@ publish_mic :: proc(c: ^Voice_Client, level_db: f32, gate_open: bool) {
 	v.mic_level, v.mic_open, v.mic_time = level_db, gate_open, time.tick_now()
 }
 
-publish_voice :: proc(c: ^Voice_Client, speaker: proto.User_Num) {
+publish_voice :: proc(c: ^Server_Conn, speaker: proto.User_Num) {
 	v := c.view
 	if v == nil {
 		return
@@ -733,7 +734,7 @@ speaking_until :: proc(v: ^View) -> (until: time.Tick) {
 	return
 }
 
-publish_watching :: proc(c: ^Voice_Client) {
+publish_watching :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -742,7 +743,7 @@ publish_watching :: proc(c: ^Voice_Client) {
 	v.watching = c.video.ins[0].key.user
 }
 
-publish_connection :: proc(c: ^Voice_Client) {
+publish_connection :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return

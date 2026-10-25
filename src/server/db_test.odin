@@ -13,22 +13,6 @@ import "core:testing"
 // The test runner counts an error in the log as a failure, so where a test makes
 // something fail on purpose, it does so with the log switched off.
 
-// test_dir returns a new folder for one test, which the test has to remove when
-// it is over.
-@(private = "file")
-test_dir :: proc(t: ^testing.T) -> string {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, err := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
-	testing.expect(t, err == nil)
-	return dir
-}
-
-@(private = "file")
-file_in :: proc(dir, name: string) -> string {
-	path, _ := os.join_path({dir, name}, context.temp_allocator)
-	return path
-}
-
 @(private = "file")
 pragma :: proc(t: ^testing.T, db: ^DB, sql: string) -> i64 {
 	value, rc := db_pragma_int(db, sql)
@@ -172,6 +156,105 @@ test_db_newer :: proc(t: ^testing.T) {
 	context.logger = log.nil_logger()
 	db: DB
 	testing.expect(t, !db_open(&db, path))
+}
+
+@(test)
+test_db_before_baseline :: proc(t: ^testing.T) {
+	// A database from before the baseline, other than version 28, is refused.
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	path := file_in(dir, DB_FILE)
+	{
+		db: DB
+		testing.expect(t, db_open(&db, path))
+		testing.expect(t, db_exec(&db, "PRAGMA user_version = 27"))
+		db_close(&db)
+	}
+	context.logger = log.nil_logger()
+	db: DB
+	testing.expect(t, !db_open(&db, path))
+}
+
+@(test)
+test_db_upgrade_28 :: proc(t: ^testing.T) {
+	// A database at version 28 still has messages.blob and its index. It is
+	// brought to the baseline without them, and keeps its messages, what
+	// refers to them, the search index and the id counter.
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	path := file_in(dir, DB_FILE)
+	{
+		db: DB
+		testing.expect(t, db_open(&db, path))
+		testing.expect(
+			t,
+			db_exec(
+				&db,
+				`
+				ALTER TABLE messages ADD COLUMN blob INTEGER REFERENCES blobs(id);
+				CREATE INDEX messages_blob ON messages(blob) WHERE blob IS NOT NULL;
+				INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, created)
+					VALUES ('alice', 'Alice', x'00', x'00', 1, 1);
+				INSERT INTO convs (kind, name, created) VALUES (0, 'lobby', 1);
+				INSERT INTO messages (conv, sender, time, kind, text) VALUES (1, 1, 1, 0, 'hello there');
+				INSERT INTO messages (conv, sender, time, kind, text) VALUES (1, 1, 2, 0, 'purged later');
+				DELETE FROM messages WHERE id = 2;
+				INSERT INTO pins (conv, message, by, time) VALUES (1, 1, 1, 3);
+				PRAGMA user_version = 28;
+				`,
+			),
+		)
+		testing.expect(t, db_meta_set(&db, "kept", 5))
+		db_commit(&db)
+		db_close(&db)
+	}
+
+	db: DB
+	testing.expect(t, db_open(&db, path))
+	defer db_close(&db)
+	testing.expect_value(t, pragma(t, &db, "PRAGMA user_version"), SCHEMA_VERSION)
+	testing.expect_value(t, pragma(t, &db, "PRAGMA foreign_keys"), 1)
+	testing.expect_value(
+		t,
+		pragma(t, &db, "SELECT count(*) FROM pragma_table_info('messages') WHERE name = 'blob'"),
+		0,
+	)
+	testing.expect_value(
+		t,
+		pragma(
+			t,
+			&db,
+			"SELECT count(*) FROM sqlite_master WHERE name IN ('messages_blob', 'messages_old')",
+		),
+		0,
+	)
+	testing.expect_value(t, pragma(t, &db, "SELECT count(*) FROM pragma_foreign_key_check"), 0)
+	testing.expect_value(t, pragma(t, &db, "SELECT count(*) FROM messages"), 1)
+	testing.expect_value(t, pragma(t, &db, "SELECT message FROM pins"), 1)
+	testing.expect_value(
+		t,
+		pragma(t, &db, "SELECT rowid FROM messages_fts WHERE messages_fts MATCH 'hello'"),
+		1,
+	)
+	kept, found := db_meta(&db, "kept")
+	testing.expect(t, found)
+	testing.expect_value(t, kept, 5)
+
+	// The id of the purged message isn't given out again, and the triggers
+	// are back.
+	testing.expect(
+		t,
+		db_exec(
+			&db,
+			"INSERT INTO messages (conv, sender, time, kind, text) VALUES (1, 1, 4, 0, 'new one')",
+		),
+	)
+	testing.expect_value(t, pragma(t, &db, "SELECT max(id) FROM messages"), 3)
+	testing.expect_value(
+		t,
+		pragma(t, &db, "SELECT rowid FROM messages_fts WHERE messages_fts MATCH 'new'"),
+		3,
+	)
 }
 
 @(test)

@@ -10,7 +10,7 @@ import "core:time"
 import "common:proto"
 import "sqlite"
 
-// Messages (see src/common/proto/msgs.odin) are posted to a conversation,
+// Messages (see src/common/proto/messages.odin) are posted to a conversation,
 // stored permanently in the database and read back one page at a time.
 //
 // Only the members of a conversation can post to it and read it. A posted
@@ -111,29 +111,15 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	// A reply belongs to the thread of its root, which must be a message of
-	// this conversation that isn't deleted. A reply to a reply is added to
-	// the same thread, using the root of that reply.
-	root: proto.Message
-	if p.thread_root != 0 {
-		found: bool
-		root, found = msg_by_id(s, p.thread_root)
-		if found && root.thread_root != 0 {
-			root, found = msg_by_id(s, root.thread_root)
-		}
-		if !found || root.conv != conv.id || .Deleted in root.flags {
-			respond(u, id, .Invalid)
-			return
-		}
-	}
-	sender := u.account.id
-	posted: [proto.MSG_POSTED_SIZE]u8
-
-	// It was already posted, but the answer was lost together with the connection.
-	if prev, at, found := msg_by_nonce(&s.db, sender, p.nonce); found {
-		respond(u, id, .Ok, proto.encode_msg_posted(&posted, prev, at))
+	root, root_ok := thread_root_of(s, conv, p.thread_root)
+	if !root_ok {
+		respond(u, id, .Invalid)
 		return
 	}
+	if msg_repeated(s, u, id, p.nonce) {
+		return
+	}
+	sender := u.account.id
 
 	m := proto.Message {
 		conv        = conv.id,
@@ -208,7 +194,6 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Internal)
 		return
 	}
-	respond(u, id, .Ok, proto.encode_msg_posted(&posted, m.id, m.time))
 	// The message content is only logged when debugging.
 	place :=
 		conv.name if conv.kind == .Channel else fmt.tprintf("a DM with account %d", dm_other(conv, sender))
@@ -225,12 +210,68 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		)
 		file_offered(s, u, conv, m)
 	}
+	msg_published(s, u, id, conv, m, root.id, first, mentioned)
+}
+
+// thread_root_of finds the root of the thread that a message replying to
+// `reply_to` (0 for none) belongs to. It has to be a message of `conv` that
+// isn't deleted, and a reply to a reply is added to the same thread, using
+// the root of that reply. With no thread, `root` is zero and `ok` true.
+@(private = "file")
+thread_root_of :: proc(
+	s: ^Server,
+	conv: ^Conv,
+	reply_to: proto.Msg_Id,
+) -> (
+	root: proto.Message,
+	ok: bool,
+) {
+	if reply_to == 0 {
+		return {}, true
+	}
+	found: bool
+	root, found = msg_by_id(s, reply_to)
+	if found && root.thread_root != 0 {
+		root, found = msg_by_id(s, root.thread_root)
+	}
+	return root, found && root.conv == conv.id && .Deleted not_in root.flags
+}
+
+// msg_repeated answers a post (or forward) that was already made with this
+// nonce, whose answer was lost together with the connection, and says
+// whether it did.
+@(private = "file")
+msg_repeated :: proc(s: ^Server, u: ^Conn, id: u32, nonce: u64) -> bool {
+	prev, at, found := msg_by_nonce(&s.db, u.account.id, nonce)
+	if found {
+		posted: [proto.MSG_POSTED_SIZE]u8
+		respond(u, id, .Ok, proto.encode_msg_posted(&posted, prev, at))
+	}
+	return found
+}
+
+// msg_published answers a post or forward that was stored as `m`, and tells
+// everyone concerned. `first` says whether it is the first message of the
+// conversation, and `root` is its thread's root, 0 for none.
+@(private = "file")
+msg_published :: proc(
+	s: ^Server,
+	u: ^Conn,
+	id: u32,
+	conv: ^Conv,
+	m: proto.Message,
+	root: proto.Msg_Id,
+	first: bool,
+	mentioned: []proto.Account_Id,
+) {
+	posted: [proto.MSG_POSTED_SIZE]u8
+	respond(u, id, .Ok, proto.encode_msg_posted(&posted, m.id, m.time))
 	if first && conv.kind == .DM {
 		// The conversation is new to the other account, so it is told about
 		// the conversation before the message arrives. It is told about the
 		// conversation as it was before the message, so that the message
 		// then counts as unread like any other.
-		other := dm_other(conv, sender)
+		other := dm_other(conv, u.account.id)
 		last := conv.last_msg
 		conv.last_msg = 0
 		send_conv_to_account(s, other, conv)
@@ -238,11 +279,11 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	msg_deliver(s, conv, m)
 	push_message(s, conv, m, mentioned)
-	if root.id != 0 {
-		thread_changed(s, conv, root.id)
+	if root != 0 {
+		thread_changed(s, conv, root)
 	}
 	// The poster has read everything that came before the message.
-	if conv_set_read(&s.convs, conv, sender, m.id) {
+	if conv_set_read(&s.convs, conv, u.account.id, m.id) {
 		send_read(s, u.account, conv)
 	}
 }
@@ -291,9 +332,8 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	src, found := msg_by_id(s, f.msg)
-	src_conv := conv_by_id(&s.convs, src.conv) if found else nil
-	if src_conv == nil || !conv_reader(src_conv, u.account) {
+	src, _, readable := msg_readable(s, u, f.msg)
+	if !readable {
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -308,20 +348,12 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	// When forwarding into a thread, its root must belong to this
 	// conversation, just like for a post.
-	root: proto.Message
-	if f.thread_root != 0 {
-		root, found = msg_by_id(s, f.thread_root)
-		if found && root.thread_root != 0 {
-			root, found = msg_by_id(s, root.thread_root)
-		}
-		if !found || root.conv != conv.id || .Deleted in root.flags {
-			respond(u, id, .Invalid)
-			return
-		}
+	root, root_ok := thread_root_of(s, conv, f.thread_root)
+	if !root_ok {
+		respond(u, id, .Invalid)
+		return
 	}
-	posted: [proto.MSG_POSTED_SIZE]u8
-	if prev, at, again := msg_by_nonce(&s.db, u.account.id, f.nonce); again {
-		respond(u, id, .Ok, proto.encode_msg_posted(&posted, prev, at))
+	if msg_repeated(s, u, id, f.nonce) {
 		return
 	}
 	// The original's author, conversation and time. If the message is itself
@@ -353,23 +385,8 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Internal)
 		return
 	}
-	respond(u, id, .Ok, proto.encode_msg_posted(&posted, m.id, m.time))
 	log.debugf("%s forwarded message %d to conversation %d", conn_label(u), src.id, conv.id)
-	if first && conv.kind == .DM {
-		other := dm_other(conv, u.account.id)
-		last := conv.last_msg
-		conv.last_msg = 0
-		send_conv_to_account(s, other, conv)
-		conv.last_msg = last
-	}
-	msg_deliver(s, conv, m)
-	push_message(s, conv, m, nil)
-	if root.id != 0 {
-		thread_changed(s, conv, root.id)
-	}
-	if conv_set_read(&s.convs, conv, u.account.id, m.id) {
-		send_read(s, u.account, conv)
-	}
+	msg_published(s, u, id, conv, m, root.id, first, nil)
 }
 
 // msg_store adds a message to the database, filling in its id and time, and
@@ -377,11 +394,7 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // the conversation, sender, kind and content.
 msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> bool {
 	m.time = proto.Unix_Ms(unix_ms())
-	q := db_stmt(&s.db, .Msg_Add)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(m.sender))
-	db_bind_int(q, 3, i64(m.time))
-	db_bind_int(q, 4, i64(m.kind))
+	q := db_query(&s.db, .Msg_Add, i64(conv.id), i64(m.sender), i64(m.time), i64(m.kind))
 	#partial switch m.kind {
 	case .Text:
 		db_bind_text(q, 5, m.text)
@@ -412,9 +425,7 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 		conv.posted[0 if m.sender == conv.a else 1] = true
 	}
 
-	q = db_stmt(&s.db, .Conv_Set_Last)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(m.id))
+	q = db_query(&s.db, .Conv_Set_Last, i64(conv.id), i64(m.id))
 	db_run(&s.db, q) or_return
 	conv.last_msg, conv.last_time = m.id, m.time
 	return true
@@ -431,9 +442,7 @@ msg_by_nonce :: proc(
 	at: proto.Unix_Ms,
 	found: bool,
 ) {
-	q := db_stmt(db, .Msg_By_Nonce)
-	db_bind_int(q, 1, i64(sender))
-	db_bind_int(q, 2, i64(nonce))
+	q := db_query(db, .Msg_By_Nonce, i64(sender), i64(nonce))
 	row, ok := db_step(db, q)
 	if !ok || !row {
 		return
@@ -624,10 +633,7 @@ msgs_read :: proc(
 	limit: int,
 	out: ^[dynamic]proto.Message,
 ) -> bool {
-	q := db_stmt(&s.db, stmt)
-	db_bind_int(q, 1, i64(conv))
-	db_bind_int(q, 2, anchor)
-	db_bind_int(q, 3, i64(limit))
+	q := db_query(&s.db, stmt, i64(conv), anchor, i64(limit))
 	for {
 		row, ok := db_step(&s.db, q)
 		if !ok {
@@ -644,9 +650,7 @@ msgs_read :: proc(
 // before or after an id finds one.
 @(private = "file")
 msg_any :: proc(s: ^Server, stmt: Stmt, conv: proto.Conv_Id, id: proto.Msg_Id) -> bool {
-	q := db_stmt(&s.db, stmt)
-	db_bind_int(q, 1, i64(conv))
-	db_bind_int(q, 2, i64(id))
+	q := db_query(&s.db, stmt, i64(conv), i64(id))
 	row, ok := db_step(&s.db, q)
 	if ok && row {
 		sqlite.reset(q)

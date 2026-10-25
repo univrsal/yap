@@ -9,7 +9,7 @@ import "common:proto"
 // A deafen from the UI also mutes, and plays one sound instead of two.
 @(test)
 test_deafen_plays_once :: proc(t: ^testing.T) {
-	c: Voice_Client
+	c: Server_Conn
 	testing.expect(t, audio.voice_init(&c.voice))
 	defer audio.voice_destroy(&c.voice)
 	defer commands_destroy(&c.commands)
@@ -48,7 +48,7 @@ test_deafen_plays_once :: proc(t: ^testing.T) {
 
 @(test)
 test_display_names :: proc(t: ^testing.T) {
-	c := new(Voice_Client)
+	c := new(Server_Conn)
 	defer free(c)
 	defer delete(c.auth.accounts)
 	ch := &c.channels
@@ -115,7 +115,7 @@ test_display_names :: proc(t: ^testing.T) {
 // another server, and how our own calls end.
 @(test)
 test_call_sounds :: proc(t: ^testing.T) {
-	c: Voice_Client
+	c: Server_Conn
 	testing.expect(t, audio.voice_init(&c.voice))
 	defer audio.voice_destroy(&c.voice)
 	defer commands_destroy(&c.commands)
@@ -134,7 +134,7 @@ test_call_sounds :: proc(t: ^testing.T) {
 	process_commands(&c)
 	testing.expect_value(t, sounds.loop_event, audio.Sound_Event.Ring)
 
-	changed :: proc(c: ^Voice_Client, change: proto.Call_Change) {
+	changed :: proc(c: ^Server_Conn, change: proto.Call_Change) {
 		buf: [proto.CALL_CHANGED_SIZE]u8
 		calls_event(c, .Call_Changed, proto.encode_call_changed(&buf, change))
 	}

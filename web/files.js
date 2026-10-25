@@ -39,11 +39,7 @@ under the sender's name.
 	function tell(file, notify) {
 		const handle = next++;
 		files.set(handle, { file, blocks: new Map(), order: [], failed: false });
-		const name = new TextEncoder().encode(file.name);
-		const ptr = _malloc(name.length + 1);
-		HEAPU8.set(name, ptr);
-		notify(handle, ptr, name.length, file.size);
-		_free(ptr);
+		Module.yapWithString(file.name, (ptr, n) => notify(handle, ptr, n, file.size));
 	}
 
 	// Where files being dragged are, for the client to show where they would

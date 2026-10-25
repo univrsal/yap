@@ -1,13 +1,12 @@
 package server
 
-import "core:os"
 import "core:strings"
 import "core:testing"
 
 import "common:proto"
 
 // Tests of forwarding and links (proto/forward.odin), using the Test_Server
-// from auth_test.odin.
+// from harness_test.odin.
 
 @(private = "file")
 forward :: proc(
@@ -38,24 +37,9 @@ forward :: proc(
 	return
 }
 
-@(private = "file")
-open_dm :: proc(
-	t: ^testing.T,
-	ts: ^Test_Server,
-	u: ^Conn,
-	other: proto.Account_Id,
-) -> proto.Conv_Id {
-	buf: [4]u8
-	status, body := ts_ask(t, ts, u, .DM_Open, proto.encode_account_id(&buf, other))
-	testing.expect_value(t, status, proto.Status.Ok)
-	conv, _ := proto.decode_conv_id(body)
-	return conv
-}
-
 @(test)
 test_forward :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -80,7 +64,8 @@ test_forward :: proc(t: ^testing.T) {
 	// Forwarding from the channel to a DM records where the message came from.
 	// Mentions in the message don't mention anyone again.
 	_, said := post(t, &ts, alice, home, "hello <@3>", 2)
-	dm := open_dm(t, &ts, bob, carol_acc.id)
+	dm_status, dm := dm_open_as(t, &ts, bob, carol_acc.id)
+	testing.expect_value(t, dm_status, proto.Status.Ok)
 	copy_id: proto.Msg_Id
 	status, copy_id = forward(t, &ts, bob, dm, said, 101)
 	testing.expect_value(t, status, proto.Status.Ok)

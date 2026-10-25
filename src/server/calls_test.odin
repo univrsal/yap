@@ -5,7 +5,7 @@ import "core:time"
 
 import "common:proto"
 
-// Tests of calls, on the Test_Server of auth_test.odin.
+// Tests of calls, on the Test_Server of harness_test.odin.
 
 @(private = "file")
 call_start :: proc(

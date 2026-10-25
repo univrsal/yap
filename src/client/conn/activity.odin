@@ -27,13 +27,13 @@ Idle_Command :: struct {
 	hidden: bool,
 }
 
-activity_set :: proc(c: ^Voice_Client, activity: proto.Activity, at: proto.Unix_Ms) {
+activity_set :: proc(c: ^Server_Conn, activity: proto.Activity, at: proto.Unix_Ms) {
 	buf: [proto.ACTIVITY_SET_SIZE]u8
 	request(
 		c,
 		.Activity_Set,
 		proto.encode_activity(&buf, activity, at),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
 				notify(
 					c,
@@ -48,7 +48,7 @@ activity_set :: proc(c: ^Voice_Client, activity: proto.Activity, at: proto.Unix_
 // idle_set tells the server whether this client's user is idle and whether
 // the client is out of sight. The server is told again after the connection
 // restarts (on login, see auth.odin).
-idle_set :: proc(c: ^Voice_Client, idle: bool, hidden: bool) {
+idle_set :: proc(c: ^Server_Conn, idle: bool, hidden: bool) {
 	c.auth.idle, c.auth.hidden = idle, hidden
 	if c.auth.state != .Done {
 		return
@@ -58,12 +58,12 @@ idle_set :: proc(c: ^Voice_Client, idle: bool, hidden: bool) {
 		c,
 		.Idle_Set,
 		proto.encode_idle(&buf, idle, hidden),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {},
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {},
 	)
 }
 
 // quiet reports whether the user chose to be busy, in which case only
 // mentions and calls make a sound.
-quiet :: proc(c: ^Voice_Client) -> bool {
+quiet :: proc(c: ^Server_Conn) -> bool {
 	return c.auth.chosen == .Busy
 }

@@ -2,7 +2,6 @@ package server
 
 import "core:crypto/ecdh"
 import "core:flags"
-import "core:fmt"
 import "core:log"
 import "core:net"
 import "core:os"
@@ -10,7 +9,7 @@ import "core:strconv"
 import "core:strings"
 
 import "common:."
-import "common:gateway"
+import "lib:gateway"
 import "common:memtrack"
 import "common:proto"
 
@@ -23,58 +22,32 @@ main :: proc() {
 	// are counted (see memory.odin).
 	context.allocator = memtrack.init()
 
-	// `yap-server account ...` manages accounts and then exits (see cli.odin).
-	// `yap-server role list` is shorthand for `yap-server account roles`.
-	if len(os.args) > 1 && (os.args[1] == "account" || os.args[1] == "role") {
-		quiet, quiet_ok := common.init_logging(.warn)
-		if !quiet_ok {
-			os.exit(1)
-		}
-		context.logger = quiet
-		args := os.args[2:]
-		if os.args[1] == "role" {
-			if len(args) == 0 || args[0] != "list" {
-				fmt.eprintln(ACCOUNT_USAGE)
-				os.exit(2)
+	// The commands do their work and exit: `yap-server account ...`
+	// (cli_account.odin; `role list` is short for `account roles`), `email
+	// test` (cli_email.odin), `push test` (cli_push.odin) and `purge ...`
+	// (cli_purge.odin). No clients are connected to a purge, so it logs only
+	// errors, and slow checkpoints are not reported.
+	Command :: struct {
+		name:  string,
+		level: common.Log_Level,
+		run:   proc(args: []string) -> int,
+	}
+	commands := [?]Command {
+		{"account", .warn, run_account_command},
+		{"role", .warn, run_role_command},
+		{"email", .warn, run_email_command},
+		{"push", .warn, run_push_command},
+		{"purge", .error, run_purge_command},
+	}
+	for c in commands {
+		if len(os.args) > 1 && os.args[1] == c.name {
+			quiet, quiet_ok := common.init_logging(c.level)
+			if !quiet_ok {
+				os.exit(1)
 			}
-			list := make([dynamic]string, context.temp_allocator)
-			append(&list, "roles")
-			append(&list, ..args[1:])
-			args = list[:]
+			context.logger = quiet
+			os.exit(c.run(os.args[2:]))
 		}
-		os.exit(run_account_command(args))
-	}
-
-	// `yap-server email test` tests the email configuration (see cli_email.odin).
-	if len(os.args) > 1 && os.args[1] == "email" {
-		quiet, quiet_ok := common.init_logging(.warn)
-		if !quiet_ok {
-			os.exit(1)
-		}
-		context.logger = quiet
-		os.exit(run_email_command(os.args[2:]))
-	}
-
-	// `yap-server push test` tests push notifications (see cli_push.odin).
-	if len(os.args) > 1 && os.args[1] == "push" {
-		quiet, quiet_ok := common.init_logging(.warn)
-		if !quiet_ok {
-			os.exit(1)
-		}
-		context.logger = quiet
-		os.exit(run_push_command(os.args[2:]))
-	}
-
-	// `yap-server purge ...` purges old messages and then exits (see
-	// cli_purge.odin). No clients are connected at that point, so only
-	// errors are logged and slow checkpoints are not reported.
-	if len(os.args) > 1 && os.args[1] == "purge" {
-		quiet, quiet_ok := common.init_logging(.error)
-		if !quiet_ok {
-			os.exit(1)
-		}
-		context.logger = quiet
-		os.exit(run_purge_command(os.args[2:]))
 	}
 
 	opt := Options {

@@ -6,7 +6,7 @@
 #
 # The server links SQLite (src/server/sqlite), whose source is fetched
 # into .cache the first time; both link libwebp (src/common/webp) the
-# same way, built with CMake (scripts/build-webp.sh).
+# same way, built with CMake (scripts/build/build-webp.sh).
 #
 # The client links a trimmed-down miniaudio (src/client/audio/miniaudio), RNNoise
 # (src/client/audio/rnn) and traycon (src/client/tray), whose third-party sources
@@ -18,22 +18,37 @@ set -e
 cd "$(dirname "$0")"
 mkdir -p bin
 
+# The small C libraries in src/client: <dir>/yap_<name>.c compiled into
+# <dir>/libyap_<name>.a.
+# c_lib_stale <dir> <name> <dependency>...: true (and says so) when the
+# library is missing or older than its source, its header or a dependency (a
+# file, or a folder with files in it).
+c_lib_stale() {
+	_dir=$1 _name=$2
+	shift 2
+	_lib=$_dir/libyap_$_name.a
+	if [ -f "$_lib" ] && [ -z "$(find "$_dir/yap_$_name.c" "$_dir/yap_$_name.h" "$@" -newer "$_lib" 2>/dev/null | head -n 1)" ]; then
+		return 1
+	fi
+	echo "building $_lib"
+}
+# c_lib_build <dir> <name> <compiler flag>...
+c_lib_build() {
+	_dir=$1 _name=$2
+	shift 2
+	${CC:-cc} "$@" -c "$_dir/yap_$_name.c" -o "$_dir/yap_$_name.o"
+	ar rcs "$_dir/libyap_$_name.a" "$_dir/yap_$_name.o"
+	rm "$_dir/yap_$_name.o"
+}
+
 ma=src/client/audio/miniaudio
-lib=$ma/libyap_audio.a
-if [ ! -f "$lib" ] || [ "$ma/yap_audio.c" -nt "$lib" ] || [ "$ma/yap_audio.h" -nt "$lib" ] || [ deps/thirdparty/miniaudio/miniaudio.h -nt "$lib" ]; then
-	echo "building $lib"
-	${CC:-cc} -std=c99 -Os -c "$ma/yap_audio.c" -o "$ma/yap_audio.o"
-	ar rcs "$lib" "$ma/yap_audio.o"
-	rm "$ma/yap_audio.o"
+if c_lib_stale $ma audio deps/thirdparty/miniaudio/miniaudio.h; then
+	c_lib_build $ma audio -std=c99 -Os
 fi
 
 rnn=src/client/audio/rnn
-lib=$rnn/libyap_rnn.a
-if [ ! -f "$lib" ] || [ -n "$(find "$rnn/yap_rnn.c" "$rnn/yap_rnn.h" deps/thirdparty/rnnoise -newer "$lib" | head -n 1)" ]; then
-	echo "building $lib"
-	${CC:-cc} -std=c99 -Os -c "$rnn/yap_rnn.c" -o "$rnn/yap_rnn.o"
-	ar rcs "$lib" "$rnn/yap_rnn.o"
-	rm "$rnn/yap_rnn.o"
+if c_lib_stale $rnn rnn deps/thirdparty/rnnoise; then
+	c_lib_build $rnn rnn -std=c99 -Os
 fi
 
 # traycon, for the tray icon. On Linux and the BSDs it needs the
@@ -42,34 +57,26 @@ fi
 # keeps X11 in /usr/X11R6, off the compiler's default path. On macOS it's
 # Cocoa, so it has to be built as Objective-C.
 tray=src/client/tray
-lib=$tray/libyap_tray.a
-if [ ! -f "$lib" ] || [ "$tray/yap_tray.c" -nt "$lib" ] || [ deps/thirdparty/traycon/traycon.h -nt "$lib" ] || [ deps/thirdparty/traycon/traycon_dl.h -nt "$lib" ]; then
-	echo "building $lib"
+if c_lib_stale $tray tray deps/thirdparty/traycon/traycon.h deps/thirdparty/traycon/traycon_dl.h; then
 	case "$(uname -s)" in
 	Darwin) tray_flags="-x objective-c" ;;
 	# strdup is POSIX rather than C99, so it has to be asked for.
 	*) tray_flags="-D_POSIX_C_SOURCE=200809L $(pkg-config --cflags dbus-1 x11)" ;;
 	esac
-	${CC:-cc} -std=c99 -Os $tray_flags -c "$tray/yap_tray.c" -o "$tray/yap_tray.o"
-	ar rcs "$lib" "$tray/yap_tray.o"
-	rm "$tray/yap_tray.o"
+	c_lib_build $tray tray -std=c99 -Os $tray_flags
 fi
 
 # tinydialogs, for picking a file to send in a DM. It runs zenity or
 # kdialog on Linux and the BSDs, so nothing to compile against there; on
 # macOS it's Cocoa, so it has to be built as Objective-C.
 dialogs=src/client/dialogs
-lib=$dialogs/libyap_dialogs.a
-if [ ! -f "$lib" ] || [ "$dialogs/yap_dialogs.c" -nt "$lib" ] || [ deps/thirdparty/tinydialogs/tinydialogs.h -nt "$lib" ]; then
-	echo "building $lib"
+if c_lib_stale $dialogs dialogs deps/thirdparty/tinydialogs/tinydialogs.h; then
 	case "$(uname -s)" in
 	Darwin) dialogs_flags="-x objective-c" ;;
 	# popen and pclose are POSIX rather than C99.
 	*) dialogs_flags="-D_POSIX_C_SOURCE=200809L" ;;
 	esac
-	${CC:-cc} -std=c11 -Os $dialogs_flags -c "$dialogs/yap_dialogs.c" -o "$dialogs/yap_dialogs.o"
-	ar rcs "$lib" "$dialogs/yap_dialogs.o"
-	rm "$dialogs/yap_dialogs.o"
+	c_lib_build $dialogs dialogs -std=c11 -Os $dialogs_flags
 fi
 
 # tinyaac, for sharing an application's audio. On Linux it needs the
@@ -78,17 +85,13 @@ fi
 # it has to be built as Objective-C, with ARC as tinyaac.h asks. The BSDs get tinyaac's stub,
 # which says application audio is unavailable.
 aac=src/client/audio/aac
-lib=$aac/libyap_aac.a
-if [ ! -f "$lib" ] || [ "$aac/yap_aac.c" -nt "$lib" ] || [ deps/thirdparty/tinyaac/tinyaac.h -nt "$lib" ]; then
-	echo "building $lib"
+if c_lib_stale $aac aac deps/thirdparty/tinyaac/tinyaac.h; then
 	case "$(uname -s)" in
 	Darwin) aac_flags="-x objective-c -fobjc-arc" ;;
 	Linux) aac_flags="$(pkg-config --cflags libpipewire-0.3)" ;;
 	*) aac_flags= ;;
 	esac
-	${CC:-cc} -std=c99 -Os $aac_flags -c "$aac/yap_aac.c" -o "$aac/yap_aac.o"
-	ar rcs "$lib" "$aac/yap_aac.o"
-	rm "$aac/yap_aac.o"
+	c_lib_build $aac aac -std=c99 -Os $aac_flags
 fi
 
 # How long since the last input on the desktop (src/client/idle), on
@@ -97,33 +100,29 @@ fi
 # macOS need no C for it.
 if [ "$(uname -s)" = Linux ]; then
 	idle=src/client/idle
-	lib=$idle/libyap_idle.a
-	if [ ! -f "$lib" ] || [ "$idle/yap_idle.c" -nt "$lib" ] || [ "$idle/yap_idle.h" -nt "$lib" ]; then
-		echo "building $lib"
-		${CC:-cc} -std=c99 -Os -D_POSIX_C_SOURCE=200809L -c "$idle/yap_idle.c" -o "$idle/yap_idle.o"
-		ar rcs "$lib" "$idle/yap_idle.o"
-		rm "$idle/yap_idle.o"
+	if c_lib_stale $idle idle; then
+		c_lib_build $idle idle -std=c99 -Os -D_POSIX_C_SOURCE=200809L
 	fi
 fi
 
 # Screen sharing (src/video), linked into the client on Linux; elsewhere
-# it's the yap-video add-on (scripts/build-video.sh). FFmpeg isn't
+# it's the yap-video add-on (scripts/build/build-video.sh). FFmpeg isn't
 # linked: it's opened at run time, from next to yap (the yap-video
 # download for Linux is FFmpeg's libraries) or else the system's 8 or 9
 # (src/video/src/ffmpeg.h), so only its headers are needed here, from
-# the prebuilt FFmpeg scripts/fetch-ffmpeg.sh fetches on x86_64 and
+# the prebuilt FFmpeg scripts/build/fetch.sh fetches on x86_64 and
 # pkg-config's elsewhere. Needs CMake and a C++20 compiler; capturing
-# needs the headers scripts/build-video.sh lists, and a way whose headers
+# needs the headers scripts/build/build-video.sh lists, and a way whose headers
 # are missing is left out. The client is C++ only here, so libstdc++ is
-# linked statically (src/client/conn/video_native.odin): yap then runs
+# linked statically (src/client/video/native.odin): yap then runs
 # where the system's is older than the one it was built with.
 if [ "$(uname -s)" = Linux ]; then
-	lib=src/client/conn/libyap_video.a
-	if [ ! -f "$lib" ] || [ -n "$(find src/video/src src/video/include src/video/CMakeLists.txt scripts/ffmpeg.version -newer "$lib" | head -n 1)" ]; then
+	lib=src/client/video/libyap_video.a
+	if [ ! -f "$lib" ] || [ -n "$(find src/video/src src/video/include src/video/CMakeLists.txt scripts/build/ffmpeg.version -newer "$lib" | head -n 1)" ]; then
 		echo "building $lib"
 		ffmpeg_dir=
 		if [ "$(uname -m)" = x86_64 ]; then
-			ffmpeg_dir="-DFFMPEG_DIR=$PWD/$(sh scripts/fetch-ffmpeg.sh .cache)"
+			ffmpeg_dir="-DFFMPEG_DIR=$PWD/$(sh scripts/build/fetch.sh ffmpeg .cache)"
 		fi
 		cmake -S src/video -B .cache/video-static -DCMAKE_BUILD_TYPE=Release -DYV_STATIC=ON \
 			$ffmpeg_dir >/dev/null
@@ -131,20 +130,20 @@ if [ "$(uname -s)" = Linux ]; then
 		cp .cache/video-static/libyap_video.a "$lib"
 	fi
 	# The C++ compiler's own, which the library was built with.
-	if [ ! -f src/client/conn/libstdc++.a ] || [ "$lib" -nt src/client/conn/libstdc++.a ]; then
-		cp "$(${CXX:-c++} -print-file-name=libstdc++.a)" src/client/conn/libstdc++.a
+	if [ ! -f src/client/video/libstdc++.a ] || [ "$lib" -nt src/client/video/libstdc++.a ]; then
+		cp "$(${CXX:-c++} -print-file-name=libstdc++.a)" src/client/video/libstdc++.a
 	fi
 fi
 
 # SQLite, for the server's database: one big C file, fetched on first
-# use (scripts/fetch-sqlite.sh) and compiled the way
+# use (scripts/build/fetch.sh) and compiled the way
 # src/server/sqlite/yap_sqlite.c configures it. It takes a little while,
 # and is only done again when that file or the version changes.
 sqlite=src/server/sqlite
 lib=$sqlite/libyap_sqlite.a
-if [ ! -f "$lib" ] || [ "$sqlite/yap_sqlite.c" -nt "$lib" ] || [ scripts/sqlite.version -nt "$lib" ]; then
-	. scripts/sqlite.version
-	sh scripts/fetch-sqlite.sh .cache
+if [ ! -f "$lib" ] || [ "$sqlite/yap_sqlite.c" -nt "$lib" ] || [ scripts/build/sqlite.version -nt "$lib" ]; then
+	. scripts/build/sqlite.version
+	sh scripts/build/fetch.sh sqlite .cache
 	echo "building $lib"
 	${CC:-cc} -Os -I".cache/sqlite-autoconf-$sqlite_version" -c "$sqlite/yap_sqlite.c" -o "$sqlite/yap_sqlite.o"
 	ar rcs "$lib" "$sqlite/yap_sqlite.o"
@@ -153,7 +152,7 @@ fi
 
 # libopus on macOS and OpenBSD: there's no prebuilt library for them in
 # src/client/audio/opus, so it's built from the release source
-# (scripts/fetch-opus.sh, scripts/opus.version), the float API without DRED or OSCE, which is
+# (scripts/build/fetch.sh, scripts/build/opus.version), the float API without DRED or OSCE, which is
 # what src/client/audio/opus binds.
 case "$(uname -s)" in
 Darwin) opus_os=macos ;;
@@ -161,14 +160,13 @@ OpenBSD) opus_os=openbsd ;;
 *) opus_os= ;;
 esac
 if [ -n "$opus_os" ] && [ ! -f "src/client/audio/opus/libopus_$opus_os.a" ]; then
-	sh scripts/fetch-opus.sh .cache
+	sh scripts/build/fetch.sh opus .cache
 	echo "building src/client/audio/opus/libopus_$opus_os.a"
-	. scripts/opus.version
+	. scripts/build/opus.version
 	cmake -S ".cache/opus-$opus_version" -B ".cache/opus-$opus_os" \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DOPUS_BUILD_PROGRAMS=OFF \
 		-DOPUS_BUILD_TESTING=OFF \
-		-DOPUS_HARDENING=OFF \
 		-DOPUS_INSTALL_PKG_CONFIG_MODULE=OFF \
 		-DOPUS_INSTALL_CMAKE_CONFIG_MODULE=OFF >/dev/null
 	# A job count, since OpenBSD's make won't take a bare -j.
@@ -179,7 +177,7 @@ fi
 
 # libwebp, for WebP pictures, which the client and the server both link
 # (src/common/webp).
-sh scripts/build-webp.sh
+sh scripts/build/build-webp.sh
 
 # OpenBSD: two libraries Odin's own packages ask the linker for aren't
 # there. vendor:stb only links its prebuilt vendor/stb/lib on Linux and
@@ -206,8 +204,7 @@ fi
 
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
-version_defines=$(sh scripts/version-defines.sh)
-# The collections the imports name: "common:wlog", "client:audio/opus".
-collections="-collection:common=src/common -collection:client=src/client"
+version_defines=$(sh scripts/build/version-defines.sh)
+. scripts/build/collections.sh
 odin build src/server $collections -vet -strict-style -out:bin/yap-server $link_flags $version_defines "$@"
 odin build src/client $collections -vet -strict-style -out:bin/yap $link_flags $version_defines "$@"

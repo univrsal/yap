@@ -5,7 +5,7 @@ import "core:testing"
 import "common:proto"
 
 // Tests of deleting accounts (account_delete.odin), on the Test_Server
-// of auth_test.odin.
+// of harness_test.odin.
 
 @(private = "file")
 delete_account :: proc(
@@ -24,22 +24,6 @@ delete_account :: proc(
 		proto.encode_account_delete(buf[:], account, password),
 	)
 	return status
-}
-
-@(private = "file")
-dm_with :: proc(
-	t: ^testing.T,
-	ts: ^Test_Server,
-	u: ^Conn,
-	other: proto.Account_Id,
-) -> (
-	proto.Status,
-	proto.Conv_Id,
-) {
-	buf: [4]u8
-	status, body := ts_ask(t, ts, u, .DM_Open, proto.encode_account_id(&buf, other))
-	conv, _ := proto.decode_conv_id(body)
-	return status, conv
 }
 
 // senders returns who wrote each message on a conversation's newest
@@ -122,7 +106,7 @@ test_account_delete :: proc(t: ^testing.T) {
 	status, _ = post(t, &ts, alice, home, "hello", 1)
 	testing.expect_value(t, status, proto.Status.Ok)
 	dm: proto.Conv_Id
-	status, dm = dm_with(t, &ts, alice, bob_acc.id)
+	status, dm = dm_open_as(t, &ts, alice, bob_acc.id)
 	testing.expect_value(t, status, proto.Status.Ok)
 	status, _ = post(t, &ts, alice, dm, "hi bob", 2)
 	testing.expect_value(t, status, proto.Status.Ok)
@@ -203,7 +187,7 @@ test_account_delete :: proc(t: ^testing.T) {
 	testing.expect(t, len(ids) == 1 && ids[0] == alice_acc.id)
 	status, _ = post(t, &ts, bob, dm, "are you there?", 3)
 	testing.expect_value(t, status, proto.Status.Denied)
-	status, _ = dm_with(t, &ts, bob, alice_acc.id)
+	status, _ = dm_open_as(t, &ts, bob, alice_acc.id)
 	testing.expect_value(t, status, proto.Status.Not_Found)
 	status, _ = ts_ask(t, &ts, bob, .Buddy_Set, proto.encode_buddy(&buddy_buf, alice_acc.id, true))
 	testing.expect_value(t, status, proto.Status.Not_Found)

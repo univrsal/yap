@@ -25,10 +25,8 @@ UI_Server_Info :: struct {
 	// description as they are being edited, and whether Apply was pressed
 	// (the server's answer is shown then).
 	loaded_for: rawptr,
-	name_buf:   [proto.MAX_SERVER_NAME]u8,
-	name_len:   int,
-	about_buf:  [proto.MAX_SERVER_DESCRIPTION]u8,
-	about_len:  int,
+	name:       Text_Field(proto.MAX_SERVER_NAME),
+	about:      Text_Field(proto.MAX_SERVER_DESCRIPTION),
 	about_area: Text_Area,
 	asked:      bool,
 }
@@ -73,7 +71,7 @@ picture_picked :: proc(ui: ^UI, use: Pick_For, image: conn.Chat_Image) {
 	}
 	switch use {
 	case .Avatar:
-		conn.push_command(&ui.session.client.commands, conn.Avatar_Command{image = image})
+		command(ui, conn.Avatar_Command{image = image})
 	case .Server_Icon:
 		v := ui.view
 		sync.guard(&v.mutex)
@@ -99,8 +97,8 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	p := &ui.profiles
 	if s.loaded_for != rawptr(ui.session) {
 		s.loaded_for = rawptr(ui.session)
-		s.name_len = copy(s.name_buf[:], v.server_name)
-		s.about_len = copy(s.about_buf[:], v.server_about)
+		field_set(&s.name, v.server_name)
+		field_set(&s.about, v.server_about)
 		s.asked = false
 	}
 
@@ -122,10 +120,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, fit_widths(ctx, {110, 110, 110}))
-	uploading := false
-	for o in v.outbox {
-		uploading ||= o.server
-	}
+	uploading := v.uploading.server
 	if .SUBMIT in stable_button(ctx, "icon file", "Choose...", {.ALIGN_CENTER}) {
 		avatar_pick_start(ui, false, .Server_Icon)
 	}
@@ -137,9 +132,9 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	switch {
 	case uploading:
-		with_text_color(ctx, theme.dim, "uploading...", label_proc)
+		dim_label(ctx, "uploading...")
 	case p.pick != nil && p.pick_for == .Server_Icon:
-		with_text_color(ctx, theme.dim, "reading the picture...", label_proc)
+		dim_label(ctx, "reading the picture...")
 	case p.pick_notice != "" && p.pick_for == .Server_Icon:
 		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
 	case v.server_icon != 0:
@@ -160,10 +155,10 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 	mu.layout_end_column(ctx)
 
 	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD})
-	submitted := .SUBMIT in text_box(ui, s.name_buf[:], &s.name_len)
+	submitted := .SUBMIT in text_box(ui, s.name.buf[:], &s.name.len)
 
 	// What it is for, over several lines (Shift+Enter starts a new line).
-	about := string(s.about_buf[:s.about_len])
+	about := field_text(&s.about)
 	font := ctx.style.font
 	field_row(
 		ui,
@@ -173,7 +168,7 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 		text_area_height(ctx, font, about, &s.about_area),
 		fill_min = FORM_FIELD,
 	)
-	submitted |= .SUBMIT in text_area(ui, s.about_buf[:], &s.about_len, &s.about_area)
+	submitted |= .SUBMIT in text_area(ui, s.about.buf[:], &s.about.len, &s.about_area)
 
 	field_row(ui, FORM_LABEL, "", {110, 110, -1})
 	if .SUBMIT in stable_button(ctx, "apply", "Apply", {.ALIGN_CENTER}) || submitted {
@@ -182,24 +177,19 @@ server_info_settings :: proc(ui: ^UI, v: ^conn.View) {
 		conn.push_command(
 			&ui.session.client.commands,
 			conn.Server_Info_Command {
-				name = strings.clone(string(s.name_buf[:s.name_len])),
-				description = strings.clone(string(s.about_buf[:s.about_len])),
+				name = strings.clone(field_text(&s.name)),
+				description = strings.clone(field_text(&s.about)),
 			},
 		)
 	}
 	if .SUBMIT in stable_button(ctx, "revert", "Revert", {.ALIGN_CENTER}) {
-		s.name_len = copy(s.name_buf[:], v.server_name)
-		s.about_len = copy(s.about_buf[:], v.server_about)
+		field_set(&s.name, v.server_name)
+		field_set(&s.about, v.server_about)
 	}
 	if s.asked {
 		notice_label(ui, v)
 	} else {
-		with_text_color(
-			ctx,
-			theme.dim,
-			"Shown on everyone's rail, and before logging in.",
-			label_proc,
-		)
+		dim_label(ctx, "Shown on everyone's rail, and before logging in.")
 	}
 }
 

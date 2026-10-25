@@ -2,7 +2,7 @@
 Cameras on macOS, through AVFoundation: the built-in and USB cameras,
 and an iPhone's (Continuity Camera) where the app's Info.plist says it
 takes them (NSCameraUseContinuityCameraDeviceType, which
-scripts/package-macos.sh sets).
+scripts/package/package-macos.sh sets).
 
 Each of a camera's formats (AVCaptureDeviceFormat) is a mode, by its
 index in the device's list (Camera_Mode.native). Whatever the camera

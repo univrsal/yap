@@ -3,7 +3,7 @@ package render
 import "core:slice"
 
 // The emoji (proto/emoji.odin) are drawn as pictures from Apple Color Emoji,
-// packed into one sheet (assets/emoji.webp). scripts/emoji.py creates the
+// packed into one sheet (assets/emoji.webp). tools/emoji.py creates the
 // sheet together with the list that maps each character to its cell
 // (emoji_cells.odin). Emoji are in color, so they are drawn from a texture of
 // their own (Texture_Kind.Rgba, with mipmaps because they are drawn much

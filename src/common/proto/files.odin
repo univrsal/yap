@@ -6,7 +6,7 @@ import "core:unicode/utf8"
 
 // File transfers in direct messages.
 //
-// A file is offered in a DM as a message of kind File (msgs.odin) that states
+// A file is offered in a DM as a message of kind File (messages.odin) that states
 // its name and size. The transfer's id is the id of that message. If the
 // recipient accepts, the two clients transfer the file through the server,
 // which only relays it and never stores any of it:
@@ -112,43 +112,10 @@ set_file_message_account :: proc(pt: []u8, account: Account_Id) {
 
 // A DM's chunks and acks are handled by transfer.odin, under File_Chunk and
 // File_Ack, with the offer's id.
-encode_file_chunk :: proc(out: []u8, id: Msg_Id, index: u32, data: []u8) -> []u8 {
-	return encode_transfer_chunk(out, .File_Chunk, u64(id), index, data)
-}
-
-decode_file_chunk :: proc(pt: []u8) -> (id: Msg_Id, index: u32, data: []u8) {
-	raw: u64
-	raw, index, data = decode_transfer_chunk(pt)
-	return Msg_Id(raw), index, data
-}
 
 // file_message_id returns the id of the transfer that a File_* message belongs to.
 file_message_id :: proc(pt: []u8) -> Msg_Id {
 	return Msg_Id(endian.unchecked_get_u64le(pt[1:]))
-}
-
-File_Ack :: struct {
-	id:       Msg_Id,
-	max_rate: u32,
-	base:     u32,
-	highest:  u32,
-	complete: bool,
-}
-
-encode_file_ack :: proc(out: []u8, ack: File_Ack, missing: []u32) -> []u8 {
-	return encode_transfer_ack(
-		out,
-		.File_Ack,
-		{u64(ack.id), ack.max_rate, ack.base, ack.highest, ack.complete},
-		missing,
-	)
-}
-
-@(require_results)
-decode_file_ack :: proc(pt: []u8) -> (ack: File_Ack, count: int, missing: []u8, ok: bool) {
-	raw: Transfer_Ack
-	raw, count, missing, ok = decode_transfer_ack(pt)
-	return {Msg_Id(raw.id), raw.max_rate, raw.base, raw.highest, raw.complete}, count, missing, ok
 }
 
 file_ack_missing :: proc(missing: []u8, i: int) -> u32 {

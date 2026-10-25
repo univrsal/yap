@@ -20,7 +20,7 @@ Purge_Command :: struct {
 	what:   proto.Purge_What,
 }
 
-purge_start :: proc(c: ^Voice_Client, cmd: Purge_Command) {
+purge_start :: proc(c: ^Server_Conn, cmd: Purge_Command) {
 	conv := cmd.conv
 	if cmd.here {
 		conv = c.convs.viewing
@@ -34,7 +34,7 @@ purge_start :: proc(c: ^Voice_Client, cmd: Purge_Command) {
 	}
 	buf: [proto.PURGE_SIZE]u8
 	body := proto.encode_purge(&buf, {conv = conv, before = cmd.before, what = cmd.what})
-	request(c, .Purge, body, proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+	request(c, .Purge, body, proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			files := proto.Purge_What(tag) == .Files
 			#partial switch status {
 			case .Ok:

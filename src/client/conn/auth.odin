@@ -176,7 +176,7 @@ Account_Password_Command :: struct {
 	password: string, // owned by the command
 }
 
-auth_destroy :: proc(c: ^Voice_Client) {
+auth_destroy :: proc(c: ^Server_Conn) {
 	a := &c.auth
 	accounts_clear(a)
 	delete(a.accounts)
@@ -229,7 +229,7 @@ forget_password :: proc(a: ^Auth_Client) {
 
 // auth_credentials sets what to log in with when the server asks for it. It is
 // called before the connection is opened.
-auth_credentials :: proc(c: ^Voice_Client, username, password, device: string) {
+auth_credentials :: proc(c: ^Server_Conn, username, password, device: string) {
 	a := &c.auth
 	delete(a.username)
 	forget_password(a)
@@ -246,7 +246,7 @@ auth_credentials :: proc(c: ^Voice_Client, username, password, device: string) {
 }
 
 @(private = "file")
-set_state :: proc(c: ^Voice_Client, state: Login_State, error := "") {
+set_state :: proc(c: ^Server_Conn, state: Login_State, error := "") {
 	a := &c.auth
 	a.state = state
 	delete(a.error)
@@ -259,7 +259,7 @@ set_state :: proc(c: ^Voice_Client, state: Login_State, error := "") {
 // connection. If the server knows this device, it has logged us in and the
 // directory is on its way. Otherwise we log in with the credentials we were
 // given, or wait to be given some.
-auth_restart :: proc(c: ^Voice_Client, logged_in: bool) {
+auth_restart :: proc(c: ^Server_Conn, logged_in: bool) {
 	a := &c.auth
 	accounts_clear(a)
 	devices_clear(a)
@@ -279,7 +279,7 @@ auth_restart :: proc(c: ^Voice_Client, logged_in: bool) {
 // auth_register creates an account and logs in to it. The credentials it was
 // created with are kept like those of a login, so that if the connection
 // restarts before the answer arrives, the new connection logs in with them.
-auth_register :: proc(c: ^Voice_Client, cmd: Register_Command) {
+auth_register :: proc(c: ^Server_Conn, cmd: Register_Command) {
 	if c.auth.state != .Needed {
 		return
 	}
@@ -307,7 +307,7 @@ auth_register :: proc(c: ^Voice_Client, cmd: Register_Command) {
 }
 
 @(private = "file")
-register_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+register_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	a := &c.auth
 	#partial switch status {
 	case .Ok:
@@ -335,24 +335,34 @@ register_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u
 	set_state(c, .Needed, register_refusal_text(reason))
 }
 
+// username_rule and password_rule say what a username and a password have to
+// be, for when one isn't.
+username_rule :: proc() -> string {
+	return fmt.tprintf(
+		"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
+		proto.MIN_USERNAME_SIZE,
+		proto.MAX_USERNAME_SIZE,
+	)
+}
+
+password_rule :: proc() -> string {
+	return fmt.tprintf(
+		"A password must be %d to %d characters long.",
+		proto.MIN_ACCOUNT_PASSWORD,
+		proto.MAX_ACCOUNT_PASSWORD,
+	)
+}
+
 register_refusal_text :: proc(reason: proto.Register_Refusal) -> string {
 	switch reason {
 	case .Closed:
 		return "This server does not accept registrations."
 	case .Username:
-		return fmt.tprintf(
-			"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
-			proto.MIN_USERNAME_SIZE,
-			proto.MAX_USERNAME_SIZE,
-		)
+		return username_rule()
 	case .Username_Taken:
 		return "That username is already taken."
 	case .Password:
-		return fmt.tprintf(
-			"A password must be %d to %d characters long.",
-			proto.MIN_ACCOUNT_PASSWORD,
-			proto.MAX_ACCOUNT_PASSWORD,
-		)
+		return password_rule()
 	case .Email_Missing:
 		return "This server requires an email address."
 	case .Email:
@@ -368,7 +378,7 @@ register_refusal_text :: proc(reason: proto.Register_Refusal) -> string {
 }
 
 // auth_login logs in with a username and password.
-auth_login :: proc(c: ^Voice_Client, cmd: Login_Command) {
+auth_login :: proc(c: ^Server_Conn, cmd: Login_Command) {
 	if c.auth.state != .Needed {
 		return
 	}
@@ -377,7 +387,7 @@ auth_login :: proc(c: ^Voice_Client, cmd: Login_Command) {
 }
 
 @(private = "file")
-login_send :: proc(c: ^Voice_Client) {
+login_send :: proc(c: ^Server_Conn) {
 	a := &c.auth
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	body := proto.encode_auth_login(buf[:], a.username, a.password, a.device, platform.agent())
@@ -391,7 +401,7 @@ login_send :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-login_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+login_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 	a := &c.auth
 	#partial switch status {
 	case .Ok:
@@ -422,7 +432,7 @@ login_done :: proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64)
 // on the server. We are in no channel anymore, and there is nothing to show of
 // the server except the login.
 @(private = "file")
-auth_logged_out :: proc(c: ^Voice_Client, why: string) {
+auth_logged_out :: proc(c: ^Server_Conn, why: string) {
 	a := &c.auth
 	forget_password(a)
 	accounts_clear(a)
@@ -437,7 +447,7 @@ auth_logged_out :: proc(c: ^Voice_Client, why: string) {
 	set_state(c, .Needed, why)
 }
 
-auth_logout :: proc(c: ^Voice_Client) {
+auth_logout :: proc(c: ^Server_Conn) {
 	if c.auth.state != .Done {
 		return
 	}
@@ -445,7 +455,7 @@ auth_logout :: proc(c: ^Voice_Client) {
 		c,
 		.Auth_Logout,
 		nil,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status == .Ok {
 				log.info("logged out")
 				auth_logged_out(c, "")
@@ -456,7 +466,7 @@ auth_logout :: proc(c: ^Voice_Client) {
 
 // auth_event handles an event about accounts. It returns false if `op` is not
 // an account event.
-auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
+auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	a := &c.auth
 	#partial switch op {
 	case .Sync_Begin:
@@ -487,18 +497,8 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 			roles        = slice.clone(record.roles),
 			activity     = record.activity,
 		}
-		if c.view == nil && a.state == .Done && was_status != record.status {
-			// Headless: log the statuses as they change.
-			if record.status == "" {
-				log.infof("[status] %s has no status", record.display)
-			} else {
-				log.infof(
-					"[status] %s: %s%s",
-					record.display,
-					record.status,
-					" (for a while)" if record.status_until != 0 else "",
-				)
-			}
+		if a.state == .Done && was_status != record.status {
+			report_status(c, record.display, record.status, record.status_until)
 		}
 		publish_directory(c)
 	case .Self:
@@ -567,7 +567,7 @@ auth_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
 
 // account_display returns the display name of an account, or "" if the server
 // has not told us about it.
-account_display :: proc(c: ^Voice_Client, id: proto.Account_Id) -> string {
+account_display :: proc(c: ^Server_Conn, id: proto.Account_Id) -> string {
 	if acc, ok := c.auth.accounts[id]; ok {
 		return acc.display
 	}
@@ -576,7 +576,7 @@ account_display :: proc(c: ^Voice_Client, id: proto.Account_Id) -> string {
 
 // account_by_username returns the account with this username, or 0 if there is
 // none.
-account_by_username :: proc(c: ^Voice_Client, username: string) -> proto.Account_Id {
+account_by_username :: proc(c: ^Server_Conn, username: string) -> proto.Account_Id {
 	buf: [proto.MAX_USERNAME_SIZE]u8
 	clean, ok := proto.username_clean(username, &buf)
 	if !ok {
@@ -590,7 +590,7 @@ account_by_username :: proc(c: ^Voice_Client, username: string) -> proto.Account
 	return 0
 }
 
-status_text :: proc(status: proto.Status) -> string {
+status_text :: proc(status: proto.Status, what := "") -> string {
 	#partial switch status {
 	case .Denied:
 		return "You don't have permission to do that."
@@ -599,9 +599,14 @@ status_text :: proc(status: proto.Status) -> string {
 	case .Invalid:
 		return "The server rejected the request because it contains invalid data."
 	case .Conflict:
-		return "That username is already taken."
+		return(
+			"That username is already taken." if what == "account" else "That name is already taken." \
+		)
 	case .Not_Found:
-		return "That account does not exist."
+		if what == "" {
+			return "That no longer exists on the server."
+		}
+		return fmt.tprintf("That %s no longer exists.", what)
 	case .Rate_Limited:
 		return "Too many requests. Wait a moment and try again."
 	case .Reset:
@@ -613,7 +618,7 @@ status_text :: proc(status: proto.Status) -> string {
 }
 
 // notify tells the UI (and the log) the result of a request.
-notify :: proc(c: ^Voice_Client, ok: bool, text: string) {
+notify :: proc(c: ^Server_Conn, ok: bool, text: string) {
 	if ok {
 		log.info(text)
 	} else {
@@ -635,17 +640,9 @@ view_notice :: proc(v: ^View, ok: bool, text: string) {
 	v.notice.at = time.tick_now()
 }
 
-auth_password :: proc(c: ^Voice_Client, cmd: Password_Command) {
+auth_password :: proc(c: ^Server_Conn, cmd: Password_Command) {
 	if !proto.account_password_ok(cmd.new) {
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A password must be %d to %d characters long.",
-				proto.MIN_ACCOUNT_PASSWORD,
-				proto.MAX_ACCOUNT_PASSWORD,
-			),
-		)
+		notify(c, false, password_rule())
 		return
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -654,7 +651,7 @@ auth_password :: proc(c: ^Voice_Client, cmd: Password_Command) {
 		c,
 		.Password_Change,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			// What we would log in with on a new connection is no longer valid, but
 			// this device stays logged in, so it isn't needed anyway.
 			forget_password(&c.auth)
@@ -667,7 +664,7 @@ auth_password :: proc(c: ^Voice_Client, cmd: Password_Command) {
 	)
 }
 
-auth_display :: proc(c: ^Voice_Client, name: string) {
+auth_display :: proc(c: ^Server_Conn, name: string) {
 	name_buf: [proto.MAX_NAME_SIZE]u8
 	clean := proto.sanitize_name(name, &name_buf)
 	if clean == "" {
@@ -679,7 +676,7 @@ auth_display :: proc(c: ^Voice_Client, name: string) {
 		c,
 		.Profile_Set,
 		proto.encode_profile_set(buf[:], {mask = proto.PROFILE_DISPLAY, display = clean}),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
 				notify(c, false, status_text(status))
 			}
@@ -687,7 +684,7 @@ auth_display :: proc(c: ^Voice_Client, name: string) {
 	)
 }
 
-auth_email :: proc(c: ^Voice_Client, raw: string) {
+auth_email :: proc(c: ^Server_Conn, raw: string) {
 	email := ""
 	if strings.trim_space(raw) != "" {
 		buf: [proto.MAX_EMAIL_SIZE]u8
@@ -704,7 +701,7 @@ auth_email :: proc(c: ^Voice_Client, raw: string) {
 		c,
 		.Email_Set,
 		proto.encode_email_set(buf[:], email),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			#partial switch status {
 			case .Ok:
 				notify(c, true, "Email address saved.")
@@ -719,16 +716,16 @@ auth_email :: proc(c: ^Voice_Client, raw: string) {
 	)
 }
 
-auth_devices :: proc(c: ^Voice_Client, account: proto.Account_Id = 0) {
+auth_devices :: proc(c: ^Server_Conn, account: proto.Account_Id = 0) {
 	id_buf: [4]u8
 	request(
 		c,
 		.Device_List,
 		nil if account == 0 else proto.encode_account_id(&id_buf, account),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
 				if tag != 0 {
-					notify(c, false, status_text(status))
+					notify(c, false, status_text(status, "account"))
 				}
 				return
 			}
@@ -755,15 +752,7 @@ auth_devices :: proc(c: ^Voice_Client, account: proto.Account_Id = 0) {
 						flags = d.flags,
 					},
 				)
-				if c.view == nil {
-					log.infof(
-						"device %s %q%s%s",
-						fingerprint(d.key),
-						d.name,
-						" (this one)" if .Current in d.flags else "",
-						" online" if .Online in d.flags else "",
-					)
-				}
+				report_device(c, d)
 			}
 			publish_devices(c)
 		},
@@ -771,7 +760,7 @@ auth_devices :: proc(c: ^Voice_Client, account: proto.Account_Id = 0) {
 	)
 }
 
-auth_revoke :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) {
+auth_revoke :: proc(c: ^Server_Conn, key: [proto.KEY_SIZE]u8) {
 	buf: [proto.ACCOUNT_BODY_MAX]u8
 	// Whose list it is from, so that list can be requested again afterwards.
 	whose := proto.Account_Id(0)
@@ -787,45 +776,29 @@ auth_revoke :: proc(c: ^Voice_Client, key: [proto.KEY_SIZE]u8) {
 		c,
 		.Device_Revoke,
 		proto.encode_device_revoke(buf[:], key),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status == .Ok {
 				notify(c, true, "Device logged out.")
 				if c.auth.state == .Done {
 					auth_devices(c, proto.Account_Id(tag))
 				}
 			} else {
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "device"))
 			}
 		},
 		u64(whose),
 	)
 }
 
-auth_account_create :: proc(c: ^Voice_Client, cmd: Account_Create_Command) {
+auth_account_create :: proc(c: ^Server_Conn, cmd: Account_Create_Command) {
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
 	username, clean := proto.username_clean(cmd.username, &name_buf)
 	switch {
 	case !clean:
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
-				proto.MIN_USERNAME_SIZE,
-				proto.MAX_USERNAME_SIZE,
-			),
-		)
+		notify(c, false, username_rule())
 		return
 	case !proto.account_password_ok(cmd.password):
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A password must be %d to %d characters long.",
-				proto.MIN_ACCOUNT_PASSWORD,
-				proto.MAX_ACCOUNT_PASSWORD,
-			),
-		)
+		notify(c, false, password_rule())
 		return
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -834,17 +807,17 @@ auth_account_create :: proc(c: ^Voice_Client, cmd: Account_Create_Command) {
 		c,
 		.Account_Create,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status == .Ok {
 				notify(c, true, "Account created. Its password has to be changed on first login.")
 			} else {
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "account"))
 			}
 		},
 	)
 }
 
-auth_account_password :: proc(c: ^Voice_Client, cmd: Account_Password_Command) {
+auth_account_password :: proc(c: ^Server_Conn, cmd: Account_Password_Command) {
 	account := cmd.account
 	if account == 0 {
 		account = account_by_username(c, cmd.username)
@@ -854,15 +827,7 @@ auth_account_password :: proc(c: ^Voice_Client, cmd: Account_Password_Command) {
 		notify(c, false, "That account does not exist.")
 		return
 	case !proto.account_password_ok(cmd.password):
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A password must be %d to %d characters long.",
-				proto.MIN_ACCOUNT_PASSWORD,
-				proto.MAX_ACCOUNT_PASSWORD,
-			),
-		)
+		notify(c, false, password_rule())
 		return
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -871,7 +836,7 @@ auth_account_password :: proc(c: ^Voice_Client, cmd: Account_Password_Command) {
 		c,
 		.Account_Password_Set,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status == .Ok {
 				notify(
 					c,
@@ -879,13 +844,13 @@ auth_account_password :: proc(c: ^Voice_Client, cmd: Account_Password_Command) {
 					"Password set. Their devices were logged out, and the password has to be changed on first login.",
 				)
 			} else {
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "account"))
 			}
 		},
 	)
 }
 
-publish_login :: proc(c: ^Voice_Client) {
+publish_login :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -916,7 +881,7 @@ publish_login :: proc(c: ^Voice_Client) {
 
 // publish_directory hands the UI the accounts as we know them now, and the names
 // that go with the connections, which come from the accounts.
-publish_directory :: proc(c: ^Voice_Client) {
+publish_directory :: proc(c: ^Server_Conn) {
 	if v := c.view; v != nil {
 		a := &c.auth
 		view_write(v)
@@ -969,7 +934,7 @@ view_clear_other_devices :: proc(v: ^View) {
 	v.other_devices_of = 0
 }
 
-publish_devices :: proc(c: ^Voice_Client) {
+publish_devices :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return

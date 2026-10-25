@@ -5,10 +5,10 @@ import "core:net"
 import "core:testing"
 import "core:time"
 
-import "common:lite"
+import "lib:lite"
 import "common:proto"
 
-// Tests of the headless client (common/lite) against a real server: its
+// Tests of the headless client (lib/lite) against a real server: its
 // packet handling and the syncs that answer it, over a loopback socket, with
 // the server and the clients taking turns on this one thread. The accounts
 // and the admin who creates bots are set up by the other tests (ts_

@@ -15,7 +15,7 @@ import mu "vendor:microui"
 
 // image_cache_start opens the cache where the settings say.
 image_cache_start :: proc(ui: ^UI) {
-	ui.image_cache_dir_len = copy(ui.image_cache_dir_buf[:], ui.settings.image_cache_dir)
+	field_set(&ui.image_cache_dir, ui.settings.image_cache_dir)
 	image_cache_reopen(ui)
 }
 
@@ -34,7 +34,7 @@ image_cache_settings :: proc(ui: ^UI) {
 
 	bytes, count := conn.image_cache_usage(&ui.image_cache)
 	field_row(ui, 120, "In use", {-90, -1})
-	mu.label(ctx, fmt.tprintf("%s in %d pictures", format_bytes(bytes), count))
+	mu.label(ctx, fmt.tprintf("%s in %d pictures", conn.format_bytes(u64(bytes)), count))
 	if .SUBMIT in mu.button(ctx, "Clear") {
 		conn.image_cache_clear(&ui.image_cache)
 	}
@@ -50,11 +50,9 @@ image_cache_settings :: proc(ui: ^UI) {
 
 	when platform.WEB {
 		mu.layout_row(ctx, {-1})
-		with_text_color(
+		dim_note(
 			ctx,
-			theme.dim,
 			"  People's pictures and servers' emoji, kept in this browser for this site. 0 keeps none.",
-			wrap_text,
 		)
 	} else {
 		folder_settings(ui)
@@ -66,10 +64,10 @@ image_cache_settings :: proc(ui: ^UI) {
 folder_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	field_row(ui, 120, "Folder", {-90, -1})
-	submit := .SUBMIT in text_box(ui, ui.image_cache_dir_buf[:], &ui.image_cache_dir_len)
+	submit := .SUBMIT in text_box(ui, ui.image_cache_dir.buf[:], &ui.image_cache_dir.len)
 	submit |= .SUBMIT in mu.button(ctx, "Apply")
 	if submit {
-		dir := string(ui.image_cache_dir_buf[:ui.image_cache_dir_len])
+		dir := field_text(&ui.image_cache_dir)
 		if dir != ui.settings.image_cache_dir {
 			settings.set_setting(&ui.settings.image_cache_dir, dir)
 			save_settings(ui)
@@ -82,33 +80,12 @@ folder_settings :: proc(ui: ^UI) {
 	if folder == "" {
 		folder = "nowhere: the folder couldn't be created"
 	}
-	with_text_color(
+	dim_note(
 		ctx,
-		theme.dim,
 		fmt.tprintf(
 			"  Kept in %s. Empty for the default; pictures already kept elsewhere stay there.",
 			folder,
 		),
-		wrap_text,
 	)
-	with_text_color(
-		ctx,
-		theme.dim,
-		"  People's pictures and servers' emoji. 0 keeps none.",
-		wrap_text,
-	)
-}
-
-// format_bytes writes a size the way a person reads one.
-@(private = "file")
-format_bytes :: proc(n: int) -> string {
-	switch {
-	case n >= 1024 * 1024 * 1024:
-		return fmt.tprintf("%.1f GB", f64(n) / (1024 * 1024 * 1024))
-	case n >= 1024 * 1024:
-		return fmt.tprintf("%.1f MB", f64(n) / (1024 * 1024))
-	case n >= 1024:
-		return fmt.tprintf("%.0f KB", f64(n) / 1024)
-	}
-	return fmt.tprintf("%d bytes", n)
+	dim_note(ctx, "  People's pictures and servers' emoji. 0 keeps none.")
 }

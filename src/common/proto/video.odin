@@ -234,12 +234,6 @@ decode_video_up :: proc(pt: []u8) -> (f: Video_Fragment, ok: bool) {
 	return get_video_body(pt[1:])
 }
 
-encode_video_down :: proc(out: []u8, sharer: User_Num, f: Video_Fragment) -> []u8 {
-	out[0] = u8(Message_Kind.Video)
-	endian.unchecked_put_u32le(out[1:], u32(sharer))
-	return out[:5 + put_video_body(out[5:], f)]
-}
-
 // video_up_to_down turns a sharer's fragment into the one its viewers
 // receive, without looking inside it: the sharer's number is simply put in
 // front. `pt` must have been checked with decode_video_up.

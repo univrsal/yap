@@ -111,16 +111,7 @@ remove(name): forgets a file no event plays any more.
 		throw new Error("no name left");
 	};
 
-	const withString = (s, fn) => {
-		const bytes = new TextEncoder().encode(s);
-		const ptr = _malloc(bytes.length + 1);
-		HEAPU8.set(bytes, ptr);
-		try {
-			fn(ptr, bytes.length);
-		} finally {
-			_free(ptr);
-		}
-	};
+	const withString = Module.yapWithString;
 	const withSamples = ({ samples, channels }, fn) => {
 		const ptr = _malloc(samples.length * 4);
 		HEAPU8.set(new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength), ptr);

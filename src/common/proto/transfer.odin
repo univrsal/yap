@@ -143,17 +143,16 @@ Transfer_Sender :: struct {
 	progress_at: time.Tick, // when the acks last made progress
 	resend:      [dynamic]u32,
 	resent:      map[u32]time.Tick, // when a chunk was last sent
-	tokens:      f32, // bytes that may be sent now
-	last_pace:   time.Tick,
+	pace:        Bucket, // bytes that may be sent now
 	peer_rate:   u32, // the receiver's rate limit, 0 for none
 }
 
 transfer_sender_init :: proc(s: ^Transfer_Sender, size: u64, now: time.Tick) {
 	s^ = {
-		size        = size,
-		chunks      = file_chunk_count(size),
+		size = size,
+		chunks = file_chunk_count(size),
 		progress_at = now,
-		last_pace   = now,
+		pace = {last = now}, // empty until the first refill
 	}
 }
 
@@ -171,15 +170,13 @@ transfer_sender_done :: proc(s: ^Transfer_Sender) -> u64 {
 // transfer_refill adds the tokens that `rate` allows since the last turn,
 // keeping at most `burst` (but always enough room for one chunk).
 transfer_refill :: proc(s: ^Transfer_Sender, now: time.Tick, rate, burst: f32) {
-	elapsed := f32(time.duration_seconds(time.tick_diff(s.last_pace, now)))
-	s.last_pace = now
-	s.tokens = min(s.tokens + elapsed * rate, max(burst, FILE_CHUNK_DATA))
+	bucket_refill(&s.pace, now, f64(rate), f64(max(burst, FILE_CHUNK_DATA)))
 }
 
 // transfer_pick returns the next chunk to send, if the pace and the window
 // allow one. A chunk that was requested again comes before a new one.
 transfer_pick :: proc(s: ^Transfer_Sender, now: time.Tick) -> (index: u32, first: bool, ok: bool) {
-	if s.tokens <= 0 {
+	if s.pace.tokens <= 0 {
 		return
 	}
 	// Everything has been sent once, but the acks have stopped moving. The
@@ -218,7 +215,7 @@ transfer_sent :: proc(s: ^Transfer_Sender, index: u32, first: bool, bytes: int, 
 		ordered_remove(&s.resend, 0)
 	}
 	s.resent[index] = now
-	s.tokens -= f32(bytes)
+	s.pace.tokens -= f64(bytes)
 }
 
 // transfer_acked takes what the receiver says it has. It returns true once

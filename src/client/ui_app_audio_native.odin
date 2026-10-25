@@ -11,6 +11,7 @@ import "client:audio"
 import "client:audio/aac"
 import "client:conn"
 import "client:settings"
+import "client:video"
 
 // Sharing an application's audio with the channel, next to the
 // microphone (native clients; see audio/aac/aac.odin for which systems
@@ -108,7 +109,7 @@ app_audio_frame :: proc(ui: ^UI) {
 		log.infof("app audio: %s stopped: %s", a.name, cstring(&s.why[0]))
 		app_audio_stop(ui)
 		ui_redraw(ui)
-	} else if state := conn.video_share_state(); a.device && state != .Starting && state != .Live {
+	} else if state := video.share_state(); a.device && state != .Starting && state != .Live {
 		app_audio_stop(ui)
 		ui_redraw(ui)
 	}
@@ -191,7 +192,7 @@ app_audio_menu :: proc(ui: ^UI) {
 	}
 
 	mu.layout_row(ctx, {MENU_WIDTH})
-	with_text_color(ctx, theme.dim, "Share the audio of:", label_proc)
+	dim_label(ctx, "Share the audio of:")
 	// Not ourselves, because everyone would hear themselves back.
 	me := u32(os.get_pid())
 	count := 0
@@ -222,7 +223,7 @@ app_audio_menu :: proc(ui: ^UI) {
 		mu.end_panel(ctx)
 	} else {
 		mu.layout_row(ctx, {MENU_WIDTH})
-		with_text_color(ctx, theme.dim, "Nothing is playing audio.", label_proc)
+		dim_label(ctx, "Nothing is playing audio.")
 	}
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if .SUBMIT in stable_button(ctx, "refresh", "Refresh") {
@@ -375,7 +376,7 @@ share_audio_choice :: proc(ui: ^UI, width: i32) {
 	current := share_audio_index(ui)
 	count := int(aac.app_list_count(a.devices))
 	mu.layout_row(ctx, {width})
-	with_text_color(ctx, theme.dim, "Share the audio of:", label_proc)
+	dim_label(ctx, "Share the audio of:")
 	menu_list_begin(ui, "audio", width, 1 + count)
 	mu.layout_row(ctx, {-1})
 	if .SUBMIT in list_row(ctx, "none", "No audio", current < 0) {

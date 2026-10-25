@@ -1,614 +1,914 @@
 package proto
 
 import "core:encoding/endian"
-import "core:time"
 
-// Application messages, carried as Data plaintext. An empty plaintext is a
-// keepalive. Integers are little-endian.
+// Messages: what is posted to a conversation (convs.odin). The server keeps
+// them permanently, and they are read a page at a time. Everything here travels
+// as requests and events (rpc.odin), except Typing, which is a datagram.
 //
-// 	client -> server  Voice      [kind][seq u32][frame...]
-// 	server -> client  Voice      [kind][speaker u32][seq u32][frame...]
-// 	server -> client  State      [kind][version u32][chunk u8][chunk_count u8][bytes...]
-// 	client -> server  State_Ack  [kind][version u32]
-// 	client -> server  Leave      [kind]
-// 	client -> server  Sound      [kind][flags u8]
-// 	server -> client  Refused    [kind][reason u8]
-// 	(who is typing: Typing; see msgs.odin)
-// 	(pictures and such, in chunks: Blob_Chunk, Blob_Need; see blob.odin)
-// 	(screen sharing: Video, Watch, Keyframe; see video.odin)
-// 	(connection quality: Ping, Pong; see ping.odin)
-// 	(files in DMs: File_Accept, File_Chunk, File_Ack, File_Cancel; see files.odin)
-// 	(what a new session belongs to: Welcome; see names.odin)
-// 	(reliable messages: Stream, Stream_Ack; see stream.odin, and rpc.odin
-// 	 for what travels on it)
+// 	Msg_Post     [conv u32][nonce u64][thread_root u64][kind u8]
+// 	             text: [text str16][count u8][upload u64]... (attachments)
+// 	             file: [size u64][name str8]
+// 	             ->  [id u64][time u64]
+// 	Msg_History  [conv u32][thread_root u64][anchor u64][dir u8][limit u8]
+// 	             ->  [more u8][count u16] messages, oldest first
+// 	Blob_Put     [kind u8][size u32][sha256 32][width u16][height u16]
+// 	             ->  [blob u64][have u8][handle u64]
+// 	Blob_Get     [blob u64]  ->  [size u32][handle u64]
+// 	Msg_Edit     [id u64][text str16]
+// 	Msg_Delete   [id u64]
+// 	Msg_Pin      [id u64][on u8]
+// 	Pins_Get     [conv u32]  ->  [count u16] messages, the newest pin first
+// 	Msg_Forward  (forward.odin)
+// 	Msg_React    [id u64][emoji str8][on u8]
+// 	Reactors_Get [id u64][emoji str8]
+// 	             ->  [total u16][count u8][account u32]...: who reacted
+// 	             with that emoji, earliest first, at most MAX_REACTORS
+// 	             of the `total`
 //
-// Connections are identified by a number that the server assigns (`speaker` in
-// Voice, and a user in State; User_Num). The numbers are unique per server run
-// and never reused. State maps them to each connection's account (see
-// accounts.odin, which is also where names come from) and to the voice room
-// that the connection is in, if any (convs.odin). Only connections that are
-// logged in appear in it. A device's key isn't told to other clients, because
-// nothing between clients goes by it any more.
+// 	Msg_New      a message that was just posted
+// 	Msg_Changed  a message in its current state after being edited, deleted, pinned or unpinned
+// 	Reaction_Changed  [id u64][conv u32][emoji str8][count u16][account u32][on u8]:
+// 	             `account` added (`on`) or withdrew a reaction; `count` is how
+// 	             many accounts have that reaction now
 //
-// Sound says whether a user has muted their microphone or stopped listening, so
-// that the others can show it. It is idempotent and is resent until a snapshot
-// agrees. It only ever describes what a user has done to themselves. Muting
-// somebody for yourself is a local matter and stays on your machine. Sound also
-// says whether the user is sharing their screen, which is the same kind of
-// information: the user's own state, for others to see.
+// 	message   [id u64][conv u32][sender u32][time u64][kind u8][flags u8]
+// 	          [thread_root u64][edited u64]
+// 	          text:    [text str16]
+// 	                   if Has_Attachments: [count u8] per file:
+// 	                   [blob u64][size u64][name str8]
+// 	          file:    [size u64][name str8]
+// 	          system:  [what u8][arg u32]
+// 	          if Has_Thread: [reply_count u32][last_reply u64]
+// 	          if Forwarded: [sender u32][conv u32][time u64] (forward.odin)
+// 	          [reaction_count u8] per reaction: [emoji str8][count u16][me u8]
 //
-// Refused is the server's answer to a hello that it won't accept (see
-// names.odin). It is sent on the session that the hello's handshake created,
-// which the server then drops. It is the first Data that the client sees on
-// that session, so it arrives instead of the Welcome, and because it is sealed
-// nobody else can forge it. It is unreliable, so the server sends a few
-// copies. If they are all lost, the client's handshake times out and the next
-// one is refused again.
+// 	client -> server  Typing  [kind][conv u32][thread_root u64]
+// 	server -> client  Typing  [kind][conv u32][thread_root u64][account u32]
 //
-// Leave is a courtesy that lets others see the user go right away instead of
-// after SESSION_TIMEOUT. It is unreliable, so clients send a few copies.
+// A message's id is assigned by the server. It is global and increasing, so
+// "newer than" is a single comparison. Its time is the server's clock, in
+// milliseconds.
 //
-// Who is connected, and in which room, is synced as full snapshots instead of
-// deltas, so that loss and reordering can't leave a client inconsistent. The
-// server resends the current snapshot until the client acknowledges its
-// version. A snapshot can be larger than one datagram, so it is split into
-// chunks. The client acknowledges it once it has received all of them.
+// Posting: the nonce is chosen by the poster at random for each message. If a
+// post is repeated with the same nonce after the connection started over, it is
+// answered with the id that the message got the first time and is not stored
+// again.
 //
-// User_Num is a user's number (see above). It is a type of its own so that it
-// can't be mistaken for a Session_Id, the other number that goes with a user.
-// A Session_Id says which session a packet is for (see session.odin), and a
-// user may have several sessions.
-User_Num :: distinct u32
+// History: a page of messages next to `anchor`. The page contains messages
+// `Before` the anchor (older ones, where an anchor of 0 means starting from the
+// newest), `After` it, or `Around` it, including the anchor itself. There are at
+// most MAX_HISTORY_LIMIT messages, or fewer if they wouldn't fit in one stream
+// message. `more` says whether the conversation has messages beyond the page:
+// older ones (MORE_BEFORE) and newer ones (MORE_AFTER).
+//
+// Pictures (people's own and the server's emoji: profiles.odin, emoji.odin) are
+// blobs that are stored once per content. The client announces a blob with
+// Blob_Put. If the server already has that content (`have`), the answer is its
+// id and nothing is sent. Otherwise the answer is the handle to send the chunks
+// under (blob.odin). The server then says with Blob_Need when it has received
+// all chunks (BLOB_COMPLETE, after which Blob_Put returns the id) or when it
+// can't accept them (BLOB_FAILED: the hash or the picture's size wasn't what
+// was announced). Blob_Get works the other way around: the answer contains the
+// size and the handle that the chunks will arrive under.
+//
+// Attachments: a text message may carry up to MAX_ATTACHMENTS files that were
+// uploaded to the server (attachments.odin). It then has the Has_Attachments
+// flag, and its text may be empty. A picture in a message is also an
+// attachment, including a pasted one. Posting names the poster's uploads, and
+// the server fills in each file's blob, name and size from them. The files are
+// removed when the message is deleted.
+//
+// Files: a message of kind File is an offer to send a file. It is only possible
+// in a DM. It states the file's name and size, and the file itself is
+// transferred between the two clients when the offer is accepted (files.odin).
+//
+// Editing, deleting, pinning: a text message may be edited by its author, and
+// then states when it was edited (`edited`). The old text is not kept. A message
+// may be deleted by its author or by an account with Manage_Messages. It stays,
+// with the Deleted flag, but its text and files are permanently removed and it
+// is no longer pinned. Pinning marks a message as Pinned. In a DM either member
+// may pin, and in a channel those with Pin_Messages may. A conversation may have
+// at most MAX_PINS pinned messages (beyond that the answer is Too_Large). Each
+// change is sent to every connection of every member as Msg_Changed, which
+// contains the whole message in its current state.
+//
+// Reactions: a member reacts to a message with an emoji (emoji.odin), which is
+// either a Unicode emoji's character or `:name:` for one of the server's own. A
+// message may have at most MAX_REACTIONS different emoji and none if it is
+// deleted. Each account counts once per emoji. A message's record carries the
+// reactions in the order in which they were first given, with the number of
+// accounts that gave each one and whether `me` did. `me` refers to the account
+// that asked for a history page or Pins_Get. In an event (Msg_New, Msg_Changed)
+// it is never set, and the readers of events keep track of their own reactions
+// from Reaction_Changed.
+//
+// A thread root is only used in a later phase. The record has room for it from
+// the start, and it is zero until then.
 
-Message_Kind :: enum u8 {
-	Voice           = 1,
-	// Retired: a voice room is now joined with a request (Voice_Join,
-	// convs.odin).
-	Join            = 2,
-	State           = 3,
-	State_Ack       = 4,
-	Leave           = 5,
-	// Retired: names now belong to accounts (Profile_Set, accounts.odin).
-	Set_Name        = 6,
-	// Retired: messages are now posted and read with requests (msgs.odin).
-	Chat_Send       = 7,
-	Chat_Sent       = 8,
-	Chat            = 9,
-	Chat_Received   = 10,
-	// Who is typing and where, see msgs.odin.
-	Typing          = 11,
-	// Retired: pictures are now blobs that are announced and requested with
-	// requests (msgs.odin) and sent in chunks as before.
-	Image_Send      = 12,
-	Image_Get       = 13,
-	// A blob's chunks, see blob.odin.
-	Blob_Chunk      = 14,
-	Blob_Need       = 15,
-	// Retired with Image_Send.
-	Image_Gone      = 16,
-	// What a user has switched off for themselves.
-	Sound           = 17,
-	// The server refuses us (see Refusal).
-	Refused         = 19,
-	// Screen sharing, see video.odin.
-	Video           = 20,
-	Watch           = 21,
-	Keyframe        = 22,
-	// Measuring the connection, see ping.odin.
-	Ping            = 23,
-	Pong            = 24,
-	// Retired: direct messages are now conversations (DM_Open, convs.odin)
-	// and their messages work like any other messages (msgs.odin).
-	DM_Send         = 25,
-	DM_Sent         = 26,
-	DM              = 27,
-	DM_Ack          = 28,
-	DM_Delivered    = 29,
-	DM_Typing       = 30,
-	DM_Image_Send   = 31,
-	DM_Image_Get    = 32,
-	DM_Image_Gone   = 33,
-	// File transfers, see files.odin.
-	File_Accept     = 34,
-	File_Chunk      = 35,
-	File_Ack        = 36,
-	File_Cancel     = 37,
-	// Retired: when someone was last online is now requested with a request
-	// (Last_Seen, buddies.odin).
-	Last_Seen_Get   = 38,
-	Last_Seen       = 39,
-	// The server's answer to a hello that it accepts, see names.odin.
-	Welcome         = 40,
-	// The reliable stream, see stream.odin.
-	Stream          = 41,
-	Stream_Ack      = 42,
-	// Attachments that are transferred to and from the server, see
-	// transfer.odin and attachments.odin.
-	Upload_Chunk    = 43,
-	Upload_Ack      = 44,
-	Download_Chunk  = 45,
-	Download_Ack    = 46,
-	Transfer_Cancel = 47,
-	// Requests to resend fragments of a shared screen, sent on the media
-	// link (video_window.odin).
-	Nack            = 48,
-	// Reports about how well a shared screen reaches its viewers, which are
-	// used to adjust its bitrate (video_report.odin).
-	Report          = 49,
-	// How big a camera's viewers show it, and how many there are (video.odin).
-	Demand          = 50,
+MAX_CHAT_SIZE :: 2000 // bytes of UTF-8 in a message
+
+// Unix_Time is the number of seconds since the epoch on the server's clock. It
+// is the unit that the UI's clock shows times in, to the minute.
+Unix_Time :: distinct u64
+
+// Unix_Ms is the number of milliseconds since the epoch on the server's clock.
+Unix_Ms :: distinct u64
+
+Msg_Id :: distinct u64
+Blob_Id :: distinct u64
+
+// The value 1 used to be a picture, which is now an attachment.
+Msg_Kind :: enum u8 {
+	Text   = 0,
+	File   = 2,
+	System = 3,
 }
 
-// The reason why the server refused a hello.
-Refusal :: enum u8 {
-	Wrong_Password    = 1, // missing, or not the server's password
-	Version           = 2, // a hello that this server can't read
-	// A bulk link's hello names no connection of this device (see Link in
-	// names.odin). Either the connection is gone or the main link hasn't been
-	// welcomed yet.
-	No_Connection     = 3,
-	// Another client with the same key is connected and still in use, for
-	// example an old copy of the client that was left open. Only one client
-	// may use a key at a time.
-	Already_Connected = 4,
+Msg_Flag :: enum u8 {
+	Deleted,
+	Pinned,
+	Has_Thread,
+	Forwarded, // a copy of another message (forward.odin)
+	Has_Attachments, // files uploaded with it (attachments.odin)
+}
+Msg_Flags :: distinct bit_set[Msg_Flag;u8]
+
+// The kind of a blob, which decides how large it may be.
+Blob_Kind :: enum u8 {
+	Avatar       = 2, // somebody's profile picture
+	Emoji_Sheet  = 3, // the server's custom emoji, as one image
+	File         = 4, // a message's attachment (attachments.odin)
+	Emoji_Frames = 5, // the frames of one of the animated emoji (emoji.odin)
 }
 
-// A user's own state as everyone else sees it: what they have switched off for
-// themselves, whether they are sharing their screen, and which codecs their
-// client can decode for a screen share. Muting a user for yourself is a local
-// setting and is never sent over the wire, so what arrives here is always what
-// that user did to themselves.
-User_Flag :: enum u8 {
-	Muted, // their microphone is off
-	Deafened, // they aren't listening to the channel
-	Sharing, // their screen can be watched (see video.odin)
-	// Besides H.264, which every client decodes, a sharer encodes in whatever
-	// codecs everyone in the room can decode (decodable_codecs). A client that is
-	// too old to say counts as H.264 only.
-	Decodes_HEVC,
-	Decodes_AV1,
-	// They are talking in a voice room or in a call, unless they chose not to
-	// show it (SETTING_VOICE_SHOWN). Which room it is isn't said here; see
-	// `room` for that, which is 0 for a room the receiver may not know about.
-	// The server sets them for a room on this server. A client sends one of
-	// them when it is talking on another server it is connected to, which the
-	// server shows while the user isn't in a room of its own.
-	In_Voice,
-	In_Call,
-	// Their camera is on (see video.odin). The server takes it off again
-	// while their room already has as many cameras as it allows.
-	Camera,
-}
-User_Flags :: distinct bit_set[User_Flag;u8]
+// The maximum number of files that a message may carry.
+MAX_ATTACHMENTS :: 10
 
-// The flags that say that a user is talking (see In_Voice).
-TALKING :: User_Flags{.In_Voice, .In_Call}
-
-VOICE_UP_HEADER_SIZE :: 1 + 4
-VOICE_DOWN_HEADER_SIZE :: 1 + 4 + 4
-STATE_HEADER_SIZE :: 1 + 4 + 1 + 1
-STATE_ACK_SIZE :: 1 + 4
-SOUND_SIZE :: 1 + 1
-REFUSED_SIZE :: 1 + 1
-
-STATE_CHUNK_SIZE :: MAX_PAYLOAD_SIZE - STATE_HEADER_SIZE
-MAX_STATE_CHUNKS :: 16
-MAX_STATE_SIZE :: STATE_CHUNK_SIZE * MAX_STATE_CHUNKS
-
-// The interval at which unacknowledged State snapshots and Sound messages are
-// resent.
-CONTROL_RESEND :: 300 * time.Millisecond
-
-// The maximum number of channels that a server may have, and the maximum
-// length of a channel name. A client is told about the channels that it is in
-// and finds the others a page at a time (Conv_Browse).
-MAX_CHANNELS :: 1000
-MAX_CHANNEL_NAME_SIZE :: 32
-
-User_Info :: struct {
-	num:     User_Num, // assigned by the server
-	account: Account_Id, // the account that the connection belongs to
-	flags:   User_Flags, // what they have switched off for themselves
-	room:    Room, // where their voice goes, or 0 for nowhere
+// A file that a message carries. The name points into the data that it was read
+// from.
+Attachment :: struct {
+	blob: Blob_Id, // 0 once it has been removed (retention)
+	size: u64,
+	name: string,
 }
 
-// Presence is a snapshot of every connection that is logged in, including
-// which one of them belongs to the receiver.
-Presence :: struct {
-	your_user: User_Num,
-	users:     []User_Info,
+// Message is one message. Its strings point into the data that it was read
+// from.
+Message :: struct {
+	id:               Msg_Id,
+	conv:             Conv_Id,
+	sender:           Account_Id,
+	time:             Unix_Ms,
+	kind:             Msg_Kind,
+	flags:            Msg_Flags,
+	thread_root:      Msg_Id,
+	edited:           Unix_Ms,
+	text:             string, // .Text
+	file_size:        u64, // .File
+	file_name:        string,
+	system:           u8, // .System: what kind of event happened
+	system_arg:       u32,
+	reply_count:      u32, // .Has_Thread
+	last_reply:       Msg_Id,
+	forward:          Forward_Info, // .Forwarded: where the original came from
+	// .Has_Attachments: the files, of which the first `attachment_count` are used.
+	attachment_count: int,
+	attachments:      [MAX_ATTACHMENTS]Attachment,
+	// The encoded reactions as they were received, if there are any.
+	reaction_count:   int,
+	reactions:        []u8,
 }
 
-// The size of one user in a snapshot. It limits how many users can be decoded.
-USER_SIZE :: 4 + 4 + 1 + 4
-MAX_STATE_USERS :: MAX_STATE_SIZE / USER_SIZE
+// The maximum size of a message's files.
+ATTACHMENTS_MAX_SIZE :: 1 + MAX_ATTACHMENTS * (8 + 8 + 1 + MAX_FILE_NAME)
 
-message_kind :: proc(pt: []byte) -> (kind: Message_Kind, ok: bool) {
-	if len(pt) == 0 {
+// The maximum size of a message.
+MESSAGE_MAX_SIZE ::
+	8 +
+	4 +
+	4 +
+	8 +
+	1 +
+	1 +
+	8 +
+	8 +
+	(2 + MAX_CHAT_SIZE) +
+	ATTACHMENTS_MAX_SIZE +
+	4 +
+	8 +
+	FORWARD_INFO_SIZE +
+	1 +
+	MAX_REACTIONS * (1 + MAX_REACTION_EMOJI + 2 + 1)
+
+MAX_HISTORY_LIMIT :: 50
+
+// The maximum number of pinned messages in a conversation.
+MAX_PINS :: 50
+
+// The maximum number of different emoji that a message can have as reactions,
+// and the maximum number of bytes of one emoji (a server's own emoji, written
+// as `:name:`).
+MAX_REACTIONS :: 20
+MAX_REACTION_EMOJI :: 2 + MAX_EMOJI_NAME
+
+History_Dir :: enum u8 {
+	Before = 0,
+	After  = 1,
+	Around = 2,
+}
+
+// The bits of a history page's `more`.
+MORE_BEFORE :: 1 << 0
+MORE_AFTER :: 1 << 1
+
+MSG_HISTORY_SIZE :: 4 + 8 + 8 + 1 + 1
+MSG_EDIT_MAX_SIZE :: 8 + 2 + MAX_CHAT_SIZE
+MSG_ID_SIZE :: 8
+MSG_PIN_SIZE :: 8 + 1
+MSG_POSTED_SIZE :: 8 + 8
+MSG_POST_MAX_SIZE :: 4 + 8 + 8 + 1 + max(2 + MAX_CHAT_SIZE + 1 + MAX_ATTACHMENTS * 8, 8 + 1 + 255)
+HISTORY_HEADER_SIZE :: 1 + 2
+BLOB_PUT_SIZE :: 1 + 4 + 32 + 2 + 2
+BLOB_PUT_ANSWER_SIZE :: 8 + 1 + 8
+BLOB_GET_SIZE :: 8
+BLOB_GET_ANSWER_SIZE :: 4 + 8
+TYPING_UP_SIZE :: 1 + 4 + 8
+TYPING_DOWN_SIZE :: TYPING_UP_SIZE + 4
+
+// message_size returns the number of bytes that `m` takes as a record.
+message_size :: proc(m: Message) -> int {
+	n := 8 + 4 + 4 + 8 + 1 + 1 + 8 + 8
+	switch m.kind {
+	case .Text:
+		n += 2 + len(m.text)
+		if .Has_Attachments in m.flags {
+			n += 1
+			for i in 0 ..< m.attachment_count {
+				a := m.attachments[i]
+				n += 8 + 8 + 1 + len(a.name)
+			}
+		}
+	case .File:
+		n += 8 + 1 + len(m.file_name)
+	case .System:
+		n += 1 + 4
+	}
+	if .Has_Thread in m.flags {
+		n += 4 + 8
+	}
+	if .Forwarded in m.flags {
+		n += FORWARD_INFO_SIZE
+	}
+	return n + 1 + len(m.reactions)
+}
+
+@(private = "file")
+put_message :: proc(w: ^Writer, m: Message) {
+	put_u64(w, u64(m.id))
+	put_u32(w, u32(m.conv))
+	put_u32(w, u32(m.sender))
+	put_u64(w, u64(m.time))
+	put_u8(w, u8(m.kind))
+	put_u8(w, transmute(u8)m.flags)
+	put_u64(w, u64(m.thread_root))
+	put_u64(w, u64(m.edited))
+	switch m.kind {
+	case .Text:
+		if len(m.text) > MAX_CHAT_SIZE {
+			w.overflow = true
+		}
+		put_str16(w, m.text)
+		if .Has_Attachments in m.flags {
+			if m.attachment_count < 1 || m.attachment_count > MAX_ATTACHMENTS {
+				w.overflow = true
+				return
+			}
+			put_u8(w, u8(m.attachment_count))
+			for i in 0 ..< m.attachment_count {
+				a := m.attachments[i]
+				put_u64(w, u64(a.blob))
+				put_u64(w, a.size)
+				put_str8(w, a.name)
+			}
+		}
+	case .File:
+		put_u64(w, m.file_size)
+		put_str8(w, m.file_name)
+	case .System:
+		put_u8(w, m.system)
+		put_u32(w, m.system_arg)
+	}
+	if .Has_Thread in m.flags {
+		put_u32(w, m.reply_count)
+		put_u64(w, u64(m.last_reply))
+	}
+	if .Forwarded in m.flags {
+		put_u32(w, u32(m.forward.sender))
+		put_u32(w, u32(m.forward.conv))
+		put_u64(w, u64(m.forward.time))
+	}
+	put_u8(w, u8(m.reaction_count))
+	put_bytes(w, m.reactions)
+}
+
+@(private = "file")
+get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
+	m.id = Msg_Id(get_u64(r))
+	m.conv = Conv_Id(get_u32(r))
+	m.sender = Account_Id(get_u32(r))
+	m.time = Unix_Ms(get_u64(r))
+	m.kind = Msg_Kind(get_u8(r))
+	m.flags = transmute(Msg_Flags)get_u8(r)
+	m.thread_root = Msg_Id(get_u64(r))
+	m.edited = Unix_Ms(get_u64(r))
+	switch m.kind {
+	case .Text:
+		m.text = get_str16(r)
+		if len(m.text) > MAX_CHAT_SIZE {
+			return
+		}
+		if .Has_Attachments in m.flags {
+			m.attachment_count = int(get_u8(r))
+			if m.attachment_count < 1 || m.attachment_count > MAX_ATTACHMENTS {
+				return
+			}
+			for &a in m.attachments[:m.attachment_count] {
+				a.blob = Blob_Id(get_u64(r))
+				a.size = get_u64(r)
+				a.name = get_str8(r)
+			}
+		}
+	case .File:
+		m.file_size = get_u64(r)
+		m.file_name = get_str8(r)
+	case .System:
+		m.system = get_u8(r)
+		m.system_arg = get_u32(r)
+	case:
+		return // a kind from a newer server, whose layout isn't known
+	}
+	if .Has_Thread in m.flags {
+		m.reply_count = get_u32(r)
+		m.last_reply = Msg_Id(get_u64(r))
+	}
+	if .Forwarded in m.flags {
+		m.forward = {
+			sender = Account_Id(get_u32(r)),
+			conv   = Conv_Id(get_u32(r)),
+			time   = Unix_Ms(get_u64(r)),
+		}
+	}
+	m.reaction_count = int(get_u8(r))
+	start := r.pos
+	for _ in 0 ..< m.reaction_count {
+		_ = get_str8(r) // emoji
+		_ = get_u16(r) // count
+		_ = get_u8(r) // me
+	}
+	if r.overflow || m.id == 0 {
 		return
 	}
-	kind = Message_Kind(pt[0])
-	switch kind {
-	case .Voice:
-		ok = true
-	case .Join:
-		ok = false // retired
-	case .State:
-		ok = len(pt) > STATE_HEADER_SIZE
-	case .State_Ack:
-		ok = len(pt) == STATE_ACK_SIZE
-	case .Leave:
-		ok = len(pt) == 1
-	case .Set_Name:
-		ok = false // retired
-	case .Sound:
-		ok = len(pt) == SOUND_SIZE
-	case .Refused:
-		ok = len(pt) == REFUSED_SIZE
-	case .Chat_Send, .Chat_Sent, .Chat, .Chat_Received:
-		ok = false // retired
-	case .Typing:
-		ok = len(pt) == TYPING_UP_SIZE || len(pt) == TYPING_DOWN_SIZE
-	case .Image_Send, .Image_Get, .Image_Gone:
-		ok = false // retired
-	case .Blob_Chunk:
-		ok =
-			len(pt) > BLOB_CHUNK_HEADER_SIZE && len(pt) <= BLOB_CHUNK_HEADER_SIZE + BLOB_CHUNK_SIZE
-	case .Blob_Need:
-		ok = len(pt) >= BLOB_NEED_HEADER_SIZE
-	case .Video:
-		// The up and down directions differ, so decode_video_up and
-		// decode_video_down check the rest.
-		ok = len(pt) > VIDEO_UP_HEADER_SIZE
-	case .Watch:
-		ok = len(pt) == WATCH_SIZE || len(pt) == WATCH_TILE_SIZE
-	case .Demand:
-		ok = len(pt) == DEMAND_SIZE
-	case .Keyframe:
-		ok = len(pt) == KEYFRAME_SIZE || len(pt) == KEYFRAME_CAMERA_SIZE
-	case .Nack:
-		ok = len(pt) == NACK_SIZE || len(pt) == NACK_CAMERA_SIZE
-	case .Report:
-		ok = len(pt) == REPORT_SIZE || len(pt) == REPORT_CAMERA_SIZE
-	case .Ping, .Pong:
-		ok = len(pt) == PING_SIZE
-	case .DM_Send,
-	     .DM,
-	     .DM_Sent,
-	     .DM_Ack,
-	     .DM_Delivered,
-	     .DM_Typing,
-	     .DM_Image_Send,
-	     .DM_Image_Get,
-	     .DM_Image_Gone:
-		ok = false // retired
-	case .File_Accept:
-		ok = len(pt) == FILE_ACCEPT_SIZE
-	case .File_Chunk:
-		ok = len(pt) > FILE_CHUNK_HEADER_SIZE
-	case .File_Ack:
-		ok = len(pt) >= FILE_ACK_HEADER_SIZE
-	case .File_Cancel:
-		ok = len(pt) == FILE_CANCEL_SIZE
-	case .Last_Seen_Get, .Last_Seen:
-		ok = false // retired
-	case .Welcome:
-		ok = len(pt) == WELCOME_SIZE
-	case .Stream:
-		ok = len(pt) > STREAM_HEADER_SIZE
-	case .Stream_Ack:
-		ok = len(pt) == STREAM_ACK_SIZE
-	case .Upload_Chunk, .Download_Chunk:
-		ok = len(pt) > FILE_CHUNK_HEADER_SIZE
-	case .Upload_Ack, .Download_Ack:
-		ok = len(pt) >= FILE_ACK_HEADER_SIZE
-	case .Transfer_Cancel:
-		ok = len(pt) == TRANSFER_CANCEL_SIZE
-	}
-	return
+	m.reactions = r.buf[start:r.pos]
+	return m, true
 }
 
-// serial_newer reports whether a is after b, allowing for wrap-around.
-serial_newer :: proc(a, b: u32) -> bool {
-	return i32(a - b) > 0
-}
-
-encode_state_ack :: proc(out: ^[STATE_ACK_SIZE]byte, version: u32) -> []byte {
-	out[0] = u8(Message_Kind.State_Ack)
-	endian.unchecked_put_u32le(out[1:], version)
-	return out[:]
-}
-
-decode_state_ack :: proc(pt: []byte) -> (version: u32) {
-	return endian.unchecked_get_u32le(pt[1:])
-}
-
-encode_sound :: proc(out: ^[SOUND_SIZE]byte, flags: User_Flags) -> []byte {
-	out[0] = u8(Message_Kind.Sound)
-	out[1] = transmute(u8)flags
-	return out[:]
-}
-
-// decode_sound keeps flags that this build doesn't know, because a newer client
-// may have switched off something that we don't have a name for yet.
-decode_sound :: proc(pt: []byte) -> User_Flags {
-	return transmute(User_Flags)pt[1]
-}
-
-encode_refused :: proc(out: ^[REFUSED_SIZE]byte, reason: Refusal) -> []byte {
-	out[0] = u8(Message_Kind.Refused)
-	out[1] = u8(reason)
-	return out[:]
-}
-
-// decode_refused may return a reason that this build doesn't have a name for.
-decode_refused :: proc(pt: []byte) -> Refusal {
-	return Refusal(pt[1])
-}
-
-// Snapshot body (before chunking):
-//
-// 	[your_user u32]
-// 	[user_count u16] per user: [num u32][account u32][flags u8][room u32]
-@(require_results)
-encode_state :: proc(state: Presence, out: []byte) -> (body: []byte, ok: bool) {
+// encode_message writes one message as it is sent in Msg_New. It returns nil if
+// the message doesn't fit in `out`.
+encode_message :: proc(out: []u8, m: Message) -> []u8 {
 	w := Writer {
 		buf = out,
 	}
-	put_u32(&w, u32(state.your_user))
-	if len(state.users) > int(max(u16)) {
-		return
-	}
-	put_u16(&w, u16(len(state.users)))
-	for &u in state.users {
-		put_u32(&w, u32(u.num))
-		put_u32(&w, u32(u.account))
-		put_u8(&w, transmute(u8)u.flags)
-		put_u32(&w, u32(u.room))
-	}
-	if w.overflow {
-		return
-	}
-	return out[:w.pos], true
+	put_message(&w, m)
+	return written(&w)
 }
 
-// decode_state parses a snapshot body into `users_buf`.
-@(require_results)
-decode_state :: proc(body: []byte, users_buf: []User_Info) -> (state: Presence, ok: bool) {
+// decode_message reads a message. Its strings point into `body`.
+decode_message :: proc(body: []u8) -> (m: Message, ok: bool) {
 	r := Reader {
 		buf = body,
 	}
-	state.your_user = User_Num(get_u32(&r))
-	user_count := int(get_u16(&r))
-	if r.overflow || user_count > len(users_buf) {
-		return
-	}
-	for &u in users_buf[:user_count] {
-		u.num = User_Num(get_u32(&r))
-		u.account = Account_Id(get_u32(&r))
-		u.flags = transmute(User_Flags)get_u8(&r)
-		u.room = Room(get_u32(&r))
-	}
-	if r.overflow || r.pos != len(body) {
-		return
-	}
-	state.users = users_buf[:user_count]
-	return state, true
+	m = get_message(&r) or_return
+	return m, r.pos == len(body)
 }
 
-// find_user returns the user with number `num` in a snapshot, or nil.
-find_user :: proc(state: ^Presence, num: User_Num) -> ^User_Info {
-	for &u in state.users {
-		if u.num == num {
-			return &u
+// Msg_Post is the content of a request to post a message.
+Msg_Post :: struct {
+	conv:             Conv_Id,
+	nonce:            u64,
+	thread_root:      Msg_Id,
+	kind:             Msg_Kind, // .Text or .File
+	text:             string, // .Text, and .File's name; raw until it is sanitized
+	file_size:        u64, // .File
+	// .Text: the uploads of its files (Attach_Put), of which the first
+	// `attachment_count` are used.
+	attachment_count: int,
+	uploads:          [MAX_ATTACHMENTS]u64,
+}
+
+encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
+	w := Writer {
+		buf = out,
+	}
+	put_u32(&w, u32(p.conv))
+	put_u64(&w, p.nonce)
+	put_u64(&w, u64(p.thread_root))
+	put_u8(&w, u8(p.kind))
+	#partial switch p.kind {
+	case .Text:
+		put_str16(&w, p.text)
+		if p.attachment_count < 0 || p.attachment_count > MAX_ATTACHMENTS {
+			return nil
 		}
-	}
-	return nil
-}
-
-// state_chunk_count returns the number of State messages that a snapshot body needs.
-state_chunk_count :: proc(body_len: int) -> int {
-	return max(1, (body_len + STATE_CHUNK_SIZE - 1) / STATE_CHUNK_SIZE)
-}
-
-// encode_state_chunk writes chunk `index` of a snapshot body as a State message.
-encode_state_chunk :: proc(out: []byte, version: u32, body: []byte, index: int) -> []byte {
-	count := state_chunk_count(len(body))
-	start := index * STATE_CHUNK_SIZE
-	part := body[start:min(start + STATE_CHUNK_SIZE, len(body))]
-
-	out[0] = u8(Message_Kind.State)
-	endian.unchecked_put_u32le(out[1:], version)
-	out[5] = u8(index)
-	out[6] = u8(count)
-	copy(out[STATE_HEADER_SIZE:], part)
-	return out[:STATE_HEADER_SIZE + len(part)]
-}
-
-// state_message_version returns the snapshot version that a State message belongs to.
-state_message_version :: proc(pt: []byte) -> u32 {
-	return endian.unchecked_get_u32le(pt[1:])
-}
-
-// State_Assembler collects the chunks of the newest snapshot version.
-State_Assembler :: struct {
-	version:  u32,
-	count:    int,
-	have:     [MAX_STATE_CHUNKS]bool,
-	received: int,
-	size:     int,
-	buf:      [MAX_STATE_SIZE]byte,
-}
-
-// assembler_add adds a State message. When it completes a snapshot, it returns
-// the body, which stays valid until the next call.
-@(require_results)
-assembler_add :: proc(
-	a: ^State_Assembler,
-	pt: []byte,
-	min_version: u32,
-) -> (
-	version: u32,
-	body: []byte,
-	complete: bool,
-) {
-	version = endian.unchecked_get_u32le(pt[1:])
-	index, count := int(pt[5]), int(pt[6])
-	part := pt[STATE_HEADER_SIZE:]
-	if count == 0 ||
-	   count > MAX_STATE_CHUNKS ||
-	   index >= count ||
-	   len(part) > STATE_CHUNK_SIZE ||
-	   (index < count - 1 && len(part) != STATE_CHUNK_SIZE) {
-		return
-	}
-	// Nothing to do if it is older than what the caller already has.
-	if min_version != 0 && !serial_newer(version, min_version) {
-		return
-	}
-
-	if a.count == 0 || serial_newer(version, a.version) {
-		a.version, a.count, a.received, a.size = version, count, 0, 0
-		a.have = {}
-	} else if version != a.version || count != a.count {
-		return // an older version, or one that is inconsistent with what we have
-	}
-
-	if !a.have[index] {
-		a.have[index] = true
-		a.received += 1
-		copy(a.buf[index * STATE_CHUNK_SIZE:], part)
-		if index == count - 1 {
-			a.size = index * STATE_CHUNK_SIZE + len(part)
+		put_u8(&w, u8(p.attachment_count))
+		for i in 0 ..< p.attachment_count {
+			put_u64(&w, p.uploads[i])
 		}
-	}
-	if a.received < a.count {
-		return
-	}
-	a.count = 0 // start over for the next version
-	return version, a.buf[:a.size], true
-}
-
-@(private)
-Writer :: struct {
-	buf:      []byte,
-	pos:      int,
-	overflow: bool,
-}
-
-@(private)
-put_bytes :: proc(w: ^Writer, b: []byte) {
-	if w.overflow || w.pos + len(b) > len(w.buf) {
-		w.overflow = true
-		return
-	}
-	copy(w.buf[w.pos:], b)
-	w.pos += len(b)
-}
-
-@(private)
-put_u8 :: proc(w: ^Writer, v: u8) {
-	v := v
-	put_bytes(w, ([^]byte)(&v)[:1])
-}
-
-@(private)
-put_u16 :: proc(w: ^Writer, v: u16) {
-	b: [2]byte
-	endian.unchecked_put_u16le(b[:], v)
-	put_bytes(w, b[:])
-}
-
-@(private)
-put_u32 :: proc(w: ^Writer, v: u32) {
-	b: [4]byte
-	endian.unchecked_put_u32le(b[:], v)
-	put_bytes(w, b[:])
-}
-
-@(private)
-put_u64 :: proc(w: ^Writer, v: u64) {
-	b: [8]byte
-	endian.unchecked_put_u64le(b[:], v)
-	put_bytes(w, b[:])
-}
-
-// put_str8 writes [len u8][bytes]. A string that is too long for that causes an
-// overflow.
-@(private)
-put_str8 :: proc(w: ^Writer, str: string) {
-	if len(str) > int(max(u8)) {
-		w.overflow = true
-		return
-	}
-	put_u8(w, u8(len(str)))
-	put_bytes(w, transmute([]byte)str)
-}
-
-// get_str8 reads [len u8][bytes]. The string points into the buffer.
-@(private)
-get_str8 :: proc(r: ^Reader) -> string {
-	n := int(get_u8(r))
-	return string(get_bytes(r, n))
-}
-
-// put_str16 writes [len u16][bytes]. A string that is too long for that causes
-// an overflow.
-@(private)
-put_str16 :: proc(w: ^Writer, str: string) {
-	if len(str) > int(max(u16)) {
-		w.overflow = true
-		return
-	}
-	put_u16(w, u16(len(str)))
-	put_bytes(w, transmute([]byte)str)
-}
-
-// get_str16 reads [len u16][bytes]. The string points into the buffer.
-@(private)
-get_str16 :: proc(r: ^Reader) -> string {
-	n := int(get_u16(r))
-	return string(get_bytes(r, n))
-}
-
-@(private)
-Reader :: struct {
-	buf:      []byte,
-	pos:      int,
-	overflow: bool,
-}
-
-@(private)
-get_bytes :: proc(r: ^Reader, n: int) -> []byte {
-	if r.overflow || r.pos + n > len(r.buf) {
-		r.overflow = true
+	case .File:
+		put_u64(&w, p.file_size)
+		put_str8(&w, p.text)
+	case:
 		return nil
 	}
-	b := r.buf[r.pos:][:n]
-	r.pos += n
-	return b
+	return written(&w)
 }
 
-@(private)
-get_u8 :: proc(r: ^Reader) -> u8 {
-	b := get_bytes(r, 1)
-	return b == nil ? 0 : b[0]
+decode_msg_post :: proc(body: []u8) -> (p: Msg_Post, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	p.conv = Conv_Id(get_u32(&r))
+	p.nonce = get_u64(&r)
+	p.thread_root = Msg_Id(get_u64(&r))
+	p.kind = Msg_Kind(get_u8(&r))
+	#partial switch p.kind {
+	case .Text:
+		p.text = get_str16(&r)
+		if len(p.text) > MAX_CHAT_SIZE {
+			return
+		}
+		p.attachment_count = int(get_u8(&r))
+		if p.attachment_count > MAX_ATTACHMENTS {
+			return
+		}
+		for &upload in p.uploads[:p.attachment_count] {
+			upload = get_u64(&r)
+		}
+	case .File:
+		p.file_size = get_u64(&r)
+		p.text = get_str8(&r)
+	case:
+		return
+	}
+	return p, !r.overflow && r.pos == len(body)
 }
 
-@(private)
-get_u16 :: proc(r: ^Reader) -> u16 {
-	b := get_bytes(r, 2)
-	return b == nil ? 0 : endian.unchecked_get_u16le(b)
+encode_msg_posted :: proc(out: ^[MSG_POSTED_SIZE]u8, id: Msg_Id, time: Unix_Ms) -> []u8 {
+	endian.unchecked_put_u64le(out[0:], u64(id))
+	endian.unchecked_put_u64le(out[8:], u64(time))
+	return out[:]
 }
 
-@(private)
-get_u32 :: proc(r: ^Reader) -> u32 {
-	b := get_bytes(r, 4)
-	return b == nil ? 0 : endian.unchecked_get_u32le(b)
+decode_msg_posted :: proc(body: []u8) -> (id: Msg_Id, time: Unix_Ms, ok: bool) {
+	if len(body) != MSG_POSTED_SIZE {
+		return
+	}
+	id = Msg_Id(endian.unchecked_get_u64le(body[0:]))
+	time = Unix_Ms(endian.unchecked_get_u64le(body[8:]))
+	return id, time, id != 0
 }
 
-@(private)
-get_u64 :: proc(r: ^Reader) -> u64 {
-	b := get_bytes(r, 8)
-	return b == nil ? 0 : endian.unchecked_get_u64le(b)
+Msg_History :: struct {
+	conv:        Conv_Id,
+	thread_root: Msg_Id,
+	anchor:      Msg_Id,
+	dir:         History_Dir,
+	limit:       int,
+}
+
+encode_msg_history :: proc(out: ^[MSG_HISTORY_SIZE]u8, h: Msg_History) -> []u8 {
+	endian.unchecked_put_u32le(out[0:], u32(h.conv))
+	endian.unchecked_put_u64le(out[4:], u64(h.thread_root))
+	endian.unchecked_put_u64le(out[12:], u64(h.anchor))
+	out[20] = u8(h.dir)
+	out[21] = u8(clamp(h.limit, 0, MAX_HISTORY_LIMIT))
+	return out[:]
+}
+
+decode_msg_history :: proc(body: []u8) -> (h: Msg_History, ok: bool) {
+	if len(body) != MSG_HISTORY_SIZE || body[20] > u8(max(History_Dir)) {
+		return
+	}
+	h = {
+		conv        = Conv_Id(endian.unchecked_get_u32le(body[0:])),
+		thread_root = Msg_Id(endian.unchecked_get_u64le(body[4:])),
+		anchor      = Msg_Id(endian.unchecked_get_u64le(body[12:])),
+		dir         = History_Dir(body[20]),
+		limit       = int(body[21]),
+	}
+	return h, h.limit > 0 && h.limit <= MAX_HISTORY_LIMIT
+}
+
+// encode_history_page writes a Msg_History response containing `msgs`, oldest
+// first. If they don't all fit in `out`, it writes as many as fit from the
+// start. `count` says how many it wrote. Whoever cuts a page short says so in
+// `more`.
+encode_history_page :: proc(out: []u8, more: u8, msgs: []Message) -> (body: []u8, count: int) {
+	w := Writer {
+		buf = out,
+	}
+	put_u8(&w, more)
+	put_u16(&w, 0)
+	for m in msgs {
+		if w.pos + message_size(m) > len(out) || count == int(max(u16)) {
+			break
+		}
+		put_message(&w, m)
+		count += 1
+	}
+	if w.overflow {
+		return nil, 0
+	}
+	endian.unchecked_put_u16le(out[1:], u16(count))
+	return out[:w.pos], count
+}
+
+// decode_history_page reads a Msg_History response into `buf`.
+decode_history_page :: proc(body: []u8, buf: []Message) -> (more: u8, msgs: []Message, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	more = get_u8(&r)
+	count := int(get_u16(&r))
+	if r.overflow || count > len(buf) {
+		return
+	}
+	for i in 0 ..< count {
+		buf[i] = get_message(&r) or_return
+	}
+	if r.pos != len(body) {
+		return
+	}
+	return more, buf[:count], true
+}
+
+Blob_Put :: struct {
+	kind:          Blob_Kind,
+	size:          int,
+	hash:          [32]u8, // SHA-256
+	width, height: int, // the dimensions of a picture
+}
+
+encode_blob_put :: proc(out: ^[BLOB_PUT_SIZE]u8, p: Blob_Put) -> []u8 {
+	p := p
+	out[0] = u8(p.kind)
+	endian.unchecked_put_u32le(out[1:], u32(p.size))
+	copy(out[5:37], p.hash[:])
+	endian.unchecked_put_u16le(out[37:], u16(p.width))
+	endian.unchecked_put_u16le(out[39:], u16(p.height))
+	return out[:]
+}
+
+decode_blob_put :: proc(body: []u8) -> (p: Blob_Put, ok: bool) {
+	if len(body) != BLOB_PUT_SIZE {
+		return
+	}
+	p.kind = Blob_Kind(body[0])
+	p.size = int(endian.unchecked_get_u32le(body[1:]))
+	copy(p.hash[:], body[5:37])
+	p.width = int(endian.unchecked_get_u16le(body[37:]))
+	p.height = int(endian.unchecked_get_u16le(body[39:]))
+	return p, true
+}
+
+// encode_blob_put_answer writes the answer to Blob_Put. It contains the blob's
+// id if the server already has it (`have`), and otherwise the handle that its
+// chunks are sent under.
+encode_blob_put_answer :: proc(
+	out: ^[BLOB_PUT_ANSWER_SIZE]u8,
+	blob: Blob_Id,
+	have: bool,
+	handle: u64,
+) -> []u8 {
+	endian.unchecked_put_u64le(out[0:], u64(blob))
+	out[8] = u8(have)
+	endian.unchecked_put_u64le(out[9:], handle)
+	return out[:]
+}
+
+decode_blob_put_answer :: proc(body: []u8) -> (blob: Blob_Id, have: bool, handle: u64, ok: bool) {
+	if len(body) != BLOB_PUT_ANSWER_SIZE {
+		return
+	}
+	blob = Blob_Id(endian.unchecked_get_u64le(body[0:]))
+	have = body[8] != 0
+	handle = endian.unchecked_get_u64le(body[9:])
+	return blob, have, handle, have ? blob != 0 : handle != 0
+}
+
+encode_blob_id :: proc(out: ^[BLOB_GET_SIZE]u8, blob: Blob_Id) -> []u8 {
+	return id_put(out[:], blob)
+}
+
+// decode_blob_id, like decode_msg_id, refuses 0, which is no blob.
+decode_blob_id :: proc(body: []u8) -> (blob: Blob_Id, ok: bool) {
+	blob = id_get(Blob_Id, body) or_return
+	return blob, blob != 0
+}
+
+encode_blob_get_answer :: proc(out: ^[BLOB_GET_ANSWER_SIZE]u8, size: int, handle: u64) -> []u8 {
+	endian.unchecked_put_u32le(out[0:], u32(size))
+	endian.unchecked_put_u64le(out[4:], handle)
+	return out[:]
+}
+
+decode_blob_get_answer :: proc(body: []u8) -> (size: int, handle: u64, ok: bool) {
+	if len(body) != BLOB_GET_ANSWER_SIZE {
+		return
+	}
+	size = int(endian.unchecked_get_u32le(body[0:]))
+	handle = endian.unchecked_get_u64le(body[4:])
+	return size, handle, size > 0 && size <= MAX_BLOB_SIZE && handle != 0
+}
+
+encode_typing_up :: proc(out: ^[TYPING_UP_SIZE]u8, conv: Conv_Id, thread_root: Msg_Id) -> []u8 {
+	out[0] = u8(Message_Kind.Typing)
+	endian.unchecked_put_u32le(out[1:], u32(conv))
+	endian.unchecked_put_u64le(out[5:], u64(thread_root))
+	return out[:]
+}
+
+decode_typing_up :: proc(pt: []u8) -> (conv: Conv_Id, thread_root: Msg_Id) {
+	return Conv_Id(endian.unchecked_get_u32le(pt[1:])), Msg_Id(endian.unchecked_get_u64le(pt[5:]))
+}
+
+encode_typing_down :: proc(
+	out: ^[TYPING_DOWN_SIZE]u8,
+	conv: Conv_Id,
+	thread_root: Msg_Id,
+	account: Account_Id,
+) -> []u8 {
+	out[0] = u8(Message_Kind.Typing)
+	endian.unchecked_put_u32le(out[1:], u32(conv))
+	endian.unchecked_put_u64le(out[5:], u64(thread_root))
+	endian.unchecked_put_u32le(out[13:], u32(account))
+	return out[:]
+}
+
+decode_typing_down :: proc(pt: []u8) -> (conv: Conv_Id, thread_root: Msg_Id, account: Account_Id) {
+	return Conv_Id(
+		endian.unchecked_get_u32le(pt[1:]),
+	), Msg_Id(endian.unchecked_get_u64le(pt[5:])), Account_Id(endian.unchecked_get_u32le(pt[13:]))
+}
+
+encode_msg_edit :: proc(out: ^[MSG_EDIT_MAX_SIZE]u8, id: Msg_Id, text: string) -> []u8 {
+	w := Writer {
+		buf = out[:],
+	}
+	put_u64(&w, u64(id))
+	put_str16(&w, text)
+	return written(&w)
+}
+
+// decode_msg_edit's text is raw and has to be sanitized.
+decode_msg_edit :: proc(body: []u8) -> (id: Msg_Id, text: string, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	id = Msg_Id(get_u64(&r))
+	text = get_str16(&r)
+	return id, text, !r.overflow && r.pos == len(body) && len(text) <= MAX_CHAT_SIZE
+}
+
+// A body that consists of one message's id, such as Msg_Delete.
+encode_msg_id :: proc(out: ^[MSG_ID_SIZE]u8, id: Msg_Id) -> []u8 {
+	return id_put(out[:], id)
+}
+
+decode_msg_id :: proc(body: []u8) -> (id: Msg_Id, ok: bool) {
+	id = id_get(Msg_Id, body) or_return
+	return id, id != 0
+}
+
+encode_msg_pin :: proc(out: ^[MSG_PIN_SIZE]u8, id: Msg_Id, on: bool) -> []u8 {
+	endian.unchecked_put_u64le(out[:], u64(id))
+	out[8] = u8(on)
+	return out[:]
+}
+
+decode_msg_pin :: proc(body: []u8) -> (id: Msg_Id, on: bool, ok: bool) {
+	if len(body) != MSG_PIN_SIZE {
+		return
+	}
+	id = Msg_Id(endian.unchecked_get_u64le(body))
+	return id, body[8] != 0, id != 0
+}
+
+// encode_message_list writes a Pins_Get response with as many of `msgs` as fit
+// in `out`.
+encode_message_list :: proc(out: []u8, msgs: []Message) -> []u8 {
+	w := Writer {
+		buf = out,
+	}
+	put_u16(&w, 0)
+	count := 0
+	for m in msgs {
+		if w.pos + message_size(m) > len(out) || count == int(max(u16)) {
+			break
+		}
+		put_message(&w, m)
+		count += 1
+	}
+	if w.overflow {
+		return nil
+	}
+	endian.unchecked_put_u16le(out[0:], u16(count))
+	return out[:w.pos]
+}
+
+// decode_message_list reads a list of messages into `buf`. The strings point
+// into `body`.
+decode_message_list :: proc(body: []u8, buf: []Message) -> (msgs: []Message, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	count := int(get_u16(&r))
+	if r.overflow || count > len(buf) {
+		return
+	}
+	for i in 0 ..< count {
+		buf[i] = get_message(&r) or_return
+	}
+	if r.pos != len(body) {
+		return
+	}
+	return buf[:count], true
+}
+
+// Reaction is one emoji that a message has been reacted to with.
+Reaction :: struct {
+	emoji: string,
+	count: int,
+	me:    bool,
+}
+
+MSG_REACT_MAX_SIZE :: 8 + 1 + MAX_REACTION_EMOJI + 1
+REACTION_CHANGED_MAX_SIZE :: 8 + 4 + 1 + MAX_REACTION_EMOJI + 2 + 4 + 1
+
+// set_reactions puts reactions in a message's record (at most MAX_REACTIONS).
+// What it writes is allocated with the temp allocator.
+set_reactions :: proc(m: ^Message, reactions: []Reaction) {
+	n := min(len(reactions), MAX_REACTIONS)
+	out := make([]u8, n * (1 + MAX_REACTION_EMOJI + 3), context.temp_allocator)
+	w := Writer {
+		buf = out,
+	}
+	for r in reactions[:n] {
+		put_str8(&w, r.emoji)
+		put_u16(&w, u16(min(r.count, int(max(u16)))))
+		put_u8(&w, u8(r.me))
+	}
+	m.reaction_count, m.reactions = n, out[:w.pos]
+}
+
+// reactions_of reads a message's reactions into `buf`. Their emoji point into
+// the message.
+reactions_of :: proc(m: Message, buf: []Reaction) -> []Reaction {
+	r := Reader {
+		buf = m.reactions,
+	}
+	n := min(m.reaction_count, len(buf))
+	for &x in buf[:n] {
+		x.emoji = get_str8(&r)
+		x.count = int(get_u16(&r))
+		x.me = get_u8(&r) != 0
+	}
+	if r.overflow {
+		return nil
+	}
+	return buf[:n]
+}
+
+encode_msg_react :: proc(
+	out: ^[MSG_REACT_MAX_SIZE]u8,
+	id: Msg_Id,
+	emoji: string,
+	on: bool,
+) -> []u8 {
+	w := Writer {
+		buf = out[:],
+	}
+	put_u64(&w, u64(id))
+	put_str8(&w, emoji)
+	put_u8(&w, u8(on))
+	return written(&w)
+}
+
+// The maximum number of accounts that a Reactors_Get answer names.
+MAX_REACTORS :: 50
+REACTORS_GET_MAX_SIZE :: 8 + 1 + MAX_REACTION_EMOJI
+REACTORS_MAX_SIZE :: 2 + 1 + 4 * MAX_REACTORS
+
+encode_reactors_get :: proc(out: ^[REACTORS_GET_MAX_SIZE]u8, id: Msg_Id, emoji: string) -> []u8 {
+	w := Writer {
+		buf = out[:],
+	}
+	put_u64(&w, u64(id))
+	put_str8(&w, emoji)
+	return written(&w)
+}
+
+decode_reactors_get :: proc(body: []u8) -> (id: Msg_Id, emoji: string, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	id = Msg_Id(get_u64(&r))
+	emoji = get_str8(&r)
+	return id, emoji, !r.overflow && id != 0 && len(emoji) > 0 && len(emoji) <= MAX_REACTION_EMOJI
+}
+
+// encode_reactors writes a Reactors_Get answer. It contains the total number of
+// accounts that reacted and the first MAX_REACTORS of them.
+encode_reactors :: proc(out: ^[REACTORS_MAX_SIZE]u8, total: int, accounts: []Account_Id) -> []u8 {
+	w := Writer {
+		buf = out[:],
+	}
+	n := min(len(accounts), MAX_REACTORS)
+	put_u16(&w, u16(min(total, int(max(u16)))))
+	put_u8(&w, u8(n))
+	for a in accounts[:n] {
+		put_u32(&w, u32(a))
+	}
+	return out[:w.pos]
+}
+
+// decode_reactors reads a Reactors_Get answer and puts the accounts into `buf`.
+decode_reactors :: proc(
+	body: []u8,
+	buf: ^[MAX_REACTORS]Account_Id,
+) -> (
+	total: int,
+	accounts: []Account_Id,
+	ok: bool,
+) {
+	r := Reader {
+		buf = body,
+	}
+	total = int(get_u16(&r))
+	n := int(get_u8(&r))
+	if n > MAX_REACTORS {
+		return
+	}
+	for i in 0 ..< n {
+		buf[i] = Account_Id(get_u32(&r))
+	}
+	return total, buf[:n], !r.overflow
+}
+
+decode_msg_react :: proc(body: []u8) -> (id: Msg_Id, emoji: string, on: bool, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	id = Msg_Id(get_u64(&r))
+	emoji = get_str8(&r)
+	on = get_u8(&r) != 0
+	return id,
+		emoji,
+		on,
+		!r.overflow && id != 0 && len(emoji) > 0 && len(emoji) <= MAX_REACTION_EMOJI
+}
+
+Reaction_Change :: struct {
+	id:      Msg_Id,
+	conv:    Conv_Id,
+	emoji:   string,
+	count:   int,
+	account: Account_Id,
+	on:      bool,
+}
+
+encode_reaction_changed :: proc(out: ^[REACTION_CHANGED_MAX_SIZE]u8, c: Reaction_Change) -> []u8 {
+	w := Writer {
+		buf = out[:],
+	}
+	put_u64(&w, u64(c.id))
+	put_u32(&w, u32(c.conv))
+	put_str8(&w, c.emoji)
+	put_u16(&w, u16(min(c.count, int(max(u16)))))
+	put_u32(&w, u32(c.account))
+	put_u8(&w, u8(c.on))
+	return written(&w)
+}
+
+decode_reaction_changed :: proc(body: []u8) -> (c: Reaction_Change, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	c.id = Msg_Id(get_u64(&r))
+	c.conv = Conv_Id(get_u32(&r))
+	c.emoji = get_str8(&r)
+	c.count = int(get_u16(&r))
+	c.account = Account_Id(get_u32(&r))
+	c.on = get_u8(&r) != 0
+	return c, !r.overflow
 }

@@ -8,6 +8,7 @@ import mu "vendor:microui"
 
 import "client:conn"
 import "client:platform"
+import "common:."
 import "common:proto"
 
 // Managing server keys from the UI, instead of editing known_servers (or, in a
@@ -51,7 +52,7 @@ known_servers_destroy :: proc(ui: ^UI) {
 // digits.
 @(private = "file")
 key_lines :: proc(key: [proto.KEY_SIZE]u8) -> [4]string {
-	full := conn.key_hex(key)
+	full := common.key_hex(key)
 	lines: [4]string
 	per := (len(full) + 3) / 4
 	for &line, i in lines {
@@ -61,11 +62,6 @@ key_lines :: proc(key: [proto.KEY_SIZE]u8) -> [4]string {
 		line = fmt.tprintf("%s %s", full[from:half], full[half:to])
 	}
 	return lines
-}
-
-@(private = "file")
-text_proc :: proc(ctx: ^mu.Context, text: string) {
-	mu.text(ctx, text)
 }
 
 // key_change_panel is drawn in the connect screen's card (or the join page's),
@@ -78,8 +74,8 @@ key_change_panel :: proc(ui: ^UI) {
 	// The two keys side by side, each as a heading over its four lines.
 	half := (mu.get_layout(ctx).body.w - ctx.style.spacing) / 2
 	mu.layout_row(ctx, {half, -1})
-	with_text_color(ctx, theme.dim, "Saved key", label_proc)
-	with_text_color(ctx, theme.dim, "New key", label_proc)
+	dim_label(ctx, "Saved key")
+	dim_label(ctx, "New key")
 	saved, received := key_lines(kc.saved), key_lines(kc.received)
 	for i in 0 ..< len(saved) {
 		mu.label(ctx, saved[i])
@@ -126,14 +122,14 @@ trust_new_key :: proc(ui: ^UI) {
 		v.error = fmt.aprintf("Could not save the new key of %s.", server)
 		return
 	}
-	log.infof("trusting the new key of %s: %s", server, conn.key_hex(key))
+	log.infof("trusting the new key of %s: %s", server, common.key_hex(key))
 	ui.known.loaded = false
 	// When trusted from the join page, continue joining (ui_join.odin).
 	if ns := ui.session; ns != nil && ns.joining {
 		join_connect(ui, server, strings.clone(ns.password, context.temp_allocator))
 		return
 	}
-	ui.server_len = copy(ui.server_buf[:], server)
+	field_set(&ui.server, server)
 	connect(ui)
 }
 

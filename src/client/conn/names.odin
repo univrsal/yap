@@ -20,7 +20,7 @@ fingerprint :: proc(key: [proto.KEY_SIZE]u8) -> string {
 }
 
 // display_name is the name to show for the connection `num`.
-display_name :: proc(c: ^Voice_Client, num: proto.User_Num) -> string {
+display_name :: proc(c: ^Server_Conn, num: proto.User_Num) -> string {
 	ch := &c.channels
 	user := proto.find_user(&ch.state, num) if ch.have_state else nil
 	if user == nil {
@@ -45,7 +45,7 @@ display_name :: proc(c: ^Voice_Client, num: proto.User_Num) -> string {
 
 // named is whether `name` matches the account's display name or its username,
 // i.e. what somebody would type to refer to that user.
-named :: proc(c: ^Voice_Client, u: ^proto.User_Info, name: string) -> bool {
+named :: proc(c: ^Server_Conn, u: ^proto.User_Info, name: string) -> bool {
 	acc, known := c.auth.accounts[u.account]
 	return known && (acc.display == name || acc.username == name)
 }

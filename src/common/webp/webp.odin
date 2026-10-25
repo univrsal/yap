@@ -2,7 +2,7 @@
 // WebP pictures (https://developers.google.com/speed/webp): decoding them
 // and compressing pasted images into them. libwebp is statically linked from
 // libraries in this directory, none of which are kept in the repo. build.sh
-// (build.bat on Windows) fetches the release named in scripts/webp.version
+// (build.bat on Windows) fetches the release named in scripts/build/webp.version
 // and builds it, optimized for size but with its SIMD code, and compiles
 // yap_webp.c, which is what is bound here.
 //
@@ -15,6 +15,7 @@
 // (web/decode.js) and compresses pastes (web/paste.js).
 package webp
 
+import "common:imagekind"
 import "core:c"
 
 when ODIN_OS == .Windows {
@@ -47,7 +48,7 @@ when !#exists(SHIM) || !#exists(WEBP) || !#exists(DEMUX) || !#exists(SHARPYUV) {
 		DEMUX +
 		" or " +
 		SHARPYUV +
-		" is missing (build them with build.sh or scripts/build-webp.sh, or build.bat on Windows)",
+		" is missing (build them with build.sh or scripts/build/build-webp.sh, or build.bat on Windows)",
 	)
 }
 
@@ -78,7 +79,7 @@ foreign lib {
 // is_webp returns whether `data` starts like a WebP file: a RIFF container
 // of type WEBP.
 is_webp :: proc(data: []u8) -> bool {
-	return len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP"
+	return imagekind.is_webp(data)
 }
 
 // size returns a WebP picture's width and height, read from its header.

@@ -9,6 +9,7 @@ import "core:time"
 
 import "common:."
 import "common:proto"
+import "gate"
 
 // The media link (proto.Link.Media) carries all screen sharing. It uses a UDP
 // port and a thread of its own, so that the thousands of packets per second
@@ -94,20 +95,12 @@ Media_Lease :: struct {
 MEDIA_LEASES :: 1 + proto.MAX_CAMERAS
 
 Media_Session :: struct {
-	using session: proto.Session,
-	handshake:     proto.Responder, // only used until the session is keyed
-	keyed:         bool,
-	confirmed:     bool,
-	superseded:    bool,
-	endpoint:      net.Endpoint,
-	started:       time.Tick,
-	last_recv:     time.Tick,
+	using base:    Session_Base,
 	num:           proto.User_Num, // who it belongs to, once keyed
 	// The streams that this session's connection is watching.
 	leases:        [MEDIA_LEASES]Media_Lease,
 	// How much it may have resent (Nack), similar to a sharer's budget.
-	resend_budget: int,
-	resend_at:     time.Tick,
+	resend_budget: proto.Bucket,
 }
 
 // A Report older than this isn't counted because its viewer went quiet.
@@ -117,8 +110,7 @@ REPORT_FRESH :: 3 * time.Second
 // Media_Sharer holds the budget, keyframe requests and recent fragments of one
 // of a sharer's streams on the media link.
 Media_Sharer :: struct {
-	budget:        int,
-	budget_at:     time.Tick,
+	budget:        proto.Bucket,
 	last_key_sent: time.Tick,
 	cache:         ^Media_Cache, // created when the first fragment arrives
 }
@@ -154,7 +146,7 @@ Media :: struct {
 	// loop (camera_allowed).
 	max_cameras:  int,
 	max_sessions: int,
-	gate:         Handshake_Gate, // which Inits may start a session
+	gate:         gate.Gate, // which Inits may start a session
 	cache_age:    time.Duration, // how long fragments are kept for Nacks
 	password:     string, // the server's password
 	key:          ecdh.Private_Key, // a copy of the server's key for the thread
@@ -263,7 +255,7 @@ media_free :: proc(m: ^Media) {
 	delete(m.sessions)
 	delete(m.sharers)
 	delete(m.peers)
-	gate_destroy(&m.gate)
+	gate.destroy(&m.gate)
 }
 
 @(private = "file")
@@ -349,41 +341,7 @@ media_handle_packet :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 
 @(private = "file")
 media_init :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
-	sender_idx := proto.init_sender_index(packet)
-	// As in handle_init.
-	verdict, cookie := gate_check(&m.gate, packet, from, len(m.sessions), m.max_sessions)
-	if verdict == .Cookie {
-		buf: [proto.COOKIE_PACKET_SIZE]byte
-		net.send_udp(m.sock, proto.encode_cookie_packet(&buf, sender_idx, cookie), from)
-		return
-	}
-	for _, ms in m.sessions {
-		if !ms.keyed && ms.handshake.remote_idx == sender_idx && ms.endpoint == from {
-			net.send_udp(m.sock, ms.handshake.packet[:], from)
-			return
-		}
-	}
-	if verdict != .Accept {
-		return
-	}
-	idx: proto.Session_Id
-	for {
-		idx = proto.random_index()
-		if idx not_in m.sessions {
-			break
-		}
-	}
-	ms := new(Media_Session)
-	resp, ok := proto.responder_start(&ms.handshake, &m.key, packet, idx)
-	if !ok {
-		free(ms)
-		return
-	}
-	ms.endpoint = from
-	ms.started = time.tick_now()
-	m.sessions[idx] = ms
-	gate_opened(&m.gate, from)
-	net.send_udp(m.sock, resp, from)
+	session_init(m.sock, &m.key, &m.gate, &m.sessions, m.max_sessions, packet, from)
 }
 
 @(private = "file")
@@ -396,32 +354,29 @@ media_finish :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	peer, known := m.peers[ms.peer_key]
 	if ms.keyed {
 		// The Welcome was lost, so send it again to the address we know.
-		media_welcome(m, ms, peer.instance)
+		if session_rewelcome_due(ms) {
+			media_welcome(m, ms, peer.instance)
+		}
 		return
 	}
-	payload, ok := proto.responder_finish(&ms.handshake, packet, &ms.session)
-	if !ok {
+	conn_id, link, result := session_finish(ms, &m.gate, m.password, packet, from)
+	switch {
+	case result == .Invalid:
 		media_drop(m, idx)
 		return
-	}
-	conn_id, hello_password, link, hello_ok := proto.decode_hello(payload)
-	peer, known = m.peers[ms.peer_key]
-	switch {
-	case !hello_ok || link != .Media:
-		media_refuse(m, ms, from, .Version)
-		return
-	case m.password != "" && !password_matches(m.password, hello_password):
-		gate_wrong_password(&m.gate, from)
+	case result == .Wrong_Password:
 		media_refuse(m, ms, from, .Wrong_Password)
 		return
-	case !known || peer.conn_id != conn_id:
+	case result == .Version || link != .Media:
+		media_refuse(m, ms, from, .Version)
+		return
+	}
+	peer, known = m.peers[ms.peer_key]
+	if !known || peer.conn_id != conn_id {
 		media_refuse(m, ms, from, .No_Connection)
 		return
 	}
-	gate_closed(&m.gate, ms.endpoint)
-	ms.keyed = true
-	ms.endpoint = from
-	ms.last_recv = time.tick_now()
+	session_keyed(ms, &m.gate, from)
 	ms.num = peer.num
 	for _, other in m.sessions {
 		if other != ms && other.keyed && other.peer_key == ms.peer_key {
@@ -432,15 +387,11 @@ media_finish :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	media_welcome(m, ms, peer.instance)
 }
 
-// How many copies of a Welcome or Refused are sent, because they are sent unreliably.
-@(private = "file")
-MEDIA_COPIES :: 3
-
 @(private = "file")
 media_welcome :: proc(m: ^Media, ms: ^Media_Session, instance: u64) {
 	buf: [proto.WELCOME_SIZE]u8
 	msg := proto.encode_welcome(&buf, instance, true)
-	for _ in 0 ..< MEDIA_COPIES {
+	for _ in 0 ..< WELCOME_COPIES {
 		media_send(m, ms, msg)
 	}
 }
@@ -448,32 +399,20 @@ media_welcome :: proc(m: ^Media, ms: ^Media_Session, instance: u64) {
 @(private = "file")
 media_refuse :: proc(m: ^Media, ms: ^Media_Session, from: net.Endpoint, reason: proto.Refusal) {
 	log.debugf("media: refused %08x: %v", common.key_id(ms.peer_key), reason)
-	buf: [proto.REFUSED_SIZE]byte
-	msg := proto.encode_refused(&buf, reason)
-	pkt_buf: [proto.MAX_PACKET_SIZE]byte
-	for _ in 0 ..< MEDIA_COPIES {
-		if pkt, ok := proto.seal(&ms.session, msg, pkt_buf[:]); ok {
-			net.send_udp(m.sock, pkt, from)
-		}
-	}
+	session_refuse(m.sock, ms, from, reason)
 	media_drop(m, ms.local_idx)
 }
 
 @(private = "file")
 media_send :: proc(m: ^Media, ms: ^Media_Session, msg: []byte) {
-	pkt_buf: [proto.MAX_PACKET_SIZE]byte
-	if pkt, ok := proto.seal(&ms.session, msg, pkt_buf[:]); ok {
-		net.send_udp(m.sock, pkt, ms.endpoint)
-	}
+	session_send(m.sock, ms, msg, ms.endpoint)
 }
 
 @(private = "file")
 media_drop :: proc(m: ^Media, idx: proto.Session_Id) {
 	if ms := m.sessions[idx] or_else nil; ms != nil {
 		delete_key(&m.sessions, idx)
-		if !ms.keyed {
-			gate_closed(&m.gate, ms.endpoint)
-		}
+		session_release(&m.gate, ms)
 		free(ms)
 	}
 }
@@ -482,18 +421,21 @@ media_drop :: proc(m: ^Media, idx: proto.Session_Id) {
 media_data :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 	idx := proto.receiver_index(packet)
 	ms := m.sessions[idx] or_else nil
-	if ms == nil || !ms.keyed || time.tick_since(ms.created) > proto.REJECT_AFTER {
+	if ms == nil || !ms.keyed {
 		return
 	}
+	// A media session is made for a logged in connection, so it follows the
+	// client to a new address as long as that connection is there.
+	peer, known := m.peers[ms.peer_key]
+	if !known || peer.num != ms.num {
+		return // the peer is gone or logged out, housekeeping drops the session
+	}
 	pt_buf: [proto.MAX_PACKET_SIZE]byte
-	pt, ok := proto.open(&ms.session, packet, pt_buf[:])
+	pt, ok := session_receive(ms, packet, from, pt_buf[:], follow = true)
 	if !ok {
 		return
 	}
-	ms.endpoint = from
-	ms.last_recv = time.tick_now()
-	if !ms.confirmed && !ms.superseded {
-		ms.confirmed = true
+	if session_confirm(ms) {
 		stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 		for other_idx, other in m.sessions {
 			if other != ms && other.superseded && other.peer_key == ms.peer_key {
@@ -503,10 +445,6 @@ media_data :: proc(m: ^Media, packet: []byte, from: net.Endpoint) {
 		for i in stale {
 			media_drop(m, i)
 		}
-	}
-	peer, known := m.peers[ms.peer_key]
-	if !known || peer.num != ms.num {
-		return // the peer is gone or logged out, housekeeping drops the session
 	}
 	kind, kind_ok := proto.message_kind(pt)
 	if !kind_ok {
@@ -680,13 +618,7 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 	if sh.cache == nil {
 		return
 	}
-	if ms.resend_at == {} {
-		ms.resend_budget = m.max_burst
-	} else {
-		elapsed := time.duration_seconds(time.tick_diff(ms.resend_at, now))
-		ms.resend_budget = min(m.max_burst, ms.resend_budget + int(elapsed * f64(m.max_rate)))
-	}
-	ms.resend_at = now
+	proto.bucket_refill(&ms.resend_budget, now, f64(m.max_rate), f64(m.max_burst))
 	for bit in 0 ..< proto.NACK_SPAN {
 		if n.missing & (u64(1) << uint(bit)) == 0 {
 			continue
@@ -695,10 +627,9 @@ media_nack :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []u8) 
 		if msg == nil {
 			continue
 		}
-		if ms.resend_budget < len(msg) {
+		if !proto.bucket_take(&ms.resend_budget, f64(len(msg))) {
 			return
 		}
-		ms.resend_budget -= len(msg)
 		media_send(m, ms, msg)
 	}
 }
@@ -841,19 +772,8 @@ media_sharer_session :: proc(
 media_spend :: proc(m: ^Media, of: Media_Stream, n: int) -> bool {
 	sh := media_sharer(m, of)
 	rate := m.camera_rate if of.stream == .Camera else m.max_rate
-	now := time.tick_now()
-	if sh.budget_at == {} {
-		sh.budget = m.max_burst
-	} else {
-		elapsed := time.duration_seconds(time.tick_diff(sh.budget_at, now))
-		sh.budget = min(m.max_burst, sh.budget + int(elapsed * f64(rate)))
-	}
-	sh.budget_at = now
-	if sh.budget < n {
-		return false
-	}
-	sh.budget -= n
-	return true
+	proto.bucket_refill(&sh.budget, time.tick_now(), f64(rate), f64(m.max_burst))
+	return proto.bucket_take(&sh.budget, f64(n))
 }
 
 // media_watch records a viewer's lease, or ends it, and forwards a keyframe
@@ -910,16 +830,10 @@ media_watch :: proc(m: ^Media, ms: ^Media_Session, viewer: Media_Peer, pt: []byt
 media_housekeeping :: proc(m: ^Media) {
 	stale := make([dynamic]proto.Session_Id, context.temp_allocator)
 	for idx, ms in m.sessions {
-		expired: bool
-		if !ms.keyed {
-			expired = time.tick_since(ms.started) > proto.HANDSHAKE_TIMEOUT
-		} else {
+		expired := session_expired(ms)
+		if ms.keyed && !expired {
 			peer, known := m.peers[ms.peer_key]
-			expired =
-				!known ||
-				peer.num != ms.num ||
-				time.tick_since(ms.last_recv) > proto.SESSION_TIMEOUT ||
-				time.tick_since(ms.created) > proto.REJECT_AFTER
+			expired = !known || peer.num != ms.num
 		}
 		if expired {
 			append(&stale, idx)

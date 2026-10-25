@@ -22,8 +22,7 @@ INVITES_LIVE_MOST :: 50
 // invite_get reads an invite. The returned code is allocated with the
 // temp allocator.
 invite_get :: proc(db: ^DB, code: string) -> (inv: proto.Invite, found: bool) {
-	q := db_stmt(db, .Invite_Get)
-	db_bind_text(q, 1, code)
+	q := db_query(db, .Invite_Get, code)
 	row, ok := db_step(db, q)
 	if !ok || !row {
 		return
@@ -50,13 +49,9 @@ invite_row :: proc(q: ^sqlite.Stmt) -> proto.Invite {
 // invite_use counts a registration against a code and records which
 // account used it.
 invite_use :: proc(db: ^DB, code: string, account: proto.Account_Id) -> bool {
-	q := db_stmt(db, .Invite_Use)
-	db_bind_text(q, 1, code)
+	q := db_query(db, .Invite_Use, code)
 	db_run(db, q) or_return
-	q = db_stmt(db, .Invite_Use_Add)
-	db_bind_text(q, 1, code)
-	db_bind_int(q, 2, i64(account))
-	db_bind_int(q, 3, unix_ms())
+	q = db_query(db, .Invite_Use_Add, code, i64(account), unix_ms())
 	return db_run(db, q)
 }
 
@@ -71,9 +66,7 @@ invite_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	q := db_stmt(&s.db, .Invite_Live_Count)
-	db_bind_int(q, 1, i64(u.account.id))
-	db_bind_int(q, 2, now)
+	q := db_query(&s.db, .Invite_Live_Count, i64(u.account.id), now)
 	row, counted := db_step(&s.db, q)
 	if !counted || !row {
 		respond(u, id, .Internal)
@@ -99,12 +92,7 @@ invite_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Internal)
 		return
 	}
-	q = db_stmt(&s.db, .Invite_Add)
-	db_bind_text(q, 1, code)
-	db_bind_int(q, 2, i64(u.account.id))
-	db_bind_int(q, 3, now)
-	db_bind_int(q, 4, i64(max_uses))
-	db_bind_int(q, 5, i64(expires))
+	q = db_query(&s.db, .Invite_Add, code, i64(u.account.id), now, i64(max_uses), i64(expires))
 	if !db_run(&s.db, q) {
 		respond(u, id, .Internal)
 		return
@@ -122,8 +110,7 @@ invite_list :: proc(s: ^Server, u: ^Conn, id: u32) {
 		respond(u, id, .Denied)
 		return
 	}
-	q := db_stmt(&s.db, .Invite_All if all else .Invite_Mine)
-	db_bind_int(q, 1, proto.MAX_INVITES_LISTED)
+	q := db_query(&s.db, .Invite_All if all else .Invite_Mine, proto.MAX_INVITES_LISTED)
 	if !all {
 		db_bind_int(q, 2, i64(u.account.id))
 	}
@@ -160,9 +147,7 @@ invite_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	q := db_stmt(&s.db, .Invite_Revoke)
-	db_bind_text(q, 1, code)
-	if !db_run(&s.db, q) {
+	if !db_write(&s.db, .Invite_Revoke, code) {
 		respond(u, id, .Internal)
 		return
 	}
@@ -182,8 +167,7 @@ invite_of :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	q := db_stmt(&s.db, .Invite_Of)
-	db_bind_int(q, 1, i64(account))
+	q := db_query(&s.db, .Invite_Of, i64(account))
 	row, stepped := db_step(&s.db, q)
 	switch {
 	case !stepped:

@@ -32,7 +32,7 @@ import "common:proto"
 //     clicking ourselves opens the status editor.
 //   - Our picture is set in the settings from a file or (on desktop) the
 //     clipboard (ui_avatar_pick_native.odin, ui_avatar_pick_web.odin). It is
-//     made square and small (avatar_prepare, web/avatar.js) and uploaded.
+//     made square and small (imaging.avatar_prepare, web/avatar.js) and uploaded.
 //   - Settings kept on the server (conn/profiles.odin): how loud each person
 //     is and which DMs are hidden from the buddy list. settings.json keeps a
 //     copy for each server so that they apply before the sync. What the
@@ -48,8 +48,7 @@ UI_Profiles :: struct {
 	buf:            [proto.MAX_STATUS_SIZE]u8,
 	len:            int,
 	clear_after:    Clear_After,
-	days_buf:       [3]u8, // Clear_After.Days: the number of days
-	days_len:       int,
+	days:           Text_Field(3), // Clear_After.Days: the number of days
 	// The members window, and the conversation it last requested.
 	members_open:   bool,
 	members_placed: bool,
@@ -80,7 +79,7 @@ Clear_After :: enum {
 	Hour,
 	Four_Hours,
 	Today,
-	Days, // a number of days from now (UI_Profiles.days_buf)
+	Days, // a number of days from now (UI_Profiles.days.buf)
 }
 
 @(private = "file")
@@ -125,7 +124,7 @@ open_status_editor :: proc(ui: ^UI) {
 	me := v.accounts[v.me] or_else {}
 	p.len = copy(p.buf[:], me.status)
 	p.clear_after = .Never
-	p.days_len = copy(p.days_buf[:], "1")
+	field_set(&p.days, "1")
 	p.editing, p.edit_placed = true, false
 }
 
@@ -212,7 +211,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	res := text_box(ui, p.buf[:], &p.len)
 	mu.layout_row(ctx, {-1})
-	with_text_color(ctx, theme.dim, "Clear it after:", label_proc)
+	dim_label(ctx, "Clear it after:")
 	widths: [len(Clear_After)]i32
 	for &w in widths {
 		w =
@@ -239,7 +238,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	if p.clear_after == .Days {
 		mu.layout_row(ctx, {60, 50, -1})
 		mu.label(ctx, "Days")
-		text_box(ui, p.days_buf[:], &p.days_len)
+		text_box(ui, p.days.buf[:], &p.days.len)
 	} else {
 		mu.layout_row(ctx, {-1})
 	}
@@ -249,7 +248,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 	} else if until != 0 {
 		when_text = fmt.tprintf("It clears %s.", until_text(ui, until))
 	}
-	with_text_color(ctx, theme.dim, when_text, label_proc)
+	dim_label(ctx, when_text)
 	mu.layout_row(ctx, {120, -1})
 	cleared := .SUBMIT in stable_button(ctx, "status clear", "Clear status", {.ALIGN_CENTER})
 	saved :=
@@ -275,7 +274,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 // text is not a valid number.
 @(private = "file")
 status_days :: proc(p: ^UI_Profiles) -> int {
-	days, ok := strconv.parse_int(strings.trim_space(string(p.days_buf[:p.days_len])), 10)
+	days, ok := strconv.parse_int(strings.trim_space(field_text(&p.days)), 10)
 	return days if ok && days >= 1 && days <= MAX_STATUS_DAYS else 0
 }
 
@@ -417,12 +416,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		}
 	}
 	mu.layout_row(ctx, {-1})
-	with_text_color(
-		ctx,
-		theme.dim,
-		fmt.tprintf("%d members, %d here", len(list), here),
-		label_proc,
-	)
+	dim_label(ctx, fmt.tprintf("%d members, %d here", len(list), here))
 	add_people(ui, m.accounts[:])
 	// When those who aren't here were last seen is only shown in the DM
 	// with them (ui_buddies.odin), because the server only says it to people
@@ -588,10 +582,7 @@ profile_settings :: proc(ui: ^UI) {
 	)
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, fit_widths(ctx, {110, 110, 110}))
-	uploading := false
-	for o in v.outbox {
-		uploading ||= o.avatar
-	}
+	uploading := v.uploading.avatar
 	if .SUBMIT in stable_button(ctx, "avatar file", "Choose...", {.ALIGN_CENTER}) {
 		avatar_pick_start(ui, false)
 	}
@@ -603,14 +594,14 @@ profile_settings :: proc(ui: ^UI) {
 	}
 	switch {
 	case uploading:
-		with_text_color(ctx, theme.dim, "uploading...", label_proc)
+		dim_label(ctx, "uploading...")
 	case p.pick != nil:
-		with_text_color(ctx, theme.dim, "reading the picture...", label_proc)
+		dim_label(ctx, "reading the picture...")
 	case p.pick_notice != "":
 		with_text_color(ctx, theme.off, p.pick_notice, label_proc)
 	case me.avatar != 0:
 		if .SUBMIT in stable_button(ctx, "avatar remove", "Remove", {.ALIGN_CENTER}) {
-			conn.push_command(&ui.session.client.commands, conn.Avatar_Command{remove = true})
+			command(ui, conn.Avatar_Command{remove = true})
 		}
 	case:
 		mu.label(ctx, "")
@@ -635,7 +626,7 @@ status_settings :: proc(ui: ^UI) {
 			chat_time(ui, proto.Unix_Time(me.status_until / 1000)),
 		)
 	}
-	with_text_color(ctx, theme.dim, text, label_proc)
+	dim_label(ctx, text)
 }
 
 // Settings on the server. Each is kept as text:

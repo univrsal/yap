@@ -1,13 +1,15 @@
 package server
 
 import "core:fmt"
+import "core:strings"
 import "core:sync"
 import "core:testing"
 
 import "common:proto"
+import "mail"
 
 // Tests of verifying email addresses by mail (verify.odin), using the
-// Test_Server from auth_test.odin. Mail is put into the server's queue
+// Test_Server from harness_test.odin. mail.Message is put into the server's queue
 // directly.
 
 @(test)
@@ -88,7 +90,7 @@ mail_in :: proc(ts: ^Test_Server, uid: u32, from, subject: string, auth := GOOD_
 	}
 	e := &ts.s.email
 	sync.guard(&e.mutex)
-	append(&e.inbox, mail_parse(uid, header))
+	append(&e.inbox, mail.parse(uid, header))
 }
 
 // deletes_asked returns how many mails the loop has asked to be deleted, and
@@ -109,7 +111,7 @@ verifying_server :: proc(t: ^testing.T, ts: ^Test_Server) {
 		verify_email     = true,
 		unverified_hours = 48,
 	}
-	// Email is enabled, but without its thread: incoming mail is put in its
+	// mail.Mailer is enabled, but without its thread: incoming mail is put in its
 	// queue by hand, and the jobs it's given just wait in its job list.
 	ts.s.email.enabled = true
 	ts.s.email.config = {
@@ -186,7 +188,12 @@ test_verify :: proc(t: ^testing.T) {
 	testing.expect_value(t, deletes_asked(&ts), 5)
 
 	// The correct mail verifies the account; the code is case-insensitive.
-	mail_in(&ts, 6, "carol@example.com", fmt.tprintf("Re: %s", to_lower(acc.verify_code)))
+	mail_in(
+		&ts,
+		6,
+		"carol@example.com",
+		fmt.tprintf("Re: %s", strings.to_lower(acc.verify_code, context.temp_allocator)),
+	)
 	verify_sync(s)
 	testing.expect_value(t, deletes_asked(&ts), 1)
 	testing.expect(t, .Unverified not_in acc.flags)
@@ -269,13 +276,4 @@ test_verify :: proc(t: ^testing.T) {
 	mail_in(&ts, 7, "carol@example.net", "anything")
 	verify_sync(s)
 	testing.expect_value(t, deletes_asked(&ts), 0)
-}
-
-@(private = "file")
-to_lower :: proc(s: string) -> string {
-	out := make([]u8, len(s), context.temp_allocator)
-	for i in 0 ..< len(s) {
-		out[i] = s[i] + ('a' - 'A') if s[i] >= 'A' && s[i] <= 'Z' else s[i]
-	}
-	return string(out)
 }

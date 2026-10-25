@@ -6,10 +6,10 @@ import "core:log"
 import "core:time"
 
 import "common:."
-import "common:lite"
+import "lib:lite"
 import "common:proto"
 
-// A bot is one connection to the server (common/lite), which looks like a
+// A bot is one connection to the server (lib/lite), which looks like a
 // client to the server, plus voice, which lite leaves to its owner. It logs
 // in as bot<n> with the password it was given the first time, and with its
 // device's key from then on.

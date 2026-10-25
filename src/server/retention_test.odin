@@ -8,7 +8,7 @@ import "common:proto"
 import "sqlite"
 
 // Tests of purging (retention.odin), using the Test_Server from
-// auth_test.odin.
+// harness_test.odin.
 
 // age_messages backdates the messages with ids from `first` to `last` so
 // that they were posted `days` ago.
@@ -27,12 +27,6 @@ age_messages :: proc(t: ^testing.T, ts: ^Test_Server, first, last: proto.Msg_Id,
 			),
 		),
 	)
-}
-
-@(private = "file")
-age_blobs :: proc(t: ^testing.T, ts: ^Test_Server, hours: int) {
-	at := unix_ms() - i64(hours) * 60 * 60 * 1000
-	testing.expect(t, db_exec(&ts.s.db, fmt.tprintf("UPDATE blobs SET created = %d", at)))
 }
 
 @(private = "file")
@@ -67,13 +61,6 @@ reply :: proc(
 	testing.expect_value(t, status, proto.Status.Ok)
 	id, _, _ := proto.decode_msg_posted(answer)
 	return id
-}
-
-@(private = "file")
-pin :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id, on := true) {
-	buf: [proto.MSG_PIN_SIZE]u8
-	status, _ := ts_ask(t, ts, u, .Msg_Pin, proto.encode_msg_pin(&buf, id, on))
-	testing.expect_value(t, status, proto.Status.Ok)
 }
 
 // purge requests a purge, lets it run to completion and returns the
@@ -165,8 +152,7 @@ test_msg_boundary :: proc(t: ^testing.T) {
 
 @(test)
 test_purge_messages :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -206,7 +192,7 @@ test_purge_messages :: proc(t: ^testing.T) {
 	age_messages(t, &ts, old, elsewhere, 30)
 	new_reply := reply(t, &ts, bob, home, root, "a new reply", 102)
 	recent := say(t, &ts, alice, home, &nonce)
-	pin(t, &ts, admin, pinned)
+	testing.expect_value(t, pin_as(t, &ts, admin, pinned, true), proto.Status.Ok)
 	react_buf: [proto.MSG_REACT_MAX_SIZE]u8
 	react_status, _ := ts_ask(
 		t,
@@ -285,7 +271,7 @@ test_purge_messages :: proc(t: ^testing.T) {
 	testing.expect(t, !exists(&ts, root) && !exists(&ts, elsewhere))
 	testing.expect(t, exists(&ts, pinned) && exists(&ts, recent))
 	// Once unpinned, the pinned message is purged too.
-	pin(t, &ts, admin, pinned, false)
+	testing.expect_value(t, pin_as(t, &ts, admin, pinned, false), proto.Status.Ok)
 	status, messages, _ = purge(t, &ts, admin, {before = proto.Unix_Ms(unix_ms() - 7 * DAY_MS)})
 	testing.expect_value(t, messages, 1)
 	testing.expect(t, !exists(&ts, pinned))
@@ -312,8 +298,7 @@ history_of :: proc(
 
 @(test)
 test_retention_config :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -352,8 +337,7 @@ test_retention_config :: proc(t: ^testing.T) {
 
 @(test)
 test_purge_resumes :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 	blobs_dir, _ := os.join_path({dir, BLOBS_DIR}, context.temp_allocator)

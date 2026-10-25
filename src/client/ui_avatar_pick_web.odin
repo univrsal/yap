@@ -9,7 +9,7 @@ import log "common:wlog"
 // Choosing our picture in a browser: a file input that the page opens
 // (see web/avatar.js). It has to be opened from something the person just did,
 // which the click on the button is. The page makes the picture itself, as
-// avatar_prepare does on a desktop (see ui_avatar_pick_native.odin), and hands
+// imaging.avatar_prepare does on a desktop (see ui_avatar_pick_native.odin), and hands
 // over the finished JPEG (see web_avatar_picked). Pasting isn't offered, because a
 // page can only read the clipboard inside a paste event (see ui_paste_web.odin).
 //

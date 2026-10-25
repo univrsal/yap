@@ -4,7 +4,6 @@ import "core:crypto/ecdh"
 import "core:encoding/json"
 import "core:fmt"
 import "core:net"
-import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
@@ -12,12 +11,12 @@ import "core:testing"
 import "core:thread"
 import "core:time"
 
-import "common:gateway"
-import "common:http"
-import "common:lite"
+import "lib:gateway"
+import "lib:http"
+import "lib:lite"
 import "common:proto"
 
-// Tests of the bot API's gateway (common/gateway). They cover the whole path
+// Tests of the bot API's gateway (lib/gateway). They cover the whole path
 // from HTTP to the gateway, to the server and back, all in one process:
 // - The server's packet handling and syncs run on a loopback socket (the lt_
 //   procedures from lite_test.odin) and are driven by the test's thread.
@@ -1615,8 +1614,7 @@ test_gateway_files :: proc(t: ^testing.T) {
 	lt_open(t, &ts)
 	defer lt_close(&ts)
 	s := &ts.s
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	dir = strings.clone(dir)
 	defer delete(dir)
 	defer remove_tree(dir)
@@ -1892,4 +1890,21 @@ test_gateway_limits :: proc(t: ^testing.T) {
 			testing.expect_value(t, calls[len(calls) - 1].status, 200)
 		}
 	}
+}
+
+@(test)
+test_gateway_private_addresses :: proc(t: ^testing.T) {
+	lan := net.IP4_Address{192, 168, 1, 20}
+	testing.expect(t, gateway.address_private(lan))
+	testing.expect(t, gateway.address_private(net.IP4_Address{10, 0, 0, 1}))
+	testing.expect(t, !gateway.address_private(net.IP4_Address{8, 8, 8, 8}))
+	// The same addresses as a dual-stack socket reports them.
+	mapped := net.IP6_Address{0, 0, 0, 0, 0, 0xffff, 0xc0a8, 0x0114} // ::ffff:192.168.1.20
+	testing.expect(t, gateway.address_private(mapped))
+	testing.expect(t, gateway.unmapped(mapped) == net.Address(lan))
+	loop := net.IP6_Address{0, 0, 0, 0, 0, 0xffff, 0x7f00, 0x0001} // ::ffff:127.0.0.1
+	testing.expect(t, gateway.address_loopback(loop))
+	public := net.IP6_Address{0, 0, 0, 0, 0, 0xffff, 0x0808, 0x0808}
+	testing.expect(t, !gateway.address_private(public))
+	testing.expect(t, gateway.address_private(net.IP6_Loopback))
 }

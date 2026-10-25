@@ -5,7 +5,9 @@ import "core:log"
 import "core:strings"
 import "core:time"
 
+import "common:."
 import "common:proto"
+import "gate"
 
 // Logging in and the other requests from clients that are about accounts
 // (src/common/proto/accounts.odin).
@@ -83,7 +85,7 @@ Auth :: struct {
 	params:  int,
 	pending: map[u64]Pending, // by the job's id
 	// Logins and registrations by address (LOGINS_PER_ADDRESS).
-	logins:  Addr_Buckets,
+	logins:  gate.Addr_Buckets,
 }
 
 auth_destroy :: proc(a: ^Auth) {
@@ -91,7 +93,7 @@ auth_destroy :: proc(a: ^Auth) {
 		pending_destroy(p)
 	}
 	delete(a.pending)
-	addr_buckets_destroy(&a.logins)
+	gate.addr_buckets_destroy(&a.logins)
 	a^ = {}
 }
 
@@ -548,7 +550,7 @@ login_allowed :: proc(s: ^Server, u: ^Conn) -> bool {
 	}
 	s.auth.logins.burst = LOGINS_PER_ADDRESS
 	s.auth.logins.every = LOGIN_EVERY
-	if !addr_take(&s.auth.logins, c.endpoint) {
+	if !gate.addr_take(&s.auth.logins, c.endpoint) {
 		log.infof("%s: too many logins from its address, refused one", conn_label(u))
 		return false
 	}
@@ -785,7 +787,7 @@ device_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	log.infof("%s revoked the device %q (%08x)", conn_label(u), d.name, key_id_of(key))
+	log.infof("%s revoked the device %q (%08x)", conn_label(u), d.name, common.key_id(key))
 	device_unlink(&s.accounts, key)
 	respond(u, id, .Ok)
 	if other := s.conns[key] or_else nil; other != nil {
@@ -793,9 +795,4 @@ device_revoke :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		// Somebody else's device is told it was revoked.
 		conn_logout(s, other, {} if other == u else proto.Logout_Reason.Revoked)
 	}
-}
-
-@(private = "file")
-key_id_of :: proc(key: [proto.KEY_SIZE]u8) -> u32 {
-	return u32(key[0]) << 24 | u32(key[1]) << 16 | u32(key[2]) << 8 | u32(key[3])
 }

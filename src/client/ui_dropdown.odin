@@ -180,7 +180,7 @@ dropdown_popup :: proc(ui: ^UI, w, h: i32) {
 	mu.layout_row(ctx, {-1})
 	for item, i in d.items {
 		if item.header {
-			with_text_color(ctx, theme.dim, item.label, label_proc)
+			dim_label(ctx, item.label)
 			continue
 		}
 		if .SUBMIT in

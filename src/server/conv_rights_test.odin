@@ -7,7 +7,7 @@ import "common:proto"
 
 // Tests of the rights in channels (proto.Conv_Right): default channels, text-only
 // channels and what each role may do in a channel, using the Test_Server from
-// auth_test.odin.
+// harness_test.odin.
 
 @(private = "file")
 rights_set :: proc(
@@ -370,27 +370,6 @@ test_text_only_channels :: proc(t: ^testing.T) {
 	testing.expect_value(t, voice_join_room(t, &ts, alice, talk), proto.Status.Ok)
 }
 
-@(private = "file")
-edit :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id) -> proto.Status {
-	buf: [proto.MSG_EDIT_MAX_SIZE]u8
-	status, _ := ts_ask(t, ts, u, .Msg_Edit, proto.encode_msg_edit(&buf, id, "changed"))
-	return status
-}
-
-@(private = "file")
-delete_msg :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id) -> proto.Status {
-	buf: [proto.MSG_ID_SIZE]u8
-	status, _ := ts_ask(t, ts, u, .Msg_Delete, proto.encode_msg_id(&buf, id))
-	return status
-}
-
-@(private = "file")
-react :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, id: proto.Msg_Id) -> proto.Status {
-	buf: [proto.MSG_REACT_MAX_SIZE]u8
-	status, _ := ts_ask(t, ts, u, .Msg_React, proto.encode_msg_react(&buf, id, "👍", true))
-	return status
-}
-
 // browsed says whether the first page of Conv_Browse has a channel.
 @(private = "file")
 browsed :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, conv: proto.Conv_Id) -> bool {
@@ -455,9 +434,9 @@ test_conv_rights_enforced :: proc(t: ^testing.T) {
 	testing.expect_value(t, rights, proto.Conv_Rights{.See, .React})
 	status, _ = post(t, &ts, alice, news, "again", 3)
 	testing.expect_value(t, status, proto.Status.Denied)
-	testing.expect_value(t, edit(t, &ts, alice, from_alice), proto.Status.Denied)
-	testing.expect_value(t, delete_msg(t, &ts, alice, from_alice), proto.Status.Denied)
-	testing.expect_value(t, react(t, &ts, alice, from_owner), proto.Status.Ok)
+	testing.expect_value(t, edit_as(t, &ts, alice, from_alice, "changed"), proto.Status.Denied)
+	testing.expect_value(t, delete_as(t, &ts, alice, from_alice), proto.Status.Denied)
+	testing.expect_value(t, react_as(t, &ts, alice, from_owner, "👍", true), proto.Status.Ok)
 	history_status, _ := ts_ask(t, &ts, alice, .Msg_History, history_body(news))
 	testing.expect_value(t, history_status, proto.Status.Ok)
 
@@ -468,8 +447,8 @@ test_conv_rights_enforced :: proc(t: ^testing.T) {
 	testing.expect_value(t, rights, proto.Conv_Rights{.See, .React, .Write, .Edit, .Delete})
 	status, _ = post(t, &ts, alice, news, "again", 4)
 	testing.expect_value(t, status, proto.Status.Ok)
-	testing.expect_value(t, edit(t, &ts, alice, from_alice), proto.Status.Ok)
-	testing.expect_value(t, delete_msg(t, &ts, alice, from_alice), proto.Status.Ok)
+	testing.expect_value(t, edit_as(t, &ts, alice, from_alice, "changed"), proto.Status.Ok)
+	testing.expect_value(t, delete_as(t, &ts, alice, from_alice), proto.Status.Ok)
 
 	// Edit and Delete need Write: a role that only gives those doesn't do.
 	status = rights_set(t, &ts, owner, news, {everyone, {.See, .Edit, .Delete}})
@@ -479,11 +458,11 @@ test_conv_rights_enforced :: proc(t: ^testing.T) {
 	status = rights_set(t, &ts, owner, news, {everyone, {.See, .Write}})
 	testing.expect_value(t, status, proto.Status.Ok)
 	_, bob_msg = post(t, &ts, bob, news, "bob's", 7)
-	testing.expect_value(t, edit(t, &ts, bob, bob_msg), proto.Status.Denied)
-	testing.expect_value(t, delete_msg(t, &ts, bob, bob_msg), proto.Status.Denied)
-	testing.expect_value(t, react(t, &ts, bob, from_owner), proto.Status.Denied)
+	testing.expect_value(t, edit_as(t, &ts, bob, bob_msg, "changed"), proto.Status.Denied)
+	testing.expect_value(t, delete_as(t, &ts, bob, bob_msg), proto.Status.Denied)
+	testing.expect_value(t, react_as(t, &ts, bob, from_owner, "👍", true), proto.Status.Denied)
 	// Manage_Messages still deletes anyone's messages.
-	testing.expect_value(t, delete_msg(t, &ts, owner, bob_msg), proto.Status.Ok)
+	testing.expect_value(t, delete_as(t, &ts, owner, bob_msg), proto.Status.Ok)
 
 	// Losing See: bob stays a member but is told it is gone, can't read it,
 	// find it or join it, and isn't sent what happens there.

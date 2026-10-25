@@ -55,10 +55,7 @@ listens on the whole window and would act on them a second time.
 		if (a.text === text && a.caret === caret && a.anchor === anchor) return;
 		f.agreed = { text, caret, anchor };
 		const bytes = encoder.encode(text);
-		const ptr = _malloc(bytes.length + 1);
-		HEAPU8.set(bytes, ptr);
-		Module._web_field_input(f.id, ptr, bytes.length, caret, anchor);
-		_free(ptr);
+		Module.yapWithBytes(bytes, (ptr, n) => Module._web_field_input(f.id, ptr, n, caret, anchor));
 	};
 
 	// How many lines the text wraps into at the field's width, for the client

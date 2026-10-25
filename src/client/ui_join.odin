@@ -10,10 +10,10 @@ import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
-// Joining a server from the rail's + button (docs/next, item 9b), which is also
-// picked automatically when there is no server to show: the main window asks
-// for the server's address and password, and connects. From then on the new
-// session is in UI.sessions (its network turns, mute, idle etc. are handled
+// Joining a server from the rail's + button (docs/design/next.md, item 9b),
+// which is also picked automatically when there is no server to show: the
+// main window asks for the server's address and password, and connects.
+// From then on the new session is in UI.sessions (its network turns, mute, idle etc. are handled
 // like those of every other session) and is shown, but it is marked `joining`:
 // it is left off the rail and out of the settings, and the main window shows
 // the join page.
@@ -30,23 +30,21 @@ import mu "vendor:microui"
 // the settings) ends the session and shows whatever was shown before.
 
 UI_Join :: struct {
-	open:         bool, // the + button is selected
-	card_h:       i32, // the card's height in the last frame (card_end)
-	server_buf:   [256]u8,
-	server_len:   int,
-	password_buf: [proto.MAX_PASSWORD_SIZE]u8,
-	password_len: int,
+	open:     bool, // the + button is selected
+	card_h:   i32, // the card's height in the last frame (card_end)
+	server:   Text_Field(256),
+	password: Text_Field(proto.MAX_PASSWORD_SIZE),
 	// The session being joined, which is shown until it is logged in, and
 	// the session shown before, to go back to.
-	ns:           ^Net_Session,
-	back:         ^Net_Session,
+	ns:       ^Net_Session,
+	back:     ^Net_Session,
 	// Requested on the page, but done after the frame (join_frame), because
 	// connecting waits on the network thread, which may be waiting on the
 	// View lock.
-	connect:      bool,
-	close:        bool,
+	connect:  bool,
+	close:    bool,
 	// Why the typed address wasn't tried, shown in the card (a constant).
-	mistake:      string,
+	mistake:  string,
 }
 
 // join_open opens the + page with an empty form.
@@ -75,7 +73,7 @@ join_frame :: proc(ui: ^UI) {
 	}
 	if j.connect {
 		j.connect = false
-		typed := string(j.server_buf[:j.server_len])
+		typed := field_text(&j.server)
 		// A browser reaches a server through the relay beside its web page, so
 		// that page's address is what the web client joins (see relay_blocked),
 		// with this page's scheme and port where none was typed.
@@ -88,7 +86,7 @@ join_frame :: proc(ui: ^UI) {
 			}
 		}
 		if typed != "" {
-			join_connect(ui, typed, string(j.password_buf[:j.password_len]))
+			join_connect(ui, typed, field_text(&j.password))
 		}
 	}
 	ns := j.ns
@@ -226,20 +224,20 @@ join_card :: proc(ui: ^UI, v: ^conn.View) {
 
 	mu.layout_row(ctx, {LOGIN_LABEL, -1})
 	mu.label(ctx, "Server")
-	submit := .SUBMIT in text_box(ui, j.server_buf[:], &j.server_len)
+	submit := .SUBMIT in text_box(ui, j.server.buf[:], &j.server.len)
 	mu.label(ctx, "Password")
-	submit |= .SUBMIT in password_box(ui, j.password_buf[:], &j.password_len)
+	submit |= .SUBMIT in password_box(ui, j.password.buf[:], &j.password.len)
 	mu.label(ctx, "")
 	submit |= .SUBMIT in mu.button(ctx, "Connect")
-	if submit && strings.trim_space(string(j.server_buf[:j.server_len])) != "" {
+	if submit && strings.trim_space(field_text(&j.server)) != "" {
 		j.connect = true
 	}
 
 	mu.layout_row(ctx, {-1})
 	if j.mistake != "" {
-		with_text_color(ctx, theme.error, j.mistake, wrap_text)
+		error_note(ctx, j.mistake)
 	} else if v != nil && v.error != "" {
-		with_text_color(ctx, theme.error, v.error, wrap_text)
+		error_note(ctx, v.error)
 	}
 	if v != nil && v.key_change.changed {
 		key_change_panel(ui)

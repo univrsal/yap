@@ -139,8 +139,7 @@ blob_path :: proc(
 // blob_find returns the blob with this content hash, if the store has it.
 blob_find :: proc(bs: ^Blob_Store, sum: [BLOB_HASH_SIZE]u8) -> (id: Blob_Id, found: bool) {
 	sum := sum
-	q := db_stmt(bs.db, .Blob_By_Hash)
-	db_bind_blob(q, 1, sum[:])
+	q := db_query(bs.db, .Blob_By_Hash, sum[:])
 	if row, ok := db_step(bs.db, q); ok && row {
 		id = Blob_Id(db_col_int(q, 0))
 		sqlite.reset(q)
@@ -174,13 +173,16 @@ blob_put :: proc(
 		write_blob_file(bs, path, data) or_return
 	}
 
-	q := db_stmt(bs.db, .Blob_Add)
-	db_bind_blob(q, 1, sum[:])
-	db_bind_int(q, 2, i64(len(data)))
-	db_bind_int(q, 3, i64(kind))
-	db_bind_int(q, 4, i64(width))
-	db_bind_int(q, 5, i64(height))
-	db_bind_int(q, 6, unix_ms())
+	q := db_query(
+		bs.db,
+		.Blob_Add,
+		sum[:],
+		i64(len(data)),
+		i64(kind),
+		i64(width),
+		i64(height),
+		unix_ms(),
+	)
 	if by != 0 {
 		db_bind_int(q, 7, by)
 	} else {
@@ -210,10 +212,7 @@ blob_adopt :: proc(
 	sum := sum
 	if existing, found := blob_find(bs, sum); found {
 		os.remove(part)
-		q := db_stmt(bs.db, .Blob_Touch)
-		db_bind_int(q, 1, i64(existing))
-		db_bind_int(q, 2, unix_ms())
-		db_run(bs.db, q) or_return
+		db_write(bs.db, .Blob_Touch, i64(existing), unix_ms()) or_return
 		return existing, true
 	}
 	path := blob_path(bs, sum)
@@ -226,15 +225,7 @@ blob_adopt :: proc(
 		log.errorf("could not rename %s to %s: %v", part, path, err)
 		return
 	}
-	q := db_stmt(bs.db, .Blob_Add)
-	db_bind_blob(q, 1, sum[:])
-	db_bind_int(q, 2, i64(size))
-	db_bind_int(q, 3, i64(kind))
-	db_bind_int(q, 4, 0)
-	db_bind_int(q, 5, 0)
-	db_bind_int(q, 6, unix_ms())
-	db_bind_int(q, 7, by)
-	db_run(bs.db, q) or_return
+	db_write(bs.db, .Blob_Add, sum[:], i64(size), i64(kind), 0, 0, unix_ms(), by) or_return
 	return Blob_Id(db_last_id(bs.db)), true
 }
 
@@ -306,8 +297,7 @@ when DB_EXERCISE {
 
 // blob_get returns the store's information about a blob.
 blob_get :: proc(bs: ^Blob_Store, id: Blob_Id) -> (b: Blob, found: bool) {
-	q := db_stmt(bs.db, .Blob_By_Id)
-	db_bind_int(q, 1, i64(id))
+	q := db_query(bs.db, .Blob_By_Id, i64(id))
 	row, ok := db_step(bs.db, q)
 	if !ok || !row {
 		return
@@ -357,9 +347,7 @@ blob_read :: proc(
 // must make sure that nothing refers to the blob any more.
 blob_delete :: proc(bs: ^Blob_Store, id: Blob_Id) -> bool {
 	b := blob_get(bs, id) or_return
-	q := db_stmt(bs.db, .Blob_Delete)
-	db_bind_int(q, 1, i64(id))
-	db_run(bs.db, q) or_return
+	db_write(bs.db, .Blob_Delete, i64(id)) or_return
 	// Commit the row deletion first and remove the file afterwards. If the
 	// server stops in between, a file without a row only wastes space,
 	// whereas a row without its file would be a blob that can't be read.

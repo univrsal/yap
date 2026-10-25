@@ -7,14 +7,14 @@ import "core:testing"
 import "common:proto"
 
 @(private = "file")
-interrupts :: proc(c: ^Voice_Client, m: proto.Message) -> bool {
+interrupts :: proc(c: ^Server_Conn, m: proto.Message) -> bool {
 	i, _ := conv_new_message(c, m)
 	return i
 }
 
 @(test)
 test_unread_counting :: proc(t: ^testing.T) {
-	c: Voice_Client
+	c: Server_Conn
 	defer convs_destroy(&c)
 	c.auth.me = 1
 	lobby, gaming := proto.Conv_Id(1), proto.Conv_Id(2)
@@ -82,7 +82,7 @@ test_unread_counting :: proc(t: ^testing.T) {
 
 @(test)
 test_mention_counting :: proc(t: ^testing.T) {
-	c: Voice_Client
+	c: Server_Conn
 	defer convs_destroy(&c)
 	c.auth.me = 1
 	lobby, gaming, quiet := proto.Conv_Id(1), proto.Conv_Id(2), proto.Conv_Id(3)
@@ -142,7 +142,7 @@ test_mention_counting :: proc(t: ^testing.T) {
 // told at most once every MARK_INTERVAL, and nothing more once it has been told.
 @(test)
 test_mark_read_paced :: proc(t: ^testing.T) {
-	c: Voice_Client
+	c: Server_Conn
 	defer convs_destroy(&c)
 	defer stream_destroy(&c)
 	defer delete(c.rpc.pending)

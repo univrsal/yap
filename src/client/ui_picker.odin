@@ -202,7 +202,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if n == 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "No emoji by that name.", label_proc)
+		dim_label(ctx, "No emoji by that name.")
 	}
 	mu.end_panel(ctx)
 	mu.layout_row(ctx, {-1})
@@ -211,7 +211,7 @@ picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		hint =
 			"Pick one to react with." if p.react_to != 0 else "Pick one to put it in the message."
 	}
-	with_text_color(ctx, theme.dim, hint, label_proc)
+	dim_label(ctx, hint)
 	// And the emoji itself, shown large beside its cell.
 	if p.hovered != "" {
 		ui.hint, ui.hint_of, ui.hint_emoji = p.hovered, p.hovered_rect, p.hovered_emoji

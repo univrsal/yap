@@ -42,8 +42,7 @@ File_Route :: struct {
 	// The connections at both ends of the route.
 	sender, recipient: [proto.KEY_SIZE]u8,
 	last:              time.Tick, // when something was last relayed
-	tokens:            f32,
-	last_refill:       time.Tick,
+	pace:              proto.Bucket,
 }
 
 // file_offered records an offer that `u` just posted.
@@ -87,10 +86,9 @@ handle_file_accept :: proc(s: ^Server, c: ^Client, pt: []u8) {
 		}
 		route = new(File_Route)
 		route^ = {
-			sender      = offer.sender,
-			recipient   = u.key,
-			tokens      = FILE_RELAY_BURST,
-			last_refill = time.tick_now(),
+			sender    = offer.sender,
+			recipient = u.key,
+			pace      = {FILE_RELAY_BURST, time.tick_now()},
 		}
 		s.file_routes[id] = route
 		log.debugf("%s accepted file %d", conn_label(u), id)
@@ -113,13 +111,10 @@ handle_file_chunk :: proc(s: ^Server, c: ^Client, pt: []u8) {
 		return
 	}
 	now := time.tick_now()
-	elapsed := f32(time.duration_seconds(time.tick_diff(route.last_refill, now)))
-	route.last_refill = now
-	route.tokens = min(route.tokens + elapsed * FILE_RELAY_RATE, FILE_RELAY_BURST)
-	if route.tokens < f32(len(pt)) {
+	proto.bucket_refill(&route.pace, now, FILE_RELAY_RATE, FILE_RELAY_BURST)
+	if !proto.bucket_take(&route.pace, f64(len(pt))) {
 		return // too fast, drop the chunk; the sender resends it later
 	}
-	route.tokens -= f32(len(pt))
 	route.last = now
 	if rc := online_session(s, route.recipient); rc != nil {
 		send_message(s, rc, pt)

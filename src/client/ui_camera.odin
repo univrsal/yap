@@ -9,9 +9,10 @@ import mu "vendor:microui"
 import "client:conn"
 import "client:platform"
 import "client:render"
+import "client:video"
 import "common:proto"
 
-// Cameras in the UI (see conn/video.odin, misc/video-chat): the Camera button
+// Cameras in the UI (see conn/video.odin, docs/design/video-chat.md): the Camera button
 // beside Share, and the Video tab beside the chat.
 //
 // In a call, the tab shows the person we call large and our own camera small
@@ -76,7 +77,7 @@ UI_Camera :: struct {
 // the platform has a camera to offer and the server allows cameras. Call with
 // the View locked.
 camera_available :: proc(v: ^conn.View) -> bool {
-	return conn.video_can_camera() && v.max_cameras > 0
+	return video.can_camera() && v.max_cameras > 0
 }
 
 // room_cameras is how many cameras are on in our room, other than ours. Call
@@ -107,7 +108,7 @@ camera_start :: proc(ui: ^UI, ns: ^Net_Session, v: ^conn.View) {
 		v.camera_limit_kbit,
 		conn.camera_quality(ui.settings.camera_quality),
 	)
-	conn.video_camera_start(cfg, ui.settings.camera_device)
+	video.camera_start(cfg, ui.settings.camera_device)
 	ui.camera.at = ns
 	ui.camera.room = room
 }
@@ -121,7 +122,7 @@ camera_on_call :: proc(ui: ^UI) {
 // camera_button turns our camera on or off. It is only shown where cameras are
 // possible (camera_available). Call with the View locked.
 camera_button :: proc(ui: ^UI) {
-	state := conn.video_camera_state()
+	state := video.camera_state()
 	if state != .Off {
 		// The page may change it (the browser's own prompt, a camera that is
 		// unplugged).
@@ -137,7 +138,7 @@ camera_button :: proc(ui: ^UI) {
 		hint, color = "Turning your camera on...", theme.dim
 	case .Failed:
 		hint = "Your camera didn't start (it isn't allowed, or another program has it); try again"
-		if why := conn.video_camera_error(); why != "" {
+		if why := video.camera_error(); why != "" {
 			hint = fmt.tprintf("Your camera didn't start: %s. Try again", why)
 		}
 		color, icon = theme.off, .Camera_Off
@@ -145,7 +146,7 @@ camera_button :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in icon_button(ui, "camera", icon, hint, color) {
 		if state == .Live || state == .Starting {
-			conn.video_camera_stop()
+			video.camera_stop()
 		} else {
 			// Straight from the click: a browser only asks about the camera
 			// for something the user just did.
@@ -165,7 +166,7 @@ camera_follow :: proc(ui: ^UI) {
 	if cam.on_call {
 		follow_video_call(ui)
 	}
-	state := conn.video_camera_state()
+	state := video.camera_state()
 	if state == .Off || state == .Failed {
 		return
 	}
@@ -177,7 +178,7 @@ camera_follow :: proc(ui: ^UI) {
 			proto.Room(ns.view.my_room) != cam.room || (state == .Live && ns.view.camera_refused)
 	}
 	if stop {
-		conn.video_camera_stop()
+		video.camera_stop()
 	}
 }
 
@@ -203,7 +204,7 @@ follow_video_call :: proc(ui: ^UI) {
 	     proto.room_call(proto.Room(v.my_room)) != 0 &&
 	     ui.voice_at == ns:
 		cam.on_call = false
-		if camera_available(v) && conn.video_camera_state() == .Off {
+		if camera_available(v) && video.camera_state() == .Off {
 			camera_start(ui, ns, v)
 		}
 	case:
@@ -243,7 +244,7 @@ in_call :: proc(v: ^conn.View) -> bool {
 // our_camera_on says whether our camera is on (or coming on).
 @(private = "file")
 our_camera_on :: proc() -> bool {
-	state := conn.video_camera_state()
+	state := video.camera_state()
 	return state == .Live || state == .Starting
 }
 
@@ -288,9 +289,9 @@ camera_tab_follow :: proc(ui: ^UI) {
 	if ui.chat.tab == .Video && !video_docked(ui) {
 		ui.chat.tab = .Chat
 	}
-	if cam.full && (!conn.video_is_fullscreen() || !has_video(ui.view)) {
+	if cam.full && (!video.is_fullscreen() || !has_video(ui.view)) {
 		cam.full = false
-		conn.video_set_fullscreen(false)
+		video.set_fullscreen(false)
 	}
 	shown := call_camera(ui.view)
 	if shown != cam.followed {
@@ -304,7 +305,7 @@ camera_tab_follow :: proc(ui: ^UI) {
 // camera_fullscreen says whether the video fills the window now, in place of
 // everything else (camera_full_screen). Call with the View locked.
 camera_fullscreen :: proc(ui: ^UI) -> bool {
-	return ui.camera.full && conn.video_is_fullscreen() && has_video(ui.view)
+	return ui.camera.full && video.is_fullscreen() && has_video(ui.view)
 }
 
 // The step tile sizes are rounded up to, so that a few pixels either way
@@ -370,7 +371,7 @@ camera_after_frame :: proc(ui: ^UI) {
 	}
 	cam.drawn_n = 0
 	if !cam.looked {
-		conn.video_camera_look_stop()
+		video.camera_look_stop()
 	}
 	cam.looked = false
 }
@@ -379,11 +380,11 @@ camera_after_frame :: proc(ui: ^UI) {
 // settings now say. Call with no View locked.
 camera_switch :: proc(ui: ^UI) {
 	cam := &ui.camera
-	state := conn.video_camera_state()
+	state := video.camera_state()
 	if state == .Off || state == .Failed || !session_alive(ui, cam.at) {
 		return
 	}
-	conn.video_camera_stop()
+	video.camera_stop()
 	sync.guard(&cam.at.view.mutex)
 	camera_start(ui, cam.at, &cam.at.view)
 }
@@ -409,7 +410,7 @@ video_panel :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in icon_button(ui, "video fullscreen", .Fullscreen, "Fullscreen") {
 		cam.full = true
-		conn.video_set_fullscreen(true)
+		video.set_fullscreen(true)
 	}
 	mu.layout_row(ctx, {-1}, -1)
 	video_body(ui, v, mu.layout_next(ctx))
@@ -428,17 +429,12 @@ video_title :: proc(v: ^conn.View) -> string {
 camera_full_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	title_row(ui, {-(icon_button_w(ctx) + ctx.style.spacing + 1), icon_button_w(ctx)})
-	with_text_color(
-		ctx,
-		theme.dim,
-		fmt.tprintf("%s (Escape leaves fullscreen)", video_title(ui.view)),
-		label_proc,
-	)
+	dim_label(ctx, fmt.tprintf("%s (Escape leaves fullscreen)", video_title(ui.view)))
 	if .SUBMIT in icon_button(ui, "video exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
 	   .Escape in ui.keys {
 		ui.keys -= {.Escape}
 		ui.camera.full = false
-		conn.video_set_fullscreen(false)
+		video.set_fullscreen(false)
 	}
 	mu.layout_row(ctx, {-1}, -1)
 	video_body(ui, ui.view, mu.layout_next(ctx))
@@ -504,7 +500,7 @@ camera_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	if shown_here &&
 	   .SUBMIT in icon_button(ui, "popped video fullscreen", .Fullscreen, "Fullscreen") {
 		cam.full = true
-		conn.video_set_fullscreen(true)
+		video.set_fullscreen(true)
 	}
 	if ns == ui.session &&
 	   .SUBMIT in icon_button(ui, "video pop in", .Pop_In, "Put back beside the chat") {
@@ -545,7 +541,7 @@ call_video :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
 	ctx := &ui.ctx
 	cam := &ui.camera
 	them := call_camera(v)
-	ours := conn.video_camera_state() == .Live
+	ours := video.camera_state() == .Live
 	if them == 0 || !ours {
 		cam.swapped = false
 	}
@@ -610,7 +606,7 @@ camera_grid :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
 		}
 	}
 	slice.sort_by(tiles[:], proc(a, b: Tile) -> bool {return a.user < b.user})
-	if conn.video_camera_state() == .Live {
+	if video.camera_state() == .Live {
 		append(
 			&tiles,
 			Tile {
@@ -733,7 +729,7 @@ peer_view :: proc(ui: ^UI, r: mu.Rect, user: proto.User_Num, off: string) {
 		return
 	}
 	note_drawn(ui, user, r)
-	texture, w, h, ok := conn.video_picture(&ui.renderer.gpu, {user, .Camera})
+	texture, w, h, ok := video.picture(&ui.renderer.gpu, {user, .Camera})
 	if !ok {
 		centred_text(ui, r, "Waiting for the picture...")
 		return
@@ -744,7 +740,7 @@ peer_view :: proc(ui: ^UI, r: mu.Rect, user: proto.User_Num, off: string) {
 // self_view draws our own camera as big as fits in `r`, mirrored unless the
 // settings say not to; `none` where there is no picture yet.
 self_view :: proc(ui: ^UI, r: mu.Rect, none := "Your camera") {
-	texture, w, h, ok := conn.video_camera_preview(&ui.renderer.gpu)
+	texture, w, h, ok := video.camera_preview(&ui.renderer.gpu)
 	if !ok {
 		centred_text(ui, r, none)
 		return

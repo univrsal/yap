@@ -8,28 +8,30 @@ import "core:strings"
 import "core:testing"
 
 import "common:proto"
+import "curl"
+import "webpush"
 
-// Tests for the Web Push cryptography (push_crypto.odin), using the example from RFC 8291.
+// Tests for the Web Push cryptography (webpush/crypto.odin), using the example from RFC 8291.
 
 @(test)
 test_push_encrypt_rfc8291 :: proc(t: ^testing.T) {
 	// RFC 8291, appendix A.
-	as_private, _ := base64url_decode(
+	as_private, _ := webpush.base64url_decode(
 		"yfWPiYE-n46HLnH0KqZOF1fJJU3MYrct3AELtAQ-oRw",
 		context.temp_allocator,
 	)
-	ua_public, _ := base64url_decode(
+	ua_public, _ := webpush.base64url_decode(
 		"BCVxsr7N_eNgVRqvHtD0zTZsEc6-VV-JvLexhqUzORcxaOzi6-AYWXvTBHm4bjyPjs7Vd8pZGH6SRpkNtoIAiw4",
 		context.temp_allocator,
 	)
-	salt, _ := base64url_decode("DGv6ra1nlYgDCS1FRnbzlw", context.temp_allocator)
-	auth, _ := base64url_decode("BTBZMqHH6r4Tts7J_aSIgg", context.temp_allocator)
+	salt, _ := webpush.base64url_decode("DGv6ra1nlYgDCS1FRnbzlw", context.temp_allocator)
+	auth, _ := webpush.base64url_decode("BTBZMqHH6r4Tts7J_aSIgg", context.temp_allocator)
 	want := "DGv6ra1nlYgDCS1FRnbzlwAAEABBBP4z9KsN6nGRTbVYI_c7VJSPQTBtkgcy27mlmlMoZIIgDll6e3vCYLocInmYWAmS6TlzAC8wEqKK6PBru3jl7A_yl95bQpu6cVPTpK4Mqgkf1CXztLVBSt2Ks3oZwbuwXPXLWyouBWLVWGNWQexSgSxsj_Qulcy4a-fN"
 
 	key: ecdh.Private_Key
 	testing.expect(t, ecdh.private_key_set_bytes(&key, .SECP256R1, as_private))
 	plaintext := "When I grow up, I want to be a watermelon"
-	body, ok := push_encrypt_with(
+	body, ok := webpush.encrypt_with(
 		transmute([]u8)plaintext,
 		ua_public,
 		auth,
@@ -38,38 +40,43 @@ test_push_encrypt_rfc8291 :: proc(t: ^testing.T) {
 		context.temp_allocator,
 	)
 	testing.expect(t, ok)
-	testing.expect_value(t, base64url(body, context.temp_allocator), want)
+	testing.expect_value(t, webpush.base64url(body, context.temp_allocator), want)
 
 	// Every call uses a fresh key and salt.
-	a, a_ok := push_encrypt(transmute([]u8)plaintext, ua_public, auth, context.temp_allocator)
-	b, b_ok := push_encrypt(transmute([]u8)plaintext, ua_public, auth, context.temp_allocator)
+	a, a_ok := webpush.encrypt(transmute([]u8)plaintext, ua_public, auth, context.temp_allocator)
+	b, b_ok := webpush.encrypt(transmute([]u8)plaintext, ua_public, auth, context.temp_allocator)
 	testing.expect(t, a_ok && b_ok)
 	testing.expect_value(t, len(a), len(body))
 	testing.expect(t, string(a) != string(b))
 
 	// An invalid p256dh point, or a payload that is too large.
-	bad := make([]u8, P256_PUBLIC_SIZE, context.temp_allocator)
+	bad := make([]u8, webpush.P256_PUBLIC_SIZE, context.temp_allocator)
 	bad[0] = 4
-	_, bad_ok := push_encrypt(transmute([]u8)plaintext, bad, auth, context.temp_allocator)
+	_, bad_ok := webpush.encrypt(transmute([]u8)plaintext, bad, auth, context.temp_allocator)
 	testing.expect(t, !bad_ok)
-	big := make([]u8, PUSH_PAYLOAD_MOST + 1, context.temp_allocator)
-	_, big_ok := push_encrypt(big, ua_public, auth, context.temp_allocator)
+	big := make([]u8, webpush.PUSH_PAYLOAD_MOST + 1, context.temp_allocator)
+	_, big_ok := webpush.encrypt(big, ua_public, auth, context.temp_allocator)
 	testing.expect(t, !big_ok)
-	most, most_ok := push_encrypt(big[:PUSH_PAYLOAD_MOST], ua_public, auth, context.temp_allocator)
+	most, most_ok := webpush.encrypt(
+		big[:webpush.PUSH_PAYLOAD_MOST],
+		ua_public,
+		auth,
+		context.temp_allocator,
+	)
 	testing.expect(t, most_ok)
 	testing.expect_value(t, len(most), 4096)
 }
 
 @(test)
 test_vapid_jwt :: proc(t: ^testing.T) {
-	encoded, ok := vapid_key_generate(context.temp_allocator)
+	encoded, ok := webpush.vapid_key_generate(context.temp_allocator)
 	testing.expect(t, ok)
 	key: ecdsa.Private_Key
-	testing.expect(t, vapid_key_parse(encoded, &key))
-	testing.expect(t, !vapid_key_parse("abcd", &key))
-	testing.expect(t, vapid_key_parse(encoded, &key))
+	testing.expect(t, webpush.vapid_key_parse(encoded, &key))
+	testing.expect(t, !webpush.vapid_key_parse("abcd", &key))
+	testing.expect(t, webpush.vapid_key_parse(encoded, &key))
 
-	jwt := vapid_jwt(
+	jwt := webpush.vapid_jwt(
 		&key,
 		"https://push.example.net",
 		"mailto:admin@example.org",
@@ -78,9 +85,9 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 	)
 	parts := strings.split(jwt, ".", context.temp_allocator)
 	testing.expect_value(t, len(parts), 3)
-	header, _ := base64url_decode(parts[0], context.temp_allocator)
+	header, _ := webpush.base64url_decode(parts[0], context.temp_allocator)
 	testing.expect_value(t, string(header), `{"typ":"JWT","alg":"ES256"}`)
-	claims, _ := base64url_decode(parts[1], context.temp_allocator)
+	claims, _ := webpush.base64url_decode(parts[1], context.temp_allocator)
 	testing.expect_value(
 		t,
 		string(claims),
@@ -89,7 +96,7 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 
 	pub: ecdsa.Public_Key
 	ecdsa.public_key_set_priv(&pub, &key)
-	sig, _ := base64url_decode(parts[2], context.temp_allocator)
+	sig, _ := webpush.base64url_decode(parts[2], context.temp_allocator)
 	signed := jwt[:len(parts[0]) + 1 + len(parts[1])]
 	testing.expect(t, ecdsa.verify_raw(&pub, .SHA256, transmute([]u8)signed, sig))
 }
@@ -98,9 +105,9 @@ test_vapid_jwt :: proc(t: ^testing.T) {
 // it would send stay in s.push.jobs.
 ts_push_on :: proc(t: ^testing.T, ts: ^Test_Server) {
 	p := &ts.s.push
-	encoded, ok := vapid_key_generate(context.temp_allocator)
+	encoded, ok := webpush.vapid_key_generate(context.temp_allocator)
 	testing.expect(t, ok)
-	testing.expect(t, vapid_key_parse(encoded, &p.key))
+	testing.expect(t, webpush.vapid_key_parse(encoded, &p.key))
 	ecdsa.private_key_public_bytes(&p.key, p.public[:])
 	p.enabled = true
 }
@@ -212,8 +219,8 @@ test_push_subscriptions :: proc(t: ^testing.T) {
 	testing.expect_value(t, subs[0].endpoint, "https://push.example.net/b")
 
 	// A subscription that the push service reports as gone is deleted.
-	ts.s.push.results = make([dynamic]Push_Result)
-	append(&ts.s.push.results, Push_Result{subs[0].id, .Gone})
+	ts.s.push.results = make([dynamic]webpush.Result)
+	append(&ts.s.push.results, webpush.Result{subs[0].id, .Gone})
 	push_sync(&ts.s)
 	testing.expect_value(t, len(push_subs_of(&ts.s, alice.id)), 0)
 
@@ -238,7 +245,7 @@ Sent_Push :: struct {
 	using payload: Push_Payload,
 	endpoint:      string,
 	ttl:           int,
-	urgency:       Push_Urgency,
+	urgency:       webpush.Urgency,
 }
 
 // pushes_sent takes the pushes the server loop has queued and clears the queue.
@@ -315,7 +322,7 @@ test_push_messages :: proc(t: ^testing.T) {
 	if len(sent) == 1 {
 		testing.expect_value(t, sent[0].kind, "dm")
 		testing.expect_value(t, sent[0].tag, fmt.tprintf("c%d", dm))
-		testing.expect_value(t, sent[0].urgency, Push_Urgency.High)
+		testing.expect_value(t, sent[0].urgency, webpush.Urgency.High)
 		testing.expect_value(t, sent[0].server, "Test server")
 		testing.expect_value(t, sent[0].conv, u32(dm))
 		testing.expect_value(t, sent[0].title, "bob messaged you")
@@ -449,7 +456,7 @@ test_push_calls :: proc(t: ^testing.T) {
 	if len(sent) == 2 {
 		testing.expect_value(t, sent[0].title, "Missed call from bob")
 		testing.expect(t, !sent[0].quiet && !sent[0].ring)
-		testing.expect_value(t, sent[0].urgency, Push_Urgency.Normal)
+		testing.expect_value(t, sent[0].urgency, webpush.Urgency.Normal)
 	}
 
 	// Without push subscriptions, calling someone who isn't connected is still
@@ -470,13 +477,13 @@ test_push_address_public :: proc(t: ^testing.T) {
 			6 = a[2],
 			7 = a[3],
 		}
-		return push_address_public(AF_INET, sa[:])
+		return webpush.address_public(curl.AF_INET, sa[:])
 	}
 	v6 :: proc(addr: [16]u8) -> bool {
 		addr := addr
 		sa: [28]u8
 		copy(sa[8:24], addr[:])
-		return push_address_public(AF_INET6, sa[:])
+		return webpush.address_public(curl.AF_INET6, sa[:])
 	}
 	for public in ([][4]u8{{142, 250, 185, 10}, {100, 128, 0, 1}, {172, 32, 0, 1}}) {
 		testing.expectf(t, v4(public), "%v", public)
@@ -513,7 +520,7 @@ test_push_address_public :: proc(t: ^testing.T) {
 	}
 	// Too short for what it claims to be, or another family.
 	short: [6]u8
-	testing.expect(t, !push_address_public(AF_INET, short[:]))
+	testing.expect(t, !webpush.address_public(curl.AF_INET, short[:]))
 	other: [16]u8
-	testing.expect(t, !push_address_public(1, other[:]))
+	testing.expect(t, !webpush.address_public(1, other[:]))
 }

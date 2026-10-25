@@ -55,21 +55,21 @@ DM_Command :: struct {
 	text:    string, // owned by the command
 }
 
-buddies_destroy :: proc(c: ^Voice_Client) {
+buddies_destroy :: proc(c: ^Server_Conn) {
 	delete(c.buddies.buddies)
 	c.buddies = {}
 }
 
 // buddies_begin forgets our buddies, either because the server is about to send
 // them again or because we've been logged out.
-buddies_begin :: proc(c: ^Voice_Client) {
+buddies_begin :: proc(c: ^Server_Conn) {
 	clear(&c.buddies.buddies)
 	publish_buddies(c)
 }
 
 // buddies_event handles an event about buddies. It returns false if `op` is not
 // a buddy event.
-buddies_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool {
+buddies_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 	if op != .Buddy_Changed {
 		return false
 	}
@@ -100,7 +100,7 @@ buddies_event :: proc(c: ^Voice_Client, op: proto.Event_Op, body: []u8) -> bool 
 
 // account_named returns the account that `name` refers to, matching either the
 // username or the display name. It returns 0 if there is no such account.
-account_named :: proc(c: ^Voice_Client, name: string) -> proto.Account_Id {
+account_named :: proc(c: ^Server_Conn, name: string) -> proto.Account_Id {
 	if id := account_by_username(c, name); id != 0 {
 		return id
 	}
@@ -115,7 +115,7 @@ account_named :: proc(c: ^Voice_Client, name: string) -> proto.Account_Id {
 // who returns the account a command refers to, which is `account` or else the
 // account called `name`. It returns 0 if that is ourselves.
 @(private = "file")
-who :: proc(c: ^Voice_Client, account: proto.Account_Id, name: string) -> proto.Account_Id {
+who :: proc(c: ^Server_Conn, account: proto.Account_Id, name: string) -> proto.Account_Id {
 	id := account if account != 0 else account_named(c, name)
 	switch {
 	case id == 0:
@@ -127,7 +127,7 @@ who :: proc(c: ^Voice_Client, account: proto.Account_Id, name: string) -> proto.
 	return id
 }
 
-buddy_command :: proc(c: ^Voice_Client, cmd: Buddy_Command) {
+buddy_command :: proc(c: ^Server_Conn, cmd: Buddy_Command) {
 	account := who(c, cmd.account, cmd.name)
 	if account == 0 {
 		return
@@ -137,7 +137,7 @@ buddy_command :: proc(c: ^Voice_Client, cmd: Buddy_Command) {
 		c,
 		.Buddy_Set,
 		proto.encode_buddy(&buf, account, cmd.on),
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok && status != .Reset {
 				log.warnf("the server failed to update your buddies (%v)", status)
 			}
@@ -146,7 +146,7 @@ buddy_command :: proc(c: ^Voice_Client, cmd: Buddy_Command) {
 }
 
 // is_online reports whether an account is connected to this server.
-is_online :: proc(c: ^Voice_Client, account: proto.Account_Id) -> bool {
+is_online :: proc(c: ^Server_Conn, account: proto.Account_Id) -> bool {
 	if !c.channels.have_state {
 		return false
 	}
@@ -160,7 +160,7 @@ is_online :: proc(c: ^Voice_Client, account: proto.Account_Id) -> bool {
 
 // dm_with returns our DM conversation with an account, or 0 if there isn't one
 // yet.
-dm_with :: proc(c: ^Voice_Client, account: proto.Account_Id) -> proto.Conv_Id {
+dm_with :: proc(c: ^Server_Conn, account: proto.Account_Id) -> proto.Conv_Id {
 	for id, info in c.convs.convs {
 		if info.kind == .DM && dm_other(c, info) == account {
 			return id
@@ -171,14 +171,14 @@ dm_with :: proc(c: ^Voice_Client, account: proto.Account_Id) -> proto.Conv_Id {
 
 // dm_other returns the other participant of a DM, which is the one of its two
 // accounts that isn't ours.
-dm_other :: proc(c: ^Voice_Client, info: Conv_Info) -> proto.Account_Id {
+dm_other :: proc(c: ^Server_Conn, info: Conv_Info) -> proto.Account_Id {
 	return info.b if info.a == c.auth.me else info.a
 }
 
 // dm_command opens the DM with somebody, first posting `text` if there is any.
 // If no conversation exists yet there is nothing to open, and posting the text
 // is what creates it.
-dm_command :: proc(c: ^Voice_Client, cmd: DM_Command) {
+dm_command :: proc(c: ^Server_Conn, cmd: DM_Command) {
 	account := who(c, cmd.account, cmd.name)
 	if account == 0 {
 		return
@@ -193,7 +193,7 @@ dm_command :: proc(c: ^Voice_Client, cmd: DM_Command) {
 	}
 }
 
-last_seen_command :: proc(c: ^Voice_Client, cmd: Last_Seen_Command) {
+last_seen_command :: proc(c: ^Server_Conn, cmd: Last_Seen_Command) {
 	cmd := cmd
 	if cmd.count == 0 && cmd.name != "" {
 		if account := who(c, 0, cmd.name); account != 0 {
@@ -209,7 +209,7 @@ last_seen_command :: proc(c: ^Voice_Client, cmd: Last_Seen_Command) {
 		c,
 		.Last_Seen,
 		body,
-		proc(c: ^Voice_Client, status: proto.Status, body: []u8, tag: u64) {
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
 				return
 			}
@@ -247,7 +247,7 @@ last_seen_command :: proc(c: ^Voice_Client, cmd: Last_Seen_Command) {
 }
 
 // list_buddies logs our buddies and DMs (headless /buddies).
-list_buddies :: proc(c: ^Voice_Client) {
+list_buddies :: proc(c: ^Server_Conn) {
 	for b in c.buddies.buddies {
 		log.infof("buddy: %s%s", account_display(c, b), " (here)" if is_online(c, b) else "")
 	}
@@ -272,7 +272,7 @@ list_buddies :: proc(c: ^Voice_Client) {
 }
 
 @(private = "file")
-dm_count :: proc(c: ^Voice_Client) -> (n: int) {
+dm_count :: proc(c: ^Server_Conn) -> (n: int) {
 	for _, info in c.convs.convs {
 		if info.kind == .DM {
 			n += 1
@@ -281,7 +281,7 @@ dm_count :: proc(c: ^Voice_Client) -> (n: int) {
 	return
 }
 
-publish_buddies :: proc(c: ^Voice_Client) {
+publish_buddies :: proc(c: ^Server_Conn) {
 	v := c.view
 	if v == nil {
 		return
@@ -291,7 +291,7 @@ publish_buddies :: proc(c: ^Voice_Client) {
 	append(&v.buddies, ..c.buddies.buddies[:])
 }
 
-publish_last_seen :: proc(c: ^Voice_Client, entries: []proto.Last_Seen_Entry) {
+publish_last_seen :: proc(c: ^Server_Conn, entries: []proto.Last_Seen_Entry) {
 	v := c.view
 	if v == nil {
 		return

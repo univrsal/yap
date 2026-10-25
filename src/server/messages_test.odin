@@ -4,9 +4,10 @@ import "core:os"
 import "core:testing"
 import "core:time"
 
+import "common:imagekind"
 import "common:proto"
 
-// Tests of messages and blobs, using the Test_Server from auth_test.odin.
+// Tests of messages and blobs, using the Test_Server from harness_test.odin.
 
 history_body :: proc(
 	conv: proto.Conv_Id,
@@ -278,13 +279,13 @@ test_jpeg :: proc(width, height: int, filler: u8) -> []u8 {
 
 @(test)
 test_jpeg_size :: proc(t: ^testing.T) {
-	w, h, ok := jpeg_size(test_jpeg(1920, 1080, 7))
+	w, h, ok := imagekind.jpeg_size(test_jpeg(1920, 1080, 7))
 	testing.expect(t, ok && w == 1920 && h == 1080)
-	_, _, ok = jpeg_size([]u8{0x89, 'P', 'N', 'G'})
+	_, _, ok = imagekind.jpeg_size([]u8{0x89, 'P', 'N', 'G'})
 	testing.expect(t, !ok)
-	_, _, ok = jpeg_size(test_jpeg(1920, 1080, 7)[:12])
+	_, _, ok = imagekind.jpeg_size(test_jpeg(1920, 1080, 7)[:12])
 	testing.expect(t, !ok)
-	_, _, ok = jpeg_size(nil)
+	_, _, ok = imagekind.jpeg_size(nil)
 	testing.expect(t, !ok)
 }
 
@@ -330,8 +331,7 @@ upload :: proc(
 // the only kind that's uploaded with Blob_Put.
 @(test)
 test_blob_transfer :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)
@@ -427,8 +427,7 @@ test_blob_transfer :: proc(t: ^testing.T) {
 
 @(test)
 test_messages_kept :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
@@ -479,7 +478,7 @@ test_request_limit :: proc(t: ^testing.T) {
 	testing.expect_value(t, status, proto.Status.Ok)
 
 	home := conv_by_name(&ts.s.convs, "Lobby").id
-	searches := int(alice.request_tokens) / int(request_cost(.Msg_Search))
+	searches := int(alice.requests.tokens) / int(request_cost(.Msg_Search))
 	buf: [proto.MSG_SEARCH_MAX_SIZE]u8
 	body := proto.encode_msg_search(&buf, {conv = home, limit = 10, query = "hello"})
 	for _ in 0 ..< searches {
@@ -489,15 +488,14 @@ test_request_limit :: proc(t: ^testing.T) {
 	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
 	testing.expect_value(t, status, proto.Status.Rate_Limited)
 	// A cheaper request may still fit.
-	alice.request_tokens = 1
-	alice.request_last = time.tick_now()
+	alice.requests = {1, time.tick_now()}
 	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
 	testing.expect_value(t, status, proto.Status.Rate_Limited)
 	status, _ = ts_ask(t, &ts, alice, .Server_Info)
 	testing.expect_value(t, status, proto.Status.Ok)
 
 	// After a while there are enough again.
-	alice.request_last = time.tick_add(time.tick_now(), -time.Second)
+	alice.requests.last = time.tick_add(time.tick_now(), -time.Second)
 	status, _ = ts_ask(t, &ts, alice, .Msg_Search, body)
 	testing.expect_value(t, status, proto.Status.Ok)
 }

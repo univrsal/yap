@@ -1,7 +1,6 @@
 #+build linux
 package hotkeys
 
-import "core:dynlib"
 import "core:fmt"
 import "core:os"
 import "core:sys/linux"
@@ -194,7 +193,7 @@ backend_open :: proc(b: ^Backend) -> (Status, string) {
 	switch {
 	case len(b.keyboards) > 0:
 		b.mode = .Evdev
-	case x11_open(&b.x11):
+	case x11_open(&b.x11, "libX11.so.6"):
 		b.mode = .X11
 	}
 	b.status, b.message = describe(b)
@@ -332,65 +331,13 @@ is_keyboard :: proc(fd: linux.Fd) -> bool {
 	return true
 }
 
-// X11 is loaded at runtime instead of being linked, so the client doesn't
-// need libX11 to start. It uses a display connection of its own, which is
-// only used from the watcher's thread. X11 keycodes are the evdev codes
-// plus 8, as the evdev driver has been used by every X server for years.
-@(private = "file")
-X11 :: struct {
-	lib:          dynlib.Library,
-	display:      rawptr,
-	query_keymap: proc "c" (display: rawptr, keys: ^[32]u8) -> i32,
-	close:        proc "c" (display: rawptr) -> i32,
-}
-
-@(private = "file")
-x11_open :: proc(x: ^X11) -> bool {
-	if os.get_env("DISPLAY", context.temp_allocator) == "" {
-		return false
-	}
-	lib, ok := dynlib.load_library("libX11.so.6")
-	if !ok {
-		return false
-	}
-	open_display, open_ok := dynlib.symbol_address(lib, "XOpenDisplay")
-	query, query_ok := dynlib.symbol_address(lib, "XQueryKeymap")
-	close_display, close_ok := dynlib.symbol_address(lib, "XCloseDisplay")
-	if !open_ok || !query_ok || !close_ok {
-		dynlib.unload_library(lib)
-		return false
-	}
-	display := (proc "c" (name: cstring) -> rawptr)(open_display)(nil)
-	if display == nil {
-		dynlib.unload_library(lib)
-		return false
-	}
-	x^ = {
-		lib          = lib,
-		display      = display,
-		query_keymap = auto_cast query,
-		close        = auto_cast close_display,
-	}
-	return true
-}
-
-@(private = "file")
-x11_close :: proc(x: ^X11) {
-	if x.display != nil {
-		x.close(x.display)
-	}
-	if x.lib != nil {
-		dynlib.unload_library(x.lib)
-	}
-	x^ = {}
-}
-
 // x11_query stores the keys that are down on the X server in `down`, as
-// evdev codes.
+// evdev codes. X11 keycodes are the evdev codes plus 8, as the evdev driver
+// has been used by every X server for years.
 @(private = "file")
 x11_query :: proc(x: ^X11, down: ^Key_Bits) -> bool {
 	keymap: [32]u8
-	if x.display == nil || x.query_keymap(x.display, &keymap) == 0 {
+	if !x11_keymap(x, &keymap) {
 		return false
 	}
 	for keycode in 8 ..< 256 {

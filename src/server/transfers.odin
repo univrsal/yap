@@ -4,10 +4,11 @@ import "core:crypto"
 import "core:log"
 import "core:time"
 
+import "common:imagekind"
 import "common:proto"
 
 // Blobs are uploaded to and downloaded from the server in chunks. How blobs
-// are requested is described in src/common/proto/msgs.odin and how the
+// are requested is described in src/common/proto/messages.odin and how the
 // chunks are transferred in src/common/proto/blob.odin.
 //
 // A client announces a picture with Blob_Put, which contains its kind (a
@@ -49,8 +50,7 @@ Download :: struct {
 	handle: u64, // the handle that the chunks are sent under
 	data:   []u8, // owned
 	send:   proto.Blob_Sender,
-	tokens: f32, // bytes that may be sent to this connection right now
-	last:   time.Tick,
+	pace:   proto.Bucket, // bytes that may be sent to this connection right now
 }
 
 // new_handle generates the handle of a transfer. It is random so that it
@@ -149,7 +149,7 @@ upload_chunk :: proc(s: ^Server, u: ^Conn, index: int, data: []u8) -> (done, sto
 	// All chunks have arrived. Check that the content is what was announced.
 	content := up.recv.data
 	put := up.put
-	width, height, is_jpeg := jpeg_size(content)
+	width, height, is_jpeg := imagekind.jpeg_size(content)
 	switch {
 	case blob_hash(content) != put.hash:
 		log.warnf("%s uploaded a picture that doesn't match its announced hash", conn_label(u))
@@ -206,7 +206,7 @@ blob_get_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		handle = new_handle(),
 		data = data,
 		send = {data = data},
-		last = time.tick_now(),
+		pace = {last = time.tick_now()}, // empty until the first refill
 	}
 	log.debugf("sending blob %d to %s", blob, conn_label(u))
 	respond(u, id, .Ok, proto.encode_blob_get_answer(&answer, len(data), down.handle))
@@ -281,18 +281,16 @@ send_chunks :: proc(s: ^Server, c: ^Client, down: ^Download, now: time.Tick) {
 	if !down.active {
 		return
 	}
-	elapsed := f32(time.duration_seconds(time.tick_diff(down.last, now)))
-	down.last = now
-	down.tokens = min(down.tokens + elapsed * TRANSFER_RATE, TRANSFER_BURST)
+	proto.bucket_refill(&down.pace, now, TRANSFER_RATE, TRANSFER_BURST)
 
 	out: [proto.MAX_PAYLOAD_SIZE]u8
-	for down.tokens > 0 {
+	for down.pace.tokens > 0 {
 		index, data, ok := proto.blob_next_chunk(&down.send)
 		if !ok {
 			break
 		}
 		send_message(s, c, proto.encode_blob_chunk(out[:], down.handle, index, data))
-		down.tokens -= f32(len(data))
+		down.pace.tokens -= f64(len(data))
 	}
 }
 
@@ -300,48 +298,4 @@ send_chunks :: proc(s: ^Server, c: ^Client, down: ^Download, now: time.Tick) {
 drop_conn_transfers :: proc(u: ^Conn) {
 	upload_end(u)
 	download_end(&u.download)
-}
-
-// jpeg_size returns the width and height from the first start-of-frame
-// segment of a JPEG's header. `ok` is false if `data` isn't a JPEG that has
-// one.
-jpeg_size :: proc(data: []u8) -> (width, height: int, ok: bool) {
-	if len(data) < 4 || data[0] != 0xFF || data[1] != 0xD8 {
-		return
-	}
-	at := 2
-	for at + 4 <= len(data) {
-		if data[at] != 0xFF {
-			return
-		}
-		marker := data[at + 1]
-		switch marker {
-		case 0xFF:
-			at += 1 // fill byte
-			continue
-		case 0x01, 0xD0 ..= 0xD7:
-			at += 2 // no length
-			continue
-		case 0xD9, 0xDA:
-			return // end of image or start of image data before any frame
-		}
-		length := int(data[at + 2]) << 8 | int(data[at + 3])
-		if length < 2 || at + 2 + length > len(data) {
-			return
-		}
-		switch marker {
-		// All start-of-frame markers, i.e. excluding the markers in this range
-		// that aren't (C4 is a Huffman table, C8 is reserved and CC is the
-		// arithmetic coding conditioning).
-		case 0xC0 ..= 0xC3, 0xC5 ..= 0xC7, 0xC9 ..= 0xCB, 0xCD ..= 0xCF:
-			if length < 7 {
-				return
-			}
-			height = int(data[at + 5]) << 8 | int(data[at + 6])
-			width = int(data[at + 7]) << 8 | int(data[at + 8])
-			return width, height, width > 0 && height > 0
-		}
-		at += 2 + length
-	}
-	return
 }

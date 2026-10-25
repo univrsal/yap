@@ -93,7 +93,7 @@ test_cache_pages :: proc(t: ^testing.T) {
 test_timeline_published :: proc(t: ^testing.T) {
 	v: View
 	defer view_destroy(&v)
-	c: Voice_Client
+	c: Server_Conn
 	c.view = &v
 	defer messages_destroy(&c)
 	conv := Timeline_Key{3, 0}

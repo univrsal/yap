@@ -5,10 +5,11 @@ import "core:strings"
 import "core:sync"
 
 import "client:conn"
+import "client:richtext"
 import glfw "client:wglfw"
 import "common:proto"
 
-// Notices are desktop notifications for being mentioned (conn/mentions.odin),
+// Notices are desktop notifications for being mentioned (richtext/mentions.odin),
 // for a DM (unless it is being read: dm_open) and for an incoming call
 // (ui_calls.odin). They go through the tray icon, which is how traycon reaches
 // the desktop's notification service. A web build uses the browser's own
@@ -54,7 +55,7 @@ session_notices :: proc(ui: ^UI, ns: ^Net_Session, named: bool) {
 		notice(
 			ui,
 			title,
-			conn.markdown_plain(m.text),
+			richtext.markdown_plain(m.text),
 			target = {ui = ui, ns = ns, conv = m.conv, msg = m.msg},
 		)
 	}

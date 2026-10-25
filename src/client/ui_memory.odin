@@ -111,13 +111,11 @@ memory_settings :: proc(ui: ^UI) {
 			log.infof("%s", line)
 		}
 	}
-	with_text_color(ctx, theme.dim, m.released, label_proc)
+	dim_label(ctx, m.released)
 	mu.layout_row(ctx, {-1})
-	with_text_color(
+	dim_note(
 		ctx,
-		theme.dim,
 		"Give back returns heap free's pages to the system: resident drops, malloc still lists them.",
-		wrap_text,
 	)
 	memory_report(ui, m.report)
 }
@@ -139,23 +137,16 @@ server_memory_settings :: proc(ui: ^UI, v: ^conn.View) {
 	sm := &v.server_memory
 	switch {
 	case sm.count == 0:
-		with_text_color(ctx, theme.dim, "Asking...", label_proc)
+		dim_label(ctx, "Asking...")
 	case sm.status == .Unknown_Op:
-		with_text_color(ctx, theme.dim, "This server is too old to say.", label_proc)
+		dim_label(ctx, "This server is too old to say.")
 	case sm.status != .Ok:
-		with_text_color(ctx, theme.error, conn.status_text(sm.status), label_proc)
+		error_label(ctx, conn.status_text(sm.status))
 	case:
 		mu.label(ctx, "")
 	}
 	if sm.count > 0 && sm.status == .Ok {
 		memory_report(ui, sm.report)
-	}
-}
-
-@(private = "file")
-command :: proc(ui: ^UI, cmd: conn.Command) {
-	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, cmd)
 	}
 }
 
@@ -176,7 +167,7 @@ memory_report :: proc(ui: ^UI, report: string) {
 		detail, _, about := strings.partition(after, "\t")
 		mu.layout_row(ctx, {80, 240, -1})
 		mu.draw_control_text(ctx, amount, mu.layout_next(ctx), .TEXT, {.ALIGN_RIGHT})
-		with_text_color(ctx, theme.dim, detail, label_proc)
+		dim_label(ctx, detail)
 		mu.label(ctx, about)
 	}
 }

@@ -189,13 +189,16 @@ conv_add :: proc(
 	position := 0,
 ) -> ^Conv {
 	now := unix_ms()
-	q := db_stmt(c.db, .Conv_Add)
-	db_bind_int(q, 1, i64(proto.Conv_Kind.Channel))
-	db_bind_int(q, 2, i64(transmute(u8)flags))
-	db_bind_text(q, 3, name)
-	db_bind_text(q, 4, topic)
-	db_bind_int(q, 5, i64(position))
-	db_bind_int(q, 6, now)
+	q := db_query(
+		c.db,
+		.Conv_Add,
+		i64(proto.Conv_Kind.Channel),
+		i64(transmute(u8)flags),
+		name,
+		topic,
+		i64(position),
+		now,
+	)
 	if by != 0 {
 		db_bind_int(q, 7, i64(by))
 	} else {
@@ -240,15 +243,17 @@ account_join_defaults :: proc(c: ^Convs, acc: ^Account) -> bool {
 // conv_rights_set replaces a channel's rights map, in the database and in
 // memory. The roles must exist.
 conv_rights_set :: proc(c: ^Convs, conv: ^Conv, entries: []proto.Role_Rights) -> bool {
-	q := db_stmt(c.db, .Conv_Rights_Clear)
-	db_bind_int(q, 1, i64(conv.id))
+	q := db_query(c.db, .Conv_Rights_Clear, i64(conv.id))
 	db_run(c.db, q) or_return
 	clear(&conv.rights)
 	for e in entries {
-		q = db_stmt(c.db, .Conv_Rights_Add)
-		db_bind_int(q, 1, i64(conv.id))
-		db_bind_int(q, 2, i64(e.role))
-		db_bind_int(q, 3, i64(transmute(u8)(e.rights & proto.CONV_RIGHTS_ALL)))
+		q = db_query(
+			c.db,
+			.Conv_Rights_Add,
+			i64(conv.id),
+			i64(e.role),
+			i64(transmute(u8)(e.rights & proto.CONV_RIGHTS_ALL)),
+		)
 		db_run(c.db, q) or_return
 		conv.rights[e.role] = e.rights & proto.CONV_RIGHTS_ALL
 	}
@@ -257,9 +262,7 @@ conv_rights_set :: proc(c: ^Convs, conv: ^Conv, entries: []proto.Role_Rights) ->
 
 // conv_rights_role_gone removes a deleted role from every channel's rights map.
 conv_rights_role_gone :: proc(c: ^Convs, role: proto.Role_Id) -> bool {
-	q := db_stmt(c.db, .Conv_Rights_Drop_Role)
-	db_bind_int(q, 1, i64(role))
-	db_run(c.db, q) or_return
+	db_write(c.db, .Conv_Rights_Drop_Role, i64(role)) or_return
 	for _, conv in c.by_id {
 		delete_key(&conv.rights, role)
 	}
@@ -321,12 +324,7 @@ dm_find :: proc(c: ^Convs, x, y: proto.Account_Id) -> ^Conv {
 dm_add :: proc(c: ^Convs, x, y: proto.Account_Id, by: proto.Account_Id) -> ^Conv {
 	a, b := min(x, y), max(x, y)
 	now := unix_ms()
-	q := db_stmt(c.db, .Conv_Add_DM)
-	db_bind_int(q, 1, i64(a))
-	db_bind_int(q, 2, i64(b))
-	db_bind_int(q, 3, now)
-	db_bind_int(q, 4, i64(by))
-	if !db_run(c.db, q) {
+	if !db_write(c.db, .Conv_Add_DM, i64(a), i64(b), now, i64(by)) {
 		return nil
 	}
 	conv := new(Conv)
@@ -359,9 +357,7 @@ dm_posted :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> bool {
 	if conv.posted[side] || conv.checked[side] || conv.last_msg == 0 {
 		return conv.posted[side]
 	}
-	q := db_stmt(c.db, .Msg_Posted_In)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(account))
+	q := db_query(c.db, .Msg_Posted_In, i64(conv.id), i64(account))
 	row, ok := db_step(c.db, q)
 	if row {
 		sqlite.reset(q)
@@ -453,12 +449,7 @@ conv_member_add :: proc(
 		return true
 	}
 	read := min(conv.last_msg, read_upto)
-	q := db_stmt(c.db, .Member_Add)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(account))
-	db_bind_int(q, 3, unix_ms())
-	db_bind_int(q, 4, i64(read))
-	db_run(c.db, q) or_return
+	db_write(c.db, .Member_Add, i64(conv.id), i64(account), unix_ms(), i64(read)) or_return
 	append(&conv.members, account)
 	conv.reads[account] = {
 		read = read,
@@ -480,11 +471,7 @@ conv_set_read :: proc(
 	if !ok || upto <= m.read {
 		return false
 	}
-	q := db_stmt(c.db, .Member_Set_Read)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(account))
-	db_bind_int(q, 3, i64(upto))
-	db_run(c.db, q) or_return
+	db_write(c.db, .Member_Set_Read, i64(conv.id), i64(account), i64(upto)) or_return
 	m.read = upto
 	return true
 }
@@ -501,11 +488,7 @@ conv_set_notify :: proc(
 	if !ok {
 		return false
 	}
-	q := db_stmt(c.db, .Member_Set_Notify)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(account))
-	db_bind_int(q, 3, i64(notify))
-	db_run(c.db, q) or_return
+	db_write(c.db, .Member_Set_Notify, i64(conv.id), i64(account), i64(notify)) or_return
 	m.notify = notify
 	return true
 }
@@ -518,10 +501,7 @@ conv_unread :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, read: pro
 	if read >= conv.last_msg {
 		return 0
 	}
-	q := db_stmt(c.db, .Msg_Unread)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(read))
-	db_bind_int(q, 3, i64(account))
+	q := db_query(c.db, .Msg_Unread, i64(conv.id), i64(read), i64(account))
 	row, ok := db_step(c.db, q)
 	if !ok || !row {
 		return 0
@@ -554,10 +534,7 @@ conv_mentions :: proc(
 	if read >= conv.last_msg {
 		return 0
 	}
-	q := db_stmt(c.db, .Mention_Count)
-	db_bind_int(q, 1, i64(account))
-	db_bind_int(q, 2, i64(conv.id))
-	db_bind_int(q, 3, i64(read))
+	q := db_query(c.db, .Mention_Count, i64(account), i64(conv.id), i64(read))
 	row, ok := db_step(c.db, q)
 	if !ok || !row {
 		return 0
@@ -574,10 +551,7 @@ conv_member_remove :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) ->
 	if !found {
 		return false
 	}
-	q := db_stmt(c.db, .Member_Remove)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(account))
-	db_run(c.db, q) or_return
+	db_write(c.db, .Member_Remove, i64(conv.id), i64(account)) or_return
 	ordered_remove(&conv.members, i)
 	delete_key(&conv.reads, account)
 	return true
@@ -633,12 +607,7 @@ conv_record :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> proto.
 // conv_update changes a channel's name (which must be sanitized, not empty and
 // not the name of another channel), topic and position in the lists.
 conv_update :: proc(c: ^Convs, conv: ^Conv, name, topic: string, position: int) -> bool {
-	q := db_stmt(c.db, .Conv_Update)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_text(q, 2, name)
-	db_bind_text(q, 3, topic)
-	db_bind_int(q, 4, i64(position))
-	db_run(c.db, q) or_return
+	db_write(c.db, .Conv_Update, i64(conv.id), name, topic, i64(position)) or_return
 	if name != conv.name {
 		delete(conv.name)
 		conv.name = strings.clone(name)
@@ -652,10 +621,7 @@ conv_update :: proc(c: ^Convs, conv: ^Conv, name, topic: string, position: int) 
 }
 
 conv_set_flags :: proc(c: ^Convs, conv: ^Conv, flags: proto.Conv_Flags) -> bool {
-	q := db_stmt(c.db, .Conv_Set_Flags)
-	db_bind_int(q, 1, i64(conv.id))
-	db_bind_int(q, 2, i64(transmute(u8)flags))
-	db_run(c.db, q) or_return
+	db_write(c.db, .Conv_Set_Flags, i64(conv.id), i64(transmute(u8)flags)) or_return
 	conv.flags = flags
 	return true
 }

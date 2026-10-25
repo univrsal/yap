@@ -6,6 +6,7 @@ import mu "vendor:microui"
 
 import "client:conn"
 import "client:platform"
+import "client:richtext"
 import "common:proto"
 
 // A message's own menu, opened by right-clicking the message in a timeline (or
@@ -116,7 +117,7 @@ message_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {MENU_WIDTH})
 	if mm.confirm {
-		with_text_color(ctx, theme.dim, "Delete it for everyone?", label_proc)
+		dim_label(ctx, "Delete it for everyone?")
 		half := (MENU_WIDTH - ctx.style.spacing) / 2
 		mu.layout_row(ctx, {half, half})
 		if .SUBMIT in stable_button(ctx, "cancel", "Cancel") {
@@ -132,11 +133,11 @@ message_menu :: proc(ui: ^UI) {
 		return
 	}
 	if deleted {
-		with_text_color(ctx, theme.dim, "This message was deleted.", label_proc)
+		dim_label(ctx, "This message was deleted.")
 		return
 	}
 	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "copy", "Copy text") {
-		shown, _ := conn.mentions_display(mm.text, v.accounts, v.roles[:], v.me)
+		shown, _ := richtext.mentions_display(mm.text, v.accounts, v.roles[:], v.me)
 		set_clipboard(nil, shown)
 		close(ctx)
 	}
@@ -154,7 +155,7 @@ message_menu :: proc(ui: ^UI) {
 // start_editing loads one of our messages into a composer to be edited
 // there.
 start_editing :: proc(ui: ^UI, id: proto.Msg_Id, text: string, c: Composer) {
-	c.len^ = copy(c.buf, conn.mentions_for_edit(text, ui.view.accounts, ui.view.roles[:]))
+	c.len^ = copy(c.buf, richtext.mentions_for_edit(text, ui.view.accounts, ui.view.roles[:]))
 	c.editing^ = id
 	c.conv^ = ui.view.viewing
 	focus_composer(ui, c, -1)
@@ -282,7 +283,7 @@ composer_keys :: proc(ui: ^UI, c: Composer) {
 
 // composer_format handles the markdown keys (Ctrl+B, Ctrl+I, Ctrl+U,
 // Ctrl+Shift+X, Ctrl+E) in a composer with the focus: the markers are put
-// around the selection or removed from it (conn.markdown_toggle). Nothing
+// around the selection or removed from it (richtext.markdown_toggle). Nothing
 // happens if the text would not fit.
 @(private = "file")
 composer_format :: proc(ui: ^UI, c: Composer) {
@@ -301,7 +302,7 @@ composer_format :: proc(ui: ^UI, c: Composer) {
 		if s.id == u64(mu.get_id(ctx, uintptr(&c.buf[0]))) {
 			sel = {clamp(s.selection[0], 0, c.len^), clamp(s.selection[1], 0, c.len^)}
 		}
-		out, lo, hi := conn.markdown_toggle(
+		out, lo, hi := richtext.markdown_toggle(
 			string(c.buf[:c.len^]),
 			min(sel[0], sel[1]),
 			max(sel[0], sel[1]),
@@ -327,8 +328,8 @@ composer_send :: proc(ui: ^UI, c: Composer, dm_to: proto.Account_Id = 0) -> bool
 	}
 	ui_redraw(ui) // so the box shrinks back to a single line
 	c.area.preview = false
-	text = conn.emoji_encode(
-		conn.mentions_encode(text, ui.view.accounts, ui.view.roles[:]),
+	text = richtext.emoji_encode(
+		richtext.mentions_encode(text, ui.view.accounts, ui.view.roles[:]),
 		ui.view.emoji.names[:],
 	)
 	if has_files {

@@ -7,7 +7,7 @@ import "core:testing"
 import "common:proto"
 
 // Tests of statuses, profile pictures and settings, using the Test_Server
-// from auth_test.odin.
+// from harness_test.odin.
 
 @(private = "file")
 profile :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, p: proto.Profile_Set) -> proto.Status {
@@ -43,8 +43,7 @@ told :: proc(
 
 @(test)
 test_status :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
@@ -149,8 +148,7 @@ test_status :: proc(t: ^testing.T) {
 
 @(test)
 test_avatar :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	ts: Test_Server
 	ts_open(t, &ts)

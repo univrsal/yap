@@ -9,12 +9,13 @@ import mu "vendor:microui"
 import "client:conn"
 import "client:platform"
 import "client:render"
+import "client:video"
 import "common:proto"
 
 // Screen sharing in the UI (see conn/video.odin): the Share button beside mute
 // and deafen, and the Screen tab beside the chat, which opens by itself when we
 // start watching somebody. Both work in a browser, and on the desktop with the
-// yap_video library (conn/video_native.odin). On the desktop, the Share button
+// yap_video library (video/native.odin). On the desktop, the Share button
 // opens a menu of monitors and windows to share (share_menu), or, where the
 // system asks by itself (Wayland's portal, macOS 15), the system's picker is
 // used. Where a playback device's audio can go along (ui_app_audio_native.odin),
@@ -26,8 +27,8 @@ import "common:proto"
 // ui_share_settings.odin), limited to what the server accepts.
 //
 // The page or the library decodes the picture and hands us the newest frame as
-// a texture (conn.video_picture), which is drawn like a chat image. The library
-// wakes the UI for each new frame (conn.video_set_wake), while a page draws
+// a texture (video.picture), which is drawn like a chat image. The library
+// wakes the UI for each new frame (video.set_wake), while a page draws
 // every frame anyway. Under the picture, if the settings say so, there is a
 // line of figures: size, frame rate, codec, bitrate and loss. Fullscreen in a
 // browser is the browser's, for the whole page, and on the desktop the picture
@@ -47,7 +48,7 @@ UI_Video :: struct {
 	window_closed:  proto.User_Num,
 	// The share menu: whether it is to be opened, and what it offers (owned).
 	menu_requested: bool,
-	sources:        []conn.Video_Source,
+	sources:        []video.Source,
 	allowed:        bool, // whether capturing is allowed (macOS asks the user)
 	// What the server accepts from a sharer (kbit/s, 0 if it didn't say), as
 	// share_button last saw it.
@@ -63,12 +64,12 @@ UI_Video :: struct {
 }
 
 // share_config is how to share, from the settings and the server's limit.
-share_config :: proc(ui: ^UI) -> conn.Share_Config {
+share_config :: proc(ui: ^UI) -> video.Share_Config {
 	return conn.share_config(&ui.settings, ui.video.limit_kbit)
 }
 
 ui_video_destroy :: proc(ui: ^UI) {
-	conn.video_forget_gpu(&ui.renderer.gpu)
+	video.forget_gpu(&ui.renderer.gpu)
 	free_sources(ui)
 	ui.video = {}
 }
@@ -86,22 +87,22 @@ free_sources :: proc(ui: ^UI) {
 // ui_video_forget_texture releases the picture's texture as its GPU device goes
 // (see ui_images_forget_textures), before that happens where there is a choice.
 ui_video_forget_texture :: proc(ui: ^UI) {
-	conn.video_forget_gpu(&ui.renderer.gpu)
+	video.forget_gpu(&ui.renderer.gpu)
 }
 
 // can_watch_screens says whether we can watch anybody's screen: that needs the
 // add-on (or a browser that decodes) and the media link. Call with the View
 // locked.
 can_watch_screens :: proc(ui: ^UI) -> bool {
-	return conn.video_can_watch() && ui.view.video_link
+	return video.can_watch() && ui.view.video_link
 }
 
 // share_button starts or stops sharing our screen. It is only shown where
-// sharing is possible (video_can_share). Call with the View locked.
+// sharing is possible (video.can_share). Call with the View locked.
 share_button :: proc(ui: ^UI) {
 	ui.video.limit_kbit = ui.view.video_limit_kbit
-	system := conn.video_system_picker()
-	state := conn.video_share_state()
+	system := video.system_picker()
+	state := video.share_state()
 	if state != .Off {
 		// The page may change it (the browser's own Stop sharing), or the
 		// library may (a shared window was closed).
@@ -132,11 +133,11 @@ share_button :: proc(ui: ^UI) {
 		}
 	case .Starting:
 		hint, color = "Starting to share...", theme.dim
-		if !conn.VIDEO_PICKER || system {
+		if !video.PICKER || system {
 			hint = "Choosing what to share (in the system's picker)..."
 		}
 	case .Failed:
-		why := conn.video_share_error()
+		why := video.share_error()
 		if why == "" {
 			why = "the browser's console says why"
 		}
@@ -146,16 +147,16 @@ share_button :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in icon_button(ui, "share", .Screen, hint, color) {
 		if state == .Live || state == .Starting {
-			conn.video_share_stop()
+			video.share_stop()
 		} else if system && !app_audio_available(ui) {
 			// Its picker is all there is to ask.
-			conn.video_share_source({}, share_config(ui))
-		} else if conn.VIDEO_PICKER {
+			video.share_source({}, share_config(ui))
+		} else if video.PICKER {
 			ui.video.menu_requested = true
 		} else {
 			// Straight from the click: the browser only opens its picker for
 			// something the user just did.
-			conn.video_share_start(share_config(ui))
+			video.share_start(share_config(ui))
 		}
 	}
 }
@@ -171,18 +172,18 @@ SHARE_MENU_WIDTH :: 320
 // before). Where the system has its own picker, a button opens that instead
 // of the monitors and windows.
 share_menu :: proc(ui: ^UI) {
-	when !conn.VIDEO_PICKER {
+	when !video.PICKER {
 		return
 	}
 	ctx := &ui.ctx
 	vid := &ui.video
-	system := conn.video_system_picker()
+	system := video.system_picker()
 	if vid.menu_requested {
 		vid.menu_requested = false
 		free_sources(ui)
-		vid.allowed = conn.video_capture_allowed()
+		vid.allowed = video.capture_allowed()
 		if !system {
-			vid.sources = conn.video_sources(context.allocator)
+			vid.sources = video.sources(context.allocator)
 		}
 		share_audio_refresh(ui)
 		mu.open_popup(ctx, SHARE_MENU)
@@ -205,14 +206,14 @@ share_menu :: proc(ui: ^UI) {
 	if system {
 		mu.layout_row(ctx, {SHARE_MENU_WIDTH})
 		if .SUBMIT in stable_button(ctx, "pick", "Choose a screen or window...") {
-			conn.video_share_source({}, share_config(ui))
+			video.share_source({}, share_config(ui))
 			share_audio_start(ui)
 			mu.get_current_container(ctx).open = false
 		}
 		return
 	}
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
-	with_text_color(ctx, theme.dim, "Share a monitor:", label_proc)
+	dim_label(ctx, "Share a monitor:")
 	picked := -1
 	windows := 0
 	for s in vid.sources {
@@ -243,7 +244,7 @@ share_menu :: proc(ui: ^UI) {
 	}
 	if windows > 0 {
 		mu.layout_row(ctx, {-1})
-		with_text_color(ctx, theme.dim, "Or a window:", label_proc)
+		dim_label(ctx, "Or a window:")
 	}
 	for s, i in vid.sources {
 		if s.kind != .Window {
@@ -262,7 +263,7 @@ share_menu :: proc(ui: ^UI) {
 		vid.menu_requested = true
 	}
 	if picked >= 0 {
-		conn.video_share_source(vid.sources[picked], share_config(ui))
+		video.share_source(vid.sources[picked], share_config(ui))
 		share_audio_start(ui)
 		mu.get_current_container(ctx).open = false
 	}
@@ -282,7 +283,7 @@ allow_capture :: proc(ui: ^UI) {
 	)
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
 	if .SUBMIT in stable_button(ctx, "allow", "Allow screen recording") {
-		conn.video_allow_capture()
+		video.allow_capture()
 	}
 	mu.layout_row(ctx, {SHARE_MENU_WIDTH})
 	if .SUBMIT in stable_button(ctx, "refresh", "Check again") {
@@ -293,7 +294,7 @@ allow_capture :: proc(ui: ^UI) {
 // watch starts watching `user`, or stops watching with 0.
 watch :: proc(ui: ^UI, user: proto.User_Num) {
 	if ui.session != nil {
-		conn.push_command(&ui.session.client.commands, conn.Watch_Command{user})
+		command(ui, conn.Watch_Command{user})
 	}
 }
 
@@ -319,7 +320,7 @@ screen_tab_follow :: proc(ui: ^UI) {
 		if ui.chat.tab == .Screen {
 			ui.chat.tab = .Chat
 		}
-		conn.video_set_fullscreen(false)
+		video.set_fullscreen(false)
 	}
 }
 
@@ -359,7 +360,7 @@ screen_panel :: proc(ui: ^UI) {
 		ui.chat.tab = .Chat
 	}
 	if .SUBMIT in icon_button(ui, "fullscreen", .Fullscreen, "Fullscreen") {
-		conn.video_set_fullscreen(true)
+		video.set_fullscreen(true)
 	}
 	if .SUBMIT in icon_button(ui, "stop watching", .Screen_Off, "Stop watching") {
 		watch(ui, 0)
@@ -414,7 +415,7 @@ screen_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	// In fullscreen, the picture fills the window (session_screen).
 	if v.watching == 0 ||
 	   v.watching == vid.window_closed ||
-	   (shown_here && conn.video_is_fullscreen()) {
+	   (shown_here && video.is_fullscreen()) {
 		vid.window_shown = false
 		return
 	}
@@ -461,7 +462,7 @@ screen_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, widths[:buttons + 1])
 	mu.label(ctx, fmt.tprintf("%s's screen", watched_name(v)))
 	if shown_here && .SUBMIT in icon_button(ui, "popped fullscreen", .Fullscreen, "Fullscreen") {
-		conn.video_set_fullscreen(true)
+		video.set_fullscreen(true)
 	}
 	if ns == ui.session &&
 	   .SUBMIT in icon_button(ui, "pop in", .Pop_In, "Put back beside the chat") {
@@ -479,7 +480,7 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 	ctx := &ui.ctx
 	vid := &ui.video
 	s := v.video_stats
-	frames, hardware := conn.video_picture_info({v.watching, .Screen})
+	frames, hardware := video.picture_info({v.watching, .Screen})
 	// The frame rate, from how many frames were decoded in the last second.
 	if now := time.tick_now(); vid.fps_at == {} || frames < vid.fps_frames {
 		vid.fps_at, vid.fps_frames = now, frames
@@ -527,16 +528,11 @@ figures_line :: proc(ui: ^UI, v: ^conn.View) {
 fullscreen_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	title_row(ui, {-(icon_button_w(ctx) + ctx.style.spacing + 1), icon_button_w(ctx)})
-	with_text_color(
-		ctx,
-		theme.dim,
-		fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui.view)),
-		label_proc,
-	)
+	dim_label(ctx, fmt.tprintf("%s's screen (Escape leaves fullscreen)", watched_name(ui.view)))
 	if .SUBMIT in icon_button(ui, "exit fullscreen", .Exit_Fullscreen, "Leave fullscreen") ||
 	   .Escape in ui.keys {
 		ui.keys -= {.Escape}
-		conn.video_set_fullscreen(false)
+		video.set_fullscreen(false)
 	}
 	mu.layout_row(ctx, {-1}, -1)
 	picture(ui, mu.layout_next(ctx), {ui.view.watching, .Screen})
@@ -544,13 +540,13 @@ fullscreen_screen :: proc(ui: ^UI) {
 
 // picture draws the newest frame as big as fits in `r`, on black.
 @(private = "file")
-picture :: proc(ui: ^UI, r: mu.Rect, key: conn.Video_Key) {
+picture :: proc(ui: ^UI, r: mu.Rect, key: video.Key) {
 	ctx := &ui.ctx
-	texture, pw, ph, have := conn.video_picture(&ui.renderer.gpu, key)
+	texture, pw, ph, have := video.picture(&ui.renderer.gpu, key)
 	if have {
 		ui.video.size = {pw, ph}
 	}
-	// The library wakes us for each new picture (conn.video_set_wake), while
+	// The library wakes us for each new picture (video.set_wake), while
 	// a page has to look every frame.
 	when platform.WEB {
 		ui_redraw_at(ui, time.tick_now())

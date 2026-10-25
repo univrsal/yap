@@ -22,10 +22,10 @@ fragments :: proc(num: u32, key: bool, data: []u8) -> []Video_Fragment {
 	out := make([]Video_Fragment, count, context.temp_allocator)
 	for i in 0 ..< count {
 		start, end := video_fragment_range(len(data), i)
-		buf := make([]u8, MAX_PAYLOAD_SIZE, context.temp_allocator)
-		msg := encode_video_down(
-			buf,
-			9,
+		up := make([]u8, MAX_PAYLOAD_SIZE, context.temp_allocator)
+		down := new([MAX_PAYLOAD_SIZE]u8, context.temp_allocator)
+		msg := encode_video_up(
+			up,
 			{
 				frame = num,
 				ts = num * 100,
@@ -35,7 +35,7 @@ fragments :: proc(num: u32, key: bool, data: []u8) -> []Video_Fragment {
 				data = data[start:end],
 			},
 		)
-		sharer, f, ok := decode_video_down(msg)
+		sharer, f, ok := decode_video_down(video_up_to_down(down, 9, msg))
 		assert(ok && sharer == 9)
 		out[i] = f
 	}

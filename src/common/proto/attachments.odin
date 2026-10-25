@@ -3,7 +3,7 @@ package proto
 import "core:encoding/endian"
 
 // Attachments: files that are uploaded to the server together with a message
-// in a channel or a DM. They are kept until the message is deleted (msgs.odin
+// in a channel or a DM. They are kept until the message is deleted (messages.odin
 // describes how a message carries them). A file sent in a DM (files.odin) goes
 // directly from one client to the other and is never stored. An attachment is
 // uploaded once instead and can be fetched by any member at any time.
@@ -41,7 +41,6 @@ MAX_ATTACH_TRANSFERS :: 4
 
 ATTACH_PUT_MAX_SIZE :: 8 + 1 + MAX_FILE_NAME
 ATTACH_PUT_ANSWER_SIZE :: 8
-ATTACH_GET_SIZE :: 8
 ATTACH_GET_ANSWER_SIZE :: 8 + 8
 
 Attach_Put :: struct {
@@ -68,15 +67,11 @@ decode_attach_put :: proc(body: []u8) -> (p: Attach_Put, ok: bool) {
 }
 
 encode_attach_id :: proc(out: ^[8]u8, id: u64) -> []u8 {
-	endian.unchecked_put_u64le(out[:], id)
-	return out[:]
+	return id_put(out[:], id)
 }
 
 decode_attach_id :: proc(body: []u8) -> (id: u64, ok: bool) {
-	if len(body) != 8 {
-		return
-	}
-	return endian.unchecked_get_u64le(body), true
+	return id_get(u64, body)
 }
 
 encode_attach_get_answer :: proc(

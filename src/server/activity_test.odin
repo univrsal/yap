@@ -5,7 +5,7 @@ import "core:testing"
 
 import "common:proto"
 
-// Tests of activity (activity.odin), on the Test_Server of auth_test.odin.
+// Tests of activity (activity.odin), on the Test_Server of harness_test.odin.
 
 // seen_as returns the activity `u` was last told `account` has, and
 // whether it was told anything at all.
@@ -48,8 +48,7 @@ ask_idle :: proc(t: ^testing.T, ts: ^Test_Server, u: ^Conn, idle: bool) {
 
 @(test)
 test_activity :: proc(t: ^testing.T) {
-	base, _ := os.temp_directory(context.temp_allocator)
-	dir, _ := os.make_directory_temp(base, "yap-test-*", context.temp_allocator)
+	dir := test_dir(t)
 	defer remove_tree(dir)
 	path, _ := os.join_path({dir, DB_FILE}, context.temp_allocator)
 
