@@ -347,7 +347,19 @@ files_step :: proc(c: ^Server_Conn) {
 		}
 		if t.outgoing {
 			if t.state == .Transferring {
-				send_chunks(c, t, now)
+				if !send_chunks(
+					c,
+					&t.send,
+					&t.src,
+					nil,
+					t.size,
+					t.name,
+					.File_Chunk,
+					u64(t.id),
+					now,
+				) {
+					end_transfer(c, t, .Failed, .Failed)
+				}
 			}
 		} else {
 			#partial switch t.state {
@@ -375,34 +387,47 @@ files_step :: proc(c: ^Server_Conn) {
 	}
 }
 
-// send_chunks sends as much as the pace allows (see transfer.odin): first the
-// chunks that were requested again, then new ones within the window.
-@(private = "file")
-send_chunks :: proc(c: ^Server_Conn, t: ^File_Transfer, now: time.Tick) {
-	rate := transfer_rate(c.files.upload_limit, t.send.peer_rate)
-	proto.transfer_refill(&t.send, now, rate, FILE_BURST * rate / FILE_MAX_RATE)
+// send_chunks sends as much of a file as the pace allows (see transfer.odin):
+// first the chunks that were requested again, then new ones within the window.
+// The bytes come from `src`, or from `memory` if there is any (a pasted
+// picture). `kind` and `id` are what the chunks are sent as. It returns false
+// if the file cannot be read.
+send_chunks :: proc(
+	c: ^Server_Conn,
+	send: ^proto.Transfer_Sender,
+	src: ^File_Source,
+	memory: []u8,
+	size: u64,
+	name: string,
+	kind: proto.Message_Kind,
+	id: u64,
+	now: time.Tick,
+) -> bool {
+	rate := transfer_rate(c.files.upload_limit, send.peer_rate)
+	proto.transfer_refill(send, now, rate, FILE_BURST * rate / FILE_MAX_RATE)
 	data: [proto.FILE_CHUNK_DATA]u8
+	out: [proto.MAX_PAYLOAD_SIZE]u8
 	for {
-		index, first, ok := proto.transfer_pick(&t.send, now)
+		index, first, ok := proto.transfer_pick(send, now)
 		if !ok {
-			return
+			return true
 		}
-		start, end := proto.file_chunk_range(t.size, index)
-		ready, read_ok := file_source_read(&t.src, start, data[:end - start])
+		start, end := proto.file_chunk_range(size, index)
+		ready, read_ok := true, true
+		if memory != nil {
+			copy(data[:end - start], memory[start:end])
+		} else {
+			ready, read_ok = file_source_read(src, start, data[:end - start])
+		}
 		if !read_ok {
-			log.errorf("[file] could not read %q", t.name)
-			end_transfer(c, t, .Failed, .Failed)
-			return
+			log.errorf("[file] could not read %q", name)
+			return false
 		}
 		if !ready {
-			return // a browser is still reading it, so try again next time
+			return true // a browser is still reading it, so try again next time
 		}
-		out: [proto.MAX_PAYLOAD_SIZE]u8
-		send_data(
-			c,
-			proto.encode_transfer_chunk(out[:], .File_Chunk, u64(t.id), index, data[:end - start]),
-		)
-		proto.transfer_sent(&t.send, index, first, int(end - start), now)
+		send_data(c, proto.encode_transfer_chunk(out[:], kind, id, index, data[:end - start]))
+		proto.transfer_sent(send, index, first, int(end - start), now)
 	}
 }
 

@@ -613,24 +613,7 @@ conv_browse :: proc(c: ^Server_Conn, cmd: Browse_Command) {
 			for record in found {
 				append(&cv.browse, entry_of(record))
 			}
-			if c.view == nil {
-				if len(cv.browse) == 0 {
-					log.info(
-						"there are no other channels to subscribe to" if cv.browse_query == "" else "no other channel has that in its name or topic",
-					)
-				}
-				for record in found {
-					log.infof(
-						"can subscribe to %q%s%s",
-						record.name,
-						": " if record.topic != "" else "",
-						record.topic,
-					)
-				}
-				if more {
-					log.info("and more (/browse more)")
-				}
-			}
+			report_browse(c, cv.browse_query, len(cv.browse), found, more)
 			publish_browse(c)
 		},
 		tag,

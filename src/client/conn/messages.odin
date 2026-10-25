@@ -585,26 +585,7 @@ history_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64
 	case:
 		cache_prepend(cache, page, more)
 	}
-	if c.view == nil {
-		// Headless: log what arrived.
-		place := room_name(c, proto.Room(conv))
-		if key.root != 0 {
-			place = fmt.tprintf("%s, thread #%d", place, key.root)
-		}
-		if len(got) > 0 {
-			log.infof(
-				"[history] %s: %d messages (%d to %d)%s, %d in all",
-				place,
-				len(got),
-				got[0].id,
-				got[len(got) - 1].id,
-				", back to the first" if cache.have_oldest else "",
-				len(cache.messages),
-			)
-		} else {
-			log.infof("[history] %s: no messages", place)
-		}
-	}
+	report_history(c, key, got, cache.have_oldest, len(cache.messages))
 	publish_timeline(c, key)
 }
 
@@ -809,14 +790,7 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 			m.conv,
 			m.id,
 		)
-		if c.view == nil {
-			log.infof(
-				"[mention] %s mentioned you in %s: %s",
-				account_display(c, m.sender),
-				room_name(c, proto.Room(m.conv)),
-				shown,
-			)
-		}
+		report_mention(c, m, shown)
 	case interrupts && !quiet(c):
 		audio.voice_notification_play(&c.voice, .Direct_Message if dm else .Message)
 	}
@@ -826,23 +800,7 @@ message_arrived :: proc(c: ^Server_Conn, m: proto.Message) {
 			publish_unread(c)
 		}
 	}
-	if c.view == nil {
-		// Headless: the log is the only place to show it.
-		place := room_name(c, proto.Room(m.conv))
-		who := account_display(c, m.sender)
-		if m.thread_root != 0 {
-			log.infof(
-				"[chat] %s %s (#%d, in the thread of #%d): %s",
-				place,
-				who,
-				m.id,
-				m.thread_root,
-				describe(c, m),
-			)
-		} else {
-			log.infof("[chat] %s %s (#%d): %s", place, who, m.id, describe(c, m))
-		}
-	}
+	report_message(c, m)
 }
 
 // cache_has_newer reports whether a window ends at or past `id`, which means
@@ -861,59 +819,6 @@ dm_notice_text :: proc(c: ^Server_Conn, m: proto.Message) -> string {
 	text, _ := richtext.mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
 	if text == "" && .Has_Attachments in m.flags {
 		return "Sent you a file"
-	}
-	return text
-}
-
-// describe returns a message as the log shows it (headless).
-@(private = "file")
-describe :: proc(c: ^Server_Conn, m: proto.Message) -> string {
-	if .Deleted in m.flags {
-		return "(deleted)"
-	}
-	text: string
-	#partial switch m.kind {
-	case .System:
-		text = system_text(
-			m.system,
-			m.system_arg,
-			account_display(c, m.sender),
-			m.sender == c.auth.me,
-		)
-	case .Text:
-		text, _ = richtext.mentions_display(m.text, c.auth.accounts, dir_roles(c), c.auth.me)
-		if .Has_Attachments in m.flags {
-			b := strings.builder_make(context.temp_allocator)
-			strings.write_string(&b, text)
-			for i in 0 ..< m.attachment_count {
-				a := m.attachments[i]
-				if a.blob == 0 {
-					fmt.sbprintf(&b, " [file %d: %q, no longer kept]", i + 1, a.name)
-				} else {
-					fmt.sbprintf(&b, " [file %d: %q, %s]", i + 1, a.name, format_bytes(a.size))
-				}
-			}
-			text = strings.to_string(b)
-		}
-	case .File:
-		text = fmt.tprintf("offers the file %q (%s)", m.file_name, format_bytes(m.file_size))
-	}
-	if m.edited != 0 {
-		text = fmt.tprintf("%s (edited)", text)
-	}
-	if .Pinned in m.flags {
-		text = fmt.tprintf("%s (pinned)", text)
-	}
-	if .Has_Thread in m.flags {
-		text = fmt.tprintf("%s (%d replies)", text, m.reply_count)
-	}
-	if .Forwarded in m.flags {
-		text = fmt.tprintf(
-			"%s (forwarded from %s, #%d)",
-			text,
-			account_display(c, m.forward.sender),
-			m.forward.conv,
-		)
 	}
 	return text
 }
@@ -965,14 +870,7 @@ message_changed :: proc(c: ^Server_Conn, m: proto.Message) {
 	if c.msgs.pins_conv == m.conv {
 		pins_fetch(c, m.conv)
 	}
-	if c.view == nil {
-		log.infof(
-			"[chat] %s, message #%d is now: %s",
-			room_name(c, proto.Room(m.conv)),
-			m.id,
-			describe(c, m),
-		)
-	}
+	report_changed(c, m)
 }
 
 // msgs_purged handles the server telling us that it has purged a conversation's
@@ -1031,13 +929,7 @@ msgs_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 			}
 		}
 	}
-	if c.view == nil {
-		log.infof(
-			"[chat] %s: the messages below #%d were purged",
-			room_name(c, proto.Room(p.conv)),
-			p.before,
-		)
-	}
+	report_purged(c, p)
 }
 
 // purge_files removes the files from a conversation's messages below the
@@ -1350,20 +1242,7 @@ pins_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 				return
 			}
 			publish_pins(c, conv, pins)
-			if c.view == nil {
-				if len(pins) == 0 {
-					log.infof("[pins] %s: nothing pinned", room_name(c, proto.Room(conv)))
-				}
-				for m in pins {
-					log.infof(
-						"[pins] %s %s (#%d): %s",
-						room_name(c, proto.Room(conv)),
-						account_display(c, m.sender),
-						m.id,
-						describe(c, m),
-					)
-				}
-			}
+			report_pins(c, conv, pins)
 		},
 		u64(conv),
 	)
@@ -1574,22 +1453,7 @@ handle_typing :: proc(c: ^Server_Conn, pt: []u8) {
 		return
 	}
 	publish_typing(c, {conv, root}, account)
-	if c.view == nil {
-		if root != 0 {
-			log.infof(
-				"[chat] %s is typing in %s, in the thread of #%d",
-				account_display(c, account),
-				room_name(c, proto.Room(conv)),
-				root,
-			)
-		} else {
-			log.infof(
-				"[chat] %s is typing in %s",
-				account_display(c, account),
-				room_name(c, proto.Room(conv)),
-			)
-		}
-	}
+	report_typing(c, conv, root, account)
 }
 
 // drive_outbox advances the oldest entry in our outbox: a message is posted

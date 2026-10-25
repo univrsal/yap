@@ -361,7 +361,17 @@ upload_turn :: proc(c: ^Server_Conn, now: time.Tick) {
 				if !upload_again(c, p, active) {
 					continue // the message was given up, so `i` already refers to the next one
 				}
-			} else if !send_upload(c, active, now) {
+			} else if !send_chunks(
+				c,
+				&active.send,
+				&active.src,
+				active.memory,
+				active.size,
+				active.name,
+				.Upload_Chunk,
+				active.id,
+				now,
+			) {
 				drop_post(c, p, "A file could not be read, so the message was not sent.")
 				continue
 			}
@@ -369,41 +379,6 @@ upload_turn :: proc(c: ^Server_Conn, now: time.Tick) {
 		}
 		// Only one file is uploaded at a time, across all messages.
 		return
-	}
-}
-
-// send_upload sends as much of a file as the pace allows. It returns false if
-// the file cannot be read.
-@(private = "file")
-send_upload :: proc(c: ^Server_Conn, f: ^Attach_Upload, now: time.Tick) -> bool {
-	rate := transfer_rate(c.files.upload_limit, f.send.peer_rate)
-	proto.transfer_refill(&f.send, now, rate, FILE_BURST * rate / FILE_MAX_RATE)
-	data: [proto.FILE_CHUNK_DATA]u8
-	out: [proto.MAX_PAYLOAD_SIZE]u8
-	for {
-		index, first, ok := proto.transfer_pick(&f.send, now)
-		if !ok {
-			return true
-		}
-		start, end := proto.file_chunk_range(f.size, index)
-		ready, read_ok := true, true
-		if f.memory != nil {
-			copy(data[:end - start], f.memory[start:end])
-		} else {
-			ready, read_ok = file_source_read(&f.src, start, data[:end - start])
-		}
-		if !read_ok {
-			log.errorf("[file] could not read %q", f.name)
-			return false
-		}
-		if !ready {
-			return true // a browser is still reading it, so try again next time
-		}
-		send_data(
-			c,
-			proto.encode_transfer_chunk(out[:], .Upload_Chunk, f.id, index, data[:end - start]),
-		)
-		proto.transfer_sent(&f.send, index, first, int(end - start), now)
 	}
 }
 

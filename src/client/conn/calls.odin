@@ -194,13 +194,7 @@ calls_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 				here   = here,
 				since  = time.tick_now(),
 			}
-			if c.view == nil {
-				log.infof(
-					"[call] in a call with %s%s",
-					account_display(c, peer),
-					"" if here else " (on another device)",
-				)
-			}
+			report_call_active(c, peer, here)
 		case .Ended:
 			if cc.id == change.id {
 				// Only the connection that is in the call (or started it)
@@ -215,13 +209,7 @@ calls_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 				}
 				cc^ = {}
 			}
-			if c.view == nil {
-				log.infof(
-					"[call] the call with %s is over (%v)",
-					account_display(c, peer),
-					change.reason,
-				)
-			}
+			report_call_over(c, peer, change.reason)
 		}
 	case:
 		return false

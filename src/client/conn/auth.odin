@@ -497,18 +497,8 @@ auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 			roles        = slice.clone(record.roles),
 			activity     = record.activity,
 		}
-		if c.view == nil && a.state == .Done && was_status != record.status {
-			// Headless: log the statuses as they change.
-			if record.status == "" {
-				log.infof("[status] %s has no status", record.display)
-			} else {
-				log.infof(
-					"[status] %s: %s%s",
-					record.display,
-					record.status,
-					" (for a while)" if record.status_until != 0 else "",
-				)
-			}
+		if a.state == .Done && was_status != record.status {
+			report_status(c, record.display, record.status, record.status_until)
 		}
 		publish_directory(c)
 	case .Self:
@@ -762,15 +752,7 @@ auth_devices :: proc(c: ^Server_Conn, account: proto.Account_Id = 0) {
 						flags = d.flags,
 					},
 				)
-				if c.view == nil {
-					log.infof(
-						"device %s %q%s%s",
-						fingerprint(d.key),
-						d.name,
-						" (this one)" if .Current in d.flags else "",
-						" online" if .Online in d.flags else "",
-					)
-				}
+				report_device(c, d)
 			}
 			publish_devices(c)
 		},

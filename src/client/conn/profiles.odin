@@ -306,18 +306,7 @@ members_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 				return
 			}
 			publish_members(c, conv, members, false)
-			if c.view == nil {
-				for m in members {
-					acc := c.auth.accounts[m] or_else {}
-					log.infof(
-						"[members] %s: %s%s%s",
-						room_name(c, proto.Room(conv)),
-						account_display(c, m),
-						" (here)" if is_online(c, m) else "",
-						fmt.tprintf(" - %s", acc.status) if acc.status != "" else "",
-					)
-				}
-			}
+			report_members(c, conv, members)
 		},
 		u64(conv),
 	)

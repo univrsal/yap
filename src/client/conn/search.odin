@@ -92,23 +92,7 @@ search_start :: proc(c: ^Server_Conn, cmd: Search_Command) {
 			}
 			// Where the next page continues from.
 			sc.last = searched_to
-			if c.view == nil {
-				if len(found) == 0 && sc.last == 0 {
-					log.infof("[search] nothing has %q", sc.query)
-				}
-				for m in found {
-					log.infof(
-						"[search] %s %s (#%d): %s",
-						room_name(c, proto.Room(m.conv)),
-						account_display(c, m.sender),
-						m.id,
-						m.text,
-					)
-				}
-				if more & proto.MORE_BEFORE != 0 {
-					log.info("[search] and maybe more (/search more)")
-				}
-			}
+			report_search(c, sc.query, sc.last, found, more & proto.MORE_BEFORE != 0)
 			publish_search(c, found, more & proto.MORE_BEFORE != 0, false, "", false)
 		},
 		sc.asked,

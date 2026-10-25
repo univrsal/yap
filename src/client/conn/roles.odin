@@ -346,11 +346,7 @@ conv_rights_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 				return
 			}
 			publish_rights_map(c, conv, entries, false)
-			if c.view == nil {
-				for e in entries {
-					log.infof("[rights] %s: %s", role_name(c, e.role), rights_text(e.rights))
-				}
-			}
+			report_rights(c, entries)
 		},
 		u64(conv),
 	)
