@@ -55,10 +55,7 @@ Closing the dialog without a choice tells it nothing.
 	};
 
 	const send = ({ bytes, side }) => {
-		const ptr = _malloc(bytes.length);
-		HEAPU8.set(bytes, ptr);
-		Module._web_avatar_picked(ptr, bytes.length, side);
-		_free(ptr);
+		Module.yapWithBytes(bytes, (ptr, n) => Module._web_avatar_picked(ptr, n, side));
 	};
 
 	Module.yapAvatar = {

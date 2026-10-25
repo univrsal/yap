@@ -21,8 +21,8 @@ WORKDIR /build
 COPY src/common ./src/common
 COPY src/lib ./src/lib
 COPY src/server ./src/server
-COPY scripts/build/collections.sh scripts/build/fetch-sqlite.sh scripts/build/sqlite.version \
-    scripts/build/fetch-webp.sh scripts/build/build-webp.sh scripts/build/webp.version ./scripts/build/
+COPY scripts/build/collections.sh scripts/build/fetch.sh scripts/build/sqlite.version \
+    scripts/build/build-webp.sh scripts/build/webp.version ./scripts/build/
 
 # libwebp, for animated emoji (src/common/webp), and Odin's stb_image,
 # which reads GIF emoji: a release doesn't always ship it built.
@@ -32,7 +32,7 @@ RUN set -eux; \
 
 RUN set -eux; \
     . scripts/build/sqlite.version; \
-    sh scripts/build/fetch-sqlite.sh .cache; \
+    sh scripts/build/fetch.sh sqlite .cache; \
     clang -Os -I".cache/sqlite-autoconf-${sqlite_version}" \
         -c src/server/sqlite/yap_sqlite.c \
         -o src/server/sqlite/yap_sqlite.o; \
@@ -42,10 +42,12 @@ RUN set -eux; \
 ARG YAP_VERSION=dev
 ARG YAP_COMMIT=
 
+# (src/client is empty: collections.sh names the client: collection, which the
+# server does not import, and odin wants the directory to exist.)
 RUN set -eux; \
     version=${YAP_VERSION#v}; \
     commit=$(printf %.7s "$YAP_COMMIT"); \
-    mkdir -p bin; \
+    mkdir -p bin src/client; \
     . scripts/build/collections.sh; \
     odin build src/server \
         $collections \
@@ -74,7 +76,7 @@ COPY src/common ./src/common
 COPY src/lib ./src/lib
 COPY src/client ./src/client
 COPY web ./web
-COPY scripts/build/collections.sh scripts/build/fetch-opus.sh scripts/build/opus.version scripts/build/version-defines.sh ./scripts/build/
+COPY scripts/build/collections.sh scripts/build/fetch.sh scripts/build/opus.version scripts/build/version-defines.sh ./scripts/build/
 
 # The web client's version and commit, as for the server above.
 ARG YAP_VERSION=dev

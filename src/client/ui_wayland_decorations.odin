@@ -8,7 +8,7 @@ import "core:os"
 // On Wayland, GLFW draws the window's title bar through libdecor, whose GTK
 // plugin loads all of GTK 3: its libraries, its theme (7.6 MB of CSS on the
 // heap), fontconfig's font list and a few threads, about 4.5 MB of the client's
-// own memory and 20 MB of libraries (see misc/memory). It does so even where
+// own memory and 20 MB of libraries (see docs/design/memory.md). It does so even where
 // the compositor draws title bars itself (KDE, Sway and most others), and lets
 // it. Where the compositor offers that (zxdg_decoration_manager_v1), GLFW is
 // asked to do without libdecor: the compositor draws the title bar, as it

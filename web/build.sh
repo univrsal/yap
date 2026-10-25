@@ -23,7 +23,7 @@ deps=web/deps
 opus_build=$deps/opus-$opus_version-wasm
 opus_lib=$opus_build/libopus.a
 if [ ! -f "$opus_lib" ]; then
-	sh scripts/build/fetch-opus.sh "$deps"
+	sh scripts/build/fetch.sh opus "$deps"
 	rm -rf "$opus_build"
 	echo "building $opus_lib"
 	# The float API without DRED or OSCE (both off by default), which is
@@ -84,6 +84,7 @@ emcc "$out/yap.obj" \
 	-sSTACK_SIZE=4MB \
 	-sEXPORTED_FUNCTIONS=_main,_web_resize,$touch_exports,$field_exports,$background_exports,$paste_exports,$files_exports,$avatar_exports,$decode_exports,$sounds_exports \
 	--js-library web/wasi.js \
+	--pre-js web/util.js \
 	--pre-js web/touch.js \
 	--pre-js web/field.js \
 	--pre-js web/background.js \

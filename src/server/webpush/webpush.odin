@@ -15,7 +15,7 @@ import "../curl"
 import "common:memtrack"
 import "common:proto"
 
-// Web Pusher (misc/mobile): notifies browsers about new activity while the client isn't open,
+// Web Pusher (docs/design/mobile.md): notifies browsers about new activity while the client isn't open,
 // through the push service each browser uses (Google's, Mozilla's, Apple's).
 //
 // A subscribing browser is given this server's VAPID public key (Pusher.public) and receives

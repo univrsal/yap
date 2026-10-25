@@ -24,7 +24,7 @@ foreign _ {
 	yap_set_badge :: proc(n: i32) ---
 }
 
-// Web Push (misc/mobile): once push is enabled in the account settings, a server that
+// Web Push (docs/design/mobile.md): once push is enabled in the account settings, a server that
 // supports it (View.server_push) can notify this browser about DMs and mentions while the
 // page is closed or in the background. This goes through the browser's push service and a
 // service worker (web/sw.js). The browser creates the subscription (web/push.js); the UI

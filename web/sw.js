@@ -1,5 +1,5 @@
 /*
-The web client's service worker (misc/mobile, web/push.js): it shows
+The web client's service worker (docs/design/mobile.md, web/push.js): it shows
 what a server pushes while the client isn't open, and takes a tap on
 one to the conversation it's about.
 

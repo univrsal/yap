@@ -7,7 +7,7 @@ has sounds nothing plays yet: a call declined (`busy`), the connection
 going bad in a call or voice channel (`reconnect`), and staying bad
 (`reconnect_loop`).
 
-Branch `sound-settings`, off `notifications`. Sizes as in `misc/next`.
+Branch `sound-settings`, off `notifications`. Sizes as in `docs/design/next.md`.
 
 | # | Change | Size | Status |
 | --- | --- | --- | --- |

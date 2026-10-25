@@ -1,5 +1,5 @@
 ; The Windows installer (Inno Setup 6 or 7): yap, and optionally the screen
-; sharing add-on next to it (D12 in misc/hq-share/README.md). The server
+; sharing add-on next to it (D12 in docs/design/hq-share.md). The server
 ; and the web build stay in the zip.
 ;
 ; It installs for the current user (%LOCALAPPDATA%\Programs\Yap, no

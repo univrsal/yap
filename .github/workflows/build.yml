@@ -156,7 +156,7 @@ jobs:
           key: webp-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/build/webp.version', 'scripts/build/build-webp.sh', 'build.bat') }}
 
       - name: Cache the SQLite source
-        # build.sh and build.bat fetch it (scripts/build/fetch-sqlite.sh) when
+        # build.sh and build.bat fetch it (scripts/build/fetch.sh) when
         # it isn't there, and check it either way.
         uses: actions/cache@v6
         with:
@@ -291,7 +291,7 @@ jobs:
 
   # The screen sharing add-on as a single download, yap-video/ holding
   # linux/, macos/ and windows/, each unpacked next to yap (D12 in
-  # misc/hq-share/README.md). Whatever platforms built go in, even if
+  # docs/design/hq-share.md). Whatever platforms built go in, even if
   # another one failed.
   video:
     name: Screen sharing add-on

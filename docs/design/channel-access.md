@@ -13,7 +13,7 @@ The goal: more control over a channel than public or private.
   - delete their own messages,
   - talk in its voice room.
 
-Branch `channel-access-plan`, off master (9c7e86a). Sizes as in `misc/next`.
+Branch `channel-access-plan`, off master (9c7e86a). Sizes as in `docs/design/next.md`.
 
 | # | Change | Size | Status |
 | --- | --- | --- | --- |

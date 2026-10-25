@@ -1,6 +1,6 @@
 #!/bin/sh
 # Builds the optional screen sharing library, yap_video
-# (src/video, misc/hq-share/README.md), and yv-loopback, into bin/ next
+# (src/video, docs/design/hq-share.md), and yv-loopback, into bin/ next
 # to the client, with FFmpeg's libraries beside them. The client runs
 # without any of it. On Linux build.sh links the library into the client
 # itself, so there this is for the tool and for FFmpeg's libraries (the
@@ -19,7 +19,7 @@ cd "$(dirname "$0")/../.."
 build=.cache/video-build-$(uname -s)
 case "$(uname -s)-$(uname -m)" in
 Linux-x86_64)
-	ffmpeg=$(sh scripts/build/fetch-ffmpeg.sh .cache)
+	ffmpeg=$(sh scripts/build/fetch.sh ffmpeg .cache)
 	set -- -DFFMPEG_DIR="$PWD/$ffmpeg" "$@"
 	;;
 Darwin-*)

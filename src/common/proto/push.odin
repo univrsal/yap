@@ -1,6 +1,6 @@
 package proto
 
-// Web Push (src/server/push.odin, misc/mobile): a browser that has enabled push sends its
+// Web Push (src/server/webpush/webpush.odin, docs/design/mobile.md): a browser that has enabled push sends its
 // subscription to the server, so the server can notify it about messages while the client
 // isn't open.
 //

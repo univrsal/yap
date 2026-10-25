@@ -4,7 +4,7 @@ capture, compiled as one translation unit for yap. The header is used
 as close to unmodified as possible (see the "yap fork" notes: in its
 macOS part, which didn't compile as it came, the PipeWire part's
 media.name, which tells two instances of a player apart, and capturing
-a playback device without yap's own sound, see misc/screen-audio);
+a playback device without yap's own sound, see docs/design/screen-audio.md);
 this file is only here to
 hold its implementation and the one thing yap adds, yap_aac_init.
 

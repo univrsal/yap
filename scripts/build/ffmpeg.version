@@ -1,5 +1,5 @@
 # The FFmpeg src/video (the optional yap_video library) is built against:
-# read by scripts/build/fetch-ffmpeg.sh (and with it build-video.sh) and by
+# read by scripts/build/fetch.sh (and with it build-video.sh) and by
 # build-video.bat, so lines are name=value and nothing else.
 #
 # On Windows and Linux these are BtbN's LGPL shared builds

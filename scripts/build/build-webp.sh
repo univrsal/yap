@@ -1,6 +1,6 @@
 #!/bin/sh
 # libwebp, for WebP pictures (src/common/webp, which the client and the
-# server both use): built from the release source (scripts/build/fetch-webp.sh,
+# server both use): built from the release source (scripts/build/fetch.sh,
 # scripts/build/webp.version) for size, but with its SIMD code, which decodes
 # and compresses twice as fast for ~80 KB. Without threads, which yap
 # doesn't ask it for, so it needs no pthread. Only built when it isn't
@@ -12,7 +12,7 @@
 set -e
 webp=src/common/webp
 if [ ! -f "$webp/libwebp.a" ] || [ ! -f "$webp/libwebpdemux.a" ] || [ ! -f "$webp/libsharpyuv.a" ]; then
-	sh scripts/build/fetch-webp.sh .cache
+	sh scripts/build/fetch.sh webp .cache
 	. scripts/build/webp.version
 	echo "building $webp/libwebp.a"
 	cmake -S ".cache/libwebp-$webp_version" -B ".cache/libwebp-$webp_version-build" \
@@ -38,7 +38,7 @@ fi
 lib=$webp/libyap_webp.a
 if [ ! -f "$lib" ] || [ "$webp/yap_webp.c" -nt "$lib" ]; then
 	# The headers, which the CI's kept libraries come without.
-	sh scripts/build/fetch-webp.sh .cache
+	sh scripts/build/fetch.sh webp .cache
 	. scripts/build/webp.version
 	echo "building $lib"
 	${CC:-cc} -std=c99 -Os -I".cache/libwebp-$webp_version/src" -c "$webp/yap_webp.c" -o "$webp/yap_webp.o"

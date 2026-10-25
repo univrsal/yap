@@ -1,4 +1,4 @@
-# yap_video, the screen sharing library (misc/hq-share/README.md). On
+# yap_video, the screen sharing library (docs/design/hq-share.md). On
 # Linux build.sh links it into the client (YV_STATIC); elsewhere it's an
 # optional add-on the client runs without, built by
 # scripts/build/build-video.sh / build-video.bat (which build it shared, with

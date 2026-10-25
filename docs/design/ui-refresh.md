@@ -5,9 +5,9 @@ icons where there are still letters, and a little motion where something is
 loading. All of it is client only, on the `better-ui` branch, in the order
 below. Each item is its own commit; the item's section is the plan, and what
 turned out differently is written under it when it's done ("*As built:*"),
-as in `misc/next`.
+as in `docs/design/next.md`.
 
-Sizes as in `misc/next`: S up to about 300 changed lines, M up to 1000, L up
+Sizes as in `docs/design/next.md`: S up to about 300 changed lines, M up to 1000, L up
 to 2500.
 
 | # | Change | Size | Depends on | Status |

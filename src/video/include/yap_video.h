@@ -1,7 +1,7 @@
 /*
 yap_video: capture, encoding and decoding for screen sharing and
-cameras in the native client (misc/hq-share/README.md,
-misc/video-chat/README.md). The client loads it at runtime
+cameras in the native client (docs/design/hq-share.md,
+docs/design/video-chat.md). The client loads it at runtime
 if it's there; nothing here knows about networks or yap's protocol:
 encoded frames go out, encoded frames come in.
 
@@ -319,7 +319,7 @@ of the preview's texture.
 YV_API void yv_share_stop(yv_share *share);
 
 /*
-Cameras (misc/video-chat/README.md): a camera is a share like a screen,
+Cameras (docs/design/video-chat.md): a camera is a share like a screen,
 started from a camera instead of a monitor or window. Everything above
 for shares holds for it too. Its pictures are converted and scaled on
 the CPU, so the encoder takes them from memory.

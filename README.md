@@ -26,3 +26,5 @@ See [the tutorial video](https://www.youtube.com/watch?v=zcZ0UOpUYG4) for basic
 server and client usage.
 
 ### [Running a server](docs/Server.md)
+
+### [Building](docs/Building.md)

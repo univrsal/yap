@@ -16,7 +16,7 @@ import "common:proto"
 import log "common:wlog"
 
 // Screen sharing on the desktop comes from a library, yap_video (src/video,
-// misc/hq-share/README.md), set up the first time anything here is asked. On
+// docs/design/hq-share.md), set up the first time anything here is asked. On
 // Linux it's linked in (build.sh), and opens FFmpeg itself, from next to the
 // executable or the system's; without one it can use, the client neither
 // shares nor watches. Elsewhere it's an optional add-on, loaded from next to
@@ -34,7 +34,7 @@ import log "common:wlog"
 // found out on a separate thread while the library loads, because trying them
 // takes a moment. Until then, and if none works, can_share says no. There
 // is one share of the screen for the whole client, like the browser's, and one
-// of our camera (misc/video-chat): the library shares a camera the same way.
+// of our camera (docs/design/video-chat.md): the library shares a camera the same way.
 // The library lists the cameras (DirectShow on Windows, V4L2 on Linux,
 // AVFoundation on macOS), which is done off the UI thread (list_cameras).
 //

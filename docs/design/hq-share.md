@@ -2,7 +2,7 @@
 
 Screen sharing for the native clients at up to 60fps and a sharp picture,
 built as an optional library that the client loads only if it's there.
-Nothing here is built yet. As in `misc/next`, each phase is its own commit
+Nothing here is built yet. As in `docs/design/next.md`, each phase is its own commit
 or series of commits; what turns out differently is written under it when
 it's done ("_As built:_"), and the open questions are in the Decisions
 table at the end.
@@ -463,7 +463,7 @@ Why this order:
 `src/video/` with CMake, `yap_video.h`, the context and logging, source
 listing on Windows (monitors via `EnumDisplayMonitors`/DXGI outputs,
 windows via `EnumWindows` filtered as OBS does), encoder probing.
-`scripts/build/build-video.sh` / `.bat` and `scripts/build/fetch-ffmpeg.sh` build
+`scripts/build/build-video.sh` / `.bat` and `scripts/build/fetch.sh` build
 dav1d, libvpl and FFmpeg with the configure line kept in one place.
 `yv-loopback` for Windows.
 
@@ -480,7 +480,7 @@ _As built:_
   (NVENC, AMF, QSV through libvpl, VA-API, D3D11VA, dav1d), nothing
   GPL, and MSVC import libraries. `scripts/build/ffmpeg.version` pins one
   autobuild with its SHA-256 sums; `build-video.bat` fetches the
-  Windows zip, `fetch-ffmpeg.sh` the x86_64 Linux tarball. macOS uses
+  Windows zip, `fetch.sh` the x86_64 Linux tarball. macOS uses
   the system's FFmpeg through pkg-config until phase 7 decides. The
   catch: BtbN deletes old autobuilds after a while, so the pin has to be
   moved when the download stops working (the version file says how).
@@ -1011,7 +1011,7 @@ _As built:_
   Linux it only encodes. Once a second it prints the rate, bitrate and
   time to encode. `--out` (on Windows too) saves the stream for
   `--play` or ffprobe.
-- `fetch-ffmpeg.sh` strips CRs from `ffmpeg.version`, which a Windows
+- `fetch.sh` strips CRs from `ffmpeg.version`, which a Windows
   checkout gives it, so WSL builds from the same tree.
 - **Tried** in WSL (Ubuntu 24.04, WSLg, RTX 4060 Ti):
   - NVENC AV1, HEVC and H.264 all work.
@@ -1351,7 +1351,7 @@ Open until the owner answers. Recommended answers first.
 
 ## Working through a phase
 
-As in `misc/next`: read the "OBS:" references and the yap code the
+As in `docs/design/next.md`: read the "OBS:" references and the yap code the
 phase touches, build it, write what turned out differently under
 "_As built:_", tick it in the table.
 

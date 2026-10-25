@@ -12,7 +12,7 @@ import "client:render"
 import "client:video"
 import "common:proto"
 
-// Cameras in the UI (see conn/video.odin, misc/video-chat): the Camera button
+// Cameras in the UI (see conn/video.odin, docs/design/video-chat.md): the Camera button
 // beside Share, and the Video tab beside the chat.
 //
 // In a call, the tab shows the person we call large and our own camera small

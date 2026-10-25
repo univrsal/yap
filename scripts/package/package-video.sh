@@ -1,7 +1,7 @@
 #!/bin/sh
 # Lays out the screen sharing add-on in dist/yap-video-<platform>/:
 # yap_video, the FFmpeg libraries it uses and their licence, and
-# yv-loopback. It's unpacked next to yap (D12 in misc/hq-share/README.md);
+# yv-loopback. It's unpacked next to yap (D12 in docs/design/hq-share.md);
 # without it the client runs as before, but neither shares nor watches.
 # On Linux yap has yap_video built in, so there it's only FFmpeg, for
 # systems without their own FFmpeg 8 or 9.

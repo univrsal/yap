@@ -1,5 +1,5 @@
 # The SQLite release the server is built with: read by
-# scripts/build/fetch-sqlite.sh (and with it build.sh) and by build.bat, so
+# scripts/build/fetch.sh (and with it build.sh) and by build.bat, so
 # lines are name=value and nothing else.
 #
 # sqlite.org publishes SHA3-256 sums, which few systems can compute out

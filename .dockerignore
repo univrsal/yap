@@ -7,12 +7,10 @@
 !deps/thirdparty/
 !web/
 !scripts/build/collections.sh
-!scripts/build/fetch-sqlite.sh
+!scripts/build/fetch.sh
 !scripts/build/sqlite.version
-!scripts/build/fetch-webp.sh
 !scripts/build/build-webp.sh
 !scripts/build/webp.version
-!scripts/build/fetch-opus.sh
 !scripts/build/opus.version
 !scripts/build/version-defines.sh
 

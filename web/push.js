@@ -1,6 +1,6 @@
 /*
 Web Push for the web client (emcc --pre-js, see web/build.sh,
-src/client/ui_push_web.odin and misc/mobile): subscribing this browser
+src/client/ui_push_web.odin and docs/design/mobile.md): subscribing this browser
 to a server's pushes, and what comes back from the notifications they
 show (web/sw.js).
 

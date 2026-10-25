@@ -1,9 +1,9 @@
 # Video chat: plan
 
 Cameras in DM calls and in voice channels, built on what screen sharing
-already has (`misc/hq-share`): the media link, the server's relay and
+already has (`docs/design/hq-share.md`): the media link, the server's relay and
 Nack cache, the viewers' reports, `yap_video` on the desktop and
-WebCodecs in the browser. Nothing here is built yet. As in `misc/next`,
+WebCodecs in the browser. Nothing here is built yet. As in `docs/design/next.md`,
 each phase is its own commit or series of commits; what turns out
 differently is written under it when it's done ("*As built:*"), and the
 open questions are in the Decisions table at the end.
@@ -1143,7 +1143,7 @@ All settled as recommended (2026-10-18).
 
 ## Working through a phase
 
-As in `misc/hq-share`: read the yap code the phase touches, build it,
+As in `docs/design/hq-share.md`: read the yap code the phase touches, build it,
 write what turned out differently under "*As built:*", tick it in the
 table. Phases 3–5 can be tested here with headless Chromium's fake
 camera; 6 needs Windows, 8 a Mac.

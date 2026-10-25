@@ -36,7 +36,7 @@ on Windows), then from the repository root:
 Linux:
 
 ```sh
-g++ -std=c++20 -O1 -I src/video/include misc/keyframe-test/keytest.cpp \
+g++ -std=c++20 -O1 -I src/video/include tools/keytest.cpp \
 	-o .cache/keytest -L bin -lyap_video -Wl,-rpath-link,bin
 LD_LIBRARY_PATH=bin .cache/keytest            # lists the encoders
 LD_LIBRARY_PATH=bin .cache/keytest hevc_vaapi

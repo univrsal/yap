@@ -12,7 +12,7 @@ The browser already works this way. Its picker has its own "share audio"
 checkbox (see the `web-share-audio` branch), so this is only about the
 desktop.
 
-Branch `screen-audio-share`, off `master`. Sizes as in `misc/next`.
+Branch `screen-audio-share`, off `master`. Sizes as in `docs/design/next.md`.
 
 | # | Change | Size | Status |
 | --- | --- | --- | --- |

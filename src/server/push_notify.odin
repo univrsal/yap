@@ -24,7 +24,7 @@ import "webpush"
 //   - A call (calls.odin) is pushed to a callee that is away: "Alice is calling you". Once
 //     the call is over, that notification is replaced by one for a missed call, or
 //     (silently, and not to the device that handled it) one saying it was answered or
-//     declined elsewhere. A push can't remove a notification (see misc/mobile, phase 3),
+//     declined elsewhere. A push can't remove a notification (see docs/design/mobile.md, phase 3),
 //     but it can replace it with another one.
 //
 // A push carries JSON for the service worker (web/sw.js) to display:

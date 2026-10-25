@@ -68,7 +68,7 @@ share_config :: proc(s: ^settings.Settings, limit_kbit: int) -> video.Share_Conf
 	return cfg
 }
 
-// How a camera is sent (misc/video-chat, Quality). One stream goes to all of
+// How a camera is sent (docs/design/video-chat.md, Quality). One stream goes to all of
 // its viewers, so it has to suit the grid they all see: the more cameras in
 // the room, the smaller each. Everyone works this out the same way from the
 // Camera flags, so nothing needs to be said about it. A call has two, and

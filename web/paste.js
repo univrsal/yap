@@ -139,11 +139,7 @@ clipboard.
 	// src/client/ui_paste_web.odin); empty for a paste without any. The
 	// on-screen keyboard's field (web/touch.js) takes its pastes itself.
 	const sendText = (text) => {
-		const bytes = new TextEncoder().encode(text);
-		const ptr = _malloc(bytes.length + 1);
-		HEAPU8.set(bytes, ptr);
-		Module._web_paste_text(ptr, bytes.length);
-		_free(ptr);
+		Module.yapWithString(text, (ptr, n) => Module._web_paste_text(ptr, n));
 	};
 
 	document.addEventListener("paste", async (event) => {
