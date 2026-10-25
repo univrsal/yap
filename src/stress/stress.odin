@@ -15,7 +15,7 @@ import "common:."
 import "common:proto"
 
 // yap-stress simulates a busy server. Bots (bot.odin, each a headless
-// client from common/lite) connect over a few seconds, log in and join the
+// client from lib/lite) connect over a few seconds, log in and join the
 // voice room of the home channel. Some of them talk, sending 50 frames per
 // second each, the way a client does. Meanwhile randomly picked bots post
 // messages, read history and search, at the rates given on the command line.
@@ -30,7 +30,7 @@ import "common:proto"
 //
 // It isn't part of build.sh:
 //
-//	odin build src/stress -collection:common=src/common -o:speed -out:bin/yap-stress
+//	odin build src/stress -collection:common=src/common -collection:lib=src/lib -o:speed -out:bin/yap-stress
 //	bin/yap-stress -bot-password:<password> -bots:100 -talkers:10 -posts:5
 //
 // The bots log in as bot1, bot2, and so on. Create them first, with the

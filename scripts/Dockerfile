@@ -19,8 +19,9 @@ ENV PATH=/opt/odin:$PATH
 WORKDIR /build
 
 COPY src/common ./src/common
+COPY src/lib ./src/lib
 COPY src/server ./src/server
-COPY scripts/fetch-sqlite.sh scripts/sqlite.version \
+COPY scripts/collections.sh scripts/fetch-sqlite.sh scripts/sqlite.version \
     scripts/fetch-webp.sh scripts/build-webp.sh scripts/webp.version ./scripts/
 
 # libwebp, for animated emoji (src/common/webp), and Odin's stb_image,
@@ -45,8 +46,9 @@ RUN set -eux; \
     version=${YAP_VERSION#v}; \
     commit=$(printf %.7s "$YAP_COMMIT"); \
     mkdir -p bin; \
+    . scripts/collections.sh; \
     odin build src/server \
-        -collection:common=src/common \
+        $collections \
         -vet \
         -strict-style \
         -o:size \
@@ -69,9 +71,10 @@ WORKDIR /build
 
 COPY deps/thirdparty ./deps/thirdparty
 COPY src/common ./src/common
+COPY src/lib ./src/lib
 COPY src/client ./src/client
 COPY web ./web
-COPY scripts/fetch-opus.sh scripts/opus.version scripts/version-defines.sh ./scripts/
+COPY scripts/collections.sh scripts/fetch-opus.sh scripts/opus.version scripts/version-defines.sh ./scripts/
 
 # The web client's version and commit, as for the server above.
 ARG YAP_VERSION=dev

@@ -64,7 +64,8 @@ version_defines=$(sh scripts/version-defines.sh)
 # The object's name is spelled out: without an extension Odin picks one,
 # and newer versions pick .wasm rather than .obj, which left emcc below
 # linking a stale yap.obj.
-odin build src/client -collection:common=src/common -o:speed -collection:client=src/client -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap.obj" $version_defines "$@"
+. scripts/collections.sh
+odin build src/client $collections -o:speed -target:wasi_wasm32 -build-mode:obj -no-entry-point -vet -strict-style -out:"$out/yap.obj" $version_defines "$@"
 
 # -sSTACK_SIZE: the client keeps some large buffers on the stack (a state
 # snapshot, a stored blob), and emscripten's default of 64 KiB is too

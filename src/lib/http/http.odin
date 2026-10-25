@@ -6,7 +6,7 @@ import "core:strconv"
 import "core:strings"
 
 // A minimal HTTP/1.1 implementation for the relay (server/relay.odin) and
-// the bot API's gateway (common/gateway), which share a port. It supports
+// the bot API's gateway (lib/gateway), which share a port. It supports
 // reading a request's line and headers, reading a body by its
 // Content-Length, keep-alive and responses with a Content-Length. Chunked
 // bodies and TLS are not supported (a reverse proxy in front handles TLS).

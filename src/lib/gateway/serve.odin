@@ -7,8 +7,8 @@ import "core:log"
 import "core:net"
 import "core:strings"
 
-import "common:http"
-import "common:lite"
+import "lib:http"
+import "lib:lite"
 import "common:proto"
 
 // This is the HTTP side: what an HTTP thread does with the API's requests, all

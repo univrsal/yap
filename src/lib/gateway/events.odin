@@ -10,7 +10,7 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-import "common:http"
+import "lib:http"
 import "common:proto"
 
 // Events (docs/bot-api, "Events: the WebSocket"): GET /api/v1/events

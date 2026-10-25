@@ -7,7 +7,7 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
-import "common:http"
+import "lib:http"
 import "common:proto"
 
 // Limits (docs/bot-api, "Limits" and "Security") keep a looping bot, or

@@ -1,10 +1,12 @@
 # Only what scripts/Dockerfile copies.
 **
 !src/common/
+!src/lib/
 !src/server/
 !src/client/
 !deps/thirdparty/
 !web/
+!scripts/collections.sh
 !scripts/fetch-sqlite.sh
 !scripts/sqlite.version
 !scripts/fetch-webp.sh

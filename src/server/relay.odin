@@ -11,8 +11,8 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-import "common:gateway"
-import "common:http"
+import "lib:gateway"
+import "lib:http"
 import "common:proto"
 
 // The relay runs alongside the server if the config enables it (see
@@ -36,7 +36,7 @@ import "common:proto"
 // packets. It only relays to this server, regardless of which address the
 // page asks for, so it can't be abused to send UDP packets anywhere else.
 //
-// The bot API (see common/gateway and docs/bot-api) is served on the same
+// The bot API (see lib/gateway and docs/bot-api) is served on the same
 // port under /api/, so that one port, one proxy rule and one certificate
 // are enough for both. If the API is enabled but the relay is not, the port
 // serves the API and nothing else.

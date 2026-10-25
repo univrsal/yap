@@ -7,7 +7,7 @@ import "core:hash"
 import "core:strconv"
 import "core:time"
 
-import "common:lite"
+import "lib:lite"
 import "common:proto"
 
 // Writing (docs/bot-api, phase 5): posting, editing, deleting, reacting,

@@ -8,8 +8,8 @@ import "core:os"
 import "core:thread"
 
 import "common:."
-import "common:gateway"
-import "common:http"
+import "lib:gateway"
+import "lib:http"
 import "common:proto"
 
 // yap-gateway runs the bot API (docs/bot-api) as a standalone program. It
@@ -20,7 +20,7 @@ import "common:proto"
 //
 // It isn't part of build.sh:
 //
-//	odin build src/gateway -collection:common=src/common -out:bin/yap-gateway
+//	odin build src/gateway -collection:common=src/common -collection:lib=src/lib -out:bin/yap-gateway
 //	bin/yap-gateway -server:chat.example.org:7777 -server-key:<64 hex digits>
 //
 // The server's key is printed in its log on startup ("server public key").

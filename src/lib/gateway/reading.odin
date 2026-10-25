@@ -3,8 +3,8 @@ package gateway
 import "core:fmt"
 import "core:strconv"
 
-import "common:http"
-import "common:lite"
+import "lib:http"
+import "lib:lite"
 import "common:proto"
 
 // Reading (docs/bot-api, phase 4): some requests are answered from the model,

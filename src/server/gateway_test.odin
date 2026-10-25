@@ -11,12 +11,12 @@ import "core:testing"
 import "core:thread"
 import "core:time"
 
-import "common:gateway"
-import "common:http"
-import "common:lite"
+import "lib:gateway"
+import "lib:http"
+import "lib:lite"
 import "common:proto"
 
-// Tests of the bot API's gateway (common/gateway). They cover the whole path
+// Tests of the bot API's gateway (lib/gateway). They cover the whole path
 // from HTTP to the gateway, to the server and back, all in one process:
 // - The server's packet handling and syncs run on a loopback socket (the lt_
 //   procedures from lite_test.odin) and are driven by the test's thread.

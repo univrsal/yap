@@ -5,9 +5,9 @@ import "core:fmt"
 import "core:sync"
 import "core:time"
 
-import "common:http"
+import "lib:http"
 import "common:imagekind"
-import "common:lite"
+import "lib:lite"
 import "common:proto"
 
 // Files (docs/bot-api, phase 7):

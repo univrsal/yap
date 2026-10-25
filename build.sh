@@ -206,7 +206,6 @@ fi
 # The version and commit (src/common/version.odin); one word per define,
 # so it's expanded unquoted.
 version_defines=$(sh scripts/version-defines.sh)
-# The collections the imports name: "common:wlog", "client:audio/opus".
-collections="-collection:common=src/common -collection:client=src/client"
+. scripts/collections.sh
 odin build src/server $collections -vet -strict-style -out:bin/yap-server $link_flags $version_defines "$@"
 odin build src/client $collections -vet -strict-style -out:bin/yap $link_flags $version_defines "$@"

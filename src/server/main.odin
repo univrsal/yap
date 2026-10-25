@@ -9,7 +9,7 @@ import "core:strconv"
 import "core:strings"
 
 import "common:."
-import "common:gateway"
+import "lib:gateway"
 import "common:memtrack"
 import "common:proto"
 

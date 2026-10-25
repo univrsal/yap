@@ -2,8 +2,8 @@ package gateway
 
 import "core:encoding/json"
 
-import "common:http"
-import "common:lite"
+import "lib:http"
+import "lib:lite"
 import "common:proto"
 
 // The endpoints (docs/bot-api, "Endpoints") live under /api/v1/. Each has a

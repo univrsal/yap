@@ -99,8 +99,9 @@ rem rc.exe compiles it, and MSVC's linker takes the .res as it is.
 set ICON=src\client\assets\icon
 rc /nologo /i src\client\assets /fo %ICON%.res %ICON%.rc || exit /b 1
 
-rem The collections the imports name: "common:wlog", "client:audio/opus".
-set COLLECTIONS=-collection:common=src\common -collection:client=src\client
+rem The collections the imports name: "common:wlog", "client:audio/opus",
+rem "lib:http" (the same as scripts/collections.sh).
+set COLLECTIONS=-collection:common=src\common -collection:client=src\client -collection:lib=src\lib
 odin build src\server %COLLECTIONS% -vet -strict-style -out:bin\yap-server.exe "-extra-linker-flags:%ICON%.res" %DEFINES% %* || exit /b 1
 odin build src\client %COLLECTIONS% -vet -strict-style -out:bin\yap.exe "-extra-linker-flags:%ICON%.res /SUBSYSTEM:WINDOWS" %DEFINES% %* || exit /b 1
 exit /b 0

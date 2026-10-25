@@ -124,7 +124,7 @@ import "common:proto"
 //            proxy has to pass on the Host it was asked for (or set
 //            X-Forwarded-Host), or the relay's own web client is refused too
 //            unless its address is listed here.
-// api        The bot API (see docs/bot-api and common/gateway): HTTP and JSON
+// api        The bot API (see docs/bot-api and lib/gateway): HTTP and JSON
 //            for programs. It is served on the relay's port under /api/,
 //            whether the relay is enabled or not (without the relay, the port
 //            serves only the API). It uses plain HTTP, like the relay, so

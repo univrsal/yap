@@ -84,7 +84,7 @@ A server that doesn't enable the API can still be used through one,
 run next to the bot:
 
 ```sh
-odin build src/gateway -collection:common=src/common -out:bin/yap-gateway
+odin build src/gateway -collection:common=src/common -collection:lib=src/lib -out:bin/yap-gateway
 bin/yap-gateway -server:chat.example.org:7777 -server-key:<64 hex digits>
 ```
 
