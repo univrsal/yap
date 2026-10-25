@@ -335,24 +335,34 @@ register_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u6
 	set_state(c, .Needed, register_refusal_text(reason))
 }
 
+// username_rule and password_rule say what a username and a password have to
+// be, for when one isn't.
+username_rule :: proc() -> string {
+	return fmt.tprintf(
+		"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
+		proto.MIN_USERNAME_SIZE,
+		proto.MAX_USERNAME_SIZE,
+	)
+}
+
+password_rule :: proc() -> string {
+	return fmt.tprintf(
+		"A password must be %d to %d characters long.",
+		proto.MIN_ACCOUNT_PASSWORD,
+		proto.MAX_ACCOUNT_PASSWORD,
+	)
+}
+
 register_refusal_text :: proc(reason: proto.Register_Refusal) -> string {
 	switch reason {
 	case .Closed:
 		return "This server does not accept registrations."
 	case .Username:
-		return fmt.tprintf(
-			"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
-			proto.MIN_USERNAME_SIZE,
-			proto.MAX_USERNAME_SIZE,
-		)
+		return username_rule()
 	case .Username_Taken:
 		return "That username is already taken."
 	case .Password:
-		return fmt.tprintf(
-			"A password must be %d to %d characters long.",
-			proto.MIN_ACCOUNT_PASSWORD,
-			proto.MAX_ACCOUNT_PASSWORD,
-		)
+		return password_rule()
 	case .Email_Missing:
 		return "This server requires an email address."
 	case .Email:
@@ -590,7 +600,7 @@ account_by_username :: proc(c: ^Server_Conn, username: string) -> proto.Account_
 	return 0
 }
 
-status_text :: proc(status: proto.Status) -> string {
+status_text :: proc(status: proto.Status, what := "") -> string {
 	#partial switch status {
 	case .Denied:
 		return "You don't have permission to do that."
@@ -599,9 +609,14 @@ status_text :: proc(status: proto.Status) -> string {
 	case .Invalid:
 		return "The server rejected the request because it contains invalid data."
 	case .Conflict:
-		return "That username is already taken."
+		return(
+			"That username is already taken." if what == "account" else "That name is already taken." \
+		)
 	case .Not_Found:
-		return "That account does not exist."
+		if what == "" {
+			return "That no longer exists on the server."
+		}
+		return fmt.tprintf("That %s no longer exists.", what)
 	case .Rate_Limited:
 		return "Too many requests. Wait a moment and try again."
 	case .Reset:
@@ -637,15 +652,7 @@ view_notice :: proc(v: ^View, ok: bool, text: string) {
 
 auth_password :: proc(c: ^Server_Conn, cmd: Password_Command) {
 	if !proto.account_password_ok(cmd.new) {
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A password must be %d to %d characters long.",
-				proto.MIN_ACCOUNT_PASSWORD,
-				proto.MAX_ACCOUNT_PASSWORD,
-			),
-		)
+		notify(c, false, password_rule())
 		return
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -728,7 +735,7 @@ auth_devices :: proc(c: ^Server_Conn, account: proto.Account_Id = 0) {
 		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
 				if tag != 0 {
-					notify(c, false, status_text(status))
+					notify(c, false, status_text(status, "account"))
 				}
 				return
 			}
@@ -794,7 +801,7 @@ auth_revoke :: proc(c: ^Server_Conn, key: [proto.KEY_SIZE]u8) {
 					auth_devices(c, proto.Account_Id(tag))
 				}
 			} else {
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "device"))
 			}
 		},
 		u64(whose),
@@ -806,26 +813,10 @@ auth_account_create :: proc(c: ^Server_Conn, cmd: Account_Create_Command) {
 	username, clean := proto.username_clean(cmd.username, &name_buf)
 	switch {
 	case !clean:
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
-				proto.MIN_USERNAME_SIZE,
-				proto.MAX_USERNAME_SIZE,
-			),
-		)
+		notify(c, false, username_rule())
 		return
 	case !proto.account_password_ok(cmd.password):
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A password must be %d to %d characters long.",
-				proto.MIN_ACCOUNT_PASSWORD,
-				proto.MAX_ACCOUNT_PASSWORD,
-			),
-		)
+		notify(c, false, password_rule())
 		return
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -838,7 +829,7 @@ auth_account_create :: proc(c: ^Server_Conn, cmd: Account_Create_Command) {
 			if status == .Ok {
 				notify(c, true, "Account created. Its password has to be changed on first login.")
 			} else {
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "account"))
 			}
 		},
 	)
@@ -854,15 +845,7 @@ auth_account_password :: proc(c: ^Server_Conn, cmd: Account_Password_Command) {
 		notify(c, false, "That account does not exist.")
 		return
 	case !proto.account_password_ok(cmd.password):
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A password must be %d to %d characters long.",
-				proto.MIN_ACCOUNT_PASSWORD,
-				proto.MAX_ACCOUNT_PASSWORD,
-			),
-		)
+		notify(c, false, password_rule())
 		return
 	}
 	buf: [proto.ACCOUNT_BODY_MAX]u8
@@ -879,7 +862,7 @@ auth_account_password :: proc(c: ^Server_Conn, cmd: Account_Password_Command) {
 					"Password set. Their devices were logged out, and the password has to be changed on first login.",
 				)
 			} else {
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "account"))
 			}
 		},
 	)

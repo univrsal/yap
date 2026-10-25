@@ -155,7 +155,7 @@ invite_revoke :: proc(c: ^Server_Conn, code: string) {
 		body,
 		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "invite"))
 				return
 			}
 			invites_list(c)

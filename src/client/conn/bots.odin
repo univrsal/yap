@@ -1,7 +1,6 @@
 package conn
 
 import log "common:wlog"
-import "core:fmt"
 import "core:strings"
 
 import "common:proto"
@@ -32,15 +31,7 @@ auth_bot_create :: proc(c: ^Server_Conn, cmd: Bot_Create_Command) {
 	name_buf: [proto.MAX_USERNAME_SIZE]u8
 	username, clean := proto.username_clean(cmd.username, &name_buf)
 	if !clean {
-		notify(
-			c,
-			false,
-			fmt.tprintf(
-				"A username must be %d to %d characters long and can only contain a-z, 0-9, _, . and -.",
-				proto.MIN_USERNAME_SIZE,
-				proto.MAX_USERNAME_SIZE,
-			),
-		)
+		notify(c, false, username_rule())
 		return
 	}
 	public, made := new_token(c)
@@ -56,7 +47,7 @@ auth_bot_create :: proc(c: ^Server_Conn, cmd: Bot_Create_Command) {
 			account, ok := proto.decode_account_id(body)
 			if status != .Ok || !ok {
 				bot_token_wipe(c)
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "account"))
 				return
 			}
 			publish_bot_token(c, account)
@@ -78,7 +69,7 @@ auth_bot_token :: proc(c: ^Server_Conn, account: proto.Account_Id) {
 		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			if status != .Ok {
 				bot_token_wipe(c)
-				notify(c, false, status_text(status))
+				notify(c, false, status_text(status, "account"))
 				return
 			}
 			publish_bot_token(c, proto.Account_Id(tag))

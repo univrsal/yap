@@ -556,18 +556,10 @@ manage_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64)
 		if c.view == nil && status == .Ok {
 			log.info("[manage] done")
 		}
-	case .Denied:
-		notify(c, false, "You don't have permission to do that.")
-	case .Conflict:
-		notify(c, false, "That name is already taken.")
-	case .Not_Found:
-		notify(c, false, "That role, account or channel no longer exists.")
 	case .Too_Large:
 		notify(c, false, "The server has reached the maximum number of roles or channels.")
-	case .Invalid:
-		notify(c, false, "The server rejected the change as invalid.")
 	case:
-		notify(c, false, fmt.tprintf("The server failed to apply the change (%v).", status))
+		notify(c, false, status_text(status, "role, account or channel"))
 	}
 }
 
