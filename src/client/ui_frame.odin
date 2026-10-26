@@ -297,7 +297,7 @@ draw_frame :: proc(ui: ^UI) {
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
 	camera_after_frame(ui)
-	ui.keys = {}
+	keys_next_frame(ui)
 	// The window's buttons keep their size at 100%. Only the display's
 	// density scales them, not the UI's zoom.
 	ui.renderer.control_scale = m.scale / settings.ui_scale_factor(&ui.settings)

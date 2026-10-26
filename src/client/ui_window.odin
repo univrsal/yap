@@ -499,23 +499,23 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		if action == glfw.PRESS || action == glfw.REPEAT {
 			switch key {
 			case glfw.KEY_UP:
-				g_ui.keys += {.Up}
+				key_press(.Up)
 			case glfw.KEY_DOWN:
-				g_ui.keys += {.Down}
+				key_press(.Down)
 			case:
-				g_ui.keys += {.Back_Tab} if mods & glfw.MOD_SHIFT != 0 else {.Tab}
+				key_press(.Back_Tab if mods & glfw.MOD_SHIFT != 0 else .Tab)
 			}
 		}
 		return
 	case glfw.KEY_F6:
 		if action == glfw.PRESS {
-			g_ui.keys += {.Prev_Area} if mods & glfw.MOD_SHIFT != 0 else {.Next_Area}
+			key_press(.Prev_Area if mods & glfw.MOD_SHIFT != 0 else .Next_Area)
 		}
 		return
 	case glfw.KEY_SPACE:
 		// The space itself comes as text (char_callback).
 		if action == glfw.PRESS && mods & (glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SUPER) == 0 {
-			g_ui.keys += {.Activate}
+			key_press(.Activate)
 		}
 		return
 	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:

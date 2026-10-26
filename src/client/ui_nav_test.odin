@@ -208,6 +208,30 @@ test_nav_list :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_keys_queued :: proc(t: ^testing.T) {
+	ui := new(UI)
+	defer free(ui)
+	saved := g_ui
+	g_ui = ui
+	defer g_ui = saved
+
+	// Three Tabs and two Escapes before a frame: the Tabs each get a frame,
+	// the Escapes are one.
+	key_press(.Tab)
+	key_press(.Tab)
+	key_press(.Tab)
+	key_press(.Escape)
+	key_press(.Escape)
+	testing.expect_value(t, ui.keys, bit_set[Extra_Key]{.Tab, .Escape})
+	keys_next_frame(ui)
+	testing.expect_value(t, ui.keys, bit_set[Extra_Key]{.Tab})
+	keys_next_frame(ui)
+	testing.expect_value(t, ui.keys, bit_set[Extra_Key]{.Tab})
+	keys_next_frame(ui)
+	testing.expect_value(t, ui.keys, bit_set[Extra_Key]{})
+}
+
+@(test)
 test_nav_scroll_into_view :: proc(t: ^testing.T) {
 	ui := new(UI)
 	defer free(ui)

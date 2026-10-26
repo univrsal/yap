@@ -261,6 +261,9 @@ UI :: struct {
 	memory:              UI_Memory,
 	// Keys that microui has no name for, pressed since the last frame.
 	keys:                bit_set[Extra_Key],
+	// Presses of a key in KEYS_QUEUED that came while it was already in `keys`:
+	// each goes into `keys` in a frame of its own (see key_press).
+	keys_queued:         [Extra_Key]u8,
 	// Ctrl+Space opened the palette: the space that may follow it as text
 	// isn't typed (see char_callback).
 	drop_space:          bool,

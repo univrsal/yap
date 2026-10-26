@@ -428,6 +428,39 @@ nav_step :: proc(n, at: int, back: bool) -> int {
 	return (at + n - 1) % n if back else (at + 1) % n
 }
 
+// The keys whose every press counts, however quickly they come: those that
+// move the focus or a selection, a step per press.
+KEYS_QUEUED :: bit_set[Extra_Key]{.Up, .Down, .Tab, .Back_Tab, .Next_Area, .Prev_Area, .Activate}
+
+// key_press adds a press of `k` to the next frame's keys. A press of a key in
+// KEYS_QUEUED that is there already waits for a frame of its own
+// (keys_next_frame), so three quick Tabs move three times.
+key_press :: proc(k: Extra_Key) {
+	keys_add(g_ui, k)
+}
+
+@(private = "file")
+keys_add :: proc(ui: ^UI, k: Extra_Key) {
+	if k in ui.keys && k in KEYS_QUEUED {
+		ui.keys_queued[k] = min(ui.keys_queued[k] + 1, 255)
+	} else {
+		ui.keys += {k}
+	}
+}
+
+// keys_next_frame forgets this frame's keys, and hands each key's next
+// queued press to the next frame, which it asks for.
+keys_next_frame :: proc(ui: ^UI) {
+	ui.keys = {}
+	for &n, k in ui.keys_queued {
+		if n > 0 {
+			n -= 1
+			ui.keys += {k}
+			ui_redraw(ui)
+		}
+	}
+}
+
 // key_take takes `k` out of this frame's keys and says whether it was there,
 // so that whoever uses a key first is the only one to see it.
 key_take :: proc(ui: ^UI, k: Extra_Key) -> bool {
