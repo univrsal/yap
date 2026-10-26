@@ -289,7 +289,8 @@ composer_send_button :: proc(ui: ^UI, c: Composer, id_name, hint: string) -> boo
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	pressed := ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id
+	keyed := nav_control(ctx, id, r)
+	pressed := ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed
 	ready :=
 		strings.trim_space(string(c.buf[:c.len^])) != "" || (c.files != nil && len(c.files) > 0)
 	over := ctx.hover_id == id

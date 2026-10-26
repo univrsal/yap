@@ -1195,6 +1195,7 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := fa
 			id := mu.get_id(ctx, "chip")
 			rect := mu.layout_next(ctx)
 			mu.update_control(ctx, id, rect)
+			keyed := !readonly && nav_control(ctx, id, rect)
 			background := theme.track
 			switch {
 			case c.r.me:
@@ -1213,7 +1214,7 @@ reaction_chips :: proc(ui: ^UI, m: conn.View_Message, width: i32, readonly := fa
 			if ctx.hover_id == id {
 				reactors_hint(ui, m.id, c.r, rect)
 			}
-			if !readonly && ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+			if !readonly && ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 				send_reaction(ui, m.id, c.r.emoji, !c.r.me)
 			}
 			mu.pop_id(ctx)

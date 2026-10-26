@@ -438,9 +438,9 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	ui_redraw(g_ui)
 	g_ui.drop_space = false
 	// The command palette: Cmd+K on macOS, where Ctrl+Space usually switches
-	// the input source.
+	// the input source, and in a browser (which may be on a Mac).
 	if action == glfw.PRESS &&
-	   ODIN_OS == .Darwin &&
+	   (ODIN_OS == .Darwin || platform.WEB) &&
 	   key == glfw.KEY_K &&
 	   mods & (glfw.MOD_SUPER | glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SHIFT) == glfw.MOD_SUPER {
 		g_ui.keys += {.Palette}

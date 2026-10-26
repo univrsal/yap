@@ -481,7 +481,10 @@ server_rail :: proc(ui: ^UI, h: i32) {
 			color, text = dimmed(color), dimmed(text)
 		}
 		shown := ns == ui.session && !ui.join.open && ui.page != .Buddies
-		r, id := rail_icon(ui, uintptr(rawptr(ns)), initials, color, text, label, shown, picture)
+		r, id, keyed := rail_icon(ui, uintptr(rawptr(ns)), initials, color, text, label, shown, picture)
+		if keyed {
+			ui.switch_to, ui.switching = ns, true
+		}
 		if !shown && ns.unread > 0 {
 			mu.draw_rect(ctx, {r.x - ctx.style.padding, r.y + r.h / 2 - 4, 4, 8}, theme.mark)
 		}
@@ -499,10 +502,10 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 	}
 	white := mu.Color{255, 255, 255, 255}
-	r, plus := rail_icon(ui, RAIL_PLUS, "", theme.plus_disc, white, "Join a server", ui.join.open)
+	r, plus, keyed := rail_icon(ui, RAIL_PLUS, "", theme.plus_disc, white, "Join a server", ui.join.open)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	mu.draw_icon(ctx, render.icon_id(.Plus), icon, white)
-	if ctx.hover_id == plus && ctx.mouse_pressed_bits == {.LEFT} {
+	if ctx.hover_id == plus && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 		join_open(ui)
 	}
 	rail_drag(ui, order[:], middles[:])
@@ -527,7 +530,7 @@ inbox_icon :: proc(ui: ^UI) {
 		hint = fmt.tprintf("Direct messages\n%s unread", conn.unread_count(ui.dm_unread))
 	}
 	white := mu.Color{255, 255, 255, 255}
-	r, id := rail_icon(ui, RAIL_INBOX, "", theme.plus_disc, white, hint, open)
+	r, id, keyed := rail_icon(ui, RAIL_INBOX, "", theme.plus_disc, white, hint, open)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	mu.draw_icon(ctx, render.icon_id(.Yap), icon, white)
 	if ui.dm_unread > 0 {
@@ -541,7 +544,7 @@ inbox_icon :: proc(ui: ^UI) {
 		{line.x + (line.w - RAIL_ICON) / 2 + 6, line.y, RAIL_ICON - 12, 2},
 		theme.unlit,
 	)
-	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 		// Logged in nowhere, so there is nothing to show in it.
 		if ui.session != nil && !ui.session.joining && !ui.join.open {
 			toggle_inbox(ui)
@@ -860,19 +863,22 @@ rail_icon :: proc(
 ) -> (
 	r: mu.Rect,
 	id: mu.Id,
+	keyed: bool, // pressed from the keyboard (ui_nav.odin)
 ) {
 	ctx := &ui.ctx
 	mu.layout_row(ctx, {-1}, RAIL_SLOT)
 	r = mu.layout_next(ctx)
 	id = mu.get_id(ctx, key)
 	mu.update_control(ctx, id, r)
+	keyed = nav_control(ctx, id, r)
+	hinted := ctx.hover_id == id || nav_focused(ctx, id)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	if shown {
 		mu.draw_rect(ctx, {r.x - ctx.style.padding, icon.y + 6, 4, RAIL_ICON - 12}, theme.accent)
 	}
 	if pic, ok := picture.?; ok {
 		mu.draw_icon(ctx, pic, icon, text_color)
-		if ctx.hover_id == id {
+		if hinted {
 			ui.hint, ui.hint_of = hint, icon
 		}
 		return
@@ -887,7 +893,7 @@ rail_icon :: proc(
 		{icon.x + (icon.w - w) / 2, icon.y + (icon.h - ctx.text_height(font)) / 2},
 		text_color,
 	)
-	if ctx.hover_id == id {
+	if hinted {
 		ui.hint, ui.hint_of = hint, icon
 	}
 	return

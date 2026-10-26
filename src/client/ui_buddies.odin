@@ -325,6 +325,7 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
 	selected := here && ui.buddies.selected == b.account
+	keyed := nav_control(ctx, id, r, list = true, current = selected)
 	// The open one in the accent color, like the open channel (list_row).
 	switch {
 	case selected:
@@ -362,6 +363,9 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 		status_color = status_color,
 	)
 
+	if keyed {
+		open_entry(ui, b)
+	}
 	if ctx.hover_id != id {
 		return
 	}

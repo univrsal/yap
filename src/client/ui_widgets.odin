@@ -346,7 +346,7 @@ list_row :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	keyed := nav_control(ctx, id, r)
+	keyed := nav_control(ctx, id, r, list = true, current = selected)
 	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 		res += {.SUBMIT}
 	}

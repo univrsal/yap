@@ -252,6 +252,7 @@ role_list :: proc(ui: ^UI) {
 		id := mu.get_id(ctx, "role")
 		rect := mu.layout_next(ctx)
 		mu.update_control(ctx, id, rect)
+		keyed := nav_control(ctx, id, rect, list = true, current = r.role == role.id)
 		switch {
 		case r.role == role.id:
 			mu.draw_rect(ctx, rect, ctx.style.colors[.BUTTON_FOCUS])
@@ -268,7 +269,7 @@ role_list :: proc(ui: ^UI) {
 		} else {
 			mu.draw_control_text(ctx, text, rect, .TEXT, {})
 		}
-		if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+		if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 			r.role = role.id
 			r.confirm, r.holders, r.giving = false, {}, {}
 		}
@@ -441,14 +442,16 @@ color_picker :: proc(ui: ^UI, editable: bool) {
 		color := c | proto.ROLE_COLOR_SET
 		id := mu.get_id(ctx, "swatch")
 		cell := mu.layout_next(ctx)
+		keyed := false
 		if editable {
 			mu.update_control(ctx, id, cell)
+			keyed = nav_control(ctx, id, cell)
 		}
 		if r.color == color {
 			mu.draw_rect(ctx, cell, theme.strong)
 		}
 		mu.draw_rect(ctx, mu.expand_rect(cell, -2), role_rgb(c))
-		if editable && ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+		if editable && ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 			r.color = color
 		}
 	}

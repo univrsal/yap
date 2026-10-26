@@ -369,6 +369,12 @@ voice_panel :: proc(ui: ^UI) {
 	id := mu.get_id(ctx, "me in panel")
 	me_r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, me_r)
+	if nav_control(ctx, id, me_r) {
+		open_status_editor(ui)
+	}
+	if nav_focused(ctx, id) {
+		ui.hint, ui.hint_of = "Set your status", me_r
+	}
 	if ctx.hover_id == id {
 		mu.draw_rect(ctx, me_r, ctx.style.colors[.BUTTON_HOVER])
 		ui.hint, ui.hint_of = "Set your status", me_r

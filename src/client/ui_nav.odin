@@ -28,6 +28,12 @@ Nav_Item :: struct {
 	root:     ^mu.Container, // the root container it is drawn in (nil outside any)
 	cnt:      ^mu.Container, // the container that scrolls it (a panel or its root)
 	text_len: int, // a text box's text length, where the cursor goes; -1 for others
+	// A row of a list: the first row's id, shared by the rows drawn right
+	// after it in the same container; 0 for a control on its own. Tab stops
+	// at a list once, at its `current` row (the selected one) or its first,
+	// and Up and Down move in it.
+	group:    mu.Id,
+	current:  bool,
 }
 
 UI_Nav :: struct {
@@ -108,8 +114,18 @@ nav_root :: proc(ctx: ^mu.Context) -> ^mu.Container {
 
 // nav_control makes the control `id` in `r` one that Tab stops at, draws the
 // outline around it while it has the keyboard focus, and says whether Enter
-// or Space pressed it. A text box passes its text's length as `text_len`.
-nav_control :: proc(ctx: ^mu.Context, id: mu.Id, r: mu.Rect, text_len := -1) -> (activated: bool) {
+// or Space pressed it. A text box passes its text's length as `text_len`; a
+// row of a list passes `list`, and `current` for the selected row.
+nav_control :: proc(
+	ctx: ^mu.Context,
+	id: mu.Id,
+	r: mu.Rect,
+	text_len := -1,
+	list := false,
+	current := false,
+) -> (
+	activated: bool,
+) {
 	n := nav_of(ctx)
 	if n == nil {
 		return false
@@ -118,7 +134,14 @@ nav_control :: proc(ctx: ^mu.Context, id: mu.Id, r: mu.Rect, text_len := -1) -> 
 	if ctx.container_stack.idx > 0 {
 		cnt = mu.get_current_container(ctx)
 	}
-	append(&n.items, Nav_Item{id, r, nav_root(ctx), cnt, text_len})
+	group: mu.Id
+	if list {
+		group = id
+		if k := len(n.items); k > 0 && n.items[k - 1].group != 0 && n.items[k - 1].cnt == cnt {
+			group = n.items[k - 1].group
+		}
+	}
+	append(&n.items, Nav_Item{id, r, nav_root(ctx), cnt, text_len, group, current})
 	if n.visible && n.focus == id {
 		render.draw_rounded_outside(ctx, r, theme.accent, render.CONTROL_RADIUS, border = true)
 	}
@@ -218,9 +241,21 @@ nav_frame :: proc(ui: ^UI) {
 	}
 	next_area := key_take(ui, .Next_Area)
 	prev_area := key_take(ui, .Prev_Area)
+	// Up and Down in a list (outside a popup, where they are Tab's).
+	in_list := trap == nil && n.visible && at >= 0 && items[at].group != 0
+	up := in_list && key_take(ui, .Up)
+	down := in_list && key_take(ui, .Down)
 	switch {
 	case (forward || back) && len(items) > 0:
-		nav_move(ui, items[nav_step(len(items), at, back)])
+		if trap != nil {
+			nav_move(ui, items[nav_step(len(items), at, back)])
+		} else {
+			nav_move(ui, items[nav_tab_step(items, at, back)])
+		}
+	case up || down:
+		if next := nav_list_step(items, at, up); next >= 0 {
+			nav_move(ui, items[next])
+		}
 	case (next_area || prev_area) && trap == nil && len(items) > 0:
 		nav_move(ui, items[nav_area_step(items, at, prev_area)])
 	case n.visible && at >= 0 && items[at].text_len < 0:
@@ -315,6 +350,59 @@ nav_area_step :: proc(items: []Nav_Item, at: int, back: bool) -> int {
 		append(&starts, i)
 	}
 	return starts[nav_step(len(starts), cur, back)]
+}
+
+// nav_tab_step is where Tab goes from `at` among `items` (Shift+Tab with
+// `back`): the next control, a list counting as one, whose current row is
+// where it goes in.
+nav_tab_step :: proc(items: []Nav_Item, at: int, back: bool) -> int {
+	n := len(items)
+	i := nav_step(n, at, back)
+	if at >= 0 && items[at].group != 0 {
+		for _ in 0 ..< n {
+			if items[i].group != items[at].group {
+				break
+			}
+			i = nav_step(n, i, back)
+		}
+	}
+	g := items[i].group
+	if g == 0 {
+		return i
+	}
+	first := -1
+	for it, k in items {
+		if it.group != g {
+			continue
+		}
+		if it.current {
+			return k
+		}
+		if first < 0 {
+			first = k
+		}
+	}
+	return first
+}
+
+// nav_list_step is the row above `at` in its list (below it without `up`),
+// or -1 at either end.
+nav_list_step :: proc(items: []Nav_Item, at: int, up: bool) -> int {
+	g := items[at].group
+	if up {
+		#reverse for it, k in items[:at] {
+			if it.group == g {
+				return k
+			}
+		}
+	} else {
+		for it, k in items[at + 1:] {
+			if it.group == g {
+				return at + 1 + k
+			}
+		}
+	}
+	return -1
 }
 
 // nav_index is where `id` is among `items`, or -1.

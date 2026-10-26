@@ -17,7 +17,7 @@ Sizes as in [next.md](next.md).
 | 3 | Tab inside popups, scrolling into view, keys taken by others | M | done |
 | 4 | The palette with static commands | M | done |
 | 5 | Dynamic entries (channels, servers, buddies) and recent first | M | done |
-| 6 | The rest of the controls, arrow keys inside lists | L | |
+| 6 | The rest of the controls, arrow keys inside lists | L | done |
 
 1–3 are Tab navigation, 4–5 the palette. Only phase 1 is shared, so after it
 the two halves can be built side by side.
@@ -330,6 +330,33 @@ As built:
 - Web: check that the browser doesn't take Ctrl+Space or Ctrl+K before the
   page sees it, and that Tab doesn't move the browser's own focus out of
   the canvas (prevent its default while the canvas has the focus).
+
+As built:
+
+- The `mu.button` calls went in with the phase 2 fixes (`button`), as did
+  sliders (`slider`, Left and Right move them) and headers
+  (`header`, `begin_treenode`).
+- Stops now: the rail's icons (server, inbox, join), the people under the
+  channels and in the members window (Enter opens the user menu, ours the
+  status editor), the voice panel's own row, the inbox's rows, the role list
+  and colour swatches, reaction chips under messages and the message bar's
+  recent reactions, the composer's send button, the camera tiles, and the
+  title bar's window buttons. Hints that show on hover also show on focus
+  (rail icons, icon buttons, camera tiles, the voice panel's row).
+  Not stops: chat messages, the enlarged image's picture (dragged).
+- Lists: a row passes `list = true` (and `current` for the selected one) to
+  `nav_control`; rows drawn one after another in the same container form a
+  group, with no begin or end to call. That covers `list_row` (channels,
+  settings categories, the account list, devices), the people under the
+  channels (one list with the channels), the inbox, the members window and
+  the roles. Tab stops at a group once, at its current row or its first;
+  Up and Down move in it without wrapping. Inside a popup, rows are
+  stepped one by one as before (a dropdown's list is a group too).
+- Web (web/keys.js): `yapAppKey` says which keys the page keeps from the
+  browser: the markdown keys, Ctrl+Space, Ctrl+K, Cmd+K and F6. web/field.js
+  hands the same keys on from its text fields. Emscripten's GLFW already
+  holds back Tab's default on the canvas. Cmd+K opens the palette in a
+  browser on any system, since the page can't tell a Mac's keyboard.
 
 ## Testing
 

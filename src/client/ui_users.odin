@@ -173,6 +173,9 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		mu.pop_id(ctx)
 		r := mu.layout_next(ctx)
 		mu.update_control(ctx, cid, r)
+		if nav_control(ctx, cid, r, list = true) {
+			open_status_editor(ui)
+		}
 		if ctx.hover_id == cid {
 			mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 			if ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} {
@@ -232,6 +235,7 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	cid := mu.get_id(ctx, "member")
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, cid, r)
+	keyed := nav_control(ctx, cid, r, list = true)
 	if ctx.hover_id == cid {
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
@@ -254,6 +258,12 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 	}
 	if speaking && user.muted {
 		app_audio_mark(ctx, r, slot, !u.muted)
+	}
+
+	// From the keyboard, the menu, which has watching and moving too.
+	if keyed {
+		open_user_menu(ui, id, user.account)
+		return
 	}
 
 	if ctx.hover_id == cid && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} {
