@@ -286,6 +286,7 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 	id := mu.get_id(ctx, "recent")
 	rect := mu.layout_next(ctx)
 	mu.update_control(ctx, id, rect)
+	keyed := nav_control(ctx, id, rect)
 	if r.me {
 		color := theme.highlight_more if ctx.hover_id == id else theme.highlight
 		render.draw_rounded(ctx, rect, color, render.CONTROL_RADIUS)
@@ -316,7 +317,7 @@ recent_reaction_button :: proc(ui: ^UI, r: Recent_Reaction) -> bool {
 		ui.hint, ui.hint_of = name, rect
 		hint_emoji_of(ui, r.emoji)
 	}
-	return ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id
+	return ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed
 }
 
 // send_reaction adds (`on`) or removes our reaction to message `id`. A

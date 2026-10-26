@@ -113,7 +113,15 @@ Extra_Key :: enum {
 	Up,
 	Down,
 	Tab,
+	Back_Tab, // Shift+Tab
+	Next_Area, // F6: the keyboard focus to the next area (ui_nav.odin)
+	Prev_Area, // Shift+F6
 	Escape,
+	// Space, which presses the control with the keyboard focus (see ui_nav.odin).
+	// It still types a space in a text box.
+	Activate,
+	// Ctrl+Space or Ctrl+K (Cmd+K on macOS): the command palette.
+	Palette,
 	Newline, // Shift+Enter, or Enter on a phone's keyboard: a new line in a text area
 	// Markdown shortcuts in a composer (see composer_keys): Ctrl+B, Ctrl+I, Ctrl+U,
 	// Ctrl+Shift+X, Ctrl+E.
@@ -232,6 +240,9 @@ UI :: struct {
 	// The Sounds page (ui_sounds.odin), and the open dropdown (ui_dropdown.odin).
 	sounds:              Sounds_UI,
 	dropdown:            Dropdown_State,
+	// The keyboard focus (ui_nav.odin), and the command palette (ui_palette.odin).
+	nav:                 UI_Nav,
+	palette:             UI_Palette,
 	// Whether the voice gate section, with the meter, was on screen in the last
 	// frame (see gate_settings). The microphone is only opened for it in that case.
 	meter_shown:         bool,
@@ -250,6 +261,12 @@ UI :: struct {
 	memory:              UI_Memory,
 	// Keys that microui has no name for, pressed since the last frame.
 	keys:                bit_set[Extra_Key],
+	// Presses of a key in KEYS_QUEUED that came while it was already in `keys`:
+	// each goes into `keys` in a frame of its own (see key_press).
+	keys_queued:         [Extra_Key]u8,
+	// Ctrl+Space opened the palette: the space that may follow it as text
+	// isn't typed (see char_callback).
+	drop_space:          bool,
 	// A message was picked to be edited, or a mention was completed: its composer
 	// takes the focus, with the cursor at `focus_composer_at` (-1: at the
 	// end).
@@ -447,6 +464,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	channels_window(ui, w, h)
 	forward_window(ui, w, h)
 	search_window(ui, w, h)
+	palette_window(ui, w, h)
 	// After every timeline, the thread windows' timelines too.
 	message_bar(ui)
 	dropdown_popup(ui, w, h)
@@ -575,10 +593,10 @@ connect_screen :: proc(ui: ^UI) {
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, {-1})
 	// With a changed key, trusting the new key is what connects again.
-	if !key_change && .SUBMIT in mu.button(ctx, "Reconnect") {
+	if !key_change && .SUBMIT in button(ctx, "Reconnect") {
 		ui.action = .Reconnect
 	}
-	if .SUBMIT in mu.button(ctx, "Leave this server") {
+	if .SUBMIT in button(ctx, "Leave this server") {
 		ui.action = .Disconnect
 	}
 }

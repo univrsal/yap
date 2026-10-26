@@ -114,11 +114,11 @@ install_settings :: proc(ui: ^UI) {
 		mu.label(ctx, "  Installed.")
 	}
 	if !st.installed {
-		if .SUBMIT in mu.button(ctx, "Install") {
+		if .SUBMIT in button(ctx, "Install") {
 			install_do(ui, true)
 		}
 	} else if elsewhere {
-		if .SUBMIT in mu.button(ctx, "Use this copy") {
+		if .SUBMIT in button(ctx, "Use this copy") {
 			install_do(ui, true)
 		}
 	} else {
@@ -126,7 +126,7 @@ install_settings :: proc(ui: ^UI) {
 		mu.label(ctx, "")
 	}
 	if st.installed {
-		if .SUBMIT in mu.button(ctx, "Uninstall") {
+		if .SUBMIT in button(ctx, "Uninstall") {
 			install_do(ui, false)
 		}
 	}

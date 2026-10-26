@@ -424,6 +424,10 @@ scroll_step :: proc(ui: ^UI) {
 char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 	context = platform.callback_context()
 	ui_redraw(g_ui)
+	if g_ui.drop_space && codepoint == ' ' {
+		g_ui.drop_space = false
+		return
+	}
 	buf, n := utf8.encode_rune(codepoint)
 	mu.input_text(&g_ui.ctx, string(buf[:n]))
 }
@@ -432,25 +436,42 @@ char_callback :: proc "c" (window: glfw.WindowHandle, codepoint: rune) {
 key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
 	context = platform.callback_context()
 	ui_redraw(g_ui)
-	// The composer's markdown keys, from the key's own modifiers.
-	// Ctrl+Shift+X isn't Ctrl+X: it doesn't go on to cut.
+	g_ui.drop_space = false
+	// The command palette: Cmd+K on macOS, where Ctrl+Space usually switches
+	// the input source, and in a browser (which may be on a Mac).
+	if action == glfw.PRESS &&
+	   (ODIN_OS == .Darwin || platform.WEB) &&
+	   key == glfw.KEY_K &&
+	   mods & (glfw.MOD_SUPER | glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SHIFT) == glfw.MOD_SUPER {
+		g_ui.keys += {.Palette}
+		return
+	}
+	// The composer's markdown keys and the command palette, from the key's own
+	// modifiers. Ctrl+Shift+X isn't Ctrl+X: it doesn't go on to cut.
 	if action != glfw.RELEASE && mods & glfw.MOD_CONTROL != 0 && mods & glfw.MOD_ALT == 0 {
 		shift := mods & glfw.MOD_SHIFT != 0
-		format: Maybe(Extra_Key)
+		extra: Maybe(Extra_Key)
 		switch {
 		case key == glfw.KEY_B && !shift:
-			format = .Bold
+			extra = .Bold
 		case key == glfw.KEY_I && !shift:
-			format = .Italic
+			extra = .Italic
 		case key == glfw.KEY_U && !shift:
-			format = .Underline
+			extra = .Underline
 		case key == glfw.KEY_E && !shift:
-			format = .Code
+			extra = .Code
 		case key == glfw.KEY_X && shift:
-			format = .Strike
+			extra = .Strike
+		case (key == glfw.KEY_SPACE || key == glfw.KEY_K) && !shift:
+			if action == glfw.PRESS {
+				g_ui.keys += {.Palette}
+			}
+			// Windows also sends Ctrl+Space as a space to type.
+			g_ui.drop_space = key == glfw.KEY_SPACE
+			return
 		}
-		if f, ok := format.?; ok {
-			g_ui.keys += {f}
+		if e, ok := extra.?; ok {
+			g_ui.keys += {e}
 			return
 		}
 	}
@@ -478,12 +499,23 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 		if action == glfw.PRESS || action == glfw.REPEAT {
 			switch key {
 			case glfw.KEY_UP:
-				g_ui.keys += {.Up}
+				key_press(.Up)
 			case glfw.KEY_DOWN:
-				g_ui.keys += {.Down}
+				key_press(.Down)
 			case:
-				g_ui.keys += {.Tab}
+				key_press(.Back_Tab if mods & glfw.MOD_SHIFT != 0 else .Tab)
 			}
+		}
+		return
+	case glfw.KEY_F6:
+		if action == glfw.PRESS {
+			key_press(.Prev_Area if mods & glfw.MOD_SHIFT != 0 else .Next_Area)
+		}
+		return
+	case glfw.KEY_SPACE:
+		// The space itself comes as text (char_callback).
+		if action == glfw.PRESS && mods & (glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SUPER) == 0 {
+			key_press(.Activate)
 		}
 		return
 	case glfw.KEY_ENTER, glfw.KEY_KP_ENTER:

@@ -431,11 +431,11 @@ transfer_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "Upload limit")
 	changed |=
 		.CHANGE in
-		mu.slider(ctx, &ui.settings.upload_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
+		slider(ctx, &ui.settings.upload_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
 	mu.label(ctx, "Download limit")
 	changed |=
 		.CHANGE in
-		mu.slider(
+		slider(
 			ctx,
 			&ui.settings.download_limit,
 			0,
@@ -458,13 +458,13 @@ transfer_settings :: proc(ui: ^UI) {
 device_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.audio
-	if .ACTIVE not_in mu.begin_treenode(ctx, fmt.tprintf("Audio devices (via %s)", a.backend)) {
+	if .ACTIVE not_in begin_treenode(ctx, fmt.tprintf("Audio devices (via %s)", a.backend)) {
 		return
 	}
 	defer mu.end_treenode(ctx)
 	mu.layout_row(ctx, {120})
 
-	if .SUBMIT in mu.button(ctx, "Refresh device list") {
+	if .SUBMIT in button(ctx, "Refresh device list") {
 		log.debug("ui: refresh audio devices")
 		audio.audio_refresh(a)
 	}

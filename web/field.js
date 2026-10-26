@@ -235,9 +235,10 @@ listens on the whole window and would act on them a second time.
 	// Which keys typed in a field the client gets as well, instead of the
 	// field: Enter to send (on a phone's keyboard it starts a line, and the
 	// send button sends), Tab, Escape, Up in an empty field (to edit the last
-	// message), Up and Down in the completion list, and the markdown keys
-	// (src/client/ui.odin, key_callback). Modifiers go too, so GLFW knows
-	// what is held, but do their usual work in the field as well.
+	// message), Up and Down in the completion list, and the keys web/keys.js
+	// keeps from the browser (the markdown keys, the command palette's, F6).
+	// Modifiers go too, so GLFW knows what is held, but do their usual work in
+	// the field as well.
 	const MODIFIERS = ["Shift", "Control", "Alt", "Meta"];
 	const forward = (f, e) => {
 		if (e.isComposing || e.keyCode === 229) return false;
@@ -252,9 +253,7 @@ listens on the whole window and would act on them a second time.
 			case "ArrowDown":
 				return f.completing;
 		}
-		if (!e.ctrlKey || e.altKey || e.metaKey) return false;
-		const k = e.key.toLowerCase();
-		return (!e.shiftKey && k.length === 1 && "biue".includes(k)) || (e.shiftKey && k === "x");
+		return window.yapAppKey(e);
 	};
 
 	for (const type of ["keydown", "keypress", "keyup"]) {

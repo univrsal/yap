@@ -174,7 +174,7 @@ about_settings :: proc(ui: ^UI) {
 		defer mu.pop_id(ctx)
 		mu.layout_row(ctx, {-1})
 		// Collapsed until clicked, because the licenses are long.
-		if .ACTIVE not_in mu.header(ctx, fmt.tprintf("%s  (%s)", p.name, p.license)) {
+		if .ACTIVE not_in header(ctx, fmt.tprintf("%s  (%s)", p.name, p.license)) {
 			continue
 		}
 		about_text(

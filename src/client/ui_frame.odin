@@ -272,6 +272,7 @@ draw_frame :: proc(ui: ^UI) {
 	mu.begin(&ui.ctx)
 	ui.meter_shown = false // until gate_settings draws it again (it sets this when it draws the meter)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
+	nav_frame(ui)
 	mu.end(&ui.ctx)
 	clock_redraws(ui)
 	settle(ui)
@@ -296,7 +297,7 @@ draw_frame :: proc(ui: ^UI) {
 	ui.select.over_text = false
 	ui_chat_after_frame(ui)
 	camera_after_frame(ui)
-	ui.keys = {}
+	keys_next_frame(ui)
 	// The window's buttons keep their size at 100%. Only the display's
 	// density scales them, not the UI's zoom.
 	ui.renderer.control_scale = m.scale / settings.ui_scale_factor(&ui.settings)
@@ -425,6 +426,8 @@ ui_shutdown :: proc(ui: ^UI) {
 	app_audio_destroy(ui)
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
+	ui_nav_destroy(ui)
+	ui_palette_destroy(ui)
 	delete(ui.scrollbar_fades)
 	// The paste thread uses the clipboard, so it has to be
 	// finished before the clipboard is torn down.

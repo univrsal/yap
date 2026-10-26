@@ -169,7 +169,7 @@ app_audio_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !mu.begin_popup(ctx, MENU_NAME) {
+	if !begin_popup(ui, MENU_NAME) {
 		return
 	}
 	defer mu.end_popup(ctx)
@@ -185,7 +185,7 @@ app_audio_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 	mu.label(ctx, "Volume")
-	if .CHANGE in mu.slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+	if .CHANGE in slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.app_audio_volume = a.volume / 100
 		ui.settings_dirty = true
 		command_all(ui, conn.app_audio_command(&ui.settings))

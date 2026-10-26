@@ -98,7 +98,7 @@ message_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !mu.begin_popup(ctx, MENU) {
+	if !begin_popup(ui, MENU) {
 		mm.confirm = false
 		return
 	}

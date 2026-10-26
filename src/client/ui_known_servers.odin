@@ -95,7 +95,7 @@ key_change_panel :: proc(ui: ^UI) {
 	)
 
 	mu.layout_row(ctx, {-1})
-	if .SUBMIT in mu.button(ctx, "Trust the new key and connect") {
+	if .SUBMIT in button(ctx, "Trust the new key and connect") {
 		ui.action = .Trust_Key
 	}
 }

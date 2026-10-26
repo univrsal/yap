@@ -211,6 +211,7 @@ text_area :: proc(ui: ^UI, buf: []u8, textlen: ^int, area: ^Text_Area) -> (res: 
 		res += {.CHANGE}
 	}
 	mu.update_control(ctx, id, r, {.HOLD_FOCUS})
+	nav_control(ctx, id, r, textlen^)
 	tr := text_area_text_rect(r, area)
 	if .LEFT in ctx.mouse_pressed_bits {
 		area.footer_press = area.footer > 0 && mu.mouse_over(ctx, r) && !mu.mouse_over(ctx, tr)

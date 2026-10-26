@@ -494,6 +494,7 @@ person_row :: proc(
 	id := mu.get_id(ctx, "person")
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
+	keyed := nav_control(ctx, id, r, list = true)
 	if ctx.hover_id == id {
 		mu.draw_rect(ctx, r, ctx.style.colors[.BUTTON_HOVER])
 	}
@@ -516,7 +517,7 @@ person_row :: proc(
 		talking = talking,
 	)
 	talking_hint(ui, icon_r, talking)
-	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {}
+	return ctx.hover_id == id && ctx.mouse_pressed_bits & {.LEFT, .RIGHT} != {} || keyed
 }
 
 // name_and_status draws a name in `r` (in bold with `bold`, for the selected

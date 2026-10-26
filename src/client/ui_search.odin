@@ -22,7 +22,8 @@ import "common:proto"
 UI_Search :: struct {
 	open:   bool,
 	placed: bool,
-	query:  Text_Field(proto.MAX_SEARCH_QUERY),
+	focus:  bool, // just opened: the query box takes the focus
+	query: Text_Field(proto.MAX_SEARCH_QUERY),
 	all:    bool, // search in all of our conversations
 }
 
@@ -60,6 +61,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 	if !s.placed {
 		s.placed = true
+		s.focus = true
 		w := clamp(window_w / 3, 280, 460)
 		h := clamp(window_h - 120, 200, 640)
 		if cnt := mu.get_container(ctx, SEARCH_WINDOW); cnt != nil {
@@ -77,6 +79,12 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	defer mu.end_window(ctx)
 
 	cmds := &ui.session.client.commands
+	// Ready to type in, however it was opened. Not in the frame of the click
+	// that opened it, which would take the focus from the box again.
+	if s.focus && ctx.mouse_pressed_bits == {} {
+		s.focus = false
+		focus_at(ctx, mu.get_id(ctx, uintptr(&s.query.buf[0])), s.query.len)
+	}
 	mu.layout_row(ctx, {-(70 + ctx.style.spacing + 1), 70})
 	submit := .SUBMIT in text_box(ui, s.query.buf[:], &s.query.len)
 	submit |= .SUBMIT in stable_button(ctx, "find", "Search", {.ALIGN_CENTER})

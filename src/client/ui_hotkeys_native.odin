@@ -52,6 +52,12 @@ bound :: proc(ui: ^UI, action: Hotkey_Action) -> hotkeys.Hotkey {
 	return h
 }
 
+// hotkey_text is the hotkey for muting (deafening, with `deafen`), as
+// "Ctrl+Shift+M", or "" for none. Allocated in the temp allocator.
+hotkey_text :: proc(ui: ^UI, deafen: bool) -> string {
+	return hotkeys.format(bound(ui, .Deafen if deafen else .Mute), context.temp_allocator)
+}
+
 // hotkeys_frame acts on the hotkeys pressed since the last frame, takes a
 // hotkey that is being set, and starts or stops watching the keyboard depending on
 // whether there are hotkeys to watch for. Call it every frame, window or no window.

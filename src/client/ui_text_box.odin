@@ -35,6 +35,7 @@ text_box :: proc(ui: ^UI, buf: []u8, textlen: ^int, opt := mu.Options{}) -> mu.R
 		)
 	}
 	res := mu.textbox_raw(ctx, buf, textlen, id, r, opt)
+	nav_control(ctx, id, r, textlen^)
 	if ctx.hover_id == id {
 		ui.select.over_text = true // shows an I-beam over it (draw_frame)
 	}

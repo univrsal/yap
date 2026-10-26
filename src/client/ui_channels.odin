@@ -122,7 +122,7 @@ channel_list :: proc(ui: ^UI) {
 		{area.x + pad, area.y + area.h - button_h - pad, area.w - 2 * pad, button_h},
 		false,
 	)
-	if .SUBMIT in mu.button(ctx, "Join a channel...") {
+	if .SUBMIT in button(ctx, "Join a channel...") {
 		open_channels(ui)
 	}
 
@@ -175,16 +175,7 @@ channel_rows :: proc(ui: ^UI) {
 			}
 		}
 		if clicked {
-			if !viewing {
-				log.debugf("ui: view %q", ch.name)
-				command(ui, conn.View_Command{conv = ch.id})
-				// Where to start the next time we are on this server.
-				if settings.set_joined_channel(&ui.settings, v.server, ch.name) {
-					ui.settings_dirty = true
-				}
-			}
-			// In a narrow window, picking a channel is also how to get to it.
-			ui.channels.show_list = false
+			view_channel(ui, v, ch)
 		}
 		block := ctx.last_rect
 		for m in ch.members {
@@ -264,14 +255,36 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		}
 	}
 	if .SUBMIT in icon_button(ui, "voice", .Phone, hint, color) && !v.voice_pending {
-		log.debugf("ui: %s %q", "leave voice of" if in_it else "join voice of", ch.name)
 		if in_it {
+			log.debugf("ui: leave voice of %q", ch.name)
 			command(ui, conn.Voice_Command{})
 		} else {
-			leave_voice_elsewhere(ui)
-			command(ui, conn.Voice_Command{conv = ch.id})
+			join_voice(ui, ch^)
 		}
 	}
+}
+
+// view_channel shows the channel `ch` of the shown server, as clicking it in
+// the list does. Call with the View locked.
+view_channel :: proc(ui: ^UI, v: ^conn.View, ch: conn.View_Channel) {
+	if ch.id != v.viewing {
+		log.debugf("ui: view %q", ch.name)
+		command(ui, conn.View_Command{conv = ch.id})
+		// Where to start the next time we are on this server.
+		if settings.set_joined_channel(&ui.settings, v.server, ch.name) {
+			ui.settings_dirty = true
+		}
+	}
+	// In a narrow window, picking a channel is also how to get to it.
+	ui.channels.show_list = false
+}
+
+// join_voice joins the voice room of the channel `ch` of the shown server,
+// leaving one on another server. Call with the View locked.
+join_voice :: proc(ui: ^UI, ch: conn.View_Channel) {
+	log.debugf("ui: join voice of %q", ch.name)
+	leave_voice_elsewhere(ui)
+	command(ui, conn.Voice_Command{conv = ch.id})
 }
 
 // unread_badge draws a count of unread messages at the right end of
@@ -358,7 +371,7 @@ channel_menu :: proc(ui: ^UI) {
 		cnt.rect.x = clamp(cnt.rect.x, 0, max(w - cnt.rect.w, 0))
 		cnt.rect.y = clamp(cnt.rect.y, 0, max(h - cnt.rect.h, 0))
 	}
-	if !mu.begin_popup(ctx, CHANNEL_MENU) {
+	if !begin_popup(ui, CHANNEL_MENU) {
 		return
 	}
 	defer mu.end_popup(ctx)

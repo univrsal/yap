@@ -560,9 +560,12 @@ call_video :: proc(ui: ^UI, v: ^conn.View, r: mu.Rect) {
 	small := mu.Rect{r.x + r.w - w - SELF_VIEW_GAP, r.y + r.h - h - SELF_VIEW_GAP, w, h}
 	id := mu.get_id(ctx, "video corner")
 	mu.update_control(ctx, id, small)
-	if ctx.hover_id == id {
+	if nav_control(ctx, id, small) {
+		cam.swapped = !cam.swapped
+	}
+	if ctx.hover_id == id || nav_focused(ctx, id) {
 		ui.hint, ui.hint_of = "Swap the pictures", small
-		if .LEFT in ctx.mouse_pressed_bits {
+		if ctx.hover_id == id && .LEFT in ctx.mouse_pressed_bits {
 			cam.swapped = !cam.swapped
 		}
 	}
@@ -701,9 +704,12 @@ tile :: proc(ui: ^UI, r: mu.Rect, t: Tile, large: bool) {
 	id := mu.get_id(ctx, "tile")
 	mu.pop_id(ctx)
 	mu.update_control(ctx, id, r)
-	if ctx.hover_id == id {
+	if nav_control(ctx, id, r) {
+		ui.camera.focus = 0 if large else t.user
+	}
+	if ctx.hover_id == id || nav_focused(ctx, id) {
 		ui.hint, ui.hint_of = "Back to all cameras" if large else "Make larger", r
-		if .LEFT in ctx.mouse_pressed_bits {
+		if ctx.hover_id == id && .LEFT in ctx.mouse_pressed_bits {
 			ui.camera.focus = 0 if large else t.user
 		}
 	}

@@ -181,11 +181,11 @@ login_screen :: proc(ui: ^UI) {
 	case registering:
 		label = "Register"
 	}
-	submit |= .SUBMIT in mu.button(ctx, label)
+	submit |= .SUBMIT in button(ctx, label)
 	if open && !working {
 		field(ui, "")
 		other := "Log in to an account instead" if registering else "Register an account instead"
-		if .SUBMIT in mu.button(ctx, other) {
+		if .SUBMIT in button(ctx, other) {
 			a.registering = !registering
 			a.mistake = ""
 		}
@@ -352,7 +352,7 @@ verify_screen :: proc(ui: ^UI) {
 	}
 	field_row(ui, FORM_LABEL, "Not your address?", {FORM_FIELD, 70})
 	submitted := .SUBMIT in text_box(ui, a.verify.buf[:], &a.verify.len)
-	if (.SUBMIT in mu.button(ctx, "Change") || submitted) && a.verify.len > 0 {
+	if (.SUBMIT in button(ctx, "Change") || submitted) && a.verify.len > 0 {
 		a.mistake = ""
 		a.profile_asked = true
 		command(ui, conn.Email_Command{strings.clone(field_text(&a.verify))})
@@ -364,7 +364,7 @@ verify_screen :: proc(ui: ^UI) {
 	}
 
 	field_row(ui, FORM_LABEL, "", {140, -1})
-	if .SUBMIT in mu.button(ctx, "Log out") {
+	if .SUBMIT in button(ctx, "Log out") {
 		command(ui, conn.Logout_Command{})
 	}
 	dim_note(ctx, "This device has to log in again afterwards.")
@@ -408,7 +408,7 @@ password_form :: proc(ui: ^UI, v: ^conn.View, old_label: string, offer_revoke: b
 		checkbox(ctx, "Log my other devices out", &a.revoke_others)
 	}
 	field_row(ui, FORM_LABEL + 60, "", {140, -1})
-	submit |= .SUBMIT in mu.button(ctx, "Change password")
+	submit |= .SUBMIT in button(ctx, "Change password")
 	notice_label(ui, v)
 
 	if !submit {
@@ -489,7 +489,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 	field_row(ui, FORM_LABEL, "Name", {FORM_FIELD, 70})
 	submitted := .SUBMIT in text_box(ui, ui.name.buf[:], &ui.name.len)
-	if (.SUBMIT in mu.button(ctx, "Apply") || submitted) && ui.name.len > 0 {
+	if (.SUBMIT in button(ctx, "Apply") || submitted) && ui.name.len > 0 {
 		a.mistake = ""
 		a.profile_asked = true
 		command(ui, conn.Display_Command{strings.clone(field_text(&ui.name))})
@@ -498,7 +498,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	mu.push_id(ctx, "email")
 	field_row(ui, FORM_LABEL, "Email", {FORM_FIELD, 70})
 	email_submitted := .SUBMIT in text_box(ui, a.email.buf[:], &a.email.len)
-	if .SUBMIT in mu.button(ctx, "Apply") || email_submitted {
+	if .SUBMIT in button(ctx, "Apply") || email_submitted {
 		a.mistake = ""
 		a.profile_asked = true
 		command(ui, conn.Email_Command{strings.clone(field_text(&a.email))})
@@ -521,12 +521,12 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	voice_shown_settings(ui, v)
 	status_shared_settings(ui, v)
 
-	if .ACTIVE in mu.begin_treenode(ctx, "Password") {
+	if .ACTIVE in begin_treenode(ctx, "Password") {
 		password_form(ui, v, "Current password", true)
 		mu.end_treenode(ctx)
 	}
 
-	if .ACTIVE in mu.begin_treenode(ctx, "Devices") {
+	if .ACTIVE in begin_treenode(ctx, "Devices") {
 		if !a.devices_asked {
 			a.devices_asked = true
 			command(ui, conn.Devices_Command{})
@@ -536,7 +536,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	}
 
 	field_row(ui, FORM_LABEL, "", {140, -1})
-	if .SUBMIT in mu.button(ctx, "Log out") {
+	if .SUBMIT in button(ctx, "Log out") {
 		command(ui, conn.Logout_Command{})
 		ui.page = .Main
 	}
@@ -544,7 +544,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 
 	// Not the owner's, because somebody has to be the owner.
 	if .Owner not_in me.flags {
-		if .ACTIVE in mu.begin_treenode(ctx, "Delete this account") {
+		if .ACTIVE in begin_treenode(ctx, "Delete this account") {
 			delete_own_account(ui, v)
 			mu.end_treenode(ctx)
 		}
@@ -661,7 +661,7 @@ delete_own_account :: proc(ui: ^UI, v: ^conn.View) {
 	)
 	field_row(ui, FORM_LABEL, "Password", {FORM_FIELD, 140})
 	submit := .SUBMIT in password_box(ui, a.delete.buf[:], &a.delete.len)
-	submit |= .SUBMIT in mu.button(ctx, "Delete my account")
+	submit |= .SUBMIT in button(ctx, "Delete my account")
 	if submit && a.delete.len > 0 {
 		a.mistake = ""
 		command(

@@ -65,7 +65,8 @@ icon_button :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+	keyed := nav_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.SUBMIT}
 	}
 	// Filled, without a border, or flat: a background only while the pointer
@@ -80,7 +81,7 @@ icon_button :: proc(
 		render.draw_rounded(ctx, r, ctx.style.colors[colorid], render.CONTROL_RADIUS)
 	}
 	mu.draw_icon(ctx, render.icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
-	if ctx.hover_id == id {
+	if ctx.hover_id == id || nav_focused(ctx, id) {
 		ui.hint, ui.hint_of = hint, r
 	}
 	return
@@ -279,13 +280,53 @@ stable_button :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+	keyed := nav_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.SUBMIT}
 	}
 	mu.draw_control_frame(ctx, id, r, .BUTTON)
 	mu.draw_control_text(ctx, label, r, .TEXT, opt)
 
 	return
+}
+
+// button is mu.button with a label, as a stable_button: Tab stops at it.
+button :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {.ALIGN_CENTER}) -> mu.Result_Set {
+	return stable_button(ctx, label, label, opt)
+}
+
+// header is mu.header, and begin_treenode mu.begin_treenode (closed with
+// mu.end_treenode), which Tab also stops at: Enter or Space opens or closes
+// them.
+header :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {}) -> mu.Result_Set {
+	keyed_toggle(ctx, label)
+	res := mu.header(ctx, label, opt)
+	nav_control(ctx, mu.get_id(ctx, label), ctx.last_rect)
+	return res
+}
+
+begin_treenode :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {}) -> mu.Result_Set {
+	keyed_toggle(ctx, label)
+	id := mu.get_id(ctx, label)
+	res := mu.begin_treenode(ctx, label, opt)
+	// An open tree node has pushed its id already: register it as it was.
+	nav_control(ctx, id, ctx.last_rect)
+	return res
+}
+
+// keyed_toggle opens or closes the header `label` if Enter or Space pressed
+// it, as a click would, before microui looks at whether it is open.
+@(private = "file")
+keyed_toggle :: proc(ctx: ^mu.Context, label: string) {
+	id := mu.get_id(ctx, label)
+	if !nav_activated(ctx, id) {
+		return
+	}
+	if i, open := mu.pool_get(ctx, ctx.treenode_pool[:], id); open {
+		ctx.treenode_pool[i] = {}
+	} else {
+		mu.pool_init(ctx, ctx.treenode_pool[:], id)
+	}
 }
 
 // list_row is a line of a list to pick from (such as a settings tab's
@@ -305,7 +346,8 @@ list_row :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+	keyed := nav_control(ctx, id, r, list = true, current = selected)
+	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 		res += {.SUBMIT}
 	}
 	switch {
@@ -339,7 +381,8 @@ checkbox :: proc(ctx: ^mu.Context, label: string, state: ^bool) -> (res: mu.Resu
 	r := mu.layout_next(ctx)
 	box := mu.Rect{r.x, r.y, r.h, r.h}
 	mu.update_control(ctx, id, r)
-	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+	keyed := nav_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.CHANGE}
 		state^ = !state^
 	}
@@ -706,8 +749,42 @@ release_slider :: proc(
 	released: bool,
 ) {
 	was_dragging := slider_dragged(ctx, value)
-	mu.slider(ctx, value, low, high, step, format)
-	return was_dragging && !slider_dragged(ctx, value)
+	res := slider(ctx, value, low, high, step, format)
+	// A step with the arrow keys is let go at once.
+	return (was_dragging || .CHANGE in res) && !slider_dragged(ctx, value)
+}
+
+// slider is mu.slider, which Tab also stops at. While it has the keyboard
+// focus, Left and Right move it by `step` (by a hundredth without one).
+slider :: proc(
+	ctx: ^mu.Context,
+	value: ^f32,
+	low, high: f32,
+	step: f32 = 0,
+	format := mu.SLIDER_FMT,
+) -> (
+	res: mu.Result_Set,
+) {
+	res = mu.slider(ctx, value, low, high, step, format)
+	id := mu.get_id(ctx, uintptr(value))
+	nav_control(ctx, id, ctx.last_rect)
+	if !nav_focused(ctx, id) {
+		return
+	}
+	by := step if step != 0 else (high - low) / 100
+	v := value^
+	if .LEFT in ctx.key_pressed_bits {
+		v -= by
+	}
+	if .RIGHT in ctx.key_pressed_bits {
+		v += by
+	}
+	v = clamp(v, low, high)
+	if v != value^ {
+		value^ = v
+		res += {.CHANGE}
+	}
+	return
 }
 
 // slider_dragged says whether the slider of `value` is being dragged.
