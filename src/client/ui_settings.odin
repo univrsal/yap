@@ -458,7 +458,7 @@ transfer_settings :: proc(ui: ^UI) {
 device_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	a := &ui.audio
-	if .ACTIVE not_in mu.begin_treenode(ctx, fmt.tprintf("Audio devices (via %s)", a.backend)) {
+	if .ACTIVE not_in begin_treenode(ctx, fmt.tprintf("Audio devices (via %s)", a.backend)) {
 		return
 	}
 	defer mu.end_treenode(ctx)

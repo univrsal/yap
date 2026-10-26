@@ -295,6 +295,40 @@ button :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {.ALIGN_CENTER
 	return stable_button(ctx, label, label, opt)
 }
 
+// header is mu.header, and begin_treenode mu.begin_treenode (closed with
+// mu.end_treenode), which Tab also stops at: Enter or Space opens or closes
+// them.
+header :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {}) -> mu.Result_Set {
+	keyed_toggle(ctx, label)
+	res := mu.header(ctx, label, opt)
+	nav_control(ctx, mu.get_id(ctx, label), ctx.last_rect)
+	return res
+}
+
+begin_treenode :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {}) -> mu.Result_Set {
+	keyed_toggle(ctx, label)
+	id := mu.get_id(ctx, label)
+	res := mu.begin_treenode(ctx, label, opt)
+	// An open tree node has pushed its id already: register it as it was.
+	nav_control(ctx, id, ctx.last_rect)
+	return res
+}
+
+// keyed_toggle opens or closes the header `label` if Enter or Space pressed
+// it, as a click would, before microui looks at whether it is open.
+@(private = "file")
+keyed_toggle :: proc(ctx: ^mu.Context, label: string) {
+	id := mu.get_id(ctx, label)
+	if !nav_activated(ctx, id) {
+		return
+	}
+	if i, open := mu.pool_get(ctx, ctx.treenode_pool[:], id); open {
+		ctx.treenode_pool[i] = {}
+	} else {
+		mu.pool_init(ctx, ctx.treenode_pool[:], id)
+	}
+}
+
 // list_row is a line of a list to pick from (such as a settings tab's
 // categories or the channels), shown as text. It is boxed and bold while it is
 // the selected one and highlighted under the mouse. Clicking it with the left

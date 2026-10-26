@@ -92,7 +92,7 @@ share_settings :: proc(ui: ^UI) {
 	)
 
 	mu.layout_row(ctx, {-1})
-	if mu.header(ctx, "Advanced") != {} {
+	if header(ctx, "Advanced") != {} {
 		share_advanced(ui, cfg, limit)
 	}
 

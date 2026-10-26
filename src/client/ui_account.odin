@@ -521,12 +521,12 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 	voice_shown_settings(ui, v)
 	status_shared_settings(ui, v)
 
-	if .ACTIVE in mu.begin_treenode(ctx, "Password") {
+	if .ACTIVE in begin_treenode(ctx, "Password") {
 		password_form(ui, v, "Current password", true)
 		mu.end_treenode(ctx)
 	}
 
-	if .ACTIVE in mu.begin_treenode(ctx, "Devices") {
+	if .ACTIVE in begin_treenode(ctx, "Devices") {
 		if !a.devices_asked {
 			a.devices_asked = true
 			command(ui, conn.Devices_Command{})
@@ -544,7 +544,7 @@ account_settings :: proc(ui: ^UI, v: ^conn.View) {
 
 	// Not the owner's, because somebody has to be the owner.
 	if .Owner not_in me.flags {
-		if .ACTIVE in mu.begin_treenode(ctx, "Delete this account") {
+		if .ACTIVE in begin_treenode(ctx, "Delete this account") {
 			delete_own_account(ui, v)
 			mu.end_treenode(ctx)
 		}

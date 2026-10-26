@@ -78,6 +78,13 @@ nav_control :: proc(ctx: ^mu.Context, id: mu.Id, r: mu.Rect, text_len := -1) -> 
 	return n.activate == id
 }
 
+// nav_activated says whether Enter or Space pressed `id`, for a control
+// that has to know before it is drawn.
+nav_activated :: proc(ctx: ^mu.Context, id: mu.Id) -> bool {
+	n := nav_of(ctx)
+	return n != nil && n.activate == id
+}
+
 // nav_focused says whether `id` has the keyboard focus, shown.
 nav_focused :: proc(ctx: ^mu.Context, id: mu.Id) -> bool {
 	n := nav_of(ctx)
