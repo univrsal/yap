@@ -836,6 +836,16 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 				len(step.convs),
 			)
 		}
+		// The author's roots that are deleted messages now, kept for their
+		// threads. Before Msgs_Purged, so that clients keep them (a deleted
+		// root is never an author's message that went).
+		for root in step.tombs {
+			if m, found := msg_by_id(s, root); found {
+				if conv := conv_by_id(&s.convs, m.conv); conv != nil {
+					msg_deliver(s, conv, m, .Msg_Changed)
+				}
+			}
+		}
 		// With an author, `before` is 0, which older clients take as nothing.
 		told := proto.Msgs_Purged {
 			before = step.below,
@@ -866,14 +876,6 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 				if what == .Messages {
 					// Messages that it hadn't read yet may have been removed.
 					send_read(s, acc, conv)
-				}
-			}
-		}
-		// The author's roots that are deleted messages now, kept for their threads.
-		for root in step.tombs {
-			if m, found := msg_by_id(s, root); found {
-				if conv := conv_by_id(&s.convs, m.conv); conv != nil {
-					msg_deliver(s, conv, m, .Msg_Changed)
 				}
 			}
 		}

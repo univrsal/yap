@@ -19,7 +19,7 @@ Branch `moderation-plan`, off master (10f7192). Sizes as in [next.md](next.md).
 | 3 | Client: menu items, mute shown, notices | M | done |
 | 4 | Client: dragging people between rooms | M | done |
 | 5 | Bans on the server, and in the client | L | done |
-| 6 | Purging one author's messages | M | |
+| 6 | Purging one author's messages | M | done |
 | 7 | CLI client, server CLI, bot API, docs | S | |
 
 Phases 1–4 are the voice part and stand on their own; 5–6 are bans. They
@@ -515,6 +515,59 @@ own leave), and the web build type-checks but wasn't run.
 - Tests: author purge leaves others' messages, thread root placeholder,
   pins removed, DMs untouched for a ban purge, a purge running blocks a
   second one (Conflict) as today.
+
+*As built:* in `retention.odin` the Messages and Files steps take an
+`author` (and `from`, and `channels` for a ban's): `retention_ask` sets
+the step to go from the first message at or after `since` (cursor
+`from - 1`) to the last message there was then (`below`), and the scan
+uses `Purge_Author_Scan` / `Purge_Author_Files` over `messages_sender`,
+filtered by conversation (`?5`) and to channels (`?6`). Every scan now
+also reads `thread_root`. `purge_author_message` removes a message pinned
+or not; a root with a reply by someone else (or a newer one of theirs,
+`Purge_Reply_Other`) is made a deleted message with the same statements
+as Msg_Delete instead, and a removed reply adds its root to the step's
+roots for `thread_changed`. Files by author go from pinned messages too.
+The author, `from` and `channels` are kept in the meta table like the
+rest, so an interrupted author purge resumes.
+
+`step_finished` sends the deleted roots' Msg_Changed first and then
+Msgs_Purged with the author, `from` and `before` 0, so a client keeps a
+root that is deleted and has a thread. Purge with an author is allowed
+with Permission.Purge (Not_Found for an unknown account). `ban_set` with
+a purge answers Conflict while another purge runs, before banning, and
+otherwise queues a channels-only author purge after the ban (nobody
+waits for its answer). Tests: `test_purge_author` (range, pinned, roots,
+replies in others' threads, DMs included, the event, permissions) and
+`test_ban_purge` (Conflict first, then only the last day's, in channels).
+
+Client: `msgs_purged` (conn/messages.odin) removes, with an author, that
+account's messages from `from` on anywhere in each window (`purged_by`),
+keeping deleted thread roots, forgets their thread roots, and asks for
+the pins again if they are shown; Files strips theirs. `test_author_purged`
+covers it.
+
+- The ban form in the menu has **Remove their messages: none / last hour
+  / last 24 hours / last 7 days / all**, one button that picks the next
+  on each click (a dropdown can't open inside the menu). They go from
+  channels only (D11); the label doesn't say so for lack of room.
+- **Remove messages...** (Permission.Purge) in the menu: "Theirs of: last
+  hour" (picks the next), "In every conversation, for good", Cancel and a
+  red Remove. It purges everywhere, DMs too, as Settings > Purge does.
+- Settings > Purge history has **Whose** (a username, or empty for
+  everyone's). With a name, "Older than" becomes "From the last ... days
+  (0: all of them)", the note says their pinned messages go too, and the
+  question names them.
+- Headless `/banpurge <name> hour|day|week|all [reason]` and
+  `/purgeuser <name> [days]`.
+
+Checked off-screen as the owner: bot2's menu opened from the chat;
+Remove messages (the choice cycled) took bot2's three messages out of
+Lobby, their thread root with bot3's reply became "message deleted" with
+the reply kept, and the unread count went from 5 to 2; Ban with "Remove
+their messages: last hour" and a reason banned bot2 and removed the two
+messages it had just posted; Settings > Purge with Whose "bot3" asked
+"This removes for good bot3's messages in every conversation from
+<date> on." and removed bot3's two.
 
 ## 7. CLI client, server CLI, bot API, docs
 

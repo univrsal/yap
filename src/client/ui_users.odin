@@ -292,7 +292,7 @@ open_user_menu :: proc(ui: ^UI, num: proto.User_Num, account: proto.Account_Id) 
 	ui.menu_account = account
 	ui.menu_volume = u.volume * 100
 	ui.menu_moving = false
-	ui.bans.banning = false
+	ui.bans.banning, ui.bans.removing = false, false
 	// Opened by user_menu: microui scopes container names by the id stack,
 	// and the row it is opened from is nested in ids that the menu isn't.
 	ui.menu_requested = true
@@ -560,7 +560,8 @@ moderation_items :: proc(ui: ^UI, account: proto.Account_Id, clicked: conn.View_
 	room := clicked.room
 	can_move := .Move_Members in v.permissions && room != 0 && proto.room_call(room) == 0
 	can_ban := .Ban_Members in v.permissions
-	if !can_mute && !can_move && !can_ban {
+	can_purge := .Purge in v.permissions
+	if !can_mute && !can_move && !can_ban && !can_purge {
 		return
 	}
 	close :: proc(ctx: ^mu.Context) {
@@ -582,6 +583,9 @@ moderation_items :: proc(ui: ^UI, account: proto.Account_Id, clicked: conn.View_
 		bans_ask(ui, v) // to know whether they are banned
 	}
 	if can_ban && ban_items(ui, account, MENU_WIDTH) {
+		close(ctx)
+	}
+	if can_purge && remove_items(ui, account, MENU_WIDTH) {
 		close(ctx)
 	}
 }

@@ -264,6 +264,8 @@ command_destroy :: proc(cmd: Command) {
 	case Ban_Command:
 		delete(v.name)
 		delete(v.reason)
+	case Purge_Command:
+		delete(v.name)
 	case Account_Delete_Command:
 		delete(v.name)
 		delete(v.password)

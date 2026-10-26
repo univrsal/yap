@@ -41,6 +41,8 @@ UI_Manage :: struct {
 	purge_days:     Text_Field(6),
 	purge_files:    bool,
 	purge_confirm:  bool,
+	// Only one account's messages: its username, or "" for everyone's.
+	purge_who:      Text_Field(proto.MAX_USERNAME_SIZE),
 }
 
 ui_manage_destroy :: proc(ui: ^UI) {
@@ -387,12 +389,36 @@ purge_settings :: proc(ui: ^UI) {
 		m.purge_confirm = false
 	}
 
+	// One account's messages, or everyone's.
+	field_row(ui, FORM_LABEL, "Whose", {220, -1})
+	if .CHANGE in text_box(ui, m.purge_who.buf[:], &m.purge_who.len) {
+		m.purge_confirm = false
+	}
+	who := strings.trim_space(field_text(&m.purge_who))
+	author: proto.Account_Id
+	author_name: string
+	if who != "" {
+		for id, acc in v.accounts {
+			if strings.equal_fold(acc.username, who) {
+				author, author_name = id, acc.display if acc.display != "" else acc.username
+			}
+		}
+		if author == 0 {
+			dim_label(ctx, "Nobody here is called that.")
+			return
+		}
+		dim_label(ctx, author_name)
+	} else {
+		dim_label(ctx, "Everyone's (or a username)")
+	}
+
+	// Everyone's messages from before a time, or one account's from a time on.
 	mu.layout_row(ctx, {FORM_LABEL, 60, -1})
-	mu.label(ctx, "Older than")
+	mu.label(ctx, "From the last" if author != 0 else "Older than")
 	if .CHANGE in text_box(ui, m.purge_days.buf[:], &m.purge_days.len) {
 		m.purge_confirm = false
 	}
-	mu.label(ctx, "days")
+	mu.label(ctx, "days (0: all of them)" if author != 0 else "days")
 	days, days_ok := strconv.parse_int(field_text(&m.purge_days), 10)
 	days_ok = days_ok && days >= 0
 
@@ -413,7 +439,11 @@ purge_settings :: proc(ui: ^UI) {
 		if .SUBMIT in stable_button(ctx, "purge", "Purge...", {.ALIGN_CENTER}) {
 			m.purge_confirm = true
 		}
-		dim_note(ctx, "Asks first. Pinned messages are always kept.")
+		if author != 0 {
+			dim_note(ctx, "Asks first. Their pinned messages go too.")
+		} else {
+			dim_note(ctx, "Asks first. Pinned messages are always kept.")
+		}
 		return
 	}
 	dt, _ := time.time_to_datetime(time.unix(before / 1000, 0))
@@ -427,15 +457,39 @@ purge_settings :: proc(ui: ^UI) {
 		local.minute,
 	)
 	mu.label(ctx, "")
-	error_note(
-		ctx,
-		fmt.tprintf(
-			"This removes for good the %s in %s from before %s.",
-			"files of the messages" if m.purge_files else "messages",
-			place,
-			when_text,
-		),
-	)
+	switch {
+	case author != 0 && days == 0:
+		error_note(
+			ctx,
+			fmt.tprintf(
+				"This removes for good %s's %s in %s, all of them.",
+				author_name,
+				"messages' files" if m.purge_files else "messages",
+				place,
+			),
+		)
+	case author != 0:
+		error_note(
+			ctx,
+			fmt.tprintf(
+				"This removes for good %s's %s in %s from %s on.",
+				author_name,
+				"messages' files" if m.purge_files else "messages",
+				place,
+				when_text,
+			),
+		)
+	case:
+		error_note(
+			ctx,
+			fmt.tprintf(
+				"This removes for good the %s in %s from before %s.",
+				"files of the messages" if m.purge_files else "messages",
+				place,
+				when_text,
+			),
+		)
+	}
 	field_row(ui, FORM_LABEL, "", {140, 140})
 	if .SUBMIT in stable_button(ctx, "purge yes", "Purge them", {.ALIGN_CENTER}) {
 		command(
@@ -445,6 +499,8 @@ purge_settings :: proc(ui: ^UI) {
 				all = m.purge_conv == 0,
 				before = proto.Unix_Ms(before),
 				what = .Files if m.purge_files else .Messages,
+				author = author,
+				since = proto.Unix_Ms(before) if days > 0 else 0,
 			},
 		)
 		m.purge_confirm = false

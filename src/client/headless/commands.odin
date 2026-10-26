@@ -91,6 +91,10 @@ import "core:time"
 //	                 the server, or lift that
 //	/ban <name> [reason], /unban <name>, /bans   ban someone (they are told
 //	                 the reason), lift it, or list the bans
+//	/banpurge <name> hour|day|week|all [reason]   ban someone and remove
+//	                 their messages in channels of that time
+//	/purgeuser <name> [days]   remove someone's messages everywhere, of the
+//	                 last few days or all of them
 //	/deluser <name>  delete someone's account; /deleteme <password> deletes your own
 //	/private <name>  create a private channel
 //	/rename <name>, /topic <text>, /move <position>, /archive   change or
@@ -512,6 +516,56 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 					on = true,
 					reason = strings.clone(strings.trim_space(reason)),
 				},
+			)
+		case strings.has_prefix(line, "/banpurge "):
+			fields := strings.fields(line[len("/banpurge "):], context.temp_allocator)
+			purge := proto.Ban_Purge.None
+			if len(fields) >= 2 {
+				switch fields[1] {
+				case "hour":
+					purge = .Hour
+				case "day":
+					purge = .Day
+				case "week":
+					purge = .Week
+				case "all":
+					purge = .All
+				}
+			}
+			if purge == .None {
+				log.warn("usage: /banpurge <name> hour|day|week|all [reason]")
+				break
+			}
+			_, _, rest := strings.partition(strings.trim_space(line[len("/banpurge "):]), " ")
+			_, _, reason := strings.partition(strings.trim_space(rest), " ")
+			conn.push_command(
+				q,
+				conn.Ban_Command {
+					name = strings.clone(fields[0]),
+					on = true,
+					purge = purge,
+					reason = strings.clone(strings.trim_space(reason)),
+				},
+			)
+		case strings.has_prefix(line, "/purgeuser "):
+			fields := strings.fields(line[len("/purgeuser "):], context.temp_allocator)
+			days := 0
+			days_ok := true
+			if len(fields) > 1 {
+				days, days_ok = strconv.parse_int(fields[1], 10)
+			}
+			if len(fields) == 0 || !days_ok || days < 0 {
+				log.warn("usage: /purgeuser <name> [days]")
+				break
+			}
+			since: proto.Unix_Ms
+			if days > 0 {
+				now := time.time_to_unix_nano(time.now()) / 1e6
+				since = proto.Unix_Ms(now - i64(days * 24 * 60 * 60 * 1000))
+			}
+			conn.push_command(
+				q,
+				conn.Purge_Command{all = true, name = strings.clone(fields[0]), since = since},
 			)
 		case strings.has_prefix(line, "/unban "):
 			conn.push_command(

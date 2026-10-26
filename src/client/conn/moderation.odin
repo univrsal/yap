@@ -148,12 +148,13 @@ server_mute_changed :: proc(c: ^Server_Conn, was, now: bool) {
 	}
 }
 
-// Ban someone, or lift their ban. Headless, by name. (Removing their messages
-// with it comes later.)
+// Ban someone, or lift their ban, perhaps removing their messages in
+// channels too (`purge`). Headless, by name.
 Ban_Command :: struct {
 	account: proto.Account_Id,
 	on:      bool,
 	reason:  string, // owned by the command
+	purge:   proto.Ban_Purge,
 	name:    string, // owned by the command; headless
 }
 
@@ -181,7 +182,10 @@ ban_set :: proc(c: ^Server_Conn, cmd: Ban_Command) {
 		return
 	}
 	buf: [proto.BAN_SET_MAX_SIZE]u8
-	body := proto.encode_ban_set(&buf, {account = account, on = cmd.on, reason = cmd.reason})
+	body := proto.encode_ban_set(
+		&buf,
+		{account = account, on = cmd.on, reason = cmd.reason, purge = cmd.purge},
+	)
 	if body == nil {
 		notify(c, false, "The reason is too long.")
 		return
@@ -200,6 +204,12 @@ ban_set :: proc(c: ^Server_Conn, cmd: Ban_Command) {
 			notify(c, false, "They can't be banned.")
 		case .Denied:
 			notify(c, false, "You aren't allowed to ban them.")
+		case .Conflict:
+			notify(
+				c,
+				false,
+				"A purge is running, so their messages can't be removed now. Nothing was done.",
+			)
 		case:
 			notify(c, false, status_text(status))
 		}
