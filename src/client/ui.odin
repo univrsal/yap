@@ -113,7 +113,13 @@ Extra_Key :: enum {
 	Up,
 	Down,
 	Tab,
+	Back_Tab, // Shift+Tab
 	Escape,
+	// Space, which presses the control with the keyboard focus (see ui_nav.odin).
+	// It still types a space in a text box.
+	Activate,
+	// Ctrl+Space or Ctrl+K (Cmd+K on macOS): the command palette.
+	Palette,
 	Newline, // Shift+Enter, or Enter on a phone's keyboard: a new line in a text area
 	// Markdown shortcuts in a composer (see composer_keys): Ctrl+B, Ctrl+I, Ctrl+U,
 	// Ctrl+Shift+X, Ctrl+E.
@@ -250,6 +256,9 @@ UI :: struct {
 	memory:              UI_Memory,
 	// Keys that microui has no name for, pressed since the last frame.
 	keys:                bit_set[Extra_Key],
+	// Ctrl+Space opened the palette: the space that may follow it as text
+	// isn't typed (see char_callback).
+	drop_space:          bool,
 	// A message was picked to be edited, or a mention was completed: its composer
 	// takes the focus, with the cursor at `focus_composer_at` (-1: at the
 	// end).
