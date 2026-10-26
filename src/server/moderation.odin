@@ -5,8 +5,8 @@ import "core:log"
 import "common:proto"
 
 // Moderation (src/common/proto/moderation.odin, docs/design/moderation.md):
-// moving people between voice rooms or out of them, and muting them for
-// everyone.
+// moving people between voice rooms or out of them, muting them for
+// everyone, and banning them (bans.odin).
 //
 // Each needs its permission, and works only on accounts the asker outranks
 // (roles.odin), never on the asker or the owner.
@@ -37,6 +37,10 @@ moderation_request :: proc(
 		voice_move(s, u, id, body)
 	case .Voice_Mute:
 		voice_mute(s, u, id, body)
+	case .Ban_Set:
+		ban_set(s, u, id, body)
+	case .Ban_List:
+		ban_list(s, u, id)
 	case:
 		return false
 	}
@@ -45,7 +49,6 @@ moderation_request :: proc(
 
 // moderation_target returns the account that `u` wants to act on with
 // `perm`, or the status that says why it may not.
-@(private = "file")
 moderation_target :: proc(
 	s: ^Server,
 	u: ^Conn,

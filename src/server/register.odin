@@ -91,7 +91,8 @@ register_checks :: proc(
 		return .Username_Taken, false
 	case email == "" && (r.require_email || r.verify_email):
 		return .Email_Missing, false
-	case account_by_email(&s.accounts, email) != nil:
+	// A banned account's address gets the same answer (bans.odin).
+	case account_by_email(&s.accounts, email) != nil || email_banned(&s.accounts, email):
 		return .Email_Taken, false
 	case invite == "" && r.require_invite:
 		return .Invite_Missing, false

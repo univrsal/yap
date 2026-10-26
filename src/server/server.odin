@@ -637,7 +637,7 @@ conn_left :: proc(s: ^Server, u: ^Conn) {
 // conn_logout logs a connection out of its account without closing the
 // connection, so it's back to only being able to log in. A `reason` means the
 // logout wasn't requested by the client, and the client is told why.
-conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
+conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}, text := "") {
 	if u.account == nil {
 		return
 	}
@@ -649,7 +649,7 @@ conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
 	s.waiting[u.key] = u
 	if reason != {} {
 		buf: [proto.LOGGED_OUT_MAX_SIZE]u8
-		send_event(u, .Logged_Out, proto.encode_logged_out(&buf, reason, ""))
+		send_event(u, .Logged_Out, proto.encode_logged_out(&buf, reason, text))
 	}
 }
 

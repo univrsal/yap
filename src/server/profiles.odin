@@ -58,7 +58,7 @@ email_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Ok)
 		return
 	}
-	if other := account_by_email(&s.accounts, email); other != nil {
+	if other := account_by_email(&s.accounts, email); other != nil || email_banned(&s.accounts, email) {
 		respond(u, id, .Conflict)
 		return
 	}
