@@ -64,7 +64,6 @@ Panel_State :: enum {
 	Elsewhere, // a call on another of our devices
 }
 
-@(private = "file")
 panel_state :: proc(v: ^conn.View) -> Panel_State {
 	switch v.call.status {
 	case .None:

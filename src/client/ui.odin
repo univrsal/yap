@@ -240,8 +240,9 @@ UI :: struct {
 	// The Sounds page (ui_sounds.odin), and the open dropdown (ui_dropdown.odin).
 	sounds:              Sounds_UI,
 	dropdown:            Dropdown_State,
-	// The keyboard focus (ui_nav.odin).
+	// The keyboard focus (ui_nav.odin), and the command palette (ui_palette.odin).
 	nav:                 UI_Nav,
+	palette:             UI_Palette,
 	// Whether the voice gate section, with the meter, was on screen in the last
 	// frame (see gate_settings). The microphone is only opened for it in that case.
 	meter_shown:         bool,
@@ -460,6 +461,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	channels_window(ui, w, h)
 	forward_window(ui, w, h)
 	search_window(ui, w, h)
+	palette_window(ui, w, h)
 	// After every timeline, the thread windows' timelines too.
 	message_bar(ui)
 	dropdown_popup(ui, w, h)

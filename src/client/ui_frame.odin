@@ -427,6 +427,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
 	ui_nav_destroy(ui)
+	ui_palette_destroy(ui)
 	delete(ui.scrollbar_fades)
 	// The paste thread uses the clipboard, so it has to be
 	// finished before the clipboard is torn down.

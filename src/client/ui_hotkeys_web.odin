@@ -11,3 +11,7 @@ hotkeys_frame :: proc(ui: ^UI) {}
 hotkeys_stop :: proc(ui: ^UI) {}
 
 hotkey_settings :: proc(ui: ^UI) {}
+
+hotkey_text :: proc(ui: ^UI, deafen: bool) -> string {
+	return ""
+}

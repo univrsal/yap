@@ -15,7 +15,7 @@ Sizes as in [next.md](next.md).
 | 1 | Keys: Shift+Tab, Space, the palette's key | S | done |
 | 2 | The focus ring: `UI_Nav`, `nav_control`, the shared widgets | M | done |
 | 3 | Tab inside popups, scrolling into view, keys taken by others | M | done |
-| 4 | The palette with static commands | M | |
+| 4 | The palette with static commands | M | done |
 | 5 | Dynamic entries (channels, servers, buddies) and recent first | M | |
 | 6 | The rest of the controls, arrow keys inside lists | L | |
 
@@ -254,6 +254,27 @@ Mute and Deafen show their global hotkey as the detail
 
 Where a command calls what a button does, the button's code moves into a
 proc both use, so they can't drift apart.
+
+As built ([ui_palette.odin](../../src/client/ui_palette.odin)):
+
+- `COMMANDS` is a static table of `Command{name, enabled, run, detail}`;
+  `enabled` gets the View, which is locked while the palette is drawn and
+  while a command runs. A toggle is two commands, each enabled in one state
+  ("Mute microphone" and "Unmute microphone"), so a name always says what
+  running it does.
+- The commands: mute, unmute, deafen, undeafen (with their global hotkeys),
+  leave voice, hang up, search messages, open the inbox, open the settings,
+  back to the chat, and the three themes. Not yet: sharing the screen and
+  the camera, whose buttons open menus and pick devices, and disconnect /
+  reconnect, which are the connect screen's private actions. They need
+  their button code split out first.
+- The window is a microui popup (`.POPUP`), so a click elsewhere closes it,
+  placed every frame as tall as its rows. The chosen command runs at the
+  end of `palette_window` rather than after the frame: what was drawn
+  before it is not affected, and the next frame shows the result.
+- The text box that had the focus when the palette opened (usually the
+  composer) gets it back, with its cursor, when the palette closes.
+- Recent commands are kept in memory only (`UI_Palette.recent`, at most 20).
 
 ## 5. Dynamic entries and recent first
 
