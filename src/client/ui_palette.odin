@@ -1,11 +1,14 @@
 package client
 
+import "core:fmt"
 import "core:slice"
+import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
 import "client:conn"
 import "client:settings"
+import "common:proto"
 
 // The command palette (docs/design/keyboard.md): Ctrl+Space or Ctrl+K (Cmd+K
 // on macOS) opens a box near the top of the window that lists what can be
@@ -13,10 +16,14 @@ import "client:settings"
 // Enter runs, Escape (or a click elsewhere) closes it. Tab moves among its
 // rows like in any popup.
 //
-// Matching is by subsequence: the typed letters must come in the command's
+// Besides the commands, it lists the shown server's channels (to go to, and
+// to join the voice room of), the people there to write to, and the other
+// servers to switch to.
+//
+// Matching is by subsequence: the typed letters must come in the entry's
 // name in that order, not next to each other. Letters at the start of a word
-// and letters in a row count for more. Among equal matches, the commands run
-// last come first.
+// (or after # or @) and letters in a row count for more. Among equal matches,
+// the entries run last come first.
 
 UI_Palette :: struct {
 	open:      bool,
@@ -27,8 +34,8 @@ UI_Palette :: struct {
 	// get them back when it closes.
 	back:      mu.Id,
 	back_sel:  [2]int,
-	// The names of the commands run last, newest first, at most
-	// PALETTE_RECENT. They are the static names in COMMANDS.
+	// The names of the entries run last, newest first, at most
+	// PALETTE_RECENT. Owned.
 	recent:    [dynamic]string,
 }
 
@@ -139,6 +146,9 @@ COMMANDS := [?]Command {
 }
 
 ui_palette_destroy :: proc(ui: ^UI) {
+	for name in ui.palette.recent {
+		delete(name)
+	}
 	delete(ui.palette.recent)
 }
 
@@ -152,6 +162,26 @@ palette_set_theme :: proc(ui: ^UI, choice: Theme_Choice) {
 	settings.set_setting(&ui.settings.theme, THEME_CHOICE_NAMES[choice])
 	save_settings(ui)
 	ui_redraw(ui)
+}
+
+// Palette_Entry is a row the palette may show: a command from COMMANDS, or
+// one made for what is there now (a channel, a server, someone to write to).
+Palette_Entry :: struct {
+	kind:    Palette_Kind,
+	name:    string, // a COMMANDS name, or in the temp allocator
+	detail:  string, // dimmed at the right end of its row; in the temp allocator
+	command: int, // .Command: which, in COMMANDS
+	conv:    proto.Conv_Id, // .Channel, .Voice: the channel, on the shown server
+	account: proto.Account_Id, // .Message: whom, on the shown server
+	ns:      ^Net_Session, // .Server
+}
+
+Palette_Kind :: enum {
+	Command,
+	Channel, // show the channel
+	Voice, // join its voice room
+	Server, // show the server
+	Message, // open the DM
 }
 
 // palette_window opens and closes the palette with its key, and draws it
@@ -177,7 +207,8 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 	}
 	v := ui.view
 	sync.guard(&v.mutex)
-	matches := palette_matches(ui, v, field_text(&p.query))
+	entries := palette_entries(ui, v)
+	matches := palette_matches(ui, entries, field_text(&p.query))
 
 	// As tall as its rows, as microui lays them out.
 	row := ctx.style.size.y + 2 * ctx.style.padding + ctx.style.spacing
@@ -216,7 +247,7 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 	res := text_box(ui, p.query.buf[:], &p.query.len)
 	if .CHANGE in res {
 		p.selected = 0
-		matches = palette_matches(ui, v, field_text(&p.query))
+		matches = palette_matches(ui, entries, field_text(&p.query))
 	}
 	p.selected = clamp(p.selected, 0, max(len(matches) - 1, 0))
 	run := -1
@@ -236,28 +267,119 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 	// The rows around the selected one.
 	first := clamp(p.selected - PALETTE_ROWS + 1, 0, max(len(matches) - PALETTE_ROWS, 0))
 	for i in first ..< min(first + PALETTE_ROWS, len(matches)) {
-		c := &COMMANDS[matches[i]]
+		e := &entries[matches[i]]
 		mu.layout_row(ctx, {-1})
-		if .SUBMIT in list_row(ctx, c.name, c.name, i == p.selected) {
+		if .SUBMIT in list_row(ctx, fmt.tprintf("row %d", i), e.name, i == p.selected) {
 			run = i
 		}
-		if c.detail != nil {
-			if detail := c.detail(ui); detail != "" {
-				r := ctx.last_rect
-				tw := ctx.text_width(ctx.style.font, detail)
-				x := r.x + r.w - tw - ctx.style.padding
-				y := r.y + (r.h - ctx.text_height(ctx.style.font)) / 2
-				mu.draw_text(ctx, ctx.style.font, detail, {x, y}, theme.dim)
-			}
+		if e.detail != "" {
+			r := ctx.last_rect
+			tw := ctx.text_width(ctx.style.font, e.detail)
+			x := r.x + r.w - tw - ctx.style.padding
+			y := r.y + (r.h - ctx.text_height(ctx.style.font)) / 2
+			mu.draw_text(ctx, ctx.style.font, e.detail, {x, y}, theme.dim)
 		}
 	}
 
 	if run >= 0 {
-		c := &COMMANDS[matches[run]]
+		e := entries[matches[run]]
 		palette_close(ui)
-		palette_remember(p, c.name)
-		c.run(ui)
+		palette_remember(p, e.name)
+		palette_run(ui, v, e)
 		ui_redraw(ui)
+	}
+}
+
+// palette_entries lists what the palette may show now, commands first.
+// Allocated in the temp allocator. Call with the View locked.
+@(private = "file")
+palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
+	list := make([dynamic]Palette_Entry, 0, len(COMMANDS) + 2 * len(v.channels), context.temp_allocator)
+	for c, i in COMMANDS {
+		if c.enabled != nil && !c.enabled(ui, v) {
+			continue
+		}
+		detail := c.detail(ui) if c.detail != nil else ""
+		append(&list, Palette_Entry{kind = .Command, name = c.name, detail = detail, command = i})
+	}
+	if palette_connected(ui, v) {
+		for ch in v.channels {
+			if ch.id == v.viewing && ui.page == .Main {
+				continue // already there
+			}
+			detail := fmt.tprintf("%d unread", ch.unread) if ch.unread > 0 else ""
+			append(
+				&list,
+				Palette_Entry{kind = .Channel, name = fmt.tprintf("Go to #%s", ch.name), detail = detail, conv = ch.id},
+			)
+		}
+		if !v.voice_pending {
+			for ch in v.channels {
+				if .Voice in ch.rights && ch.id != v.my_room {
+					append(
+						&list,
+						Palette_Entry{kind = .Voice, name = fmt.tprintf("Join voice in #%s", ch.name), conv = ch.id},
+					)
+				}
+			}
+		}
+		for b in buddy_list(&ui.settings, v) {
+			detail := ""
+			switch {
+			case b.unread > 0:
+				detail = fmt.tprintf("%d unread", b.unread)
+			case b.online:
+				detail = "online"
+			}
+			append(
+				&list,
+				Palette_Entry{kind = .Message, name = fmt.tprintf("Message %s", b.name), detail = detail, account = b.account},
+			)
+		}
+	}
+	for ns in ui.sessions {
+		// The shown server's View is locked already.
+		if ns.joining || ns == ui.session || &ns.view == v {
+			continue
+		}
+		name := ns.server
+		{
+			sv := &ns.view
+			sync.guard(&sv.mutex)
+			if sv.server_name != "" {
+				name = fmt.tprintf("%s", sv.server_name)
+			}
+		}
+		append(&list, Palette_Entry{kind = .Server, name = fmt.tprintf("Switch to %s", name), ns = ns})
+	}
+	return list[:]
+}
+
+// palette_run does what the entry `e` stands for. Call with the View locked.
+@(private = "file")
+palette_run :: proc(ui: ^UI, v: ^conn.View, e: Palette_Entry) {
+	switch e.kind {
+	case .Command:
+		COMMANDS[e.command].run(ui)
+	case .Channel, .Voice:
+		for ch in v.channels {
+			if ch.id != e.conv {
+				continue
+			}
+			if e.kind == .Channel {
+				ui.page = .Main
+				view_channel(ui, v, ch)
+			} else {
+				join_voice(ui, ch)
+			}
+			return
+		}
+	case .Message:
+		open_conversation(ui, e.account)
+	case .Server:
+		if on_rail(ui, e.ns) {
+			ui.switch_to, ui.switching = e.ns, true
+		}
 	}
 }
 
@@ -279,38 +401,35 @@ palette_close :: proc(ui: ^UI) {
 	}
 }
 
-// palette_remember puts `name` first among the commands run last.
-@(private = "file")
+// palette_remember puts `name` first among the entries run last.
 palette_remember :: proc(p: ^UI_Palette, name: string) {
 	if i, found := slice.linear_search(p.recent[:], name); found {
+		delete(p.recent[i])
 		ordered_remove(&p.recent, i)
 	}
-	inject_at(&p.recent, 0, name)
-	if len(p.recent) > PALETTE_RECENT {
-		resize(&p.recent, PALETTE_RECENT)
+	inject_at(&p.recent, 0, strings.clone(name))
+	for len(p.recent) > PALETTE_RECENT {
+		delete(pop(&p.recent))
 	}
 }
 
-// palette_matches lists the commands that may be run now and match `query`,
-// as indexes into COMMANDS, best first. Allocated in the temp allocator.
-@(private = "file")
-palette_matches :: proc(ui: ^UI, v: ^conn.View, query: string) -> []int {
+// palette_matches lists the entries that match `query`, as indexes into
+// `entries`, best first, and among equally good ones those run last first.
+// Allocated in the temp allocator.
+palette_matches :: proc(ui: ^UI, entries: []Palette_Entry, query: string) -> []int {
 	Match :: struct {
 		index:  int,
 		score:  int,
 		recent: int, // where among the recent ones; len(recent) if not
 	}
-	found := make([dynamic]Match, 0, len(COMMANDS), context.temp_allocator)
-	for c, i in COMMANDS {
-		if c.enabled != nil && !c.enabled(ui, v) {
-			continue
-		}
-		score, ok := palette_score(query, c.name)
+	found := make([dynamic]Match, 0, len(entries), context.temp_allocator)
+	for e, i in entries {
+		score, ok := palette_score(query, e.name)
 		if !ok {
 			continue
 		}
 		recent := len(ui.palette.recent)
-		if at, was := slice.linear_search(ui.palette.recent[:], c.name); was {
+		if at, was := slice.linear_search(ui.palette.recent[:], e.name); was {
 			recent = at
 		}
 		append(&found, Match{i, score, recent})
@@ -329,36 +448,61 @@ palette_matches :: proc(ui: ^UI, v: ^conn.View, query: string) -> []int {
 }
 
 // palette_score says whether `query`'s letters come in `name` in that order
-// (ignoring case and the query's spaces), and how well: a point for each,
-// more for one that starts a word or follows the one before. The letters are
-// taken where they come first.
+// (ignoring case and the query's spaces), and how well, where they fit best:
+// a point for each letter, more for one that starts a word or follows the one
+// before, less for the letters skipped between two of them.
 palette_score :: proc(query, name: string) -> (score: int, ok: bool) {
-	q := 0
-	last := -2
-	for i in 0 ..< len(name) {
-		for q < len(query) && query[q] == ' ' {
-			q += 1
+	NONE :: min(int) / 2 // the query's letters so far don't fit up to here
+	q := make([dynamic]u8, 0, len(query), context.temp_allocator)
+	for c in transmute([]u8)query {
+		if c != ' ' {
+			append(&q, lower_ascii(c))
 		}
-		if q == len(query) {
-			break
-		}
-		if lower_ascii(name[i]) != lower_ascii(query[q]) {
-			continue
-		}
-		score += 1
-		if i == 0 || name[i - 1] == ' ' || name[i - 1] == '(' {
-			score += 8
-		}
-		if last == i - 1 {
-			score += 4
-		}
-		last = i
-		q += 1
 	}
-	for q < len(query) && query[q] == ' ' {
-		q += 1
+	if len(q) == 0 {
+		return 0, true
 	}
-	return score, q == len(query)
+	n := len(name)
+	// best[j]: the best score for the letters so far with the last one at
+	// name[j]. One row per letter of the query.
+	best := make([]int, n, context.temp_allocator)
+	next := make([]int, n, context.temp_allocator)
+	for c, i in q {
+		before := NONE // the best of best[k] for k < j - 1, less its gap
+		for j in 0 ..< n {
+			if j >= 2 && i > 0 {
+				// Every letter skipped costs a point.
+				if before != NONE {
+					before -= 1
+				}
+				if best[j - 2] != NONE {
+					before = max(before, best[j - 2] - 1)
+				}
+			}
+			next[j] = NONE
+			if lower_ascii(name[j]) != c {
+				continue
+			}
+			points := 1
+			if j == 0 || strings.index_byte(" (#@", name[j - 1]) >= 0 {
+				points += 8
+			}
+			switch {
+			case i == 0:
+				next[j] = points
+			case j >= 1 && best[j - 1] != NONE:
+				next[j] = max(best[j - 1] + points + 4, before + points if before != NONE else NONE)
+			case before != NONE:
+				next[j] = before + points
+			}
+		}
+		best, next = next, best
+	}
+	score = NONE
+	for s in best {
+		score = max(score, s)
+	}
+	return score, score != NONE
 }
 
 @(private = "file")

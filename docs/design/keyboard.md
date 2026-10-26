@@ -16,7 +16,7 @@ Sizes as in [next.md](next.md).
 | 2 | The focus ring: `UI_Nav`, `nav_control`, the shared widgets | M | done |
 | 3 | Tab inside popups, scrolling into view, keys taken by others | M | done |
 | 4 | The palette with static commands | M | done |
-| 5 | Dynamic entries (channels, servers, buddies) and recent first | M | |
+| 5 | Dynamic entries (channels, servers, buddies) and recent first | M | done |
 | 6 | The rest of the controls, arrow keys inside lists | L | |
 
 1–3 are Tab navigation, 4–5 the palette. Only phase 1 is shared, so after it
@@ -291,6 +291,29 @@ Names are cloned into the palette's own arena, freed on close.
 
 Matching and order as in D8. With an empty query, recent commands are
 listed first, then the static ones.
+
+As built:
+
+- The palette shows `Palette_Entry` rows, made in every frame it is drawn
+  (it is redrawn anyway while it is used): the enabled commands, then for
+  the shown server "Go to #channel" (not the one already shown; unread
+  count as the detail), "Join voice in #channel" (where we have Voice and
+  aren't already), "Message name" for everyone `buddy_list` gives (unread
+  count or "online"), and "Switch to server" for the other servers on the
+  rail. Names and details are in the temp allocator; only the recent names
+  are cloned.
+- Entries of other servers' channels and people are left out: running one
+  would need that server shown first (`switch_now`), and their names would
+  crowd the shown server's.
+- Running goes through the same procs as the clicks: `view_channel` and
+  `join_voice` (split out of ui_channels.odin for this), `open_conversation`,
+  and `ui.switch_to` for the rail.
+- Matching is the best alignment of the query's letters (a small dynamic
+  program over query × name), not the first one: with first-fit, "gen"
+  took the G of "Go to" and ranked "#engineering" over "#general". A
+  letter is a point, nine at a word start (after a space, `(`, `#` or `@`),
+  four more right after the previous one, and each letter skipped between
+  two costs one.
 
 ## 6. The rest
 
