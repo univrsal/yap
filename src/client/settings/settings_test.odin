@@ -5,6 +5,7 @@ import "core:os"
 import "core:testing"
 
 import "client:audio"
+import "common:."
 import "common:proto"
 
 @(test)
@@ -124,10 +125,9 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	hide_dm(&s, server, 40, 1234)
 	hide_dm(&s, server, 41, 10)
 	hide_dm(&s, server, 41, 0) // put back
-	for e in ([]string{"a", "b", ":c:", "d", "b"}) {
+	for e in ([]string{"a", "b", ":c:", "d", "b", "a", "b", "e"}) {
 		note_reaction(&s, server, e)
 	}
-	testing.expect(t, !note_reaction(&s, server, "b"), "already the latest")
 	note_reaction(&s, other, "x")
 	settings_save(path, s)
 
@@ -168,17 +168,17 @@ test_settings_roundtrip :: proc(t: ^testing.T) {
 	testing.expect(t, !dm_hidden(&loaded, other, 40, 1234))
 	testing.expect(t, !dm_hidden(&loaded, server, 41, 10))
 
-	// Most recent first, without duplicates, capped at MAX_RECENT_REACTIONS, and
-	// tracked per server.
-	recent := recent_reactions(&loaded, server)
-	testing.expect_value(t, len(recent), MAX_RECENT_REACTIONS)
-	testing.expect_value(t, recent[0], "b")
-	testing.expect_value(t, recent[1], "d")
-	testing.expect_value(t, recent[2], ":c:")
-	testing.expect_value(t, len(recent_reactions(&loaded, other)), 1)
+	// Most used first, then the latest of those used as often, capped at
+	// QUICK_REACTIONS, and counted per server.
+	quick := quick_reactions(&loaded, server)
+	testing.expect_value(t, len(quick), QUICK_REACTIONS)
+	testing.expect_value(t, quick[0], Reaction_Use{"b", 3})
+	testing.expect_value(t, quick[1], Reaction_Use{"a", 2})
+	testing.expect_value(t, quick[2], Reaction_Use{"e", 1})
+	testing.expect_value(t, len(quick_reactions(&loaded, other)), 1)
 	third: [proto.KEY_SIZE]u8
 	third[0] = 9
-	testing.expect_value(t, len(recent_reactions(&loaded, third)), 0)
+	testing.expect_value(t, len(quick_reactions(&loaded, third)), 0)
 }
 
 
@@ -194,6 +194,9 @@ test_settings_from_before_accounts :: proc(t: ^testing.T) {
 		},
 		"buddies": {
 			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": { "name": "alice" }
+		},
+		"recent_reactions": {
+			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": [":party:", "👍"]
 		}
 	}`
 	testing.expect(t, os.write_entire_file(path, old) == nil)
@@ -202,6 +205,15 @@ test_settings_from_before_accounts :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(s.joined_servers), 1)
 	testing.expect_value(t, s.joined_servers[0].address, "localhost:7777")
 	testing.expect_value(t, len(s.users), 1)
+	// The recent reactions are counted as used once, in the same order.
+	server, _ := common.parse_key_hex(
+		"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933",
+	)
+	quick := quick_reactions(&s, server)
+	testing.expect_value(t, len(quick), 2)
+	testing.expect_value(t, quick[0], Reaction_Use{":party:", 1})
+	testing.expect_value(t, quick[1], Reaction_Use{"👍", 1})
+	testing.expect_value(t, len(s.recent_reactions), 0)
 }
 
 @(test)

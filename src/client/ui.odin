@@ -225,10 +225,14 @@ UI :: struct {
 	// restores it instead of always unmuting (see set_deafened).
 	muted_before_deafen: bool,
 
-	// Whose message header is being drawn, and the byte range of their name in
-	// it, so that a click on the name opens their menu. 0: none.
+	// The byte range of the name in the message header being drawn, which is
+	// bold, and whose it is, so that a click on the name opens their menu (0:
+	// none, as for our own).
 	header_sender:       proto.Account_Id,
 	header_name:         [2]int,
+	// The byte range of the time in the header, which is dimmed ({} if it
+	// has none, see time_column).
+	header_time:         [2]int,
 	// Where a bot's tag goes in the header (a byte offset after its name, where the
 	// header leaves room for it, see ui_bots.odin). 0 for none.
 	header_bot:          int,

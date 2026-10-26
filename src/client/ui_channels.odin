@@ -56,6 +56,9 @@ CHANNEL_MENU_WIDTH :: 200
 CHANNEL_ROW_PADDING :: 6
 @(private = "file")
 CHANNEL_ROW_GAP :: 2
+// How far the people in a voice room are indented under its channel.
+@(private = "file")
+MEMBER_INDENT :: 16
 
 @(private = "file")
 CHANNELS_WINDOW :: "Join a channel"
@@ -178,9 +181,11 @@ channel_rows :: proc(ui: ^UI) {
 			view_channel(ui, v, ch)
 		}
 		block := ctx.last_rect
+		mu.get_layout(ctx).indent += MEMBER_INDENT
 		for m in ch.members {
 			member_row(ui, m)
 		}
+		mu.get_layout(ctx).indent -= MEMBER_INDENT
 		// The channel and the people under it, where someone being dragged
 		// can be dropped (ui_voice_drag.odin).
 		block.h = ctx.last_rect.y + ctx.last_rect.h - block.y

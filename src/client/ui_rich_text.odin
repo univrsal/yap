@@ -190,7 +190,6 @@ rich_font :: proc(ctx: ^mu.Context, styles: richtext.Md_Styles) -> mu.Font {
 }
 
 // rich_styles_at is the styles of the run that text[i] is in.
-@(private = "file")
 rich_styles_at :: proc(r: ^Rich, i: int) -> richtext.Md_Styles {
 	if len(r.runs) == 0 {
 		return {}

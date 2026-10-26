@@ -925,22 +925,52 @@ chat_message :: proc(
 }
 
 // selectable_header draws a message's header line in the next layout
-// cell.
+// cell: the name (ui.header_name) in bold, and the time (ui.header_time)
+// dimmed.
 @(private = "file")
 selectable_header :: proc(ui: ^UI, header: string, color: mu.Color, item: i64) {
 	ctx := &ui.ctx
 	r := mu.layout_next(ctx)
-	select_item(ui, item, header)
-	select_line(ui, item, header, 0, len(header), {r.x, r.y})
-	mu.draw_text(ctx, ctx.style.font, header, {r.x, r.y}, color)
-	if at := ui.header_bot; at > 0 && at <= len(header) {
-		bot_tag(ctx, r.x + ctx.text_width(ctx.style.font, header[:at]), r.y)
+	lo, hi := ui.header_name[0], ui.header_name[1]
+	if hi > len(header) || lo >= hi {
+		lo, hi = 0, 0
 	}
-	if ui.header_sender != 0 {
-		font := ctx.style.font
-		lo, hi := ui.header_name[0], ui.header_name[1]
-		x := r.x + ctx.text_width(font, header[:lo])
-		hit := mu.Rect{x, r.y, ctx.text_width(font, header[lo:hi]), r.h}
+	// Measured run by run, as the name is in another face.
+	rich := rich_plain(header)
+	if hi > lo {
+		runs := make([dynamic]richtext.Md_Run, context.temp_allocator)
+		for run in ([]richtext.Md_Run{{0, lo, {}}, {lo, hi, {.Bold}}, {hi, len(header), {}}}) {
+			if run.end > run.start {
+				append(&runs, run)
+			}
+		}
+		rich.runs = runs[:]
+	}
+	select_item(ui, item, header)
+	select_line(ui, item, header, 0, len(header), {r.x, r.y}, &rich)
+	t_lo, t_hi := ui.header_time[0], ui.header_time[1]
+	if t_hi > len(header) || t_lo < hi || t_lo >= t_hi {
+		t_lo, t_hi = len(header), len(header)
+	}
+	pieces := [?]struct {
+		end:   int,
+		color: mu.Color,
+	}{{lo, color}, {hi, color}, {t_lo, color}, {t_hi, theme.dim}, {len(header), color}}
+	start := 0
+	for p in pieces {
+		if p.end > start {
+			font := rich_font(ctx, rich_styles_at(&rich, start))
+			x := r.x + rich_width(ctx, &rich, 0, start)
+			mu.draw_text(ctx, font, header[start:p.end], {x, r.y}, p.color)
+			start = p.end
+		}
+	}
+	if at := ui.header_bot; at > 0 && at <= len(header) {
+		bot_tag(ctx, r.x + rich_width(ctx, &rich, 0, at), r.y)
+	}
+	if ui.header_sender != 0 && hi > lo {
+		x := r.x + rich_width(ctx, &rich, 0, lo)
+		hit := mu.Rect{x, r.y, rich_width(ctx, &rich, lo, hi), r.h}
 		if mu.mouse_over(ctx, hit) {
 			ui.chat.hovering = true // show a hand, as over a link
 			if clicked_not_dragged(ui) {

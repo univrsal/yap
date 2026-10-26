@@ -88,13 +88,17 @@ avatar_column :: proc(ui: ^UI) -> i32 {
 	return avatar_size(&ui.ctx) + 8 if ui.settings.chat_pictures else COMPACT_DOT_COLUMN
 }
 
-// A message's time (chat_time) comes first, in a column of its own before the
-// picture's, right-aligned in it. The column is as wide as the longest time
-// the locale writes for the message: with `dates`, an older day's (with the
-// date), otherwise today's (the time of day). So today's messages line up with
-// each other, and older ones with each other, without today's leaving room for
-// a date they don't have.
+// In the compact chat, a message's time (chat_time) comes first, in a column of
+// its own before the dot's, right-aligned in it. The column is as wide as the
+// longest time the locale writes for the message: with `dates`, an older day's
+// (with the date), otherwise today's (the time of day). So today's messages
+// line up with each other, and older ones with each other, without today's
+// leaving room for a date they don't have. With the pictures, the time goes in
+// the header after the name instead, and there is no column for it.
 time_column :: proc(ui: ^UI, dates: bool) -> i32 {
+	if ui.settings.chat_pictures {
+		return 0
+	}
 	ctx := &ui.ctx
 	longest := datetime.DateTime {
 		date = {year = 2088, month = 12, day = 28},
@@ -933,13 +937,16 @@ timeline_message :: proc(
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display
 	}
-	// Their name opens their menu, unless it is ours.
+	// Their name is bold, and opens their menu unless it is ours.
 	ui.header_sender = 0
-	if !merged && m.sender != v.me {
-		ui.header_sender = m.sender
+	ui.header_name = {}
+	if !merged {
 		ui.header_name = {0, len(name)}
+		if m.sender != v.me {
+			ui.header_sender = m.sender
+		}
 	}
-	defer ui.header_sender = 0
+	defer ui.header_sender, ui.header_name = 0, {}
 	// Room for a bot's tag after the name, which selectable_header draws.
 	bot_room := ""
 	ui.header_bot = 0
@@ -948,19 +955,30 @@ timeline_message :: proc(
 		bot_room = header_room(ctx, bot_tag_width(ctx))
 	}
 	defer ui.header_bot = 0
+	// With the pictures, the time follows the name (and tag), dimmed.
+	stamp := chat_time(ui, seconds)
+	when_room := ""
+	ui.header_time = {}
+	if !merged && ui.settings.chat_pictures {
+		at := len(name) + len(bot_room) + 2
+		ui.header_time = {at, at + len(stamp)}
+		when_room = fmt.tprintf("  %s", stamp)
+	}
+	defer ui.header_time = {}
 	header :=
-		"" if merged else fmt.tprintf("%s%s%s%s%s", name, bot_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
+		"" if merged else fmt.tprintf("%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
 	header_color := author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
-		// The time on the header's line (which comes after the gap), then the
-		// picture beside the header, or in the compact chat, the dot.
+		// The picture beside the header, or in the compact chat, the time on
+		// the header's line (which comes after the gap) and then the dot.
 		layout := mu.get_layout(ctx)
 		y := layout.body.y + layout.next_row + (MERGED_GAP if tight else ctx.style.spacing)
 		x := layout.body.x + indent
-		stamp := chat_time(ui, seconds)
-		stamp_x := x + time_w - TIME_GAP - ctx.text_width(ctx.style.font, stamp)
-		mu.draw_text(ctx, ctx.style.font, stamp, {stamp_x, y}, ctx.style.colors[.TEXT])
+		if !ui.settings.chat_pictures {
+			stamp_x := x + time_w - TIME_GAP - ctx.text_width(ctx.style.font, stamp)
+			mu.draw_text(ctx, ctx.style.font, stamp, {stamp_x, y}, ctx.style.colors[.TEXT])
+		}
 		x += time_w
 		if ui.settings.chat_pictures {
 			size := avatar_size(ctx)

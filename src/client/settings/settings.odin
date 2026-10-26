@@ -56,8 +56,10 @@ import "common:proto"
 //		"hidden_dms": {
 //			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933/40": 1234
 //		},
-//		"recent_reactions": {
-//			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": [":party:", "👍", "😂"]
+//		"reactions": {
+//			"8e41fa62833a5a7751cd6873b91156e0dfc22fa2f939c26824a07ff64764a933": [
+//				{ "emoji": ":party:", "uses": 12 }, { "emoji": "👍", "uses": 5 }
+//			]
 //		}
 //	}
 //
@@ -72,6 +74,8 @@ import "common:proto"
 // stored as they are, so the file is only readable by its owner. Older
 // settings had the last server (`server`) and the recent ones
 // (`recent_servers`) instead, which are converted to joined servers once (see settings_load).
+// Likewise, the last few reactions (`recent_reactions`) become `reactions`,
+// used once each.
 Settings :: struct {
 	joined_servers:          [dynamic]Joined_Server, // in the rail's order
 	// Legacy fields from before joined_servers. They are only read (see
@@ -170,16 +174,25 @@ Settings :: struct {
 	// with the conversation's id. Each one stays hidden until a message
 	// newer than the one stored here arrives (see dm_hidden).
 	hidden_dms:              map[string]u64,
-	// The emoji last used for reactions on each server, by its key
-	// (key_hex), latest first. The message bar offers them
+	// The emoji used for reactions on each server, by its key (key_hex),
+	// with how often: the most used first, and of those used equally often
+	// the latest first. The message bar offers the first few
 	// (ui_message_bar.odin). They are kept per server, because a server's
 	// own emoji (":name:") only exist there.
-	recent_reactions:        map[string][dynamic]string,
+	reactions:               map[string][dynamic]Reaction_Use,
+	// Legacy: the last few reactions on each server, latest first. Only read
+	// (see settings_load).
+	recent_reactions:        map[string][dynamic]string `json:"recent_reactions,omitempty"`,
 	// The sound of each event (audio.Sound_Event), by the event's key in
 	// audio.SOUND_EVENTS: a built-in sound ("aim/msg"), "none", or a file of
 	// the user's own ("custom:<file>", kept in the config folder's "sounds"
 	// folder). Events that play their default sound aren't stored.
 	sounds:                  map[string]string,
+}
+
+Reaction_Use :: struct {
+	emoji: string,
+	uses:  int,
 }
 
 User_Settings :: struct {
@@ -254,6 +267,20 @@ settings_load :: proc(path: string) -> (s: Settings) {
 	s.recent_servers = nil
 	delete(s.server)
 	s.server = ""
+	// Reactions from before they were counted: each was used once.
+	for key, recent in s.recent_reactions {
+		if key in s.reactions {
+			continue
+		}
+		server, parsed := common.parse_key_hex(key)
+		if !parsed {
+			continue
+		}
+		for i := len(recent) - 1; i >= 0; i -= 1 {
+			note_reaction(&s, server, recent[i])
+		}
+	}
+	recent_reactions_destroy(&s)
 	// Remove per-user settings from before accounts were identified by
 	// the server key and account id, since those can no longer be matched
 	// to a user.
@@ -315,14 +342,15 @@ settings_destroy :: proc(s: ^Settings) {
 		delete(key)
 	}
 	delete(s.hidden_dms)
-	for key, recent in s.recent_reactions {
+	recent_reactions_destroy(s)
+	for key, uses in s.reactions {
 		delete(key)
-		for e in recent {
-			delete(e)
+		for u in uses {
+			delete(u.emoji)
 		}
-		delete(recent)
+		delete(uses)
 	}
-	delete(s.recent_reactions)
+	delete(s.reactions)
 	for key, name in s.sounds {
 		delete(key)
 		delete(name)
@@ -534,43 +562,63 @@ hide_dm :: proc(
 	}
 }
 
-// The number of recent reactions that are kept per server.
-MAX_RECENT_REACTIONS :: 3
+// How many reactions the message bar offers, and how many are counted per
+// server. A reaction that is used less than all the others counted is
+// forgotten.
+QUICK_REACTIONS :: 3
+MAX_COUNTED_REACTIONS :: 40
 
-// recent_reactions returns the emoji most recently used for reactions on
-// `server`, latest first.
-recent_reactions :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8) -> []string {
-	recent := s.recent_reactions[common.key_hex(server)] or_else nil
-	return recent[:min(len(recent), MAX_RECENT_REACTIONS)]
+// quick_reactions returns the emoji most used for reactions on `server`, most
+// used first (of those used equally often, the latest first).
+quick_reactions :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8) -> []Reaction_Use {
+	uses := s.reactions[common.key_hex(server)] or_else nil
+	return uses[:min(len(uses), QUICK_REACTIONS)]
 }
 
-// note_reaction moves `emoji` to the front of the recent reactions on
-// `server`. It returns whether that changed anything.
-note_reaction :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, emoji: string) -> bool {
+// note_reaction counts a use of `emoji` for a reaction on `server`.
+note_reaction :: proc(s: ^Settings, server: [proto.KEY_SIZE]u8, emoji: string) {
 	key := common.key_hex(server)
-	if key not_in s.recent_reactions {
-		s.recent_reactions[strings.clone(key)] = {}
+	if key not_in s.reactions {
+		s.reactions[strings.clone(key)] = {}
 	}
-	recent := &s.recent_reactions[key]
-	if len(recent) > 0 && recent[0] == emoji {
-		return false
-	}
-	owned: string
-	for e, i in recent {
-		if e == emoji {
-			owned = e
-			ordered_remove(recent, i)
+	list := &s.reactions[key]
+	use := Reaction_Use{}
+	for u, i in list {
+		if u.emoji == emoji {
+			use = u
+			ordered_remove(list, i)
 			break
 		}
 	}
-	if owned == "" {
-		owned = strings.clone(emoji)
+	if use.emoji == "" {
+		use.emoji = strings.clone(emoji)
 	}
-	inject_at(recent, 0, owned)
-	for len(recent) > MAX_RECENT_REACTIONS {
-		delete(pop(recent))
+	use.uses += 1
+	// Ahead of every one used as often or less.
+	at := len(list)
+	for u, i in list {
+		if u.uses <= use.uses {
+			at = i
+			break
+		}
 	}
-	return true
+	inject_at(list, at, use)
+	for len(list) > MAX_COUNTED_REACTIONS {
+		delete(pop(list).emoji)
+	}
+}
+
+@(private = "file")
+recent_reactions_destroy :: proc(s: ^Settings) {
+	for key, recent in s.recent_reactions {
+		delete(key)
+		for e in recent {
+			delete(e)
+		}
+		delete(recent)
+	}
+	delete(s.recent_reactions)
+	s.recent_reactions = nil
 }
 
 // settings_quality returns the configured preset, or Voice if it is unset or
