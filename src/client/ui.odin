@@ -114,6 +114,8 @@ Extra_Key :: enum {
 	Down,
 	Tab,
 	Back_Tab, // Shift+Tab
+	Next_Area, // F6: the keyboard focus to the next area (ui_nav.odin)
+	Prev_Area, // Shift+F6
 	Escape,
 	// Space, which presses the control with the keyboard focus (see ui_nav.odin).
 	// It still types a space in a text box.

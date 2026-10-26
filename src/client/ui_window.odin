@@ -507,6 +507,11 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 			}
 		}
 		return
+	case glfw.KEY_F6:
+		if action == glfw.PRESS {
+			g_ui.keys += {.Prev_Area} if mods & glfw.MOD_SHIFT != 0 else {.Next_Area}
+		}
+		return
 	case glfw.KEY_SPACE:
 		// The space itself comes as text (char_callback).
 		if action == glfw.PRESS && mods & (glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SUPER) == 0 {

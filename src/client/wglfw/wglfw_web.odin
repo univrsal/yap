@@ -219,6 +219,7 @@ KEY_E :: 69
 KEY_I :: 73
 KEY_K :: 75
 KEY_SPACE :: 32
+KEY_F6 :: 295
 KEY_U :: 85
 KEY_C :: 67
 KEY_V :: 86

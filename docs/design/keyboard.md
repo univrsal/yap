@@ -14,7 +14,7 @@ Sizes as in [next.md](next.md).
 | --- | --- | --- | --- |
 | 1 | Keys: Shift+Tab, Space, the palette's key | S | done |
 | 2 | The focus ring: `UI_Nav`, `nav_control`, the shared widgets | M | done |
-| 3 | Tab inside popups, scrolling into view, keys taken by others | M | |
+| 3 | Tab inside popups, scrolling into view, keys taken by others | M | done |
 | 4 | The palette with static commands | M | |
 | 5 | Dynamic entries (channels, servers, buddies) and recent first | M | |
 | 6 | The rest of the controls, arrow keys inside lists | L | |
@@ -91,7 +91,7 @@ clears the focus. Clicking doesn't move the keyboard focus.
 **D4 — Order.** Recommended: the order controls are drawn in, which is
 mostly reading order (rail, channels, chat, users). If that turns out wrong
 somewhere, items can be sorted by a group number before their draw order.
-Phase 6 may add F6 to jump between the big areas.
+F6 jumps between the big areas (phase 3).
 
 **D5 — Tab in a composer.** Recommended: Tab leaves the composer (there is
 no tab character in a message). The completion list still takes Tab first
@@ -173,16 +173,30 @@ before `ui.keys = {}`, `nav_after_frame`:
 
 ## 3. Popups, scrolling, and keys taken by others
 
-- **Popups keep the focus.** While a popup or overlay is on top (the
-  dropdown's list, the message menu, search, forward, the palette), Tab only
-  cycles through items whose `root` is that container. "On top" is the
-  last opened of the windows that set `hover_root` when they open; each
-  says so through `nav_trap(ui, cnt)`. Opening one with the keyboard
-  focuses its first item; closing it puts the focus back on what opened it
-  (kept in `UI_Nav.return_to`).
-- **Into view.** When the focus moves to an item whose rect isn't inside its
-  container's body, scroll the container (`cnt.scroll`) by the difference,
-  through `scroll_step`'s smooth scrolling.
+As built:
+
+- **Popups keep the focus.** While a popup is open (the context menus,
+  through `begin_popup`, and the dropdown's list), Tab, Shift+Tab, Up and
+  Down only move among the items whose `root` is that popup, and Escape
+  closes it. Each says so in every frame it is drawn in (`nav_trap`). An
+  item's root is the innermost root container, since popups are begun
+  inside other windows.
+- **Floating windows don't.** Search, forward, pins, the emoji picker and
+  the like are not modal: their items come after the main window's in the
+  Tab order, as they are drawn. F6 and Shift+F6 jump between areas (one per
+  root container: the rail, the main window, each window over it), so a
+  window opened with the mouse can be reached quickly. This was planned for
+  phase 6 and came here instead.
+- **Opened from the keyboard.** A root container that had no items in the
+  last frame and appears within two frames of a keyboard press is the
+  window or popup that press opened: its first item takes the focus (the
+  dropdown's list starts at the current choice instead, `nav_focus_next`).
+  When the focused item is gone again, the focus goes back to the opener
+  (`UI_Nav.return_to`).
+- **Into view.** Moving the focus to an item that sticks out of its
+  container's body (the innermost one, a panel or the window) scrolls that
+  container at once by the difference. microui puts the scroll back in range
+  where the content doesn't scroll.
 - **Keys taken by others.** The completion list already removes Tab; the
   same goes for anything else that wants Tab, Escape or Space first. Escape
   that nobody took hides the focus.
@@ -269,8 +283,6 @@ listed first, then the static ones.
 - Arrow keys inside lists: Tab enters a list (channels, users, settings
   categories) at its selected row; Up and Down move within it; Tab leaves
   it. A list registers as one stop with a "roving" child.
-- F6 / Shift+F6 jump between the big areas (rail, channels, chat,
-  composer, users).
 - Web: check that the browser doesn't take Ctrl+Space or Ctrl+K before the
   page sees it, and that Tab doesn't move the browser's own focus out of
   the canvas (prevent its default while the canvas has the focus).
