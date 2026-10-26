@@ -272,6 +272,7 @@ draw_frame :: proc(ui: ^UI) {
 	mu.begin(&ui.ctx)
 	ui.meter_shown = false // until gate_settings draws it again (it sets this when it draws the meter)
 	layout(ui, i32(m.logical_w), i32(m.logical_h))
+	nav_frame(ui)
 	mu.end(&ui.ctx)
 	clock_redraws(ui)
 	settle(ui)
@@ -425,6 +426,7 @@ ui_shutdown :: proc(ui: ^UI) {
 	app_audio_destroy(ui)
 	ui_memory_destroy(ui)
 	delete(ui.text_boxes)
+	ui_nav_destroy(ui)
 	delete(ui.scrollbar_fades)
 	// The paste thread uses the clipboard, so it has to be
 	// finished before the clipboard is torn down.

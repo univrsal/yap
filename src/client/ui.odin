@@ -238,6 +238,8 @@ UI :: struct {
 	// The Sounds page (ui_sounds.odin), and the open dropdown (ui_dropdown.odin).
 	sounds:              Sounds_UI,
 	dropdown:            Dropdown_State,
+	// The keyboard focus (ui_nav.odin).
+	nav:                 UI_Nav,
 	// Whether the voice gate section, with the meter, was on screen in the last
 	// frame (see gate_settings). The microphone is only opened for it in that case.
 	meter_shown:         bool,

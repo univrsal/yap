@@ -65,7 +65,8 @@ icon_button :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+	keyed := nav_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.SUBMIT}
 	}
 	// Filled, without a border, or flat: a background only while the pointer
@@ -80,7 +81,7 @@ icon_button :: proc(
 		render.draw_rounded(ctx, r, ctx.style.colors[colorid], render.CONTROL_RADIUS)
 	}
 	mu.draw_icon(ctx, render.icon_id(icon), r, color if color.a != 0 else ctx.style.colors[.TEXT])
-	if ctx.hover_id == id {
+	if ctx.hover_id == id || nav_focused(ctx, id) {
 		ui.hint, ui.hint_of = hint, r
 	}
 	return
@@ -279,7 +280,8 @@ stable_button :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+	keyed := nav_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.SUBMIT}
 	}
 	mu.draw_control_frame(ctx, id, r, .BUTTON)
@@ -305,7 +307,8 @@ list_row :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} {
+	keyed := nav_control(ctx, id, r)
+	if ctx.hover_id == id && ctx.mouse_pressed_bits == {.LEFT} || keyed {
 		res += {.SUBMIT}
 	}
 	switch {
@@ -339,7 +342,8 @@ checkbox :: proc(ctx: ^mu.Context, label: string, state: ^bool) -> (res: mu.Resu
 	r := mu.layout_next(ctx)
 	box := mu.Rect{r.x, r.y, r.h, r.h}
 	mu.update_control(ctx, id, r)
-	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+	keyed := nav_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		res += {.CHANGE}
 		state^ = !state^
 	}

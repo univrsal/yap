@@ -59,7 +59,8 @@ dropdown :: proc(
 	id := mu.get_id(ctx, id_name)
 	r := mu.layout_next(ctx)
 	mu.update_control(ctx, id, r)
-	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id {
+	keyed := nav_control(ctx, id, r)
+	if ctx.mouse_pressed_bits == {.LEFT} && ctx.focus_id == id || keyed {
 		d.open, d.requested = id, true
 	}
 	mu.draw_control_frame(ctx, id, r, .BUTTON)
