@@ -144,6 +144,10 @@ login_screen :: proc(ui: ^UI) {
 	}
 	mu.layout_row(ctx, {-1}, ctx.style.spacing)
 	mu.layout_next(ctx)
+	// Banned: why, in place of the form (ui_bans.odin).
+	if banned_notice(ui, v.server_name if v.server_name != "" else server) {
+		return
+	}
 
 	working := v.login.state != .Needed
 	submit := false
@@ -459,6 +463,7 @@ SERVER_CATEGORY_NAMES := [Server_Category]string {
 	.Roles       = "Roles",
 	.Accounts    = "Accounts",
 	.Invites     = "Invite codes",
+	.Bans        = "Bans",
 	.Purge       = "Purge history",
 	.Memory      = "Memory",
 }

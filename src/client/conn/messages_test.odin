@@ -135,3 +135,38 @@ test_timeline_published :: proc(t: ^testing.T) {
 	testing.expect(t, !still)
 	testing.expect_value(t, len(c.msgs.caches), 0)
 }
+
+// A purge of one author's messages removes theirs from `from` on wherever
+// they are in the window, and keeps a root of theirs that is a deleted
+// message now (moderation.md, phase 6).
+@(test)
+test_author_purged :: proc(t: ^testing.T) {
+	v: View
+	defer view_destroy(&v)
+	c: Server_Conn
+	c.view = &v
+	defer messages_destroy(&c)
+	conv := Timeline_Key{3, 0}
+	cache := new(Conv_Cache)
+	c.msgs.caches[conv] = cache
+
+	// 1 to 10: the odd ones are account 7's, the even ones 8's; 9 is a
+	// root of 7's that others replied to, deleted by the purge.
+	msgs := page(1, 10)
+	for &m in msgs {
+		m.sender = 7 if m.id % 2 == 1 else 8
+	}
+	msgs[8].flags = {.Deleted, .Has_Thread}
+	cache_replace(cache, msgs, 0)
+
+	buf: [proto.MSGS_PURGED_MAX_SIZE]u8
+	body := proto.encode_msgs_purged(&buf, {conv = 3, author = 7, from = 4})
+	testing.expect(t, messages_event(&c, .Msgs_Purged, body))
+	got := make([dynamic]proto.Msg_Id, context.temp_allocator)
+	for m in cache.messages {
+		append(&got, m.id)
+	}
+	testing.expect_value(t, fmt.tprint(got[:]), "[1, 2, 3, 4, 6, 8, 9, 10]")
+	tl := &v.timelines[conv]
+	testing.expect_value(t, len(tl.messages), 8)
+}

@@ -71,6 +71,9 @@ Conn :: struct {
 	flags:           proto.User_Flags,
 	// The voice room the connection is in, 0 for none (conv_requests.odin).
 	room:            proto.Room,
+	// The room a moderator moved it into (moderation.odin), for as long as
+	// it is still there, else 0. It may stay there without the rights.
+	guest_room:      proto.Room,
 	sessions:        int, // keyed sessions of the main link pointing here
 
 	// State sync: the newest snapshot version the client confirmed, and
@@ -594,7 +597,7 @@ conn_unseen :: proc(s: ^Server, u: ^Conn) {
 	delete_key(&s.conns, u.key)
 	drop_conn_files(s, u)
 	s.waiting[u.key] = u
-	u.room, u.flags = 0, {}
+	u.room, u.guest_room, u.flags = 0, 0, {}
 	u.acked_version, u.sent_version = 0, 0
 	u.last_typing = {}
 }
@@ -634,19 +637,19 @@ conn_left :: proc(s: ^Server, u: ^Conn) {
 // conn_logout logs a connection out of its account without closing the
 // connection, so it's back to only being able to log in. A `reason` means the
 // logout wasn't requested by the client, and the client is told why.
-conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}) {
+conn_logout :: proc(s: ^Server, u: ^Conn, reason: proto.Logout_Reason = {}, text := "") {
 	if u.account == nil {
 		return
 	}
 	conn_left(s, u)
 	// Reset it to a fresh state for whoever logs in on it next.
-	u.room, u.flags = 0, {}
+	u.room, u.guest_room, u.flags = 0, 0, {}
 	u.acked_version, u.sent_version = 0, 0
 	u.last_typing = {}
 	s.waiting[u.key] = u
 	if reason != {} {
-		body := [1]u8{u8(reason)}
-		send_event(u, .Logged_Out, body[:])
+		buf: [proto.LOGGED_OUT_MAX_SIZE]u8
+		send_event(u, .Logged_Out, proto.encode_logged_out(&buf, reason, text))
 	}
 }
 
@@ -972,9 +975,10 @@ bulk_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 
 // relay_voice forwards a voice frame to everyone else in the speaker's
 // room, re-encrypted for each recipient's newest session. Voice from
-// someone who isn't in a room is not sent to anyone.
+// someone who isn't in a room, or whose account a moderator muted
+// (moderation.odin), is not sent to anyone.
 relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
-	if from.conn.room == 0 {
+	if from.conn.room == 0 || .Server_Muted in from.conn.account.flags {
 		return
 	}
 	// [kind][seq][frame] -> [kind][speaker][seq][frame]

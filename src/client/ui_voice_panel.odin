@@ -263,6 +263,10 @@ voice_panel :: proc(ui: ^UI) {
 		case .Idle:
 		case .Voice:
 			what = "Voice connected"
+			if server_muted(v, v.me) {
+				// Nobody hears us here, whatever the mic button says.
+				what, color = "Muted by a moderator", theme.warning
+			}
 			where_ = fmt.tprintf("# %s", voice_room_name(v))
 		case .Call:
 			what = "In a call"
@@ -376,14 +380,18 @@ voice_panel :: proc(ui: ^UI) {
 	me := v.accounts[v.me] or_else {}
 	name := me.display if me.display != "" else v.my_name
 	name_and_status(ctx, me_r, name, ctx.style.colors[.TEXT], status_line(me))
-	if .SUBMIT in
-	   icon_button(
-		   ui,
-		   "mute",
-		   .Mic_Off if ui.muted else .Mic,
-		   "Unmute" if ui.muted else "Mute",
-		   theme.off if ui.muted else mu.Color{},
-	   ) {
+	// A moderator's mute here is shown over our own, which the button still
+	// switches (it is every server's).
+	mic_icon, mic_hint, mic_color :=
+		render.Icon.Mic_Off if ui.muted else render.Icon.Mic,
+		"Unmute" if ui.muted else "Mute",
+		theme.off if ui.muted else mu.Color{}
+	if server_muted(v, v.me) {
+		mic_icon, mic_color = .Mic_Off, theme.warning
+		mic_hint =
+			"Muted by a moderator here (click to unmute yourself elsewhere)" if ui.muted else "Muted by a moderator here (click to mute yourself elsewhere too)"
+	}
+	if .SUBMIT in icon_button(ui, "mute", mic_icon, mic_hint, mic_color) {
 		set_muted(ui, !ui.muted)
 	}
 	if .SUBMIT in

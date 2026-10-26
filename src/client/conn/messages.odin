@@ -823,8 +823,9 @@ message_changed :: proc(c: ^Server_Conn, m: proto.Message) {
 
 // msgs_purged handles the server telling us that it has purged a conversation's
 // messages below an id, except pinned ones and the roots of threads that live
-// on. They are removed from our windows, and a window with nothing left is
-// fetched again if it is on screen.
+// on, or one author's messages from an id on (purged_by). They are removed
+// from our windows, and a window with nothing left is fetched again if it is
+// on screen.
 @(private = "file")
 msgs_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	if p.what == .Files {
@@ -840,15 +841,30 @@ msgs_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	for key in keys {
 		cache := c.msgs.caches[key]
 		n := 0
-		for n < len(cache.messages) && cache.messages[n].id < p.before {
-			msg_destroy(&cache.messages[n])
-			n += 1
+		if p.author == 0 {
+			for n < len(cache.messages) && cache.messages[n].id < p.before {
+				msg_destroy(&cache.messages[n])
+				n += 1
+			}
+			remove_range(&cache.messages, 0, n)
+			cache.have_oldest = n == 0 && cache.have_oldest
+		} else {
+			// Theirs can be anywhere in the window.
+			kept := 0
+			for &m in cache.messages {
+				if purged_by(p, m) {
+					msg_destroy(&m)
+					n += 1
+				} else {
+					cache.messages[kept] = m
+					kept += 1
+				}
+			}
+			resize(&cache.messages, kept)
 		}
 		if n == 0 {
 			continue
 		}
-		remove_range(&cache.messages, 0, n)
-		cache.have_oldest = false
 		if len(cache.messages) > 0 {
 			publish_timeline(c, key)
 			continue
@@ -863,10 +879,18 @@ msgs_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	}
 	gone := make([dynamic]proto.Msg_Id, context.temp_allocator)
 	for id, &r in c.msgs.roots {
-		if r.conv != p.conv || !r.have || id >= p.before {
+		if r.conv != p.conv || !r.have {
+			continue
+		}
+		kept := id >= p.before if p.author == 0 else !purged_by(p, r.msg)
+		if kept {
 			continue
 		}
 		append(&gone, id)
+	}
+	// Pinned messages of theirs went too.
+	if p.author != 0 && c.msgs.pins_conv == p.conv {
+		pins_fetch(c, p.conv)
 	}
 	for id in gone {
 		root_forget(c, id)
@@ -880,13 +904,26 @@ msgs_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	report_purged(c, p)
 }
 
+// purged_by returns whether a purge of one author's messages removed `m`.
+// Their thread roots that others replied to are kept as deleted messages
+// (the server says so first, with Msg_Changed).
+@(private = "file")
+purged_by :: proc(p: proto.Msgs_Purged, m: Msg) -> bool {
+	if p.author == 0 || m.sender != p.author || m.id < p.from {
+		return false
+	}
+	return p.what == .Files || !(.Deleted in m.flags && .Has_Thread in m.flags)
+}
+
 // purge_files removes the files from a conversation's messages below the
-// purge's boundary, except from pinned messages. The files stay listed, but
-// without their blobs.
+// purge's boundary, except from pinned messages, or from one author's
+// messages from an id on, pinned too. The files stay listed, but without
+// their blobs.
 @(private = "file")
 purge_files :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
-	strip :: proc(m: ^Msg, before: proto.Msg_Id) -> bool {
-		if m.id >= before || .Pinned in m.flags {
+	strip :: proc(m: ^Msg, p: proto.Msgs_Purged) -> bool {
+		kept := (m.id >= p.before || .Pinned in m.flags) if p.author == 0 else !purged_by(p, m^)
+		if kept {
 			return false
 		}
 		changed := false
@@ -901,13 +938,13 @@ purge_files :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 			continue
 		}
 		for &m in cache.messages {
-			if strip(&m, p.before) {
+			if strip(&m, p) {
 				publish_message_changed(c, key, m)
 			}
 		}
 	}
 	for _, &r in c.msgs.roots {
-		if r.conv == p.conv && r.have && strip(&r.msg, p.before) {
+		if r.conv == p.conv && r.have && strip(&r.msg, p) {
 			publish_root(c, r)
 		}
 	}

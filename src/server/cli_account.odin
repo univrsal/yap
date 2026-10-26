@@ -22,6 +22,9 @@ import "common:proto"
 //	yap-server account role <username> <role>    [config.json]
 //	yap-server account unrole <username> <role>  [config.json]
 //	yap-server account delete <username> [config.json]
+//	yap-server account ban <username> <reason> [config.json]
+//	yap-server account unban <username> [config.json]
+//	yap-server account bans             [config.json]
 //	yap-server account bots <count> <password> [config.json]
 //	yap-server role list                [config.json]
 //
@@ -36,6 +39,10 @@ import "common:proto"
 // manage anymore.
 // `delete` permanently deletes an account (see account_delete.odin). Its
 // messages are kept and shown under "Deleted user". The owner can't be deleted.
+// `ban` bans an account as a moderator would (bans.odin), with a reason that
+// it is shown ("" for none), recorded as done by the server's owner; its
+// devices are told when they next connect. `unban` lifts a ban, and `bans`
+// lists them. Removing a banned account's messages is done from a client.
 //
 // These commands work on the database directly, which only one process can use
 // at a time, so they can't run while the server is running.
@@ -48,6 +55,9 @@ ACCOUNT_USAGE :: `usage: yap-server account list [config.json]
        yap-server account role <username> <role> [config.json]
        yap-server account unrole <username> <role> [config.json]
        yap-server account delete <username> [config.json]
+       yap-server account ban <username> <reason> [config.json]
+       yap-server account unban <username> [config.json]
+       yap-server account bans [config.json]
        yap-server account bots <count> <password> [config.json]
        yap-server role list [config.json]`
 
@@ -127,10 +137,10 @@ run_account_command :: proc(args: []string) -> int {
 	// also a role name.
 	names := 0
 	switch command {
-	case "list", "roles":
-	case "add", "passwd", "owner", "verify", "delete":
+	case "list", "roles", "bans":
+	case "add", "passwd", "owner", "verify", "delete", "unban":
 		names = 1
-	case "role", "unrole":
+	case "role", "unrole", "ban":
 		names = 2
 	case:
 		fmt.eprintln(ACCOUNT_USAGE)
@@ -165,6 +175,10 @@ run_account_command :: proc(args: []string) -> int {
 	}
 	if command == "roles" {
 		role_list(&a)
+		return 0
+	}
+	if command == "bans" {
+		ban_list_print(&a)
 		return 0
 	}
 
@@ -291,6 +305,57 @@ run_account_command :: proc(args: []string) -> int {
 			proto.DELETED_NAME,
 		)
 
+	case "ban":
+		// The second name is the reason.
+		owner: ^Account
+		for _, other in a.by_id {
+			if .Owner in other.flags {
+				owner = other
+			}
+		}
+		switch {
+		case acc == nil || .Deleted in acc.flags:
+			fmt.eprintfln("there is no account called %s", username)
+			return 1
+		case .Owner in acc.flags:
+			fmt.eprintfln("%s is the server's owner, who can't be banned", username)
+			return 1
+		case owner == nil:
+			fmt.eprintln("the server has no owner to ban in the name of (see `account owner`)")
+			return 1
+		case len(role_name) > proto.MAX_BAN_REASON:
+			fmt.eprintfln("the reason is longer than %d bytes", proto.MAX_BAN_REASON)
+			return 2
+		}
+		buf: [proto.MAX_BAN_REASON]u8
+		reason := proto.sanitize_text(role_name, buf[:])
+		if !ban_add(&a, acc, owner.id, reason) ||
+		   !account_set_flags(&a, acc, acc.flags + {.Disabled}) {
+			return 1
+		}
+		db_commit(&db)
+		fmt.printfln("banned %s; its devices are told why when they next connect", username)
+
+	case "unban":
+		banned := false
+		if acc != nil {
+			_, banned = ban_of(&a, acc.id)
+		}
+		switch {
+		case acc == nil:
+			fmt.eprintfln("there is no account called %s", username)
+			return 1
+		case !banned:
+			fmt.printfln("%s isn't banned", username)
+			return 0
+		}
+		if !ban_remove(&a, acc.id) ||
+		   (.Deleted not_in acc.flags && !account_set_flags(&a, acc, acc.flags - {.Disabled})) {
+			return 1
+		}
+		db_commit(&db)
+		fmt.printfln("%s isn't banned any more", username)
+
 	case "role", "unrole":
 		if acc == nil {
 			fmt.eprintfln("there is no account called %s", username)
@@ -388,6 +453,8 @@ account_list :: proc(a: ^Accounts) {
 			role = "owner"
 		case .Deleted in acc.flags:
 			role = "deleted"
+		case acc.id in a.bans:
+			role = "banned"
 		case .Disabled in acc.flags:
 			role = "disabled"
 		case .Bot in acc.flags:
@@ -412,6 +479,46 @@ account_list :: proc(a: ^Accounts) {
 			acc.display,
 		)
 	}
+}
+
+// ban_list_print lists the bans, newest first, for `account bans`.
+@(private = "file")
+ban_list_print :: proc(a: ^Accounts) {
+	if len(a.bans) == 0 {
+		fmt.println("nobody is banned")
+		return
+	}
+	ids, _ := slice.map_keys(a.bans, context.temp_allocator)
+	fmt.printfln("%-32s %-32s %-20s %s", "username", "banned by", "when", "reason")
+	rows := make([dynamic]Ban_Row_Print, context.temp_allocator)
+	for id in ids {
+		b := a.bans[id]
+		append(&rows, Ban_Row_Print{id, b})
+	}
+	slice.sort_by(rows[:], proc(x, y: Ban_Row_Print) -> bool {
+		return x.ban.time > y.ban.time
+	})
+	for row in rows {
+		name := fmt.tprintf("account #%d", row.account)
+		if acc := a.by_id[row.account] or_else nil; acc != nil {
+			name = acc.username
+		}
+		by := fmt.tprintf("account #%d", row.ban.by)
+		if acc := a.by_id[row.ban.by] or_else nil; acc != nil {
+			by = acc.username
+		}
+		at := time.unix(i64(row.ban.time) / 1000, 0)
+		y, mon, d := time.date(at)
+		h, m, _ := time.clock(at)
+		when_text := fmt.tprintf("%04d-%02d-%02d %02d:%02d UTC", y, int(mon), d, h, m)
+		fmt.printfln("%-32s %-32s %-20s %s", name, by, when_text, row.ban.reason)
+	}
+}
+
+@(private = "file")
+Ban_Row_Print :: struct {
+	account: proto.Account_Id,
+	ban:     Ban_Record,
 }
 
 // run_role_command runs `yap-server role list`, which is short for

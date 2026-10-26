@@ -48,6 +48,14 @@ import "sqlite"
 // everything "below that id", which is also what clients are told to drop
 // (Msgs_Purged).
 //
+// A purge of one author's messages (docs/design/moderation.md, D11 and D12)
+// goes through that account's messages instead, from the first posted at or
+// after its time up to the last one there was when it was asked for. It
+// removes pinned messages too. A thread's root that has replies by others
+// becomes a deleted message (as if deleted with Msg_Delete), so the thread
+// stays readable, and a removed reply changes its thread's count. A ban's
+// purge only goes through channels: DMs are the other person's too.
+//
 // A purge that somebody asked for is recorded in the database's meta table
 // as it progresses, so that a server that is stopped in the middle of it
 // continues it when it starts again. The hourly run doesn't need this
@@ -97,6 +105,14 @@ PURGE_META_CONV :: "purge_conv"
 PURGE_META_BELOW :: "purge_below"
 @(private = "file")
 PURGE_META_CURSOR :: "purge_cursor"
+// A purge of one author's messages: the account, the first message that may
+// go, and whether only channels are purged.
+@(private = "file")
+PURGE_META_AUTHOR :: "purge_author"
+@(private = "file")
+PURGE_META_FROM :: "purge_from"
+@(private = "file")
+PURGE_META_CHANNELS :: "purge_channels"
 EMOJI_SHEET_META :: "emoji_sheet"
 // The frames of the animated emojis, one key each: this prefix followed by
 // the blob's id (Blob_Scan keeps every blob named like this).
@@ -112,24 +128,31 @@ Purge_Step_Kind :: enum u8 {
 }
 
 Purge_Step :: struct {
-	kind:   Purge_Step_Kind,
-	conv:   proto.Conv_Id, // Messages, Files: 0 for every conversation
-	below:  proto.Msg_Id, // Messages, Files, Stored: everything below this id is affected
-	cursor: i64, // the last message or blob that was looked at
+	kind:     Purge_Step_Kind,
+	conv:     proto.Conv_Id, // Messages, Files: 0 for every conversation
+	below:    proto.Msg_Id, // Messages, Files, Stored: everything below this id is affected
+	cursor:   i64, // the last message or blob that was looked at
+	// Messages, Files: only this account's messages from `from` on (0: everyone's),
+	// and only in channels if `channels`.
+	author:   proto.Account_Id,
+	from:     proto.Msg_Id,
+	channels: bool,
 	// Stored: stop once this many bytes have been removed (0 means to go on up to `below`).
-	bytes:  i64,
+	bytes:    i64,
 	// Somebody asked for it. The purge is recorded until it is done, and
 	// what it did is the answer.
-	asked:  bool,
+	asked:    bool,
 	// Collect: the emoji sheet, which is kept.
-	keep:   Blob_Id,
+	keep:     Blob_Id,
 	// The result: the number of messages removed or stripped of their
 	// files, or of blobs removed. Also the conversations that changed and the
 	// kept roots whose threads may have lost replies.
-	count:  int,
-	freed:  i64,
-	convs:  map[proto.Conv_Id]bool,
-	roots:  [dynamic]proto.Msg_Id,
+	count:    int,
+	freed:    i64,
+	convs:    map[proto.Conv_Id]bool,
+	roots:    [dynamic]proto.Msg_Id,
+	// The author's thread roots that became deleted messages.
+	tombs:    [dynamic]proto.Msg_Id,
 }
 
 Retention :: struct {
@@ -169,6 +192,9 @@ retention_open :: proc(r: ^Retention, db: ^DB, config: Retention_Config) {
 	what, _ := db_meta(db, PURGE_META_WHAT)
 	conv, _ := db_meta(db, PURGE_META_CONV)
 	cursor, _ := db_meta(db, PURGE_META_CURSOR)
+	author, _ := db_meta(db, PURGE_META_AUTHOR)
+	from, _ := db_meta(db, PURGE_META_FROM)
+	channels, _ := db_meta(db, PURGE_META_CHANNELS)
 	kind := step_kind(proto.Purge_What(what))
 	append(
 		&r.steps,
@@ -178,6 +204,9 @@ retention_open :: proc(r: ^Retention, db: ^DB, config: Retention_Config) {
 			below = proto.Msg_Id(below),
 			cursor = cursor,
 			asked = true,
+			author = proto.Account_Id(author),
+			from = proto.Msg_Id(from),
+			channels = channels != 0,
 		},
 	)
 	append(&r.steps, Purge_Step{kind = .Collect, asked = true}, Purge_Step{kind = .Vacuum})
@@ -207,6 +236,7 @@ retention_close :: proc(r: ^Retention) {
 step_destroy :: proc(step: ^Purge_Step) {
 	delete(step.convs)
 	delete(step.roots)
+	delete(step.tombs)
 	step^ = {}
 }
 
@@ -278,22 +308,40 @@ retention_schedule :: proc(r: ^Retention, db: ^DB, now_ms: i64) {
 }
 
 // retention_ask queues a purge that somebody asked for, ahead of the steps
-// that the config asks for, and records it. Returns false if a purge is
-// already in progress.
-retention_ask :: proc(r: ^Retention, db: ^DB, p: proto.Purge, now_ms: i64) -> bool {
+// that the config asks for, and records it. A purge of one author's messages
+// goes through only channels if `channels` (a ban's). Returns false if a
+// purge is already in progress.
+retention_ask :: proc(
+	r: ^Retention,
+	db: ^DB,
+	p: proto.Purge,
+	now_ms: i64,
+	channels := false,
+) -> bool {
 	if r.asked {
 		return false
 	}
-	before := min(i64(p.before), now_ms)
 	step := Purge_Step {
 		kind  = step_kind(p.what),
 		conv  = p.conv,
-		below = msg_boundary(db, before),
 		asked = true,
+	}
+	if p.author != 0 {
+		// Everything of theirs from `since` on that is there now.
+		_, last := msg_bounds(db)
+		step.author, step.channels = p.author, channels
+		step.from = msg_boundary(db, i64(p.since)) if p.since > 0 else 1
+		step.below = last + 1
+		step.cursor = i64(step.from) - 1
+	} else {
+		step.below = msg_boundary(db, min(i64(p.before), now_ms))
 	}
 	db_meta_set(db, PURGE_META_WHAT, i64(p.what))
 	db_meta_set(db, PURGE_META_CONV, i64(p.conv))
-	db_meta_set(db, PURGE_META_CURSOR, 0)
+	db_meta_set(db, PURGE_META_CURSOR, step.cursor)
+	db_meta_set(db, PURGE_META_AUTHOR, i64(step.author))
+	db_meta_set(db, PURGE_META_FROM, i64(step.from))
+	db_meta_set(db, PURGE_META_CHANNELS, 1 if step.channels else 0)
 	db_meta_set(db, PURGE_META_BELOW, i64(step.below))
 	// Insert it after the step that is in progress, which may be only
 	// partly done.
@@ -404,22 +452,34 @@ Scanned :: struct {
 	conv:  proto.Conv_Id,
 	flags: proto.Msg_Flags,
 	size:  i64, // the total size of its files
+	root:  proto.Msg_Id, // its thread's root, if it is a reply
 }
 
-// scan reads the next few messages that a step goes through, after its cursor.
+// scan reads the next few messages that a step goes through, after its
+// cursor: with `all` in every conversation, `one` in the step's, and `author`
+// the step's author's.
 @(private = "file")
 scan :: proc(
 	db: ^DB,
 	step: ^Purge_Step,
-	all, one: Stmt,
+	all, one, author: Stmt,
 	out: ^[PURGE_CHUNK]Scanned,
 ) -> (
 	rows: []Scanned,
 	ok: bool,
 ) {
-	q := db_query(db, one if step.conv != 0 else all, step.cursor, i64(step.below), PURGE_CHUNK)
-	if step.conv != 0 {
+	q: ^sqlite.Stmt
+	switch {
+	case step.author != 0:
+		q = db_query(db, author, step.cursor, i64(step.below), PURGE_CHUNK)
+		db_bind_int(q, 4, i64(step.author))
+		db_bind_int(q, 5, i64(step.conv))
+		db_bind_int(q, 6, 1 if step.channels else 0)
+	case step.conv != 0:
+		q = db_query(db, one, step.cursor, i64(step.below), PURGE_CHUNK)
 		db_bind_int(q, 4, i64(step.conv))
+	case:
+		q = db_query(db, all, step.cursor, i64(step.below), PURGE_CHUNK)
 	}
 	n := 0
 	for {
@@ -432,6 +492,7 @@ scan :: proc(
 			conv  = proto.Conv_Id(db_col_int(q, 1)),
 			flags = transmute(proto.Msg_Flags)u8(db_col_int(q, 2)),
 			size  = db_col_int(q, 3),
+			root  = proto.Msg_Id(db_col_int(q, 4)),
 		}
 		n += 1
 	}
@@ -455,12 +516,18 @@ run_on :: proc(db: ^DB, stmt: Stmt, args: ..i64) -> bool {
 @(private = "file")
 purge_messages_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	buf: [PURGE_CHUNK]Scanned
-	rows, ok := scan(db, step, .Purge_Scan, .Purge_Scan_Conv, &buf)
+	rows, ok := scan(db, step, .Purge_Scan, .Purge_Scan_Conv, .Purge_Author_Scan, &buf)
 	if !ok {
 		return true
 	}
 	for m in rows {
 		step.cursor = i64(m.id)
+		if step.author != 0 {
+			if !purge_author_message(db, step, m) {
+				return true
+			}
+			continue
+		}
 		if .Has_Thread in m.flags {
 			kept := .Pinned in m.flags
 			if !kept {
@@ -494,18 +561,76 @@ purge_messages_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	return len(rows) < PURGE_CHUNK
 }
 
+// purge_author_message removes one of the author's messages, pinned or not.
+// A thread's root that has replies by others (or newer ones of theirs) becomes
+// a deleted message instead. Returns false on a failure, which is logged.
+@(private = "file")
+purge_author_message :: proc(db: ^DB, step: ^Purge_Step, m: Scanned) -> bool {
+	id := i64(m.id)
+	if .Has_Thread in m.flags {
+		q := db_query(db, .Purge_Reply_Other, id, i64(step.author), i64(step.below))
+		row, stepped := db_step(db, q)
+		if row {
+			sqlite.reset(q)
+		}
+		if row || !stepped {
+			if .Deleted in m.flags {
+				return true // it already is one
+			}
+			if !run_on(db, .Msg_Delete, id) ||
+			   !run_on(db, .Pin_Clear, i64(m.conv), id) ||
+			   !run_on(db, .React_Clear, id) ||
+			   !run_on(db, .Mention_Clear, id) ||
+			   !run_on(db, .Attach_Clear, id) ||
+			   !run_on(db, .Files_Index_Remove, id) {
+				log.errorf("could not purge message %d", id)
+				return false
+			}
+			append(&step.tombs, m.id)
+			step.count += 1
+			step.convs[m.conv] = true
+			return true
+		}
+	}
+	if !run_on(db, .Pin_Clear, i64(m.conv), id) ||
+	   !run_on(db, .React_Clear, id) ||
+	   !run_on(db, .Mention_Clear, id) ||
+	   !run_on(db, .Msg_Remove, id) {
+		log.errorf("could not purge message %d", id)
+		return false
+	}
+	// A reply: its thread has one fewer.
+	if m.root != 0 {
+		add_root(step, m.root)
+	}
+	step.count += 1
+	step.convs[m.conv] = true
+	return true
+}
+
+@(private = "file")
+add_root :: proc(step: ^Purge_Step, root: proto.Msg_Id) {
+	for r in step.roots {
+		if r == root {
+			return
+		}
+	}
+	append(&step.roots, root)
+}
+
 // purge_files_chunk removes the files from the next few messages below the
 // step's boundary. It returns true when it is done.
 @(private = "file")
 purge_files_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	buf: [PURGE_CHUNK]Scanned
-	rows, ok := scan(db, step, .Purge_Files, .Purge_Files_Conv, &buf)
+	rows, ok := scan(db, step, .Purge_Files, .Purge_Files_Conv, .Purge_Author_Files, &buf)
 	if !ok {
 		return true
 	}
 	for m in rows {
 		step.cursor = i64(m.id)
-		if .Pinned in m.flags {
+		// An author's files go even from pinned messages.
+		if .Pinned in m.flags && step.author == 0 {
 			continue
 		}
 		if !run_on(db, .Attach_Strip, i64(m.id)) {
@@ -523,7 +648,7 @@ purge_files_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 @(private = "file")
 purge_stored_chunk :: proc(db: ^DB, step: ^Purge_Step) -> bool {
 	buf: [PURGE_CHUNK]Scanned
-	rows, ok := scan(db, step, .Purge_Files, .Purge_Files, &buf)
+	rows, ok := scan(db, step, .Purge_Files, .Purge_Files, .Purge_Files, &buf)
 	if !ok {
 		return true
 	}
@@ -693,7 +818,16 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 		if step.kind != .Messages {
 			what, noun = .Files, "messages' files"
 		}
-		if step.count > 0 {
+		if step.count > 0 && step.author != 0 {
+			log.infof(
+				"purged %d of account %d's %s from message %d on in %d conversation(s)",
+				step.count,
+				step.author,
+				noun,
+				step.from,
+				len(step.convs),
+			)
+		} else if step.count > 0 {
 			log.infof(
 				"purged %d %s below message %d in %d conversation(s)",
 				step.count,
@@ -702,7 +836,29 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 				len(step.convs),
 			)
 		}
-		buf: [proto.MSGS_PURGED_SIZE]u8
+		// The author's roots that are deleted messages now, kept for their
+		// threads. Before Msgs_Purged, so that clients keep them (a deleted
+		// root is never an author's message that went).
+		for root in step.tombs {
+			if m, found := msg_by_id(s, root); found {
+				if conv := conv_by_id(&s.convs, m.conv); conv != nil {
+					msg_deliver(s, conv, m, .Msg_Changed)
+				}
+			}
+		}
+		// With an author, `before` is 0, which older clients take as nothing.
+		told := proto.Msgs_Purged {
+			before = step.below,
+			what   = what,
+		}
+		if step.author != 0 {
+			told = {
+				what   = what,
+				author = step.author,
+				from   = step.from,
+			}
+		}
+		buf: [proto.MSGS_PURGED_MAX_SIZE]u8
 		for id in step.convs {
 			conv := conv_by_id(&s.convs, id)
 			if conv == nil {
@@ -713,15 +869,9 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 				if acc == nil || len(acc.conns) == 0 {
 					continue
 				}
+				told.conv = id
 				for c in acc.conns {
-					send_event(
-						c,
-						.Msgs_Purged,
-						proto.encode_msgs_purged(
-							&buf,
-							{conv = id, before = step.below, what = what},
-						),
-					)
+					send_event(c, .Msgs_Purged, proto.encode_msgs_purged(&buf, told))
 				}
 				if what == .Messages {
 					// Messages that it hadn't read yet may have been removed.
@@ -741,7 +891,7 @@ step_finished :: proc(s: ^Server, step: ^Purge_Step) {
 			// Offered files whose messages were removed can no longer be accepted.
 			gone := make([dynamic]proto.Msg_Id, context.temp_allocator)
 			for id in s.file_offers {
-				if id < step.below {
+				if id < step.below && id >= step.from {
 					if _, found := msg_by_id(s, id); !found {
 						append(&gone, id)
 					}
@@ -796,7 +946,8 @@ purge_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	if p.conv != 0 && conv_by_id(&s.convs, p.conv) == nil {
+	if p.conv != 0 && conv_by_id(&s.convs, p.conv) == nil ||
+	   p.author != 0 && account_by_id(&s.accounts, p.author) == nil {
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -813,6 +964,17 @@ purge_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	place := "every conversation"
 	if conv := conv_by_id(&s.convs, p.conv); conv != nil {
 		place = conv.name if conv.kind == .Channel else "a DM"
+	}
+	if author := account_by_id(&s.accounts, p.author); author != nil {
+		log.infof(
+			"%s purges %s's %s in %s from %d on",
+			conn_label(u),
+			author.username,
+			"files" if p.what == .Files else "messages",
+			place,
+			p.since,
+		)
+		return
 	}
 	log.infof(
 		"%s purges the %s of %s from before %d",

@@ -478,7 +478,9 @@ account_disable :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	flags := target.flags + {.Disabled} if on else target.flags - {.Disabled}
-	if !account_set_flags(&s.accounts, target, flags) {
+	// Enabling a banned account ends its ban (bans.odin).
+	if (!on && !ban_remove(&s.accounts, target.id)) ||
+	   !account_set_flags(&s.accounts, target, flags) {
 		respond(u, id, .Internal)
 		return
 	}

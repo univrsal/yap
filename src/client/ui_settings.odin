@@ -549,6 +549,7 @@ Server_Category :: enum {
 	Roles,
 	Accounts,
 	Invites,
+	Bans,
 	Purge,
 	Memory,
 }
@@ -573,6 +574,9 @@ server_settings_categories :: proc(v: ^conn.View) -> (c: bit_set[Server_Category
 	if v.permissions & {.Create_Invites, .Manage_Accounts} != {} {
 		c += {.Invites}
 	}
+	if .Ban_Members in v.permissions {
+		c += {.Bans}
+	}
 	if .Purge in v.permissions {
 		c += {.Purge}
 	}
@@ -587,6 +591,9 @@ server_category_opened :: proc(ui: ^UI, c: Server_Category) {
 		notice_mark_reset(&ui.roles.notice)
 	case .Channels:
 		channels_category_opened(ui) // ui_channel_settings.odin
+	case .Bans, .Accounts:
+		bans_opened(ui) // ui_bans.odin
+		notice_mark_reset(&ui.account.notice)
 	case:
 		// The others share the account screen's mark, so a notice about
 		// something done in another category doesn't show up here.
@@ -616,9 +623,12 @@ server_settings :: proc(ui: ^UI, c: Server_Category) {
 	case .Roles:
 		roles_settings(ui)
 	case .Accounts:
+		bans_ask(ui, v) // to say who is banned
 		accounts_admin(ui, v)
 	case .Invites:
 		invites_settings(ui, v)
+	case .Bans:
+		bans_settings(ui, v) // ui_bans.odin
 	case .Purge:
 		purge_settings(ui)
 	case .Memory:

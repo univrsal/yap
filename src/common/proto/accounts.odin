@@ -48,7 +48,9 @@ package proto
 // 	Account_Changed       an account that is new or has changed
 // 	Setting_Changed       [key str8][value bytes16]: one of the account's
 // 	                      settings (settings.odin)
-// 	Logged_Out            [reason u8]: this device is no longer logged in
+// 	Logged_Out            [reason u8]: this device is no longer logged in,
+// 	                      optionally followed by [text str8]: for Banned,
+// 	                      the ban's reason (moderation.odin)
 //
 // 	account  [id u32][flags u8][username str8][display str8]
 // 	         [status str8][status until u64][avatar u64][role count u8][role u32]...
@@ -115,6 +117,9 @@ Account_Flag :: enum u8 {
 	// A program's account, not a person's (bots.odin). It is created by an
 	// admin and logs in only with its tokens, never with a password.
 	Bot,
+	// Muted for everyone by a moderator (moderation.odin): the server drops
+	// its voice until the mute is lifted.
+	Server_Muted,
 }
 
 // The display name of a deleted account.
@@ -135,6 +140,10 @@ Permission :: enum u8 {
 	Purge            = 8,
 	Attach_Files     = 9, // attachments.odin; everyone has it unless it is revoked
 	Create_Invites   = 10, // register.odin
+	// moderation.odin
+	Move_Members     = 11, // move people between voice rooms and out of them
+	Mute_Members     = 12, // mute people for everyone
+	Ban_Members      = 13, // ban and unban accounts
 }
 Permissions :: distinct bit_set[Permission;u64]
 
@@ -175,6 +184,38 @@ Logout_Reason :: enum u8 {
 	Password_Changed = 2,
 	Disabled         = 3, // the account was disabled
 	Deleted          = 4, // the account was deleted
+	Banned           = 5, // the account was banned; the reason follows (moderation.odin)
+}
+
+LOGGED_OUT_MAX_SIZE :: 1 + 1 + 255
+
+// encode_logged_out writes a Logged_Out event: the reason and, unless it is
+// "", a text that goes with it (a ban's reason, at most MAX_BAN_REASON
+// bytes). It returns nil if the text is too long.
+encode_logged_out :: proc(
+	out: ^[LOGGED_OUT_MAX_SIZE]u8,
+	reason: Logout_Reason,
+	text: string,
+) -> []u8 {
+	w := Writer {
+		buf = out[:],
+	}
+	put_u8(&w, u8(reason))
+	if text != "" {
+		put_str8(&w, text)
+	}
+	return written(&w)
+}
+
+// decode_logged_out reads a Logged_Out event. An empty body (which no server
+// sends) is a logout without a reason. `text` points into `body`.
+decode_logged_out :: proc(body: []u8) -> (reason: Logout_Reason, text: string) {
+	r := Reader {
+		buf = body,
+	}
+	reason = Logout_Reason(get_u8(&r))
+	text = get_str8_opt(&r)
+	return reason, text
 }
 
 // The bits of Profile_Set's mask.

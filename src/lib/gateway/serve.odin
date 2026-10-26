@@ -360,6 +360,8 @@ status_reply :: proc(status: proto.Status) -> Reply {
 		return r
 	case .Closed:
 		return error_reply(410, "closed", "That item is closed.")
+	case .Banned:
+		return error_reply(403, "banned", "The account is banned from this server.")
 	case .Quota:
 		return error_reply(
 			507,

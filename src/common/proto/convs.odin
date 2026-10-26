@@ -53,8 +53,12 @@ package proto
 //
 // 	Conv_Changed    a conversation we're a member of that is new or has changed
 // 	Conv_Removed    [conv u32]: we are no longer a member of it
-// 	Voice_Moved     [room u32]: another of our account's connections
-// 	                joined a room, which removed this connection from its room
+// 	Voice_Moved     [room u32][by u32][name str8]: we were moved to that
+// 	                room, or out of ours (room 0): another of our account's
+// 	                connections joined a room (by 0), we lost the right to
+// 	                be in it (by 0), or a moderator moved us (by: who, and
+// 	                the room's name, moderation.odin). Older servers send
+// 	                only the room.
 // 	Read_Changed    [conv u32][read u64][unread u16][mentions u16]: what
 // 	                our account has read there, and therefore what it hasn't
 //
@@ -481,7 +485,7 @@ decode_conv_id :: proc(body: []u8) -> (conv: Conv_Id, ok: bool) {
 	return id_get(Conv_Id, body)
 }
 
-// A body that consists of a room, such as Voice_Join and Voice_Moved.
+// A body that consists of a room, such as Voice_Join.
 encode_room :: proc(out: ^[4]u8, room: Room) -> []u8 {
 	return id_put(out[:], room)
 }

@@ -239,6 +239,7 @@ Account_JSON :: struct {
 	activity:     string, // online, away, busy or offline, as the account set it
 	online:       bool, // connected now and not appearing offline
 	roles:        []string,
+	server_muted: bool, // muted for everyone by a moderator
 }
 
 // What /me returns: the account and what it is allowed to do.
@@ -254,6 +255,7 @@ Me_JSON :: struct {
 	activity:     string,
 	roles:        []string,
 	permissions:  []string, // beyond those of everyone, e.g. manage_messages
+	server_muted: bool, // muted for everyone by a moderator
 }
 
 Role_JSON :: struct {
@@ -368,14 +370,15 @@ Token_JSON :: struct {
 
 account_json :: proc(m: ^Model, a: ^proto.Account) -> Account_JSON {
 	j := Account_JSON {
-		id       = id_string(a.id),
-		username = a.username,
-		display  = a.display,
-		bot      = .Bot in a.flags,
-		deleted  = .Deleted in a.flags,
-		activity = enum_name(a.activity),
-		online   = m.online[a.id] > 0,
-		roles    = role_ids(a.roles),
+		id           = id_string(a.id),
+		username     = a.username,
+		display      = a.display,
+		bot          = .Bot in a.flags,
+		deleted      = .Deleted in a.flags,
+		activity     = enum_name(a.activity),
+		online       = m.online[a.id] > 0,
+		roles        = role_ids(a.roles),
+		server_muted = .Server_Muted in a.flags,
 	}
 	if a.status != "" {
 		j.status = a.status
@@ -404,13 +407,14 @@ accounts_json :: proc(m: ^Model) -> []Account_JSON {
 me_json :: proc(m: ^Model) -> Me_JSON {
 	a := m.accounts[m.self]
 	me := Me_JSON {
-		id       = id_string(m.self),
-		username = a.username,
-		display  = a.display,
-		bot      = .Bot in m.flags,
-		owner    = .Owner in m.flags,
-		activity = enum_name(a.activity),
-		roles    = role_ids(a.roles),
+		id           = id_string(m.self),
+		username     = a.username,
+		display      = a.display,
+		bot          = .Bot in m.flags,
+		owner        = .Owner in m.flags,
+		activity     = enum_name(a.activity),
+		roles        = role_ids(a.roles),
+		server_muted = .Server_Muted in m.flags,
 	}
 	if a.status != "" {
 		me.status = a.status

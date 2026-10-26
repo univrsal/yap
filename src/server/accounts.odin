@@ -96,6 +96,7 @@ Accounts :: struct {
 	by_id:   map[proto.Account_Id]^Account,
 	by_name: map[string]^Account, // the key is the account's own username
 	devices: map[[proto.KEY_SIZE]u8]^Device,
+	bans:    map[proto.Account_Id]Ban_Record, // bans.odin
 }
 
 // accounts_load reads all accounts and devices from the database.
@@ -175,6 +176,7 @@ accounts_load :: proc(a: ^Accounts, db: ^DB) -> bool {
 			append(&acc.buddies, proto.Account_Id(db_col_int(q, 1)))
 		}
 	}
+	bans_load(a) or_return
 	return roles_load(a)
 }
 
@@ -198,6 +200,7 @@ accounts_destroy :: proc(a: ^Accounts) {
 	delete(a.by_id)
 	delete(a.by_name)
 	delete(a.devices)
+	bans_destroy(a)
 	roles_destroy(a)
 	a^ = {}
 }

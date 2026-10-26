@@ -165,6 +165,15 @@ report_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	if c.view != nil {
 		return
 	}
+	if p.author != 0 {
+		log.infof(
+			"[chat] %s: %s's messages from #%d on were purged",
+			room_name(c, proto.Room(p.conv)),
+			account_display(c, p.author),
+			p.from,
+		)
+		return
+	}
 	log.infof(
 		"[chat] %s: the messages below #%d were purged",
 		room_name(c, proto.Room(p.conv)),

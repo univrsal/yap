@@ -23,7 +23,8 @@ send_captured :: proc(c: ^Server_Conn) {
 	}
 	buf: [audio.VOICE_MESSAGE_MAX]u8
 	for {
-		sending := c.has_current && in_room(c)
+		// Not while a moderator has us muted, which the server would drop.
+		sending := c.has_current && in_room(c) && !server_muted(c)
 		level, msg := audio.capture_frame(v, mic, sending, buf[:]) or_break
 		publish_mic(c, level, v.gate.open)
 		if len(msg) > 0 && send_data(c, msg) {

@@ -186,9 +186,14 @@ channel_rows :: proc(ui: ^UI) {
 			// In a narrow window, picking a channel is also how to get to it.
 			ui.channels.show_list = false
 		}
+		block := ctx.last_rect
 		for m in ch.members {
 			member_row(ui, m)
 		}
+		// The channel and the people under it, where someone being dragged
+		// can be dropped (ui_voice_drag.odin).
+		block.h = ctx.last_rect.y + ctx.last_rect.h - block.y
+		voice_drag_target(ui, ch, block)
 	}
 }
 
@@ -409,6 +414,10 @@ voice_room_name :: proc(v: ^conn.View) -> string {
 		if ch.id == v.my_room {
 			return ch.name
 		}
+	}
+	// One a moderator moved us into (conn/moderation.odin).
+	if v.guest_name != "" {
+		return v.guest_name
 	}
 	// A channel we're talking in without being subscribed to it.
 	return "another channel"

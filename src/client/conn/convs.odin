@@ -95,6 +95,10 @@ Conv_Client :: struct {
 	mail_played:   bool,
 	// A Voice_Join request is on its way.
 	voice_pending: bool,
+	// The room a moderator moved us into and its channel's name (owned),
+	// until we leave it (moderation.odin), else 0 and "".
+	guest_room:    proto.Room,
+	guest_name:    string,
 	// The channels that could be subscribed to when we last asked, as many
 	// pages of them as were requested from `browse_offset` on, how many were
 	// asked for at a time, the query they were requested with (owned), whether
@@ -200,6 +204,7 @@ convs_clear :: proc(cv: ^Conv_Client) {
 	}
 	clear(&cv.convs)
 	cv.synced = false
+	guest_forget(cv)
 }
 
 @(private = "file")
@@ -305,6 +310,9 @@ room_name :: proc(c: ^Server_Conn, room: proto.Room) -> string {
 			return fmt.tprintf("DMs with %s", account_display(c, dm_other(c, info)))
 		}
 		return info.name
+	}
+	if room == c.convs.guest_room && c.convs.guest_name != "" {
+		return c.convs.guest_name
 	}
 	return fmt.tprintf("channel #%d", room)
 }
@@ -443,11 +451,7 @@ conv_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 		info.last = max(info.last, state.read)
 		publish_channels(c)
 	case .Voice_Moved:
-		room, _ := proto.decode_room(body)
-		log.infof(
-			"another of your devices joined the voice of %q, which took this one out",
-			room_name(c, room),
-		)
+		voice_moved(c, body) // moderation.odin
 	case:
 		return false
 	}

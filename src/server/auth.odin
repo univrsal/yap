@@ -183,7 +183,15 @@ auth_known_device :: proc(s: ^Server, u: ^Conn) {
 		return
 	}
 	acc := account_by_id(&s.accounts, d.account)
-	if acc == nil || .Disabled in acc.flags || .Deleted in acc.flags {
+	if acc == nil || .Deleted in acc.flags {
+		return
+	}
+	if .Disabled in acc.flags {
+		// A banned account's device is told why, every time (bans.odin).
+		if reason, banned := ban_reason(&s.accounts, acc.id); banned {
+			buf: [proto.LOGGED_OUT_MAX_SIZE]u8
+			send_event(u, .Logged_Out, proto.encode_logged_out(&buf, .Banned, reason))
+		}
 		return
 	}
 	device_seen(&s.accounts, d)
@@ -591,8 +599,18 @@ login_finish :: proc(s: ^Server, u: ^Conn, p: Pending, result: Hash_Result) {
 		}
 		respond(u, p.request, .Wrong_Password)
 		return
-	case .Disabled in acc.flags, .Deleted in acc.flags:
+	case .Deleted in acc.flags:
 		respond(u, p.request, .Denied)
+		return
+	case .Disabled in acc.flags:
+		// The password was right, so a banned account may know why.
+		acc.failures, acc.locked_until = 0, {}
+		if reason, banned := ban_reason(&s.accounts, acc.id); banned {
+			buf: [proto.BANNED_MAX_SIZE]u8
+			respond(u, p.request, .Banned, proto.encode_banned(&buf, reason))
+		} else {
+			respond(u, p.request, .Denied)
+		}
 		return
 	}
 	acc.failures, acc.locked_until = 0, {}

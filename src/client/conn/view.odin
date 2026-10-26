@@ -125,6 +125,7 @@ View :: struct {
 	bot_token_account:   proto.Account_Id,
 	bot_token_count:     int,
 	invites:             View_Invites, // invites.odin
+	bans:                View_Bans, // moderation.odin
 	server_memory:       View_Server_Memory, // server_info.odin
 	notice:              View_Notice,
 	users:               map[proto.User_Num]View_User,
@@ -137,6 +138,9 @@ View :: struct {
 	channel:             proto.Conv_Id,
 	my_room:             proto.Conv_Id,
 	voice_pending:       bool,
+	// The name (owned) of the channel whose voice room we are in, while a
+	// moderator has us there and it isn't one of ours (moderation.odin), else "".
+	guest_name:          string,
 	// The channels that were available to subscribe to the last time they were
 	// requested, how far into the list they start, and how many times they
 	// have arrived.
@@ -310,6 +314,7 @@ view_reset :: proc(v: ^View) {
 	view_clear_accounts(v)
 	view_clear_devices(v)
 	view_clear_invites(v)
+	view_clear_bans(v)
 	view_clear_server_memory(v)
 	v.registration = {}
 	delete(v.server_email)
@@ -320,6 +325,7 @@ view_reset :: proc(v: ^View) {
 	delete(v.login.username)
 	delete(v.login.email)
 	delete(v.login.verify_code)
+	delete(v.login.ban_reason)
 	delete(v.notice.text)
 	v.login, v.notice = {}, {}
 	v.me, v.permissions = 0, {}
@@ -340,6 +346,7 @@ publish_logged_out :: proc(c: ^Server_Conn) {
 	view_clear_accounts(v)
 	view_clear_devices(v)
 	view_clear_invites(v)
+	view_clear_bans(v)
 	view_clear_server_memory(v)
 	clear(&v.buddies)
 	clear(&v.last_seen)
@@ -383,6 +390,8 @@ view_destroy :: proc(v: ^View) {
 	delete(v.devices)
 	delete(v.other_devices)
 	view_destroy_invites(v)
+	view_clear_bans(v)
+	delete(v.bans.list)
 	delete(v.browse)
 	delete(v.all_channels)
 }
@@ -493,6 +502,8 @@ view_clear_channels :: proc(v: ^View) {
 	clear(&v.users)
 	delete(v.my_name)
 	v.my_name = ""
+	delete(v.guest_name)
+	v.guest_name = ""
 }
 
 is_speaking :: proc(v: ^View, id: proto.User_Num) -> bool {
@@ -690,6 +701,9 @@ publish_channels :: proc(c: ^Server_Conn) {
 	v.channel = c.convs.channel
 	v.my_room = proto.Conv_Id(my_room(c))
 	v.voice_pending = c.convs.voice_pending
+	if c.convs.guest_room != 0 && proto.Room(v.my_room) == c.convs.guest_room {
+		v.guest_name = strings.clone(c.convs.guest_name)
+	}
 }
 
 publish_mic :: proc(c: ^Server_Conn, level_db: f32, gate_open: bool) {

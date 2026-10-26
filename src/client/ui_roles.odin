@@ -173,6 +173,9 @@ PERMISSION_TEXT := [proto.Permission]string {
 	.Purge            = "Purge history",
 	.Attach_Files     = "Attach files to messages",
 	.Create_Invites   = "Make invite codes",
+	.Move_Members     = "Move people between voice rooms and disconnect them",
+	.Mute_Members     = "Mute people in voice for everyone",
+	.Ban_Members      = "Ban and unban people",
 }
 
 ui_roles_destroy :: proc(ui: ^UI) {

@@ -1,5 +1,6 @@
 package conn
 
+import log "common:wlog"
 import "core:fmt"
 
 import "common:proto"
@@ -11,13 +12,18 @@ import "common:proto"
 // our windows when the server says so (Msgs_Purged, messages.odin).
 
 // Purge_Command purges a conversation (`all`: every conversation; headless,
-// `here`: the conversation we are looking at) up to `before`.
+// `here`: the conversation we are looking at) up to `before`, or one
+// account's messages there from `since` on (0: all of them). Headless, the
+// account by its name.
 Purge_Command :: struct {
 	conv:   proto.Conv_Id,
 	all:    bool,
 	here:   bool,
 	before: proto.Unix_Ms,
 	what:   proto.Purge_What,
+	author: proto.Account_Id,
+	since:  proto.Unix_Ms,
+	name:   string, // owned by the command; headless
 }
 
 purge_start :: proc(c: ^Server_Conn, cmd: Purge_Command) {
@@ -32,8 +38,25 @@ purge_start :: proc(c: ^Server_Conn, cmd: Purge_Command) {
 	if cmd.all {
 		conv = 0
 	}
-	buf: [proto.PURGE_SIZE]u8
-	body := proto.encode_purge(&buf, {conv = conv, before = cmd.before, what = cmd.what})
+	author := cmd.author
+	if author == 0 && cmd.name != "" {
+		author = account_named(c, cmd.name)
+		if author == 0 {
+			log.warnf("there's nobody called %q here", cmd.name)
+			return
+		}
+	}
+	p := proto.Purge {
+		conv = conv,
+		what = cmd.what,
+	}
+	if author != 0 {
+		p.author, p.since = author, cmd.since
+	} else {
+		p.before = cmd.before
+	}
+	buf: [proto.PURGE_MAX_SIZE]u8
+	body := proto.encode_purge(&buf, p)
 	request(c, .Purge, body, proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
 			files := proto.Purge_What(tag) == .Files
 			#partial switch status {
@@ -60,7 +83,7 @@ purge_start :: proc(c: ^Server_Conn, cmd: Purge_Command) {
 			case .Denied:
 				notify(c, false, "You don't have permission to purge.")
 			case .Not_Found:
-				notify(c, false, "That conversation does not exist.")
+				notify(c, false, "That conversation or account does not exist.")
 			case:
 				notify(
 					c,

@@ -166,6 +166,7 @@ Anything that isn't a success answers with an HTTP status and:
 | 401 | `unauthenticated` | No token, not a token, or one that doesn't work (any more). |
 | 401 | `wrong_password` | `/login` with a wrong username or password. |
 | 403 | `denied` | The account may not do that. |
+| 403 | `banned` | `/login` for an account that is banned from the server. |
 | 404 | `not_found` | There's no such thing, or the account can't see it. |
 | 405 | `method_not_allowed` | Not with that method; `Allow` lists the ones there are. |
 | 409 | `conflict` | It's taken, or there already. |
@@ -222,6 +223,22 @@ curl -X PUT -H "Authorization: Bot $YAP_TOKEN" --data-binary @avatar.jpg \
 | `GET /accounts` | Every account on the server, by id. → [account](#account)s |
 | `GET /accounts/{id}` | One. → [account](#account) |
 | `GET /roles` | Every role, top first, and everyone's last. → [role](#role)s |
+
+### Moderation
+
+For a bot whose roles hold the permission. It only works on accounts
+the bot outranks (whose permissions it all has too), never the owner.
+The bot needn't be in voice itself.
+
+| | |
+| --- | --- |
+| `PUT /accounts/{id}/voice` `{conv}` | Move their voice to that channel's room (Move_Members; you need to be able to talk there). → 204 |
+| `DELETE /accounts/{id}/voice` | Take them out of voice (Move_Members). → 204 |
+| `PUT /accounts/{id}/mute` | Mute them for everyone on the server until it's lifted (Mute_Members); their account's `server_muted` says so. → 204 |
+| `DELETE /accounts/{id}/mute` | Lift it. → 204 |
+| `PUT /accounts/{id}/ban` `{reason, purge}` | Ban them (Ban_Members): they're logged out, can't log in, and are shown `reason`. `purge` (`none`, `hour`, `day`, `week` or `all`) also removes their messages in channels from that long ago on. → 204, or 409 while another purge is running (nothing is done then) |
+| `DELETE /accounts/{id}/ban` | Lift the ban. → 204 |
+| `GET /bans` | Who's banned, newest first (Ban_Members). → `[{account, by, time, reason}]`, `account` and `by` like a message's author |
 
 ### Conversations
 
@@ -342,7 +359,7 @@ Content-Length is reached.
 ```json
 {"id": "3", "username": "alice", "display": "Alice", "bot": false, "deleted": false,
  "status": "On holiday", "status_until": "2026-10-20T00:00:00.000Z", "avatar": "17",
- "activity": "away", "online": true, "roles": ["4"]}
+ "activity": "away", "online": true, "roles": ["4"], "server_muted": false}
 ```
 
 `username` is unique, lower case and what someone logs in with;
@@ -351,7 +368,8 @@ for none). `activity` is how everyone sees the account (`online`,
 `away`, `busy`, `offline`). `online` says it's connected now and isn't
 appearing offline. `roles` lists its roles besides everyone's. A
 `deleted` account is what's left of a deleted one, so that its messages
-still have an author.
+still have an author. `server_muted` means a moderator muted it for
+everyone.
 
 ### me
 
@@ -359,7 +377,8 @@ An [account](#account) without `deleted` and `online`, plus `owner` and
 `permissions`, the permissions beyond everyone's: `create_channels`,
 `manage_channels`, `invite`, `manage_roles`, `manage_messages`,
 `pin_messages`, `manage_accounts`, `mention_everyone`, `purge`,
-`attach_files`, `create_invites`.
+`attach_files`, `create_invites`, `move_members`, `mute_members`,
+`ban_members`.
 
 ### role
 
@@ -461,7 +480,7 @@ reads.
 | `MESSAGE_UPDATE` | a [message](#message) as it is now: edited, pinned or unpinned |
 | `MESSAGE_DELETE` | `{id, conv_id}` |
 | `MESSAGE_REACTION_ADD`, `MESSAGE_REACTION_REMOVE` | `{message_id, conv_id, emoji, count, account}`: `count` is how many have it now, `account` who reacted or took it back |
-| `MESSAGES_PURGED` | `{conv_id, before_id, what}`: messages (or, with `what` `files`, only their files) older than `before_id` are gone |
+| `MESSAGES_PURGED` | `{conv_id, before_id, what, author_id, from_id}`: messages (or, with `what` `files`, only their files) older than `before_id` are gone. Or, when `author_id` isn't `null`, that account's messages from `from_id` on are gone (pinned ones too), and `before_id` is `"0"`; a thread root of theirs that others replied to stays, deleted (a `MESSAGE_UPDATE` comes first) |
 | `TYPING_START` | `{conv_id, thread, account}` (never your own) |
 | `CONV_UPDATE` | a [conversation](#conversation), new to you or changed |
 | `CONV_DELETE` | `{id}`: you aren't in it any more |
@@ -472,7 +491,7 @@ reads.
 | `PRESENCE_UPDATE` | `{account_id, online}` |
 | `SERVER_UPDATE` | the [server](#server) |
 | `SELF_UPDATE` | [me](#me): your own permissions or flags changed |
-| `LOGGED_OUT` | `{reason}`: `revoked`, `password_changed`, `disabled` or `deleted`. The socket closes after this. |
+| `LOGGED_OUT` | `{reason, ban_reason}`: `revoked`, `password_changed`, `disabled`, `deleted` or `banned` (then `ban_reason` is why, otherwise `null`). The socket closes after this. |
 | `INVALID_SESSION` | `{}`: a resume couldn't be done; READY follows |
 
 Events the gateway doesn't recognise are dropped, so a newer server
@@ -523,6 +542,7 @@ process should take as "stop". Other codes:
 
 ## What the API does not support currently
 
-Voice and calls, files offered peer to peer in DMs, registering and
-invites, server settings and emoji, and the admin side (making channels,
-roles, members, disabling accounts, purging).
+Voice and calls (other than moving and muting people, above), files
+offered peer to peer in DMs, registering and invites, server settings
+and emoji, and the admin side (making channels, roles, members,
+disabling accounts, purging other than with a ban).

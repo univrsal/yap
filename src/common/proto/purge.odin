@@ -4,10 +4,10 @@ package proto
 // The server does this on its own for anything its config says is no longer
 // to be kept, and on demand for whoever has Permission.Purge.
 //
-//	Purge        [conv u32][before u64][what u8]
+//	Purge        [conv u32][before u64][what u8][author u32][since u64]
 //	         ->  [messages u32][blobs u32]
 //
-//	Msgs_Purged  [conv u32][before u64][what u8]
+//	Msgs_Purged  [conv u32][before u64][what u8][author u32][from u64]
 //
 // A Purge names a conversation (or 0 for all of them) and a time in Unix
 // milliseconds. Everything posted before that time is removed. `what` says
@@ -27,6 +27,15 @@ package proto
 // can request again). With Purge_What.Files it instead tells them that the
 // attachments of those messages are gone, except for pinned ones. The
 // messages keep their list of files, each with blob 0.
+//
+// The last two fields of both are optional and name an author (0 or left
+// out: none). A Purge with an author removes that account's messages posted
+// at or after `since` (0: all of them) instead (docs/design/moderation.md),
+// and its `before` must be 0. An older server refuses a Purge without a time
+// as Invalid, so it never takes one by an author for a purge of everyone's
+// old messages. Likewise, the Msgs_Purged that tells about it has `before`
+// 0, which an older client takes as nothing purged, and says that the
+// author's messages with ids from `from` on are gone.
 
 Purge_What :: enum u8 {
 	Messages = 0,
@@ -34,23 +43,31 @@ Purge_What :: enum u8 {
 }
 
 PURGE_SIZE :: 4 + 8 + 1
+PURGE_MAX_SIZE :: PURGE_SIZE + 4 + 8
 PURGE_ANSWER_SIZE :: 4 + 4
 MSGS_PURGED_SIZE :: 4 + 8 + 1
+MSGS_PURGED_MAX_SIZE :: MSGS_PURGED_SIZE + 4 + 8
 
 Purge :: struct {
 	conv:   Conv_Id, // 0 for all
-	before: Unix_Ms,
+	before: Unix_Ms, // 0 with an author
 	what:   Purge_What,
+	author: Account_Id, // 0 for everyone's
+	since:  Unix_Ms, // with an author: from when on (0: all)
 }
 
-encode_purge :: proc(out: ^[PURGE_SIZE]u8, p: Purge) -> []u8 {
+encode_purge :: proc(out: ^[PURGE_MAX_SIZE]u8, p: Purge) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
 	put_u32(&w, u32(p.conv))
 	put_u64(&w, u64(p.before))
 	put_u8(&w, u8(p.what))
-	return out[:]
+	if p.author != 0 {
+		put_u32(&w, u32(p.author))
+		put_u64(&w, u64(p.since))
+	}
+	return written(&w)
 }
 
 decode_purge :: proc(body: []u8) -> (p: Purge, ok: bool) {
@@ -60,8 +77,13 @@ decode_purge :: proc(body: []u8) -> (p: Purge, ok: bool) {
 	p.conv = Conv_Id(get_u32(&r))
 	p.before = Unix_Ms(get_u64(&r))
 	what := get_u8(&r)
-	if r.overflow || what > u8(max(Purge_What)) || p.before == 0 {
-		return
+	if has_more(&r) {
+		p.author = Account_Id(get_u32(&r))
+		p.since = Unix_Ms(get_u64(&r))
+	}
+	// A time, or else an author, but not both.
+	if r.overflow || what > u8(max(Purge_What)) || (p.before == 0) == (p.author == 0) {
+		return {}, false
 	}
 	p.what = Purge_What(what)
 	return p, true
@@ -87,18 +109,24 @@ decode_purge_answer :: proc(body: []u8) -> (messages, blobs: int, ok: bool) {
 
 Msgs_Purged :: struct {
 	conv:   Conv_Id,
-	before: Msg_Id,
+	before: Msg_Id, // 0 with an author
 	what:   Purge_What,
+	author: Account_Id, // 0 for everyone's
+	from:   Msg_Id, // with an author: the first id that may be gone
 }
 
-encode_msgs_purged :: proc(out: ^[MSGS_PURGED_SIZE]u8, p: Msgs_Purged) -> []u8 {
+encode_msgs_purged :: proc(out: ^[MSGS_PURGED_MAX_SIZE]u8, p: Msgs_Purged) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
 	put_u32(&w, u32(p.conv))
 	put_u64(&w, u64(p.before))
 	put_u8(&w, u8(p.what))
-	return out[:]
+	if p.author != 0 {
+		put_u32(&w, u32(p.author))
+		put_u64(&w, u64(p.from))
+	}
+	return written(&w)
 }
 
 decode_msgs_purged :: proc(body: []u8) -> (p: Msgs_Purged, ok: bool) {
@@ -108,8 +136,12 @@ decode_msgs_purged :: proc(body: []u8) -> (p: Msgs_Purged, ok: bool) {
 	p.conv = Conv_Id(get_u32(&r))
 	p.before = Msg_Id(get_u64(&r))
 	what := get_u8(&r)
+	if has_more(&r) {
+		p.author = Account_Id(get_u32(&r))
+		p.from = Msg_Id(get_u64(&r))
+	}
 	if r.overflow || what > u8(max(Purge_What)) {
-		return
+		return {}, false
 	}
 	p.what = Purge_What(what)
 	return p, true
