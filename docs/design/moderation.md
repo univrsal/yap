@@ -20,7 +20,7 @@ Branch `moderation-plan`, off master (10f7192). Sizes as in [next.md](next.md).
 | 4 | Client: dragging people between rooms | M | done |
 | 5 | Bans on the server, and in the client | L | done |
 | 6 | Purging one author's messages | M | done |
-| 7 | CLI client, server CLI, bot API, docs | S | |
+| 7 | CLI client, server CLI, bot API, docs | S | done |
 
 Phases 1–4 are the voice part and stand on their own; 5–6 are bans. They
 could be built and tested as two halves.
@@ -582,3 +582,29 @@ messages it had just posted; Settings > Purge with Whose "bot3" asked
   permissions. Moving others doesn't need the bot to be in voice, so all
   three work for bots.
 - docs/API.md, docs/Server.md.
+
+*As built:*
+
+- Headless client (all added with the phases they belonged to):
+  `/voicemove <name> <channel>`, `/voicekick <name>`, `/servermute`,
+  `/serverunmute`, `/ban <name> [reason]`, `/banpurge <name>
+  hour|day|week|all [reason]`, `/unban <name>`, `/bans`, `/purgeuser
+  <name> [days]`.
+- Server CLI (`cli_account.odin`): `account ban <username> <reason>`
+  (`""` for none), `account unban <username>`, `account bans`; `account
+  list` says "banned". The `bans.by` column refers to an account, so a
+  ban from the command line is recorded as the owner's (refused if there
+  is none), and the owner can't be banned. The devices are told when
+  they next connect, since the server isn't running.
+- Bot API (`gateway/moderation.odin`): `PUT/DELETE /accounts/{id}/voice`
+  (`{conv}` to move), `PUT/DELETE /accounts/{id}/mute`, `PUT/DELETE
+  /accounts/{id}/ban` (`{reason, purge}`, purge one of none, hour, day,
+  week, all), `GET /bans` (`[{account, by, time, reason}]`). Accounts and
+  `/me` have `server_muted`. `MESSAGES_PURGED` has `author_id` and
+  `from_id` (null for an ordinary purge; `before_id` is "0" with an
+  author), and `LOGGED_OUT` has `ban_reason`. A purge by author on its own
+  (Permission.Purge) isn't an endpoint, like purging in general.
+  `test_gateway_moderation` covers the endpoints, the permission and
+  owner refusals, and the purge event of a ban.
+- docs/API.md has a Moderation section and the new fields; docs/Server.md
+  the CLI commands and the role permissions.

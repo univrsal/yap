@@ -20,6 +20,7 @@ ROUTES := [?]Route {
 	{method = "GET", pattern = "me", kind = .Call, run = me_run},
 	{method = "GET", pattern = "accounts", kind = .Call, run = accounts_run},
 	{method = "GET", pattern = "accounts/{}", kind = .Call, run = account_run},
+	{method = "GET", pattern = "bans", kind = .Call, run = bans_run},
 	{method = "GET", pattern = "roles", kind = .Call, run = roles_run},
 	{method = "GET", pattern = "convs", kind = .Call, run = convs_run},
 	{method = "GET", pattern = "convs/browse", kind = .Call, run = browse_run},
@@ -45,6 +46,13 @@ ROUTES := [?]Route {
 	{method = "PUT", pattern = "messages/{}/reactions/{}", kind = .Call, run = react_run},
 	{method = "DELETE", pattern = "messages/{}/reactions/{}", kind = .Call, run = unreact_run},
 	{method = "POST", pattern = "messages/{}/forward", kind = .Call, run = forward_run},
+	// Moderation is in moderation.odin.
+	{method = "PUT", pattern = "accounts/{}/voice", kind = .Call, run = voice_move_run},
+	{method = "DELETE", pattern = "accounts/{}/voice", kind = .Call, run = voice_kick_run},
+	{method = "PUT", pattern = "accounts/{}/mute", kind = .Call, run = mute_run},
+	{method = "DELETE", pattern = "accounts/{}/mute", kind = .Call, run = unmute_run},
+	{method = "PUT", pattern = "accounts/{}/ban", kind = .Call, run = ban_run},
+	{method = "DELETE", pattern = "accounts/{}/ban", kind = .Call, run = unban_run},
 	// The file endpoints are in files.odin. Uploads and attachments are
 	// streamed and therefore aren't routes (serve.odin).
 	{method = "GET", pattern = "blobs/{}", kind = .Call, run = blob_run},

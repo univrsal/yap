@@ -256,15 +256,16 @@ events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 		)
 	case .Msgs_Purged:
 		p, ok := proto.decode_msgs_purged(body)
-		// One author's messages: not told about yet (moderation.md, phase 6).
-		if !ok || p.author != 0 {
+		if !ok {
 			return
 		}
-		emit(
-			c,
-			"MESSAGES_PURGED",
-			Purged_JSON{id_string(p.conv), id_string(p.before), enum_name(p.what)},
-		)
+		j := Purged_JSON{id_string(p.conv), id_string(p.before), enum_name(p.what), nil, nil}
+		// One account's messages: before_id is "0", which says nothing is
+		// gone to a bot that doesn't know author_id.
+		if p.author != 0 {
+			j.author_id, j.from_id = id_string(p.author), id_string(p.from)
+		}
+		emit(c, "MESSAGES_PURGED", j)
 	case .Conv_Changed:
 		conv, ok := proto.decode_conv(body)
 		if !ok {
@@ -320,13 +321,19 @@ events_event :: proc(c: ^Conn, op: proto.Event_Op, body: []u8) {
 			emit(c, "SERVER_UPDATE", server_json(&m.server))
 		}
 	case .Logged_Out:
-		reason := proto.Logout_Reason(body[0]) if len(body) > 0 else proto.Logout_Reason{}
+		reason, text := proto.decode_logged_out(body)
 		// The connection is failing at this point, so the phase is
 		// no longer Ready and emit would drop the event.
 		c.seq += 1
+		// A ban's reason, if it is one.
+		ban_reason: Maybe(string)
+		if reason == .Banned {
+			ban_reason = text
+		}
 		frame := event_frame("LOGGED_OUT", c.seq, struct {
-			reason: string,
-		}{enum_name(reason)})
+			reason:     string,
+			ban_reason: Maybe(string),
+		}{enum_name(reason), ban_reason})
 		if c.feed != nil {
 			feed_push(c.feed, frame)
 		}
@@ -397,6 +404,9 @@ Purged_JSON :: struct {
 	conv_id:   string,
 	before_id: string, // the messages older than this were purged
 	what:      string, // messages, or files (only the files were purged)
+	// Or instead: this account's messages from from_id on were purged.
+	author_id: Maybe(string),
+	from_id:   Maybe(string),
 }
 
 Read_JSON :: struct {

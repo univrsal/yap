@@ -20,7 +20,18 @@ without a client:
 yap-server account list
 yap-server account add <username>      # prints a first password
 yap-server account passwd <username>   # a new one, if it was forgotten
+yap-server account ban <username> "<reason>"   # "" for none
+yap-server account unban <username>
+yap-server account bans
 ```
+
+A ban from the command line is recorded as the owner's. The account is
+disabled, its email address can't register again, and its devices are
+told the reason when they next connect. Moderators ban (and move,
+disconnect and mute people in voice) from the client: right-click
+someone, or drag them to another channel. That needs a role (Settings >
+Roles) that may "Move people between voice rooms and disconnect them",
+"Mute people in voice for everyone" or "Ban and unban people".
 
 ### Docker
 

@@ -1908,3 +1908,111 @@ test_gateway_private_addresses :: proc(t: ^testing.T) {
 	testing.expect(t, !gateway.address_private(public))
 	testing.expect(t, gateway.address_private(net.IP6_Loopback))
 }
+
+// The moderation endpoints (gateway/moderation.odin), for a bot whose roles
+// hold the permissions.
+@(test)
+test_gateway_moderation :: proc(t: ^testing.T) {
+	ts: Test_Server
+	lt_open(t, &ts)
+	defer lt_close(&ts)
+	admin := gt_admin(t, &ts)
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	alice := logged_in(t, &ts, "alice")
+	token, pub := gt_token(t, &ts, admin, "helper")
+	defer delete(token)
+	bot := account_by_id(&ts.s.accounts, device_of(&ts.s.accounts, pub).account)
+	conv_member_add(&ts.s.convs, ts.s.convs.home, bot.id)
+	home := ts.s.convs.home.id
+	gaming := conv_by_name(&ts.s.convs, "Gaming").id
+	join_buf: [4]u8
+	status, _ := ts_ask(t, &ts, alice, .Voice_Join, proto.encode_room(&join_buf, proto.Room(home)))
+	testing.expect_value(t, status, proto.Status.Ok)
+	h: Harness
+	gt_open(t, &ts, &h)
+	defer gt_close(&ts, &h)
+
+	owned := make([dynamic]string)
+	defer {
+		for p in owned {
+			delete(p)
+		}
+		delete(owned)
+	}
+	at :: proc(owned: ^[dynamic]string, format: string, args: ..any) -> string {
+		p := fmt.aprintf(format, ..args)
+		append(owned, p)
+		return p
+	}
+	mute := at(&owned, "/api/v1/accounts/%d/mute", alice_acc.id)
+	voice := at(&owned, "/api/v1/accounts/%d/voice", alice_acc.id)
+	ban := at(&owned, "/api/v1/accounts/%d/ban", alice_acc.id)
+	ban_admin := at(&owned, "/api/v1/accounts/%d/ban", admin.account.id)
+	// (A { in a format starts an argument index.)
+	to_gaming := at(&owned, "%s%d%s", `{"conv": "`, gaming, `"}`)
+
+	// Not without the permissions.
+	gt_run(t, &ts, &h, token, {{"PUT", mute, "", 403}, {"PUT", ban, "", 403}})
+	bot.perms += {.Move_Members, .Mute_Members, .Ban_Members}
+
+	gt_run(t, &ts, &h, token, {{"PUT", mute, "", 204}})
+	testing.expect(t, .Server_Muted in alice_acc.flags)
+	gt_run(t, &ts, &h, token, {{"DELETE", mute, "", 204}})
+	testing.expect(t, .Server_Muted not_in alice_acc.flags)
+
+	gt_run(t, &ts, &h, token, {{"PUT", voice, "{}", 400}, {"PUT", voice, to_gaming, 204}})
+	testing.expect_value(t, alice.room, proto.Room(gaming))
+	gt_run(t, &ts, &h, token, {{"DELETE", voice, "", 204}})
+	testing.expect_value(t, alice.room, proto.Room(0))
+
+	r := gt_run(
+		t,
+		&ts,
+		&h,
+		token,
+		{
+			{"PUT", ban, `{"purge": "weekly"}`, 400},
+			{"PUT", ban, `{"reason": "bye", "purge": "none"}`, 204},
+			{"GET", "/api/v1/bans", "", 200},
+			{"PUT", ban_admin, "", 400}, // never the owner
+		},
+	)
+	testing.expect(t, .Disabled in alice_acc.flags)
+	if r != nil {
+		bans: []gateway.Ban_JSON
+		if gt_json(t, r[2], &bans) && testing.expect_value(t, len(bans), 1) {
+			testing.expect_value(t, bans[0].account.username, "alice")
+			testing.expect_value(t, bans[0].by.username, "helper")
+			testing.expect_value(t, bans[0].reason, "bye")
+		}
+	}
+	gt_run(t, &ts, &h, token, {{"DELETE", ban, "", 204}})
+	testing.expect(t, .Disabled not_in alice_acc.flags)
+
+	// A ban that removes her messages tells the bot whose went.
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	testing.expect(t, blob_store_open(&ts.s.blobs, &ts.s.db, dir))
+	// (The ban logged her out.)
+	alice = logged_in(t, &ts, "alice")
+	status, _ = post(t, &ts, alice, home, "something to regret", 1)
+	testing.expect_value(t, status, proto.Status.Ok)
+	w := ws_open(t, &ts, &h, "/api/v1/events", token)
+	defer ws_close(&ts, w)
+	if !testing.expect_value(t, ws_status(w), 101) || !ws_wait(&ts, w, 1) {
+		return
+	}
+	gt_run(t, &ts, &h, token, {{"PUT", ban, `{"reason": "bye", "purge": "all"}`, 204}})
+	retention_drain(&ts.s.retention, &ts.s.blobs, &ts.s)
+	ws_wait_for(t, &ts, w, "MESSAGES_PURGED", "")
+	at_purge := ws_find(t, w, "MESSAGES_PURGED")
+	purged: struct {
+		d: gateway.Purged_JSON,
+	}
+	if at_purge > 0 && ws_event(t, w, at_purge, &purged) {
+		alice_id := fmt.tprint(alice_acc.id)
+		testing.expect_value(t, purged.d.author_id.? or_else "", alice_id)
+		testing.expect_value(t, purged.d.before_id, "0")
+		testing.expect_value(t, purged.d.conv_id, fmt.tprint(home))
+	}
+}
