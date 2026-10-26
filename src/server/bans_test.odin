@@ -67,13 +67,6 @@ test_ban :: proc(t: ^testing.T) {
 	testing.expect_value(t, ban_as(t, &ts, alice, carol_acc.id, true), proto.Status.Denied)
 	testing.expect_value(t, ban_as(t, &ts, alice, alice_acc.id, true), proto.Status.Invalid)
 	testing.expect_value(t, ban_as(t, &ts, alice, 999, true), proto.Status.Not_Found)
-	// Removing messages with it isn't there yet.
-	testing.expect_value(
-		t,
-		ban_as(t, &ts, alice, bob_acc.id, true, purge = .Day),
-		proto.Status.Invalid,
-	)
-	testing.expect(t, .Disabled not_in bob_acc.flags)
 
 	// Every device of bob's is logged out, and told why.
 	testing.expect_value(

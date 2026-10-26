@@ -22,6 +22,11 @@ import "common:proto"
 //
 // Unbanning removes the record and enables the account. Enabling it with
 // Account_Disable removes the record too, so the two can't disagree.
+//
+// A ban can also remove the account's messages in channels, of the last
+// hour, day or week, or all of them (D11). That is a purge by author
+// (retention.odin), so it waits for no other purge: while one is under way,
+// such a ban is refused as a Conflict, before anything is done.
 
 Ban_Record :: struct {
 	by:     proto.Account_Id,
@@ -132,14 +137,13 @@ ban_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		unban(s, u, id, b.account)
 		return
 	}
-	// Removing their messages comes with phase 6 of the plan.
-	if b.purge != .None {
-		respond(u, id, .Invalid)
-		return
-	}
 	target, status := moderation_target(s, u, b.account, .Ban_Members)
 	if target == nil {
 		respond(u, id, status)
+		return
+	}
+	if b.purge != .None && s.retention.asked {
+		respond(u, id, .Conflict)
 		return
 	}
 	buf: [proto.MAX_BAN_REASON]u8
@@ -150,6 +154,9 @@ ban_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		return
 	}
 	log.infof("%s banned %s (%q)", conn_label(u), target.username, reason)
+	if b.purge != .None {
+		ban_purge(s, target, b.purge)
+	}
 	respond(u, id, .Ok)
 	conns := make([dynamic]^Conn, context.temp_allocator)
 	append(&conns, ..target.conns[:])
@@ -157,6 +164,32 @@ ban_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		conn_logout(s, other, .Banned, reason)
 	}
 	account_changed(s, target)
+}
+
+// ban_purge removes a banned account's messages in channels from the time
+// that `purge` says on. Nobody waits for it to finish.
+@(private = "file")
+ban_purge :: proc(s: ^Server, target: ^Account, purge: proto.Ban_Purge) {
+	now := unix_ms()
+	since: i64
+	switch purge {
+	case .None:
+		return
+	case .Hour:
+		since = now - 60 * 60 * 1000
+	case .Day:
+		since = now - DAY_MS
+	case .Week:
+		since = now - 7 * DAY_MS
+	case .All:
+	}
+	p := proto.Purge {
+		author = target.id,
+		since  = proto.Unix_Ms(since),
+	}
+	if retention_ask(&s.retention, &s.db, p, now, channels = true) {
+		log.infof("removing %s's messages in channels (%v)", target.username, purge)
+	}
 }
 
 // unban ends the ban of an account and enables it again. A deleted account

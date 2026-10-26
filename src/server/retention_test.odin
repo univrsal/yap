@@ -394,3 +394,142 @@ test_purge_resumes :: proc(t: ^testing.T) {
 	testing.expect(t, !s.retention.asked)
 	testing.expect_value(t, len(s.retention.steps), 0)
 }
+
+// Purging one author's messages (moderation.md D12, D13): everything of
+// theirs in range, pinned or not, a root with others' replies left as a
+// deleted message, others' messages untouched.
+@(test)
+test_purge_author :: proc(t: ^testing.T) {
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	home := s.convs.home.id
+	ts_account(t, &ts, "admin", "a password", {.Owner})
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	bob_acc := ts_account(t, &ts, "bob", "a password")
+	admin := logged_in(t, &ts, "admin")
+	alice := logged_in(t, &ts, "alice")
+	bob := logged_in(t, &ts, "bob")
+
+	_, dm := dm_open_as(t, &ts, alice, bob_acc.id)
+	_, old := post(t, &ts, alice, home, "an old one", 1)
+	age_messages(t, &ts, old, old, 30)
+	_, pinned := post(t, &ts, alice, home, "pinned", 2)
+	testing.expect_value(t, pin_as(t, &ts, admin, pinned, true), proto.Status.Ok)
+	_, root_others := post(t, &ts, alice, home, "a thread with bob in it", 3)
+	bobs_reply := reply(t, &ts, bob, home, root_others, "bob's reply", 4)
+	_, root_own := post(t, &ts, alice, home, "a thread of her own", 5)
+	own_reply := reply(t, &ts, alice, home, root_own, "her own reply", 6)
+	_, bobs_root := post(t, &ts, bob, home, "bob's thread", 7)
+	in_bobs := reply(t, &ts, alice, home, bobs_root, "alice in bob's thread", 8)
+	_, bobs := post(t, &ts, bob, home, "bob's", 9)
+	_, in_dm := post(t, &ts, alice, dm, "a DM", 10)
+	ts_events(t, &ts, bob)
+
+	// Only her messages of the last day: the old one stays.
+	status, messages, _ := purge(
+		t,
+		&ts,
+		admin,
+		{author = alice_acc.id, since = proto.Unix_Ms(unix_ms() - DAY_MS)},
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, messages, 6)
+	testing.expect(t, exists(&ts, old))
+	for id in ([]proto.Msg_Id{pinned, root_own, own_reply, in_bobs, in_dm}) {
+		testing.expectf(t, !exists(&ts, id), "message %d is still there", id)
+	}
+	for id in ([]proto.Msg_Id{bobs_reply, bobs_root, bobs}) {
+		testing.expectf(t, exists(&ts, id), "message %d of bob's is gone", id)
+	}
+	// Her root with bob's reply is a deleted message now.
+	m, found := msg_by_id(s, root_others)
+	testing.expect(t, found && .Deleted in m.flags && m.text == "")
+	testing.expect_value(t, count_of(t, &ts, "SELECT count(*) FROM pins"), 0)
+	// bob is told which of hers are gone, in a way older clients ignore.
+	p, told := purged(t, &ts, bob)
+	testing.expect(t, told)
+	testing.expect_value(t, p.author, alice_acc.id)
+	testing.expect_value(t, p.before, 0)
+	testing.expect(t, p.from > old && p.from <= pinned)
+
+	// Without a time, everything of hers, including the old one.
+	status, messages, _ = purge(t, &ts, admin, {author = alice_acc.id})
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, messages, 1)
+	testing.expect(t, !exists(&ts, old))
+
+	// Only with Purge, and only an account that exists.
+	status, _, _ = purge(t, &ts, alice, {author = bob_acc.id})
+	testing.expect_value(t, status, proto.Status.Denied)
+	status, _, _ = purge(t, &ts, admin, {author = 999})
+	testing.expect_value(t, status, proto.Status.Not_Found)
+}
+
+// A ban that removes messages does it in channels only (D11), and waits
+// for no other purge.
+@(test)
+test_ban_purge :: proc(t: ^testing.T) {
+	dir := test_dir(t)
+	defer remove_tree(dir)
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	testing.expect(t, blob_store_open(&s.blobs, &s.db, dir))
+	home := s.convs.home.id
+	ts_account(t, &ts, "admin", "a password", {.Owner})
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	bob_acc := ts_account(t, &ts, "bob", "a password")
+	admin := logged_in(t, &ts, "admin")
+	alice := logged_in(t, &ts, "alice")
+	logged_in(t, &ts, "bob")
+
+	_, dm := dm_open_as(t, &ts, alice, bob_acc.id)
+	_, old := post(t, &ts, alice, home, "an old one", 1)
+	age_messages(t, &ts, old, old, 3)
+	_, recent := post(t, &ts, alice, home, "a new one", 2)
+	_, in_dm := post(t, &ts, alice, dm, "a DM", 3)
+
+	ban :: proc(
+		t: ^testing.T,
+		ts: ^Test_Server,
+		u: ^Conn,
+		account: proto.Account_Id,
+		purge: proto.Ban_Purge,
+	) -> proto.Status {
+		buf: [proto.BAN_SET_MAX_SIZE]u8
+		body := proto.encode_ban_set(&buf, {account = account, on = true, purge = purge})
+		status, _ := ts_ask(t, ts, u, .Ban_Set, body)
+		return status
+	}
+
+	// While another purge is under way, the ban isn't done at all.
+	ts.requests += 1
+	buf: [proto.PURGE_MAX_SIZE]u8
+	rpc_handle(
+		s,
+		admin,
+		proto.encode_request(
+			ts.requests,
+			.Purge,
+			proto.encode_purge(&buf, {before = proto.Unix_Ms(unix_ms() - 10 * DAY_MS)}),
+		),
+	)
+	testing.expect_value(t, ban(t, &ts, admin, alice_acc.id, .Day), proto.Status.Conflict)
+	testing.expect(t, .Disabled not_in alice_acc.flags)
+	retention_drain(&s.retention, &s.blobs, s)
+
+	// The last day's messages in channels go; the DM and the older one stay.
+	testing.expect_value(t, ban(t, &ts, admin, alice_acc.id, .Day), proto.Status.Ok)
+	testing.expect(t, .Disabled in alice_acc.flags)
+	retention_drain(&s.retention, &s.blobs, s)
+	testing.expect(t, !exists(&ts, recent))
+	testing.expect(t, exists(&ts, old))
+	testing.expect(t, exists(&ts, in_dm))
+	testing.expect(t, !s.retention.asked)
+}
