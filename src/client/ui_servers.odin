@@ -403,7 +403,6 @@ RAIL_WIDTH :: 56
 RAIL_ICON :: 40
 @(private = "file")
 RAIL_SLOT :: RAIL_ICON + 6
-@(private = "file")
 RAIL_WINDOW :: "rail"
 @(private = "file")
 RAIL_MENU :: "server menu"
@@ -425,11 +424,13 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		cnt.rect = {0, 0, RAIL_WIDTH, h}
 		cnt.zindex = -1 // under what floats, like the main window
 	}
-	opts := mu.Options{.NO_TITLE, .NO_RESIZE, .NO_CLOSE, .NO_SCROLL}
+	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_CLOSE, .NO_SCROLL}
 	if !mu.begin_window(ctx, RAIL_WINDOW, {0, 0, RAIL_WIDTH, h}, opts) {
 		return
 	}
 	defer mu.end_window(ctx)
+	// The darkest of the surfaces (see theme.rail), without a border.
+	mu.draw_rect(ctx, {0, 0, RAIL_WIDTH, h}, theme.rail)
 	// With the title bar merged on macOS, the window's buttons sit over the
 	// rail's top left (see ui_titlebar_darwin.odin), so start below them.
 	if ui.titlebar_left > 0 && ui.titlebar_height > 0 {
@@ -694,7 +695,7 @@ mentions_badge :: proc(ui: ^UI, r: mu.Rect, count: int) {
 	icon_right := r.x + (r.w + RAIL_ICON) / 2
 	icon_bottom := r.y + 3 + RAIL_ICON
 	b := mu.Rect{icon_right + 2 - w, icon_bottom + 2 - h, w, h}
-	pill(ui, {b.x - 2, b.y - 2, b.w + 4, b.h + 4}, ctx.style.colors[.WINDOW_BG])
+	pill(ui, {b.x - 2, b.y - 2, b.w + 4, b.h + 4}, theme.rail)
 	pill(ui, b, theme.mentions)
 	mu.draw_text(ctx, font, text, {b.x + (w - tw) / 2, b.y}, {255, 255, 255, 255})
 }

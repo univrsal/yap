@@ -316,6 +316,10 @@ UI :: struct {
 	titlebar_left:       i32,
 	titlebar_right:      i32,
 	titlebar_height:     i32,
+	// With the title bar merged, where the line under the first row (the
+	// title row) is in this frame, or 0 where there is none. Above it the
+	// window can be dragged (see mouse_button_callback).
+	title_line:          i32,
 	// Where this frame's text boxes are, and whether one has the focus,
 	// for a phone's keyboard in a web build (see ui_text_box.odin).
 	text_boxes:          [dynamic]Text_Box,
@@ -448,12 +452,20 @@ layout :: proc(ui: ^UI, w, h: i32) {
 		// zindex is below 0, and sorts the lowest first.
 		cnt.zindex = -1
 	}
-	if mu.begin_window(ctx, "yap", {rail, 0, w - rail, h}, {.NO_TITLE, .NO_RESIZE, .NO_CLOSE}) {
+	// Without a frame: it is in the sidebars' color, and the content's surface
+	// is painted over that (content_surface).
+	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_CLOSE}
+	if mu.begin_window(ctx, "yap", {rail, 0, w - rail, h}, opts) {
+		mu.draw_rect(ctx, mu.get_current_container(ctx).rect, theme.sidebar)
 		titlebar_buttons(ui, w)
+		ui.title_line = 0
 		main_window(ui)
+		// Under the title row, from the rail to the window's right edge.
+		if ui.title_line > 0 {
+			mu.draw_rect(ctx, {rail, ui.title_line, w - rail, 1}, theme.divider)
+		}
 		mu.end_window(ctx)
 	}
-	rail_divider_gap(ui, rail)
 	// An enlarged image floats above everything else (see ui_images.odin).
 	image_viewer(ui, w, h)
 	// A screen that is being watched, popped out of its tab (see ui_video.odin).
@@ -479,29 +491,28 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	voice_drag_frame(ui)
 }
 
-// rail_divider_gap hides the line between the rail and the main window
-// (their two borders) along the strip of the merged macOS title bar, where
-// the window's buttons are (see ui_titlebar_darwin.odin). The borders belong
-// to the windows, which can't draw outside themselves, so this is a window of
-// its own, in the windows' color, drawn over them.
-@(private = "file")
-rail_divider_gap :: proc(ui: ^UI, rail: i32) {
-	if ui.titlebar_left <= 0 || ui.titlebar_height <= 0 {
-		return
-	}
+// content_surface paints the content's surface (theme.content) under the next
+// layout cell: a conversation, a settings page, beside the sidebars. It reaches
+// halfway into the gaps to the cells around it, and to the window's edges where
+// the cell is next to one. With `divider`, a line runs down its right-hand edge
+// (before the members pinned down the side).
+content_surface :: proc(ui: ^UI, divider := false) {
 	ctx := &ui.ctx
-	r := mu.Rect{rail - 1, 0, 3, ui.titlebar_height}
-	cnt := mu.get_container(ctx, "title gap")
-	if cnt == nil {
-		return
+	cell := mu.layout_next(ctx)
+	mu.layout_set_next(ctx, cell, false)
+	win := mu.get_current_container(ctx).rect
+	near := ctx.style.padding + 1
+	half := ctx.style.spacing / 2
+	left := win.x if cell.x - win.x <= near else cell.x - half
+	top := win.y if cell.y - win.y <= near else cell.y - half
+	right := cell.x + cell.w
+	right = win.x + win.w if win.x + win.w - right <= near else right + half
+	bottom := cell.y + cell.h
+	bottom = win.y + win.h if win.y + win.h - bottom <= near else bottom + half
+	mu.draw_rect(ctx, {left, top, right - left, bottom - top}, theme.content)
+	if divider {
+		mu.draw_rect(ctx, {right, top, 1, bottom - top}, theme.divider)
 	}
-	cnt.rect = r
-	opts := mu.Options{.NO_TITLE, .NO_FRAME, .NO_RESIZE, .NO_SCROLL, .NO_CLOSE, .NO_INTERACT}
-	if !mu.begin_window(ctx, "title gap", r, opts) {
-		return
-	}
-	defer mu.end_window(ctx)
-	mu.draw_rect(ctx, r, ctx.style.colors[.WINDOW_BG])
 }
 
 @(private = "file")
@@ -677,6 +688,7 @@ session_screen :: proc(ui: ^UI) {
 		if ui.channels.show_list {
 			channel_list(ui)
 		} else {
+			content_surface(ui)
 			side_panel(ui, narrow)
 		}
 		voice_panel(ui)
@@ -693,6 +705,7 @@ session_screen :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {280, -1}, -1)
 		}
 		channel_list(ui)
+		content_surface(ui, divider = ui.profiles.members_pinned)
 		side_panel(ui, narrow)
 		if ui.profiles.members_pinned {
 			members_panel(ui)
@@ -718,8 +731,17 @@ titlebar_merged :: proc(ui: ^UI) -> bool {
 // the left, so the row starts to the right of them. On Windows and X11 they are
 // on the right, so widths counted from the right-hand edge are counted
 // from the buttons instead.
+//
+// With the title bar merged, a line goes under the row (see UI.title_line).
 title_row :: proc(ui: ^UI, widths: []i32, height: i32 = 0) {
 	layout := mu.get_layout(&ui.ctx)
+	if titlebar_merged(ui) && ui.title_line == 0 {
+		// Halfway into the gap under the row, where the content's surface
+		// starts (content_surface). A row of height 0 is a control's height.
+		style := ui.ctx.style
+		h := height if height > 0 else style.size.y + 2 * style.padding
+		ui.title_line = layout.body.y + layout.next_row + h + style.spacing - style.spacing / 2
+	}
 	indent := layout.indent
 	layout.indent += max(ui.titlebar_left - layout.body.x, 0)
 	if ui.titlebar_right == 0 {

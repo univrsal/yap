@@ -67,6 +67,13 @@ Palette :: struct {
 	mark:           mu.Color,
 	mentions:       mu.Color,
 	plus_disc:      mu.Color, // the + button that joins a server
+	// The main window's surfaces, from the darkest to the brightest: the
+	// server rail, the lists beside the content (channels, members, DMs,
+	// settings categories), and the content (a conversation, a settings page).
+	// Their colors set them apart, so they have no borders (content_surface).
+	rail:           mu.Color,
+	sidebar:        mu.Color,
+	content:        mu.Color,
 	// Voice: the panel, and how a call is going.
 	panel:          mu.Color,
 	connected:      mu.Color,
@@ -142,7 +149,10 @@ DARK_PALETTE :: Palette {
 	mark = {230, 230, 230, 255},
 	mentions = {215, 60, 60, 255},
 	plus_disc = {70, 70, 70, 255},
-	panel = {38, 38, 38, 255},
+	rail = {28, 28, 28, 255},
+	sidebar = {39, 39, 39, 255},
+	content = {50, 50, 50, 255},
+	panel = {45, 45, 45, 255},
 	connected = {110, 200, 120, 255},
 	ringing = {230, 180, 90, 255},
 	unlit = {75, 75, 75, 255},
@@ -211,7 +221,10 @@ LIGHT_PALETTE :: Palette {
 	mark = {40, 40, 40, 255},
 	mentions = {215, 60, 60, 255},
 	plus_disc = {175, 175, 175, 255},
-	panel = {238, 238, 238, 255},
+	rail = {224, 224, 224, 255},
+	sidebar = {240, 240, 240, 255},
+	content = {255, 255, 255, 255},
+	panel = {232, 232, 232, 255},
 	connected = {40, 150, 65, 255},
 	ringing = {185, 120, 20, 255},
 	unlit = {200, 200, 200, 255},

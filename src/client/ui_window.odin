@@ -330,8 +330,10 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	// press is somewhere else (because motion events were missed), it would click
 	// whatever was under the old position, so drop the hover instead.
 	// The edges of a window without a frame resize it (X11 only, see
-	// ui_titlebar_x11.odin), and the strip where a title bar would be
-	// moves it instead, where it isn't a control in the main window.
+	// ui_titlebar_x11.odin), and the strip where a title bar would be moves
+	// it instead, where it isn't a control in the main window or the rail.
+	// The strip reaches down to the line under the title row
+	// (UI.title_line), if that is lower.
 	if btn == .LEFT && action == glfw.PRESS {
 		if edge := window_edge(g_ui, x, y); edge != .None {
 			titlebar_resize(window, edge)
@@ -340,9 +342,10 @@ mouse_button_callback :: proc "c" (window: glfw.WindowHandle, button, action, mo
 	}
 	if btn == .LEFT &&
 	   action == glfw.PRESS &&
-	   y < g_ui.titlebar_height &&
+	   y < max(g_ui.titlebar_height, g_ui.title_line) &&
 	   g_ui.ctx.hover_id == 0 &&
-	   g_ui.ctx.hover_root == mu.get_container(&g_ui.ctx, "yap") {
+	   (g_ui.ctx.hover_root == mu.get_container(&g_ui.ctx, "yap") ||
+			   g_ui.ctx.hover_root == mu.get_container(&g_ui.ctx, RAIL_WINDOW)) {
 		titlebar_press(window)
 		return
 	}

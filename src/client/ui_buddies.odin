@@ -197,6 +197,7 @@ buddies_screen :: proc(ui: ^UI) {
 		voice_panel(ui)
 	case narrow:
 		mu.layout_row(ctx, {-1}, -(panel_h + 1))
+		content_surface(ui)
 		conversation_or_screen(ui, entry, found, narrow)
 		voice_panel(ui)
 	case:
@@ -206,6 +207,7 @@ buddies_screen :: proc(ui: ^UI) {
 		buddy_list_panel(ui, list)
 		voice_panel(ui)
 		mu.layout_end_column(ctx)
+		content_surface(ui)
 		conversation_or_screen(ui, entry, found, narrow)
 	}
 	user_menu(ui)
@@ -259,7 +261,7 @@ back_to_list :: proc(ui: ^UI) {
 buddy_list_panel :: proc(ui: ^UI, list: []Buddy_Entry) {
 	ctx := &ui.ctx
 
-	mu.begin_panel(ctx, "buddies")
+	mu.begin_panel(ctx, "buddies", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 
 	if len(list) == 0 {
@@ -564,7 +566,7 @@ dm_file_button :: proc(ui: ^UI, data: rawptr) {
 @(private = "file")
 no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 	ctx := &ui.ctx
-	mu.begin_panel(ctx, "no conversation")
+	mu.begin_panel(ctx, "no conversation", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 	pending := 0
 	for p, i in ui.view.outbox {

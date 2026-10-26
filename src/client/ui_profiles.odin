@@ -410,7 +410,7 @@ members_panel :: proc(ui: ^UI) {
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
 	mu.layout_row(ctx, {-1}, -1)
-	mu.begin_panel(ctx, "members pinned")
+	mu.begin_panel(ctx, "members pinned", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 	members_list(ui)
 }

@@ -433,7 +433,7 @@ timeline :: proc(ui: ^UI, st: ^UI_Timeline, key: conn.Timeline_Key, readonly := 
 	}
 	// msgs[first:last] are laid out.
 
-	mu.begin_panel(ctx, panel)
+	mu.begin_panel(ctx, panel, {.NO_FRAME})
 	select_begin(ui, timeline_select_panel(st.slot))
 	// Everything in one column of `width`.
 	mu.layout_row(ctx, {width}, 1)

@@ -117,6 +117,7 @@ settings_page :: proc(ui: ^UI) {
 			mu.label(ctx, CLIENT_CATEGORY_NAMES[ui.settings_client])
 		}
 		mu.layout_row(ctx, {-1}, -1)
+		content_surface(ui)
 		settings_body(ui)
 		return
 	}
@@ -152,6 +153,7 @@ settings_page :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1}, -1)
 	category_list(ui, server_categories)
 	mu.layout_end_column(ctx)
+	content_surface(ui)
 	settings_body(ui)
 }
 
@@ -167,7 +169,7 @@ category_list :: proc(
 	picked: bool,
 ) {
 	ctx := &ui.ctx
-	mu.begin_panel(ctx, "settings categories")
+	mu.begin_panel(ctx, "settings categories", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 	if ui.settings_tab == .Client {
 		for c in CLIENT_CATEGORIES {
@@ -200,7 +202,7 @@ settings_body :: proc(ui: ^UI) {
 		log_panel(ui)
 		return
 	}
-	mu.begin_panel(ctx, "settings_body")
+	mu.begin_panel(ctx, "settings_body", {.NO_FRAME})
 	defer mu.end_panel(ctx)
 	if ui.settings_tab == .Server {
 		server_settings(ui, ui.settings_server)

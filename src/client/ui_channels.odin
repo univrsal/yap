@@ -108,9 +108,8 @@ channel_list :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1}, -(panel_h + 1))
 	area := mu.layout_next(ctx)
 
-	// One frame around both: the rows scroll in a panel without its own,
-	// over the button, which stays put.
-	ctx.draw_frame(ctx, area, .PANEL_BG)
+	// The rows scroll in a panel, over the button, which stays put. Neither
+	// has a frame: the sidebar's color sets them apart (content_surface).
 	pad := ctx.style.padding
 	button_h := ctx.style.size.y + 2 * pad
 	mu.layout_set_next(ctx, {area.x, area.y, area.w, area.h - button_h - pad}, false)
