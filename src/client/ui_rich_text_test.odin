@@ -6,8 +6,8 @@ import "core:testing"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "client:richtext"
 import "client:render"
+import "client:richtext"
 
 // Characters are 8 pixels wide in Regular, 10 in Bold, 9 in Mono (and 8 in the
 // italics). Lines are 16 pixels tall.

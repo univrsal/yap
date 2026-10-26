@@ -7,8 +7,8 @@ import "core:strings"
 import "core:sync"
 import "core:time"
 
-import "lib:http"
 import "common:proto"
+import "lib:http"
 
 // Limits (docs/bot-api, "Limits" and "Security") keep a looping bot, or
 // someone who isn't a bot, from taking down the gateway or the server:

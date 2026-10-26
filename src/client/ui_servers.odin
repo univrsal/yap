@@ -482,7 +482,16 @@ server_rail :: proc(ui: ^UI, h: i32) {
 			color, text = dimmed(color), dimmed(text)
 		}
 		shown := ns == ui.session && !ui.join.open && ui.page != .Buddies
-		r, id, keyed := rail_icon(ui, uintptr(rawptr(ns)), initials, color, text, label, shown, picture)
+		r, id, keyed := rail_icon(
+			ui,
+			uintptr(rawptr(ns)),
+			initials,
+			color,
+			text,
+			label,
+			shown,
+			picture,
+		)
 		if keyed {
 			ui.switch_to, ui.switching = ns, true
 		}
@@ -503,7 +512,15 @@ server_rail :: proc(ui: ^UI, h: i32) {
 		}
 	}
 	white := mu.Color{255, 255, 255, 255}
-	r, plus, keyed := rail_icon(ui, RAIL_PLUS, "", theme.plus_disc, white, "Join a server", ui.join.open)
+	r, plus, keyed := rail_icon(
+		ui,
+		RAIL_PLUS,
+		"",
+		theme.plus_disc,
+		white,
+		"Join a server",
+		ui.join.open,
+	)
 	icon := mu.Rect{r.x + (r.w - RAIL_ICON) / 2, r.y + 3, RAIL_ICON, RAIL_ICON}
 	mu.draw_icon(ctx, render.icon_id(.Plus), icon, white)
 	if ctx.hover_id == plus && ctx.mouse_pressed_bits == {.LEFT} || keyed {

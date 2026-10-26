@@ -437,14 +437,7 @@ transfer_settings :: proc(ui: ^UI) {
 	mu.label(ctx, "Download limit")
 	changed |=
 		.CHANGE in
-		slider(
-			ctx,
-			&ui.settings.download_limit,
-			0,
-			settings.MAX_TRANSFER_LIMIT,
-			0.5,
-			"%.1f MB/s",
-		)
+		slider(ctx, &ui.settings.download_limit, 0, settings.MAX_TRANSFER_LIMIT, 0.5, "%.1f MB/s")
 	mu.layout_row(ctx, {-1})
 	dim_note(ctx, "  0 means no limit. A download limit also slows down whoever is sending.")
 	if changed {

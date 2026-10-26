@@ -23,7 +23,7 @@ UI_Search :: struct {
 	open:   bool,
 	placed: bool,
 	focus:  bool, // just opened: the query box takes the focus
-	query: Text_Field(proto.MAX_SEARCH_QUERY),
+	query:  Text_Field(proto.MAX_SEARCH_QUERY),
 	all:    bool, // search in all of our conversations
 }
 

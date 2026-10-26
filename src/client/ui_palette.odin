@@ -82,37 +82,21 @@ COMMANDS := [?]Command {
 		run = proc(ui: ^UI) {set_deafened(ui, false)},
 		detail = proc(ui: ^UI) -> string {return hotkey_text(ui, true)},
 	},
-	{
-		name = "Leave voice",
-		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {
+	{name = "Leave voice", enabled = proc(ui: ^UI, v: ^conn.View) -> bool {
 			return palette_connected(ui, v) && panel_state(v) == .Voice
-		},
-		run = proc(ui: ^UI) {command(ui, conn.Voice_Command{})},
-	},
-	{
-		name = "Hang up",
-		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {
+		}, run = proc(ui: ^UI) {command(ui, conn.Voice_Command{})}},
+	{name = "Hang up", enabled = proc(ui: ^UI, v: ^conn.View) -> bool {
 			return palette_connected(ui, v) && panel_state(v) == .Call
-		},
-		run = proc(ui: ^UI) {command(ui, conn.Call_Hangup_Command{})},
-	},
-	{
-		name = "Search messages",
-		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {
+		}, run = proc(ui: ^UI) {command(ui, conn.Call_Hangup_Command{})}},
+	{name = "Search messages", enabled = proc(ui: ^UI, v: ^conn.View) -> bool {
 			return palette_connected(ui, v) && !ui.search.open
-		},
-		run = proc(ui: ^UI) {
+		}, run = proc(ui: ^UI) {
 			ui.search.open = true
 			ui.search.placed = false
-		},
-	},
-	{
-		name = "Open the inbox",
-		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {
+		}},
+	{name = "Open the inbox", enabled = proc(ui: ^UI, v: ^conn.View) -> bool {
 			return ui.page != .Buddies && ui.session != nil && !ui.session.joining && !ui.join.open
-		},
-		run = proc(ui: ^UI) {toggle_inbox(ui)},
-	},
+		}, run = proc(ui: ^UI) {toggle_inbox(ui)}},
 	{
 		name = "Open the settings",
 		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {return ui.page != .Settings},
@@ -130,17 +114,26 @@ COMMANDS := [?]Command {
 	},
 	{
 		name = "Use the dark theme",
-		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {return theme_choice(&ui.settings) != .Dark},
+		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {return(
+				theme_choice(&ui.settings) !=
+				.Dark \
+			)},
 		run = proc(ui: ^UI) {palette_set_theme(ui, .Dark)},
 	},
 	{
 		name = "Use the light theme",
-		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {return theme_choice(&ui.settings) != .Light},
+		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {return(
+				theme_choice(&ui.settings) !=
+				.Light \
+			)},
 		run = proc(ui: ^UI) {palette_set_theme(ui, .Light)},
 	},
 	{
 		name = "Use the system's theme",
-		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {return theme_choice(&ui.settings) != .System},
+		enabled = proc(ui: ^UI, v: ^conn.View) -> bool {return(
+				theme_choice(&ui.settings) !=
+				.System \
+			)},
 		run = proc(ui: ^UI) {palette_set_theme(ui, .System)},
 	},
 }
@@ -215,7 +208,12 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 	rows := i32(1 + max(min(len(matches), PALETTE_ROWS), 1))
 	pw := min(PALETTE_WIDTH, w - 32)
 	if cnt := mu.get_container(ctx, PALETTE_WINDOW); cnt != nil {
-		cnt.rect = {(w - pw) / 2, min(80, h / 6), pw, rows * row - ctx.style.spacing + 2 * ctx.style.padding}
+		cnt.rect = {
+			(w - pw) / 2,
+			min(80, h / 6),
+			pw,
+			rows * row - ctx.style.spacing + 2 * ctx.style.padding,
+		}
 	}
 	if !mu.begin_window(ctx, PALETTE_WINDOW, {}, {.POPUP, .NO_RESIZE, .NO_TITLE, .NO_SCROLL}) {
 		p.open = false // closed by a click elsewhere
@@ -294,7 +292,12 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 // Allocated in the temp allocator. Call with the View locked.
 @(private = "file")
 palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
-	list := make([dynamic]Palette_Entry, 0, len(COMMANDS) + 2 * len(v.channels), context.temp_allocator)
+	list := make(
+		[dynamic]Palette_Entry,
+		0,
+		len(COMMANDS) + 2 * len(v.channels),
+		context.temp_allocator,
+	)
 	for c, i in COMMANDS {
 		if c.enabled != nil && !c.enabled(ui, v) {
 			continue
@@ -310,7 +313,12 @@ palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
 			detail := fmt.tprintf("%d unread", ch.unread) if ch.unread > 0 else ""
 			append(
 				&list,
-				Palette_Entry{kind = .Channel, name = fmt.tprintf("Go to #%s", ch.name), detail = detail, conv = ch.id},
+				Palette_Entry {
+					kind = .Channel,
+					name = fmt.tprintf("Go to #%s", ch.name),
+					detail = detail,
+					conv = ch.id,
+				},
 			)
 		}
 		if !v.voice_pending {
@@ -318,7 +326,11 @@ palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
 				if .Voice in ch.rights && ch.id != v.my_room {
 					append(
 						&list,
-						Palette_Entry{kind = .Voice, name = fmt.tprintf("Join voice in #%s", ch.name), conv = ch.id},
+						Palette_Entry {
+							kind = .Voice,
+							name = fmt.tprintf("Join voice in #%s", ch.name),
+							conv = ch.id,
+						},
 					)
 				}
 			}
@@ -333,7 +345,12 @@ palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
 			}
 			append(
 				&list,
-				Palette_Entry{kind = .Message, name = fmt.tprintf("Message %s", b.name), detail = detail, account = b.account},
+				Palette_Entry {
+					kind = .Message,
+					name = fmt.tprintf("Message %s", b.name),
+					detail = detail,
+					account = b.account,
+				},
 			)
 		}
 	}
@@ -350,7 +367,10 @@ palette_entries :: proc(ui: ^UI, v: ^conn.View) -> []Palette_Entry {
 				name = fmt.tprintf("%s", sv.server_name)
 			}
 		}
-		append(&list, Palette_Entry{kind = .Server, name = fmt.tprintf("Switch to %s", name), ns = ns})
+		append(
+			&list,
+			Palette_Entry{kind = .Server, name = fmt.tprintf("Switch to %s", name), ns = ns},
+		)
 	}
 	return list[:]
 }
@@ -491,7 +511,10 @@ palette_score :: proc(query, name: string) -> (score: int, ok: bool) {
 			case i == 0:
 				next[j] = points
 			case j >= 1 && best[j - 1] != NONE:
-				next[j] = max(best[j - 1] + points + 4, before + points if before != NONE else NONE)
+				next[j] = max(
+					best[j - 1] + points + 4,
+					before + points if before != NONE else NONE,
+				)
 			case before != NONE:
 				next[j] = before + points
 			}

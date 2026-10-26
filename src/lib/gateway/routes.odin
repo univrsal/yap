@@ -2,9 +2,9 @@ package gateway
 
 import "core:encoding/json"
 
+import "common:proto"
 import "lib:http"
 import "lib:lite"
-import "common:proto"
 
 // The endpoints (docs/bot-api, "Endpoints") live under /api/v1/. Each has a
 // `run`, which runs on the gateway thread once its connection is ready, and

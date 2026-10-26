@@ -18,8 +18,16 @@ test_nav_step :: proc(t: ^testing.T) {
 // with `keys` pressed.
 @(private = "file")
 nav_test_frame :: proc(ui: ^UI, keys: bit_set[Extra_Key]) {
-	append(&ui.nav.items, Nav_Item{1, {}, nil, nil, -1, 0, false}, Nav_Item{2, {}, nil, nil, -1, 0, false})
-	append(&ui.nav.items, Nav_Item{3, {}, nil, nil, 5, 0, false}, Nav_Item{4, {}, nil, nil, -1, 0, false})
+	append(
+		&ui.nav.items,
+		Nav_Item{1, {}, nil, nil, -1, 0, false},
+		Nav_Item{2, {}, nil, nil, -1, 0, false},
+	)
+	append(
+		&ui.nav.items,
+		Nav_Item{3, {}, nil, nil, 5, 0, false},
+		Nav_Item{4, {}, nil, nil, -1, 0, false},
+	)
 	ui.keys = keys
 	nav_frame(ui)
 }
@@ -87,9 +95,17 @@ test_nav_trap :: proc(t: ^testing.T) {
 	// and Tab and Down stay in it.
 	ui.nav.focus, ui.nav.visible = 1, true
 	frame := proc(ui: ^UI, popup: ^mu.Container, open: bool, keys: bit_set[Extra_Key]) {
-		append(&ui.nav.items, Nav_Item{1, {}, nil, nil, -1, 0, false}, Nav_Item{2, {}, nil, nil, -1, 0, false})
+		append(
+			&ui.nav.items,
+			Nav_Item{1, {}, nil, nil, -1, 0, false},
+			Nav_Item{2, {}, nil, nil, -1, 0, false},
+		)
 		if open {
-			append(&ui.nav.items, Nav_Item{10, {}, popup, nil, -1, 0, false}, Nav_Item{11, {}, popup, nil, -1, 0, false})
+			append(
+				&ui.nav.items,
+				Nav_Item{10, {}, popup, nil, -1, 0, false},
+				Nav_Item{11, {}, popup, nil, -1, 0, false},
+			)
 			ui.nav.trap = popup
 		}
 		ui.keys = keys
@@ -125,9 +141,17 @@ test_nav_opened_window :: proc(t: ^testing.T) {
 
 	frame := proc(ui: ^UI, main, win: ^mu.Container, open: bool, keys: bit_set[Extra_Key]) {
 		ui.ctx.frame += 1
-		append(&ui.nav.items, Nav_Item{1, {}, main, nil, -1, 0, false}, Nav_Item{2, {}, main, nil, -1, 0, false})
+		append(
+			&ui.nav.items,
+			Nav_Item{1, {}, main, nil, -1, 0, false},
+			Nav_Item{2, {}, main, nil, -1, 0, false},
+		)
 		if open {
-			append(&ui.nav.items, Nav_Item{10, {}, win, nil, -1, 0, false}, Nav_Item{11, {}, win, nil, -1, 0, false})
+			append(
+				&ui.nav.items,
+				Nav_Item{10, {}, win, nil, -1, 0, false},
+				Nav_Item{11, {}, win, nil, -1, 0, false},
+			)
 		}
 		ui.keys = keys
 		nav_frame(ui)

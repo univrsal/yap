@@ -445,7 +445,8 @@ key_callback :: proc "c" (window: glfw.WindowHandle, key, scancode, action, mods
 	if action == glfw.PRESS &&
 	   (ODIN_OS == .Darwin || platform.WEB) &&
 	   key == glfw.KEY_K &&
-	   mods & (glfw.MOD_SUPER | glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SHIFT) == glfw.MOD_SUPER {
+	   mods & (glfw.MOD_SUPER | glfw.MOD_CONTROL | glfw.MOD_ALT | glfw.MOD_SHIFT) ==
+		   glfw.MOD_SUPER {
 		g_ui.keys += {.Palette}
 		return
 	}

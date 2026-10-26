@@ -6,9 +6,9 @@ import "core:unicode"
 import "core:unicode/utf8"
 import mu "vendor:microui"
 
-import "client:richtext"
 import "client:platform"
 import "client:render"
+import "client:richtext"
 import "common:proto"
 
 // A message's text as the timeline draws it: its markdown is parsed

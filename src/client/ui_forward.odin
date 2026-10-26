@@ -215,7 +215,13 @@ link_label :: proc(data: rawptr, l: proto.Msg_Link) -> string {
 		case m.kind == .System:
 			said = "a call"
 		case:
-			said, _, _ = richtext.text_display(m.text, v.accounts, v.roles[:], v.me, v.emoji.names[:])
+			said, _, _ = richtext.text_display(
+				m.text,
+				v.accounts,
+				v.roles[:],
+				v.me,
+				v.emoji.names[:],
+			)
 			said = richtext.markdown_plain(said)
 			if len(said) > LINK_SNIPPET {
 				cut := LINK_SNIPPET

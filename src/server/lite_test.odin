@@ -5,8 +5,8 @@ import "core:net"
 import "core:testing"
 import "core:time"
 
-import "lib:lite"
 import "common:proto"
+import "lib:lite"
 
 // Tests of the headless client (lib/lite) against a real server: its
 // packet handling and the syncs that answer it, over a loopback socket, with
