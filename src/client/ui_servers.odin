@@ -37,6 +37,7 @@ Server_UI :: struct {
 	name:           Text_Field(2 * proto.MAX_NAME_SIZE),
 	account:        UI_Account, // the login and the account's settings (ui_account.odin)
 	invites:        UI_Invites, // invite codes in the settings (ui_invites.odin)
+	bans:           UI_Bans, // banning, the Bans page, being banned (ui_bans.odin)
 	// When the code that accounts registered with was last requested
 	// (invited_by_line).
 	invites_asked:  map[proto.Account_Id]time.Tick,

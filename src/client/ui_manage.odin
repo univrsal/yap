@@ -562,7 +562,8 @@ accounts_list :: proc(ui: ^UI, v: ^conn.View) {
 		if .Disabled in acc.flags {
 			ctx.style.colors[.TEXT] = theme.dim
 		}
-		if .SUBMIT in list_row(ctx, "account", account_line(acc), a.picked == id) {
+		_, banned := ban_of(v, id)
+		if .SUBMIT in list_row(ctx, "account", account_line(acc, banned), a.picked == id) {
 			account_pick(ui, id)
 		}
 		ctx.style.colors[.TEXT] = saved
@@ -582,7 +583,7 @@ accounts_list :: proc(ui: ^UI, v: ^conn.View) {
 // account_line is how an account is listed: its username, its name if that is
 // different, and what kind of account it is.
 @(private = "file")
-account_line :: proc(acc: conn.View_Account) -> string {
+account_line :: proc(acc: conn.View_Account, banned: bool) -> string {
 	b := strings.builder_make(context.temp_allocator)
 	strings.write_string(&b, acc.username)
 	if acc.display != "" && acc.display != acc.username {
@@ -591,6 +592,8 @@ account_line :: proc(acc: conn.View_Account) -> string {
 	switch {
 	case .Owner in acc.flags:
 		strings.write_string(&b, "  (owner)")
+	case banned:
+		strings.write_string(&b, "  (banned)")
 	case .Disabled in acc.flags:
 		strings.write_string(&b, "  (disabled)")
 	}
@@ -622,7 +625,8 @@ account_detail :: proc(ui: ^UI, v: ^conn.View) {
 	id := a.picked
 
 	mu.layout_row(ctx, {-1})
-	mu.label(ctx, account_line(acc))
+	_, banned := ban_of(v, id)
+	mu.label(ctx, account_line(acc, banned))
 	roles := make([dynamic]string, context.temp_allocator)
 	for r in acc.roles {
 		for vr in v.roles {

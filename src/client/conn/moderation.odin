@@ -147,3 +147,110 @@ server_mute_changed :: proc(c: ^Server_Conn, was, now: bool) {
 		notify(c, true, "A moderator lifted your mute on this server.")
 	}
 }
+
+// Ban someone, or lift their ban. Headless, by name. (Removing their messages
+// with it comes later.)
+Ban_Command :: struct {
+	account: proto.Account_Id,
+	on:      bool,
+	reason:  string, // owned by the command
+	name:    string, // owned by the command; headless
+}
+
+// Ask for the bans (Ban_Members).
+Bans_Command :: struct {}
+
+// The bans as of the last time they were asked for, newest first. The reasons
+// are owned.
+View_Bans :: struct {
+	list:  [dynamic]proto.Ban,
+	count: int, // incremented each time the list arrives
+}
+
+view_clear_bans :: proc(v: ^View) {
+	for b in v.bans.list {
+		delete(b.reason)
+	}
+	clear(&v.bans.list)
+}
+
+ban_set :: proc(c: ^Server_Conn, cmd: Ban_Command) {
+	account := cmd.account if cmd.account != 0 else account_named(c, cmd.name)
+	if account == 0 {
+		log.warnf("there's nobody called %q here", cmd.name)
+		return
+	}
+	buf: [proto.BAN_SET_MAX_SIZE]u8
+	body := proto.encode_ban_set(&buf, {account = account, on = cmd.on, reason = cmd.reason})
+	if body == nil {
+		notify(c, false, "The reason is too long.")
+		return
+	}
+	request(c, .Ban_Set, body, proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
+		#partial switch status {
+		case .Ok:
+			if c.view == nil {
+				log.info("[moderation] done")
+			}
+			bans_list(c)
+		case .Reset:
+		case .Not_Found:
+			notify(c, false, "They aren't banned, or no longer exist.")
+		case .Invalid:
+			notify(c, false, "They can't be banned.")
+		case .Denied:
+			notify(c, false, "You aren't allowed to ban them.")
+		case:
+			notify(c, false, status_text(status))
+		}
+	})
+}
+
+bans_list :: proc(c: ^Server_Conn) {
+	if .Ban_Members not_in c.auth.permissions {
+		return
+	}
+	request(c, .Ban_List, nil, proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
+		if status != .Ok {
+			return
+		}
+		bans, ok := proto.decode_bans(body)
+		if !ok {
+			return
+		}
+		v := c.view
+		if v == nil {
+			for b in bans {
+				log.infof(
+					"banned: %s by %s: %q",
+					account_display(c, b.account),
+					account_display(c, b.by),
+					b.reason,
+				)
+			}
+			return
+		}
+		view_write(v)
+		view_clear_bans(v)
+		for b in bans {
+			b := b
+			b.reason = strings.clone(b.reason)
+			append(&v.bans.list, b)
+		}
+		v.bans.count += 1
+	})
+}
+
+// told_banned keeps why our account is banned, as the server just told us
+// (a login answered Banned, or Logged_Out). The login screen shows it.
+told_banned :: proc(c: ^Server_Conn, reason: string) {
+	a := &c.auth
+	delete(a.ban_reason)
+	a.banned, a.ban_reason = true, strings.clone(reason)
+	a.ban_count += 1
+	log.warnf(
+		"%s: this account is banned: %s",
+		c.server_addr,
+		reason if reason != "" else "no reason was given",
+	)
+}

@@ -17,7 +17,10 @@ ban_as :: proc(
 	purge := proto.Ban_Purge.None,
 ) -> proto.Status {
 	buf: [proto.BAN_SET_MAX_SIZE]u8
-	body := proto.encode_ban_set(&buf, {account = account, on = on, reason = reason, purge = purge})
+	body := proto.encode_ban_set(
+		&buf,
+		{account = account, on = on, reason = reason, purge = purge},
+	)
 	status, _ := ts_ask(t, ts, u, .Ban_Set, body)
 	return status
 }

@@ -89,6 +89,8 @@ import "core:time"
 //	                 another channel's room, or out of voice
 //	/servermute <name>, /serverunmute <name>   mute someone for everyone on
 //	                 the server, or lift that
+//	/ban <name> [reason], /unban <name>, /bans   ban someone (they are told
+//	                 the reason), lift it, or list the bans
 //	/deluser <name>  delete someone's account; /deleteme <password> deletes your own
 //	/private <name>  create a private channel
 //	/rename <name>, /topic <text>, /move <position>, /archive   change or
@@ -501,6 +503,23 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 					on = strings.has_prefix(line, "/servermute "),
 				},
 			)
+		case strings.has_prefix(line, "/ban "):
+			name, _, reason := strings.partition(strings.trim_space(line[len("/ban "):]), " ")
+			conn.push_command(
+				q,
+				conn.Ban_Command {
+					name = strings.clone(name),
+					on = true,
+					reason = strings.clone(strings.trim_space(reason)),
+				},
+			)
+		case strings.has_prefix(line, "/unban "):
+			conn.push_command(
+				q,
+				conn.Ban_Command{name = strings.clone(strings.trim_space(line[len("/unban "):]))},
+			)
+		case line == "/bans":
+			conn.push_command(q, conn.Bans_Command{})
 		case strings.has_prefix(line, "/deluser "):
 			conn.push_command(
 				q,

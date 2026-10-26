@@ -171,6 +171,8 @@ Command :: union {
 	// Moderation, see moderation.odin.
 	Voice_Move_Command,
 	Voice_Mute_Command,
+	Ban_Command,
+	Bans_Command,
 	Conv_Update_Command,
 	Conv_Rights_Get_Command,
 	Conv_Rights_Set_Command,
@@ -259,6 +261,9 @@ command_destroy :: proc(cmd: Command) {
 		delete(v.channel)
 	case Voice_Mute_Command:
 		delete(v.name)
+	case Ban_Command:
+		delete(v.name)
+		delete(v.reason)
 	case Account_Delete_Command:
 		delete(v.name)
 		delete(v.password)
@@ -419,6 +424,10 @@ process_commands :: proc(c: ^Server_Conn) {
 			voice_move(c, v)
 		case Voice_Mute_Command:
 			voice_mute(c, v)
+		case Ban_Command:
+			ban_set(c, v)
+		case Bans_Command:
+			bans_list(c)
 		case Account_Delete_Command:
 			account_delete(c, v)
 		case Role_Order_Command:

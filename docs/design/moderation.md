@@ -18,7 +18,7 @@ Branch `moderation-plan`, off master (10f7192). Sizes as in [next.md](next.md).
 | 2 | Server: move, disconnect, mute | M | done |
 | 3 | Client: menu items, mute shown, notices | M | done |
 | 4 | Client: dragging people between rooms | M | done |
-| 5 | Bans on the server, and in the client | L | |
+| 5 | Bans on the server, and in the client | L | done |
 | 6 | Purging one author's messages | M | |
 | 7 | CLI client, server CLI, bot API, docs | S | |
 
@@ -457,6 +457,48 @@ Client:
 - Settings: a **Bans** page (with Ban_Members): who, by whom, when,
   reason, Unban. The Accounts page shows "banned" instead of "disabled"
   for a banned account.
+
+*As built:* server in `server/bans.odin`. The bans are held in memory on
+`Accounts` (`bans`, loaded with the accounts) as well as in the table.
+`ban_set` checks with `moderation_target` (as moving and muting do),
+sanitizes the reason to one line, records the ban (replacing an earlier
+one), disables the account and logs out every device with
+Logged_Out(Banned, reason). Unbanning needs Ban_Members and outranking,
+not `account_live`, so a deleted account can be unbanned too (which frees
+its address). `auth_known_device` tells a banned account's device why on
+every connection; `login_finish` answers Banned with the reason only
+after the password matched (a wrong one is still Wrong_Password), and a
+disabled account that isn't banned is still Denied. Registration answers
+Email_Taken and the email change Conflict for a banned address.
+Account_Disable(off) removes the ban. A Ban_Set with a purge is answered
+Invalid until phase 6, so the client doesn't offer it yet.
+`test_ban` covers all of it, including the record surviving a reload.
+
+Client: `conn/moderation.odin` has Ban_Command and Bans_Command (the list
+goes to `View.bans`), and `told_banned`, which keeps the reason in the
+auth state (`banned`, `ban_reason`, and `ban_count`, which counts each
+time the server said it) for the login screen. `ui_bans.odin`:
+
+- The menu's Moderation part ends with **Ban...**, which opens "Reason
+  (they will see it)", a text box, Cancel and a red Ban, inside the menu
+  (as the rail's menu confirms leaving), or **Unban** for someone in the
+  list. The menu asks for the list once so that it knows.
+- The login card shows "You were banned from <server>." and the reason
+  (or "No reason was given.") in place of the form, with Remove server
+  (the rail's leave, keeping the key) and Close. Close shows the form
+  until the server says it again (`UI_Bans.closed` against `ban_count`).
+- Settings > Bans (Ban_Members): name, "by X, date", the reason, Unban.
+  The Accounts page asks for the list too and shows "(banned)".
+- Headless `/ban <name> [reason]`, `/unban <name>`, `/bans` (phase 7's,
+  done early for testing).
+
+Checked off-screen: as the owner, Ban... with a typed reason from bot2's
+menu in the channel list (the headless bot2 logged out and told the
+reason), the Bans page and "(banned)" on Accounts; as bot2 in the GUI,
+the banned card on reconnecting, Close, a wrong password ("Wrong username
+or password." only), the right one (the card again), and logging in
+after a headless `/unban`. Remove server wasn't clicked (it is the rail's
+own leave), and the web build type-checks but wasn't run.
 
 ## 6. Purging one author's messages
 

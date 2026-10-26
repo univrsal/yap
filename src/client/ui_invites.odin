@@ -178,7 +178,7 @@ invited_by_line :: proc(ui: ^UI, v: ^conn.View, account: proto.Account_Id) -> st
 	return fmt.tprintf("Invited with %s", of.code)
 }
 
-@(private = "file")
+// invite_date is a time as a local date and time (also on the Bans page).
 invite_date :: proc(ui: ^UI, ms: proto.Unix_Ms) -> string {
 	dt, _ := time.time_to_datetime(time.unix(i64(ms) / 1000, 0))
 	local := chat_local_time(ui, dt)

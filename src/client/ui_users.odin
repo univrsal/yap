@@ -292,6 +292,7 @@ open_user_menu :: proc(ui: ^UI, num: proto.User_Num, account: proto.Account_Id) 
 	ui.menu_account = account
 	ui.menu_volume = u.volume * 100
 	ui.menu_moving = false
+	ui.bans.banning = false
 	// Opened by user_menu: microui scopes container names by the id stack,
 	// and the row it is opened from is nested in ids that the menu isn't.
 	ui.menu_requested = true
@@ -558,7 +559,8 @@ moderation_items :: proc(ui: ^UI, account: proto.Account_Id, clicked: conn.View_
 	can_mute := .Mute_Members in v.permissions
 	room := clicked.room
 	can_move := .Move_Members in v.permissions && room != 0 && proto.room_call(room) == 0
-	if !can_mute && !can_move {
+	can_ban := .Ban_Members in v.permissions
+	if !can_mute && !can_move && !can_ban {
 		return
 	}
 	close :: proc(ctx: ^mu.Context) {
@@ -573,8 +575,26 @@ moderation_items :: proc(ui: ^UI, account: proto.Account_Id, clicked: conn.View_
 			command(ui, conn.Voice_Mute_Command{account = account, on = !muted})
 		}
 	}
-	if !can_move {
-		return
+	if can_move {
+		move_items(ui, account, room)
+	}
+	if can_ban {
+		bans_ask(ui, v) // to know whether they are banned
+	}
+	if can_ban && ban_items(ui, account, MENU_WIDTH) {
+		close(ctx)
+	}
+}
+
+// move_items is the moving part of moderation_items: Move to..., which opens
+// the list of rooms, and Disconnect from voice. Call with the View locked,
+// inside the menu.
+@(private = "file")
+move_items :: proc(ui: ^UI, account: proto.Account_Id, room: proto.Room) {
+	ctx := &ui.ctx
+	v := ui.view
+	close :: proc(ctx: ^mu.Context) {
+		mu.get_current_container(ctx).open = false
 	}
 	if .SUBMIT in stable_button(ctx, "move", "Move to..." if !ui.menu_moving else "Move to:") {
 		ui.menu_moving = !ui.menu_moving

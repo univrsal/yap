@@ -76,6 +76,11 @@ Auth_Client :: struct {
 	devices:     [dynamic]Dir_Device,
 	// A bot's token that is on its way to the server (see bots.odin); owned.
 	bot_token:   string,
+	// The account is banned (moderation.odin), why (owned), and how many
+	// times we have been told so.
+	banned:      bool,
+	ban_reason:  string,
+	ban_count:   int,
 }
 
 Dir_Device :: struct {
@@ -101,6 +106,11 @@ View_Login :: struct {
 	unverified:  bool,
 	verify_code: string,
 	verify_by:   proto.Unix_Ms,
+	// The account we tried is banned: why (owned; "" if no reason was given),
+	// and how many times we were told, so that each time can be shown.
+	banned:      bool,
+	ban_reason:  string,
+	ban_count:   int,
 }
 
 View_Account :: struct {
@@ -189,6 +199,7 @@ auth_destroy :: proc(c: ^Server_Conn) {
 	delete(a.username)
 	delete(a.email)
 	delete(a.verify_code)
+	delete(a.ban_reason)
 	forget_password(a)
 	delete(a.device)
 	a^ = {}
@@ -409,6 +420,7 @@ login_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) 
 		// done its part, and from here on the device's key is enough.
 		log.infof("logged in to %s as %s", c.server_addr, a.username)
 		forget_password(a)
+		a.banned = false
 	case .Reset:
 	// The connection restarted, and auth_restart takes it from there.
 	case .Wrong_Password:
@@ -421,6 +433,10 @@ login_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) 
 	case .Denied:
 		forget_password(a)
 		set_state(c, .Needed, "This account is disabled.")
+	case .Banned:
+		forget_password(a)
+		told_banned(c, proto.decode_banned(body))
+		set_state(c, .Needed, "This account is banned.")
 	case:
 		log.warnf("%s: login failed: %v", c.server_addr, status)
 		forget_password(a)
@@ -549,9 +565,12 @@ auth_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 		shared_end(c)
 		convs_synced(c)
 	case .Logged_Out:
-		reason, _ := proto.decode_logged_out(body)
+		reason, text := proto.decode_logged_out(body)
 		why := "You have been logged out."
 		#partial switch reason {
+		case .Banned:
+			told_banned(c, text)
+			why = "This account is banned."
 		case .Revoked:
 			why = "This device was logged out from another device."
 		case .Password_Changed:
@@ -865,6 +884,7 @@ publish_login :: proc(c: ^Server_Conn) {
 	delete(v.login.username)
 	delete(v.login.email)
 	delete(v.login.verify_code)
+	delete(v.login.ban_reason)
 	v.login = {
 		state       = a.state,
 		error       = strings.clone(a.error),
@@ -873,6 +893,9 @@ publish_login :: proc(c: ^Server_Conn) {
 		unverified  = a.state == .Done && .Unverified in a.flags,
 		verify_code = strings.clone(a.verify_code),
 		verify_by   = a.verify_by,
+		banned      = a.banned,
+		ban_reason  = strings.clone(a.ban_reason),
+		ban_count   = a.ban_count,
 	}
 	if me, ok := a.accounts[a.me]; ok {
 		v.login.username = strings.clone(me.username)
