@@ -586,10 +586,10 @@ connect_screen :: proc(ui: ^UI) {
 	mu.layout_next(ctx)
 	mu.layout_row(ctx, {-1})
 	// With a changed key, trusting the new key is what connects again.
-	if !key_change && .SUBMIT in mu.button(ctx, "Reconnect") {
+	if !key_change && .SUBMIT in button(ctx, "Reconnect") {
 		ui.action = .Reconnect
 	}
-	if .SUBMIT in mu.button(ctx, "Leave this server") {
+	if .SUBMIT in button(ctx, "Leave this server") {
 		ui.action = .Disconnect
 	}
 }

@@ -140,12 +140,12 @@ gate_settings :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {90, -1})
 	}
 	mu.label(ctx, "Open at")
-	if .CHANGE in mu.slider(ctx, &s.gate_open_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
+	if .CHANGE in slider(ctx, &s.gate_open_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_close_db = min(s.gate_close_db, s.gate_open_db)
 		gate_changed(ui)
 	}
 	mu.label(ctx, "Close below")
-	if .CHANGE in mu.slider(ctx, &s.gate_close_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
+	if .CHANGE in slider(ctx, &s.gate_close_db, audio.MIN_LEVEL_DB, 0, 1, "%.0f dB") {
 		s.gate_open_db = max(s.gate_open_db, s.gate_close_db)
 		gate_changed(ui)
 	}

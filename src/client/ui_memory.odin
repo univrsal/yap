@@ -85,7 +85,7 @@ memory_settings :: proc(ui: ^UI) {
 	ui_redraw_at(ui, time.tick_add(m.taken, MEMORY_REFRESH))
 
 	mu.layout_row(ctx, {120, 120, -1})
-	if .SUBMIT in mu.button(ctx, "Give back") {
+	if .SUBMIT in button(ctx, "Give back") {
 		before := memtrack.process()
 		if memtrack.release_free() {
 			after := memtrack.process()
@@ -101,7 +101,7 @@ memory_settings :: proc(ui: ^UI) {
 		}
 		m.taken = {}
 	}
-	if .SUBMIT in mu.button(ctx, "Write to log") {
+	if .SUBMIT in button(ctx, "Write to log") {
 		mem_track := memtrack.log_text(m.report, context.temp_allocator)
 
 		for line in strings.split_lines_iterator(&mem_track) {
@@ -131,7 +131,7 @@ server_memory_settings :: proc(ui: ^UI, v: ^conn.View) {
 		command(ui, conn.Server_Memory_Command{})
 	}
 	mu.layout_row(ctx, {120, -1})
-	if .SUBMIT in mu.button(ctx, "Refresh") {
+	if .SUBMIT in button(ctx, "Refresh") {
 		command(ui, conn.Server_Memory_Command{})
 	}
 	sm := &v.server_memory

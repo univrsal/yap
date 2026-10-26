@@ -2,6 +2,7 @@
 package client
 
 import "core:testing"
+import mu "vendor:microui"
 
 @(test)
 test_nav_step :: proc(t: ^testing.T) {
@@ -72,4 +73,42 @@ test_nav_frame :: proc(t: ^testing.T) {
 	nav_test_frame(ui, {.Tab})
 	nav_test_frame(ui, {.Escape})
 	testing.expect(t, !ui.nav.visible)
+}
+
+@(test)
+test_nav_trap :: proc(t: ^testing.T) {
+	ui := new(UI)
+	defer free(ui)
+	defer ui_nav_destroy(ui)
+	popup := new(mu.Container)
+	defer free(popup)
+
+	// A dropdown (1) opened from the keyboard: its list (10, 11) comes last,
+	// and Tab and Down stay in it.
+	ui.nav.focus, ui.nav.visible = 1, true
+	frame := proc(ui: ^UI, popup: ^mu.Container, open: bool, keys: bit_set[Extra_Key]) {
+		append(&ui.nav.items, Nav_Item{1, {}, nil, -1}, Nav_Item{2, {}, nil, -1})
+		if open {
+			append(&ui.nav.items, Nav_Item{10, {}, popup, -1}, Nav_Item{11, {}, popup, -1})
+			ui.nav.trap = popup
+		}
+		ui.keys = keys
+		nav_frame(ui)
+	}
+	nav_focus_next(ui, 10)
+	frame(ui, popup, true, {})
+	testing.expect_value(t, ui.nav.focus, 10)
+	frame(ui, popup, true, {.Tab})
+	testing.expect_value(t, ui.nav.focus, 11)
+	frame(ui, popup, true, {.Down})
+	testing.expect_value(t, ui.nav.focus, 10)
+	frame(ui, popup, true, {.Up})
+	testing.expect_value(t, ui.nav.focus, 11)
+
+	// Closed: the dropdown has the focus again.
+	frame(ui, popup, false, {})
+	testing.expect_value(t, ui.nav.focus, 1)
+	testing.expect(t, ui.nav.visible)
+	frame(ui, popup, false, {.Tab})
+	testing.expect_value(t, ui.nav.focus, 2)
 }

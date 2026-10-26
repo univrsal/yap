@@ -31,6 +31,18 @@ UI_Nav :: struct {
 	// Enter or Space was pressed on this control in the last frame: it acts
 	// as if clicked in this one.
 	activate: mu.Id,
+	// A popup on top (a dropdown's list): Tab, Up and Down only move among
+	// the controls in it. Set in every frame it is drawn in (nav_trap).
+	trap:     ^mu.Container,
+	// What gets the focus back once the focused control is gone: the
+	// dropdown whose list was opened from the keyboard.
+	return_to: mu.Id,
+}
+
+// nav_trap keeps the keyboard focus inside the current root container (a
+// popup) for this frame.
+nav_trap :: proc(ui: ^UI) {
+	ui.nav.trap = mu.get_current_container(&ui.ctx)
 }
 
 ui_nav_destroy :: proc(ui: ^UI) {
@@ -78,25 +90,48 @@ nav_focused :: proc(ctx: ^mu.Context, id: mu.Id) -> bool {
 nav_frame :: proc(ui: ^UI) {
 	n := &ui.nav
 	ctx := &ui.ctx
-	defer clear(&n.items)
+	trap := n.trap
+	defer {
+		clear(&n.items)
+		n.trap = nil
+	}
 	n.activate = 0
 	if ctx.mouse_pressed_bits != {} {
-		n.focus, n.visible = 0, false
+		n.focus, n.visible, n.return_to = 0, false, 0
 		return
 	}
-	at := nav_index(n.items[:], n.focus)
+	items := n.items[:]
+	if trap != nil {
+		inside := make([dynamic]Nav_Item, 0, len(items), context.temp_allocator)
+		for it in items {
+			if it.root == trap {
+				append(&inside, it)
+			}
+		}
+		items = inside[:]
+	}
+	at := nav_index(items, n.focus)
+	if at < 0 && n.return_to != 0 {
+		// The popup that had the focus closed.
+		n.focus, n.return_to = n.return_to, 0
+		at = nav_index(items, n.focus)
+	}
 	if at < 0 {
 		// The focused control is gone (the page changed, a popup closed).
 		n.focus, n.visible = 0, false
 		// From the text box that was clicked, if there is one.
-		at = nav_index(n.items[:], ctx.focus_id)
+		at = nav_index(items, ctx.focus_id)
 	}
 	forward := key_take(ui, .Tab)
 	back := key_take(ui, .Back_Tab)
+	if trap != nil && n.visible {
+		forward |= key_take(ui, .Down)
+		back |= key_take(ui, .Up)
+	}
 	switch {
-	case (forward || back) && len(n.items) > 0:
-		next := nav_step(len(n.items), at, back)
-		it := n.items[next]
+	case (forward || back) && len(items) > 0:
+		next := nav_step(len(items), at, back)
+		it := items[next]
 		n.focus, n.visible = it.id, true
 		if it.text_len >= 0 {
 			focus_at(ctx, it.id, it.text_len)
@@ -104,14 +139,26 @@ nav_frame :: proc(ui: ^UI) {
 			mu.set_focus(ctx, 0) // out of the text box
 		}
 		ui_redraw(ui)
-	case n.visible && at >= 0 && n.items[at].text_len < 0:
+	case n.visible && at >= 0 && items[at].text_len < 0:
 		if .Activate in ui.keys || .RETURN in ctx.key_pressed_bits {
 			n.activate = n.focus
 			ui_redraw(ui)
 		}
-		if key_take(ui, .Escape) {
+		if trap == nil && key_take(ui, .Escape) {
 			n.focus, n.visible = 0, false
 		}
+	}
+}
+
+// nav_focus_next gives the keyboard focus to the control `id`, drawn
+// later in this frame, if the keyboard focus is shown (a popup opened from
+// the keyboard focuses its first control). Its opener gets it back when it
+// closes.
+nav_focus_next :: proc(ui: ^UI, id: mu.Id) {
+	n := &ui.nav
+	if n.visible {
+		n.return_to = n.focus
+		n.focus = id
 	}
 }
 

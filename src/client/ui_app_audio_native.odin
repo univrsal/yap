@@ -185,7 +185,7 @@ app_audio_menu :: proc(ui: ^UI) {
 
 	mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 	mu.label(ctx, "Volume")
-	if .CHANGE in mu.slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+	if .CHANGE in slider(ctx, &a.volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.app_audio_volume = a.volume / 100
 		ui.settings_dirty = true
 		command_all(ui, conn.app_audio_command(&ui.settings))

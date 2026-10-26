@@ -518,7 +518,7 @@ user_menu :: proc(ui: ^UI) {
 		mu.layout_row(ctx, {60, MENU_WIDTH - 60 - ctx.style.spacing})
 		mu.label(ctx, "Volume")
 		if .CHANGE in
-		   mu.slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+		   slider(ctx, &ui.menu_volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 			u.volume = ui.menu_volume / 100
 			changed = true
 		}

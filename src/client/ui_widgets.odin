@@ -290,6 +290,11 @@ stable_button :: proc(
 	return
 }
 
+// button is mu.button with a label, as a stable_button: Tab stops at it.
+button :: proc(ctx: ^mu.Context, label: string, opt: mu.Options = {.ALIGN_CENTER}) -> mu.Result_Set {
+	return stable_button(ctx, label, label, opt)
+}
+
 // list_row is a line of a list to pick from (such as a settings tab's
 // categories or the channels), shown as text. It is boxed and bold while it is
 // the selected one and highlighted under the mouse. Clicking it with the left
@@ -710,8 +715,42 @@ release_slider :: proc(
 	released: bool,
 ) {
 	was_dragging := slider_dragged(ctx, value)
-	mu.slider(ctx, value, low, high, step, format)
-	return was_dragging && !slider_dragged(ctx, value)
+	res := slider(ctx, value, low, high, step, format)
+	// A step with the arrow keys is let go at once.
+	return (was_dragging || .CHANGE in res) && !slider_dragged(ctx, value)
+}
+
+// slider is mu.slider, which Tab also stops at. While it has the keyboard
+// focus, Left and Right move it by `step` (by a hundredth without one).
+slider :: proc(
+	ctx: ^mu.Context,
+	value: ^f32,
+	low, high: f32,
+	step: f32 = 0,
+	format := mu.SLIDER_FMT,
+) -> (
+	res: mu.Result_Set,
+) {
+	res = mu.slider(ctx, value, low, high, step, format)
+	id := mu.get_id(ctx, uintptr(value))
+	nav_control(ctx, id, ctx.last_rect)
+	if !nav_focused(ctx, id) {
+		return
+	}
+	by := step if step != 0 else (high - low) / 100
+	v := value^
+	if .LEFT in ctx.key_pressed_bits {
+		v -= by
+	}
+	if .RIGHT in ctx.key_pressed_bits {
+		v += by
+	}
+	v = clamp(v, low, high)
+	if v != value^ {
+		value^ = v
+		res += {.CHANGE}
+	}
+	return
 }
 
 // slider_dragged says whether the slider of `value` is being dragged.

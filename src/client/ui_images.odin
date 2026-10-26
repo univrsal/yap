@@ -765,7 +765,7 @@ image_viewer :: proc(ui: ^UI, window_w, window_h: i32) {
 	}
 
 	mu.layout_row(ctx, {90, -1})
-	if .SUBMIT in mu.button(ctx, "Fit") {
+	if .SUBMIT in button(ctx, "Fit") {
 		im.zoom, im.pan = 1, {}
 	}
 	shown_percent := 100 * f32(rect.w) / f32(max(im.shown.width, 1))

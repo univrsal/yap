@@ -738,7 +738,7 @@ account_password :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) 
 	}
 	field_row(ui, FORM_LABEL, "New password", {FORM_FIELD, 60, 70})
 	submitted := .SUBMIT in password_box(ui, a.set_pass.buf[:], &a.set_pass.len)
-	if (.SUBMIT in mu.button(ctx, "Set") || submitted) && a.set_pass.len > 0 {
+	if (.SUBMIT in button(ctx, "Set") || submitted) && a.set_pass.len > 0 {
 		a.mistake = ""
 		command(
 			ui,
@@ -750,7 +750,7 @@ account_password :: proc(ui: ^UI, id: proto.Account_Id, acc: conn.View_Account) 
 		wipe(a.set_pass.buf[:], &a.set_pass.len)
 		a.set_account = 0
 	}
-	if .SUBMIT in mu.button(ctx, "Cancel") {
+	if .SUBMIT in button(ctx, "Cancel") {
 		wipe(a.set_pass.buf[:], &a.set_pass.len)
 		a.set_account = 0
 	}
@@ -781,9 +781,9 @@ account_create :: proc(ui: ^UI, v: ^conn.View) {
 	field_row(ui, FORM_LABEL, "Initial password", {FORM_FIELD})
 	submit |= .SUBMIT in password_box(ui, a.add_pass.buf[:], &a.add_pass.len)
 	field_row(ui, FORM_LABEL, "", {140, 140, -1})
-	submit |= .SUBMIT in mu.button(ctx, "Create account")
+	submit |= .SUBMIT in button(ctx, "Create account")
 	// A bot takes no password. It gets a token (see ui_bots.odin).
-	bot := .SUBMIT in mu.button(ctx, "Create bot")
+	bot := .SUBMIT in button(ctx, "Create bot")
 	notice_label(ui, v)
 	if bot && a.add_user.len > 0 {
 		a.mistake = ""

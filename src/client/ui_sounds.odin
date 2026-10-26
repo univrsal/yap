@@ -217,7 +217,7 @@ sound_settings :: proc(ui: ^UI) {
 
 	volume := settings.notification_gain(&ui.settings) * 100
 	field_row(ui, 150, "Volume", {-1})
-	if .CHANGE in mu.slider(ctx, &volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
+	if .CHANGE in slider(ctx, &volume, 0, settings.MAX_USER_VOLUME * 100, 5, "%.0f%%") {
 		ui.settings.notification_volume = volume / 100
 		ui.settings_dirty = true
 		command_all(ui, conn.Notification_Volume_Command{ui.settings.notification_volume})

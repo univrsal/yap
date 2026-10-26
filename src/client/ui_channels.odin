@@ -122,7 +122,7 @@ channel_list :: proc(ui: ^UI) {
 		{area.x + pad, area.y + area.h - button_h - pad, area.w - 2 * pad, button_h},
 		false,
 	)
-	if .SUBMIT in mu.button(ctx, "Join a channel...") {
+	if .SUBMIT in button(ctx, "Join a channel...") {
 		open_channels(ui)
 	}
 

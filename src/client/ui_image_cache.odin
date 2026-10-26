@@ -35,14 +35,14 @@ image_cache_settings :: proc(ui: ^UI) {
 	bytes, count := conn.image_cache_usage(&ui.image_cache)
 	field_row(ui, 120, "In use", {-90, -1})
 	mu.label(ctx, fmt.tprintf("%s in %d pictures", conn.format_bytes(u64(bytes)), count))
-	if .SUBMIT in mu.button(ctx, "Clear") {
+	if .SUBMIT in button(ctx, "Clear") {
 		conn.image_cache_clear(&ui.image_cache)
 	}
 
 	mu.layout_row(ctx, {120, -1})
 	mu.label(ctx, "Maximum size")
 	if .CHANGE in
-	   mu.slider(ctx, &ui.settings.image_cache_mb, 0, settings.MAX_IMAGE_CACHE_MB, 16, "%.0f MB") {
+	   slider(ctx, &ui.settings.image_cache_mb, 0, settings.MAX_IMAGE_CACHE_MB, 16, "%.0f MB") {
 		// Sliders change every frame while dragged. The settings are saved within a second.
 		ui.settings_dirty = true
 		conn.image_cache_set_max(&ui.image_cache, settings.image_cache_bytes(&ui.settings))
@@ -65,7 +65,7 @@ folder_settings :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	field_row(ui, 120, "Folder", {-90, -1})
 	submit := .SUBMIT in text_box(ui, ui.image_cache_dir.buf[:], &ui.image_cache_dir.len)
-	submit |= .SUBMIT in mu.button(ctx, "Apply")
+	submit |= .SUBMIT in button(ctx, "Apply")
 	if submit {
 		dir := field_text(&ui.image_cache_dir)
 		if dir != ui.settings.image_cache_dir {

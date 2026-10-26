@@ -196,7 +196,7 @@ join_page :: proc(ui: ^UI) {
 		defer card_end(ui, &j.card_h)
 		card_heading(ui, fmt.tprintf("Connecting to %s...", v.server))
 		mu.layout_row(ctx, {-1})
-		if .SUBMIT in mu.button(ctx, "Cancel") {
+		if .SUBMIT in button(ctx, "Cancel") {
 			j.close = true
 		}
 	case v.login.state != .Done:
@@ -228,7 +228,7 @@ join_card :: proc(ui: ^UI, v: ^conn.View) {
 	mu.label(ctx, "Password")
 	submit |= .SUBMIT in password_box(ui, j.password.buf[:], &j.password.len)
 	mu.label(ctx, "")
-	submit |= .SUBMIT in mu.button(ctx, "Connect")
+	submit |= .SUBMIT in button(ctx, "Connect")
 	if submit && strings.trim_space(field_text(&j.server)) != "" {
 		j.connect = true
 	}
