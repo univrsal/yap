@@ -197,8 +197,9 @@ buddies_screen :: proc(ui: ^UI) {
 		voice_panel(ui)
 	case narrow:
 		mu.layout_row(ctx, {-1}, -(panel_h + 1))
-		content_surface(ui)
+		surface := content_surface(ui)
 		conversation_or_screen(ui, entry, found, narrow)
+		conversation_lines(ui, surface, false)
 		voice_panel(ui)
 	case:
 		mu.layout_row(ctx, {280, -1}, -1)
@@ -207,8 +208,9 @@ buddies_screen :: proc(ui: ^UI) {
 		buddy_list_panel(ui, list)
 		voice_panel(ui)
 		mu.layout_end_column(ctx)
-		content_surface(ui)
+		surface := content_surface(ui)
 		conversation_or_screen(ui, entry, found, narrow)
+		conversation_lines(ui, surface, false)
 	}
 	user_menu(ui)
 	message_menu(ui)
@@ -418,6 +420,9 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	for &w in widths[1:] {
 		w = icon_button_w(ctx)
 	}
+	header_pad(ui)
+	layout := mu.get_layout(ctx)
+	layout.indent += CONV_HEADER_PAD
 	if back {
 		row := make([]i32, len(widths) + 1, context.temp_allocator)
 		row[0] = 40
@@ -499,6 +504,8 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		log.debug("ui: hid a conversation")
 		return
 	}
+	layout.indent -= CONV_HEADER_PAD
+	header_line_below(ui)
 	if deleted {
 		mu.layout_row(ctx, {-1})
 		// What is there can be read, but nothing more can be said (the server

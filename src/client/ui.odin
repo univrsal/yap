@@ -320,6 +320,9 @@ UI :: struct {
 	// title row) is in this frame, or 0 where there is none. Above it the
 	// window can be dragged (see mouse_button_callback).
 	title_line:          i32,
+	// Where the lighter line under a conversation's header is in this frame
+	// (header_line_below), or 0 where there is none.
+	conv_line:           i32,
 	// Where this frame's text boxes are, and whether one has the focus,
 	// for a phone's keyboard in a web build (see ui_text_box.odin).
 	text_boxes:          [dynamic]Text_Box,
@@ -458,7 +461,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	if mu.begin_window(ctx, "yap", {rail, 0, w - rail, h}, opts) {
 		mu.draw_rect(ctx, mu.get_current_container(ctx).rect, theme.sidebar)
 		titlebar_buttons(ui, w)
-		ui.title_line = 0
+		ui.title_line, ui.conv_line = 0, 0
 		main_window(ui)
 		// Under the title row, from the rail to the window's right edge.
 		if ui.title_line > 0 {
@@ -494,9 +497,9 @@ layout :: proc(ui: ^UI, w, h: i32) {
 // content_surface paints the content's surface (theme.content) under the next
 // layout cell: a conversation, a settings page, beside the sidebars. It reaches
 // halfway into the gaps to the cells around it, and to the window's edges where
-// the cell is next to one. With `divider`, a line runs down its right-hand edge
-// (before the members pinned down the side).
-content_surface :: proc(ui: ^UI, divider := false) {
+// the cell is next to one. It returns the area it painted, for the lines drawn
+// along it once the cell has been laid out (conversation_lines).
+content_surface :: proc(ui: ^UI) -> mu.Rect {
 	ctx := &ui.ctx
 	cell := mu.layout_next(ctx)
 	mu.layout_set_next(ctx, cell, false)
@@ -509,9 +512,59 @@ content_surface :: proc(ui: ^UI, divider := false) {
 	right = win.x + win.w if win.x + win.w - right <= near else right + half
 	bottom := cell.y + cell.h
 	bottom = win.y + win.h if win.y + win.h - bottom <= near else bottom + half
-	mu.draw_rect(ctx, {left, top, right - left, bottom - top}, theme.content)
+	r := mu.Rect{left, top, right - left, bottom - top}
+	mu.draw_rect(ctx, r, theme.content)
+	return r
+}
+
+// How much room a conversation's header has above and below its row, and in
+// from the left. The search box beside it has the same (search_box).
+CONV_HEADER_PAD :: 6
+
+// header_pad is the room above or below a conversation's header: an empty row.
+header_pad :: proc(ui: ^UI) {
+	mu.layout_row(&ui.ctx, {-1}, CONV_HEADER_PAD)
+	mu.layout_next(&ui.ctx)
+}
+
+// header_line_below ends a conversation's header with the room below it, and
+// notes that it has a lighter line under that (conversation_lines), halfway
+// into the gap to what follows.
+header_line_below :: proc(ui: ^UI) {
+	header_pad(ui)
+	layout := mu.get_layout(&ui.ctx)
+	ui.conv_line = layout.body.y + layout.next_row - ui.ctx.style.spacing / 2
+}
+
+// header_surface carries a conversation's surface `r` (content_surface) on
+// across the members pinned down the side, along its header, where the search
+// box is (search_box). Call after the conversation, before the members.
+header_surface :: proc(ui: ^UI, r: mu.Rect) {
+	if ui.conv_line <= r.y {
+		return
+	}
+	ctx := &ui.ctx
+	win := mu.get_current_container(ctx).rect
+	x := r.x + r.w
+	mu.draw_rect(ctx, {x, r.y, win.x + win.w - x, ui.conv_line - r.y}, theme.content)
+}
+
+// conversation_lines draws the lines along a conversation's surface `r`
+// (content_surface): the lighter one under its header, from the surface's left
+// edge to the window's right one (across the members' column), and with
+// `divider`, the one down its right-hand edge between it and the members, from
+// there to the bottom.
+conversation_lines :: proc(ui: ^UI, r: mu.Rect, divider: bool) {
+	ctx := &ui.ctx
+	win := mu.get_current_container(ctx).rect
+	top := r.y
+	if ui.conv_line > 0 {
+		top = ui.conv_line
+		mu.draw_rect(ctx, {r.x, top, win.x + win.w - r.x, 1}, theme.divider_soft)
+		top += 1
+	}
 	if divider {
-		mu.draw_rect(ctx, {right, top, 1, bottom - top}, theme.divider)
+		mu.draw_rect(ctx, {r.x + r.w, top, 1, r.y + r.h - top}, theme.divider)
 	}
 }
 
@@ -688,8 +741,9 @@ session_screen :: proc(ui: ^UI) {
 		if ui.channels.show_list {
 			channel_list(ui)
 		} else {
-			content_surface(ui)
+			surface := content_surface(ui)
 			side_panel(ui, narrow)
+			conversation_lines(ui, surface, false)
 		}
 		voice_panel(ui)
 	} else {
@@ -705,11 +759,13 @@ session_screen :: proc(ui: ^UI) {
 			mu.layout_row(ctx, {280, -1}, -1)
 		}
 		channel_list(ui)
-		content_surface(ui, divider = ui.profiles.members_pinned)
+		surface := content_surface(ui)
 		side_panel(ui, narrow)
 		if ui.profiles.members_pinned {
+			header_surface(ui, surface)
 			members_panel(ui)
 		}
+		conversation_lines(ui, surface, ui.profiles.members_pinned)
 	}
 	user_menu(ui)
 	channel_menu(ui)

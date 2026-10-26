@@ -200,15 +200,24 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	v := ui.view
 	ch := viewed_channel(v)
 
-	// The members' button is not there while they are pinned down the side.
+	// The members' button is not there while they are pinned down the side,
+	// and neither is the search's, which is a box above them then
+	// (search_box). The voice room's button is only there where we may talk,
+	// left of the others so they stay put.
 	pinned := ui.profiles.members_pinned && !narrow
-	buttons: i32 = 3 if pinned else 4
+	in_it := ch != nil && v.my_room == ch.id
+	voice := ch != nil && (.Voice in ch.rights || in_it)
+	buttons: i32 = 1 + (0 if pinned else 2) + (1 if voice else 0)
 	right := buttons * icon_button_w(ctx) + buttons * ctx.style.spacing + 1
 	widths := make([dynamic]i32, context.temp_allocator)
 	if narrow {
 		append(&widths, 40)
 	}
 	append(&widths, -right)
+	header_pad(ui)
+	layout := mu.get_layout(ctx)
+	layout.indent += CONV_HEADER_PAD
+	defer layout.indent -= CONV_HEADER_PAD
 	for _ in 0 ..< buttons {
 		append(&widths, icon_button_w(ctx))
 	}
@@ -222,6 +231,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 		}
 		return
 	}
+	defer header_line_below(ui)
 
 	// The name and the topic (not in a narrow window, where the list is a
 	// button away), and what is going on.
@@ -235,15 +245,20 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	if !pinned {
 		members_button(ui)
 	}
-	pins_button(ui)
-	search_button(ui)
-
-	in_it := v.my_room == ch.id
-	// No voice room here for us: text only, or not ours to talk in.
-	if .Voice not_in ch.rights && !in_it {
-		mu.label(ctx, "")
-		return
+	if voice {
+		voice_button(ui, ch^, in_it)
 	}
+	pins_button(ui)
+	if !pinned {
+		search_button(ui)
+	}
+}
+
+// voice_button joins the channel's voice room, or leaves it while we are
+// `in_it`. Call with the View locked.
+@(private = "file")
+voice_button :: proc(ui: ^UI, ch: conn.View_Channel, in_it: bool) {
+	v := ui.view
 	hint: string
 	color := mu.Color{}
 	switch {
@@ -263,7 +278,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 			log.debugf("ui: leave voice of %q", ch.name)
 			command(ui, conn.Voice_Command{})
 		} else {
-			join_voice(ui, ch^)
+			join_voice(ui, ch)
 		}
 	}
 }

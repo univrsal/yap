@@ -409,6 +409,8 @@ members_panel :: proc(ui: ^UI) {
 	members_ask(ui)
 	mu.layout_begin_column(ctx)
 	defer mu.layout_end_column(ctx)
+	// Level with the conversation's header, and as tall.
+	search_box(ui)
 	mu.layout_row(ctx, {-1}, -1)
 	mu.begin_panel(ctx, "members pinned", {.NO_FRAME})
 	defer mu.end_panel(ctx)

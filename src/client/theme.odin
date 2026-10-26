@@ -85,6 +85,7 @@ Palette :: struct {
 	track:          mu.Color,
 	image_bg:       mu.Color,
 	divider:        mu.Color,
+	divider_soft:   mu.Color, // a lighter one, under a conversation's header
 	deleted_disc:   mu.Color,
 	dot_ring:       mu.Color,
 	// What is ready to be done (the composer's send button once there is a
@@ -159,6 +160,7 @@ DARK_PALETTE :: Palette {
 	track = {60, 60, 60, 255},
 	image_bg = {50, 50, 50, 255},
 	divider = {70, 70, 70, 255},
+	divider_soft = {60, 60, 60, 255},
 	deleted_disc = {90, 90, 90, 255},
 	dot_ring = {32, 32, 32, 255},
 	accent = {60, 110, 200, 255},
@@ -231,6 +233,7 @@ LIGHT_PALETTE :: Palette {
 	track = {210, 210, 210, 255},
 	image_bg = {220, 220, 220, 255},
 	divider = {200, 200, 200, 255},
+	divider_soft = {228, 228, 228, 255},
 	deleted_disc = {165, 165, 165, 255},
 	dot_ring = {246, 246, 246, 255},
 	accent = {45, 100, 200, 255},

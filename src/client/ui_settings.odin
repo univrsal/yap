@@ -117,7 +117,7 @@ settings_page :: proc(ui: ^UI) {
 			mu.label(ctx, CLIENT_CATEGORY_NAMES[ui.settings_client])
 		}
 		mu.layout_row(ctx, {-1}, -1)
-		content_surface(ui)
+		_ = content_surface(ui)
 		settings_body(ui)
 		return
 	}
@@ -153,7 +153,7 @@ settings_page :: proc(ui: ^UI) {
 	mu.layout_row(ctx, {-1}, -1)
 	category_list(ui, server_categories)
 	mu.layout_end_column(ctx)
-	content_surface(ui)
+	_ = content_surface(ui)
 	settings_body(ui)
 }
 
