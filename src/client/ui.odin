@@ -454,6 +454,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	chip_preview_popup(ui, w, h)
 	icon_hint(ui, w, h)
 	drop_hint(ui)
+	voice_drag_frame(ui)
 }
 
 // rail_divider_gap hides the line between the rail and the main window

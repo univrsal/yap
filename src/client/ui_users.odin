@@ -131,7 +131,6 @@ app_audio_mark :: proc(ctx: ^mu.Context, row: mu.Rect, slot: i32, heard: bool) {
 	)
 }
 
-@(private = "file")
 inside :: proc(r: mu.Rect, p: mu.Vec2) -> bool {
 	return p.x >= r.x && p.x < r.x + r.w && p.y >= r.y && p.y < r.y + r.h
 }
@@ -272,6 +271,12 @@ member_row :: proc(ui: ^UI, id: proto.User_Num) {
 		   inside(camera_r, ctx.mouse_pos) &&
 		   video_docked(ui) {
 			ui.chat.tab = .Video
+			return
+		}
+		// A moderator's left press may become a drag to another room, and the
+		// menu then opens on the release (ui_voice_drag.odin).
+		if ctx.mouse_pressed_bits == {.LEFT} && can_drag(ui, user) {
+			voice_drag_begin(ui, id, user)
 			return
 		}
 		open_user_menu(ui, id, user.account)

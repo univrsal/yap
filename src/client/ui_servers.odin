@@ -53,6 +53,7 @@ Server_UI :: struct {
 	menu_volume:    mu.Real,
 	menu_requested: bool,
 	menu_moving:    bool, // its list of rooms to move them to is open
+	voice_drag:     Voice_Drag, // someone being dragged to another room (ui_voice_drag.odin)
 	// The buddy screen (ui_buddies.odin).
 	buddies:        UI_Buddies,
 	// The thread windows (ui_threads.odin) by slot, and how many threads
@@ -407,8 +408,8 @@ RAIL_WINDOW :: "rail"
 RAIL_MENU :: "server menu"
 @(private = "file")
 RAIL_MENU_WIDTH :: 220
-// How far an icon moves with the pointer before it counts as being dragged.
-@(private = "file")
+// How far an icon (or a person, ui_voice_drag.odin) moves with the pointer
+// before it counts as being dragged.
 DRAG_START :: 6
 
 // rail_width is how much of the window's left side the rail takes.

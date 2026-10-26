@@ -17,7 +17,7 @@ Branch `moderation-plan`, off master (10f7192). Sizes as in [next.md](next.md).
 | 1 | Wire and database: permissions, Server_Muted, requests, bans table | M | done |
 | 2 | Server: move, disconnect, mute | M | done |
 | 3 | Client: menu items, mute shown, notices | M | done |
-| 4 | Client: dragging people between rooms | M | |
+| 4 | Client: dragging people between rooms | M | done |
 | 5 | Bans on the server, and in the client | L | |
 | 6 | Purging one author's messages | M | |
 | 7 | CLI client, server CLI, bot API, docs | S | |
@@ -392,6 +392,37 @@ screen-mark/camera-mark clicks working, which check the press.
 Check off-screen (headless weston + xdotool, see the testing notes):
 drag to another room, to a text-only channel (nothing), cancel, a plain
 click still opens the menu, right-click too.
+
+*As built:* `ui_voice_drag.odin`. `Voice_Drag` is on `Server_UI` (next to
+the menu's state, so each server keeps its own): the connection pressed
+on, its account and room, where the press was, whether it became a drag,
+and the channel under the pointer this frame.
+
+- `member_row` starts it on a left press when `can_drag`: we have
+  Move_Members, no touch screen has been used (`ui.touched`), they are
+  in a channel's room (not a call), and they aren't the owner or a bot
+  (as in the menu). The screen and camera marks are checked first, on
+  the press, as before. Anyone else, and a right press, still get the
+  menu on the press.
+- `channel_rows` passes each channel's block (its row and the rows of
+  the people in its room) to `voice_drag_target`, which outlines it in
+  the links' colour, as a file drop is, when the pointer is on it, it is
+  on screen in the list, it isn't their room and we have Voice there.
+  A text-only channel has no Voice, so it is never marked.
+- `voice_drag_frame`, last in `layout`, starts the drag at DRAG_START
+  (the rail's, now shared), draws the name in a small window just off
+  the pointer (so the window doesn't take the hover), and on the release
+  sends Voice_Move_Command to the marked channel, or opens the menu if it
+  never became a drag. Escape, the person leaving or being moved by
+  someone else meanwhile cancels it.
+
+Checked off-screen as the owner: bot2 dragged from Lobby to games
+(outlined while held, moved on release), onto the text-only `secret`
+(not outlined, nothing sent), Escape while held over Lobby (outline and
+name gone, nothing sent on release), a plain left click and a right
+click both open the menu. The screen/camera marks weren't clicked (the
+headless client can't share); their code is unchanged and runs before
+the drag check.
 
 ## 5. Bans
 
