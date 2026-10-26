@@ -12,8 +12,8 @@ Sizes as in [next.md](next.md).
 
 | # | Change | Size | Status |
 | --- | --- | --- | --- |
-| 1 | Keys: Shift+Tab, Space, the palette's key | S | |
-| 2 | The focus ring: `UI_Nav`, `nav_control`, the shared widgets | M | |
+| 1 | Keys: Shift+Tab, Space, the palette's key | S | done |
+| 2 | The focus ring: `UI_Nav`, `nav_control`, the shared widgets | M | done |
 | 3 | Tab inside popups, scrolling into view, keys taken by others | M | |
 | 4 | The palette with static commands | M | |
 | 5 | Dynamic entries (channels, servers, buddies) and recent first | M | |
