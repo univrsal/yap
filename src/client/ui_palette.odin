@@ -220,8 +220,13 @@ palette_window :: proc(ui: ^UI, w, h: i32) {
 	}
 	p.selected = clamp(p.selected, 0, max(len(matches) - 1, 0))
 	run := -1
-	if .SUBMIT in res && len(matches) > 0 {
-		run = p.selected
+	if .SUBMIT in res {
+		if len(matches) > 0 {
+			run = p.selected
+		} else {
+			// Nothing to run: keep typing (microui's box lets go on Enter).
+			focus_at(ctx, box, p.query.len)
+		}
 	}
 
 	if len(matches) == 0 {
