@@ -141,6 +141,10 @@ View :: struct {
 	// The name (owned) of the channel whose voice room we are in, while a
 	// moderator has us there and it isn't one of ours (moderation.odin), else "".
 	guest_name:          string,
+	// Whether we may be heard, and turn on our camera or share our screen, in
+	// the voice room we are in (room_right).
+	may_speak:           bool,
+	may_video:           bool,
 	// The channels that were available to subscribe to the last time they were
 	// requested, how far into the list they start, and how many times they
 	// have arrived.
@@ -700,6 +704,7 @@ publish_channels :: proc(c: ^Server_Conn) {
 	v.viewing = c.convs.viewing
 	v.channel = c.convs.channel
 	v.my_room = proto.Conv_Id(my_room(c))
+	v.may_speak, v.may_video = room_right(c, .Speak), room_right(c, .Video)
 	v.voice_pending = c.convs.voice_pending
 	if c.convs.guest_room != 0 && proto.Room(v.my_room) == c.convs.guest_room {
 		v.guest_name = strings.clone(c.convs.guest_name)

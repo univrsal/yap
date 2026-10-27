@@ -18,6 +18,7 @@ UI_App_Audio :: struct {
 app_audio_init :: proc(ui: ^UI) {}
 app_audio_destroy :: proc(ui: ^UI) {}
 app_audio_available :: proc(ui: ^UI) -> bool {return false}
+app_audio_on :: proc(ui: ^UI) -> bool {return false}
 
 // app_audio_setting is whether the settings show how shared audio is sent.
 app_audio_setting :: proc(ui: ^UI) -> bool {

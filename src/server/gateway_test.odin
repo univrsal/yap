@@ -771,7 +771,7 @@ test_gateway_reading :: proc(t: ^testing.T) {
 		testing.expect_value(t, convs[0].kind, "channel")
 		testing.expect_value(t, convs[0].last_message_id, fmt.tprint(third))
 		testing.expect_value(t, convs[0].unread, 3)
-		testing.expect_value(t, len(convs[0].rights), 7)
+		testing.expect_value(t, len(convs[0].rights), 9)
 		testing.expect_value(t, convs[1].kind, "dm")
 		// No voice in a DM.
 		testing.expect_value(t, len(convs[1].rights), 6)

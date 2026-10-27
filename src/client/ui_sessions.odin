@@ -396,6 +396,15 @@ session_capture_update :: proc(ui: ^UI) {
 	if ui.voice_at == nil {
 		video.share_stop()
 		app_audio_stop(ui)
+	} else {
+		// Nor where we may not show it, or not be heard.
+		speak, video_ok := room_rights(ui.voice_at)
+		if !video_ok && video.share_state() != .Off {
+			video.share_stop()
+		}
+		if !speak {
+			app_audio_stop(ui)
+		}
 	}
 	// The camera, likewise, and when we move elsewhere (ui_camera.odin).
 	camera_follow(ui)

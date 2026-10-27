@@ -25,6 +25,7 @@ Branch `channel-access-plan`, off master (9c7e86a). Sizes as in `docs/design/nex
 | 6 | Role changes re-check every channel | S | done |
 | 7 | CLI client and bot API | S | done |
 | 8 | Attaching files as a right | S | done |
+| 9 | Speaking and video as rights | S | done |
 
 ## Where things are today
 
@@ -446,6 +447,42 @@ paste, drop, web), with the notice "You can't attach files here." The
 grid has an Attach column after Write. CLI and API take and show
 `attach`. Tests: proto `test_conv_rights`, server
 `test_conv_rights_attach`, the gateway test's counts.
+
+## 9. Speaking and video as rights
+
+Asked for on 2026-10-27, on branch `speak-right` off master: joining a
+voice room (listening) and being heard there are separate rights, and so
+is video (camera and screen sharing, one right for both). Older clients
+and servers didn't need to be kept working (nothing is deployed). Someone
+a moderator moves to a room may speak there whatever their rights, but
+gets no video from being moved.
+
+*As built:* `Conv_Right.Speak` (bit 7) and `Video` (bit 8), so
+`Conv_Rights` is a `bit_set[Conv_Right; u16]` and every rights field on
+the wire (`Conv_Changed`'s trailing rights, both rights maps) is a u16.
+Both need Voice (`conv_rights_settle`), so a text-only channel and a DM
+have neither. Schema 31 gives both to every role that has Voice in a
+channel. Server: `room_right(s, conn, right)` (conv_requests.odin) is the
+one check, true for both in a call's room and for Speak in the
+connection's `guest_room`. `relay_voice` drops the voice of someone
+without Speak; `camera_allowed` and `sound_set` refuse Camera and Sharing
+without Video; `conn_set_room` turns both off when moving to a room
+without Video, and `room_check` (run on every rights or role change) when
+Video is lost while staying in the room. Client: `conn.room_right` is the
+same check (a channel that isn't ours is left to the server, except as a
+guest), published as `View.may_speak` / `may_video`. Capture isn't sent
+without Speak (like a server mute), the voice panel says "Listening only"
+and the mic button and our own icon in the room show it in the warning
+colour. The camera and share buttons aren't offered without Video (but
+stay to stop what is on), and `camera_follow` / `session_capture_update`
+stop the camera and the shared screen when Video goes. Shared
+application audio is mixed into our voice, so it goes with Speak: no
+music button without it, and a share stops when Speak goes. The grid has Speak
+and Video columns after Voice, left out with it for a text-only channel.
+CLI and API take and show `speak` and `video`. Others in the room can't
+see that someone may only listen, since clients don't get each other's
+rights. Tests: proto `test_conv_record` and `test_conv_rights`, server
+`test_conv_rights_speak_video`, the gateway test's counts.
 
 ## Decisions
 

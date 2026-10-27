@@ -93,6 +93,15 @@ in_voice :: proc(ns: ^Net_Session) -> bool {
 	return v.my_room != 0 || v.voice_pending || v.call.status != .None
 }
 
+// room_rights says whether we may be heard (which shared application audio is
+// part of), and turn on our camera or share our screen, in the voice room we
+// are in on a server.
+room_rights :: proc(ns: ^Net_Session) -> (speak, video: bool) {
+	v := &ns.view
+	sync.guard(&v.mutex)
+	return v.may_speak, v.may_video
+}
+
 // sound_session is the session that sounds go with when we do something
 // (mute, deafen): the session in voice or, if none is, the one shown. It is as
 // of this frame, so it takes no View's lock.

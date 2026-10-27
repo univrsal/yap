@@ -412,9 +412,24 @@ RIGHT_LABELS := [proto.Conv_Right]string {
 	.Edit   = "Edit",
 	.Delete = "Delete",
 	.Voice  = "Voice",
+	.Speak  = "Speak",
+	.Video  = "Video",
 }
 @(private = "file")
-RIGHT_ORDER := [?]proto.Conv_Right{.See, .Write, .Attach, .React, .Edit, .Delete, .Voice}
+RIGHT_ORDER := [?]proto.Conv_Right {
+	.See,
+	.Write,
+	.Attach,
+	.React,
+	.Edit,
+	.Delete,
+	.Voice,
+	.Speak,
+	.Video,
+}
+// The rights that a text-only channel has no room for.
+@(private = "file")
+VOICE_RIGHTS :: proto.Conv_Rights{.Voice, .Speak, .Video}
 @(private = "file")
 RIGHT_COLUMN :: 58
 @(private = "file")
@@ -423,9 +438,10 @@ ROLE_COLUMN_MIN :: 110
 // channel_rights is the channel's rights map: what each role may do there, as
 // a grid of a row per role (everyone last) and a box per right, with its own
 // Save. A box whose right needs another that its row lacks (Edit, Delete and
-// Attach need Write, everything needs See) is dimmer; it still counts, since the
-// account may have the other right through another role. The Voice column is
-// left out for a text-only channel, and everyone always sees the home channel.
+// Attach need Write, Speak and Video need Voice, everything needs See) is
+// dimmer; it still counts, since the account may have the other right through
+// another role. The voice columns are left out for a text-only channel, and
+// everyone always sees the home channel.
 @(private = "file")
 channel_rights :: proc(ui: ^UI, ch: conn.Browse_Entry, text_only: bool) {
 	ctx := &ui.ctx
@@ -449,7 +465,7 @@ channel_rights :: proc(ui: ^UI, ch: conn.Browse_Entry, text_only: bool) {
 
 	shown := make([dynamic]proto.Conv_Right, 0, len(proto.Conv_Right), context.temp_allocator)
 	for r in RIGHT_ORDER {
-		if r != .Voice || !text_only {
+		if r not_in VOICE_RIGHTS || !text_only {
 			append(&shown, r)
 		}
 	}
@@ -491,6 +507,7 @@ channel_rights :: proc(ui: ^UI, ch: conn.Browse_Entry, text_only: bool) {
 			}
 			needs := !row[proto.Conv_Right.See] && r != .See
 			needs |= (r == .Edit || r == .Delete || r == .Attach) && !row[proto.Conv_Right.Write]
+			needs |= (r == .Speak || r == .Video) && !row[proto.Conv_Right.Voice]
 			fixed := home && role == proto.EVERYONE_ROLE && r == .See
 			saved := ctx.style.colors[.TEXT]
 			if needs || fixed {

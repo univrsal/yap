@@ -235,6 +235,23 @@ in_room :: proc(c: ^Server_Conn) -> bool {
 	return my_room(c) != 0 && !c.convs.voice_pending
 }
 
+// room_right says whether we may use `right` (Speak or Video) in the voice
+// room we are in, as the server's room_right does: both of a call may do both,
+// and where a moderator moved us we may speak. In a channel that isn't one of
+// ours, video is left to the server to judge, except as such a guest.
+room_right :: proc(c: ^Server_Conn, right: proto.Conv_Right) -> bool {
+	room := my_room(c)
+	guest := room == c.convs.guest_room
+	switch {
+	case room == 0:
+		return false
+	case proto.room_call(room) != 0 || (right == .Speak && guest):
+		return true
+	}
+	info, ok := c.convs.convs[proto.Conv_Id(room)]
+	return right in info.rights if ok else !guest
+}
+
 send_state_ack :: proc(c: ^Server_Conn, version: u32) {
 	buf: [proto.STATE_ACK_SIZE]byte
 	send_data(c, proto.encode_state_ack(&buf, version))

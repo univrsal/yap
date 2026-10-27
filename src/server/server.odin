@@ -813,6 +813,10 @@ sound_set :: proc(s: ^Server, u: ^Conn, flags: proto.User_Flags) {
 	if .Camera in flags && .Camera not_in u.flags && !camera_allowed(s, u) {
 		flags -= {.Camera}
 	}
+	// Sharing outside a room is up to the room it goes to (conn_set_room).
+	if .Sharing in flags && .Sharing not_in u.flags && u.room != 0 && !room_right(s, u, .Video) {
+		flags -= {.Sharing}
+	}
 	if flags != u.flags {
 		u.flags = flags
 		log.debugf("%s sound state %v", conn_label(u), flags)
@@ -821,8 +825,8 @@ sound_set :: proc(s: ^Server, u: ^Conn, flags: proto.User_Flags) {
 }
 
 // camera_allowed tells whether a connection may turn its camera on (see
-// proto.Video_Stream): only in a room, and in a channel's room only while fewer
-// than the server's max_cameras others have theirs on. A call's room only ever
+// proto.Video_Stream): only in a room, and in a channel's room only with Video
+// there and while fewer than the server's max_cameras others have theirs on. A call's room only ever
 // has the two of them. Without the media link there are no cameras at all.
 camera_allowed :: proc(s: ^Server, u: ^Conn) -> bool {
 	if !s.media.enabled || s.media.max_cameras == 0 || u.room == 0 {
@@ -830,6 +834,9 @@ camera_allowed :: proc(s: ^Server, u: ^Conn) -> bool {
 	}
 	if proto.room_call(u.room) != 0 {
 		return true
+	}
+	if !room_right(s, u, .Video) {
+		return false
 	}
 	on := 0
 	for _, other in s.conns {
@@ -975,10 +982,10 @@ bulk_session :: proc(s: ^Server, u: ^Conn) -> ^Client {
 
 // relay_voice forwards a voice frame to everyone else in the speaker's
 // room, re-encrypted for each recipient's newest session. Voice from
-// someone who isn't in a room, or whose account a moderator muted
-// (moderation.odin), is not sent to anyone.
+// someone who isn't in a room, may not speak there (room_right), or whose
+// account a moderator muted (moderation.odin), is not sent to anyone.
 relay_voice :: proc(s: ^Server, from: ^Client, pt: []byte) {
-	if from.conn.room == 0 || .Server_Muted in from.conn.account.flags {
+	if .Server_Muted in from.conn.account.flags || !room_right(s, from.conn, .Speak) {
 		return
 	}
 	// [kind][seq][frame] -> [kind][speaker][seq][frame]

@@ -138,7 +138,7 @@ convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> b
 		}
 		if conv := c.by_id[proto.Conv_Id(db_col_int(q, 0))] or_else nil; conv != nil {
 			role := proto.Role_Id(db_col_int(q, 1))
-			conv.rights[role] = transmute(proto.Conv_Rights)u8(db_col_int(q, 2))
+			conv.rights[role] = transmute(proto.Conv_Rights)u16(db_col_int(q, 2))
 		}
 	}
 
@@ -252,7 +252,7 @@ conv_rights_set :: proc(c: ^Convs, conv: ^Conv, entries: []proto.Role_Rights) ->
 			.Conv_Rights_Add,
 			i64(conv.id),
 			i64(e.role),
-			i64(transmute(u8)(e.rights & proto.CONV_RIGHTS_ALL)),
+			i64(transmute(u16)(e.rights & proto.CONV_RIGHTS_ALL)),
 		)
 		db_run(c.db, q) or_return
 		conv.rights[e.role] = e.rights & proto.CONV_RIGHTS_ALL

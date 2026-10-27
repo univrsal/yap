@@ -195,7 +195,7 @@ conv_rights_parse :: proc(
 			}
 			if !found {
 				log.warnf(
-					"there's no right called %q (see, write, attach, react, edit, delete, voice)",
+					"there's no right called %q (see, write, attach, react, edit, delete, voice, speak, video)",
 					r,
 				)
 				return

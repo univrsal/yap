@@ -265,6 +265,8 @@ voice_panel :: proc(ui: ^UI) {
 			if server_muted(v, v.me) {
 				// Nobody hears us here, whatever the mic button says.
 				what, color = "Muted by a moderator", theme.warning
+			} else if !v.may_speak {
+				what, color = "Listening only", theme.warning
 			}
 			where_ = fmt.tprintf("# %s", voice_room_name(v))
 		case .Call:
@@ -316,11 +318,16 @@ voice_panel :: proc(ui: ^UI) {
 		case .Voice, .Call:
 			// What may be shared there, then the way out.
 			widths := make([dynamic]i32, context.temp_allocator)
-			// Once started, sharing can always be stopped.
-			can_share := video.can_share() && (ui.view.video_link || video.share_state() != .Off)
-			can_music := app_audio_available(ui)
-			// Likewise the camera, which needs the media link to go anywhere.
-			can_camera := camera_available(v) && (v.video_link || video.camera_state() != .Off)
+			// Once started, sharing can always be stopped. Starting it takes
+			// the media link and the right to use video there.
+			can_share :=
+				video.can_share() && ((v.video_link && v.may_video) || video.share_state() != .Off)
+			// Shared audio goes out with our voice.
+			can_music := app_audio_available(ui) && (v.may_speak || app_audio_on(ui))
+			// Likewise the camera.
+			can_camera :=
+				camera_available(v) &&
+				((v.video_link && v.may_video) || video.camera_state() != .Off)
 			if can_music {
 				append(&widths, icon_button_w(ctx))
 			}
@@ -395,6 +402,10 @@ voice_panel :: proc(ui: ^UI) {
 		mic_icon, mic_color = .Mic_Off, theme.warning
 		mic_hint =
 			"Muted by a moderator here (click to unmute yourself elsewhere)" if ui.muted else "Muted by a moderator here (click to mute yourself elsewhere too)"
+	} else if state == .Voice && !v.may_speak {
+		mic_icon, mic_color = .Mic_Off, theme.warning
+		mic_hint =
+			"You may only listen in this room (click to unmute yourself elsewhere)" if ui.muted else "You may only listen in this room (click to mute yourself elsewhere too)"
 	}
 	if .SUBMIT in icon_button(ui, "mute", mic_icon, mic_hint, mic_color) {
 		set_muted(ui, !ui.muted)
