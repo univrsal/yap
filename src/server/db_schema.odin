@@ -383,6 +383,12 @@ MIGRATIONS := [?]string {
 	CREATE INDEX bans_email ON bans(email) WHERE email != '';
 	CREATE INDEX messages_sender ON messages(sender, id);
 	`,
+	// 31: speaking and video in a voice room became rights of their own
+	// (proto.Conv_Right.Speak 128, Video 256). Whoever could join a room could
+	// do both there, so they still can.
+	`
+	UPDATE conv_rights SET rights = rights | 384 WHERE rights & 32 != 0;
+	`,
 }
 
 // The version a database has once it has been through every step.

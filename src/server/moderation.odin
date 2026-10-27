@@ -16,8 +16,9 @@ import "common:proto"
 // moved, and neither can someone whose room the mover can't see. The mover
 // needs See and Voice in the target room; what the person moved may do there
 // isn't asked (D5). The connection's guest_room keeps them there whatever
-// their rights (room_check), and lets them see who is in it (room_hidden),
-// until they go anywhere else.
+// their rights (room_check), lets them see who is in it (room_hidden) and
+// speak there, though not use video without Video (room_right), until they go
+// anywhere else.
 //
 // A mute is the account flag Server_Muted, kept in the database, so it lasts
 // across rooms and logins until it is lifted. relay_voice drops the voice of

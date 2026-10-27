@@ -104,7 +104,8 @@ import "core:time"
 //	/rights          show what each role may do in the channel being looked at;
 //	/rights <role>=<right,...> ...  replace that, e.g. /rights
 //	                 everyone=see,react writers=see,write,edit,delete
-//	                 (rights: see, write, attach, react, edit, delete, voice, none)
+//	                 (rights: see, write, attach, react, edit, delete, voice,
+//	                 speak, video, none)
 //	/invite <name>, /kick <name>  add someone to the channel being looked
 //	                 at, or remove them from a private one
 //	/call <name>     call someone; /answer accepts an incoming call; /hangup ends

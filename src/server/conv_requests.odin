@@ -342,7 +342,8 @@ voice_join :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 
 // conn_set_room moves a connection to a voice room and makes the change visible
 // to everyone. A camera that is on stays on in the new room only if that room
-// has room for it (camera_allowed).
+// has room for it (camera_allowed), and a camera or a shared screen only with
+// Video there.
 conn_set_room :: proc(s: ^Server, u: ^Conn, room: proto.Room) {
 	if u.room == room {
 		return
@@ -361,6 +362,9 @@ conn_set_room :: proc(s: ^Server, u: ^Conn, room: proto.Room) {
 	u.room = room
 	if .Camera in u.flags && !camera_allowed(s, u) {
 		u.flags -= {.Camera}
+	}
+	if .Sharing in u.flags && room != 0 && !room_right(s, u, .Video) {
+		u.flags -= {.Sharing}
 	}
 	bump_version(s)
 }
@@ -610,16 +614,23 @@ member_gone :: proc(s: ^Server, conv: ^Conv, account: proto.Account_Id) {
 
 // room_check removes everyone who may no longer talk in a channel's voice room
 // (it is text only, or they lost Voice or See there) from that room and tells
-// them with a Voice_Moved event to no room. Those a moderator moved there stay
+// them with a Voice_Moved event to no room, and turns off the cameras and
+// screens of those who stay without Video. Those a moderator moved there stay
 // whatever their rights (moderation.odin), as long as the room is still there.
 room_check :: proc(s: ^Server, conv: ^Conv) {
 	changed := .Private in conv.flags
 	gone := conv.flags & {.Archived, .Text_Only} != {}
 	for _, other in s.conns {
-		if other.account == nil ||
-		   other.room != proto.Room(conv.id) ||
-		   (other.guest_room == other.room && !gone) ||
+		if other.account == nil || other.room != proto.Room(conv.id) {
+			continue
+		}
+		if (other.guest_room == other.room && !gone) ||
 		   .Voice in conv_rights(conv, other.account) {
+			// Still there, but perhaps no longer with a camera or a screen.
+			if other.flags & {.Camera, .Sharing} != {} && !room_right(s, other, .Video) {
+				other.flags -= {.Camera, .Sharing}
+				changed = true
+			}
 			continue
 		}
 		conn_set_room(s, other, 0)
@@ -630,6 +641,21 @@ room_check :: proc(s: ^Server, conv: ^Conv) {
 	if changed {
 		bump_version(s)
 	}
+}
+
+// room_right returns whether a connection may use `right` (Speak or Video) in
+// the voice room it is in. Both of a call may do both. Someone a moderator
+// moved to a room may speak there whatever their rights, but like everyone
+// else needs Video for their camera or screen.
+room_right :: proc(s: ^Server, u: ^Conn, right: proto.Conv_Right) -> bool {
+	if u.room == 0 {
+		return false
+	}
+	if proto.room_call(u.room) != 0 || (right == .Speak && u.guest_room == u.room) {
+		return true
+	}
+	conv := conv_by_id(&s.convs, proto.Conv_Id(u.room))
+	return conv != nil && right in conv_rights(conv, u.account)
 }
 
 // room_hidden returns whether an account isn't allowed to know who is in a room.

@@ -223,7 +223,11 @@ test_conv_rights_map :: proc(t: ^testing.T) {
 	// In a DM both accounts may do everything but talk.
 	dm := dm_add(&s.convs, alice_acc.id, owner.account.id, alice_acc.id)
 	testing.expect(t, dm != nil)
-	testing.expect_value(t, conv_rights(dm, alice_acc), proto.CONV_RIGHTS_ALL - {.Voice})
+	testing.expect_value(
+		t,
+		conv_rights(dm, alice_acc),
+		proto.CONV_RIGHTS_ALL - {.Voice, .Speak, .Video},
+	)
 }
 
 // update_flags sets a channel's Default and Text_Only flags with Conv_Update.
@@ -352,7 +356,7 @@ test_text_only_channels :: proc(t: ^testing.T) {
 	status, notes := channel_create(t, &ts, owner, "Notes", false, {.Text_Only})
 	testing.expect_value(t, status, proto.Status.Ok)
 	rights, _ := told_rights(t, &ts, owner, notes)
-	testing.expect_value(t, rights, proto.CONV_RIGHTS_ALL - {.Voice})
+	testing.expect_value(t, rights, proto.CONV_RIGHTS_ALL - {.Voice, .Speak, .Video})
 	testing.expect_value(t, voice_join_room(t, &ts, owner, notes), proto.Status.Denied)
 
 	// Turning it on empties the room, and turning it off opens it again.
@@ -602,4 +606,84 @@ test_conv_rights_attach :: proc(t: ^testing.T) {
 	// Both.
 	status = rights_set(t, &ts, owner, news, {everyone, {.See, .Write, .Attach}})
 	testing.expect(t, post_file(t, &ts, alice, news) != .Denied)
+}
+
+@(test)
+test_conv_rights_speak_video :: proc(t: ^testing.T) {
+	ts: Test_Server
+	ts_open(t, &ts)
+	defer ts_close(&ts)
+	s := &ts.s
+	s.media.enabled = true
+	s.media.max_cameras = 4
+	ts_account(t, &ts, "admin", "a password", {.Owner})
+	alice_acc := ts_account(t, &ts, "alice", "a password")
+	owner := logged_in(t, &ts, "admin")
+	alice := logged_in(t, &ts, "alice")
+	everyone := proto.EVERYONE_ROLE
+	_, lounge := channel_create(t, &ts, owner, "Lounge")
+	testing.expect_value(t, subscribe(t, &ts, alice, lounge, true), proto.Status.Ok)
+
+	// Everyone may speak and use video in a new channel's room.
+	testing.expect_value(t, voice_join_room(t, &ts, alice, lounge), proto.Status.Ok)
+	testing.expect(t, room_right(s, alice, .Speak))
+	testing.expect(t, room_right(s, alice, .Video))
+	sound_set(s, alice, {.Camera, .Sharing})
+	testing.expect_value(t, alice.flags, proto.User_Flags{.Camera, .Sharing})
+
+	// Listening only: still in the room, but unheard, and the camera and the
+	// screen go off.
+	status := rights_set(t, &ts, owner, lounge, {everyone, {.See, .Voice}})
+	testing.expect_value(t, status, proto.Status.Ok)
+	rights, _ := told_rights(t, &ts, alice, lounge)
+	testing.expect_value(t, rights, proto.Conv_Rights{.See, .Voice})
+	testing.expect_value(t, alice.room, proto.Room(lounge))
+	testing.expect(t, !room_right(s, alice, .Speak))
+	testing.expect(t, !room_right(s, alice, .Video))
+	testing.expect_value(t, alice.flags, proto.User_Flags{})
+	sound_set(s, alice, {.Camera, .Sharing, .Muted})
+	testing.expect_value(t, alice.flags, proto.User_Flags{.Muted})
+
+	// Each on its own.
+	rights_set(t, &ts, owner, lounge, {everyone, {.See, .Voice, .Speak}})
+	testing.expect(t, room_right(s, alice, .Speak))
+	testing.expect(t, !room_right(s, alice, .Video))
+	rights_set(t, &ts, owner, lounge, {everyone, {.See, .Voice, .Video}})
+	testing.expect(t, !room_right(s, alice, .Speak))
+	testing.expect(t, room_right(s, alice, .Video))
+	sound_set(s, alice, {.Camera, .Sharing})
+	testing.expect_value(t, alice.flags, proto.User_Flags{.Camera, .Sharing})
+
+	// Speak and Video without Voice are nothing, and out of the room she goes.
+	status = rights_set(t, &ts, owner, lounge, {everyone, {.See, .Speak, .Video}})
+	testing.expect_value(t, status, proto.Status.Ok)
+	rights, _ = told_rights(t, &ts, alice, lounge)
+	testing.expect_value(t, rights, proto.Conv_Rights{.See})
+	testing.expect_value(t, alice.room, proto.Room(0))
+	testing.expect(t, !room_right(s, alice, .Speak))
+
+	// Moved there by a moderator, she may speak, but not use video.
+	home := s.convs.home.id
+	testing.expect_value(t, voice_join_room(t, &ts, alice, home), proto.Status.Ok)
+	buf: [proto.VOICE_MOVE_SIZE]u8
+	status, _ = ts_ask(
+		t,
+		&ts,
+		owner,
+		.Voice_Move,
+		proto.encode_voice_move(&buf, alice_acc.id, proto.Room(lounge)),
+	)
+	testing.expect_value(t, status, proto.Status.Ok)
+	testing.expect_value(t, alice.room, proto.Room(lounge))
+	testing.expect(t, room_right(s, alice, .Speak))
+	testing.expect(t, !room_right(s, alice, .Video))
+	sound_set(s, alice, {.Camera, .Sharing})
+	testing.expect_value(t, alice.flags, proto.User_Flags{})
+	// With Video there, a guest may use it too.
+	rights_set(t, &ts, owner, lounge, {everyone, {.See, .Video}})
+	testing.expect_value(t, alice.room, proto.Room(lounge))
+	testing.expect(t, room_right(s, alice, .Speak))
+	testing.expect(t, !room_right(s, alice, .Video))
+	rights_set(t, &ts, owner, lounge, {everyone, {.See, .Voice, .Video}})
+	testing.expect(t, room_right(s, alice, .Video))
 }

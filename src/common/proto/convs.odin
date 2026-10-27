@@ -65,8 +65,8 @@ package proto
 // 	conversation  [id u32][kind u8][flags u8][name str8][topic str8]
 // 	              [a u32][b u32][last message u64][member u8]
 // 	              [read u64][unread u16][mentions u16][notify u8]
-// 	              [position u32][last time u64][rights u8]
-// 	rights map    [count u8]([role u32][rights u8])...
+// 	              [position u32][last time u64][rights u16]
+// 	rights map    [count u8]([role u32][rights u16])...
 //
 // A private channel (flag Private) is only for those who were added to it.
 // Nobody else is told about it, can find it or can join its room. An archived
@@ -77,7 +77,11 @@ package proto
 // What an account may do in a channel (Conv_Right) is given by the channel's
 // rights map: the rights each role has there. An account has the rights of all
 // its roles, the everyone role included, and none without See. Edit, Delete
-// and Attach also need Write, and there is no Voice in a Text_Only channel.
+// and Attach also need Write, Speak and Video need Voice, and there is no
+// Voice in a Text_Only channel. Whoever is in a voice room without Speak only
+// listens; Video is turning on one's camera or sharing one's screen there.
+// Someone a moderator moved to a room (moderation.odin) may speak there
+// whatever their rights, but not use video without the right.
 // Attaching files also takes the Attach_Files permission. The owner and
 // those with Manage_Channels have every right everywhere. A new channel's map
 // gives everyone every right. Deleting a role removes it from every map.
@@ -85,7 +89,8 @@ package proto
 // The `rights` that end a conversation are what the receiver may do there. They
 // are only sent with Conv_Changed, never in a list such as a Conv_Browse page,
 // and a record without them (from an older server) means every right (see
-// conv_rights_default). In a DM both accounts have every right but Voice.
+// conv_rights_default). In a DM both accounts have every right but those of
+// voice.
 //
 // When a connection logs in, it is told about every conversation that its
 // account is a member of, between Sync_Begin and Sync_End (accounts.odin).
@@ -148,13 +153,26 @@ Conv_Right :: enum u8 {
 	Delete, // delete one's own messages
 	Voice, // join its voice room
 	Attach, // post messages with files, forward such messages to it
+	Speak, // be heard in its voice room
+	Video, // turn on one's camera or share one's screen in its voice room
 }
-Conv_Rights :: distinct bit_set[Conv_Right;u8]
+Conv_Rights :: distinct bit_set[Conv_Right;u16]
 
-CONV_RIGHTS_ALL :: Conv_Rights{.See, .Write, .React, .Edit, .Delete, .Voice, .Attach}
+CONV_RIGHTS_ALL :: Conv_Rights {
+	.See,
+	.Write,
+	.React,
+	.Edit,
+	.Delete,
+	.Voice,
+	.Attach,
+	.Speak,
+	.Video,
+}
 
 // conv_rights_settle applies the rules between rights: nothing without See,
-// Edit, Delete and Attach only with Write, and no Voice in a Text_Only channel.
+// Edit, Delete and Attach only with Write, Speak and Video only with Voice, and
+// no Voice in a Text_Only channel.
 conv_rights_settle :: proc(given: Conv_Rights, flags: Conv_Flags) -> Conv_Rights {
 	rights := given & CONV_RIGHTS_ALL
 	if .See not_in rights {
@@ -166,6 +184,9 @@ conv_rights_settle :: proc(given: Conv_Rights, flags: Conv_Flags) -> Conv_Rights
 	if .Text_Only in flags {
 		rights -= {.Voice}
 	}
+	if .Voice not_in rights {
+		rights -= {.Speak, .Video}
+	}
 	return rights
 }
 
@@ -174,7 +195,7 @@ conv_rights_settle :: proc(given: Conv_Rights, flags: Conv_Flags) -> Conv_Rights
 conv_rights_default :: proc(kind: Conv_Kind, flags: Conv_Flags) -> Conv_Rights {
 	rights := CONV_RIGHTS_ALL
 	if kind == .DM {
-		rights -= {.Voice}
+		rights -= {.Voice, .Speak, .Video}
 	}
 	return conv_rights_settle(rights, flags)
 }
@@ -235,7 +256,7 @@ CONV_MAX_SIZE ::
 	1 +
 	4 +
 	8 +
-	1
+	2
 
 @(private = "file")
 put_conv :: proc(w: ^Writer, c: Conv) {
@@ -287,7 +308,7 @@ encode_conv :: proc(out: []u8, c: Conv) -> []u8 {
 		buf = out,
 	}
 	put_conv(&w, c)
-	put_u8(&w, transmute(u8)c.rights)
+	put_u16(&w, transmute(u16)c.rights)
 	return written(&w)
 }
 
@@ -301,7 +322,7 @@ decode_conv :: proc(body: []u8) -> (c: Conv, ok: bool) {
 		return {}, false
 	}
 	if has_more(&r) {
-		c.rights = conv_rights_settle(transmute(Conv_Rights)get_u8(&r), c.flags)
+		c.rights = conv_rights_settle(transmute(Conv_Rights)get_u16(&r), c.flags)
 	} else {
 		c.rights = conv_rights_default(c.kind, c.flags)
 	}
@@ -718,7 +739,7 @@ decode_conv_member_set :: proc(
 }
 
 // A rights map has at most one entry per role.
-RIGHTS_MAP_MAX_SIZE :: 1 + (4 + 1) * MAX_ROLES
+RIGHTS_MAP_MAX_SIZE :: 1 + (4 + 2) * MAX_ROLES
 CONV_RIGHTS_SET_MAX_SIZE :: 4 + RIGHTS_MAP_MAX_SIZE
 
 @(private = "file")
@@ -726,7 +747,7 @@ put_rights_map :: proc(w: ^Writer, entries: []Role_Rights) {
 	put_u8(w, u8(min(len(entries), 255)))
 	for e in entries {
 		put_u32(w, u32(e.role))
-		put_u8(w, transmute(u8)(e.rights & CONV_RIGHTS_ALL))
+		put_u16(w, transmute(u16)(e.rights & CONV_RIGHTS_ALL))
 	}
 }
 
@@ -738,7 +759,7 @@ get_rights_map :: proc(r: ^Reader, buf: []Role_Rights) -> (entries: []Role_Right
 	}
 	for &e in buf[:count] {
 		e.role = Role_Id(get_u32(r))
-		e.rights = transmute(Conv_Rights)get_u8(r) & CONV_RIGHTS_ALL
+		e.rights = transmute(Conv_Rights)get_u16(r) & CONV_RIGHTS_ALL
 	}
 	return buf[:count], !r.overflow
 }

@@ -35,12 +35,15 @@ status_icon :: proc(ctx: ^mu.Context, icon: render.Icon, color: mu.Color) {
 }
 
 // What the icon in front of your own name says, from most to least telling:
-// muted by a moderator means nobody here hears you whatever you do, deafened
-// means hearing nobody, muted means saying nothing to anybody. Our own mute is
-// the one state that we don't wait for the server to tell us about.
+// muted by a moderator, or in a room where we may only listen, means nobody
+// here hears you whatever you do, deafened means hearing nobody, muted means
+// saying nothing to anybody. Our own mute is the one state that we don't wait
+// for the server to tell us about.
 @(private = "file")
 my_status :: proc(ui: ^UI, speaking: bool) -> (render.Icon, mu.Color) {
-	return sound_status(ui.muted, ui.deafened, speaking, server_muted(ui.view, ui.view.me))
+	v := ui.view
+	unheard := server_muted(v, v.me) || (v.my_room != 0 && !v.may_speak)
+	return sound_status(ui.muted, ui.deafened, speaking, unheard)
 }
 
 // The same for someone else, from what the server passed on.

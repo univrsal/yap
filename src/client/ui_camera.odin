@@ -156,8 +156,8 @@ camera_button :: proc(ui: ^UI) {
 }
 
 // camera_follow keeps our camera to the voice chat or call it was turned on in:
-// it goes off when we leave that or move to another room, and when the server
-// doesn't take it (conn has said why). It also turns the camera on once a call
+// it goes off when we leave that or move to another room, when we may no longer
+// use video there, and when the server doesn't take it (conn has said why). It also turns the camera on once a call
 // started or answered with video is on. Call with no View locked.
 camera_follow :: proc(ui: ^UI) {
 	cam := &ui.camera
@@ -175,7 +175,9 @@ camera_follow :: proc(ui: ^UI) {
 	if !stop {
 		sync.guard(&ns.view.mutex)
 		stop =
-			proto.Room(ns.view.my_room) != cam.room || (state == .Live && ns.view.camera_refused)
+			proto.Room(ns.view.my_room) != cam.room ||
+			!ns.view.may_video ||
+			(state == .Live && ns.view.camera_refused)
 	}
 	if stop {
 		video.camera_stop()

@@ -54,21 +54,21 @@ test_conv_record :: proc(t: ^testing.T) {
 	got, ok = decode_conv(encode_conv(buf[:], many))
 	testing.expect_value(t, got.unread, UNREAD_CAP)
 	body = encode_conv(buf[:], c)
-	body[len(body) - 14] = 9 // the notify level, before the position, the last time and the rights
+	body[len(body) - 15] = 9 // the notify level, before the position, the last time and the rights
 	got, ok = decode_conv(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, got.notify, Notify_Level.All)
 	body = encode_conv(buf[:], c)
 
 	// A record from an older server has no rights, which means all of them.
-	got, ok = decode_conv(body[:len(body) - 1])
+	got, ok = decode_conv(body[:len(body) - 2])
 	testing.expect(t, ok)
 	testing.expect_value(t, got.rights, CONV_RIGHTS_ALL)
 	text_only := c
 	text_only.flags += {.Text_Only}
-	got, ok = decode_conv(encode_conv(buf[:], text_only)[:len(body) - 1])
+	got, ok = decode_conv(encode_conv(buf[:], text_only)[:len(body) - 2])
 	testing.expect(t, ok)
-	testing.expect_value(t, got.rights, CONV_RIGHTS_ALL - {.Voice})
+	testing.expect_value(t, got.rights, CONV_RIGHTS_ALL - {.Voice, .Speak, .Video})
 	// Rights that break the rules between them are settled when read.
 	odd := c
 	odd.rights = {.Write, .Edit}
@@ -77,8 +77,15 @@ test_conv_record :: proc(t: ^testing.T) {
 	odd.rights = {.See, .Edit, .Delete, .Voice}
 	got, _ = decode_conv(encode_conv(buf[:], odd))
 	testing.expect_value(t, got.rights, Conv_Rights{.See, .Voice})
+	// Speaking and video take Voice, and survive the trip in the second byte.
+	odd.rights = {.See, .Speak, .Video}
+	got, _ = decode_conv(encode_conv(buf[:], odd))
+	testing.expect_value(t, got.rights, Conv_Rights{.See})
+	odd.rights = {.See, .Voice, .Video}
+	got, _ = decode_conv(encode_conv(buf[:], odd))
+	testing.expect_value(t, got.rights, Conv_Rights{.See, .Voice, .Video})
 
-	_, ok = decode_conv(body[:len(body) - 2])
+	_, ok = decode_conv(body[:len(body) - 3])
 	testing.expect(t, !ok)
 	_, ok = decode_conv(nil)
 	testing.expect(t, !ok)
@@ -385,7 +392,11 @@ test_calls :: proc(t: ^testing.T) {
 @(test)
 test_conv_rights :: proc(t: ^testing.T) {
 	testing.expect_value(t, conv_rights_default(.Channel, {}), CONV_RIGHTS_ALL)
-	testing.expect_value(t, conv_rights_default(.DM, {}), CONV_RIGHTS_ALL - {.Voice})
+	testing.expect_value(
+		t,
+		conv_rights_default(.DM, {}),
+		CONV_RIGHTS_ALL - {.Voice, .Speak, .Video},
+	)
 	testing.expect_value(t, conv_rights_settle({.See, .Voice}, {.Text_Only}), Conv_Rights{.See})
 	testing.expect_value(t, conv_rights_settle({.See, .Attach}, {}), Conv_Rights{.See})
 	testing.expect_value(
