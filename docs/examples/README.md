@@ -24,7 +24,7 @@ node echo.mjs
 
 ./post.sh 1 "Build 412 passed" build.log
 
-python persona.py 1 build.jpg
+python persona.py 1 clippy.jpg
 ```
 
 The smallest bot there is, one line of curl:
