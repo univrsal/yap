@@ -24,7 +24,7 @@ says about the export comes from reading Mattermost's source (master,
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
-| 11 | Bookmarks: one's own list of saved messages | M | protocol, schema, client | - | open |
+| 11 | Bookmarks: one's own list of saved messages | M | protocol, schema, client | - | built (2026-10-28) |
 | 12 | Personas: a bot posting under another name and picture | M | protocol, schema, client, bot API | - | open |
 | 13 | Channel admins | M | protocol, schema, server, client | - | open |
 
@@ -664,6 +664,25 @@ come back to, and finds them again in one list.
 - A limit per account (say 1000) keeps the list cheap to load; Mattermost
   has none, so the importer may have to drop the oldest past it.
 
+Built (2026-10-28), protocol version 20 (proto/bookmarks.odin):
+
+- `Bookmark_Set [id][on]`, `Bookmarks_Get [before_time][before]` (a page
+  of 50, newest bookmark first, continuing after the last one's time and
+  id), the event `Bookmark_Changed [id][time][on]` to every connection of
+  the account, and `Bookmarks`, every bookmarked id, in the login sync.
+  So the client knows from that set which messages to mark; nothing
+  about bookmarks travels with the messages themselves.
+- At most 1000 per account (`MAX_BOOKMARKS`). A deleted message can't be
+  bookmarked; removing a bookmark always works. Schema step 32 adds the
+  table, and a trigger removes a purged message's bookmarks.
+- The list is a floating window (like the pins and the search), not a
+  view in the place of the messages: it stays open while Go to jumps from
+  one message to the next. The "Bookmarks" row under "Notes to self"
+  opens and closes it.
+- Bookmarking is in the message's menu (right-click), next to Copy link;
+  a bookmarked message's header says "bookmarked", and it isn't merged
+  into the message above it, so that the header is there to say so.
+
 ## Decisions
 
 - **D1** Teams: only one team is imported, chosen with `--team`. The
@@ -709,9 +728,9 @@ come back to, and finds them again in one list.
   account's username or display name; the picture is an uploaded blob,
   not a URL. Step 12 comes before step 10.
 - **D15** Saved messages become **bookmarks** (step 11): one's own list
-  on each server, shown like a conversation at the top of the channel
-  list, each entry with a button that jumps to the message; bookmarking
-  is in the message menu.
+  on each server, opened from the top of the channel list (as a window
+  of its own, see Bookmarks), each entry with a button that jumps to the
+  message; bookmarking is in the message menu.
 - **D16** Byte limits are Mattermost's character limits at 4 bytes a
   character, so every Mattermost value fits (step 3).
 - **D17** Pins are read in pages, up to 1000 per conversation.

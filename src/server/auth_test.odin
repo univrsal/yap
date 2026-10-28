@@ -221,10 +221,10 @@ test_login :: proc(t: ^testing.T) {
 	testing.expect_value(t, alice.failures, 0)
 
 	// The connection is sent the current state: the roles, every
-	// account, the channels it's in (the home channel to start with) and
-	// finally who it is.
+	// account, the channels it's in (the home channel to start with), its
+	// bookmarks (none) and finally who it is.
 	events := ts_events(t, &ts, u)
-	testing.expect_value(t, len(events), 8)
+	testing.expect_value(t, len(events), 9)
 	testing.expect_value(t, events[0].op, proto.Event_Op.Sync_Begin)
 	testing.expect_value(t, events[1].op, proto.Event_Op.Role_Changed)
 	everyone, role_ok := proto.decode_role(events[1].body)
@@ -245,13 +245,17 @@ test_login :: proc(t: ^testing.T) {
 	testing.expect_value(t, events[5].op, proto.Event_Op.Emoji_Sheet)
 	sheet, sheet_ok := proto.decode_emoji_sheet(events[5].body)
 	testing.expect(t, sheet_ok && sheet.blob == 0 && len(sheet.names) == 0)
-	testing.expect_value(t, events[6].op, proto.Event_Op.Self)
-	me, perms, self_flags, ok := proto.decode_self(events[6].body)
+	testing.expect_value(t, events[6].op, proto.Event_Op.Bookmarks)
+	bookmarks_buf: [proto.MAX_BOOKMARKS]proto.Msg_Id
+	bookmarked, bookmarks_ok := proto.decode_bookmarks(events[6].body, &bookmarks_buf)
+	testing.expect(t, bookmarks_ok && len(bookmarked) == 0)
+	testing.expect_value(t, events[7].op, proto.Event_Op.Self)
+	me, perms, self_flags, ok := proto.decode_self(events[7].body)
 	testing.expect(t, ok)
 	testing.expect_value(t, me, alice.id)
 	testing.expect_value(t, perms, proto.Permissions{.Attach_Files})
 	testing.expect_value(t, self_flags, proto.Account_Flags{})
-	testing.expect_value(t, events[7].op, proto.Event_Op.Sync_End)
+	testing.expect_value(t, events[8].op, proto.Event_Op.Sync_End)
 
 	// A connection that is logged in can't log in again.
 	status, _ = ts_login(t, &ts, u, "bob", "bob's password")

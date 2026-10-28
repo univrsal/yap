@@ -319,7 +319,7 @@ message_size :: proc(m: Message) -> int {
 	return n + 1 + len(m.reactions)
 }
 
-@(private = "file")
+@(private)
 put_message :: proc(w: ^Writer, m: Message) {
 	put_u64(w, u64(m.id))
 	put_u32(w, u32(m.conv))
@@ -371,7 +371,7 @@ put_message :: proc(w: ^Writer, m: Message) {
 	put_bytes(w, m.reactions)
 }
 
-@(private = "file")
+@(private)
 get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 	m.id = Msg_Id(get_u64(r))
 	m.conv = Conv_Id(get_u32(r))

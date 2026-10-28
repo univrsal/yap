@@ -150,9 +150,10 @@ channel_list :: proc(ui: ^UI) {
 }
 
 // channel_rows is a row for each of our channels in the list, each followed
-// by the people in its voice room, under the row for our notes: the DM with
-// ourselves on this server, which only we see. It is opened the first time
-// it is clicked. Call with the View locked.
+// by the people in its voice room, under the rows for our notes (the DM with
+// ourselves on this server, which only we see; it is opened the first time it
+// is clicked) and our bookmarks (whose window the row opens and closes,
+// ui_bookmarks.odin). Call with the View locked.
 @(private = "file")
 channel_rows :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -173,9 +174,14 @@ channel_rows :: proc(ui: ^UI) {
 		ctx.style.font = render.LIST_FONT
 		viewing := viewing_notes(v) && !ui.narrow
 		clicked := .SUBMIT in list_row(ctx, "notes", NOTES_NAME, viewing, accent = true)
+		mu.layout_row(ctx, {-1}, row_h)
+		bookmarks := .SUBMIT in list_row(ctx, "bookmarks", BOOKMARKS_NAME, false, accent = true)
 		ctx.style.font = saved_font
 		if clicked {
 			view_notes(ui, v)
+		}
+		if bookmarks {
+			toggle_bookmarks(ui)
 		}
 	}
 	for ch in v.channels {

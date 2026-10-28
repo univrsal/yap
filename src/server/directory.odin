@@ -16,6 +16,7 @@ import "common:proto"
 //	Buddy_Changed     for every one of the account's buddies
 //	Emoji_Sheet       the server's own emoji
 //	Setting_Changed   for every one of the account's settings
+//	Bookmarks         the messages the account bookmarked (bookmarks.odin)
 //	Self              who the connection is, and what it may do
 //	Sync_End
 //
@@ -42,6 +43,7 @@ directory_sync :: proc(s: ^Server, u: ^Conn) {
 	send_buddies(u)
 	send_emoji_sheet(s, u)
 	send_settings(s, u)
+	send_bookmarks(s, u)
 	send_self(u)
 	send_event(u, .Sync_End)
 }

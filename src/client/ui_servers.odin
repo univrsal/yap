@@ -78,6 +78,7 @@ Server_UI :: struct {
 	// message (ui_message_menu.odin).
 	pins:           UI_Pins,
 	msg_menu:       UI_Message_Menu,
+	bookmarks:      UI_Bookmarks, // the list of bookmarks (ui_bookmarks.odin)
 	// The server whose per-user volumes the session has been given
 	// (apply_gains).
 	gains_for:      [proto.KEY_SIZE]u8,

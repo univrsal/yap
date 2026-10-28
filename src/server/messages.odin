@@ -62,6 +62,10 @@ message_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, bod
 		reactors_get(s, u, id, body)
 	case .Pins_Get:
 		pins_get(s, u, id, body)
+	case .Bookmark_Set:
+		bookmark_set(s, u, id, body)
+	case .Bookmarks_Get:
+		bookmarks_get(s, u, id, body)
 	case .Blob_Put:
 		blob_put_request(s, u, id, body)
 	case .Blob_Get:

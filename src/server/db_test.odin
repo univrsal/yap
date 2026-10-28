@@ -192,6 +192,8 @@ test_db_bans_step :: proc(t: ^testing.T) {
 				`
 				DROP TABLE bans;
 				DROP INDEX messages_sender;
+				DROP TRIGGER bookmarks_purged;
+				DROP TABLE bookmarks;
 				INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, created)
 					VALUES ('alice', 'Alice', x'00', x'00', 1, 1);
 				INSERT INTO convs (kind, name, created) VALUES (0, 'lobby', 1);
@@ -244,6 +246,8 @@ test_db_upgrade_28 :: proc(t: ^testing.T) {
 				`
 				DROP TABLE bans;
 				DROP INDEX messages_sender;
+				DROP TRIGGER bookmarks_purged;
+				DROP TABLE bookmarks;
 				ALTER TABLE messages ADD COLUMN blob INTEGER REFERENCES blobs(id);
 				CREATE INDEX messages_blob ON messages(blob) WHERE blob IS NOT NULL;
 				INSERT INTO accounts (username, display, pw_hash, pw_salt, pw_params, created)

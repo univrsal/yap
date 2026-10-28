@@ -11,7 +11,8 @@ import "common:proto"
 
 // A message's own menu, opened by right-clicking the message in a timeline (or
 // long-pressing it on a touch screen). It offers to copy the message's text,
-// save its picture, forward it and copy a link to it. Actions that change the
+// save its picture, forward it, copy a link to it and bookmark it (or remove
+// its bookmark, also once it is deleted; ui_bookmarks.odin). Actions that change the
 // message itself (reacting, replying, editing, pinning, deleting) are on the
 // bar over the message instead (ui_message_bar.odin). The menu is only used to
 // ask for confirmation when the bar's Delete is pressed without Shift.
@@ -132,8 +133,13 @@ message_menu :: proc(ui: ^UI) {
 		}
 		return
 	}
+	bookmarked := v.bookmarks.ids[mm.id]
 	if deleted {
 		dim_label(ctx, "This message was deleted.")
+		if bookmarked && .SUBMIT in stable_button(ctx, "bookmark", "Remove bookmark") {
+			conn.push_command(cmds, conn.Bookmark_Command{id = mm.id})
+			close(ctx)
+		}
 		return
 	}
 	if mm.kind == .Text && .SUBMIT in stable_button(ctx, "copy", "Copy text") {
@@ -148,6 +154,10 @@ message_menu :: proc(ui: ^UI) {
 	}
 	if .SUBMIT in stable_button(ctx, "link", "Copy link") {
 		set_clipboard(nil, proto.link_token(mm.conv, mm.id))
+		close(ctx)
+	}
+	if .SUBMIT in stable_button(ctx, "bookmark", "Remove bookmark" if bookmarked else "Bookmark") {
+		conn.push_command(cmds, conn.Bookmark_Command{id = mm.id, on = !bookmarked})
 		close(ctx)
 	}
 }

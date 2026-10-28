@@ -119,6 +119,9 @@ Request_Op :: enum u16 {
 	Reactors_Get         = 0x0048,
 	Msg_Forward          = 0x0049,
 	Msg_Search           = 0x004A, // search.odin
+	// Bookmarks, see bookmarks.odin.
+	Bookmark_Set         = 0x004B,
+	Bookmarks_Get        = 0x004C,
 	// Roles, see roles.odin.
 	Role_Set             = 0x0070,
 	Role_Delete          = 0x0071,
@@ -169,6 +172,9 @@ Event_Op :: enum u16 {
 	Reaction_Changed = 0x0042,
 	// See purge.odin.
 	Msgs_Purged      = 0x0043,
+	// See bookmarks.odin.
+	Bookmarks        = 0x0044,
+	Bookmark_Changed = 0x0045,
 	// See emoji.odin.
 	Emoji_Sheet      = 0x0060,
 	// See calls.odin.

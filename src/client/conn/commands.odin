@@ -152,6 +152,8 @@ Command :: union {
 	Reactors_Command,
 	Forward_Command,
 	Search_Command,
+	Bookmark_Command,
+	Bookmarks_Command,
 	Thread_Command,
 	Root_Command,
 	// Profiles and settings, see profiles.odin.
@@ -393,6 +395,10 @@ process_commands :: proc(c: ^Server_Conn) {
 			msg_forward(c, v)
 		case Search_Command:
 			search_start(c, v)
+		case Bookmark_Command:
+			bookmark_set(c, v.id, v.on)
+		case Bookmarks_Command:
+			bookmarks_command(c, v)
 		case Thread_Command:
 			v.thread.conv = v.thread.conv if v.thread.conv != 0 else c.convs.viewing
 			if v.open {

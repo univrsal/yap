@@ -214,6 +214,8 @@ View :: struct {
 	reactors:            View_Reactors,
 	// What the latest search found (search.odin).
 	search:              View_Search,
+	// Which messages we bookmarked, and the list of them (bookmarks.odin).
+	bookmarks:           View_Bookmarks,
 	// The server's custom emoji (emoji.odin).
 	emoji:               View_Emoji,
 	// Our account's settings as the server stores them, whether the sync has
@@ -321,6 +323,7 @@ view_reset :: proc(v: ^View) {
 	view_clear_reactors(v)
 	clear(&v.roots_missing)
 	view_clear_search(v)
+	view_clear_bookmarks(v)
 	view_clear_emoji(v)
 	view_clear_shared(v)
 	view_clear_roles(v)
@@ -391,6 +394,9 @@ view_destroy :: proc(v: ^View) {
 	delete(v.reactors.accounts)
 	view_clear_search(v)
 	delete(v.search.found)
+	view_clear_bookmarks(v)
+	delete(v.bookmarks.list)
+	delete(v.bookmarks.ids)
 	delete(v.outbox)
 	delete(v.saves)
 	delete(v.typing)

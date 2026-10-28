@@ -482,6 +482,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// The cameras, popped out of the Video tab (see ui_camera.odin).
 	camera_window(ui, w, h)
 	pins_window(ui, w, h)
+	bookmarks_window(ui, w, h)
 	thread_windows(ui, w, h)
 	profile_windows(ui, w, h)
 	completion_window(ui)

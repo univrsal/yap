@@ -389,6 +389,21 @@ MIGRATIONS := [?]string {
 	`
 	UPDATE conv_rights SET rights = rights | 384 WHERE rights & 32 != 0;
 	`,
+	// 32: bookmarks (proto/bookmarks.odin): the messages each account marked
+	// to come back to, and when. A message that is purged takes its
+	// bookmarks with it.
+	`
+	CREATE TABLE bookmarks (
+		account INTEGER NOT NULL REFERENCES accounts(id),
+		message INTEGER NOT NULL REFERENCES messages(id),
+		time    INTEGER NOT NULL,
+		PRIMARY KEY (account, message)
+	) WITHOUT ROWID;
+	CREATE INDEX bookmarks_message ON bookmarks(message);
+	CREATE TRIGGER bookmarks_purged AFTER DELETE ON messages BEGIN
+		DELETE FROM bookmarks WHERE message = old.id;
+	END;
+	`,
 }
 
 // The version a database has once it has been through every step.

@@ -714,6 +714,7 @@ message_flags :: proc(
 		!has_thread_line(st, prev) &&
 		m.edited == 0 &&
 		m.flags & {.Deleted, .Pinned, .Forwarded} == {} &&
+		!ui.view.bookmarks.ids[m.id] && // so that its header says so
 		m.sender == prev.sender &&
 		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000))
 	return
@@ -966,7 +967,7 @@ timeline_message :: proc(
 	}
 	defer ui.header_time = {}
 	header :=
-		"" if merged else fmt.tprintf("%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", forward_note(ui, m))
+		"" if merged else fmt.tprintf("%s%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", "  - bookmarked" if v.bookmarks.ids[m.id] else "", forward_note(ui, m))
 	header_color := author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {

@@ -826,6 +826,11 @@ message_changed :: proc(c: ^Server_Conn, m: proto.Message) {
 	if c.msgs.pins_conv == m.conv {
 		pins_fetch(c, m.conv)
 	}
+	if c.bookmarks.ids[m.id] {
+		kept := msg_of(m)
+		bookmarked_changed(c, kept)
+		msg_destroy(&kept)
+	}
 	report_changed(c, m)
 }
 

@@ -67,6 +67,8 @@ import "core:time"
 //	/delete <id>     delete a message (yours, or anyone's if you have permission)
 //	/pin <id>, /unpin <id>  pin or unpin a message
 //	/pins            list the pinned messages of the conversation
+//	/bookmark <id>, /unbookmark <id>  bookmark a message or remove its bookmark
+//	/bookmarks [more]  list your bookmarks, or the next page of them
 //	/jump <id>       fetch the page of messages around a message
 //	/react <id> <emoji>, /unreact <id> <emoji>   add or remove a reaction to a
 //	                 message (the emoji can be a character, :shortcode: or :name:)
@@ -814,6 +816,18 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			}
 		case line == "/pins":
 			conn.push_command(q, conn.Pins_Command{})
+		case strings.has_prefix(line, "/bookmark "), strings.has_prefix(line, "/unbookmark "):
+			_, _, id := strings.partition(line, " ")
+			if n, ok := strconv.parse_u64(strings.trim_space(id)); ok {
+				conn.push_command(
+					q,
+					conn.Bookmark_Command{id = proto.Msg_Id(n), on = strings.has_prefix(line, "/bookmark ")},
+				)
+			}
+		case line == "/bookmarks":
+			conn.push_command(q, conn.Bookmarks_Command{})
+		case line == "/bookmarks more":
+			conn.push_command(q, conn.Bookmarks_Command{more = true})
 		case strings.has_prefix(line, "/jump "):
 			if n, ok := strconv.parse_u64(strings.trim_space(line[len("/jump "):])); ok {
 				conn.push_command(q, conn.Jump_Command{id = proto.Msg_Id(n)})
@@ -876,7 +890,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case:
 			log.warn(
-				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /group <name>,<name>,..., /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
+				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /bookmark <id>, /unbookmark <id>, /bookmarks [more], /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /group <name>,<name>,..., /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
 			)
 		}
 	}
