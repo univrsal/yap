@@ -2,6 +2,13 @@
 # step 6). The version is the one we are moving off. Local only: the port is
 # bound to 127.0.0.1, and the database password doesn't matter.
 #
+# With podman (rootless, where the bridge network fails with "create veth pair:
+# Operation not supported"), run a pod with the same two containers and the
+# same environment, and use CONTAINER_ENGINE=podman with the scripts:
+#   podman pod create --name yap-mm --network pasta -p 127.0.0.1:8068:8065
+#   (the db and app containers with --pod yap-mm; the app's database host is
+#   127.0.0.1, since both share the pod's network)
+#
 #   docker compose -p yap-mm -f tools/mattermost/docker-compose.yml up -d
 #   python tools/mattermost/seed.py http://127.0.0.1:8068 yap-mm-app <password>
 #   python tools/mattermost/export.py yap-mm-app tools/mattermost/sample
@@ -10,10 +17,10 @@
 #   docker compose -p yap-mm -f tools/mattermost/docker-compose.yml down -v
 services:
   db:
-    image: postgres:16-alpine
+    image: docker.io/library/postgres:16-alpine
     environment: {POSTGRES_USER: mm, POSTGRES_PASSWORD: mm, POSTGRES_DB: mattermost}
   app:
-    image: mattermost/mattermost-team-edition:10.12.4
+    image: docker.io/mattermost/mattermost-team-edition:10.12.4
     depends_on: [db]
     ports: ["127.0.0.1:8068:8065"]
     container_name: yap-mm-app

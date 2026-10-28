@@ -11,6 +11,7 @@ import.jsonl and data/, replacing what was there.
 
 import io
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -19,12 +20,14 @@ import time
 import zipfile
 from pathlib import Path
 
+# docker, or podman (CONTAINER_ENGINE=podman)
+ENGINE = os.environ.get("CONTAINER_ENGINE", "docker")
 CONTAINER, OUT = sys.argv[1], Path(sys.argv[2])
 
 
 def mmctl(*args):
 	r = subprocess.run(
-		["docker", "exec", CONTAINER, "mmctl", "--local", *args],
+		[ENGINE, "exec", CONTAINER, "mmctl", "--local", *args],
 		capture_output=True,
 		text=True,
 	)
@@ -60,7 +63,7 @@ print(f"exported {name} in {time.monotonic() - started:.0f} s: {job['data']}")
 # The image has no shell or cat, so the file comes out with docker cp.
 mmctl("export", "download", name, "/tmp/yap-export.zip")
 zipped = OUT.parent / "yap-export.zip"
-subprocess.run(["docker", "cp", f"{CONTAINER}:/tmp/yap-export.zip", str(zipped)], check=True, capture_output=True)
+subprocess.run([ENGINE, "cp", f"{CONTAINER}:/tmp/yap-export.zip", str(zipped)], check=True, capture_output=True)
 data = zipped.read_bytes()
 zipped.unlink()
 

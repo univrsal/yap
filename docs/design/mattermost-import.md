@@ -20,7 +20,7 @@ says about the export comes from reading Mattermost's source (master,
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
-| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | open |
+| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | planned: 7a–7g, see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
@@ -170,6 +170,12 @@ What each line carries that we care about (from
   and notification settings.
 - `export.py`: runs the export as an admin would and unpacks it.
 - `extras.py`: what the export misses (above).
+- Under podman (rootless), `docker compose` doesn't work here: the bridge
+  network fails with "create veth pair: Operation not supported". The
+  header of `docker-compose.yml` says how to run the same two containers
+  in a pod with pasta networking, and `CONTAINER_ENGINE=podman` makes
+  `seed.py` and `export.py` use podman. Run that way (2026-10-28), the
+  seed and export gave the same 147 lines as the sample.
 - `sample/`: the result, made up from start to end, as the importer's
   test data. `import.jsonl` has 147 lines (85 posts, 9 direct posts, 8
   users, 3 bots); with `data/` and `extras.jsonl`, 111 KB.
@@ -528,6 +534,140 @@ Plugins' data (Boards, Playbooks, Calls recordings), shared channels,
 data retention policies, OAuth apps, sessions and access tokens,
 preferences besides saved posts, thread following, and everything the
 export leaves out.
+
+## The importer (step 7)
+
+The plan, written 2026-10-28 after steps 1–6, 11, 12 and 13 were built.
+
+### Shape
+
+```
+yap-server import mattermost <export folder> --team <name> [--owner <username>]
+    [--extras <file>] [--passwords <file.csv>] [--dry-run] [--yes] [config.json]
+```
+
+Like the other `yap-server` commands (`account`, `purge`) it works on the
+database of a server that isn't running, through the same `Accounts`,
+`Convs` and `DB` the server uses (`cli_open` in cli_account.odin), so a
+message goes in by the code that posting uses and what the server checks
+when it loads is what the importer wrote.
+
+- **Input is the unpacked export folder** (`import.jsonl`, `data/`, and
+  `extras.jsonl` if it is there; `export.py` unpacks like that). Odin's
+  standard library has no zip reader, so reading the zip itself is a later
+  convenience (a central directory and `core:compress/zlib`'s inflate,
+  about 150 lines), not a part of 7a to 7g.
+- **All or nothing.** One SQLite transaction holds the whole import. If
+  anything fails it rolls back, the database is still the empty one that
+  D5 demands, and the command can be run again. The blob files already
+  written (avatars, later attachments) aren't in the transaction; the
+  importer removes the ones it wrote when it fails, and `purge` would
+  collect any that are left.
+- **An owner.** A server with no accounts makes `admin` when it first
+  starts, which an import prevents by making accounts first, so the
+  importer makes the owner: `--owner <username>` (default: the first
+  `system_admin` in the export) gets `Owner` and, like every imported
+  account, a generated password (D2).
+- **Two passes over the posts.** Posts aren't in time order in the export
+  and ids must follow time. Pass 1 reads every line once and keeps a small
+  index per post (its `create_at`, its channel, where its line is in the
+  file, and for a reply which of the line's `replies` it is): about 32
+  bytes a post, so a million posts take 32 MB. Pass 2 sorts the index and
+  reads the lines back in time order, so memory doesn't grow with the size
+  of the export.
+- **The report.** `--dry-run` does pass 1 and the mapping and stops,
+  printing what would be made and, as warnings, everything that would be
+  changed or dropped: names that had to be changed, text cut to a limit,
+  authors that no longer exist, files over `max_attachment`, more than 512
+  emoji, system posts of a kind that isn't mapped. The real run prints the
+  same and writes it to `import-report.txt`. Nothing is changed or dropped
+  without being in it.
+- **No post ids.** The export doesn't say what a post's Mattermost id was,
+  so permalinks (`/team/pl/<id>`) stay plain text, and everything that
+  belongs to a post (reactions, pins, `flagged_by`) is read from the post's
+  own line.
+
+### Where the code goes
+
+- `src/server/mattermost/`, a package that only reads: the line types
+  (`import_types.go` as Odin structs), a line reader that checks the
+  version and tolerates fields it doesn't know, the index of pass 1, and
+  the pure mapping functions of 7b. It knows nothing about the database, so
+  its tests run on the sample and on made-up lines.
+- `src/server/cli_import.odin`: the command, the report, and the writing
+  (7c onwards), in the server package because it uses the stores.
+- `msg_store` (messages.odin) is split in two: the part that inserts the
+  row and its attachments, and the part that sets the conversation's last
+  message and a DM's `posted` flags, which the importer does once per
+  conversation at the end instead of once per message.
+
+### Sub-steps
+
+Each ends with its tests and a commit, and each leaves a working
+`--dry-run`, so the importer grows in pieces that can be tried on the test
+instance.
+
+| # | What | Size | Tests |
+| --- | --- | --- | --- |
+| 7a | **Reader and report.** The package's types and line reader; the checks that every post names a channel and user that exist; `--dry-run` printing counts, the chosen team's channels and users, what is left out (other teams) and the warnings so far | M | the sample; a truncated line; an unknown version; an unknown line type (skipped with a warning); a post naming a missing channel |
+| 7b | **Mapping rules**, pure: usernames and display names, emails, channel names (display name wins, at most `MAX_CHANNEL_NAME_SIZE`, made unique), topic (header, else purpose), notification settings, the system post table (step 4), reaction emoji names (a map built once: `emoji_by_shortcode` scans the whole emoji table), every limit of step 3 as a clamp that adds a warning | M | one table-driven test per rule, from the sample's own values (`secret`, `old-stuff`, `partyparrot`, the 16 KB post) |
+| 7c | **Accounts.** Accounts, flags (`Disabled`, `Bot`, `Owner`), the Admin role (D6), tombstones for authors who are gone, generated passwords and the CSV (mode 0600), avatars | L | accounts and flags as the table says; the CSV's mode; a second run refused (D5) |
+| 7d | **Channels and members.** Channels (`Private`, `Archived`, `Home`, `Default`, `Text_Only`), DMs, DMs with oneself, groups, memberships with notify and channel admin, the `everyone` rights of a channel with a scheme | M | the sample's channels and direct channels; a group of eight; a member of two teams |
+| 7e | **Messages and threads.** Pass 2: the sorted insert, `thread_root`, `edited`, system posts, the counts of replies and last replies at the end, each conversation's `last_msg`, text as it is (step 9 does the rewrites) | L | ids follow `create_at` across channels; a reply listed before its root; a thread's counts; the 16 KB post; a system post of every mapped kind |
+| 7f | **Reactions, pins, bookmarks.** From each post's own line; reactions of deactivated users; `extras.jsonl`'s `direct_post_reactions`; at most 50 reactions and 1000 pins | S | counts against the sample; a reaction by a user who is gone |
+| 7g | **Read state and the finish.** `read_id` from `last_viewed_at` (see Members), the unread counts, a record in `meta` of what was imported and when, `import-report.txt`, a final check by loading the result the way the server does | M | read positions at, before and after a post's time; the sample imported into a database that a test server serves: history of a channel, a DM, a thread, pins, bookmarks |
+
+Then step 8 (files and emoji, which write blobs and an emoji folder), 9
+(text rewrites, which the messages' text passes through) and 10 (bot and
+webhook posts, with personas) follow on this base, as the table says.
+
+### Testing against a real server
+
+- The unit tests run on `tools/mattermost/sample`, which is committed. The
+  test instance (step 6) makes a fresh export whenever the format of
+  something needs to be looked at again.
+- **A big synthetic export.** The sample has 94 posts. Speed and memory
+  need an export of a size people have: `tools/mattermost/synth.py` writes
+  an `import.jsonl` of any size straight to disk, without a Mattermost (N
+  users, M channels, P posts in random order, threads, reactions), so 1,000
+  users and a million posts can be tried. The aims: pass 1 at the speed of
+  reading the file, the whole import in minutes, memory under 200 MB.
+- **Looking at the result.** After 7g, import the live instance's export,
+  start `yap-server` on it and look at it in the client (off-screen, as the
+  other features were).
+
+### Risks and what isn't known yet
+
+- **Avatars need an image library on the server.** A profile picture is
+  scaled to 256 px and re-encoded as a JPEG under 64 KB. The client does
+  that with `vendor:stb/image` (`avatar_prepare`, client/imaging); the
+  server only has the headers' reader (`imagekind`). Probably the scaling
+  moves to `common` so both use it, or the server links stb as well.
+  Looked at when 7c starts; if it is more than a day's work, avatars
+  become their own small step after 7g.
+- **Hashing takes time.** Argon2id at the server's parameters (19 MiB, two
+  passes) takes tens of milliseconds a password on one thread, so a
+  thousand accounts take about a minute and ten thousand ten (not
+  measured). 7c hashes on several threads (the server's hash worker is one
+  thread, for the server's own reasons) and the report says how many
+  accounts are left.
+- **Channel schemes.** What a channel scheme or a custom role allows (D6,
+  `conv_rights`) hasn't been seen in an export: the test instance's are all
+  defaults (`channel_schemes_exported: 0`). 7d maps the default rights and
+  warns about any scheme it finds, until a real one has been looked at.
+- **Names.** A username Mattermost allows but yap's `username_clean`
+  refuses (a reserved name) must be renamed and the new name reported, and
+  so must the texts that mention it (step 9). `account_delete.odin` shows
+  how a tombstone is made.
+
+### To decide
+
+1. Input as a folder first, the zip later (as above)?
+2. All or nothing in one transaction, with no resuming (as above)? A very
+   large export's transaction is large, though SQLite handles that; the
+   alternative, committing per conversation, can leave a half import that
+   has to be thrown away by hand.
+3. `--owner` defaulting to the first system admin?
 
 ## Group DMs (step 1)
 

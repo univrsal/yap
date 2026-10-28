@@ -35,6 +35,7 @@ Test data only: everything is made up, and the instance runs on localhost.
 """
 
 import json
+import os
 import struct
 import subprocess
 import sys
@@ -44,13 +45,15 @@ import urllib.request
 import uuid
 import zlib
 
+# docker, or podman (CONTAINER_ENGINE=podman)
+ENGINE = os.environ.get("CONTAINER_ENGINE", "docker")
 BASE, CONTAINER, PASSWORD = sys.argv[1], sys.argv[2], sys.argv[3]
 API = BASE + "/api/v4"
 
 
 def mmctl(*args):
 	r = subprocess.run(
-		["docker", "exec", CONTAINER, "mmctl", "--local", *args],
+		[ENGINE, "exec", CONTAINER, "mmctl", "--local", *args],
 		capture_output=True,
 		text=True,
 	)
