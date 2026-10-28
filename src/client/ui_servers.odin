@@ -894,12 +894,26 @@ switch_now :: proc(ui: ^UI) {
 	ui.rail.settings = false
 	dm, group := ui.inbox_open, ui.inbox_open_group
 	ui.inbox_open, ui.inbox_open_group = 0, 0
+	stay := ui.switch_stay
+	ui.switch_stay = false
 	for ns in ui.sessions {
 		if ns == ui.switch_to {
+			// The group picker is each server's, like the rest of the inbox's
+			// state, but it moves along when it is what picked the server.
+			page, picker := ui.page, ui.buddies.picker
+			if stay {
+				ui.buddies.picker.open = false
+			}
 			show_session(ui, ns)
 			// Leave the inbox or the settings, even for the server that is
-			// already shown.
-			if group != 0 {
+			// already shown, unless asked to stay (the group picker picking
+			// the server, from the inbox), where only the conversation that
+			// was open is closed, being the other server's.
+			if stay {
+				ui.page = page
+				ui.buddies.picker = picker
+				ui.buddies.selected, ui.buddies.selected_group = 0, 0
+			} else if group != 0 {
 				open_group(ui, group)
 			} else if dm != 0 {
 				open_conversation(ui, dm)

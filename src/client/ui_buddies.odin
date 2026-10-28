@@ -165,14 +165,14 @@ keep_viewing :: proc(ui: ^UI, conv: proto.Conv_Id, back := false) {
 }
 
 // back_from_dms is the session screen making sure that what it shows is a
-// channel's: after coming back from the buddy screen, or after having been sent
-// there by something else. Call with the View locked.
+// channel's, or our notes: after coming back from the buddy screen, or after
+// having been sent there by something else. Call with the View locked.
 back_from_dms :: proc(ui: ^UI) {
 	v := ui.view
 	if v.viewing == 0 && v.channel == 0 {
 		return // none reported yet
 	}
-	if v.viewing == 0 || viewed_channel(v) == nil {
+	if v.viewing == 0 || (viewed_channel(v) == nil && !viewing_notes(v)) {
 		keep_viewing(ui, 0, back = true)
 	}
 }
@@ -372,10 +372,11 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 	pic_r := mu.Rect{cell.x, cell.y + (cell.h - pic) / 2, pic, pic}
 	b := b
 	switch {
-	case b.group && here:
-		group_picture(ui, b.members.accounts[:b.members.count], pic_r)
 	case b.group:
-		letter_disc(ui, b.members.accounts[0], b.name, pic_r)
+		// The members' icon, the same on every server: the others'
+		// pictures are only known on the shown one.
+		color := ctx.style.colors[.TEXT] if b.online else theme.dim
+		mu.draw_icon(ctx, render.icon_id(.Buddies), pic_r, color)
 	case here:
 		avatar(ui, b.account, pic_r)
 	case:
@@ -471,21 +472,17 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	account := entry.account
 
 	// Their name, and the button that removes a DM from the list (for somebody
-	// who isn't a buddy, where there is something to remove). The DM with
-	// ourselves is always in the list, and has no calls and no groups.
-	can_hide := entry.conv != 0 && !entry.buddy && !entry.self
+	// who isn't a buddy, where there is something to remove).
+	can_hide := entry.conv != 0 && !entry.buddy
 	// The name, then its buttons: up to five (a video call beside the call
 	// where we can send our camera).
-	video := camera_available(v) && !entry.self
+	video := camera_available(v)
 	deleted := .Deleted in (v.accounts[account] or_else {}).flags
-	icons := 0 if entry.conv == 0 else 3 if can_hide else 2
-	if !entry.self {
-		icons += 1
-	}
+	icons := 1 if entry.conv == 0 else 4 if can_hide else 3
 	if video {
 		icons += 1
 	}
-	group_ok := !deleted && !entry.self && .Bot not_in (v.accounts[account] or_else {}).flags
+	group_ok := !deleted && .Bot not_in (v.accounts[account] or_else {}).flags
 	if group_ok {
 		icons += 1
 	}
@@ -507,8 +504,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	} else {
 		mu.layout_row(ctx, widths)
 	}
-	title :=
-		entry.name if entry.buddy || entry.self || deleted else fmt.tprintf("%s  (not a buddy)", entry.name)
+	title := entry.name if entry.buddy || deleted else fmt.tprintf("%s  (not a buddy)", entry.name)
 	if rail_count(ui) > 1 {
 		// Which of the inbox's servers it is on.
 		title = fmt.tprintf(
@@ -520,9 +516,6 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	// How they are and what is going on, at the right end of the line.
 	status := "" if deleted else "here now" if entry.online else last_seen_text(ui, account)
 	status_color := theme.speaking if entry.online else theme.dim
-	if entry.self {
-		status, status_color = "only you see this", theme.dim
-	}
 	if entry.conv != 0 && conn.is_typing(v, account, entry.conv) {
 		status = "typing..."
 	} else if entry.conv != 0 && conn.is_typing_in_thread(v, account, entry.conv) {
@@ -543,8 +536,7 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 	}
 	header_line(ctx, mu.layout_next(ctx), title, ctx.style.colors[.TEXT], "", status, status_color)
 	// Calling them, while they are online and we are in no call.
-	if entry.self {
-	} else if !deleted && may_call(v, account) {
+	if !deleted && may_call(v, account) {
 		if .SUBMIT in icon_button(ui, "dm call", .Phone, "Call") {
 			call_account(ui, account)
 		}
@@ -623,11 +615,6 @@ conversation :: proc(ui: ^UI, entry: Buddy_Entry, found: bool, back: bool) {
 		extra   = dm_file_button,
 		data    = &file_to,
 		dm_to   = account,
-	}
-	if entry.self {
-		// Offering a file sends it from this device to someone else's, so
-		// there is nobody to offer it to. Attaching one works as anywhere.
-		bar.extra, bar.data = nil, nil
 	}
 	if v.viewing == entry.conv && entry.conv != 0 {
 		bar.typing = conn.Typing_Command{}
@@ -812,11 +799,7 @@ no_conversation_yet :: proc(ui: ^UI, entry: Buddy_Entry) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
-	if entry.self {
-		dim_label(ctx, "Notes, links and files to keep: what you write here, only you see.")
-	} else {
-		dim_label(ctx, fmt.tprintf("Nothing said with %s yet.", entry.name))
-	}
+	dim_label(ctx, fmt.tprintf("Nothing said with %s yet.", entry.name))
 }
 
 // ask_last_seen asks a server when those in its part of the inbox who
@@ -827,7 +810,7 @@ ask_last_seen :: proc(ui: ^UI, ns: ^Net_Session, list: []Buddy_Entry) {
 	cmd: conn.Last_Seen_Command
 	online := 0
 	for b in list {
-		if b.group || b.self {
+		if b.group {
 			continue
 		}
 		if b.online {

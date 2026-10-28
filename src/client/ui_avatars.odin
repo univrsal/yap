@@ -77,21 +77,6 @@ picture :: proc(ui: ^UI, account: proto.Account_Id, r: mu.Rect) {
 	disc_letter(ui, r, color, acc.display if known && !deleted else "")
 }
 
-// group_picture draws a group's picture in `r` (a square): the pictures of
-// two of its members, smaller and overlapping, or of one if there is only one.
-// Call with the View locked.
-group_picture :: proc(ui: ^UI, members: []proto.Account_Id, r: mu.Rect) {
-	if len(members) < 2 {
-		if len(members) == 1 {
-			picture(ui, members[0], r)
-		}
-		return
-	}
-	side := r.w * 7 / 10
-	picture(ui, members[1], {r.x + r.w - side, r.y + r.h - side, side, side})
-	picture(ui, members[0], {r.x, r.y, side, side})
-}
-
 // letter_disc draws an account's disc and letter from its name, without
 // looking the account up in the View. It is for accounts on a server that isn't
 // shown, whose picture isn't available.

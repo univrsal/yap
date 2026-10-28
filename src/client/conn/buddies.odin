@@ -60,6 +60,10 @@ DM_Command :: struct {
 	text:    string, // owned by the command
 }
 
+// Looks at our notes, the DM with ourselves, opening it first if there is
+// none yet.
+Notes_Command :: struct {}
+
 // Opens the group of us and some others, creating it if there is none. The
 // others are given as accounts, or as names separated by commas if there are no
 // accounts (headless), and they must be 2 to proto.MAX_GROUP_MEMBERS - 1.
@@ -285,6 +289,35 @@ group_command :: proc(c: ^Server_Conn, cmd: Group_Command) {
 			}
 			conv, ok := proto.decode_conv_id(body)
 			if ok && c.view == nil && conv in c.convs.convs {
+				conv_view(c, conv)
+			}
+		},
+	)
+}
+
+// notes_command looks at the DM with ourselves, asking the server to open it
+// if we have none yet. The server tells us about it before it answers.
+notes_command :: proc(c: ^Server_Conn) {
+	if conv := dm_with(c, c.auth.me); conv != 0 {
+		conv_view(c, conv)
+		return
+	}
+	buf: [4]u8
+	request(
+		c,
+		.DM_Open,
+		proto.encode_account_id(&buf, c.auth.me),
+		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
+			#partial switch status {
+			case .Ok:
+			case .Reset:
+				return
+			case:
+				log.warnf("the server failed to open your notes (%v)", status)
+				return
+			}
+			conv, ok := proto.decode_conv_id(body)
+			if ok && conv in c.convs.convs {
 				conv_view(c, conv)
 			}
 		},

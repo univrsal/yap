@@ -458,10 +458,14 @@ Built (2026-10-28):
   offered there (an offer goes to someone else's device); attachments
   work. Nothing else needed changing: one's own posts are never unread,
   and pushes and mentions already skip the poster.
-- The client: the inbox always has an entry for oneself on each server,
-  "Name (you)", whether or not the DM exists yet; the first note creates
-  it, as a first message to anyone else does. It can't be hidden, and its
-  header has no calls, no starting a group and no file button.
+- The client: "Notes to self" at the top of each server's channel list,
+  so it is clear which server the notes are on (the inbox mixes all
+  servers). Clicking it opens the DM the first time. The chat shows it
+  like a channel, with pins, files and search but no members or voice.
+  The inbox leaves it out.
+- The group picker got a server dropdown (with more than one server):
+  picking a server switches to it without leaving the inbox, so the
+  search goes through that server's people.
 - The gateway: `POST /dms` with one's own account; the DM's `recipient`
   is then oneself.
 - The protocol version stays 16, which nothing has been released with.

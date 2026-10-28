@@ -198,6 +198,7 @@ UI :: struct {
 	// switch_now.
 	switch_to:           ^Net_Session,
 	switching:           bool,
+	switch_stay:         bool, // stay on the page we're on (see switch_now)
 	// Connecting and disconnecting wait on the network thread, which may be
 	// waiting on the View lock, so they happen after the layout, not during it.
 	action:              Action,

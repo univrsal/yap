@@ -65,6 +65,22 @@ CHANNELS_WINDOW :: "Join a channel"
 @(private = "file")
 JOIN_BUTTON :: 80
 
+// notes_conv is our notes on the shown server, the DM with ourselves, or 0 if
+// we have none yet. Call with the View locked.
+notes_conv :: proc(v: ^conn.View) -> proto.Conv_Id {
+	for dm in v.dms {
+		if dm.count == 0 && dm.with == v.me && v.me != 0 {
+			return dm.id
+		}
+	}
+	return 0
+}
+
+// viewing_notes is whether the chat shows our notes. Call with the View locked.
+viewing_notes :: proc(v: ^conn.View) -> bool {
+	return v.viewing != 0 && v.viewing == notes_conv(v)
+}
+
 // viewed_channel is the channel whose chat is showing, or nil. Call
 // with the View locked.
 viewed_channel :: proc(v: ^conn.View) -> ^conn.View_Channel {
@@ -134,7 +150,9 @@ channel_list :: proc(ui: ^UI) {
 }
 
 // channel_rows is a row for each of our channels in the list, each followed
-// by the people in its voice room. Call with the View locked.
+// by the people in its voice room, under the row for our notes: the DM with
+// ourselves on this server, which only we see. It is opened the first time
+// it is clicked. Call with the View locked.
 @(private = "file")
 channel_rows :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -149,6 +167,17 @@ channel_rows :: proc(ui: ^UI) {
 		ctx.text_height(render.LIST_FONT) + 2 * CHANNEL_ROW_PADDING,
 		ctx.style.size.y + 2 * ctx.style.padding,
 	)
+	if len(v.channels) > 0 {
+		mu.layout_row(ctx, {-1}, row_h)
+		saved_font := ctx.style.font
+		ctx.style.font = render.LIST_FONT
+		viewing := viewing_notes(v) && !ui.narrow
+		clicked := .SUBMIT in list_row(ctx, "notes", NOTES_NAME, viewing, accent = true)
+		ctx.style.font = saved_font
+		if clicked {
+			view_notes(ui, v)
+		}
+	}
 	for ch in v.channels {
 		mu.push_id(ctx, uintptr(ch.id))
 		defer mu.pop_id(ctx)
@@ -192,13 +221,19 @@ channel_rows :: proc(ui: ^UI) {
 	}
 }
 
+// NOTES_NAME is what our notes are called in the channel list and the header.
+@(private = "file")
+NOTES_NAME :: "Notes to self"
+
 // conversation_header is the line above the chat: which channel it is, the
 // button for its pinned messages, and the one for its voice room. In a
-// narrow window it also leads back to the list. Call with the View locked.
+// narrow window it also leads back to the list. Our notes have no members to
+// show and no voice room. Call with the View locked.
 conversation_header :: proc(ui: ^UI, narrow: bool) {
 	ctx := &ui.ctx
 	v := ui.view
 	ch := viewed_channel(v)
+	notes := ch == nil && viewing_notes(v)
 
 	// The members' button is not there while they are pinned down the side,
 	// and neither is the search's, which is a box above them then
@@ -209,6 +244,9 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	in_it := ch != nil && v.my_room == ch.id
 	voice := ch != nil && (.Voice in ch.rights || in_it)
 	buttons: i32 = 2 + (0 if pinned else 2) + (1 if voice else 0)
+	if notes {
+		buttons = 2 + (0 if pinned else 1)
+	}
 	right := buttons * icon_button_w(ctx) + buttons * ctx.style.spacing + 1
 	widths := make([dynamic]i32, context.temp_allocator)
 	if narrow {
@@ -226,7 +264,7 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	if narrow && .SUBMIT in icon_button(ui, "to list", .Back, "Channels") {
 		ui.channels.show_list = true
 	}
-	if ch == nil {
+	if ch == nil && !notes {
 		for _ in 0 ..< buttons + 1 {
 			mu.label(ctx, "")
 		}
@@ -237,11 +275,30 @@ conversation_header :: proc(ui: ^UI, narrow: bool) {
 	// The name and the topic (not in a narrow window, where the list is a
 	// button away), and what is going on.
 	status, status_color := chat_status(ui)
-	if narrow {
+	switch {
+	case narrow:
 		header_line(ctx, mu.layout_next(ctx), "", {}, "", status, status_color)
-	} else {
+	case notes:
+		header_line(
+			ctx,
+			mu.layout_next(ctx),
+			NOTES_NAME,
+			theme.viewing,
+			"Only you see this",
+			status,
+			status_color,
+		)
+	case:
 		name := fmt.tprintf("# %s", ch.name)
 		header_line(ctx, mu.layout_next(ctx), name, theme.viewing, ch.topic, status, status_color)
+	}
+	if notes {
+		pins_button(ui)
+		files_button(ui)
+		if !pinned {
+			search_button(ui)
+		}
+		return
 	}
 	if !pinned {
 		members_button(ui)
@@ -297,6 +354,16 @@ view_channel :: proc(ui: ^UI, v: ^conn.View, ch: conn.View_Channel) {
 		}
 	}
 	// In a narrow window, picking a channel is also how to get to it.
+	ui.channels.show_list = false
+}
+
+// view_notes shows our notes on the shown server, as clicking them in the list
+// does. Call with the View locked.
+view_notes :: proc(ui: ^UI, v: ^conn.View) {
+	if !viewing_notes(v) {
+		log.debug("ui: view notes")
+		command(ui, conn.Notes_Command{})
+	}
 	ui.channels.show_list = false
 }
 

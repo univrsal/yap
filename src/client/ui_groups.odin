@@ -1,6 +1,7 @@
 package client
 
 import "core:slice"
+import "core:strings"
 import "core:sync"
 import mu "vendor:microui"
 
@@ -10,7 +11,10 @@ import "common:proto"
 // Starting a group (see conn/buddies.odin): New group... at the top of the
 // inbox's list, or Add people... in a DM's header, opens a window in which the
 // others are picked: 2 to proto.MAX_GROUP_MEMBERS - 1 of them, found by name
-// as in a channel's settings. Start opens the group of them (Group_Open), the
+// as in a channel's settings. A group is on one server, with people from it,
+// so with more than one server the window first says which: the shown one,
+// which picking another switches to (without leaving the inbox). Who was
+// picked so far is forgotten then, being people of the other server. Start opens the group of them (Group_Open), the
 // existing one if there is one, and the inbox shows it as soon as the server
 // has told us about it (see group_wanted_check). Nobody else sees the group
 // until something is written in it.
@@ -21,6 +25,7 @@ import "common:proto"
 UI_Group_Picker :: struct {
 	open:    bool,
 	placed:  bool,
+	ns:      ^Net_Session, // the server the people picked are on
 	chosen:  [proto.MAX_GROUP_MEMBERS - 1]proto.Account_Id,
 	count:   int,
 	members: Pager,
@@ -36,6 +41,7 @@ open_group_picker :: proc(ui: ^UI, with: proto.Account_Id = 0) {
 	p := &ui.buddies.picker
 	p^ = {
 		open = true,
+		ns   = ui.session,
 	}
 	if with != 0 {
 		p.chosen[0], p.count = with, 1
@@ -50,11 +56,38 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		return
 	}
 	ctx := &ui.ctx
+	// The servers there are to pick from, before the shown one's View is
+	// locked, since each is locked in turn to see.
+	servers := make([dynamic]Dropdown_Item, context.temp_allocator)
+	server_of := make([dynamic]^Net_Session, context.temp_allocator)
+	current := 0
+	for ns in ui.sessions {
+		if ns.joining {
+			continue
+		}
+		sv := &ns.view
+		sync.lock(&sv.mutex)
+		if inbox_ready(sv) {
+			if ns == ui.session {
+				current = len(servers)
+			}
+			name := sv.server_name if sv.server_name != "" else ns.server
+			append(&servers, Dropdown_Item{label = strings.clone(name, context.temp_allocator)})
+			append(&server_of, ns)
+		}
+		sync.unlock(&sv.mutex)
+	}
 	v := ui.view
 	sync.guard(&v.mutex)
 	if ui.session == nil || v.status != .Connected {
 		p.open = false
 		return
+	}
+	// Shown another server since (here or elsewhere): its people are others.
+	if p.ns != ui.session {
+		p.ns = ui.session
+		p.count = 0
+		p.members.find.len, p.adding.find.len = 0, 0
 	}
 	if !p.placed {
 		p.placed = true
@@ -87,6 +120,22 @@ group_picker_window :: proc(ui: ^UI, window_w, window_h: i32) {
 	mu.layout_row(ctx, {-1})
 	dim_label(ctx, "You and 2 to 7 others. Who is in a group can't be changed later.")
 	mu.label(ctx, "")
+	if len(servers) > 1 {
+		mu.layout_row(ctx, {80, -1})
+		mu.label(ctx, "Server")
+		if i, picked := dropdown(
+			ui,
+			"group server",
+			servers[current].label,
+			servers[:],
+			current,
+			"Which server the group is on, whose people you pick from",
+		); picked && i != current && !ui.switching {
+			ui.switch_to, ui.switching, ui.switch_stay = server_of[i], true, true
+		}
+		mu.layout_row(ctx, {-1})
+		mu.label(ctx, "")
+	}
 	mu.label(ctx, "In it besides you")
 	if p.count == 0 {
 		mu.layout_row(ctx, {-1})
