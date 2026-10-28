@@ -154,6 +154,7 @@ import_directs :: proc(im: ^Importer) -> bool {
 	s := im.scan
 	c := im.convs
 	im.direct_list = make([]^Conv, len(s.directs), virtual.arena_allocator(&im.arena))
+	im.direct_keys = make([]string, len(s.directs), virtual.arena_allocator(&im.arena))
 	progress := progress_start("making direct conversations")
 	for d, i in s.directs {
 		progress_update(&progress, i64(i), i64(len(s.directs)))
@@ -192,6 +193,7 @@ import_directs :: proc(im: ^Importer) -> bool {
 		}
 		im.directs[strings.clone(key, virtual.arena_allocator(&im.arena))] = conv
 		im.direct_list[i] = conv
+		im.direct_keys[i] = strings.clone(key, virtual.arena_allocator(&im.arena))
 		for p in d.participants {
 			notify := mattermost.notify_of(p.notify_props)
 			if notify != .All && !conv_set_notify(c, conv, im.ids[p.username], notify) {

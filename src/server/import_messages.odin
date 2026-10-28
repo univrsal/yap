@@ -49,6 +49,8 @@ import_messages :: proc(im: ^Importer) -> bool {
 	progress.done = i64(len(refs))
 	progress_finish(&progress)
 
+	import_limits(im) or_return
+
 	// What the messages add up to: each thread's replies and last reply, and each
 	// conversation's last message.
 	for _, root in im.roots {
@@ -180,6 +182,9 @@ import_message :: proc(
 		}
 		m.kind = .Text
 		m.text = text
+		if body.is_pinned {
+			m.flags += {.Pinned}
+		}
 	}
 
 	// A reply belongs to its post's thread, if that was imported.
@@ -199,5 +204,144 @@ import_message :: proc(
 	}
 	conv.last_msg, conv.last_time = m.id, m.time
 	im.messages += 1
+	if m.kind == .Text {
+		return import_extras(im, ref, body, m, conv)
+	}
 	return true
+}
+
+// import_extras writes what hangs on a message: its reactions, its pin and the
+// accounts that saved it (D15).
+@(private = "file")
+import_extras :: proc(
+	im: ^Importer,
+	ref: mattermost.Post_Ref,
+	body: mattermost.Post_Body,
+	m: proto.Message,
+	conv: ^Conv,
+) -> bool {
+	s := im.scan
+	a := virtual.arena_allocator(&s.arena)
+
+	// Reactions: those of the post, and for the first post of a direct channel
+	// the ones that extras.jsonl has, which the export leaves out.
+	reactions := body.reactions
+	if ref.direct && ref.reply < 0 && len(s.extra_reactions) > 0 {
+		key := mattermost.extra_key(im.direct_keys[ref.conv], body.user, body.create_at)
+		if extra, found := s.extra_reactions[key]; found {
+			reactions = extra
+		}
+	}
+	// A message has at most MAX_REACTIONS different emoji, and an account
+	// counts once for each, however many names of it it used (`+1` and
+	// `thumbsup` are one emoji).
+	different := make(map[string]bool, context.temp_allocator)
+	for r in reactions {
+		account, known := im.ids[r.user]
+		if !known {
+			mattermost.note_once(s, .Reaction_User_Gone, r.user, a)
+			continue
+		}
+		emoji, result := mattermost.map_reaction(
+			&s.plan.emoji,
+			r.emoji_name,
+			context.temp_allocator,
+		)
+		if result == .Unknown {
+			continue // said by the plan
+		}
+		if emoji not_in different {
+			if len(different) >= proto.MAX_REACTIONS {
+				mattermost.note(s, .Reactions_Cut, emoji, a)
+				continue
+			}
+			different[emoji] = true
+		}
+		q := db_query(im.db, .React_Add, i64(m.id), emoji, i64(account), r.create_at)
+		if !db_run(im.db, q) {
+			log.errorf("could not write a reaction to a message of %s", body.user)
+			return false
+		}
+	}
+
+	// A pin. Who pinned it isn't in the export, so the author did.
+	if .Pinned in m.flags {
+		q := db_query(im.db, .Pin_Add, i64(conv.id), i64(m.id), i64(m.sender), i64(m.time))
+		if !db_run(im.db, q) {
+			log.error("could not write a pin")
+			return false
+		}
+	}
+
+	// Saved posts become bookmarks, at the post's own time: the export doesn't
+	// say when it was saved.
+	for name in body.flagged_by {
+		account, known := im.ids[name]
+		if !known {
+			mattermost.note_once(s, .Saved_User_Gone, name, a)
+			continue
+		}
+		q := db_query(im.db, .Bookmark_Add, i64(account), i64(m.id), i64(m.time))
+		if !db_run(im.db, q) {
+			log.error("could not write a bookmark")
+			return false
+		}
+	}
+	return true
+}
+
+// import_limits keeps to what yap allows once all the messages are there: at
+// most MAX_PINS pins in a conversation and MAX_BOOKMARKS saved posts for an
+// account, the newest of them. A message that loses its pin is no longer
+// marked as pinned.
+@(private = "file")
+import_limits :: proc(im: ^Importer) -> bool {
+	s := im.scan
+	a := virtual.arena_allocator(&s.arena)
+	count :: proc(im: ^Importer, sql: string) -> i64 {
+		n, _ := db_pragma_int(im.db, sql)
+		return n
+	}
+	// The pins and saved posts beyond the limits, newest first.
+	ok := db_exec(
+		im.db,
+		fmt.tprintf(
+			`CREATE TEMP TABLE over_pins AS SELECT conv, message FROM (SELECT conv, message, row_number() OVER (PARTITION BY conv ORDER BY time DESC, message DESC) AS n FROM pins) WHERE n > %d;
+			CREATE TEMP TABLE over_bookmarks AS SELECT account, message FROM (SELECT account, message, row_number() OVER (PARTITION BY account ORDER BY time DESC, message DESC) AS n FROM bookmarks) WHERE n > %d`,
+			proto.MAX_PINS,
+			proto.MAX_BOOKMARKS,
+		),
+	)
+	if !ok {
+		log.error("could not look for pins and saved posts over the limits")
+		return false
+	}
+	pins := count(im, "SELECT count(*) FROM over_pins")
+	bookmarks := count(im, "SELECT count(*) FROM over_bookmarks")
+	if pins > 0 {
+		ok = db_exec(
+			im.db,
+			"UPDATE messages SET flags = flags & ~2 WHERE id IN (SELECT message FROM over_pins); DELETE FROM pins WHERE message IN (SELECT message FROM over_pins)",
+		)
+		for _ in 0 ..< pins {
+			mattermost.note(s, .Pins_Cut, "pins of a conversation", a)
+		}
+	}
+	if ok && bookmarks > 0 {
+		ok = db_exec(
+			im.db,
+			"DELETE FROM bookmarks WHERE (account, message) IN (SELECT account, message FROM over_bookmarks)",
+		)
+		for _ in 0 ..< bookmarks {
+			mattermost.note(s, .Bookmarks_Cut, "saved posts of an account", a)
+		}
+	}
+	db_exec(im.db, "DROP TABLE over_pins; DROP TABLE over_bookmarks")
+	im.reactions = int(count(im, "SELECT count(*) FROM reactions"))
+	im.pins = int(count(im, "SELECT count(*) FROM pins"))
+	im.bookmarks = int(count(im, "SELECT count(*) FROM bookmarks"))
+	if !ok {
+		log.error("could not keep pins and saved posts to the limits")
+	}
+	return ok
 }

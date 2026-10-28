@@ -250,11 +250,14 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 	db_commit(&db)
 	made := len(scan.plan.accounts) + len(scan.authors_gone)
 	fmt.printfln(
-		"\nmade %d accounts, %d channels, %d direct conversations and %d messages. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
+		"\nmade %d accounts, %d channels, %d direct conversations and %d messages, with %d reactions, %d pins and %d saved posts. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
 		made,
 		len(scan.channels),
 		len(scan.directs),
 		im.messages,
+		im.reactions,
+		im.pins,
+		im.bookmarks,
 		csv,
 	)
 	return 0

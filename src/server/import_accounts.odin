@@ -49,8 +49,13 @@ Importer :: struct {
 	directs:     map[string]^Conv,
 	// The same direct conversations in the order of the scan's direct channels.
 	direct_list: []^Conv,
+	// The key of each of the scan's direct channels (mattermost.direct_key).
+	direct_keys: []string,
 	// What import_messages made.
 	messages:    int,
+	reactions:   int,
+	pins:        int,
+	bookmarks:   int,
 	// A thread's first post by where its line is: the message it became.
 	roots:       map[i64]proto.Msg_Id,
 	// Where the passwords were written, once they were.

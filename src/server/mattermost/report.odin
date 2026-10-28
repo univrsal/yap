@@ -77,6 +77,16 @@ issue_text :: proc(kind: Issue_Kind) -> string {
 		return "replies whose first post wasn't imported; they are messages of their own"
 	case .Post_Failed:
 		return "posts that couldn't be read or written; left out"
+	case .Reaction_User_Gone:
+		return "people who reacted but aren't imported; those reactions are left out"
+	case .Reactions_Cut:
+		return "reactions left out, as a message can have 50 different emoji"
+	case .Saved_User_Gone:
+		return "people who saved posts but aren't imported; those are left out"
+	case .Pins_Cut:
+		return "pins left out, as a conversation can have 1000; the newest are kept"
+	case .Bookmarks_Cut:
+		return "saved posts left out, as one can have 1000; the newest are kept"
 	case .Channel_Scheme:
 		return(
 			"channels with a scheme, whose rights aren't imported: everyone may do everything there" \

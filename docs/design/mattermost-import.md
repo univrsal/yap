@@ -20,7 +20,7 @@ says about the export comes from reading Mattermost's source (master,
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
-| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a–7e built, 7f–7g to go, see The importer |
+| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a–7f built, 7g to go, see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
@@ -940,6 +940,43 @@ positions.
 Speed: 603,000 posts and replies (made up, 120,000 threads, 150 MB) in 38 s
 in an unoptimised build, 15,700 a second, with 155 MB in use at most. A million
 would be a minute and a half.
+
+### 7f: reactions, pins and saved posts (built 2026-10-28)
+
+In the same loop as the messages (`import_extras` in import_messages.odin),
+since they hang on a message that was just written:
+
+- **Reactions.** Each name goes through `map_reaction` (7b): `thumbsup` and
+  `+1` are the one emoji, so someone who used both has one reaction (the
+  table's key is the message, the emoji and the account); a custom emoji is
+  `:name:`, which shows as text until step 8 makes the emoji; a name that
+  isn't known is left out (the plan said so). The time is the reaction's own.
+  The two reactions that the export leaves out (to the first post of a DM or
+  group, `extras.jsonl`) are kept by the scan under the post's direct channel,
+  author and time (`extra_key`), and written with that post.
+- **Pins.** The post is marked pinned and has a row in `pins`, with its time,
+  by its author (who pinned it is not in the export). Of a conversation's pins
+  only the newest 1000 are kept (`MAX_PINS`), and a message that loses its pin
+  stops being marked as pinned; it is reported, not silent.
+- **Saved posts** (`flagged_by`) are bookmarks (D15) at the post's own time,
+  the newest 1000 of each account (`MAX_BOOKMARKS`).
+- **Who isn't imported** can't have reacted or saved anything: those are left
+  out, once for each name in the report. Only the first 50 different emoji of a
+  message are kept (`MAX_REACTIONS`).
+- Pins and saved posts are made as written and cut once the messages are all
+  there (one set-based statement each, with a window function), which is the
+  only way to know which are the newest. The counts printed at the end come
+  from the database.
+
+Tested on the sample (8 reactions of the 9 listed, the ninth being carol's
+second thumbs up; the pinned post with its pin by its author and its two
+bookmarks; the two reactions from extras.jsonl on the first posts of a DM and
+a group), and on a made-up export: 1005 pinned and saved posts (the newest
+1000 are kept and the others are told of), one message with 55 different emoji
+(50 kept), a reaction by someone who isn't imported, a name that isn't an
+emoji, and a save by someone who isn't imported. 2 new tests (180). Looked at
+in the client as an imported user: "pinned" and "bookmarked" on the post and
+its reactions 👍 2, ❤ 1, :partyparrot: 1.
 
 ## Group DMs (step 1)
 

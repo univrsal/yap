@@ -14,7 +14,6 @@ it_all :: proc(t: ^testing.T, it: ^Import_Test) {
 }
 
 // it_message reads the message that an id selecting query finds.
-@(private = "file")
 it_message :: proc(it: ^Import_Test, sql: string) -> (m: proto.Message, ok: bool) {
 	id, rc := db_pragma_int(&it.db, sql)
 	if rc != 0 || id == 0 {

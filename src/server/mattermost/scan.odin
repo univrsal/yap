@@ -60,6 +60,11 @@ Issue_Kind :: enum {
 	System_Skipped, // a system post that couldn't be made one: who it was done to is not imported
 	Thread_Root_Missing, // a reply whose first post wasn't imported; it is a message of its own
 	Post_Failed, // a post that couldn't be read or written
+	Reaction_User_Gone, // reactions by someone who isn't imported; left out
+	Reactions_Cut, // reactions beyond yap's limit of different emoji on a message
+	Saved_User_Gone, // a post saved by someone who isn't imported
+	Pins_Cut, // pins beyond the limit of a conversation; the oldest are not kept
+	Bookmarks_Cut, // saved posts beyond the limit of an account; the oldest are not kept
 	// Found by the writing steps:
 	Group_Too_Big, // a group message of more people than yap's groups have; left out, with its posts
 	Guest_Disabled, // a guest, which yap has no kind of account for; made disabled
@@ -107,44 +112,47 @@ Stats :: struct {
 // Scan is the result of pass 1. Everything in it is allocated from its own
 // arena, so scan_destroy frees it all.
 Scan :: struct {
-	arena:         virtual.Arena,
-	dir:           string,
-	team:          string,
-	info:          Version_Info,
-	teams:         [dynamic]Team,
-	team_found:    bool,
-	channels:      [dynamic]Channel, // of the team
-	channel_index: map[string]int, // by name
-	users:         [dynamic]User, // all, but with the memberships of the team only
-	user_index:    map[string]int,
-	members:       map[string]bool, // usernames of the team's members
-	bots:          [dynamic]Bot,
-	bot_index:     map[string]int,
-	directs:       [dynamic]Direct_Channel, // those whose members are all imported
-	direct_index:  map[string]int, // by direct_key
-	directs_left:  int, // direct channels with a member who isn't imported
-	left_out:      map[string]bool, // the keys of those
-	posts:         [dynamic]Post_Ref,
-	emoji:         [dynamic]Emoji,
-	stats:         Stats,
-	issues:        [Issue_Kind]Issue,
-	lines:         int, // read, in both files
+	arena:           virtual.Arena,
+	dir:             string,
+	team:            string,
+	info:            Version_Info,
+	teams:           [dynamic]Team,
+	team_found:      bool,
+	channels:        [dynamic]Channel, // of the team
+	channel_index:   map[string]int, // by name
+	users:           [dynamic]User, // all, but with the memberships of the team only
+	user_index:      map[string]int,
+	members:         map[string]bool, // usernames of the team's members
+	bots:            [dynamic]Bot,
+	bot_index:       map[string]int,
+	directs:         [dynamic]Direct_Channel, // those whose members are all imported
+	direct_index:    map[string]int, // by direct_key
+	directs_left:    int, // direct channels with a member who isn't imported
+	left_out:        map[string]bool, // the keys of those
+	posts:           [dynamic]Post_Ref,
+	emoji:           [dynamic]Emoji,
+	stats:           Stats,
+	issues:          [Issue_Kind]Issue,
+	lines:           int, // read, in both files
 	// Names already reported as authors without a membership or a user line.
-	reported:      map[string]bool,
+	reported:        map[string]bool,
 	// The people who wrote in the team's channels without being members, in
 	// the order they were first seen (see check_author).
-	authors_only:  [dynamic]string,
+	authors_only:    [dynamic]string,
 	// Those who wrote something but have no user line at all, in the order
 	// they were first seen.
-	authors_gone:  [dynamic]string,
-	has_extras:    bool, // extras.jsonl was read
-	plan:          Plan, // filled in by build_plan
+	authors_gone:    [dynamic]string,
+	has_extras:      bool, // extras.jsonl was read
+	plan:            Plan, // filled in by build_plan
 	// Every change of a channel's privacy, and which way each went (see
 	// resolve_privacy_changes).
-	privacy:       [dynamic]Privacy_Change,
-	privacy_dir:   map[Privacy_Key]bool, // true: made private
+	privacy:         [dynamic]Privacy_Change,
+	privacy_dir:     map[Privacy_Key]bool, // true: made private
+	// The reactions that extras.jsonl adds to the first post of direct
+	// channels, by extra_key.
+	extra_reactions: map[string][]Reaction,
 	// What made the scan stop, as a sentence (see scan_file).
-	fatal:         string,
+	fatal:           string,
 }
 
 // Options is how a scan is asked for.
@@ -199,6 +207,7 @@ scan :: proc(opts: Options) -> (s: ^Scan, err: string) {
 	s.authors_only.allocator = a
 	s.authors_gone.allocator = a
 	s.privacy.allocator = a
+	s.extra_reactions = make(map[string][]Reaction, a)
 	s.privacy_dir = make(map[Privacy_Key]bool, a)
 	for &i in s.issues {
 		i.examples.allocator = a
@@ -429,7 +438,6 @@ note :: proc(s: ^Scan, kind: Issue_Kind, example: string, a: Allocator) {
 }
 
 // note_once is note for a name, which is only counted the first time.
-@(private = "file")
 note_once :: proc(s: ^Scan, kind: Issue_Kind, name: string, a: Allocator) -> (first: bool) {
 	key := fmt.tprintf("%d:%s", int(kind), name)
 	if key in s.reported {
@@ -695,7 +703,20 @@ scan_extra_reactions :: proc(s: ^Scan, r: Direct_Post_Reactions) {
 		for x in r.reactions {
 			count_reaction_name(s, x.emoji_name, a)
 		}
+		// Kept for the post that they belong to (see extra_key).
+		kept := make([]Reaction, len(r.reactions), a)
+		for x, i in r.reactions {
+			kept[i] = {strings.clone(x.user, a), strings.clone(x.emoji_name, a), x.create_at}
+		}
+		s.extra_reactions[strings.clone(extra_key(key, r.user, r.create_at), a)] = kept
 	}
+}
+
+// extra_key names a direct channel's first post, which the export gives no
+// reactions, as extras.jsonl does: the channel's key (direct_key), who wrote it
+// and when.
+extra_key :: proc(direct: string, user: string, create_at: i64) -> string {
+	return fmt.tprintf("%s|%s|%d", direct, user, create_at)
 }
 
 // check_file notes a file that `path` names (relative to data/) if it isn't there.
