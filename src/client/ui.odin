@@ -279,8 +279,11 @@ UI :: struct {
 	focus_thread:        int, // which composer: Composer.thread
 	// People's pictures (ui_avatars.odin).
 	avatars:             UI_Avatars,
-	// Whether the last frame was laid out narrow. In that case an open thread takes
-	// the place of the conversation instead of floating over it (see ui_threads.odin).
+	// Whether this frame is laid out narrow, as layout works out before drawing
+	// anything. Then the list and the conversation take turns, an open thread
+	// takes the place of the conversation instead of floating over it (see
+	// ui_threads.odin), and who we are and mute and deafen are in the rail
+	// instead of the voice panel (see rail_bottom).
 	narrow:              bool,
 	// Whether controls are sized for a finger (see style_apply): in a narrow
 	// window, or once a touch screen has been used (web, ui_touch_web.odin).
@@ -446,6 +449,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	// The server rail down the left (see ui_servers.odin), and one window
 	// that always fills the rest of the OS window.
 	rail := rail_width(ui)
+	ui.narrow = w - rail < NARROW_LAYOUT
 	server_rail(ui, h)
 	rail_menu(ui)
 	if cnt := mu.get_container(ctx, "yap"); cnt != nil {
@@ -731,8 +735,7 @@ session_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	body := mu.get_current_container(ctx).body
-	narrow := body.w < NARROW_LAYOUT
-	ui.narrow = narrow
+	narrow := ui.narrow
 	ui.profiles.members_pinned = body.w >= MEMBERS_PIN_LAYOUT
 
 	screen_tab_follow(ui)
@@ -754,7 +757,8 @@ session_screen :: proc(ui: ^UI) {
 	}
 
 	// Side by side where there is room. In a narrow window the list and
-	// the chat take turns (see ui_channels.odin), over the voice panel.
+	// the chat take turns (see ui_channels.odin), over the voice panel if it
+	// has anything to show.
 	if narrow {
 		mu.layout_row(ctx, {-1}, -(voice_panel_height(ui) + 1))
 		if ui.channels.show_list {

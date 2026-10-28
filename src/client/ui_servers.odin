@@ -574,6 +574,12 @@ inbox_icon :: proc(ui: ^UI) {
 // connection is doing (ui_connection.odin) and has the settings button, which
 // opens and closes the settings. Neither belongs to one conversation, and
 // neither scrolls away with the rail's servers.
+//
+// In a narrow window, where the voice panel leaves them out to give the
+// messages the height, our picture (which sets our status) and the mute and
+// deafen buttons are above those, from the top:
+//
+//	(pic)  [mic]  [speaker]  bars  [settings]
 @(private = "file")
 rail_bottom :: proc(ui: ^UI, h: i32) {
 	ctx := &ui.ctx
@@ -582,12 +588,22 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 	if ui.session != nil && !ui.session.joining {
 		v := ui.view
 		sync.guard(&v.mutex)
-		mu.layout_set_next(
-			ctx,
-			{x, settings_y - ICON_BUTTON - ctx.style.spacing, ICON_BUTTON, ICON_BUTTON},
-			false,
-		)
+		step := ICON_BUTTON + ctx.style.spacing
+		y := settings_y - step
+		mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
 		connection_indicator(ui)
+		if ui.narrow {
+			y -= step
+			mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
+			deafen_button(ui)
+			y -= step
+			mu.layout_set_next(ctx, {x, y, ICON_BUTTON, ICON_BUTTON}, false)
+			mute_button(ui)
+			if v.me != 0 {
+				y -= RAIL_ICON + ctx.style.spacing
+				rail_me(ui, {(RAIL_WIDTH - RAIL_ICON) / 2, y, RAIL_ICON, RAIL_ICON})
+			}
+		}
 	}
 	mu.layout_set_next(ctx, {x, settings_y, ICON_BUTTON, ICON_BUTTON}, false)
 	if .SUBMIT in icon_button(ui, "settings", .Settings, "Settings") {
@@ -601,6 +617,29 @@ rail_bottom :: proc(ui: ^UI, h: i32) {
 		case:
 			open_settings(ui)
 		}
+	}
+}
+
+// rail_me is our picture in the rail in a narrow window (rail_bottom), ringed
+// while we are heard. Like who we are in the voice panel, clicking it sets our
+// status. Call with the View locked.
+@(private = "file")
+rail_me :: proc(ui: ^UI, r: mu.Rect) {
+	ctx := &ui.ctx
+	v := ui.view
+	state := panel_state(v)
+	talking := (state == .Voice || state == .Call) && conn.is_speaking(v, v.my_num)
+	avatar_ringed(ui, v.me, r, talking)
+	id := mu.get_id(ctx, "me in rail")
+	mu.update_control(ctx, id, r)
+	if nav_control(ctx, id, r) {
+		open_status_editor(ui)
+	}
+	if ctx.hover_id == id || nav_focused(ctx, id) {
+		ui.hint, ui.hint_of = "Set your status", r
+	}
+	if ctx.hover_id == id && .LEFT in ctx.mouse_pressed_bits {
+		open_status_editor(ui)
 	}
 }
 

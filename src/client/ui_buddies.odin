@@ -143,9 +143,7 @@ back_from_dms :: proc(ui: ^UI) {
 // the View locked.
 buddies_screen :: proc(ui: ^UI) {
 	ctx := &ui.ctx
-	body := mu.get_current_container(ctx).body
-	narrow := body.w < NARROW_LAYOUT
-	ui.narrow = narrow
+	narrow := ui.narrow
 	ui.profiles.members_pinned = false
 
 	// Watching somebody's screen (from a call's row in the voice panel)

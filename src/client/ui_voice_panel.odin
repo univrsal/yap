@@ -22,7 +22,10 @@ import "common:proto"
 //
 // The top part is only shown while our voice is somewhere (a channel's room, or
 // a call on this device) or a call is ringing. The bottom part is always shown:
-// who we are, with our status (clicking it sets it), and mute and deafen.
+// who we are, with our status (clicking it sets it), and mute and deafen. In a
+// narrow window, which needs the height for the messages, our picture and
+// mute and deafen are in the rail instead (rail_bottom), and the panel is
+// left out unless the top part has something to show.
 //
 // Voice is in one server at a time, and it stays there when another server is
 // shown. Then the panel has an extra part above the rest for it, which shows
@@ -211,8 +214,12 @@ voice_panel_height :: proc(ui: ^UI) -> i32 {
 	if ui.voice_other.ns != nil {
 		rows += 3
 	}
-	// Ours, and in a call the other side's, have a picture.
+	// Ours, and in a call the other side's, have a picture. Ours is in the
+	// rail in a narrow window, and then without anything else there is no panel.
 	pictures: i32 = 1
+	if ui.narrow {
+		rows, pictures = rows - 1, 0
+	}
 	switch panel_state(ui.view) {
 	case .Idle:
 	case .Elsewhere:
@@ -223,16 +230,24 @@ voice_panel_height :: proc(ui: ^UI) -> i32 {
 	case .Voice, .Ringing_In, .Ringing_Out:
 		rows += 3
 	}
+	if rows == 0 {
+		return 0
+	}
 	return rows * row_height(ctx) + pictures * picture_extra(ctx) + 2 * ctx.style.padding
 }
 
 // voice_panel draws the panel in the current layout cell (a column's next row,
-// as tall as voice_panel_height). Call with the View locked.
+// as tall as voice_panel_height), if it has any height. Call with the View
+// locked.
 voice_panel :: proc(ui: ^UI) {
 	ctx := &ui.ctx
 	v := ui.view
 	p := &ui.voice_panel
 	state := panel_state(v)
+	height := voice_panel_height(ui)
+	if height == 0 {
+		return
+	}
 
 	// How long we have been where we are.
 	room :=
@@ -244,7 +259,7 @@ voice_panel :: proc(ui: ^UI) {
 		p.since = v.call.since
 	}
 
-	mu.layout_row(ctx, {-1}, voice_panel_height(ui) - ctx.style.spacing)
+	mu.layout_row(ctx, {-1}, height - ctx.style.spacing)
 	r := mu.layout_next(ctx)
 	mu.draw_rect(ctx, r, theme.panel)
 	pad := ctx.style.padding
@@ -351,7 +366,10 @@ voice_panel :: proc(ui: ^UI) {
 		}
 	}
 
-	// Who we are, and mute and deafen.
+	// Who we are, and mute and deafen (in the rail, in a narrow window).
+	if ui.narrow {
+		return
+	}
 	slot := picture_slot(ctx)
 	mu.layout_row(
 		ctx,
@@ -385,6 +403,14 @@ voice_panel :: proc(ui: ^UI) {
 	me := v.accounts[v.me] or_else {}
 	name := me.display if me.display != "" else v.my_name
 	name_and_status(ctx, me_r, name, ctx.style.colors[.TEXT], status_line(me))
+	mute_button(ui)
+	deafen_button(ui)
+}
+
+// mute_button is the button that mutes and unmutes us, in the layout's next
+// cell. Call with the View locked.
+mute_button :: proc(ui: ^UI) {
+	v := ui.view
 	// A moderator's mute here is shown over our own, which the button still
 	// switches (it is every server's).
 	mic_icon, mic_hint, mic_color :=
@@ -399,6 +425,11 @@ voice_panel :: proc(ui: ^UI) {
 	if .SUBMIT in icon_button(ui, "mute", mic_icon, mic_hint, mic_color) {
 		set_muted(ui, !ui.muted)
 	}
+}
+
+// deafen_button is the button that deafens and undeafens us, in the layout's
+// next cell.
+deafen_button :: proc(ui: ^UI) {
 	if .SUBMIT in
 	   icon_button(
 		   ui,
