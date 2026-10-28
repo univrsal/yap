@@ -543,8 +543,12 @@ The plan, written 2026-10-28 after steps 1–6, 11, 12 and 13 were built.
 
 ```
 yap-server import mattermost <export folder> --team <name> [--owner <username>]
-    [--extras <file>] [--passwords <file.csv>] [--dry-run] [--yes] [config.json]
+    [--passwords <file.csv>] [--dry-run] [--yes] [config.json]
 ```
+
+`<config.json>` is the yap server's, as for the other commands, and the
+database it names is the one imported into. `extras.jsonl` is read if it is
+in the export folder.
 
 Like the other `yap-server` commands (`account`, `purge`) it works on the
 database of a server that isn't running, through the same `Accounts`,
@@ -575,6 +579,12 @@ when it loads is what the importer wrote.
   bytes a post, so a million posts take 32 MB. Pass 2 sorts the index and
   reads the lines back in time order, so memory doesn't grow with the size
   of the export.
+- **Progress.** Nothing may look frozen: every phase prints a status line
+  at least every two seconds with what it is doing, how far it is, its
+  speed and the time left (`progress.odin`). On a terminal it is one line
+  written over; in a file or a log, a new line each time. Pass 1 counts
+  bytes of the file; the phases that write count items (accounts,
+  channels, messages).
 - **The report.** `--dry-run` does pass 1 and the mapping and stops,
   printing what would be made and, as warnings, everything that would be
   changed or dropped: names that had to be changed, text cut to a limit,
@@ -660,14 +670,48 @@ webhook posts, with personas) follow on this base, as the table says.
   so must the texts that mention it (step 9). `account_delete.odin` shows
   how a tombstone is made.
 
-### To decide
+### Decided (2026-10-28)
 
-1. Input as a folder first, the zip later (as above)?
-2. All or nothing in one transaction, with no resuming (as above)? A very
-   large export's transaction is large, though SQLite handles that; the
-   alternative, committing per conversation, can leave a half import that
-   has to be thrown away by hand.
-3. `--owner` defaulting to the first system admin?
+1. The input is the unpacked export folder; reading the zip may come later.
+2. All or nothing in one transaction, with no resuming, and progress
+   reporting while it runs.
+3. `--owner` is the account that becomes the server's owner, by default the
+   export's first system admin.
+
+### 7a: the reader and the report (built 2026-10-28)
+
+`src/server/mattermost/` (types, lines, scan, report) and `cli_import.odin`;
+`yap-server import mattermost <folder> --team <name> --dry-run` works, and
+without `--dry-run` it says that writing isn't built yet and changes
+nothing. Results:
+
+- **Who is imported.** The team's members and all bots. A user who wrote in
+  the team's channels but has left the team is reported (`Author_Not_Member`)
+  and 7c makes them a disabled account, in no channel; an author with no
+  user line at all (`Author_Unknown`) becomes a tombstone. A direct channel
+  with someone who isn't imported is left out, with its posts, and is
+  reported.
+- **What it keeps.** Users, bots, channels and direct channels whole, with
+  only the chosen team's memberships; each post and reply only as a
+  `Post_Ref` (time, where its line starts, its length, the reply's index,
+  the conversation), 32 bytes. Everything is in one arena that
+  `scan_destroy` frees.
+- **What it checks.** The first line is the version and the version is
+  known; every line is valid JSON (a cut-off line stops the scan with the
+  file and line number); a post's channel and author exist; attached
+  files, profile pictures and emoji pictures are under `data/`; a username
+  isn't there twice; unknown line types are skipped and counted.
+- **Speed and memory.** 300,000 posts (148 MB, made up) took 10 s in an
+  unoptimised build, 15 MB/s, with 34 MB at most in use. A million posts
+  would take about 40 s and about 70 MB (not measured).
+- **Tests** (8, in CI): the sample's numbers, counted again with a script
+  that doesn't use this code (79 posts of the team, 10 of the other, 9
+  direct posts, 5 replies, 49 system posts, 9 reactions of which 2 are
+  from extras.jsonl, 4 files, one direct channel left out); the report's
+  text; progress ending at the file's size; a team that isn't there; a
+  small made-up export with an author and a channel that don't exist and
+  a line type that doesn't; a wrong first line, a wrong version, a line cut
+  in the middle and an empty file; a missing folder.
 
 ## Group DMs (step 1)
 

@@ -25,7 +25,7 @@ main :: proc() {
 	// The commands do their work and exit: `yap-server account ...`
 	// (cli_account.odin; `role list` is short for `account roles`), `email
 	// test` (cli_email.odin), `push test` (cli_push.odin) and `purge ...`
-	// (cli_purge.odin). No clients are connected to a purge, so it logs only
+	// (cli_purge.odin) and `import mattermost ...` (cli_import.odin). No clients are connected to a purge, so it logs only
 	// errors, and slow checkpoints are not reported.
 	Command :: struct {
 		name:  string,
@@ -38,6 +38,7 @@ main :: proc() {
 		{"email", .warn, run_email_command},
 		{"push", .warn, run_push_command},
 		{"purge", .error, run_purge_command},
+		{"import", .warn, run_import_command},
 	}
 	for c in commands {
 		if len(os.args) > 1 && os.args[1] == c.name {
