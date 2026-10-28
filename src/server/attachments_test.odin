@@ -450,20 +450,28 @@ test_attachments_quota :: proc(t: ^testing.T) {
 	data := test_file(2 * MIB, 4)
 	_, id := put(t, &ts, alice, len(data), "big.zip")
 	up := s.attach.uploads[id]
-	send_all :: proc(s: ^Server, u: ^Conn, id: u64, data: []u8) {
+	// All of `data` at once. The time that sending it takes doesn't refill the
+	// upload's pace, so what arrives doesn't depend on how fast the machine
+	// is: after each chunk that the pace was asked about, its clock is set to
+	// now. Chunks that have arrived already are dropped before that.
+	send_all :: proc(s: ^Server, u: ^Conn, up: ^Attach_Upload, id: u64, data: []u8) {
 		out: [proto.MAX_PAYLOAD_SIZE]u8
 		for i in 0 ..< proto.file_chunk_count(u64(len(data))) {
 			from, to := proto.file_chunk_range(u64(len(data)), i)
+			fresh := proto.transfer_wants(&up.recv, i, int(to - from))
 			handle_upload_chunk(
 				s,
 				u,
 				proto.encode_transfer_chunk(out[:], .Upload_Chunk, id, i, data[from:to]),
 			)
+			if fresh && up.blob == 0 {
+				up.pace.last = time.tick_now()
+			}
 		}
 	}
 
 	// Sent all at once, only the burst (a second's worth) arrives.
-	send_all(s, alice, id, data)
+	send_all(s, alice, up, id, data)
 	testing.expectf(
 		t,
 		up.recv.done > MIB - proto.FILE_CHUNK_DATA && up.recv.done < MIB + 64 * 1024,
@@ -478,9 +486,12 @@ test_attachments_quota :: proc(t: ^testing.T) {
 	status, _ = put(t, &ts, alice, 3 * MIB / 4, "fits.zip")
 	testing.expect_value(t, status, proto.Status.Ok)
 
-	// A second later the rest arrives.
-	up.pace.last = time.tick_add(up.pace.last, -time.Second)
-	send_all(s, alice, id, data)
+	// Over the next two seconds the rest arrives: a second's worth each time,
+	// and what is left after the first second is a little more than that.
+	for _ in 0 ..< 2 {
+		up.pace.last = time.tick_add(up.pace.last, -time.Second)
+		send_all(s, alice, up, id, data)
+	}
 	testing.expect(t, up.blob != 0)
 	status, _ = put(t, &ts, alice, MIB / 2, "too much.zip")
 	testing.expect_value(t, status, proto.Status.Quota)
