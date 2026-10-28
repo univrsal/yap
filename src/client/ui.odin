@@ -517,6 +517,25 @@ content_surface :: proc(ui: ^UI) -> mu.Rect {
 	return r
 }
 
+// keep_in_window keeps the current window, one that floats over the main window
+// and can be dragged by its title bar, inside the OS window and below the
+// strip along its top (the merged title bar and its line, UI.title_line), so
+// that it can't cover the window's own buttons or be lost off an edge. microui
+// moves a dragged window after drawing it, so this takes effect before it is
+// drawn again. Call right after mu.begin_window.
+keep_in_window :: proc(ui: ^UI) {
+	cnt := mu.get_current_container(&ui.ctx)
+	w, h := i32(ui.metrics.logical_w), i32(ui.metrics.logical_h)
+	top := ui.titlebar_height
+	if ui.title_line > 0 {
+		top = max(top, ui.title_line + 1)
+	}
+	r := &cnt.rect
+	r.w, r.h = min(r.w, max(w, 96)), min(r.h, max(h - top, 64))
+	r.x = clamp(r.x, 0, max(w - r.w, 0))
+	r.y = clamp(r.y, top, max(h - r.h, top))
+}
+
 // How much room a conversation's header has above and below its row, and in
 // from the left. The search box beside it has the same (search_box).
 CONV_HEADER_PAD :: 6

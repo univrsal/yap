@@ -158,6 +158,7 @@ search_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		s.open = false
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
 	// Ready to type in, however it was opened. Not in the frame of the click

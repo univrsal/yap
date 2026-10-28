@@ -171,6 +171,7 @@ status_editor :: proc(ui: ^UI, window_w, window_h: i32) {
 		p.editing = false
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 
 	// Online, away, busy or invisible: applied immediately, unlike the
@@ -383,6 +384,7 @@ members_window :: proc(ui: ^UI, window_w, window_h: i32) {
 		p.members_open = false
 		return
 	}
+	keep_in_window(ui) // dragged: kept below the top bar, on screen
 	defer mu.end_window(ctx)
 	members_list(ui)
 }
