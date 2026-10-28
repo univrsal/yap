@@ -266,9 +266,8 @@ test_import_report_file :: proc(t: ^testing.T) {
 			"alice,erin", // the direct channel that was left out
 			"What was made",
 			"10 accounts, 6 channels, 6 direct conversations",
-			"85 messages, 8 reactions, 1 pins, 2 saved posts",
-			"Not imported yet: files attached",
-			"posts with nothing to show", // found while writing
+			"86 messages, 8 reactions, 1 pins, 2 saved posts",
+			"Not imported yet: the links and mentions",
 		}) {
 		testing.expectf(t, strings.contains(text, want), "the report lacks %q:\n%s", want, text)
 	}

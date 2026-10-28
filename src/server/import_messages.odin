@@ -176,15 +176,18 @@ import_message :: proc(
 		if cut {
 			mattermost.note(s, .Text_Cut, body.user, a)
 		}
-		if text == "" {
-			mattermost.note(s, .Post_Empty, body.type if body.type != "" else "(no type)", a)
-			return true
-		}
 		m.kind = .Text
 		m.text = text
+		import_attachments(im, body.attachments, sender, &m) or_return
 		if body.is_pinned {
 			m.flags += {.Pinned}
 		}
+	}
+
+	if m.kind == .Text && m.text == "" && m.attachment_count == 0 {
+		// Nothing to show: an empty message, or one whose files can't be had.
+		mattermost.note(s, .Post_Empty, body.type if body.type != "" else "(no type)", a)
+		return true
 	}
 
 	// A reply belongs to its post's thread, if that was imported.
@@ -195,10 +198,11 @@ import_message :: proc(
 			mattermost.note(s, .Thread_Root_Missing, body.user, a)
 		}
 	}
-	if !msg_insert(im.db, &m, 0) {
+	if !msg_insert(im.db, &m, 0) || !attachments_store(im.db, m) {
 		log.errorf("could not write a message of %s", body.user)
 		return false
 	}
+	im.files += m.attachment_count
 	if ref.reply < 0 && body.replies > 0 {
 		im.roots[ref.offset] = m.id
 	}

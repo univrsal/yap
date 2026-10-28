@@ -43,13 +43,14 @@ test_import_messages :: proc(t: ^testing.T) {
 	it_all(t, &it)
 	testing.expect_value(t, kept, "passwords/csv")
 
-	// 85 of the 88 posts: left out are the bot's greeting, the change of a
-	// purpose in a channel that has a header, and a post with only a file.
-	testing.expect_value(t, it.im.messages, 85)
-	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM messages"), 85)
+	// 86 of the 88 posts: left out are the bot's greeting and the change of a
+	// purpose in a channel that has a header. (The post with only files is
+	// imported with them: see import_files_test.odin.)
+	testing.expect_value(t, it.im.messages, 86)
+	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM messages"), 86)
 	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM messages WHERE kind = 3"), 48) // system
-	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM messages WHERE kind = 0"), 37)
-	testing.expect_value(t, it.scan.issues[.Post_Empty].count, 1)
+	testing.expect_value(t, it_count(&it, "SELECT count(*) FROM messages WHERE kind = 0"), 38)
+	testing.expect_value(t, it.scan.issues[.Post_Empty].count, 0)
 	testing.expect_value(t, it.scan.issues[.System_Skipped].count, 0)
 	testing.expect_value(t, it.scan.issues[.Post_Failed].count, 0)
 	testing.expect_value(t, it.scan.issues[.Thread_Root_Missing].count, 0)

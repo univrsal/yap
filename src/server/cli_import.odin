@@ -213,6 +213,8 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 		accounts = &accounts,
 		convs    = &convs,
 		blobs    = &blobs,
+		emoji_dir = settings.emoji_dir,
+		max_attachment = u64(settings.attachments.max_megabytes) * 1024 * 1024,
 	}
 	importer_init(&im)
 	defer importer_destroy(&im)
@@ -222,7 +224,7 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 		fmt.eprintfln("%s, and nothing was changed", what)
 		return 1
 	}
-	if !import_accounts(&im) || !import_channels(&im) || !import_messages(&im) {
+	if !import_accounts(&im) || !import_channels(&im) || !import_emoji(&im) || !import_messages(&im) {
 		return fail(&im, "the import failed")
 	}
 	if !import_read_state(&im) || !import_record(&im) {
@@ -246,14 +248,16 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 	report_err := import_write_report(&im, report)
 	made := len(scan.plan.accounts) + len(scan.authors_gone)
 	fmt.printfln(
-		"\nmade %d accounts, %d channels, %d direct conversations and %d messages, with %d reactions, %d pins and %d saved posts. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
+		"\nmade %d accounts, %d channels, %d direct conversations and %d messages, with %d files, %d reactions, %d pins and %d saved posts, and %d custom emoji. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
 		made,
 		len(scan.channels),
 		len(scan.directs),
 		im.messages,
+		im.files,
 		im.reactions,
 		im.pins,
 		im.bookmarks,
+		im.emoji,
 		csv,
 	)
 	if report_err != "" {

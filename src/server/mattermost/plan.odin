@@ -2,7 +2,10 @@ package mattermost
 
 import "core:fmt"
 import "core:mem/virtual"
+import "core:slice"
 import "core:strings"
+
+import "common:proto"
 
 
 // The plan: what the scan found, with the mapping rules applied to all of it.
@@ -31,6 +34,16 @@ Plan :: struct {
 	by_name:  map[string]int, // Mattermost username -> index in `accounts`
 	channels: []Channel_Plan, // as Scan.channels
 	emoji:    Emoji_Map, // yap's, and the custom ones under their names in yap
+	// The custom emoji that are made: each is an index in Scan.emoji, with the
+	// name it gets (unique, valid) and the file it is put in the folder as.
+	made:     [dynamic]Emoji_Plan,
+}
+
+Emoji_Plan :: struct {
+	index:   int,
+	name:    string,
+	ext:     string,
+	convert: bool,
 }
 
 // build_plan applies the mapping rules to a scan. `owner` is the account that
@@ -172,12 +185,53 @@ build_plan :: proc(s: ^Scan, owner: string) -> (err: string) {
 	// Emoji and reactions.
 	p.emoji = emoji_map_make(a)
 	emoji_names := unique_make(.Underscore, a)
-	for e in s.emoji {
+	p.made.allocator = a
+	// A server has at most MAX_CUSTOM_EMOJI of its own (D18): the ones that are
+	// used most are kept, by reactions and by the times it is written in a
+	// message, and then by name.
+	candidates := make([dynamic]int, 0, len(s.emoji), context.temp_allocator)
+	for _, i in s.emoji {
+		if i < len(s.emoji_files) && s.emoji_files[i].ok {
+			append(&candidates, i)
+		}
+	}
+	kept := make(map[int]bool, context.temp_allocator)
+	if len(candidates) <= proto.MAX_CUSTOM_EMOJI {
+		for i in candidates {
+			kept[i] = true
+		}
+	} else {
+		usage :: proc(s: ^Scan, i: int) -> int {
+			name := s.emoji[i].name
+			return s.stats.reaction_names[name] + s.stats.text_tokens[name]
+		}
+		ranked := slice.clone(candidates[:], context.temp_allocator)
+		slice.sort_by_with_data(ranked, proc(x, y: int, data: rawptr) -> bool {
+				s := (^Scan)(data)
+				ux, uy := usage(s, x), usage(s, y)
+				if ux != uy {
+					return ux > uy
+				}
+				return s.emoji[x].name < s.emoji[y].name
+			}, s)
+		for i, rank in ranked {
+			if rank < proto.MAX_CUSTOM_EMOJI {
+				kept[i] = true
+			} else {
+				note(s, .Emoji_Over_Limit, fmt.tprintf("%s (%d)", s.emoji[i].name, usage(s, i)), a)
+			}
+		}
+	}
+	for e, i in s.emoji {
+		if !kept[i] {
+			continue
+		}
 		name, changed := custom_emoji_name(&emoji_names, e.name)
 		if changed {
 			note(s, .Emoji_Renamed, fmt.tprintf("%s -> %s", e.name, name), a)
 		}
 		emoji_add_custom(&p.emoji, e.name, name)
+		append(&p.made, Emoji_Plan{i, name, s.emoji_files[i].ext, s.emoji_files[i].convert})
 	}
 	for name, count in s.stats.reaction_names {
 		_, result := map_reaction(&p.emoji, name, context.temp_allocator)

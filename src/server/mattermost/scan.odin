@@ -9,6 +9,7 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 
+import "common:imagekind"
 import "common:proto"
 
 // Pass 1 of the importer: read the whole export once, keep what the later
@@ -42,6 +43,13 @@ Issue_Kind :: enum {
 	Attachment_Missing, // a file that a post names isn't under data/
 	Profile_Image_Missing, // the same for a profile picture
 	Emoji_Image_Missing, // the same for a custom emoji
+	Emoji_Unusable, // a custom emoji's picture that is too big, not a picture yap reads, or can't be read; skipped
+	Emoji_Over_Limit, // custom emoji beyond what a server can have; the least used are left out
+	Emoji_Exists, // a custom emoji whose file the server's emoji folder has already; skipped
+	Attachments_Cut, // files beyond the number a message can have; left out
+	Attachment_Empty, // a file with nothing in it; left out
+	Attachment_Over_Limit, // a file bigger than this server lets people upload; kept
+	Attachment_Failed, // a file that couldn't be read or stored; left out
 	// Found by build_plan (plan.odin), which applies the mapping rules:
 	Username_Changed, // a username yap wouldn't accept, or that another account has
 	Email_Invalid, // an address yap doesn't accept; the account gets none
@@ -107,6 +115,7 @@ Stats :: struct {
 	extra_reactions_posts: int, // posts that extras.jsonl adds reactions to
 	by_type:               map[string]int, // posts by their type
 	reaction_names:        map[string]int, // how many reactions there are of each emoji name
+	text_tokens:           map[string]int, // how often each `:name:` is written in messages
 }
 
 // Scan is the result of pass 1. Everything in it is allocated from its own
@@ -151,6 +160,8 @@ Scan :: struct {
 	// The reactions that extras.jsonl adds to the first post of direct
 	// channels, by extra_key.
 	extra_reactions: map[string][]Reaction,
+	// What each of the custom emoji (in `emoji`, in the same order) is as a file.
+	emoji_files:     [dynamic]Emoji_File,
 	// What made the scan stop, as a sentence (see scan_file).
 	fatal:           string,
 }
@@ -174,6 +185,25 @@ scan_destroy :: proc(s: ^Scan) {
 join :: proc(parts: ..string) -> string {
 	path, _ := filepath.join(parts, context.temp_allocator)
 	return path
+}
+
+// data_file returns the path of a file that the export names (a path under
+// data/), and false if it can't be one: an empty or absolute path, or one that
+// leaves data/ by `..`. An export from another server mustn't be able to have a
+// file of this one, such as /etc/passwd, imported into a chat where everyone
+// could read it.
+data_file :: proc(dir, relative: string) -> (path: string, ok: bool) {
+	if relative == "" ||
+	   filepath.is_abs(relative) ||
+	   strings.has_prefix(relative, "\\") ||
+	   (len(relative) > 1 && relative[1] == ':') {
+		return
+	}
+	root := join(dir, DATA_DIR)
+	path = join(root, relative)
+	return path,
+		strings.has_prefix(path, strings.concatenate({root, "/"}, context.temp_allocator)) ||
+		strings.has_prefix(path, strings.concatenate({root, "\\"}, context.temp_allocator))
 }
 
 // scan reads an export. If it can't be read, `err` says why (a sentence, with
@@ -203,10 +233,12 @@ scan :: proc(opts: Options) -> (s: ^Scan, err: string) {
 	s.emoji.allocator = a
 	s.stats.by_type = make(map[string]int, a)
 	s.stats.reaction_names = make(map[string]int, a)
+	s.stats.text_tokens = make(map[string]int, a)
 	s.reported = make(map[string]bool, a)
 	s.authors_only.allocator = a
 	s.authors_gone.allocator = a
 	s.privacy.allocator = a
+	s.emoji_files.allocator = a
 	s.extra_reactions = make(map[string][]Reaction, a)
 	s.privacy_dir = make(map[Privacy_Key]bool, a)
 	for &i in s.issues {
@@ -505,11 +537,57 @@ count_reaction_name :: proc(s: ^Scan, name: string, a: Allocator) {
 	}
 }
 
+// count_text_tokens counts the `:name:` in a text, which is how many times each
+// name that could be an emoji was used in messages. It decides which custom
+// emoji are the most used when there are more than a server can have.
+@(private = "file")
+count_text_tokens :: proc(s: ^Scan, text: string, a: Allocator) {
+	counts := &s.stats.text_tokens
+	i := 0
+	for i < len(text) {
+		if text[i] != ':' {
+			i += 1
+			continue
+		}
+		j := i + 1
+		letter := false
+		for j < len(text) {
+			c := text[j]
+			is_letter := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+			if !is_letter && !(c >= '0' && c <= '9' || c == '_' || c == '-' || c == '+') {
+				break
+			}
+			letter ||= is_letter
+			j += 1
+		}
+		// A name closed by a colon, which then may start the next one.
+		if j < len(text) &&
+		   text[j] == ':' &&
+		   letter &&
+		   j - i - 1 >= proto.MIN_EMOJI_NAME &&
+		   j - i - 1 <= proto.MAX_EMOJI_NAME {
+			name := text[i + 1:j]
+			if name in counts^ {
+				counts[name] += 1
+			} else if len(counts^) < MAX_TOKENS {
+				counts[strings.clone(name, a)] = 1
+			}
+			i = j
+		} else {
+			i = max(j, i + 1)
+		}
+	}
+}
+
+// How many different `:names:` are counted, at most.
+MAX_TOKENS :: 200_000
+
 // count_post adds a post's (or reply's) fields to the statistics.
 @(private = "file")
 count_post :: proc(
 	s: ^Scan,
 	type: string,
+	message: string,
 	create_at, edit_at: i64,
 	pinned: bool,
 	flagged_by: []string,
@@ -532,6 +610,7 @@ count_post :: proc(
 		count_reaction_name(s, r.emoji_name, a)
 	}
 	st.attachments += len(attachments)
+	count_text_tokens(s, message, a)
 	if st.first_time == 0 || create_at < st.first_time {
 		st.first_time = create_at
 	}
@@ -558,6 +637,7 @@ scan_post :: proc(s: ^Scan, p: Post, at: i64, length: int, a: Allocator) {
 	count_post(
 		s,
 		p.type,
+		p.message,
 		p.create_at,
 		p.edit_at,
 		p.is_pinned,
@@ -576,6 +656,7 @@ scan_post :: proc(s: ^Scan, p: Post, at: i64, length: int, a: Allocator) {
 		count_post(
 			s,
 			r.type,
+			r.message,
 			r.create_at,
 			r.edit_at,
 			r.is_pinned,
@@ -652,6 +733,7 @@ scan_direct_post :: proc(s: ^Scan, p: Direct_Post, at: i64, length: int, a: Allo
 	count_post(
 		s,
 		p.type,
+		p.message,
 		p.create_at,
 		p.edit_at,
 		p.is_pinned,
@@ -669,6 +751,7 @@ scan_direct_post :: proc(s: ^Scan, p: Direct_Post, at: i64, length: int, a: Allo
 		count_post(
 			s,
 			r.type,
+			r.message,
 			r.create_at,
 			r.edit_at,
 			r.is_pinned,
@@ -722,8 +805,8 @@ extra_key :: proc(direct: string, user: string, create_at: i64) -> string {
 // check_file notes a file that `path` names (relative to data/) if it isn't there.
 @(private = "file")
 check_file :: proc(s: ^Scan, path: string, kind: Issue_Kind, a: Allocator) {
-	full := join(s.dir, DATA_DIR, path)
-	if !os.exists(full) {
+	full, inside := data_file(s.dir, path)
+	if !inside || !os.exists(full) {
 		note(s, kind, path, a)
 	}
 }
@@ -744,10 +827,53 @@ scan_check_files :: proc(s: ^Scan) {
 		}
 	}
 	for e in s.emoji {
-		if e.image != "" {
-			check_file(s, e.image, .Emoji_Image_Missing, a)
-		}
+		append(&s.emoji_files, check_emoji_file(s, e, a))
 	}
+}
+
+// Emoji_File is a custom emoji's picture, as it can be put in the server's
+// emoji folder.
+Emoji_File :: struct {
+	ok:      bool, // it can be
+	ext:     string, // the folder's file name extension: .png, .webp or .gif
+	convert: bool, // it has to be made a PNG first (it is a JPEG or a BMP)
+}
+
+// The most that a server reads of an emoji's picture (server/emoji.odin).
+MAX_EMOJI_FILE :: 1024 * 1024
+
+@(private = "file")
+check_emoji_file :: proc(s: ^Scan, e: Emoji, a: Allocator) -> (f: Emoji_File) {
+	if e.image == "" {
+		return
+	}
+	path, inside := data_file(s.dir, e.image)
+	if !inside || !os.exists(path) {
+		note(s, .Emoji_Image_Missing, e.image, a)
+		return
+	}
+	data, err := os.read_entire_file(path, context.temp_allocator)
+	switch {
+	case err != nil:
+		note(s, .Emoji_Unusable, fmt.tprintf("%s: can't be read", e.name), a)
+		return
+	case len(data) > MAX_EMOJI_FILE:
+		note(s, .Emoji_Unusable, fmt.tprintf("%s: %d bytes, over 1 MB", e.name, len(data)), a)
+		return
+	}
+	switch imagekind.kind_of(data) {
+	case .PNG:
+		return {true, ".png", false}
+	case .WebP:
+		return {true, ".webp", false}
+	case .GIF:
+		return {true, ".gif", false}
+	case .JPEG:
+		return {true, ".png", true}
+	case .Unknown:
+	}
+	note(s, .Emoji_Unusable, fmt.tprintf("%s: not a picture yap reads", e.name), a)
+	return
 }
 
 // Privacy_Change is a post that says a channel was made private or public.

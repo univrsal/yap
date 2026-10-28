@@ -77,6 +77,22 @@ issue_text :: proc(kind: Issue_Kind) -> string {
 		return "replies whose first post wasn't imported; they are messages of their own"
 	case .Post_Failed:
 		return "posts that couldn't be read or written; left out"
+	case .Emoji_Unusable:
+		return(
+			"custom emoji whose picture is over 1 MB, isn't a picture yap reads or can't be read; left out" \
+		)
+	case .Emoji_Over_Limit:
+		return "custom emoji beyond the 512 that a server can have; the least used are left out"
+	case .Emoji_Exists:
+		return "custom emoji whose name the server's emoji folder has already; left out"
+	case .Attachments_Cut:
+		return "files beyond the 10 that a message can have; left out"
+	case .Attachment_Empty:
+		return "files with nothing in them; left out"
+	case .Attachment_Over_Limit:
+		return "files bigger than this server lets people upload; they are kept"
+	case .Attachment_Failed:
+		return "files that couldn't be read or stored; left out"
 	case .Reaction_User_Gone:
 		return "people who reacted but aren't imported; those reactions are left out"
 	case .Reactions_Cut:

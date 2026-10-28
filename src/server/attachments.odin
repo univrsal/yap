@@ -704,7 +704,7 @@ attach_files :: proc(s: ^Server, m: ^proto.Message) {
 			break
 		}
 		m.attachments[m.attachment_count] = {
-			blob = proto.Blob_Id(db_col_int(q, 0)),
+			blob   = proto.Blob_Id(db_col_int(q, 0)),
 			name   = db_col_text(q, 1),
 			size   = u64(db_col_int(q, 2)),
 			width  = int(db_col_int(q, 3)),
@@ -722,7 +722,7 @@ attach_files :: proc(s: ^Server, m: ^proto.Message) {
 
 // attachments_store stores a new message's files in order, along with
 // their names in the search index.
-attachments_store :: proc(s: ^Server, m: proto.Message) -> bool {
+attachments_store :: proc(db: ^DB, m: proto.Message) -> bool {
 	if m.attachment_count == 0 {
 		return true
 	}
@@ -733,10 +733,10 @@ attachments_store :: proc(s: ^Server, m: proto.Message) -> bool {
 		}
 		strings.write_string(&names, m.attachments[i].name)
 	}
-	db_write(&s.db, .Files_Index_Add, i64(m.id), strings.to_string(names)) or_return
+	db_write(db, .Files_Index_Add, i64(m.id), strings.to_string(names)) or_return
 	for i in 0 ..< m.attachment_count {
 		a := m.attachments[i]
-		db_write(&s.db, .Attach_Add, i64(m.id), i64(i), i64(a.blob), a.name, i64(a.size)) or_return
+		db_write(db, .Attach_Add, i64(m.id), i64(i), i64(a.blob), a.name, i64(a.size)) or_return
 	}
 	return true
 }

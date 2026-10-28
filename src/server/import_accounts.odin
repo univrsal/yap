@@ -5,7 +5,6 @@ import "core:fmt"
 import "core:log"
 import "core:mem/virtual"
 import "core:os"
-import "core:path/filepath"
 import "core:strings"
 import "core:sync"
 import "core:thread"
@@ -25,43 +24,51 @@ import "sqlite"
 
 // Importer is what the writing steps work on.
 Importer :: struct {
-	scan:        ^mattermost.Scan,
-	db:          ^DB,
-	accounts:    ^Accounts,
-	convs:       ^Convs,
-	blobs:       ^Blob_Store,
+	scan:           ^mattermost.Scan,
+	db:             ^DB,
+	accounts:       ^Accounts,
+	convs:          ^Convs,
+	blobs:          ^Blob_Store,
 	// The parameters that passwords are hashed with (tests use the cheapest).
-	hash_params: int,
+	hash_params:    int,
 	// How many threads hash passwords.
-	threads:     int,
+	threads:        int,
 	// Mattermost's username -> the account that it is in yap: the members, the
 	// bots, those who left, and the tombstones of authors who are gone.
-	ids:         map[string]proto.Account_Id,
+	ids:            map[string]proto.Account_Id,
 	// The passwords that were made, for the file that the admin hands them out
 	// from.
-	passwords:   [dynamic]Generated,
+	passwords:      [dynamic]Generated,
+	// The number of the next file that was copied in (the name it has while it is).
+	parts:          int,
 	// The files this import has written, which are removed if it fails.
-	written:     [dynamic]string,
+	written:        [dynamic]string,
 	// The channel each of the scan's channels became, in the same order, and
 	// the DM or group for each of the scan's direct channels by their key
 	// (mattermost.direct_key). Messages are written to these (7e).
-	channels:    []^Conv,
-	directs:     map[string]^Conv,
+	channels:       []^Conv,
+	directs:        map[string]^Conv,
 	// The same direct conversations in the order of the scan's direct channels.
-	direct_list: []^Conv,
+	direct_list:    []^Conv,
 	// The key of each of the scan's direct channels (mattermost.direct_key).
-	direct_keys: []string,
-	// What import_messages made.
-	messages:    int,
-	reactions:   int,
-	pins:        int,
-	bookmarks:   int,
+	direct_keys:    []string,
+	// Where the server keeps its emoji, and the biggest file it lets people
+	// upload (0 for none), which the files of an import are measured against.
+	emoji_dir:      string,
+	max_attachment: u64,
+	// What import_emoji and import_messages made.
+	emoji:          int,
+	files:          int,
+	messages:       int,
+	reactions:      int,
+	pins:           int,
+	bookmarks:      int,
 	// A thread's first post by where its line is: the message it became.
-	roots:       map[i64]proto.Msg_Id,
+	roots:          map[i64]proto.Msg_Id,
 	// Where the passwords were written, once they were.
-	csv:         string,
+	csv:            string,
 	// What the steps keep their strings in; freed by importer_destroy.
-	arena:       virtual.Arena,
+	arena:          virtual.Arena,
 }
 
 Generated :: struct {
@@ -363,7 +370,10 @@ import_avatars :: proc(im: ^Importer) -> bool {
 // account then has none.
 @(private = "file")
 import_avatar :: proc(im: ^Importer, mm_name, image: string) -> bool {
-	path, _ := filepath.join({im.scan.dir, mattermost.DATA_DIR, image}, context.temp_allocator)
+	path, inside := mattermost.data_file(im.scan.dir, image)
+	if !inside {
+		return true // the scan has said so
+	}
 	data, err := os.read_entire_file(path, context.temp_allocator)
 	if err != nil {
 		// Not there: the scan has said so already (Profile_Image_Missing).

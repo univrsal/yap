@@ -162,3 +162,37 @@ from_bytes :: proc(
 	defer stbi.image_free(raw_data(pixels))
 	return prepare(width, height, pixels, allocator)
 }
+
+// to_png makes a PNG of any picture that stb_image reads, keeping its
+// transparency. The custom emoji of a server can only be PNG, WebP or GIF, and
+// Mattermost's can also be JPEG.
+to_png :: proc(data: []u8, allocator := context.allocator) -> (png: []u8, ok: bool) {
+	width, height, pixels, decoded := decode(data)
+	if !decoded {
+		return
+	}
+	defer stbi.image_free(raw_data(pixels))
+	writer := Jpeg_Writer {
+		ctx = context,
+		buf = make([dynamic]u8, 0, 16 * 1024, allocator),
+	}
+	write :: proc "c" (ctx: rawptr, data: rawptr, size: i32) {
+		w := (^Jpeg_Writer)(ctx)
+		context = w.ctx
+		append(&w.buf, ..([^]u8)(data)[:size])
+	}
+	if stbi.write_png_to_func(
+		   write,
+		   &writer,
+		   i32(width),
+		   i32(height),
+		   4,
+		   raw_data(pixels),
+		   i32(width * 4),
+	   ) ==
+	   0 {
+		delete(writer.buf)
+		return nil, false
+	}
+	return writer.buf[:], true
+}

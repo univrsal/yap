@@ -17,7 +17,7 @@ import "mattermost"
 
 // What an import doesn't bring yet, which the report says. It goes when steps
 // 8 to 10 are done.
-IMPORT_NOT_YET :: `Not imported yet: files attached to posts and posts that are only a file, custom emoji (reactions to them are kept as :name:, which show as text), the links and mentions in messages (@name, ~channel, :emoji:), and the cards of bots and webhooks.`
+IMPORT_NOT_YET :: `Not imported yet: the links and mentions in messages (@name, ~channel), and the cards of bots and webhooks.`
 
 @(private = "file")
 Reader :: struct {
@@ -178,6 +178,10 @@ import_verify :: proc(im: ^Importer) -> []string {
 			"SELECT abs((SELECT count(*) FROM messages WHERE kind = 0 AND text IS NOT NULL) - (SELECT count(*) FROM messages_fts_docsize))",
 		},
 		{
+			"files of messages that aren't in the store, or messages marked as having files that have none",
+			"SELECT (SELECT count(*) FROM attachments WHERE blob IS NOT NULL AND blob NOT IN (SELECT id FROM blobs)) + (SELECT count(*) FROM attachments WHERE msg NOT IN (SELECT id FROM messages)) + (SELECT count(*) FROM messages m WHERE m.flags & 16 != 0 AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.msg = m.id)) + (SELECT count(*) FROM messages m WHERE m.flags & 16 = 0 AND EXISTS (SELECT 1 FROM attachments a WHERE a.msg = m.id))",
+		},
+		{
 			"messages whose id is out of the order of their times",
 			"SELECT count(*) FROM messages a JOIN messages b ON b.id = a.id + 1 WHERE b.time < a.time AND a.conv = b.conv",
 		},
@@ -209,6 +213,10 @@ import_verify :: proc(im: ^Importer) -> []string {
 		} else if n != 0 {
 			append(&problems, fmt.tprintf("%d %s", n, check.what))
 		}
+	}
+	// Every stored file is there to be read.
+	if missing := import_missing_blobs(im); missing > 0 {
+		append(&problems, fmt.tprintf("%d stored files that aren't on disk", missing))
 	}
 	// A row from the check means a reference to something that isn't there.
 	if _, rc := db_pragma_int(im.db, "PRAGMA foreign_key_check"); rc == 0 {
@@ -304,4 +312,22 @@ import_write_report :: proc(im: ^Importer, path: string) -> (err: string) {
 		return fmt.tprintf("could not write %s: %v", path, write_err)
 	}
 	return ""
+}
+
+// import_missing_blobs counts the blobs of the database whose file isn't in the
+// store.
+@(private = "file")
+import_missing_blobs :: proc(im: ^Importer) -> (missing: int) {
+	q := db_stmt(im.db, .Blob_Hashes)
+	for {
+		row, ok := db_step(im.db, q)
+		if !ok || !row {
+			break
+		}
+		sum: [BLOB_HASH_SIZE]u8
+		if !db_col_into(q, 0, sum[:]) || !os.exists(blob_path(im.blobs, sum)) {
+			missing += 1
+		}
+	}
+	return
 }

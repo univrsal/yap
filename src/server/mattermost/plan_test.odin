@@ -1,8 +1,11 @@
 package mattermost
 
+import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:testing"
+
+import "common:proto"
 
 
 @(test)
@@ -225,4 +228,99 @@ test_scan_group_too_big :: proc(t: ^testing.T) {
 	testing.expect_value(t, s.issues[.Group_Too_Big].count, 1)
 	testing.expect_value(t, len(s.directs), 0)
 	testing.expect_value(t, s.directs_left, 1)
+}
+
+@(test)
+test_plan_emoji_limit :: proc(t: ^testing.T) {
+	// 515 custom emoji, a server has at most 512: the least used go, by reactions
+	// and by being written in a message, then by name.
+	png, _ := os.read_entire_file(
+		SAMPLE + "/data/emoji/6ubuzgoskb81fpmzhfwni3iqea/image",
+		context.temp_allocator,
+	)
+	extras := make([dynamic]string, context.temp_allocator)
+	reactions := make([dynamic]string, context.temp_allocator)
+	dir := export_with(
+		t,
+		VERSION,
+		TEAM,
+		CHANNEL,
+		USER,
+		// z000 is only written in a message, and the others are used by reactions.
+		post("town-square", "alice", 1000),
+	)
+	defer os.remove_all(dir)
+	testing.expect(
+		t,
+		os.make_directory_all(strings.concatenate({dir, "/data/emoji"}, context.temp_allocator)) ==
+		nil,
+	)
+	for i in 0 ..< 515 {
+		name := fmt.tprintf("z%03d", i)
+		path := fmt.tprintf("emoji/%s", name)
+		testing.expect(t, os.write_entire_file(fmt.tprintf("%s/data/%s", dir, path), png) == nil)
+		append(
+			&extras,
+			fmt.tprintf(`{{"type":"emoji","emoji":{{"name":"%s","image":"%s"}}}}`, name, path),
+		)
+		// z000 to z004 are not reacted to.
+		if i >= 5 {
+			append(
+				&reactions,
+				fmt.tprintf(`{{"user":"alice","emoji_name":"%s","create_at":2}}`, name),
+			)
+		}
+	}
+	testing.expect(
+		t,
+		os.write_entire_file(
+			fmt.tprintf("%s/extras.jsonl", dir),
+			strings.join(extras[:], "\n", context.temp_allocator),
+		) ==
+		nil,
+	)
+	// The one post that carries all the reactions, and z000 written three times in another.
+	lines := strings.join(
+		{
+			VERSION,
+			TEAM,
+			CHANNEL,
+			USER,
+			fmt.tprintf(
+				`{{"type":"post","post":{{"team":"acme","channel":"town-square","user":"alice","message":":z000: :z000: and :z000:","create_at":1000,"reactions":[%s]}}}}`,
+				strings.join(reactions[:], ",", context.temp_allocator),
+			),
+		},
+		"\n",
+		context.temp_allocator,
+	)
+	testing.expect(t, os.write_entire_file(fmt.tprintf("%s/%s", dir, IMPORT_FILE), lines) == nil)
+	s, err := scan({dir = dir, team = "acme"})
+	testing.expect_value(t, err, "")
+	if s == nil {
+		return
+	}
+	defer scan_destroy(s)
+	testing.expect_value(t, len(s.emoji), 515)
+	testing.expect_value(t, s.stats.text_tokens["z000"], 3)
+	testing.expect_value(t, build_plan(s, "alice"), "")
+	testing.expect_value(t, len(s.plan.made), proto.MAX_CUSTOM_EMOJI)
+	// z000 is written three times, so it stays; z001 to z004 are used by nothing,
+	// and by name the last three of them go.
+	testing.expect_value(t, s.issues[.Emoji_Over_Limit].count, 3)
+	kept := make(map[string]bool, context.temp_allocator)
+	for e in s.plan.made {
+		kept[s.emoji[e.index].name] = true
+	}
+	for name in ([]string{"z000", "z001"}) {
+		testing.expectf(t, kept[name], "%s was dropped", name)
+	}
+	for name in ([]string{"z002", "z003", "z004"}) {
+		testing.expectf(t, !kept[name], "%s was kept", name)
+	}
+	// What was dropped isn't a reaction that can be made.
+	_, result := map_reaction(&s.plan.emoji, "z003", context.temp_allocator)
+	testing.expect_value(t, result, Reaction_Result.Unknown)
+	_, result = map_reaction(&s.plan.emoji, "z010", context.temp_allocator)
+	testing.expect_value(t, result, Reaction_Result.Mapped)
 }

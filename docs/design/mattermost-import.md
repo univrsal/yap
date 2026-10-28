@@ -21,7 +21,7 @@ says about the export comes from reading Mattermost's source (master,
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
 | 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | built (2026-10-28), see The importer |
-| 8 | Files and custom emoji | M | server (CLI) | 7 | open |
+| 8 | Files and custom emoji | M | server (CLI) | 7 | built (2026-10-28) |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
 | 11 | Bookmarks: one's own list of saved messages | M | protocol, schema, client | - | built (2026-10-28) |
@@ -510,16 +510,56 @@ webhook, which is what bot-api.md already suggests.
 
 ### Files and emoji (step 8)
 
-- Attachments are in the zip under `data/`, named by each `path`. The
-  importer stores each as a File blob with an `attachments` row; width
-  and height from the picture's header as posting does. A file over
-  `max_attachment` is skipped with a warning, or the limit is raised for
-  the import.
-- Custom emoji are `emoji` lines in `extras.jsonl` (the export misses
-  them), their pictures at `data/emoji/<id>/image`, written into `emoji/`
-  as `<name>.<ext>`. Names with characters yap doesn't allow are renamed
-  and the reactions and texts using them follow. Beyond 512 (D18), the
-  most used 512 are kept and the rest become plain `:name:` text.
+Built (2026-10-28), in `import_files.odin` and the scan:
+
+- **Files.** Each file that a post names (a path under `data/`) is stored as a
+  blob of the kind an upload makes, and the message has it as an attachment, in
+  the order they were attached, with its name cleaned as an upload's is, its
+  size, and for a picture the width and height from its header. The copy is
+  streamed in 1 MB pieces while the SHA-256 is worked out, so a large file
+  isn't held in memory, and a file with the same content as one already stored
+  is stored once. A message with files and no text is a message (the posts that
+  were left out until now); one with no text and no files that can be had is
+  left out and counted (`Post_Empty`). `attachments_store` takes the database
+  now, not the server, and a message's files are indexed by name for search as
+  an uploaded one's are.
+- **Limits.** At most 10 files to a message (the rest are said). A file larger
+  than the server's upload limit (`attachments.max_megabytes`, 100 by default,
+  as Mattermost's) is kept and reported: the limit is for people uploading, not
+  for history. A file with nothing in it is left out.
+- **Paths.** A path that leaves `data/` (`../x`, an absolute one, a Windows
+  drive) is never read, for files, profile pictures and emoji: it is reported
+  as missing. Without that, an export made by someone else could have a file of
+  this machine's, such as `/etc/passwd`, imported into a chat where everyone can
+  read it. A test has a real file next to `data/` that must not be taken.
+- **Custom emoji** are the `emoji` lines of `extras.jsonl`, and their pictures are
+  copied into the server's `emoji/` folder under the name they get in yap
+  (`<name>.png`, `.webp` or `.gif`), where the server builds its sheet when it
+  starts (and every five seconds while running). A JPEG or BMP is made a PNG
+  (`common/avatar.to_png`), as the folder takes only those three. A picture over
+  1 MB, or that isn't a picture, is left out and said; so is one whose name the
+  folder has already (never written over). Names are renamed as in 7b.
+- **D18, more than 512.** The most used 512 are kept, counting each reaction and
+  each `:name:` written in a message (pass 1 counts those, up to 200,000
+  different names); ties go by name. The others aren't made, and reactions to
+  them are left out and reported, like any name that isn't known. In texts they
+  stay as typed, which is plain `:name:`.
+- **Undo** removes the stored files and emoji pictures that this import wrote
+  (not ones that were there already).
+- **The check** also looks for files of messages that aren't in the store or
+  are marked wrongly, and every stored file being on disk.
+
+Tested: the sample's four files on three posts (one with no text), with names,
+sizes, a picture's 320 by 200, searchable names, content that matches its hash
+in the store, the one emoji, and undo; a made-up export with twelve files on a
+post (ten kept), a missing file, an empty one, the same file in two posts, a
+3 MB file copied in pieces, the upload limit, and three paths that leave
+`data/`; emoji as JPEG, PNG, a name with a capital and a dash, a file that
+isn't a picture, one that is too big, one that isn't there and one that the
+folder has; 515 emoji with the least used left out. 3 new tests in the server
+package and 1 in `mattermost` (186 and 24). Looked at in the client as an
+imported user: the files with their download buttons, the picture's preview,
+and the reaction to `:partyparrot:` drawn as the emoji.
 
 ### Saved messages
 

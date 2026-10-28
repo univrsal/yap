@@ -427,7 +427,7 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	m.conv = conv.id
 	m.time = proto.Unix_Ms(unix_ms())
 	msg_insert(&s.db, m, nonce) or_return
-	attachments_store(s, m^) or_return
+	attachments_store(&s.db, m^) or_return
 	if conv.kind == .DM {
 		conv.posted[0 if m.sender == conv.a else 1] = true
 	}
