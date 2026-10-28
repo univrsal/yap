@@ -1,7 +1,6 @@
 #+build !wasi
 package imaging
 
-import "base:runtime"
 import log "common:wlog"
 import "core:math"
 import "core:os"
@@ -9,6 +8,7 @@ import stbi "vendor:stb/image"
 
 import "client:clipboard"
 import "client:conn"
+import "common:avatar"
 import "common:proto"
 import "common:webp"
 
@@ -66,7 +66,7 @@ prepare :: proc(
 	// temporary allocator.
 	rgb := make([]u8, src.width * src.height * 3)
 	defer delete(rgb)
-	flatten(src, rgb)
+	avatar.flatten(src.width, src.height, src.pixels, rgb)
 
 	w, h := fit(src.width, src.height, MAX_IMAGE_SIDE)
 	quality: f32 = QUALITY_FIRST
@@ -146,53 +146,6 @@ fit :: proc(width, height, side: int) -> (w, h: int) {
 	return max(width * side / height, 1), side
 }
 
-// flatten drops the alpha channel by compositing the image onto white.
-@(private = "file")
-flatten :: proc(src: clipboard.Image, rgb: []u8) {
-	for i in 0 ..< src.width * src.height {
-		p := src.pixels[i * 4:]
-		a := int(p[3])
-		for c in 0 ..< 3 {
-			// Rounded (c * a + 255 * (255 - a)) / 255.
-			v := int(p[c]) * a + 255 * (255 - a)
-			rgb[i * 3 + c] = u8((v + 127) / 255)
-		}
-	}
-}
-
-@(private = "file")
-Jpeg_Writer :: struct {
-	ctx: runtime.Context,
-	buf: [dynamic]u8,
-}
-
-@(private = "file")
-encode_jpeg :: proc(
-	rgb: []u8,
-	w, h: int,
-	quality: i32,
-	allocator := context.allocator,
-) -> (
-	jpeg: []u8,
-	ok: bool,
-) {
-	writer := Jpeg_Writer {
-		ctx = context,
-		buf = make([dynamic]u8, 0, 64 * 1024, allocator),
-	}
-	write :: proc "c" (ctx: rawptr, data: rawptr, size: i32) {
-		w := (^Jpeg_Writer)(ctx)
-		context = w.ctx
-		append(&w.buf, ..([^]u8)(data)[:size])
-	}
-	if stbi.write_jpg_to_func(write, &writer, i32(w), i32(h), 3, raw_data(rgb), quality) == 0 {
-		log.error("could not compress the image")
-		delete(writer.buf)
-		return nil, false
-	}
-	return writer.buf[:], true
-}
-
 // avatar_prepare makes a profile picture from an image: the largest centered
 // square, scaled down to at most `max_side` and compressed to fit `max_size`.
 // The quality is lowered until it fits (a picture that small always fits at
@@ -207,57 +160,18 @@ avatar_prepare :: proc(
 	img: conn.Chat_Image,
 	ok: bool,
 ) {
-	if src.width <= 0 || src.height <= 0 || len(src.pixels) < src.width * src.height * 4 {
+	jpeg, side, made := avatar.prepare(
+		src.width,
+		src.height,
+		src.pixels,
+		allocator,
+		max_side,
+		max_size,
+	)
+	if !made {
 		return {}, false
 	}
-	side := min(src.width, src.height)
-	x0, y0 := (src.width - side) / 2, (src.height - side) / 2
-	square := make([]u8, side * side * 4)
-	defer delete(square)
-	for y in 0 ..< side {
-		row := ((y0 + y) * src.width + x0) * 4
-		copy(square[y * side * 4:][:side * 4], src.pixels[row:][:side * 4])
-	}
-	rgb := make([]u8, side * side * 3)
-	defer delete(rgb)
-	flatten({width = side, height = side, pixels = square}, rgb)
-
-	out := min(side, max_side)
-	scaled := rgb
-	if out != side {
-		scaled = make([]u8, out * out * 3)
-		if stbi.resize_uint8_srgb(
-			   raw_data(rgb),
-			   i32(side),
-			   i32(side),
-			   0,
-			   raw_data(scaled),
-			   i32(out),
-			   i32(out),
-			   0,
-			   3,
-			   stbi.ALPHA_CHANNEL_NONE,
-			   0,
-		   ) ==
-		   0 {
-			delete(scaled)
-			log.error("could not scale the picture")
-			return {}, false
-		}
-	}
-	defer if out != side {
-		delete(scaled)
-	}
-	for quality: i32 = 88; quality >= 30; quality -= 12 {
-		jpeg := encode_jpeg(scaled, out, out, quality, allocator) or_return
-		if len(jpeg) <= max_size {
-			log.debugf("picture: %dx%d, quality %d, %d bytes", out, out, quality, len(jpeg))
-			return {jpeg = jpeg, width = out, height = out}, true
-		}
-		delete(jpeg, allocator)
-	}
-	log.error("could not compress the picture small enough")
-	return {}, false
+	return {jpeg = jpeg, width = side, height = side}, true
 }
 
 // avatar_load makes a profile picture from an image file, in the same way as

@@ -82,6 +82,12 @@ build_plan :: proc(s: ^Scan, owner: string) -> (err: string) {
 			continue
 		}
 		roles := roles_of(u, s.team)
+		// yap has no kind of account that sees only the channels it was added
+		// to, so a guest would see every public channel. It is made disabled,
+		// for an admin to look at.
+		if roles.guest {
+			note(s, .Guest_Disabled, u.username, a)
+		}
 		add(
 			s,
 			p,
@@ -93,7 +99,7 @@ build_plan :: proc(s: ^Scan, owner: string) -> (err: string) {
 				owner = u.username == chosen,
 				admin = roles.admin,
 				guest = roles.guest,
-				disabled = u.delete_at != 0,
+				disabled = u.delete_at != 0 || roles.guest,
 			},
 			u.email,
 			a,

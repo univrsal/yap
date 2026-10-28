@@ -611,6 +611,16 @@ db_commit :: proc(db: ^DB) {
 	}
 }
 
+// db_rollback undoes what this turn wrote. Only a command that fails halfway
+// and means to leave the database as it was (the importer) does this.
+db_rollback :: proc(db: ^DB) {
+	if !db.in_tx {
+		return
+	}
+	db.in_tx = false
+	db_exec(db, "ROLLBACK")
+}
+
 // db_idle is called when the loop has nothing to do, which is a good moment for
 // work that waits for the disk.
 db_idle :: proc(db: ^DB) {

@@ -248,7 +248,6 @@ format_day :: proc(ms: i64) -> string {
 }
 
 // confirm asks a yes/no question on the terminal. Anything but "y" or "yes" counts as no.
-@(private = "file")
 confirm :: proc(question: string) -> bool {
 	fmt.printf("%s [y/N] ", question)
 	r: bufio.Reader

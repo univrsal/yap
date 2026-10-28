@@ -236,6 +236,7 @@ jobs:
           odin test src/client/richtext $collections -vet -strict-style
           odin test src/server/mail $collections -vet -strict-style
           odin test src/server/mattermost $collections -vet -strict-style
+          odin test src/common/avatar $collections -vet -strict-style
           odin test src/server $collections -vet -strict-style
 
       - uses: actions/download-artifact@v8

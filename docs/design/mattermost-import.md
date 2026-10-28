@@ -20,7 +20,7 @@ says about the export comes from reading Mattermost's source (master,
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
-| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a and 7b built, 7c–7g to go, see The importer |
+| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a–7c built, 7d–7g to go, see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
@@ -281,7 +281,7 @@ teams' channels are left out.
 | password, `auth_service` | a generated password and `Must_Change` (D2) |
 | `delete_at` (deactivated) | `Disabled` |
 | `roles` containing `system_admin`, or `team_admin` in the team | the Admin role (D6) |
-| `roles` containing `system_guest` | the guest role (D6); needs a Mattermost license, so not on ours |
+| `roles` containing `system_guest` | a disabled account (7c); guests need a Mattermost license, so not on ours |
 | `bot` lines | `Bot` flag |
 | `profile_image` | avatar blob, scaled to 256 px and re-encoded under 64 KB |
 | `locale`, `position`, preferences | dropped |
@@ -294,8 +294,8 @@ An author that isn't in the export (a deleted account) becomes a
 Every imported account gets a generated password and `Must_Change`, so
 it picks its own at first login (D2). The export has no passwords anyway,
 and SSO accounts never had one. The importer writes the generated
-passwords to a CSV file, `username,password` with one line per account
-(bots excepted), for the admin to hand out. The file holds every
+passwords to a CSV file, `username,email,password` with one line per account
+(bots, the deactivated and guests excepted), for the admin to hand out. The file holds every
 account's password until they change it, so the importer creates it
 readable only by its owner and says so.
 
@@ -780,6 +780,64 @@ channel name twice, someone who left the team, an unknown emoji and system
 type); and the owner rules. Pass 1 is as fast as before (10 s for 300,000
 posts, 36 MB).
 
+### 7c: accounts (built 2026-10-28)
+
+`import_accounts.odin` in the server package; `yap-server import mattermost
+... --unfinished` now makes the accounts, in one transaction with the
+password file. (`--unfinished` goes when 7g is done; until then a run without
+it only reports, so nobody gets a half import by accident.) What it does:
+
+- **The database.** It has to be one that a server has never been used with
+  (D5): no messages, devices, stored files, conversations beyond the home
+  channel, roles beyond `everyone`, invites or bans, and no accounts. One
+  case is let through, because every admin meets it: starting the server once
+  to make `config.json` also makes the first admin with a password that was
+  shown in the log. If that is the only account and its password was never
+  changed (`Owner` and `Must_Change` still set), the import removes it, in the
+  same transaction, and makes its own accounts. Anything else gets a message
+  saying what is in the database.
+- **Accounts.** From the plan: owner, disabled (deactivated, or a guest),
+  bot; email; the Admin role for system admins and the team's admins, made
+  with every permission; the people who left the team as disabled accounts.
+- **Guests become disabled accounts**, with a warning. yap has no account
+  that sees only the channels it was added to, so a guest would have seen
+  every public channel. (D6 said a guest role; it can't be one until yap has
+  such an account. Our 10.12.4 has no guests, as they need a license.)
+- **Passwords.** 16 generated characters for each member who can log in
+  (not bots, not the deactivated, not guests, not those who left), all
+  `Must_Change` (D2), hashed on up to eight threads (the six of the sample
+  take 0.2 s, so about 40 ms each on one thread), with progress. They are
+  written to a new file, `passwords.csv` next to `config.json` unless
+  `--passwords` says where: `username,email,password`, created for its owner
+  only, never written over, and removed again if the import fails. The
+  email is there so that a mail merge can send them.
+- **Pictures.** Each profile picture of a member or bot is read with
+  stb_image (JPEG, PNG, GIF or BMP), its largest centered square scaled to at
+  most 256 px, and compressed to a JPEG under 64 KB: the same code as the
+  client uses for a picture a person chooses, now in `common/avatar`. A file
+  that isn't a picture leaves the account without one and is reported; one
+  that isn't there was reported by the scan already.
+- **Authors that are gone** (no user line) become tombstones, as an account
+  that is deleted does (`account_erase_rows`): `deleted#<id>`, "Deleted user".
+  The import keeps what Mattermost's username is for each account
+  (`Importer.ids`), which the messages are written by.
+- **Failing.** A failure rolls the database back and removes the picture
+  files and the password file that were written (a rollback doesn't take
+  files with it).
+- **Not here.** Membership of the home and default channels (7d), who
+  administers which channel (7d), the system posts of someone joining the
+  server (7e).
+
+Tests: the sample's ten accounts, with flags, roles, display names, emails and
+three pictures (each a JPEG within yap's limits); every generated password
+checked against the account's own hash; the file's contents and its mode;
+undo; the database check (new, once started, used, with a stored file); a
+guest and a gone author; a picture that isn't one. 7 new in the server
+package and 2 for `common/avatar`. Tried by hand on the live instance's
+export, on a database a server had been started on, and then logged in as an
+imported user with a generated password: "the password was set by an admin
+and has to be changed".
+
 ## Group DMs (step 1)
 
 The one gap the import can't go without: group messages are common, and
@@ -981,9 +1039,10 @@ Built (2026-10-28), protocol version 20 (proto/bookmarks.odin):
   refuses one that has anything in it beyond what a new database starts
   with (the home channel and the `everyone` role), so ids, names and the
   home channel never clash with what's there.
-- **D6** Roles: the importer creates a guest role that can't see any
-  channel and has no other rights, and a role named Admin with all
-  rights, for system and team admins. Channel admins become yap's own
+- **D6** Roles: the importer creates a role named Admin with all
+  rights, for system and team admins. (A guest role that can't see any
+  channel was meant too, but yap has no such account yet: guests are made
+  disabled, see 7c.) Channel admins become yap's own
   channel admins (step 13): any number per channel, who may add and
   remove members, make others channel admins, and change the channel's
   name and topic.

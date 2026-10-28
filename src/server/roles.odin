@@ -173,6 +173,43 @@ account_roles_set :: proc(a: ^Accounts, acc: ^Account, roles: []proto.Role_Id) -
 	return true
 }
 
+// role_create makes a role below all the others, in the database and in
+// memory. It returns nil if the database refuses it. The name must be checked
+// already (proto.role_name_ok, and not the name of another role).
+role_create :: proc(
+	a: ^Accounts,
+	name: string,
+	perms: proto.Permissions,
+	color: u32,
+	flags: proto.Role_Flags,
+) -> ^Role {
+	position := 0
+	for _, r in a.roles {
+		position = max(position, r.position + 1)
+	}
+	q := db_query(
+		a.db,
+		.Role_Add,
+		name,
+		i64(transmute(u64)perms),
+		i64(color),
+		i64(position),
+		i64(transmute(u8)flags),
+	)
+	if !db_run(a.db, q) {
+		return nil
+	}
+	role := new(Role)
+	role.id = proto.Role_Id(db_last_id(a.db))
+	role.name = strings.clone(name)
+	role.perms = perms
+	role.color = color
+	role.position = position
+	role.flags = flags
+	a.roles[role.id] = role
+	return role
+}
+
 // role_request handles a request about roles. Returns false if `op` isn't one.
 role_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: []u8) -> bool {
 	#partial switch op {
@@ -238,32 +275,11 @@ role_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 			respond(u, id, .Too_Large)
 			return
 		}
-		// A new role is added below all the others.
-		position := 0
-		for _, r in a.roles {
-			position = max(position, r.position + 1)
-		}
-		q := db_query(
-			a.db,
-			.Role_Add,
-			name,
-			i64(transmute(u64)perms),
-			i64(color),
-			i64(position),
-			i64(transmute(u8)flags),
-		)
-		if !db_run(a.db, q) {
+		existing = role_create(a, name, perms, color, flags)
+		if existing == nil {
 			respond(u, id, .Internal)
 			return
 		}
-		existing = new(Role)
-		existing.id = proto.Role_Id(db_last_id(a.db))
-		existing.name = strings.clone(name)
-		existing.perms = perms
-		existing.color = color
-		existing.position = position
-		existing.flags = flags
-		a.roles[existing.id] = existing
 		log.infof("%s made the role %q", conn_label(u), name)
 	} else {
 		q := db_query(

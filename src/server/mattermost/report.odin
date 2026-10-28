@@ -63,6 +63,12 @@ issue_text :: proc(kind: Issue_Kind) -> string {
 		return "kinds of system post this importer doesn't know; left out"
 	case .Reaction_Tone:
 		return "emoji with a skin tone, which yap has not; reactions use the emoji without it"
+	case .Guest_Disabled:
+		return(
+			"guests, which yap has no kind of account for; their accounts are made disabled, for an admin to look at" \
+		)
+	case .Avatar_Failed:
+		return "profile pictures that couldn't be read; those accounts get none"
 	case .Reaction_Unknown:
 		return "emoji names that aren't yap's or the server's own; those reactions are left out"
 	}

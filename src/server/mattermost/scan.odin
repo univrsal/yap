@@ -52,6 +52,9 @@ Issue_Kind :: enum {
 	System_Unknown, // system posts of a type this importer doesn't know, by type
 	Reaction_Tone, // reactions with a skin tone, which become the emoji without one
 	Reaction_Unknown, // reactions with an emoji name that isn't known; left out
+	// Found by the writing steps:
+	Guest_Disabled, // a guest, which yap has no kind of account for; made disabled
+	Avatar_Failed, // a profile picture that couldn't be read or made small enough
 }
 
 // How many examples of each issue are kept.
@@ -122,6 +125,9 @@ Scan :: struct {
 	// The people who wrote in the team's channels without being members, in
 	// the order they were first seen (see check_author).
 	authors_only:  [dynamic]string,
+	// Those who wrote something but have no user line at all, in the order
+	// they were first seen.
+	authors_gone:  [dynamic]string,
 	has_extras:    bool, // extras.jsonl was read
 	plan:          Plan, // filled in by build_plan
 	// What made the scan stop, as a sentence (see scan_file).
@@ -178,6 +184,7 @@ scan :: proc(opts: Options) -> (s: ^Scan, err: string) {
 	s.stats.reaction_names = make(map[string]int, a)
 	s.reported = make(map[string]bool, a)
 	s.authors_only.allocator = a
+	s.authors_gone.allocator = a
 	for &i in s.issues {
 		i.examples.allocator = a
 	}
@@ -458,7 +465,9 @@ check_author :: proc(s: ^Scan, username: string, a: Allocator) {
 			append(&s.authors_only, strings.clone(username, a))
 		}
 	case:
-		note_once(s, .Author_Unknown, username, a)
+		if note_once(s, .Author_Unknown, username, a) {
+			append(&s.authors_gone, strings.clone(username, a))
+		}
 	}
 }
 
