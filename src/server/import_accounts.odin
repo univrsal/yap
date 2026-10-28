@@ -47,6 +47,12 @@ Importer :: struct {
 	// (mattermost.direct_key). Messages are written to these (7e).
 	channels:    []^Conv,
 	directs:     map[string]^Conv,
+	// The same direct conversations in the order of the scan's direct channels.
+	direct_list: []^Conv,
+	// What import_messages made.
+	messages:    int,
+	// A thread's first post by where its line is: the message it became.
+	roots:       map[i64]proto.Msg_Id,
 	// Where the passwords were written, once they were.
 	csv:         string,
 	// What the steps keep their strings in; freed by importer_destroy.
@@ -64,6 +70,7 @@ importer_init :: proc(im: ^Importer) {
 	a := virtual.arena_allocator(&im.arena)
 	im.ids = make(map[string]proto.Account_Id, a)
 	im.directs = make(map[string]^Conv, a)
+	im.roots = make(map[i64]proto.Msg_Id, a)
 	im.passwords.allocator = a
 	im.written.allocator = a
 	if im.hash_params == 0 && im.threads == 0 {

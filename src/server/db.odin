@@ -268,7 +268,7 @@ STMT_SQL := [Stmt]string {
 	.Member_Set_Admin       = "UPDATE members SET admin = ?3 WHERE conv = ?1 AND account = ?2",
 	.Msg_Unread             = "SELECT count(*) FROM (SELECT 1 FROM messages WHERE conv = ?1 AND id > ?2 AND sender != ?3 AND flags & 1 = 0 AND " + COUNTS_UNREAD + " LIMIT 100)",
 	.Conv_Set_Last          = "UPDATE convs SET last_msg = ?2 WHERE id = ?1",
-	.Msg_Add                = "INSERT INTO messages (conv, sender, time, kind, text, nonce, file_size, thread_root, flags, fwd_sender, fwd_conv, fwd_time, persona_name, persona_avatar) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+	.Msg_Add                = "INSERT INTO messages (conv, sender, time, kind, text, nonce, file_size, thread_root, flags, fwd_sender, fwd_conv, fwd_time, persona_name, persona_avatar, edited) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
 	.Msg_By_Nonce           = "SELECT id, time FROM messages WHERE sender = ?1 AND nonce = ?2",
 	.Msg_Before             = "SELECT " + MSG_COLS + " FROM messages m WHERE m.conv = ?1 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3",
 	.Msg_After              = "SELECT " + MSG_COLS + " FROM messages m WHERE m.conv = ?1 AND m.id > ?2 ORDER BY m.id LIMIT ?3",

@@ -220,6 +220,70 @@ Direct_Post_Reactions :: struct {
 	reactions:       []Reaction,
 }
 
+// Post_Body is what a post, a reply and a direct post have in common, which is
+// what the importer writes a message from.
+Post_Body :: struct {
+	user:        string,
+	type:        string,
+	message:     string,
+	props:       json.Value,
+	create_at:   i64,
+	edit_at:     i64,
+	is_pinned:   bool,
+	flagged_by:  []string,
+	reactions:   []Reaction,
+	attachments: []Attachment,
+	replies:     int, // how many replies the post has
+}
+
+body_of_post :: proc(p: Post) -> Post_Body {
+	return {
+		p.user,
+		p.type,
+		p.message,
+		p.props,
+		p.create_at,
+		p.edit_at,
+		p.is_pinned,
+		p.flagged_by,
+		p.reactions,
+		p.attachments,
+		len(p.replies),
+	}
+}
+
+body_of_direct :: proc(p: Direct_Post) -> Post_Body {
+	return {
+		p.user,
+		p.type,
+		p.message,
+		p.props,
+		p.create_at,
+		p.edit_at,
+		p.is_pinned,
+		p.flagged_by,
+		p.reactions,
+		p.attachments,
+		len(p.replies),
+	}
+}
+
+body_of_reply :: proc(r: Reply) -> Post_Body {
+	return {
+		r.user,
+		r.type,
+		r.message,
+		r.props,
+		r.create_at,
+		r.edit_at,
+		r.is_pinned,
+		r.flagged_by,
+		r.reactions,
+		r.attachments,
+		0,
+	}
+}
+
 // The wrappers that a line is read into: `{"type": ..., "<kind>": {...}}`.
 Version_Wrapper :: struct {
 	version: int,

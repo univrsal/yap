@@ -57,7 +57,10 @@ import_channels :: proc(im: ^Importer) -> bool {
 	order := make([dynamic]int, 0, len(plans), context.temp_allocator)
 	for p, i in plans {
 		prefix := "1" if .Archived in p.flags else "0"
-		keys[i] = strings.concatenate({prefix, strings.to_lower(p.name, context.temp_allocator)}, context.temp_allocator)
+		keys[i] = strings.concatenate(
+			{prefix, strings.to_lower(p.name, context.temp_allocator)},
+			context.temp_allocator,
+		)
 		if !p.home {
 			append(&order, i)
 		}
@@ -150,6 +153,7 @@ import_members :: proc(im: ^Importer) -> bool {
 import_directs :: proc(im: ^Importer) -> bool {
 	s := im.scan
 	c := im.convs
+	im.direct_list = make([]^Conv, len(s.directs), virtual.arena_allocator(&im.arena))
 	progress := progress_start("making direct conversations")
 	for d, i in s.directs {
 		progress_update(&progress, i64(i), i64(len(s.directs)))
@@ -187,6 +191,7 @@ import_directs :: proc(im: ^Importer) -> bool {
 			return false
 		}
 		im.directs[strings.clone(key, virtual.arena_allocator(&im.arena))] = conv
+		im.direct_list[i] = conv
 		for p in d.participants {
 			notify := mattermost.notify_of(p.notify_props)
 			if notify != .All && !conv_set_notify(c, conv, im.ids[p.username], notify) {

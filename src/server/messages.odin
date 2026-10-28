@@ -424,8 +424,26 @@ msg_forward :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // makes it the last message of its conversation. `m` must already contain
 // the conversation, sender, kind and content.
 msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> bool {
+	m.conv = conv.id
 	m.time = proto.Unix_Ms(unix_ms())
-	q := db_query(&s.db, .Msg_Add, i64(conv.id), i64(m.sender), i64(m.time), i64(m.kind))
+	msg_insert(&s.db, m, nonce) or_return
+	attachments_store(s, m^) or_return
+	if conv.kind == .DM {
+		conv.posted[0 if m.sender == conv.a else 1] = true
+	}
+
+	q := db_query(&s.db, .Conv_Set_Last, i64(conv.id), i64(m.id))
+	db_run(&s.db, q) or_return
+	conv.last_msg, conv.last_time = m.id, m.time
+	return true
+}
+
+// msg_insert writes a message's row, filling in its id. The message keeps its
+// time (msg_store sets it to now; the importer's messages have their own). It
+// doesn't touch what depends on the message: its files, the conversation's last
+// message, who has posted in a DM.
+msg_insert :: proc(db: ^DB, m: ^proto.Message, nonce: u64) -> bool {
+	q := db_query(db, .Msg_Add, i64(m.conv), i64(m.sender), i64(m.time), i64(m.kind))
 	#partial switch m.kind {
 	case .Text:
 		db_bind_text(q, 5, m.text)
@@ -465,16 +483,9 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 		db_bind_null(q, 13)
 		db_bind_null(q, 14)
 	}
-	db_run(&s.db, q) or_return
-	m.id = proto.Msg_Id(db_last_id(&s.db))
-	attachments_store(s, m^) or_return
-	if conv.kind == .DM {
-		conv.posted[0 if m.sender == conv.a else 1] = true
-	}
-
-	q = db_query(&s.db, .Conv_Set_Last, i64(conv.id), i64(m.id))
-	db_run(&s.db, q) or_return
-	conv.last_msg, conv.last_time = m.id, m.time
+	db_bind_int(q, 15, i64(m.edited))
+	db_run(db, q) or_return
+	m.id = proto.Msg_Id(db_last_id(db))
 	return true
 }
 

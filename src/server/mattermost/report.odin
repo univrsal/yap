@@ -65,6 +65,18 @@ issue_text :: proc(kind: Issue_Kind) -> string {
 		return "emoji with a skin tone, which yap has not; reactions use the emoji without it"
 	case .Group_Too_Big:
 		return "group messages of more people than yap's groups have; left out, with their posts"
+	case .Post_Empty:
+		return(
+			"posts with nothing to show (just files, or a card from an integration); not imported yet" \
+		)
+	case .Text_Cut:
+		return "messages cut to yap's limit"
+	case .System_Skipped:
+		return "system posts left out, as who they were about isn't imported"
+	case .Thread_Root_Missing:
+		return "replies whose first post wasn't imported; they are messages of their own"
+	case .Post_Failed:
+		return "posts that couldn't be read or written; left out"
 	case .Channel_Scheme:
 		return(
 			"channels with a scheme, whose rights aren't imported: everyone may do everything there" \

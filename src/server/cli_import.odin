@@ -237,6 +237,11 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 		fmt.eprintln("the import failed, and nothing was changed")
 		return 1
 	}
+	if !import_messages(&im) {
+		import_undo(&im)
+		fmt.eprintln("the import failed, and nothing was changed")
+		return 1
+	}
 	if err := import_write_passwords(&im, csv); err != "" {
 		import_undo(&im)
 		fmt.eprintfln("%s\nnothing was changed", err)
@@ -245,10 +250,11 @@ import_run :: proc(a: Import_Args, scan: ^mattermost.Scan) -> int {
 	db_commit(&db)
 	made := len(scan.plan.accounts) + len(scan.authors_gone)
 	fmt.printfln(
-		"\nmade %d accounts, %d channels and %d direct conversations. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
+		"\nmade %d accounts, %d channels, %d direct conversations and %d messages. Their passwords are in %s, which only you can read; hand them out and delete it. Everyone has to choose a new password when they first log in.",
 		made,
 		len(scan.channels),
 		len(scan.directs),
+		im.messages,
 		csv,
 	)
 	return 0

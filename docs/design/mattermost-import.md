@@ -20,7 +20,7 @@ says about the export comes from reading Mattermost's source (master,
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
-| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a–7d built, 7e–7g to go, see The importer |
+| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a–7e built, 7f–7g to go, see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
@@ -883,6 +883,63 @@ the server package and 1 in `mattermost` (175 and 22). Looked at in the
 client, logged in as an imported team admin: Town Square, General Talk
 Renamed, Off-Topic, Phoenix and Secret (with its lock) are listed, and the
 archived Old Stuff is not.
+
+### 7e: messages and threads (built 2026-10-28)
+
+`import_messages.odin`, `mattermost/posts.odin`; `--unfinished` now writes the
+history. How:
+
+- **Order.** The scan's references are sorted by time (then by place in the
+  file, a thread's first post before its replies), and each is read again from
+  `import.jsonl` by its byte offset, so ids follow time across every
+  conversation and memory doesn't grow with the history. A reply that is
+  timed before its first post (Mattermost doesn't do that) is ordered after
+  it, but keeps its own time.
+- **Threads.** A first post with replies is one line that each of its
+  replies needs, at different times, so `Post_Reader` keeps a parsed line
+  while posts of it are left, within 64 MB, and reads it again if it was let
+  go. Each reply gets its first post's id as `thread_root`; reply counts, last
+  replies and `Has_Thread` are made at the end with the server's own
+  `Thread_Recount`. A reply whose first post wasn't imported is a message of
+  its own (`Thread_Root_Missing`).
+- **Rows.** `msg_store` is split: `msg_insert` writes the row with the
+  message's own time and `edited` (the new `Msg_Add` column), and `msg_store`
+  adds what a live message needs. Each conversation's last message is set
+  once at the end.
+- **Text.** Cleaned as a posted message is (lines kept, control characters
+  gone), cut at yap's limit and reported if it was. The rewrites of mentions,
+  links and emoji are step 9; for now the text is as typed.
+- **System posts** by the table of 7b. Who a message is about must be
+  imported, or it is left out (`System_Skipped`). Changes of privacy in a
+  language that isn't English get their direction from the channel: the scan
+  walks back from the channel's type now, a private channel having last been
+  made private, and an English post keeps what it says.
+- **Left out for now**, and counted by type (`Post_Empty`): posts with no text,
+  which are file-only posts (step 8) and cards from integrations (step 10).
+  Those steps must handle them in this same loop, as ids follow time.
+  Pins, reactions and saved posts are 7f.
+- **No temp memory is freed that wasn't made here.** The loop gives back what
+  each message used (`default_temp_allocator_temp_end`), not everything: a
+  `free_all` found by running it freed the path of the password file.
+
+Tested: the sample (85 of 88 posts, the three left out being the bot's
+greeting, the purpose change in a channel with a header, and a post with only
+a file; ids in time order; 3 threads with 5 replies and the server's counts;
+who each system message is by and about; every conversation's last message;
+the server loads it); posts out of order across two channels, a reply listed
+first, a reply timed before its post; a reply of a post that wasn't imported,
+a gone author, privacy changes in German, a system post about someone who isn't
+imported, control characters; the reader's cache with a budget that keeps
+nothing, against the normal one. 3 new tests in the server package and 1 in
+`mattermost` (178 and 23). Looked at in the client as an imported team admin:
+the history of Town Square and General Talk Renamed, with "(edited)", the
+topic and name changes, who was added and removed, and the channel being made
+private and public. Unread counts are there because 7g sets the read
+positions.
+
+Speed: 603,000 posts and replies (made up, 120,000 threads, 150 MB) in 38 s
+in an unoptimised build, 15,700 a second, with 155 MB in use at most. A million
+would be a minute and a half.
 
 ## Group DMs (step 1)
 

@@ -55,6 +55,11 @@ Issue_Kind :: enum {
 	Reaction_Tone, // reactions with a skin tone, which become the emoji without one
 	Reaction_Unknown, // reactions with an emoji name that isn't known; left out
 	Channel_Scheme, // a channel with a scheme, whose rights are not imported
+	Post_Empty, // a post with no text to show, by type; not imported yet (files: step 8, cards: step 10)
+	Text_Cut, // a message longer than yap's limit
+	System_Skipped, // a system post that couldn't be made one: who it was done to is not imported
+	Thread_Root_Missing, // a reply whose first post wasn't imported; it is a message of its own
+	Post_Failed, // a post that couldn't be read or written
 	// Found by the writing steps:
 	Group_Too_Big, // a group message of more people than yap's groups have; left out, with its posts
 	Guest_Disabled, // a guest, which yap has no kind of account for; made disabled
@@ -71,7 +76,7 @@ Issue :: struct {
 
 // Post_Ref is what pass 1 keeps of a post (or of a reply inside a post's line).
 Post_Ref :: struct {
-	time:   i64, // create_at
+	time:   i64, // create_at, for a reply not before its post's: the order to insert in
 	offset: i64, // where its line starts in import.jsonl
 	length: i32, // of the line, without its newline
 	reply:  i32, // -1 for the line's own post, else the index in its `replies`
@@ -134,6 +139,10 @@ Scan :: struct {
 	authors_gone:  [dynamic]string,
 	has_extras:    bool, // extras.jsonl was read
 	plan:          Plan, // filled in by build_plan
+	// Every change of a channel's privacy, and which way each went (see
+	// resolve_privacy_changes).
+	privacy:       [dynamic]Privacy_Change,
+	privacy_dir:   map[Privacy_Key]bool, // true: made private
 	// What made the scan stop, as a sentence (see scan_file).
 	fatal:         string,
 }
@@ -189,6 +198,8 @@ scan :: proc(opts: Options) -> (s: ^Scan, err: string) {
 	s.reported = make(map[string]bool, a)
 	s.authors_only.allocator = a
 	s.authors_gone.allocator = a
+	s.privacy.allocator = a
+	s.privacy_dir = make(map[Privacy_Key]bool, a)
 	for &i in s.issues {
 		i.examples.allocator = a
 	}
@@ -228,6 +239,7 @@ scan :: proc(opts: Options) -> (s: ^Scan, err: string) {
 		return nil, err
 	}
 	scan_check_files(s)
+	resolve_privacy_changes(s)
 	return s, ""
 }
 
@@ -549,6 +561,7 @@ scan_post :: proc(s: ^Scan, p: Post, at: i64, length: int, a: Allocator) {
 	for f in p.attachments {
 		check_file(s, f.path, .Attachment_Missing, a)
 	}
+	note_privacy_change(s, p.type, p.message, conv, p.create_at, a)
 	append(&s.posts, Post_Ref{p.create_at, at, i32(length), -1, i32(conv), false})
 	for r, i in p.replies {
 		check_author(s, r.user, a)
@@ -566,7 +579,10 @@ scan_post :: proc(s: ^Scan, p: Post, at: i64, length: int, a: Allocator) {
 		for f in r.attachments {
 			check_file(s, f.path, .Attachment_Missing, a)
 		}
-		append(&s.posts, Post_Ref{r.create_at, at, i32(length), i32(i), i32(conv), false})
+		append(
+			&s.posts,
+			Post_Ref{max(r.create_at, p.create_at), at, i32(length), i32(i), i32(conv), false},
+		)
 	}
 }
 
@@ -656,7 +672,10 @@ scan_direct_post :: proc(s: ^Scan, p: Direct_Post, at: i64, length: int, a: Allo
 		for f in r.attachments {
 			check_file(s, f.path, .Attachment_Missing, a)
 		}
-		append(&s.posts, Post_Ref{r.create_at, at, i32(length), i32(i), i32(conv), true})
+		append(
+			&s.posts,
+			Post_Ref{max(r.create_at, p.create_at), at, i32(length), i32(i), i32(conv), true},
+		)
 	}
 }
 
@@ -706,6 +725,80 @@ scan_check_files :: proc(s: ^Scan) {
 	for e in s.emoji {
 		if e.image != "" {
 			check_file(s, e.image, .Emoji_Image_Missing, a)
+		}
+	}
+}
+
+// Privacy_Change is a post that says a channel was made private or public.
+Privacy_Change :: struct {
+	channel: int, // an index into Scan.channels
+	time:    i64,
+	known:   bool, // the post's text says which way
+	private: bool, // made private (if known)
+}
+
+Privacy_Key :: struct {
+	channel: int,
+	time:    i64,
+}
+
+@(private = "file")
+note_privacy_change :: proc(
+	s: ^Scan,
+	type, message: string,
+	channel: int,
+	time: i64,
+	a: Allocator,
+) {
+	if type != "system_change_chan_privacy" {
+		return
+	}
+	change := Privacy_Change {
+		channel = channel,
+		time    = time,
+	}
+	switch {
+	case strings.contains(message, "Private Channel"):
+		change.known, change.private = true, true
+	case strings.contains(message, "Public Channel"):
+		change.known = true
+	}
+	append(&s.privacy, change)
+}
+
+// resolve_privacy_changes works out which way each change of privacy went. The
+// post says so in the server's language, so it is only read in English; for a
+// channel whose posts it can't read, the changes alternate, and the last one
+// ended at the channel's type now: a private channel was last made private, the
+// one before that public, and so on. A post that can be read keeps its own
+// direction.
+@(private = "file")
+resolve_privacy_changes :: proc(s: ^Scan) {
+	by_channel := make(map[int][dynamic]int, context.temp_allocator)
+	for c, i in s.privacy {
+		list := by_channel[c.channel]
+		list.allocator = context.temp_allocator
+		append(&list, i)
+		by_channel[c.channel] = list
+	}
+	for channel, list in by_channel {
+		changes := list[:]
+		// In time order (the posts come in the order of the file, which isn't).
+		for i in 1 ..< len(changes) {
+			for j := i;
+			    j > 0 && s.privacy[changes[j]].time < s.privacy[changes[j - 1]].time;
+			    j -= 1 {
+				changes[j], changes[j - 1] = changes[j - 1], changes[j]
+			}
+		}
+		direction := s.channels[channel].type == "P" // the last change
+		for k := len(changes) - 1; k >= 0; k -= 1 {
+			c := s.privacy[changes[k]]
+			if c.known {
+				direction = c.private
+			}
+			s.privacy_dir[{channel, c.time}] = direction
+			direction = !direction
 		}
 	}
 }
