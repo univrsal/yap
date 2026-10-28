@@ -1,0 +1,3 @@
+{"type": "emoji", "emoji": {"name": "partyparrot", "image": "emoji/6ubuzgoskb81fpmzhfwni3iqea/image"}}
+{"type": "direct_post_reactions", "direct_post_reactions": {"channel_members": ["bob", "alice"], "user": "alice", "create_at": 1793200879550, "reactions": [{"user": "bob", "emoji_name": "wave", "create_at": 1793200879642}]}}
+{"type": "direct_post_reactions", "direct_post_reactions": {"channel_members": ["bob", "alice", "carol"], "user": "alice", "create_at": 1793200879914, "reactions": [{"user": "carol", "emoji_name": "smile", "create_at": 1793200879995}]}}

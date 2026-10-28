@@ -10,7 +10,7 @@ that Mattermost's data fits (decided, see Decisions), and
 look at a real export from a test instance (step 6), because the export's
 documentation and its code don't say everything we need. What this note
 says about the export comes from reading Mattermost's source (master,
-2026-10), not from an export we made.
+2026-10) and from exports of a test instance (step 6, `tools/mattermost`).
 
 | # | Change | Size | Where | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
@@ -19,7 +19,7 @@ says about the export comes from reading Mattermost's source (master,
 | 3 | Size limits raised to Mattermost's | M | protocol, schema, client | - | built (2026-10-28) |
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
-| 6 | A test Mattermost instance and a sample export | S | tooling | - | webhooks seen (2026-10-28), the rest open |
+| 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
 | 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | open |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
@@ -82,11 +82,12 @@ the stable thing to read. Flags of `export create`:
 | `--no-roles-and-schemes` | off | schemes and custom roles are included unless this is given |
 | `--team-name`, `--team-id` | all | **don't use**: a team-scoped export has no DMs or group messages at all |
 | `--channel-name`, `--channel-id` | all | |
-| `--include-custom-emoji` | off | only matters for a scoped export |
+| `--include-custom-emoji` | - | not in 10.12.4; custom emoji are missing from its exports anyway (below) |
 
 So the export to ask an admin for is the whole instance with
 `--include-archived-channels --include-profile-pictures`, and the importer
-picks the team (D1).
+picks the team (D1). With it, the admin runs `tools/mattermost/extras.py`
+against the server, for what the export misses (below).
 
 ### Lines
 
@@ -133,38 +134,81 @@ What each line carries that we care about (from
 ### What the export leaves out
 
 - Passwords (see D2, which doesn't need them).
-- Deleted posts: a root post or direct post with `delete_at` set is
-  skipped; whether its replies are too is to be seen. So D10 ("kept as
-  deleted") can only keep what the export has.
+- Deleted posts. Deleting a root post deletes its replies too, so none
+  of a deleted thread is exported; a deleted reply is missing from its
+  thread. So D10 ("kept as deleted") has nothing to keep.
+- By mistake (10.12.4, `server/channels/app/export.go`): **custom emoji**,
+  which are only written when the export isn't a zip, and `mmctl` always
+  makes one; and **reactions to the first post of a DM or group
+  message**, which are only exported for replies. `extras.py` fetches
+  both through the REST API into `extras.jsonl` in the export's own
+  format: `emoji` lines, and `direct_post_reactions` lines that name the
+  post as a `direct_post` would (`channel_members`, `user`, `create_at`).
 - Edit history: only `edit_at` and the current text.
 - Custom user groups (`@groupname`), sidebar categories, webhooks, slash
   commands, link preview metadata, the custom status.
 - Group messages whose name doesn't match their members, and "direct
-  channels with only one active member"; which ones those are is to be
-  seen, it may include DMs with a deactivated user.
+  channels with only one active member". Neither showed up on the test
+  instance: DMs and group messages with a deactivated user, a DM with
+  oneself and a DM with someone in another team are all exported.
 
-### To see on the test instance (step 6)
+### The test instance and the sample (step 6)
 
-A Mattermost in Docker (`mattermost/mattermost-team-edition` and
-Postgres), filled by hand and by a script against its REST API, with two
-teams, open, private and archived channels, DMs, group messages, a DM
-with oneself, threads, edits, deletions, pins, saved posts, reactions
-with standard and custom emoji, files and pictures, a guest, an admin, a
-deactivated user, a bot, an incoming webhook posting a message
-attachment, and joins, leaves and header changes. Then:
+`tools/mattermost/` (built 2026-10-28):
 
-- Are system posts (`system_join_channel`, ...) in the export, with what
-  in `props`?
-- Are replies of a deleted root post exported? Deleted replies?
-- Is a DM with a deactivated user exported? A DM with oneself?
-- ~~What does a webhook post look like?~~ Seen, see Webhooks.
-- What `message` looks like for mentions, channel links and custom emoji.
-- Do the `data/` paths match the `path` and `image` fields as written?
-- Is `last_viewed_at` usable for `read_id` in channels with threads?
-- How large an export of a real server is, and how long it takes.
+- `docker-compose.yml`: Mattermost Team Edition 10.12.4 (our version)
+  with Postgres, on 127.0.0.1:8068, with local mode, webhooks, overrides,
+  custom emoji, bots and collapsed threads on.
+- `seed.py`: fills an empty instance through mmctl and the REST API with
+  one of each thing listed in its header: two teams, open, private,
+  archived and restored channels, every channel change, DMs (with
+  oneself, with a deactivated user, across teams), group messages,
+  threads, deleted roots and replies, edits, pins, saved posts,
+  reactions with custom emoji, files and a picture, `/me`, a bot with
+  and without an overridden name, a webhook card, mentions and channel
+  links, Markdown, Unicode and a 16 KB post, and per-channel read state
+  and notification settings.
+- `export.py`: runs the export as an admin would and unpacks it.
+- `extras.py`: what the export misses (above).
+- `sample/`: the result, made up from start to end, as the importer's
+  test data. `import.jsonl` has 147 lines (85 posts, 9 direct posts, 8
+  users, 3 bots); with `data/` and `extras.jsonl`, 111 KB.
 
-The sample export, with nothing private in it, can then be the
-importer's test data.
+What the sample answers:
+
+- **System posts** are exported with `type` and `props`, see System
+  messages (step 4). Removing someone names who did it only as the post's
+  `user`. Each member's join to the team makes `system_join_team` in
+  town-square and `system_join_channel` in off-topic.
+- **Deleted posts** aren't exported, nor anything of a deleted thread
+  (above).
+- **DMs**: all exported, including with a deactivated user and with
+  oneself (the same username twice). Making a bot leaves its owner a DM
+  with an `add_bot_teams_channels` post from the bot.
+- **Text** is as typed: `@bob`, `@here`, `@channel`, `@all`, `~secret`
+  (the channel's name, not its display name), `:partyparrot:`,
+  `:thumbsup_tone3:`. Posts that link a channel of their own team carry
+  `props.channel_mentions` with its display name; nothing else is
+  resolved. `/me waves` is `type: "me"` with the text `*waves*`.
+- **Paths**: a post's `attachments[].path` and a user's or bot's
+  `profile_image` are relative to `data/`, and the files are there.
+  Only uploaded profile pictures are exported, plus the plugins' bots'
+  (`calls`, `playbooks`).
+- **Read state**: a member's `last_viewed_at` is when they last opened
+  the channel; 0 or missing if they never did, even when they posted in
+  it (a reply in a thread doesn't count as opening it). Threads keep
+  their own: `thread_followers[].last_viewed`. See Members.
+- **Membership**: whoever creates a channel is its member and channel
+  admin. Leaving a team drops one's channels; joining again only gives
+  back town-square and off-topic.
+- **Edits** leave only `edit_at` and the text. Reactions keep `+1` and
+  `thumbsup` apart, as typed.
+- **Replies** inside a post's `replies[]` aren't in time order either.
+- **Guests** need a license: on our unlicensed 10.12.4 there can't be
+  any, so `system_guest` won't appear.
+- **Size and time**: the sample exports in about 10 s, most of it the
+  job starting. A real server's is for the admin to try; the export is
+  a background job, so it doesn't stop the server.
 
 ### Seen on the test instance so far
 
@@ -190,11 +234,11 @@ has, and showed:
 
 `mmctl --local` needs a shell on the Mattermost server (it talks to the
 local socket); from elsewhere, `mmctl auth login` as a system admin does
-the same. Not tried yet: custom emoji, threads followed, bots' posts.
+the same. Custom emoji, followed threads and bots' posts: see the sample
+below.
 
 A first run (2026-10-28, Mattermost Team Edition 12.0.1 with Postgres 16
-in Docker, one team, webhooks only; the rest of the list above is still
-to do):
+in Docker, one team, webhooks only):
 
 - **Posts are not in time order** in `import.jsonl`, not even within a
   channel. The importer has to sort them by `create_at` before inserting
@@ -231,7 +275,7 @@ teams' channels are left out.
 | password, `auth_service` | a generated password and `Must_Change` (D2) |
 | `delete_at` (deactivated) | `Disabled` |
 | `roles` containing `system_admin`, or `team_admin` in the team | the Admin role (D6) |
-| `roles` containing `system_guest` | the guest role (D6) |
+| `roles` containing `system_guest` | the guest role (D6); needs a Mattermost license, so not on ours |
 | `bot` lines | `Bot` flag |
 | `profile_image` | avatar blob, scaled to 256 px and re-encoded under 64 KB |
 | `locale`, `position`, preferences | dropped |
@@ -272,7 +316,7 @@ Every imported channel is `Text_Only` (D7).
 | Mattermost (`teams[].channels[]`, `participants[]`) | yap (`members`) |
 | --- | --- |
 | membership | a row |
-| `last_viewed_at` | `read_id`: the last message in the channel at or before that time |
+| `last_viewed_at` | `read_id`: the last message in the channel at or before that time, or the member's own last message if that is later (0 means never opened) |
 | `notify_props.desktop` / `mark_unread` | `notify`: `all`, `mention` → Mentions, `none` → None; `default` → All |
 | `roles` with `channel_admin` | channel admin (step 13, D6) |
 | `favorite`, `favorited_by`, `shown_by` | dropped (D9) |
@@ -407,10 +451,11 @@ How Mattermost does it, as seen on the test instance:
   **`props.webhook_display_name`**, the hook's name ("Jenkins hook").
   There is no webhook id.
 - Props sent by the caller are kept (`props.card` and others).
-- **Overriding is for webhooks only.** A post through the REST API, by a
-  person or a bot, with `override_username`, `override_icon_url` or
-  `from_webhook` in its props has them removed. (Server plugins can set
-  them; not tried.)
+- **Overriding is for webhooks and bots.** A person's post through the
+  REST API with `override_username`, `override_icon_url` or
+  `from_webhook` in its props has them removed. A bot's keeps
+  `override_username` (10.12.4, seen in the sample) and has
+  `from_bot`. (Server plugins can set them; not tried.)
 - Posts with only a card have `type: "slack_attachment"` and an empty
   `message`.
 - Everything above is in the export as stored. The webhooks themselves
@@ -457,8 +502,9 @@ webhook, which is what bot-api.md already suggests.
   and height from the picture's header as posting does. A file over
   `max_attachment` is skipped with a warning, or the limit is raised for
   the import.
-- Custom emoji are `data/emoji/<id>/image`, written into `emoji/` as
-  `<name>.<ext>`. Names with characters yap doesn't allow are renamed
+- Custom emoji are `emoji` lines in `extras.jsonl` (the export misses
+  them), their pictures at `data/emoji/<id>/image`, written into `emoji/`
+  as `<name>.<ext>`. Names with characters yap doesn't allow are renamed
   and the reactions and texts using them follow. Beyond 512 (D18), the
   most used 512 are kept and the rest become plain `:name:` text.
 
