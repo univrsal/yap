@@ -171,7 +171,8 @@ msg_delete :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	respond(u, id, .Ok)
 	log.debugf("%s deleted message %d", conn_label(u), m.id)
 	// Only the fact that the message existed is kept. Everything else is removed.
-	m.flags = m.flags + {.Deleted} - {.Pinned, .Has_Attachments}
+	m.flags = m.flags + {.Deleted} - {.Pinned, .Has_Attachments, .Persona}
+	m.persona = {}
 	m.text, m.file_name, m.file_size = "", "", 0
 	m.attachment_count = 0
 	m.reaction_count, m.reactions = 0, nil

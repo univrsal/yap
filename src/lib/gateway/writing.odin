@@ -25,7 +25,8 @@ import "lib:lite"
 // Bodies are JSON objects. A field that is left out stays unchanged, and null
 // means "none" where that makes sense.
 
-// POST /convs/{id}/messages {content, thread, nonce} -> 201 the message.
+// POST /convs/{id}/messages {content, thread, nonce, attachments, persona} ->
+// 201 the message.
 // `content` is the text as a person would type it, including markdown and
 // @mentions. `thread` is the first message of a thread, to reply in it.
 // `nonce` can be anything (a string or a number) and must be the same when a
@@ -84,6 +85,9 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 		}
 		p.attachment_count = len(list)
 	}
+	if !field_persona(j, obj, &p.persona) {
+		return
+	}
 	if (got != .Value || p.text == "") && p.attachment_count == 0 {
 		reply(
 			j,
@@ -119,6 +123,54 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 	j.answer = posted
 	buf := new([proto.MSG_POST_MAX_SIZE]u8, context.temp_allocator)
 	ask(c, j, .Msg_Post, proto.encode_msg_post(buf[:], p))
+}
+
+// field_persona reads the `persona` of a post: {name, avatar}, where avatar
+// is the id of a picture from POST /avatars. It is left empty if there is
+// none. ok is false, and the Job has been answered, if it is something else.
+@(private)
+field_persona :: proc(j: ^Job, obj: json.Object, persona: ^proto.Persona) -> (ok: bool) {
+	v, there := obj["persona"]
+	if !there {
+		return true
+	}
+	if _, null := v.(json.Null); null {
+		return true
+	}
+	fields, is_object := v.(json.Object)
+	if !is_object {
+		reply(j, error_reply(400, "invalid", "persona must be an object {name, avatar}."))
+		return
+	}
+	got: Field
+	name_ok: bool
+	if persona.name, got, name_ok = field_string(j, fields, "name"); !name_ok {
+		return
+	}
+	if got != .Value || persona.name == "" {
+		reply(j, error_reply(400, "invalid", "persona needs a name."))
+		return
+	}
+	if len(persona.name) > proto.MAX_PERSONA_NAME_SIZE {
+		reply(
+			j,
+			error_reply(
+				400,
+				"invalid",
+				fmt.tprintf(
+					"A persona's name can be at most %d bytes long.",
+					proto.MAX_PERSONA_NAME_SIZE,
+				),
+			),
+		)
+		return
+	}
+	avatar: u64
+	if avatar, ok = field_id(j, fields, "avatar"); !ok {
+		return
+	}
+	persona.avatar = proto.Blob_Id(avatar)
+	return true
 }
 
 // POST /messages/{id}/forward {conv, thread, nonce} -> 201 the copy. The

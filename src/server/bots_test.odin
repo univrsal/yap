@@ -6,7 +6,6 @@ import "common:proto"
 
 // ts_bot_key returns a token's public key for a test. Any 32 bytes work
 // because the test's connections never perform a handshake.
-@(private = "file")
 ts_bot_key :: proc(n: u8) -> (key: [proto.KEY_SIZE]u8) {
 	key[0], key[1] = 0xb0, n
 	return

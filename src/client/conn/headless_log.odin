@@ -136,6 +136,9 @@ report_message :: proc(c: ^Server_Conn, m: proto.Message) {
 	}
 	place := room_name(c, proto.Room(m.conv))
 	who := account_display(c, m.sender)
+	if .Persona in m.flags {
+		who = fmt.tprintf("%s (via %s)", m.persona.name, who)
+	}
 	if m.thread_root != 0 {
 		log.infof(
 			"[chat] %s %s (#%d, in the thread of #%d): %s",

@@ -133,6 +133,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 	text_buf := new([proto.MAX_CHAT_SIZE]u8, context.temp_allocator)
 	name_buf: [proto.MAX_FILE_NAME]u8
+	persona_buf: [proto.MAX_NAME_SIZE]u8
 	mentioned: []proto.Account_Id
 	#partial switch p.kind {
 	case .File:
@@ -151,6 +152,15 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 	case .Text:
 		m.text = proto.sanitize_message(p.text, text_buf[:])
+		if p.persona.name != "" {
+			persona, persona_status := persona_check(s, u.account, p.persona, &persona_buf)
+			if persona_status != .Ok {
+				respond(u, id, persona_status)
+				return
+			}
+			m.persona = persona
+			m.flags += {.Persona}
+		}
 		// The files that the message carries must be uploads of the poster,
 		// and each upload may only be used once.
 		for i in 0 ..< p.attachment_count {
@@ -444,6 +454,17 @@ msg_store :: proc(s: ^Server, conv: ^Conv, m: ^proto.Message, nonce: u64) -> boo
 	db_bind_int(q, 10, i64(m.forward.sender))
 	db_bind_int(q, 11, i64(m.forward.conv))
 	db_bind_int(q, 12, i64(m.forward.time))
+	if .Persona in m.flags {
+		db_bind_text(q, 13, m.persona.name)
+		if m.persona.avatar != 0 {
+			db_bind_int(q, 14, i64(m.persona.avatar))
+		} else {
+			db_bind_null(q, 14)
+		}
+	} else {
+		db_bind_null(q, 13)
+		db_bind_null(q, 14)
+	}
 	db_run(&s.db, q) or_return
 	m.id = proto.Msg_Id(db_last_id(&s.db))
 	attachments_store(s, m^) or_return
@@ -737,6 +758,12 @@ msg_of_row :: proc(q: ^sqlite.Stmt) -> proto.Message {
 			sender = proto.Account_Id(db_col_int(q, 12)),
 			conv   = proto.Conv_Id(db_col_int(q, 13)),
 			time   = proto.Unix_Ms(db_col_int(q, 14)),
+		}
+	}
+	if .Persona in m.flags {
+		m.persona = {
+			name   = db_col_text(q, 15),
+			avatar = proto.Blob_Id(db_col_int(q, 16)),
 		}
 	}
 	#partial switch m.kind {

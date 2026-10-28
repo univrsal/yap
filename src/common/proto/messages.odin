@@ -9,6 +9,7 @@ import "core:strings"
 //
 // 	Msg_Post     [conv u32][nonce u64][thread_root u64][kind u8]
 // 	             text: [text str16][count u8][upload u64]... (attachments)
+// 	                   [persona str8][avatar u64 if persona isn't empty]
 // 	             file: [size u64][name str8]
 // 	             ->  [id u64][time u64]
 // 	Msg_History  [conv u32][thread_root u64][anchor u64][dir u8][limit u8]
@@ -43,6 +44,7 @@ import "core:strings"
 // 	          system:  [what u8][arg u32][text str16]
 // 	          if Has_Thread: [reply_count u32][last_reply u64]
 // 	          if Forwarded: [sender u32][conv u32][time u64] (forward.odin)
+// 	          if Persona: [name str8][avatar u64] (see Personas)
 // 	          [reaction_count u8] per reaction: [emoji str8][count u16][me u8]
 //
 // 	client -> server  Typing  [kind][conv u32][thread_root u64]
@@ -119,6 +121,18 @@ import "core:strings"
 // nor a mention (system_counts_unread), and notifies nobody. A `system` that
 // this build doesn't know is shown as such.
 //
+// Personas: a bot may post a message under another name and picture, as an
+// integration that posts for many projects or a bridge shows who it relays
+// for. The message is still the bot's: it is `sender`, replies and mentions
+// go to it, and it can edit and delete the message. The Persona flag says that
+// the record also holds the name that the message is shown under and a
+// picture, a blob of kind Avatar (0 for none). Only bots may post one, the
+// name may not be any account's username or display name (case ignored) and
+// the picture is checked like somebody's own. A client shows the message with
+// the persona's name and picture, always with the bot's tag and the bot's own
+// name next to it, so that it can't pass for a person. A post that isn't from
+// a bot, or has a persona it may not, is `Denied`.
+//
 // A thread root is only used in a later phase. The record has room for it from
 // the start, and it is zero until then.
 
@@ -149,6 +163,7 @@ Msg_Flag :: enum u8 {
 	Has_Thread,
 	Forwarded, // a copy of another message (forward.odin)
 	Has_Attachments, // files uploaded with it (attachments.odin)
+	Persona, // a bot's message under another name and picture (see Personas)
 }
 Msg_Flags :: distinct bit_set[Msg_Flag;u8]
 
@@ -172,6 +187,15 @@ Attachment :: struct {
 	width, height: int, // a picture's, or 0 (see above)
 }
 
+// The most bytes of a persona's name.
+MAX_PERSONA_NAME_SIZE :: 255
+
+// Persona is the name and picture that a bot's message is shown under.
+Persona :: struct {
+	name:   string, // points into the data that it was read from
+	avatar: Blob_Id, // 0 for none
+}
+
 // Message is one message. Its strings point into the data that it was read
 // from.
 Message :: struct {
@@ -191,6 +215,7 @@ Message :: struct {
 	reply_count:      u32, // .Has_Thread
 	last_reply:       Msg_Id,
 	forward:          Forward_Info, // .Forwarded: where the original came from
+	persona:          Persona, // .Persona
 	// .Has_Attachments: the files, of which the first `attachment_count` are used.
 	attachment_count: int,
 	attachments:      [MAX_ATTACHMENTS]Attachment,
@@ -217,6 +242,9 @@ MESSAGE_MAX_SIZE ::
 	4 +
 	8 +
 	FORWARD_INFO_SIZE +
+	1 +
+	MAX_PERSONA_NAME_SIZE +
+	8 +
 	1 +
 	MAX_REACTIONS * (1 + MAX_REACTION_EMOJI + 2 + 1)
 
@@ -283,7 +311,12 @@ MSG_PIN_SIZE :: 8 + 1
 PINS_GET_SIZE :: 4 + 2
 PINS_PAGE :: 50
 MSG_POSTED_SIZE :: 8 + 8
-MSG_POST_MAX_SIZE :: 4 + 8 + 8 + 1 + max(2 + MAX_CHAT_SIZE + 1 + MAX_ATTACHMENTS * 8, 8 + 1 + 255)
+MSG_POST_MAX_SIZE ::
+	4 +
+	8 +
+	8 +
+	1 +
+	max(2 + MAX_CHAT_SIZE + 1 + MAX_ATTACHMENTS * 8 + 1 + MAX_PERSONA_NAME_SIZE + 8, 8 + 1 + 255)
 HISTORY_HEADER_SIZE :: 1 + 2
 BLOB_PUT_SIZE :: 1 + 4 + 32 + 2 + 2
 BLOB_PUT_ANSWER_SIZE :: 8 + 1 + 8
@@ -315,6 +348,9 @@ message_size :: proc(m: Message) -> int {
 	}
 	if .Forwarded in m.flags {
 		n += FORWARD_INFO_SIZE
+	}
+	if .Persona in m.flags {
+		n += 1 + len(m.persona.name) + 8
 	}
 	return n + 1 + len(m.reactions)
 }
@@ -366,6 +402,13 @@ put_message :: proc(w: ^Writer, m: Message) {
 		put_u32(w, u32(m.forward.sender))
 		put_u32(w, u32(m.forward.conv))
 		put_u64(w, u64(m.forward.time))
+	}
+	if .Persona in m.flags {
+		if len(m.persona.name) > MAX_PERSONA_NAME_SIZE {
+			w.overflow = true
+		}
+		put_str8(w, m.persona.name)
+		put_u64(w, u64(m.persona.avatar))
 	}
 	put_u8(w, u8(m.reaction_count))
 	put_bytes(w, m.reactions)
@@ -421,6 +464,10 @@ get_message :: proc(r: ^Reader) -> (m: Message, ok: bool) {
 			time   = Unix_Ms(get_u64(r)),
 		}
 	}
+	if .Persona in m.flags {
+		m.persona.name = get_str8(r)
+		m.persona.avatar = Blob_Id(get_u64(r))
+	}
 	m.reaction_count = int(get_u8(r))
 	start := r.pos
 	for _ in 0 ..< m.reaction_count {
@@ -466,6 +513,8 @@ Msg_Post :: struct {
 	// `attachment_count` are used.
 	attachment_count: int,
 	uploads:          [MAX_ATTACHMENTS]u64,
+	// .Text: a bot's persona (see Personas); an empty name for none.
+	persona:          Persona,
 }
 
 encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
@@ -485,6 +534,13 @@ encode_msg_post :: proc(out: []u8, p: Msg_Post) -> []u8 {
 		put_u8(&w, u8(p.attachment_count))
 		for i in 0 ..< p.attachment_count {
 			put_u64(&w, p.uploads[i])
+		}
+		if len(p.persona.name) > MAX_PERSONA_NAME_SIZE {
+			return nil
+		}
+		put_str8(&w, p.persona.name)
+		if p.persona.name != "" {
+			put_u64(&w, u64(p.persona.avatar))
 		}
 	case .File:
 		put_u64(&w, p.file_size)
@@ -515,6 +571,10 @@ decode_msg_post :: proc(body: []u8) -> (p: Msg_Post, ok: bool) {
 		}
 		for &upload in p.uploads[:p.attachment_count] {
 			upload = get_u64(&r)
+		}
+		p.persona.name = get_str8(&r)
+		if p.persona.name != "" {
+			p.persona.avatar = Blob_Id(get_u64(&r))
 		}
 	case .File:
 		p.file_size = get_u64(&r)

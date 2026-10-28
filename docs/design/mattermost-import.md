@@ -25,7 +25,7 @@ says about the export comes from reading Mattermost's source (master,
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
 | 11 | Bookmarks: one's own list of saved messages | M | protocol, schema, client | - | built (2026-10-28) |
-| 12 | Personas: a bot posting under another name and picture | M | protocol, schema, client, bot API | - | open |
+| 12 | Personas: a bot posting under another name and picture | M | protocol, schema, client, bot API | - | built (2026-10-28) |
 | 13 | Channel admins | M | protocol, schema, server, client | - | built (2026-10-28) |
 
 Sizes as in `docs/design/next.md`. 1–5 and 11–13 are yap features that stand on
@@ -472,18 +472,25 @@ what CI (one hook, many projects), alerting (Grafana, Alertmanager) and
 bridges (a relay showing the remote person's name) want. In yap a bot has
 one name and one avatar, so today each needs a bot account per name.
 
-What it would take, if a bot may post as a **persona**:
+A bot may post as a **persona** (step 12, protocol 22, schema 34):
 
-- A message gets an optional persona: a display name, and an avatar as a
-  blob id (uploaded through the bot API, not a URL that every client
-  fetches, which would tell a stranger's server who is reading). A new
-  `Msg_Flag` (three of eight are free), two columns, and a field in the
-  bot API's `POST /convs/{id}/messages` and its `author`.
+- A message gets an optional persona: a display name (at most 255
+  bytes), and an avatar as a blob id (uploaded through the bot API with
+  `POST /avatars`, not a URL that every client fetches, which would tell
+  a stranger's server who is reading). It is the `Persona` flag, the
+  columns `persona_name` and `persona_avatar`, a persona in `Msg_Post`
+  and the message record, and a `persona` field in the bot API's
+  `POST /convs/{id}/messages` and its message object. The avatar blob
+  stays as long as a message uses it; anyone may fetch it then. Deleting
+  the message removes the persona. A forwarded copy has none.
 - The client shows the persona's name and picture, always with the bot
-  badge and the bot's own name next to it ("GitLab · via CI Bot"), so
-  that it can't pass for a person.
-- Only bot accounts may use it. The server refuses a persona whose name
-  is an account's username or display name, unlike Mattermost.
+  badge and the bot's own name after it ("GitLab [BOT]  - via CI Bot"),
+  so that it can't pass for a person. A bot's message under a different
+  persona starts a new block, and the name is not coloured by the bot's
+  role. The lists of pins, bookmarks and search results show the bot.
+- Only bot accounts may use it. The server refuses (`Denied`) a persona
+  whose name is an account's username or display name, case ignored,
+  unlike Mattermost; a name that is empty once cleaned up is `Invalid`.
 - Mentions, DMs and replies go to the bot, not the persona.
 
 The importer would use it the same way: webhook posts become posts by one

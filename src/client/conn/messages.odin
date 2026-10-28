@@ -76,6 +76,9 @@ Msg :: struct {
 	system_arg:  u32,
 	// For a forwarded message: the original message (see forward.odin).
 	forward:     proto.Forward_Info,
+	// For a bot's message under another name (.Persona, see messages.odin in
+	// proto): the name (owned) and picture.
+	persona:     proto.Persona,
 	// The files the message carries (.Has_Attachments, see attachments.odin).
 	files:       []Msg_File, // owned, as are their names
 }
@@ -214,6 +217,7 @@ messages_destroy :: proc(c: ^Server_Conn) {
 
 msg_destroy :: proc(m: ^Msg) {
 	delete(m.text)
+	delete(m.persona.name)
 	reactions_destroy(&m.reactions)
 	msg_files_destroy(m.files)
 	m^ = {}
@@ -236,6 +240,9 @@ msg_of :: proc(m: proto.Message) -> Msg {
 		system      = m.system,
 		system_arg  = m.system_arg,
 		forward     = m.forward,
+	}
+	if .Persona in m.flags {
+		out.persona = {strings.clone(m.persona.name), m.persona.avatar}
 	}
 	buf: [proto.MAX_REACTIONS]proto.Reaction
 	for r in proto.reactions_of(m, buf[:]) {
@@ -803,7 +810,10 @@ message_changed :: proc(c: ^Server_Conn, m: proto.Message) {
 	}
 	// Update the conversation's window, and the window of the thread it's a
 	// reply in or the root of.
-	for key in ([]Timeline_Key{{m.conv, 0}, {m.conv, m.thread_root if m.thread_root != 0 else m.id}}) {
+	for key in ([]Timeline_Key {
+			{m.conv, 0},
+			{m.conv, m.thread_root if m.thread_root != 0 else m.id},
+		}) {
 		cache := c.msgs.caches[key] or_else nil
 		if cache == nil {
 			continue

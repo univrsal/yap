@@ -507,3 +507,58 @@ test_attachments_record :: proc(t: ^testing.T) {
 	testing.expect_value(t, back.attachment_count, MAX_ATTACHMENTS)
 	testing.expect_value(t, back.uploads[9], 109)
 }
+
+@(test)
+test_persona :: proc(t: ^testing.T) {
+	buf: [MESSAGE_MAX_SIZE]u8
+	m := Message {
+		id = 7,
+		conv = 2,
+		sender = 3,
+		kind = .Text,
+		text = "Build 123 failed",
+		flags = {.Persona},
+		persona = {name = "Build Server #123", avatar = 55},
+	}
+	body := encode_message(buf[:], m)
+	testing.expect(t, body != nil)
+	testing.expect_value(t, len(body), message_size(m))
+	got, ok := decode_message(body)
+	testing.expect(t, ok)
+	testing.expect_value(t, got.persona, m.persona)
+	testing.expect_value(t, got.flags, Msg_Flags{.Persona})
+
+	// A message without the flag has no persona's bytes.
+	m.flags = {}
+	plain := encode_message(buf[:], m)
+	testing.expect_value(t, len(plain), len(body) - 1 - len("Build Server #123") - 8)
+
+	// The longest name fits in a record, a longer one does not.
+	m.flags = {.Persona}
+	m.persona.name = strings.repeat("n", MAX_PERSONA_NAME_SIZE, context.temp_allocator)
+	testing.expect(t, encode_message(buf[:], m) != nil)
+	m.persona.name = strings.repeat("n", MAX_PERSONA_NAME_SIZE + 1, context.temp_allocator)
+	testing.expect(t, encode_message(buf[:], m) == nil)
+
+	// A post carries the persona only when it has a name.
+	post_buf: [MSG_POST_MAX_SIZE]u8
+	p := Msg_Post {
+		conv = 3,
+		nonce = 9,
+		kind = .Text,
+		text = "hi",
+		persona = {name = "CI", avatar = 12},
+	}
+	post := encode_msg_post(post_buf[:], p)
+	back, post_ok := decode_msg_post(post)
+	testing.expect(t, post_ok)
+	testing.expect_value(t, back.persona, p.persona)
+	p.persona = {}
+	plain = encode_msg_post(post_buf[:], p)
+	back, post_ok = decode_msg_post(plain)
+	testing.expect(t, post_ok)
+	testing.expect_value(t, back.persona, Persona{})
+	testing.expect_value(t, len(post) - len(plain), len("CI") + 8)
+	p.persona.name = strings.repeat("n", MAX_PERSONA_NAME_SIZE + 1, context.temp_allocator)
+	testing.expect(t, encode_msg_post(post_buf[:], p) == nil)
+}

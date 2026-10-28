@@ -265,7 +265,7 @@ A conversation is a channel, a DM, or a group (a DM of 3 to 8 people).
 | | |
 | --- | --- |
 | `GET /convs/{id}/messages?before=&after=&around=&limit=&thread=` | A page of history, oldest first. → [message](#message)s |
-| `POST /convs/{id}/messages` `{content, thread, nonce, attachments}` | Post. → 201 [message](#message) |
+| `POST /convs/{id}/messages` `{content, thread, nonce, attachments, persona}` | Post. → 201 [message](#message) |
 | `PATCH /messages/{id}` `{content}` | Edit one of yours. → 204 |
 | `DELETE /messages/{id}` | Delete one of yours, or anyone's with Manage_Messages. → 204 |
 | `PUT /messages/{id}/pin` | Pin it: anyone in a DM or a group, or Pin_Messages in a channel. → 204 |
@@ -308,7 +308,26 @@ curl -H "Authorization: Bot $YAP_TOKEN" \
  "timestamp": "2026-10-12T09:07:56.201Z", "edited_timestamp": null,
  "kind": "text", "content": "Rain from 3pm.", "thread": null,
  "attachments": [], "reactions": [], "pinned": false, "deleted": false,
- "forwarded": null, "replies": null, "file": null, "system": null}
+ "forwarded": null, "persona": null, "replies": null, "file": null, "system": null}
+```
+
+**Personas.** A bot may post a message under another name and picture,
+as a bridge shows who it relays for or a CI bot the project that built.
+`persona` is `{name, avatar}`: the name is at most 255 bytes, and
+`avatar` (optional) is the `id` that `POST /avatars` returned. The
+message is still the bot's: it is its `author`, replies and mentions go
+to it, and it can edit and delete the message. Clients show the persona's
+name and picture next to the bot's tag and "via" the bot's own name, so
+that it can't pass for a person. Only bots may do this, and the name may
+not be any account's username or display name (case ignored): 403. A
+picture that no message uses is removed after an hour.
+
+```sh
+id=$(curl -s -H "Authorization: Bot $YAP_TOKEN" --data-binary @ci.jpg \
+          $YAP_URL/api/v1/avatars | jq -r .id)
+curl -H "Authorization: Bot $YAP_TOKEN" \
+     -d "{\"content\": \"Build 7 failed\", \"persona\": {\"name\": \"Build Server\", \"avatar\": \"$id\"}}" \
+     $YAP_URL/api/v1/convs/1/messages
 ```
 
 Edits, deletes, pins and reactions answer 204, not with the message.
@@ -332,6 +351,7 @@ again with `before` set to `searched_to` to go on further back.
 | | |
 | --- | --- |
 | `POST /uploads?name=` | Upload a file, the body being the file. → 201 `{id, name, size}` |
+| `POST /avatars` | Upload a picture for a persona (see Posting): a JPEG of at most 256 pixels per side and 64 KB, the body being the file. → 201 `{id}` |
 | `GET /attachments/{id}` | A file a message carries, by its attachment's `id`. → the bytes |
 | `GET /blobs/{id}` | A picture: an avatar, the server's icon, its emoji. → the bytes, as `image/jpeg` (or png, webp, gif) |
 
@@ -428,6 +448,7 @@ counting at 100.
 | `reactions` | `[{emoji, count, me}]` |
 | `pinned`, `deleted` | A deleted message keeps its place but loses its content. |
 | `forwarded` | `{author_id, conv_id, timestamp}` of the original, for a copy. |
+| `persona` | `{name, avatar}` for a bot's message under another name (`avatar` is a blob id, or `null`); `null` otherwise. A deleted message has none. |
 | `replies` | `{count, last_id}` for a thread's first message. |
 | `file` | `{name, size}` for `kind` `file`. |
 | `system` | `{what, arg, text}` for `kind` `system`. A call: `what` is 1 missed, 2 declined, 3 ended (`arg` is how many seconds the call lasted). In a channel, done by `sender`: 16 joined, 17 left, 18 added `arg` (an account), 19 removed `arg`, 20 renamed, 21 changed the topic (`text` is the old value and the new one, a line each), 22 made it private, 23 public, 24 archived, 25 unarchived; in the home channel, 26 joined the server, 27 left it. Those from 16 on are never unread. |

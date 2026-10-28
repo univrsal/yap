@@ -714,9 +714,10 @@ message_flags :: proc(
 		!has_thread_line(st, prev) &&
 		m.edited == 0 &&
 		m.flags & {.Deleted, .Pinned, .Forwarded} == {} &&
-		!ui.view.bookmarks.ids[m.id] && // so that its header says so
-		m.sender == prev.sender &&
-		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000))
+		!ui.view.bookmarks.ids[m.id] &&
+		m.sender == prev.sender &&// so that its header says so
+		m.persona == prev.persona &&
+		chat_same_minute(proto.Unix_Time(m.time / 1000), proto.Unix_Time(prev.time / 1000))// a bot's other persona has its own header
 	return
 }
 
@@ -938,6 +939,14 @@ timeline_message :: proc(
 	if acc, ok := v.accounts[m.sender]; ok {
 		name = acc.display
 	}
+	// A bot's message under another name shows that name, and the bot's own
+	// after it (persona_note).
+	persona := .Persona in m.flags
+	via := ""
+	if persona {
+		via = name
+		name = m.persona.name
+	}
 	// Their name is bold, and opens their menu unless it is ours.
 	ui.header_sender = 0
 	ui.header_name = {}
@@ -967,8 +976,8 @@ timeline_message :: proc(
 	}
 	defer ui.header_time = {}
 	header :=
-		"" if merged else fmt.tprintf("%s%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", "  - bookmarked" if v.bookmarks.ids[m.id] else "", forward_note(ui, m))
-	header_color := author_color(v, m.sender)
+		"" if merged else fmt.tprintf("%s%s%s%s%s%s%s%s", name, bot_room, when_room, "  (edited)" if m.edited != 0 && .Deleted not_in m.flags else "", "  - pinned" if .Pinned in m.flags else "", "  - bookmarked" if v.bookmarks.ids[m.id] else "", forward_note(ui, m), fmt.tprintf("  - via %s", via) if persona else "")
+	header_color := theme.chat_name if persona else author_color(v, m.sender)
 	item := i64(m.id) * ITEMS_PER_MESSAGE
 	if !merged {
 		// The picture beside the header, or in the compact chat, the time on
@@ -984,7 +993,11 @@ timeline_message :: proc(
 		if ui.settings.chat_pictures {
 			size := avatar_size(ctx)
 			pic := mu.Rect{x, y, size, size}
-			avatar(ui, m.sender, pic)
+			if persona {
+				persona_picture(ui, m.persona, m.sender, pic)
+			} else {
+				avatar(ui, m.sender, pic)
+			}
 			if m.sender != v.me && mu.mouse_over(ctx, pic) {
 				ui.chat.hovering = true // shows a hand, as over a link
 				if clicked_not_dragged(ui) {

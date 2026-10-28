@@ -313,6 +313,11 @@ Reaction_JSON :: struct {
 	me:    bool,
 }
 
+Persona_JSON :: struct {
+	name:   string,
+	avatar: Maybe(string), // a blob id
+}
+
 Forwarded_JSON :: struct {
 	author_id: string,
 	conv_id:   string,
@@ -349,6 +354,7 @@ Message_JSON :: struct {
 	pinned:           bool,
 	deleted:          bool,
 	forwarded:        Maybe(Forwarded_JSON),
+	persona:          Maybe(Persona_JSON), // the name and picture a bot posted it under
 	replies:          Maybe(Replies_JSON), // set on the first message of a thread
 	file:             Maybe(File_JSON), // a file offered in a DM
 	system:           Maybe(System_JSON), // what happened, e.g. a call
@@ -604,6 +610,15 @@ message_json :: proc(m: ^Model, msg: ^proto.Message) -> Message_JSON {
 			conv_id   = id_string(msg.forward.conv),
 			timestamp = iso_time(msg.forward.time),
 		}
+	}
+	if .Persona in msg.flags {
+		persona := Persona_JSON {
+			name = msg.persona.name,
+		}
+		if msg.persona.avatar != 0 {
+			persona.avatar = id_string(msg.persona.avatar)
+		}
+		j.persona = persona
 	}
 	if .Has_Thread in msg.flags {
 		j.replies = Replies_JSON {

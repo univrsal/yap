@@ -14,7 +14,7 @@ import "sqlite"
 // The column of Bookmarks_Of that holds the bookmark's time, after the
 // message's own (MSG_COLS).
 @(private = "file")
-BOOKMARK_TIME_COL :: 15
+BOOKMARK_TIME_COL :: 17
 
 bookmark_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	msg_id, on, ok := proto.decode_bookmark_set(body)

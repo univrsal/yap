@@ -279,7 +279,6 @@ test_purge_messages :: proc(t: ^testing.T) {
 	testing.expect(t, !exists(&ts, pinned))
 }
 
-@(private = "file")
 history_of :: proc(
 	t: ^testing.T,
 	ts: ^Test_Server,

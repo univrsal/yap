@@ -190,6 +190,7 @@ Stmt :: enum {
 	Purge_Files_Conv,
 	Attach_Strip,
 	Blob_Scan,
+	Persona_Avatar_Used,
 	Blob_Touch,
 	Attach_Add,
 	Attach_Of_Msg,
@@ -226,7 +227,7 @@ Stmt :: enum {
 COUNTS_UNREAD :: "(kind != 3 OR CAST(text AS INTEGER) < 16)"
 COUNTS_UNREAD_M :: "(m.kind != 3 OR CAST(m.text AS INTEGER) < 16)"
 
-MSG_COLS :: "m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time"
+MSG_COLS :: "m.id, m.conv, m.sender, m.time, m.kind, m.flags, m.thread_root, m.edited, m.text, m.reply_count, m.last_reply, m.file_size, m.fwd_sender, m.fwd_conv, m.fwd_time, m.persona_name, m.persona_avatar"
 
 @(private = "file", rodata)
 STMT_SQL := [Stmt]string {
@@ -267,7 +268,7 @@ STMT_SQL := [Stmt]string {
 	.Member_Set_Admin       = "UPDATE members SET admin = ?3 WHERE conv = ?1 AND account = ?2",
 	.Msg_Unread             = "SELECT count(*) FROM (SELECT 1 FROM messages WHERE conv = ?1 AND id > ?2 AND sender != ?3 AND flags & 1 = 0 AND " + COUNTS_UNREAD + " LIMIT 100)",
 	.Conv_Set_Last          = "UPDATE convs SET last_msg = ?2 WHERE id = ?1",
-	.Msg_Add                = "INSERT INTO messages (conv, sender, time, kind, text, nonce, file_size, thread_root, flags, fwd_sender, fwd_conv, fwd_time) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+	.Msg_Add                = "INSERT INTO messages (conv, sender, time, kind, text, nonce, file_size, thread_root, flags, fwd_sender, fwd_conv, fwd_time, persona_name, persona_avatar) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
 	.Msg_By_Nonce           = "SELECT id, time FROM messages WHERE sender = ?1 AND nonce = ?2",
 	.Msg_Before             = "SELECT " + MSG_COLS + " FROM messages m WHERE m.conv = ?1 AND m.id < ?2 ORDER BY m.id DESC LIMIT ?3",
 	.Msg_After              = "SELECT " + MSG_COLS + " FROM messages m WHERE m.conv = ?1 AND m.id > ?2 ORDER BY m.id LIMIT ?3",
@@ -282,7 +283,7 @@ STMT_SQL := [Stmt]string {
 	.Msg_By_Id              = "SELECT " + MSG_COLS + " FROM messages m WHERE m.id = ?1",
 	.Msg_Edit               = "UPDATE messages SET text = ?2, edited = ?3 WHERE id = ?1",
 	// Marks the message as deleted, and as neither pinned nor having files.
-	.Msg_Delete             = "UPDATE messages SET flags = (flags | 1) & ~18, text = NULL, file_size = 0 WHERE id = ?1",
+	.Msg_Delete             = "UPDATE messages SET flags = (flags | 1) & ~50, text = NULL, file_size = 0, persona_name = NULL, persona_avatar = NULL WHERE id = ?1",
 	.Msg_Set_Flags          = "UPDATE messages SET flags = ?2 WHERE id = ?1",
 	.Pin_Add                = "INSERT OR IGNORE INTO pins (conv, message, by, time) VALUES (?1, ?2, ?3, ?4)",
 	.Pin_Remove             = "DELETE FROM pins WHERE conv = ?1 AND message = ?2",
@@ -359,7 +360,8 @@ STMT_SQL := [Stmt]string {
 	.Purge_Files            = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0), m.thread_root FROM messages m WHERE m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Purge_Files_Conv       = "SELECT m.id, m.conv, m.flags, coalesce((SELECT sum(b.size) FROM attachments a JOIN blobs b ON b.id = a.blob WHERE a.msg = m.id), 0), m.thread_root FROM messages m WHERE m.conv = ?4 AND m.id > ?1 AND m.id < ?2 AND m.flags & 16 AND EXISTS (SELECT 1 FROM attachments WHERE msg = m.id AND blob IS NOT NULL) ORDER BY m.id LIMIT ?3",
 	.Attach_Strip           = "UPDATE attachments SET blob = NULL WHERE msg = ?1",
-	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	.Blob_Scan              = "SELECT id, sha256, created < ?2 AND id != ?3 AND NOT EXISTS (SELECT 1 FROM accounts WHERE avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM attachments WHERE blob = blobs.id) AND NOT EXISTS (SELECT 1 FROM messages WHERE persona_avatar = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key = 'server_icon' AND value = blobs.id) AND NOT EXISTS (SELECT 1 FROM meta WHERE key LIKE 'emoji_frames_%' AND value = blobs.id) FROM blobs WHERE id > ?1 ORDER BY id LIMIT ?4",
+	.Persona_Avatar_Used    = "SELECT 1 FROM messages WHERE persona_avatar = ?1 LIMIT 1",
 	.Blob_Touch             = "UPDATE blobs SET created = ?2 WHERE id = ?1",
 	.Attach_Add             = "INSERT INTO attachments (msg, idx, blob, name, size) VALUES (?1, ?2, ?3, ?4, ?5)",
 	.Attach_Of_Msg          = "SELECT a.blob, a.name, a.size, coalesce(b.width, 0), coalesce(b.height, 0) FROM attachments a LEFT JOIN blobs b ON b.id = a.blob WHERE a.msg = ?1 ORDER BY a.idx",
@@ -457,7 +459,13 @@ db_open :: proc(db: ^DB, path: string) -> bool {
 		db_close(db)
 		return false
 	}
-	for pragma in ([]string{"PRAGMA journal_mode = WAL", "PRAGMA synchronous = NORMAL", "PRAGMA wal_autocheckpoint = 0", "PRAGMA foreign_keys = ON", "PRAGMA temp_store = MEMORY"}) {
+	for pragma in ([]string {
+			"PRAGMA journal_mode = WAL",
+			"PRAGMA synchronous = NORMAL",
+			"PRAGMA wal_autocheckpoint = 0",
+			"PRAGMA foreign_keys = ON",
+			"PRAGMA temp_store = MEMORY",
+		}) {
 		if !db_exec(db, pragma) {
 			db_close(db)
 			return false

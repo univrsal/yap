@@ -57,6 +57,7 @@ ROUTES := [?]Route {
 	// The file endpoints are in files.odin. Uploads and attachments are
 	// streamed and therefore aren't routes (serve.odin).
 	{method = "GET", pattern = "blobs/{}", kind = .Call, run = blob_run},
+	{method = "POST", pattern = "avatars", kind = .Call, run = persona_avatar_run},
 	{method = "PUT", pattern = "me/avatar", kind = .Call, run = avatar_run},
 	{method = "DELETE", pattern = "me/avatar", kind = .Call, run = avatar_delete_run},
 }

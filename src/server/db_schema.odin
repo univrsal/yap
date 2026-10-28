@@ -412,6 +412,15 @@ MIGRATIONS := [?]string {
 		WHERE EXISTS (SELECT 1 FROM convs c
 			WHERE c.id = members.conv AND c.kind = 0 AND c.created_by = members.account);
 	`,
+	// 34: personas (proto/messages.odin). A bot's message under another name
+	// and picture has them here, and the Persona flag. The picture is a blob
+	// that the message keeps alive.
+	`
+	ALTER TABLE messages ADD COLUMN persona_name TEXT;
+	ALTER TABLE messages ADD COLUMN persona_avatar INTEGER;
+	CREATE INDEX messages_persona_avatar ON messages(persona_avatar)
+		WHERE persona_avatar IS NOT NULL;
+	`,
 }
 
 // The version a database has once it has been through every step.
