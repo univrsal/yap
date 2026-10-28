@@ -536,21 +536,30 @@ monitor :: proc(p: Point) -> f32 {
 	return d
 }
 
-// A paperclip leaning to the right. It has a long loop with a shorter loop
-// inside it that is open at the bottom, where the wire ends.
+// An upright paperclip, after the usual attach-file icon: one wire that goes up
+// the right, round the bottom, up the left, over the top and down again inside,
+// round a small bend and up to its end. It is a little wider than that icon so
+// that the wires stay apart at the icon's size.
 @(private = "file")
 paperclip :: proc(p: Point) -> f32 {
-	STROKE :: 0.08
-	// Rotated around the middle so the clip leans.
-	ANGLE :: 0.6
-	c, s := f32(0.8253356), f32(0.5646425) // cos and sin of ANGLE
-	d := p - Point{0.5, 0.5}
-	q := Point{d.x * c + d.y * s, -d.x * s + d.y * c} + Point{0.5, 0.5}
-	outer := abs(rounded_box(q, {0.5, 0.5}, {0.15, 0.40}, 0.15)) - STROKE / 2
-	inner := abs(rounded_box(q, {0.5, 0.42}, {0.075, 0.27}, 0.075)) - STROKE / 2
-	// The inner loop stops short of the bottom.
-	inner = max(inner, q.y - 0.62)
-	return nearer(outer, inner)
+	STROKE :: 0.075
+	// The wire's four runs, from left to right, and where its bends are.
+	OUTER_L :: 0.239
+	INNER_L :: 0.404
+	INNER_R :: 0.596
+	OUTER_R :: 0.761
+	TOP :: 0.28 // the middle of the bend over the top
+	BOTTOM :: 0.639 // ... round the bottom
+	SMALL :: 0.584 // ... of the small bend inside
+	ENDS :: 0.33 // where the wire starts and ends
+	d := capsule(p, {OUTER_R, ENDS}, {OUTER_R, BOTTOM}, STROKE)
+	d = nearer(d, arc(p, {0.5, BOTTOM}, (OUTER_R - OUTER_L) / 2, STROKE, .Bottom, BOTTOM))
+	d = nearer(d, capsule(p, {OUTER_L, BOTTOM}, {OUTER_L, TOP}, STROKE))
+	top := Point{(OUTER_L + INNER_R) / 2, TOP}
+	d = nearer(d, arc(p, top, (INNER_R - OUTER_L) / 2, STROKE, .Top, TOP))
+	d = nearer(d, capsule(p, {INNER_R, TOP}, {INNER_R, SMALL}, STROKE))
+	d = nearer(d, arc(p, {0.5, SMALL}, (INNER_R - INNER_L) / 2, STROKE, .Bottom, SMALL))
+	return nearer(d, capsule(p, {INNER_L, SMALL}, {INNER_L, ENDS}, STROKE))
 }
 
 // An archive: a sheet with a zipper down its middle, whose teeth alternate
@@ -679,15 +688,21 @@ smiley :: proc(p: Point) -> f32 {
 	return d
 }
 
-// An upright drawing pin: a round head on a wider collar, with the point
-// below.
+// A push pin leaning to the right: an outlined knob on top, a narrow waist, a
+// wide flat collar, and the needle below it, pointing down to the left.
 @(private = "file")
 drawing_pin :: proc(p: Point) -> f32 {
-	STROKE :: 0.085
-	d := rounded_box(p, {0.5, 0.26}, {0.15, 0.15}, 0.12)
-	d = nearer(d, capsule(p, {0.26, 0.48}, {0.74, 0.48}, 0.13))
-	d = nearer(d, capsule(p, {0.5, 0.52}, {0.5, 0.88}, STROKE))
-	return d
+	STROKE :: 0.08
+	// Drawn upright, and turned by 45 degrees around the middle.
+	c := f32(0.70710678) // the cosine and sine of 45 degrees
+	r := p - Point{0.5, 0.5}
+	q := Point{r.x * c + r.y * c, -r.x * c + r.y * c} + Point{0.5, 0.5}
+	// The knob is outlined. The collar is too thin for an outline that stays
+	// open at the icon's size, so it and the waist are solid.
+	d := abs(rounded_box(q, {0.5, 0.21}, {0.15, 0.12}, 0.06)) - STROKE / 2
+	d = nearer(d, rounded_box(q, {0.5, 0.38}, {0.06, 0.06}, 0.0))
+	d = nearer(d, rounded_box(q, {0.5, 0.48}, {0.26, 0.055}, 0.05))
+	return nearer(d, capsule(q, {0.5, 0.52}, {0.5, 0.86}, STROKE))
 }
 
 // An outlined waste bin with two ribs down its side, under a lid with a
