@@ -20,7 +20,7 @@ says about the export comes from reading Mattermost's source (master,
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
-| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | planned: 7a–7g, see The importer |
+| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a and 7b built, 7c–7g to go, see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
@@ -712,6 +712,73 @@ nothing. Results:
   small made-up export with an author and a channel that don't exist and
   a line type that doesn't; a wrong first line, a wrong version, a line cut
   in the middle and an empty file; a missing folder.
+
+### 7b: the mapping rules (built 2026-10-28)
+
+Pure functions in `src/server/mattermost/` (limits, names, channels,
+system, emoji, plan), tested on the sample's own values. `build_plan` applies
+them to everything the scan found, and `--dry-run` now ends with what an
+import makes and a warning for everything the rules had to change. The
+writing steps take their names and values from the plan, so the report says
+what will be done. What the rules decide:
+
+- **Usernames.** Lower case, the characters that yap doesn't allow become
+  `_`, at most 64, and a name that is taken gets `_2`, `_3`. People and bots
+  share the namespace. For an export from Mattermost they are as they were
+  (Mattermost's rule is narrower).
+- **Display names.** Nickname, else first and last name, else the username;
+  a bot's display name, else its username. Lines and control characters go.
+- **Email.** As `proto.email_clean`, which lower-cases; an address yap
+  doesn't accept, or that an earlier account has, leaves the account with
+  none, and is reported.
+- **Channels.** The display name is the name (the name if it has none), cut to
+  yap's limit; names are unique ignoring case, the active channels are named
+  before the archived ones and a taken name gets ` (2)`. The topic is the
+  header, else the purpose, on one line (a header's lines become spaces).
+  `town-square` is the home channel, `off-topic` the default one, unless
+  private or archived; every channel is `Text_Only` (D7), the home channel
+  too.
+- **Notification.** The member's setting decides (`none`, `mention`, `all`);
+  `default` means whatever they set for everything, which the export doesn't
+  keep for each channel, so it follows `mark_unread`: `mention` gives
+  Mentions, anything else All.
+- **Roles.** Admin for a system admin or the team's admin, guest for
+  `system_guest` (D6). The owner is the account that was asked for with
+  `--owner`, which has to be a member and active, or else the first active
+  system admin; with none, the import stops and asks for `--owner`.
+- **System posts.** The table of step 4, as `map_system`. Dropped, and counted
+  by type: `system_generic`, `system_ephemeral`, `system_auto_responder`,
+  `system_wrangler`, `system_move_channel`, `system_gm_to_channel`,
+  `add_bot_teams_channels`, `system_join_leave`, `system_add_remove`, and a
+  change of purpose in a channel that has a header. `reminder` is kept as the
+  text it is. A type that isn't known is left out and reported. Changes of
+  privacy say which way only in the text, in the server's language: an
+  English text is read, and for another, 7e works the direction out from the
+  channel's current type, going backwards through its changes. A team
+  joining or leaving by someone else's doing (`system_add_to_team`,
+  `system_remove_from_team`) is the added or removed account's message; the
+  sample has none of them, so it is a guess from the field names.
+- **Reactions.** A name becomes the character (yap's shortcodes, which have
+  `+1` and `thumbsup` both) or `:name:` for a custom emoji. A name that is a
+  custom emoji as it stands wins over a skin tone read out of it. A skin tone
+  (`thumbsup_tone3`, `+1::skin-tone-3`) is dropped, as yap has no single emoji
+  with one, and counted. A name that isn't known leaves the reaction out, and
+  is listed with how many reactions it was.
+- **Custom emoji names.** Lower case, `a-z 0-9 _`, at least 2 and at most 64,
+  unique; `Party-Parrot` becomes `party_parrot`.
+- **Limits.** `clean_text` and `clean_message` cut at a character's boundary
+  and say when they did. With step 3's limits none of Mattermost's own values
+  is ever cut (a name at 64 characters of 4 bytes fits whole, which the tests
+  check), so a cut means the export wasn't Mattermost's.
+- **Not in 7b.** The read position (7g), and which of a channel's members is
+  an admin (a membership's roles, read when the memberships are made, 7d).
+
+Tests: 13 new (21 in the package, all in CI), among them the sample's users,
+channels, system posts and reactions; an export with the problems the sample
+lacks (a name in two cases, an address twice, an address that isn't one, a
+channel name twice, someone who left the team, an unknown emoji and system
+type); and the owner rules. Pass 1 is as fast as before (10 s for 300,000
+posts, 36 MB).
 
 ## Group DMs (step 1)
 

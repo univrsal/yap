@@ -40,6 +40,18 @@ Issue_Kind :: enum {
 	Attachment_Missing, // a file that a post names isn't under data/
 	Profile_Image_Missing, // the same for a profile picture
 	Emoji_Image_Missing, // the same for a custom emoji
+	// Found by build_plan (plan.odin), which applies the mapping rules:
+	Username_Changed, // a username yap wouldn't accept, or that another account has
+	Email_Invalid, // an address yap doesn't accept; the account gets none
+	Email_Taken, // an address that another account has; the later one gets none
+	Channel_Renamed, // a channel whose display name another channel has too
+	Name_Cut, // a name that was longer than yap's limit
+	Topic_Cut, // a topic that was longer than yap's limit
+	Emoji_Renamed, // a custom emoji whose name yap doesn't accept, or that another has
+	System_Dropped, // system posts of a type that yap has no use for, by type
+	System_Unknown, // system posts of a type this importer doesn't know, by type
+	Reaction_Tone, // reactions with a skin tone, which become the emoji without one
+	Reaction_Unknown, // reactions with an emoji name that isn't known; left out
 }
 
 // How many examples of each issue are kept.
@@ -77,6 +89,7 @@ Stats :: struct {
 	first_time, last_time: i64,
 	extra_reactions_posts: int, // posts that extras.jsonl adds reactions to
 	by_type:               map[string]int, // posts by their type
+	reaction_names:        map[string]int, // how many reactions there are of each emoji name
 }
 
 // Scan is the result of pass 1. Everything in it is allocated from its own
@@ -106,7 +119,11 @@ Scan :: struct {
 	lines:         int, // read, in both files
 	// Names already reported as authors without a membership or a user line.
 	reported:      map[string]bool,
+	// The people who wrote in the team's channels without being members, in
+	// the order they were first seen (see check_author).
+	authors_only:  [dynamic]string,
 	has_extras:    bool, // extras.jsonl was read
+	plan:          Plan, // filled in by build_plan
 	// What made the scan stop, as a sentence (see scan_file).
 	fatal:         string,
 }
@@ -158,7 +175,9 @@ scan :: proc(opts: Options) -> (s: ^Scan, err: string) {
 	s.posts.allocator = a
 	s.emoji.allocator = a
 	s.stats.by_type = make(map[string]int, a)
+	s.stats.reaction_names = make(map[string]int, a)
 	s.reported = make(map[string]bool, a)
+	s.authors_only.allocator = a
 	for &i in s.issues {
 		i.examples.allocator = a
 	}
@@ -378,7 +397,6 @@ scan_line :: proc(
 }
 
 // note counts an issue, and keeps the first few examples of it.
-@(private = "file")
 note :: proc(s: ^Scan, kind: Issue_Kind, example: string, a: Allocator) {
 	i := &s.issues[kind]
 	i.count += 1
@@ -389,13 +407,14 @@ note :: proc(s: ^Scan, kind: Issue_Kind, example: string, a: Allocator) {
 
 // note_once is note for a name, which is only counted the first time.
 @(private = "file")
-note_once :: proc(s: ^Scan, kind: Issue_Kind, name: string, a: Allocator) {
+note_once :: proc(s: ^Scan, kind: Issue_Kind, name: string, a: Allocator) -> (first: bool) {
 	key := fmt.tprintf("%d:%s", int(kind), name)
 	if key in s.reported {
-		return
+		return false
 	}
 	s.reported[strings.clone(key, a)] = true
 	note(s, kind, name, a)
+	return true
 }
 
 @(private = "file")
@@ -435,9 +454,21 @@ check_author :: proc(s: ^Scan, username: string, a: Allocator) {
 	switch {
 	case imported(s, username):
 	case username in s.user_index:
-		note_once(s, .Author_Not_Member, username, a)
+		if note_once(s, .Author_Not_Member, username, a) {
+			append(&s.authors_only, strings.clone(username, a))
+		}
 	case:
 		note_once(s, .Author_Unknown, username, a)
+	}
+}
+
+// count_reaction_name counts a reaction of the emoji called `name`.
+@(private = "file")
+count_reaction_name :: proc(s: ^Scan, name: string, a: Allocator) {
+	if name in s.stats.reaction_names {
+		s.stats.reaction_names[name] += 1
+	} else {
+		s.stats.reaction_names[strings.clone(name, a)] = 1
 	}
 }
 
@@ -464,6 +495,9 @@ count_post :: proc(
 	st.edited += int(edit_at != 0)
 	st.saved += len(flagged_by)
 	st.reactions += len(reactions)
+	for r in reactions {
+		count_reaction_name(s, r.emoji_name, a)
+	}
 	st.attachments += len(attachments)
 	if st.first_time == 0 || create_at < st.first_time {
 		st.first_time = create_at
@@ -620,6 +654,9 @@ scan_extra_reactions :: proc(s: ^Scan, r: Direct_Post_Reactions) {
 	if key in s.direct_index {
 		s.stats.extra_reactions_posts += 1
 		s.stats.reactions += len(r.reactions)
+		for x in r.reactions {
+			count_reaction_name(s, x.emoji_name, a)
+		}
 	}
 }
 

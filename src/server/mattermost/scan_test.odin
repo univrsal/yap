@@ -146,7 +146,6 @@ test_scan_wrong_team :: proc(t: ^testing.T) {
 }
 
 // export_with writes an import.jsonl with `lines` in a new folder and returns it.
-@(private = "file")
 export_with :: proc(t: ^testing.T, lines: ..string) -> string {
 	base, _ := os.temp_directory(context.temp_allocator)
 	dir, err := os.make_directory_temp(base, "yap-mm-*", context.temp_allocator)
@@ -157,16 +156,11 @@ export_with :: proc(t: ^testing.T, lines: ..string) -> string {
 	return dir
 }
 
-@(private = "file")
 VERSION :: `{"type":"version","version":1,"info":{"generator":"mattermost-server","version":"x","created":"2026-01-01T00:00:00Z"}}`
-@(private = "file")
 TEAM :: `{"type":"team","team":{"name":"acme","display_name":"Acme","type":"O"}}`
-@(private = "file")
 CHANNEL :: `{"type":"channel","channel":{"team":"acme","name":"town-square","display_name":"Town Square","type":"O"}}`
-@(private = "file")
 USER :: `{"type":"user","user":{"username":"alice","roles":"system_user","teams":[{"name":"acme","roles":"team_user","channels":[]}]}}`
 
-@(private = "file")
 post :: proc(channel, user: string, at: int) -> string {
 	return fmt.tprintf(
 		`{{"type":"post","post":{{"team":"acme","channel":"%s","user":"%s","message":"hi","create_at":%d,"edit_at":0,"is_pinned":false}}}}`,

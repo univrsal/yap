@@ -43,6 +43,28 @@ issue_text :: proc(kind: Issue_Kind) -> string {
 		return "profile pictures that aren't under data/; those accounts get none"
 	case .Emoji_Image_Missing:
 		return "custom emoji whose picture isn't under data/; skipped"
+	case .Username_Changed:
+		return "usernames changed, as yap only takes a-z 0-9 _ . - or another account has the name"
+	case .Email_Invalid:
+		return "email addresses yap doesn't accept; those accounts get none"
+	case .Email_Taken:
+		return "email addresses that two accounts have (yap's are unique); the later one gets none"
+	case .Channel_Renamed:
+		return "channels renamed, as another channel has the same name; the archived ones first"
+	case .Name_Cut:
+		return "channel names cut to yap's limit"
+	case .Topic_Cut:
+		return "channel topics cut to yap's limit"
+	case .Emoji_Renamed:
+		return "custom emoji renamed, as yap's names are a-z 0-9 _ only, or another has the name"
+	case .System_Dropped:
+		return "kinds of system post that yap has no use for; left out"
+	case .System_Unknown:
+		return "kinds of system post this importer doesn't know; left out"
+	case .Reaction_Tone:
+		return "emoji with a skin tone, which yap has not; reactions use the emoji without it"
+	case .Reaction_Unknown:
+		return "emoji names that aren't yap's or the server's own; those reactions are left out"
 	}
 	return ""
 }
@@ -231,6 +253,36 @@ report_write :: proc(s: ^Scan, w: io.Writer) {
 		fmt.wprintfln(w, "\nCustom emoji: %d", len(s.emoji))
 	}
 
+	// What the mapping makes of it.
+	if len(s.plan.accounts) > 0 {
+		made, bots, left: int
+		for acc in s.plan.accounts {
+			switch {
+			case acc.bot:
+				bots += 1
+			case acc.author_only:
+				left += 1
+			case:
+				made += 1
+			}
+		}
+		fmt.wprintfln(w, "\nAn import makes")
+		fmt.wprintfln(
+			w,
+			"  %d accounts of the team's members, %d bots, %d disabled ones for people who left the team",
+			made,
+			bots,
+			left,
+		)
+		fmt.wprintfln(w, "  the owner: %s", s.plan.owner)
+		fmt.wprintfln(
+			w,
+			"  %d channels (the home channel is %s)",
+			len(s.plan.channels),
+			home_name(s),
+		)
+	}
+
 	// What is wrong.
 	any := false
 	for kind in Issue_Kind {
@@ -266,4 +318,15 @@ is_self :: proc(d: Direct_Channel) -> bool {
 		}
 	}
 	return true
+}
+
+// home_name returns the name that the home channel gets.
+@(private = "file")
+home_name :: proc(s: ^Scan) -> string {
+	for c in s.plan.channels {
+		if c.home {
+			return c.name
+		}
+	}
+	return "not one of the team's"
 }

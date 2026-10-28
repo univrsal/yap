@@ -131,6 +131,10 @@ run_import_command :: proc(args: []string) -> int {
 		return 1
 	}
 	defer mattermost.scan_destroy(scan)
+	if plan_err := mattermost.build_plan(scan, a.owner); plan_err != "" {
+		fmt.eprintfln("%s", plan_err)
+		return 1
+	}
 
 	out := os.to_stream(os.stdout)
 	mattermost.report_write(scan, io.to_writer(out))
