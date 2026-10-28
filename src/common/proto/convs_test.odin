@@ -2,6 +2,7 @@
 package proto
 
 import "core:slice"
+import "core:strings"
 import "core:testing"
 
 @(test)
@@ -11,11 +12,12 @@ test_conv_record :: proc(t: ^testing.T) {
 	for &b in topic {
 		b = 't'
 	}
+	name := strings.repeat("n", MAX_CHANNEL_NAME_SIZE, context.temp_allocator)
 	c := Conv {
 		id        = 9,
 		kind      = .Channel,
 		flags     = {.Home},
-		name      = "01234567890123456789012345678901",
+		name      = name,
 		topic     = string(topic),
 		member    = true,
 		last      = 1234,
@@ -142,14 +144,14 @@ test_browse :: proc(t: ^testing.T) {
 	testing.expect_value(t, b, Browse{query = "gam", offset = 50, limit = 20})
 	// The flags are only sent when there are some, and older requests have none.
 	body := encode_conv_browse(&req_buf, {query = "gam", limit = 20, flags = BROWSE_ALL})
-	testing.expect_value(t, len(body), 1 + 3 + 2 + 2 + 1)
+	testing.expect_value(t, len(body), 2 + 3 + 2 + 2 + 1)
 	b, ok = decode_conv_browse(body)
 	testing.expect(t, ok)
 	testing.expect_value(t, b, Browse{query = "gam", limit = 20, flags = BROWSE_ALL})
 	testing.expect_value(
 		t,
 		len(encode_conv_browse(&req_buf, {query = "gam", limit = 20})),
-		1 + 3 + 2 + 2,
+		2 + 3 + 2 + 2,
 	)
 	// An empty request asks for the first page of all conversations.
 	b, ok = decode_conv_browse(nil)
@@ -189,7 +191,7 @@ test_conv_bodies :: proc(t: ^testing.T) {
 		testing.expect_value(t, topic, "for games")
 		testing.expect_value(t, flags, Conv_Flags{.Private})
 		// Without Default or Text_Only, the body is what an older server knows.
-		testing.expect_value(t, len(body), 1 + 6 + 1 + 9 + 1)
+		testing.expect_value(t, len(body), 2 + 6 + 2 + 9 + 1)
 		_, _, _, ok = decode_conv_create(buf[:3])
 		testing.expect(t, !ok)
 		// Only Default and Text_Only can be asked for besides Private.
@@ -316,7 +318,7 @@ test_group_record :: proc(t: ^testing.T) {
 	// More accounts than a group can have don't decode.
 	body := encode_conv(buf[:], group)
 	bad := slice.clone(body, context.temp_allocator)
-	bad[4 + 1 + 1 + 1 + 1] = MAX_GROUP_MEMBERS + 1
+	bad[4 + 1 + 1 + 2 + 2] = MAX_GROUP_MEMBERS + 1
 	_, bad_ok := decode_conv(bad)
 	testing.expect(t, !bad_ok)
 }

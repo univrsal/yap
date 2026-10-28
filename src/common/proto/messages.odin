@@ -18,7 +18,8 @@ import "core:encoding/endian"
 // 	Msg_Edit     [id u64][text str16]
 // 	Msg_Delete   [id u64]
 // 	Msg_Pin      [id u64][on u8]
-// 	Pins_Get     [conv u32]  ->  [count u16] messages, the newest pin first
+// 	Pins_Get     [conv u32][offset u16]  ->  [count u16][more u8] messages:
+// 	             a page of the pins, the newest first, from the offset-th on
 // 	Msg_Forward  (forward.odin)
 // 	Msg_React    [id u64][emoji str8][on u8]
 // 	Reactors_Get [id u64][emoji str8]
@@ -91,7 +92,10 @@ import "core:encoding/endian"
 // with the Deleted flag, but its text and files are permanently removed and it
 // is no longer pinned. Pinning marks a message as Pinned. In a DM either member
 // may pin, and in a channel those with Pin_Messages may. A conversation may have
-// at most MAX_PINS pinned messages (beyond that the answer is Too_Large). Each
+// at most MAX_PINS pinned messages (beyond that the answer is Too_Large).
+// Pins_Get answers with a page of them, at most PINS_PAGE or fewer if they
+// wouldn't fit in one stream message, and whether there are more after it; the
+// next page starts at the offset plus the page's count. Each
 // change is sent to every connection of every member as Msg_Changed, which
 // contains the whole message in its current state.
 //
@@ -108,7 +112,9 @@ import "core:encoding/endian"
 // A thread root is only used in a later phase. The record has room for it from
 // the start, and it is zero until then.
 
-MAX_CHAT_SIZE :: 2000 // bytes of UTF-8 in a message
+// Bytes of UTF-8 in a message: as many as a Mattermost post may have (16383
+// characters of up to 4 bytes each, which it caps at 65535 bytes).
+MAX_CHAT_SIZE :: 65535
 
 // Unix_Time is the number of seconds since the epoch on the server's clock. It
 // is the unit that the UI's clock shows times in, to the minute.
@@ -207,12 +213,12 @@ MESSAGE_MAX_SIZE ::
 MAX_HISTORY_LIMIT :: 50
 
 // The maximum number of pinned messages in a conversation.
-MAX_PINS :: 50
+MAX_PINS :: 1000
 
 // The maximum number of different emoji that a message can have as reactions,
 // and the maximum number of bytes of one emoji (a server's own emoji, written
 // as `:name:`).
-MAX_REACTIONS :: 20
+MAX_REACTIONS :: 50 // Mattermost's default
 MAX_REACTION_EMOJI :: 2 + MAX_EMOJI_NAME
 
 History_Dir :: enum u8 {
@@ -229,6 +235,8 @@ MSG_HISTORY_SIZE :: 4 + 8 + 8 + 1 + 1
 MSG_EDIT_MAX_SIZE :: 8 + 2 + MAX_CHAT_SIZE
 MSG_ID_SIZE :: 8
 MSG_PIN_SIZE :: 8 + 1
+PINS_GET_SIZE :: 4 + 2
+PINS_PAGE :: 50
 MSG_POSTED_SIZE :: 8 + 8
 MSG_POST_MAX_SIZE :: 4 + 8 + 8 + 1 + max(2 + MAX_CHAT_SIZE + 1 + MAX_ATTACHMENTS * 8, 8 + 1 + 255)
 HISTORY_HEADER_SIZE :: 1 + 2
@@ -711,14 +719,30 @@ decode_msg_pin :: proc(body: []u8) -> (id: Msg_Id, on: bool, ok: bool) {
 	return id, body[8] != 0, id != 0
 }
 
-// encode_message_list writes a Pins_Get response with as many of `msgs` as fit
-// in `out`.
-encode_message_list :: proc(out: []u8, msgs: []Message) -> []u8 {
+encode_pins_get :: proc(out: ^[PINS_GET_SIZE]u8, conv: Conv_Id, offset: int) -> []u8 {
+	endian.unchecked_put_u32le(out[0:], u32(conv))
+	endian.unchecked_put_u16le(out[4:], u16(clamp(offset, 0, int(max(u16)))))
+	return out[:]
+}
+
+decode_pins_get :: proc(body: []u8) -> (conv: Conv_Id, offset: int, ok: bool) {
+	if len(body) != PINS_GET_SIZE {
+		return
+	}
+	conv = Conv_Id(endian.unchecked_get_u32le(body[0:]))
+	offset = int(endian.unchecked_get_u16le(body[4:]))
+	return conv, offset, conv != 0
+}
+
+// encode_pins_page writes a Pins_Get response with as many of `msgs` as fit in
+// `out`. It says that there are more if not all of them fit, or if `more`.
+// `count` is how many it holds.
+encode_pins_page :: proc(out: []u8, msgs: []Message, more: bool) -> (body: []u8, count: int) {
 	w := Writer {
 		buf = out,
 	}
 	put_u16(&w, 0)
-	count := 0
+	put_u8(&w, 0)
 	for m in msgs {
 		if w.pos + message_size(m) > len(out) || count == int(max(u16)) {
 			break
@@ -727,19 +751,21 @@ encode_message_list :: proc(out: []u8, msgs: []Message) -> []u8 {
 		count += 1
 	}
 	if w.overflow {
-		return nil
+		return nil, 0
 	}
 	endian.unchecked_put_u16le(out[0:], u16(count))
-	return out[:w.pos]
+	out[2] = u8(more || count < len(msgs))
+	return out[:w.pos], count
 }
 
-// decode_message_list reads a list of messages into `buf`. The strings point
+// decode_pins_page reads a Pins_Get response into `buf`. The strings point
 // into `body`.
-decode_message_list :: proc(body: []u8, buf: []Message) -> (msgs: []Message, ok: bool) {
+decode_pins_page :: proc(body: []u8, buf: []Message) -> (msgs: []Message, more: bool, ok: bool) {
 	r := Reader {
 		buf = body,
 	}
 	count := int(get_u16(&r))
+	more = get_u8(&r) != 0
 	if r.overflow || count > len(buf) {
 		return
 	}
@@ -749,7 +775,7 @@ decode_message_list :: proc(body: []u8, buf: []Message) -> (msgs: []Message, ok:
 	if r.pos != len(body) {
 		return
 	}
-	return buf[:count], true
+	return buf[:count], more, true
 }
 
 // Reaction is one emoji that a message has been reacted to with.

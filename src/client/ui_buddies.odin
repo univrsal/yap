@@ -386,7 +386,8 @@ buddy_row :: proc(ui: ^UI, b: Buddy_Entry) {
 
 	mu.push_id(ctx, uintptr(rawptr(b.ns)))
 	defer mu.pop_id(ctx)
-	mu.push_id(ctx, uintptr(b.account) if !b.group else uintptr(b.conv) | 1 << 32)
+	// A group and an account can have the same number, so they are told apart.
+	mu.push_id(ctx, fmt.tprintf("g%d", b.conv) if b.group else fmt.tprintf("a%d", b.account))
 	defer mu.pop_id(ctx)
 	id := mu.get_id(ctx, "buddy")
 	r := mu.layout_next(ctx)

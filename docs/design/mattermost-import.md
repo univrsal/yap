@@ -16,7 +16,7 @@ says about the export comes from reading Mattermost's source (master,
 | --- | --- | --- | --- | --- | --- |
 | 1 | Group DMs | L | protocol, schema, server, client | - | built (2026-10-28), see group-dms.md |
 | 2 | DMs with oneself | S | protocol, server, client | - | built (2026-10-28) |
-| 3 | Size limits raised to Mattermost's | M | protocol, schema, client | - | open |
+| 3 | Size limits raised to Mattermost's | M | protocol, schema, client | - | built (2026-10-28) |
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | open |
 | 5 | `@here` | S | protocol, server, client | - | open |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | webhooks seen (2026-10-28), the rest open |
@@ -49,6 +49,7 @@ The importer works only on a new, empty database (D5).
   32 and `MAX_CUSTOM_EMOJI` 512, `MAX_PINS` 50 per conversation,
   `MAX_REACTIONS` 20 per message, `MAX_ATTACHMENTS` 10 per message. The
   largest attachment is the server's `max_attachment` (Server_Info).
+  (Most of these were raised in step 3, see Limits.)
 - Mentions are tokens in the text (proto/mentions.odin): `<@id>`,
   `<@&role>`, `<@everyone>`. Plain `@name` is just text.
 - Threads: `messages.thread_root`, with `reply_count` and `last_reply` on
@@ -411,8 +412,9 @@ webhook, which is what bot-api.md already suggests.
   `max_attachment` is skipped with a warning, or the limit is raised for
   the import.
 - Custom emoji are `data/emoji/<id>/image`, written into `emoji/` as
-  `<name>.<ext>`. Names longer than 32 or with characters yap doesn't
-  allow are renamed and the reactions and texts using them follow.
+  `<name>.<ext>`. Names with characters yap doesn't allow are renamed
+  and the reactions and texts using them follow. Beyond 512 (D18), the
+  most used 512 are kept and the rest become plain `:name:` text.
 
 ### Saved messages
 
@@ -469,6 +471,46 @@ Built (2026-10-28):
 - The gateway: `POST /dms` with one's own account; the DM's `recipient`
   is then oneself.
 - The protocol version stays 16, which nothing has been released with.
+
+## Limits (step 3)
+
+Mattermost counts characters where yap counts bytes, so yap's limits are
+Mattermost's at 4 bytes a character (D16). From Mattermost 10.12.4's
+source (`model/post.go`, `channel.go`, `user.go`, `emoji.go`,
+`custom_status.go`, `config.go`):
+
+| What | yap before | Mattermost | yap now |
+| --- | --- | --- | --- |
+| message text | 2000 B | 16383 characters, 65535 B | 65535 B (`MAX_CHAT_SIZE`) |
+| channel name | 32 B | display name 64 characters | 256 B |
+| topic | 128 B | header 1024 characters | 4096 B |
+| display name | 32 B | nickname, or first and last name, 64 characters each | 516 B |
+| username | 2–32 | 1–64 | 1–64, the same characters |
+| status | 80 B | 100 characters | 400 B |
+| emoji name | 32 | 64 | 64 |
+| custom emoji | 512 | no limit | 512 (D18) |
+| reactions per message | 20 | 50 by default (at most 500) | 50 |
+| pins per conversation | 50 | no limit | 1000, in pages (D17) |
+| channels | 1000 | 2000 per team by default | 2000 |
+| files per message | 10 | 10 | 10 |
+| group members | 8 | 8 | 8 (step 1) |
+
+Built (2026-10-28), protocol version 17:
+
+- Names, topics, statuses and Voice_Moved's channel name have 2-byte
+  lengths. A stream message can be 128 KiB (was 64 KiB), so a message
+  at its longest fits in an event or a history page.
+- Pins_Get takes an offset and answers a page (at most `PINS_PAGE`, 50,
+  or what fits) with whether there are more; the client fetches the
+  pages one after another. The gateway's `GET /convs/{id}/pins` takes
+  `?offset=`, and its request bodies can be 512 KiB.
+- The largest buffers (a message's text, a post, an edit, an encoded
+  message) are in the temp allocator instead of on the stack, and so is
+  the Server_UI that stash_destroy keeps aside (now 400 KB).
+- Avatars are still 256 px and 64 KB: the importer scales Mattermost's
+  pictures down. File names stay at 200 B and are cut on import.
+- Tried in the app: a 64,000-byte message and a 39 KB one in a DM, and
+  62 pins read in pages.
 
 ## Channel admins (step 13)
 
@@ -578,4 +620,9 @@ come back to, and finds them again in one list.
   on each server, shown like a conversation at the top of the channel
   list, each entry with a button that jumps to the message; bookmarking
   is in the message menu.
+- **D16** Byte limits are Mattermost's character limits at 4 bytes a
+  character, so every Mattermost value fits (step 3).
+- **D17** Pins are read in pages, up to 1000 per conversation.
+- **D18** Custom emoji stay at 512 per server, with names up to 64
+  characters; an import with more keeps the most used 512.
 

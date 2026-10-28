@@ -8,6 +8,7 @@ import "common:proto"
 // Tests of editing, deleting and pinning messages, using the Test_Server from
 // harness_test.odin.
 
+// pins_of reads all of a conversation's pins, a page at a time.
 @(private = "file")
 pins_of :: proc(
 	t: ^testing.T,
@@ -15,13 +16,20 @@ pins_of :: proc(
 	u: ^Conn,
 	conv: proto.Conv_Id,
 ) -> []proto.Message {
-	buf: [4]u8
-	status, body := ts_ask(t, ts, u, .Pins_Get, proto.encode_conv_id(&buf, conv))
-	testing.expect_value(t, status, proto.Status.Ok)
-	msgs := make([]proto.Message, proto.MAX_PINS, context.temp_allocator)
-	got, ok := proto.decode_message_list(body, msgs)
-	testing.expect(t, ok)
-	return got
+	all := make([dynamic]proto.Message, context.temp_allocator)
+	for {
+		buf: [proto.PINS_GET_SIZE]u8
+		status, body := ts_ask(t, ts, u, .Pins_Get, proto.encode_pins_get(&buf, conv, len(all)))
+		testing.expect_value(t, status, proto.Status.Ok)
+		msgs := make([]proto.Message, proto.PINS_PAGE, context.temp_allocator)
+		got, more, ok := proto.decode_pins_page(body, msgs)
+		testing.expect(t, ok)
+		testing.expect(t, len(got) <= proto.PINS_PAGE)
+		append(&all, ..got)
+		if !ok || !more || len(got) == 0 {
+			return all[:]
+		}
+	}
 }
 
 // changed returns the last Msg_Changed event about `id` that a connection was
@@ -186,7 +194,8 @@ test_pins :: proc(t: ^testing.T) {
 	testing.expect_value(t, pin_as(t, &ts, bob, said, true), proto.Status.Ok)
 	testing.expect_value(t, pin_as(t, &ts, carol, said, true), proto.Status.Not_Found)
 	testing.expect_value(t, pin_as(t, &ts, admin, said, false), proto.Status.Not_Found)
-	status, _ := ts_ask(t, &ts, carol, .Pins_Get, proto.encode_conv_id(&buf, dm))
+	pins_buf: [proto.PINS_GET_SIZE]u8
+	status, _ := ts_ask(t, &ts, carol, .Pins_Get, proto.encode_pins_get(&pins_buf, dm, 0))
 	testing.expect_value(t, status, proto.Status.Not_Found)
 	testing.expect_value(t, len(pins_of(t, &ts, alice, dm)), 1)
 
@@ -195,7 +204,7 @@ test_pins :: proc(t: ^testing.T) {
 		_, id := post(t, &ts, alice, home, "more", u64(10 + i))
 		testing.expect_value(t, pin_as(t, &ts, admin, id, true), proto.Status.Ok)
 	}
-	_, one_more := post(t, &ts, alice, home, "one too many", 100)
+	_, one_more := post(t, &ts, alice, home, "one too many", 100_000)
 	testing.expect_value(t, pin_as(t, &ts, admin, one_more, true), proto.Status.Too_Large)
 	pins := pins_of(t, &ts, alice, home)
 	testing.expect_value(t, len(pins), proto.MAX_PINS)

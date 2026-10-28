@@ -93,8 +93,9 @@ package proto
 
 Account_Id :: distinct u32
 
-MIN_USERNAME_SIZE :: 2
-MAX_USERNAME_SIZE :: 32
+// As Mattermost allows, so that its accounts can be imported.
+MIN_USERNAME_SIZE :: 1
+MAX_USERNAME_SIZE :: 64
 // The length of an account's password in bytes. The server's own password
 // is limited by MAX_PASSWORD_SIZE instead.
 MIN_ACCOUNT_PASSWORD :: 8
@@ -159,7 +160,8 @@ Account :: struct {
 	activity:     Activity, // as everyone sees it (activity.odin)
 }
 
-MAX_STATUS_SIZE :: 80
+// 100 characters (as Mattermost allows) of up to 4 bytes each.
+MAX_STATUS_SIZE :: 4 * 100
 MAX_AVATAR_SIDE :: 256
 MAX_AVATAR_SIZE :: 64 * 1024
 
@@ -417,10 +419,10 @@ encode_profile_set :: proc(out: []u8, p: Profile_Set) -> []u8 {
 	}
 	put_u8(&w, p.mask)
 	if p.mask & PROFILE_DISPLAY != 0 {
-		put_str8(&w, p.display)
+		put_str16(&w, p.display)
 	}
 	if p.mask & PROFILE_STATUS != 0 {
-		put_str8(&w, p.status)
+		put_str16(&w, p.status)
 		put_u64(&w, u64(p.status_until))
 	}
 	if p.mask & PROFILE_AVATAR != 0 {
@@ -444,10 +446,10 @@ decode_profile_set :: proc(body: []u8) -> (p: Profile_Set, ok: bool) {
 		return
 	}
 	if p.mask & PROFILE_DISPLAY != 0 {
-		p.display = get_str8(&r)
+		p.display = get_str16(&r)
 	}
 	if p.mask & PROFILE_STATUS != 0 {
-		p.status = get_str8(&r)
+		p.status = get_str16(&r)
 		p.status_until = Unix_Ms(get_u64(&r))
 	}
 	if p.mask & PROFILE_AVATAR != 0 {
@@ -465,7 +467,7 @@ encode_account_create :: proc(out: []u8, username, password, display: string) ->
 	}
 	put_str8(&w, username)
 	put_str8(&w, password)
-	put_str8(&w, display)
+	put_str16(&w, display)
 	return written(&w)
 }
 
@@ -475,7 +477,7 @@ decode_account_create :: proc(body: []u8) -> (username, password, display: strin
 	}
 	username = get_str8(&r)
 	password = get_str8(&r)
-	display = get_str8(&r)
+	display = get_str16(&r)
 	return username, password, display, !r.overflow
 }
 
@@ -522,8 +524,8 @@ ACCOUNT_MAX_SIZE ::
 	4 +
 	1 +
 	(1 + MAX_USERNAME_SIZE) +
-	(1 + MAX_NAME_SIZE) +
-	(1 + MAX_STATUS_SIZE) +
+	(2 + MAX_NAME_SIZE) +
+	(2 + MAX_STATUS_SIZE) +
 	8 +
 	8 +
 	1 +
@@ -538,8 +540,8 @@ encode_account :: proc(out: []u8, a: Account) -> []u8 {
 	put_u32(&w, u32(a.id))
 	put_u8(&w, transmute(u8)a.flags)
 	put_str8(&w, a.username)
-	put_str8(&w, a.display)
-	put_str8(&w, a.status)
+	put_str16(&w, a.display)
+	put_str16(&w, a.status)
 	put_u64(&w, u64(a.status_until))
 	put_u64(&w, u64(a.avatar))
 	put_u8(&w, u8(len(a.roles)))
@@ -559,8 +561,8 @@ decode_account :: proc(body: []u8) -> (a: Account, ok: bool) {
 	a.id = Account_Id(get_u32(&r))
 	a.flags = transmute(Account_Flags)get_u8(&r)
 	a.username = get_str8(&r)
-	a.display = get_str8(&r)
-	a.status = get_str8(&r)
+	a.display = get_str16(&r)
+	a.status = get_str16(&r)
 	a.status_until = Unix_Ms(get_u64(&r))
 	a.avatar = Blob_Id(get_u64(&r))
 	count := int(get_u8(&r))

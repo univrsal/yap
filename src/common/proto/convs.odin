@@ -228,7 +228,9 @@ Role_Rights :: struct {
 	rights: Conv_Rights,
 }
 
-MAX_TOPIC_SIZE :: 128 // bytes of UTF-8
+// Bytes of UTF-8: a Mattermost channel header, 1024 characters at up to 4 bytes
+// each.
+MAX_TOPIC_SIZE :: 4 * 1024
 
 // Unread counts stop at this value. A client shows larger counts as "99+".
 UNREAD_CAP :: 100
@@ -268,8 +270,8 @@ CONV_MAX_SIZE ::
 	4 +
 	1 +
 	1 +
-	(1 + MAX_CHANNEL_NAME_SIZE) +
-	(1 + MAX_TOPIC_SIZE) +
+	(2 + MAX_CHANNEL_NAME_SIZE) +
+	(2 + MAX_TOPIC_SIZE) +
 	(1 + 4 * MAX_GROUP_MEMBERS) +
 	8 +
 	1 +
@@ -286,8 +288,8 @@ put_conv :: proc(w: ^Writer, c: Conv) {
 	put_u32(w, u32(c.id))
 	put_u8(w, u8(c.kind))
 	put_u8(w, transmute(u8)c.flags)
-	put_str8(w, c.name)
-	put_str8(w, c.topic)
+	put_str16(w, c.name)
+	put_str16(w, c.topic)
 	count := clamp(c.account_count, 0, MAX_GROUP_MEMBERS)
 	put_u8(w, u8(count))
 	for i in 0 ..< count {
@@ -308,8 +310,8 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 	c.id = Conv_Id(get_u32(r))
 	c.kind = Conv_Kind(get_u8(r))
 	c.flags = transmute(Conv_Flags)get_u8(r)
-	c.name = get_str8(r)
-	c.topic = get_str8(r)
+	c.name = get_str16(r)
+	c.topic = get_str16(r)
 	c.account_count = int(get_u8(r))
 	if c.account_count > MAX_GROUP_MEMBERS {
 		r.overflow = true
@@ -379,7 +381,7 @@ decode_conv :: proc(body: []u8) -> (c: Conv, ok: bool) {
 BROWSE_PAGE :: 50
 MAX_BROWSE_LIMIT :: 100
 MAX_BROWSE_QUERY :: MAX_CHANNEL_NAME_SIZE
-CONV_BROWSE_MAX_SIZE :: 1 + MAX_BROWSE_QUERY + 2 + 2 + 1
+CONV_BROWSE_MAX_SIZE :: 2 + MAX_BROWSE_QUERY + 2 + 2 + 1
 
 // Conv_Browse's flags.
 BROWSE_ALL :: 1
@@ -395,7 +397,7 @@ encode_conv_browse :: proc(out: ^[CONV_BROWSE_MAX_SIZE]u8, b: Browse) -> []u8 {
 	w := Writer {
 		buf = out[:],
 	}
-	put_str8(&w, b.query[:min(len(b.query), MAX_BROWSE_QUERY)])
+	put_str16(&w, b.query[:min(len(b.query), MAX_BROWSE_QUERY)])
 	put_u16(&w, u16(clamp(b.offset, 0, int(max(u16)))))
 	put_u16(&w, u16(clamp(b.limit, 0, MAX_BROWSE_LIMIT)))
 	// Left out when there are none, so that the request is the same as before
@@ -415,7 +417,7 @@ decode_conv_browse :: proc(body: []u8) -> (b: Browse, ok: bool) {
 	r := Reader {
 		buf = body,
 	}
-	b.query = get_str8(&r)
+	b.query = get_str16(&r)
 	b.offset = int(get_u16(&r))
 	b.limit = int(get_u16(&r))
 	if r.pos < len(body) {
@@ -502,7 +504,7 @@ decode_conv_list :: proc(body: []u8, convs_buf: []Conv) -> (convs: []Conv, ok: b
 	return convs_buf[:count], true
 }
 
-CONV_CREATE_MAX_SIZE :: (1 + 255) + (1 + 255) + 1 + 1
+CONV_CREATE_MAX_SIZE :: (2 + MAX_CHANNEL_NAME_SIZE) + (2 + MAX_TOPIC_SIZE) + 1 + 1
 
 // encode_conv_create writes a Conv_Create request. `flags` may have Default
 // and Text_Only, and is left out when it has neither, so that an older server
@@ -516,8 +518,8 @@ encode_conv_create :: proc(
 	w := Writer {
 		buf = out,
 	}
-	put_str8(&w, name)
-	put_str8(&w, topic)
+	put_str16(&w, name)
+	put_str16(&w, topic)
 	put_u8(&w, u8(private))
 	if flags & CONV_SETTABLE_FLAGS != {} {
 		put_u8(&w, transmute(u8)(flags & CONV_SETTABLE_FLAGS))
@@ -531,8 +533,8 @@ decode_conv_create :: proc(body: []u8) -> (name, topic: string, flags: Conv_Flag
 	r := Reader {
 		buf = body,
 	}
-	name = get_str8(&r)
-	topic = get_str8(&r)
+	name = get_str16(&r)
+	topic = get_str16(&r)
 	if get_u8(&r) != 0 {
 		flags += {.Private}
 	}
@@ -769,7 +771,7 @@ Conv_Update :: struct {
 	flags:    Conv_Flags, // with CONV_UPDATE_FLAGS: which of CONV_SETTABLE_FLAGS it has
 }
 
-CONV_UPDATE_MAX_SIZE :: 4 + 1 + (1 + 255) + (1 + 255) + 4 + 1
+CONV_UPDATE_MAX_SIZE :: 4 + 1 + (2 + MAX_CHANNEL_NAME_SIZE) + (2 + MAX_TOPIC_SIZE) + 4 + 1
 
 encode_conv_update :: proc(out: []u8, u: Conv_Update) -> []u8 {
 	w := Writer {
@@ -777,8 +779,8 @@ encode_conv_update :: proc(out: []u8, u: Conv_Update) -> []u8 {
 	}
 	put_u32(&w, u32(u.conv))
 	put_u8(&w, u.mask)
-	put_str8(&w, u.name)
-	put_str8(&w, u.topic)
+	put_str16(&w, u.name)
+	put_str16(&w, u.topic)
 	put_u32(&w, u32(u.position))
 	if u.mask & CONV_UPDATE_FLAGS != 0 {
 		put_u8(&w, transmute(u8)(u.flags & CONV_SETTABLE_FLAGS))
@@ -792,8 +794,8 @@ decode_conv_update :: proc(body: []u8) -> (u: Conv_Update, ok: bool) {
 	}
 	u.conv = Conv_Id(get_u32(&r))
 	u.mask = get_u8(&r)
-	u.name = get_str8(&r)
-	u.topic = get_str8(&r)
+	u.name = get_str16(&r)
+	u.topic = get_str16(&r)
 	u.position = int(get_u32(&r))
 	if u.mask & CONV_UPDATE_FLAGS != 0 {
 		u.flags = transmute(Conv_Flags)get_u8(&r) & CONV_SETTABLE_FLAGS

@@ -117,7 +117,7 @@ post_run :: proc(c: ^Conn, j: ^Job) {
 	}
 	j.scratch = {conv, u64(p.thread_root), 0}
 	j.answer = posted
-	buf: [proto.MSG_POST_MAX_SIZE]u8
+	buf := new([proto.MSG_POST_MAX_SIZE]u8, context.temp_allocator)
 	ask(c, j, .Msg_Post, proto.encode_msg_post(buf[:], p))
 }
 
@@ -255,8 +255,8 @@ edit_run :: proc(c: ^Conn, j: ^Job) {
 		return
 	}
 	j.answer = answered_empty
-	buf: [proto.MSG_EDIT_MAX_SIZE]u8
-	ask(c, j, .Msg_Edit, proto.encode_msg_edit(&buf, proto.Msg_Id(msg), text))
+	buf := new([proto.MSG_EDIT_MAX_SIZE]u8, context.temp_allocator)
+	ask(c, j, .Msg_Edit, proto.encode_msg_edit(buf, proto.Msg_Id(msg), text))
 }
 
 // DELETE /messages/{id} -> 204 deletes a message. The account can delete its

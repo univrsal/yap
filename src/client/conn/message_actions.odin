@@ -167,13 +167,13 @@ Jump_Command :: struct {
 }
 
 msg_edit :: proc(c: ^Server_Conn, id: proto.Msg_Id, raw: string) {
-	buf: [proto.MAX_CHAT_SIZE]u8
+	buf := new([proto.MAX_CHAT_SIZE]u8, context.temp_allocator)
 	text := proto.sanitize_message(raw, buf[:])
 	if text == "" {
 		return
 	}
-	body_buf: [proto.MSG_EDIT_MAX_SIZE]u8
-	request(c, .Msg_Edit, proto.encode_msg_edit(&body_buf, id, text), change_done, u64(id))
+	body_buf := new([proto.MSG_EDIT_MAX_SIZE]u8, context.temp_allocator)
+	request(c, .Msg_Edit, proto.encode_msg_edit(body_buf, id, text), change_done, u64(id))
 }
 
 msg_delete :: proc(c: ^Server_Conn, id: proto.Msg_Id) {
@@ -207,32 +207,39 @@ change_done :: proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64)
 	}
 }
 
-// pins_fetch asks for a conversation's pinned messages, which are passed to the
-// UI (or, headless, written to the log).
-pins_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
+// pins_fetch asks for a conversation's pinned messages, a page at a time from
+// `offset` on, which are passed to the UI as they arrive (or, headless,
+// written to the log).
+pins_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id, offset := 0) {
 	if conv == 0 {
 		return
 	}
 	c.msgs.pins_conv = conv
-	publish_pins_loading(c, conv)
-	buf: [4]u8
+	if offset == 0 {
+		publish_pins_loading(c, conv)
+	}
+	buf: [proto.PINS_GET_SIZE]u8
 	request(
 		c,
 		.Pins_Get,
-		proto.encode_conv_id(&buf, conv),
+		proto.encode_pins_get(&buf, conv, offset),
 		proc(c: ^Server_Conn, status: proto.Status, body: []u8, tag: u64) {
-			conv := proto.Conv_Id(tag)
+			conv, offset := proto.Conv_Id(tag), int(tag >> 32)
 			if c.msgs.pins_conv != conv || status != .Ok {
 				return
 			}
-			buf: [proto.MAX_PINS]proto.Message
-			pins, ok := proto.decode_message_list(body, buf[:])
+			buf: [proto.PINS_PAGE]proto.Message
+			pins, more, ok := proto.decode_pins_page(body, buf[:])
 			if !ok {
 				return
 			}
-			publish_pins(c, conv, pins)
-			report_pins(c, conv, pins)
+			more = more && len(pins) > 0 && offset + len(pins) < proto.MAX_PINS
+			publish_pins(c, conv, pins, offset > 0, more)
+			report_pins(c, conv, pins, offset == 0)
+			if more {
+				pins_fetch(c, conv, offset + len(pins))
+			}
 		},
-		u64(conv),
+		u64(conv) | u64(offset) << 32,
 	)
 }

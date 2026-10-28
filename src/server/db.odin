@@ -284,7 +284,7 @@ STMT_SQL := [Stmt]string {
 	.Reactions_Of           = "SELECT emoji, count(*), max(account = ?2) FROM reactions WHERE message = ?1 GROUP BY emoji ORDER BY min(time), emoji",
 	.React_Clear            = "DELETE FROM reactions WHERE message = ?1",
 	.Mention_Count          = "SELECT count(*) FROM (SELECT 1 FROM mentions WHERE account = ?1 AND conv = ?2 AND message > ?3 LIMIT 100)",
-	.Pins_Of                = "SELECT " + MSG_COLS + " FROM pins p JOIN messages m ON m.id = p.message WHERE p.conv = ?1 ORDER BY p.time DESC, p.message DESC LIMIT ?2",
+	.Pins_Of                = "SELECT " + MSG_COLS + " FROM pins p JOIN messages m ON m.id = p.message WHERE p.conv = ?1 ORDER BY p.time DESC, p.message DESC LIMIT ?2 OFFSET ?3",
 	.Buddy_All              = "SELECT account, buddy FROM buddies",
 	.Role_All               = "SELECT id, name, perms, color, position, flags FROM roles ORDER BY id",
 	.Role_Add               = "INSERT INTO roles (name, perms, color, position, flags) VALUES (?1, ?2, ?3, ?4, ?5)",

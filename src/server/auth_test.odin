@@ -342,7 +342,7 @@ test_account_create :: proc(t: ^testing.T) {
 		&ts,
 		admin,
 		.Account_Create,
-		proto.encode_account_create(buf[:], "b", "first password", "Bob"),
+		proto.encode_account_create(buf[:], "b b", "first password", "Bob"),
 	)
 	testing.expect_value(t, status, proto.Status.Invalid)
 	status, _ = ts_ask(

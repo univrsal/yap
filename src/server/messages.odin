@@ -127,7 +127,7 @@ msg_post :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		kind        = p.kind,
 		thread_root = root.id,
 	}
-	text_buf: [proto.MAX_CHAT_SIZE]u8
+	text_buf := new([proto.MAX_CHAT_SIZE]u8, context.temp_allocator)
 	name_buf: [proto.MAX_FILE_NAME]u8
 	mentioned: []proto.Account_Id
 	#partial switch p.kind {
@@ -474,7 +474,7 @@ msg_by_nonce :: proc(
 // conversation. It is either a new message or, if `op` is Msg_Changed, a
 // message in its current state.
 msg_deliver :: proc(s: ^Server, conv: ^Conv, m: proto.Message, op := proto.Event_Op.Msg_New) {
-	buf: [proto.MESSAGE_MAX_SIZE]u8
+	buf := new([proto.MESSAGE_MAX_SIZE]u8, context.temp_allocator)
 	body := proto.encode_message(buf[:], m)
 	if body == nil {
 		log.errorf("message %d doesn't fit in a record", m.id)

@@ -247,16 +247,25 @@ pins_run :: proc(c: ^Conn, j: ^Job) {
 			reply(j, status_reply(a.status))
 			return
 		}
-		buf := make([]proto.Message, proto.MAX_PINS, context.temp_allocator)
-		msgs, ok := proto.decode_message_list(a.body, buf)
+		buf := make([]proto.Message, proto.PINS_PAGE, context.temp_allocator)
+		msgs, _, ok := proto.decode_pins_page(a.body, buf)
 		if !ok {
 			reply(j, status_reply(.Internal))
 			return
 		}
 		reply(j, json_reply(200, messages_json(&c.model, msgs)))
 	}
-	body_buf: [4]u8
-	ask(c, j, .Pins_Get, proto.encode_conv_id(&body_buf, proto.Conv_Id(conv)))
+	offset := 0
+	if s, given := query_param(j, "offset"); given {
+		n, parsed := strconv.parse_int(s, 10)
+		if !parsed || n < 0 {
+			reply(j, error_reply(400, "invalid", "offset is a number of pins."))
+			return
+		}
+		offset = n
+	}
+	body_buf: [proto.PINS_GET_SIZE]u8
+	ask(c, j, .Pins_Get, proto.encode_pins_get(&body_buf, proto.Conv_Id(conv), offset))
 }
 
 Search_JSON :: struct {

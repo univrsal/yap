@@ -274,7 +274,7 @@ A conversation is a channel, a DM, or a group (a DM of 3 to 8 people).
 | `DELETE /messages/{id}/reactions/{emoji}` | Take your reaction back. → 204 |
 | `GET /messages/{id}/reactions/{emoji}` | Who reacted with it. → `{total, accounts}` |
 | `POST /messages/{id}/forward` `{conv, thread, nonce}` | Copy it to another conversation. → 201 [message](#message) |
-| `GET /convs/{id}/pins` | Its pinned messages, the most recently pinned first. → [message](#message)s |
+| `GET /convs/{id}/pins?offset=` | Its pinned messages, the most recently pinned first, a page at a time: the ones after the first `offset` (default 0). An empty page means there are no more. → [message](#message)s |
 | `GET /search?q=&conv=&before=&limit=` | Search. → `{messages, searched_to, more}` |
 
 **History.** Give at most one of `before`, `after` or `around` (a
@@ -538,10 +538,10 @@ process should take as "stop". Other codes:
 - **Tokens in use at once:** `max_connections` (default 64). Past that,
   503. A token stops counting 5 minutes after its last request, or 5
   minutes after its event socket closes.
-- **Bodies:** at most 64 KiB, but for uploads.
+- **Bodies:** at most 512 KiB, but for uploads.
 - **Quiet connections** close after 60 seconds between requests.
-- **The server's own limits** apply as for anyone: messages of 2000
-  bytes at most, 10 files a message, 50 pins in a conversation, 4
+- **The server's own limits** apply as for anyone: messages of 65535
+  bytes at most, 10 files a message, 1000 pins in a conversation, 4
   uploads (and 4 downloads) at a time, and the attachment size and rate
   in its config.
 

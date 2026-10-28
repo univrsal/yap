@@ -81,7 +81,7 @@ Ban_Set :: struct {
 VOICE_MOVE_SIZE :: 4 + 4
 VOICE_MUTE_SIZE :: 4 + 1
 VOICE_MOVED_SIZE :: 4 + 4
-VOICE_MOVED_MAX_SIZE :: VOICE_MOVED_SIZE + 1 + MAX_CHANNEL_NAME_SIZE
+VOICE_MOVED_MAX_SIZE :: VOICE_MOVED_SIZE + 2 + MAX_CHANNEL_NAME_SIZE
 BAN_SET_MAX_SIZE :: 4 + 1 + 1 + MAX_BAN_REASON + 1
 BAN_MAX_SIZE :: 4 + 4 + 8 + 1 + MAX_BAN_REASON
 BANNED_MAX_SIZE :: 1 + MAX_BAN_REASON
@@ -135,7 +135,7 @@ encode_voice_moved :: proc(
 	}
 	put_u32(&w, u32(room))
 	put_u32(&w, u32(by))
-	put_str8(&w, name)
+	put_str16(&w, name)
 	return written(&w)
 }
 
@@ -151,7 +151,7 @@ decode_voice_moved :: proc(body: []u8) -> (room: Room, by: Account_Id, name: str
 	}
 	if has_more(&r) {
 		by = Account_Id(get_u32(&r))
-		name = get_str8_opt(&r)
+		name = get_str16(&r)
 	}
 	return room, by, name, !r.overflow
 }

@@ -82,7 +82,7 @@ msg_edit :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Invalid)
 		return
 	}
-	text_buf: [proto.MAX_CHAT_SIZE]u8
+	text_buf := new([proto.MAX_CHAT_SIZE]u8, context.temp_allocator)
 	text := proto.sanitize_message(raw, text_buf[:])
 	if text == "" {
 		respond(u, id, .Invalid)
@@ -247,7 +247,7 @@ msg_pin :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 // pins_get answers with the pinned messages of a conversation, with the
 // most recent pin first.
 pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
-	conv_id, ok := proto.decode_conv_id(body)
+	conv_id, offset, ok := proto.decode_pins_get(body)
 	if !ok {
 		respond(u, id, .Invalid)
 		return
@@ -261,8 +261,9 @@ pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Denied)
 		return
 	}
-	list := make([dynamic]proto.Message, 0, proto.MAX_PINS, context.temp_allocator)
-	q := db_query(&s.db, .Pins_Of, i64(conv.id), proto.MAX_PINS)
+	// One more than a page, to know whether there are more.
+	list := make([dynamic]proto.Message, 0, proto.PINS_PAGE + 1, context.temp_allocator)
+	q := db_query(&s.db, .Pins_Of, i64(conv.id), proto.PINS_PAGE + 1, i64(offset))
 	for {
 		row, stepped := db_step(&s.db, q)
 		if !stepped {
@@ -274,12 +275,17 @@ pins_get :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		}
 		append(&list, msg_of_row(q))
 	}
+	more := len(list) > proto.PINS_PAGE
+	if more {
+		resize(&list, proto.PINS_PAGE)
+	}
 	for &m in list {
 		attach_reactions(s, &m, u.account.id)
 		attach_files(s, &m)
 	}
 	out := make([]u8, proto.MAX_BODY_SIZE, context.temp_allocator)
-	respond(u, id, .Ok, proto.encode_message_list(out, list[:]))
+	page, _ := proto.encode_pins_page(out, list[:], more)
+	respond(u, id, .Ok, page)
 }
 
 // thread_changed recounts the replies of a thread's root message (after a

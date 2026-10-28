@@ -14,7 +14,7 @@ import "core:unicode/utf8"
 // individual parts of such a sequence remain.
 //
 // A server's own emoji appear as `:name:` in the text. A name consists of 2 to
-// 32 characters out of `a-z 0-9 _` (custom_emoji_name_ok). The server creates
+// 64 characters out of `a-z 0-9 _` (custom_emoji_name_ok). The server creates
 // them from a folder of pictures and tells its clients which ones exist
 // (Emoji_Sheet). The sheet is one picture that holds all of them in cells of
 // `cell` pixels, plus their names in the order of the cells.
@@ -57,7 +57,7 @@ CUSTOM_EMOJI_PLACEHOLDER :: rune(0xE000)
 EMOJI_SHEET_COLUMNS :: 16
 
 MIN_EMOJI_NAME :: 2
-MAX_EMOJI_NAME :: 32
+MAX_EMOJI_NAME :: 64 // as Mattermost allows
 // The maximum number of custom emoji that a server may have.
 MAX_CUSTOM_EMOJI :: 512
 // The maximum number of frames that an animated emoji keeps. Additional frames

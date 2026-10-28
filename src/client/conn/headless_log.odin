@@ -181,11 +181,11 @@ report_purged :: proc(c: ^Server_Conn, p: proto.Msgs_Purged) {
 	)
 }
 
-report_pins :: proc(c: ^Server_Conn, conv: proto.Conv_Id, pins: []proto.Message) {
+report_pins :: proc(c: ^Server_Conn, conv: proto.Conv_Id, pins: []proto.Message, first: bool) {
 	if c.view != nil {
 		return
 	}
-	if len(pins) == 0 {
+	if len(pins) == 0 && first {
 		log.infof("[pins] %s: nothing pinned", room_name(c, proto.Room(conv)))
 	}
 	for m in pins {

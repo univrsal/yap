@@ -237,10 +237,12 @@ server_ui_destroy :: proc(ui: ^UI) {
 
 // stash_destroy frees a session's stashed Server_UI.
 stash_destroy :: proc(ui: ^UI, ns: ^Net_Session) {
-	shown := ui.srv
+	// Kept aside on the heap: a Server_UI is too big for the stack.
+	shown := new(Server_UI, context.temp_allocator)
+	shown^ = ui.srv
 	ui.srv = ns.stash
 	server_ui_destroy(ui)
-	ui.srv = shown
+	ui.srv = shown^
 	ns.stash = {}
 }
 
