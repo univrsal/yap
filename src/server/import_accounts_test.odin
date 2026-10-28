@@ -13,7 +13,6 @@ import "mattermost"
 IMPORT_SAMPLE :: #directory + "../../tools/mattermost/sample"
 
 // Import_Test is an empty database with what an import works on.
-@(private = "file")
 Import_Test :: struct {
 	db:       DB,
 	accounts: Accounts,
@@ -24,7 +23,6 @@ Import_Test :: struct {
 	im:       Importer,
 }
 
-@(private = "file")
 it_open :: proc(t: ^testing.T, it: ^Import_Test, export: string, team := "acme") -> bool {
 	it.dir = strings.clone(test_dir(t))
 	testing.expect(t, db_open(&it.db, DB_MEMORY))
@@ -52,7 +50,6 @@ it_open :: proc(t: ^testing.T, it: ^Import_Test, export: string, team := "acme")
 	return true
 }
 
-@(private = "file")
 it_close :: proc(it: ^Import_Test) {
 	importer_destroy(&it.im)
 	if it.scan != nil {
@@ -66,7 +63,6 @@ it_close :: proc(it: ^Import_Test) {
 	delete(it.dir)
 }
 
-@(private = "file")
 it_count :: proc(it: ^Import_Test, sql: string) -> i64 {
 	n, _ := db_pragma_int(&it.db, sql)
 	return n
@@ -331,7 +327,6 @@ test_import_precheck :: proc(t: ^testing.T) {
 }
 
 // export_of writes an export with `lines` in a new folder.
-@(private = "file")
 export_of :: proc(t: ^testing.T, lines: ..string) -> string {
 	dir := strings.clone(test_dir(t))
 	text := strings.join(lines, "\n", context.temp_allocator)

@@ -145,6 +145,14 @@ build_plan :: proc(s: ^Scan, owner: string) -> (err: string) {
 	// Channels.
 	p.channels = plan_channels(s.channels[:], a)
 	for c, i in p.channels {
+		if s.channels[i].scheme != "" {
+			note(
+				s,
+				.Channel_Scheme,
+				fmt.tprintf("%s: %s", s.channels[i].name, s.channels[i].scheme),
+				a,
+			)
+		}
 		if c.renamed {
 			note(
 				s,

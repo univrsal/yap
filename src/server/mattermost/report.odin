@@ -63,6 +63,12 @@ issue_text :: proc(kind: Issue_Kind) -> string {
 		return "kinds of system post this importer doesn't know; left out"
 	case .Reaction_Tone:
 		return "emoji with a skin tone, which yap has not; reactions use the emoji without it"
+	case .Group_Too_Big:
+		return "group messages of more people than yap's groups have; left out, with their posts"
+	case .Channel_Scheme:
+		return(
+			"channels with a scheme, whose rights aren't imported: everyone may do everything there" \
+		)
 	case .Guest_Disabled:
 		return(
 			"guests, which yap has no kind of account for; their accounts are made disabled, for an admin to look at" \

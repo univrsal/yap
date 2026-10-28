@@ -20,7 +20,7 @@ says about the export comes from reading Mattermost's source (master,
 | 4 | System messages for joins, leaves and channel changes | M | protocol, server, client | - | built (2026-10-28) |
 | 5 | `@here` | S | protocol, server, client | - | built (2026-10-28) |
 | 6 | A test Mattermost instance and a sample export | S | tooling | - | built (2026-10-28), tools/mattermost |
-| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a–7c built, 7d–7g to go, see The importer |
+| 7 | The importer: accounts, roles, channels, members, messages, threads, reactions, pins, bookmarks | XL | server (CLI) | 1–6, 11, 13 | in progress: 7a–7d built, 7e–7g to go, see The importer |
 | 8 | Files and custom emoji | M | server (CLI) | 7 | open |
 | 9 | Mentions and channel links rewritten | S | server (CLI) | 5, 7 | open |
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
@@ -837,6 +837,52 @@ package and 2 for `common/avatar`. Tried by hand on the live instance's
 export, on a database a server had been started on, and then logged in as an
 imported user with a generated password: "the password was set by an admin
 and has to be changed".
+
+### 7d: channels and members (built 2026-10-28)
+
+`import_channels.odin`; the same command with `--unfinished` now also makes
+the channels, who is in them, and the DMs and groups.
+
+- **Channels** are made with the plan's names, topics and flags
+  (`Private`, `Archived`, `Default`, `Text_Only`). The list is in alphabetical
+  order with the archived ones last (`position`), the home channel first.
+  town-square is not made but is the home channel that the server made when it
+  first looked at the database: it is renamed, gets the topic, and is
+  `Text_Only` like the rest (D7). Without a town-square the home channel stays
+  as it is, and gives way (`Lobby (home)`) if a channel is called what it is.
+  The export doesn't say who made a channel, so none has a creator.
+- **Members.** Everyone, bots and people who left the team too, is in the
+  home channel, as the server has it. Members of the team are in the channels
+  their user line lists, with their notification setting (Mentions or None
+  when it isn't All) and as channel admin when their role says so (step 13).
+  Bots are only in the home channel, as `bot_create` has them. Nobody joins
+  a channel by default: `Default` is for accounts made later. `joined` is the
+  time of the import, as the export has none. The read position is left for 7g
+  (members of a channel without messages have read nothing, which is nothing).
+- **DMs and groups.** A DM with each of the two (`dm_add`), with oneself one
+  with that account twice, a group (`group_add`) for three to eight. A
+  second direct channel for the same people is the first one. A group of more
+  than eight can't be one in yap (`Group_Too_Big`): it is left out with its
+  posts, and reported. The importer keeps which conversation each of the
+  scan's channels and direct channels became (`Importer.channels`,
+  `Importer.directs`), which 7e writes the messages to.
+- **Channel schemes** aren't imported: a channel that has one is reported,
+  and everyone may do everything there, as in a new yap channel. The test
+  instance has none, so how a scheme looks in an export is still not seen.
+- **Limit.** More than `MAX_CHANNELS` (2000, Mattermost's default too)
+  channels are made without complaint: it is only what the server lets
+  people make.
+
+Tested on the sample (the memberships, admins and notification settings were
+read again with a script): 6 channels, 4 DMs and 2 groups in the database and
+as `convs_load` reads them back; the home channel; a private channel with its
+one admin; a channel with two admins and one member who wants mentions only;
+an archived channel with its members; the order; all six direct keys; undo; a
+home channel that gives way; a channel scheme; a group of nine. 3 new tests in
+the server package and 1 in `mattermost` (175 and 22). Looked at in the
+client, logged in as an imported team admin: Town Square, General Talk
+Renamed, Off-Topic, Phoenix and Secret (with its lock) are listed, and the
+archived Old Stuff is not.
 
 ## Group DMs (step 1)
 

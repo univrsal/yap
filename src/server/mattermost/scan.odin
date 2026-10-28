@@ -9,6 +9,8 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 
+import "common:proto"
+
 // Pass 1 of the importer: read the whole export once, keep what the later
 // steps need, and say what is wrong or will be left out. Users, channels and
 // the like are kept whole; posts only as a small reference each (Post_Ref),
@@ -52,7 +54,9 @@ Issue_Kind :: enum {
 	System_Unknown, // system posts of a type this importer doesn't know, by type
 	Reaction_Tone, // reactions with a skin tone, which become the emoji without one
 	Reaction_Unknown, // reactions with an emoji name that isn't known; left out
+	Channel_Scheme, // a channel with a scheme, whose rights are not imported
 	// Found by the writing steps:
+	Group_Too_Big, // a group message of more people than yap's groups have; left out, with its posts
 	Guest_Disabled, // a guest, which yap has no kind of account for; made disabled
 	Avatar_Failed, // a profile picture that couldn't be read or made small enough
 }
@@ -589,6 +593,12 @@ scan_direct_channel :: proc(s: ^Scan, d: Direct_Channel, a: Allocator) {
 		all_imported &&= imported(s, p.username)
 	}
 	key := direct_key(names, a)
+	if all_imported && strings.count(key, ",") + 1 > proto.MAX_GROUP_MEMBERS {
+		s.directs_left += 1
+		s.left_out[key] = true
+		note(s, .Group_Too_Big, key, a)
+		return
+	}
 	if !all_imported {
 		s.directs_left += 1
 		s.left_out[key] = true

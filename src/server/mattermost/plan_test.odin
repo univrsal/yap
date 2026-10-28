@@ -180,3 +180,49 @@ test_plan_no_owner :: proc(t: ^testing.T) {
 	delete(msg)
 	testing.expect_value(t, build_plan(s, "alice"), "")
 }
+
+@(test)
+test_scan_group_too_big :: proc(t: ^testing.T) {
+	// Nine people in one group message, which yap's groups (eight) can't hold.
+	bots := make([dynamic]string, context.temp_allocator)
+	members := make([dynamic]string, context.temp_allocator)
+	for i in 1 ..= 9 {
+		name := strings.concatenate({"b", string([]u8{u8('0' + i)})}, context.temp_allocator)
+		append(
+			&bots,
+			strings.concatenate(
+				{`{"type":"bot","bot":{"username":"`, name, `"}}`},
+				context.temp_allocator,
+			),
+		)
+		append(
+			&members,
+			strings.concatenate({`{"username":"`, name, `"}`}, context.temp_allocator),
+		)
+	}
+	lines := make([dynamic]string, context.temp_allocator)
+	append(&lines, VERSION, TEAM, CHANNEL, USER)
+	append(&lines, ..bots[:])
+	append(
+		&lines,
+		strings.concatenate(
+			{
+				`{"type":"direct_channel","direct_channel":{"participants":[`,
+				strings.join(members[:], ",", context.temp_allocator),
+				`]}}`,
+			},
+			context.temp_allocator,
+		),
+	)
+	dir := export_with(t, ..lines[:])
+	defer os.remove_all(dir)
+	s, err := scan({dir = dir, team = "acme"})
+	testing.expect_value(t, err, "")
+	if s == nil {
+		return
+	}
+	defer scan_destroy(s)
+	testing.expect_value(t, s.issues[.Group_Too_Big].count, 1)
+	testing.expect_value(t, len(s.directs), 0)
+	testing.expect_value(t, s.directs_left, 1)
+}

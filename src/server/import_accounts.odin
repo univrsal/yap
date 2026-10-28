@@ -42,6 +42,11 @@ Importer :: struct {
 	passwords:   [dynamic]Generated,
 	// The files this import has written, which are removed if it fails.
 	written:     [dynamic]string,
+	// The channel each of the scan's channels became, in the same order, and
+	// the DM or group for each of the scan's direct channels by their key
+	// (mattermost.direct_key). Messages are written to these (7e).
+	channels:    []^Conv,
+	directs:     map[string]^Conv,
 	// Where the passwords were written, once they were.
 	csv:         string,
 	// What the steps keep their strings in; freed by importer_destroy.
@@ -58,6 +63,7 @@ importer_init :: proc(im: ^Importer) {
 	_ = virtual.arena_init_growing(&im.arena)
 	a := virtual.arena_allocator(&im.arena)
 	im.ids = make(map[string]proto.Account_Id, a)
+	im.directs = make(map[string]^Conv, a)
 	im.passwords.allocator = a
 	im.written.allocator = a
 	if im.hash_params == 0 && im.threads == 0 {
