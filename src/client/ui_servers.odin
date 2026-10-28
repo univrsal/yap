@@ -79,6 +79,7 @@ Server_UI :: struct {
 	pins:           UI_Pins,
 	msg_menu:       UI_Message_Menu,
 	bookmarks:      UI_Bookmarks, // the list of bookmarks (ui_bookmarks.odin)
+	channel_edit:   UI_Channel_Edit, // a channel's admin changing it (ui_channel_edit.odin)
 	// The server whose per-user volumes the session has been given
 	// (apply_gains).
 	gains_for:      [proto.KEY_SIZE]u8,

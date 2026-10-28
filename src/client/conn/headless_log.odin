@@ -1,6 +1,7 @@
 package conn
 
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 
 import "client:richtext"
@@ -224,16 +225,22 @@ report_typing :: proc(
 	}
 }
 
-report_members :: proc(c: ^Server_Conn, conv: proto.Conv_Id, members: []proto.Account_Id) {
+report_members :: proc(
+	c: ^Server_Conn,
+	conv: proto.Conv_Id,
+	members: []proto.Account_Id,
+	admins: []proto.Account_Id,
+) {
 	if c.view != nil {
 		return
 	}
 	for m in members {
 		acc := c.auth.accounts[m] or_else {}
 		log.infof(
-			"[members] %s: %s%s%s",
+			"[members] %s: %s%s%s%s",
 			room_name(c, proto.Room(conv)),
 			account_display(c, m),
+			" (admin)" if slice.contains(admins, m) else "",
 			" (here)" if is_online(c, m) else "",
 			fmt.tprintf(" - %s", acc.status) if acc.status != "" else "",
 		)

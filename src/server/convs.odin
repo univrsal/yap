@@ -63,6 +63,7 @@ Conv :: struct {
 Membership :: struct {
 	read:   proto.Msg_Id, // the newest message the member has read
 	notify: proto.Notify_Level,
+	admin:  bool, // one of a channel's admins
 }
 
 Convs :: struct {
@@ -142,6 +143,7 @@ convs_load :: proc(c: ^Convs, db: ^DB, seed: []string, accounts: ^Accounts) -> b
 				notify = proto.Notify_Level(
 					clamp(db_col_int(q, 3), 0, i64(max(proto.Notify_Level))),
 				),
+				admin  = conv.kind == .Channel && db_col_int(q, 4) != 0,
 			}
 		}
 	}
@@ -573,6 +575,35 @@ conv_set_notify :: proc(
 	return true
 }
 
+// conv_set_admin makes a member of a channel one of its admins, or no longer
+// one. It returns false if the account isn't a member or the database failed.
+conv_set_admin :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id, on: bool) -> bool {
+	m, ok := &conv.reads[account]
+	if !ok || conv.kind != .Channel {
+		return false
+	}
+	db_write(c.db, .Member_Set_Admin, i64(conv.id), i64(account), i64(on)) or_return
+	m.admin = on
+	return true
+}
+
+// conv_admin says whether an account is one of a channel's admins.
+conv_admin :: proc(conv: ^Conv, account: proto.Account_Id) -> bool {
+	m, ok := conv.reads[account]
+	return ok && m.admin
+}
+
+// conv_admins returns a channel's admins, allocated with the temp allocator.
+conv_admins :: proc(conv: ^Conv) -> []proto.Account_Id {
+	list := make([dynamic]proto.Account_Id, context.temp_allocator)
+	for a in conv.members {
+		if conv_admin(conv, a) {
+			append(&list, a)
+		}
+	}
+	return list[:]
+}
+
 // conv_unread returns the number of messages in a conversation after `read` that
 // aren't from `account`, up to proto.UNREAD_CAP. The database stops counting
 // there, so a conversation that wasn't opened for a year costs no more than one
@@ -667,6 +698,7 @@ conv_record :: proc(c: ^Convs, conv: ^Conv, account: proto.Account_Id) -> proto.
 		name     = conv.name,
 		topic    = conv.topic,
 		member   = conv_is_member(conv, account),
+		admin    = conv_admin(conv, account),
 		last     = conv.last_msg,
 		position = conv.position,
 	}

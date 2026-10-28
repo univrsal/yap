@@ -33,6 +33,8 @@ import "core:slice"
 // 	Conv_Member_Set [conv u32][account u32][on u8]   add someone to a
 // 	                channel (as if they had subscribed), or remove them from
 // 	                a private one
+// 	Conv_Admin_Set  [conv u32][account u32][on u8]   make a member of a
+// 	                channel one of its admins, or no longer one
 // 	Conv_Browse     [query str8][offset u16][limit u16]
 // 	                ->  [more u8][count u16] conversations: the channels
 // 	                that can be subscribed to and whose name or topic
@@ -48,6 +50,8 @@ import "core:slice"
 // 	                that doesn't know the flags ignores them.
 // 	Conv_Subscribe  [conv u32][on u8]
 // 	Conv_Members    [conv u32]  ->  [count u16][account u32]...
+// 	                [admins u16][account u32]...: the members, and which
+// 	                of them are the channel's admins
 // 	Voice_Join      [room u32]   0 leaves the room we're in
 // 	Mark_Read       [conv u32][id u64]   everything up to and including message `id` is read
 // 	Conv_Notify     [conv u32][notify u8]
@@ -76,6 +80,19 @@ import "core:slice"
 // channel (Archived, set by Conv_Delete) no longer belongs to anyone. New
 // accounts are subscribed to a Default channel, but may leave it. A Text_Only
 // channel has no voice room.
+//
+// `member` is 1 if the receiver is a member, plus 2 if it is also one of the
+// channel's admins.
+//
+// A channel's admins are members who manage that one channel (any number of
+// them; whoever creates a channel is its first). An admin may add members and
+// remove them from a private channel, make other members admins and stop
+// being one, and change the channel's name and topic (Conv_Update with only
+// CONV_UPDATE_NAME and CONV_UPDATE_TOPIC). Everything else about a channel,
+// its position, flags and rights map and archiving it, needs Manage_Channels,
+// which also allows all that an admin may do, including making an admin no
+// longer one. Leaving a channel ends being its admin. DMs and groups have
+// none.
 //
 // What an account may do in a channel (Conv_Right) is given by the channel's
 // rights map: the rights each role has there. An account has the rights of all
@@ -248,6 +265,7 @@ Conv :: struct {
 	name:          string, // sanitized and never empty for a channel
 	topic:         string,
 	member:        bool, // whether the receiver of this is a member
+	admin:         bool, // ... and one of the channel's admins
 	last:          Msg_Id, // the newest message, or 0 for none
 	// The following belong to the receiver of this, as a member:
 	read:          Msg_Id, // the newest message that it has read
@@ -296,7 +314,7 @@ put_conv :: proc(w: ^Writer, c: Conv) {
 		put_u32(w, u32(c.accounts[i]))
 	}
 	put_u64(w, u64(c.last))
-	put_u8(w, u8(c.member))
+	put_u8(w, u8(c.member) | u8(c.member && c.admin) << 1)
 	put_u64(w, u64(c.read))
 	put_u16(w, u16(clamp(c.unread, 0, UNREAD_CAP)))
 	put_u16(w, u16(clamp(c.mentions, 0, UNREAD_CAP)))
@@ -321,7 +339,8 @@ get_conv :: proc(r: ^Reader) -> (c: Conv) {
 		a = Account_Id(get_u32(r))
 	}
 	c.last = Msg_Id(get_u64(r))
-	c.member = get_u8(r) != 0
+	member := get_u8(r)
+	c.member, c.admin = member & 1 != 0, member & 2 != 0
 	c.read = Msg_Id(get_u64(r))
 	c.unread = int(get_u16(r))
 	c.mentions = int(get_u16(r))
@@ -635,8 +654,9 @@ decode_group_open :: proc(
 }
 
 // encode_conv_members writes a Conv_Members response with as many of
-// `accounts` as fit in `out`.
-encode_conv_members :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
+// `accounts` as fit in `out`, followed by the `admins` among them if there is
+// room for all of them.
+encode_conv_members :: proc(out: []u8, accounts: []Account_Id, admins: []Account_Id = nil) -> []u8 {
 	w := Writer {
 		buf = out,
 	}
@@ -645,7 +665,40 @@ encode_conv_members :: proc(out: []u8, accounts: []Account_Id) -> []u8 {
 	for a in accounts[:count] {
 		put_u32(&w, u32(a))
 	}
+	if len(out) - w.pos >= 2 + len(admins) * 4 && len(admins) <= int(max(u16)) {
+		put_u16(&w, u16(len(admins)))
+		for a in admins {
+			put_u32(&w, u32(a))
+		}
+	}
 	return written(&w)
+}
+
+// decode_conv_admins reads which members a Conv_Members response says are
+// the channel's admins (none if it doesn't say).
+decode_conv_admins :: proc(body: []u8, buf: []Account_Id) -> (admins: []Account_Id, ok: bool) {
+	r := Reader {
+		buf = body,
+	}
+	count := int(get_u16(&r))
+	if r.overflow || len(body) < 2 + count * 4 {
+		return
+	}
+	r.pos = 2 + count * 4
+	if r.pos == len(body) {
+		return buf[:0], true
+	}
+	n := int(get_u16(&r))
+	if r.overflow || n > len(buf) {
+		return
+	}
+	for &a in buf[:n] {
+		a = Account_Id(get_u32(&r))
+	}
+	if r.overflow {
+		return
+	}
+	return buf[:n], true
 }
 
 decode_conv_members :: proc(

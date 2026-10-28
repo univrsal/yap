@@ -43,7 +43,10 @@ test_conv_record :: proc(t: ^testing.T) {
 	testing.expect_value(t, got.flags, c.flags)
 	testing.expect_value(t, got.name, c.name)
 	testing.expect_value(t, got.topic, c.topic)
-	testing.expect(t, got.member)
+	testing.expect(t, got.member && !got.admin)
+	c.admin = true
+	admin, admin_ok := decode_conv(encode_conv(buf[:], c))
+	testing.expect(t, admin_ok && admin.member && admin.admin)
 	testing.expect_value(t, got.last, c.last)
 	testing.expect_value(t, got.read, c.read)
 	testing.expect_value(t, got.last_time, c.last_time)
@@ -238,6 +241,19 @@ test_conv_bodies :: proc(t: ^testing.T) {
 		testing.expect(t, ok)
 		testing.expect_value(t, len(got), 3)
 		_, ok = decode_conv_members(out[:5], buf[:])
+		testing.expect(t, !ok)
+		// Without room for the admins, they are left out.
+		admins_buf: [8]Account_Id
+		admins: []Account_Id
+		admins, ok = decode_conv_admins(encode_conv_members(out[:2 + 3 * 4], accounts, {4}), admins_buf[:])
+		testing.expect(t, ok && len(admins) == 0)
+		big: [2 + 5 * 4 + 2 + 2 * 4]u8
+		body := encode_conv_members(big[:], accounts, {4, 5})
+		got, ok = decode_conv_members(body, buf[:])
+		testing.expect(t, ok && len(got) == 5)
+		admins, ok = decode_conv_admins(body, admins_buf[:])
+		testing.expect(t, ok && len(admins) == 2 && admins[0] == 4 && admins[1] == 5)
+		_, ok = decode_conv_admins(body[:len(body) - 1], admins_buf[:])
 		testing.expect(t, !ok)
 	}
 }

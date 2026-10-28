@@ -305,8 +305,10 @@ members_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 				publish_members(c, conv, nil, false)
 				return
 			}
-			publish_members(c, conv, members, false)
-			report_members(c, conv, members)
+			admins_buf := make([]proto.Account_Id, max(len(body) / 4, 1), context.temp_allocator)
+			admins, _ := proto.decode_conv_admins(body, admins_buf)
+			publish_members(c, conv, members, false, admins)
+			report_members(c, conv, members, admins)
 		},
 		u64(conv),
 	)
@@ -318,6 +320,7 @@ members_fetch :: proc(c: ^Server_Conn, conv: proto.Conv_Id) {
 View_Members :: struct {
 	conv:     proto.Conv_Id,
 	accounts: [dynamic]proto.Account_Id,
+	admins:   [dynamic]proto.Account_Id, // those of them who are its admins
 	loading:  bool,
 	count:    int, // incremented whenever they arrive
 }
@@ -344,6 +347,7 @@ publish_members :: proc(
 	conv: proto.Conv_Id,
 	accounts: []proto.Account_Id,
 	loading: bool,
+	admins: []proto.Account_Id = nil,
 ) {
 	v := c.view
 	if v == nil {
@@ -352,9 +356,11 @@ publish_members :: proc(
 	view_write(v)
 	if v.members.conv != conv || !loading {
 		clear(&v.members.accounts)
+		clear(&v.members.admins)
 	}
 	v.members.conv = conv
 	append(&v.members.accounts, ..accounts)
+	append(&v.members.admins, ..admins)
 	v.members.loading = loading
 	v.members.count += 1
 }

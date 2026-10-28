@@ -488,6 +488,7 @@ layout :: proc(ui: ^UI, w, h: i32) {
 	completion_window(ui)
 	picker_window(ui, w, h)
 	channels_window(ui, w, h)
+	channel_edit_window(ui, w, h)
 	forward_window(ui, w, h)
 	group_picker_window(ui, w, h)
 	search_window(ui, w, h)

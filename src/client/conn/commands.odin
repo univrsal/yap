@@ -184,6 +184,7 @@ Command :: union {
 	Conv_Flag_Command,
 	Conv_Delete_Command,
 	Conv_Member_Command,
+	Conv_Admin_Command,
 	Roles_Command,
 	// Calls, see calls.odin.
 	Call_Command,
@@ -281,6 +282,8 @@ command_destroy :: proc(cmd: Command) {
 	case Conv_Rights_Text_Command:
 		delete(v.text)
 	case Conv_Member_Command:
+		delete(v.name)
+	case Conv_Admin_Command:
 		delete(v.name)
 	case Call_Command:
 		delete(v.name)
@@ -458,6 +461,8 @@ process_commands :: proc(c: ^Server_Conn) {
 			conv_delete(c, v.conv)
 		case Conv_Member_Command:
 			conv_member_set(c, v)
+		case Conv_Admin_Command:
+			conv_admin_set(c, v)
 		case Roles_Command:
 			roles_list(c)
 		case Call_Command:

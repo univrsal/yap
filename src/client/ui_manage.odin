@@ -17,7 +17,7 @@ import "common:proto"
 //
 //   - The channels, in the settings' Channels (ui_channel_settings.odin).
 //   - Adding people to a channel in the members window (needs Invite and
-//     membership of the channel).
+//     membership of the channel, or being its admin).
 //   - The roles, in the settings' Roles (ui_roles.odin).
 //   - Accounts in the settings: their roles (Manage_Roles) and disabling or
 //     deleting them (Manage_Accounts).
@@ -180,7 +180,8 @@ add_people :: proc(ui: ^UI, members: []proto.Account_Id) {
 	ctx := &ui.ctx
 	v := ui.view
 	m := &ui.manage
-	if .Invite not_in v.permissions || !is_channel(v, v.viewing) {
+	ch := viewed_channel(v)
+	if ch == nil || (.Invite not_in v.permissions && !ch.admin) {
 		return
 	}
 	mu.layout_row(ctx, {-1})
@@ -216,16 +217,6 @@ below_us :: proc(v: ^conn.View, acc: conn.View_Account) -> bool {
 		}
 	}
 	return perms <= v.permissions
-}
-
-@(private = "file")
-is_channel :: proc(v: ^conn.View, conv: proto.Conv_Id) -> bool {
-	for ch in v.channels {
-		if ch.id == conv {
-			return true
-		}
-	}
-	return false
 }
 
 // account_manage is what the Accounts category offers for the account picked,

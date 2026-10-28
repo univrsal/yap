@@ -37,6 +37,8 @@ conv_request :: proc(s: ^Server, u: ^Conn, id: u32, op: proto.Request_Op, body: 
 		conv_delete(s, u, id, body)
 	case .Conv_Member_Set:
 		conv_member_set(s, u, id, body)
+	case .Conv_Admin_Set:
+		conv_admin_set(s, u, id, body)
 	case .Conv_Browse:
 		conv_browse(s, u, id, body)
 	case .Conv_Subscribe:
@@ -210,8 +212,10 @@ conv_create :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		position = max(position, other.position + 1)
 	}
 	conv := conv_add(&s.convs, name, topic, flags, u.account.id, position)
-	// The creator of a channel is always a member of it.
-	if conv == nil || !conv_member_add(&s.convs, conv, u.account.id) {
+	// The creator of a channel is always a member of it, and its first admin.
+	if conv == nil ||
+	   !conv_member_add(&s.convs, conv, u.account.id) ||
+	   !conv_set_admin(&s.convs, conv, u.account.id, true) {
 		respond(u, id, .Internal)
 		return
 	}
@@ -351,8 +355,9 @@ conv_members :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		respond(u, id, .Not_Found)
 		return
 	}
-	out := make([]u8, 2 + len(conv.members) * 4, context.temp_allocator)
-	respond(u, id, .Ok, proto.encode_conv_members(out, conv.members[:]))
+	admins := conv_admins(conv)
+	out := make([]u8, 2 + len(conv.members) * 4 + 2 + len(admins) * 4, context.temp_allocator)
+	respond(u, id, .Ok, proto.encode_conv_members(out, conv.members[:], admins))
 }
 
 // voice_join puts a connection in a channel's voice room, or takes it out of its
@@ -484,13 +489,15 @@ conv_notify :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	}
 }
 
-// Managing channels (phase 13): renaming a channel and changing its topic and
-// its position in the lists (Manage_Channels), archiving a channel, which is as
-// good as deleting it (also Manage_Channels), adding somebody to a channel, which
-// is as if they had subscribed (requires Invite and being in it), and removing
-// somebody from a private channel (Manage_Channels). Those who manage channels
-// may do this to the private channels they aren't in as well (conv_manageable),
-// which they find with Conv_Browse's BROWSE_ALL.
+// Managing channels (phase 13): renaming a channel and changing its topic
+// (Manage_Channels or being its admin) and its position in the lists
+// (Manage_Channels), archiving a channel, which is as good as deleting it (also
+// Manage_Channels), adding somebody to a channel, which is as if they had
+// subscribed (requires Invite and being in it, or being its admin), removing
+// somebody from a private channel (Manage_Channels or being its admin), and who
+// its admins are (conv_admin_set). Those who manage channels may do this to the
+// private channels they aren't in as well (conv_manageable), which they find
+// with Conv_Browse's BROWSE_ALL.
 //
 // The voice room of a private channel is only for its members. Whoever is
 // removed from the channel or leaves it is removed from its room as well, and
@@ -500,14 +507,17 @@ conv_notify :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 conv_update_request :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	up, ok := proto.decode_conv_update(body)
 	conv := conv_by_id(&s.convs, up.conv)
+	// A channel's admin may change its name and topic, and nothing else.
+	admin := conv != nil && conv_admin(conv, u.account.id) && conv_visible(conv, u.account)
+	admin_only := up.mask & ~u8(proto.CONV_UPDATE_NAME | proto.CONV_UPDATE_TOPIC) == 0
 	switch {
-	case !can(u.account, .Manage_Channels):
-		respond(u, id, .Denied)
-		return
 	case !ok:
 		respond(u, id, .Invalid)
 		return
-	case conv == nil || !conv_manageable(conv, u.account):
+	case !can(u.account, .Manage_Channels) && !(admin && admin_only):
+		respond(u, id, .Denied)
+		return
+	case conv == nil || (!admin && !conv_manageable(conv, u.account)):
 		respond(u, id, .Not_Found)
 		return
 	}
@@ -621,10 +631,12 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 	     (!conv_visible(conv, u.account) && (on || !conv_manageable(conv, u.account))):
 		respond(u, id, .Not_Found)
 		return
-	case on && !(can(u.account, .Invite) && conv_is_member(conv, u.account.id)):
+	case on &&
+	     !(can(u.account, .Invite) && conv_is_member(conv, u.account.id)) &&
+	     !conv_admin(conv, u.account.id):
 		respond(u, id, .Denied)
 		return
-	case !on && !can(u.account, .Manage_Channels):
+	case !on && !can(u.account, .Manage_Channels) && !conv_admin(conv, u.account.id):
 		respond(u, id, .Denied)
 		return
 	case target == nil:
@@ -671,6 +683,53 @@ conv_member_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
 		log.infof("%s took %s out of %q", conn_label(u), target.username, conv.name)
 		member_gone(s, conv, account)
 		system_post(s, conv, u.account.id, .Removed, account)
+	}
+	respond(u, id, .Ok)
+}
+
+// conv_admin_set makes a member of a channel one of its admins, or no longer
+// one. Its admins may make others admins and stop being one themselves; those
+// with Manage_Channels may also make an admin no longer one. The member is
+// sent the channel again, which says whether it is an admin now.
+@(private = "file")
+conv_admin_set :: proc(s: ^Server, u: ^Conn, id: u32, body: []u8) {
+	conv_id, account, on, ok := proto.decode_conv_member_set(body)
+	if !ok {
+		respond(u, id, .Invalid)
+		return
+	}
+	conv := conv_by_id(&s.convs, conv_id)
+	target := account_live(&s.accounts, account)
+	managing := conv != nil && can(u.account, .Manage_Channels) && conv_manageable(conv, u.account)
+	admin := conv != nil && conv_admin(conv, u.account.id)
+	switch {
+	case conv == nil || conv.kind != .Channel || (!conv_visible(conv, u.account) && !managing):
+		respond(u, id, .Not_Found)
+		return
+	case !managing && !admin:
+		respond(u, id, .Denied)
+		return
+	case !on && account != u.account.id && !managing:
+		// An admin may only stop being one themselves.
+		respond(u, id, .Denied)
+		return
+	case target == nil || !conv_is_member(conv, account):
+		respond(u, id, .Not_Found)
+		return
+	}
+	if on != conv_admin(conv, account) {
+		if !conv_set_admin(&s.convs, conv, account, on) {
+			respond(u, id, .Internal)
+			return
+		}
+		log.infof(
+			"%s made %s %s of %q",
+			conn_label(u),
+			target.username,
+			"an admin" if on else "no longer an admin",
+			conv.name,
+		)
+		send_conv_to_account(s, account, conv)
 	}
 	respond(u, id, .Ok)
 }

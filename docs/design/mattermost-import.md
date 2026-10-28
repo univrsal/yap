@@ -26,7 +26,7 @@ says about the export comes from reading Mattermost's source (master,
 | 10 | Bot and webhook posts | S | server (CLI) | 7, 12 | open |
 | 11 | Bookmarks: one's own list of saved messages | M | protocol, schema, client | - | built (2026-10-28) |
 | 12 | Personas: a bot posting under another name and picture | M | protocol, schema, client, bot API | - | open |
-| 13 | Channel admins | M | protocol, schema, server, client | - | open |
+| 13 | Channel admins | M | protocol, schema, server, client | - | built (2026-10-28) |
 
 Sizes as in `docs/design/next.md`. 1–5 and 11–13 are yap features that stand on
 their own; 6 can happen alongside them and may change what 7–10 do.
@@ -629,6 +629,28 @@ step), sent with the member list so that clients can show who the admins
 are and offer the menu entries. In DMs and group DMs it doesn't exist.
 Mattermost's `channel_admin` role has more (bookmarks, banners,
 auto-translation), none of which yap has.
+
+Built (2026-10-28), protocol version 21 (proto/convs.odin):
+
+- `members.admin` (schema step 33, which also makes the creator of each
+  existing channel its admin if they are still in it). The conversation
+  record's `member` byte has 2 added for an admin, and Conv_Members
+  answers with the admins after the members.
+- `Conv_Admin_Set [conv][account][on]` (the same body as
+  Conv_Member_Set). An admin may make any member an admin and stop being
+  one; making another admin no longer one takes `Manage_Channels`. The
+  member is sent the channel again. There is no system message for it,
+  as in Mattermost.
+- An admin may add members without `Invite`, remove them from a private
+  channel (still not anyone with more permissions than themselves), and
+  Conv_Update with only the name and topic in its mask.
+- In the client, the members window says "admin" next to them and offers
+  admins "Add people...". A member's menu has "Make channel admin" (or,
+  with `Manage_Channels`, "No longer its admin") and, in a private
+  channel, "Remove from the channel". The channel's menu has "Name and
+  topic...", a small window of its own, for admins without
+  `Manage_Channels` (who have the settings), and "Stop being its admin".
+- The importer sets the flag for every membership with `channel_admin`.
 
 ## Bookmarks (step 11)
 

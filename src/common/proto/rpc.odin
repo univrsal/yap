@@ -89,6 +89,8 @@ Request_Op :: enum u16 {
 	// Web Push subscriptions, see push.odin.
 	Push_Subscribe       = 0x0026,
 	Push_Unsubscribe     = 0x0027,
+	// A channel's admins, see convs.odin (the conversations' range is full).
+	Conv_Admin_Set       = 0x0028,
 	// Conversations and voice rooms, see convs.odin.
 	Conv_Create          = 0x0030,
 	Conv_Update          = 0x0031,

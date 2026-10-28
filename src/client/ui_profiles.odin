@@ -462,7 +462,8 @@ members_list :: proc(ui: ^UI) {
 	// who have written to each other, and a list where only some have it
 	// would look broken.
 	for e in list {
-		if person_row(ui, e.account, e.name, e.online, "") {
+		admin := slice.contains(m.admins[:], e.account)
+		if person_row(ui, e.account, e.name, e.online, "admin" if admin else "") {
 			if e.account == v.me {
 				open_status_editor(ui)
 			} else {

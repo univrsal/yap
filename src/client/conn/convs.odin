@@ -56,6 +56,7 @@ Conv_Info :: struct {
 	account_count: int,
 	position:      int, // the position of a channel in the list
 	rights:        proto.Conv_Rights, // what we may do there
+	admin:         bool, // we are one of the channel's admins
 }
 
 // A Mark_Read to send, once a second has passed since the last one.
@@ -418,6 +419,7 @@ conv_event :: proc(c: ^Server_Conn, op: proto.Event_Op, body: []u8) -> bool {
 			account_count = record.account_count,
 			position      = record.position,
 			rights        = record.rights,
+			admin         = record.admin,
 		}
 		if cv.synced {
 			if added && record.kind == .Channel {

@@ -537,6 +537,7 @@ user_menu :: proc(ui: ^UI) {
 		}
 	}
 
+	channel_member_items(ui, account, MENU_WIDTH)
 	moderation_items(ui, account, clicked if clicked_here else {})
 
 	if changed {

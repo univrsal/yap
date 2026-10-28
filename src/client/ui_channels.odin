@@ -451,7 +451,8 @@ NOTIFY_LABELS := [proto.Notify_Level]string {
 
 // channel_menu is a channel's menu, opened by right-clicking it in the
 // list: how much it may interrupt (clicking cycles through the choices), its
-// settings for those who may change them, and leaving it.
+// settings for those who may change them, its name and topic and no longer
+// being its admin for its admins (ui_channel_edit.odin), and leaving it.
 // It is drawn after the list, with the View locked.
 channel_menu :: proc(ui: ^UI) {
 	ctx := &ui.ctx
@@ -500,6 +501,16 @@ channel_menu :: proc(ui: ^UI) {
 	if .Manage_Channels in v.permissions &&
 	   .SUBMIT in stable_button(ctx, "settings", "Settings...") {
 		open_channel_settings(ui, ch.id) // ui_channel_settings.odin
+		close(ctx)
+	}
+	if ch.admin &&
+	   .Manage_Channels not_in v.permissions &&
+	   .SUBMIT in stable_button(ctx, "name and topic", "Name and topic...") {
+		open_channel_edit(ui, ch^)
+		close(ctx)
+	}
+	if ch.admin && .SUBMIT in stable_button(ctx, "stop admin", "Stop being its admin") {
+		command(ui, conn.Conv_Admin_Command{conv = ch.id, account = v.me, on = false})
 		close(ctx)
 	}
 	if !ch.home && .SUBMIT in stable_button(ctx, "unsubscribe", "Unsubscribe") {

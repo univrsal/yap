@@ -404,6 +404,14 @@ MIGRATIONS := [?]string {
 		DELETE FROM bookmarks WHERE message = old.id;
 	END;
 	`,
+	// 33: channel admins (proto/convs.odin). Whoever made a channel and is
+	// still in it is its first admin.
+	`
+	ALTER TABLE members ADD COLUMN admin INTEGER NOT NULL DEFAULT 0;
+	UPDATE members SET admin = 1
+		WHERE EXISTS (SELECT 1 FROM convs c
+			WHERE c.id = members.conv AND c.kind = 0 AND c.created_by = members.account);
+	`,
 }
 
 // The version a database has once it has been through every step.

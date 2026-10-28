@@ -110,6 +110,8 @@ import "core:time"
 //	                 speak, video, none)
 //	/invite <name>, /kick <name>  add someone to the channel being looked
 //	                 at, or remove them from a private one
+//	/admin <name>, /unadmin <name>  make a member of the channel being looked
+//	                 at one of its admins, or no longer one
 //	/call <name>     call someone; /answer accepts an incoming call; /hangup ends
 //	                 the call (or cancels or declines it)
 //	/cameras [names] watch the cameras of these accounts in our room (none:
@@ -661,6 +663,15 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 					on = strings.has_prefix(line, "/invite "),
 				},
 			)
+		case strings.has_prefix(line, "/admin "), strings.has_prefix(line, "/unadmin "):
+			_, _, name := strings.partition(line, " ")
+			conn.push_command(
+				q,
+				conn.Conv_Admin_Command {
+					name = strings.clone(strings.trim_space(name)),
+					on = strings.has_prefix(line, "/admin "),
+				},
+			)
 		case strings.has_prefix(line, "/typing "):
 			if n, ok := strconv.parse_u64(strings.trim_space(line[len("/typing "):])); ok {
 				conn.push_command(q, conn.Typing_Command{thread = {root = proto.Msg_Id(n)}})
@@ -890,7 +901,7 @@ read_commands :: proc(q: ^conn.Command_Queue) {
 			)
 		case:
 			log.warn(
-				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /pin <id>, /unpin <id>, /pins, /bookmark <id>, /unbookmark <id>, /bookmarks [more], /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /group <name>,<name>,..., /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
+				"commands: /channels, /notify <channel> all|mentions|none, /view <channel>, /join <channel>, /leave, /browse, /subscribe <channel>, /unsubscribe <channel>, /create <channel> [topic], /default on|off, /textonly on|off, /rights [<role>=<right,...> ...], /name <name>, /login <username> <password>, /logout, /passwd <old> <new>, /devices, /revoke <key>, /adduser <username> <password> [name], /setpass <username> <password>, /addbot <username> [name], /bottoken <account>, /tokens <account>, /mute, /unmute, /deafen, /undeafen, /listen, /unlisten, /say <text>, /attach <file>, /unattach, /save <id> <n>, /older, /newer, /edit <id> <text>, /delete <id>, /admin <name>, /unadmin <name>, /pin <id>, /unpin <id>, /pins, /bookmark <id>, /unbookmark <id>, /bookmarks [more], /jump <id>, /react <id> <emoji>, /unreact <id> <emoji>, /typing, /dm <name> [text], /group <name>,<name>,..., /buddies, /buddy <name>, /unbuddy <name>, /file <name> <file>, /accept, /decline, /cancel, /seen <name>",
 			)
 		}
 	}

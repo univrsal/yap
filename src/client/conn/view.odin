@@ -31,6 +31,7 @@ View_Channel :: struct {
 	private:  bool, // only for those added to it
 	flags:    proto.Conv_Flags, // all of them, Default and Text_Only included
 	rights:   proto.Conv_Rights, // what we may do there
+	admin:    bool, // we are one of its admins (proto/convs.odin)
 	position: int,
 	members:  []proto.User_Num, // owned
 	// What is unread there (see Conv_Info).
@@ -330,6 +331,7 @@ view_reset :: proc(v: ^View) {
 	v.call = {}
 	v.shared_synced = false
 	clear(&v.members.accounts)
+	clear(&v.members.admins)
 	v.members.conv = 0
 	view_clear_accounts(v)
 	view_clear_devices(v)
@@ -388,6 +390,7 @@ view_destroy :: proc(v: ^View) {
 	view_clear_shared(v)
 	delete(v.shared)
 	delete(v.members.accounts)
+	delete(v.members.admins)
 	delete(v.rights_map.entries)
 	view_clear_roles(v)
 	delete(v.roles)
@@ -699,6 +702,7 @@ publish_channels :: proc(c: ^Server_Conn) {
 				private = .Private in info.flags,
 				flags = info.flags,
 				rights = info.rights,
+				admin = info.admin,
 				position = info.position,
 				members = slice.clone(room_members(c, proto.Room(id))),
 				read = info.read,

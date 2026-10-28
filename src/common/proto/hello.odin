@@ -43,6 +43,7 @@ import "core:encoding/endian"
 // server (Conv_System, messages.odin).
 // Version 19 added the <@here> mention (mentions.odin).
 // Version 20 added bookmarks (bookmarks.odin).
+// Version 21 added channel admins (convs.odin).
 // Link.Media was added without a new version because it is only ever sent to
 // a client by a server that names a media port in Server_Info, and only on
 // that port.
@@ -105,7 +106,7 @@ import "core:encoding/endian"
 // Like Refused, it is unreliable, so the server sends a few copies and sends
 // them again whenever the client repeats its Handshake_Finish. A client
 // accepts nothing else on a new session until the Welcome arrives.
-HELLO_VERSION :: 20
+HELLO_VERSION :: 21
 MAX_PASSWORD_SIZE :: 64 // bytes
 HELLO_MAX_SIZE :: 1 + 8 + 1 + 1 + MAX_PASSWORD_SIZE
 
