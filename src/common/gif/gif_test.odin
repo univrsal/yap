@@ -1,3 +1,4 @@
+#+build !wasi
 package gif
 
 import "core:testing"

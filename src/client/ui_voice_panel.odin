@@ -428,7 +428,7 @@ mute_button :: proc(ui: ^UI) {
 		mic_icon, mic_color = .Mic_Off, theme.warning
 		mic_hint =
 			"Muted by a moderator here (click to unmute yourself elsewhere)" if ui.muted else "Muted by a moderator here (click to mute yourself elsewhere too)"
-	} else if state == .Voice && !v.may_speak {
+	} else if panel_state(v) == .Voice && !v.may_speak {
 		mic_icon, mic_color = .Mic_Off, theme.warning
 		mic_hint =
 			"You may only listen in this room (click to unmute yourself elsewhere)" if ui.muted else "You may only listen in this room (click to mute yourself elsewhere too)"

@@ -1,3 +1,4 @@
+#+build !wasi
 package imagekind
 
 import "core:testing"
